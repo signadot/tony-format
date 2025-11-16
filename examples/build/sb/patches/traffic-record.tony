@@ -1,0 +1,11 @@
+- if: .[trafficRecord]
+  match: null
+  patch:
+    spec:
+      middleware: !key(name)
+      - name: trafficwatch
+        match:
+        - workload: '*'
+        args:
+        - name: options
+          value: +stream/+stream

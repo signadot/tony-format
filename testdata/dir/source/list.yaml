@@ -1,0 +1,7 @@
+# list pre comment in source
+list:
+- name: a
+  value: a
+- name: b
+  # this is the b value in the original source
+  value: b

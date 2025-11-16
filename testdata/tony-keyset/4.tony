@@ -1,0 +1,10 @@
+f:
+  {a b c d ee
+  gg: |
+    nine
+  ff:
+    "line 1"      # zoo
+    'is a "line"' # other zoo
+  }
+g: 22
+h: null

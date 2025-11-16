@@ -1,0 +1,11 @@
+
+- if: .[resources.echo]
+  match: null
+  patch:
+    spec:
+      resources: !key(name)
+      - name: echo
+        plugin: echo
+        params:
+          in: hello
+

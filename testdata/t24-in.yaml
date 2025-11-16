@@ -1,0 +1,7 @@
+<<: |
+    # this is an object document selecting
+    # from another object document
+<<: !tovalue.file testdata/cluster_config.yaml
+<<: |
+    # after
+    # multiline

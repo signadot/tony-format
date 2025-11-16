@@ -1,0 +1,21 @@
+tag:
+  name: example
+define:
+  ttl: !match
+    offsetFrom: !or
+    - createdAt
+    - updatedAt
+    duration: =duration
+  
+  duration: !regexp |-
+    \d+[mhdw]
+  node:
+    parent: @node
+    children: .array(node)
+    description: .startswith
+accept: !or
+- !and
+  - !not .ttl
+  - !not .node
+- !schema other-example
+

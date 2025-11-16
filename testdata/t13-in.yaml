@@ -1,0 +1,3 @@
+<<: hello-pre
+<<: !file testdata/t13-in.yaml # we get the contents of of this file at the end
+value: !exec ls /etc/passwd # we get the output of the command

@@ -1,0 +1,5 @@
+- if: .[labels]
+  match: null
+  patch:
+    spec:
+      labels: .[labels]

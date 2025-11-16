@@ -1,0 +1,16 @@
+outer:
+  <<: |
+    This is before
+  <<:
+    f1: 
+    - a
+    - b
+    - - c
+    f2:
+      f3:
+        f4: 234
+      f5: five
+      f6: false
+      f7: null
+  <<: |
+    This is after

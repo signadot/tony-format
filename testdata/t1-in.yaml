@@ -1,0 +1,14 @@
+!tag
+a: |
+  hello
+  a
+<<: |
+  just put
+  this stuff
+  # here amongst
+  ! the fields
+f1: a
+<<: |-
+  just put this other
+     stuff here amongst the fields
+f2: c

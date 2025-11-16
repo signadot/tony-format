@@ -1,0 +1,15 @@
+- match:
+    list: !or
+    - !type []
+    - data: null
+  patch:
+    OR: true
+#- match: !not.or
+#    list: !type []
+#    data: null
+#  patch:
+#    NOR: true
+- match:
+    data: !glob b*
+  patch:
+    GLOB: true

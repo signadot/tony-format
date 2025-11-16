@@ -1,0 +1,18 @@
+- if: .[override.enabled]
+  match: null
+  patch:
+    spec:
+      routing:
+        forwards: !key(name)
+        - name: override-$[override.workload]
+          toLocal: .[override.toLocal]
+      middleware: !key(name)
+      - name: override-$[override.workload]
+        match:
+        - workload: $[override.workload]
+        args:
+        - name: overrideHost
+          valueFrom:
+            forward: override-$[override.workload]
+
+

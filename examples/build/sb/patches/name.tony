@@ -1,0 +1,4 @@
+- if: .[sandboxName]
+  match: null
+  patch:
+    name: .[sandboxName]

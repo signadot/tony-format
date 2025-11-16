@@ -1,0 +1,8 @@
+hello-pre
+/etc/passwd
+
+$ytool/value=exec,post=file:
+  pre: hello-pre
+  value: ls /etc/passwd # we get the output of the command
+  post: testdata/t13-in.yaml # we get the contents of of this file at the end
+

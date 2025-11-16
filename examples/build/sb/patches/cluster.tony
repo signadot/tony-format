@@ -1,0 +1,5 @@
+
+- match: null
+  patch:
+    spec:
+      cluster: .[cluster]

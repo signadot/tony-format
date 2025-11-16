@@ -1,0 +1,41 @@
+# This is an example Tony build file which builds Signadot sandboxes
+# on top of the hotrod application
+build:
+  sources:
+  - dir: source
+
+  env:
+    sandboxName: scott-sb0
+    cluster: minikube
+    mesh: devmesh
+
+    # to add a workload run with -e workloads.frontend=fork -e workloads.location=virtual
+    workloads:
+      loc: virtual
+      front: none
+      driver: none
+      route: none
+
+    resources:
+      # set to true to add echo resource plugin
+      echo: false
+
+    # set to true to have traffic recording
+    trafficRecord: false
+
+    # set to name of workload to add override
+    override:
+      enabled: false
+      workload: loc
+      toLocal: localhost:9999
+
+
+  patches:
+  - file: patches/name.tony
+  - file: patches/labels.tony
+  - file: patches/echo-resource.tony
+  - file: patches/workloads.tony
+  - file: patches/cluster.tony
+  - file: patches/traffic-record.tony
+  - file: patches/override.tony
+

@@ -1,0 +1,8 @@
+!eval
+<<: |
+  # this is to demo this comment and
+  # dynamic env
+  # $[dyn]
+which-is-also-here: .[dyn]
+<<: |
+  and even here (.[dyn]) uncommented!

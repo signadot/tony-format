@@ -1,0 +1,8 @@
+match:
+  spec:
+    template:
+      spec:
+        containers: !type []
+patch:
+  spec:
+    template:

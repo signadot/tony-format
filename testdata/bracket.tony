@@ -1,0 +1,15 @@
+a:
+- 1
+- !bracket
+  b: 22
+  c: [1 2 3 null]
+b: c
+d: {}
+e: nulll^
+f:
+  go: null
+  og:
+  - 1
+  - z: null
+    h: 3
+    i: true

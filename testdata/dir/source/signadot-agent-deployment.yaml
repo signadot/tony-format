@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent
+  namespace: signadot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: signadot-agent
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      app: signadot-agent
+    spec:
+      containers:
+      - image: signadot/agent:v1.1.0
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          httpGet:
+            path: /nullz
+            port: 8088
+        name: agent
+        ports:
+        - containerPort: 8088
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8088
+        volumeMounts:
+        - mountPath: /etc/signadot/token
+          name: cluster-token
+          readOnly: true
+          subPath: token
+        - mountPath: /etc/signadot/cluster_config.yaml
+          name: cluster-config
+          readOnly: true
+          subPath: cluster_config.yaml
+      serviceAccountName: agent
+      volumes:
+      - name: cluster-token
+        secret:
+          items:
+          - key: token
+            path: token
+          secretName: cluster-token
+      - configMap:
+          items:
+          - key: cluster_config.yaml
+            path: cluster_config.yaml
+          name: cluster-config
+        name: cluster-config

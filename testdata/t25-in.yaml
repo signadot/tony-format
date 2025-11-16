@@ -1,0 +1,3 @@
+get: controlPlane.tunnelTLS
+from: !tovalue.exec |
+  yt -e tunnelTLS=true testdata/cluster_config_in.yaml

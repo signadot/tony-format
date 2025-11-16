@@ -1,0 +1,6 @@
+metadata:
+  labels:
+    [[ if ... ]]
+    c: d
+    [[ end ]]
+    a: b

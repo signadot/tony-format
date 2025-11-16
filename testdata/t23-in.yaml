@@ -1,0 +1,12 @@
+$ytool:
+  pre: |-
+    # this is a yaml list
+    # document
+  get: '$[2]'
+  from:
+  - 1
+  - 2
+  - false
+  post: |-
+    # after
+    # multiline

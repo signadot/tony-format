@@ -1,0 +1,8 @@
+controlPlane:
+  artifactsAPI: http://artifactsserver.signadot-control.svc:8180
+  controlAPI: http://apiserver.signadot-control.svc:8080
+  trafficModelsAPI: http://trafficmodelsserver.signadot-control.svc:8280
+  tunnelAddr: tunnel.signadot-control.svc:2222
+  tunnelTLS: 
+    $ytool:
+      value: '.[tunnelTLS]'

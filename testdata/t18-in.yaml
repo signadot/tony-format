@@ -1,0 +1,10 @@
+- <<: |
+    # hello
+    # multi 
+    # lines
+    # commented
+    # list mixed with an object
+    - 1
+    - false
+    value: seven
+

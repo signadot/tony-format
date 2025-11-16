@@ -1,0 +1,15 @@
+# head
+[
+"line 1"        # oh boy
+" line 2"       # this is
+" line 3",
+# trailing
+# trailing
+true
+# trailing
+false # false line
+# h22
+22
+]
+# tail
+

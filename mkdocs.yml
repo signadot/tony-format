@@ -1,0 +1,50 @@
+site_name: Tony Format
+nav:
+- Format:
+  - tony.md
+  - ir.md
+- Schema:
+  - tonyschema.md
+- Tools:
+  - o:
+    - 'o CLI': o/
+    - 'o build': o/build.md
+  - 'Extra-Format Encoding': extraformat.md
+- TonyAPI:
+  - tonyapi/index.md
+- Reference:   
+  - build-eval.md
+  - 'Tags': generated/
+  - matchpatch.md
+  - diffpatch.md
+  - eval.md
+
+theme:
+  name: mkdocs
+  highlightjs: false
+
+markdown_extensions:
+  - tables: {}
+  - toc:
+      permalink: '#'
+  - admonition
+  # Use pymdownx.highlight - works better with superfences than codehilite
+  - pymdownx.highlight:
+      use_pygments: true
+      css_class: codehilite
+      anchor_linenums: true
+  - pymdownx.superfences:
+      # Custom fence for mermaid diagrams only
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:mermaid2.fence_mermaid
+      # Explicitly tell superfences to use pymdownx.highlight for other languages
+      # This ensures tony code blocks get pygments highlighting
+      # When a language is not in custom_fences, superfences will use the highlighter
+      # specified here (or default to pymdownx.highlight if available)
+
+extra_css:
+  - pygments.css
+plugins:
+  - mermaid2

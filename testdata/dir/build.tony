@@ -1,0 +1,68 @@
+
+build:
+  tag: $ytool
+  sources:
+  - dir: source
+    #- exec: kustomize build ../../../../sandboxes/deploy/operator/overlays/production
+    #- url: https://raw.githubusercontent.com/signadot/hotrod/refs/heads/main/k8s/base/driver.yaml
+    #- dir: source/list.yaml
+
+  #destDir: out
+
+  patches:
+  - match:
+      list: !key(name)
+      - name: a
+    patch:
+      list: !key(name)
+      - name: a
+        value: .[x]
+  - file: bool-patches.yaml
+  - match:
+      it: null
+    patch:
+      it: !json-patch
+      - op: remove
+        path: /2
+  - match:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        namespace: signadot
+      spec:
+        template:
+          spec: 
+            volumes: !key(name)
+            - name: cluster-token
+    patch:
+      spec:
+        template:
+          spec:
+            volumes: !key(name)
+            - name: cluster-token
+              secret:
+                secretName: |
+                  {{ $oldSecret := (lookup "v1" "Secret" "signadot" "cluster-agent") }}
+                  {{- with .Values }}
+                    {{- with .controlPlane }}
+                      {{- with .tokenSecret }}
+                        {{- . }}
+                      {{- else }}
+                        {{- if $oldSecret }}{{- $oldSecret.metadata.name }}
+                        {{- else }}cluster-token
+                        {{- end }}
+                      {{- end }}
+                    {{- else }}cluster-token
+                    {{- end }}
+                  {{- else }}cluster-token
+                  {{- end }}
+                items:
+                - key: token
+                  path: token
+
+  env:
+    x: 9
+    controlPlane:
+      controlAPI: https://api.staging.signadot.com
+    dyn: !exec ./nonce.sh
+

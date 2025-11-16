@@ -1,0 +1,6 @@
+- name: a1
+  attr: b1
+- name: b
+  attr: b1
+- name: c
+  attr: b1
