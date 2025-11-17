@@ -1,0 +1,10 @@
+MANIFEST.in
+README.md
+pygments_tony.py
+setup.py
+pygments_tony.egg-info/PKG-INFO
+pygments_tony.egg-info/SOURCES.txt
+pygments_tony.egg-info/dependency_links.txt
+pygments_tony.egg-info/entry_points.txt
+pygments_tony.egg-info/requires.txt
+pygments_tony.egg-info/top_level.txt

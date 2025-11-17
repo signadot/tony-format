@@ -1,0 +1,4 @@
+pygments>=2.0
+
+[dev]
+pytest
