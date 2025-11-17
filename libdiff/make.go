@@ -1,6 +1,6 @@
 package libdiff
 
-import "github.com/tony-format/tony/ir"
+import "github.com/signadot/tony-format/tony/ir"
 
 func MakeDiff(from, to *ir.Node) *ir.Node {
 	switch {

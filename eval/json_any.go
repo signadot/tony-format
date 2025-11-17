@@ -3,8 +3,8 @@ package eval
 import (
 	"encoding/json"
 
-	"github.com/tony-format/tony/ir"
-	"github.com/tony-format/tony/parse"
+	"github.com/signadot/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/parse"
 )
 
 func MarshalJSON(node *ir.Node) ([]byte, error) {

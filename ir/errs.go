@@ -3,7 +3,7 @@ package ir
 import (
 	"errors"
 
-	"github.com/tony-format/tony/format"
+	"github.com/signadot/tony-format/tony/format"
 )
 
 var (

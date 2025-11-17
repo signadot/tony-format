@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tony-format/tony/eval"
-	"github.com/tony-format/tony/format"
-	"github.com/tony-format/tony/ir"
-	"github.com/tony-format/tony/parse"
+	"github.com/signadot/tony-format/tony/eval"
+	"github.com/signadot/tony-format/tony/format"
+	"github.com/signadot/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/parse"
 
 	"github.com/goccy/go-yaml"
 )

@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/scott-cotton/cli"
-	_ "github.com/tony-format/tony/eval"
-	_ "github.com/tony-format/tony/mergeop"
+	_ "github.com/signadot/tony-format/tony/eval"
+	_ "github.com/signadot/tony-format/tony/mergeop"
 )
 
 func main() {

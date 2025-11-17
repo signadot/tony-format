@@ -1,6 +1,6 @@
 package eval
 
-import "github.com/tony-format/tony/ir"
+import "github.com/signadot/tony-format/tony/ir"
 
 type Symbol interface {
 	String() string

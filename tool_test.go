@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tony-format/tony/encode"
-	"github.com/tony-format/tony/parse"
+	"github.com/signadot/tony-format/tony/encode"
+	"github.com/signadot/tony-format/tony/parse"
 )
 
 type toolTest struct {

@@ -7,11 +7,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/tony-format/tony"
-	"github.com/tony-format/tony/encode"
-	"github.com/tony-format/tony/ir"
-	"github.com/tony-format/tony/mergeop"
-	"github.com/tony-format/tony/parse"
+	"github.com/signadot/tony-format/tony"
+	"github.com/signadot/tony-format/tony/encode"
+	"github.com/signadot/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/mergeop"
+	"github.com/signadot/tony-format/tony/parse"
 
 	"github.com/scott-cotton/cli"
 )

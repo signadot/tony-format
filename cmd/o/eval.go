@@ -7,10 +7,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/tony-format/tony"
-	"github.com/tony-format/tony/encode"
-	"github.com/tony-format/tony/eval"
-	"github.com/tony-format/tony/parse"
+	"github.com/signadot/tony-format/tony"
+	"github.com/signadot/tony-format/tony/encode"
+	"github.com/signadot/tony-format/tony/eval"
+	"github.com/signadot/tony-format/tony/parse"
 
 	"github.com/goccy/go-yaml"
 	"github.com/scott-cotton/cli"

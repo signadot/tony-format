@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/tony-format/tony/debug"
-	"github.com/tony-format/tony/eval"
-	"github.com/tony-format/tony/parse"
+	"github.com/signadot/tony-format/tony/debug"
+	"github.com/signadot/tony-format/tony/eval"
+	"github.com/signadot/tony-format/tony/parse"
 )
 
 const (

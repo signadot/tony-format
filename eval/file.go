@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"os"
 
-	"github.com/tony-format/tony/debug"
-	"github.com/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/debug"
+	"github.com/signadot/tony-format/tony/ir"
 )
 
 var fileSym = &fileSymbol{name: fileName}

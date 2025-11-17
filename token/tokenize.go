@@ -7,7 +7,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/tony-format/tony/format"
+	"github.com/signadot/tony-format/tony/format"
 )
 
 type tkState struct {

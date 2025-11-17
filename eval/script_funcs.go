@@ -3,7 +3,7 @@ package eval
 import (
 	"os"
 
-	"github.com/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/ir"
 
 	"github.com/expr-lang/expr"
 )

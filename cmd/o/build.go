@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/tony-format/tony/dirbuild"
-	"github.com/tony-format/tony/encode"
-	"github.com/tony-format/tony/eval"
+	"github.com/signadot/tony-format/tony/dirbuild"
+	"github.com/signadot/tony-format/tony/encode"
+	"github.com/signadot/tony-format/tony/eval"
 
 	"github.com/scott-cotton/cli"
 )

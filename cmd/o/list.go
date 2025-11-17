@@ -6,9 +6,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/tony-format/tony/encode"
-	"github.com/tony-format/tony/ir"
-	"github.com/tony-format/tony/parse"
+	"github.com/signadot/tony-format/tony/encode"
+	"github.com/signadot/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/parse"
 
 	"github.com/scott-cotton/cli"
 )

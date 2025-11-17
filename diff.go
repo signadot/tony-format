@@ -1,8 +1,8 @@
 package tony
 
 import (
-	"github.com/tony-format/tony/ir"
-	"github.com/tony-format/tony/libdiff"
+	"github.com/signadot/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/libdiff"
 )
 
 // Diff produces a succint comparison of from and to.  If there are

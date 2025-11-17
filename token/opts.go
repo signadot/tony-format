@@ -1,7 +1,7 @@
 package token
 
 import (
-	"github.com/tony-format/tony/format"
+	"github.com/signadot/tony-format/tony/format"
 )
 
 type tokenOpts struct {

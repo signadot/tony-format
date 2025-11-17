@@ -3,7 +3,7 @@ package token
 import (
 	"fmt"
 	"testing"
-	"github.com/tony-format/tony/format"
+	"github.com/signadot/tony-format/tony/format"
 )
 
 func TestBalanceOK(t *testing.T) {

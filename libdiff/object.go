@@ -1,7 +1,7 @@
 package libdiff
 
 import (
-	"github.com/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/ir"
 
 	diffpatch "github.com/sergi/go-diff/diffmatchpatch"
 )

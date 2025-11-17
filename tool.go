@@ -3,10 +3,10 @@ package tony
 import (
 	"fmt"
 
-	"github.com/tony-format/tony/debug"
-	"github.com/tony-format/tony/encode"
-	"github.com/tony-format/tony/eval"
-	"github.com/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/debug"
+	"github.com/signadot/tony-format/tony/encode"
+	"github.com/signadot/tony-format/tony/eval"
+	"github.com/signadot/tony-format/tony/ir"
 )
 
 type Tool struct {

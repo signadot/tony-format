@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/ir"
 )
 
 func SplitChild(opDoc *ir.Node) (tag string, args []string, child *ir.Node, err error) {

@@ -3,9 +3,9 @@ package eval
 import (
 	"fmt"
 
-	"github.com/tony-format/tony/debug"
-	"github.com/tony-format/tony/ir"
-	"github.com/tony-format/tony/parse"
+	"github.com/signadot/tony-format/tony/debug"
+	"github.com/signadot/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/parse"
 
 	"github.com/expr-lang/expr"
 )
