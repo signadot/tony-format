@@ -309,6 +309,7 @@ func SystemCommand(mainCfg *MainConfig) *cli.Command {
 	return cli.NewCommandAt(&cfg.System, "system").
 		WithSynopsis("system <subcommand>").
 		WithDescription("system commands implementing TonyAPI components").
+		WithAliases("sys").
 		WithSubs(
 			LogDCommand(cfg.MainConfig))
 }
