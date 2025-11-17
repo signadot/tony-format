@@ -189,7 +189,7 @@ func (w *sourceWalker) walk(path string, info fs.DirEntry, err error) error {
 		}
 	}
 	if info.IsDir() {
-		ignorePath := filepath.Join(path, ".ytignore.yaml")
+		ignorePath := filepath.Join(path, ".buildignore.tony")
 		_, err := os.Stat(ignorePath)
 		if os.IsNotExist(err) {
 			return nil
