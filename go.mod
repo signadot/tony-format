@@ -10,7 +10,7 @@ require (
 	github.com/fatih/color v1.18.0
 	github.com/goccy/go-yaml v1.18.0
 	github.com/mattn/go-isatty v0.0.20
-	github.com/scott-cotton/cli v0.2.2
+	github.com/scott-cotton/cli v0.2.3
 	github.com/sergi/go-diff v1.4.0
 	go.lsp.dev/jsonrpc2 v0.10.0
 	go.lsp.dev/protocol v0.12.0
