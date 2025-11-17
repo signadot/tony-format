@@ -7,12 +7,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/tony-format/tony"
-	"github.com/tony-format/tony/debug"
-	"github.com/tony-format/tony/encode"
-	"github.com/tony-format/tony/eval"
-	"github.com/tony-format/tony/ir"
-	"github.com/tony-format/tony/parse"
+	"github.com/signadot/tony-format/tony"
+	"github.com/signadot/tony-format/tony/debug"
+	"github.com/signadot/tony-format/tony/encode"
+	"github.com/signadot/tony-format/tony/eval"
+	"github.com/signadot/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/parse"
 
 	"github.com/goccy/go-yaml"
 )

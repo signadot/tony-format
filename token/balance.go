@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"runtime/debug"
 
-	"github.com/tony-format/tony/format"
+	"github.com/signadot/tony-format/tony/format"
 )
 
 func Balance(toks []Token, f format.Format) ([]Token, error) {

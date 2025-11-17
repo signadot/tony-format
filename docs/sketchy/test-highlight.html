@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link href="pygments.css" rel="stylesheet">
+    <style>
+        body { font-family: monospace; padding: 20px; }
+    </style>
+</head>
+<body>
+    <h1>Test Tony Highlighting</h1>
+    
+    <h2>Tag with dash:</h2>
+    <div class="codehilite"><pre><span></span><code><span class="k">!tag-name</span>
+<span class="p">-</span> <span class="n">item</span>
+</code></pre></div>
+    
+    <h2>Expected:</h2>
+    <ul>
+        <li><code>!tag-name</code> should be <span style="color: #008000; font-weight: bold;">green and bold</span> (Keyword)</li>
+        <li><code>-</code> should be <span style="color: #666;">gray</span> (Punctuation)</li>
+        <li><code>item</span> should be <span style="color: inherit;">default color</span> (Name)</li>
+    </ul>
+</body>
+</html>

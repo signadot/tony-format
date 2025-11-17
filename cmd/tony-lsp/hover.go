@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/tony-format/tony/ir"
-	"github.com/tony-format/tony/token"
+	"github.com/signadot/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/token"
 	"go.lsp.dev/protocol"
 )
 

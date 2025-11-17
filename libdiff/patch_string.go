@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/ir"
 )
 
 func PatchStringRunes(doc, patch *ir.Node) (*ir.Node, error) {

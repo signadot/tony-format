@@ -3,7 +3,7 @@ package encode
 import (
 	"strings"
 
-	"github.com/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/ir"
 
 	"github.com/fatih/color"
 )

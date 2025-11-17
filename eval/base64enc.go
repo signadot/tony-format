@@ -4,8 +4,8 @@ import (
 	"encoding/base64"
 	"fmt"
 
-	"github.com/tony-format/tony/debug"
-	"github.com/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/debug"
+	"github.com/signadot/tony-format/tony/ir"
 )
 
 var b64encSym = &b64encSymbol{name: b64encName}

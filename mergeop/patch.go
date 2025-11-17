@@ -3,7 +3,7 @@ package mergeop
 import (
 	"fmt"
 
-	"github.com/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/ir"
 )
 
 type PatchFunc func(*ir.Node, *ir.Node) (*ir.Node, error)

@@ -3,7 +3,7 @@ package token
 import (
 	"testing"
 
-	"github.com/tony-format/tony/format"
+	"github.com/signadot/tony-format/tony/format"
 )
 
 var notOKDocs = []string{

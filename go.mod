@@ -1,4 +1,4 @@
-module github.com/tony-format/tony
+module github.com/signadot/tony-format/tony
 
 go 1.25.1
 

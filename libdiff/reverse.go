@@ -3,7 +3,7 @@ package libdiff
 import (
 	"fmt"
 
-	"github.com/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/ir"
 )
 
 func Reverse(diff *ir.Node) (*ir.Node, error) {

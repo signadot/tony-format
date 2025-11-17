@@ -3,11 +3,11 @@ package mergeop
 import (
 	"fmt"
 
-	"github.com/tony-format/tony/debug"
-	"github.com/tony-format/tony/eval"
-	"github.com/tony-format/tony/ir"
-	"github.com/tony-format/tony/libdiff"
-	"github.com/tony-format/tony/parse"
+	"github.com/signadot/tony-format/tony/debug"
+	"github.com/signadot/tony-format/tony/eval"
+	"github.com/signadot/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/libdiff"
+	"github.com/signadot/tony-format/tony/parse"
 
 	jsonpatch "github.com/evanphx/json-patch"
 )

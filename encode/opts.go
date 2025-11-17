@@ -1,6 +1,6 @@
 package encode
 
-import "github.com/tony-format/tony/format"
+import "github.com/signadot/tony-format/tony/format"
 
 type EncodeOption func(*EncState)
 

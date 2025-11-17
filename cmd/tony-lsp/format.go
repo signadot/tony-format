@@ -5,9 +5,9 @@ import (
 	"context"
 
 	"go.lsp.dev/protocol"
-	"github.com/tony-format/tony/encode"
-	"github.com/tony-format/tony/format"
-	"github.com/tony-format/tony/parse"
+	"github.com/signadot/tony-format/tony/encode"
+	"github.com/signadot/tony-format/tony/format"
+	"github.com/signadot/tony-format/tony/parse"
 )
 
 func (s *Server) Formatting(ctx context.Context, params *protocol.DocumentFormattingParams) ([]protocol.TextEdit, error) {

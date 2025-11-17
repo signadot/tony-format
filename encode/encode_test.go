@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tony-format/tony/format"
-	"github.com/tony-format/tony/parse"
+	"github.com/signadot/tony-format/tony/format"
+	"github.com/signadot/tony-format/tony/parse"
 )
 
 func TestMultilineStringWithLineComments(t *testing.T) {

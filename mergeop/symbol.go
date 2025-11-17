@@ -1,6 +1,6 @@
 package mergeop
 
-import "github.com/tony-format/tony/ir"
+import "github.com/signadot/tony-format/tony/ir"
 
 type Symbol interface {
 	Name

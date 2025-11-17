@@ -4,9 +4,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/tony-format/tony/debug"
-	"github.com/tony-format/tony/ir"
-	"github.com/tony-format/tony/libdiff"
+	"github.com/signadot/tony-format/tony/debug"
+	"github.com/signadot/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/libdiff"
 )
 
 var ifSym = &ifSymbol{patchName: ifName}

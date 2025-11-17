@@ -3,7 +3,7 @@ package parse
 import (
 	"os"
 	"testing"
-	"github.com/tony-format/tony/encode"
+	"github.com/signadot/tony-format/tony/encode"
 )
 
 type parseTest struct {

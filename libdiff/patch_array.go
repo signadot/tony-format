@@ -3,8 +3,8 @@ package libdiff
 import (
 	"fmt"
 
-	"github.com/tony-format/tony/encode"
-	"github.com/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/encode"
+	"github.com/signadot/tony-format/tony/ir"
 )
 
 func PatchArrayByIndex(doc, patch *ir.Node, df DiffFunc) (*ir.Node, error) {

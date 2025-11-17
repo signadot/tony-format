@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"strings"
 
-	"github.com/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/ir"
 )
 
 func MustString(y *ir.Node) string {

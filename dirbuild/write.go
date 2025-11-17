@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/tony-format/tony/encode"
-	"github.com/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/encode"
+	"github.com/signadot/tony-format/tony/ir"
 )
 
 func (d *Dir) writeFlush(bw *bufio.Writer, dst []*ir.Node, opts ...encode.EncodeOption) error {

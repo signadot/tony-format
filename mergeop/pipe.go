@@ -6,11 +6,11 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/tony-format/tony/debug"
-	"github.com/tony-format/tony/encode"
-	"github.com/tony-format/tony/ir"
-	"github.com/tony-format/tony/libdiff"
-	"github.com/tony-format/tony/parse"
+	"github.com/signadot/tony-format/tony/debug"
+	"github.com/signadot/tony-format/tony/encode"
+	"github.com/signadot/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/libdiff"
+	"github.com/signadot/tony-format/tony/parse"
 )
 
 var pipeSym = &pipeSymbol{patchName: pipeName}

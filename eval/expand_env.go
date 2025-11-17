@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/tony-format/tony/debug"
-	"github.com/tony-format/tony/encode"
-	"github.com/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/debug"
+	"github.com/signadot/tony-format/tony/encode"
+	"github.com/signadot/tony-format/tony/ir"
 
 	"github.com/expr-lang/expr"
 )

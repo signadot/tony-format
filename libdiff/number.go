@@ -1,6 +1,6 @@
 package libdiff
 
-import "github.com/tony-format/tony/ir"
+import "github.com/signadot/tony-format/tony/ir"
 
 func DiffNumber(from *ir.Node, to *ir.Node) *ir.Node {
 	if (from.Int64 == nil) != (to.Int64 == nil) ||
