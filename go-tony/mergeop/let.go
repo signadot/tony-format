@@ -49,13 +49,6 @@ func (s letSymbol) Instance(child *ir.Node, args []string) (Op, error) {
 	// Parse bindings from let array
 	bindings := make(map[string]*ir.Node)
 	for _, bindingItem := range letNode.Values {
-		if bindingItem.Type != ir.ObjectType {
-			return nil, errors.New("let binding must be an object")
-		}
-		// Each binding is an object with a single key-value pair
-		if len(bindingItem.Fields) != 1 {
-			return nil, errors.New("let binding must have exactly one field")
-		}
 		varName := bindingItem.Fields[0].String
 		varValue := bindingItem.Values[0]
 		bindings[varName] = varValue
