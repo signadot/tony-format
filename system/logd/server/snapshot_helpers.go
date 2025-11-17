@@ -3,8 +3,8 @@ package server
 import (
 	"fmt"
 
-	"github.com/tony-format/tony/ir"
-	tony "github.com/tony-format/tony"
+	"github.com/signadot/tony-format/tony/ir"
+	tony "github.com/signadot/tony-format/tony"
 )
 
 // reconstructState reconstructs state for a path at a target commit count.

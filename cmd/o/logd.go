@@ -5,8 +5,8 @@ import (
 	"net/http"
 
 	"github.com/scott-cotton/cli"
-	"github.com/tony-format/tony/system/logd/server"
-	"github.com/tony-format/tony/system/logd/storage"
+	"github.com/signadot/tony-format/tony/system/logd/server"
+	"github.com/signadot/tony-format/tony/system/logd/storage"
 )
 
 type LogDConfig struct {

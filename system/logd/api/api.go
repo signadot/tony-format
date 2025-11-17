@@ -5,8 +5,8 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/tony-format/tony/ir"
-	"github.com/tony-format/tony/parse"
+	"github.com/signadot/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/parse"
 )
 
 // RequestBody represents the common structure for all requests using the path: match: patch: meta: layout.

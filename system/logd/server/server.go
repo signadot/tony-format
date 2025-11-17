@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/tony-format/tony/encode"
-	"github.com/tony-format/tony/ir"
-	"github.com/tony-format/tony/system/logd/api"
-	"github.com/tony-format/tony/system/logd/storage"
+	"github.com/signadot/tony-format/tony/encode"
+	"github.com/signadot/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/system/logd/api"
+	"github.com/signadot/tony-format/tony/system/logd/storage"
 )
 
 

@@ -8,10 +8,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/tony-format/tony/ir"
-	"github.com/tony-format/tony/parse"
-	"github.com/tony-format/tony/system/logd/api"
-	"github.com/tony-format/tony/system/logd/storage"
+	"github.com/signadot/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/parse"
+	"github.com/signadot/tony-format/tony/system/logd/api"
+	"github.com/signadot/tony-format/tony/system/logd/storage"
 )
 
 func TestHandlePatchData_Success(t *testing.T) {

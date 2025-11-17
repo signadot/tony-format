@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tony-format/tony/encode"
-	"github.com/tony-format/tony/ir"
-	"github.com/tony-format/tony/parse"
+	"github.com/signadot/tony-format/tony/encode"
+	"github.com/signadot/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/parse"
 )
 
 // Snapshot represents a snapshot of state at a specific commit count.

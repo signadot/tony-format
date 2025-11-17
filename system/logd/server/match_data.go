@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/tony-format/tony/encode"
-	"github.com/tony-format/tony/ir"
-	tony "github.com/tony-format/tony"
-	"github.com/tony-format/tony/system/logd/api"
+	"github.com/signadot/tony-format/tony/encode"
+	"github.com/signadot/tony-format/tony/ir"
+	tony "github.com/signadot/tony-format/tony"
+	"github.com/signadot/tony-format/tony/system/logd/api"
 )
 
 // handleMatchData handles MATCH requests for data reads.

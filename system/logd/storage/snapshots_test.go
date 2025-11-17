@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/ir"
 )
 
 func TestWriteReadSnapshot(t *testing.T) {

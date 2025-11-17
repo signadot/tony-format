@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/tony-format/tony/debug"
-	"github.com/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/debug"
+	"github.com/signadot/tony-format/tony/ir"
 )
 
 var letSym = &letSymbol{matchName: letName}
@@ -100,13 +100,13 @@ func (l letOp) substituteVariables(node *ir.Node) *ir.Node {
 		if len(node.String) == 0 {
 			return node
 		}
-		
+
 		// Find the first dot
 		dotIndex := strings.Index(node.String, ".")
 		if dotIndex < 0 {
 			return node
 		}
-		
+
 		// Count trailing backslashes before the dot
 		var backslashCount int
 		if dotIndex > 0 {
@@ -115,7 +115,7 @@ func (l letOp) substituteVariables(node *ir.Node) *ir.Node {
 				backslashCount++
 			}
 		}
-		
+
 		// Only treat as variable reference if dot is at start with no backslashes
 		// Any backslashes before the dot mean it's escaped (literal)
 		if dotIndex == 0 && backslashCount == 0 {
@@ -128,7 +128,7 @@ func (l letOp) substituteVariables(node *ir.Node) *ir.Node {
 			// Variable not found - return as-is (literal string starting with .)
 			return node
 		}
-		
+
 		// Dot has backslashes before it - it's escaped, unescape and return literal
 		if backslashCount > 0 {
 			// Remove one backslash before the dot
@@ -139,7 +139,7 @@ func (l letOp) substituteVariables(node *ir.Node) *ir.Node {
 				Tag:    node.Tag,
 			}
 		}
-		
+
 		// Dot is not at start - return as-is (not a variable reference)
 		return node
 

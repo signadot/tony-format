@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/tony-format/tony/encode"
-	"github.com/tony-format/tony/ir"
-	"github.com/tony-format/tony/system/logd/api"
+	"github.com/signadot/tony-format/tony/encode"
+	"github.com/signadot/tony-format/tony/ir"
+	"github.com/signadot/tony-format/tony/system/logd/api"
 )
 
 // handleWatchData handles WATCH requests for data streaming.
