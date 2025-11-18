@@ -2,7 +2,7 @@
 #
 # Tony Format base schema definitions.
 #
-context: tony-format.org/schema/contexts
+context: tony-format/context
   
 signature:
   name: schema
