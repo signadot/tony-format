@@ -69,7 +69,6 @@ func ExpandEnv(node *ir.Node, env Env) error {
 		} else {
 			*node = *ir.Null()
 		}
-
 	}
 	return nil
 }
@@ -129,9 +128,117 @@ func ExpandAny(v any, env Env) (any, error) {
 			return nil, fmt.Errorf("error evaluating %q: %w", raw, err)
 		}
 		return val, nil
+	case *ir.Node:
+		return ExpandIR(x, env)
 	default:
 		return x, nil
 	}
+}
+
+func ExpandIR(node *ir.Node, env Env) (any, error) {
+	switch node.Type {
+	case ir.ObjectType:
+		n := len(node.Values)
+		res := make(map[string]*ir.Node, n)
+		for i, elt := range node.Values {
+			f := node.Fields[i]
+			xc, err := ExpandIR(elt, env)
+			if err != nil {
+				return nil, err
+			}
+			res[f.String] = xc.(*ir.Node)
+		}
+		return ir.FromMap(res).WithTag(node.Tag), nil
+	case ir.ArrayType:
+		n := len(node.Values)
+		res := make([]*ir.Node, n)
+		for i, elt := range node.Values {
+			xc, err := ExpandIR(elt, env)
+			if err != nil {
+				return nil, err
+			}
+			res[i] = xc.(*ir.Node)
+		}
+		return ir.FromSlice(res).WithTag(node.Tag), nil
+	case ir.StringType:
+		// Check for raw env refs (.[var]) - these should replace the node, not just expand the string
+		raw := getRaw(node.String)
+		if raw != "" {
+			val, err := expr.Eval(raw, env)
+			if err != nil {
+				return nil, fmt.Errorf("error evaluating %q: %w", raw, err)
+			}
+			// If the result is already an *ir.Node, clone it and preserve parent relationships
+			if nodeResult, ok := val.(*ir.Node); ok {
+				repl := nodeResult.Clone()
+				repl.Parent = node.Parent
+				repl.ParentIndex = node.ParentIndex
+				repl.ParentField = node.ParentField
+				return repl, nil
+			}
+			// Otherwise convert using FromJSONAny (which handles *ir.Node and []*ir.Node)
+			repl, err := FromJSONAny(val)
+			if err != nil {
+				return nil, fmt.Errorf("could not translate evaluation result: %w", err)
+			}
+			if repl == nil {
+				repl = ir.Null()
+			}
+			// Preserve parent relationships from the original node
+			repl.Parent = node.Parent
+			repl.ParentIndex = node.ParentIndex
+			repl.ParentField = node.ParentField
+			return repl, nil
+		}
+		xs, err := ExpandString(node.String, env)
+		if err != nil {
+			return nil, err
+		}
+		node.String = xs
+		return node, nil
+	case ir.NumberType, ir.BoolType, ir.NullType:
+		if err := ExpandLineComment(node, env); err != nil {
+			return nil, err
+		}
+		return node, nil
+	case ir.CommentType:
+		inner, err := ExpandIR(node.Values[0], env)
+		if err != nil {
+			return nil, err
+		}
+		irInner := inner.(*ir.Node)
+		res := &ir.Node{
+			Type:   ir.CommentType,
+			Values: []*ir.Node{irInner},
+		}
+		for _, ln := range node.Lines {
+			xLn, err := ExpandString(ln, env)
+			if err != nil {
+				return nil, err
+			}
+			res.Lines = append(res.Lines, xLn)
+		}
+		irInner.Parent = res
+		return res, nil
+	}
+	return nil, nil
+}
+
+func ExpandLineComment(node *ir.Node, env Env) error {
+	if node.Comment == nil {
+		return nil
+	}
+
+	xc := &ir.Node{Type: ir.CommentType, Parent: node}
+	for _, ln := range node.Comment.Lines {
+		xLn, err := ExpandString(ln, env)
+		if err != nil {
+			return err
+		}
+		xc.Lines = append(xc.Lines, xLn)
+	}
+	node.Comment = xc
+	return nil
 }
 
 func ExpandString(v string, env Env) (string, error) {
@@ -216,6 +323,12 @@ func anyToBytes(v any) ([]byte, error) {
 		return []byte(strconv.FormatBool(x)), nil
 	case json.Number:
 		return []byte(x), nil
+	case *ir.Node:
+		buf := bytes.NewBuffer(nil)
+		if err := encode.Encode(x, buf, encode.EncodeWire(true)); err != nil {
+			return nil, err
+		}
+		return buf.Bytes(), nil
 	default:
 		node, err := FromJSONAny(v)
 		if err != nil {

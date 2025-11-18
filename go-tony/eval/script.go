@@ -42,14 +42,14 @@ func (s scriptSymbol) Instance(child *ir.Node, args []string) (Op, error) {
 type scriptAs string
 
 const (
-	scriptAsTony    scriptAs = "yaml"
+	scriptAsValue   scriptAs = "value"
 	scriptAsJSONAny scriptAs = "any"
 	scriptAsString  scriptAs = "string"
 )
 
 func parseScriptAs(v string) (scriptAs, error) {
 	as, ok := map[string]scriptAs{
-		"yaml":   scriptAsTony,
+		"value":  scriptAsValue,
 		"any":    scriptAsJSONAny,
 		"string": scriptAsString,
 	}[v]
@@ -80,18 +80,31 @@ func (p scriptOp) Eval(doc *ir.Node, env Env, ef EvalFunc) (*ir.Node, error) {
 		return nil, err
 	}
 	switch p.as {
-	case scriptAsTony:
+	case scriptAsValue:
 		v, ok := res.(string)
 		if !ok {
 			return nil, fmt.Errorf("script(yaml) but returned type %T", res)
 		}
 		return parse.Parse([]byte(v))
 	case scriptAsString:
-		v, ok := res.(string)
-		if !ok {
+		switch v := res.(type) {
+		case string:
+			return ir.FromString(v), nil
+		case *ir.Node:
+			if v == nil {
+				return ir.Null(), nil
+			}
+			// Convert node to string representation
+			// If it's a string node, use its value; otherwise use Path()
+			if v.Type == ir.StringType {
+				return ir.FromString(v.String), nil
+			}
+			return ir.FromString(v.Path()), nil
+		case nil:
+			return ir.Null(), nil
+		default:
 			return nil, fmt.Errorf("script(string) but returned type %T", res)
 		}
-		return ir.FromString(v), nil
 	case scriptAsJSONAny:
 		return FromJSONAny(res)
 	}
