@@ -68,6 +68,7 @@ func BuildDependencyGraph(structs []*StructInfo) (*DependencyGraph, error) {
 
 // findDependencies finds all struct dependencies for a given struct.
 // Returns a list of struct names that this struct depends on.
+// Self-references (struct depending on itself) are excluded.
 func findDependencies(structInfo *StructInfo, structMap map[string]*StructInfo) []string {
 	var deps []string
 	seen := make(map[string]bool)
@@ -80,6 +81,10 @@ func findDependencies(structInfo *StructInfo, structMap map[string]*StructInfo) 
 		// Analyze the AST type to find struct references
 		fieldDeps := findStructReferences(field.ASTType, structMap, structInfo.Package)
 		for _, dep := range fieldDeps {
+			// Skip self-references (struct depending on itself)
+			if dep == structInfo.Name {
+				continue
+			}
 			if !seen[dep] {
 				seen[dep] = true
 				deps = append(deps, dep)

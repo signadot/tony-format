@@ -108,7 +108,7 @@ func ParseSchemaReference(node *ir.Node) (*SchemaReference, error) {
 	return ref, nil
 }
 
-// ParseFromRefFromTag parses schema-name (possibly parameterized), def-name from !from(schema-name(...), def-name) tag string
+// ParseFromRefFromTag parses schema-name (possibly parameterized), def-name from !from(schema-name(...),def-name) tag string (no spaces in tag)
 // Returns the schema name, definition name, and schema arguments (if the schema is parameterized)
 func ParseFromRefFromTag(tag string) (string, string, []string, error) {
 	if tag == "" {
@@ -128,9 +128,19 @@ func ParseFromRefFromTag(tag string) (string, string, []string, error) {
 		return "", "", nil, fmt.Errorf("!from tag requires two arguments: schema-name and def-name")
 	}
 
-	// First argument is the schema name, which might be parameterized like "my-schema(1,2,3)"
-	schemaArg := strings.TrimSpace(args[0])
-	defName := strings.TrimSpace(args[1])
+	// Validate no spaces in arguments (strict parsing)
+	schemaArg := args[0]
+	defName := args[1]
+	
+	// Check for leading/trailing spaces in schema name
+	if strings.HasPrefix(schemaArg, " ") || strings.HasSuffix(schemaArg, " ") {
+		return "", "", nil, fmt.Errorf("!from tag schema-name argument cannot have leading or trailing spaces: %q", schemaArg)
+	}
+	
+	// Check for leading/trailing spaces in definition name
+	if strings.HasPrefix(defName, " ") || strings.HasSuffix(defName, " ") {
+		return "", "", nil, fmt.Errorf("!from tag def-name argument cannot have leading or trailing spaces: %q", defName)
+	}
 
 	// Parse the schema name and its arguments from the first argument
 	// Use ir.TagArgs to parse the schema reference (it might have parentheses)
@@ -146,10 +156,10 @@ func ParseFromRefFromTag(tag string) (string, string, []string, error) {
 	return schemaName, defName, schemaArgs, nil
 }
 
-// ParseFromReference parses a from reference from an IR node with a !from(schema-name, def-name, ...) tag
+// ParseFromReference parses a from reference from an IR node with a !from(schema-name,def-name, ...) tag (no spaces in tag)
 // Examples:
-//   - !from(base-schema, number) -> FromReference{SchemaName: "base-schema", DefName: "number"}
-//   - !from(param-schema, def, arg1, arg2) -> FromReference with schema args
+//   - !from(base-schema,number) -> FromReference{SchemaName: "base-schema", DefName: "number"}
+//   - !from(param-schema(1,2),def-name) -> FromReference with schema args
 func ParseFromReference(node *ir.Node) (*FromReference, error) {
 	if node.Tag == "" {
 		return nil, fmt.Errorf("from reference node must have a tag")

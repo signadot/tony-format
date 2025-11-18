@@ -77,6 +77,14 @@ func LoadSchema(schemaName string, pkgPath string, config *CodegenConfig, cache 
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse schema file %q: %w", schemaPath, err)
 	}
+	if irNode == nil {
+		return nil, fmt.Errorf("schema file %q parsed to nil node (file may be empty)", schemaPath)
+	}
+
+	// Unwrap comment node if present (parse.Parse with comments enabled wraps the root in a CommentType)
+	if irNode.Type == ir.CommentType && len(irNode.Values) > 0 {
+		irNode = irNode.Values[0]
+	}
 
 	// Parse IR node to Schema
 	s, err := schema.ParseSchema(irNode)

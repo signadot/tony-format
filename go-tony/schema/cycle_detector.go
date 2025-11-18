@@ -2,6 +2,7 @@ package schema
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/go-air/gini"
@@ -9,6 +10,9 @@ import (
 	"github.com/go-air/gini/z"
 	"github.com/signadot/tony-format/go-tony/ir"
 )
+
+// debugNullability enables debug logging for nullability checks
+var debugNullability = os.Getenv("DEBUG_NULLABILITY") != ""
 
 // edge represents a dependency edge in the dependency graph
 type edge struct {
@@ -274,7 +278,66 @@ func isNullableTypeNode(node *ir.Node) bool {
 		return false
 	}
 	
-	// Direct null type is an escape hatch
+	tag := node.Tag
+	
+	// If there's a tag, check it first (it might exclude null even if node.Type is Null)
+	if tag != "" {
+		// Build a boolean formula using gini/logic
+		// Variable represents "isEscapeHatch" (can be null OR array)
+		c := logic.NewC()
+		isEscapeHatch := c.Lit() // Variable representing "value is an escape hatch" (null or array)
+		
+		// Build the formula representing the type constraint
+		formula := buildBooleanFormula(c, node, tag, isEscapeHatch)
+		
+		if debugNullability {
+			fmt.Printf("[isNullableTypeNode] node.Tag=%q formula=%v\n", node.Tag, formula)
+			fmt.Printf("  c.T=%v c.F=%v isEscapeHatch=%v\n", c.T, c.F, isEscapeHatch)
+		}
+		
+		if formula != z.LitNull {
+			// Handle special literals: c.F (always false) and c.T (always true)
+			if formula == c.F {
+				if debugNullability {
+					fmt.Printf("[isNullableTypeNode] formula == c.F, returning false\n")
+				}
+				return false // Always false means unsatisfiable, so not nullable
+			}
+			if formula == c.T {
+				if debugNullability {
+					fmt.Printf("[isNullableTypeNode] formula == c.T, returning true\n")
+				}
+				return true // Always true means satisfiable, so nullable
+			}
+			
+			// Convert to CNF and check satisfiability
+			g := gini.New()
+			c.ToCnf(g)
+			
+			// We want to check if the formula can be satisfied when isEscapeHatch is true
+			// So we assume: formula AND isEscapeHatch
+			g.Assume(formula)
+			g.Assume(isEscapeHatch)
+			
+			if debugNullability {
+				fmt.Printf("[isNullableTypeNode] checking satisfiability: formula(%v) AND isEscapeHatch(%v)\n", formula, isEscapeHatch)
+			}
+			
+			// Check satisfiability
+			// Result: 1 = satisfiable, 0 = unsatisfiable, -1 = unknown/error
+			result := g.Solve()
+			if debugNullability {
+				fmt.Printf("[isNullableTypeNode] Solve() returned %d (1=sat, 0=unsat, -1=error)\n", result)
+			}
+			return result == 1 // 1 means satisfiable
+		}
+		
+		if debugNullability {
+			fmt.Printf("[isNullableTypeNode] formula == LitNull, checking node.Type\n")
+		}
+	}
+	
+	// Direct null type is an escape hatch (only if no tag excludes it)
 	if node.Type == ir.NullType {
 		return true
 	}
@@ -284,34 +347,7 @@ func isNullableTypeNode(node *ir.Node) bool {
 		return true
 	}
 	
-	tag := node.Tag
-	if tag == "" {
-		return false
-	}
-	
-	// Build a boolean formula using gini/logic
-	// Variable represents "isEscapeHatch" (can be null OR array)
-	c := logic.NewC()
-	isEscapeHatch := c.Lit() // Variable representing "value is an escape hatch" (null or array)
-	
-	// Build the formula representing the type constraint
-	formula := buildBooleanFormula(c, node, tag, isEscapeHatch)
-	if formula == z.LitNull {
-		return false
-	}
-	
-	// Convert to CNF and check satisfiability
-	g := gini.New()
-	c.ToCnf(g)
-	
-	// We want to check if the formula can be satisfied when isEscapeHatch is true
-	// So we assume: formula AND isEscapeHatch
-	g.Assume(formula)
-	g.Assume(isEscapeHatch)
-	
-	// Check satisfiability
-	result := g.Solve()
-	return result == 1 // 1 means satisfiable
+	return false
 }
 
 // buildBooleanFormula converts an IR node with a tag into a boolean formula using gini/logic
@@ -324,6 +360,16 @@ func buildBooleanFormula(c *logic.C, node *ir.Node, tag string, isEscapeHatch z.
 	
 	head, _, rest := ir.TagArgs(tag)
 	
+	if debugNullability {
+		fmt.Printf("[buildBooleanFormula] tag=%q head=%q rest=%q node.Type=%v\n", tag, head, rest, node.Type)
+		if node.Type == ir.ArrayType {
+			fmt.Printf("  Array with %d values:\n", len(node.Values))
+			for i, val := range node.Values {
+				fmt.Printf("    [%d] Tag=%q Type=%v\n", i, val.Tag, val.Type)
+			}
+		}
+	}
+	
 	// Handle !not
 	if head == "!not" {
 		// Special case: !not null explicitly excludes escape hatch
@@ -331,26 +377,43 @@ func buildBooleanFormula(c *logic.C, node *ir.Node, tag string, isEscapeHatch z.
 		if node.Type == ir.NullType {
 			return isEscapeHatch.Not()
 		}
+		
+		// For !not.something, recursively build the formula for "something" and negate it
 		if rest != "" {
-			// !not.something - recursively build formula and negate
-			// If rest is "or" or "and", we need to handle it as !or or !and
-			// by reconstructing the tag with the ! prefix
+			// Build the inner formula (e.g., for !not.or, build the formula for "or")
 			innerTag := rest
-			if rest == "or" || rest == "and" {
-				innerTag = "!" + rest
-			}
 			innerFormula := buildBooleanFormula(c, node, innerTag, isEscapeHatch)
+			if debugNullability {
+				fmt.Printf("[!not] innerTag=%q innerFormula=%v\n", innerTag, innerFormula)
+			}
 			if innerFormula == z.LitNull {
+				if debugNullability {
+					fmt.Printf("[!not] returning LitNull (innerFormula was null)\n")
+				}
 				return z.LitNull
 			}
-			// For negation, we create a new literal and constrain it to be !innerFormula
-			// notInner <-> !innerFormula means:
-			// (notInner -> !innerFormula) AND (!innerFormula -> notInner)
-			// Which is: (!notInner OR !innerFormula) AND (innerFormula OR notInner)
-			notInner := c.Lit()
-			c.And(c.Or(notInner.Not(), innerFormula.Not()), c.Or(innerFormula, notInner))
-			return notInner
+			// Handle special literals: !c.T = c.F, !c.F = c.T
+			if innerFormula == c.T {
+				if debugNullability {
+					fmt.Printf("[!not] returning c.F (!c.T)\n")
+				}
+				return c.F
+			}
+			if innerFormula == c.F {
+				if debugNullability {
+					fmt.Printf("[!not] returning c.T (!c.F)\n")
+				}
+				return c.T
+			}
+			// Negate the inner formula - just call .Not() on it
+			result := innerFormula.Not()
+			if debugNullability {
+				fmt.Printf("[!not] returning %v (!%v)\n", result, innerFormula)
+			}
+			return result
 		}
+		
+		// !not without a rest - check if node is an escape hatch
 		if node.Type == ir.ArrayType {
 			// Check if any element is null or array
 			for _, val := range node.Values {
@@ -379,74 +442,105 @@ func buildBooleanFormula(c *logic.C, node *ir.Node, tag string, isEscapeHatch z.
 		return z.LitNull
 	}
 	
-	// Handle !or
-	if head == "!or" {
+	// Handle or (disjunction)
+	if head == "or" || head == "!or" {
 		if node.Type == ir.ArrayType {
 			// OR: at least one element must be satisfied
 			literals := []z.Lit{}
 			for _, val := range node.Values {
-				if isNullValue(val) || isArrayTypeNode(val) {
-					// Null or array - both are escape hatches
-					literals = append(literals, isEscapeHatch)
-				} else if val.Tag != "" {
-					// Recursively build formula for this element
+				if val.Tag != "" {
+					// Recursively build formula for this element (check tag first!)
 					valFormula := buildBooleanFormula(c, val, val.Tag, isEscapeHatch)
+					if debugNullability {
+						fmt.Printf("[or] val.Tag=%q valFormula=%v\n", val.Tag, valFormula)
+					}
 					if valFormula != z.LitNull {
 						literals = append(literals, valFormula)
 					}
+					// If formula is null, skip this element (it doesn't constrain escape hatch)
+				} else if isNullValue(val) || isArrayTypeNode(val) {
+					// Null or array - both are escape hatches (only if no tag)
+					if debugNullability {
+						fmt.Printf("[or] value is null/array (no tag), adding isEscapeHatch\n")
+					}
+					literals = append(literals, isEscapeHatch)
 				} else {
-					// Recursively check if it's an escape hatch
-					if isNullableTypeNode(val) {
+					// Check if value is an escape hatch without recursive call
+					if val.Type == ir.NullType || isArrayTypeNode(val) {
+						if debugNullability {
+							fmt.Printf("[or] value Type is escape hatch, adding isEscapeHatch\n")
+						}
 						literals = append(literals, isEscapeHatch)
 					}
+					// If not an escape hatch, skip (it doesn't constrain escape hatch)
 				}
 			}
 			if len(literals) > 0 {
-				return c.Ors(literals...)
+				result := c.Ors(literals...)
+				if debugNullability {
+					fmt.Printf("[or] returning c.Ors(%d literals) = %v\n", len(literals), result)
+				}
+				return result
 			}
-			return z.LitNull
+			// No escape hatch literals - OR with no escape hatches is always satisfiable (tautology)
+			// Return c.T (always true)
+			if debugNullability {
+				fmt.Printf("[or] no literals, returning c.T\n")
+			}
+			return c.T
 		}
-		// !or/or tags are always represented as arrays in IR
+		// or/!or tags are always represented as arrays in IR
 		return z.LitNull
 	}
 	
-	// Handle !and
-	if head == "!and" {
+	// Handle and (conjunction)
+	if head == "and" || head == "!and" {
 		if node.Type == ir.ArrayType {
 			// AND: all elements must be satisfied
 			literals := []z.Lit{}
-			hasExplicitNull := false
 			
 			for _, val := range node.Values {
-				if isNullValue(val) || isArrayTypeNode(val) {
-					// Null or array - both are escape hatches
-					literals = append(literals, isEscapeHatch)
-					hasExplicitNull = true
-				} else if val.Tag != "" {
-					// Recursively build formula for this element
+				if val.Tag != "" {
+					// Recursively build formula for this element (check tag first!)
 					valFormula := buildBooleanFormula(c, val, val.Tag, isEscapeHatch)
+					if debugNullability {
+						fmt.Printf("[and] val.Tag=%q valFormula=%v\n", val.Tag, valFormula)
+					}
 					if valFormula != z.LitNull {
 						literals = append(literals, valFormula)
-					} else if !hasExplicitNull {
-						// If element doesn't allow escape hatch, AND cannot be satisfied
-						return z.LitNull
 					}
+					// If formula is null, skip this element (it doesn't constrain escape hatch, so it's always true)
+				} else if isNullValue(val) || isArrayTypeNode(val) {
+					// Null or array - both are escape hatches (only if no tag)
+					if debugNullability {
+						fmt.Printf("[and] value is null/array (no tag), adding isEscapeHatch\n")
+					}
+					literals = append(literals, isEscapeHatch)
 				} else {
-					// Recursively check if it's an escape hatch
-					if isNullableTypeNode(val) {
+					// Check if value is an escape hatch without recursive call
+					if val.Type == ir.NullType || isArrayTypeNode(val) {
+						if debugNullability {
+							fmt.Printf("[and] value Type is escape hatch, adding isEscapeHatch\n")
+						}
 						literals = append(literals, isEscapeHatch)
-						hasExplicitNull = true
-					} else if !hasExplicitNull {
-						// Element doesn't allow escape hatch, and no explicit escape hatch
-						return z.LitNull
 					}
+					// If not an escape hatch, skip (it doesn't constrain escape hatch, so it's always true)
 				}
 			}
 			
 			if len(literals) > 0 {
-				return c.Ands(literals...)
+				result := c.Ands(literals...)
+				if debugNullability {
+					fmt.Printf("[and] returning c.Ands(%d literals) = %v\n", len(literals), result)
+				}
+				return result
 			}
-			return z.LitNull
+			// No escape hatch literals - AND with no escape hatches is always satisfiable (tautology)
+			// Return c.T (always true)
+			if debugNullability {
+				fmt.Printf("[and] no literals, returning c.T\n")
+			}
+			return c.T
 		}
 		return z.LitNull
 	}
@@ -512,7 +606,9 @@ func findCycles(graph *dependencyGraph) [][]string {
 					cycle := make([]string, len(path)-cycleStart+1)
 					copy(cycle, path[cycleStart:])
 					cycle[len(cycle)-1] = to
-					cycles = append(cycles, cycle)
+					// Normalize cycle to start from lexicographically smallest node
+					normalizedCycle := normalizeCycle(cycle)
+					cycles = append(cycles, normalizedCycle)
 				}
 			} else if color[to] == 0 {
 				// White - unvisited, recurse with a copy of the path
@@ -534,6 +630,27 @@ func findCycles(graph *dependencyGraph) [][]string {
 	}
 
 	return cycles
+}
+
+// normalizeCycle rotates a cycle to start from the lexicographically smallest node
+// This ensures consistent cycle representation regardless of traversal order
+func normalizeCycle(cycle []string) []string {
+	if len(cycle) == 0 {
+		return cycle
+	}
+	// Find the index of the lexicographically smallest node
+	minIdx := 0
+	for i := 1; i < len(cycle)-1; i++ { // Don't include the last node (duplicate of first)
+		if cycle[i] < cycle[minIdx] {
+			minIdx = i
+		}
+	}
+	// Rotate the cycle to start from minIdx
+	normalized := make([]string, len(cycle))
+	copy(normalized, cycle[minIdx:len(cycle)-1]) // Copy from minIdx to end (excluding last duplicate)
+	copy(normalized[len(cycle)-1-minIdx:], cycle[:minIdx]) // Copy from start to minIdx
+	normalized[len(cycle)-1] = normalized[0] // Close the cycle
+	return normalized
 }
 
 // analyzeCycle analyzes a cycle to determine if it has escape hatches

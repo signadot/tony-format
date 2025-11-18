@@ -146,7 +146,7 @@ func ExtractGoType(def *ir.Node, s *schema.Schema, registry *schema.SchemaRegist
 		return ExtractGoType(refDef, s, registry)
 	}
 
-	// Handle cross-schema references: !from(schema-name, def-name)
+	// Handle cross-schema references: !from(schema-name,def-name) (no spaces)
 	if def.Tag != "" {
 		head, _, _ := ir.TagArgs(def.Tag)
 		if head == "!from" {
@@ -285,7 +285,7 @@ func ExtractGoType(def *ir.Node, s *schema.Schema, registry *schema.SchemaRegist
 	return nil, fmt.Errorf("cannot extract Go type from definition node: tag=%q, type=%v", def.Tag, def.Type)
 }
 
-// extractGoTypeFromCrossSchema handles !from(schema-name, def-name) cross-schema references.
+// extractGoTypeFromCrossSchema handles !from(schema-name,def-name) cross-schema references (no spaces in tag).
 // It resolves the definition from another schema using the registry.
 func extractGoTypeFromCrossSchema(def *ir.Node, registry *schema.SchemaRegistry) (reflect.Type, error) {
 	if registry == nil {

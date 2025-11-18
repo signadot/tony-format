@@ -30,6 +30,9 @@ func Parse(d []byte, opts ...ParseOption) (*ir.Node, error) {
 	if err != nil {
 		return nil, err
 	}
+	if res == nil {
+		return nil, nil
+	}
 	if pOpts.comments {
 		res = associateComments(res)
 	}
@@ -73,6 +76,9 @@ func parseBalanced(toks []token.Token, p *ir.Node, tag string, pi *int, opts *pa
 	}
 	if !opts.comments || yComments == nil {
 		return child, nil
+	}
+	if child == nil {
+		return yComments, nil
 	}
 	yComments.Values = []*ir.Node{child}
 	child.Parent = yComments

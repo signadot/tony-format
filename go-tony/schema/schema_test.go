@@ -120,6 +120,26 @@ func TestParseFromReference(t *testing.T) {
 			tag:     "!from(base-schema)",
 			wantErr: true,
 		},
+		{
+			name:    "space after comma",
+			tag:     "!from(base-schema, number)",
+			wantErr: true,
+		},
+		{
+			name:    "space before comma",
+			tag:     "!from(base-schema ,number)",
+			wantErr: true,
+		},
+		{
+			name:    "leading space in schema name",
+			tag:     "!from( base-schema,number)",
+			wantErr: true,
+		},
+		{
+			name:    "trailing space in def name",
+			tag:     "!from(base-schema,number )",
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {

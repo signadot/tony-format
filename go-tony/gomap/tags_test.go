@@ -701,3 +701,123 @@ func findField(fields []*FieldInfo, name string) *FieldInfo {
 	}
 	return nil
 }
+
+func TestGetStructFields_SchemaMode_FieldRenaming(t *testing.T) {
+	// Test that field= tags work in schema= mode to rename struct fields
+	// when matching to schema fields
+	
+	// Create a schema that expects "name" (lowercase) and "age"
+	personSchema := &schema.Schema{
+		Accept: &ir.Node{
+			Type: ir.ObjectType,
+			Fields: []*ir.Node{
+				{Type: ir.StringType, String: "name"},
+				{Type: ir.StringType, String: "age"},
+			},
+			Values: []*ir.Node{
+				{Type: ir.StringType},  // name: string
+				{Type: ir.NumberType},   // age: float64 (NumberType maps to float64)
+			},
+		},
+	}
+	
+	// Person struct with schema tag and field renaming
+	type Person struct {
+		schemaTag `tony:"schema=person"`
+		FullName  string  `tony:"field=name"`  // Struct field "FullName" maps to schema field "name"
+		Age       float64 `tony:"field=age"`  // Struct field "Age" maps to schema field "age"
+	}
+	
+	typ := reflect.TypeOf(Person{})
+	fields, err := GetStructFields(typ, personSchema, "schema", false, nil)
+	if err != nil {
+		t.Fatalf("failed to get struct fields: %v", err)
+	}
+	
+	if len(fields) != 2 {
+		t.Fatalf("expected 2 fields, got %d", len(fields))
+	}
+	
+	// Check first field (name)
+	nameField := fields[0]
+	if nameField.Name != "FullName" {
+		t.Errorf("expected field name 'FullName', got %q", nameField.Name)
+	}
+	if nameField.SchemaFieldName != "name" {
+		t.Errorf("expected schema field name 'name', got %q", nameField.SchemaFieldName)
+	}
+	if nameField.Type != reflect.TypeOf("") {
+		t.Errorf("expected type string, got %v", nameField.Type)
+	}
+	
+	// Check second field (age)
+	ageField := fields[1]
+	if ageField.Name != "Age" {
+		t.Errorf("expected field name 'Age', got %q", ageField.Name)
+	}
+	if ageField.SchemaFieldName != "age" {
+		t.Errorf("expected schema field name 'age', got %q", ageField.SchemaFieldName)
+	}
+	if ageField.Type != reflect.TypeOf(float64(0)) {
+		t.Errorf("expected type float64, got %v", ageField.Type)
+	}
+}
+
+func TestGetStructFields_SchemaMode_FieldRenaming_Embedded(t *testing.T) {
+	// Test that field= tags work in schema= mode with embedded structs
+	
+	// Create a schema that expects "first_name" and "last_name"
+	nameSchema := &schema.Schema{
+		Accept: &ir.Node{
+			Type: ir.ObjectType,
+			Fields: []*ir.Node{
+				{Type: ir.StringType, String: "first_name"},
+				{Type: ir.StringType, String: "last_name"},
+			},
+			Values: []*ir.Node{
+				{Type: ir.StringType},  // first_name: string
+				{Type: ir.StringType},   // last_name: string
+			},
+		},
+	}
+	
+	// Name struct with field renaming
+	type Name struct {
+		FirstName string `tony:"field=first_name"`
+		LastName  string `tony:"field=last_name"`
+	}
+	
+	// Person struct that embeds Name
+	type Person struct {
+		schemaTag `tony:"schema=person"`
+		Name
+	}
+	
+	typ := reflect.TypeOf(Person{})
+	fields, err := GetStructFields(typ, nameSchema, "schema", false, nil)
+	if err != nil {
+		t.Fatalf("failed to get struct fields: %v", err)
+	}
+	
+	if len(fields) != 2 {
+		t.Fatalf("expected 2 fields, got %d", len(fields))
+	}
+	
+	// Check first field (first_name)
+	firstNameField := fields[0]
+	if firstNameField.Name != "FirstName" {
+		t.Errorf("expected field name 'FirstName', got %q", firstNameField.Name)
+	}
+	if firstNameField.SchemaFieldName != "first_name" {
+		t.Errorf("expected schema field name 'first_name', got %q", firstNameField.SchemaFieldName)
+	}
+	
+	// Check second field (last_name)
+	lastNameField := fields[1]
+	if lastNameField.Name != "LastName" {
+		t.Errorf("expected field name 'LastName', got %q", lastNameField.Name)
+	}
+	if lastNameField.SchemaFieldName != "last_name" {
+		t.Errorf("expected schema field name 'last_name', got %q", lastNameField.SchemaFieldName)
+	}
+}

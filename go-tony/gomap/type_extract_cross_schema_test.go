@@ -43,10 +43,10 @@ func TestExtractGoType_CrossSchemaReferences(t *testing.T) {
 		},
 		Define: map[string]*ir.Node{
 			"my-number": &ir.Node{
-				Tag: "!from(base-schema, number)",
+				Tag: "!from(base-schema,number)",
 			},
 			"my-string": &ir.Node{
-				Tag: "!from(base-schema, string)",
+				Tag: "!from(base-schema,string)",
 			},
 		},
 		Accept: &ir.Node{
@@ -73,16 +73,16 @@ func TestExtractGoType_CrossSchemaReferences(t *testing.T) {
 		wantErr      bool
 	}{
 		{
-			name:        "!from(base-schema, number) - cross-schema reference",
-			def:         &ir.Node{Tag: "!from(base-schema, number)"},
+			name:        "!from(base-schema,number) - cross-schema reference",
+			def:         &ir.Node{Tag: "!from(base-schema,number)"},
 			s:           derivedSchema,
 			registry:    registry,
 			useRegistry: true,
 			want:        reflect.TypeOf(float64(0)),
 		},
 		{
-			name:        "!from(base-schema, string) - cross-schema reference",
-			def:         &ir.Node{Tag: "!from(base-schema, string)"},
+			name:        "!from(base-schema,string) - cross-schema reference",
+			def:         &ir.Node{Tag: "!from(base-schema,string)"},
 			s:           derivedSchema,
 			registry:    registry,
 			useRegistry: true,
@@ -106,7 +106,7 @@ func TestExtractGoType_CrossSchemaReferences(t *testing.T) {
 		},
 		{
 			name:        "!from with non-existent schema",
-			def:         &ir.Node{Tag: "!from(nonexistent-schema, number)"},
+			def:         &ir.Node{Tag: "!from(nonexistent-schema,number)"},
 			s:           derivedSchema,
 			registry:    registry,
 			useRegistry: true,
@@ -114,7 +114,7 @@ func TestExtractGoType_CrossSchemaReferences(t *testing.T) {
 		},
 		{
 			name:        "!from with non-existent definition",
-			def:         &ir.Node{Tag: "!from(base-schema, nonexistent)"},
+			def:         &ir.Node{Tag: "!from(base-schema,nonexistent)"},
 			s:           derivedSchema,
 			registry:    registry,
 			useRegistry: true,
@@ -130,7 +130,7 @@ func TestExtractGoType_CrossSchemaReferences(t *testing.T) {
 		},
 		{
 			name:        "!from without registry",
-			def:         &ir.Node{Tag: "!from(base-schema, number)"},
+			def:         &ir.Node{Tag: "!from(base-schema,number)"},
 			s:           derivedSchema,
 			registry:    nil,
 			useRegistry: false,
@@ -196,7 +196,7 @@ func TestExtractGoType_CrossSchemaWithNullable(t *testing.T) {
 		},
 		Define: map[string]*ir.Node{
 			"email": &ir.Node{
-				Tag: "!from(base-schema, nullable-string)",
+				Tag: "!from(base-schema,nullable-string)",
 			},
 		},
 		Accept: &ir.Node{
@@ -215,7 +215,7 @@ func TestExtractGoType_CrossSchemaWithNullable(t *testing.T) {
 
 	// Test cross-schema reference to nullable type
 	def := &ir.Node{
-		Tag: "!from(base-schema, nullable-string)",
+		Tag: "!from(base-schema,nullable-string)",
 	}
 
 	got, err := ExtractGoType(def, derivedSchema, registry)

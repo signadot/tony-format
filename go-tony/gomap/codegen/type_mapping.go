@@ -18,7 +18,7 @@ import (
 //   - *T → !or [null, T] (nullable)
 //   - []T → .array(T) (array)
 //   - struct → object with fields or .schemaName reference
-func GoTypeToSchemaNode(typ reflect.Type, fieldInfo *FieldInfo, structMap map[string]*StructInfo, currentPkg string) (*ir.Node, error) {
+func GoTypeToSchemaNode(typ reflect.Type, fieldInfo *FieldInfo, structMap map[string]*StructInfo, currentPkg string, currentStructName string, currentSchemaName string) (*ir.Node, error) {
 	if typ == nil {
 		return nil, fmt.Errorf("type is nil")
 	}
@@ -28,7 +28,7 @@ func GoTypeToSchemaNode(typ reflect.Type, fieldInfo *FieldInfo, structMap map[st
 	// Handle pointers (nullable types)
 	if kind == reflect.Ptr {
 		elemType := typ.Elem()
-		elemNode, err := GoTypeToSchemaNode(elemType, nil, structMap, currentPkg)
+		elemNode, err := GoTypeToSchemaNode(elemType, nil, structMap, currentPkg, currentStructName, currentSchemaName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert pointer element type: %w", err)
 		}
@@ -46,7 +46,7 @@ func GoTypeToSchemaNode(typ reflect.Type, fieldInfo *FieldInfo, structMap map[st
 	// Handle slices (arrays)
 	if kind == reflect.Slice || kind == reflect.Array {
 		elemType := typ.Elem()
-		elemNode, err := GoTypeToSchemaNode(elemType, nil, structMap, currentPkg)
+		elemNode, err := GoTypeToSchemaNode(elemType, nil, structMap, currentPkg, currentStructName, currentSchemaName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert slice element type: %w", err)
 		}
@@ -64,7 +64,30 @@ func GoTypeToSchemaNode(typ reflect.Type, fieldInfo *FieldInfo, structMap map[st
 
 		// Check if this is a sparse array (map[uint32]T)
 		if keyType.Kind() == reflect.Uint32 {
-			valNode, err := GoTypeToSchemaNode(valType, nil, structMap, currentPkg)
+			// Check if this is a self-reference (map[uint32]CurrentStruct)
+			if valType.Kind() == reflect.Struct && fieldInfo != nil && fieldInfo.StructTypeName != "" {
+				// If the struct type name matches the current struct being defined, use compact form
+				if fieldInfo.StructTypeName == currentStructName {
+					// Create .[sparsearray] reference (compact form for self-reference)
+					// Return as a string node directly, not wrapped in a slice
+					return ir.FromString(".[sparsearray]"), nil
+				}
+				// Check if this struct has a schema definition
+				if structInfo, ok := structMap[fieldInfo.StructTypeName]; ok {
+					if structInfo.StructSchema != nil && structInfo.StructSchema.Mode == "schemadef" {
+						schemaName := structInfo.StructSchema.SchemaName
+						// Create .sparsearray(.schemaName) reference
+						valNode := ir.FromSlice([]*ir.Node{
+							ir.FromString("." + schemaName),
+						})
+						return ir.FromSlice([]*ir.Node{
+							ir.FromString(".sparsearray"),
+							valNode,
+						}), nil
+					}
+				}
+			}
+			valNode, err := GoTypeToSchemaNode(valType, fieldInfo, structMap, currentPkg, currentStructName, currentSchemaName)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert map value type: %w", err)
 			}
@@ -78,7 +101,7 @@ func GoTypeToSchemaNode(typ reflect.Type, fieldInfo *FieldInfo, structMap map[st
 		// Regular map[string]T → object with dynamic keys
 		// For now, we'll represent this as an object type
 		// TODO: Consider if we need a more specific schema representation
-		_, err := GoTypeToSchemaNode(valType, nil, structMap, currentPkg)
+		_, err := GoTypeToSchemaNode(valType, nil, structMap, currentPkg, currentStructName, currentSchemaName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert map value type: %w", err)
 		}
@@ -100,10 +123,10 @@ func GoTypeToSchemaNode(typ reflect.Type, fieldInfo *FieldInfo, structMap map[st
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
 		reflect.Float32, reflect.Float64:
-		return ir.FromSlice([]*ir.Node{
-			ir.FromString("!irtype"),
-			ir.FromInt(1), // Number type
-		}), nil
+		// Create a compact !irtype 1 format (tagged number node)
+		node := ir.FromInt(1)
+		node.Tag = "!irtype"
+		return node, nil
 
 	case reflect.Bool:
 		return ir.FromSlice([]*ir.Node{
@@ -121,7 +144,11 @@ func GoTypeToSchemaNode(typ reflect.Type, fieldInfo *FieldInfo, structMap map[st
 		}), nil
 
 	case reflect.Struct:
-		return goStructToSchemaNode(typ, structMap, currentPkg)
+		structTypeName := ""
+		if fieldInfo != nil {
+			structTypeName = fieldInfo.StructTypeName
+		}
+		return goStructToSchemaNode(typ, structMap, currentPkg, structTypeName, currentStructName, currentSchemaName)
 
 	default:
 		return nil, fmt.Errorf("unsupported type for schema generation: %s", typ)
@@ -131,33 +158,59 @@ func GoTypeToSchemaNode(typ reflect.Type, fieldInfo *FieldInfo, structMap map[st
 // goStructToSchemaNode converts a Go struct type to a schema node.
 // If the struct has a schemadef= tag, it creates a schema reference.
 // Otherwise, it creates an inline object definition.
-func goStructToSchemaNode(typ reflect.Type, structMap map[string]*StructInfo, currentPkg string) (*ir.Node, error) {
-	// Check if this struct has a schema definition
+func goStructToSchemaNode(typ reflect.Type, structMap map[string]*StructInfo, currentPkg string, structTypeName string, currentStructName string, currentSchemaName string) (*ir.Node, error) {
+	// Determine the actual struct name to use for lookup
+	// Prefer structTypeName (from AST) over typ.Name() (which may be empty for placeholder structs)
+	lookupName := structTypeName
+	if lookupName == "" {
+		lookupName = typ.Name()
+	}
+
+	// If we have a struct name, look it up
+	if lookupName != "" {
+		// If this is a self-reference, use compact form
+		if lookupName == currentStructName {
+			// Self-reference - use compact form (!schemaName)
+			node := ir.Null()
+			node.Tag = "!" + currentSchemaName
+			return node, nil
+		}
+		// Look up struct in our map
+		if structInfo, ok := structMap[lookupName]; ok {
+			if structInfo.StructSchema != nil && structInfo.StructSchema.Mode == "schemadef" {
+				schemaName := structInfo.StructSchema.SchemaName
+				// Create !schemaName reference (null node with tag !schemaName)
+				node := ir.Null()
+				node.Tag = "!" + schemaName
+				return node, nil
+			}
+		}
+		// Debug: if lookupName is set but not found, it means the struct isn't in the map
+		// This can happen if the struct doesn't have a schemadef= tag or isn't being processed
+	}
+
+	// Fallback: try to look up by type name and package path (for non-placeholder structs)
 	structName := typ.Name()
 	pkgPath := typ.PkgPath()
-
-	// Look up struct in our map
-	var structInfo *StructInfo
-	for name, info := range structMap {
-		if name == structName && info.Package == pkgPath {
-			structInfo = info
-			break
+	if structName != "" {
+		var structInfo *StructInfo
+		for name, info := range structMap {
+			if name == structName && info.Package == pkgPath {
+				structInfo = info
+				break
+			}
+		}
+		if structInfo != nil && structInfo.StructSchema != nil && structInfo.StructSchema.Mode == "schemadef" {
+			schemaName := structInfo.StructSchema.SchemaName
+			node := ir.Null()
+			node.Tag = "!" + schemaName
+			return node, nil
 		}
 	}
 
-	// If struct has schemadef= tag, create a schema reference
-	if structInfo != nil && structInfo.StructSchema != nil && structInfo.StructSchema.Mode == "schemadef" {
-		schemaName := structInfo.StructSchema.SchemaName
-		// Create .schemaName reference
-		return ir.FromSlice([]*ir.Node{
-			ir.FromString("." + schemaName),
-		}), nil
-	}
-
-	// Otherwise, create inline object definition
-	// This is a simplified version - full implementation would need to
-	// recursively process all fields
-	// For now, return a placeholder object type
+	// If we get here, we couldn't find a schema reference
+	// This means the struct type doesn't have a schemadef= tag or isn't in the struct map
+	// Return a placeholder object type (fallback)
 	return ir.FromSlice([]*ir.Node{
 		ir.FromString("!irtype"),
 		ir.FromMap(map[string]*ir.Node{}),
@@ -194,9 +247,10 @@ func ASTTypeToSchemaNode(expr ast.Expr, structMap map[string]*StructInfo, curren
 			if structInfo, ok := structMap[name]; ok && structInfo.Package == currentPkg {
 				if structInfo.StructSchema != nil && structInfo.StructSchema.Mode == "schemadef" {
 					schemaName := structInfo.StructSchema.SchemaName
-					return ir.FromSlice([]*ir.Node{
-						ir.FromString("." + schemaName),
-					}), nil
+					// Create !schemaName reference (null node with tag !schemaName)
+					node := ir.Null()
+					node.Tag = "!" + schemaName
+					return node, nil
 				}
 			}
 			// Unknown type - return placeholder

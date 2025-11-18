@@ -61,7 +61,7 @@ type Person struct {
 	}
 
 	// Generate schema
-	schema, err := GenerateSchema(structs)
+	schema, err := GenerateSchema(structs, person)
 	if err != nil {
 		t.Fatalf("failed to generate schema: %v", err)
 	}
@@ -86,12 +86,18 @@ type Person struct {
 		t.Fatalf("expected define to be ObjectType, got %v", defineNode.Type)
 	}
 
-	// Find person definition
+	// Find person definition - fields are now directly in define, not nested under "person"
 	var personDef *ir.Node
-	for i, field := range defineNode.Fields {
-		if field.String == "person" {
-			personDef = defineNode.Values[i]
-			break
+	if defineNode.Type == ir.ObjectType {
+		// Fields are directly in define, so personDef is defineNode itself
+		personDef = defineNode
+	} else {
+		// Legacy: look for nested "person" key
+		for i, field := range defineNode.Fields {
+			if field.String == "person" {
+				personDef = defineNode.Values[i]
+				break
+			}
 		}
 	}
 
@@ -166,7 +172,11 @@ type Person struct {
 		t.Fatalf("failed to extract structs: %v", err)
 	}
 
-	schema, err := GenerateSchema(structs)
+	if len(structs) != 1 {
+		t.Fatalf("expected 1 struct, got %d", len(structs))
+	}
+
+	schema, err := GenerateSchema(structs, structs[0])
 	if err != nil {
 		t.Fatalf("failed to generate schema: %v", err)
 	}
@@ -183,12 +193,19 @@ type Person struct {
 		t.Fatal("could not find 'define' in schema")
 	}
 
-	// Find person definition
+	// Find person definition - fields are now directly in define, not nested under "person"
 	var personDef *ir.Node
-	for i, field := range defineNode.Fields {
-		if field.String == "person" {
-			personDef = defineNode.Values[i]
-			break
+	// Check if define is an object with fields directly
+	if defineNode.Type == ir.ObjectType {
+		// Fields are directly in define, so personDef is defineNode itself
+		personDef = defineNode
+	} else {
+		// Legacy: look for nested "person" key
+		for i, field := range defineNode.Fields {
+			if field.String == "person" {
+				personDef = defineNode.Values[i]
+				break
+			}
 		}
 	}
 
@@ -258,7 +275,11 @@ type Person struct {
 		t.Fatalf("failed to extract structs: %v", err)
 	}
 
-	schema, err := GenerateSchema(structs)
+	if len(structs) != 1 {
+		t.Fatalf("expected 1 struct, got %d", len(structs))
+	}
+
+	schema, err := GenerateSchema(structs, structs[0])
 	if err != nil {
 		t.Fatalf("failed to generate schema: %v", err)
 	}
@@ -275,12 +296,17 @@ type Person struct {
 		t.Fatal("could not find 'define' in schema")
 	}
 
-	// Find person definition
+	// Find person definition - fields are now directly in define
 	var personDef *ir.Node
-	for i, field := range defineNode.Fields {
-		if field.String == "person" {
-			personDef = defineNode.Values[i]
-			break
+	if defineNode.Type == ir.ObjectType {
+		personDef = defineNode
+	} else {
+		// Legacy: look for nested "person" key
+		for i, field := range defineNode.Fields {
+			if field.String == "person" {
+				personDef = defineNode.Values[i]
+				break
+			}
 		}
 	}
 
@@ -329,7 +355,7 @@ type Person struct {
 	emailField := person.Fields[0]
 	emailField.Type = reflect.TypeOf("")
 
-	schema, err := GenerateSchema(structs)
+	schema, err := GenerateSchema(structs, person)
 	if err != nil {
 		t.Fatalf("failed to generate schema: %v", err)
 	}
@@ -346,12 +372,17 @@ type Person struct {
 		t.Fatal("could not find 'define' in schema")
 	}
 
-	// Find person definition
+	// Find person definition - fields are now directly in define
 	var personDef *ir.Node
-	for i, field := range defineNode.Fields {
-		if field.String == "person" {
-			personDef = defineNode.Values[i]
-			break
+	if defineNode.Type == ir.ObjectType {
+		personDef = defineNode
+	} else {
+		// Legacy: look for nested "person" key
+		for i, field := range defineNode.Fields {
+			if field.String == "person" {
+				personDef = defineNode.Values[i]
+				break
+			}
 		}
 	}
 

@@ -11,21 +11,21 @@ define:
   "null": !irtype null
   number: !irtype 1
   int: !and
-  - /number
+  - .[number]
   - int: !not null
   float: !and
-  - /number
+  - .[number]
   - float: !not null
   string: !irtype ""
   array: !irtype []
   array(t): !and
-  - /array
+  - .[array]
   - !all.type t
   sparsearray: !and
   - !irtype {}
   - !all.field.type 0
   sparsearray(t): !and
-  - /sparsearray
+  - .[sparsearray]
   - !all.type t
   # keyed lists
   key(p): !and

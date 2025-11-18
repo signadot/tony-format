@@ -7,9 +7,14 @@ import (
 )
 
 func associateComments(node *ir.Node) *ir.Node {
+	if node == nil {
+		return nil
+	}
 	switch node.Type {
 	case ir.CommentType:
-		node.Values[0] = associateComments(node.Values[0])
+		if len(node.Values) > 0 {
+			node.Values[0] = associateComments(node.Values[0])
+		}
 	case ir.ObjectType, ir.ArrayType:
 		var (
 			lastLineComment *ir.Node

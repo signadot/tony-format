@@ -169,10 +169,12 @@ func extractStructSchemaTag(structType *ast.StructType) (*gomap.StructSchema, er
 			commentFieldName := parsed["comment"]
 			lineCommentFieldName := parsed["LineComment"]
 			tagFieldName := parsed["tag"]
+			context := parsed["context"]
 
 			return &gomap.StructSchema{
 				Mode:                 mode,
 				SchemaName:           schemaName,
+				Context:              context,
 				AllowExtra:           allowExtra,
 				CommentFieldName:     commentFieldName,
 				LineCommentFieldName: lineCommentFieldName,

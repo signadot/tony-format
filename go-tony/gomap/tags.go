@@ -17,6 +17,10 @@ type StructSchema struct {
 	// SchemaName is the schema name/URI from the tag
 	SchemaName string
 
+	// Context is the schema context URI (e.g., "tony-format/context")
+	// If empty, defaults to "tony-format/context"
+	Context string
+
 	// AllowExtra allows struct to have extra fields not in schema (default: false, strict)
 	AllowExtra bool
 
@@ -185,6 +189,12 @@ func hasSchemaTag(field reflect.StructField) bool {
 // This recursively flattens nested embedded structs as well.
 // The schema tag on embedded structs is metadata, but fields are always flattened.
 func flattenEmbeddedFields(embeddedField reflect.StructField, structFieldMap map[string]reflect.StructField) error {
+	return flattenEmbeddedFieldsWithRenaming(embeddedField, structFieldMap)
+}
+
+// flattenEmbeddedFieldsWithRenaming adds exported fields from an embedded struct to the field map,
+// respecting field= tags for renaming. This recursively flattens nested embedded structs as well.
+func flattenEmbeddedFieldsWithRenaming(embeddedField reflect.StructField, structFieldMap map[string]reflect.StructField) error {
 	embeddedType := embeddedField.Type
 	if embeddedType.Kind() != reflect.Struct {
 		return nil // Not a struct, nothing to flatten
@@ -195,7 +205,7 @@ func flattenEmbeddedFields(embeddedField reflect.StructField, structFieldMap map
 		
 		if field.Anonymous {
 			// Recursively flatten nested embedded structs
-			if err := flattenEmbeddedFields(field, structFieldMap); err != nil {
+			if err := flattenEmbeddedFieldsWithRenaming(field, structFieldMap); err != nil {
 				return err
 			}
 			continue
@@ -206,13 +216,30 @@ func flattenEmbeddedFields(embeddedField reflect.StructField, structFieldMap map
 			continue
 		}
 		
-		// Check for field name conflicts
-		if existing, exists := structFieldMap[field.Name]; exists {
-			return fmt.Errorf("field name conflict: embedded struct field %q conflicts with existing field %q", field.Name, existing.Name)
+		// Parse field tag to check for field= renaming
+		tag := field.Tag.Get("tony")
+		schemaFieldName := field.Name // Default to struct field name
+		if tag != "" {
+			parsed, err := ParseStructTag(tag)
+			if err == nil {
+				// Check for field name override (field= tag)
+				if renamed, ok := parsed["field"]; ok && renamed != "" && renamed != "-" {
+					schemaFieldName = renamed
+				}
+			}
 		}
 		
-		// Add the field to the map
-		structFieldMap[field.Name] = field
+		// Check for field name conflicts (by schema field name)
+		if existing, exists := structFieldMap[schemaFieldName]; exists {
+			return fmt.Errorf("field name conflict: embedded struct field %q (schema name %q) conflicts with existing field %q", field.Name, schemaFieldName, existing.Name)
+		}
+		
+		// Add the field to the map using schema field name
+		structFieldMap[schemaFieldName] = field
+		// Also allow lookup by struct field name for backwards compatibility
+		if schemaFieldName != field.Name {
+			structFieldMap[field.Name] = field
+		}
 	}
 	return nil
 }
@@ -306,9 +333,16 @@ func GetStructSchema(typ reflect.Type) (*StructSchema, error) {
 			tagFieldName = name
 		}
 
+		// Extract context URI
+		context := ""
+		if ctx, ok := parsed["context"]; ok {
+			context = ctx
+		}
+
 		found = &StructSchema{
 			Mode:                 mode,
 			SchemaName:           schemaName,
+			Context:              context,
 			AllowExtra:           allowExtra,
 			CommentFieldName:      commentFieldName,
 			LineCommentFieldName:  lineCommentFieldName,
@@ -362,6 +396,7 @@ func getStructFieldsFromSchema(typ reflect.Type, s *schema.Schema, allowExtra bo
 	// Build a map of struct field names (case-sensitive matching, like jsonv2)
 	// Only exported fields are accessible from a different package (like json package)
 	// Embedded structs have their fields flattened into this map (schema tag is just metadata)
+	// The map keys are schema field names (from field= tag if present, otherwise struct field name)
 	structFieldMap := make(map[string]reflect.StructField)
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
@@ -370,7 +405,7 @@ func getStructFieldsFromSchema(typ reflect.Type, s *schema.Schema, allowExtra bo
 			// Flatten embedded structs regardless of schema tags
 			// The schema tag on the embedded struct is metadata about what schema it conforms to,
 			// but when embedded, its fields are flattened into the parent struct
-			if err := flattenEmbeddedFields(field, structFieldMap); err != nil {
+			if err := flattenEmbeddedFieldsWithRenaming(field, structFieldMap); err != nil {
 				return nil, fmt.Errorf("failed to flatten embedded struct %q: %w", field.Name, err)
 			}
 			continue
@@ -380,8 +415,27 @@ func getStructFieldsFromSchema(typ reflect.Type, s *schema.Schema, allowExtra bo
 		if !field.IsExported() {
 			continue
 		}
-		// Store exact name only (case-sensitive matching)
-		structFieldMap[field.Name] = field
+		
+		// Parse field tag to check for field= renaming
+		tag := field.Tag.Get("tony")
+		schemaFieldName := field.Name // Default to struct field name
+		if tag != "" {
+			parsed, err := ParseStructTag(tag)
+			if err == nil {
+				// Check for field name override (field= tag)
+				if renamed, ok := parsed["field"]; ok && renamed != "" && renamed != "-" {
+					schemaFieldName = renamed
+				}
+			}
+		}
+		
+		// Store mapping: schema field name -> struct field
+		// Also store original struct field name for backwards compatibility
+		structFieldMap[schemaFieldName] = field
+		if schemaFieldName != field.Name {
+			// Also allow lookup by struct field name for backwards compatibility
+			structFieldMap[field.Name] = field
+		}
 	}
 
 	var fields []*FieldInfo
@@ -426,7 +480,10 @@ func getStructFieldsFromSchema(typ reflect.Type, s *schema.Schema, allowExtra bo
 			return nil, fmt.Errorf("struct field %q not found for schema field %q", schemaFieldName, schemaFieldName)
 		}
 
+		// Track by struct field name for extra field checking
 		seenStructFields[structField.Name] = true
+		// Also track by schema field name (in case of renaming)
+		seenStructFields[schemaFieldName] = true
 
 		// Extract Go type from schema definition
 		// Registry is required for cross-schema references (!from, !schema)

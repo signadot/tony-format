@@ -64,6 +64,10 @@ type FieldInfo struct {
 
 	// IsEmbedded indicates if this is an embedded field
 	IsEmbedded bool
+
+	// StructTypeName stores the struct type name when Type is a struct type.
+	// This is needed because reflect.StructOf creates anonymous types.
+	StructTypeName string
 }
 
 // SchemaInfo holds schema metadata for code generation
