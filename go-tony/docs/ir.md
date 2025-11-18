@@ -51,7 +51,7 @@ lines:
 ### Tony Schema
 
 Here is a Tony schema for the Tony IR defined in terms of the
-[base schema](/tonyschema/#tony-base-schema).
+[base schema](tonyschema/index.md#tony-base-schema).
 
 ```tony
 signature:
@@ -167,13 +167,13 @@ Comment typed nodes define node comment association.
 The content of a comment typed node, meaning the text of the comments,
 is placed in the `.lines` field of the IR.
 
-A comment typed node either
+A comment typed node either:
 
 1. Contains 1 element in `.values`, a non-comment node to which it is associated
-as a _head comment_; or
-1. Contains 0 elements and resides the `.comment` field of a non-comment node and
-represents its _line comment_ plus possibly any trailing comment material in
-the event it is associated with the root non-comment node of the document.
+   as a _head comment_; or
+2. Contains 0 elements and resides the `.comment` field of a non-comment node and
+   represents its _line comment_ plus possibly any trailing comment material in
+   the event it is associated with the root non-comment node of the document.
 
 A comment typed node may not represent both a head comment and a line comment/document
 trailing comments.

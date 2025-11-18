@@ -66,12 +66,12 @@ In contrast, YTool
 
 - incorporates extended RFC 7396 merge patches, which maintain readability and
   independence of the tool -- your sources define the output without reference to
-  anything else, such as upstream "patch strategies", or "server side" patches.
-- allows for variable substitution of arbitrary yaml associated with variables.
+  anything else, such as upstream "patch strategies", or "server side" patches
+- allows for variable substitution of arbitrary yaml associated with variables
 - allows for executables you choose to arbitrarily transform or generate data
-- is built for flexibility for any kind of sigs.k8s.io/yaml style YAML.
+- is built for flexibility for any kind of sigs.k8s.io/yaml style YAML
 - preserves comments and can generate Helm charts and/or YAML comments by means 
-  of more expressive beyond-YAML output capabilities.
+  of more expressive beyond-YAML output capabilities
 
 ## YTool vs YS/YAML
 

@@ -100,6 +100,7 @@ func (r *TagEncoderRegistry) Register(
 4. Apply final composed encoder to value
 
 **Decoding Flow** (reverse):
+
 1. Start with base decoder (from interface, default, or registry lookup)
 2. Parse tag chain
 3. For each head tag in chain (left-to-right, reverse of encoding):
@@ -688,6 +689,7 @@ The registry matches transformers by **head tag** (first component):
    - Apply `innerTransformer(baseEncoder)` → `encoder1`
    - Apply `outerTransformer(encoder1)` → `finalEncoder`
 3. For decoding (left-to-right, reverse):
+
    - Start with base decoder
    - Apply `outerTransformer(baseDecoder)` → `decoder1`
    - Apply `innerTransformer(decoder1)` → `finalDecoder`

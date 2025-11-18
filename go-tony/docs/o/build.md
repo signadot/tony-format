@@ -42,17 +42,19 @@ build description object in the following form:
       # also can be in a separate file
     - file: my-pathes.tony
 
-Build then 
+Build then:
+
 1. initialises its environment
 2. evaluates the sources and patches object descriptions with the environment
 3. produces the sources
-3. runs the sources through the patches conditionally 
-4. takes the results and evaluates them with the environment
-5. outputs the result to .destDir or the command output
+4. runs the sources through the patches conditionally 
+5. takes the results and evaluates them with the environment
+6. outputs the result to .destDir or the command output
 
 Environment
 
-Build can have the environment set in 4 ways
+Build can have the environment set in 4 ways:
+
 1. in the build object file.
 2. using '-e path=value'
 3. using '-- path1=value1 path2=value2 ...'

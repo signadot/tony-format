@@ -23,7 +23,7 @@ array(t): !and
   - !all.type t
 ```
 
-**See also:** [`!type`](./mergeop.md#type), [`!field`](./mergeop.md#field)
+**See also:** [`!irtype`](./mergeop.md#irtype), [`!field`](./mergeop.md#field)
 
 ---
 
@@ -180,14 +180,14 @@ version: !replace
 
 ---
 
-## `!type`
+## `!irtype`
 
 **Match by node type**
 
-The !type operation matches nodes based on their type. The child must be a value of the desired type (e.g., `true` for bool, `1` for number, `""` for string).
+The !irtype operation matches nodes based on their type. The child must be a value of the desired type (e.g., `true` for bool, `1` for number, `""` for string).
 
 !!! note "Schema Usage"
-    Fundamental schema operation for type checking. Used in `define:` sections: `bool: !type true`, `number: !type 1`, `string: !type ""`
+    Fundamental schema operation for type checking. Used in `define:` sections: `bool: !irtype true`, `number: !irtype 1`, `string: !irtype ""`
 
     See [Schema Tags Reference](../schema-tags.md) for more on using tags in schemas.
 
@@ -196,15 +196,15 @@ The !type operation matches nodes based on their type. The child must be a value
 **Examples:**
 
 1. ```tony
-bool: !type true
+bool: !irtype true
 ```
 
 2. ```tony
-number: !type 1
+number: !irtype 1
 ```
 
 3. ```tony
-string: !type ""
+string: !irtype ""
 ```
 
 **See also:** [`!all`](./mergeop.md#all), [`!field`](./mergeop.md#field)

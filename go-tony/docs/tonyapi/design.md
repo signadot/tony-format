@@ -11,6 +11,7 @@ The TonyAPI system consists of three main components:
 ### 1. Document Server
 
 The **document server** is the entry point for client requests. It:
+
 - Receives HTTP requests (MATCH, PATCH, WATCH, MOUNT)
 - Routes operations to appropriate controllers based on mount points
 - Coordinates transactions for multi-path operations
@@ -18,6 +19,7 @@ The **document server** is the entry point for client requests. It:
 - Composes unified schema from controller contributions
 
 **Key responsibilities:**
+
 - Request routing and orchestration
 - Transaction coordination
 - Schema composition
@@ -26,6 +28,7 @@ The **document server** is the entry point for client requests. It:
 ### 2. Controllers
 
 **Controllers** are separate processes that handle operations for specific mount points in the virtual document. They:
+
 - Communicate directly with the logd server (read state, write diffs)
 - Handle MATCH operations (queries) for their mount point
 - Handle PATCH operations (mutations) for their mount point
@@ -34,10 +37,12 @@ The **document server** is the entry point for client requests. It:
 - Contribute schema definitions during MOUNT registration
 
 **Types of controllers:**
+
 - **Local controllers**: Spawned by document server, communicate via stdin/stdout
 - **Remote controllers**: Connect to document server, communicate via network
 
 **Key responsibilities:**
+
 - Operation validation
 - State management for their mount point
 - Direct communication with logd server
@@ -48,6 +53,7 @@ For detailed controller documentation, see [controllers.md](./controllers.md).
 ### 3. LogD Server
 
 The **logd server** is the storage backend that:
+
 - Stores diffs (changes) as the source of truth, not full state
 - Reconstructs current state by applying all diffs in sequence
 - Provides transaction support with participant counting
@@ -103,7 +109,8 @@ flowchart TD
 3. **Document Server**: Composes unified schema with controller's contribution
 4. **Document Server → Controller**: Confirms mount acceptance; connection remains open for operation routing
 
-**Key principles**: 
+**Key principles:**
+
 - Controllers are the **only** components that communicate with the logd server. The document server orchestrates but doesn't store diffs or act as an intermediary for logd operations.
 - **Controllers initiate MOUNT** - Remote controllers connect to the document server (not the other way around). Local controllers are spawned by the document server.
 
@@ -134,7 +141,8 @@ TonyAPI uses four HTTP methods for different operations:
 5. Controller returns result document to document server
 6. Document server forwards result to client
 
-**Characteristics**:
+**Characteristics:**
+
 - Query document has `path:` and `match:` but **no `patch:`**
 - Supports field selection, filtering, nested queries, and joins
 - Returns result documents matching the query structure
@@ -160,7 +168,8 @@ For detailed query format specifications and examples, see [queries.md](./querie
    - Controllers return revision numbers
 5. Document server responds to client with success or error
 
-**Characteristics**:
+**Characteristics:**
+
 - Mutation document has `path:`, `match:`, and **`patch:`**
 - Uses Tony diff operations (`!replace`, `!insert`, `!delete`, etc.)
 - Returns revision numbers (not diffs) for successful mutations
@@ -180,7 +189,8 @@ For detailed mutation format specifications, see [mutations.md](./mutations.md).
 5. Document server streams diffs to client (server-side push)
 6. Connection remains open until client closes or timeout
 
-**Characteristics**:
+**Characteristics:**
+
 - Uses same query document format as MATCH (no `patch:`)
 - Server maintains query result state
 - Server pushes diffs as changes occur

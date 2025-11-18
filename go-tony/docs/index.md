@@ -37,8 +37,8 @@ the desired matching documents.
 ```tony
 # match the kind field from a set of documents
 kind: !or
-- ConfigMap
-- Secret
+  - ConfigMap
+  - Secret
 ```
 
 Another example is diff output where a diff is itself not only a Tony document,

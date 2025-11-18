@@ -1,6 +1,6 @@
 # Schema Tags Reference
 
-This page documents tags that are commonly used in [Tony Schema](../tonyschema.md) definitions.
+This page documents tags that are commonly used in [Tony Schema](tonyschema/index.md) definitions.
 
 For complete operation documentation, see the [Operations Reference](./generated/index.md).
 
@@ -12,7 +12,7 @@ For complete operation documentation, see the [Operations Reference](./generated
 | [`!and`](./generated/mergeop.md#and) | mergeop | Match all conditions (logical AND) | Used in schema `define:` sections to combine multiple constraints. Example: `... |
 | [`!not`](./generated/mergeop.md#not) | mergeop | Negate a match condition | Used in schema `accept:` sections to exclude certain types. Example: `accept:... |
 | [`!or`](./generated/mergeop.md#or) | mergeop | Match any condition (logical OR) | Used in schema `accept:` and `define:` sections to allow multiple valid types... |
-| [`!type`](./generated/mergeop.md#type) | mergeop | Match by node type | Fundamental schema operation for type checking. Used in `define:` sections: `... |
+| [`!irtype`](./generated/mergeop.md#irtype) | mergeop | Match by node type | Fundamental schema operation for type checking. Used in `define:` sections: `... |
 
 ## Schema Context
 
@@ -26,7 +26,7 @@ Example:
 ```tony
 !schema
 define:
-  bool: !type true
+  bool: !irtype true
   array(t): !and
     - .array
     - !all.type t
@@ -38,6 +38,6 @@ accept:
 
 ## Related Documentation
 
-- [Tony Schema](../tonyschema.md) - Complete schema documentation
+- [Tony Schema](tonyschema/index.md) - Complete schema documentation
 - [Operations Reference](./generated/index.md) - All operations
 - [Mergeop Operations](./generated/mergeop.md) - Match and patch operations

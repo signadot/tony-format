@@ -36,6 +36,7 @@ Tony supports **key set notation** `{a b c}` as syntactic sugar for `a: null, b:
 ```
 
 **Valid uses of key set notation:**
+
 - ✅ As a standalone object: `{a b c}` 
 - ✅ As a value: `fields: {id name email}` creates `fields: {id: null, name: null, email: null}`
 - ✅ As an array element: `- {a b c}` or `[{a b c}]`
@@ -43,6 +44,7 @@ Tony supports **key set notation** `{a b c}` as syntactic sugar for `a: null, b:
 - ✅ **Mixing explicit values with bare keys**: `{id: "123" name email}`
 
 **Invalid use:**
+
 - ❌ Using key set notation as a sibling to other keys in block-mode (must be the only value):
   ```tony
   match: !trim
@@ -84,6 +86,7 @@ match: !trim
 - Selection is controlled by trim behavior on the match (for queries)
 
 **How it works:**
+
 - **`path:`**: Specifies the document path to operate on (e.g., `/users`, `/posts`, `/users/123`)
 - **Query (no `patch:`)**: Returns matched documents at the specified path
   - **Without `!trim`**: Return full matched documents
