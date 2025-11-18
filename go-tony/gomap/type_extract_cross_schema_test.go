@@ -22,16 +22,16 @@ func TestExtractGoType_CrossSchemaReferences(t *testing.T) {
 		Define: map[string]*ir.Node{
 			"number": &ir.Node{
 				Type: ir.NumberType,
-				Tag:  "!type",
+				Tag:  "!irtype",
 			},
 			"string": &ir.Node{
 				Type: ir.StringType,
-				Tag:  "!type",
+				Tag:  "!irtype",
 			},
 		},
 		Accept: &ir.Node{
 			Type: ir.ObjectType,
-			Tag:  "!type",
+			Tag:  "!irtype",
 		},
 	}
 
@@ -51,7 +51,7 @@ func TestExtractGoType_CrossSchemaReferences(t *testing.T) {
 		},
 		Accept: &ir.Node{
 			Type: ir.StringType,
-			Tag:  "!type",
+			Tag:  "!irtype",
 		},
 	}
 
@@ -178,13 +178,13 @@ func TestExtractGoType_CrossSchemaWithNullable(t *testing.T) {
 				Tag:  "!or",
 				Values: []*ir.Node{
 					ir.Null(),
-					&ir.Node{Type: ir.StringType, Tag: "!type"},
+					&ir.Node{Type: ir.StringType, Tag: "!irtype"},
 				},
 			},
 		},
 		Accept: &ir.Node{
 			Type: ir.StringType,
-			Tag:  "!type",
+			Tag:  "!irtype",
 		},
 	}
 
@@ -201,7 +201,7 @@ func TestExtractGoType_CrossSchemaWithNullable(t *testing.T) {
 		},
 		Accept: &ir.Node{
 			Type: ir.StringType,
-			Tag:  "!type",
+			Tag:  "!irtype",
 		},
 	}
 

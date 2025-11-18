@@ -2,7 +2,7 @@ match:
   spec:
     template:
       spec:
-        containers: !type []
+        containers: !irtype []
 patch:
   spec:
     template:

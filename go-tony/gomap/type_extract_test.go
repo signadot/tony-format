@@ -24,7 +24,7 @@ func TestExtractGoType_BasicTypes(t *testing.T) {
 			name: "string type",
 			def: &ir.Node{
 				Type: ir.StringType,
-				Tag:  "!type",
+				Tag:  "!irtype",
 			},
 			want: reflect.TypeOf(""),
 		},
@@ -32,7 +32,7 @@ func TestExtractGoType_BasicTypes(t *testing.T) {
 			name: "number type",
 			def: &ir.Node{
 				Type: ir.NumberType,
-				Tag:  "!type",
+				Tag:  "!irtype",
 			},
 			want: reflect.TypeOf(float64(0)),
 		},
@@ -40,7 +40,7 @@ func TestExtractGoType_BasicTypes(t *testing.T) {
 			name: "bool type",
 			def: &ir.Node{
 				Type: ir.BoolType,
-				Tag:  "!type",
+				Tag:  "!irtype",
 			},
 			want: reflect.TypeOf(false),
 		},
@@ -53,29 +53,29 @@ func TestExtractGoType_BasicTypes(t *testing.T) {
 			want: reflect.TypeOf(""),
 		},
 		{
-			name: "!type string",
+			name: "!irtype string",
 			def: &ir.Node{
 				Type:   ir.StringType,
 				String: "",
-				Tag:    "!type",
+				Tag:    "!irtype",
 			},
 			want: reflect.TypeOf(""),
 		},
 		{
-			name: "!type number",
+			name: "!irtype number",
 			def: &ir.Node{
 				Type:   ir.NumberType,
 				Int64:  intPtr(1),
-				Tag:    "!type",
+				Tag:    "!irtype",
 			},
 			want: reflect.TypeOf(float64(0)),
 		},
 		{
-			name: "!type bool",
+			name: "!irtype bool",
 			def: &ir.Node{
 				Type: ir.BoolType,
 				Bool: true,
-				Tag:  "!type",
+				Tag:  "!irtype",
 			},
 			want: reflect.TypeOf(false),
 		},
@@ -109,11 +109,11 @@ func TestExtractGoType_References(t *testing.T) {
 		Define: map[string]*ir.Node{
 			"number": &ir.Node{
 				Type: ir.NumberType,
-				Tag:  "!type",
+				Tag:  "!irtype",
 			},
 			"string": &ir.Node{
 				Type: ir.StringType,
-				Tag:  "!type",
+				Tag:  "!irtype",
 			},
 			"int": &ir.Node{
 				Type: ir.ObjectType,
@@ -185,7 +185,7 @@ func TestExtractGoType_NullableTypes(t *testing.T) {
 		Define: map[string]*ir.Node{
 			"string": &ir.Node{
 				Type: ir.StringType,
-				Tag:  "!type",
+				Tag:  "!irtype",
 			},
 		},
 	}
@@ -205,7 +205,7 @@ func TestExtractGoType_NullableTypes(t *testing.T) {
 					ir.Null(),
 					&ir.Node{
 						Type: ir.StringType,
-						Tag:  "!type",
+						Tag:  "!irtype",
 					},
 				},
 			},
@@ -231,7 +231,7 @@ func TestExtractGoType_NullableTypes(t *testing.T) {
 				Values: []*ir.Node{
 					&ir.Node{
 						Type: ir.StringType,
-						Tag:  "!type",
+						Tag:  "!irtype",
 					},
 				},
 			},
@@ -244,8 +244,8 @@ func TestExtractGoType_NullableTypes(t *testing.T) {
 				Tag:  "!or",
 				Values: []*ir.Node{
 					ir.Null(),
-					&ir.Node{Type: ir.StringType, Tag: "!type"},
-					&ir.Node{Type: ir.NumberType, Tag: "!type"},
+					&ir.Node{Type: ir.StringType, Tag: "!irtype"},
+					&ir.Node{Type: ir.NumberType, Tag: "!irtype"},
 				},
 			},
 			want: func() reflect.Type {
@@ -281,7 +281,7 @@ func TestExtractGoType_Arrays(t *testing.T) {
 		Define: map[string]*ir.Node{
 			"string": &ir.Node{
 				Type: ir.StringType,
-				Tag:  "!type",
+				Tag:  "!irtype",
 			},
 		},
 	}
@@ -296,9 +296,9 @@ func TestExtractGoType_Arrays(t *testing.T) {
 			name: "array of strings",
 			def: &ir.Node{
 				Type: ir.ArrayType,
-				Tag:  "!type",
+				Tag:  "!irtype",
 				Values: []*ir.Node{
-					&ir.Node{Type: ir.StringType, Tag: "!type"},
+					&ir.Node{Type: ir.StringType, Tag: "!irtype"},
 				},
 			},
 			want: reflect.SliceOf(reflect.TypeOf("")), // []string
@@ -307,7 +307,7 @@ func TestExtractGoType_Arrays(t *testing.T) {
 			name: "empty array",
 			def: &ir.Node{
 				Type:  ir.ArrayType,
-				Tag:   "!type",
+				Tag:   "!irtype",
 				Values: []*ir.Node{},
 			},
 			want: reflect.TypeOf([]interface{}(nil)), // []interface{} (default)
@@ -337,11 +337,11 @@ func TestExtractGoType_AndConstraints(t *testing.T) {
 		Define: map[string]*ir.Node{
 			"number": &ir.Node{
 				Type: ir.NumberType,
-				Tag:  "!type",
+				Tag:  "!irtype",
 			},
 			"string": &ir.Node{
 				Type: ir.StringType,
-				Tag:  "!type",
+				Tag:  "!irtype",
 			},
 		},
 	}
@@ -430,7 +430,7 @@ func TestExtractGoType_ComplexTypes(t *testing.T) {
 		Define: map[string]*ir.Node{
 			"string": &ir.Node{
 				Type: ir.StringType,
-				Tag:  "!type",
+				Tag:  "!irtype",
 			},
 		},
 	}
@@ -450,9 +450,9 @@ func TestExtractGoType_ComplexTypes(t *testing.T) {
 					ir.Null(),
 					&ir.Node{
 						Type: ir.ArrayType,
-						Tag:  "!type",
+						Tag:  "!irtype",
 						Values: []*ir.Node{
-							&ir.Node{Type: ir.StringType, Tag: "!type"},
+							&ir.Node{Type: ir.StringType, Tag: "!irtype"},
 						},
 					},
 				},

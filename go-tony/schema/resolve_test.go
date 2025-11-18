@@ -187,7 +187,7 @@ func TestResolveDefinitionNameWithRealSchema(t *testing.T) {
 		Define: map[string]*ir.Node{
 			"number": &ir.Node{
 				Type: ir.NumberType,
-				Tag:  "!type",
+				Tag:  "!irtype",
 			},
 			"int": &ir.Node{
 				Type: ir.ObjectType,
@@ -207,7 +207,7 @@ func TestResolveDefinitionNameWithRealSchema(t *testing.T) {
 			},
 			"array": &ir.Node{
 				Type: ir.ArrayType,
-				Tag:  "!type",
+				Tag:  "!irtype",
 			},
 			"array(t)": &ir.Node{
 				Type: ir.ObjectType,
@@ -230,8 +230,8 @@ func TestResolveDefinitionNameWithRealSchema(t *testing.T) {
 	if numberDef == nil {
 		t.Fatal("ResolveDefinitionName(\"number\") returned nil")
 	}
-	if numberDef.Tag != "!type" {
-		t.Errorf("ResolveDefinitionName(\"number\") Tag = %q, want %q", numberDef.Tag, "!type")
+	if numberDef.Tag != "!irtype" {
+		t.Errorf("ResolveDefinitionName(\"number\") Tag = %q, want %q", numberDef.Tag, "!irtype")
 	}
 
 	// Test resolving "int" (which contains a reference to "number")

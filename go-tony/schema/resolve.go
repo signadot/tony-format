@@ -20,7 +20,7 @@ import (
 // Example usage:
 //   // In a Tony schema file:
 //   define:
-//     number: !type 1
+//     number: !irtype 1
 //     int: !and
 //       - .[number]    # This references the "number" definition above
 //       - int: !not null

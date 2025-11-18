@@ -181,25 +181,25 @@ func ExtractGoType(def *ir.Node, s *schema.Schema, registry *schema.SchemaRegist
 	// Handle basic types by their IR node type first (before checking tags)
 	switch def.Type {
 	case ir.StringType:
-		// Check for !type tag after handling the type
+		// Check for !irtype tag after handling the type
 		if def.Tag != "" {
 			head, _, _ := ir.TagArgs(def.Tag)
-			if head == "!type" {
+			if head == "!irtype" {
 				return reflect.TypeOf(""), nil
 			}
 		}
 		return reflect.TypeOf(""), nil
 	case ir.NumberType:
-		// Check for !type tag first - for type definitions, ignore the actual value
+		// Check for !irtype tag first - for type definitions, ignore the actual value
 		if def.Tag != "" {
 			head, _, _ := ir.TagArgs(def.Tag)
-			if head == "!type" {
-				// For !type number, always return float64 (most general numeric type)
+			if head == "!irtype" {
+				// For !irtype number, always return float64 (most general numeric type)
 				// The actual value in the node is just an example, not the type
 				return reflect.TypeOf(float64(0)), nil
 			}
 		}
-		// Try to infer type from the node's actual value (for non-!type nodes)
+		// Try to infer type from the node's actual value (for non-!irtype nodes)
 		// Only infer int64 if Int64 is explicitly set (not nil)
 		// Only infer float64 if Float64 is explicitly set (not nil)
 		if def.Int64 != nil {
@@ -221,10 +221,10 @@ func ExtractGoType(def *ir.Node, s *schema.Schema, registry *schema.SchemaRegist
 		// This is the most general type for numbers
 		return reflect.TypeOf(float64(0)), nil
 	case ir.BoolType:
-		// Check for !type tag
+		// Check for !irtype tag
 		if def.Tag != "" {
 			head, _, _ := ir.TagArgs(def.Tag)
-			if head == "!type" {
+			if head == "!irtype" {
 				return reflect.TypeOf(false), nil
 			}
 		}
@@ -233,11 +233,11 @@ func ExtractGoType(def *ir.Node, s *schema.Schema, registry *schema.SchemaRegist
 		return nil, fmt.Errorf("cannot extract Go type from null type")
 	case ir.ArrayType:
 		// Array type - need to determine element type
-		// Check for !type tag - but still try to extract element type from values
+		// Check for !irtype tag - but still try to extract element type from values
 		if def.Tag != "" {
 			head, _, _ := ir.TagArgs(def.Tag)
-			if head == "!type" {
-				// If it's !type [] with no values, return []interface{}
+			if head == "!irtype" {
+				// If it's !irtype [] with no values, return []interface{}
 				if len(def.Values) == 0 {
 					return reflect.TypeOf([]interface{}(nil)), nil
 				}
@@ -246,10 +246,10 @@ func ExtractGoType(def *ir.Node, s *schema.Schema, registry *schema.SchemaRegist
 		}
 		return extractGoTypeFromArray(def, s, registry)
 	case ir.ObjectType:
-		// Check for !type tag
+		// Check for !irtype tag
 		if def.Tag != "" {
 			head, _, _ := ir.TagArgs(def.Tag)
-			if head == "!type" {
+			if head == "!irtype" {
 				return reflect.TypeOf(map[string]interface{}(nil)), nil
 			}
 		}
@@ -258,10 +258,10 @@ func ExtractGoType(def *ir.Node, s *schema.Schema, registry *schema.SchemaRegist
 		return reflect.TypeOf(map[string]interface{}(nil)), nil
 	}
 
-	// Handle !type tags for other cases
+	// Handle !irtype tags for other cases
 	if def.Tag != "" {
 		head, _, _ := ir.TagArgs(def.Tag)
-		if head == "!type" {
+		if head == "!irtype" {
 			return extractGoTypeFromTypeTag(def)
 		}
 	}
@@ -480,7 +480,7 @@ func typeToFieldName(typ reflect.Type) string {
 // extractGoTypeFromAnd handles !and constraints - extracts the base type.
 //
 // !and means ALL constraints must be satisfied. For type extraction, we need to:
-// 1. Find the "base type" (typically a reference like .[number] or type tag like !type "")
+// 1. Find the "base type" (typically a reference like .[number] or type tag like !irtype "")
 // 2. Handle parameterized types: if we see !all.type t, extract the parameter type
 // 3. Skip constraint nodes (like !not null, !not, etc.)
 //
@@ -538,34 +538,34 @@ func extractGoTypeFromAnd(def *ir.Node, s *schema.Schema, registry *schema.Schem
 	return nil, fmt.Errorf("could not extract base type from !and constraints")
 }
 
-// extractGoTypeFromTypeTag handles !type tags
+// extractGoTypeFromTypeTag handles !irtype tags
 func extractGoTypeFromTypeTag(def *ir.Node) (reflect.Type, error) {
-	// !type tags typically have a value that indicates the type
-	// Examples: !type "", !type 1, !type true, !type []
+	// !irtype tags typically have a value that indicates the type
+	// Examples: !irtype "", !irtype 1, !irtype true, !irtype []
 	
 	if def.Type == ir.StringType {
-		// !type "" → string
+		// !irtype "" → string
 		return reflect.TypeOf(""), nil
 	}
 	if def.Type == ir.NumberType {
-		// !type 1 → number (float64)
+		// !irtype 1 → number (float64)
 		return reflect.TypeOf(float64(0)), nil
 	}
 	if def.Type == ir.BoolType {
-		// !type true → bool
+		// !irtype true → bool
 		return reflect.TypeOf(false), nil
 	}
 	if def.Type == ir.ArrayType {
-		// !type [] → slice
+		// !irtype [] → slice
 		// Default to []interface{} if we can't determine element type
 		return reflect.TypeOf([]interface{}(nil)), nil
 	}
 	if def.Type == ir.ObjectType {
-		// !type {} → map or object
+		// !irtype {} → map or object
 		return reflect.TypeOf(map[string]interface{}(nil)), nil
 	}
 
-	return nil, fmt.Errorf("cannot determine type from !type tag: type=%v", def.Type)
+	return nil, fmt.Errorf("cannot determine type from !irtype tag: type=%v", def.Type)
 }
 
 // extractGoTypeFromArray handles array types

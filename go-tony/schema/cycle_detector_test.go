@@ -37,7 +37,7 @@ func TestExtractRefName(t *testing.T) {
 		},
 		{
 			name:     "no reference",
-			tag:      "!type",
+			tag:      "!irtype",
 			wantNone: true,
 		},
 		{

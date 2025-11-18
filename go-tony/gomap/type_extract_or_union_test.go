@@ -14,11 +14,11 @@ func TestExtractGoType_OrUnionTypes(t *testing.T) {
 		Define: map[string]*ir.Node{
 			"string": &ir.Node{
 				Type: ir.StringType,
-				Tag:  "!type",
+				Tag:  "!irtype",
 			},
 			"number": &ir.Node{
 				Type: ir.NumberType,
-				Tag:  "!type",
+				Tag:  "!irtype",
 			},
 		},
 	}
@@ -35,8 +35,8 @@ func TestExtractGoType_OrUnionTypes(t *testing.T) {
 				Type: ir.ArrayType,
 				Tag:  "!or",
 				Values: []*ir.Node{
-					&ir.Node{Type: ir.StringType, Tag: "!type"},
-					&ir.Node{Type: ir.NumberType, Tag: "!type"},
+					&ir.Node{Type: ir.StringType, Tag: "!irtype"},
+					&ir.Node{Type: ir.NumberType, Tag: "!irtype"},
 				},
 			},
 			want: func() reflect.Type {
@@ -54,8 +54,8 @@ func TestExtractGoType_OrUnionTypes(t *testing.T) {
 				Tag:  "!or",
 				Values: []*ir.Node{
 					ir.Null(),
-					&ir.Node{Type: ir.StringType, Tag: "!type"},
-					&ir.Node{Type: ir.NumberType, Tag: "!type"},
+					&ir.Node{Type: ir.StringType, Tag: "!irtype"},
+					&ir.Node{Type: ir.NumberType, Tag: "!irtype"},
 				},
 			},
 			want: func() reflect.Type {
@@ -72,7 +72,7 @@ func TestExtractGoType_OrUnionTypes(t *testing.T) {
 				Type: ir.ArrayType,
 				Tag:  "!or",
 				Values: []*ir.Node{
-					&ir.Node{Type: ir.StringType, Tag: "!type"},
+					&ir.Node{Type: ir.StringType, Tag: "!irtype"},
 				},
 			},
 			want: reflect.TypeOf(""), // Single type, not a struct
@@ -84,7 +84,7 @@ func TestExtractGoType_OrUnionTypes(t *testing.T) {
 				Tag:  "!or",
 				Values: []*ir.Node{
 					ir.Null(),
-					&ir.Node{Type: ir.StringType, Tag: "!type"},
+					&ir.Node{Type: ir.StringType, Tag: "!irtype"},
 				},
 			},
 			want: reflect.PtrTo(reflect.TypeOf("")), // *string

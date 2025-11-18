@@ -13,21 +13,21 @@ func TestIsNullable(t *testing.T) {
 		Define: map[string]*ir.Node{
 			"string": &ir.Node{
 				Type: ir.StringType,
-				Tag:  "!type",
+				Tag:  "!irtype",
 			},
 			"nullable-string": &ir.Node{
 				Type: ir.ArrayType,
 				Tag:  "!or",
 				Values: []*ir.Node{
 					ir.Null(),
-					&ir.Node{Type: ir.StringType, Tag: "!type"},
+					&ir.Node{Type: ir.StringType, Tag: "!irtype"},
 				},
 			},
 			"non-nullable-string": &ir.Node{
 				Type: ir.ArrayType,
 				Tag:  "!or",
 				Values: []*ir.Node{
-					&ir.Node{Type: ir.StringType, Tag: "!type"},
+					&ir.Node{Type: ir.StringType, Tag: "!irtype"},
 				},
 			},
 		},
@@ -45,7 +45,7 @@ func TestIsNullable(t *testing.T) {
 				Tag:  "!or",
 				Values: []*ir.Node{
 					ir.Null(),
-					&ir.Node{Type: ir.StringType, Tag: "!type"},
+					&ir.Node{Type: ir.StringType, Tag: "!irtype"},
 				},
 			},
 			want: true,
@@ -56,7 +56,7 @@ func TestIsNullable(t *testing.T) {
 				Type: ir.ArrayType,
 				Tag:  "!or",
 				Values: []*ir.Node{
-					&ir.Node{Type: ir.StringType, Tag: "!type"},
+					&ir.Node{Type: ir.StringType, Tag: "!irtype"},
 				},
 			},
 			want: false,
@@ -65,7 +65,7 @@ func TestIsNullable(t *testing.T) {
 			name: "string type - not nullable",
 			def: &ir.Node{
 				Type: ir.StringType,
-				Tag:  "!type",
+				Tag:  "!irtype",
 			},
 			want: false,
 		},
@@ -76,7 +76,7 @@ func TestIsNullable(t *testing.T) {
 				Tag:  "!or",
 				Values: []*ir.Node{
 					&ir.Node{Tag: "null"},
-					&ir.Node{Type: ir.StringType, Tag: "!type"},
+					&ir.Node{Type: ir.StringType, Tag: "!irtype"},
 				},
 			},
 			want: true,
@@ -88,7 +88,7 @@ func TestIsNullable(t *testing.T) {
 				Tag:  "!or",
 				Values: []*ir.Node{
 					&ir.Node{Type: ir.StringType, String: "null"},
-					&ir.Node{Type: ir.StringType, Tag: "!type"},
+					&ir.Node{Type: ir.StringType, Tag: "!irtype"},
 				},
 			},
 			want: true,
@@ -125,8 +125,8 @@ func TestIsNullable(t *testing.T) {
 				Type: ir.ArrayType,
 				Tag:  "!or",
 				Values: []*ir.Node{
-					&ir.Node{Type: ir.StringType, Tag: "!type"},
-					&ir.Node{Type: ir.NumberType, Tag: "!type"},
+					&ir.Node{Type: ir.StringType, Tag: "!irtype"},
+					&ir.Node{Type: ir.NumberType, Tag: "!irtype"},
 				},
 			},
 			want: false,
@@ -138,8 +138,8 @@ func TestIsNullable(t *testing.T) {
 				Tag:  "!or",
 				Values: []*ir.Node{
 					ir.Null(),
-					&ir.Node{Type: ir.StringType, Tag: "!type"},
-					&ir.Node{Type: ir.NumberType, Tag: "!type"},
+					&ir.Node{Type: ir.StringType, Tag: "!irtype"},
+					&ir.Node{Type: ir.NumberType, Tag: "!irtype"},
 				},
 			},
 			want: true,

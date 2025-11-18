@@ -74,6 +74,7 @@ func (m *Mapper) toIRWithSchema(val reflect.Value, typ reflect.Type, structSchem
 	}
 
 	// Build IR object using schema field names
+	visited := make(map[uintptr]string) // Track visited pointers for cycle detection
 	irMap := make(map[string]*ir.Node)
 	for _, fieldInfo := range fields {
 		if fieldInfo.Omit {
@@ -91,7 +92,7 @@ func (m *Mapper) toIRWithSchema(val reflect.Value, typ reflect.Type, structSchem
 		}
 
 		// Use SchemaFieldName instead of Go field name
-		fieldNode, err := toIRReflectValue(fieldVal, fieldInfo.SchemaFieldName)
+		fieldNode, err := toIRReflectValue(fieldVal, fieldInfo.SchemaFieldName, visited)
 		if err != nil {
 			return nil, &MarshalError{
 				FieldPath: fieldInfo.SchemaFieldName,

@@ -86,6 +86,7 @@ func (m *Mapper) fromIRWithSchema(node *ir.Node, val reflect.Value, typ reflect.
 	}
 
 	// Unmarshal using schema field names
+	visited := make(map[uintptr]string) // Track visited pointers for cycle detection
 	seenFields := make(map[string]bool)
 	for i, fieldNameNode := range node.Fields {
 		if i >= len(node.Values) {
@@ -116,7 +117,7 @@ func (m *Mapper) fromIRWithSchema(node *ir.Node, val reflect.Value, typ reflect.
 		}
 
 		fieldNode := node.Values[i]
-		if err := fromIRReflect(fieldNode, fieldVal, schemaFieldName); err != nil {
+		if err := fromIRReflectWithVisited(fieldNode, fieldVal, schemaFieldName, visited); err != nil {
 			return err
 		}
 	}

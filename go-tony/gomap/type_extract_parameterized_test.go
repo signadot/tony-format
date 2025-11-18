@@ -14,15 +14,15 @@ func TestExtractGoType_ParameterizedReferences(t *testing.T) {
 		Define: map[string]*ir.Node{
 			"string": &ir.Node{
 				Type: ir.StringType,
-				Tag:  "!type",
+				Tag:  "!irtype",
 			},
 			"number": &ir.Node{
 				Type: ir.NumberType,
-				Tag:  "!type",
+				Tag:  "!irtype",
 			},
 			"array": &ir.Node{
 				Type: ir.ArrayType,
-				Tag:  "!type",
+				Tag:  "!irtype",
 			},
 		},
 	}
@@ -115,11 +115,11 @@ func TestExtractGoType_ParameterizedDefinitions(t *testing.T) {
 		Define: map[string]*ir.Node{
 			"array": &ir.Node{
 				Type: ir.ArrayType,
-				Tag:  "!type",
+				Tag:  "!irtype",
 			},
 			"string": &ir.Node{
 				Type: ir.StringType,
-				Tag:  "!type",
+				Tag:  "!irtype",
 			},
 			"array(t)": &ir.Node{
 				Type: ir.ArrayType,

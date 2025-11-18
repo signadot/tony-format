@@ -74,6 +74,12 @@ func callFromTony(method reflect.Value, node *ir.Node) error {
 // fromIRReflect implements reflection-based conversion from IR.
 // This is the fallback when generated code is not available.
 func fromIRReflect(node *ir.Node, val reflect.Value, fieldPath string) error {
+	visited := make(map[uintptr]string) // Track visited pointers for cycle detection
+	return fromIRReflectWithVisited(node, val, fieldPath, visited)
+}
+
+// fromIRReflectWithVisited implements reflection-based conversion from IR with cycle detection.
+func fromIRReflectWithVisited(node *ir.Node, val reflect.Value, fieldPath string, visited map[uintptr]string) error {
 	if node == nil {
 		return &UnmarshalError{
 			FieldPath: fieldPath,
@@ -93,14 +99,27 @@ func fromIRReflect(node *ir.Node, val reflect.Value, fieldPath string) error {
 	typ := val.Type()
 	kind := typ.Kind()
 
-	// Handle pointers
+	// Handle pointers - check for cycles
 	if kind == reflect.Ptr {
 		// Allocate pointer if needed
 		if val.IsNil() {
 			val.Set(reflect.New(typ.Elem()))
 		}
+		// Check if we've seen this pointer before (we're currently building it)
+		ptrAddr := val.Pointer()
+		if prevPath, seen := visited[ptrAddr]; seen {
+			return &UnmarshalError{
+				FieldPath: fieldPath,
+				Message:   fmt.Sprintf("circular reference detected: %s -> %s (previously seen at %s)", prevPath, fieldPath, prevPath),
+			}
+		}
+		// Mark this pointer as visited
+		visited[ptrAddr] = fieldPath
 		// Recurse on the element
-		return fromIRReflect(node, val.Elem(), fieldPath)
+		err := fromIRReflectWithVisited(node, val.Elem(), fieldPath, visited)
+		// Remove from visited after processing (allows same pointer to appear in different branches)
+		delete(visited, ptrAddr)
+		return err
 	}
 
 	// Handle basic types
@@ -121,17 +140,17 @@ func fromIRReflect(node *ir.Node, val reflect.Value, fieldPath string) error {
 		return fromIRToBool(node, val, fieldPath)
 
 	case reflect.Slice, reflect.Array:
-		return fromIRToSlice(node, val, fieldPath)
+		return fromIRToSlice(node, val, fieldPath, visited)
 
 	case reflect.Map:
-		return fromIRToMap(node, val, fieldPath)
+		return fromIRToMap(node, val, fieldPath, visited)
 
 	case reflect.Struct:
-		return fromIRToStruct(node, val, fieldPath)
+		return fromIRToStruct(node, val, fieldPath, visited)
 
 	case reflect.Interface:
 		// For interface{}, determine the concrete type from the IR node
-		return fromIRToInterface(node, val, fieldPath)
+		return fromIRToInterface(node, val, fieldPath, visited)
 
 	default:
 		return &UnmarshalError{
@@ -373,7 +392,7 @@ func fromIRToBool(node *ir.Node, val reflect.Value, fieldPath string) error {
 
 // fromIRToInterface unmarshals an IR node to an interface{} value.
 // It infers the concrete Go type from the IR node type.
-func fromIRToInterface(node *ir.Node, val reflect.Value, fieldPath string) error {
+func fromIRToInterface(node *ir.Node, val reflect.Value, fieldPath string, visited map[uintptr]string) error {
 	if node == nil {
 		if val.CanSet() {
 			val.Set(reflect.Zero(val.Type()))
@@ -437,7 +456,7 @@ func fromIRToInterface(node *ir.Node, val reflect.Value, fieldPath string) error
 			} else {
 				elemPath = fmt.Sprintf("[%d]", i)
 			}
-			if err := fromIRToInterface(elemNode, elemVal, elemPath); err != nil {
+			if err := fromIRToInterface(elemNode, elemVal, elemPath, visited); err != nil {
 				return err
 			}
 			slice[i] = elemResult
@@ -458,7 +477,7 @@ func fromIRToInterface(node *ir.Node, val reflect.Value, fieldPath string) error
 			} else {
 				valuePath = key
 			}
-			if err := fromIRToInterface(valueNode, valueVal, valuePath); err != nil {
+			if err := fromIRToInterface(valueNode, valueVal, valuePath, visited); err != nil {
 				return err
 			}
 			m[key] = valueResult
@@ -481,7 +500,7 @@ func fromIRToInterface(node *ir.Node, val reflect.Value, fieldPath string) error
 }
 
 // fromIRToSlice unmarshals an IR array node to a slice or array value.
-func fromIRToSlice(node *ir.Node, val reflect.Value, fieldPath string) error {
+func fromIRToSlice(node *ir.Node, val reflect.Value, fieldPath string, visited map[uintptr]string) error {
 	if node.Type != ir.ArrayType {
 		return &UnmarshalError{
 			FieldPath: fieldPath,
@@ -508,6 +527,18 @@ func fromIRToSlice(node *ir.Node, val reflect.Value, fieldPath string) error {
 		} else {
 			val.SetLen(length)
 		}
+		// Track slice pointer for cycle detection
+		if !val.IsNil() {
+			slicePtr := val.Pointer()
+			if prevPath, seen := visited[slicePtr]; seen {
+				return &UnmarshalError{
+					FieldPath: fieldPath,
+					Message:   fmt.Sprintf("circular reference detected: %s -> %s (previously seen at %s)", prevPath, fieldPath, prevPath),
+				}
+			}
+			visited[slicePtr] = fieldPath
+			defer delete(visited, slicePtr)
+		}
 	}
 
 	for i := 0; i < length; i++ {
@@ -519,7 +550,7 @@ func fromIRToSlice(node *ir.Node, val reflect.Value, fieldPath string) error {
 		}
 
 		elemVal := val.Index(i)
-		if err := fromIRReflect(node.Values[i], elemVal, elemPath); err != nil {
+		if err := fromIRReflectWithVisited(node.Values[i], elemVal, elemPath, visited); err != nil {
 			return err
 		}
 	}
@@ -530,7 +561,7 @@ func fromIRToSlice(node *ir.Node, val reflect.Value, fieldPath string) error {
 // fromIRToMap unmarshals an IR object node to a map value.
 // If the IR node has the !sparsearray tag, it's treated as a sparse array (map[uint32]T).
 // Otherwise, it's treated as a regular object (map[string]T).
-func fromIRToMap(node *ir.Node, val reflect.Value, fieldPath string) error {
+func fromIRToMap(node *ir.Node, val reflect.Value, fieldPath string, visited map[uintptr]string) error {
 	if node.Type != ir.ObjectType {
 		return &UnmarshalError{
 			FieldPath: fieldPath,
@@ -541,6 +572,25 @@ func fromIRToMap(node *ir.Node, val reflect.Value, fieldPath string) error {
 	typ := val.Type()
 	keyType := typ.Key()
 	valType := typ.Elem()
+
+	// Allocate map if needed
+	if val.IsNil() {
+		val.Set(reflect.MakeMap(typ))
+	}
+
+	// Track map pointer for cycle detection
+	mapPtr := val.Pointer()
+	if prevPath, seen := visited[mapPtr]; seen {
+		return &UnmarshalError{
+			FieldPath: fieldPath,
+			Message:   fmt.Sprintf("circular reference detected: %s -> %s (previously seen at %s)", prevPath, fieldPath, prevPath),
+		}
+	}
+	visited[mapPtr] = fieldPath
+	defer delete(visited, mapPtr)
+
+	// Clear existing entries (or we could merge - for now, clear)
+	val.Set(reflect.MakeMap(typ))
 
 	// Check if this is a sparse array (!sparsearray tag)
 	isSparseArray := ir.TagHas(node.Tag, ir.IntKeysTag)
@@ -564,14 +614,6 @@ func fromIRToMap(node *ir.Node, val reflect.Value, fieldPath string) error {
 			}
 		}
 
-		// Allocate map if needed
-		if val.IsNil() {
-			val.Set(reflect.MakeMap(typ))
-		}
-
-		// Clear existing entries
-		val.Set(reflect.MakeMap(typ))
-
 		// Unmarshal each value
 		for key, valueNode := range intKeysMap {
 			keyVal := reflect.ValueOf(key)
@@ -584,7 +626,7 @@ func fromIRToMap(node *ir.Node, val reflect.Value, fieldPath string) error {
 				valuePath = fmt.Sprintf("[%d]", key)
 			}
 
-			if err := fromIRReflect(valueNode, valueVal, valuePath); err != nil {
+			if err := fromIRReflectWithVisited(valueNode, valueVal, valuePath, visited); err != nil {
 				return err
 			}
 
@@ -602,14 +644,6 @@ func fromIRToMap(node *ir.Node, val reflect.Value, fieldPath string) error {
 		}
 	}
 
-	// Allocate map if needed
-	if val.IsNil() {
-		val.Set(reflect.MakeMap(typ))
-	}
-
-	// Clear existing entries (or we could merge - for now, clear)
-	val.Set(reflect.MakeMap(typ))
-
 	// Convert IR object to map
 	irMap := ir.ToMap(node)
 	for key, valueNode := range irMap {
@@ -623,7 +657,7 @@ func fromIRToMap(node *ir.Node, val reflect.Value, fieldPath string) error {
 			valuePath = key
 		}
 
-		if err := fromIRReflect(valueNode, valueVal, valuePath); err != nil {
+		if err := fromIRReflectWithVisited(valueNode, valueVal, valuePath, visited); err != nil {
 			return err
 		}
 
@@ -635,7 +669,7 @@ func fromIRToMap(node *ir.Node, val reflect.Value, fieldPath string) error {
 
 // fromIRToStruct unmarshals an IR object node to a struct value.
 // Embedded structs are handled by flattening (fields are promoted from embedded structs).
-func fromIRToStruct(node *ir.Node, val reflect.Value, fieldPath string) error {
+func fromIRToStruct(node *ir.Node, val reflect.Value, fieldPath string, visited map[uintptr]string) error {
 	if node.Type != ir.ObjectType {
 		return &UnmarshalError{
 			FieldPath: fieldPath,
@@ -644,6 +678,8 @@ func fromIRToStruct(node *ir.Node, val reflect.Value, fieldPath string) error {
 	}
 
 	typ := val.Type()
+	// Note: We don't track struct values themselves for cycle detection, only pointers/slices/maps.
+	// A struct value appearing multiple times is not a cycle - only reference types can create cycles.
 
 	// Build a map of struct field names (case-sensitive) to their field indices
 	// For embedded structs, we need to track both the embedded struct index and the field index
@@ -718,7 +754,7 @@ func fromIRToStruct(node *ir.Node, val reflect.Value, fieldPath string) error {
 			nextPath = fieldName
 		}
 
-		if err := fromIRReflect(fieldNode, fieldVal, nextPath); err != nil {
+		if err := fromIRReflectWithVisited(fieldNode, fieldVal, nextPath, visited); err != nil {
 			return err
 		}
 	}

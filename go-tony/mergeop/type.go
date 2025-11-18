@@ -14,7 +14,7 @@ func Type() Symbol {
 }
 
 const (
-	typeName matchName = "type"
+	typeName matchName = "irtype"
 )
 
 type typeSymbol struct {
