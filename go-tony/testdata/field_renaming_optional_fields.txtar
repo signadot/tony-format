@@ -1,0 +1,32 @@
+-- account.tony --
+# Schema with optional/nullable fields
+context: tony-format/context
+define:
+  account_id: !irtype 2
+  username: !irtype 1
+  email: !or [null, !irtype 1]
+  phone: !or [null, !irtype 1]
+  bio: !or [null, !irtype 1]
+signature:
+  name: account
+
+-- account.go --
+package test
+
+type schemaTag struct{}
+
+type Account struct {
+	schemaTag `tony:"schema=account"`
+	AccountID int64   `tony:"field=account_id"`
+	Username  string  `tony:"field=username"`
+	Email     *string `tony:"field=email"`     // Optional: pointer type
+	Phone     *string `tony:"field=phone"`     // Optional: pointer type
+	Bio       *string `tony:"field=bio"`       // Optional: pointer type
+}
+
+-- expected_fields.txt --
+AccountID -> account_id (int64)
+Username -> username (string)
+Email -> email (*string, optional)
+Phone -> phone (*string, optional)
+Bio -> bio (*string, optional)

@@ -1,0 +1,88 @@
+-- shared/types/name.tony --
+# Name schema in shared package
+context: tony-format/context
+define:
+  first_name: !irtype 1
+  last_name: !irtype 1
+signature:
+  name: name
+
+-- shared/types/name.go --
+package types
+
+type schemaTag struct{}
+
+// Name struct defines the schema
+type Name struct {
+	schemaTag `tony:"schemadef=name"`
+	FirstName string
+	LastName  string
+}
+
+-- shared/types/contact.tony --
+# Contact schema in shared package
+context: tony-format/context
+define:
+  email: !irtype 1
+  phone: !irtype 1
+signature:
+  name: contact
+
+-- shared/types/contact.go --
+package types
+
+type schemaTag struct{}
+
+// Contact struct defines the schema
+type Contact struct {
+	schemaTag `tony:"schemadef=contact"`
+	Email string
+	Phone string
+}
+
+-- api/user.tony --
+# User schema that references multiple types from shared package
+context: tony-format/context
+define:
+  user_id: !irtype 2
+  username: !irtype 1
+  name: !name null
+  contact: !contact null
+signature:
+  name: user
+
+-- api/user.go --
+package api
+
+import "github.com/signadot/tony-format/go-tony/testdata/shared/types"
+
+type schemaTag struct{}
+
+// User struct uses types from shared.types package as field types
+// Both Name and Contact are cross-package type references
+type User struct {
+	schemaTag `tony:"schema=user"`
+	UserID   int64            `tony:"field=user_id"`   // Renamed: UserID -> user_id
+	Username string           `tony:"field=username"`   // Not renamed: matches schema
+	Name     types.Name       `tony:"field=name"`       // Cross-package type: types.Name -> name
+	Contact  types.Contact    `tony:"field=contact"`    // Cross-package type: types.Contact -> contact
+}
+
+-- expected_fields.txt --
+UserID -> user_id (int64)
+Username -> username (string)
+Name -> name (types.Name, schema reference !name)
+Contact -> contact (types.Contact, schema reference !contact)
+
+-- README.md --
+This example demonstrates nested cross-package type references:
+
+1. The `shared.types` package defines `Name` and `Contact` types with their schemas
+2. The `api` package defines a `User` struct that:
+   - Uses the `user` schema
+   - Has a `Name` field of type `types.Name` (cross-package type)
+   - Has a `Contact` field of type `types.Contact` (cross-package type)
+   - Uses field renaming
+
+This shows how schemas can reference other schemas (!name, !contact) while
+the Go struct uses actual cross-package type references.

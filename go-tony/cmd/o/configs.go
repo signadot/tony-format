@@ -230,3 +230,8 @@ type LoadConfig struct {
 func (cfg *LoadConfig) parseOpts() []parse.ParseOption {
 	return append(cfg.MainConfig.parseOpts(), parse.ParseComments(cfg.Comments))
 }
+
+type SystemConfig struct {
+	*MainConfig
+	System *cli.Command
+}

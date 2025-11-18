@@ -1,0 +1,23 @@
+-- person.tony --
+# Schema definition
+context: tony-format/context
+define:
+  name: !irtype 1
+  age: !irtype 2
+signature:
+  name: person
+
+-- person.go --
+package test
+
+type schemaTag struct{}
+
+type Person struct {
+	schemaTag `tony:"schema=person"`
+	FullName  string `tony:"field=name"`  // Struct field "FullName" maps to schema field "name"
+	Age       int    `tony:"field=age"`    // Struct field "Age" maps to schema field "age"
+}
+
+-- expected_fields.txt --
+FullName -> name (string)
+Age -> age (int)

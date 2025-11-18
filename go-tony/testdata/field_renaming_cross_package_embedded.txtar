@@ -1,0 +1,77 @@
+-- common/profile.tony --
+# Profile schema in common package
+context: tony-format/context
+define:
+  profile_id: !irtype 2
+  first_name: !irtype 1
+  last_name: !irtype 1
+  email: !irtype 1
+  phone_number: !irtype 1
+signature:
+  name: profile
+
+-- common/profile.go --
+package common
+
+type schemaTag struct{}
+
+// Profile schema definition
+type Profile struct {
+	schemaTag `tony:"schemadef=profile"`
+	ProfileID   int64
+	FirstName   string
+	LastName    string
+	Email       string
+	PhoneNumber string
+}
+
+-- api/name.go --
+package api
+
+// Name struct with field renaming for embedded use
+type Name struct {
+	FirstName string `tony:"field=first_name"`
+	LastName  string `tony:"field=last_name"`
+}
+
+-- api/contact.go --
+package api
+
+// Contact struct with field renaming for embedded use
+type Contact struct {
+	Email       string `tony:"field=email"`
+	PhoneNumber string `tony:"field=phone_number"`
+}
+
+-- api/user_profile.go --
+package api
+
+import "github.com/signadot/tony-format/go-tony/testdata/common"
+
+type schemaTag struct{}
+
+// UserProfile embeds Name and Contact, using the profile schema from common package
+// The embedded structs have field renaming, and the parent struct adds profile_id
+type UserProfile struct {
+	schemaTag `tony:"schema=common.profile"`
+	ProfileID int64 `tony:"field=profile_id"`  // Renamed: ProfileID -> profile_id
+	Name                                             // Embedded: FirstName -> first_name, LastName -> last_name
+	Contact                                          // Embedded: Email -> email, PhoneNumber -> phone_number
+}
+
+-- expected_fields.txt --
+ProfileID -> profile_id (int64)
+FirstName -> first_name (string)
+LastName -> last_name (string)
+Email -> email (string)
+PhoneNumber -> phone_number (string)
+
+-- README.md --
+This example demonstrates cross-package field renaming with embedded structs:
+
+1. The `common` package defines a profile schema
+2. The `api` package uses it with embedded structs (Name and Contact)
+3. The embedded structs have field renaming tags
+4. The parent UserProfile struct also has a renamed field
+
+This shows how field renaming works with embedded structs across packages.

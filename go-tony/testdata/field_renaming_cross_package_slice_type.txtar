@@ -1,0 +1,64 @@
+-- common/tag.tony --
+# Tag schema in common package
+context: tony-format/context
+define:
+  tag_name: !irtype 1
+  tag_value: !irtype 1
+signature:
+  name: tag
+
+-- common/tag.go --
+package common
+
+type schemaTag struct{}
+
+// Tag struct defines the schema
+type Tag struct {
+	schemaTag `tony:"schemadef=tag"`
+	TagName  string
+	TagValue string
+}
+
+-- api/resource.tony --
+# Resource schema with slice of cross-package types
+context: tony-format/context
+define:
+  resource_id: !irtype 2
+  resource_name: !irtype 1
+  tags: .[array]
+signature:
+  name: resource
+
+-- api/resource.go --
+package api
+
+import "github.com/signadot/tony-format/go-tony/testdata/common"
+
+type schemaTag struct{}
+
+// Resource struct uses a slice of cross-package types
+// The Tags field is []common.Tag, demonstrating how slices of
+// cross-package types work with field renaming
+type Resource struct {
+	schemaTag `tony:"schema=resource"`
+	ResourceID   int64         `tony:"field=resource_id"`   // Renamed: ResourceID -> resource_id
+	ResourceName string        `tony:"field=resource_name"` // Renamed: ResourceName -> resource_name
+	Tags         []common.Tag   `tony:"field=tags"`         // Slice of cross-package type: []common.Tag -> tags
+}
+
+-- expected_fields.txt --
+ResourceID -> resource_id (int64)
+ResourceName -> resource_name (string)
+Tags -> tags ([]common.Tag, array type)
+
+-- README.md --
+This example demonstrates slices of cross-package types with field renaming:
+
+1. The `common` package defines a `Tag` type and schema
+2. The `api` package defines a `Resource` struct that:
+   - Uses the `resource` schema
+   - Has a `Tags` field of type `[]common.Tag` (slice of cross-package type)
+   - Uses field renaming
+
+This shows how collections (slices, arrays) of cross-package types work
+with field renaming in schema= mode.

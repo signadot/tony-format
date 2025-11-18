@@ -1,0 +1,29 @@
+-- legacy.tony --
+# Schema testing backwards compatibility - some fields renamed, some not
+context: tony-format/context
+define:
+  id: !irtype 2
+  name: !irtype 1
+  created_at: !irtype 2
+  updatedAt: !irtype 2
+signature:
+  name: legacy
+
+-- legacy.go --
+package test
+
+type schemaTag struct{}
+
+type Legacy struct {
+	schemaTag `tony:"schema=legacy"`
+	ID        int64  `tony:"field=id"`         // Renamed: ID -> id
+	Name      string                             // Not renamed: Name matches name (case-insensitive matching would work, but we use exact)
+	CreatedAt int64  `tony:"field=created_at"` // Renamed: CreatedAt -> created_at
+	UpdatedAt int64                              // Not renamed: UpdatedAt -> updatedAt (exact match)
+}
+
+-- expected_fields.txt --
+ID -> id (int64)
+Name -> name (string)
+CreatedAt -> created_at (int64)
+UpdatedAt -> updatedAt (int64)

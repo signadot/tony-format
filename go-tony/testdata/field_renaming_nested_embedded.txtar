@@ -1,0 +1,46 @@
+-- company.tony --
+# Schema with deeply nested structure
+context: tony-format/context
+define:
+  company_name: !irtype 1
+  ceo_first_name: !irtype 1
+  ceo_last_name: !irtype 1
+  address_street: !irtype 1
+  address_city: !irtype 1
+  address_zip: !irtype 1
+signature:
+  name: company
+
+-- company.go --
+package test
+
+type schemaTag struct{}
+
+// CEO name structure
+type CEO struct {
+	FirstName string `tony:"field=ceo_first_name"`
+	LastName  string `tony:"field=ceo_last_name"`
+}
+
+// Address structure
+type Address struct {
+	Street string `tony:"field=address_street"`
+	City   string `tony:"field=address_city"`
+	Zip    string `tony:"field=address_zip"`
+}
+
+// Company structure with nested embedded structs
+type Company struct {
+	schemaTag `tony:"schema=company"`
+	CompanyName string `tony:"field=company_name"`
+	CEO
+	Address
+}
+
+-- expected_fields.txt --
+CompanyName -> company_name (string)
+FirstName -> ceo_first_name (string)
+LastName -> ceo_last_name (string)
+Street -> address_street (string)
+City -> address_city (string)
+Zip -> address_zip (string)

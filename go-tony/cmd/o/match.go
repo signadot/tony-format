@@ -133,7 +133,7 @@ func matchReader(dst []*ir.Node, cfg *MatchConfig, cc *cli.Context, match *ir.No
 		}
 		if m {
 			if cfg.Trim {
-				y = trim(match, y)
+				y = tony.Trim(match, y)
 			}
 			dst = append(dst, y)
 		}
@@ -141,29 +141,3 @@ func matchReader(dst []*ir.Node, cfg *MatchConfig, cc *cli.Context, match *ir.No
 	return dst, nil
 }
 
-func trim(match, doc *ir.Node) *ir.Node {
-	switch match.Type {
-	case ir.ObjectType:
-		docMap := ir.ToMap(doc)
-		matchMap := ir.ToMap(match)
-		for i, field := range doc.Fields {
-			matchVal := matchMap[field.String]
-			if matchVal == nil {
-				delete(docMap, field.String)
-				continue
-			}
-			docVal := doc.Values[i]
-			docMap[field.String] = trim(matchVal, docVal)
-		}
-		return ir.FromMap(docMap).WithTag(doc.Tag)
-	case ir.ArrayType:
-		n := len(match.Values)
-		res := make([]*ir.Node, n)
-		for i := range n {
-			res[i] = trim(match.Values[i], doc.Values[i])
-		}
-		return ir.FromSlice(res).WithTag(doc.Tag)
-	default:
-		return doc.Clone()
-	}
-}

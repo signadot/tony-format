@@ -1,0 +1,56 @@
+-- models/person.tony --
+# Schema definition in models package
+context: tony-format/context
+define:
+  name: !irtype 1
+  age: !irtype 2
+  email: !irtype 1
+signature:
+  name: person
+
+-- models/person.go --
+package models
+
+type schemaTag struct{}
+
+// Person struct defines the schema (schemadef mode)
+type Person struct {
+	schemaTag `tony:"schemadef=person"`
+	Name      string
+	Age       int
+	Email     string
+}
+
+-- api/user.go --
+package api
+
+import "github.com/signadot/tony-format/go-tony/testdata/models"
+
+type schemaTag struct{}
+
+// User struct in api package uses the person schema from models package
+// with field renaming to match API naming conventions
+type User struct {
+	schemaTag `tony:"schema=models.person"`
+	FullName  string `tony:"field=name"`   // Renamed: FullName -> name
+	Age       int    `tony:"field=age"`    // Renamed: Age -> age
+	EmailAddr string `tony:"field=email"`  // Renamed: EmailAddr -> email
+}
+
+-- expected_fields.txt --
+FullName -> name (string)
+Age -> age (int)
+EmailAddr -> email (string)
+
+-- README.md --
+This example demonstrates cross-package field renaming:
+
+1. The `models` package defines a schema with fields: name, age, email
+2. The `api` package uses that schema with `schema=models.person`
+3. The api.User struct renames fields using `field=` tags:
+   - FullName -> name
+   - Age -> age  
+   - EmailAddr -> email
+
+This allows different packages to use the same schema but with
+different field naming conventions.

@@ -113,3 +113,52 @@ func tagMatchArray(doc, match *ir.Node, tag string) (bool, error) {
 	}
 	return true, nil
 }
+
+// Trim filters a document to only include fields/values that are present in the match criteria.
+// It recursively processes objects and arrays, removing fields that aren't in the match.
+// The result preserves the tag from the original document.
+func Trim(match, doc *ir.Node) *ir.Node {
+	switch match.Type {
+	case ir.ObjectType:
+		docMap := ir.ToMap(doc)
+		matchMap := ir.ToMap(match)
+		for i, field := range doc.Fields {
+			matchVal := matchMap[field.String]
+			if matchVal == nil {
+				delete(docMap, field.String)
+				continue
+			}
+			docVal := doc.Values[i]
+			docMap[field.String] = Trim(matchVal, docVal)
+		}
+		return ir.FromMap(docMap).WithTag(doc.Tag)
+	case ir.ArrayType:
+		// For arrays, we need to match each match element against doc elements
+		// and keep only the matching ones, trimmed
+		var res []*ir.Node
+		used := make([]bool, len(doc.Values))
+		
+		for _, matchElem := range match.Values {
+			// Find the first unused doc element that matches this match element
+			for i, docElem := range doc.Values {
+				if used[i] {
+					continue
+				}
+				matched, err := Match(docElem, matchElem)
+				if err != nil {
+					// If matching fails, skip this doc element
+					continue
+				}
+				if matched {
+					// Found a match - trim it and add to result
+					res = append(res, Trim(matchElem, docElem))
+					used[i] = true
+					break
+				}
+			}
+		}
+		return ir.FromSlice(res).WithTag(doc.Tag)
+	default:
+		return doc.Clone()
+	}
+}

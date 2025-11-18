@@ -1,0 +1,29 @@
+-- user.tony --
+# Schema with mix of snake_case and camelCase
+context: tony-format/context
+define:
+  user_id: !irtype 2
+  firstName: !irtype 1
+  last_name: !irtype 1
+  emailAddress: !irtype 1
+signature:
+  name: user
+
+-- user.go --
+package test
+
+type schemaTag struct{}
+
+type User struct {
+	schemaTag `tony:"schema=user"`
+	UserID        int64  `tony:"field=user_id"`      // Renamed: UserID -> user_id
+	FirstName     string `tony:"field=firstName"`     // Renamed: FirstName -> firstName
+	LastName      string `tony:"field=last_name"`    // Renamed: LastName -> last_name
+	EmailAddress  string                              // Not renamed: EmailAddress matches emailAddress
+}
+
+-- expected_fields.txt --
+UserID -> user_id (int64)
+FirstName -> firstName (string)
+LastName -> last_name (string)
+EmailAddress -> emailAddress (string)

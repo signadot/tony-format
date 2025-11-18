@@ -1,0 +1,64 @@
+-- models/person.tony --
+# Person schema in models package
+context: tony-format/context
+define:
+  name: !irtype 1
+  age: !irtype 2
+signature:
+  name: person
+
+-- models/person.go --
+package models
+
+type schemaTag struct{}
+
+// Person struct defines the schema
+type Person struct {
+	schemaTag `tony:"schemadef=person"`
+	Name string
+	Age  int
+}
+
+-- api/organization.tony --
+# Organization schema with optional person reference
+context: tony-format/context
+define:
+  org_name: !irtype 1
+  founder: !or [null, !person null]
+  current_ceo: !or [null, !person null]
+signature:
+  name: organization
+
+-- api/organization.go --
+package api
+
+import "github.com/signadot/tony-format/go-tony/testdata/models"
+
+type schemaTag struct{}
+
+// Organization struct uses pointer types from models package
+// This demonstrates optional cross-package type references
+type Organization struct {
+	schemaTag `tony:"schema=organization"`
+	OrgName    string         `tony:"field=org_name"`     // Renamed: OrgName -> org_name
+	Founder    *models.Person `tony:"field=founder"`      // Optional: *models.Person -> founder (nullable)
+	CurrentCEO *models.Person `tony:"field=current_ceo"`  // Optional: *models.Person -> current_ceo (nullable)
+}
+
+-- expected_fields.txt --
+OrgName -> org_name (string)
+Founder -> founder (*models.Person, optional/nullable, schema reference !or [null, !person])
+CurrentCEO -> current_ceo (*models.Person, optional/nullable, schema reference !or [null, !person])
+
+-- README.md --
+This example demonstrates optional cross-package type references with pointers:
+
+1. The `models` package defines a `Person` type and schema
+2. The `api` package defines an `Organization` struct that:
+   - Uses the `organization` schema
+   - Has optional fields (`Founder`, `CurrentCEO`) of type `*models.Person`
+   - Uses field renaming
+   - Shows how nullable/optional cross-package types work
+
+The schema uses `!or [null, !person]` to represent optional person references,
+while the Go struct uses `*models.Person` pointers.

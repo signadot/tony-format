@@ -1,0 +1,40 @@
+-- profile.tony --
+# Schema with nested structure
+context: tony-format/context
+define:
+  first_name: !irtype 1
+  last_name: !irtype 1
+  email: !irtype 1
+  phone_number: !irtype 1
+signature:
+  name: profile
+
+-- profile.go --
+package test
+
+type schemaTag struct{}
+
+// Name struct with field renaming
+type Name struct {
+	FirstName string `tony:"field=first_name"`
+	LastName  string `tony:"field=last_name"`
+}
+
+// Contact struct with field renaming
+type Contact struct {
+	Email       string `tony:"field=email"`
+	PhoneNumber string `tony:"field=phone_number"`
+}
+
+// Profile struct that embeds Name and Contact
+type Profile struct {
+	schemaTag `tony:"schema=profile"`
+	Name
+	Contact
+}
+
+-- expected_fields.txt --
+FirstName -> first_name (string)
+LastName -> last_name (string)
+Email -> email (string)
+PhoneNumber -> phone_number (string)

@@ -47,7 +47,8 @@ func MainCommand() *cli.Command {
 			PatchCommand(cfg),
 			BuildCommand(cfg),
 			DumpCommand(cfg),
-			LoadCommand(cfg))
+			LoadCommand(cfg),
+			SystemCommand(cfg))
 }
 
 func EvalCommand(mainCfg *MainConfig) *cli.Command {
@@ -301,4 +302,14 @@ func LoadCommand(mainCfg *MainConfig) *cli.Command {
 		WithRun(func(cc *cli.Context, args []string) error {
 			return load(cfg, cc, args)
 		})
+}
+
+func SystemCommand(mainCfg *MainConfig) *cli.Command {
+	cfg := &SystemConfig{MainConfig: mainCfg}
+	return cli.NewCommandAt(&cfg.System, "system").
+		WithSynopsis("system <subcommand>").
+		WithDescription("system commands implementing TonyAPI components").
+		WithAliases("sys").
+		WithSubs(
+			LogDCommand(cfg.MainConfig))
 }

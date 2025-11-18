@@ -1,0 +1,86 @@
+-- shared/schemas/user.tony --
+# User schema in shared package
+context: tony-format/context
+define:
+  user_id: !irtype 2
+  username: !irtype 1
+  first_name: !irtype 1
+  last_name: !irtype 1
+  email_address: !irtype 1
+signature:
+  name: user
+
+-- shared/schemas/user.go --
+package schemas
+
+type schemaTag struct{}
+
+// User schema definition
+type User struct {
+	schemaTag `tony:"schemadef=user"`
+	UserID        int64
+	Username      string
+	FirstName     string
+	LastName      string
+	EmailAddress  string
+}
+
+-- api/endpoints/request.go --
+package endpoints
+
+import "github.com/signadot/tony-format/go-tony/testdata/shared/schemas"
+
+type schemaTag struct{}
+
+// CreateUserRequest uses the user schema from shared.schemas package
+// with field renaming to match API request naming conventions
+type CreateUserRequest struct {
+	schemaTag `tony:"schema=shared.schemas.user"`
+	ID        int64  `tony:"field=user_id"`        // Renamed: ID -> user_id
+	Username  string `tony:"field=username"`       // Not renamed: matches schema
+	FirstName string `tony:"field=first_name"`      // Renamed: FirstName -> first_name
+	LastName  string `tony:"field=last_name"`      // Renamed: LastName -> last_name
+	Email     string `tony:"field=email_address"`   // Renamed: Email -> email_address
+}
+
+-- db/models/user.go --
+package models
+
+import "github.com/signadot/tony-format/go-tony/testdata/shared/schemas"
+
+type schemaTag struct{}
+
+// DBUser uses the same schema but with database naming conventions
+type DBUser struct {
+	schemaTag `tony:"schema=shared.schemas.user"`
+	ID        int64  `tony:"field=user_id"`        // Renamed: ID -> user_id
+	Username  string `tony:"field=username"`       // Not renamed: matches schema
+	FirstName string `tony:"field=first_name"`      // Renamed: FirstName -> first_name
+	LastName  string `tony:"field=last_name"`      // Renamed: LastName -> last_name
+	Email     string `tony:"field=email_address"`  // Renamed: Email -> email_address
+}
+
+-- expected_fields_api.txt --
+ID -> user_id (int64)
+Username -> username (string)
+FirstName -> first_name (string)
+LastName -> last_name (string)
+Email -> email_address (string)
+
+-- expected_fields_db.txt --
+ID -> user_id (int64)
+Username -> username (string)
+FirstName -> first_name (string)
+LastName -> last_name (string)
+Email -> email_address (string)
+
+-- README.md --
+This example demonstrates cross-package field renaming with multiple consumers:
+
+1. The `shared.schemas` package defines a user schema with snake_case fields
+2. The `api.endpoints` package uses it for API requests
+3. The `db.models` package uses the same schema for database models
+4. Both packages rename fields to match their own naming conventions
+
+This shows how a single schema can be reused across multiple packages
+with different field naming styles.

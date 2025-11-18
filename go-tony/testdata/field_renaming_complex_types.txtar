@@ -1,0 +1,32 @@
+-- product.tony --
+# Schema with complex types and field renaming
+context: tony-format/context
+define:
+  product_id: !irtype 2
+  product_name: !irtype 1
+  price: !irtype 3
+  tags: .[array]
+  metadata: .[object]
+signature:
+  name: product
+
+-- product.go --
+package test
+
+type schemaTag struct{}
+
+type Product struct {
+	schemaTag `tony:"schema=product"`
+	ProductID   int64             `tony:"field=product_id"`
+	ProductName string            `tony:"field=product_name"`
+	Price       float64           `tony:"field=price"`
+	Tags        []string          `tony:"field=tags"`
+	Metadata    map[string]string `tony:"field=metadata"`
+}
+
+-- expected_fields.txt --
+ProductID -> product_id (int64)
+ProductName -> product_name (string)
+Price -> price (float64)
+Tags -> tags ([]string)
+Metadata -> metadata (map[string]string)

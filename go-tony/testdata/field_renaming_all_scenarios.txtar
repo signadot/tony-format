@@ -1,0 +1,41 @@
+-- comprehensive.tony --
+# Comprehensive schema with all field types
+context: tony-format/context
+define:
+  id: !irtype 2
+  name: !irtype 1
+  age: !irtype 2
+  active: !irtype 4
+  score: !irtype 3
+  tags: .[array]
+  metadata: .[object]
+  created_at: !irtype 2
+signature:
+  name: comprehensive
+
+-- comprehensive.go --
+package test
+
+type schemaTag struct{}
+
+type Comprehensive struct {
+	schemaTag `tony:"schema=comprehensive"`
+	ID        int64             `tony:"field=id"`
+	Name      string            `tony:"field=name"`
+	Age       int               `tony:"field=age"`
+	Active    bool              `tony:"field=active"`
+	Score     float64           `tony:"field=score"`
+	Tags      []string          `tony:"field=tags"`
+	Metadata  map[string]string `tony:"field=metadata"`
+	CreatedAt int64             `tony:"field=created_at"`
+}
+
+-- expected_fields.txt --
+ID -> id (int64)
+Name -> name (string)
+Age -> age (int)
+Active -> active (bool)
+Score -> score (float64)
+Tags -> tags ([]string)
+Metadata -> metadata (map[string]string)
+CreatedAt -> created_at (int64)

@@ -1,0 +1,35 @@
+-- order.tony --
+# Schema testing field name conflict resolution
+context: tony-format/context
+define:
+  order_id: !irtype 2
+  customer_id: !irtype 2
+  item_id: !irtype 2
+  quantity: !irtype 2
+signature:
+  name: order
+
+-- order.go --
+package test
+
+type schemaTag struct{}
+
+// Item struct with ID field
+type Item struct {
+	ItemID   int64 `tony:"field=item_id"`
+	Quantity int64 `tony:"field=quantity"`
+}
+
+// Order struct that embeds Item
+type Order struct {
+	schemaTag `tony:"schema=order"`
+	OrderID    int64 `tony:"field=order_id"`
+	CustomerID int64 `tony:"field=customer_id"`
+	Item                                    // Embedded: ItemID -> item_id, Quantity -> quantity
+}
+
+-- expected_fields.txt --
+OrderID -> order_id (int64)
+CustomerID -> customer_id (int64)
+ItemID -> item_id (int64)
+Quantity -> quantity (int64)

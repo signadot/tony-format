@@ -1,0 +1,96 @@
+-- common/address.tony --
+# Address schema in common package
+context: tony-format/context
+define:
+  street: !irtype 1
+  city: !irtype 1
+  state: !irtype 1
+  zip_code: !irtype 1
+signature:
+  name: address
+
+-- common/address.go --
+package common
+
+type schemaTag struct{}
+
+// Address struct defines the schema (schemadef mode)
+type Address struct {
+	schemaTag `tony:"schemadef=address"`
+	Street  string
+	City    string
+	State   string
+	ZipCode string
+}
+
+-- models/person.tony --
+# Person schema in models package
+context: tony-format/context
+define:
+  name: !irtype 1
+  age: !irtype 2
+  email: !irtype 1
+signature:
+  name: person
+
+-- models/person.go --
+package models
+
+type schemaTag struct{}
+
+// Person struct defines the schema (schemadef mode)
+type Person struct {
+	schemaTag `tony:"schemadef=person"`
+	Name  string
+	Age   int
+	Email string
+}
+
+-- api/company.tony --
+# Company schema in api package that references types from other packages
+context: tony-format/context
+define:
+  company_name: !irtype 1
+  ceo: !person null
+  headquarters: !address null
+signature:
+  name: company
+
+-- api/company.go --
+package api
+
+import (
+	"github.com/signadot/tony-format/go-tony/testdata/common"
+	"github.com/signadot/tony-format/go-tony/testdata/models"
+)
+
+type schemaTag struct{}
+
+// Company struct uses the company schema and references types from other packages
+// The CEO field is of type models.Person (cross-package type reference)
+// The Headquarters field is of type common.Address (cross-package type reference)
+type Company struct {
+	schemaTag `tony:"schema=company"`
+	CompanyName string              `tony:"field=company_name"`  // Renamed: CompanyName -> company_name
+	CEO         models.Person       `tony:"field=ceo"`          // Cross-package type: models.Person -> ceo
+	Headquarters common.Address      `tony:"field=headquarters"` // Cross-package type: common.Address -> headquarters
+}
+
+-- expected_fields.txt --
+CompanyName -> company_name (string)
+CEO -> ceo (models.Person, schema reference !person)
+Headquarters -> headquarters (common.Address, schema reference !address)
+
+-- README.md --
+This example demonstrates cross-package type references with field renaming:
+
+1. The `common` package defines an `Address` type and schema
+2. The `models` package defines a `Person` type and schema
+3. The `api` package defines a `Company` struct that:
+   - Uses the `company` schema
+   - Has a `CEO` field of type `models.Person` (cross-package type)
+   - Has a `Headquarters` field of type `common.Address` (cross-package type)
+   - Uses field renaming for all fields
+
+The schema references these types using schema tags (!person, !address),
+and the Go struct uses actual type references from other packages.
