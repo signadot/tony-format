@@ -1,18 +1,31 @@
 package schema
 
-type Context map[string]map[string]bool
+type Context struct {
+	OutIn map[string]map[string]bool
+	InOut map[string]string
+}
 
-const TonyFormatContextURI = "tony-format.org/schema/contexts"
+const TonyFormatURI = "tony-format/schema"
 
-func DefaultContext() Context {
-	return Context(map[string]map[string]bool{
-		"tony-format.org/schema/contexts": {
-			"encoding": true,
-			"eval":     true,
-			"match":    true,
-			"patch":    true,
-			"diff":     true,
-			"schema":   true,
+func DefaultContext() *Context {
+	return &Context{
+		OutIn: map[string]map[string]bool{
+			TonyFormatURI: {
+				"encoding": true,
+				"eval":     true,
+				"match":    true,
+				"patch":    true,
+				"diff":     true,
+				"schema":   true,
+			},
 		},
-	})
+		InOut: map[string]string{
+			"encoding": TonyFormatURI,
+			"eval":     TonyFormatURI,
+			"match":    TonyFormatURI,
+			"patch":    TonyFormatURI,
+			"diff":     TonyFormatURI,
+			"schema":   TonyFormatURI,
+		},
+	}
 }
