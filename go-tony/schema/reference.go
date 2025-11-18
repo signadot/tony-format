@@ -129,8 +129,8 @@ func ParseFromRefFromTag(tag string) (string, string, []string, error) {
 	}
 
 	// First argument is the schema name, which might be parameterized like "my-schema(1,2,3)"
-	schemaArg := args[0]
-	defName := args[1]
+	schemaArg := strings.TrimSpace(args[0])
+	defName := strings.TrimSpace(args[1])
 
 	// Parse the schema name and its arguments from the first argument
 	// Use ir.TagArgs to parse the schema reference (it might have parentheses)

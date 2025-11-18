@@ -73,11 +73,19 @@ func ExpandEnv(node *ir.Node, env Env) error {
 	return nil
 }
 
-func getRaw(v string) string {
+// GetRaw extracts the name from a .[name] reference syntax.
+// It returns the name without the ".[" prefix and "]" suffix.
+// If the string is not in .[name] format, it returns an empty string.
+// Example: GetRaw(".[number]") returns "number"
+func GetRaw(v string) string {
 	if !isRawEnvRef(v) {
 		return ""
 	}
 	return v[2 : len(v)-1]
+}
+
+func getRaw(v string) string {
+	return GetRaw(v)
 }
 
 func ExpandAny(v any, env Env) (any, error) {
