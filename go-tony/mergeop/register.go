@@ -43,6 +43,7 @@ func init() {
 	Register(KeyedList())
 	Register(All())
 	Register(If())
+	Register(Let())
 	Register(Pass())
 	Register(Quote())
 	Register(Unquote())

@@ -125,6 +125,31 @@ var matchTests = []matchTest{
 		match: "c: !not.tag.glob my*",
 		res:   false,
 	},
+	{
+		in:    "id: 123\nname: Alice",
+		match: "!let\nlet:\n- idMatch: 123\nin:\n  id: .[idMatch]",
+		res:   true,
+	},
+	{
+		in:    "id: 456\nname: Bob",
+		match: "!let\nlet:\n- idMatch: 123\nin:\n  id: .[idMatch]",
+		res:   false,
+	},
+	{
+		in:    "id: 123\nname: Alice\nemail: alice@example.com",
+		match: "!let\nlet:\n- idMatch: 123\nin:\n  id: .[idMatch]\n  name: Alice",
+		res:   true,
+	},
+	{
+		in:    "id: 123\nname: Alice",
+		match: "!let\nlet:\n- idMatch: 123\nin:\n  id: .[idMatch]",
+		res:   true,
+	},
+	{
+		in:    "id: .[idMatch]\nname: Alice",
+		match: "!let\nlet:\n- idMatch: 123\nin:\n  id: .[idMatch]",
+		res:   false,
+	},
 }
 
 func TestMatchY(t *testing.T) {
