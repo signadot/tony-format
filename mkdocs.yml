@@ -3,13 +3,12 @@ nav:
 - Format:
   - tony.md
   - ir.md
-- Schema:
-  - tonyschema.md
+- Schema: tonyschema/index.md
 - Tools:
-  - o:
-    - 'o CLI': o/
-    - 'o build': o/build.md
   - 'Extra-Format Encoding': extraformat.md
+  - o:
+    - 'o CLI': o/index.md
+    - 'o build': o/build.md
 - TonyAPI:
   - tonyapi/index.md
 - Reference:   
