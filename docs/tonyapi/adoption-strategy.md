@@ -5,6 +5,7 @@ This document outlines strategies for maximizing adoption of TonyAPI over a 3-ye
 ## Strategic Positioning
 
 **Core Value Propositions:**
+
 1. **Built-in Transactions**: Protocol-level transaction support (GraphQL lacks this)
 2. **Diff-Based Architecture**: Complete audit trail and time-travel capabilities
 3. **Unified Document Model**: Simpler mental model than graph-based APIs
@@ -12,6 +13,7 @@ This document outlines strategies for maximizing adoption of TonyAPI over a 3-ye
 5. **Plan 9 Philosophy**: Filesystem-like simplicity with mount points
 
 **Target Audiences:**
+
 - Teams frustrated with GraphQL's transaction limitations
 - Organizations needing audit trails and compliance
 - Developers building microservices architectures
@@ -23,11 +25,13 @@ This document outlines strategies for maximizing adoption of TonyAPI over a 3-ye
 ### Phase 1: Open Source Launch (Months 1-3)
 
 **Goals:**
+
 - Establish TonyAPI as a credible open-source project
 - Build initial developer community
 - Create reference implementations
 
 **Actions:**
+
 1. **Open Source Release**
    - Release under permissive license (Apache 2.0 or MIT)
    - Host on GitHub with clear contribution guidelines

@@ -52,17 +52,3 @@ o patch -p patch [ file ]
 o build [ manifest-build/] [ -l ]  [ -p profile ] [ -e path=value ] [-- path1=value1 path2=value2 ... ]
 o b [ manifest-build/] [ -l ]  [ -p profile ] [ -s ] [ -e path=value ]
 ```
-
-## Topics
-- [Evaluation](docs/eval.md)
-- [Diff and Patch](docs/diffpatch.md)
-- [Querying Object Notation](docs/objpath.md)
-- [Manifest Building](docs/build.md)
-- [Extra-Format Encoding](docs/extraformat.md)
-
-## References
-
-- [Tony](docs/tony.md)
-- [IR](docs/ir.md)
-- [](docs/build-eval.md)
-- [Matching and Patching](docs/matchpatch.md)

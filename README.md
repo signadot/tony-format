@@ -1,69 +1,33 @@
 # Tony Format
 
+Main repository for the Tony format.
 
-Tony package houses the reference implementation of the Tony Format
-and several related tools.
+- [Docs](docs/index.md)
+- [Go](go-tony/README.md)
 
+## Status
 
-## O
+The core Tony format is fairly stable and fun.  One CLI tool with several
+basic commands, [`o`](go-tony/README.md), is in use and fairly stable.  This repository is booting.
 
-`o` is a tool for managing objects stored in formats like Tony, YAML, and JSON.
+Several items are in the works, ranging from under design to bleeding edge,
+buggy prototypes.
 
-### Overview
+- Schema
+- Mappings to Go
+- Go CodeGen
+- System API
+- Docs Website
+- LSP
 
-```sh
-# view files 
-o view [ -color ] file [-e path=value ]
-o v [ -color ] [-e path=value ] < file
-```
+## Contributing
 
-```sh
-# process a file with embedded transformation instructions
-o eval file [-e path=value ] [ files... ]
-o e [-e path=value ] < file
-```
+The Tony format is open source.
 
-```bash
-# path querys
-o list '$...a[*]' [ files... ]
-o l '$...a[*]' [ files... ]
-o get '$.a[1]' [ files... ]
-o g '$.a[1]' [ files... ]
-```
+As a naisant, enhanced data format for an interconnected and increasingly automated world,
+a lot of possibilities, some substantial, exist.
 
-```bash
-# compute a diff between -- understands tags and strings and arrays!
-o diff file1 file2
-```
-
-```bash
-# match secrets and config maps
-kustomize build . | o -y match -s '{ kind: !or [ ConfigMap, Secret] }' -
-helm template . | o -y match -s '{ kind: !or [ ConfigMap, Secret] }' -
-```
-
-```bash
-# patch a file -- understands tags and strings and arrays and diffs,
-# all in merge patch style!
-o patch -p patch [ file ]
-```
-
-```bash
-# build manifests and helm charts with matches and patches and embedded transformations
-o build [ manifest-build/] [ -l ]  [ -p profile ] [ -e path=value ] [-- path1=value1 path2=value2 ... ]
-o b [ manifest-build/] [ -l ]  [ -p profile ] [ -s ] [ -e path=value ]
-```
-
-## Topics
-- [Evaluation](docs/eval.md)
-- [Diff and Patch](docs/diffpatch.md)
-- [Querying Object Notation](docs/objpath.md)
-- [Manifest Building](docs/build.md)
-- [Extra-Format Encoding](docs/extraformat.md)
-
-## References
-
-- [Tony](docs/tony.md)
-- [IR](docs/ir.md)
-- [](docs/build-eval.md)
-- [Matching and Patching](docs/matchpatch.md)
+Feel free to reach out on the Issues or Discussions, give the tools a try, weigh in on
+the direction of designs, or let us know how you'd like to see the format and tooling
+governed.
+ 

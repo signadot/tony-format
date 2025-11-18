@@ -27,6 +27,6 @@ See [mergeop operations](./mergeop.md) for details.
 | `!and` | Match all conditions (logical AND) |
 | `!or` | Match any condition (logical OR) |
 | `!not` | Negate a match condition |
-| `!type` | Match by node type |
+| `!irtype` | Match by node type |
 | `!all` | Apply match/patch to all array or object elements |
 

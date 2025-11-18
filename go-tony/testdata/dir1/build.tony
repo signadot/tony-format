@@ -62,7 +62,7 @@ build:
   - match:
       subtree: !subtree.type ""
     patch: !dive
-    - match: !type 0
+    - match: !irtype 0
       patch: 42
 
   env:

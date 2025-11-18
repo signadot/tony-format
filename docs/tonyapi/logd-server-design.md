@@ -112,12 +112,14 @@ The storage layer maintains two types of sequence numbers:
 2. **Commit Count (`commitCount`)**: Monotonically increasing number assigned when a transaction is committed. All diffs in the same transaction receive the same `commitCount`.
 
 **Storage Format:**
+
 - Stored in binary file `/logd/meta/seq` (16 bytes, little-endian)
 - Offset 0-7: commit count (56 bits)
 - Offset 8-15: transaction seq (56 bits)
 - Both values are masked to 56 bits to allow future expansion
 
 **Filename Format:**
+
 - Committed diffs: `{commitCount}-{txSeq}.diff`
 - Pending diffs: `{txSeq}.pending` (no commit count prefix)
 
@@ -531,6 +533,7 @@ function reconstruct_state() {
 Pending transaction diffs (`.pending` files) are never included in state reconstruction until they are committed (renamed to `.diff` with a commit count).
 
 **Coherence Guarantee:**
+
 - Readers use `commitCount` to filter diffs, ensuring they only see fully committed transactions
 - Even if transactions commit out of order, readers maintain coherence by using `commitCount` for ordering
 - The transaction log (`transactions.log`) records which `commitCount` was assigned to each transaction
@@ -616,6 +619,7 @@ transactions := make(map[string]*TransactionState)
 ```
 
 **Transaction Log Format:**
+
 - Wire-encoded Tony documents, one entry per line (newline-separated)
 - Each entry contains: `commitCount`, `transactionId`, `timestamp`, `pendingFiles[]`
 - Used for recovery and atomic commit coordination

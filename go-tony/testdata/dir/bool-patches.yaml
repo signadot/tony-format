@@ -1,11 +1,11 @@
 - match:
     list: !or
-    - !type []
+    - !irtype []
     - data: null
   patch:
     OR: true
 #- match: !not.or
-#    list: !type []
+#    list: !irtype []
 #    data: null
 #  patch:
 #    NOR: true

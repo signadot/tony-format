@@ -3,20 +3,19 @@ nav:
 - Format:
   - tony.md
   - ir.md
-- Schema: tonyschema/index.md
+- Schema:
+  - tonyschema/index.md
+  - tonyschema/schema.md
+  - tonyschema/contexts.md
+  - tonyschema/tags.md
+  - tonyschema/validation.md
 - Tools:
   - 'Extra-Format Encoding': extraformat.md
-  - o:
-    - 'o CLI': o/index.md
-    - 'o build': o/build.md
-- TonyAPI:
-  - tonyapi/index.md
+  - o: o/index.md
 - Reference:   
   - build-eval.md
   - 'Tags': generated/
   - matchpatch.md
-  - diffpatch.md
-  - eval.md
 
 theme:
   name: mkdocs

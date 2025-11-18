@@ -36,11 +36,11 @@ compatability with existing YAML is a necessary condition for many.
 To address this:
 
 - The Tony format is a dialect of YAML that includes (optionally) local YAML
-tags.  Under certain very commonly occuring restrictions, valid Tony format
-is valid YAML.  It may "just work" for your use case.
+  tags.  Under certain very commonly occuring restrictions, valid Tony format
+  is valid YAML.  It may "just work" for your use case.
 - Our initial tooling supports support reasonable "YAML" output 
-and supports YAML as found in common usage, such as Kubernetes YAML, KYAML, 
-GHA, etc.
+  and supports YAML as found in common usage, such as Kubernetes YAML, KYAML, 
+  GHA, etc.
 
 
 ### Block Style

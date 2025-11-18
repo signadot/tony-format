@@ -1,6 +1,6 @@
 # Schema Formats
 
-Schemas use the Tony Schema format (see `docs/tonyschema.md`). Key features:
+Schemas use the Tony Schema format (see [Tony Schema documentation](../tonyschema/index.md)). Key features:
 
 - **Type definitions** in `define:` section
 - **References** using `.TypeName` to refer to defined types

@@ -15,6 +15,7 @@ require (
 )
 
 require (
+	github.com/go-air/gini v1.0.4 // indirect
 	github.com/google/go-cmp v0.5.9 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/pkg/errors v0.9.1 // indirect

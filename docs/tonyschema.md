@@ -74,30 +74,30 @@ Below we model a base set of relations using the schema format above.
 ```tony
 # example base
 define:
-  bool: !type true
-  "null": !type null
-  number: !type 1
+  bool: !irtype true
+  "null": !irtype null
+  number: !irtype 1
   int: !and
   - .number
   - int: !not null
   float: !and
   - .number
   - float: !not null
-  string: !type ""
+  string: !irtype ""
   array:
-  - !type []
+  - !irtype []
   array(t): !and
   - .array
   - !all.type t
   sparsearray: !and
-  - !type {}
+  - !irtype {}
   - !all.field.type 0
   sparsearray(t): !and
   - .sparsearray
   - !all.type t
   # keyed lists
   keyed(p): !and
-  - !type []
+  - !irtype []
   - !all.hasPath p
 ```
 

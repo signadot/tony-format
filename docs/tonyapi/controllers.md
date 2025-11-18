@@ -59,6 +59,7 @@ mount:
 ```
 
 **Controller responsibilities:**
+
 - Handle MATCH operations (queries) for paths under its mount point
 - Handle PATCH operations (mutations) for paths under its mount point
 - Handle WATCH operations (subscriptions) for paths under its mount point

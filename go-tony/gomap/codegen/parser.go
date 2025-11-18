@@ -1,0 +1,339 @@
+package codegen
+
+import (
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"reflect"
+	"strings"
+
+	"github.com/signadot/tony-format/go-tony/gomap"
+)
+
+// ParseFile parses a Go source file and returns its AST.
+func ParseFile(filename string) (*ast.File, *token.FileSet, error) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse file %q: %w", filename, err)
+	}
+	return file, fset, nil
+}
+
+// ExtractStructs extracts all struct type declarations from an AST file.
+// Returns structs with schema= or schemadef= tags.
+func ExtractStructs(file *ast.File, filePath string) ([]*StructInfo, error) {
+	var structs []*StructInfo
+
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok {
+			continue
+		}
+
+		for _, spec := range genDecl.Specs {
+			typeSpec, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+
+			structType, ok := typeSpec.Type.(*ast.StructType)
+			if !ok {
+				continue
+			}
+
+			// Extract struct-level comments
+			comments := ExtractComments(genDecl)
+
+			// Parse struct to get schema tag
+			// We need to use reflection to get the struct schema tag
+			// For now, we'll parse it manually from the AST
+			structSchema, err := extractStructSchemaTag(structType)
+			if err != nil {
+				return nil, fmt.Errorf("failed to extract schema tag from struct %q: %w", typeSpec.Name.Name, err)
+			}
+
+			// Only include structs with schema= or schemadef= tags
+			if structSchema == nil {
+				continue
+			}
+
+			// Extract fields
+			fields, err := extractFields(structType)
+			if err != nil {
+				return nil, fmt.Errorf("failed to extract fields from struct %q: %w", typeSpec.Name.Name, err)
+			}
+
+			structs = append(structs, &StructInfo{
+				Name:        typeSpec.Name.Name,
+				Package:     file.Name.Name,
+				FilePath:    filePath,
+				Fields:      fields,
+				StructSchema: structSchema,
+				Comments:    comments,
+				ASTNode:     structType,
+			})
+		}
+	}
+
+	return structs, nil
+}
+
+// ExtractComments extracts comments from a declaration.
+// Returns a slice of comment strings with "# " prefix (Tony format).
+func ExtractComments(decl ast.Decl) []string {
+	var comments []string
+
+	genDecl, ok := decl.(*ast.GenDecl)
+	if !ok {
+		return comments
+	}
+
+	if genDecl.Doc != nil {
+		for _, comment := range genDecl.Doc.List {
+			text := comment.Text
+			// Remove comment markers (//, /* */) and convert to Tony format (#)
+			text = strings.TrimPrefix(text, "//")
+			text = strings.TrimPrefix(text, "/*")
+			text = strings.TrimSuffix(text, "*/")
+			text = strings.TrimSpace(text)
+			
+			// Split multi-line comments and add "# " prefix to each line
+			lines := strings.Split(text, "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if line != "" {
+					// Add "# " prefix if not already present
+					if !strings.HasPrefix(line, "#") {
+						comments = append(comments, "# "+line)
+					} else {
+						// Already has #, ensure space after it
+						if strings.HasPrefix(line, "#") && len(line) > 1 && line[1] != ' ' {
+							line = "# " + strings.TrimPrefix(line, "#")
+						}
+						comments = append(comments, line)
+					}
+				}
+			}
+		}
+	}
+
+	return comments
+}
+
+// extractStructSchemaTag extracts the schema tag from a struct type.
+// Looks for an anonymous field with tony:"schema=..." or tony:"schemadef=..." tag.
+func extractStructSchemaTag(structType *ast.StructType) (*gomap.StructSchema, error) {
+	if structType.Fields == nil {
+		return nil, nil
+	}
+
+	for _, field := range structType.Fields.List {
+		// Check if this is an anonymous field
+		if len(field.Names) == 0 {
+			tag := getFieldTag(field, "tony")
+			if tag == "" {
+				continue
+			}
+
+			// Parse the tag using gomap's parser
+			parsed, err := gomap.ParseStructTag(tag)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse struct tag: %w", err)
+			}
+
+			// Check for schema= or schemadef=
+			var mode string
+			var schemaName string
+
+			if name, ok := parsed["schema"]; ok {
+				mode = "schema"
+				schemaName = name
+			} else if name, ok := parsed["schemadef"]; ok {
+				mode = "schemadef"
+				schemaName = name
+			} else {
+				continue
+			}
+
+			if schemaName == "" {
+				return nil, fmt.Errorf("schema tag requires a schema name")
+			}
+
+			allowExtra := false
+			if _, ok := parsed["allowExtra"]; ok {
+				allowExtra = true
+			}
+
+			commentFieldName := parsed["comment"]
+			lineCommentFieldName := parsed["LineComment"]
+			tagFieldName := parsed["tag"]
+			context := parsed["context"]
+
+			return &gomap.StructSchema{
+				Mode:                 mode,
+				SchemaName:           schemaName,
+				Context:              context,
+				AllowExtra:           allowExtra,
+				CommentFieldName:     commentFieldName,
+				LineCommentFieldName: lineCommentFieldName,
+				TagFieldName:         tagFieldName,
+			}, nil
+		}
+	}
+
+	return nil, nil
+}
+
+// extractFields extracts field information from a struct type.
+func extractFields(structType *ast.StructType) ([]*FieldInfo, error) {
+	if structType.Fields == nil {
+		return nil, nil
+	}
+
+	var fields []*FieldInfo
+
+	for _, field := range structType.Fields.List {
+		// Extract field comments
+		comments := ExtractFieldComments(field)
+
+		// Check if this is an embedded field
+		isEmbedded := len(field.Names) == 0
+
+		// For embedded fields, we'll handle them separately
+		// For now, we'll process regular fields
+		if !isEmbedded {
+			for _, name := range field.Names {
+				// Skip unexported fields
+				if !name.IsExported() {
+					continue
+				}
+
+				// Parse field tags
+				tag := getFieldTag(field, "tony")
+				parsed, err := gomap.ParseStructTag(tag)
+				if err != nil {
+					return nil, fmt.Errorf("failed to parse field tag for %q: %w", name.Name, err)
+				}
+
+				// Extract field information
+				fieldInfo := &FieldInfo{
+					Name:         name.Name,
+					SchemaFieldName: name.Name, // Default to field name
+					ASTType:      field.Type,
+					Comments:     comments,
+					ASTField:     field,
+					IsEmbedded:   false,
+				}
+
+				// Extract field name override
+				if fieldName, ok := parsed["field"]; ok {
+					fieldInfo.SchemaFieldName = fieldName
+				}
+
+				// Extract omit flag
+				if _, ok := parsed["omit"]; ok || parsed["field"] == "-" {
+					fieldInfo.Omit = true
+				}
+
+				// Extract required/optional flags
+				if _, ok := parsed["required"]; ok {
+					fieldInfo.Required = true
+				}
+				if _, ok := parsed["optional"]; ok {
+					fieldInfo.Optional = true
+				}
+
+				// Validate: cannot have both required and optional
+				if fieldInfo.Required && fieldInfo.Optional {
+					return nil, fmt.Errorf("field %q cannot have both required and optional tags", name.Name)
+				}
+
+				fields = append(fields, fieldInfo)
+			}
+		}
+		// TODO: Handle embedded fields (Phase 2)
+	}
+
+	return fields, nil
+}
+
+// ExtractFieldComments extracts comments from a field declaration.
+// Returns a slice of comment strings with "# " prefix (Tony format).
+func ExtractFieldComments(field *ast.Field) []string {
+	var comments []string
+
+	if field.Doc != nil {
+		for _, comment := range field.Doc.List {
+			text := comment.Text
+			// Remove comment markers (//, /* */) and convert to Tony format (#)
+			text = strings.TrimPrefix(text, "//")
+			text = strings.TrimPrefix(text, "/*")
+			text = strings.TrimSuffix(text, "*/")
+			text = strings.TrimSpace(text)
+			
+			// Split multi-line comments and add "# " prefix to each line
+			lines := strings.Split(text, "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if line != "" {
+					// Add "# " prefix if not already present
+					if !strings.HasPrefix(line, "#") {
+						comments = append(comments, "# "+line)
+					} else {
+						// Already has #, ensure space after it
+						if strings.HasPrefix(line, "#") && len(line) > 1 && line[1] != ' ' {
+							line = "# " + strings.TrimPrefix(line, "#")
+						}
+						comments = append(comments, line)
+					}
+				}
+			}
+		}
+	}
+
+	return comments
+}
+
+// getFieldTag extracts a specific tag value from a field's tag string.
+func getFieldTag(field *ast.Field, tagName string) string {
+	if field.Tag == nil {
+		return ""
+	}
+
+	tag := field.Tag.Value
+	// Remove backticks
+	tag = strings.Trim(tag, "`")
+
+	// Parse the tag to find the specific tag name
+	// Format: `key1:"value1" key2:"value2"`
+	parts := strings.Fields(tag)
+	for _, part := range parts {
+		if strings.HasPrefix(part, tagName+":") {
+			// Extract the value (remove quotes)
+			value := strings.TrimPrefix(part, tagName+":")
+			value = strings.Trim(value, `"`)
+			return value
+		}
+	}
+
+	return ""
+}
+
+// GetStructSchemaTag uses reflection to get the struct schema tag.
+// This is a helper that wraps gomap.GetStructSchema for use with reflect.Type.
+// Note: This requires the type to be fully resolved (not just AST).
+// For AST-based parsing, use extractStructSchemaTag instead.
+func GetStructSchemaTag(typ reflect.Type) (*gomap.StructSchema, error) {
+	return gomap.GetStructSchema(typ)
+}
+
+// ResolveType attempts to resolve an AST type expression to a reflect.Type.
+// This is a helper for when we need reflection-based type information.
+// Returns nil if the type cannot be resolved (e.g., it's a local type that hasn't been loaded).
+func ResolveType(expr ast.Expr, pkg *ast.Package) (reflect.Type, error) {
+	// TODO: Implement type resolution from AST to reflect.Type
+	// This will be needed for code generation but can be deferred to later phases
+	return nil, fmt.Errorf("type resolution from AST not yet implemented")
+}

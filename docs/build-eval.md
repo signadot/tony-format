@@ -28,10 +28,10 @@ via dir mode profiles.
 ### `dir` Mode Evaluation Steps
 
 1. Expand the environment with embedded instructions.
-1. Expands the description of the sources, matches, and patches according to the resulting environment
-2. Fetches the sources and for each source, pipes it through the chain
-of matches/patches.
-3. Finally, the result is processed as in `oio` mode.
+2. Expands the description of the sources, matches, and patches according to the resulting environment
+3. Fetches the sources and for each source, pipes it through the chain
+   of matches/patches.
+4. Finally, the result is processed as in `oio` mode.
 
 ## Environment Expansion
 
@@ -131,7 +131,7 @@ replace the node where it is found.
 
 ```tony
 - !exec |
-  ls /dev/null
+    ls /dev/null
 - true
 ```
 

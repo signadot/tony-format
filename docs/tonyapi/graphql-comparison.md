@@ -18,11 +18,13 @@ This document provides a detailed comparison between TonyAPI and GraphQL, highli
 ### 1. **Mental Model**
 
 **GraphQL:**
+
 - Presents a **graph** of related types
 - Relations are **virtual** - defined in schema, resolved on-demand
 - Queries traverse the graph by explicitly requesting relations
 
 **TonyAPI:**
+
 - Presents **one unified document** (like a filesystem)
 - Relations are **concrete** - exist as nested structures in the document
 - Queries navigate the document structure naturally
@@ -30,12 +32,14 @@ This document provides a detailed comparison between TonyAPI and GraphQL, highli
 ### 2. **Query Language**
 
 **GraphQL:**
+
 - Custom query language (GraphQL syntax)
 - Separate syntax for queries vs mutations
 - Field selection via explicit field names
 - Variables: `$userId: ID!`
 
 **TonyAPI:**
+
 - Uses Tony format (YAML-like, JSON-compatible)
 - Same document structure for queries and mutations (distinguished by presence of `patch:`)
 - Field selection via `field: null` in `match:` with `!trim`
@@ -44,6 +48,7 @@ This document provides a detailed comparison between TonyAPI and GraphQL, highli
 ### 3. **Mutations**
 
 **GraphQL:**
+
 - Separate mutation syntax
 - Input types for mutation arguments
 - Returns specified fields
