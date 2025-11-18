@@ -3,6 +3,7 @@ package gomap
 import (
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/signadot/tony-format/go-tony/eval"
@@ -189,14 +190,35 @@ func ExtractGoType(def *ir.Node, s *schema.Schema, registry *schema.SchemaRegist
 		}
 		return reflect.TypeOf(""), nil
 	case ir.NumberType:
-		// Check for !type tag
+		// Check for !type tag first - for type definitions, ignore the actual value
 		if def.Tag != "" {
 			head, _, _ := ir.TagArgs(def.Tag)
 			if head == "!type" {
+				// For !type number, always return float64 (most general numeric type)
+				// The actual value in the node is just an example, not the type
 				return reflect.TypeOf(float64(0)), nil
 			}
 		}
-		// Default to float64 for numbers (could be int or float)
+		// Try to infer type from the node's actual value (for non-!type nodes)
+		// Only infer int64 if Int64 is explicitly set (not nil)
+		// Only infer float64 if Float64 is explicitly set (not nil)
+		if def.Int64 != nil {
+			return reflect.TypeOf(int64(0)), nil
+		}
+		if def.Float64 != nil {
+			return reflect.TypeOf(float64(0)), nil
+		}
+		// If Number string exists, try to parse it to determine type
+		if def.Number != "" {
+			// Try to parse as integer first
+			if _, err := strconv.ParseInt(def.Number, 10, 64); err == nil {
+				return reflect.TypeOf(int64(0)), nil
+			}
+			// Otherwise it's a float
+			return reflect.TypeOf(float64(0)), nil
+		}
+		// Default to float64 for numbers if no value present (could be int or float)
+		// This is the most general type for numbers
 		return reflect.TypeOf(float64(0)), nil
 	case ir.BoolType:
 		// Check for !type tag

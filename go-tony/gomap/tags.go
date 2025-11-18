@@ -436,7 +436,14 @@ func getStructFieldsFromSchema(typ reflect.Type, s *schema.Schema, allowExtra bo
 		}
 
 		// Check if field is nullable (optional)
-		isOptional := IsNullable(fieldDefNode, s, registry)
+		// A field is optional if:
+		// 1. The schema definition explicitly allows null (!or [null, T])
+		// 2. The struct field is a pointer type (can be nil)
+		// 3. The struct field is a slice type (can be nil/empty)
+		isOptional := IsNullable(fieldDefNode, s, registry) ||
+			structField.Type.Kind() == reflect.Ptr ||
+			structField.Type.Kind() == reflect.Slice ||
+			structField.Type.Kind() == reflect.Map
 
 		// Validate that struct field type matches expected Go type
 		if !structField.Type.AssignableTo(goType) && !isTypeCompatible(structField.Type, goType, isOptional) {
@@ -484,15 +491,48 @@ func isTypeCompatible(structType, expectedType reflect.Type, isOptional bool) bo
 		return isOptional
 	}
 
-	// Basic type conversions (int vs int64, etc.)
-	if structType.Kind() == reflect.Int && expectedType.Kind() == reflect.Int64 {
+	// Handle pointer types: check if the underlying types are compatible
+	if structType.Kind() == reflect.Ptr && expectedType.Kind() == reflect.Ptr {
+		return isTypeCompatible(structType.Elem(), expectedType.Elem(), isOptional)
+	}
+	if structType.Kind() == reflect.Ptr {
+		return isTypeCompatible(structType.Elem(), expectedType, isOptional)
+	}
+	if expectedType.Kind() == reflect.Ptr {
+		return isTypeCompatible(structType, expectedType.Elem(), isOptional)
+	}
+
+	// Allow compatible integer type conversions (int <-> int64, but not int <-> float64)
+	// This handles common cases where schemas use int64 but structs use int (or vice versa)
+	if isIntegerType(structType) && isIntegerType(expectedType) {
 		return true
 	}
-	if structType.Kind() == reflect.Int64 && expectedType.Kind() == reflect.Int {
+
+	// Allow compatible float type conversions (float32 <-> float64)
+	if structType.Kind() == reflect.Float32 && expectedType.Kind() == reflect.Float64 {
+		return true
+	}
+	if structType.Kind() == reflect.Float64 && expectedType.Kind() == reflect.Float32 {
 		return true
 	}
 
 	return false
+}
+
+// isIntegerType checks if a reflect.Type represents an integer type.
+func isIntegerType(typ reflect.Type) bool {
+	kind := typ.Kind()
+	return kind == reflect.Int ||
+		kind == reflect.Int8 ||
+		kind == reflect.Int16 ||
+		kind == reflect.Int32 ||
+		kind == reflect.Int64 ||
+		kind == reflect.Uint ||
+		kind == reflect.Uint8 ||
+		kind == reflect.Uint16 ||
+		kind == reflect.Uint32 ||
+		kind == reflect.Uint64 ||
+		kind == reflect.Uintptr
 }
 
 // getStructFieldsFromStruct extracts field info when struct is source of truth (schemadef= mode)
