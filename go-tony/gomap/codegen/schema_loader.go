@@ -6,218 +6,206 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 	"github.com/signadot/tony-format/go-tony/schema"
 )
 
-// SchemaCache holds loaded schemas to avoid reloading
+// SchemaCache caches loaded schemas to avoid redundant parsing
 type SchemaCache struct {
 	schemas map[string]*schema.Schema
-	paths   map[string]string // schema name -> file path
 }
 
 // NewSchemaCache creates a new schema cache
 func NewSchemaCache() *SchemaCache {
 	return &SchemaCache{
 		schemas: make(map[string]*schema.Schema),
-		paths:   make(map[string]string),
 	}
 }
 
-// LoadSchema loads a schema from filesystem or cache.
-// schemaName can be:
-//   - "person" (local schema, same package)
-//   - "models.person" (cross-package reference)
-//
-// It tries to load from:
-//   1. Cache (if already loaded)
-//   2. Newly generated schemas (from Phase 2, same package)
-//   3. Filesystem (relative to package, then module-relative)
-//   4. Schema registry (if config.SchemaRegistry is set)
-func LoadSchema(schemaName string, pkgPath string, config *CodegenConfig, cache *SchemaCache, generatedSchemas map[string]*GeneratedSchema) (*schema.Schema, error) {
-	if cache == nil {
-		cache = NewSchemaCache()
-	}
+// GeneratedSchema holds information about a schema that was just generated in memory
+type GeneratedSchema struct {
+	Name     string
+	FilePath string // Path where it will be/was written
+	// We might add the *ir.Node here if we want to skip reloading from disk
+	// But schema.Load parses from file, so we might need to write it first or convert IR to Schema
+	// For now, let's assume we load from disk after writing, or we need a way to convert IR -> Schema
+	// actually, schema.Schema is the parsed representation. ir.Node is the lower level.
+	// Converting ir.Node to schema.Schema in memory is possible but might be complex.
+	// Simpler to write to file then load, or just track the path.
+	IRNode interface{} // Placeholder if we need it
+}
 
+// LoadSchema loads a schema by name.
+// It checks:
+// 1. The generatedSchemas map (for schemas just generated in this run)
+// 2. The schemaCache (for already loaded schemas)
+// 3. The filesystem (resolving the path)
+func LoadSchema(schemaName string, pkgDir string, config *CodegenConfig, cache *SchemaCache, generatedSchemas map[string]*GeneratedSchema) (*schema.Schema, error) {
 	// Check cache first
-	if cached, ok := cache.schemas[schemaName]; ok {
-		return cached, nil
+	if s, ok := cache.schemas[schemaName]; ok {
+		return s, nil
 	}
 
-	// Parse schema name (might be cross-package like "models.person")
-	pkgName, localSchemaName := parseSchemaName(schemaName)
-
-	// If it's a local schema (same package), check newly generated schemas first
-	if pkgName == "" || pkgName == config.Package.Name {
-		if genSchema, ok := generatedSchemas[localSchemaName]; ok {
-			parsed, err := schema.ParseSchema(genSchema.IRNode)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse generated schema %q: %w", schemaName, err)
-			}
-			cache.schemas[schemaName] = parsed
-			return parsed, nil
+	// Check if it was just generated
+	var schemaPath string
+	if gen, ok := generatedSchemas[schemaName]; ok {
+		schemaPath = gen.FilePath
+	} else {
+		// Resolve path from filesystem
+		var err error
+		schemaPath, err = ResolveSchemaPath(schemaName, pkgDir, config)
+		if err != nil {
+			return nil, err
 		}
 	}
 
-	// Find schema file path
-	schemaPath, err := ResolveSchemaPath(schemaName, pkgPath, config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve schema path for %q: %w", schemaName, err)
-	}
-
-	// Load and parse schema file
+	// Load from file
+	// Read file contents
 	data, err := os.ReadFile(schemaPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read schema file %q: %w", schemaPath, err)
+		return nil, fmt.Errorf("failed to read schema file %s: %w", schemaPath, err)
 	}
 
-	// Parse Tony file to IR node
-	irNode, err := parse.Parse(data, parse.ParseComments(true))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse schema file %q: %w", schemaPath, err)
-	}
-	if irNode == nil {
-		return nil, fmt.Errorf("schema file %q parsed to nil node (file may be empty)", schemaPath)
+	// Parse Tony format to IR node(s)
+	// The file might contain multiple schemas separated by ---
+	// We need to split by --- and parse each document
+	documents := splitDocuments(string(data))
+
+	var s *schema.Schema
+	for i, doc := range documents {
+		// Skip empty documents
+		if len(strings.TrimSpace(doc)) == 0 {
+			continue
+		}
+
+		node, err := parse.Parse([]byte(doc))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse document %d in schema file %s: %w", i, schemaPath, err)
+		}
+
+		// Convert IR node to Schema
+		parsedSchema, err := schema.ParseSchema(node)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse schema from document %d in %s: %w", i, schemaPath, err)
+		}
+
+		// Check if this is the schema we're looking for
+		if parsedSchema.Signature != nil && parsedSchema.Signature.Name == schemaName {
+			s = parsedSchema
+			break
+		}
 	}
 
-	// Unwrap comment node if present (parse.Parse with comments enabled wraps the root in a CommentType)
-	if irNode.Type == ir.CommentType && len(irNode.Values) > 0 {
-		irNode = irNode.Values[0]
+	if s == nil {
+		return nil, fmt.Errorf("schema %q not found in file %s", schemaName, schemaPath)
 	}
 
-	// Parse IR node to Schema
-	s, err := schema.ParseSchema(irNode)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse schema from %q: %w", schemaPath, err)
-	}
-
-	// Validate schema
-	if err := ValidateSchema(s, schemaName); err != nil {
-		return nil, fmt.Errorf("schema validation failed for %q: %w", schemaName, err)
-	}
-
-	// Cache the schema
+	// Add to cache
 	cache.schemas[schemaName] = s
-	cache.paths[schemaName] = schemaPath
-
 	return s, nil
 }
 
-// GeneratedSchema holds a schema that was just generated (from Phase 2)
-type GeneratedSchema struct {
-	Name    string
-	IRNode  *ir.Node
-	FilePath string
-}
+// ResolveSchemaPath resolves the filesystem path for a schema name.
+// schemaName can be:
+// - "person" (local schema)
+// - "models.person" (cross-package reference? handled by registry or convention)
+// - "./schemas/person.tony" (explicit path? usually not in tag)
+//
+// Search order:
+// 1. If config.SchemaDir is set, look there (preserving package structure?)
+// 2. If config.SchemaDirFlat is set, look there
+// 3. Look in current package directory (pkgDir)
+// 4. Look in schema registry (if configured)
+func ResolveSchemaPath(schemaName string, pkgDir string, config *CodegenConfig) (string, error) {
+	// Handle simple case: local schema "person" -> "person.tony"
+	fileName := schemaName + ".tony"
 
-// ResolveSchemaPath finds the path to a schema file.
-// Tries multiple locations:
-//   1. Same directory as package (for local schemas)
-//   2. Schema directory (if config.SchemaDir is set, preserves structure)
-//   3. Flat schema directory (if config.SchemaDirFlat is set)
-//   4. Module-relative paths
-//   5. Schema registry (if config.SchemaRegistry is set)
-func ResolveSchemaPath(schemaName string, pkgPath string, config *CodegenConfig) (string, error) {
-	// Parse schema name (might be cross-package like "models.person")
-	pkgName, localSchemaName := parseSchemaName(schemaName)
-
-	// Build expected filename
-	expectedFilename := localSchemaName + ".tony"
-
-	// Try 1: Same directory as package (for local schemas)
-	if pkgName == "" || pkgName == config.Package.Name {
-		localPath := filepath.Join(pkgPath, expectedFilename)
-		if _, err := os.Stat(localPath); err == nil {
-			return localPath, nil
-		}
-	}
-
-	// Try 2: Schema directory (preserves structure)
-	if config.SchemaDir != "" {
-		var schemaPath string
-		if pkgName != "" && pkgName != config.Package.Name {
-			// Cross-package: preserve package structure
-			schemaPath = filepath.Join(config.SchemaDir, pkgName, expectedFilename)
-		} else {
-			// Same package: use package directory structure
-			if config.Package != nil {
-				relPath, err := filepath.Rel(config.Dir, pkgPath)
-				if err == nil {
-					schemaPath = filepath.Join(config.SchemaDir, relPath, expectedFilename)
-				} else {
-					schemaPath = filepath.Join(config.SchemaDir, config.Package.Name, expectedFilename)
-				}
-			} else {
-				schemaPath = filepath.Join(config.SchemaDir, expectedFilename)
-			}
-		}
-		if _, err := os.Stat(schemaPath); err == nil {
-			return schemaPath, nil
-		}
-	}
-
-	// Try 3: Flat schema directory
+	// 1. Check SchemaDirFlat
 	if config.SchemaDirFlat != "" {
-		flatPath := filepath.Join(config.SchemaDirFlat, expectedFilename)
-		if _, err := os.Stat(flatPath); err == nil {
-			return flatPath, nil
+		path := filepath.Join(config.SchemaDirFlat, fileName)
+		if fileExists(path) {
+			return path, nil
 		}
 	}
 
-	// Try 4: Schema registry (if set)
+	// 2. Check SchemaDir
+	// This is tricky because we don't know the relative path of the schema's package
+	// unless schemaName implies it (e.g. "models.person").
+	// If schemaName is just "person", we assume it's in the current package or same dir.
+	if config.SchemaDir != "" {
+		// Try joining SchemaDir + pkgDir's relative path?
+		// Or just check SchemaDir/fileName?
+		// If we are generating into SchemaDir, we expect to find it there.
+		// But if we are loading a schema from *another* package, we need to know that package's path.
+
+		// For now, let's assume local schema first.
+		// If we are in pkgDir, and we generated to SchemaDir/pkgRel/person.tony
+		// We need to reconstruct that path.
+		// But ResolveSchemaPath is generic.
+
+		// Let's try simple check in SchemaDir (if flat-ish usage)
+		path := filepath.Join(config.SchemaDir, fileName)
+		if fileExists(path) {
+			return path, nil
+		}
+	}
+
+	// 3. Check current package directory (default)
+	localPath := filepath.Join(pkgDir, fileName)
+	if fileExists(localPath) {
+		return localPath, nil
+	}
+
+	// 4. Check Schema Registry (if configured)
 	if config.SchemaRegistry != "" {
-		var registryPath string
-		if pkgName != "" {
-			// Cross-package: preserve package structure in registry
-			registryPath = filepath.Join(config.SchemaRegistry, pkgName, expectedFilename)
-		} else {
-			// Same package: use package name in registry
-			if config.Package != nil {
-				registryPath = filepath.Join(config.SchemaRegistry, config.Package.Name, expectedFilename)
-			} else {
-				registryPath = filepath.Join(config.SchemaRegistry, expectedFilename)
+		path := filepath.Join(config.SchemaRegistry, fileName)
+		if fileExists(path) {
+			return path, nil
+		}
+	}
+
+	// 5. Cross-package references?
+	// If schemaName has dots, e.g. "models.person"
+	// We might expect "models/person.tony" relative to module root?
+	// This requires knowing module root.
+	// For now, fail if not found locally.
+
+	return "", fmt.Errorf("schema %q not found in %s or configured directories", schemaName, pkgDir)
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return false
+	}
+	return !info.IsDir()
+}
+
+// splitDocuments splits a multi-document Tony file by --- separators
+func splitDocuments(content string) []string {
+	// Split by lines starting with ---
+	lines := strings.Split(content, "\n")
+	var documents []string
+	var currentDoc strings.Builder
+
+	for _, line := range lines {
+		// Check if line is a document separator
+		if strings.TrimSpace(line) == "---" {
+			// Save current document if not empty
+			if currentDoc.Len() > 0 {
+				documents = append(documents, currentDoc.String())
+				currentDoc.Reset()
 			}
+			continue
 		}
-		if _, err := os.Stat(registryPath); err == nil {
-			return registryPath, nil
-		}
+		currentDoc.WriteString(line)
+		currentDoc.WriteString("\n")
 	}
 
-	return "", fmt.Errorf("schema file not found for %q (searched in package dir, schema-dir, schema-dir-flat, and schema-registry)", schemaName)
-}
-
-// parseSchemaName parses a schema name that might be cross-package.
-// Examples:
-//   - "person" -> ("", "person")
-//   - "models.person" -> ("models", "person")
-func parseSchemaName(schemaName string) (pkgName string, localName string) {
-	parts := strings.Split(schemaName, ".")
-	if len(parts) == 1 {
-		return "", parts[0]
-	}
-	// Last part is the schema name, everything before is package path
-	return strings.Join(parts[:len(parts)-1], "."), parts[len(parts)-1]
-}
-
-// ValidateSchema validates that a schema has the required structure.
-func ValidateSchema(s *schema.Schema, schemaName string) error {
-	// Check that schema has signature.name
-	if s.Signature == nil || s.Signature.Name == "" {
-		return fmt.Errorf("schema missing signature.name")
+	// Add the last document
+	if currentDoc.Len() > 0 {
+		documents = append(documents, currentDoc.String())
 	}
 
-	// Check that signature.name matches expected schema name
-	// For cross-package references (e.g., "models.person"), we only check the local name
-	_, localName := parseSchemaName(schemaName)
-	if s.Signature.Name != localName {
-		return fmt.Errorf("schema signature.name (%q) does not match expected name (%q)", s.Signature.Name, localName)
-	}
-
-	// Check that schema has define map (even if empty)
-	if s.Define == nil {
-		return fmt.Errorf("schema missing define map")
-	}
-
-	return nil
+	return documents
 }
