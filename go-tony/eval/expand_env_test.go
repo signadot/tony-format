@@ -1,6 +1,10 @@
 package eval
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/signadot/tony-format/go-tony/ir"
+)
 
 type envTest struct {
 	in, out string
@@ -53,11 +57,11 @@ func TestEnv(t *testing.T) {
 			out: " $abc",
 		},
 	}
-	f := map[string]any{
-		"x":     "X",
-		"stuff": "STUFF",
-		"here":  "HERE",
-		"true":  false,
+	f := map[string]*ir.Node{
+		"x":     ir.FromString("X"),
+		"stuff": ir.FromString("STUFF"),
+		"here":  ir.FromString("HERE"),
+		"true":  ir.FromBool(false),
 	}
 	for i := range tests {
 		tc := &tests[i]

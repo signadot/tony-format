@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/scott-cotton/cli"
+	"github.com/signadot/tony-format/go-tony/ir"
 )
 
 func MainCommand() *cli.Command {
@@ -52,7 +53,7 @@ func MainCommand() *cli.Command {
 }
 
 func EvalCommand(mainCfg *MainConfig) *cli.Command {
-	cfg := &EvalConfig{MainConfig: mainCfg, Env: map[string]any{}}
+	cfg := &EvalConfig{MainConfig: mainCfg, Env: map[string]*ir.Node{}}
 	opts, err := cli.StructOpts(cfg)
 	if err != nil {
 		panic(err)
@@ -75,7 +76,7 @@ func EvalCommand(mainCfg *MainConfig) *cli.Command {
 	return cmd
 }
 
-func envOptTypeFunc(env map[string]any) func(cc *cli.Context, a string) (any, error) {
+func envOptTypeFunc(env map[string]*ir.Node) func(cc *cli.Context, a string) (any, error) {
 	return func(cc *cli.Context, a string) (any, error) {
 		if err := envFunc(env, a); err != nil {
 			return nil, err
@@ -185,7 +186,7 @@ func PatchCommand(mainCfg *MainConfig) *cli.Command {
 }
 
 func BuildCommand(mainCfg *MainConfig) *cli.Command {
-	cfg := &BuildConfig{MainConfig: mainCfg, Env: map[string]any{}}
+	cfg := &BuildConfig{MainConfig: mainCfg, Env: map[string]*ir.Node{}}
 	opts, err := cli.StructOpts(cfg)
 	if err != nil {
 		panic(err)

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/signadot/tony-format/go-tony/encode"
+	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 )
 
@@ -85,13 +86,8 @@ f1: !eval $[x]`,
 		out: "of1: null\nof2:\n- 1\n- two\n- 0.3",
 	},
 	{
-		in: `!eval $[o]`,
-		out: `|-
-  of1: null
-  of2:
-  - 1
-  - two
-  - 0.3`,
+		in:  `!eval $[o]`,
+		out: `"{of1: null of2: [1 two 0.3]}"`,
 	},
 	{
 		in: `
@@ -177,11 +173,11 @@ f2: true`,
 func TestTool(t *testing.T) {
 	tool := DefaultTool()
 	tool.Env["nil"] = nil
-	tool.Env["x"] = 22
-	tool.Env["o"] = map[string]any{
-		"of1": nil,
-		"of2": []any{1, "two", 0.3},
-	}
+	tool.Env["x"] = ir.FromInt(22)
+	tool.Env["o"] = ir.FromMap(map[string]*ir.Node{
+		"of1": ir.Null(),
+		"of2": ir.FromSlice([]*ir.Node{ir.FromInt(1), ir.FromString("two"), ir.FromFloat(0.3)}),
+	})
 	os.Setenv("ENV1", "ENV2")
 	for i := range toolTests {
 		tt := &toolTests[i]
@@ -209,7 +205,6 @@ func TestTool(t *testing.T) {
 			t.Errorf("got %q want %q", got, want)
 			t.Logf("yOut type %s", yOut.Type)
 			t.Logf("yOut fields %v", yOut.Fields)
-			return
 		}
 	}
 }

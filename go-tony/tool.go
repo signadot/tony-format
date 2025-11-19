@@ -10,12 +10,12 @@ import (
 )
 
 type Tool struct {
-	Env map[string]any
+	Env map[string]*ir.Node
 }
 
 func DefaultTool() *Tool {
 	return &Tool{
-		Env: map[string]any{},
+		Env: map[string]*ir.Node{},
 	}
 }
 

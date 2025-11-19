@@ -8,6 +8,7 @@ import (
 
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/format"
+	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 
 	"github.com/scott-cotton/cli"
@@ -130,7 +131,7 @@ func (cfg *MainConfig) encOpts(w io.Writer) []encode.EncodeOption {
 
 type EvalConfig struct {
 	*MainConfig
-	Env  map[string]any
+	Env  map[string]*ir.Node
 	Tags bool `cli:"name=tags desc='show available tags'"`
 
 	Eval *cli.Command
@@ -202,7 +203,7 @@ type PatchConfig struct {
 
 type BuildConfig struct {
 	*MainConfig
-	Env map[string]any
+	Env map[string]*ir.Node
 
 	List    bool   `cli:"name=l aliases=list desc='list profiles'"`
 	Profile string `cli:"name=p aliases=profile desc='profile to build'"`

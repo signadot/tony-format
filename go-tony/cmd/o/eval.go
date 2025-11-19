@@ -10,9 +10,10 @@ import (
 	"github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/eval"
+	"github.com/signadot/tony-format/go-tony/gomap"
+	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 
-	"github.com/goccy/go-yaml"
 	"github.com/scott-cotton/cli"
 )
 
@@ -104,14 +105,17 @@ func evalReader(cfg *EvalConfig, w io.Writer, r io.Reader, tool *tony.Tool, colo
 	return nil
 }
 
-func envFunc(env map[string]any, a string) error {
+func envFunc(env map[string]*ir.Node, a string) error {
 	key, val, ok := strings.Cut(a, "=")
 	if !ok {
 		return fmt.Errorf("%w: argument %q expected key=val", cli.ErrUsage, a)
 	}
 	var v any
-	err := yaml.Unmarshal([]byte(val), &v)
+	node, err := parse.Parse([]byte(val))
 	if err != nil {
+		return err
+	}
+	if err := gomap.FromIR(node, &v); err != nil {
 		return err
 	}
 	parts := strings.Split(key, ".")
@@ -119,19 +123,20 @@ func envFunc(env map[string]any, a string) error {
 	tmpEnv := env
 	for i, part := range parts {
 		if i == n-1 {
-			tmpEnv[part] = v
+			tmpEnv[part] = node
 			break
 		}
 		next := tmpEnv[part]
 		if next == nil {
-			next = map[string]any{}
+			next = ir.FromMap(map[string]*ir.Node{})
 			tmpEnv[part] = next
 		}
-		nextEnv, ok := next.(map[string]any)
-		if !ok {
+		switch next.Type {
+		case ir.ObjectType:
+		default:
 			return fmt.Errorf("cannot access %s, list or scalar", strings.Join(parts[:i+1], "."))
 		}
-		tmpEnv = nextEnv
+		tmpEnv = ir.ToMap(next)
 	}
 	return nil
 }

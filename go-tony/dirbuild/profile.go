@@ -36,7 +36,7 @@ func (d *Dir) Profiles() ([]string, error) {
 	return res, nil
 }
 
-func (d *Dir) LoadProfile(profile string, env map[string]any) error {
+func (d *Dir) LoadProfile(profile string, env map[string]*ir.Node) error {
 	if debug.LoadEnv() {
 		debug.Logf("LoadProfile with env\n%s", debug.JSON(env))
 	}
@@ -68,17 +68,11 @@ func (d *Dir) LoadProfile(profile string, env map[string]any) error {
 	if err != nil {
 		return err
 	}
-	yAny := eval.ToJSONAny(yRes)
-
-	res, ok := yAny.(map[string]any)
-	if !ok {
-		return fmt.Errorf("wrong type for patched env %T", res)
-	}
-	merged, err := mergeEnv(res, env)
+	merged, err := tony.Patch(yRes, ir.FromMap(env))
 	if err != nil {
 		return err
 	}
-	reDir, err := OpenDir(d.Root, merged)
+	reDir, err := OpenDir(d.Root, ir.ToMap(merged))
 	if err != nil {
 		return err
 	}

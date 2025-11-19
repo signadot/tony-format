@@ -426,15 +426,15 @@ func TestFromJSONAnyMaps(t *testing.T) {
 func TestExpandIRRawEnvRefWithMaps(t *testing.T) {
 	tests := []struct {
 		name     string
-		envVar   any
+		envVar   *ir.Node
 		expected *ir.Node
 	}{
 		{
 			name: "raw_env_ref_to_map[string]*ir.Node",
-			envVar: map[string]*ir.Node{
+			envVar: ir.FromMap(map[string]*ir.Node{
 				"key1": ir.FromString("value1").WithTag("!tag1"),
 				"key2": ir.FromString("value2").WithTag("!tag2"),
-			},
+			}),
 			expected: func() *ir.Node {
 				return ir.FromMap(map[string]*ir.Node{
 					"key1": ir.FromString("value1").WithTag("!tag1"),
@@ -444,10 +444,10 @@ func TestExpandIRRawEnvRefWithMaps(t *testing.T) {
 		},
 		{
 			name: "raw_env_ref_to_map[int]*ir.Node",
-			envVar: map[int]*ir.Node{
+			envVar: ir.FromIntKeysMap(map[uint32]*ir.Node{
 				0: ir.FromString("first").WithTag("!tag1"),
 				1: ir.FromString("second").WithTag("!tag2"),
-			},
+			}),
 			expected: func() *ir.Node {
 				return ir.FromMap(map[string]*ir.Node{
 					"0": ir.FromString("first").WithTag("!tag1"),
