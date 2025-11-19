@@ -30,6 +30,9 @@ type StructInfo struct {
 
 	// ASTNode is the original AST node for this struct (for reference)
 	ASTNode *ast.StructType
+
+	// Imports maps package names to import paths for the file containing this struct
+	Imports map[string]string
 }
 
 // FieldInfo holds field information extracted from struct definition

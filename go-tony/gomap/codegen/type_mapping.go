@@ -33,12 +33,12 @@ func GoTypeToSchemaNode(typ reflect.Type, fieldInfo *FieldInfo, structMap map[st
 			return nil, fmt.Errorf("failed to convert pointer element type: %w", err)
 		}
 		// Create !or [null, T] for nullable types
+		// The null should be tagged as !irtype
+		nullNode := ir.Null()
+		nullNode.Tag = "!irtype"
 		return ir.FromSlice([]*ir.Node{
 			ir.FromString("!or"),
-			ir.FromSlice([]*ir.Node{
-				ir.FromString("!irtype"),
-				ir.Null(),
-			}),
+			nullNode,
 			elemNode,
 		}), nil
 	}
@@ -50,11 +50,14 @@ func GoTypeToSchemaNode(typ reflect.Type, fieldInfo *FieldInfo, structMap map[st
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert slice element type: %w", err)
 		}
-		// Create .array(T) reference
-		return ir.FromSlice([]*ir.Node{
-			ir.FromString(".array"),
+		// Create !and [.[array], elemType] format
+		// This represents "it's an array AND each element is of type elemType"
+		arrayNode := ir.FromSlice([]*ir.Node{
+			ir.FromString(".[array]"),
 			elemNode,
-		}), nil
+		})
+		arrayNode.Tag = "!and"
+		return arrayNode, nil
 	}
 
 	// Handle maps
@@ -106,19 +109,18 @@ func GoTypeToSchemaNode(typ reflect.Type, fieldInfo *FieldInfo, structMap map[st
 			return nil, fmt.Errorf("failed to convert map value type: %w", err)
 		}
 		// Represent as object type (keys are strings)
-		return ir.FromSlice([]*ir.Node{
-			ir.FromString("!irtype"),
-			ir.FromMap(map[string]*ir.Node{}),
-		}), nil
+		node := ir.FromMap(map[string]*ir.Node{})
+		node.Tag = "!irtype"
+		return node, nil
 	}
 
 	// Handle basic types
 	switch kind {
 	case reflect.String:
-		return ir.FromSlice([]*ir.Node{
-			ir.FromString("!irtype"),
-			ir.FromString(""),
-		}), nil
+		// Create !irtype "" format (tagged string node)
+		node := ir.FromString("")
+		node.Tag = "!irtype"
+		return node, nil
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
@@ -129,19 +131,18 @@ func GoTypeToSchemaNode(typ reflect.Type, fieldInfo *FieldInfo, structMap map[st
 		return node, nil
 
 	case reflect.Bool:
-		return ir.FromSlice([]*ir.Node{
-			ir.FromString("!irtype"),
-			ir.FromBool(true),
-		}), nil
+		// Create !irtype true format (tagged bool node)
+		node := ir.FromBool(true)
+		node.Tag = "!irtype"
+		return node, nil
 
 	case reflect.Interface:
 		// interface{} → any type (no constraint)
 		// For schema generation, we might want to use a more permissive type
 		// For now, represent as object (most common use case)
-		return ir.FromSlice([]*ir.Node{
-			ir.FromString("!irtype"),
-			ir.FromMap(map[string]*ir.Node{}),
-		}), nil
+		node := ir.FromMap(map[string]*ir.Node{})
+		node.Tag = "!irtype"
+		return node, nil
 
 	case reflect.Struct:
 		structTypeName := ""
@@ -211,10 +212,9 @@ func goStructToSchemaNode(typ reflect.Type, structMap map[string]*StructInfo, cu
 	// If we get here, we couldn't find a schema reference
 	// This means the struct type doesn't have a schemadef= tag or isn't in the struct map
 	// Return a placeholder object type (fallback)
-	return ir.FromSlice([]*ir.Node{
-		ir.FromString("!irtype"),
-		ir.FromMap(map[string]*ir.Node{}),
-	}), nil
+	node := ir.FromMap(map[string]*ir.Node{})
+	node.Tag = "!irtype"
+	return node, nil
 }
 
 // ASTTypeToSchemaNode converts an AST type expression to an IR schema node.
@@ -226,22 +226,19 @@ func ASTTypeToSchemaNode(expr ast.Expr, structMap map[string]*StructInfo, curren
 		name := x.Name
 		switch name {
 		case "string":
-			return ir.FromSlice([]*ir.Node{
-				ir.FromString("!irtype"),
-				ir.FromString(""),
-			}), nil
+			node := ir.FromString("")
+			node.Tag = "!irtype"
+			return node, nil
 		case "int", "int8", "int16", "int32", "int64",
 			"uint", "uint8", "uint16", "uint32", "uint64",
 			"float32", "float64":
-			return ir.FromSlice([]*ir.Node{
-				ir.FromString("!irtype"),
-				ir.FromInt(1),
-			}), nil
+			node := ir.FromInt(1)
+			node.Tag = "!irtype"
+			return node, nil
 		case "bool":
-			return ir.FromSlice([]*ir.Node{
-				ir.FromString("!irtype"),
-				ir.FromBool(true),
-			}), nil
+			node := ir.FromBool(true)
+			node.Tag = "!irtype"
+			return node, nil
 		default:
 			// Custom type - check if it's a struct with schema
 			if structInfo, ok := structMap[name]; ok && structInfo.Package == currentPkg {
@@ -254,10 +251,9 @@ func ASTTypeToSchemaNode(expr ast.Expr, structMap map[string]*StructInfo, curren
 				}
 			}
 			// Unknown type - return placeholder
-			return ir.FromSlice([]*ir.Node{
-				ir.FromString("!irtype"),
-				ir.FromMap(map[string]*ir.Node{}),
-			}), nil
+			node := ir.FromMap(map[string]*ir.Node{})
+			node.Tag = "!irtype"
+			return node, nil
 		}
 
 	case *ast.StarExpr:
@@ -266,12 +262,11 @@ func ASTTypeToSchemaNode(expr ast.Expr, structMap map[string]*StructInfo, curren
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert pointer element: %w", err)
 		}
+		nullNode := ir.Null()
+		nullNode.Tag = "!irtype"
 		return ir.FromSlice([]*ir.Node{
 			ir.FromString("!or"),
-			ir.FromSlice([]*ir.Node{
-				ir.FromString("!irtype"),
-				ir.Null(),
-			}),
+			nullNode,
 			elemNode,
 		}), nil
 
@@ -281,10 +276,13 @@ func ASTTypeToSchemaNode(expr ast.Expr, structMap map[string]*StructInfo, curren
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert array element: %w", err)
 		}
-		return ir.FromSlice([]*ir.Node{
-			ir.FromString(".array"),
+		// Create !and [.[array], elemType] format
+		arrayNode := ir.FromSlice([]*ir.Node{
+			ir.FromString(".[array]"),
 			elemNode,
-		}), nil
+		})
+		arrayNode.Tag = "!and"
+		return arrayNode, nil
 
 	case *ast.MapType:
 		// Map type map[K]V
@@ -303,18 +301,16 @@ func ASTTypeToSchemaNode(expr ast.Expr, structMap map[string]*StructInfo, curren
 		}
 
 		// Regular map[string]T
-		return ir.FromSlice([]*ir.Node{
-			ir.FromString("!irtype"),
-			ir.FromMap(map[string]*ir.Node{}),
-		}), nil
+		node := ir.FromMap(map[string]*ir.Node{})
+		node.Tag = "!irtype"
+		return node, nil
 
 	case *ast.SelectorExpr:
 		// Qualified type (package.Type)
 		// For now, treat as unknown type
-		return ir.FromSlice([]*ir.Node{
-			ir.FromString("!irtype"),
-			ir.FromMap(map[string]*ir.Node{}),
-		}), nil
+		node := ir.FromMap(map[string]*ir.Node{})
+		node.Tag = "!irtype"
+		return node, nil
 
 	default:
 		return nil, fmt.Errorf("unsupported AST type expression: %T", expr)

@@ -27,7 +27,7 @@ func TestDirGoMap(t *testing.T) {
 			},
 		},
 		DestDir: "destDir",
-		Env: map[string]any{
+		Env: map[string]*ir.Node{
 			"fred": ir.FromMap(map[string]*ir.Node{
 				"barney": ir.FromString("wilma"),
 			},

@@ -26,6 +26,9 @@ func ParseFile(filename string) (*ast.File, *token.FileSet, error) {
 func ExtractStructs(file *ast.File, filePath string) ([]*StructInfo, error) {
 	var structs []*StructInfo
 
+	// Extract imports
+	imports := ExtractImports(file)
+
 	for _, decl := range file.Decls {
 		genDecl, ok := decl.(*ast.GenDecl)
 		if !ok {
@@ -66,18 +69,39 @@ func ExtractStructs(file *ast.File, filePath string) ([]*StructInfo, error) {
 			}
 
 			structs = append(structs, &StructInfo{
-				Name:        typeSpec.Name.Name,
-				Package:     file.Name.Name,
-				FilePath:    filePath,
-				Fields:      fields,
+				Name:         typeSpec.Name.Name,
+				Package:      file.Name.Name,
+				FilePath:     filePath,
+				Fields:       fields,
 				StructSchema: structSchema,
-				Comments:    comments,
-				ASTNode:     structType,
+				Comments:     comments,
+				ASTNode:      structType,
+				Imports:      imports,
 			})
 		}
 	}
 
 	return structs, nil
+}
+
+// ExtractImports extracts imports from an AST file.
+// Returns a map of package name -> import path.
+func ExtractImports(file *ast.File) map[string]string {
+	imports := make(map[string]string)
+	for _, imp := range file.Imports {
+		var name string
+		path := strings.Trim(imp.Path.Value, "\"")
+
+		if imp.Name != nil {
+			name = imp.Name.Name
+		} else {
+			// Default to the last component of the path
+			parts := strings.Split(path, "/")
+			name = parts[len(parts)-1]
+		}
+		imports[name] = path
+	}
+	return imports
 }
 
 // ExtractComments extracts comments from a declaration.
@@ -98,7 +122,7 @@ func ExtractComments(decl ast.Decl) []string {
 			text = strings.TrimPrefix(text, "/*")
 			text = strings.TrimSuffix(text, "*/")
 			text = strings.TrimSpace(text)
-			
+
 			// Split multi-line comments and add "# " prefix to each line
 			lines := strings.Split(text, "\n")
 			for _, line := range lines {
@@ -219,12 +243,12 @@ func extractFields(structType *ast.StructType) ([]*FieldInfo, error) {
 
 				// Extract field information
 				fieldInfo := &FieldInfo{
-					Name:         name.Name,
+					Name:            name.Name,
 					SchemaFieldName: name.Name, // Default to field name
-					ASTType:      field.Type,
-					Comments:     comments,
-					ASTField:     field,
-					IsEmbedded:   false,
+					ASTType:         field.Type,
+					Comments:        comments,
+					ASTField:        field,
+					IsEmbedded:      false,
 				}
 
 				// Extract field name override
@@ -272,7 +296,7 @@ func ExtractFieldComments(field *ast.Field) []string {
 			text = strings.TrimPrefix(text, "/*")
 			text = strings.TrimSuffix(text, "*/")
 			text = strings.TrimSpace(text)
-			
+
 			// Split multi-line comments and add "# " prefix to each line
 			lines := strings.Split(text, "\n")
 			for _, line := range lines {

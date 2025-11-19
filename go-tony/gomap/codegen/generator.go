@@ -5,10 +5,29 @@ import (
 	"go/ast"
 	"go/format"
 	"reflect"
+	"sort"
 	"strings"
 
+	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/schema"
 )
+
+// isIRNodePtr checks if the type is *ir.Node
+func isIRNodePtr(t reflect.Type) bool {
+	if t == nil {
+		return false
+	}
+	// Check for direct equality first
+	if t == reflect.TypeOf((*ir.Node)(nil)) {
+		return true
+	}
+	// Check by name and package
+	if t.Kind() == reflect.Ptr {
+		elem := t.Elem()
+		return elem.Name() == "Node" && strings.HasSuffix(elem.PkgPath(), "/ir")
+	}
+	return false
+}
 
 // GenerateCode generates Go code for ToTony() and FromTony() methods for all structs.
 // Returns formatted Go source code.
@@ -20,9 +39,44 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 	buf.WriteString(fmt.Sprintf("package %s\n\n", config.Package.Name))
 	buf.WriteString("import (\n")
 	buf.WriteString(`	"fmt"` + "\n")
-	buf.WriteString(`	"strconv"` + "\n")
-	buf.WriteString(`	"unsafe"` + "\n")
 	buf.WriteString(`	"github.com/signadot/tony-format/go-tony/ir"` + "\n")
+
+	// Collect external package imports from all structs
+	externalImports := make(map[string]bool)
+	for _, structInfo := range structs {
+		if structInfo.StructSchema == nil {
+			continue
+		}
+		// Check all fields for external types
+		for _, field := range structInfo.Fields {
+			if field.StructTypeName != "" && strings.Contains(field.StructTypeName, ".") {
+				// Extract package name (e.g., "format" from "format.Format")
+				parts := strings.Split(field.StructTypeName, ".")
+				if len(parts) == 2 {
+					pkgName := parts[0]
+					// Look up the import path from the struct's Imports map
+					if importPath, ok := structInfo.Imports[pkgName]; ok {
+						externalImports[importPath] = true
+					}
+				}
+			}
+		}
+	}
+
+	// Add external imports in sorted order for consistency
+	var importPaths []string
+	for importPath := range externalImports {
+		importPaths = append(importPaths, importPath)
+	}
+	sort.Strings(importPaths)
+	for _, importPath := range importPaths {
+		buf.WriteString(fmt.Sprintf("\t%q\n", importPath))
+	}
+
+	// Add other standard imports (only if needed, but for now keep them)
+	// TODO: Only add these if actually used
+	// buf.WriteString(`	"strconv"` + "\n")
+	// buf.WriteString(`	"unsafe"` + "\n")
 	buf.WriteString(")\n\n")
 
 	// Generate methods for each struct
@@ -148,17 +202,23 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 		return "", fmt.Errorf("field %q has no type information", field.Name)
 	}
 
+	// Special handling for *ir.Node
+	if isIRNodePtr(field.Type) {
+		buf.WriteString(fmt.Sprintf("		irMap[%q] = s.%s\n", schemaFieldName, field.Name))
+		return buf.String(), nil
+	}
+
 	// Handle different field types
 	switch field.Type.Kind() {
 	case reflect.String:
 		buf.WriteString(fmt.Sprintf("		irMap[%q] = ir.FromString(s.%s)\n", schemaFieldName, field.Name))
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		buf.WriteString(fmt.Sprintf("		irMap[%q] = ir.FromInt64(int64(s.%s))\n", schemaFieldName, field.Name))
+		buf.WriteString(fmt.Sprintf("		irMap[%q] = ir.FromInt(int64(s.%s))\n", schemaFieldName, field.Name))
 
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		// For unsigned types, we need to handle them carefully
-		buf.WriteString(fmt.Sprintf("		irMap[%q] = ir.FromInt64(int64(s.%s))\n", schemaFieldName, field.Name))
+		buf.WriteString(fmt.Sprintf("		irMap[%q] = ir.FromInt(int64(s.%s))\n", schemaFieldName, field.Name))
 
 	case reflect.Float32, reflect.Float64:
 		buf.WriteString(fmt.Sprintf("		irMap[%q] = ir.FromFloat64(float64(s.%s))\n", schemaFieldName, field.Name))
@@ -203,7 +263,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			// Slice of structs - call ToTony()
 			buf.WriteString("				node, err := v.ToTony()\n")
 			buf.WriteString("				if err != nil {\n")
-			buf.WriteString("					return nil, fmt.Errorf(\"failed to convert slice element %%d: %%w\", i, err)\n")
+			buf.WriteString("					return nil, fmt.Errorf(\"failed to convert slice element %d: %w\", i, err)\n")
 			buf.WriteString("				}\n")
 			buf.WriteString("				slice[i] = node\n")
 		} else {
@@ -222,7 +282,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 		// Map type
 		keyType := field.Type.Key()
 		valueType := field.Type.Elem()
-		
+
 		if keyType.Kind() == reflect.Uint32 {
 			// Sparse array (map[uint32]T)
 			buf.WriteString(fmt.Sprintf("		if len(s.%s) > 0 {\n", field.Name))
@@ -231,7 +291,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			if valueType.Kind() == reflect.Struct {
 				buf.WriteString("				node, err := v.ToTony()\n")
 				buf.WriteString("				if err != nil {\n")
-				buf.WriteString("					return nil, fmt.Errorf(\"failed to convert map value at key %%d: %%w\", k, err)\n")
+				buf.WriteString("					return nil, fmt.Errorf(\"failed to convert map value at key %d: %w\", k, err)\n")
 				buf.WriteString("				}\n")
 				buf.WriteString("				intKeysMap[k] = node\n")
 			} else {
@@ -249,10 +309,12 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			buf.WriteString(fmt.Sprintf("		if len(s.%s) > 0 {\n", field.Name))
 			buf.WriteString(fmt.Sprintf("			mapNodes := make(map[string]*ir.Node)\n"))
 			buf.WriteString(fmt.Sprintf("			for k, v := range s.%s {\n", field.Name))
-			if valueType.Kind() == reflect.Struct {
+			if isIRNodePtr(valueType) {
+				buf.WriteString("				mapNodes[k] = v\n")
+			} else if valueType.Kind() == reflect.Struct {
 				buf.WriteString("				node, err := v.ToTony()\n")
 				buf.WriteString("				if err != nil {\n")
-				buf.WriteString("					return nil, fmt.Errorf(\"failed to convert map value at key %%q: %%w\", k, err)\n")
+				buf.WriteString("					return nil, fmt.Errorf(\"failed to convert map value at key %q: %w\", k, err)\n")
 				buf.WriteString("				}\n")
 				buf.WriteString("				mapNodes[k] = node\n")
 			} else {
@@ -275,7 +337,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			if valueType.Kind() == reflect.Struct {
 				buf.WriteString("				node, err := v.ToTony()\n")
 				buf.WriteString("				if err != nil {\n")
-				buf.WriteString("					return nil, fmt.Errorf(\"failed to convert map value at key %%v: %%w\", k, err)\n")
+				buf.WriteString("					return nil, fmt.Errorf(\"failed to convert map value at key %v: %w\", k, err)\n")
 				buf.WriteString("				}\n")
 				buf.WriteString("				mapNodes[kStr] = node\n")
 			} else {
@@ -298,7 +360,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			if valueType.Kind() == reflect.Struct {
 				buf.WriteString("				node, err := v.ToTony()\n")
 				buf.WriteString("				if err != nil {\n")
-				buf.WriteString("					return nil, fmt.Errorf(\"failed to convert map value at key %%p: %%w\", k, err)\n")
+				buf.WriteString("					return nil, fmt.Errorf(\"failed to convert map value at key %p: %w\", k, err)\n")
 				buf.WriteString("				}\n")
 				buf.WriteString("				mapNodes[kStr] = node\n")
 			} else {
@@ -349,9 +411,9 @@ func generatePrimitiveToIR(varName string, typ reflect.Type) (string, error) {
 	case reflect.String:
 		return fmt.Sprintf("ir.FromString(%s)", varName), nil
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return fmt.Sprintf("ir.FromInt64(int64(%s))", varName), nil
+		return fmt.Sprintf("ir.FromInt(int64(%s))", varName), nil
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return fmt.Sprintf("ir.FromInt64(int64(%s))", varName), nil
+		return fmt.Sprintf("ir.FromInt(int64(%s))", varName), nil
 	case reflect.Float32, reflect.Float64:
 		return fmt.Sprintf("ir.FromFloat64(float64(%s))", varName), nil
 	case reflect.Bool:
@@ -423,6 +485,29 @@ func generateFieldFromIR(structInfo *StructInfo, field *FieldInfo, schemaFieldNa
 
 	if field.Type == nil {
 		return "", fmt.Errorf("field %q has no type information", field.Name)
+	}
+
+	// Special handling for *ir.Node
+	if isIRNodePtr(field.Type) {
+		// Get field from IR node
+		if field.Optional {
+			buf.WriteString(fmt.Sprintf("	if fieldNode := ir.Get(node, %q); fieldNode != nil {\n", schemaFieldName))
+			buf.WriteString(fmt.Sprintf("		s.%s = fieldNode\n", field.Name))
+			buf.WriteString("	}\n")
+		} else {
+			if field.Required {
+				buf.WriteString(fmt.Sprintf("	fieldNode := ir.Get(node, %q)\n", schemaFieldName))
+				buf.WriteString("	if fieldNode == nil {\n")
+				buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"required field %%q is missing\", %q)\n", schemaFieldName))
+				buf.WriteString("	}\n")
+				buf.WriteString(fmt.Sprintf("	s.%s = fieldNode\n", field.Name))
+			} else {
+				buf.WriteString(fmt.Sprintf("	if fieldNode := ir.Get(node, %q); fieldNode != nil {\n", schemaFieldName))
+				buf.WriteString(fmt.Sprintf("		s.%s = fieldNode\n", field.Name))
+				buf.WriteString("	}\n")
+			}
+		}
+		return buf.String(), nil
 	}
 
 	// Get field from IR node
@@ -517,22 +602,75 @@ func generateFieldFromIR(structInfo *StructInfo, field *FieldInfo, schemaFieldNa
 			buf.WriteString("			return err\n")
 			buf.WriteString("		}\n")
 		} else {
-			// Pointer to primitive
-			fieldCode, err := generateFieldFromIR(structInfo, &FieldInfo{
-				Name: "val",
-				Type: elemType,
-			}, "field")
-			if err != nil {
-				return "", err
+			// Pointer to primitive (or named basic type like format.Format)
+			typeName := getTypeName(elemType, field.StructTypeName)
+			buf.WriteString(fmt.Sprintf("		val := new(%s)\n", typeName))
+
+			// Generate validation and extraction based on underlying type
+			switch elemType.Kind() {
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+				buf.WriteString("		if fieldNode.Int64 == nil {\n")
+				buf.WriteString(fmt.Sprintf("			return fmt.Errorf(\"%%s: expected number, got %%v\", %q, fieldNode.Type)\n", fmt.Sprintf("field %q", schemaFieldName)))
+				buf.WriteString("		}\n")
+				// Handle overflow checking for smaller int types
+				intVal := "*fieldNode.Int64"
+				if elemType.Kind() == reflect.Int8 {
+					buf.WriteString(fmt.Sprintf("		if %s < -128 || %s > 127 {\n", intVal, intVal))
+					buf.WriteString(fmt.Sprintf("			return fmt.Errorf(\"%%s: value %%d overflows int8\", %q, %s)\n", fmt.Sprintf("field %q", schemaFieldName), intVal))
+					buf.WriteString("		}\n")
+				} else if elemType.Kind() == reflect.Int16 {
+					buf.WriteString(fmt.Sprintf("		if %s < -32768 || %s > 32767 {\n", intVal, intVal))
+					buf.WriteString(fmt.Sprintf("			return fmt.Errorf(\"%%s: value %%d overflows int16\", %q, %s)\n", fmt.Sprintf("field %q", schemaFieldName), intVal))
+					buf.WriteString("		}\n")
+				} else if elemType.Kind() == reflect.Int32 {
+					buf.WriteString(fmt.Sprintf("		if %s < -2147483648 || %s > 2147483647 {\n", intVal, intVal))
+					buf.WriteString(fmt.Sprintf("			return fmt.Errorf(\"%%s: value %%d overflows int32\", %q, %s)\n", fmt.Sprintf("field %q", schemaFieldName), intVal))
+					buf.WriteString("		}\n")
+				}
+				buf.WriteString(fmt.Sprintf("		*val = %s(%s)\n", typeName, intVal))
+			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+				buf.WriteString("		if fieldNode.Int64 == nil {\n")
+				buf.WriteString(fmt.Sprintf("			return fmt.Errorf(\"%%s: expected number, got %%v\", %q, fieldNode.Type)\n", fmt.Sprintf("field %q", schemaFieldName)))
+				buf.WriteString("		}\n")
+				// Check for negative values and overflow
+				intVal := "*fieldNode.Int64"
+				buf.WriteString(fmt.Sprintf("		if %s < 0 {\n", intVal))
+				buf.WriteString(fmt.Sprintf("			return fmt.Errorf(\"%%s: negative value %%d for unsigned type\", %q, %s)\n", fmt.Sprintf("field %q", schemaFieldName), intVal))
+				buf.WriteString("		}\n")
+				if elemType.Kind() == reflect.Uint8 {
+					buf.WriteString(fmt.Sprintf("		if %s > 255 {\n", intVal))
+					buf.WriteString(fmt.Sprintf("			return fmt.Errorf(\"%%s: value %%d overflows uint8\", %q, %s)\n", fmt.Sprintf("field %q", schemaFieldName), intVal))
+					buf.WriteString("		}\n")
+				} else if elemType.Kind() == reflect.Uint16 {
+					buf.WriteString(fmt.Sprintf("		if %s > 65535 {\n", intVal))
+					buf.WriteString(fmt.Sprintf("			return fmt.Errorf(\"%%s: value %%d overflows uint16\", %q, %s)\n", fmt.Sprintf("field %q", schemaFieldName), intVal))
+					buf.WriteString("		}\n")
+				} else if elemType.Kind() == reflect.Uint32 {
+					buf.WriteString(fmt.Sprintf("		if %s > 4294967295 {\n", intVal))
+					buf.WriteString(fmt.Sprintf("			return fmt.Errorf(\"%%s: value %%d overflows uint32\", %q, %s)\n", fmt.Sprintf("field %q", schemaFieldName), intVal))
+					buf.WriteString("		}\n")
+				}
+				buf.WriteString(fmt.Sprintf("		*val = %s(%s)\n", typeName, intVal))
+			case reflect.Float32, reflect.Float64:
+				buf.WriteString("		if fieldNode.Float64 == nil {\n")
+				buf.WriteString(fmt.Sprintf("			return fmt.Errorf(\"%%s: expected number, got %%v\", %q, fieldNode.Type)\n", fmt.Sprintf("field %q", schemaFieldName)))
+				buf.WriteString("		}\n")
+				buf.WriteString(fmt.Sprintf("		*val = %s(*fieldNode.Float64)\n", typeName))
+			case reflect.String:
+				buf.WriteString("		if fieldNode.Type != ir.StringType {\n")
+				buf.WriteString(fmt.Sprintf("			return fmt.Errorf(\"%%s: expected string, got %%v\", %q, fieldNode.Type)\n", fmt.Sprintf("field %q", schemaFieldName)))
+				buf.WriteString("		}\n")
+				buf.WriteString(fmt.Sprintf("		*val = %s(fieldNode.String)\n", typeName))
+			case reflect.Bool:
+				buf.WriteString("		if fieldNode.Type != ir.BoolType {\n")
+				buf.WriteString(fmt.Sprintf("			return fmt.Errorf(\"%%s: expected bool, got %%v\", %q, fieldNode.Type)\n", fmt.Sprintf("field %q", schemaFieldName)))
+				buf.WriteString("		}\n")
+				buf.WriteString(fmt.Sprintf("		*val = %s(fieldNode.Bool)\n", typeName))
+			default:
+				return "", fmt.Errorf("unsupported pointer to primitive type: %v", elemType.Kind())
 			}
-			// Adapt the code for pointer assignment
-			buf.WriteString(fmt.Sprintf("		val := new(%s)\n", getTypeName(elemType, "")))
-			// Extract assignment and adapt
-			if strings.Contains(fieldCode, "val =") {
-				assignment := extractAssignment(fieldCode)
-				buf.WriteString(fmt.Sprintf("		%s\n", assignment))
-				buf.WriteString(fmt.Sprintf("		s.%s = val\n", field.Name))
-			}
+
+			buf.WriteString(fmt.Sprintf("		s.%s = val\n", field.Name))
 		}
 
 	case reflect.Slice, reflect.Array:
@@ -546,7 +684,7 @@ func generateFieldFromIR(structInfo *StructInfo, field *FieldInfo, schemaFieldNa
 			// Slice of structs - call FromTony()
 			buf.WriteString(fmt.Sprintf("				elem := %s{}\n", structName))
 			buf.WriteString("				if err := elem.FromTony(v); err != nil {\n")
-			buf.WriteString("					return fmt.Errorf(\"slice element %%d: %%w\", i, err)\n")
+			buf.WriteString("					return fmt.Errorf(\"slice element %d: %w\", i, err)\n")
 			buf.WriteString("				}\n")
 			buf.WriteString("				slice[i] = elem\n")
 		} else {
@@ -569,7 +707,7 @@ func generateFieldFromIR(structInfo *StructInfo, field *FieldInfo, schemaFieldNa
 		// Map type
 		keyType := field.Type.Key()
 		valueType := field.Type.Elem()
-		
+
 		if keyType.Kind() == reflect.Uint32 {
 			// Sparse array (map[uint32]T)
 			buf.WriteString("		if fieldNode.Type == ir.ObjectType && fieldNode.Tag == \"!sparsearray\" {\n")
@@ -604,6 +742,9 @@ func generateFieldFromIR(structInfo *StructInfo, field *FieldInfo, schemaFieldNa
 			// Regular map (map[string]T)
 			buf.WriteString("		if fieldNode.Type == ir.ObjectType {\n")
 			structName := getTypeName(valueType, field.StructTypeName)
+			if isIRNodePtr(valueType) {
+				structName = "*ir.Node"
+			}
 			buf.WriteString(fmt.Sprintf("			m := make(map[string]%s)\n", structName))
 			buf.WriteString("			irMap := ir.ToMap(fieldNode)\n")
 			buf.WriteString("			for k, v := range irMap {\n")
@@ -613,6 +754,8 @@ func generateFieldFromIR(structInfo *StructInfo, field *FieldInfo, schemaFieldNa
 				buf.WriteString("					return fmt.Errorf(\"map value at key %q: %w\", k, err)\n")
 				buf.WriteString("				}\n")
 				buf.WriteString("				m[k] = val\n")
+			} else if isIRNodePtr(valueType) {
+				buf.WriteString("				m[k] = v\n")
 			} else {
 				buf.WriteString("				ctx := fmt.Sprintf(\"map value at key %q\", k)\n")
 				valueCode, err := generatePrimitiveFromIR("v", valueType, "ctx")
@@ -745,7 +888,7 @@ func generateFieldFromIR(structInfo *StructInfo, field *FieldInfo, schemaFieldNa
 // The context parameter can contain format specifiers like %d, %q, etc. that will be used in error messages.
 func generatePrimitiveFromIR(varName string, typ reflect.Type, context string) (string, error) {
 	var buf strings.Builder
-	
+
 	switch typ.Kind() {
 	case reflect.String:
 		buf.WriteString(fmt.Sprintf("if %s.Type != ir.StringType {\n", varName))
@@ -753,7 +896,7 @@ func generatePrimitiveFromIR(varName string, typ reflect.Type, context string) (
 		buf.WriteString(fmt.Sprintf("	return fmt.Errorf(\"%%s: expected string, got %%v\", %s, %s.Type)\n", context, varName))
 		buf.WriteString("}\n")
 		buf.WriteString(fmt.Sprintf("elem = %s.String", varName))
-		
+
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		buf.WriteString(fmt.Sprintf("if %s.Int64 == nil {\n", varName))
 		buf.WriteString(fmt.Sprintf("	return fmt.Errorf(\"%%s: expected number, got %%v\", %s, %s.Type)\n", context, varName))
@@ -774,7 +917,7 @@ func generatePrimitiveFromIR(varName string, typ reflect.Type, context string) (
 			buf.WriteString("}\n")
 		}
 		buf.WriteString(fmt.Sprintf("elem = %s(%s)", typ.Name(), intVal))
-		
+
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		buf.WriteString(fmt.Sprintf("if %s.Int64 == nil {\n", varName))
 		buf.WriteString(fmt.Sprintf("	return fmt.Errorf(\"%%s: expected number, got %%v\", %s, %s.Type)\n", context, varName))
@@ -797,23 +940,23 @@ func generatePrimitiveFromIR(varName string, typ reflect.Type, context string) (
 			buf.WriteString("}\n")
 		}
 		buf.WriteString(fmt.Sprintf("elem = %s(%s)", typ.Name(), intVal))
-		
+
 	case reflect.Float32, reflect.Float64:
 		buf.WriteString(fmt.Sprintf("if %s.Float64 == nil {\n", varName))
 		buf.WriteString(fmt.Sprintf("	return fmt.Errorf(\"%%s: expected number, got %%v\", %s, %s.Type)\n", context, varName))
 		buf.WriteString("}\n")
 		buf.WriteString(fmt.Sprintf("elem = %s(*%s.Float64)", typ.Name(), varName))
-		
+
 	case reflect.Bool:
 		buf.WriteString(fmt.Sprintf("if %s.Type != ir.BoolType {\n", varName))
 		buf.WriteString(fmt.Sprintf("	return fmt.Errorf(\"%%s: expected bool, got %%v\", %s, %s.Type)\n", context, varName))
 		buf.WriteString("}\n")
 		buf.WriteString(fmt.Sprintf("elem = %s.Bool", varName))
-		
+
 	default:
 		return "", fmt.Errorf("unsupported primitive type: %v", typ.Kind())
 	}
-	
+
 	return buf.String(), nil
 }
 

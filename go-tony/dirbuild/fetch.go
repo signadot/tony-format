@@ -35,8 +35,8 @@ func (d *Dir) fetch() ([]*ir.Node, error) {
 }
 
 type DirSource struct {
-	schema `tony:"schemadef=dir"`
-	Format *format.Format `json:"format,omitempty" tony:"omit"`
+	schema `tony:"schemadef=dirsource"`
+	Format *format.Format `json:"format,omitempty"`
 	Exec   *string        `json:"exec,omitempty"`
 	Dir    *string        `json:"dir,omitempty"`
 	URL    *string        `json:"url,omitempty"`

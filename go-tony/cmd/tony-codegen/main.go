@@ -32,12 +32,12 @@ func MainCommand() *cli.Command {
 }
 
 type Config struct {
-	OutputFile      string `cli:"name=o desc='output file for generated Go code (default: <package>_gen.go)'"`
-	SchemaDir       string `cli:"name=schema-dir desc='directory for generated .tony schema files, preserves package structure'"`
-	SchemaDirFlat   string `cli:"name=schema-dir-flat desc='directory for generated .tony schema files, flat structure (all schemas in one directory)'"`
-	Dir             string `cli:"name=dir desc='directory to scan for Go files (default: current directory)'"`
-	Recursive       bool   `cli:"name=recursive desc='scan subdirectories recursively'"`
-	SchemaRegistry  string `cli:"name=schema-registry desc='path to schema registry for cross-package references (optional)'"`
+	OutputFile     string `cli:"name=o desc='output file for generated Go code (default: <package>_gen.go)'"`
+	SchemaDir      string `cli:"name=schema-dir desc='directory for generated .tony schema files, preserves package structure'"`
+	SchemaDirFlat  string `cli:"name=schema-dir-flat desc='directory for generated .tony schema files, flat structure (all schemas in one directory)'"`
+	Dir            string `cli:"name=dir desc='directory to scan for Go files (default: current directory)'"`
+	Recursive      bool   `cli:"name=recursive desc='scan subdirectories recursively'"`
+	SchemaRegistry string `cli:"name=schema-registry desc='path to schema registry for cross-package references (optional)'"`
 }
 
 func run(cfg *Config, cc *cli.Context, args []string) error {
@@ -68,6 +68,7 @@ func run(cfg *Config, cc *cli.Context, args []string) error {
 
 	// Process each package
 	for _, pkg := range packages {
+		fmt.Printf("Processing package: %s\n", pkg.Name)
 		if err := processPackage(cfg, pkg); err != nil {
 			return fmt.Errorf("failed to process package %q: %w", pkg.Path, err)
 		}
@@ -80,12 +81,12 @@ func processPackage(cfg *Config, pkg *codegen.PackageInfo) error {
 	// Build codegen config
 	config := &codegen.CodegenConfig{
 		OutputFile:     cfg.OutputFile,
-		SchemaDir:       cfg.SchemaDir,
-		SchemaDirFlat:   cfg.SchemaDirFlat,
-		Dir:             pkg.Dir,
-		Recursive:       false, // Already handled at package discovery level
-		SchemaRegistry:  cfg.SchemaRegistry,
-		Package:         pkg,
+		SchemaDir:      cfg.SchemaDir,
+		SchemaDirFlat:  cfg.SchemaDirFlat,
+		Dir:            pkg.Dir,
+		Recursive:      false, // Already handled at package discovery level
+		SchemaRegistry: cfg.SchemaRegistry,
+		Package:        pkg,
 	}
 
 	// Set default output file if not specified
@@ -268,4 +269,3 @@ func determineSchemaPath(config *codegen.CodegenConfig, pkg *codegen.PackageInfo
 
 	return schemaPath, nil
 }
-

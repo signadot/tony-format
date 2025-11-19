@@ -111,7 +111,7 @@ func initDir(dir *Dir, node *ir.Node, path string, env map[string]*ir.Node) (*Di
 		}
 		dir.Env = ir.ToMap(pEnv)
 		if debug.LoadEnv() {
-			debug.Logf("loaded env %s\n", dir.Env)
+			debug.Logf("loaded env %v\n", dir.Env)
 		}
 	}
 	if err := dir.filterPatches(); err != nil {
