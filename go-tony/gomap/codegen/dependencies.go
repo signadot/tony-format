@@ -3,330 +3,216 @@ package codegen
 import (
 	"fmt"
 	"go/ast"
+	"sort"
 	"strings"
 )
 
-// DependencyGraph represents a directed graph of struct dependencies.
-// An edge A -> B means struct A depends on struct B (A has a field of type B).
+// DependencyGraph represents a graph of struct dependencies.
 type DependencyGraph struct {
-	// Nodes maps struct name to StructInfo
 	Nodes map[string]*StructInfo
-
-	// Edges maps struct name to list of struct names it depends on
-	Edges map[string][]string
-
-	// ReverseEdges maps struct name to list of struct names that depend on it
-	ReverseEdges map[string][]string
-}
-
-// Cycle represents a circular dependency detected in the graph.
-type Cycle struct {
-	// Path is the sequence of struct names forming the cycle
-	Path []string
+	Edges map[string][]string // Adjacency list: structName -> []dependencyNames
 }
 
 // BuildDependencyGraph builds a dependency graph from a list of structs.
-// Only structs with schemadef= tags are included in the graph (they're the ones we generate schemas for).
-// Dependencies are detected by analyzing field types that reference other structs.
+// A dependency exists if struct A has a field of type struct B.
 func BuildDependencyGraph(structs []*StructInfo) (*DependencyGraph, error) {
 	graph := &DependencyGraph{
-		Nodes:        make(map[string]*StructInfo),
-		Edges:        make(map[string][]string),
-		ReverseEdges: make(map[string][]string),
+		Nodes: make(map[string]*StructInfo),
+		Edges: make(map[string][]string),
 	}
 
-	// Build a map of struct names for quick lookup
-	structMap := make(map[string]*StructInfo)
+	// Populate nodes
 	for _, s := range structs {
-		// Only include structs with schemadef= tags (they generate schemas)
-		if s.StructSchema != nil && s.StructSchema.Mode == "schemadef" {
-			structMap[s.Name] = s
-			graph.Nodes[s.Name] = s
-			graph.Edges[s.Name] = []string{}
-			graph.ReverseEdges[s.Name] = []string{}
-		}
+		graph.Nodes[s.Name] = s
+		graph.Edges[s.Name] = []string{}
 	}
 
-	// Build edges by analyzing field types
+	// Populate edges
 	for _, s := range structs {
-		// Only process structs with schemadef= tags
-		if s.StructSchema == nil || s.StructSchema.Mode != "schemadef" {
-			continue
+		deps := make(map[string]bool) // Use map to avoid duplicates
+
+		for _, field := range s.Fields {
+			// Skip omitted fields
+			if field.Omit {
+				continue
+			}
+
+			// Find dependencies from field type
+			// We need to check if the field type references another struct in our list
+			depName := extractDependency(field, graph.Nodes)
+			if depName != "" && depName != s.Name { // Ignore self-references
+				deps[depName] = true
+			}
 		}
 
-		deps := findDependencies(s, structMap)
-		graph.Edges[s.Name] = deps
-
-		// Build reverse edges
-		for _, dep := range deps {
-			graph.ReverseEdges[dep] = append(graph.ReverseEdges[dep], s.Name)
+		// Add edges to graph
+		for dep := range deps {
+			graph.Edges[s.Name] = append(graph.Edges[s.Name], dep)
 		}
+
+		// Sort edges for deterministic output
+		sort.Strings(graph.Edges[s.Name])
 	}
 
 	return graph, nil
 }
 
-// findDependencies finds all struct dependencies for a given struct.
-// Returns a list of struct names that this struct depends on.
-// Self-references (struct depending on itself) are excluded.
-func findDependencies(structInfo *StructInfo, structMap map[string]*StructInfo) []string {
-	var deps []string
-	seen := make(map[string]bool)
-
-	for _, field := range structInfo.Fields {
-		if field.Omit {
-			continue
-		}
-
-		// Analyze the AST type to find struct references
-		fieldDeps := findStructReferences(field.ASTType, structMap, structInfo.Package)
-		for _, dep := range fieldDeps {
-			// Skip self-references (struct depending on itself)
-			if dep == structInfo.Name {
-				continue
-			}
-			if !seen[dep] {
-				seen[dep] = true
-				deps = append(deps, dep)
-			}
+// extractDependency extracts the name of the struct dependency from a field.
+// Returns empty string if no dependency found or dependency is not in our struct list.
+func extractDependency(field *FieldInfo, nodes map[string]*StructInfo) string {
+	// Try to get dependency from StructTypeName (set by parser/reflection)
+	if field.StructTypeName != "" {
+		if _, ok := nodes[field.StructTypeName]; ok {
+			return field.StructTypeName
 		}
 	}
 
-	return deps
+	// Fallback to AST analysis if StructTypeName is missing (e.g. AST-only mode)
+	if field.ASTType != nil {
+		return extractDependencyFromAST(field.ASTType, nodes)
+	}
+
+	return ""
 }
 
-// findStructReferences recursively analyzes an AST type expression to find struct references.
-// Returns a list of struct names that are referenced.
-func findStructReferences(expr ast.Expr, structMap map[string]*StructInfo, currentPkg string) []string {
-	if expr == nil {
-		return nil
-	}
-
-	var refs []string
-
+// extractDependencyFromAST extracts dependency from AST type expression.
+func extractDependencyFromAST(expr ast.Expr, nodes map[string]*StructInfo) string {
 	switch t := expr.(type) {
 	case *ast.Ident:
-		// Simple identifier - could be a struct type
-		if structInfo, ok := structMap[t.Name]; ok {
-			// Only include if it's in the same package (cross-package handled separately)
-			if structInfo.Package == currentPkg {
-				refs = append(refs, t.Name)
-			}
+		// Simple type name (e.g. Person)
+		if _, ok := nodes[t.Name]; ok {
+			return t.Name
 		}
-
 	case *ast.StarExpr:
-		// Pointer type: *T
-		refs = append(refs, findStructReferences(t.X, structMap, currentPkg)...)
-
+		// Pointer type (e.g. *Person)
+		return extractDependencyFromAST(t.X, nodes)
 	case *ast.ArrayType:
-		// Array or slice type: []T or [N]T
-		refs = append(refs, findStructReferences(t.Elt, structMap, currentPkg)...)
-
+		// Slice/Array type (e.g. []Person)
+		return extractDependencyFromAST(t.Elt, nodes)
 	case *ast.MapType:
-		// Map type: map[K]V
-		refs = append(refs, findStructReferences(t.Key, structMap, currentPkg)...)
-		refs = append(refs, findStructReferences(t.Value, structMap, currentPkg)...)
-
-	case *ast.SelectorExpr:
-		// Qualified identifier: pkg.Type (cross-package reference)
-		// For now, we only track same-package dependencies
-		// Cross-package dependencies will be handled via schema loading
-		// But we can still extract the type name for reference
-		if ident, ok := t.X.(*ast.Ident); ok {
-			// This is a cross-package reference: pkg.Type
-			// We don't add it to dependencies since we'll load the schema separately
-			_ = ident // pkg name
-			_ = t.Sel // type name
+		// Map type (e.g. map[string]Person)
+		// Check value type
+		dep := extractDependencyFromAST(t.Value, nodes)
+		if dep != "" {
+			return dep
 		}
-
-	case *ast.ChanType:
-		// Channel type: chan T
-		refs = append(refs, findStructReferences(t.Value, structMap, currentPkg)...)
-
-	case *ast.FuncType:
-		// Function type - check parameters and return types
-		if t.Params != nil {
-			for _, param := range t.Params.List {
-				refs = append(refs, findStructReferences(param.Type, structMap, currentPkg)...)
-			}
-		}
-		if t.Results != nil {
-			for _, result := range t.Results.List {
-				refs = append(refs, findStructReferences(result.Type, structMap, currentPkg)...)
-			}
-		}
-
-	case *ast.InterfaceType:
-		// Interface type - no struct dependencies
-
-	case *ast.StructType:
-		// Nested struct type - analyze its fields
-		if t.Fields != nil {
-			for _, field := range t.Fields.List {
-				for _, name := range field.Names {
-					if !name.IsExported() {
-						continue
-					}
-					refs = append(refs, findStructReferences(field.Type, structMap, currentPkg)...)
-				}
-			}
-		}
-
-	default:
-		// Other types (Ellipsis, etc.) - skip for now
+		// Check key type (unlikely for struct keys, but possible)
+		return extractDependencyFromAST(t.Key, nodes)
 	}
-
-	return refs
+	return ""
 }
 
-// DetectCycles detects circular dependencies in the dependency graph using DFS.
-// Returns a list of cycles found, or nil if no cycles exist.
-func DetectCycles(graph *DependencyGraph) ([]*Cycle, error) {
-	var cycles []*Cycle
+// Cycle represents a circular dependency path.
+type Cycle []string
+
+// DetectCycles detects circular dependencies in the graph.
+// Returns a list of cycles found, or nil if no cycles.
+func DetectCycles(graph *DependencyGraph) ([]Cycle, error) {
+	var cycles []Cycle
 	visited := make(map[string]bool)
-	recStack := make(map[string]bool)
+	recursionStack := make(map[string]bool)
 	path := []string{}
 
-	// DFS from each unvisited node
+	// Sort nodes for deterministic order
+	var nodes []string
 	for name := range graph.Nodes {
-		if !visited[name] {
-			cycles = append(cycles, detectCyclesDFS(graph, name, visited, recStack, path)...)
+		nodes = append(nodes, name)
+	}
+	sort.Strings(nodes)
+
+	for _, node := range nodes {
+		if !visited[node] {
+			if err := dfs(node, graph, visited, recursionStack, &path, &cycles); err != nil {
+				return nil, err
+			}
 		}
 	}
 
 	if len(cycles) > 0 {
-		return cycles, fmt.Errorf("circular dependencies detected: %d cycle(s) found", len(cycles))
+		return cycles, nil
 	}
-
 	return nil, nil
 }
 
-// detectCyclesDFS performs DFS to detect cycles starting from a given node.
-func detectCyclesDFS(graph *DependencyGraph, node string, visited map[string]bool, recStack map[string]bool, path []string) []*Cycle {
-	var cycles []*Cycle
-
+func dfs(node string, graph *DependencyGraph, visited, recursionStack map[string]bool, path *[]string, cycles *[]Cycle) error {
 	visited[node] = true
-	recStack[node] = true
-	path = append(path, node)
+	recursionStack[node] = true
+	*path = append(*path, node)
 
-	// Check all dependencies
-	for _, dep := range graph.Edges[node] {
-		if !visited[dep] {
-			// Recurse
-			cycles = append(cycles, detectCyclesDFS(graph, dep, visited, recStack, path)...)
-		} else if recStack[dep] {
-			// Found a back edge - cycle detected
-			// Find the cycle path
-			cyclePath := findCyclePath(path, dep)
-			cycles = append(cycles, &Cycle{Path: cyclePath})
-		}
-	}
-
-	recStack[node] = false
-	return cycles
-}
-
-// findCyclePath extracts the cycle path from the current DFS path.
-func findCyclePath(path []string, cycleStart string) []string {
-	// Find where the cycle starts
-	startIdx := -1
-	for i, name := range path {
-		if name == cycleStart {
-			startIdx = i
-			break
-		}
-	}
-
-	if startIdx == -1 {
-		// Shouldn't happen, but return the full path
-		return append(path, cycleStart)
-	}
-
-	// Extract the cycle: from cycleStart to the end, then back to cycleStart
-	cycle := make([]string, 0, len(path)-startIdx+1)
-	cycle = append(cycle, path[startIdx:]...)
-	cycle = append(cycle, cycleStart) // Close the cycle
-	return cycle
-}
-
-// TopologicalSort performs a topological sort on the dependency graph.
-// Returns structs in dependency order (dependencies come before dependents).
-// Returns an error if cycles are detected.
-func TopologicalSort(graph *DependencyGraph) ([]*StructInfo, error) {
-	// First check for cycles
-	cycles, err := DetectCycles(graph)
-	if err != nil {
-		// Format cycle error messages
-		var cycleMsgs []string
-		for _, cycle := range cycles {
-			cycleMsgs = append(cycleMsgs, fmt.Sprintf("cycle: %s", strings.Join(cycle.Path, " -> ")))
-		}
-		return nil, fmt.Errorf("%v: %s", err, strings.Join(cycleMsgs, "; "))
-	}
-
-	// Perform topological sort using Kahn's algorithm
-	// We want dependencies before dependents, so we process nodes with no dependencies first
-	// In-degree = number of dependencies (incoming edges from dependencies)
-	inDegree := make(map[string]int)
-	for name := range graph.Nodes {
-		inDegree[name] = 0
-	}
-
-	// Calculate in-degrees
-	// If A depends on B (Edges[A] contains B), then A has an incoming dependency from B
-	// So A's in-degree should be incremented for each dependency it has
-	for name, deps := range graph.Edges {
-		inDegree[name] = len(deps)
-	}
-
-	// Find nodes with no dependencies (in-degree 0)
-	queue := []string{}
-	for name, degree := range inDegree {
-		if degree == 0 {
-			queue = append(queue, name)
-		}
-	}
-
-	var result []*StructInfo
-
-	// Process nodes
-	for len(queue) > 0 {
-		// Dequeue a node
-		node := queue[0]
-		queue = queue[1:]
-
-		// Add to result
-		if structInfo, ok := graph.Nodes[node]; ok {
-			result = append(result, structInfo)
-		}
-
-		// Reduce in-degree of nodes that depend on this node
-		// If we processed B, then nodes that depend on B (have B in their Edges list) can be processed
-		for dependent, deps := range graph.Edges {
-			for _, dep := range deps {
-				if dep == node {
-					inDegree[dependent]--
-					if inDegree[dependent] == 0 {
-						queue = append(queue, dependent)
-					}
+	for _, neighbor := range graph.Edges[node] {
+		if !visited[neighbor] {
+			if err := dfs(neighbor, graph, visited, recursionStack, path, cycles); err != nil {
+				return err
+			}
+		} else if recursionStack[neighbor] {
+			// Cycle detected!
+			// Extract cycle from path
+			cycle := make(Cycle, 0)
+			startIdx := -1
+			for i, n := range *path {
+				if n == neighbor {
+					startIdx = i
+					break
 				}
+			}
+			if startIdx != -1 {
+				cycle = append(cycle, (*path)[startIdx:]...)
+				// Add the closing node to show the loop
+				cycle = append(cycle, neighbor)
+				*cycles = append(*cycles, cycle)
 			}
 		}
 	}
 
-	// Check if all nodes were processed (should be, since we checked for cycles)
-	if len(result) != len(graph.Nodes) {
-		return nil, fmt.Errorf("topological sort incomplete: processed %d of %d nodes (this should not happen if no cycles)", len(result), len(graph.Nodes))
+	recursionStack[node] = false
+	*path = (*path)[:len(*path)-1]
+	return nil
+}
+
+// TopologicalSort returns the structs in dependency order (dependencies first).
+// Returns error if cycles are detected.
+func TopologicalSort(graph *DependencyGraph) ([]*StructInfo, error) {
+	// First check for cycles
+	cycles, err := DetectCycles(graph)
+	if err != nil {
+		return nil, err
+	}
+	if len(cycles) > 0 {
+		var cycleMsgs []string
+		for _, c := range cycles {
+			cycleMsgs = append(cycleMsgs, strings.Join(c, " -> "))
+		}
+		return nil, fmt.Errorf("circular dependencies detected:\n%s", strings.Join(cycleMsgs, "\n"))
+	}
+
+	visited := make(map[string]bool)
+	var result []*StructInfo
+
+	// Sort nodes for deterministic order
+	var nodes []string
+	for name := range graph.Nodes {
+		nodes = append(nodes, name)
+	}
+	sort.Strings(nodes)
+
+	// Helper for post-order traversal
+	var visit func(string)
+	visit = func(node string) {
+		if visited[node] {
+			return
+		}
+		visited[node] = true
+
+		for _, neighbor := range graph.Edges[node] {
+			visit(neighbor)
+		}
+
+		result = append(result, graph.Nodes[node])
+	}
+
+	for _, node := range nodes {
+		visit(node)
 	}
 
 	return result, nil
-}
-
-// FormatCycleError formats a cycle error message for user display.
-func FormatCycleError(cycles []*Cycle) string {
-	var msgs []string
-	for _, cycle := range cycles {
-		msgs = append(msgs, fmt.Sprintf("  %s", strings.Join(cycle.Path, " -> ")))
-	}
-	return fmt.Sprintf("Circular dependencies detected:\n%s", strings.Join(msgs, "\n"))
 }

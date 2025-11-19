@@ -152,76 +152,77 @@ func processPackage(cfg *Config, pkg *codegen.PackageInfo) error {
 	// Track generated schemas (needed for loading schemas later)
 	generatedSchemas := make(map[string]*codegen.GeneratedSchema)
 
-	// Step 1: Build dependency graph for schemadef structs
+	// Step 1: Sort structs (Topological or Alphabetical fallback)
+	var orderedStructs []*codegen.StructInfo
 	if len(schemadefStructs) > 0 {
+		// Build dependency graph
 		graph, err := codegen.BuildDependencyGraph(schemadefStructs)
 		if err != nil {
-			return fmt.Errorf("failed to build dependency graph: %w", err)
-		}
-
-		// Step 2: Detect circular dependencies
-		cycles, err := codegen.DetectCycles(graph)
-		if err != nil {
-			return fmt.Errorf("failed to detect cycles: %w", err)
-		}
-		if len(cycles) > 0 {
-			return fmt.Errorf("circular dependencies detected: %v", cycles)
-		}
-
-		// Step 3: Topological sort (get ordered list)
-		orderedStructs, err := codegen.TopologicalSort(graph)
-		if err != nil {
-			return fmt.Errorf("failed to sort structs: %w", err)
-		}
-
-		// Sort structs alphabetically by schema name to ensure deterministic output
-		sort.Slice(orderedStructs, func(i, j int) bool {
-			return orderedStructs[i].StructSchema.SchemaName < orderedStructs[j].StructSchema.SchemaName
-		})
-
-		// Step 4: Generate schemas (in dependency order)
-		// Collect all schemas to write to a single file
-		var schemaNodes []*ir.Node
-		loader := codegen.NewPackageLoader() // Shared loader for all schemas
-
-		for _, structInfo := range orderedStructs {
-			// Generate schema for this struct (pass all structs so references can be resolved)
-			schemaNode, err := codegen.GenerateSchema(allStructs, structInfo, loader)
+			fmt.Printf("Warning: Failed to build dependency graph: %v. Falling back to alphabetical sort.\n", err)
+			orderedStructs = make([]*codegen.StructInfo, len(schemadefStructs))
+			copy(orderedStructs, schemadefStructs)
+			sort.Slice(orderedStructs, func(i, j int) bool {
+				return orderedStructs[i].StructSchema.SchemaName < orderedStructs[j].StructSchema.SchemaName
+			})
+		} else {
+			// Try topological sort
+			sortedStructs, err := codegen.TopologicalSort(graph)
 			if err != nil {
-				return fmt.Errorf("failed to generate schema for %q: %w", structInfo.Name, err)
-			}
-
-			// Add to collection
-			schemaNodes = append(schemaNodes, schemaNode)
-
-			// Store generated schema for later use
-			schemaName := structInfo.StructSchema.SchemaName
-			generatedSchemas[schemaName] = &codegen.GeneratedSchema{
-				Name:   schemaName,
-				IRNode: schemaNode,
+				// Cycles detected or other error
+				fmt.Printf("Warning: Dependency cycles detected or sort failed: %v. Falling back to alphabetical sort.\n", err)
+				orderedStructs = make([]*codegen.StructInfo, len(schemadefStructs))
+				copy(orderedStructs, schemadefStructs)
+				sort.Slice(orderedStructs, func(i, j int) bool {
+					return orderedStructs[i].StructSchema.SchemaName < orderedStructs[j].StructSchema.SchemaName
+				})
+			} else {
+				orderedStructs = sortedStructs
 			}
 		}
+	}
 
-		// Write all schemas to a single file
-		if len(schemaNodes) > 0 {
-			// Determine output path - use first struct's package directory
-			schemaPath := filepath.Join(pkg.Dir, "schema_gen.tony")
-			if config.SchemaDir != "" {
-				// If schema-dir is specified, use it
-				schemaPath = filepath.Join(config.SchemaDir, filepath.Base(pkg.Dir), "schema_gen.tony")
-			} else if config.SchemaDirFlat != "" {
-				// If schema-dir-flat is specified, use it
-				schemaPath = filepath.Join(config.SchemaDirFlat, "schema_gen.tony")
-			}
+	// Step 4: Generate schemas (in dependency order)
+	// Collect all schemas to write to a single file
+	var schemaNodes []*ir.Node
+	loader := codegen.NewPackageLoader() // Shared loader for all schemas
 
-			if err := codegen.WriteSchemasToSingleFile(schemaNodes, schemaPath); err != nil {
-				return fmt.Errorf("failed to write schemas file %q: %w", schemaPath, err)
-			}
+	for _, structInfo := range orderedStructs {
+		// Generate schema for this struct (pass all structs so references can be resolved)
+		schemaNode, err := codegen.GenerateSchema(allStructs, structInfo, loader)
+		if err != nil {
+			return fmt.Errorf("failed to generate schema for %q: %w", structInfo.Name, err)
+		}
 
-			// Update all generated schemas with the same file path
-			for schemaName := range generatedSchemas {
-				generatedSchemas[schemaName].FilePath = schemaPath
-			}
+		// Add to collection
+		schemaNodes = append(schemaNodes, schemaNode)
+
+		// Store generated schema for later use
+		schemaName := structInfo.StructSchema.SchemaName
+		generatedSchemas[schemaName] = &codegen.GeneratedSchema{
+			Name:   schemaName,
+			IRNode: schemaNode,
+		}
+	}
+
+	// Write all schemas to a single file
+	if len(schemaNodes) > 0 {
+		// Determine output path - use first struct's package directory
+		schemaPath := filepath.Join(pkg.Dir, "schema_gen.tony")
+		if config.SchemaDir != "" {
+			// If schema-dir is specified, use it
+			schemaPath = filepath.Join(config.SchemaDir, filepath.Base(pkg.Dir), "schema_gen.tony")
+		} else if config.SchemaDirFlat != "" {
+			// If schema-dir-flat is specified, use it
+			schemaPath = filepath.Join(config.SchemaDirFlat, "schema_gen.tony")
+		}
+
+		if err := codegen.WriteSchemasToSingleFile(schemaNodes, schemaPath); err != nil {
+			return fmt.Errorf("failed to write schemas file %q: %w", schemaPath, err)
+		}
+
+		// Update all generated schemas with the same file path
+		for schemaName := range generatedSchemas {
+			generatedSchemas[schemaName].FilePath = schemaPath
 		}
 	}
 

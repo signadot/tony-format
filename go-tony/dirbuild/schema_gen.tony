@@ -2,21 +2,6 @@
 context:
 - tony-format/context
 define:
-  DestDir: !irtype ""
-  Env: !irtype {}
-  Patches: !and
-  - .[array]
-  - !all.schema(dirpatch) null
-  Sources: !and
-  - .[array]
-  - !all.schema(dirsource) null
-  Suffix: !irtype ""
-signature:
-  name: dir
----
-context:
-- tony-format/context
-define:
   File: !irtype ""
   If: !irtype ""
   Match: !or
@@ -46,3 +31,18 @@ define:
   - !irtype ""
 signature:
   name: dirsource
+---
+context:
+- tony-format/context
+define:
+  DestDir: !irtype ""
+  Env: !irtype {}
+  Patches: !and
+  - .[array]
+  - !all.schema(dirpatch) null
+  Sources: !and
+  - .[array]
+  - !all.schema(dirsource) null
+  Suffix: !irtype ""
+signature:
+  name: dir
