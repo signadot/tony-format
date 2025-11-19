@@ -16,7 +16,7 @@ func TestGenerateSchema_WithComments(t *testing.T) {
 // Person represents a person in the system
 // This is a multi-line comment
 type Person struct {
-	schemaTag ` + "`tony:\"schemadef=person\"`" + `
+	schemaTag ` + "`tony:\"schemagen=person\"`" + `
 	// Name is the person's full name
 	Name string ` + "`tony:\"field=name\"`" + `
 	// Age is the person's age in years
@@ -153,7 +153,7 @@ func TestGenerateSchema_FieldComments(t *testing.T) {
 	src := `package test
 
 type Person struct {
-	schemaTag ` + "`tony:\"schemadef=person\"`" + `
+	schemaTag ` + "`tony:\"schemagen=person\"`" + `
 	// Name comment
 	Name string
 	// Age comment
@@ -258,7 +258,7 @@ func TestGenerateSchema_NoComments(t *testing.T) {
 	src := `package test
 
 type Person struct {
-	schemaTag ` + "`tony:\"schemadef=person\"`" + `
+	schemaTag ` + "`tony:\"schemagen=person\"`" + `
 	Name string
 	Age  int
 }
@@ -333,7 +333,7 @@ func TestGenerateSchema_CommentsWithOptionalFields(t *testing.T) {
 	src := `package test
 
 type Person struct {
-	schemaTag ` + "`tony:\"schemadef=person\"`" + `
+	schemaTag ` + "`tony:\"schemagen=person\"`" + `
 	// Email comment
 	Email string ` + "`tony:\"optional\"`" + `
 }

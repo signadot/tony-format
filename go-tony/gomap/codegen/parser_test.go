@@ -13,7 +13,7 @@ func TestExtractStructs(t *testing.T) {
 
 // Person represents a person
 type Person struct {
-	_    ` + "`tony:\"schemadef=person\"`" + `
+	_    ` + "`tony:\"schemagen=person\"`" + `
 	// Name is the person's name
 	Name string ` + "`tony:\"field=name\"`" + `
 	Age  int
@@ -49,8 +49,8 @@ type User struct {
 	if person.StructSchema == nil {
 		t.Fatal("expected StructSchema for Person")
 	}
-	if person.StructSchema.Mode != "schemadef" {
-		t.Errorf("expected mode schemadef, got %q", person.StructSchema.Mode)
+	if person.StructSchema.Mode != "schemagen" {
+		t.Errorf("expected mode schemagen, got %q", person.StructSchema.Mode)
 	}
 	if person.StructSchema.SchemaName != "person" {
 		t.Errorf("expected schema name person, got %q", person.StructSchema.SchemaName)
@@ -96,7 +96,7 @@ func TestExtractComments(t *testing.T) {
 // First comment
 // Second comment
 type Person struct {
-	_ ` + "`tony:\"schemadef=person\"`" + `
+	_ ` + "`tony:\"schemagen=person\"`" + `
 }
 `
 

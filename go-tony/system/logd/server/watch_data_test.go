@@ -754,12 +754,12 @@ meta:
 
 	// Run both writes concurrently - both will block until transaction commits
 	writeDone := make(chan bool, 2)
-	
+
 	go func() {
 		server.handlePatchData(write1Resp, write1Req, write1Body)
 		writeDone <- true
 	}()
-	
+
 	go func() {
 		server.handlePatchData(write2Resp, write2Req, write2Body)
 		writeDone <- true

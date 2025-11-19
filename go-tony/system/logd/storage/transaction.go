@@ -1,19 +1,14 @@
 package storage
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"time"
-
-	"github.com/signadot/tony-format/go-tony/encode"
-	"github.com/signadot/tony-format/go-tony/ir"
-	"github.com/signadot/tony-format/go-tony/parse"
 )
 
 // TransactionState represents the state of a transaction.
+//
+//tony:schemagen=transaction-state
 type TransactionState struct {
 	TransactionID        string
 	ParticipantCount     int
@@ -24,6 +19,8 @@ type TransactionState struct {
 }
 
 // PendingDiff represents a pending diff in a transaction.
+//
+//tony:schemagen=pending-diff
 type PendingDiff struct {
 	Path      string
 	DiffFile  string // Full filesystem path to the .pending file
@@ -36,36 +33,15 @@ func (s *Storage) WriteTransactionState(state *TransactionState) error {
 	// Extract seq from transaction ID for filename
 	// Format: tx-12345-2 -> tx-12345-2.pending
 	filename := state.TransactionID + ".pending"
-	filePath := filepath.Join(s.root, "meta", "transactions", filename)
-
-	// Create the transaction state file structure using FromMap to preserve parent pointers
-	participantCountNode := &ir.Node{Type: ir.NumberType, Int64: intPtr(int64(state.ParticipantCount)), Number: strconv.Itoa(state.ParticipantCount)}
-	participantsReceivedNode := &ir.Node{Type: ir.NumberType, Int64: intPtr(int64(state.ParticipantsReceived)), Number: strconv.Itoa(state.ParticipantsReceived)}
-	
-	stateFile := ir.FromMap(map[string]*ir.Node{
-		"transactionId":      &ir.Node{Type: ir.StringType, String: state.TransactionID},
-		"participantCount":   participantCountNode,
-		"participantsReceived": participantsReceivedNode,
-		"status":             &ir.Node{Type: ir.StringType, String: state.Status},
-		"createdAt":          &ir.Node{Type: ir.StringType, String: state.CreatedAt},
-		"diff":               buildDiffsArray(state.Diffs),
-	})
-
-	// Encode to Tony format
-	var buf strings.Builder
-	if err := encode.Encode(stateFile, &buf); err != nil {
-		return fmt.Errorf("failed to encode transaction state: %w", err)
-	}
-
-	// Fix empty array formatting: diff:[] -> diff: [] (Tony syntax requires space)
-	encoded := buf.String()
-	if len(state.Diffs) == 0 {
-		encoded = strings.ReplaceAll(encoded, "diff:[]", "diff: []")
+	filePath := filepath.Join(s.Root, "meta", "transactions", filename)
+	d, err := state.ToTony()
+	if err != nil {
+		return err
 	}
 
 	// Write to temp file first, then rename atomically
 	tmpFile := filePath + ".tmp"
-	if err := os.WriteFile(tmpFile, []byte(encoded), 0644); err != nil {
+	if err := os.WriteFile(tmpFile, []byte(d), 0644); err != nil {
 		return err
 	}
 
@@ -81,7 +57,7 @@ func (s *Storage) WriteTransactionState(state *TransactionState) error {
 // ReadTransactionState reads a transaction state file from disk.
 func (s *Storage) ReadTransactionState(transactionID string) (*TransactionState, error) {
 	filename := transactionID + ".pending"
-	filePath := filepath.Join(s.root, "meta", "transactions", filename)
+	filePath := filepath.Join(s.Root, "meta", "transactions", filename)
 
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -89,55 +65,10 @@ func (s *Storage) ReadTransactionState(transactionID string) (*TransactionState,
 	}
 
 	// Parse Tony document
-	node, err := parse.Parse(data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse transaction state: %w", err)
-	}
-
-	if node.Type != ir.ObjectType {
-		return nil, fmt.Errorf("expected object, got %v", node.Type)
-	}
-
 	state := &TransactionState{}
-	var diffNode *ir.Node
-
-	for i, field := range node.Fields {
-		if i >= len(node.Values) {
-			break
-		}
-		value := node.Values[i]
-
-		switch field.String {
-		case "transactionId":
-			if value.Type == ir.StringType {
-				state.TransactionID = value.String
-			}
-		case "participantCount":
-			if value.Type == ir.NumberType && value.Int64 != nil {
-				state.ParticipantCount = int(*value.Int64)
-			}
-		case "participantsReceived":
-			if value.Type == ir.NumberType && value.Int64 != nil {
-				state.ParticipantsReceived = int(*value.Int64)
-			}
-		case "status":
-			if value.Type == ir.StringType {
-				state.Status = value.String
-			}
-		case "createdAt":
-			if value.Type == ir.StringType {
-				state.CreatedAt = value.String
-			}
-		case "diff":
-			diffNode = value
-		}
+	if err := state.FromTony(data); err != nil {
+		return nil, err
 	}
-
-	// Parse diffs array
-	if diffNode != nil && diffNode.Type == ir.ArrayType {
-		state.Diffs = parseDiffsArray(diffNode)
-	}
-
 	return state, nil
 }
 
@@ -156,60 +87,8 @@ func (s *Storage) UpdateTransactionState(transactionID string, updateFn func(*Tr
 // DeleteTransactionState deletes a transaction state file.
 func (s *Storage) DeleteTransactionState(transactionID string) error {
 	filename := transactionID + ".pending"
-	filePath := filepath.Join(s.root, "meta", "transactions", filename)
+	filePath := filepath.Join(s.Root, "meta", "transactions", filename)
 	return os.Remove(filePath)
-}
-
-// buildDiffsArray builds an IR array node from PendingDiff slice.
-func buildDiffsArray(diffs []PendingDiff) *ir.Node {
-	values := make([]*ir.Node, len(diffs))
-	for i, diff := range diffs {
-		values[i] = ir.FromMap(map[string]*ir.Node{
-			"path":      &ir.Node{Type: ir.StringType, String: diff.Path},
-			"diffFile":  &ir.Node{Type: ir.StringType, String: diff.DiffFile},
-			"writtenAt": &ir.Node{Type: ir.StringType, String: diff.WrittenAt},
-		})
-	}
-	return ir.FromSlice(values)
-}
-
-// parseDiffsArray parses an IR array node into PendingDiff slice.
-func parseDiffsArray(node *ir.Node) []PendingDiff {
-	if node.Type != ir.ArrayType {
-		return nil
-	}
-
-	diffs := make([]PendingDiff, 0, len(node.Values))
-	for _, value := range node.Values {
-		if value.Type != ir.ObjectType {
-			continue
-		}
-
-		diff := PendingDiff{}
-		for i, field := range value.Fields {
-			if i >= len(value.Values) {
-				break
-			}
-			fieldValue := value.Values[i]
-
-			switch field.String {
-			case "path":
-				if fieldValue.Type == ir.StringType {
-					diff.Path = fieldValue.String
-				}
-			case "diffFile":
-				if fieldValue.Type == ir.StringType {
-					diff.DiffFile = fieldValue.String
-				}
-			case "writtenAt":
-				if fieldValue.Type == ir.StringType {
-					diff.WrittenAt = fieldValue.String
-				}
-			}
-		}
-		diffs = append(diffs, diff)
-	}
-	return diffs
 }
 
 // intPtr returns a pointer to the given int64.

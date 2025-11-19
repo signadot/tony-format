@@ -11,7 +11,7 @@ import (
 
 // StructSchema holds schema reference and mode information extracted from struct tags
 type StructSchema struct {
-	// Mode is either "schema" (usage mode) or "schemadef" (definition mode)
+	// Mode is either "schema" (usage mode) or "schemagen" (definition mode)
 	Mode string
 
 	// SchemaName is the schema name/URI from the tag
@@ -154,7 +154,7 @@ func unquoteValue(value string) string {
 
 // hasSchemaTag checks if an embedded struct field has a schema tag.
 // Returns true if:
-//   1. The field itself is anonymous and has a tony:"schema=..." or tony:"schemadef=..." tag, OR
+//   1. The field itself is anonymous and has a tony:"schema=..." or tony:"schemagen=..." tag, OR
 //   2. The embedded struct type has a schema tag (checked recursively)
 func hasSchemaTag(field reflect.StructField) bool {
 	if !field.Anonymous {
@@ -167,7 +167,7 @@ func hasSchemaTag(field reflect.StructField) bool {
 		parsed, err := ParseStructTag(tag)
 		if err == nil {
 			_, hasSchema := parsed["schema"]
-			_, hasSchemaDef := parsed["schemadef"]
+			_, hasSchemaDef := parsed["schemagen"]
 			if hasSchema || hasSchemaDef {
 				return true
 			}
@@ -245,7 +245,7 @@ func flattenEmbeddedFieldsWithRenaming(embeddedField reflect.StructField, struct
 }
 
 // GetStructSchema extracts schema information from a struct type.
-// It looks for an anonymous field with a `tony:"schema=..."` or `tony:"schemadef=..."` tag.
+// It looks for an anonymous field with a `tony:"schema=..."` or `tony:"schemagen=..."` tag.
 //
 // Schema tags are only checked on direct anonymous fields of the struct, not recursively
 // into embedded structs. If a struct embeds another struct that has a schema tag, only
@@ -288,12 +288,12 @@ func GetStructSchema(typ reflect.Type) (*StructSchema, error) {
 		var mode string
 		var schemaName string
 
-		// Check for schema= or schemadef=
+		// Check for schema= or schemagen=
 		if name, ok := parsed["schema"]; ok {
 			mode = "schema"
 			schemaName = name
-		} else if name, ok := parsed["schemadef"]; ok {
-			mode = "schemadef"
+		} else if name, ok := parsed["schemagen"]; ok {
+			mode = "schemagen"
 			schemaName = name
 		} else {
 			continue // This anonymous field doesn't have a schema tag
@@ -352,7 +352,7 @@ func GetStructSchema(typ reflect.Type) (*StructSchema, error) {
 	}
 
 	if found == nil {
-		return nil, fmt.Errorf("no schema tag found on struct %s (need anonymous field with tony:\"schema=...\" or tony:\"schemadef=...\")", typ.Name())
+		return nil, fmt.Errorf("no schema tag found on struct %s (need anonymous field with tony:\"schema=...\" or tony:\"schemagen=...\")", typ.Name())
 	}
 
 	return found, nil
@@ -361,7 +361,7 @@ func GetStructSchema(typ reflect.Type) (*StructSchema, error) {
 // GetStructFields extracts field information from a struct type.
 // The behavior depends on the mode:
 //   - "schema" mode: Schema is source of truth, match struct fields to schema fields
-//   - "schemadef" mode: Struct is source of truth, extract field info from struct
+//   - "schemagen" mode: Struct is source of truth, extract field info from struct
 // registry can be nil for single-schema cases, but is required for cross-schema references.
 func GetStructFields(typ reflect.Type, s *schema.Schema, mode string, allowExtra bool, registry *schema.SchemaRegistry) ([]*FieldInfo, error) {
 	if typ.Kind() != reflect.Struct {
@@ -370,7 +370,7 @@ func GetStructFields(typ reflect.Type, s *schema.Schema, mode string, allowExtra
 
 	if mode == "schema" {
 		return getStructFieldsFromSchema(typ, s, allowExtra, registry)
-	} else if mode == "schemadef" {
+	} else if mode == "schemagen" {
 		return getStructFieldsFromStruct(typ)
 	}
 
@@ -592,8 +592,8 @@ func isIntegerType(typ reflect.Type) bool {
 		kind == reflect.Uintptr
 }
 
-// getStructFieldsFromStruct extracts field info when struct is source of truth (schemadef= mode)
-// In schemadef mode, we're generating a schema definition from the struct, so embedded structs
+// getStructFieldsFromStruct extracts field info when struct is source of truth (schemagen= mode)
+// In schemagen mode, we're generating a schema definition from the struct, so embedded structs
 // should be flattened regardless of whether they have schema tags (we're defining the schema structure).
 func getStructFieldsFromStruct(typ reflect.Type) ([]*FieldInfo, error) {
 	var fields []*FieldInfo
@@ -602,7 +602,7 @@ func getStructFieldsFromStruct(typ reflect.Type) ([]*FieldInfo, error) {
 		field := typ.Field(i)
 
 		if field.Anonymous {
-			// In schemadef mode, flatten embedded structs regardless of schema tags
+			// In schemagen mode, flatten embedded structs regardless of schema tags
 			// (we're generating a schema definition, so include all fields)
 			// Embedded struct without schema tag = flatten its fields
 			embeddedType := field.Type

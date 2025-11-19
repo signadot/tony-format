@@ -35,11 +35,11 @@ func (s *Server) handleMatchTransaction(w http.ResponseWriter, r *http.Request, 
 	participantsReceivedNode := &ir.Node{Type: ir.NumberType, Int64: intPtr(int64(state.ParticipantsReceived)), Number: fmt.Sprintf("%d", state.ParticipantsReceived)}
 
 	transactionNode := ir.FromMap(map[string]*ir.Node{
-		"transactionId":        &ir.Node{Type: ir.StringType, String: state.TransactionID},
-		"status":               &ir.Node{Type: ir.StringType, String: state.Status},
-		"participantCount":    participantCountNode,
+		"transactionId":        ir.FromString(state.TransactionID),
+		"status":               ir.FromString(state.Status),
+		"participantCount":     participantCountNode,
 		"participantsReceived": participantsReceivedNode,
-		"createdAt":           &ir.Node{Type: ir.StringType, String: state.CreatedAt},
+		"createdAt":            ir.FromString(state.CreatedAt),
 	})
 
 	response := ir.FromMap(map[string]*ir.Node{

@@ -22,7 +22,7 @@ func ParseFile(filename string) (*ast.File, *token.FileSet, error) {
 }
 
 // ExtractStructs extracts all struct type declarations from an AST file.
-// Returns structs with schema= or schemadef= tags.
+// Returns structs with schema= or schemagen= tags.
 func ExtractStructs(file *ast.File, filePath string) ([]*StructInfo, error) {
 	var structs []*StructInfo
 
@@ -65,7 +65,7 @@ func ExtractStructs(file *ast.File, filePath string) ([]*StructInfo, error) {
 				}
 			}
 
-			// Only include structs with schema= or schemadef= tags (or directives)
+			// Only include structs with schema= or schemagen= tags (or directives)
 			if structSchema == nil {
 				continue
 			}
@@ -155,7 +155,7 @@ func ExtractComments(decl ast.Decl) []string {
 }
 
 // extractStructSchemaTag extracts the schema tag from a struct type.
-// Looks for an anonymous field with tony:"schema=..." or tony:"schemadef=..." tag.
+// Looks for an anonymous field with tony:"schema=..." or tony:"schemagen=..." tag.
 func extractStructSchemaTag(structType *ast.StructType) (*gomap.StructSchema, error) {
 	if structType.Fields == nil {
 		return nil, nil
@@ -175,15 +175,15 @@ func extractStructSchemaTag(structType *ast.StructType) (*gomap.StructSchema, er
 				return nil, fmt.Errorf("failed to parse struct tag: %w", err)
 			}
 
-			// Check for schema= or schemadef=
+			// Check for schema= or schemagen=
 			var mode string
 			var schemaName string
 
 			if name, ok := parsed["schema"]; ok {
 				mode = "schema"
 				schemaName = name
-			} else if name, ok := parsed["schemadef"]; ok {
-				mode = "schemadef"
+			} else if name, ok := parsed["schemagen"]; ok {
+				mode = "schemagen"
 				schemaName = name
 			} else {
 				continue
@@ -398,8 +398,8 @@ func parseSchemaTagContent(content string) (*gomap.StructSchema, error) {
 	if name, ok := parsed["schema"]; ok {
 		mode = "schema"
 		schemaName = name
-	} else if name, ok := parsed["schemadef"]; ok {
-		mode = "schemadef"
+	} else if name, ok := parsed["schemagen"]; ok {
+		mode = "schemagen"
 		schemaName = name
 	} else {
 		return nil, nil

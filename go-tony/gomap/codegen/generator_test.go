@@ -520,9 +520,9 @@ func TestHasFromTonyMethod(t *testing.T) {
 }
 
 // TestReproFieldTagIssue verifies that FromTonyIR correctly handles field tags
-// when combined with schemadef.
+// when combined with schemagen.
 func TestReproFieldTagIssue(t *testing.T) {
-	// Define a struct with schemadef and field tags
+	// Define a struct with schemagen and field tags
 	type User struct {
 		ID   string `tony:"field=user_id"`
 		Name string `tony:"field=full_name"`

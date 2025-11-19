@@ -1,0 +1,170 @@
+package index
+
+import (
+	"cmp"
+	"math"
+	"path"
+	"path/filepath"
+	"slices"
+	"strings"
+)
+
+type Index struct {
+	Name string // eg "" for root
+	//for all descendents, rel path, sorted by commit, tx
+	Commits  *Tree[LogSegment]
+	Children map[string]*Index // map from subdir names to sub indices
+}
+
+func NewIndex(name string) *Index {
+	return &Index{
+		Name: name,
+		Commits: NewTree(func(a, b LogSegment) bool {
+			if a.StartCommit < b.StartCommit {
+				return true
+			}
+			if a.StartCommit > b.StartCommit {
+				return false
+			}
+			if a.StartTx < b.StartTx {
+				return true
+			}
+			if a.StartTx > b.StartTx {
+				return false
+			}
+			if a.RelPath < b.RelPath {
+				return true
+			}
+			return false
+		}),
+		Children: map[string]*Index{},
+	}
+}
+
+func (i *Index) Add(seg *LogSegment) {
+	if seg.RelPath == "" {
+		i.Commits.Insert(*seg)
+		return
+	}
+	parts := splitPath(seg.RelPath)
+	hd, rest := parts[0], parts[1:]
+	restPath := strings.Join(rest, "/")
+	child := i.Children[hd]
+	if child == nil {
+		child = NewIndex(hd)
+		i.Children[hd] = child
+	}
+	orgPath := seg.RelPath
+	seg.RelPath = restPath
+	child.Add(seg)
+	seg.RelPath = orgPath
+}
+
+func (i *Index) Remove(seg *LogSegment) bool {
+	if seg.RelPath == "" {
+		return i.Commits.Remove(*seg)
+	}
+	parts := splitPath(seg.RelPath)
+	hd, rest := parts[0], parts[1:]
+	c := i.Children[hd]
+	if c == nil {
+		return false
+	}
+	orgPath := seg.RelPath
+	seg.RelPath = strings.Join(rest, "/")
+	res := c.Remove(seg)
+	seg.RelPath = orgPath
+	return res
+}
+
+func (i *Index) LookupRange(vp string, from, to *int64) []LogSegment {
+	res := []LogSegment{}
+	i.Commits.Range(func(c LogSegment) bool {
+		res = append(res, c)
+		return true
+	}, rangeFunc(from, to))
+	if vp == "" {
+		for _, ci := range i.Children {
+			cRes := i.LookupRange(ci.Name, from, to)
+			res = append(res, cRes...)
+		}
+		slices.SortFunc(res, LogSegCompare)
+		return res
+	}
+	parts := splitPath(vp)
+	hd, rest := parts[0], parts[1:]
+	c := i.Children[hd]
+	if c == nil {
+		return res
+	}
+	cRes := c.LookupRange(strings.Join(rest, "/"), from, to)
+	for i := range cRes {
+		seg := &cRes[i]
+		seg.RelPath = path.Join(hd, seg.RelPath)
+	}
+	res = append(res, cRes...)
+	slices.SortFunc(res, LogSegCompare)
+	return slices.CompactFunc(res, func(a, b LogSegment) bool {
+		return LogSegCompare(a, b) == 0
+	})
+}
+
+func LogSegCompare(a, b LogSegment) int {
+	n := cmp.Compare(a.StartCommit, b.StartCommit)
+	if n != 0 {
+		return n
+	}
+	n = cmp.Compare(a.StartTx, b.StartTx)
+	if n != 0 {
+		return n
+	}
+	n = cmp.Compare(a.EndCommit, b.EndCommit)
+	if n != 0 {
+		return n
+	}
+	n = cmp.Compare(a.EndTx, b.EndTx)
+	if n != 0 {
+		return n
+	}
+	return cmp.Compare(a.RelPath, b.RelPath)
+}
+
+func rangeFunc(from, to *int64) func(LogSegment) int {
+	start := int64(-1)
+	if from != nil {
+		start = *from
+	}
+	end := int64(math.MaxInt64)
+	if to != nil {
+		end = *to + 1
+	}
+	return func(v LogSegment) int {
+		if v.StartCommit < start {
+			return -1
+		}
+		if v.StartCommit > end {
+			return 1
+		}
+		return 0
+	}
+}
+
+func splitPath(vp string) []string {
+	if vp == "/" {
+		panic("/")
+		return []string{""}
+	}
+	return strings.Split(filepath.ToSlash(filepath.Clean(vp)), "/")
+}
+
+func optRange(oFrom, oTo *int64) (from, to int64) {
+	from = -1
+	if oFrom != nil {
+		from = *oFrom
+	}
+	to = math.MaxInt64
+	if oTo != nil {
+		to = *oTo
+	}
+	return
+}

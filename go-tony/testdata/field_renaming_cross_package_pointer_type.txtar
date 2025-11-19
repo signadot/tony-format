@@ -14,7 +14,7 @@ type schemaTag struct{}
 
 // Person struct defines the schema
 type Person struct {
-	schemaTag `tony:"schemadef=person"`
+	schemaTag `tony:"schemagen=person"`
 	Name string
 	Age  int
 }

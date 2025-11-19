@@ -13,17 +13,17 @@ import (
 
 // GenerateSchema generates a schema IR node for a specific struct.
 // allStructs: all structs (used to build struct map for resolving references)
-// targetStruct: the struct to generate the schema for (must have schemadef= tag)
+// targetStruct: the struct to generate the schema for (must have schemagen= tag)
 //
 // The schema has:
-//   - signature.name: schema name from schemadef= tag
+//   - signature.name: schema name from schemagen= tag
 //   - define: map of struct definitions
 func GenerateSchema(allStructs []*StructInfo, targetStruct *StructInfo, loader *PackageLoader) (*ir.Node, error) {
 	if targetStruct == nil {
 		return nil, fmt.Errorf("target struct is nil")
 	}
-	if targetStruct.StructSchema == nil || targetStruct.StructSchema.Mode != "schemadef" {
-		return nil, fmt.Errorf("target struct %q does not have schemadef= tag", targetStruct.Name)
+	if targetStruct.StructSchema == nil || targetStruct.StructSchema.Mode != "schemagen" {
+		return nil, fmt.Errorf("target struct %q does not have schemagen= tag", targetStruct.Name)
 	}
 
 	// Build a map of struct names to StructInfo for lookups (includes all structs)

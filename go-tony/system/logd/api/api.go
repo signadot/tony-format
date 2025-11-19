@@ -10,11 +10,13 @@ import (
 )
 
 // RequestBody represents the common structure for all requests using the path: match: patch: meta: layout.
+//
+//tony:schema=request_body
 type RequestBody struct {
-	Path  *ir.Node `tony:"name=path"`
-	Match *ir.Node `tony:"name=match"`
-	Patch *ir.Node `tony:"name=patch"`
-	Meta  *ir.Node `tony:"name=meta"`
+	Path  string              `tony:"field=path"`
+	Match *ir.Node            `tony:"field=match"`
+	Patch *ir.Node            `tony:"field=patch"`
+	Meta  map[string]*ir.Node `tony:"field=meta"`
 }
 
 // ParseRequestBody parses the request body as a Tony document and extracts the RequestBody structure.
@@ -36,22 +38,10 @@ func ParseRequestBody(r *http.Request) (*RequestBody, error) {
 		return nil, fmt.Errorf("failed to parse Tony document: %w", err)
 	}
 
-	// Extract path, match, patch, meta fields
+	// Use generated FromTonyIR method to populate RequestBody
 	reqBody := &RequestBody{}
-	if doc.Type == ir.ObjectType {
-		for i, field := range doc.Fields {
-			value := doc.Values[i]
-			switch field.String {
-			case "path":
-				reqBody.Path = value
-			case "match":
-				reqBody.Match = value
-			case "patch":
-				reqBody.Patch = value
-			case "meta":
-				reqBody.Meta = value
-			}
-		}
+	if err := reqBody.FromTonyIR(doc); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal request body: %w", err)
 	}
 
 	return reqBody, nil

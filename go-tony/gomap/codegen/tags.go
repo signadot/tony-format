@@ -112,7 +112,7 @@ func ParseStructTag(tag string) (map[string]string, error) {
 }
 
 // ParseTonyTag parses the content of a "tony" struct tag.
-// Example: `tony:"schemadef=person,optional"` -> tagContent is "schemadef=person,optional"
+// Example: `tony:"schemagen=person,optional"` -> tagContent is "schemagen=person,optional"
 func ParseTonyTag(tagContent string) (map[string]string, error) {
 	return ParseStructTag(tagContent)
 }

@@ -22,7 +22,7 @@ type StructInfo struct {
 	// Fields contains information about each struct field
 	Fields []*FieldInfo
 
-	// StructSchema holds schema tag information (schema= or schemadef=)
+	// StructSchema holds schema tag information (schema= or schemagen=)
 	StructSchema *gomap.StructSchema
 
 	// Comments contains struct-level comments (above the type declaration)

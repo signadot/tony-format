@@ -11,10 +11,9 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 )
 
-
 // Server represents the logd HTTP server.
 type Server struct {
-	storage *storage.Storage
+	storage     *storage.Storage
 	txWaitersMu sync.Mutex
 	txWaiters   map[string]*transactionWaiter // transactionID -> waiter
 }
@@ -22,31 +21,52 @@ type Server struct {
 // New creates a new Server instance.
 func New(s *storage.Storage) *Server {
 	return &Server{
-		storage: s,
+		storage:   s,
 		txWaiters: make(map[string]*transactionWaiter),
 	}
 }
 
-// getOrCreateWaiter gets or creates a waiter for a transaction.
-func (s *Server) getOrCreateWaiter(transactionID string) *transactionWaiter {
+// acquireWaiter gets or creates a waiter for a transaction and increments its reference count.
+// The caller must call releaseWaiter when done using the waiter.
+func (s *Server) acquireWaiter(transactionID string) *transactionWaiter {
 	s.txWaitersMu.Lock()
 	defer s.txWaitersMu.Unlock()
-	
+
 	waiter, exists := s.txWaiters[transactionID]
 	if !exists {
 		waiter = NewTransactionWaiter()
 		s.txWaiters[transactionID] = waiter
 	}
+
+	// Increment reference count while holding map lock
+	waiter.mu.Lock()
+	waiter.refCount++
+	waiter.mu.Unlock()
+
 	return waiter
 }
 
-// removeWaiter removes a waiter for a transaction.
-func (s *Server) removeWaiter(transactionID string) {
+// releaseWaiter decrements the waiter's reference count and removes it from the map
+// if the reference count reaches zero and the transaction is completed.
+func (s *Server) releaseWaiter(transactionID string) {
 	s.txWaitersMu.Lock()
 	defer s.txWaitersMu.Unlock()
-	delete(s.txWaiters, transactionID)
-}
 
+	waiter, exists := s.txWaiters[transactionID]
+	if !exists {
+		return
+	}
+
+	waiter.mu.Lock()
+	waiter.refCount--
+	shouldRemove := waiter.refCount == 0 && waiter.result != nil
+	waiter.mu.Unlock()
+
+	// Only remove when no active users AND transaction completed
+	if shouldRemove {
+		delete(s.txWaiters, transactionID)
+	}
+}
 
 // ServeHTTP implements http.Handler.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -76,88 +96,55 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-
 // handleMatch handles MATCH requests (reads).
 func (s *Server) handleMatch(w http.ResponseWriter, r *http.Request, body *api.RequestBody) {
-	// Extract path string from body.Path
-	pathStr, err := extractPathString(body.Path)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidPath, fmt.Sprintf("invalid path: %v", err)))
-		return
-	}
-
 	// Route based on path
-	if pathStr == "/api/transactions" {
+	if body.Path == "/api/transactions" {
 		s.handleMatchTransaction(w, r, body)
 		return
 	}
-	
+
 	// Validate data path
-	if err := validateDataPath(pathStr); err != nil {
+	if err := validateDataPath(body.Path); err != nil {
 		writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidPath, err.Error()))
 		return
 	}
-	
+
 	s.handleMatchData(w, r, body)
 }
 
 // handlePatch handles PATCH requests (writes).
 func (s *Server) handlePatch(w http.ResponseWriter, r *http.Request, body *api.RequestBody) {
-	// Extract path string from body.Path
-	pathStr, err := extractPathString(body.Path)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidPath, fmt.Sprintf("invalid path: %v", err)))
-		return
-	}
-
 	// Route based on path
-	if pathStr == "/api/transactions" {
+	if body.Path == "/api/transactions" {
 		s.handlePatchTransaction(w, r, body)
 		return
 	}
-	
+
 	// Validate data path
-	if err := validateDataPath(pathStr); err != nil {
+	if err := validateDataPath(body.Path); err != nil {
 		writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidPath, err.Error()))
 		return
 	}
-	
+
 	s.handlePatchData(w, r, body)
 }
 
 // handleWatch handles WATCH requests (streaming).
 func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request, body *api.RequestBody) {
-	// Extract path string from body.Path
-	pathStr, err := extractPathString(body.Path)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidPath, fmt.Sprintf("invalid path: %v", err)))
-		return
-	}
-
 	// Route based on path
-	if pathStr == "/api/transactions" {
+	if body.Path == "/api/transactions" {
 		s.handleWatchTransaction(w, r, body)
 		return
 	}
-	
+
 	// Validate data path
-	if err := validateDataPath(pathStr); err != nil {
+	if err := validateDataPath(body.Path); err != nil {
 		writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidPath, err.Error()))
 		return
 	}
-	
-	s.handleWatchData(w, r, body)
-}
 
-// extractPathString extracts the path string from an ir.Node.
-func extractPathString(pathNode *ir.Node) (string, error) {
-	if pathNode == nil {
-		return "", fmt.Errorf("path is required")
-	}
-	if pathNode.Type != ir.StringType {
-		return "", fmt.Errorf("path must be a string")
-	}
-	return pathNode.String, nil
+	s.handleWatchData(w, r, body)
 }
 
 // writeError writes an error response.
@@ -178,11 +165,7 @@ func writeError(w http.ResponseWriter, statusCode int, err *api.Error) {
 
 // Stub handlers - to be implemented
 
-
-
-
 func (s *Server) handleWatchTransaction(w http.ResponseWriter, r *http.Request, body *api.RequestBody) {
 	// TODO: Implement
 	writeError(w, http.StatusNotImplemented, api.NewError("not_implemented", "WATCH /api/transactions not yet implemented"))
 }
-

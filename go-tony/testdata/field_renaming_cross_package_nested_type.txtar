@@ -14,7 +14,7 @@ type schemaTag struct{}
 
 // Name struct defines the schema
 type Name struct {
-	schemaTag `tony:"schemadef=name"`
+	schemaTag `tony:"schemagen=name"`
 	FirstName string
 	LastName  string
 }
@@ -35,7 +35,7 @@ type schemaTag struct{}
 
 // Contact struct defines the schema
 type Contact struct {
-	schemaTag `tony:"schemadef=contact"`
+	schemaTag `tony:"schemagen=contact"`
 	Email string
 	Phone string
 }

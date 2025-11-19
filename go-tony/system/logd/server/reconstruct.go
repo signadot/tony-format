@@ -3,8 +3,8 @@ package server
 import (
 	"fmt"
 
-	"github.com/signadot/tony-format/go-tony/ir"
 	tony "github.com/signadot/tony-format/go-tony"
+	"github.com/signadot/tony-format/go-tony/ir"
 )
 
 // reconstructState reconstructs state for a path at a target commit count.
@@ -29,31 +29,8 @@ func (s *Server) reconstructState(virtualPath string, targetCommitCount *int64) 
 		return ir.Null(), 0, nil
 	}
 
-	// Try to find a snapshot to start from
-	snapshotCommitCount, err := s.storage.FindNearestSnapshot(virtualPath, targetCommit)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to find snapshot: %w", err)
-	}
-
-	var state *ir.Node
+	var state = ir.Null()
 	var startCommitCount int64
-
-	if snapshotCommitCount > 0 {
-		// Load snapshot
-		snapshot, err := s.storage.ReadSnapshot(virtualPath, snapshotCommitCount)
-		if err != nil {
-			// If snapshot read fails, fall back to starting from null
-			state = ir.Null()
-			startCommitCount = 0
-		} else {
-			state = snapshot.State
-			startCommitCount = snapshotCommitCount
-		}
-	} else {
-		// No snapshot, start from null
-		state = ir.Null()
-		startCommitCount = 0
-	}
 
 	// Filter diffs to apply (only those after the snapshot)
 	var diffsToApply []struct{ CommitCount, TxSeq int64 }
@@ -79,26 +56,4 @@ func (s *Server) reconstructState(virtualPath string, targetCommitCount *int64) 
 	}
 
 	return state, targetCommit, nil
-}
-
-// createSnapshot creates a snapshot for a path at a specific commit count.
-// It reconstructs the state and writes it as a snapshot.
-func (s *Server) createSnapshot(virtualPath string, commitCount int64) error {
-	// Reconstruct state at the target commit count
-	state, actualCommitCount, err := s.reconstructState(virtualPath, &commitCount)
-	if err != nil {
-		return fmt.Errorf("failed to reconstruct state: %w", err)
-	}
-
-	// Verify we got the right commit count
-	if actualCommitCount != commitCount {
-		return fmt.Errorf("commit count mismatch: expected %d, got %d", commitCount, actualCommitCount)
-	}
-
-	// Write snapshot
-	if err := s.storage.WriteSnapshot(virtualPath, commitCount, state); err != nil {
-		return fmt.Errorf("failed to write snapshot: %w", err)
-	}
-
-	return nil
 }

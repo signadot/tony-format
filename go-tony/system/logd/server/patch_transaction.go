@@ -105,6 +105,10 @@ func (s *Server) handleCreateTransaction(w http.ResponseWriter, r *http.Request,
 
 // handleAbortTransaction handles transaction abortion.
 func (s *Server) handleAbortTransaction(w http.ResponseWriter, r *http.Request, body *api.RequestBody, transactionID string) {
+	// Acquire waiter and ensure it's released when function exits
+	waiter := s.acquireWaiter(transactionID)
+	defer s.releaseWaiter(transactionID)
+
 	// Read transaction state
 	state, err := s.storage.ReadTransactionState(transactionID)
 	if err != nil {
@@ -144,12 +148,10 @@ func (s *Server) handleAbortTransaction(w http.ResponseWriter, r *http.Request, 
 	}
 
 	// Notify any waiting writes that the transaction was aborted
-	waiter := s.getOrCreateWaiter(transactionID)
 	waiter.SetResult(&transactionResult{
 		committed: false,
 		err:       fmt.Errorf("transaction aborted"),
 	})
-	s.removeWaiter(transactionID)
 
 	// Build response with !key(id) structure
 	// Status replace operation using FromMap
@@ -160,7 +162,7 @@ func (s *Server) handleAbortTransaction(w http.ResponseWriter, r *http.Request, 
 	statusReplace.Tag = "!replace"
 
 	transactionNode := ir.FromMap(map[string]*ir.Node{
-		"transactionId":        &ir.Node{Type: ir.StringType, String: transactionID},
+		"transactionId":         &ir.Node{Type: ir.StringType, String: transactionID},
 		"status":                statusReplace,
 		"participantsDiscarded": &ir.Node{Type: ir.NumberType, Int64: intPtr(int64(participantsDiscarded)), Number: fmt.Sprintf("%d", participantsDiscarded), Tag: "!insert"},
 	})
@@ -191,17 +193,13 @@ func extractTransactionID(match *ir.Node) (string, error) {
 		return "", fmt.Errorf("match must be an object with transactionId field")
 	}
 
-	for i, field := range match.Fields {
-		if i >= len(match.Values) {
-			continue
+	// Convert to map for easier field access
+	matchMap := ir.ToMap(match)
+	if txIDNode, ok := matchMap["transactionId"]; ok {
+		if txIDNode.Type != ir.StringType {
+			return "", fmt.Errorf("transactionId must be a string")
 		}
-		if field.String == "transactionId" {
-			value := match.Values[i]
-			if value.Type != ir.StringType {
-				return "", fmt.Errorf("transactionId must be a string")
-			}
-			return value.String, nil
-		}
+		return txIDNode.String, nil
 	}
 
 	return "", fmt.Errorf("transactionId not found in match")

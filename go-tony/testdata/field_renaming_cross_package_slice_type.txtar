@@ -14,7 +14,7 @@ type schemaTag struct{}
 
 // Tag struct defines the schema
 type Tag struct {
-	schemaTag `tony:"schemadef=tag"`
+	schemaTag `tony:"schemagen=tag"`
 	TagName  string
 	TagValue string
 }

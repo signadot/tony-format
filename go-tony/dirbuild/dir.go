@@ -21,7 +21,7 @@ const (
 type schema struct{}
 
 type Dir struct {
-	schema  `tony:"schemadef=dir"`
+	schema  `tony:"schemagen=dir"`
 	Root    string              `json:"-" tony:"omit"`
 	Suffix  string              `json:"suffix,omitempty"`
 	DestDir string              `json:"destDir,omitempty"`

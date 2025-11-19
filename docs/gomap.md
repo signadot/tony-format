@@ -73,7 +73,7 @@ func main() {
 
 `tony-codegen` is a unified code generation tool that:
 
-1. **Generates `.tony` schema files** from structs with `schemadef=` tags
+1. **Generates `.tony` schema files** from structs with `schemagen=` tags
 2. **Generates Go code** (`ToTony()`/`FromTony()` methods) for structs from schema.
 
 In this way, it interfaces with both schema-driven modeling and code driven modeling
@@ -86,7 +86,7 @@ package models
 
 // Person represents a person in the system.
 // Use comment directives - cleaner and works with any type!
-//tony:schemadef=person
+//tony:schemagen=person
 type Person struct {
     // Name is the person's full name
     Name string `tony:"field=name"`
@@ -97,7 +97,7 @@ type Person struct {
 
 // Alternative: struct tag approach (requires dummy field)
 type Employee struct {
-    _ struct{} `tony:"schemadef=employee"`
+    _ struct{} `tony:"schemagen=employee"`
     Name string
     Salary int
 }
@@ -127,7 +127,7 @@ For structs that mix generated and non-generated fields, use an embedded struct:
 
 ```go
 // Generated part - has schema
-//tony:schemadef=person-core
+//tony:schemagen=person-core
 type PersonCore struct {
     Name string
     Age  int
@@ -193,13 +193,13 @@ There are two ways to define schemas for your structs: using **Doc Comment Direc
 Use `//tony:` directives in doc comments. This is the cleanest approach and works for all types.  But
 you'll need struct tags for custom field naming and options.
 
-#### `//tony:schemadef=<name>`
+#### `//tony:schemagen=<name>`
 
 Define a new schema and generate the `.tony` schema file.
 
 ```go
 // Person represents a person in the system.
-//tony:schemadef=person
+//tony:schemagen=person
 type Person struct {
     Name string `tony:"field=name"`
     Age  int    `tony:"field=age"`
@@ -227,11 +227,11 @@ type Employee struct {
 
 Alternatively, you can use a dummy field with a struct tag. This is useful if you prefer to keep all metadata within the struct definition.
 
-#### `schemadef=<name>`
+#### `schemagen=<name>`
 
 ```go
 type Person struct {
-    _ struct{} `tony:"schemadef=person"`
+    _ struct{} `tony:"schemagen=person"`
     Name string
 }
 ```
@@ -251,7 +251,7 @@ type Employee struct {
 Multiple directives can be combined. For example, to capture schema comments:
 
 ```go
-//tony:schemadef=user
+//tony:schemagen=user
 //tony:comment=UserComments
 type User struct {
     ID   string
@@ -261,11 +261,14 @@ type User struct {
 ```
 
 Supported directives:
-- `//tony:schemadef=<name>` - Define a new schema
+- `//tony:schemagen=<name>` - Define a new schema
 - `//tony:schema=<name>` - Use an existing schema
 - `//tony:comment=<field>` - Populate field with ir comments
 
 **Note**: If both a struct tag and doc comment directive are present, the struct tag takes precedence.
+
+> [!WARNING]
+> **Compatibility Note**: Doc comment directives (`//tony:`) are only supported by the `tony-codegen` tool. They are **NOT** visible to the runtime reflection-based `gomap.ToIR()` and `gomap.FromIR()` functions, because Go reflection cannot access comments at runtime. If you use doc comment directives, you **MUST** use code generation (`ToTony`/`FromTony` methods). For reflection-based usage, you must use struct tags.
 
 ### Field Tags
 
@@ -336,7 +339,7 @@ type Person struct {
 }
 ```
 
-Schema: `Email: !or [!irtype null, !irtype ""]`
+Schema: `Email: .[nullable(string)]`
 
 ### Slices and Arrays
 
@@ -348,7 +351,7 @@ type Person struct {
 }
 ```
 
-Schema: `Tags: !and [.[array], !irtype ""]`
+Schema: `Tags: .[array(string)]`
 
 ### Maps
 
@@ -360,7 +363,52 @@ type Config struct {
 }
 ```
 
-Schema: `Metadata: !irtype {}`
+Schema: `Metadata: .[object(string)]`
+
+Maps with `uint32` keys (sparse arrays):
+
+```go
+type Sparse struct {
+    Data map[uint32]string
+}
+```
+
+Schema: `Data: .[sparsearray(string)]`
+
+### Special Types
+
+#### `*ir.Node`
+
+The `*ir.Node` type represents any valid Tony value (similar to `interface{}` or `any` but typed for Tony IR). It maps to the `ir` schema defined in `tony-base`.
+
+```go
+type AnyData struct {
+    Value *ir.Node
+}
+```
+
+Schema: `Value: .[tony-base:ir]`
+
+### Recursive Types
+
+Self-referential types are supported via pointers:
+
+```go
+type Node struct {
+    schemaTag `tony:"schemagen=node"`
+    Value    int
+    Parent   *Node   // Pointer to self
+    Children []*Node // Slice of pointers to self
+}
+```
+
+Schema:
+```tony
+define:
+  Value: !irtype 1
+  Parent: .[nullable(node)]
+  Children: .[array(node)]
+```
 
 ### Nested Structs
 
@@ -368,12 +416,12 @@ Structs with schemas become schema references:
 
 ```go
 type Person struct {
-    schemaTag `tony:"schemadef=person"`
+    schemaTag `tony:"schemagen=person"`
     Name string
 }
 
 type Employee struct {
-    schemaTag `tony:"schemadef=employee"`
+    schemaTag `tony:"schemagen=employee"`
     Person Person  // References person schema
     Salary int
 }
@@ -414,7 +462,7 @@ Go comments are automatically included in generated schemas:
 // Person represents a user.
 // Multi-line comments are supported.
 type Person struct {
-    schemaTag `tony:"schemadef=person"`
+    schemaTag `tony:"schemagen=person"`
     
     // Name is the person's full name
     Name string
@@ -425,7 +473,7 @@ The generated schema includes these comments.
 
 ### Grouped Schema Files
 
-When multiple structs in a package have `schemadef=` tags, they are all written to a single `schema_gen.tony` file, separated by `---` document separators:
+When multiple structs in a package have `schemagen=` tags, they are all written to a single `schema_gen.tony` file, separated by `---` document separators:
 
 ```tony
 # Code generated by tony-codegen. DO NOT EDIT.
@@ -452,13 +500,13 @@ Structs can reference other schemas in the same package:
 
 ```go
 type Address struct {
-    schemaTag `tony:"schemadef=address"`
+    schemaTag `tony:"schemagen=address"`
     Street string
     City   string
 }
 
 type Person struct {
-    schemaTag `tony:"schemadef=person"`
+    schemaTag `tony:"schemagen=person"`
     Name    string
     Address Address  // References address schema
 }
@@ -704,7 +752,7 @@ The code generator follows this sequence:
 3. **Build dependency graph** - Determine struct dependencies
 4. **Detect cycles** - Error if circular dependencies exist
 5. **Topological sort** - Order structs by dependencies
-6. **Generate schemas** - Create `.tony` files for `schemadef=` structs
+6. **Generate schemas** - Create `.tony` files for `schemagen=` structs
 7. **Load schemas** - Read schemas for `schema=` structs
 8. **Generate code** - Create `ToTony()`, `FromTony()`, `ToTonyIR()`, and `FromTonyIR()` methods
 
@@ -741,13 +789,7 @@ Error: required field "id" is missing
 
 Solution: Provide all required fields in the Tony data.
 
-#### Circular Dependency
 
-```
-Error: circular dependency detected: person → employee → person
-```
-
-Solution: Restructure types to eliminate the cycle.
 
 ## Examples
 
@@ -762,7 +804,7 @@ type schemaTag struct{}
 
 // User represents a system user
 type User struct {
-    schemaTag `tony:"schemadef=user"`
+    schemaTag `tony:"schemagen=user"`
     
     // Unique identifier
     ID string `tony:"field=id,required"`
@@ -791,9 +833,9 @@ context: tony-format/context
 define:
   ID: !irtype ""
   Email: !irtype ""
-  DisplayName: !or [!irtype null, !irtype ""]
-  Roles: !and [.[array], !irtype ""]
-  Metadata: !irtype {}
+  DisplayName: .[nullable(string)]
+  Roles: .[array(string)]
+  Metadata: .[object(string)]
 signature:
   name: user
 ```

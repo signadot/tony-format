@@ -31,6 +31,7 @@ type transactionResult struct {
 type transactionWaiter struct {
 	mu            sync.Mutex
 	stateUpdateMu sync.Mutex // Protects transaction state updates
+	refCount      int        // Number of active HTTP handlers using this waiter
 	pending       []pendingWrite
 	done          chan struct{} // closed when transaction completes or aborts
 	result        *transactionResult

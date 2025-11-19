@@ -17,7 +17,7 @@ type schemaTag struct{}
 
 // Profile schema definition
 type Profile struct {
-	schemaTag `tony:"schemadef=profile"`
+	schemaTag `tony:"schemagen=profile"`
 	ProfileID   int64
 	FirstName   string
 	LastName    string

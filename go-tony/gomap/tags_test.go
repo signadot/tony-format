@@ -122,7 +122,7 @@ func TestGetStructSchema(t *testing.T) {
 	}
 
 	type PersonDef struct {
-		schemaTag `tony:"schemadef=person"`
+		schemaTag `tony:"schemagen=person"`
 		Name      string
 		Age       int
 	}
@@ -210,10 +210,10 @@ func TestGetStructSchema(t *testing.T) {
 			},
 		},
 		{
-			name: "schemadef mode",
+			name: "schemagen mode",
 			typ:  reflect.TypeOf(PersonDef{}),
 			want: &StructSchema{
-				Mode:       "schemadef",
+				Mode:       "schemagen",
 				SchemaName: "person",
 				AllowExtra: false,
 			},
@@ -348,7 +348,7 @@ func TestGetStructSchema(t *testing.T) {
 
 func TestGetStructFields_SchemadefMode(t *testing.T) {
 	type Person struct {
-		schemaTag `tony:"schemadef=person"`
+		schemaTag `tony:"schemagen=person"`
 		Name      string
 		Age       int
 		Email     *string `tony:"required"`
@@ -359,7 +359,7 @@ func TestGetStructFields_SchemadefMode(t *testing.T) {
 	}
 
 	typ := reflect.TypeOf(Person{})
-	fields, err := GetStructFields(typ, nil, "schemadef", false, nil)
+	fields, err := GetStructFields(typ, nil, "schemagen", false, nil)
 	if err != nil {
 		t.Fatalf("GetStructFields() error = %v", err)
 	}
@@ -428,12 +428,12 @@ func TestGetStructFields_SchemadefMode(t *testing.T) {
 
 func TestGetStructFields_RequiredAndOptionalConflict(t *testing.T) {
 	type Person struct {
-		schemaTag `tony:"schemadef=person"`
+		schemaTag `tony:"schemagen=person"`
 		Name      string `tony:"required,optional"`
 	}
 
 	typ := reflect.TypeOf(Person{})
-	_, err := GetStructFields(typ, nil, "schemadef", false, nil)
+	_, err := GetStructFields(typ, nil, "schemagen", false, nil)
 	if err == nil {
 		t.Error("GetStructFields() should error when both required and optional tags are present")
 	}
@@ -471,41 +471,41 @@ func TestGetStructFields_EmbeddedStructs(t *testing.T) {
 	}
 
 	// D embeds A, only D has schema tag
-	// Note: In schemadef mode, A's fields ARE flattened (we're generating a schema definition)
+	// Note: In schemagen mode, A's fields ARE flattened (we're generating a schema definition)
 	// In schema mode, A would NOT be flattened (treated as nested object)
 	type D struct {
 		schemaTag `tony:"schema=company"`
-		A         // A has schema tag, but flattened in schemadef mode
+		A         // A has schema tag, but flattened in schemagen mode
 		CompanyName string
 	}
 
-	t.Run("embedded struct with schema tag should be flattened in schemadef mode", func(t *testing.T) {
+	t.Run("embedded struct with schema tag should be flattened in schemagen mode", func(t *testing.T) {
 		typ := reflect.TypeOf(C{})
-		fields, err := GetStructFields(typ, nil, "schemadef", false, nil)
+		fields, err := GetStructFields(typ, nil, "schemagen", false, nil)
 		if err != nil {
 			t.Fatalf("GetStructFields() error = %v", err)
 		}
 
-		// In schemadef mode, embedded structs are flattened regardless of schema tags
+		// In schemagen mode, embedded structs are flattened regardless of schema tags
 		// (we're generating a schema definition, so include all fields)
 		if len(fields) != 3 {
 			t.Errorf("GetStructFields() returned %d fields, want 3 (A's fields should be flattened)", len(fields))
 		}
 
 		if findField(fields, "Name") == nil {
-			t.Error("Name field from embedded A should be flattened in schemadef mode")
+			t.Error("Name field from embedded A should be flattened in schemagen mode")
 		}
 		if findField(fields, "Age") == nil {
-			t.Error("Age field from embedded A should be flattened in schemadef mode")
+			t.Error("Age field from embedded A should be flattened in schemagen mode")
 		}
 		if findField(fields, "ExtraField") == nil {
 			t.Error("ExtraField should be present")
 		}
 	})
 
-	t.Run("embedded struct without schema tag should be flattened in schemadef mode", func(t *testing.T) {
+	t.Run("embedded struct without schema tag should be flattened in schemagen mode", func(t *testing.T) {
 		typ := reflect.TypeOf(F{})
-		fields, err := GetStructFields(typ, nil, "schemadef", false, nil)
+		fields, err := GetStructFields(typ, nil, "schemagen", false, nil)
 		if err != nil {
 			t.Fatalf("GetStructFields() error = %v", err)
 		}
@@ -528,45 +528,45 @@ func TestGetStructFields_EmbeddedStructs(t *testing.T) {
 
 	t.Run("embedded struct with schema tag in parent with schema tag", func(t *testing.T) {
 		typ := reflect.TypeOf(D{})
-		fields, err := GetStructFields(typ, nil, "schemadef", false, nil)
+		fields, err := GetStructFields(typ, nil, "schemagen", false, nil)
 		if err != nil {
 			t.Fatalf("GetStructFields() error = %v", err)
 		}
 
-		// In schemadef mode, embedded structs are flattened regardless of schema tags
+		// In schemagen mode, embedded structs are flattened regardless of schema tags
 		if len(fields) != 3 {
 			t.Errorf("GetStructFields() returned %d fields, want 3 (A's fields should be flattened)", len(fields))
 		}
 
 		if findField(fields, "Name") == nil {
-			t.Error("Name field from embedded A should be flattened in schemadef mode")
+			t.Error("Name field from embedded A should be flattened in schemagen mode")
 		}
 		if findField(fields, "Age") == nil {
-			t.Error("Age field from embedded A should be flattened in schemadef mode")
+			t.Error("Age field from embedded A should be flattened in schemagen mode")
 		}
 		if findField(fields, "CompanyName") == nil {
 			t.Error("CompanyName should be present")
 		}
 	})
 
-	t.Run("embedded struct with schema tag should be flattened in schemadef mode", func(t *testing.T) {
+	t.Run("embedded struct with schema tag should be flattened in schemagen mode", func(t *testing.T) {
 		typ := reflect.TypeOf(B{})
-		fields, err := GetStructFields(typ, nil, "schemadef", false, nil)
+		fields, err := GetStructFields(typ, nil, "schemagen", false, nil)
 		if err != nil {
 			t.Fatalf("GetStructFields() error = %v", err)
 		}
 
-		// In schemadef mode, embedded structs are flattened regardless of schema tags
+		// In schemagen mode, embedded structs are flattened regardless of schema tags
 		// (we're generating a schema definition, so include all fields)
 		if len(fields) != 3 {
 			t.Errorf("GetStructFields() returned %d fields, want 3 (A's fields should be flattened)", len(fields))
 		}
 
 		if findField(fields, "Name") == nil {
-			t.Error("Name field from embedded A should be flattened in schemadef mode")
+			t.Error("Name field from embedded A should be flattened in schemagen mode")
 		}
 		if findField(fields, "Age") == nil {
-			t.Error("Age field from embedded A should be flattened in schemadef mode")
+			t.Error("Age field from embedded A should be flattened in schemagen mode")
 		}
 		if findField(fields, "CompanyName") == nil {
 			t.Error("CompanyName should be present")

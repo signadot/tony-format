@@ -16,15 +16,8 @@ import (
 
 // handlePatchData handles PATCH requests for data writes.
 func (s *Server) handlePatchData(w http.ResponseWriter, r *http.Request, body *api.RequestBody) {
-	// Extract path
-	pathStr, err := extractPathString(body.Path)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidPath, fmt.Sprintf("invalid path: %v", err)))
-		return
-	}
-
 	// Validate path
-	if err := validateDataPath(pathStr); err != nil {
+	if err := validateDataPath(body.Path); err != nil {
 		writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidPath, err.Error()))
 		return
 	}
@@ -37,27 +30,19 @@ func (s *Server) handlePatchData(w http.ResponseWriter, r *http.Request, body *a
 
 	// Check if this is a transaction write (has tx-id in meta)
 	var transactionID string
-	if body.Meta != nil && body.Meta.Type == ir.ObjectType {
-		for i, field := range body.Meta.Fields {
-			if field.String == "tx-id" {
-				if i >= len(body.Meta.Values) {
-					writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidDiff, "tx-id value is missing"))
-					return
-				}
-				value := body.Meta.Values[i]
-				if value.Type != ir.StringType {
-					writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidDiff, "tx-id must be a string"))
-					return
-				}
-				transactionID = value.String
-				break
+	if body.Meta != nil {
+		if txIDNode, ok := body.Meta["tx-id"]; ok {
+			if txIDNode.Type != ir.StringType {
+				writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidDiff, "tx-id must be a string"))
+				return
 			}
+			transactionID = txIDNode.String
 		}
 	}
 
 	// Handle transaction write
 	if transactionID != "" {
-		s.handlePatchDataWithTransaction(w, r, body, pathStr, transactionID)
+		s.handlePatchDataWithTransaction(w, r, body, body.Path, transactionID)
 		return
 	}
 
@@ -67,7 +52,7 @@ func (s *Server) handlePatchData(w http.ResponseWriter, r *http.Request, body *a
 	// Atomically allocate sequence numbers and write the diff
 	// This ensures files are written in the order sequence numbers are allocated,
 	// preventing race conditions where a later sequence number is written before an earlier one
-	commitCount, _, err := s.storage.WriteDiffAtomically(pathStr, timestamp, body.Patch, false)
+	commitCount, _, err := s.storage.WriteDiffAtomically(body.Path, timestamp, body.Patch, false)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to write diff: %v", err)))
 		return
@@ -83,7 +68,7 @@ func (s *Server) handlePatchData(w http.ResponseWriter, r *http.Request, body *a
 	})
 
 	response := ir.FromMap(map[string]*ir.Node{
-		"path":  &ir.Node{Type: ir.StringType, String: pathStr},
+		"path":  ir.FromString(body.Path),
 		"match": ir.Null(),
 		"patch": body.Patch,
 		"meta":  metaNode,
@@ -102,6 +87,10 @@ func (s *Server) handlePatchData(w http.ResponseWriter, r *http.Request, body *a
 // handlePatchDataWithTransaction handles PATCH requests for data writes within a transaction.
 // This function blocks until the transaction is either committed or aborted.
 func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.Request, body *api.RequestBody, pathStr, transactionID string) {
+	// Acquire waiter and ensure it's released when function exits
+	waiter := s.acquireWaiter(transactionID)
+	defer s.releaseWaiter(transactionID)
+
 	// Read transaction state
 	state, err := s.storage.ReadTransactionState(transactionID)
 	if err != nil {
@@ -136,9 +125,6 @@ func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.R
 	fsPath := s.storage.PathToFilesystem(pathStr)
 	pendingFilename := fmt.Sprintf("%d.pending", writeTxSeq)
 	pendingFilePath := filepath.Join(fsPath, pendingFilename)
-
-	// Get or create waiter for this transaction
-	waiter := s.getOrCreateWaiter(transactionID)
 
 	// Register this write with the waiter
 	write := pendingWrite{
@@ -175,7 +161,6 @@ func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.R
 			committed: false,
 			err:       fmt.Errorf("failed to update transaction state: %w", err),
 		})
-		s.removeWaiter(transactionID)
 		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to update transaction state: %v", err)))
 		return
 	}
@@ -190,7 +175,6 @@ func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.R
 				committed: false,
 				err:       fmt.Errorf("failed to read final transaction state: %w", err),
 			})
-			s.removeWaiter(transactionID)
 			writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to read final transaction state: %v", err)))
 			return
 		}
@@ -224,7 +208,7 @@ func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.R
 	})
 
 	response := ir.FromMap(map[string]*ir.Node{
-		"path":  &ir.Node{Type: ir.StringType, String: pathStr},
+		"path":  ir.FromString(pathStr),
 		"match": ir.Null(),
 		"patch": body.Patch,
 		"meta":  metaNode,
@@ -246,7 +230,6 @@ func (s *Server) commitTransaction(transactionID string, state *storage.Transact
 			committed: false,
 			err:       fmt.Errorf("failed to get commit count: %w", err),
 		})
-		s.removeWaiter(transactionID)
 		return
 	}
 
@@ -260,7 +243,6 @@ func (s *Server) commitTransaction(transactionID string, state *storage.Transact
 				committed: false,
 				err:       fmt.Errorf("invalid pending filename: %s", filename),
 			})
-			s.removeWaiter(transactionID)
 			return
 		}
 		txSeqStr := strings.TrimSuffix(filename, ".pending")
@@ -270,7 +252,6 @@ func (s *Server) commitTransaction(transactionID string, state *storage.Transact
 				committed: false,
 				err:       fmt.Errorf("failed to parse txSeq from filename: %w", err),
 			})
-			s.removeWaiter(transactionID)
 			return
 		}
 
@@ -280,7 +261,6 @@ func (s *Server) commitTransaction(transactionID string, state *storage.Transact
 				committed: false,
 				err:       fmt.Errorf("failed to rename pending file: %w", err),
 			})
-			s.removeWaiter(transactionID)
 			return
 		}
 
@@ -297,7 +277,6 @@ func (s *Server) commitTransaction(transactionID string, state *storage.Transact
 			committed: false,
 			err:       fmt.Errorf("failed to write transaction log: %w", err),
 		})
-		s.removeWaiter(transactionID)
 		return
 	}
 
@@ -308,7 +287,6 @@ func (s *Server) commitTransaction(transactionID string, state *storage.Transact
 			committed: false,
 			err:       fmt.Errorf("failed to update transaction state: %w", err),
 		})
-		s.removeWaiter(transactionID)
 		return
 	}
 
@@ -318,7 +296,6 @@ func (s *Server) commitTransaction(transactionID string, state *storage.Transact
 		commitCount: commitCount,
 		err:         nil,
 	})
-	s.removeWaiter(transactionID)
 }
 
 // extractTxSeqFromTransactionID extracts the txSeq from a transaction ID.

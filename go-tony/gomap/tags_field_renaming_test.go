@@ -125,7 +125,7 @@ func TestFieldRenaming_FromTxtar(t *testing.T) {
 			// or reflect to load the struct types
 			
 			// For this test, we'll verify the schema can be loaded and has the expected structure
-			// Schemas can have either Accept (for schema= mode) or Define (for schemadef= mode)
+			// Schemas can have either Accept (for schema= mode) or Define (for schemagen= mode)
 			var fieldCount int
 			var schemaFields []string
 			if s.Accept != nil {
@@ -139,7 +139,7 @@ func TestFieldRenaming_FromTxtar(t *testing.T) {
 					}
 				}
 			} else if len(s.Define) > 0 {
-				// For schemadef mode, fields are in Define
+				// For schemagen mode, fields are in Define
 				// The define map contains field definitions directly
 				for name, defNode := range s.Define {
 					if defNode.Type == ir.ObjectType {
