@@ -12,6 +12,7 @@ nav:
 - Tools:
   - 'Extra-Format Encoding': extraformat.md
   - o: o/index.md
+  - Golang: gomap.md
 - Reference:   
   - build-eval.md
   - 'Tags': generated/
