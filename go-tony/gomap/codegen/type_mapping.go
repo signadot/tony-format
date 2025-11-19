@@ -197,19 +197,14 @@ func GoTypeToSchemaNode(typ reflect.Type, fieldInfo *FieldInfo, structMap map[st
 	// Handle slices (arrays)
 	if kind == reflect.Slice || kind == reflect.Array {
 		elemType := typ.Elem()
-		// Pass fieldInfo to recursive call because for slices, FieldInfo usually describes the element type
-		elemNode, err := GoTypeToSchemaNode(elemType, fieldInfo, structMap, currentPkg, currentStructName, currentSchemaName, loader, imports)
+		// Get the schema reference for the element type
+		elemTypeRef, err := typeToSchemaRef(elemType, fieldInfo, structMap, currentPkg, currentStructName, currentSchemaName, loader, imports)
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert slice element type: %w", err)
+			return nil, fmt.Errorf("failed to get schema reference for slice element type: %w", err)
 		}
-		// Create !and [.[array], elemType] format
-		// This represents "it's an array AND each element is of type elemType"
-		arrayNode := ir.FromSlice([]*ir.Node{
-			ir.FromString(".[array]"),
-			elemNode,
-		})
-		arrayNode.Tag = "!and"
-		return arrayNode, nil
+		// Create .[array(elemTypeRef)] format
+		// This uses the parameterized array type from base.tony
+		return ir.FromString(fmt.Sprintf(".[array(%s)]", elemTypeRef)), nil
 	}
 
 	// Handle maps

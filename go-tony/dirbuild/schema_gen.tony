@@ -37,12 +37,8 @@ context:
 define:
   DestDir: !irtype ""
   Env: !irtype {}
-  Patches: !and
-  - .[array]
-  - !all.schema(dirpatch) null
-  Sources: !and
-  - .[array]
-  - !all.schema(dirsource) null
+  Patches: .[array(dirpatch)]
+  Sources: .[array(dirsource)]
   Suffix: !irtype ""
 signature:
   name: dir
