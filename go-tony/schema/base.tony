@@ -20,13 +20,20 @@ define:
   array: !irtype []
   array(t): !and
   - .[array]
-  - !all.type t
+  - !all.t null
   sparsearray: !and
   - !irtype {}
   - !all.field.type 0
   sparsearray(t): !and
   - .[sparsearray]
-  - !all.type t
+  - !all.t null
+  object: !irtype {}
+  object(t): !and
+  - .[object]
+  - !all.t null
+  nullable(t): !or
+  - !irtype null
+  - !t null
   # keyed lists
   key(p): !and
   - !irtype []

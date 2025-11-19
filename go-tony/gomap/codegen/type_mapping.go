@@ -11,6 +11,95 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 )
 
+// typeToSchemaRef converts a Go type to a schema reference string.
+// This is used for parameterized types like .[array(t)], .[object(t)], etc.
+//
+// Returns strings like:
+//   - "string" for string types
+//   - "int" for integer types
+//   - "float" for float types
+//   - "bool" for bool types
+//   - "person" for a struct with schemadef=person
+//   - "format:format" for cross-package types like format.Format
+//
+// Returns an error if:
+//   - A struct type has no schema definition
+//   - The type cannot be mapped to a schema reference
+func typeToSchemaRef(typ reflect.Type, fieldInfo *FieldInfo, structMap map[string]*StructInfo, currentPkg string, currentStructName string, currentSchemaName string, loader *PackageLoader, imports map[string]string) (string, error) {
+	if typ == nil {
+		return "", fmt.Errorf("type is nil")
+	}
+
+	kind := typ.Kind()
+
+	// Handle basic types
+	switch kind {
+	case reflect.String:
+		return "string", nil
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return "int", nil
+	case reflect.Float32, reflect.Float64:
+		return "float", nil
+	case reflect.Bool:
+		return "bool", nil
+	}
+
+	// Handle struct types - check for schema references
+	if kind == reflect.Struct {
+		// First, check if this is a struct with a schema using fieldInfo
+		if fieldInfo != nil && fieldInfo.StructTypeName != "" {
+			if structInfo, ok := structMap[fieldInfo.StructTypeName]; ok {
+				if structInfo.StructSchema != nil && structInfo.StructSchema.SchemaName != "" {
+					return structInfo.StructSchema.SchemaName, nil
+				}
+			}
+		}
+
+		// Check for cross-package types
+		pkgPath := typ.PkgPath()
+		typeName := typ.Name()
+
+		// Override with fieldInfo if available
+		if fieldInfo != nil {
+			if fieldInfo.TypePkgPath != "" {
+				pkgPath = fieldInfo.TypePkgPath
+			}
+			if fieldInfo.TypeName != "" {
+				typeName = fieldInfo.TypeName
+			}
+		}
+
+		if pkgPath != "" && pkgPath != currentPkg && typeName != "" {
+			// Cross-package type
+			pkgName := filepath.Base(pkgPath)
+			lowerTypeName := strings.ToLower(typeName)
+			imports[pkgPath] = pkgName
+			return fmt.Sprintf("%s:%s", pkgName, lowerTypeName), nil
+		}
+
+		// Struct without schema - this is an error for parameterized types
+		// We need an explicit schema reference
+		structName := typ.Name()
+		if fieldInfo != nil && fieldInfo.StructTypeName != "" {
+			structName = fieldInfo.StructTypeName
+		}
+		if structName == "" {
+			structName = "anonymous struct"
+		}
+		return "", fmt.Errorf("struct type %q has no schema definition (add schemadef= tag)", structName)
+	}
+
+	// For other types, try to use the type name
+	if typ.Name() != "" {
+		return strings.ToLower(typ.Name()), nil
+	}
+
+	// Fallback: return "object" for unknown types
+	// This might not be ideal, but it's better than failing
+	return "object", nil
+}
+
 // GoTypeToSchemaNode converts a Go type to an IR schema node.
 // This is used for generating schema definitions from Go structs.
 //
