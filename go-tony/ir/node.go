@@ -326,3 +326,12 @@ func (y *Node) Root() *Node {
 	}
 	return res
 }
+
+func (node *Node) FromTony(o *Node) error {
+	*node = *o.Clone()
+	return nil
+}
+
+func (node *Node) ToTony() (*Node, error) {
+	return node.Clone(), nil
+}

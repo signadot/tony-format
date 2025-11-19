@@ -35,7 +35,7 @@ func FromIR(node *ir.Node, v interface{}) error {
 	}
 
 	// Check for FromTony() method on pointer type
-	ptrType := reflect.PtrTo(elemType)
+	ptrType := reflect.PointerTo(elemType)
 	if _, ok := ptrType.MethodByName("FromTony"); ok {
 		// Call on the pointer value itself
 		return callFromTony(val.MethodByName("FromTony"), node)
@@ -87,15 +87,6 @@ func fromIRReflectWithVisited(node *ir.Node, val reflect.Value, fieldPath string
 		}
 	}
 
-	// Handle null values
-	if node.Type == ir.NullType {
-		// Set zero value for the target
-		if val.CanSet() {
-			val.Set(reflect.Zero(val.Type()))
-		}
-		return nil
-	}
-
 	typ := val.Type()
 	kind := typ.Kind()
 
@@ -105,6 +96,20 @@ func fromIRReflectWithVisited(node *ir.Node, val reflect.Value, fieldPath string
 		if val.IsNil() {
 			val.Set(reflect.New(typ.Elem()))
 		}
+		// Check for FromTony() method on pointer type
+		if m := val.MethodByName("FromTony"); m.IsValid() {
+			// Call on the pointer value itself
+			return callFromTony(m, node)
+		}
+		// Handle null values
+		if node.Type == ir.NullType {
+			// Set zero value for the target
+			if val.CanSet() {
+				val.Set(reflect.Zero(val.Type()))
+			}
+			return nil
+		}
+
 		// Check if we've seen this pointer before (we're currently building it)
 		ptrAddr := val.Pointer()
 		if prevPath, seen := visited[ptrAddr]; seen {
@@ -120,6 +125,14 @@ func fromIRReflectWithVisited(node *ir.Node, val reflect.Value, fieldPath string
 		// Remove from visited after processing (allows same pointer to appear in different branches)
 		delete(visited, ptrAddr)
 		return err
+	}
+	// Handle null values
+	if node.Type == ir.NullType {
+		// Set zero value for the target
+		if val.CanSet() {
+			val.Set(reflect.Zero(val.Type()))
+		}
+		return nil
 	}
 
 	// Handle basic types

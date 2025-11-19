@@ -6,6 +6,7 @@ require (
 	github.com/evanphx/json-patch v0.5.2
 	github.com/expr-lang/expr v1.17.6
 	github.com/fatih/color v1.18.0
+	github.com/go-air/gini v1.0.4
 	github.com/goccy/go-yaml v1.18.0
 	github.com/mattn/go-isatty v0.0.20
 	github.com/scott-cotton/cli v0.2.3
@@ -15,7 +16,6 @@ require (
 )
 
 require (
-	github.com/go-air/gini v1.0.4 // indirect
 	github.com/google/go-cmp v0.5.9 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/pkg/errors v0.9.1 // indirect

@@ -15,10 +15,9 @@ import (
 
 	"github.com/signadot/tony-format/go-tony/eval"
 	"github.com/signadot/tony-format/go-tony/format"
+	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
-
-	"github.com/goccy/go-yaml"
 )
 
 func (d *Dir) fetch() ([]*ir.Node, error) {
@@ -36,7 +35,8 @@ func (d *Dir) fetch() ([]*ir.Node, error) {
 }
 
 type DirSource struct {
-	Format *format.Format `json:"format,omitempty"`
+	schema `tony:"schemadef=dir"`
+	Format *format.Format `json:"format,omitempty" tony:"omit"`
 	Exec   *string        `json:"exec,omitempty"`
 	Dir    *string        `json:"dir,omitempty"`
 	URL    *string        `json:"url,omitempty"`
@@ -233,16 +233,23 @@ func (w *sourceWalker) walk(path string, info fs.DirEntry, err error) error {
 }
 
 func (w *sourceWalker) readIgnore(path, ignorePath string) error {
-	f, err := os.Open(ignorePath)
+	d, err := os.ReadFile(ignorePath)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 	ignores := []string{}
-	dec := yaml.NewDecoder(f)
-	if err := dec.Decode(&ignores); err != nil {
-		return fmt.Errorf("error decoding %s: %w", ignorePath, err)
+	//dec := yaml.NewDecoder(f)
+	// if err := dec.Decode(&ignores); err != nil {
+	// 	return fmt.Errorf("error decoding %s: %w", ignorePath, err)
+	// }
+	ir, err := parse.Parse(d)
+	if err != nil {
+		return err
 	}
+	if err := gomap.FromIR(ir, &ignores); err != nil {
+		return err
+	}
+
 	for _, ignore := range ignores {
 		pat := filepath.Join(path, ignore)
 		_, err := filepath.Match(pat, "")

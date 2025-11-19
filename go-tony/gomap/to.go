@@ -94,6 +94,10 @@ func toIRReflectValue(val reflect.Value, fieldPath string, visited map[uintptr]s
 		if val.IsNil() {
 			return ir.Null(), nil
 		}
+		// Check for ToTony() method on the value type (works for both value and pointer types)
+		if method := val.MethodByName("ToTony"); method.IsValid() {
+			return callToTony(method)
+		}
 		// Check if we've seen this pointer before
 		ptrAddr := val.Pointer()
 		if prevPath, seen := visited[ptrAddr]; seen {

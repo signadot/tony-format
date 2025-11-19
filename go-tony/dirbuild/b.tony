@@ -1,0 +1,17 @@
+DestDir: destDir
+Env:
+  fred:
+    barney: wilma
+Patches:
+- File: ""
+  If: zoo
+  Match: null
+  Patch:
+  - true
+Root: ""
+Sources:
+- Dir: srcDir
+  Exec: null
+  Format: null
+  URL: null
+Suffix: ""

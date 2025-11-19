@@ -59,7 +59,8 @@ func build(cfg *BuildConfig, cc *cli.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		return encode.Encode(y, cc.Out, cfg.MainConfig.encOpts(cc.Out)...)
+		opts := append(cfg.MainConfig.encOpts(cc.Out), encode.EncodeComments(true))
+		return encode.Encode(y, cc.Out, opts...)
 	}
 	_, err = dir.Run(w, cfg.MainConfig.encOpts(w)...)
 	if err != nil {
