@@ -57,7 +57,15 @@ func ExtractStructs(file *ast.File, filePath string) ([]*StructInfo, error) {
 				return nil, fmt.Errorf("failed to extract schema tag from struct %q: %w", typeSpec.Name.Name, err)
 			}
 
-			// Only include structs with schema= or schemadef= tags
+			// If no struct tag, check for doc comment directives
+			if structSchema == nil {
+				structSchema, err = extractSchemaFromComments(comments)
+				if err != nil {
+					return nil, fmt.Errorf("failed to extract schema from comments for struct %q: %w", typeSpec.Name.Name, err)
+				}
+			}
+
+			// Only include structs with schema= or schemadef= tags (or directives)
 			if structSchema == nil {
 				continue
 			}
@@ -161,8 +169,8 @@ func extractStructSchemaTag(structType *ast.StructType) (*gomap.StructSchema, er
 				continue
 			}
 
-			// Parse the tag using gomap's parser
-			parsed, err := gomap.ParseStructTag(tag)
+			// Parse the tag using our robust parser
+			parsed, err := ParseStructTag(tag)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse struct tag: %w", err)
 			}
@@ -351,6 +359,70 @@ func getFieldTag(field *ast.Field, tagName string) string {
 // For AST-based parsing, use extractStructSchemaTag instead.
 func GetStructSchemaTag(typ reflect.Type) (*gomap.StructSchema, error) {
 	return gomap.GetStructSchema(typ)
+}
+
+// extractSchemaFromComments extracts schema information from doc comments.
+// Looks for //tony: directives.
+func extractSchemaFromComments(comments []string) (*gomap.StructSchema, error) {
+	var combinedTagContent strings.Builder
+	foundDirective := false
+
+	for _, comment := range comments {
+		// Check for # tony: prefix
+		if strings.HasPrefix(comment, "# tony:") {
+			tagContent := strings.TrimPrefix(comment, "# tony:")
+			if foundDirective {
+				combinedTagContent.WriteString(",")
+			}
+			combinedTagContent.WriteString(tagContent)
+			foundDirective = true
+		}
+	}
+
+	if foundDirective {
+		return parseSchemaTagContent(combinedTagContent.String())
+	}
+	return nil, nil
+}
+
+// parseSchemaTagContent parses the content of a tony tag or directive.
+func parseSchemaTagContent(content string) (*gomap.StructSchema, error) {
+	parsed, err := ParseStructTag(content)
+	if err != nil {
+		return nil, err
+	}
+
+	var mode string
+	var schemaName string
+
+	if name, ok := parsed["schema"]; ok {
+		mode = "schema"
+		schemaName = name
+	} else if name, ok := parsed["schemadef"]; ok {
+		mode = "schemadef"
+		schemaName = name
+	} else {
+		return nil, nil
+	}
+
+	if schemaName == "" {
+		return nil, fmt.Errorf("schema tag requires a schema name")
+	}
+
+	allowExtra := false
+	if _, ok := parsed["allowExtra"]; ok {
+		allowExtra = true
+	}
+
+	return &gomap.StructSchema{
+		Mode:                 mode,
+		SchemaName:           schemaName,
+		Context:              parsed["context"],
+		AllowExtra:           allowExtra,
+		CommentFieldName:     parsed["comment"],
+		LineCommentFieldName: parsed["LineComment"],
+		TagFieldName:         parsed["tag"],
+	}, nil
 }
 
 // ResolveType attempts to resolve an AST type expression to a reflect.Type.

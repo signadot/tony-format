@@ -301,17 +301,12 @@ func goStructToSchemaNode(typ reflect.Type, structMap map[string]*StructInfo, cu
 			// Parse tag manually or use a helper
 			// We need to parse `tony:"schemadef=name"`
 			// Simple parsing for now
+			// Parse tag using our robust parser
 			if val := reflect.StructTag(tag).Get("tony"); val != "" {
-				// Parse tony tag value (comma separated key=value)
-				// We can use ParseStructTags helper if we move it to a shared place or duplicate logic
-				// For now, simple string search
-				// TODO: Use proper tag parsing
-				parts := strings.Split(val, ",")
-				for _, part := range parts {
-					kv := strings.SplitN(part, "=", 2)
-					if len(kv) == 2 && strings.TrimSpace(kv[0]) == "schemadef" {
-						schemaName = strings.TrimSpace(kv[1])
-						break
+				parsed, err := ParseStructTag(val)
+				if err == nil {
+					if name, ok := parsed["schemadef"]; ok {
+						schemaName = name
 					}
 				}
 			}
