@@ -13,9 +13,6 @@ func (s *Dir) ToTony() (*ir.Node, error) {
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
-	// Field: Root
-	irMap["Root"] = ir.FromString(s.Root)
-
 	// Field: Suffix
 	irMap["Suffix"] = ir.FromString(s.Suffix)
 
@@ -68,14 +65,6 @@ func (s *Dir) FromTony(node *ir.Node) error {
 	// Validate IR node type
 	if node.Type != ir.ObjectType {
 		return fmt.Errorf("expected object type, got %v", node.Type)
-	}
-
-	// Field: Root
-	if fieldNode := ir.Get(node, "Root"); fieldNode != nil {
-		if fieldNode.Type != ir.StringType {
-			return fmt.Errorf("field %q: expected string, got %v", "Root", fieldNode.Type)
-		}
-		s.Root = fieldNode.String
 	}
 
 	// Field: Suffix
@@ -251,7 +240,7 @@ func (s *DirPatch) ToTony() (*ir.Node, error) {
 
 	// Create IR node with schema tag
 	node := ir.FromMap(irMap)
-	node.Tag = "!dir"
+	node.Tag = "!dirpatch"
 	return node, nil
 }
 

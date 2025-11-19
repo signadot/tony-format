@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/scott-cotton/cli"
 	"github.com/signadot/tony-format/go-tony/gomap/codegen"
+	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/schema"
 )
 
@@ -22,7 +24,7 @@ func MainCommand() *cli.Command {
 		panic(err)
 	}
 
-	return cli.NewCommand("tony-codegen").
+	return cli.NewCommandAt(&cfg.Command, "tony-codegen").
 		WithSynopsis("tony-codegen [opts]").
 		WithDescription("Generate .tony schema files and Go code (ToTony/FromTony methods) from structs with schema tags.").
 		WithOpts(sOpts...).
@@ -38,9 +40,16 @@ type Config struct {
 	Dir            string `cli:"name=dir desc='directory to scan for Go files (default: current directory)'"`
 	Recursive      bool   `cli:"name=recursive desc='scan subdirectories recursively'"`
 	SchemaRegistry string `cli:"name=schema-registry desc='path to schema registry for cross-package references (optional)'"`
+
+	Command *cli.Command
 }
 
 func run(cfg *Config, cc *cli.Context, args []string) error {
+	args, err := cfg.Command.Parse(cc, args)
+	if err != nil {
+		return err
+	}
+
 	// Set default directory to current directory if not specified
 	dir := cfg.Dir
 	if dir == "" {
@@ -165,32 +174,53 @@ func processPackage(cfg *Config, pkg *codegen.PackageInfo) error {
 			return fmt.Errorf("failed to sort structs: %w", err)
 		}
 
+		// Sort structs alphabetically by schema name to ensure deterministic output
+		sort.Slice(orderedStructs, func(i, j int) bool {
+			return orderedStructs[i].StructSchema.SchemaName < orderedStructs[j].StructSchema.SchemaName
+		})
+
 		// Step 4: Generate schemas (in dependency order)
-		// Pass all structs to GenerateSchema so the struct map includes all possible references
+		// Collect all schemas to write to a single file
+		var schemaNodes []*ir.Node
+		loader := codegen.NewPackageLoader() // Shared loader for all schemas
+
 		for _, structInfo := range orderedStructs {
 			// Generate schema for this struct (pass all structs so references can be resolved)
-			schemaNode, err := codegen.GenerateSchema(allStructs, structInfo)
+			schemaNode, err := codegen.GenerateSchema(allStructs, structInfo, loader)
 			if err != nil {
 				return fmt.Errorf("failed to generate schema for %q: %w", structInfo.Name, err)
 			}
 
-			// Determine output path for schema
-			schemaName := structInfo.StructSchema.SchemaName
-			schemaPath, err := determineSchemaPath(config, pkg, schemaName)
-			if err != nil {
-				return fmt.Errorf("failed to determine schema path for %q: %w", schemaName, err)
-			}
-
-			// Write schema file
-			if err := codegen.WriteSchema(schemaNode, schemaPath); err != nil {
-				return fmt.Errorf("failed to write schema file %q: %w", schemaPath, err)
-			}
+			// Add to collection
+			schemaNodes = append(schemaNodes, schemaNode)
 
 			// Store generated schema for later use
+			schemaName := structInfo.StructSchema.SchemaName
 			generatedSchemas[schemaName] = &codegen.GeneratedSchema{
-				Name:     schemaName,
-				IRNode:   schemaNode,
-				FilePath: schemaPath,
+				Name:   schemaName,
+				IRNode: schemaNode,
+			}
+		}
+
+		// Write all schemas to a single file
+		if len(schemaNodes) > 0 {
+			// Determine output path - use first struct's package directory
+			schemaPath := filepath.Join(pkg.Dir, "schema_gen.tony")
+			if config.SchemaDir != "" {
+				// If schema-dir is specified, use it
+				schemaPath = filepath.Join(config.SchemaDir, filepath.Base(pkg.Dir), "schema_gen.tony")
+			} else if config.SchemaDirFlat != "" {
+				// If schema-dir-flat is specified, use it
+				schemaPath = filepath.Join(config.SchemaDirFlat, "schema_gen.tony")
+			}
+
+			if err := codegen.WriteSchemasToSingleFile(schemaNodes, schemaPath); err != nil {
+				return fmt.Errorf("failed to write schemas file %q: %w", schemaPath, err)
+			}
+
+			// Update all generated schemas with the same file path
+			for schemaName := range generatedSchemas {
+				generatedSchemas[schemaName].FilePath = schemaPath
 			}
 		}
 	}

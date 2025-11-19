@@ -34,6 +34,7 @@ func (d *Dir) fetch() ([]*ir.Node, error) {
 	return res, nil
 }
 
+// DirSource represents a data source for a dirbuild.
 type DirSource struct {
 	schema `tony:"schemadef=dirsource"`
 	Format *format.Format `json:"format,omitempty"`

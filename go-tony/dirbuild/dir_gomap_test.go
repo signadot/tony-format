@@ -34,7 +34,6 @@ func TestDirGoMap(t *testing.T) {
 			),
 		},
 	}
-	_ = dir
 	n, err := gomap.ToIR(dir)
 	if err != nil {
 		t.Error(err)

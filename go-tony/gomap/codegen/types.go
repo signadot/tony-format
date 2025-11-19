@@ -71,6 +71,14 @@ type FieldInfo struct {
 	// StructTypeName stores the struct type name when Type is a struct type.
 	// This is needed because reflect.StructOf creates anonymous types.
 	StructTypeName string
+
+	// TypePkgPath stores the package path for named types from other packages
+	// (e.g., "github.com/signadot/tony-format/go-tony/format" for format.Format)
+	TypePkgPath string
+
+	// TypeName stores the type name for named types from other packages
+	// (e.g., "Format" for format.Format)
+	TypeName string
 }
 
 // SchemaInfo holds schema metadata for code generation

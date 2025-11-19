@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -17,7 +18,7 @@ import (
 // The schema has:
 //   - signature.name: schema name from schemadef= tag
 //   - define: map of struct definitions
-func GenerateSchema(allStructs []*StructInfo, targetStruct *StructInfo) (*ir.Node, error) {
+func GenerateSchema(allStructs []*StructInfo, targetStruct *StructInfo, loader *PackageLoader) (*ir.Node, error) {
 	if targetStruct == nil {
 		return nil, fmt.Errorf("target struct is nil")
 	}
@@ -40,8 +41,11 @@ func GenerateSchema(allStructs []*StructInfo, targetStruct *StructInfo) (*ir.Nod
 		context = "tony-format/context"
 	}
 
+	// Imports map to collect cross-package references (pkgPath -> localName)
+	imports := make(map[string]string)
+
 	// Generate definition for the target struct
-	defNode, err := generateStructDefinition(targetStruct, structMap, currentPkg)
+	defNode, err := generateStructDefinition(targetStruct, structMap, currentPkg, loader, imports)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate definition for %q: %w", schemaName, err)
 	}
@@ -66,9 +70,40 @@ func GenerateSchema(allStructs []*StructInfo, targetStruct *StructInfo) (*ir.Nod
 		defineNode = ir.FromMap(defineMap)
 	}
 
+	// Build context node
+	// Start with the base context
+	contextItems := []*ir.Node{ir.FromString(context)}
+
+	// Add collected imports
+	// We want deterministic order, but map iteration is random.
+	// However, for now, let's just add them. Ideally we should sort by key.
+	// TODO: Sort imports for stability
+	importPaths := make([]string, 0, len(imports))
+	for path := range imports {
+		importPaths = append(importPaths, path)
+	}
+	// Sort paths
+	sort.Strings(importPaths)
+
+	for _, path := range importPaths {
+		name := imports[path]
+		// Create mapping: name: path
+		item := ir.FromMap(map[string]*ir.Node{
+			name: ir.FromString(path),
+		})
+		contextItems = append(contextItems, item)
+	}
+
+	contextNode := ir.FromSlice(contextItems)
+
+	// Debug: Print available structs
+	// for name := range structMap {
+	// 	fmt.Printf("DEBUG: Available struct in map: %s\n", name)
+	// }
+
 	// Create the schema IR node
 	schemaNode := ir.FromMap(map[string]*ir.Node{
-		"context": ir.FromString(context),
+		"context": contextNode,
 		"signature": ir.FromMap(map[string]*ir.Node{
 			"name": ir.FromString(schemaName),
 		}),
@@ -79,7 +114,7 @@ func GenerateSchema(allStructs []*StructInfo, targetStruct *StructInfo) (*ir.Nod
 }
 
 // generateStructDefinition generates a schema definition node for a struct.
-func generateStructDefinition(structInfo *StructInfo, structMap map[string]*StructInfo, currentPkg string) (*ir.Node, error) {
+func generateStructDefinition(structInfo *StructInfo, structMap map[string]*StructInfo, currentPkg string, loader *PackageLoader, imports map[string]string) (*ir.Node, error) {
 	// Create object type with fields
 	fields := make(map[string]*ir.Node)
 
@@ -104,13 +139,21 @@ func generateStructDefinition(structInfo *StructInfo, structMap map[string]*Stru
 		var fieldTypeNode *ir.Node
 		var err error
 
+		if field.Name == "Format" {
+			fmt.Printf("DEBUG: Format field - Type=%v, ASTType=%v\n", field.Type, field.ASTType != nil)
+			if field.Type != nil {
+				fmt.Printf("DEBUG: Format field Type details - Kind=%v, PkgPath=%q, Name=%q\n",
+					field.Type.Kind(), field.Type.PkgPath(), field.Type.Name())
+			}
+		}
+
 		if field.Type != nil {
 			// Use reflection-based type if available
 			// Pass the current struct name to detect self-references
-			fieldTypeNode, err = GoTypeToSchemaNode(field.Type, field, structMap, currentPkg, structInfo.Name, structInfo.StructSchema.SchemaName)
+			fieldTypeNode, err = GoTypeToSchemaNode(field.Type, field, structMap, currentPkg, structInfo.Name, structInfo.StructSchema.SchemaName, loader, imports)
 		} else if field.ASTType != nil {
 			// Fall back to AST-based type conversion
-			fieldTypeNode, err = ASTTypeToSchemaNode(field.ASTType, structMap, currentPkg)
+			fieldTypeNode, err = ASTTypeToSchemaNode(field.ASTType, structMap, currentPkg, loader, imports)
 		} else {
 			return nil, fmt.Errorf("field %q has no type information", field.Name)
 		}
@@ -190,6 +233,45 @@ func WriteSchema(schema *ir.Node, outputPath string) error {
 	// Encode schema to Tony format
 	if err := encode.Encode(schema, file); err != nil {
 		return fmt.Errorf("failed to encode schema: %w", err)
+	}
+
+	return nil
+}
+
+// WriteSchemasToSingleFile writes multiple schema IR nodes to a single .tony file,
+// separated by "---" document separators.
+func WriteSchemasToSingleFile(schemas []*ir.Node, outputPath string) error {
+	// Ensure directory exists
+	dir := filepath.Dir(outputPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory %q: %w", dir, err)
+	}
+
+	// Open file for writing
+	file, err := os.Create(outputPath)
+	if err != nil {
+		return fmt.Errorf("failed to create file %q: %w", outputPath, err)
+	}
+	defer file.Close()
+
+	// Write generated comment header
+	if _, err := fmt.Fprintf(file, "# Code generated by tony-codegen. DO NOT EDIT.\n"); err != nil {
+		return fmt.Errorf("failed to write comment header: %w", err)
+	}
+
+	// Write each schema separated by ---
+	for i, schema := range schemas {
+		if i > 0 {
+			// Write document separator
+			if _, err := fmt.Fprintf(file, "---\n"); err != nil {
+				return fmt.Errorf("failed to write document separator: %w", err)
+			}
+		}
+
+		// Encode schema to Tony format
+		if err := encode.Encode(schema, file); err != nil {
+			return fmt.Errorf("failed to encode schema %d: %w", i, err)
+		}
 	}
 
 	return nil

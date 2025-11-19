@@ -73,10 +73,40 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 		buf.WriteString(fmt.Sprintf("\t%q\n", importPath))
 	}
 
-	// Add other standard imports (only if needed, but for now keep them)
-	// TODO: Only add these if actually used
-	// buf.WriteString(`	"strconv"` + "\n")
-	// buf.WriteString(`	"unsafe"` + "\n")
+	// Check if standard imports are needed
+	needsStrconv := false
+	needsUnsafe := false
+
+	for _, structInfo := range structs {
+		if structInfo.StructSchema == nil {
+			continue
+		}
+		for _, field := range structInfo.Fields {
+			if field.Type == nil {
+				continue
+			}
+			// Check for map types that require special handling
+			if field.Type.Kind() == reflect.Map {
+				keyType := field.Type.Key()
+				// map[uint32]T needs strconv for parsing keys
+				if keyType.Kind() == reflect.Uint32 {
+					needsStrconv = true
+				}
+				// map[*T]T needs unsafe for pointer keys
+				if keyType.Kind() == reflect.Ptr {
+					needsUnsafe = true
+				}
+			}
+		}
+	}
+
+	// Add other standard imports if needed
+	if needsStrconv {
+		buf.WriteString(`	"strconv"` + "\n")
+	}
+	if needsUnsafe {
+		buf.WriteString(`	"unsafe"` + "\n")
+	}
 	buf.WriteString(")\n\n")
 
 	// Generate methods for each struct

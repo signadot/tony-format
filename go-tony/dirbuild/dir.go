@@ -22,7 +22,7 @@ type schema struct{}
 
 type Dir struct {
 	schema  `tony:"schemadef=dir"`
-	Root    string              `json:"-"`
+	Root    string              `json:"-" tony:"omit"`
 	Suffix  string              `json:"suffix,omitempty"`
 	DestDir string              `json:"destDir,omitempty"`
 	Sources []DirSource         `json:"sources"`
@@ -34,7 +34,7 @@ type Dir struct {
 
 func OpenDir(path string, env map[string]*ir.Node) (*Dir, error) {
 	if debug.LoadEnv() {
-		debug.Logf("OpenDir input env:\n%s", debug.JSON(env))
+		debug.Logf("OpenDir input env:\n%s", debug.Tony{ir.FromMap(env)})
 	}
 	// Try build.{tony,yaml,json} in order
 	extensions := []string{".tony", ".yaml", ".json"}
@@ -111,7 +111,7 @@ func initDir(dir *Dir, node *ir.Node, path string, env map[string]*ir.Node) (*Di
 		}
 		dir.Env = ir.ToMap(pEnv)
 		if debug.LoadEnv() {
-			debug.Logf("loaded env %v\n", dir.Env)
+			debug.Logf("loaded env %s\n", debug.Tony{ir.FromMap(dir.Env)})
 		}
 	}
 	if err := dir.filterPatches(); err != nil {

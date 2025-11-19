@@ -61,7 +61,7 @@ type Person struct {
 	}
 
 	// Generate schema
-	schema, err := GenerateSchema(structs, person)
+	schema, err := GenerateSchema(structs, person, NewPackageLoader())
 	if err != nil {
 		t.Fatalf("failed to generate schema: %v", err)
 	}
@@ -176,7 +176,7 @@ type Person struct {
 		t.Fatalf("expected 1 struct, got %d", len(structs))
 	}
 
-	schema, err := GenerateSchema(structs, structs[0])
+	schema, err := GenerateSchema(structs, structs[0], NewPackageLoader())
 	if err != nil {
 		t.Fatalf("failed to generate schema: %v", err)
 	}
@@ -279,7 +279,7 @@ type Person struct {
 		t.Fatalf("expected 1 struct, got %d", len(structs))
 	}
 
-	schema, err := GenerateSchema(structs, structs[0])
+	schema, err := GenerateSchema(structs, structs[0], NewPackageLoader())
 	if err != nil {
 		t.Fatalf("failed to generate schema: %v", err)
 	}
@@ -355,7 +355,7 @@ type Person struct {
 	emailField := person.Fields[0]
 	emailField.Type = reflect.TypeOf("")
 
-	schema, err := GenerateSchema(structs, person)
+	schema, err := GenerateSchema(structs, person, NewPackageLoader())
 	if err != nil {
 		t.Fatalf("failed to generate schema: %v", err)
 	}
