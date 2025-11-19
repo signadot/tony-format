@@ -11,9 +11,9 @@ import (
 )
 
 type JSON any
-type Y struct{ *ir.Node }
+type Tony struct{ *ir.Node }
 
-func (y Y) String() string {
+func (y Tony) String() string {
 	x := y.Node
 	buf := bytes.NewBuffer(nil)
 	if err := encode.Encode(x, buf); err != nil {

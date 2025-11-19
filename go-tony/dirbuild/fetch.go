@@ -34,8 +34,11 @@ func (d *Dir) fetch() ([]*ir.Node, error) {
 	return res, nil
 }
 
+// DirSource represents a data source for a dirbuild.
 type DirSource struct {
 	schema `tony:"schemadef=dir"`
+	// Format specifies the format.  Only applies on Exec, as otherwise
+	// the format is auto-detected based on file extension.
 	Format *format.Format `json:"format,omitempty" tony:"omit"`
 	Exec   *string        `json:"exec,omitempty"`
 	Dir    *string        `json:"dir,omitempty"`

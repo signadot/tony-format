@@ -27,14 +27,13 @@ func TestDirGoMap(t *testing.T) {
 			},
 		},
 		DestDir: "destDir",
-		Env: map[string]any{
+		Env: map[string]*ir.Node{
 			"fred": ir.FromMap(map[string]*ir.Node{
 				"barney": ir.FromString("wilma"),
 			},
 			),
 		},
 	}
-	_ = dir
 	n, err := gomap.ToIR(dir)
 	if err != nil {
 		t.Error(err)
