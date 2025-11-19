@@ -2,19 +2,16 @@
 package dirbuild
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/debug"
-	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/eval"
+	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
-
-	"github.com/goccy/go-yaml"
 )
 
 const (
@@ -25,17 +22,17 @@ type schema struct{}
 
 type Dir struct {
 	schema  `tony:"schemadef=dir"`
-	Root    string         `json:"-"`
-	Suffix  string         `json:"suffix,omitempty"`
-	DestDir string         `json:"destDir,omitempty"`
-	Sources []DirSource    `json:"sources"`
-	Patches []DirPatch     `json:"patches,omitempty"`
-	Env     map[string]any `json:"env,omitempty"`
+	Root    string              `json:"-"`
+	Suffix  string              `json:"suffix,omitempty"`
+	DestDir string              `json:"destDir,omitempty"`
+	Sources []DirSource         `json:"sources"`
+	Patches []DirPatch          `json:"patches,omitempty"`
+	Env     map[string]*ir.Node `json:"env,omitempty"`
 
 	nameCache map[string]int
 }
 
-func OpenDir(path string, env map[string]any) (*Dir, error) {
+func OpenDir(path string, env map[string]*ir.Node) (*Dir, error) {
 	if debug.LoadEnv() {
 		debug.Logf("OpenDir input env:\n%s", debug.JSON(env))
 	}
@@ -71,113 +68,85 @@ func OpenDir(path string, env map[string]any) (*Dir, error) {
 	return newDir(y, path, env)
 }
 
-func newDir(yTool *ir.Node, path string, env map[string]any) (*Dir, error) {
+func newDir(node *ir.Node, path string, env map[string]*ir.Node) (*Dir, error) {
+
 	dir := &Dir{
 		Root:   path,
 		Suffix: DefaultSuffix,
 	}
-	return initDir(dir, yTool, path, env)
+	return initDir(dir, node, path, env)
 }
 
-func initDir(dir *Dir, yTool *ir.Node, path string, env map[string]any) (*Dir, error) {
-	yDir := &ir.Node{}
-	if len(yTool.Fields) != 0 {
-		if yTool.Fields[0].String == "build" {
-			yDir = yTool.Values[0]
+func initDir(dir *Dir, node *ir.Node, path string, env map[string]*ir.Node) (*Dir, error) {
+	oDir := &ir.Node{}
+	if len(node.Fields) != 0 {
+		if node.Fields[0].String == "build" {
+			oDir = node.Values[0]
 		}
 	}
-	yToolMap := ir.ToMap(yDir)
-
-	yDestDir := yToolMap["destDir"]
-	if yDestDir != nil {
-		if yDestDir.Type != ir.StringType {
-			return nil, fmt.Errorf("destDir should be a string")
-		}
-		dir.DestDir = yDestDir.String
+	if err := gomap.FromIR(oDir, dir); err != nil {
+		return nil, err
 	}
-	if ySuffix := yToolMap["suffix"]; ySuffix != nil {
-		if ySuffix.Type != ir.StringType {
-			return nil, fmt.Errorf("wrong type for suffix %s (want string)", ySuffix.Type)
-		}
-		dir.Suffix = ySuffix.String
+	if dir.Suffix == "" {
+		dir.Suffix = DefaultSuffix
 	}
 
-	yEnv := yToolMap["env"]
-	if yEnv != nil {
-		if yEnv.Type != ir.ObjectType {
-			return nil, fmt.Errorf("wrong type for env %s (want obj)", yEnv.Type)
-		}
+	if dir.Env != nil {
 		tool := tony.DefaultTool()
-		oDir, err := os.Getwd()
+		orgDir, err := os.Getwd()
 		if err != nil {
 			return nil, err
 		}
 		if err := os.Chdir(dir.Root); err != nil {
 			return nil, err
 		}
-		defer os.Chdir(oDir)
-		yEnv, err := tool.Run(yEnv)
+		defer os.Chdir(orgDir)
+		evaldEnv, err := tool.Run(ir.FromMap(dir.Env))
 		if err != nil {
 			return nil, fmt.Errorf("error evaluating env: %w", err)
 		}
-		dir.Env = eval.ToJSONAny(yEnv).(map[string]any)
-
-		env, err := mergeEnv(dir.Env, env)
+		pEnv, err := tony.Patch(evaldEnv, ir.FromMap(env))
 		if err != nil {
 			return nil, err
 		}
-		dir.Env = env
+		dir.Env = ir.ToMap(pEnv)
 		if debug.LoadEnv() {
 			debug.Logf("loaded env %s\n", dir.Env)
 		}
 	}
-	ySources := yToolMap["sources"]
-	if ySources != nil {
-		if ySources.Type != ir.ArrayType {
-			return nil, fmt.Errorf("wrong type for sources: %s", ySources.Type)
-		}
-		buf := bytes.NewBuffer(nil)
-		if err := encode.Encode(ySources, buf); err != nil {
-			return nil, fmt.Errorf("error encoding sources for decode: %w", err)
-		}
-		if err := yaml.Unmarshal(buf.Bytes(), &dir.Sources); err != nil {
-			return nil, fmt.Errorf("error decoding sources: %w", err)
-		}
+	if err := dir.filterPatches(); err != nil {
+		return nil, err
 	}
-	yPatches := yToolMap["patches"]
-	if yPatches != nil {
-		if yPatches.Type != ir.ArrayType {
-			return nil, fmt.Errorf("wrong type for patches: %s", yPatches.Type)
-		}
-		patches, err := dir.getYPatches(dir.Root, yPatches.Values)
-		if err != nil {
-			return nil, err
-		}
-		dir.Patches = patches
-		if debug.Patches() {
-			for i := range dir.Patches {
-				p := &dir.Patches[i]
-				debug.Logf("loaded patch %s\n", p)
-			}
-		}
-	}
-
 	dir.nameCache = map[string]int{}
 	return dir, nil
 }
 
-func mergeEnv(dst, p map[string]any) (map[string]any, error) {
-	doc, err := eval.FromJSONAny(dst)
-	if err != nil {
-		return nil, err
+func (dir *Dir) filterPatches() error {
+	j := 0
+	for i := range dir.Patches {
+		dp := &dir.Patches[i]
+		if dp.If == "" {
+			dir.Patches[j] = *dp
+			j++
+			continue
+		}
+		m, err := eval.ExpandIR(ir.FromString(dp.If), toEvalEnv(dir.Env))
+		if err != nil {
+			return err
+		}
+		if m.Type == ir.BoolType && !m.Bool {
+			continue
+		}
+		dir.Patches[j] = *dp
+		j++
 	}
-	patch, err := eval.FromJSONAny(p)
-	if err != nil {
-		return nil, err
+	return nil
+}
+
+func toEvalEnv(m map[string]*ir.Node) eval.Env {
+	res := make(eval.Env, len(m))
+	for k, v := range m {
+		res[k] = v
 	}
-	y, err := tony.Patch(doc, patch)
-	if err != nil {
-		return nil, err
-	}
-	return eval.ToJSONAny(y).(map[string]any), nil
+	return res
 }

@@ -82,13 +82,8 @@ func (l letOp) Match(doc *ir.Node, f MatchFunc) (bool, error) {
 		return false, fmt.Errorf("error expanding let in body: %w", err)
 	}
 
-	expandedInNode, ok := expandedIn.(*ir.Node)
-	if !ok {
-		return false, fmt.Errorf("expected *ir.Node from ExpandIR, got %T", expandedIn)
-	}
-
 	// Match using the expanded 'in' node
-	return f(doc, expandedInNode)
+	return f(doc, expandedIn)
 }
 
 // buildEnv creates an eval.Env from the let bindings

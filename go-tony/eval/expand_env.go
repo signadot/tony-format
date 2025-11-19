@@ -143,7 +143,7 @@ func ExpandAny(v any, env Env) (any, error) {
 	}
 }
 
-func ExpandIR(node *ir.Node, env Env) (any, error) {
+func ExpandIR(node *ir.Node, env Env) (*ir.Node, error) {
 	switch node.Type {
 	case ir.ObjectType:
 		n := len(node.Values)
@@ -154,7 +154,7 @@ func ExpandIR(node *ir.Node, env Env) (any, error) {
 			if err != nil {
 				return nil, err
 			}
-			res[f.String] = xc.(*ir.Node)
+			res[f.String] = xc
 		}
 		return ir.FromMap(res).WithTag(node.Tag), nil
 	case ir.ArrayType:
@@ -165,7 +165,7 @@ func ExpandIR(node *ir.Node, env Env) (any, error) {
 			if err != nil {
 				return nil, err
 			}
-			res[i] = xc.(*ir.Node)
+			res[i] = xc
 		}
 		return ir.FromSlice(res).WithTag(node.Tag), nil
 	case ir.StringType:
@@ -214,10 +214,9 @@ func ExpandIR(node *ir.Node, env Env) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		irInner := inner.(*ir.Node)
 		res := &ir.Node{
 			Type:   ir.CommentType,
-			Values: []*ir.Node{irInner},
+			Values: []*ir.Node{inner},
 		}
 		for _, ln := range node.Lines {
 			xLn, err := ExpandString(ln, env)
@@ -226,7 +225,7 @@ func ExpandIR(node *ir.Node, env Env) (any, error) {
 			}
 			res.Lines = append(res.Lines, xLn)
 		}
-		irInner.Parent = res
+		inner.Parent = res
 		return res, nil
 	}
 	return nil, nil

@@ -47,8 +47,8 @@ func TestScriptIRNodesPreserveComments(t *testing.T) {
 	// Note: Comments are preserved in the node structure, but Clone() may handle them specially
 	sourceNode := ir.FromString("value")
 	commentNode := &ir.Node{
-		Type:  ir.CommentType,
-		Lines: []string{"inline comment"},
+		Type:   ir.CommentType,
+		Lines:  []string{"inline comment"},
 		Values: []*ir.Node{ir.FromString("value")},
 	}
 	sourceNode.Comment = commentNode
@@ -209,8 +209,8 @@ func TestExpandIRRawEnvRef(t *testing.T) {
 				"var": func() *ir.Node {
 					n := ir.FromString("value")
 					n.Comment = &ir.Node{
-						Type:  ir.CommentType,
-						Lines: []string{"inline comment"},
+						Type:   ir.CommentType,
+						Lines:  []string{"inline comment"},
 						Values: []*ir.Node{ir.FromString("value")},
 					}
 					return n
@@ -219,8 +219,8 @@ func TestExpandIRRawEnvRef(t *testing.T) {
 			expected: func() *ir.Node {
 				n := ir.FromString("value")
 				n.Comment = &ir.Node{
-					Type:  ir.CommentType,
-					Lines: []string{"inline comment"},
+					Type:   ir.CommentType,
+					Lines:  []string{"inline comment"},
 					Values: []*ir.Node{ir.FromString("value")},
 				}
 				return n
@@ -249,35 +249,30 @@ func TestExpandIRRawEnvRef(t *testing.T) {
 				t.Fatalf("ExpandIR failed: %v", err)
 			}
 
-			resultNode, ok := result.(*ir.Node)
-			if !ok {
-				t.Fatalf("expected *ir.Node, got %T", result)
-			}
-
 			// Verify tag is preserved
-			if resultNode.Tag != tt.expected.Tag {
-				t.Errorf("tag mismatch: got %q, want %q", resultNode.Tag, tt.expected.Tag)
+			if result.Tag != tt.expected.Tag {
+				t.Errorf("tag mismatch: got %q, want %q", result.Tag, tt.expected.Tag)
 			}
 
 			// Verify type matches
-			if resultNode.Type != tt.expected.Type {
-				t.Errorf("type mismatch: got %s, want %s", resultNode.Type, tt.expected.Type)
+			if result.Type != tt.expected.Type {
+				t.Errorf("type mismatch: got %s, want %s", result.Type, tt.expected.Type)
 			}
 
 			// For string nodes, verify string value
-			if resultNode.Type == ir.StringType && resultNode.String != tt.expected.String {
-				t.Errorf("string value mismatch: got %q, want %q", resultNode.String, tt.expected.String)
+			if result.Type == ir.StringType && result.String != tt.expected.String {
+				t.Errorf("string value mismatch: got %q, want %q", result.String, tt.expected.String)
 			}
 
 			// For array nodes, verify length
-			if resultNode.Type == ir.ArrayType {
-				if len(resultNode.Values) != len(tt.expected.Values) {
-					t.Errorf("array length mismatch: got %d, want %d", len(resultNode.Values), len(tt.expected.Values))
+			if result.Type == ir.ArrayType {
+				if len(result.Values) != len(tt.expected.Values) {
+					t.Errorf("array length mismatch: got %d, want %d", len(result.Values), len(tt.expected.Values))
 				} else {
 					// Verify tags on array elements
-					for i := range resultNode.Values {
-						if resultNode.Values[i].Tag != tt.expected.Values[i].Tag {
-							t.Errorf("array element %d tag mismatch: got %q, want %q", i, resultNode.Values[i].Tag, tt.expected.Values[i].Tag)
+					for i := range result.Values {
+						if result.Values[i].Tag != tt.expected.Values[i].Tag {
+							t.Errorf("array element %d tag mismatch: got %q, want %q", i, result.Values[i].Tag, tt.expected.Values[i].Tag)
 						}
 					}
 				}
@@ -304,20 +299,15 @@ func TestExpandIRRawEnvRefParentRelationships(t *testing.T) {
 		t.Fatalf("ExpandIR failed: %v", err)
 	}
 
-	resultNode, ok := result.(*ir.Node)
-	if !ok {
-		t.Fatalf("expected *ir.Node, got %T", result)
-	}
-
 	// Verify parent relationships are preserved
-	if resultNode.Parent != parent {
-		t.Errorf("Parent not set correctly: got %v, want %v", resultNode.Parent, parent)
+	if result.Parent != parent {
+		t.Errorf("Parent not set correctly: got %v, want %v", result.Parent, parent)
 	}
-	if resultNode.ParentField != "child" {
-		t.Errorf("ParentField not set correctly: got %q, want %q", resultNode.ParentField, "child")
+	if result.ParentField != "child" {
+		t.Errorf("ParentField not set correctly: got %q, want %q", result.ParentField, "child")
 	}
-	if resultNode.ParentIndex != 0 {
-		t.Errorf("ParentIndex not set correctly: got %d, want %d", resultNode.ParentIndex, 0)
+	if result.ParentIndex != 0 {
+		t.Errorf("ParentIndex not set correctly: got %d, want %d", result.ParentIndex, 0)
 	}
 
 	// Test with array result
@@ -340,33 +330,28 @@ func TestExpandIRRawEnvRefParentRelationships(t *testing.T) {
 		t.Fatalf("ExpandIR failed: %v", err)
 	}
 
-	resultNode2, ok := result2.(*ir.Node)
-	if !ok {
-		t.Fatalf("expected *ir.Node, got %T", result2)
-	}
-
-	if resultNode2.Type != ir.ArrayType {
-		t.Fatalf("expected ArrayType, got %s", resultNode2.Type)
+	if result2.Type != ir.ArrayType {
+		t.Fatalf("expected ArrayType, got %s", result2.Type)
 	}
 
 	// Verify parent relationships are preserved for array
-	if resultNode2.Parent != parent2 {
-		t.Errorf("Parent not set correctly for array: got %v, want %v", resultNode2.Parent, parent2)
+	if result2.Parent != parent2 {
+		t.Errorf("Parent not set correctly for array: got %v, want %v", result2.Parent, parent2)
 	}
-	if resultNode2.ParentField != "items" {
-		t.Errorf("ParentField not set correctly for array: got %q, want %q", resultNode2.ParentField, "items")
+	if result2.ParentField != "items" {
+		t.Errorf("ParentField not set correctly for array: got %q, want %q", result2.ParentField, "items")
 	}
-	if resultNode2.ParentIndex != 0 {
-		t.Errorf("ParentIndex not set correctly for array: got %d, want %d", resultNode2.ParentIndex, 0)
+	if result2.ParentIndex != 0 {
+		t.Errorf("ParentIndex not set correctly for array: got %d, want %d", result2.ParentIndex, 0)
 	}
 
 	// Verify array elements have correct parent relationships
-	if len(resultNode2.Values) != 2 {
-		t.Fatalf("expected 2 array elements, got %d", len(resultNode2.Values))
+	if len(result2.Values) != 2 {
+		t.Fatalf("expected 2 array elements, got %d", len(result2.Values))
 	}
-	for i, elem := range resultNode2.Values {
-		if elem.Parent != resultNode2 {
-			t.Errorf("array element %d Parent not set correctly: got %v, want %v", i, elem.Parent, resultNode2)
+	for i, elem := range result2.Values {
+		if elem.Parent != result2 {
+			t.Errorf("array element %d Parent not set correctly: got %v, want %v", i, elem.Parent, result2)
 		}
 		if elem.ParentIndex != i {
 			t.Errorf("array element %d ParentIndex not set correctly: got %d, want %d", i, elem.ParentIndex, i)
@@ -490,34 +475,29 @@ func TestExpandIRRawEnvRefWithMaps(t *testing.T) {
 				t.Fatalf("ExpandIR failed: %v", err)
 			}
 
-			resultNode, ok := result.(*ir.Node)
-			if !ok {
-				t.Fatalf("expected *ir.Node, got %T", result)
-			}
-
-			if resultNode.Type != ir.ObjectType {
-				t.Errorf("expected ObjectType, got %s", resultNode.Type)
+			if result.Type != ir.ObjectType {
+				t.Errorf("expected ObjectType, got %s", result.Type)
 			}
 
 			// Verify parent relationships
-			if resultNode.Parent != parent {
+			if result.Parent != parent {
 				t.Errorf("Parent not set correctly")
 			}
-			if resultNode.ParentField != "child" {
-				t.Errorf("ParentField not set correctly: got %q, want %q", resultNode.ParentField, "child")
+			if result.ParentField != "child" {
+				t.Errorf("ParentField not set correctly: got %q, want %q", result.ParentField, "child")
 			}
 
 			// Verify structure and tags
-			if len(resultNode.Fields) != len(tt.expected.Fields) {
-				t.Errorf("field count mismatch: got %d, want %d", len(resultNode.Fields), len(tt.expected.Fields))
+			if len(result.Fields) != len(tt.expected.Fields) {
+				t.Errorf("field count mismatch: got %d, want %d", len(result.Fields), len(tt.expected.Fields))
 			}
 
-			for i, field := range resultNode.Fields {
+			for i, field := range result.Fields {
 				if field.String != tt.expected.Fields[i].String {
 					t.Errorf("field %d key mismatch: got %q, want %q", i, field.String, tt.expected.Fields[i].String)
 				}
-				if resultNode.Values[i].Tag != tt.expected.Values[i].Tag {
-					t.Errorf("field %q tag mismatch: got %q, want %q", field.String, resultNode.Values[i].Tag, tt.expected.Values[i].Tag)
+				if result.Values[i].Tag != tt.expected.Values[i].Tag {
+					t.Errorf("field %q tag mismatch: got %q, want %q", field.String, result.Values[i].Tag, tt.expected.Values[i].Tag)
 				}
 			}
 		})
