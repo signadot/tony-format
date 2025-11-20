@@ -1,6 +1,7 @@
 package gomap
 
 import (
+	"bytes"
 	"fmt"
 	"reflect"
 
@@ -8,12 +9,24 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 )
 
-// ToIR converts a Go value to a Tony IR node.
-// It automatically uses a ToTony() method if available (user-implemented or generated),
+// ToTony converts a Go value to Tony-formatted bytes.
+// It first converts the value to an IR node (using ToTonyIR), then marshals the IR to bytes.
+func ToTony(v interface{}, opts ...encode.EncodeOption) ([]byte, error) {
+	node, err := ToTonyIR(v, opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, opts...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// ToTonyIR converts a Go value to a Tony IR node.
+// It automatically uses a ToTonyIR() method if available (user-implemented or generated),
 // otherwise falls back to reflection-based conversion.
-// It automatically uses a ToTony() method if available (user-implemented or generated),
-// otherwise falls back to reflection-based conversion.
-func ToIR(v interface{}, opts ...encode.EncodeOption) (*ir.Node, error) {
+func ToTonyIR(v interface{}, opts ...encode.EncodeOption) (*ir.Node, error) {
 	if v == nil {
 		return ir.Null(), nil
 	}
@@ -21,19 +34,18 @@ func ToIR(v interface{}, opts ...encode.EncodeOption) (*ir.Node, error) {
 	val := reflect.ValueOf(v)
 	typ := val.Type()
 
-	// Check for ToTony() method on the value type (works for both value and pointer types)
-	if method := val.MethodByName("ToTony"); method.IsValid() {
-		return callToTony(method, opts...)
+	// Check for ToTonyIR() method on the value type (works for both value and pointer types)
+	if method := val.MethodByName("ToTonyIR"); method.IsValid() {
+		return callToTonyIR(method, opts...)
 	}
 
 	// If v is a value type, check if pointer type has the method
 	if typ.Kind() != reflect.Ptr {
-		ptrType := reflect.PtrTo(typ)
-		if _, ok := ptrType.MethodByName("ToTony"); ok {
+		if _, ok := reflect.PtrTo(typ).MethodByName("ToTonyIR"); ok {
 			// Create a pointer to the value and call the method
 			ptrVal := reflect.New(typ)
 			ptrVal.Elem().Set(val)
-			return callToTony(ptrVal.MethodByName("ToTony"), opts...)
+			return callToTonyIR(ptrVal.MethodByName("ToTonyIR"), opts...)
 		}
 	}
 
@@ -41,20 +53,17 @@ func ToIR(v interface{}, opts ...encode.EncodeOption) (*ir.Node, error) {
 	return toIRReflect(v, opts...)
 }
 
-// callToTony calls the ToTony() method and returns the result.
-func callToTony(method reflect.Value, opts ...encode.EncodeOption) (*ir.Node, error) {
-	// Verify method signature: ToTony(opts ...encode.EncodeOption) (*ir.Node, error)
-	// Note: We allow the old signature ToTony() (*ir.Node, error) for backward compatibility if needed,
+// callToTonyIR calls the ToTonyIR() method and returns the result.
+func callToTonyIR(method reflect.Value, opts ...encode.EncodeOption) (*ir.Node, error) {
+	// Verify method signature: ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error)
+	// Note: We allow the old signature ToTonyIR() (*ir.Node, error) for backward compatibility if needed,
 	// but the generated code now uses the new signature.
 	mt := method.Type()
 
-	// Check for new signature: ToTony(opts ...encode.EncodeOption) (*ir.Node, error)
-	if mt.NumIn() == 1 && mt.IsVariadic() && mt.In(0) == reflect.TypeOf([]encode.EncodeOption(nil)) {
-		// Call with options - convert each option to reflect.Value
-		args := make([]reflect.Value, len(opts))
-		for i, opt := range opts {
-			args[i] = reflect.ValueOf(opt)
-		}
+	// Check for new signature: ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error)
+	if mt.NumIn() == 1 && mt.IsVariadic() && mt.In(0) == reflect.TypeOf([]encode.EncodeOption(nil)) &&
+		mt.NumOut() == 2 && mt.Out(0) == reflect.TypeOf((*ir.Node)(nil)) && mt.Out(1) == reflect.TypeOf((*error)(nil)).Elem() {
+		// Call with options - use CallSlice for variadic method
 		results := method.CallSlice([]reflect.Value{reflect.ValueOf(opts)})
 		node := results[0].Interface().(*ir.Node)
 		err := results[1].Interface()
@@ -64,8 +73,9 @@ func callToTony(method reflect.Value, opts ...encode.EncodeOption) (*ir.Node, er
 		return node, nil
 	}
 
-	// Check for old signature: ToTony() (*ir.Node, error)
-	if mt.NumIn() == 0 && mt.NumOut() == 2 {
+	// Check for old signature: ToTonyIR() (*ir.Node, error)
+	if mt.NumIn() == 0 && mt.NumOut() == 2 &&
+		mt.Out(0) == reflect.TypeOf((*ir.Node)(nil)) && mt.Out(1) == reflect.TypeOf((*error)(nil)).Elem() {
 		// Call without options
 		results := method.Call(nil)
 		node := results[0].Interface().(*ir.Node)
@@ -77,7 +87,7 @@ func callToTony(method reflect.Value, opts ...encode.EncodeOption) (*ir.Node, er
 	}
 
 	return nil, &MarshalError{
-		Message: "ToTony() method must have signature: ToTony(opts ...encode.EncodeOption) (*ir.Node, error) or ToTony() (*ir.Node, error)",
+		Message: "ToTonyIR() method must have signature: ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error) or ToTonyIR() (*ir.Node, error)",
 	}
 }
 
@@ -110,9 +120,9 @@ func toIRReflectValue(val reflect.Value, fieldPath string, visited map[uintptr]s
 		if val.IsNil() {
 			return ir.Null(), nil
 		}
-		// Check for ToTony() method on the value type (works for both value and pointer types)
+		// Check for ToTonyIR() method on the value type (works for both value and pointer types)
 		if method := val.MethodByName("ToTony"); method.IsValid() {
-			return callToTony(method, opts...)
+			return callToTonyIR(method, opts...)
 		}
 		// Check if we've seen this pointer before
 		ptrAddr := val.Pointer()

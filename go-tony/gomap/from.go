@@ -9,11 +9,21 @@ import (
 	"github.com/signadot/tony-format/go-tony/parse"
 )
 
-// FromIR converts a Tony IR node to a Go value.
+// FromTony unmarshals Tony-formatted bytes to a Go value.
+// It first unmarshals the bytes to an IR node, then converts the IR node to the value (using FromTonyIR).
+func FromTony(data []byte, v interface{}, opts ...parse.ParseOption) error {
+	node, err := parse.Parse(data, opts...)
+	if err != nil {
+		return err
+	}
+	return FromTonyIR(node, v, opts...)
+}
+
+// FromTonyIR converts a Tony IR node to a Go value.
 // v must be a pointer to the target type.
-// It automatically uses a FromTony() method if available (user-implemented or generated),
+// It automatically uses a FromTonyIR() method if available (user-implemented or generated),
 // otherwise falls back to reflection-based conversion.
-func FromIR(node *ir.Node, v interface{}, opts ...parse.ParseOption) error {
+func FromTonyIR(node *ir.Node, v interface{}, opts ...parse.ParseOption) error {
 	if v == nil {
 		return &UnmarshalError{Message: "destination value cannot be nil"}
 	}
@@ -30,31 +40,32 @@ func FromIR(node *ir.Node, v interface{}, opts ...parse.ParseOption) error {
 	elemVal := val.Elem()
 	elemType := elemVal.Type()
 
-	// Check for FromTony() method on the element type
-	if method := elemVal.MethodByName("FromTony"); method.IsValid() {
-		return callFromTony(method, node, opts...)
+	// Check for FromTonyIR() method on the element type
+	if method := elemVal.MethodByName("FromTonyIR"); method.IsValid() {
+		return callFromTonyIR(method, node, opts...)
 	}
 
-	// Check for FromTony() method on pointer type
+	// Check for FromTonyIR() method on pointer type
 	ptrType := reflect.PointerTo(elemType)
-	if _, ok := ptrType.MethodByName("FromTony"); ok {
+	if _, ok := ptrType.MethodByName("FromTonyIR"); ok {
 		// Call on the pointer value itself
-		return callFromTony(val.MethodByName("FromTony"), node, opts...)
+		return callFromTonyIR(val.MethodByName("FromTonyIR"), node, opts...)
 	}
 
 	// Fall back to reflection-based conversion
 	return fromIRReflect(node, elemVal, "", opts...)
 }
 
-// callFromTony calls the FromTony() method with the given node.
-func callFromTony(method reflect.Value, node *ir.Node, opts ...parse.ParseOption) error {
-	// Verify method signature: FromTony(*ir.Node, opts ...parse.ParseOption) error
-	// Note: We allow the old signature FromTony(*ir.Node) error for backward compatibility if needed,
+// callFromTonyIR calls the FromTonyIR() method with the given node.
+func callFromTonyIR(method reflect.Value, node *ir.Node, opts ...parse.ParseOption) error {
+	// Verify method signature: FromTonyIR(*ir.Node, opts ...parse.ParseOption) error
+	// Note: We allow the old signature FromTonyIR(*ir.Node) error for backward compatibility if needed,
 	// but the generated code now uses the new signature.
 	mt := method.Type()
 
-	// Check for new signature: FromTony(*ir.Node, opts ...parse.ParseOption) error
-	if mt.NumIn() == 2 && mt.IsVariadic() && mt.In(0) == reflect.TypeOf((*ir.Node)(nil)) && mt.In(1) == reflect.TypeOf([]parse.ParseOption(nil)) {
+	// Check for new signature: FromTonyIR(*ir.Node, opts ...parse.ParseOption) error
+	if mt.NumIn() == 2 && mt.IsVariadic() && mt.In(0) == reflect.TypeOf((*ir.Node)(nil)) && mt.In(1) == reflect.TypeOf([]parse.ParseOption(nil)) &&
+		mt.NumOut() == 1 && mt.Out(0) == reflect.TypeOf((*error)(nil)).Elem() {
 		// Call with options - use CallSlice for variadic method
 		args := []reflect.Value{reflect.ValueOf(node), reflect.ValueOf(opts)}
 		results := method.CallSlice(args)
@@ -65,8 +76,9 @@ func callFromTony(method reflect.Value, node *ir.Node, opts ...parse.ParseOption
 		return nil
 	}
 
-	// Check for old signature: FromTony(*ir.Node) error
-	if mt.NumIn() == 1 && mt.NumOut() == 1 && mt.In(0) == reflect.TypeOf((*ir.Node)(nil)) {
+	// Check for old signature: FromTonyIR(*ir.Node) error
+	if mt.NumIn() == 1 && mt.NumOut() == 1 && mt.In(0) == reflect.TypeOf((*ir.Node)(nil)) &&
+		mt.Out(0) == reflect.TypeOf((*error)(nil)).Elem() {
 		// Call without options
 		results := method.Call([]reflect.Value{reflect.ValueOf(node)})
 		err := results[0].Interface()
@@ -77,7 +89,7 @@ func callFromTony(method reflect.Value, node *ir.Node, opts ...parse.ParseOption
 	}
 
 	return &UnmarshalError{
-		Message: "FromTony() method must have signature: FromTony(*ir.Node, opts ...parse.ParseOption) error or FromTony(*ir.Node) error",
+		Message: "FromTonyIR() method must have signature: FromTonyIR(*ir.Node, opts ...parse.ParseOption) error or FromTonyIR(*ir.Node) error",
 	}
 }
 
@@ -106,10 +118,10 @@ func fromIRReflectWithVisited(node *ir.Node, val reflect.Value, fieldPath string
 		if val.IsNil() {
 			val.Set(reflect.New(typ.Elem()))
 		}
-		// Check for FromTony() method on pointer type
-		if m := val.MethodByName("FromTony"); m.IsValid() {
+		// Check for FromTonyIR() method on pointer type
+		if m := val.MethodByName("FromTonyIR"); m.IsValid() {
 			// Call on the pointer value itself
-			return callFromTony(m, node, opts...)
+			return callFromTonyIR(m, node, opts...)
 		}
 		// Handle null values
 		if node.Type == ir.NullType {

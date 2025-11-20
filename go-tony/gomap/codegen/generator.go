@@ -131,8 +131,24 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 		// This check would need to be done at runtime or via AST analysis.
 		// For now, we'll always generate the methods.
 
+		// Generate ToTonyIR method
+		toTonyIRCode, err := GenerateToTonyIRMethod(structInfo, s)
+		if err != nil {
+			return "", fmt.Errorf("failed to generate ToTonyIR() for %q: %w", structInfo.Name, err)
+		}
+		buf.WriteString(toTonyIRCode)
+		buf.WriteString("\n\n")
+
+		// Generate FromTonyIR method
+		fromTonyIRCode, err := GenerateFromTonyIRMethod(structInfo, s)
+		if err != nil {
+			return "", fmt.Errorf("failed to generate FromTonyIR() for %q: %w", structInfo.Name, err)
+		}
+		buf.WriteString(fromTonyIRCode)
+		buf.WriteString("\n\n")
+
 		// Generate ToTony method
-		toTonyCode, err := GenerateToTonyMethod(structInfo, s)
+		toTonyCode, err := GenerateToTonyMethod(structInfo)
 		if err != nil {
 			return "", fmt.Errorf("failed to generate ToTony() for %q: %w", structInfo.Name, err)
 		}
@@ -140,27 +156,11 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 		buf.WriteString("\n\n")
 
 		// Generate FromTony method
-		fromTonyCode, err := GenerateFromTonyMethod(structInfo, s)
+		fromTonyCode, err := GenerateFromTonyMethod(structInfo)
 		if err != nil {
 			return "", fmt.Errorf("failed to generate FromTony() for %q: %w", structInfo.Name, err)
 		}
 		buf.WriteString(fromTonyCode)
-		buf.WriteString("\n\n")
-
-		// Generate ToTonyBytes method
-		toTonyBytesCode, err := GenerateToTonyBytesMethod(structInfo)
-		if err != nil {
-			return "", fmt.Errorf("failed to generate ToTonyBytes() for %q: %w", structInfo.Name, err)
-		}
-		buf.WriteString(toTonyBytesCode)
-		buf.WriteString("\n\n")
-
-		// Generate FromTonyBytes method
-		fromTonyBytesCode, err := GenerateFromTonyBytesMethod(structInfo)
-		if err != nil {
-			return "", fmt.Errorf("failed to generate FromTonyBytes() for %q: %w", structInfo.Name, err)
-		}
-		buf.WriteString(fromTonyBytesCode)
 		buf.WriteString("\n\n")
 	}
 
@@ -182,13 +182,13 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 	return string(formatted), nil
 }
 
-// GenerateToTonyMethod generates a ToTony() method for a struct.
-func GenerateToTonyMethod(structInfo *StructInfo, s *schema.Schema) (string, error) {
+// GenerateToTonyIRMethod generates a ToTonyIR() method for a struct.
+func GenerateToTonyIRMethod(structInfo *StructInfo, s *schema.Schema) (string, error) {
 	var buf strings.Builder
 
 	// Method signature
-	buf.WriteString(fmt.Sprintf("// ToTony converts %s to a Tony IR node.\n", structInfo.Name))
-	buf.WriteString(fmt.Sprintf("func (s *%s) ToTony(opts ...encode.EncodeOption) (*ir.Node, error) {\n", structInfo.Name))
+	buf.WriteString(fmt.Sprintf("// ToTonyIR converts %s to a Tony IR node.\n", structInfo.Name))
+	buf.WriteString(fmt.Sprintf("func (s *%s) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error) {\n", structInfo.Name))
 	buf.WriteString("	// Create IR object map\n")
 	buf.WriteString("	irMap := make(map[string]*ir.Node)\n\n")
 
@@ -235,9 +235,7 @@ func GenerateToTonyMethod(structInfo *StructInfo, s *schema.Schema) (string, err
 	// Create IR node with schema tag
 	schemaName := s.Signature.Name
 	buf.WriteString(fmt.Sprintf("	// Create IR node with schema tag\n"))
-	buf.WriteString(fmt.Sprintf("	node := ir.FromMap(irMap)\n"))
-	buf.WriteString(fmt.Sprintf("	node.Tag = \"!%s\"\n", schemaName))
-	buf.WriteString("	return node, nil\n")
+	buf.WriteString(fmt.Sprintf("	return ir.FromMap(irMap).WithTag(\"!%s\"), nil\n", schemaName))
 	buf.WriteString("}\n")
 
 	return buf.String(), nil
@@ -281,7 +279,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 		if elemType.Kind() == reflect.Struct {
 			// Nested struct - call ToTony() method
 			buf.WriteString(fmt.Sprintf("		if s.%s != nil {\n", field.Name))
-			buf.WriteString(fmt.Sprintf("			node, err := s.%s.ToTony(opts...)\n", field.Name))
+			buf.WriteString(fmt.Sprintf("			node, err := s.%s.ToTonyIR(opts...)\n", field.Name))
 			buf.WriteString("			if err != nil {\n")
 			buf.WriteString("				return nil, err\n")
 			buf.WriteString("			}\n")
@@ -310,7 +308,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 		buf.WriteString(fmt.Sprintf("			for i, v := range s.%s {\n", field.Name))
 		if elemType.Kind() == reflect.Struct {
 			// Slice of structs - call ToTony()
-			buf.WriteString("				node, err := v.ToTony(opts...)\n")
+			buf.WriteString("				node, err := v.ToTonyIR(opts...)\n")
 			buf.WriteString("				if err != nil {\n")
 			buf.WriteString("					return nil, fmt.Errorf(\"failed to convert slice element %d: %w\", i, err)\n")
 			buf.WriteString("				}\n")
@@ -338,7 +336,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			buf.WriteString(fmt.Sprintf("			intKeysMap := make(map[uint32]*ir.Node)\n"))
 			buf.WriteString(fmt.Sprintf("			for k, v := range s.%s {\n", field.Name))
 			if valueType.Kind() == reflect.Struct {
-				buf.WriteString("				node, err := v.ToTony(opts...)\n")
+				buf.WriteString("				node, err := v.ToTonyIR(opts...)\n")
 				buf.WriteString("				if err != nil {\n")
 				buf.WriteString("					return nil, fmt.Errorf(\"failed to convert map value at key %d: %w\", k, err)\n")
 				buf.WriteString("				}\n")
@@ -361,7 +359,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			if isIRNodePtr(valueType) {
 				buf.WriteString("				mapNodes[k] = v\n")
 			} else if valueType.Kind() == reflect.Struct {
-				buf.WriteString("				node, err := v.ToTony(opts...)\n")
+				buf.WriteString("				node, err := v.ToTonyIR(opts...)\n")
 				buf.WriteString("				if err != nil {\n")
 				buf.WriteString("					return nil, fmt.Errorf(\"failed to convert map value at key %q: %w\", k, err)\n")
 				buf.WriteString("				}\n")
@@ -384,7 +382,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			buf.WriteString("				// Convert interface{} key to string\n")
 			buf.WriteString("				kStr := fmt.Sprintf(\"%v\", k)\n")
 			if valueType.Kind() == reflect.Struct {
-				buf.WriteString("				node, err := v.ToTony(opts...)\n")
+				buf.WriteString("				node, err := v.ToTonyIR(opts...)\n")
 				buf.WriteString("				if err != nil {\n")
 				buf.WriteString("					return nil, fmt.Errorf(\"failed to convert map value at key %v: %w\", k, err)\n")
 				buf.WriteString("				}\n")
@@ -407,7 +405,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			buf.WriteString("				// Convert pointer key to string representation\n")
 			buf.WriteString("				kStr := fmt.Sprintf(\"%p\", k)\n")
 			if valueType.Kind() == reflect.Struct {
-				buf.WriteString("				node, err := v.ToTony(opts...)\n")
+				buf.WriteString("				node, err := v.ToTonyIR(opts...)\n")
 				buf.WriteString("				if err != nil {\n")
 				buf.WriteString("					return nil, fmt.Errorf(\"failed to convert map value at key %p: %w\", k, err)\n")
 				buf.WriteString("				}\n")
@@ -440,7 +438,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 
 	case reflect.Struct:
 		// Nested struct - call ToTony() method
-		buf.WriteString(fmt.Sprintf("		node, err := s.%s.ToTony(opts...)\n", field.Name))
+		buf.WriteString(fmt.Sprintf("		node, err := s.%s.ToTonyIR(opts...)\n", field.Name))
 		buf.WriteString("		if err != nil {\n")
 		buf.WriteString(fmt.Sprintf("			return nil, fmt.Errorf(\"failed to convert field %%q: %%w\", %q, err)\n", field.Name))
 		buf.WriteString("		}\n")
@@ -472,17 +470,28 @@ func generatePrimitiveToIR(varName string, typ reflect.Type) (string, error) {
 	}
 }
 
-// GenerateFromTonyMethod generates a FromTony() method for a struct.
-func GenerateFromTonyMethod(structInfo *StructInfo, s *schema.Schema) (string, error) {
+// GenerateFromTonyIRMethod generates a FromTonyIR() method for a struct.
+func GenerateFromTonyIRMethod(structInfo *StructInfo, s *schema.Schema) (string, error) {
 	var buf strings.Builder
 
 	// Method signature
-	buf.WriteString(fmt.Sprintf("// FromTony populates %s from a Tony IR node.\n", structInfo.Name))
-	buf.WriteString(fmt.Sprintf("func (s *%s) FromTony(node *ir.Node, opts ...parse.ParseOption) error {\n", structInfo.Name))
+	buf.WriteString(fmt.Sprintf("// FromTonyIR populates %s from a Tony IR node.\n", structInfo.Name))
+	buf.WriteString(fmt.Sprintf("func (s *%s) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error {\n", structInfo.Name))
 	buf.WriteString("	// Validate IR node type\n")
 	buf.WriteString("	if node.Type != ir.ObjectType {\n")
 	buf.WriteString("		return fmt.Errorf(\"expected object type, got %v\", node.Type)\n")
 	buf.WriteString("	}\n\n")
+
+	// Track required fields
+	for _, field := range structInfo.Fields {
+		if field.Required && !field.Omit {
+			buf.WriteString(fmt.Sprintf("	var found_%s bool\n", field.Name))
+		}
+	}
+
+	buf.WriteString("	for i, fieldName := range node.Fields {\n")
+	buf.WriteString("		fieldNode := node.Values[i]\n")
+	buf.WriteString("		switch fieldName.String {\n")
 
 	// Get struct fields from schema using GetStructFields
 	// For now, we'll iterate over StructInfo.Fields
@@ -497,13 +506,35 @@ func GenerateFromTonyMethod(structInfo *StructInfo, s *schema.Schema) (string, e
 			schemaFieldName = field.Name
 		}
 
-		// Generate code to extract field from IR node
-		fieldCode, err := generateFieldFromIR(structInfo, field, schemaFieldName)
+		buf.WriteString(fmt.Sprintf("		case %q:\n", schemaFieldName))
+
+		// Generate code to decode field
+		fieldCode, err := generateFieldDecoding(structInfo, field, schemaFieldName)
 		if err != nil {
-			return "", fmt.Errorf("failed to generate field extraction for %q: %w", field.Name, err)
+			return "", fmt.Errorf("failed to generate field decoding for %q: %w", field.Name, err)
 		}
 		buf.WriteString(fieldCode)
-		buf.WriteString("\n")
+
+		if field.Required {
+			buf.WriteString(fmt.Sprintf("			found_%s = true\n", field.Name))
+		}
+	}
+
+	buf.WriteString("		}\n")
+	buf.WriteString("	}\n\n")
+
+	// Check required fields
+	for _, field := range structInfo.Fields {
+		if field.Required && !field.Omit {
+			schemaFieldName := field.SchemaFieldName
+			if schemaFieldName == "" {
+				schemaFieldName = field.Name
+			}
+
+			buf.WriteString(fmt.Sprintf("	if !found_%s {\n", field.Name))
+			buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"required field %%q is missing\", %q)\n", schemaFieldName))
+			buf.WriteString("	}\n")
+		}
 	}
 
 	// Handle allowExtra flag
@@ -519,13 +550,14 @@ func GenerateFromTonyMethod(structInfo *StructInfo, s *schema.Schema) (string, e
 	return buf.String(), nil
 }
 
-// GenerateToTonyBytesMethod generates a ToTonyBytes() method for a struct.
-func GenerateToTonyBytesMethod(structInfo *StructInfo) (string, error) {
+// GenerateToTonyMethod generates a ToTony() method for a struct.
+func GenerateToTonyMethod(structInfo *StructInfo) (string, error) {
 	var buf strings.Builder
 
-	buf.WriteString(fmt.Sprintf("// ToTonyBytes converts %s to a Tony IR node and encodes it to bytes.\n", structInfo.Name))
-	buf.WriteString(fmt.Sprintf("func (s *%s) ToTonyBytes(opts ...encode.EncodeOption) ([]byte, error) {\n", structInfo.Name))
-	buf.WriteString("	node, err := s.ToTony(opts...)\n")
+	// Method signature
+	buf.WriteString(fmt.Sprintf("// ToTony converts %s to Tony format bytes.\n", structInfo.Name))
+	buf.WriteString(fmt.Sprintf("func (s *%s) ToTony(opts ...encode.EncodeOption) ([]byte, error) {\n", structInfo.Name))
+	buf.WriteString("	node, err := s.ToTonyIR(opts...)\n")
 	buf.WriteString("	if err != nil {\n")
 	buf.WriteString("		return nil, err\n")
 	buf.WriteString("	}\n")
@@ -539,17 +571,18 @@ func GenerateToTonyBytesMethod(structInfo *StructInfo) (string, error) {
 	return buf.String(), nil
 }
 
-// GenerateFromTonyBytesMethod generates a FromTonyBytes() method for a struct.
-func GenerateFromTonyBytesMethod(structInfo *StructInfo) (string, error) {
+// GenerateFromTonyMethod generates a FromTony() method for a struct.
+func GenerateFromTonyMethod(structInfo *StructInfo) (string, error) {
 	var buf strings.Builder
 
-	buf.WriteString(fmt.Sprintf("// FromTonyBytes parses data from bytes and populates %s.\n", structInfo.Name))
-	buf.WriteString(fmt.Sprintf("func (s *%s) FromTonyBytes(data []byte, opts ...parse.ParseOption) error {\n", structInfo.Name))
+	// Method signature
+	buf.WriteString(fmt.Sprintf("// FromTony parses Tony format bytes and populates %s.\n", structInfo.Name))
+	buf.WriteString(fmt.Sprintf("func (s *%s) FromTony(data []byte, opts ...parse.ParseOption) error {\n", structInfo.Name))
 	buf.WriteString("	node, err := parse.Parse(data, opts...)\n")
 	buf.WriteString("	if err != nil {\n")
 	buf.WriteString("		return err\n")
 	buf.WriteString("	}\n")
-	buf.WriteString("	return s.FromTony(node, opts...)\n")
+	buf.WriteString("	return s.FromTonyIR(node, opts...)\n")
 	buf.WriteString("}\n")
 
 	return buf.String(), nil
@@ -564,52 +597,18 @@ func getTypeName(typ reflect.Type, structTypeName string) string {
 	return typ.Name()
 }
 
-// generateFieldFromIR generates code to extract a struct field from an IR node.
-func generateFieldFromIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName string) (string, error) {
+// generateFieldDecoding generates code to decode a field from an IR node.
+func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaFieldName string) (string, error) {
 	var buf strings.Builder
-
-	if field.Type == nil {
-		return "", fmt.Errorf("field %q has no type information", field.Name)
-	}
 
 	// Special handling for *ir.Node
 	if isIRNodePtr(field.Type) {
-		// Get field from IR node
-		if field.Optional {
-			buf.WriteString(fmt.Sprintf("	if fieldNode := ir.Get(node, %q); fieldNode != nil {\n", schemaFieldName))
-			buf.WriteString(fmt.Sprintf("		s.%s = fieldNode\n", field.Name))
-			buf.WriteString("	}\n")
-		} else {
-			if field.Required {
-				buf.WriteString(fmt.Sprintf("	fieldNode := ir.Get(node, %q)\n", schemaFieldName))
-				buf.WriteString("	if fieldNode == nil {\n")
-				buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"required field %%q is missing\", %q)\n", schemaFieldName))
-				buf.WriteString("	}\n")
-				buf.WriteString(fmt.Sprintf("	s.%s = fieldNode\n", field.Name))
-			} else {
-				buf.WriteString(fmt.Sprintf("	if fieldNode := ir.Get(node, %q); fieldNode != nil {\n", schemaFieldName))
-				buf.WriteString(fmt.Sprintf("		s.%s = fieldNode\n", field.Name))
-				buf.WriteString("	}\n")
-			}
-		}
+		buf.WriteString(fmt.Sprintf("		s.%s = fieldNode\n", field.Name))
 		return buf.String(), nil
 	}
 
-	// Get field from IR node
-	buf.WriteString(fmt.Sprintf("	// Field: %s\n", field.Name))
-	if field.Optional || (field.Type != nil && field.Type.Kind() == reflect.Ptr) {
-		buf.WriteString(fmt.Sprintf("	if fieldNode := ir.Get(node, %q); fieldNode != nil {\n", schemaFieldName))
-	} else {
-		// Required field
-		if field.Required {
-			buf.WriteString(fmt.Sprintf("	fieldNode := ir.Get(node, %q)\n", schemaFieldName))
-			buf.WriteString("	if fieldNode == nil {\n")
-			buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"required field %%q is missing\", %q)\n", schemaFieldName))
-			buf.WriteString("	}\n")
-		} else {
-			buf.WriteString(fmt.Sprintf("	if fieldNode := ir.Get(node, %q); fieldNode != nil {\n", schemaFieldName))
-		}
-	}
+	// Field comment
+	buf.WriteString(fmt.Sprintf("		// Field: %s\n", field.Name))
 
 	// Handle different field types
 	switch field.Type.Kind() {
@@ -683,7 +682,7 @@ func generateFieldFromIR(structInfo *StructInfo, field *FieldInfo, schemaFieldNa
 			// Pointer to struct - call FromTony()
 			structName := getTypeName(elemType, field.StructTypeName)
 			buf.WriteString(fmt.Sprintf("		s.%s = &%s{}\n", field.Name, structName))
-			buf.WriteString(fmt.Sprintf("		if err := s.%s.FromTony(fieldNode, opts...); err != nil {\n", field.Name))
+			buf.WriteString(fmt.Sprintf("		if err := s.%s.FromTonyIR(fieldNode, opts...); err != nil {\n", field.Name))
 			buf.WriteString("			return err\n")
 			buf.WriteString("		}\n")
 		} else {
@@ -768,7 +767,7 @@ func generateFieldFromIR(structInfo *StructInfo, field *FieldInfo, schemaFieldNa
 		if elemType.Kind() == reflect.Struct {
 			// Slice of structs - call FromTony()
 			buf.WriteString(fmt.Sprintf("				elem := %s{}\n", structName))
-			buf.WriteString("				if err := elem.FromTony(v, opts...); err != nil {\n")
+			buf.WriteString("				if err := elem.FromTonyIR(v, opts...); err != nil {\n")
 			buf.WriteString("					return fmt.Errorf(\"slice element %d: %w\", i, err)\n")
 			buf.WriteString("				}\n")
 			buf.WriteString("				slice[i] = elem\n")
@@ -806,7 +805,7 @@ func generateFieldFromIR(structInfo *StructInfo, field *FieldInfo, schemaFieldNa
 			buf.WriteString("				}\n")
 			if valueType.Kind() == reflect.Struct {
 				buf.WriteString(fmt.Sprintf("				val := %s{}\n", structName))
-				buf.WriteString("				if err := val.FromTony(v, opts...); err != nil {\n")
+				buf.WriteString("				if err := val.FromTonyIR(v, opts...); err != nil {\n")
 				buf.WriteString("					return fmt.Errorf(\"map value at key %d: %w\", k, err)\n")
 				buf.WriteString("				}\n")
 				buf.WriteString("				m[uint32(k)] = val\n")
@@ -835,7 +834,7 @@ func generateFieldFromIR(structInfo *StructInfo, field *FieldInfo, schemaFieldNa
 			buf.WriteString("			for k, v := range irMap {\n")
 			if valueType.Kind() == reflect.Struct {
 				buf.WriteString(fmt.Sprintf("				val := %s{}\n", structName))
-				buf.WriteString("				if err := val.FromTony(v, opts...); err != nil {\n")
+				buf.WriteString("				if err := val.FromTonyIR(v, opts...); err != nil {\n")
 				buf.WriteString("					return fmt.Errorf(\"map value at key %q: %w\", k, err)\n")
 				buf.WriteString("				}\n")
 				buf.WriteString("				m[k] = val\n")
@@ -865,7 +864,7 @@ func generateFieldFromIR(structInfo *StructInfo, field *FieldInfo, schemaFieldNa
 			buf.WriteString("				var k interface{} = kStr\n")
 			if valueType.Kind() == reflect.Struct {
 				buf.WriteString(fmt.Sprintf("				val := %s{}\n", structName))
-				buf.WriteString("				if err := val.FromTony(v); err != nil {\n")
+				buf.WriteString("				if err := val.FromTonyIR(v); err != nil {\n")
 				buf.WriteString("					return fmt.Errorf(\"map value at key %v: %%w\", k, err)\n")
 				buf.WriteString("				}\n")
 				buf.WriteString("				m[k] = val\n")
@@ -921,7 +920,7 @@ func generateFieldFromIR(structInfo *StructInfo, field *FieldInfo, schemaFieldNa
 			buf.WriteString(fmt.Sprintf("				k := (*%s)(unsafe.Pointer(ptrAddr))\n", keyStructName))
 			if valueType.Kind() == reflect.Struct {
 				buf.WriteString(fmt.Sprintf("				val := %s{}\n", structName))
-				buf.WriteString("				if err := val.FromTony(v); err != nil {\n")
+				buf.WriteString("				if err := val.FromTonyIR(v); err != nil {\n")
 				buf.WriteString("					return fmt.Errorf(\"map value at key %p: %%w\", k, err)\n")
 				buf.WriteString("				}\n")
 				buf.WriteString("				m[k] = val\n")
@@ -951,18 +950,12 @@ func generateFieldFromIR(structInfo *StructInfo, field *FieldInfo, schemaFieldNa
 
 	case reflect.Struct:
 		// Nested struct - call FromTony()
-		buf.WriteString(fmt.Sprintf("		if err := s.%s.FromTony(fieldNode); err != nil {\n", field.Name))
+		buf.WriteString(fmt.Sprintf("		if err := s.%s.FromTonyIR(fieldNode); err != nil {\n", field.Name))
 		buf.WriteString(fmt.Sprintf("			return fmt.Errorf(\"field %%q: %%w\", %q, err)\n", schemaFieldName))
 		buf.WriteString("		}\n")
 
 	default:
 		return "", fmt.Errorf("unsupported field type: %v", field.Type.Kind())
-	}
-
-	if field.Optional || (field.Type != nil && field.Type.Kind() == reflect.Ptr) {
-		buf.WriteString("	}\n")
-	} else if !field.Required {
-		buf.WriteString("	}\n")
 	}
 
 	return buf.String(), nil

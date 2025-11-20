@@ -247,7 +247,7 @@ func (w *sourceWalker) readIgnore(path, ignorePath string) error {
 	if err != nil {
 		return err
 	}
-	if err := gomap.FromIR(ir, &ignores); err != nil {
+	if err := gomap.FromTonyIR(ir, &ignores); err != nil {
 		return err
 	}
 

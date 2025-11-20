@@ -8,10 +8,10 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 )
 
-// ToIR converts a Go value to a Tony IR node using schema-aware marshaling.
+// ToTonyIR converts a Go value to a Tony IR node using schema-aware marshaling.
 // It automatically uses a ToTony() method if available (user-implemented or generated),
 // otherwise falls back to schema-aware or reflection-based conversion.
-func (m *Mapper) ToIR(v interface{}, opts ...encode.EncodeOption) (*ir.Node, error) {
+func (m *Mapper) ToTonyIR(v interface{}, opts ...encode.EncodeOption) (*ir.Node, error) {
 	if v == nil {
 		return ir.Null(), nil
 	}
@@ -20,18 +20,18 @@ func (m *Mapper) ToIR(v interface{}, opts ...encode.EncodeOption) (*ir.Node, err
 	typ := val.Type()
 
 	// Check for ToTony() method on the value type (works for both value and pointer types)
-	if method := val.MethodByName("ToTony"); method.IsValid() {
-		return callToTony(method, opts...)
+	if method := val.MethodByName("ToTonyIR"); method.IsValid() {
+		return callToTonyIR(method, opts...)
 	}
 
 	// If v is a value type, check if pointer type has the method
 	if typ.Kind() != reflect.Ptr {
 		ptrType := reflect.PtrTo(typ)
-		if _, ok := ptrType.MethodByName("ToTony"); ok {
+		if _, ok := ptrType.MethodByName("ToTonyIR"); ok {
 			// Create a pointer to the value and call the method
 			ptrVal := reflect.New(typ)
 			ptrVal.Elem().Set(val)
-			return callToTony(ptrVal.MethodByName("ToTony"), opts...)
+			return callToTonyIR(ptrVal.MethodByName("ToTonyIR"), opts...)
 		}
 	}
 

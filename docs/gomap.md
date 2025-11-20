@@ -9,8 +9,8 @@ automatic code generation for serialization and schema definition.
 
 GoMap enables Go applications to work with Tony format through:
 
-- **Zero-setup reflection** - Use `gomap.ToIR()` and `gomap.FromIR()` without any configuration
-- **Automatic code generation** of `ToTony()` and `FromTony()` methods (optional)
+- **Zero-setup reflection** - Use `gomap.{To,From}Tony()` and `gomap.{To,From}TonyIR()` without any configuration
+- **Automatic code generation** of `ToTonyIR()` and `FromTony()` methods (optional)
 - **Schema definition** from Go struct definitions
 - **Type safety** with compile-time checking and runtime validation
 - **Cross-package support** with automatic import management
@@ -24,7 +24,7 @@ GoMap enables Go applications to work with Tony format through:
 `tony-codegen` is a unified code generation tool that:
 
 1. **Generates `.tony` schema files** from structs with `schemadef=` tags
-2. **Generates Go code** (`ToTony()`/`FromTony()` methods) for structs with `schema=` or `schemadef=` tags
+2. **Generates Go code** (`ToTonyIR()`/`FromTony()` methods) for structs with `schema=` or `schemadef=` tags
 
 ## Two Ways to Use GoMap
 
@@ -32,7 +32,9 @@ GoMap enables Go applications to work with Tony format through:
 
 **Perfect for**: Quick experiments, one-off scripts, debugging
 
-You can use `gomap.ToIR()` and `gomap.FromIR()` **without any schema tags or code generation**:
+You can use `gomap.ToTonyIR()` and `gomap.FromTonyIR()` **without any schema tags or code generation**:
+
+For even simpler usage, use the byte-based convenience functions `gomap.ToTony()` and `gomap.FromTony()`:
 
 ```go
 package main
@@ -40,6 +42,7 @@ package main
 import (
     "github.com/signadot/tony-format/go-tony/gomap"
     "github.com/signadot/tony-format/go-tony/encode"
+    "github.com/signadot/tony-format/go-tony/parse"
     "os"
 )
 
@@ -53,18 +56,35 @@ func main() {
     // No schema tags needed!
     person := Person{Name: "Alice", Age: 30}
     
-    // Convert to Tony IR - uses reflection
-    node, err := gomap.ToIR(person)
+    // Option 1: Byte-based API (simplest)
+    data, err := gomap.ToTony(person)
     if err != nil {
         panic(err)
     }
     
-    // Write to file
-    encode.Encode(node, os.Stdout)
+    var p2 Person
+    err = gomap.FromTony(data, &p2)
+    if err != nil {
+        panic(err)
+    }
+    
+    // Option 2: IR-based API (for advanced IR manipulation)
+    node, err := gomap.ToTonyIR(person)
+    if err != nil {
+        panic(err)
+    }
+    
+    // Encode to bytes with options
+    var buf bytes.Buffer
+    encode.Encode(node, &buf, encode.EncodeComments)
+    
+    // Or parse from bytes with options
+    data = buf.Bytes()
+    node2, err := parse.Parse(data, parse.ParseComments)
     
     // Convert back from Tony IR
-    var p2 Person
-    err = gomap.FromIR(node, &p2)
+    var p3 Person
+    err = gomap.FromTonyIR(node2, &p3)
     if err != nil {
         panic(err)
     }
@@ -76,6 +96,7 @@ func main() {
 - ✅ **No code generation** - no `go generate` step
 - ✅ **No schema files** - no `.tony` files needed
 - ✅ **Perfect for quick use** - testing, debugging, scripts
+- ✅ **Two APIs** - byte-based (`ToTony`/`FromTony`) or IR-based (`ToTonyIR`/`FromTonyIR`)
 
 **Trade-offs**:
 - Uses reflection (slightly slower than generated code)
@@ -86,30 +107,45 @@ func main() {
 
 **Perfect for**: Production use, type safety, performance
 
-Use schema tags and code generation for optimized, type-safe marshaling:
+Use **comment-based directives** (recommended) or struct tags for code generation:
 
 ```go
 package models
 
-type schemaTag struct{}
-
-// Person with schema tag
+// Person represents a person in the system.
+// Use comment directives - cleaner and works with any type!
+//tony:schemadef=person
 type Person struct {
-    schemaTag `tony:"schemadef=person"`
+    // Name is the person's full name
     Name string `tony:"field=name"`
-    Age  int    `tony:"field=age"`
+    
+    // Age in years
+    Age int `tony:"field=age"`
 }
 
-// After running tony-codegen, use generated methods:
+// Alternative: struct tag approach (requires dummy field)
+type Employee struct {
+    _ struct{} `tony:"schemadef=employee"`
+    Name string
+    Salary int
+}
+```
+
+**After running `tony-codegen`, use generated methods:**
+
+```go
 func main() {
     person := Person{Name: "Alice", Age: 30}
     
-    // Uses generated ToTony() method
-    node, err := person.ToTony()
+    // Primary API: bytes-based methods
+    data, err := person.ToTony()      // Serialize to bytes
     
-    // Uses generated FromTony() method
     var p2 Person
-    err = p2.FromTony(node)
+    err = p2.FromTony(data)           // Deserialize from bytes
+    
+    // Advanced: IR-based methods (for IR manipulation)
+    node, err := person.ToTonyIR()    // Get IR node
+    err = p2.FromTonyIR(node)         // Load from IR node
 }
 ```
 
@@ -118,10 +154,47 @@ func main() {
 - ✅ **Type safety** - compile-time checking
 - ✅ **Schema validation** - ensures data matches schema
 - ✅ **Custom field names** - map Go fields to schema fields
+- ✅ **Works with bytes** - `ToTony()`/`FromTony()` handle bytes directly
+- ✅ **Comment-based directives** - cleaner, works with type aliases
+
+**Mixed Reflection/Codegen Pattern**:
+
+For structs that mix generated and non-generated fields, use an embedded struct:
+
+```go
+// Generated part - has schema
+//tony:schemadef=person-core
+type PersonCore struct {
+    Name string
+    Age  int
+}
+
+// Full struct - combines generated + reflection
+type Person struct {
+    PersonCore              // Generated methods available
+    RuntimeData interface{} // Handled by reflection
+}
+
+func main() {
+    p := Person{
+        PersonCore: PersonCore{Name: "Alice", Age: 30},
+        RuntimeData: map[string]interface{}{"key": "value"},
+    }
+    
+    // Use generated method for core data
+    coreNode, _ := p.PersonCore.ToTonyIR()
+    
+    // Use reflection for runtime data
+    runtimeNode, _ := gomap.ToTonyIR(p.RuntimeData)
+    
+    // Combine as needed
+}
+```
 
 **When to use each**:
-- **Use reflection** (`gomap.ToIR/FromIR`) for quick experiments and one-off scripts
-- **Use code generation** (`ToTony/FromTony`) for production code and when you need schemas
+- **Use reflection** (`gomap.ToTony`/`FromTony` or `ToTonyIR`/`FromTonyIR`) for quick experiments and one-off scripts
+- **Use code generation** (generated `ToTony`/`FromTony` methods) for production code and when you need schemas
+- **Use comment directives** (`//tony:`) over struct tags - cleaner and more flexible
 
 ## Quick Start
 
@@ -130,12 +203,9 @@ func main() {
 ```go
 package models
 
-type schemaTag struct{}
-
-// Person represents a person in the system
+// Person represents a person in the system.
+//tony:schemadef=person
 type Person struct {
-    schemaTag `tony:"schemadef=person"`
-    
     // Name is the person's full name
     Name string `tony:"field=name"`
     
@@ -156,63 +226,36 @@ go generate ./...
 
 This generates:
 - `schema_gen.tony` - Schema file (contains all schemas in the package)
-- `models_gen.go` - Go code with `ToTony()` and `FromTony()` methods
+- `models_gen.go` - Go code with `ToTony()`, `FromTony()`, `ToTonyIR()`, and `FromTonyIR()` methods
 
 ### Using Generated Methods
 
 ```go
-// Serialize to Tony
+// Serialize to Tony bytes (primary API)
 person := &Person{Name: "Alice", Age: 30}
-node, err := person.ToTony()
+data, err := person.ToTony()
 
-// Deserialize from Tony
+// Deserialize from Tony bytes
 var p Person
-err = p.FromTony(node)
+err = p.FromTony(data)
+
+// Advanced: Work with IR nodes directly
+node, err := person.ToTonyIR()
+err = p.FromTonyIR(node)
+```
 ```
 
-## Struct Tags and Directives
+## Defining Schemas
 
-### Schema Definition Tags
+There are two ways to define schemas for your structs: using **Doc Comment Directives** (recommended) or **Struct Tags**.
 
-#### `schemadef=<name>`
+### Doc Comment Directives (Recommended)
+
+Use `//tony:` directives in doc comments. This is the cleanest approach and works for all types.
+
+#### `//tony:schemadef=<name>`
 
 Define a new schema and generate the `.tony` schema file.
-
-```go
-type Person struct {
-    schemaTag `tony:"schemadef=person"`
-    Name string
-}
-```
-
-Generates `person.tony`:
-```tony
-# Code generated by tony-codegen. DO NOT EDIT.
-context: tony-format/context
-define:
-  Name: !irtype ""
-signature:
-  name: person
-```
-
-#### `schema=<name>`
-
-Use an existing schema from the filesystem.
-
-```go
-type Employee struct {
-    schemaTag `tony:"schema=person"`
-    Name   string
-    Salary int
-}
-```
-
-### Doc Comment Directives
-
-As an alternative to struct tags, you can use `//tony:` directives in doc comments. This is especially useful for:
-- Type aliases that cannot have struct tags
-- Interfaces
-- Keeping schema metadata separate from struct definition
 
 ```go
 // Person represents a person in the system.
@@ -223,7 +266,49 @@ type Person struct {
 }
 ```
 
-Multiple directives can be combined:
+#### `//tony:schema=<name>`
+
+Use an existing schema from the filesystem.
+
+```go
+//tony:schema=person
+type Employee struct {
+    Name   string
+    Salary int
+}
+```
+
+**Benefits of Directives:**
+- Cleaner code (no dummy fields needed)
+- Works on type aliases and interfaces
+- Keeps metadata separate from struct definition
+
+### Struct Tags (Alternative)
+
+Alternatively, you can use a dummy field with a struct tag. This is useful if you prefer to keep all metadata within the struct definition.
+
+#### `schemadef=<name>`
+
+```go
+type Person struct {
+    _ struct{} `tony:"schemadef=person"`
+    Name string
+}
+```
+
+#### `schema=<name>`
+
+```go
+type Employee struct {
+    _ struct{} `tony:"schema=person"`
+    Name   string
+    Salary int
+}
+```
+
+#### Advanced Directives
+
+Multiple directives can be combined. For example, to capture schema comments:
 
 ```go
 //tony:schemadef=user
@@ -235,7 +320,7 @@ type User struct {
 }
 ```
 
-Doc comment directives support the same options as struct tags:
+Supported directives:
 - `//tony:schemadef=<name>` - Define a new schema
 - `//tony:schema=<name>` - Use an existing schema
 - `//tony:comment=<field>` - Populate field with schema comments
@@ -505,14 +590,46 @@ Error: `circular dependency detected: person → employee → person`
 
 ### Generated Methods
 
-For each struct with a schema tag, two methods are generated:
+For each struct with a schema tag, four methods are generated:
 
-#### `ToTony() (*ir.Node, error)`
+#### `ToTony(opts ...encode.EncodeOption) ([]byte, error)` - Primary API
 
-Serializes the struct to a Tony IR node:
+Serializes the struct to Tony format bytes:
 
 ```go
-func (s *Person) ToTony() (*ir.Node, error) {
+func (s *Person) ToTony(opts ...encode.EncodeOption) ([]byte, error) {
+    node, err := s.ToTonyIR(opts...)
+    if err != nil {
+        return nil, err
+    }
+    var buf bytes.Buffer
+    if err := encode.Encode(node, &buf, opts...); err != nil {
+        return nil, err
+    }
+    return buf.Bytes(), nil
+}
+```
+
+#### `FromTony(data []byte, opts ...parse.ParseOption) error` - Primary API
+
+Deserializes Tony format bytes into the struct:
+
+```go
+func (s *Person) FromTony(data []byte, opts ...parse.ParseOption) error {
+    node, err := parse.Parse(data, opts...)
+    if err != nil {
+        return err
+    }
+    return s.FromTonyIR(node, opts...)
+}
+```
+
+#### `ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error)` - Advanced
+
+Serializes the struct to a Tony IR node (for advanced IR manipulation):
+
+```go
+func (s *Person) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error) {
     irMap := make(map[string]*ir.Node)
     irMap["name"] = ir.FromString(s.Name)
     irMap["age"] = ir.FromInt(int64(s.Age))
@@ -523,12 +640,12 @@ func (s *Person) ToTony() (*ir.Node, error) {
 }
 ```
 
-#### `FromTony(node *ir.Node) error`
+#### `FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error` - Advanced
 
-Deserializes a Tony IR node into the struct:
+Deserializes a Tony IR node into the struct (for advanced IR manipulation):
 
 ```go
-func (s *Person) FromTony(node *ir.Node) error {
+func (s *Person) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error {
     if node.Type != ir.ObjectType {
         return fmt.Errorf("expected object, got %v", node.Type)
     }
@@ -555,7 +672,7 @@ type Person struct {
 }
 ```
 
-Generated `ToTony()`:
+Generated `ToTonyIR()`:
 ```go
 // Only serialize if not nil
 if s.Email != nil {
@@ -563,7 +680,7 @@ if s.Email != nil {
 }
 ```
 
-Generated `FromTony()`:
+Generated `FromTonyIR()`:
 ```go
 // Populate pointer if field exists
 if fieldNode := ir.Get(node, "email"); fieldNode != nil {
@@ -583,7 +700,7 @@ type Person struct {
 }
 ```
 
-Generated `FromTony()`:
+Generated `FromTonyIR()`:
 ```go
 if fieldNode := ir.Get(node, "id"); fieldNode != nil {
     s.ID = fieldNode.String
@@ -598,7 +715,7 @@ Override generated methods for custom behavior:
 
 ```go
 // Custom implementation - code generation is skipped
-func (p *Person) ToTony() (*ir.Node, error) {
+func (p *Person) ToTonyIR() (*ir.Node, error) {
     // Custom serialization logic
     return customNode, nil
 }
@@ -703,7 +820,7 @@ The code generator follows this sequence:
 5. **Topological sort** - Order structs by dependencies
 6. **Generate schemas** - Create `.tony` files for `schemadef=` structs
 7. **Load schemas** - Read schemas for `schema=` structs
-8. **Generate code** - Create `ToTony()` and `FromTony()` methods
+8. **Generate code** - Create `ToTony()`, `FromTony()`, `ToTonyIR()`, and `FromTonyIR()` methods
 
 This order ensures:
 - Dependencies are processed before dependents
@@ -804,7 +921,7 @@ user := &User{
     Email: "alice@example.com",
     Roles: []string{"admin", "user"},
 }
-node, err := user.ToTony()
+node, err := user.ToTonyIR()
 if err != nil {
     log.Fatal(err)
 }
@@ -819,7 +936,7 @@ node, _ = decode.Decode(file)
 
 // Deserialize
 var u User
-if err := u.FromTony(node); err != nil {
+if err := u.FromTonyIR(node); err != nil {
     log.Fatal(err)
 }
 ```

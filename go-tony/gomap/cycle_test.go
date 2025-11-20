@@ -16,7 +16,7 @@ func TestCircularReference_Marshal(t *testing.T) {
 	person := &Person{Name: "Alice"}
 	person.Boss = person // Circular reference!
 
-	_, err := ToIR(person)
+	_, err := ToTonyIR(person)
 	if err == nil {
 		t.Fatal("expected error for circular reference")
 	}
@@ -42,7 +42,7 @@ func TestCircularReference_Unmarshal(t *testing.T) {
 	})
 
 	var person Person
-	err := FromIR(node, &person)
+	err := FromTonyIR(node, &person)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestCircularReference_StructSlice(t *testing.T) {
 	person := &Person{Name: "Alice"}
 	person.Reports = []*Person{person} // Circular reference via slice of pointers!
 
-	_, err := ToIR(person)
+	_, err := ToTonyIR(person)
 	if err == nil {
 		t.Fatal("expected error for circular reference")
 	}
@@ -79,14 +79,14 @@ func TestCircularReference_StructSlice(t *testing.T) {
 
 func TestCircularReference_StructMap(t *testing.T) {
 	type Person struct {
-		Name   string
-		Peers  map[string]*Person
+		Name  string
+		Peers map[string]*Person
 	}
 
 	person := &Person{Name: "Alice", Peers: make(map[string]*Person)}
 	person.Peers["self"] = person // Circular reference via map!
 
-	_, err := ToIR(person)
+	_, err := ToTonyIR(person)
 	if err == nil {
 		t.Fatal("expected error for circular reference")
 	}
@@ -106,7 +106,7 @@ func TestCircularReference_NoCycle(t *testing.T) {
 	bob := &Person{Name: "Bob", Boss: alice}
 	// No cycle - Bob points to Alice, but Alice doesn't point back
 
-	node, err := ToIR(bob)
+	node, err := ToTonyIR(bob)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestCircularReference_NoCycle(t *testing.T) {
 
 	// Unmarshal back
 	var result Person
-	err = FromIR(node, &result)
+	err = FromTonyIR(node, &result)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestCircularReference_NestedStruct(t *testing.T) {
 	address := &Address{Street: "123 Main St", Owner: person}
 	person.Address = address // Circular reference!
 
-	_, err := ToIR(person)
+	_, err := ToTonyIR(person)
 	if err == nil {
 		t.Fatal("expected error for circular reference")
 	}

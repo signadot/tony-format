@@ -11,8 +11,8 @@ import (
 	"github.com/signadot/tony-format/go-tony/parse"
 )
 
-// ToTony converts Dir to a Tony IR node.
-func (s *Dir) ToTony(opts ...encode.EncodeOption) (*ir.Node, error) {
+// ToTonyIR converts Dir to a Tony IR node.
+func (s *Dir) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error) {
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
@@ -26,7 +26,7 @@ func (s *Dir) ToTony(opts ...encode.EncodeOption) (*ir.Node, error) {
 	if len(s.Sources) > 0 {
 		slice := make([]*ir.Node, len(s.Sources))
 		for i, v := range s.Sources {
-			node, err := v.ToTony(opts...)
+			node, err := v.ToTonyIR(opts...)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert slice element %d: %w", i, err)
 			}
@@ -39,7 +39,7 @@ func (s *Dir) ToTony(opts ...encode.EncodeOption) (*ir.Node, error) {
 	if len(s.Patches) > 0 {
 		slice := make([]*ir.Node, len(s.Patches))
 		for i, v := range s.Patches {
-			node, err := v.ToTony(opts...)
+			node, err := v.ToTonyIR(opts...)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert slice element %d: %w", i, err)
 			}
@@ -58,82 +58,76 @@ func (s *Dir) ToTony(opts ...encode.EncodeOption) (*ir.Node, error) {
 	}
 
 	// Create IR node with schema tag
-	node := ir.FromMap(irMap)
-	node.Tag = "!dir"
-	return node, nil
+	return ir.FromMap(irMap).WithTag("!dir"), nil
 }
 
-// FromTony populates Dir from a Tony IR node.
-func (s *Dir) FromTony(node *ir.Node, opts ...parse.ParseOption) error {
+// FromTonyIR populates Dir from a Tony IR node.
+func (s *Dir) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error {
 	// Validate IR node type
 	if node.Type != ir.ObjectType {
 		return fmt.Errorf("expected object type, got %v", node.Type)
 	}
 
-	// Field: Suffix
-	if fieldNode := ir.Get(node, "Suffix"); fieldNode != nil {
-		if fieldNode.Type != ir.StringType {
-			return fmt.Errorf("field %q: expected string, got %v", "Suffix", fieldNode.Type)
-		}
-		s.Suffix = fieldNode.String
-	}
-
-	// Field: DestDir
-	if fieldNode := ir.Get(node, "DestDir"); fieldNode != nil {
-		if fieldNode.Type != ir.StringType {
-			return fmt.Errorf("field %q: expected string, got %v", "DestDir", fieldNode.Type)
-		}
-		s.DestDir = fieldNode.String
-	}
-
-	// Field: Sources
-	if fieldNode := ir.Get(node, "Sources"); fieldNode != nil {
-		if fieldNode.Type == ir.ArrayType {
-			slice := make([]DirSource, len(fieldNode.Values))
-			for i, v := range fieldNode.Values {
-				elem := DirSource{}
-				if err := elem.FromTony(v, opts...); err != nil {
-					return fmt.Errorf("slice element %d: %w", i, err)
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		switch fieldName.String {
+		case "Suffix":
+			// Field: Suffix
+			if fieldNode.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "Suffix", fieldNode.Type)
+			}
+			s.Suffix = fieldNode.String
+		case "DestDir":
+			// Field: DestDir
+			if fieldNode.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "DestDir", fieldNode.Type)
+			}
+			s.DestDir = fieldNode.String
+		case "Sources":
+			// Field: Sources
+			if fieldNode.Type == ir.ArrayType {
+				slice := make([]DirSource, len(fieldNode.Values))
+				for i, v := range fieldNode.Values {
+					elem := DirSource{}
+					if err := elem.FromTonyIR(v, opts...); err != nil {
+						return fmt.Errorf("slice element %d: %w", i, err)
+					}
+					slice[i] = elem
 				}
-				slice[i] = elem
+				s.Sources = slice
 			}
-			s.Sources = slice
-		}
-	}
-
-	// Field: Patches
-	if fieldNode := ir.Get(node, "Patches"); fieldNode != nil {
-		if fieldNode.Type == ir.ArrayType {
-			slice := make([]DirPatch, len(fieldNode.Values))
-			for i, v := range fieldNode.Values {
-				elem := DirPatch{}
-				if err := elem.FromTony(v, opts...); err != nil {
-					return fmt.Errorf("slice element %d: %w", i, err)
+		case "Patches":
+			// Field: Patches
+			if fieldNode.Type == ir.ArrayType {
+				slice := make([]DirPatch, len(fieldNode.Values))
+				for i, v := range fieldNode.Values {
+					elem := DirPatch{}
+					if err := elem.FromTonyIR(v, opts...); err != nil {
+						return fmt.Errorf("slice element %d: %w", i, err)
+					}
+					slice[i] = elem
 				}
-				slice[i] = elem
+				s.Patches = slice
 			}
-			s.Patches = slice
-		}
-	}
-
-	// Field: Env
-	if fieldNode := ir.Get(node, "Env"); fieldNode != nil {
-		if fieldNode.Type == ir.ObjectType {
-			m := make(map[string]*ir.Node)
-			irMap := ir.ToMap(fieldNode)
-			for k, v := range irMap {
-				m[k] = v
+		case "Env":
+			// Field: Env
+			if fieldNode.Type == ir.ObjectType {
+				m := make(map[string]*ir.Node)
+				irMap := ir.ToMap(fieldNode)
+				for k, v := range irMap {
+					m[k] = v
+				}
+				s.Env = m
 			}
-			s.Env = m
 		}
 	}
 
 	return nil
 }
 
-// ToTonyBytes converts Dir to a Tony IR node and encodes it to bytes.
-func (s *Dir) ToTonyBytes(opts ...encode.EncodeOption) ([]byte, error) {
-	node, err := s.ToTony(opts...)
+// ToTony converts Dir to Tony format bytes.
+func (s *Dir) ToTony(opts ...encode.EncodeOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -144,17 +138,17 @@ func (s *Dir) ToTonyBytes(opts ...encode.EncodeOption) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// FromTonyBytes parses data from bytes and populates Dir.
-func (s *Dir) FromTonyBytes(data []byte, opts ...parse.ParseOption) error {
+// FromTony parses Tony format bytes and populates Dir.
+func (s *Dir) FromTony(data []byte, opts ...parse.ParseOption) error {
 	node, err := parse.Parse(data, opts...)
 	if err != nil {
 		return err
 	}
-	return s.FromTony(node, opts...)
+	return s.FromTonyIR(node, opts...)
 }
 
-// ToTony converts DirSource to a Tony IR node.
-func (s *DirSource) ToTony(opts ...encode.EncodeOption) (*ir.Node, error) {
+// ToTonyIR converts DirSource to a Tony IR node.
+func (s *DirSource) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error) {
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
@@ -187,64 +181,60 @@ func (s *DirSource) ToTony(opts ...encode.EncodeOption) (*ir.Node, error) {
 	}
 
 	// Create IR node with schema tag
-	node := ir.FromMap(irMap)
-	node.Tag = "!dirsource"
-	return node, nil
+	return ir.FromMap(irMap).WithTag("!dirsource"), nil
 }
 
-// FromTony populates DirSource from a Tony IR node.
-func (s *DirSource) FromTony(node *ir.Node, opts ...parse.ParseOption) error {
+// FromTonyIR populates DirSource from a Tony IR node.
+func (s *DirSource) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error {
 	// Validate IR node type
 	if node.Type != ir.ObjectType {
 		return fmt.Errorf("expected object type, got %v", node.Type)
 	}
 
-	// Field: Format
-	if fieldNode := ir.Get(node, "Format"); fieldNode != nil {
-		val := new(format.Format)
-		if fieldNode.Int64 == nil {
-			return fmt.Errorf("%s: expected number, got %v", "field \"Format\"", fieldNode.Type)
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		switch fieldName.String {
+		case "Format":
+			// Field: Format
+			val := new(format.Format)
+			if fieldNode.Int64 == nil {
+				return fmt.Errorf("%s: expected number, got %v", "field \"Format\"", fieldNode.Type)
+			}
+			*val = format.Format(*fieldNode.Int64)
+			s.Format = val
+		case "Exec":
+			// Field: Exec
+			val := new(string)
+			if fieldNode.Type != ir.StringType {
+				return fmt.Errorf("%s: expected string, got %v", "field \"Exec\"", fieldNode.Type)
+			}
+			*val = string(fieldNode.String)
+			s.Exec = val
+		case "Dir":
+			// Field: Dir
+			val := new(string)
+			if fieldNode.Type != ir.StringType {
+				return fmt.Errorf("%s: expected string, got %v", "field \"Dir\"", fieldNode.Type)
+			}
+			*val = string(fieldNode.String)
+			s.Dir = val
+		case "URL":
+			// Field: URL
+			val := new(string)
+			if fieldNode.Type != ir.StringType {
+				return fmt.Errorf("%s: expected string, got %v", "field \"URL\"", fieldNode.Type)
+			}
+			*val = string(fieldNode.String)
+			s.URL = val
 		}
-		*val = format.Format(*fieldNode.Int64)
-		s.Format = val
-	}
-
-	// Field: Exec
-	if fieldNode := ir.Get(node, "Exec"); fieldNode != nil {
-		val := new(string)
-		if fieldNode.Type != ir.StringType {
-			return fmt.Errorf("%s: expected string, got %v", "field \"Exec\"", fieldNode.Type)
-		}
-		*val = string(fieldNode.String)
-		s.Exec = val
-	}
-
-	// Field: Dir
-	if fieldNode := ir.Get(node, "Dir"); fieldNode != nil {
-		val := new(string)
-		if fieldNode.Type != ir.StringType {
-			return fmt.Errorf("%s: expected string, got %v", "field \"Dir\"", fieldNode.Type)
-		}
-		*val = string(fieldNode.String)
-		s.Dir = val
-	}
-
-	// Field: URL
-	if fieldNode := ir.Get(node, "URL"); fieldNode != nil {
-		val := new(string)
-		if fieldNode.Type != ir.StringType {
-			return fmt.Errorf("%s: expected string, got %v", "field \"URL\"", fieldNode.Type)
-		}
-		*val = string(fieldNode.String)
-		s.URL = val
 	}
 
 	return nil
 }
 
-// ToTonyBytes converts DirSource to a Tony IR node and encodes it to bytes.
-func (s *DirSource) ToTonyBytes(opts ...encode.EncodeOption) ([]byte, error) {
-	node, err := s.ToTony(opts...)
+// ToTony converts DirSource to Tony format bytes.
+func (s *DirSource) ToTony(opts ...encode.EncodeOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -255,17 +245,17 @@ func (s *DirSource) ToTonyBytes(opts ...encode.EncodeOption) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// FromTonyBytes parses data from bytes and populates DirSource.
-func (s *DirSource) FromTonyBytes(data []byte, opts ...parse.ParseOption) error {
+// FromTony parses Tony format bytes and populates DirSource.
+func (s *DirSource) FromTony(data []byte, opts ...parse.ParseOption) error {
 	node, err := parse.Parse(data, opts...)
 	if err != nil {
 		return err
 	}
-	return s.FromTony(node, opts...)
+	return s.FromTonyIR(node, opts...)
 }
 
-// ToTony converts DirPatch to a Tony IR node.
-func (s *DirPatch) ToTony(opts ...encode.EncodeOption) (*ir.Node, error) {
+// ToTonyIR converts DirPatch to a Tony IR node.
+func (s *DirPatch) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error) {
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
@@ -286,48 +276,44 @@ func (s *DirPatch) ToTony(opts ...encode.EncodeOption) (*ir.Node, error) {
 	irMap["If"] = ir.FromString(s.If)
 
 	// Create IR node with schema tag
-	node := ir.FromMap(irMap)
-	node.Tag = "!dirpatch"
-	return node, nil
+	return ir.FromMap(irMap).WithTag("!dirpatch"), nil
 }
 
-// FromTony populates DirPatch from a Tony IR node.
-func (s *DirPatch) FromTony(node *ir.Node, opts ...parse.ParseOption) error {
+// FromTonyIR populates DirPatch from a Tony IR node.
+func (s *DirPatch) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error {
 	// Validate IR node type
 	if node.Type != ir.ObjectType {
 		return fmt.Errorf("expected object type, got %v", node.Type)
 	}
 
-	if fieldNode := ir.Get(node, "Match"); fieldNode != nil {
-		s.Match = fieldNode
-	}
-
-	if fieldNode := ir.Get(node, "Patch"); fieldNode != nil {
-		s.Patch = fieldNode
-	}
-
-	// Field: File
-	if fieldNode := ir.Get(node, "File"); fieldNode != nil {
-		if fieldNode.Type != ir.StringType {
-			return fmt.Errorf("field %q: expected string, got %v", "File", fieldNode.Type)
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		switch fieldName.String {
+		case "Match":
+			s.Match = fieldNode
+		case "Patch":
+			s.Patch = fieldNode
+		case "File":
+			// Field: File
+			if fieldNode.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "File", fieldNode.Type)
+			}
+			s.File = fieldNode.String
+		case "If":
+			// Field: If
+			if fieldNode.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "If", fieldNode.Type)
+			}
+			s.If = fieldNode.String
 		}
-		s.File = fieldNode.String
-	}
-
-	// Field: If
-	if fieldNode := ir.Get(node, "If"); fieldNode != nil {
-		if fieldNode.Type != ir.StringType {
-			return fmt.Errorf("field %q: expected string, got %v", "If", fieldNode.Type)
-		}
-		s.If = fieldNode.String
 	}
 
 	return nil
 }
 
-// ToTonyBytes converts DirPatch to a Tony IR node and encodes it to bytes.
-func (s *DirPatch) ToTonyBytes(opts ...encode.EncodeOption) ([]byte, error) {
-	node, err := s.ToTony(opts...)
+// ToTony converts DirPatch to Tony format bytes.
+func (s *DirPatch) ToTony(opts ...encode.EncodeOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -338,11 +324,11 @@ func (s *DirPatch) ToTonyBytes(opts ...encode.EncodeOption) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// FromTonyBytes parses data from bytes and populates DirPatch.
-func (s *DirPatch) FromTonyBytes(data []byte, opts ...parse.ParseOption) error {
+// FromTony parses Tony format bytes and populates DirPatch.
+func (s *DirPatch) FromTony(data []byte, opts ...parse.ParseOption) error {
 	node, err := parse.Parse(data, opts...)
 	if err != nil {
 		return err
 	}
-	return s.FromTony(node, opts...)
+	return s.FromTonyIR(node, opts...)
 }

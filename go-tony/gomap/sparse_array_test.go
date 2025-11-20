@@ -7,7 +7,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 )
 
-func TestToIR_SparseArray(t *testing.T) {
+func TestToTonyIR_SparseArray(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   interface{}
@@ -84,7 +84,7 @@ func TestToIR_SparseArray(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			node, err := ToIR(tt.input)
+			node, err := ToTonyIR(tt.input)
 			if err != nil {
 				t.Fatalf("ToIR() error = %v", err)
 			}
@@ -145,9 +145,9 @@ func TestFromIR_SparseArray(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "empty sparse array",
-			node: ir.FromIntKeysMap(map[uint32]*ir.Node{}),
-			want: map[uint32]string{},
+			name:    "empty sparse array",
+			node:    ir.FromIntKeysMap(map[uint32]*ir.Node{}),
+			want:    map[uint32]string{},
 			wantErr: false,
 		},
 	}
@@ -155,15 +155,15 @@ func TestFromIR_SparseArray(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			val := reflect.New(reflect.TypeOf(tt.want))
-			err := FromIR(tt.node, val.Interface())
+			err := FromTonyIR(tt.node, val.Interface())
 			if (err != nil) != tt.wantErr {
-				t.Errorf("FromIR() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("FromTonyIR() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !tt.wantErr {
 				got := val.Elem().Interface()
 				if !reflect.DeepEqual(got, tt.want) {
-					t.Errorf("FromIR() = %v, want %v", got, tt.want)
+					t.Errorf("FromTonyIR() = %v, want %v", got, tt.want)
 				}
 			}
 		})
@@ -179,9 +179,9 @@ func TestFromIR_SparseArrayWrongType(t *testing.T) {
 
 	// Try to unmarshal to map[string]string (wrong key type)
 	var result map[string]string
-	err := FromIR(node, &result)
+	err := FromTonyIR(node, &result)
 	if err == nil {
-		t.Error("FromIR() expected error for wrong key type, got nil")
+		t.Error("FromTonyIR() expected error for wrong key type, got nil")
 	}
 }
 
@@ -194,7 +194,7 @@ func TestSparseArrayRoundTrip(t *testing.T) {
 	}
 
 	// Round trip: Go -> IR -> Go
-	node, err := ToIR(original)
+	node, err := ToTonyIR(original)
 	if err != nil {
 		t.Fatalf("ToIR() error = %v", err)
 	}
@@ -204,9 +204,9 @@ func TestSparseArrayRoundTrip(t *testing.T) {
 	}
 
 	var result map[uint32]interface{}
-	err = FromIR(node, &result)
+	err = FromTonyIR(node, &result)
 	if err != nil {
-		t.Fatalf("FromIR() error = %v", err)
+		t.Fatalf("FromTonyIR() error = %v", err)
 	}
 
 	if !reflect.DeepEqual(result, original) {
@@ -217,9 +217,9 @@ func TestSparseArrayRoundTrip(t *testing.T) {
 func TestToIR_RegularMapStillWorks(t *testing.T) {
 	// Regular string-keyed maps should still work as objects
 	input := map[string]string{"a": "1", "b": "2"}
-	node, err := ToIR(input)
+	node, err := ToTonyIR(input)
 	if err != nil {
-		t.Fatalf("ToIR() error = %v", err)
+		t.Fatalf("ToTonyIR() error = %v", err)
 	}
 
 	if node.Type != ir.ObjectType {
