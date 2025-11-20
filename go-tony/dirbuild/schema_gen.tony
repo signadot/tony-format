@@ -17,18 +17,10 @@ context:
 - tony-format/context
 - format: github.com/signadot/tony-format/go-tony/format
 define:
-  Dir: !or
-  - !irtype null
-  - !irtype ""
-  Exec: !or
-  - !irtype null
-  - !irtype ""
-  Format: !or
-  - !irtype null
-  - !format:format null
-  URL: !or
-  - !irtype null
-  - !irtype ""
+  Dir: .[nullable(string)]
+  Exec: .[nullable(string)]
+  Format: .[nullable(format:format)]
+  URL: .[nullable(string)]
 signature:
   name: dirsource
 ---
@@ -36,7 +28,7 @@ context:
 - tony-format/context
 define:
   DestDir: !irtype ""
-  Env: !irtype {}
+  Env: .[object(object)]
   Patches: .[array(dirpatch)]
   Sources: .[array(dirsource)]
   Suffix: !irtype ""

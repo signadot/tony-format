@@ -32,6 +32,28 @@ func typeToSchemaRef(typ reflect.Type, fieldInfo *FieldInfo, structMap map[strin
 
 	kind := typ.Kind()
 
+	// Check for cross-package named types (including basic types like format.Format)
+	pkgPath := typ.PkgPath()
+	typeName := typ.Name()
+
+	// Override with fieldInfo if available
+	if fieldInfo != nil {
+		if fieldInfo.TypePkgPath != "" {
+			pkgPath = fieldInfo.TypePkgPath
+		}
+		if fieldInfo.TypeName != "" {
+			typeName = fieldInfo.TypeName
+		}
+	}
+
+	if pkgPath != "" && pkgPath != currentPkg && typeName != "" {
+		// Cross-package type
+		pkgName := filepath.Base(pkgPath)
+		lowerTypeName := strings.ToLower(typeName)
+		imports[pkgPath] = pkgName
+		return fmt.Sprintf("%s:%s", pkgName, lowerTypeName), nil
+	}
+
 	// Handle basic types
 	switch kind {
 	case reflect.String:
@@ -54,28 +76,6 @@ func typeToSchemaRef(typ reflect.Type, fieldInfo *FieldInfo, structMap map[strin
 					return structInfo.StructSchema.SchemaName, nil
 				}
 			}
-		}
-
-		// Check for cross-package types
-		pkgPath := typ.PkgPath()
-		typeName := typ.Name()
-
-		// Override with fieldInfo if available
-		if fieldInfo != nil {
-			if fieldInfo.TypePkgPath != "" {
-				pkgPath = fieldInfo.TypePkgPath
-			}
-			if fieldInfo.TypeName != "" {
-				typeName = fieldInfo.TypeName
-			}
-		}
-
-		if pkgPath != "" && pkgPath != currentPkg && typeName != "" {
-			// Cross-package type
-			pkgName := filepath.Base(pkgPath)
-			lowerTypeName := strings.ToLower(typeName)
-			imports[pkgPath] = pkgName
-			return fmt.Sprintf("%s:%s", pkgName, lowerTypeName), nil
 		}
 
 		// Struct without schema - this is an error for parameterized types
@@ -175,23 +175,14 @@ func GoTypeToSchemaNode(typ reflect.Type, fieldInfo *FieldInfo, structMap map[st
 	// Handle pointers (nullable types)
 	if kind == reflect.Ptr {
 		elemType := typ.Elem()
-		// Pass fieldInfo to recursive call because for pointers, FieldInfo usually describes the element type
-		elemNode, err := GoTypeToSchemaNode(elemType, fieldInfo, structMap, currentPkg, currentStructName, currentSchemaName, loader, imports)
+		// Get the schema reference for the element type
+		elemTypeRef, err := typeToSchemaRef(elemType, fieldInfo, structMap, currentPkg, currentStructName, currentSchemaName, loader, imports)
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert pointer element type: %w", err)
+			return nil, fmt.Errorf("failed to get schema reference for nullable element type: %w", err)
 		}
-		// Create !or [null, T] for nullable types
-		// The null should be tagged as !irtype
-		nullNode := ir.Null()
-		nullNode.Tag = "!irtype"
-
-		// Create array with !or tag
-		orNode := ir.FromSlice([]*ir.Node{
-			nullNode,
-			elemNode,
-		})
-		orNode.Tag = "!or"
-		return orNode, nil
+		// Create .[nullable(elemTypeRef)] format
+		// This uses the parameterized nullable type from base.tony
+		return ir.FromString(fmt.Sprintf(".[nullable(%s)]", elemTypeRef)), nil
 	}
 
 	// Handle slices (arrays)
@@ -219,44 +210,31 @@ func GoTypeToSchemaNode(typ reflect.Type, fieldInfo *FieldInfo, structMap map[st
 				// If the struct type name matches the current struct being defined, use compact form
 				if fieldInfo.StructTypeName == currentStructName {
 					// Create .[sparsearray] reference (compact form for self-reference)
-					// Return as a string node directly, not wrapped in a slice
 					return ir.FromString(".[sparsearray]"), nil
 				}
-				// Check if this struct has a schema definition
-				if structInfo, ok := structMap[fieldInfo.StructTypeName]; ok {
-					if structInfo.StructSchema != nil && structInfo.StructSchema.Mode == "schemadef" {
-						schemaName := structInfo.StructSchema.SchemaName
-						// Create .sparsearray(!all.schema(schemaName) null) reference
-						// Note: sparsearray expects a schema reference or type definition
-						valNode := ir.Null()
-						valNode.Tag = fmt.Sprintf("!all.schema(%s)", schemaName)
-						return ir.FromSlice([]*ir.Node{
-							ir.FromString(".sparsearray"),
-							valNode,
-						}), nil
-					}
-				}
 			}
-			// Pass fieldInfo to recursive call for value type
-			valNode, err := GoTypeToSchemaNode(valType, fieldInfo, structMap, currentPkg, currentStructName, currentSchemaName, loader, imports)
+			// Get the schema reference for the value type
+			valTypeRef, err := typeToSchemaRef(valType, fieldInfo, structMap, currentPkg, currentStructName, currentSchemaName, loader, imports)
 			if err != nil {
-				return nil, fmt.Errorf("failed to convert map value type: %w", err)
+				return nil, fmt.Errorf("failed to get schema reference for sparse array value type: %w", err)
 			}
-			// Create .sparsearray(T) reference
-			return ir.FromSlice([]*ir.Node{
-				ir.FromString(".sparsearray"),
-				valNode,
-			}), nil
+			// Create .[sparsearray(valTypeRef)] format
+			return ir.FromString(fmt.Sprintf(".[sparsearray(%s)]", valTypeRef)), nil
 		}
 
-		// Regular map[string]T → object with dynamic keys
-		// For now, we'll represent this as an object type
-		// TODO: Consider if we need a more specific schema representation
-		_, err := GoTypeToSchemaNode(valType, nil, structMap, currentPkg, currentStructName, currentSchemaName, loader, imports)
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert map value type: %w", err)
+		// Regular map[string]T → .[object(t)]
+		if keyType.Kind() == reflect.String {
+			// Get the schema reference for the value type
+			valTypeRef, err := typeToSchemaRef(valType, fieldInfo, structMap, currentPkg, currentStructName, currentSchemaName, loader, imports)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get schema reference for map value type: %w", err)
+			}
+			// Create .[object(valTypeRef)] format
+			// This uses the parameterized object type from base.tony
+			return ir.FromString(fmt.Sprintf(".[object(%s)]", valTypeRef)), nil
 		}
-		// Represent as object type (keys are strings)
+
+		// Other map types (not string or uint32 keys) - fallback to generic object
 		node := ir.FromMap(map[string]*ir.Node{})
 		node.Tag = "!irtype"
 		return node, nil
@@ -421,6 +399,46 @@ func goStructToSchemaNode(typ reflect.Type, structMap map[string]*StructInfo, cu
 	return node, nil
 }
 
+// astTypeToSchemaRef converts an AST type expression to a schema reference string.
+func astTypeToSchemaRef(expr ast.Expr, structMap map[string]*StructInfo, currentPkg string, loader *PackageLoader, imports map[string]string) (string, error) {
+	switch x := expr.(type) {
+	case *ast.Ident:
+		name := x.Name
+		switch name {
+		case "string":
+			return "string", nil
+		case "int", "int8", "int16", "int32", "int64",
+			"uint", "uint8", "uint16", "uint32", "uint64":
+			return "int", nil
+		case "float32", "float64":
+			return "float", nil
+		case "bool":
+			return "bool", nil
+		default:
+			// Check if it's a struct with schema
+			if structInfo, ok := structMap[name]; ok && structInfo.Package == currentPkg {
+				if structInfo.StructSchema != nil && structInfo.StructSchema.Mode == "schemadef" {
+					return structInfo.StructSchema.SchemaName, nil
+				}
+			}
+			// Unknown type - return object
+			return "object", nil
+		}
+	case *ast.SelectorExpr:
+		// Handle package.Type
+		if pkgIdent, ok := x.X.(*ast.Ident); ok {
+			pkgName := pkgIdent.Name
+			typeName := strings.ToLower(x.Sel.Name)
+			// Note: We don't have full package path here, so imports map might not be updated correctly
+			// This is a limitation of AST-only mode
+			return fmt.Sprintf("%s:%s", pkgName, typeName), nil
+		}
+		return "object", nil
+	default:
+		return "object", nil
+	}
+}
+
 // ASTTypeToSchemaNode converts an AST type expression to an IR schema node.
 // This is used when we only have AST information (before type resolution).
 func ASTTypeToSchemaNode(expr ast.Expr, structMap map[string]*StructInfo, currentPkg string, loader *PackageLoader, imports map[string]string) (*ir.Node, error) {
@@ -461,67 +479,55 @@ func ASTTypeToSchemaNode(expr ast.Expr, structMap map[string]*StructInfo, curren
 		}
 
 	case *ast.StarExpr:
-		// Pointer type *T
-		elemNode, err := ASTTypeToSchemaNode(x.X, structMap, currentPkg, loader, imports)
+		// Pointer type *T -> .[nullable(t)]
+		elemRef, err := astTypeToSchemaRef(x.X, structMap, currentPkg, loader, imports)
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert pointer element: %w", err)
+			return nil, fmt.Errorf("failed to get schema reference for pointer element: %w", err)
 		}
-		nullNode := ir.Null()
-		nullNode.Tag = "!irtype"
-
-		orNode := ir.FromSlice([]*ir.Node{
-			nullNode,
-			elemNode,
-		})
-		orNode.Tag = "!or"
-		return orNode, nil
+		return ir.FromString(fmt.Sprintf(".[nullable(%s)]", elemRef)), nil
 
 	case *ast.ArrayType:
-		// Slice []T or array [N]T
-		elemNode, err := ASTTypeToSchemaNode(x.Elt, structMap, currentPkg, loader, imports)
+		// Slice []T or array [N]T -> .[array(t)]
+		elemRef, err := astTypeToSchemaRef(x.Elt, structMap, currentPkg, loader, imports)
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert array element: %w", err)
+			return nil, fmt.Errorf("failed to get schema reference for array element: %w", err)
 		}
-		// Create !and [.[array], elemType] format
-		arrayNode := ir.FromSlice([]*ir.Node{
-			ir.FromString(".[array]"),
-			elemNode,
-		})
-		arrayNode.Tag = "!and"
-		return arrayNode, nil
+		return ir.FromString(fmt.Sprintf(".[array(%s)]", elemRef)), nil
 
 	case *ast.MapType:
 		// Map type map[K]V
 		keyType := x.Key
-		valNode, err := ASTTypeToSchemaNode(x.Value, structMap, currentPkg, loader, imports)
+		valRef, err := astTypeToSchemaRef(x.Value, structMap, currentPkg, loader, imports)
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert map value: %w", err)
+			return nil, fmt.Errorf("failed to get schema reference for map value: %w", err)
 		}
 
-		// Check if key is uint32 (sparse array)
+		// Check if key is uint32 (sparse array) -> .[sparsearray(t)]
 		if keyIdent, ok := keyType.(*ast.Ident); ok && keyIdent.Name == "uint32" {
-			return ir.FromSlice([]*ir.Node{
-				ir.FromString(".sparsearray"),
-				valNode,
-			}), nil
+			return ir.FromString(fmt.Sprintf(".[sparsearray(%s)]", valRef)), nil
 		}
 
-		// Regular map[string]T
+		// Regular map[string]T -> .[object(t)]
+		if keyIdent, ok := keyType.(*ast.Ident); ok && keyIdent.Name == "string" {
+			return ir.FromString(fmt.Sprintf(".[object(%s)]", valRef)), nil
+		}
+
+		// Other map types - fallback to generic object
 		node := ir.FromMap(map[string]*ir.Node{})
 		node.Tag = "!irtype"
 		return node, nil
 
 	case *ast.SelectorExpr:
 		// Qualified type (package.Type)
-		// We can handle this if we have loader
-		if loader != nil {
-			// We need to resolve the package path for the selector
-			// This is hard with just AST. We need type info.
-			// But ASTTypeToSchemaNode is usually used when we DON'T have type info (or as fallback).
-			// However, if we are in the generator, we might have enough info if we look at imports.
-			// But for now, let's leave AST handling as is (fallback) or TODO.
-			// Real cross-package resolution should happen via GoTypeToSchemaNode (reflection) which has PkgPath.
+		if pkgIdent, ok := x.X.(*ast.Ident); ok {
+			pkgName := pkgIdent.Name
+			typeName := strings.ToLower(x.Sel.Name)
+
+			node := ir.Null()
+			node.Tag = fmt.Sprintf("!%s:%s", pkgName, typeName)
+			return node, nil
 		}
+
 		node := ir.FromMap(map[string]*ir.Node{})
 		node.Tag = "!irtype"
 		return node, nil
