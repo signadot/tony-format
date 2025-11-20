@@ -5,7 +5,7 @@
 context: tony-format/context
   
 signature:
-  name: schema
+  name: tony-base
 define:
   bool: !irtype true
   "null": !irtype null
@@ -38,3 +38,18 @@ define:
   key(p): !and
   - !irtype []
   - !all.hasPath p
+  field: !or
+  - .string
+  - .int
+  - .null
+  _ir:
+    type: !or [Comment Null Bool Number String Array Object]
+    fields: .[array(field)]
+    values: .[array(ir)]
+    string: .[string]
+    int: .[int]
+    float: .[float]
+    number: .[string]
+    bool: .[bool]
+    lines: .[array(string)]
+  ir: [.nullable(_ir)]

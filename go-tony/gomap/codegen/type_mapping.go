@@ -54,6 +54,12 @@ func typeToSchemaRef(typ reflect.Type, fieldInfo *FieldInfo, structMap map[strin
 		return fmt.Sprintf("%s:%s", pkgName, lowerTypeName), nil
 	}
 
+	// Special handling for *ir.Node
+	if kind == reflect.Ptr && typ.Elem().PkgPath() == "github.com/signadot/tony-format/go-tony/ir" && typ.Elem().Name() == "Node" {
+		imports["github.com/signadot/tony-format/go-tony/schema"] = "tony-base"
+		return "tony-base:ir", nil
+	}
+
 	// Handle basic types
 	switch kind {
 	case reflect.String:
@@ -155,21 +161,14 @@ func GoTypeToSchemaNode(typ reflect.Type, fieldInfo *FieldInfo, structMap map[st
 	}
 
 	// Special handling for *ir.Node - represents any Tony value
+	// Special handling for *ir.Node - represents any Tony value
 	if kind == reflect.Ptr && typ.Elem().PkgPath() == "github.com/signadot/tony-format/go-tony/ir" && typ.Elem().Name() == "Node" {
-		// *ir.Node is represented as: !or [!irtype null, !irtype {}]
-		// This means "either null or any object"
-		nullNode := ir.Null()
-		nullNode.Tag = "!irtype"
+		// *ir.Node maps to tony-base:ir
+		// Add import for tony-base schema
+		imports["github.com/signadot/tony-format/go-tony/schema"] = "tony-base"
 
-		objNode := ir.FromMap(map[string]*ir.Node{})
-		objNode.Tag = "!irtype"
-
-		orNode := ir.FromSlice([]*ir.Node{
-			nullNode,
-			objNode,
-		})
-		orNode.Tag = "!or"
-		return orNode, nil
+		// Return reference to ir definition in tony-base
+		return ir.FromString(".[tony-base:ir]"), nil
 	}
 
 	// Handle pointers (nullable types)
