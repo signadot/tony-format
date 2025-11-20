@@ -5,13 +5,14 @@ import (
 	"reflect"
 
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/parse"
 )
 
 // FromIR converts a Tony IR node to a Go value using schema-aware unmarshaling.
 // v must be a pointer to the target type.
 // It automatically uses a FromTony() method if available (user-implemented or generated),
 // otherwise falls back to schema-aware or reflection-based conversion.
-func (m *Mapper) FromIR(node *ir.Node, v interface{}) error {
+func (m *Mapper) FromIR(node *ir.Node, v interface{}, opts ...parse.ParseOption) error {
 	if v == nil {
 		return &UnmarshalError{Message: "destination value cannot be nil"}
 	}
@@ -30,14 +31,14 @@ func (m *Mapper) FromIR(node *ir.Node, v interface{}) error {
 
 	// Check for FromTony() method on the element type
 	if method := elemVal.MethodByName("FromTony"); method.IsValid() {
-		return callFromTony(method, node)
+		return callFromTony(method, node, opts...)
 	}
 
 	// Check for FromTony() method on pointer type
 	ptrType := reflect.PtrTo(elemType)
 	if _, ok := ptrType.MethodByName("FromTony"); ok {
 		// Call on the pointer value itself
-		return callFromTony(val.MethodByName("FromTony"), node)
+		return callFromTony(val.MethodByName("FromTony"), node, opts...)
 	}
 
 	// Check for explicit schema tags
@@ -48,7 +49,7 @@ func (m *Mapper) FromIR(node *ir.Node, v interface{}) error {
 
 	if structSchema != nil && node.Type == ir.ObjectType && elemType.Kind() == reflect.Struct {
 		// Schema-aware unmarshaling
-		return m.fromIRWithSchema(node, elemVal, elemType, structSchema)
+		return m.fromIRWithSchema(node, elemVal, elemType, structSchema, opts...)
 	}
 
 	// Fall back to reflection-based conversion
@@ -56,7 +57,7 @@ func (m *Mapper) FromIR(node *ir.Node, v interface{}) error {
 }
 
 // fromIRWithSchema performs schema-aware unmarshaling of a struct.
-func (m *Mapper) fromIRWithSchema(node *ir.Node, val reflect.Value, typ reflect.Type, structSchema *StructSchema) error {
+func (m *Mapper) fromIRWithSchema(node *ir.Node, val reflect.Value, typ reflect.Type, structSchema *StructSchema, opts ...parse.ParseOption) error {
 	// Resolve schema via registry
 	schema, err := m.resolveSchema(structSchema.SchemaName)
 	if err != nil {
@@ -67,7 +68,7 @@ func (m *Mapper) fromIRWithSchema(node *ir.Node, val reflect.Value, typ reflect.
 
 	if schema == nil {
 		// Schema not found - fall back to reflection
-		return fromIRReflect(node, val, "")
+		return fromIRReflect(node, val, "", opts...)
 	}
 
 	// Use GetStructFields to get field metadata
@@ -117,7 +118,7 @@ func (m *Mapper) fromIRWithSchema(node *ir.Node, val reflect.Value, typ reflect.
 		}
 
 		fieldNode := node.Values[i]
-		if err := fromIRReflectWithVisited(fieldNode, fieldVal, schemaFieldName, visited); err != nil {
+		if err := fromIRReflectWithVisited(fieldNode, fieldVal, schemaFieldName, visited, opts...); err != nil {
 			return err
 		}
 	}

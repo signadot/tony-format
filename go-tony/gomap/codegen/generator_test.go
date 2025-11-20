@@ -42,7 +42,7 @@ func TestGenerateToTonyMethod_SimpleStruct(t *testing.T) {
 	}
 
 	// Check that code contains expected elements
-	if !strings.Contains(code, "func (s *Person) ToTony()") {
+	if !strings.Contains(code, "func (s *Person) ToTony(opts ...encode.EncodeOption)") {
 		t.Errorf("Expected ToTony method signature, got:\n%s", code)
 	}
 	if !strings.Contains(code, "irMap := make(map[string]*ir.Node)") {
@@ -203,7 +203,7 @@ func TestGenerateFromTonyMethod_SimpleStruct(t *testing.T) {
 	}
 
 	// Check that code contains expected elements
-	if !strings.Contains(code, "func (s *Person) FromTony(node *ir.Node) error") {
+	if !strings.Contains(code, "func (s *Person) FromTony(node *ir.Node, opts ...parse.ParseOption) error") {
 		t.Errorf("Expected FromTony method signature, got:\n%s", code)
 	}
 	if !strings.Contains(code, "node.Type != ir.ObjectType") {
@@ -284,6 +284,48 @@ func TestGenerateFromTonyMethod_SliceField(t *testing.T) {
 	}
 	if !strings.Contains(code, "for i, v := range fieldNode.Values") {
 		t.Errorf("Expected slice iteration, got:\n%s", code)
+	}
+}
+
+func TestGenerateToTonyBytesMethod(t *testing.T) {
+	structInfo := &StructInfo{
+		Name: "Person",
+	}
+
+	code, err := GenerateToTonyBytesMethod(structInfo)
+	if err != nil {
+		t.Fatalf("GenerateToTonyBytesMethod failed: %v", err)
+	}
+
+	if !strings.Contains(code, "func (s *Person) ToTonyBytes(opts ...encode.EncodeOption) ([]byte, error)") {
+		t.Errorf("Expected ToTonyBytes signature, got:\n%s", code)
+	}
+	if !strings.Contains(code, "s.ToTony(opts...)") {
+		t.Errorf("Expected call to ToTony, got:\n%s", code)
+	}
+	if !strings.Contains(code, "encode.Encode(node, &buf, opts...)") {
+		t.Errorf("Expected call to encode.Encode, got:\n%s", code)
+	}
+}
+
+func TestGenerateFromTonyBytesMethod(t *testing.T) {
+	structInfo := &StructInfo{
+		Name: "Person",
+	}
+
+	code, err := GenerateFromTonyBytesMethod(structInfo)
+	if err != nil {
+		t.Fatalf("GenerateFromTonyBytesMethod failed: %v", err)
+	}
+
+	if !strings.Contains(code, "func (s *Person) FromTonyBytes(data []byte, opts ...parse.ParseOption) error") {
+		t.Errorf("Expected FromTonyBytes signature, got:\n%s", code)
+	}
+	if !strings.Contains(code, "parse.Parse(data, opts...)") {
+		t.Errorf("Expected call to parse.Parse, got:\n%s", code)
+	}
+	if !strings.Contains(code, "s.FromTony(node, opts...)") {
+		t.Errorf("Expected call to FromTony, got:\n%s", code)
 	}
 }
 
@@ -434,11 +476,17 @@ func TestGenerateCode_Integration(t *testing.T) {
 	}
 
 	// Check that code contains both methods
-	if !strings.Contains(code, "func (s *Person) ToTony()") {
+	if !strings.Contains(code, "func (s *Person) ToTony(opts ...encode.EncodeOption)") {
 		t.Errorf("Expected ToTony method, got:\n%s", code)
 	}
-	if !strings.Contains(code, "func (s *Person) FromTony(node *ir.Node) error") {
+	if !strings.Contains(code, "func (s *Person) FromTony(node *ir.Node, opts ...parse.ParseOption) error") {
 		t.Errorf("Expected FromTony method, got:\n%s", code)
+	}
+	if !strings.Contains(code, "func (s *Person) ToTonyBytes(opts ...encode.EncodeOption) ([]byte, error)") {
+		t.Errorf("Expected ToTonyBytes method, got:\n%s", code)
+	}
+	if !strings.Contains(code, "func (s *Person) FromTonyBytes(data []byte, opts ...parse.ParseOption) error") {
+		t.Errorf("Expected FromTonyBytes method, got:\n%s", code)
 	}
 
 	// Check that code is formatted (should not have obvious formatting issues)
