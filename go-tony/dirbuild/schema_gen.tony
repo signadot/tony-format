@@ -3,8 +3,8 @@ context:
 - tony-format/context
 - tony-base: github.com/signadot/tony-format/go-tony/schema
 define:
-  File: !irtype ""
-  If: !irtype ""
+  File: .[string]
+  If: .[string]
   Match: .[tony-base:ir]
   Patch: .[tony-base:ir]
 signature:
@@ -25,10 +25,10 @@ context:
 - tony-format/context
 - tony-base: github.com/signadot/tony-format/go-tony/schema
 define:
-  DestDir: !irtype ""
+  DestDir: .[string]
   Env: .[object(tony-base:ir)]
   Patches: .[array(dirpatch)]
   Sources: .[array(dirsource)]
-  Suffix: !irtype ""
+  Suffix: .[string]
 signature:
   name: dir
