@@ -111,7 +111,6 @@ func toIRReflectValue(val reflect.Value, fieldPath string, visited map[uintptr]s
 	if !val.IsValid() {
 		return ir.Null(), nil
 	}
-
 	typ := val.Type()
 	kind := typ.Kind()
 
@@ -121,7 +120,7 @@ func toIRReflectValue(val reflect.Value, fieldPath string, visited map[uintptr]s
 			return ir.Null(), nil
 		}
 		// Check for ToTonyIR() method on the value type (works for both value and pointer types)
-		if method := val.MethodByName("ToTony"); method.IsValid() {
+		if method := val.MethodByName("ToTonyIR"); method.IsValid() {
 			return callToTonyIR(method, opts...)
 		}
 		// Check if we've seen this pointer before
@@ -346,6 +345,17 @@ func toIRReflectStruct(val reflect.Value, fieldPath string, visited map[uintptr]
 		}
 
 		fieldName := field.Name
+		// Parse field tag to check for field= renaming
+		tag := field.Tag.Get("tony")
+		if tag != "" {
+			parsed, err := ParseStructTag(tag)
+			if err == nil {
+				// Check for field name override (field= tag)
+				if renamed, ok := parsed["field"]; ok && renamed != "" && renamed != "-" {
+					fieldName = renamed
+				}
+			}
+		}
 
 		// Build field path for error reporting
 		nextPath := fieldPath

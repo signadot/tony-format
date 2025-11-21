@@ -411,8 +411,14 @@ func objFromKVs(at *ir.Node, kvs []ir.KeyVal, tag string, keyToks []token.Token,
 		}
 		return nil, fmt.Errorf("%w: mixed key types in map %s", ErrParse, keyToks[i].Pos)
 	}
-	at.Tag = tag
-	return ir.FromIntKeysMapAt(at, d).WithTag(tag), nil
+	// FromIntKeysMapAt will set the !sparsearray tag, so we need to compose it with the existing tag
+	// rather than overwriting it
+	result := ir.FromIntKeysMapAt(at, d)
+	if tag != "" {
+		// Compose the existing tag (e.g., !bracket) with the !sparsearray tag that FromIntKeysMapAt set
+		result.Tag = ir.TagCompose(tag, nil, result.Tag)
+	}
+	return result, nil
 }
 
 func parseArr(toks []token.Token, p *ir.Node, tag string, pi *int, opts *parseOpts) (*ir.Node, error) {

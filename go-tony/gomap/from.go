@@ -108,7 +108,6 @@ func fromIRReflectWithVisited(node *ir.Node, val reflect.Value, fieldPath string
 			Message:   "IR node is nil",
 		}
 	}
-
 	typ := val.Type()
 	kind := typ.Kind()
 
@@ -755,9 +754,30 @@ func fromIRToStruct(node *ir.Node, val reflect.Value, fieldPath string, visited 
 			}
 			continue
 		}
-		structFieldMap[field.Name] = fieldInfo{
+
+		// Get schema field name (from field= tag if present, otherwise struct field name)
+		schemaFieldName := field.Name
+		tag := field.Tag.Get("tony")
+		if tag != "" {
+			parsed, err := ParseStructTag(tag)
+			if err == nil {
+				// Check for field name override (field= tag)
+				if renamed, ok := parsed["field"]; ok && renamed != "" && renamed != "-" {
+					schemaFieldName = renamed
+				}
+			}
+		}
+
+		structFieldMap[schemaFieldName] = fieldInfo{
 			index: field.Index,
 			field: field,
+		}
+		// Also allow lookup by struct field name for backwards compatibility
+		if schemaFieldName != field.Name {
+			structFieldMap[field.Name] = fieldInfo{
+				index: field.Index,
+				field: field,
+			}
 		}
 	}
 
