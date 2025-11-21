@@ -1,49 +1,55 @@
-# GoMap and Code Generation
+# Tony GoMappings
 
-GoMap provides bidirectional mapping between Go structs and Tony format, with
-automatic code generation for serialization and schema definition.
-
+GoMap provides several mappings to and from Tony, and it's easy to switch
+between them, from ad-hoc and easy to full fledged, schema driven type safe
+codegen.  But perhaps most importantly, GoMap bridges the divide between
+code-driven modeling and schema driven modeling.  One can mix and match and the
+tools interoperate.
+  
 ## Overview
 
-### GoMap and Tony
+There are Tony [schema](/docs/schema.md) and [IR](/docs/ir.md) coordinating
+things.
 
-GoMap enables Go applications to work with Tony format through:
+### IR
 
-- **Zero-setup reflection** - Use `gomap.{To,From}Tony()` and `gomap.{To,From}TonyIR()` without any configuration
-- **Automatic code generation** of `ToTonyIR()` and `FromTony()` methods (optional)
-- **Schema definition** from Go struct definitions
-- **Type safety** with compile-time checking and runtime validation
-- **Cross-package support** with automatic import management
+The IR is a pivot point between reflection based adhoc `gomap.{To,From}Tony`
+and schema-driven code generation (SDCG):
 
-**Two approaches**:
-1. **Reflection-based** (zero setup) - Perfect for quick experiments and scripts
-2. **Code generation** (optional) - Optimized for production use with schemas
+```mermaid
+---
+title: "IR and Schema"
+---
+flowchart LR
+  d["[]byte"]-->|parse|ir(IR)
+  ir-->|encode|d
+  sc["Source Code"]-->|reflect,sdcg|ir(IR)
+  ir-->|reflect,sdcg|sc
+```
 
-### The `tony-codegen` Tool
+### Schema
 
-`tony-codegen` is a unified code generation tool that:
+Schema Provide a pivot point between code-driven modeling and schema-driven
+modeling:
 
-1. **Generates `.tony` schema files** from structs with `schemadef=` tags
-2. **Generates Go code** (`ToTonyIR()`/`FromTony()` methods) for structs with `schema=` or `schemadef=` tags
+```mermaid
+---
+title: Schema
+---
+flowchart LR
+  sc["Source Code"]-->schema((Schema))
+  schema-->tc["Gen Code for Types -> IR"]
+  schema-->fc["Gen Code for Bytes -> IR"]
+```
 
-## Two Ways to Use GoMap
+## Calling `gomap.{To,From}Tony`
 
-### Option 1: Zero Setup (Reflection-Based)
-
-**Perfect for**: Quick experiments, one-off scripts, debugging
-
-You can use `gomap.ToTonyIR()` and `gomap.FromTonyIR()` **without any schema tags or code generation**:
-
-For even simpler usage, use the byte-based convenience functions `gomap.ToTony()` and `gomap.FromTony()`:
 
 ```go
 package main
 
 import (
     "github.com/signadot/tony-format/go-tony/gomap"
-    "github.com/signadot/tony-format/go-tony/encode"
-    "github.com/signadot/tony-format/go-tony/parse"
-    "os"
 )
 
 type Person struct {
@@ -56,58 +62,24 @@ func main() {
     // No schema tags needed!
     person := Person{Name: "Alice", Age: 30}
     
-    // Option 1: Byte-based API (simplest)
     data, err := gomap.ToTony(person)
-    if err != nil {
-        panic(err)
-    }
     
     var p2 Person
     err = gomap.FromTony(data, &p2)
-    if err != nil {
-        panic(err)
-    }
-    
-    // Option 2: IR-based API (for advanced IR manipulation)
-    node, err := gomap.ToTonyIR(person)
-    if err != nil {
-        panic(err)
-    }
-    
-    // Encode to bytes with options
-    var buf bytes.Buffer
-    encode.Encode(node, &buf, encode.EncodeComments)
-    
-    // Or parse from bytes with options
-    data = buf.Bytes()
-    node2, err := parse.Parse(data, parse.ParseComments)
-    
-    // Convert back from Tony IR
-    var p3 Person
-    err = gomap.FromTonyIR(node2, &p3)
-    if err != nil {
-        panic(err)
-    }
 }
 ```
 
-**Benefits**:
-- ✅ **Zero setup** - works immediately
-- ✅ **No code generation** - no `go generate` step
-- ✅ **No schema files** - no `.tony` files needed
-- ✅ **Perfect for quick use** - testing, debugging, scripts
-- ✅ **Two APIs** - byte-based (`ToTony`/`FromTony`) or IR-based (`ToTonyIR`/`FromTonyIR`)
+## `tony-codegen`
 
-**Trade-offs**:
-- Uses reflection (slightly slower than generated code)
-- No compile-time type checking
-- Field names match Go struct fields exactly (case-sensitive)
+`tony-codegen` is a unified code generation tool that:
 
-### Option 2: Schema-Driven (Code Generation)
+1. **Generates `.tony` schema files** from structs with `schemadef=` tags
+2. **Generates Go code** (`ToTony()`/`FromTony()` methods) for structs from schema.
 
-**Perfect for**: Production use, type safety, performance
+In this way, it interfaces with both schema-driven modeling and code driven modeling
+interchangeably.
 
-Use **comment-based directives** (recommended) or struct tags for code generation:
+### Comment and struct tag Based Directives
 
 ```go
 package models
@@ -149,14 +121,6 @@ func main() {
 }
 ```
 
-**Benefits**:
-- ✅ **High performance** - no reflection overhead
-- ✅ **Type safety** - compile-time checking
-- ✅ **Schema validation** - ensures data matches schema
-- ✅ **Custom field names** - map Go fields to schema fields
-- ✅ **Works with bytes** - `ToTony()`/`FromTony()` handle bytes directly
-- ✅ **Comment-based directives** - cleaner, works with type aliases
-
 **Mixed Reflection/Codegen Pattern**:
 
 For structs that mix generated and non-generated fields, use an embedded struct:
@@ -171,8 +135,8 @@ type PersonCore struct {
 
 // Full struct - combines generated + reflection
 type Person struct {
-    PersonCore              // Generated methods available
-    RuntimeData interface{} // Handled by reflection
+    PersonCore        // Generated methods available
+    RuntimeData any   // Handled by reflection
 }
 
 func main() {
@@ -190,30 +154,6 @@ func main() {
     // Combine as needed
 }
 ```
-
-**When to use each**:
-- **Use reflection** (`gomap.ToTony`/`FromTony` or `ToTonyIR`/`FromTonyIR`) for quick experiments and one-off scripts
-- **Use code generation** (generated `ToTony`/`FromTony` methods) for production code and when you need schemas
-- **Use comment directives** (`//tony:`) over struct tags - cleaner and more flexible
-
-## Quick Start
-
-### Defining a Struct
-
-```go
-package models
-
-// Person represents a person in the system.
-//tony:schemadef=person
-type Person struct {
-    // Name is the person's full name
-    Name string `tony:"field=name"`
-    
-    // Age in years
-    Age int `tony:"field=age"`
-}
-```
-
 ### Generating Code
 
 ```bash
@@ -243,15 +183,15 @@ err = p.FromTony(data)
 node, err := person.ToTonyIR()
 err = p.FromTonyIR(node)
 ```
-```
 
 ## Defining Schemas
 
-There are two ways to define schemas for your structs: using **Doc Comment Directives** (recommended) or **Struct Tags**.
+There are two ways to define schemas for your structs: using **Doc Comment Directives** and **Struct Tags**.
 
-### Doc Comment Directives (Recommended)
+### Doc Comment Directives
 
-Use `//tony:` directives in doc comments. This is the cleanest approach and works for all types.
+Use `//tony:` directives in doc comments. This is the cleanest approach and works for all types.  But
+you'll need struct tags for custom field naming and options.
 
 #### `//tony:schemadef=<name>`
 
@@ -323,7 +263,7 @@ type User struct {
 Supported directives:
 - `//tony:schemadef=<name>` - Define a new schema
 - `//tony:schema=<name>` - Use an existing schema
-- `//tony:comment=<field>` - Populate field with schema comments
+- `//tony:comment=<field>` - Populate field with ir comments
 
 **Note**: If both a struct tag and doc comment directive are present, the struct tag takes precedence.
 
@@ -379,10 +319,10 @@ Go basic types map to Tony IR types:
 
 ```go
 type Example struct {
-    Text   string   // !irtype ""
-    Count  int      // !irtype 1
-    Score  float64  // !irtype 1
-    Active bool     // !irtype true
+    Text   string   // .[string]
+    Count  int      // .[int]
+    Score  float64  // .[float]
+    Active bool     // .[bool]
 }
 ```
 
@@ -458,14 +398,6 @@ type Config struct {
 }
 ```
 
-Generated code includes proper imports:
-```go
-import (
-    "github.com/example/format"
-    "github.com/signadot/tony-format/go-tony/ir"
-)
-```
-
 The type resolver:
 - Detects cross-package types
 - Resolves qualified names (e.g., `format.Format`)
@@ -514,12 +446,6 @@ signature:
   name: person
 ```
 
-This approach:
-- Reduces file clutter (one schema file per package instead of per struct)
-- Makes it easier to manage related schemas
-- Maintains clear separation between schemas with `---`
-- Allows the schema loader to find schemas by name within the file
-
 ### Schema References
 
 Structs can reference other schemas in the same package:
@@ -541,50 +467,10 @@ type Person struct {
 Generated `schema_gen.tony`:
 ```tony
 define:
-  Name: !irtype ""
-  Address: !address  # Schema reference
+  Name: .[string]
+  Address: !address null # Schema reference
 ```
 
-### Forward References
-
-Forward references work naturally - structs can reference types defined later:
-
-```go
-type Employee struct {
-    schemaTag `tony:"schemadef=employee"`
-    Name string
-    Boss *Person  // Person defined later
-}
-
-type Person struct {
-    schemaTag `tony:"schemadef=person"`
-    Name string
-}
-```
-
-The code generator:
-1. Parses all structs first
-2. Builds dependency graph
-3. Generates schemas in dependency order
-4. Uses schema references for struct types
-
-### Circular Dependencies
-
-Circular dependencies are detected and reported as errors:
-
-```go
-type Person struct {
-    schemaTag `tony:"schemadef=person"`
-    Boss *Employee  // References Employee
-}
-
-type Employee struct {
-    schemaTag `tony:"schemadef=employee"`
-    Manager *Person  // References Person - CIRCULAR!
-}
-```
-
-Error: `circular dependency detected: person → employee → person`
 
 ## Code Generation
 
@@ -940,46 +826,6 @@ if err := u.FromTonyIR(node); err != nil {
     log.Fatal(err)
 }
 ```
-
-## Implementation Details
-
-### Type Resolver
-
-The type resolver handles cross-package types:
-
-- Detects `*ast.SelectorExpr` (e.g., `format.Format`)
-- Uses `golang.org/x/tools/go/packages` for robust type analysis
-- Resolves qualified names for named types
-- Maintains import mappings in `StructInfo.Imports`
-
-### Code Generator
-
-The generator produces idiomatic Go code:
-
-- Uses `strings.Builder` for efficient string construction
-- Formats code with `go/format`
-- Adds "DO NOT EDIT" header
-- Includes descriptive error messages
-- Handles edge cases (overflow checking, type conversions)
-
-### Schema Generator
-
-The schema generator creates valid Tony schemas:
-
-- Uses YAML tag format (`!irtype`, `!and`, `!or`)
-- Preserves Go comments in schemas
-- Creates schema references for struct types
-- Validates schema structure
-
-## Best Practices
-
-1. **Use `schemadef=` for canonical definitions** - Define schemas once
-2. **Use `schema=` for reuse** - Reference existing schemas
-3. **Mark required fields** - Use `required` tag for mandatory fields
-4. **Use pointers for optional fields** - Makes optionality explicit
-5. **Add comments** - They appear in generated schemas
-6. **Version your schemas** - For backward compatibility
-7. **Test serialization** - Round-trip test your structs
 
 ## Conclusion
 
