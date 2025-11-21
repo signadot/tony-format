@@ -96,14 +96,14 @@ func TestFromIR_Interface(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var result interface{}
-			err := FromIR(tt.node, &result)
+			err := FromTonyIR(tt.node, &result)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("FromIR() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("FromTonyIR() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !tt.wantErr {
 				if !reflect.DeepEqual(result, tt.want) {
-					t.Errorf("FromIR() = %v (%T), want %v (%T)", result, result, tt.want, tt.want)
+					t.Errorf("FromTonyIR() = %v (%T), want %v (%T)", result, result, tt.want, tt.want)
 				}
 			}
 		})
@@ -123,15 +123,15 @@ func TestFromIR_InterfaceRoundTrip(t *testing.T) {
 		},
 	}
 
-	node, err := ToIR(original)
+	node, err := ToTonyIR(original)
 	if err != nil {
-		t.Fatalf("ToIR() error = %v", err)
+		t.Fatalf("ToTonyIR() error = %v", err)
 	}
 
 	var result interface{}
-	err = FromIR(node, &result)
+	err = FromTonyIR(node, &result)
 	if err != nil {
-		t.Fatalf("FromIR() error = %v", err)
+		t.Fatalf("FromTonyIR() error = %v", err)
 	}
 
 	// Compare - note that numbers might be int64 vs float64
@@ -156,9 +156,9 @@ func TestFromIR_InterfaceNumberPreference(t *testing.T) {
 	// Test that int64 is preferred over float64 when available
 	node := ir.FromInt(42)
 	var result interface{}
-	err := FromIR(node, &result)
+	err := FromTonyIR(node, &result)
 	if err != nil {
-		t.Fatalf("FromIR() error = %v", err)
+		t.Fatalf("FromTonyIR() error = %v", err)
 	}
 
 	// Should be int64, not float64

@@ -50,3 +50,13 @@ func ParsePositions(m map[*ir.Node]*token.Pos) ParseOption {
 func NoBrackets() ParseOption {
 	return func(o *parseOpts) { o.noBrackets = true }
 }
+
+// GetPositions extracts the positions map from the provided options.
+// This allows consumers (like FromTony methods) to access position information.
+func GetPositions(opts ...ParseOption) map[*ir.Node]*token.Pos {
+	pOpts := &parseOpts{}
+	for _, f := range opts {
+		f(pOpts)
+	}
+	return pOpts.positions
+}

@@ -115,7 +115,7 @@ func envFunc(env map[string]*ir.Node, a string) error {
 	if err != nil {
 		return err
 	}
-	if err := gomap.FromIR(node, &v); err != nil {
+	if err := gomap.FromTonyIR(node, &v); err != nil {
 		return err
 	}
 	parts := strings.Split(key, ".")

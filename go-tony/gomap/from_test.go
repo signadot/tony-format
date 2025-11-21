@@ -7,7 +7,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 )
 
-func TestFromIR_BasicTypes(t *testing.T) {
+func TestFromTonyIR_BasicTypes(t *testing.T) {
 	tests := []struct {
 		name    string
 		node    *ir.Node
@@ -56,66 +56,66 @@ func TestFromIR_BasicTypes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create a pointer to the expected type
 			val := reflect.New(reflect.TypeOf(tt.want))
-			err := FromIR(tt.node, val.Interface())
+			err := FromTonyIR(tt.node, val.Interface())
 			if (err != nil) != tt.wantErr {
-				t.Errorf("FromIR() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("FromTonyIR() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !tt.wantErr {
 				got := val.Elem().Interface()
 				if !reflect.DeepEqual(got, tt.want) {
-					t.Errorf("FromIR() = %v, want %v", got, tt.want)
+					t.Errorf("FromTonyIR() = %v, want %v", got, tt.want)
 				}
 			}
 		})
 	}
 }
 
-func TestFromIR_Nil(t *testing.T) {
+func TestFromTonyIR_Nil(t *testing.T) {
 	var str string
-	err := FromIR(ir.Null(), &str)
+	err := FromTonyIR(ir.Null(), &str)
 	if err != nil {
-		t.Fatalf("FromIR(nil) error = %v", err)
+		t.Fatalf("FromTonyIR(nil) error = %v", err)
 	}
 	if str != "" {
-		t.Errorf("FromIR(nil) = %q, want empty string", str)
+		t.Errorf("FromTonyIR(nil) = %q, want empty string", str)
 	}
 }
 
-func TestFromIR_Pointers(t *testing.T) {
+func TestFromTonyIR_Pointers(t *testing.T) {
 	t.Run("string pointer", func(t *testing.T) {
 		node := ir.FromString("hello")
 		var strPtr *string
-		err := FromIR(node, &strPtr)
+		err := FromTonyIR(node, &strPtr)
 		if err != nil {
-			t.Fatalf("FromIR() error = %v", err)
+			t.Fatalf("FromTonyIR() error = %v", err)
 		}
 		if strPtr == nil || *strPtr != "hello" {
-			t.Errorf("FromIR() = %v, want pointer to 'hello'", strPtr)
+			t.Errorf("FromTonyIR() = %v, want pointer to 'hello'", strPtr)
 		}
 	})
 
 	t.Run("int pointer", func(t *testing.T) {
 		node := ir.FromInt(42)
 		var intPtr *int
-		err := FromIR(node, &intPtr)
+		err := FromTonyIR(node, &intPtr)
 		if err != nil {
-			t.Fatalf("FromIR() error = %v", err)
+			t.Fatalf("FromTonyIR() error = %v", err)
 		}
 		if intPtr == nil || *intPtr != 42 {
-			t.Errorf("FromIR() = %v, want pointer to 42", intPtr)
+			t.Errorf("FromTonyIR() = %v, want pointer to 42", intPtr)
 		}
 	})
 
 	t.Run("nil pointer", func(t *testing.T) {
 		node := ir.Null()
 		var strPtr *string
-		err := FromIR(node, &strPtr)
+		err := FromTonyIR(node, &strPtr)
 		if err != nil {
-			t.Fatalf("FromIR() error = %v", err)
+			t.Fatalf("FromTonyIR() error = %v", err)
 		}
 		if strPtr != nil {
-			t.Errorf("FromIR() = %v, want nil", strPtr)
+			t.Errorf("FromTonyIR() = %v, want nil", strPtr)
 		}
 	})
 }
@@ -128,7 +128,7 @@ func intPtrUnmarshal(i int) *int {
 	return &i
 }
 
-func TestFromIR_Slices(t *testing.T) {
+func TestFromTonyIR_Slices(t *testing.T) {
 	tests := []struct {
 		name    string
 		node    *ir.Node
@@ -158,44 +158,44 @@ func TestFromIR_Slices(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			val := reflect.New(reflect.TypeOf(tt.want))
-			err := FromIR(tt.node, val.Interface())
+			err := FromTonyIR(tt.node, val.Interface())
 			if (err != nil) != tt.wantErr {
-				t.Errorf("FromIR() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("FromTonyIR() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !tt.wantErr {
 				got := val.Elem().Interface()
 				if !reflect.DeepEqual(got, tt.want) {
-					t.Errorf("FromIR() = %v, want %v", got, tt.want)
+					t.Errorf("FromTonyIR() = %v, want %v", got, tt.want)
 				}
 			}
 		})
 	}
 }
 
-func TestFromIR_Arrays(t *testing.T) {
+func TestFromTonyIR_Arrays(t *testing.T) {
 	node := ir.FromSlice([]*ir.Node{ir.FromInt(1), ir.FromInt(2), ir.FromInt(3)})
 	var arr [3]int
-	err := FromIR(node, &arr)
+	err := FromTonyIR(node, &arr)
 	if err != nil {
-		t.Fatalf("FromIR() error = %v", err)
+		t.Fatalf("FromTonyIR() error = %v", err)
 	}
 	want := [3]int{1, 2, 3}
 	if arr != want {
-		t.Errorf("FromIR() = %v, want %v", arr, want)
+		t.Errorf("FromTonyIR() = %v, want %v", arr, want)
 	}
 }
 
-func TestFromIR_ArrayLengthMismatch(t *testing.T) {
+func TestFromTonyIR_ArrayLengthMismatch(t *testing.T) {
 	node := ir.FromSlice([]*ir.Node{ir.FromInt(1), ir.FromInt(2)})
 	var arr [3]int
-	err := FromIR(node, &arr)
+	err := FromTonyIR(node, &arr)
 	if err == nil {
-		t.Error("FromIR() expected error for length mismatch, got nil")
+		t.Error("FromTonyIR() expected error for length mismatch, got nil")
 	}
 }
 
-func TestFromIR_Maps(t *testing.T) {
+func TestFromTonyIR_Maps(t *testing.T) {
 	tests := []struct {
 		name    string
 		node    *ir.Node
@@ -225,22 +225,22 @@ func TestFromIR_Maps(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			val := reflect.New(reflect.TypeOf(tt.want))
-			err := FromIR(tt.node, val.Interface())
+			err := FromTonyIR(tt.node, val.Interface())
 			if (err != nil) != tt.wantErr {
-				t.Errorf("FromIR() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("FromTonyIR() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !tt.wantErr {
 				got := val.Elem().Interface()
 				if !reflect.DeepEqual(got, tt.want) {
-					t.Errorf("FromIR() = %v, want %v", got, tt.want)
+					t.Errorf("FromTonyIR() = %v, want %v", got, tt.want)
 				}
 			}
 		})
 	}
 }
 
-func TestFromIR_Structs(t *testing.T) {
+func TestFromTonyIR_Structs(t *testing.T) {
 	type Person struct {
 		Name string
 		Age  int
@@ -252,9 +252,9 @@ func TestFromIR_Structs(t *testing.T) {
 	})
 
 	var p Person
-	err := FromIR(node, &p)
+	err := FromTonyIR(node, &p)
 	if err != nil {
-		t.Fatalf("FromIR() error = %v", err)
+		t.Fatalf("FromTonyIR() error = %v", err)
 	}
 
 	if p.Name != "Alice" {
@@ -265,7 +265,7 @@ func TestFromIR_Structs(t *testing.T) {
 	}
 }
 
-func TestFromIR_StructsWithExtraFields(t *testing.T) {
+func TestFromTonyIR_StructsWithExtraFields(t *testing.T) {
 	type Person struct {
 		Name string
 		Age  int
@@ -279,10 +279,10 @@ func TestFromIR_StructsWithExtraFields(t *testing.T) {
 	})
 
 	var p Person
-	err := FromIR(node, &p)
+	err := FromTonyIR(node, &p)
 	// Extra fields should be silently ignored
 	if err != nil {
-		t.Fatalf("FromIR() error = %v", err)
+		t.Fatalf("FromTonyIR() error = %v", err)
 	}
 
 	if p.Name != "Bob" {
@@ -293,7 +293,7 @@ func TestFromIR_StructsWithExtraFields(t *testing.T) {
 	}
 }
 
-func TestFromIR_EmbeddedStructs(t *testing.T) {
+func TestFromTonyIR_EmbeddedStructs(t *testing.T) {
 	type Address struct {
 		Street string
 		City   string
@@ -314,9 +314,9 @@ func TestFromIR_EmbeddedStructs(t *testing.T) {
 	})
 
 	var p Person
-	err := FromIR(node, &p)
+	err := FromTonyIR(node, &p)
 	if err != nil {
-		t.Fatalf("FromIR() error = %v", err)
+		t.Fatalf("FromTonyIR() error = %v", err)
 	}
 
 	if p.Name != "Charlie" {
@@ -330,7 +330,7 @@ func TestFromIR_EmbeddedStructs(t *testing.T) {
 	}
 }
 
-func TestFromIR_NestedStructs(t *testing.T) {
+func TestFromTonyIR_NestedStructs(t *testing.T) {
 	type Address struct {
 		Street string
 		City   string
@@ -351,9 +351,9 @@ func TestFromIR_NestedStructs(t *testing.T) {
 	})
 
 	var p Person
-	err := FromIR(node, &p)
+	err := FromTonyIR(node, &p)
 	if err != nil {
-		t.Fatalf("FromIR() error = %v", err)
+		t.Fatalf("FromTonyIR() error = %v", err)
 	}
 
 	if p.Name != "Dave" {
@@ -367,7 +367,7 @@ func TestFromIR_NestedStructs(t *testing.T) {
 	}
 }
 
-func TestFromIR_ComplexNested(t *testing.T) {
+func TestFromTonyIR_ComplexNested(t *testing.T) {
 	type Address struct {
 		Street string
 		City   string
@@ -394,9 +394,9 @@ func TestFromIR_ComplexNested(t *testing.T) {
 	})
 
 	var p Person
-	err := FromIR(node, &p)
+	err := FromTonyIR(node, &p)
 	if err != nil {
-		t.Fatalf("FromIR() error = %v", err)
+		t.Fatalf("FromTonyIR() error = %v", err)
 	}
 
 	if p.Name != "Eve" {
@@ -416,7 +416,7 @@ func TestFromIR_ComplexNested(t *testing.T) {
 	}
 }
 
-func TestFromIR_TypeMismatch(t *testing.T) {
+func TestFromTonyIR_TypeMismatch(t *testing.T) {
 	tests := []struct {
 		name    string
 		node    *ir.Node
@@ -451,35 +451,35 @@ func TestFromIR_TypeMismatch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := FromIR(tt.node, tt.dest)
+			err := FromTonyIR(tt.node, tt.dest)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("FromIR() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("FromTonyIR() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
 }
 
-func TestFromIR_IntOverflow(t *testing.T) {
+func TestFromTonyIR_IntOverflow(t *testing.T) {
 	// Test int8 overflow
 	node := ir.FromInt(1000) // Too large for int8
 	var val int8
-	err := FromIR(node, &val)
+	err := FromTonyIR(node, &val)
 	if err == nil {
-		t.Error("FromIR() expected error for int8 overflow, got nil")
+		t.Error("FromTonyIR() expected error for int8 overflow, got nil")
 	}
 }
 
-func TestFromIR_UintFromNegative(t *testing.T) {
+func TestFromTonyIR_UintFromNegative(t *testing.T) {
 	// Test uint from negative number
 	node := ir.FromInt(-5)
 	var val uint
-	err := FromIR(node, &val)
+	err := FromTonyIR(node, &val)
 	if err == nil {
-		t.Error("FromIR() expected error for negative uint, got nil")
+		t.Error("FromTonyIR() expected error for negative uint, got nil")
 	}
 }
 
-func TestFromIR_RoundTrip(t *testing.T) {
+func TestFromTonyIR_RoundTrip(t *testing.T) {
 	type Person struct {
 		Name    string
 		Age     int
@@ -497,13 +497,13 @@ func TestFromIR_RoundTrip(t *testing.T) {
 	}
 
 	// Round trip: Go -> IR -> Go
-	node, err := ToIR(original)
+	node, err := ToTonyIR(original)
 	if err != nil {
-		t.Fatalf("ToIR() error = %v", err)
+		t.Fatalf("ToTonyIR() error = %v", err)
 	}
 
 	var result Person
-	err = FromIR(node, &result)
+	err = FromTonyIR(node, &result)
 	if err != nil {
 		t.Fatalf("FromIR() error = %v", err)
 	}
@@ -513,7 +513,7 @@ func TestFromIR_RoundTrip(t *testing.T) {
 	}
 }
 
-func TestFromIR_InvalidDestination(t *testing.T) {
+func TestFromTonyIR_InvalidDestination(t *testing.T) {
 	node := ir.FromString("hello")
 
 	tests := []struct {
@@ -540,7 +540,7 @@ func TestFromIR_InvalidDestination(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := FromIR(node, tt.dest)
+			err := FromTonyIR(node, tt.dest)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("FromIR() error = %v, wantErr %v", err, tt.wantErr)
 			}

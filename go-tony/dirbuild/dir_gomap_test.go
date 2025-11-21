@@ -1,13 +1,13 @@
 package dirbuild
 
 import (
+	"bytes"
 	"os"
 	"testing"
-	"bytes"
 
-	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/gomap"
+	"github.com/signadot/tony-format/go-tony/ir"
 )
 
 func TestDirGoMap(t *testing.T) {
@@ -19,7 +19,7 @@ func TestDirGoMap(t *testing.T) {
 		},
 		Patches: []DirPatch{
 			{
-				If: "zoo",
+				If:    "zoo",
 				Match: ir.Null().WithTag("!pass"),
 				Patch: ir.FromSlice([]*ir.Node{
 					ir.FromBool(true),
@@ -34,17 +34,17 @@ func TestDirGoMap(t *testing.T) {
 			),
 		},
 	}
-	n, err := gomap.ToIR(dir)
+	n, err := gomap.ToTonyIR(dir)
 	if err != nil {
 		t.Error(err)
 		return
 	}
 	altDir := &Dir{}
-	if err := gomap.FromIR(n, altDir); err != nil {
+	if err := gomap.FromTonyIR(n, altDir); err != nil {
 		t.Error(err)
 		return
 	}
-	back, err := gomap.ToIR(altDir)
+	back, err := gomap.ToTonyIR(altDir)
 	if err != nil {
 		t.Error(err)
 		return
