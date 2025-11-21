@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/ir"
 )
 
-// ToIR converts a Go value to a Tony IR node using schema-aware marshaling.
+// ToTonyIR converts a Go value to a Tony IR node using schema-aware marshaling.
 // It automatically uses a ToTony() method if available (user-implemented or generated),
 // otherwise falls back to schema-aware or reflection-based conversion.
-func (m *Mapper) ToIR(v interface{}) (*ir.Node, error) {
+func (m *Mapper) ToTonyIR(v interface{}, opts ...encode.EncodeOption) (*ir.Node, error) {
 	if v == nil {
 		return ir.Null(), nil
 	}
@@ -19,18 +20,18 @@ func (m *Mapper) ToIR(v interface{}) (*ir.Node, error) {
 	typ := val.Type()
 
 	// Check for ToTony() method on the value type (works for both value and pointer types)
-	if method := val.MethodByName("ToTony"); method.IsValid() {
-		return callToTony(method)
+	if method := val.MethodByName("ToTonyIR"); method.IsValid() {
+		return callToTonyIR(method, opts...)
 	}
 
 	// If v is a value type, check if pointer type has the method
 	if typ.Kind() != reflect.Ptr {
 		ptrType := reflect.PtrTo(typ)
-		if _, ok := ptrType.MethodByName("ToTony"); ok {
+		if _, ok := ptrType.MethodByName("ToTonyIR"); ok {
 			// Create a pointer to the value and call the method
 			ptrVal := reflect.New(typ)
 			ptrVal.Elem().Set(val)
-			return callToTony(ptrVal.MethodByName("ToTony"))
+			return callToTonyIR(ptrVal.MethodByName("ToTonyIR"), opts...)
 		}
 	}
 
@@ -42,7 +43,7 @@ func (m *Mapper) ToIR(v interface{}) (*ir.Node, error) {
 
 	if structSchema != nil && typ.Kind() == reflect.Struct {
 		// Schema-aware marshaling
-		return m.toIRWithSchema(val, typ, structSchema)
+		return m.toIRWithSchema(val, typ, structSchema, opts...)
 	}
 
 	// Fall back to reflection-based conversion
@@ -50,7 +51,7 @@ func (m *Mapper) ToIR(v interface{}) (*ir.Node, error) {
 }
 
 // toIRWithSchema performs schema-aware marshaling of a struct.
-func (m *Mapper) toIRWithSchema(val reflect.Value, typ reflect.Type, structSchema *StructSchema) (*ir.Node, error) {
+func (m *Mapper) toIRWithSchema(val reflect.Value, typ reflect.Type, structSchema *StructSchema, opts ...encode.EncodeOption) (*ir.Node, error) {
 	// Resolve schema via registry
 	schema, err := m.resolveSchema(structSchema.SchemaName)
 	if err != nil {
@@ -61,7 +62,7 @@ func (m *Mapper) toIRWithSchema(val reflect.Value, typ reflect.Type, structSchem
 
 	if schema == nil {
 		// Schema not found - fall back to reflection
-		return toIRReflect(val.Interface())
+		return toIRReflect(val.Interface(), opts...)
 	}
 
 	// Use GetStructFields to get field metadata
@@ -92,7 +93,7 @@ func (m *Mapper) toIRWithSchema(val reflect.Value, typ reflect.Type, structSchem
 		}
 
 		// Use SchemaFieldName instead of Go field name
-		fieldNode, err := toIRReflectValue(fieldVal, fieldInfo.SchemaFieldName, visited)
+		fieldNode, err := toIRReflectValue(fieldVal, fieldInfo.SchemaFieldName, visited, opts...)
 		if err != nil {
 			return nil, &MarshalError{
 				FieldPath: fieldInfo.SchemaFieldName,

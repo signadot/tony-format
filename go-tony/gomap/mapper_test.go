@@ -39,9 +39,9 @@ func TestMapper_ToIR_WithSchema(t *testing.T) {
 		}
 
 		person := Person{Name: "Alice", Age: 30}
-		node, err := mapper.ToIR(person)
+		node, err := mapper.ToTonyIR(person)
 		if err != nil {
-			t.Fatalf("ToIR() error = %v", err)
+			t.Fatalf("ToTonyIR() error = %v", err)
 		}
 
 		if node.Tag != "!person" {
@@ -80,9 +80,9 @@ func TestMapper_ToIR_WithSchema(t *testing.T) {
 
 		person := Person{Name: "Bob", Age: 25}
 		// Use the package-level ToIR function (not mapper) for reflection-only mode
-		node, err := ToIR(person)
+		node, err := ToTonyIR(person)
 		if err != nil {
-			t.Fatalf("ToIR() error = %v", err)
+			t.Fatalf("ToTonyIR() error = %v", err)
 		}
 
 		// Should not have schema tag
@@ -141,7 +141,7 @@ func TestMapper_FromIR_WithSchema(t *testing.T) {
 		node.Tag = "!person"
 
 		var person Person
-		err := mapper.FromIR(node, &person)
+		err := mapper.FromTonyIR(node, &person)
 		if err != nil {
 			t.Fatalf("FromIR() error = %v", err)
 		}
@@ -168,7 +168,7 @@ func TestMapper_FromIR_WithSchema(t *testing.T) {
 		node.Tag = "!person"
 
 		var person Person
-		err := mapper.FromIR(node, &person)
+		err := mapper.FromTonyIR(node, &person)
 		if err == nil {
 			t.Error("FromIR() should error on missing required field")
 		}
@@ -190,7 +190,7 @@ func TestMapper_FromIR_WithSchema(t *testing.T) {
 		node.Tag = "!person"
 
 		var person Person
-		err := mapper.FromIR(node, &person)
+		err := mapper.FromTonyIR(node, &person)
 		if err == nil {
 			t.Error("FromIR() should error on extra field when allowExtra is false")
 		}
@@ -212,7 +212,7 @@ func TestMapper_FromIR_WithSchema(t *testing.T) {
 		node.Tag = "!person"
 
 		var person Person
-		err := mapper.FromIR(node, &person)
+		err := mapper.FromTonyIR(node, &person)
 		if err != nil {
 			t.Fatalf("FromIR() error = %v (should allow extra fields)", err)
 		}
@@ -235,9 +235,9 @@ func TestMapper_FromIR_WithSchema(t *testing.T) {
 
 		var person Person
 		// Use the package-level FromIR function (not mapper) for reflection-only mode
-		err := FromIR(node, &person)
+		err := FromTonyIR(node, &person)
 		if err != nil {
-			t.Fatalf("FromIR() error = %v", err)
+			t.Fatalf("FromTonyIR() error = %v", err)
 		}
 
 		if person.Name != "Grace" {
@@ -280,9 +280,9 @@ func TestMapper_ToIR_OptionalFields(t *testing.T) {
 		}
 
 		person := Person{Name: "Alice", Age: nil} // Age is zero value
-		node, err := mapper.ToIR(person)
+		node, err := mapper.ToTonyIR(person)
 		if err != nil {
-			t.Fatalf("ToIR() error = %v", err)
+			t.Fatalf("ToTonyIR() error = %v", err)
 		}
 
 		fieldMap := make(map[string]*ir.Node)
@@ -311,9 +311,9 @@ func TestMapper_ToIR_OptionalFields(t *testing.T) {
 
 		age := 30
 		person := Person{Name: "Bob", Age: &age}
-		node, err := mapper.ToIR(person)
+		node, err := mapper.ToTonyIR(person)
 		if err != nil {
-			t.Fatalf("ToIR() error = %v", err)
+			t.Fatalf("ToTonyIR() error = %v", err)
 		}
 
 		fieldMap := make(map[string]*ir.Node)

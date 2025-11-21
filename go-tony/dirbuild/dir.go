@@ -84,7 +84,7 @@ func initDir(dir *Dir, node *ir.Node, path string, env map[string]*ir.Node) (*Di
 			oDir = node.Values[0]
 		}
 	}
-	if err := gomap.FromIR(oDir, dir); err != nil {
+	if err := gomap.FromTonyIR(oDir, dir); err != nil {
 		return nil, err
 	}
 	if dir.Suffix == "" {

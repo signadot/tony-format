@@ -7,7 +7,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 )
 
-func TestToIR_BasicTypes(t *testing.T) {
+func TestToTonyIR_BasicTypes(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    interface{}
@@ -88,12 +88,12 @@ func TestToIR_BasicTypes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			node, err := ToIR(tt.input)
+			node, err := ToTonyIR(tt.input)
 			if err != nil {
-				t.Fatalf("ToIR() error = %v", err)
+				t.Fatalf("ToTonyIR() error = %v", err)
 			}
 			if node.Type != tt.wantType {
-				t.Errorf("ToIR() type = %v, want %v", node.Type, tt.wantType)
+				t.Errorf("ToTonyIR() type = %v, want %v", node.Type, tt.wantType)
 			}
 			if tt.checkIR != nil {
 				tt.checkIR(t, node)
@@ -102,17 +102,17 @@ func TestToIR_BasicTypes(t *testing.T) {
 	}
 }
 
-func TestToIR_Nil(t *testing.T) {
-	node, err := ToIR(nil)
+func TestToTonyIR_Nil(t *testing.T) {
+	node, err := ToTonyIR(nil)
 	if err != nil {
-		t.Fatalf("ToIR(nil) error = %v", err)
+		t.Fatalf("ToTonyIR(nil) error = %v", err)
 	}
 	if node.Type != ir.NullType {
-		t.Errorf("ToIR(nil) type = %v, want %v", node.Type, ir.NullType)
+		t.Errorf("ToTonyIR(nil) type = %v, want %v", node.Type, ir.NullType)
 	}
 }
 
-func TestToIR_Pointers(t *testing.T) {
+func TestToTonyIR_Pointers(t *testing.T) {
 	str := "hello"
 	strPtr := &str
 	var nilStrPtr *string
@@ -152,12 +152,12 @@ func TestToIR_Pointers(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			node, err := ToIR(tt.input)
+			node, err := ToTonyIR(tt.input)
 			if err != nil {
-				t.Fatalf("ToIR() error = %v", err)
+				t.Fatalf("ToTonyIR() error = %v", err)
 			}
 			if node.Type != tt.wantType {
-				t.Errorf("ToIR() type = %v, want %v", node.Type, tt.wantType)
+				t.Errorf("ToTonyIR() type = %v, want %v", node.Type, tt.wantType)
 			}
 			if tt.checkIR != nil {
 				tt.checkIR(t, node)
@@ -170,12 +170,12 @@ func intPtrMarshal(i int) *int {
 	return &i
 }
 
-func TestToIR_Slices(t *testing.T) {
+func TestToTonyIR_Slices(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    interface{}
-		wantLen  int
-		checkIR  func(*testing.T, *ir.Node)
+		name    string
+		input   interface{}
+		wantLen int
+		checkIR func(*testing.T, *ir.Node)
 	}{
 		{
 			name:    "string slice",
@@ -229,15 +229,15 @@ func TestToIR_Slices(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			node, err := ToIR(tt.input)
+			node, err := ToTonyIR(tt.input)
 			if err != nil {
-				t.Fatalf("ToIR() error = %v", err)
+				t.Fatalf("ToTonyIR() error = %v", err)
 			}
 			if node.Type != ir.ArrayType {
-				t.Errorf("ToIR() type = %v, want %v", node.Type, ir.ArrayType)
+				t.Errorf("ToTonyIR() type = %v, want %v", node.Type, ir.ArrayType)
 			}
 			if len(node.Values) != tt.wantLen {
-				t.Errorf("ToIR() len = %d, want %d", len(node.Values), tt.wantLen)
+				t.Errorf("ToTonyIR() len = %d, want %d", len(node.Values), tt.wantLen)
 			}
 			if tt.checkIR != nil {
 				tt.checkIR(t, node)
@@ -246,21 +246,21 @@ func TestToIR_Slices(t *testing.T) {
 	}
 }
 
-func TestToIR_Arrays(t *testing.T) {
+func TestToTonyIR_Arrays(t *testing.T) {
 	arr := [3]int{1, 2, 3}
-	node, err := ToIR(arr)
+	node, err := ToTonyIR(arr)
 	if err != nil {
-		t.Fatalf("ToIR() error = %v", err)
+		t.Fatalf("ToTonyIR() error = %v", err)
 	}
 	if node.Type != ir.ArrayType {
-		t.Errorf("ToIR() type = %v, want %v", node.Type, ir.ArrayType)
+		t.Errorf("ToTonyIR() type = %v, want %v", node.Type, ir.ArrayType)
 	}
 	if len(node.Values) != 3 {
-		t.Errorf("ToIR() len = %d, want 3", len(node.Values))
+		t.Errorf("ToTonyIR() len = %d, want 3", len(node.Values))
 	}
 }
 
-func TestToIR_Maps(t *testing.T) {
+func TestToTonyIR_Maps(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   interface{}
@@ -318,9 +318,9 @@ func TestToIR_Maps(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			node, err := ToIR(tt.input)
+			node, err := ToTonyIR(tt.input)
 			if err != nil {
-				t.Fatalf("ToIR() error = %v", err)
+				t.Fatalf("ToTonyIR() error = %v", err)
 			}
 			if tt.checkIR != nil {
 				tt.checkIR(t, node)
@@ -329,16 +329,16 @@ func TestToIR_Maps(t *testing.T) {
 	}
 }
 
-func TestToIR_Structs(t *testing.T) {
+func TestToTonyIR_Structs(t *testing.T) {
 	type Person struct {
 		Name string
 		Age  int
 	}
 
 	p := Person{Name: "Alice", Age: 30}
-	node, err := ToIR(p)
+	node, err := ToTonyIR(p)
 	if err != nil {
-		t.Fatalf("ToIR() error = %v", err)
+		t.Fatalf("ToTonyIR() error = %v", err)
 	}
 	if node.Type != ir.ObjectType {
 		t.Fatalf("expected ObjectType, got %v", node.Type)
@@ -353,7 +353,7 @@ func TestToIR_Structs(t *testing.T) {
 	}
 }
 
-func TestToIR_StructsWithUnexportedFields(t *testing.T) {
+func TestToTonyIR_StructsWithUnexportedFields(t *testing.T) {
 	type Person struct {
 		Name     string
 		age      int // unexported
@@ -361,9 +361,9 @@ func TestToIR_StructsWithUnexportedFields(t *testing.T) {
 	}
 
 	p := Person{Name: "Alice", age: 25, Exported: 100}
-	node, err := ToIR(p)
+	node, err := ToTonyIR(p)
 	if err != nil {
-		t.Fatalf("ToIR() error = %v", err)
+		t.Fatalf("ToTonyIR() error = %v", err)
 	}
 
 	irMap := ir.ToMap(node)
@@ -379,7 +379,7 @@ func TestToIR_StructsWithUnexportedFields(t *testing.T) {
 	}
 }
 
-func TestToIR_EmbeddedStructs(t *testing.T) {
+func TestToTonyIR_EmbeddedStructs(t *testing.T) {
 	type Address struct {
 		Street string
 		City   string
@@ -395,9 +395,9 @@ func TestToIR_EmbeddedStructs(t *testing.T) {
 		Address: Address{Street: "123 Main", City: "NYC"},
 	}
 
-	node, err := ToIR(p)
+	node, err := ToTonyIR(p)
 	if err != nil {
-		t.Fatalf("ToIR() error = %v", err)
+		t.Fatalf("ToTonyIR() error = %v", err)
 	}
 
 	irMap := ir.ToMap(node)
@@ -413,7 +413,7 @@ func TestToIR_EmbeddedStructs(t *testing.T) {
 	}
 }
 
-func TestToIR_NestedStructs(t *testing.T) {
+func TestToTonyIR_NestedStructs(t *testing.T) {
 	type Address struct {
 		Street string
 		City   string
@@ -429,9 +429,9 @@ func TestToIR_NestedStructs(t *testing.T) {
 		Address: Address{Street: "456 Oak", City: "LA"},
 	}
 
-	node, err := ToIR(p)
+	node, err := ToTonyIR(p)
 	if err != nil {
-		t.Fatalf("ToIR() error = %v", err)
+		t.Fatalf("ToTonyIR() error = %v", err)
 	}
 
 	irMap := ir.ToMap(node)
@@ -449,7 +449,7 @@ func TestToIR_NestedStructs(t *testing.T) {
 	}
 }
 
-func TestToIR_ComplexNested(t *testing.T) {
+func TestToTonyIR_ComplexNested(t *testing.T) {
 	type Address struct {
 		Street string
 		City   string
@@ -472,9 +472,9 @@ func TestToIR_ComplexNested(t *testing.T) {
 		},
 	}
 
-	node, err := ToIR(p)
+	node, err := ToTonyIR(p)
 	if err != nil {
-		t.Fatalf("ToIR() error = %v", err)
+		t.Fatalf("ToTonyIR() error = %v", err)
 	}
 
 	irMap := ir.ToMap(node)
@@ -501,7 +501,7 @@ func TestToIR_ComplexNested(t *testing.T) {
 	}
 }
 
-func TestToIR_WithToTonyMethod(t *testing.T) {
+func TestToTonyIR_WithToTonyMethod(t *testing.T) {
 	type CustomType struct {
 		Value string
 	}
@@ -513,9 +513,9 @@ func TestToIR_WithToTonyMethod(t *testing.T) {
 	// by creating a type that implements the interface
 
 	// For now, just verify reflection fallback works
-	node, err := ToIR(ct)
+	node, err := ToTonyIR(ct)
 	if err != nil {
-		t.Fatalf("ToIR() error = %v", err)
+		t.Fatalf("ToTonyIR() error = %v", err)
 	}
 	if node.Type != ir.ObjectType {
 		t.Errorf("expected ObjectType, got %v", node.Type)
