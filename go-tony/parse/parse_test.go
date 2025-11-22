@@ -3,6 +3,7 @@ package parse
 import (
 	"os"
 	"testing"
+
 	"github.com/signadot/tony-format/go-tony/encode"
 )
 
@@ -194,6 +195,37 @@ ytool:
 		}
 		encode.Encode(node, os.Stdout, encode.EncodeColors(encode.NewColors()), encode.EncodeComments(true))
 		t.Logf("\n%s\n", encode.MustString(node))
+	}
+}
+
+func TestParseMulti(t *testing.T) {
+	in := `
+doc1: true
+---
+doc2: false
+---
+doc3:
+- 1
+- 2
+`
+	nodes, err := ParseMulti([]byte(in))
+	if err != nil {
+		t.Fatalf("ParseMulti failed: %v", err)
+	}
+
+	if len(nodes) != 3 {
+		t.Fatalf("expected 3 documents, got %d", len(nodes))
+	}
+
+	// Verify content
+	if nodes[0].Fields[0].String != "doc1" {
+		t.Errorf("doc1 key mismatch")
+	}
+	if nodes[1].Fields[0].String != "doc2" {
+		t.Errorf("doc2 key mismatch")
+	}
+	if len(nodes[2].Values[0].Values) != 2 {
+		t.Errorf("doc3 array length mismatch")
 	}
 }
 

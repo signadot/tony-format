@@ -39,6 +39,68 @@ func Parse(d []byte, opts ...ParseOption) (*ir.Node, error) {
 	return res, nil
 }
 
+// ParseMulti parses multiple Tony documents separated by '---' from a single byte slice.
+// It preserves global positions for all documents.
+func ParseMulti(d []byte, opts ...ParseOption) ([]*ir.Node, error) {
+	pOpts := &parseOpts{format: format.TonyFormat}
+	for _, f := range opts {
+		f(pOpts)
+	}
+	toks, err := token.Tokenize(nil, d, pOpts.TokenizeOpts()...)
+	if err != nil {
+		return nil, err
+	}
+
+	var nodes []*ir.Node
+	var currentToks []token.Token
+
+	for i := 0; i < len(toks); i++ {
+		t := toks[i]
+		if t.Type != token.TDocSep {
+			currentToks = append(currentToks, t)
+			continue
+		}
+		if len(currentToks) == 0 {
+			continue
+		}
+		node, err := parseTokens(currentToks, pOpts)
+		if err != nil {
+			return nil, err
+		}
+		nodes = append(nodes, node)
+		currentToks = nil
+	}
+
+	// Parse the last document if any tokens remain
+	if len(currentToks) > 0 {
+		node, err := parseTokens(currentToks, pOpts)
+		if err != nil {
+			return nil, err
+		}
+		nodes = append(nodes, node)
+	}
+
+	return nodes, nil
+}
+
+func parseTokens(toks []token.Token, pOpts *parseOpts) (*ir.Node, error) {
+	bal, err := token.Balance(toks, pOpts.format)
+	if err != nil {
+		return nil, err
+	}
+	off := 0
+	res, err := parseBalanced(bal, nil, "", &off, pOpts)
+	if err != nil {
+		return nil, err
+	}
+	if res == nil {
+		return nil, nil
+	}
+	if pOpts.comments {
+		res = associateComments(res)
+	}
+	return res, nil
+}
 func trackPos(node *ir.Node, pos *token.Pos, opts *parseOpts) {
 	if opts.positions != nil && pos != nil {
 		opts.positions[node] = pos
