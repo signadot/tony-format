@@ -20,7 +20,7 @@ type document struct {
 	uri       string
 	content   string
 	version   int32
-	node      *ir.Node
+	nodes     []*ir.Node
 	positions map[*ir.Node]*token.Pos
 }
 
@@ -36,14 +36,14 @@ func (ds *documentStore) put(uri string, content string, version int32) {
 
 	// Parse with position tracking
 	positions := make(map[*ir.Node]*token.Pos)
-	node, err := parse.Parse([]byte(content), parse.ParseTony(), parse.ParsePositions(positions))
+	nodes, err := parse.ParseMulti([]byte(content), parse.ParseTony(), parse.ParsePositions(positions))
 	if err != nil {
-		// Store nil node on parse error, but keep the content
+		// Store nil nodes on parse error, but keep the content
 		ds.docs[uri] = &document{
 			uri:       uri,
 			content:   content,
 			version:   version,
-			node:      nil,
+			nodes:     nil,
 			positions: positions,
 		}
 		return
@@ -53,7 +53,7 @@ func (ds *documentStore) put(uri string, content string, version int32) {
 		uri:       uri,
 		content:   content,
 		version:   version,
-		node:      node,
+		nodes:     nodes,
 		positions: positions,
 	}
 }
@@ -83,7 +83,7 @@ func (s *Server) publishDiagnostics(ctx context.Context, uri string) {
 func (s *Server) validateDocument(doc *document) []protocol.Diagnostic {
 	diagnostics := []protocol.Diagnostic{}
 
-	if doc.node == nil {
+	if len(doc.nodes) == 0 {
 		// Parse error - try to get position from error
 		_, err := parse.Parse([]byte(doc.content), parse.ParseTony())
 		if err != nil {

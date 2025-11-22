@@ -112,7 +112,7 @@ func findTokenInLine(line string, startCol int, tokenText string) (int, int) {
 
 // collectSemanticTokens traverses the AST and collects semantic tokens
 func (s *Server) collectSemanticTokens(doc *document) []uint32 {
-	if doc.node == nil {
+	if len(doc.nodes) == 0 {
 		return nil
 	}
 
@@ -295,7 +295,9 @@ func (s *Server) collectSemanticTokens(doc *document) []uint32 {
 		}
 	}
 
-	visit(doc.node)
+	for _, root := range doc.nodes {
+		visit(root)
+	}
 
 	// Sort tokens by line and character (required for LSP delta encoding)
 	sort.Slice(tokenList, func(i, j int) bool {
@@ -368,7 +370,7 @@ func (s *Server) collectSemanticTokens(doc *document) []uint32 {
 
 func (s *Server) SemanticTokensFull(ctx context.Context, params *protocol.SemanticTokensParams) (*protocol.SemanticTokens, error) {
 	doc := s.docs.get(string(params.TextDocument.URI))
-	if doc == nil || doc.node == nil {
+	if doc == nil || len(doc.nodes) == 0 {
 		return &protocol.SemanticTokens{
 			Data: []uint32{},
 		}, nil
@@ -383,7 +385,7 @@ func (s *Server) SemanticTokensFull(ctx context.Context, params *protocol.Semant
 
 func (s *Server) SemanticTokensRange(ctx context.Context, params *protocol.SemanticTokensRangeParams) (*protocol.SemanticTokens, error) {
 	doc := s.docs.get(string(params.TextDocument.URI))
-	if doc == nil || doc.node == nil {
+	if doc == nil || len(doc.nodes) == 0 {
 		return &protocol.SemanticTokens{
 			Data: []uint32{},
 		}, nil

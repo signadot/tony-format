@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"context"
 
-	"go.lsp.dev/protocol"
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/format"
 	"github.com/signadot/tony-format/go-tony/parse"
+	"go.lsp.dev/protocol"
 )
 
 func (s *Server) Formatting(ctx context.Context, params *protocol.DocumentFormattingParams) ([]protocol.TextEdit, error) {
@@ -17,7 +17,7 @@ func (s *Server) Formatting(ctx context.Context, params *protocol.DocumentFormat
 	}
 
 	// Parse the document
-	node, err := parse.Parse([]byte(doc.content), parse.ParseTony())
+	nodes, err := parse.ParseMulti([]byte(doc.content), parse.ParseTony())
 	if err != nil {
 		// If parsing fails, return no edits
 		return nil, nil
@@ -25,12 +25,17 @@ func (s *Server) Formatting(ctx context.Context, params *protocol.DocumentFormat
 
 	// Format the document
 	var buf bytes.Buffer
-	err = encode.Encode(node, &buf,
-		encode.EncodeFormat(format.TonyFormat),
-		encode.EncodeComments(true),
-	)
-	if err != nil {
-		return nil, nil
+	for i, node := range nodes {
+		if i > 0 {
+			buf.WriteString("\n---\n")
+		}
+		err = encode.Encode(node, &buf,
+			encode.EncodeFormat(format.TonyFormat),
+			encode.EncodeComments(true),
+		)
+		if err != nil {
+			return nil, nil
+		}
 	}
 
 	formatted := buf.String()
