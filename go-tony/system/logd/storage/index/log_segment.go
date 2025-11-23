@@ -1,5 +1,9 @@
 package index
 
+import (
+	"slices"
+)
+
 type LogSegment struct {
 	StartCommit int64
 	StartTx     int64
@@ -20,4 +24,12 @@ func PointLogSegment(c, tx int64, p string) *LogSegment {
 
 func (s *LogSegment) IsPoint() bool {
 	return s.StartCommit == s.EndCommit
+}
+
+// SortLogSegments sorts a slice of LogSegment pointers by commit count, then tx.
+func SortLogSegments(segments []*LogSegment) {
+	// Use the existing LogSegCompare function
+	slices.SortFunc(segments, func(a, b *LogSegment) int {
+		return LogSegCompare(*a, *b)
+	})
 }

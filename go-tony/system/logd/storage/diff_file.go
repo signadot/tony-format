@@ -10,6 +10,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 )
 
 // DiffFile represents a diff file on disk.
@@ -63,7 +64,8 @@ func (s *Storage) WriteDiffAtomically(virtualPath string, timestamp string, diff
 		}
 	}
 	// Write index with seq lock
-	s.index.Add(virtualPath, state)
+	//
+	s.index.Add(index.PointLogSegment(state.CommitCount, state.TxSeq, virtualPath))
 
 	return commitCount, txSeq, nil
 }
