@@ -12,7 +12,7 @@ import (
 
 func (s *Server) Hover(ctx context.Context, params *protocol.HoverParams) (*protocol.Hover, error) {
 	doc := s.docs.get(string(params.TextDocument.URI))
-	if doc == nil || doc.node == nil {
+	if doc == nil || len(doc.nodes) == 0 {
 		return nil, nil
 	}
 
@@ -21,7 +21,13 @@ func (s *Server) Hover(ctx context.Context, params *protocol.HoverParams) (*prot
 	col := int(pos.Character)
 
 	// Find the node at the given position using tracked positions
-	targetNode := s.findNodeAtPosition(doc.node, doc.positions, line, col)
+	var targetNode *ir.Node
+	for _, root := range doc.nodes {
+		targetNode = s.findNodeAtPosition(root, doc.positions, line, col)
+		if targetNode != nil {
+			break
+		}
+	}
 	if targetNode == nil {
 		return nil, nil
 	}
