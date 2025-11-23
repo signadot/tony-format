@@ -13,11 +13,12 @@ import (
 // Storage provides filesystem-based storage for logd.
 type Storage struct {
 	*seq.Seq
-	umask  int // Umask to apply when creating directories
-	FS     *FS
-	logMu  sync.RWMutex
-	logger *slog.Logger // Logger for error logging
-	index  *index.Index
+	umask   int // Umask to apply when creating directories
+	FS      *FS
+	logMu   sync.RWMutex
+	log     *slog.Logger // Logger for error logging
+	indexMu sync.RWMutex
+	index   *index.Index
 }
 
 // Open opens or creates a Storage instance with the given root directory.
@@ -28,7 +29,7 @@ func Open(root string, umask int, logger *slog.Logger) (*Storage, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	s := &Storage{Seq: seq.NewSeq(root), FS: &FS{Root: root}, umask: umask, logger: logger, index: index.NewIndex("")}
+	s := &Storage{Seq: seq.NewSeq(root), FS: &FS{Root: root}, umask: umask, log: logger, index: index.NewIndex("")}
 	if err := s.init(); err != nil {
 		return nil, err
 	}
@@ -55,6 +56,24 @@ func (s *Storage) init() error {
 			return err
 		}
 	}
+	// Rebuild index from filesystem
+	idx, err := index.Build(
+		filepath.Join(s.Root, "paths"),
+		func(path string) (*index.LogSegment, error) {
+			dir, base := filepath.Split(path)
+			virtualPath := s.FS.FilesystemToPath(dir)
+			seg, err := s.FS.ParseLogSegment(filepath.Join(virtualPath, base))
+			if err != nil {
+				s.log.Warn("error getting parse log segment", "error", err, "fs", path, "virt", virtualPath)
+				return nil, err
+			}
+			return seg, nil
+		},
+	)
+	if err != nil {
+		return err
+	}
+	s.index = idx
 
 	// Initialize sequence number file if it doesn't exist
 	seqFile := filepath.Join(s.Root, "meta", "seq")

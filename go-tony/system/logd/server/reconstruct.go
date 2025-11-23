@@ -12,7 +12,7 @@ import (
 // Returns the reconstructed state and the actual commit count.
 func (s *Server) reconstructState(virtualPath string, targetCommitCount *int64) (*ir.Node, int64, error) {
 	// List all diffs for this path
-	diffList, err := s.storage.ListDiffs(virtualPath)
+	diffList, err := s.Config.Storage.ListDiffs(virtualPath)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list diffs: %w", err)
 	}
@@ -43,7 +43,7 @@ func (s *Server) reconstructState(virtualPath string, targetCommitCount *int64) 
 	// Apply diffs sequentially
 	for _, diffInfo := range diffsToApply {
 		// Read the diff file
-		diffFile, err := s.storage.ReadDiff(virtualPath, diffInfo.CommitCount, diffInfo.TxSeq, false)
+		diffFile, err := s.Config.Storage.ReadDiff(virtualPath, diffInfo.CommitCount, diffInfo.TxSeq, false)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to read diff: %w", err)
 		}

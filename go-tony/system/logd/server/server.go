@@ -2,28 +2,41 @@ package server
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
+	"os"
 	"sync"
 
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 )
 
 // Server represents the logd HTTP server.
 type Server struct {
-	storage     *storage.Storage
+	Config      Config
 	txWaitersMu sync.Mutex
 	txWaiters   map[string]*transactionWaiter // transactionID -> waiter
 }
 
 // New creates a new Server instance.
-func New(s *storage.Storage) *Server {
+func New(cfg *Config) *Server {
+	if cfg.Log == nil {
+		cfg.Log = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slogLevel(),
+		}))
+	}
 	return &Server{
-		storage:   s,
+		Config:    *cfg,
 		txWaiters: make(map[string]*transactionWaiter),
 	}
+}
+
+func slogLevel() slog.Level {
+	if os.Getenv("DEBUG") != "" {
+		return slog.LevelDebug
+	}
+	return slog.LevelInfo
 }
 
 // acquireWaiter gets or creates a waiter for a transaction and increments its reference count.

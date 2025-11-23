@@ -27,7 +27,7 @@ func TestRoundTrip_PatchThenMatch(t *testing.T) {
 		t.Fatalf("failed to open storage: %v", err)
 	}
 
-	server := New(s)
+	server := New(&Config{Storage: s})
 
 	// Step 1: Write a diff using PATCH
 	writeRequestBody := `path: /proc/processes
@@ -179,7 +179,7 @@ func TestRoundTrip_MultipleWritesThenRead(t *testing.T) {
 		t.Fatalf("failed to open storage: %v", err)
 	}
 
-	server := New(s)
+	server := New(&Config{Storage: s})
 
 	// Write multiple diffs
 	processes := []struct {

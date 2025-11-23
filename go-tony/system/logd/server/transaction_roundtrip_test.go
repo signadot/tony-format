@@ -28,7 +28,7 @@ func TestTransactionRoundTrip_CreateThenMatch(t *testing.T) {
 		t.Fatalf("failed to open storage: %v", err)
 	}
 
-	server := New(s)
+	server := New(&Config{Storage: s})
 
 	// Step 1: Create a transaction
 	createRequestBody := `path: /api/transactions
@@ -165,7 +165,7 @@ func TestTransactionRoundTrip_CreateThenAbort(t *testing.T) {
 		t.Fatalf("failed to open storage: %v", err)
 	}
 
-	server := New(s)
+	server := New(&Config{Storage: s})
 
 	// Step 1: Create a transaction
 	createRequestBody := `path: /api/transactions
@@ -302,7 +302,7 @@ func TestTransactionRoundTrip_AbortNonExistent(t *testing.T) {
 		t.Fatalf("failed to open storage: %v", err)
 	}
 
-	server := New(s)
+	server := New(&Config{Storage: s})
 
 	// Try to abort non-existent transaction
 	abortRequestBody := `path: /api/transactions
@@ -339,7 +339,7 @@ func TestTransactionRoundTrip_MatchNonExistent(t *testing.T) {
 		t.Fatalf("failed to open storage: %v", err)
 	}
 
-	server := New(s)
+	server := New(&Config{Storage: s})
 
 	// Try to match non-existent transaction
 	matchRequestBody := `path: /api/transactions

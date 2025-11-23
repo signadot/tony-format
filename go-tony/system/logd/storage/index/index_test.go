@@ -121,10 +121,10 @@ func TestIndexPersist(t *testing.T) {
 func TestIndexBuild(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create some dummy files
-	// file1: 10-100.diff (foo/bar)
-	// file2: 11-101.diff (foo)
-	// file3: ignored.txt
+	// Create test files simulating logd structure:
+	// - Root level files
+	// - Files in "children" subdirectories (logd organizational structure)
+	// - Files that should be ignored
 
 	createFile := func(name string) {
 		path := filepath.Join(tmpDir, name)
@@ -136,21 +136,32 @@ func TestIndexBuild(t *testing.T) {
 		}
 	}
 
-	createFile("10-100.diff")
-	createFile("11-101.diff")
+	createFile("c10-a100.diff")
+	createFile("c11-a101.diff")
 	createFile("ignored.txt")
+	// Simulate logd structure: paths/children/foo/c12-a102.diff
+	createFile("children/foo/c12-a102.diff")
 
-	// Extraction closure
+	// Extraction closure - responsible for filtering and path mapping
 	extract := func(path string) (*LogSegment, error) {
 		base := filepath.Base(path)
+
+		// Ignore non-diff files
 		if base == "ignored.txt" {
 			return nil, nil
 		}
-		if base == "10-100.diff" {
-			return PointLogSegment(10, 100, "foo/bar"), nil
+
+		// Simple extraction for test - in real usage, would use FS.ParseLogSegment
+		// and FS.FilesystemToPath to handle the path mapping
+		if base == "c10-a100.diff" {
+			return PointLogSegment(10, 100, ""), nil
 		}
-		if base == "11-101.diff" {
-			return PointLogSegment(11, 101, "foo"), nil
+		if base == "c11-a101.diff" {
+			return PointLogSegment(11, 101, ""), nil
+		}
+		if base == "c12-a102.diff" {
+			// This file is in children/foo/ which maps to virtual path "/foo"
+			return PointLogSegment(12, 102, "foo"), nil
 		}
 		return nil, nil
 	}
@@ -160,14 +171,15 @@ func TestIndexBuild(t *testing.T) {
 		t.Fatalf("Build failed: %v", err)
 	}
 
-	// Verify contents
-	got := idx.LookupRange("foo/bar", nil, nil)
-	want := []LogSegment{
-		*PointLogSegment(10, 100, "foo/bar"),
-		*PointLogSegment(11, 101, "foo"),
+	// Verify all files were processed correctly
+	allSegs := idx.LookupRange("", nil, nil)
+	if len(allSegs) != 3 {
+		t.Errorf("Expected 3 segments, got %d", len(allSegs))
 	}
 
-	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("Built Index mismatch (-want +got):\n%s", diff)
+	// Verify the file in children/foo/ was mapped to "foo" path
+	fooSegs := idx.LookupRange("foo", nil, nil)
+	if len(fooSegs) != 1 {
+		t.Errorf("Expected 1 segment at 'foo', got %d", len(fooSegs))
 	}
 }

@@ -24,7 +24,7 @@ func (s *Server) handleMatchTransaction(w http.ResponseWriter, r *http.Request, 
 	}
 
 	// Read transaction state
-	state, err := s.storage.ReadTransactionState(transactionID)
+	state, err := s.Config.Storage.ReadTransactionState(transactionID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, api.NewError("transaction_not_found", fmt.Sprintf("transaction not found: %v", err)))
 		return

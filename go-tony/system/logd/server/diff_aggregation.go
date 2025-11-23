@@ -15,7 +15,7 @@ import (
 // Returns nil if no child diffs exist.
 func (s *Server) aggregateChildDiffs(pathStr string, commitCount int64) (*ir.Node, error) {
 	// 1. List all child paths
-	children, err := s.storage.FS.ListChildPaths(pathStr)
+	children, err := s.Config.Storage.FS.ListChildPaths(pathStr)
 	if err != nil {
 		return nil, err
 	}
@@ -25,7 +25,7 @@ func (s *Server) aggregateChildDiffs(pathStr string, commitCount int64) (*ir.Nod
 	}
 
 	// 2. Check if this path is a sparse array
-	meta, err := s.storage.FS.ReadPathMetadata(pathStr)
+	meta, err := s.Config.Storage.FS.ReadPathMetadata(pathStr)
 	if err != nil {
 		panic(err)
 	}
@@ -78,7 +78,7 @@ func (s *Server) aggregateChildDiffs(pathStr string, commitCount int64) (*ir.Nod
 // This recursively aggregates the child's own children as well.
 func (s *Server) readChildDiffAtCommit(childPath string, commitCount int64) (*ir.Node, error) {
 	// Find the diff file for this path at the given commitCount
-	diffs, err := s.storage.ListDiffs(childPath)
+	diffs, err := s.Config.Storage.ListDiffs(childPath)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func (s *Server) readChildDiffAtCommit(childPath string, commitCount int64) (*ir
 	}
 
 	// Read the direct diff
-	diffFile, err := s.storage.ReadDiff(childPath, commitCount, txSeq, false)
+	diffFile, err := s.Config.Storage.ReadDiff(childPath, commitCount, txSeq, false)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +219,7 @@ func (s *Server) buildNestedDiff(parentPath, childPath string, childDiff *ir.Nod
 		parentOfSegment := filepath.Dir(currentPath)
 
 		// Check if parent is sparse array
-		meta, _ := s.storage.FS.ReadPathMetadata(parentOfSegment)
+		meta, _ := s.Config.Storage.FS.ReadPathMetadata(parentOfSegment)
 		isSparseArray := meta != nil && meta.IsSparseArray
 
 		if isSparseArray {
@@ -268,7 +268,7 @@ func (s *Server) listAllRelevantCommitCounts(pathStr string) ([]struct{ CommitCo
 func (s *Server) listAllRelevantCommitCountsWithDepth(pathStr string, depth, maxDepth int) ([]struct{ CommitCount, TxSeq int64 }, error) {
 
 	// Get direct diffs at this path
-	directDiffs, err := s.storage.ListDiffs(pathStr)
+	directDiffs, err := s.Config.Storage.ListDiffs(pathStr)
 	if err != nil {
 		return nil, err
 	}
@@ -280,7 +280,7 @@ func (s *Server) listAllRelevantCommitCountsWithDepth(pathStr string, depth, max
 	}
 
 	// Get child paths and their diffs
-	children, err := s.storage.FS.ListChildPaths(pathStr)
+	children, err := s.Config.Storage.FS.ListChildPaths(pathStr)
 	if err == nil && len(children) > 0 {
 		for _, childPath := range children {
 			childDiffs, err := s.listAllRelevantCommitCountsWithDepth(childPath, depth+1, maxDepth)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/encode"
@@ -75,7 +76,7 @@ func (s *Server) handleWatchData(w http.ResponseWriter, r *http.Request, body *a
 			lastCommitCount = *fromSeq - 1 // Start watching from the next one
 		} else {
 			// Get current state to know where to start watching
-			state, err := s.storage.CurrentSeqState()
+			state, err := s.Config.Storage.CurrentSeqState()
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to get current state: %v", err)))
 				return
@@ -103,9 +104,11 @@ func (s *Server) handleWatchData(w http.ResponseWriter, r *http.Request, body *a
 			// Check for new diffs (including from child paths)
 			currentDiffs, err := s.listAllRelevantCommitCounts(body.Path)
 			if err != nil {
+				s.Config.Log.Error("error listing relevant commits", "error", err)
 				// Log error but continue watching
 				continue
 			}
+			s.Config.Log.Debug("listed relevant", "n", len(currentDiffs))
 
 			// Find new diffs (commitCount > lastCommitCount)
 			// Since currentDiffs is sorted by commitCount, we can stream them in order
@@ -146,13 +149,15 @@ func (s *Server) streamDiff(w http.ResponseWriter, pathStr string, commitCount, 
 	var diffNode *ir.Node
 	var timestamp string
 
-	diffFile, err := s.storage.ReadDiff(pathStr, commitCount, txSeq, false)
+	diffFile, err := s.Config.Storage.ReadDiff(pathStr, commitCount, txSeq, false)
 	if err == nil {
 		diffNode = diffFile.Diff
 		timestamp = diffFile.Timestamp
+		//fmt.Fprintf(os.Stderr, "streamDiff: ReadDiff success for %s c%d t%d. Sparse: %v\n", pathStr, commitCount, txSeq, storage.HasSparseArrayTag(diffNode))
 	} else {
 		// No direct diff, use current timestamp
 		timestamp = ""
+		fmt.Fprintf(os.Stderr, "streamDiff: ReadDiff failed for %s c%d t%d: %v\n", pathStr, commitCount, txSeq, err)
 	}
 
 	// Aggregate child diffs hierarchically
@@ -160,11 +165,15 @@ func (s *Server) streamDiff(w http.ResponseWriter, pathStr string, commitCount, 
 	if err != nil {
 		// Silently continue with just the direct diff on error
 		childDiff = nil
+		fmt.Fprintf(os.Stderr, "streamDiff: aggregateChildDiffs failed for %s c%d: %v\n", pathStr, commitCount, err)
+	} else if childDiff != nil {
+		//fmt.Fprintf(os.Stderr, "streamDiff: childDiff found for %s c%d. Sparse: %v\n", pathStr, commitCount, storage.HasSparseArrayTag(childDiff))
 	}
 
 	// Merge direct and child diffs
 	finalDiff, err := mergeDiffs(diffNode, childDiff)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "streamDiff: mergeDiffs failed: %v\n", err)
 		return err
 	}
 

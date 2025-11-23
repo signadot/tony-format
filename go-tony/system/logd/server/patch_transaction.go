@@ -59,7 +59,7 @@ func (s *Server) handleCreateTransaction(w http.ResponseWriter, r *http.Request,
 	}
 
 	// Get next transaction sequence number
-	txSeq, err := s.storage.NextTxSeq()
+	txSeq, err := s.Config.Storage.NextTxSeq()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to get tx seq: %v", err)))
 		return
@@ -72,7 +72,7 @@ func (s *Server) handleCreateTransaction(w http.ResponseWriter, r *http.Request,
 	state := storage.NewTransactionState(transactionID, participantCount)
 
 	// Write transaction state
-	if err := s.storage.WriteTransactionState(state); err != nil {
+	if err := s.Config.Storage.WriteTransactionState(state); err != nil {
 		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to write transaction state: %v", err)))
 		return
 	}
@@ -110,7 +110,7 @@ func (s *Server) handleAbortTransaction(w http.ResponseWriter, r *http.Request, 
 	defer s.releaseWaiter(transactionID)
 
 	// Read transaction state
-	state, err := s.storage.ReadTransactionState(transactionID)
+	state, err := s.Config.Storage.ReadTransactionState(transactionID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, api.NewError("transaction_not_found", fmt.Sprintf("transaction not found: %v", err)))
 		return
@@ -130,7 +130,7 @@ func (s *Server) handleAbortTransaction(w http.ResponseWriter, r *http.Request, 
 			txSeqStr := strings.TrimSuffix(filename, ".pending")
 			if txSeq, err := strconv.ParseInt(txSeqStr, 10, 64); err == nil {
 				// Delete the pending file
-				if err := s.storage.FS.DeletePending(diff.Path, txSeq); err != nil {
+				if err := s.Config.Storage.FS.DeletePending(diff.Path, txSeq); err != nil {
 					// Log error but continue with abort
 					// TODO: Add proper logging
 				}
@@ -142,7 +142,7 @@ func (s *Server) handleAbortTransaction(w http.ResponseWriter, r *http.Request, 
 	state.Status = "aborted"
 	participantsDiscarded := state.ParticipantsReceived
 
-	if err := s.storage.WriteTransactionState(state); err != nil {
+	if err := s.Config.Storage.WriteTransactionState(state); err != nil {
 		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to update transaction state: %v", err)))
 		return
 	}

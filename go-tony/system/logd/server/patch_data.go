@@ -52,7 +52,7 @@ func (s *Server) handlePatchData(w http.ResponseWriter, r *http.Request, body *a
 	// Atomically allocate sequence numbers and write the diff
 	// This ensures files are written in the order sequence numbers are allocated,
 	// preventing race conditions where a later sequence number is written before an earlier one
-	commitCount, _, err := s.storage.WriteDiffAtomically(body.Path, timestamp, body.Patch, false)
+	commitCount, _, err := s.Config.Storage.WriteDiffAtomically(body.Path, timestamp, body.Patch, false)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to write diff: %v", err)))
 		return
@@ -92,7 +92,7 @@ func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.R
 	defer s.releaseWaiter(transactionID)
 
 	// Read transaction state
-	state, err := s.storage.ReadTransactionState(transactionID)
+	state, err := s.Config.Storage.ReadTransactionState(transactionID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, api.NewError("transaction_not_found", fmt.Sprintf("transaction not found: %v", err)))
 		return
@@ -115,14 +115,14 @@ func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.R
 
 	// Write diff as pending file
 	// Each write gets its own txSeq allocated atomically, but they're all part of the same transaction
-	_, writeTxSeq, err := s.storage.WriteDiffAtomically(pathStr, timestamp, body.Patch, true)
+	_, writeTxSeq, err := s.Config.Storage.WriteDiffAtomically(pathStr, timestamp, body.Patch, true)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to write pending diff: %v", err)))
 		return
 	}
 
 	// Get filesystem path for the pending file
-	fsPath := s.storage.FS.PathToFilesystem(pathStr)
+	fsPath := s.Config.Storage.FS.PathToFilesystem(pathStr)
 	pendingFilename := fmt.Sprintf("%d.pending", writeTxSeq)
 	pendingFilePath := filepath.Join(fsPath, pendingFilename)
 
@@ -147,7 +147,7 @@ func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.R
 	}
 
 	// Atomically update transaction state and check if we're the last participant
-	isLastParticipant, err := waiter.UpdateState(transactionID, s.storage, func(currentState *storage.TransactionState) {
+	isLastParticipant, err := waiter.UpdateState(transactionID, s.Config.Storage, func(currentState *storage.TransactionState) {
 		currentState.ParticipantsReceived++
 		currentState.Diffs = append(currentState.Diffs, storage.PendingDiff{
 			Path:      pathStr,
@@ -169,7 +169,7 @@ func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.R
 	var result *transactionResult
 	if isLastParticipant {
 		// Re-read state to get the final state with all diffs
-		finalState, err := s.storage.ReadTransactionState(transactionID)
+		finalState, err := s.Config.Storage.ReadTransactionState(transactionID)
 		if err != nil {
 			waiter.SetResult(&transactionResult{
 				committed: false,
@@ -224,7 +224,7 @@ func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.R
 // commitTransaction commits a transaction and notifies all waiting writes.
 func (s *Server) commitTransaction(transactionID string, state *storage.TransactionState, waiter *transactionWaiter) {
 	// Commit the transaction
-	commitCount, err := s.storage.NextCommitCount()
+	commitCount, err := s.Config.Storage.NextCommitCount()
 	if err != nil {
 		waiter.SetResult(&transactionResult{
 			committed: false,
@@ -256,13 +256,16 @@ func (s *Server) commitTransaction(transactionID string, state *storage.Transact
 		}
 
 		// Rename pending file to diff file
-		if err := s.storage.FS.RenamePendingToDiff(diff.Path, commitCount, diffTxSeq); err != nil {
+		if err := s.Config.Storage.FS.RenamePendingToDiff(diff.Path, commitCount, diffTxSeq); err != nil {
 			waiter.SetResult(&transactionResult{
 				committed: false,
 				err:       fmt.Errorf("failed to rename pending file: %w", err),
 			})
 			return
 		}
+
+		// Update index with the committed file
+		s.Config.Storage.AddIndexSegment(commitCount, diffTxSeq, diff.Path)
 
 		pendingFileRefs[i] = storage.PendingFileRef{
 			VirtualPath: diff.Path,
@@ -272,7 +275,7 @@ func (s *Server) commitTransaction(transactionID string, state *storage.Transact
 
 	// Write transaction log entry
 	logEntry := storage.NewTransactionLogEntry(commitCount, transactionID, pendingFileRefs)
-	if err := s.storage.AppendTransactionLog(logEntry); err != nil {
+	if err := s.Config.Storage.AppendTransactionLog(logEntry); err != nil {
 		waiter.SetResult(&transactionResult{
 			committed: false,
 			err:       fmt.Errorf("failed to write transaction log: %w", err),
@@ -282,7 +285,7 @@ func (s *Server) commitTransaction(transactionID string, state *storage.Transact
 
 	// Update transaction state to committed
 	state.Status = "committed"
-	if err := s.storage.WriteTransactionState(state); err != nil {
+	if err := s.Config.Storage.WriteTransactionState(state); err != nil {
 		waiter.SetResult(&transactionResult{
 			committed: false,
 			err:       fmt.Errorf("failed to update transaction state: %w", err),

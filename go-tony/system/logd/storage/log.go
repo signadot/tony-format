@@ -118,7 +118,7 @@ func (s *Storage) parseTransactionLogLines(data []byte) ([]*TransactionLogEntry,
 		}
 		entry := &TransactionLogEntry{}
 		if err := entry.FromTony([]byte(line)); err != nil {
-			s.logger.Warn("skipping invalid log entry", "error", err)
+			s.log.Warn("skipping invalid log entry", "error", err)
 			continue
 		}
 		entries = append(entries, entry)
@@ -293,7 +293,7 @@ func (s *Storage) RecoverTransactions() error {
 				} else {
 					// Only .pending exists - rename to .diff (complete the commit)
 					if err := os.Rename(pendingFile, diffFile); err != nil {
-						s.logger.Warn("failed to recover pending file", "path", ref.VirtualPath, "txSeq", ref.TxSeq, "error", err)
+						s.log.Warn("failed to recover pending file", "path", ref.VirtualPath, "txSeq", ref.TxSeq, "error", err)
 						allCommitted = false
 					}
 				}
@@ -301,7 +301,7 @@ func (s *Storage) RecoverTransactions() error {
 				// .pending doesn't exist, check if .diff exists
 				if _, err := os.Stat(diffFile); err != nil {
 					// Neither exists - log warning
-					s.logger.Warn("log entry references missing file", "path", ref.VirtualPath, "txSeq", ref.TxSeq)
+					s.log.Warn("log entry references missing file", "path", ref.VirtualPath, "txSeq", ref.TxSeq)
 				}
 			}
 		}
@@ -309,7 +309,7 @@ func (s *Storage) RecoverTransactions() error {
 		// If all files are committed, delete the transaction state file
 		if allCommitted {
 			if err := s.DeleteTransactionState(entry.TransactionID); err != nil {
-				s.logger.Warn("failed to delete committed transaction state", "transactionId", entry.TransactionID, "error", err)
+				s.log.Warn("failed to delete committed transaction state", "transactionId", entry.TransactionID, "error", err)
 			}
 		}
 	}

@@ -30,7 +30,7 @@ func TestWatchData_StreamsExistingDiffs(t *testing.T) {
 		t.Fatalf("failed to open storage: %v", err)
 	}
 
-	server := New(s)
+	server := New(&Config{Storage: s})
 
 	// Write some diffs first
 	processes := []struct {
@@ -170,7 +170,7 @@ func TestWatchData_RealTimeWatching(t *testing.T) {
 		t.Fatalf("failed to open storage: %v", err)
 	}
 
-	server := New(s)
+	server := New(&Config{Storage: s})
 
 	// Write initial diff
 	writeRequestBody := `path: /proc/processes
@@ -355,7 +355,7 @@ func TestWatchData_WithToSeq(t *testing.T) {
 		t.Fatalf("failed to open storage: %v", err)
 	}
 
-	server := New(s)
+	server := New(&Config{Storage: s})
 
 	// Write 3 diffs
 	for i := 1; i <= 3; i++ {
@@ -484,7 +484,7 @@ func TestWatchData_StateReconstruction(t *testing.T) {
 		t.Fatalf("failed to open storage: %v", err)
 	}
 
-	server := New(s)
+	server := New(&Config{Storage: s})
 
 	// Write multiple diffs
 	diffs := []string{
@@ -641,7 +641,7 @@ func TestWatchData_TransactionWrite(t *testing.T) {
 		t.Fatalf("failed to open storage: %v", err)
 	}
 
-	server := New(s)
+	server := New(&Config{Storage: s})
 
 	// Step 1: Create a transaction with 2 participants
 	createTxRequestBody := `path: /api/transactions

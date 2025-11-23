@@ -60,12 +60,13 @@ func (s *Storage) WriteDiffAtomically(virtualPath string, timestamp string, diff
 		meta := &PathMetadata{IsSparseArray: true}
 		if err := s.FS.WritePathMetadata(virtualPath, meta); err != nil {
 			// Log but don't fail the write - metadata is optional
-			s.logger.Warn("failed to write path metadata", "path", virtualPath, "error", err)
+			s.log.Warn("failed to write path metadata", "path", virtualPath, "error", err)
 		}
 	}
-	// Write index with seq lock
-	//
-	s.index.Add(index.PointLogSegment(state.CommitCount, state.TxSeq, virtualPath))
+	// Write index with seq lock if not pending
+	if !pending {
+		s.index.Add(index.PointLogSegment(state.CommitCount, state.TxSeq, virtualPath))
+	}
 
 	return commitCount, txSeq, nil
 }
@@ -180,4 +181,12 @@ func (s *Storage) ReadDiff(virtualPath string, commitCount, txSeq int64, pending
 		Diff:      diff,
 		Pending:   pending,
 	}, nil
+}
+
+// AddIndexSegment adds a segment to the index.
+// This is used by the server when committing transactions.
+func (s *Storage) AddIndexSegment(commitCount, txSeq int64, virtualPath string) {
+	s.indexMu.Lock()
+	s.index.Add(index.PointLogSegment(commitCount, txSeq, virtualPath))
+	s.indexMu.Unlock()
 }

@@ -4,11 +4,11 @@ package storage
 // Only returns .diff files, not .pending files.
 // Returns a slice of (commitCount, txSeq) pairs.
 func (s *Storage) ListDiffs(virtualPath string) ([]struct{ CommitCount, TxSeq int64 }, error) {
-	//fmt.Printf("listDiffs %q\n", virtualPath)
-	segments, err := s.FS.ListLogSegments(virtualPath)
-	if err != nil {
-		return nil, err
-	}
+	// Use index for fast lookup instead of filesystem
+	s.indexMu.RLock()
+	segments := s.index.LookupRange(virtualPath, nil, nil)
+	s.indexMu.RUnlock()
+
 	// Convert []*LogSegment to old format
 	var diffs []struct{ CommitCount, TxSeq int64 }
 	for _, seg := range segments {
