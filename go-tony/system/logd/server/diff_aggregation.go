@@ -15,7 +15,7 @@ import (
 // Returns nil if no child diffs exist.
 func (s *Server) aggregateChildDiffs(pathStr string, commitCount int64) (*ir.Node, error) {
 	// 1. List all child paths
-	children, err := s.storage.ListChildPaths(pathStr)
+	children, err := s.storage.FS.ListChildPaths(pathStr)
 	if err != nil {
 		return nil, err
 	}
@@ -25,7 +25,10 @@ func (s *Server) aggregateChildDiffs(pathStr string, commitCount int64) (*ir.Nod
 	}
 
 	// 2. Check if this path is a sparse array
-	meta, _ := s.storage.ReadPathMetadata(pathStr)
+	meta, err := s.storage.FS.ReadPathMetadata(pathStr)
+	if err != nil {
+		panic(err)
+	}
 	isSparseArray := meta != nil && meta.IsSparseArray
 
 	// 3. Build aggregated diff
@@ -216,7 +219,7 @@ func (s *Server) buildNestedDiff(parentPath, childPath string, childDiff *ir.Nod
 		parentOfSegment := filepath.Dir(currentPath)
 
 		// Check if parent is sparse array
-		meta, _ := s.storage.ReadPathMetadata(parentOfSegment)
+		meta, _ := s.storage.FS.ReadPathMetadata(parentOfSegment)
 		isSparseArray := meta != nil && meta.IsSparseArray
 
 		if isSparseArray {
@@ -277,7 +280,7 @@ func (s *Server) listAllRelevantCommitCountsWithDepth(pathStr string, depth, max
 	}
 
 	// Get child paths and their diffs
-	children, err := s.storage.ListChildPaths(pathStr)
+	children, err := s.storage.FS.ListChildPaths(pathStr)
 	if err == nil && len(children) > 0 {
 		for _, childPath := range children {
 			childDiffs, err := s.listAllRelevantCommitCountsWithDepth(childPath, depth+1, maxDepth)

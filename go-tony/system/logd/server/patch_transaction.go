@@ -130,7 +130,7 @@ func (s *Server) handleAbortTransaction(w http.ResponseWriter, r *http.Request, 
 			txSeqStr := strings.TrimSuffix(filename, ".pending")
 			if txSeq, err := strconv.ParseInt(txSeqStr, 10, 64); err == nil {
 				// Delete the pending file
-				if err := s.storage.DeletePending(diff.Path, txSeq); err != nil {
+				if err := s.storage.FS.DeletePending(diff.Path, txSeq); err != nil {
 					// Log error but continue with abort
 					// TODO: Add proper logging
 				}

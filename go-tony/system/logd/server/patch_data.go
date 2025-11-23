@@ -122,7 +122,7 @@ func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.R
 	}
 
 	// Get filesystem path for the pending file
-	fsPath := s.storage.PathToFilesystem(pathStr)
+	fsPath := s.storage.FS.PathToFilesystem(pathStr)
 	pendingFilename := fmt.Sprintf("%d.pending", writeTxSeq)
 	pendingFilePath := filepath.Join(fsPath, pendingFilename)
 
@@ -256,7 +256,7 @@ func (s *Server) commitTransaction(transactionID string, state *storage.Transact
 		}
 
 		// Rename pending file to diff file
-		if err := s.storage.RenamePendingToDiff(diff.Path, commitCount, diffTxSeq); err != nil {
+		if err := s.storage.FS.RenamePendingToDiff(diff.Path, commitCount, diffTxSeq); err != nil {
 			waiter.SetResult(&transactionResult{
 				committed: false,
 				err:       fmt.Errorf("failed to rename pending file: %w", err),

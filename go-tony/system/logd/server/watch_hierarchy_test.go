@@ -298,7 +298,7 @@ func TestHierarchicalWatch_TypeChangeConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Manually write metadata for sparse array
-	if err := s.WritePathMetadata("/root/conflict", &storage.PathMetadata{IsSparseArray: true}); err != nil {
+	if err := s.FS.WritePathMetadata("/root/conflict", &storage.PathMetadata{IsSparseArray: true}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -320,7 +320,7 @@ func TestHierarchicalWatch_TypeChangeConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Update metadata
-	if err := s.WritePathMetadata("/root/conflict", &storage.PathMetadata{IsSparseArray: false}); err != nil {
+	if err := s.FS.WritePathMetadata("/root/conflict", &storage.PathMetadata{IsSparseArray: false}); err != nil {
 		t.Fatal(err)
 	}
 

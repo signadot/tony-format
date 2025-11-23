@@ -56,7 +56,7 @@ func (s *Storage) WriteDiffAtomically(virtualPath string, timestamp string, diff
 
 	// Check if diff has !sparsearray tag and store metadata
 	// This is done after the diff is written to avoid blocking on metadata writes
-	if false && HasSparseArrayTag(diff) {
+	if HasSparseArrayTag(diff) {
 		meta := &PathMetadata{IsSparseArray: true}
 		if err := s.FS.WritePathMetadata(virtualPath, meta); err != nil {
 			// Log but don't fail the write - metadata is optional
