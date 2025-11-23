@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/encode"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 )
 
 // TransactionLogEntry represents a transaction commit log entry.
@@ -274,10 +275,12 @@ func (s *Storage) RecoverTransactions() error {
 		// Check if all pending files have been renamed to .diff
 		allCommitted := true
 		for _, ref := range entry.PendingFiles {
-			fsPath := s.PathToFilesystem(ref.VirtualPath)
-			// Pending files don't have commit count prefix
-			pendingFilename := formatDiffFilename(0, ref.TxSeq, "pending")
-			diffFilename := formatDiffFilename(entry.CommitCount, ref.TxSeq, "diff")
+			fsPath := s.FS.PathToFilesystem(ref.VirtualPath)
+			// Format filenames using FS
+			pendingSeg := index.PointLogSegment(0, ref.TxSeq, "")
+			pendingFilename := s.FS.FormatLogSegment(pendingSeg, true)
+			diffSeg := index.PointLogSegment(entry.CommitCount, ref.TxSeq, "")
+			diffFilename := s.FS.FormatLogSegment(diffSeg, false)
 			pendingFile := filepath.Join(fsPath, pendingFilename)
 			diffFile := filepath.Join(fsPath, diffFilename)
 

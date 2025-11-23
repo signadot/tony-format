@@ -14,6 +14,7 @@ import (
 type Storage struct {
 	*seq.Seq
 	umask  int // Umask to apply when creating directories
+	FS     *FS
 	logMu  sync.RWMutex
 	logger *slog.Logger // Logger for error logging
 	index  *index.Index
@@ -27,7 +28,7 @@ func Open(root string, umask int, logger *slog.Logger) (*Storage, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	s := &Storage{Seq: seq.NewSeq(root), umask: umask, logger: logger, index: index.NewIndex("")}
+	s := &Storage{Seq: seq.NewSeq(root), FS: &FS{Root: root}, umask: umask, logger: logger, index: index.NewIndex("")}
 	if err := s.init(); err != nil {
 		return nil, err
 	}

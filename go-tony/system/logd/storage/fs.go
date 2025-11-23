@@ -19,30 +19,49 @@ func (fs *FS) MetaPath() string {
 }
 
 func (fs *FS) FormatLogSegment(s *index.LogSegment, pending bool) string {
+	var base string
 	if s.IsPoint() {
-		base := fmt.Sprintf("%s-%s.%s", FormatLexInt(s.StartCommit), FormatLexInt(s.StartTx), segExt(pending))
-		return path.Join(s.RelPath, base)
+		if pending {
+			// Pending files: just tx
+			base = fmt.Sprintf("%s.%s", FormatLexInt(s.StartTx), segExt(pending))
+		} else {
+			// Committed point: commit-tx
+			base = fmt.Sprintf("%s-%s.%s", FormatLexInt(s.StartCommit), FormatLexInt(s.StartTx), segExt(pending))
+		}
+	} else {
+		// Compacted: commit.tx-commit.tx
+		base = fmt.Sprintf("%s.%s-%s.%s.%s",
+			FormatLexInt(s.StartCommit),
+			FormatLexInt(s.StartTx),
+			FormatLexInt(s.EndCommit),
+			FormatLexInt(s.EndTx),
+			segExt(pending),
+		)
 	}
-	base := fmt.Sprintf("%s.%s-%s.%s.%s",
-		FormatLexInt(s.StartCommit),
-		FormatLexInt(s.StartTx),
-		FormatLexInt(s.EndCommit),
-		FormatLexInt(s.EndTx),
-		segExt(pending),
-	)
 	return path.Join(s.RelPath, base)
 }
 
 func (fs *FS) ParseLogSegment(p string) (*index.LogSegment, error) {
 	dir, base := path.Split(p)
-	switch path.Ext(base) {
+	// Trim trailing slash from dir
+	dir = strings.TrimSuffix(dir, "/")
+
+	ext := path.Ext(base)
+	switch ext {
 	case ".diff":
 		base = strings.TrimSuffix(base, ".diff")
 	case ".pending":
 		base = strings.TrimSuffix(base, ".pending")
+		// Pending files: just tx
+		tx, err := ParseLexInt(base)
+		if err != nil {
+			return nil, err
+		}
+		return index.PointLogSegment(0, tx, dir), nil
 	default:
 		return nil, fmt.Errorf("unrecognized ext %q", path.Ext(base))
 	}
+
 	parts := strings.Split(base, "-")
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("unrecognized base format %q", base)
@@ -81,13 +100,21 @@ func (fs *FS) ParseLogSegment(p string) (*index.LogSegment, error) {
 }
 
 func (fs *FS) RenamePendingToDiff(virtualPath string, newCommitCount, txSeq int64) error {
-	seg := index.PointLogSegment(0, txSeq, virtualPath)
-	oldFile := fs.FormatLogSegment(seg, true)
-	seg.StartCommit = newCommitCount
-	newFile := fs.FormatLogSegment(seg, false)
+	// Format filenames with empty RelPath (just the basename)
+	seg := index.PointLogSegment(0, txSeq, "")
+	oldFilename := fs.FormatLogSegment(seg, true)
 
-	oldFile = fs.PathToFilesystem(oldFile)
-	newFile = fs.PathToFilesystem(newFile)
+	seg.StartCommit = newCommitCount
+	seg.EndCommit = seg.StartCommit
+	newFilename := fs.FormatLogSegment(seg, false)
+
+	// Get filesystem directory path
+	fsPath := fs.PathToFilesystem(virtualPath)
+
+	// Build full paths
+	oldFile := filepath.Join(fsPath, oldFilename)
+	newFile := filepath.Join(fsPath, newFilename)
+	//fmt.Printf("renaming %s -> %s\n", oldFile, newFile)
 
 	// Atomic rename
 	if err := os.Rename(oldFile, newFile); err != nil {
@@ -99,7 +126,7 @@ func (fs *FS) RenamePendingToDiff(virtualPath string, newCommitCount, txSeq int6
 // DeletePending deletes a .pending file.
 func (fs *FS) DeletePending(virtualPath string, txSeq int64) error {
 	fsPath := fs.PathToFilesystem(virtualPath)
-	filename := fs.FormatLogSegment(index.PointLogSegment(0, txSeq, virtualPath), true)
+	filename := fs.FormatLogSegment(index.PointLogSegment(0, txSeq, ""), true)
 	pendingFile := filepath.Join(fsPath, filename)
 	return os.Remove(pendingFile)
 }
@@ -151,7 +178,7 @@ func (fs *FS) FilesystemToPath(fsPath string) string {
 		virtualSegments = append(virtualSegments, seg)
 	}
 
-	if len(virtualSegments) == 0 {
+	if len(virtualSegments) == 0 || (len(virtualSegments) == 1 && virtualSegments[0] == ".") {
 		return "/"
 	}
 
@@ -178,21 +205,24 @@ func segExt(pending bool) string {
 	return "diff"
 }
 
-// ListLogSegments lists all committed diff files for a path, ordered by commit count.
-// Only returns .diff files, not .pending files.
+// ListLogSegments lists all diff and pending files for a path, ordered by commit count then tx.
 func (fs *FS) ListLogSegments(virtualPath string) ([]*index.LogSegment, error) {
+	//fmt.Printf("list log segments %q\n", virtualPath)
 	fsPath := fs.PathToFilesystem(virtualPath)
 
 	entries, err := os.ReadDir(fsPath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			//fmt.Printf("list log segment is not exist!\n")
 			return nil, nil
 		}
 		return nil, err
 	}
+	//fmt.Printf("%d entries\n", len(entries))
 
 	var segments []*index.LogSegment
 	for _, entry := range entries {
+		//fmt.Printf("entry: %q\n", entry.Name())
 		if entry.IsDir() {
 			continue
 		}
@@ -204,6 +234,7 @@ func (fs *FS) ListLogSegments(virtualPath string) ([]*index.LogSegment, error) {
 
 		seg, err := fs.ParseLogSegment(filepath.Join(virtualPath, name))
 		if err != nil {
+			panic(err)
 			// Skip invalid files
 			continue
 		}

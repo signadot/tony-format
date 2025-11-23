@@ -16,11 +16,11 @@ type PathMetadata struct {
 
 // WritePathMetadata stores metadata for a path.
 // The metadata is stored in a .meta file in the path's directory.
-func (s *Storage) WritePathMetadata(path string, meta *PathMetadata) error {
-	fsPath := s.PathToFilesystem(path)
+func (fs *FS) WritePathMetadata(path string, meta *PathMetadata) error {
+	fsPath := fs.PathToFilesystem(path)
 
 	// Ensure directory exists
-	if err := s.mkdirAll(fsPath, 0755); err != nil {
+	if err := fs.mkdirAll(fsPath, 0755); err != nil {
 		return err
 	}
 
@@ -55,8 +55,8 @@ func (s *Storage) WritePathMetadata(path string, meta *PathMetadata) error {
 
 // ReadPathMetadata retrieves metadata for a path.
 // Returns nil if no metadata exists (not an error).
-func (s *Storage) ReadPathMetadata(path string) (*PathMetadata, error) {
-	fsPath := s.PathToFilesystem(path)
+func (fs *FS) ReadPathMetadata(path string) (*PathMetadata, error) {
+	fsPath := fs.PathToFilesystem(path)
 	metaPath := filepath.Join(fsPath, ".meta")
 
 	data, err := os.ReadFile(metaPath)
@@ -79,6 +79,8 @@ func (s *Storage) ReadPathMetadata(path string) (*PathMetadata, error) {
 		if isSparseArrayNode.Type == ir.BoolType {
 			meta.IsSparseArray = isSparseArrayNode.Bool
 		}
+	} else {
+		panic("zimbambwe")
 	}
 
 	return meta, nil

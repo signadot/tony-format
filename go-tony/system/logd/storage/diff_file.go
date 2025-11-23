@@ -58,7 +58,7 @@ func (s *Storage) WriteDiffAtomically(virtualPath string, timestamp string, diff
 	// This is done after the diff is written to avoid blocking on metadata writes
 	if false && HasSparseArrayTag(diff) {
 		meta := &PathMetadata{IsSparseArray: true}
-		if err := s.WritePathMetadata(virtualPath, meta); err != nil {
+		if err := s.FS.WritePathMetadata(virtualPath, meta); err != nil {
 			// Log but don't fail the write - metadata is optional
 			s.logger.Warn("failed to write path metadata", "path", virtualPath, "error", err)
 		}
@@ -78,17 +78,14 @@ func (s *Storage) WriteDiff(virtualPath string, commitCount, txSeq int64, timest
 
 // writeDiffLocked writes a diff file without locking (caller must hold seqMu if needed).
 func (s *Storage) writeDiffLocked(virtualPath string, commitCount, txSeq int64, timestamp string, diff *ir.Node, pending bool) error {
-	fsPath := s.PathToFilesystem(virtualPath)
-	if err := s.EnsurePathDir(virtualPath); err != nil {
+	fsPath := s.FS.PathToFilesystem(virtualPath)
+	if err := s.FS.EnsurePathDir(virtualPath); err != nil {
 		return err
 	}
 
-	// Format filename: {commitCount}-{txSeq}.{ext}
-	ext := "diff"
-	if pending {
-		ext = "pending"
-	}
-	filename := formatDiffFilename(commitCount, txSeq, ext)
+	// Format filename using FS
+	seg := index.PointLogSegment(commitCount, txSeq, "")
+	filename := s.FS.FormatLogSegment(seg, pending)
 	filePath := filepath.Join(fsPath, filename)
 
 	// Create the diff file structure using FromMap to preserve parent pointers
@@ -124,14 +121,11 @@ func (s *Storage) writeDiffLocked(virtualPath string, commitCount, txSeq int64, 
 // ReadDiff reads a diff file from disk.
 // For pending files, commitCount is ignored (can be 0).
 func (s *Storage) ReadDiff(virtualPath string, commitCount, txSeq int64, pending bool) (*DiffFile, error) {
-	fsPath := s.PathToFilesystem(virtualPath)
+	fsPath := s.FS.PathToFilesystem(virtualPath)
 
-	// Format filename: {txSeq}.pending or {commitCount}-{txSeq}.diff
-	ext := "diff"
-	if pending {
-		ext = "pending"
-	}
-	filename := formatDiffFilename(commitCount, txSeq, ext)
+	// Format filename using FS
+	seg := index.PointLogSegment(commitCount, txSeq, "")
+	filename := s.FS.FormatLogSegment(seg, pending)
 	filePath := filepath.Join(fsPath, filename)
 
 	data, err := os.ReadFile(filePath)
