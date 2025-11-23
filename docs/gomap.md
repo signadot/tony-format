@@ -267,6 +267,9 @@ Supported directives:
 
 **Note**: If both a struct tag and doc comment directive are present, the struct tag takes precedence.
 
+> [!WARNING]
+> **Compatibility Note**: Doc comment directives (`//tony:`) are only supported by the `tony-codegen` tool. They are **NOT** visible to the runtime reflection-based `gomap.ToIR()` and `gomap.FromIR()` functions, because Go reflection cannot access comments at runtime. If you use doc comment directives, you **MUST** use code generation (`ToTony`/`FromTony` methods). For reflection-based usage, you must use struct tags.
+
 ### Field Tags
 
 #### `field=<name>`
@@ -336,7 +339,7 @@ type Person struct {
 }
 ```
 
-Schema: `Email: !or [!irtype null, !irtype ""]`
+Schema: `Email: .[nullable(string)]`
 
 ### Slices and Arrays
 
@@ -348,7 +351,7 @@ type Person struct {
 }
 ```
 
-Schema: `Tags: !and [.[array], !irtype ""]`
+Schema: `Tags: .[array(string)]`
 
 ### Maps
 
@@ -360,7 +363,52 @@ type Config struct {
 }
 ```
 
-Schema: `Metadata: !irtype {}`
+Schema: `Metadata: .[object(string)]`
+
+Maps with `uint32` keys (sparse arrays):
+
+```go
+type Sparse struct {
+    Data map[uint32]string
+}
+```
+
+Schema: `Data: .[sparsearray(string)]`
+
+### Special Types
+
+#### `*ir.Node`
+
+The `*ir.Node` type represents any valid Tony value (similar to `interface{}` or `any` but typed for Tony IR). It maps to the `ir` schema defined in `tony-base`.
+
+```go
+type AnyData struct {
+    Value *ir.Node
+}
+```
+
+Schema: `Value: .[tony-base:ir]`
+
+### Recursive Types
+
+Self-referential types are supported via pointers:
+
+```go
+type Node struct {
+    schemaTag `tony:"schemadef=node"`
+    Value    int
+    Parent   *Node   // Pointer to self
+    Children []*Node // Slice of pointers to self
+}
+```
+
+Schema:
+```tony
+define:
+  Value: !irtype 1
+  Parent: .[nullable(node)]
+  Children: .[array(node)]
+```
 
 ### Nested Structs
 
@@ -470,8 +518,6 @@ define:
   Name: .[string]
   Address: !address null # Schema reference
 ```
-
-
 ## Code Generation
 
 ### Generated Methods
@@ -741,13 +787,7 @@ Error: required field "id" is missing
 
 Solution: Provide all required fields in the Tony data.
 
-#### Circular Dependency
 
-```
-Error: circular dependency detected: person → employee → person
-```
-
-Solution: Restructure types to eliminate the cycle.
 
 ## Examples
 
@@ -791,9 +831,9 @@ context: tony-format/context
 define:
   ID: !irtype ""
   Email: !irtype ""
-  DisplayName: !or [!irtype null, !irtype ""]
-  Roles: !and [.[array], !irtype ""]
-  Metadata: !irtype {}
+  DisplayName: .[nullable(string)]
+  Roles: .[array(string)]
+  Metadata: .[object(string)]
 signature:
   name: user
 ```

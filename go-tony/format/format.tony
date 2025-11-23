@@ -1,0 +1,6 @@
+signature:
+  name: format
+accept: !or
+- tony
+- yaml
+- json
