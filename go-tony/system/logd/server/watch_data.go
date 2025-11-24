@@ -41,19 +41,10 @@ func (s *Server) handleWatchData(w http.ResponseWriter, r *http.Request, body *a
 
 	// Stream historical diffs (if fromSeq is provided or if there are existing diffs)
 	// Use listAllRelevantCommitCounts to include child path diffs for hierarchical watching
-	allDiffs, err := s.listAllRelevantCommitCounts(body.Path)
+	diffsToStream, err := s.listAllRelevantCommitCounts(body.Path, fromSeq, toSeq)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to list diffs: %v", err)))
 		return
-	}
-
-	var diffsToStream []struct{ CommitCount, TxSeq int64 }
-	for _, diffInfo := range allDiffs {
-		if fromSeq == nil || diffInfo.CommitCount >= *fromSeq {
-			if toSeq == nil || diffInfo.CommitCount <= *toSeq {
-				diffsToStream = append(diffsToStream, diffInfo)
-			}
-		}
 	}
 
 	// Track the last commitCount we've streamed
@@ -101,7 +92,9 @@ func (s *Server) handleWatchData(w http.ResponseWriter, r *http.Request, body *a
 			return
 		case <-ticker.C:
 			// Check for new diffs (including from child paths)
-			currentDiffs, err := s.listAllRelevantCommitCounts(body.Path)
+			// Only get diffs from lastCommitCount+1 onwards
+			from := lastCommitCount + 1
+			currentDiffs, err := s.listAllRelevantCommitCounts(body.Path, &from, toSeq)
 			if err != nil {
 				s.Config.Log.Error("error listing relevant commits", "error", err)
 				// Log error but continue watching

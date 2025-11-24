@@ -14,8 +14,8 @@ import (
 // by combining diffs from all child paths at the given commitCount.
 // Returns nil if no child diffs exist.
 func (s *Server) aggregateChildDiffs(pathStr string, commitCount int64) (*ir.Node, error) {
-	// 1. List all child paths
-	children, err := s.Config.Storage.ListChildPaths(pathStr)
+	// 1. List all child paths at this commit
+	children, err := s.Config.Storage.ListChildPaths(pathStr, &commitCount, &commitCount)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "aggregateChildDiffs: ListChildPaths failed for %s: %v\n", pathStr, err)
 		return nil, err
@@ -240,19 +240,18 @@ func getPathDifference(parent, child string) []string {
 	if err != nil || rel == "." {
 		return nil
 	}
-
 	// Split into segments
 	return strings.Split(rel, string(filepath.Separator))
 }
 
-// listAllRelevantCommitCounts returns all commitCounts that affect a path,
-// including diffs from child paths. This is used for hierarchical watching.
-func (s *Server) listAllRelevantCommitCounts(pathStr string) ([]struct{ CommitCount, TxSeq int64 }, error) {
-	return s.listAllRelevantCommitCountsWithDepth(pathStr, 0, 10)
+// listAllRelevantCommitCounts returns all commit counts (both direct and from children)
+// for the given path, filtered by the commit range [from, to].
+func (s *Server) listAllRelevantCommitCounts(pathStr string, from, to *int64) ([]struct{ CommitCount, TxSeq int64 }, error) {
+	return s.listAllRelevantCommitCountsWithDepth(pathStr, from, to, 0, 10)
 }
 
 // listAllRelevantCommitCountsWithDepth is the internal implementation with depth limiting.
-func (s *Server) listAllRelevantCommitCountsWithDepth(pathStr string, depth, maxDepth int) ([]struct{ CommitCount, TxSeq int64 }, error) {
+func (s *Server) listAllRelevantCommitCountsWithDepth(pathStr string, from, to *int64, depth, maxDepth int) ([]struct{ CommitCount, TxSeq int64 }, error) {
 
 	// Get direct diffs at this path
 	directDiffs, err := s.Config.Storage.ListDiffs(pathStr)
@@ -260,17 +259,24 @@ func (s *Server) listAllRelevantCommitCountsWithDepth(pathStr string, depth, max
 		return nil, err
 	}
 
-	// Collect all commit/txSeq pairs (don't deduplicate yet - we need all txSeq values)
+	// Collect all commit/txSeq pairs in range
 	var allDiffs []struct{ CommitCount, TxSeq int64 }
 	for _, d := range directDiffs {
+		// Filter by range
+		if from != nil && d.CommitCount < *from {
+			continue
+		}
+		if to != nil && d.CommitCount > *to {
+			continue
+		}
 		allDiffs = append(allDiffs, struct{ CommitCount, TxSeq int64 }{d.CommitCount, d.TxSeq})
 	}
 
-	// Get child paths and their diffs
-	children, err := s.Config.Storage.ListChildPaths(pathStr)
+	// Get child paths and their diffs in the range
+	children, err := s.Config.Storage.ListChildPaths(pathStr, from, to)
 	if err == nil && len(children) > 0 {
 		for _, childPath := range children {
-			childDiffs, err := s.listAllRelevantCommitCountsWithDepth(childPath, depth+1, maxDepth)
+			childDiffs, err := s.listAllRelevantCommitCountsWithDepth(childPath, from, to, depth+1, maxDepth)
 			if err != nil {
 				continue
 			}
@@ -278,13 +284,13 @@ func (s *Server) listAllRelevantCommitCountsWithDepth(pathStr string, depth, max
 			for _, d := range childDiffs {
 				// Check if we have a direct diff at this commitCount
 				hasDirect := false
-				for _, direct := range directDiffs {
-					if direct.CommitCount == d.CommitCount {
+				for _, directDiff := range directDiffs {
+					if directDiff.CommitCount == d.CommitCount {
 						hasDirect = true
 						break
 					}
 				}
-				// Only add child diff if no direct diff exists at this commitCount
+				// Only add child diff if we don't have a direct diff at this commit
 				if !hasDirect {
 					allDiffs = append(allDiffs, d)
 				}

@@ -37,8 +37,9 @@ func Open(root string, umask int, logger *slog.Logger) (*Storage, error) {
 	return s, nil
 }
 
-// ListChildPaths returns all immediate child paths under parentPath.
-func (s *Storage) ListChildPaths(parentPath string) ([]string, error) {
+// ListChildPaths returns all immediate child paths under parentPath that have
+// diffs in the commit range [from, to]. Pass nil for unbounded range.
+func (s *Storage) ListChildPaths(parentPath string, from, to *int64) ([]string, error) {
 	s.indexMu.RLock()
 	defer s.indexMu.RUnlock()
 
@@ -60,16 +61,23 @@ func (s *Storage) ListChildPaths(parentPath string) ([]string, error) {
 		}
 	}
 
-	// Get the list of children at this level
-	children := idx.List()
+	// Get all children at this level
+	allChildren := idx.List()
 
-	// Convert to full paths
-	result := make([]string, len(children))
-	for i, child := range children {
-		if parentPath == "" || parentPath == "/" {
-			result[i] = "/" + child
+	// Filter children to only those with diffs in the commit range
+	var result []string
+	for _, childName := range allChildren {
+		childPath := parentPath
+		if childPath == "" || childPath == "/" {
+			childPath = "/" + childName
 		} else {
-			result[i] = parentPath + "/" + child
+			childPath = parentPath + "/" + childName
+		}
+
+		// Check if this child has any diffs in the range [from, to]
+		segments := s.index.LookupRange(childPath, from, to)
+		if len(segments) > 0 {
+			result = append(result, childPath)
 		}
 	}
 
