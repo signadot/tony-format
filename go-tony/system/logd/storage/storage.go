@@ -35,6 +35,31 @@ func Open(root string, umask int, logger *slog.Logger) (*Storage, error) {
 	return s, nil
 }
 
+// ListChildPaths returns all immediate child paths under parentPath.
+func (s *Storage) ListChildPaths(parentPath string) ([]string, error) {
+	return s.FS.ListChildPaths(parentPath)
+}
+
+// CommitPendingDiff atomically commits a pending diff by:
+// 1. Renaming .pending to .diff
+// 2. Updating the index
+func (s *Storage) CommitPendingDiff(virtualPath string, txSeq, commitCount int64) error {
+	// Rename pending file to diff file
+	if err := s.FS.RenamePendingToDiff(virtualPath, commitCount, txSeq); err != nil {
+		return err
+	}
+
+	// Update index
+	s.index.Add(index.PointLogSegment(commitCount, txSeq, virtualPath))
+
+	return nil
+}
+
+// DeletePendingDiff deletes a pending diff file.
+func (s *Storage) DeletePendingDiff(virtualPath string, txSeq int64) error {
+	return s.FS.DeletePending(virtualPath, txSeq)
+}
+
 // mkdirAll creates a directory with umask applied.
 func (s *Storage) mkdirAll(path string, perm os.FileMode) error {
 	// Apply umask: perm &^ umask

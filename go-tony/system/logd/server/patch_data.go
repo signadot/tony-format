@@ -255,17 +255,14 @@ func (s *Server) commitTransaction(transactionID string, state *storage.Transact
 			return
 		}
 
-		// Rename pending file to diff file
-		if err := s.Config.Storage.FS.RenamePendingToDiff(diff.Path, commitCount, diffTxSeq); err != nil {
+		// Commit pending file (rename + update index)
+		if err := s.Config.Storage.CommitPendingDiff(diff.Path, diffTxSeq, commitCount); err != nil {
 			waiter.SetResult(&transactionResult{
 				committed: false,
-				err:       fmt.Errorf("failed to rename pending file: %w", err),
+				err:       fmt.Errorf("failed to commit pending file: %w", err),
 			})
 			return
 		}
-
-		// Update index with the committed file
-		s.Config.Storage.AddIndexSegment(commitCount, diffTxSeq, diff.Path)
 
 		pendingFileRefs[i] = storage.PendingFileRef{
 			VirtualPath: diff.Path,
@@ -299,28 +296,4 @@ func (s *Server) commitTransaction(transactionID string, state *storage.Transact
 		commitCount: commitCount,
 		err:         nil,
 	})
-}
-
-// extractTxSeqFromTransactionID extracts the txSeq from a transaction ID.
-// Format: tx-{txSeq}-{participantCount}
-func extractTxSeqFromTransactionID(transactionID string) (int64, error) {
-	if !strings.HasPrefix(transactionID, "tx-") {
-		return 0, fmt.Errorf("transaction ID must start with 'tx-'")
-	}
-
-	// Remove "tx-" prefix
-	rest := transactionID[3:]
-
-	// Split by "-" to get txSeq and participantCount
-	parts := strings.Split(rest, "-")
-	if len(parts) != 2 {
-		return 0, fmt.Errorf("transaction ID format must be tx-{txSeq}-{participantCount}")
-	}
-
-	txSeq, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil {
-		return 0, fmt.Errorf("invalid txSeq in transaction ID: %w", err)
-	}
-
-	return txSeq, nil
 }

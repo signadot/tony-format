@@ -182,9 +182,3 @@ func (s *Storage) ReadDiff(virtualPath string, commitCount, txSeq int64, pending
 		Pending:   pending,
 	}, nil
 }
-
-// AddIndexSegment adds a segment to the index.
-// This is used by the server when committing transactions.
-func (s *Storage) AddIndexSegment(commitCount, txSeq int64, virtualPath string) {
-	s.index.Add(index.PointLogSegment(commitCount, txSeq, virtualPath))
-}

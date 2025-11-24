@@ -15,7 +15,7 @@ import (
 // Returns nil if no child diffs exist.
 func (s *Server) aggregateChildDiffs(pathStr string, commitCount int64) (*ir.Node, error) {
 	// 1. List all child paths
-	children, err := s.Config.Storage.FS.ListChildPaths(pathStr)
+	children, err := s.Config.Storage.ListChildPaths(pathStr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "aggregateChildDiffs: ListChildPaths failed for %s: %v\n", pathStr, err)
 		return nil, err
@@ -267,7 +267,7 @@ func (s *Server) listAllRelevantCommitCountsWithDepth(pathStr string, depth, max
 	}
 
 	// Get child paths and their diffs
-	children, err := s.Config.Storage.FS.ListChildPaths(pathStr)
+	children, err := s.Config.Storage.ListChildPaths(pathStr)
 	if err == nil && len(children) > 0 {
 		for _, childPath := range children {
 			childDiffs, err := s.listAllRelevantCommitCountsWithDepth(childPath, depth+1, maxDepth)
