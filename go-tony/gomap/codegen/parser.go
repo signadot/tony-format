@@ -233,12 +233,58 @@ func extractFields(structType *ast.StructType) ([]*FieldInfo, error) {
 		// Check if this is an embedded field
 		isEmbedded := len(field.Names) == 0
 
-		// For embedded fields, we'll handle them separately
-		// For now, we'll process regular fields
-		if !isEmbedded {
+		if isEmbedded {
+			// Handle embedded field
+			// For embedded fields, the field name is the type name
+			fieldName, err := getEmbeddedFieldName(field.Type)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get embedded field name: %w", err)
+			}
+
+			// Extract field comments
+			comments := ExtractFieldComments(field)
+
+			// Parse field tags (if any)
+			tag := getFieldTag(field, "tony")
+			parsed, err := gomap.ParseStructTag(tag)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse field tag for embedded field %q: %w", fieldName, err)
+			}
+
+			fieldInfo := &FieldInfo{
+				Name:            fieldName,
+				SchemaFieldName: fieldName, // Default to field name
+				ASTType:         field.Type,
+				Comments:        comments,
+				ASTField:        field,
+				IsEmbedded:      true,
+			}
+
+			// Extract field name override (unlikely for embedded fields, but possible)
+			if name, ok := parsed["field"]; ok {
+				fieldInfo.SchemaFieldName = name
+			}
+
+			// Extract omit flag
+			if _, ok := parsed["omit"]; ok || parsed["field"] == "-" {
+				fieldInfo.Omit = true
+			}
+
+			// Skip blank identifier fields (used for schema tags)
+			if fieldInfo.Name == "_" {
+				continue
+			}
+
+			fields = append(fields, fieldInfo)
+		} else {
 			for _, name := range field.Names {
 				// Skip unexported fields
 				if !name.IsExported() {
+					continue
+				}
+
+				// Skip blank identifier fields
+				if name.Name == "_" {
 					continue
 				}
 
@@ -285,7 +331,6 @@ func extractFields(structType *ast.StructType) ([]*FieldInfo, error) {
 				fields = append(fields, fieldInfo)
 			}
 		}
-		// TODO: Handle embedded fields (Phase 2)
 	}
 
 	return fields, nil
@@ -432,4 +477,18 @@ func ResolveType(expr ast.Expr, pkg *ast.Package) (reflect.Type, error) {
 	// TODO: Implement type resolution from AST to reflect.Type
 	// This will be needed for code generation but can be deferred to later phases
 	return nil, fmt.Errorf("type resolution from AST not yet implemented")
+}
+
+// getEmbeddedFieldName extracts the field name from an embedded field type.
+func getEmbeddedFieldName(expr ast.Expr) (string, error) {
+	switch x := expr.(type) {
+	case *ast.Ident:
+		return x.Name, nil
+	case *ast.SelectorExpr:
+		return x.Sel.Name, nil
+	case *ast.StarExpr:
+		return getEmbeddedFieldName(x.X)
+	default:
+		return "", fmt.Errorf("unsupported embedded field type: %T", expr)
+	}
 }

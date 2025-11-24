@@ -195,7 +195,7 @@ func GenerateToTonyIRMethod(structInfo *StructInfo, s *schema.Schema) (string, e
 	// Get struct fields from schema
 	// We need to use reflection to get the struct type
 	// For now, we'll use the fields from StructInfo
-	for _, field := range structInfo.Fields {
+	for i, field := range structInfo.Fields {
 		if field.Omit {
 			continue
 		}
@@ -220,7 +220,7 @@ func GenerateToTonyIRMethod(structInfo *StructInfo, s *schema.Schema) (string, e
 		}
 
 		// Generate code to convert field to IR node
-		fieldCode, err := generateFieldToIR(structInfo, field, schemaFieldName)
+		fieldCode, err := generateFieldToIR(structInfo, field, schemaFieldName, i != 0)
 		if err != nil {
 			return "", fmt.Errorf("failed to generate field conversion for %q: %w", field.Name, err)
 		}
@@ -234,7 +234,7 @@ func GenerateToTonyIRMethod(structInfo *StructInfo, s *schema.Schema) (string, e
 
 	// Create IR node with schema tag
 	schemaName := s.Signature.Name
-	buf.WriteString(fmt.Sprintf("	// Create IR node with schema tag\n"))
+	buf.WriteString("	// Create IR node with schema tag\n")
 	buf.WriteString(fmt.Sprintf("	return ir.FromMap(irMap).WithTag(\"!%s\"), nil\n", schemaName))
 	buf.WriteString("}\n")
 
@@ -242,8 +242,13 @@ func GenerateToTonyIRMethod(structInfo *StructInfo, s *schema.Schema) (string, e
 }
 
 // generateFieldToIR generates code to convert a struct field to an IR node.
-func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName string) (string, error) {
+func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName string, redef bool) (string, error) {
 	var buf strings.Builder
+
+	assign := ":="
+	if redef {
+		assign = "="
+	}
 
 	if field.Type == nil {
 		return "", fmt.Errorf("field %q has no type information", field.Name)
@@ -279,7 +284,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 		if elemType.Kind() == reflect.Struct {
 			// Nested struct - call ToTony() method
 			buf.WriteString(fmt.Sprintf("		if s.%s != nil {\n", field.Name))
-			buf.WriteString(fmt.Sprintf("			node, err := s.%s.ToTonyIR(opts...)\n", field.Name))
+			buf.WriteString(fmt.Sprintf("			node, err %s s.%s.ToTonyIR(opts...)\n", assign, field.Name))
 			buf.WriteString("			if err != nil {\n")
 			buf.WriteString("				return nil, err\n")
 			buf.WriteString("			}\n")
@@ -290,7 +295,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			fieldCode, err := generateFieldToIR(structInfo, &FieldInfo{
 				Name: field.Name,
 				Type: elemType,
-			}, schemaFieldName)
+			}, schemaFieldName, false)
 			if err != nil {
 				return "", err
 			}
@@ -308,7 +313,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 		buf.WriteString(fmt.Sprintf("			for i, v := range s.%s {\n", field.Name))
 		if elemType.Kind() == reflect.Struct {
 			// Slice of structs - call ToTony()
-			buf.WriteString("				node, err := v.ToTonyIR(opts...)\n")
+			buf.WriteString(fmt.Sprintf("				node, err %s v.ToTonyIR(opts...)\n", assign))
 			buf.WriteString("				if err != nil {\n")
 			buf.WriteString("					return nil, fmt.Errorf(\"failed to convert slice element %d: %w\", i, err)\n")
 			buf.WriteString("				}\n")
@@ -336,7 +341,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			buf.WriteString(fmt.Sprintf("			intKeysMap := make(map[uint32]*ir.Node)\n"))
 			buf.WriteString(fmt.Sprintf("			for k, v := range s.%s {\n", field.Name))
 			if valueType.Kind() == reflect.Struct {
-				buf.WriteString("				node, err := v.ToTonyIR(opts...)\n")
+				buf.WriteString(fmt.Sprintf("				node, err %s v.ToTonyIR(opts...)\n", assign))
 				buf.WriteString("				if err != nil {\n")
 				buf.WriteString("					return nil, fmt.Errorf(\"failed to convert map value at key %d: %w\", k, err)\n")
 				buf.WriteString("				}\n")
@@ -359,7 +364,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			if isIRNodePtr(valueType) {
 				buf.WriteString("				mapNodes[k] = v\n")
 			} else if valueType.Kind() == reflect.Struct {
-				buf.WriteString("				node, err := v.ToTonyIR(opts...)\n")
+				buf.WriteString(fmt.Sprintf("				node, err %s v.ToTonyIR(opts...)\n", assign))
 				buf.WriteString("				if err != nil {\n")
 				buf.WriteString("					return nil, fmt.Errorf(\"failed to convert map value at key %q: %w\", k, err)\n")
 				buf.WriteString("				}\n")
@@ -382,7 +387,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			buf.WriteString("				// Convert interface{} key to string\n")
 			buf.WriteString("				kStr := fmt.Sprintf(\"%v\", k)\n")
 			if valueType.Kind() == reflect.Struct {
-				buf.WriteString("				node, err := v.ToTonyIR(opts...)\n")
+				buf.WriteString(fmt.Sprintf("				node, err %s v.ToTonyIR(opts...)\n", assign))
 				buf.WriteString("				if err != nil {\n")
 				buf.WriteString("					return nil, fmt.Errorf(\"failed to convert map value at key %v: %w\", k, err)\n")
 				buf.WriteString("				}\n")
@@ -405,7 +410,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			buf.WriteString("				// Convert pointer key to string representation\n")
 			buf.WriteString("				kStr := fmt.Sprintf(\"%p\", k)\n")
 			if valueType.Kind() == reflect.Struct {
-				buf.WriteString("				node, err := v.ToTonyIR(opts...)\n")
+				buf.WriteString(fmt.Sprintf("				node, err %s v.ToTonyIR(opts...)\n", assign))
 				buf.WriteString("				if err != nil {\n")
 				buf.WriteString("					return nil, fmt.Errorf(\"failed to convert map value at key %p: %w\", k, err)\n")
 				buf.WriteString("				}\n")
@@ -429,7 +434,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 		// For codegen, we'll use a helper that calls ToIR recursively
 		buf.WriteString(fmt.Sprintf("		if s.%s != nil {\n", field.Name))
 		buf.WriteString(fmt.Sprintf("			// Interface{} conversion requires runtime reflection\n"))
-		buf.WriteString(fmt.Sprintf("			node, err := toIRInterface(s.%s)\n", field.Name))
+		buf.WriteString(fmt.Sprintf("			node, err %s toIRInterface(s.%s)\n", assign, field.Name))
 		buf.WriteString("			if err != nil {\n")
 		buf.WriteString(fmt.Sprintf("				return nil, fmt.Errorf(\"failed to convert field %%q: %%w\", %q, err)\n", field.Name))
 		buf.WriteString("			}\n")
@@ -438,7 +443,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 
 	case reflect.Struct:
 		// Nested struct - call ToTony() method
-		buf.WriteString(fmt.Sprintf("		node, err := s.%s.ToTonyIR(opts...)\n", field.Name))
+		buf.WriteString(fmt.Sprintf("		node, err %s s.%s.ToTonyIR(opts...)\n", assign, field.Name))
 		buf.WriteString("		if err != nil {\n")
 		buf.WriteString(fmt.Sprintf("			return nil, fmt.Errorf(\"failed to convert field %%q: %%w\", %q, err)\n", field.Name))
 		buf.WriteString("		}\n")

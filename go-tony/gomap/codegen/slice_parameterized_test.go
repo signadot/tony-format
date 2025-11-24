@@ -46,7 +46,9 @@ func TestGoTypeToSchemaNode_SliceParameterized(t *testing.T) {
 			},
 			structMap: map[string]*StructInfo{
 				"Person": {
+					Package: "github.com/example/test",
 					StructSchema: &gomap.StructSchema{
+						Mode:       "schemagen",
 						SchemaName: "person",
 					},
 				},

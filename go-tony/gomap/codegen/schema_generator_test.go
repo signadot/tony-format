@@ -52,7 +52,16 @@ type Person struct {
 	}
 
 	// Verify field comments were extracted
-	nameField := person.Fields[0]
+	var nameField *FieldInfo
+	for _, f := range person.Fields {
+		if f.Name == "Name" {
+			nameField = f
+			break
+		}
+	}
+	if nameField == nil {
+		t.Fatal("could not find Name field")
+	}
 	if len(nameField.Comments) == 0 {
 		t.Fatal("expected field-level comments for Name")
 	}
@@ -352,7 +361,16 @@ type Person struct {
 
 	// Set up reflection types for the struct
 	person := structs[0]
-	emailField := person.Fields[0]
+	var emailField *FieldInfo
+	for _, f := range person.Fields {
+		if f.Name == "Email" {
+			emailField = f
+			break
+		}
+	}
+	if emailField == nil {
+		t.Fatal("could not find Email field")
+	}
 	emailField.Type = reflect.TypeOf("")
 
 	schema, err := GenerateSchema(structs, person, NewPackageLoader())

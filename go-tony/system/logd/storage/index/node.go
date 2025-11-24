@@ -148,23 +148,7 @@ func (n *node[T]) add(v T, p *node[T], at int) (*node[T], bool) {
 
 			// Update n.D (min/max) after potential structure changes
 			if len(n.C) > 0 {
-				first := n.C[0]
-				if first.isLeaf() {
-					if len(first.D) > 0 {
-						n.D[0] = first.D[0]
-					}
-				} else {
-					n.D[0] = first.D[0]
-				}
-
-				last := n.C[len(n.C)-1]
-				if last.isLeaf() {
-					if len(last.D) > 0 {
-						n.D[1] = last.D[len(last.D)-1]
-					}
-				} else {
-					n.D[1] = last.D[1]
-				}
+				n.updateBounds()
 			}
 
 			if len(n.C) > cap(n.C) {
