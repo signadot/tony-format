@@ -7,11 +7,12 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 )
 
 type Index struct {
-	Name string // eg "" for root
-	//for all descendents, rel path, sorted by commit, tx
+	sync.RWMutex
+	Name     string // eg "" for root
 	Commits  *Tree[LogSegment]
 	Children map[string]*Index // map from subdir names to sub indices
 }
@@ -42,6 +43,8 @@ func NewIndex(name string) *Index {
 }
 
 func (i *Index) Add(seg *LogSegment) {
+	i.Lock()
+	defer i.Unlock()
 	if seg.RelPath == "" {
 		i.Commits.Insert(*seg)
 		return
@@ -62,10 +65,14 @@ func (i *Index) Add(seg *LogSegment) {
 
 func (i *Index) Remove(seg *LogSegment) bool {
 	if seg.RelPath == "" {
+		i.Lock()
+		defer i.Unlock()
 		return i.Commits.Remove(*seg)
 	}
 	parts := splitPath(seg.RelPath)
 	hd, rest := parts[0], parts[1:]
+	i.RLock()
+	defer i.RUnlock()
 	c := i.Children[hd]
 	if c == nil {
 		return false
@@ -73,6 +80,7 @@ func (i *Index) Remove(seg *LogSegment) bool {
 	orgPath := seg.RelPath
 	seg.RelPath = strings.Join(rest, "/")
 	res := c.Remove(seg)
+	// nb low grade mem leak when c empty after remove
 	seg.RelPath = orgPath
 	return res
 }
@@ -85,8 +93,12 @@ func (i *Index) LookupRange(vp string, from, to *int64) []LogSegment {
 	}, rangeFunc(from, to))
 	if vp == "" {
 		for _, ci := range i.Children {
-			cRes := i.LookupRange(ci.Name, from, to)
-			res = append(res, cRes...)
+			cRes := ci.LookupRange("", from, to)
+			for j := range cRes {
+				seg := &cRes[j]
+				seg.RelPath = path.Join(ci.Name, seg.RelPath)
+				res = append(res, *seg)
+			}
 		}
 		slices.SortFunc(res, LogSegCompare)
 		return res
@@ -98,15 +110,13 @@ func (i *Index) LookupRange(vp string, from, to *int64) []LogSegment {
 		return res
 	}
 	cRes := c.LookupRange(strings.Join(rest, "/"), from, to)
-	for i := range cRes {
-		seg := &cRes[i]
+	for j := range cRes {
+		seg := &cRes[j]
 		seg.RelPath = path.Join(hd, seg.RelPath)
 	}
 	res = append(res, cRes...)
 	slices.SortFunc(res, LogSegCompare)
-	return slices.CompactFunc(res, func(a, b LogSegment) bool {
-		return LogSegCompare(a, b) == 0
-	})
+	return res
 }
 
 func LogSegCompare(a, b LogSegment) int {

@@ -13,12 +13,11 @@ import (
 // Storage provides filesystem-based storage for logd.
 type Storage struct {
 	*seq.Seq
-	umask   int // Umask to apply when creating directories
-	FS      *FS
-	logMu   sync.RWMutex
-	log     *slog.Logger // Logger for error logging
-	indexMu sync.RWMutex
-	index   *index.Index
+	umask int // Umask to apply when creating directories
+	FS    *FS
+	logMu sync.RWMutex
+	log   *slog.Logger // Logger for error logging
+	index *index.Index
 }
 
 // Open opens or creates a Storage instance with the given root directory.

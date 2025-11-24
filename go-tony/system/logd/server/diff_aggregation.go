@@ -2,12 +2,12 @@ package server
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/signadot/tony-format/go-tony/ir"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 )
 
 // aggregateChildDiffs builds a hierarchical diff for a parent path
@@ -17,31 +17,21 @@ func (s *Server) aggregateChildDiffs(pathStr string, commitCount int64) (*ir.Nod
 	// 1. List all child paths
 	children, err := s.Config.Storage.FS.ListChildPaths(pathStr)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "aggregateChildDiffs: ListChildPaths failed for %s: %v\n", pathStr, err)
 		return nil, err
 	}
+	//fmt.Fprintf(os.Stderr, "aggregateChildDiffs: children for %s: %v\n", pathStr, children)
 
 	if len(children) == 0 {
 		return nil, nil
 	}
 
-	// 2. Check if this path is a sparse array
-	meta, err := s.Config.Storage.FS.ReadPathMetadata(pathStr)
-	if err != nil {
-		panic(err)
-	}
-	isSparseArray := meta != nil && meta.IsSparseArray
+	// 2. Build aggregated diff
+	// We always aggregate into a generic Object (map).
+	// The type will be resolved during mergeDiffs if the base is a Sparse Array.
+	aggregated := make(map[string]*ir.Node)
 
-	// 3. Build aggregated diff
-	var aggregated map[string]*ir.Node
-	var uint32Keys map[uint32]*ir.Node
-
-	if isSparseArray {
-		uint32Keys = make(map[uint32]*ir.Node)
-	} else {
-		aggregated = make(map[string]*ir.Node)
-	}
-
-	// 4. Process each child
+	// 3. Process each child
 	for _, childPath := range children {
 		// Extract the child segment from path
 		childSegment := extractLastSegment(childPath)
@@ -52,22 +42,11 @@ func (s *Server) aggregateChildDiffs(pathStr string, commitCount int64) (*ir.Nod
 			continue
 		}
 
-		// Add to aggregated diff
-		if isSparseArray {
-			// Parse segment as uint32
-			if key, err := parseUint32(childSegment); err == nil {
-				uint32Keys[key] = childDiff
-			}
-			// Silently skip invalid uint32 keys in sparse arrays
-		} else {
-			aggregated[childSegment] = childDiff
-		}
+		aggregated[childSegment] = childDiff
 	}
 
-	// 5. Build result node
-	if isSparseArray && len(uint32Keys) > 0 {
-		return ir.FromIntKeysMap(uint32Keys), nil
-	} else if len(aggregated) > 0 {
+	// 4. Build result node
+	if len(aggregated) > 0 {
 		return ir.FromMap(aggregated), nil
 	}
 
@@ -82,6 +61,7 @@ func (s *Server) readChildDiffAtCommit(childPath string, commitCount int64) (*ir
 	if err != nil {
 		return nil, err
 	}
+	//fmt.Fprintf(os.Stderr, "readChildDiffAtCommit %s c%d: found %d diffs\n", childPath, commitCount, len(diffs))
 
 	// Look for exact commitCount match
 	var txSeq int64
@@ -131,10 +111,37 @@ func mergeDiffs(direct, children *ir.Node) (*ir.Node, error) {
 	// If both are objects, merge fields
 	if direct.Type == ir.ObjectType && children.Type == ir.ObjectType {
 		// Check for sparse array tag consistency
-		baseIsSparse := storage.HasSparseArrayTag(direct)
-		childIsSparse := storage.HasSparseArrayTag(children)
+		baseIsSparse := ir.TagHas(direct.Tag, ir.IntKeysTag)
+		childIsSparse := ir.TagHas(children.Tag, ir.IntKeysTag)
 
-		if baseIsSparse != childIsSparse {
+		// Allow merging generic Object children into Sparse Array base
+		// if the keys in children are valid integers.
+		if baseIsSparse && !childIsSparse {
+			// Check if all keys in children are valid uint32
+			// and convert children to sparse format for merging
+			uint32Map := make(map[uint32]*ir.Node)
+			for i, field := range children.Fields {
+				if i >= len(children.Values) {
+					continue
+				}
+				key, err := strconv.ParseUint(field.String, 10, 32)
+				if err != nil {
+					return nil, fmt.Errorf("cannot merge generic object children into sparse array: key %q is not a valid uint32", field.String)
+				}
+				uint32Map[uint32(key)] = children.Values[i]
+			}
+
+			// Convert children to sparse node to proceed with merge
+			children = ir.FromIntKeysMap(uint32Map)
+			childIsSparse = true
+		}
+
+		// If base is sparse, and children are not (after potential conversion),
+		// or vice versa, we can't merge.
+		// However, if the base is a regular object and children are sparse,
+		// we can merge them as a regular object, losing the sparse array property.
+		// This is a relaxation to allow more flexible merging.
+		if baseIsSparse && !childIsSparse {
 			return nil, fmt.Errorf("cannot merge sparse array and regular object: direct sparse=%v, children sparse=%v", baseIsSparse, childIsSparse)
 		}
 
@@ -210,32 +217,12 @@ func (s *Server) buildNestedDiff(parentPath, childPath string, childDiff *ir.Nod
 
 	// Build nested structure bottom-up
 	result := childDiff
-	currentPath := childPath
 
 	for i := len(segments) - 1; i >= 0; i-- {
 		segment := segments[i]
-
-		// Get parent of current segment
-		parentOfSegment := filepath.Dir(currentPath)
-
-		// Check if parent is sparse array
-		meta, _ := s.Config.Storage.FS.ReadPathMetadata(parentOfSegment)
-		isSparseArray := meta != nil && meta.IsSparseArray
-
-		if isSparseArray {
-			// Use uint32 key
-			if key, err := parseUint32(segment); err == nil {
-				result = ir.FromIntKeysMap(map[uint32]*ir.Node{key: result})
-			} else {
-				// Fallback to string key
-				result = ir.FromMap(map[string]*ir.Node{segment: result})
-			}
-		} else {
-			// Use string key
-			result = ir.FromMap(map[string]*ir.Node{segment: result})
-		}
-
-		currentPath = parentOfSegment
+		// Always use generic Object (string key)
+		// Type resolution happens at merge time if needed
+		result = ir.FromMap(map[string]*ir.Node{segment: result})
 	}
 
 	return result, nil

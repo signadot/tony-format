@@ -169,7 +169,9 @@ func FromIntKeysMap(yMap map[uint32]*Node) *Node {
 }
 
 func FromIntKeysMapAt(res *Node, yMap map[uint32]*Node) *Node {
-	res.Tag = TagCompose(IntKeysTag, nil, res.Tag)
+	if !TagHas(res.Tag, IntKeysTag) {
+		res.Tag = TagCompose(IntKeysTag, nil, res.Tag)
+	}
 	res.Type = ObjectType
 	res.Fields = make([]*Node, len(yMap))
 	res.Values = make([]*Node, len(yMap))

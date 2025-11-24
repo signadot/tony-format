@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/encode"
@@ -153,11 +152,9 @@ func (s *Server) streamDiff(w http.ResponseWriter, pathStr string, commitCount, 
 	if err == nil {
 		diffNode = diffFile.Diff
 		timestamp = diffFile.Timestamp
-		//fmt.Fprintf(os.Stderr, "streamDiff: ReadDiff success for %s c%d t%d. Sparse: %v\n", pathStr, commitCount, txSeq, storage.HasSparseArrayTag(diffNode))
 	} else {
 		// No direct diff, use current timestamp
 		timestamp = ""
-		fmt.Fprintf(os.Stderr, "streamDiff: ReadDiff failed for %s c%d t%d: %v\n", pathStr, commitCount, txSeq, err)
 	}
 
 	// Aggregate child diffs hierarchically
@@ -165,15 +162,11 @@ func (s *Server) streamDiff(w http.ResponseWriter, pathStr string, commitCount, 
 	if err != nil {
 		// Silently continue with just the direct diff on error
 		childDiff = nil
-		fmt.Fprintf(os.Stderr, "streamDiff: aggregateChildDiffs failed for %s c%d: %v\n", pathStr, commitCount, err)
-	} else if childDiff != nil {
-		//fmt.Fprintf(os.Stderr, "streamDiff: childDiff found for %s c%d. Sparse: %v\n", pathStr, commitCount, storage.HasSparseArrayTag(childDiff))
 	}
 
 	// Merge direct and child diffs
 	finalDiff, err := mergeDiffs(diffNode, childDiff)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "streamDiff: mergeDiffs failed: %v\n", err)
 		return err
 	}
 

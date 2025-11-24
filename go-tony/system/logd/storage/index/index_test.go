@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/signadot/tony-format/go-tony/gomap"
 )
 
 func TestIndexAddLookupPointDiff(t *testing.T) {
@@ -34,12 +33,6 @@ func TestIndexAddLookupPointDiff(t *testing.T) {
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("LookupRange mismatch (-want +got):\n%s", diff)
 	}
-	rootAll := idx.LookupRange("", nil, nil)
-	d, err := gomap.ToTony(rootAll)
-	if err != nil {
-		panic(err)
-	}
-	t.Logf("rootAll:\n%s", d)
 }
 
 func TestIndexRemove(t *testing.T) {
@@ -179,7 +172,8 @@ func TestIndexBuild(t *testing.T) {
 
 	// Verify the file in children/foo/ was mapped to "foo" path
 	fooSegs := idx.LookupRange("foo", nil, nil)
-	if len(fooSegs) != 1 {
-		t.Errorf("Expected 1 segment at 'foo', got %d", len(fooSegs))
+	if len(fooSegs) != 3 {
+		// 3 because ancestor diff are also returned
+		t.Errorf("Expected 3 segment at 'foo', got %d", len(fooSegs))
 	}
 }

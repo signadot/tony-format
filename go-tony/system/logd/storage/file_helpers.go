@@ -5,9 +5,7 @@ package storage
 // Returns a slice of (commitCount, txSeq) pairs.
 func (s *Storage) ListDiffs(virtualPath string) ([]struct{ CommitCount, TxSeq int64 }, error) {
 	// Use index for fast lookup instead of filesystem
-	s.indexMu.RLock()
 	segments := s.index.LookupRange(virtualPath, nil, nil)
-	s.indexMu.RUnlock()
 
 	// Convert []*LogSegment to old format
 	var diffs []struct{ CommitCount, TxSeq int64 }

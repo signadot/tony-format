@@ -272,14 +272,17 @@ func TestHierarchicalWatch(t *testing.T) {
 }
 
 func TestHierarchicalWatch_TypeChangeConflict(t *testing.T) {
+	// this test is broken for the parsing, hangs.
+	// suggests we should add stream reading support
 	t.Skip()
+	// Setup server
 	dir, err := os.MkdirTemp("", "logd-test-conflict")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(dir)
 
-	s, err := storage.Open(dir, 0, nil)
+	s, err := storage.Open(dir, 022, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,48 +291,41 @@ func TestHierarchicalWatch_TypeChangeConflict(t *testing.T) {
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
-	// 1. Write Sparse Array at /root/conflict AND a child in the same commit
-	// We manually write diffs to simulate a transaction with multiple diffs at the same commit count.
 	timestamp := time.Now().UTC().Format(time.RFC3339Nano)
 
-	// Create a sparse array diff using ir.FromIntKeysMap (which sets the !sparsearray tag)
+	// 1. Write Sparse Array at /root/conflict AND a child in the same commit (Commit 1)
+	// We use WriteDiff manually to force them into the same commit count.
+
+	// Sparse Array Diff
 	sparsePatch := ir.FromIntKeysMap(map[uint32]*ir.Node{
 		1: ir.FromString("one"),
 	})
+	if !ir.TagHas(sparsePatch.Tag, ir.IntKeysTag) {
+		t.Fatal("sparsePatch missing tag")
+	}
 
-	// Commit 1, TxSeq 1
+	// Commit 1, Tx 1: Write Sparse Array
 	if err := s.WriteDiff("/root/conflict", 1, 1, timestamp, sparsePatch, false); err != nil {
 		t.Fatal(err)
 	}
-	// Manually write metadata for sparse array
-	if err := s.FS.WritePathMetadata("/root/conflict", &storage.PathMetadata{IsSparseArray: true}); err != nil {
-		t.Fatal(err)
-	}
 
+	// Commit 1, Tx 2: Write child /root/conflict/2
 	childPatch, _ := parse.Parse([]byte(`"two"`))
-	// Same commit count and txSeq for child
-	if err := s.WriteDiff("/root/conflict/2", 1, 1, timestamp, childPatch, false); err != nil {
+	if err := s.WriteDiff("/root/conflict/2", 1, 2, timestamp, childPatch, false); err != nil {
 		t.Fatal(err)
 	}
 
-	// Now /root/conflict has a child "2".
-	// Metadata for /root/conflict is Sparse (from step 1).
-
-	// 2. Change /root/conflict to Object
-	// This updates metadata to Object (IsSparseArray=false)
+	// 2. Change /root/conflict to Object (Commit 2)
 	objectPatch, _ := parse.Parse([]byte(`{ "foo": "bar" }`))
 
-	// Commit 2, TxSeq 2
-	if err := s.WriteDiff("/root/conflict", 2, 2, timestamp, objectPatch, false); err != nil {
-		t.Fatal(err)
-	}
-	// Update metadata
-	if err := s.FS.WritePathMetadata("/root/conflict", &storage.PathMetadata{IsSparseArray: false}); err != nil {
+	// Commit 2, Tx 3: Write Object
+	if err := s.WriteDiff("/root/conflict", 2, 3, timestamp, objectPatch, false); err != nil {
 		t.Fatal(err)
 	}
 
 	// 3. Watch /root/conflict from beginning
 	// We expect an error when processing the first commit (Sparse) because metadata is now Object.
+	// The server should close the connection or return an error.
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -352,42 +348,22 @@ func TestHierarchicalWatch_TypeChangeConflict(t *testing.T) {
 	}
 
 	// Read stream
-	buf := make([]byte, 1024)
+	// We expect:
+	// 1. Commit 1: Sparse Array (merged with child "2")
+	// 2. Commit 2: Object (replacement)
 
-	// Continue reading until EOF
-	// We expect EOF (stream closed) without receiving all data, or maybe just EOF.
-	// If we receive the first update successfully, then the test failed (it should have errored).
-	// But wait, the first update is the one that fails.
-	// So we should receive NOTHING (or partial garbage) and then EOF.
-
-	receivedDoc := false
-	for {
-		n, err := resp.Body.Read(buf)
-		if n > 0 {
-			t.Logf("Read %d bytes", n)
-			// Try to parse
-			parts := bytes.Split(buf[:n], []byte("---\n"))
-			for _, part := range parts {
-				part = bytes.TrimSpace(part)
-				if len(part) > 0 {
-					if _, err := parse.Parse(part); err == nil {
-						receivedDoc = true
-						t.Logf("Received unexpected doc: %s", part)
-					}
-				}
-			}
-		}
-		if err != nil {
-			if err == io.EOF {
-				t.Log("Received EOF")
-				break
-			}
-			t.Logf("Read error: %v", err)
-			t.Fatal(err)
-		}
+	d, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	docs, err := parse.ParseMulti(d)
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	if receivedDoc {
-		t.Error("Expected stream to fail before sending document, but received document")
+	if len(docs) != 2 {
+		t.Errorf("got %d docs: ", len(docs))
+		return
 	}
+	_ = docs
 }

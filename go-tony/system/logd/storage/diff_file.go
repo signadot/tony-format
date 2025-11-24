@@ -43,6 +43,7 @@ func (s *Storage) WriteDiffAtomically(virtualPath string, timestamp string, diff
 
 	commitCount = state.CommitCount
 	txSeq = state.TxSeq
+	logSeg := index.PointLogSegment(commitCount, txSeq, virtualPath)
 
 	// Write the diff file while still holding the lock
 	if err := s.writeDiffLocked(virtualPath, commitCount, txSeq, timestamp, diff, pending); err != nil {
@@ -54,18 +55,9 @@ func (s *Storage) WriteDiffAtomically(virtualPath string, timestamp string, diff
 		return 0, 0, err
 	}
 
-	// Check if diff has !sparsearray tag and store metadata
-	// This is done after the diff is written to avoid blocking on metadata writes
-	if HasSparseArrayTag(diff) {
-		meta := &PathMetadata{IsSparseArray: true}
-		if err := s.FS.WritePathMetadata(virtualPath, meta); err != nil {
-			// Log but don't fail the write - metadata is optional
-			s.log.Warn("failed to write path metadata", "path", virtualPath, "error", err)
-		}
-	}
 	// Write index with seq lock if not pending
 	if !pending {
-		s.index.Add(index.PointLogSegment(state.CommitCount, state.TxSeq, virtualPath))
+		s.index.Add(logSeg)
 	}
 
 	return commitCount, txSeq, nil
@@ -74,7 +66,15 @@ func (s *Storage) WriteDiffAtomically(virtualPath string, timestamp string, diff
 // WriteDiff writes a diff file. For atomic sequence allocation and file writing,
 // use WriteDiffAtomically instead.
 func (s *Storage) WriteDiff(virtualPath string, commitCount, txSeq int64, timestamp string, diff *ir.Node, pending bool) error {
-	return s.writeDiffLocked(virtualPath, commitCount, txSeq, timestamp, diff, pending)
+	seg := index.PointLogSegment(commitCount, txSeq, virtualPath)
+	err := s.writeDiffLocked(virtualPath, commitCount, txSeq, timestamp, diff, pending)
+	if err != nil {
+		return err
+	}
+	if !pending {
+		s.index.Add(seg)
+	}
+	return nil
 }
 
 // writeDiffLocked writes a diff file without locking (caller must hold seqMu if needed).
@@ -186,7 +186,5 @@ func (s *Storage) ReadDiff(virtualPath string, commitCount, txSeq int64, pending
 // AddIndexSegment adds a segment to the index.
 // This is used by the server when committing transactions.
 func (s *Storage) AddIndexSegment(commitCount, txSeq int64, virtualPath string) {
-	s.indexMu.Lock()
 	s.index.Add(index.PointLogSegment(commitCount, txSeq, virtualPath))
-	s.indexMu.Unlock()
 }

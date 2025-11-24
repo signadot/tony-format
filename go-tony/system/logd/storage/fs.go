@@ -14,10 +14,6 @@ type FS struct {
 	Root string
 }
 
-func (fs *FS) MetaPath() string {
-	return filepath.Join(fs.Root, "meta")
-}
-
 func (fs *FS) FormatLogSegment(s *index.LogSegment, pending bool) string {
 	var base string
 	if s.IsPoint() {
@@ -234,7 +230,6 @@ func (fs *FS) ListLogSegments(virtualPath string) ([]*index.LogSegment, error) {
 
 		seg, err := fs.ParseLogSegment(filepath.Join(virtualPath, name))
 		if err != nil {
-			panic(err)
 			// Skip invalid files
 			continue
 		}
@@ -248,10 +243,11 @@ func (fs *FS) ListLogSegments(virtualPath string) ([]*index.LogSegment, error) {
 	return segments, nil
 }
 
-// EnsurePathDir ensures the directory for a virtual path exists.
+// EnsurePathDir ensures that the directory for a given virtual path exists.
+// It creates all necessary parent directories.
 func (fs *FS) EnsurePathDir(virtualPath string) error {
 	fsPath := fs.PathToFilesystem(virtualPath)
-	return fs.mkdirAll(fsPath, 0755)
+	return os.MkdirAll(fsPath, 0755)
 }
 
 // ListChildPaths returns all immediate child paths under parentPath.
@@ -276,11 +272,6 @@ func (fs *FS) ListChildPaths(parentPath string) ([]string, error) {
 			continue
 		}
 
-		// Skip metadata directory if it exists (though it shouldn't be in children dir)
-		if entry.Name() == ".meta" {
-			continue
-		}
-
 		// Build child path
 		childPath := filepath.Join(parentPath, entry.Name())
 		// Ensure forward slashes for virtual path
@@ -292,9 +283,4 @@ func (fs *FS) ListChildPaths(parentPath string) ([]string, error) {
 	}
 
 	return children, nil
-}
-
-// mkdirAll is a helper wrapper around os.MkdirAll
-func (fs *FS) mkdirAll(path string, perm os.FileMode) error {
-	return os.MkdirAll(path, perm)
 }
