@@ -51,13 +51,18 @@ func (s *Server) handleWatchData(w http.ResponseWriter, r *http.Request, body *a
 	var lastCommitCount int64
 	docCount := 0
 
-	// Stream existing diffs
-	for _, diffInfo := range diffsToStream {
-		if err := s.streamDiff(w, body.Path, diffInfo.CommitCount, diffInfo.TxSeq, docCount > 0); err != nil {
+	// Stream historical diffs first
+	for _, seg := range diffsToStream {
+		if err := s.streamDiff(w, body.Path, seg.StartCommit, seg.StartTx, docCount > 0); err != nil {
 			return
 		}
 		docCount++
-		lastCommitCount = diffInfo.CommitCount
+		lastCommitCount = seg.StartCommit
+
+		// Check if we've reached toSeq
+		if toSeq != nil && lastCommitCount >= *toSeq {
+			return
+		}
 	}
 
 	// Update lastCommitCount if we didn't stream anything yet
@@ -102,29 +107,14 @@ func (s *Server) handleWatchData(w http.ResponseWriter, r *http.Request, body *a
 			}
 			s.Config.Log.Debug("listed relevant", "n", len(currentDiffs))
 
-			// Find new diffs (commitCount > lastCommitCount)
-			// Since currentDiffs is sorted by commitCount, we can stream them in order
-			// This ensures the client receives diffs in commitCount order, which is required
-			// for correct state reconstruction
-			var newDiffs []struct{ CommitCount, TxSeq int64 }
-			for _, diff := range currentDiffs {
-				if diff.CommitCount > lastCommitCount {
-					if toSeq == nil || diff.CommitCount <= *toSeq {
-						newDiffs = append(newDiffs, diff)
-					}
-				}
-			}
-
-			// Stream new diffs in commitCount order
-			// Since currentDiffs is already sorted, newDiffs will be in order too
-			for _, diffInfo := range newDiffs {
-				// Ensure we don't skip any commitCounts - each diff must be streamed
-				// in sequence for correct state reconstruction
-				if err := s.streamDiff(w, body.Path, diffInfo.CommitCount, diffInfo.TxSeq, docCount > 0); err != nil {
+			// Stream any new diffs
+			for _, seg := range currentDiffs {
+				// Stream this diff (we already filtered by commit range above)
+				if err := s.streamDiff(w, body.Path, seg.StartCommit, seg.StartTx, docCount > 0); err != nil {
 					return
 				}
 				docCount++
-				lastCommitCount = diffInfo.CommitCount
+				lastCommitCount = seg.StartCommit
 
 				// Check if we've reached toSeq
 				if toSeq != nil && lastCommitCount >= *toSeq {

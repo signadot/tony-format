@@ -23,7 +23,7 @@ func (s *Server) reconstructState(virtualPath string, targetCommitCount *int64) 
 		targetCommit = *targetCommitCount
 	} else if len(diffList) > 0 {
 		// Use latest commit count
-		targetCommit = diffList[len(diffList)-1].CommitCount
+		targetCommit = diffList[len(diffList)-1].StartCommit
 	} else {
 		// No diffs, return null state
 		return ir.Null(), 0, nil
@@ -32,26 +32,20 @@ func (s *Server) reconstructState(virtualPath string, targetCommitCount *int64) 
 	var state = ir.Null()
 	var startCommitCount int64
 
-	// Filter diffs to apply (only those after the snapshot)
-	var diffsToApply []struct{ CommitCount, TxSeq int64 }
-	for _, diff := range diffList {
-		if diff.CommitCount > startCommitCount && diff.CommitCount <= targetCommit {
-			diffsToApply = append(diffsToApply, diff)
-		}
-	}
+	// Apply diffs sequentially up to target commit
+	for _, seg := range diffList {
+		if seg.StartCommit > startCommitCount && seg.StartCommit <= targetCommit {
+			// Read the diff file
+			diffFile, err := s.Config.Storage.ReadDiff(virtualPath, seg.StartCommit, seg.StartTx, false)
+			if err != nil {
+				return nil, 0, fmt.Errorf("failed to read diff: %w", err)
+			}
 
-	// Apply diffs sequentially
-	for _, diffInfo := range diffsToApply {
-		// Read the diff file
-		diffFile, err := s.Config.Storage.ReadDiff(virtualPath, diffInfo.CommitCount, diffInfo.TxSeq, false)
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to read diff: %w", err)
-		}
-
-		// Apply the diff to reconstruct state
-		state, err = tony.Patch(state, diffFile.Diff)
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to apply diff: %w", err)
+			// Apply the diff to reconstruct state
+			state, err = tony.Patch(state, diffFile.Diff)
+			if err != nil {
+				return nil, 0, fmt.Errorf("failed to apply diff: %w", err)
+			}
 		}
 	}
 

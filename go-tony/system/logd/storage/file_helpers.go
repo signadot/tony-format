@@ -1,21 +1,24 @@
 package storage
 
-// ListDiffs lists all committed diff files for a path, ordered by commit count.
-// Only returns .diff files, not .pending files.
-// Returns a slice of (commitCount, txSeq) pairs.
-func (s *Storage) ListDiffs(virtualPath string) ([]struct{ CommitCount, TxSeq int64 }, error) {
+import (
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
+)
+
+// ListDiffs lists all diff segments for a path, ordered by commit count.
+// The index only contains committed diffs, never pending files.
+// Returns both point segments (individual diffs) and range segments (compacted diffs).
+func (s *Storage) ListDiffs(virtualPath string) ([]*index.LogSegment, error) {
 	s.indexMu.RLock()
 	defer s.indexMu.RUnlock()
 
 	// Use index for fast lookup instead of filesystem
 	segments := s.index.LookupRange(virtualPath, nil, nil)
 
-	// Convert []*LogSegment to old format
-	var diffs []struct{ CommitCount, TxSeq int64 }
-	for _, seg := range segments {
-		if seg.IsPoint() && seg.StartCommit != 0 { // Skip pending
-			diffs = append(diffs, struct{ CommitCount, TxSeq int64 }{seg.StartCommit, seg.StartTx})
-		}
+	// Convert to pointers
+	result := make([]*index.LogSegment, len(segments))
+	for i := range segments {
+		result[i] = &segments[i]
 	}
-	return diffs, nil
+
+	return result, nil
 }
