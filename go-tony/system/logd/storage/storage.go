@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
@@ -13,11 +14,12 @@ import (
 // Storage provides filesystem-based storage for logd.
 type Storage struct {
 	*seq.Seq
-	umask int // Umask to apply when creating directories
-	FS    *FS
-	logMu sync.RWMutex
-	log   *slog.Logger // Logger for error logging
-	index *index.Index
+	umask   int // Umask to apply when creating directories
+	FS      *FS
+	logMu   sync.RWMutex
+	log     *slog.Logger // Logger for error logging
+	index   *index.Index
+	indexMu sync.RWMutex // Protects index + filesystem consistency
 }
 
 // Open opens or creates a Storage instance with the given root directory.
@@ -37,13 +39,50 @@ func Open(root string, umask int, logger *slog.Logger) (*Storage, error) {
 
 // ListChildPaths returns all immediate child paths under parentPath.
 func (s *Storage) ListChildPaths(parentPath string) ([]string, error) {
-	return s.FS.ListChildPaths(parentPath)
+	s.indexMu.RLock()
+	defer s.indexMu.RUnlock()
+
+	// Navigate to the index node for parentPath
+	idx := s.index
+	if parentPath != "" && parentPath != "/" {
+		parts := strings.Split(strings.Trim(parentPath, "/"), "/")
+		for _, part := range parts {
+			if part == "" {
+				continue
+			}
+			idx.RLock()
+			child := idx.Children[part]
+			idx.RUnlock()
+			if child == nil {
+				return nil, nil
+			}
+			idx = child
+		}
+	}
+
+	// Get the list of children at this level
+	children := idx.List()
+
+	// Convert to full paths
+	result := make([]string, len(children))
+	for i, child := range children {
+		if parentPath == "" || parentPath == "/" {
+			result[i] = "/" + child
+		} else {
+			result[i] = parentPath + "/" + child
+		}
+	}
+
+	return result, nil
 }
 
 // CommitPendingDiff atomically commits a pending diff by:
 // 1. Renaming .pending to .diff
 // 2. Updating the index
 func (s *Storage) CommitPendingDiff(virtualPath string, txSeq, commitCount int64) error {
+	s.indexMu.Lock()
+	defer s.indexMu.Unlock()
+
 	// Rename pending file to diff file
 	if err := s.FS.RenamePendingToDiff(virtualPath, commitCount, txSeq); err != nil {
 		return err

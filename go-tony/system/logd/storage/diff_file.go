@@ -57,7 +57,9 @@ func (s *Storage) WriteDiffAtomically(virtualPath string, timestamp string, diff
 
 	// Write index with seq lock if not pending
 	if !pending {
+		s.indexMu.Lock()
 		s.index.Add(logSeg)
+		s.indexMu.Unlock()
 	}
 
 	return commitCount, txSeq, nil
@@ -72,7 +74,9 @@ func (s *Storage) WriteDiff(virtualPath string, commitCount, txSeq int64, timest
 		return err
 	}
 	if !pending {
+		s.indexMu.Lock()
 		s.index.Add(seg)
+		s.indexMu.Unlock()
 	}
 	return nil
 }
@@ -122,6 +126,9 @@ func (s *Storage) writeDiffLocked(virtualPath string, commitCount, txSeq int64, 
 // ReadDiff reads a diff file from disk.
 // For pending files, commitCount is ignored (can be 0).
 func (s *Storage) ReadDiff(virtualPath string, commitCount, txSeq int64, pending bool) (*DiffFile, error) {
+	s.indexMu.RLock()
+	defer s.indexMu.RUnlock()
+
 	fsPath := s.FS.PathToFilesystem(virtualPath)
 
 	// Format filename using FS

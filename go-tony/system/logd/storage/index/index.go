@@ -162,7 +162,6 @@ func rangeFunc(from, to *int64) func(LogSegment) int {
 func splitPath(vp string) []string {
 	if vp == "/" {
 		panic("/")
-		return []string{""}
 	}
 	return strings.Split(filepath.ToSlash(filepath.Clean(vp)), "/")
 }
@@ -177,4 +176,17 @@ func optRange(oFrom, oTo *int64) (from, to int64) {
 		to = *oTo
 	}
 	return
+}
+
+// List returns the immediate child names at this index level.
+// Returns the keys of the Children map.
+func (i *Index) List() []string {
+	i.RLock()
+	defer i.RUnlock()
+
+	children := make([]string, 0, len(i.Children))
+	for name := range i.Children {
+		children = append(children, name)
+	}
+	return children
 }
