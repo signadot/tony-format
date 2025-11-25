@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -73,24 +74,28 @@ patch: !key(id)
 	expectedSeq := *writeSeq.Int64
 
 	// Step 2: Read it back using MATCH
-	readRequestBody := `path: /proc/processes
-match: null
+	readRequestBody := `meta:
+  seq: null
+body:
+  path: /proc/processes
+  match: null
 `
 
 	readReq := httptest.NewRequest("MATCH", "/api/data", bytes.NewBufferString(readRequestBody))
 	readReq.Header.Set("Content-Type", "application/x-tony")
 	readResp := httptest.NewRecorder()
 
-	readBody, err := api.ParseRequestBody(readReq)
-	if err != nil {
-		t.Fatalf("failed to parse read request body: %v", err)
+	d, err := io.ReadAll(readReq.Body)
+	req := &api.Match{}
+	if err = req.FromTony(d); err != nil {
+		t.Fatalf("error decoding match req: %v", err)
 	}
-
-	server.handleMatchData(readResp, readReq, readBody)
+	server.handleMatchData(readResp, readReq, req)
 
 	if readResp.Code != http.StatusOK {
 		t.Fatalf("expected status 200 for read, got %d: %s", readResp.Code, readResp.Body.String())
 	}
+	resp := &api.Match{}
 
 	// Parse read response
 	readDoc, err := parse.Parse(readResp.Body.Bytes())

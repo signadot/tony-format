@@ -12,7 +12,7 @@ import (
 )
 
 // handleWatchData handles WATCH requests for data streaming.
-func (s *Server) handleWatchData(w http.ResponseWriter, r *http.Request, body *api.RequestBody) {
+func (s *Server) handleWatchData(w http.ResponseWriter, r *http.Request, body *api.Body) {
 	// Validate path
 	if err := validateDataPath(body.Path); err != nil {
 		writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidPath, err.Error()))

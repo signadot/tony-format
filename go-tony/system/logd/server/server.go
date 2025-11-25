@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -89,20 +90,39 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse request body
-	body, err := api.ParseRequestBody(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidDiff, fmt.Sprintf("failed to parse request body: %v", err)))
-		return
-	}
-
 	// Route based on HTTP method
 	switch r.Method {
 	case "MATCH":
-		s.handleMatch(w, r, body)
+		d, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("i/o error: %v", err), http.StatusInternalServerError)
+			return
+		}
+		// Parse request body
+		req := &api.Match{}
+		if err := req.FromTony(d); err != nil {
+			writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidDiff, fmt.Sprintf("failed to parse request body: %v", err)))
+		}
+		s.handleMatch(w, r, req)
 	case "PATCH":
-		s.handlePatch(w, r, body)
+		// Parse request body
+		d, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("i/o error: %v", err), http.StatusInternalServerError)
+			return
+		}
+		req := &api.Patch{}
+		if err := req.FromTony(d); err != nil {
+			writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidDiff, fmt.Sprintf("failed to parse request body: %v", err)))
+		}
+		s.handlePatch(w, r, req)
 	case "WATCH":
+		// Parse request body
+		body, err := api.ParseRequestBody(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidDiff, fmt.Sprintf("failed to parse request body: %v", err)))
+			return
+		}
 		s.handleWatch(w, r, body)
 	default:
 		writeError(w, http.StatusMethodNotAllowed, api.NewError("method_not_allowed", fmt.Sprintf("method %s not allowed", r.Method)))
@@ -110,41 +130,27 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleMatch handles MATCH requests (reads).
-func (s *Server) handleMatch(w http.ResponseWriter, r *http.Request, body *api.RequestBody) {
+func (s *Server) handleMatch(w http.ResponseWriter, r *http.Request, req *api.Match) {
 	// Route based on path
-	if body.Path == "/api/transactions" {
-		s.handleMatchTransaction(w, r, body)
+	if req.Body.Path == "/api/transactions" {
+		//s.handleMatchTransaction(w, r, body)
 		return
 	}
-
-	// Validate data path
-	if err := validateDataPath(body.Path); err != nil {
-		writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidPath, err.Error()))
-		return
-	}
-
-	s.handleMatchData(w, r, body)
+	s.handleMatchData(w, r, req)
 }
 
 // handlePatch handles PATCH requests (writes).
-func (s *Server) handlePatch(w http.ResponseWriter, r *http.Request, body *api.RequestBody) {
+func (s *Server) handlePatch(w http.ResponseWriter, r *http.Request, req *api.Patch) {
 	// Route based on path
-	if body.Path == "/api/transactions" {
-		s.handlePatchTransaction(w, r, body)
+	if req.Body.Path == "/api/transactions" {
+		//s.handlePatchTransaction(w, r, body)
 		return
 	}
-
-	// Validate data path
-	if err := validateDataPath(body.Path); err != nil {
-		writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidPath, err.Error()))
-		return
-	}
-
-	s.handlePatchData(w, r, body)
+	s.handlePatchData(w, r, req)
 }
 
 // handleWatch handles WATCH requests (streaming).
-func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request, body *api.RequestBody) {
+func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request, body *api.Body) {
 	// Route based on path
 	if body.Path == "/api/transactions" {
 		s.handleWatchTransaction(w, r, body)
@@ -178,7 +184,7 @@ func writeError(w http.ResponseWriter, statusCode int, err *api.Error) {
 
 // Stub handlers - to be implemented
 
-func (s *Server) handleWatchTransaction(w http.ResponseWriter, r *http.Request, body *api.RequestBody) {
+func (s *Server) handleWatchTransaction(w http.ResponseWriter, r *http.Request, body *api.Body) {
 	// TODO: Implement
 	writeError(w, http.StatusNotImplemented, api.NewError("not_implemented", "WATCH /api/transactions not yet implemented"))
 }

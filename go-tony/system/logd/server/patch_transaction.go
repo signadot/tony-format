@@ -14,7 +14,7 @@ import (
 )
 
 // handlePatchTransaction handles PATCH requests for transaction operations (create/abort).
-func (s *Server) handlePatchTransaction(w http.ResponseWriter, r *http.Request, body *api.RequestBody) {
+func (s *Server) handlePatchTransaction(w http.ResponseWriter, r *http.Request, body *api.Body) {
 	// Check if this is a create (match is null) or abort (match has transactionId)
 	if body.Match == nil || body.Match.Type == ir.NullType {
 		// Create transaction
@@ -40,7 +40,7 @@ func (s *Server) handlePatchTransaction(w http.ResponseWriter, r *http.Request, 
 }
 
 // handleCreateTransaction handles transaction creation.
-func (s *Server) handleCreateTransaction(w http.ResponseWriter, r *http.Request, body *api.RequestBody) {
+func (s *Server) handleCreateTransaction(w http.ResponseWriter, r *http.Request, body *api.Body) {
 	// Extract participantCount from patch
 	if body.Patch == nil {
 		writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidDiff, "patch is required"))
@@ -104,7 +104,7 @@ func (s *Server) handleCreateTransaction(w http.ResponseWriter, r *http.Request,
 }
 
 // handleAbortTransaction handles transaction abortion.
-func (s *Server) handleAbortTransaction(w http.ResponseWriter, r *http.Request, body *api.RequestBody, transactionID string) {
+func (s *Server) handleAbortTransaction(w http.ResponseWriter, r *http.Request, body *api.Body, transactionID string) {
 	// Acquire waiter and ensure it's released when function exits
 	waiter := s.acquireWaiter(transactionID)
 	defer s.releaseWaiter(transactionID)

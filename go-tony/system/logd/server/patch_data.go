@@ -15,7 +15,8 @@ import (
 )
 
 // handlePatchData handles PATCH requests for data writes.
-func (s *Server) handlePatchData(w http.ResponseWriter, r *http.Request, body *api.RequestBody) {
+func (s *Server) handlePatchData(w http.ResponseWriter, r *http.Request, req *api.Patch) {
+	body := &req.Body
 	// Validate path
 	if err := validateDataPath(body.Path); err != nil {
 		writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidPath, err.Error()))
@@ -28,21 +29,9 @@ func (s *Server) handlePatchData(w http.ResponseWriter, r *http.Request, body *a
 		return
 	}
 
-	// Check if this is a transaction write (has tx-id in meta)
-	var transactionID string
-	if body.Meta != nil {
-		if txIDNode, ok := body.Meta["tx-id"]; ok {
-			if txIDNode.Type != ir.StringType {
-				writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidDiff, "tx-id must be a string"))
-				return
-			}
-			transactionID = txIDNode.String
-		}
-	}
-
 	// Handle transaction write
-	if transactionID != "" {
-		s.handlePatchDataWithTransaction(w, r, body, body.Path, transactionID)
+	if req.Meta.Tx != nil {
+		s.handlePatchDataWithTransaction(w, r, req)
 		return
 	}
 
@@ -59,25 +48,30 @@ func (s *Server) handlePatchData(w http.ResponseWriter, r *http.Request, body *a
 	}
 
 	// Build response: return the diff with meta fields
-	// Use FromMap to maintain parent pointers
-	seqNode := &ir.Node{Type: ir.NumberType, Int64: &commitCount, Number: fmt.Sprintf("%d", commitCount)}
-	timestampNode := &ir.Node{Type: ir.StringType, String: timestamp}
-	metaNode := ir.FromMap(map[string]*ir.Node{
-		"seq":       seqNode,
-		"timestamp": timestampNode,
-	})
-
-	response := ir.FromMap(map[string]*ir.Node{
-		"path":  ir.FromString(body.Path),
-		"match": ir.Null(),
-		"patch": body.Patch,
-		"meta":  metaNode,
-	})
+	resp := &api.Patch{
+		Meta: api.PatchMeta{
+			Tx:              req.Meta.Tx,
+			EncodingOptions: req.Meta.EncodingOptions,
+			MaxDuration:     req.Meta.MaxDuration,
+			Seq:             &commitCount,
+			When:            timestamp,
+		},
+		Body: api.Body{
+			Path:  body.Path,
+			Patch: body.Patch,
+		},
+	}
+	d, err := resp.ToTony()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, api.NewError("internal_error", fmt.Sprintf("error encoding response: %v", err)))
+		return
+	}
 
 	// Write response
 	w.Header().Set("Content-Type", "application/x-tony")
 	w.WriteHeader(http.StatusOK)
-	if err := encode.Encode(response, w); err != nil {
+	_, err = w.Write(d)
+	if err != nil {
 		// Error encoding response - header already written, can't send error
 		// This is a programming error, should not happen
 		panic(fmt.Sprintf("failed to encode response: %v", err))
@@ -86,13 +80,16 @@ func (s *Server) handlePatchData(w http.ResponseWriter, r *http.Request, body *a
 
 // handlePatchDataWithTransaction handles PATCH requests for data writes within a transaction.
 // This function blocks until the transaction is either committed or aborted.
-func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.Request, body *api.RequestBody, pathStr, transactionID string) {
+func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.Request, req *api.Patch) { //body *api.Body, pathStr, transactionID string) {
 	// Acquire waiter and ensure it's released when function exits
-	waiter := s.acquireWaiter(transactionID)
-	defer s.releaseWaiter(transactionID)
+	body := &req.Body
+	path := body.Path
+	txID := *req.Meta.Tx
+	waiter := s.acquireWaiter(txID)
+	defer s.releaseWaiter(txID)
 
 	// Read transaction state
-	state, err := s.Config.Storage.ReadTransactionState(transactionID)
+	state, err := s.Config.Storage.ReadTransactionState(txID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, api.NewError("transaction_not_found", fmt.Sprintf("transaction not found: %v", err)))
 		return
@@ -100,13 +97,13 @@ func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.R
 
 	// Validate transaction is pending
 	if state.Status != "pending" {
-		writeError(w, http.StatusBadRequest, api.NewError("invalid_transaction_state", fmt.Sprintf("transaction %s is %s, cannot write", transactionID, state.Status)))
+		writeError(w, http.StatusBadRequest, api.NewError("invalid_transaction_state", fmt.Sprintf("transaction %s is %s, cannot write", txID, state.Status)))
 		return
 	}
 
 	// Check if we've already received all participants
 	if state.ParticipantsReceived >= state.ParticipantCount {
-		writeError(w, http.StatusBadRequest, api.NewError("transaction_full", fmt.Sprintf("transaction %s already has all %d participants", transactionID, state.ParticipantCount)))
+		writeError(w, http.StatusBadRequest, api.NewError("transaction_full", fmt.Sprintf("transaction %s already has all %d participants", txID, state.ParticipantCount)))
 		return
 	}
 
@@ -115,14 +112,14 @@ func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.R
 
 	// Write diff as pending file
 	// Each write gets its own txSeq allocated atomically, but they're all part of the same transaction
-	_, writeTxSeq, err := s.Config.Storage.WriteDiffAtomically(pathStr, timestamp, body.Patch, true)
+	_, writeTxSeq, err := s.Config.Storage.WriteDiffAtomically(path, timestamp, body.Patch, true)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to write pending diff: %v", err)))
 		return
 	}
 
 	// Get filesystem path for the pending file
-	fsPath := s.Config.Storage.FS.PathToFilesystem(pathStr)
+	fsPath := s.Config.Storage.FS.PathToFilesystem(path)
 	pendingFilename := fmt.Sprintf("%d.pending", writeTxSeq)
 	pendingFilePath := filepath.Join(fsPath, pendingFilename)
 
@@ -131,7 +128,7 @@ func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.R
 		w:         w,
 		r:         r,
 		body:      body,
-		pathStr:   pathStr,
+		pathStr:   path,
 		patch:     body.Patch,
 		timestamp: timestamp,
 		txSeq:     writeTxSeq,
@@ -147,10 +144,10 @@ func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.R
 	}
 
 	// Atomically update transaction state and check if we're the last participant
-	isLastParticipant, err := waiter.UpdateState(transactionID, s.Config.Storage, func(currentState *storage.TransactionState) {
+	isLastParticipant, err := waiter.UpdateState(txID, s.Config.Storage, func(currentState *storage.TransactionState) {
 		currentState.ParticipantsReceived++
 		currentState.Diffs = append(currentState.Diffs, storage.PendingDiff{
-			Path:      pathStr,
+			Path:      path,
 			DiffFile:  pendingFilePath,
 			WrittenAt: timestamp,
 		})
@@ -169,7 +166,7 @@ func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.R
 	var result *transactionResult
 	if isLastParticipant {
 		// Re-read state to get the final state with all diffs
-		finalState, err := s.Config.Storage.ReadTransactionState(transactionID)
+		finalState, err := s.Config.Storage.ReadTransactionState(txID)
 		if err != nil {
 			waiter.SetResult(&transactionResult{
 				committed: false,
@@ -178,7 +175,7 @@ func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.R
 			writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to read final transaction state: %v", err)))
 			return
 		}
-		s.commitTransaction(transactionID, finalState, waiter)
+		s.commitTransaction(txID, finalState, waiter)
 		// After committing, get the result (commitTransaction sets it)
 		result = waiter.GetResult()
 	} else {
@@ -199,16 +196,27 @@ func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.R
 	}
 
 	// Transaction committed successfully - send success response
+	resp := &api.Patch{
+		Meta: api.PatchMeta{
+			Seq:  &result.commitCount,
+			When: timestamp,
+			Tx:   &txID,
+		},
+		Body: api.Body{
+			Path:  req.Body.Path,
+			Patch: req.Body.Patch,
+		},
+	}
 	seqNode := &ir.Node{Type: ir.NumberType, Int64: &result.commitCount, Number: fmt.Sprintf("%d", result.commitCount)}
 	timestampNode := &ir.Node{Type: ir.StringType, String: timestamp}
 	metaNode := ir.FromMap(map[string]*ir.Node{
 		"seq":       seqNode,
 		"timestamp": timestampNode,
-		"tx-id":     &ir.Node{Type: ir.StringType, String: transactionID},
+		"tx-id":     &ir.Node{Type: ir.StringType, String: txID},
 	})
 
 	response := ir.FromMap(map[string]*ir.Node{
-		"path":  ir.FromString(pathStr),
+		"path":  ir.FromString(path),
 		"match": ir.Null(),
 		"patch": body.Patch,
 		"meta":  metaNode,

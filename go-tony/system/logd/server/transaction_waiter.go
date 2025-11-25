@@ -13,7 +13,7 @@ import (
 type pendingWrite struct {
 	w         http.ResponseWriter
 	r         *http.Request
-	body      *api.RequestBody
+	body      *api.Body
 	pathStr   string
 	patch     *ir.Node
 	timestamp string

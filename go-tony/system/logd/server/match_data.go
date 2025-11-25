@@ -5,64 +5,53 @@ import (
 	"net/http"
 
 	tony "github.com/signadot/tony-format/go-tony"
-	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
 // handleMatchData handles MATCH requests for data reads.
-func (s *Server) handleMatchData(w http.ResponseWriter, r *http.Request, body *api.RequestBody) {
+func (s *Server) handleMatchData(w http.ResponseWriter, r *http.Request, req *api.Match) {
 	// Validate path
-	if err := validateDataPath(body.Path); err != nil {
+	if err := validateDataPath(req.Body.Path); err != nil {
 		writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidPath, err.Error()))
 		return
 	}
 
-	// Extract seq from meta for time-travel (null = latest)
-	var targetCommitCount *int64
-	if body.Meta != nil {
-		if seqNode, ok := body.Meta["seq"]; ok {
-			if seqNode.Type == ir.NumberType && seqNode.Int64 != nil {
-				targetCommitCount = seqNode.Int64
-			}
-			// If seq is null or not a number, use latest (targetCommitCount stays nil)
-		}
-	}
-
 	// Reconstruct state
-	state, seq, err := s.reconstructState(body.Path, targetCommitCount)
+	state, seq, err := s.reconstructState(req.Body.Path, req.Meta.SeqID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to reconstruct state: %v", err)))
 		return
 	}
 
+	// req.Meta will be used for output, set the reconstructed state seqID
+	resp := &api.Match{
+		Meta: req.Meta,
+	}
+	resp.Meta.SeqID = &seq
+
 	// Apply match filter if provided
-	if body.Match != nil && body.Match.Type != ir.NullType {
-		filteredState, err := s.filterState(state, body.Match)
+	if req.Body.Match != nil && req.Body.Match.Type != ir.NullType {
+		filteredState, err := s.filterState(state, req.Body.Match)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, api.NewError("match_error", fmt.Sprintf("failed to apply match filter: %v", err)))
 			return
 		}
 		state = filteredState
 	}
+	resp.Body.Patch = state
+	resp.Body.Match = ir.Null()
 
-	// Build response: return the state as a diff from null
-	seqNode := &ir.Node{Type: ir.NumberType, Int64: &seq, Number: fmt.Sprintf("%d", seq)}
-	metaNode := ir.FromMap(map[string]*ir.Node{
-		"seq": seqNode,
-	})
-
-	response := ir.FromMap(map[string]*ir.Node{
-		"path":  ir.FromString(body.Path),
-		"match": ir.Null(),
-		"patch": state,
-		"meta":  metaNode,
-	})
+	d, err := resp.ToTony()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, api.NewError("match_error", fmt.Sprintf("failed to encode response: %v", err)))
+		return
+	}
 
 	// Write response
 	w.Header().Set("Content-Type", "application/x-tony")
 	w.WriteHeader(http.StatusOK)
-	if err := encode.Encode(response, w); err != nil {
+	if _, err := w.Write(d); err != nil {
 		// Error encoding response - header already written, can't send error
 		// This is a programming error, should not happen
 		panic(fmt.Sprintf("failed to encode response: %v", err))
