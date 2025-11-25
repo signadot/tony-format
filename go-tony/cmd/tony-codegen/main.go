@@ -134,6 +134,11 @@ func processPackage(cfg *Config, pkg *codegen.PackageInfo) error {
 		return fmt.Errorf("failed to resolve field types: %w", err)
 	}
 
+	// Flatten embedded fields
+	if err := codegen.FlattenEmbeddedFields(allStructs); err != nil {
+		return fmt.Errorf("failed to flatten embedded fields: %w", err)
+	}
+
 	// Separate structs by mode (schemagen= vs schema=)
 	var schemagenStructs []*codegen.StructInfo
 	var schemaStructs []*codegen.StructInfo

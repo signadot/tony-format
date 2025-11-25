@@ -293,18 +293,18 @@ func goStructToSchemaNode(typ reflect.Type, structMap map[string]*StructInfo, cu
 	if lookupName != "" {
 		// If this is a self-reference, use compact form
 		if lookupName == currentStructName {
-			// Self-reference - use !all.schema(currentSchemaName) null
+			// Self-reference - use !currentSchemaName null
 			node := ir.Null()
-			node.Tag = fmt.Sprintf("!all.schema(%s)", currentSchemaName)
+			node.Tag = fmt.Sprintf("!%s", currentSchemaName)
 			return node, nil
 		}
 		// Look up struct in our map
 		if structInfo, ok := structMap[lookupName]; ok {
 			if structInfo.StructSchema != nil && structInfo.StructSchema.Mode == "schemagen" {
 				schemaName := structInfo.StructSchema.SchemaName
-				// Create !all.schema(schemaName) null reference
+				// Create !schemaName null reference
 				node := ir.Null()
-				node.Tag = fmt.Sprintf("!all.schema(%s)", schemaName)
+				node.Tag = fmt.Sprintf("!%s", schemaName)
 				return node, nil
 			}
 		}
@@ -325,9 +325,9 @@ func goStructToSchemaNode(typ reflect.Type, structMap map[string]*StructInfo, cu
 		}
 		if structInfo != nil && structInfo.StructSchema != nil && structInfo.StructSchema.Mode == "schemagen" {
 			schemaName := structInfo.StructSchema.SchemaName
-			// Create !all.schema(schemaName) null reference
+			// Create !schemaName null reference
 			node := ir.Null()
-			node.Tag = fmt.Sprintf("!all.schema(%s)", schemaName)
+			node.Tag = fmt.Sprintf("!%s", schemaName)
 			return node, nil
 		}
 	}
@@ -461,9 +461,9 @@ func ASTTypeToSchemaNode(expr ast.Expr, structMap map[string]*StructInfo, curren
 			if structInfo, ok := structMap[name]; ok && structInfo.Package == currentPkg {
 				if structInfo.StructSchema != nil && structInfo.StructSchema.Mode == "schemagen" {
 					schemaName := structInfo.StructSchema.SchemaName
-					// Create !all.schema(schemaName) null reference
+					// Create !schemaName null reference
 					node := ir.Null()
-					node.Tag = fmt.Sprintf("!all.schema(%s)", schemaName)
+					node.Tag = fmt.Sprintf("!%s", schemaName)
 					return node, nil
 				}
 			}
