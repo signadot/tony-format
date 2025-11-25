@@ -246,10 +246,13 @@ func GoTypeToSchemaNode(typ reflect.Type, fieldInfo *FieldInfo, structMap map[st
 		return ir.FromString(".[string]"), nil
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
-		reflect.Float32, reflect.Float64:
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		// Create .[int] format (nicer syntax)
 		return ir.FromString(".[int]"), nil
+
+	case reflect.Float32, reflect.Float64:
+		// Create .[float] format (nicer syntax)
+		return ir.FromString(".[float]"), nil
 
 	case reflect.Bool:
 		// Create .[bool] format (nicer syntax)
@@ -444,10 +447,12 @@ func ASTTypeToSchemaNode(expr ast.Expr, structMap map[string]*StructInfo, curren
 			// Create .[string] format (nicer syntax)
 			return ir.FromString(".[string]"), nil
 		case "int", "int8", "int16", "int32", "int64",
-			"uint", "uint8", "uint16", "uint32", "uint64",
-			"float32", "float64":
+			"uint", "uint8", "uint16", "uint32", "uint64":
 			// Create .[int] format (nicer syntax)
 			return ir.FromString(".[int]"), nil
+		case "float32", "float64":
+			// Create .[float] format (nicer syntax)
+			return ir.FromString(".[float]"), nil
 		case "bool":
 			// Create .[bool] format (nicer syntax)
 			return ir.FromString(".[bool]"), nil
