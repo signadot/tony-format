@@ -1,4 +1,0 @@
-signature:
-  name: inner
-accept:
-  a: .[int]

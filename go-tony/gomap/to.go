@@ -2,6 +2,7 @@ package gomap
 
 import (
 	"bytes"
+	"encoding"
 	"fmt"
 	"reflect"
 
@@ -10,14 +11,16 @@ import (
 )
 
 // ToTony converts a Go value to Tony-formatted bytes.
-// It first converts the value to an IR node (using ToTonyIR), then marshals the IR to bytes.
-func ToTony(v interface{}, opts ...encode.EncodeOption) ([]byte, error) {
+// It first converts the value to an IR node (using ToTonyIR with mapOpts),
+// then marshals the IR to bytes (using encOpts from mapOpts).
+func ToTony(v interface{}, opts ...MapOption) ([]byte, error) {
 	node, err := ToTonyIR(v, opts...)
 	if err != nil {
 		return nil, err
 	}
 	var buf bytes.Buffer
-	if err := encode.Encode(node, &buf, opts...); err != nil {
+	encOpts := ToEncodeOptions(opts...)
+	if err := encode.Encode(node, &buf, encOpts...); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
@@ -26,7 +29,7 @@ func ToTony(v interface{}, opts ...encode.EncodeOption) ([]byte, error) {
 // ToTonyIR converts a Go value to a Tony IR node.
 // It automatically uses a ToTonyIR() method if available (user-implemented or generated),
 // otherwise falls back to reflection-based conversion.
-func ToTonyIR(v interface{}, opts ...encode.EncodeOption) (*ir.Node, error) {
+func ToTonyIR(v interface{}, opts ...MapOption) (*ir.Node, error) {
 	if v == nil {
 		return ir.Null(), nil
 	}
@@ -54,14 +57,14 @@ func ToTonyIR(v interface{}, opts ...encode.EncodeOption) (*ir.Node, error) {
 }
 
 // callToTonyIR calls the ToTonyIR() method and returns the result.
-func callToTonyIR(method reflect.Value, opts ...encode.EncodeOption) (*ir.Node, error) {
-	// Verify method signature: ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error)
+func callToTonyIR(method reflect.Value, opts ...MapOption) (*ir.Node, error) {
+	// Verify method signature: ToTonyIR(opts ...MapOption) (*ir.Node, error)
 	// Note: We allow the old signature ToTonyIR() (*ir.Node, error) for backward compatibility if needed,
 	// but the generated code now uses the new signature.
 	mt := method.Type()
 
-	// Check for new signature: ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error)
-	if mt.NumIn() == 1 && mt.IsVariadic() && mt.In(0) == reflect.TypeOf([]encode.EncodeOption(nil)) &&
+	// Check for new signature: ToTonyIR(opts ...MapOption) (*ir.Node, error)
+	if mt.NumIn() == 1 && mt.IsVariadic() && mt.In(0) == reflect.TypeOf([]MapOption(nil)) &&
 		mt.NumOut() == 2 && mt.Out(0) == reflect.TypeOf((*ir.Node)(nil)) && mt.Out(1) == reflect.TypeOf((*error)(nil)).Elem() {
 		// Call with options - use CallSlice for variadic method
 		results := method.CallSlice([]reflect.Value{reflect.ValueOf(opts)})
@@ -87,13 +90,13 @@ func callToTonyIR(method reflect.Value, opts ...encode.EncodeOption) (*ir.Node, 
 	}
 
 	return nil, &MarshalError{
-		Message: "ToTonyIR() method must have signature: ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error) or ToTonyIR() (*ir.Node, error)",
+		Message: "ToTonyIR() method must have signature: ToTonyIR(opts ...MapOption) (*ir.Node, error) or ToTonyIR() (*ir.Node, error)",
 	}
 }
 
 // toIRReflect implements reflection-based conversion to IR.
 // This is the fallback when generated code is not available.
-func toIRReflect(v interface{}, opts ...encode.EncodeOption) (*ir.Node, error) {
+func toIRReflect(v interface{}, opts ...MapOption) (*ir.Node, error) {
 	if v == nil {
 		return ir.Null(), nil
 	}
@@ -106,7 +109,7 @@ func toIRReflect(v interface{}, opts ...encode.EncodeOption) (*ir.Node, error) {
 // toIRReflectValue converts a reflect.Value to an IR node.
 // fieldPath is used for error reporting (e.g., "person.address.street").
 // visited tracks pointer addresses to detect circular references.
-func toIRReflectValue(val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...encode.EncodeOption) (*ir.Node, error) {
+func toIRReflectValue(val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...MapOption) (*ir.Node, error) {
 	// Handle invalid/zero values
 	if !val.IsValid() {
 		return ir.Null(), nil
@@ -123,6 +126,16 @@ func toIRReflectValue(val reflect.Value, fieldPath string, visited map[uintptr]s
 		if method := val.MethodByName("ToTonyIR"); method.IsValid() {
 			return callToTonyIR(method, opts...)
 		}
+
+		// Check for encoding.TextMarshaler
+		if tm, ok := val.Interface().(encoding.TextMarshaler); ok {
+			text, err := tm.MarshalText()
+			if err != nil {
+				return nil, err
+			}
+			return ir.FromString(string(text)), nil
+		}
+
 		// Check if we've seen this pointer before
 		ptrAddr := val.Pointer()
 		if prevPath, seen := visited[ptrAddr]; seen {
@@ -138,6 +151,25 @@ func toIRReflectValue(val reflect.Value, fieldPath string, visited map[uintptr]s
 		// Remove from visited after processing (allows same pointer to appear in different branches)
 		delete(visited, ptrAddr)
 		return node, err
+	}
+
+	// Check for encoding.TextMarshaler for non-pointers
+	if tm, ok := val.Interface().(encoding.TextMarshaler); ok {
+		text, err := tm.MarshalText()
+		if err != nil {
+			return nil, err
+		}
+		return ir.FromString(string(text)), nil
+	}
+	// Also check pointer receiver if addressable
+	if val.CanAddr() {
+		if tm, ok := val.Addr().Interface().(encoding.TextMarshaler); ok {
+			text, err := tm.MarshalText()
+			if err != nil {
+				return nil, err
+			}
+			return ir.FromString(string(text)), nil
+		}
 	}
 
 	// Handle basic types
@@ -184,7 +216,7 @@ func toIRReflectValue(val reflect.Value, fieldPath string, visited map[uintptr]s
 }
 
 // toIRReflectSlice converts a slice or array to an IR array node.
-func toIRReflectSlice(val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...encode.EncodeOption) (*ir.Node, error) {
+func toIRReflectSlice(val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...MapOption) (*ir.Node, error) {
 	length := val.Len()
 	elements := make([]*ir.Node, 0, length)
 
@@ -223,7 +255,7 @@ func toIRReflectSlice(val reflect.Value, fieldPath string, visited map[uintptr]s
 // toIRReflectMap converts a map to an IR object node.
 // Maps with uint32 keys are converted to sparse arrays (!sparsearray tag).
 // Maps with string keys are converted to regular objects.
-func toIRReflectMap(val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...encode.EncodeOption) (*ir.Node, error) {
+func toIRReflectMap(val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...MapOption) (*ir.Node, error) {
 	if val.IsNil() {
 		return ir.Null(), nil
 	}
@@ -300,7 +332,7 @@ func toIRReflectMap(val reflect.Value, fieldPath string, visited map[uintptr]str
 // Embedded structs are flattened (fields are promoted to the parent object).
 // Note: We don't track struct values themselves for cycle detection, only pointers/slices/maps.
 // A struct value appearing multiple times is not a cycle - only reference types can create cycles.
-func toIRReflectStruct(val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...encode.EncodeOption) (*ir.Node, error) {
+func toIRReflectStruct(val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...MapOption) (*ir.Node, error) {
 	typ := val.Type()
 
 	irMap := make(map[string]*ir.Node)

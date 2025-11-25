@@ -111,7 +111,7 @@ func processPackage(cfg *Config, pkg *codegen.PackageInfo) error {
 			return fmt.Errorf("failed to parse file %q: %w", filePath, err)
 		}
 
-		structs, err := codegen.ExtractStructs(file, filePath)
+		structs, err := codegen.ExtractTypes(file, filePath)
 		if err != nil {
 			return fmt.Errorf("failed to extract structs from %q: %w", filePath, err)
 		}

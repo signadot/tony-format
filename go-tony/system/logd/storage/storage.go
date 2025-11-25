@@ -20,6 +20,7 @@ type Storage struct {
 	log     *slog.Logger // Logger for error logging
 	index   *index.Index
 	indexMu sync.RWMutex // Protects index + filesystem consistency
+	txLocks sync.Map
 }
 
 // Open opens or creates a Storage instance with the given root directory.

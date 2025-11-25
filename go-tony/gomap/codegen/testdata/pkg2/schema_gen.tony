@@ -16,7 +16,7 @@ signature:
 context:
 - tony-format/context
 define:
-  body: !all.schema(body) null
-  meta: !all.schema(meta) null
+  body: !body null
+  meta: !meta null
 signature:
   name: compound

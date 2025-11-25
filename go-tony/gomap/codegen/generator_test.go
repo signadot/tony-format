@@ -42,7 +42,7 @@ func TestGenerateToTonyIRMethod_SimpleStruct(t *testing.T) {
 	}
 
 	// Check that code contains expected elements
-	if !strings.Contains(code, "func (s *Person) ToTonyIR(opts ...encode.EncodeOption)") {
+	if !strings.Contains(code, "func (s *Person) ToTonyIR(opts ...gomap.MapOption)") {
 		t.Errorf("Expected ToTony method signature, got:\n%s", code)
 	}
 	if !strings.Contains(code, "irMap := make(map[string]*ir.Node)") {
@@ -203,7 +203,7 @@ func TestGenerateFromTonyIRMethod_SimpleStruct(t *testing.T) {
 	}
 
 	// Check that code contains expected elements
-	if !strings.Contains(code, "func (s *Person) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error") {
+	if !strings.Contains(code, "func (s *Person) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error") {
 		t.Errorf("Expected FromTony method signature, got:\n%s", code)
 	}
 	if !strings.Contains(code, "node.Type != ir.ObjectType") {
@@ -290,6 +290,9 @@ func TestGenerateFromTonyIRMethod_SliceField(t *testing.T) {
 func TestGenerateToTonyMethod(t *testing.T) {
 	structInfo := &StructInfo{
 		Name: "Person",
+		StructSchema: &gomap.StructSchema{
+			SchemaName: "person",
+		},
 	}
 
 	code, err := GenerateToTonyMethod(structInfo)
@@ -297,13 +300,13 @@ func TestGenerateToTonyMethod(t *testing.T) {
 		t.Fatalf("GenerateToTonyMethod failed: %v", err)
 	}
 
-	if !strings.Contains(code, "func (s *Person) ToTony(opts ...encode.EncodeOption) ([]byte, error)") {
+	if !strings.Contains(code, "func (s *Person) ToTony(opts ...gomap.MapOption) ([]byte, error)") {
 		t.Errorf("Expected ToTony signature, got:\n%s", code)
 	}
 	if !strings.Contains(code, "s.ToTonyIR(opts...)") {
 		t.Errorf("Expected call to ToTonyIR, got:\n%s", code)
 	}
-	if !strings.Contains(code, "encode.Encode(node, &buf, opts...)") {
+	if !strings.Contains(code, "encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...)") {
 		t.Errorf("Expected call to encode.Encode, got:\n%s", code)
 	}
 }
@@ -311,6 +314,9 @@ func TestGenerateToTonyMethod(t *testing.T) {
 func TestGenerateFromTonyMethod(t *testing.T) {
 	structInfo := &StructInfo{
 		Name: "Person",
+		StructSchema: &gomap.StructSchema{
+			SchemaName: "person",
+		},
 	}
 
 	code, err := GenerateFromTonyMethod(structInfo)
@@ -318,10 +324,10 @@ func TestGenerateFromTonyMethod(t *testing.T) {
 		t.Fatalf("GenerateFromTonyMethod failed: %v", err)
 	}
 
-	if !strings.Contains(code, "func (s *Person) FromTony(data []byte, opts ...parse.ParseOption) error") {
+	if !strings.Contains(code, "func (s *Person) FromTony(data []byte, opts ...gomap.UnmapOption) error") {
 		t.Errorf("Expected FromTony signature, got:\n%s", code)
 	}
-	if !strings.Contains(code, "parse.Parse(data, opts...)") {
+	if !strings.Contains(code, "parse.Parse(data, gomap.ToParseOptions(opts...)...)") {
 		t.Errorf("Expected call to parse.Parse, got:\n%s", code)
 	}
 	if !strings.Contains(code, "s.FromTonyIR(node, opts...)") {
@@ -476,16 +482,16 @@ func TestGenerateCode_Integration(t *testing.T) {
 	}
 
 	// Check that code contains both methods
-	if !strings.Contains(code, "func (s *Person) ToTonyIR(opts ...encode.EncodeOption)") {
+	if !strings.Contains(code, "func (s *Person) ToTonyIR(opts ...gomap.MapOption)") {
 		t.Errorf("Expected ToTony method, got:\n%s", code)
 	}
-	if !strings.Contains(code, "func (s *Person) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error") {
+	if !strings.Contains(code, "func (s *Person) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error") {
 		t.Errorf("Expected FromTony method, got:\n%s", code)
 	}
-	if !strings.Contains(code, "func (s *Person) ToTony(opts ...encode.EncodeOption) ([]byte, error)") {
+	if !strings.Contains(code, "func (s *Person) ToTony(opts ...gomap.MapOption) ([]byte, error)") {
 		t.Errorf("Expected ToTonyBytes method, got:\n%s", code)
 	}
-	if !strings.Contains(code, "func (s *Person) FromTony(data []byte, opts ...parse.ParseOption) error") {
+	if !strings.Contains(code, "func (s *Person) FromTony(data []byte, opts ...gomap.UnmapOption) error") {
 		t.Errorf("Expected FromTonyBytes method, got:\n%s", code)
 	}
 
@@ -534,6 +540,9 @@ func TestReproFieldTagIssue(t *testing.T) {
 			{Name: "ID", Type: reflect.TypeOf(""), SchemaFieldName: "user_id", Required: true},
 			{Name: "Name", Type: reflect.TypeOf(""), SchemaFieldName: "full_name"},
 		},
+		StructSchema: &gomap.StructSchema{
+			SchemaName: "user",
+		},
 	}
 
 	s := &schema.Schema{
@@ -575,6 +584,9 @@ func TestReproVariableShadowing(t *testing.T) {
 				SchemaFieldName: "inner",
 				StructTypeName:  "Nested",
 			},
+		},
+		StructSchema: &gomap.StructSchema{
+			SchemaName: "container",
 		},
 	}
 
@@ -623,6 +635,9 @@ func TestReproMapIssue(t *testing.T) {
 				Type:            reflect.TypeOf(map[*int]string{}),
 				SchemaFieldName: "data2",
 			},
+		},
+		StructSchema: &gomap.StructSchema{
+			SchemaName: "map_struct",
 		},
 	}
 

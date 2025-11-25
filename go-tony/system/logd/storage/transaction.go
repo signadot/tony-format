@@ -92,11 +92,6 @@ func (s *Storage) DeleteTransactionState(transactionID string) error {
 	return os.Remove(filePath)
 }
 
-// intPtr returns a pointer to the given int64.
-func intPtr(i int64) *int64 {
-	return &i
-}
-
 // NewTransactionState creates a new TransactionState with the given transaction ID and participant count.
 func NewTransactionState(transactionID string, participantCount int) *TransactionState {
 	return &TransactionState{

@@ -2,7 +2,6 @@
 context:
 - tony-format/context
 define:
-  Inner: !inner null
-  f: .[string]
+  A: .[int]
 signature:
-  name: outer
+  name: inner

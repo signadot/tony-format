@@ -59,6 +59,12 @@ type FieldInfo struct {
 
 	// LineCommentFieldName is the name of a struct field (type []string) to populate with line comment data
 	LineCommentFieldName string
+
+	// ImplementsTextMarshaler indicates if the field type implements encoding.TextMarshaler
+	ImplementsTextMarshaler bool
+
+	// ImplementsTextUnmarshaler indicates if the field type implements encoding.TextUnmarshaler
+	ImplementsTextUnmarshaler bool
 }
 
 // ParseStructTag parses a struct tag string and returns a map of key-value pairs.
@@ -154,13 +160,13 @@ func unquoteValue(value string) string {
 
 // hasSchemaTag checks if an embedded struct field has a schema tag.
 // Returns true if:
-//   1. The field itself is anonymous and has a tony:"schema=..." or tony:"schemagen=..." tag, OR
-//   2. The embedded struct type has a schema tag (checked recursively)
+//  1. The field itself is anonymous and has a tony:"schema=..." or tony:"schemagen=..." tag, OR
+//  2. The embedded struct type has a schema tag (checked recursively)
 func hasSchemaTag(field reflect.StructField) bool {
 	if !field.Anonymous {
 		return false
 	}
-	
+
 	// Check if the field itself has a schema tag
 	tag := field.Tag.Get("tony")
 	if tag != "" {
@@ -173,7 +179,7 @@ func hasSchemaTag(field reflect.StructField) bool {
 			}
 		}
 	}
-	
+
 	// Check if the embedded struct type has a schema tag
 	if field.Type.Kind() == reflect.Struct {
 		schema, err := GetStructSchema(field.Type)
@@ -181,7 +187,7 @@ func hasSchemaTag(field reflect.StructField) bool {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -202,7 +208,7 @@ func flattenEmbeddedFieldsWithRenaming(embeddedField reflect.StructField, struct
 
 	for j := 0; j < embeddedType.NumField(); j++ {
 		field := embeddedType.Field(j)
-		
+
 		if field.Anonymous {
 			// Recursively flatten nested embedded structs
 			if err := flattenEmbeddedFieldsWithRenaming(field, structFieldMap); err != nil {
@@ -210,12 +216,12 @@ func flattenEmbeddedFieldsWithRenaming(embeddedField reflect.StructField, struct
 			}
 			continue
 		}
-		
+
 		// Skip unexported fields
 		if !field.IsExported() {
 			continue
 		}
-		
+
 		// Parse field tag to check for field= renaming
 		tag := field.Tag.Get("tony")
 		schemaFieldName := field.Name // Default to struct field name
@@ -228,12 +234,12 @@ func flattenEmbeddedFieldsWithRenaming(embeddedField reflect.StructField, struct
 				}
 			}
 		}
-		
+
 		// Check for field name conflicts (by schema field name)
 		if existing, exists := structFieldMap[schemaFieldName]; exists {
 			return fmt.Errorf("field name conflict: embedded struct field %q (schema name %q) conflicts with existing field %q", field.Name, schemaFieldName, existing.Name)
 		}
-		
+
 		// Add the field to the map using schema field name
 		structFieldMap[schemaFieldName] = field
 		// Also allow lookup by struct field name for backwards compatibility
@@ -252,15 +258,16 @@ func flattenEmbeddedFieldsWithRenaming(embeddedField reflect.StructField, struct
 // the outer struct's schema tag is used.
 //
 // Example:
-//   type A struct {
-//       schemaTag `tony:"schema=person"`
-//       Name string
-//   }
-//   type B struct {
-//       schemaTag `tony:"schema=company"`  // This tag is used for B
-//       A                                  // A's schema tag is ignored
-//       CompanyName string
-//   }
+//
+//	type A struct {
+//	    schemaTag `tony:"schema=person"`
+//	    Name string
+//	}
+//	type B struct {
+//	    schemaTag `tony:"schema=company"`  // This tag is used for B
+//	    A                                  // A's schema tag is ignored
+//	    CompanyName string
+//	}
 func GetStructSchema(typ reflect.Type) (*StructSchema, error) {
 	if typ.Kind() != reflect.Struct {
 		return nil, fmt.Errorf("expected struct type, got %s", typ.Kind())
@@ -323,7 +330,7 @@ func GetStructSchema(typ reflect.Type) (*StructSchema, error) {
 
 		// Extract line comment field name
 		lineCommentFieldName := ""
-		if name, ok := parsed["LineComment"]; ok {
+		if name, ok := parsed["lineComment"]; ok {
 			lineCommentFieldName = name
 		}
 
@@ -344,9 +351,9 @@ func GetStructSchema(typ reflect.Type) (*StructSchema, error) {
 			SchemaName:           schemaName,
 			Context:              context,
 			AllowExtra:           allowExtra,
-			CommentFieldName:      commentFieldName,
-			LineCommentFieldName:  lineCommentFieldName,
-			TagFieldName:          tagFieldName,
+			CommentFieldName:     commentFieldName,
+			LineCommentFieldName: lineCommentFieldName,
+			TagFieldName:         tagFieldName,
 		}
 		foundField = field.Name
 	}
@@ -362,6 +369,7 @@ func GetStructSchema(typ reflect.Type) (*StructSchema, error) {
 // The behavior depends on the mode:
 //   - "schema" mode: Schema is source of truth, match struct fields to schema fields
 //   - "schemagen" mode: Struct is source of truth, extract field info from struct
+//
 // registry can be nil for single-schema cases, but is required for cross-schema references.
 func GetStructFields(typ reflect.Type, s *schema.Schema, mode string, allowExtra bool, registry *schema.SchemaRegistry) ([]*FieldInfo, error) {
 	if typ.Kind() != reflect.Struct {
@@ -400,7 +408,7 @@ func getStructFieldsFromSchema(typ reflect.Type, s *schema.Schema, allowExtra bo
 	structFieldMap := make(map[string]reflect.StructField)
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		
+
 		if field.Anonymous {
 			// Flatten embedded structs regardless of schema tags
 			// The schema tag on the embedded struct is metadata about what schema it conforms to,
@@ -410,12 +418,12 @@ func getStructFieldsFromSchema(typ reflect.Type, s *schema.Schema, allowExtra bo
 			}
 			continue
 		}
-		
+
 		// Skip unexported fields (cannot access from different package)
 		if !field.IsExported() {
 			continue
 		}
-		
+
 		// Parse field tag to check for field= renaming
 		tag := field.Tag.Get("tony")
 		schemaFieldName := field.Name // Default to struct field name
@@ -428,7 +436,7 @@ func getStructFieldsFromSchema(typ reflect.Type, s *schema.Schema, allowExtra bo
 				}
 			}
 		}
-		
+
 		// Store mapping: schema field name -> struct field
 		// Also store original struct field name for backwards compatibility
 		structFieldMap[schemaFieldName] = field

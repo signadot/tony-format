@@ -1,12 +1,23 @@
 package pkg3
 
-//tony:schema=inner
+import "errors"
+
+//tony:schemagen=inner
 type Inner struct {
-	A int
+	A A
 }
 
-//tony:schemagen=outer
-type Outer struct {
-	Inner Inner
-	F     string `tony:"field=f"`
+type A int
+
+func (a A) MarshalText() ([]byte, error) {
+	return []byte("a"), nil
+}
+
+func (a *A) UnmarshalText(d []byte) error {
+	if string(d) != "a" {
+		return errors.New("not a")
+	}
+	var tmp A
+	*a = tmp
+	return nil
 }

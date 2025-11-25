@@ -21,6 +21,14 @@ signature:
 context:
 - tony-format/context
 define:
+  Code: .[string]
+  Message: .[string]
+signature:
+  name: error
+---
+context:
+- tony-format/context
+define:
   brackets: .[bool]
   seq: .[nullable(int)]
   wire: .[bool]

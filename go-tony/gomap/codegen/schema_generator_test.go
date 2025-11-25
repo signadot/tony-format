@@ -32,7 +32,7 @@ type Person struct {
 		t.Fatalf("failed to parse: %v", err)
 	}
 
-	structs, err := ExtractStructs(file, "test.go")
+	structs, err := ExtractTypes(file, "test.go")
 	if err != nil {
 		t.Fatalf("failed to extract structs: %v", err)
 	}
@@ -176,7 +176,7 @@ type Person struct {
 		t.Fatalf("failed to parse: %v", err)
 	}
 
-	structs, err := ExtractStructs(file, "test.go")
+	structs, err := ExtractTypes(file, "test.go")
 	if err != nil {
 		t.Fatalf("failed to extract structs: %v", err)
 	}
@@ -279,7 +279,7 @@ type Person struct {
 		t.Fatalf("failed to parse: %v", err)
 	}
 
-	structs, err := ExtractStructs(file, "test.go")
+	structs, err := ExtractTypes(file, "test.go")
 	if err != nil {
 		t.Fatalf("failed to extract structs: %v", err)
 	}
@@ -354,7 +354,7 @@ type Person struct {
 		t.Fatalf("failed to parse: %v", err)
 	}
 
-	structs, err := ExtractStructs(file, "test.go")
+	structs, err := ExtractTypes(file, "test.go")
 	if err != nil {
 		t.Fatalf("failed to extract structs: %v", err)
 	}

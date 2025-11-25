@@ -1,6 +1,8 @@
 package codegen
 
 import (
+	"bytes"
+	"encoding"
 	"fmt"
 	"go/ast"
 	"go/format"
@@ -10,6 +12,11 @@ import (
 
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/schema"
+)
+
+var (
+	textMarshalerType   = reflect.TypeOf((*encoding.TextMarshaler)(nil)).Elem()
+	textUnmarshalerType = reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
 )
 
 // isIRNodePtr checks if the type is *ir.Node
@@ -41,6 +48,7 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 	buf.WriteString(`	"bytes"` + "\n")
 	buf.WriteString(`	"fmt"` + "\n")
 	buf.WriteString(`	"github.com/signadot/tony-format/go-tony/encode"` + "\n")
+	buf.WriteString(`	"github.com/signadot/tony-format/go-tony/gomap"` + "\n")
 	buf.WriteString(`	"github.com/signadot/tony-format/go-tony/ir"` + "\n")
 	buf.WriteString(`	"github.com/signadot/tony-format/go-tony/parse"` + "\n")
 
@@ -182,20 +190,83 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 	return string(formatted), nil
 }
 
-// GenerateToTonyIRMethod generates a ToTonyIR() method for a struct.
-func GenerateToTonyIRMethod(structInfo *StructInfo, s *schema.Schema) (string, error) {
-	var buf strings.Builder
+// GenerateToTonyIRMethod generates the ToTonyIR method for a struct.
+func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema) (string, error) {
+	var buf bytes.Buffer
 
 	// Method signature
-	buf.WriteString(fmt.Sprintf("// ToTonyIR converts %s to a Tony IR node.\n", structInfo.Name))
-	buf.WriteString(fmt.Sprintf("func (s *%s) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error) {\n", structInfo.Name))
+	buf.WriteString(fmt.Sprintf("// ToTonyIR converts %s to a Tony IR node.\n", s.Name))
+	buf.WriteString(fmt.Sprintf("func (s *%s) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {\n", s.Name))
+
+	// Check for TextMarshaler implementation on the type itself
+	if s.ImplementsTextMarshaler {
+		buf.WriteString("	// Use TextMarshaler implementation\n")
+		buf.WriteString("	txt, err := s.MarshalText()\n")
+		buf.WriteString("	if err != nil {\n")
+		buf.WriteString(fmt.Sprintf("		return nil, fmt.Errorf(\"failed to marshal %s: %%w\", err)\n", s.Name))
+		buf.WriteString("	}\n")
+		buf.WriteString(fmt.Sprintf("	return ir.FromString(string(txt)).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+		buf.WriteString("}\n\n")
+		return buf.String(), nil
+	}
+
+	// Handle basic types (non-structs)
+	if s.Type != nil && s.Type.Kind() != reflect.Struct {
+		// Basic type conversion
+		switch s.Type.Kind() {
+		case reflect.String:
+			buf.WriteString(fmt.Sprintf("	return ir.FromString(string(*s)).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			buf.WriteString(fmt.Sprintf("	return ir.FromInt(int64(*s)).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			// ir.FromInt takes int64, so we might lose precision for uint64 > max int64
+			// But for now let's cast to int64
+			buf.WriteString(fmt.Sprintf("	return ir.FromInt(int64(*s)).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+		case reflect.Float32, reflect.Float64:
+			buf.WriteString(fmt.Sprintf("	return ir.FromFloat(float64(*s)).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+		case reflect.Bool:
+			buf.WriteString(fmt.Sprintf("	return ir.FromBool(bool(*s)).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+		default:
+			return "", fmt.Errorf("unsupported basic type for schema generation: %v", s.Type.Kind())
+		}
+		buf.WriteString("}\n\n")
+		return buf.String(), nil
+	}
+
+	// Determine if we need variables
+	needsVars := false
+	for _, field := range s.Fields {
+		if field.Omit {
+			continue
+		}
+		// Complex fields might need error handling or temporary variables
+		if field.Type.Kind() == reflect.Struct ||
+			(field.Type.Kind() == reflect.Slice && field.Type.Elem().Kind() == reflect.Struct) ||
+			(field.Type.Kind() == reflect.Map && field.Type.Elem().Kind() == reflect.Struct) ||
+			field.Type.Kind() == reflect.Interface {
+			needsVars = true
+			break
+		}
+		// TextMarshaler fields need error handling
+		if field.ImplementsTextMarshaler {
+			needsVars = true
+			break
+		}
+	}
+
+	if needsVars {
+		buf.WriteString("	var node *ir.Node\n")
+		buf.WriteString("	var err error\n")
+		buf.WriteString("	_ = node // suppress unused variable error\n")
+		buf.WriteString("	_ = err  // suppress unused variable error\n\n")
+	}
+
+	// Create IR object map
 	buf.WriteString("	// Create IR object map\n")
 	buf.WriteString("	irMap := make(map[string]*ir.Node)\n\n")
 
-	// Get struct fields from schema
-	// We need to use reflection to get the struct type
-	// For now, we'll use the fields from StructInfo
-	for i, field := range structInfo.Fields {
+	// Generate code for each field
+	for i, field := range s.Fields {
 		if field.Omit {
 			continue
 		}
@@ -213,14 +284,14 @@ func GenerateToTonyIRMethod(structInfo *StructInfo, s *schema.Schema) (string, e
 				buf.WriteString(fmt.Sprintf("	if s.%s != nil {\n", field.Name))
 			} else {
 				// Non-pointer optional field - check if zero value
-				buf.WriteString(fmt.Sprintf("	if !isZeroValue_%s_%s(s.%s) {\n", structInfo.Name, field.Name, field.Name))
+				buf.WriteString(fmt.Sprintf("	if !isZeroValue_%s_%s(s.%s) {\n", s.Name, field.Name, field.Name))
 			}
 		} else {
 			buf.WriteString(fmt.Sprintf("	// Field: %s\n", field.Name))
 		}
 
 		// Generate code to convert field to IR node
-		fieldCode, err := generateFieldToIR(structInfo, field, schemaFieldName, i != 0)
+		fieldCode, err := generateFieldToIR(s, field, schemaFieldName, i != 0)
 		if err != nil {
 			return "", fmt.Errorf("failed to generate field conversion for %q: %w", field.Name, err)
 		}
@@ -233,9 +304,8 @@ func GenerateToTonyIRMethod(structInfo *StructInfo, s *schema.Schema) (string, e
 	}
 
 	// Create IR node with schema tag
-	schemaName := s.Signature.Name
-	buf.WriteString("	// Create IR node with schema tag\n")
-	buf.WriteString(fmt.Sprintf("	return ir.FromMap(irMap).WithTag(\"!%s\"), nil\n", schemaName))
+	buf.WriteString(fmt.Sprintf("	// Create IR node with schema tag\n"))
+	buf.WriteString(fmt.Sprintf("	return ir.FromMap(irMap).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
 	buf.WriteString("}\n")
 
 	return buf.String(), nil
@@ -245,10 +315,8 @@ func GenerateToTonyIRMethod(structInfo *StructInfo, s *schema.Schema) (string, e
 func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName string, redef bool) (string, error) {
 	var buf strings.Builder
 
-	assign := ":="
-	if redef {
-		assign = "="
-	}
+	// Always use = since node and err are declared at function start
+	assign := "="
 
 	if field.Type == nil {
 		return "", fmt.Errorf("field %q has no type information", field.Name)
@@ -257,6 +325,18 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 	// Special handling for *ir.Node
 	if isIRNodePtr(field.Type) {
 		buf.WriteString(fmt.Sprintf("		irMap[%q] = s.%s\n", schemaFieldName, field.Name))
+		return buf.String(), nil
+	}
+
+	// Check for encoding.TextMarshaler using the flag set during type resolution
+	// We use the flag instead of runtime reflection because custom types like `type A int`
+	// don't preserve methods in reflect.Type
+	if field.ImplementsTextMarshaler {
+		buf.WriteString(fmt.Sprintf("		if txt, err := s.%s.MarshalText(); err != nil {\n", field.Name))
+		buf.WriteString(fmt.Sprintf("			return nil, fmt.Errorf(\"failed to marshal field %%q: %%w\", %q, err)\n", field.Name))
+		buf.WriteString("		} else {\n")
+		buf.WriteString(fmt.Sprintf("			irMap[%q] = ir.FromString(string(txt))\n", schemaFieldName))
+		buf.WriteString("		}\n")
 		return buf.String(), nil
 	}
 
@@ -273,7 +353,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 		buf.WriteString(fmt.Sprintf("		irMap[%q] = ir.FromInt(int64(s.%s))\n", schemaFieldName, field.Name))
 
 	case reflect.Float32, reflect.Float64:
-		buf.WriteString(fmt.Sprintf("		irMap[%q] = ir.FromFloat64(float64(s.%s))\n", schemaFieldName, field.Name))
+		buf.WriteString(fmt.Sprintf("		irMap[%q] = ir.FromFloat(float64(s.%s))\n", schemaFieldName, field.Name))
 
 	case reflect.Bool:
 		buf.WriteString(fmt.Sprintf("		irMap[%q] = ir.FromBool(s.%s)\n", schemaFieldName, field.Name))
@@ -475,20 +555,74 @@ func generatePrimitiveToIR(varName string, typ reflect.Type) (string, error) {
 	}
 }
 
-// GenerateFromTonyIRMethod generates a FromTonyIR() method for a struct.
-func GenerateFromTonyIRMethod(structInfo *StructInfo, s *schema.Schema) (string, error) {
-	var buf strings.Builder
+// GenerateFromTonyIRMethod generates the FromTonyIR method for a struct.
+func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema) (string, error) {
+	var buf bytes.Buffer
 
 	// Method signature
-	buf.WriteString(fmt.Sprintf("// FromTonyIR populates %s from a Tony IR node.\n", structInfo.Name))
-	buf.WriteString(fmt.Sprintf("func (s *%s) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error {\n", structInfo.Name))
-	buf.WriteString("	// Validate IR node type\n")
+	buf.WriteString(fmt.Sprintf("// FromTonyIR populates %s from a Tony IR node.\n", s.Name))
+	buf.WriteString(fmt.Sprintf("func (s *%s) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {\n", s.Name))
+	buf.WriteString("	if node == nil {\n")
+	buf.WriteString("		return nil\n")
+	buf.WriteString("	}\n\n")
+
+	// Check for TextUnmarshaler implementation on the type itself
+	if s.ImplementsTextUnmarshaler {
+		buf.WriteString("	// Use TextUnmarshaler implementation\n")
+		buf.WriteString("	if node.Type != ir.StringType {\n")
+		buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"expected string for %s, got %%v\", node.Type)\n", s.Name))
+		buf.WriteString("	}\n")
+		buf.WriteString("	if err := s.UnmarshalText([]byte(node.String)); err != nil {\n")
+		buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"failed to unmarshal %s: %%w\", err)\n", s.Name))
+		buf.WriteString("	}\n")
+		buf.WriteString("	return nil\n")
+		buf.WriteString("}\n\n")
+		return buf.String(), nil
+	}
+
+	// Handle basic types (non-structs)
+	if s.Type != nil && s.Type.Kind() != reflect.Struct {
+		// Basic type conversion
+		switch s.Type.Kind() {
+		case reflect.String:
+			buf.WriteString("	if node.Type != ir.StringType {\n")
+			buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"expected string for %s, got %%v\", node.Type)\n", s.Name))
+			buf.WriteString("	}\n")
+			buf.WriteString(fmt.Sprintf("	*s = %s(node.String)\n", s.Name))
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			buf.WriteString("	if node.Type != ir.IntType {\n")
+			buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"expected int for %s, got %%v\", node.Type)\n", s.Name))
+			buf.WriteString("	}\n")
+			buf.WriteString(fmt.Sprintf("	*s = %s(node.Int)\n", s.Name))
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			buf.WriteString("	if node.Type != ir.IntType {\n")
+			buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"expected int for %s, got %%v\", node.Type)\n", s.Name))
+			buf.WriteString("	}\n")
+			buf.WriteString(fmt.Sprintf("	*s = %s(node.Int)\n", s.Name))
+		case reflect.Float32, reflect.Float64:
+			buf.WriteString("	if node.Type != ir.FloatType {\n")
+			buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"expected float for %s, got %%v\", node.Type)\n", s.Name))
+			buf.WriteString("	}\n")
+			buf.WriteString(fmt.Sprintf("	*s = %s(node.Float)\n", s.Name))
+		case reflect.Bool:
+			buf.WriteString("	if node.Type != ir.BoolType {\n")
+			buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"expected bool for %s, got %%v\", node.Type)\n", s.Name))
+			buf.WriteString("	}\n")
+			buf.WriteString(fmt.Sprintf("	*s = %s(node.Bool)\n", s.Name))
+		default:
+			return "", fmt.Errorf("unsupported basic type for schema generation: %v", s.Type.Kind())
+		}
+		buf.WriteString("	return nil\n")
+		buf.WriteString("}\n\n")
+		return buf.String(), nil
+	}
+
 	buf.WriteString("	if node.Type != ir.ObjectType {\n")
-	buf.WriteString("		return fmt.Errorf(\"expected object type, got %v\", node.Type)\n")
+	buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"expected map for %s, got %%v\", node.Type)\n", s.Name))
 	buf.WriteString("	}\n\n")
 
 	// Track required fields
-	for _, field := range structInfo.Fields {
+	for _, field := range s.Fields {
 		if field.Required && !field.Omit {
 			buf.WriteString(fmt.Sprintf("	var found_%s bool\n", field.Name))
 		}
@@ -500,7 +634,7 @@ func GenerateFromTonyIRMethod(structInfo *StructInfo, s *schema.Schema) (string,
 
 	// Get struct fields from schema using GetStructFields
 	// For now, we'll iterate over StructInfo.Fields
-	for _, field := range structInfo.Fields {
+	for _, field := range s.Fields {
 		if field.Omit {
 			continue
 		}
@@ -514,7 +648,7 @@ func GenerateFromTonyIRMethod(structInfo *StructInfo, s *schema.Schema) (string,
 		buf.WriteString(fmt.Sprintf("		case %q:\n", schemaFieldName))
 
 		// Generate code to decode field
-		fieldCode, err := generateFieldDecoding(structInfo, field, schemaFieldName)
+		fieldCode, err := generateFieldDecoding(s, field, schemaFieldName)
 		if err != nil {
 			return "", fmt.Errorf("failed to generate field decoding for %q: %w", field.Name, err)
 		}
@@ -529,7 +663,7 @@ func GenerateFromTonyIRMethod(structInfo *StructInfo, s *schema.Schema) (string,
 	buf.WriteString("	}\n\n")
 
 	// Check required fields
-	for _, field := range structInfo.Fields {
+	for _, field := range s.Fields {
 		if field.Required && !field.Omit {
 			schemaFieldName := field.SchemaFieldName
 			if schemaFieldName == "" {
@@ -543,7 +677,7 @@ func GenerateFromTonyIRMethod(structInfo *StructInfo, s *schema.Schema) (string,
 	}
 
 	// Handle allowExtra flag
-	if structInfo.StructSchema != nil && structInfo.StructSchema.AllowExtra {
+	if s.StructSchema != nil && s.StructSchema.AllowExtra {
 		buf.WriteString("	// allowExtra is true, so extra fields are ignored\n")
 	} else {
 		// Validate no extra fields (optional - can be added later)
@@ -561,13 +695,13 @@ func GenerateToTonyMethod(structInfo *StructInfo) (string, error) {
 
 	// Method signature
 	buf.WriteString(fmt.Sprintf("// ToTony converts %s to Tony format bytes.\n", structInfo.Name))
-	buf.WriteString(fmt.Sprintf("func (s *%s) ToTony(opts ...encode.EncodeOption) ([]byte, error) {\n", structInfo.Name))
+	buf.WriteString(fmt.Sprintf("func (s *%s) ToTony(opts ...gomap.MapOption) ([]byte, error) {\n", structInfo.Name))
 	buf.WriteString("	node, err := s.ToTonyIR(opts...)\n")
 	buf.WriteString("	if err != nil {\n")
 	buf.WriteString("		return nil, err\n")
 	buf.WriteString("	}\n")
 	buf.WriteString("	var buf bytes.Buffer\n")
-	buf.WriteString("	if err := encode.Encode(node, &buf, opts...); err != nil {\n")
+	buf.WriteString("	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {\n")
 	buf.WriteString("		return nil, err\n")
 	buf.WriteString("	}\n")
 	buf.WriteString("	return buf.Bytes(), nil\n")
@@ -582,8 +716,8 @@ func GenerateFromTonyMethod(structInfo *StructInfo) (string, error) {
 
 	// Method signature
 	buf.WriteString(fmt.Sprintf("// FromTony parses Tony format bytes and populates %s.\n", structInfo.Name))
-	buf.WriteString(fmt.Sprintf("func (s *%s) FromTony(data []byte, opts ...parse.ParseOption) error {\n", structInfo.Name))
-	buf.WriteString("	node, err := parse.Parse(data, opts...)\n")
+	buf.WriteString(fmt.Sprintf("func (s *%s) FromTony(data []byte, opts ...gomap.UnmapOption) error {\n", structInfo.Name))
+	buf.WriteString("	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)\n")
 	buf.WriteString("	if err != nil {\n")
 	buf.WriteString("		return err\n")
 	buf.WriteString("	}\n")
@@ -610,6 +744,39 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 	if isIRNodePtr(field.Type) {
 		buf.WriteString(fmt.Sprintf("		s.%s = fieldNode\n", field.Name))
 		return buf.String(), nil
+	}
+
+	// Check for encoding.TextUnmarshaler using the flag set during type resolution
+	// We use the flag instead of runtime reflection because custom types like `type A int`
+	// don't preserve methods in reflect.Type
+	if field.ImplementsTextUnmarshaler {
+		if field.Type.Kind() != reflect.Ptr {
+			// Value type implementing TextUnmarshaler (via pointer receiver)
+			buf.WriteString("		if fieldNode.Type != ir.StringType {\n")
+			buf.WriteString(fmt.Sprintf("			return fmt.Errorf(\"field %%q: expected string for TextUnmarshaler, got %%v\", %q, fieldNode.Type)\n", schemaFieldName))
+			buf.WriteString("		}\n")
+			buf.WriteString(fmt.Sprintf("		if err := s.%s.UnmarshalText([]byte(fieldNode.String)); err != nil {\n", field.Name))
+			buf.WriteString(fmt.Sprintf("			return fmt.Errorf(\"field %%q: failed to unmarshal text: %%w\", %q, err)\n", schemaFieldName))
+			buf.WriteString("		}\n")
+			return buf.String(), nil
+		} else {
+			// Pointer type implementing TextUnmarshaler
+			buf.WriteString("		if fieldNode.Type == ir.NullType {\n")
+			buf.WriteString(fmt.Sprintf("			s.%s = nil\n", field.Name))
+			buf.WriteString("		} else if fieldNode.Type != ir.StringType {\n")
+			buf.WriteString(fmt.Sprintf("			return fmt.Errorf(\"field %%q: expected string for TextUnmarshaler, got %%v\", %q, fieldNode.Type)\n", schemaFieldName))
+			buf.WriteString("		} else {\n")
+			buf.WriteString(fmt.Sprintf("			if s.%s == nil {\n", field.Name))
+			// Use getTypeName to handle imported types correctly
+			typeName := getTypeName(field.Type.Elem(), field.StructTypeName)
+			buf.WriteString(fmt.Sprintf("				s.%s = new(%s)\n", field.Name, typeName))
+			buf.WriteString("			}\n")
+			buf.WriteString(fmt.Sprintf("			if err := s.%s.UnmarshalText([]byte(fieldNode.String)); err != nil {\n", field.Name))
+			buf.WriteString(fmt.Sprintf("				return fmt.Errorf(\"field %%q: failed to unmarshal text: %%w\", %q, err)\n", schemaFieldName))
+			buf.WriteString("			}\n")
+			buf.WriteString("		}\n")
+			return buf.String(), nil
+		}
 	}
 
 	// Field comment

@@ -27,7 +27,7 @@ type Other struct {
 		t.Fatalf("ParseFile failed: %v", err)
 	}
 
-	structs, err := ExtractStructs(file, "test.go")
+	structs, err := ExtractTypes(file, "test.go")
 	if err != nil {
 		t.Fatalf("ExtractStructs failed: %v", err)
 	}
@@ -78,7 +78,7 @@ type Person struct {
 		t.Fatalf("ParseFile failed: %v", err)
 	}
 
-	structs, err := ExtractStructs(file, "test.go")
+	structs, err := ExtractTypes(file, "test.go")
 	if err != nil {
 		t.Fatalf("ExtractStructs failed: %v", err)
 	}

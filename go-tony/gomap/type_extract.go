@@ -94,7 +94,7 @@ func isNullableFromOr(def *ir.Node) bool {
 //   - "!or [null, string]" → returns reflect.PtrTo(reflect.TypeOf(""))
 //   - ".array(string)" → returns reflect.SliceOf(reflect.TypeOf("")) ([]string)
 //   - ".array(.array(string))" → returns [][]string
-//   - ".sparsearray(string)" → returns map[int]string
+//   - ".sparsearray(string)" → returns map[uint32]string
 //
 // The function recursively resolves references and builds up complex types, including
 // nested parameterized types.
@@ -366,7 +366,7 @@ func extractGoTypeFromOr(def *ir.Node, s *schema.Schema, registry *schema.Schema
 			nonNullNodes = append(nonNullNodes, elem)
 			continue
 		}
-		
+
 		// Check for null (only if not a reference)
 		if elem.Type == ir.NullType {
 			hasNull = true
@@ -418,7 +418,7 @@ func extractGoTypeFromOrUnion(nonNullNodes []*ir.Node, s *schema.Schema, registr
 
 		// Generate a field name from the type
 		fieldName := typeToFieldName(typ)
-		
+
 		// Ensure unique field names
 		baseName := fieldName
 		counter := 1
@@ -485,16 +485,18 @@ func typeToFieldName(typ reflect.Type) string {
 // 3. Skip constraint nodes (like !not null, !not, etc.)
 //
 // Example:
-//   int: !and
-//     - .[number]        # Base type: number → float64
-//     - int: !not null    # Constraint: skip this
-//   Result: float64
+//
+//	int: !and
+//	  - .[number]        # Base type: number → float64
+//	  - int: !not null    # Constraint: skip this
+//	Result: float64
 //
 // Example with parameterized type:
-//   array(t): !and
-//     - .[array]          # Base type: array
-//     - !all.type t       # Parameter constraint: t is the element type
-//   When used as .array(string), we extract []string
+//
+//	array(t): !and
+//	  - .[array]          # Base type: array
+//	  - !all.type t       # Parameter constraint: t is the element type
+//	When used as .array(string), we extract []string
 func extractGoTypeFromAnd(def *ir.Node, s *schema.Schema, registry *schema.SchemaRegistry) (reflect.Type, error) {
 	if def.Type != ir.ObjectType && def.Type != ir.ArrayType {
 		return nil, fmt.Errorf("!and must be an object or array")
@@ -542,7 +544,7 @@ func extractGoTypeFromAnd(def *ir.Node, s *schema.Schema, registry *schema.Schem
 func extractGoTypeFromTypeTag(def *ir.Node) (reflect.Type, error) {
 	// !irtype tags typically have a value that indicates the type
 	// Examples: !irtype "", !irtype 1, !irtype true, !irtype []
-	
+
 	if def.Type == ir.StringType {
 		// !irtype "" → string
 		return reflect.TypeOf(""), nil
@@ -621,12 +623,12 @@ func extractGoTypeFromParameterizedRef(tag string, s *schema.Schema, registry *s
 		return reflect.SliceOf(elemType), nil
 
 	case "sparsearray":
-		// .sparsearray(T) → map[int]T (sparse arrays are maps with numeric keys)
+		// .sparsearray(T) → map[uint32]T (sparse arrays are maps with uint32 keys)
 		elemType, err := extractElementTypeFromArg(args[0], s, registry)
 		if err != nil {
 			return nil, fmt.Errorf("failed to extract element type from .sparsearray(%s): %w", args[0], err)
 		}
-		return reflect.MapOf(reflect.TypeOf(0), elemType), nil
+		return reflect.MapOf(reflect.TypeOf(uint32(0)), elemType), nil
 
 	default:
 		// Unknown constructor - try to resolve as a definition name

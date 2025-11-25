@@ -21,9 +21,9 @@ func ParseFile(filename string) (*ast.File, *token.FileSet, error) {
 	return file, fset, nil
 }
 
-// ExtractStructs extracts all struct type declarations from an AST file.
-// Returns structs with schema= or schemagen= tags.
-func ExtractStructs(file *ast.File, filePath string) ([]*StructInfo, error) {
+// ExtractTypes extracts all type declarations with schema tags from an AST file.
+// Returns types with schema= or schemagen= tags.
+func ExtractTypes(file *ast.File, filePath string) ([]*StructInfo, error) {
 	var structs []*StructInfo
 
 	// Extract imports
@@ -41,39 +41,40 @@ func ExtractStructs(file *ast.File, filePath string) ([]*StructInfo, error) {
 				continue
 			}
 
-			structType, ok := typeSpec.Type.(*ast.StructType)
-			if !ok {
-				continue
-			}
-
 			// Extract struct-level comments
 			comments := ExtractComments(genDecl)
 
-			// Parse struct to get schema tag
-			// We need to use reflection to get the struct schema tag
-			// For now, we'll parse it manually from the AST
-			structSchema, err := extractStructSchemaTag(structType)
-			if err != nil {
-				return nil, fmt.Errorf("failed to extract schema tag from struct %q: %w", typeSpec.Name.Name, err)
-			}
+			var structSchema *gomap.StructSchema
+			var err error
 
-			// If no struct tag, check for doc comment directives
-			if structSchema == nil {
-				structSchema, err = extractSchemaFromComments(comments)
+			// If it's a struct, check for schema tag on anonymous fields
+			if structType, ok := typeSpec.Type.(*ast.StructType); ok {
+				structSchema, err = extractStructSchemaTag(structType)
 				if err != nil {
-					return nil, fmt.Errorf("failed to extract schema from comments for struct %q: %w", typeSpec.Name.Name, err)
+					return nil, fmt.Errorf("failed to extract schema tag from struct %q: %w", typeSpec.Name.Name, err)
 				}
 			}
 
-			// Only include structs with schema= or schemagen= tags (or directives)
+			// If no struct tag (or not a struct), check for doc comment directives
+			if structSchema == nil {
+				structSchema, err = extractSchemaFromComments(comments)
+				if err != nil {
+					return nil, fmt.Errorf("failed to extract schema from comments for type %q: %w", typeSpec.Name.Name, err)
+				}
+			}
+
+			// Only include types with schema= or schemagen= tags (or directives)
 			if structSchema == nil {
 				continue
 			}
 
-			// Extract fields
-			fields, err := extractFields(structType)
-			if err != nil {
-				return nil, fmt.Errorf("failed to extract fields from struct %q: %w", typeSpec.Name.Name, err)
+			// Extract fields (only for structs)
+			var fields []*FieldInfo
+			if structType, ok := typeSpec.Type.(*ast.StructType); ok {
+				fields, err = extractFields(structType)
+				if err != nil {
+					return nil, fmt.Errorf("failed to extract fields from struct %q: %w", typeSpec.Name.Name, err)
+				}
 			}
 
 			structs = append(structs, &StructInfo{
@@ -83,7 +84,7 @@ func ExtractStructs(file *ast.File, filePath string) ([]*StructInfo, error) {
 				Fields:       fields,
 				StructSchema: structSchema,
 				Comments:     comments,
-				ASTNode:      structType,
+				ASTNode:      typeSpec.Type,
 				Imports:      imports,
 			})
 		}
@@ -272,6 +273,15 @@ func extractFields(structType *ast.StructType) ([]*FieldInfo, error) {
 
 			// Skip blank identifier fields (used for schema tags)
 			if fieldInfo.Name == "_" {
+				continue
+			}
+
+			// Skip embedded fields that are schema markers (have schema= or schemagen= tags)
+			// These are used only for struct-level schema configuration, not as actual fields
+			if _, hasSchema := parsed["schema"]; hasSchema {
+				continue
+			}
+			if _, hasSchemagen := parsed["schemagen"]; hasSchemagen {
 				continue
 			}
 
