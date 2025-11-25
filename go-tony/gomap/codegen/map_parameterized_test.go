@@ -46,7 +46,9 @@ func TestGoTypeToSchemaNode_MapParameterized(t *testing.T) {
 			},
 			structMap: map[string]*StructInfo{
 				"Person": {
+					Package: "github.com/example/test",
 					StructSchema: &gomap.StructSchema{
+						Mode:       "schemagen",
 						SchemaName: "person",
 					},
 				},
@@ -77,7 +79,9 @@ func TestGoTypeToSchemaNode_MapParameterized(t *testing.T) {
 			},
 			structMap: map[string]*StructInfo{
 				"Person": {
+					Package: "github.com/example/test",
 					StructSchema: &gomap.StructSchema{
+						Mode:       "schemagen",
 						SchemaName: "person",
 					},
 				},
@@ -94,7 +98,9 @@ func TestGoTypeToSchemaNode_MapParameterized(t *testing.T) {
 			},
 			structMap: map[string]*StructInfo{
 				"Node": {
+					Package: "github.com/example/test",
 					StructSchema: &gomap.StructSchema{
+						Mode:       "schemagen",
 						SchemaName: "node",
 					},
 				},

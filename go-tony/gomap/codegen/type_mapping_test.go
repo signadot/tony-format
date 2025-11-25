@@ -68,7 +68,9 @@ func TestTypeToSchemaRef(t *testing.T) {
 			},
 			structMap: map[string]*StructInfo{
 				"Person": {
+					Package: "", // same package
 					StructSchema: &gomap.StructSchema{
+						Mode:       "schemagen",
 						SchemaName: "person",
 					},
 				},
