@@ -5,43 +5,44 @@ package api
 import (
 	"bytes"
 	"fmt"
-
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 )
 
-// ToTonyIR converts RequestBody to a Tony IR node.
-func (s *RequestBody) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error) {
+// ToTonyIR converts Body to a Tony IR node.
+func (s *Body) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error) {
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
-	// Field: Path (string)
-	if s.Path != "" {
-		irMap["path"] = ir.FromString(s.Path)
-	}
+	// Field: Path
+	irMap["path"] = ir.FromString(s.Path)
 
-	// Field: Match (optional *ir.Node)
+	// Field: Match (optional)
 	if s.Match != nil {
 		irMap["match"] = s.Match
 	}
 
-	// Field: Patch (optional *ir.Node)
+	// Field: Patch (optional)
 	if s.Patch != nil {
 		irMap["patch"] = s.Patch
 	}
 
-	// Field: Meta (optional map[string]*ir.Node)
-	if s.Meta != nil {
-		irMap["meta"] = ir.FromMap(s.Meta)
+	// Field: Meta
+	if len(s.Meta) > 0 {
+		mapNodes := make(map[string]*ir.Node)
+		for k, v := range s.Meta {
+			mapNodes[k] = v
+		}
+		irMap["meta"] = ir.FromMap(mapNodes)
 	}
 
 	// Create IR node with schema tag
-	return ir.FromMap(irMap).WithTag("!request_body"), nil
+	return ir.FromMap(irMap).WithTag("!body"), nil
 }
 
-// FromTonyIR populates RequestBody from a Tony IR node.
-func (s *RequestBody) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error {
+// FromTonyIR populates Body from a Tony IR node.
+func (s *Body) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error {
 	// Validate IR node type
 	if node.Type != ir.ObjectType {
 		return fmt.Errorf("expected object type, got %v", node.Type)
@@ -51,31 +52,33 @@ func (s *RequestBody) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error
 		fieldNode := node.Values[i]
 		switch fieldName.String {
 		case "path":
-			// Field: Path (string)
+			// Field: Path
 			if fieldNode.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "path", fieldNode.Type)
 			}
 			s.Path = fieldNode.String
 		case "match":
-			// Field: Match (*ir.Node)
 			s.Match = fieldNode
 		case "patch":
-			// Field: Patch (*ir.Node)
 			s.Patch = fieldNode
 		case "meta":
-			// Field: Meta (map[string]*ir.Node)
-			if fieldNode.Type != ir.ObjectType {
-				return fmt.Errorf("field %q: expected object, got %v", "meta", fieldNode.Type)
+			// Field: Meta
+			if fieldNode.Type == ir.ObjectType {
+				m := make(map[string]*ir.Node)
+				irMap := ir.ToMap(fieldNode)
+				for k, v := range irMap {
+					m[k] = v
+				}
+				s.Meta = m
 			}
-			s.Meta = ir.ToMap(fieldNode)
 		}
 	}
 
 	return nil
 }
 
-// ToTony converts RequestBody to Tony format bytes.
-func (s *RequestBody) ToTony(opts ...encode.EncodeOption) ([]byte, error) {
+// ToTony converts Body to Tony format bytes.
+func (s *Body) ToTony(opts ...encode.EncodeOption) ([]byte, error) {
 	node, err := s.ToTonyIR(opts...)
 	if err != nil {
 		return nil, err
@@ -87,8 +90,503 @@ func (s *RequestBody) ToTony(opts ...encode.EncodeOption) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// FromTony parses Tony format bytes and populates RequestBody.
-func (s *RequestBody) FromTony(data []byte, opts ...parse.ParseOption) error {
+// FromTony parses Tony format bytes and populates Body.
+func (s *Body) FromTony(data []byte, opts ...parse.ParseOption) error {
+	node, err := parse.Parse(data, opts...)
+	if err != nil {
+		return err
+	}
+	return s.FromTonyIR(node, opts...)
+}
+
+// ToTonyIR converts EncodingOptions to a Tony IR node.
+func (s *EncodingOptions) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error) {
+	// Create IR object map
+	irMap := make(map[string]*ir.Node)
+
+	// Field: Wire
+	irMap["wire"] = ir.FromBool(s.Wire)
+
+	// Field: Brackets
+	irMap["brackets"] = ir.FromBool(s.Brackets)
+
+	// Create IR node with schema tag
+	return ir.FromMap(irMap).WithTag("!encoding-options"), nil
+}
+
+// FromTonyIR populates EncodingOptions from a Tony IR node.
+func (s *EncodingOptions) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error {
+	// Validate IR node type
+	if node.Type != ir.ObjectType {
+		return fmt.Errorf("expected object type, got %v", node.Type)
+	}
+
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		switch fieldName.String {
+		case "wire":
+			// Field: Wire
+			if fieldNode.Type != ir.BoolType {
+				return fmt.Errorf("field %q: expected bool, got %v", "wire", fieldNode.Type)
+			}
+			s.Wire = fieldNode.Bool
+		case "brackets":
+			// Field: Brackets
+			if fieldNode.Type != ir.BoolType {
+				return fmt.Errorf("field %q: expected bool, got %v", "brackets", fieldNode.Type)
+			}
+			s.Brackets = fieldNode.Bool
+		}
+	}
+
+	return nil
+}
+
+// ToTony converts EncodingOptions to Tony format bytes.
+func (s *EncodingOptions) ToTony(opts ...encode.EncodeOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, opts...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// FromTony parses Tony format bytes and populates EncodingOptions.
+func (s *EncodingOptions) FromTony(data []byte, opts ...parse.ParseOption) error {
+	node, err := parse.Parse(data, opts...)
+	if err != nil {
+		return err
+	}
+	return s.FromTonyIR(node, opts...)
+}
+
+// ToTonyIR converts MatchMeta to a Tony IR node.
+func (s *MatchMeta) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error) {
+	// Create IR object map
+	irMap := make(map[string]*ir.Node)
+
+	// Field: Wire
+	irMap["wire"] = ir.FromBool(s.Wire)
+
+	// Field: Brackets
+	irMap["brackets"] = ir.FromBool(s.Brackets)
+
+	// Field: SeqID (optional)
+	if s.SeqID != nil {
+		if s.SeqID != nil {
+			irMap["seq"] = ir.FromInt(int64(*s.SeqID))
+		}
+	}
+
+	// Create IR node with schema tag
+	return ir.FromMap(irMap).WithTag("!match-meta"), nil
+}
+
+// FromTonyIR populates MatchMeta from a Tony IR node.
+func (s *MatchMeta) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error {
+	// Validate IR node type
+	if node.Type != ir.ObjectType {
+		return fmt.Errorf("expected object type, got %v", node.Type)
+	}
+
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		switch fieldName.String {
+		case "wire":
+			// Field: Wire
+			if fieldNode.Type != ir.BoolType {
+				return fmt.Errorf("field %q: expected bool, got %v", "wire", fieldNode.Type)
+			}
+			s.Wire = fieldNode.Bool
+		case "brackets":
+			// Field: Brackets
+			if fieldNode.Type != ir.BoolType {
+				return fmt.Errorf("field %q: expected bool, got %v", "brackets", fieldNode.Type)
+			}
+			s.Brackets = fieldNode.Bool
+		case "seq":
+			// Field: SeqID
+			val := new(int64)
+			if fieldNode.Int64 == nil {
+				return fmt.Errorf("%s: expected number, got %v", "field \"seq\"", fieldNode.Type)
+			}
+			*val = int64(*fieldNode.Int64)
+			s.SeqID = val
+		}
+	}
+
+	return nil
+}
+
+// ToTony converts MatchMeta to Tony format bytes.
+func (s *MatchMeta) ToTony(opts ...encode.EncodeOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, opts...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// FromTony parses Tony format bytes and populates MatchMeta.
+func (s *MatchMeta) FromTony(data []byte, opts ...parse.ParseOption) error {
+	node, err := parse.Parse(data, opts...)
+	if err != nil {
+		return err
+	}
+	return s.FromTonyIR(node, opts...)
+}
+
+// ToTonyIR converts Match to a Tony IR node.
+func (s *Match) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error) {
+	// Create IR object map
+	irMap := make(map[string]*ir.Node)
+
+	// Field: Meta
+	node, err := s.Meta.ToTonyIR(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert field %q: %w", "Meta", err)
+	}
+	irMap["meta"] = node
+
+	// Field: Body
+	node, err = s.Body.ToTonyIR(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert field %q: %w", "Body", err)
+	}
+	irMap["body"] = node
+
+	// Create IR node with schema tag
+	return ir.FromMap(irMap).WithTag("!match"), nil
+}
+
+// FromTonyIR populates Match from a Tony IR node.
+func (s *Match) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error {
+	// Validate IR node type
+	if node.Type != ir.ObjectType {
+		return fmt.Errorf("expected object type, got %v", node.Type)
+	}
+
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		switch fieldName.String {
+		case "meta":
+			// Field: Meta
+			if err := s.Meta.FromTonyIR(fieldNode); err != nil {
+				return fmt.Errorf("field %q: %w", "meta", err)
+			}
+		case "body":
+			// Field: Body
+			if err := s.Body.FromTonyIR(fieldNode); err != nil {
+				return fmt.Errorf("field %q: %w", "body", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// ToTony converts Match to Tony format bytes.
+func (s *Match) ToTony(opts ...encode.EncodeOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, opts...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// FromTony parses Tony format bytes and populates Match.
+func (s *Match) FromTony(data []byte, opts ...parse.ParseOption) error {
+	node, err := parse.Parse(data, opts...)
+	if err != nil {
+		return err
+	}
+	return s.FromTonyIR(node, opts...)
+}
+
+// ToTonyIR converts PatchMeta to a Tony IR node.
+func (s *PatchMeta) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error) {
+	// Create IR object map
+	irMap := make(map[string]*ir.Node)
+
+	// Field: Wire
+	irMap["wire"] = ir.FromBool(s.Wire)
+
+	// Field: Brackets
+	irMap["brackets"] = ir.FromBool(s.Brackets)
+
+	// Field: Tx (optional)
+	if s.Tx != nil {
+		if s.Tx != nil {
+			irMap["tx"] = ir.FromString(*s.Tx)
+		}
+	}
+
+	// Field: MaxDuration
+	irMap["maxDuration"] = ir.FromString(s.MaxDuration)
+
+	// Field: Seq (optional)
+	if s.Seq != nil {
+		if s.Seq != nil {
+			irMap["seq"] = ir.FromInt(int64(*s.Seq))
+		}
+	}
+
+	// Field: When
+	irMap["when"] = ir.FromString(s.When)
+
+	// Create IR node with schema tag
+	return ir.FromMap(irMap).WithTag("!patch-meta"), nil
+}
+
+// FromTonyIR populates PatchMeta from a Tony IR node.
+func (s *PatchMeta) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error {
+	// Validate IR node type
+	if node.Type != ir.ObjectType {
+		return fmt.Errorf("expected object type, got %v", node.Type)
+	}
+
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		switch fieldName.String {
+		case "wire":
+			// Field: Wire
+			if fieldNode.Type != ir.BoolType {
+				return fmt.Errorf("field %q: expected bool, got %v", "wire", fieldNode.Type)
+			}
+			s.Wire = fieldNode.Bool
+		case "brackets":
+			// Field: Brackets
+			if fieldNode.Type != ir.BoolType {
+				return fmt.Errorf("field %q: expected bool, got %v", "brackets", fieldNode.Type)
+			}
+			s.Brackets = fieldNode.Bool
+		case "tx":
+			// Field: Tx
+			val := new(string)
+			if fieldNode.Type != ir.StringType {
+				return fmt.Errorf("%s: expected string, got %v", "field \"tx\"", fieldNode.Type)
+			}
+			*val = string(fieldNode.String)
+			s.Tx = val
+		case "maxDuration":
+			// Field: MaxDuration
+			if fieldNode.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "maxDuration", fieldNode.Type)
+			}
+			s.MaxDuration = fieldNode.String
+		case "seq":
+			// Field: Seq
+			val := new(int64)
+			if fieldNode.Int64 == nil {
+				return fmt.Errorf("%s: expected number, got %v", "field \"seq\"", fieldNode.Type)
+			}
+			*val = int64(*fieldNode.Int64)
+			s.Seq = val
+		case "when":
+			// Field: When
+			if fieldNode.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "when", fieldNode.Type)
+			}
+			s.When = fieldNode.String
+		}
+	}
+
+	return nil
+}
+
+// ToTony converts PatchMeta to Tony format bytes.
+func (s *PatchMeta) ToTony(opts ...encode.EncodeOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, opts...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// FromTony parses Tony format bytes and populates PatchMeta.
+func (s *PatchMeta) FromTony(data []byte, opts ...parse.ParseOption) error {
+	node, err := parse.Parse(data, opts...)
+	if err != nil {
+		return err
+	}
+	return s.FromTonyIR(node, opts...)
+}
+
+// ToTonyIR converts Patch to a Tony IR node.
+func (s *Patch) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error) {
+	// Create IR object map
+	irMap := make(map[string]*ir.Node)
+
+	// Field: Meta
+	node, err := s.Meta.ToTonyIR(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert field %q: %w", "Meta", err)
+	}
+	irMap["meta"] = node
+
+	// Field: Body
+	node, err = s.Body.ToTonyIR(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert field %q: %w", "Body", err)
+	}
+	irMap["body"] = node
+
+	// Create IR node with schema tag
+	return ir.FromMap(irMap).WithTag("!patch"), nil
+}
+
+// FromTonyIR populates Patch from a Tony IR node.
+func (s *Patch) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error {
+	// Validate IR node type
+	if node.Type != ir.ObjectType {
+		return fmt.Errorf("expected object type, got %v", node.Type)
+	}
+
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		switch fieldName.String {
+		case "meta":
+			// Field: Meta
+			if err := s.Meta.FromTonyIR(fieldNode); err != nil {
+				return fmt.Errorf("field %q: %w", "meta", err)
+			}
+		case "body":
+			// Field: Body
+			if err := s.Body.FromTonyIR(fieldNode); err != nil {
+				return fmt.Errorf("field %q: %w", "body", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// ToTony converts Patch to Tony format bytes.
+func (s *Patch) ToTony(opts ...encode.EncodeOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, opts...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// FromTony parses Tony format bytes and populates Patch.
+func (s *Patch) FromTony(data []byte, opts ...parse.ParseOption) error {
+	node, err := parse.Parse(data, opts...)
+	if err != nil {
+		return err
+	}
+	return s.FromTonyIR(node, opts...)
+}
+
+// ToTonyIR converts WatchMeta to a Tony IR node.
+func (s *WatchMeta) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error) {
+	// Create IR object map
+	irMap := make(map[string]*ir.Node)
+
+	// Field: Wire
+	irMap["wire"] = ir.FromBool(s.Wire)
+
+	// Field: Brackets
+	irMap["brackets"] = ir.FromBool(s.Brackets)
+
+	// Field: From (optional)
+	if s.From != nil {
+		if s.From != nil {
+			irMap["from"] = ir.FromInt(int64(*s.From))
+		}
+	}
+
+	// Field: To (optional)
+	if s.To != nil {
+		if s.To != nil {
+			irMap["to"] = ir.FromInt(int64(*s.To))
+		}
+	}
+
+	// Create IR node with schema tag
+	return ir.FromMap(irMap).WithTag("!watch-meta"), nil
+}
+
+// FromTonyIR populates WatchMeta from a Tony IR node.
+func (s *WatchMeta) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error {
+	// Validate IR node type
+	if node.Type != ir.ObjectType {
+		return fmt.Errorf("expected object type, got %v", node.Type)
+	}
+
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		switch fieldName.String {
+		case "wire":
+			// Field: Wire
+			if fieldNode.Type != ir.BoolType {
+				return fmt.Errorf("field %q: expected bool, got %v", "wire", fieldNode.Type)
+			}
+			s.Wire = fieldNode.Bool
+		case "brackets":
+			// Field: Brackets
+			if fieldNode.Type != ir.BoolType {
+				return fmt.Errorf("field %q: expected bool, got %v", "brackets", fieldNode.Type)
+			}
+			s.Brackets = fieldNode.Bool
+		case "from":
+			// Field: From
+			val := new(int64)
+			if fieldNode.Int64 == nil {
+				return fmt.Errorf("%s: expected number, got %v", "field \"from\"", fieldNode.Type)
+			}
+			*val = int64(*fieldNode.Int64)
+			s.From = val
+		case "to":
+			// Field: To
+			val := new(int64)
+			if fieldNode.Int64 == nil {
+				return fmt.Errorf("%s: expected number, got %v", "field \"to\"", fieldNode.Type)
+			}
+			*val = int64(*fieldNode.Int64)
+			s.To = val
+		}
+	}
+
+	return nil
+}
+
+// ToTony converts WatchMeta to Tony format bytes.
+func (s *WatchMeta) ToTony(opts ...encode.EncodeOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, opts...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// FromTony parses Tony format bytes and populates WatchMeta.
+func (s *WatchMeta) FromTony(data []byte, opts ...parse.ParseOption) error {
 	node, err := parse.Parse(data, opts...)
 	if err != nil {
 		return err

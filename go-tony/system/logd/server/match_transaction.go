@@ -10,7 +10,7 @@ import (
 )
 
 // handleMatchTransaction handles MATCH requests for transaction status.
-func (s *Server) handleMatchTransaction(w http.ResponseWriter, r *http.Request, body *api.RequestBody) {
+func (s *Server) handleMatchTransaction(w http.ResponseWriter, r *http.Request, body *api.Body) {
 	// Extract transactionId from match
 	if body.Match == nil || body.Match.Type == ir.NullType {
 		writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidPath, "match must contain transactionId"))

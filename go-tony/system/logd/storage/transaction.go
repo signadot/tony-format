@@ -15,6 +15,7 @@ type TransactionState struct {
 	ParticipantsReceived int
 	Status               string // "pending", "committed", "aborted"
 	CreatedAt            string // RFC3339 timestamp
+	ExpiresAt            string
 	Diffs                []PendingDiff
 }
 
