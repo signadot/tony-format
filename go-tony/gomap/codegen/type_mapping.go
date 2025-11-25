@@ -13,11 +13,11 @@ import (
 
 // Helper functions for common patterns
 
-// getSchemaName returns the schema name for a struct if it has a schemagen tag.
+// getSchemaName returns the schema name for a struct if it has a schema or schemagen tag.
 // Returns empty string if the struct is not found or has no schema.
 func getSchemaName(structMap map[string]*StructInfo, structName, currentPkg string) string {
 	if structInfo, ok := structMap[structName]; ok && structInfo.Package == currentPkg {
-		if structInfo.StructSchema != nil && structInfo.StructSchema.Mode == "schemagen" {
+		if structInfo.StructSchema != nil && (structInfo.StructSchema.Mode == "schemagen" || structInfo.StructSchema.Mode == "schema") {
 			return structInfo.StructSchema.SchemaName
 		}
 	}
@@ -40,9 +40,9 @@ func createCrossPackageRefNode(pkgName, schemaName string) *ir.Node {
 	return node
 }
 
-// hasSchemaGen checks if a struct has a schemagen tag.
+// hasSchemaGen checks if a struct has a schema or schemagen tag.
 func hasSchemaGen(structInfo *StructInfo) bool {
-	return structInfo != nil && structInfo.StructSchema != nil && structInfo.StructSchema.Mode == "schemagen"
+	return structInfo != nil && structInfo.StructSchema != nil && (structInfo.StructSchema.Mode == "schemagen" || structInfo.StructSchema.Mode == "schema")
 }
 
 // typeToSchemaRef converts a Go type to a schema reference string.
