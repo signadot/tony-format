@@ -4,14 +4,13 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/ir"
 )
 
 // ToTonyIR converts a Go value to a Tony IR node using schema-aware marshaling.
 // It automatically uses a ToTony() method if available (user-implemented or generated),
 // otherwise falls back to schema-aware or reflection-based conversion.
-func (m *Mapper) ToTonyIR(v interface{}, opts ...encode.EncodeOption) (*ir.Node, error) {
+func (m *Mapper) ToTonyIR(v interface{}, opts ...MapOption) (*ir.Node, error) {
 	if v == nil {
 		return ir.Null(), nil
 	}
@@ -51,7 +50,7 @@ func (m *Mapper) ToTonyIR(v interface{}, opts ...encode.EncodeOption) (*ir.Node,
 }
 
 // toIRWithSchema performs schema-aware marshaling of a struct.
-func (m *Mapper) toIRWithSchema(val reflect.Value, typ reflect.Type, structSchema *StructSchema, opts ...encode.EncodeOption) (*ir.Node, error) {
+func (m *Mapper) toIRWithSchema(val reflect.Value, typ reflect.Type, structSchema *StructSchema, opts ...MapOption) (*ir.Node, error) {
 	// Resolve schema via registry
 	schema, err := m.resolveSchema(structSchema.SchemaName)
 	if err != nil {

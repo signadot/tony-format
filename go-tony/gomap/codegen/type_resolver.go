@@ -7,6 +7,7 @@ import (
 	"reflect"
 
 	"github.com/signadot/tony-format/go-tony/ir"
+	"golang.org/x/tools/go/packages"
 )
 
 // TypeResolver handles type resolution for a package.
@@ -25,21 +26,94 @@ func ResolveFieldTypes(structs []*StructInfo, pkgDir string, pkgName string) err
 		pkgName:       pkgName,
 	}
 
-	// First pass: create placeholder types for all structs
-	for _, s := range structs {
-		// Create a placeholder struct type using StructOf
-		// We'll use an empty struct as a placeholder
-		resolver.structTypeMap[s.Name] = reflect.StructOf([]reflect.StructField{})
+	// Load current package to resolve local types
+	currentPkg, err := resolver.loader.LoadPackage(pkgDir)
+	if err != nil {
+		return fmt.Errorf("failed to load current package %q: %w", pkgDir, err)
 	}
 
-	// Second pass: resolve field types
+	// Load encoding package to get TextMarshaler/TextUnmarshaler interfaces
+	encodingPkg, err := resolver.loader.LoadPackage("encoding")
+	if err != nil {
+		return fmt.Errorf("failed to load encoding package: %w", err)
+	}
+
+	textMarshalerObj := encodingPkg.Types.Scope().Lookup("TextMarshaler")
+	if textMarshalerObj == nil {
+		return fmt.Errorf("encoding.TextMarshaler not found")
+	}
+	textMarshalerInterface := textMarshalerObj.Type().Underlying().(*types.Interface)
+
+	textUnmarshalerObj := encodingPkg.Types.Scope().Lookup("TextUnmarshaler")
+	if textUnmarshalerObj == nil {
+		return fmt.Errorf("encoding.TextUnmarshaler not found")
+	}
+	textUnmarshalerInterface := textUnmarshalerObj.Type().Underlying().(*types.Interface)
+
+	// First pass: create placeholder types for all structs/types
 	for _, s := range structs {
+		// If it's a struct, create a placeholder struct type
+		if _, ok := s.ASTNode.(*ast.StructType); ok {
+			resolver.structTypeMap[s.Name] = reflect.StructOf([]reflect.StructField{})
+		} else {
+			// For other types, try to resolve the underlying type immediately
+			// This is needed for recursive types or just to have the type available
+			typ, _, _, _, _, err := resolver.resolveASTType(s.ASTNode, s.Name, s.Imports, currentPkg)
+			if err == nil {
+				resolver.structTypeMap[s.Name] = typ
+			} else {
+				// Fallback to int placeholder if resolution fails (e.g. recursive or complex)
+				resolver.structTypeMap[s.Name] = reflect.TypeOf(int(0))
+			}
+		}
+	}
+
+	// Second pass: resolve field types and struct/type info
+	for _, s := range structs {
+		// Resolve the type of the struct/type itself
+		var typ reflect.Type
+		var typesType types.Type
+
+		// For struct types, use the placeholder we created in the first pass
+		if _, ok := s.ASTNode.(*ast.StructType); ok {
+			typ = resolver.structTypeMap[s.Name]
+			// Look up types.Type from the current package
+			if obj := currentPkg.Types.Scope().Lookup(s.Name); obj != nil {
+				typesType = obj.Type()
+			}
+		} else {
+			// For non-struct types (e.g., type A int), resolve the underlying type
+			var err error
+			typ, typesType, _, _, _, err = resolver.resolveASTType(s.ASTNode, s.Name, s.Imports, currentPkg)
+			if err != nil {
+				return fmt.Errorf("failed to resolve type for %q: %w", s.Name, err)
+			}
+		}
+		s.Type = typ
+
+		// Check for TextMarshaler/TextUnmarshaler implementation on the type itself
+		if typesType != nil {
+			// Check value type
+			if types.Implements(typesType, textMarshalerInterface) {
+				s.ImplementsTextMarshaler = true
+			} else if types.Implements(types.NewPointer(typesType), textMarshalerInterface) {
+				s.ImplementsTextMarshaler = true
+			}
+
+			if types.Implements(typesType, textUnmarshalerInterface) {
+				s.ImplementsTextUnmarshaler = true
+			} else if types.Implements(types.NewPointer(typesType), textUnmarshalerInterface) {
+				s.ImplementsTextUnmarshaler = true
+			}
+		}
+
+		// Resolve fields (only for structs)
 		for _, field := range s.Fields {
 			if field.Type != nil {
 				continue // Already resolved
 			}
 
-			typ, structName, pkgPath, typeName, err := resolver.resolveASTType(field.ASTType, s.Name, s.Imports)
+			typ, typesType, structName, pkgPath, typeName, err := resolver.resolveASTType(field.ASTType, s.Name, s.Imports, currentPkg)
 			if err != nil {
 				return fmt.Errorf("failed to resolve type for field %q.%q: %w", s.Name, field.Name, err)
 			}
@@ -53,68 +127,127 @@ func ResolveFieldTypes(structs []*StructInfo, pkgDir string, pkgName string) err
 			if typeName != "" {
 				field.TypeName = typeName
 			}
+
+			// Check for TextMarshaler/TextUnmarshaler implementation
+			if typesType != nil {
+				// Check value type
+				if types.Implements(typesType, textMarshalerInterface) {
+					field.ImplementsTextMarshaler = true
+				} else if types.Implements(types.NewPointer(typesType), textMarshalerInterface) {
+					// Check pointer receiver (if value type doesn't implement it)
+					// Note: If the field is already a pointer, typesType is a Pointer, so NewPointer makes it **T
+					// But standard library usually implements on *T.
+					// If field is T, we check *T.
+					// If field is *T, types.Implements(typesType) covers it.
+					field.ImplementsTextMarshaler = true
+				}
+
+				if types.Implements(typesType, textUnmarshalerInterface) {
+					field.ImplementsTextUnmarshaler = true
+				} else if types.Implements(types.NewPointer(typesType), textUnmarshalerInterface) {
+					field.ImplementsTextUnmarshaler = true
+				}
+			}
 		}
 	}
 
 	return nil
 }
 
-// resolveASTType resolves an AST type expression to a reflect.Type.
-// Returns: (type, structName, pkgPath, typeName, error)
-// - type: the reflect.Type
-// - structName: qualified name for structs (e.g., "format.Format")
-// - pkgPath: package path for cross-package named types (e.g., "github.com/.../format")
-// - typeName: type name for cross-package named types (e.g., "Format")
-// Handles basic types, pointers, slices, arrays, maps, and struct references.
-func (r *TypeResolver) resolveASTType(expr ast.Expr, currentStructName string, imports map[string]string) (reflect.Type, string, string, string, error) {
+// resolveASTType resolves an AST type expression to a reflect.Type and types.Type.
+// Returns: (reflectType, typesType, structName, pkgPath, typeName, error)
+func (r *TypeResolver) resolveASTType(expr ast.Expr, currentStructName string, imports map[string]string, currentPkg *packages.Package) (reflect.Type, types.Type, string, string, string, error) {
 	if expr == nil {
-		return nil, "", "", "", fmt.Errorf("nil type expression")
+		return nil, nil, "", "", "", fmt.Errorf("nil type expression")
 	}
 
 	switch t := expr.(type) {
 	case *ast.Ident:
 		// Basic type or named type
-		return r.resolveIdentType(t.Name, currentStructName)
+		reflectType, structName, pkgPath, typeName, err := r.resolveIdentType(t.Name, currentStructName)
+		if err != nil {
+			return nil, nil, "", "", "", err
+		}
+
+		// Resolve types.Type
+		var typesType types.Type
+		if basic := types.Universe.Lookup(t.Name); basic != nil {
+			typesType = basic.Type()
+		} else {
+			// Look up in current package
+			if obj := currentPkg.Types.Scope().Lookup(t.Name); obj != nil {
+				typesType = obj.Type()
+			} else {
+				// Might be a type that hasn't been type-checked yet or is missing
+				// For now, we can't get the types.Type if it's not in the scope
+				// This might happen if we're parsing a file that hasn't been fully loaded/checked
+			}
+		}
+
+		return reflectType, typesType, structName, pkgPath, typeName, nil
 
 	case *ast.StarExpr:
 		// Pointer type: *T
-		elemType, structName, pkgPath, typeName, err := r.resolveASTType(t.X, currentStructName, imports)
+		elemType, elemTypesType, structName, pkgPath, typeName, err := r.resolveASTType(t.X, currentStructName, imports, currentPkg)
 		if err != nil {
-			return nil, "", "", "", err
+			return nil, nil, "", "", "", err
 		}
-		return reflect.PtrTo(elemType), structName, pkgPath, typeName, nil
+		var typesType types.Type
+		if elemTypesType != nil {
+			typesType = types.NewPointer(elemTypesType)
+		}
+		return reflect.PtrTo(elemType), typesType, structName, pkgPath, typeName, nil
 
 	case *ast.ArrayType:
 		// Array or slice: []T or [N]T
-		elemType, structName, pkgPath, typeName, err := r.resolveASTType(t.Elt, currentStructName, imports)
+		elemType, elemTypesType, structName, pkgPath, typeName, err := r.resolveASTType(t.Elt, currentStructName, imports, currentPkg)
 		if err != nil {
-			return nil, "", "", "", err
+			return nil, nil, "", "", "", err
 		}
+
+		var typesType types.Type
+		if elemTypesType != nil {
+			if t.Len == nil {
+				// Slice
+				typesType = types.NewSlice(elemTypesType)
+			} else {
+				// Array - we don't support array length in types.Type construction easily here without evaluating t.Len
+				// For now, treat as slice or ignore typesType for arrays
+				typesType = types.NewSlice(elemTypesType) // Approximation
+			}
+		}
+
 		if t.Len == nil {
 			// Slice
-			return reflect.SliceOf(elemType), structName, pkgPath, typeName, nil
+			return reflect.SliceOf(elemType), typesType, structName, pkgPath, typeName, nil
 		}
 		// Array - for now, treat as slice (we can't know the length at compile time for codegen)
-		return reflect.SliceOf(elemType), structName, pkgPath, typeName, nil
+		return reflect.SliceOf(elemType), typesType, structName, pkgPath, typeName, nil
 
 	case *ast.MapType:
 		// Map: map[K]V
-		keyType, _, _, _, err := r.resolveASTType(t.Key, currentStructName, imports)
+		keyType, keyTypesType, _, _, _, err := r.resolveASTType(t.Key, currentStructName, imports, currentPkg)
 		if err != nil {
-			return nil, "", "", "", err
+			return nil, nil, "", "", "", err
 		}
-		valueType, structName, pkgPath, typeName, err := r.resolveASTType(t.Value, currentStructName, imports)
+		valueType, valueTypesType, structName, pkgPath, typeName, err := r.resolveASTType(t.Value, currentStructName, imports, currentPkg)
 		if err != nil {
-			return nil, "", "", "", err
+			return nil, nil, "", "", "", err
 		}
-		return reflect.MapOf(keyType, valueType), structName, pkgPath, typeName, nil
+
+		var typesType types.Type
+		if keyTypesType != nil && valueTypesType != nil {
+			typesType = types.NewMap(keyTypesType, valueTypesType)
+		}
+
+		return reflect.MapOf(keyType, valueType), typesType, structName, pkgPath, typeName, nil
 
 	case *ast.SelectorExpr:
 		// Qualified identifier: pkg.Type (cross-package)
 		if ident, ok := t.X.(*ast.Ident); ok {
 			// Special case for ir.Node to return the actual type
 			if ident.Name == "ir" && t.Sel.Name == "Node" {
-				return reflect.TypeOf(ir.Node{}), "ir.Node", "", "", nil
+				return reflect.TypeOf(ir.Node{}), nil, "ir.Node", "", "", nil
 			}
 
 			// Resolve cross-package type
@@ -124,38 +257,31 @@ func (r *TypeResolver) resolveASTType(expr ast.Expr, currentStructName string, i
 			// Find import path
 			importPath, ok := imports[pkgName]
 			if !ok {
-				// Maybe it's in the same package but referenced with package name?
-				// Or maybe it's a standard library package?
-				// For now, assume it's a missing import or error
-				return nil, "", "", "", fmt.Errorf("unknown package %q (missing import?)", pkgName)
+				return nil, nil, "", "", "", fmt.Errorf("unknown package %q (missing import?)", pkgName)
 			}
 
 			// Load package
 			pkg, err := r.loader.LoadPackage(importPath)
 			if err != nil {
-				return nil, "", "", "", fmt.Errorf("failed to load package %q: %w", importPath, err)
+				return nil, nil, "", "", "", fmt.Errorf("failed to load package %q: %w", importPath, err)
 			}
 
 			// Find type in package
-			_, underlying, err := r.loader.FindNamedType(pkg, typeName)
+			_, typesType, err := r.loader.FindNamedType(pkg, typeName)
 			if err != nil {
-				// Try finding it as a general type if named type lookup fails (e.g. alias)
-				// But for now, let's assume it's a named type or struct
-				return nil, "", "", "", fmt.Errorf("failed to find type %q in package %q: %w", typeName, importPath, err)
+				return nil, nil, "", "", "", fmt.Errorf("failed to find type %q in package %q: %w", typeName, importPath, err)
 			}
 
-			// Handle the underlying type
-			if structType, ok := underlying.(*types.Struct); ok {
+			// Handle the underlying type for reflection
+			if structType, ok := typesType.Underlying().(*types.Struct); ok {
 				// It's a struct
 				qualifiedName := pkgName + "." + typeName
-				// Verify it is actually a struct (we did that with the type assertion)
 				_ = structType
-				return reflect.StructOf([]reflect.StructField{}), qualifiedName, importPath, typeName, nil
+				return reflect.StructOf([]reflect.StructField{}), typesType, qualifiedName, importPath, typeName, nil
 			}
 
-			if basic, ok := underlying.(*types.Basic); ok {
-				// It's a basic type (e.g. type Format int)
-				// Return the corresponding reflect.Type AND the qualified name
+			if basic, ok := typesType.Underlying().(*types.Basic); ok {
+				// It's a basic type
 				qualifiedName := pkgName + "." + typeName
 				var reflectType reflect.Type
 				switch basic.Kind() {
@@ -193,50 +319,37 @@ func (r *TypeResolver) resolveASTType(expr ast.Expr, currentStructName string, i
 					reflectType = reflect.TypeOf(complex128(0))
 				case types.String:
 					reflectType = reflect.TypeOf(string(""))
-				case types.UntypedBool:
-					reflectType = reflect.TypeOf(bool(false))
-				case types.UntypedInt:
-					reflectType = reflect.TypeOf(int(0))
-				case types.UntypedRune:
-					reflectType = reflect.TypeOf(rune(0))
-				case types.UntypedFloat:
-					reflectType = reflect.TypeOf(float64(0))
-				case types.UntypedComplex:
-					reflectType = reflect.TypeOf(complex128(0))
-				case types.UntypedString:
-					reflectType = reflect.TypeOf(string(""))
-				case types.UntypedNil:
-					return nil, "", "", "", fmt.Errorf("cannot resolve untyped nil")
 				default:
-					return nil, "", "", "", fmt.Errorf("unsupported basic type: %v", basic.Kind())
+					// Fallback for other types
+					reflectType = reflect.TypeOf(int(0)) // Placeholder
 				}
-				return reflectType, qualifiedName, importPath, typeName, nil
+				return reflectType, typesType, qualifiedName, importPath, typeName, nil
 			}
 
-			return nil, "", "", "", fmt.Errorf("unsupported underlying type for %q: %T", typeName, underlying)
+			// For other types (interfaces, etc.), return placeholder
+			return reflect.TypeOf((*interface{})(nil)).Elem(), typesType, "", "", "", nil
 		}
 
-		return nil, "", "", "", fmt.Errorf("unsupported selector expression: %v", expr)
+		return nil, nil, "", "", "", fmt.Errorf("unsupported selector expression: %v", expr)
 
 	case *ast.ChanType:
 		// Channel: chan T
-		elemType, structName, _, _, err := r.resolveASTType(t.Value, currentStructName, imports)
+		elemType, elemTypesType, structName, _, _, err := r.resolveASTType(t.Value, currentStructName, imports, currentPkg)
 		if err != nil {
-			return nil, "", "", "", err
+			return nil, nil, "", "", "", err
 		}
-		return reflect.ChanOf(reflect.BothDir, elemType), structName, "", "", nil
+		var typesType types.Type
+		if elemTypesType != nil {
+			typesType = types.NewChan(types.SendRecv, elemTypesType)
+		}
+		return reflect.ChanOf(reflect.BothDir, elemType), typesType, structName, "", "", nil
 
 	case *ast.InterfaceType:
 		// Interface type (interface{})
-		return reflect.TypeOf((*interface{})(nil)).Elem(), "", "", "", nil
-
-	case *ast.StructType:
-		// Anonymous struct type - create a placeholder
-		// For codegen, we might not need the actual struct type
-		return nil, "", "", "", fmt.Errorf("anonymous struct types not supported")
+		return reflect.TypeOf((*interface{})(nil)).Elem(), types.NewInterfaceType(nil, nil), "", "", "", nil
 
 	default:
-		return nil, "", "", "", fmt.Errorf("unsupported type expression: %T", expr)
+		return nil, nil, "", "", "", fmt.Errorf("unsupported type expression: %T", expr)
 	}
 }
 
@@ -255,7 +368,15 @@ func (r *TypeResolver) resolveIdentType(name string, currentStructName string) (
 
 	// Unknown type - could be a struct from another package or a type we haven't seen
 	// For now, return an error - we'll need to handle cross-package types later
-	return nil, "", "", "", fmt.Errorf("unknown type %q (not a basic type and not found in struct map)", name)
+	// But since we are now handling local types via go/types in resolveASTType, we can be more lenient here
+	// and return a placeholder if we can't resolve it via structTypeMap or basic types.
+	// However, resolveIdentType is called for *ast.Ident, so it expects a reflect.Type.
+	// If it's a named type in the current package that is NOT a struct (e.g. type A int),
+	// we might not have it in structTypeMap.
+
+	// We'll return a placeholder int for now if it's not found, assuming it's a named basic type.
+	// The caller (resolveASTType) will get the real types.Type from go/types.
+	return reflect.TypeOf(int(0)), "", "", "", nil
 }
 
 // resolveBasicType resolves a basic Go type name to a reflect.Type.

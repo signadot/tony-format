@@ -122,7 +122,7 @@ func TestGetStructSchema(t *testing.T) {
 	}
 
 	type PersonDef struct {
-		schemaTag `tony:"schemadef=person"`
+		schemaTag `tony:"schemagen=person"`
 		Name      string
 		Age       int
 	}
@@ -151,15 +151,15 @@ func TestGetStructSchema(t *testing.T) {
 	}
 
 	type PersonWithLineComment struct {
-		schemaTag `tony:"schema=person,LineComment=LineComments"`
-		Name      string
+		schemaTag    `tony:"schema=person,lineComment=LineComments"`
+		Name         string
 		LineComments []string
 	}
 
 	type PersonWithBothComments struct {
-		schemaTag `tony:"schema=person,comment=Comments,LineComment=LineComments"`
-		Name      string
-		Comments  []string
+		schemaTag    `tony:"schema=person,comment=Comments,lineComment=LineComments"`
+		Name         string
+		Comments     []string
 		LineComments []string
 	}
 
@@ -175,10 +175,10 @@ func TestGetStructSchema(t *testing.T) {
 	}
 
 	type PersonWithTagAndComments struct {
-		schemaTag `tony:"schema=person,tag=Tag,comment=Comments,LineComment=LineComments"`
-		Name       string
-		Tag        string
-		Comments   []string
+		schemaTag    `tony:"schema=person,tag=Tag,comment=Comments,lineComment=LineComments"`
+		Name         string
+		Tag          string
+		Comments     []string
 		LineComments []string
 	}
 
@@ -210,10 +210,10 @@ func TestGetStructSchema(t *testing.T) {
 			},
 		},
 		{
-			name: "schemadef mode",
+			name: "schemagen mode",
 			typ:  reflect.TypeOf(PersonDef{}),
 			want: &StructSchema{
-				Mode:       "schemadef",
+				Mode:       "schemagen",
 				SchemaName: "person",
 				AllowExtra: false,
 			},
@@ -241,9 +241,9 @@ func TestGetStructSchema(t *testing.T) {
 			name: "with comment field",
 			typ:  reflect.TypeOf(PersonWithComment{}),
 			want: &StructSchema{
-				Mode:            "schema",
-				SchemaName:      "person",
-				AllowExtra:      false,
+				Mode:             "schema",
+				SchemaName:       "person",
+				AllowExtra:       false,
 				CommentFieldName: "Comments",
 			},
 		},
@@ -281,9 +281,9 @@ func TestGetStructSchema(t *testing.T) {
 			name: "with tag field",
 			typ:  reflect.TypeOf(PersonWithTag{}),
 			want: &StructSchema{
-				Mode:       "schema",
-				SchemaName: "person",
-				AllowExtra: false,
+				Mode:         "schema",
+				SchemaName:   "person",
+				AllowExtra:   false,
 				TagFieldName: "Tag",
 			},
 		},
@@ -348,7 +348,7 @@ func TestGetStructSchema(t *testing.T) {
 
 func TestGetStructFields_SchemadefMode(t *testing.T) {
 	type Person struct {
-		schemaTag `tony:"schemadef=person"`
+		schemaTag `tony:"schemagen=person"`
 		Name      string
 		Age       int
 		Email     *string `tony:"required"`
@@ -359,7 +359,7 @@ func TestGetStructFields_SchemadefMode(t *testing.T) {
 	}
 
 	typ := reflect.TypeOf(Person{})
-	fields, err := GetStructFields(typ, nil, "schemadef", false, nil)
+	fields, err := GetStructFields(typ, nil, "schemagen", false, nil)
 	if err != nil {
 		t.Fatalf("GetStructFields() error = %v", err)
 	}
@@ -428,12 +428,12 @@ func TestGetStructFields_SchemadefMode(t *testing.T) {
 
 func TestGetStructFields_RequiredAndOptionalConflict(t *testing.T) {
 	type Person struct {
-		schemaTag `tony:"schemadef=person"`
+		schemaTag `tony:"schemagen=person"`
 		Name      string `tony:"required,optional"`
 	}
 
 	typ := reflect.TypeOf(Person{})
-	_, err := GetStructFields(typ, nil, "schemadef", false, nil)
+	_, err := GetStructFields(typ, nil, "schemagen", false, nil)
 	if err == nil {
 		t.Error("GetStructFields() should error when both required and optional tags are present")
 	}
@@ -471,41 +471,41 @@ func TestGetStructFields_EmbeddedStructs(t *testing.T) {
 	}
 
 	// D embeds A, only D has schema tag
-	// Note: In schemadef mode, A's fields ARE flattened (we're generating a schema definition)
+	// Note: In schemagen mode, A's fields ARE flattened (we're generating a schema definition)
 	// In schema mode, A would NOT be flattened (treated as nested object)
 	type D struct {
-		schemaTag `tony:"schema=company"`
-		A         // A has schema tag, but flattened in schemadef mode
+		schemaTag   `tony:"schema=company"`
+		A           // A has schema tag, but flattened in schemagen mode
 		CompanyName string
 	}
 
-	t.Run("embedded struct with schema tag should be flattened in schemadef mode", func(t *testing.T) {
+	t.Run("embedded struct with schema tag should be flattened in schemagen mode", func(t *testing.T) {
 		typ := reflect.TypeOf(C{})
-		fields, err := GetStructFields(typ, nil, "schemadef", false, nil)
+		fields, err := GetStructFields(typ, nil, "schemagen", false, nil)
 		if err != nil {
 			t.Fatalf("GetStructFields() error = %v", err)
 		}
 
-		// In schemadef mode, embedded structs are flattened regardless of schema tags
+		// In schemagen mode, embedded structs are flattened regardless of schema tags
 		// (we're generating a schema definition, so include all fields)
 		if len(fields) != 3 {
 			t.Errorf("GetStructFields() returned %d fields, want 3 (A's fields should be flattened)", len(fields))
 		}
 
 		if findField(fields, "Name") == nil {
-			t.Error("Name field from embedded A should be flattened in schemadef mode")
+			t.Error("Name field from embedded A should be flattened in schemagen mode")
 		}
 		if findField(fields, "Age") == nil {
-			t.Error("Age field from embedded A should be flattened in schemadef mode")
+			t.Error("Age field from embedded A should be flattened in schemagen mode")
 		}
 		if findField(fields, "ExtraField") == nil {
 			t.Error("ExtraField should be present")
 		}
 	})
 
-	t.Run("embedded struct without schema tag should be flattened in schemadef mode", func(t *testing.T) {
+	t.Run("embedded struct without schema tag should be flattened in schemagen mode", func(t *testing.T) {
 		typ := reflect.TypeOf(F{})
-		fields, err := GetStructFields(typ, nil, "schemadef", false, nil)
+		fields, err := GetStructFields(typ, nil, "schemagen", false, nil)
 		if err != nil {
 			t.Fatalf("GetStructFields() error = %v", err)
 		}
@@ -528,45 +528,45 @@ func TestGetStructFields_EmbeddedStructs(t *testing.T) {
 
 	t.Run("embedded struct with schema tag in parent with schema tag", func(t *testing.T) {
 		typ := reflect.TypeOf(D{})
-		fields, err := GetStructFields(typ, nil, "schemadef", false, nil)
+		fields, err := GetStructFields(typ, nil, "schemagen", false, nil)
 		if err != nil {
 			t.Fatalf("GetStructFields() error = %v", err)
 		}
 
-		// In schemadef mode, embedded structs are flattened regardless of schema tags
+		// In schemagen mode, embedded structs are flattened regardless of schema tags
 		if len(fields) != 3 {
 			t.Errorf("GetStructFields() returned %d fields, want 3 (A's fields should be flattened)", len(fields))
 		}
 
 		if findField(fields, "Name") == nil {
-			t.Error("Name field from embedded A should be flattened in schemadef mode")
+			t.Error("Name field from embedded A should be flattened in schemagen mode")
 		}
 		if findField(fields, "Age") == nil {
-			t.Error("Age field from embedded A should be flattened in schemadef mode")
+			t.Error("Age field from embedded A should be flattened in schemagen mode")
 		}
 		if findField(fields, "CompanyName") == nil {
 			t.Error("CompanyName should be present")
 		}
 	})
 
-	t.Run("embedded struct with schema tag should be flattened in schemadef mode", func(t *testing.T) {
+	t.Run("embedded struct with schema tag should be flattened in schemagen mode", func(t *testing.T) {
 		typ := reflect.TypeOf(B{})
-		fields, err := GetStructFields(typ, nil, "schemadef", false, nil)
+		fields, err := GetStructFields(typ, nil, "schemagen", false, nil)
 		if err != nil {
 			t.Fatalf("GetStructFields() error = %v", err)
 		}
 
-		// In schemadef mode, embedded structs are flattened regardless of schema tags
+		// In schemagen mode, embedded structs are flattened regardless of schema tags
 		// (we're generating a schema definition, so include all fields)
 		if len(fields) != 3 {
 			t.Errorf("GetStructFields() returned %d fields, want 3 (A's fields should be flattened)", len(fields))
 		}
 
 		if findField(fields, "Name") == nil {
-			t.Error("Name field from embedded A should be flattened in schemadef mode")
+			t.Error("Name field from embedded A should be flattened in schemagen mode")
 		}
 		if findField(fields, "Age") == nil {
-			t.Error("Age field from embedded A should be flattened in schemadef mode")
+			t.Error("Age field from embedded A should be flattened in schemagen mode")
 		}
 		if findField(fields, "CompanyName") == nil {
 			t.Error("CompanyName should be present")
@@ -576,7 +576,7 @@ func TestGetStructFields_EmbeddedStructs(t *testing.T) {
 
 func TestGetStructFields_SchemaMode_EmbeddedStructValidation(t *testing.T) {
 	// Test that embedded struct fields are validated against the schema in schema= mode
-	
+
 	// Create a schema that expects Name (string), Age (int), CompanyName (string)
 	companySchema := &schema.Schema{
 		Accept: &ir.Node{
@@ -587,9 +587,9 @@ func TestGetStructFields_SchemaMode_EmbeddedStructValidation(t *testing.T) {
 				{Type: ir.StringType, String: "CompanyName"},
 			},
 			Values: []*ir.Node{
-				{Type: ir.StringType},  // Name: string
-				{Type: ir.NumberType},   // Age: int
-				{Type: ir.StringType},   // CompanyName: string
+				{Type: ir.StringType}, // Name: string
+				{Type: ir.NumberType}, // Age: int
+				{Type: ir.StringType}, // CompanyName: string
 			},
 		},
 	}
@@ -613,7 +613,7 @@ func TestGetStructFields_SchemaMode_EmbeddedStructValidation(t *testing.T) {
 		schemaTag `tony:"schema=company"`
 		Person
 		CompanyName string
-		ExtraField   string // Not in schema
+		ExtraField  string // Not in schema
 	}
 
 	// CompanyMissingField embeds Person but is missing CompanyName
@@ -673,7 +673,7 @@ func TestGetStructFields_SchemaMode_EmbeddedStructValidation(t *testing.T) {
 			schemaTag `tony:"schema=company,allowExtra"`
 			Person
 			CompanyName string
-			ExtraField   string // Not in schema, but allowExtra is set
+			ExtraField  string // Not in schema, but allowExtra is set
 		}
 
 		typ := reflect.TypeOf(CompanyWithAllowExtra{})
@@ -705,7 +705,7 @@ func findField(fields []*FieldInfo, name string) *FieldInfo {
 func TestGetStructFields_SchemaMode_FieldRenaming(t *testing.T) {
 	// Test that field= tags work in schema= mode to rename struct fields
 	// when matching to schema fields
-	
+
 	// Create a schema that expects "name" (lowercase) and "age"
 	personSchema := &schema.Schema{
 		Accept: &ir.Node{
@@ -715,29 +715,29 @@ func TestGetStructFields_SchemaMode_FieldRenaming(t *testing.T) {
 				{Type: ir.StringType, String: "age"},
 			},
 			Values: []*ir.Node{
-				{Type: ir.StringType},  // name: string
-				{Type: ir.NumberType},   // age: float64 (NumberType maps to float64)
+				{Type: ir.StringType}, // name: string
+				{Type: ir.NumberType}, // age: float64 (NumberType maps to float64)
 			},
 		},
 	}
-	
+
 	// Person struct with schema tag and field renaming
 	type Person struct {
 		schemaTag `tony:"schema=person"`
-		FullName  string  `tony:"field=name"`  // Struct field "FullName" maps to schema field "name"
+		FullName  string  `tony:"field=name"` // Struct field "FullName" maps to schema field "name"
 		Age       float64 `tony:"field=age"`  // Struct field "Age" maps to schema field "age"
 	}
-	
+
 	typ := reflect.TypeOf(Person{})
 	fields, err := GetStructFields(typ, personSchema, "schema", false, nil)
 	if err != nil {
 		t.Fatalf("failed to get struct fields: %v", err)
 	}
-	
+
 	if len(fields) != 2 {
 		t.Fatalf("expected 2 fields, got %d", len(fields))
 	}
-	
+
 	// Check first field (name)
 	nameField := fields[0]
 	if nameField.Name != "FullName" {
@@ -749,7 +749,7 @@ func TestGetStructFields_SchemaMode_FieldRenaming(t *testing.T) {
 	if nameField.Type != reflect.TypeOf("") {
 		t.Errorf("expected type string, got %v", nameField.Type)
 	}
-	
+
 	// Check second field (age)
 	ageField := fields[1]
 	if ageField.Name != "Age" {
@@ -765,7 +765,7 @@ func TestGetStructFields_SchemaMode_FieldRenaming(t *testing.T) {
 
 func TestGetStructFields_SchemaMode_FieldRenaming_Embedded(t *testing.T) {
 	// Test that field= tags work in schema= mode with embedded structs
-	
+
 	// Create a schema that expects "first_name" and "last_name"
 	nameSchema := &schema.Schema{
 		Accept: &ir.Node{
@@ -775,34 +775,34 @@ func TestGetStructFields_SchemaMode_FieldRenaming_Embedded(t *testing.T) {
 				{Type: ir.StringType, String: "last_name"},
 			},
 			Values: []*ir.Node{
-				{Type: ir.StringType},  // first_name: string
-				{Type: ir.StringType},   // last_name: string
+				{Type: ir.StringType}, // first_name: string
+				{Type: ir.StringType}, // last_name: string
 			},
 		},
 	}
-	
+
 	// Name struct with field renaming
 	type Name struct {
 		FirstName string `tony:"field=first_name"`
 		LastName  string `tony:"field=last_name"`
 	}
-	
+
 	// Person struct that embeds Name
 	type Person struct {
 		schemaTag `tony:"schema=person"`
 		Name
 	}
-	
+
 	typ := reflect.TypeOf(Person{})
 	fields, err := GetStructFields(typ, nameSchema, "schema", false, nil)
 	if err != nil {
 		t.Fatalf("failed to get struct fields: %v", err)
 	}
-	
+
 	if len(fields) != 2 {
 		t.Fatalf("expected 2 fields, got %d", len(fields))
 	}
-	
+
 	// Check first field (first_name)
 	firstNameField := fields[0]
 	if firstNameField.Name != "FirstName" {
@@ -811,7 +811,7 @@ func TestGetStructFields_SchemaMode_FieldRenaming_Embedded(t *testing.T) {
 	if firstNameField.SchemaFieldName != "first_name" {
 		t.Errorf("expected schema field name 'first_name', got %q", firstNameField.SchemaFieldName)
 	}
-	
+
 	// Check second field (last_name)
 	lastNameField := fields[1]
 	if lastNameField.Name != "LastName" {

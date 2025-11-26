@@ -169,7 +169,9 @@ func FromIntKeysMap(yMap map[uint32]*Node) *Node {
 }
 
 func FromIntKeysMapAt(res *Node, yMap map[uint32]*Node) *Node {
-	res.Tag = TagCompose(IntKeysTag, nil, res.Tag)
+	if !TagHas(res.Tag, IntKeysTag) {
+		res.Tag = TagCompose(IntKeysTag, nil, res.Tag)
+	}
 	res.Type = ObjectType
 	res.Fields = make([]*Node, len(yMap))
 	res.Values = make([]*Node, len(yMap))
@@ -287,35 +289,42 @@ func (y *Node) Visit(f func(y *Node, isPost bool) (bool, error)) error {
 	return nil
 }
 
-// used when a tag overrides a default built in tag
-func (y *Node) ReType() {
-	if y.Type != StringType {
+// RemoveComments removes all comment nodes from the tree recursively.
+// It removes:
+// - Comment nodes (Type == CommentType)
+// - Comment fields from all nodes (sets Comment to nil)
+func (y *Node) RemoveComments() {
+	if y == nil {
 		return
 	}
-	v := y.String
-	switch v {
-	case "null":
-		y.Type = NullType
-		return
-	case "true":
-		y.Type = BoolType
-		y.Bool = true
-		return
-	case "false":
-		y.Type = BoolType
-		y.Bool = false
-		return
+
+	// Remove comment field from this node
+	y.Comment = nil
+
+	// If this is a comment node with a child, unwrap it
+	// (replace comment node with its child in parent's Values)
+	if y.Type == CommentType && len(y.Values) > 0 {
+		child := y.Values[0]
+		if y.Parent != nil {
+			// Replace this comment node with its child in parent's Values
+			y.Parent.Values[y.ParentIndex] = child
+			child.Parent = y.Parent
+			child.ParentIndex = y.ParentIndex
+			child.ParentField = y.ParentField
+			// Continue processing from the child
+			child.RemoveComments()
+			return
+		}
 	}
-	i, err := strconv.ParseInt(v, 10, 64)
-	if err == nil {
-		y.Type = NumberType
-		y.Int64 = &i
-		return
+
+	// Recursively process all child values
+	for _, yy := range y.Values {
+		yy.RemoveComments()
 	}
-	f, err := strconv.ParseFloat(v, 64)
-	if err == nil {
-		y.Type = NumberType
-		y.Float64 = &f
+
+	// Recursively process all field nodes
+	for _, yf := range y.Fields {
+		yf.RemoveComments()
 	}
 }
 

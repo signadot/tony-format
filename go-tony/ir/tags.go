@@ -88,6 +88,7 @@ func TagCompose(tag string, args []string, oTag string) string {
 	return headTag
 }
 
+// TagHas: what should be ! prefixed
 func TagHas(tag, what string) bool {
 	for {
 		if tag == "" {

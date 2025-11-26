@@ -44,8 +44,8 @@ func TestParseStructTag(t *testing.T) {
 		},
 		{
 			name: "Mixed with quoted value",
-			tag:  `schemadef=person,desc="A person struct"`,
-			want: map[string]string{"schemadef": "person", "desc": "A person struct"},
+			tag:  `schemagen=person,desc="A person struct"`,
+			want: map[string]string{"schemagen": "person", "desc": "A person struct"},
 		},
 		{
 			name: "Spaces around commas",

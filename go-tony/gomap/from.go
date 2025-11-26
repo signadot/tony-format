@@ -1,6 +1,7 @@
 package gomap
 
 import (
+	"encoding"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -10,9 +11,11 @@ import (
 )
 
 // FromTony unmarshals Tony-formatted bytes to a Go value.
-// It first unmarshals the bytes to an IR node, then converts the IR node to the value (using FromTonyIR).
-func FromTony(data []byte, v interface{}, opts ...parse.ParseOption) error {
-	node, err := parse.Parse(data, opts...)
+// It first unmarshals the bytes to an IR node (using parseOpts from opts),
+// then converts the IR node to the value (using FromTonyIR with opts).
+func FromTony(data []byte, v interface{}, opts ...UnmapOption) error {
+	parseOpts := ToParseOptions(opts...)
+	node, err := parse.Parse(data, parseOpts...)
 	if err != nil {
 		return err
 	}
@@ -23,7 +26,7 @@ func FromTony(data []byte, v interface{}, opts ...parse.ParseOption) error {
 // v must be a pointer to the target type.
 // It automatically uses a FromTonyIR() method if available (user-implemented or generated),
 // otherwise falls back to reflection-based conversion.
-func FromTonyIR(node *ir.Node, v interface{}, opts ...parse.ParseOption) error {
+func FromTonyIR(node *ir.Node, v interface{}, opts ...UnmapOption) error {
 	if v == nil {
 		return &UnmarshalError{Message: "destination value cannot be nil"}
 	}
@@ -57,14 +60,14 @@ func FromTonyIR(node *ir.Node, v interface{}, opts ...parse.ParseOption) error {
 }
 
 // callFromTonyIR calls the FromTonyIR() method with the given node.
-func callFromTonyIR(method reflect.Value, node *ir.Node, opts ...parse.ParseOption) error {
-	// Verify method signature: FromTonyIR(*ir.Node, opts ...parse.ParseOption) error
+func callFromTonyIR(method reflect.Value, node *ir.Node, opts ...UnmapOption) error {
+	// Verify method signature: FromTonyIR(*ir.Node, opts ...UnmapOption) error
 	// Note: We allow the old signature FromTonyIR(*ir.Node) error for backward compatibility if needed,
 	// but the generated code now uses the new signature.
 	mt := method.Type()
 
-	// Check for new signature: FromTonyIR(*ir.Node, opts ...parse.ParseOption) error
-	if mt.NumIn() == 2 && mt.IsVariadic() && mt.In(0) == reflect.TypeOf((*ir.Node)(nil)) && mt.In(1) == reflect.TypeOf([]parse.ParseOption(nil)) &&
+	// Check for new signature: FromTonyIR(*ir.Node, opts ...UnmapOption) error
+	if mt.NumIn() == 2 && mt.IsVariadic() && mt.In(0) == reflect.TypeOf((*ir.Node)(nil)) && mt.In(1) == reflect.TypeOf([]UnmapOption(nil)) &&
 		mt.NumOut() == 1 && mt.Out(0) == reflect.TypeOf((*error)(nil)).Elem() {
 		// Call with options - use CallSlice for variadic method
 		args := []reflect.Value{reflect.ValueOf(node), reflect.ValueOf(opts)}
@@ -89,19 +92,19 @@ func callFromTonyIR(method reflect.Value, node *ir.Node, opts ...parse.ParseOpti
 	}
 
 	return &UnmarshalError{
-		Message: "FromTonyIR() method must have signature: FromTonyIR(*ir.Node, opts ...parse.ParseOption) error or FromTonyIR(*ir.Node) error",
+		Message: "FromTonyIR() method must have signature: FromTonyIR(*ir.Node, opts ...UnmapOption) error or FromTonyIR(*ir.Node) error",
 	}
 }
 
 // fromIRReflect implements reflection-based conversion from IR.
 // This is the fallback when generated code is not available.
-func fromIRReflect(node *ir.Node, val reflect.Value, fieldPath string, opts ...parse.ParseOption) error {
+func fromIRReflect(node *ir.Node, val reflect.Value, fieldPath string, opts ...UnmapOption) error {
 	visited := make(map[uintptr]string) // Track visited pointers for cycle detection
 	return fromIRReflectWithVisited(node, val, fieldPath, visited, opts...)
 }
 
 // fromIRReflectWithVisited implements reflection-based conversion from IR with cycle detection.
-func fromIRReflectWithVisited(node *ir.Node, val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...parse.ParseOption) error {
+func fromIRReflectWithVisited(node *ir.Node, val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...UnmapOption) error {
 	if node == nil {
 		return &UnmarshalError{
 			FieldPath: fieldPath,
@@ -122,6 +125,21 @@ func fromIRReflectWithVisited(node *ir.Node, val reflect.Value, fieldPath string
 			// Call on the pointer value itself
 			return callFromTonyIR(m, node, opts...)
 		}
+
+		// Check for encoding.TextUnmarshaler
+		if tu, ok := val.Interface().(encoding.TextUnmarshaler); ok {
+			if node.Type != ir.StringType {
+				if node.Type == ir.NullType {
+					return nil
+				}
+				return &UnmarshalError{
+					FieldPath: fieldPath,
+					Message:   fmt.Sprintf("expected string for TextUnmarshaler, got %s", node.Type),
+				}
+			}
+			return tu.UnmarshalText([]byte(node.String))
+		}
+
 		// Handle null values
 		if node.Type == ir.NullType {
 			// Set zero value for the target
@@ -154,6 +172,19 @@ func fromIRReflectWithVisited(node *ir.Node, val reflect.Value, fieldPath string
 			val.Set(reflect.Zero(val.Type()))
 		}
 		return nil
+	}
+
+	// Check for encoding.TextUnmarshaler for non-pointers (addressable)
+	if val.CanAddr() {
+		if tu, ok := val.Addr().Interface().(encoding.TextUnmarshaler); ok {
+			if node.Type != ir.StringType {
+				return &UnmarshalError{
+					FieldPath: fieldPath,
+					Message:   fmt.Sprintf("expected string for TextUnmarshaler, got %s", node.Type),
+				}
+			}
+			return tu.UnmarshalText([]byte(node.String))
+		}
 	}
 
 	// Handle basic types
@@ -426,7 +457,7 @@ func fromIRToBool(node *ir.Node, val reflect.Value, fieldPath string) error {
 
 // fromIRToInterface unmarshals an IR node to an interface{} value.
 // It infers the concrete Go type from the IR node type.
-func fromIRToInterface(node *ir.Node, val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...parse.ParseOption) error {
+func fromIRToInterface(node *ir.Node, val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...UnmapOption) error {
 	if node == nil {
 		if val.CanSet() {
 			val.Set(reflect.Zero(val.Type()))
@@ -534,7 +565,7 @@ func fromIRToInterface(node *ir.Node, val reflect.Value, fieldPath string, visit
 }
 
 // fromIRToSlice unmarshals an IR array node to a slice or array value.
-func fromIRToSlice(node *ir.Node, val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...parse.ParseOption) error {
+func fromIRToSlice(node *ir.Node, val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...UnmapOption) error {
 	if node.Type != ir.ArrayType {
 		return &UnmarshalError{
 			FieldPath: fieldPath,
@@ -595,7 +626,7 @@ func fromIRToSlice(node *ir.Node, val reflect.Value, fieldPath string, visited m
 // fromIRToMap unmarshals an IR object node to a map value.
 // If the IR node has the !sparsearray tag, it's treated as a sparse array (map[uint32]T).
 // Otherwise, it's treated as a regular object (map[string]T).
-func fromIRToMap(node *ir.Node, val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...parse.ParseOption) error {
+func fromIRToMap(node *ir.Node, val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...UnmapOption) error {
 	if node.Type != ir.ObjectType {
 		return &UnmarshalError{
 			FieldPath: fieldPath,
@@ -703,7 +734,7 @@ func fromIRToMap(node *ir.Node, val reflect.Value, fieldPath string, visited map
 
 // fromIRToStruct unmarshals an IR object node to a struct value.
 // Embedded structs are handled by flattening (fields are promoted from embedded structs).
-func fromIRToStruct(node *ir.Node, val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...parse.ParseOption) error {
+func fromIRToStruct(node *ir.Node, val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...UnmapOption) error {
 	if node.Type != ir.ObjectType {
 		return &UnmarshalError{
 			FieldPath: fieldPath,
@@ -797,11 +828,10 @@ func fromIRToStruct(node *ir.Node, val reflect.Value, fieldPath string, visited 
 			continue
 		}
 
+		// Get field value using the full index path
 		fieldVal := val.FieldByIndex(fieldInfo.index)
-		if !fieldVal.IsValid() {
-			continue
-		}
 
+		// Build field path for error reporting
 		nextPath := fieldPath
 		if fieldPath != "" {
 			nextPath = fmt.Sprintf("%s.%s", fieldPath, fieldName)
@@ -809,6 +839,7 @@ func fromIRToStruct(node *ir.Node, val reflect.Value, fieldPath string, visited 
 			nextPath = fieldName
 		}
 
+		// Unmarshal field value
 		if err := fromIRReflectWithVisited(fieldNode, fieldVal, nextPath, visited, opts...); err != nil {
 			return err
 		}

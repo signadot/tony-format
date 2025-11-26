@@ -52,11 +52,11 @@ func (d *Dir) patch(dst []*ir.Node) error {
 }
 
 type DirPatch struct {
-	schema `tony:"schemadef=dirpatch"`
-	Match  *ir.Node `json:"match,omitempty" yaml:"match,omitempty"`
-	Patch  *ir.Node `json:"patch,omitempty" yaml:"patch,omitempty"`
-	File   string   `json:"file,omitempty" yaml:"file,omitempty"`
-	If     string   `json:"if,omitempty" yaml:"if,omitempty"`
+	schema `tony:"schemagen=dirpatch"`
+	Match  *ir.Node `json:"match,omitempty"`
+	Patch  *ir.Node `json:"patch,omitempty"`
+	File   string   `json:"file,omitempty"`
+	If     string   `json:"if,omitempty"`
 }
 
 func (d *DirPatch) String() string {

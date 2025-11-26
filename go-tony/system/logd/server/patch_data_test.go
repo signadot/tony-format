@@ -28,7 +28,7 @@ func TestHandlePatchData_Success(t *testing.T) {
 		t.Fatalf("failed to open storage: %v", err)
 	}
 
-	server := New(s)
+	server := New(&Config{Storage: s})
 
 	// Create request body
 	requestBody := `path: /proc/processes
@@ -126,7 +126,7 @@ func TestHandlePatchData_InvalidPath(t *testing.T) {
 		t.Fatalf("failed to open storage: %v", err)
 	}
 
-	server := New(s)
+	server := New(&Config{Storage: s})
 
 	// Test missing path
 	requestBody := `match: null
@@ -186,7 +186,7 @@ func TestHandlePatchData_MissingPatch(t *testing.T) {
 		t.Fatalf("failed to open storage: %v", err)
 	}
 
-	server := New(s)
+	server := New(&Config{Storage: s})
 
 	requestBody := `path: /proc/processes
 match: null
@@ -220,7 +220,7 @@ func TestHandlePatchData_TransactionWrite(t *testing.T) {
 		t.Fatalf("failed to open storage: %v", err)
 	}
 
-	server := New(s)
+	server := New(&Config{Storage: s})
 
 	// Step 1: Create a transaction with 2 participants
 	createRequestBody := `path: /api/transactions
@@ -305,12 +305,12 @@ meta:
 
 	// Run both writes concurrently - both will block until transaction commits
 	done := make(chan bool, 2)
-	
+
 	go func() {
 		server.handlePatchData(write1Resp, write1Req, write1Body)
 		done <- true
 	}()
-	
+
 	go func() {
 		server.handlePatchData(write2Resp, write2Req, write2Body)
 		done <- true
@@ -410,7 +410,7 @@ func TestHandlePatchData_TransactionWrite_Errors(t *testing.T) {
 		t.Fatalf("failed to open storage: %v", err)
 	}
 
-	server := New(s)
+	server := New(&Config{Storage: s})
 
 	// Test: Transaction not found
 	requestBody := `path: /proc/processes

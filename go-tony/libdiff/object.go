@@ -1,6 +1,8 @@
 package libdiff
 
 import (
+	"strconv"
+
 	"github.com/signadot/tony-format/go-tony/ir"
 
 	diffpatch "github.com/sergi/go-diff/diffmatchpatch"
@@ -10,6 +12,11 @@ import (
 // for every different field name add  node
 // for every same field name, recurse on the value
 func DiffObject(from, to *ir.Node, df DiffFunc) *ir.Node {
+	fromSparse := ir.TagHas(from.Tag, ir.IntKeysTag)
+	toSparse := ir.TagHas(to.Tag, ir.IntKeysTag)
+	if fromSparse != toSparse {
+		return to
+	}
 	fieldMap := map[string]rune{}
 	runeMap := map[rune]string{}
 	fromRunes := mapFieldsTo(fieldMap, runeMap, from)
@@ -49,11 +56,29 @@ func DiffObject(from, to *ir.Node, df DiffFunc) *ir.Node {
 		}
 		return nil
 	}
-	res := ir.FromMap(resMap)
+	if !fromSparse {
+		res := ir.FromMap(resMap)
+		if from.Tag != to.Tag {
+			res = res.WithTag(mkTagDiff(from.Tag, to.Tag))
+		}
+		return res
+	}
+	ikMap := make(map[uint32]*ir.Node, len(resMap))
+	for k, v := range resMap {
+		ik, err := strconv.ParseUint(k, 10, 32)
+		if err != nil {
+			panic(err)
+		}
+		ikMap[uint32(ik)] = v
+	}
+	res := ir.FromIntKeysMap(ikMap)
 	if from.Tag != to.Tag {
-		res = res.WithTag(mkTagDiff(from.Tag, to.Tag))
+		res = res.WithTag(ir.TagCompose(res.Tag, nil, mkTagDiff(from.Tag, to.Tag)))
+	} else {
+		res.Tag = from.Tag
 	}
 	return res
+
 }
 
 func mkTagDiff(from, to string) string {

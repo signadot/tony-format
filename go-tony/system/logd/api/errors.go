@@ -5,6 +5,8 @@ import (
 )
 
 // Error represents an API error response.
+//
+//tony:schemagen=error
 type Error struct {
 	Code    string `tony:"name=code"`
 	Message string `tony:"name=message"`
@@ -62,7 +64,7 @@ func (e *Error) UnmarshalText(text []byte) error {
 		return fmt.Errorf("cannot unmarshal into nil Error")
 	}
 	s := string(text)
-	
+
 	// Try to parse "codeLength:code:message" format
 	// Look for first colon, parse length, then read that many chars for code
 	for i := 0; i < len(s); i++ {

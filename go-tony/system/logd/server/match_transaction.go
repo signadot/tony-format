@@ -10,7 +10,7 @@ import (
 )
 
 // handleMatchTransaction handles MATCH requests for transaction status.
-func (s *Server) handleMatchTransaction(w http.ResponseWriter, r *http.Request, body *api.RequestBody) {
+func (s *Server) handleMatchTransaction(w http.ResponseWriter, r *http.Request, body *api.Body) {
 	// Extract transactionId from match
 	if body.Match == nil || body.Match.Type == ir.NullType {
 		writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidPath, "match must contain transactionId"))
@@ -24,7 +24,7 @@ func (s *Server) handleMatchTransaction(w http.ResponseWriter, r *http.Request, 
 	}
 
 	// Read transaction state
-	state, err := s.storage.ReadTransactionState(transactionID)
+	state, err := s.Config.Storage.ReadTransactionState(transactionID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, api.NewError("transaction_not_found", fmt.Sprintf("transaction not found: %v", err)))
 		return
@@ -35,11 +35,11 @@ func (s *Server) handleMatchTransaction(w http.ResponseWriter, r *http.Request, 
 	participantsReceivedNode := &ir.Node{Type: ir.NumberType, Int64: intPtr(int64(state.ParticipantsReceived)), Number: fmt.Sprintf("%d", state.ParticipantsReceived)}
 
 	transactionNode := ir.FromMap(map[string]*ir.Node{
-		"transactionId":        &ir.Node{Type: ir.StringType, String: state.TransactionID},
-		"status":               &ir.Node{Type: ir.StringType, String: state.Status},
-		"participantCount":    participantCountNode,
+		"transactionId":        ir.FromString(state.TransactionID),
+		"status":               ir.FromString(state.Status),
+		"participantCount":     participantCountNode,
 		"participantsReceived": participantsReceivedNode,
-		"createdAt":           &ir.Node{Type: ir.StringType, String: state.CreatedAt},
+		"createdAt":            ir.FromString(state.CreatedAt),
 	})
 
 	response := ir.FromMap(map[string]*ir.Node{

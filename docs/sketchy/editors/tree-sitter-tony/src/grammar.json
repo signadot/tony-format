@@ -1,4 +1,5 @@
 {
+  "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/grammar.schema.json",
   "name": "tony",
   "rules": {
     "source_file": {
@@ -6,22 +7,6 @@
       "content": {
         "type": "SYMBOL",
         "name": "_top_level"
-      }
-    },
-    "comment": {
-      "type": "TOKEN",
-      "content": {
-        "type": "SEQ",
-        "members": [
-          {
-            "type": "STRING",
-            "value": "#"
-          },
-          {
-            "type": "PATTERN",
-            "value": ".*"
-          }
-        ]
       }
     },
     "_top_level": {
@@ -253,7 +238,7 @@
         },
         {
           "type": "SYMBOL",
-          "name": "literal"
+          "name": "key_literal"
         },
         {
           "type": "SYMBOL",
@@ -500,29 +485,26 @@
       ]
     },
     "string_escape": {
-      "type": "TOKEN",
-      "content": {
-        "type": "SEQ",
-        "members": [
-          {
-            "type": "STRING",
-            "value": "\\"
-          },
-          {
-            "type": "CHOICE",
-            "members": [
-              {
-                "type": "PATTERN",
-                "value": "[\\\\\"'nrtbf]"
-              },
-              {
-                "type": "PATTERN",
-                "value": "u[0-9a-fA-F]{4}"
-              }
-            ]
-          }
-        ]
-      }
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "\\"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "PATTERN",
+              "value": "[\\\\\"\\'nrtbf]"
+            },
+            {
+              "type": "PATTERN",
+              "value": "u[0-9a-fA-F]{4}"
+            }
+          ]
+        }
+      ]
     },
     "block_literal": {
       "type": "SEQ",
@@ -574,6 +556,10 @@
         }
       ]
     },
+    "key_literal": {
+      "type": "PATTERN",
+      "value": "[a-zA-Z_$~@\\/._+\\-\\\\*%=][a-zA-Z0-9_$~@\\/:.\\-\\\\*%=!\\[\\]{}\\(\\)]*"
+    },
     "literal": {
       "type": "PATTERN",
       "value": "[a-zA-Z_$~@\\/._+\\-\\\\*%=][a-zA-Z0-9_$~@\\/:.\\-\\\\*%=!\\[\\]{}\\(\\)]*"
@@ -615,6 +601,19 @@
     "null": {
       "type": "STRING",
       "value": "null"
+    },
+    "comment": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "#"
+        },
+        {
+          "type": "PATTERN",
+          "value": ".*"
+        }
+      ]
     }
   },
   "extras": [
@@ -631,6 +630,6 @@
   "precedences": [],
   "externals": [],
   "inline": [],
-  "supertypes": []
+  "supertypes": [],
+  "reserved": {}
 }
-

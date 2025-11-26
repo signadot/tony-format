@@ -16,7 +16,7 @@ func TestGenerateSchema_WithComments(t *testing.T) {
 // Person represents a person in the system
 // This is a multi-line comment
 type Person struct {
-	schemaTag ` + "`tony:\"schemadef=person\"`" + `
+	schemaTag ` + "`tony:\"schemagen=person\"`" + `
 	// Name is the person's full name
 	Name string ` + "`tony:\"field=name\"`" + `
 	// Age is the person's age in years
@@ -32,7 +32,7 @@ type Person struct {
 		t.Fatalf("failed to parse: %v", err)
 	}
 
-	structs, err := ExtractStructs(file, "test.go")
+	structs, err := ExtractTypes(file, "test.go")
 	if err != nil {
 		t.Fatalf("failed to extract structs: %v", err)
 	}
@@ -52,7 +52,16 @@ type Person struct {
 	}
 
 	// Verify field comments were extracted
-	nameField := person.Fields[0]
+	var nameField *FieldInfo
+	for _, f := range person.Fields {
+		if f.Name == "Name" {
+			nameField = f
+			break
+		}
+	}
+	if nameField == nil {
+		t.Fatal("could not find Name field")
+	}
 	if len(nameField.Comments) == 0 {
 		t.Fatal("expected field-level comments for Name")
 	}
@@ -153,7 +162,7 @@ func TestGenerateSchema_FieldComments(t *testing.T) {
 	src := `package test
 
 type Person struct {
-	schemaTag ` + "`tony:\"schemadef=person\"`" + `
+	schemaTag ` + "`tony:\"schemagen=person\"`" + `
 	// Name comment
 	Name string
 	// Age comment
@@ -167,7 +176,7 @@ type Person struct {
 		t.Fatalf("failed to parse: %v", err)
 	}
 
-	structs, err := ExtractStructs(file, "test.go")
+	structs, err := ExtractTypes(file, "test.go")
 	if err != nil {
 		t.Fatalf("failed to extract structs: %v", err)
 	}
@@ -258,7 +267,7 @@ func TestGenerateSchema_NoComments(t *testing.T) {
 	src := `package test
 
 type Person struct {
-	schemaTag ` + "`tony:\"schemadef=person\"`" + `
+	schemaTag ` + "`tony:\"schemagen=person\"`" + `
 	Name string
 	Age  int
 }
@@ -270,7 +279,7 @@ type Person struct {
 		t.Fatalf("failed to parse: %v", err)
 	}
 
-	structs, err := ExtractStructs(file, "test.go")
+	structs, err := ExtractTypes(file, "test.go")
 	if err != nil {
 		t.Fatalf("failed to extract structs: %v", err)
 	}
@@ -333,7 +342,7 @@ func TestGenerateSchema_CommentsWithOptionalFields(t *testing.T) {
 	src := `package test
 
 type Person struct {
-	schemaTag ` + "`tony:\"schemadef=person\"`" + `
+	schemaTag ` + "`tony:\"schemagen=person\"`" + `
 	// Email comment
 	Email string ` + "`tony:\"optional\"`" + `
 }
@@ -345,14 +354,23 @@ type Person struct {
 		t.Fatalf("failed to parse: %v", err)
 	}
 
-	structs, err := ExtractStructs(file, "test.go")
+	structs, err := ExtractTypes(file, "test.go")
 	if err != nil {
 		t.Fatalf("failed to extract structs: %v", err)
 	}
 
 	// Set up reflection types for the struct
 	person := structs[0]
-	emailField := person.Fields[0]
+	var emailField *FieldInfo
+	for _, f := range person.Fields {
+		if f.Name == "Email" {
+			emailField = f
+			break
+		}
+	}
+	if emailField == nil {
+		t.Fatal("could not find Email field")
+	}
 	emailField.Type = reflect.TypeOf("")
 
 	schema, err := GenerateSchema(structs, person, NewPackageLoader())

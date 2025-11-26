@@ -93,6 +93,10 @@
           "named": true
         },
         {
+          "type": "key_literal",
+          "named": true
+        },
+        {
           "type": "literal",
           "named": true
         },
@@ -124,12 +128,28 @@
     }
   },
   {
+    "type": "comment",
+    "named": true,
+    "extra": true,
+    "fields": {}
+  },
+  {
     "type": "document_separator",
     "named": true,
     "fields": {}
   },
   {
     "type": "interpolation",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "key_literal",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "literal",
     "named": true,
     "fields": {}
   },
@@ -146,6 +166,7 @@
   {
     "type": "source_file",
     "named": true,
+    "root": true,
     "fields": {},
     "children": {
       "multiple": true,
@@ -220,6 +241,11 @@
         }
       ]
     }
+  },
+  {
+    "type": "string_escape",
+    "named": true,
+    "fields": {}
   },
   {
     "type": "tag",
@@ -359,6 +385,10 @@
     "named": false
   },
   {
+    "type": "#",
+    "named": false
+  },
+  {
     "type": "$[",
     "named": false
   },
@@ -395,11 +425,11 @@
     "named": false
   },
   {
-    "type": "<<",
+    "type": "[",
     "named": false
   },
   {
-    "type": "[",
+    "type": "\\",
     "named": false
   },
   {
@@ -407,23 +437,11 @@
     "named": false
   },
   {
-    "type": "comment",
-    "named": true
-  },
-  {
     "type": "false",
     "named": false
   },
   {
-    "type": "literal",
-    "named": true
-  },
-  {
     "type": "null",
-    "named": true
-  },
-  {
-    "type": "string_escape",
     "named": true
   },
   {

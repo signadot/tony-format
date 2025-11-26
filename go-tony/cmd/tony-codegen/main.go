@@ -111,7 +111,7 @@ func processPackage(cfg *Config, pkg *codegen.PackageInfo) error {
 			return fmt.Errorf("failed to parse file %q: %w", filePath, err)
 		}
 
-		structs, err := codegen.ExtractStructs(file, filePath)
+		structs, err := codegen.ExtractTypes(file, filePath)
 		if err != nil {
 			return fmt.Errorf("failed to extract structs from %q: %w", filePath, err)
 		}
@@ -134,16 +134,21 @@ func processPackage(cfg *Config, pkg *codegen.PackageInfo) error {
 		return fmt.Errorf("failed to resolve field types: %w", err)
 	}
 
-	// Separate structs by mode (schemadef= vs schema=)
-	var schemadefStructs []*codegen.StructInfo
+	// Flatten embedded fields
+	if err := codegen.FlattenEmbeddedFields(allStructs); err != nil {
+		return fmt.Errorf("failed to flatten embedded fields: %w", err)
+	}
+
+	// Separate structs by mode (schemagen= vs schema=)
+	var schemagenStructs []*codegen.StructInfo
 	var schemaStructs []*codegen.StructInfo
 
 	for _, s := range allStructs {
 		if s.StructSchema == nil {
 			continue
 		}
-		if s.StructSchema.Mode == "schemadef" {
-			schemadefStructs = append(schemadefStructs, s)
+		if s.StructSchema.Mode == "schemagen" {
+			schemagenStructs = append(schemagenStructs, s)
 		} else if s.StructSchema.Mode == "schema" {
 			schemaStructs = append(schemaStructs, s)
 		}
@@ -154,13 +159,13 @@ func processPackage(cfg *Config, pkg *codegen.PackageInfo) error {
 
 	// Step 1: Sort structs (Topological or Alphabetical fallback)
 	var orderedStructs []*codegen.StructInfo
-	if len(schemadefStructs) > 0 {
+	if len(schemagenStructs) > 0 {
 		// Build dependency graph
-		graph, err := codegen.BuildDependencyGraph(schemadefStructs)
+		graph, err := codegen.BuildDependencyGraph(schemagenStructs)
 		if err != nil {
 			fmt.Printf("Warning: Failed to build dependency graph: %v. Falling back to alphabetical sort.\n", err)
-			orderedStructs = make([]*codegen.StructInfo, len(schemadefStructs))
-			copy(orderedStructs, schemadefStructs)
+			orderedStructs = make([]*codegen.StructInfo, len(schemagenStructs))
+			copy(orderedStructs, schemagenStructs)
 			sort.Slice(orderedStructs, func(i, j int) bool {
 				return orderedStructs[i].StructSchema.SchemaName < orderedStructs[j].StructSchema.SchemaName
 			})
@@ -170,8 +175,8 @@ func processPackage(cfg *Config, pkg *codegen.PackageInfo) error {
 			if err != nil {
 				// Cycles detected or other error
 				fmt.Printf("Warning: Dependency cycles detected or sort failed: %v. Falling back to alphabetical sort.\n", err)
-				orderedStructs = make([]*codegen.StructInfo, len(schemadefStructs))
-				copy(orderedStructs, schemadefStructs)
+				orderedStructs = make([]*codegen.StructInfo, len(schemagenStructs))
+				copy(orderedStructs, schemagenStructs)
 				sort.Slice(orderedStructs, func(i, j int) bool {
 					return orderedStructs[i].StructSchema.SchemaName < orderedStructs[j].StructSchema.SchemaName
 				})
@@ -244,8 +249,8 @@ func processPackage(cfg *Config, pkg *codegen.PackageInfo) error {
 		schemas[schemaName] = loaded
 	}
 
-	// Load newly generated schemas for schemadef= structs
-	for _, structInfo := range schemadefStructs {
+	// Load newly generated schemas for schemagen= structs
+	for _, structInfo := range schemagenStructs {
 		schemaName := structInfo.StructSchema.SchemaName
 		if _, ok := schemas[schemaName]; ok {
 			continue // Already loaded

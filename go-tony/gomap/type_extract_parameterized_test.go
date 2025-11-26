@@ -56,10 +56,8 @@ func TestExtractGoType_ParameterizedReferences(t *testing.T) {
 		},
 		{
 			name: ".sparsearray(string) - parameterized sparse array",
-			def: &ir.Node{
-				Tag: ".sparsearray(string)",
-			},
-			want: reflect.MapOf(reflect.TypeOf(0), reflect.TypeOf("")), // map[int]string
+			def:  ir.FromString(".sparsearray(string)"),
+			want: reflect.MapOf(reflect.TypeOf(uint32(0)), reflect.TypeOf("")), // map[uint32]string
 		},
 		{
 			name: ".array(.array(string)) - nested parameterized arrays",

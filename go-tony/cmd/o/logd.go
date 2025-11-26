@@ -48,7 +48,7 @@ func logd(cfg *LogDConfig, cc *cli.Context, args []string) error {
 	}
 
 	// Create server
-	srv := server.New(s)
+	srv := server.New(&server.Config{Storage: s})
 
 	// Start HTTP server
 	addr := fmt.Sprintf(":%d", cfg.Port)

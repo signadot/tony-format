@@ -10,7 +10,7 @@ func TestExtractStructs_Directives(t *testing.T) {
 	src := `
 package testpkg
 
-//tony:schemadef=person
+//tony:schemagen=person
 //tony:context=tony-format/context
 type Person struct {
 	Name string
@@ -27,7 +27,7 @@ type Other struct {
 		t.Fatalf("ParseFile failed: %v", err)
 	}
 
-	structs, err := ExtractStructs(file, "test.go")
+	structs, err := ExtractTypes(file, "test.go")
 	if err != nil {
 		t.Fatalf("ExtractStructs failed: %v", err)
 	}
@@ -49,8 +49,8 @@ type Other struct {
 		t.Errorf("Expected schema name 'person', got '%s'", s.StructSchema.SchemaName)
 	}
 
-	if s.StructSchema.Mode != "schemadef" {
-		t.Errorf("Expected mode 'schemadef', got '%s'", s.StructSchema.Mode)
+	if s.StructSchema.Mode != "schemagen" {
+		t.Errorf("Expected mode 'schemagen', got '%s'", s.StructSchema.Mode)
 	}
 
 	if s.StructSchema.Context != "tony-format/context" {
@@ -65,7 +65,7 @@ package testpkg
 
 // Person represents a human being.
 //
-//tony:schemadef=person
+//tony:schemagen=person
 //
 // Some other comments.
 type Person struct {
@@ -78,7 +78,7 @@ type Person struct {
 		t.Fatalf("ParseFile failed: %v", err)
 	}
 
-	structs, err := ExtractStructs(file, "test.go")
+	structs, err := ExtractTypes(file, "test.go")
 	if err != nil {
 		t.Fatalf("ExtractStructs failed: %v", err)
 	}

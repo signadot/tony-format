@@ -5,14 +5,13 @@ import (
 	"reflect"
 
 	"github.com/signadot/tony-format/go-tony/ir"
-	"github.com/signadot/tony-format/go-tony/parse"
 )
 
 // FromTonyIR converts a Tony IR node to a Go value using schema-aware unmarshaling.
 // v must be a pointer to the target type.
 // It automatically uses a FromTony() method if available (user-implemented or generated),
 // otherwise falls back to schema-aware or reflection-based conversion.
-func (m *Mapper) FromTonyIR(node *ir.Node, v interface{}, opts ...parse.ParseOption) error {
+func (m *Mapper) FromTonyIR(node *ir.Node, v interface{}, opts ...UnmapOption) error {
 	if v == nil {
 		return &UnmarshalError{Message: "destination value cannot be nil"}
 	}
@@ -57,7 +56,7 @@ func (m *Mapper) FromTonyIR(node *ir.Node, v interface{}, opts ...parse.ParseOpt
 }
 
 // fromIRWithSchema performs schema-aware unmarshaling of a struct.
-func (m *Mapper) fromIRWithSchema(node *ir.Node, val reflect.Value, typ reflect.Type, structSchema *StructSchema, opts ...parse.ParseOption) error {
+func (m *Mapper) fromIRWithSchema(node *ir.Node, val reflect.Value, typ reflect.Type, structSchema *StructSchema, opts ...UnmapOption) error {
 	// Resolve schema via registry
 	schema, err := m.resolveSchema(structSchema.SchemaName)
 	if err != nil {

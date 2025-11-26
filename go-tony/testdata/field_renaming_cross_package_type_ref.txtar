@@ -14,9 +14,9 @@ package common
 
 type schemaTag struct{}
 
-// Address struct defines the schema (schemadef mode)
+// Address struct defines the schema (schemagen mode)
 type Address struct {
-	schemaTag `tony:"schemadef=address"`
+	schemaTag `tony:"schemagen=address"`
 	Street  string
 	City    string
 	State   string
@@ -38,9 +38,9 @@ package models
 
 type schemaTag struct{}
 
-// Person struct defines the schema (schemadef mode)
+// Person struct defines the schema (schemagen mode)
 type Person struct {
-	schemaTag `tony:"schemadef=person"`
+	schemaTag `tony:"schemagen=person"`
 	Name  string
 	Age   int
 	Email string

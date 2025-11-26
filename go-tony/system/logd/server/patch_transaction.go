@@ -14,7 +14,7 @@ import (
 )
 
 // handlePatchTransaction handles PATCH requests for transaction operations (create/abort).
-func (s *Server) handlePatchTransaction(w http.ResponseWriter, r *http.Request, body *api.RequestBody) {
+func (s *Server) handlePatchTransaction(w http.ResponseWriter, r *http.Request, body *api.Body) {
 	// Check if this is a create (match is null) or abort (match has transactionId)
 	if body.Match == nil || body.Match.Type == ir.NullType {
 		// Create transaction
@@ -40,7 +40,7 @@ func (s *Server) handlePatchTransaction(w http.ResponseWriter, r *http.Request, 
 }
 
 // handleCreateTransaction handles transaction creation.
-func (s *Server) handleCreateTransaction(w http.ResponseWriter, r *http.Request, body *api.RequestBody) {
+func (s *Server) handleCreateTransaction(w http.ResponseWriter, r *http.Request, body *api.Body) {
 	// Extract participantCount from patch
 	if body.Patch == nil {
 		writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidDiff, "patch is required"))
@@ -59,7 +59,7 @@ func (s *Server) handleCreateTransaction(w http.ResponseWriter, r *http.Request,
 	}
 
 	// Get next transaction sequence number
-	txSeq, err := s.storage.NextTxSeq()
+	txSeq, err := s.Config.Storage.NextTxSeq()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to get tx seq: %v", err)))
 		return
@@ -72,7 +72,7 @@ func (s *Server) handleCreateTransaction(w http.ResponseWriter, r *http.Request,
 	state := storage.NewTransactionState(transactionID, participantCount)
 
 	// Write transaction state
-	if err := s.storage.WriteTransactionState(state); err != nil {
+	if err := s.Config.Storage.WriteTransactionState(state); err != nil {
 		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to write transaction state: %v", err)))
 		return
 	}
@@ -104,9 +104,13 @@ func (s *Server) handleCreateTransaction(w http.ResponseWriter, r *http.Request,
 }
 
 // handleAbortTransaction handles transaction abortion.
-func (s *Server) handleAbortTransaction(w http.ResponseWriter, r *http.Request, body *api.RequestBody, transactionID string) {
+func (s *Server) handleAbortTransaction(w http.ResponseWriter, r *http.Request, body *api.Body, transactionID string) {
+	// Acquire waiter and ensure it's released when function exits
+	waiter := s.acquireWaiter(transactionID)
+	defer s.releaseWaiter(transactionID)
+
 	// Read transaction state
-	state, err := s.storage.ReadTransactionState(transactionID)
+	state, err := s.Config.Storage.ReadTransactionState(transactionID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, api.NewError("transaction_not_found", fmt.Sprintf("transaction not found: %v", err)))
 		return
@@ -126,7 +130,7 @@ func (s *Server) handleAbortTransaction(w http.ResponseWriter, r *http.Request, 
 			txSeqStr := strings.TrimSuffix(filename, ".pending")
 			if txSeq, err := strconv.ParseInt(txSeqStr, 10, 64); err == nil {
 				// Delete the pending file
-				if err := s.storage.DeletePending(diff.Path, txSeq); err != nil {
+				if err := s.Config.Storage.DeletePendingDiff(diff.Path, txSeq); err != nil {
 					// Log error but continue with abort
 					// TODO: Add proper logging
 				}
@@ -138,18 +142,16 @@ func (s *Server) handleAbortTransaction(w http.ResponseWriter, r *http.Request, 
 	state.Status = "aborted"
 	participantsDiscarded := state.ParticipantsReceived
 
-	if err := s.storage.WriteTransactionState(state); err != nil {
+	if err := s.Config.Storage.WriteTransactionState(state); err != nil {
 		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to update transaction state: %v", err)))
 		return
 	}
 
 	// Notify any waiting writes that the transaction was aborted
-	waiter := s.getOrCreateWaiter(transactionID)
 	waiter.SetResult(&transactionResult{
 		committed: false,
 		err:       fmt.Errorf("transaction aborted"),
 	})
-	s.removeWaiter(transactionID)
 
 	// Build response with !key(id) structure
 	// Status replace operation using FromMap
@@ -160,7 +162,7 @@ func (s *Server) handleAbortTransaction(w http.ResponseWriter, r *http.Request, 
 	statusReplace.Tag = "!replace"
 
 	transactionNode := ir.FromMap(map[string]*ir.Node{
-		"transactionId":        &ir.Node{Type: ir.StringType, String: transactionID},
+		"transactionId":         &ir.Node{Type: ir.StringType, String: transactionID},
 		"status":                statusReplace,
 		"participantsDiscarded": &ir.Node{Type: ir.NumberType, Int64: intPtr(int64(participantsDiscarded)), Number: fmt.Sprintf("%d", participantsDiscarded), Tag: "!insert"},
 	})
@@ -191,17 +193,13 @@ func extractTransactionID(match *ir.Node) (string, error) {
 		return "", fmt.Errorf("match must be an object with transactionId field")
 	}
 
-	for i, field := range match.Fields {
-		if i >= len(match.Values) {
-			continue
+	// Convert to map for easier field access
+	matchMap := ir.ToMap(match)
+	if txIDNode, ok := matchMap["transactionId"]; ok {
+		if txIDNode.Type != ir.StringType {
+			return "", fmt.Errorf("transactionId must be a string")
 		}
-		if field.String == "transactionId" {
-			value := match.Values[i]
-			if value.Type != ir.StringType {
-				return "", fmt.Errorf("transactionId must be a string")
-			}
-			return value.String, nil
-		}
+		return txIDNode.String, nil
 	}
 
 	return "", fmt.Errorf("transactionId not found in match")

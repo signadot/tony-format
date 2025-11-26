@@ -21,9 +21,9 @@ func ParseFile(filename string) (*ast.File, *token.FileSet, error) {
 	return file, fset, nil
 }
 
-// ExtractStructs extracts all struct type declarations from an AST file.
-// Returns structs with schema= or schemadef= tags.
-func ExtractStructs(file *ast.File, filePath string) ([]*StructInfo, error) {
+// ExtractTypes extracts all type declarations with schema tags from an AST file.
+// Returns types with schema= or schemagen= tags.
+func ExtractTypes(file *ast.File, filePath string) ([]*StructInfo, error) {
 	var structs []*StructInfo
 
 	// Extract imports
@@ -41,39 +41,40 @@ func ExtractStructs(file *ast.File, filePath string) ([]*StructInfo, error) {
 				continue
 			}
 
-			structType, ok := typeSpec.Type.(*ast.StructType)
-			if !ok {
-				continue
-			}
-
 			// Extract struct-level comments
 			comments := ExtractComments(genDecl)
 
-			// Parse struct to get schema tag
-			// We need to use reflection to get the struct schema tag
-			// For now, we'll parse it manually from the AST
-			structSchema, err := extractStructSchemaTag(structType)
-			if err != nil {
-				return nil, fmt.Errorf("failed to extract schema tag from struct %q: %w", typeSpec.Name.Name, err)
-			}
+			var structSchema *gomap.StructSchema
+			var err error
 
-			// If no struct tag, check for doc comment directives
-			if structSchema == nil {
-				structSchema, err = extractSchemaFromComments(comments)
+			// If it's a struct, check for schema tag on anonymous fields
+			if structType, ok := typeSpec.Type.(*ast.StructType); ok {
+				structSchema, err = extractStructSchemaTag(structType)
 				if err != nil {
-					return nil, fmt.Errorf("failed to extract schema from comments for struct %q: %w", typeSpec.Name.Name, err)
+					return nil, fmt.Errorf("failed to extract schema tag from struct %q: %w", typeSpec.Name.Name, err)
 				}
 			}
 
-			// Only include structs with schema= or schemadef= tags (or directives)
+			// If no struct tag (or not a struct), check for doc comment directives
+			if structSchema == nil {
+				structSchema, err = extractSchemaFromComments(comments)
+				if err != nil {
+					return nil, fmt.Errorf("failed to extract schema from comments for type %q: %w", typeSpec.Name.Name, err)
+				}
+			}
+
+			// Only include types with schema= or schemagen= tags (or directives)
 			if structSchema == nil {
 				continue
 			}
 
-			// Extract fields
-			fields, err := extractFields(structType)
-			if err != nil {
-				return nil, fmt.Errorf("failed to extract fields from struct %q: %w", typeSpec.Name.Name, err)
+			// Extract fields (only for structs)
+			var fields []*FieldInfo
+			if structType, ok := typeSpec.Type.(*ast.StructType); ok {
+				fields, err = extractFields(structType)
+				if err != nil {
+					return nil, fmt.Errorf("failed to extract fields from struct %q: %w", typeSpec.Name.Name, err)
+				}
 			}
 
 			structs = append(structs, &StructInfo{
@@ -83,7 +84,7 @@ func ExtractStructs(file *ast.File, filePath string) ([]*StructInfo, error) {
 				Fields:       fields,
 				StructSchema: structSchema,
 				Comments:     comments,
-				ASTNode:      structType,
+				ASTNode:      typeSpec.Type,
 				Imports:      imports,
 			})
 		}
@@ -155,7 +156,7 @@ func ExtractComments(decl ast.Decl) []string {
 }
 
 // extractStructSchemaTag extracts the schema tag from a struct type.
-// Looks for an anonymous field with tony:"schema=..." or tony:"schemadef=..." tag.
+// Looks for an anonymous field with tony:"schema=..." or tony:"schemagen=..." tag.
 func extractStructSchemaTag(structType *ast.StructType) (*gomap.StructSchema, error) {
 	if structType.Fields == nil {
 		return nil, nil
@@ -175,15 +176,15 @@ func extractStructSchemaTag(structType *ast.StructType) (*gomap.StructSchema, er
 				return nil, fmt.Errorf("failed to parse struct tag: %w", err)
 			}
 
-			// Check for schema= or schemadef=
+			// Check for schema= or schemagen=
 			var mode string
 			var schemaName string
 
 			if name, ok := parsed["schema"]; ok {
 				mode = "schema"
 				schemaName = name
-			} else if name, ok := parsed["schemadef"]; ok {
-				mode = "schemadef"
+			} else if name, ok := parsed["schemagen"]; ok {
+				mode = "schemagen"
 				schemaName = name
 			} else {
 				continue
@@ -233,12 +234,67 @@ func extractFields(structType *ast.StructType) ([]*FieldInfo, error) {
 		// Check if this is an embedded field
 		isEmbedded := len(field.Names) == 0
 
-		// For embedded fields, we'll handle them separately
-		// For now, we'll process regular fields
-		if !isEmbedded {
+		if isEmbedded {
+			// Handle embedded field
+			// For embedded fields, the field name is the type name
+			fieldName, err := getEmbeddedFieldName(field.Type)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get embedded field name: %w", err)
+			}
+
+			// Extract field comments
+			comments := ExtractFieldComments(field)
+
+			// Parse field tags (if any)
+			tag := getFieldTag(field, "tony")
+			parsed, err := gomap.ParseStructTag(tag)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse field tag for embedded field %q: %w", fieldName, err)
+			}
+
+			fieldInfo := &FieldInfo{
+				Name:            fieldName,
+				SchemaFieldName: fieldName, // Default to field name
+				ASTType:         field.Type,
+				Comments:        comments,
+				ASTField:        field,
+				IsEmbedded:      true,
+			}
+
+			// Extract field name override (unlikely for embedded fields, but possible)
+			if name, ok := parsed["field"]; ok {
+				fieldInfo.SchemaFieldName = name
+			}
+
+			// Extract omit flag
+			if _, ok := parsed["omit"]; ok || parsed["field"] == "-" {
+				fieldInfo.Omit = true
+			}
+
+			// Skip blank identifier fields (used for schema tags)
+			if fieldInfo.Name == "_" {
+				continue
+			}
+
+			// Skip embedded fields that are schema markers (have schema= or schemagen= tags)
+			// These are used only for struct-level schema configuration, not as actual fields
+			if _, hasSchema := parsed["schema"]; hasSchema {
+				continue
+			}
+			if _, hasSchemagen := parsed["schemagen"]; hasSchemagen {
+				continue
+			}
+
+			fields = append(fields, fieldInfo)
+		} else {
 			for _, name := range field.Names {
 				// Skip unexported fields
 				if !name.IsExported() {
+					continue
+				}
+
+				// Skip blank identifier fields
+				if name.Name == "_" {
 					continue
 				}
 
@@ -285,7 +341,6 @@ func extractFields(structType *ast.StructType) ([]*FieldInfo, error) {
 				fields = append(fields, fieldInfo)
 			}
 		}
-		// TODO: Handle embedded fields (Phase 2)
 	}
 
 	return fields, nil
@@ -398,8 +453,8 @@ func parseSchemaTagContent(content string) (*gomap.StructSchema, error) {
 	if name, ok := parsed["schema"]; ok {
 		mode = "schema"
 		schemaName = name
-	} else if name, ok := parsed["schemadef"]; ok {
-		mode = "schemadef"
+	} else if name, ok := parsed["schemagen"]; ok {
+		mode = "schemagen"
 		schemaName = name
 	} else {
 		return nil, nil
@@ -432,4 +487,18 @@ func ResolveType(expr ast.Expr, pkg *ast.Package) (reflect.Type, error) {
 	// TODO: Implement type resolution from AST to reflect.Type
 	// This will be needed for code generation but can be deferred to later phases
 	return nil, fmt.Errorf("type resolution from AST not yet implemented")
+}
+
+// getEmbeddedFieldName extracts the field name from an embedded field type.
+func getEmbeddedFieldName(expr ast.Expr) (string, error) {
+	switch x := expr.(type) {
+	case *ast.Ident:
+		return x.Name, nil
+	case *ast.SelectorExpr:
+		return x.Sel.Name, nil
+	case *ast.StarExpr:
+		return getEmbeddedFieldName(x.X)
+	default:
+		return "", fmt.Errorf("unsupported embedded field type: %T", expr)
+	}
 }

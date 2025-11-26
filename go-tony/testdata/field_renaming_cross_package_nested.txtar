@@ -17,7 +17,7 @@ type schemaTag struct{}
 
 // User schema definition
 type User struct {
-	schemaTag `tony:"schemadef=user"`
+	schemaTag `tony:"schemagen=user"`
 	UserID        int64
 	Username      string
 	FirstName     string

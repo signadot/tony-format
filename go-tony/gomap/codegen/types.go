@@ -22,17 +22,26 @@ type StructInfo struct {
 	// Fields contains information about each struct field
 	Fields []*FieldInfo
 
-	// StructSchema holds schema tag information (schema= or schemadef=)
+	// StructSchema holds schema tag information (schema= or schemagen=)
 	StructSchema *gomap.StructSchema
 
 	// Comments contains struct-level comments (above the type declaration)
 	Comments []string
 
 	// ASTNode is the original AST node for this struct (for reference)
-	ASTNode *ast.StructType
+	ASTNode ast.Expr
 
 	// Imports maps package names to import paths for the file containing this struct
 	Imports map[string]string
+
+	// Type is the Go type of the struct/type (resolved during type resolution)
+	Type reflect.Type
+
+	// ImplementsTextMarshaler indicates if the type implements encoding.TextMarshaler
+	ImplementsTextMarshaler bool
+
+	// ImplementsTextUnmarshaler indicates if the type implements encoding.TextUnmarshaler
+	ImplementsTextUnmarshaler bool
 }
 
 // FieldInfo holds field information extracted from struct definition
@@ -79,6 +88,12 @@ type FieldInfo struct {
 	// TypeName stores the type name for named types from other packages
 	// (e.g., "Format" for format.Format)
 	TypeName string
+
+	// ImplementsTextMarshaler indicates if the field type implements encoding.TextMarshaler
+	ImplementsTextMarshaler bool
+
+	// ImplementsTextUnmarshaler indicates if the field type implements encoding.TextUnmarshaler
+	ImplementsTextUnmarshaler bool
 }
 
 // SchemaInfo holds schema metadata for code generation
