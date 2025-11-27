@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/signadot/tony-format/go-tony/encode"
+	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 )
 
@@ -35,7 +35,7 @@ func (s *Storage) AppendTransactionLog(entry *TransactionLogEntry) error {
 	logFile := filepath.Join(s.Root, "meta", "transactions.log")
 
 	// Encode to Tony format with wire encoding
-	d, err := entry.ToTony(encode.EncodeWire(true))
+	d, err := entry.ToTony(gomap.EncodeWire(true))
 	if err != nil {
 		return err
 	}

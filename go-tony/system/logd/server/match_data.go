@@ -39,6 +39,7 @@ func (s *Server) handleMatchData(w http.ResponseWriter, r *http.Request, req *ap
 		}
 		state = filteredState
 	}
+	resp.Body.Path = req.Body.Path
 	resp.Body.Patch = state
 	resp.Body.Match = ir.Null()
 

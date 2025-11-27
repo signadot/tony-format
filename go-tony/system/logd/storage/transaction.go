@@ -4,19 +4,21 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
 // TransactionState represents the state of a transaction.
 //
 //tony:schemagen=transaction-state
 type TransactionState struct {
-	TransactionID        string
-	ParticipantCount     int
-	ParticipantsReceived int
-	Status               string // "pending", "committed", "aborted"
-	CreatedAt            string // RFC3339 timestamp
-	ExpiresAt            string
-	Diffs                []PendingDiff
+	TransactionID       string
+	ParticipantCount    int
+	ParticipantRequests []*api.Patch
+	Status              string // "pending", "committed", "aborted"
+	CreatedAt           string // RFC3339 timestamp
+	ExpiresAt           string
+	Diffs               []PendingDiff
 }
 
 // PendingDiff represents a pending diff in a transaction.
@@ -95,11 +97,10 @@ func (s *Storage) DeleteTransactionState(transactionID string) error {
 // NewTransactionState creates a new TransactionState with the given transaction ID and participant count.
 func NewTransactionState(transactionID string, participantCount int) *TransactionState {
 	return &TransactionState{
-		TransactionID:        transactionID,
-		ParticipantCount:     participantCount,
-		ParticipantsReceived: 0,
-		Status:               "pending",
-		CreatedAt:            time.Now().UTC().Format(time.RFC3339),
-		Diffs:                []PendingDiff{},
+		TransactionID:    transactionID,
+		ParticipantCount: participantCount,
+		Status:           "pending",
+		CreatedAt:        time.Now().UTC().Format(time.RFC3339),
+		Diffs:            []PendingDiff{},
 	}
 }

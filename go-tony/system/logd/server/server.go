@@ -131,32 +131,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // handleMatch handles MATCH requests (reads).
 func (s *Server) handleMatch(w http.ResponseWriter, r *http.Request, req *api.Match) {
-	// Route based on path
-	if req.Body.Path == "/api/transactions" {
-		//s.handleMatchTransaction(w, r, body)
-		return
-	}
 	s.handleMatchData(w, r, req)
 }
 
 // handlePatch handles PATCH requests (writes).
 func (s *Server) handlePatch(w http.ResponseWriter, r *http.Request, req *api.Patch) {
-	// Route based on path
-	if req.Body.Path == "/api/transactions" {
-		//s.handlePatchTransaction(w, r, body)
-		return
-	}
 	s.handlePatchData(w, r, req)
 }
 
 // handleWatch handles WATCH requests (streaming).
 func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request, body *api.Body) {
-	// Route based on path
-	if body.Path == "/api/transactions" {
-		s.handleWatchTransaction(w, r, body)
-		return
-	}
-
 	// Validate data path
 	if err := validateDataPath(body.Path); err != nil {
 		writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidPath, err.Error()))
@@ -180,11 +164,4 @@ func writeError(w http.ResponseWriter, statusCode int, err *api.Error) {
 	})
 
 	encode.Encode(errorNode, w)
-}
-
-// Stub handlers - to be implemented
-
-func (s *Server) handleWatchTransaction(w http.ResponseWriter, r *http.Request, body *api.Body) {
-	// TODO: Implement
-	writeError(w, http.StatusNotImplemented, api.NewError("not_implemented", "WATCH /api/transactions not yet implemented"))
 }

@@ -28,11 +28,13 @@ signature:
 ---
 context:
 - tony-format/context
+- api: github.com/signadot/tony-format/go-tony/system/logd/api
 define:
   CreatedAt: .[string]
   Diffs: .[array(pending-diff)]
+  ExpiresAt: .[string]
   ParticipantCount: .[int]
-  ParticipantsReceived: .[int]
+  ParticipantRequests: .[array(api:patch)]
   Status: .[string]
   TransactionID: .[string]
 signature:

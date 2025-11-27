@@ -6,12 +6,22 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/signadot/tony-format/go-tony/encode"
+	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
+	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
 // ToTonyIR converts TransactionLogEntry to a Tony IR node.
-func (s *TransactionLogEntry) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error) {
+func (s *TransactionLogEntry) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
+	var node *ir.Node
+	var err error
+	_ = node // suppress unused variable error
+	_ = err  // suppress unused variable error
+
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
@@ -28,7 +38,7 @@ func (s *TransactionLogEntry) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, e
 	if len(s.PendingFiles) > 0 {
 		slice := make([]*ir.Node, len(s.PendingFiles))
 		for i, v := range s.PendingFiles {
-			node, err := v.ToTonyIR(opts...)
+			node, err = v.ToTonyIR(opts...)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert slice element %d: %w", i, err)
 			}
@@ -42,10 +52,25 @@ func (s *TransactionLogEntry) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, e
 }
 
 // FromTonyIR populates TransactionLogEntry from a Tony IR node.
-func (s *TransactionLogEntry) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error {
-	// Validate IR node type
+func (s *TransactionLogEntry) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
 	if node.Type != ir.ObjectType {
-		return fmt.Errorf("expected object type, got %v", node.Type)
+		return fmt.Errorf("expected map for TransactionLogEntry, got %v", node.Type)
 	}
 
 	for i, fieldName := range node.Fields {
@@ -76,7 +101,7 @@ func (s *TransactionLogEntry) FromTonyIR(node *ir.Node, opts ...parse.ParseOptio
 				for i, v := range fieldNode.Values {
 					elem := PendingFileRef{}
 					if err := elem.FromTonyIR(v, opts...); err != nil {
-						return fmt.Errorf("slice element %d: %w", i, err)
+						return fmt.Errorf("failed to convert slice element %d: %w", i, err)
 					}
 					slice[i] = elem
 				}
@@ -89,21 +114,21 @@ func (s *TransactionLogEntry) FromTonyIR(node *ir.Node, opts ...parse.ParseOptio
 }
 
 // ToTony converts TransactionLogEntry to Tony format bytes.
-func (s *TransactionLogEntry) ToTony(opts ...encode.EncodeOption) ([]byte, error) {
+func (s *TransactionLogEntry) ToTony(opts ...gomap.MapOption) ([]byte, error) {
 	node, err := s.ToTonyIR(opts...)
 	if err != nil {
 		return nil, err
 	}
 	var buf bytes.Buffer
-	if err := encode.Encode(node, &buf, opts...); err != nil {
+	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
 }
 
 // FromTony parses Tony format bytes and populates TransactionLogEntry.
-func (s *TransactionLogEntry) FromTony(data []byte, opts ...parse.ParseOption) error {
-	node, err := parse.Parse(data, opts...)
+func (s *TransactionLogEntry) FromTony(data []byte, opts ...gomap.UnmapOption) error {
+	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
 	if err != nil {
 		return err
 	}
@@ -111,7 +136,10 @@ func (s *TransactionLogEntry) FromTony(data []byte, opts ...parse.ParseOption) e
 }
 
 // ToTonyIR converts PendingFileRef to a Tony IR node.
-func (s *PendingFileRef) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error) {
+func (s *PendingFileRef) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
@@ -126,10 +154,25 @@ func (s *PendingFileRef) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error)
 }
 
 // FromTonyIR populates PendingFileRef from a Tony IR node.
-func (s *PendingFileRef) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error {
-	// Validate IR node type
+func (s *PendingFileRef) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
 	if node.Type != ir.ObjectType {
-		return fmt.Errorf("expected object type, got %v", node.Type)
+		return fmt.Errorf("expected map for PendingFileRef, got %v", node.Type)
 	}
 
 	for i, fieldName := range node.Fields {
@@ -154,21 +197,21 @@ func (s *PendingFileRef) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) er
 }
 
 // ToTony converts PendingFileRef to Tony format bytes.
-func (s *PendingFileRef) ToTony(opts ...encode.EncodeOption) ([]byte, error) {
+func (s *PendingFileRef) ToTony(opts ...gomap.MapOption) ([]byte, error) {
 	node, err := s.ToTonyIR(opts...)
 	if err != nil {
 		return nil, err
 	}
 	var buf bytes.Buffer
-	if err := encode.Encode(node, &buf, opts...); err != nil {
+	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
 }
 
 // FromTony parses Tony format bytes and populates PendingFileRef.
-func (s *PendingFileRef) FromTony(data []byte, opts ...parse.ParseOption) error {
-	node, err := parse.Parse(data, opts...)
+func (s *PendingFileRef) FromTony(data []byte, opts ...gomap.UnmapOption) error {
+	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
 	if err != nil {
 		return err
 	}
@@ -176,7 +219,15 @@ func (s *PendingFileRef) FromTony(data []byte, opts ...parse.ParseOption) error 
 }
 
 // ToTonyIR converts TransactionState to a Tony IR node.
-func (s *TransactionState) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error) {
+func (s *TransactionState) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
+	var node *ir.Node
+	var err error
+	_ = node // suppress unused variable error
+	_ = err  // suppress unused variable error
+
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
@@ -186,8 +237,18 @@ func (s *TransactionState) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, erro
 	// Field: ParticipantCount
 	irMap["ParticipantCount"] = ir.FromInt(int64(s.ParticipantCount))
 
-	// Field: ParticipantsReceived
-	irMap["ParticipantsReceived"] = ir.FromInt(int64(s.ParticipantsReceived))
+	// Field: ParticipantRequests
+	if len(s.ParticipantRequests) > 0 {
+		slice := make([]*ir.Node, len(s.ParticipantRequests))
+		for i, v := range s.ParticipantRequests {
+			node, err = v.ToTonyIR(opts...)
+			if err != nil {
+				return nil, fmt.Errorf("failed to convert slice element %d: %w", i, err)
+			}
+			slice[i] = node
+		}
+		irMap["ParticipantRequests"] = ir.FromSlice(slice)
+	}
 
 	// Field: Status
 	irMap["Status"] = ir.FromString(s.Status)
@@ -195,11 +256,14 @@ func (s *TransactionState) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, erro
 	// Field: CreatedAt
 	irMap["CreatedAt"] = ir.FromString(s.CreatedAt)
 
+	// Field: ExpiresAt
+	irMap["ExpiresAt"] = ir.FromString(s.ExpiresAt)
+
 	// Field: Diffs
 	if len(s.Diffs) > 0 {
 		slice := make([]*ir.Node, len(s.Diffs))
 		for i, v := range s.Diffs {
-			node, err := v.ToTonyIR(opts...)
+			node, err = v.ToTonyIR(opts...)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert slice element %d: %w", i, err)
 			}
@@ -213,10 +277,25 @@ func (s *TransactionState) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, erro
 }
 
 // FromTonyIR populates TransactionState from a Tony IR node.
-func (s *TransactionState) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error {
-	// Validate IR node type
+func (s *TransactionState) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
 	if node.Type != ir.ObjectType {
-		return fmt.Errorf("expected object type, got %v", node.Type)
+		return fmt.Errorf("expected map for TransactionState, got %v", node.Type)
 	}
 
 	for i, fieldName := range node.Fields {
@@ -234,12 +313,19 @@ func (s *TransactionState) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) 
 				return fmt.Errorf("field %q: expected number, got %v", "ParticipantCount", fieldNode.Type)
 			}
 			s.ParticipantCount = int(*fieldNode.Int64)
-		case "ParticipantsReceived":
-			// Field: ParticipantsReceived
-			if fieldNode.Int64 == nil {
-				return fmt.Errorf("field %q: expected number, got %v", "ParticipantsReceived", fieldNode.Type)
+		case "ParticipantRequests":
+			// Field: ParticipantRequests
+			if fieldNode.Type == ir.ArrayType {
+				slice := make([]*api.Patch, len(fieldNode.Values))
+				for i, v := range fieldNode.Values {
+					elem := new(api.Patch)
+					if err := elem.FromTonyIR(v, opts...); err != nil {
+						return fmt.Errorf("failed to convert slice element %d: %w", i, err)
+					}
+					slice[i] = elem
+				}
+				s.ParticipantRequests = slice
 			}
-			s.ParticipantsReceived = int(*fieldNode.Int64)
 		case "Status":
 			// Field: Status
 			if fieldNode.Type != ir.StringType {
@@ -252,6 +338,12 @@ func (s *TransactionState) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) 
 				return fmt.Errorf("field %q: expected string, got %v", "CreatedAt", fieldNode.Type)
 			}
 			s.CreatedAt = fieldNode.String
+		case "ExpiresAt":
+			// Field: ExpiresAt
+			if fieldNode.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "ExpiresAt", fieldNode.Type)
+			}
+			s.ExpiresAt = fieldNode.String
 		case "Diffs":
 			// Field: Diffs
 			if fieldNode.Type == ir.ArrayType {
@@ -259,7 +351,7 @@ func (s *TransactionState) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) 
 				for i, v := range fieldNode.Values {
 					elem := PendingDiff{}
 					if err := elem.FromTonyIR(v, opts...); err != nil {
-						return fmt.Errorf("slice element %d: %w", i, err)
+						return fmt.Errorf("failed to convert slice element %d: %w", i, err)
 					}
 					slice[i] = elem
 				}
@@ -272,21 +364,21 @@ func (s *TransactionState) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) 
 }
 
 // ToTony converts TransactionState to Tony format bytes.
-func (s *TransactionState) ToTony(opts ...encode.EncodeOption) ([]byte, error) {
+func (s *TransactionState) ToTony(opts ...gomap.MapOption) ([]byte, error) {
 	node, err := s.ToTonyIR(opts...)
 	if err != nil {
 		return nil, err
 	}
 	var buf bytes.Buffer
-	if err := encode.Encode(node, &buf, opts...); err != nil {
+	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
 }
 
 // FromTony parses Tony format bytes and populates TransactionState.
-func (s *TransactionState) FromTony(data []byte, opts ...parse.ParseOption) error {
-	node, err := parse.Parse(data, opts...)
+func (s *TransactionState) FromTony(data []byte, opts ...gomap.UnmapOption) error {
+	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
 	if err != nil {
 		return err
 	}
@@ -294,7 +386,10 @@ func (s *TransactionState) FromTony(data []byte, opts ...parse.ParseOption) erro
 }
 
 // ToTonyIR converts PendingDiff to a Tony IR node.
-func (s *PendingDiff) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error) {
+func (s *PendingDiff) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
@@ -312,10 +407,25 @@ func (s *PendingDiff) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error) {
 }
 
 // FromTonyIR populates PendingDiff from a Tony IR node.
-func (s *PendingDiff) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error {
-	// Validate IR node type
+func (s *PendingDiff) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
 	if node.Type != ir.ObjectType {
-		return fmt.Errorf("expected object type, got %v", node.Type)
+		return fmt.Errorf("expected map for PendingDiff, got %v", node.Type)
 	}
 
 	for i, fieldName := range node.Fields {
@@ -346,21 +456,21 @@ func (s *PendingDiff) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error
 }
 
 // ToTony converts PendingDiff to Tony format bytes.
-func (s *PendingDiff) ToTony(opts ...encode.EncodeOption) ([]byte, error) {
+func (s *PendingDiff) ToTony(opts ...gomap.MapOption) ([]byte, error) {
 	node, err := s.ToTonyIR(opts...)
 	if err != nil {
 		return nil, err
 	}
 	var buf bytes.Buffer
-	if err := encode.Encode(node, &buf, opts...); err != nil {
+	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
 }
 
 // FromTony parses Tony format bytes and populates PendingDiff.
-func (s *PendingDiff) FromTony(data []byte, opts ...parse.ParseOption) error {
-	node, err := parse.Parse(data, opts...)
+func (s *PendingDiff) FromTony(data []byte, opts ...gomap.UnmapOption) error {
+	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
 	if err != nil {
 		return err
 	}
