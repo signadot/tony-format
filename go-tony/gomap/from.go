@@ -111,6 +111,17 @@ func fromIRReflectWithVisited(node *ir.Node, val reflect.Value, fieldPath string
 			Message:   "IR node is nil",
 		}
 	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			// Empty comment node, treat as nil
+			return nil
+		}
+	}
+
 	typ := val.Type()
 	kind := typ.Kind()
 

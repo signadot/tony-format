@@ -573,6 +573,16 @@ func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema) (string, er
 	buf.WriteString("		return nil\n")
 	buf.WriteString("	}\n\n")
 
+	// Unwrap CommentType nodes
+	buf.WriteString("	// Unwrap CommentType nodes to get the actual data node\n")
+	buf.WriteString("	if node.Type == ir.CommentType {\n")
+	buf.WriteString("		if len(node.Values) > 0 {\n")
+	buf.WriteString("			node = node.Values[0]\n")
+	buf.WriteString("		} else {\n")
+	buf.WriteString("			return nil\n")
+	buf.WriteString("		}\n")
+	buf.WriteString("	}\n\n")
+
 	// Check for TextUnmarshaler implementation on the type itself
 	if s.ImplementsTextUnmarshaler {
 		buf.WriteString("	// Use TextUnmarshaler implementation\n")
