@@ -5,8 +5,6 @@ import (
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // CustomTime implements TextMarshaler and TextUnmarshaler
@@ -41,8 +39,12 @@ func TestMarshalText(t *testing.T) {
 
 	// Test ToTonyIR
 	node, err := ToTonyIR(s)
-	require.NoError(t, err)
-	require.NotNil(t, node)
+	if err != nil {
+		t.Fatalf("ToTonyIR() error = %v", err)
+	}
+	if node == nil {
+		t.Fatal("ToTonyIR() returned nil node")
+	}
 
 	// Check if CreatedAt is marshaled as string
 	t.Logf("Node: %v", node)
@@ -53,10 +55,17 @@ func TestMarshalText(t *testing.T) {
 		}
 	}
 	createdAtNode := ir.Get(node, "created_at")
-	require.NotNil(t, createdAtNode)
+	if createdAtNode == nil {
+		t.Fatal("createdAtNode is nil")
+	}
 
-	assert.Equal(t, ir.StringType, createdAtNode.Type, "Expected StringType for TextMarshaler")
-	assert.Equal(t, now.Format(time.RFC3339), createdAtNode.String)
+	if createdAtNode.Type != ir.StringType {
+		t.Errorf("Expected StringType for TextMarshaler, got %v", createdAtNode.Type)
+	}
+	expectedStr := now.Format(time.RFC3339)
+	if createdAtNode.String != expectedStr {
+		t.Errorf("Expected %q, got %q", expectedStr, createdAtNode.String)
+	}
 }
 
 func TestUnmarshalText(t *testing.T) {
@@ -71,8 +80,14 @@ func TestUnmarshalText(t *testing.T) {
 	var s StructWithTextMarshaler
 	// Test FromTonyIR
 	err := FromTonyIR(node, &s)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatalf("FromTonyIR() error = %v", err)
+	}
 
-	assert.Equal(t, "test", s.Name)
-	assert.Equal(t, now, s.CreatedAt.Time)
+	if s.Name != "test" {
+		t.Errorf("Expected Name = %q, got %q", "test", s.Name)
+	}
+	if !s.CreatedAt.Time.Equal(now) {
+		t.Errorf("Expected CreatedAt = %v, got %v", now, s.CreatedAt.Time)
+	}
 }

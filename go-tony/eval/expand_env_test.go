@@ -57,12 +57,12 @@ func TestEnv(t *testing.T) {
 			out: " $abc",
 		},
 	}
-	f := map[string]*ir.Node{
+	f := EnvToMapAny(map[string]*ir.Node{
 		"x":     ir.FromString("X"),
 		"stuff": ir.FromString("STUFF"),
 		"here":  ir.FromString("HERE"),
 		"true":  ir.FromBool(false),
-	}
+	})
 	for i := range tests {
 		tc := &tests[i]
 		got, err := ExpandString(tc.in, f)

@@ -2,7 +2,7 @@ package eval
 
 import "github.com/signadot/tony-format/go-tony/ir"
 
-type Env map[string]*ir.Node
+type Env map[string]any
 
 type Op interface {
 	Eval(doc *ir.Node, env Env, f EvalFunc) (*ir.Node, error)

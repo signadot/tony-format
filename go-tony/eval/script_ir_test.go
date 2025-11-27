@@ -396,7 +396,7 @@ func TestFromJSONAnyMaps(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := FromJSONAny(tt.input)
+			result, err := FromAny(tt.input)
 			if err != nil {
 				t.Fatalf("FromJSONAny failed: %v", err)
 			}

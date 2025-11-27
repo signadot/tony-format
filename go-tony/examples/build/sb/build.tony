@@ -29,6 +29,9 @@ build:
       workload: loc
       toLocal: localhost:9999
 
+    labels:
+      a: b
+
 
   patches:
   - file: patches/name.tony

@@ -3,10 +3,10 @@ context:
 - tony-format/context
 - tony-base: github.com/signadot/tony-format/go-tony/schema
 define:
-  File: .[string]
-  If: .[string]
-  Match: .[tony-base:ir]
-  Patch: .[tony-base:ir]
+  file: .[string]
+  if: .[string]
+  match: .[tony-base:ir]
+  patch: .[tony-base:ir]
 signature:
   name: dirpatch
 ---
@@ -14,10 +14,10 @@ context:
 - tony-format/context
 - format: github.com/signadot/tony-format/go-tony/format
 define:
-  Dir: .[nullable(string)]
-  Exec: .[nullable(string)]
-  Format: .[nullable(format:format)]
-  URL: .[nullable(string)]
+  dir: .[nullable(string)]
+  exec: .[nullable(string)]
+  format: .[nullable(format:format)]
+  url: .[nullable(string)]
 signature:
   name: dirsource
 ---
@@ -25,10 +25,10 @@ context:
 - tony-format/context
 - tony-base: github.com/signadot/tony-format/go-tony/schema
 define:
-  DestDir: .[string]
-  Env: .[object(tony-base:ir)]
-  Patches: .[array(dirpatch)]
-  Sources: .[array(dirsource)]
-  Suffix: .[string]
+  destDir: .[string]
+  env: .[object(tony-base:ir)]
+  patches: .[array(dirpatch)]
+  sources: .[array(dirsource)]
+  suffix: .[string]
 signature:
   name: dir

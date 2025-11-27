@@ -36,7 +36,7 @@ func (d *Dir) Profiles() ([]string, error) {
 	return res, nil
 }
 
-func (d *Dir) LoadProfile(profile string, env map[string]*ir.Node) error {
+func (d *Dir) LoadProfile(profile string, env map[string]any) error {
 	if debug.LoadEnv() {
 		debug.Logf("LoadProfile with env\n%s", debug.JSON(env))
 	}
@@ -45,11 +45,11 @@ func (d *Dir) LoadProfile(profile string, env map[string]*ir.Node) error {
 	if err != nil {
 		return err
 	}
-	yProfile, err := parse.Parse(dd)
+	profIR, err := parse.Parse(dd)
 	if err != nil {
 		return err
 	}
-	patch := ir.Get(yProfile, "env")
+	patch := ir.Get(profIR, "env")
 	if patch == nil {
 		return fmt.Errorf("no env in profile at %s", profilePath)
 	}
@@ -60,15 +60,19 @@ func (d *Dir) LoadProfile(profile string, env map[string]*ir.Node) error {
 		return err
 	}
 
-	yEnv, err := eval.FromJSONAny(d.Env)
+	irEnv, err := eval.FromAny(d.Env)
 	if err != nil {
 		return err
 	}
-	yRes, err := tony.Patch(yEnv, runPatch)
+	resIR, err := tony.Patch(irEnv, runPatch)
 	if err != nil {
 		return err
 	}
-	merged, err := tony.Patch(yRes, ir.FromMap(env))
+	envIR, err := eval.MapAnyToIR(env)
+	if err != nil {
+		return err
+	}
+	merged, err := tony.Patch(resIR, envIR)
 	if err != nil {
 		return err
 	}

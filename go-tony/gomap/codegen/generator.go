@@ -197,6 +197,9 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema) (string, erro
 	// Method signature
 	buf.WriteString(fmt.Sprintf("// ToTonyIR converts %s to a Tony IR node.\n", s.Name))
 	buf.WriteString(fmt.Sprintf("func (s *%s) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {\n", s.Name))
+	buf.WriteString("	if s == nil {\n")
+	buf.WriteString("		return ir.Null(), nil\n")
+	buf.WriteString("	}\n")
 
 	// Check for TextMarshaler implementation on the type itself
 	if s.ImplementsTextMarshaler {
@@ -324,7 +327,11 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 
 	// Special handling for *ir.Node
 	if isIRNodePtr(field.Type) {
-		buf.WriteString(fmt.Sprintf("		irMap[%q] = s.%s\n", schemaFieldName, field.Name))
+		buf.WriteString(fmt.Sprintf("		if s.%s == nil {\n", field.Name))
+		buf.WriteString(fmt.Sprintf("			irMap[%q] = ir.Null()\n", schemaFieldName))
+		buf.WriteString("		} else {\n")
+		buf.WriteString(fmt.Sprintf("			irMap[%q] = s.%s\n", schemaFieldName, field.Name))
+		buf.WriteString("		}\n")
 		return buf.String(), nil
 	}
 
@@ -617,6 +624,9 @@ func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema) (string, er
 		return buf.String(), nil
 	}
 
+	buf.WriteString("	if node.Type == ir.NullType {\n")
+	buf.WriteString("		return nil\n")
+	buf.WriteString("	}\n")
 	buf.WriteString("	if node.Type != ir.ObjectType {\n")
 	buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"expected map for %s, got %%v\", node.Type)\n", s.Name))
 	buf.WriteString("	}\n\n")

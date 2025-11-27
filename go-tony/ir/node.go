@@ -5,6 +5,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"strings"
 )
 
 type Node struct {
@@ -269,6 +270,32 @@ func Get(y *Node, field string) *Node {
 
 func Null() *Node {
 	return &Node{Type: NullType}
+}
+
+func Comment(n *Node, c string) *Node {
+	if n.Type == CommentType {
+		n.Lines = append(n.Lines, c)
+	}
+	p := n.Parent
+	i := n.ParentIndex
+	f := n.ParentField
+	cIR := &Node{
+		Type:        CommentType,
+		Parent:      p,
+		ParentIndex: i,
+		ParentField: f,
+		Values:      []*Node{n},
+		Lines:       strings.Split(c, "\n"),
+	}
+	n.Parent = cIR
+	n.ParentField = ""
+	n.ParentIndex = 0
+	for i, ln := range cIR.Lines {
+		if !strings.HasPrefix(ln, "#") {
+			cIR.Lines[i] = "# " + ln
+		}
+	}
+	return cIR
 }
 
 func (y *Node) Visit(f func(y *Node, isPost bool) (bool, error)) error {

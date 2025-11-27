@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	EnvEnv = "YTOOL_ENV"
+	EnvEnv = "TONY_DIRBUILD_ENV"
 )
 
 func LoadEnv() (map[string]any, error) {
@@ -18,11 +18,11 @@ func LoadEnv() (map[string]any, error) {
 	if envEnv == "" {
 		return nil, nil
 	}
-	yEnv, err := parse.Parse([]byte(envEnv))
+	node, err := parse.Parse([]byte(envEnv))
 	if err != nil {
 		return nil, fmt.Errorf("error decoding env $%s: %w", EnvEnv, err)
 	}
-	envAny := eval.ToJSONAny(yEnv)
+	envAny := eval.ToAny(node)
 	theEnvEnv, ok := envAny.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("error decoding env $%s: wrong type %T", EnvEnv, envAny)

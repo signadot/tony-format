@@ -10,6 +10,7 @@ import (
 	"github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/debug"
 	"github.com/signadot/tony-format/go-tony/encode"
+	"github.com/signadot/tony-format/go-tony/eval"
 	"github.com/signadot/tony-format/go-tony/ir"
 )
 
@@ -67,7 +68,7 @@ func (d *Dir) Run(w io.WriteCloser, opts ...encode.EncodeOption) ([]*ir.Node, er
 
 func (d *Dir) runTool(dst []*ir.Node) error {
 	tool := &tony.Tool{
-		Env: d.Env,
+		Env: eval.EnvToMapAny(d.Env),
 	}
 	defer clear(d.nameCache)
 	for i, doc := range dst {

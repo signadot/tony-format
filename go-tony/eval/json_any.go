@@ -9,10 +9,10 @@ import (
 )
 
 func MarshalJSON(node *ir.Node) ([]byte, error) {
-	return json.Marshal(ToJSONAny(node))
+	return json.Marshal(ToAny(node))
 }
 
-func FromJSONAny(v any) (*ir.Node, error) {
+func FromAny(v any) (*ir.Node, error) {
 	// If it's already an IR node, return it directly (preserves tags/comments)
 	if node, ok := v.(*ir.Node); ok {
 		return node.Clone(), nil
@@ -40,8 +40,7 @@ func FromJSONAny(v any) (*ir.Node, error) {
 	return parse.Parse(d, parse.NoBrackets())
 }
 
-func ToJSONAny(node *ir.Node) any {
-	// TODO tags
+func ToAny(node *ir.Node) any {
 	switch node.Type {
 	case ir.ObjectType:
 		n := len(node.Fields)
@@ -51,13 +50,13 @@ func ToJSONAny(node *ir.Node) any {
 			if field.Type == ir.NullType {
 				continue
 			}
-			res[field.String] = ToJSONAny(node.Values[i])
+			res[field.String] = ToAny(node.Values[i])
 		}
 		return res
 	case ir.ArrayType:
 		res := make([]any, len(node.Values))
 		for i, elt := range node.Values {
-			res[i] = ToJSONAny(elt)
+			res[i] = ToAny(elt)
 		}
 		return res
 	case ir.StringType:
@@ -75,8 +74,28 @@ func ToJSONAny(node *ir.Node) any {
 	case ir.NullType:
 		return nil
 	case ir.CommentType:
-		return ToJSONAny(node.Values[0])
+		return ToAny(node.Values[0])
 	default:
 		panic("impossible production")
 	}
+}
+
+func EnvToMapAny(env map[string]*ir.Node) map[string]any {
+	res := make(map[string]any, len(env))
+	for k, v := range env {
+		res[k] = ToAny(v)
+	}
+	return res
+}
+
+func MapAnyToIR(ma map[string]any) (*ir.Node, error) {
+	m := make(map[string]*ir.Node, len(ma))
+	for k, v := range ma {
+		node, err := FromAny(v)
+		if err != nil {
+			return nil, err
+		}
+		m[k] = node
+	}
+	return ir.FromMap(m), nil
 }

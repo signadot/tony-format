@@ -106,7 +106,7 @@ func (p scriptOp) Eval(doc *ir.Node, env Env, ef EvalFunc) (*ir.Node, error) {
 			return nil, fmt.Errorf("script(string) but returned type %T", res)
 		}
 	case scriptAsJSONAny:
-		return FromJSONAny(res)
+		return FromAny(res)
 	}
 	return doc, nil
 }

@@ -22,12 +22,12 @@ type schema struct{}
 
 type Dir struct {
 	schema  `tony:"schemagen=dir"`
-	Root    string              `json:"-" tony:"omit"`
-	Suffix  string              `json:"suffix,omitempty"`
-	DestDir string              `json:"destDir,omitempty"`
-	Sources []DirSource         `json:"sources"`
-	Patches []DirPatch          `json:"patches,omitempty"`
-	Env     map[string]*ir.Node `json:"env,omitempty"`
+	Root    string              `tony:"omit"`
+	Suffix  string              `tony:"field=suffix"`
+	DestDir string              `tony:"field=destDir"`
+	Sources []DirSource         `tony:"field=sources"`
+	Patches []DirPatch          `tony:"field=patches"`
+	Env     map[string]*ir.Node `tony:"field=env"`
 
 	nameCache map[string]int
 }
@@ -61,11 +61,11 @@ func OpenDir(path string, env map[string]*ir.Node) (*Dir, error) {
 	if !found {
 		return nil, fmt.Errorf("could not find build.{tony,yaml,json} in %q", path)
 	}
-	y, err := parse.Parse(d)
+	node, err := parse.Parse(d, parse.ParseComments(true))
 	if err != nil {
 		return nil, fmt.Errorf("could not decode %s: %w", tyPath, err)
 	}
-	return newDir(y, path, env)
+	return newDir(node, path, env)
 }
 
 func newDir(node *ir.Node, path string, env map[string]*ir.Node) (*Dir, error) {
@@ -78,13 +78,19 @@ func newDir(node *ir.Node, path string, env map[string]*ir.Node) (*Dir, error) {
 }
 
 func initDir(dir *Dir, node *ir.Node, path string, env map[string]*ir.Node) (*Dir, error) {
+	if node.Type == ir.CommentType {
+		node = node.Values[0]
+	}
 	oDir := &ir.Node{}
 	if len(node.Fields) != 0 {
 		if node.Fields[0].String == "build" {
 			oDir = node.Values[0]
 		}
 	}
-	if err := gomap.FromTonyIR(oDir, dir); err != nil {
+	if oDir.Type == ir.CommentType {
+		oDir = oDir.Values[0]
+	}
+	if err := dir.FromTonyIR(oDir); err != nil {
 		return nil, err
 	}
 	if dir.Suffix == "" {
@@ -114,39 +120,59 @@ func initDir(dir *Dir, node *ir.Node, path string, env map[string]*ir.Node) (*Di
 			debug.Logf("loaded env %s\n", debug.Tony{ir.FromMap(dir.Env)})
 		}
 	}
-	if err := dir.filterPatches(); err != nil {
+
+	evalEnv := eval.EnvToMapAny(dir.Env)
+	ps, err := dir.loadPatches(dir.Patches, evalEnv)
+	if err != nil {
 		return nil, err
 	}
+	dir.Patches = ps
 	dir.nameCache = map[string]int{}
 	return dir, nil
 }
 
-func (dir *Dir) filterPatches() error {
-	j := 0
-	for i := range dir.Patches {
-		dp := &dir.Patches[i]
-		if dp.If == "" {
-			dir.Patches[j] = *dp
-			j++
-			continue
-		}
-		m, err := eval.ExpandIR(ir.FromString(dp.If), toEvalEnv(dir.Env))
+func (dir *Dir) loadPatches(ps []DirPatch, ee map[string]any) ([]DirPatch, error) {
+	res := []DirPatch{}
+	for i := range ps {
+		p := &ps[i]
+		m, err := eval.ExpandIR(ir.FromString(p.If), ee)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if m.Type == ir.BoolType && !m.Bool {
 			continue
 		}
-		dir.Patches[j] = *dp
-		j++
+		if p.File != "" {
+			dps := []DirPatch{}
+			d, err := os.ReadFile(p.File)
+			if err != nil {
+				return nil, err
+			}
+			if err := gomap.FromTony(d, &dps); err != nil {
+				return nil, err
+			}
+			loaded, err := dir.loadPatches(dps, ee)
+			if err != nil {
+				return nil, err
+			}
+			res = append(res, loaded...)
+			continue
+		}
+		if p.Match == nil {
+			return nil, fmt.Errorf("missing match: field")
+		}
+		if p.Patch == nil {
+			return nil, fmt.Errorf("missing patch: field")
+		}
+		p.Match, err = eval.ExpandIR(p.Match, ee)
+		if err != nil {
+			return nil, fmt.Errorf("error expanding match: %w", err)
+		}
+		p.Patch, err = eval.ExpandIR(p.Patch, ee)
+		if err != nil {
+			return nil, fmt.Errorf("error expanding patch: %w", err)
+		}
+		res = append(res, DirPatch{Match: p.Match, Patch: p.Patch})
 	}
-	return nil
-}
-
-func toEvalEnv(m map[string]*ir.Node) eval.Env {
-	res := make(eval.Env, len(m))
-	for k, v := range m {
-		res[k] = v
-	}
-	return res
+	return res, nil
 }

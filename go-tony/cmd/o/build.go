@@ -7,6 +7,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/dirbuild"
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/eval"
+	"github.com/signadot/tony-format/go-tony/ir"
 
 	"github.com/scott-cotton/cli"
 )
@@ -49,18 +50,13 @@ func build(cfg *BuildConfig, cc *cli.Context, args []string) error {
 		dir.DestDir = ""
 	}
 	if cfg.Profile != "" {
-		if err := dir.LoadProfile(cfg.Profile, cfg.Env); err != nil {
+		if err := dir.LoadProfile(cfg.Profile, eval.EnvToMapAny(cfg.Env)); err != nil {
 			return fmt.Errorf("error loading profile %s: %w", cfg.Profile, err)
 		}
 	}
 	if cfg.ShowEnv {
-		fmt.Fprintf(cc.Out, "# build environment:\n")
-		y, err := eval.FromJSONAny(dir.Env)
-		if err != nil {
-			return err
-		}
 		opts := append(cfg.MainConfig.encOpts(cc.Out), encode.EncodeComments(true))
-		return encode.Encode(y, cc.Out, opts...)
+		return encode.Encode(ir.Comment(ir.FromMap(dir.Env), "# build environment:"), cc.Out, opts...)
 	}
 	_, err = dir.Run(w, cfg.MainConfig.encOpts(w)...)
 	if err != nil {

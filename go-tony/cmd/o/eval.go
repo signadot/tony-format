@@ -30,7 +30,7 @@ func tonyEval(cfg *EvalConfig, cc *cli.Context, args []string) error {
 		return nil
 	}
 	tool := tony.DefaultTool()
-	tool.Env = cfg.Env
+	tool.Env = eval.EnvToMapAny(cfg.Env)
 	if len(args) == 0 {
 		if err := evalReader(cfg, cc.Out, os.Stdin, tool, &cfg.Color); err != nil {
 			return err

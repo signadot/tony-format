@@ -22,9 +22,10 @@ import (
 
 func (d *Dir) fetch() ([]*ir.Node, error) {
 	res := []*ir.Node{}
+	evalEnv := eval.EnvToMapAny(d.Env)
 	for i := range d.Sources {
 		src := &d.Sources[i]
-		docs, err := src.Fetch(d.Root, d.Env)
+		docs, err := src.Fetch(d.Root, evalEnv)
 		if err != nil {
 			err = fmt.Errorf("error fetching from source: %w", err)
 			return nil, err
@@ -37,10 +38,10 @@ func (d *Dir) fetch() ([]*ir.Node, error) {
 // DirSource represents a data source for a dirbuild.
 type DirSource struct {
 	schema `tony:"schemagen=dirsource"`
-	Format *format.Format `json:"format,omitempty"`
-	Exec   *string        `json:"exec,omitempty"`
-	Dir    *string        `json:"dir,omitempty"`
-	URL    *string        `json:"url,omitempty"`
+	Format *format.Format `tony:"field=format"`
+	Exec   *string        `tony:"field=exec"`
+	Dir    *string        `tony:"field=dir"`
+	URL    *string        `tony:"field=url"`
 }
 
 // formatFromExtension returns the format based on file extension.
@@ -62,7 +63,7 @@ func formatFromExtension(path string) *format.Format {
 	}
 }
 
-func (s *DirSource) Fetch(root string, env eval.Env) ([]*ir.Node, error) {
+func (s *DirSource) Fetch(root string, env map[string]any) ([]*ir.Node, error) {
 	var defaultForm *format.Format
 	if s.Format != nil {
 		defaultForm = s.Format

@@ -2,14 +2,11 @@ package dirbuild
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/debug"
 	"github.com/signadot/tony-format/go-tony/encode"
-	"github.com/signadot/tony-format/go-tony/eval"
 	"github.com/signadot/tony-format/go-tony/ir"
-	"github.com/signadot/tony-format/go-tony/parse"
 )
 
 func (d *Dir) patch(dst []*ir.Node) error {
@@ -53,74 +50,13 @@ func (d *Dir) patch(dst []*ir.Node) error {
 
 type DirPatch struct {
 	schema `tony:"schemagen=dirpatch"`
-	Match  *ir.Node `json:"match,omitempty"`
-	Patch  *ir.Node `json:"patch,omitempty"`
-	File   string   `json:"file,omitempty"`
-	If     string   `json:"if,omitempty"`
+	Match  *ir.Node `tony:"field=match"`
+	Patch  *ir.Node `tony:"field=patch"`
+	File   string   `tony:"field=file"`
+	If     string   `tony:"field=if"`
 }
 
 func (d *DirPatch) String() string {
 	return fmt.Sprintf("match: %s patch: %s file: %s if: %s",
 		encode.MustString(d.Match), encode.MustString(d.Patch), d.File, d.If)
-}
-
-func (d *Dir) getFilePatches(root, file string) ([]DirPatch, error) {
-	fileBytes, err := os.ReadFile(file)
-	if err != nil {
-		return nil, err
-	}
-	fy, err := parse.Parse(fileBytes)
-	if err != nil {
-		return nil, fmt.Errorf("error decoding %s: %w", file, err)
-	}
-	if fy.Type != ir.ArrayType {
-		return nil, fmt.Errorf("wrong type for file %s of patches, expected list", file)
-	}
-	return d.getYPatches(root, fy.Values)
-}
-
-func (d *Dir) getYPatches(root string, ys []*ir.Node) ([]DirPatch, error) {
-	res := []DirPatch{}
-	for i, ydPatch := range ys {
-		match := ir.Get(ydPatch, "match")
-		patch := ir.Get(ydPatch, "patch")
-		file := ir.Get(ydPatch, "file")
-		cond := ir.Get(ydPatch, "if")
-		if cond != nil {
-			if cond.Type != ir.StringType {
-				return nil, fmt.Errorf("invalid patch if, expected string")
-			}
-			if err := eval.ExpandEnv(cond, d.Env); err != nil {
-				return nil, fmt.Errorf("error expanding if %q: %w", cond.String, err)
-			}
-			if !ir.Truth(cond) {
-				continue
-			}
-		}
-		if file == nil {
-			if match == nil {
-				return nil, fmt.Errorf("no match in patch %d", i)
-			}
-			if patch == nil {
-				return nil, fmt.Errorf("no patch yaml in patch %d", i)
-			}
-			if err := eval.ExpandEnv(match, d.Env); err != nil {
-				return nil, fmt.Errorf("error expanding match: %w", err)
-			}
-			if err := eval.ExpandEnv(patch, d.Env); err != nil {
-				return nil, fmt.Errorf("error expanding patch: %w", err)
-			}
-			res = append(res, DirPatch{Match: match, Patch: patch})
-			continue
-		}
-		if file.Type != ir.StringType {
-			return nil, fmt.Errorf("patch %d: file: expected string (path)", i)
-		}
-		filePatches, err := d.getFilePatches(root, file.String)
-		if err != nil {
-			return nil, fmt.Errorf("could not get patches from %s: %w", file.String, err)
-		}
-		res = append(res, filePatches...)
-	}
-	return res, nil
 }

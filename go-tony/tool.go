@@ -10,12 +10,12 @@ import (
 )
 
 type Tool struct {
-	Env map[string]*ir.Node
+	Env map[string]any
 }
 
 func DefaultTool() *Tool {
 	return &Tool{
-		Env: map[string]*ir.Node{},
+		Env: map[string]any{},
 	}
 }
 
@@ -112,7 +112,7 @@ func (t *Tool) run(node, parent *ir.Node) (*ir.Node, error) {
 	return res, nil
 }
 
-func evalFunc(env eval.Env, tag string) eval.EvalFunc {
+func evalFunc(_ eval.Env, _ string) eval.EvalFunc {
 	return func(doc *ir.Node, env eval.Env) (*ir.Node, error) {
 		t := &Tool{
 			Env: env,

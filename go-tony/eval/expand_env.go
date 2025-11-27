@@ -57,7 +57,7 @@ func ExpandEnv(node *ir.Node, env Env) error {
 		if err != nil {
 			return fmt.Errorf("error evaluating %q: %w", raw, err)
 		}
-		repl, err := FromJSONAny(val)
+		repl, err := FromAny(val)
 		if err != nil {
 			return fmt.Errorf("could not translate evaluation result to Y: %w", err)
 		}
@@ -143,7 +143,7 @@ func ExpandAny(v any, env Env) (any, error) {
 	}
 }
 
-func ExpandIR(node *ir.Node, env Env) (*ir.Node, error) {
+func ExpandIR(node *ir.Node, env map[string]any) (*ir.Node, error) {
 	switch node.Type {
 	case ir.ObjectType:
 		n := len(node.Values)
@@ -185,7 +185,7 @@ func ExpandIR(node *ir.Node, env Env) (*ir.Node, error) {
 				return repl, nil
 			}
 			// Otherwise convert using FromJSONAny (which handles *ir.Node and []*ir.Node)
-			repl, err := FromJSONAny(val)
+			repl, err := FromAny(val)
 			if err != nil {
 				return nil, fmt.Errorf("could not translate evaluation result: %w", err)
 			}
@@ -248,7 +248,7 @@ func ExpandLineComment(node *ir.Node, env Env) error {
 	return nil
 }
 
-func ExpandString(v string, env Env) (string, error) {
+func ExpandString(v string, env map[string]any) (string, error) {
 	if len(v) < 3 {
 		return v, nil
 	}
@@ -337,7 +337,7 @@ func anyToBytes(v any) ([]byte, error) {
 		}
 		return buf.Bytes(), nil
 	default:
-		node, err := FromJSONAny(v)
+		node, err := FromAny(v)
 		if err != nil {
 			return nil, err
 		}
