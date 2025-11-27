@@ -7,7 +7,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/dfile"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/paths"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/seq"
 )
 
@@ -63,26 +65,7 @@ func (s *Storage) ListChildPaths(parentPath string, from, to *int64) ([]string, 
 	}
 
 	// Get all children at this level
-	allChildren := idx.List()
-
-	// Filter children to only those with diffs in the commit range
-	var result []string
-	for _, childName := range allChildren {
-		childPath := parentPath
-		if childPath == "" || childPath == "/" {
-			childPath = "/" + childName
-		} else {
-			childPath = parentPath + "/" + childName
-		}
-
-		// Check if this child has any diffs in the range [from, to]
-		segments := s.index.LookupRange(childPath, from, to)
-		if len(segments) > 0 {
-			result = append(result, childPath)
-		}
-	}
-
-	return result, nil
+	return idx.ListRange(from, to), nil
 }
 
 // CommitPendingDiff atomically commits a pending diff by:
@@ -93,7 +76,9 @@ func (s *Storage) CommitPendingDiff(virtualPath string, txSeq, commitCount int64
 	defer s.indexMu.Unlock()
 
 	// Rename pending file to diff file
-	if err := s.FS.RenamePendingToDiff(virtualPath, commitCount, txSeq); err != nil {
+	fsPath := s.FS.PathToFilesystem(virtualPath)
+	seg := index.PointLogSegment(0, txSeq, "")
+	if err := dfile.CommitPending(fsPath, seg, 0, commitCount); err != nil {
 		return err
 	}
 
@@ -105,7 +90,9 @@ func (s *Storage) CommitPendingDiff(virtualPath string, txSeq, commitCount int64
 
 // DeletePendingDiff deletes a pending diff file.
 func (s *Storage) DeletePendingDiff(virtualPath string, txSeq int64) error {
-	return s.FS.DeletePending(virtualPath, txSeq)
+	fsPath := s.FS.PathToFilesystem(virtualPath)
+	seg := index.PointLogSegment(0, txSeq, "")
+	return dfile.DeletePending(fsPath, seg, 0)
 }
 
 // mkdirAll creates a directory with umask applied.
@@ -134,7 +121,7 @@ func (s *Storage) init() error {
 		func(path string) (*index.LogSegment, error) {
 			dir, base := filepath.Split(path)
 			virtualPath := s.FS.FilesystemToPath(dir)
-			seg, err := s.FS.ParseLogSegment(filepath.Join(virtualPath, base))
+			seg, _, err := paths.ParseLogSegment(filepath.Join(virtualPath, base))
 			if err != nil {
 				s.log.Warn("error getting parse log segment", "error", err, "fs", path, "virt", virtualPath)
 				return nil, err
@@ -151,7 +138,7 @@ func (s *Storage) init() error {
 	seqFile := filepath.Join(s.Root, "meta", "seq")
 	if _, err := os.Stat(seqFile); os.IsNotExist(err) {
 		s.Seq.Lock()
-		state := &seq.State{CommitCount: 0, TxSeq: 0}
+		state := &seq.State{Commit: 0, TxSeq: 0}
 		err := s.WriteStateLocked(state)
 		s.Seq.Unlock()
 		if err != nil {

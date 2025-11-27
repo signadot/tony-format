@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -31,26 +30,26 @@ func TestRoundTrip_PatchThenMatch(t *testing.T) {
 	server := New(&Config{Storage: s})
 
 	// Step 1: Write a diff using PATCH
-	writeRequestBody := `path: /proc/processes
-match: null
-patch: !key(id)
-- !insert
-  id: "proc-1"
-  pid: 1234
-  name: "nginx"
-  state: "running"
+	writeRequestBody := `body:
+  path: /proc/processes
+  patch: !key(id)
+  - !insert
+    id: "proc-1"
+    pid: 1234
+    name: "nginx"
+    state: "running"
 `
 
 	writeReq := httptest.NewRequest("PATCH", "/api/data", bytes.NewBufferString(writeRequestBody))
 	writeReq.Header.Set("Content-Type", "application/x-tony")
 	writeResp := httptest.NewRecorder()
 
-	writeBody, err := api.ParseRequestBody(writeReq)
-	if err != nil {
+	writePatch := &api.Patch{}
+	if err := writePatch.FromTony([]byte(writeRequestBody)); err != nil {
 		t.Fatalf("failed to parse write request body: %v", err)
 	}
 
-	server.handlePatchData(writeResp, writeReq, writeBody)
+	server.handlePatchData(writeResp, writeReq, writePatch)
 
 	if writeResp.Code != http.StatusOK {
 		t.Fatalf("expected status 200 for write, got %d: %s", writeResp.Code, writeResp.Body.String())
@@ -74,9 +73,7 @@ patch: !key(id)
 	expectedSeq := *writeSeq.Int64
 
 	// Step 2: Read it back using MATCH
-	readRequestBody := `meta:
-  seq: null
-body:
+	readRequestBody := `body:
   path: /proc/processes
   match: null
 `
@@ -85,17 +82,15 @@ body:
 	readReq.Header.Set("Content-Type", "application/x-tony")
 	readResp := httptest.NewRecorder()
 
-	d, err := io.ReadAll(readReq.Body)
-	req := &api.Match{}
-	if err = req.FromTony(d); err != nil {
+	readMatch := &api.Match{}
+	if err := readMatch.FromTony([]byte(readRequestBody)); err != nil {
 		t.Fatalf("error decoding match req: %v", err)
 	}
-	server.handleMatchData(readResp, readReq, req)
+	server.handleMatchData(readResp, readReq, readMatch)
 
 	if readResp.Code != http.StatusOK {
 		t.Fatalf("expected status 200 for read, got %d: %s", readResp.Code, readResp.Body.String())
 	}
-	resp := &api.Match{}
 
 	// Parse read response
 	readDoc, err := parse.Parse(readResp.Body.Bytes())
@@ -108,8 +103,12 @@ body:
 		t.Fatalf("expected object response, got %v", readDoc.Type)
 	}
 
-	// Check path
-	pathNode := ir.Get(readDoc, "path")
+	// Check body.path
+	bodyNode := ir.Get(readDoc, "body")
+	if bodyNode == nil {
+		t.Fatal("expected body in read response")
+	}
+	pathNode := ir.Get(bodyNode, "path")
 	if pathNode == nil || pathNode.String != "/proc/processes" {
 		t.Errorf("expected path /proc/processes, got %v", pathNode)
 	}
@@ -128,10 +127,10 @@ body:
 		t.Errorf("expected seq %d, got %d", expectedSeq, *readSeq.Int64)
 	}
 
-	// Check patch field contains the reconstructed state
-	readPatch := ir.Get(readDoc, "patch")
+	// Check body.patch field contains the reconstructed state
+	readPatch := ir.Get(bodyNode, "patch")
 	if readPatch == nil {
-		t.Fatal("expected patch field in read response")
+		t.Fatal("expected patch field in read response body")
 	}
 
 	// Verify the state matches what we wrote
@@ -199,26 +198,26 @@ func TestRoundTrip_MultipleWritesThenRead(t *testing.T) {
 	}
 
 	for _, proc := range processes {
-		writeRequestBody := fmt.Sprintf(`path: /proc/processes
-match: null
-patch: !key(id)
-- !insert
-  id: %q
-  pid: %d
-  name: %q
-  state: %q
+		writeRequestBody := fmt.Sprintf(`body:
+  path: /proc/processes
+  patch: !key(id)
+  - !insert
+    id: %q
+    pid: %d
+    name: %q
+    state: %q
 `, proc.id, proc.pid, proc.name, proc.state)
 
 		writeReq := httptest.NewRequest("PATCH", "/api/data", bytes.NewBufferString(writeRequestBody))
 		writeReq.Header.Set("Content-Type", "application/x-tony")
 		writeResp := httptest.NewRecorder()
 
-		writeBody, err := api.ParseRequestBody(writeReq)
-		if err != nil {
+		writePatch := &api.Patch{}
+		if err := writePatch.FromTony([]byte(writeRequestBody)); err != nil {
 			t.Fatalf("failed to parse write request body: %v", err)
 		}
 
-		server.handlePatchData(writeResp, writeReq, writeBody)
+		server.handlePatchData(writeResp, writeReq, writePatch)
 
 		if writeResp.Code != http.StatusOK {
 			t.Fatalf("expected status 200 for write, got %d: %s", writeResp.Code, writeResp.Body.String())
@@ -226,20 +225,21 @@ patch: !key(id)
 	}
 
 	// Read back all processes
-	readRequestBody := `path: /proc/processes
-match: null
+	readRequestBody := `body:
+  path: /proc/processes
+  match: null
 `
 
 	readReq := httptest.NewRequest("MATCH", "/api/data", bytes.NewBufferString(readRequestBody))
 	readReq.Header.Set("Content-Type", "application/x-tony")
 	readResp := httptest.NewRecorder()
 
-	readBody, err := api.ParseRequestBody(readReq)
-	if err != nil {
+	readMatch := &api.Match{}
+	if err := readMatch.FromTony([]byte(readRequestBody)); err != nil {
 		t.Fatalf("failed to parse read request body: %v", err)
 	}
 
-	server.handleMatchData(readResp, readReq, readBody)
+	server.handleMatchData(readResp, readReq, readMatch)
 
 	if readResp.Code != http.StatusOK {
 		t.Fatalf("expected status 200 for read, got %d: %s", readResp.Code, readResp.Body.String())
@@ -251,9 +251,14 @@ match: null
 		t.Fatalf("failed to parse read response: %v", err)
 	}
 
-	readPatch := ir.Get(readDoc, "patch")
+	readBody := ir.Get(readDoc, "body")
+	if readBody == nil {
+		t.Fatal("expected body in read response")
+	}
+
+	readPatch := ir.Get(readBody, "patch")
 	if readPatch == nil {
-		t.Fatal("expected patch field in read response")
+		t.Fatal("expected patch field in read response body")
 	}
 
 	// Since we used !key(id) in the diffs, the result should always be an array

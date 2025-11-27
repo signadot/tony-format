@@ -7,10 +7,10 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/paths"
 )
 
 func TestFS_FormatParseLogSegment(t *testing.T) {
-	fs := &FS{Root: "/test"}
 
 	tests := []struct {
 		name    string
@@ -22,7 +22,7 @@ func TestFS_FormatParseLogSegment(t *testing.T) {
 			name:    "point diff",
 			seg:     index.PointLogSegment(100, 500, "foo/bar"),
 			pending: false,
-			want:    "foo/bar/c100-c500.diff",
+			want:    "foo/bar/c100-c500-0.diff",
 		},
 		{
 			name:    "point pending",
@@ -38,27 +38,27 @@ func TestFS_FormatParseLogSegment(t *testing.T) {
 				RelPath: "foo",
 			},
 			pending: false,
-			want:    "foo/c100.c500-c116.c516.diff",
+			want:    "foo/c100.c500-c116.c516-0.diff",
 		},
 		{
 			name:    "root path point",
 			seg:     index.PointLogSegment(10, 20, ""),
 			pending: false,
-			want:    "b10-b20.diff",
+			want:    "b10-b20-0.diff",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Test Format
-			got := fs.FormatLogSegment(tt.seg, tt.pending)
+			got := paths.FormatLogSegment(tt.seg, 0, tt.pending)
 			if got != tt.want {
 				t.Errorf("FormatLogSegment() = %q, want %q", got, tt.want)
 			}
 
 			// Test Parse (round-trip)
 			if !tt.pending { // Only test parsing for non-pending (pending has commit=0)
-				parsed, err := fs.ParseLogSegment(got)
+				parsed, _, err := paths.ParseLogSegment(got)
 				if err != nil {
 					t.Fatalf("ParseLogSegment() error = %v", err)
 				}
@@ -172,56 +172,5 @@ func TestFS_EnsurePathDir(t *testing.T) {
 	fsPath := fs.PathToFilesystem(testPath)
 	if _, err := os.Stat(fsPath); os.IsNotExist(err) {
 		t.Errorf("EnsurePathDir() did not create directory %q", fsPath)
-	}
-}
-
-func TestFS_ListChildPaths(t *testing.T) {
-	tmpDir := t.TempDir()
-	fs := &FS{Root: tmpDir}
-
-	// Create parent and children
-	parent := "/parent"
-	children := []string{"/parent/child1", "/parent/child2", "/parent/child3"}
-
-	for _, child := range children {
-		if err := fs.EnsurePathDir(child); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	// List children
-	got, err := fs.ListChildPaths(parent)
-	if err != nil {
-		t.Fatalf("ListChildPaths() error = %v", err)
-	}
-
-	if len(got) != len(children) {
-		t.Errorf("ListChildPaths() returned %d children, want %d", len(got), len(children))
-	}
-
-	// Verify all children are present (order may vary)
-	gotMap := make(map[string]bool)
-	for _, p := range got {
-		gotMap[p] = true
-	}
-	for _, want := range children {
-		if !gotMap[want] {
-			t.Errorf("ListChildPaths() missing child %q", want)
-		}
-	}
-}
-
-func TestFS_ListChildPaths_Empty(t *testing.T) {
-	tmpDir := t.TempDir()
-	fs := &FS{Root: tmpDir}
-
-	// List children of non-existent path
-	got, err := fs.ListChildPaths("/nonexistent")
-	if err != nil {
-		t.Fatalf("ListChildPaths() error = %v", err)
-	}
-
-	if len(got) != 0 {
-		t.Errorf("ListChildPaths() returned %d children, want 0", len(got))
 	}
 }

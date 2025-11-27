@@ -76,7 +76,7 @@ func (s *Server) handleWatchData(w http.ResponseWriter, r *http.Request, body *a
 				writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to get current state: %v", err)))
 				return
 			}
-			lastCommitCount = state.CommitCount
+			lastCommitCount = state.Commit
 		}
 	}
 

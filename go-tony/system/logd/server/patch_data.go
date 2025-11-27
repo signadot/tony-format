@@ -8,8 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/signadot/tony-format/go-tony/encode"
-	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 )
@@ -102,7 +100,7 @@ func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.R
 	}
 
 	// Check if we've already received all participants
-	if state.ParticipantsReceived >= state.ParticipantCount {
+	if len(state.ParticipantMatches) >= state.ParticipantCount {
 		writeError(w, http.StatusBadRequest, api.NewError("transaction_full", fmt.Sprintf("transaction %s already has all %d participants", txID, state.ParticipantCount)))
 		return
 	}
@@ -207,25 +205,17 @@ func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.R
 			Patch: req.Body.Patch,
 		},
 	}
-	_ = resp
-	seqNode := &ir.Node{Type: ir.NumberType, Int64: &result.commitCount, Number: fmt.Sprintf("%d", result.commitCount)}
-	timestampNode := &ir.Node{Type: ir.StringType, String: timestamp}
-	metaNode := ir.FromMap(map[string]*ir.Node{
-		"seq":       seqNode,
-		"timestamp": timestampNode,
-		"tx-id":     &ir.Node{Type: ir.StringType, String: txID},
-	})
 
-	response := ir.FromMap(map[string]*ir.Node{
-		"path":  ir.FromString(path),
-		"match": ir.Null(),
-		"patch": body.Patch,
-		"meta":  metaNode,
-	})
+	d, err := resp.ToTony()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, api.NewError("internal_error", fmt.Sprintf("error encoding response: %v", err)))
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/x-tony")
 	w.WriteHeader(http.StatusOK)
-	if err := encode.Encode(response, w); err != nil {
+	_, err = w.Write(d)
+	if err != nil {
 		panic(fmt.Sprintf("failed to encode response: %v", err))
 	}
 }
@@ -233,7 +223,7 @@ func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.R
 // commitTransaction commits a transaction and notifies all waiting writes.
 func (s *Server) commitTransaction(transactionID string, state *storage.TransactionState, waiter *transactionWaiter) {
 	// Commit the transaction
-	commitCount, err := s.Config.Storage.NextCommitCount()
+	commitCount, err := s.Config.Storage.NextCommit()
 	if err != nil {
 		waiter.SetResult(&transactionResult{
 			committed: false,

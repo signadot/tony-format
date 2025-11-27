@@ -86,6 +86,8 @@ func (i *Index) Remove(seg *LogSegment) bool {
 }
 
 func (i *Index) LookupRange(vp string, from, to *int64) []LogSegment {
+	i.RLock()
+	defer i.RUnlock()
 	res := []LogSegment{}
 	i.Commits.Range(func(c LogSegment) bool {
 		res = append(res, c)
@@ -119,6 +121,8 @@ func (i *Index) LookupRange(vp string, from, to *int64) []LogSegment {
 	return res
 }
 
+// LogSegCompare compares 2 log segments by their
+// start commit, start-tx, end-commit, end-tx, and path.
 func LogSegCompare(a, b LogSegment) int {
 	n := cmp.Compare(a.StartCommit, b.StartCommit)
 	if n != 0 {
@@ -178,14 +182,20 @@ func optRange(oFrom, oTo *int64) (from, to int64) {
 	return
 }
 
-// List returns the immediate child names at this index level.
+// ListRange returns the immediate child names at this index level.
 // Returns the keys of the Children map.
-func (i *Index) List() []string {
+func (i *Index) ListRange(from, to *int64) []string {
 	i.RLock()
 	defer i.RUnlock()
 
 	children := make([]string, 0, len(i.Children))
-	for name := range i.Children {
+	for name, ci := range i.Children {
+		ci.RLock()
+		segs := ci.LookupRange("", from, to)
+		ci.RUnlock()
+		if len(segs) == 0 {
+			continue
+		}
 		children = append(children, name)
 	}
 	return children

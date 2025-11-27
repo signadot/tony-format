@@ -31,14 +31,14 @@ func TestHandlePatchData_Success(t *testing.T) {
 	server := New(&Config{Storage: s})
 
 	// Create request body
-	requestBody := `path: /proc/processes
-match: null
-patch: !key(id)
-- !insert
-  id: "proc-1"
-  pid: 1234
-  name: "nginx"
-  state: "running"
+	requestBody := `body:
+  path: /proc/processes
+  patch: !key(id)
+  - !insert
+    id: "proc-1"
+    pid: 1234
+    name: "nginx"
+    state: "running"
 `
 
 	req := httptest.NewRequest("PATCH", "/api/data", bytes.NewBufferString(requestBody))
@@ -46,12 +46,12 @@ patch: !key(id)
 	w := httptest.NewRecorder()
 
 	// Parse body manually to call handler directly
-	body, err := api.ParseRequestBody(req)
-	if err != nil {
+	patchReq := &api.Patch{}
+	if err := patchReq.FromTony([]byte(requestBody)); err != nil {
 		t.Fatalf("failed to parse request body: %v", err)
 	}
 
-	server.handlePatchData(w, req, body)
+	server.handlePatchData(w, req, patchReq)
 
 	// Check response
 	if w.Code != http.StatusOK {
@@ -74,14 +74,18 @@ patch: !key(id)
 		t.Fatalf("expected object response, got %v", doc.Type)
 	}
 
-	// Check path field
-	pathNode := ir.Get(doc, "path")
+	// Check body.path field
+	bodyNode := ir.Get(doc, "body")
+	if bodyNode == nil {
+		t.Fatal("expected body field in response")
+	}
+	pathNode := ir.Get(bodyNode, "path")
 	if pathNode == nil || pathNode.String != "/proc/processes" {
 		t.Errorf("expected path /proc/processes, got %v", pathNode)
 	}
 
-	// Check patch field contains the diff
-	patchNode := ir.Get(doc, "patch")
+	// Check body.patch field contains the diff
+	patchNode := ir.Get(bodyNode, "patch")
 	if patchNode == nil {
 		t.Fatal("expected patch field in response")
 	}
@@ -99,9 +103,9 @@ patch: !key(id)
 		t.Errorf("expected seq=1, got %v", seqNode.Int64)
 	}
 
-	timestampNode := ir.Get(metaNode, "timestamp")
-	if timestampNode == nil || timestampNode.Type != ir.StringType || timestampNode.String == "" {
-		t.Error("expected timestamp in meta")
+	whenNode := ir.Get(metaNode, "when")
+	if whenNode == nil || whenNode.Type != ir.StringType || whenNode.String == "" {
+		t.Error("expected when in meta")
 	}
 
 	// Verify diff file was written
@@ -129,45 +133,45 @@ func TestHandlePatchData_InvalidPath(t *testing.T) {
 	server := New(&Config{Storage: s})
 
 	// Test missing path
-	requestBody := `match: null
-patch: !key(id)
-- !insert
-  id: "proc-1"
+	requestBody := `body:
+  patch: !key(id)
+  - !insert
+    id: "proc-1"
 `
 
 	req := httptest.NewRequest("PATCH", "/api/data", bytes.NewBufferString(requestBody))
 	req.Header.Set("Content-Type", "application/x-tony")
 	w := httptest.NewRecorder()
 
-	body, err := api.ParseRequestBody(req)
-	if err != nil {
+	patchReq := &api.Patch{}
+	if err := patchReq.FromTony([]byte(requestBody)); err != nil {
 		t.Fatalf("failed to parse request body: %v", err)
 	}
 
-	server.handlePatchData(w, req, body)
+	server.handlePatchData(w, req, patchReq)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected status 400, got %d: %s", w.Code, w.Body.String())
 	}
 
 	// Test invalid path (doesn't start with /)
-	requestBody = `path: proc/processes
-match: null
-patch: !key(id)
-- !insert
-  id: "proc-1"
+	requestBody = `body:
+  path: proc/processes
+  patch: !key(id)
+  - !insert
+    id: "proc-1"
 `
 
 	req = httptest.NewRequest("PATCH", "/api/data", bytes.NewBufferString(requestBody))
 	req.Header.Set("Content-Type", "application/x-tony")
 	w = httptest.NewRecorder()
 
-	body, err = api.ParseRequestBody(req)
-	if err != nil {
+	patchReq = &api.Patch{}
+	if err := patchReq.FromTony([]byte(requestBody)); err != nil {
 		t.Fatalf("failed to parse request body: %v", err)
 	}
 
-	server.handlePatchData(w, req, body)
+	server.handlePatchData(w, req, patchReq)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected status 400, got %d: %s", w.Code, w.Body.String())
@@ -188,20 +192,20 @@ func TestHandlePatchData_MissingPatch(t *testing.T) {
 
 	server := New(&Config{Storage: s})
 
-	requestBody := `path: /proc/processes
-match: null
+	requestBody := `body:
+  path: /proc/processes
 `
 
 	req := httptest.NewRequest("PATCH", "/api/data", bytes.NewBufferString(requestBody))
 	req.Header.Set("Content-Type", "application/x-tony")
 	w := httptest.NewRecorder()
 
-	body, err := api.ParseRequestBody(req)
-	if err != nil {
+	patchReq := &api.Patch{}
+	if err := patchReq.FromTony([]byte(requestBody)); err != nil {
 		t.Fatalf("failed to parse request body: %v", err)
 	}
 
-	server.handlePatchData(w, req, body)
+	server.handlePatchData(w, req, patchReq)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected status 400, got %d: %s", w.Code, w.Body.String())
@@ -222,67 +226,33 @@ func TestHandlePatchData_TransactionWrite(t *testing.T) {
 
 	server := New(&Config{Storage: s})
 
-	// Step 1: Create a transaction with 2 participants
-	createRequestBody := `path: /api/transactions
-match: null
-patch: !key(id)
-- !insert
-  participantCount: 2
-`
-
-	createReq := httptest.NewRequest("PATCH", "/api/data", bytes.NewBufferString(createRequestBody))
-	createReq.Header.Set("Content-Type", "application/x-tony")
-	createResp := httptest.NewRecorder()
-
-	createBody, err := api.ParseRequestBody(createReq)
-	if err != nil {
-		t.Fatalf("failed to parse create request body: %v", err)
+	// Step 1: Manually create a transaction with 2 participants
+	transactionID := "tx-1-2"
+	state := storage.NewTransactionState(transactionID, 2)
+	if err := s.WriteTransactionState(state); err != nil {
+		t.Fatalf("failed to write transaction state: %v", err)
 	}
-
-	server.handlePatchTransaction(createResp, createReq, createBody)
-
-	if createResp.Code != http.StatusOK {
-		t.Fatalf("expected status 200 for create, got %d: %s", createResp.Code, createResp.Body.String())
-	}
-
-	// Extract transaction ID
-	createDoc, err := parse.Parse(createResp.Body.Bytes())
-	if err != nil {
-		t.Fatalf("failed to parse create response: %v", err)
-	}
-
-	patchNode := ir.Get(createDoc, "patch")
-	if patchNode == nil || patchNode.Type != ir.ArrayType || len(patchNode.Values) == 0 {
-		t.Fatal("expected patch with array containing transaction")
-	}
-
-	transactionNode := patchNode.Values[0]
-	transactionIDNode := ir.Get(transactionNode, "transactionId")
-	if transactionIDNode == nil || transactionIDNode.String == "" {
-		t.Fatal("expected transactionId in create response")
-	}
-	transactionID := transactionIDNode.String
 
 	// Step 2 & 3: Write both diffs concurrently (both will block until transaction commits)
-	write1RequestBody := fmt.Sprintf(`path: /proc/processes
-match: null
-patch: !key(id)
-- !insert
-  id: "proc-1"
-  pid: 1234
-  name: "nginx"
-meta:
-  tx-id: %q
+	write1RequestBody := fmt.Sprintf(`meta:
+  tx: %q
+body:
+  path: /proc/processes
+  patch: !key(id)
+  - !insert
+    id: "proc-1"
+    pid: 1234
+    name: "nginx"
 `, transactionID)
 
-	write2RequestBody := fmt.Sprintf(`path: /users
-match: null
-patch: !key(id)
-- !insert
-  id: "user-1"
-  name: "Alice"
-meta:
-  tx-id: %q
+	write2RequestBody := fmt.Sprintf(`meta:
+  tx: %q
+body:
+  path: /users
+  patch: !key(id)
+  - !insert
+    id: "user-1"
+    name: "Alice"
 `, transactionID)
 
 	write1Req := httptest.NewRequest("PATCH", "/api/data", bytes.NewBufferString(write1RequestBody))
@@ -293,13 +263,13 @@ meta:
 	write2Req.Header.Set("Content-Type", "application/x-tony")
 	write2Resp := httptest.NewRecorder()
 
-	write1Body, err := api.ParseRequestBody(write1Req)
-	if err != nil {
+	write1Patch := &api.Patch{}
+	if err := write1Patch.FromTony([]byte(write1RequestBody)); err != nil {
 		t.Fatalf("failed to parse write1 request body: %v", err)
 	}
 
-	write2Body, err := api.ParseRequestBody(write2Req)
-	if err != nil {
+	write2Patch := &api.Patch{}
+	if err := write2Patch.FromTony([]byte(write2RequestBody)); err != nil {
 		t.Fatalf("failed to parse write2 request body: %v", err)
 	}
 
@@ -307,12 +277,12 @@ meta:
 	done := make(chan bool, 2)
 
 	go func() {
-		server.handlePatchData(write1Resp, write1Req, write1Body)
+		server.handlePatchData(write1Resp, write1Req, write1Patch)
 		done <- true
 	}()
 
 	go func() {
-		server.handlePatchData(write2Resp, write2Req, write2Body)
+		server.handlePatchData(write2Resp, write2Req, write2Patch)
 		done <- true
 	}()
 
@@ -386,7 +356,7 @@ meta:
 	}
 
 	// Verify transaction state is committed
-	state, err := s.ReadTransactionState(transactionID)
+	state, err = s.ReadTransactionState(transactionID)
 	if err != nil {
 		t.Fatalf("failed to read transaction state: %v", err)
 	}
@@ -413,25 +383,25 @@ func TestHandlePatchData_TransactionWrite_Errors(t *testing.T) {
 	server := New(&Config{Storage: s})
 
 	// Test: Transaction not found
-	requestBody := `path: /proc/processes
-match: null
-patch: !key(id)
-- !insert
-  id: "proc-1"
-meta:
-  tx-id: "tx-99999-2"
+	requestBody := `meta:
+  tx: "tx-99999-2"
+body:
+  path: /proc/processes
+  patch: !key(id)
+  - !insert
+    id: "proc-1"
 `
 
 	req := httptest.NewRequest("PATCH", "/api/data", bytes.NewBufferString(requestBody))
 	req.Header.Set("Content-Type", "application/x-tony")
 	w := httptest.NewRecorder()
 
-	body, err := api.ParseRequestBody(req)
-	if err != nil {
+	patchReq := &api.Patch{}
+	if err := patchReq.FromTony([]byte(requestBody)); err != nil {
 		t.Fatalf("failed to parse request body: %v", err)
 	}
 
-	server.handlePatchData(w, req, body)
+	server.handlePatchData(w, req, patchReq)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected status 400 for non-existent transaction, got %d: %s", w.Code, w.Body.String())

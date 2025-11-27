@@ -8,8 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/signadot/tony-format/go-tony/encode"
+	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/paths"
 )
 
 // TransactionLogEntry represents a transaction commit log entry.
@@ -35,7 +36,7 @@ func (s *Storage) AppendTransactionLog(entry *TransactionLogEntry) error {
 	logFile := filepath.Join(s.Root, "meta", "transactions.log")
 
 	// Encode to Tony format with wire encoding
-	d, err := entry.ToTony(encode.EncodeWire(true))
+	d, err := entry.ToTony(gomap.EncodeWire(true))
 	if err != nil {
 		return err
 	}
@@ -278,9 +279,9 @@ func (s *Storage) RecoverTransactions() error {
 			fsPath := s.FS.PathToFilesystem(ref.VirtualPath)
 			// Format filenames using FS
 			pendingSeg := index.PointLogSegment(0, ref.TxSeq, "")
-			pendingFilename := s.FS.FormatLogSegment(pendingSeg, true)
+			pendingFilename := paths.FormatLogSegment(pendingSeg, 0, true)
 			diffSeg := index.PointLogSegment(entry.CommitCount, ref.TxSeq, "")
-			diffFilename := s.FS.FormatLogSegment(diffSeg, false)
+			diffFilename := paths.FormatLogSegment(diffSeg, 0, false)
 			pendingFile := filepath.Join(fsPath, pendingFilename)
 			diffFile := filepath.Join(fsPath, diffFilename)
 

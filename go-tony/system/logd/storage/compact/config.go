@@ -6,7 +6,8 @@ import (
 
 type Config struct {
 	// Configuration
+	Root    string
 	Divisor int
-
-	Log *slog.Logger
+	Remove  func(int, int) bool
+	Log     *slog.Logger
 }

@@ -1,16 +1,12 @@
 package storage
 
 import (
-	"fmt"
-	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 
-	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/ir"
-	"github.com/signadot/tony-format/go-tony/parse"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/dfile"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/paths"
 )
 
 // DiffFile represents a diff file on disk.
@@ -28,7 +24,7 @@ type DiffFile struct {
 // WriteDiffAtomically atomically allocates sequence numbers and writes the diff file.
 // This ensures that files are written in the order that sequence numbers are allocated,
 // preventing race conditions where a later sequence number is written before an earlier one.
-func (s *Storage) WriteDiffAtomically(virtualPath string, timestamp string, diff *ir.Node, pending bool) (commitCount, txSeq int64, err error) {
+func (s *Storage) WriteDiffAtomically(virtualPath string, timestamp string, diff *ir.Node, pending bool) (commit, txSeq int64, err error) {
 	s.Seq.Lock()
 	defer s.Seq.Unlock()
 
@@ -38,15 +34,15 @@ func (s *Storage) WriteDiffAtomically(virtualPath string, timestamp string, diff
 		return 0, 0, err
 	}
 
-	state.CommitCount++
+	state.Commit++
 	state.TxSeq++
 
-	commitCount = state.CommitCount
+	commit = state.Commit
 	txSeq = state.TxSeq
-	logSeg := index.PointLogSegment(commitCount, txSeq, virtualPath)
+	logSeg := index.PointLogSegment(commit, txSeq, virtualPath)
 
 	// Write the diff file while still holding the lock
-	if err := s.writeDiffLocked(virtualPath, commitCount, txSeq, timestamp, diff, pending); err != nil {
+	if err := s.writeDiffLocked(virtualPath, commit, txSeq, timestamp, diff, pending); err != nil {
 		return 0, 0, err
 	}
 
@@ -62,7 +58,7 @@ func (s *Storage) WriteDiffAtomically(virtualPath string, timestamp string, diff
 		s.indexMu.Unlock()
 	}
 
-	return commitCount, txSeq, nil
+	return commit, txSeq, nil
 }
 
 // WriteDiff writes a diff file. For atomic sequence allocation and file writing,
@@ -87,45 +83,24 @@ func (s *Storage) writeDiffLocked(virtualPath string, commitCount, txSeq int64, 
 	if err := s.FS.EnsurePathDir(virtualPath); err != nil {
 		return err
 	}
-
+	//
 	// Format filename using FS
 	seg := index.PointLogSegment(commitCount, txSeq, "")
-	filename := s.FS.FormatLogSegment(seg, pending)
+	filename := paths.FormatLogSegment(seg, 0, pending)
 	filePath := filepath.Join(fsPath, filename)
 
-	// Create the diff file structure using FromMap to preserve parent pointers
-	seqNode := &ir.Node{Type: ir.NumberType, Int64: &txSeq, Number: strconv.FormatInt(txSeq, 10)}
-	diffFile := ir.FromMap(map[string]*ir.Node{
-		"seq":       seqNode,
-		"timestamp": &ir.Node{Type: ir.StringType, String: timestamp},
-		"path":      &ir.Node{Type: ir.StringType, String: virtualPath},
-		"diff":      diff,
-	})
-
-	// Encode to Tony format
-	var buf strings.Builder
-	if err := encode.Encode(diffFile, &buf); err != nil {
-		return fmt.Errorf("failed to encode diff file: %w", err)
+	diffFile := &dfile.DiffFile{
+		Seq:       txSeq,
+		Path:      virtualPath,
+		Timestamp: timestamp,
+		Diff:      diff,
 	}
-
-	// Write to temp file first, then rename atomically
-	tmpFile := filePath + ".tmp"
-	if err := os.WriteFile(tmpFile, []byte(buf.String()), 0644); err != nil {
-		return err
-	}
-
-	// Atomic rename
-	if err := os.Rename(tmpFile, filePath); err != nil {
-		os.Remove(tmpFile) // Clean up on error
-		return err
-	}
-
-	return nil
+	return dfile.WriteDiffFile(filePath, diffFile)
 }
 
 // ReadDiff reads a diff file from disk.
 // For pending files, commitCount is ignored (can be 0).
-func (s *Storage) ReadDiff(virtualPath string, commitCount, txSeq int64, pending bool) (*DiffFile, error) {
+func (s *Storage) ReadDiff(virtualPath string, commitCount, txSeq int64, pending bool) (*dfile.DiffFile, error) {
 	s.indexMu.RLock()
 	defer s.indexMu.RUnlock()
 
@@ -133,59 +108,7 @@ func (s *Storage) ReadDiff(virtualPath string, commitCount, txSeq int64, pending
 
 	// Format filename using FS
 	seg := index.PointLogSegment(commitCount, txSeq, "")
-	filename := s.FS.FormatLogSegment(seg, pending)
+	filename := paths.FormatLogSegment(seg, 0, pending)
 	filePath := filepath.Join(fsPath, filename)
-
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, err
-	}
-
-	// Parse Tony document
-	node, err := parse.Parse(data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse diff file: %w", err)
-	}
-
-	// Extract fields from the diff file structure
-	if node.Type != ir.ObjectType {
-		return nil, fmt.Errorf("expected object, got %v", node.Type)
-	}
-
-	var timestamp, path string
-	var diff *ir.Node
-
-	for i, field := range node.Fields {
-		if i >= len(node.Values) {
-			break
-		}
-		value := node.Values[i]
-
-		switch field.String {
-		case "seq":
-			// Ignore seq from file content, we use txSeq from filename
-		case "timestamp":
-			if value.Type == ir.StringType {
-				timestamp = value.String
-			}
-		case "path":
-			if value.Type == ir.StringType {
-				path = value.String
-			}
-		case "diff":
-			diff = value
-		}
-	}
-
-	if diff == nil {
-		return nil, fmt.Errorf("missing diff field in diff file")
-	}
-
-	return &DiffFile{
-		Seq:       txSeq, // Use txSeq from filename, not from file content
-		Path:      path,
-		Timestamp: timestamp,
-		Diff:      diff,
-		Pending:   pending,
-	}, nil
+	return dfile.ReadDiffFile(filePath)
 }

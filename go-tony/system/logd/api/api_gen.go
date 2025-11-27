@@ -13,6 +13,9 @@ import (
 
 // ToTonyIR converts Body to a Tony IR node.
 func (s *Body) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
@@ -21,21 +24,20 @@ func (s *Body) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Match (optional)
 	if s.Match != nil {
-		irMap["match"] = s.Match
+		if s.Match == nil {
+			irMap["match"] = ir.Null()
+		} else {
+			irMap["match"] = s.Match
+		}
 	}
 
 	// Field: Patch (optional)
 	if s.Patch != nil {
-		irMap["patch"] = s.Patch
-	}
-
-	// Field: Meta
-	if len(s.Meta) > 0 {
-		mapNodes := make(map[string]*ir.Node)
-		for k, v := range s.Meta {
-			mapNodes[k] = v
+		if s.Patch == nil {
+			irMap["patch"] = ir.Null()
+		} else {
+			irMap["patch"] = s.Patch
 		}
-		irMap["meta"] = ir.FromMap(mapNodes)
 	}
 
 	// Create IR node with schema tag
@@ -48,6 +50,18 @@ func (s *Body) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 		return nil
 	}
 
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
 	if node.Type != ir.ObjectType {
 		return fmt.Errorf("expected map for Body, got %v", node.Type)
 	}
@@ -65,16 +79,6 @@ func (s *Body) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			s.Match = fieldNode
 		case "patch":
 			s.Patch = fieldNode
-		case "meta":
-			// Field: Meta
-			if fieldNode.Type == ir.ObjectType {
-				m := make(map[string]*ir.Node)
-				irMap := ir.ToMap(fieldNode)
-				for k, v := range irMap {
-					m[k] = v
-				}
-				s.Meta = m
-			}
 		}
 	}
 
@@ -105,6 +109,9 @@ func (s *Body) FromTony(data []byte, opts ...gomap.UnmapOption) error {
 
 // ToTonyIR converts EncodingOptions to a Tony IR node.
 func (s *EncodingOptions) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
@@ -124,6 +131,18 @@ func (s *EncodingOptions) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) e
 		return nil
 	}
 
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
 	if node.Type != ir.ObjectType {
 		return fmt.Errorf("expected map for EncodingOptions, got %v", node.Type)
 	}
@@ -173,6 +192,9 @@ func (s *EncodingOptions) FromTony(data []byte, opts ...gomap.UnmapOption) error
 
 // ToTonyIR converts MatchMeta to a Tony IR node.
 func (s *MatchMeta) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
@@ -199,6 +221,18 @@ func (s *MatchMeta) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 		return nil
 	}
 
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
 	if node.Type != ir.ObjectType {
 		return fmt.Errorf("expected map for MatchMeta, got %v", node.Type)
 	}
@@ -256,6 +290,9 @@ func (s *MatchMeta) FromTony(data []byte, opts ...gomap.UnmapOption) error {
 
 // ToTonyIR converts Match to a Tony IR node.
 func (s *Match) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
 	var node *ir.Node
 	var err error
 	_ = node // suppress unused variable error
@@ -288,6 +325,18 @@ func (s *Match) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 		return nil
 	}
 
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
 	if node.Type != ir.ObjectType {
 		return fmt.Errorf("expected map for Match, got %v", node.Type)
 	}
@@ -335,6 +384,9 @@ func (s *Match) FromTony(data []byte, opts ...gomap.UnmapOption) error {
 
 // ToTonyIR converts PatchMeta to a Tony IR node.
 func (s *PatchMeta) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
@@ -374,6 +426,18 @@ func (s *PatchMeta) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 		return nil
 	}
 
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
 	if node.Type != ir.ObjectType {
 		return fmt.Errorf("expected map for PatchMeta, got %v", node.Type)
 	}
@@ -451,6 +515,9 @@ func (s *PatchMeta) FromTony(data []byte, opts ...gomap.UnmapOption) error {
 
 // ToTonyIR converts Patch to a Tony IR node.
 func (s *Patch) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
 	var node *ir.Node
 	var err error
 	_ = node // suppress unused variable error
@@ -483,6 +550,18 @@ func (s *Patch) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 		return nil
 	}
 
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
 	if node.Type != ir.ObjectType {
 		return fmt.Errorf("expected map for Patch, got %v", node.Type)
 	}
@@ -530,6 +609,9 @@ func (s *Patch) FromTony(data []byte, opts ...gomap.UnmapOption) error {
 
 // ToTonyIR converts WatchMeta to a Tony IR node.
 func (s *WatchMeta) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
@@ -563,6 +645,18 @@ func (s *WatchMeta) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 		return nil
 	}
 
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
 	if node.Type != ir.ObjectType {
 		return fmt.Errorf("expected map for WatchMeta, got %v", node.Type)
 	}
@@ -628,6 +722,9 @@ func (s *WatchMeta) FromTony(data []byte, opts ...gomap.UnmapOption) error {
 
 // ToTonyIR converts Error to a Tony IR node.
 func (s *Error) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
 	// Use TextMarshaler implementation
 	txt, err := s.MarshalText()
 	if err != nil {
@@ -640,6 +737,15 @@ func (s *Error) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 func (s *Error) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 	if node == nil {
 		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
 	}
 
 	// Use TextUnmarshaler implementation
