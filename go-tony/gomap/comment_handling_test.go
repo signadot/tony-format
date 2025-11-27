@@ -118,4 +118,76 @@ value: 42
 			t.Logf("Note: Comments found in output (unexpected): %v", outNode.Comment)
 		}
 	})
+	// Test 5: Comment extraction with tags
+	t.Run("CommentExtractionWithTags", func(t *testing.T) {
+		type schemaTag struct{}
+		type StructWithComments struct {
+			schemaTag    `tony:"schema=test,comment=Comments,lineComment=LineComments"`
+			Name         string `tony:"field=name"`
+			Comments     []string
+			LineComments []string
+		}
+
+		tonyData := `# Block comment
+name: test # Inline comment
+`
+		node, err := parse.Parse([]byte(tonyData), parse.ParseComments(true))
+		if err != nil {
+			t.Fatalf("Parse error: %v", err)
+		}
+
+		var s StructWithComments
+		err = gomap.FromTonyIR(node, &s)
+		if err != nil {
+			t.Fatalf("FromTonyIR error: %v", err)
+		}
+
+		// Verify block comments
+		if len(s.Comments) != 1 || s.Comments[0] != "# Block comment" {
+			t.Errorf("Expected block comment '# Block comment', got %v", s.Comments)
+		}
+
+		// Verify line comments
+		// Note: The inline comment is attached to the "name" field value, not the root object.
+		// However, the root object might have a line comment if it's on the same line as the start of the object?
+		// In this case, "name: test # Inline comment" -> the comment is on the "test" string node.
+		// The root object (StructWithComments) doesn't have a line comment here.
+
+		// Let's try a case where the root object has a line comment (if possible in Tony)
+		// Or check if the parser attaches comments to the root object.
+
+		// Actually, for a struct, the "LineComments" field usually captures the line comment of the struct itself.
+		// e.g.
+		// myStruct: # line comment
+		//   name: test
+
+		// Let's construct a node manually to be sure about structure
+		rootNode := ir.FromMap(map[string]*ir.Node{
+			"name": ir.FromString("test"),
+		})
+		// Add block comment to root
+		rootNodeWithComment := &ir.Node{
+			Type:   ir.CommentType,
+			Lines:  []string{"# Block comment"},
+			Values: []*ir.Node{rootNode},
+		}
+		// Add line comment to root
+		rootNode.Comment = &ir.Node{
+			Type:  ir.CommentType,
+			Lines: []string{"# Line comment"},
+		}
+
+		var s2 StructWithComments
+		err = gomap.FromTonyIR(rootNodeWithComment, &s2)
+		if err != nil {
+			t.Fatalf("FromTonyIR error: %v", err)
+		}
+
+		if len(s2.Comments) != 1 || s2.Comments[0] != "# Block comment" {
+			t.Errorf("Expected block comment '# Block comment', got %v", s2.Comments)
+		}
+		if len(s2.LineComments) != 1 || s2.LineComments[0] != "# Line comment" {
+			t.Errorf("Expected line comment '# Line comment', got %v", s2.LineComments)
+		}
+	})
 }

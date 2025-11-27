@@ -576,12 +576,25 @@ func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema) (string, er
 	// Unwrap CommentType nodes
 	buf.WriteString("	// Unwrap CommentType nodes to get the actual data node\n")
 	buf.WriteString("	if node.Type == ir.CommentType {\n")
+
+	// Extract Head Comments if configured
+	if s.StructSchema != nil && s.StructSchema.CommentFieldName != "" {
+		buf.WriteString(fmt.Sprintf("		s.%s = node.Lines\n", s.StructSchema.CommentFieldName))
+	}
+
 	buf.WriteString("		if len(node.Values) > 0 {\n")
 	buf.WriteString("			node = node.Values[0]\n")
 	buf.WriteString("		} else {\n")
 	buf.WriteString("			return nil\n")
 	buf.WriteString("		}\n")
 	buf.WriteString("	}\n\n")
+
+	// Extract Line Comments if configured
+	if s.StructSchema != nil && s.StructSchema.LineCommentFieldName != "" {
+		buf.WriteString("	if node.Comment != nil {\n")
+		buf.WriteString(fmt.Sprintf("		s.%s = node.Comment.Lines\n", s.StructSchema.LineCommentFieldName))
+		buf.WriteString("	}\n\n")
+	}
 
 	// Check for TextUnmarshaler implementation on the type itself
 	if s.ImplementsTextUnmarshaler {

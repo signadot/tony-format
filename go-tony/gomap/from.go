@@ -112,13 +112,37 @@ func fromIRReflectWithVisited(node *ir.Node, val reflect.Value, fieldPath string
 		}
 	}
 
-	// Unwrap CommentType nodes to get the actual data node
+	// Handle Head Comments (CommentType wrapping the value)
 	if node.Type == ir.CommentType {
+		// Check if we need to extract comments into the struct
+		if val.Kind() == reflect.Struct {
+			if schema, err := GetStructSchema(val.Type()); err == nil && schema != nil {
+				if schema.CommentFieldName != "" {
+					f := val.FieldByName(schema.CommentFieldName)
+					if f.IsValid() && f.CanSet() && f.Type() == reflect.TypeOf([]string{}) {
+						f.Set(reflect.ValueOf(node.Lines))
+					}
+				}
+			}
+		}
+
 		if len(node.Values) > 0 {
 			node = node.Values[0]
 		} else {
 			// Empty comment node, treat as nil
 			return nil
+		}
+	}
+
+	// Handle Line Comments (attached to the value node)
+	if node.Comment != nil && val.Kind() == reflect.Struct {
+		if schema, err := GetStructSchema(val.Type()); err == nil && schema != nil {
+			if schema.LineCommentFieldName != "" {
+				f := val.FieldByName(schema.LineCommentFieldName)
+				if f.IsValid() && f.CanSet() && f.Type() == reflect.TypeOf([]string{}) {
+					f.Set(reflect.ValueOf(node.Comment.Lines))
+				}
+			}
 		}
 	}
 
