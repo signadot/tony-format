@@ -524,9 +524,9 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 
 	// Special handling for *ir.Node (and deeper pointers)
 	if depth := getIRNodeDepth(field.Type); depth > 0 {
-		buf.WriteString(fmt.Sprintf("		if s.%s == nil {\n", field.Name))
-		buf.WriteString(fmt.Sprintf("			irMap[%q] = ir.Null()\n", schemaFieldName))
-		buf.WriteString("		} else {\n")
+		buf.WriteString(fmt.Sprintf("	if s.%s == nil {\n", field.Name))
+		buf.WriteString(fmt.Sprintf("		irMap[%q] = ir.Null()\n", schemaFieldName))
+		buf.WriteString("	} else {\n")
 
 		// Dereference if depth > 1 (we want *ir.Node)
 		derefs := ""
@@ -534,8 +534,8 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			derefs += "*"
 		}
 
-		buf.WriteString(fmt.Sprintf("			irMap[%q] = %ss.%s\n", schemaFieldName, derefs, field.Name))
-		buf.WriteString("		}\n")
+		buf.WriteString(fmt.Sprintf("		irMap[%q] = %ss.%s\n", schemaFieldName, derefs, field.Name))
+		buf.WriteString("	}\n")
 		return buf.String(), nil
 	}
 
@@ -543,44 +543,44 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 	// We use the flag instead of runtime reflection because custom types like `type A int`
 	// don't preserve methods in reflect.Type
 	if field.ImplementsTextMarshaler {
-		buf.WriteString(fmt.Sprintf("		if txt, err := s.%s.MarshalText(); err != nil {\n", field.Name))
-		buf.WriteString(fmt.Sprintf("			return nil, fmt.Errorf(\"failed to marshal field %%q: %%w\", %q, err)\n", field.Name))
-		buf.WriteString("		} else {\n")
-		buf.WriteString(fmt.Sprintf("			irMap[%q] = ir.FromString(string(txt))\n", schemaFieldName))
-		buf.WriteString("		}\n")
+		buf.WriteString(fmt.Sprintf("	if txt, err := s.%s.MarshalText(); err != nil {\n", field.Name))
+		buf.WriteString(fmt.Sprintf("		return nil, fmt.Errorf(\"failed to marshal field %%q: %%w\", %q, err)\n", field.Name))
+		buf.WriteString("	} else {\n")
+		buf.WriteString(fmt.Sprintf("		irMap[%q] = ir.FromString(string(txt))\n", schemaFieldName))
+		buf.WriteString("	}\n")
 		return buf.String(), nil
 	}
 
 	// Handle different field types
 	switch field.Type.Kind() {
 	case reflect.String:
-		buf.WriteString(fmt.Sprintf("		irMap[%q] = ir.FromString(s.%s)\n", schemaFieldName, field.Name))
+		buf.WriteString(fmt.Sprintf("\tirMap[%q] = ir.FromString(s.%s)\n", schemaFieldName, field.Name))
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		buf.WriteString(fmt.Sprintf("		irMap[%q] = ir.FromInt(int64(s.%s))\n", schemaFieldName, field.Name))
+		buf.WriteString(fmt.Sprintf("\tirMap[%q] = ir.FromInt(int64(s.%s))\n", schemaFieldName, field.Name))
 
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		// For unsigned types, we need to handle them carefully
-		buf.WriteString(fmt.Sprintf("		irMap[%q] = ir.FromInt(int64(s.%s))\n", schemaFieldName, field.Name))
+		buf.WriteString(fmt.Sprintf("\tirMap[%q] = ir.FromInt(int64(s.%s))\n", schemaFieldName, field.Name))
 
 	case reflect.Float32, reflect.Float64:
-		buf.WriteString(fmt.Sprintf("		irMap[%q] = ir.FromFloat(float64(s.%s))\n", schemaFieldName, field.Name))
+		buf.WriteString(fmt.Sprintf("\tirMap[%q] = ir.FromFloat(float64(s.%s))\n", schemaFieldName, field.Name))
 
 	case reflect.Bool:
-		buf.WriteString(fmt.Sprintf("		irMap[%q] = ir.FromBool(s.%s)\n", schemaFieldName, field.Name))
+		buf.WriteString(fmt.Sprintf("\tirMap[%q] = ir.FromBool(s.%s)\n", schemaFieldName, field.Name))
 
 	case reflect.Ptr:
 		// Pointer type - dereference and recurse
 		elemType := field.Type.Elem()
 		if elemType.Kind() == reflect.Struct {
 			// Nested struct - call ToTony() method
-			buf.WriteString(fmt.Sprintf("		if s.%s != nil {\n", field.Name))
-			buf.WriteString(fmt.Sprintf("			node, err %s s.%s.ToTonyIR(opts...)\n", assign, field.Name))
-			buf.WriteString("			if err != nil {\n")
-			buf.WriteString("				return nil, err\n")
-			buf.WriteString("			}\n")
-			buf.WriteString(fmt.Sprintf("			irMap[%q] = node\n", schemaFieldName))
+			buf.WriteString(fmt.Sprintf("	if s.%s != nil {\n", field.Name))
+			buf.WriteString(fmt.Sprintf("		node, err %s s.%s.ToTonyIR(opts...)\n", assign, field.Name))
+			buf.WriteString("		if err != nil {\n")
+			buf.WriteString("			return nil, err\n")
 			buf.WriteString("		}\n")
+			buf.WriteString(fmt.Sprintf("		irMap[%q] = node\n", schemaFieldName))
+			buf.WriteString("	}\n")
 		} else {
 			// Pointer to primitive - handle based on element type
 			fieldCode, err := generateFieldToIR(structInfo, &FieldInfo{
@@ -591,42 +591,42 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 				return "", err
 			}
 			// Wrap in nil check
-			buf.WriteString(fmt.Sprintf("		if s.%s != nil {\n", field.Name))
+			buf.WriteString(fmt.Sprintf("	if s.%s != nil {\n", field.Name))
 			buf.WriteString(strings.Replace(fieldCode, fmt.Sprintf("s.%s", field.Name), fmt.Sprintf("*s.%s", field.Name), -1))
-			buf.WriteString("		}\n")
+			buf.WriteString("	}\n")
 		}
 
 	case reflect.Slice, reflect.Array:
 		// Slice/Array type
 		elemType := field.Type.Elem()
-		buf.WriteString(fmt.Sprintf("		if len(s.%s) > 0 {\n", field.Name))
-		buf.WriteString(fmt.Sprintf("			slice := make([]*ir.Node, len(s.%s))\n", field.Name))
-		buf.WriteString(fmt.Sprintf("			for i, v := range s.%s {\n", field.Name))
+		buf.WriteString(fmt.Sprintf("	if len(s.%s) > 0 {\n", field.Name))
+		buf.WriteString(fmt.Sprintf("		slice := make([]*ir.Node, len(s.%s))\n", field.Name))
+		buf.WriteString(fmt.Sprintf("		for i, v := range s.%s {\n", field.Name))
 		if depth := getIRNodeDepth(elemType); depth > 0 {
 			// Slice of *ir.Node (or deeper) - use directly (with dereference if needed)
 			derefs := ""
 			for j := 0; j < depth-1; j++ {
 				derefs += "*"
 			}
-			buf.WriteString(fmt.Sprintf("\t\t\t\tslice[i] = %sv\n", derefs))
+			buf.WriteString(fmt.Sprintf("			slice[i] = %sv\n", derefs))
 		} else if elemType.Kind() == reflect.Struct || (elemType.Kind() == reflect.Ptr && elemType.Elem().Kind() == reflect.Struct) {
 			// Slice of structs or pointers to structs - call ToTony()
-			buf.WriteString(fmt.Sprintf("				node, err %s v.ToTonyIR(opts...)\n", assign))
-			buf.WriteString("				if err != nil {\n")
-			buf.WriteString("					return nil, fmt.Errorf(\"failed to convert slice element %d: %w\", i, err)\n")
-			buf.WriteString("				}\n")
-			buf.WriteString("				slice[i] = node\n")
+			buf.WriteString(fmt.Sprintf("			node, err %s v.ToTonyIR(opts...)\n", assign))
+			buf.WriteString("			if err != nil{\n")
+			buf.WriteString("				return nil, fmt.Errorf(\"failed to convert slice element %d: %w\", i, err)\n")
+			buf.WriteString("			}\n")
+			buf.WriteString("			slice[i] = node\n")
 		} else {
 			// Slice of primitives - generate element conversion
 			elemCode, err := generatePrimitiveToIR("v", elemType)
 			if err != nil {
 				return "", fmt.Errorf("unsupported slice element type %v: %w", elemType, err)
 			}
-			buf.WriteString(fmt.Sprintf("				slice[i] = %s\n", elemCode))
+			buf.WriteString(fmt.Sprintf("			slice[i] = %s\n", elemCode))
 		}
-		buf.WriteString("			}\n")
-		buf.WriteString(fmt.Sprintf("			irMap[%q] = ir.FromSlice(slice)\n", schemaFieldName))
 		buf.WriteString("		}\n")
+		buf.WriteString(fmt.Sprintf("		irMap[%q] = ir.FromSlice(slice)\n", schemaFieldName))
+		buf.WriteString("	}\n")
 
 	case reflect.Map:
 		// Map type
@@ -635,99 +635,99 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 
 		if keyType.Kind() == reflect.Uint32 {
 			// Sparse array (map[uint32]T)
-			buf.WriteString(fmt.Sprintf("		if len(s.%s) > 0 {\n", field.Name))
-			buf.WriteString(fmt.Sprintf("			intKeysMap := make(map[uint32]*ir.Node)\n"))
-			buf.WriteString(fmt.Sprintf("			for k, v := range s.%s {\n", field.Name))
+			buf.WriteString(fmt.Sprintf("	if len(s.%s) > 0 {\n", field.Name))
+			buf.WriteString(fmt.Sprintf("		intKeysMap := make(map[uint32]*ir.Node)\n"))
+			buf.WriteString(fmt.Sprintf("		for k, v := range s.%s {\n", field.Name))
 			if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) {
-				buf.WriteString(fmt.Sprintf("				node, err %s v.ToTonyIR(opts...)\n", assign))
-				buf.WriteString("				if err != nil {\n")
-				buf.WriteString("					return nil, fmt.Errorf(\"failed to convert map value at key %d: %w\", k, err)\n")
-				buf.WriteString("				}\n")
-				buf.WriteString("				intKeysMap[k] = node\n")
+				buf.WriteString(fmt.Sprintf("			node, err %s v.ToTonyIR(opts...)\n", assign))
+				buf.WriteString("			if err != nil {\n")
+				buf.WriteString("				return nil, fmt.Errorf(\"failed to convert map value at key %d: %w\", k, err)\n")
+				buf.WriteString("			}\n")
+				buf.WriteString("			intKeysMap[k] = node\n")
 			} else {
 				valueCode, err := generatePrimitiveToIR("v", valueType)
 				if err != nil {
 					return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
 				}
-				buf.WriteString(fmt.Sprintf("				intKeysMap[k] = %s\n", valueCode))
+				buf.WriteString(fmt.Sprintf("			intKeysMap[k] = %s\n", valueCode))
 			}
-			buf.WriteString("			}\n")
-			buf.WriteString(fmt.Sprintf("			irMap[%q] = ir.FromIntKeysMap(intKeysMap)\n", schemaFieldName))
 			buf.WriteString("		}\n")
+			buf.WriteString(fmt.Sprintf("		irMap[%q] = ir.FromIntKeysMap(intKeysMap)\n", schemaFieldName))
+			buf.WriteString("	}\n")
 		} else if keyType.Kind() == reflect.String {
 			// Regular map (map[string]T)
-			buf.WriteString(fmt.Sprintf("		if len(s.%s) > 0 {\n", field.Name))
-			buf.WriteString(fmt.Sprintf("			mapNodes := make(map[string]*ir.Node)\n"))
-			buf.WriteString(fmt.Sprintf("			for k, v := range s.%s {\n", field.Name))
+			buf.WriteString(fmt.Sprintf("	if len(s.%s) > 0 {\n", field.Name))
+			buf.WriteString(fmt.Sprintf("	mapNodes := make(map[string]*ir.Node)\n"))
+			buf.WriteString(fmt.Sprintf("	for k, v := range s.%s {\n", field.Name))
 			if depth := getIRNodeDepth(valueType); depth > 0 {
 				// Map value is *ir.Node (or deeper)
 				derefs := ""
 				for j := 0; j < depth-1; j++ {
 					derefs += "*"
 				}
-				buf.WriteString(fmt.Sprintf("				mapNodes[k] = %sv\n", derefs))
+				buf.WriteString(fmt.Sprintf("		mapNodes[k] = %sv\n", derefs))
 			} else if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) {
-				buf.WriteString(fmt.Sprintf("				node, err %s v.ToTonyIR(opts...)\n", assign))
-				buf.WriteString("				if err != nil {\n")
-				buf.WriteString("					return nil, fmt.Errorf(\"failed to convert map value at key %q: %w\", k, err)\n")
-				buf.WriteString("				}\n")
-				buf.WriteString("				mapNodes[k] = node\n")
+				buf.WriteString(fmt.Sprintf("		node, err %s v.ToTonyIR(opts...)\n", assign))
+				buf.WriteString("		if err != nil {\n")
+				buf.WriteString("			return nil, fmt.Errorf(\"failed to convert map value at key %q: %w\", k, err)\n")
+				buf.WriteString("		}\n")
+				buf.WriteString("		mapNodes[k] = node\n")
 			} else {
 				valueCode, err := generatePrimitiveToIR("v", valueType)
 				if err != nil {
 					return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
 				}
-				buf.WriteString(fmt.Sprintf("				mapNodes[k] = %s\n", valueCode))
+				buf.WriteString(fmt.Sprintf("		mapNodes[k] = %s\n", valueCode))
 			}
-			buf.WriteString("			}\n")
-			buf.WriteString(fmt.Sprintf("			irMap[%q] = ir.FromMap(mapNodes)\n", schemaFieldName))
-			buf.WriteString("		}\n")
+			buf.WriteString("	}\n")
+			buf.WriteString(fmt.Sprintf("	irMap[%q] = ir.FromMap(mapNodes)\n", schemaFieldName))
+			buf.WriteString("	}\n")
 		} else if keyType.Kind() == reflect.Interface {
 			// Map with interface{} (any) keys - convert keys to strings
-			buf.WriteString(fmt.Sprintf("		if len(s.%s) > 0 {\n", field.Name))
-			buf.WriteString(fmt.Sprintf("			mapNodes := make(map[string]*ir.Node)\n"))
-			buf.WriteString(fmt.Sprintf("			for k, v := range s.%s {\n", field.Name))
-			buf.WriteString("				// Convert interface{} key to string\n")
-			buf.WriteString("				kStr := fmt.Sprintf(\"%v\", k)\n")
+			buf.WriteString(fmt.Sprintf("	if len(s.%s) > 0 {\n", field.Name))
+			buf.WriteString(fmt.Sprintf("	mapNodes := make(map[string]*ir.Node)\n"))
+			buf.WriteString(fmt.Sprintf("	for k, v := range s.%s {\n", field.Name))
+			buf.WriteString("		// Convert interface{} key to string\n")
+			buf.WriteString("		kStr := fmt.Sprintf(\"%v\", k)\n")
 			if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) {
-				buf.WriteString(fmt.Sprintf("				node, err %s v.ToTonyIR(opts...)\n", assign))
-				buf.WriteString("				if err != nil {\n")
-				buf.WriteString("					return nil, fmt.Errorf(\"failed to convert map value at key %v: %w\", k, err)\n")
-				buf.WriteString("				}\n")
-				buf.WriteString("				mapNodes[kStr] = node\n")
+				buf.WriteString(fmt.Sprintf("		node, err %s v.ToTonyIR(opts...)\n", assign))
+				buf.WriteString("		if err != nil {\n")
+				buf.WriteString("			return nil, fmt.Errorf(\"failed to convert map value at key %v: %w\", k, err)\n")
+				buf.WriteString("		}\n")
+				buf.WriteString("		mapNodes[kStr] = node\n")
 			} else {
 				valueCode, err := generatePrimitiveToIR("v", valueType)
 				if err != nil {
 					return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
 				}
-				buf.WriteString(fmt.Sprintf("				mapNodes[kStr] = %s\n", valueCode))
+				buf.WriteString(fmt.Sprintf("		mapNodes[kStr] = %s\n", valueCode))
 			}
-			buf.WriteString("			}\n")
-			buf.WriteString(fmt.Sprintf("			irMap[%q] = ir.FromMap(mapNodes)\n", schemaFieldName))
-			buf.WriteString("		}\n")
+			buf.WriteString("	}\n")
+			buf.WriteString(fmt.Sprintf("	irMap[%q] = ir.FromMap(mapNodes)\n", schemaFieldName))
+			buf.WriteString("	}\n")
 		} else if keyType.Kind() == reflect.Ptr {
 			// Map with pointer keys - convert pointers to strings
-			buf.WriteString(fmt.Sprintf("		if len(s.%s) > 0 {\n", field.Name))
-			buf.WriteString(fmt.Sprintf("			mapNodes := make(map[string]*ir.Node)\n"))
-			buf.WriteString(fmt.Sprintf("			for k, v := range s.%s {\n", field.Name))
-			buf.WriteString("				// Convert pointer key to string representation\n")
-			buf.WriteString("				kStr := fmt.Sprintf(\"%p\", k)\n")
+			buf.WriteString(fmt.Sprintf("	if len(s.%s) > 0 {\n", field.Name))
+			buf.WriteString(fmt.Sprintf("	mapNodes := make(map[string]*ir.Node)\n"))
+			buf.WriteString(fmt.Sprintf("	for k, v := range s.%s {\n", field.Name))
+			buf.WriteString("		// Convert pointer key to string representation\n")
+			buf.WriteString("		kStr := fmt.Sprintf(\"%p\", k)\n")
 			if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) {
-				buf.WriteString(fmt.Sprintf("				node, err %s v.ToTonyIR(opts...)\n", assign))
-				buf.WriteString("				if err != nil {\n")
-				buf.WriteString("					return nil, fmt.Errorf(\"failed to convert map value at key %p: %w\", k, err)\n")
-				buf.WriteString("				}\n")
-				buf.WriteString("				mapNodes[kStr] = node\n")
+				buf.WriteString(fmt.Sprintf("		node, err %s v.ToTonyIR(opts...)\n", assign))
+				buf.WriteString("		if err != nil {\n")
+				buf.WriteString("			return nil, fmt.Errorf(\"failed to convert map value at key %p: %w\", k, err)\n")
+				buf.WriteString("		}\n")
+				buf.WriteString("		mapNodes[kStr] = node\n")
 			} else {
 				valueCode, err := generatePrimitiveToIR("v", valueType)
 				if err != nil {
 					return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
 				}
-				buf.WriteString(fmt.Sprintf("				mapNodes[kStr] = %s\n", valueCode))
+				buf.WriteString(fmt.Sprintf("		mapNodes[kStr] = %s\n", valueCode))
 			}
-			buf.WriteString("			}\n")
-			buf.WriteString(fmt.Sprintf("			irMap[%q] = ir.FromMap(mapNodes)\n", schemaFieldName))
-			buf.WriteString("		}\n")
+			buf.WriteString("	}\n")
+			buf.WriteString(fmt.Sprintf("	irMap[%q] = ir.FromMap(mapNodes)\n", schemaFieldName))
+			buf.WriteString("	}\n")
 		} else {
 			return "", fmt.Errorf("unsupported map key type: %v (only string, uint32, interface{}, and pointer types are supported)", keyType.Kind())
 		}
@@ -735,22 +735,22 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 	case reflect.Interface:
 		// Interface{} type - use reflection-based conversion
 		// For codegen, we'll use a helper that calls ToIR recursively
-		buf.WriteString(fmt.Sprintf("		if s.%s != nil {\n", field.Name))
-		buf.WriteString(fmt.Sprintf("			// Interface{} conversion requires runtime reflection\n"))
-		buf.WriteString(fmt.Sprintf("			node, err %s toIRInterface(s.%s)\n", assign, field.Name))
-		buf.WriteString("			if err != nil {\n")
-		buf.WriteString(fmt.Sprintf("				return nil, fmt.Errorf(\"failed to convert field %%q: %%w\", %q, err)\n", field.Name))
-		buf.WriteString("			}\n")
-		buf.WriteString(fmt.Sprintf("			irMap[%q] = node\n", schemaFieldName))
-		buf.WriteString("		}\n")
+		buf.WriteString(fmt.Sprintf("	if s.%s != nil {\n", field.Name))
+		buf.WriteString(fmt.Sprintf("	// Interface{} conversion requires runtime reflection\n"))
+		buf.WriteString(fmt.Sprintf("	node, err %s toIRInterface(s.%s)\n", assign, field.Name))
+		buf.WriteString("	if err != nil {\n")
+		buf.WriteString(fmt.Sprintf("		return nil, fmt.Errorf(\"failed to convert field %%q: %%w\", %q, err)\n", field.Name))
+		buf.WriteString("	}\n")
+		buf.WriteString(fmt.Sprintf("	irMap[%q] = node\n", schemaFieldName))
+		buf.WriteString("	}\n")
 
 	case reflect.Struct:
 		// Nested struct - call ToTony() method
-		buf.WriteString(fmt.Sprintf("		node, err %s s.%s.ToTonyIR(opts...)\n", assign, field.Name))
-		buf.WriteString("		if err != nil {\n")
-		buf.WriteString(fmt.Sprintf("			return nil, fmt.Errorf(\"failed to convert field %%q: %%w\", %q, err)\n", field.Name))
-		buf.WriteString("		}\n")
-		buf.WriteString(fmt.Sprintf("		irMap[%q] = node\n", schemaFieldName))
+		buf.WriteString(fmt.Sprintf("	node, err %s s.%s.ToTonyIR(opts...)\n", assign, field.Name))
+		buf.WriteString("	if err != nil {\n")
+		buf.WriteString(fmt.Sprintf("		return nil, fmt.Errorf(\"failed to convert field %%q: %%w\", %q, err)\n", field.Name))
+		buf.WriteString("	}\n")
+		buf.WriteString(fmt.Sprintf("	irMap[%q] = node\n", schemaFieldName))
 
 	default:
 		return "", fmt.Errorf("unsupported field type: %v", field.Type.Kind())
