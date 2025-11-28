@@ -36,7 +36,7 @@ func TestGenerateToTonyIRMethod_SimpleStruct(t *testing.T) {
 		},
 	}
 
-	code, err := GenerateToTonyIRMethod(structInfo, s)
+	code, err := GenerateToTonyIRMethod(structInfo, s, "github.com/signadot/tony-format/go-tony/gomap/codegen")
 	if err != nil {
 		t.Fatalf("GenerateToTonyMethod failed: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestGenerateToTonyIRMethod_OptionalField(t *testing.T) {
 		},
 	}
 
-	code, err := GenerateToTonyIRMethod(structInfo, s)
+	code, err := GenerateToTonyIRMethod(structInfo, s, "github.com/signadot/tony-format/go-tony/gomap/codegen")
 	if err != nil {
 		t.Fatalf("GenerateToTonyMethod failed: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestGenerateToTonyIRMethod_SliceField(t *testing.T) {
 		},
 	}
 
-	code, err := GenerateToTonyIRMethod(structInfo, s)
+	code, err := GenerateToTonyIRMethod(structInfo, s, "github.com/signadot/tony-format/go-tony/gomap/codegen")
 	if err != nil {
 		t.Fatalf("GenerateToTonyMethod failed: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestGenerateToTonyIRMethod_MapField(t *testing.T) {
 		},
 	}
 
-	code, err := GenerateToTonyIRMethod(structInfo, s)
+	code, err := GenerateToTonyIRMethod(structInfo, s, "github.com/signadot/tony-format/go-tony/gomap/codegen")
 	if err != nil {
 		t.Fatalf("GenerateToTonyMethod failed: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestGenerateFromTonyIRMethod_SimpleStruct(t *testing.T) {
 		},
 	}
 
-	code, err := GenerateFromTonyIRMethod(structInfo, s)
+	code, err := GenerateFromTonyIRMethod(structInfo, s, "github.com/signadot/tony-format/go-tony/gomap/codegen")
 	if err != nil {
 		t.Fatalf("GenerateFromTonyMethod failed: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestGenerateFromTonyIRMethod_RequiredField(t *testing.T) {
 		},
 	}
 
-	code, err := GenerateFromTonyIRMethod(structInfo, s)
+	code, err := GenerateFromTonyIRMethod(structInfo, s, "github.com/signadot/tony-format/go-tony/gomap/codegen")
 	if err != nil {
 		t.Fatalf("GenerateFromTonyMethod failed: %v", err)
 	}
@@ -273,7 +273,7 @@ func TestGenerateFromTonyIRMethod_SliceField(t *testing.T) {
 		},
 	}
 
-	code, err := GenerateFromTonyIRMethod(structInfo, s)
+	code, err := GenerateFromTonyIRMethod(structInfo, s, "github.com/signadot/tony-format/go-tony/gomap/codegen")
 	if err != nil {
 		t.Fatalf("GenerateFromTonyMethod failed: %v", err)
 	}
@@ -550,7 +550,7 @@ func TestReproFieldTagIssue(t *testing.T) {
 	}
 
 	// Generate FromTonyIR method
-	code, err := GenerateFromTonyIRMethod(structInfo, s)
+	code, err := GenerateFromTonyIRMethod(structInfo, s, "github.com/signadot/tony-format/go-tony/gomap/codegen")
 	if err != nil {
 		t.Fatalf("GenerateFromTonyIRMethod failed: %v", err)
 	}
@@ -595,7 +595,7 @@ func TestReproVariableShadowing(t *testing.T) {
 	}
 
 	// Generate ToTonyIR method
-	code, err := GenerateToTonyIRMethod(structInfo, s)
+	code, err := GenerateToTonyIRMethod(structInfo, s, "github.com/signadot/tony-format/go-tony/gomap/codegen")
 	if err != nil {
 		t.Fatalf("GenerateToTonyIRMethod failed: %v", err)
 	}
@@ -646,7 +646,7 @@ func TestReproMapIssue(t *testing.T) {
 	}
 
 	// Generate FromTonyIR method
-	code, err := GenerateFromTonyIRMethod(structInfo, s)
+	code, err := GenerateFromTonyIRMethod(structInfo, s, "github.com/signadot/tony-format/go-tony/gomap/codegen")
 	if err != nil {
 		t.Fatalf("GenerateFromTonyIRMethod failed: %v", err)
 	}

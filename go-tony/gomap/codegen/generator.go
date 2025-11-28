@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/schema"
 )
 
@@ -19,21 +18,31 @@ var (
 	textUnmarshalerType = reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
 )
 
-// isIRNodePtr checks if the type is *ir.Node
-func isIRNodePtr(t reflect.Type) bool {
+// getIRNodeDepth returns the depth of the pointer if the type is a pointer to ir.Node.
+// Returns 0 if it's not a pointer to ir.Node.
+// e.g. *ir.Node -> 1, **ir.Node -> 2
+func getIRNodeDepth(t reflect.Type) int {
 	if t == nil {
-		return false
+		return 0
 	}
-	// Check for direct equality first
-	if t == reflect.TypeOf((*ir.Node)(nil)) {
-		return true
+	depth := 0
+	current := t
+	for current.Kind() == reflect.Ptr {
+		depth++
+		current = current.Elem()
 	}
-	// Check by name and package
-	if t.Kind() == reflect.Ptr {
-		elem := t.Elem()
-		return elem.Name() == "Node" && strings.HasSuffix(elem.PkgPath(), "/ir")
+
+	// Check if the base type is ir.Node
+	if current.Name() == "Node" && strings.HasSuffix(current.PkgPath(), "/ir") {
+		return depth
 	}
-	return false
+	return 0
+}
+
+// isIRNodePtr checks if the type is *ir.Node
+// Deprecated: Use getIRNodeDepth instead
+func isIRNodePtr(t reflect.Type) bool {
+	return getIRNodeDepth(t) == 1
 }
 
 // GenerateCode generates Go code for ToTony() and FromTony() methods for all structs.
@@ -58,8 +67,51 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 		if structInfo.StructSchema == nil {
 			continue
 		}
+
+		// Helper to collect imports from a type
+		var collectImports func(reflect.Type)
+		collectImports = func(t reflect.Type) {
+			if t == nil {
+				return
+			}
+			// Handle pointers
+			for t.Kind() == reflect.Ptr {
+				t = t.Elem()
+			}
+
+			// Check for named types from other packages
+			if t.PkgPath() != "" && t.PkgPath() != config.Package.Path {
+				// We need the import path.
+				// For now, we rely on the structInfo.Imports map which maps package name to path.
+				// But t.PkgPath() IS the import path.
+				externalImports[t.PkgPath()] = true
+			}
+
+			// Handle containers
+			switch t.Kind() {
+			case reflect.Slice, reflect.Array:
+				collectImports(t.Elem())
+			case reflect.Map:
+				collectImports(t.Key())
+				collectImports(t.Elem())
+			case reflect.Struct:
+				// For structs, we might need to look up their fields if we were doing deep traversal,
+				// but here we only care about the types directly referenced in the generated code.
+				// If t is a named struct from another package, we added it above.
+			}
+		}
+
+		// Check the struct type itself (in case it's a named container type)
+		if structInfo.Type != nil {
+			collectImports(structInfo.Type)
+		}
+
 		// Check all fields for external types
 		for _, field := range structInfo.Fields {
+			if field.Type != nil {
+				collectImports(field.Type)
+			}
+			// Also check explicit StructTypeName for cases where reflection might be incomplete
 			if field.StructTypeName != "" && strings.Contains(field.StructTypeName, ".") {
 				// Extract package name (e.g., "format" from "format.Format")
 				parts := strings.Split(field.StructTypeName, ".")
@@ -140,7 +192,7 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 		// For now, we'll always generate the methods.
 
 		// Generate ToTonyIR method
-		toTonyIRCode, err := GenerateToTonyIRMethod(structInfo, s)
+		toTonyIRCode, err := GenerateToTonyIRMethod(structInfo, s, config.Package.Path)
 		if err != nil {
 			return "", fmt.Errorf("failed to generate ToTonyIR() for %q: %w", structInfo.Name, err)
 		}
@@ -148,7 +200,7 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 		buf.WriteString("\n\n")
 
 		// Generate FromTonyIR method
-		fromTonyIRCode, err := GenerateFromTonyIRMethod(structInfo, s)
+		fromTonyIRCode, err := GenerateFromTonyIRMethod(structInfo, s, config.Package.Path)
 		if err != nil {
 			return "", fmt.Errorf("failed to generate FromTonyIR() for %q: %w", structInfo.Name, err)
 		}
@@ -191,7 +243,7 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 }
 
 // GenerateToTonyIRMethod generates the ToTonyIR method for a struct.
-func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema) (string, error) {
+func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPath string) (string, error) {
 	var buf bytes.Buffer
 
 	// Method signature
@@ -229,10 +281,155 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema) (string, erro
 			buf.WriteString(fmt.Sprintf("	return ir.FromFloat(float64(*s)).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
 		case reflect.Bool:
 			buf.WriteString(fmt.Sprintf("	return ir.FromBool(bool(*s)).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+
+		// Handle container types (Slice, Array, Map)
+		case reflect.Slice, reflect.Array:
+			// Reuse field generation logic but for the top-level type
+			// We create a fake field info to reuse generateFieldToIR logic,
+			// but we need to adapt it because generateFieldToIR assumes it's accessing a field of a struct (s.Field).
+			// Here we are accessing *s directly.
+
+			// Let's implement it directly here to avoid hacky adaptations.
+			elemType := s.Type.Elem()
+			buf.WriteString("	if len(*s) > 0 {\n")
+			buf.WriteString(fmt.Sprintf("		slice := make([]*ir.Node, len(*s))\n"))
+			buf.WriteString("		for i, v := range *s {\n")
+
+			if depth := getIRNodeDepth(elemType); depth > 0 {
+				// Slice of *ir.Node (or deeper)
+				derefs := ""
+				for j := 0; j < depth-1; j++ {
+					derefs += "*"
+				}
+				buf.WriteString(fmt.Sprintf("			slice[i] = %sv\n", derefs))
+			} else if elemType.Kind() == reflect.Struct || (elemType.Kind() == reflect.Ptr && elemType.Elem().Kind() == reflect.Struct) || (elemType.Name() != "" && elemType.Kind() != reflect.String && !isPrimitiveKind(elemType.Kind())) || elemType.Kind() == reflect.Slice || elemType.Kind() == reflect.Map || elemType.Kind() == reflect.Array {
+				// Slice of structs, pointers to structs, or other complex types (named types, nested containers)
+				if elemType.Kind() == reflect.Ptr {
+					buf.WriteString("			node, err := v.ToTonyIR(opts...)\n")
+				} else {
+					// v is a value, we need to call ToTonyIR on pointer
+					buf.WriteString("			node, err := (&v).ToTonyIR(opts...)\n")
+				}
+				buf.WriteString("			if err != nil {\n")
+				buf.WriteString("				return nil, fmt.Errorf(\"failed to convert slice element %d: %w\", i, err)\n")
+				buf.WriteString("			}\n")
+				buf.WriteString("			slice[i] = node\n")
+			} else {
+				// Slice of primitives
+				elemCode, err := generatePrimitiveToIR("v", elemType)
+				if err != nil {
+					return "", fmt.Errorf("unsupported slice element type %v: %w", elemType, err)
+				}
+				buf.WriteString(fmt.Sprintf("			slice[i] = %s\n", elemCode))
+			}
+			buf.WriteString("		}\n")
+			buf.WriteString(fmt.Sprintf("		return ir.FromSlice(slice).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+			buf.WriteString("	}\n")
+			buf.WriteString("	return ir.FromSlice(nil).WithTag(\"!\"+s.StructSchema.SchemaName), nil\n")
+
+		case reflect.Map:
+			keyType := s.Type.Key()
+			valueType := s.Type.Elem()
+
+			if keyType.Kind() == reflect.Uint32 {
+				// Sparse array (map[uint32]T)
+				buf.WriteString("	if len(*s) > 0 {\n")
+				buf.WriteString("		intKeysMap := make(map[uint32]*ir.Node)\n")
+				buf.WriteString("		for k, v := range *s {\n")
+
+				if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) || (valueType.Name() != "" && valueType.Kind() != reflect.String && !isPrimitiveKind(valueType.Kind())) || valueType.Kind() == reflect.Slice || valueType.Kind() == reflect.Map || valueType.Kind() == reflect.Array {
+					if valueType.Kind() == reflect.Ptr {
+						buf.WriteString("			node, err := v.ToTonyIR(opts...)\n")
+					} else {
+						buf.WriteString("			node, err := (&v).ToTonyIR(opts...)\n")
+					}
+					buf.WriteString("			if err != nil {\n")
+					buf.WriteString("				return nil, fmt.Errorf(\"failed to convert map value at key %d: %w\", k, err)\n")
+					buf.WriteString("			}\n")
+					buf.WriteString("			intKeysMap[k] = node\n")
+				} else {
+					valueCode, err := generatePrimitiveToIR("v", valueType)
+					if err != nil {
+						return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
+					}
+					buf.WriteString(fmt.Sprintf("			intKeysMap[k] = %s\n", valueCode))
+				}
+				buf.WriteString("		}\n")
+				buf.WriteString(fmt.Sprintf("		return ir.FromIntKeysMap(intKeysMap).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+				buf.WriteString("	}\n")
+				buf.WriteString("	return ir.FromIntKeysMap(nil).WithTag(\"!\"+s.StructSchema.SchemaName), nil\n")
+
+			} else if keyType.Kind() == reflect.String {
+				// Regular map (map[string]T)
+				buf.WriteString("	if len(*s) > 0 {\n")
+				buf.WriteString("		mapNodes := make(map[string]*ir.Node)\n")
+				buf.WriteString("		for k, v := range *s {\n")
+
+				if depth := getIRNodeDepth(valueType); depth > 0 {
+					// Map value is *ir.Node (or deeper)
+					derefs := ""
+					for j := 0; j < depth-1; j++ {
+						derefs += "*"
+					}
+					buf.WriteString(fmt.Sprintf("			mapNodes[k] = %sv\n", derefs))
+				} else if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) || (valueType.Name() != "" && valueType.Kind() != reflect.String && !isPrimitiveKind(valueType.Kind())) || valueType.Kind() == reflect.Slice || valueType.Kind() == reflect.Map || valueType.Kind() == reflect.Array {
+					if valueType.Kind() == reflect.Ptr {
+						buf.WriteString("			node, err := v.ToTonyIR(opts...)\n")
+					} else {
+						buf.WriteString("			node, err := (&v).ToTonyIR(opts...)\n")
+					}
+					buf.WriteString("			if err != nil {\n")
+					buf.WriteString("				return nil, fmt.Errorf(\"failed to convert map value at key %q: %w\", k, err)\n")
+					buf.WriteString("			}\n")
+					buf.WriteString("			mapNodes[k] = node\n")
+				} else {
+					valueCode, err := generatePrimitiveToIR("v", valueType)
+					if err != nil {
+						return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
+					}
+					buf.WriteString(fmt.Sprintf("			mapNodes[k] = %s\n", valueCode))
+				}
+				buf.WriteString("		}\n")
+				buf.WriteString(fmt.Sprintf("		return ir.FromMap(mapNodes).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+				buf.WriteString("	}\n")
+				buf.WriteString("	return ir.FromMap(nil).WithTag(\"!\"+s.StructSchema.SchemaName), nil\n")
+
+			} else if keyType.Kind() == reflect.Interface {
+				// Map with interface{} keys
+				buf.WriteString("	if len(*s) > 0 {\n")
+				buf.WriteString("		mapNodes := make(map[string]*ir.Node)\n")
+				buf.WriteString("		for k, v := range *s {\n")
+				buf.WriteString("			kStr := fmt.Sprintf(\"%v\", k)\n")
+
+				if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) || (valueType.Name() != "" && valueType.Kind() != reflect.String && !isPrimitiveKind(valueType.Kind())) || valueType.Kind() == reflect.Slice || valueType.Kind() == reflect.Map || valueType.Kind() == reflect.Array {
+					if valueType.Kind() == reflect.Ptr {
+						buf.WriteString("			node, err := v.ToTonyIR(opts...)\n")
+					} else {
+						buf.WriteString("			node, err := (&v).ToTonyIR(opts...)\n")
+					}
+					buf.WriteString("			if err != nil {\n")
+					buf.WriteString("				return nil, fmt.Errorf(\"failed to convert map value at key %v: %w\", k, err)\n")
+					buf.WriteString("			}\n")
+					buf.WriteString("			mapNodes[kStr] = node\n")
+				} else {
+					valueCode, err := generatePrimitiveToIR("v", valueType)
+					if err != nil {
+						return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
+					}
+					buf.WriteString(fmt.Sprintf("			mapNodes[kStr] = %s\n", valueCode))
+				}
+				buf.WriteString("		}\n")
+				buf.WriteString(fmt.Sprintf("		return ir.FromMap(mapNodes).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+				buf.WriteString("	}\n")
+				buf.WriteString("	return ir.FromMap(nil).WithTag(\"!\"+s.StructSchema.SchemaName), nil\n")
+			} else {
+				return "", fmt.Errorf("unsupported map key type for top-level map: %v", keyType.Kind())
+			}
+
 		default:
 			return "", fmt.Errorf("unsupported basic type for schema generation: %v", s.Type.Kind())
 		}
-		buf.WriteString("}\n\n")
+		// buf.WriteString("}\n\n") // Removed because we return directly in cases
 		return buf.String(), nil
 	}
 
@@ -325,12 +522,19 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 		return "", fmt.Errorf("field %q has no type information", field.Name)
 	}
 
-	// Special handling for *ir.Node
-	if isIRNodePtr(field.Type) {
+	// Special handling for *ir.Node (and deeper pointers)
+	if depth := getIRNodeDepth(field.Type); depth > 0 {
 		buf.WriteString(fmt.Sprintf("		if s.%s == nil {\n", field.Name))
 		buf.WriteString(fmt.Sprintf("			irMap[%q] = ir.Null()\n", schemaFieldName))
 		buf.WriteString("		} else {\n")
-		buf.WriteString(fmt.Sprintf("			irMap[%q] = s.%s\n", schemaFieldName, field.Name))
+
+		// Dereference if depth > 1 (we want *ir.Node)
+		derefs := ""
+		for i := 0; i < depth-1; i++ {
+			derefs += "*"
+		}
+
+		buf.WriteString(fmt.Sprintf("			irMap[%q] = %ss.%s\n", schemaFieldName, derefs, field.Name))
 		buf.WriteString("		}\n")
 		return buf.String(), nil
 	}
@@ -398,8 +602,15 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 		buf.WriteString(fmt.Sprintf("		if len(s.%s) > 0 {\n", field.Name))
 		buf.WriteString(fmt.Sprintf("			slice := make([]*ir.Node, len(s.%s))\n", field.Name))
 		buf.WriteString(fmt.Sprintf("			for i, v := range s.%s {\n", field.Name))
-		if elemType.Kind() == reflect.Struct {
-			// Slice of structs - call ToTony()
+		if depth := getIRNodeDepth(elemType); depth > 0 {
+			// Slice of *ir.Node (or deeper) - use directly (with dereference if needed)
+			derefs := ""
+			for j := 0; j < depth-1; j++ {
+				derefs += "*"
+			}
+			buf.WriteString(fmt.Sprintf("\t\t\t\tslice[i] = %sv\n", derefs))
+		} else if elemType.Kind() == reflect.Struct || (elemType.Kind() == reflect.Ptr && elemType.Elem().Kind() == reflect.Struct) {
+			// Slice of structs or pointers to structs - call ToTony()
 			buf.WriteString(fmt.Sprintf("				node, err %s v.ToTonyIR(opts...)\n", assign))
 			buf.WriteString("				if err != nil {\n")
 			buf.WriteString("					return nil, fmt.Errorf(\"failed to convert slice element %d: %w\", i, err)\n")
@@ -427,7 +638,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			buf.WriteString(fmt.Sprintf("		if len(s.%s) > 0 {\n", field.Name))
 			buf.WriteString(fmt.Sprintf("			intKeysMap := make(map[uint32]*ir.Node)\n"))
 			buf.WriteString(fmt.Sprintf("			for k, v := range s.%s {\n", field.Name))
-			if valueType.Kind() == reflect.Struct {
+			if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) {
 				buf.WriteString(fmt.Sprintf("				node, err %s v.ToTonyIR(opts...)\n", assign))
 				buf.WriteString("				if err != nil {\n")
 				buf.WriteString("					return nil, fmt.Errorf(\"failed to convert map value at key %d: %w\", k, err)\n")
@@ -448,9 +659,14 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			buf.WriteString(fmt.Sprintf("		if len(s.%s) > 0 {\n", field.Name))
 			buf.WriteString(fmt.Sprintf("			mapNodes := make(map[string]*ir.Node)\n"))
 			buf.WriteString(fmt.Sprintf("			for k, v := range s.%s {\n", field.Name))
-			if isIRNodePtr(valueType) {
-				buf.WriteString("				mapNodes[k] = v\n")
-			} else if valueType.Kind() == reflect.Struct {
+			if depth := getIRNodeDepth(valueType); depth > 0 {
+				// Map value is *ir.Node (or deeper)
+				derefs := ""
+				for j := 0; j < depth-1; j++ {
+					derefs += "*"
+				}
+				buf.WriteString(fmt.Sprintf("				mapNodes[k] = %sv\n", derefs))
+			} else if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) {
 				buf.WriteString(fmt.Sprintf("				node, err %s v.ToTonyIR(opts...)\n", assign))
 				buf.WriteString("				if err != nil {\n")
 				buf.WriteString("					return nil, fmt.Errorf(\"failed to convert map value at key %q: %w\", k, err)\n")
@@ -473,7 +689,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			buf.WriteString(fmt.Sprintf("			for k, v := range s.%s {\n", field.Name))
 			buf.WriteString("				// Convert interface{} key to string\n")
 			buf.WriteString("				kStr := fmt.Sprintf(\"%v\", k)\n")
-			if valueType.Kind() == reflect.Struct {
+			if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) {
 				buf.WriteString(fmt.Sprintf("				node, err %s v.ToTonyIR(opts...)\n", assign))
 				buf.WriteString("				if err != nil {\n")
 				buf.WriteString("					return nil, fmt.Errorf(\"failed to convert map value at key %v: %w\", k, err)\n")
@@ -496,7 +712,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			buf.WriteString(fmt.Sprintf("			for k, v := range s.%s {\n", field.Name))
 			buf.WriteString("				// Convert pointer key to string representation\n")
 			buf.WriteString("				kStr := fmt.Sprintf(\"%p\", k)\n")
-			if valueType.Kind() == reflect.Struct {
+			if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) {
 				buf.WriteString(fmt.Sprintf("				node, err %s v.ToTonyIR(opts...)\n", assign))
 				buf.WriteString("				if err != nil {\n")
 				buf.WriteString("					return nil, fmt.Errorf(\"failed to convert map value at key %p: %w\", k, err)\n")
@@ -563,7 +779,7 @@ func generatePrimitiveToIR(varName string, typ reflect.Type) (string, error) {
 }
 
 // GenerateFromTonyIRMethod generates the FromTonyIR method for a struct.
-func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema) (string, error) {
+func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPath string) (string, error) {
 	var buf bytes.Buffer
 
 	// Method signature
@@ -639,6 +855,196 @@ func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema) (string, er
 			buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"expected bool for %s, got %%v\", node.Type)\n", s.Name))
 			buf.WriteString("	}\n")
 			buf.WriteString(fmt.Sprintf("	*s = %s(node.Bool)\n", s.Name))
+
+		// Handle container types (Slice, Array, Map)
+		case reflect.Slice, reflect.Array:
+			elemType := s.Type.Elem()
+			buf.WriteString("	if node.Type == ir.ArrayType {\n")
+
+			// Use qualified type name for the slice element type
+			structName := getQualifiedTypeName(elemType, currentPkgPath)
+
+			buf.WriteString(fmt.Sprintf("		slice := make([]%s, len(node.Values))\n", structName))
+			buf.WriteString("		for i, v := range node.Values {\n")
+
+			if depth := getIRNodeDepth(elemType); depth > 0 {
+				// Slice of *ir.Node (or deeper)
+				if depth == 1 {
+					buf.WriteString("			slice[i] = v\n")
+				} else {
+					// Chain of pointers
+					buf.WriteString("			v0 := v\n")
+					for j := 1; j < depth; j++ {
+						buf.WriteString(fmt.Sprintf("			v%d := &v%d\n", j, j-1))
+					}
+					buf.WriteString(fmt.Sprintf("			slice[i] = v%d\n", depth-1))
+				}
+			} else if elemType.Kind() == reflect.Struct || (elemType.Kind() == reflect.Ptr && elemType.Elem().Kind() == reflect.Struct) || (elemType.Name() != "" && elemType.Kind() != reflect.String && !isPrimitiveKind(elemType.Kind())) || elemType.Kind() == reflect.Slice || elemType.Kind() == reflect.Map || elemType.Kind() == reflect.Array {
+				// Slice of structs, pointers to structs, or other complex types
+				if elemType.Kind() == reflect.Ptr {
+					// Element is already a pointer, allocate new instance
+					elemStructName := getQualifiedTypeName(elemType.Elem(), currentPkgPath)
+					buf.WriteString(fmt.Sprintf("			elem := new(%s)\n", elemStructName))
+					buf.WriteString("			if err := elem.FromTonyIR(v, opts...); err != nil {\n")
+					buf.WriteString("				return fmt.Errorf(\"failed to convert slice element %d: %w\", i, err)\n")
+					buf.WriteString("			}\n")
+					buf.WriteString("			slice[i] = elem\n")
+				} else {
+					// Element is a struct value
+					buf.WriteString(fmt.Sprintf("			elem := %s{}\n", structName))
+					buf.WriteString("			if err := elem.FromTonyIR(v, opts...); err != nil {\n")
+					buf.WriteString("				return fmt.Errorf(\"failed to convert slice element %d: %w\", i, err)\n")
+					buf.WriteString("			}\n")
+					buf.WriteString("			slice[i] = elem\n")
+				}
+			} else {
+				// Slice of primitives
+				buf.WriteString("			ctx := fmt.Sprintf(\"slice element %d\", i)\n")
+				elemCode, err := generatePrimitiveFromIR("v", elemType, "ctx")
+				if err != nil {
+					return "", fmt.Errorf("unsupported slice element type %v: %w", elemType, err)
+				}
+				buf.WriteString(fmt.Sprintf("			var elem %s\n", getQualifiedTypeName(elemType, currentPkgPath)))
+				buf.WriteString(fmt.Sprintf("			%s\n", elemCode))
+				buf.WriteString("			slice[i] = elem\n")
+			}
+			buf.WriteString("		}\n")
+			buf.WriteString(fmt.Sprintf("		*s = %s(slice)\n", s.Name))
+			buf.WriteString("	}\n")
+
+		case reflect.Map:
+			keyType := s.Type.Key()
+			valueType := s.Type.Elem()
+
+			if keyType.Kind() == reflect.Uint32 {
+				// Sparse array (map[uint32]T)
+				buf.WriteString("	if node.Type == ir.ObjectType && node.Tag == \"!sparsearray\" {\n")
+				structName := getQualifiedTypeName(valueType, currentPkgPath)
+				buf.WriteString(fmt.Sprintf("		m := make(map[uint32]%s)\n", structName))
+				buf.WriteString("		irMap := ir.ToMap(node)\n")
+				buf.WriteString("		for kStr, v := range irMap {\n")
+				buf.WriteString("			k, err := strconv.ParseUint(kStr, 10, 32)\n")
+				buf.WriteString("			if err != nil {\n")
+				buf.WriteString("				return fmt.Errorf(\"invalid sparse array key %q: %w\", kStr, err)\n")
+				buf.WriteString("			}\n")
+
+				if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) || (valueType.Name() != "" && valueType.Kind() != reflect.String && !isPrimitiveKind(valueType.Kind())) || valueType.Kind() == reflect.Slice || valueType.Kind() == reflect.Map || valueType.Kind() == reflect.Array {
+					if valueType.Kind() == reflect.Ptr {
+						buf.WriteString(fmt.Sprintf("			val := new(%s)\n", getQualifiedTypeName(valueType.Elem(), currentPkgPath)))
+						buf.WriteString("			if err := val.FromTonyIR(v, opts...); err != nil {\n")
+						buf.WriteString("				return fmt.Errorf(\"failed to convert map value at key %d: %w\", k, err)\n")
+						buf.WriteString("			}\n")
+						buf.WriteString("			m[uint32(k)] = val\n")
+					} else {
+						buf.WriteString(fmt.Sprintf("			val := %s{}\n", structName))
+						buf.WriteString("			if err := val.FromTonyIR(v, opts...); err != nil {\n")
+						buf.WriteString("				return fmt.Errorf(\"failed to convert map value at key %d: %w\", k, err)\n")
+						buf.WriteString("			}\n")
+						buf.WriteString("			m[uint32(k)] = val\n")
+					}
+				} else {
+					buf.WriteString("			ctx := fmt.Sprintf(\"map value at key %d\", k)\n")
+					valueCode, err := generatePrimitiveFromIR("v", valueType, "ctx")
+					if err != nil {
+						return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
+					}
+					buf.WriteString(fmt.Sprintf("			var val %s\n", getQualifiedTypeName(valueType, currentPkgPath)))
+					buf.WriteString(fmt.Sprintf("			%s\n", valueCode))
+					buf.WriteString("			m[uint32(k)] = val\n")
+				}
+				buf.WriteString("		}\n")
+				buf.WriteString(fmt.Sprintf("		*s = %s(m)\n", s.Name))
+				buf.WriteString("	}\n")
+
+			} else if keyType.Kind() == reflect.String {
+				// Regular map (map[string]T)
+				buf.WriteString("	if node.Type == ir.ObjectType {\n")
+				structName := getQualifiedTypeName(valueType, currentPkgPath)
+				if depth := getIRNodeDepth(valueType); depth > 0 {
+					structName = "*ir.Node"
+				}
+				buf.WriteString(fmt.Sprintf("		m := make(map[string]%s)\n", structName))
+				buf.WriteString("		irMap := ir.ToMap(node)\n")
+				buf.WriteString("		for k, v := range irMap {\n")
+
+				if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) || (valueType.Name() != "" && valueType.Kind() != reflect.String && !isPrimitiveKind(valueType.Kind())) || valueType.Kind() == reflect.Slice || valueType.Kind() == reflect.Map || valueType.Kind() == reflect.Array {
+					if valueType.Kind() == reflect.Ptr {
+						buf.WriteString(fmt.Sprintf("			val := new(%s)\n", getQualifiedTypeName(valueType.Elem(), currentPkgPath)))
+						buf.WriteString("			if err := val.FromTonyIR(v, opts...); err != nil {\n")
+						buf.WriteString("				return fmt.Errorf(\"failed to convert map value at key %q: %w\", k, err)\n")
+						buf.WriteString("			}\n")
+						buf.WriteString("			m[k] = val\n")
+					} else {
+						buf.WriteString(fmt.Sprintf("			val := %s{}\n", structName))
+						buf.WriteString("			if err := val.FromTonyIR(v, opts...); err != nil {\n")
+						buf.WriteString("				return fmt.Errorf(\"failed to convert map value at key %q: %w\", k, err)\n")
+						buf.WriteString("			}\n")
+						buf.WriteString("			m[k] = val\n")
+					}
+				} else if depth := getIRNodeDepth(valueType); depth > 0 {
+					if depth == 1 {
+						buf.WriteString("			m[k] = v\n")
+					} else {
+						buf.WriteString("			v0 := v\n")
+						for j := 1; j < depth; j++ {
+							buf.WriteString(fmt.Sprintf("			v%d := &v%d\n", j, j-1))
+						}
+						buf.WriteString(fmt.Sprintf("			m[k] = v%d\n", depth-1))
+					}
+				} else {
+					buf.WriteString("			ctx := fmt.Sprintf(\"map value at key %q\", k)\n")
+					valueCode, err := generatePrimitiveFromIR("v", valueType, "ctx")
+					if err != nil {
+						return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
+					}
+					buf.WriteString(fmt.Sprintf("			var val %s\n", getQualifiedTypeName(valueType, currentPkgPath)))
+					buf.WriteString(fmt.Sprintf("			%s\n", valueCode))
+					buf.WriteString("			m[k] = val\n")
+				}
+				buf.WriteString("		}\n")
+				buf.WriteString(fmt.Sprintf("		*s = %s(m)\n", s.Name))
+				buf.WriteString("	}\n")
+
+			} else if keyType.Kind() == reflect.Interface {
+				// Map with interface{} keys
+				buf.WriteString("	if node.Type == ir.ObjectType {\n")
+				structName := getQualifiedTypeName(valueType, currentPkgPath)
+				buf.WriteString(fmt.Sprintf("		m := make(map[interface{}]%s)\n", structName))
+				buf.WriteString("		irMap := ir.ToMap(node)\n")
+				buf.WriteString("		for kStr, v := range irMap {\n")
+				buf.WriteString("			var k interface{} = kStr\n")
+
+				if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) || (valueType.Name() != "" && valueType.Kind() != reflect.String && !isPrimitiveKind(valueType.Kind())) || valueType.Kind() == reflect.Slice || valueType.Kind() == reflect.Map || valueType.Kind() == reflect.Array {
+					if valueType.Kind() == reflect.Ptr {
+						buf.WriteString(fmt.Sprintf("			val := new(%s)\n", getQualifiedTypeName(valueType.Elem(), currentPkgPath)))
+						buf.WriteString("			if err := val.FromTonyIR(v, opts...); err != nil {\n")
+						buf.WriteString("				return fmt.Errorf(\"failed to convert map value at key %v: %%w\", k, err)\n")
+						buf.WriteString("			}\n")
+						buf.WriteString("			m[k] = val\n")
+					} else {
+						buf.WriteString(fmt.Sprintf("			val := %s{}\n", structName))
+						buf.WriteString("			if err := val.FromTonyIR(v, opts...); err != nil {\n")
+						buf.WriteString("				return fmt.Errorf(\"failed to convert map value at key %v: %%w\", k, err)\n")
+						buf.WriteString("			}\n")
+						buf.WriteString("			m[k] = val\n")
+					}
+				} else {
+					buf.WriteString("			ctx := fmt.Sprintf(\"map value at key %v\", k)\n")
+					valueCode, err := generatePrimitiveFromIR("v", valueType, "ctx")
+					if err != nil {
+						return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
+					}
+					buf.WriteString(fmt.Sprintf("			var val %s\n", getQualifiedTypeName(valueType, currentPkgPath)))
+					buf.WriteString(fmt.Sprintf("			%s\n", valueCode))
+					buf.WriteString("			m[k] = val\n")
+				}
+				buf.WriteString("		}\n")
+				buf.WriteString(fmt.Sprintf("		*s = %s(m)\n", s.Name))
+				buf.WriteString("	}\n")
+			} else {
+				return "", fmt.Errorf("unsupported map key type for top-level map: %v", keyType.Kind())
+			}
+
 		default:
 			return "", fmt.Errorf("unsupported basic type for schema generation: %v", s.Type.Kind())
 		}
@@ -769,13 +1175,73 @@ func getTypeName(typ reflect.Type, structTypeName string) string {
 	return typ.Name()
 }
 
+// getQualifiedTypeName returns the qualified type name for code generation.
+// It handles cross-package references by using the package name.
+func getQualifiedTypeName(typ reflect.Type, currentPkg string) string {
+	if typ == nil {
+		return ""
+	}
+
+	// Named types - Check this FIRST to avoid infinite recursion for recursive types
+	if typ.Name() != "" {
+		if typ.PkgPath() != "" && typ.PkgPath() != currentPkg {
+			// External package
+			// We need the package name, which is the last part of the path
+			// This is a heuristic; ideally we'd have a map of path -> name
+			parts := strings.Split(typ.PkgPath(), "/")
+			pkgName := parts[len(parts)-1]
+			return pkgName + "." + typ.Name()
+		}
+		return typ.Name()
+	}
+
+	// Handle pointers
+	if typ.Kind() == reflect.Ptr {
+		return "*" + getQualifiedTypeName(typ.Elem(), currentPkg)
+	}
+
+	// Handle slices
+	if typ.Kind() == reflect.Slice {
+		return "[]" + getQualifiedTypeName(typ.Elem(), currentPkg)
+	}
+
+	// Handle arrays
+	if typ.Kind() == reflect.Array {
+		return fmt.Sprintf("[%d]%s", typ.Len(), getQualifiedTypeName(typ.Elem(), currentPkg))
+	}
+
+	// Handle maps
+	if typ.Kind() == reflect.Map {
+		return fmt.Sprintf("map[%s]%s", getQualifiedTypeName(typ.Key(), currentPkg), getQualifiedTypeName(typ.Elem(), currentPkg))
+	}
+
+	// Basic types
+	return typ.Kind().String()
+}
+
 // generateFieldDecoding generates code to decode a field from an IR node.
 func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaFieldName string) (string, error) {
 	var buf strings.Builder
 
-	// Special handling for *ir.Node
-	if isIRNodePtr(field.Type) {
-		buf.WriteString(fmt.Sprintf("		s.%s = fieldNode\n", field.Name))
+	// Special handling for *ir.Node (and deeper pointers)
+	if depth := getIRNodeDepth(field.Type); depth > 0 {
+		if depth == 1 {
+			// *ir.Node - direct assignment
+			buf.WriteString(fmt.Sprintf("		s.%s = fieldNode\n", field.Name))
+		} else {
+			// Create chain of pointers
+			// We need to create a chain of pointers: s.Field -> ptr(N-1) -> ... -> ptr0 -> fieldNode
+			// v0 := fieldNode
+			// v1 := &v0
+			// ...
+			// s.Field = v(depth-1)
+
+			buf.WriteString("			v0 := fieldNode\n")
+			for i := 1; i < depth; i++ {
+				buf.WriteString(fmt.Sprintf("			v%d := &v%d\n", i, i-1))
+			}
+			buf.WriteString(fmt.Sprintf("			s.%s = v%d\n", field.Name, depth-1))
+		}
 		return buf.String(), nil
 	}
 
@@ -969,13 +1435,24 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 		structName := getTypeName(elemType, field.StructTypeName)
 		buf.WriteString(fmt.Sprintf("			slice := make([]%s, len(fieldNode.Values))\n", structName))
 		buf.WriteString("			for i, v := range fieldNode.Values {\n")
-		if elemType.Kind() == reflect.Struct {
-			// Slice of structs - call FromTony()
-			buf.WriteString(fmt.Sprintf("				elem := %s{}\n", structName))
-			buf.WriteString("				if err := elem.FromTonyIR(v, opts...); err != nil {\n")
-			buf.WriteString("					return fmt.Errorf(\"slice element %d: %w\", i, err)\n")
-			buf.WriteString("				}\n")
-			buf.WriteString("				slice[i] = elem\n")
+		if elemType.Kind() == reflect.Struct || (elemType.Kind() == reflect.Ptr && elemType.Elem().Kind() == reflect.Struct) {
+			// Slice of structs or pointers to structs - call FromTony()
+			// Need to handle both struct values and pointers
+			if elemType.Kind() == reflect.Ptr {
+				// Element is already a pointer, allocate new instance
+				buf.WriteString(fmt.Sprintf("				elem := new(%s)\n", getTypeName(elemType.Elem(), field.StructTypeName)))
+				buf.WriteString("				if err := elem.FromTonyIR(v, opts...); err != nil {\n")
+				buf.WriteString("					return fmt.Errorf(\"failed to convert slice element %d: %w\", i, err)\n")
+				buf.WriteString("				}\n")
+				buf.WriteString("				slice[i] = elem\n")
+			} else {
+				// Element is a struct value
+				buf.WriteString(fmt.Sprintf("				elem := %s{}\n", structName))
+				buf.WriteString("				if err := elem.FromTonyIR(v, opts...); err != nil {\n")
+				buf.WriteString("					return fmt.Errorf(\"failed to convert slice element %d: %w\", i, err)\n")
+				buf.WriteString("				}\n")
+				buf.WriteString("				slice[i] = elem\n")
+			}
 		} else {
 			// Slice of primitives
 			// Generate code with a context variable that will be formatted
@@ -1008,12 +1485,21 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			buf.WriteString("				if err != nil {\n")
 			buf.WriteString("					return fmt.Errorf(\"invalid sparse array key %q: %w\", kStr, err)\n")
 			buf.WriteString("				}\n")
-			if valueType.Kind() == reflect.Struct {
-				buf.WriteString(fmt.Sprintf("				val := %s{}\n", structName))
-				buf.WriteString("				if err := val.FromTonyIR(v, opts...); err != nil {\n")
-				buf.WriteString("					return fmt.Errorf(\"map value at key %d: %w\", k, err)\n")
-				buf.WriteString("				}\n")
-				buf.WriteString("				m[uint32(k)] = val\n")
+			if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) {
+				// Map value is struct or pointer to struct
+				if valueType.Kind() == reflect.Ptr {
+					buf.WriteString(fmt.Sprintf("				val := new(%s)\n", getTypeName(valueType.Elem(), field.StructTypeName)))
+					buf.WriteString("				if err := val.FromTonyIR(v, opts...); err != nil {\n")
+					buf.WriteString("					return fmt.Errorf(\"failed to convert map value at key %d: %w\", k, err)\n")
+					buf.WriteString("				}\n")
+					buf.WriteString("				m[uint32(k)] = val\n")
+				} else {
+					buf.WriteString(fmt.Sprintf("				val := %s{}\n", structName))
+					buf.WriteString("				if err := val.FromTonyIR(v, opts...); err != nil {\n")
+					buf.WriteString("					return fmt.Errorf(\"failed to convert map value at key %d: %w\", k, err)\n")
+					buf.WriteString("				}\n")
+					buf.WriteString("				m[uint32(k)] = val\n")
+				}
 			} else {
 				buf.WriteString("				ctx := fmt.Sprintf(\"map value at key %d\", k)\n")
 				valueCode, err := generatePrimitiveFromIR("v", valueType, "ctx")
@@ -1031,20 +1517,38 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			// Regular map (map[string]T)
 			buf.WriteString("		if fieldNode.Type == ir.ObjectType {\n")
 			structName := getTypeName(valueType, field.StructTypeName)
-			if isIRNodePtr(valueType) {
+			if depth := getIRNodeDepth(valueType); depth > 0 {
 				structName = "*ir.Node"
 			}
 			buf.WriteString(fmt.Sprintf("			m := make(map[string]%s)\n", structName))
 			buf.WriteString("			irMap := ir.ToMap(fieldNode)\n")
 			buf.WriteString("			for k, v := range irMap {\n")
-			if valueType.Kind() == reflect.Struct {
-				buf.WriteString(fmt.Sprintf("				val := %s{}\n", structName))
-				buf.WriteString("				if err := val.FromTonyIR(v, opts...); err != nil {\n")
-				buf.WriteString("					return fmt.Errorf(\"map value at key %q: %w\", k, err)\n")
-				buf.WriteString("				}\n")
-				buf.WriteString("				m[k] = val\n")
-			} else if isIRNodePtr(valueType) {
-				buf.WriteString("				m[k] = v\n")
+			if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) {
+				// Map value is struct or pointer to struct
+				if valueType.Kind() == reflect.Ptr {
+					buf.WriteString(fmt.Sprintf("				val := new(%s)\n", getTypeName(valueType.Elem(), field.StructTypeName)))
+					buf.WriteString("				if err := val.FromTonyIR(v, opts...); err != nil {\n")
+					buf.WriteString("					return fmt.Errorf(\"failed to convert map value at key %q: %w\", k, err)\n")
+					buf.WriteString("				}\n")
+					buf.WriteString("				m[k] = val\n")
+				} else {
+					buf.WriteString(fmt.Sprintf("				val := %s{}\n", structName))
+					buf.WriteString("				if err := val.FromTonyIR(v, opts...); err != nil {\n")
+					buf.WriteString("					return fmt.Errorf(\"failed to convert map value at key %q: %w\", k, err)\n")
+					buf.WriteString("				}\n")
+					buf.WriteString("				m[k] = val\n")
+				}
+			} else if depth := getIRNodeDepth(valueType); depth > 0 {
+				if depth == 1 {
+					buf.WriteString("				m[k] = v\n")
+				} else {
+					// We need to create a chain of pointers
+					buf.WriteString("				v0 := v\n")
+					for j := 1; j < depth; j++ {
+						buf.WriteString(fmt.Sprintf("				v%d := &v%d\n", j, j-1))
+					}
+					buf.WriteString(fmt.Sprintf("				m[k] = v%d\n", depth-1))
+				}
 			} else {
 				buf.WriteString("				ctx := fmt.Sprintf(\"map value at key %q\", k)\n")
 				valueCode, err := generatePrimitiveFromIR("v", valueType, "ctx")
@@ -1241,6 +1745,18 @@ func generatePrimitiveFromIR(varName string, typ reflect.Type, context string) (
 	}
 
 	return buf.String(), nil
+}
+
+// isPrimitiveKind checks if a kind is a primitive type (bool, int*, uint*, float*, string)
+func isPrimitiveKind(k reflect.Kind) bool {
+	switch k {
+	case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64, reflect.String:
+		return true
+	default:
+		return false
+	}
 }
 
 // min returns the minimum of two integers
