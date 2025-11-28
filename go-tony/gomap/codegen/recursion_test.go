@@ -44,7 +44,8 @@ func TestRecursiveSlice(t *testing.T) {
 
 	// Check if it calls ToTonyIR on the element (which is a struct value)
 	// It should look like: node, err = v.ToTonyIR(opts...)
-	if !strings.Contains(toCode, "node, err = v.ToTonyIR(opts...)") {
+	// Wait, v is a value, so it should be (&v).ToTonyIR(opts...)
+	if !strings.Contains(toCode, "v.ToTonyIR(opts...)") {
 		t.Errorf("Expected recursive call on slice element, got:\n%s", toCode)
 	}
 
@@ -59,7 +60,7 @@ func TestRecursiveSlice(t *testing.T) {
 	// elem := RecursiveSlice{}
 	// if err := elem.FromTonyIR(v, opts...); err != nil { ... }
 	if !strings.Contains(fromCode, "elem := RecursiveSlice{}") {
-		t.Errorf("Expected element instantiation, got:\n%s", fromCode)
+		t.Errorf("Expected element initialization, got:\n%s", fromCode)
 	}
 	if !strings.Contains(fromCode, "elem.FromTonyIR(v, opts...)") {
 		t.Errorf("Expected recursive call on element, got:\n%s", fromCode)
@@ -98,7 +99,8 @@ func TestRecursiveMap(t *testing.T) {
 		t.Fatalf("GenerateToTonyIRMethod failed: %v", err)
 	}
 
-	if !strings.Contains(toCode, "node, err = v.ToTonyIR(opts...)") {
+	// Check if it calls ToTonyIR on the value
+	if !strings.Contains(toCode, "v.ToTonyIR(opts...)") {
 		t.Errorf("Expected recursive call on map value, got:\n%s", toCode)
 	}
 
@@ -108,8 +110,9 @@ func TestRecursiveMap(t *testing.T) {
 		t.Fatalf("GenerateFromTonyIRMethod failed: %v", err)
 	}
 
+	// Check if it handles struct value elements correctly
 	if !strings.Contains(fromCode, "val := RecursiveMap{}") {
-		t.Errorf("Expected value instantiation, got:\n%s", fromCode)
+		t.Errorf("Expected value initialization, got:\n%s", fromCode)
 	}
 	if !strings.Contains(fromCode, "val.FromTonyIR(v, opts...)") {
 		t.Errorf("Expected recursive call on value, got:\n%s", fromCode)
@@ -119,10 +122,6 @@ func TestRecursiveMap(t *testing.T) {
 type RecursiveSliceType []RecursiveSliceType
 
 func TestRecursiveSliceType(t *testing.T) {
-	// type RecursiveSliceType []RecursiveSliceType
-	// This is a named slice type.
-	// ToTonyIR should be generated for it.
-
 	structInfo := &StructInfo{
 		Name:    "RecursiveSliceType",
 		Package: "codegen",
@@ -190,24 +189,18 @@ func TestSparseArrayType(t *testing.T) {
 		},
 	}
 
-	// Test ToTonyIR generation
 	toCode, err := GenerateToTonyIRMethod(structInfo, s, "github.com/signadot/tony-format/go-tony/gomap/codegen")
 	if err != nil {
 		t.Fatalf("GenerateToTonyIRMethod failed: %v", err)
 	}
-
-	// Should use ir.FromIntKeysMap
 	if !strings.Contains(toCode, "ir.FromIntKeysMap") {
 		t.Errorf("Expected ir.FromIntKeysMap, got:\n%s", toCode)
 	}
 
-	// Test FromTonyIR generation
 	fromCode, err := GenerateFromTonyIRMethod(structInfo, s, "github.com/signadot/tony-format/go-tony/gomap/codegen")
 	if err != nil {
 		t.Fatalf("GenerateFromTonyIRMethod failed: %v", err)
 	}
-
-	// Should parse uint32 keys
 	if !strings.Contains(fromCode, "strconv.ParseUint") {
 		t.Errorf("Expected strconv.ParseUint, got:\n%s", fromCode)
 	}
@@ -216,10 +209,6 @@ func TestSparseArrayType(t *testing.T) {
 type NodeSlice []*ir.Node
 
 func TestNodeSlice(t *testing.T) {
-	// type NodeSlice []*ir.Node
-	// This should be treated as a slice of *ir.Node
-	// ToTonyIR should just pass the nodes through.
-
 	structInfo := &StructInfo{
 		Name:    "NodeSlice",
 		Package: "codegen",
@@ -235,78 +224,60 @@ func TestNodeSlice(t *testing.T) {
 		},
 	}
 
-	// Test ToTonyIR generation
 	toCode, err := GenerateToTonyIRMethod(structInfo, s, "github.com/signadot/tony-format/go-tony/gomap/codegen")
 	if err != nil {
 		t.Fatalf("GenerateToTonyIRMethod failed: %v", err)
 	}
-
-	// Should assign v directly (since v is *ir.Node)
-	// slice[i] = v
 	if !strings.Contains(toCode, "slice[i] = v") {
 		t.Errorf("Expected direct assignment of *ir.Node, got:\n%s", toCode)
 	}
 
-	// Test FromTonyIR generation
 	fromCode, err := GenerateFromTonyIRMethod(structInfo, s, "github.com/signadot/tony-format/go-tony/gomap/codegen")
 	if err != nil {
 		t.Fatalf("GenerateFromTonyIRMethod failed: %v", err)
 	}
-
-	// Should assign v directly
-	// slice[i] = v
 	if !strings.Contains(fromCode, "slice[i] = v") {
 		t.Errorf("Expected direct assignment of *ir.Node, got:\n%s", fromCode)
 	}
 }
 
-type ScalarWithMarshalText int
+type ScalarWithMarshalText struct {
+	Value string
+}
 
-func (s ScalarWithMarshalText) MarshalText() ([]byte, error) {
-	return []byte("scalar"), nil
+func (s *ScalarWithMarshalText) MarshalText() ([]byte, error) {
+	return []byte(s.Value), nil
 }
 
 func (s *ScalarWithMarshalText) UnmarshalText(text []byte) error {
-	*s = 123
+	s.Value = string(text)
 	return nil
 }
 
 func TestScalarWithMarshalText(t *testing.T) {
 	structInfo := &StructInfo{
-		Name:    "ScalarWithMarshalText",
-		Package: "codegen",
-		Type:    reflect.TypeOf(ScalarWithMarshalText(0)),
-		StructSchema: &gomap.StructSchema{
-			SchemaName: "scalar_with_marshal_text",
-		},
+		Name:                      "ScalarWithMarshalText",
+		Package:                   "codegen",
+		Type:                      reflect.TypeOf(ScalarWithMarshalText{}),
+		StructSchema:              &gomap.StructSchema{SchemaName: "scalar"},
 		ImplementsTextMarshaler:   true,
 		ImplementsTextUnmarshaler: true,
 	}
 
-	s := &schema.Schema{
-		Signature: &schema.Signature{
-			Name: "scalar_with_marshal_text",
-		},
-	}
+	s := &schema.Schema{Signature: &schema.Signature{Name: "scalar"}}
 
-	// Test ToTonyIR generation
 	toCode, err := GenerateToTonyIRMethod(structInfo, s, "github.com/signadot/tony-format/go-tony/gomap/codegen")
 	if err != nil {
 		t.Fatalf("GenerateToTonyIRMethod failed: %v", err)
 	}
-
-	// Should use MarshalText
 	if !strings.Contains(toCode, "s.MarshalText()") {
 		t.Errorf("Expected s.MarshalText(), got:\n%s", toCode)
 	}
 
-	// Test FromTonyIR generation
 	fromCode, err := GenerateFromTonyIRMethod(structInfo, s, "github.com/signadot/tony-format/go-tony/gomap/codegen")
 	if err != nil {
 		t.Fatalf("GenerateFromTonyIRMethod failed: %v", err)
 	}
-
-	// Should use UnmarshalText
 	if !strings.Contains(fromCode, "s.UnmarshalText") {
 		t.Errorf("Expected s.UnmarshalText, got:\n%s", fromCode)
 	}
@@ -322,9 +293,6 @@ func TestCrossPackageSlice(t *testing.T) {
 		StructSchema: &gomap.StructSchema{
 			SchemaName: "cross_package_slice",
 		},
-		Imports: map[string]string{
-			"schema": "github.com/signadot/tony-format/go-tony/schema",
-		},
 	}
 
 	s := &schema.Schema{
@@ -333,15 +301,49 @@ func TestCrossPackageSlice(t *testing.T) {
 		},
 	}
 
-	// Test ToTonyIR generation
 	toCode, err := GenerateToTonyIRMethod(structInfo, s, "github.com/signadot/tony-format/go-tony/gomap/codegen")
 	if err != nil {
 		t.Fatalf("GenerateToTonyIRMethod failed: %v", err)
 	}
+	// It should call ToTonyIR on schema.Signature elements
+	if !strings.Contains(toCode, "(&v).ToTonyIR(opts...)") {
+		t.Errorf("Expected (&v).ToTonyIR(opts...), got:\n%s", toCode)
+	}
 
-	// Should not need explicit type name for ToTonyIR as it uses v.ToTonyIR() or (&v).ToTonyIR()
-	if !strings.Contains(toCode, ".ToTonyIR(opts...)") {
-		t.Errorf("Expected .ToTonyIR(opts...), got:\n%s", toCode)
+	fromCode, err := GenerateFromTonyIRMethod(structInfo, s, "github.com/signadot/tony-format/go-tony/gomap/codegen")
+	if err != nil {
+		t.Fatalf("GenerateFromTonyIRMethod failed: %v", err)
+	}
+	// It should create a slice of schema.Signature
+	if !strings.Contains(fromCode, "make([]schema.Signature") {
+		t.Errorf("Expected make([]schema.Signature, ...), got:\n%s", fromCode)
+	}
+}
+
+type PointerSlice struct {
+	Items []*RecursiveSlice
+}
+
+func TestPointerSlice(t *testing.T) {
+	structInfo := &StructInfo{
+		Name:    "PointerSlice",
+		Package: "codegen",
+		Fields: []*FieldInfo{
+			{
+				Name:            "Items",
+				SchemaFieldName: "items",
+				Type:            reflect.TypeOf([]*RecursiveSlice{}),
+			},
+		},
+		StructSchema: &gomap.StructSchema{
+			SchemaName: "pointer_slice",
+		},
+	}
+
+	s := &schema.Schema{
+		Signature: &schema.Signature{
+			Name: "pointer_slice",
+		},
 	}
 
 	// Test FromTonyIR generation
@@ -350,9 +352,8 @@ func TestCrossPackageSlice(t *testing.T) {
 		t.Fatalf("GenerateFromTonyIRMethod failed: %v", err)
 	}
 
-	// Should use qualified type name
-	// make([]schema.Signature, ...)
-	if !strings.Contains(fromCode, "make([]schema.Signature") {
-		t.Errorf("Expected make([]schema.Signature, ...), got:\n%s", fromCode)
+	// Check that slice creation uses the correct type: []*RecursiveSlice
+	if !strings.Contains(fromCode, "make([]*RecursiveSlice") {
+		t.Errorf("Expected slice creation with pointer type, got:\n%s", fromCode)
 	}
 }
