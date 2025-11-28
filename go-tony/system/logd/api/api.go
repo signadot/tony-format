@@ -12,10 +12,9 @@ import (
 //
 //tony:schemagen=body
 type Body struct {
-	Path  string              `tony:"field=path"`
-	Match *ir.Node            `tony:"field=match"`
-	Patch *ir.Node            `tony:"field=patch"`
-	Meta  map[string]*ir.Node `tony:"field=meta"`
+	Path  string   `tony:"field=path"`
+	Match *ir.Node `tony:"field=match"`
+	Patch *ir.Node `tony:"field=patch"`
 }
 
 //tony:schemagen=encoding-options

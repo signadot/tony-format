@@ -6,8 +6,12 @@ import (
 )
 
 // MapOption is an option for controlling the mapping process from Go to Tony IR.
-type MapOption interface {
-	applyMap(*mapConfig)
+type MapOption func(*mapConfig)
+
+func EncodeWire(v bool) func(c *mapConfig) {
+	return func(c *mapConfig) {
+		c.EncodeOptions = append(c.EncodeOptions, encode.EncodeWire(v))
+	}
 }
 
 // UnmapOption is an option for controlling the unmapping process from Tony IR to Go.
@@ -54,7 +58,7 @@ func newUnmapConfig() *unmapConfig {
 func ToEncodeOptions(opts ...MapOption) []encode.EncodeOption {
 	cfg := newMapConfig()
 	for _, opt := range opts {
-		opt.applyMap(cfg)
+		opt(cfg)
 	}
 	return cfg.EncodeOptions
 }

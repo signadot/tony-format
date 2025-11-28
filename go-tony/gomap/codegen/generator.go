@@ -236,6 +236,28 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 		if len(lines) >= 191 {
 			preview += fmt.Sprintf("\n\nLine 191: %s", lines[190])
 		}
+		// Show lines around the error (assuming error format is "line:col: message")
+		errStr := err.Error()
+		if strings.Contains(errStr, ":") {
+			parts := strings.Split(errStr, ":")
+			if len(parts) >= 2 {
+				var lineNum int
+				if _, parseErr := fmt.Sscanf(parts[0], "%d", &lineNum); parseErr == nil && lineNum > 0 && lineNum <= len(lines) {
+					start := lineNum - 5
+					if start < 0 {
+						start = 0
+					}
+					end := lineNum + 5
+					if end > len(lines) {
+						end = len(lines)
+					}
+					preview += fmt.Sprintf("\n\nLines %d-%d:\n", start+1, end)
+					for i := start; i < end; i++ {
+						preview += fmt.Sprintf("%d: %s\n", i+1, lines[i])
+					}
+				}
+			}
+		}
 		return codeStr, fmt.Errorf("failed to format generated code: %w\nFirst 50 lines:\n%s", err, preview)
 	}
 
@@ -1195,6 +1217,64 @@ func getQualifiedTypeName(typ reflect.Type, currentPkg string) string {
 		return typ.Name()
 	}
 
+	// For struct types without a name, try to extract from String()
+	// This handles cases where Name() returns empty but String() has the type info
+	if typ.Kind() == reflect.Struct && typ.Name() == "" {
+		typeStr := typ.String()
+		// String() for named structs can return:
+		// - "package.TypeName" for external packages (e.g., "storage.PendingFileRef")
+		// - "TypeName" for same package (e.g., "PendingFileRef")
+		// - "struct {...}" for anonymous structs
+		
+		// Skip anonymous structs
+		if strings.HasPrefix(typeStr, "struct {") {
+			return "struct" // Will cause compile error
+		}
+		
+		// If String() contains a dot, extract type name
+		if strings.Contains(typeStr, ".") {
+			parts := strings.Split(typeStr, ".")
+			typeName := parts[len(parts)-1]
+			// Check if it's in the current package
+			if typ.PkgPath() != "" && typ.PkgPath() == currentPkg {
+				return typeName
+			}
+			// External package - use package name from PkgPath or String()
+			if typ.PkgPath() != "" {
+				pkgParts := strings.Split(typ.PkgPath(), "/")
+				pkgName := pkgParts[len(pkgParts)-1]
+				return pkgName + "." + typeName
+			}
+			// Fallback: use package from String()
+			if len(parts) >= 2 {
+				pkgName := parts[len(parts)-2]
+				return pkgName + "." + typeName
+			}
+			return typeName
+		}
+		
+		// If String() has no dot but PkgPath is set, it's likely same package
+		// Use String() as the type name (it should be just the type name)
+		if typ.PkgPath() != "" && typ.PkgPath() == currentPkg && typeStr != "struct" {
+			return typeStr
+		}
+		
+		// If PkgPath is set, try to construct the name
+		if typ.PkgPath() != "" && typeStr != "struct" && typeStr != "" {
+			// Check if it's current package
+			if typ.PkgPath() == currentPkg {
+				return typeStr
+			}
+			// External package
+			pkgParts := strings.Split(typ.PkgPath(), "/")
+			pkgName := pkgParts[len(pkgParts)-1]
+			return pkgName + "." + typeStr
+		}
+		
+		// Fallback: return "struct" which will cause a compile error
+		return "struct"
+	}
+
 	// Handle pointers
 	if typ.Kind() == reflect.Ptr {
 		return "*" + getQualifiedTypeName(typ.Elem(), currentPkg)
@@ -1213,6 +1293,25 @@ func getQualifiedTypeName(typ reflect.Type, currentPkg string) string {
 	// Handle maps
 	if typ.Kind() == reflect.Map {
 		return fmt.Sprintf("map[%s]%s", getQualifiedTypeName(typ.Key(), currentPkg), getQualifiedTypeName(typ.Elem(), currentPkg))
+	}
+
+	// Handle struct types - if Name() is empty, try to extract from String()
+	if typ.Kind() == reflect.Struct {
+		// For struct types, String() returns the full qualified name (e.g., "storage.PendingFileRef")
+		// or just the type name if in the same package (e.g., "PendingFileRef")
+		typeStr := typ.String()
+		// If String() contains a dot, it's a qualified name - use it as-is
+		if strings.Contains(typeStr, ".") {
+			// Extract just the type name part (after the last dot)
+			parts := strings.Split(typeStr, ".")
+			return parts[len(parts)-1]
+		}
+		// If no dot, String() should just be the type name
+		if typeStr != "struct" && typeStr != "" {
+			return typeStr
+		}
+		// Fallback: this is likely an anonymous struct
+		return "struct" // This will cause a compile error, which is better than silent failure
 	}
 
 	// Basic types
@@ -1432,7 +1531,64 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 		// Slice/Array type
 		elemType := field.Type.Elem()
 		buf.WriteString("	if fieldNode.Type == ir.ArrayType {\n")
-		structName := getQualifiedTypeName(elemType, currentPkgPath)
+		// Get the type name for the slice element
+		// If field.StructTypeName is set, use it (it contains the named type, not the underlying type)
+		// Also check field.TypeName as a fallback
+		var structName string
+		if field.StructTypeName != "" {
+			// Use the stored struct type name - it's already qualified if needed
+			structName = field.StructTypeName
+			// If elemType is a pointer, add the * prefix
+			if elemType.Kind() == reflect.Ptr {
+				structName = "*" + structName
+			}
+		} else if field.TypeName != "" {
+			// Use TypeName if available (for named types)
+			structName = field.TypeName
+			// Add package prefix if it's from another package
+			if field.TypePkgPath != "" && field.TypePkgPath != currentPkgPath {
+				pkgParts := strings.Split(field.TypePkgPath, "/")
+				pkgName := pkgParts[len(pkgParts)-1]
+				structName = pkgName + "." + structName
+			}
+			// If elemType is a pointer, add the * prefix
+			if elemType.Kind() == reflect.Ptr {
+				structName = "*" + structName
+			}
+		} else {
+			// Fallback to extracting from reflect.Type
+			structName = getQualifiedTypeName(elemType, currentPkgPath)
+			// If we got "struct", the type name extraction failed - try to recover from String()
+			// This can happen when Name() returns empty but String() has the type info
+			if (structName == "struct" || structName == "") && elemType.Kind() == reflect.Struct {
+				typeStr := elemType.String()
+				// String() for named structs returns "package.TypeName" (e.g., "storage.PendingFileRef")
+				// or "TypeName" for same package, or "struct {...}" for anonymous structs
+				if typeStr != "struct" && !strings.HasPrefix(typeStr, "struct {") {
+					// Extract type name from String()
+					if strings.Contains(typeStr, ".") {
+						parts := strings.Split(typeStr, ".")
+						structName = parts[len(parts)-1]
+						// If PkgPath matches currentPkg, we don't need the package prefix
+						if elemType.PkgPath() != "" && elemType.PkgPath() == currentPkgPath {
+							// Already extracted just the name, use it as-is
+						} else if elemType.PkgPath() != "" {
+							// External package - add package name
+							pkgParts := strings.Split(elemType.PkgPath(), "/")
+							pkgName := pkgParts[len(pkgParts)-1]
+							structName = pkgName + "." + structName
+						}
+					} else {
+						// No dot means same package - use String() directly
+						structName = typeStr
+					}
+				} else {
+					// String() is "struct" or "struct {...}" - this is an anonymous struct
+					// We can't generate proper code for this, but at least try to use String()
+					// which will cause a compile error (better than silent failure)
+				}
+			}
+		}
 		buf.WriteString(fmt.Sprintf("		slice := make([]%s, len(fieldNode.Values))\n", structName))
 		buf.WriteString("		for i, v := range fieldNode.Values {\n")
 		if elemType.Kind() == reflect.Struct || (elemType.Kind() == reflect.Ptr && elemType.Elem().Kind() == reflect.Struct) {
@@ -1440,7 +1596,13 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			// Need to handle both struct values and pointers
 			if elemType.Kind() == reflect.Ptr {
 				// Element is already a pointer, allocate new instance
-				buf.WriteString(fmt.Sprintf("			elem := new(%s)\n", getQualifiedTypeName(elemType.Elem(), currentPkgPath)))
+				// structName has the * prefix (e.g., "*api.Patch"), but new() needs the base type (e.g., "api.Patch")
+				// So we need to remove the * prefix if it exists
+				baseTypeName := structName
+				if strings.HasPrefix(baseTypeName, "*") {
+					baseTypeName = baseTypeName[1:]
+				}
+				buf.WriteString(fmt.Sprintf("			elem := new(%s)\n", baseTypeName))
 				buf.WriteString("			if err := elem.FromTonyIR(v, opts...); err != nil {\n")
 				buf.WriteString("				return fmt.Errorf(\"failed to convert slice element %d: %w\", i, err)\n")
 				buf.WriteString("			}\n")

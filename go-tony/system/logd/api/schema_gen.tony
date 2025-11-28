@@ -4,7 +4,6 @@ context:
 - tony-base: github.com/signadot/tony-format/go-tony/schema
 define:
   match: .[tony-base:ir]
-  meta: .[object(tony-base:ir)]
   patch: .[tony-base:ir]
   path: .[string]
 signature:

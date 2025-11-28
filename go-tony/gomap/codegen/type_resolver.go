@@ -118,6 +118,11 @@ func ResolveFieldTypes(structs []*StructInfo, pkgDir string, pkgName string) err
 				return fmt.Errorf("failed to resolve type for field %q.%q: %w", s.Name, field.Name, err)
 			}
 			field.Type = typ
+			// For slice/array types, structName contains the element type name
+			// For pointer types, structName contains the pointed-to type name
+			// We need to preserve this so we can generate correct code
+			// IMPORTANT: structName is the named type (e.g., "PendingFileRef", "api.Patch")
+			// not the underlying type. This is what we need for code generation.
 			if structName != "" {
 				field.StructTypeName = structName
 			}
@@ -177,6 +182,20 @@ func (r *TypeResolver) resolveASTType(expr ast.Expr, currentStructName string, i
 			// Look up in current package
 			if obj := currentPkg.Types.Scope().Lookup(t.Name); obj != nil {
 				typesType = obj.Type()
+				// If structName is empty but this is a named type, use the name
+				// This handles cases where resolveIdentType didn't find it in structTypeMap
+				// but go/types knows about it
+				if structName == "" && obj.Name() != "" {
+					// Check if it's a struct type
+					if _, ok := typesType.Underlying().(*types.Struct); ok {
+						structName = obj.Name()
+						// Also set pkgPath if it's from another package
+						if obj.Pkg() != nil && obj.Pkg().Path() != currentPkg.PkgPath {
+							pkgPath = obj.Pkg().Path()
+							typeName = obj.Name()
+						}
+					}
+				}
 			} else {
 				// Might be a type that hasn't been type-checked yet or is missing
 				// For now, we can't get the types.Type if it's not in the scope
@@ -327,7 +346,10 @@ func (r *TypeResolver) resolveASTType(expr ast.Expr, currentStructName string, i
 			}
 
 			// For other types (interfaces, etc.), return placeholder
-			return reflect.TypeOf((*interface{})(nil)).Elem(), typesType, "", "", "", nil
+			// But still return the qualified name so it can be used for code generation
+			// This handles cases where the type is not a struct but we still need the name
+			qualifiedName := pkgName + "." + typeName
+			return reflect.TypeOf((*interface{})(nil)).Elem(), typesType, qualifiedName, importPath, typeName, nil
 		}
 
 		return nil, nil, "", "", "", fmt.Errorf("unsupported selector expression: %v", expr)
@@ -362,7 +384,10 @@ func (r *TypeResolver) resolveIdentType(name string, currentStructName string) (
 	}
 
 	// Check if it's a struct type we know about (including self-reference)
+	// Return the name as structName so it can be used for code generation
+	// even though the reflect.Type itself is a placeholder with Name() == ""
 	if typ, ok := r.structTypeMap[name]; ok {
+		// Return the name as structName - this is the named type, not the underlying type
 		return typ, name, "", "", nil
 	}
 
