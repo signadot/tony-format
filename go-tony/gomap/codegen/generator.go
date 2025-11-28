@@ -612,7 +612,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 		} else if elemType.Kind() == reflect.Struct || (elemType.Kind() == reflect.Ptr && elemType.Elem().Kind() == reflect.Struct) {
 			// Slice of structs or pointers to structs - call ToTony()
 			buf.WriteString(fmt.Sprintf("			node, err %s v.ToTonyIR(opts...)\n", assign))
-			buf.WriteString("			if err != nil{\n")
+			buf.WriteString("			if err != nil {\n")
 			buf.WriteString("				return nil, fmt.Errorf(\"failed to convert slice element %d: %w\", i, err)\n")
 			buf.WriteString("			}\n")
 			buf.WriteString("			slice[i] = node\n")
