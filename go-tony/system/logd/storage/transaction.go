@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
@@ -29,8 +30,8 @@ type TransactionState struct {
 //tony:schemagen=pending-diff
 type PendingDiff struct {
 	Path      string
-	DiffFile  string // Full filesystem path to the .pending file
-	WrittenAt string // RFC3339 timestamp
+	DiffFile  string // Full filesystem path to the .pending file (set when file is written)
+	WrittenAt string // RFC3339 timestamp (set when file is written)
 }
 
 // WriteTransactionState writes a transaction state file to disk.
@@ -77,7 +78,15 @@ func (s *Storage) ReadTransactionState(transactionID int64) (*TransactionState, 
 }
 
 // UpdateTransactionState updates an existing transaction state file.
+// This method is thread-safe and uses per-transaction locking to serialize updates.
 func (s *Storage) UpdateTransactionState(transactionID int64, updateFn func(*TransactionState)) error {
+	// Get or create a mutex for this transaction ID
+	muInterface, _ := s.txLocks.LoadOrStore(transactionID, &sync.Mutex{})
+	mu := muInterface.(*sync.Mutex)
+
+	mu.Lock()
+	defer mu.Unlock()
+
 	state, err := s.ReadTransactionState(transactionID)
 	if err != nil {
 		return err
