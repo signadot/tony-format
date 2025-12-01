@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
@@ -225,5 +226,158 @@ func TestStep2_ID_Method(t *testing.T) {
 	// Verify ID is consistent across calls
 	if tx.ID() != tx.ID() {
 		t.Error("ID() should return consistent values")
+	}
+}
+
+// TestStep3_JoinExistingTransaction validates Step 3: Join Existing Transaction
+func TestStep3_JoinExistingTransaction(t *testing.T) {
+	tmpDir := t.TempDir()
+	storage, err := Open(tmpDir, 022, nil)
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+
+	// Create a transaction
+	tx1, err := storage.NewTx(2)
+	if err != nil {
+		t.Fatalf("failed to create transaction: %v", err)
+	}
+	txID := tx1.ID()
+
+	// Test: Join existing transaction
+	tx2, err := storage.JoinTx(txID)
+	if err != nil {
+		t.Fatalf("failed to join transaction: %v", err)
+	}
+	if tx2 == nil {
+		t.Fatal("JoinTx returned nil transaction")
+	}
+
+	// Verify both transactions have the same ID
+	if tx2.ID() != tx1.ID() {
+		t.Errorf("expected transaction ID %d, got %d", tx1.ID(), tx2.ID())
+	}
+
+	// Verify Tx instance has correct fields populated
+	if tx2.storage != storage {
+		t.Error("tx2.storage should reference the storage instance")
+	}
+	if tx2.txID != txID {
+		t.Errorf("expected txID %d, got %d", txID, tx2.txID)
+	}
+	if tx2.txSeq != txID {
+		t.Errorf("expected txSeq %d, got %d", txID, tx2.txSeq)
+	}
+	if tx2.participantCount != 2 {
+		t.Errorf("expected participantCount 2, got %d", tx2.participantCount)
+	}
+	if tx2.committed {
+		t.Error("joined transaction should not be committed")
+	}
+	if tx2.done == nil {
+		t.Error("done channel should be initialized")
+	}
+	if tx2.result != nil {
+		t.Error("joined transaction should not have a result")
+	}
+
+	// Verify we can join multiple times (simulating multiple participants)
+	tx3, err := storage.JoinTx(txID)
+	if err != nil {
+		t.Fatalf("failed to join transaction second time: %v", err)
+	}
+	if tx3.ID() != txID {
+		t.Errorf("expected transaction ID %d, got %d", txID, tx3.ID())
+	}
+}
+
+// TestStep3_JoinNonExistentTransaction tests error handling for non-existent transactions
+func TestStep3_JoinNonExistentTransaction(t *testing.T) {
+	tmpDir := t.TempDir()
+	storage, err := Open(tmpDir, 022, nil)
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+
+	// Test: Join non-existent transaction
+	nonExistentID := int64(99999)
+	_, err = storage.JoinTx(nonExistentID)
+	if err == nil {
+		t.Error("expected error when joining non-existent transaction, got nil")
+	}
+	if err != nil && err.Error() == "" {
+		t.Error("error message should not be empty")
+	}
+}
+
+// TestStep3_JoinCommittedTransaction tests error handling for committed transactions
+func TestStep3_JoinCommittedTransaction(t *testing.T) {
+	tmpDir := t.TempDir()
+	storage, err := Open(tmpDir, 022, nil)
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+
+	// Create a transaction
+	tx, err := storage.NewTx(1)
+	if err != nil {
+		t.Fatalf("failed to create transaction: %v", err)
+	}
+	txID := tx.ID()
+
+	// Manually update the transaction state to "committed" status
+	// (This simulates a committed transaction without implementing Commit yet)
+	err = storage.UpdateTransactionState(txID, func(state *TransactionState) {
+		state.Status = "committed"
+	})
+	if err != nil {
+		t.Fatalf("failed to update transaction state: %v", err)
+	}
+
+	// Test: Try to join committed transaction (should fail)
+	_, err = storage.JoinTx(txID)
+	if err == nil {
+		t.Error("expected error when joining committed transaction, got nil")
+	}
+		if err != nil {
+			// Verify error message mentions the status
+			errMsg := err.Error()
+			if errMsg == "" {
+				t.Error("error message should not be empty")
+			}
+			// Error should mention "committed" status
+			if errMsg != "" && !strings.Contains(errMsg, "committed") && !strings.Contains(errMsg, "cannot join") {
+				t.Logf("Warning: error message may not be descriptive enough: %s", errMsg)
+			}
+		}
+}
+
+// TestStep3_JoinAbortedTransaction tests error handling for aborted transactions
+func TestStep3_JoinAbortedTransaction(t *testing.T) {
+	tmpDir := t.TempDir()
+	storage, err := Open(tmpDir, 022, nil)
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+
+	// Create a transaction
+	tx, err := storage.NewTx(1)
+	if err != nil {
+		t.Fatalf("failed to create transaction: %v", err)
+	}
+	txID := tx.ID()
+
+	// Manually update the transaction state to "aborted" status
+	err = storage.UpdateTransactionState(txID, func(state *TransactionState) {
+		state.Status = "aborted"
+	})
+	if err != nil {
+		t.Fatalf("failed to update transaction state: %v", err)
+	}
+
+	// Test: Try to join aborted transaction (should fail)
+	_, err = storage.JoinTx(txID)
+	if err == nil {
+		t.Error("expected error when joining aborted transaction, got nil")
 	}
 }

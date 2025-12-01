@@ -88,8 +88,29 @@ func (s *Storage) NewTx(participantCount int) (*Tx, error) {
 //	    result := tx.WaitForCompletion()
 //	}
 func (s *Storage) JoinTx(txID int64) (*Tx, error) {
-	// TODO: Implement in Step 3
-	return nil, nil
+	state, err := s.ReadTransactionState(txID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read transaction state: %w", err)
+	}
+
+	// Validate transaction is still pending
+	if state.Status != "pending" {
+		return nil, fmt.Errorf("transaction %d is %s, cannot join", txID, state.Status)
+	}
+
+	// Transaction ID is the same as txSeq
+	txSeq := txID
+
+	return &Tx{
+		storage:          s,
+		txID:             txID,
+		txSeq:            txSeq,
+		participantCount: state.ParticipantCount,
+		committed:        false,
+		done:             make(chan struct{}),
+		result:           nil,
+		mu:               sync.Mutex{},
+	}, nil
 }
 
 // ID returns the transaction ID, useful for sharing with other participants.
