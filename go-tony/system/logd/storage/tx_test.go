@@ -969,3 +969,206 @@ func TestStep5_AddDiff_LastParticipantDetection_LargeConcurrency(t *testing.T) {
 		t.Errorf("expected %d diffs, got %d", participantCount, len(state.Diffs))
 	}
 }
+
+// TestStep9_WaitForCompletion tests waiting for transaction completion
+func TestStep9_WaitForCompletion(t *testing.T) {
+	tmpDir := t.TempDir()
+	storage, err := Open(tmpDir, 022, nil)
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+
+	// Create a transaction with 2 participants
+	tx1, err := storage.NewTx(2)
+	if err != nil {
+		t.Fatalf("failed to create transaction: %v", err)
+	}
+	txID := tx1.ID()
+
+	// Second participant joins
+	tx2, err := storage.JoinTx(txID)
+	if err != nil {
+		t.Fatalf("failed to join transaction: %v", err)
+	}
+
+	// Start waiter in goroutine
+	var result *TxResult
+	done := make(chan bool)
+	go func() {
+		result = tx2.WaitForCompletion()
+		done <- true
+	}()
+
+	// First participant adds diff (not last)
+	patch1 := createTestPatch("/path1", createTestDiffNode(), nil)
+	isLast1, err := tx1.AddDiff(patch1)
+	if err != nil {
+		t.Fatalf("failed to add diff 1: %v", err)
+	}
+	if isLast1 {
+		t.Error("first participant should not be last (1 of 2)")
+	}
+
+	// Second participant adds diff (last)
+	patch2 := createTestPatch("/path2", createTestDiffNode(), nil)
+	isLast2, err := tx2.AddDiff(patch2)
+	if err != nil {
+		t.Fatalf("failed to add diff 2: %v", err)
+	}
+	if !isLast2 {
+		t.Error("second participant should be last (2 of 2)")
+	}
+
+	// Last participant commits
+	commitResult, err := tx2.Commit()
+	if err != nil {
+		t.Fatalf("failed to commit: %v", err)
+	}
+
+	// Wait for completion
+	<-done
+
+	// Verify result
+	if result == nil {
+		t.Fatal("result should not be nil")
+	}
+	if !result.Committed {
+		t.Error("transaction should be committed")
+	}
+	if result.Commit == 0 {
+		t.Error("commit number should be non-zero")
+	}
+	if result.Error != nil {
+		t.Errorf("unexpected error: %v", result.Error)
+	}
+
+	// Verify result matches commit result
+	if result.Commit != commitResult.Commit {
+		t.Errorf("wait result commit %d != commit result commit %d", result.Commit, commitResult.Commit)
+	}
+}
+
+// TestStep9_WaitForCompletion_MultipleWaiters tests multiple goroutines waiting
+func TestStep9_WaitForCompletion_MultipleWaiters(t *testing.T) {
+	tmpDir := t.TempDir()
+	storage, err := Open(tmpDir, 022, nil)
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+
+	// Create a transaction with 3 participants
+	tx1, err := storage.NewTx(3)
+	if err != nil {
+		t.Fatalf("failed to create transaction: %v", err)
+	}
+	txID := tx1.ID()
+
+	// Create two waiting participants
+	tx2, err := storage.JoinTx(txID)
+	if err != nil {
+		t.Fatalf("failed to join transaction: %v", err)
+	}
+	tx3, err := storage.JoinTx(txID)
+	if err != nil {
+		t.Fatalf("failed to join transaction: %v", err)
+	}
+
+	// Start multiple waiters
+	results := make([]*TxResult, 2)
+	done := make(chan int, 2)
+	go func() {
+		results[0] = tx2.WaitForCompletion()
+		done <- 0
+	}()
+	go func() {
+		results[1] = tx3.WaitForCompletion()
+		done <- 1
+	}()
+
+	// Add diffs
+	patch1 := createTestPatch("/path1", createTestDiffNode(), nil)
+	tx1.AddDiff(patch1)
+	patch2 := createTestPatch("/path2", createTestDiffNode(), nil)
+	tx2.AddDiff(patch2)
+	patch3 := createTestPatch("/path3", createTestDiffNode(), nil)
+	isLast, _ := tx3.AddDiff(patch3)
+	if !isLast {
+		t.Fatal("third participant should be last")
+	}
+
+	// Commit
+	commitResult, err := tx3.Commit()
+	if err != nil {
+		t.Fatalf("failed to commit: %v", err)
+	}
+
+	// Wait for both waiters
+	<-done
+	<-done
+
+	// Verify both got the same result
+	if results[0] == nil || results[1] == nil {
+		t.Fatal("both results should be non-nil")
+	}
+	if results[0].Commit != results[1].Commit {
+		t.Errorf("results should have same commit: %d != %d", results[0].Commit, results[1].Commit)
+	}
+	if results[0].Commit != commitResult.Commit {
+		t.Errorf("wait results commit %d != commit result commit %d", results[0].Commit, commitResult.Commit)
+	}
+}
+
+// TestStep9_GetResult tests non-blocking result retrieval
+func TestStep9_GetResult(t *testing.T) {
+	tmpDir := t.TempDir()
+	storage, err := Open(tmpDir, 022, nil)
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+
+	// Create a transaction
+	tx, err := storage.NewTx(1)
+	if err != nil {
+		t.Fatalf("failed to create transaction: %v", err)
+	}
+
+	// GetResult before completion should return nil
+	result := tx.GetResult()
+	if result != nil {
+		t.Error("GetResult should return nil before completion")
+	}
+
+	// Add diff and commit
+	patch := createTestPatch("/path", createTestDiffNode(), nil)
+	isLast, err := tx.AddDiff(patch)
+	if err != nil {
+		t.Fatalf("failed to add diff: %v", err)
+	}
+	if !isLast {
+		t.Fatal("single participant should be last")
+	}
+
+	// GetResult before commit should still return nil
+	result = tx.GetResult()
+	if result != nil {
+		t.Error("GetResult should return nil before commit")
+	}
+
+	// Commit
+	commitResult, err := tx.Commit()
+	if err != nil {
+		t.Fatalf("failed to commit: %v", err)
+	}
+
+	// GetResult after commit should return the result
+	result = tx.GetResult()
+	if result == nil {
+		t.Fatal("GetResult should return result after commit")
+	}
+	if result.Commit != commitResult.Commit {
+		t.Errorf("GetResult commit %d != commit result commit %d", result.Commit, commitResult.Commit)
+	}
+	if !result.Committed {
+		t.Error("result should be committed")
+	}
+}

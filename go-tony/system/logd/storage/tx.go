@@ -394,15 +394,154 @@ func (tx *Tx) setResult(committed bool, commit int64, err error) (*TxResult, err
 // WaitForCompletion waits for the transaction to complete or abort.
 // This should be called by participants that are NOT the last one.
 // Returns the transaction result once available.
+//
+// This method blocks until the transaction completes (either successfully committed
+// or aborted). The transaction completes when:
+// - The last participant calls Commit() (success or failure)
+// - An error occurs during commit
+//
+// All waiting participants will receive the same result.
 func (tx *Tx) WaitForCompletion() *TxResult {
-	// TODO: Implement in Step 9
-	return nil
+	// First check if this instance already has the result
+	tx.mu.Lock()
+	if tx.result != nil {
+		result := tx.result
+		tx.mu.Unlock()
+		return result
+	}
+	tx.mu.Unlock()
+
+	// Poll transaction state until it's no longer pending
+	// This works across multiple Tx instances for the same transaction
+	for {
+		state, err := tx.storage.ReadTransactionState(tx.txID)
+		if err != nil {
+			// Transaction state file doesn't exist - check if transaction was committed
+			// (Commit() deletes the state file after writing to log)
+			entries, logErr := tx.storage.ReadTransactionLog(nil)
+			if logErr == nil {
+				for _, entry := range entries {
+					if entry.TransactionID == tx.txID {
+						// Found in log - transaction was committed
+						result := &TxResult{
+							Committed: true,
+							Commit:    entry.Commit,
+							Error:     nil,
+						}
+						// Cache it for this instance
+						tx.mu.Lock()
+						if tx.result == nil {
+							tx.result = result
+							tx.committed = true
+							close(tx.done)
+						}
+						result = tx.result
+						tx.mu.Unlock()
+						return result
+					}
+				}
+			}
+			// File doesn't exist and not in log - might be transient error or still committing
+			// Check if we have a cached result first
+			tx.mu.Lock()
+			result := tx.result
+			tx.mu.Unlock()
+			if result != nil {
+				return result
+			}
+			// No result yet - wait a bit and check again
+			select {
+			case <-tx.done:
+				tx.mu.Lock()
+				result := tx.result
+				tx.mu.Unlock()
+				return result
+			case <-time.After(10 * time.Millisecond):
+				continue
+			}
+		}
+
+		// If transaction is committed or aborted, reconstruct result
+		if state.Status == "committed" || state.Status == "aborted" {
+			// Transaction completed - we need to get the result from somewhere
+			// Since the state file might be deleted, check if we have it cached
+			tx.mu.Lock()
+			if tx.result != nil {
+				result := tx.result
+				tx.mu.Unlock()
+				return result
+			}
+			tx.mu.Unlock()
+
+			// If state is committed, read from transaction log to get commit number
+			if state.Status == "committed" {
+				// Read transaction log to find the commit number
+				entries, err := tx.storage.ReadTransactionLog(nil)
+				if err == nil {
+					for _, entry := range entries {
+						if entry.TransactionID == tx.txID {
+							result := &TxResult{
+								Committed: true,
+								Commit:    entry.Commit,
+								Error:     nil,
+							}
+							// Cache it for this instance
+							tx.mu.Lock()
+							if tx.result == nil {
+								tx.result = result
+								tx.committed = true
+								close(tx.done)
+							}
+							result = tx.result
+							tx.mu.Unlock()
+							return result
+						}
+					}
+				}
+			} else {
+				// Aborted - create error result
+				result := &TxResult{
+					Committed: false,
+					Commit:    0,
+					Error:     fmt.Errorf("transaction %d was aborted", tx.txID),
+				}
+				tx.mu.Lock()
+				if tx.result == nil {
+					tx.result = result
+					tx.committed = true
+					close(tx.done)
+				}
+				result = tx.result
+				tx.mu.Unlock()
+				return result
+			}
+		}
+
+		// Still pending - wait a bit and check again
+		// Use a small sleep to avoid busy-waiting
+		// In a real implementation, we might want to use a more sophisticated
+		// notification mechanism, but polling works for now
+		select {
+		case <-tx.done:
+			// This instance's done channel was closed (by setResult on this instance)
+			tx.mu.Lock()
+			result := tx.result
+			tx.mu.Unlock()
+			return result
+		case <-time.After(10 * time.Millisecond):
+			// Small sleep to avoid busy-waiting, then check again
+		}
+	}
 }
 
 // GetResult returns the current result without waiting.
 // Returns nil if the transaction hasn't completed yet.
+//
+// This method is non-blocking and can be used to poll for completion.
+// For blocking behavior, use WaitForCompletion() instead.
 func (tx *Tx) GetResult() *TxResult {
-	// TODO: Implement in Step 9
-	return nil
+	tx.mu.Lock()
+	defer tx.mu.Unlock()
+	return tx.result
 }
 
