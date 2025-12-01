@@ -1,7 +1,62 @@
+// Package compact implements hierarchical log segment compaction.
+//
+// Compaction provides fast access to fully reconstructed objects from their
+// diff history and reduces storage by combining multiple small segments into
+// larger ones. The algorithm works in levels: Level 0 segments are compacted
+// into Level 1, Level 1 into Level 2, and so on.
+//
+// Algorithm:
+//
+//  1. Segments arrive at Level 0 via OnNewSegment()
+//  2. When Divisor segments accumulate, they are compacted:
+//     - Compute diff from Start state to current state
+//     - Write compacted segment at Level+1
+//     - Remove old input segment files if Config.Remove returns true
+//     - Reset and start new compaction window
+//  3. Compacted segments propagate to the next level for further compaction
+//
+// Key concepts:
+//
+//   - Divisor: Number of segments to accumulate before compacting (Config.Divisor)
+//   - Compaction window: The range of segments being compacted together
+//   - Start: The base state at the beginning of the current compaction window
+//   - Ref: The current state after applying all segments in the window
+//
+// File removal:
+//
+// After successful compaction, input segment files may be removed based on
+// Config.Remove(commit, level). This allows controlling when old segments are
+// deleted (e.g., only after multiple levels of compaction, or never). Removal
+// failures are logged but do not fail compaction.
+//
+// Package-level helper functions provide common removal strategies:
+//
+//   - NeverRemove(): Never remove files
+//   - AlwaysRemove(): Always remove files after compaction
+//   - LevelThreshold(maxLevel): Remove only files at or below maxLevel
+//   - HeadWindow(curCommit, keep): Keep N most recent commits, remove older
+//   - HeadWindowLevel(curCommit, keep, maxLevel): Combine HeadWindow with level filtering
+//
+// Example:
+//
+//	cfg := &Config{
+//	  Remove: HeadWindow(func() int { return currentCommit() }, 100),
+//	}
+//
+// Recovery:
+//
+// On startup or error, the compactor reads state from disk by scanning segment files
+// and reconstructing the current state. This allows compaction to resume after
+// restarts or transient failures.
+//
+// Thread safety:
+//
+// Compactor is safe for concurrent use. Each virtual path has its own DirCompactor
+// running in a separate goroutine. OnNewSegment() returns quickly by enqueueing
+// segments asynchronously.
 package compact
 
 import (
-	"fmt"
 	"sync"
 
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
@@ -14,6 +69,7 @@ type Compactor struct {
 	*seq.Seq
 	Index         *index.Index
 	IndexFSLocker sync.Locker
+	env           *storageEnv
 
 	// store dir compactors indexed by virtual path
 	dcMu  sync.Mutex
@@ -21,11 +77,13 @@ type Compactor struct {
 }
 
 func NewCompactor(cfg *Config, seq *seq.Seq, idxL sync.Locker, idx *index.Index) *Compactor {
+	env := &storageEnv{seq: seq, idxL: idxL, idx: idx}
 	return &Compactor{
 		Config:        *cfg,
 		Seq:           seq,
 		Index:         idx,
 		IndexFSLocker: idxL,
+		env:           env,
 		dcMap:         map[string]*DirCompactor{},
 	}
 }
@@ -49,9 +107,9 @@ func (c *Compactor) getOrInitDC(seg *index.LogSegment) *DirCompactor {
 	dc := c.dcMap[seg.RelPath]
 	if dc == nil {
 		dir := paths.PathToFilesystem(c.Config.Root, seg.RelPath)
-		dc = NewDirCompactor(&c.Config, 0, dir, seg.RelPath, c.Seq, c.IndexFSLocker, c.Index)
+		dc = NewDirCompactor(&c.Config, 0, dir, seg.RelPath, c.env)
 		c.dcMap[seg.RelPath] = dc
-		fmt.Printf("created dc in dir %q for vp %q\n", dir, seg.RelPath)
+		c.Config.Log.Debug("created dir compactor", "dir", dir, "path", seg.RelPath)
 	}
 	return dc
 }

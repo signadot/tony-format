@@ -1,9 +1,10 @@
 package compact
 
 import (
+	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/signadot/tony-format/go-tony"
@@ -11,7 +12,6 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/dfile"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/paths"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/seq"
 )
 
 type DirCompactor struct {
@@ -40,7 +40,7 @@ type DirCompactor struct {
 	done chan struct{}
 }
 
-func NewDirCompactor(cfg *Config, lvl int, dir, vp string, sequence *seq.Seq, idxL sync.Locker, idx *index.Index) *DirCompactor {
+func newDirCompactor(cfg *Config, lvl int, dir, vp string, env *storageEnv) *DirCompactor {
 	if cfg.Log == nil {
 		cfg.Log = slog.Default()
 	}
@@ -54,12 +54,19 @@ func NewDirCompactor(cfg *Config, lvl int, dir, vp string, sequence *seq.Seq, id
 		Start:       ir.Null(),
 		done:        make(chan struct{}),
 	}
-	go dc.run(sequence, idxL, idx)
 	return dc
 }
 
-func (dc *DirCompactor) run(seq *seq.Seq, idxL sync.Locker, idx *index.Index) error {
-	<-dc.recover(nil, seq, idxL, idx)
+func NewDirCompactor(cfg *Config, lvl int, dir, vp string, env *storageEnv) *DirCompactor {
+	dc := newDirCompactor(cfg, lvl, dir, vp, env)
+	go dc.run(env)
+	return dc
+}
+
+func (dc *DirCompactor) run(env *storageEnv) error {
+	if err := dc.recover(nil, env); err != nil {
+		return err // Initial recovery failed (e.g., shutdown)
+	}
 	for {
 		var seg *index.LogSegment
 		select {
@@ -71,13 +78,15 @@ func (dc *DirCompactor) run(seq *seq.Seq, idxL sync.Locker, idx *index.Index) er
 		case <-dc.done:
 			return nil
 		}
-		if err := dc.processSegment(seg, seq, idxL, idx); err != nil {
-			<-dc.recover(err, seq, idxL, idx)
+		if err := dc.processSegment(seg, env); err != nil {
+			if err := dc.recover(err, env); err != nil {
+				return err // Recovery failed (e.g., shutdown)
+			}
 		}
 	}
 }
 
-func (dc *DirCompactor) processSegment(seg *index.LogSegment, seq *seq.Seq, idxL sync.Locker, idx *index.Index) error {
+func (dc *DirCompactor) processSegment(seg *index.LogSegment, env *storageEnv) error {
 	// since recovery from an error can place us ahead of incoming,
 	// be sure to skip segments we've already processed
 	if dc.CurSegment != nil {
@@ -100,58 +109,88 @@ func (dc *DirCompactor) processSegment(seg *index.LogSegment, seq *seq.Seq, idxL
 	}
 	rotate := dc.addSegment(seg)
 	if rotate {
-		if err := dc.persistCurrent(seq, idxL, idx, diff); err != nil {
+		if err := dc.rotateCompactionWindow(env, diff, tmp); err != nil {
 			return err
 		}
-		dc.Inputs = 0
-		if dc.Next == nil {
-			dc.Next = NewDirCompactor(&dc.Config, dc.Level+1, dc.Dir, dc.VirtualPath, seq, idxL, idx)
-		} else {
-			dc.Next.incoming <- *dc.CurSegment
-		}
-		dc.CurSegment = &index.LogSegment{RelPath: dc.VirtualPath}
 	}
 	dc.Ref = tmp
 	return nil
 }
 
-func (dc *DirCompactor) recover(e error, sequence *seq.Seq, idxMu sync.Locker, idx *index.Index) chan struct{} {
-	recovered := make(chan struct{})
-	go dc.recoverNotify(e, sequence, idxMu, idx, recovered)
-	return recovered
+// rotateCompactionWindow handles the rotation of a compaction window:
+// persists the current segment, resets state, and propagates to next level.
+func (dc *DirCompactor) rotateCompactionWindow(env *storageEnv, diff *ir.Node, newState *ir.Node) error {
+	if err := dc.persistCurrent(env, diff); err != nil {
+		return err
+	}
+	dc.Inputs = 0
+	if dc.Next == nil {
+		dc.Next = NewDirCompactor(&dc.Config, dc.Level+1, dc.Dir, dc.VirtualPath, env)
+	} else {
+		dc.Next.incoming <- *dc.CurSegment
+	}
+	dc.CurSegment = &index.LogSegment{RelPath: dc.VirtualPath}
+	dc.Start = newState
+	return nil
 }
 
-func (dc *DirCompactor) recoverNotify(e error, sequence *seq.Seq, idxMu sync.Locker, idx *index.Index, notify chan struct{}) {
+// recover performs synchronous recovery by reading state from disk and processing
+// any unprocessed segments. It retries on failure with exponential backoff, checking for
+// shutdown requests. Returns an error if recovery is cancelled (e.g., shutdown).
+func (dc *DirCompactor) recover(e error, env *storageEnv) error {
 	if e != nil {
 		dc.Config.Log.Warn("starting recovery for", "path", dc.VirtualPath, "error", e)
 	}
-	ticker := time.NewTicker(time.Minute)
-	defer ticker.Stop()
+	backoff := time.Second
+	maxBackoff := 5 * time.Minute
 	for {
+		// Reset state
 		dc.Inputs = 0
 		dc.CurSegment = nil
 		dc.Start = ir.Null()
 		dc.Ref = ir.Null()
 
-		inputSegs, err := dc.ReadState(sequence, idxMu, idx)
+		// Read state from disk
+		inputSegs, err := dc.readState(env)
 		if err != nil {
-			dc.Config.Log.Warn("error reading state in recover: trying again", "error", err)
-			goto again
+			dc.Config.Log.Warn("error reading state in recover: trying again", "error", err, "backoff", backoff)
+			if err := dc.waitForRetry(backoff); err != nil {
+				return err // Shutdown requested
+			}
+			backoff = min(backoff*2, maxBackoff)
+			continue
 		}
+
+		// Process segments recovered from disk
 		for i := range inputSegs {
-			if err := dc.processSegment(&inputSegs[i], sequence, idxMu, idx); err != nil {
-				dc.Config.Log.Warn("error processing segments in recover: trying again", "error", err)
-				goto again
+			if err := dc.processSegment(&inputSegs[i], env); err != nil {
+				dc.Config.Log.Warn("error processing segments in recover: trying again", "error", err, "backoff", backoff)
+				if err := dc.waitForRetry(backoff); err != nil {
+					return err // Shutdown requested
+				}
+				backoff = min(backoff*2, maxBackoff)
+				goto retry
 			}
 		}
-		close(notify)
-		return
-	again:
-		select {
-		case <-ticker.C:
-		case <-dc.done:
-			return
-		}
+
+		// Recovery successful
+		return nil
+
+	retry:
+		// Continue loop to retry
+	}
+}
+
+// waitForRetry waits for the retry interval or shutdown signal.
+// Returns nil to continue retry, or an error if shutdown is requested.
+func (dc *DirCompactor) waitForRetry(delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil // Retry now
+	case <-dc.done:
+		return fmt.Errorf("recovery cancelled: shutdown requested")
 	}
 }
 
@@ -169,12 +208,13 @@ func (dc *DirCompactor) addSegment(seg *index.LogSegment) bool {
 	return dc.Inputs >= dc.Config.Divisor
 }
 
-func (dc *DirCompactor) persistCurrent(sequence *seq.Seq, idxL sync.Locker, idx *index.Index, diff *ir.Node) error {
+func (dc *DirCompactor) persistCurrent(env *storageEnv, diff *ir.Node) error {
 	// 1. Allocate txSeq
-	txSeq, err := sequence.NextTxSeq()
+	txSeq, err := env.seq.NextTxSeq()
 	if err != nil {
 		return err
 	}
+
 	// 2. Write pending
 	seg := &index.LogSegment{
 		StartCommit: 0,
@@ -197,9 +237,9 @@ func (dc *DirCompactor) persistCurrent(sequence *seq.Seq, idxL sync.Locker, idx 
 	}
 
 	// 3. Commit
-	sequence.Lock()
-	defer sequence.Unlock()
-	commit, err := sequence.NextCommitLocked()
+	env.seq.Lock()
+	defer env.seq.Unlock()
+	commit, err := env.seq.NextCommitLocked()
 	if err != nil {
 		return err
 	}
@@ -212,9 +252,18 @@ func (dc *DirCompactor) persistCurrent(sequence *seq.Seq, idxL sync.Locker, idx 
 	}
 
 	// 4. Index
-	idxL.Lock()
-	defer idxL.Unlock()
-	idx.Add(seg)
+	env.idxL.Lock()
+	defer env.idxL.Unlock()
+	env.idx.Add(seg)
+
+	// 5. Remove old input segment files if configured to do so
+	// Do this BEFORE updating CurSegment, so we have the correct range
+	if dc.Config.Remove != nil && dc.Config.Remove(int(commit), dc.Level+1) {
+		if err := dc.removeInputSegments(commit); err != nil {
+			// Log but don't fail - removal is best effort
+			dc.Config.Log.Warn("failed to remove input segments", "error", err, "commit", commit, "level", dc.Level)
+		}
+	}
 
 	// update current to have start commit if 0
 	if dc.CurSegment.StartCommit == 0 {
@@ -222,7 +271,52 @@ func (dc *DirCompactor) persistCurrent(sequence *seq.Seq, idxL sync.Locker, idx 
 	}
 	dc.CurSegment.EndCommit = commit
 	dc.CurSegment.EndTx = txSeq
-	// todo remove old .diff files
+	return nil
+}
+
+// removeInputSegments removes input segment files that were compacted into the segment
+// at the given commit. It scans the directory for segments at dc.Level that fall within
+// the range covered by CurSegment and deletes them.
+func (dc *DirCompactor) removeInputSegments(commit int64) error {
+	if dc.CurSegment == nil {
+		return nil // Nothing to remove
+	}
+
+	dirEnts, err := os.ReadDir(dc.Dir)
+	if err != nil {
+		return err
+	}
+
+	// Use the transaction range (StartTx/EndTx) to identify which segments to remove,
+	// since commit numbers may differ. The CurSegment tracks the range of input segments
+	// that were compacted.
+	startTx := dc.CurSegment.StartTx
+	endTx := dc.CurSegment.EndTx
+
+	for _, de := range dirEnts {
+		if de.IsDir() {
+			continue
+		}
+		name := de.Name()
+		seg, lvl, err := paths.ParseLogSegment(name)
+		if err != nil {
+			continue // Skip invalid filenames
+		}
+		// Only remove segments at our level that fall within the compacted range
+		if lvl == dc.Level && seg.RelPath == dc.VirtualPath {
+			// Check if segment overlaps the compacted range [startTx, endTx]
+			// A segment overlaps if its EndTx is within the range (since segments are ordered)
+			if seg.EndTx >= startTx && seg.EndTx <= endTx {
+				filePath := filepath.Join(dc.Dir, name)
+				if err := os.Remove(filePath); err != nil {
+					dc.Config.Log.Warn("failed to remove input segment", "file", name, "error", err)
+					// Continue removing other segments even if one fails
+				} else {
+					dc.Config.Log.Debug("removed input segment", "file", name, "commit", commit, "level", dc.Level)
+				}
+			}
+		}
+	}
 	return nil
 }
 

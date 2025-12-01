@@ -21,8 +21,9 @@ func TestReadState_BasicHappyPath(t *testing.T) {
 	idxL := &sync.Mutex{}
 	idx := index.NewIndex("")
 
-	// Create DirCompactor at Level 0
-	dc := NewDirCompactor(&Config{Divisor: 2}, 0, tmpDir, "/test", sequence, idxL, idx)
+	// Create DirCompactor at Level 0 (without starting goroutine to avoid race)
+	env := &storageEnv{seq: sequence, idxL: idxL, idx: idx}
+	dc := newDirCompactor(&Config{Divisor: 2}, 0, tmpDir, "/test", env)
 
 	// Build states and diffs using tony.Diff
 	state0 := ir.Null()
@@ -76,7 +77,7 @@ func TestReadState_BasicHappyPath(t *testing.T) {
 	}
 
 	// Read state
-	inputSegs, err := dc.ReadState(sequence, idxL, idx)
+	inputSegs, err := dc.readState(env)
 	if err != nil {
 		t.Fatalf("ReadState failed: %v", err)
 	}
