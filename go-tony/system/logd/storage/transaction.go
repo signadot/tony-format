@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -12,7 +13,7 @@ import (
 //
 //tony:schemagen=transaction-state
 type TransactionState struct {
-	TransactionID        string
+	TransactionID        int64
 	ParticipantCount     int
 	ParticipantRequests  []*api.Patch
 	ParticipantMatches   []*api.Match
@@ -34,10 +35,8 @@ type PendingDiff struct {
 
 // WriteTransactionState writes a transaction state file to disk.
 func (s *Storage) WriteTransactionState(state *TransactionState) error {
-	// Transaction ID format: tx-{seq}-{participant_count}
-	// Extract seq from transaction ID for filename
-	// Format: tx-12345-2 -> tx-12345-2.pending
-	filename := state.TransactionID + ".pending"
+	// Filename format: {txID}.pending (e.g., 12345.pending)
+	filename := fmt.Sprintf("%d.pending", state.TransactionID)
 	filePath := filepath.Join(s.Root, "meta", "transactions", filename)
 	d, err := state.ToTony()
 	if err != nil {
@@ -60,8 +59,8 @@ func (s *Storage) WriteTransactionState(state *TransactionState) error {
 }
 
 // ReadTransactionState reads a transaction state file from disk.
-func (s *Storage) ReadTransactionState(transactionID string) (*TransactionState, error) {
-	filename := transactionID + ".pending"
+func (s *Storage) ReadTransactionState(transactionID int64) (*TransactionState, error) {
+	filename := fmt.Sprintf("%d.pending", transactionID)
 	filePath := filepath.Join(s.Root, "meta", "transactions", filename)
 
 	data, err := os.ReadFile(filePath)
@@ -78,7 +77,7 @@ func (s *Storage) ReadTransactionState(transactionID string) (*TransactionState,
 }
 
 // UpdateTransactionState updates an existing transaction state file.
-func (s *Storage) UpdateTransactionState(transactionID string, updateFn func(*TransactionState)) error {
+func (s *Storage) UpdateTransactionState(transactionID int64, updateFn func(*TransactionState)) error {
 	state, err := s.ReadTransactionState(transactionID)
 	if err != nil {
 		return err
@@ -90,14 +89,14 @@ func (s *Storage) UpdateTransactionState(transactionID string, updateFn func(*Tr
 }
 
 // DeleteTransactionState deletes a transaction state file.
-func (s *Storage) DeleteTransactionState(transactionID string) error {
-	filename := transactionID + ".pending"
+func (s *Storage) DeleteTransactionState(transactionID int64) error {
+	filename := fmt.Sprintf("%d.pending", transactionID)
 	filePath := filepath.Join(s.Root, "meta", "transactions", filename)
 	return os.Remove(filePath)
 }
 
 // NewTransactionState creates a new TransactionState with the given transaction ID and participant count.
-func NewTransactionState(transactionID string, participantCount int) *TransactionState {
+func NewTransactionState(transactionID int64, participantCount int) *TransactionState {
 	return &TransactionState{
 		TransactionID:    transactionID,
 		ParticipantCount: participantCount,

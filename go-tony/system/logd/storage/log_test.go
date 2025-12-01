@@ -22,13 +22,13 @@ func TestReadTransactionLog_BinarySearch(t *testing.T) {
 
 	// Create test entries with different commit counts
 	entries := []*TransactionLogEntry{
-		{CommitCount: 1, TransactionID: "tx-1", Timestamp: "2024-01-01T00:00:00Z", PendingFiles: []PendingFileRef{{VirtualPath: "/a", TxSeq: 1}}},
-		{CommitCount: 3, TransactionID: "tx-2", Timestamp: "2024-01-01T00:01:00Z", PendingFiles: []PendingFileRef{{VirtualPath: "/b", TxSeq: 2}}},
-		{CommitCount: 5, TransactionID: "tx-3", Timestamp: "2024-01-01T00:02:00Z", PendingFiles: []PendingFileRef{{VirtualPath: "/c", TxSeq: 3}}},
-		{CommitCount: 7, TransactionID: "tx-4", Timestamp: "2024-01-01T00:03:00Z", PendingFiles: []PendingFileRef{{VirtualPath: "/d", TxSeq: 4}}},
-		{CommitCount: 10, TransactionID: "tx-5", Timestamp: "2024-01-01T00:04:00Z", PendingFiles: []PendingFileRef{{VirtualPath: "/e", TxSeq: 5}}},
-		{CommitCount: 15, TransactionID: "tx-6", Timestamp: "2024-01-01T00:05:00Z", PendingFiles: []PendingFileRef{{VirtualPath: "/f", TxSeq: 6}}},
-		{CommitCount: 20, TransactionID: "tx-7", Timestamp: "2024-01-01T00:06:00Z", PendingFiles: []PendingFileRef{{VirtualPath: "/g", TxSeq: 7}}},
+		{Commit: 1, TransactionID: 1, Timestamp: "2024-01-01T00:00:00Z", PendingFiles: []PendingFileRef{{VirtualPath: "/a", TxSeq: 1}}},
+		{Commit: 3, TransactionID: 2, Timestamp: "2024-01-01T00:01:00Z", PendingFiles: []PendingFileRef{{VirtualPath: "/b", TxSeq: 2}}},
+		{Commit: 5, TransactionID: 3, Timestamp: "2024-01-01T00:02:00Z", PendingFiles: []PendingFileRef{{VirtualPath: "/c", TxSeq: 3}}},
+		{Commit: 7, TransactionID: 4, Timestamp: "2024-01-01T00:03:00Z", PendingFiles: []PendingFileRef{{VirtualPath: "/d", TxSeq: 4}}},
+		{Commit: 10, TransactionID: 5, Timestamp: "2024-01-01T00:04:00Z", PendingFiles: []PendingFileRef{{VirtualPath: "/e", TxSeq: 5}}},
+		{Commit: 15, TransactionID: 6, Timestamp: "2024-01-01T00:05:00Z", PendingFiles: []PendingFileRef{{VirtualPath: "/f", TxSeq: 6}}},
+		{Commit: 20, TransactionID: 7, Timestamp: "2024-01-01T00:06:00Z", PendingFiles: []PendingFileRef{{VirtualPath: "/g", TxSeq: 7}}},
 	}
 
 	// Write all entries
@@ -50,11 +50,11 @@ func TestReadTransactionLog_BinarySearch(t *testing.T) {
 		if i >= len(allEntries) {
 			break
 		}
-		if allEntries[i].CommitCount != expected.CommitCount {
-			t.Errorf("entry %d: expected commitCount %d, got %d", i, expected.CommitCount, allEntries[i].CommitCount)
+		if allEntries[i].Commit != expected.Commit {
+			t.Errorf("entry %d: expected commitCount %d, got %d", i, expected.Commit, allEntries[i].Commit)
 		}
 		if allEntries[i].TransactionID != expected.TransactionID {
-			t.Errorf("entry %d: expected transactionID %s, got %s", i, expected.TransactionID, allEntries[i].TransactionID)
+			t.Errorf("entry %d: expected transactionID %d, got %d", i, expected.TransactionID, allEntries[i].TransactionID)
 		}
 	}
 
@@ -69,13 +69,13 @@ func TestReadTransactionLog_BinarySearch(t *testing.T) {
 		t.Errorf("expected %d entries with commitCount >= 5, got %d", expectedCount, len(filteredEntries))
 	}
 	for i, entry := range filteredEntries {
-		if entry.CommitCount < minCommit {
-			t.Errorf("entry %d has commitCount %d < %d", i, entry.CommitCount, minCommit)
+		if entry.Commit < minCommit {
+			t.Errorf("entry %d has commitCount %d < %d", i, entry.Commit, minCommit)
 		}
 	}
 	// Verify first entry is correct
-	if len(filteredEntries) > 0 && filteredEntries[0].CommitCount != 5 {
-		t.Errorf("first entry should have commitCount 5, got %d", filteredEntries[0].CommitCount)
+	if len(filteredEntries) > 0 && filteredEntries[0].Commit != 5 {
+		t.Errorf("first entry should have commitCount 5, got %d", filteredEntries[0].Commit)
 	}
 
 	// Test 3: Binary search for commitCount >= 10
@@ -89,12 +89,12 @@ func TestReadTransactionLog_BinarySearch(t *testing.T) {
 		t.Errorf("expected %d entries with commitCount >= 10, got %d", expectedCount, len(filteredEntries))
 	}
 	for i, entry := range filteredEntries {
-		if entry.CommitCount < minCommit {
-			t.Errorf("entry %d has commitCount %d < %d", i, entry.CommitCount, minCommit)
+		if entry.Commit < minCommit {
+			t.Errorf("entry %d has commitCount %d < %d", i, entry.Commit, minCommit)
 		}
 	}
-	if len(filteredEntries) > 0 && filteredEntries[0].CommitCount != 10 {
-		t.Errorf("first entry should have commitCount 10, got %d", filteredEntries[0].CommitCount)
+	if len(filteredEntries) > 0 && filteredEntries[0].Commit != 10 {
+		t.Errorf("first entry should have commitCount 10, got %d", filteredEntries[0].Commit)
 	}
 
 	// Test 4: Binary search for commitCount >= 1 (should get all)

@@ -17,8 +17,8 @@ import (
 //
 //tony:schemagen=txlog-entry
 type TransactionLogEntry struct {
-	CommitCount   int64 // Commit count assigned to this transaction
-	TransactionID string
+	Commit        int64 // Commit count assigned to this transaction
+	TransactionID int64
 	Timestamp     string // RFC3339 timestamp
 	PendingFiles  []PendingFileRef
 }
@@ -181,7 +181,7 @@ func (s *Storage) binarySearchLog(file *os.File, targetCommitCount int64) (int64
 		}
 
 		// Compare commit count
-		if e.CommitCount >= targetCommitCount {
+		if e.Commit >= targetCommitCount {
 			// This entry or earlier might be what we want
 			bestPos = lineStart
 			right = mid
@@ -280,7 +280,7 @@ func (s *Storage) RecoverTransactions() error {
 			// Format filenames using FS
 			pendingSeg := index.PointLogSegment(0, ref.TxSeq, "")
 			pendingFilename := paths.FormatLogSegment(pendingSeg, 0, true)
-			diffSeg := index.PointLogSegment(entry.CommitCount, ref.TxSeq, "")
+			diffSeg := index.PointLogSegment(entry.Commit, ref.TxSeq, "")
 			diffFilename := paths.FormatLogSegment(diffSeg, 0, false)
 			pendingFile := filepath.Join(fsPath, pendingFilename)
 			diffFile := filepath.Join(fsPath, diffFilename)
@@ -319,9 +319,9 @@ func (s *Storage) RecoverTransactions() error {
 }
 
 // NewTransactionLogEntry creates a new TransactionLogEntry.
-func NewTransactionLogEntry(commitCount int64, transactionID string, pendingFiles []PendingFileRef) *TransactionLogEntry {
+func NewTransactionLogEntry(commitCount int64, transactionID int64, pendingFiles []PendingFileRef) *TransactionLogEntry {
 	return &TransactionLogEntry{
-		CommitCount:   commitCount,
+		Commit:        commitCount,
 		TransactionID: transactionID,
 		Timestamp:     time.Now().UTC().Format(time.RFC3339),
 		PendingFiles:  pendingFiles,

@@ -25,11 +25,11 @@ func (s *TransactionLogEntry) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
-	// Field: CommitCount
-	irMap["CommitCount"] = ir.FromInt(int64(s.CommitCount))
+	// Field: Commit
+	irMap["Commit"] = ir.FromInt(int64(s.Commit))
 
 	// Field: TransactionID
-	irMap["TransactionID"] = ir.FromString(s.TransactionID)
+	irMap["TransactionID"] = ir.FromInt(int64(s.TransactionID))
 
 	// Field: Timestamp
 	irMap["Timestamp"] = ir.FromString(s.Timestamp)
@@ -76,18 +76,18 @@ func (s *TransactionLogEntry) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOptio
 	for i, fieldName := range node.Fields {
 		fieldNode := node.Values[i]
 		switch fieldName.String {
-		case "CommitCount":
-			// Field: CommitCount
+		case "Commit":
+			// Field: Commit
 			if fieldNode.Int64 == nil {
-				return fmt.Errorf("field %q: expected number, got %v", "CommitCount", fieldNode.Type)
+				return fmt.Errorf("field %q: expected number, got %v", "Commit", fieldNode.Type)
 			}
-			s.CommitCount = int64(*fieldNode.Int64)
+			s.Commit = int64(*fieldNode.Int64)
 		case "TransactionID":
 			// Field: TransactionID
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "TransactionID", fieldNode.Type)
+			if fieldNode.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "TransactionID", fieldNode.Type)
 			}
-			s.TransactionID = fieldNode.String
+			s.TransactionID = int64(*fieldNode.Int64)
 		case "Timestamp":
 			// Field: Timestamp
 			if fieldNode.Type != ir.StringType {
@@ -232,7 +232,7 @@ func (s *TransactionState) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: TransactionID
-	irMap["TransactionID"] = ir.FromString(s.TransactionID)
+	irMap["TransactionID"] = ir.FromInt(int64(s.TransactionID))
 
 	// Field: ParticipantCount
 	irMap["ParticipantCount"] = ir.FromInt(int64(s.ParticipantCount))
@@ -319,10 +319,10 @@ func (s *TransactionState) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) 
 		switch fieldName.String {
 		case "TransactionID":
 			// Field: TransactionID
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "TransactionID", fieldNode.Type)
+			if fieldNode.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "TransactionID", fieldNode.Type)
 			}
-			s.TransactionID = fieldNode.String
+			s.TransactionID = int64(*fieldNode.Int64)
 		case "ParticipantCount":
 			// Field: ParticipantCount
 			if fieldNode.Int64 == nil {

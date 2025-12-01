@@ -19,10 +19,10 @@ signature:
 context:
 - tony-format/context
 define:
-  CommitCount: .[int]
+  Commit: .[int]
   PendingFiles: .[array(pending-file-ref)]
   Timestamp: .[string]
-  TransactionID: .[string]
+  TransactionID: .[int]
 signature:
   name: txlog-entry
 ---
@@ -38,6 +38,6 @@ define:
   ParticipantRequests: .[array(api:patch)]
   ParticipantsReceived: .[int]
   Status: .[string]
-  TransactionID: .[string]
+  TransactionID: .[int]
 signature:
   name: transaction-state
