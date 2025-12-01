@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
@@ -42,8 +43,33 @@ type Tx struct {
 //	    result := tx.WaitForCompletion()  // Others wait
 //	}
 func (s *Storage) NewTx(participantCount int) (*Tx, error) {
-	// TODO: Implement in Step 2
-	return nil, nil
+	if participantCount < 1 {
+		return nil, fmt.Errorf("participantCount must be at least 1, got %d", participantCount)
+	}
+
+	txSeq, err := s.NextTxSeq()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get transaction sequence: %w", err)
+	}
+
+	// Transaction ID is the same as txSeq
+	txID := txSeq
+	state := NewTransactionState(txID, participantCount)
+
+	if err := s.WriteTransactionState(state); err != nil {
+		return nil, fmt.Errorf("failed to write transaction state: %w", err)
+	}
+
+	return &Tx{
+		storage:          s,
+		txID:             txID,
+		txSeq:            txSeq,
+		participantCount: participantCount,
+		committed:        false,
+		done:             make(chan struct{}),
+		result:           nil,
+		mu:               sync.Mutex{},
+	}, nil
 }
 
 // JoinTx allows a participant to join an existing transaction by transaction ID.
@@ -68,8 +94,7 @@ func (s *Storage) JoinTx(txID int64) (*Tx, error) {
 
 // ID returns the transaction ID, useful for sharing with other participants.
 func (tx *Tx) ID() int64 {
-	// TODO: Implement in Step 2
-	return 0
+	return tx.txID
 }
 
 // AddDiff adds a pending diff to the transaction and atomically updates the transaction state.
