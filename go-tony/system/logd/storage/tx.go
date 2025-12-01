@@ -17,33 +17,45 @@ type TxResult struct {
 	Error     error
 }
 
-// Tx represents a transaction in progress.
-// Multiple goroutines can safely call AddPatch concurrently on the same transaction.
-// The last participant to add a diff will automatically commit the transaction.
+// Tx represents a multi-participant transaction.
+// Each participant gets their own TxPatcher via NewPatcher().
 type Tx struct {
 	storage          *Storage
 	txID             int64 // Transaction ID (same as txSeq)
 	txSeq            int64
 	participantCount int
-	committed        bool
-	done             chan struct{} // closed when transaction completes
-	result           *TxResult
-	mu               sync.Mutex // protects committed, done, result
+}
+
+// TxPatcher is a participant's handle to a transaction.
+// Multiple goroutines can safely call AddPatch concurrently on patchers for the same transaction.
+// The last participant to add a patch will automatically commit the transaction.
+type TxPatcher struct {
+	tx        *Tx
+	committed bool
+	done      chan struct{} // closed when transaction completes
+	result    *TxResult
+	mu        sync.Mutex // protects committed, done, result
 }
 
 // NewTx creates a new transaction with the specified number of participants.
-// Returns a transaction that can be used by multiple parallel participants.
+// Returns a transaction that participants can get via GetTx or get a patcher via NewPatcher().
 //
 // Example usage (typical pattern for parallel HTTP handlers):
 //
-//	// Handler 1 (or any participant)
+//	// Create transaction
 //	tx, err := storage.NewTx(participantCount)
+//	if err != nil {
+//	    // handle error
+//	}
+//
+//	// Each participant gets their own patcher
+//	patcher := tx.NewPatcher()
 //	patch := &api.Patch{...}  // Contains path, match, and diff
-//	isLast, err := tx.AddPatch(patch)
+//	isLast, err := patcher.AddPatch(patch)
 //	if isLast {
-//	    result, err := tx.Commit()  // Last participant commits
+//	    result := patcher.Commit()  // Last participant commits
 //	} else {
-//	    result := tx.WaitForCompletion()  // Others wait
+//	    result := patcher.WaitForCompletion()  // Others wait
 //	}
 func (s *Storage) NewTx(participantCount int) (*Tx, error) {
 	if participantCount < 1 {
@@ -57,9 +69,9 @@ func (s *Storage) NewTx(participantCount int) (*Tx, error) {
 
 	// Transaction ID is the same as txSeq
 	txID := txSeq
-	state := NewTransactionState(txID, participantCount)
+	state := NewTxState(txID, participantCount)
 
-	if err := s.WriteTransactionState(state); err != nil {
+	if err := s.WriteTxState(state); err != nil {
 		return nil, fmt.Errorf("failed to write transaction state: %w", err)
 	}
 
@@ -68,37 +80,39 @@ func (s *Storage) NewTx(participantCount int) (*Tx, error) {
 		txID:             txID,
 		txSeq:            txSeq,
 		participantCount: participantCount,
-		committed:        false,
-		done:             make(chan struct{}),
-		result:           nil,
-		mu:               sync.Mutex{},
 	}, nil
 }
 
-// JoinTx allows a participant to join an existing transaction by transaction ID.
+// GetTx gets an existing transaction by transaction ID.
 // This is the primary way participants coordinate - they all receive the same
-// transaction ID and join the same transaction.
+// transaction ID and get the same transaction.
 //
 // Example:
 //
 //	// Multiple parallel HTTP handlers all receive the same txID
-//	tx, err := storage.JoinTx(txID)
-//	patch := &api.Patch{...}  // Contains path, match, and diff
-//	isLast, err := tx.AddPatch(patch)
-//	if isLast {
-//	    result, err := tx.Commit()
-//	} else {
-//	    result := tx.WaitForCompletion()
+//	tx, err := storage.GetTx(txID)
+//	if err != nil {
+//	    // handle error
 //	}
-func (s *Storage) JoinTx(txID int64) (*Tx, error) {
-	state, err := s.ReadTransactionState(txID)
+//
+//	// Each participant gets their own patcher
+//	patcher := tx.NewPatcher()
+//	patch := &api.Patch{...}  // Contains path, match, and diff
+//	isLast, err := patcher.AddPatch(patch)
+//	if isLast {
+//	    result := patcher.Commit()
+//	} else {
+//	    result := patcher.WaitForCompletion()
+//	}
+func (s *Storage) GetTx(txID int64) (*Tx, error) {
+	state, err := s.ReadTxState(txID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read transaction state: %w", err)
 	}
 
 	// Validate transaction is still pending
 	if state.Status != "pending" {
-		return nil, fmt.Errorf("transaction %d is %s, cannot join", txID, state.Status)
+		return nil, fmt.Errorf("transaction %d is %s, cannot get", txID, state.Status)
 	}
 
 	// Transaction ID is the same as txSeq
@@ -109,16 +123,24 @@ func (s *Storage) JoinTx(txID int64) (*Tx, error) {
 		txID:             txID,
 		txSeq:            txSeq,
 		participantCount: state.ParticipantCount,
-		committed:        false,
-		done:             make(chan struct{}),
-		result:           nil,
-		mu:               sync.Mutex{},
 	}, nil
 }
 
 // ID returns the transaction ID, useful for sharing with other participants.
 func (tx *Tx) ID() int64 {
 	return tx.txID
+}
+
+// NewPatcher creates a new patcher handle for this transaction.
+// Each participant should get their own patcher.
+func (tx *Tx) NewPatcher() *TxPatcher {
+	return &TxPatcher{
+		tx:        tx,
+		committed: false,
+		done:      make(chan struct{}),
+		result:    nil,
+		mu:        sync.Mutex{},
+	}
 }
 
 // AddPatch adds a pending diff to the transaction and atomically updates the transaction state.
@@ -131,14 +153,14 @@ func (tx *Tx) ID() int64 {
 // The caller should check isLastParticipant:
 //   - If true: this goroutine should call Commit() to finalize the transaction
 //   - If false: this goroutine should call WaitForCompletion() to wait for the last participant
-func (tx *Tx) AddPatch(patch *api.Patch) (isLastParticipant bool, err error) {
+func (p *TxPatcher) AddPatch(patch *api.Patch) (isLastParticipant bool, err error) {
 	// Check if transaction already committed
-	tx.mu.Lock()
-	if tx.committed {
-		tx.mu.Unlock()
-		return false, fmt.Errorf("transaction %d already committed", tx.txID)
+	p.mu.Lock()
+	if p.committed {
+		p.mu.Unlock()
+		return false, fmt.Errorf("transaction %d already committed", p.tx.txID)
 	}
-	tx.mu.Unlock()
+	p.mu.Unlock()
 
 	// Extract components from patch
 	virtualPath := patch.Body.Path
@@ -155,11 +177,11 @@ func (tx *Tx) AddPatch(patch *api.Patch) (isLastParticipant bool, err error) {
 
 	// Atomically update transaction state and check if we're the last participant
 	var lastParticipant bool
-	err = tx.storage.UpdateTransactionState(tx.txID, func(currentState *TransactionState) {
+	err = p.tx.storage.UpdateTxState(p.tx.txID, func(currentState *TxState) {
 		currentState.ParticipantsReceived++
-		currentState.Diffs = append(currentState.Diffs, PendingDiff{
+		currentState.FileMetas = append(currentState.FileMetas, FileMeta{
 			Path:      virtualPath,
-			DiffFile:  "", // Will be set when file is written after match evaluation
+			FSPath:    "", // Will be set when file is written after match evaluation
 			WrittenAt: "", // Will be set when file is written after match evaluation
 		})
 		// Store the full patch in ParticipantRequests (contains the diff content)
@@ -190,7 +212,7 @@ func (tx *Tx) AddPatch(patch *api.Patch) (isLastParticipant bool, err error) {
 // Other participants should call WaitForCompletion() instead.
 //
 // This method is idempotent - if called multiple times or after the transaction is already
-// committed, it returns the existing result without error.
+// committed, it returns the existing result.
 //
 // Commit flow:
 // 1. Check if already committed (idempotent)
@@ -198,157 +220,159 @@ func (tx *Tx) AddPatch(patch *api.Patch) (isLastParticipant bool, err error) {
 // 3. Evaluate all match conditions atomically
 // 4. If any match fails → abort transaction (delete state, set error result)
 // 5. If all matches pass → write pending files, commit them, create log entry, set success result
-func (tx *Tx) Commit() (*TxResult, error) {
-	tx.mu.Lock()
+//
+// Errors are returned in TxResult.Error, not as a separate error return.
+func (p *TxPatcher) Commit() *TxResult {
+	p.mu.Lock()
 	// Idempotent: if already committed, return existing result
-	if tx.committed {
-		result := tx.result
-		tx.mu.Unlock()
-		return result, nil
+	if p.committed {
+		result := p.result
+		p.mu.Unlock()
+		return result
 	}
-	tx.mu.Unlock()
+	p.mu.Unlock()
 
 	// Read current transaction state
-	state, err := tx.storage.ReadTransactionState(tx.txID)
+	state, err := p.tx.storage.ReadTxState(p.tx.txID)
 	if err != nil {
-		return tx.setResult(false, 0, fmt.Errorf("failed to read transaction state: %w", err))
+		return p.setResult(false, 0, fmt.Errorf("failed to read transaction state: %w", err))
 	}
 
 	// Validate we have all participants
 	if state.ParticipantsReceived < state.ParticipantCount {
-		return tx.setResult(false, 0, fmt.Errorf("transaction %d: only %d/%d participants received", tx.txID, state.ParticipantsReceived, state.ParticipantCount))
+		return p.setResult(false, 0, fmt.Errorf("transaction %d: only %d/%d participants received", p.tx.txID, state.ParticipantsReceived, state.ParticipantCount))
 	}
 
 	// Step 3: Evaluate all match conditions atomically
 	// For each match condition, read the current committed state and evaluate it
 	for _, matchReq := range state.ParticipantMatches {
 		// Read current committed state for this path
-		currentState, err := tx.storage.ReadCurrentState(matchReq.Body.Path)
+		currentState, err := p.tx.storage.ReadCurrentState(matchReq.Body.Path)
 		if err != nil {
-			return tx.setResult(false, 0, fmt.Errorf("failed to read current state for path %q: %w", matchReq.Body.Path, err))
+			return p.setResult(false, 0, fmt.Errorf("failed to read current state for path %q: %w", matchReq.Body.Path, err))
 		}
 
 		// Evaluate match condition using tony.Match
 		// Note: We need to import "github.com/signadot/tony-format/go-tony" for tony.Match
 		matched, err := tony.Match(currentState, matchReq.Body.Match)
 		if err != nil {
-			return tx.setResult(false, 0, fmt.Errorf("match evaluation error for path %q: %w", matchReq.Body.Path, err))
+			return p.setResult(false, 0, fmt.Errorf("match evaluation error for path %q: %w", matchReq.Body.Path, err))
 		}
 		if !matched {
 			// Match failed - abort transaction
-			if err := tx.abortTransaction(state, fmt.Errorf("match condition failed for path %q", matchReq.Body.Path)); err != nil {
-				return tx.setResult(false, 0, fmt.Errorf("failed to abort transaction: %w", err))
+			if err := p.abortTransaction(state, fmt.Errorf("match condition failed for path %q", matchReq.Body.Path)); err != nil {
+				return p.setResult(false, 0, fmt.Errorf("failed to abort transaction: %w", err))
 			}
-			return tx.result, nil
+			return p.result
 		}
 	}
 
 	// Step 4: All matches passed (or no matches) - proceed with commit
 	// Allocate commit number
-	commit, err := tx.storage.NextCommit()
+	commit, err := p.tx.storage.NextCommit()
 	if err != nil {
-		return tx.setResult(false, 0, fmt.Errorf("failed to allocate commit number: %w", err))
+		return p.setResult(false, 0, fmt.Errorf("failed to allocate commit number: %w", err))
 	}
 
 	// Step 5: Write pending files and commit them
 	timestamp := time.Now().UTC().Format(time.RFC3339)
-	pendingFileRefs := make([]PendingFileRef, 0, len(state.Diffs))
+	pendingFileRefs := make([]FileRef, 0, len(state.FileMetas))
 
-	for i, diff := range state.Diffs {
+	for i, diff := range state.FileMetas {
 		patch := state.ParticipantRequests[i]
 		virtualPath := diff.Path
-		txSeq := state.TransactionID // Use transaction ID (same for all diffs)
+		txSeq := p.tx.txSeq // Use transaction sequence from struct
 
 		// Write the pending file (using WriteDiff with commit=0 for pending)
 		// Note: We use WriteDiff (not WriteDiffAtomically) because we already have the txSeq
 		// and commit number allocated. We're writing as pending first, then committing.
-		err := tx.storage.WriteDiff(virtualPath, 0, txSeq, timestamp, patch.Body.Patch, true)
+		err := p.tx.storage.WriteDiff(virtualPath, 0, txSeq, timestamp, patch.Body.Patch, true)
 		if err != nil {
 			// Failed to write - abort transaction
-			if abortErr := tx.abortTransaction(state, fmt.Errorf("failed to write pending file for path %q: %w", virtualPath, err)); abortErr != nil {
-				return tx.setResult(false, 0, fmt.Errorf("failed to abort after write error: %w", abortErr))
+			if abortErr := p.abortTransaction(state, fmt.Errorf("failed to write pending file for path %q: %w", virtualPath, err)); abortErr != nil {
+				return p.setResult(false, 0, fmt.Errorf("failed to abort after write error: %w", abortErr))
 			}
-			return tx.result, nil
+			return p.result
 		}
 
 		// Update diff entry with file path and timestamp
-		state.Diffs[i].WrittenAt = timestamp
-		// Note: DiffFile path will be set when we commit the pending file
+		state.FileMetas[i].WrittenAt = timestamp
+		// Note: FSPath will be set when we commit the pending file
 
 		// Commit the pending file (rename .pending to .diff and update index)
-		err = tx.storage.CommitPendingDiff(virtualPath, txSeq, commit)
+		err = p.tx.storage.commit(virtualPath, txSeq, commit)
 		if err != nil {
 			// Failed to commit - abort transaction
-			if abortErr := tx.abortTransaction(state, fmt.Errorf("failed to commit pending file for path %q: %w", virtualPath, err)); abortErr != nil {
-				return tx.setResult(false, 0, fmt.Errorf("failed to abort after commit error: %w", abortErr))
+			if abortErr := p.abortTransaction(state, fmt.Errorf("failed to commit pending file for path %q: %w", virtualPath, err)); abortErr != nil {
+				return p.setResult(false, 0, fmt.Errorf("failed to abort after commit error: %w", abortErr))
 			}
-			return tx.result, nil
+			return p.result
 		}
 
 		// Track pending file reference for transaction log
-		pendingFileRefs = append(pendingFileRefs, PendingFileRef{
+		pendingFileRefs = append(pendingFileRefs, FileRef{
 			VirtualPath: virtualPath,
 			TxSeq:       txSeq,
 		})
 	}
 
 	// Step 6: Create transaction log entry
-	logEntry := &TransactionLogEntry{
-		Commit:        commit,
-		TransactionID: tx.txID,
-		Timestamp:     timestamp,
-		PendingFiles:  pendingFileRefs,
+	logEntry := &TxLogEntry{
+		Commit:       commit,
+		TxID:         p.tx.txID,
+		Timestamp:    timestamp,
+		PendingFiles: pendingFileRefs,
 	}
-	if err := tx.storage.AppendTransactionLog(logEntry); err != nil {
+	if err := p.tx.storage.AppendTxLog(logEntry); err != nil {
 		// Failed to write log - this is non-fatal but we should still abort
 		// since we can't guarantee recovery
-		if abortErr := tx.abortTransaction(state, fmt.Errorf("failed to write transaction log: %w", err)); abortErr != nil {
-			return tx.setResult(false, 0, fmt.Errorf("failed to abort after log write error: %w", abortErr))
+		if abortErr := p.abortTransaction(state, fmt.Errorf("failed to write transaction log: %w", err)); abortErr != nil {
+			return p.setResult(false, 0, fmt.Errorf("failed to abort after log write error: %w", abortErr))
 		}
-		return tx.result, nil
+		return p.result
 	}
 
 	// Step 7: Update transaction state to "committed" and delete state file
-	if err := tx.storage.UpdateTransactionState(tx.txID, func(currentState *TransactionState) {
+	if err := p.tx.storage.UpdateTxState(p.tx.txID, func(currentState *TxState) {
 		currentState.Status = "committed"
 	}); err != nil {
 		// Non-fatal - transaction is already committed, just log it
-		tx.storage.log.Error("failed to update transaction state to committed", "txID", tx.txID, "error", err)
+		p.tx.storage.log.Error("failed to update transaction state to committed", "txID", p.tx.txID, "error", err)
 	}
 	// Delete transaction state file (transaction is complete)
-	if err := tx.storage.DeleteTransactionState(tx.txID); err != nil {
+	if err := p.tx.storage.DeleteTxState(p.tx.txID); err != nil {
 		// Non-fatal - transaction is already committed
-		tx.storage.log.Error("failed to delete transaction state file", "txID", tx.txID, "error", err)
+		p.tx.storage.log.Error("failed to delete transaction state file", "txID", p.tx.txID, "error", err)
 	}
 
 	// Step 8: Set success result and signal completion
-	return tx.setResult(true, commit, nil)
+	return p.setResult(true, commit, nil)
 }
 
 // abortTransaction aborts the transaction by deleting pending files and updating state.
 // This is called when match evaluation fails or when file operations fail.
-func (tx *Tx) abortTransaction(state *TransactionState, abortErr error) error {
+func (p *TxPatcher) abortTransaction(state *TxState, abortErr error) error {
 	// Delete all pending files that were written
-	txSeq := state.TransactionID // Use transaction ID (same for all diffs)
-	for _, diff := range state.Diffs {
-		if diff.DiffFile != "" || diff.WrittenAt != "" {
+	txSeq := p.tx.txSeq // Use transaction sequence from struct
+	for _, diff := range state.FileMetas {
+		if diff.FSPath != "" || diff.WrittenAt != "" {
 			// File was written, delete it
-			if err := tx.storage.DeletePendingDiff(diff.Path, txSeq); err != nil {
-				tx.storage.log.Error("failed to delete pending file during abort", "path", diff.Path, "txSeq", txSeq, "error", err)
+			if err := p.tx.storage.deletePathAt(diff.Path, txSeq); err != nil {
+				p.tx.storage.log.Error("failed to delete pending file during abort", "path", diff.Path, "txSeq", txSeq, "error", err)
 			}
 		}
-		// Note: If DiffFile is empty, no file was written yet, so nothing to delete
+		// Note: If FSPath is empty, no file was written yet, so nothing to delete
 	}
 
 	// Update state to "aborted"
-	if err := tx.storage.UpdateTransactionState(tx.txID, func(currentState *TransactionState) {
+	if err := p.tx.storage.UpdateTxState(p.tx.txID, func(currentState *TxState) {
 		currentState.Status = "aborted"
 	}); err != nil {
 		return fmt.Errorf("failed to update transaction state to aborted: %w", err)
 	}
 
 	// Delete transaction state file
-	if err := tx.storage.DeleteTransactionState(tx.txID); err != nil {
+	if err := p.tx.storage.DeleteTxState(p.tx.txID); err != nil {
 		return fmt.Errorf("failed to delete transaction state file: %w", err)
 	}
 
@@ -357,26 +381,26 @@ func (tx *Tx) abortTransaction(state *TransactionState, abortErr error) error {
 
 // setResult sets the transaction result and signals completion.
 // This is thread-safe and idempotent.
-func (tx *Tx) setResult(committed bool, commit int64, err error) (*TxResult, error) {
-	tx.mu.Lock()
-	defer tx.mu.Unlock()
+func (p *TxPatcher) setResult(committed bool, commit int64, err error) *TxResult {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	// Idempotent: if result already set, return it
-	if tx.result != nil {
-		return tx.result, nil
+	if p.result != nil {
+		return p.result
 	}
 
-	tx.result = &TxResult{
+	p.result = &TxResult{
 		Committed: committed,
 		Commit:    commit,
 		Error:     err,
 	}
-	tx.committed = true
+	p.committed = true
 
 	// Signal completion to waiting goroutines
-	close(tx.done)
+	close(p.done)
 
-	return tx.result, nil
+	return p.result
 }
 
 // WaitForCompletion waits for the transaction to complete or abort.
@@ -389,27 +413,27 @@ func (tx *Tx) setResult(committed bool, commit int64, err error) (*TxResult, err
 // - An error occurs during commit
 //
 // All waiting participants will receive the same result.
-func (tx *Tx) WaitForCompletion() *TxResult {
+func (p *TxPatcher) WaitForCompletion() *TxResult {
 	// First check if this instance already has the result
-	tx.mu.Lock()
-	if tx.result != nil {
-		result := tx.result
-		tx.mu.Unlock()
+	p.mu.Lock()
+	if p.result != nil {
+		result := p.result
+		p.mu.Unlock()
 		return result
 	}
-	tx.mu.Unlock()
+	p.mu.Unlock()
 
 	// Poll transaction state until it's no longer pending
-	// This works across multiple Tx instances for the same transaction
+	// This works across multiple TxPatcher instances for the same transaction
 	for {
-		state, err := tx.storage.ReadTransactionState(tx.txID)
+		state, err := p.tx.storage.ReadTxState(p.tx.txID)
 		if err != nil {
 			// Transaction state file doesn't exist - check if transaction was committed
 			// (Commit() deletes the state file after writing to log)
-			entries, logErr := tx.storage.ReadTransactionLog(nil)
+			entries, logErr := p.tx.storage.ReadTxLog(nil)
 			if logErr == nil {
 				for _, entry := range entries {
-					if entry.TransactionID == tx.txID {
+					if entry.TxID == p.tx.txID {
 						// Found in log - transaction was committed
 						result := &TxResult{
 							Committed: true,
@@ -417,32 +441,32 @@ func (tx *Tx) WaitForCompletion() *TxResult {
 							Error:     nil,
 						}
 						// Cache it for this instance
-						tx.mu.Lock()
-						if tx.result == nil {
-							tx.result = result
-							tx.committed = true
-							close(tx.done)
+						p.mu.Lock()
+						if p.result == nil {
+							p.result = result
+							p.committed = true
+							close(p.done)
 						}
-						result = tx.result
-						tx.mu.Unlock()
+						result = p.result
+						p.mu.Unlock()
 						return result
 					}
 				}
 			}
 			// File doesn't exist and not in log - might be transient error or still committing
 			// Check if we have a cached result first
-			tx.mu.Lock()
-			result := tx.result
-			tx.mu.Unlock()
+			p.mu.Lock()
+			result := p.result
+			p.mu.Unlock()
 			if result != nil {
 				return result
 			}
 			// No result yet - wait a bit and check again
 			select {
-			case <-tx.done:
-				tx.mu.Lock()
-				result := tx.result
-				tx.mu.Unlock()
+			case <-p.done:
+				p.mu.Lock()
+				result := p.result
+				p.mu.Unlock()
 				return result
 			case <-time.After(10 * time.Millisecond):
 				continue
@@ -453,35 +477,35 @@ func (tx *Tx) WaitForCompletion() *TxResult {
 		if state.Status == "committed" || state.Status == "aborted" {
 			// Transaction completed - we need to get the result from somewhere
 			// Since the state file might be deleted, check if we have it cached
-			tx.mu.Lock()
-			if tx.result != nil {
-				result := tx.result
-				tx.mu.Unlock()
+			p.mu.Lock()
+			if p.result != nil {
+				result := p.result
+				p.mu.Unlock()
 				return result
 			}
-			tx.mu.Unlock()
+			p.mu.Unlock()
 
 			// If state is committed, read from transaction log to get commit number
 			if state.Status == "committed" {
 				// Read transaction log to find the commit number
-				entries, err := tx.storage.ReadTransactionLog(nil)
+				entries, err := p.tx.storage.ReadTxLog(nil)
 				if err == nil {
 					for _, entry := range entries {
-						if entry.TransactionID == tx.txID {
+						if entry.TxID == p.tx.txID {
 							result := &TxResult{
 								Committed: true,
 								Commit:    entry.Commit,
 								Error:     nil,
 							}
 							// Cache it for this instance
-							tx.mu.Lock()
-							if tx.result == nil {
-								tx.result = result
-								tx.committed = true
-								close(tx.done)
+							p.mu.Lock()
+							if p.result == nil {
+								p.result = result
+								p.committed = true
+								close(p.done)
 							}
-							result = tx.result
-							tx.mu.Unlock()
+							result = p.result
+							p.mu.Unlock()
 							return result
 						}
 					}
@@ -491,16 +515,16 @@ func (tx *Tx) WaitForCompletion() *TxResult {
 				result := &TxResult{
 					Committed: false,
 					Commit:    0,
-					Error:     fmt.Errorf("transaction %d was aborted", tx.txID),
+					Error:     fmt.Errorf("transaction %d was aborted", p.tx.txID),
 				}
-				tx.mu.Lock()
-				if tx.result == nil {
-					tx.result = result
-					tx.committed = true
-					close(tx.done)
+				p.mu.Lock()
+				if p.result == nil {
+					p.result = result
+					p.committed = true
+					close(p.done)
 				}
-				result = tx.result
-				tx.mu.Unlock()
+				result = p.result
+				p.mu.Unlock()
 				return result
 			}
 		}
@@ -510,11 +534,11 @@ func (tx *Tx) WaitForCompletion() *TxResult {
 		// In a real implementation, we might want to use a more sophisticated
 		// notification mechanism, but polling works for now
 		select {
-		case <-tx.done:
+		case <-p.done:
 			// This instance's done channel was closed (by setResult on this instance)
-			tx.mu.Lock()
-			result := tx.result
-			tx.mu.Unlock()
+			p.mu.Lock()
+			result := p.result
+			p.mu.Unlock()
 			return result
 		case <-time.After(10 * time.Millisecond):
 			// Small sleep to avoid busy-waiting, then check again
@@ -527,8 +551,8 @@ func (tx *Tx) WaitForCompletion() *TxResult {
 //
 // This method is non-blocking and can be used to poll for completion.
 // For blocking behavior, use WaitForCompletion() instead.
-func (tx *Tx) GetResult() *TxResult {
-	tx.mu.Lock()
-	defer tx.mu.Unlock()
-	return tx.result
+func (p *TxPatcher) GetResult() *TxResult {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.result
 }

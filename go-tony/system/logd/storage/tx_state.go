@@ -10,11 +10,11 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
-// TransactionState represents the state of a transaction.
+// TxState represents the state of a transaction.
 //
 //tony:schemagen=transaction-state
-type TransactionState struct {
-	TransactionID        int64
+type TxState struct {
+	TxID                 int64
 	ParticipantCount     int
 	ParticipantRequests  []*api.Patch
 	ParticipantMatches   []*api.Match
@@ -22,22 +22,22 @@ type TransactionState struct {
 	Status               string // "pending", "committed", "aborted"
 	CreatedAt            string // RFC3339 timestamp
 	ExpiresAt            string
-	Diffs                []PendingDiff
+	FileMetas            []FileMeta
 }
 
-// PendingDiff represents a pending diff in a transaction.
+// FileMeta represents metadata about a diff file in a transaction.
 //
 //tony:schemagen=pending-diff
-type PendingDiff struct {
+type FileMeta struct {
 	Path      string
-	DiffFile  string // Full filesystem path to the .pending file (set when file is written)
+	FSPath    string // Full filesystem path to the .pending file (set when file is written)
 	WrittenAt string // RFC3339 timestamp (set when file is written)
 }
 
-// WriteTransactionState writes a transaction state file to disk.
-func (s *Storage) WriteTransactionState(state *TransactionState) error {
+// WriteTxState writes a transaction state file to disk.
+func (s *Storage) WriteTxState(state *TxState) error {
 	// Filename format: {txID}.pending (e.g., 12345.pending)
-	filename := fmt.Sprintf("%d.pending", state.TransactionID)
+	filename := fmt.Sprintf("%d.pending", state.TxID)
 	filePath := filepath.Join(s.Root, "meta", "transactions", filename)
 	d, err := state.ToTony()
 	if err != nil {
@@ -59,9 +59,9 @@ func (s *Storage) WriteTransactionState(state *TransactionState) error {
 	return nil
 }
 
-// ReadTransactionState reads a transaction state file from disk.
-func (s *Storage) ReadTransactionState(transactionID int64) (*TransactionState, error) {
-	filename := fmt.Sprintf("%d.pending", transactionID)
+// ReadTxState reads a transaction state file from disk.
+func (s *Storage) ReadTxState(txID int64) (*TxState, error) {
+	filename := fmt.Sprintf("%d.pending", txID)
 	filePath := filepath.Join(s.Root, "meta", "transactions", filename)
 
 	data, err := os.ReadFile(filePath)
@@ -70,47 +70,47 @@ func (s *Storage) ReadTransactionState(transactionID int64) (*TransactionState, 
 	}
 
 	// Parse Tony document
-	state := &TransactionState{}
+	state := &TxState{}
 	if err := state.FromTony(data); err != nil {
 		return nil, err
 	}
 	return state, nil
 }
 
-// UpdateTransactionState updates an existing transaction state file.
+// UpdateTxState updates an existing transaction state file.
 // This method is thread-safe and uses per-transaction locking to serialize updates.
-func (s *Storage) UpdateTransactionState(transactionID int64, updateFn func(*TransactionState)) error {
+func (s *Storage) UpdateTxState(txID int64, updateFn func(*TxState)) error {
 	// Get or create a mutex for this transaction ID
-	muInterface, _ := s.txLocks.LoadOrStore(transactionID, &sync.Mutex{})
+	muInterface, _ := s.txLocks.LoadOrStore(txID, &sync.Mutex{})
 	mu := muInterface.(*sync.Mutex)
 
 	mu.Lock()
 	defer mu.Unlock()
 
-	state, err := s.ReadTransactionState(transactionID)
+	state, err := s.ReadTxState(txID)
 	if err != nil {
 		return err
 	}
 
 	updateFn(state)
 
-	return s.WriteTransactionState(state)
+	return s.WriteTxState(state)
 }
 
-// DeleteTransactionState deletes a transaction state file.
-func (s *Storage) DeleteTransactionState(transactionID int64) error {
-	filename := fmt.Sprintf("%d.pending", transactionID)
+// DeleteTxState deletes a transaction state file.
+func (s *Storage) DeleteTxState(txID int64) error {
+	filename := fmt.Sprintf("%d.pending", txID)
 	filePath := filepath.Join(s.Root, "meta", "transactions", filename)
 	return os.Remove(filePath)
 }
 
-// NewTransactionState creates a new TransactionState with the given transaction ID and participant count.
-func NewTransactionState(transactionID int64, participantCount int) *TransactionState {
-	return &TransactionState{
-		TransactionID:    transactionID,
+// NewTxState creates a new TxState with the given transaction ID and participant count.
+func NewTxState(txID int64, participantCount int) *TxState {
+	return &TxState{
+		TxID:             txID,
 		ParticipantCount: participantCount,
 		Status:           "pending",
 		CreatedAt:        time.Now().UTC().Format(time.RFC3339),
-		Diffs:            []PendingDiff{},
+		FileMetas:        []FileMeta{},
 	}
 }

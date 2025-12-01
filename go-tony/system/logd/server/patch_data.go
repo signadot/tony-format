@@ -144,9 +144,9 @@ func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.R
 	// Atomically update transaction state and check if we're the last participant
 	isLastParticipant, err := waiter.UpdateState(txID, s.Config.Storage, func(currentState *storage.TransactionState) {
 		currentState.ParticipantsReceived++
-		currentState.Diffs = append(currentState.Diffs, storage.PendingDiff{
+		currentState.FileMetas = append(currentState.FileMetas, storage.FileMeta{
 			Path:      path,
-			DiffFile:  pendingFilePath,
+			FSPath:    pendingFilePath,
 			WrittenAt: timestamp,
 		})
 	})
@@ -233,10 +233,10 @@ func (s *Server) commitTransaction(transactionID string, state *storage.Transact
 	}
 
 	// Rename all pending files to .diff files
-	pendingFileRefs := make([]storage.PendingFileRef, len(state.Diffs))
-	for i, diff := range state.Diffs {
+	pendingFileRefs := make([]storage.FileRef, len(state.FileMetas))
+	for i, diff := range state.FileMetas {
 		// Extract txSeq from pending filename (format: {txSeq}.pending)
-		filename := filepath.Base(diff.DiffFile)
+		filename := filepath.Base(diff.FSPath)
 		if !strings.HasSuffix(filename, ".pending") {
 			waiter.SetResult(&transactionResult{
 				committed: false,
@@ -255,7 +255,7 @@ func (s *Server) commitTransaction(transactionID string, state *storage.Transact
 		}
 
 		// Commit pending file (rename + update index)
-		if err := s.Config.Storage.CommitPendingDiff(diff.Path, diffTxSeq, commitCount); err != nil {
+		if err := s.Config.Storage.CommitFileMeta(diff.Path, diffTxSeq, commitCount); err != nil {
 			waiter.SetResult(&transactionResult{
 				committed: false,
 				err:       fmt.Errorf("failed to commit pending file: %w", err),
@@ -263,7 +263,7 @@ func (s *Server) commitTransaction(transactionID string, state *storage.Transact
 			return
 		}
 
-		pendingFileRefs[i] = storage.PendingFileRef{
+		pendingFileRefs[i] = storage.FileRef{
 			VirtualPath: diff.Path,
 			TxSeq:       diffTxSeq,
 		}

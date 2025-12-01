@@ -9,15 +9,6 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/paths"
 )
 
-// DiffFile represents a diff file on disk.
-type DiffFile struct {
-	Seq       int64
-	Path      string
-	Timestamp string
-	Diff      *ir.Node
-	Pending   bool // true for .pending files, false for .diff files
-}
-
 // WriteDiffAtomically writes a diff file to disk.
 // commitCount should be 0 for pending files, and the actual commit count for committed files.
 // If pending is true, writes as .pending file; otherwise writes as .diff file.

@@ -13,26 +13,26 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/paths"
 )
 
-// TransactionLogEntry represents a transaction commit log entry.
+// TxLogEntry represents a transaction commit log entry.
 //
 //tony:schemagen=txlog-entry
-type TransactionLogEntry struct {
-	Commit        int64 // Commit count assigned to this transaction
-	TransactionID int64
-	Timestamp     string // RFC3339 timestamp
-	PendingFiles  []PendingFileRef
+type TxLogEntry struct {
+	Commit       int64 // Commit count assigned to this transaction
+	TxID         int64
+	Timestamp    string // RFC3339 timestamp
+	PendingFiles []FileRef
 }
 
-// PendingFileRef references a pending file that needs to be renamed.
+// FileRef references a file in a transaction log entry.
 //
 //tony:schemagen=pending-file-ref
-type PendingFileRef struct {
+type FileRef struct {
 	VirtualPath string
 	TxSeq       int64 // Transaction sequence number
 }
 
-// AppendTransactionLog appends a transaction commit log entry atomically.
-func (s *Storage) AppendTransactionLog(entry *TransactionLogEntry) error {
+// AppendTxLog appends a transaction commit log entry atomically.
+func (s *Storage) AppendTxLog(entry *TxLogEntry) error {
 	logFile := filepath.Join(s.Root, "meta", "transactions.log")
 
 	// Encode to Tony format with wire encoding
@@ -51,10 +51,10 @@ func (s *Storage) AppendTransactionLog(entry *TransactionLogEntry) error {
 	return err
 }
 
-// ReadTransactionLog reads transaction log entries.
+// ReadTxLog reads transaction log entries.
 // If minCommitCount is nil, reads all entries.
 // If minCommitCount is provided, uses binary search to find entries at or after that commit count.
-func (s *Storage) ReadTransactionLog(minCommitCount *int64) ([]*TransactionLogEntry, error) {
+func (s *Storage) ReadTxLog(minCommitCount *int64) ([]*TxLogEntry, error) {
 	s.logMu.RLock()
 	defer s.logMu.RUnlock()
 	logFile := filepath.Join(s.Root, "meta", "transactions.log")
@@ -70,7 +70,7 @@ func (s *Storage) ReadTransactionLog(minCommitCount *int64) ([]*TransactionLogEn
 
 	// If no minimum commit count, read all entries
 	if minCommitCount == nil {
-		return s.readAllTransactionLog(file)
+		return s.readAllTxLog(file)
 	}
 
 	// Use binary search to find starting position
@@ -84,32 +84,32 @@ func (s *Storage) ReadTransactionLog(minCommitCount *int64) ([]*TransactionLogEn
 		return nil, err
 	}
 
-	return s.readTransactionLogFromPosition(file)
+	return s.readTxLogFromPosition(file)
 }
 
-// readAllTransactionLog reads all entries from the file.
-func (s *Storage) readAllTransactionLog(file *os.File) ([]*TransactionLogEntry, error) {
+// readAllTxLog reads all entries from the file.
+func (s *Storage) readAllTxLog(file *os.File) ([]*TxLogEntry, error) {
 	data, err := os.ReadFile(file.Name())
 	if err != nil {
 		return nil, err
 	}
-	return s.parseTransactionLogLines(data)
+	return s.parseTxLogLines(data)
 }
 
-// readTransactionLogFromPosition reads entries from the current file position to end.
-func (s *Storage) readTransactionLogFromPosition(file *os.File) ([]*TransactionLogEntry, error) {
+// readTxLogFromPosition reads entries from the current file position to end.
+func (s *Storage) readTxLogFromPosition(file *os.File) ([]*TxLogEntry, error) {
 	// Read remaining data from current position
 	data, err := io.ReadAll(file)
 	if err != nil {
 		return nil, err
 	}
 
-	return s.parseTransactionLogLines(data)
+	return s.parseTxLogLines(data)
 }
 
-// parseTransactionLogLines parses transaction log entries from byte data.
-func (s *Storage) parseTransactionLogLines(data []byte) ([]*TransactionLogEntry, error) {
-	entries := []*TransactionLogEntry{}
+// parseTxLogLines parses transaction log entries from byte data.
+func (s *Storage) parseTxLogLines(data []byte) ([]*TxLogEntry, error) {
+	entries := []*TxLogEntry{}
 	lines := strings.Split(string(data), "\n")
 
 	for _, line := range lines {
@@ -117,7 +117,7 @@ func (s *Storage) parseTransactionLogLines(data []byte) ([]*TransactionLogEntry,
 		if line == "" {
 			continue
 		}
-		entry := &TransactionLogEntry{}
+		entry := &TxLogEntry{}
 		if err := entry.FromTony([]byte(line)); err != nil {
 			s.log.Warn("skipping invalid log entry", "error", err)
 			continue
@@ -173,7 +173,7 @@ func (s *Storage) binarySearchLog(file *os.File, targetCommitCount int64) (int64
 			continue
 		}
 
-		e := &TransactionLogEntry{}
+		e := &TxLogEntry{}
 		if err := e.FromTony([]byte(line)); err != nil {
 			// Invalid entry, search right half
 			left = lineStart + 1
@@ -265,9 +265,9 @@ func (s *Storage) readNextLine(file *os.File) (int64, string, error) {
 	return startPos, line, err
 }
 
-// RecoverTransactions replays the transaction log to complete any partial commits.
-func (s *Storage) RecoverTransactions() error {
-	entries, err := s.ReadTransactionLog(nil)
+// RecoverTxs replays the transaction log to complete any partial commits.
+func (s *Storage) RecoverTxs() error {
+	entries, err := s.ReadTxLog(nil)
 	if err != nil {
 		return err
 	}
@@ -309,8 +309,8 @@ func (s *Storage) RecoverTransactions() error {
 
 		// If all files are committed, delete the transaction state file
 		if allCommitted {
-			if err := s.DeleteTransactionState(entry.TransactionID); err != nil {
-				s.log.Warn("failed to delete committed transaction state", "transactionId", entry.TransactionID, "error", err)
+			if err := s.DeleteTxState(entry.TxID); err != nil {
+				s.log.Warn("failed to delete committed transaction state", "txID", entry.TxID, "error", err)
 			}
 		}
 	}
@@ -318,11 +318,11 @@ func (s *Storage) RecoverTransactions() error {
 	return nil
 }
 
-// NewTransactionLogEntry creates a new TransactionLogEntry.
-func NewTransactionLogEntry(commitCount int64, transactionID int64, pendingFiles []PendingFileRef) *TransactionLogEntry {
-	return &TransactionLogEntry{
-		Commit:        commitCount,
-		TransactionID: transactionID,
+// NewTxLogEntry creates a new TxLogEntry.
+func NewTxLogEntry(commitCount int64, txID int64, pendingFiles []FileRef) *TxLogEntry {
+	return &TxLogEntry{
+		Commit:       commitCount,
+		TxID:         txID,
 		Timestamp:     time.Now().UTC().Format(time.RFC3339),
 		PendingFiles:  pendingFiles,
 	}

@@ -2,7 +2,7 @@
 context:
 - tony-format/context
 define:
-  DiffFile: .[string]
+  FSPath: .[string]
   Path: .[string]
   WrittenAt: .[string]
 signature:
@@ -22,7 +22,7 @@ define:
   Commit: .[int]
   PendingFiles: .[array(pending-file-ref)]
   Timestamp: .[string]
-  TransactionID: .[int]
+  TxID: .[int]
 signature:
   name: txlog-entry
 ---
@@ -31,13 +31,13 @@ context:
 - api: github.com/signadot/tony-format/go-tony/system/logd/api
 define:
   CreatedAt: .[string]
-  Diffs: .[array(pending-diff)]
   ExpiresAt: .[string]
+  FileMetas: .[array(pending-diff)]
   ParticipantCount: .[int]
   ParticipantMatches: .[array(api:match)]
   ParticipantRequests: .[array(api:patch)]
   ParticipantsReceived: .[int]
   Status: .[string]
-  TransactionID: .[int]
+  TxID: .[int]
 signature:
   name: transaction-state

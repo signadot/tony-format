@@ -70,10 +70,10 @@ func (s *Storage) ListChildPaths(parentPath string, from, to *int64) ([]string, 
 	return idx.ListRange(from, to), nil
 }
 
-// CommitPendingDiff atomically commits a pending diff by:
+// commit atomically commits a pending diff by:
 // 1. Renaming .pending to .diff
 // 2. Updating the index
-func (s *Storage) CommitPendingDiff(virtualPath string, txSeq, commitCount int64) error {
+func (s *Storage) commit(virtualPath string, txSeq, commitCount int64) error {
 	s.indexMu.Lock()
 	defer s.indexMu.Unlock()
 
@@ -90,8 +90,8 @@ func (s *Storage) CommitPendingDiff(virtualPath string, txSeq, commitCount int64
 	return nil
 }
 
-// DeletePendingDiff deletes a pending diff file.
-func (s *Storage) DeletePendingDiff(virtualPath string, txSeq int64) error {
+// deletePathAt deletes a pending diff file.
+func (s *Storage) deletePathAt(virtualPath string, txSeq int64) error {
 	fsPath := s.FS.PathToFilesystem(virtualPath)
 	seg := index.PointLogSegment(0, txSeq, "")
 	return dfile.DeletePending(fsPath, seg, 0)
