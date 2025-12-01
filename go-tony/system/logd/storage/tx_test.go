@@ -33,15 +33,15 @@ func TestStep1_CoreTypesAndStructure(t *testing.T) {
 	// Note: These will return nil/errors since not implemented yet
 	_ = func() {
 		var s *Storage
-		_, _ = s.NewTx(3)        // Returns (*Tx, error)
+		_, _ = s.NewTx(3)         // Returns (*Tx, error)
 		_, _ = s.JoinTx(int64(1)) // Returns (*Tx, error)
 
 		if tx != nil {
-			_ = tx.ID()                                    // Returns int64
-			_, _ = tx.AddDiff(&api.Patch{})                // Returns (bool, error)
-			_, _ = tx.Commit()                              // Returns (*TxResult, error)
-			_ = tx.WaitForCompletion()                      // Returns *TxResult
-			_ = tx.GetResult()                              // Returns *TxResult
+			_ = tx.ID()                      // Returns int64
+			_, _ = tx.AddPatch(&api.Patch{}) // Returns (bool, error)
+			_, _ = tx.Commit()               // Returns (*TxResult, error)
+			_ = tx.WaitForCompletion()       // Returns *TxResult
+			_ = tx.GetResult()               // Returns *TxResult
 		}
 	}
 
@@ -68,9 +68,9 @@ func TestStep1_MethodSignatures(t *testing.T) {
 	joinTxFunc = (*Storage).JoinTx
 	_ = joinTxFunc // Just verify the type compiles
 
-	// Verify AddDiff signature: AddDiff(patch *api.Patch) (isLastParticipant bool, err error)
+	// Verify AddPatch signature: AddPatch(patch *api.Patch) (isLastParticipant bool, err error)
 	var addDiffFunc func(*Tx, *api.Patch) (bool, error)
-	addDiffFunc = (*Tx).AddDiff
+	addDiffFunc = (*Tx).AddPatch
 	_ = addDiffFunc // Just verify the type compiles
 
 	// Verify Commit signature: Commit() (*TxResult, error)
@@ -337,17 +337,17 @@ func TestStep3_JoinCommittedTransaction(t *testing.T) {
 	if err == nil {
 		t.Error("expected error when joining committed transaction, got nil")
 	}
-		if err != nil {
-			// Verify error message mentions the status
-			errMsg := err.Error()
-			if errMsg == "" {
-				t.Error("error message should not be empty")
-			}
-			// Error should mention "committed" status
-			if errMsg != "" && !strings.Contains(errMsg, "committed") && !strings.Contains(errMsg, "cannot join") {
-				t.Logf("Warning: error message may not be descriptive enough: %s", errMsg)
-			}
+	if err != nil {
+		// Verify error message mentions the status
+		errMsg := err.Error()
+		if errMsg == "" {
+			t.Error("error message should not be empty")
 		}
+		// Error should mention "committed" status
+		if errMsg != "" && !strings.Contains(errMsg, "committed") && !strings.Contains(errMsg, "cannot join") {
+			t.Logf("Warning: error message may not be descriptive enough: %s", errMsg)
+		}
+	}
 }
 
 // TestStep3_JoinAbortedTransaction tests error handling for aborted transactions
@@ -399,8 +399,8 @@ func createTestDiffNode() *ir.Node {
 	})
 }
 
-// TestStep4_AddDiff_BasicFlow validates Step 4: Add Diff - Basic Flow
-func TestStep4_AddDiff_BasicFlow(t *testing.T) {
+// TestStep4_AddPatch_BasicFlow validates Step 4: Add Diff - Basic Flow
+func TestStep4_AddPatch_BasicFlow(t *testing.T) {
 	tmpDir := t.TempDir()
 	storage, err := Open(tmpDir, 022, nil)
 	if err != nil {
@@ -418,7 +418,7 @@ func TestStep4_AddDiff_BasicFlow(t *testing.T) {
 	patch := createTestPatch("/test/path", diff, nil) // no match condition
 
 	// Test: Add single diff to transaction
-	isLast, err := tx.AddDiff(patch)
+	isLast, err := tx.AddPatch(patch)
 	if err != nil {
 		t.Fatalf("failed to add diff: %v", err)
 	}
@@ -459,8 +459,8 @@ func TestStep4_AddDiff_BasicFlow(t *testing.T) {
 	}
 }
 
-// TestStep4_AddDiff_MultipleDiffs tests adding multiple diffs from same participant
-func TestStep4_AddDiff_MultipleDiffs(t *testing.T) {
+// TestStep4_AddPatch_MultipleDiffs tests adding multiple diffs from same participant
+func TestStep4_AddPatch_MultipleDiffs(t *testing.T) {
 	tmpDir := t.TempDir()
 	storage, err := Open(tmpDir, 022, nil)
 	if err != nil {
@@ -475,7 +475,7 @@ func TestStep4_AddDiff_MultipleDiffs(t *testing.T) {
 
 	// Add first diff
 	patch1 := createTestPatch("/path1", createTestDiffNode(), nil)
-	isLast1, err := tx.AddDiff(patch1)
+	isLast1, err := tx.AddPatch(patch1)
 	if err != nil {
 		t.Fatalf("failed to add first diff: %v", err)
 	}
@@ -485,7 +485,7 @@ func TestStep4_AddDiff_MultipleDiffs(t *testing.T) {
 
 	// Add second diff (same participant, should work)
 	patch2 := createTestPatch("/path2", createTestDiffNode(), nil)
-	_, err = tx.AddDiff(patch2)
+	_, err = tx.AddPatch(patch2)
 	if err != nil {
 		t.Fatalf("failed to add second diff: %v", err)
 	}
@@ -509,8 +509,8 @@ func TestStep4_AddDiff_MultipleDiffs(t *testing.T) {
 	}
 }
 
-// TestStep4_AddDiff_WithMatchCondition tests adding diff with match condition
-func TestStep4_AddDiff_WithMatchCondition(t *testing.T) {
+// TestStep4_AddPatch_WithMatchCondition tests adding diff with match condition
+func TestStep4_AddPatch_WithMatchCondition(t *testing.T) {
 	tmpDir := t.TempDir()
 	storage, err := Open(tmpDir, 022, nil)
 	if err != nil {
@@ -529,7 +529,7 @@ func TestStep4_AddDiff_WithMatchCondition(t *testing.T) {
 	})
 	patch := createTestPatch("/test/path", diff, match)
 
-	isLast, err := tx.AddDiff(patch)
+	isLast, err := tx.AddPatch(patch)
 	if err != nil {
 		t.Fatalf("failed to add diff: %v", err)
 	}
@@ -556,8 +556,8 @@ func TestStep4_AddDiff_WithMatchCondition(t *testing.T) {
 	}
 }
 
-// TestStep4_AddDiff_ErrorHandling tests error handling
-func TestStep4_AddDiff_ErrorHandling(t *testing.T) {
+// TestStep4_AddPatch_ErrorHandling tests error handling
+func TestStep4_AddPatch_ErrorHandling(t *testing.T) {
 	tmpDir := t.TempDir()
 	storage, err := Open(tmpDir, 022, nil)
 	if err != nil {
@@ -576,7 +576,7 @@ func TestStep4_AddDiff_ErrorHandling(t *testing.T) {
 			Patch: createTestDiffNode(),
 		},
 	}
-	_, err = tx.AddDiff(patchNoPath)
+	_, err = tx.AddPatch(patchNoPath)
 	if err == nil {
 		t.Error("expected error for missing path, got nil")
 	}
@@ -591,7 +591,7 @@ func TestStep4_AddDiff_ErrorHandling(t *testing.T) {
 			Patch: nil, // Nil patch
 		},
 	}
-	_, err = tx.AddDiff(patchNoDiff)
+	_, err = tx.AddPatch(patchNoDiff)
 	if err == nil {
 		t.Error("expected error for missing patch, got nil")
 	}
@@ -600,8 +600,8 @@ func TestStep4_AddDiff_ErrorHandling(t *testing.T) {
 	}
 }
 
-// TestStep4_AddDiff_AlreadyCommitted tests adding diff to already committed transaction
-func TestStep4_AddDiff_AlreadyCommitted(t *testing.T) {
+// TestStep4_AddPatch_AlreadyCommitted tests adding diff to already committed transaction
+func TestStep4_AddPatch_AlreadyCommitted(t *testing.T) {
 	tmpDir := t.TempDir()
 	storage, err := Open(tmpDir, 022, nil)
 	if err != nil {
@@ -620,7 +620,7 @@ func TestStep4_AddDiff_AlreadyCommitted(t *testing.T) {
 
 	// Try to add diff (should fail)
 	patch := createTestPatch("/test/path", createTestDiffNode(), nil)
-	_, err = tx.AddDiff(patch)
+	_, err = tx.AddPatch(patch)
 	if err == nil {
 		t.Error("expected error when adding diff to committed transaction, got nil")
 	}
@@ -629,8 +629,8 @@ func TestStep4_AddDiff_AlreadyCommitted(t *testing.T) {
 	}
 }
 
-// TestStep5_AddDiff_LastParticipantDetection_Sequential validates Step 5: Last Participant Detection (Sequential)
-func TestStep5_AddDiff_LastParticipantDetection_Sequential(t *testing.T) {
+// TestStep5_AddPatch_LastParticipantDetection_Sequential validates Step 5: Last Participant Detection (Sequential)
+func TestStep5_AddPatch_LastParticipantDetection_Sequential(t *testing.T) {
 	tmpDir := t.TempDir()
 	storage, err := Open(tmpDir, 022, nil)
 	if err != nil {
@@ -659,7 +659,7 @@ func TestStep5_AddDiff_LastParticipantDetection_Sequential(t *testing.T) {
 	patch2 := createTestPatch("/path2", createTestDiffNode(), nil)
 	patch3 := createTestPatch("/path3", createTestDiffNode(), nil)
 
-	isLast1, err := tx1.AddDiff(patch1)
+	isLast1, err := tx1.AddPatch(patch1)
 	if err != nil {
 		t.Fatalf("failed to add diff 1: %v", err)
 	}
@@ -667,7 +667,7 @@ func TestStep5_AddDiff_LastParticipantDetection_Sequential(t *testing.T) {
 		t.Error("first participant should not be last (1 of 3)")
 	}
 
-	isLast2, err := tx2.AddDiff(patch2)
+	isLast2, err := tx2.AddPatch(patch2)
 	if err != nil {
 		t.Fatalf("failed to add diff 2: %v", err)
 	}
@@ -675,7 +675,7 @@ func TestStep5_AddDiff_LastParticipantDetection_Sequential(t *testing.T) {
 		t.Error("second participant should not be last (2 of 3)")
 	}
 
-	isLast3, err := tx3.AddDiff(patch3)
+	isLast3, err := tx3.AddPatch(patch3)
 	if err != nil {
 		t.Fatalf("failed to add diff 3: %v", err)
 	}
@@ -715,8 +715,8 @@ func TestStep5_AddDiff_LastParticipantDetection_Sequential(t *testing.T) {
 	}
 }
 
-// TestStep5_AddDiff_LastParticipantDetection_Concurrent validates Step 5: Last Participant Detection (Concurrent)
-func TestStep5_AddDiff_LastParticipantDetection_Concurrent(t *testing.T) {
+// TestStep5_AddPatch_LastParticipantDetection_Concurrent validates Step 5: Last Participant Detection (Concurrent)
+func TestStep5_AddPatch_LastParticipantDetection_Concurrent(t *testing.T) {
 	tmpDir := t.TempDir()
 	storage, err := Open(tmpDir, 022, nil)
 	if err != nil {
@@ -730,12 +730,12 @@ func TestStep5_AddDiff_LastParticipantDetection_Concurrent(t *testing.T) {
 	}
 	txID := tx1.ID()
 
-	// Use WaitGroup to coordinate concurrent AddDiff calls
+	// Use WaitGroup to coordinate concurrent AddPatch calls
 	var wg sync.WaitGroup
 	results := make([]bool, 5)
 	errors := make([]error, 5)
 
-	// Launch 5 goroutines, each calling AddDiff concurrently
+	// Launch 5 goroutines, each calling AddPatch concurrently
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
 		go func(idx int) {
@@ -746,7 +746,7 @@ func TestStep5_AddDiff_LastParticipantDetection_Concurrent(t *testing.T) {
 				return
 			}
 			patch := createTestPatch(fmt.Sprintf("/path%d", idx), createTestDiffNode(), nil)
-			isLast, err := tx.AddDiff(patch)
+			isLast, err := tx.AddPatch(patch)
 			results[idx] = isLast
 			if err != nil {
 				errors[idx] = err
@@ -792,8 +792,8 @@ func TestStep5_AddDiff_LastParticipantDetection_Concurrent(t *testing.T) {
 	}
 }
 
-// TestStep5_AddDiff_LastParticipantDetection_SingleParticipant tests edge case: single participant
-func TestStep5_AddDiff_LastParticipantDetection_SingleParticipant(t *testing.T) {
+// TestStep5_AddPatch_LastParticipantDetection_SingleParticipant tests edge case: single participant
+func TestStep5_AddPatch_LastParticipantDetection_SingleParticipant(t *testing.T) {
 	tmpDir := t.TempDir()
 	storage, err := Open(tmpDir, 022, nil)
 	if err != nil {
@@ -807,7 +807,7 @@ func TestStep5_AddDiff_LastParticipantDetection_SingleParticipant(t *testing.T) 
 	}
 
 	patch := createTestPatch("/path", createTestDiffNode(), nil)
-	isLast, err := tx.AddDiff(patch)
+	isLast, err := tx.AddPatch(patch)
 	if err != nil {
 		t.Fatalf("failed to add diff: %v", err)
 	}
@@ -827,8 +827,8 @@ func TestStep5_AddDiff_LastParticipantDetection_SingleParticipant(t *testing.T) 
 	}
 }
 
-// TestStep5_AddDiff_LastParticipantDetection_MultipleDiffsFromSameParticipant tests multiple diffs from same participant
-func TestStep5_AddDiff_LastParticipantDetection_MultipleDiffsFromSameParticipant(t *testing.T) {
+// TestStep5_AddPatch_LastParticipantDetection_MultipleDiffsFromSameParticipant tests multiple diffs from same participant
+func TestStep5_AddPatch_LastParticipantDetection_MultipleDiffsFromSameParticipant(t *testing.T) {
 	tmpDir := t.TempDir()
 	storage, err := Open(tmpDir, 022, nil)
 	if err != nil {
@@ -849,7 +849,7 @@ func TestStep5_AddDiff_LastParticipantDetection_MultipleDiffsFromSameParticipant
 
 	// First participant adds two diffs
 	patch1a := createTestPatch("/path1a", createTestDiffNode(), nil)
-	isLast1a, err := tx1.AddDiff(patch1a)
+	isLast1a, err := tx1.AddPatch(patch1a)
 	if err != nil {
 		t.Fatalf("failed to add diff 1a: %v", err)
 	}
@@ -858,7 +858,7 @@ func TestStep5_AddDiff_LastParticipantDetection_MultipleDiffsFromSameParticipant
 	}
 
 	patch1b := createTestPatch("/path1b", createTestDiffNode(), nil)
-	isLast1b, err := tx1.AddDiff(patch1b)
+	isLast1b, err := tx1.AddPatch(patch1b)
 	if err != nil {
 		t.Fatalf("failed to add diff 1b: %v", err)
 	}
@@ -871,7 +871,7 @@ func TestStep5_AddDiff_LastParticipantDetection_MultipleDiffsFromSameParticipant
 
 	// Second participant adds one diff (will also be marked as last, but transaction already completed)
 	patch2 := createTestPatch("/path2", createTestDiffNode(), nil)
-	isLast2, err := tx2.AddDiff(patch2)
+	isLast2, err := tx2.AddPatch(patch2)
 	if err != nil {
 		t.Fatalf("failed to add diff 2: %v", err)
 	}
@@ -897,8 +897,8 @@ func TestStep5_AddDiff_LastParticipantDetection_MultipleDiffsFromSameParticipant
 	}
 }
 
-// TestStep5_AddDiff_LastParticipantDetection_LargeConcurrency tests with many concurrent participants
-func TestStep5_AddDiff_LastParticipantDetection_LargeConcurrency(t *testing.T) {
+// TestStep5_AddPatch_LastParticipantDetection_LargeConcurrency tests with many concurrent participants
+func TestStep5_AddPatch_LastParticipantDetection_LargeConcurrency(t *testing.T) {
 	tmpDir := t.TempDir()
 	storage, err := Open(tmpDir, 022, nil)
 	if err != nil {
@@ -927,7 +927,7 @@ func TestStep5_AddDiff_LastParticipantDetection_LargeConcurrency(t *testing.T) {
 				return
 			}
 			patch := createTestPatch(fmt.Sprintf("/path%d", idx), createTestDiffNode(), nil)
-			isLast, err := tx.AddDiff(patch)
+			isLast, err := tx.AddPatch(patch)
 			results[idx] = isLast
 			if err != nil {
 				errors[idx] = err
@@ -1001,7 +1001,7 @@ func TestStep9_WaitForCompletion(t *testing.T) {
 
 	// First participant adds diff (not last)
 	patch1 := createTestPatch("/path1", createTestDiffNode(), nil)
-	isLast1, err := tx1.AddDiff(patch1)
+	isLast1, err := tx1.AddPatch(patch1)
 	if err != nil {
 		t.Fatalf("failed to add diff 1: %v", err)
 	}
@@ -1011,7 +1011,7 @@ func TestStep9_WaitForCompletion(t *testing.T) {
 
 	// Second participant adds diff (last)
 	patch2 := createTestPatch("/path2", createTestDiffNode(), nil)
-	isLast2, err := tx2.AddDiff(patch2)
+	isLast2, err := tx2.AddPatch(patch2)
 	if err != nil {
 		t.Fatalf("failed to add diff 2: %v", err)
 	}
@@ -1087,11 +1087,11 @@ func TestStep9_WaitForCompletion_MultipleWaiters(t *testing.T) {
 
 	// Add diffs
 	patch1 := createTestPatch("/path1", createTestDiffNode(), nil)
-	tx1.AddDiff(patch1)
+	tx1.AddPatch(patch1)
 	patch2 := createTestPatch("/path2", createTestDiffNode(), nil)
-	tx2.AddDiff(patch2)
+	tx2.AddPatch(patch2)
 	patch3 := createTestPatch("/path3", createTestDiffNode(), nil)
-	isLast, _ := tx3.AddDiff(patch3)
+	isLast, _ := tx3.AddPatch(patch3)
 	if !isLast {
 		t.Fatal("third participant should be last")
 	}
@@ -1140,7 +1140,7 @@ func TestStep9_GetResult(t *testing.T) {
 
 	// Add diff and commit
 	patch := createTestPatch("/path", createTestDiffNode(), nil)
-	isLast, err := tx.AddDiff(patch)
+	isLast, err := tx.AddPatch(patch)
 	if err != nil {
 		t.Fatalf("failed to add diff: %v", err)
 	}
@@ -1188,7 +1188,7 @@ func TestStep10_MatchConditionEvaluation_NoMatches(t *testing.T) {
 
 	// Add diff without match condition
 	patch := createTestPatch("/test/path", createTestDiffNode(), nil)
-	isLast, err := tx.AddDiff(patch)
+	isLast, err := tx.AddPatch(patch)
 	if err != nil {
 		t.Fatalf("failed to add diff: %v", err)
 	}
@@ -1228,7 +1228,7 @@ func TestStep10_MatchConditionEvaluation_NotImplemented(t *testing.T) {
 		"field": ir.FromString("value"),
 	})
 	patch := createTestPatch("/test/path", createTestDiffNode(), match)
-	isLast, err := tx.AddDiff(patch)
+	isLast, err := tx.AddPatch(patch)
 	if err != nil {
 		t.Fatalf("failed to add diff: %v", err)
 	}

@@ -18,7 +18,7 @@ type TxResult struct {
 }
 
 // Tx represents a transaction in progress.
-// Multiple goroutines can safely call AddDiff concurrently on the same transaction.
+// Multiple goroutines can safely call AddPatch concurrently on the same transaction.
 // The last participant to add a diff will automatically commit the transaction.
 type Tx struct {
 	storage          *Storage
@@ -39,7 +39,7 @@ type Tx struct {
 //	// Handler 1 (or any participant)
 //	tx, err := storage.NewTx(participantCount)
 //	patch := &api.Patch{...}  // Contains path, match, and diff
-//	isLast, err := tx.AddDiff(patch)
+//	isLast, err := tx.AddPatch(patch)
 //	if isLast {
 //	    result, err := tx.Commit()  // Last participant commits
 //	} else {
@@ -84,7 +84,7 @@ func (s *Storage) NewTx(participantCount int) (*Tx, error) {
 //	// Multiple parallel HTTP handlers all receive the same txID
 //	tx, err := storage.JoinTx(txID)
 //	patch := &api.Patch{...}  // Contains path, match, and diff
-//	isLast, err := tx.AddDiff(patch)
+//	isLast, err := tx.AddPatch(patch)
 //	if isLast {
 //	    result, err := tx.Commit()
 //	} else {
@@ -121,7 +121,7 @@ func (tx *Tx) ID() int64 {
 	return tx.txID
 }
 
-// AddDiff adds a pending diff to the transaction and atomically updates the transaction state.
+// AddPatch adds a pending diff to the transaction and atomically updates the transaction state.
 // This method is safe to call concurrently from multiple goroutines.
 //
 // Returns:
@@ -131,7 +131,7 @@ func (tx *Tx) ID() int64 {
 // The caller should check isLastParticipant:
 //   - If true: this goroutine should call Commit() to finalize the transaction
 //   - If false: this goroutine should call WaitForCompletion() to wait for the last participant
-func (tx *Tx) AddDiff(patch *api.Patch) (isLastParticipant bool, err error) {
+func (tx *Tx) AddPatch(patch *api.Patch) (isLastParticipant bool, err error) {
 	// Check if transaction already committed
 	tx.mu.Lock()
 	if tx.committed {
@@ -186,7 +186,7 @@ func (tx *Tx) AddDiff(patch *api.Patch) (isLastParticipant bool, err error) {
 }
 
 // Commit commits all pending diffs atomically.
-// This should only be called by the last participant (the one for whom AddDiff returned true).
+// This should only be called by the last participant (the one for whom AddPatch returned true).
 // Other participants should call WaitForCompletion() instead.
 //
 // This method is idempotent - if called multiple times or after the transaction is already
@@ -532,4 +532,3 @@ func (tx *Tx) GetResult() *TxResult {
 	defer tx.mu.Unlock()
 	return tx.result
 }
-
