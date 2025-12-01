@@ -5,10 +5,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
-	// TODO: When match evaluation is implemented, add:
-	// "github.com/signadot/tony-format/go-tony"
 )
 
 // TxResult represents the result of a completed transaction.
@@ -221,26 +220,16 @@ func (tx *Tx) Commit() (*TxResult, error) {
 	}
 
 	// Step 3: Evaluate all match conditions atomically
-	// TODO: The interface for reading current document state is still being finalized
-	// due to recent compaction work. Once finalized, replace this placeholder with:
-	//   - For each match in state.ParticipantMatches:
-	//     - Read current state: currentState, err := tx.storage.ReadCurrentState(match.Body.Path)
-	//     - Evaluate: matched, err := tony.Match(currentState, match.Body.Match)
-	//     - If !matched → abort transaction
-	//
-	// For now, we'll skip match evaluation and proceed with commit.
-	// This allows the file writing logic to be tested independently.
-	//
-	// When match evaluation is implemented, uncomment the following:
-	/*
-	for i, matchReq := range state.ParticipantMatches {
+	// For each match condition, read the current committed state and evaluate it
+	for _, matchReq := range state.ParticipantMatches {
 		// Read current committed state for this path
 		currentState, err := tx.storage.ReadCurrentState(matchReq.Body.Path)
 		if err != nil {
 			return tx.setResult(false, 0, fmt.Errorf("failed to read current state for path %q: %w", matchReq.Body.Path, err))
 		}
 
-		// Evaluate match condition
+		// Evaluate match condition using tony.Match
+		// Note: We need to import "github.com/signadot/tony-format/go-tony" for tony.Match
 		matched, err := tony.Match(currentState, matchReq.Body.Match)
 		if err != nil {
 			return tx.setResult(false, 0, fmt.Errorf("match evaluation error for path %q: %w", matchReq.Body.Path, err))
@@ -253,7 +242,6 @@ func (tx *Tx) Commit() (*TxResult, error) {
 			return tx.result, nil
 		}
 	}
-	*/
 
 	// Step 4: All matches passed (or no matches) - proceed with commit
 	// Allocate commit number

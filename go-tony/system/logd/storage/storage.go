@@ -1,12 +1,14 @@
 package storage
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
+	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/dfile"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/paths"
@@ -93,6 +95,25 @@ func (s *Storage) DeletePendingDiff(virtualPath string, txSeq int64) error {
 	fsPath := s.FS.PathToFilesystem(virtualPath)
 	seg := index.PointLogSegment(0, txSeq, "")
 	return dfile.DeletePending(fsPath, seg, 0)
+}
+
+// ReadCurrentState reads the current committed state for a given virtual path.
+// This reconstructs the state by applying all committed diffs up to the current commit.
+//
+// TODO: This method is a placeholder. The actual implementation needs to:
+// - Read all committed diffs for the path from the index
+// - Apply diffs in order to reconstruct the current state
+// - Handle compaction (read from compacted files when available)
+// - Return the current state as an *ir.Node
+//
+// For now, this returns an error indicating the interface is not yet finalized.
+func (s *Storage) ReadCurrentState(virtualPath string) (*ir.Node, error) {
+	// TODO: Implement state reconstruction once the compaction interface is finalized
+	// This will involve:
+	// 1. Reading all committed diffs for the path from the index
+	// 2. Applying diffs in commit order to reconstruct state
+	// 3. Handling compacted segments when available
+	return nil, fmt.Errorf("ReadCurrentState not yet implemented - compaction interface still being finalized")
 }
 
 // mkdirAll creates a directory with umask applied.

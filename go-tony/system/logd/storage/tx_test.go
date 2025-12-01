@@ -1172,3 +1172,124 @@ func TestStep9_GetResult(t *testing.T) {
 		t.Error("result should be committed")
 	}
 }
+
+// TestStep10_MatchConditionEvaluation_NoMatches tests commit with no match conditions
+func TestStep10_MatchConditionEvaluation_NoMatches(t *testing.T) {
+	tmpDir := t.TempDir()
+	storage, err := Open(tmpDir, 022, nil)
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+
+	tx, err := storage.NewTx(1)
+	if err != nil {
+		t.Fatalf("failed to create transaction: %v", err)
+	}
+
+	// Add diff without match condition
+	patch := createTestPatch("/test/path", createTestDiffNode(), nil)
+	isLast, err := tx.AddDiff(patch)
+	if err != nil {
+		t.Fatalf("failed to add diff: %v", err)
+	}
+	if !isLast {
+		t.Fatal("single participant should be last")
+	}
+
+	// Commit should succeed (no match conditions to evaluate)
+	result, err := tx.Commit()
+	if err != nil {
+		t.Fatalf("commit should succeed with no match conditions: %v", err)
+	}
+	if !result.Committed {
+		t.Error("transaction should be committed")
+	}
+	if result.Commit == 0 {
+		t.Error("commit number should be non-zero")
+	}
+}
+
+// TestStep10_MatchConditionEvaluation_NotImplemented tests that match evaluation
+// fails gracefully when ReadCurrentState is not yet implemented
+func TestStep10_MatchConditionEvaluation_NotImplemented(t *testing.T) {
+	tmpDir := t.TempDir()
+	storage, err := Open(tmpDir, 022, nil)
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+
+	tx, err := storage.NewTx(1)
+	if err != nil {
+		t.Fatalf("failed to create transaction: %v", err)
+	}
+
+	// Add diff with match condition
+	match := ir.FromMap(map[string]*ir.Node{
+		"field": ir.FromString("value"),
+	})
+	patch := createTestPatch("/test/path", createTestDiffNode(), match)
+	isLast, err := tx.AddDiff(patch)
+	if err != nil {
+		t.Fatalf("failed to add diff: %v", err)
+	}
+	if !isLast {
+		t.Fatal("single participant should be last")
+	}
+
+	// Verify match condition was stored
+	state, err := storage.ReadTransactionState(tx.ID())
+	if err != nil {
+		t.Fatalf("failed to read transaction state: %v", err)
+	}
+	if len(state.ParticipantMatches) == 0 {
+		t.Fatal("match condition should be stored in ParticipantMatches")
+	}
+
+	// Commit should fail because ReadCurrentState is not implemented
+	result, err := tx.Commit()
+	if err == nil && (result == nil || result.Committed) {
+		t.Errorf("commit should fail when ReadCurrentState is not implemented. err=%v, result=%+v", err, result)
+	}
+	if result != nil && result.Committed {
+		t.Error("transaction should not be committed")
+	}
+	// Check error message in either err or result.Error
+	errorMsg := ""
+	if err != nil {
+		errorMsg = err.Error()
+	} else if result != nil && result.Error != nil {
+		errorMsg = result.Error.Error()
+	}
+	if errorMsg != "" && !strings.Contains(errorMsg, "ReadCurrentState not yet implemented") {
+		t.Errorf("error should mention ReadCurrentState not implemented, got: %s", errorMsg)
+	}
+	if errorMsg == "" {
+		t.Error("expected an error about ReadCurrentState not being implemented")
+	}
+}
+
+// TestStep10_MatchConditionEvaluation_AbortOnFailure tests that transaction aborts
+// when match condition fails (once ReadCurrentState is implemented)
+// This test is a placeholder - it will need ReadCurrentState to be implemented
+func TestStep10_MatchConditionEvaluation_AbortOnFailure(t *testing.T) {
+	t.Skip("Skipping until ReadCurrentState is implemented")
+	// TODO: Once ReadCurrentState is implemented:
+	// 1. Set up initial state for a path
+	// 2. Add diff with match condition that doesn't match
+	// 3. Commit should fail and abort transaction
+	// 4. Verify pending diffs are deleted
+	// 5. Verify state is marked "aborted"
+}
+
+// TestStep10_MatchConditionEvaluation_Success tests that transaction commits
+// when all match conditions pass (once ReadCurrentState is implemented)
+// This test is a placeholder - it will need ReadCurrentState to be implemented
+func TestStep10_MatchConditionEvaluation_Success(t *testing.T) {
+	t.Skip("Skipping until ReadCurrentState is implemented")
+	// TODO: Once ReadCurrentState is implemented:
+	// 1. Set up initial state for a path
+	// 2. Add diff with match condition that matches
+	// 3. Commit should succeed
+	// 4. Verify transaction is committed
+	// 5. Verify commit number is set
+}
