@@ -24,6 +24,7 @@ type Tx struct {
 	txID             int64 // Transaction ID (same as txSeq)
 	txSeq            int64
 	participantCount int
+	status           string // Cached status, may be stale
 }
 
 // TxPatcher is a participant's handle to a transaction.
@@ -80,6 +81,7 @@ func (s *Storage) NewTx(participantCount int) (*Tx, error) {
 		txID:             txID,
 		txSeq:            txSeq,
 		participantCount: participantCount,
+		status:           "pending",
 	}, nil
 }
 
@@ -110,11 +112,6 @@ func (s *Storage) GetTx(txID int64) (*Tx, error) {
 		return nil, fmt.Errorf("failed to read transaction state: %w", err)
 	}
 
-	// Validate transaction is still pending
-	if state.Status != "pending" {
-		return nil, fmt.Errorf("transaction %d is %s, cannot get", txID, state.Status)
-	}
-
 	// Transaction ID is the same as txSeq
 	txSeq := txID
 
@@ -123,12 +120,23 @@ func (s *Storage) GetTx(txID int64) (*Tx, error) {
 		txID:             txID,
 		txSeq:            txSeq,
 		participantCount: state.ParticipantCount,
+		status:           state.Status,
 	}, nil
 }
 
 // ID returns the transaction ID, useful for sharing with other participants.
 func (tx *Tx) ID() int64 {
 	return tx.txID
+}
+
+// Status returns the current transaction status ("pending", "committed", or "aborted").
+// This reads the current state from disk, so it may differ from the cached status.
+func (tx *Tx) Status() (string, error) {
+	state, err := tx.storage.ReadTxState(tx.txID)
+	if err != nil {
+		return "", fmt.Errorf("failed to read transaction state: %w", err)
+	}
+	return state.Status, nil
 }
 
 // NewPatcher creates a new patcher handle for this transaction.
@@ -154,6 +162,15 @@ func (tx *Tx) NewPatcher() *TxPatcher {
 //   - If true: this goroutine should call Commit() to finalize the transaction
 //   - If false: this goroutine should call WaitForCompletion() to wait for the last participant
 func (p *TxPatcher) AddPatch(patch *api.Patch) (isLastParticipant bool, err error) {
+	// Check transaction status before proceeding
+	status, err := p.tx.Status()
+	if err != nil {
+		return false, fmt.Errorf("failed to check transaction status: %w", err)
+	}
+	if status != "pending" {
+		return false, fmt.Errorf("transaction %d is %s, cannot add patch", p.tx.txID, status)
+	}
+
 	// Check if transaction already committed
 	p.mu.Lock()
 	if p.committed {

@@ -1,8 +1,9 @@
 package dfile_test
 
 import (
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/dfile"
 	"testing"
+
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/dfile"
 )
 
 func TestWriteDiffFile(t *testing.T) {

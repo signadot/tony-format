@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -27,6 +28,10 @@ func (dc *DirCompactor) readState(env *storageEnv) ([]index.LogSegment, error) {
 			continue
 		}
 		name := de.Name()
+		// Skip temporary files (.tmp) and pending files
+		if strings.HasSuffix(name, ".tmp") || strings.HasSuffix(name, ".pending") {
+			continue
+		}
 		seg, lvl, err := paths.ParseLogSegment(name)
 		if err != nil {
 			continue
@@ -73,6 +78,11 @@ func (dc *DirCompactor) readState(env *storageEnv) ([]index.LogSegment, error) {
 		seg := &curSegs[i]
 		df, err := dc.readSegment(seg, dc.Level+1)
 		if err != nil {
+			// If file doesn't exist, skip this segment (it may have been removed)
+			if os.IsNotExist(err) {
+				dc.Config.Log.Debug("skipping current segment with missing file in recovery", "segment", seg, "error", err)
+				continue
+			}
 			return nil, err
 		}
 		tmp, err := tony.Patch(last, df.Diff)
@@ -88,13 +98,21 @@ func (dc *DirCompactor) readState(env *storageEnv) ([]index.LogSegment, error) {
 	dc.Start = last
 	// get inputs from CurSegment
 	if curSeg != nil {
-		name := paths.FormatLogSegment(curSeg, dc.Level+1, false)
+		// FormatLogSegment includes RelPath in the name, but dc.Dir already points to that directory
+		// So we need to extract just the base filename
+		formatted := paths.FormatLogSegment(curSeg, dc.Level+1, false)
+		_, name := filepath.Split(formatted)
 		p := filepath.Join(dc.Dir, name)
 		df, err := dfile.ReadDiffFile(p)
 		if err != nil {
 			return nil, err
 		}
 		dc.Inputs = df.Inputs
+
+		// Notify Storage of recovered compacted state if callback is set
+		if dc.Config.OnCompactionComplete != nil {
+			dc.Config.OnCompactionComplete(dc.VirtualPath, dc.Ref, curSeg.EndCommit)
+		}
 	}
 
 	// Initialize Next compactor if Level+2 segments exist

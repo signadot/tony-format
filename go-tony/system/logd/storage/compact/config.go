@@ -2,7 +2,13 @@ package compact
 
 import (
 	"log/slog"
+
+	"github.com/signadot/tony-format/go-tony/ir"
 )
+
+// OnCompactionComplete is called when compaction completes for a path.
+// virtualPath is the path that was compacted, ref is the state at endCommit.
+type OnCompactionComplete func(virtualPath string, ref *ir.Node, endCommit int64)
 
 type Config struct {
 	// Configuration
@@ -10,6 +16,9 @@ type Config struct {
 	Divisor int
 	Remove  func(int, int) bool // Remove(commit, level) returns true if the segment should be removed
 	Log     *slog.Logger
+	// OnCompactionComplete is called when compaction completes (after persistCurrent).
+	// This allows Storage to cache compacted state for fast reads. Optional.
+	OnCompactionComplete OnCompactionComplete
 }
 
 // RemoveStrategy is a function that determines whether to remove a segment file

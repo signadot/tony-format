@@ -113,3 +113,10 @@ func (c *Compactor) getOrInitDC(seg *index.LogSegment) *DirCompactor {
 	}
 	return dc
 }
+
+// GetDirCompactor returns the DirCompactor for the given virtual path, or nil if it doesn't exist.
+func (c *Compactor) GetDirCompactor(virtualPath string) *DirCompactor {
+	c.dcMu.Lock()
+	defer c.dcMu.Unlock()
+	return c.dcMap[virtualPath]
+}

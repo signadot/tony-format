@@ -30,7 +30,7 @@ func createTestDiffNode() *ir.Node {
 
 func TestNewTx(t *testing.T) {
 	tmpDir := t.TempDir()
-	storage, err := Open(tmpDir, 022, nil)
+	storage, err := Open(tmpDir, 022, nil, nil)
 	if err != nil {
 		t.Fatalf("failed to open storage: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestNewTx(t *testing.T) {
 
 func TestGetTx(t *testing.T) {
 	tmpDir := t.TempDir()
-	storage, err := Open(tmpDir, 022, nil)
+	storage, err := Open(tmpDir, 022, nil, nil)
 	if err != nil {
 		t.Fatalf("failed to open storage: %v", err)
 	}
@@ -99,22 +99,29 @@ func TestGetTx(t *testing.T) {
 		t.Error("expected error for non-existent transaction")
 	}
 
-	// Committed transaction
+	// Committed transaction - GetTx should still return the transaction
 	err = storage.UpdateTxState(txID, func(state *TxState) {
 		state.Status = "committed"
 	})
 	if err != nil {
 		t.Fatalf("failed to update state: %v", err)
 	}
-	_, err = storage.GetTx(txID)
-	if err == nil {
-		t.Error("expected error for committed transaction")
+	tx3, err := storage.GetTx(txID)
+	if err != nil {
+		t.Fatalf("GetTx should succeed for committed transaction: %v", err)
+	}
+	status, err := tx3.Status()
+	if err != nil {
+		t.Fatalf("failed to get status: %v", err)
+	}
+	if status != "committed" {
+		t.Errorf("expected status 'committed', got %q", status)
 	}
 }
 
 func TestAddPatch(t *testing.T) {
 	tmpDir := t.TempDir()
-	storage, err := Open(tmpDir, 022, nil)
+	storage, err := Open(tmpDir, 022, nil, nil)
 	if err != nil {
 		t.Fatalf("failed to open storage: %v", err)
 	}
@@ -161,7 +168,7 @@ func TestAddPatch(t *testing.T) {
 
 func TestAddPatch_WithMatchCondition(t *testing.T) {
 	tmpDir := t.TempDir()
-	storage, err := Open(tmpDir, 022, nil)
+	storage, err := Open(tmpDir, 022, nil, nil)
 	if err != nil {
 		t.Fatalf("failed to open storage: %v", err)
 	}
@@ -194,7 +201,7 @@ func TestAddPatch_WithMatchCondition(t *testing.T) {
 
 func TestLastParticipantDetection(t *testing.T) {
 	tmpDir := t.TempDir()
-	storage, err := Open(tmpDir, 022, nil)
+	storage, err := Open(tmpDir, 022, nil, nil)
 	if err != nil {
 		t.Fatalf("failed to open storage: %v", err)
 	}
@@ -273,7 +280,7 @@ func TestLastParticipantDetection(t *testing.T) {
 
 func TestCommit(t *testing.T) {
 	tmpDir := t.TempDir()
-	storage, err := Open(tmpDir, 022, nil)
+	storage, err := Open(tmpDir, 022, nil, nil)
 	if err != nil {
 		t.Fatalf("failed to open storage: %v", err)
 	}
@@ -307,7 +314,7 @@ func TestCommit(t *testing.T) {
 
 func TestWaitForCompletion(t *testing.T) {
 	tmpDir := t.TempDir()
-	storage, err := Open(tmpDir, 022, nil)
+	storage, err := Open(tmpDir, 022, nil, nil)
 	if err != nil {
 		t.Fatalf("failed to open storage: %v", err)
 	}
@@ -360,7 +367,7 @@ func TestWaitForCompletion(t *testing.T) {
 
 func TestGetResult(t *testing.T) {
 	tmpDir := t.TempDir()
-	storage, err := Open(tmpDir, 022, nil)
+	storage, err := Open(tmpDir, 022, nil, nil)
 	if err != nil {
 		t.Fatalf("failed to open storage: %v", err)
 	}

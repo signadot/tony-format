@@ -61,8 +61,20 @@ func WriteDiffFile(p string, df *DiffFile) error {
 // with the given commit count.
 func CommitPending(dir string, seg *index.LogSegment, level int, commitCount int64) error {
 	// Build filenames using helper methods
-	oldName := paths.FormatLogSegment(seg.AsPending(), level, true)
-	newName := paths.FormatLogSegment(seg.WithCommit(commitCount), level, false)
+	// FormatLogSegment includes RelPath in the name, but dir already points to that directory
+	// So we need to extract just the base filename
+	oldFormatted := paths.FormatLogSegment(seg.AsPending(), level, true)
+	newFormatted := paths.FormatLogSegment(seg.WithCommit(commitCount), level, false)
+
+	// Extract just the filename (last component after the path separator)
+	_, oldName := filepath.Split(oldFormatted)
+	_, newName := filepath.Split(newFormatted)
+	if oldName == "" {
+		oldName = oldFormatted
+	}
+	if newName == "" {
+		newName = newFormatted
+	}
 
 	// Atomic rename
 	oldPath := filepath.Join(dir, oldName)

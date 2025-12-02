@@ -15,7 +15,7 @@ func TestReadTxLog_BinarySearch(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	// Create storage instance
-	storage, err := Open(tmpDir, 022, nil)
+	storage, err := Open(tmpDir, 022, nil, nil)
 	if err != nil {
 		t.Fatalf("failed to open storage: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestReadTxLog_EmptyLog(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	// Create storage instance
-	storage, err := Open(tmpDir, 022, nil)
+	storage, err := Open(tmpDir, 022, nil, nil)
 	if err != nil {
 		t.Fatalf("failed to open storage: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestReadTxLog_NonExistentFile(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	// Create storage instance
-	storage, err := Open(tmpDir, 022, nil)
+	storage, err := Open(tmpDir, 022, nil, nil)
 	if err != nil {
 		t.Fatalf("failed to open storage: %v", err)
 	}

@@ -72,7 +72,7 @@ func waitForSegmentCount(t *testing.T, idx *index.Index, virtualPath string, exp
 		idx.RLock()
 		segs := idx.LookupRange(virtualPath, nil, nil)
 		idx.RUnlock()
-		
+
 		if len(segs) >= expectedCount {
 			return
 		}
@@ -133,15 +133,15 @@ func TestCompactionLogic(t *testing.T) {
 		// A segment is committed if EndCommit > 0 (pending segments have EndCommit=0)
 		for i := range segs {
 			seg := &segs[i]
-			if seg.RelPath == virtualPath && 
-			   seg.StartTx <= seg1.StartTx && 
-			   seg.EndTx >= seg2.EndTx &&
-			   seg.EndCommit > 0 { // Committed (pending segments have EndCommit=0)
+			if seg.RelPath == virtualPath &&
+				seg.StartTx <= seg1.StartTx &&
+				seg.EndTx >= seg2.EndTx &&
+				seg.EndCommit > 0 { // Committed (pending segments have EndCommit=0)
 				compactedSeg = seg
 				break
 			}
 		}
-		
+
 		if compactedSeg != nil {
 			break
 		}
@@ -186,7 +186,7 @@ func TestFileRemoval(t *testing.T) {
 	// Setup with Remove function that removes Level 1 segments
 	tmpDir, _, c, _ := testSetup(t, 2)
 	virtualPath := ""
-	
+
 	// Configure Remove to return true for Level 1 compactions
 	c.Config.Remove = func(commit, level int) bool {
 		return level == 1 // Remove files when creating Level 1 segments
@@ -195,7 +195,7 @@ func TestFileRemoval(t *testing.T) {
 	// Create two segments that will trigger compaction
 	diff1 := ir.FromMap(map[string]*ir.Node{"a": ir.FromInt(1)})
 	createSegment(t, tmpDir, virtualPath, 0, 1, 1, diff1, c)
-	
+
 	diff2 := ir.FromMap(map[string]*ir.Node{"b": ir.FromInt(2)})
 	createSegment(t, tmpDir, virtualPath, 0, 2, 2, diff2, c)
 
@@ -209,7 +209,7 @@ func TestFileRemoval(t *testing.T) {
 		c.Index.RLock()
 		segs := c.Index.LookupRange(virtualPath, nil, nil)
 		c.Index.RUnlock()
-		
+
 		// Check if we have a committed segment
 		hasCommitted := false
 		for i := range segs {
@@ -266,14 +266,14 @@ func TestFileRemovalDisabled(t *testing.T) {
 	// Setup with Remove function that never removes
 	tmpDir, _, c, _ := testSetup(t, 2)
 	virtualPath := ""
-	
+
 	// Configure Remove to never remove files (using helper function)
 	c.Config.Remove = NeverRemove()
 
 	// Create two segments that will trigger compaction
 	diff1 := ir.FromMap(map[string]*ir.Node{"a": ir.FromInt(1)})
 	createSegment(t, tmpDir, virtualPath, 0, 1, 1, diff1, c)
-	
+
 	diff2 := ir.FromMap(map[string]*ir.Node{"b": ir.FromInt(2)})
 	createSegment(t, tmpDir, virtualPath, 0, 2, 2, diff2, c)
 
@@ -323,27 +323,27 @@ func TestFileRemovalDisabled(t *testing.T) {
 func TestHeadWindowStrategy(t *testing.T) {
 	tmpDir, _, c, _ := testSetup(t, 2)
 	virtualPath := ""
-	
+
 	// Track current commit
 	currentCommit := 0
 	getCurrentCommit := func() int { return currentCommit }
-	
+
 	// Configure HeadWindow to keep only the 2 most recent commits
 	c.Config.Remove = HeadWindow(getCurrentCommit, 2)
-	
+
 	// Create segments at commits 1, 2, 3, 4
 	diff1 := ir.FromMap(map[string]*ir.Node{"a": ir.FromInt(1)})
 	createSegment(t, tmpDir, virtualPath, 0, 1, 1, diff1, c)
 	currentCommit = 1
-	
+
 	diff2 := ir.FromMap(map[string]*ir.Node{"b": ir.FromInt(2)})
 	createSegment(t, tmpDir, virtualPath, 0, 2, 2, diff2, c)
 	// Set currentCommit to 3 so HeadWindow(keep=2) will return true (3 > 2)
 	currentCommit = 3
-	
+
 	// Wait for first compaction (commits 1-2)
 	waitForSegmentCount(t, c.Index, virtualPath, 1, 5*time.Second)
-	
+
 	// Wait for committed segment (EndCommit > 0)
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -362,7 +362,7 @@ func TestHeadWindowStrategy(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	
+
 	// Wait for Level 0 segments to be removed (poll until count is 0)
 	dir := paths.PathToFilesystem(tmpDir, virtualPath)
 	deadline = time.Now().Add(2 * time.Second)
@@ -389,7 +389,7 @@ func TestHeadWindowStrategy(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	
+
 	// Final check - should have 0 Level 0 segments
 	dirEnts, _ := os.ReadDir(dir)
 	level0Count := 0
@@ -408,20 +408,20 @@ func TestHeadWindowStrategy(t *testing.T) {
 	if level0Count > 0 {
 		t.Errorf("expected 0 Level 0 segments after removal, found %d", level0Count)
 	}
-	
+
 	// Create more segments
 	diff3 := ir.FromMap(map[string]*ir.Node{"c": ir.FromInt(3)})
 	createSegment(t, tmpDir, virtualPath, 0, 3, 3, diff3, c)
 	currentCommit = 3
-	
+
 	diff4 := ir.FromMap(map[string]*ir.Node{"d": ir.FromInt(4)})
 	createSegment(t, tmpDir, virtualPath, 0, 4, 4, diff4, c)
 	// Keep currentCommit at 4 (or higher) so HeadWindow(keep=2) continues to return true (4 > 2)
 	currentCommit = 4
-	
+
 	// Wait for second compaction (commits 3-4)
 	waitForSegmentCount(t, c.Index, virtualPath, 2, 5*time.Second)
-	
+
 	// Wait for second committed segment
 	deadline = time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -439,7 +439,7 @@ func TestHeadWindowStrategy(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	
+
 	// Wait for Level 0 segments to be removed
 	deadline = time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -465,7 +465,7 @@ func TestHeadWindowStrategy(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	
+
 	// Final check - should have 0 Level 0 segments
 	dirEnts2, _ := os.ReadDir(dir)
 	level0Count2 := 0

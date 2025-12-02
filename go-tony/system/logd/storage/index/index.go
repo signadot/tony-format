@@ -150,7 +150,7 @@ func rangeFunc(from, to *int64) func(LogSegment) int {
 	}
 	end := int64(math.MaxInt64)
 	if to != nil {
-		end = *to + 1
+		end = *to
 	}
 	return func(v LogSegment) int {
 		if v.StartCommit < start {

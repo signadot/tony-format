@@ -97,6 +97,11 @@ func (dc *DirCompactor) processSegment(seg *index.LogSegment, env *storageEnv) e
 	}
 	df, err := dc.readSegment(seg, dc.Level)
 	if err != nil {
+		// If file doesn't exist, skip this segment (it may have been removed or never created)
+		if os.IsNotExist(err) {
+			dc.Config.Log.Debug("skipping segment with missing file", "segment", seg, "error", err)
+			return nil
+		}
 		return err
 	}
 	tmp, err := tony.Patch(dc.Ref, df.Diff)
@@ -164,6 +169,11 @@ func (dc *DirCompactor) recover(e error, env *storageEnv) error {
 		// Process segments recovered from disk
 		for i := range inputSegs {
 			if err := dc.processSegment(&inputSegs[i], env); err != nil {
+				// If the file doesn't exist, skip this segment (it may have been removed or never created)
+				if os.IsNotExist(err) {
+					dc.Config.Log.Debug("skipping segment with missing file in recovery", "segment", inputSegs[i], "error", err)
+					continue
+				}
 				dc.Config.Log.Warn("error processing segments in recover: trying again", "error", err, "backoff", backoff)
 				if err := dc.waitForRetry(backoff); err != nil {
 					return err // Shutdown requested
@@ -224,7 +234,13 @@ func (dc *DirCompactor) persistCurrent(env *storageEnv, diff *ir.Node) error {
 		RelPath:     dc.VirtualPath,
 	}
 
-	filename := paths.FormatLogSegment(seg, dc.Level+1, true)
+	// FormatLogSegment includes RelPath in the name, but dc.Dir already points to that directory
+	// So we need to extract just the base filename
+	formatted := paths.FormatLogSegment(seg, dc.Level+1, true)
+	_, filename := filepath.Split(formatted)
+	if filename == "" {
+		filename = formatted
+	}
 	df := &dfile.DiffFile{
 		Seq:     txSeq,
 		Diff:    diff,
@@ -271,6 +287,12 @@ func (dc *DirCompactor) persistCurrent(env *storageEnv, diff *ir.Node) error {
 	}
 	dc.CurSegment.EndCommit = commit
 	dc.CurSegment.EndTx = txSeq
+
+	// Notify Storage of compaction completion if callback is set
+	if dc.Config.OnCompactionComplete != nil {
+		dc.Config.OnCompactionComplete(dc.VirtualPath, dc.Ref, commit)
+	}
+
 	return nil
 }
 
@@ -321,7 +343,17 @@ func (dc *DirCompactor) removeInputSegments(commit int64) error {
 }
 
 func (dc *DirCompactor) readSegment(seg *index.LogSegment, lvl int) (*dfile.DiffFile, error) {
-	name := paths.FormatLogSegment(seg, lvl, false)
+	// FormatLogSegment includes RelPath in the name, but dc.Dir already points to that directory
+	// So we need to extract just the base filename
+	formatted := paths.FormatLogSegment(seg, lvl, false)
+	// Extract just the filename (last component after the path separator)
+	// If seg.RelPath is empty or ".", formatted will be just the filename
+	// If seg.RelPath is set, formatted will be "RelPath/filename", so we extract just the filename
+	_, name := filepath.Split(formatted)
+	if name == "" {
+		// If Split returned empty name, formatted was already just a filename
+		name = formatted
+	}
 	p := filepath.Join(dc.Dir, name)
 	return dfile.ReadDiffFile(p)
 }

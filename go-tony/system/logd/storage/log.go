@@ -323,7 +323,7 @@ func NewTxLogEntry(commitCount int64, txID int64, pendingFiles []FileRef) *TxLog
 	return &TxLogEntry{
 		Commit:       commitCount,
 		TxID:         txID,
-		Timestamp:     time.Now().UTC().Format(time.RFC3339),
-		PendingFiles:  pendingFiles,
+		Timestamp:    time.Now().UTC().Format(time.RFC3339),
+		PendingFiles: pendingFiles,
 	}
 }

@@ -5,6 +5,7 @@ package dfile
 import (
 	"bytes"
 	"fmt"
+
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
