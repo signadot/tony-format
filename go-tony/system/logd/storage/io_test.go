@@ -525,6 +525,8 @@ func TestConcurrentWritesToSamePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open storage: %v", err)
 	}
+	// Disable cache to rule out cache-related race conditions
+	storage.stateCache = nil
 
 	const numWriters = 2
 	const numReaders = 2

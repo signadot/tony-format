@@ -124,23 +124,37 @@ func (s *Storage) ListChildPaths(parentPath string, from, to *int64) ([]string, 
 
 // commit atomically commits a pending diff by:
 // 1. Renaming .pending to .diff
-// 2. Updating the index
+// 2. Verifying the file exists and is readable
+// 3. Updating the index
+// 4. Notifying compactor (must be done after releasing indexMu to avoid deadlock)
 func (s *Storage) commit(virtualPath string, txSeq, commitCount int64) error {
-	s.indexMu.Lock()
-	defer s.indexMu.Unlock()
+	// Ensure directory exists before renaming (handles race with concurrent directory creation)
+	fsPath := s.FS.PathToFilesystem(virtualPath)
+	if err := s.FS.EnsurePathDir(virtualPath); err != nil {
+		return fmt.Errorf("failed to ensure directory exists: %w", err)
+	}
 
 	// Rename pending file to diff file
-	fsPath := s.FS.PathToFilesystem(virtualPath)
 	pendingSeg := index.PointLogSegment(0, txSeq, "")
 	if err := dfile.CommitPending(fsPath, pendingSeg, 0, commitCount); err != nil {
 		return err
 	}
 
-	// Update index
+	// Verify the file exists and is readable before adding to index
+	// This ensures that any ReadStateAt() that sees the index entry will be able to read the file
 	seg := index.PointLogSegment(commitCount, txSeq, virtualPath)
-	s.index.Add(seg)
+	s.indexMu.Lock()
+	if _, err := s.readDiffLocked(virtualPath, commitCount, txSeq, false); err != nil {
+		s.indexMu.Unlock()
+		return fmt.Errorf("failed to verify committed file exists: %w", err)
+	}
 
-	// Notify compactor of new segment
+	// Update index - file is guaranteed to exist and be readable
+	s.index.Add(seg)
+	s.indexMu.Unlock()
+
+	// Notify compactor of new segment (must be done after releasing indexMu to avoid deadlock:
+	// OnNewSegment() may block if compaction goroutine is holding env.idxL (same as indexMu))
 	if s.compactor != nil {
 		if err := s.compactor.OnNewSegment(seg); err != nil {
 			// Log but don't fail - compaction is best effort
@@ -228,9 +242,16 @@ func (s *Storage) ReadStateAt(virtualPath string, commitCount int64) (*ir.Node, 
 
 	s.indexMu.RLock()
 	segments := s.index.LookupRange(virtualPath, from, to)
-	s.indexMu.RUnlock()
 
-	if len(segments) == 0 {
+	// Deep copy segments immediately to ensure we have a snapshot that won't change
+	// This rules out races in LookupRange's internal data structures
+	segCopies := make([]index.LogSegment, len(segments))
+	for i := range segments {
+		segCopies[i] = segments[i] // Copy struct by value
+	}
+
+	if len(segCopies) == 0 {
+		s.indexMu.RUnlock()
 		// No patches to apply - cache the result
 		if s.stateCache != nil && commitCount > 0 {
 			s.stateCache.setComputed(virtualPath, commitCount, startState)
@@ -238,18 +259,38 @@ func (s *Storage) ReadStateAt(virtualPath string, commitCount int64) (*ir.Node, 
 		return startState, nil
 	}
 
-	// Apply segments returned by LookupRange
-	state := startState
-	for i := range segments {
-		seg := &segments[i]
-		diffFile, err := s.ReadDiff(virtualPath, seg.StartCommit, seg.StartTx, false)
+	// Read all files into memory while holding the lock to rule out file I/O races
+	// This ensures we have a consistent snapshot of both index and file contents
+	// Note: We hold the lock during file reads to ensure that if a segment is in the index,
+	// the file is guaranteed to exist (commit() verifies this before adding to index)
+	diffFiles := make([]*dfile.DiffFile, 0, len(segCopies))
+	for i := range segCopies {
+		seg := &segCopies[i]
+		diffFile, err := s.readDiffLocked(virtualPath, seg.StartCommit, seg.StartTx, false)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read diff at commit %d: %w", seg.StartCommit, err)
+			// If a segment is in the index, the file should exist (commit() verifies this).
+			// However, there might be a race where the segment was added but the file
+			// isn't immediately visible. In this case, we should skip this segment
+			// and continue with others, rather than failing entirely.
+			// This can happen if commit() added the segment but the file rename hasn't
+			// fully propagated yet (filesystem cache, etc.).
+			s.indexMu.RUnlock()
+			// Check if this is a "file doesn't exist" error - if so, it's a race condition
+			// and we should return an error to indicate inconsistency
+			return nil, fmt.Errorf("failed to read diff at commit %d (txSeq %d): %w - segment in index but file not readable", seg.StartCommit, seg.StartTx, err)
 		}
+		diffFiles = append(diffFiles, diffFile)
+	}
+	s.indexMu.RUnlock()
 
+	// Now apply patches without holding the lock (files are already in memory)
+	state := startState
+	for i := range diffFiles {
+		diffFile := diffFiles[i]
+		var err error
 		state, err = tony.Patch(state, diffFile.Diff)
 		if err != nil {
-			return nil, fmt.Errorf("failed to apply diff at commit %d: %w", seg.StartCommit, err)
+			return nil, fmt.Errorf("failed to apply diff at commit %d: %w", segCopies[i].StartCommit, err)
 		}
 	}
 

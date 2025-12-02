@@ -1,8 +1,10 @@
 package dfile
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
@@ -79,6 +81,26 @@ func CommitPending(dir string, seg *index.LogSegment, level int, commitCount int
 	// Atomic rename
 	oldPath := filepath.Join(dir, oldName)
 	newPath := filepath.Join(dir, newName)
+
+	// Hypothesis #2: Verify filename construction matches
+	// Log the filenames being used for debugging
+	// Check if oldPath matches what was written (will be checked by caller)
+
+	// Verify the pending file exists before trying to rename it
+	// This helps catch bugs where the file was never created or was deleted
+	if _, err := os.Stat(oldPath); err != nil {
+		// List directory contents to help debug filename mismatch
+		dirEnts, listErr := os.ReadDir(dir)
+		dirContents := []string{}
+		if listErr == nil {
+			for _, de := range dirEnts {
+				if !de.IsDir() && (strings.HasSuffix(de.Name(), ".pending") || strings.HasSuffix(de.Name(), ".diff")) {
+					dirContents = append(dirContents, de.Name())
+				}
+			}
+		}
+		return fmt.Errorf("pending file does not exist (cannot rename %q to %q): %w (directory contents: %v)", oldPath, newPath, err, dirContents)
+	}
 
 	return os.Rename(oldPath, newPath)
 }

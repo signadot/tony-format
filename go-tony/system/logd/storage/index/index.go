@@ -94,7 +94,18 @@ func (i *Index) LookupRange(vp string, from, to *int64) []LogSegment {
 		return true
 	}, rangeFunc(from, to))
 	if vp == "" {
-		for _, ci := range i.Children {
+		// Materialize children map keys to avoid race conditions during iteration
+		// childNames := make([]string, 0, len(i.Children))
+		// for name := range i.Children {
+		// 	childNames = append(childNames, name)
+		// }
+		// Now iterate over the materialized list
+		for _, ci := range i.Children { //childNames {
+			//ci := i.Children[name]
+			if ci == nil {
+				panic("wilma")
+				continue // Child was removed between materialization and access
+			}
 			cRes := ci.LookupRange("", from, to)
 			for j := range cRes {
 				seg := &cRes[j]
@@ -111,12 +122,15 @@ func (i *Index) LookupRange(vp string, from, to *int64) []LogSegment {
 	if c == nil {
 		return res
 	}
+	// Recursive call - child index has its own lock, so this is safe
 	cRes := c.LookupRange(strings.Join(rest, "/"), from, to)
+	// Deep copy results to ensure they're fully materialized
+	cResCopy := make([]LogSegment, len(cRes))
 	for j := range cRes {
-		seg := &cRes[j]
-		seg.RelPath = path.Join(hd, seg.RelPath)
+		cResCopy[j] = cRes[j]
+		cResCopy[j].RelPath = path.Join(hd, cResCopy[j].RelPath)
 	}
-	res = append(res, cRes...)
+	res = append(res, cResCopy...)
 	slices.SortFunc(res, LogSegCompare)
 	return res
 }

@@ -57,6 +57,7 @@
 package compact
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
@@ -77,7 +78,16 @@ type Compactor struct {
 }
 
 func NewCompactor(cfg *Config, seq *seq.Seq, idxL sync.Locker, idx *index.Index) *Compactor {
-	env := &storageEnv{seq: seq, idxL: idxL, idx: idx}
+	if cfg.Divisor <= 1 {
+		panic("invalid divisor")
+	}
+	env := &storageEnv{
+		seq:            seq,
+		idxL:           idxL,
+		idx:            idx,
+		readStateLevel: -1,
+	}
+	env.readStateCond = sync.NewCond(&env.readStateMu)
 	return &Compactor{
 		Config:        *cfg,
 		Seq:           seq,
@@ -90,15 +100,27 @@ func NewCompactor(cfg *Config, seq *seq.Seq, idxL sync.Locker, idx *index.Index)
 
 // OnNewSegment triggers compaction for a new index segment.
 // OnNewSegment should never be called for a given relative
-// path of a segment before any previous call completed.
+// path of a segment before any previous previous call completed.
 // Practically speaking, this means it should be called during
 // commits while the seq lock is locked.  OnNewSegment will
 // have a strong tendency to return very quickly to help accomodate
 // the caller.
 func (c *Compactor) OnNewSegment(seg *index.LogSegment) error {
 	dc := c.getOrInitDC(seg)
-	dc.incoming <- *seg
-	return nil
+	if dc == nil {
+		panic("OnNewSegment called after Shutdown")
+	}
+	// Try to send without blocking. If channel is full, log a warning but don't block commits.
+	// The channel buffer is large (divisor^3 for level 0), so this should rarely fail.
+	select {
+	case dc.incoming <- *seg:
+		return nil
+	default:
+		// Channel is full - this shouldn't happen with large buffers, but if it does,
+		// log a warning and return an error so the caller knows compaction is backlogged.
+		// Commits should not block waiting for compaction.
+		return fmt.Errorf("compaction channel full for path %q - compaction is backlogged", seg.RelPath)
+	}
 }
 
 func (c *Compactor) getOrInitDC(seg *index.LogSegment) *DirCompactor {
@@ -106,6 +128,10 @@ func (c *Compactor) getOrInitDC(seg *index.LogSegment) *DirCompactor {
 	defer c.dcMu.Unlock()
 	dc := c.dcMap[seg.RelPath]
 	if dc == nil {
+		// Check if we're shutting down (dcMap is nil after Shutdown)
+		if c.dcMap == nil {
+			return nil
+		}
 		dir := paths.PathToFilesystem(c.Config.Root, seg.RelPath)
 		dc = NewDirCompactor(&c.Config, 0, dir, seg.RelPath, c.env)
 		c.dcMap[seg.RelPath] = dc
@@ -119,4 +145,26 @@ func (c *Compactor) GetDirCompactor(virtualPath string) *DirCompactor {
 	c.dcMu.Lock()
 	defer c.dcMu.Unlock()
 	return c.dcMap[virtualPath]
+}
+
+// Shutdown gracefully shuts down all compaction goroutines by closing their incoming channels
+// and signalling done channels, then waits for acknowledgment that all goroutines have exited.
+// This should be called before test teardown or process exit to prevent goroutine leaks.
+func (c *Compactor) Shutdown() {
+	c.dcMu.Lock()
+	defer c.dcMu.Unlock()
+	for _, dc := range c.dcMap {
+		close(dc.incoming)
+		// Signal shutdown to stop recovery (done channel is closed once, safe to check)
+		select {
+		case <-dc.done:
+			// Already closed
+		default:
+			close(dc.done)
+		}
+		// Wait for acknowledgment that the goroutine has exited
+		<-dc.doneAck
+	}
+	// Clear the map so Shutdown can be called multiple times safely
+	c.dcMap = map[string]*DirCompactor{}
 }

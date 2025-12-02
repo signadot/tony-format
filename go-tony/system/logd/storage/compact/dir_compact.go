@@ -1,10 +1,12 @@
 package compact
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/signadot/tony-format/go-tony"
@@ -13,6 +15,8 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/paths"
 )
+
+var errRecoveryCancelled = errors.New("recovery cancelled: shutdown requested")
 
 type DirCompactor struct {
 	// global config
@@ -37,7 +41,8 @@ type DirCompactor struct {
 	incoming chan index.LogSegment
 
 	// lifecycle management
-	done chan struct{}
+	done    chan struct{}
+	doneAck chan struct{}
 }
 
 func newDirCompactor(cfg *Config, lvl int, dir, vp string, env *storageEnv) *DirCompactor {
@@ -53,6 +58,7 @@ func newDirCompactor(cfg *Config, lvl int, dir, vp string, env *storageEnv) *Dir
 		Ref:         ir.Null(),
 		Start:       ir.Null(),
 		done:        make(chan struct{}),
+		doneAck:     make(chan struct{}),
 	}
 	return dc
 }
@@ -64,8 +70,15 @@ func NewDirCompactor(cfg *Config, lvl int, dir, vp string, env *storageEnv) *Dir
 }
 
 func (dc *DirCompactor) run(env *storageEnv) error {
+	defer close(dc.doneAck)
 	if err := dc.recover(nil, env); err != nil {
-		return err // Initial recovery failed (e.g., shutdown)
+		// If recovery was cancelled due to shutdown, that's expected - return gracefully
+		if errors.Is(err, errRecoveryCancelled) {
+			return nil
+		}
+		// Recovery failure means files are missing that logd should have created.
+		// This is a bug - panic so the test fails immediately.
+		panic(fmt.Sprintf("compaction recovery failed - files missing that logd should have created: path=%q error=%v", dc.VirtualPath, err))
 	}
 	for {
 		var seg *index.LogSegment
@@ -79,8 +92,15 @@ func (dc *DirCompactor) run(env *storageEnv) error {
 			return nil
 		}
 		if err := dc.processSegment(seg, env); err != nil {
-			if err := dc.recover(err, env); err != nil {
-				return err // Recovery failed (e.g., shutdown)
+			recoverErr := dc.recover(err, env)
+			if recoverErr != nil {
+				// If recovery was cancelled due to shutdown, that's expected - return gracefully
+				if recoverErr.Error() == "recovery cancelled: shutdown requested" {
+					return nil
+				}
+				// Recovery failure means files are missing that logd should have created.
+				// This is a bug - panic so the test fails immediately.
+				panic(fmt.Sprintf("compaction recovery failed - files missing that logd should have created: path=%q original_error=%v recovery_error=%v", dc.VirtualPath, err, recoverErr))
 			}
 		}
 	}
@@ -95,12 +115,36 @@ func (dc *DirCompactor) processSegment(seg *index.LogSegment, env *storageEnv) e
 			return nil
 		}
 	}
+	// Debug: log what we're trying to read
+	formatted := paths.FormatLogSegment(seg, dc.Level, false)
+	_, expectedName := filepath.Split(formatted)
+	if expectedName == "" {
+		expectedName = formatted
+	}
+	expectedPath := filepath.Join(dc.Dir, expectedName)
+
 	df, err := dc.readSegment(seg, dc.Level)
 	if err != nil {
-		// If file doesn't exist, skip this segment (it may have been removed or never created)
+		// Compaction should process exactly the files that readState() found.
+		// If a file doesn't exist, that's a bug - logd should have created it.
+		// The only "unexpected" errors are filesystem-level issues (permissions, disk full, etc.)
+		// not missing files that logd should have created.
 		if os.IsNotExist(err) {
-			dc.Config.Log.Debug("skipping segment with missing file", "segment", seg, "error", err)
-			return nil
+			// List directory to see what files actually exist
+			dirEnts, listErr := os.ReadDir(dc.Dir)
+			actualFiles := []string{}
+			if listErr == nil {
+				for _, de := range dirEnts {
+					if !de.IsDir() && (strings.HasSuffix(de.Name(), ".diff") || strings.HasSuffix(de.Name(), ".pending")) {
+						actualFiles = append(actualFiles, de.Name())
+					}
+				}
+			}
+			return fmt.Errorf("segment file does not exist (logd should have created this): segment=%v dc.Level=%d expectedPath=%q expectedName=%q actualFiles=%v error=%w", seg, dc.Level, expectedPath, expectedName, actualFiles, err)
+		}
+		// Filesystem errors (permissions, disk full, etc.) are unexpected but not logd bugs
+		if strings.Contains(err.Error(), "invalid argument") {
+			return fmt.Errorf("filesystem error reading segment: %w", err)
 		}
 		return err
 	}
@@ -134,7 +178,8 @@ func (dc *DirCompactor) rotateCompactionWindow(env *storageEnv, diff *ir.Node, n
 	} else {
 		dc.Next.incoming <- *dc.CurSegment
 	}
-	dc.CurSegment = &index.LogSegment{RelPath: dc.VirtualPath}
+	// Reset CurSegment to nil so it gets properly initialized from the next segment
+	dc.CurSegment = nil
 	dc.Start = newState
 	return nil
 }
@@ -149,6 +194,13 @@ func (dc *DirCompactor) recover(e error, env *storageEnv) error {
 	backoff := time.Second
 	maxBackoff := 5 * time.Minute
 	for {
+		// Check if shutdown was requested before starting recovery
+		select {
+		case <-dc.done:
+			return errRecoveryCancelled
+		default:
+		}
+
 		// Reset state
 		dc.Inputs = 0
 		dc.CurSegment = nil
@@ -158,6 +210,12 @@ func (dc *DirCompactor) recover(e error, env *storageEnv) error {
 		// Read state from disk
 		inputSegs, err := dc.readState(env)
 		if err != nil {
+			// Check for shutdown before retrying
+			select {
+			case <-dc.done:
+				return errRecoveryCancelled
+			default:
+			}
 			dc.Config.Log.Warn("error reading state in recover: trying again", "error", err, "backoff", backoff)
 			if err := dc.waitForRetry(backoff); err != nil {
 				return err // Shutdown requested
@@ -166,28 +224,32 @@ func (dc *DirCompactor) recover(e error, env *storageEnv) error {
 			continue
 		}
 
+		// Check for shutdown before processing segments
+		select {
+		case <-dc.done:
+			return errRecoveryCancelled
+		default:
+		}
+
 		// Process segments recovered from disk
+		// readState() should have verified these files exist, so any missing file is a bug
 		for i := range inputSegs {
+			// Check for shutdown before each segment
+			select {
+			case <-dc.done:
+				return errRecoveryCancelled
+			default:
+			}
 			if err := dc.processSegment(&inputSegs[i], env); err != nil {
-				// If the file doesn't exist, skip this segment (it may have been removed or never created)
-				if os.IsNotExist(err) {
-					dc.Config.Log.Debug("skipping segment with missing file in recovery", "segment", inputSegs[i], "error", err)
-					continue
-				}
-				dc.Config.Log.Warn("error processing segments in recover: trying again", "error", err, "backoff", backoff)
-				if err := dc.waitForRetry(backoff); err != nil {
-					return err // Shutdown requested
-				}
-				backoff = min(backoff*2, maxBackoff)
-				goto retry
+				// Compaction should process exactly the files readState() found.
+				// If a file is missing, that's a bug in logd's file creation/commit.
+				// Don't retry - fail immediately so the bug is visible.
+				return fmt.Errorf("recovery failed: file that logd should have created is missing: %w", err)
 			}
 		}
 
 		// Recovery successful
 		return nil
-
-	retry:
-		// Continue loop to retry
 	}
 }
 
@@ -200,7 +262,7 @@ func (dc *DirCompactor) waitForRetry(delay time.Duration) error {
 	case <-timer.C:
 		return nil // Retry now
 	case <-dc.done:
-		return fmt.Errorf("recovery cancelled: shutdown requested")
+		return errRecoveryCancelled
 	}
 }
 
@@ -211,6 +273,10 @@ func (dc *DirCompactor) addSegment(seg *index.LogSegment) bool {
 			StartTx:     seg.StartTx,
 			RelPath:     dc.VirtualPath,
 		}
+	} else if dc.CurSegment.StartCommit == 0 {
+		// CurSegment was reset but not properly initialized - fix it
+		dc.CurSegment.StartCommit = seg.StartCommit
+		dc.CurSegment.StartTx = seg.StartTx
 	}
 	dc.CurSegment.EndCommit = seg.EndCommit
 	dc.CurSegment.EndTx = seg.EndTx
@@ -226,11 +292,13 @@ func (dc *DirCompactor) persistCurrent(env *storageEnv, diff *ir.Node) error {
 	}
 
 	// 2. Write pending
+	// Use txSeq for EndTx (the txSeq allocated for this compaction),
+	// not dc.CurSegment.EndTx (which is the EndTx from input segments)
 	seg := &index.LogSegment{
 		StartCommit: 0,
 		EndCommit:   0,
 		StartTx:     dc.CurSegment.StartTx,
-		EndTx:       dc.CurSegment.EndTx,
+		EndTx:       txSeq,
 		RelPath:     dc.VirtualPath,
 	}
 
@@ -247,9 +315,19 @@ func (dc *DirCompactor) persistCurrent(env *storageEnv, diff *ir.Node) error {
 		Inputs:  dc.Inputs,
 		Pending: true,
 	}
-	err = dfile.WriteDiffFile(filepath.Join(dc.Dir, filename), df)
+	writePath := filepath.Join(dc.Dir, filename)
+
+	// Hypothesis #2: Log filename being written for comparison with rename
+	dc.Config.Log.Debug("persistCurrent: writing pending file", "path", writePath, "seg", seg, "level", dc.Level+1)
+
+	err = dfile.WriteDiffFile(writePath, df)
 	if err != nil {
 		return err
+	}
+
+	// Verify file exists immediately after write (hypothesis #1: test teardown)
+	if _, statErr := os.Stat(writePath); statErr != nil {
+		return fmt.Errorf("file does not exist immediately after WriteDiffFile (possible test teardown?): wrote %q but stat failed: %w", writePath, statErr)
 	}
 
 	// 3. Commit
@@ -260,16 +338,83 @@ func (dc *DirCompactor) persistCurrent(env *storageEnv, diff *ir.Node) error {
 		return err
 	}
 
+	// Set StartCommit to the first commit in the compacted range
+	// CurSegment.StartCommit should never be 0 for a valid compaction window
+	// (it's initialized from the first input segment's StartCommit)
+	if dc.CurSegment.StartCommit == 0 {
+		// This shouldn't happen - CurSegment should be initialized from input segments
+		// Panic to catch the bug
+		panic(fmt.Sprintf("BUG: CurSegment.StartCommit == 0 when creating level %d compacted segment: CurSegment=%v commit=%d", dc.Level+1, dc.CurSegment, commit))
+	}
+
+	// Ensure the newly allocated commit is greater than CurSegment.EndCommit
+	// (the end of the range we've already compacted)
+	// This can happen if:
+	// 1. CurSegment was set from recovery (reading existing level 1 files)
+	// 2. But the commit sequence state is stale or reset
+	// 3. So we allocate a commit that's in the past
+	//
+	// If this happens, it means the commit sequence state doesn't match the files on disk.
+	// We should read the current sequence state and ensure it's at least CurSegment.EndCommit + 1.
+	if commit <= dc.CurSegment.EndCommit {
+		// Read the current sequence state to see what it actually is
+		currentState, readErr := env.seq.ReadStateLocked()
+		currentCommit := int64(0)
+		if readErr == nil {
+			currentCommit = currentState.Commit
+		}
+		panic(fmt.Sprintf("BUG: newly allocated commit %d is not greater than CurSegment.EndCommit %d (commit sequence out of sync?): CurSegment=%v currentSequenceState.Commit=%d (after allocation, should be %d)", commit, dc.CurSegment.EndCommit, dc.CurSegment, currentCommit, commit))
+	}
+
 	seg.StartCommit = dc.CurSegment.StartCommit
 	seg.EndCommit = commit
+	// A level 1+ file should cover a range: StartCommit < EndCommit
+	// This should now be guaranteed since commit > CurSegment.EndCommit >= CurSegment.StartCommit
+	if seg.StartCommit == seg.EndCommit && dc.Level+1 > 0 {
+		panic(fmt.Sprintf("BUG: invalid compacted segment: StartCommit == EndCommit == %d at level %d (should cover a range of commits): CurSegment=%v commit=%d", commit, dc.Level+1, dc.CurSegment, commit))
+	}
+
+	// Verify file still exists before rename (hypothesis #1: test teardown)
+	if _, statErr := os.Stat(writePath); statErr != nil {
+		return fmt.Errorf("file disappeared between WriteDiffFile and CommitPending (possible test teardown?): %q stat failed: %w", writePath, statErr)
+	}
+
+	// Hypothesis #2: Log what CommitPending will try to rename
+	// Build the expected old filename to compare with what was written
+	oldFormatted := paths.FormatLogSegment(seg.AsPending(), dc.Level+1, true)
+	_, expectedOldName := filepath.Split(oldFormatted)
+	if expectedOldName == "" {
+		expectedOldName = oldFormatted
+	}
+	expectedOldPath := filepath.Join(dc.Dir, expectedOldName)
+	dc.Config.Log.Debug("persistCurrent: about to rename", "wrote", writePath, "will rename", expectedOldPath, "seg", seg, "commit", commit)
+
+	if writePath != expectedOldPath {
+		return fmt.Errorf("filename mismatch: wrote %q but CommitPending will look for %q (hypothesis #2)", writePath, expectedOldPath)
+	}
 
 	if err := dfile.CommitPending(dc.Dir, seg, dc.Level+1, commit); err != nil {
 		return err
 	}
 
-	// 4. Index
+	// Verify the .diff file exists after rename (ensures file was actually created)
+	newFormatted := paths.FormatLogSegment(seg, dc.Level+1, false)
+	_, newName := filepath.Split(newFormatted)
+	if newName == "" {
+		newName = newFormatted
+	}
+	newPath := filepath.Join(dc.Dir, newName)
+	if _, statErr := os.Stat(newPath); statErr != nil {
+		return fmt.Errorf("compacted file does not exist after CommitPending (logd should have created this): %q stat failed: %w", newPath, statErr)
+	}
+
+	// 4. Index - file must exist on disk before adding to index
 	env.idxL.Lock()
 	defer env.idxL.Unlock()
+	// Double-check file still exists before adding to index (defensive check)
+	if _, statErr := os.Stat(newPath); statErr != nil {
+		return fmt.Errorf("compacted file disappeared between verification and index add (logd should have created this): %q stat failed: %w", newPath, statErr)
+	}
 	env.idx.Add(seg)
 
 	// 5. Remove old input segment files if configured to do so
@@ -359,6 +504,7 @@ func (dc *DirCompactor) readSegment(seg *index.LogSegment, lvl int) (*dfile.Diff
 }
 
 func bufferSize(divisor, level int) int {
+	div := min(divisor, 16)
 	const N = 3
 	if level >= N {
 		return 1
@@ -366,7 +512,7 @@ func bufferSize(divisor, level int) int {
 	// pow(divisor, N - level)
 	size := 1
 	for i := 0; i < N-level; i++ {
-		size *= divisor
+		size *= div
 	}
 	return size
 }

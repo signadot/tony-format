@@ -91,15 +91,23 @@ func (s *Storage) writeDiffLocked(virtualPath string, commitCount, txSeq int64, 
 
 // ReadDiff reads a diff file from disk.
 // For pending files, commitCount is ignored (can be 0).
+// ReadDiff reads a diff file. It acquires its own lock.
 func (s *Storage) ReadDiff(virtualPath string, commitCount, txSeq int64, pending bool) (*dfile.DiffFile, error) {
 	s.indexMu.RLock()
 	defer s.indexMu.RUnlock()
+	return s.readDiffLocked(virtualPath, commitCount, txSeq, pending)
+}
 
+// readDiffLocked reads a diff file. Caller must hold indexMu (read or write lock).
+func (s *Storage) readDiffLocked(virtualPath string, commitCount, txSeq int64, pending bool) (*dfile.DiffFile, error) {
 	fsPath := s.FS.PathToFilesystem(virtualPath)
 
 	// Format filename using FS
 	seg := index.PointLogSegment(commitCount, txSeq, "")
 	filename := paths.FormatLogSegment(seg, 0, pending)
 	filePath := filepath.Join(fsPath, filename)
+	
+	// Read the file - if it doesn't exist, return error immediately
+	// The file should exist because commit() renames it before adding to index
 	return dfile.ReadDiffFile(filePath)
 }
