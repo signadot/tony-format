@@ -106,14 +106,16 @@ func TestConcurrentAddAndLookupRangeWithPath(t *testing.T) {
 			for i := 0; i < 50; i++ {
 				segments := idx.LookupRange(testPath, nil, nil)
 				// Verify segments are valid (no nil pointers, valid commit numbers)
+				// With new semantics: StartCommit = LastCommit, EndCommit = Commit
+				// StartCommit can be 0 for first commit, and StartCommit != EndCommit for patches
 				for j := range segments {
 					seg := &segments[j]
-					if seg.StartCommit <= 0 {
+					if seg.StartCommit < 0 {
 						readErrors[id] = &testError{msg: "invalid StartCommit"}
 						return
 					}
-					if seg.StartCommit != seg.EndCommit {
-						readErrors[id] = &testError{msg: "point segment should have StartCommit == EndCommit"}
+					if seg.EndCommit <= seg.StartCommit {
+						readErrors[id] = &testError{msg: "EndCommit must be > StartCommit"}
 						return
 					}
 				}
@@ -145,14 +147,15 @@ func TestConcurrentAddAndLookupRangeWithPath(t *testing.T) {
 	}
 
 	// Verify all expected commits are present
+	// With new semantics, check EndCommit (the commit where patch is applied)
 	seenCommits := make(map[int64]bool)
 	for _, seg := range finalSegments {
-		if seenCommits[seg.StartCommit] {
-			t.Errorf("duplicate commit %d in results", seg.StartCommit)
+		if seenCommits[seg.EndCommit] {
+			t.Errorf("duplicate commit %d in results", seg.EndCommit)
 		}
-		seenCommits[seg.StartCommit] = true
-		if !writeResults[seg.StartCommit] {
-			t.Errorf("commit %d in results but not in writeResults", seg.StartCommit)
+		seenCommits[seg.EndCommit] = true
+		if !writeResults[seg.EndCommit] {
+			t.Errorf("commit %d in results but not in writeResults", seg.EndCommit)
 		}
 	}
 

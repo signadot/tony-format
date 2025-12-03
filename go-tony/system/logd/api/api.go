@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
 )
@@ -12,10 +13,8 @@ import (
 //
 //tony:schemagen=body
 type Body struct {
-	Path  string              `tony:"field=path"`
-	Match *ir.Node            `tony:"field=match"`
-	Patch *ir.Node            `tony:"field=patch"`
-	Meta  map[string]*ir.Node `tony:"field=meta"`
+	Path string   `tony:"field=path"`
+	Data *ir.Node `tony:"field=data"`
 }
 
 //tony:schemagen=encoding-options
@@ -39,18 +38,19 @@ type Match struct {
 //tony:schemagen=patch-meta
 type PatchMeta struct {
 	EncodingOptions
-	Tx          *string `tony:"field=tx"`
-	MaxDuration string  `tony:"field=maxDuration"`
+	Tx          *string  `tony:"field=tx"`
+	MaxDuration Duration `tony:"field=maxDuration"`
 
 	// output fields
-	Seq  *int64 `tony:"field=seq"`
-	When string `tony:"field=when"`
+	Seq  *int64     `tony:"field=seq"`
+	When *time.Time `tony:"field=when"`
 }
 
 //tony:schemagen=patch
 type Patch struct {
-	Meta PatchMeta `tony:"field=meta"`
-	Body Body      `tony:"field=body"`
+	Meta  PatchMeta `tony:"field=meta"`
+	Match *Body     `tony:"field=match"`
+	Patch Body      `tony:"field=patch"`
 }
 
 //tony:schemagen=watch-meta
@@ -80,4 +80,20 @@ func ParseRequestBody(r *http.Request) (*Body, error) {
 	}
 
 	return reqBody, nil
+}
+
+type Duration time.Duration
+
+func (dur Duration) MarshalText() ([]byte, error) {
+	ds := time.Duration(dur).String()
+	return []byte(ds), nil
+}
+
+func (dur *Duration) UnmarshalText(d []byte) error {
+	p, err := time.ParseDuration(string(d))
+	if err != nil {
+		return err
+	}
+	*dur = Duration(p)
+	return nil
 }

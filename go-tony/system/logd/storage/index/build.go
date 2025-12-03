@@ -1,37 +1,42 @@
 package index
 
 import (
-	"io/fs"
-	"path/filepath"
+	"fmt"
+	"io"
+
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
 )
 
-// Build reconstructs the index from the filesystem rooted at root.
-// extract is a closure that takes a filesystem path and returns a LogSegment if the file represents one.
-// If extract returns nil, the file is ignored.
-func Build(root string, extract func(path string) (*LogSegment, error)) (*Index, error) {
-	idx := NewIndex("")
-
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-
-		seg, err := extract(path)
-		if err != nil {
-			return err
-		}
-		if seg != nil {
-			idx.Add(seg)
-		}
-		return nil
-	})
-
+func Build(idx *Index, dlog *dlog.DLog, fromCommit int64) error {
+	iter, err := dlog.Iterator()
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("failed to create iterator: %w", err)
 	}
 
-	return idx, nil
+	for {
+		entry, logFile, pos, err := iter.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return fmt.Errorf("failed to read entry: %w", err)
+		}
+
+		if entry.Commit <= fromCommit {
+			continue
+		}
+
+		txSeq := int64(0)
+		if entry.TxSource != nil {
+			txSeq = entry.TxSource.TxID
+		}
+
+		if entry.Patch != nil {
+			if err := IndexPatch(idx, entry, string(logFile), pos, txSeq, entry.Patch); err != nil {
+				return fmt.Errorf("failed to index entry at commit %d: %w", entry.Commit, err)
+			}
+		}
+	}
+
+	return nil
 }

@@ -332,8 +332,8 @@ func goStructToSchemaNode(typ reflect.Type, structMap map[string]*StructInfo, cu
 		if structInfo, ok := structMap[lookupName]; ok && hasSchemaGen(structInfo) {
 			return createSchemaRefNode(structInfo.StructSchema.SchemaName), nil
 		}
-		// Debug: if lookupName is set but not found, it means the struct isn't in the map
-		// This can happen if the struct doesn't have a schemagen= tag or isn't being processed
+		// If lookupName is set but not found, it means the struct isn't in the map.
+		// This can happen if the struct doesn't have a schemagen= tag or isn't being processed.
 	}
 
 	// Fallback: try to look up by type name and package path (for non-placeholder structs)

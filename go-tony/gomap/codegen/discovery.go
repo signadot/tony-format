@@ -46,7 +46,6 @@ func DiscoverPackages(dir string, recursive bool) ([]*PackageInfo, error) {
 			// Not a valid Go package, skip
 			return nil
 		}
-		fmt.Printf("DEBUG: Discovered package in %s: Name=%s, ImportPath=%s\n", path, pkg.Name, pkg.ImportPath)
 
 		// Skip if no Go files
 		if len(pkg.GoFiles) == 0 {

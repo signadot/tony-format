@@ -97,9 +97,8 @@ func nextMString(d []byte, desOff, start int, posDoc *PosDoc) (int, []Token) {
 	for i, c := range d {
 		switch c {
 		case '\n':
-			if len(posDoc.d) > 0 && start+i < len(posDoc.d) {
-				posDoc.nl(start + i)
-			}
+			// nl() now handles bounds checking internally, safe to call in both contexts
+			posDoc.nl(start + i)
 			indents = 0
 			inComment = false
 		case '#':
@@ -171,6 +170,7 @@ func mStringOne(d []byte, start, indent int, posDoc *PosDoc) ([]Token, int, erro
 	}
 	off, err := bsEscQuoted(d)
 	if err != nil {
+		// Return error as-is - let caller handle streaming mode conversion
 		return nil, 0, err
 	}
 	toks := []Token{

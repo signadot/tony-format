@@ -16,6 +16,11 @@ func (s *LogSegment) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if s == nil {
 		return ir.Null(), nil
 	}
+	var node *ir.Node
+	var err error
+	_ = node // suppress unused variable error
+	_ = err  // suppress unused variable error
+
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
@@ -31,8 +36,22 @@ func (s *LogSegment) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Field: EndTx
 	irMap["EndTx"] = ir.FromInt(int64(s.EndTx))
 
-	// Field: RelPath
-	irMap["RelPath"] = ir.FromString(s.RelPath)
+	// Field: KindedPath
+	irMap["KindedPath"] = ir.FromString(s.KindedPath)
+
+	// Field: ArrayKey (optional)
+	if s.ArrayKey != nil {
+		irMap["ArrayKey"] = s.ArrayKey
+	}
+
+	// Field: ArrayKeyField
+	irMap["ArrayKeyField"] = ir.FromString(s.ArrayKeyField)
+
+	// Field: LogFile
+	irMap["LogFile"] = ir.FromString(s.LogFile)
+
+	// Field: LogPosition
+	irMap["LogPosition"] = ir.FromInt(int64(s.LogPosition))
 
 	// Create IR node with schema tag
 	return ir.FromMap(irMap).WithTag("!log-segment"), nil
@@ -87,12 +106,32 @@ func (s *LogSegment) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 				return fmt.Errorf("field %q: expected number, got %v", "EndTx", fieldNode.Type)
 			}
 			s.EndTx = int64(*fieldNode.Int64)
-		case "RelPath":
-			// Field: RelPath
+		case "KindedPath":
+			// Field: KindedPath
 			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "RelPath", fieldNode.Type)
+				return fmt.Errorf("field %q: expected string, got %v", "KindedPath", fieldNode.Type)
 			}
-			s.RelPath = fieldNode.String
+			s.KindedPath = fieldNode.String
+		case "ArrayKey":
+			s.ArrayKey = fieldNode
+		case "ArrayKeyField":
+			// Field: ArrayKeyField
+			if fieldNode.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "ArrayKeyField", fieldNode.Type)
+			}
+			s.ArrayKeyField = fieldNode.String
+		case "LogFile":
+			// Field: LogFile
+			if fieldNode.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "LogFile", fieldNode.Type)
+			}
+			s.LogFile = fieldNode.String
+		case "LogPosition":
+			// Field: LogPosition
+			if fieldNode.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "LogPosition", fieldNode.Type)
+			}
+			s.LogPosition = int64(*fieldNode.Int64)
 		}
 	}
 
