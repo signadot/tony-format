@@ -10,6 +10,14 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 )
 
+func ToString[T any](v *T, opts ...MapOption) (string, error) {
+	d, err := ToTony(v, opts...)
+	if err != nil {
+		return "", err
+	}
+	return string(d), nil
+}
+
 // ToTony converts a Go value to Tony-formatted bytes.
 // It first converts the value to an IR node (using ToTonyIR with mapOpts),
 // then marshals the IR to bytes (using encOpts from mapOpts).

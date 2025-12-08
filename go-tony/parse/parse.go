@@ -187,6 +187,7 @@ func noComments(toks []token.Token, p *ir.Node, tag string, pi *int, opts *parse
 		sy := ir.FromString(t.String())
 		sy.Parent = p
 		sy.Tag = tag
+		trackPos(sy, t.Pos, opts)
 		if t.Type == token.TMString {
 			parts := bytes.Split(t.Bytes, []byte{'\n'})
 			for _, part := range parts {

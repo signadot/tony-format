@@ -10,6 +10,15 @@ import (
 	"github.com/signadot/tony-format/go-tony/parse"
 )
 
+func FromString[T any](s string, v *T, opts ...UnmapOption) (*T, error) {
+	d := []byte(s)
+	var toUnmap T
+	if err := FromTony(d, &toUnmap, opts...); err != nil {
+		return nil, err
+	}
+	return &toUnmap, nil
+}
+
 // FromTony unmarshals Tony-formatted bytes to a Go value.
 // It first unmarshals the bytes to an IR node (using parseOpts from opts),
 // then converts the IR node to the value (using FromTonyIR with opts).

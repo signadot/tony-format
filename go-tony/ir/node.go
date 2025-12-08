@@ -371,3 +371,91 @@ func (node *Node) FromTonyIR(o *Node) error {
 func (node *Node) ToTonyIR() (*Node, error) {
 	return node.Clone(), nil
 }
+
+// DeepEqual reports whether two nodes are deeply equal.
+// It compares all data fields recursively, but does not compare
+// Parent, ParentIndex, or ParentField as these are structural metadata.
+func (y *Node) DeepEqual(other *Node) bool {
+	if y == other {
+		return true
+	}
+	if y == nil || other == nil {
+		return false
+	}
+
+	// Compare basic fields
+	if y.Type != other.Type {
+		return false
+	}
+	if y.Tag != other.Tag {
+		return false
+	}
+	if y.String != other.String {
+		return false
+	}
+	if y.Bool != other.Bool {
+		return false
+	}
+	if y.Number != other.Number {
+		return false
+	}
+
+	// Compare Float64 pointer
+	if y.Float64 == nil && other.Float64 != nil {
+		return false
+	}
+	if y.Float64 != nil && other.Float64 == nil {
+		return false
+	}
+	if y.Float64 != nil && other.Float64 != nil && *y.Float64 != *other.Float64 {
+		return false
+	}
+
+	// Compare Int64 pointer
+	if y.Int64 == nil && other.Int64 != nil {
+		return false
+	}
+	if y.Int64 != nil && other.Int64 == nil {
+		return false
+	}
+	if y.Int64 != nil && other.Int64 != nil && *y.Int64 != *other.Int64 {
+		return false
+	}
+
+	// Compare Lines slice
+	if len(y.Lines) != len(other.Lines) {
+		return false
+	}
+	for i := range y.Lines {
+		if y.Lines[i] != other.Lines[i] {
+			return false
+		}
+	}
+
+	// Compare Fields slice
+	if len(y.Fields) != len(other.Fields) {
+		return false
+	}
+	for i := range y.Fields {
+		if !y.Fields[i].DeepEqual(other.Fields[i]) {
+			return false
+		}
+	}
+
+	// Compare Values slice
+	if len(y.Values) != len(other.Values) {
+		return false
+	}
+	for i := range y.Values {
+		if !y.Values[i].DeepEqual(other.Values[i]) {
+			return false
+		}
+	}
+
+	// Compare Comment
+	if !y.Comment.DeepEqual(other.Comment) {
+		return false
+	}
+
+	return true
+}

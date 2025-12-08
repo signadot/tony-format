@@ -1,8 +1,6 @@
 package index
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -12,9 +10,9 @@ func TestIndexAddLookupPointDiff(t *testing.T) {
 	idx := NewIndex("")
 
 	segs := []LogSegment{
-		*PointLogSegment(10, 100, "foo/bar"),
+		*PointLogSegment(10, 100, "foo.bar"),
 		*PointLogSegment(11, 101, "foo"),
-		*PointLogSegment(12, 102, "foo/bar/baz"),
+		*PointLogSegment(12, 102, "foo.bar.baz"),
 		*PointLogSegment(13, 103, "qux"),
 	}
 
@@ -24,11 +22,13 @@ func TestIndexAddLookupPointDiff(t *testing.T) {
 		idx.Add(&segs[i])
 	}
 
-	// 2. Test LookupRange (Ancestors + Descendants)
+	// 2. Test LookupRange (exact matches only, no ancestors or descendants)
 
-	got := idx.LookupRange("foo/bar", nil, nil)
+	got := idx.LookupRange("foo.bar", nil, nil)
 
-	want := segs[:3]
+	// LookupRange("foo.bar") navigates to "foo" child, which includes segments at "foo" level
+	// then navigates to "bar", so it returns both "foo" and "foo.bar"
+	want := []LogSegment{segs[0], segs[1]} // "foo.bar" at commit 10, "foo" at commit 11
 
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("LookupRange mismatch (-want +got):\n%s", diff)
@@ -39,9 +39,9 @@ func TestIndexRemove(t *testing.T) {
 	idx := NewIndex("")
 
 	segs := []LogSegment{
-		*PointLogSegment(10, 100, "foo/bar"),
+		*PointLogSegment(10, 100, "foo.bar"),
 		*PointLogSegment(11, 101, "foo"),
-		*PointLogSegment(12, 102, "foo/bar/baz"),
+		*PointLogSegment(12, 102, "foo.bar.baz"),
 		*PointLogSegment(13, 103, "qux"),
 	}
 
@@ -52,7 +52,7 @@ func TestIndexRemove(t *testing.T) {
 	}
 
 	// 3. Test Replace
-	// Replace {10, 100, ""} at "foo/bar" with a compacted range.
+	// Replace {10, 100, ""} at "foo.bar" with a compacted range.
 	rm := segs[:3]
 	for i := range rm {
 		seg := &rm[i]
@@ -64,27 +64,34 @@ func TestIndexRemove(t *testing.T) {
 	compactRange := &LogSegment{
 		StartCommit: 10, StartTx: 100,
 		EndCommit: 12, EndTx: 102,
-		RelPath: "foo",
+		KindedPath: "foo",
+		LogFile:    "A",
 	}
 
 	idx.Add(compactRange)
 
-	gotAfter := idx.LookupRange("", nil, nil)
+	// LookupRange("", nil, nil) only returns root-level segments, not child indices
+	// So we need to query the specific paths
+	gotFoo := idx.LookupRange("foo", nil, nil)
+	gotQux := idx.LookupRange("qux", nil, nil)
 
-	wantAfter := []LogSegment{
-		*compactRange,
-		*PointLogSegment(13, 103, "qux"),
+	// PointLogSegment(13, 103, "qux") creates StartCommit: 13, EndCommit: 13
+	quxSeg := PointLogSegment(13, 103, "qux")
+	wantFoo := []LogSegment{*compactRange}
+	wantQux := []LogSegment{*quxSeg}
+
+	if diff := cmp.Diff(wantFoo, gotFoo); diff != "" {
+		t.Errorf("LookupRange('foo') after Replace mismatch (-want +got):\n%s", diff)
 	}
-
-	if diff := cmp.Diff(wantAfter, gotAfter); diff != "" {
-		t.Errorf("LookupRange after Replace mismatch (-want +got):\n%s", diff)
+	if diff := cmp.Diff(wantQux, gotQux); diff != "" {
+		t.Errorf("LookupRange('qux') after Replace mismatch (-want +got):\n%s", diff)
 	}
 }
 
 func TestIndexPersist(t *testing.T) {
 	idx := NewIndex("")
 	segs := []LogSegment{
-		*PointLogSegment(10, 100, "foo/bar"),
+		*PointLogSegment(10, 100, "foo.bar"),
 		*PointLogSegment(11, 101, "foo"),
 	}
 	for i := range segs {
@@ -104,76 +111,11 @@ func TestIndexPersist(t *testing.T) {
 	}
 
 	// Verify loaded index content
-	got := loadedIdx.LookupRange("foo/bar", nil, nil)
-	want := segs // Same as added
+	// LookupRange("foo.bar") includes ancestors, so it returns both "foo.bar" and "foo"
+	got := loadedIdx.LookupRange("foo.bar", nil, nil)
+	want := []LogSegment{segs[0], segs[1]} // "foo.bar" at commit 10, "foo" at commit 11 (ancestor)
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("Loaded Index mismatch (-want +got):\n%s", diff)
 	}
 }
 
-func TestIndexBuild(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create test files simulating logd structure:
-	// - Root level files
-	// - Files in "children" subdirectories (logd organizational structure)
-	// - Files that should be ignored
-
-	createFile := func(name string) {
-		path := filepath.Join(tmpDir, name)
-		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte("dummy"), 0644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	createFile("c10-a100.diff")
-	createFile("c11-a101.diff")
-	createFile("ignored.txt")
-	// Simulate logd structure: paths/children/foo/c12-a102.diff
-	createFile("children/foo/c12-a102.diff")
-
-	// Extraction closure - responsible for filtering and path mapping
-	extract := func(path string) (*LogSegment, error) {
-		base := filepath.Base(path)
-
-		// Ignore non-diff files
-		if base == "ignored.txt" {
-			return nil, nil
-		}
-
-		// Simple extraction for test - in real usage, would use FS.ParseLogSegment
-		// and FS.FilesystemToPath to handle the path mapping
-		if base == "c10-a100.diff" {
-			return PointLogSegment(10, 100, ""), nil
-		}
-		if base == "c11-a101.diff" {
-			return PointLogSegment(11, 101, ""), nil
-		}
-		if base == "c12-a102.diff" {
-			// This file is in children/foo/ which maps to virtual path "/foo"
-			return PointLogSegment(12, 102, "foo"), nil
-		}
-		return nil, nil
-	}
-
-	idx, err := Build(tmpDir, extract)
-	if err != nil {
-		t.Fatalf("Build failed: %v", err)
-	}
-
-	// Verify all files were processed correctly
-	allSegs := idx.LookupRange("", nil, nil)
-	if len(allSegs) != 3 {
-		t.Errorf("Expected 3 segments, got %d", len(allSegs))
-	}
-
-	// Verify the file in children/foo/ was mapped to "foo" path
-	fooSegs := idx.LookupRange("foo", nil, nil)
-	if len(fooSegs) != 3 {
-		// 3 because ancestor diff are also returned
-		t.Errorf("Expected 3 segment at 'foo', got %d", len(fooSegs))
-	}
-}

@@ -9,6 +9,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
+	"time"
 )
 
 // ToTonyIR converts Body to a Tony IR node.
@@ -16,28 +17,20 @@ func (s *Body) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if s == nil {
 		return ir.Null(), nil
 	}
+	var node *ir.Node
+	var err error
+	_ = node // suppress unused variable error
+	_ = err  // suppress unused variable error
+
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Path
 	irMap["path"] = ir.FromString(s.Path)
 
-	// Field: Match (optional)
-	if s.Match != nil {
-		if s.Match == nil {
-			irMap["match"] = ir.Null()
-		} else {
-			irMap["match"] = s.Match
-		}
-	}
-
-	// Field: Patch (optional)
-	if s.Patch != nil {
-		if s.Patch == nil {
-			irMap["patch"] = ir.Null()
-		} else {
-			irMap["patch"] = s.Patch
-		}
+	// Field: Data (optional)
+	if s.Data != nil {
+		irMap["data"] = s.Data
 	}
 
 	// Create IR node with schema tag
@@ -75,10 +68,8 @@ func (s *Body) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				return fmt.Errorf("field %q: expected string, got %v", "path", fieldNode.Type)
 			}
 			s.Path = fieldNode.String
-		case "match":
-			s.Match = fieldNode
-		case "patch":
-			s.Patch = fieldNode
+		case "data":
+			s.Data = fieldNode
 		}
 	}
 
@@ -206,9 +197,7 @@ func (s *MatchMeta) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: SeqID (optional)
 	if s.SeqID != nil {
-		if s.SeqID != nil {
-			irMap["seq"] = ir.FromInt(int64(*s.SeqID))
-		}
+		irMap["seq"] = ir.FromInt(int64(*s.SeqID))
 	}
 
 	// Create IR node with schema tag
@@ -387,6 +376,11 @@ func (s *PatchMeta) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if s == nil {
 		return ir.Null(), nil
 	}
+	var node *ir.Node
+	var err error
+	_ = node // suppress unused variable error
+	_ = err  // suppress unused variable error
+
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
@@ -398,23 +392,29 @@ func (s *PatchMeta) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Tx (optional)
 	if s.Tx != nil {
-		if s.Tx != nil {
-			irMap["tx"] = ir.FromString(*s.Tx)
-		}
+		irMap["tx"] = ir.FromString(*s.Tx)
 	}
 
 	// Field: MaxDuration
-	irMap["maxDuration"] = ir.FromString(s.MaxDuration)
+	if txt, err := s.MaxDuration.MarshalText(); err != nil {
+		return nil, fmt.Errorf("failed to marshal field %q: %w", "MaxDuration", err)
+	} else {
+		irMap["maxDuration"] = ir.FromString(string(txt))
+	}
 
 	// Field: Seq (optional)
 	if s.Seq != nil {
-		if s.Seq != nil {
-			irMap["seq"] = ir.FromInt(int64(*s.Seq))
-		}
+		irMap["seq"] = ir.FromInt(int64(*s.Seq))
 	}
 
-	// Field: When
-	irMap["when"] = ir.FromString(s.When)
+	// Field: When (optional)
+	if s.When != nil {
+		if txt, err := s.When.MarshalText(); err != nil {
+			return nil, fmt.Errorf("failed to marshal field %q: %w", "When", err)
+		} else {
+			irMap["when"] = ir.FromString(string(txt))
+		}
+	}
 
 	// Create IR node with schema tag
 	return ir.FromMap(irMap).WithTag("!patch-meta"), nil
@@ -466,11 +466,12 @@ func (s *PatchMeta) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			*val = string(fieldNode.String)
 			s.Tx = val
 		case "maxDuration":
-			// Field: MaxDuration
 			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "maxDuration", fieldNode.Type)
+				return fmt.Errorf("field %q: expected string for TextUnmarshaler, got %v", "maxDuration", fieldNode.Type)
 			}
-			s.MaxDuration = fieldNode.String
+			if err := s.MaxDuration.UnmarshalText([]byte(fieldNode.String)); err != nil {
+				return fmt.Errorf("field %q: failed to unmarshal text: %w", "maxDuration", err)
+			}
 		case "seq":
 			// Field: Seq
 			val := new(int64)
@@ -480,11 +481,18 @@ func (s *PatchMeta) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			*val = int64(*fieldNode.Int64)
 			s.Seq = val
 		case "when":
-			// Field: When
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "when", fieldNode.Type)
+			if fieldNode.Type == ir.NullType {
+				s.When = nil
+			} else if fieldNode.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string for TextUnmarshaler, got %v", "when", fieldNode.Type)
+			} else {
+				if s.When == nil {
+					s.When = new(time.Time)
+				}
+				if err := s.When.UnmarshalText([]byte(fieldNode.String)); err != nil {
+					return fmt.Errorf("field %q: failed to unmarshal text: %w", "when", err)
+				}
 			}
-			s.When = fieldNode.String
 		}
 	}
 
@@ -533,12 +541,21 @@ func (s *Patch) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	}
 	irMap["meta"] = node
 
-	// Field: Body
-	node, err = s.Body.ToTonyIR(opts...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert field %q: %w", "Body", err)
+	// Field: Match (optional)
+	if s.Match != nil {
+		node, err = s.Match.ToTonyIR(opts...)
+		if err != nil {
+			return nil, err
+		}
+		irMap["match"] = node
 	}
-	irMap["body"] = node
+
+	// Field: Patch
+	node, err = s.Patch.ToTonyIR(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert field %q: %w", "Patch", err)
+	}
+	irMap["patch"] = node
 
 	// Create IR node with schema tag
 	return ir.FromMap(irMap).WithTag("!patch"), nil
@@ -574,10 +591,16 @@ func (s *Patch) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if err := s.Meta.FromTonyIR(fieldNode); err != nil {
 				return fmt.Errorf("field %q: %w", "meta", err)
 			}
-		case "body":
-			// Field: Body
-			if err := s.Body.FromTonyIR(fieldNode); err != nil {
-				return fmt.Errorf("field %q: %w", "body", err)
+		case "match":
+			// Field: Match
+			s.Match = &Body{}
+			if err := s.Match.FromTonyIR(fieldNode, opts...); err != nil {
+				return err
+			}
+		case "patch":
+			// Field: Patch
+			if err := s.Patch.FromTonyIR(fieldNode); err != nil {
+				return fmt.Errorf("field %q: %w", "patch", err)
 			}
 		}
 	}
@@ -623,16 +646,12 @@ func (s *WatchMeta) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: From (optional)
 	if s.From != nil {
-		if s.From != nil {
-			irMap["from"] = ir.FromInt(int64(*s.From))
-		}
+		irMap["from"] = ir.FromInt(int64(*s.From))
 	}
 
 	// Field: To (optional)
 	if s.To != nil {
-		if s.To != nil {
-			irMap["to"] = ir.FromInt(int64(*s.To))
-		}
+		irMap["to"] = ir.FromInt(int64(*s.To))
 	}
 
 	// Create IR node with schema tag

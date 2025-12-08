@@ -96,10 +96,6 @@ func GenerateSchema(allStructs []*StructInfo, targetStruct *StructInfo, loader *
 
 	contextNode := ir.FromSlice(contextItems)
 
-	// Debug: Print available structs
-	// for name := range structMap {
-	// 	fmt.Printf("DEBUG: Available struct in map: %s\n", name)
-	// }
 
 	// Create the schema IR node
 	schemaNode := ir.FromMap(map[string]*ir.Node{
@@ -138,14 +134,6 @@ func generateStructDefinition(structInfo *StructInfo, structMap map[string]*Stru
 		// Convert field type to schema node
 		var fieldTypeNode *ir.Node
 		var err error
-
-		if field.Name == "Format" {
-			fmt.Printf("DEBUG: Format field - Type=%v, ASTType=%v\n", field.Type, field.ASTType != nil)
-			if field.Type != nil {
-				fmt.Printf("DEBUG: Format field Type details - Kind=%v, PkgPath=%q, Name=%q\n",
-					field.Type.Kind(), field.Type.PkgPath(), field.Type.Name())
-			}
-		}
 
 		if field.Type != nil {
 			// Use reflection-based type if available

@@ -33,6 +33,14 @@ func NeedsQuote(v string) bool {
 	}
 }
 
+// KPathQuoteField returns true if a field name needs to be quoted in a kinded path.
+// A field needs quoting if:
+//   - It contains characters that require quoting according to NeedsQuote (spaces, special chars)
+//   - It contains any of the path syntax characters: ".", "[", "{"
+func KPathQuoteField(v string) bool {
+	return NeedsQuote(v) || strings.ContainsAny(v, ".[{")
+}
+
 func Quote(v string, autoSingle bool) string {
 	n := len(v)
 	ndq, nsq := 0, 0

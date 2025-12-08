@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"encoding"
 	"fmt"
 	"go/ast"
 	"go/types"
@@ -134,23 +135,106 @@ func ResolveFieldTypes(structs []*StructInfo, pkgDir string, pkgName string) err
 			}
 
 			// Check for TextMarshaler/TextUnmarshaler implementation
+			// First try using types.Type, then fall back to reflect.Type
 			if typesType != nil {
-				// Check value type
-				if types.Implements(typesType, textMarshalerInterface) {
-					field.ImplementsTextMarshaler = true
-				} else if types.Implements(types.NewPointer(typesType), textMarshalerInterface) {
-					// Check pointer receiver (if value type doesn't implement it)
-					// Note: If the field is already a pointer, typesType is a Pointer, so NewPointer makes it **T
-					// But standard library usually implements on *T.
-					// If field is T, we check *T.
-					// If field is *T, types.Implements(typesType) covers it.
-					field.ImplementsTextMarshaler = true
+				// Helper function to check if a type implements an interface or has a specific method
+				checkTextInterface := func(t types.Type, targetInterface *types.Interface, methodName string) bool {
+					if types.Implements(t, targetInterface) {
+						return true
+					}
+					// Also check by looking for the method directly
+					methodSet := types.NewMethodSet(t)
+					if methodSet.Len() > 0 {
+						for i := 0; i < methodSet.Len(); i++ {
+							sel := methodSet.At(i)
+							if sel.Obj().Name() == methodName {
+								return true
+							}
+						}
+					}
+					// Check pointer version
+					ptrType := types.NewPointer(t)
+					if types.Implements(ptrType, targetInterface) {
+						return true
+					}
+					ptrMethodSet := types.NewMethodSet(ptrType)
+					if ptrMethodSet.Len() > 0 {
+						for i := 0; i < ptrMethodSet.Len(); i++ {
+							sel := ptrMethodSet.At(i)
+							if sel.Obj().Name() == methodName {
+								return true
+							}
+						}
+					}
+					return false
 				}
 
-				if types.Implements(typesType, textUnmarshalerInterface) {
+				// Check TextMarshaler
+				if checkTextInterface(typesType, textMarshalerInterface, "MarshalText") {
+					field.ImplementsTextMarshaler = true
+				} else if ptr, ok := typesType.(*types.Pointer); ok {
+					// If field is a pointer type (e.g., *time.Time), check if element type implements TextMarshaler
+					if checkTextInterface(ptr.Elem(), textMarshalerInterface, "MarshalText") {
+						field.ImplementsTextMarshaler = true
+					}
+				}
+
+				// Check TextUnmarshaler
+				if checkTextInterface(typesType, textUnmarshalerInterface, "UnmarshalText") {
 					field.ImplementsTextUnmarshaler = true
-				} else if types.Implements(types.NewPointer(typesType), textUnmarshalerInterface) {
+				} else if ptr, ok := typesType.(*types.Pointer); ok {
+					// If field is a pointer type, check if element type implements TextUnmarshaler
+					if checkTextInterface(ptr.Elem(), textUnmarshalerInterface, "UnmarshalText") {
+						field.ImplementsTextUnmarshaler = true
+					}
+				}
+			}
+
+			// Fallback: check using reflect.Type (more reliable for standard library types)
+			if !field.ImplementsTextMarshaler && field.Type != nil {
+				textMarshalerReflectType := reflect.TypeOf((*encoding.TextMarshaler)(nil)).Elem()
+				// Special case for time.Time (common standard library type)
+				if field.TypePkgPath == "time" && (field.TypeName == "Time" || field.StructTypeName == "time.Time" || field.StructTypeName == "Time") {
+					field.ImplementsTextMarshaler = true
 					field.ImplementsTextUnmarshaler = true
+				} else {
+					// Check if the type implements encoding.TextMarshaler
+					if field.Type.Implements(textMarshalerReflectType) {
+						field.ImplementsTextMarshaler = true
+					} else if field.Type.Kind() == reflect.Ptr {
+						// For pointer types, check the element type
+						if field.Type.Elem().Implements(textMarshalerReflectType) {
+							field.ImplementsTextMarshaler = true
+						}
+					}
+				}
+			}
+
+			// Fallback: check using reflect.Type (more reliable for standard library types)
+			if !field.ImplementsTextUnmarshaler && field.Type != nil {
+				textUnmarshalerReflectType := reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
+				// Check if the type implements encoding.TextUnmarshaler
+				if field.Type.Implements(textUnmarshalerReflectType) {
+					field.ImplementsTextUnmarshaler = true
+				} else if field.Type.Kind() == reflect.Ptr {
+					// For pointer types, check the element type
+					if field.Type.Elem().Implements(textUnmarshalerReflectType) {
+						field.ImplementsTextUnmarshaler = true
+					}
+				}
+			}
+
+			// Fallback: check using reflect.Type (more reliable for standard library types)
+			if !field.ImplementsTextUnmarshaler && field.Type != nil {
+				textUnmarshalerReflectType := reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
+				// Check if the type implements encoding.TextUnmarshaler
+				if field.Type.Implements(textUnmarshalerReflectType) {
+					field.ImplementsTextUnmarshaler = true
+				} else if field.Type.Kind() == reflect.Ptr {
+					// For pointer types, check the element type
+					if field.Type.Elem().Implements(textUnmarshalerReflectType) {
+						field.ImplementsTextUnmarshaler = true
+					}
 				}
 			}
 		}

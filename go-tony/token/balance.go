@@ -3,7 +3,6 @@ package token
 import (
 	"errors"
 	"fmt"
-	"runtime/debug"
 
 	"github.com/signadot/tony-format/go-tony/format"
 )
@@ -252,7 +251,6 @@ func balanceArr(dst, toks []Token, d int, y *int, f format.Format) ([]Token, int
 		nxt := &toks[i+nxtNC]
 		if nxt.Type != TIndent {
 			// fmt.Printf("return balanceArr %v\n", err)
-			debug.PrintStack()
 			return nil, 0, fmt.Errorf("%w: unseparated array elements %s %q %s",
 				ErrDocBalance, nxt.Type, string(nxt.Bytes), nxt.Pos)
 		}

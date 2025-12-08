@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -280,6 +281,53 @@ func TestScalarWithMarshalText(t *testing.T) {
 	}
 	if !strings.Contains(fromCode, "s.UnmarshalText") {
 		t.Errorf("Expected s.UnmarshalText, got:\n%s", fromCode)
+	}
+}
+
+func TestTimeTimeField(t *testing.T) {
+	// Test that *time.Time fields are correctly detected as implementing TextMarshaler/TextUnmarshaler
+	structInfo := &StructInfo{
+		Name:    "TestStruct",
+		Package: "codegen",
+		Fields: []*FieldInfo{
+			{
+				Name:            "When",
+				SchemaFieldName: "when",
+				Type:            reflect.TypeOf((*time.Time)(nil)).Elem(),
+				TypePkgPath:     "time",
+				TypeName:        "Time",
+				StructTypeName:  "time.Time",
+				ImplementsTextMarshaler:   true,
+				ImplementsTextUnmarshaler: true,
+			},
+		},
+		StructSchema: &gomap.StructSchema{SchemaName: "test"},
+	}
+
+	s := &schema.Schema{Signature: &schema.Signature{Name: "test"}}
+
+	toCode, err := GenerateToTonyIRMethod(structInfo, s, "github.com/signadot/tony-format/go-tony/gomap/codegen")
+	if err != nil {
+		t.Fatalf("GenerateToTonyIRMethod failed: %v", err)
+	}
+	// Should use MarshalText, not ToTonyIR
+	if !strings.Contains(toCode, "s.When.MarshalText()") {
+		t.Errorf("Expected s.When.MarshalText(), got:\n%s", toCode)
+	}
+	if strings.Contains(toCode, "s.When.ToTonyIR") {
+		t.Errorf("Should not use ToTonyIR for time.Time, got:\n%s", toCode)
+	}
+
+	fromCode, err := GenerateFromTonyIRMethod(structInfo, s, "github.com/signadot/tony-format/go-tony/gomap/codegen")
+	if err != nil {
+		t.Fatalf("GenerateFromTonyIRMethod failed: %v", err)
+	}
+	// Should use UnmarshalText, not FromTonyIR
+	if !strings.Contains(fromCode, "s.When.UnmarshalText") {
+		t.Errorf("Expected s.When.UnmarshalText, got:\n%s", fromCode)
+	}
+	if strings.Contains(fromCode, "s.When.FromTonyIR") {
+		t.Errorf("Should not use FromTonyIR for time.Time, got:\n%s", fromCode)
 	}
 }
 

@@ -39,11 +39,6 @@ func getIRNodeDepth(t reflect.Type) int {
 	return 0
 }
 
-// isIRNodePtr checks if the type is *ir.Node
-// Deprecated: Use getIRNodeDepth instead
-func isIRNodePtr(t reflect.Type) bool {
-	return getIRNodeDepth(t) == 1
-}
 
 // GenerateCode generates Go code for ToTony() and FromTony() methods for all structs.
 // Returns formatted Go source code.
@@ -108,6 +103,11 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 
 		// Check all fields for external types
 		for _, field := range structInfo.Fields {
+			// Skip adding imports for types handled via TextMarshaler/TextUnmarshaler
+			// since they don't appear directly in the generated code
+			if field.ImplementsTextMarshaler || field.ImplementsTextUnmarshaler {
+				continue
+			}
 			if field.Type != nil {
 				collectImports(field.Type)
 			}
@@ -311,7 +311,7 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 			// but we need to adapt it because generateFieldToIR assumes it's accessing a field of a struct (s.Field).
 			// Here we are accessing *s directly.
 
-			// Let's implement it directly here to avoid hacky adaptations.
+			// Implement slice handling directly here for better control over the generated code.
 			elemType := s.Type.Elem()
 			buf.WriteString("	if len(*s) > 0 {\n")
 			buf.WriteString(fmt.Sprintf("		slice := make([]*ir.Node, len(*s))\n"))
@@ -463,7 +463,9 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 		}
 		// Complex fields might need error handling or temporary variables
 		if field.Type.Kind() == reflect.Struct ||
+			(field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct) ||
 			(field.Type.Kind() == reflect.Slice && field.Type.Elem().Kind() == reflect.Struct) ||
+			(field.Type.Kind() == reflect.Slice && field.Type.Elem().Kind() == reflect.Ptr && field.Type.Elem().Elem().Kind() == reflect.Struct) ||
 			(field.Type.Kind() == reflect.Map && field.Type.Elem().Kind() == reflect.Struct) ||
 			field.Type.Kind() == reflect.Interface {
 			needsVars = true
@@ -513,7 +515,9 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 		}
 
 		// Generate code to convert field to IR node
-		fieldCode, err := generateFieldToIR(s, field, schemaFieldName, i != 0)
+		// Pass true for alreadyInNilCheck if we've already wrapped this field in a nil check
+		alreadyInNilCheck := field.Optional || (field.Type != nil && field.Type.Kind() == reflect.Ptr)
+		fieldCode, err := generateFieldToIR(s, field, schemaFieldName, i != 0, needsVars, alreadyInNilCheck)
 		if err != nil {
 			return "", fmt.Errorf("failed to generate field conversion for %q: %w", field.Name, err)
 		}
@@ -534,11 +538,16 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 }
 
 // generateFieldToIR generates code to convert a struct field to an IR node.
-func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName string, redef bool) (string, error) {
+// alreadyInNilCheck indicates if the field is already wrapped in a nil check (for optional pointer fields).
+func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName string, redef bool, varsDeclared bool, alreadyInNilCheck bool) (string, error) {
 	var buf strings.Builder
 
-	// Always use = since node and err are declared at function start
-	assign := "="
+	// Use := if variables aren't declared at function level, otherwise use =
+	// This avoids shadowing when variables are already declared
+	assign := ":="
+	if varsDeclared {
+		assign = "="
+	}
 
 	if field.Type == nil {
 		return "", fmt.Errorf("field %q has no type information", field.Name)
@@ -546,18 +555,23 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 
 	// Special handling for *ir.Node (and deeper pointers)
 	if depth := getIRNodeDepth(field.Type); depth > 0 {
-		buf.WriteString(fmt.Sprintf("	if s.%s == nil {\n", field.Name))
-		buf.WriteString(fmt.Sprintf("		irMap[%q] = ir.Null()\n", schemaFieldName))
-		buf.WriteString("	} else {\n")
-
 		// Dereference if depth > 1 (we want *ir.Node)
 		derefs := ""
 		for i := 0; i < depth-1; i++ {
 			derefs += "*"
 		}
 
-		buf.WriteString(fmt.Sprintf("		irMap[%q] = %ss.%s\n", schemaFieldName, derefs, field.Name))
-		buf.WriteString("	}\n")
+		// Only add nil check if not already in one (for optional pointer fields)
+		if !alreadyInNilCheck {
+			buf.WriteString(fmt.Sprintf("	if s.%s == nil {\n", field.Name))
+			buf.WriteString(fmt.Sprintf("		irMap[%q] = ir.Null()\n", schemaFieldName))
+			buf.WriteString("	} else {\n")
+			buf.WriteString(fmt.Sprintf("		irMap[%q] = %ss.%s\n", schemaFieldName, derefs, field.Name))
+			buf.WriteString("	}\n")
+		} else {
+			// Already in nil check - just assign directly
+			buf.WriteString(fmt.Sprintf("		irMap[%q] = %ss.%s\n", schemaFieldName, derefs, field.Name))
+		}
 		return buf.String(), nil
 	}
 
@@ -565,11 +579,27 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 	// We use the flag instead of runtime reflection because custom types like `type A int`
 	// don't preserve methods in reflect.Type
 	if field.ImplementsTextMarshaler {
-		buf.WriteString(fmt.Sprintf("	if txt, err := s.%s.MarshalText(); err != nil {\n", field.Name))
-		buf.WriteString(fmt.Sprintf("		return nil, fmt.Errorf(\"failed to marshal field %%q: %%w\", %q, err)\n", field.Name))
-		buf.WriteString("	} else {\n")
-		buf.WriteString(fmt.Sprintf("		irMap[%q] = ir.FromString(string(txt))\n", schemaFieldName))
-		buf.WriteString("	}\n")
+		// For pointer fields, we need to handle nil before calling MarshalText
+		// If alreadyInNilCheck is true, we're already inside a nil check (optional field)
+		if field.Type.Kind() == reflect.Ptr && !alreadyInNilCheck {
+			// Required pointer field - add nil check
+			buf.WriteString(fmt.Sprintf("	if s.%s == nil {\n", field.Name))
+			buf.WriteString(fmt.Sprintf("		irMap[%q] = ir.Null()\n", schemaFieldName))
+			buf.WriteString("	} else {\n")
+			buf.WriteString(fmt.Sprintf("		if txt, err := s.%s.MarshalText(); err != nil {\n", field.Name))
+			buf.WriteString(fmt.Sprintf("			return nil, fmt.Errorf(\"failed to marshal field %%q: %%w\", %q, err)\n", field.Name))
+			buf.WriteString("		} else {\n")
+			buf.WriteString(fmt.Sprintf("			irMap[%q] = ir.FromString(string(txt))\n", schemaFieldName))
+			buf.WriteString("		}\n")
+			buf.WriteString("	}\n")
+		} else {
+			// Value type or already in nil check - call directly
+			buf.WriteString(fmt.Sprintf("	if txt, err := s.%s.MarshalText(); err != nil {\n", field.Name))
+			buf.WriteString(fmt.Sprintf("		return nil, fmt.Errorf(\"failed to marshal field %%q: %%w\", %q, err)\n", field.Name))
+			buf.WriteString("	} else {\n")
+			buf.WriteString(fmt.Sprintf("		irMap[%q] = ir.FromString(string(txt))\n", schemaFieldName))
+			buf.WriteString("	}\n")
+		}
 		return buf.String(), nil
 	}
 
@@ -596,26 +626,35 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 		elemType := field.Type.Elem()
 		if elemType.Kind() == reflect.Struct {
 			// Nested struct - call ToTony() method
-			buf.WriteString(fmt.Sprintf("	if s.%s != nil {\n", field.Name))
+			// Only add nil check if we're not already inside one
+			if !alreadyInNilCheck {
+				buf.WriteString(fmt.Sprintf("	if s.%s != nil {\n", field.Name))
+			}
 			buf.WriteString(fmt.Sprintf("		node, err %s s.%s.ToTonyIR(opts...)\n", assign, field.Name))
 			buf.WriteString("		if err != nil {\n")
 			buf.WriteString("			return nil, err\n")
 			buf.WriteString("		}\n")
 			buf.WriteString(fmt.Sprintf("		irMap[%q] = node\n", schemaFieldName))
-			buf.WriteString("	}\n")
+			if !alreadyInNilCheck {
+				buf.WriteString("	}\n")
+			}
 		} else {
 			// Pointer to primitive - handle based on element type
+			// Only add nil check if we're not already inside one
+			if !alreadyInNilCheck {
+				buf.WriteString(fmt.Sprintf("	if s.%s != nil {\n", field.Name))
+			}
 			fieldCode, err := generateFieldToIR(structInfo, &FieldInfo{
 				Name: field.Name,
 				Type: elemType,
-			}, schemaFieldName, false)
+			}, schemaFieldName, false, varsDeclared, alreadyInNilCheck)
 			if err != nil {
 				return "", err
 			}
-			// Wrap in nil check
-			buf.WriteString(fmt.Sprintf("	if s.%s != nil {\n", field.Name))
 			buf.WriteString(strings.Replace(fieldCode, fmt.Sprintf("s.%s", field.Name), fmt.Sprintf("*s.%s", field.Name), -1))
-			buf.WriteString("	}\n")
+			if !alreadyInNilCheck {
+				buf.WriteString("	}\n")
+			}
 		}
 
 	case reflect.Slice, reflect.Array:
@@ -1407,7 +1446,35 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: value %%d overflows int32\", %q, %s)\n", schemaFieldName, intVal))
 			buf.WriteString("	}\n")
 		}
-		buf.WriteString(fmt.Sprintf("	s.%s = %s(%s)\n", field.Name, field.Type.Name(), intVal))
+		// Handle time.Duration specially (it's an int64 alias)
+		// Check if this is time.Duration by checking type string, PkgPath/Name, or StructTypeName
+		typeName := field.Type.Name()
+		typeStr := field.Type.String()
+		
+		// Check type string first (most reliable for type aliases)
+		if typeStr == "time.Duration" {
+			typeName = "time.Duration"
+		} else if field.StructTypeName != "" && (field.StructTypeName == "time.Duration" || field.StructTypeName == "Duration") {
+			// Use StructTypeName if it's set and indicates time.Duration
+			if field.StructTypeName == "Duration" && field.Type.PkgPath() == "time" {
+				typeName = "time.Duration"
+			} else if field.StructTypeName == "time.Duration" {
+				typeName = "time.Duration"
+			} else {
+				typeName = field.StructTypeName
+			}
+		} else if field.Type.PkgPath() == "time" && typeName == "Duration" {
+			typeName = "time.Duration"
+		} else if typeName == "" {
+			// Fallback to qualified type name for other named types
+			typeName = getQualifiedTypeName(field.Type, currentPkgPath)
+		} else if field.Type.PkgPath() != "" && field.Type.PkgPath() != currentPkgPath {
+			// External package type - qualify it
+			parts := strings.Split(field.Type.PkgPath(), "/")
+			pkgName := parts[len(parts)-1]
+			typeName = pkgName + "." + typeName
+		}
+		buf.WriteString(fmt.Sprintf("	s.%s = %s(%s)\n", field.Name, typeName, intVal))
 
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		buf.WriteString("	if fieldNode.Int64 == nil {\n")
