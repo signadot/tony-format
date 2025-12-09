@@ -185,6 +185,45 @@ ytool:
 "hello"
 'yo'`,
 		},
+		{
+			in: `{"null": null}`,
+		},
+		{
+			in: `{ "null": null }`,
+		},
+		{
+			in: `object(t): !and
+- .[object]
+- !all.t null`,
+		},
+		{
+			in: `define:
+  "null": !irtype null
+  object(t): !and
+  - .[object]
+  - !all.t null`,
+		},
+		{
+			in: `
+#
+# Tony Format base schema definitions.
+#
+context: tony-format/context
+  
+signature:
+  name: tony-base
+define:
+  bool: !irtype true
+  "null": !irtype null
+  number: !irtype 1
+  int: !and
+  - .[number]
+  - int: !not null
+  object: !irtype {}
+  object(t): !and
+  - .[object]
+  - !all.t null`,
+		},
 	}
 	for i := range pts {
 		pt := &pts[i]
@@ -229,5 +268,64 @@ doc3:
 	}
 }
 
+func TestParseMultiWithNullKey(t *testing.T) {
+	in := `
+define:
+  "null": !irtype null
+---
+define:
+  "null": !irtype null
+  object(t): !and
+  - .[object]
+  - !all.t null
+`
+	nodes, err := ParseMulti([]byte(in))
+	if err != nil {
+		t.Fatalf("ParseMulti failed: %v", err)
+	}
+
+	if len(nodes) != 2 {
+		t.Fatalf("expected 2 documents, got %d", len(nodes))
+	}
+}
+
 func TestBadParse(t *testing.T) {
+}
+
+func TestParseBaseTony(t *testing.T) {
+	data, err := os.ReadFile("../schema/base.tony")
+	if err != nil {
+		t.Skipf("base.tony not found: %v", err)
+		return
+	}
+	
+	node, err := Parse(data)
+	if err != nil {
+		t.Fatalf("Failed to parse base.tony: %v", err)
+	}
+	
+	if node == nil {
+		t.Fatal("Parsed node is nil")
+	}
+	
+	t.Logf("Successfully parsed base.tony")
+}
+
+func TestParseSchemaTony(t *testing.T) {
+	data, err := os.ReadFile("../schema/schema.tony")
+	if err != nil {
+		t.Skipf("schema.tony not found: %v", err)
+		return
+	}
+	
+	nodes, err := ParseMulti(data)
+	if err != nil {
+		t.Fatalf("Failed to parse schema.tony: %v", err)
+	}
+	
+	if len(nodes) == 0 {
+		t.Fatal("No nodes parsed from schema.tony")
+	}
+	
+	t.Logf("Successfully parsed schema.tony: %d documents", len(nodes))
 }

@@ -15,11 +15,10 @@ func (r *ContextRegistry) registerBuiltinContexts() {
 			"field":   {Name: "field", Contexts: []string{"tony-format/context/match"}},
 			"tag":     {Name: "tag", Contexts: []string{"tony-format/context/match"}},
 			"subtree": {Name: "subtree", Contexts: []string{"tony-format/context/match"}},
+			"has-path": {Name: "has-path", Contexts: []string{"tony-format/context/match"}},
 			"all":     {Name: "all", Contexts: []string{"tony-format/context/match"}},
 			"let":     {Name: "let", Contexts: []string{"tony-format/context/match"}},
 			"if":      {Name: "if", Contexts: []string{"tony-format/context/match"}},
-			"dive":    {Name: "dive", Contexts: []string{"tony-format/context/match"}},
-			"embed":   {Name: "embed", Contexts: []string{"tony-format/context/match"}},
 			"pass":    {Name: "pass", Contexts: []string{"tony-format/context/match"}},
 			"quote":   {Name: "quote", Contexts: []string{"tony-format/context/match"}},
 			"unquote": {Name: "unquote", Contexts: []string{"tony-format/context/match"}},
@@ -43,6 +42,8 @@ func (r *ContextRegistry) registerBuiltinContexts() {
 			"addtag":   {Name: "addtag", Contexts: []string{"tony-format/context/patch"}},
 			"rmtag":    {Name: "rmtag", Contexts: []string{"tony-format/context/patch"}},
 			"retag":    {Name: "retag", Contexts: []string{"tony-format/context/patch"}},
+			"dive":     {Name: "dive", Contexts: []string{"tony-format/context/patch"}},
+			"embed":    {Name: "embed", Contexts: []string{"tony-format/context/patch"}},
 		},
 	}
 

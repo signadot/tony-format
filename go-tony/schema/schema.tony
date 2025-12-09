@@ -1,0 +1,161 @@
+#
+# Tony Format base schema definitions.
+# This schema defines fundamental types and operations.
+#
+context: tony-format/context
+  
+signature:
+  name: tony-base
+
+define:
+  bool: !irtype true
+  "null": !irtype null
+  number: !irtype 1
+  int: !and
+  - .[number]
+  - int: !not null
+  float: !and
+  - .[number]
+  - float: !not null
+  string: !irtype ""
+  array: !irtype []
+  array(t): !and
+  - .[array]
+  - !all.t null
+  sparsearray: !and
+  - !irtype {}
+  - !all.field.type 0
+  sparsearray(t): !and
+  - .[sparsearray]
+  - !all.t null
+  object: !irtype {}
+  object(t): !and
+  - .[object]
+  - !all.t null
+  nullable(t): !or
+  - !irtype null
+  - !t null
+  # keyed lists
+  key(p): !and
+  - !irtype []
+  - !all.hasPath p
+  field: !or
+  - .string
+  - .int
+  - .null
+  _ir:
+    type: !or [Comment Null Bool Number String Array Object]
+    fields: .[array(field)]
+    values: .[array(ir)]
+    string: .[string]
+    int: .[int]
+    float: .[float]
+    number: .[string]
+    bool: .[bool]
+    lines: .[array(string)]
+  ir: [.nullable(_ir)]
+
+---
+#
+# Tony Format metadata schema definitions.
+# This schema defines metadata structures (title, description, examples).
+# Depends on tony-base for base types.
+#
+context: tony-format/context
+
+signature:
+  name: tony-md
+
+define:
+  # Metadata structure for documentation
+  metadata:
+    title: .[nullable(string)]
+    description: .[nullable(string)]
+    examples: .[nullable(array(ir))]
+
+accept: .[metadata]
+
+---
+#
+# Tony Format context schema definitions.
+# This schema defines context value structures.
+# Depends on tony-base for base types.
+#
+context: tony-format/context
+
+signature:
+  name: tony-context
+
+define:
+  # Context value - can be string (URI), object (term mappings), or array
+  context-value:
+    type: !or [String Object Array]
+
+accept: .[context-value]
+
+---
+#
+# Tony Format schema definition schema.
+# This schema describes the structure of a Tony Schema document.
+# Depends on tony-base, tony-md, and tony-context.
+#
+context: tony-format/context
+
+signature:
+  name: tony-schema
+
+define:
+  # A Tony Schema document
+  schema:
+    # Context field (can be @context, context, or contexts)
+    # Context is optional; if present, must be a valid context-value
+    "@context": .[nullable(context-value)]
+    context: .[nullable(context-value)]
+    contexts: .[nullable(context-value)]
+    # Signature defines how the schema can be referenced
+    signature: .[nullable(signature)]
+    # Tags defines tags that this schema introduces
+    # tags is an object mapping tag names to tag-definition
+    tags: .[nullable(object)]
+    # Define provides value definitions
+    # define is an object mapping definition names to IR nodes or definition-with-metadata
+    define: .[nullable(object)]
+    # Accept defines what documents this schema accepts
+    accept: .[nullable(ir)]
+    # Metadata field for schema-level documentation
+    md: .[nullable(metadata)]
+  
+  # Context value - references tony-context schema
+  # Note: In a multi-schema file, we define it locally for now
+  context-value:
+    type: !or [String Object Array]
+  
+  # Signature structure
+  signature:
+    name: .[nullable(string)]
+    args: .[nullable(array(arg))]
+  
+  # Argument structure
+  arg:
+    name: .[nullable(string)]
+    match: .[nullable(ir)]
+  
+  # Tag definition structure
+  tag-definition:
+    contexts: .[nullable(array(string))]
+    schema: .[nullable(string)]
+    md: .[nullable(metadata)]
+  
+  # Metadata structure - references tony-md schema
+  # Note: In a multi-schema file, we define it locally for now
+  metadata:
+    title: .[nullable(string)]
+    description: .[nullable(string)]
+    examples: .[nullable(array(ir))]
+  
+  # Definition with metadata
+  definition-with-metadata:
+    value: ir  # The actual definition value
+    md: .[nullable(metadata)]  # Optional metadata
+
+accept: .[schema]

@@ -150,6 +150,56 @@ var matchTests = []matchTest{
 		match: "!let\nlet:\n- idMatch: 123\nin:\n  id: .[idMatch]",
 		res:   false,
 	},
+	{
+		in:    "a: b\nc: d",
+		match: "!has-path a",
+		res:   true,
+	},
+	{
+		in:    "a: b\nc: d",
+		match: "!has-path x",
+		res:   false,
+	},
+	{
+		in:    "a:\n  b: c\n  d: e",
+		match: "!has-path a.b",
+		res:   true,
+	},
+	{
+		in:    "a:\n  b: c\n  d: e",
+		match: "!has-path a.x",
+		res:   false,
+	},
+	{
+		in:    "arr:\n- 1\n- 2\n- 3",
+		match: "!has-path arr[0]",
+		res:   true,
+	},
+	{
+		in:    "arr:\n- 1\n- 2",
+		match: "!has-path arr[5]",
+		res:   false,
+	},
+	{
+		in:    "- a: 1\n- a: 2\n- a: 3",
+		match: "!all.has-path a",
+		res:   true,
+	},
+	{
+		in:    "- a: 1\n- a: 2\n- b: 3",
+		match: "!all.has-path a",
+		res:   false,
+	},
+	{
+		in:    "a: b\nc: d",
+		match: "!not.has-path x",
+		res:   true,
+	},
+	{
+		in:    "a: b\nc: d",
+		match: "!not.has-path a",
+		res:   false,
+	},
 }
 
 func TestMatchY(t *testing.T) {
