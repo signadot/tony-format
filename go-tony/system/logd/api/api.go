@@ -40,9 +40,8 @@ type PatchMeta struct {
 	EncodingOptions
 	Tx          *string  `tony:"field=tx"`
 	MaxDuration Duration `tony:"field=maxDuration"`
+	Seq         *int64   `tony:"field=seq"` // Seq when supplied asserts that seq is the latest value for patched data, on return, if successful, seq shows the commit resulting from applying the changes.
 
-	// output fields
-	Seq  *int64     `tony:"field=seq"`
 	When *time.Time `tony:"field=when"`
 }
 

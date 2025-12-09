@@ -439,7 +439,7 @@ func tokenizeOne(
 		return nil, 1, nil // Whitespace, no token
 
 	case 'n':
-		if i+4 <= n && string(d[i:i+4]) == "null" {
+		if i+4 <= n && string(d[i:i+4]) == "null" && isKeyWordPrefix(d[i:], []byte("null")) {
 			tok := Token{
 				Type:  TNull,
 				Bytes: d[i : i+4],
@@ -473,7 +473,7 @@ func tokenizeOne(
 		}
 
 	case 't':
-		if i+4 <= n && string(d[i:i+4]) == "true" {
+		if i+4 <= n && string(d[i:i+4]) == "true" && isKeyWordPrefix(d[i:], []byte("true")) {
 			tok := Token{
 				Type:  TTrue,
 				Bytes: d[i : i+4],
@@ -507,7 +507,7 @@ func tokenizeOne(
 		}
 
 	case 'f':
-		if i+5 <= n && string(d[i:i+5]) == "false" {
+		if i+5 <= n && string(d[i:i+5]) == "false" && isKeyWordPrefix(d[i:], []byte("false")) {
 			tok := Token{
 				Type:  TFalse,
 				Bytes: d[i : i+5],
