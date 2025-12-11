@@ -150,9 +150,8 @@ func (ts *TokenSource) Read() ([]Token, error) {
 			ts.posDoc,       // posDoc (modified)
 			ts.opt,          // options
 			ts.lastToken,    // last token
-			ts.recentTokens, // recent tokens (for mLitIndent)
 			ts.recentBuf,    // recent buffer (for commentPrefix)
-			nil,             // allTokens (nil for streaming)
+			nil,             // allTokens (deprecated/unused)
 			nil,             // docPrefix (nil for streaming)
 		)
 

@@ -29,9 +29,8 @@ import (
 //   - posDoc: position document (streaming-adapted) - MODIFIED
 //   - opt: tokenization options
 //   - lastToken: last token emitted (for context, e.g., multiline string detection)
-//   - recentTokens: recent tokens (for mLitIndent calculation, can be nil)
 //   - recentBuf: recent buffer bytes before current position (for commentPrefix, can be nil)
-//   - allTokens: all tokens emitted so far (for non-streaming mode, used when recentTokens is nil)
+//   - allTokens: all tokens emitted so far (for non-streaming mode, can be nil)
 //   - docPrefix: document bytes before current position (for non-streaming mode, used when recentBuf is nil)
 //
 // Returns:
@@ -46,7 +45,6 @@ func tokenizeOne(
 	posDoc *PosDoc,     // position tracking (modified in place)
 	opt *tokenOpts,     // options
 	lastToken *Token,   // last token (for context)
-	recentTokens []Token, // recent tokens for mLitIndent (can be nil, use allTokens if nil)
 	recentBuf []byte,   // recent buffer before current position (for commentPrefix, can be nil, use docPrefix if nil)
 	allTokens []Token,  // all tokens so far (for non-streaming, can be nil)
 	docPrefix []byte,   // document before current position (for non-streaming, can be nil)
@@ -194,37 +192,18 @@ func tokenizeOne(
 		if opt.format == format.JSONFormat {
 			return nil, 0, UnexpectedErr("|", posDoc.Pos(absOffset))
 		}
-		// Calculate mLitIndent from tokens (recentTokens for streaming, allTokens for non-streaming)
-		mIndent := 0
-		tokensForIndent := recentTokens
-		if tokensForIndent == nil && allTokens != nil {
-			// Non-streaming mode: use all tokens
-			tokensForIndent = allTokens
-		}
-		if tokensForIndent != nil && len(tokensForIndent) > 0 {
-			// Use mLitIndent with tokens
-			calculated, err := mLitIndent(tokensForIndent, 0)
-			if err == nil {
-				mIndent = calculated
-			} else {
-				// Fallback to current line indent
-				mIndent = ts.lnIndent
-				if mIndent == 0 {
-					mIndent = 2
-				}
-			}
-		} else {
-			// Fallback to current line indent
-			mIndent = ts.lnIndent
-			if mIndent == 0 {
-				mIndent = 2
-			}
+		// Use current line indent directly (ts.lnIndent is always up-to-date)
+		// mLit content is indented 2 spaces more than the line containing |
+		mIndent := ts.lnIndent + 2
+		if mIndent < 2 {
+			// Ensure minimum indent of 2 (for root-level mLits)
+			mIndent = 2
 		}
 		var sz int
 		var err error
-		// Streaming mode is indicated by recentTokens being non-nil (sliding window used)
-		// Non-streaming mode uses allTokens/docPrefix instead
-		if recentTokens != nil {
+		// Use streaming-aware version if recentBuf is non-nil (indicates streaming mode)
+		// Otherwise use non-streaming version
+		if recentBuf != nil {
 			// Streaming mode: use streaming-aware version that can return io.EOF
 			sz, err = mLitStreaming(d[i:], mIndent, posDoc, absOffset)
 		} else {

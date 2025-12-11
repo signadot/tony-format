@@ -57,9 +57,8 @@ func Tokenize(dst []Token, src []byte, opts ...TokenOpt) ([]Token, error) {
 			posDoc,      // posDoc
 			opt,         // options
 			lastToken,   // last token
-			nil,         // recentTokens (nil = use allTokens)
 			nil,         // recentBuf (nil = use docPrefix)
-			dst,         // allTokens (for mLitIndent)
+			dst,         // allTokens (deprecated/unused)
 			d[:i],       // docPrefix (for commentPrefix)
 		)
 
