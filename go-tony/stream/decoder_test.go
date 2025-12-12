@@ -1347,3 +1347,376 @@ func TestDecoder_NestedDepth3_AllCombinations(t *testing.T) {
 		})
 	}
 }
+
+func TestDecoder_Tags(t *testing.T) {
+	tests := []struct {
+		name     string
+		data     string
+		expected []struct {
+			eventType EventType
+			tag       string
+			key       string
+			stringVal string
+			intVal    int64
+			floatVal  float64
+			boolVal   bool
+		}
+	}{
+		{
+			name: "tagged string",
+			data: `{name: !schema(string) "value"}`,
+			expected: []struct {
+				eventType EventType
+				tag       string
+				key       string
+				stringVal string
+				intVal    int64
+				floatVal  float64
+				boolVal   bool
+			}{
+				{eventType: EventBeginObject, tag: ""},
+				{eventType: EventKey, key: "name"},
+				{eventType: EventString, tag: "!schema(string)", stringVal: "value"},
+				{eventType: EventEndObject},
+			},
+		},
+		{
+			name: "tagged int",
+			data: `{count: !from(base,int) 42}`,
+			expected: []struct {
+				eventType EventType
+				tag       string
+				key       string
+				stringVal string
+				intVal    int64
+				floatVal  float64
+				boolVal   bool
+			}{
+				{eventType: EventBeginObject, tag: ""},
+				{eventType: EventKey, key: "count"},
+				{eventType: EventInt, tag: "!from(base,int)", intVal: 42},
+				{eventType: EventEndObject},
+			},
+		},
+		{
+			name: "tagged float",
+			data: `{pi: !float 3.14}`,
+			expected: []struct {
+				eventType EventType
+				tag       string
+				key       string
+				stringVal string
+				intVal    int64
+				floatVal  float64
+				boolVal   bool
+			}{
+				{eventType: EventBeginObject, tag: ""},
+				{eventType: EventKey, key: "pi"},
+				{eventType: EventFloat, tag: "!float", floatVal: 3.14},
+				{eventType: EventEndObject},
+			},
+		},
+		{
+			name: "tagged bool",
+			data: `{active: !tag true}`,
+			expected: []struct {
+				eventType EventType
+				tag       string
+				key       string
+				stringVal string
+				intVal    int64
+				floatVal  float64
+				boolVal   bool
+			}{
+				{eventType: EventBeginObject, tag: ""},
+				{eventType: EventKey, key: "active"},
+				{eventType: EventBool, tag: "!tag", boolVal: true},
+				{eventType: EventEndObject},
+			},
+		},
+		{
+			name: "tagged null",
+			data: `{optional: !nullable null}`,
+			expected: []struct {
+				eventType EventType
+				tag       string
+				key       string
+				stringVal string
+				intVal    int64
+				floatVal  float64
+				boolVal   bool
+			}{
+				{eventType: EventBeginObject, tag: ""},
+				{eventType: EventKey, key: "optional"},
+				{eventType: EventNull, tag: "!nullable"},
+				{eventType: EventEndObject},
+			},
+		},
+		{
+			name: "tagged object",
+			data: `{person: !schema(person) {name: "John"}}`,
+			expected: []struct {
+				eventType EventType
+				tag       string
+				key       string
+				stringVal string
+				intVal    int64
+				floatVal  float64
+				boolVal   bool
+			}{
+				{eventType: EventBeginObject, tag: ""},
+				{eventType: EventKey, key: "person"},
+				{eventType: EventBeginObject, tag: "!schema(person)"},
+				{eventType: EventKey, key: "name"},
+				{eventType: EventString, tag: "", stringVal: "John"},
+				{eventType: EventEndObject},
+				{eventType: EventEndObject},
+			},
+		},
+		{
+			name: "tagged array",
+			data: `{tags: !array(string) ["a","b"]}`,
+			expected: []struct {
+				eventType EventType
+				tag       string
+				key       string
+				stringVal string
+				intVal    int64
+				floatVal  float64
+				boolVal   bool
+			}{
+				{eventType: EventBeginObject, tag: ""},
+				{eventType: EventKey, key: "tags"},
+				{eventType: EventBeginArray, tag: "!array(string)"},
+				{eventType: EventString, tag: "", stringVal: "a"},
+				{eventType: EventString, tag: "", stringVal: "b"},
+				{eventType: EventEndArray},
+				{eventType: EventEndObject},
+			},
+		},
+		{
+			name: "multiple tagged values",
+			data: `{a: !tag1 "value1",b: !tag2 123,c: false}`,
+			expected: []struct {
+				eventType EventType
+				tag       string
+				key       string
+				stringVal string
+				intVal    int64
+				floatVal  float64
+				boolVal   bool
+			}{
+				{eventType: EventBeginObject, tag: ""},
+				{eventType: EventKey, key: "a"},
+				{eventType: EventString, tag: "!tag1", stringVal: "value1"},
+				{eventType: EventKey, key: "b"},
+				{eventType: EventInt, tag: "!tag2", intVal: 123},
+				{eventType: EventKey, key: "c"},
+				{eventType: EventBool, tag: "", boolVal: false},
+				{eventType: EventEndObject},
+			},
+		},
+		{
+			name: "no tag same as empty tag",
+			data: `{value: "test"}`,
+			expected: []struct {
+				eventType EventType
+				tag       string
+				key       string
+				stringVal string
+				intVal    int64
+				floatVal  float64
+				boolVal   bool
+			}{
+				{eventType: EventBeginObject, tag: ""},
+				{eventType: EventKey, key: "value"},
+				{eventType: EventString, tag: "", stringVal: "test"},
+				{eventType: EventEndObject},
+			},
+		},
+		{
+			name: "tagged values in array",
+			data: `[!tagged "first","second",!inttag 42]`,
+			expected: []struct {
+				eventType EventType
+				tag       string
+				key       string
+				stringVal string
+				intVal    int64
+				floatVal  float64
+				boolVal   bool
+			}{
+				{eventType: EventBeginArray, tag: ""},
+				{eventType: EventString, tag: "!tagged", stringVal: "first"},
+				{eventType: EventString, tag: "", stringVal: "second"},
+				{eventType: EventInt, tag: "!inttag", intVal: 42},
+				{eventType: EventEndArray},
+			},
+		},
+		{
+			name: "complex nested tags",
+			data: `{outer: !outertag {inner: !innertag {value: !valuetag "test"}}}`,
+			expected: []struct {
+				eventType EventType
+				tag       string
+				key       string
+				stringVal string
+				intVal    int64
+				floatVal  float64
+				boolVal   bool
+			}{
+				{eventType: EventBeginObject, tag: ""},
+				{eventType: EventKey, key: "outer"},
+				{eventType: EventBeginObject, tag: "!outertag"},
+				{eventType: EventKey, key: "inner"},
+				{eventType: EventBeginObject, tag: "!innertag"},
+				{eventType: EventKey, key: "value"},
+				{eventType: EventString, tag: "!valuetag", stringVal: "test"},
+				{eventType: EventEndObject},
+				{eventType: EventEndObject},
+				{eventType: EventEndObject},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dec, err := NewDecoder(bytes.NewReader([]byte(tt.data)), WithBrackets())
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			var events []Event
+			for {
+				event, err := dec.ReadEvent()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				events = append(events, event)
+			}
+
+			if len(events) != len(tt.expected) {
+				t.Fatalf("expected %d events, got %d", len(tt.expected), len(events))
+			}
+
+			for i, exp := range tt.expected {
+				evt := events[i]
+				if evt.Type != exp.eventType {
+					t.Errorf("event %d: expected type %v, got %v", i, exp.eventType, evt.Type)
+				}
+				if evt.Tag != exp.tag {
+					t.Errorf("event %d: expected tag %q, got %q", i, exp.tag, evt.Tag)
+				}
+				if exp.key != "" && evt.Key != exp.key {
+					t.Errorf("event %d: expected key %q, got %q", i, exp.key, evt.Key)
+				}
+				if exp.stringVal != "" && evt.String != exp.stringVal {
+					t.Errorf("event %d: expected string %q, got %q", i, exp.stringVal, evt.String)
+				}
+				if exp.intVal != 0 && evt.Int != exp.intVal {
+					t.Errorf("event %d: expected int %d, got %d", i, exp.intVal, evt.Int)
+				}
+				if exp.floatVal != 0 && evt.Float != exp.floatVal {
+					t.Errorf("event %d: expected float %f, got %f", i, exp.floatVal, evt.Float)
+				}
+				if exp.boolVal != evt.Bool && (exp.boolVal || evt.Bool) {
+					t.Errorf("event %d: expected bool %v, got %v", i, exp.boolVal, evt.Bool)
+				}
+			}
+		})
+	}
+}
+
+func TestDecoder_TagsRoundTrip(t *testing.T) {
+	// Test that encoding and decoding tags preserves them correctly
+	tests := []struct {
+		name string
+		tag  string
+	}{
+		{"simple tag", "!tag"},
+		{"schema tag", "!schema(person)"},
+		{"from tag", "!from(base-schema,int)"},
+		{"array tag", "!array(string)"},
+		{"nullable tag", "!nullable"},
+		{"complex tag", "!schema(user).array(string)"},
+		{"empty tag", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Encode with tag
+			var buf bytes.Buffer
+			enc, err := NewEncoder(&buf, WithBrackets())
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if err := enc.BeginObject(); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if err := enc.WriteKey("value"); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if err := enc.Tag(tt.tag); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if err := enc.WriteString("test"); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if err := enc.EndObject(); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			// Decode and verify tag
+			dec, err := NewDecoder(bytes.NewReader(buf.Bytes()), WithBrackets())
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			// Read BeginObject
+			event, err := dec.ReadEvent()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if event.Type != EventBeginObject {
+				t.Errorf("expected EventBeginObject, got %v", event.Type)
+			}
+
+			// Read Key
+			event, err = dec.ReadEvent()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if event.Type != EventKey || event.Key != "value" {
+				t.Errorf("expected EventKey(\"value\"), got %v", event)
+			}
+
+			// Read String with tag
+			event, err = dec.ReadEvent()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if event.Type != EventString {
+				t.Errorf("expected EventString, got %v", event.Type)
+			}
+			if event.String != "test" {
+				t.Errorf("expected string \"test\", got %q", event.String)
+			}
+			if event.Tag != tt.tag {
+				t.Errorf("expected tag %q, got %q", tt.tag, event.Tag)
+			}
+
+			// Read EndObject
+			event, err = dec.ReadEvent()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if event.Type != EventEndObject {
+				t.Errorf("expected EventEndObject, got %v", event.Type)
+			}
+		})
+	}
+}

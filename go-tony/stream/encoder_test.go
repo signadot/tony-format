@@ -583,3 +583,486 @@ func TestEncoderDecoder_RoundTrip(t *testing.T) {
 		})
 	}
 }
+
+func TestEncoder_Tags(t *testing.T) {
+	tests := []struct {
+		name     string
+		setup    func(*Encoder) error
+		expected string
+	}{
+		{
+			name: "tagged string",
+			setup: func(enc *Encoder) error {
+				if err := enc.BeginObject(); err != nil {
+					return err
+				}
+				if err := enc.WriteKey("name"); err != nil {
+					return err
+				}
+				if err := enc.Tag("!schema(string)"); err != nil {
+					return err
+				}
+				if err := enc.WriteString("value"); err != nil {
+					return err
+				}
+				return enc.EndObject()
+			},
+			expected: `{name: !schema(string) "value"}`,
+		},
+		{
+			name: "tagged int",
+			setup: func(enc *Encoder) error {
+				if err := enc.BeginObject(); err != nil {
+					return err
+				}
+				if err := enc.WriteKey("count"); err != nil {
+					return err
+				}
+				if err := enc.Tag("!from(base,int)"); err != nil {
+					return err
+				}
+				if err := enc.WriteInt(42); err != nil {
+					return err
+				}
+				return enc.EndObject()
+			},
+			expected: `{count: !from(base,int) 42}`,
+		},
+		{
+			name: "tagged float",
+			setup: func(enc *Encoder) error {
+				if err := enc.BeginObject(); err != nil {
+					return err
+				}
+				if err := enc.WriteKey("pi"); err != nil {
+					return err
+				}
+				if err := enc.Tag("!float"); err != nil {
+					return err
+				}
+				if err := enc.WriteFloat(3.14); err != nil {
+					return err
+				}
+				return enc.EndObject()
+			},
+			expected: `{pi: !float 3.14}`,
+		},
+		{
+			name: "tagged bool",
+			setup: func(enc *Encoder) error {
+				if err := enc.BeginObject(); err != nil {
+					return err
+				}
+				if err := enc.WriteKey("active"); err != nil {
+					return err
+				}
+				if err := enc.Tag("!tag"); err != nil {
+					return err
+				}
+				if err := enc.WriteBool(true); err != nil {
+					return err
+				}
+				return enc.EndObject()
+			},
+			expected: `{active: !tag true}`,
+		},
+		{
+			name: "tagged null",
+			setup: func(enc *Encoder) error {
+				if err := enc.BeginObject(); err != nil {
+					return err
+				}
+				if err := enc.WriteKey("optional"); err != nil {
+					return err
+				}
+				if err := enc.Tag("!nullable"); err != nil {
+					return err
+				}
+				if err := enc.WriteNull(); err != nil {
+					return err
+				}
+				return enc.EndObject()
+			},
+			expected: `{optional: !nullable null}`,
+		},
+		{
+			name: "tagged object",
+			setup: func(enc *Encoder) error {
+				if err := enc.BeginObject(); err != nil {
+					return err
+				}
+				if err := enc.WriteKey("person"); err != nil {
+					return err
+				}
+				if err := enc.Tag("!schema(person)"); err != nil {
+					return err
+				}
+				if err := enc.BeginObject(); err != nil {
+					return err
+				}
+				if err := enc.WriteKey("name"); err != nil {
+					return err
+				}
+				if err := enc.WriteString("John"); err != nil {
+					return err
+				}
+				if err := enc.EndObject(); err != nil {
+					return err
+				}
+				return enc.EndObject()
+			},
+			expected: `{person: !schema(person) {name: "John"}}`,
+		},
+		{
+			name: "tagged array",
+			setup: func(enc *Encoder) error {
+				if err := enc.BeginObject(); err != nil {
+					return err
+				}
+				if err := enc.WriteKey("tags"); err != nil {
+					return err
+				}
+				if err := enc.Tag("!array(string)"); err != nil {
+					return err
+				}
+				if err := enc.BeginArray(); err != nil {
+					return err
+				}
+				if err := enc.WriteString("a"); err != nil {
+					return err
+				}
+				if err := enc.WriteString("b"); err != nil {
+					return err
+				}
+				if err := enc.EndArray(); err != nil {
+					return err
+				}
+				return enc.EndObject()
+			},
+			expected: `{tags: !array(string) ["a","b"]}`,
+		},
+		{
+			name: "multiple tagged values",
+			setup: func(enc *Encoder) error {
+				if err := enc.BeginObject(); err != nil {
+					return err
+				}
+				if err := enc.WriteKey("a"); err != nil {
+					return err
+				}
+				if err := enc.Tag("!tag1"); err != nil {
+					return err
+				}
+				if err := enc.WriteString("value1"); err != nil {
+					return err
+				}
+				if err := enc.WriteKey("b"); err != nil {
+					return err
+				}
+				if err := enc.Tag("!tag2"); err != nil {
+					return err
+				}
+				if err := enc.WriteInt(123); err != nil {
+					return err
+				}
+				if err := enc.WriteKey("c"); err != nil {
+					return err
+				}
+				if err := enc.WriteBool(false); err != nil {
+					return err
+				}
+				return enc.EndObject()
+			},
+			expected: `{a: !tag1 "value1",b: !tag2 123,c: false}`,
+		},
+		{
+			name: "empty tag same as no tag",
+			setup: func(enc *Encoder) error {
+				if err := enc.BeginObject(); err != nil {
+					return err
+				}
+				if err := enc.WriteKey("value"); err != nil {
+					return err
+				}
+				if err := enc.WriteString("test"); err != nil {
+					return err
+				}
+				return enc.EndObject()
+			},
+			expected: `{value: "test"}`,
+		},
+		{
+			name: "tagged value in array",
+			setup: func(enc *Encoder) error {
+				if err := enc.BeginArray(); err != nil {
+					return err
+				}
+				if err := enc.Tag("!tagged"); err != nil {
+					return err
+				}
+				if err := enc.WriteString("first"); err != nil {
+					return err
+				}
+				if err := enc.WriteString("second"); err != nil {
+					return err
+				}
+				if err := enc.Tag("!inttag"); err != nil {
+					return err
+				}
+				if err := enc.WriteInt(42); err != nil {
+					return err
+				}
+				return enc.EndArray()
+			},
+			expected: `[!tagged "first","second",!inttag 42]`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			enc, err := NewEncoder(&buf, WithBrackets())
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if err := tt.setup(enc); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			output := buf.String()
+			if output != tt.expected {
+				t.Errorf("expected %q, got %q", tt.expected, output)
+			}
+		})
+	}
+}
+
+func TestEncoder_TagError(t *testing.T) {
+	var buf bytes.Buffer
+	enc, err := NewEncoder(&buf, WithBrackets())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Set a tag
+	if err := enc.Tag("!schema(string)"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Try to set another tag without consuming the first one - should error
+	err = enc.Tag("!another")
+	if err == nil {
+		t.Error("expected error when setting tag while one is already pending")
+	}
+	if err != nil {
+		expectedMsg := "tag already pending for the next object"
+		if err.Error() != expectedMsg {
+			t.Errorf("expected error message %q, got %q", expectedMsg, err.Error())
+		}
+	}
+
+	// After consuming the tag, should be able to set a new one
+	if err := enc.WriteString("value"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Now should be able to set a new tag
+	if err := enc.Tag("!schema(int)"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestEncoder_TagCompose(t *testing.T) {
+	var buf bytes.Buffer
+	enc, err := NewEncoder(&buf, WithBrackets())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Test TagCompose with no pending tag (should just set the tag)
+	if err := enc.BeginObject(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := enc.WriteKey("person"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := enc.TagCompose("!schema", []string{"person"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := enc.BeginObject(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := enc.WriteKey("name"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := enc.WriteString("John"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := enc.EndObject(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := enc.EndObject(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	expected := `{person: !schema(person) {name: "John"}}`
+	if output != expected {
+		t.Errorf("expected %q, got %q", expected, output)
+	}
+
+	// Test TagCompose composing with existing pending tag
+	buf.Reset()
+	enc, err = NewEncoder(&buf, WithBrackets())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := enc.BeginObject(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := enc.WriteKey("value"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Set initial tag
+	if err := enc.Tag("!schema"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Compose with bracket tag
+	if err := enc.TagCompose("!bracket", nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := enc.BeginObject(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := enc.WriteKey("name"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := enc.WriteString("test"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := enc.EndObject(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := enc.EndObject(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output = buf.String()
+	expected = `{value: !bracket.schema {name: "test"}}`
+	if output != expected {
+		t.Errorf("expected %q, got %q", expected, output)
+	}
+
+	// Test TagCompose with args composing with existing tag
+	buf.Reset()
+	enc, err = NewEncoder(&buf, WithBrackets())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := enc.BeginObject(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := enc.WriteKey("value"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Set initial tag with args
+	if err := enc.TagCompose("!schema", []string{"person"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Compose with bracket tag
+	if err := enc.TagCompose("!bracket", nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := enc.BeginObject(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := enc.EndObject(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := enc.EndObject(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output = buf.String()
+	expected = `{value: !bracket.schema(person) {}}`
+	if output != expected {
+		t.Errorf("expected %q, got %q", expected, output)
+	}
+
+	// Test TagCompose with multiple args
+	buf.Reset()
+	enc, err = NewEncoder(&buf, WithBrackets())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := enc.BeginObject(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := enc.WriteKey("value"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := enc.TagCompose("!from", []string{"base-schema", "int"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := enc.WriteInt(42); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := enc.EndObject(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output = buf.String()
+	expected = `{value: !from(base-schema,int) 42}`
+	if output != expected {
+		t.Errorf("expected %q, got %q", expected, output)
+	}
+}
+
+func TestEncoder_CurrentTag(t *testing.T) {
+	var buf bytes.Buffer
+	enc, err := NewEncoder(&buf, WithBrackets())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Initially no tag
+	if enc.CurrentTag() != "" {
+		t.Errorf("expected empty tag initially, got %q", enc.CurrentTag())
+	}
+
+	// Set a tag
+	if err := enc.Tag("!schema"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if enc.CurrentTag() != "!schema" {
+		t.Errorf("expected tag %q, got %q", "!schema", enc.CurrentTag())
+	}
+
+	// Compose with another tag
+	if err := enc.TagCompose("!bracket", nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if enc.CurrentTag() != "!bracket.schema" {
+		t.Errorf("expected tag %q, got %q", "!bracket.schema", enc.CurrentTag())
+	}
+
+	// Write a value - tag should be cleared
+	if err := enc.BeginObject(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if enc.CurrentTag() != "" {
+		t.Errorf("expected empty tag after writing value, got %q", enc.CurrentTag())
+	}
+
+	// Set tag with args
+	if err := enc.TagCompose("!schema", []string{"person"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if enc.CurrentTag() != "!schema(person)" {
+		t.Errorf("expected tag %q, got %q", "!schema(person)", enc.CurrentTag())
+	}
+}

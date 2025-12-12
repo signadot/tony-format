@@ -4,6 +4,7 @@ import (
 	"io"
 	"strconv"
 
+	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/token"
 )
 
@@ -11,11 +12,12 @@ import (
 // Only supports bracketed structures ({...} and [...]).
 // Block style (TArrayElt) is not supported.
 type Encoder struct {
-	writer  io.Writer
-	state   *State
-	offset  int64
-	opts    *streamOpts
+	writer      io.Writer
+	state       *State
+	offset      int64
+	opts        *streamOpts
 	lastWasValue bool // Track if last thing written was a value (for commas)
+	pendingTag   string // Tag to apply to next value
 }
 
 // StreamOption configures Encoder/Decoder behavior.
@@ -63,6 +65,7 @@ func NewEncoder(w io.Writer, opts ...StreamOption) (*Encoder, error) {
 		offset:       0,
 		opts:         streamOpts,
 		lastWasValue: false,
+		pendingTag:   "",
 	}, nil
 }
 
@@ -117,10 +120,45 @@ func (e *Encoder) Offset() int64 {
 	return e.offset
 }
 
+// CurrentTag returns the currently pending tag (if any).
+// Returns empty string if no tag is pending.
+func (e *Encoder) CurrentTag() string {
+	return e.pendingTag
+}
+
+// Tag sets the tag for the next value to be written.
+// The tag will be applied to the next call to BeginObject, BeginArray,
+// WriteString, WriteInt, WriteFloat, WriteBool, or WriteNull.
+// After writing the value, the tag is cleared.
+// Returns an error if a tag is already pending (not yet consumed by a value).
+func (e *Encoder) Tag(tag string) error {
+	if e.pendingTag != "" {
+		return &Error{
+			Msg: "tag already pending for the next object",
+		}
+	}
+	e.pendingTag = tag
+	return nil
+}
+
+// TagCompose composes a tag with arguments and the currently pending tag (if any).
+// If there's a pending tag, it composes the new tag with the pending tag.
+// The new tag comes first in the composition (e.g., if pending is "!schema" and
+// you call TagCompose("!bracket", nil), the result is "!bracket.schema").
+// If there's no pending tag, it just sets the new tag.
+// The tag will be applied to the next call to BeginObject, BeginArray,
+// WriteString, WriteInt, WriteFloat, WriteBool, or WriteNull.
+// After writing the value, the tag is cleared.
+func (e *Encoder) TagCompose(tag string, args []string) error {
+	e.pendingTag = ir.TagCompose(tag, args, e.pendingTag)
+	return nil
+}
+
 // Structure Control Methods
 
 // BeginObject begins an object (or sparse array).
 // Note: Sparse arrays use BeginObject/EndObject (semantic distinction at parse layer).
+// Uses the tag set by Tag() if one was set.
 func (e *Encoder) BeginObject() error {
 	// Add comma if needed (not first element in array)
 	if e.lastWasValue && e.state.IsInArray() {
@@ -130,12 +168,24 @@ func (e *Encoder) BeginObject() error {
 		e.lastWasValue = false
 	}
 
+	// Write tag if present
+	tag := e.pendingTag
+	e.pendingTag = "" // Clear pending tag
+	if tag != "" {
+		if err := e.writeTag(tag); err != nil {
+			return err
+		}
+		if err := e.writeBytes([]byte(" ")); err != nil {
+			return err
+		}
+	}
+
 	if err := e.writeBytes([]byte("{")); err != nil {
 		return err
 	}
 
 	// Update state
-	event := Event{Type: EventBeginObject}
+	event := Event{Type: EventBeginObject, Tag: tag}
 	if err := e.state.ProcessEvent(event); err != nil {
 		return err
 	}
@@ -161,6 +211,7 @@ func (e *Encoder) EndObject() error {
 }
 
 // BeginArray begins a regular array.
+// Uses the tag set by Tag() if one was set.
 func (e *Encoder) BeginArray() error {
 	// Add comma if needed (not first element in array)
 	if e.lastWasValue && e.state.IsInArray() {
@@ -170,12 +221,24 @@ func (e *Encoder) BeginArray() error {
 		e.lastWasValue = false
 	}
 
+	// Write tag if present
+	tag := e.pendingTag
+	e.pendingTag = "" // Clear pending tag
+	if tag != "" {
+		if err := e.writeTag(tag); err != nil {
+			return err
+		}
+		if err := e.writeBytes([]byte(" ")); err != nil {
+			return err
+		}
+	}
+
 	if err := e.writeBytes([]byte("[")); err != nil {
 		return err
 	}
 
 	// Update state
-	event := Event{Type: EventBeginArray}
+	event := Event{Type: EventBeginArray, Tag: tag}
 	if err := e.state.ProcessEvent(event); err != nil {
 		return err
 	}
@@ -241,10 +304,23 @@ func (e *Encoder) WriteKey(key string) error {
 }
 
 // WriteString writes a string value.
+// Uses the tag set by Tag() if one was set.
 func (e *Encoder) WriteString(value string) error {
 	// Add comma if needed (not first element in array)
 	if e.lastWasValue && e.state.IsInArray() {
 		if err := e.writeBytes([]byte(",")); err != nil {
+			return err
+		}
+	}
+
+	// Write tag if present
+	tag := e.pendingTag
+	e.pendingTag = "" // Clear pending tag
+	if tag != "" {
+		if err := e.writeTag(tag); err != nil {
+			return err
+		}
+		if err := e.writeBytes([]byte(" ")); err != nil {
 			return err
 		}
 	}
@@ -256,7 +332,7 @@ func (e *Encoder) WriteString(value string) error {
 	}
 
 	// Update state
-	event := Event{Type: EventString, String: value}
+	event := Event{Type: EventString, Tag: tag, String: value}
 	if err := e.state.ProcessEvent(event); err != nil {
 		return err
 	}
@@ -266,10 +342,23 @@ func (e *Encoder) WriteString(value string) error {
 }
 
 // WriteInt writes an integer value.
+// Uses the tag set by Tag() if one was set.
 func (e *Encoder) WriteInt(value int64) error {
 	// Add comma if needed (not first element in array)
 	if e.lastWasValue && e.state.IsInArray() {
 		if err := e.writeBytes([]byte(",")); err != nil {
+			return err
+		}
+	}
+
+	// Write tag if present
+	tag := e.pendingTag
+	e.pendingTag = "" // Clear pending tag
+	if tag != "" {
+		if err := e.writeTag(tag); err != nil {
+			return err
+		}
+		if err := e.writeBytes([]byte(" ")); err != nil {
 			return err
 		}
 	}
@@ -281,7 +370,7 @@ func (e *Encoder) WriteInt(value int64) error {
 	}
 
 	// Update state
-	event := Event{Type: EventInt, Int: value}
+	event := Event{Type: EventInt, Tag: tag, Int: value}
 	if err := e.state.ProcessEvent(event); err != nil {
 		return err
 	}
@@ -291,10 +380,23 @@ func (e *Encoder) WriteInt(value int64) error {
 }
 
 // WriteFloat writes a float value.
+// Uses the tag set by Tag() if one was set.
 func (e *Encoder) WriteFloat(value float64) error {
 	// Add comma if needed (not first element in array)
 	if e.lastWasValue && e.state.IsInArray() {
 		if err := e.writeBytes([]byte(",")); err != nil {
+			return err
+		}
+	}
+
+	// Write tag if present
+	tag := e.pendingTag
+	e.pendingTag = "" // Clear pending tag
+	if tag != "" {
+		if err := e.writeTag(tag); err != nil {
+			return err
+		}
+		if err := e.writeBytes([]byte(" ")); err != nil {
 			return err
 		}
 	}
@@ -306,7 +408,7 @@ func (e *Encoder) WriteFloat(value float64) error {
 	}
 
 	// Update state
-	event := Event{Type: EventFloat, Float: value}
+	event := Event{Type: EventFloat, Tag: tag, Float: value}
 	if err := e.state.ProcessEvent(event); err != nil {
 		return err
 	}
@@ -316,10 +418,23 @@ func (e *Encoder) WriteFloat(value float64) error {
 }
 
 // WriteBool writes a boolean value.
+// Uses the tag set by Tag() if one was set.
 func (e *Encoder) WriteBool(value bool) error {
 	// Add comma if needed (not first element in array)
 	if e.lastWasValue && e.state.IsInArray() {
 		if err := e.writeBytes([]byte(",")); err != nil {
+			return err
+		}
+	}
+
+	// Write tag if present
+	tag := e.pendingTag
+	e.pendingTag = "" // Clear pending tag
+	if tag != "" {
+		if err := e.writeTag(tag); err != nil {
+			return err
+		}
+		if err := e.writeBytes([]byte(" ")); err != nil {
 			return err
 		}
 	}
@@ -336,7 +451,7 @@ func (e *Encoder) WriteBool(value bool) error {
 	}
 
 	// Update state
-	event := Event{Type: EventBool, Bool: value}
+	event := Event{Type: EventBool, Tag: tag, Bool: value}
 	if err := e.state.ProcessEvent(event); err != nil {
 		return err
 	}
@@ -346,10 +461,23 @@ func (e *Encoder) WriteBool(value bool) error {
 }
 
 // WriteNull writes a null value.
+// Uses the tag set by Tag() if one was set.
 func (e *Encoder) WriteNull() error {
 	// Add comma if needed (not first element in array)
 	if e.lastWasValue && e.state.IsInArray() {
 		if err := e.writeBytes([]byte(",")); err != nil {
+			return err
+		}
+	}
+
+	// Write tag if present
+	tag := e.pendingTag
+	e.pendingTag = "" // Clear pending tag
+	if tag != "" {
+		if err := e.writeTag(tag); err != nil {
+			return err
+		}
+		if err := e.writeBytes([]byte(" ")); err != nil {
 			return err
 		}
 	}
@@ -360,7 +488,7 @@ func (e *Encoder) WriteNull() error {
 	}
 
 	// Update state
-	event := Event{Type: EventNull}
+	event := Event{Type: EventNull, Tag: tag}
 	if err := e.state.ProcessEvent(event); err != nil {
 		return err
 	}
@@ -417,8 +545,14 @@ func (e *Encoder) Reset(w io.Writer, opts ...StreamOption) error {
 	e.offset = 0
 	e.opts = streamOpts
 	e.lastWasValue = false
+	e.pendingTag = ""
 
 	return nil
+}
+
+// writeTag writes a tag to the writer.
+func (e *Encoder) writeTag(tag string) error {
+	return e.writeBytes([]byte(tag))
 }
 
 // writeBytes writes bytes to the writer and updates offset.

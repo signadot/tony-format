@@ -57,6 +57,7 @@ func NewDecoder(r io.Reader, opts ...StreamOption) (*Decoder, error) {
 // Phase 1: Comment tokens are skipped (no comment events emitted).
 // Phase 2: Comment tokens are converted to EventHeadComment or EventLineComment.
 func (d *Decoder) ReadEvent() (Event, error) {
+	var pendingTag string
 	for {
 		// Get next token (from pending buffer or read from source)
 		tok, err := d.nextToken()
@@ -74,11 +75,22 @@ func (d *Decoder) ReadEvent() (Event, error) {
 			continue
 		}
 
+		// Handle tags - only TTag tokens (starting with !) are tags
+		if tok.Type == token.TTag {
+			pendingTag = string(tok.Bytes)
+			// Continue to get the next token (the actual value)
+			continue
+		}
+
 		// Convert token to event
 		event, err := d.tokenToEvent(tok)
 		if err != nil {
 			return Event{}, err
 		}
+
+		// Set tag on event if present
+		event.Tag = pendingTag
+		pendingTag = "" // Reset pending tag
 
 		// Update state with event
 		if err := d.state.ProcessEvent(event); err != nil {

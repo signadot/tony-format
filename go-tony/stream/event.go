@@ -4,17 +4,20 @@ package stream
 // Events correspond to the encoder's API methods, providing a symmetric
 // encode/decode interface.
 type Event struct {
-	Type EventType
+	Type EventType `tony:"field=type"`
+
+	// Tag field (applies to value events: String, Int, Float, Bool, Null, BeginObject, BeginArray)
+	Tag string `tony:"field=tag"`
 
 	// Value fields (only one is set based on Type)
-	Key    string
-	String string
-	Int    int64
-	Float  float64
-	Bool   bool
+	Key    string `tony:"field=key"`
+	String string `tony:"field=string"`
+	Int    int64  `tony:"field=int"`
+	Float  float64 `tony:"field=float"`
+	Bool   bool   `tony:"field=bool"`
 
 	// Comment fields (for EventHeadComment and EventLineComment)
-	CommentLines []string // Comment text lines (from IR Node.Lines)
+	CommentLines []string `tony:"field=commentLines"` // Comment text lines (from IR Node.Lines)
 }
 
 // EventType represents the type of a structural event.
