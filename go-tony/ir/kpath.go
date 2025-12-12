@@ -261,6 +261,126 @@ func Split(kpath string) (firstSegment string, restPath string) {
 	return firstSegment, restPath
 }
 
+// RSplit splits a kinded path into the parent path and the last segment.
+// Returns the parent path (everything except the last segment) and the last segment.
+// Panics if the path cannot be parsed (invalid kinded path syntax).
+//
+// Examples:
+//   - RSplit("a.b.c") → ("a.b", "c")
+//   - RSplit("a[0]") → ("a", "[0]")
+//   - RSplit("[0].b") → ("[0]", "b")
+//   - RSplit("{13}.c") → ("{13}", "c")
+//   - RSplit("a") → ("", "a")
+//   - RSplit("") → ("", "")
+//
+// The last segment is returned as a string representation:
+//   - Field: "a" or "'field name'" (quoted if needed)
+//   - Dense array: "[0]"
+//   - Sparse array: "{0}"
+func RSplit(kpath string) (parentPath string, lastSegment string) {
+	if kpath == "" {
+		return "", ""
+	}
+
+	kp, err := ParseKPath(kpath)
+	if err != nil {
+		panic(fmt.Sprintf("RSplit: invalid kinded path %q: %v", kpath, err))
+	}
+	if kp == nil {
+		return "", ""
+	}
+
+	// Find the last segment by traversing to the end
+	// We need to find the second-to-last node to build the parent path
+	var prev *KPath
+	current := kp
+	for current.Next != nil {
+		prev = current
+		current = current.Next
+	}
+
+	// Extract last segment
+	lastSegment = current.SegmentString()
+
+	// Reconstruct parent path
+	if prev == nil {
+		// Only one segment, parent is empty
+		parentPath = ""
+	} else {
+		// Build parent by creating a new KPath chain ending at prev
+		parentKP := &KPath{}
+		copyKPathSegment(kp, parentKP, prev.Next)
+		parentPath = parentKP.String()
+	}
+
+	return parentPath, lastSegment
+}
+
+// SegmentFieldName extracts the field name from a segment string.
+// Returns the unquoted field name and true if the segment is a field segment.
+// Returns false if the segment is not a field (e.g., array index "[0]", sparse index "{0}", wildcard "*").
+//
+// Examples:
+//   - SegmentFieldName("a") → ("a", true)
+//   - SegmentFieldName("'field name'") → ("field name", true)
+//   - SegmentFieldName("\"field name\"") → ("field name", true)
+//   - SegmentFieldName("[0]") → ("", false)
+//   - SegmentFieldName("{0}") → ("", false)
+//   - SegmentFieldName("*") → ("", false)
+func SegmentFieldName(segment string) (fieldName string, isField bool) {
+	if segment == "" {
+		return "", false
+	}
+
+	// Parse the segment as a kpath
+	kp, err := ParseKPath(segment)
+	if err != nil {
+		// Invalid segment - not a field
+		return "", false
+	}
+	if kp == nil {
+		return "", false
+	}
+
+	// Check if it's a field segment
+	if kp.Field != nil {
+		return *kp.Field, true
+	}
+
+	// Not a field (could be array index, sparse index, wildcard, etc.)
+	return "", false
+}
+
+// copyKPathSegment copies KPath segments from src to dst up to (but not including) stop.
+// If stop is nil, copies the entire chain.
+func copyKPathSegment(src *KPath, dst *KPath, stop *KPath) {
+	if src == stop {
+		return
+	}
+	// Copy current segment
+	if src.FieldAll {
+		dst.FieldAll = true
+	} else if src.Field != nil {
+		field := *src.Field
+		dst.Field = &field
+	} else if src.IndexAll {
+		dst.IndexAll = true
+	} else if src.Index != nil {
+		idx := *src.Index
+		dst.Index = &idx
+	} else if src.SparseIndexAll {
+		dst.SparseIndexAll = true
+	} else if src.SparseIndex != nil {
+		idx := *src.SparseIndex
+		dst.SparseIndex = &idx
+	}
+	// Copy next segment if not at stop
+	if src.Next != nil && src.Next != stop {
+		dst.Next = &KPath{}
+		copyKPathSegment(src.Next, dst.Next, stop)
+	}
+}
+
 // SplitAll splits a kinded path into all segments from root to leaf.
 // Returns a slice of segment strings, each representing a valid top-level kpath.
 // Panics if the path cannot be parsed (invalid kinded path syntax).
