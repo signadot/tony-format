@@ -3,65 +3,48 @@ package token
 import (
 	"bytes"
 	"io"
-
-	"github.com/signadot/tony-format/go-tony/format"
 )
 
 type tkState struct {
 	cb, sb int
 	// reset every '\n'
-	lnIndent int
-	kvSep    bool
-	bElt     int
+	lnIndent      int
+	lineStartOffset int64 // absolute offset where current line started (after newline)
+	kvSep         bool
+	bElt          int
 }
 
 func Tokenize(dst []Token, src []byte, opts ...TokenOpt) ([]Token, error) {
-	var (
-		i, n int
-		d    []byte
-	)
-	posDoc := &PosDoc{d: make([]byte, len(src), len(src)+1)}
-	copy(posDoc.d, src)
-	posDoc.d = append(posDoc.d, '\n')
-	d = posDoc.d
-	n = len(d)
-	opt := &tokenOpts{format: format.TonyFormat}
-	for _, o := range opts {
-		o(opt)
-	}
-	ts := &tkState{}
+	// Create Tokenizer for non-streaming mode
+	tokenizer := NewTokenizerFromBytes(src, opts...)
+	
+	// Get the full document (Tokenizer already added trailing newline)
+	d := tokenizer.doc
+	n := len(d)
+	
+	// Handle initial indent
+	i := 0
 	indent := readIndent(d)
-	//fmt.Printf("at offset %d indent %d\n", i, indent)
 	if indent != 0 {
 		tok := &Token{
 			Type:  TIndent,
 			Bytes: bytes.Repeat([]byte{' '}, indent),
-			Pos:   posDoc.Pos(i),
+			Pos:   tokenizer.posDoc.Pos(i),
 		}
 		dst = append(dst, *tok)
-		ts.lnIndent = indent
-		ts.kvSep = false
-		ts.bElt = 0
+		tokenizer.ts.lnIndent = indent
+		tokenizer.ts.lineStartOffset = int64(i) // Document starts at offset 0
+		tokenizer.ts.kvSep = false
+		tokenizer.ts.bElt = 0
+		i += indent
+	} else {
+		tokenizer.ts.lineStartOffset = 0 // Document starts at offset 0
 	}
 
-	// Main loop: use tokenizeOne() for all tokenization
-	var lastToken *Token
+	// Main loop: use Tokenizer.TokenizeOne() for all tokenization
 	for i < n {
-		// Call tokenizeOne with allTokens=dst and docPrefix=d[:i] for non-streaming mode
-		// absOffset is 0 because d is the full document starting at offset 0
-		tokens, consumed, err := tokenizeOne(
-			d,           // buffer (full document)
-			i,           // relative offset in buffer
-			0,           // buffer start offset (0 for full document)
-			ts,          // state
-			posDoc,      // posDoc
-			opt,         // options
-			lastToken,   // last token
-			nil,         // recentTokens (nil = use allTokens)
-			nil,         // recentBuf (nil = use docPrefix)
-			dst,         // allTokens (for mLitIndent)
-			d[:i],       // docPrefix (for commentPrefix)
-		)
+		// Call TokenizeOne with bufferStartOffset = 0 (full document starts at offset 0)
+		tokens, consumed, err := tokenizer.TokenizeOne(d, i, 0)
 
 		if err == io.EOF {
 			// Should not happen in non-streaming mode, but handle gracefully
@@ -74,7 +57,7 @@ func Tokenize(dst []Token, src []byte, opts ...TokenOpt) ([]Token, error) {
 		// Append all tokens (handles multiline strings)
 		for _, tok := range tokens {
 			dst = append(dst, tok)
-			lastToken = &tok
+			tokenizer.lastToken = &tok
 		}
 
 		// Advance position

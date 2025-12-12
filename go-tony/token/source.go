@@ -5,40 +5,25 @@ import (
 	"io"
 	"strconv"
 	"strings"
-
-	"github.com/signadot/tony-format/go-tony/format"
 )
 
 // TokenSource provides streaming tokenization from an io.Reader.
-// It maintains internal state (tkState, PosDoc) and buffers data as needed.
+// It maintains internal state and buffers data as needed.
 type TokenSource struct {
 	reader io.Reader
 
+	// Tokenizer for tokenization (handles state and tokenization logic)
+	tokenizer *Tokenizer
+
 	// Internal buffer management
 	buf      []byte
-	bufStart int // Absolute offset where buf starts in stream
-	bufPos   int // Current position within buf
-
-	// Tokenization state (persisted across reads)
-	ts     *tkState
-	posDoc *PosDoc
-
-	// Options
-	opt *tokenOpts
-
-	// Sliding windows for context-dependent functions
-	recentTokens []Token // Last ~50 tokens for mLitIndent
-	recentBuf    []byte  // Last ~200 bytes for commentPrefix
-
-	// Last token emitted (for context)
-	lastToken *Token
+	bufStart int64 // Absolute offset where buf starts in stream
+	bufPos   int   // Current position within buf
 
 	// EOF handling
-	eof             bool
-	trailingNL      bool // Whether we've added trailing newline
-	bufferSize      int  // Size of read buffer
-	maxRecentTokens int  // Max tokens to keep in recentTokens
-	maxRecentBuf    int  // Max bytes to keep in recentBuf
+	eof        bool
+	trailingNL bool // Whether we've added trailing newline
+	bufferSize int  // Size of read buffer
 
 	// Initial state
 	initialized bool // Whether we've processed initial indent
@@ -55,27 +40,19 @@ type TokenSource struct {
 }
 
 const (
-	defaultBufferSize      = 4096
-	defaultMaxRecentTokens = 50
-	defaultMaxRecentBuf    = 200
+	defaultBufferSize = 4096
 )
 
 // NewTokenSource creates a new TokenSource reading from r.
 func NewTokenSource(r io.Reader, opts ...TokenOpt) *TokenSource {
-	opt := &tokenOpts{format: format.TonyFormat}
-	for _, o := range opts {
-		o(opt)
-	}
+	// Create Tokenizer for streaming mode
+	tokenizer := NewTokenizer(r, opts...)
 
 	return &TokenSource{
-		reader:          r,
-		ts:              &tkState{},
-		posDoc:          &PosDoc{}, // Empty PosDoc for streaming
-		opt:             opt,
-		bufferSize:      defaultBufferSize,
-		maxRecentTokens: defaultMaxRecentTokens,
-		maxRecentBuf:    defaultMaxRecentBuf,
-		currentPath:     "", // Root path is empty string in kinded path syntax
+		reader:    r,
+		tokenizer: tokenizer,
+		bufferSize: defaultBufferSize,
+		currentPath: "", // Root path is empty string in kinded path syntax
 	}
 }
 
@@ -110,20 +87,15 @@ func (ts *TokenSource) Read() ([]Token, error) {
 			tok := Token{
 				Type:  TIndent,
 				Bytes: bytes.Repeat([]byte{' '}, indent),
-				Pos:   ts.posDoc.Pos(ts.bufStart + ts.bufPos),
+				Pos:   ts.tokenizer.posDoc.Pos(int(ts.bufStart) + ts.bufPos),
 			}
-			ts.ts.lnIndent = indent
-			ts.ts.kvSep = false
-			ts.ts.bElt = 0
-			ts.recentTokens = append(ts.recentTokens, tok)
-			ts.lastToken = &tok
+			ts.tokenizer.ts.lnIndent = indent
+			ts.tokenizer.ts.lineStartOffset = ts.bufStart + int64(ts.bufPos) // Line starts at indent position
+			ts.tokenizer.ts.kvSep = false
+			ts.tokenizer.ts.bElt = 0
+			ts.tokenizer.lastToken = &tok
 			// Advance past the indent (indent is number of spaces, so consume that many bytes)
 			ts.bufPos += indent
-			ts.recentBuf = append(ts.recentBuf, bytes.Repeat([]byte{' '}, indent)...)
-			if len(ts.recentBuf) > ts.maxRecentBuf {
-				excess := len(ts.recentBuf) - ts.maxRecentBuf
-				ts.recentBuf = ts.recentBuf[excess:]
-			}
 			ts.initialized = true
 			return []Token{tok}, nil
 		}
@@ -141,23 +113,15 @@ func (ts *TokenSource) Read() ([]Token, error) {
 			continue // Retry after reading more data
 		}
 
-		// Call tokenizeOne with streaming parameters
-		tokens, consumed, err := tokenizeOne(
+		// Call Tokenizer.TokenizeOne with streaming parameters
+		tokens, consumed, err := ts.tokenizer.TokenizeOne(
 			ts.buf,          // buffer
 			ts.bufPos,       // current position in buffer
 			ts.bufStart,     // absolute offset where buffer starts
-			ts.ts,           // state (modified)
-			ts.posDoc,       // posDoc (modified)
-			ts.opt,          // options
-			ts.lastToken,    // last token
-			ts.recentTokens, // recent tokens (for mLitIndent)
-			ts.recentBuf,    // recent buffer (for commentPrefix)
-			nil,             // allTokens (nil for streaming)
-			nil,             // docPrefix (nil for streaming)
 		)
 
 		if err == io.EOF {
-			// tokenizeOne needs more buffer
+			// TokenizeOne needs more buffer
 			needsMoreData, err := ts.handleTokenizeEOF()
 			if err != nil {
 				return nil, err
@@ -176,32 +140,13 @@ func (ts *TokenSource) Read() ([]Token, error) {
 		// Update position
 		ts.bufPos += consumed
 
-		// Update sliding windows and path tracking
+		// Update path tracking
 		if len(tokens) > 0 {
 			for _, tok := range tokens {
-				ts.recentTokens = append(ts.recentTokens, tok)
-				if len(ts.recentTokens) > ts.maxRecentTokens {
-					ts.recentTokens = ts.recentTokens[1:]
-				}
-				ts.lastToken = &tok
+				ts.tokenizer.lastToken = &tok
 				// Update path tracking (only for bracketed structures)
 				ts.updateDepth(tok)
 				ts.updatePath(tok)
-			}
-
-			// Update recentBuf with consumed bytes (before updating bufPos)
-			if consumed > 0 {
-				start := ts.bufPos - consumed
-				if start < 0 {
-					start = 0
-				}
-				consumedBytes := ts.buf[start:ts.bufPos]
-				ts.recentBuf = append(ts.recentBuf, consumedBytes...)
-				if len(ts.recentBuf) > ts.maxRecentBuf {
-					// Keep only the last maxRecentBuf bytes
-					excess := len(ts.recentBuf) - ts.maxRecentBuf
-					ts.recentBuf = ts.recentBuf[excess:]
-				}
 			}
 
 			// Return tokens if we got any
@@ -279,7 +224,7 @@ func (ts *TokenSource) ensureTrailingNewline() (bool, error) {
 	return true, nil
 }
 
-// handleTokenizeEOF handles the case where tokenizeOne returns io.EOF
+// handleTokenizeEOF handles the case where TokenizeOne returns io.EOF
 // (meaning it needs more buffer to complete tokenization).
 // Returns (needsMoreData, error) where needsMoreData is true if we should retry.
 func (ts *TokenSource) handleTokenizeEOF() (bool, error) {
@@ -311,7 +256,7 @@ func (ts *TokenSource) fillBuffer() error {
 		remaining := ts.buf[ts.bufPos:]
 		copy(ts.buf, remaining)
 		ts.buf = ts.buf[:len(remaining)]
-		ts.bufStart += ts.bufPos
+		ts.bufStart += int64(ts.bufPos)
 		ts.bufPos = 0
 	}
 

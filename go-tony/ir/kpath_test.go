@@ -1032,6 +1032,95 @@ func TestSplit(t *testing.T) {
 	}
 }
 
+func TestRSplit(t *testing.T) {
+	tests := []struct {
+		name          string
+		input         string
+		wantParent    string
+		wantLast      string
+		wantErr       bool
+	}{
+		{
+			name:       "empty path",
+			input:      "",
+			wantParent: "",
+			wantLast:   "",
+		},
+		{
+			name:       "single field",
+			input:      "a",
+			wantParent: "",
+			wantLast:   "a",
+		},
+		{
+			name:       "two fields",
+			input:      "a.b",
+			wantParent: "a",
+			wantLast:   "b",
+		},
+		{
+			name:       "three fields",
+			input:      "a.b.c",
+			wantParent: "a.b",
+			wantLast:   "c",
+		},
+		{
+			name:       "field then array",
+			input:      "a[0]",
+			wantParent: "a",
+			wantLast:   "[0]",
+		},
+		{
+			name:       "array index first",
+			input:      "[0].b",
+			wantParent: "[0]",
+			wantLast:   "b",
+		},
+		{
+			name:       "sparse index first",
+			input:      "{13}.c",
+			wantParent: "{13}",
+			wantLast:   "c",
+		},
+		{
+			name:       "nested arrays",
+			input:      "a[0][1]",
+			wantParent: "a[0]",
+			wantLast:   "[1]",
+		},
+		{
+			name:       "mixed path",
+			input:      "a.b[0].c",
+			wantParent: "a.b[0]",
+			wantLast:   "c",
+		},
+		{
+			name:       "quoted field",
+			input:      "a.'field name'",
+			wantParent: "a",
+			wantLast:   "\"field name\"", // SegmentString normalizes to double quotes
+		},
+		{
+			name:       "quoted field at end",
+			input:      "a.b.'field name'",
+			wantParent: "a.b",
+			wantLast:   "\"field name\"", // SegmentString normalizes to double quotes
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotParent, gotLast := RSplit(tt.input)
+			if gotParent != tt.wantParent {
+				t.Errorf("RSplit(%q) parent = %q, want %q", tt.input, gotParent, tt.wantParent)
+			}
+			if gotLast != tt.wantLast {
+				t.Errorf("RSplit(%q) last = %q, want %q", tt.input, gotLast, tt.wantLast)
+			}
+		})
+	}
+}
+
 func TestSplitAll(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -1,9 +1,9 @@
-// Package parse provides tony parsing support.
 package parse
 
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 
@@ -100,6 +100,174 @@ func parseTokens(toks []token.Token, pOpts *parseOpts) (*ir.Node, error) {
 		res = associateComments(res)
 	}
 	return res, nil
+}
+
+// ParseNodeFromSource parses the next complete ir.Node from a TokenSource.
+// It reads tokens until it finds a complete bracketed structure or simple value,
+// then parses and returns it. Returns io.EOF when the source is exhausted.
+//
+// This is a simplified replacement for NodeParser.ParseNext() that handles
+// the core incremental parsing use case.
+func ParseNodeFromSource(source *token.TokenSource, opts ...ParseOption) (*ir.Node, error) {
+	pOpts := &parseOpts{format: format.TonyFormat}
+	for _, f := range opts {
+		f(pOpts)
+	}
+
+	var buffer []token.Token
+	var leadingComments []token.Token
+	var bracketDepth int
+	var firstTokenFound bool
+
+	// Read tokens to find leading comments and the first node token
+	for {
+		tokens, err := source.Read()
+		if err == io.EOF {
+			if len(buffer) == 0 {
+				return nil, io.EOF
+			}
+			// EOF reached but we have tokens - check if complete
+			if bracketDepth != 0 {
+				return nil, fmt.Errorf("incomplete bracketed structure: unmatched brackets (depth=%d)", bracketDepth)
+			}
+			if !firstTokenFound {
+				return nil, io.EOF
+			}
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if len(tokens) == 0 {
+			continue
+		}
+
+		// Process tokens in this batch
+		for _, tok := range tokens {
+			// Skip leading comments and indents
+			if tok.Type == token.TComment {
+				leadingComments = append(leadingComments, tok)
+				continue
+			}
+			if tok.Type == token.TIndent {
+				continue
+			}
+
+			// Find the first meaningful token
+			if !firstTokenFound {
+				switch tok.Type {
+				case token.TLCurl, token.TLSquare:
+					// Bracketed structure - track it
+					firstTokenFound = true
+					buffer = append(buffer, tok)
+					bracketDepth++
+					continue
+				case token.TString, token.TMString, token.TLiteral, token.TMLit,
+					token.TInteger, token.TFloat, token.TTrue, token.TFalse, token.TNull:
+					// Simple value - parse it directly (simplified, without trailing comments)
+					return parseSimpleValueFromToken(&tok, leadingComments, pOpts)
+				default:
+					return nil, fmt.Errorf("unexpected token %s at %s (expected bracketed structure or simple value)",
+						tok.Type, tok.Pos)
+				}
+			}
+
+			// We've found the first token - continue processing
+			buffer = append(buffer, tok)
+
+			// Update bracket depth for bracketed structures
+			switch tok.Type {
+			case token.TLCurl, token.TLSquare:
+				bracketDepth++
+			case token.TRCurl, token.TRSquare:
+				bracketDepth--
+				if bracketDepth < 0 {
+					return nil, fmt.Errorf("unmatched closing bracket at %s", tok.Pos)
+				}
+			}
+
+			// Check if we have a complete bracketed structure (depth returned to 0)
+			if bracketDepth == 0 && firstTokenFound {
+				// We have a complete bracketed structure
+				goto parse
+			}
+		}
+	}
+
+parse:
+	// Use existing parseTokens function - it handles balancing and parsing
+	// We need to prepend leading comments to the buffer for parseTokens to handle
+	allToks := append(leadingComments, buffer...)
+	return parseTokens(allToks, pOpts)
+}
+
+// parseSimpleValueFromToken parses a simple value token with leading comments.
+// This is a simplified version that doesn't handle trailing comments.
+func parseSimpleValueFromToken(tok *token.Token, leadingComments []token.Token, pOpts *parseOpts) (*ir.Node, error) {
+	var node *ir.Node
+	var pos *token.Pos
+
+	switch tok.Type {
+	case token.TLiteral, token.TString:
+		node = ir.FromString(tok.String())
+		pos = tok.Pos
+	case token.TMString:
+		node = ir.FromString(tok.String())
+		pos = tok.Pos
+		parts := bytes.Split(tok.Bytes, []byte{'\n'})
+		for _, part := range parts {
+			node.Lines = append(node.Lines, token.QuotedToString(part))
+		}
+	case token.TMLit:
+		node = ir.FromString(tok.String())
+		pos = tok.Pos
+	case token.TInteger:
+		pos = tok.Pos
+		i, err := strconv.ParseInt(string(tok.Bytes), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid integer %w: %s", err, tok.Pos)
+		}
+		node = ir.FromInt(i)
+	case token.TFloat:
+		pos = tok.Pos
+		f, err := strconv.ParseFloat(string(tok.Bytes), 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid float %w: %s", err, tok.Pos)
+		}
+		node = ir.FromFloat(f)
+	case token.TTrue:
+		pos = tok.Pos
+		node = ir.FromBool(true)
+	case token.TFalse:
+		pos = tok.Pos
+		node = ir.FromBool(false)
+	case token.TNull:
+		pos = tok.Pos
+		node = ir.Null()
+	default:
+		return nil, fmt.Errorf("unexpected token type for simple value: %s", tok.Type)
+	}
+
+	// Track position if needed
+	trackPos(node, pos, pOpts)
+
+	// Handle leading comments (wrap node in CommentType if we have leading comments)
+	var result *ir.Node = node
+	if len(leadingComments) > 0 && pOpts.comments {
+		commentLines := make([]string, len(leadingComments))
+		for i, c := range leadingComments {
+			commentLines[i] = strings.TrimSpace(string(c.Bytes))
+		}
+		result = &ir.Node{
+			Type:   ir.CommentType,
+			Lines:  commentLines,
+			Values: []*ir.Node{node},
+		}
+		node.Parent = result
+		node.ParentIndex = 0
+	}
+
+	return result, nil
 }
 func trackPos(node *ir.Node, pos *token.Pos, opts *parseOpts) {
 	if opts.positions != nil && pos != nil {
