@@ -150,7 +150,7 @@ func (si *StreamingIndexer) GetIndex() *index.Index {
 // booleans, null) are supported. The implementation detects the token type
 // and uses the appropriate parsing method:
 // - Simple values: parsed directly from tokens
-// - Bracketed structures: parsed using NodeParser
+// - Bracketed structures: parsed using ParseNodeFromSource
 //
 // The kpath parameter should be in kpath format (e.g., "a.b.c", "[0].key", "foo{4}.bar")
 func (si *StreamingIndexer) ReadPath(kpath string) (*ir.Node, error) {
@@ -227,7 +227,7 @@ func (si *StreamingIndexer) ReadPath(kpath string) (*ir.Node, error) {
 			return nil, fmt.Errorf("failed to parse simple value at offset %d: %w", seg.LogPosition, err)
 		}
 	} else if firstToken.Type == token.TLCurl || firstToken.Type == token.TLSquare {
-		// It's a bracketed structure - use NodeParser
+		// It's a bracketed structure - use parseNodeFromSource
 		// We've already skipped whitespace and found the opening bracket
 		// We need to reseek to the start of the bracket (before the firstToken)
 		// Get current file position and calculate where the bracket starts
@@ -242,8 +242,7 @@ func (si *StreamingIndexer) ReadPath(kpath string) (*ir.Node, error) {
 			return nil, fmt.Errorf("failed to reseek to bracket start: %w", err)
 		}
 		source = token.NewTokenSource(readFile)
-		parser := parse.NewNodeParser(source)
-		node, err = parser.ParseNext()
+		node, err = parse.ParseNodeFromSource(source)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse bracketed node at offset %d: %w", seg.LogPosition, err)
 		}

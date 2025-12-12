@@ -63,7 +63,7 @@ func (i *Index) Add(seg *LogSegment) {
 		return
 	}
 	// Split kpath into first segment and rest for navigation
-	firstSegment, restPath := ir.Split(seg.KindedPath)
+	firstSegment, restPath := ir.SplitKPath(seg.KindedPath)
 	child := i.Children[firstSegment]
 	if child == nil {
 		child = NewIndex(firstSegment)
@@ -82,7 +82,7 @@ func (i *Index) Remove(seg *LogSegment) bool {
 		defer i.Unlock()
 		return i.Commits.Remove(*seg)
 	}
-	firstSegment, restPath := ir.Split(seg.KindedPath)
+	firstSegment, restPath := ir.SplitKPath(seg.KindedPath)
 	i.RLock()
 	defer i.RUnlock()
 	c := i.Children[firstSegment]
@@ -110,7 +110,7 @@ func (i *Index) LookupRange(kpath string, from, to *int64) []LogSegment {
 		return res
 	}
 	// Split kpath to navigate hierarchy
-	firstSegment, restPath := ir.Split(kpath)
+	firstSegment, restPath := ir.SplitKPath(kpath)
 	c := i.Children[firstSegment]
 	if c == nil {
 		return res
@@ -148,7 +148,7 @@ func (i *Index) LookupWithin(kpath string, commit int64) []LogSegment {
 		slices.SortFunc(res, LogSegCompare)
 		return res
 	}
-	firstSegment, restPath := ir.Split(kpath)
+	firstSegment, restPath := ir.SplitKPath(kpath)
 	c := i.Children[firstSegment]
 	if c == nil {
 		return res

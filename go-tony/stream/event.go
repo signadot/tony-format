@@ -10,11 +10,11 @@ type Event struct {
 	Tag string `tony:"field=tag"`
 
 	// Value fields (only one is set based on Type)
-	Key    string `tony:"field=key"`
-	String string `tony:"field=string"`
-	Int    int64  `tony:"field=int"`
+	Key    string  `tony:"field=key"`
+	String string  `tony:"field=string"`
+	Int    int64   `tony:"field=int"`
 	Float  float64 `tony:"field=float"`
-	Bool   bool   `tony:"field=bool"`
+	Bool   bool    `tony:"field=bool"`
 
 	// Comment fields (for EventHeadComment and EventLineComment)
 	CommentLines []string `tony:"field=commentLines"` // Comment text lines (from IR Node.Lines)

@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/token"
 )
 
@@ -122,11 +122,9 @@ func (s *State) resetToObjectBase() {
 	}
 }
 
-
-
 // resetArrayPath resets the current path to the array base (removing array index).
 func (s *State) resetArrayPath() {
-	parent, lastSeg := ir.RSplit(s.currentPath)
+	parent, lastSeg := kpath.RSplit(s.currentPath)
 	// If last segment is an array index, remove it
 	if strings.HasPrefix(lastSeg, "[") {
 		s.currentPath = parent
@@ -171,7 +169,7 @@ func (s *State) appendKeyToPath(key string) {
 func (s *State) appendArrayIndexToPath() {
 	// Reset to array base if path already ends with an array index
 	// This handles cases where we see consecutive array elements without commas
-	parent, lastSeg := ir.RSplit(s.currentPath)
+	parent, lastSeg := kpath.RSplit(s.currentPath)
 	if strings.HasPrefix(lastSeg, "[") {
 		// Path ends with array index - reset to parent
 		s.currentPath = parent
@@ -218,8 +216,8 @@ func (s *State) CurrentKey() string {
 	}
 
 	// Use RSplit to get the last segment, then extract field name
-	_, lastSeg := ir.RSplit(s.currentPath)
-	fieldName, ok := ir.SegmentFieldName(lastSeg)
+	_, lastSeg := kpath.RSplit(s.currentPath)
+	fieldName, ok := kpath.SegmentFieldName(lastSeg)
 	if !ok {
 		// Not a field segment (could be array index, etc.)
 		return ""
@@ -234,4 +232,76 @@ func (s *State) CurrentIndex() int {
 		return s.arrayIndex
 	}
 	return 0
+}
+
+// KPathState creates a State that represents being at the given kinded path.
+// It parses the kpath string and simulates the events needed to reach that path,
+// building up the State's internal structure (path stack, bracket stack, etc.).
+//
+// Returns an error if the kpath string is invalid.
+func KPathState(kp string) (*State, error) {
+	if kp == "" {
+		return NewState(), nil
+	}
+
+	// Parse the kpath into structured form
+	p, err := kpath.Parse(kp)
+	if err != nil {
+		return nil, err
+	}
+	if p == nil {
+		return NewState(), nil
+	}
+
+	// Build State by simulating events for each segment
+	state := NewState()
+	current := p
+
+	for current != nil {
+		if current.Field != nil {
+			// Field segment - need to be in an object
+			if !state.IsInObject() {
+				// Open object if not already in one
+				state.ProcessEvent(Event{Type: EventBeginObject})
+			}
+			// Process key event
+			state.ProcessEvent(Event{Type: EventKey, Key: *current.Field})
+			// Move to next segment
+			current = current.Next
+		} else if current.Index != nil {
+			// Dense array index - need to be in an array
+			if !state.IsInArray() {
+				// Open array if not already in one
+				state.ProcessEvent(Event{Type: EventBeginArray})
+			}
+			// Set array index to the target index
+			// We need to process enough array elements to reach the target index
+			targetIndex := *current.Index
+			for state.arrayIndex < targetIndex {
+				// Process a dummy value to advance the array index
+				state.ProcessEvent(Event{Type: EventNull})
+			}
+			// Move to next segment
+			current = current.Next
+		} else if current.SparseIndex != nil {
+			// Sparse array index - similar to dense but uses {n} syntax
+			// For now, treat sparse arrays similar to dense arrays
+			// This may need adjustment based on how sparse arrays are handled
+			if !state.IsInArray() {
+				state.ProcessEvent(Event{Type: EventBeginArray})
+			}
+			// Note: Sparse arrays might need different handling
+			// For now, we'll set the array index
+			targetIndex := *current.SparseIndex
+			for state.arrayIndex < targetIndex {
+				state.ProcessEvent(Event{Type: EventNull})
+			}
+			current = current.Next
+		} else {
+			// Unknown segment type - skip it
+			current = current.Next
+		}
+	}
+
+	return state, nil
 }

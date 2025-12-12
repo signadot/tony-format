@@ -1,12 +1,12 @@
-package ir
+package kpath
 
 import "testing"
 
 func TestSegmentFieldName(t *testing.T) {
 	tests := []struct {
-		name       string
-		input      string
-		wantField  string
+		name        string
+		input       string
+		wantField   string
 		wantIsField bool
 	}{
 		{

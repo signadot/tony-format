@@ -1,4 +1,4 @@
-package ir
+package kpath
 
 import (
 	"testing"
@@ -77,13 +77,6 @@ func TestKPath_SegmentString(t *testing.T) {
 				SparseIndexAll: true,
 			},
 			expected: "{*}",
-		},
-		{
-			name: "key value (future)",
-			kpath: &KPath{
-				KeyValue: &Node{Type: StringType, String: "test"},
-			},
-			expected: "(key)",
 		},
 	}
 
