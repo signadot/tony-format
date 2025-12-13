@@ -226,8 +226,8 @@ func (s *State) CurrentIndex() int {
 }
 
 // KPathState creates a State that represents being at the given kinded path.
-// It parses the kpath string and simulates the events needed to reach that path,
-// building up the State's internal structure (path stack, bracket stack, etc.).
+// It parses the kpath string and directly builds up the State's internal structure
+// (path stack, bracket stack, etc.) without processing dummy events.
 //
 // Returns an error if the kpath string is invalid.
 func KPathState(kp string) (*State, error) {
@@ -244,7 +244,7 @@ func KPathState(kp string) (*State, error) {
 		return NewState(), nil
 	}
 
-	// Build State by simulating events for each segment
+	// Build State by directly manipulating state fields for each segment
 	state := NewState()
 	current := p
 
@@ -252,41 +252,54 @@ func KPathState(kp string) (*State, error) {
 		if current.Field != nil {
 			// Field segment - need to be in an object
 			if !state.IsInObject() {
-				// Open object if not already in one
-				state.ProcessEvent(&Event{Type: EventBeginObject})
+				// Open object: push current path and bracket type
+				state.pathStack = append(state.pathStack, state.currentPath)
+				state.bracketStack = append(state.bracketStack, token.TLCurl)
+				state.depth++
 			}
-			// Process key event
-			state.ProcessEvent(&Event{Type: EventKey, Key: *current.Field})
+			// Append key to path directly
+			state.appendKeyToPath(*current.Field)
 			// Move to next segment
 			current = current.Next
 		} else if current.Index != nil {
 			// Dense array index - need to be in an array
 			if !state.IsInArray() {
-				// Open array if not already in one
-				state.ProcessEvent(&Event{Type: EventBeginArray})
+				// Open array: push current path and bracket type
+				state.pathStack = append(state.pathStack, state.currentPath)
+				state.bracketStack = append(state.bracketStack, token.TLSquare)
+				state.depth++
+				state.arrayIndex = 0
 			}
-			// Set array index to the target index
-			// We need to process enough array elements to reach the target index
+			// Set array index directly and append to path
 			targetIndex := *current.Index
-			for state.arrayIndex < targetIndex {
-				// Process a dummy value to advance the array index
-				state.ProcessEvent(&Event{Type: EventNull})
+			state.arrayIndex = targetIndex
+			// Append array index to path
+			parent, lastSeg := kpath.RSplit(state.currentPath)
+			if strings.HasPrefix(lastSeg, "[") {
+				state.currentPath = parent
 			}
+			state.currentPath += "[" + strconv.Itoa(targetIndex) + "]"
+			state.arrayIndex++ // Increment for next element
 			// Move to next segment
 			current = current.Next
 		} else if current.SparseIndex != nil {
 			// Sparse array index - similar to dense but uses {n} syntax
-			// For now, treat sparse arrays similar to dense arrays
-			// This may need adjustment based on how sparse arrays are handled
 			if !state.IsInArray() {
-				state.ProcessEvent(&Event{Type: EventBeginArray})
+				state.pathStack = append(state.pathStack, state.currentPath)
+				state.bracketStack = append(state.bracketStack, token.TLSquare)
+				state.depth++
+				state.arrayIndex = 0
 			}
-			// Note: Sparse arrays might need different handling
-			// For now, we'll set the array index
+			// Set sparse array index directly
 			targetIndex := *current.SparseIndex
-			for state.arrayIndex < targetIndex {
-				state.ProcessEvent(&Event{Type: EventNull})
+			state.arrayIndex = targetIndex
+			// Append sparse array index to path (using {n} syntax)
+			parent, lastSeg := kpath.RSplit(state.currentPath)
+			if strings.HasPrefix(lastSeg, "[") || strings.HasPrefix(lastSeg, "{") {
+				state.currentPath = parent
 			}
+			state.currentPath += "{" + strconv.Itoa(targetIndex) + "}"
+			state.arrayIndex++ // Increment for next element
 			current = current.Next
 		} else {
 			// Unknown segment type - skip it

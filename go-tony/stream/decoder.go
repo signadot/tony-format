@@ -113,12 +113,13 @@ func (d *Decoder) nextToken() (token.Token, error) {
 	// Read from source
 	tokens, err := d.source.Read()
 	if err != nil {
+		// If source returns EOF or other error, propagate it
 		return token.Token{}, err
 	}
 
 	if len(tokens) == 0 {
-		// No tokens in this batch, try again
-		return d.nextToken()
+		// No tokens in this batch - source is exhausted
+		return token.Token{}, io.EOF
 	}
 
 	// Return first token, save rest in pending buffer
@@ -144,21 +145,37 @@ func (d *Decoder) tokenToEvent(tok token.Token) (*Event, error) {
 		return &Event{Type: EventEndArray}, nil
 
 	case token.TString, token.TLiteral:
-		// Determine if this is a key or value by peeking ahead
-		// If followed by TColon, it's a key; otherwise it's a value
-		peekTok, err := d.peekToken()
-		if err == nil && peekTok.Type == token.TColon {
-			// It's a key - consume the colon from pending buffer
-			// peekToken already added tokens to pendingTokens, so consume the colon
-			if len(d.pendingTokens) > 0 && d.pendingTokens[0].Type == token.TColon {
-				d.pendingTokens = d.pendingTokens[1:]
-			}
+		// Determine if this token is a key or value by reading ahead one token.
+		// TString/TLiteral tokens can be either:
+		//   - Keys: when followed by TColon (e.g., "key": value or "0": value in sparse arrays)
+		//   - String values: when NOT followed by TColon
+		// Use read+unread pattern: read next token, check if colon, unread if not colon.
+		nextTok, err := d.nextToken()
+		if err != nil {
+			// Can't read next token (EOF) - this token must be a string value
+			return &Event{
+				Type:   EventString,
+				String: tok.String(),
+			}, nil
+		}
+		
+		if nextTok.Type == token.TColon {
+			// Followed by colon = it's a key
+			// Colon is already consumed by nextToken(), which is correct
+			// Works for both regular object keys and sparse array keys (e.g., "0": value)
 			return &Event{
 				Type: EventKey,
 				Key:  tok.String(),
 			}, nil
 		}
-		// It's a value
+		
+		// NOT followed by colon = it's a string value
+		// Put nextTok back (unread) so ReadEvent() can process it in the next iteration
+		// The nextTok could be any type (string, number, object start, etc.) - that's fine,
+		// it will be handled by the next ReadEvent() call
+		d.pendingTokens = append([]token.Token{nextTok}, d.pendingTokens...)
+		// TString/TLiteral tokens are string tokens (tokenizer has already determined this),
+		// so return EventString
 		return &Event{
 			Type:   EventString,
 			String: tok.String(),
@@ -172,6 +189,35 @@ func (d *Decoder) tokenToEvent(tok token.Token) (*Event, error) {
 		}, nil
 
 	case token.TInteger:
+		// Determine if this is a sparse array key or an integer value
+		// If followed by TColon, it's a sparse array key; otherwise it's an integer value
+		// Use read+unread pattern: read next token, check if colon, unread if not colon.
+		nextTok, err := d.nextToken()
+		if err != nil {
+			// Can't read next token (EOF) - this token must be an integer value
+			val, err := strconv.ParseInt(string(tok.Bytes), 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			return &Event{
+				Type: EventInt,
+				Int:  val,
+			}, nil
+		}
+
+		if nextTok.Type == token.TColon {
+			// Followed by colon = it's a sparse array key
+			// Colon is already consumed by nextToken(), which is correct
+			// Convert integer to string for the Key field
+			return &Event{
+				Type: EventKey,
+				Key:  string(tok.Bytes),
+			}, nil
+		}
+
+		// NOT followed by colon = it's an integer value
+		// Put nextTok back (unread) so ReadEvent() can process it in the next iteration
+		d.pendingTokens = append([]token.Token{nextTok}, d.pendingTokens...)
 		val, err := strconv.ParseInt(string(tok.Bytes), 10, 64)
 		if err != nil {
 			return nil, err

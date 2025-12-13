@@ -3,6 +3,7 @@ package stream
 import (
 	"fmt"
 	"io"
+	"strconv"
 
 	"github.com/signadot/tony-format/go-tony/ir"
 )
@@ -10,18 +11,97 @@ import (
 // NodeToEvents converts an ir.Node to a sequence of events.
 // Returns events that can be written via Encoder.
 //
-// Phase 1: Comments are skipped (not included in events).
 // Phase 2: Comments are converted to EventHeadComment or EventLineComment.
+// Head comments (CommentType node with 1 value) emit EventHeadComment before the value.
+// Line comments (CommentType node in Comment field) emit EventLineComment after the value.
 func NodeToEvents(node *ir.Node) ([]Event, error) {
-	// TODO: Implement conversion
-	// 1. Handle different node types
-	// 2. For objects: EventBeginObject, EventKey, value events, EventEndObject
-	// 3. For arrays: EventBeginArray, value events, EventEndArray
-	// 4. For primitives: EventString, EventInt, etc.
-	// 5. Phase 1: Skip comments
-	// 6. Phase 2: Handle head comments (CommentType with 1 value) and line comments (CommentType in Comment field)
+	var events []Event
+	if err := nodeToEvents(node, &events); err != nil {
+		return nil, err
+	}
+	return events, nil
+}
 
-	return nil, nil
+func nodeToEvents(node *ir.Node, events *[]Event) error {
+	if node == nil {
+		return fmt.Errorf("node cannot be nil")
+	}
+
+	if node.Type == ir.CommentType {
+		if len(node.Values) != 1 {
+			return fmt.Errorf("comment node must have exactly 1 value for head comment")
+		}
+		*events = append(*events, Event{Type: EventHeadComment, CommentLines: node.Lines})
+		return nodeToEvents(node.Values[0], events)
+	}
+
+	switch node.Type {
+	case ir.ObjectType:
+		*events = append(*events, Event{Type: EventBeginObject, Tag: node.Tag})
+		for i := 0; i < len(node.Fields); i++ {
+			keyNode := node.Fields[i]
+			valueNode := node.Values[i]
+			key := keyNode.String
+			if keyNode.Type == ir.NumberType && keyNode.Int64 != nil {
+				key = strconv.FormatInt(*keyNode.Int64, 10)
+			}
+			*events = append(*events, Event{Type: EventKey, Key: key})
+			if err := nodeToEvents(valueNode, events); err != nil {
+				return err
+			}
+			if valueNode.Comment != nil {
+				*events = append(*events, Event{Type: EventLineComment, CommentLines: valueNode.Comment.Lines})
+			}
+		}
+		*events = append(*events, Event{Type: EventEndObject})
+
+	case ir.ArrayType:
+		*events = append(*events, Event{Type: EventBeginArray, Tag: node.Tag})
+		for _, valueNode := range node.Values {
+			if err := nodeToEvents(valueNode, events); err != nil {
+				return err
+			}
+			if valueNode.Comment != nil {
+				*events = append(*events, Event{Type: EventLineComment, CommentLines: valueNode.Comment.Lines})
+			}
+		}
+		*events = append(*events, Event{Type: EventEndArray})
+
+	case ir.StringType:
+		*events = append(*events, Event{Type: EventString, String: node.String, Tag: node.Tag})
+		if node.Comment != nil {
+			*events = append(*events, Event{Type: EventLineComment, CommentLines: node.Comment.Lines})
+		}
+
+	case ir.NumberType:
+		if node.Float64 != nil {
+			*events = append(*events, Event{Type: EventFloat, Float: *node.Float64, Tag: node.Tag})
+		} else if node.Int64 != nil {
+			*events = append(*events, Event{Type: EventInt, Int: *node.Int64, Tag: node.Tag})
+		} else {
+			return fmt.Errorf("number node has neither Float64 nor Int64 set")
+		}
+		if node.Comment != nil {
+			*events = append(*events, Event{Type: EventLineComment, CommentLines: node.Comment.Lines})
+		}
+
+	case ir.BoolType:
+		*events = append(*events, Event{Type: EventBool, Bool: node.Bool, Tag: node.Tag})
+		if node.Comment != nil {
+			*events = append(*events, Event{Type: EventLineComment, CommentLines: node.Comment.Lines})
+		}
+
+	case ir.NullType:
+		*events = append(*events, Event{Type: EventNull, Tag: node.Tag})
+		if node.Comment != nil {
+			*events = append(*events, Event{Type: EventLineComment, CommentLines: node.Comment.Lines})
+		}
+
+	default:
+		return fmt.Errorf("unsupported node type: %v", node.Type)
+	}
+
+	return nil
 }
 
 // EventsToNode converts a sequence of events to an ir.Node.
