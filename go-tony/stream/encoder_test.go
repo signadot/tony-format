@@ -456,7 +456,7 @@ func TestEncoderDecoder_RoundTrip(t *testing.T) {
 	tests := []struct {
 		name  string
 		write func(*Encoder) error
-		check func(*testing.T, []Event)
+		check func(*testing.T, []*Event)
 	}{
 		{
 			name: "simple_object",
@@ -472,7 +472,7 @@ func TestEncoderDecoder_RoundTrip(t *testing.T) {
 				}
 				return enc.EndObject()
 			},
-			check: func(t *testing.T, events []Event) {
+			check: func(t *testing.T, events []*Event) {
 				if len(events) != 4 {
 					t.Fatalf("expected 4 events, got %d", len(events))
 				}
@@ -513,7 +513,7 @@ func TestEncoderDecoder_RoundTrip(t *testing.T) {
 				}
 				return enc.EndObject()
 			},
-			check: func(t *testing.T, events []Event) {
+			check: func(t *testing.T, events []*Event) {
 				if len(events) != 7 {
 					t.Fatalf("expected 7 events, got %d", len(events))
 				}
@@ -536,7 +536,7 @@ func TestEncoderDecoder_RoundTrip(t *testing.T) {
 				}
 				return enc.EndArray()
 			},
-			check: func(t *testing.T, events []Event) {
+			check: func(t *testing.T, events []*Event) {
 				if len(events) != 5 {
 					t.Fatalf("expected 5 events, got %d", len(events))
 				}
@@ -566,7 +566,7 @@ func TestEncoderDecoder_RoundTrip(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			events := []Event{}
+			events := []*Event{}
 			for {
 				event, err := dec.ReadEvent()
 				if err == io.EOF {

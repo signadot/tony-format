@@ -1,23 +1,27 @@
 package stream
 
+import "fmt"
+
 // Event represents a structural event from the decoder.
 // Events correspond to the encoder's API methods, providing a symmetric
 // encode/decode interface.
+//
+//tony:schemagen=event
 type Event struct {
-	Type EventType `tony:"field=type"`
+	Type EventType `tony:"field=t"`
 
 	// Tag field (applies to value events: String, Int, Float, Bool, Null, BeginObject, BeginArray)
-	Tag string `tony:"field=tag"`
+	Tag string `tony:"field=a optional"`
 
 	// Value fields (only one is set based on Type)
-	Key    string  `tony:"field=key"`
-	String string  `tony:"field=string"`
-	Int    int64   `tony:"field=int"`
-	Float  float64 `tony:"field=float"`
-	Bool   bool    `tony:"field=bool"`
+	Key    string  `tony:"field=k optional"`
+	String string  `tony:"field=s optional"`
+	Int    int64   `tony:"field=i optional"`
+	Float  float64 `tony:"field=f optional"`
+	Bool   bool    `tony:"field=b optional"`
 
 	// Comment fields (for EventHeadComment and EventLineComment)
-	CommentLines []string `tony:"field=commentLines"` // Comment text lines (from IR Node.Lines)
+	CommentLines []string `tony:"field=c optional"` // Comment text lines (from IR Node.Lines)
 }
 
 // EventType represents the type of a structural event.
@@ -67,4 +71,31 @@ func (t EventType) String() string {
 	default:
 		return "Unknown"
 	}
+}
+
+func (t EventType) MarshalText() ([]byte, error) {
+	return []byte(t.String()), nil
+}
+
+func (t *EventType) UnmarshalText(d []byte) error {
+	k := string(d)
+	pt, ok := map[string]EventType{
+		"BeginObject": EventBeginObject,
+		"EndObject":   EventEndObject,
+		"BeginArray":  EventBeginArray,
+		"EndArray":    EventEndArray,
+		"Key":         EventKey,
+		"String":      EventString,
+		"Int":         EventInt,
+		"Float":       EventFloat,
+		"Bool":        EventBool,
+		"Null":        EventNull,
+		"HeadComment": EventHeadComment,
+		"LineComment": EventLineComment,
+	}[k]
+	if ok {
+		*t = pt
+		return nil
+	}
+	return fmt.Errorf("unknown type %q", k)
 }

@@ -224,6 +224,17 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 		buf.WriteString("\n\n")
 	}
 
+	// Generate zero-value helper functions for optional fields
+	zeroValueHelpers, err := GenerateZeroValueHelpers(structs)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate zero-value helpers: %w", err)
+	}
+	if zeroValueHelpers != "" {
+		buf.WriteString("// Zero-value check helpers\n")
+		buf.WriteString(zeroValueHelpers)
+		buf.WriteString("\n")
+	}
+
 	// Format the generated code
 	codeStr := buf.String()
 	formatted, err := format.Source([]byte(codeStr))
@@ -262,6 +273,137 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 	}
 
 	return string(formatted), nil
+}
+
+// GenerateZeroValueHelpers generates helper functions for checking zero values of optional fields.
+func GenerateZeroValueHelpers(structs []*StructInfo) (string, error) {
+	var buf strings.Builder
+	helpers := make(map[string]bool) // Track which helpers we've already generated
+
+	for _, structInfo := range structs {
+		if structInfo.StructSchema == nil {
+			continue
+		}
+
+		for _, field := range structInfo.Fields {
+			// Only generate helpers for optional non-pointer fields
+			if !field.Optional {
+				continue
+			}
+			if field.Type == nil {
+				continue
+			}
+			if field.Type.Kind() == reflect.Ptr {
+				continue // Pointer fields use nil checks, not zero-value checks
+			}
+
+			helperName := fmt.Sprintf("isZeroValue_%s_%s", structInfo.Name, field.Name)
+			if helpers[helperName] {
+				continue // Already generated
+			}
+			helpers[helperName] = true
+
+			// Generate helper function based on field type
+			// Use the actual field type (which may be a named type)
+			typeStr := getTypeString(field.Type)
+			
+			switch field.Type.Kind() {
+			case reflect.String:
+				buf.WriteString(fmt.Sprintf("func %s(v %s) bool {\n", helperName, typeStr))
+				buf.WriteString("	return v == \"\"\n")
+				buf.WriteString("}\n\n")
+
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+				buf.WriteString(fmt.Sprintf("func %s(v %s) bool {\n", helperName, typeStr))
+				buf.WriteString("	return v == 0\n")
+				buf.WriteString("}\n\n")
+
+			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+				buf.WriteString(fmt.Sprintf("func %s(v %s) bool {\n", helperName, typeStr))
+				buf.WriteString("	return v == 0\n")
+				buf.WriteString("}\n\n")
+
+			case reflect.Float32, reflect.Float64:
+				buf.WriteString(fmt.Sprintf("func %s(v %s) bool {\n", helperName, typeStr))
+				buf.WriteString("	return v == 0.0\n")
+				buf.WriteString("}\n\n")
+
+			case reflect.Bool:
+				buf.WriteString(fmt.Sprintf("func %s(v %s) bool {\n", helperName, typeStr))
+				buf.WriteString("	return v == false\n")
+				buf.WriteString("}\n\n")
+
+			case reflect.Slice, reflect.Array:
+				buf.WriteString(fmt.Sprintf("func %s(v %s) bool {\n", helperName, typeStr))
+				buf.WriteString("	return len(v) == 0\n")
+				buf.WriteString("}\n\n")
+
+			case reflect.Map:
+				buf.WriteString(fmt.Sprintf("func %s(v %s) bool {\n", helperName, typeStr))
+				buf.WriteString("	return len(v) == 0\n")
+				buf.WriteString("}\n\n")
+
+			default:
+				// For other types, we might need a more sophisticated check
+				// For now, skip generating helpers for complex types
+				// They can be handled manually if needed
+			}
+		}
+	}
+
+	return buf.String(), nil
+}
+
+// getTypeString returns a string representation of a reflect.Type suitable for use in generated code.
+func getTypeString(t reflect.Type) string {
+	if t == nil {
+		return "interface{}"
+	}
+
+	switch t.Kind() {
+	case reflect.String:
+		return "string"
+	case reflect.Int:
+		return "int"
+	case reflect.Int8:
+		return "int8"
+	case reflect.Int16:
+		return "int16"
+	case reflect.Int32:
+		return "int32"
+	case reflect.Int64:
+		return "int64"
+	case reflect.Uint:
+		return "uint"
+	case reflect.Uint8:
+		return "uint8"
+	case reflect.Uint16:
+		return "uint16"
+	case reflect.Uint32:
+		return "uint32"
+	case reflect.Uint64:
+		return "uint64"
+	case reflect.Float32:
+		return "float32"
+	case reflect.Float64:
+		return "float64"
+	case reflect.Bool:
+		return "bool"
+	case reflect.Slice:
+		return fmt.Sprintf("[]%s", getTypeString(t.Elem()))
+	case reflect.Array:
+		return fmt.Sprintf("[%d]%s", t.Len(), getTypeString(t.Elem()))
+	case reflect.Map:
+		return fmt.Sprintf("map[%s]%s", getTypeString(t.Key()), getTypeString(t.Elem()))
+	case reflect.Ptr:
+		return fmt.Sprintf("*%s", getTypeString(t.Elem()))
+	default:
+		// For named types, use the type name
+		if t.Name() != "" {
+			return t.Name()
+		}
+		return t.String()
+	}
 }
 
 // GenerateToTonyIRMethod generates the ToTonyIR method for a struct.

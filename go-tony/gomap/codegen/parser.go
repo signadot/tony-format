@@ -393,19 +393,9 @@ func getFieldTag(field *ast.Field, tagName string) string {
 	// Remove backticks
 	tag = strings.Trim(tag, "`")
 
-	// Parse the tag to find the specific tag name
-	// Format: `key1:"value1" key2:"value2"`
-	parts := strings.Fields(tag)
-	for _, part := range parts {
-		if strings.HasPrefix(part, tagName+":") {
-			// Extract the value (remove quotes)
-			value := strings.TrimPrefix(part, tagName+":")
-			value = strings.Trim(value, `"`)
-			return value
-		}
-	}
-
-	return ""
+	// Use reflect.StructTag to properly parse the tag, which handles quoted values correctly
+	structTag := reflect.StructTag(tag)
+	return structTag.Get(tagName)
 }
 
 // GetStructSchemaTag uses reflection to get the struct schema tag.

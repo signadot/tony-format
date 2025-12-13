@@ -77,7 +77,7 @@ func ParseStructTag(tag string) (map[string]string, error) {
 		return result, nil
 	}
 
-	// Parse the tag, handling quoted values
+	// Parse the tag, handling quoted values and space-separated flags
 	var parts []string
 	var current strings.Builder
 	inSingleQuote := false
@@ -100,6 +100,14 @@ func ParseStructTag(tag string) (map[string]string, error) {
 				parts = append(parts, part)
 			}
 			current.Reset()
+		case char == ' ' && !inSingleQuote && !inDoubleQuote:
+			// Space separator - check if it's separating a flag/key
+			part := strings.TrimSpace(current.String())
+			if part != "" {
+				parts = append(parts, part)
+				current.Reset()
+			}
+			// Skip the space
 		default:
 			current.WriteByte(char)
 		}

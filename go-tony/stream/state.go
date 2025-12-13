@@ -42,13 +42,13 @@ func NewState() *State {
 
 // ProcessEvent processes an event and updates state/path tracking.
 // Call this for each event in order.
-func (s *State) ProcessEvent(event Event) error {
+func (s *State) ProcessEvent(event *Event) error {
 	// Update depth and path based on event
 	return s.updateState(event)
 }
 
 // updateState updates depth and path based on event.
-func (s *State) updateState(event Event) error {
+func (s *State) updateState(event *Event) error {
 	switch event.Type {
 	case EventBeginObject:
 		// Opening object - push current path and bracket type to stack
@@ -119,15 +119,6 @@ func (s *State) updateState(event Event) error {
 func (s *State) resetToObjectBase() {
 	if len(s.pathStack) > 0 {
 		s.currentPath = s.pathStack[len(s.pathStack)-1]
-	}
-}
-
-// resetArrayPath resets the current path to the array base (removing array index).
-func (s *State) resetArrayPath() {
-	parent, lastSeg := kpath.RSplit(s.currentPath)
-	// If last segment is an array index, remove it
-	if strings.HasPrefix(lastSeg, "[") {
-		s.currentPath = parent
 	}
 }
 
@@ -262,24 +253,24 @@ func KPathState(kp string) (*State, error) {
 			// Field segment - need to be in an object
 			if !state.IsInObject() {
 				// Open object if not already in one
-				state.ProcessEvent(Event{Type: EventBeginObject})
+				state.ProcessEvent(&Event{Type: EventBeginObject})
 			}
 			// Process key event
-			state.ProcessEvent(Event{Type: EventKey, Key: *current.Field})
+			state.ProcessEvent(&Event{Type: EventKey, Key: *current.Field})
 			// Move to next segment
 			current = current.Next
 		} else if current.Index != nil {
 			// Dense array index - need to be in an array
 			if !state.IsInArray() {
 				// Open array if not already in one
-				state.ProcessEvent(Event{Type: EventBeginArray})
+				state.ProcessEvent(&Event{Type: EventBeginArray})
 			}
 			// Set array index to the target index
 			// We need to process enough array elements to reach the target index
 			targetIndex := *current.Index
 			for state.arrayIndex < targetIndex {
 				// Process a dummy value to advance the array index
-				state.ProcessEvent(Event{Type: EventNull})
+				state.ProcessEvent(&Event{Type: EventNull})
 			}
 			// Move to next segment
 			current = current.Next
@@ -288,13 +279,13 @@ func KPathState(kp string) (*State, error) {
 			// For now, treat sparse arrays similar to dense arrays
 			// This may need adjustment based on how sparse arrays are handled
 			if !state.IsInArray() {
-				state.ProcessEvent(Event{Type: EventBeginArray})
+				state.ProcessEvent(&Event{Type: EventBeginArray})
 			}
 			// Note: Sparse arrays might need different handling
 			// For now, we'll set the array index
 			targetIndex := *current.SparseIndex
 			for state.arrayIndex < targetIndex {
-				state.ProcessEvent(Event{Type: EventNull})
+				state.ProcessEvent(&Event{Type: EventNull})
 			}
 			current = current.Next
 		} else {

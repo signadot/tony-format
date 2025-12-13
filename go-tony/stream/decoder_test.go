@@ -104,7 +104,7 @@ func TestDecoderBasic_SimpleObject(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	events := []Event{}
+	events := []*Event{}
 	for {
 		event, err := dec.ReadEvent()
 		if err == io.EOF {
@@ -147,7 +147,7 @@ func TestDecoderBasic_SimpleArray(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	events := []Event{}
+	events := []*Event{}
 	for {
 		event, err := dec.ReadEvent()
 		if err == io.EOF {
@@ -187,7 +187,7 @@ func TestDecoder_ValueTypes(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	events := []Event{}
+	events := []*Event{}
 	for {
 		event, err := dec.ReadEvent()
 		if err == io.EOF {
@@ -264,7 +264,7 @@ func TestDecoder_NestedObject(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	events := []Event{}
+	events := []*Event{}
 	for {
 		event, err := dec.ReadEvent()
 		if err == io.EOF {
@@ -450,7 +450,7 @@ func TestDecoderComments(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	events := []Event{}
+	events := []*Event{}
 	for {
 		event, err := dec.ReadEvent()
 		if err == io.EOF {
@@ -481,7 +481,7 @@ func TestDecoder_LiteralKey(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	events := []Event{}
+	events := []*Event{}
 	for {
 		event, err := dec.ReadEvent()
 		if err == io.EOF {
@@ -1283,7 +1283,7 @@ func TestDecoder_NestedDepth3_AllCombinations(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			events := []Event{}
+			events := []*Event{}
 			for {
 				event, err := dec.ReadEvent()
 				if err == io.EOF {
@@ -1586,7 +1586,7 @@ func TestDecoder_Tags(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			var events []Event
+			var events []*Event
 			for {
 				event, err := dec.ReadEvent()
 				if err == io.EOF {

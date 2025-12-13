@@ -12,8 +12,8 @@ import (
 // Block style (TArrayElt) is not supported.
 type Decoder struct {
 	source *token.TokenSource // TokenSource uses new Tokenizer internally
-	state  *State              // State for tracking structure/path
-	opts   *streamOpts         // Options
+	state  *State             // State for tracking structure/path
+	opts   *streamOpts        // Options
 
 	// Lookahead buffer for token-to-event conversion
 	// We need to peek ahead to determine if TString/TLiteral is a key or value
@@ -56,13 +56,13 @@ func NewDecoder(r io.Reader, opts ...StreamOption) (*Decoder, error) {
 //
 // Phase 1: Comment tokens are skipped (no comment events emitted).
 // Phase 2: Comment tokens are converted to EventHeadComment or EventLineComment.
-func (d *Decoder) ReadEvent() (Event, error) {
+func (d *Decoder) ReadEvent() (*Event, error) {
 	var pendingTag string
 	for {
 		// Get next token (from pending buffer or read from source)
 		tok, err := d.nextToken()
 		if err != nil {
-			return Event{}, err
+			return nil, err
 		}
 
 		// Skip structural tokens (commas, colons, indents)
@@ -85,7 +85,7 @@ func (d *Decoder) ReadEvent() (Event, error) {
 		// Convert token to event
 		event, err := d.tokenToEvent(tok)
 		if err != nil {
-			return Event{}, err
+			return nil, err
 		}
 
 		// Set tag on event if present
@@ -94,7 +94,7 @@ func (d *Decoder) ReadEvent() (Event, error) {
 
 		// Update state with event
 		if err := d.state.ProcessEvent(event); err != nil {
-			return Event{}, err
+			return nil, err
 		}
 
 		return event, nil
@@ -129,19 +129,19 @@ func (d *Decoder) nextToken() (token.Token, error) {
 
 // tokenToEvent converts a token to an Event.
 // May peek ahead to determine if TString/TLiteral is a key or value.
-func (d *Decoder) tokenToEvent(tok token.Token) (Event, error) {
+func (d *Decoder) tokenToEvent(tok token.Token) (*Event, error) {
 	switch tok.Type {
 	case token.TLCurl:
-		return Event{Type: EventBeginObject}, nil
+		return &Event{Type: EventBeginObject}, nil
 
 	case token.TRCurl:
-		return Event{Type: EventEndObject}, nil
+		return &Event{Type: EventEndObject}, nil
 
 	case token.TLSquare:
-		return Event{Type: EventBeginArray}, nil
+		return &Event{Type: EventBeginArray}, nil
 
 	case token.TRSquare:
-		return Event{Type: EventEndArray}, nil
+		return &Event{Type: EventEndArray}, nil
 
 	case token.TString, token.TLiteral:
 		// Determine if this is a key or value by peeking ahead
@@ -153,20 +153,20 @@ func (d *Decoder) tokenToEvent(tok token.Token) (Event, error) {
 			if len(d.pendingTokens) > 0 && d.pendingTokens[0].Type == token.TColon {
 				d.pendingTokens = d.pendingTokens[1:]
 			}
-			return Event{
+			return &Event{
 				Type: EventKey,
 				Key:  tok.String(),
 			}, nil
 		}
 		// It's a value
-		return Event{
+		return &Event{
 			Type:   EventString,
 			String: tok.String(),
 		}, nil
 
 	case token.TMString, token.TMLit:
 		// Multiline strings are always values
-		return Event{
+		return &Event{
 			Type:   EventString,
 			String: tok.String(),
 		}, nil
@@ -174,9 +174,9 @@ func (d *Decoder) tokenToEvent(tok token.Token) (Event, error) {
 	case token.TInteger:
 		val, err := strconv.ParseInt(string(tok.Bytes), 10, 64)
 		if err != nil {
-			return Event{}, err
+			return nil, err
 		}
-		return Event{
+		return &Event{
 			Type: EventInt,
 			Int:  val,
 		}, nil
@@ -184,32 +184,32 @@ func (d *Decoder) tokenToEvent(tok token.Token) (Event, error) {
 	case token.TFloat:
 		val, err := strconv.ParseFloat(string(tok.Bytes), 64)
 		if err != nil {
-			return Event{}, err
+			return nil, err
 		}
-		return Event{
+		return &Event{
 			Type:  EventFloat,
 			Float: val,
 		}, nil
 
 	case token.TTrue:
-		return Event{
+		return &Event{
 			Type: EventBool,
 			Bool: true,
 		}, nil
 
 	case token.TFalse:
-		return Event{
+		return &Event{
 			Type: EventBool,
 			Bool: false,
 		}, nil
 
 	case token.TNull:
-		return Event{
+		return &Event{
 			Type: EventNull,
 		}, nil
 
 	default:
-		return Event{}, &Error{
+		return nil, &Error{
 			Msg: "unexpected token type: " + tok.Type.String(),
 		}
 	}

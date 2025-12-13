@@ -186,7 +186,7 @@ func (e *Encoder) BeginObject() error {
 
 	// Update state
 	event := Event{Type: EventBeginObject, Tag: tag}
-	if err := e.state.ProcessEvent(event); err != nil {
+	if err := e.state.ProcessEvent(&event); err != nil {
 		return err
 	}
 
@@ -202,7 +202,7 @@ func (e *Encoder) EndObject() error {
 
 	// Update state
 	event := Event{Type: EventEndObject}
-	if err := e.state.ProcessEvent(event); err != nil {
+	if err := e.state.ProcessEvent(&event); err != nil {
 		return err
 	}
 
@@ -239,7 +239,7 @@ func (e *Encoder) BeginArray() error {
 
 	// Update state
 	event := Event{Type: EventBeginArray, Tag: tag}
-	if err := e.state.ProcessEvent(event); err != nil {
+	if err := e.state.ProcessEvent(&event); err != nil {
 		return err
 	}
 
@@ -255,7 +255,7 @@ func (e *Encoder) EndArray() error {
 
 	// Update state
 	event := Event{Type: EventEndArray}
-	if err := e.state.ProcessEvent(event); err != nil {
+	if err := e.state.ProcessEvent(&event); err != nil {
 		return err
 	}
 
@@ -295,7 +295,7 @@ func (e *Encoder) WriteKey(key string) error {
 
 	// Update state
 	event := Event{Type: EventKey, Key: key}
-	if err := e.state.ProcessEvent(event); err != nil {
+	if err := e.state.ProcessEvent(&event); err != nil {
 		return err
 	}
 
@@ -333,7 +333,7 @@ func (e *Encoder) WriteString(value string) error {
 
 	// Update state
 	event := Event{Type: EventString, Tag: tag, String: value}
-	if err := e.state.ProcessEvent(event); err != nil {
+	if err := e.state.ProcessEvent(&event); err != nil {
 		return err
 	}
 
@@ -371,7 +371,7 @@ func (e *Encoder) WriteInt(value int64) error {
 
 	// Update state
 	event := Event{Type: EventInt, Tag: tag, Int: value}
-	if err := e.state.ProcessEvent(event); err != nil {
+	if err := e.state.ProcessEvent(&event); err != nil {
 		return err
 	}
 
@@ -409,7 +409,7 @@ func (e *Encoder) WriteFloat(value float64) error {
 
 	// Update state
 	event := Event{Type: EventFloat, Tag: tag, Float: value}
-	if err := e.state.ProcessEvent(event); err != nil {
+	if err := e.state.ProcessEvent(&event); err != nil {
 		return err
 	}
 
@@ -452,7 +452,7 @@ func (e *Encoder) WriteBool(value bool) error {
 
 	// Update state
 	event := Event{Type: EventBool, Tag: tag, Bool: value}
-	if err := e.state.ProcessEvent(event); err != nil {
+	if err := e.state.ProcessEvent(&event); err != nil {
 		return err
 	}
 
@@ -489,7 +489,7 @@ func (e *Encoder) WriteNull() error {
 
 	// Update state
 	event := Event{Type: EventNull, Tag: tag}
-	if err := e.state.ProcessEvent(event); err != nil {
+	if err := e.state.ProcessEvent(&event); err != nil {
 		return err
 	}
 
