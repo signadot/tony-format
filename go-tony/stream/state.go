@@ -29,7 +29,7 @@ type State struct {
 
 	// Pending state (for key-value pairs)
 	pendingKey   string // Key name seen before TColon (TLiteral or TString)
-	pendingInt   string // Integer key seen before TColon (for sparse arrays)
+	pendingInt   int    // Integer key seen before TColon (for sparse arrays)
 	pendingValue bool   // True if we've seen a value token that needs path update
 }
 
@@ -43,15 +43,13 @@ func NewState() *State {
 // ProcessEvent processes an event and updates state/path tracking.
 // Call this for each event in order.
 func (s *State) ProcessEvent(event *Event) error {
-	// Update depth and path based on event
-	return s.updateState(event)
-}
-
-// updateState updates depth and path based on event.
-func (s *State) updateState(event *Event) error {
 	switch event.Type {
 	case EventBeginObject:
 		// Opening object - push current path and bracket type to stack
+		if s.IsInArray() {
+			// Array element value - append array index to path
+			s.appendArrayIndexToPath()
+		}
 		s.pathStack = append(s.pathStack, s.currentPath)
 		s.bracketStack = append(s.bracketStack, token.TLCurl)
 		s.depth++
@@ -64,13 +62,16 @@ func (s *State) updateState(event *Event) error {
 		}
 		s.popBracketStack()
 		s.depth--
-		s.arrayIndex = 0
 		s.pendingKey = ""
-		s.pendingInt = ""
+		s.pendingInt = 0
 		s.pendingValue = false
 
 	case EventBeginArray:
 		// Opening array - push current path and bracket type to stack, reset index
+		if s.IsInArray() {
+			// Array element value - append array index to path
+			s.appendArrayIndexToPath()
+		}
 		s.pathStack = append(s.pathStack, s.currentPath)
 		s.bracketStack = append(s.bracketStack, token.TLSquare)
 		s.arrayIndex = 0
@@ -84,23 +85,29 @@ func (s *State) updateState(event *Event) error {
 		}
 		s.popBracketStack()
 		s.depth--
-		s.arrayIndex = 0
 		s.pendingKey = ""
-		s.pendingInt = ""
 		s.pendingValue = false
 
 	case EventKey:
-		// Key event - update path with key
-		if len(s.bracketStack) > 0 && s.bracketStack[len(s.bracketStack)-1] == token.TLCurl {
-			// Reset to object base before appending key
-			s.resetToObjectBase()
+		if !s.IsInObject() {
+			return errors.New("not in obj but key")
 		}
+		// Key event - update path with key
+		s.currentPath = s.pathStack[len(s.pathStack)-1]
 		s.appendKeyToPath(event.Key)
+		s.pendingValue = true // Next event will be a value
+	case EventIntKey:
+		if !s.IsInObject() {
+			return errors.New("not in obj but key")
+		}
+		// Key event - update path with key
+		s.currentPath = s.pathStack[len(s.pathStack)-1]
+		s.appendIntKeyToPath(event.IntKey)
 		s.pendingValue = true // Next event will be a value
 
 	case EventString, EventInt, EventFloat, EventBool, EventNull:
 		// Value events - update path if in array
-		if len(s.bracketStack) > 0 && s.bracketStack[len(s.bracketStack)-1] == token.TLSquare {
+		if s.IsInArray() {
 			// Array element value - append array index to path
 			s.appendArrayIndexToPath()
 		}
@@ -115,22 +122,11 @@ func (s *State) updateState(event *Event) error {
 
 // Helper functions for state checks
 
-// resetToObjectBase resets currentPath to the object base from pathStack.
-func (s *State) resetToObjectBase() {
-	if len(s.pathStack) > 0 {
-		s.currentPath = s.pathStack[len(s.pathStack)-1]
-	}
-}
-
 // popBracketStack pops the path stack and bracket stack.
 func (s *State) popBracketStack() {
-	if len(s.pathStack) > 0 {
-		s.currentPath = s.pathStack[len(s.pathStack)-1]
-		s.pathStack = s.pathStack[:len(s.pathStack)-1]
-	}
-	if len(s.bracketStack) > 0 {
-		s.bracketStack = s.bracketStack[:len(s.bracketStack)-1]
-	}
+	s.currentPath = s.pathStack[len(s.pathStack)-1]
+	s.pathStack = s.pathStack[:len(s.pathStack)-1]
+	s.bracketStack = s.bracketStack[:len(s.bracketStack)-1]
 }
 
 // appendKeyToPath appends a key to the current path using kinded path syntax.
@@ -153,6 +149,13 @@ func (s *State) appendKeyToPath(key string) {
 			s.currentPath += "." + key
 		}
 	}
+}
+
+// appendKeyToPath appends a key to the current path using kinded path syntax.
+// Handles special characters by quoting the key.
+func (s *State) appendIntKeyToPath(key int64) {
+	seg := "{" + strconv.Itoa(int(key)) + "}"
+	s.currentPath += seg
 }
 
 // appendArrayIndexToPath appends the current array index to the path using kinded path syntax.
@@ -215,6 +218,36 @@ func (s *State) CurrentKey() string {
 	}
 
 	return fieldName
+}
+
+func (s *State) CurrentIntKey() int {
+	if !s.IsInObject() {
+		return -1
+	}
+	if s.currentPath == "" {
+		return -1
+	}
+	// Use RSplit to get the last segment, then extract field name
+	_, lastSeg := kpath.RSplit(s.currentPath)
+	if lastSeg == "" {
+		return -1
+	}
+	if lastSeg[0] != '{' {
+		return -1
+	}
+	lastSeg = lastSeg[1:]
+	if lastSeg == "" {
+		return -1
+	}
+	if lastSeg[len(lastSeg)-1] != '}' {
+		return -1
+	}
+	lastSeg = lastSeg[:len(lastSeg)-1]
+	u, err := strconv.ParseUint(lastSeg, 10, 32)
+	if err != nil {
+		return -1
+	}
+	return int(u)
 }
 
 // CurrentIndex returns the current array index (if in array).

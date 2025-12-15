@@ -15,6 +15,7 @@ type Event struct {
 
 	// Value fields (only one is set based on Type)
 	Key    string  `tony:"field=k optional"`
+	IntKey int64   `tony:"field=ik optional"`
 	String string  `tony:"field=s optional"`
 	Int    int64   `tony:"field=i optional"`
 	Float  float64 `tony:"field=f optional"`
@@ -22,6 +23,18 @@ type Event struct {
 
 	// Comment fields (for EventHeadComment and EventLineComment)
 	CommentLines []string `tony:"field=c optional"` // Comment text lines (from IR Node.Lines)
+}
+
+// IsValueStart returns true if this event starts a value (as opposed to a key, end marker, or comment).
+// Value-starting events are: BeginObject, BeginArray, String, Int, Float, Bool, Null.
+func (e *Event) IsValueStart() bool {
+	return e.Type == EventBeginObject ||
+		e.Type == EventBeginArray ||
+		e.Type == EventString ||
+		e.Type == EventInt ||
+		e.Type == EventFloat ||
+		e.Type == EventBool ||
+		e.Type == EventNull
 }
 
 // EventType represents the type of a structural event.
@@ -33,6 +46,7 @@ const (
 	EventBeginArray
 	EventEndArray
 	EventKey
+	EventIntKey
 	EventString
 	EventInt
 	EventFloat
@@ -54,6 +68,8 @@ func (t EventType) String() string {
 		return "EndArray"
 	case EventKey:
 		return "Key"
+	case EventIntKey:
+		return "IntKey"
 	case EventString:
 		return "String"
 	case EventInt:
@@ -85,6 +101,7 @@ func (t *EventType) UnmarshalText(d []byte) error {
 		"BeginArray":  EventBeginArray,
 		"EndArray":    EventEndArray,
 		"Key":         EventKey,
+		"IntKey":      EventIntKey,
 		"String":      EventString,
 		"Int":         EventInt,
 		"Float":       EventFloat,

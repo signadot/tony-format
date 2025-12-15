@@ -158,17 +158,25 @@ func (d *Decoder) tokenToEvent(tok token.Token) (*Event, error) {
 				String: tok.String(),
 			}, nil
 		}
-		
+
 		if nextTok.Type == token.TColon {
-			// Followed by colon = it's a key
-			// Colon is already consumed by nextToken(), which is correct
-			// Works for both regular object keys and sparse array keys (e.g., "0": value)
+			if tok.Type == token.TInteger {
+				i, err := strconv.ParseUint(string(tok.Bytes), 10, 32)
+				if err != nil {
+					return nil, err
+				}
+				return &Event{
+					Type:   EventIntKey,
+					IntKey: int64(i),
+				}, nil
+
+			}
 			return &Event{
 				Type: EventKey,
 				Key:  tok.String(),
 			}, nil
 		}
-		
+
 		// NOT followed by colon = it's a string value
 		// Put nextTok back (unread) so ReadEvent() can process it in the next iteration
 		// The nextTok could be any type (string, number, object start, etc.) - that's fine,
@@ -206,9 +214,17 @@ func (d *Decoder) tokenToEvent(tok token.Token) (*Event, error) {
 		}
 
 		if nextTok.Type == token.TColon {
-			// Followed by colon = it's a sparse array key
-			// Colon is already consumed by nextToken(), which is correct
-			// Convert integer to string for the Key field
+			if tok.Type == token.TInteger {
+				i, err := strconv.ParseUint(string(tok.Bytes), 10, 32)
+				if err != nil {
+					return nil, err
+				}
+				return &Event{
+					Type:   EventIntKey,
+					IntKey: int64(i),
+				}, nil
+
+			}
 			return &Event{
 				Type: EventKey,
 				Key:  string(tok.Bytes),

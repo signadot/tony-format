@@ -49,7 +49,7 @@ func TestStateCurrentPath_ObjectKey(t *testing.T) {
 	// { "key": "value" }
 	state.ProcessEvent(&Event{Type: EventBeginObject})
 	state.ProcessEvent(&Event{Type: EventKey, Key: "key"})
-	
+
 	if state.CurrentPath() != "key" {
 		t.Errorf("expected path 'key', got %q", state.CurrentPath())
 	}
@@ -282,6 +282,37 @@ func TestStateCurrentIndex(t *testing.T) {
 	}
 }
 
+func TestStateCurrentIndexN(t *testing.T) {
+	state := NewState()
+
+	// [ {}, {}, {} ]
+	state.ProcessEvent(&Event{Type: EventBeginArray})
+	t.Logf("[: %q]", state.CurrentPath())
+	if state.CurrentIndex() != 0 {
+		t.Errorf("expected index 0, got %d", state.CurrentIndex())
+	}
+
+	state.ProcessEvent(&Event{Type: EventBeginObject})
+	t.Logf("[{ %q]", state.CurrentPath())
+	state.ProcessEvent(&Event{Type: EventEndObject})
+	t.Logf("[{} %q]", state.CurrentPath())
+	if state.CurrentIndex() != 1 {
+		t.Errorf("expected index 1, got %d", state.CurrentIndex())
+	}
+
+	state.ProcessEvent(&Event{Type: EventBeginObject})
+	t.Logf("[{ %q]", state.CurrentPath())
+	state.ProcessEvent(&Event{Type: EventEndObject})
+	t.Logf("[{} %q]", state.CurrentPath())
+	if state.CurrentIndex() != 2 {
+		t.Errorf("expected index 2, got %d", state.CurrentIndex())
+	}
+
+	state.ProcessEvent(&Event{Type: EventEndArray})
+	if state.CurrentIndex() != 0 {
+		t.Errorf("expected index 0 after closing, got %d", state.CurrentIndex())
+	}
+}
 
 func TestStateLiteralKey(t *testing.T) {
 	state := NewState()

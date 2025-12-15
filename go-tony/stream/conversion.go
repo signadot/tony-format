@@ -216,6 +216,15 @@ func EventsToNode(events []Event) (*ir.Node, error) {
 				return nil, fmt.Errorf("unexpected EventKey at event %d (not in object)", i)
 			}
 			parent.key = ev.Key
+		case EventIntKey:
+			if len(stack) == 0 {
+				return nil, fmt.Errorf("unexpected EventIntKey at event %d (not in object)", i)
+			}
+			parent := &stack[len(stack)-1]
+			if parent.node.Type != ir.ObjectType {
+				return nil, fmt.Errorf("unexpected EventKey at event %d (not in object)", i)
+			}
+			parent.intKey = &ev.IntKey
 
 		case EventString:
 			node := ir.FromString(ev.String).WithTag(ev.Tag)
@@ -327,8 +336,9 @@ func EventsToNode(events []Event) (*ir.Node, error) {
 
 // addValueToStack adds a value node to the current stack context
 type nodeFrame struct {
-	node *ir.Node
-	key  string
+	node   *ir.Node
+	key    string
+	intKey *int64
 }
 
 func addValueToStack(stack *[]nodeFrame, node *ir.Node, root **ir.Node) {
@@ -337,15 +347,23 @@ func addValueToStack(stack *[]nodeFrame, node *ir.Node, root **ir.Node) {
 	} else {
 		parent := &(*stack)[len(*stack)-1]
 		if parent.node.Type == ir.ObjectType {
-			keyNode := ir.FromString(parent.key)
+			var keyNode *ir.Node
+			key := ""
+			if parent.intKey != nil {
+				keyNode = ir.FromInt(*parent.intKey)
+			} else {
+				keyNode = ir.FromString(parent.key)
+				key = parent.key
+			}
+
 			parent.node.Fields = append(parent.node.Fields, keyNode)
 			parent.node.Values = append(parent.node.Values, node)
 			node.Parent = parent.node
 			node.ParentIndex = len(parent.node.Values) - 1
-			node.ParentField = parent.key
+			node.ParentField = key
 			keyNode.Parent = parent.node
 			keyNode.ParentIndex = len(parent.node.Fields) - 1
-			keyNode.ParentField = parent.key
+
 		} else if parent.node.Type == ir.ArrayType {
 			parent.node.Values = append(parent.node.Values, node)
 			node.Parent = parent.node

@@ -12,11 +12,11 @@ import (
 // Only supports bracketed structures ({...} and [...]).
 // Block style (TArrayElt) is not supported.
 type Encoder struct {
-	writer      io.Writer
-	state       *State
-	offset      int64
-	opts        *streamOpts
-	lastWasValue bool // Track if last thing written was a value (for commas)
+	writer       io.Writer
+	state        *State
+	offset       int64
+	opts         *streamOpts
+	lastWasValue bool   // Track if last thing written was a value (for commas)
 	pendingTag   string // Tag to apply to next value
 }
 
@@ -295,6 +295,34 @@ func (e *Encoder) WriteKey(key string) error {
 
 	// Update state
 	event := Event{Type: EventKey, Key: key}
+	if err := e.state.ProcessEvent(&event); err != nil {
+		return err
+	}
+
+	e.lastWasValue = false
+	return nil
+}
+
+func (e *Encoder) WriteIntKey(key int) error {
+	// Add comma if needed (not first key-value pair in object)
+	if e.lastWasValue && e.state.IsInObject() {
+		if err := e.writeBytes([]byte(",")); err != nil {
+			return err
+		}
+		e.lastWasValue = false
+	}
+
+	if err := e.writeBytes([]byte(strconv.Itoa(key))); err != nil {
+		return err
+	}
+
+	// Write colon with space
+	if err := e.writeBytes([]byte(": ")); err != nil {
+		return err
+	}
+
+	// Update state
+	event := Event{Type: EventIntKey, IntKey: int64(key)}
 	if err := e.state.ProcessEvent(&event); err != nil {
 		return err
 	}

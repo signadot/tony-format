@@ -16,118 +16,6 @@ import (
 //   Without whitespace, {a:1} tokenizes as '{' 'a:1' '}' because ':' is allowed
 //   within literals (e.g., http://hello). This is intentional tokenizer behavior.
 
-// TestDecoder_SparseArray_Basic tests basic sparse array decoding.
-// Sparse arrays use unquoted integer keys (e.g., {0:"a",1:"b"}) per the
-// Tony format specification. The decoder handles TInteger tokens followed
-// by TColon as sparse array keys.
-func TestDecoder_SparseArray_Basic(t *testing.T) {
-	tests := []struct {
-		name     string
-		data     []byte
-		expected []*Event
-	}{
-		{
-			name: "empty sparse array",
-			data: []byte(`{}`),
-			expected: []*Event{
-				{Type: EventBeginObject},
-				{Type: EventEndObject},
-			},
-		},
-		{
-			name: "single element sparse array",
-			data: []byte(`{"0":"value"}`),
-			expected: []*Event{
-				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
-				{Type: EventString, String: "value"},
-				{Type: EventEndObject},
-			},
-		},
-		{
-			name: "two element sparse array",
-			data: []byte(`{"0":"value0","1":"value1"}`),
-			expected: []*Event{
-				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
-				{Type: EventString, String: "value0"},
-				{Type: EventKey, Key: "1"},
-				{Type: EventString, String: "value1"},
-				{Type: EventEndObject},
-			},
-		},
-		{
-			name: "sparse array with non-sequential indices",
-			data: []byte(`{"0":"a","5":"b","10":"c"}`),
-			expected: []*Event{
-				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
-				{Type: EventString, String: "a"},
-				{Type: EventKey, Key: "5"},
-				{Type: EventString, String: "b"},
-				{Type: EventKey, Key: "10"},
-				{Type: EventString, String: "c"},
-				{Type: EventEndObject},
-			},
-		},
-		{
-			name: "sparse array with large indices",
-			data: []byte(`{"0":"a","999":"b","1000":"c"}`),
-			expected: []*Event{
-				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
-				{Type: EventString, String: "a"},
-				{Type: EventKey, Key: "999"},
-				{Type: EventString, String: "b"},
-				{Type: EventKey, Key: "1000"},
-				{Type: EventString, String: "c"},
-				{Type: EventEndObject},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dec, err := NewDecoder(bytes.NewReader(tt.data), WithWire())
-			if err != nil {
-				t.Fatalf("NewDecoder() error = %v", err)
-			}
-
-			var events []*Event
-			for {
-				ev, err := dec.ReadEvent()
-				if err != nil {
-					if err.Error() == "EOF" {
-						break
-					}
-					t.Fatalf("ReadEvent() error = %v", err)
-				}
-				events = append(events, ev)
-			}
-
-			if len(events) != len(tt.expected) {
-				t.Errorf("got %d events, want %d", len(events), len(tt.expected))
-				t.Logf("got events: %+v", events)
-				t.Logf("want events: %+v", tt.expected)
-				return
-			}
-
-			for i, ev := range events {
-				exp := tt.expected[i]
-				if ev.Type != exp.Type {
-					t.Errorf("event[%d].Type = %v, want %v", i, ev.Type, exp.Type)
-				}
-				if ev.Key != exp.Key {
-					t.Errorf("event[%d].Key = %q, want %q", i, ev.Key, exp.Key)
-				}
-				if ev.String != exp.String {
-					t.Errorf("event[%d].String = %q, want %q", i, ev.String, exp.String)
-				}
-			}
-		})
-	}
-}
-
 // TestDecoder_SparseArray_ValueTypes tests sparse arrays with different value types
 func TestDecoder_SparseArray_ValueTypes(t *testing.T) {
 	tests := []struct {
@@ -140,9 +28,9 @@ func TestDecoder_SparseArray_ValueTypes(t *testing.T) {
 			data: []byte(`{0:"hello",1:"world"}`),
 			expected: []*Event{
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventString, String: "hello"},
-				{Type: EventKey, Key: "1"},
+				{Type: EventIntKey, IntKey: 1},
 				{Type: EventString, String: "world"},
 				{Type: EventEndObject},
 			},
@@ -152,9 +40,9 @@ func TestDecoder_SparseArray_ValueTypes(t *testing.T) {
 			data: []byte(`{0:42,1:100}`),
 			expected: []*Event{
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventInt, Int: 42},
-				{Type: EventKey, Key: "1"},
+				{Type: EventIntKey, IntKey: 1},
 				{Type: EventInt, Int: 100},
 				{Type: EventEndObject},
 			},
@@ -164,9 +52,9 @@ func TestDecoder_SparseArray_ValueTypes(t *testing.T) {
 			data: []byte(`{0:3.14,1:2.718}`),
 			expected: []*Event{
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventFloat, Float: 3.14},
-				{Type: EventKey, Key: "1"},
+				{Type: EventIntKey, IntKey: 1},
 				{Type: EventFloat, Float: 2.718},
 				{Type: EventEndObject},
 			},
@@ -176,9 +64,9 @@ func TestDecoder_SparseArray_ValueTypes(t *testing.T) {
 			data: []byte(`{0:true,1:false}`),
 			expected: []*Event{
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventBool, Bool: true},
-				{Type: EventKey, Key: "1"},
+				{Type: EventIntKey, IntKey: 1},
 				{Type: EventBool, Bool: false},
 				{Type: EventEndObject},
 			},
@@ -188,9 +76,9 @@ func TestDecoder_SparseArray_ValueTypes(t *testing.T) {
 			data: []byte(`{0:null,1:null}`),
 			expected: []*Event{
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventNull},
-				{Type: EventKey, Key: "1"},
+				{Type: EventIntKey, IntKey: 1},
 				{Type: EventNull},
 				{Type: EventEndObject},
 			},
@@ -200,15 +88,15 @@ func TestDecoder_SparseArray_ValueTypes(t *testing.T) {
 			data: []byte(`{0:"string",1:42,2:3.14,3:true,4:null}`),
 			expected: []*Event{
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventString, String: "string"},
-				{Type: EventKey, Key: "1"},
+				{Type: EventIntKey, IntKey: 1},
 				{Type: EventInt, Int: 42},
-				{Type: EventKey, Key: "2"},
+				{Type: EventIntKey, IntKey: 2},
 				{Type: EventFloat, Float: 3.14},
-				{Type: EventKey, Key: "3"},
+				{Type: EventIntKey, IntKey: 3},
 				{Type: EventBool, Bool: true},
-				{Type: EventKey, Key: "4"},
+				{Type: EventIntKey, IntKey: 4},
 				{Type: EventNull},
 				{Type: EventEndObject},
 			},
@@ -249,6 +137,9 @@ func TestDecoder_SparseArray_ValueTypes(t *testing.T) {
 				if ev.Key != exp.Key {
 					t.Errorf("event[%d].Key = %q, want %q", i, ev.Key, exp.Key)
 				}
+				if ev.IntKey != exp.IntKey {
+					t.Errorf("event[%d].IntKey = %d, want %d", i, ev.IntKey, exp.IntKey)
+				}
 				if ev.String != exp.String {
 					t.Errorf("event[%d].String = %q, want %q", i, ev.String, exp.String)
 				}
@@ -282,12 +173,12 @@ func TestDecoder_SparseArray_Nested(t *testing.T) {
 			data: []byte(`{0:{"a":"x"},1:{"b":"y"}}`),
 			expected: []*Event{
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventBeginObject},
 				{Type: EventKey, Key: "a"},
 				{Type: EventString, String: "x"},
 				{Type: EventEndObject},
-				{Type: EventKey, Key: "1"},
+				{Type: EventIntKey, IntKey: 1},
 				{Type: EventBeginObject},
 				{Type: EventKey, Key: "b"},
 				{Type: EventString, String: "y"},
@@ -300,12 +191,12 @@ func TestDecoder_SparseArray_Nested(t *testing.T) {
 			data: []byte(`{0:["a","b"],1:["c"]}`),
 			expected: []*Event{
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventBeginArray},
 				{Type: EventString, String: "a"},
 				{Type: EventString, String: "b"},
 				{Type: EventEndArray},
-				{Type: EventKey, Key: "1"},
+				{Type: EventIntKey, IntKey: 1},
 				{Type: EventBeginArray},
 				{Type: EventString, String: "c"},
 				{Type: EventEndArray},
@@ -317,16 +208,16 @@ func TestDecoder_SparseArray_Nested(t *testing.T) {
 			data: []byte(`{0:{0:"a",1:"b"},1:{0:"c"}}`),
 			expected: []*Event{
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventString, String: "a"},
-				{Type: EventKey, Key: "1"},
+				{Type: EventIntKey, IntKey: 1},
 				{Type: EventString, String: "b"},
 				{Type: EventEndObject},
-				{Type: EventKey, Key: "1"},
+				{Type: EventIntKey, IntKey: 1},
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventString, String: "c"},
 				{Type: EventEndObject},
 				{Type: EventEndObject},
@@ -342,19 +233,19 @@ func TestDecoder_SparseArray_Nested(t *testing.T) {
 			data: []byte(`{0:{"a":1},1:["x","y"],2:{0:"nested"}}`),
 			expected: []*Event{
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventBeginObject},
 				{Type: EventKey, Key: "a"},
 				{Type: EventInt, Int: 1},
 				{Type: EventEndObject},
-				{Type: EventKey, Key: "1"},
+				{Type: EventIntKey, IntKey: 1},
 				{Type: EventBeginArray},
 				{Type: EventString, String: "x"},
 				{Type: EventString, String: "y"},
 				{Type: EventEndArray},
-				{Type: EventKey, Key: "2"},
+				{Type: EventIntKey, IntKey: 2},
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventString, String: "nested"},
 				{Type: EventEndObject},
 				{Type: EventEndObject},
@@ -421,9 +312,9 @@ func TestDecoder_SparseArray_MixedWithRegular(t *testing.T) {
 				{Type: EventBeginObject},
 				{Type: EventKey, Key: "key"},
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventString, String: "a"},
-				{Type: EventKey, Key: "1"},
+				{Type: EventIntKey, IntKey: 1},
 				{Type: EventString, String: "b"},
 				{Type: EventEndObject},
 				{Type: EventEndObject},
@@ -435,9 +326,9 @@ func TestDecoder_SparseArray_MixedWithRegular(t *testing.T) {
 			expected: []*Event{
 				{Type: EventBeginArray},
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventString, String: "a"},
-				{Type: EventKey, Key: "1"},
+				{Type: EventIntKey, IntKey: 1},
 				{Type: EventString, String: "b"},
 				{Type: EventEndObject},
 				{Type: EventEndArray},
@@ -448,12 +339,12 @@ func TestDecoder_SparseArray_MixedWithRegular(t *testing.T) {
 			data: []byte(`{0:["a","b"],1:["c"]}`),
 			expected: []*Event{
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventBeginArray},
 				{Type: EventString, String: "a"},
 				{Type: EventString, String: "b"},
 				{Type: EventEndArray},
-				{Type: EventKey, Key: "1"},
+				{Type: EventIntKey, IntKey: 1},
 				{Type: EventBeginArray},
 				{Type: EventString, String: "c"},
 				{Type: EventEndArray},
@@ -469,12 +360,12 @@ func TestDecoder_SparseArray_MixedWithRegular(t *testing.T) {
 			data: []byte(`{0:{"a":"x"},1:{"b":"y"}}`),
 			expected: []*Event{
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventBeginObject},
 				{Type: EventKey, Key: "a"},
 				{Type: EventString, String: "x"},
 				{Type: EventEndObject},
-				{Type: EventKey, Key: "1"},
+				{Type: EventIntKey, IntKey: 1},
 				{Type: EventBeginObject},
 				{Type: EventKey, Key: "b"},
 				{Type: EventString, String: "y"},
@@ -538,19 +429,19 @@ func TestState_SparseArray_PathTracking(t *testing.T) {
 			name: "simple sparse array",
 			events: []*Event{
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventString, String: "a"},
-				{Type: EventKey, Key: "1"},
+				{Type: EventIntKey, IntKey: 1},
 				{Type: EventString, String: "b"},
 				{Type: EventEndObject},
 			},
 			expectedPaths: []string{
-				"",      // after BeginObject
-				"\"0\"", // after Key "0" (quoted because starts with digit)
-				"\"0\"", // after String "a"
-				"\"1\"", // after Key "1" (quoted because starts with digit)
-				"\"1\"", // after String "b"
-				"",      // after EndObject
+				"",    // after BeginObject
+				"{0}", // after IntKey 0
+				"{0}", // after String "a"
+				"{1}", // after IntKey 1 (quoted because starts with digit)
+				"{1}", // after String "b"
+				"",    // after EndObject
 			},
 			expectedDepths: []int{
 				1, // BeginObject
@@ -565,21 +456,21 @@ func TestState_SparseArray_PathTracking(t *testing.T) {
 			name: "nested sparse arrays",
 			events: []*Event{
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventString, String: "a"},
 				{Type: EventEndObject},
 				{Type: EventEndObject},
 			},
 			expectedPaths: []string{
-				"",         // after BeginObject
-				"\"0\"",    // after Key "0" (quoted because starts with digit)
-				"\"0\"",    // after BeginObject (nested)
-				"\"0\".\"0\"", // after Key "0" (nested, quoted)
-				"\"0\".\"0\"", // after String "a"
-				"\"0\"",    // after EndObject (nested)
-				"",         // after EndObject
+				"",       // after BeginObject
+				"{0}",    // after Key "0" (quoted because starts with digit)
+				"{0}",    // after BeginObject (nested)
+				"{0}{0}", // after Key "0" (nested, quoted)
+				"{0}{0}", // after String "a"
+				"{0}",    // after EndObject (nested)
+				"",       // after EndObject
 			},
 			expectedDepths: []int{
 				1, // BeginObject
@@ -596,18 +487,18 @@ func TestState_SparseArray_PathTracking(t *testing.T) {
 			events: []*Event{
 				{Type: EventBeginArray},
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventString, String: "a"},
 				{Type: EventEndObject},
 				{Type: EventEndArray},
 			},
 			expectedPaths: []string{
-				"",      // after BeginArray
-				"",      // after BeginObject
-				"\"0\"", // after Key "0" (quoted because starts with digit)
-				"\"0\"", // after String "a"
-				"",      // after EndObject
-				"",      // after EndArray
+				"",       // after BeginArray
+				"[0]",    // after BeginObject
+				"[0]{0}", // after IntKey 0
+				"[0]{0}", // after String "a"
+				"[0]",    // after EndObject
+				"",       // after EndArray
 			},
 			expectedDepths: []int{
 				1, // BeginArray
@@ -721,6 +612,10 @@ func TestSparseArray_RoundTrip(t *testing.T) {
 					if err := enc.WriteKey(ev.Key); err != nil {
 						t.Fatalf("WriteKey(%q) error = %v", ev.Key, err)
 					}
+				case EventIntKey:
+					if err := enc.WriteIntKey(int(ev.IntKey)); err != nil {
+						t.Fatalf("WriteKey(%d) error = %v", ev.IntKey, err)
+					}
 				case EventString:
 					if err := enc.WriteString(ev.String); err != nil {
 						t.Fatalf("WriteString(%q) error = %v", ev.String, err)
@@ -806,9 +701,9 @@ func TestSparseArray_EventsToNode(t *testing.T) {
 			name: "simple sparse array",
 			events: []Event{
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventString, String: "a"},
-				{Type: EventKey, Key: "1"},
+				{Type: EventIntKey, IntKey: 1},
 				{Type: EventString, String: "b"},
 				{Type: EventEndObject},
 			},
@@ -819,10 +714,10 @@ func TestSparseArray_EventsToNode(t *testing.T) {
 				if len(node.Fields) != 2 {
 					t.Fatalf("node.Fields length = %d, want 2", len(node.Fields))
 				}
-				if node.Fields[0].String != "0" {
+				if *node.Fields[0].Int64 != 0 {
 					t.Errorf("node.Fields[0] = %q, want \"0\"", node.Fields[0].String)
 				}
-				if node.Fields[1].String != "1" {
+				if *node.Fields[1].Int64 != 1 {
 					t.Errorf("node.Fields[1] = %q, want \"1\"", node.Fields[1].String)
 				}
 				if node.Values[0].String != "a" {
@@ -837,11 +732,11 @@ func TestSparseArray_EventsToNode(t *testing.T) {
 			name: "sparse array with mixed types",
 			events: []Event{
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventString, String: "a"},
-				{Type: EventKey, Key: "1"},
+				{Type: EventIntKey, IntKey: 1},
 				{Type: EventInt, Int: 42},
-				{Type: EventKey, Key: "2"},
+				{Type: EventIntKey, IntKey: 2},
 				{Type: EventFloat, Float: 3.14},
 				{Type: EventEndObject},
 			},
@@ -887,59 +782,14 @@ func TestSparseArray_EdgeCases(t *testing.T) {
 		expected []*Event
 	}{
 		{
-			name: "sparse array with quoted integer keys (also valid)",
-			// Note: Quoted integer keys are also valid Tony syntax.
-			// They're treated as string keys (regular object keys), not sparse array keys.
-			// Per the spec, sparse arrays use unquoted integer keys (e.g., {0:"a",1:"b"}),
-			// but quoted keys (e.g., {"0":"a","1":"b"}) are also valid as regular objects.
-			data: []byte(`{"0":"a","1":"b","2":"c"}`),
-			expected: []*Event{
-				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
-				{Type: EventString, String: "a"},
-				{Type: EventKey, Key: "1"},
-				{Type: EventString, String: "b"},
-				{Type: EventKey, Key: "2"},
-				{Type: EventString, String: "c"},
-				{Type: EventEndObject},
-			},
-		},
-		{
 			name: "sparse array with unquoted integer keys",
 			data: []byte(`{0:"a",1:"b"}`),
 			expected: []*Event{
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventString, String: "a"},
-				{Type: EventKey, Key: "1"},
+				{Type: EventIntKey, IntKey: 1},
 				{Type: EventString, String: "b"},
-				{Type: EventEndObject},
-			},
-		},
-		{
-			name: "sparse array with string keys that look like integers",
-			data: []byte(`{"00":"a","01":"b"}`),
-			expected: []*Event{
-				{Type: EventBeginObject},
-				{Type: EventKey, Key: "00"},
-				{Type: EventString, String: "a"},
-				{Type: EventKey, Key: "01"},
-				{Type: EventString, String: "b"},
-				{Type: EventEndObject},
-			},
-		},
-		{
-			name: "sparse array with negative index-like keys (quoted)",
-			// Negative numbers as keys must be quoted (they're strings, not integers)
-			data: []byte(`{"-1":"a","0":"b","1":"c"}`),
-			expected: []*Event{
-				{Type: EventBeginObject},
-				{Type: EventKey, Key: "-1"},
-				{Type: EventString, String: "a"},
-				{Type: EventKey, Key: "0"},
-				{Type: EventString, String: "b"},
-				{Type: EventKey, Key: "1"},
-				{Type: EventString, String: "c"},
 				{Type: EventEndObject},
 			},
 		},
@@ -948,11 +798,11 @@ func TestSparseArray_EdgeCases(t *testing.T) {
 			data: []byte(`{0:"a",999:"b",1000:"c"}`),
 			expected: []*Event{
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventString, String: "a"},
-				{Type: EventKey, Key: "999"},
+				{Type: EventIntKey, IntKey: 999},
 				{Type: EventString, String: "b"},
-				{Type: EventKey, Key: "1000"},
+				{Type: EventIntKey, IntKey: 1000},
 				{Type: EventString, String: "c"},
 				{Type: EventEndObject},
 			},
@@ -962,23 +812,8 @@ func TestSparseArray_EdgeCases(t *testing.T) {
 			data: []byte(`{0:"zero"}`),
 			expected: []*Event{
 				{Type: EventBeginObject},
-				{Type: EventKey, Key: "0"},
+				{Type: EventIntKey, IntKey: 0},
 				{Type: EventString, String: "zero"},
-				{Type: EventEndObject},
-			},
-		},
-		{
-			name: "demonstration: unquoted literal keys with quoted values",
-			// Per Tony spec: when using unquoted literals as keys, the colon must
-			// be followed by whitespace (e.g., {a: 1}). Without whitespace, {a:1}
-			// tokenizes as '{' 'a:1' '}' because ':' is allowed within literals.
-			// Using quoted values (e.g., {a:"1"}) works because the quote stops
-			// literal parsing. This demonstrates valid Tony syntax.
-			data: []byte(`{a:"1"}`),
-			expected: []*Event{
-				{Type: EventBeginObject},
-				{Type: EventKey, Key: "a"},
-				{Type: EventString, String: "1"},
 				{Type: EventEndObject},
 			},
 		},
@@ -1006,7 +841,6 @@ func TestSparseArray_EdgeCases(t *testing.T) {
 				events = append(events, ev)
 			}
 
-
 			if len(events) != len(tt.expected) {
 				t.Errorf("got %d events, want %d", len(events), len(tt.expected))
 				t.Logf("got: %+v", events)
@@ -1019,8 +853,8 @@ func TestSparseArray_EdgeCases(t *testing.T) {
 				if ev.Type != exp.Type {
 					t.Errorf("event[%d].Type = %v, want %v", i, ev.Type, exp.Type)
 				}
-				if ev.Key != exp.Key {
-					t.Errorf("event[%d].Key = %q, want %q", i, ev.Key, exp.Key)
+				if ev.IntKey != exp.IntKey {
+					t.Errorf("event[%d].IntKey = %d, want %d", i, ev.IntKey, exp.IntKey)
 				}
 				if ev.String != exp.String {
 					t.Errorf("event[%d].String = %q, want %q", i, ev.String, exp.String)
