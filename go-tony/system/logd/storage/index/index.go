@@ -6,7 +6,7 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
 )
 
 type Index struct {
@@ -33,8 +33,8 @@ func NewIndex(pathKey string) *Index {
 				return false
 			}
 			// Compare KindedPath using KPath.Compare()
-			aKp, errA := ir.ParseKPath(a.KindedPath)
-			bKp, errB := ir.ParseKPath(b.KindedPath)
+			aKp, errA := kpath.Parse(a.KindedPath)
+			bKp, errB := kpath.Parse(b.KindedPath)
 			// Fallback to string comparison if parsing fails
 			if errA != nil || errB != nil {
 				return a.KindedPath < b.KindedPath
@@ -63,7 +63,7 @@ func (i *Index) Add(seg *LogSegment) {
 		return
 	}
 	// Split kpath into first segment and rest for navigation
-	firstSegment, restPath := ir.SplitKPath(seg.KindedPath)
+	firstSegment, restPath := kpath.Split(seg.KindedPath)
 	child := i.Children[firstSegment]
 	if child == nil {
 		child = NewIndex(firstSegment)
@@ -82,7 +82,7 @@ func (i *Index) Remove(seg *LogSegment) bool {
 		defer i.Unlock()
 		return i.Commits.Remove(*seg)
 	}
-	firstSegment, restPath := ir.SplitKPath(seg.KindedPath)
+	firstSegment, restPath := kpath.Split(seg.KindedPath)
 	i.RLock()
 	defer i.RUnlock()
 	c := i.Children[firstSegment]
@@ -97,7 +97,7 @@ func (i *Index) Remove(seg *LogSegment) bool {
 	return res
 }
 
-func (i *Index) LookupRange(kpath string, from, to *int64) []LogSegment {
+func (i *Index) LookupRange(kp string, from, to *int64) []LogSegment {
 	i.RLock()
 	defer i.RUnlock()
 	res := []LogSegment{}
@@ -105,12 +105,12 @@ func (i *Index) LookupRange(kpath string, from, to *int64) []LogSegment {
 		res = append(res, c)
 		return true
 	}, rangeFunc(from, to))
-	if kpath == "" {
+	if kp == "" {
 		slices.SortFunc(res, LogSegCompare)
 		return res
 	}
 	// Split kpath to navigate hierarchy
-	firstSegment, restPath := ir.SplitKPath(kpath)
+	firstSegment, restPath := kpath.Split(kp)
 	c := i.Children[firstSegment]
 	if c == nil {
 		return res
@@ -123,7 +123,7 @@ func (i *Index) LookupRange(kpath string, from, to *int64) []LogSegment {
 		if seg.KindedPath == "" {
 			seg.KindedPath = firstSegment
 		} else {
-			seg.KindedPath = ir.Join(firstSegment, seg.KindedPath)
+			seg.KindedPath = kpath.Join(firstSegment, seg.KindedPath)
 		}
 		res = append(res, seg)
 	}
@@ -134,7 +134,7 @@ func (i *Index) LookupRange(kpath string, from, to *int64) []LogSegment {
 // LookupWithin finds all segments at the given kpath where the commit is within
 // the segment's commit range (StartCommit <= commit <= EndCommit).
 // Returns ancestors and exact matches, just like LookupRange.
-func (i *Index) LookupWithin(kpath string, commit int64) []LogSegment {
+func (i *Index) LookupWithin(kp string, commit int64) []LogSegment {
 	i.RLock()
 	defer i.RUnlock()
 	res := []LogSegment{}
@@ -144,11 +144,11 @@ func (i *Index) LookupWithin(kpath string, commit int64) []LogSegment {
 		}
 		return true
 	}, withinFunc(commit))
-	if kpath == "" {
+	if kp == "" {
 		slices.SortFunc(res, LogSegCompare)
 		return res
 	}
-	firstSegment, restPath := ir.SplitKPath(kpath)
+	firstSegment, restPath := kpath.Split(kp)
 	c := i.Children[firstSegment]
 	if c == nil {
 		return res
@@ -159,7 +159,7 @@ func (i *Index) LookupWithin(kpath string, commit int64) []LogSegment {
 		if seg.KindedPath == "" {
 			seg.KindedPath = firstSegment
 		} else {
-			seg.KindedPath = ir.Join(firstSegment, seg.KindedPath)
+			seg.KindedPath = kpath.Join(firstSegment, seg.KindedPath)
 		}
 		res = append(res, seg)
 	}
@@ -200,8 +200,8 @@ func LogSegCompare(a, b LogSegment) int {
 		return n
 	}
 	// Compare KindedPath using KPath.Compare()
-	aKp, errA := ir.ParseKPath(a.KindedPath)
-	bKp, errB := ir.ParseKPath(b.KindedPath)
+	aKp, errA := kpath.Parse(a.KindedPath)
+	bKp, errB := kpath.Parse(b.KindedPath)
 	// Fallback to string comparison if parsing fails
 	if errA != nil || errB != nil {
 		return cmp.Compare(a.KindedPath, b.KindedPath)
@@ -257,8 +257,8 @@ func (i *Index) ListRange(from, to *int64) []string {
 	}
 	// Sort children by kpath comparison (not string comparison)
 	slices.SortFunc(children, func(a, b string) int {
-		aKp, errA := ir.ParseKPath(a)
-		bKp, errB := ir.ParseKPath(b)
+		aKp, errA := kpath.Parse(a)
+		bKp, errB := kpath.Parse(b)
 		if errA != nil || errB != nil {
 			return cmp.Compare(a, b) // Fallback
 		}

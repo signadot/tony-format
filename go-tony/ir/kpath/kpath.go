@@ -96,43 +96,91 @@ func (p *KPath) String() string {
 	return buf.String()
 }
 
-// SegmentString returns the canonical string representation of this single segment.
-// Unlike String(), this only returns the current segment, not the entire path.
-// Examples:
-//   - KPath{Field: &"a"} → "a"
-//   - KPath{Field: &"field name"} → "'field name'" (quoted if needed)
-//   - KPath{Index: &0} → "[0]"
-//   - KPath{SparseIndex: &42} → "{42}"
-//   - KPath{FieldAll: true} → "*"
-//   - KPath{IndexAll: true} → "[*]"
-//   - KPath{SparseIndexAll: true} → "{*}"
-func (p *KPath) SegmentString() string {
+func (p *KPath) Type() *SegmentType {
+	return &SegmentType{
+		EntryKind: p.EntryKind(),
+		Wild:      p.Wild(),
+	}
+}
+
+func (p *KPath) EntryKind() EntryKind {
+	if p.Field != nil || p.FieldAll {
+		return FieldEntry
+	}
+	if p.Index != nil || p.IndexAll {
+		return ArrayEntry
+	}
+	if p.SparseIndex != nil || p.SparseIndexAll {
+		return SparseArrayEntry
+	}
+	panic("entry kind")
+}
+
+func (p *KPath) Wild() bool {
+	return p.FieldAll || p.IndexAll || p.SparseIndexAll
+}
+
+// LastSegment returns the last segment as a single-segment KPath.
+func (p *KPath) LastSegment() *KPath {
 	if p == nil {
-		return ""
+		return nil
 	}
-	if p.FieldAll {
-		return "*"
+	last := p
+	for last.Next != nil {
+		last = last.Next
 	}
-	if p.Field != nil {
-		field := *p.Field
-		if token.KPathQuoteField(field) {
-			return token.Quote(field, true)
+	return last.copySegment()
+}
+
+// Parent returns the parent path (all but last segment).
+// Returns nil for root or single-segment paths.
+func (p *KPath) Parent() *KPath {
+	if p == nil {
+		return nil
+	}
+	if p.Next == nil {
+		return nil
+	}
+	parent := p.copySegment()
+	current := parent
+	src := p
+	for {
+		if src.Next.Next == nil {
+			current.Next = nil
+			return parent
 		}
-		return field
+		src = src.Next
+		current.Next = src.copySegment()
+		current = current.Next
 	}
-	if p.IndexAll {
-		return "[*]"
+}
+
+// AncestorOrEqual returns true if kp is an ancestor of other.
+// "a" is ancestor of "a.b", "a.b[0]", etc.
+func (p *KPath) AncestorOrEqual(other *KPath) (anc, eq bool) {
+	if p == nil {
+		return true, other == nil
 	}
-	if p.Index != nil {
-		return fmt.Sprintf("[%d]", *p.Index)
+	if other == nil {
+		return false, false
 	}
-	if p.SparseIndexAll {
-		return "{*}"
+
+	pa := p
+	pb := other
+	for pa != nil && pb != nil {
+		if !segmentsEqual(pa, pb) {
+			return false, false
+		}
+		pa = pa.Next
+		pb = pb.Next
 	}
-	if p.SparseIndex != nil {
-		return fmt.Sprintf("{%d}", *p.SparseIndex)
-	}
-	return ""
+	// kp is ancestor if it ended, equal only if both ended
+	return pa == nil, pa == nil && pb == nil
+}
+
+func (p *KPath) IsPrefix(o *KPath) bool {
+	anc, _ := p.AncestorOrEqual(o)
+	return anc
 }
 
 // Parse parses a kinded path string into a KPath structure.
@@ -749,119 +797,19 @@ func findQuotedStringEnd(d []byte) (int, error) {
 	return 0, token.ErrUnterminated
 }
 
-// Parent returns the parent path (all segments except the last).
-// Returns nil if this is already the root segment or if there's only one segment.
-func (p *KPath) Parent() *KPath {
-	if p == nil || p.Next == nil {
-		return nil
-	}
-	// Count segments
-	count := 0
-	for x := p; x != nil; x = x.Next {
-		count++
-	}
-	if count <= 1 {
-		return nil
-	}
-	// Build parent path (all but last segment)
-	parent := &KPath{}
-	current := parent
-	x := p
-	for i := 0; i < count-1; i++ {
-		if x.FieldAll {
-			current.FieldAll = true
+func Compare(a, b string) int {
+	ap, ae := Parse(a)
+	bp, be := Parse(b)
+	if (ae == nil) != (be == nil) {
+		if ae != nil {
+			return -1
 		}
-		if x.Field != nil {
-			f := *x.Field
-			current.Field = &f
-		}
-		if x.IndexAll {
-			current.IndexAll = true
-		}
-		if x.Index != nil {
-			idx := *x.Index
-			current.Index = &idx
-		}
-		if x.SparseIndexAll {
-			current.SparseIndexAll = true
-		}
-		if x.SparseIndex != nil {
-			idx := *x.SparseIndex
-			current.SparseIndex = &idx
-		}
-		x = x.Next
-		if i < count-2 {
-			current.Next = &KPath{}
-			current = current.Next
-		}
+		return 1
 	}
-	return parent
-}
-
-// IsChildOf returns true if this path is a child of the given parent path.
-func (p *KPath) IsChildOf(parent *KPath) bool {
-	if parent == nil {
-		return p != nil
+	if ae == nil {
+		return 0
 	}
-	if p == nil {
-		return false
-	}
-	// Check if p starts with parent
-	pp := p
-	pparent := parent
-	for pparent != nil {
-		if pp == nil {
-			return false
-		}
-		// Compare segments
-		if !kpathSegmentsEqual(pp, pparent) {
-			return false
-		}
-		pp = pp.Next
-		pparent = pparent.Next
-	}
-	return true
-}
-
-// kpathSegmentsEqual compares two KPath segments for equality.
-func kpathSegmentsEqual(a, b *KPath) bool {
-	if a == nil && b == nil {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
-	if a.FieldAll != b.FieldAll {
-		return false
-	}
-	if a.Field != nil && b.Field != nil {
-		if *a.Field != *b.Field {
-			return false
-		}
-	} else if a.Field != nil || b.Field != nil {
-		return false
-	}
-	if a.IndexAll != b.IndexAll {
-		return false
-	}
-	if a.Index != nil && b.Index != nil {
-		if *a.Index != *b.Index {
-			return false
-		}
-	} else if a.Index != nil || b.Index != nil {
-		return false
-	}
-	if a.SparseIndexAll != b.SparseIndexAll {
-		return false
-	}
-	if a.SparseIndex != nil && b.SparseIndex != nil {
-		if *a.SparseIndex != *b.SparseIndex {
-			return false
-		}
-	} else if a.SparseIndex != nil || b.SparseIndex != nil {
-		return false
-	}
-	return true
+	return ap.Compare(bp)
 }
 
 // Compare compares two paths lexicographically.
@@ -974,15 +922,15 @@ func compareKPathSegment(a, b *KPath) int {
 	return 0
 }
 
-func (kp *KPath) MarshalText() ([]byte, error) {
-	return []byte(kp.String()), nil
+func (p *KPath) MarshalText() ([]byte, error) {
+	return []byte(p.String()), nil
 }
 
-func (kp *KPath) UnmarshalText(d []byte) error {
+func (p *KPath) UnmarshalText(d []byte) error {
 	pp, err := Parse(string(d))
 	if err != nil {
 		return err
 	}
-	*kp = *pp
+	*p = *pp
 	return nil
 }

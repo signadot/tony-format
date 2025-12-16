@@ -3,7 +3,7 @@ package index
 import (
 	"math"
 
-	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
 )
 
 // IndexIterator provides hierarchical navigation and iteration over an Index
@@ -18,19 +18,19 @@ type IndexIterator struct {
 // Path is relative to root (e.g., "foo.bar" or "" for root)
 // If path doesn't exist, iterator is invalid
 // Caller must hold RLock on root index
-func (i *Index) IterAtPath(kpath string) *IndexIterator {
+func (i *Index) IterAtPath(kp string) *IndexIterator {
 	it := &IndexIterator{
 		root: i,
 	}
 
-	if kpath == "" {
+	if kp == "" {
 		it.path = []string{}
 		it.current = i
 		it.valid = true
 		return it
 	}
 
-	segments := ir.SplitAll(kpath)
+	segments := kpath.SplitAll(kp)
 	it.path = make([]string, 0, len(segments))
 	current := i
 
@@ -65,7 +65,7 @@ func (it *IndexIterator) Path() string {
 	// Start with the last segment, then join each previous segment
 	result := it.path[len(it.path)-1]
 	for i := len(it.path) - 2; i >= 0; i-- {
-		result = ir.Join(it.path[i], result)
+		result = kpath.Join(it.path[i], result)
 	}
 	return result
 }
@@ -133,15 +133,15 @@ func (it *IndexIterator) Up() bool {
 // ToPath navigates to the specified path from root
 // Returns true if path exists
 // Caller must hold RLock on root index
-func (it *IndexIterator) ToPath(kpath string) bool {
-	if kpath == "" {
+func (it *IndexIterator) ToPath(kp string) bool {
+	if kp == "" {
 		it.path = []string{}
 		it.current = it.root
 		it.valid = true
 		return true
 	}
 
-	segments := ir.SplitAll(kpath)
+	segments := kpath.SplitAll(kp)
 	newPath := make([]string, 0, len(segments))
 	current := it.root
 
@@ -218,7 +218,7 @@ func (it *IndexIterator) CommitsAt(commit int64, dir Direction) func(func(LogSeg
 		if !iter.Valid() {
 			return
 		}
-		
+
 		// Check if the first segment matches our criteria
 		seg := iter.Value()
 		if dir == Down {
@@ -232,11 +232,11 @@ func (it *IndexIterator) CommitsAt(commit int64, dir Direction) func(func(LogSeg
 				return
 			}
 		}
-		
+
 		if !yield(seg) {
 			return
 		}
-		
+
 		// Continue iterating in the specified direction
 		for iter.Next() {
 			seg := iter.Value()
