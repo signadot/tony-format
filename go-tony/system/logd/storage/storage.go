@@ -1,13 +1,16 @@
 package storage
 
 import (
+	"bytes"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/stream"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
@@ -23,8 +26,9 @@ type Storage struct {
 
 	index *index.Index
 
-	txStore tx.Store     // Transaction store (in-memory for now, can be swapped for disk-based)
-	logger  *slog.Logger // Logger for error logging
+	txStore  tx.Store     // Transaction store (in-memory for now, can be swapped for disk-based)
+	logger   *slog.Logger // Logger for error logging
+	switchMu sync.Mutex   // Protects log switching to prevent concurrent switch+snapshot
 }
 
 // Open opens or creates a Storage instance with the given root directory.
@@ -58,7 +62,6 @@ func Open(root string, umask int, logger *slog.Logger) (*Storage, error) {
 }
 
 // GetCurrentCommit returns the current commit number.
-// This is a snapshot - if commits happen after this call, they won't be reflected.
 func (s *Storage) GetCurrentCommit() (int64, error) {
 	s.sequence.Lock()
 	defer s.sequence.Unlock()
@@ -77,15 +80,154 @@ func (s *Storage) ReadStateAt(kPath string, commit int64) (*ir.Node, error) {
 	panic("not impl")
 }
 
-// ReadCurrentState reads the current committed state for a given virtual path.
-// This is equivalent to calling GetCurrentCommit() then ReadStateAt() with that commit.
-// If commits happen between getting the commit and reading, they are ignored (point-in-time read).
+// ReadCurrentState reads the committed state at the current commit for a given kinded path.
+// Equivalent to GetCurrentCommit() followed by ReadStateAt().
 func (s *Storage) ReadCurrentState(kPath string) (*ir.Node, error) {
 	commit, err := s.GetCurrentCommit()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get current commit: %w", err)
 	}
 	return s.ReadStateAt(kPath, commit)
+}
+
+// SwitchAndSnapshot switches the active log and creates a snapshot of the inactive log.
+// The snapshot is created for the current commit at the time of switching.
+// This should be called periodically (e.g., based on log size or time) to enable
+// snapshot-based read optimization and eventual compaction.
+// Protected by switchMu to prevent concurrent switching while snapshot is being written.
+func (s *Storage) SwitchAndSnapshot() error {
+	s.switchMu.Lock()
+	defer s.switchMu.Unlock()
+
+	// Get current commit before switching
+	commit, err := s.GetCurrentCommit()
+	if err != nil {
+		return fmt.Errorf("failed to get current commit: %w", err)
+	}
+
+	// Switch active log
+	if err := s.dLog.SwitchActive(); err != nil {
+		return fmt.Errorf("failed to switch active log: %w", err)
+	}
+
+	// Create snapshot of the inactive log (which was active before switch)
+	// This is a long operation, but switchMu prevents switching back during it
+	if err := s.CreateSnapshot(commit); err != nil {
+		return fmt.Errorf("failed to create snapshot: %w", err)
+	}
+
+	return nil
+}
+
+// CreateSnapshot creates a snapshot of the full state at the given commit.
+// Writes snapshot events to the inactive log and adds an index entry.
+// Returns error if snapshot creation fails.
+func (s *Storage) CreateSnapshot(commit int64) error {
+	// Search backwards for most recent snapshot <= commit
+	iter := s.index.IterAtPath("")
+	if !iter.Valid() {
+		return fmt.Errorf("invalid index iterator for root path")
+	}
+
+	var startCommit int64
+	var state *ir.Node
+
+	s.index.RLock()
+	foundSnapshot := false
+	for seg := range iter.CommitsAt(commit, index.Down) {
+		if seg.StartCommit == seg.EndCommit {
+			// Found snapshot - load it and start from next commit
+			entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition)
+			if err != nil {
+				s.index.RUnlock()
+				return fmt.Errorf("failed to read snapshot entry: %w", err)
+			}
+			if entry.SnapPos == nil {
+				s.index.RUnlock()
+				return fmt.Errorf("snapshot entry missing SnapPos")
+			}
+
+			// TODO: Load state from snapshot events at entry.SnapPos
+			// For now, just note we found it and continue from patches
+			s.logger.Info("found previous snapshot", "commit", seg.StartCommit, "position", seg.LogPosition)
+			startCommit = seg.StartCommit + 1
+			foundSnapshot = true
+			break
+		}
+	}
+	s.index.RUnlock()
+
+	if !foundSnapshot {
+		// No previous snapshot - start from null (snapshot at commit 0)
+		state = ir.Null()
+		startCommit = 0
+	} else {
+		// TODO: Load snapshot state here
+		// For now, fall back to replaying from 0
+		state = ir.Null()
+		startCommit = 0
+	}
+
+	// Get patches from startCommit to commit
+	patches, err := s.ReadPatchesAt("", commit)
+	if err != nil {
+		return fmt.Errorf("failed to read patches: %w", err)
+	}
+
+	// Apply patches from startCommit onwards
+	for _, patchSeg := range patches {
+		// Skip snapshots and patches before startCommit
+		if patchSeg.Segment.StartCommit == patchSeg.Segment.EndCommit {
+			continue // Skip snapshots
+		}
+		if patchSeg.Segment.EndCommit < startCommit {
+			continue // Skip patches before our starting point
+		}
+
+		state, err = tony.Patch(state, patchSeg.Patch)
+		if err != nil {
+			return fmt.Errorf("failed to apply patch at commit %d: %w", patchSeg.Segment.EndCommit, err)
+		}
+	}
+
+	// Convert state to events
+	events, err := stream.NodeToEvents(state)
+	if err != nil {
+		return fmt.Errorf("failed to convert state to events: %w", err)
+	}
+
+	// Write events to buffer using wire format (one event per line)
+	var buf bytes.Buffer
+	for i := range events {
+		evBytes, err := events[i].ToTony()
+		if err != nil {
+			return fmt.Errorf("failed to serialize event: %w", err)
+		}
+		buf.Write(evBytes)
+		buf.WriteByte('\n')
+	}
+
+	// Write snapshot to inactive log
+	timestamp := time.Now().UTC().Format(time.RFC3339)
+	entryPos, logFile, err := s.dLog.WriteSnapshotToInactive(commit, timestamp, buf.Bytes())
+	if err != nil {
+		return fmt.Errorf("failed to write snapshot to log: %w", err)
+	}
+
+	// Add index entry for snapshot
+	snapSeg := &index.LogSegment{
+		StartCommit: commit,
+		EndCommit:   commit,
+		StartTx:     0,
+		EndTx:       0,
+		KindedPath:  "",
+		LogFile:     string(logFile),
+		LogPosition: entryPos,
+	}
+	s.index.Add(snapSeg)
+
+	s.logger.Info("snapshot created", "commit", commit, "logFile", logFile, "position", entryPos)
+	return nil
 }
 
 // init initializes the storage directory structure.
