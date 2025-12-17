@@ -9,6 +9,10 @@ import (
 )
 
 // PathFinder seeks to an indexed offset and extracts events for a target path.
+//
+// Uses stream.KPathState to initialize state for the indexed path. For leaf
+// array elements, KPathState positions one element before, so processing the
+// first event at the offset advances to the correct position.
 type PathFinder struct {
 	idxPath    *kpath.KPath
 	desPath    *kpath.KPath
@@ -20,6 +24,10 @@ type PathFinder struct {
 }
 
 // NewPathFinder creates a PathFinder starting at offset off (indexed at idxPath) to find desPath.
+//
+// Initializes state using stream.KPathState(idxPath), which positions correctly
+// for reading events starting at off. For field and sparse array entries, advances
+// state past the key by processing a dummy null event.
 func NewPathFinder(r io.ReadSeekCloser, off int64, idxPath, desPath *kpath.KPath) (*PathFinder, error) {
 	st, err := stream.KPathState(idxPath.String())
 	if err != nil {
@@ -80,6 +88,9 @@ func (pf *PathFinder) FindEvents() ([]stream.Event, error) {
 		if err := pf.state.ProcessEvent(evt); err != nil {
 			return nil, err
 		}
+
+		currentPath := pf.state.CurrentPath()
+
 		// If we were collecting and moved past the target path, stop
 		if collecting {
 			switch evt.Type {
@@ -94,7 +105,7 @@ func (pf *PathFinder) FindEvents() ([]stream.Event, error) {
 			if depth <= 0 {
 				break
 			}
-		} else if pf.state.CurrentPath() == desPathStr {
+		} else if currentPath == desPathStr {
 			switch evt.Type {
 			case stream.EventIntKey, stream.EventKey:
 				collecting = true

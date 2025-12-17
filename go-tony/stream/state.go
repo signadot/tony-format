@@ -142,12 +142,17 @@ func (s *State) Depth() int {
 }
 
 // CurrentPath returns the current kinded path (e.g., "", "key", "key[0]").
+//
+// Skips nil segments (arrays before first element processed). nil segments
+// only occur at the top of the stack during normal processing, so this has
+// no effect. Skipping allows manually-constructed stacks to include nil
+// segments in the middle without breaking path construction.
 func (s *State) CurrentPath() string {
 	res := ""
 	for i := range s.stack {
 		item := &s.stack[i]
 		if item.segment == nil {
-			break
+			continue
 		}
 		if item.segment.Field != nil && i > 0 {
 			res += "."
