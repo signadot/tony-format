@@ -1,7 +1,3 @@
-
-#
-# Tony Format base schema definitions.
-#
 context: tony-format/context
   
 signature:
@@ -30,7 +26,6 @@ define:
   object: !irtype {}
   object(t): !and
   - .[object]
-  - !all.t null
   nullable(t): !or
   - !irtype null
   - !t null
@@ -39,17 +34,17 @@ define:
   - !irtype []
   - !all.hasPath p
   field: !or
-  - .string
-  - .int
-  - .null
+  - .[string]
+  - .[int]
+  - .[null]
   _ir:
-    type: !or [Comment Null Bool Number String Array Object]
-    fields: .[array(field)]
-    values: .[array(ir)]
-    string: .[string]
-    int: .[int]
-    float: .[float]
-    number: .[string]
-    bool: .[bool]
-    lines: .[array(string)]
-  ir: [.nullable(_ir)]
+    type: !or [ Comment Null Bool Number String Array Object ]
+  fields: .[array(field)]
+  values: .[array(ir)]
+  string: .[string]
+  int: .[int]
+  float: .[float]
+  number: .[string]
+  bool: .[bool]
+  lines: .[array(string)]
+  ir: .[nullable(_ir)]

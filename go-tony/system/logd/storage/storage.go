@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
@@ -71,10 +72,38 @@ func (s *Storage) GetCurrentCommit() (int64, error) {
 }
 
 // ReadStateAt reads the state for a given kpath at a specific commit count.
-// It uses compaction and caching when available to minimize the number of patches applied.
-// If commitCount is 0, reads the latest state (all segments).
+// Currently implements a simple approach: applies all patches from the beginning.
+// Future optimizations: snapshots, compaction, caching.
 func (s *Storage) ReadStateAt(kPath string, commit int64) (*ir.Node, error) {
-	panic("not impl")
+	// Get all patches affecting this path up to commit
+	patches, err := s.ReadPatchesAt(kPath, commit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read patches: %w", err)
+	}
+
+	if len(patches) == 0 {
+		return nil, nil // Path doesn't exist at this commit
+	}
+
+	// Start with null state
+	state := ir.Null()
+
+	// Apply each patch in order
+	for _, patchSeg := range patches {
+		// Skip snapshot entries (StartCommit == EndCommit at root)
+		if patchSeg.Segment.StartCommit == patchSeg.Segment.EndCommit && patchSeg.Segment.KindedPath == "" {
+			// TODO: Load snapshot instead of skipping when snapshots are implemented
+			continue
+		}
+
+		// Apply the patch
+		state, err = tony.Patch(state, patchSeg.Patch)
+		if err != nil {
+			return nil, fmt.Errorf("failed to apply patch at commit %d: %w", patchSeg.Segment.EndCommit, err)
+		}
+	}
+
+	return state, nil
 }
 
 // ReadCurrentState reads the current committed state for a given virtual path.

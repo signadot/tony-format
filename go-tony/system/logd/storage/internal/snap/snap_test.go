@@ -4,7 +4,12 @@ import (
 	"bytes"
 	"encoding/binary"
 	"io"
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/stream"
 )
 
 func TestSnapshotOpen(t *testing.T) {
@@ -62,7 +67,16 @@ func TestSnapshotOpen(t *testing.T) {
 	}
 
 	// Create RC from buffer
-	rc := &bytesReaderAt{buf: buf.Bytes()}
+	rc, err := newTestFile()
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	defer os.RemoveAll(filepath.Dir(rc.path))
+	defer rc.Close()
+	if _, err = rc.Write(buf.Bytes()); err != nil {
+		t.Fatal(err)
+	}
 
 	// Open snapshot
 	snapshot, err := Open(rc)
@@ -129,7 +143,14 @@ func TestSnapshotOpen_EmptyIndex(t *testing.T) {
 		t.Fatalf("Write index error = %v", err)
 	}
 
-	rc := &bytesReaderAt{buf: buf.Bytes()}
+	rc, err := newTestFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(filepath.Dir(rc.path))
+	if _, err = rc.Write(buf.Bytes()); err != nil {
+		t.Fatal(err)
+	}
 
 	snapshot, err := Open(rc)
 	if err != nil {
@@ -150,33 +171,246 @@ func TestSnapshotOpen_InvalidHeader(t *testing.T) {
 	var buf bytes.Buffer
 	buf.Write([]byte{1, 2, 3}) // Only 3 bytes, need 12
 
-	rc := &bytesReaderAt{buf: buf.Bytes()}
+	rc, err := newTestFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(filepath.Dir(rc.path))
 
-	_, err := Open(rc)
+	_, err = Open(rc)
 	if err == nil {
 		t.Error("Open() should return error for invalid header")
 	}
 }
 
-// bytesReaderAt implements RC interface for testing
-type bytesReaderAt struct {
-	buf []byte
+func TestSnapshotCreateAndRead(t *testing.T) {
+	// Create a simple document: {age: 30, name: "alice", status: "active"}
+	var inputBuf bytes.Buffer
+	enc, err := stream.NewEncoder(&inputBuf, stream.WithWire())
+	if err != nil {
+		t.Fatalf("NewEncoder() error = %v", err)
+	}
+
+	// Build the document - keys must be in sorted order
+	if err := enc.BeginObject(); err != nil {
+		t.Fatalf("BeginObject() error = %v", err)
+	}
+	// Write keys in alphabetical order: age, name, status
+	if err := enc.WriteKey("age"); err != nil {
+		t.Fatalf("WriteKey('age') error = %v", err)
+	}
+	if err := enc.WriteInt(30); err != nil {
+		t.Fatalf("WriteInt(30) error = %v", err)
+	}
+	if err := enc.WriteKey("name"); err != nil {
+		t.Fatalf("WriteKey('name') error = %v", err)
+	}
+	if err := enc.WriteString("alice"); err != nil {
+		t.Fatalf("WriteString('alice') error = %v", err)
+	}
+	if err := enc.WriteKey("status"); err != nil {
+		t.Fatalf("WriteKey('status') error = %v", err)
+	}
+	if err := enc.WriteString("active"); err != nil {
+		t.Fatalf("WriteString('active') error = %v", err)
+	}
+	if err := enc.WriteKey("z"); err != nil {
+		t.Fatalf("WriteKey('z') errror = %v", err)
+	}
+	if err := enc.BeginArray(); err != nil {
+		t.Fatalf("BeginArray() errror = %v", err)
+	}
+	if err := enc.WriteString("zoo"); err != nil {
+		t.Fatalf("WriteString('zoo') error = %v", err)
+	}
+	if err := enc.EndArray(); err != nil {
+		t.Fatalf("BeginArray() errror = %v", err)
+	}
+	if err := enc.EndObject(); err != nil {
+		t.Fatalf("EndObject() error = %v", err)
+	}
+
+	// Create snapshot file
+	tmpFile, err := newTestFile()
+	if err != nil {
+		t.Fatalf("newTestFile() error = %v", err)
+	}
+	defer os.RemoveAll(filepath.Dir(tmpFile.path))
+	defer tmpFile.Close()
+
+	// Build the snapshot
+	index := &Index{Entries: []IndexEntry{}}
+	builder, err := NewBuilder(tmpFile, index, nil)
+	if err != nil {
+		t.Fatalf("NewBuilder() error = %v", err)
+	}
+
+	// Feed events to builder
+	dec, err := stream.NewDecoder(bytes.NewReader(inputBuf.Bytes()), stream.WithWire())
+	if err != nil {
+		t.Fatalf("NewDecoder() error = %v", err)
+	}
+
+	for {
+		ev, err := dec.ReadEvent()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("ReadEvent() error = %v", err)
+		}
+		if err := builder.WriteEvent(ev); err != nil {
+			t.Fatalf("WriteEvent() error = %v", err)
+		}
+	}
+
+	if err := builder.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	// Open the snapshot
+	readFile, err := os.Open(tmpFile.path)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer readFile.Close()
+
+	snapshot, err := Open(readFile)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer snapshot.Close()
+
+	// Read a specific path
+	node, err := snapshot.ReadPath("name")
+	if err != nil {
+		t.Fatalf("ReadPath('name') error = %v", err)
+	}
+
+	if node == nil {
+		t.Fatalf("ReadPath('name') returned nil (expected to find name='alice')")
+	}
+
+	if node.Type != ir.StringType {
+		t.Errorf("node.Type = %v, want %v", node.Type, ir.StringType)
+	}
+
+	if node.String != "alice" {
+		t.Errorf("node.String = %q, want %q", node.String, "alice")
+	}
+
+	// Read another path
+	node, err = snapshot.ReadPath("age")
+	if err != nil {
+		t.Fatalf("ReadPath('age') error = %v", err)
+	}
+
+	if node == nil {
+		t.Fatal("ReadPath('age') returned nil")
+	}
+
+	if node.Type != ir.NumberType {
+		t.Errorf("node.Type = %v, want %v", node.Type, ir.NumberType)
+	}
+
+	if node.Int64 == nil || *node.Int64 != 30 {
+		var got int64
+		if node.Int64 != nil {
+			got = *node.Int64
+		}
+		t.Errorf("node.Int64 = %d, want %d", got, 30)
+	}
+	node, err = snapshot.ReadPath("z[0]")
+	if err != nil {
+		t.Fatalf("ReadPath('z[0]') error = %v", err)
+	}
+
+	if node == nil {
+		t.Fatal("ReadPath('z[0]') returned nil")
+	}
+
+	if node.Type != ir.StringType {
+		t.Errorf("node.Type = %v, want %v", node.Type, ir.StringType)
+	}
+
+	if node.String != "zoo" {
+		t.Errorf("node.String = %q, want %q", node.String, "zoo")
+	}
+
+	// Read status path
+	node, err = snapshot.ReadPath("status")
+	if err != nil {
+		t.Fatalf("ReadPath('status') error = %v", err)
+	}
+
+	if node == nil {
+		t.Fatal("ReadPath('status') returned nil")
+	}
+
+	if node.Type != ir.StringType {
+		t.Errorf("node.Type = %v, want %v", node.Type, ir.StringType)
+	}
+
+	if node.String != "active" {
+		t.Errorf("node.String = %q, want %q", node.String, "active")
+	}
+
+	// Read entire z array
+	node, err = snapshot.ReadPath("z")
+	if err != nil {
+		t.Fatalf("ReadPath('z') error = %v", err)
+	}
+
+	if node == nil {
+		t.Fatal("ReadPath('z') returned nil")
+	}
+
+	if node.Type != ir.ArrayType {
+		t.Errorf("node.Type = %v, want %v", node.Type, ir.ArrayType)
+	}
+
+	if len(node.Values) != 1 {
+		t.Errorf("len(node.Values) = %d, want 1", len(node.Values))
+	}
+
+	if len(node.Values) > 0 {
+		if node.Values[0].Type != ir.StringType {
+			t.Errorf("node.Values[0].Type = %v, want %v", node.Values[0].Type, ir.StringType)
+		}
+		if node.Values[0].String != "zoo" {
+			t.Errorf("node.Values[0].String = %q, want %q", node.Values[0].String, "zoo")
+		}
+	}
+
+	// Test nonexistent path
+	node, err = snapshot.ReadPath("nonexistent")
+	if err != nil {
+		t.Fatalf("ReadPath('nonexistent') error = %v", err)
+	}
+
+	if node != nil {
+		t.Errorf("ReadPath('nonexistent') returned non-nil node: %+v", node)
+	}
 }
 
-func (r *bytesReaderAt) ReadAt(p []byte, off int64) (n int, err error) {
-	if off < 0 {
-		return 0, io.EOF
-	}
-	if off >= int64(len(r.buf)) {
-		return 0, io.EOF
-	}
-	n = copy(p, r.buf[off:])
-	if n < len(p) {
-		err = io.EOF
-	}
-	return n, err
+// testFile implements RC interface for testing
+type testFile struct {
+	*os.File
+	path string
 }
 
-func (r *bytesReaderAt) Close() error {
-	return nil
+func newTestFile() (*testFile, error) {
+	d, err := os.MkdirTemp(".", "snap-test-*")
+	if err != nil {
+		return nil, err
+	}
+	p := filepath.Join(d, "snap-test")
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0644)
+	if err != nil {
+		return nil, err
+	}
+	return &testFile{
+		File: f,
+		path: p,
+	}, nil
 }

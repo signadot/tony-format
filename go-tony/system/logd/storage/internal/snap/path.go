@@ -6,6 +6,13 @@ type Path struct {
 	kpath.KPath
 }
 
+func (p *Path) String() string {
+	if p == nil {
+		return ""
+	}
+	return p.KPath.String()
+}
+
 func (p *Path) MarshalText() ([]byte, error) {
 	return []byte(p.KPath.String()), nil
 }

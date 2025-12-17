@@ -3,8 +3,7 @@ package snap
 import "io"
 
 type R interface {
-	io.ReaderAt
-	io.Closer
+	io.ReadSeekCloser
 }
 
 type W interface {

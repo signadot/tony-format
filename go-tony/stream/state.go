@@ -105,7 +105,7 @@ func (s *State) ProcessEvent(event *Event) error {
 		}
 		cur := s.current()
 		if cur.kind != &obj {
-			return errors.New("key not in obj (2)")
+			return errors.New("key not in obj (2): " + s.CurrentPath())
 		}
 		if cur.hasKey {
 			return errors.New("key after key")

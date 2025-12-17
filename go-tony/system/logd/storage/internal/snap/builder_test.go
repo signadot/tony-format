@@ -9,13 +9,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/stream"
 )
 
 func TestBuilder_NewBuilder(t *testing.T) {
 	p, w := newBytesWriteSeeker()
-	defer os.Remove(p)
+	defer os.RemoveAll(filepath.Dir(p))
 	defer w.Close()
 	index := &Index{Entries: []IndexEntry{}}
 
@@ -44,7 +44,7 @@ func TestBuilder_NewBuilder(t *testing.T) {
 
 func TestBuilder_Close(t *testing.T) {
 	p, w := newBytesWriteSeeker()
-	defer os.Remove(p)
+	defer os.RemoveAll(filepath.Dir(p))
 	defer w.Close()
 	index := &Index{}
 
@@ -69,7 +69,6 @@ func TestBuilder_Close(t *testing.T) {
 	defer f.Close()
 	header := make([]byte, HeaderSize)
 	f.Read(header)
-	fmt.Printf("read hdr %v\n", header)
 
 	eventSize := binary.BigEndian.Uint64(header[0:8])
 	indexSize := binary.BigEndian.Uint32(header[8:12])
@@ -78,8 +77,8 @@ func TestBuilder_Close(t *testing.T) {
 		t.Errorf("eventSize = %d, want 100", eventSize)
 	}
 
-	// Index should be empty, so indexSize should match serialized empty index
-	expectedIndexData, err := index.ToTony()
+	// Index should be empty, so indexSize should match serialized empty index (wire format)
+	expectedIndexData, err := index.ToTony(gomap.EncodeWire(true))
 	if err != nil {
 		t.Fatalf("index.ToTony() error = %v", err)
 	}
@@ -236,6 +235,7 @@ func TestBuilder_NestedStructureWithMixedContainers(t *testing.T) {
 	// Now use the builder to process this stream
 	p, w := newBytesWriteSeeker()
 	index := &Index{Entries: []IndexEntry{}}
+	defer os.RemoveAll(filepath.Dir(p))
 
 	builder, err := NewBuilder(w, index, nil)
 	if err != nil {
@@ -269,7 +269,7 @@ func TestBuilder_NestedStructureWithMixedContainers(t *testing.T) {
 	// Log the resulting index
 	t.Logf("Index has %d entries:", len(builder.index.Entries))
 	for i, entry := range builder.index.Entries {
-		pathStr := entry.Path.KPath.String()
+		pathStr := entry.Path.String()
 		t.Logf("  [%d] Path: %q, Offset: %d", i, pathStr, entry.Offset)
 	}
 
@@ -304,7 +304,7 @@ func TestBuilder_NestedStructureWithMixedContainers(t *testing.T) {
 	if len(snapshot.Index.Entries) > 0 {
 		t.Logf("Index entries from opened snapshot:")
 		for i, entry := range snapshot.Index.Entries {
-			pathStr := entry.Path.KPath.String()
+			pathStr := entry.Path.String()
 			t.Logf("  [%d] Path: %q, Offset: %d", i, pathStr, entry.Offset)
 		}
 	} else {
@@ -314,98 +314,6 @@ func TestBuilder_NestedStructureWithMixedContainers(t *testing.T) {
 	// Verify the index entries match
 	if len(index.Entries) != len(snapshot.Index.Entries) {
 		t.Logf("Warning: Builder index has %d entries, opened snapshot has %d entries", len(index.Entries), len(snapshot.Index.Entries))
-	}
-}
-
-func TestSnapshot_NodeAt(t *testing.T) {
-	// Create a simple structure: { "name": "test", "value": 42 }
-	var inputBuf bytes.Buffer
-	enc, err := stream.NewEncoder(&inputBuf, stream.WithWire())
-	if err != nil {
-		t.Fatalf("NewEncoder() error = %v", err)
-	}
-
-	// Build a simple object
-	if err := enc.BeginObject(); err != nil {
-		t.Fatalf("BeginObject() error = %v", err)
-	}
-	if err := enc.WriteKey("name"); err != nil {
-		t.Fatalf("WriteKey('name') error = %v", err)
-	}
-	if err := enc.WriteString("test"); err != nil {
-		t.Fatalf("WriteString('test') error = %v", err)
-	}
-	if err := enc.WriteKey("value"); err != nil {
-		t.Fatalf("WriteKey('value') error = %v", err)
-	}
-	if err := enc.WriteInt(42); err != nil {
-		t.Fatalf("WriteInt(42) error = %v", err)
-	}
-	if err := enc.EndObject(); err != nil {
-		t.Fatalf("EndObject() error = %v", err)
-	}
-
-	// Build snapshot using the builder
-	p, w := newBytesWriteSeeker()
-	index := &Index{}
-	t.Logf("simple thing will be at %s", p)
-
-	builder, err := NewBuilder(w, index, nil)
-	if err != nil {
-		t.Fatalf("NewBuilder() error = %v", err)
-	}
-
-	// Feed events to the builder
-	dec, err := stream.NewDecoder(bytes.NewReader(inputBuf.Bytes()), stream.WithWire())
-	if err != nil {
-		t.Fatalf("NewDecoder() error = %v", err)
-	}
-
-	for {
-		ev, err := dec.ReadEvent()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			t.Fatalf("ReadEvent() error = %v", err)
-		}
-		if err := builder.WriteEvent(ev); err != nil {
-			t.Fatalf("WriteEvent() error = %v", err)
-		}
-	}
-
-	if err := builder.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
-
-	// Open the snapshot
-	r, err := os.Open(p)
-	if err != nil {
-		panic(err)
-	}
-	defer r.Close()
-	snapshot, err := Open(r)
-	if err != nil {
-		t.Fatalf("Open() error = %v", err)
-	}
-	defer snapshot.Close()
-
-	// Test NodeAt at offset 0 (should read the entire object)
-	node, err := snapshot.NodeAt(0)
-	if err != nil {
-		t.Fatalf("NodeAt(0) error = %v", err)
-	}
-
-	// Verify node is not nil
-	// Note: EventsToNode may not be implemented yet, so we just check it doesn't crash
-	if node == nil {
-		t.Log("Note: EventsToNode returned nil (may not be implemented yet)")
-	} else {
-		// If node is returned, verify it's an object
-		if node.Type != ir.ObjectType {
-			t.Errorf("Expected ObjectType, got %v", node.Type)
-		}
-		// Could add more detailed checks here once EventsToNode is implemented
 	}
 }
 

@@ -211,12 +211,16 @@ func TestIndexLookup(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			entry, exact, err := idx.Lookup(tt.kpath)
+			i, err := idx.Lookup(tt.kpath)
 			_ = err
+			entry := &idx.Entries[i]
+
 			if (entry != nil) != tt.wantFound {
 				t.Errorf("Lookup(%q) found = %v, want %v", tt.kpath, entry != nil, tt.wantFound)
 				return
 			}
+			p := entry.Path.KPath.String()
+			exact := p == tt.kpath
 			if entry != nil {
 				if exact != tt.wantExact {
 					t.Errorf("Lookup(%q) exact = %v, want %v", tt.kpath, exact, tt.wantExact)
@@ -261,14 +265,17 @@ func TestIndexLookupBinarySearch(t *testing.T) {
 
 	// Test that we can find all entries
 	for i, path := range paths {
-		entry, exact, err := idx.Lookup(path)
+		j, err := idx.Lookup(path)
 		if err != nil {
 			t.Fatal(err)
 		}
+		entry := &idx.Entries[j]
 		if entry == nil {
 			t.Errorf("Lookup(%q) returned nil, expected entry at offset %d", path, i*100)
 			continue
 		}
+		p := idx.Entries[j].Path.KPath.String()
+		exact := path == p
 		if !exact {
 			t.Errorf("Lookup(%q) exact = false, want true", path)
 		}
@@ -289,10 +296,13 @@ func TestIndexLookupBinarySearch(t *testing.T) {
 		{"a.a", "a"},          // "a.a" > "a", should return "a" (not found, but "a" is max <= "a.a")
 	}
 	for _, tt := range nonExistent {
-		entry, exact, err := idx.Lookup(tt.path)
+		j, err := idx.Lookup(tt.path)
 		if err != nil {
 			t.Fatal(err)
 		}
+		entry := &idx.Entries[j]
+		p := entry.Path.KPath.String()
+		exact := p == tt.path
 		if exact {
 			t.Errorf("Lookup(%q) exact = true, want false", tt.path)
 		}

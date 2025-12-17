@@ -36,5 +36,8 @@ func KPathState(kp string) (*State, error) {
 		}
 	}
 
+	if state.CurrentPath() != kp {
+		panic(kp)
+	}
 	return state, nil
 }

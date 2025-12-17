@@ -65,10 +65,9 @@ The index is a list of kpaths in order of the stream events, each associated wit
 ## Implementation Status
 
 - [x] Basic index structure (Index, IndexEntry)
-- [ ] Event-based snapshot writer
-- [ ] Index builder (records paths and offsets as events are processed)
-- [ ] Snapshot reader with path lookup
-- [ ] Integration with SnapshotReader interface
+- [x] Event-based snapshot writer
+- [x] Index builder (records paths and offsets as events are processed)
+- [x] Snapshot reader with path lookup, basic
 
 ## Migration from IR-Node-Based Snapshots
 
