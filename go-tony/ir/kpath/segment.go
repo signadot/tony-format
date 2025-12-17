@@ -74,6 +74,24 @@ func segmentsEqual(a, b *KPath) bool {
 	return true
 }
 
+func Field(f string) *KPath {
+	return &KPath{
+		Field: &f,
+	}
+}
+
+func Index(i int) *KPath {
+	return &KPath{
+		Index: &i,
+	}
+}
+
+func SparseIndex(i int) *KPath {
+	return &KPath{
+		SparseIndex: &i,
+	}
+}
+
 // SegmentString returns the canonical string representation of this single segment.
 // Unlike String(), this only returns the current segment, not the entire path.
 // Examples:

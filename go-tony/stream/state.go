@@ -2,11 +2,8 @@ package stream
 
 import (
 	"errors"
-	"strconv"
-	"strings"
 
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
-	"github.com/signadot/tony-format/go-tony/token"
 )
 
 // State provides minimal stack/state/path management.
@@ -16,28 +13,49 @@ import (
 // Only tracks bracketed structures ({...} and [...]).
 // Block-style arrays (TArrayElt) are not tracked.
 type State struct {
-	// Depth tracking
-	depth int // Current bracket nesting depth
-
-	// Path tracking (kinded path syntax: "", "key", "key[0]", "key{0}", "a.b.c")
-	currentPath  string            // Current kinded path from root
-	pathStack    []string          // Stack of paths for nested structures
-	bracketStack []token.TokenType // Stack of bracket types ('[' or '{') for each level
-
-	// Array index tracking
-	arrayIndex int // Current array index (incremented in bracketed arrays)
-
-	// Pending state (for key-value pairs)
-	pendingKey   string // Key name seen before TColon (TLiteral or TString)
-	pendingInt   int    // Integer key seen before TColon (for sparse arrays)
-	pendingValue bool   // True if we've seen a value token that needs path update
+	stack []item
 }
+
+type item struct {
+	segment *kpath.KPath
+	kind    *kpath.EntryKind
+	n       int
+	hasKey  bool
+}
+
+func (i *item) inc() {
+	i.n++
+	if i.segment == nil {
+		if i.kind == &arr {
+			i.segment = kpath.Index(i.n)
+		}
+		return
+	}
+	if i.segment.Index == nil {
+		return
+	}
+	*i.segment.Index++
+}
+
+var (
+	obj = kpath.FieldEntry
+	arr = kpath.ArrayEntry
+	spr = kpath.SparseArrayEntry
+)
 
 // NewState creates a new State for tracking structure state.
 func NewState() *State {
-	return &State{
-		currentPath: "", // Root path is empty string in kinded path syntax
-	}
+	return &State{}
+}
+
+func (s *State) pop() {
+	n := len(s.stack)
+	s.stack = s.stack[:n-1]
+}
+
+func (s *State) current() *item {
+	n := len(s.stack)
+	return &s.stack[n-1]
 }
 
 // ProcessEvent processes an event and updates state/path tracking.
@@ -45,73 +63,71 @@ func NewState() *State {
 func (s *State) ProcessEvent(event *Event) error {
 	switch event.Type {
 	case EventBeginObject:
-		// Opening object - push current path and bracket type to stack
-		if s.IsInArray() {
-			// Array element value - append array index to path
-			s.appendArrayIndexToPath()
+		if s.Depth() > 0 {
+			cur := s.current()
+			cur.inc()
+			cur.hasKey = false
 		}
-		s.pathStack = append(s.pathStack, s.currentPath)
-		s.bracketStack = append(s.bracketStack, token.TLCurl)
-		s.depth++
-		s.pendingValue = false
+		s.stack = append(s.stack, item{kind: &obj})
 
 	case EventEndObject:
-		// Closing object - pop path stack and bracket stack
-		if s.depth == 0 {
+		if s.Depth() <= 0 {
 			return errors.New("negative depth")
 		}
-		s.popBracketStack()
-		s.depth--
-		s.pendingKey = ""
-		s.pendingInt = 0
-		s.pendingValue = false
+		cur := s.current()
+		if cur.hasKey {
+			return errors.New("key or int key, no val")
+		}
+		s.pop()
 
 	case EventBeginArray:
-		// Opening array - push current path and bracket type to stack, reset index
-		if s.IsInArray() {
-			// Array element value - append array index to path
-			s.appendArrayIndexToPath()
+		if s.Depth() > 0 {
+			cur := s.current()
+			cur.inc()
+			cur.hasKey = false
 		}
-		s.pathStack = append(s.pathStack, s.currentPath)
-		s.bracketStack = append(s.bracketStack, token.TLSquare)
-		s.arrayIndex = 0
-		s.depth++
-		s.pendingValue = false
+		s.stack = append(s.stack, item{kind: &arr, n: -1})
 
 	case EventEndArray:
-		// Closing array - pop path stack and bracket stack
-		if s.depth == 0 {
+		if s.Depth() <= 0 {
 			return errors.New("negative depth")
 		}
-		s.popBracketStack()
-		s.depth--
-		s.pendingKey = ""
-		s.pendingValue = false
-
-	case EventKey:
-		if !s.IsInObject() {
-			return errors.New("not in obj but key")
-		}
-		// Key event - update path with key
-		s.currentPath = s.pathStack[len(s.pathStack)-1]
-		s.appendKeyToPath(event.Key)
-		s.pendingValue = true // Next event will be a value
-	case EventIntKey:
-		if !s.IsInObject() {
-			return errors.New("not in obj but key")
-		}
-		// Key event - update path with key
-		s.currentPath = s.pathStack[len(s.pathStack)-1]
-		s.appendIntKeyToPath(event.IntKey)
-		s.pendingValue = true // Next event will be a value
-
+		s.pop()
 	case EventString, EventInt, EventFloat, EventBool, EventNull:
-		// Value events - update path if in array
-		if s.IsInArray() {
-			// Array element value - append array index to path
-			s.appendArrayIndexToPath()
+		if s.Depth() > 0 {
+			cur := s.current()
+			cur.inc()
+			cur.hasKey = false
 		}
-		s.pendingValue = false
+	case EventKey:
+		if len(s.stack) == 0 {
+			return errors.New("key not in obj")
+		}
+		cur := s.current()
+		if cur.kind != &obj {
+			return errors.New("key not in obj (2)")
+		}
+		if cur.hasKey {
+			return errors.New("key after key")
+		}
+		cur.hasKey = true
+		cur.segment = kpath.Field(event.Key)
+	case EventIntKey:
+		if len(s.stack) == 0 {
+			return errors.New("int key not in sparse array")
+		}
+		cur := s.current()
+		if cur.hasKey {
+			return errors.New("int key after int key")
+		}
+		if cur.n == 0 && cur.kind == &obj {
+			cur.kind = &spr
+		}
+		if cur.kind != &spr {
+			return errors.New("int key not in sparse array")
+		}
+		cur.hasKey = true
+		cur.segment = kpath.SparseIndex(int(event.IntKey))
 
 	case EventHeadComment, EventLineComment:
 		// Comment events - don't affect state (Phase 1: no-op, Phase 2: may affect path)
@@ -120,198 +136,111 @@ func (s *State) ProcessEvent(event *Event) error {
 	return nil
 }
 
-// Helper functions for state checks
-
-// popBracketStack pops the path stack and bracket stack.
-func (s *State) popBracketStack() {
-	s.currentPath = s.pathStack[len(s.pathStack)-1]
-	s.pathStack = s.pathStack[:len(s.pathStack)-1]
-	s.bracketStack = s.bracketStack[:len(s.bracketStack)-1]
-}
-
-// appendKeyToPath appends a key to the current path using kinded path syntax.
-// Handles special characters by quoting the key.
-func (s *State) appendKeyToPath(key string) {
-	// Use Quote to properly quote the key if needed
-	needsQuote := token.KPathQuoteField(key)
-	if s.currentPath == "" {
-		// First field - no leading dot
-		if needsQuote {
-			s.currentPath = token.Quote(key, true)
-		} else {
-			s.currentPath = key
-		}
-	} else {
-		// Subsequent field - add dot separator
-		if needsQuote {
-			s.currentPath += "." + token.Quote(key, true)
-		} else {
-			s.currentPath += "." + key
-		}
-	}
-}
-
-// appendKeyToPath appends a key to the current path using kinded path syntax.
-// Handles special characters by quoting the key.
-func (s *State) appendIntKeyToPath(key int64) {
-	seg := "{" + strconv.Itoa(int(key)) + "}"
-	s.currentPath += seg
-}
-
-// removeLastArrayIndexIfPresent removes the last segment if it's an array index ([n] or {n}).
-// This handles cases where we need to replace an existing array index with a new one.
-func (s *State) removeLastArrayIndexIfPresent() {
-	parent, lastSeg := kpath.RSplit(s.currentPath)
-	if strings.HasPrefix(lastSeg, "[") || strings.HasPrefix(lastSeg, "{") {
-		s.currentPath = parent
-	}
-}
-
-// appendArrayIndexToPath appends the current array index to the path using kinded path syntax.
-// If the path already ends with an array index, it resets to the base first.
-func (s *State) appendArrayIndexToPath() {
-	// Reset to array base if path already ends with an array index
-	// This handles cases where we see consecutive array elements without commas
-	s.removeLastArrayIndexIfPresent()
-	s.currentPath += "[" + strconv.Itoa(s.arrayIndex) + "]"
-	s.arrayIndex++
-}
-
 // Depth returns the current nesting depth (0 = top level).
 func (s *State) Depth() int {
-	return s.depth
+	return len(s.stack)
 }
 
 // CurrentPath returns the current kinded path (e.g., "", "key", "key[0]").
 func (s *State) CurrentPath() string {
-	return s.currentPath
-}
-
-// ParentPath returns the parent path (one level up).
-func (s *State) ParentPath() string {
-	if len(s.pathStack) > 0 {
-		return s.pathStack[len(s.pathStack)-1]
+	res := ""
+	for i := range s.stack {
+		item := &s.stack[i]
+		if item.segment == nil {
+			break
+		}
+		if item.segment.Field != nil && i > 0 {
+			res += "."
+		}
+		res += item.segment.String()
 	}
-	return ""
+	return res
 }
 
 // IsInObject returns true if currently inside an object.
 func (s *State) IsInObject() bool {
-	return len(s.bracketStack) > 0 && s.bracketStack[len(s.bracketStack)-1] == token.TLCurl
+	if len(s.stack) == 0 {
+		return false
+	}
+	cur := s.current()
+	if cur.kind != nil {
+		return cur.kind == &obj
+	}
+	if cur.segment != nil {
+		return cur.segment.Field != nil
+	}
+	panic("impossible")
 }
 
 // IsInArray returns true if currently inside an array.
 func (s *State) IsInArray() bool {
-	return len(s.bracketStack) > 0 && s.bracketStack[len(s.bracketStack)-1] == token.TLSquare
+	if len(s.stack) == 0 {
+		return false
+	}
+	cur := s.current()
+	if cur.kind != nil {
+		return cur.kind == &arr
+	}
+	if cur.segment != nil {
+		return cur.segment.Index != nil
+	}
+	panic("impossible")
+}
+
+func (s *State) IsInSparseArray() bool {
+	if len(s.stack) == 0 {
+		return false
+	}
+	cur := s.current()
+	if cur.kind != nil {
+		return cur.kind == &spr
+	}
+	if cur.segment != nil {
+		return cur.segment.SparseIndex != nil
+	}
+	panic("impossible")
 }
 
 // CurrentKey returns the current object key (if in object).
-func (s *State) CurrentKey() string {
-	if !s.IsInObject() {
-		return ""
+func (s *State) CurrentKey() (string, bool) {
+	if len(s.stack) == 0 {
+		return "", false
 	}
-	if s.currentPath == "" {
-		return ""
+	cur := s.current()
+	if cur.segment == nil {
+		return "", false
 	}
-
-	// Use RSplit to get the last segment, then extract field name
-	_, lastSeg := kpath.RSplit(s.currentPath)
-	fieldName, ok := kpath.SegmentFieldName(lastSeg)
-	if !ok {
-		// Not a field segment (could be array index, etc.)
-		return ""
+	if cur.segment.Field == nil {
+		return "", false
 	}
-
-	return fieldName
+	return *cur.segment.Field, true
 }
 
-func (s *State) CurrentIntKey() int {
-	if !s.IsInObject() {
-		return -1
+func (s *State) CurrentIntKey() (int, bool) {
+	if len(s.stack) == 0 {
+		return 0, false
 	}
-	if s.currentPath == "" {
-		return -1
+	cur := s.current()
+	if cur.segment == nil {
+		return 0, false
 	}
-	// Use RSplit to get the last segment, then extract field name
-	_, lastSeg := kpath.RSplit(s.currentPath)
-	if lastSeg == "" {
-		return -1
+	if cur.segment.SparseIndex == nil {
+		return 0, false
 	}
-	if lastSeg[0] != '{' {
-		return -1
-	}
-	lastSeg = lastSeg[1:]
-	if lastSeg == "" {
-		return -1
-	}
-	if lastSeg[len(lastSeg)-1] != '}' {
-		return -1
-	}
-	lastSeg = lastSeg[:len(lastSeg)-1]
-	u, err := strconv.ParseUint(lastSeg, 10, 32)
-	if err != nil {
-		return -1
-	}
-	return int(u)
+	return *cur.segment.SparseIndex, true
 }
 
-// CurrentIndex returns the current array index (if in array).
-func (s *State) CurrentIndex() int {
-	if s.IsInArray() {
-		return s.arrayIndex
+// CurrentIndex returns the current array index (if in array), -1 otherwise
+func (s *State) CurrentIndex() (int, bool) {
+	if len(s.stack) == 0 {
+		return 0, false
 	}
-	return 0
-}
-
-// KPathState creates a State that represents being at the given kinded path.
-// It parses the kpath string and builds up the State's internal structure
-// (path stack, bracket stack, etc.) by opening a bracket context for each
-// segment in the parsed path.
-//
-// Returns an error if the kpath string is invalid.
-func KPathState(kp string) (*State, error) {
-	if kp == "" {
-		return NewState(), nil
+	cur := s.current()
+	if cur.segment == nil {
+		return 0, false
 	}
-
-	// Parse the kpath into structured form
-	p, err := kpath.Parse(kp)
-	if err != nil {
-		return nil, err
+	if cur.segment.Index == nil {
+		return 0, false
 	}
-	if p == nil {
-		return NewState(), nil
-	}
-
-	// Build State by opening bracket contexts for each segment
-	state := NewState()
-
-	for current := p; current != nil; current = current.Next {
-		switch current.EntryKind() {
-		case kpath.FieldEntry:
-			// Each field segment opens a new object level
-			state.pathStack = append(state.pathStack, state.currentPath)
-			state.bracketStack = append(state.bracketStack, token.TLCurl)
-			state.depth++
-			state.appendKeyToPath(*current.Field)
-
-		case kpath.ArrayEntry:
-			// Each array index segment opens a new array level
-			state.pathStack = append(state.pathStack, state.currentPath)
-			state.bracketStack = append(state.bracketStack, token.TLSquare)
-			state.depth++
-			state.arrayIndex = *current.Index
-			state.currentPath += "[" + strconv.Itoa(*current.Index) + "]"
-
-		case kpath.SparseArrayEntry:
-			// Each sparse array index segment opens a new array level
-			state.pathStack = append(state.pathStack, state.currentPath)
-			state.bracketStack = append(state.bracketStack, token.TLSquare)
-			state.depth++
-			state.arrayIndex = *current.SparseIndex
-			state.currentPath += "{" + strconv.Itoa(*current.SparseIndex) + "}"
-		}
-	}
-
-	return state, nil
+	return *cur.segment.Index, true
 }

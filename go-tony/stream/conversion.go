@@ -104,6 +104,58 @@ func nodeToEvents(node *ir.Node, events *[]Event) error {
 	return nil
 }
 
+type nodeFrame struct {
+	node   *ir.Node
+	key    string
+	intKey *int64
+}
+
+// wrapWithHeadComment wraps a node with a pending head comment if present
+func wrapWithHeadComment(node *ir.Node, pendingComment **ir.Node) *ir.Node {
+	if *pendingComment == nil {
+		return node
+	}
+	(*pendingComment).Values = []*ir.Node{node}
+	node.Parent = *pendingComment
+	node.ParentIndex = 0
+	result := *pendingComment
+	*pendingComment = nil
+	return result
+}
+
+// addNodeToParent adds a node to its parent container (object or array)
+func addNodeToParent(stack *[]nodeFrame, node *ir.Node, root **ir.Node) {
+	if len(*stack) == 0 {
+		*root = node
+		return
+	}
+
+	parent := &(*stack)[len(*stack)-1]
+	if parent.node.Type == ir.ObjectType {
+		var keyNode *ir.Node
+		key := ""
+		if parent.intKey != nil {
+			keyNode = ir.FromInt(*parent.intKey)
+		} else {
+			keyNode = ir.FromString(parent.key)
+			key = parent.key
+		}
+
+		parent.node.Fields = append(parent.node.Fields, keyNode)
+		parent.node.Values = append(parent.node.Values, node)
+		node.Parent = parent.node
+		node.ParentIndex = len(parent.node.Values) - 1
+		node.ParentField = key
+		keyNode.Parent = parent.node
+		keyNode.ParentIndex = len(parent.node.Fields) - 1
+
+	} else if parent.node.Type == ir.ArrayType {
+		parent.node.Values = append(parent.node.Values, node)
+		node.Parent = parent.node
+		node.ParentIndex = len(parent.node.Values) - 1
+	}
+}
+
 // EventsToNode converts a sequence of events to an ir.Node.
 // Takes events read from Decoder.
 //
@@ -114,10 +166,7 @@ func EventsToNode(events []Event) (*ir.Node, error) {
 		return nil, nil
 	}
 
-	// Use State to track structure depth and current context
 	state := NewState()
-
-	// Stack tracks the nodes being built (using State's depth)
 	var stack []nodeFrame
 	var root *ir.Node
 	var pendingHeadComment *ir.Node
@@ -129,37 +178,8 @@ func EventsToNode(events []Event) (*ir.Node, error) {
 
 		switch ev.Type {
 		case EventBeginObject:
-			node := ir.FromMap(map[string]*ir.Node{}).WithTag(ev.Tag)
-
-			if pendingHeadComment != nil {
-				pendingHeadComment.Values = []*ir.Node{node}
-				node.Parent = pendingHeadComment
-				node.ParentIndex = 0
-				node = pendingHeadComment
-				pendingHeadComment = nil
-			}
-
-			if len(stack) == 0 {
-				root = node
-			} else {
-				parent := &stack[len(stack)-1]
-				if parent.node.Type == ir.ObjectType {
-					// Use FromKeyVals pattern - build key-value pair
-					keyNode := ir.FromString(parent.key)
-					parent.node.Fields = append(parent.node.Fields, keyNode)
-					parent.node.Values = append(parent.node.Values, node)
-					node.Parent = parent.node
-					node.ParentIndex = len(parent.node.Values) - 1
-					node.ParentField = parent.key
-					keyNode.Parent = parent.node
-					keyNode.ParentIndex = len(parent.node.Fields) - 1
-					keyNode.ParentField = parent.key
-				} else if parent.node.Type == ir.ArrayType {
-					parent.node.Values = append(parent.node.Values, node)
-					node.Parent = parent.node
-					node.ParentIndex = len(parent.node.Values) - 1
-				}
-			}
+			node := wrapWithHeadComment(ir.FromMap(map[string]*ir.Node{}).WithTag(ev.Tag), &pendingHeadComment)
+			addNodeToParent(&stack, node, &root)
 			stack = append(stack, nodeFrame{node: node})
 
 		case EventEndObject:
@@ -169,36 +189,8 @@ func EventsToNode(events []Event) (*ir.Node, error) {
 			stack = stack[:len(stack)-1]
 
 		case EventBeginArray:
-			node := ir.FromSlice([]*ir.Node{}).WithTag(ev.Tag)
-
-			if pendingHeadComment != nil {
-				pendingHeadComment.Values = []*ir.Node{node}
-				node.Parent = pendingHeadComment
-				node.ParentIndex = 0
-				node = pendingHeadComment
-				pendingHeadComment = nil
-			}
-
-			if len(stack) == 0 {
-				root = node
-			} else {
-				parent := &stack[len(stack)-1]
-				if parent.node.Type == ir.ObjectType {
-					keyNode := ir.FromString(parent.key)
-					parent.node.Fields = append(parent.node.Fields, keyNode)
-					parent.node.Values = append(parent.node.Values, node)
-					node.Parent = parent.node
-					node.ParentIndex = len(parent.node.Values) - 1
-					node.ParentField = parent.key
-					keyNode.Parent = parent.node
-					keyNode.ParentIndex = len(parent.node.Fields) - 1
-					keyNode.ParentField = parent.key
-				} else if parent.node.Type == ir.ArrayType {
-					parent.node.Values = append(parent.node.Values, node)
-					node.Parent = parent.node
-					node.ParentIndex = len(parent.node.Values) - 1
-				}
-			}
+			node := wrapWithHeadComment(ir.FromSlice([]*ir.Node{}).WithTag(ev.Tag), &pendingHeadComment)
+			addNodeToParent(&stack, node, &root)
 			stack = append(stack, nodeFrame{node: node})
 
 		case EventEndArray:
@@ -216,6 +208,7 @@ func EventsToNode(events []Event) (*ir.Node, error) {
 				return nil, fmt.Errorf("unexpected EventKey at event %d (not in object)", i)
 			}
 			parent.key = ev.Key
+
 		case EventIntKey:
 			if len(stack) == 0 {
 				return nil, fmt.Errorf("unexpected EventIntKey at event %d (not in object)", i)
@@ -227,69 +220,24 @@ func EventsToNode(events []Event) (*ir.Node, error) {
 			parent.intKey = &ev.IntKey
 
 		case EventString:
-			node := ir.FromString(ev.String).WithTag(ev.Tag)
-
-			if pendingHeadComment != nil {
-				pendingHeadComment.Values = []*ir.Node{node}
-				node.Parent = pendingHeadComment
-				node.ParentIndex = 0
-				node = pendingHeadComment
-				pendingHeadComment = nil
-			}
-
-			addValueToStack(&stack, node, &root)
+			node := wrapWithHeadComment(ir.FromString(ev.String).WithTag(ev.Tag), &pendingHeadComment)
+			addNodeToParent(&stack, node, &root)
 
 		case EventInt:
-			node := ir.FromInt(ev.Int).WithTag(ev.Tag)
-
-			if pendingHeadComment != nil {
-				pendingHeadComment.Values = []*ir.Node{node}
-				node.Parent = pendingHeadComment
-				node.ParentIndex = 0
-				node = pendingHeadComment
-				pendingHeadComment = nil
-			}
-
-			addValueToStack(&stack, node, &root)
+			node := wrapWithHeadComment(ir.FromInt(ev.Int).WithTag(ev.Tag), &pendingHeadComment)
+			addNodeToParent(&stack, node, &root)
 
 		case EventFloat:
-			node := ir.FromFloat(ev.Float).WithTag(ev.Tag)
-
-			if pendingHeadComment != nil {
-				pendingHeadComment.Values = []*ir.Node{node}
-				node.Parent = pendingHeadComment
-				node.ParentIndex = 0
-				node = pendingHeadComment
-				pendingHeadComment = nil
-			}
-
-			addValueToStack(&stack, node, &root)
+			node := wrapWithHeadComment(ir.FromFloat(ev.Float).WithTag(ev.Tag), &pendingHeadComment)
+			addNodeToParent(&stack, node, &root)
 
 		case EventBool:
-			node := ir.FromBool(ev.Bool).WithTag(ev.Tag)
-
-			if pendingHeadComment != nil {
-				pendingHeadComment.Values = []*ir.Node{node}
-				node.Parent = pendingHeadComment
-				node.ParentIndex = 0
-				node = pendingHeadComment
-				pendingHeadComment = nil
-			}
-
-			addValueToStack(&stack, node, &root)
+			node := wrapWithHeadComment(ir.FromBool(ev.Bool).WithTag(ev.Tag), &pendingHeadComment)
+			addNodeToParent(&stack, node, &root)
 
 		case EventNull:
-			node := ir.Null().WithTag(ev.Tag)
-
-			if pendingHeadComment != nil {
-				pendingHeadComment.Values = []*ir.Node{node}
-				node.Parent = pendingHeadComment
-				node.ParentIndex = 0
-				node = pendingHeadComment
-				pendingHeadComment = nil
-			}
-
-			addValueToStack(&stack, node, &root)
+			node := wrapWithHeadComment(ir.Null().WithTag(ev.Tag), &pendingHeadComment)
+			addNodeToParent(&stack, node, &root)
 
 		case EventHeadComment:
 			pendingHeadComment = &ir.Node{
@@ -298,30 +246,22 @@ func EventsToNode(events []Event) (*ir.Node, error) {
 			}
 
 		case EventLineComment:
+			commentNode := &ir.Node{
+				Type:  ir.CommentType,
+				Lines: ev.CommentLines,
+			}
+
 			if len(stack) == 0 {
 				if root != nil {
-					root.Comment = &ir.Node{
-						Type:  ir.CommentType,
-						Lines: ev.CommentLines,
-					}
-					root.Comment.Parent = root
+					root.Comment = commentNode
+					commentNode.Parent = root
 				}
 			} else {
 				parent := &stack[len(stack)-1]
-				if parent.node.Type == ir.ObjectType && len(parent.node.Values) > 0 {
+				if len(parent.node.Values) > 0 {
 					lastValue := parent.node.Values[len(parent.node.Values)-1]
-					lastValue.Comment = &ir.Node{
-						Type:  ir.CommentType,
-						Lines: ev.CommentLines,
-					}
-					lastValue.Comment.Parent = lastValue
-				} else if parent.node.Type == ir.ArrayType && len(parent.node.Values) > 0 {
-					lastValue := parent.node.Values[len(parent.node.Values)-1]
-					lastValue.Comment = &ir.Node{
-						Type:  ir.CommentType,
-						Lines: ev.CommentLines,
-					}
-					lastValue.Comment.Parent = lastValue
+					lastValue.Comment = commentNode
+					commentNode.Parent = lastValue
 				}
 			}
 		}
@@ -332,44 +272,6 @@ func EventsToNode(events []Event) (*ir.Node, error) {
 	}
 
 	return root, nil
-}
-
-// addValueToStack adds a value node to the current stack context
-type nodeFrame struct {
-	node   *ir.Node
-	key    string
-	intKey *int64
-}
-
-func addValueToStack(stack *[]nodeFrame, node *ir.Node, root **ir.Node) {
-	if len(*stack) == 0 {
-		*root = node
-	} else {
-		parent := &(*stack)[len(*stack)-1]
-		if parent.node.Type == ir.ObjectType {
-			var keyNode *ir.Node
-			key := ""
-			if parent.intKey != nil {
-				keyNode = ir.FromInt(*parent.intKey)
-			} else {
-				keyNode = ir.FromString(parent.key)
-				key = parent.key
-			}
-
-			parent.node.Fields = append(parent.node.Fields, keyNode)
-			parent.node.Values = append(parent.node.Values, node)
-			node.Parent = parent.node
-			node.ParentIndex = len(parent.node.Values) - 1
-			node.ParentField = key
-			keyNode.Parent = parent.node
-			keyNode.ParentIndex = len(parent.node.Fields) - 1
-
-		} else if parent.node.Type == ir.ArrayType {
-			parent.node.Values = append(parent.node.Values, node)
-			node.Parent = parent.node
-			node.ParentIndex = len(parent.node.Values) - 1
-		}
-	}
 }
 
 // EncodeNode encodes an ir.Node to bytes using Encoder.

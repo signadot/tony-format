@@ -160,17 +160,6 @@ func (d *Decoder) tokenToEvent(tok token.Token) (*Event, error) {
 		}
 
 		if nextTok.Type == token.TColon {
-			if tok.Type == token.TInteger {
-				i, err := strconv.ParseUint(string(tok.Bytes), 10, 32)
-				if err != nil {
-					return nil, err
-				}
-				return &Event{
-					Type:   EventIntKey,
-					IntKey: int64(i),
-				}, nil
-
-			}
 			return &Event{
 				Type: EventKey,
 				Key:  tok.String(),
@@ -277,28 +266,6 @@ func (d *Decoder) tokenToEvent(tok token.Token) (*Event, error) {
 	}
 }
 
-// peekToken returns the next token without consuming it.
-func (d *Decoder) peekToken() (token.Token, error) {
-	// If we have pending tokens, return the first one
-	if len(d.pendingTokens) > 0 {
-		return d.pendingTokens[0], nil
-	}
-
-	// Read from source
-	tokens, err := d.source.Read()
-	if err != nil {
-		return token.Token{}, err
-	}
-
-	if len(tokens) == 0 {
-		return token.Token{}, io.EOF
-	}
-
-	// Save all tokens in pending buffer
-	d.pendingTokens = append(d.pendingTokens, tokens...)
-	return d.pendingTokens[0], nil
-}
-
 // Queryable State Methods (delegate to internal State)
 
 // Depth returns the current nesting depth (0 = top level).
@@ -309,11 +276,6 @@ func (d *Decoder) Depth() int {
 // CurrentPath returns the current kinded path (e.g., "", "key", "key[0]").
 func (d *Decoder) CurrentPath() string {
 	return d.state.CurrentPath()
-}
-
-// ParentPath returns the parent path (one level up).
-func (d *Decoder) ParentPath() string {
-	return d.state.ParentPath()
 }
 
 // IsInObject returns true if currently inside an object.
@@ -327,20 +289,13 @@ func (d *Decoder) IsInArray() bool {
 }
 
 // CurrentKey returns the current object key (if in object).
-func (d *Decoder) CurrentKey() string {
+func (d *Decoder) CurrentKey() (string, bool) {
 	return d.state.CurrentKey()
 }
 
 // CurrentIndex returns the current array index (if in array).
-func (d *Decoder) CurrentIndex() int {
+func (d *Decoder) CurrentIndex() (int, bool) {
 	return d.state.CurrentIndex()
-}
-
-// Offset returns the byte offset within the chunk being read.
-// Note: Offset tracking is deferred - returns 0 for now.
-func (d *Decoder) Offset() int64 {
-	// TODO: Track offset from TokenSource
-	return 0
 }
 
 // Reset resets the decoder to read from a new reader.

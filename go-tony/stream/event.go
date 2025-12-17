@@ -89,6 +89,15 @@ func (t EventType) String() string {
 	}
 }
 
+func (t EventType) IsKey() bool {
+	switch t {
+	case EventKey, EventIntKey:
+		return true
+	default:
+		return false
+	}
+}
+
 func (t EventType) MarshalText() ([]byte, error) {
 	return []byte(t.String()), nil
 }

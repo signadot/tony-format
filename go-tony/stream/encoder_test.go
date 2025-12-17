@@ -260,8 +260,8 @@ func TestEncoder_StateTracking(t *testing.T) {
 	if enc.CurrentPath() != "a" {
 		t.Errorf("expected path 'a', got %q", enc.CurrentPath())
 	}
-	if enc.CurrentKey() != "a" {
-		t.Errorf("expected current key 'a', got %q", enc.CurrentKey())
+	if k, _ := enc.CurrentKey(); k != "a" {
+		t.Errorf("expected current key 'a', got %q", k)
 	}
 
 	if err := enc.BeginArray(); err != nil {
@@ -280,8 +280,8 @@ func TestEncoder_StateTracking(t *testing.T) {
 	if enc.CurrentPath() != "a[0]" {
 		t.Errorf("expected path 'a[0]', got %q", enc.CurrentPath())
 	}
-	if enc.CurrentIndex() != 1 {
-		t.Errorf("expected current index 1, got %d", enc.CurrentIndex())
+	if i, _ := enc.CurrentIndex(); i != 0 {
+		t.Errorf("expected current index 0, got %d", i)
 	}
 
 	if err := enc.WriteInt(2); err != nil {

@@ -20,29 +20,6 @@ type Encoder struct {
 	pendingTag   string // Tag to apply to next value
 }
 
-// StreamOption configures Encoder/Decoder behavior.
-type StreamOption func(*streamOpts)
-
-type streamOpts struct {
-	brackets bool // Force bracketed style
-	wire     bool // Wire format (implies brackets)
-}
-
-// WithBrackets forces bracketed style encoding/decoding.
-func WithBrackets() StreamOption {
-	return func(opts *streamOpts) {
-		opts.brackets = true
-	}
-}
-
-// WithWire enables wire format (implies brackets).
-func WithWire() StreamOption {
-	return func(opts *streamOpts) {
-		opts.wire = true
-		opts.brackets = true // Wire format implies brackets
-	}
-}
-
 // NewEncoder creates a new Encoder writing to w.
 // Requires bracketed format (use WithBrackets() or WithWire()).
 // Returns error if bracketing not specified.
@@ -69,15 +46,6 @@ func NewEncoder(w io.Writer, opts ...StreamOption) (*Encoder, error) {
 	}, nil
 }
 
-// Error represents a stream error.
-type Error struct {
-	Msg string
-}
-
-func (e *Error) Error() string {
-	return e.Msg
-}
-
 // Queryable State Methods
 
 // Depth returns the current nesting depth (0 = top level).
@@ -88,11 +56,6 @@ func (e *Encoder) Depth() int {
 // CurrentPath returns the current kinded path (e.g., "", "key", "key[0]").
 func (e *Encoder) CurrentPath() string {
 	return e.state.CurrentPath()
-}
-
-// ParentPath returns the parent path (one level up).
-func (e *Encoder) ParentPath() string {
-	return e.state.ParentPath()
 }
 
 // IsInObject returns true if currently inside an object.
@@ -106,12 +69,12 @@ func (e *Encoder) IsInArray() bool {
 }
 
 // CurrentKey returns the current object key (if in object).
-func (e *Encoder) CurrentKey() string {
+func (e *Encoder) CurrentKey() (string, bool) {
 	return e.state.CurrentKey()
 }
 
 // CurrentIndex returns the current array index (if in array).
-func (e *Encoder) CurrentIndex() int {
+func (e *Encoder) CurrentIndex() (int, bool) {
 	return e.state.CurrentIndex()
 }
 
@@ -267,8 +230,8 @@ func (e *Encoder) EndArray() error {
 
 // WriteKey writes an object key.
 func (e *Encoder) WriteKey(key string) error {
-	// Add comma if needed (not first key-value pair in object)
-	if e.lastWasValue && e.state.IsInObject() {
+	// Add comma if needed (not first key-value pair in object or sparse array)
+	if e.lastWasValue && (e.state.IsInObject() || e.state.IsInSparseArray()) {
 		if err := e.writeBytes([]byte(",")); err != nil {
 			return err
 		}
@@ -304,8 +267,8 @@ func (e *Encoder) WriteKey(key string) error {
 }
 
 func (e *Encoder) WriteIntKey(key int) error {
-	// Add comma if needed (not first key-value pair in object)
-	if e.lastWasValue && e.state.IsInObject() {
+	// Add comma if needed (not first key-value pair in object or sparse array)
+	if e.lastWasValue && (e.state.IsInObject() || e.state.IsInSparseArray()) {
 		if err := e.writeBytes([]byte(",")); err != nil {
 			return err
 		}

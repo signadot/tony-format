@@ -337,8 +337,8 @@ func TestDecoder_StateTracking(t *testing.T) {
 	if dec.CurrentPath() != "a" {
 		t.Errorf("expected path 'a', got %q", dec.CurrentPath())
 	}
-	if dec.CurrentKey() != "a" {
-		t.Errorf("expected current key 'a', got %q", dec.CurrentKey())
+	if k, _ := dec.CurrentKey(); k != "a" {
+		t.Errorf("expected current key 'a', got %q", k)
 	}
 
 	// Read BeginArray
@@ -370,8 +370,8 @@ func TestDecoder_StateTracking(t *testing.T) {
 	if dec.CurrentPath() != "a[0]" {
 		t.Errorf("expected path 'a[0]', got %q", dec.CurrentPath())
 	}
-	if dec.CurrentIndex() != 1 {
-		t.Errorf("expected current index 1, got %d", dec.CurrentIndex())
+	if i, _ := dec.CurrentIndex(); i != 0 {
+		t.Errorf("expected current index 0, got %d", i)
 	}
 
 	// Read Int(2)
