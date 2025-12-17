@@ -10,9 +10,8 @@ const (
 	HeaderSize       = 12
 )
 
-// GetChunkSize returns the maximum chunk size for indexing.
-// Defaults to DefaultMaxChunkSize (4096) if SNAP_MAX_CHUNK_SIZE environment variable is not set.
-// This allows tests to use smaller chunk sizes to exercise chunk boundary conditions.
+// GetChunkSize returns the chunk size for indexing (bytes).
+// Defaults to 4096. Override with SNAP_MAX_CHUNK_SIZE env var.
 func GetChunkSize() int {
 	if envSize := os.Getenv("SNAP_MAX_CHUNK_SIZE"); envSize != "" {
 		if size, err := strconv.Atoi(envSize); err == nil && size > 0 {

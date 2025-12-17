@@ -10,6 +10,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/stream"
 )
 
+// Snapshot is an opened snapshot file providing random access to paths.
 type Snapshot struct {
 	R         io.ReadSeekCloser
 	Index     *Index
@@ -17,6 +18,8 @@ type Snapshot struct {
 
 }
 
+// Open reads a snapshot from rc.
+// The index is loaded into memory; events are read on demand.
 func Open(rc R) (*Snapshot, error) {
 	// Read header: [8 bytes: event stream size][4 bytes: index size]
 	_, err := rc.Seek(0, io.SeekStart)
@@ -65,8 +68,8 @@ func (s *Snapshot) Close() error {
 	return s.R.Close()
 }
 
-// ReadPath reads a specific path from the snapshot.
-// Returns nil if the path is not found.
+// ReadPath reads the IR node at path p.
+// Returns nil if path not found.
 func (s *Snapshot) ReadPath(p string) (*ir.Node, error) {
 	desPath, err := kpath.Parse(p)
 	if err != nil {

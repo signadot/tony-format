@@ -24,6 +24,8 @@ func debugLog(format string, args ...interface{}) {
 	}
 }
 
+// Builder writes snapshot files by consuming stream events.
+// Automatically creates index entries at chunk boundaries.
 type Builder struct {
 	w          W
 	state      *stream.State
@@ -39,6 +41,8 @@ type Builder struct {
 	lastKey     *stream.Event
 }
 
+// NewBuilder creates a snapshot builder writing to w.
+// Populates the provided index as events are written.
 func NewBuilder(w W, index *Index, patches []*ir.Node) (*Builder, error) {
 	pos, err := w.Seek(0, io.SeekCurrent)
 	if err != nil {
@@ -66,7 +70,8 @@ func NewBuilder(w W, index *Index, patches []*ir.Node) (*Builder, error) {
 	}, nil
 }
 
-// WriteEvent processes a single event, writing it to the snapshot and updating state/index.
+// WriteEvent writes an event to the snapshot.
+// Creates index entries when chunk size threshold is reached.
 func (b *Builder) WriteEvent(ev *stream.Event) error {
 	return b.onEvent(ev)
 }

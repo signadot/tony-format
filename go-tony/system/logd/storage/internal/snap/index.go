@@ -7,25 +7,21 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
 )
 
-// IndexEntry represents a single entry in the snapshot index.
-// Each entry maps a kinded path to its byte offset in the event stream.
+// IndexEntry maps a kinded path to its byte offset in the event stream.
 //
 // tony:schemagen=index-entry
 type IndexEntry struct {
 	Path   *Path // Kinded path (e.g., "a.b[0]", "users.123.name")
-	Offset int64 // Byte offset in the event stream where this path appears
+	Offset int64 // Byte offset in event stream
 	Size   int64 `tony:"omit"`
 }
 
-// Index is an index into event-based snapshots.
-// It contains a list of kpaths in order of the stream events,
-// each associated with an offset in the event data.
+// Index maps kinded paths to event stream offsets.
+// Entries are in document order (sorted for objects, sequential for arrays).
 //
 //tony:schemagen=index
 type Index struct {
-	// Entries is a list of indexed paths in order of appearance in the event stream.
-	// Entries are ordered by their Offset values.
-	Entries []IndexEntry
+	Entries []IndexEntry // Ordered by Offset
 }
 
 // OpenIndex reads an index from a reader of size size
@@ -42,13 +38,9 @@ func OpenIndex(r io.Reader, size int) (*Index, error) {
 	return idx, nil
 }
 
-// Lookup finds the entry for the given path, or the entry just before it in sorted (document) order.
-// Since document order for objects is sorted order, entries are sorted by path.
-// Returns the entry just before where the path would be inserted, which should be an ancestor
-// or a sibling that comes before the requested path.
-//
-// If the target path comes before all indexed entries, returns the first entry (index 0).
-// The caller should check if the returned entry is actually before or at the target path.
+// Lookup finds the index entry at or before path kp in document order.
+// Returns the largest index i where Entries[i].Path <= kp.
+// Returns 0 if kp comes before all indexed paths.
 func (idx *Index) Lookup(kp string) (index int, err error) {
 	targetKPath, err := kpath.Parse(kp)
 	if err != nil {

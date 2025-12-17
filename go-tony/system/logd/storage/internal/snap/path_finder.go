@@ -8,6 +8,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/stream"
 )
 
+// PathFinder seeks to an indexed offset and extracts events for a target path.
 type PathFinder struct {
 	idxPath    *kpath.KPath
 	desPath    *kpath.KPath
@@ -18,6 +19,7 @@ type PathFinder struct {
 	events []stream.Event
 }
 
+// NewPathFinder creates a PathFinder starting at offset off (indexed at idxPath) to find desPath.
 func NewPathFinder(r io.ReadSeekCloser, off int64, idxPath, desPath *kpath.KPath) (*PathFinder, error) {
 	st, err := stream.KPathState(idxPath.String())
 	if err != nil {
@@ -44,8 +46,7 @@ func NewPathFinder(r io.ReadSeekCloser, off int64, idxPath, desPath *kpath.KPath
 	}, nil
 }
 
-// FindEvents reads events from the snapshot and returns only those events
-// that correspond to the desired path.
+// FindEvents extracts events for the desired path from the snapshot.
 func (pf *PathFinder) FindEvents() ([]stream.Event, error) {
 	// Seek to the initial offset (relative to snapshot start)
 	absOffset := int64(HeaderSize) + pf.initOffset

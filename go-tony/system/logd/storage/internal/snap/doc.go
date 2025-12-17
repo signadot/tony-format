@@ -1,13 +1,10 @@
-// Package snap provides event-based snapshot storage for logd.
+// Package snap provides event-based snapshot storage.
 //
-// This package is being redesigned to store events directly from the stream package,
-// with a size-bound index into those events. This allows efficient storage and
-// retrieval of large snapshots without loading entire documents into memory.
+// Snapshots store stream.Event sequences with a size-bound index mapping
+// kinded paths to byte offsets. This enables efficient path lookups without
+// loading entire documents into memory.
 //
-// Design Principles:
-//   - Store events directly (from stream.Event) rather than IR nodes
-//   - Maintain a size-bound index for efficient path lookups
-//   - Support streaming reads without full document reconstruction
+// Format: [header: 12 bytes][events][index]
 //
-// The previous IR-node-based implementation has been archived in internal/snap/archive/.
+// The archive/ subpackage contains the deprecated IR-node-based implementation.
 package snap
