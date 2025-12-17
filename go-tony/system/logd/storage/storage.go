@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"bytes"
 	"fmt"
 	"log/slog"
 	"os"
@@ -9,11 +8,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/stream"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/patches"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/seq"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
@@ -74,10 +75,38 @@ func (s *Storage) GetCurrentCommit() (int64, error) {
 }
 
 // ReadStateAt reads the state for a given kpath at a specific commit count.
-// It uses compaction and caching when available to minimize the number of patches applied.
-// If commitCount is 0, reads the latest state (all segments).
+// Currently implements a simple approach: applies all patches from the beginning.
+// Future optimizations: snapshots, compaction, caching.
 func (s *Storage) ReadStateAt(kPath string, commit int64) (*ir.Node, error) {
-	panic("not impl")
+	// Get all patches affecting this path up to commit
+	patches, err := s.ReadPatchesAt(kPath, commit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read patches: %w", err)
+	}
+
+	if len(patches) == 0 {
+		return nil, nil // Path doesn't exist at this commit
+	}
+
+	// Start with null state
+	state := ir.Null()
+
+	// Apply each patch in order
+	for _, patchSeg := range patches {
+		// Skip snapshot entries (StartCommit == EndCommit at root)
+		if patchSeg.Segment.StartCommit == patchSeg.Segment.EndCommit && patchSeg.Segment.KindedPath == "" {
+			// TODO: Load snapshot instead of skipping when snapshots are implemented
+			continue
+		}
+
+		// Apply the patch
+		state, err = tony.Patch(state, patchSeg.Patch)
+		if err != nil {
+			return nil, fmt.Errorf("failed to apply patch at commit %d: %w", patchSeg.Segment.EndCommit, err)
+		}
+	}
+
+	return state, nil
 }
 
 // ReadCurrentState reads the committed state at the current commit for a given kinded path.
@@ -129,14 +158,14 @@ func (s *Storage) CreateSnapshot(commit int64) error {
 		return fmt.Errorf("invalid index iterator for root path")
 	}
 
+	var baseReader patches.EventReader
 	var startCommit int64
-	var state *ir.Node
 
 	s.index.RLock()
 	foundSnapshot := false
 	for seg := range iter.CommitsAt(commit, index.Down) {
 		if seg.StartCommit == seg.EndCommit {
-			// Found snapshot - load it and start from next commit
+			// Found snapshot - load events from it
 			entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition)
 			if err != nil {
 				s.index.RUnlock()
@@ -147,69 +176,61 @@ func (s *Storage) CreateSnapshot(commit int64) error {
 				return fmt.Errorf("snapshot entry missing SnapPos")
 			}
 
-			// TODO: Load state from snapshot events at entry.SnapPos
-			// For now, just note we found it and continue from patches
-			s.logger.Info("found previous snapshot", "commit", seg.StartCommit, "position", seg.LogPosition)
+			// Open reader at snapshot position
+			snapReader, err := s.dLog.OpenReaderAt(dlog.LogFileID(seg.LogFile), *entry.SnapPos)
+			if err != nil {
+				s.index.RUnlock()
+				return fmt.Errorf("failed to open snapshot reader: %w", err)
+			}
+			defer snapReader.Close()
+
+			baseReader = patches.NewSnapshotEventReader(snapReader)
 			startCommit = seg.StartCommit + 1
 			foundSnapshot = true
+			s.logger.Info("found previous snapshot", "commit", seg.StartCommit, "position", seg.LogPosition)
 			break
 		}
 	}
 	s.index.RUnlock()
 
 	if !foundSnapshot {
-		// No previous snapshot - start from null (snapshot at commit 0)
-		state = ir.Null()
-		startCommit = 0
-	} else {
-		// TODO: Load snapshot state here
-		// For now, fall back to replaying from 0
-		state = ir.Null()
+		// No previous snapshot - start from empty (null state at commit 0)
+		baseReader = patches.NewEmptyEventReader()
 		startCommit = 0
 	}
 
 	// Get patches from startCommit to commit
-	patches, err := s.ReadPatchesAt("", commit)
+	patchSegs, err := s.ReadPatchesAt("", commit)
 	if err != nil {
 		return fmt.Errorf("failed to read patches: %w", err)
 	}
 
-	// Apply patches from startCommit onwards
-	for _, patchSeg := range patches {
-		// Skip snapshots and patches before startCommit
+	// Extract patch nodes, filtering out snapshots and patches before startCommit
+	var patchNodes []*ir.Node
+	for _, patchSeg := range patchSegs {
+		// Skip snapshots
 		if patchSeg.Segment.StartCommit == patchSeg.Segment.EndCommit {
-			continue // Skip snapshots
+			continue
 		}
+		// Skip patches before our starting point
 		if patchSeg.Segment.EndCommit < startCommit {
-			continue // Skip patches before our starting point
+			continue
 		}
-
-		state, err = tony.Patch(state, patchSeg.Patch)
-		if err != nil {
-			return fmt.Errorf("failed to apply patch at commit %d: %w", patchSeg.Segment.EndCommit, err)
-		}
+		patchNodes = append(patchNodes, patchSeg.Patch)
 	}
 
-	// Convert state to events
-	events, err := stream.NodeToEvents(state)
-	if err != nil {
-		return fmt.Errorf("failed to convert state to events: %w", err)
-	}
+	// Apply patches using PatchApplier interface
+	var eventBuffer []byte
+	sink := patches.NewBufferEventSink(&eventBuffer)
+	applier := patches.NewInMemoryApplier()
 
-	// Write events to buffer using wire format (one event per line)
-	var buf bytes.Buffer
-	for i := range events {
-		evBytes, err := events[i].ToTony()
-		if err != nil {
-			return fmt.Errorf("failed to serialize event: %w", err)
-		}
-		buf.Write(evBytes)
-		buf.WriteByte('\n')
+	if err := applier.ApplyPatches(baseReader, patchNodes, sink); err != nil {
+		return fmt.Errorf("failed to apply patches: %w", err)
 	}
 
 	// Write snapshot to inactive log
 	timestamp := time.Now().UTC().Format(time.RFC3339)
-	entryPos, logFile, err := s.dLog.WriteSnapshotToInactive(commit, timestamp, buf.Bytes())
+	entryPos, logFile, err := s.dLog.WriteSnapshotToInactive(commit, timestamp, eventBuffer)
 	if err != nil {
 		return fmt.Errorf("failed to write snapshot to log: %w", err)
 	}

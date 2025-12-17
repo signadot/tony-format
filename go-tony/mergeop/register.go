@@ -38,6 +38,7 @@ func init() {
 	Register(Tag())
 	Register(Type())
 	Register(Subtree())
+	Register(HasPath())
 	Register(Nullify())
 	Register(JSONPatch())
 	Register(KeyedList())

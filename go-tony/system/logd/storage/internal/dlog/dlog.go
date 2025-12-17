@@ -181,6 +181,25 @@ func (dl *DLog) ReadEntryAt(logFile LogFileID, position int64) (*Entry, error) {
 	return logFileObj.ReadEntryAt(position)
 }
 
+// OpenReaderAt opens a reader at the specified position in the log file.
+// This is used to read inline snapshot data stored in the log.
+// All seeks in the returned reader are relative to position (position becomes offset 0).
+// The returned reader must be closed when done.
+// logFile must be "A" or "B".
+func (dl *DLog) OpenReaderAt(logFile LogFileID, position int64) (io.ReadSeekCloser, error) {
+	var logFileObj *DLogFile
+	switch logFile {
+	case LogFileA:
+		logFileObj = dl.logA
+	case LogFileB:
+		logFileObj = dl.logB
+	default:
+		return nil, fmt.Errorf("invalid log file ID: %q (must be A or B)", logFile)
+	}
+
+	return logFileObj.OpenReaderAt(position)
+}
+
 // GetActiveLog returns the currently active log file ID.
 func (dl *DLog) GetActiveLog() LogFileID {
 	dl.mu.RLock()
@@ -503,6 +522,44 @@ func (dlf *DLogFile) Close() error {
 
 	dlf.file = nil
 	return nil
+}
+
+// OpenReaderAt opens a new file handle and returns a reader scoped to the section
+// starting at position. All seeks in the returned reader are relative to position
+// (position becomes offset 0). This is used to read inline snapshot data.
+// The returned reader must be closed when done.
+func (dlf *DLogFile) OpenReaderAt(position int64) (io.ReadSeekCloser, error) {
+	// Open a new file handle for reading (don't interfere with the main write handle)
+	file, err := os.Open(dlf.path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open log file for reading: %w", err)
+	}
+
+	// Get file size to determine section size
+	stat, err := file.Stat()
+	if err != nil {
+		file.Close()
+		return nil, fmt.Errorf("failed to stat log file: %w", err)
+	}
+
+	// Create a SectionReader from position to end of file
+	// This makes all seeks relative to position (position becomes offset 0)
+	sectionSize := stat.Size() - position
+	section := io.NewSectionReader(file, position, sectionSize)
+
+	// Wrap in a closeable reader that closes the underlying file
+	return &sectionReadCloser{section, file}, nil
+}
+
+// sectionReadCloser wraps an io.SectionReader with a Close method
+// that closes the underlying file.
+type sectionReadCloser struct {
+	*io.SectionReader
+	file *os.File
+}
+
+func (src *sectionReadCloser) Close() error {
+	return src.file.Close()
 }
 
 func (it *singleFileIter) next() (*Entry, int64, error) {

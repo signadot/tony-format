@@ -533,11 +533,12 @@ func TestEntry_SnapshotEntry(t *testing.T) {
 	defer dl.Close()
 
 	// Create a snapshot entry
+	snapPos := int64(100)
 	entry := &Entry{
 		Commit:    1,
 		Timestamp: time.Now().Format(time.RFC3339),
 		Patch:     ir.FromMap(map[string]*ir.Node{"full": ir.FromString("state")}),
-		SnapPos:   100,
+		SnapPos:   &snapPos,
 	}
 
 	pos, _, err := dl.AppendEntry(entry)
@@ -550,8 +551,8 @@ func TestEntry_SnapshotEntry(t *testing.T) {
 		t.Fatalf("ReadEntryAt() error = %v", err)
 	}
 
-	if readEntry.SnapPos != 100 {
-		t.Errorf("SnapPos mismatch: got %d, want 100", readEntry.SnapPos)
+	if readEntry.SnapPos == nil || *readEntry.SnapPos != 100 {
+		t.Errorf("SnapPos mismatch: got %v, want 100", readEntry.SnapPos)
 	}
 }
 
@@ -564,11 +565,12 @@ func TestEntry_CompactionEntry(t *testing.T) {
 	defer dl.Close()
 
 	// Create a compaction entry
+	lastCommit := int64(5)
 	entry := &Entry{
 		Commit:     10,
 		Timestamp:  time.Now().Format(time.RFC3339),
 		Patch:      ir.FromMap(map[string]*ir.Node{"compacted": ir.FromString("data")}),
-		LastCommit: 5,
+		LastCommit: &lastCommit,
 	}
 
 	pos, _, err := dl.AppendEntry(entry)
@@ -581,8 +583,8 @@ func TestEntry_CompactionEntry(t *testing.T) {
 		t.Fatalf("ReadEntryAt() error = %v", err)
 	}
 
-	if readEntry.LastCommit != 5 {
-		t.Errorf("LastCommit mismatch: got %d, want 5", readEntry.LastCommit)
+	if readEntry.LastCommit == nil || *readEntry.LastCommit != 5 {
+		t.Errorf("LastCommit mismatch: got %v, want 5", readEntry.LastCommit)
 	}
 }
 
@@ -761,5 +763,122 @@ func TestDLog_Iterator_SwitchesBetweenFiles(t *testing.T) {
 		if logFile != expectedLogFiles[i] {
 			t.Errorf("entry %d (commit %d): expected logFile %s, got %s", i, readCommits[i], expectedLogFiles[i], logFile)
 		}
+	}
+}
+
+func TestDLog_OpenReaderAt(t *testing.T) {
+	tmpDir := t.TempDir()
+	dl, err := NewDLog(tmpDir, nil)
+	if err != nil {
+		t.Fatalf("NewDLog() error = %v", err)
+	}
+	defer dl.Close()
+
+	// Append some entries to the log
+	entry1 := &Entry{
+		Commit:    1,
+		Timestamp: time.Now().Format(time.RFC3339),
+		Patch:     ir.FromMap(map[string]*ir.Node{"test": ir.FromString("value1")}),
+	}
+	_, _, err = dl.AppendEntry(entry1)
+	if err != nil {
+		t.Fatalf("AppendEntry() error = %v", err)
+	}
+
+	// Get current position (this is where we'll write inline snapshot data)
+	snapshotPos := dl.logA.Position()
+
+	// Write some inline data directly to the file (simulating snapshot data)
+	testData := []byte("This is inline snapshot data for testing")
+	dl.logA.mu.Lock()
+	n, err := dl.logA.file.Write(testData)
+	if err != nil {
+		dl.logA.mu.Unlock()
+		t.Fatalf("failed to write test data: %v", err)
+	}
+	dl.logA.position += int64(n)
+	dl.logA.mu.Unlock()
+
+	// Open a reader at the snapshot position
+	reader, err := dl.OpenReaderAt(LogFileA, snapshotPos)
+	if err != nil {
+		t.Fatalf("OpenReaderAt() error = %v", err)
+	}
+	defer reader.Close()
+
+	// Verify Seek(0, SeekStart) seeks to the snapshot position (not file start)
+	pos, err := reader.Seek(0, io.SeekStart)
+	if err != nil {
+		t.Fatalf("Seek(0, SeekStart) error = %v", err)
+	}
+	if pos != 0 {
+		t.Errorf("Seek(0, SeekStart) returned position %d, want 0", pos)
+	}
+
+	// Read the data
+	buf := make([]byte, len(testData))
+	n, err = reader.Read(buf)
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	if n != len(testData) {
+		t.Errorf("Read() read %d bytes, want %d", n, len(testData))
+	}
+
+	// Verify the data matches
+	if string(buf) != string(testData) {
+		t.Errorf("Read data mismatch:\ngot:  %q\nwant: %q", string(buf), string(testData))
+	}
+
+	// Verify Seek(0, SeekStart) works again (seek back to start of snapshot)
+	pos, err = reader.Seek(0, io.SeekStart)
+	if err != nil {
+		t.Fatalf("Second Seek(0, SeekStart) error = %v", err)
+	}
+	if pos != 0 {
+		t.Errorf("Second Seek(0, SeekStart) returned position %d, want 0", pos)
+	}
+
+	// Read the first 10 bytes
+	buf2 := make([]byte, 10)
+	n, err = reader.Read(buf2)
+	if err != nil {
+		t.Fatalf("Second Read() error = %v", err)
+	}
+	if string(buf2[:n]) != string(testData[:10]) {
+		t.Errorf("Second read mismatch:\ngot:  %q\nwant: %q", string(buf2[:n]), string(testData[:10]))
+	}
+
+	// Verify Seek forward works
+	pos, err = reader.Seek(5, io.SeekStart)
+	if err != nil {
+		t.Fatalf("Seek(5, SeekStart) error = %v", err)
+	}
+	if pos != 5 {
+		t.Errorf("Seek(5, SeekStart) returned position %d, want 5", pos)
+	}
+
+	// Read from offset 5
+	buf3 := make([]byte, 10)
+	n, err = reader.Read(buf3)
+	if err != nil {
+		t.Fatalf("Third Read() error = %v", err)
+	}
+	if string(buf3[:n]) != string(testData[5:15]) {
+		t.Errorf("Third read mismatch:\ngot:  %q\nwant: %q", string(buf3[:n]), string(testData[5:15]))
+	}
+}
+
+func TestDLog_OpenReaderAt_InvalidLogFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	dl, err := NewDLog(tmpDir, nil)
+	if err != nil {
+		t.Fatalf("NewDLog() error = %v", err)
+	}
+	defer dl.Close()
+
+	_, err = dl.OpenReaderAt(LogFileID("invalid"), 0)
+	if err == nil {
+		t.Error("expected error for invalid log file ID")
 	}
 }

@@ -725,6 +725,10 @@ func encodeNumber(node *ir.Node, w io.Writer, es *EncState) error {
 	}
 	if node.Float64 != nil {
 		v := strconv.FormatFloat(*node.Float64, 'f', -1, 64)
+		// Ensure zero floats encode as "0.0" not "0"
+		if v == "0" || v == "-0" {
+			v = "0.0"
+		}
 		v = applyValueColor(es, ir.NumberType, v)
 		es.col += len(v)
 		if err := writeString(w, v); err != nil {

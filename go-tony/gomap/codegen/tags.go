@@ -63,22 +63,9 @@ func ParseStructTag(tag string) (map[string]string, error) {
 					inQuote = true
 					continue
 				} else if r == ',' {
-					// End of value
+					// End of value - save this key-value pair and start a new one
 					k := strings.TrimSpace(key.String())
-					v := value.String()
-					// Trim spaces if not quoted (or even if quoted? usually quotes protect spaces)
-					// But here we just accumulated.
-					// If we want to support `field=name ,`, we need to trim `name `.
-					// But if it was `field="name "`, we shouldn't trim.
-					// Since we don't track if the *current* value was quoted in a robust way for the whole string
-					// (we just toggled inQuote), let's check if we just came out of a quote?
-					// Actually, for simplicity and standard tag behavior:
-					// If it was quoted, we already consumed the quotes.
-					// Standard `reflect.StructTag` doesn't allow spaces around values unless quoted.
-					// But we want to be lenient.
-					// Let's trim space from value. If user wants spaces, they MUST use quotes.
-					v = strings.TrimSpace(v)
-
+					v := strings.TrimSpace(value.String())
 					if k != "" {
 						result[k] = v
 					}
@@ -87,6 +74,38 @@ func ParseStructTag(tag string) (map[string]string, error) {
 					inKey = true
 					inValue = false
 					continue
+				} else if unicode.IsSpace(r) {
+					// Space in value - could be separator or part of value
+					// Check if next non-space character is a potential key start
+					peekAhead := i + 1
+					for peekAhead < len(runes) && unicode.IsSpace(runes[peekAhead]) {
+						peekAhead++
+					}
+					if peekAhead < len(runes) {
+						nextRune := runes[peekAhead]
+						// If next non-space char is alphanumeric or underscore (potential key start), treat space as separator
+						if (unicode.IsLetter(nextRune) || unicode.IsDigit(nextRune) || nextRune == '_') && !inQuote {
+							// Space followed by potential key - save current pair and start new key
+							k := strings.TrimSpace(key.String())
+							v := strings.TrimSpace(value.String())
+							if k != "" {
+								result[k] = v
+							}
+							key.Reset()
+							value.Reset()
+							inKey = true
+							inValue = false
+							// Skip all spaces and start reading the new key
+							// Set i to peekAhead-1 because the loop will increment it
+							i = peekAhead - 1
+							continue
+						}
+					}
+					// Space is part of value (or end of string)
+					if value.Len() > 0 || inQuote {
+						value.WriteRune(r)
+					}
+					// If value is empty and not quoted, ignore leading space
 				} else {
 					value.WriteRune(r)
 				}
@@ -102,7 +121,7 @@ func ParseStructTag(tag string) (map[string]string, error) {
 		}
 	} else if inValue {
 		k := strings.TrimSpace(key.String())
-		v := value.String()
+		v := strings.TrimSpace(value.String())
 		if k != "" {
 			result[k] = v
 		}

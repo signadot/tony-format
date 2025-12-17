@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
 )
 
 // MergePatches merges multiple api patches into a single ir node patch.
@@ -26,11 +27,11 @@ func MergePatches(patches []*PatcherData) (*ir.Node, error) {
 
 	splitPaths := make([][]string, len(patches))
 	for i, pd := range patches {
-		_, err := ir.ParseKPath(pd.API.Patch.Path)
+		_, err := kpath.Parse(pd.API.Patch.Path)
 		if err != nil {
 			return nil, err
 		}
-		splitPaths[i] = ir.SplitAll(pd.API.Patch.Path)
+		splitPaths[i] = kpath.SplitAll(pd.API.Patch.Path)
 	}
 	for i := range splitPaths {
 		for j := range i {
@@ -63,7 +64,7 @@ func isPrefix(a, b []string) bool {
 }
 
 type kTree struct {
-	*ir.KPath
+	*kpath.KPath
 	children map[string]*kTree
 	ir       *ir.Node
 }
@@ -76,7 +77,7 @@ func newKTree(kp string, node *ir.Node) (*kTree, error) {
 		res.ir = node
 		return res, nil
 	}
-	kPath, err := ir.ParseKPath(kp)
+	kPath, err := kpath.Parse(kp)
 	if err != nil {
 		return nil, err
 	}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
 )
@@ -18,8 +19,8 @@ type PatchAtSegment struct {
 // ReadPatchesAt reads all patches affecting the given kpath at the given commit.
 // Returns patches extracted from log entries, including sub-trees and reconstructed parents.
 // This is a testing/development helper - it doesn't apply or merge patches.
-func (s *Storage) ReadPatchesAt(kpath string, commit int64) ([]PatchAtSegment, error) {
-	segments := s.index.LookupWithin(kpath, commit)
+func (s *Storage) ReadPatchesAt(kp string, commit int64) ([]PatchAtSegment, error) {
+	segments := s.index.LookupWithin(kp, commit)
 	if len(segments) == 0 {
 		return nil, nil
 	}
@@ -56,7 +57,7 @@ func (s *Storage) ReadPatchesAt(kpath string, commit int64) ([]PatchAtSegment, e
 		// Reconstruct parent patch if this is a deep path
 		var parent *ir.Node
 		if seg.KindedPath != "" {
-			kp, err := ir.ParseKPath(seg.KindedPath)
+			kp, err := kpath.Parse(seg.KindedPath)
 			if err == nil && kp != nil {
 				parentKp := kp.Parent()
 				if parentKp != nil {
