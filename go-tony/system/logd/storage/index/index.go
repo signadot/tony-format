@@ -229,10 +229,13 @@ func rangeFunc(from, to *int64) func(LogSegment) int {
 		end = *to
 	}
 	return func(v LogSegment) int {
-		if v.StartCommit < start {
+		// For patches: EndCommit is the commit of the patch
+		// For snapshots: StartCommit == EndCommit
+		// We want segments where the patch commit (EndCommit) is in [start, end]
+		if v.EndCommit < start {
 			return -1
 		}
-		if v.StartCommit > end {
+		if v.EndCommit > end {
 			return 1
 		}
 		return 0

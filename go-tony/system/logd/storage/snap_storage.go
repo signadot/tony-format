@@ -1,15 +1,15 @@
 package storage
 
 import (
-	"bytes"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
-	"github.com/signadot/tony-format/go-tony/stream"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/patches"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/snap"
 )
 
 // findSnapshotBaseReader searches for the most recent snapshot <= commit
@@ -40,13 +40,35 @@ func (s *Storage) findSnapshotBaseReader(commit int64) (patches.EventReadCloser,
 			return nil, 0, fmt.Errorf("snapshot entry missing SnapPos")
 		}
 
-		// Open reader at snapshot position
+		// Open reader at snapshot position to read the header
 		snapReader, err := s.dLog.OpenReaderAt(dlog.LogFileID(seg.LogFile), *entry.SnapPos)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to open snapshot reader: %w", err)
 		}
 
-		baseReader := patches.NewSnapshotEventReader(snapReader)
+		// Open the snapshot to parse header and get event stream
+		snapshot, err := snap.Open(snapReader)
+		if err != nil {
+			snapReader.Close()
+			return nil, 0, fmt.Errorf("failed to open snapshot: %w", err)
+		}
+
+		// Create a reader for just the event stream portion
+		// Events start at HeaderSize and continue for EventSize bytes
+		_, err = snapshot.R.Seek(int64(snap.HeaderSize), io.SeekStart)
+		if err != nil {
+			snapshot.Close()
+			return nil, 0, fmt.Errorf("failed to seek to events: %w", err)
+		}
+
+		// Wrap in an EventReadCloser (snapshot.R will be closed when this is closed)
+		// We're taking ownership of snapshot.R, so we need to track the snapshot for closing
+		eventsReader := &snapshotEventsReader{
+			r:        io.LimitReader(snapshot.R, int64(snapshot.EventSize)),
+			snapshot: snapshot,
+		}
+
+		baseReader := patches.NewSnapshotEventReader(eventsReader)
 		startCommit := seg.StartCommit + 1
 		s.logger.Debug("found snapshot", "commit", seg.StartCommit, "position", seg.LogPosition)
 		return baseReader, startCommit, nil
@@ -119,34 +141,62 @@ func (s *Storage) CreateSnapshot(commit int64) error {
 		patchNodes = append(patchNodes, entry.Patch)
 	}
 
-	// Apply patches using PatchApplier interface
-	eventBuffer := &bytes.Buffer{}
-	sink := stream.NewBufferEventSink(eventBuffer)
-	applier := patches.NewInMemoryApplier()
+	// Create snapshot writer for inactive log
+	timestamp := time.Now().UTC().Format(time.RFC3339)
+	snapWriter, err := s.dLog.NewSnapshotWriter(commit, timestamp)
+	if err != nil {
+		return fmt.Errorf("failed to create snapshot writer: %w", err)
+	}
 
-	if err := applier.ApplyPatches(baseReader, patchNodes, sink); err != nil {
+	// Build snapshot directly to log file (out-of-memory)
+	snapIndex := &snap.Index{}
+	builder, err := snap.NewBuilder(snapWriter, snapIndex, patchNodes)
+	if err != nil {
+		snapWriter.Abandon() // Unlock without writing Entry
+		return fmt.Errorf("failed to create snapshot builder: %w", err)
+	}
+
+	// Apply patches - events flow directly from baseReader → builder → log file
+	applier := patches.NewInMemoryApplier()
+	if err := applier.ApplyPatches(baseReader, patchNodes, builder); err != nil {
+		snapWriter.Abandon()
 		return fmt.Errorf("failed to apply patches: %w", err)
 	}
 
-	// Write snapshot to inactive log
-	timestamp := time.Now().UTC().Format(time.RFC3339)
-	entryPos, logFile, err := s.dLog.WriteSnapshotToInactive(commit, timestamp, eventBuffer.Bytes())
-	if err != nil {
-		return fmt.Errorf("failed to write snapshot to log: %w", err)
+	// Close builder to finalize snapshot format (writes index and header)
+	// Note: builder.Close() will call snapWriter.Close(), which writes the Entry
+	if err := builder.Close(); err != nil {
+		// builder.Close() already closed snapWriter, but we should still return the error
+		return fmt.Errorf("failed to close snapshot builder: %w", err)
 	}
 
-	// Add index entry for snapshot
+	// builder.Close() called snapWriter.Close(), so Entry is already written
+
 	snapSeg := &index.LogSegment{
 		StartCommit: commit,
 		EndCommit:   commit,
 		StartTx:     0,
 		EndTx:       0,
 		KindedPath:  "",
-		LogFile:     string(logFile),
-		LogPosition: entryPos,
+		LogFile:     string(snapWriter.LogFileID()),
+		LogPosition: snapWriter.EntryPosition(),
 	}
 	s.index.Add(snapSeg)
 
-	s.logger.Info("snapshot created", "commit", commit, "logFile", logFile, "position", entryPos)
+	s.logger.Info("snapshot created", "commit", commit, "logFile", snapWriter.LogFileID(), "position", snapWriter.EntryPosition())
 	return nil
+}
+
+// snapshotEventsReader wraps a snapshot's event stream reader with proper close handling.
+type snapshotEventsReader struct {
+	r        io.Reader
+	snapshot *snap.Snapshot
+}
+
+func (s *snapshotEventsReader) Read(p []byte) (n int, err error) {
+	return s.r.Read(p)
+}
+
+func (s *snapshotEventsReader) Close() error {
+	return s.snapshot.Close()
 }

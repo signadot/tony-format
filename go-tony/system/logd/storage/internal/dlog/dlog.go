@@ -118,8 +118,10 @@ func NewDLog(baseDir string, logger *slog.Logger) (*DLog, error) {
 
 // newDLogFile creates and opens a log file for appending.
 func newDLogFile(id LogFileID, path string, logger *slog.Logger) (*DLogFile, error) {
-	// Open file in append mode (create if doesn't exist)
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0644)
+	// Open file in read-write mode (create if doesn't exist)
+	// Note: Not using O_APPEND since we need to seek for snapshot writes
+	// Atomicity is guaranteed by logFile.mu lock
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open log file %q: %w", path, err)
 	}
@@ -129,6 +131,13 @@ func newDLogFile(id LogFileID, path string, logger *slog.Logger) (*DLogFile, err
 	if err != nil {
 		file.Close()
 		return nil, fmt.Errorf("failed to stat log file %q: %w", path, err)
+	}
+
+	// Seek to end of file for appending
+	// (needed since we're not using O_APPEND)
+	if _, err := file.Seek(0, io.SeekEnd); err != nil {
+		file.Close()
+		return nil, fmt.Errorf("failed to seek to end of log file %q: %w", path, err)
 	}
 
 	return &DLogFile{
@@ -237,80 +246,6 @@ func (dl *DLog) AppendToInactive(entry *Entry) (logPosition int64, logFile LogFi
 	}
 
 	return position, inactiveLog, nil
-}
-
-// WriteSnapshotToInactive writes snapshot event data to the inactive log and creates a snapshot entry.
-// eventsData contains the serialized event stream.
-// Returns the position of the snapshot entry and log file ID.
-func (dl *DLog) WriteSnapshotToInactive(commit int64, timestamp string, eventsData []byte) (entryPosition int64, logFile LogFileID, err error) {
-	dl.mu.RLock()
-	activeLog := dl.activeLog
-	dl.mu.RUnlock()
-
-	// Determine inactive log
-	var inactiveLog LogFileID
-	var logFileObj *DLogFile
-	if activeLog == LogFileA {
-		inactiveLog = LogFileB
-		logFileObj = dl.logB
-	} else {
-		inactiveLog = LogFileA
-		logFileObj = dl.logA
-	}
-
-	logFileObj.mu.Lock()
-	defer logFileObj.mu.Unlock()
-
-	// Write event stream data at current position
-	snapshotPos := logFileObj.position
-	n, err := logFileObj.file.Write(eventsData)
-	if err != nil {
-		return 0, "", fmt.Errorf("failed to write snapshot events: %w", err)
-	}
-	logFileObj.position += int64(n)
-
-	// Create snapshot entry pointing to the event data
-	entry := &Entry{
-		Commit:     commit,
-		Timestamp:  timestamp,
-		Patch:      nil,
-		SnapPos:    &snapshotPos,
-		TxSource:   nil,
-		LastCommit: nil,
-	}
-
-	// Serialize entry to Tony format
-	entryBytes, err := entry.ToTony()
-	if err != nil {
-		return 0, "", fmt.Errorf("failed to serialize entry: %w", err)
-	}
-
-	// Check length fits in uint32
-	if len(entryBytes) > 0xFFFFFFFF {
-		return 0, "", fmt.Errorf("entry too large: %d bytes (max %d)", len(entryBytes), 0xFFFFFFFF)
-	}
-
-	// Write length prefix (4 bytes, big-endian uint32)
-	lengthBytes := make([]byte, 4)
-	binary.BigEndian.PutUint32(lengthBytes, uint32(len(entryBytes)))
-
-	// Get current position before writing
-	entryPos := logFileObj.position
-
-	// Write length prefix
-	if _, err := logFileObj.file.Write(lengthBytes); err != nil {
-		return 0, "", fmt.Errorf("failed to write entry length prefix: %w", err)
-	}
-
-	// Write entry data
-	if _, err := logFileObj.file.Write(entryBytes); err != nil {
-		return 0, "", fmt.Errorf("failed to write entry data: %w", err)
-	}
-
-	// Update position
-	logFileObj.position = entryPos + 4 + int64(len(entryBytes))
-
-	return entryPos, inactiveLog, nil
 }
 
 // SwitchActive switches the active log (A ↔ B).

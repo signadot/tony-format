@@ -3,6 +3,7 @@ package storage
 import (
 	"testing"
 
+	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/parse"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
@@ -127,4 +128,162 @@ func TestSwitchAndSnapshot(t *testing.T) {
 
 	t.Logf("Snapshot created successfully at commit %d, logFile %s, position %d, snapPos %d",
 		entry.Commit, foundSnapshot.LogFile, foundSnapshot.LogPosition, *entry.SnapPos)
+}
+
+func TestSnapshotRoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	s, err := Open(tmpDir, 022, nil)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer s.Close()
+
+	// Helper to commit a patch
+	commitPatch := func(patchStr string) int64 {
+		tx, err := s.NewTx(1, nil)
+		if err != nil {
+			t.Fatalf("NewTx() error = %v", err)
+		}
+
+		patchData, err := parse.Parse([]byte(patchStr))
+		if err != nil {
+			t.Fatalf("parse patch: %v", err)
+		}
+
+		patch := &api.Patch{
+			Patch: api.Body{
+				Path: "",
+				Data: patchData,
+			},
+		}
+		patcher, err := tx.NewPatcher(patch)
+		if err != nil {
+			t.Fatalf("NewPatcher() error = %v", err)
+		}
+		result := patcher.Commit()
+		if !result.Committed {
+			t.Fatalf("commit failed: %v", result.Error)
+		}
+		return result.Commit
+	}
+
+	// Stage 1: Create initial state (commits 1-3)
+	commitPatch(`{name: "alice"}`)
+	commitPatch(`{age: 30}`)
+	commit3 := commitPatch(`{city: "NYC"}`)
+
+	// Verify state before snapshot
+	stateBefore, err := s.ReadStateAt("", commit3)
+	if err != nil {
+		t.Fatalf("ReadStateAt(commit3) error = %v", err)
+	}
+	// Fields are in alphabetical order after patching
+	expectedBefore := `{age: 30, city: "NYC", name: "alice"}`
+	expectedNode, _ := parse.Parse([]byte(expectedBefore))
+	expectedNode.Tag = "" // Remove formatting tag for comparison
+	if !stateBefore.DeepEqual(expectedNode) {
+		t.Errorf("state before snapshot mismatch:\ngot:  %s\nwant: %s",
+			encode.MustString(stateBefore), expectedBefore)
+	}
+
+	// Stage 2: Create snapshot at commit 3
+	if err := s.CreateSnapshot(commit3); err != nil {
+		t.Fatalf("CreateSnapshot(commit3) error = %v", err)
+	}
+
+	// Verify snapshot was created in index
+	segments := s.index.LookupWithin("", commit3)
+	var foundSnapshot bool
+	for i := range segments {
+		seg := &segments[i]
+		if seg.StartCommit == seg.EndCommit && seg.StartCommit == commit3 {
+			foundSnapshot = true
+			t.Logf("Found snapshot at commit %d, logFile %s, position %d",
+				seg.StartCommit, seg.LogFile, seg.LogPosition)
+			break
+		}
+	}
+	if !foundSnapshot {
+		t.Fatal("snapshot entry not found in index")
+	}
+
+	// Stage 3: Add more patches after snapshot (commits 4-6)
+	commitPatch(`{country: "USA"}`)
+	commitPatch(`{zipcode: "10001"}`)
+	commit6 := commitPatch(`{verified: true}`)
+
+	// Stage 4: Read state at various points and verify snapshot is used
+
+	// Read at commit3 (should use snapshot, no patches needed)
+	stateAt3, err := s.ReadStateAt("", commit3)
+	if err != nil {
+		t.Fatalf("ReadStateAt(commit3) error = %v", err)
+	}
+	if !stateAt3.DeepEqual(expectedNode) {
+		t.Errorf("state at commit3 mismatch:\ngot:  %s\nwant: %s",
+			encode.MustString(stateAt3), expectedBefore)
+	}
+
+	// Read at commit5 (should use snapshot + 2 patches)
+	stateAt5, err := s.ReadStateAt("", 5)
+	if err != nil {
+		t.Fatalf("ReadStateAt(commit5) error = %v", err)
+	}
+	// Fields in alphabetical order
+	expectedAt5 := `{age: 30, city: "NYC", country: "USA", name: "alice", zipcode: "10001"}`
+	expectedAt5Node, _ := parse.Parse([]byte(expectedAt5))
+	expectedAt5Node.Tag = "" // Remove formatting tag for comparison
+	if !stateAt5.DeepEqual(expectedAt5Node) {
+		t.Errorf("state at commit5 mismatch:\ngot:  %s\nwant: %s",
+			encode.MustString(stateAt5), expectedAt5)
+	}
+
+	// Read at commit6 (should use snapshot + 3 patches)
+	stateAt6, err := s.ReadStateAt("", commit6)
+	if err != nil {
+		t.Fatalf("ReadStateAt(commit6) error = %v", err)
+	}
+	// Fields in alphabetical order
+	expectedAt6 := `{age: 30, city: "NYC", country: "USA", name: "alice", verified: true, zipcode: "10001"}`
+	expectedAt6Node, _ := parse.Parse([]byte(expectedAt6))
+	expectedAt6Node.Tag = "" // Remove formatting tag for comparison
+	if !stateAt6.DeepEqual(expectedAt6Node) {
+		t.Errorf("state at commit6 mismatch:\ngot:  %s\nwant: %s",
+			encode.MustString(stateAt6), expectedAt6)
+	}
+
+	// Stage 5: Create another snapshot and verify layering works
+	if err := s.CreateSnapshot(commit6); err != nil {
+		t.Fatalf("CreateSnapshot(commit6) error = %v", err)
+	}
+
+	// Add one more patch after second snapshot
+	commit7 := commitPatch(`{premium: true}`)
+
+	// Read at commit7 (should use second snapshot + 1 patch)
+	stateAt7, err := s.ReadStateAt("", commit7)
+	if err != nil {
+		t.Fatalf("ReadStateAt(commit7) error = %v", err)
+	}
+	// Fields in alphabetical order
+	expectedAt7 := `{age: 30, city: "NYC", country: "USA", name: "alice", premium: true, verified: true, zipcode: "10001"}`
+	expectedAt7Node, _ := parse.Parse([]byte(expectedAt7))
+	expectedAt7Node.Tag = "" // Remove formatting tag for comparison
+	if !stateAt7.DeepEqual(expectedAt7Node) {
+		t.Errorf("state at commit7 mismatch:\ngot:  %s\nwant: %s",
+			encode.MustString(stateAt7), expectedAt7)
+	}
+
+	// Stage 6: Verify reading at old commits still works with multiple snapshots
+	stateAt3Again, err := s.ReadStateAt("", commit3)
+	if err != nil {
+		t.Fatalf("ReadStateAt(commit3 again) error = %v", err)
+	}
+	if !stateAt3Again.DeepEqual(expectedNode) {
+		t.Errorf("state at commit3 (after multiple snapshots) mismatch:\ngot:  %s\nwant: %s",
+			encode.MustString(stateAt3Again), expectedBefore)
+	}
+
+	t.Logf("Round-trip test successful: created 2 snapshots, verified state reconstruction at all commits")
 }
