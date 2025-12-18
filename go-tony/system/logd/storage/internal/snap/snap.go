@@ -99,7 +99,7 @@ func (s *Snapshot) ReadPath(p string) (*ir.Node, error) {
 		}
 	}
 
-	pathFinder, err := NewPathFinder(s.R, offset, startPath, desPath)
+	pathFinder, err := NewPathFinder(s.R, s.Index, offset, startPath, desPath, int64(s.EventSize))
 	if err != nil {
 		return nil, err
 	}

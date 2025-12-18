@@ -1,28 +1,15 @@
 package snap
 
 import (
+	"bytes"
 	"encoding/binary"
-	"fmt"
 	"io"
-	"os"
 
 	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/stream"
 )
-
-// debugEnabled returns true if debug logging is enabled via SNAP_DEBUG env var
-func debugEnabled() bool {
-	return os.Getenv("SNAP_DEBUG") != ""
-}
-
-// debugLog prints debug messages if SNAP_DEBUG is enabled
-func debugLog(format string, args ...interface{}) {
-	if debugEnabled() {
-		fmt.Printf("[SNAP_DEBUG] "+format+"\n", args...)
-	}
-}
 
 // Builder writes snapshot files by consuming stream events.
 // Automatically creates index entries at chunk boundaries.
@@ -115,14 +102,15 @@ func (b *Builder) onEvent(ev *stream.Event) error {
 }
 
 func (b *Builder) writeEvent(ev *stream.Event) error {
-	evD, err := ev.ToTony(gomap.EncodeWire(true))
-	if err != nil {
+	// Use compact binary encoding
+	buf := &bytes.Buffer{}
+	if err := ev.WriteBinary(buf); err != nil {
 		return err
 	}
-	evD = append(evD, '\n')
+	evD := buf.Bytes()
 	eventSize := len(evD)
 
-	_, err = b.w.Write(evD)
+	_, err := b.w.Write(evD)
 	if err != nil {
 		return err
 	}
