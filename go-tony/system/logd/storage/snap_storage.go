@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/stream"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/patches"
@@ -13,13 +14,13 @@ import (
 )
 
 // findSnapshotBaseReader searches for the most recent snapshot <= commit
-// and returns an EventReadCloser starting from that snapshot, plus the startCommit
+// for a given path and returns an EventReadCloser starting from that snapshot, plus the startCommit
 // for patches that should be applied after it.
 // Caller is responsible for closing the returned reader.
-func (s *Storage) findSnapshotBaseReader(commit int64) (patches.EventReadCloser, int64, error) {
-	iter := s.index.IterAtPath("")
+func (s *Storage) findSnapshotBaseReader(kp string, commit int64) (patches.EventReadCloser, int64, error) {
+	iter := s.index.IterAtPath(kp)
 	if !iter.Valid() {
-		return nil, 0, fmt.Errorf("invalid index iterator for root path")
+		return nil, 0, fmt.Errorf("invalid index iterator for path %q", kp)
 	}
 
 	s.index.RLock()
@@ -52,26 +53,16 @@ func (s *Storage) findSnapshotBaseReader(commit int64) (patches.EventReadCloser,
 			snapReader.Close()
 			return nil, 0, fmt.Errorf("failed to open snapshot: %w", err)
 		}
-
-		// Create a reader for just the event stream portion
-		// Events start at HeaderSize and continue for EventSize bytes
-		_, err = snapshot.R.Seek(int64(snap.HeaderSize), io.SeekStart)
+		defer snapshot.Close()
+		node, err := snapshot.ReadPath(kp)
 		if err != nil {
-			snapshot.Close()
-			return nil, 0, fmt.Errorf("failed to seek to events: %w", err)
+			return nil, 0, fmt.Errorf("error reading %q from snapshot: %w", kp, err)
 		}
-
-		// Wrap in an EventReadCloser (snapshot.R will be closed when this is closed)
-		// We're taking ownership of snapshot.R, so we need to track the snapshot for closing
-		eventsReader := &snapshotEventsReader{
-			r:        io.LimitReader(snapshot.R, int64(snapshot.EventSize)),
-			snapshot: snapshot,
+		events, err := stream.NodeToEvents(node)
+		if err != nil {
+			return nil, 0, fmt.Errorf("errro translating node to events: %w", err)
 		}
-
-		baseReader := patches.NewSnapshotEventReader(eventsReader)
-		startCommit := seg.StartCommit + 1
-		s.logger.Debug("found snapshot", "commit", seg.StartCommit, "position", seg.LogPosition)
-		return baseReader, startCommit, nil
+		return newSliceEventReader(events), seg.StartCommit + 1, nil
 	}
 
 	// No snapshot found - start from empty (null state at commit 0)
@@ -112,7 +103,7 @@ func (s *Storage) SwitchAndSnapshot() error {
 // Returns error if snapshot creation fails.
 func (s *Storage) createSnapshot(commit int64) error {
 	// Find most recent snapshot and get base event reader
-	baseReader, startCommit, err := s.findSnapshotBaseReader(commit)
+	baseReader, startCommit, err := s.findSnapshotBaseReader("", commit)
 	if err != nil {
 		return err
 	}
@@ -187,16 +178,24 @@ func (s *Storage) createSnapshot(commit int64) error {
 	return nil
 }
 
-// snapshotEventsReader wraps a snapshot's event stream reader with proper close handling.
-type snapshotEventsReader struct {
-	r        io.Reader
-	snapshot *snap.Snapshot
+type sliceEventReader struct {
+	events []stream.Event
+	i      int
 }
 
-func (s *snapshotEventsReader) Read(p []byte) (n int, err error) {
-	return s.r.Read(p)
+func newSliceEventReader(events []stream.Event) *sliceEventReader {
+	return &sliceEventReader{events: events}
 }
 
-func (s *snapshotEventsReader) Close() error {
-	return s.snapshot.Close()
+func (ser *sliceEventReader) ReadEvent() (*stream.Event, error) {
+	if ser.i == len(ser.events) {
+		return nil, io.EOF
+	}
+	j := ser.i
+	ser.i++
+	return &ser.events[j], nil
+}
+
+func (ser *sliceEventReader) Close() error {
+	return nil
 }

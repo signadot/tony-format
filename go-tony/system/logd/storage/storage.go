@@ -77,16 +77,16 @@ func (s *Storage) GetCurrentCommit() (int64, error) {
 
 // ReadStateAt reads the state for a given kpath at a specific commit count.
 // Searches for the most recent snapshot and applies patches from that point forward.
-func (s *Storage) ReadStateAt(kPath string, commit int64) (*ir.Node, error) {
+func (s *Storage) ReadStateAt(kp string, commit int64) (*ir.Node, error) {
 	// Find most recent snapshot and get base event reader
-	baseReader, startCommit, err := s.findSnapshotBaseReader(commit)
+	baseReader, startCommit, err := s.findSnapshotBaseReader(kp, commit)
 	if err != nil {
 		return nil, err
 	}
 	defer baseReader.Close()
 
 	// Get patches from startCommit to commit
-	segments := s.index.LookupRange(kPath, &startCommit, &commit)
+	segments := s.index.LookupRange(kp, &startCommit, &commit)
 
 	// Extract patch nodes, filtering out snapshots
 	var patchNodes []*ir.Node

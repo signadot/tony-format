@@ -103,7 +103,6 @@ func TestBinaryEventWriter_WriteEvent(t *testing.T) {
 
 func TestEventSink_Interface(t *testing.T) {
 	// Verify that our types implement EventSink
-	var _ EventSink = (*BinaryEventWriter)(nil)
-	var _ EventSink = (*BufferEventSink)(nil)
+	var _ EventWriter = (*BinaryEventWriter)(nil)
+	var _ EventWriter = (*BufferEventSink)(nil)
 }
-

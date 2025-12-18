@@ -17,7 +17,7 @@ type EventReadCloser interface {
 // EventWriteCloser extends stream.EventSink with Close for managing resources.
 // This is specific to storage layer needs, not part of the general stream package.
 type EventWriteCloser interface {
-	stream.EventSink
+	stream.EventWriter
 	io.Closer
 }
 
@@ -58,7 +58,7 @@ func NewSnapshotEventReader(r io.ReadCloser) EventReadCloser {
 
 // eventWriteCloser wraps a stream.EventSink with an optional closer.
 type eventWriteCloser struct {
-	sink   stream.EventSink
+	sink   stream.EventWriter
 	closer io.Closer
 }
 

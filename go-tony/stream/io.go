@@ -10,8 +10,8 @@ type EventReader interface {
 	ReadEvent() (*Event, error)
 }
 
-// EventSink receives events (builder, writer, etc.).
-type EventSink interface {
+// EventWriter receives events (builder, writer, etc.).
+type EventWriter interface {
 	WriteEvent(*Event) error
 }
 

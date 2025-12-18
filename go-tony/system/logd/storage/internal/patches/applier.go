@@ -13,7 +13,7 @@ import (
 type PatchApplier interface {
 	// ApplyPatches applies patches to base events, writes result to sink.
 	// Patches are applied in order.
-	ApplyPatches(baseEvents stream.EventReader, patches []*ir.Node, sink stream.EventSink) error
+	ApplyPatches(baseEvents stream.EventReader, patches []*ir.Node, sink stream.EventWriter) error
 }
 
 // InMemoryApplier is a temporary implementation that materializes the full document.
@@ -28,7 +28,7 @@ func NewInMemoryApplier() *InMemoryApplier {
 
 // ApplyPatches materializes the full document, applies patches, converts back to events.
 // TODO: Replace with streaming implementation that never materializes full document.
-func (a *InMemoryApplier) ApplyPatches(baseEvents stream.EventReader, patches []*ir.Node, sink stream.EventSink) error {
+func (a *InMemoryApplier) ApplyPatches(baseEvents stream.EventReader, patches []*ir.Node, sink stream.EventWriter) error {
 	// Read all events into memory
 	var events []stream.Event
 	for {

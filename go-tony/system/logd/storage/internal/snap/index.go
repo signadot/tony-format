@@ -47,7 +47,15 @@ func (idx *Index) Lookup(kp string) (index int, err error) {
 		return 0, err
 	}
 
-	i, found := slices.BinarySearchFunc(idx.Entries, IndexEntry{Path: &Path{*targetKPath}}, func(a, b IndexEntry) int {
+	// Handle root path (empty string) - represented as nil
+	var targetEntry IndexEntry
+	if targetKPath == nil {
+		targetEntry = IndexEntry{Path: nil}
+	} else {
+		targetEntry = IndexEntry{Path: &Path{*targetKPath}}
+	}
+
+	i, found := slices.BinarySearchFunc(idx.Entries, targetEntry, func(a, b IndexEntry) int {
 		// Handle nil paths (root entry) - nil comes before everything
 		if a.Path == nil && b.Path == nil {
 			return 0
