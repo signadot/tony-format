@@ -138,16 +138,6 @@ func (s *Storage) ReadStateAt(kPath string, commit int64) (*ir.Node, error) {
 	return stream.EventsToNode(events)
 }
 
-// ReadCurrentState reads the committed state at the current commit for a given kinded path.
-// Equivalent to GetCurrentCommit() followed by ReadStateAt().
-func (s *Storage) ReadCurrentState(kPath string) (*ir.Node, error) {
-	commit, err := s.GetCurrentCommit()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get current commit: %w", err)
-	}
-	return s.ReadStateAt(kPath, commit)
-}
-
 // init initializes the storage directory structure.
 func (s *Storage) init() error {
 	dirs := []string{

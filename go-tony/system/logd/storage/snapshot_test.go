@@ -188,8 +188,8 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	}
 
 	// Stage 2: Create snapshot at commit 3
-	if err := s.CreateSnapshot(commit3); err != nil {
-		t.Fatalf("CreateSnapshot(commit3) error = %v", err)
+	if err := s.createSnapshot(commit3); err != nil {
+		t.Fatalf("createSnapshot(commit3) error = %v", err)
 	}
 
 	// Verify snapshot was created in index
@@ -254,8 +254,8 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	}
 
 	// Stage 5: Create another snapshot and verify layering works
-	if err := s.CreateSnapshot(commit6); err != nil {
-		t.Fatalf("CreateSnapshot(commit6) error = %v", err)
+	if err := s.createSnapshot(commit6); err != nil {
+		t.Fatalf("createSnapshot(commit6) error = %v", err)
 	}
 
 	// Add one more patch after second snapshot

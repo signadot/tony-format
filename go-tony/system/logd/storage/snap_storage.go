@@ -100,17 +100,17 @@ func (s *Storage) SwitchAndSnapshot() error {
 
 	// Create snapshot of the inactive log (which was active before switch)
 	// This is a long operation, but switchMu prevents switching back during it
-	if err := s.CreateSnapshot(commit); err != nil {
+	if err := s.createSnapshot(commit); err != nil {
 		return fmt.Errorf("failed to create snapshot: %w", err)
 	}
 
 	return nil
 }
 
-// CreateSnapshot creates a snapshot of the full state at the given commit.
+// createSnapshot creates a snapshot of the full state at the given commit.
 // Writes snapshot events to the inactive log and adds an index entry.
 // Returns error if snapshot creation fails.
-func (s *Storage) CreateSnapshot(commit int64) error {
+func (s *Storage) createSnapshot(commit int64) error {
 	// Find most recent snapshot and get base event reader
 	baseReader, startCommit, err := s.findSnapshotBaseReader(commit)
 	if err != nil {
