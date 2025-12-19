@@ -276,14 +276,44 @@ func trackPos(node *ir.Node, pos *token.Pos, opts *parseOpts) {
 }
 
 func parseBalanced(toks []token.Token, p *ir.Node, tag string, pi *int, opts *parseOpts) (*ir.Node, error) {
-	// Skip leading comments if next token is TMString (multiline string comments are handled by checkMultilineStringComments)
+	// Collect head comments (TComment) and line comments (TLineComment) before the value.
+	// Skip TMString - multiline string comments are handled by checkMultilineStringComments.
 	var yComments *ir.Node
-	if *pi < len(toks) && toks[*pi].Type != token.TMString {
+	var leadingLineComments []string
+	if opts.comments && *pi < len(toks) && toks[*pi].Type != token.TMString {
 		yComments = comments(toks, pi, opts)
+		// TLineComment before value becomes line comment on that value
+		// (e.g., "foo: # comment\n  bar: value" - comment goes on inner object)
+		for *pi < len(toks) && toks[*pi].Type == token.TLineComment {
+			leadingLineComments = append(leadingLineComments, string(toks[*pi].Bytes))
+			*pi++
+		}
+	}
+	// Skip comment and indent tokens (even when not collecting comments)
+	for *pi < len(toks) {
+		t := toks[*pi].Type
+		if !t.IsComment() && t != token.TIndent {
+			break
+		}
+		*pi++
+	}
+	// End of array/object after comments - return head comments only
+	if *pi < len(toks) {
+		t := toks[*pi].Type
+		if t == token.TRSquare || t == token.TRCurl {
+			return yComments, nil
+		}
 	}
 	child, err := noComments(toks, p, tag, pi, opts)
 	if err != nil {
 		return nil, err
+	}
+	// Attach leading line comments to child's .comment field
+	if len(leadingLineComments) > 0 && child != nil {
+		if child.Comment == nil {
+			child.Comment = &ir.Node{Parent: child, Type: ir.CommentType}
+		}
+		child.Comment.Lines = append(leadingLineComments, child.Comment.Lines...)
 	}
 	if p == nil && child != nil {
 		// trailing comments appended as lines to child. this records
@@ -300,6 +330,11 @@ func parseBalanced(toks []token.Token, p *ir.Node, tag string, pi *int, opts *pa
 		if trComments != nil {
 			if child.Comment == nil {
 				child.Comment = &ir.Node{Parent: child, Type: ir.CommentType}
+			}
+			// Add dummy "" placeholder if no line comment exists - this distinguishes
+			// "value # comment" (line comment) from "value\n# comment" (trailing comment)
+			if len(child.Comment.Lines) == 0 {
+				child.Comment.Lines = []string{""}
 			}
 			child.Comment.Lines = append(child.Comment.Lines, trComments.Lines...)
 		}
@@ -462,7 +497,8 @@ func checkLineComment(node *ir.Node, toks []token.Token, pi *int, pos *token.Pos
 			return node
 		}
 		tok := &toks[i]
-		if tok.Type != token.TComment {
+		// TLineComment is the token type for line comments (after colon or value on same line)
+		if tok.Type != token.TLineComment {
 			return node
 		}
 		*pi++
@@ -493,11 +529,11 @@ func checkMultilineStringComments(node *ir.Node, toks []token.Token, pi *int, op
 	commentLines := make([]string, 0, numLines)
 	i := *pi
 
-	// Collect consecutive TComment tokens (skip TIndent tokens that might be between them)
+	// Collect consecutive TLineComment tokens (skip TIndent tokens that might be between them)
 	// Collect exactly numLines comments, or all consecutive comments if fewer
 	for i < len(toks) && len(commentLines) < numLines {
 		tok := &toks[i]
-		if tok.Type == token.TComment {
+		if tok.Type == token.TLineComment {
 			// Extract comment text, preserving whitespace before '#'
 			commentText := string(tok.Bytes)
 			commentLines = append(commentLines, commentText)
@@ -667,6 +703,10 @@ func parseArr(toks []token.Token, p *ir.Node, tag string, pi *int, opts *parseOp
 			if err != nil {
 				return nil, err
 			}
+			// parseBalanced may return nil if it only consumed trailing comments
+			if elt == nil {
+				continue
+			}
 			elt.Parent = p
 			elt.ParentIndex = len(p.Values)
 			p.Values = append(p.Values, checkLineComment(elt, toks, pi, tok.Pos, opts))
@@ -683,6 +723,8 @@ func comments(toks []token.Token, pi *int, opts *parseOpts) *ir.Node {
 	start := *pi
 	for start < n {
 		t := &toks[start]
+		// Only collect TComment (head comments) here, not TLineComment.
+		// TLineComment after a colon becomes a line comment on the value, handled separately.
 		if t.Type == token.TComment {
 			start++
 			lns = append(lns, strings.TrimSpace(string(t.Bytes)))

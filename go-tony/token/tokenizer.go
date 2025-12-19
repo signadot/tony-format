@@ -287,6 +287,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		t.ts.lnIndent = indent
 		t.ts.lineStartOffset = absOffset + 1 // Line starts after newline
 		t.ts.kvSep = false
+		t.ts.hasValue = false
 		t.ts.bElt = 0
 		// Return indent token, but consumed bytes includes the newline we already advanced past
 		return []Token{tok}, 1 + indent, nil
@@ -323,6 +324,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 				return nil, 0, NewTokenizeErr(err, t.posDoc.Pos(int(absOffset)))
 			}
 			tok.Pos = t.posDoc.Pos(int(absOffset))
+			t.ts.hasValue = true
 			return []Token{*tok}, off, nil
 		}
 		if t.opt.format == format.TonyFormat {
@@ -342,6 +344,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 					}
 					return nil, 0, err
 				}
+				t.ts.hasValue = true
 				return toks, off, nil
 			}
 		}
@@ -359,6 +362,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			Pos:   t.posDoc.Pos(int(absOffset)),
 			Bytes: data[pos : pos+j],
 		}
+		t.ts.hasValue = true
 		return []Token{tok}, j, nil
 
 	case '!':
@@ -426,6 +430,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		if sz > 0 {
 			consumed--
 		}
+		t.ts.hasValue = true
 		return []Token{tok}, consumed, nil
 
 	case '>':
@@ -468,9 +473,11 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 				if isFloat {
 					tok.Type = TFloat
 				}
+				t.ts.hasValue = true
 				return []Token{tok}, numLen + 1, nil
 			}
 			tok := yamlPlainToken(data[pos:pos+off+1], t.posDoc.Pos(int(absOffset)))
+			t.ts.hasValue = true
 			return []Token{*tok}, off + 1, nil
 		}
 			numLen, isFloat, err := number(data[pos+1:])
@@ -485,6 +492,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			if isFloat {
 				tok.Type = TFloat
 			}
+			t.ts.hasValue = true
 			return []Token{tok}, numLen + 1, nil
 
 		case ' ', '\n', '\t':
@@ -528,6 +536,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 					Pos:   t.posDoc.Pos(int(absOffset)),
 					Bytes: lit,
 				}
+				t.ts.hasValue = true
 				return []Token{tok}, len(lit), nil
 			case format.YAMLFormat:
 				off, err := yamlPlain(data[pos:], t.ts, int(absOffset), t.posDoc)
@@ -535,6 +544,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 					return nil, 0, err
 				}
 				tok := yamlPlainToken(data[pos:pos+off], t.posDoc.Pos(int(absOffset)))
+				t.ts.hasValue = true
 				return []Token{*tok}, off, nil
 			default:
 				return nil, 0, NewTokenizeErr(fmt.Errorf("%w format %q", ErrUnsupported, t.opt.format.String()), t.posDoc.Pos(int(absOffset)))
@@ -557,9 +567,11 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 				if isFloat {
 					tok.Type = TFloat
 				}
+				t.ts.hasValue = true
 				return []Token{tok}, off, nil
 			}
 			tok := yamlPlainToken(data[pos:pos+off], t.posDoc.Pos(int(absOffset)))
+			t.ts.hasValue = true
 			return []Token{*tok}, off, nil
 		}
 		numLen, isFloat, err := number(data[pos:])
@@ -574,6 +586,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		if isFloat {
 			tok.Type = TFloat
 		}
+		t.ts.hasValue = true
 		return []Token{tok}, numLen, nil
 
 	case '#':
@@ -612,8 +625,13 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			if commentStart < 0 {
 				commentStart = 0
 			}
+			// Use TLineComment if this comment follows a colon or value on the same line
+			var tokType TokenType = TComment
+			if t.ts.kvSep || t.ts.hasValue {
+				tokType = TLineComment
+			}
 			tok := Token{
-				Type:  TComment,
+				Type:  tokType,
 				Pos:   t.posDoc.Pos(int(bufferStartOffset) + end),
 				Bytes: data[commentStart:end],
 			}
@@ -632,6 +650,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 				Bytes: data[pos : pos+4],
 				Pos:   t.posDoc.Pos(int(absOffset)),
 			}
+			t.ts.hasValue = true
 			return []Token{tok}, 4, nil
 		}
 		switch t.opt.format {
@@ -647,6 +666,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 				Pos:   t.posDoc.Pos(int(absOffset)),
 				Bytes: lit,
 			}
+			t.ts.hasValue = true
 			return []Token{tok}, len(lit), nil
 		case format.YAMLFormat:
 			off, err := yamlPlain(data[pos:], t.ts, int(absOffset), t.posDoc)
@@ -654,6 +674,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 				return nil, 0, err
 			}
 			tok := yamlPlainToken(data[pos:pos+off], t.posDoc.Pos(int(absOffset)))
+			t.ts.hasValue = true
 			return []Token{*tok}, off, nil
 		default:
 			return nil, 0, NewTokenizeErr(fmt.Errorf("%w format %q", ErrUnsupported, t.opt.format.String()), t.posDoc.Pos(int(absOffset)))
@@ -666,6 +687,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 				Bytes: data[pos : pos+4],
 				Pos:   t.posDoc.Pos(int(absOffset)),
 			}
+			t.ts.hasValue = true
 			return []Token{tok}, 4, nil
 		}
 		switch t.opt.format {
@@ -681,6 +703,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 				Pos:   t.posDoc.Pos(int(absOffset)),
 				Bytes: lit,
 			}
+			t.ts.hasValue = true
 			return []Token{tok}, len(lit), nil
 		case format.YAMLFormat:
 			off, err := yamlPlain(data[pos:], t.ts, int(absOffset), t.posDoc)
@@ -688,6 +711,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 				return nil, 0, err
 			}
 			tok := yamlPlainToken(data[pos:pos+off], t.posDoc.Pos(int(absOffset)))
+			t.ts.hasValue = true
 			return []Token{*tok}, off, nil
 		default:
 			return nil, 0, NewTokenizeErr(fmt.Errorf("%w format %q", ErrUnsupported, t.opt.format.String()), t.posDoc.Pos(int(absOffset)))
@@ -700,6 +724,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 				Bytes: data[pos : pos+5],
 				Pos:   t.posDoc.Pos(int(absOffset)),
 			}
+			t.ts.hasValue = true
 			return []Token{tok}, 5, nil
 		}
 		switch t.opt.format {
@@ -715,6 +740,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 				Pos:   t.posDoc.Pos(int(absOffset)),
 				Bytes: lit,
 			}
+			t.ts.hasValue = true
 			return []Token{tok}, len(lit), nil
 		case format.YAMLFormat:
 			off, err := yamlPlain(data[pos:], t.ts, int(absOffset), t.posDoc)
@@ -722,6 +748,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 				return nil, 0, err
 			}
 			tok := yamlPlainToken(data[pos:pos+off], t.posDoc.Pos(int(absOffset)))
+			t.ts.hasValue = true
 			return []Token{*tok}, off, nil
 		default:
 			return nil, 0, UnexpectedErr("f...", t.posDoc.Pos(int(absOffset)))
@@ -760,6 +787,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			Pos:   t.posDoc.Pos(int(absOffset)),
 			Bytes: data[pos : pos+1],
 		}
+		t.ts.hasValue = true
 		return []Token{tok}, 1, nil
 
 	case '[':
@@ -778,6 +806,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			Pos:   t.posDoc.Pos(int(absOffset)),
 			Bytes: data[pos : pos+1],
 		}
+		t.ts.hasValue = true
 		return []Token{tok}, 1, nil
 
 	case ',':
@@ -800,6 +829,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 				Pos:   t.posDoc.Pos(int(absOffset)),
 				Bytes: lit,
 			}
+			t.ts.hasValue = true
 			return []Token{tok}, len(lit), nil
 		case format.JSONFormat:
 			lit, err := getSingleLiteral(data[pos:])
@@ -813,6 +843,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 				return nil, 0, err
 			}
 			tok := yamlPlainToken(data[pos:pos+off], t.posDoc.Pos(int(absOffset)))
+			t.ts.hasValue = true
 			return []Token{*tok}, off, nil
 		default:
 			return nil, 0, NewTokenizeErr(fmt.Errorf("%w format %q", ErrUnsupported, t.opt.format.String()), t.posDoc.Pos(int(absOffset)))

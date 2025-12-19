@@ -849,27 +849,16 @@ func writeRaw(w io.Writer, v string, es *EncState) error {
 // Line comment writing
 
 func writeLineCommentLines(w io.Writer, c *ir.Node, es *EncState) error {
-	if !es.comments || c == nil {
+	if !es.comments || c == nil || len(c.Lines) == 0 {
 		return nil
 	}
 
+	// Only write Lines[0] (the line comment on the same line as the value).
+	// Lines[1:] (trailing comments) are written by the finalization code in Encode().
 	ln := c.Lines[0]
 	es.col += len(ln)
 	ln = applyValueColor(es, ir.CommentType, ln)
-	if err := writeString(w, ln); err != nil {
-		return err
-	}
-	for _, ln := range c.Lines[1:] {
-		es.col += 1
-		if err := writeNL(w, es); err != nil {
-			return err
-		}
-		ln = applyValueColor(es, ir.CommentType, ln)
-		if err := writeString(w, ln); err != nil {
-			return err
-		}
-	}
-	return nil
+	return writeString(w, ln)
 }
 
 func doBlockLit(v string, es *EncState) bool {

@@ -16,6 +16,7 @@ const (
 	TArrayElt
 	TDocSep
 	TComment
+	TLineComment // Comment after colon on same line (should be line comment, not head comment)
 	TNull
 	TTrue
 	TFalse
@@ -32,16 +33,22 @@ const (
 	TComma
 )
 
+// IsComment returns true if this token is any kind of comment (head or line comment)
+func (t TokenType) IsComment() bool {
+	return t == TComment || t == TLineComment
+}
+
 func (t TokenType) String() string {
 	return map[TokenType]string{
-		TInteger:  "TInteger",
-		TFloat:    "TFloat",
-		TColon:    "TColon",
-		TArrayElt: "TArrayElt",
-		TDocSep:   "TDocSep",
-		TMLit:     "TMLit",
-		TComment:  "TComment",
-		TNull:     "TNull",
+		TInteger:     "TInteger",
+		TFloat:       "TFloat",
+		TColon:       "TColon",
+		TArrayElt:    "TArrayElt",
+		TDocSep:      "TDocSep",
+		TMLit:        "TMLit",
+		TComment:     "TComment",
+		TLineComment: "TLineComment",
+		TNull:        "TNull",
 		TTrue:     "TTrue",
 		TFalse:    "TFalse",
 		TMergeKey: "TMergeKey",

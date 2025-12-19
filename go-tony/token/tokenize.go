@@ -8,10 +8,11 @@ import (
 type tkState struct {
 	cb, sb int
 	// reset every '\n'
-	lnIndent      int
+	lnIndent        int
 	lineStartOffset int64 // absolute offset where current line started (after newline)
-	kvSep         bool
-	bElt          int
+	kvSep           bool  // true after colon on same line
+	hasValue        bool  // true after a value token on same line (for line comment detection)
+	bElt            int
 }
 
 func Tokenize(dst []Token, src []byte, opts ...TokenOpt) ([]Token, error) {

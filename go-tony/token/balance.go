@@ -16,7 +16,7 @@ func Balance(toks []Token, f format.Format) ([]Token, error) {
 	for n < len(toks) {
 		tok := &toks[n]
 		n++
-		if tok.Type == TComment {
+		if tok.Type.IsComment() {
 			dst = append(dst, *tok)
 			continue
 		}
@@ -36,7 +36,7 @@ func Balance(toks []Token, f format.Format) ([]Token, error) {
 		}
 		for j := i + 1; j < len(dst); j++ {
 			n := &dst[j]
-			if n.Type == TComment {
+			if n.Type.IsComment() {
 				dst[j-1], dst[j] = dst[j], dst[j-1]
 				continue
 			}
@@ -76,15 +76,15 @@ func balanceOne(dst []Token, toks []Token, d int, y *int, underField bool, f for
 		var nxt *Token
 	Zoom:
 		nxt = &toks[z]
-		switch nxt.Type {
-		case TIndent, TComment:
+		if nxt.Type == TIndent || nxt.Type.IsComment() {
 			z++
 			if z >= len(toks) {
 				dst = append(dst, *tok)
 				return dst, 1, nil
 			}
 			goto Zoom
-		case TColon:
+		}
+		if nxt.Type == TColon {
 			if d == -2 {
 				return nil, 0, fmt.Errorf("%w: key : in bracketed array %s",
 					ErrDocBalance, tok.Pos)
@@ -94,11 +94,9 @@ func balanceOne(dst []Token, toks []Token, d int, y *int, underField bool, f for
 					ErrDocBalance, tok.Pos)
 			}
 			return balanceObj(dst, toks, d, y, f)
-
-		default:
-			dst = append(dst, *tok)
-			return dst, 1, nil
 		}
+		dst = append(dst, *tok)
+		return dst, 1, nil
 
 	case TArrayElt:
 		if d < 0 {
@@ -139,7 +137,7 @@ func balanceOne(dst []Token, toks []Token, d int, y *int, underField bool, f for
 					return nil, 0, fmt.Errorf("%w: extraneous '- ' indent %s",
 						ErrDocBalance, tok.Pos)
 				}
-			} else if n != d*2 && toks[1].Type != TComment {
+			} else if n != d*2 && !toks[1].Type.IsComment() {
 				return nil, 0, fmt.Errorf("%w: extraneous indent (no comment) %s %q %s",
 					ErrDocBalance, toks[1].Type, string(toks[1].Bytes), toks[1].Pos)
 			}
@@ -149,7 +147,7 @@ func balanceOne(dst []Token, toks []Token, d int, y *int, underField bool, f for
 			}
 			return dst, 1 + off, nil
 		case format.YAMLFormat:
-			if toks[1].Type == TComment {
+			if toks[1].Type.IsComment() {
 				dst, off, err := balanceOne(dst, toks[1:], d, y, underField, f)
 				if err != nil {
 					return nil, 0, err
@@ -184,7 +182,7 @@ func balanceOne(dst []Token, toks []Token, d int, y *int, underField bool, f for
 			// should never happen, only Tony/YAML have non-brackets
 			return dst, 1, nil
 		}
-	case TComment, TTag:
+	case TTag:
 		dst = append(dst, *tok)
 		dst, off, err := balanceOne(dst, toks[1:], d, y, underField, f)
 		if err != nil {
@@ -192,6 +190,14 @@ func balanceOne(dst []Token, toks []Token, d int, y *int, underField bool, f for
 		}
 		return dst, 1 + off, nil
 	default:
+		if tok.Type.IsComment() {
+			dst = append(dst, *tok)
+			dst, off, err := balanceOne(dst, toks[1:], d, y, underField, f)
+			if err != nil {
+				return nil, 0, err
+			}
+			return dst, 1 + off, nil
+		}
 		return nil, 0, fmt.Errorf("`%s` cannot start a value %s", tok.Bytes, tok.Pos)
 	}
 }
@@ -297,23 +303,22 @@ func nextNonComment(toks []Token) int {
 	N := len(toks)
 scan:
 	for i < N {
-		switch toks[i].Type {
-		case TIndent:
+		if toks[i].Type == TIndent {
 			if lastIndent == -1 {
 				lastIndent = i
 			}
 			i++
 			goto scan
-		case TComment:
+		}
+		if toks[i].Type.IsComment() {
 			lastIndent = -1
 			i++
 			goto scan
-		default:
-			if lastIndent != -1 {
-				return lastIndent
-			}
-			return i
 		}
+		if lastIndent != -1 {
+			return lastIndent
+		}
+		return i
 	}
 	if lastIndent != -1 {
 		return lastIndent
@@ -342,11 +347,12 @@ Elts:
 		case TIndent:
 			i++
 			continue
-		case TComment:
-			dst = append(dst, *tok)
-			i++
-			continue
 		default:
+			if tok.Type.IsComment() {
+				dst = append(dst, *tok)
+				i++
+				continue
+			}
 			dst, off, err = balanceOne(dst, toks[i:], -2, nil, false, f)
 			if errors.Is(err, ErrEmptyDoc) || i+off == len(toks) {
 				return nil, 0, fmt.Errorf("%w: '[' not closed %s",
@@ -371,7 +377,7 @@ Elts:
 				i += off + 1
 				found = true
 				goto done
-			case TComment, TTag:
+			case TTag:
 				dst = append(dst, *nxt)
 				off++
 				goto Comma
@@ -379,6 +385,11 @@ Elts:
 				off++
 				goto Comma
 			default:
+				if nxt.Type.IsComment() {
+					dst = append(dst, *nxt)
+					off++
+					goto Comma
+				}
 				i += off
 				continue Elts
 			}
@@ -424,18 +435,16 @@ KVLoop:
 				keyI = i
 				i++
 				continue KVLoop
-			case TComment, TTag:
+			case TTag:
 				dst = append(dst, *tok)
 				i++
 				continue KVLoop
 			case TIndent:
 				if i+1 != len(toks) {
 					nxt := &toks[i+1]
-					switch nxt.Type {
-					case TComment, TIndent:
+					if nxt.Type.IsComment() || nxt.Type == TIndent {
 						i++
 						continue KVLoop
-					default:
 					}
 				}
 				n := len(tok.Bytes)
@@ -458,19 +467,24 @@ KVLoop:
 					continue KVLoop
 				}
 			default:
+				if tok.Type.IsComment() {
+					dst = append(dst, *tok)
+					i++
+					continue KVLoop
+				}
 				return nil, 0, fmt.Errorf("%w: %q is not a key %s %s N=%d",
 					ErrDocBalance, string(tok.Bytes), tok.Type, tok.Pos, N)
 			}
 		}
 		// we have a key
 		if colonI == -1 {
-			switch tok.Type {
-			case TColon:
+			if tok.Type == TColon {
 				dst = append(dst, *tok)
 				colonI = i
 				i++
 				continue KVLoop
-			case TComment:
+			}
+			if tok.Type.IsComment() {
 				// can be TString with following comment
 				// from mString tokenizer
 				i++
@@ -520,7 +534,7 @@ KVLoop:
 				keyI = i
 				i++
 				continue KVLoop
-			case TComment, TTag:
+			case TTag:
 				dst = append(dst, *tok)
 				i++
 				continue KVLoop
@@ -540,19 +554,24 @@ KVLoop:
 				continue KVLoop
 
 			default:
+				if tok.Type.IsComment() {
+					dst = append(dst, *tok)
+					i++
+					continue KVLoop
+				}
 				return nil, 0, fmt.Errorf("%w: %q is not a key %s %s",
 					ErrDocBalance, string(tok.Bytes), tok.Type, tok.Pos)
 			}
 		}
 		// we have a key
 		if colonI == -1 {
-			switch tok.Type {
-			case TComment:
+			if tok.Type.IsComment() {
 				// can be TString with following comment
 				// from mString tokenizer
 				i++
 				continue KVLoop
-			case TColon:
+			}
+			if tok.Type == TColon {
 				dst = append(dst, *tok)
 				colonI = i
 				i++

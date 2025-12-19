@@ -45,13 +45,13 @@ func checkCommentOnSameLine(d []byte, start int, posDoc *PosDoc) (*Token, int) {
 				commentBytes := d[commentStart:i] // Exclude newline
 				posDoc.nl(start + i)
 				return &Token{
-					Type:  TComment,
+					Type:  TLineComment,
 					Pos:   posDoc.Pos(start + commentStart),
 					Bytes: commentBytes,
 				}, i + 1 // Include newline in offset
 			}
 			// No comment found on this line
-			return &Token{Type: TComment, Pos: posDoc.Pos(start)}, 0
+			return &Token{Type: TLineComment, Pos: posDoc.Pos(start)}, 0
 		case '#':
 			if !inComment {
 				if whitespaceStart == -1 {
@@ -73,7 +73,7 @@ func checkCommentOnSameLine(d []byte, start int, posDoc *PosDoc) (*Token, int) {
 			}
 			// Non-whitespace, non-comment character means no comment on this line
 			return &Token{
-				Type: TComment,
+				Type: TLineComment,
 				Pos:  posDoc.Pos(start),
 			}, 0
 		}
@@ -82,12 +82,12 @@ func checkCommentOnSameLine(d []byte, start int, posDoc *PosDoc) (*Token, int) {
 	if inComment && commentStart != -1 {
 		commentBytes := d[commentStart:]
 		return &Token{
-			Type:  TComment,
+			Type:  TLineComment,
 			Pos:   posDoc.Pos(start + commentStart),
 			Bytes: commentBytes,
 		}, len(d)
 	}
-	return &Token{Type: TComment, Pos: posDoc.Pos(start)}, 0
+	return &Token{Type: TLineComment, Pos: posDoc.Pos(start)}, 0
 }
 
 func nextMString(d []byte, desOff, start int, posDoc *PosDoc) (int, []Token) {
@@ -139,11 +139,11 @@ func msMergeToks(toks []Token) []Token {
 				strTok.Type = TMString
 			}
 			strTok.Bytes = append(strTok.Bytes, tok.Bytes...)
-		case TComment:
+		case TComment, TLineComment:
 			comments = append(comments, *tok)
 		}
 	}
-	// Ensure we have exactly N TComment tokens (one per string line)
+	// Ensure we have exactly N TLineComment tokens (one per string line)
 	// If we have fewer, pad with empty comment tokens
 	// Use the last comment's position or the string token's position as fallback
 	var lastPos *Pos
@@ -154,7 +154,7 @@ func msMergeToks(toks []Token) []Token {
 	}
 	for len(comments) < stringCount {
 		comments = append(comments, Token{
-			Type:  TComment,
+			Type:  TLineComment,
 			Pos:   lastPos,
 			Bytes: []byte{},
 		})
