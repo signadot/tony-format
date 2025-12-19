@@ -1,8 +1,8 @@
 branches: []
-closed_by: null
+closed_by: "389536d3073b325478e45dc6a67bd56bf3898e91"
 commits: 
 - "389536d3073b325478e45dc6a67bd56bf3898e91"
 created: "2025-12-19T11:21:05+01:00"
 id: 3
-status: open
-updated: "2025-12-19T11:21:47+01:00"
+status: closed
+updated: "2025-12-19T11:21:53+01:00"
