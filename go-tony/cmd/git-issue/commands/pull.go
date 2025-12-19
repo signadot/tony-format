@@ -2,26 +2,37 @@ package commands
 
 import (
 	"fmt"
-	"os/exec"
-	"strings"
+
+	"github.com/scott-cotton/cli"
+	"github.com/signadot/tony-format/go-tony/cmd/git-issue/issuelib"
 )
 
-func Pull(args []string) error {
+type pullConfig struct {
+	*cli.Command
+	store issuelib.Store
+}
+
+// PullCommand returns the pull subcommand.
+func PullCommand(store issuelib.Store) *cli.Command {
+	cfg := &pullConfig{store: store}
+	return cli.NewCommandAt(&cfg.Command, "pull").
+		WithSynopsis("pull [remote] - Pull issues from remote").
+		WithRun(cfg.run)
+}
+
+func (cfg *pullConfig) run(cc *cli.Context, args []string) error {
 	// Get remote name (default to origin)
 	remote := "origin"
 	if len(args) > 0 {
 		remote = args[0]
 	}
 
-	// Verify remote exists
-	checkCmd := exec.Command("git", "remote", "get-url", remote)
-	if err := checkCmd.Run(); err != nil {
-		return fmt.Errorf("remote not found: %s", remote)
+	if err := cfg.store.VerifyRemote(remote); err != nil {
+		return err
 	}
 
-	fmt.Printf("Fetching issues from %s...\n", remote)
+	fmt.Fprintf(cc.Out, "Fetching issues from %s...\n", remote)
 
-	// Fetch all issue refs
 	refspecs := []string{
 		"+refs/issues/*:refs/issues/*",
 		"+refs/closed/*:refs/closed/*",
@@ -29,33 +40,17 @@ func Pull(args []string) error {
 		"+refs/notes/issues:refs/notes/issues",
 	}
 
-	for _, refspec := range refspecs {
-		cmd := exec.Command("git", "fetch", remote, refspec)
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			// Don't fail if ref doesn't exist on remote
-			if !strings.Contains(string(output), "couldn't find remote ref") {
-				fmt.Printf("Warning: failed to fetch %s: %s\n", refspec, string(output))
-			}
-		}
+	if err := cfg.store.Fetch(remote, refspecs); err != nil {
+		return err
 	}
 
 	// Count how many issues we have now
-	listCmd := exec.Command("git", "for-each-ref", "--count=1000", "--format=%(refname)", "refs/issues/*", "refs/closed/*")
-	output, err := listCmd.Output()
+	refs, err := cfg.store.ListRefs(true)
 	if err != nil {
-		fmt.Println("Done.")
+		fmt.Fprintln(cc.Out, "Done.")
 		return nil
 	}
 
-	refs := strings.Split(strings.TrimSpace(string(output)), "\n")
-	var count int
-	for _, ref := range refs {
-		if ref != "" {
-			count++
-		}
-	}
-
-	fmt.Printf("Done. %d issue(s) in local repository.\n", count)
+	fmt.Fprintf(cc.Out, "Done. %d issue(s) in local repository.\n", len(refs))
 	return nil
 }

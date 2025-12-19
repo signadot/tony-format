@@ -35,7 +35,7 @@ func (s *Dir) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if len(s.Sources) > 0 {
 		slice := make([]*ir.Node, len(s.Sources))
 		for i, v := range s.Sources {
-			node, err = v.ToTonyIR(opts...)
+			node, err = v.ToTonyIR()
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert slice element %d: %w", i, err)
 			}
@@ -48,7 +48,7 @@ func (s *Dir) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if len(s.Patches) > 0 {
 		slice := make([]*ir.Node, len(s.Patches))
 		for i, v := range s.Patches {
-			node, err = v.ToTonyIR(opts...)
+			node, err = v.ToTonyIR()
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert slice element %d: %w", i, err)
 			}
@@ -74,6 +74,15 @@ func (s *Dir) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 func (s *Dir) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 	if node == nil {
 		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
 	}
 
 	if node.Type == ir.NullType {
@@ -104,8 +113,8 @@ func (s *Dir) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				slice := make([]DirSource, len(fieldNode.Values))
 				for i, v := range fieldNode.Values {
 					elem := DirSource{}
-					if err := elem.FromTonyIR(v, opts...); err != nil {
-						return fmt.Errorf("slice element %d: %w", i, err)
+					if err := elem.FromTonyIR(v); err != nil {
+						return fmt.Errorf("failed to convert slice element %d: %w", i, err)
 					}
 					slice[i] = elem
 				}
@@ -117,8 +126,8 @@ func (s *Dir) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				slice := make([]DirPatch, len(fieldNode.Values))
 				for i, v := range fieldNode.Values {
 					elem := DirPatch{}
-					if err := elem.FromTonyIR(v, opts...); err != nil {
-						return fmt.Errorf("slice element %d: %w", i, err)
+					if err := elem.FromTonyIR(v); err != nil {
+						return fmt.Errorf("failed to convert slice element %d: %w", i, err)
 					}
 					slice[i] = elem
 				}
@@ -130,7 +139,11 @@ func (s *Dir) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				m := make(map[string]*ir.Node)
 				irMap := ir.ToMap(fieldNode)
 				for k, v := range irMap {
-					m[k] = v
+					val := new(ir.Node)
+					if err := val.FromTonyIR(v); err != nil {
+						return fmt.Errorf("failed to convert map value at key %q: %w", k, err)
+					}
+					m[k] = val
 				}
 				s.Env = m
 			}
@@ -172,30 +185,22 @@ func (s *DirSource) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Format (optional)
 	if s.Format != nil {
-		if s.Format != nil {
-			irMap["format"] = ir.FromInt(int64(*s.Format))
-		}
+		irMap["format"] = ir.FromInt(int64(*s.Format))
 	}
 
 	// Field: Exec (optional)
 	if s.Exec != nil {
-		if s.Exec != nil {
-			irMap["exec"] = ir.FromString(*s.Exec)
-		}
+		irMap["exec"] = ir.FromString(*s.Exec)
 	}
 
 	// Field: Dir (optional)
 	if s.Dir != nil {
-		if s.Dir != nil {
-			irMap["dir"] = ir.FromString(*s.Dir)
-		}
+		irMap["dir"] = ir.FromString(*s.Dir)
 	}
 
 	// Field: URL (optional)
 	if s.URL != nil {
-		if s.URL != nil {
-			irMap["url"] = ir.FromString(*s.URL)
-		}
+		irMap["url"] = ir.FromString(*s.URL)
 	}
 
 	// Create IR node with schema tag
@@ -206,6 +211,15 @@ func (s *DirSource) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 func (s *DirSource) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 	if node == nil {
 		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
 	}
 
 	if node.Type == ir.NullType {
@@ -220,36 +234,52 @@ func (s *DirSource) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 		switch fieldName.String {
 		case "format":
 			// Field: Format
-			val := new(format.Format)
-			if fieldNode.Int64 == nil {
-				return fmt.Errorf("%s: expected number, got %v", "field \"format\"", fieldNode.Type)
+			if fieldNode.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(format.Format)
+				if fieldNode.Int64 == nil {
+					return fmt.Errorf("%s: expected number, got %v", "field \"format\"", fieldNode.Type)
+				}
+				*val = format.Format(*fieldNode.Int64)
+				s.Format = val
 			}
-			*val = format.Format(*fieldNode.Int64)
-			s.Format = val
 		case "exec":
 			// Field: Exec
-			val := new(string)
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("%s: expected string, got %v", "field \"exec\"", fieldNode.Type)
+			if fieldNode.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(string)
+				if fieldNode.Type != ir.StringType {
+					return fmt.Errorf("%s: expected string, got %v", "field \"exec\"", fieldNode.Type)
+				}
+				*val = string(fieldNode.String)
+				s.Exec = val
 			}
-			*val = string(fieldNode.String)
-			s.Exec = val
 		case "dir":
 			// Field: Dir
-			val := new(string)
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("%s: expected string, got %v", "field \"dir\"", fieldNode.Type)
+			if fieldNode.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(string)
+				if fieldNode.Type != ir.StringType {
+					return fmt.Errorf("%s: expected string, got %v", "field \"dir\"", fieldNode.Type)
+				}
+				*val = string(fieldNode.String)
+				s.Dir = val
 			}
-			*val = string(fieldNode.String)
-			s.Dir = val
 		case "url":
 			// Field: URL
-			val := new(string)
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("%s: expected string, got %v", "field \"url\"", fieldNode.Type)
+			if fieldNode.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(string)
+				if fieldNode.Type != ir.StringType {
+					return fmt.Errorf("%s: expected string, got %v", "field \"url\"", fieldNode.Type)
+				}
+				*val = string(fieldNode.String)
+				s.URL = val
 			}
-			*val = string(fieldNode.String)
-			s.URL = val
 		}
 	}
 
@@ -283,25 +313,22 @@ func (s *DirPatch) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if s == nil {
 		return ir.Null(), nil
 	}
+	var node *ir.Node
+	var err error
+	_ = node // suppress unused variable error
+	_ = err  // suppress unused variable error
+
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Match (optional)
 	if s.Match != nil {
-		if s.Match == nil {
-			irMap["match"] = ir.Null()
-		} else {
-			irMap["match"] = s.Match
-		}
+		irMap["match"] = s.Match
 	}
 
 	// Field: Patch (optional)
 	if s.Patch != nil {
-		if s.Patch == nil {
-			irMap["patch"] = ir.Null()
-		} else {
-			irMap["patch"] = s.Patch
-		}
+		irMap["patch"] = s.Patch
 	}
 
 	// Field: File
@@ -318,6 +345,15 @@ func (s *DirPatch) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 func (s *DirPatch) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 	if node == nil {
 		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
 	}
 
 	if node.Type == ir.NullType {

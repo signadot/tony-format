@@ -3,66 +3,56 @@ package commands
 import (
 	"bufio"
 	"fmt"
-	"os"
 	"strings"
-	"time"
 
-	"github.com/signadot/tony-format/go-tony/encode"
+	"github.com/scott-cotton/cli"
+	"github.com/signadot/tony-format/go-tony/cmd/git-issue/issuelib"
 )
 
-func Create(args []string) error {
+type createConfig struct {
+	*cli.Command
+	store issuelib.Store
+}
+
+// CreateCommand returns the create subcommand.
+func CreateCommand(store issuelib.Store) *cli.Command {
+	cfg := &createConfig{store: store}
+	return cli.NewCommandAt(&cfg.Command, "create").
+		WithSynopsis("create <title> - Create new issue").
+		WithRun(cfg.run)
+}
+
+func (cfg *createConfig) run(cc *cli.Context, args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: git issue create <title>")
+		return fmt.Errorf("%w: usage: git issue create <title>", cli.ErrUsage)
 	}
 
 	title := strings.Join(args, " ")
 
-	repo := &GitRepo{}
-
-	// Get next issue ID
-	id, err := repo.GetNextIssueID()
-	if err != nil {
-		return fmt.Errorf("failed to allocate issue ID: %w", err)
-	}
-
 	// Prompt for description
-	fmt.Printf("Creating issue #%06d: %s\n", id, title)
-	fmt.Println("Enter description (end with Ctrl+D):")
-	fmt.Println()
+	fmt.Fprintf(cc.Out, "Creating issue: %s\n", title)
+	fmt.Fprintln(cc.Out, "Enter description (end with Ctrl+D):")
+	fmt.Fprintln(cc.Out)
 
 	var descLines []string
 	descLines = append(descLines, "# "+title)
 	descLines = append(descLines, "")
 
-	scanner := bufio.NewScanner(os.Stdin)
+	scanner := bufio.NewScanner(cc.In)
 	for scanner.Scan() {
 		descLines = append(descLines, scanner.Text())
 	}
 
 	description := strings.Join(descLines, "\n")
 
-	// Create issue metadata
-	issue := &Issue{
-		ID:       id,
-		Status:   "open",
-		Created:  time.Now(),
-		Updated:  time.Now(),
-		Commits:  []string{},
-		Branches: []string{},
-		ClosedBy: nil,
-	}
-
-	// Convert to tony format
-	metaNode := issue.MetaToNode()
-	metaContent := encode.MustString(metaNode)
-
-	// Create git ref
-	if err := repo.CreateIssueRef(id, metaContent, description); err != nil {
+	// Create issue
+	issue, err := cfg.store.Create(title, description)
+	if err != nil {
 		return fmt.Errorf("failed to create issue: %w", err)
 	}
 
-	fmt.Printf("\nCreated issue #%06d\n", id)
-	fmt.Printf("Ref: refs/issues/%06d\n", id)
+	fmt.Fprintf(cc.Out, "\nCreated issue #%s\n", issuelib.FormatID(issue.ID))
+	fmt.Fprintf(cc.Out, "Ref: %s\n", issue.Ref)
 
 	return nil
 }

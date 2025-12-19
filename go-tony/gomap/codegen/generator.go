@@ -39,6 +39,62 @@ func getIRNodeDepth(t reflect.Type) int {
 	return 0
 }
 
+// fromTonyIRAcceptsOpts checks if a type's FromTonyIR method accepts the opts parameter.
+// Returns true if the method signature is FromTonyIR(*ir.Node, ...UnmapOption), false otherwise.
+func fromTonyIRAcceptsOpts(t reflect.Type) bool {
+	if t == nil {
+		return false
+	}
+	// Get pointer type if not already a pointer
+	pt := t
+	if t.Kind() != reflect.Ptr {
+		pt = reflect.PtrTo(t)
+	}
+	method, ok := pt.MethodByName("FromTonyIR")
+	if !ok {
+		return false
+	}
+	// Method signature: receiver + *ir.Node + ...opts = 3 inputs (variadic counts as 1)
+	// Without opts: receiver + *ir.Node = 2 inputs
+	return method.Type.NumIn() > 2
+}
+
+// fromTonyIROptsSuffix returns ", opts..." if the type's FromTonyIR accepts opts, "" otherwise.
+func fromTonyIROptsSuffix(t reflect.Type) string {
+	if fromTonyIRAcceptsOpts(t) {
+		return ", opts..."
+	}
+	return ""
+}
+
+// toTonyIRAcceptsOpts checks if a type's ToTonyIR method accepts the opts parameter.
+// Returns true if the method signature is ToTonyIR(...MapOption), false otherwise.
+func toTonyIRAcceptsOpts(t reflect.Type) bool {
+	if t == nil {
+		return false
+	}
+	// Get pointer type if not already a pointer
+	pt := t
+	if t.Kind() != reflect.Ptr {
+		pt = reflect.PtrTo(t)
+	}
+	method, ok := pt.MethodByName("ToTonyIR")
+	if !ok {
+		return false
+	}
+	// Method signature: receiver + ...opts = 2 inputs (variadic counts as 1)
+	// Without opts: receiver = 1 input
+	return method.Type.NumIn() > 1
+}
+
+// toTonyIROptsSuffix returns "opts..." if the type's ToTonyIR accepts opts, "" otherwise.
+func toTonyIROptsSuffix(t reflect.Type) string {
+	if toTonyIRAcceptsOpts(t) {
+		return "opts..."
+	}
+	return ""
+}
+
 
 // GenerateCode generates Go code for ToTony() and FromTony() methods for all structs.
 // Returns formatted Go source code.
@@ -469,10 +525,10 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 			} else if elemType.Kind() == reflect.Struct || (elemType.Kind() == reflect.Ptr && elemType.Elem().Kind() == reflect.Struct) || (elemType.Name() != "" && elemType.Kind() != reflect.String && !isPrimitiveKind(elemType.Kind())) || elemType.Kind() == reflect.Slice || elemType.Kind() == reflect.Map || elemType.Kind() == reflect.Array {
 				// Slice of structs, pointers to structs, or other complex types (named types, nested containers)
 				if elemType.Kind() == reflect.Ptr {
-					buf.WriteString("			node, err := v.ToTonyIR(opts...)\n")
+					buf.WriteString(fmt.Sprintf("			node, err := v.ToTonyIR(%s)\n", toTonyIROptsSuffix(elemType.Elem())))
 				} else {
 					// v is a value, we need to call ToTonyIR on pointer
-					buf.WriteString("			node, err := (&v).ToTonyIR(opts...)\n")
+					buf.WriteString(fmt.Sprintf("			node, err := (&v).ToTonyIR(%s)\n", toTonyIROptsSuffix(elemType)))
 				}
 				buf.WriteString("			if err != nil {\n")
 				buf.WriteString("				return nil, fmt.Errorf(\"failed to convert slice element %d: %w\", i, err)\n")
@@ -503,9 +559,9 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 
 				if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) || (valueType.Name() != "" && valueType.Kind() != reflect.String && !isPrimitiveKind(valueType.Kind())) || valueType.Kind() == reflect.Slice || valueType.Kind() == reflect.Map || valueType.Kind() == reflect.Array {
 					if valueType.Kind() == reflect.Ptr {
-						buf.WriteString("			node, err := v.ToTonyIR(opts...)\n")
+						buf.WriteString(fmt.Sprintf("			node, err := v.ToTonyIR(%s)\n", toTonyIROptsSuffix(valueType.Elem())))
 					} else {
-						buf.WriteString("			node, err := (&v).ToTonyIR(opts...)\n")
+						buf.WriteString(fmt.Sprintf("			node, err := (&v).ToTonyIR(%s)\n", toTonyIROptsSuffix(valueType)))
 					}
 					buf.WriteString("			if err != nil {\n")
 					buf.WriteString("				return nil, fmt.Errorf(\"failed to convert map value at key %d: %w\", k, err)\n")
@@ -538,9 +594,9 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 					buf.WriteString(fmt.Sprintf("			mapNodes[k] = %sv\n", derefs))
 				} else if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) || (valueType.Name() != "" && valueType.Kind() != reflect.String && !isPrimitiveKind(valueType.Kind())) || valueType.Kind() == reflect.Slice || valueType.Kind() == reflect.Map || valueType.Kind() == reflect.Array {
 					if valueType.Kind() == reflect.Ptr {
-						buf.WriteString("			node, err := v.ToTonyIR(opts...)\n")
+						buf.WriteString(fmt.Sprintf("			node, err := v.ToTonyIR(%s)\n", toTonyIROptsSuffix(valueType.Elem())))
 					} else {
-						buf.WriteString("			node, err := (&v).ToTonyIR(opts...)\n")
+						buf.WriteString(fmt.Sprintf("			node, err := (&v).ToTonyIR(%s)\n", toTonyIROptsSuffix(valueType)))
 					}
 					buf.WriteString("			if err != nil {\n")
 					buf.WriteString("				return nil, fmt.Errorf(\"failed to convert map value at key %q: %w\", k, err)\n")
@@ -567,9 +623,9 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 
 				if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) || (valueType.Name() != "" && valueType.Kind() != reflect.String && !isPrimitiveKind(valueType.Kind())) || valueType.Kind() == reflect.Slice || valueType.Kind() == reflect.Map || valueType.Kind() == reflect.Array {
 					if valueType.Kind() == reflect.Ptr {
-						buf.WriteString("			node, err := v.ToTonyIR(opts...)\n")
+						buf.WriteString(fmt.Sprintf("			node, err := v.ToTonyIR(%s)\n", toTonyIROptsSuffix(valueType.Elem())))
 					} else {
-						buf.WriteString("			node, err := (&v).ToTonyIR(opts...)\n")
+						buf.WriteString(fmt.Sprintf("			node, err := (&v).ToTonyIR(%s)\n", toTonyIROptsSuffix(valueType)))
 					}
 					buf.WriteString("			if err != nil {\n")
 					buf.WriteString("				return nil, fmt.Errorf(\"failed to convert map value at key %v: %w\", k, err)\n")
@@ -772,7 +828,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			if !alreadyInNilCheck {
 				buf.WriteString(fmt.Sprintf("	if s.%s != nil {\n", field.Name))
 			}
-			buf.WriteString(fmt.Sprintf("		node, err %s s.%s.ToTonyIR(opts...)\n", assign, field.Name))
+			buf.WriteString(fmt.Sprintf("		node, err %s s.%s.ToTonyIR(%s)\n", assign, field.Name, toTonyIROptsSuffix(elemType)))
 			buf.WriteString("		if err != nil {\n")
 			buf.WriteString("			return nil, err\n")
 			buf.WriteString("		}\n")
@@ -814,7 +870,11 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			buf.WriteString(fmt.Sprintf("			slice[i] = %sv\n", derefs))
 		} else if elemType.Kind() == reflect.Struct || (elemType.Kind() == reflect.Ptr && elemType.Elem().Kind() == reflect.Struct) {
 			// Slice of structs or pointers to structs - call ToTony()
-			buf.WriteString(fmt.Sprintf("			node, err %s v.ToTonyIR(opts...)\n", assign))
+			targetType := elemType
+			if elemType.Kind() == reflect.Ptr {
+				targetType = elemType.Elem()
+			}
+			buf.WriteString(fmt.Sprintf("			node, err %s v.ToTonyIR(%s)\n", assign, toTonyIROptsSuffix(targetType)))
 			buf.WriteString("			if err != nil {\n")
 			buf.WriteString("				return nil, fmt.Errorf(\"failed to convert slice element %d: %w\", i, err)\n")
 			buf.WriteString("			}\n")
@@ -842,7 +902,11 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			buf.WriteString(fmt.Sprintf("		intKeysMap := make(map[uint32]*ir.Node)\n"))
 			buf.WriteString(fmt.Sprintf("		for k, v := range s.%s {\n", field.Name))
 			if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) {
-				buf.WriteString(fmt.Sprintf("			node, err %s v.ToTonyIR(opts...)\n", assign))
+				targetType := valueType
+				if valueType.Kind() == reflect.Ptr {
+					targetType = valueType.Elem()
+				}
+				buf.WriteString(fmt.Sprintf("			node, err %s v.ToTonyIR(%s)\n", assign, toTonyIROptsSuffix(targetType)))
 				buf.WriteString("			if err != nil {\n")
 				buf.WriteString("				return nil, fmt.Errorf(\"failed to convert map value at key %d: %w\", k, err)\n")
 				buf.WriteString("			}\n")
@@ -870,7 +934,11 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 				}
 				buf.WriteString(fmt.Sprintf("		mapNodes[k] = %sv\n", derefs))
 			} else if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) {
-				buf.WriteString(fmt.Sprintf("		node, err %s v.ToTonyIR(opts...)\n", assign))
+				targetType := valueType
+				if valueType.Kind() == reflect.Ptr {
+					targetType = valueType.Elem()
+				}
+				buf.WriteString(fmt.Sprintf("		node, err %s v.ToTonyIR(%s)\n", assign, toTonyIROptsSuffix(targetType)))
 				buf.WriteString("		if err != nil {\n")
 				buf.WriteString("			return nil, fmt.Errorf(\"failed to convert map value at key %q: %w\", k, err)\n")
 				buf.WriteString("		}\n")
@@ -893,7 +961,11 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			buf.WriteString("		// Convert interface{} key to string\n")
 			buf.WriteString("		kStr := fmt.Sprintf(\"%v\", k)\n")
 			if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) {
-				buf.WriteString(fmt.Sprintf("		node, err %s v.ToTonyIR(opts...)\n", assign))
+				targetType := valueType
+				if valueType.Kind() == reflect.Ptr {
+					targetType = valueType.Elem()
+				}
+				buf.WriteString(fmt.Sprintf("		node, err %s v.ToTonyIR(%s)\n", assign, toTonyIROptsSuffix(targetType)))
 				buf.WriteString("		if err != nil {\n")
 				buf.WriteString("			return nil, fmt.Errorf(\"failed to convert map value at key %v: %w\", k, err)\n")
 				buf.WriteString("		}\n")
@@ -916,7 +988,11 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			buf.WriteString("		// Convert pointer key to string representation\n")
 			buf.WriteString("		kStr := fmt.Sprintf(\"%p\", k)\n")
 			if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) {
-				buf.WriteString(fmt.Sprintf("		node, err %s v.ToTonyIR(opts...)\n", assign))
+				targetType := valueType
+				if valueType.Kind() == reflect.Ptr {
+					targetType = valueType.Elem()
+				}
+				buf.WriteString(fmt.Sprintf("		node, err %s v.ToTonyIR(%s)\n", assign, toTonyIROptsSuffix(targetType)))
 				buf.WriteString("		if err != nil {\n")
 				buf.WriteString("			return nil, fmt.Errorf(\"failed to convert map value at key %p: %w\", k, err)\n")
 				buf.WriteString("		}\n")
@@ -949,7 +1025,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 
 	case reflect.Struct:
 		// Nested struct - call ToTony() method
-		buf.WriteString(fmt.Sprintf("	node, err %s s.%s.ToTonyIR(opts...)\n", assign, field.Name))
+		buf.WriteString(fmt.Sprintf("	node, err %s s.%s.ToTonyIR(%s)\n", assign, field.Name, toTonyIROptsSuffix(field.Type)))
 		buf.WriteString("	if err != nil {\n")
 		buf.WriteString(fmt.Sprintf("		return nil, fmt.Errorf(\"failed to convert field %%q: %%w\", %q, err)\n", field.Name))
 		buf.WriteString("	}\n")
@@ -1088,14 +1164,14 @@ func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgP
 					// Element is already a pointer, allocate new instance
 					elemStructName := getQualifiedTypeName(elemType.Elem(), currentPkgPath)
 					buf.WriteString(fmt.Sprintf("			elem := new(%s)\n", elemStructName))
-					buf.WriteString("			if err := elem.FromTonyIR(v, opts...); err != nil {\n")
+					buf.WriteString(fmt.Sprintf("			if err := elem.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(elemType.Elem())))
 					buf.WriteString("				return fmt.Errorf(\"failed to convert slice element %d: %w\", i, err)\n")
 					buf.WriteString("			}\n")
 					buf.WriteString("			slice[i] = elem\n")
 				} else {
 					// Element is a struct value
 					buf.WriteString(fmt.Sprintf("			elem := %s{}\n", structName))
-					buf.WriteString("			if err := elem.FromTonyIR(v, opts...); err != nil {\n")
+					buf.WriteString(fmt.Sprintf("			if err := elem.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(elemType)))
 					buf.WriteString("				return fmt.Errorf(\"failed to convert slice element %d: %w\", i, err)\n")
 					buf.WriteString("			}\n")
 					buf.WriteString("			slice[i] = elem\n")
@@ -1134,13 +1210,13 @@ func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgP
 				if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) || (valueType.Name() != "" && valueType.Kind() != reflect.String && !isPrimitiveKind(valueType.Kind())) || valueType.Kind() == reflect.Slice || valueType.Kind() == reflect.Map || valueType.Kind() == reflect.Array {
 					if valueType.Kind() == reflect.Ptr {
 						buf.WriteString(fmt.Sprintf("			val := new(%s)\n", getQualifiedTypeName(valueType.Elem(), currentPkgPath)))
-						buf.WriteString("			if err := val.FromTonyIR(v, opts...); err != nil {\n")
+						buf.WriteString(fmt.Sprintf("			if err := val.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(valueType.Elem())))
 						buf.WriteString("				return fmt.Errorf(\"failed to convert map value at key %d: %w\", k, err)\n")
 						buf.WriteString("			}\n")
 						buf.WriteString("			m[uint32(k)] = val\n")
 					} else {
 						buf.WriteString(fmt.Sprintf("			val := %s{}\n", structName))
-						buf.WriteString("			if err := val.FromTonyIR(v, opts...); err != nil {\n")
+						buf.WriteString(fmt.Sprintf("			if err := val.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(valueType)))
 						buf.WriteString("				return fmt.Errorf(\"failed to convert map value at key %d: %w\", k, err)\n")
 						buf.WriteString("			}\n")
 						buf.WriteString("			m[uint32(k)] = val\n")
@@ -1173,13 +1249,13 @@ func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgP
 				if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) || (valueType.Name() != "" && valueType.Kind() != reflect.String && !isPrimitiveKind(valueType.Kind())) || valueType.Kind() == reflect.Slice || valueType.Kind() == reflect.Map || valueType.Kind() == reflect.Array {
 					if valueType.Kind() == reflect.Ptr {
 						buf.WriteString(fmt.Sprintf("			val := new(%s)\n", getQualifiedTypeName(valueType.Elem(), currentPkgPath)))
-						buf.WriteString("			if err := val.FromTonyIR(v, opts...); err != nil {\n")
+						buf.WriteString(fmt.Sprintf("			if err := val.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(valueType.Elem())))
 						buf.WriteString("				return fmt.Errorf(\"failed to convert map value at key %q: %w\", k, err)\n")
 						buf.WriteString("			}\n")
 						buf.WriteString("			m[k] = val\n")
 					} else {
 						buf.WriteString(fmt.Sprintf("			val := %s{}\n", structName))
-						buf.WriteString("			if err := val.FromTonyIR(v, opts...); err != nil {\n")
+						buf.WriteString(fmt.Sprintf("			if err := val.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(valueType)))
 						buf.WriteString("				return fmt.Errorf(\"failed to convert map value at key %q: %w\", k, err)\n")
 						buf.WriteString("			}\n")
 						buf.WriteString("			m[k] = val\n")
@@ -1220,13 +1296,13 @@ func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgP
 				if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) || (valueType.Name() != "" && valueType.Kind() != reflect.String && !isPrimitiveKind(valueType.Kind())) || valueType.Kind() == reflect.Slice || valueType.Kind() == reflect.Map || valueType.Kind() == reflect.Array {
 					if valueType.Kind() == reflect.Ptr {
 						buf.WriteString(fmt.Sprintf("			val := new(%s)\n", getQualifiedTypeName(valueType.Elem(), currentPkgPath)))
-						buf.WriteString("			if err := val.FromTonyIR(v, opts...); err != nil {\n")
+						buf.WriteString(fmt.Sprintf("			if err := val.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(valueType.Elem())))
 						buf.WriteString("				return fmt.Errorf(\"failed to convert map value at key %v: %%w\", k, err)\n")
 						buf.WriteString("			}\n")
 						buf.WriteString("			m[k] = val\n")
 					} else {
 						buf.WriteString(fmt.Sprintf("			val := %s{}\n", structName))
-						buf.WriteString("			if err := val.FromTonyIR(v, opts...); err != nil {\n")
+						buf.WriteString(fmt.Sprintf("			if err := val.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(valueType)))
 						buf.WriteString("				return fmt.Errorf(\"failed to convert map value at key %v: %%w\", k, err)\n")
 						buf.WriteString("			}\n")
 						buf.WriteString("			m[k] = val\n")
@@ -1661,13 +1737,17 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			// Pointer to struct - call FromTony()
 			structName := getTypeName(elemType, field.StructTypeName)
 			buf.WriteString(fmt.Sprintf("	s.%s = &%s{}\n", field.Name, structName))
-			buf.WriteString(fmt.Sprintf("	if err := s.%s.FromTonyIR(fieldNode, opts...); err != nil {\n", field.Name))
+			buf.WriteString(fmt.Sprintf("	if err := s.%s.FromTonyIR(fieldNode%s); err != nil {\n", field.Name, fromTonyIROptsSuffix(elemType)))
 			buf.WriteString("		return err\n")
 			buf.WriteString("	}\n")
 		} else {
 			// Pointer to primitive (or named basic type like format.Format)
+			// First check for null - leave pointer as nil
+			buf.WriteString("	if fieldNode.Type == ir.NullType {\n")
+			buf.WriteString("		// null value - leave pointer as nil\n")
+			buf.WriteString("	} else {\n")
 			typeName := getTypeName(elemType, field.StructTypeName)
-			buf.WriteString(fmt.Sprintf("	val := new(%s)\n", typeName))
+			buf.WriteString(fmt.Sprintf("		val := new(%s)\n", typeName))
 
 			// Generate validation and extraction based on underlying type
 			switch elemType.Kind() {
@@ -1733,7 +1813,8 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 				return "", fmt.Errorf("unsupported pointer to primitive type: %v", elemType.Kind())
 			}
 
-			buf.WriteString(fmt.Sprintf("	s.%s = val\n", field.Name))
+			buf.WriteString(fmt.Sprintf("		s.%s = val\n", field.Name))
+			buf.WriteString("	}\n") // close the else block for null check
 		}
 
 	case reflect.Slice, reflect.Array:
@@ -1812,14 +1893,14 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 					baseTypeName = baseTypeName[1:]
 				}
 				buf.WriteString(fmt.Sprintf("			elem := new(%s)\n", baseTypeName))
-				buf.WriteString("			if err := elem.FromTonyIR(v, opts...); err != nil {\n")
+				buf.WriteString(fmt.Sprintf("			if err := elem.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(elemType.Elem())))
 				buf.WriteString("				return fmt.Errorf(\"failed to convert slice element %d: %w\", i, err)\n")
 				buf.WriteString("			}\n")
 				buf.WriteString("			slice[i] = elem\n")
 			} else {
 				// Element is a struct value
 				buf.WriteString(fmt.Sprintf("			elem := %s{}\n", structName))
-				buf.WriteString("			if err := elem.FromTonyIR(v, opts...); err != nil {\n")
+				buf.WriteString(fmt.Sprintf("			if err := elem.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(elemType)))
 				buf.WriteString("				return fmt.Errorf(\"failed to convert slice element %d: %w\", i, err)\n")
 				buf.WriteString("			}\n")
 				buf.WriteString("			slice[i] = elem\n")
@@ -1860,13 +1941,13 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 				// Map value is struct or pointer to struct
 				if valueType.Kind() == reflect.Ptr {
 					buf.WriteString(fmt.Sprintf("			val := new(%s)\n", getTypeName(valueType.Elem(), field.StructTypeName)))
-					buf.WriteString("			if err := val.FromTonyIR(v, opts...); err != nil {\n")
+					buf.WriteString(fmt.Sprintf("			if err := val.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(valueType.Elem())))
 					buf.WriteString("				return fmt.Errorf(\"failed to convert map value at key %d: %w\", k, err)\n")
 					buf.WriteString("			}\n")
 					buf.WriteString("			m[uint32(k)] = val\n")
 				} else {
 					buf.WriteString(fmt.Sprintf("			val := %s{}\n", structName))
-					buf.WriteString("			if err := val.FromTonyIR(v, opts...); err != nil {\n")
+					buf.WriteString(fmt.Sprintf("			if err := val.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(valueType)))
 					buf.WriteString("				return fmt.Errorf(\"failed to convert map value at key %d: %w\", k, err)\n")
 					buf.WriteString("			}\n")
 					buf.WriteString("			m[uint32(k)] = val\n")
@@ -1898,13 +1979,13 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 				// Map value is struct or pointer to struct
 				if valueType.Kind() == reflect.Ptr {
 					buf.WriteString(fmt.Sprintf("			val := new(%s)\n", getQualifiedTypeName(valueType.Elem(), currentPkgPath)))
-					buf.WriteString("			if err := val.FromTonyIR(v, opts...); err != nil {\n")
+					buf.WriteString(fmt.Sprintf("			if err := val.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(valueType.Elem())))
 					buf.WriteString("				return fmt.Errorf(\"failed to convert map value at key %q: %w\", k, err)\n")
 					buf.WriteString("			}\n")
 					buf.WriteString("			m[k] = val\n")
 				} else {
 					buf.WriteString(fmt.Sprintf("			val := %s{}\n", structName))
-					buf.WriteString("			if err := val.FromTonyIR(v, opts...); err != nil {\n")
+					buf.WriteString(fmt.Sprintf("			if err := val.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(valueType)))
 					buf.WriteString("				return fmt.Errorf(\"failed to convert map value at key %q: %w\", k, err)\n")
 					buf.WriteString("			}\n")
 					buf.WriteString("			m[k] = val\n")

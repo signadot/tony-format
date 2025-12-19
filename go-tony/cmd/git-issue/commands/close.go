@@ -2,122 +2,82 @@ package commands
 
 import (
 	"fmt"
-	"os/exec"
-	"strconv"
-	"strings"
-	"time"
 
-	"github.com/signadot/tony-format/go-tony/encode"
-	"github.com/signadot/tony-format/go-tony/parse"
+	"github.com/scott-cotton/cli"
+	"github.com/signadot/tony-format/go-tony/cmd/git-issue/issuelib"
 )
 
-func Close(args []string) error {
+type closeConfig struct {
+	*cli.Command
+	store  issuelib.Store
+	Commit string `cli:"name=commit aliases=c desc='commit that closes this issue'"`
+}
+
+// CloseCommand returns the close subcommand.
+func CloseCommand(store issuelib.Store) *cli.Command {
+	cfg := &closeConfig{store: store}
+	opts, _ := cli.StructOpts(cfg)
+	return cli.NewCommandAt(&cfg.Command, "close").
+		WithSynopsis("close <id> [--commit <sha>] - Close issue").
+		WithOpts(opts...).
+		WithRun(cfg.run)
+}
+
+func (cfg *closeConfig) run(cc *cli.Context, args []string) error {
+	args, err := cfg.Parse(cc, args)
+	if err != nil {
+		return err
+	}
+
 	if len(args) < 1 {
-		return fmt.Errorf("usage: git issue close <id> [--commit <sha>]")
+		return fmt.Errorf("%w: usage: git issue close <id> [--commit <sha>]", cli.ErrUsage)
 	}
 
-	idStr := args[0]
+	id, err := issuelib.ParseID(args[0])
+	if err != nil {
+		return err
+	}
+
+	// Verify closing commit if provided
 	var closingCommit *string
-
-	// Parse optional --commit flag
-	for i := 1; i < len(args); i++ {
-		if args[i] == "--commit" && i+1 < len(args) {
-			commit := args[i+1]
-			// Verify commit exists
-			verifyCmd := exec.Command("git", "rev-parse", "--verify", commit)
-			verifyOut, err := verifyCmd.Output()
-			if err != nil {
-				return fmt.Errorf("commit not found: %s", commit)
-			}
-			sha := strings.TrimSpace(string(verifyOut))
-			closingCommit = &sha
-			break
+	if cfg.Commit != "" {
+		sha, err := cfg.store.VerifyCommit(cfg.Commit)
+		if err != nil {
+			return err
 		}
+		closingCommit = &sha
 	}
 
-	// Parse ID
-	id, err := strconv.ParseInt(idStr, 10, 64)
+	// Get issue (must be open)
+	ref := issuelib.RefForID(id)
+	issue, _, err := cfg.store.GetByRef(ref)
 	if err != nil {
-		return fmt.Errorf("invalid issue ID: %s", idStr)
-	}
-
-	repo := &GitRepo{}
-
-	// Read current issue
-	ref := fmt.Sprintf("refs/issues/%06d", id)
-	_, _, err = repo.ReadIssue(ref)
-	if err != nil {
-		return fmt.Errorf("issue not found or already closed: %06d", id)
-	}
-
-	// Read current meta.tony
-	metaCmd := exec.Command("git", "show", ref+":meta.tony")
-	metaOut, err := metaCmd.Output()
-	if err != nil {
-		return fmt.Errorf("failed to read meta.tony: %w", err)
-	}
-
-	// Parse current meta
-	metaNode, err := parse.Parse(metaOut)
-	if err != nil {
-		return fmt.Errorf("failed to parse meta.tony: %w", err)
-	}
-
-	issue, err := NodeToMeta(metaNode)
-	if err != nil {
-		return fmt.Errorf("failed to parse issue metadata: %w", err)
+		return fmt.Errorf("issue not found or already closed: %s", issuelib.FormatID(id))
 	}
 
 	// Update status
 	issue.Status = "closed"
-	issue.Updated = time.Now()
 	issue.ClosedBy = closingCommit
 
-	// Convert back to tony
-	newMetaNode := issue.MetaToNode()
-	newMetaContent := encode.MustString(newMetaNode)
-
-	// Update issue with closed status
+	// Create commit message
 	commitMsg := "close"
 	if closingCommit != nil {
 		commitMsg = fmt.Sprintf("close: closed by %s", (*closingCommit)[:7])
 	}
 
-	updates := map[string]string{
-		"meta.tony": newMetaContent,
-	}
-
-	if err := repo.UpdateIssueCommit(id, commitMsg, updates); err != nil {
+	if err := cfg.store.Update(issue, commitMsg, nil); err != nil {
 		return fmt.Errorf("failed to update issue: %w", err)
 	}
 
 	// Move ref from refs/issues/ to refs/closed/
-	currentRef := fmt.Sprintf("refs/issues/%06d", id)
-	newRef := fmt.Sprintf("refs/closed/%06d", id)
-
-	// Get current commit SHA
-	showCmd := exec.Command("git", "show-ref", currentRef)
-	showOut, err := showCmd.Output()
-	if err != nil {
-		return fmt.Errorf("failed to get current commit: %w", err)
-	}
-	commitSHA := strings.Fields(string(showOut))[0]
-
-	// Create new ref
-	updateCmd := exec.Command("git", "update-ref", newRef, commitSHA)
-	if err := updateCmd.Run(); err != nil {
-		return fmt.Errorf("failed to create closed ref: %w", err)
+	newRef := issuelib.ClosedRefForID(id)
+	if err := cfg.store.MoveRef(ref, newRef); err != nil {
+		return fmt.Errorf("failed to move issue ref: %w", err)
 	}
 
-	// Delete old ref
-	deleteCmd := exec.Command("git", "update-ref", "-d", currentRef)
-	if err := deleteCmd.Run(); err != nil {
-		return fmt.Errorf("failed to delete open ref: %w", err)
-	}
-
-	fmt.Printf("Closed issue #%06d\n", id)
+	fmt.Fprintf(cc.Out, "Closed issue #%s\n", issuelib.FormatID(id))
 	if closingCommit != nil {
-		fmt.Printf("Closed by: %s\n", (*closingCommit)[:7])
+		fmt.Fprintf(cc.Out, "Closed by: %s\n", (*closingCommit)[:7])
 	}
 
 	return nil

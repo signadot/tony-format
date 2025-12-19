@@ -2,227 +2,183 @@ package commands
 
 import (
 	"fmt"
-	"os/exec"
-	"strconv"
 	"strings"
+
+	"github.com/scott-cotton/cli"
+	"github.com/signadot/tony-format/go-tony/cmd/git-issue/issuelib"
 )
 
-func Show(args []string) error {
+type showConfig struct {
+	*cli.Command
+	store issuelib.Store
+}
+
+// ShowCommand returns the show subcommand.
+func ShowCommand(store issuelib.Store) *cli.Command {
+	cfg := &showConfig{store: store}
+	return cli.NewCommandAt(&cfg.Command, "show").
+		WithSynopsis("show <id> - Show issue details").
+		WithRun(cfg.run)
+}
+
+func (cfg *showConfig) run(cc *cli.Context, args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: git issue show <id>")
+		return fmt.Errorf("%w: usage: git issue show <id>", cli.ErrUsage)
 	}
 
-	idStr := args[0]
-	// Parse and format to 3 digits
-	idNum, err := strconv.ParseInt(idStr, 10, 64)
+	id, err := issuelib.ParseID(args[0])
 	if err != nil {
-		return fmt.Errorf("invalid issue ID: %s", idStr)
+		return err
 	}
-	id := fmt.Sprintf("%06d", idNum)
 
-	repo := &GitRepo{}
-
-	// Try open issues first
-	ref := "refs/issues/" + id
-	issue, desc, err := repo.ReadIssue(ref)
+	ref, err := cfg.store.FindRef(id)
 	if err != nil {
-		// Try closed issues
-		ref = "refs/closed/" + id
-		issue, desc, err = repo.ReadIssue(ref)
-		if err != nil {
-			return fmt.Errorf("issue not found: %s", id)
-		}
+		return err
 	}
 
-	// Print issue details
-	status := issue.Status
-	if strings.HasPrefix(ref, "refs/closed/") {
-		status = "closed"
+	issue, desc, err := cfg.store.GetByRef(ref)
+	if err != nil {
+		return err
 	}
 
-	fmt.Printf("Issue #%06d [%s]\n", issue.ID, status)
-	fmt.Printf("Ref: %s\n", ref)
-	fmt.Println()
+	// Print issue header
+	status := issuelib.StatusFromRef(ref)
+	fmt.Fprintf(cc.Out, "Issue #%s [%s]\n", issuelib.FormatID(issue.ID), status)
+	fmt.Fprintf(cc.Out, "Ref: %s\n", ref)
+	fmt.Fprintln(cc.Out)
 
 	// Print description
-	fmt.Println(desc)
-	fmt.Println()
+	fmt.Fprintln(cc.Out, desc)
+	fmt.Fprintln(cc.Out)
 
-	// Show linked commits if any
+	// Show linked commits
 	if len(issue.Commits) > 0 {
-		fmt.Println("Linked commits:")
+		fmt.Fprintln(cc.Out, "Linked commits:")
 		for _, commit := range issue.Commits {
-			// Get commit message
-			cmd := exec.Command("git", "log", "-1", "--oneline", commit)
-			out, err := cmd.Output()
-			if err == nil {
-				fmt.Printf("  %s\n", strings.TrimSpace(string(out)))
-			} else {
-				fmt.Printf("  %s\n", commit)
-			}
+			info, _ := cfg.store.GetCommitInfo(commit)
+			fmt.Fprintf(cc.Out, "  %s\n", info)
 		}
-		fmt.Println()
+		fmt.Fprintln(cc.Out)
 	}
 
-	// Show linked branches if any
+	// Show linked branches
 	if len(issue.Branches) > 0 {
-		fmt.Println("Linked branches:")
+		fmt.Fprintln(cc.Out, "Linked branches:")
 		for _, branch := range issue.Branches {
-			fmt.Printf("  %s\n", branch)
+			fmt.Fprintf(cc.Out, "  %s\n", branch)
 		}
-		fmt.Println()
+		fmt.Fprintln(cc.Out)
 	}
 
 	// Show related issues
-	if len(issue.RelatedIssues) > 0 {
-		fmt.Println("Related issues:")
-		for _, relID := range issue.RelatedIssues {
-			showRelatedIssue(repo, relID)
-		}
-		fmt.Println()
-	}
+	cfg.printRelatedIssues(cc, "Related issues:", issue.RelatedIssues)
+	cfg.printRelatedIssues(cc, "Blocks:", issue.Blocks)
+	cfg.printRelatedIssues(cc, "Blocked by:", issue.BlockedBy)
+	cfg.printRelatedIssues(cc, "Duplicates:", issue.Duplicates)
 
-	// Show blocks relationships
-	if len(issue.Blocks) > 0 {
-		fmt.Println("Blocks:")
-		for _, blockID := range issue.Blocks {
-			showRelatedIssue(repo, blockID)
-		}
-		fmt.Println()
-	}
-
-	// Show blocked_by relationships
-	if len(issue.BlockedBy) > 0 {
-		fmt.Println("Blocked by:")
-		for _, blockerID := range issue.BlockedBy {
-			showRelatedIssue(repo, blockerID)
-		}
-		fmt.Println()
-	}
-
-	// Show duplicates
-	if len(issue.Duplicates) > 0 {
-		fmt.Println("Duplicates:")
-		for _, dupID := range issue.Duplicates {
-			showRelatedIssue(repo, dupID)
-		}
-		fmt.Println()
-	}
-
-	// Show discussion comments and attachments
-	// Check if discussion directory exists
-	treeCmd := exec.Command("git", "cat-file", "-p", ref+"^{tree}")
-	treeOut, err := treeCmd.Output()
-	if err == nil {
-		var discussionTreeHash string
-		lines := strings.Split(string(treeOut), "\n")
-		for _, line := range lines {
-			if strings.Contains(line, "discussion") && strings.Contains(line, "tree") {
-				parts := strings.Fields(line)
-				if len(parts) >= 3 {
-					discussionTreeHash = parts[2]
-					break
-				}
-			}
-		}
-
-		if discussionTreeHash != "" {
-			// Recursively list all files in discussion tree
-			var comments []string
-			var attachments []string
-
-			var walkTree func(treeHash, prefix string)
-			walkTree = func(treeHash, prefix string) {
-				cmd := exec.Command("git", "cat-file", "-p", treeHash)
-				out, err := cmd.Output()
-				if err != nil {
-					return
-				}
-
-				lines := strings.Split(string(out), "\n")
-				for _, line := range lines {
-					if strings.TrimSpace(line) == "" {
-						continue
-					}
-					parts := strings.Fields(line)
-					if len(parts) < 4 {
-						continue
-					}
-					typ, hash := parts[1], parts[2]
-					name := strings.Join(parts[3:], " ")
-					path := prefix + name
-
-					if typ == "tree" {
-						walkTree(hash, path+"/")
-					} else if typ == "blob" {
-						fullPath := "discussion/" + path
-						if strings.HasSuffix(name, ".md") && !strings.Contains(path, "/") {
-							comments = append(comments, fullPath)
-						} else {
-							attachments = append(attachments, fullPath)
-						}
-					}
-				}
-			}
-
-			walkTree(discussionTreeHash, "")
-
-			// Show comments
-			if len(comments) > 0 {
-				fmt.Println("Discussion:")
-				fmt.Println()
-				for _, file := range comments {
-					contentCmd := exec.Command("git", "show", ref+":"+file)
-					content, err := contentCmd.Output()
-					if err == nil {
-						fmt.Printf("--- %s ---\n", file)
-						fmt.Print(string(content))
-						fmt.Println()
-					}
-				}
-			}
-
-			// Show attachments
-			if len(attachments) > 0 {
-				fmt.Println("Attachments:")
-				for _, file := range attachments {
-					fmt.Printf("  %s\n", file)
-				}
-				fmt.Println()
-			}
-		}
-	}
+	// Show discussion and attachments
+	cfg.printDiscussion(cc, ref)
 
 	return nil
 }
 
-func showRelatedIssue(repo *GitRepo, issueID string) {
-	// Try open issues first
-	ref := fmt.Sprintf("refs/issues/%s", issueID)
-	relIssue, _, err := repo.ReadIssue(ref)
-	if err != nil {
-		// Try closed issues
-		ref = fmt.Sprintf("refs/closed/%s", issueID)
-		relIssue, _, err = repo.ReadIssue(ref)
+func (cfg *showConfig) printRelatedIssues(cc *cli.Context, title string, ids []string) {
+	if len(ids) == 0 {
+		return
 	}
+	fmt.Fprintln(cc.Out, title)
+	for _, idStr := range ids {
+		id, err := issuelib.ParseID(idStr)
+		if err != nil {
+			fmt.Fprintf(cc.Out, "  #%s (invalid)\n", idStr)
+			continue
+		}
+		ref, err := cfg.store.FindRef(id)
+		if err != nil {
+			fmt.Fprintf(cc.Out, "  #%s (not found)\n", idStr)
+			continue
+		}
+		issue, _, err := cfg.store.GetByRef(ref)
+		if err != nil {
+			fmt.Fprintf(cc.Out, "  #%s (error)\n", idStr)
+			continue
+		}
+		status := issuelib.StatusFromRef(ref)
+		fmt.Fprintf(cc.Out, "  #%s %s[%s]%s %s\n",
+			idStr,
+			issuelib.StatusColor(status),
+			status,
+			issuelib.ColorReset,
+			issue.Title,
+		)
+	}
+	fmt.Fprintln(cc.Out)
+}
 
-	if err != nil {
-		fmt.Printf("  #%s (not found)\n", issueID)
+func (cfg *showConfig) printDiscussion(cc *cli.Context, ref string) {
+	gitStore, ok := cfg.store.(*issuelib.GitStore)
+	if !ok {
 		return
 	}
 
-	status := relIssue.Status
-	if strings.HasPrefix(ref, "refs/closed/") {
-		status = "closed"
+	tree, err := gitStore.GetTree(ref)
+	if err != nil {
+		return
 	}
 
-	statusColor := ""
-	if status == "open" {
-		statusColor = "\033[32m" // Green
-	} else {
-		statusColor = "\033[90m" // Gray
+	discussionEntry, ok := tree["discussion"]
+	if !ok || !strings.HasPrefix(discussionEntry, "tree:") {
+		return
 	}
-	resetColor := "\033[0m"
 
-	fmt.Printf("  #%s %s[%s]%s %s\n", issueID, statusColor, status, resetColor, relIssue.Title)
+	// Read discussion files
+	var comments []string
+	var attachments []string
+
+	cfg.walkDiscussion(gitStore, ref, "discussion", &comments, &attachments)
+
+	// Show comments
+	if len(comments) > 0 {
+		fmt.Fprintln(cc.Out, "Discussion:")
+		fmt.Fprintln(cc.Out)
+		for _, file := range comments {
+			content, err := cfg.store.ReadFile(ref, file)
+			if err == nil {
+				fmt.Fprintf(cc.Out, "--- %s ---\n", file)
+				fmt.Fprint(cc.Out, string(content))
+				fmt.Fprintln(cc.Out)
+			}
+		}
+	}
+
+	// Show attachments
+	if len(attachments) > 0 {
+		fmt.Fprintln(cc.Out, "Attachments:")
+		for _, file := range attachments {
+			fmt.Fprintf(cc.Out, "  %s\n", file)
+		}
+		fmt.Fprintln(cc.Out)
+	}
+}
+
+func (cfg *showConfig) walkDiscussion(gitStore *issuelib.GitStore, ref, path string, comments, attachments *[]string) {
+	entries, err := gitStore.ListDir(ref, path)
+	if err != nil {
+		return
+	}
+
+	for name, entry := range entries {
+		fullPath := path + "/" + name
+		typ := strings.Split(entry, ":")[0]
+
+		if typ == "tree" {
+			cfg.walkDiscussion(gitStore, ref, fullPath, comments, attachments)
+		} else if typ == "blob" {
+			if strings.HasSuffix(name, ".md") && !strings.Contains(fullPath, "/files/") {
+				*comments = append(*comments, fullPath)
+			} else {
+				*attachments = append(*attachments, fullPath)
+			}
+		}
+	}
 }

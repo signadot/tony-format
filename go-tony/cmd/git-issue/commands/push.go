@@ -2,52 +2,66 @@ package commands
 
 import (
 	"fmt"
-	"os/exec"
-	"strconv"
-	"strings"
+
+	"github.com/scott-cotton/cli"
+	"github.com/signadot/tony-format/go-tony/cmd/git-issue/issuelib"
 )
 
-func Push(args []string) error {
-	pushAll := false
-	var issueID int64
+type pushConfig struct {
+	*cli.Command
+	store issuelib.Store
+	All   bool `cli:"name=all desc='Push all issues'"`
+}
 
-	// Parse arguments
-	if len(args) == 0 {
-		return fmt.Errorf("usage: git issue push <id> | --all")
-	}
+// PushCommand returns the push subcommand.
+func PushCommand(store issuelib.Store) *cli.Command {
+	cfg := &pushConfig{store: store}
+	opts, _ := cli.StructOpts(cfg)
+	return cli.NewCommandAt(&cfg.Command, "push").
+		WithSynopsis("push [--all] <id> [remote] - Push issue(s) to remote").
+		WithOpts(opts...).
+		WithRun(cfg.run)
+}
 
-	if args[0] == "--all" {
-		pushAll = true
-	} else {
-		id, err := strconv.ParseInt(args[0], 10, 64)
-		if err != nil {
-			return fmt.Errorf("invalid issue ID: %s", args[0])
-		}
-		issueID = id
+func (cfg *pushConfig) run(cc *cli.Context, args []string) error {
+	args, err := cfg.Parse(cc, args)
+	if err != nil {
+		return err
 	}
 
 	// Get remote name (default to origin)
 	remote := "origin"
+
+	if cfg.All {
+		if len(args) > 0 {
+			remote = args[0]
+		}
+		return cfg.pushAll(cc, remote)
+	}
+
+	if len(args) < 1 {
+		return fmt.Errorf("%w: usage: git issue push <id> [remote]", cli.ErrUsage)
+	}
+
+	id, err := issuelib.ParseID(args[0])
+	if err != nil {
+		return err
+	}
+
 	if len(args) > 1 {
 		remote = args[1]
 	}
 
-	// Verify remote exists
-	checkCmd := exec.Command("git", "remote", "get-url", remote)
-	if err := checkCmd.Run(); err != nil {
-		return fmt.Errorf("remote not found: %s", remote)
-	}
-
-	if pushAll {
-		return pushAllIssues(remote)
-	}
-	return pushSingleIssue(remote, issueID)
+	return cfg.pushSingle(cc, remote, id)
 }
 
-func pushAllIssues(remote string) error {
-	fmt.Printf("Pushing all issues to %s...\n", remote)
+func (cfg *pushConfig) pushAll(cc *cli.Context, remote string) error {
+	if err := cfg.store.VerifyRemote(remote); err != nil {
+		return err
+	}
 
-	// Push all issue refs
+	fmt.Fprintf(cc.Out, "Pushing all issues to %s...\n", remote)
+
 	refspecs := []string{
 		"+refs/issues/*:refs/issues/*",
 		"+refs/closed/*:refs/closed/*",
@@ -55,64 +69,43 @@ func pushAllIssues(remote string) error {
 		"+refs/notes/issues:refs/notes/issues",
 	}
 
-	for _, refspec := range refspecs {
-		cmd := exec.Command("git", "push", remote, refspec)
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			// Don't fail if ref doesn't exist locally
-			if !strings.Contains(string(output), "does not match any") {
-				fmt.Printf("Warning: failed to push %s: %s\n", refspec, string(output))
-			}
-		}
+	if err := cfg.store.Push(remote, refspecs); err != nil {
+		return err
 	}
 
-	fmt.Println("Done.")
+	fmt.Fprintln(cc.Out, "Done.")
 	return nil
 }
 
-func pushSingleIssue(remote string, issueID int64) error {
-	issueIDStr := fmt.Sprintf("%06d", issueID)
-
-	// Try open issues first
-	openRef := fmt.Sprintf("refs/issues/%s", issueIDStr)
-	closedRef := fmt.Sprintf("refs/closed/%s", issueIDStr)
-
-	// Check if issue exists locally
-	checkCmd := exec.Command("git", "show-ref", openRef)
-	err := checkCmd.Run()
-	issueRef := openRef
-
-	if err != nil {
-		// Try closed
-		checkCmd = exec.Command("git", "show-ref", closedRef)
-		err = checkCmd.Run()
-		if err != nil {
-			return fmt.Errorf("issue not found: %06d", issueID)
-		}
-		issueRef = closedRef
+func (cfg *pushConfig) pushSingle(cc *cli.Context, remote string, id int64) error {
+	if err := cfg.store.VerifyRemote(remote); err != nil {
+		return err
 	}
 
-	fmt.Printf("Pushing issue #%06d to %s...\n", issueID, remote)
+	// Find the issue ref (open or closed)
+	ref, err := cfg.store.FindRef(id)
+	if err != nil {
+		return err
+	}
+
+	idStr := issuelib.FormatID(id)
+	fmt.Fprintf(cc.Out, "Pushing issue #%s to %s...\n", idStr, remote)
 
 	// Push the issue ref
-	pushCmd := exec.Command("git", "push", remote, fmt.Sprintf("+%s:%s", issueRef, issueRef))
-	if output, err := pushCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to push issue: %s", string(output))
+	refspecs := []string{fmt.Sprintf("+%s:%s", ref, ref)}
+	if err := cfg.store.Push(remote, refspecs); err != nil {
+		return fmt.Errorf("failed to push issue: %w", err)
 	}
 
-	// Push issue counter
-	counterCmd := exec.Command("git", "push", remote, "+refs/meta/issue-counter:refs/meta/issue-counter")
-	_ = counterCmd.Run() // Ignore error if doesn't exist
+	// Push issue counter (ignore error if doesn't exist)
+	_ = cfg.store.Push(remote, []string{"+refs/meta/issue-counter:refs/meta/issue-counter"})
 
-	// Push notes for all commits referenced by this issue
-	repo := &GitRepo{}
-	issue, _, err := repo.ReadIssue(issueRef)
+	// Push notes for commits referenced by this issue
+	issue, _, err := cfg.store.GetByRef(ref)
 	if err == nil && len(issue.Commits) > 0 {
-		// Push notes ref (contains all issue→commit mappings)
-		notesCmd := exec.Command("git", "push", remote, "+refs/notes/issues:refs/notes/issues")
-		_ = notesCmd.Run() // Ignore error
+		_ = cfg.store.Push(remote, []string{"+refs/notes/issues:refs/notes/issues"})
 	}
 
-	fmt.Printf("Pushed issue #%06d\n", issueID)
+	fmt.Fprintf(cc.Out, "Pushed issue #%s\n", idStr)
 	return nil
 }

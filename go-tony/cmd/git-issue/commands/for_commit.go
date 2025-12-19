@@ -2,52 +2,52 @@ package commands
 
 import (
 	"fmt"
-	"os/exec"
 	"strings"
+
+	"github.com/scott-cotton/cli"
+	"github.com/signadot/tony-format/go-tony/cmd/git-issue/issuelib"
 )
 
-func ForCommit(args []string) error {
+type forCommitConfig struct {
+	*cli.Command
+	store issuelib.Store
+}
+
+// ForCommitCommand returns the for-commit subcommand.
+func ForCommitCommand(store issuelib.Store) *cli.Command {
+	cfg := &forCommitConfig{store: store}
+	return cli.NewCommandAt(&cfg.Command, "for-commit").
+		WithSynopsis("for-commit <commit> - Show issues linked to commit").
+		WithRun(cfg.run)
+}
+
+func (cfg *forCommitConfig) run(cc *cli.Context, args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: git issue for-commit <commit>")
+		return fmt.Errorf("%w: usage: git issue for-commit <commit>", cli.ErrUsage)
 	}
 
-	commit := args[0]
-
-	// Verify commit exists
-	verifyCmd := exec.Command("git", "rev-parse", "--verify", commit)
-	verifyOut, err := verifyCmd.Output()
+	commitSHA, err := cfg.store.VerifyCommit(args[0])
 	if err != nil {
-		return fmt.Errorf("commit not found: %s", commit)
+		return err
 	}
-	commitSHA := strings.TrimSpace(string(verifyOut))
 
-	// Read git notes for this commit
-	notesCmd := exec.Command("git", "notes", "--ref=refs/notes/issues", "show", commitSHA)
-	notesOut, err := notesCmd.Output()
+	// Get git notes for this commit
+	notes, err := cfg.store.GetNotes(commitSHA)
 	if err != nil {
-		// No notes means no linked issues
-		fmt.Printf("No issues linked to commit %s\n", commitSHA[:7])
+		fmt.Fprintf(cc.Out, "No issues linked to commit %s\n", commitSHA[:7])
 		return nil
 	}
 
-	// Parse issue IDs from notes (one per line)
-	issueIDs := strings.Split(strings.TrimSpace(string(notesOut)), "\n")
+	// Parse issue IDs from notes
+	issueIDs := strings.Split(notes, "\n")
 	if len(issueIDs) == 0 || (len(issueIDs) == 1 && issueIDs[0] == "") {
-		fmt.Printf("No issues linked to commit %s\n", commitSHA[:7])
+		fmt.Fprintf(cc.Out, "No issues linked to commit %s\n", commitSHA[:7])
 		return nil
 	}
 
-	// Get commit message for context
-	logCmd := exec.Command("git", "log", "-1", "--oneline", commitSHA)
-	logOut, err := logCmd.Output()
-	commitInfo := commitSHA[:7]
-	if err == nil {
-		commitInfo = strings.TrimSpace(string(logOut))
-	}
-
-	fmt.Printf("Issues linked to commit %s:\n\n", commitInfo)
-
-	repo := &GitRepo{}
+	// Get commit info
+	commitInfo, _ := cfg.store.GetCommitInfo(commitSHA)
+	fmt.Fprintf(cc.Out, "Issues linked to commit %s:\n\n", commitInfo)
 
 	// Show each linked issue
 	for _, idStr := range issueIDs {
@@ -56,34 +56,32 @@ func ForCommit(args []string) error {
 			continue
 		}
 
-		// Try open issues first
-		ref := fmt.Sprintf("refs/issues/%s", idStr)
-		issue, _, err := repo.ReadIssue(ref)
+		id, err := issuelib.ParseID(idStr)
 		if err != nil {
-			// Try closed issues
-			ref = fmt.Sprintf("refs/closed/%s", idStr)
-			issue, _, err = repo.ReadIssue(ref)
-		}
-
-		if err != nil {
-			fmt.Printf("  #%s (not found)\n", idStr)
+			fmt.Fprintf(cc.Out, "  #%s (invalid)\n", idStr)
 			continue
 		}
 
-		status := issue.Status
-		if strings.HasPrefix(ref, "refs/closed/") {
-			status = "closed"
+		ref, err := cfg.store.FindRef(id)
+		if err != nil {
+			fmt.Fprintf(cc.Out, "  #%s (not found)\n", idStr)
+			continue
 		}
 
-		statusColor := ""
-		if status == "open" {
-			statusColor = "\033[32m" // Green
-		} else {
-			statusColor = "\033[90m" // Gray
+		issue, _, err := cfg.store.GetByRef(ref)
+		if err != nil {
+			fmt.Fprintf(cc.Out, "  #%s (error)\n", idStr)
+			continue
 		}
-		resetColor := "\033[0m"
 
-		fmt.Printf("  #%s %s[%s]%s %s\n", idStr, statusColor, status, resetColor, issue.Title)
+		status := issuelib.StatusFromRef(ref)
+		fmt.Fprintf(cc.Out, "  #%s %s[%s]%s %s\n",
+			idStr,
+			issuelib.StatusColor(status),
+			status,
+			issuelib.ColorReset,
+			issue.Title,
+		)
 	}
 
 	return nil

@@ -2,189 +2,135 @@ package commands
 
 import (
 	"fmt"
-	"os/exec"
-	"strconv"
-	"time"
 
-	"github.com/signadot/tony-format/go-tony/encode"
-	"github.com/signadot/tony-format/go-tony/parse"
+	"github.com/scott-cotton/cli"
+	"github.com/signadot/tony-format/go-tony/cmd/git-issue/issuelib"
 )
 
-func Relate(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: git issue relate <id1> <id2>")
-	}
-
-	return addRelation(args[0], args[1], "related")
+type relateConfig struct {
+	*cli.Command
+	store        issuelib.Store
+	relationType string
 }
 
-func Blocks(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: git issue blocks <id1> <id2>  (id1 blocks id2)")
-	}
-
-	return addRelation(args[0], args[1], "blocks")
+// RelateCommand returns the relate subcommand.
+func RelateCommand(store issuelib.Store) *cli.Command {
+	cfg := &relateConfig{store: store, relationType: "related"}
+	return cli.NewCommandAt(&cfg.Command, "relate").
+		WithSynopsis("relate <id1> <id2> - Link two related issues").
+		WithRun(cfg.run)
 }
 
-func Duplicate(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: git issue duplicate <id1> <id2>  (id1 duplicates id2)")
-	}
-
-	return addRelation(args[0], args[1], "duplicate")
+// BlocksCommand returns the blocks subcommand.
+func BlocksCommand(store issuelib.Store) *cli.Command {
+	cfg := &relateConfig{store: store, relationType: "blocks"}
+	return cli.NewCommandAt(&cfg.Command, "blocks").
+		WithSynopsis("blocks <id1> <id2> - Issue id1 blocks id2").
+		WithRun(cfg.run)
 }
 
-func addRelation(id1Str, id2Str, relationType string) error {
-	// Parse IDs
-	id1, err := strconv.ParseInt(id1Str, 10, 64)
-	if err != nil {
-		return fmt.Errorf("invalid issue ID: %s", id1Str)
+// DuplicateCommand returns the duplicate subcommand.
+func DuplicateCommand(store issuelib.Store) *cli.Command {
+	cfg := &relateConfig{store: store, relationType: "duplicate"}
+	return cli.NewCommandAt(&cfg.Command, "duplicate").
+		WithSynopsis("duplicate <id1> <id2> - Issue id1 duplicates id2").
+		WithRun(cfg.run)
+}
+
+func (cfg *relateConfig) run(cc *cli.Context, args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("%w: usage: git issue %s <id1> <id2>", cli.ErrUsage, cfg.relationType)
 	}
 
-	id2, err := strconv.ParseInt(id2Str, 10, 64)
+	id1, err := issuelib.ParseID(args[0])
 	if err != nil {
-		return fmt.Errorf("invalid issue ID: %s", id2Str)
+		return err
 	}
 
-	repo := &GitRepo{}
-
-	// Format issue IDs
-	id1Formatted := fmt.Sprintf("%06d", id1)
-	id2Formatted := fmt.Sprintf("%06d", id2)
-
-	// Find and update first issue
-	ref1 := fmt.Sprintf("refs/issues/%06d", id1)
-	_, _, err = repo.ReadIssue(ref1)
+	id2, err := issuelib.ParseID(args[1])
 	if err != nil {
-		// Try closed
-		ref1 = fmt.Sprintf("refs/closed/%06d", id1)
-		_, _, err = repo.ReadIssue(ref1)
-		if err != nil {
-			return fmt.Errorf("issue not found: %06d", id1)
-		}
+		return err
 	}
 
-	// Verify second issue exists
-	ref2 := fmt.Sprintf("refs/issues/%06d", id2)
-	_, _, err = repo.ReadIssue(ref2)
+	id1Str := issuelib.FormatID(id1)
+	id2Str := issuelib.FormatID(id2)
+
+	// Find and verify both issues exist
+	ref1, err := cfg.store.FindRef(id1)
 	if err != nil {
-		// Try closed
-		ref2 = fmt.Sprintf("refs/closed/%06d", id2)
-		_, _, err = repo.ReadIssue(ref2)
-		if err != nil {
-			return fmt.Errorf("issue not found: %06d", id2)
-		}
+		return err
 	}
 
-	// Read and update first issue
-	metaCmd := exec.Command("git", "show", ref1+":meta.tony")
-	metaOut, err := metaCmd.Output()
+	ref2, err := cfg.store.FindRef(id2)
 	if err != nil {
-		return fmt.Errorf("failed to read meta.tony: %w", err)
+		return err
 	}
 
-	metaNode, err := parse.Parse(metaOut)
+	// Read first issue
+	issue1, _, err := cfg.store.GetByRef(ref1)
 	if err != nil {
-		return fmt.Errorf("failed to parse meta.tony: %w", err)
+		return err
 	}
 
-	issue1, err := NodeToMeta(metaNode)
-	if err != nil {
-		return fmt.Errorf("failed to parse issue metadata: %w", err)
-	}
-
-	// Add relationship based on type
+	// Add relationship
 	var added bool
-	switch relationType {
+	switch cfg.relationType {
 	case "related":
-		if !contains(issue1.RelatedIssues, id2Formatted) {
-			issue1.RelatedIssues = append(issue1.RelatedIssues, id2Formatted)
+		if !issuelib.Contains(issue1.RelatedIssues, id2Str) {
+			issue1.RelatedIssues = append(issue1.RelatedIssues, id2Str)
 			added = true
 		}
 	case "blocks":
-		if !contains(issue1.Blocks, id2Formatted) {
-			issue1.Blocks = append(issue1.Blocks, id2Formatted)
+		if !issuelib.Contains(issue1.Blocks, id2Str) {
+			issue1.Blocks = append(issue1.Blocks, id2Str)
 			added = true
 		}
 	case "duplicate":
-		if !contains(issue1.Duplicates, id2Formatted) {
-			issue1.Duplicates = append(issue1.Duplicates, id2Formatted)
+		if !issuelib.Contains(issue1.Duplicates, id2Str) {
+			issue1.Duplicates = append(issue1.Duplicates, id2Str)
 			added = true
 		}
 	}
 
 	if !added {
-		fmt.Printf("Issue #%06d already has this relationship with #%06d\n", id1, id2)
+		fmt.Fprintf(cc.Out, "Issue #%s already has this relationship with #%s\n", id1Str, id2Str)
 		return nil
 	}
 
-	issue1.Updated = time.Now()
-
-	// Save updated meta
-	newMetaNode := issue1.MetaToNode()
-	newMetaContent := encode.MustString(newMetaNode)
-
-	updates := map[string]string{
-		"meta.tony": newMetaContent,
-	}
-
+	// Save updated issue1
 	var commitMsg string
-	switch relationType {
+	switch cfg.relationType {
 	case "related":
-		commitMsg = fmt.Sprintf("relate: link to #%06d", id2)
+		commitMsg = fmt.Sprintf("relate: link to #%s", id2Str)
 	case "blocks":
-		commitMsg = fmt.Sprintf("blocks: #%06d", id2)
+		commitMsg = fmt.Sprintf("blocks: #%s", id2Str)
 	case "duplicate":
-		commitMsg = fmt.Sprintf("duplicate: of #%06d", id2)
+		commitMsg = fmt.Sprintf("duplicate: of #%s", id2Str)
 	}
 
-	if err := repo.UpdateIssueCommitByRef(ref1, commitMsg, updates); err != nil {
+	if err := cfg.store.Update(issue1, commitMsg, nil); err != nil {
 		return fmt.Errorf("failed to update issue: %w", err)
 	}
 
 	// For blocks relationship, add reciprocal blocked_by to second issue
-	if relationType == "blocks" {
-		metaCmd2 := exec.Command("git", "show", ref2+":meta.tony")
-		metaOut2, err := metaCmd2.Output()
-		if err == nil {
-			metaNode2, err := parse.Parse(metaOut2)
-			if err == nil {
-				issue2, err := NodeToMeta(metaNode2)
-				if err == nil && !contains(issue2.BlockedBy, id1Formatted) {
-					issue2.BlockedBy = append(issue2.BlockedBy, id1Formatted)
-					issue2.Updated = time.Now()
-
-					newMetaNode2 := issue2.MetaToNode()
-					newMetaContent2 := encode.MustString(newMetaNode2)
-
-					updates2 := map[string]string{
-						"meta.tony": newMetaContent2,
-					}
-
-					commitMsg2 := fmt.Sprintf("blocked-by: #%06d", id1)
-					_ = repo.UpdateIssueCommitByRef(ref2, commitMsg2, updates2)
-				}
-			}
+	if cfg.relationType == "blocks" {
+		issue2, _, err := cfg.store.GetByRef(ref2)
+		if err == nil && !issuelib.Contains(issue2.BlockedBy, id1Str) {
+			issue2.BlockedBy = append(issue2.BlockedBy, id1Str)
+			commitMsg2 := fmt.Sprintf("blocked-by: #%s", id1Str)
+			_ = cfg.store.Update(issue2, commitMsg2, nil)
 		}
 	}
 
-	switch relationType {
+	// Print result
+	switch cfg.relationType {
 	case "related":
-		fmt.Printf("Linked issue #%06d to #%06d\n", id1, id2)
+		fmt.Fprintf(cc.Out, "Linked issue #%s to #%s\n", id1Str, id2Str)
 	case "blocks":
-		fmt.Printf("Issue #%06d now blocks #%06d\n", id1, id2)
+		fmt.Fprintf(cc.Out, "Issue #%s now blocks #%s\n", id1Str, id2Str)
 	case "duplicate":
-		fmt.Printf("Issue #%06d marked as duplicate of #%06d\n", id1, id2)
+		fmt.Fprintf(cc.Out, "Issue #%s marked as duplicate of #%s\n", id1Str, id2Str)
 	}
 
 	return nil
-}
-
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
 }
