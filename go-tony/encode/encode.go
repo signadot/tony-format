@@ -444,7 +444,7 @@ func encodeObjectValue(node *ir.Node, w io.Writer, es *EncState) error {
 			es.depth--
 			br = true
 		}
-		if node.Tag != "" || (es.wire && !es.format.IsJSON() || es.brackets) {
+		if node.Tag != "" || !es.format.IsJSON() || !es.wire {
 			if err := writeString(w, " "); err != nil {
 				return err
 			}
