@@ -1,13 +1,10 @@
-blocked_by: []
-blocks: 
+!issue
+Ref: refs/issues/000014
+Title: "clean up git issue"
+blocks:
 - "000006"
 - "000005"
-branches: []
-closed_by: null
-commits: []
 created: "2025-12-19T21:57:53+01:00"
-duplicates: []
 id: 14
-related_issues: []
 status: open
-updated: "2025-12-19T22:58:23+01:00"
+updated: "2025-12-19T23:31:10.981342+01:00"
