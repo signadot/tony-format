@@ -1,7 +1,12 @@
+blocked_by: []
+blocks: []
 branches: []
 closed_by: null
 commits: []
 created: "2025-12-19T11:27:36+01:00"
+duplicates: []
 id: 4
+related_issues: 
+- "000005"
 status: open
-updated: "2025-12-19T11:27:59+01:00"
+updated: "2025-12-19T12:31:00+01:00"
