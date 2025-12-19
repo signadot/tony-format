@@ -438,13 +438,14 @@ func encodeObjectValue(node *ir.Node, w io.Writer, es *EncState) error {
 		}
 		return err
 	case ir.ArrayType:
-
 		br := false
-		if true || (!esBracket(es) || ir.TagHas(node.Tag, "!bracket")) {
+		if !esBracket(es) || ir.TagHas(node.Tag, "!bracket") {
 			es.depth--
 			br = true
 		}
-		if node.Tag != "" || !es.format.IsJSON() || !es.wire {
+		// Only write space if there's a tag or we're in bracket/wire mode.
+		// Block arrays (non-bracket) go directly after colon with newline.
+		if node.Tag != "" || esBracket(es) {
 			if err := writeString(w, " "); err != nil {
 				return err
 			}
