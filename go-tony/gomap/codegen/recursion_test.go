@@ -9,6 +9,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/schema"
+	"github.com/signadot/tony-format/go-tony/stream"
 )
 
 type RecursiveSlice struct {
@@ -331,7 +332,8 @@ func TestTimeTimeField(t *testing.T) {
 	}
 }
 
-type CrossPackageSlice []schema.Signature
+// CrossPackageSlice uses stream.Event which has ToTonyIR(opts...) and FromTonyIR(opts...)
+type CrossPackageSlice []stream.Event
 
 func TestCrossPackageSlice(t *testing.T) {
 	structInfo := &StructInfo{
@@ -353,7 +355,7 @@ func TestCrossPackageSlice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateToTonyIRMethod failed: %v", err)
 	}
-	// It should call ToTonyIR on schema.Signature elements
+	// It should call ToTonyIR with opts on stream.Event elements (which has ToTonyIR(opts...))
 	if !strings.Contains(toCode, "(&v).ToTonyIR(opts...)") {
 		t.Errorf("Expected (&v).ToTonyIR(opts...), got:\n%s", toCode)
 	}
@@ -362,9 +364,9 @@ func TestCrossPackageSlice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateFromTonyIRMethod failed: %v", err)
 	}
-	// It should create a slice of schema.Signature
-	if !strings.Contains(fromCode, "make([]schema.Signature") {
-		t.Errorf("Expected make([]schema.Signature, ...), got:\n%s", fromCode)
+	// It should create a slice of stream.Event
+	if !strings.Contains(fromCode, "make([]stream.Event") {
+		t.Errorf("Expected make([]stream.Event, ...), got:\n%s", fromCode)
 	}
 }
 
