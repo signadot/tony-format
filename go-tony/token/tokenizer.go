@@ -632,7 +632,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			}
 			tok := Token{
 				Type:  tokType,
-				Pos:   t.posDoc.Pos(int(bufferStartOffset) + end),
+				Pos:   t.posDoc.Pos(int(bufferStartOffset) + commentStart),
 				Bytes: data[commentStart:end],
 			}
 			return []Token{tok}, end - pos, nil
