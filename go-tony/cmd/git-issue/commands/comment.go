@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"bufio"
 	"fmt"
 	"strings"
 	"time"
@@ -38,13 +37,17 @@ func (cfg *commentConfig) run(cc *cli.Context, args []string) error {
 	if len(args) > 1 {
 		commentText = strings.Join(args[1:], " ")
 	} else {
-		fmt.Fprintln(cc.Out, "Enter comment (end with Ctrl+D):")
-		var lines []string
-		scanner := bufio.NewScanner(cc.In)
-		for scanner.Scan() {
-			lines = append(lines, scanner.Text())
+		// Open editor
+		initialContent := `
+# Enter your comment above.
+# Lines starting with # will be ignored.
+# Save and close the editor to submit, or leave empty to cancel.
+`
+		var err error
+		commentText, err = issuelib.EditInEditor(initialContent)
+		if err != nil {
+			return fmt.Errorf("editor failed: %w", err)
 		}
-		commentText = strings.Join(lines, "\n")
 	}
 
 	if strings.TrimSpace(commentText) == "" {
