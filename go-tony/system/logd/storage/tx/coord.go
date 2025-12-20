@@ -206,6 +206,9 @@ func (p *txPatcher) Commit() *Result {
 		return result
 	}
 
+	// Tag each patch data root for streaming processor
+	TagPatchRoots(state.PatcherData)
+
 	mergedPatch, err := MergePatches(state.PatcherData)
 	if err != nil {
 		_ = co.storage.Delete(state.TxID)
