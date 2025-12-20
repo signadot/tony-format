@@ -362,6 +362,16 @@ func (s *GitStore) ReadFile(ref, path string) ([]byte, error) {
 	return cmd.Output()
 }
 
+// GetRefCommit returns the commit SHA for a ref.
+func (s *GitStore) GetRefCommit(ref string) (string, error) {
+	cmd := exec.Command("git", "show-ref", ref)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("ref not found: %s", ref)
+	}
+	return strings.Fields(string(out))[0], nil
+}
+
 // GetCommitInfo returns the short commit info.
 func (s *GitStore) GetCommitInfo(sha string) (string, error) {
 	cmd := exec.Command("git", "log", "-1", "--oneline", sha)
@@ -456,6 +466,65 @@ func (s *GitStore) VerifyRemote(remote string) error {
 // GetTree reads the tree for a ref and returns entries.
 func (s *GitStore) GetTree(ref string) (map[string]string, error) {
 	return s.ListDir(ref, "")
+}
+
+// ReplaceTree replaces the entire tree with new files and creates a commit.
+func (s *GitStore) ReplaceTree(ref, message string, files map[string]string) error {
+	// Get current commit as parent
+	showCmd := exec.Command("git", "show-ref", ref)
+	showOut, err := showCmd.Output()
+	if err != nil {
+		return fmt.Errorf("ref not found: %s", ref)
+	}
+	currentCommit := strings.Fields(string(showOut))[0]
+
+	// Use a temporary index
+	tmpIndex := fmt.Sprintf("/tmp/git-issue-index-%d", time.Now().UnixNano())
+	defer os.Remove(tmpIndex)
+
+	// Hash all files and build index
+	for path, content := range files {
+		// Hash the content
+		hashCmd := exec.Command("git", "hash-object", "-w", "--stdin")
+		hashCmd.Stdin = strings.NewReader(content)
+		hashOut, err := hashCmd.Output()
+		if err != nil {
+			return fmt.Errorf("failed to hash %s: %w", path, err)
+		}
+		hash := strings.TrimSpace(string(hashOut))
+
+		// Add to index
+		updateIndexCmd := exec.Command("git", "update-index", "--add", "--cacheinfo", "100644", hash, path)
+		updateIndexCmd.Env = append(os.Environ(), "GIT_INDEX_FILE="+tmpIndex)
+		if err := updateIndexCmd.Run(); err != nil {
+			return fmt.Errorf("failed to update index for %s: %w", path, err)
+		}
+	}
+
+	// Write tree from index
+	writeTreeCmd := exec.Command("git", "write-tree")
+	writeTreeCmd.Env = append(os.Environ(), "GIT_INDEX_FILE="+tmpIndex)
+	treeOut, err := writeTreeCmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to write tree: %w", err)
+	}
+	treeHash := strings.TrimSpace(string(treeOut))
+
+	// Create commit with parent
+	commitCmd := exec.Command("git", "commit-tree", treeHash, "-p", currentCommit, "-m", message)
+	commitOut, err := commitCmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to create commit: %w", err)
+	}
+	commitHash := strings.TrimSpace(string(commitOut))
+
+	// Update ref
+	updateCmd := exec.Command("git", "update-ref", ref, commitHash)
+	if err := updateCmd.Run(); err != nil {
+		return fmt.Errorf("failed to update ref: %w", err)
+	}
+
+	return nil
 }
 
 // ListDir lists directory contents at a path within a ref.

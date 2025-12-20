@@ -39,6 +39,13 @@ type Store interface {
 	// ReadFile reads a file from an issue's tree.
 	ReadFile(ref, path string) ([]byte, error)
 
+	// ListDir lists directory contents at a path within a ref.
+	// Returns a map of name -> "type:hash" (e.g., "blob:abc123" or "tree:def456").
+	ListDir(ref, path string) (map[string]string, error)
+
+	// GetRefCommit returns the commit SHA for a ref.
+	GetRefCommit(ref string) (string, error)
+
 	// GetCommitInfo returns the short commit info for a SHA.
 	GetCommitInfo(sha string) (string, error)
 

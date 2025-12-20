@@ -22,6 +22,8 @@ Usage:
   git issue push --all [remote]          Push all issues to remote
   git issue pull [remote]                Pull issues from remote (default: origin)
   git issue close <id> [--commit <sha>]  Close issue
+  git issue export <id> [dir]            Export issue to directory
+  git issue import <dir>                 Import issue from directory
 
 Examples:
   git issue create "Implement streaming processor"
@@ -36,7 +38,9 @@ Examples:
   git issue push --all         # Push all issues to origin
   git issue pull               # Fetch issues from origin
   git issue for-commit HEAD
-  git issue close 1 --commit def456`
+  git issue close 1 --commit def456
+  git issue export 1 ./my-issue
+  git issue import ./my-issue`
 
 // Root returns the root command for git-issue.
 func Root() *cli.Command {
@@ -59,5 +63,7 @@ func Root() *cli.Command {
 			PushCommand(store),
 			PullCommand(store),
 			CloseCommand(store),
+			ExportCommand(store),
+			ImportCommand(store),
 		)
 }

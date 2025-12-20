@@ -42,6 +42,17 @@ func IsClosedRef(ref string) bool {
 	return strings.HasPrefix(ref, "refs/closed/")
 }
 
+// IDFromRef extracts the issue ID from a ref path.
+func IDFromRef(ref string) (int64, error) {
+	if idStr, ok := strings.CutPrefix(ref, "refs/issues/"); ok {
+		return ParseID(idStr)
+	}
+	if idStr, ok := strings.CutPrefix(ref, "refs/closed/"); ok {
+		return ParseID(idStr)
+	}
+	return 0, fmt.Errorf("invalid issue ref: %s", ref)
+}
+
 // StatusFromRef determines the status based on the ref path.
 func StatusFromRef(ref string) string {
 	if IsClosedRef(ref) {
