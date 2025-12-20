@@ -33,25 +33,36 @@ func (s *GitStore) Out() io.Writer {
 	return s.out
 }
 
-// GetNextID reads and increments the issue counter.
+// GetNextID allocates the next issue ID.
+// It uses the higher of: (stored counter + 1) or (max existing ID + 1)
+// to ensure IDs are never reused even if the counter is corrupted.
 func (s *GitStore) GetNextID() (int64, error) {
+	// Read stored counter
+	var counterValue int64
 	cmd := exec.Command("git", "show", "refs/meta/issue-counter")
 	out, err := cmd.Output()
-
-	var current int64
 	if err != nil {
-		current = 1
+		counterValue = 0
 	} else {
-		current, err = strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
+		counterValue, err = strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
 		if err != nil {
-			return 0, fmt.Errorf("invalid counter value: %w", err)
+			counterValue = 0
 		}
-		current++
 	}
+
+	// Find max ID from existing refs (both open and closed)
+	maxExistingID := s.findMaxExistingID()
+
+	// Next ID is max of (counter, maxExisting) + 1
+	nextID := counterValue
+	if maxExistingID > nextID {
+		nextID = maxExistingID
+	}
+	nextID++
 
 	// Write new counter value
 	hashCmd := exec.Command("git", "hash-object", "-w", "--stdin")
-	hashCmd.Stdin = strings.NewReader(fmt.Sprintf("%d\n", current))
+	hashCmd.Stdin = strings.NewReader(fmt.Sprintf("%d\n", nextID))
 	hashOut, err := hashCmd.Output()
 	if err != nil {
 		return 0, fmt.Errorf("failed to hash counter: %w", err)
@@ -63,7 +74,37 @@ func (s *GitStore) GetNextID() (int64, error) {
 		return 0, fmt.Errorf("failed to update counter: %w", err)
 	}
 
-	return current, nil
+	return nextID, nil
+}
+
+// findMaxExistingID scans all issue refs to find the highest ID.
+func (s *GitStore) findMaxExistingID() int64 {
+	var maxID int64
+
+	// Check both open and closed refs
+	for _, pattern := range []string{"refs/issues/*", "refs/closed/*"} {
+		cmd := exec.Command("git", "for-each-ref", "--format=%(refname)", pattern)
+		out, err := cmd.Output()
+		if err != nil {
+			continue
+		}
+
+		refs := strings.Split(strings.TrimSpace(string(out)), "\n")
+		for _, ref := range refs {
+			if ref == "" {
+				continue
+			}
+			id, err := IDFromRef(ref)
+			if err != nil {
+				continue
+			}
+			if id > maxID {
+				maxID = id
+			}
+		}
+	}
+
+	return maxID
 }
 
 // Create creates a new issue.

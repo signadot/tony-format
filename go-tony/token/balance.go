@@ -138,8 +138,11 @@ func balanceOne(dst []Token, toks []Token, d int, y *int, underField bool, f for
 						ErrDocBalance, tok.Pos)
 				}
 			} else if n != d*2 && !toks[1].Type.IsComment() {
-				return nil, 0, fmt.Errorf("%w: extraneous indent (no comment) %s %q %s",
-					ErrDocBalance, toks[1].Type, string(toks[1].Bytes), toks[1].Pos)
+				// Allow transition to bracketed mode with TLCurl or TLSquare
+				if toks[1].Type != TLCurl && toks[1].Type != TLSquare {
+					return nil, 0, fmt.Errorf("%w: extraneous indent (no comment) %s %q %s",
+						ErrDocBalance, toks[1].Type, string(toks[1].Bytes), toks[1].Pos)
+				}
 			}
 			dst, off, err := balanceOne(dst, toks[1:], d, y, underField, f)
 			if err != nil {
