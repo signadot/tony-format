@@ -1,7 +1,8 @@
 !issue
 blocks:
 - "000013"
+closed_by: a80ff85ae2492f1d6af72afeea25312c0e512105
 created: "2025-12-20T11:47:26.024466+01:00"
 id: 20
-status: open
-updated: "2025-12-20T11:47:48.874382+01:00"
+status: closed
+updated: "2025-12-20T11:53:26.678584+01:00"
