@@ -35,11 +35,14 @@ func (cfg *linkConfig) run(cc *cli.Context, args []string) error {
 		return err
 	}
 
-	// Get issue (open only)
-	ref := issuelib.RefForID(id)
-	issue, _, err := cfg.store.GetByRef(ref)
+	// Get issue (open or closed)
+	ref, err := cfg.store.FindRef(id)
 	if err != nil {
 		return fmt.Errorf("issue not found: %s", issuelib.FormatID(id))
+	}
+	issue, _, err := cfg.store.GetByRef(ref)
+	if err != nil {
+		return fmt.Errorf("failed to read issue: %w", err)
 	}
 
 	// Add commit if not already there

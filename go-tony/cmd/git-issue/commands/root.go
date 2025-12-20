@@ -22,6 +22,7 @@ Usage:
   git issue push --all [remote]          Push all issues to remote
   git issue pull [remote]                Pull issues from remote (default: origin)
   git issue close <id> [--commit <sha>]  Close issue
+  git issue reopen <id>                  Reopen a closed issue
   git issue export <id> [dir]            Export issue to directory
   git issue import <dir>                 Import issue from directory
   git issue label <id> <label>...        Add labels to issue
@@ -65,6 +66,7 @@ func Root() *cli.Command {
 			PushCommand(store),
 			PullCommand(store),
 			CloseCommand(store),
+			ReopenCommand(store),
 			ExportCommand(store),
 			ImportCommand(store),
 			LabelCommand(store),
