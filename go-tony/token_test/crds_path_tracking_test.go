@@ -81,34 +81,34 @@ func TestCRDs_PathTracking(t *testing.T) {
 
 	// Verify some expected paths exist (based on YAML structure)
 	// The crds.yaml file has items array, which when converted to bracketed format
-	// becomes $.items (object key) or $.items[0] (if array), then nested paths
+	// uses kinded path format: "items", "items[0].spec", etc. (no $ prefix)
 	hasItems := false
 	hasMetadata := false
 	hasSpec := false
-	
+
 	for path := range pathCounts {
-		// Check for items (could be $.items or $.items[...])
-		if len(path) > 7 && path[:7] == "$.items" {
+		// Check for items (kinded path: "items" or "items[...")
+		if len(path) >= 5 && path[:5] == "items" {
 			hasItems = true
 		}
 		// Check for metadata anywhere in path
-		if len(path) > 9 && path[len(path)-9:] == ".metadata" {
+		if len(path) >= 8 && path[len(path)-8:] == "metadata" {
 			hasMetadata = true
 		}
 		// Check for spec anywhere in path
-		if len(path) > 5 && path[len(path)-5:] == ".spec" {
+		if len(path) >= 4 && path[len(path)-4:] == "spec" {
 			hasSpec = true
 		}
 	}
 
 	if !hasItems {
-		t.Error("Expected to find paths starting with $.items")
+		t.Error("Expected to find paths starting with items")
 	}
 	if !hasMetadata {
-		t.Error("Expected to find paths ending with .metadata")
+		t.Error("Expected to find paths ending with metadata")
 	}
 	if !hasSpec {
-		t.Error("Expected to find paths ending with .spec")
+		t.Error("Expected to find paths ending with spec")
 	}
 
 	// Verify depth tracking
@@ -194,7 +194,7 @@ func TestCRDs_TokenSink_PathTracking(t *testing.T) {
 		t.Error("No paths were tracked by TokenSink")
 	}
 
-	// Verify some expected paths exist
+	// Verify some expected paths exist (kinded path format, no $ prefix)
 	hasItems := false
 	hasMetadata := false
 	hasSpec := false
@@ -205,29 +205,29 @@ func TestCRDs_TokenSink_PathTracking(t *testing.T) {
 		if len(samplePaths) < 10 {
 			samplePaths = append(samplePaths, path)
 		}
-		// Check for items (could be $.items or $.items[...])
-		if len(path) > 7 && path[:7] == "$.items" {
+		// Check for items (kinded path: "items" or "items[...")
+		if len(path) >= 5 && path[:5] == "items" {
 			hasItems = true
 		}
 		// Check for metadata anywhere in path
-		if len(path) > 9 && path[len(path)-9:] == ".metadata" {
+		if len(path) >= 8 && path[len(path)-8:] == "metadata" {
 			hasMetadata = true
 		}
 		// Check for spec anywhere in path
-		if len(path) > 5 && path[len(path)-5:] == ".spec" {
+		if len(path) >= 4 && path[len(path)-4:] == "spec" {
 			hasSpec = true
 		}
 	}
 	t.Logf("Sample paths: %v", samplePaths)
 
 	if !hasItems {
-		t.Error("Expected to find paths starting with $.items")
+		t.Error("Expected to find paths starting with items")
 	}
 	if !hasMetadata {
-		t.Error("Expected to find paths ending with .metadata")
+		t.Error("Expected to find paths ending with metadata")
 	}
 	if !hasSpec {
-		t.Error("Expected to find paths ending with .spec")
+		t.Error("Expected to find paths ending with spec")
 	}
 
 	// Verify depth tracking
