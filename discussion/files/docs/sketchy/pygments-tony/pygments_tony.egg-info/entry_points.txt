@@ -1,2 +1,0 @@
-[pygments.lexers]
-tony = pygments_tony:TonyLexer
