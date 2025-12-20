@@ -1,6 +1,7 @@
 package issuelib
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -469,7 +470,7 @@ func (s *GitStore) GetTree(ref string) (map[string]string, error) {
 }
 
 // ReplaceTree replaces the entire tree with new files and creates a commit.
-func (s *GitStore) ReplaceTree(ref, message string, files map[string]string) error {
+func (s *GitStore) ReplaceTree(ref, message string, files map[string][]byte) error {
 	// Get current commit as parent
 	showCmd := exec.Command("git", "show-ref", ref)
 	showOut, err := showCmd.Output()
@@ -486,7 +487,7 @@ func (s *GitStore) ReplaceTree(ref, message string, files map[string]string) err
 	for path, content := range files {
 		// Hash the content
 		hashCmd := exec.Command("git", "hash-object", "-w", "--stdin")
-		hashCmd.Stdin = strings.NewReader(content)
+		hashCmd.Stdin = bytes.NewReader(content)
 		hashOut, err := hashCmd.Output()
 		if err != nil {
 			return fmt.Errorf("failed to hash %s: %w", path, err)

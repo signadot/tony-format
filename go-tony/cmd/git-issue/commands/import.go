@@ -109,7 +109,7 @@ func parseBreadcrumb(path string) (*breadcrumb, error) {
 
 func (cfg *importConfig) importDir(gitStore *issuelib.GitStore, ref, dir string) error {
 	// Collect all files from directory
-	files := make(map[string]string) // path -> content
+	files := make(map[string][]byte) // path -> content
 
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -138,7 +138,7 @@ func (cfg *importConfig) importDir(gitStore *issuelib.GitStore, ref, dir string)
 			return fmt.Errorf("failed to read %s: %w", relPath, err)
 		}
 
-		files[relPath] = string(content)
+		files[relPath] = content
 		return nil
 	})
 	if err != nil {
