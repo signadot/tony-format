@@ -18,8 +18,9 @@ type Issue struct {
 	Blocks        []string  `tony:"field=blocks"`
 	BlockedBy     []string  `tony:"field=blocked_by"`
 	Duplicates    []string  `tony:"field=duplicates"`
+	Labels        []string  `tony:"field=labels"`
 
 	// Derived fields (not serialized in meta.tony)
-	Ref   string // The git ref (e.g., "refs/issues/000001")
-	Title string // From description.md first line
+	Ref   string `tony:"-"` // The git ref (e.g., "refs/issues/000001")
+	Title string `tony:"-"` // From description.md first line
 }

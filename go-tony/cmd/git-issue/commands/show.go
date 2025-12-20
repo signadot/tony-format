@@ -45,6 +45,9 @@ func (cfg *showConfig) run(cc *cli.Context, args []string) error {
 	status := issuelib.StatusFromRef(ref)
 	fmt.Fprintf(cc.Out, "Issue #%s [%s]\n", issuelib.FormatID(issue.ID), status)
 	fmt.Fprintf(cc.Out, "Ref: %s\n", ref)
+	if len(issue.Labels) > 0 {
+		fmt.Fprintf(cc.Out, "Labels: %s\n", strings.Join(issue.Labels, ", "))
+	}
 	fmt.Fprintln(cc.Out)
 
 	// Print description

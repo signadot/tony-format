@@ -13,6 +13,7 @@ define:
   created: !time:time null
   duplicates: .[array(string)]
   id: .[int]
+  labels: .[array(string)]
   related_issues: .[array(string)]
   status: .[string]
   updated: !time:time null

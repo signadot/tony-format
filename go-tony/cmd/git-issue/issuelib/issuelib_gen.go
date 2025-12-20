@@ -103,11 +103,14 @@ func (s *Issue) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["duplicates"] = ir.FromSlice(slice)
 	}
 
-	// Field: Ref
-	irMap["Ref"] = ir.FromString(s.Ref)
-
-	// Field: Title
-	irMap["Title"] = ir.FromString(s.Title)
+	// Field: Labels
+	if len(s.Labels) > 0 {
+		slice := make([]*ir.Node, len(s.Labels))
+		for i, v := range s.Labels {
+			slice[i] = ir.FromString(v)
+		}
+		irMap["labels"] = ir.FromSlice(slice)
+	}
 
 	// Create IR node with schema tag
 	return ir.FromMap(irMap).WithTag("!issue"), nil
@@ -266,18 +269,21 @@ func (s *Issue) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				}
 				s.Duplicates = slice
 			}
-		case "Ref":
-			// Field: Ref
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "Ref", fieldNode.Type)
+		case "labels":
+			// Field: Labels
+			if fieldNode.Type == ir.ArrayType {
+				slice := make([]string, len(fieldNode.Values))
+				for i, v := range fieldNode.Values {
+					ctx := fmt.Sprintf("slice element %d", i)
+					var elem string
+					if v.Type != ir.StringType {
+						return fmt.Errorf("%s: expected string, got %v", ctx, v.Type)
+					}
+					elem = v.String
+					slice[i] = elem
+				}
+				s.Labels = slice
 			}
-			s.Ref = fieldNode.String
-		case "Title":
-			// Field: Title
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "Title", fieldNode.Type)
-			}
-			s.Title = fieldNode.String
 		}
 	}
 

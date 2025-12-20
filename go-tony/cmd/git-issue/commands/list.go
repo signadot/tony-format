@@ -2,7 +2,9 @@ package commands
 
 import (
 	"fmt"
+	"slices"
 	"sort"
+	"strings"
 
 	"github.com/scott-cotton/cli"
 	"github.com/signadot/tony-format/go-tony/cmd/git-issue/issuelib"
@@ -11,7 +13,8 @@ import (
 type listConfig struct {
 	*cli.Command
 	store   issuelib.Store
-	ShowAll bool `cli:"name=all aliases=a desc='show all issues including closed'"`
+	ShowAll bool   `cli:"name=all aliases=a desc='show all issues including closed'"`
+	Label   string `cli:"name=label aliases=l desc='filter by label'"`
 }
 
 // ListCommand returns the list subcommand.
@@ -19,7 +22,7 @@ func ListCommand(store issuelib.Store) *cli.Command {
 	cfg := &listConfig{store: store}
 	opts, _ := cli.StructOpts(cfg)
 	return cli.NewCommandAt(&cfg.Command, "list").
-		WithSynopsis("list [--all] - List issues").
+		WithSynopsis("list [--all] [--label <label>] - List issues").
 		WithOpts(opts...).
 		WithRun(cfg.run)
 }
@@ -33,6 +36,14 @@ func (cfg *listConfig) run(cc *cli.Context, args []string) error {
 	issues, err := cfg.store.List(cfg.ShowAll)
 	if err != nil {
 		return fmt.Errorf("failed to list issues: %w", err)
+	}
+
+	// Filter by label if specified
+	if cfg.Label != "" {
+		label := strings.ToLower(strings.TrimSpace(cfg.Label))
+		issues = slices.DeleteFunc(issues, func(issue *issuelib.Issue) bool {
+			return !slices.Contains(issue.Labels, label)
+		})
 	}
 
 	if len(issues) == 0 {

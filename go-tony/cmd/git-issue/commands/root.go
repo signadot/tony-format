@@ -24,6 +24,8 @@ Usage:
   git issue close <id> [--commit <sha>]  Close issue
   git issue export <id> [dir]            Export issue to directory
   git issue import <dir>                 Import issue from directory
+  git issue label <id> <label>...        Add labels to issue
+  git issue unlabel <id> <label>...      Remove labels from issue
 
 Examples:
   git issue create "Implement streaming processor"
@@ -65,5 +67,7 @@ func Root() *cli.Command {
 			CloseCommand(store),
 			ExportCommand(store),
 			ImportCommand(store),
+			LabelCommand(store),
+			UnlabelCommand(store),
 		)
 }
