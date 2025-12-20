@@ -211,9 +211,9 @@ func TestNodeToEvents_SparseArray(t *testing.T) {
 	}
 	expected := []Event{
 		{Type: EventBeginObject},
-		{Type: EventKey, Key: "0"},
+		{Type: EventIntKey, IntKey: 0},
 		{Type: EventString, String: "a"},
-		{Type: EventKey, Key: "1"},
+		{Type: EventIntKey, IntKey: 1},
 		{Type: EventString, String: "b"},
 		{Type: EventEndObject},
 	}

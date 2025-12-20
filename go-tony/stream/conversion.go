@@ -3,7 +3,6 @@ package stream
 import (
 	"fmt"
 	"io"
-	"strconv"
 
 	"github.com/signadot/tony-format/go-tony/ir"
 )
@@ -41,11 +40,11 @@ func nodeToEvents(node *ir.Node, events *[]Event) error {
 		for i := 0; i < len(node.Fields); i++ {
 			keyNode := node.Fields[i]
 			valueNode := node.Values[i]
-			key := keyNode.String
 			if keyNode.Type == ir.NumberType && keyNode.Int64 != nil {
-				key = strconv.FormatInt(*keyNode.Int64, 10)
+				*events = append(*events, Event{Type: EventIntKey, IntKey: *keyNode.Int64})
+			} else {
+				*events = append(*events, Event{Type: EventKey, Key: keyNode.String})
 			}
-			*events = append(*events, Event{Type: EventKey, Key: key})
 			if err := nodeToEvents(valueNode, events); err != nil {
 				return err
 			}

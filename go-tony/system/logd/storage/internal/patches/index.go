@@ -47,7 +47,8 @@ func (pi *PatchIndex) Lookup(path string) []*dlog.Entry {
 
 // HasPatches returns true if any patches affect the given path.
 func (pi *PatchIndex) HasPatches(path string) bool {
-	return len(pi.byPath[path]) > 0
+	_, ok := pi.byPath[path]
+	return ok
 }
 
 // Paths returns all paths that have patches.

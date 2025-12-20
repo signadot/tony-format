@@ -24,12 +24,13 @@ import (
 //   - End*: append, depth--, done if depth=0
 //   - Others: append
 type SubtreeCollector struct {
-	index      *PatchIndex
-	state      *stream.State
-	events     []stream.Event
-	depth      int    // depth within collected subtree
-	collecting bool   // true when we've matched a path and are collecting
-	startPath  string // path where collection started
+	index       *PatchIndex
+	state       *stream.State
+	events      []stream.Event
+	depth       int    // depth within collected subtree
+	collecting  bool   // true when actively collecting events
+	pendingPath string // path where key was matched, waiting for value
+	startPath   string // path where collection started
 }
 
 // NewSubtreeCollector creates a new SubtreeCollector with the given patch index.
@@ -61,24 +62,41 @@ func (sc *SubtreeCollector) ProcessEvent(event *stream.Event) (*CollectedSubtree
 		return sc.continueCollecting(event)
 	}
 
+	// If we have a pending path from a previous key match, start collecting now
+	if sc.pendingPath != "" {
+		sc.startPath = sc.pendingPath
+		sc.pendingPath = ""
+		sc.collecting = true
+
+		switch event.Type {
+		case stream.EventBeginObject, stream.EventBeginArray:
+			sc.events = []stream.Event{*event}
+			sc.depth = 1
+			return nil, nil
+		default:
+			// Scalar value after key
+			sc.events = []stream.Event{*event}
+			return sc.finishCollecting()
+		}
+	}
+
 	// Check if this path needs patching
 	if !sc.index.HasPatches(currentPath) {
 		return nil, nil
 	}
 
 	// Start collecting based on event type
-	sc.startPath = currentPath
-
 	switch event.Type {
 	case stream.EventKey, stream.EventIntKey:
-		// Key event - the VALUE will follow
-		// Set collecting but don't append the key (it's part of parent structure)
-		sc.collecting = true
-		sc.depth = 0
+		// Key event - remember the path, collect value on next event
+		// Don't set collecting=true so IsCollecting() returns false
+		// and the processor can emit the key
+		sc.pendingPath = currentPath
 		return nil, nil
 
 	case stream.EventBeginObject, stream.EventBeginArray:
 		// Container start - collect from here
+		sc.startPath = currentPath
 		sc.collecting = true
 		sc.events = []stream.Event{*event}
 		sc.depth = 1
@@ -103,31 +121,19 @@ func (sc *SubtreeCollector) ProcessEvent(event *stream.Event) (*CollectedSubtree
 
 // continueCollecting handles events while collecting a subtree.
 func (sc *SubtreeCollector) continueCollecting(event *stream.Event) (*CollectedSubtree, error) {
+	sc.events = append(sc.events, *event)
+
 	switch event.Type {
 	case stream.EventBeginObject, stream.EventBeginArray:
 		sc.depth++
-		sc.events = append(sc.events, *event)
-		return nil, nil
-
 	case stream.EventEndObject, stream.EventEndArray:
-		sc.events = append(sc.events, *event)
 		sc.depth--
-
 		if sc.depth <= 0 {
 			return sc.finishCollecting()
 		}
-		return nil, nil
-
-	default:
-		// All other events (keys, scalars, comments)
-		sc.events = append(sc.events, *event)
-
-		// If depth is 0, this is the scalar value after a key match
-		if sc.depth == 0 && isValueEvent(event.Type) {
-			return sc.finishCollecting()
-		}
-		return nil, nil
 	}
+
+	return nil, nil
 }
 
 // finishCollecting completes collection and returns the subtree.
@@ -151,17 +157,6 @@ func (sc *SubtreeCollector) finishCollecting() (*CollectedSubtree, error) {
 	return result, nil
 }
 
-// isValueEvent returns true for events that represent values.
-func isValueEvent(t stream.EventType) bool {
-	switch t {
-	case stream.EventString, stream.EventInt, stream.EventFloat, stream.EventBool, stream.EventNull,
-		stream.EventBeginObject, stream.EventBeginArray:
-		return true
-	default:
-		return false
-	}
-}
-
 // IsCollecting returns true if currently collecting a subtree.
 func (sc *SubtreeCollector) IsCollecting() bool {
 	return sc.collecting
@@ -173,5 +168,6 @@ func (sc *SubtreeCollector) Reset() {
 	sc.events = nil
 	sc.depth = 0
 	sc.collecting = false
+	sc.pendingPath = ""
 	sc.startPath = ""
 }
