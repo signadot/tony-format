@@ -1,7 +1,8 @@
 # Tony Format
 
-Main repository for the Tony format.
+A data format where patches, queries, and schemas are expressed as documents themselves — combining JSON's structure with YAML's readability while preserving comments and metadata.
 
+- [Why Tony? Comparisons with Kustomize, Helm, and others](docs/comparison.md)
 - [Docs](docs/index.md)
 - [Go](go-tony/README.md)
 
