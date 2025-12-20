@@ -2,6 +2,8 @@ package commands
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -36,6 +38,13 @@ func (cfg *commentConfig) run(cc *cli.Context, args []string) error {
 	var commentText string
 	if len(args) > 1 {
 		commentText = strings.Join(args[1:], " ")
+	} else if stat, _ := os.Stdin.Stat(); (stat.Mode() & os.ModeCharDevice) == 0 {
+		// stdin is a pipe/file, read from it
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return fmt.Errorf("reading stdin: %w", err)
+		}
+		commentText = string(data)
 	} else {
 		// Open editor
 		initialContent := `
