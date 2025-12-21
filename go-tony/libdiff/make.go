@@ -13,7 +13,7 @@ func MakeDiff(from, to *ir.Node) *ir.Node {
 		if from.Tag == "" {
 			return from.Clone().WithTag(DeleteTag)
 		}
-		return from.Clone().WithTag(InsertTag + "(" + from.Tag[1:] + ")")
+		return from.Clone().WithTag(DeleteTag + "(" + from.Tag[1:] + ")")
 	default:
 		return ir.FromMap(map[string]*ir.Node{
 			"from": from,

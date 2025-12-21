@@ -42,7 +42,7 @@ f2: !replace
 f3: !delete a
 f4: !delete a
 f5:
-  f5b: !insert(b2) 2`,
+  f5b: !delete(b2) 2`,
 	},
 	{
 		a: `
@@ -164,7 +164,7 @@ f5:
 - 5`,
 		diff: `
 !arraydiff
-2: !insert(h) 3
+2: !delete(h) 3
 `,
 	},
 	{
