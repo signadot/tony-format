@@ -126,6 +126,9 @@ func TagRemove(tag, what string) string {
 		}
 		if b.Len() != 0 {
 			b.WriteByte('.')
+		} else if len(hd) > 0 && hd[0] != '!' {
+			// First remaining tag needs ! prefix
+			b.WriteByte('!')
 		}
 		b.WriteString(hd)
 		if len(args) == 0 {
