@@ -11,57 +11,139 @@ import (
 
 // handleMatchData handles MATCH requests for data reads.
 func (s *Server) handleMatchData(w http.ResponseWriter, r *http.Request, req *api.Match) {
-	// Validate path
+	// Validate path (kpath format)
 	if err := validateDataPath(req.Body.Path); err != nil {
 		writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidPath, err.Error()))
 		return
 	}
 
-	// Reconstruct state
-	state, seq, err := s.reconstructState(req.Body.Path, req.Meta.SeqID)
+	kp := req.Body.Path
+
+	// Determine commit to read at
+	var commit int64
+	if req.Meta.SeqID != nil {
+		commit = *req.Meta.SeqID
+	} else {
+		var err error
+		commit, err = s.Config.Storage.GetCurrentCommit()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to get current commit: %v", err)))
+			return
+		}
+	}
+
+	// Read state at path (returns document with path as outer structure)
+	doc, err := s.Config.Storage.ReadStateAt(kp, commit)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to reconstruct state: %v", err)))
+		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to read state: %v", err)))
 		return
 	}
 
-	// req.Meta will be used for output, set the reconstructed state seqID
-	resp := &api.Match{
-		Meta: req.Meta,
+	// Extract value at the path from the document
+	state, err := extractPathValue(doc, kp)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to extract path value: %v", err)))
+		return
 	}
-	resp.Meta.SeqID = &seq
 
-	// Apply match filter if provided
-	if req.Body.Match != nil && req.Body.Match.Type != ir.NullType {
-		filteredState, err := s.filterState(state, req.Body.Match)
+	// Apply match filter if provided (Data field contains match criteria)
+	if req.Body.Data != nil && req.Body.Data.Type != ir.NullType {
+		filteredState, err := filterState(state, req.Body.Data)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, api.NewError("match_error", fmt.Sprintf("failed to apply match filter: %v", err)))
 			return
 		}
 		state = filteredState
 	}
-	resp.Body.Path = req.Body.Path
-	resp.Body.Patch = state
-	resp.Body.Match = ir.Null()
+
+	// Build response
+	resp := &api.Match{
+		Meta: req.Meta,
+		Body: api.Body{
+			Path: req.Body.Path,
+			Data: state,
+		},
+	}
+	resp.Meta.SeqID = &commit
 
 	d, err := resp.ToTony()
 	if err != nil {
-		writeError(w, http.StatusBadRequest, api.NewError("match_error", fmt.Sprintf("failed to encode response: %v", err)))
+		writeError(w, http.StatusInternalServerError, api.NewError("match_error", fmt.Sprintf("failed to encode response: %v", err)))
 		return
 	}
 
-	// Write response
 	w.Header().Set("Content-Type", "application/x-tony")
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write(d); err != nil {
-		// Error encoding response - header already written, can't send error
-		// This is a programming error, should not happen
-		panic(fmt.Sprintf("failed to encode response: %v", err))
+		panic(fmt.Sprintf("failed to write response: %v", err))
 	}
 }
 
-// filterState filters the state array to only include items that match the match criteria
-// and trims the items to the match w.r.t. !trim and !notrim tags
-func (s *Server) filterState(state *ir.Node, match *ir.Node) (*ir.Node, error) {
+// extractPathValue navigates the document structure according to the kpath
+// and returns the value at that path. The document structure mirrors the path.
+// For example, path "users" with doc {users: {id: "1"}} returns {id: "1"}.
+// Empty path returns the doc as-is.
+func extractPathValue(doc *ir.Node, kp string) (*ir.Node, error) {
+	if doc == nil {
+		return ir.Null(), nil
+	}
+	if kp == "" {
+		return doc, nil
+	}
+
+	// Navigate through the document following the path structure
+	current := doc
+	parts := splitKPath(kp)
+
+	for _, part := range parts {
+		if current == nil || current.Type != ir.ObjectType {
+			return nil, fmt.Errorf("expected object at path segment %q", part)
+		}
+
+		// Find the field matching this part
+		found := false
+		for i, field := range current.Fields {
+			if field.String == part {
+				current = current.Values[i]
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("path segment %q not found in document", part)
+		}
+	}
+
+	return current, nil
+}
+
+// splitKPath splits a simple kpath into its parts.
+// For now, only handles simple dot-separated field paths like "users.posts".
+// TODO: handle array indices and sparse indices.
+func splitKPath(kp string) []string {
+	if kp == "" {
+		return nil
+	}
+	var parts []string
+	current := ""
+	for _, r := range kp {
+		if r == '.' {
+			if current != "" {
+				parts = append(parts, current)
+				current = ""
+			}
+		} else {
+			current += string(r)
+		}
+	}
+	if current != "" {
+		parts = append(parts, current)
+	}
+	return parts
+}
+
+// filterState filters the state to match the given criteria and trims the result.
+func filterState(state *ir.Node, match *ir.Node) (*ir.Node, error) {
 	// If state is not an array, just check if it matches
 	if state.Type != ir.ArrayType {
 		matches, err := tony.Match(state, match)
@@ -71,8 +153,8 @@ func (s *Server) filterState(state *ir.Node, match *ir.Node) (*ir.Node, error) {
 		if matches {
 			return tony.Trim(match, state), nil
 		}
-		// Return empty array if doesn't match
-		return ir.FromSlice([]*ir.Node{}), nil
+		// Return null if doesn't match
+		return ir.Null(), nil
 	}
 
 	// Filter array items that match

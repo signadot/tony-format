@@ -1,40 +1,16 @@
 package server
 
-import (
-	"fmt"
-	"strings"
-)
+import "fmt"
 
-// validateDataPath validates a data path (not /api/transactions).
-// Valid paths:
-// - Must start with /
-// - Must not be empty or just /
-// - Must not contain .. (parent directory references)
-// - Must not contain empty segments (e.g., // or /path//segment)
-// - Must not contain control characters or other invalid characters
+// validateDataPath validates a kpath.
+// Empty path ("") is valid and refers to the root.
+// Paths must not contain control characters.
 func validateDataPath(path string) error {
+	// Empty path is valid (root)
 	if path == "" {
-		return fmt.Errorf("path cannot be empty")
+		return nil
 	}
-	
-	if path[0] != '/' {
-		return fmt.Errorf("path must start with /")
-	}
-	
-	if path == "/" {
-		return fmt.Errorf("path cannot be just /")
-	}
-	
-	// Check for .. (parent directory references)
-	if strings.Contains(path, "..") {
-		return fmt.Errorf("path cannot contain ..")
-	}
-	
-	// Check for empty segments (consecutive slashes)
-	if strings.Contains(path, "//") {
-		return fmt.Errorf("path cannot contain empty segments")
-	}
-	
+
 	// Check for invalid characters (control characters, etc.)
 	for _, r := range path {
 		if r < 32 && r != '\t' && r != '\n' && r != '\r' {
@@ -44,6 +20,6 @@ func validateDataPath(path string) error {
 			return fmt.Errorf("path contains null character")
 		}
 	}
-	
+
 	return nil
 }

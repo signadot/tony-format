@@ -4,19 +4,20 @@ import (
 	"bytes"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/signadot/tony-format/go-tony/ir"
 )
 
 func TestParseRequestBody(t *testing.T) {
-	// Create a simple test request body
+	// Create a simple test request body using the new Body structure
+	// Body has path: and data: fields
 	requestBody := `path: /proc/processes
-match: null
-patch: !key(id)
-- !insert
+data:
   id: "proc-1"
   pid: 1234
 `
 
-	req := httptest.NewRequest("PATCH", "/api/data", bytes.NewBufferString(requestBody))
+	req := httptest.NewRequest("MATCH", "/api/data", bytes.NewBufferString(requestBody))
 	req.Header.Set("Content-Type", "application/x-tony")
 
 	body, err := ParseRequestBody(req)
@@ -31,15 +32,11 @@ patch: !key(id)
 		t.Logf("Path: %v", body.Path)
 	}
 
-	if body.Match == nil {
-		t.Error("expected Match to be non-nil")
+	if body.Data == nil {
+		t.Error("expected Data to be non-nil")
+	} else if body.Data.Type != ir.ObjectType {
+		t.Errorf("expected Data to be object, got %v", body.Data.Type)
 	} else {
-		t.Logf("Match type: %v", body.Match.Type)
-	}
-
-	if body.Patch == nil {
-		t.Error("expected Patch to be non-nil")
-	} else {
-		t.Logf("Patch type: %v", body.Patch.Type)
+		t.Logf("Data type: %v", body.Data.Type)
 	}
 }

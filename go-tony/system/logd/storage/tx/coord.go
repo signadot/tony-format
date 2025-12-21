@@ -261,6 +261,12 @@ func (p *txPatcher) Commit() *Result {
 	}
 
 	_ = co.storage.Delete(state.TxID)
+
+	// Strip internal tags from original patch data before returning
+	for _, pd := range state.PatcherData {
+		StripPatchRootTag(pd.API.Patch.Data)
+	}
+
 	p.mu.Lock()
 	p.done = true
 	p.result = &Result{

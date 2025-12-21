@@ -3,296 +3,79 @@ package server
 import (
 	"fmt"
 	"net/http"
-	"path/filepath"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 )
 
 // handlePatchData handles PATCH requests for data writes.
 func (s *Server) handlePatchData(w http.ResponseWriter, r *http.Request, req *api.Patch) {
-	body := &req.Body
-	// Validate path
-	if err := validateDataPath(body.Path); err != nil {
+	// Validate patch path
+	if err := validateDataPath(req.Patch.Path); err != nil {
 		writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidPath, err.Error()))
 		return
 	}
 
 	// Validate patch is present
-	if body.Patch == nil {
-		writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidDiff, "patch is required"))
+	if req.Patch.Data == nil {
+		writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidDiff, "patch data is required"))
 		return
 	}
 
-	// Handle transaction write
+	// Validate match path if provided
+	if req.Match != nil && req.Match.Path != "" {
+		if err := validateDataPath(req.Match.Path); err != nil {
+			writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidPath, fmt.Sprintf("match path invalid: %v", err)))
+			return
+		}
+	}
+
+	// For now, only support single-participant transactions
+	// Multi-participant support can be added by using req.Meta.Tx
 	if req.Meta.Tx != nil {
-		s.handlePatchDataWithTransaction(w, r, req)
+		// TODO: support multi-participant transactions via GetTx
+		writeError(w, http.StatusNotImplemented, api.NewError("not_implemented", "multi-participant transactions not yet implemented"))
 		return
 	}
 
-	// Get current timestamp
-	timestamp := time.Now().UTC().Format(time.RFC3339)
-
-	// Atomically allocate sequence numbers and write the diff
-	// This ensures files are written in the order sequence numbers are allocated,
-	// preventing race conditions where a later sequence number is written before an earlier one
-	commitCount, _, err := s.Config.Storage.WriteDiffAtomically(body.Path, timestamp, body.Patch, false)
+	// Create single-participant transaction
+	tx, err := s.Config.Storage.NewTx(1, &req.Meta)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to write diff: %v", err)))
+		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to create transaction: %v", err)))
 		return
 	}
 
-	// Build response: return the diff with meta fields
+	// Create patcher and commit
+	patcher, err := tx.NewPatcher(req)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to create patcher: %v", err)))
+		return
+	}
+
+	result := patcher.Commit()
+	if result.Error != nil {
+		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to commit: %v", result.Error)))
+		return
+	}
+
+	// Build response
 	resp := &api.Patch{
 		Meta: api.PatchMeta{
-			Tx:              req.Meta.Tx,
 			EncodingOptions: req.Meta.EncodingOptions,
-			MaxDuration:     req.Meta.MaxDuration,
-			Seq:             &commitCount,
-			When:            timestamp,
+			Seq:             &result.Commit,
 		},
-		Body: api.Body{
-			Path:  body.Path,
-			Patch: body.Patch,
-		},
-	}
-	d, err := resp.ToTony()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, api.NewError("internal_error", fmt.Sprintf("error encoding response: %v", err)))
-		return
-	}
-
-	// Write response
-	w.Header().Set("Content-Type", "application/x-tony")
-	w.WriteHeader(http.StatusOK)
-	_, err = w.Write(d)
-	if err != nil {
-		// Error encoding response - header already written, can't send error
-		// This is a programming error, should not happen
-		panic(fmt.Sprintf("failed to encode response: %v", err))
-	}
-}
-
-// handlePatchDataWithTransaction handles PATCH requests for data writes within a transaction.
-// This function blocks until the transaction is either committed or aborted.
-func (s *Server) handlePatchDataWithTransaction(w http.ResponseWriter, r *http.Request, req *api.Patch) { //body *api.Body, pathStr, transactionID string) {
-	// Acquire waiter and ensure it's released when function exits
-	body := &req.Body
-	path := body.Path
-	txID := *req.Meta.Tx
-	waiter := s.acquireWaiter(txID)
-	defer s.releaseWaiter(txID)
-
-	// Read transaction state
-	state, err := s.Config.Storage.ReadTransactionState(txID)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, api.NewError("transaction_not_found", fmt.Sprintf("transaction not found: %v", err)))
-		return
-	}
-
-	// Validate transaction is pending
-	if state.Status != "pending" {
-		writeError(w, http.StatusBadRequest, api.NewError("invalid_transaction_state", fmt.Sprintf("transaction %s is %s, cannot write", txID, state.Status)))
-		return
-	}
-
-	// Check if we've already received all participants
-	if len(state.ParticipantMatches) >= state.ParticipantCount {
-		writeError(w, http.StatusBadRequest, api.NewError("transaction_full", fmt.Sprintf("transaction %s already has all %d participants", txID, state.ParticipantCount)))
-		return
-	}
-
-	// Get current timestamp
-	timestamp := time.Now().UTC().Format(time.RFC3339)
-
-	// Write diff as pending file
-	// Each write gets its own txSeq allocated atomically, but they're all part of the same transaction
-	_, writeTxSeq, err := s.Config.Storage.WriteDiffAtomically(path, timestamp, body.Patch, true)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to write pending diff: %v", err)))
-		return
-	}
-
-	// Get filesystem path for the pending file
-	fsPath := s.Config.Storage.FS.PathToFilesystem(path)
-	pendingFilename := fmt.Sprintf("%d.pending", writeTxSeq)
-	pendingFilePath := filepath.Join(fsPath, pendingFilename)
-
-	// Register this write with the waiter
-	write := pendingWrite{
-		w:         w,
-		r:         r,
-		body:      body,
-		pathStr:   path,
-		patch:     body.Patch,
-		timestamp: timestamp,
-		txSeq:     writeTxSeq,
-	}
-
-	if err := waiter.RegisterWrite(write); err != nil {
-		if err == ErrTransactionCompleted {
-			writeError(w, http.StatusInternalServerError, api.NewError("internal_error", "transaction already completed"))
-		} else {
-			writeError(w, http.StatusBadRequest, api.NewError("transaction_aborted", err.Error()))
-		}
-		return
-	}
-
-	// Atomically update transaction state and check if we're the last participant
-	isLastParticipant, err := waiter.UpdateState(txID, s.Config.Storage, func(currentState *storage.TransactionState) {
-		currentState.ParticipantsReceived++
-		currentState.FileMetas = append(currentState.FileMetas, storage.FileMeta{
-			Path:      path,
-			FSPath:    pendingFilePath,
-			WrittenAt: timestamp,
-		})
-	})
-
-	if err != nil {
-		waiter.SetResult(&transactionResult{
-			committed: false,
-			err:       fmt.Errorf("failed to update transaction state: %w", err),
-		})
-		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to update transaction state: %v", err)))
-		return
-	}
-
-	// If this is the last participant, commit the transaction
-	var result *transactionResult
-	if isLastParticipant {
-		// Re-read state to get the final state with all diffs
-		finalState, err := s.Config.Storage.ReadTransactionState(txID)
-		if err != nil {
-			waiter.SetResult(&transactionResult{
-				committed: false,
-				err:       fmt.Errorf("failed to read final transaction state: %w", err),
-			})
-			writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to read final transaction state: %v", err)))
-			return
-		}
-		s.commitTransaction(txID, finalState, waiter)
-		// After committing, get the result (commitTransaction sets it)
-		result = waiter.GetResult()
-	} else {
-		// Wait for transaction to complete or abort
-		result = waiter.WaitForCompletion()
-	}
-
-	if result == nil {
-		// This shouldn't happen, but handle it gracefully
-		writeError(w, http.StatusInternalServerError, api.NewError("internal_error", "transaction completed but no result available"))
-		return
-	}
-
-	if result.err != nil {
-		// Transaction aborted or error occurred
-		writeError(w, http.StatusBadRequest, api.NewError("transaction_aborted", result.err.Error()))
-		return
-	}
-
-	// Transaction committed successfully - send success response
-	resp := &api.Patch{
-		Meta: api.PatchMeta{
-			Seq:  &result.commitCount,
-			When: timestamp,
-			Tx:   &txID,
-		},
-		Body: api.Body{
-			Path:  req.Body.Path,
-			Patch: req.Body.Patch,
-		},
+		Match: req.Match,
+		Patch: req.Patch,
 	}
 
 	d, err := resp.ToTony()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, api.NewError("internal_error", fmt.Sprintf("error encoding response: %v", err)))
+		writeError(w, http.StatusInternalServerError, api.NewError("internal_error", fmt.Sprintf("failed to encode response: %v", err)))
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/x-tony")
 	w.WriteHeader(http.StatusOK)
-	_, err = w.Write(d)
-	if err != nil {
-		panic(fmt.Sprintf("failed to encode response: %v", err))
+	if _, err := w.Write(d); err != nil {
+		panic(fmt.Sprintf("failed to write response: %v", err))
 	}
-}
-
-// commitTransaction commits a transaction and notifies all waiting writes.
-func (s *Server) commitTransaction(transactionID string, state *storage.TransactionState, waiter *transactionWaiter) {
-	// Commit the transaction
-	commitCount, err := s.Config.Storage.NextCommit()
-	if err != nil {
-		waiter.SetResult(&transactionResult{
-			committed: false,
-			err:       fmt.Errorf("failed to get commit count: %w", err),
-		})
-		return
-	}
-
-	// Rename all pending files to .diff files
-	pendingFileRefs := make([]storage.FileRef, len(state.FileMetas))
-	for i, diff := range state.FileMetas {
-		// Extract txSeq from pending filename (format: {txSeq}.pending)
-		filename := filepath.Base(diff.FSPath)
-		if !strings.HasSuffix(filename, ".pending") {
-			waiter.SetResult(&transactionResult{
-				committed: false,
-				err:       fmt.Errorf("invalid pending filename: %s", filename),
-			})
-			return
-		}
-		txSeqStr := strings.TrimSuffix(filename, ".pending")
-		diffTxSeq, err := strconv.ParseInt(txSeqStr, 10, 64)
-		if err != nil {
-			waiter.SetResult(&transactionResult{
-				committed: false,
-				err:       fmt.Errorf("failed to parse txSeq from filename: %w", err),
-			})
-			return
-		}
-
-		// Commit pending file (rename + update index)
-		if err := s.Config.Storage.CommitFileMeta(diff.Path, diffTxSeq, commitCount); err != nil {
-			waiter.SetResult(&transactionResult{
-				committed: false,
-				err:       fmt.Errorf("failed to commit pending file: %w", err),
-			})
-			return
-		}
-
-		pendingFileRefs[i] = storage.FileRef{
-			VirtualPath: diff.Path,
-			TxSeq:       diffTxSeq,
-		}
-	}
-
-	// Write transaction log entry
-	logEntry := storage.NewTransactionLogEntry(commitCount, transactionID, pendingFileRefs)
-	if err := s.Config.Storage.AppendTransactionLog(logEntry); err != nil {
-		waiter.SetResult(&transactionResult{
-			committed: false,
-			err:       fmt.Errorf("failed to write transaction log: %w", err),
-		})
-		return
-	}
-
-	// Update transaction state to committed
-	state.Status = "committed"
-	if err := s.Config.Storage.WriteTransactionState(state); err != nil {
-		waiter.SetResult(&transactionResult{
-			committed: false,
-			err:       fmt.Errorf("failed to update transaction state: %w", err),
-		})
-		return
-	}
-
-	// Notify all waiting writes
-	waiter.SetResult(&transactionResult{
-		committed:   true,
-		commitCount: commitCount,
-		err:         nil,
-	})
 }

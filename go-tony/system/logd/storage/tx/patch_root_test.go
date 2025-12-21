@@ -133,7 +133,7 @@ func TestStripPatchRootTag(t *testing.T) {
 		{
 			name:    "patch root with other tag",
 			node:    ir.FromInt(1).WithTag(PatchRootTag + ".other"),
-			wantTag: "other", // TagRemove returns without ! prefix
+			wantTag: "!other", // TagRemove preserves ! prefix on remaining tag
 		},
 	}
 
