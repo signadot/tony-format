@@ -12,7 +12,34 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 
 	"github.com/expr-lang/expr"
+	"github.com/expr-lang/expr/vm"
 )
+
+// EvalOptions configures expression evaluation behavior.
+type EvalOptions struct {
+	// ParameterizedDefs is the set of definition names that have parameters.
+	// When an identifier matches one of these names, it gets transformed to
+	// a zero-arg function call. This allows .[array] to automatically call
+	// array() to get the base definition when array is defined as array(t).
+	ParameterizedDefs map[string]bool
+}
+
+// evalWithOptions compiles and runs an expression with optional AST patching
+// for parameterized definition auto-calling.
+func evalWithOptions(input string, env Env, opts *EvalOptions) (any, error) {
+	// If we have parameterized defs, use the patching path
+	if opts != nil && len(opts.ParameterizedDefs) > 0 {
+		return evalWithDefCallPatch(input, env, opts.ParameterizedDefs)
+	}
+
+	// Otherwise, use normal compile+run
+	program, err := expr.Compile(input)
+	if err != nil {
+		return nil, err
+	}
+
+	return vm.Run(program, env)
+}
 
 func ExpandEnv(node *ir.Node, env Env) error {
 	if node.Comment != nil {
@@ -144,13 +171,20 @@ func ExpandAny(v any, env Env) (any, error) {
 }
 
 func ExpandIR(node *ir.Node, env map[string]any) (*ir.Node, error) {
+	return ExpandIRWithOptions(node, env, nil)
+}
+
+// ExpandIRWithOptions expands an IR node with optional evaluation options.
+// This is the main entry point for schema evaluation where parameterized
+// definition auto-calling is needed.
+func ExpandIRWithOptions(node *ir.Node, env map[string]any, opts *EvalOptions) (*ir.Node, error) {
 	switch node.Type {
 	case ir.ObjectType:
 		n := len(node.Values)
 		res := make(map[string]*ir.Node, n)
 		for i, elt := range node.Values {
 			f := node.Fields[i]
-			xc, err := ExpandIR(elt, env)
+			xc, err := ExpandIRWithOptions(elt, env, opts)
 			if err != nil {
 				return nil, err
 			}
@@ -161,7 +195,7 @@ func ExpandIR(node *ir.Node, env map[string]any) (*ir.Node, error) {
 		n := len(node.Values)
 		res := make([]*ir.Node, n)
 		for i, elt := range node.Values {
-			xc, err := ExpandIR(elt, env)
+			xc, err := ExpandIRWithOptions(elt, env, opts)
 			if err != nil {
 				return nil, err
 			}
@@ -172,7 +206,7 @@ func ExpandIR(node *ir.Node, env map[string]any) (*ir.Node, error) {
 		// Check for raw env refs (.[var]) - these should replace the node, not just expand the string
 		raw := getRaw(node.String)
 		if raw != "" {
-			val, err := expr.Eval(raw, env)
+			val, err := evalWithOptions(raw, env, opts)
 			if err != nil {
 				return nil, fmt.Errorf("error evaluating %q: %w", raw, err)
 			}
@@ -198,7 +232,7 @@ func ExpandIR(node *ir.Node, env map[string]any) (*ir.Node, error) {
 			repl.ParentField = node.ParentField
 			return repl, nil
 		}
-		xs, err := ExpandString(node.String, env)
+		xs, err := expandStringWithOptions(node.String, env, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -210,7 +244,7 @@ func ExpandIR(node *ir.Node, env map[string]any) (*ir.Node, error) {
 		}
 		return node, nil
 	case ir.CommentType:
-		inner, err := ExpandIR(node.Values[0], env)
+		inner, err := ExpandIRWithOptions(node.Values[0], env, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -219,7 +253,7 @@ func ExpandIR(node *ir.Node, env map[string]any) (*ir.Node, error) {
 			Values: []*ir.Node{inner},
 		}
 		for _, ln := range node.Lines {
-			xLn, err := ExpandString(ln, env)
+			xLn, err := expandStringWithOptions(ln, env, opts)
 			if err != nil {
 				return nil, err
 			}
@@ -249,6 +283,10 @@ func ExpandLineComment(node *ir.Node, env Env) error {
 }
 
 func ExpandString(v string, env map[string]any) (string, error) {
+	return expandStringWithOptions(v, env, nil)
+}
+
+func expandStringWithOptions(v string, env map[string]any, opts *EvalOptions) (string, error) {
 	if len(v) < 3 {
 		return v, nil
 	}
@@ -273,7 +311,7 @@ func ExpandString(v string, env map[string]any) (string, error) {
 		case ']':
 			if j != -1 {
 				key := v[j : i-1]
-				x, err := expr.Eval(strings.TrimSpace(key), env)
+				x, err := evalWithOptions(strings.TrimSpace(key), env, opts)
 				if err != nil {
 					return "", fmt.Errorf("error evaluating %q: %w", key, err)
 				}
@@ -304,7 +342,7 @@ func ExpandString(v string, env map[string]any) (string, error) {
 		buf = append(buf, v[j-2:n]...)
 	} else {
 		key := v[j : n-1]
-		x, err := expr.Eval(strings.TrimSpace(key), env)
+		x, err := evalWithOptions(strings.TrimSpace(key), env, opts)
 		if err != nil {
 			return "", fmt.Errorf("error evaluating %q: %w", key, err)
 		}
