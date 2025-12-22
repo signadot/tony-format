@@ -6,6 +6,7 @@ import (
 
 	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
 )
 
@@ -127,8 +128,35 @@ func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq i
 		}
 		return nil
 	case ir.ArrayType:
-		for i, v := range n.Values {
-			next := fmt.Sprintf("%s[%d]", kPath, i)
+		key, args := ir.TagGet(n.Tag, "key")
+		if key == "" {
+			for i, v := range n.Values {
+				next := fmt.Sprintf("%s[%d]", kPath, i)
+				if err := indexPatchRec(idx, e, logFile, pos, txSeq, v, next); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		// keys in patches just add the index item associated with the key (key).
+		// however, this lacks enforcement of using !key in the stored document
+		// TODO enforce !key in stored document with schema and ensure that storage
+		// is made aware of this somehow, and reference that here instead of
+		// just !key in the patch
+		if len(args) != 1 {
+			return fmt.Errorf("!key has incorrect form of args %v", args)
+		}
+		key = args[0]
+		for _, v := range n.Values {
+			// default to "" for things aren't indexable this way.
+			indexVal := ""
+			if v.Type == ir.ObjectType {
+				keyVal := ir.Get(n, key)
+				if keyVal != nil {
+					indexVal = keyVal.String
+				}
+			}
+			next := fmt.Sprintf("%s%s", kPath, kpath.Key(indexVal).SegmentString())
 			if err := indexPatchRec(idx, e, logFile, pos, txSeq, v, next); err != nil {
 				return err
 			}
