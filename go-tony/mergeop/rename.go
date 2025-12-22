@@ -62,7 +62,7 @@ type renameOp struct {
 	renamings []renaming
 }
 
-func (p renameOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
+func (p renameOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
 	if debug.Op() {
 		debug.Logf("rename op patch on %s\n", doc.Path())
 	}

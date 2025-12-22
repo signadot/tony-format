@@ -49,6 +49,7 @@ func MainCommand() *cli.Command {
 			BuildCommand(cfg),
 			DumpCommand(cfg),
 			LoadCommand(cfg),
+			SchemaCommand(cfg),
 			SystemCommand(cfg))
 }
 

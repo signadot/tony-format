@@ -33,7 +33,7 @@ type globOp struct {
 	matchOp
 }
 
-func (g globOp) Match(doc *ir.Node, f MatchFunc) (bool, error) {
+func (g globOp) Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, error) {
 	if debug.Op() {
 		debug.Logf("glob op called on %s\n", doc.Path())
 	}

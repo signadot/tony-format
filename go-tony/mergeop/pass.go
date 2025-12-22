@@ -33,14 +33,14 @@ type passOp struct {
 	op
 }
 
-func (p passOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
+func (p passOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
 	if debug.Op() {
 		debug.Logf("pass op patch on %s\n", doc.Path())
 	}
 	return doc, nil
 }
 
-func (p passOp) Match(doc *ir.Node, f MatchFunc) (bool, error) {
+func (p passOp) Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, error) {
 	if debug.Op() {
 		debug.Logf("pass op match on %s\n", doc.Path())
 	}

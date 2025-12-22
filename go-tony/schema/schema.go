@@ -3,7 +3,9 @@ package schema
 import (
 	"fmt"
 
+	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/mergeop"
 )
 
 // Schema represents a Tony schema document
@@ -52,8 +54,34 @@ func (s *Schema) Validate(doc *ir.Node) error {
 		return nil // No accept clause means everything is accepted
 	}
 
-	// TODO: Implement validation logic using match operations
-	return fmt.Errorf("validation not yet implemented")
+	// Build definition environment and eval options for expanding .[...] refs
+	env := BuildDefEnv(s)
+	opts := BuildEvalOptions(s)
+
+	// Expand the Accept pattern to resolve definition references at top level
+	expanded, err := ExpandDefBody(s.Accept, env, opts)
+	if err != nil {
+		return fmt.Errorf("failed to expand accept pattern: %w", err)
+	}
+
+	// Build OpContext for lazy expansion of nested .[ref] during matching
+	// This is needed for operators like !and and !or that contain .[ref] patterns
+	ctx := &mergeop.OpContext{
+		DefEnv:   env,
+		EvalOpts: opts,
+	}
+
+	// Match the document against the expanded pattern with context
+	// Context enables lazy expansion of .[ref] inside operators
+	matched, err := tony.MatchWith(doc, expanded, ctx)
+	if err != nil {
+		return fmt.Errorf("match error: %w", err)
+	}
+	if !matched {
+		return fmt.Errorf("document does not match schema")
+	}
+
+	return nil
 }
 
 // ToIR converts a Schema to an IR node

@@ -32,14 +32,14 @@ type andOp struct {
 	matchOp
 }
 
-func (a andOp) Match(doc *ir.Node, f MatchFunc) (bool, error) {
+func (a andOp) Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, error) {
 	if debug.Op() {
 		debug.Logf("and op called on %s\n", doc.Path())
 	}
 	switch a.child.Type {
 	case ir.ArrayType:
 		for _, yy := range a.child.Values {
-			v, err := f(doc, yy)
+			v, err := f(doc, yy, ctx)
 			if err != nil {
 				return false, err
 			}
@@ -49,6 +49,6 @@ func (a andOp) Match(doc *ir.Node, f MatchFunc) (bool, error) {
 		}
 		return true, nil
 	default:
-		return f(doc, a.child)
+		return f(doc, a.child, ctx)
 	}
 }

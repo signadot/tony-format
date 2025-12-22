@@ -38,7 +38,7 @@ type pipeOp struct {
 	patchOp
 }
 
-func (n pipeOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
+func (n pipeOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
 	if debug.Op() {
 		debug.Logf("patch op pipe on %s\n", doc.Path())
 	}

@@ -32,7 +32,7 @@ type orOp struct {
 	matchOp
 }
 
-func (o orOp) Match(doc *ir.Node, f MatchFunc) (bool, error) {
+func (o orOp) Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, error) {
 	if debug.Op() {
 		debug.Logf("or op match on %s\n", doc.Path())
 	}
@@ -56,7 +56,7 @@ func (o orOp) Match(doc *ir.Node, f MatchFunc) (bool, error) {
 			if d == nil {
 				continue
 			}
-			subMatch, err := f(d, m)
+			subMatch, err := f(d, m, ctx)
 			if err != nil {
 				return false, err
 			}
@@ -68,7 +68,7 @@ func (o orOp) Match(doc *ir.Node, f MatchFunc) (bool, error) {
 
 	case ir.ArrayType:
 		for _, yy := range o.child.Values {
-			v, err := f(doc, yy)
+			v, err := f(doc, yy, ctx)
 			if err != nil {
 				return false, err
 			}
@@ -81,6 +81,6 @@ func (o orOp) Match(doc *ir.Node, f MatchFunc) (bool, error) {
 		if doc.Type == ir.NullType {
 			return false, nil
 		}
-		return f(doc, o.child)
+		return f(doc, o.child, ctx)
 	}
 }

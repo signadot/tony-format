@@ -34,11 +34,11 @@ type unquoteOp struct {
 	patchOp
 }
 
-func (p unquoteOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, df libdiff.DiffFunc) (*ir.Node, error) {
+func (p unquoteOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, df libdiff.DiffFunc) (*ir.Node, error) {
 	if debug.Op() {
 		debug.Logf("unquote op patch on %s\n", doc.Path())
 	}
-	childPatched, err := pf(doc, p.child)
+	childPatched, err := pf(doc, p.child, ctx)
 	if err != nil {
 		return nil, err
 	}

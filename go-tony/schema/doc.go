@@ -54,7 +54,22 @@
 //	ref := &schema.SchemaReference{Name: "user-schema"}
 //	resolved, _ := schemaReg.ResolveSchema(ref)
 //
-// Validation is not yet implemented.
+// # Validation
+//
+// Schemas validate documents using the Accept pattern:
+//
+//	// Parse and validate
+//	schemaNode, _ := parse.Parse(schemaBytes)
+//	s, _ := schema.ParseSchema(schemaNode)
+//
+//	docNode, _ := parse.Parse(docBytes)
+//	err := s.Validate(docNode)
+//	if err != nil {
+//	    // Document does not match schema
+//	}
+//
+// The Accept pattern supports definition references (.[defName]) and
+// match operators (!and, !or, !not, !type, !glob, etc.).
 //
 // # Related Packages
 //

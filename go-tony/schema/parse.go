@@ -93,9 +93,14 @@ func ParseSchema(node *ir.Node) (*Schema, error) {
 		}
 	}
 
-	// Validate cycles in definitions
+	// Validate cycles in definitions (legacy heuristic-based check)
 	if err := ValidateCycles(s); err != nil {
 		return nil, fmt.Errorf("cycle validation failed: %w", err)
+	}
+
+	// SAT-based satisfiability check for accept field and reachable definitions
+	if err := CheckAcceptSatisfiability(s); err != nil {
+		return nil, fmt.Errorf("satisfiability check failed: %w", err)
 	}
 
 	return s, nil
