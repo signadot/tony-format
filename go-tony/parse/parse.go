@@ -625,6 +625,10 @@ func parseObj(toks []token.Token, p *ir.Node, tag string, pi *int, opts *parseOp
 			if err != nil {
 				return nil, err
 			}
+			if val == nil {
+				return nil, fmt.Errorf("%w: missing value after colon %s",
+					ErrParse, colTok.Pos)
+			}
 			kvs = append(kvs, ir.KeyVal{Key: key, Val: val})
 		case token.TTag:
 			return nil, fmt.Errorf("%w %s", ErrKeyTag, tok.Pos)

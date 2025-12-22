@@ -89,6 +89,10 @@ func balanceOne(dst []Token, toks []Token, d int, y *int, underField bool, f for
 				return nil, 0, fmt.Errorf("%w: key : in bracketed array %s",
 					ErrDocBalance, tok.Pos)
 			}
+			if d == -1 {
+				return nil, 0, fmt.Errorf("%w: unbracketed object in bracketed object %s",
+					ErrDocBalance, tok.Pos)
+			}
 			if tok.Type == TMString {
 				return nil, 0, fmt.Errorf("%w: multiline string cannot be key %s",
 					ErrDocBalance, tok.Pos)

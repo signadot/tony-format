@@ -63,6 +63,9 @@ func mLit(d []byte, indent int, posDoc *PosDoc, off int) (int, error) {
 		if len(d) < 3 {
 			return 0, ErrUnterminated
 		}
+		if d[2] != '\n' {
+			return 0, UnexpectedErr(string(d[2]), posDoc.Pos(off+2))
+		}
 		start++
 		posDoc.nl(off + 2)
 	case '\n':
@@ -129,7 +132,11 @@ func mLitToString(d []byte) string {
 	if d[1] == '-' {
 		trailing++
 	}
-	return res[:len(res)-trailing]
+	end := len(res) - trailing
+	if end < 0 {
+		end = 0
+	}
+	return res[:end]
 }
 
 func scanLines(d []byte, posDoc *PosDoc, off, indent int, format byte) (int, error) {
