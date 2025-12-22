@@ -33,7 +33,7 @@ type nullifyOp struct {
 	patchOp
 }
 
-func (n nullifyOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
+func (n nullifyOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
 	if debug.Op() {
 		debug.Logf("nullify op patch on %s\n", doc.Path())
 	}

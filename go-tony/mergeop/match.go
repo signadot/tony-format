@@ -7,13 +7,15 @@ import (
 	"github.com/signadot/tony-format/go-tony/libdiff"
 )
 
-type MatchFunc func(*ir.Node, *ir.Node) (bool, error)
+// MatchFunc is the signature for recursive matching operations.
+// The context carries schema definitions and behavioral options.
+type MatchFunc func(doc, pattern *ir.Node, ctx *OpContext) (bool, error)
 
 type matchOp struct {
 	op
 }
 
-func (m matchOp) Patch(_ *ir.Node, _ MatchFunc, _ PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
+func (m matchOp) Patch(_ *ir.Node, _ *OpContext, _ MatchFunc, _ PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
 	return nil, fmt.Errorf("cannot patch with %s operation", m)
 }
 

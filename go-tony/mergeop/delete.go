@@ -41,7 +41,7 @@ type deleteOp struct {
 	tag *string
 }
 
-func (n deleteOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
+func (n deleteOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
 	if debug.Op() {
 		debug.Logf("delete op called on %s\n", doc.Path())
 	}

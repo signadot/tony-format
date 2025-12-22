@@ -449,3 +449,125 @@ func TestContextInOutOutInConsistency(t *testing.T) {
 		}
 	}
 }
+
+func TestSchemaValidate(t *testing.T) {
+	tests := []struct {
+		name    string
+		schema  *Schema
+		doc     *ir.Node
+		wantErr bool
+	}{
+		{
+			name: "nil accept accepts everything",
+			schema: &Schema{
+				Accept: nil,
+			},
+			doc:     ir.FromString("anything"),
+			wantErr: false,
+		},
+		{
+			name: "irtype string matches string",
+			schema: &Schema{
+				Define: map[string]*ir.Node{
+					"string": ir.FromString("").WithTag("!irtype"),
+				},
+				Accept: ir.FromString(".[string]"),
+			},
+			doc:     ir.FromString("hello"),
+			wantErr: false,
+		},
+		{
+			name: "irtype string rejects number",
+			schema: &Schema{
+				Define: map[string]*ir.Node{
+					"string": ir.FromString("").WithTag("!irtype"),
+				},
+				Accept: ir.FromString(".[string]"),
+			},
+			doc:     ir.FromInt(42),
+			wantErr: true,
+		},
+		{
+			name: "irtype array matches array",
+			schema: &Schema{
+				Define: map[string]*ir.Node{
+					"array": ir.FromSlice([]*ir.Node{}).WithTag("!irtype"),
+				},
+				Accept: ir.FromString(".[array]"),
+			},
+			doc:     ir.FromSlice([]*ir.Node{ir.FromInt(1), ir.FromInt(2)}),
+			wantErr: false,
+		},
+		{
+			name: "and combinator with def refs",
+			schema: &Schema{
+				Define: map[string]*ir.Node{
+					"array": ir.FromSlice([]*ir.Node{}).WithTag("!irtype"),
+					"myarray": ir.FromSlice([]*ir.Node{
+						ir.FromString(".[array]"),
+					}).WithTag("!and"),
+				},
+				Accept: ir.FromString(".[myarray]"),
+			},
+			doc:     ir.FromSlice([]*ir.Node{ir.FromInt(1), ir.FromInt(2)}),
+			wantErr: false,
+		},
+		{
+			name: "or combinator matches first branch",
+			schema: &Schema{
+				Define: map[string]*ir.Node{
+					"string": ir.FromString("").WithTag("!irtype"),
+					"number": ir.FromInt(0).WithTag("!irtype"),
+					"stringornumber": ir.FromSlice([]*ir.Node{
+						ir.FromString(".[string]"),
+						ir.FromString(".[number]"),
+					}).WithTag("!or"),
+				},
+				Accept: ir.FromString(".[stringornumber]"),
+			},
+			doc:     ir.FromString("hello"),
+			wantErr: false,
+		},
+		{
+			name: "or combinator matches second branch",
+			schema: &Schema{
+				Define: map[string]*ir.Node{
+					"string": ir.FromString("").WithTag("!irtype"),
+					"number": ir.FromInt(0).WithTag("!irtype"),
+					"stringornumber": ir.FromSlice([]*ir.Node{
+						ir.FromString(".[string]"),
+						ir.FromString(".[number]"),
+					}).WithTag("!or"),
+				},
+				Accept: ir.FromString(".[stringornumber]"),
+			},
+			doc:     ir.FromInt(42),
+			wantErr: false,
+		},
+		{
+			name: "or combinator rejects non-matching",
+			schema: &Schema{
+				Define: map[string]*ir.Node{
+					"string": ir.FromString("").WithTag("!irtype"),
+					"number": ir.FromInt(0).WithTag("!irtype"),
+					"stringornumber": ir.FromSlice([]*ir.Node{
+						ir.FromString(".[string]"),
+						ir.FromString(".[number]"),
+					}).WithTag("!or"),
+				},
+				Accept: ir.FromString(".[stringornumber]"),
+			},
+			doc:     ir.FromSlice([]*ir.Node{}),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.schema.Validate(tt.doc)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Schema.Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

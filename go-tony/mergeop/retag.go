@@ -34,7 +34,7 @@ type retagOp struct {
 	from, to string
 }
 
-func (p retagOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
+func (p retagOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
 	if debug.Op() {
 		debug.Logf("retag op patch on %s\n", doc.Path())
 	}

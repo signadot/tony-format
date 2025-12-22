@@ -22,7 +22,15 @@ func MatchTags(v bool) MatchOpt {
 	return func(c *MatchConfig) { c.Tags = v }
 }
 
+// Match matches doc against a pattern. This is the backwards-compatible
+// version that doesn't use context. Use MatchWith for schema-aware matching.
 func Match(doc, match *ir.Node) (bool, error) {
+	return MatchWith(doc, match, nil)
+}
+
+// MatchWith matches doc against a pattern with the given context.
+// The context carries schema definitions for .[ref] expansion and behavioral options.
+func MatchWith(doc, match *ir.Node, ctx *mergeop.OpContext) (bool, error) {
 	if debug.Match() {
 		debug.Logf("match type %s at %s with tag %q\n", match.Type, match.Path(), match.Tag)
 	}
@@ -39,16 +47,20 @@ func Match(doc, match *ir.Node) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		return opInst.Match(doc, Match)
+		// Create a MatchFunc that threads ctx through recursive calls
+		matchFunc := func(d, p *ir.Node, c *mergeop.OpContext) (bool, error) {
+			return MatchWith(d, p, c)
+		}
+		return opInst.Match(doc, ctx, matchFunc)
 	}
 	if doc.Type != match.Type && match.Type != ir.NullType {
 		return false, nil
 	}
 	switch match.Type {
 	case ir.ObjectType:
-		return tagMatchObj(doc, match, tag)
+		return tagMatchObjWith(doc, match, tag, ctx)
 	case ir.ArrayType:
-		return tagMatchArray(doc, match, tag)
+		return tagMatchArrayWith(doc, match, tag, ctx)
 	case ir.StringType:
 		return doc.String == match.String, nil
 	case ir.BoolType:
@@ -73,7 +85,7 @@ func Match(doc, match *ir.Node) (bool, error) {
 	return false, nil
 }
 
-func tagMatchObj(doc, match *ir.Node, tag string) (bool, error) {
+func tagMatchObjWith(doc, match *ir.Node, tag string, ctx *mergeop.OpContext) (bool, error) {
 	mMap := make(map[string]*ir.Node, len(match.Fields))
 	for i, field := range match.Fields {
 		child := match.Values[i]
@@ -86,7 +98,7 @@ func tagMatchObj(doc, match *ir.Node, tag string) (bool, error) {
 		if my == nil {
 			continue
 		}
-		subMatch, err := Match(doc.Values[i], my)
+		subMatch, err := MatchWith(doc.Values[i], my, ctx)
 		if err != nil {
 			return false, err
 		}
@@ -98,12 +110,12 @@ func tagMatchObj(doc, match *ir.Node, tag string) (bool, error) {
 	return count == len(mMap), nil
 }
 
-func tagMatchArray(doc, match *ir.Node, tag string) (bool, error) {
+func tagMatchArrayWith(doc, match *ir.Node, tag string, ctx *mergeop.OpContext) (bool, error) {
 	if len(doc.Values) != len(match.Values) {
 		return false, nil
 	}
 	for i := range doc.Values {
-		subMatch, err := Match(doc.Values[i], match.Values[i])
+		subMatch, err := MatchWith(doc.Values[i], match.Values[i], ctx)
 		if err != nil {
 			return false, err
 		}
@@ -112,6 +124,15 @@ func tagMatchArray(doc, match *ir.Node, tag string) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+// Keep old functions for backwards compatibility within this package
+func tagMatchObj(doc, match *ir.Node, tag string) (bool, error) {
+	return tagMatchObjWith(doc, match, tag, nil)
+}
+
+func tagMatchArray(doc, match *ir.Node, tag string) (bool, error) {
+	return tagMatchArrayWith(doc, match, tag, nil)
 }
 
 // Trim filters a document to only include fields/values that are present in the match criteria.

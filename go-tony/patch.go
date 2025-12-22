@@ -11,8 +11,16 @@ import (
 	"github.com/signadot/tony-format/go-tony/mergeop"
 )
 
+// Patch applies a patch to a document. This is the backwards-compatible
+// version that doesn't use context. Use PatchWith for schema-aware patching.
 func Patch(doc, patch *ir.Node) (*ir.Node, error) {
-	return doPatch(doc, patch.Clone())
+	return PatchWith(doc, patch, nil)
+}
+
+// PatchWith applies a patch to a document with the given context.
+// The context carries schema definitions for .[ref] expansion and behavioral options.
+func PatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) {
+	return doPatchWith(doc, patch.Clone(), ctx)
 }
 
 type PatchConfig struct {
@@ -24,19 +32,24 @@ func PatchComments(v bool) PatchOpt {
 	return func(c *PatchConfig) { c.Comments = v }
 }
 
+// doPatch is the backwards-compatible version without context
 func doPatch(doc, patch *ir.Node) (*ir.Node, error) {
+	return doPatchWith(doc, patch, nil)
+}
+
+func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) {
 	if debug.Patch() {
 		debug.Logf("patch type %s at %s with tag %q\n", patch.Type, patch.Path(), patch.Tag)
 	}
 	if doc.Type == ir.CommentType {
 		if len(doc.Values) != 0 {
-			return doPatch(doc.Values[0], patch)
+			return doPatchWith(doc.Values[0], patch, ctx)
 		}
 		panic("comment")
 	}
 	if patch.Type == ir.CommentType {
 		if len(patch.Values) != 0 {
-			return doPatch(doc, patch.Values[0])
+			return doPatchWith(doc, patch.Values[0], ctx)
 		}
 		panic("comment")
 	}
@@ -53,7 +66,14 @@ func doPatch(doc, patch *ir.Node) (*ir.Node, error) {
 		if err != nil {
 			return nil, err
 		}
-		res, err := opInst.Patch(doc, Match, doPatch, Diff)
+		// Create MatchFunc and PatchFunc that thread ctx through recursive calls
+		matchFunc := func(d, p *ir.Node, c *mergeop.OpContext) (bool, error) {
+			return MatchWith(d, p, c)
+		}
+		patchFunc := func(d, p *ir.Node, c *mergeop.OpContext) (*ir.Node, error) {
+			return doPatchWith(d, p, c)
+		}
+		res, err := opInst.Patch(doc, ctx, matchFunc, patchFunc, Diff)
 		if err != nil {
 			err = fmt.Errorf("%s patching %q gave %w", opInst, encode.MustString(doc), err)
 		}
@@ -61,7 +81,7 @@ func doPatch(doc, patch *ir.Node) (*ir.Node, error) {
 	}
 	switch patch.Type {
 	case ir.ObjectType:
-		return objPatchY(doc, patch)
+		return objPatchYWith(doc, patch, ctx)
 
 	case ir.ArrayType:
 		if doc.Type != ir.ArrayType {
@@ -71,7 +91,7 @@ func doPatch(doc, patch *ir.Node) (*ir.Node, error) {
 		res := make([]*ir.Node, 0, n)
 
 		for i := range n {
-			yy, err := Patch(doc.Values[i], patch.Values[i])
+			yy, err := PatchWith(doc.Values[i], patch.Values[i], ctx)
 			if err != nil {
 				return nil, err
 			}
@@ -91,7 +111,12 @@ func doPatch(doc, patch *ir.Node) (*ir.Node, error) {
 	}
 }
 
+// objPatchY is the backwards-compatible version without context
 func objPatchY(doc, patch *ir.Node) (*ir.Node, error) {
+	return objPatchYWith(doc, patch, nil)
+}
+
+func objPatchYWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) {
 	//fmt.Printf("obj patch w/out op\ndoc\n%s\npatch\n%s\n", doc.MustString(), patch.MustString())
 	var (
 		patchMap      = make(map[string]*ir.Node, len(patch.Fields))
@@ -137,7 +162,7 @@ func objPatchY(doc, patch *ir.Node) (*ir.Node, error) {
 			dstMap[field.String] = dy
 			continue
 		}
-		yy, err := Patch(dy, patch)
+		yy, err := PatchWith(dy, patch, ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -154,7 +179,7 @@ func objPatchY(doc, patch *ir.Node) (*ir.Node, error) {
 		if present {
 			continue
 		}
-		ppv, err := Patch(ir.Null(), pv)
+		ppv, err := PatchWith(ir.Null(), pv, ctx)
 		if err != nil {
 			return nil, err
 		}

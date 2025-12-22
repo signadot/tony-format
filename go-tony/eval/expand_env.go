@@ -210,9 +210,15 @@ func ExpandIRWithOptions(node *ir.Node, env map[string]any, opts *EvalOptions) (
 			if err != nil {
 				return nil, fmt.Errorf("error evaluating %q: %w", raw, err)
 			}
-			// If the result is already an *ir.Node, clone it and preserve parent relationships
+			// If the result is already an *ir.Node, clone it and recursively expand
+			// to handle nested definition references
 			if nodeResult, ok := val.(*ir.Node); ok {
 				repl := nodeResult.Clone()
+				// Recursively expand the result to handle nested .[ref] patterns
+				repl, err = ExpandIRWithOptions(repl, env, opts)
+				if err != nil {
+					return nil, fmt.Errorf("error expanding definition %q: %w", raw, err)
+				}
 				repl.Parent = node.Parent
 				repl.ParentIndex = node.ParentIndex
 				repl.ParentField = node.ParentField

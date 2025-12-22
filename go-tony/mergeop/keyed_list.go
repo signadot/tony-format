@@ -42,7 +42,7 @@ type keyedListOp struct {
 	key string
 }
 
-func (kl keyedListOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
+func (kl keyedListOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
 	if debug.Op() {
 		debug.Logf("patch op key on %s\n", doc.Path())
 	}
@@ -68,7 +68,7 @@ func (kl keyedListOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, _ libdiff.
 			//fmt.Printf("no patch for key %q\n", key)
 			continue
 		}
-		v, err := pf(docItem, patchObj)
+		v, err := pf(docItem, patchObj, ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -84,7 +84,7 @@ func (kl keyedListOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, _ libdiff.
 	return ir.FromSlice(dst), nil
 }
 
-func (kl keyedListOp) Match(doc *ir.Node, f MatchFunc) (bool, error) {
+func (kl keyedListOp) Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, error) {
 	if debug.Op() {
 		debug.Logf("key(%s) op match on %s\n", kl.key, doc.Path())
 	}
@@ -114,7 +114,7 @@ func (kl keyedListOp) Match(doc *ir.Node, f MatchFunc) (bool, error) {
 		if !ok {
 			continue
 		}
-		match, err := f(docItem, matchObj)
+		match, err := f(docItem, matchObj, ctx)
 		if err != nil {
 			return false, err
 		}

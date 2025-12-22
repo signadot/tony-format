@@ -6,8 +6,8 @@ import (
 )
 
 type Op interface {
-	Match(doc *ir.Node, f MatchFunc) (bool, error)
-	Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, df libdiff.DiffFunc) (*ir.Node, error)
+	Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, error)
+	Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, df libdiff.DiffFunc) (*ir.Node, error)
 	String() string
 }
 

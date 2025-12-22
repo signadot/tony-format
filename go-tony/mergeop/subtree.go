@@ -32,8 +32,8 @@ type subtreeOp struct {
 	matchOp
 }
 
-func (s *subtreeOp) dive(doc *ir.Node, mf MatchFunc) (bool, error) {
-	res, err := mf(doc, s.child)
+func (s *subtreeOp) dive(doc *ir.Node, ctx *OpContext, mf MatchFunc) (bool, error) {
+	res, err := mf(doc, s.child, ctx)
 	if err != nil {
 		return false, err
 	}
@@ -43,7 +43,7 @@ func (s *subtreeOp) dive(doc *ir.Node, mf MatchFunc) (bool, error) {
 	switch doc.Type {
 	case ir.ObjectType:
 		for i := range doc.Fields {
-			res, err := s.dive(doc.Values[i], mf)
+			res, err := s.dive(doc.Values[i], ctx, mf)
 			if err != nil {
 				return false, err
 			}
@@ -55,7 +55,7 @@ func (s *subtreeOp) dive(doc *ir.Node, mf MatchFunc) (bool, error) {
 
 	case ir.ArrayType:
 		for i := range doc.Values {
-			res, err := s.dive(doc.Values[i], mf)
+			res, err := s.dive(doc.Values[i], ctx, mf)
 			if err != nil {
 				return false, err
 			}
@@ -69,9 +69,9 @@ func (s *subtreeOp) dive(doc *ir.Node, mf MatchFunc) (bool, error) {
 	}
 }
 
-func (subtree subtreeOp) Match(doc *ir.Node, mf MatchFunc) (bool, error) {
+func (subtree subtreeOp) Match(doc *ir.Node, ctx *OpContext, mf MatchFunc) (bool, error) {
 	if debug.Op() {
 		debug.Logf("subtree match called on %s\n", doc.Path())
 	}
-	return subtree.dive(doc, mf)
+	return subtree.dive(doc, ctx, mf)
 }

@@ -47,7 +47,7 @@ type jPatchOp struct {
 }
 
 // TODO make this native *y.Y to preserve comments
-func (jp jPatchOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
+func (jp jPatchOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
 	if debug.Op() {
 		debug.Logf("jsonpatch op called on %s\n", doc.Path())
 	}

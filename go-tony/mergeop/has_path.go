@@ -32,7 +32,7 @@ type hasPathOp struct {
 	matchOp
 }
 
-func (h hasPathOp) Match(doc *ir.Node, f MatchFunc) (bool, error) {
+func (h hasPathOp) Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, error) {
 	if debug.Op() {
 		debug.Logf("has-path op called on %s\n", doc.Path())
 	}

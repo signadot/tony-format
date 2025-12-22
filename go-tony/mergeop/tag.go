@@ -32,7 +32,7 @@ type tagOp struct {
 	matchOp
 }
 
-func (g tagOp) Match(doc *ir.Node, f MatchFunc) (bool, error) {
+func (g tagOp) Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, error) {
 	if debug.Op() {
 		debug.Logf("tag op called on %s with tag %q\n", doc.Path(), doc.Tag)
 	}
@@ -41,5 +41,5 @@ func (g tagOp) Match(doc *ir.Node, f MatchFunc) (bool, error) {
 		tag = tag[1:] // chop !
 	}
 	dummyNode := ir.FromString(tag)
-	return f(dummyNode, g.child)
+	return f(dummyNode, g.child, ctx)
 }

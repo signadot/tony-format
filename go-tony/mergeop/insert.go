@@ -41,11 +41,11 @@ type insertOp struct {
 	tag *string
 }
 
-func (n insertOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
+func (n insertOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
 	if debug.Op() {
 		debug.Logf("insert op called on %s\n", doc.Path())
 	}
-	res, err := pf(doc, n.child)
+	res, err := pf(doc, n.child, ctx)
 	if err != nil {
 		return nil, err
 	}

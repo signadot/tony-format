@@ -47,7 +47,7 @@ type strDiffOp struct {
 	multiLine bool
 }
 
-func (op strDiffOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, df libdiff.DiffFunc) (*ir.Node, error) {
+func (op strDiffOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, df libdiff.DiffFunc) (*ir.Node, error) {
 	if debug.Op() {
 		debug.Logf("patch op strdiff on %s\n", doc.Path())
 	}
