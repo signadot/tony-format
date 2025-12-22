@@ -2,6 +2,7 @@ package schema
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/signadot/tony-format/go-tony/ir"
 )
@@ -86,15 +87,18 @@ func argToTagString(arg *ir.Node) string {
 	return ""
 }
 
-// substituteParams walks an IR node tree and substitutes parameter references
+// substituteParams walks an IR node tree and substitutes parameter references.
+// Scoping rule: never substitute inside .[...] expressions (def references).
+// With the .[def](.[arg]) syntax, params only appear in tags, not inside .[...].
 func substituteParams(node *ir.Node, paramMap map[string]string, paramNodeMap map[string]*ir.Node) error {
 	// Substitute in tag if present
 	if node.Tag != "" {
 		node.Tag = substituteInTag(node.Tag, paramMap)
 	}
 
-	// Substitute string values that match a parameter name
-	if node.Type == ir.StringType {
+	// Substitute string values that match a parameter name,
+	// but skip .[...] expressions (def references in expr-lang)
+	if node.Type == ir.StringType && !isDefRef(node.String) {
 		if replacement, ok := paramNodeMap[node.String]; ok {
 			// Replace this node's content with the argument, preserving the original tag
 			originalTag := node.Tag
@@ -136,6 +140,13 @@ func substituteInTag(tag string, paramMap map[string]string) string {
 	})
 
 	return mapped.String()
+}
+
+// isDefRef returns true if the string is a def reference expression: .[...]
+// These are expr-lang expressions for looking up definitions and should not
+// have parameter substitution applied inside them.
+func isDefRef(s string) bool {
+	return strings.HasPrefix(s, ".[") && strings.HasSuffix(s, "]")
 }
 
 // replaceNodeContent replaces dst's content with a clone of src, preserving parent refs

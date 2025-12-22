@@ -155,3 +155,101 @@ func TestInstantiateDef_ParamCountMismatch(t *testing.T) {
 		t.Error("expected error for param count mismatch")
 	}
 }
+
+func TestInstantiateDef_DefRefScoping(t *testing.T) {
+	// Test that .[...] expressions are NOT substituted (scoping rule).
+	// With .[def](.[arg]) syntax, params only appear in tags, not inside .[...].
+	tests := []struct {
+		name   string
+		body   string
+		params []string
+		args   []string
+		want   string
+	}{
+		{
+			name:   "def ref not substituted",
+			body:   ".[t]",
+			params: []string{"t"},
+			args:   []string{"int"},
+			want:   ".[t]", // NOT .[int]
+		},
+		{
+			name:   "def ref with args not substituted",
+			body:   ".[array(t)]",
+			params: []string{"t"},
+			args:   []string{"int"},
+			want:   ".[array(t)]", // NOT .[array(int)]
+		},
+		{
+			name:   "tag substituted but def ref preserved",
+			body:   "!t .[t]",
+			params: []string{"t"},
+			args:   []string{"int"},
+			want:   "!int .[t]", // tag changed, def ref unchanged
+		},
+		{
+			name: "mixed: tags substituted, def refs preserved",
+			body: `!and
+- .[array]
+- !all.t null`,
+			params: []string{"t"},
+			args:   []string{"int"},
+			want: `!and
+- .[array]
+- !all.int null`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body, err := parse.Parse([]byte(tt.body))
+			if err != nil {
+				t.Fatalf("parse body: %v", err)
+			}
+
+			args := make([]*ir.Node, len(tt.args))
+			for i, arg := range tt.args {
+				args[i] = ir.FromString(arg)
+			}
+
+			result, err := InstantiateDef(body, tt.params, args)
+			if err != nil {
+				t.Fatalf("InstantiateDef: %v", err)
+			}
+
+			got := encode.MustString(result)
+			want, err := parse.Parse([]byte(tt.want))
+			if err != nil {
+				t.Fatalf("parse want: %v", err)
+			}
+			wantStr := encode.MustString(want)
+
+			if got != wantStr {
+				t.Errorf("InstantiateDef:\ngot:\n%s\nwant:\n%s", got, wantStr)
+			}
+		})
+	}
+}
+
+func TestIsDefRef(t *testing.T) {
+	tests := []struct {
+		s    string
+		want bool
+	}{
+		{".[array]", true},
+		{".[array(int)]", true},
+		{".[nullable(t)]", true},
+		{"array", false},
+		{"t", false},
+		{"!array", false},
+		{".array", false},
+		{"[array]", false},
+	}
+
+	for _, tt := range tests {
+		got := isDefRef(tt.s)
+		if got != tt.want {
+			t.Errorf("isDefRef(%q) = %v, want %v", tt.s, got, tt.want)
+		}
+	}
+}
