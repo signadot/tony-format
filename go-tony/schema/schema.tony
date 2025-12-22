@@ -45,15 +45,15 @@ define:
   - .null
   _ir:
     type: !or [Comment Null Bool Number String Array Object]
-    fields: .[array(field)]
-    values: .[array(ir)]
+    fields: .[array](.[field])
+    values: .[array](.[ir])
     string: .[string]
     int: .[int]
     float: .[float]
     number: .[string]
     bool: .[bool]
-    lines: .[array(string)]
-  ir: [.nullable(_ir)]
+    lines: .[array](.[string])
+  ir: .[nullable](.[_ir])
 
 ---
 #
@@ -69,9 +69,9 @@ signature:
 define:
   # Metadata structure for documentation
   metadata:
-    title: .[nullable(string)]
-    description: .[nullable(string)]
-    examples: .[nullable(array(ir))]
+    title: .[nullable](.[string])
+    description: .[nullable](.[string])
+    examples: .[nullable](.[array](.[ir]))
 
 accept: .[metadata]
 
@@ -109,21 +109,21 @@ define:
   schema:
     # Context field (can be @context, context, or contexts)
     # Context is optional; if present, must be a valid context-value
-    "@context": .[nullable(context-value)]
-    context: .[nullable(context-value)]
-    contexts: .[nullable(context-value)]
+    "@context": .[nullable](.[context-value])
+    context: .[nullable](.[context-value])
+    contexts: .[nullable](.[context-value])
     # Signature defines how the schema can be referenced
-    signature: .[nullable(signature)]
+    signature: .[nullable](.[signature])
     # Tags defines tags that this schema introduces
     # tags is an object mapping tag names to tag-definition
-    tags: .[nullable(object)]
+    tags: .[nullable](.[object])
     # Define provides value definitions
     # define is an object mapping definition names to IR nodes or definition-with-metadata
-    define: .[nullable(object)]
+    define: .[nullable](.[object])
     # Accept defines what documents this schema accepts
-    accept: .[nullable(ir)]
+    accept: .[nullable](.[ir])
     # Metadata field for schema-level documentation
-    md: .[nullable(metadata)]
+    md: .[nullable](.[metadata])
   
   # Context value - references tony-context schema
   # Note: In a multi-schema file, we define it locally for now
@@ -132,30 +132,30 @@ define:
   
   # Signature structure
   signature:
-    name: .[nullable(string)]
-    args: .[nullable(array(arg))]
-  
+    name: .[nullable](.[string])
+    args: .[nullable](.[array](.[arg]))
+
   # Argument structure
   arg:
-    name: .[nullable(string)]
-    match: .[nullable(ir)]
-  
+    name: .[nullable](.[string])
+    match: .[nullable](.[ir])
+
   # Tag definition structure
   tag-definition:
-    contexts: .[nullable(array(string))]
-    schema: .[nullable(string)]
-    md: .[nullable(metadata)]
-  
+    contexts: .[nullable](.[array](.[string]))
+    schema: .[nullable](.[string])
+    md: .[nullable](.[metadata])
+
   # Metadata structure - references tony-md schema
   # Note: In a multi-schema file, we define it locally for now
   metadata:
-    title: .[nullable(string)]
-    description: .[nullable(string)]
-    examples: .[nullable(array(ir))]
-  
+    title: .[nullable](.[string])
+    description: .[nullable](.[string])
+    examples: .[nullable](.[array](.[ir]))
+
   # Definition with metadata
   definition-with-metadata:
     value: ir  # The actual definition value
-    md: .[nullable(metadata)]  # Optional metadata
+    md: .[nullable](.[metadata])  # Optional metadata
 
 accept: .[schema]
