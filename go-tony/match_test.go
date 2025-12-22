@@ -117,12 +117,12 @@ var matchTests = []matchTest{
 	},
 	{
 		in:    "a: b\nc: !mytag d\ne:\n- 1\n- true\n- 42",
-		match: "c: !tag.glob my*",
+		match: "c: !tag\n  name: !glob my*",
 		res:   true,
 	},
 	{
 		in:    "a: b\nc: !mytag d\ne:\n- 1\n- true\n- 42",
-		match: "c: !not.tag.glob my*",
+		match: "c: !not.tag\n  name: !glob my*",
 		res:   false,
 	},
 	{

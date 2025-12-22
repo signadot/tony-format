@@ -36,10 +36,37 @@ func (g tagOp) Match(doc *ir.Node, f MatchFunc) (bool, error) {
 	if debug.Op() {
 		debug.Logf("tag op called on %s with tag %q\n", doc.Path(), doc.Tag)
 	}
+
+	// Parse tag into name and args
+	// e.g., "!key(name)" -> name="key", args=["name"]
 	tag := doc.Tag
-	if tag != "" {
-		tag = tag[1:] // chop !
+	if tag == "" {
+		// No tag - match against empty structure
+		tagNode := ir.FromMap(map[string]*ir.Node{
+			"name": ir.FromString(""),
+			"args": ir.FromSlice(nil),
+		})
+		return f(tagNode, g.child)
 	}
-	dummyNode := ir.FromString(tag)
-	return f(dummyNode, g.child)
+
+	head, args, _ := ir.TagArgs(tag)
+	// head includes the !, strip it
+	name := head
+	if len(name) > 0 && name[0] == '!' {
+		name = name[1:]
+	}
+
+	// Build args array
+	argsNodes := make([]*ir.Node, len(args))
+	for i, arg := range args {
+		argsNodes[i] = ir.FromString(arg)
+	}
+
+	// Build structured match object: {name: "key", args: ["name"]}
+	tagNode := ir.FromMap(map[string]*ir.Node{
+		"name": ir.FromString(name),
+		"args": ir.FromSlice(argsNodes),
+	})
+
+	return f(tagNode, g.child)
 }
