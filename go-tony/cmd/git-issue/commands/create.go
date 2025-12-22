@@ -1,8 +1,9 @@
 package commands
 
 import (
-	"bufio"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 
 	"github.com/scott-cotton/cli"
@@ -29,21 +30,36 @@ func (cfg *createConfig) run(cc *cli.Context, args []string) error {
 
 	title := strings.Join(args, " ")
 
-	// Prompt for description
-	fmt.Fprintf(cc.Out, "Creating issue: %s\n", title)
-	fmt.Fprintln(cc.Out, "Enter description (end with Ctrl+D):")
-	fmt.Fprintln(cc.Out)
+	// Get description text
+	var descBody string
+	if stat, _ := os.Stdin.Stat(); (stat.Mode() & os.ModeCharDevice) == 0 {
+		// stdin is a pipe/file, read from it
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return fmt.Errorf("reading stdin: %w", err)
+		}
+		descBody = string(data)
+	} else {
+		// Open editor
+		initialContent := fmt.Sprintf(`# %s
 
-	var descLines []string
-	descLines = append(descLines, "# "+title)
-	descLines = append(descLines, "")
-
-	scanner := bufio.NewScanner(cc.In)
-	for scanner.Scan() {
-		descLines = append(descLines, scanner.Text())
+# Enter description above.
+# Lines starting with # will be ignored.
+# Save and close the editor to submit, or leave empty to cancel.
+`, title)
+		var err error
+		descBody, err = issuelib.EditInEditor(initialContent)
+		if err != nil {
+			return fmt.Errorf("editor failed: %w", err)
+		}
 	}
 
-	description := strings.Join(descLines, "\n")
+	// Build full description with title as heading
+	description := "# " + title + "\n\n" + strings.TrimSpace(descBody)
+
+	if strings.TrimSpace(descBody) == "" {
+		return fmt.Errorf("description cannot be empty")
+	}
 
 	// Create issue
 	issue, err := cfg.store.Create(title, description)
@@ -51,7 +67,7 @@ func (cfg *createConfig) run(cc *cli.Context, args []string) error {
 		return fmt.Errorf("failed to create issue: %w", err)
 	}
 
-	fmt.Fprintf(cc.Out, "\nCreated issue #%s\n", issuelib.FormatID(issue.ID))
+	fmt.Fprintf(cc.Out, "Created issue #%s\n", issuelib.FormatID(issue.ID))
 	fmt.Fprintf(cc.Out, "Ref: %s\n", issue.Ref)
 
 	return nil
