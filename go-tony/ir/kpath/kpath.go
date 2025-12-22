@@ -2,6 +2,7 @@ package kpath
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ import (
 //   - "a[*]" → Dense Array wildcard (matches all elements)
 //   - "a{0}" → Sparse Array accessed via "{0}" (a is SparseArrayType)
 //   - "a{*}" → Sparse Array wildcard (matches all sparse indices)
+//   - "a(jane)" → keyed array with key jane
 //
 // Future: Support for !key(path) objects:
 //   - "a.b(<value>)[2].fred" → Object with !key path value
@@ -28,6 +30,7 @@ type KPath struct {
 	IndexAll       bool    // Dense array wildcard [*] - similar to Path.IndexAll
 	SparseIndex    *int    // Sparse array index (e.g., 0, 42) - for {n} syntax
 	SparseIndexAll bool    // Sparse array wildcard {*} - matches all sparse indices
+	Key            *string // Key
 	Next           *KPath  // Next segment in path (nil for leaf) - similar to Path.Next
 }
 
@@ -40,6 +43,7 @@ type KPath struct {
 //	KPath{Field: &"a", Next: &KPath{IndexAll: true, ...}} → "a[*]"
 //	KPath{Field: &"a", Next: &KPath{SparseIndex: &42, ...}} → "a{42}"
 //	KPath{Field: &"a", Next: &KPath{SparseIndexAll: true, ...}} → "a{*}"
+//	KPath{Field: &"a", Next: &KPath{Key: &"b", ...}} → "a(b)"
 func (p *KPath) String() string {
 	if p == nil {
 		return ""
@@ -91,6 +95,19 @@ func (p *KPath) String() string {
 			x = x.Next
 			continue
 		}
+		if x.Key != nil {
+			key := *x.Key
+			buf.WriteByte('(')
+			// Quote key if it contains spaces, dots, brackets, braces, or other special characters
+			if token.KPathQuoteField(key) {
+				buf.WriteString(token.Quote(key, true))
+			} else {
+				buf.WriteString(key)
+			}
+			buf.WriteByte(')')
+			x = x.Next
+			continue
+		}
 		x = x.Next
 	}
 	return buf.String()
@@ -112,6 +129,9 @@ func (p *KPath) EntryKind() EntryKind {
 	}
 	if p.SparseIndex != nil || p.SparseIndexAll {
 		return SparseArrayEntry
+	}
+	if p.Key != nil {
+		return KeyEntry
 	}
 	panic("entry kind")
 }
@@ -403,6 +423,9 @@ func copyKPathSegment(src *KPath, dst *KPath, stop *KPath) {
 	} else if src.SparseIndex != nil {
 		idx := *src.SparseIndex
 		dst.SparseIndex = &idx
+	} else if src.Key != nil {
+		key := *src.Key
+		dst.Key = &key
 	}
 	// Copy next segment if not at stop
 	if src.Next != nil && src.Next != stop {
@@ -423,6 +446,13 @@ func segmentToString(kp *KPath) string {
 			return token.Quote(field, true)
 		}
 		return field
+	}
+	if kp.Key != nil {
+		key := *kp.Key
+		if token.KPathQuoteField(key) {
+			return "(" + token.Quote(key, true) + ")"
+		}
+		return "(" + key + ")"
 	}
 	if kp.IndexAll {
 		return "[*]"
@@ -489,7 +519,7 @@ func Join(prefix string, suffix string) string {
 }
 
 // parseSingleSegment parses a single segment string into a KPath.
-// Handles: field names (quoted or unquoted), [index], {index}, [*], {*}, .*
+// Handles: field names (quoted or unquoted), [index], {index}, [*], {*}, .*, (key)
 func parseSingleSegment(seg string) (*KPath, error) {
 	if seg == "" {
 		return nil, fmt.Errorf("empty segment")
@@ -498,6 +528,7 @@ func parseSingleSegment(seg string) (*KPath, error) {
 	kp := &KPath{}
 
 	// Check for wildcards first
+	// TODO tokenize this to allow spaces
 	if seg == ".*" {
 		kp.FieldAll = true
 		return kp, nil
@@ -543,6 +574,18 @@ func parseSingleSegment(seg string) (*KPath, error) {
 			}
 			kp.SparseIndex = &index
 		}
+		return kp, nil
+	}
+
+	if len(seg) > 0 && seg[0] == '(' {
+		if seg[len(seg)-1] != ')' {
+			return nil, fmt.Errorf("unclosed paren in segment %q", seg)
+		}
+		key := seg[1 : len(seg)-1]
+		if len(key) > 0 && key[0] == '\'' || key[0] == '"' {
+			key = token.QuotedToString([]byte(key))
+		}
+		kp.Key = &key
 		return kp, nil
 	}
 
@@ -633,6 +676,22 @@ func parseKFrag(frag string, parent *KPath) error {
 		}
 		next := &KPath{}
 		err = parseKFrag(frag[i+2:], next)
+		if err != nil {
+			return err
+		}
+		parent.Next = next
+		return nil
+	case '(':
+		key, rest, err := parseKPathKey(frag[1:])
+		if err != nil {
+			return err
+		}
+		parent.Key = &key
+		if len(rest) == 0 {
+			return nil
+		}
+		next := &KPath{}
+		err = parseKFrag(rest, next)
 		if err != nil {
 			return err
 		}
@@ -729,12 +788,45 @@ func parseKField(frag string) (field, rest string, err error) {
 		rest = frag[quotedLen:]
 		return field, rest, nil
 	}
-	// Unquoted field: find the first occurrence of '.', '[', or '{'
-	i := strings.IndexAny(frag, ".[{")
+	// Unquoted field: find the first occurrence of '.', '[', or '{', or '(')
+	i := strings.IndexAny(frag, ".[{(")
 	if i == -1 {
 		return frag, "", nil
 	}
 	return frag[:i], frag[i:], nil
+}
+
+// parseKField parses an object field name from a fragment.
+// It stops at '.', '[', or '{' characters.
+// Supports tony quoted strings (single or double quotes with escape sequences).
+func parseKPathKey(frag string) (key, rest string, err error) {
+	if len(frag) == 0 {
+		return "", "", fmt.Errorf("expected key at end of string")
+	}
+	// Check if field starts with a quote character
+	if frag[0] == '\'' || frag[0] == '"' {
+		// Parse quoted string using token package logic
+		quotedLen, err := findQuotedStringEnd([]byte(frag))
+		if err != nil {
+			return "", "", fmt.Errorf("invalid quoted key: %w", err)
+		}
+		quotedPortion := frag[:quotedLen]
+		// Unquote using token.QuotedToString (which handles escapes)
+		key = token.QuotedToString([]byte(quotedPortion))
+		rest = frag[quotedLen:]
+		// Must be followed by closing )
+		if len(rest) == 0 || rest[0] != ')' {
+			return "", "", errors.New("expected closing ')' after quoted key")
+		}
+		rest = rest[1:] // skip the )
+		return key, rest, nil
+	}
+	// Unquoted field: find the first occurrence of ')'
+	i := strings.IndexByte(frag, ')')
+	if i == -1 {
+		return "", "", errors.New("expected closing ')'")
+	}
+	return frag[:i], frag[i+1:], nil
 }
 
 // findQuotedStringEnd finds the end of a quoted string in a byte slice.

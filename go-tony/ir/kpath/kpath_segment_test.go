@@ -78,6 +78,13 @@ func TestKPath_SegmentString(t *testing.T) {
 			},
 			expected: "{*}",
 		},
+		{
+			name: "key",
+			kpath: &KPath{
+				Key: stringPtr("jane"),
+			},
+			expected: "(jane)",
+		},
 	}
 
 	for _, tt := range tests {

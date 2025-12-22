@@ -239,6 +239,116 @@ func TestParseKPath(t *testing.T) {
 				},
 			},
 		},
+		// Keyed array tests
+		{
+			name:  "simple key",
+			input: "(jane)",
+			want: &KPath{
+				Key: stringPtr("jane"),
+			},
+		},
+		{
+			name:  "field then key",
+			input: "users(jane)",
+			want: &KPath{
+				Field: stringPtr("users"),
+				Next: &KPath{
+					Key: stringPtr("jane"),
+				},
+			},
+		},
+		{
+			name:  "key then field",
+			input: "(jane).name",
+			want: &KPath{
+				Key: stringPtr("jane"),
+				Next: &KPath{
+					Field: stringPtr("name"),
+				},
+			},
+		},
+		{
+			name:  "field key field",
+			input: "users(jane).email",
+			want: &KPath{
+				Field: stringPtr("users"),
+				Next: &KPath{
+					Key: stringPtr("jane"),
+					Next: &KPath{
+						Field: stringPtr("email"),
+					},
+				},
+			},
+		},
+		{
+			name:  "key with array index",
+			input: "(jane)[0]",
+			want: &KPath{
+				Key: stringPtr("jane"),
+				Next: &KPath{
+					Index: intPtr(0),
+				},
+			},
+		},
+		{
+			name:  "key with sparse index",
+			input: "(jane){42}",
+			want: &KPath{
+				Key: stringPtr("jane"),
+				Next: &KPath{
+					SparseIndex: intPtr(42),
+				},
+			},
+		},
+		{
+			name:  "quoted key with spaces",
+			input: "('jane doe')",
+			want: &KPath{
+				Key: stringPtr("jane doe"),
+			},
+		},
+		{
+			name:  "quoted key with special chars",
+			input: "(\"user.name\")",
+			want: &KPath{
+				Key: stringPtr("user.name"),
+			},
+		},
+		{
+			name:  "field then quoted key",
+			input: "users('jane doe').email",
+			want: &KPath{
+				Field: stringPtr("users"),
+				Next: &KPath{
+					Key: stringPtr("jane doe"),
+					Next: &KPath{
+						Field: stringPtr("email"),
+					},
+				},
+			},
+		},
+		{
+			name:  "mixed path with key",
+			input: "data[0].users(jane).settings{1}",
+			want: &KPath{
+				Field: stringPtr("data"),
+				Next: &KPath{
+					Index: intPtr(0),
+					Next: &KPath{
+						Field: stringPtr("users"),
+						Next: &KPath{
+							Key: stringPtr("jane"),
+							Next: &KPath{
+								Field: stringPtr("settings"),
+								Next: &KPath{
+									SparseIndex: intPtr(1),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -368,6 +478,74 @@ func TestKPath_String(t *testing.T) {
 			},
 			want: "a{*}.b",
 		},
+		// Keyed array tests
+		{
+			name:  "simple key",
+			kpath: &KPath{Key: stringPtr("jane")},
+			want:  "(jane)",
+		},
+		{
+			name: "field then key",
+			kpath: &KPath{
+				Field: stringPtr("users"),
+				Next:  &KPath{Key: stringPtr("jane")},
+			},
+			want: "users(jane)",
+		},
+		{
+			name: "key then field",
+			kpath: &KPath{
+				Key:  stringPtr("jane"),
+				Next: &KPath{Field: stringPtr("name")},
+			},
+			want: "(jane).name",
+		},
+		{
+			name: "field key field",
+			kpath: &KPath{
+				Field: stringPtr("users"),
+				Next: &KPath{
+					Key:  stringPtr("jane"),
+					Next: &KPath{Field: stringPtr("email")},
+				},
+			},
+			want: "users(jane).email",
+		},
+		{
+			name: "key with array",
+			kpath: &KPath{
+				Key:  stringPtr("jane"),
+				Next: &KPath{Index: intPtr(0)},
+			},
+			want: "(jane)[0]",
+		},
+		{
+			name: "key with sparse",
+			kpath: &KPath{
+				Key:  stringPtr("jane"),
+				Next: &KPath{SparseIndex: intPtr(42)},
+			},
+			want: "(jane){42}",
+		},
+		{
+			name: "mixed path with key",
+			kpath: &KPath{
+				Field: stringPtr("data"),
+				Next: &KPath{
+					Index: intPtr(0),
+					Next: &KPath{
+						Field: stringPtr("users"),
+						Next: &KPath{
+							Key: stringPtr("jane"),
+							Next: &KPath{
+								Field: stringPtr("settings"),
+							},
+						},
+					},
+				},
+			},
+			want: "data[0].users(jane).settings",
+		},
 	}
 
 	for _, tt := range tests {
@@ -474,6 +652,40 @@ func TestKPath_RoundTrip_QuotedFields(t *testing.T) {
 	}
 }
 
+func TestKPath_RoundTrip_KeyedPaths(t *testing.T) {
+	tests := []string{
+		"(jane)",
+		"users(jane)",
+		"(jane).name",
+		"users(jane).email",
+		"('jane doe')",
+		"(\"jane doe\")",
+		"users('jane doe').email",
+		"('key.with.dots')",
+		"data[0].users(jane).settings{1}",
+	}
+
+	for _, input := range tests {
+		t.Run(input, func(t *testing.T) {
+			parsed, err := Parse(input)
+			if err != nil {
+				t.Fatalf("ParseKPath(%q) error = %v", input, err)
+			}
+			output := parsed.String()
+			// Parse again to verify round-trip
+			reparsed, err := Parse(output)
+			if err != nil {
+				t.Fatalf("ParseKPath(%q) error = %v", output, err)
+			}
+			// Compare structures (not string representation, since quoting style may differ)
+			if !kpathEqual(parsed, reparsed) {
+				t.Errorf("Round-trip failed: ParseKPath(%q) = %v, String() = %q, ParseKPath(%q) = %v",
+					input, parsed, output, output, reparsed)
+			}
+		})
+	}
+}
+
 func TestSplit(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -553,6 +765,31 @@ func TestSplit(t *testing.T) {
 			input:     "\"a.b\".c",
 			wantFirst: "\"a.b\"",
 			wantRest:  "c",
+		},
+		// Keyed array tests
+		{
+			name:      "key first",
+			input:     "(jane).name",
+			wantFirst: "(jane)",
+			wantRest:  "name",
+		},
+		{
+			name:      "field then key",
+			input:     "users(jane)",
+			wantFirst: "users",
+			wantRest:  "(jane)",
+		},
+		{
+			name:      "field then key then field",
+			input:     "users(jane).email",
+			wantFirst: "users",
+			wantRest:  "(jane).email",
+		},
+		{
+			name:      "key then array",
+			input:     "(jane)[0]",
+			wantFirst: "(jane)",
+			wantRest:  "[0]",
 		},
 	}
 
@@ -652,6 +889,31 @@ func TestRSplit(t *testing.T) {
 			input:      "a.b.'field name'",
 			wantParent: "a.b",
 			wantLast:   "\"field name\"", // SegmentString normalizes to double quotes
+		},
+		// Keyed array tests
+		{
+			name:       "key at end",
+			input:      "users(jane)",
+			wantParent: "users",
+			wantLast:   "(jane)",
+		},
+		{
+			name:       "field after key",
+			input:      "users(jane).email",
+			wantParent: "users(jane)",
+			wantLast:   "email",
+		},
+		{
+			name:       "key only",
+			input:      "(jane)",
+			wantParent: "",
+			wantLast:   "(jane)",
+		},
+		{
+			name:       "array after key",
+			input:      "(jane)[0]",
+			wantParent: "(jane)",
+			wantLast:   "[0]",
 		},
 	}
 
@@ -772,6 +1034,32 @@ func TestSplitAll(t *testing.T) {
 			input: "a[*].*{*}.b",
 			want:  []string{"a", "[*]", "*", "{*}", "b"}, // FieldAll segment outputs "*" as top-level kpath
 		},
+		// Keyed array tests
+		{
+			name:  "simple key",
+			input: "(jane)",
+			want:  []string{"(jane)"},
+		},
+		{
+			name:  "field then key",
+			input: "users(jane)",
+			want:  []string{"users", "(jane)"},
+		},
+		{
+			name:  "key then field",
+			input: "(jane).name",
+			want:  []string{"(jane)", "name"},
+		},
+		{
+			name:  "field key field",
+			input: "users(jane).email",
+			want:  []string{"users", "(jane)", "email"},
+		},
+		{
+			name:  "mixed with key",
+			input: "data[0].users(jane).settings{1}",
+			want:  []string{"data", "[0]", "users", "(jane)", "settings", "{1}"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -829,6 +1117,12 @@ func TestSplitAll_EachSegmentIsValidTopLevelKPath(t *testing.T) {
 		"a{*}.b",
 		"a.*.b",
 		"a[*].*{*}.b",
+		// Keyed paths
+		"(jane)",
+		"users(jane)",
+		"(jane).name",
+		"users(jane).email",
+		"data[0].users(jane).settings{1}",
 	}
 
 	for _, input := range testPaths {
@@ -936,6 +1230,37 @@ func TestJoin(t *testing.T) {
 			suffix: "[1]",
 			want:   "[0][1]",
 		},
+		// Keyed array tests
+		{
+			name:   "field + key",
+			prefix: "users",
+			suffix: "(jane)",
+			want:   "users(jane)",
+		},
+		{
+			name:   "key + field",
+			prefix: "(jane)",
+			suffix: "email",
+			want:   "(jane).email",
+		},
+		{
+			name:   "key + array",
+			prefix: "(jane)",
+			suffix: "[0]",
+			want:   "(jane)[0]",
+		},
+		{
+			name:   "key + sparse",
+			prefix: "(jane)",
+			suffix: "{42}",
+			want:   "(jane){42}",
+		},
+		{
+			name:   "key + key",
+			prefix: "(jane)",
+			suffix: "(bob)",
+			want:   "(jane)(bob)",
+		},
 	}
 
 	for _, tt := range tests {
@@ -980,6 +1305,13 @@ func TestSplitJoin_RoundTrip(t *testing.T) {
 		"a[0].b{13}.c",
 		"'field name'.b",
 		"a.'field name'",
+		// Keyed paths
+		"(jane)",
+		"users(jane)",
+		"(jane).name",
+		"users(jane).email",
+		"(jane)[0]",
+		"data[0].users(jane).settings",
 	}
 
 	for _, input := range tests {
@@ -1037,6 +1369,9 @@ func kpathEqual(a, b *KPath) bool {
 		return false
 	}
 	if !reflect.DeepEqual(a.SparseIndex, b.SparseIndex) {
+		return false
+	}
+	if !reflect.DeepEqual(a.Key, b.Key) {
 		return false
 	}
 	return kpathEqual(a.Next, b.Next)

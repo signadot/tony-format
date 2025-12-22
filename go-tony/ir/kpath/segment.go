@@ -12,6 +12,7 @@ const (
 	FieldEntry EntryKind = iota
 	ArrayEntry
 	SparseArrayEntry
+	KeyEntry
 )
 
 type SegmentType struct {
@@ -38,6 +39,11 @@ func (p *KPath) copySegment() *KPath {
 	if p.SparseIndex != nil {
 		tmp := *p.SparseIndex
 		res.SparseIndex = &tmp
+		return res
+	}
+	if p.Key != nil {
+		tmp := *p.Key
+		res.Key = &tmp
 		return res
 	}
 	return res
@@ -71,6 +77,12 @@ func segmentsEqual(a, b *KPath) bool {
 	if a.SparseIndexAll != b.SparseIndexAll {
 		return false
 	}
+	if (a.Key == nil) != (b.Key == nil) {
+		return false
+	}
+	if a.Key != nil {
+		return *a.Key == *b.Key
+	}
 	return true
 }
 
@@ -89,6 +101,12 @@ func Index(i int) *KPath {
 func SparseIndex(i int) *KPath {
 	return &KPath{
 		SparseIndex: &i,
+	}
+}
+
+func Key(t string) *KPath {
+	return &KPath{
+		Key: &t,
 	}
 }
 
@@ -127,6 +145,9 @@ func (p *KPath) SegmentString() string {
 	}
 	if p.SparseIndex != nil {
 		return fmt.Sprintf("{%d}", *p.SparseIndex)
+	}
+	if p.Key != nil {
+		return fmt.Sprintf("(%s)", *p.Key)
 	}
 	return ""
 }
