@@ -719,6 +719,108 @@ define:
 	}
 }
 
+// TestParameterizedTypeSatisfiability tests SAT-based checking with parameterized types
+func TestParameterizedTypeSatisfiability(t *testing.T) {
+	tests := []struct {
+		name       string
+		schema     string
+		wantErr    bool
+		errContain string
+	}{
+		{
+			name: "parameterized list with null escape hatch",
+			schema: `
+define:
+  list(t): !or
+  - null
+  - value: !t null
+    next: .[list(t)]
+accept: .[list(int)]
+`,
+			wantErr: false,
+		},
+		{
+			name: "parameterized list without escape hatch",
+			schema: `
+define:
+  list(t):
+    value: !t null
+    next: .[list(t)]
+accept: .[list(int)]
+`,
+			wantErr:    true,
+			errContain: "impossible cycle",
+		},
+		{
+			name: "parameterized nullable wrapper",
+			schema: `
+define:
+  nullable(t): !or [null, !t null]
+  node:
+    parent: .[nullable(node)]
+accept: .[node]
+`,
+			wantErr: false,
+		},
+		{
+			name: "nested parameterized reference",
+			schema: `
+define:
+  tree(t): !or
+  - null
+  - value: !t null
+    left: .[tree(t)]
+    right: .[tree(t)]
+accept: .[tree(string)]
+`,
+			wantErr: false,
+		},
+		{
+			name: "parameterized type with impossible cycle",
+			schema: `
+define:
+  wrapper(t): !and
+  - !not null
+  - !t null
+  node:
+    next: .[wrapper(node)]
+accept: .[node]
+`,
+			// wrapper(node) = (!not null) AND node = must be non-null node
+			// This forces infinite recursion - impossible
+			wantErr:    true,
+			errContain: "impossible cycle",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			node, err := parse.Parse([]byte(tt.schema))
+			if err != nil {
+				t.Fatalf("Failed to parse schema: %v", err)
+			}
+			schema, err := ParseSchema(node)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("ParseSchema() succeeded, want error containing %q", tt.errContain)
+					return
+				}
+				if tt.errContain != "" && !strings.Contains(err.Error(), tt.errContain) {
+					t.Errorf("ParseSchema() error = %v, want error containing %q", err, tt.errContain)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("ParseSchema() error = %v, want nil", err)
+				return
+			}
+			if schema == nil {
+				t.Error("ParseSchema() returned nil schema")
+			}
+		})
+	}
+}
+
 func TestIsNullableTypeNode(t *testing.T) {
 	tests := []struct {
 		name     string
