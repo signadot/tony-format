@@ -30,19 +30,41 @@ type formulaBuilder struct {
 	vars        map[varDef]z.Lit    // (position, type) → literal
 	mutexes     map[string][]z.Lit  // position → types seen (for mutex)
 	checkingDef string              // definition being checked (self-ref → false)
+	defParams   map[string]bool     // parameter names of current definition (e.g., "t" for list(t))
+	visiting    map[string]bool     // definitions currently being visited (cycle detection)
 	definitions map[string]*ir.Node
+	defIndex    map[string]string   // base name → full definition name (e.g., "list" → "list(t)")
 	err         error               // first error encountered
 }
 
 // newFormulaBuilder creates a new formula builder for checking a definition
 func newFormulaBuilder(checkingDef string, definitions map[string]*ir.Node) *formulaBuilder {
+	// Build index from base name to full definition name
+	defIndex := make(map[string]string)
+	for defName := range definitions {
+		baseName, _ := ParseDefSignature(defName)
+		defIndex[baseName] = defName
+	}
+
+	// Extract parameter names from the definition being checked
+	defParams := make(map[string]bool)
+	if checkingDef != "" {
+		_, params := ParseDefSignature(checkingDef)
+		for _, p := range params {
+			defParams[p] = true
+		}
+	}
+
 	return &formulaBuilder{
 		c:           logic.NewC(),
 		path:        "",
 		vars:        make(map[varDef]z.Lit),
 		mutexes:     make(map[string][]z.Lit),
 		checkingDef: checkingDef,
+		defParams:   defParams,
+		visiting:    make(map[string]bool),
 		definitions: definitions,
+		defIndex:    defIndex,
 	}
 }
 
@@ -72,12 +94,11 @@ func (b *formulaBuilder) build(node *ir.Node) z.Lit {
 	case ir.NullType:
 		return b.getVar("null")
 	case ir.StringType:
-		// Check if it's a reference like ".node"
-		if strings.HasPrefix(node.String, ".") {
-			refName := extractRefName(node.String)
-			if refName != "" {
-				return b.buildRef(refName)
-			}
+		// Check if it's a definition reference like ".[name]" or ".[name(args)]"
+		if strings.HasPrefix(node.String, ".[") && strings.HasSuffix(node.String, "]") {
+			// Extract the reference: .[list(int)] -> list(int)
+			refContent := node.String[2 : len(node.String)-1]
+			return b.buildRef(refContent)
 		}
 		return b.getVar("string")
 	case ir.NumberType:
@@ -93,16 +114,6 @@ func (b *formulaBuilder) build(node *ir.Node) z.Lit {
 // buildTagged handles nodes with tags
 func (b *formulaBuilder) buildTagged(node *ir.Node, tag string) z.Lit {
 	head, _, rest := ir.TagArgs(tag)
-
-	// Handle reference tags like ".node" or ".array(.node)"
-	if strings.HasPrefix(head, ".") {
-		refName := extractRefName(head)
-		if refName != "" {
-			return b.buildRef(refName)
-		}
-		b.err = fmt.Errorf("invalid reference tag: %s", head)
-		return b.c.F
-	}
 
 	switch head {
 	case "!not":
@@ -148,27 +159,126 @@ func (b *formulaBuilder) buildTagged(node *ir.Node, tag string) z.Lit {
 		}
 		return b.getVar("object")
 
+	case "!bracket":
+		// Formatting tag - doesn't affect satisfiability, just process the content
+		child := node.Clone()
+		child.Tag = rest
+		return b.build(child)
+
 	default:
+		// Strip the ! prefix for lookups
+		tagName := head
+		if strings.HasPrefix(tagName, "!") {
+			tagName = tagName[1:]
+		}
+
+		// Check if it's a type parameter of the definition being checked
+		// (e.g., !t when checking list(t))
+		if b.defParams[tagName] {
+			// Parameter placeholder - represents any type, treat as unconstrained
+			return b.c.T
+		}
+
+		// Check if it's a reference to a known definition
+		// (e.g., !node after instantiating wrapper(node) from wrapper(t))
+		if _, ok := b.defIndex[tagName]; ok {
+			return b.buildRef(tagName)
+		}
+
+		// Unknown tag - set error and return false
 		b.err = fmt.Errorf("unknown tag in schema: %s", head)
 		return b.c.F
 	}
 }
 
 // buildRef handles definition references
-func (b *formulaBuilder) buildRef(refName string) z.Lit {
-	// Self-reference → constant false
-	if refName == b.checkingDef {
+// refContent is the content inside .[...], e.g., "list(int)" or "node"
+func (b *formulaBuilder) buildRef(refContent string) z.Lit {
+	// Parse the reference to get base name and args
+	baseName, refArgs := ParseDefSignature(refContent)
+
+	// Check for self-reference (explicit check for definition being validated)
+	checkingBase, _ := ParseDefSignature(b.checkingDef)
+	if baseName == checkingBase {
+		return b.c.F // Self-reference → constant false
+	}
+
+	// Check for cycle via visiting set
+	if b.visiting[baseName] {
+		// Already visiting this base definition
+		// If any arg is not a known definition (i.e., it's a parameter placeholder),
+		// treat as self-reference: .[list(t)] inside instantiated list body
+		for _, arg := range refArgs {
+			if _, ok := b.defIndex[arg]; !ok {
+				return b.c.F // Arg is a parameter → self-reference
+			}
+		}
+		// All args are known definitions - check if exact instantiation is being visited
+		if b.visiting[refContent] {
+			return b.c.F
+		}
+		// Different instantiation of same base - continue (will add to visiting)
+	}
+
+	// Find the definition
+	// First try exact match (for non-parameterized defs)
+	if def, ok := b.definitions[refContent]; ok && def != nil {
+		b.visiting[baseName] = true
+		b.visiting[refContent] = true
+		result := b.build(def)
+		delete(b.visiting, baseName)
+		delete(b.visiting, refContent)
+		return result
+	}
+
+	// Look up by base name in the index
+	fullDefName, ok := b.defIndex[baseName]
+	if !ok {
+		b.err = fmt.Errorf("unknown definition reference: .[%s]", refContent)
 		return b.c.F
 	}
 
-	// Expand inline
-	if def, ok := b.definitions[refName]; ok && def != nil {
-		return b.build(def)
+	def, ok := b.definitions[fullDefName]
+	if !ok || def == nil {
+		b.err = fmt.Errorf("definition body not found: %s", fullDefName)
+		return b.c.F
 	}
 
-	// Unknown reference - error
-	b.err = fmt.Errorf("unknown definition reference: .%s", refName)
-	return b.c.F
+	// Mark as visiting before building
+	b.visiting[baseName] = true
+	b.visiting[refContent] = true
+	defer func() {
+		delete(b.visiting, baseName)
+		delete(b.visiting, refContent)
+	}()
+
+	// If the definition is parameterized, instantiate it
+	_, defParams := ParseDefSignature(fullDefName)
+	if len(defParams) > 0 {
+		if len(refArgs) != len(defParams) {
+			b.err = fmt.Errorf("parameter count mismatch for %s: expected %d, got %d",
+				baseName, len(defParams), len(refArgs))
+			return b.c.F
+		}
+
+		// Convert args to IR nodes
+		argNodes := make([]*ir.Node, len(refArgs))
+		for i, arg := range refArgs {
+			argNodes[i] = ir.FromString(arg)
+		}
+
+		// Instantiate the definition body with the args
+		instantiated, err := InstantiateDef(def, defParams, argNodes)
+		if err != nil {
+			b.err = fmt.Errorf("failed to instantiate %s: %w", refContent, err)
+			return b.c.F
+		}
+
+		return b.build(instantiated)
+	}
+
+	// Non-parameterized definition - use directly
+	return b.build(def)
 }
 
 // buildObject handles object nodes: implicit AND of field constraints
@@ -374,6 +484,34 @@ func findReachableDefinitions(node *ir.Node, definitions map[string]*ir.Node) ma
 	reachable := make(map[string]bool)
 	visited := make(map[string]bool)
 
+	// Build index from base name to full definition name
+	defIndex := make(map[string]string)
+	for defName := range definitions {
+		baseName, _ := ParseDefSignature(defName)
+		defIndex[baseName] = defName
+	}
+
+	// Helper to find definition by ref content and mark as reachable
+	findAndMark := func(refContent string) string {
+		baseName, _ := ParseDefSignature(refContent)
+		if visited[baseName] {
+			return ""
+		}
+		visited[baseName] = true
+
+		// Find the full definition name
+		if fullName, ok := defIndex[baseName]; ok {
+			reachable[fullName] = true
+			return fullName
+		}
+		// Try exact match
+		if _, exists := definitions[refContent]; exists {
+			reachable[refContent] = true
+			return refContent
+		}
+		return ""
+	}
+
 	var processNode func(n *ir.Node)
 	processNode = func(n *ir.Node) {
 		if n == nil {
@@ -385,26 +523,14 @@ func findReachableDefinitions(node *ir.Node, definitions map[string]*ir.Node) ma
 				return true, nil
 			}
 
-			// Check for reference in tag
-			if child.Tag != "" && strings.HasPrefix(child.Tag, ".") {
-				refName := extractRefName(child.Tag)
-				if refName != "" && !visited[refName] {
-					visited[refName] = true
-					reachable[refName] = true
-					if def, ok := definitions[refName]; ok {
-						processNode(def)
-					}
-				}
-			}
-
-			// Check for reference in string value
-			if child.Type == ir.StringType && strings.HasPrefix(child.String, ".") {
-				refName := extractRefName(child.String)
-				if refName != "" && !visited[refName] {
-					visited[refName] = true
-					reachable[refName] = true
-					if def, ok := definitions[refName]; ok {
-						processNode(def)
+			// Check for reference in string value: .[name] or .[name(args)] format
+			if child.Type == ir.StringType {
+				if strings.HasPrefix(child.String, ".[") && strings.HasSuffix(child.String, "]") {
+					refContent := child.String[2 : len(child.String)-1]
+					if fullName := findAndMark(refContent); fullName != "" {
+						if def, ok := definitions[fullName]; ok {
+							processNode(def)
+						}
 					}
 				}
 			}
