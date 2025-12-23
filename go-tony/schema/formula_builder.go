@@ -100,13 +100,6 @@ func (b *formulaBuilder) build(node *ir.Node) z.Lit {
 			refContent := node.String[2 : len(node.String)-1]
 			return b.buildRef(refContent)
 		}
-		// Legacy format: ".node" (without brackets)
-		if strings.HasPrefix(node.String, ".") {
-			refName := extractRefName(node.String)
-			if refName != "" {
-				return b.buildRef(refName)
-			}
-		}
 		return b.getVar("string")
 	case ir.NumberType:
 		return b.getVar("number")
@@ -121,16 +114,6 @@ func (b *formulaBuilder) build(node *ir.Node) z.Lit {
 // buildTagged handles nodes with tags
 func (b *formulaBuilder) buildTagged(node *ir.Node, tag string) z.Lit {
 	head, _, rest := ir.TagArgs(tag)
-
-	// Handle reference tags like ".node" or ".array(.node)"
-	if strings.HasPrefix(head, ".") {
-		refName := extractRefName(head)
-		if refName != "" {
-			return b.buildRef(refName)
-		}
-		b.err = fmt.Errorf("invalid reference tag: %s", head)
-		return b.c.F
-	}
 
 	switch head {
 	case "!not":
@@ -540,29 +523,10 @@ func findReachableDefinitions(node *ir.Node, definitions map[string]*ir.Node) ma
 				return true, nil
 			}
 
-			// Check for reference in tag (legacy .name format)
-			if child.Tag != "" && strings.HasPrefix(child.Tag, ".") {
-				refName := extractRefName(child.Tag)
-				if refName != "" {
-					if fullName := findAndMark(refName); fullName != "" {
-						if def, ok := definitions[fullName]; ok {
-							processNode(def)
-						}
-					}
-				}
-			}
-
-			// Check for reference in string value
+			// Check for reference in string value: .[name] or .[name(args)] format
 			if child.Type == ir.StringType {
-				var refContent string
 				if strings.HasPrefix(child.String, ".[") && strings.HasSuffix(child.String, "]") {
-					// .[name] or .[name(args)] format
-					refContent = child.String[2 : len(child.String)-1]
-				} else if strings.HasPrefix(child.String, ".") {
-					// Legacy .name format
-					refContent = extractRefName(child.String)
-				}
-				if refContent != "" {
+					refContent := child.String[2 : len(child.String)-1]
 					if fullName := findAndMark(refContent); fullName != "" {
 						if def, ok := definitions[fullName]; ok {
 							processNode(def)
