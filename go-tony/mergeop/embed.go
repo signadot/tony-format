@@ -34,7 +34,7 @@ type embedOp struct {
 	key string
 }
 
-func (kl embedOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
+func (kl embedOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
 	if debug.Op() {
 		debug.Logf("embed op patch on %s\n", doc.Path())
 	}

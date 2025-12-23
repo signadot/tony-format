@@ -68,7 +68,7 @@ type letOp struct {
 	in       *ir.Node
 }
 
-func (l letOp) Match(doc *ir.Node, f MatchFunc) (bool, error) {
+func (l letOp) Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, error) {
 	if debug.Op() {
 		debug.Logf("let op match on %s\n", doc.Path())
 	}
@@ -83,7 +83,7 @@ func (l letOp) Match(doc *ir.Node, f MatchFunc) (bool, error) {
 	}
 
 	// Match using the expanded 'in' node
-	return f(doc, expandedIn)
+	return f(doc, expandedIn, ctx)
 }
 
 // buildEnv creates an eval.Env from the let bindings

@@ -39,7 +39,7 @@ type fieldOp struct {
 	from, to *string
 }
 
-func (g fieldOp) Match(doc *ir.Node, f MatchFunc) (bool, error) {
+func (g fieldOp) Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, error) {
 	if debug.Op() {
 		debug.Logf("match field op called on %s\n", doc.Path())
 	}
@@ -47,10 +47,10 @@ func (g fieldOp) Match(doc *ir.Node, f MatchFunc) (bool, error) {
 		return false, fmt.Errorf("match field with patch field form !field(from)")
 	}
 	dummyNode := ir.FromString(doc.ParentField)
-	return f(dummyNode, g.child)
+	return f(dummyNode, g.child, ctx)
 }
 
-func (g fieldOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
+func (g fieldOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
 	if debug.Op() {
 		debug.Logf("patch field op called on %s\n", doc.Path())
 	}
@@ -70,7 +70,7 @@ func (g fieldOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, _ libdiff.DiffF
 		}
 	}
 	if g.child.Tag != "" {
-		return pf(doc, g.child)
+		return pf(doc, g.child, ctx)
 	}
 	return doc, nil
 }

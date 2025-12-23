@@ -39,7 +39,7 @@ type arrayDiffOp struct {
 	patchOp
 }
 
-func (op arrayDiffOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, df libdiff.DiffFunc) (*ir.Node, error) {
+func (op arrayDiffOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, df libdiff.DiffFunc) (*ir.Node, error) {
 	if debug.Op() {
 		debug.Logf("patch op arraydiff on %s\n", doc.Path())
 	}
@@ -47,10 +47,10 @@ func (op arrayDiffOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, df libdiff
 	if doc.Type != ir.ArrayType {
 		return nil, fmt.Errorf("arraydiff only applies to arrays, got %s at %s", doc.Type, doc.Path())
 	}
-	return patchArrayByIndex(doc, op.child, pf, df)
+	return patchArrayByIndex(doc, op.child, ctx, pf, df)
 }
 
-func patchArrayByIndex(doc, patch *ir.Node, pf PatchFunc, df libdiff.DiffFunc) (*ir.Node, error) {
+func patchArrayByIndex(doc, patch *ir.Node, ctx *OpContext, pf PatchFunc, df libdiff.DiffFunc) (*ir.Node, error) {
 	diffMap, err := patch.ToIntKeysMap()
 	if err != nil {
 		return nil, err
@@ -117,7 +117,7 @@ func patchArrayByIndex(doc, patch *ir.Node, pf PatchFunc, df libdiff.DiffFunc) (
 			res = append(res, op.Clone().WithTag(replTag))
 			di++
 		default:
-			tmp, err := pf(docVals[fi], op)
+			tmp, err := pf(docVals[fi], op, ctx)
 			if err != nil {
 				return nil, err
 			}

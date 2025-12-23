@@ -33,7 +33,7 @@ type allOp struct {
 	op
 }
 
-func (a allOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
+func (a allOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
 	if debug.Op() {
 		debug.Logf("all op called on %s\n", doc.Path())
 	}
@@ -43,7 +43,7 @@ func (a allOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFun
 		for i := range doc.Fields {
 			field := doc.Fields[i]
 			patch := a.child.Clone()
-			patched, err := pf(doc.Values[i], patch)
+			patched, err := pf(doc.Values[i], patch, ctx)
 			if err != nil {
 				return nil, err
 			}
@@ -54,7 +54,7 @@ func (a allOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFun
 		dst := make([]*ir.Node, len(doc.Values))
 		for i, docChild := range doc.Values {
 			patch := a.child.Clone()
-			patched, err := pf(docChild, patch)
+			patched, err := pf(docChild, patch, ctx)
 			if err != nil {
 				return nil, err
 			}
@@ -62,16 +62,16 @@ func (a allOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFun
 		}
 		return ir.FromSlice(dst), nil
 	default:
-		return pf(doc, a.child)
+		return pf(doc, a.child, ctx)
 	}
 }
 
-func (a allOp) Match(doc *ir.Node, mf MatchFunc) (bool, error) {
+func (a allOp) Match(doc *ir.Node, ctx *OpContext, mf MatchFunc) (bool, error) {
 	switch doc.Type {
 	case ir.ObjectType:
 		for i := range doc.Fields {
 			docChild := doc.Values[i]
-			subMatch, err := mf(docChild, a.child)
+			subMatch, err := mf(docChild, a.child, ctx)
 			if err != nil {
 				return false, err
 			}
@@ -82,7 +82,7 @@ func (a allOp) Match(doc *ir.Node, mf MatchFunc) (bool, error) {
 		return true, nil
 	case ir.ArrayType:
 		for _, docChild := range doc.Values {
-			subMatch, err := mf(docChild, a.child)
+			subMatch, err := mf(docChild, a.child, ctx)
 			if err != nil {
 				return false, err
 			}
@@ -92,6 +92,6 @@ func (a allOp) Match(doc *ir.Node, mf MatchFunc) (bool, error) {
 		}
 		return true, nil
 	default:
-		return mf(doc, a.child)
+		return mf(doc, a.child, ctx)
 	}
 }

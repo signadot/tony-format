@@ -47,7 +47,7 @@ type replaceOp struct {
 	to   *ir.Node
 }
 
-func (n replaceOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, df libdiff.DiffFunc) (*ir.Node, error) {
+func (n replaceOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, df libdiff.DiffFunc) (*ir.Node, error) {
 	if debug.Op() {
 		debug.Logf("replace op called on %s\n", doc.Path())
 	}

@@ -34,7 +34,7 @@ type rmTagOp struct {
 	tag string
 }
 
-func (p rmTagOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
+func (p rmTagOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
 	if debug.Op() {
 		debug.Logf("rmtag op patch on %s\n", doc.Path())
 	}

@@ -72,35 +72,35 @@ type divePatch struct {
 	Patch *ir.Node `json:"patch"`
 }
 
-func (d *diveOp) Dive(doc *ir.Node, mf MatchFunc, pf PatchFunc) (*ir.Node, error) {
+func (d *diveOp) Dive(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc) (*ir.Node, error) {
 	switch doc.Type {
 	case ir.ObjectType:
 		out := make([]ir.KeyVal, len(doc.Fields))
 		for i := range doc.Fields {
-			fieldVal, err := d.Dive(doc.Values[i], mf, pf)
+			fieldVal, err := d.Dive(doc.Values[i], ctx, mf, pf)
 			if err != nil {
 				return nil, err
 			}
 			out[i] = ir.KeyVal{Key: doc.Fields[i].Clone(), Val: fieldVal}
 		}
-		return d.do(ir.FromKeyVals(out), mf, pf)
+		return d.do(ir.FromKeyVals(out), ctx, mf, pf)
 
 	case ir.ArrayType:
 		out := make([]*ir.Node, len(doc.Values))
 		for i := range doc.Values {
-			res, err := d.Dive(doc.Values[i], mf, pf)
+			res, err := d.Dive(doc.Values[i], ctx, mf, pf)
 			if err != nil {
 				return nil, err
 			}
 			out[i] = res
 		}
-		return d.do(ir.FromSlice(out), mf, pf)
+		return d.do(ir.FromSlice(out), ctx, mf, pf)
 	default:
-		return d.do(doc, mf, pf)
+		return d.do(doc, ctx, mf, pf)
 	}
 }
 
-func (d *diveOp) do(doc *ir.Node, mf MatchFunc, pf PatchFunc) (*ir.Node, error) {
+func (d *diveOp) do(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc) (*ir.Node, error) {
 	var (
 		patchDoc = doc
 		err      error
@@ -108,7 +108,7 @@ func (d *diveOp) do(doc *ir.Node, mf MatchFunc, pf PatchFunc) (*ir.Node, error) 
 	for i := range d.patches {
 		p := &d.patches[i]
 		if p.Match != nil {
-			ok, err := mf(patchDoc, p.Match)
+			ok, err := mf(patchDoc, p.Match, ctx)
 			if err != nil {
 				return nil, err
 			}
@@ -120,7 +120,7 @@ func (d *diveOp) do(doc *ir.Node, mf MatchFunc, pf PatchFunc) (*ir.Node, error) 
 			//fmt.Printf("# match\n%s\n---\n# on\n%s",
 			//	p.Match.MustString(), patchDoc.MustString())
 		}
-		patchDoc, err = pf(patchDoc, p.Patch.Clone())
+		patchDoc, err = pf(patchDoc, p.Patch.Clone(), ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -128,11 +128,11 @@ func (d *diveOp) do(doc *ir.Node, mf MatchFunc, pf PatchFunc) (*ir.Node, error) 
 	return patchDoc, nil
 }
 
-func (dive diveOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
+func (dive diveOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
 	if debug.Op() {
 		debug.Logf("dive op called on %s\n", doc.Path())
 	}
-	res, err := dive.Dive(doc, mf, pf)
+	res, err := dive.Dive(doc, ctx, mf, pf)
 	if err != nil {
 		return nil, err
 	}

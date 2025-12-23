@@ -59,16 +59,16 @@ type ifOp struct {
 	Else *ir.Node
 }
 
-func (a ifOp) Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
+func (a ifOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
 	if debug.Op() {
 		debug.Logf("if op called on %s\n", doc.Path())
 	}
-	m, err := mf(doc, a.If)
+	m, err := mf(doc, a.If, ctx)
 	if err != nil {
 		return nil, err
 	}
 	if m {
-		return pf(doc, a.Then)
+		return pf(doc, a.Then, ctx)
 	}
-	return pf(doc, a.Else)
+	return pf(doc, a.Else, ctx)
 }

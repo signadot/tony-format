@@ -32,7 +32,7 @@ type typeOp struct {
 	matchOp
 }
 
-func (t typeOp) Match(doc *ir.Node, f MatchFunc) (bool, error) {
+func (t typeOp) Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, error) {
 	if debug.Op() {
 		debug.Logf("type op match on %s\n", doc.Path())
 	}

@@ -32,11 +32,11 @@ type notOp struct {
 	matchOp
 }
 
-func (n notOp) Match(doc *ir.Node, f MatchFunc) (bool, error) {
+func (n notOp) Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, error) {
 	if debug.Op() {
 		debug.Logf("not op match on %s\n", doc.Path())
 	}
-	subMatch, err := f(doc, n.child)
+	subMatch, err := f(doc, n.child, ctx)
 	if err != nil {
 		return false, err
 	}
