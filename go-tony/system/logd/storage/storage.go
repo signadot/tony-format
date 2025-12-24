@@ -259,6 +259,9 @@ func (s *Storage) NewTx(participantCount int, meta *api.PatchMeta) (tx.Tx, error
 }
 
 func (s *Storage) Close() error {
+	// Stop transaction cleanup goroutine
+	s.txStore.Close()
+
 	indexPath := filepath.Join(s.sequence.Root, "index.gob")
 	currentMaxCommit := s.getIndexMaxCommit()
 	if currentMaxCommit >= 0 {

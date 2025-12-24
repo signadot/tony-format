@@ -3,22 +3,64 @@ package tx
 import (
 	"fmt"
 	"sync"
+	"time"
 )
 
 // Ensure InMemoryTxStore implements tx.Store
 var _ Store = (*InMemoryTxStore)(nil)
 
 // InMemoryTxStore is an in-memory implementation of Store.
-// Suitable for development/testing. Can be replaced with disk-based implementation later.
+// It includes a background cleanup goroutine that removes expired transactions.
 type InMemoryTxStore struct {
-	mu sync.RWMutex
-	d  map[int64]Tx
+	mu   sync.RWMutex
+	d    map[int64]Tx
+	done chan struct{}
 }
 
 // NewInMemoryTxStore creates a new in-memory transaction store.
+// It starts a background goroutine to clean up expired transactions.
 func NewInMemoryTxStore() *InMemoryTxStore {
-	return &InMemoryTxStore{
-		d: make(map[int64]Tx),
+	s := &InMemoryTxStore{
+		d:    make(map[int64]Tx),
+		done: make(chan struct{}),
+	}
+	go s.cleanupLoop()
+	return s
+}
+
+// Close stops the cleanup goroutine.
+func (s *InMemoryTxStore) Close() {
+	close(s.done)
+}
+
+// cleanupLoop periodically removes expired transactions.
+func (s *InMemoryTxStore) cleanupLoop() {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.done:
+			return
+		case <-ticker.C:
+			s.cleanupExpired()
+		}
+	}
+}
+
+// cleanupExpired removes transactions that have exceeded their timeout.
+// Uses the same Timeout value that Commit() uses for inline timeouts.
+func (s *InMemoryTxStore) cleanupExpired() {
+	now := time.Now()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for id, tx := range s.d {
+		timeout := tx.Timeout()
+		if timeout > 0 && now.Sub(tx.CreatedAt()) > timeout {
+			delete(s.d, id)
+		}
 	}
 }
 

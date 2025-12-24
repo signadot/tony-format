@@ -63,6 +63,20 @@ func (co *txCoord) ID() int64 {
 	return co.state.TxID
 }
 
+// CreatedAt returns when the transaction was created.
+func (co *txCoord) CreatedAt() time.Time {
+	co.mu.RLock()
+	defer co.mu.RUnlock()
+	return co.state.CreatedAt
+}
+
+// Timeout returns the configured timeout for this transaction.
+func (co *txCoord) Timeout() time.Duration {
+	co.mu.RLock()
+	defer co.mu.RUnlock()
+	return co.state.Timeout
+}
+
 // UpdateState atomically updates the transaction state.
 func (co *txCoord) UpdateState(updateFn func(*State) error) error {
 	co.mu.Lock()

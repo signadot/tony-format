@@ -13,6 +13,12 @@ type Tx interface {
 	// ID returns the transaction ID, useful for sharing with other participants.
 	ID() int64
 
+	// CreatedAt returns when the transaction was created.
+	CreatedAt() time.Time
+
+	// Timeout returns the configured timeout for this transaction.
+	Timeout() time.Duration
+
 	// NewPatcher creates a new patcher handle for this transaction.
 	// Each participant should get their own patcher.  If NewPatcher
 	// has already added all patches, NewPatcher returns an error.
@@ -56,6 +62,9 @@ type Store interface {
 
 	// List returns all transaction IDs (for recovery/cleanup)
 	List() ([]int64, error)
+
+	// Close stops any background goroutines and releases resources
+	Close()
 }
 
 // CommitOps provides the operations needed to commit a transaction.

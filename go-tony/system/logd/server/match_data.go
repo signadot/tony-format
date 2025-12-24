@@ -76,7 +76,9 @@ func (s *Server) handleMatchData(w http.ResponseWriter, r *http.Request, req *ap
 	w.Header().Set("Content-Type", "application/x-tony")
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write(d); err != nil {
-		panic(fmt.Sprintf("failed to write response: %v", err))
+		// Client likely disconnected
+		s.Spec.Log.Error("failed to write match response", "error", err)
+		return
 	}
 }
 
