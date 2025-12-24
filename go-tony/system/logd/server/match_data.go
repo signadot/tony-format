@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -9,6 +10,10 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
+
+// ErrPathNotFound is returned when a path does not exist in the document.
+// This is distinct from a path that exists but has a null value.
+var ErrPathNotFound = errors.New("path not found")
 
 // handleMatchData handles MATCH requests for data reads.
 func (s *Server) handleMatchData(w http.ResponseWriter, r *http.Request, req *api.Match) {
@@ -43,6 +48,10 @@ func (s *Server) handleMatchData(w http.ResponseWriter, r *http.Request, req *ap
 	// Extract value at the path from the document
 	state, err := extractPathValue(doc, kp)
 	if err != nil {
+		if errors.Is(err, ErrPathNotFound) {
+			writeError(w, http.StatusNotFound, api.NewError(api.ErrCodeNotFound, err.Error()))
+			return
+		}
 		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to extract path value: %v", err)))
 		return
 	}
@@ -100,7 +109,7 @@ func extractPathValue(doc *ir.Node, kp string) (*ir.Node, error) {
 
 	for _, part := range parts {
 		if current == nil || current.Type != ir.ObjectType {
-			return nil, fmt.Errorf("expected object at path segment %q", part)
+			return nil, fmt.Errorf("%w: expected object at path segment %q", ErrPathNotFound, part)
 		}
 
 		// Find the field matching this part
@@ -113,7 +122,7 @@ func extractPathValue(doc *ir.Node, kp string) (*ir.Node, error) {
 			}
 		}
 		if !found {
-			return nil, fmt.Errorf("path segment %q not found in document", part)
+			return nil, fmt.Errorf("%w: path segment %q not found", ErrPathNotFound, part)
 		}
 	}
 

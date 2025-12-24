@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -271,6 +272,10 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 	// Extract value at path
 	state, err := extractPathValue(doc, path)
 	if err != nil {
+		if errors.Is(err, ErrPathNotFound) {
+			s.sendError(id, api.ErrCodeNotFound, err.Error())
+			return
+		}
 		s.sendError(id, "storage_error", fmt.Sprintf("failed to extract path value: %v", err))
 		return
 	}
