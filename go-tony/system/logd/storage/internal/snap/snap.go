@@ -34,6 +34,12 @@ func Open(rc R) (*Snapshot, error) {
 	eventSize := binary.BigEndian.Uint64(header[0:8])
 	indexSize := binary.BigEndian.Uint32(header[8:12])
 
+	// Sanity check: index can't be larger than 1GB
+	const maxIndexSize = 1 << 30
+	if indexSize > maxIndexSize {
+		return nil, fmt.Errorf("snapshot index size %d exceeds maximum %d", indexSize, maxIndexSize)
+	}
+
 	// Calculate offsets
 	eventOffset := int64(HeaderSize)
 	// Index is preceded by a newline separator (not included in indexSize)

@@ -19,7 +19,7 @@ func TestAutoSnapshotByCommits(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	// Open storage
-	store, err := storage.Open(dir, 0755, nil)
+	store, err := storage.Open(dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestAutoSnapshotBySize(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	// Open storage
-	store, err := storage.Open(dir, 0755, nil)
+	store, err := storage.Open(dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

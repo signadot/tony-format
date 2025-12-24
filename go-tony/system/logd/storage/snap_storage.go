@@ -60,7 +60,7 @@ func (s *Storage) findSnapshotBaseReader(kp string, commit int64) (patches.Event
 		}
 		events, err := stream.NodeToEvents(node)
 		if err != nil {
-			return nil, 0, fmt.Errorf("errro translating node to events: %w", err)
+			return nil, 0, fmt.Errorf("error translating node to events: %w", err)
 		}
 		return newSliceEventReader(events), seg.StartCommit + 1, nil
 	}

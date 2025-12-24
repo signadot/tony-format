@@ -12,7 +12,7 @@ import (
 
 func TestTCPListener_HelloExchange(t *testing.T) {
 	tmpDir := t.TempDir()
-	store, err := storage.Open(tmpDir, 022, nil)
+	store, err := storage.Open(tmpDir, nil)
 	if err != nil {
 		t.Fatalf("failed to open storage: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestTCPListener_HelloExchange(t *testing.T) {
 
 func TestTCPListener_MatchRequest(t *testing.T) {
 	tmpDir := t.TempDir()
-	store, err := storage.Open(tmpDir, 022, nil)
+	store, err := storage.Open(tmpDir, nil)
 	if err != nil {
 		t.Fatalf("failed to open storage: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestTCPListener_MatchRequest(t *testing.T) {
 
 func TestTCPListener_MultipleClients(t *testing.T) {
 	tmpDir := t.TempDir()
-	store, err := storage.Open(tmpDir, 022, nil)
+	store, err := storage.Open(tmpDir, nil)
 	if err != nil {
 		t.Fatalf("failed to open storage: %v", err)
 	}

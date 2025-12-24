@@ -81,7 +81,7 @@ func (c *mockConn) GetResponses() []byte {
 
 func TestSession_Hello(t *testing.T) {
 	tmpDir := t.TempDir()
-	store, err := storage.Open(tmpDir, 022, nil)
+	store, err := storage.Open(tmpDir, nil)
 	if err != nil {
 		t.Fatalf("failed to open storage: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestSession_Hello(t *testing.T) {
 
 func TestSession_Match(t *testing.T) {
 	tmpDir := t.TempDir()
-	store, err := storage.Open(tmpDir, 022, nil)
+	store, err := storage.Open(tmpDir, nil)
 	if err != nil {
 		t.Fatalf("failed to open storage: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestSession_Match(t *testing.T) {
 
 func TestSession_MatchWithFilter(t *testing.T) {
 	tmpDir := t.TempDir()
-	store, err := storage.Open(tmpDir, 022, nil)
+	store, err := storage.Open(tmpDir, nil)
 	if err != nil {
 		t.Fatalf("failed to open storage: %v", err)
 	}
@@ -286,7 +286,7 @@ func TestSession_MatchWithFilter(t *testing.T) {
 
 func TestSession_Patch(t *testing.T) {
 	tmpDir := t.TempDir()
-	store, err := storage.Open(tmpDir, 022, nil)
+	store, err := storage.Open(tmpDir, nil)
 	if err != nil {
 		t.Fatalf("failed to open storage: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestSession_Patch(t *testing.T) {
 
 func TestSession_SubscribeUnsubscribe(t *testing.T) {
 	tmpDir := t.TempDir()
-	store, err := storage.Open(tmpDir, 022, nil)
+	store, err := storage.Open(tmpDir, nil)
 	if err != nil {
 		t.Fatalf("failed to open storage: %v", err)
 	}
@@ -443,7 +443,7 @@ func splitTonyDocs(data []byte) [][]byte {
 
 func TestSession_SubscribeReceivesEvents(t *testing.T) {
 	tmpDir := t.TempDir()
-	store, err := storage.Open(tmpDir, 022, nil)
+	store, err := storage.Open(tmpDir, nil)
 	if err != nil {
 		t.Fatalf("failed to open storage: %v", err)
 	}
@@ -526,7 +526,7 @@ func TestSession_SubscribeReceivesEvents(t *testing.T) {
 
 func TestSession_SubscribeWithReplay(t *testing.T) {
 	tmpDir := t.TempDir()
-	store, err := storage.Open(tmpDir, 022, nil)
+	store, err := storage.Open(tmpDir, nil)
 	if err != nil {
 		t.Fatalf("failed to open storage: %v", err)
 	}
@@ -660,7 +660,7 @@ func TestSession_SubscribeWithReplay(t *testing.T) {
 
 func TestSession_SubscribeWithFullStateReplay(t *testing.T) {
 	tmpDir := t.TempDir()
-	store, err := storage.Open(tmpDir, 022, nil)
+	store, err := storage.Open(tmpDir, nil)
 	if err != nil {
 		t.Fatalf("failed to open storage: %v", err)
 	}
@@ -783,7 +783,7 @@ func TestSession_SubscribeWithFullStateReplay(t *testing.T) {
 
 func TestSession_MultiParticipantTransaction(t *testing.T) {
 	tmpDir := t.TempDir()
-	store, err := storage.Open(tmpDir, 022, nil)
+	store, err := storage.Open(tmpDir, nil)
 	if err != nil {
 		t.Fatalf("failed to open storage: %v", err)
 	}

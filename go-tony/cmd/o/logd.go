@@ -79,7 +79,7 @@ func logdServe(cfg *LogDServeConfig, cc *cli.Context, args []string) error {
 	}
 
 	// Initialize storage
-	s, err := storage.Open(cfg.DataDir, 0755, nil)
+	s, err := storage.Open(cfg.DataDir, nil)
 	if err != nil {
 		return fmt.Errorf("failed to initialize storage: %w", err)
 	}

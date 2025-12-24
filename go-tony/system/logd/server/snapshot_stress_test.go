@@ -22,7 +22,7 @@ func TestReadsDuringSnapshot(t *testing.T) {
 	}
 	defer os.RemoveAll(dir)
 
-	store, err := storage.Open(dir, 0755, nil)
+	store, err := storage.Open(dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestSnapshotStress(t *testing.T) {
 	}
 	defer os.RemoveAll(dir)
 
-	store, err := storage.Open(dir, 0755, nil)
+	store, err := storage.Open(dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestConcurrentSnapshots(t *testing.T) {
 	}
 	defer os.RemoveAll(dir)
 
-	store, err := storage.Open(dir, 0755, nil)
+	store, err := storage.Open(dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

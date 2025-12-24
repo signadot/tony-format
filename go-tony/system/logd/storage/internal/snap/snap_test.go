@@ -215,16 +215,16 @@ func TestSnapshotCreateAndRead(t *testing.T) {
 		t.Fatalf("WriteString('active') error = %v", err)
 	}
 	if err := enc.WriteKey("z"); err != nil {
-		t.Fatalf("WriteKey('z') errror = %v", err)
+		t.Fatalf("WriteKey('z') error = %v", err)
 	}
 	if err := enc.BeginArray(); err != nil {
-		t.Fatalf("BeginArray() errror = %v", err)
+		t.Fatalf("BeginArray() error = %v", err)
 	}
 	if err := enc.WriteString("zoo"); err != nil {
 		t.Fatalf("WriteString('zoo') error = %v", err)
 	}
 	if err := enc.EndArray(); err != nil {
-		t.Fatalf("BeginArray() errror = %v", err)
+		t.Fatalf("BeginArray() error = %v", err)
 	}
 	if err := enc.EndObject(); err != nil {
 		t.Fatalf("EndObject() error = %v", err)

@@ -50,10 +50,8 @@ type Storage struct {
 
 // Open opens or creates a Storage instance with the given root directory.
 // The root directory will be created if it doesn't exist.
-// umask is applied to directory permissions (e.g., 022 for 0755 -> 0755).
 // If logger is nil, slog.Default() will be used.
-// compactorConfig is optional - if nil, a default config with divisor 2 and NeverRemove is used.
-func Open(root string, umask int, logger *slog.Logger) (*Storage, error) {
+func Open(root string, logger *slog.Logger) (*Storage, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}

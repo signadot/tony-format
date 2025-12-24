@@ -10,7 +10,7 @@ import (
 
 // DefaultBroadcastTimeout is the default timeout for sending events to watchers.
 // If a watcher doesn't read within this time, the watch is failed.
-const DefaultBroadcastTimeout = 100 * time.Millisecond
+const DefaultBroadcastTimeout = 5 * time.Second
 
 // WatchHub manages watches and broadcasts commit notifications to watchers.
 // It is thread-safe and designed for concurrent access from multiple sessions.
