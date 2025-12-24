@@ -14,7 +14,7 @@ import (
 func TestStorage_Close(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	s, err := Open(tmpDir, 022, nil)
+	s, err := Open(tmpDir, nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
@@ -48,7 +48,7 @@ func TestStorage_Close(t *testing.T) {
 func TestStorage_Close_PersistsIndex(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	s1, err := Open(tmpDir, 022, nil)
+	s1, err := Open(tmpDir, nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
@@ -62,7 +62,7 @@ func TestStorage_Close_PersistsIndex(t *testing.T) {
 	}
 
 	// Open again - should load persisted index
-	s2, err := Open(tmpDir, 022, nil)
+	s2, err := Open(tmpDir, nil)
 	if err != nil {
 		t.Fatalf("Open() second time error = %v", err)
 	}
@@ -78,7 +78,7 @@ func TestStorage_Close_PersistsIndex(t *testing.T) {
 func TestStorage_CommitNotifier(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	s, err := Open(tmpDir, 022, nil)
+	s, err := Open(tmpDir, nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}

@@ -12,7 +12,7 @@ import (
 func TestSwitchAndSnapshot(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	s, err := Open(tmpDir, 022, nil)
+	s, err := Open(tmpDir, nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
@@ -133,7 +133,7 @@ func TestSwitchAndSnapshot(t *testing.T) {
 func TestSnapshotRoundTrip(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	s, err := Open(tmpDir, 022, nil)
+	s, err := Open(tmpDir, nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}

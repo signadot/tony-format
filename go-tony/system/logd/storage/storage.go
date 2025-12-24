@@ -40,13 +40,17 @@ type Storage struct {
 
 	dLog *dlog.DLog
 
-	index *index.Index
+	index          *index.Index
+	indexPersister *IndexPersister
 
 	txStore   tx.Store       // Transaction store (in-memory for now, can be swapped for disk-based)
 	txTimeout time.Duration  // Timeout for transaction participants to join (0 = no timeout)
 	logger    *slog.Logger
 	notifier  CommitNotifier // Optional callback for commit notifications
 }
+
+// DefaultIndexPersistInterval is the default number of commits between index persists.
+const DefaultIndexPersistInterval = 100
 
 // Open opens or creates a Storage instance with the given root directory.
 // The root directory will be created if it doesn't exist.
@@ -72,6 +76,10 @@ func Open(root string, logger *slog.Logger) (*Storage, error) {
 	if err := s.init(); err != nil {
 		return nil, err
 	}
+
+	// Create persister after init() since init() may replace s.index
+	s.indexPersister = NewIndexPersister(s.sequence.Root, s.index, DefaultIndexPersistInterval, logger)
+	s.indexPersister.SetLastPersisted(s.getIndexMaxCommit())
 
 	return s, nil
 }
@@ -259,6 +267,11 @@ func (s *Storage) NewTx(participantCount int, meta *api.PatchMeta) (tx.Tx, error
 func (s *Storage) Close() error {
 	// Stop transaction cleanup goroutine
 	s.txStore.Close()
+
+	// Wait for any pending index persist
+	if s.indexPersister != nil {
+		s.indexPersister.Close()
+	}
 
 	indexPath := filepath.Join(s.sequence.Root, "index.gob")
 	currentMaxCommit := s.getIndexMaxCommit()

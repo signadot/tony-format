@@ -37,6 +37,11 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 		return "", 0, err
 	}
 
+	// Trigger periodic index persistence
+	if c.s.indexPersister != nil {
+		c.s.indexPersister.MaybePersist(commit)
+	}
+
 	// Notify any registered listener about the commit
 	if c.s.notifier != nil {
 		kpaths := extractTopLevelKPaths(mergedPatch)
