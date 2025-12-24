@@ -191,6 +191,7 @@ const (
 	ErrCodeTxNotFound      = "tx_not_found"     // Transaction ID not found
 	ErrCodeTxFull          = "tx_full"          // Transaction already has all participants
 	ErrCodeMatchFailed     = "match_failed"     // Transaction match condition failed
+	ErrCodeReplayFailed    = "replay_failed"    // Watch replay failed, data may be incomplete
 )
 
 // NewSessionError creates a new SessionError.

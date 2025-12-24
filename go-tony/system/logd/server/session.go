@@ -75,6 +75,15 @@ func NewSession(id string, conn io.ReadWriteCloser, cfg *SessionConfig) *Session
 func (s *Session) Run() error {
 	var wg sync.WaitGroup
 
+	// Goroutine to close connection when done is signaled.
+	// This unblocks the reader if it's stuck in a blocking read.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-s.done
+		s.conn.Close()
+	}()
+
 	// Writer goroutine
 	wg.Add(1)
 	go func() {
@@ -116,6 +125,7 @@ func (s *Session) Close() error {
 }
 
 // reader reads and processes incoming messages using stream.Decoder.
+// It exits when the connection is closed (either by client disconnect or session shutdown).
 func (s *Session) reader() error {
 	decoder, err := stream.NewDecoder(s.conn, stream.WithBrackets())
 	if err != nil {
@@ -123,17 +133,19 @@ func (s *Session) reader() error {
 	}
 
 	for {
-		select {
-		case <-s.done:
-			return nil
-		default:
-		}
-
-		// Read a complete document (events until depth returns to 0)
+		// Read a complete document (events until depth returns to 0).
+		// This blocks until data arrives or connection is closed.
+		// The connection closer goroutine in Run() ensures we unblock on shutdown.
 		node, err := s.readDocument(decoder)
 		if err != nil {
 			if err == io.EOF {
 				return nil
+			}
+			// Check if this is a "use of closed connection" error from shutdown
+			select {
+			case <-s.done:
+				return nil // Clean shutdown
+			default:
 			}
 			return fmt.Errorf("read error: %w", err)
 		}
@@ -431,6 +443,9 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 // This means events that arrive between Watch and GetCurrentCommit are queued.
 // After replay completes, we skip any queued events with commit <= currentCommit
 // since they were already replayed.
+//
+// Error handling: If replay fails, an error event is sent and the watch is terminated.
+// The client should re-establish the watch, possibly from a different commit.
 func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, fullState bool, currentCommit int64) {
 	path := watcher.Path
 
@@ -447,17 +462,18 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, fullState b
 			state, err := s.storage.ReadStateAt(path, startCommit)
 			if err != nil {
 				s.log.Error("failed to read state for replay", "path", path, "commit", startCommit, "error", err)
-			} else {
-				// Extract value at path if needed
-				if path != "" {
-					state, err = extractPathValue(state, path)
-					if err != nil {
-						s.log.Error("failed to extract path value for replay", "path", path, "error", err)
-						state = ir.Null()
-					}
-				}
-				s.send(api.NewStateEvent(startCommit, path, state))
+				s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read state at commit %d: %v", startCommit, err))
+				return
 			}
+			// Extract value at path if needed
+			if path != "" {
+				state, err = extractPathValue(state, path)
+				if err != nil {
+					s.log.Error("failed to extract path value for replay", "path", path, "error", err)
+					state = ir.Null()
+				}
+			}
+			s.send(api.NewStateEvent(startCommit, path, state))
 		}
 
 		// Send historical patches from startCommit+1 to currentCommit
@@ -465,10 +481,11 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, fullState b
 			patches, err := s.storage.ReadPatchesInRange(path, startCommit+1, currentCommit)
 			if err != nil {
 				s.log.Error("failed to read patches for replay", "path", path, "from", startCommit+1, "to", currentCommit, "error", err)
-			} else {
-				for _, patch := range patches {
-					s.send(api.NewPatchEvent(patch.Commit, path, patch.Patch))
-				}
+				s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read patches from commit %d to %d: %v", startCommit+1, currentCommit, err))
+				return
+			}
+			for _, patch := range patches {
+				s.send(api.NewPatchEvent(patch.Commit, path, patch.Patch))
 			}
 		}
 
@@ -483,11 +500,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, fullState b
 		case <-watcher.Failed:
 			// Watch failed (slow consumer)
 			s.log.Warn("watch failed (slow consumer)", "path", path)
-			s.send(api.NewErrorResponse(nil, api.ErrCodeSessionClosed, fmt.Sprintf("watch on %q failed: slow consumer", path)))
-			// Remove from our tracking
-			s.watchMu.Lock()
-			delete(s.watches, path)
-			s.watchMu.Unlock()
+			s.failWatch(watcher, api.ErrCodeSessionClosed, fmt.Sprintf("watch on %q failed: slow consumer", path))
 			return
 		case notification, ok := <-watcher.Events:
 			if !ok {
@@ -547,4 +560,13 @@ func (s *Session) send(resp *api.SessionResponse) {
 // sendError sends an error response.
 func (s *Session) sendError(id *string, code, message string) {
 	s.send(api.NewErrorResponse(id, code, message))
+}
+
+// failWatch terminates a watch, sending an error to the client and cleaning up.
+func (s *Session) failWatch(watcher *Watcher, code, message string) {
+	s.send(api.NewErrorResponse(nil, code, message))
+	s.hub.Unwatch(watcher)
+	s.watchMu.Lock()
+	delete(s.watches, watcher.Path)
+	s.watchMu.Unlock()
 }
