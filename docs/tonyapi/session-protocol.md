@@ -100,6 +100,48 @@ id: "3"
 result: { patch: { commit: 43 } }
 ```
 
+### NewTx (Create Transaction)
+
+Create a multi-participant transaction. This allows multiple patches to be atomically committed together:
+
+```tony
+# Request - create transaction expecting 3 participants
+newtx: { participants: 3 }
+
+# Response
+result: { newtx: { txId: 123 } }
+```
+
+Once created, use the `txId` in patch requests to join the transaction.
+
+### Patch with Transaction
+
+Join an existing transaction by including `txId`:
+
+```tony
+# Three participants join the same transaction
+# These can be sent concurrently - all will block until all participants have joined
+
+id: "p1"
+patch: { txId: 123, patch: { path: "/users", data: { ... } } }
+
+id: "p2"
+patch: { txId: 123, patch: { path: "/config", data: { ... } } }
+
+id: "p3"
+patch: { txId: 123, patch: { path: "/logs", data: { ... } } }
+
+# All three receive the same response when the transaction commits
+id: "p1"
+result: { patch: { commit: 44 } }
+id: "p2"
+result: { patch: { commit: 44 } }
+id: "p3"
+result: { patch: { commit: 44 } }
+```
+
+The transaction commits atomically when all expected participants have joined. All patches are merged into a single commit. If any match condition fails, the entire transaction is aborted.
+
 ### Watch
 
 Watch for changes at a path:
@@ -159,6 +201,10 @@ result: { unwatch: { unwatched: "/users" } }
 | `invalid_message` | Malformed request |
 | `invalid_path` | Path validation failed |
 | `invalid_diff` | Patch data missing or invalid |
+| `invalid_tx` | Invalid transaction parameters (e.g., participants < 1) |
+| `tx_not_found` | Transaction ID not found |
+| `tx_full` | Transaction already has all expected participants |
+| `match_failed` | Transaction match condition failed |
 | `already_watching` | Already watching this path |
 | `not_watching` | Not watching this path |
 | `commit_not_found` | Requested commit not available |

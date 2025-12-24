@@ -73,6 +73,20 @@ signature:
 ---
 context:
 - tony-format/context
+define:
+  participants: .[int]
+signature:
+  name: session-newtx-request
+---
+context:
+- tony-format/context
+define:
+  txId: .[int]
+signature:
+  name: session-newtx-result
+---
+context:
+- tony-format/context
 - time: time
 define:
   brackets: .[bool]
@@ -97,6 +111,7 @@ context:
 - tony-format/context
 define:
   patch: !body null
+  txId: .[nullable(int)]
 signature:
   name: session-patch-request
 ---
@@ -130,18 +145,18 @@ signature:
 context:
 - tony-format/context
 define:
-  fromCommit: .[nullable(int)]
-  fullState: .[bool]
   path: .[string]
 signature:
-  name: session-subscribe-request
+  name: session-unwatch-request
 ---
 context:
 - tony-format/context
 define:
+  fromCommit: .[nullable(int)]
+  fullState: .[bool]
   path: .[string]
 signature:
-  name: session-unsubscribe-request
+  name: session-watch-request
 ---
 context:
 - tony-format/context
@@ -149,35 +164,37 @@ define:
   hello: .[nullable(session-hello)]
   id: .[nullable(string)]
   match: .[nullable(session-match-request)]
+  newtx: .[nullable(session-newtx-request)]
   patch: .[nullable(session-patch-request)]
-  subscribe: .[nullable(session-subscribe-request)]
-  unsubscribe: .[nullable(session-unsubscribe-request)]
+  unwatch: .[nullable(session-unwatch-request)]
+  watch: .[nullable(session-watch-request)]
 signature:
   name: session-request
 ---
 context:
 - tony-format/context
 define:
-  replayingTo: .[nullable(int)]
-  subscribed: .[string]
+  unwatched: .[string]
 signature:
-  name: session-subscribe-result
+  name: session-unwatch-result
 ---
 context:
 - tony-format/context
 define:
-  unsubscribed: .[string]
+  replayingTo: .[nullable(int)]
+  watching: .[string]
 signature:
-  name: session-unsubscribe-result
+  name: session-watch-result
 ---
 context:
 - tony-format/context
 define:
   hello: .[nullable(session-hello-response)]
   match: .[nullable(session-match-result)]
+  newtx: .[nullable(session-newtx-result)]
   patch: .[nullable(session-patch-result)]
-  subscribe: .[nullable(session-subscribe-result)]
-  unsubscribe: .[nullable(session-unsubscribe-result)]
+  unwatch: .[nullable(session-unwatch-result)]
+  watch: .[nullable(session-watch-result)]
 signature:
   name: session-result
 ---

@@ -1116,6 +1116,11 @@ func (s *PatchRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
+	// Field: TxID (optional)
+	if s.TxID != nil {
+		irMap["txId"] = ir.FromInt(int64(*s.TxID))
+	}
+
 	// Field: Patch
 	node, err = s.Patch.ToTonyIR()
 	if err != nil {
@@ -1157,6 +1162,18 @@ func (s *PatchRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
 		}
 		switch fieldName.String {
+		case "txId":
+			// Field: TxID
+			if fieldNodeUnwrapped.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(int64)
+				if fieldNodeUnwrapped.Int64 == nil {
+					return fmt.Errorf("%s: expected number, got %v", "field \"txId\"", fieldNodeUnwrapped.Type)
+				}
+				*val = int64(*fieldNodeUnwrapped.Int64)
+				s.TxID = val
+			}
 		case "patch":
 			// Field: Patch
 			if err := s.Patch.FromTonyIR(fieldNode); err != nil {
@@ -1183,6 +1200,85 @@ func (s *PatchRequest) ToTony(opts ...gomap.MapOption) ([]byte, error) {
 
 // FromTony parses Tony format bytes and populates PatchRequest.
 func (s *PatchRequest) FromTony(data []byte, opts ...gomap.UnmapOption) error {
+	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
+	if err != nil {
+		return err
+	}
+	return s.FromTonyIR(node, opts...)
+}
+
+// ToTonyIR converts NewTxRequest to a Tony IR node.
+func (s *NewTxRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
+	// Create IR object map
+	irMap := make(map[string]*ir.Node)
+
+	// Field: Participants
+	irMap["participants"] = ir.FromInt(int64(s.Participants))
+
+	// Create IR node with schema tag
+	return ir.FromMap(irMap).WithTag("!session-newtx-request"), nil
+}
+
+// FromTonyIR populates NewTxRequest from a Tony IR node.
+func (s *NewTxRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
+	if node.Type != ir.ObjectType {
+		return fmt.Errorf("expected map for NewTxRequest, got %v", node.Type)
+	}
+
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
+		switch fieldName.String {
+		case "participants":
+			// Field: Participants
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "participants", fieldNodeUnwrapped.Type)
+			}
+			s.Participants = int(*fieldNodeUnwrapped.Int64)
+		}
+	}
+
+	return nil
+}
+
+// ToTony converts NewTxRequest to Tony format bytes.
+func (s *NewTxRequest) ToTony(opts ...gomap.MapOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// FromTony parses Tony format bytes and populates NewTxRequest.
+func (s *NewTxRequest) FromTony(data []byte, opts ...gomap.UnmapOption) error {
 	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
 	if err != nil {
 		return err
@@ -1419,7 +1515,16 @@ func (s *SessionRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["patch"] = node
 	}
 
-	// Field: Subscribe (optional)
+	// Field: NewTx (optional)
+	if s.NewTx != nil {
+		node, err = s.NewTx.ToTonyIR()
+		if err != nil {
+			return nil, err
+		}
+		irMap["newtx"] = node
+	}
+
+	// Field: Watch (optional)
 	if s.Watch != nil {
 		node, err = s.Watch.ToTonyIR()
 		if err != nil {
@@ -1428,7 +1533,7 @@ func (s *SessionRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["watch"] = node
 	}
 
-	// Field: Unsubscribe (optional)
+	// Field: Unwatch (optional)
 	if s.Unwatch != nil {
 		node, err = s.Unwatch.ToTonyIR()
 		if err != nil {
@@ -1501,14 +1606,20 @@ func (s *SessionRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) er
 			if err := s.Patch.FromTonyIR(fieldNode); err != nil {
 				return err
 			}
+		case "newtx":
+			// Field: NewTx
+			s.NewTx = &NewTxRequest{}
+			if err := s.NewTx.FromTonyIR(fieldNode); err != nil {
+				return err
+			}
 		case "watch":
-			// Field: Subscribe
+			// Field: Watch
 			s.Watch = &WatchRequest{}
 			if err := s.Watch.FromTonyIR(fieldNode); err != nil {
 				return err
 			}
 		case "unwatch":
-			// Field: Unsubscribe
+			// Field: Unwatch
 			s.Unwatch = &UnwatchRequest{}
 			if err := s.Unwatch.FromTonyIR(fieldNode); err != nil {
 				return err
@@ -1715,6 +1826,85 @@ func (s *PatchResult) FromTony(data []byte, opts ...gomap.UnmapOption) error {
 	return s.FromTonyIR(node, opts...)
 }
 
+// ToTonyIR converts NewTxResult to a Tony IR node.
+func (s *NewTxResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
+	// Create IR object map
+	irMap := make(map[string]*ir.Node)
+
+	// Field: TxID
+	irMap["txId"] = ir.FromInt(int64(s.TxID))
+
+	// Create IR node with schema tag
+	return ir.FromMap(irMap).WithTag("!session-newtx-result"), nil
+}
+
+// FromTonyIR populates NewTxResult from a Tony IR node.
+func (s *NewTxResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
+	if node.Type != ir.ObjectType {
+		return fmt.Errorf("expected map for NewTxResult, got %v", node.Type)
+	}
+
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
+		switch fieldName.String {
+		case "txId":
+			// Field: TxID
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "txId", fieldNodeUnwrapped.Type)
+			}
+			s.TxID = int64(*fieldNodeUnwrapped.Int64)
+		}
+	}
+
+	return nil
+}
+
+// ToTony converts NewTxResult to Tony format bytes.
+func (s *NewTxResult) ToTony(opts ...gomap.MapOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// FromTony parses Tony format bytes and populates NewTxResult.
+func (s *NewTxResult) FromTony(data []byte, opts ...gomap.UnmapOption) error {
+	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
+	if err != nil {
+		return err
+	}
+	return s.FromTonyIR(node, opts...)
+}
+
 // ToTonyIR converts WatchResult to a Tony IR node.
 func (s *WatchResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if s == nil {
@@ -1724,7 +1914,7 @@ func (s *WatchResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Watching
-	irMap["subscribed"] = ir.FromString(s.Watching)
+	irMap["watching"] = ir.FromString(s.Watching)
 
 	// Field: ReplayingTo (optional)
 	if s.ReplayingTo != nil {
@@ -1765,10 +1955,10 @@ func (s *WatchResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error
 			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
 		}
 		switch fieldName.String {
-		case "subscribed":
+		case "watching":
 			// Field: Watching
 			if fieldNodeUnwrapped.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "subscribed", fieldNodeUnwrapped.Type)
+				return fmt.Errorf("field %q: expected string, got %v", "watching", fieldNodeUnwrapped.Type)
 			}
 			s.Watching = fieldNodeUnwrapped.String
 		case "replayingTo":
@@ -1820,7 +2010,7 @@ func (s *UnwatchResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Unwatched
-	irMap["unsubscribed"] = ir.FromString(s.Unwatched)
+	irMap["unwatched"] = ir.FromString(s.Unwatched)
 
 	// Create IR node with schema tag
 	return ir.FromMap(irMap).WithTag("!session-unwatch-result"), nil
@@ -1856,10 +2046,10 @@ func (s *UnwatchResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) err
 			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
 		}
 		switch fieldName.String {
-		case "unsubscribed":
+		case "unwatched":
 			// Field: Unwatched
 			if fieldNodeUnwrapped.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "unsubscribed", fieldNodeUnwrapped.Type)
+				return fmt.Errorf("field %q: expected string, got %v", "unwatched", fieldNodeUnwrapped.Type)
 			}
 			s.Unwatched = fieldNodeUnwrapped.String
 		}
@@ -1930,7 +2120,16 @@ func (s *SessionResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["patch"] = node
 	}
 
-	// Field: Subscribe (optional)
+	// Field: NewTx (optional)
+	if s.NewTx != nil {
+		node, err = s.NewTx.ToTonyIR()
+		if err != nil {
+			return nil, err
+		}
+		irMap["newtx"] = node
+	}
+
+	// Field: Watch (optional)
 	if s.Watch != nil {
 		node, err = s.Watch.ToTonyIR()
 		if err != nil {
@@ -1939,7 +2138,7 @@ func (s *SessionResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["watch"] = node
 	}
 
-	// Field: Unsubscribe (optional)
+	// Field: Unwatch (optional)
 	if s.Unwatch != nil {
 		node, err = s.Unwatch.ToTonyIR()
 		if err != nil {
@@ -2000,14 +2199,20 @@ func (s *SessionResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) err
 			if err := s.Patch.FromTonyIR(fieldNode); err != nil {
 				return err
 			}
+		case "newtx":
+			// Field: NewTx
+			s.NewTx = &NewTxResult{}
+			if err := s.NewTx.FromTonyIR(fieldNode); err != nil {
+				return err
+			}
 		case "watch":
-			// Field: Subscribe
+			// Field: Watch
 			s.Watch = &WatchResult{}
 			if err := s.Watch.FromTonyIR(fieldNode); err != nil {
 				return err
 			}
 		case "unwatch":
-			// Field: Unsubscribe
+			// Field: Unwatch
 			s.Unwatch = &UnwatchResult{}
 			if err := s.Unwatch.FromTonyIR(fieldNode); err != nil {
 				return err

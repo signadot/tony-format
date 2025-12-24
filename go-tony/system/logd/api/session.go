@@ -35,10 +35,22 @@ type MatchRequest struct {
 }
 
 // PatchRequest is a request to apply a patch.
+// If TxID is set, the patch joins an existing multi-participant transaction.
+// If TxID is nil, a new single-participant transaction is created.
 //
 //tony:schemagen=session-patch-request
 type PatchRequest struct {
-	Patch Body `tony:"field=patch"`
+	TxID  *int64 `tony:"field=txId"`  // Optional: transaction ID for multi-participant tx
+	Patch Body   `tony:"field=patch"`
+}
+
+// NewTxRequest creates a new multi-participant transaction.
+// The transaction will wait for the specified number of participants
+// to submit their patches before committing atomically.
+//
+//tony:schemagen=session-newtx-request
+type NewTxRequest struct {
+	Participants int `tony:"field=participants"` // Number of expected participants (must be >= 1)
 }
 
 // WatchRequest is a request to watch changes at a path.
@@ -64,10 +76,11 @@ type UnwatchRequest struct {
 type SessionRequest struct {
 	ID *string `tony:"field=id"` // Optional: if set, response will include this ID (async mode)
 
-	Hello   *Hello        `tony:"field=hello"`
-	Match   *MatchRequest `tony:"field=match"`
-	Patch   *PatchRequest `tony:"field=patch"`
-	Watch   *WatchRequest `tony:"field=watch"`
+	Hello   *Hello          `tony:"field=hello"`
+	Match   *MatchRequest   `tony:"field=match"`
+	Patch   *PatchRequest   `tony:"field=patch"`
+	NewTx   *NewTxRequest   `tony:"field=newtx"`
+	Watch   *WatchRequest   `tony:"field=watch"`
 	Unwatch *UnwatchRequest `tony:"field=unwatch"`
 }
 
@@ -86,6 +99,13 @@ type MatchResult struct {
 //tony:schemagen=session-patch-result
 type PatchResult struct {
 	Commit int64 `tony:"field=commit"`
+}
+
+// NewTxResult is the result of a newtx request.
+//
+//tony:schemagen=session-newtx-result
+type NewTxResult struct {
+	TxID int64 `tony:"field=txId"` // Transaction ID for use in subsequent patch requests
 }
 
 // WatchResult is the result of a watch request.
@@ -111,6 +131,7 @@ type SessionResult struct {
 	Hello   *HelloResponse `tony:"field=hello"`
 	Match   *MatchResult   `tony:"field=match"`
 	Patch   *PatchResult   `tony:"field=patch"`
+	NewTx   *NewTxResult   `tony:"field=newtx"`
 	Watch   *WatchResult   `tony:"field=watch"`
 	Unwatch *UnwatchResult `tony:"field=unwatch"`
 }
@@ -166,6 +187,10 @@ const (
 	ErrCodeNotWatching     = "not_watching"
 	ErrCodeAlreadyWatching = "already_watching"
 	ErrCodeCommitNotFound  = "commit_not_found"
+	ErrCodeInvalidTx       = "invalid_tx"       // Invalid transaction parameters
+	ErrCodeTxNotFound      = "tx_not_found"     // Transaction ID not found
+	ErrCodeTxFull          = "tx_full"          // Transaction already has all participants
+	ErrCodeMatchFailed     = "match_failed"     // Transaction match condition failed
 )
 
 // NewSessionError creates a new SessionError.

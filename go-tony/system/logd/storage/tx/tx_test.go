@@ -91,10 +91,9 @@ func TestNew(t *testing.T) {
 		t.Errorf("Expected TxID 1, got %d", tx.ID())
 	}
 
-	// With expectedCount=0 (len of empty PatcherData), IsComplete() returns true
-	// This is expected behavior - transaction is "complete" when all expected (0) patchers are added
-	if !tx.IsComplete() {
-		t.Error("Expected complete transaction (expectedCount=0 means no patchers needed), got incomplete")
+	// With capacity 2, expectedCount is 2, so transaction is not complete until 2 patchers are added
+	if tx.IsComplete() {
+		t.Error("Expected incomplete transaction (expectedCount=cap=2, no patchers added yet)")
 	}
 }
 

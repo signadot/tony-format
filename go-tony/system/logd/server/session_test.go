@@ -781,3 +781,118 @@ func TestSession_SubscribeWithFullStateReplay(t *testing.T) {
 	}
 }
 
+func TestSession_MultiParticipantTransaction(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := storage.Open(tmpDir, 022, nil)
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+	defer store.Close()
+
+	hub := NewWatchHub()
+
+	// Create session for newtx request
+	conn1 := newMockConn()
+	conn1.WriteRequest(`{newtx: {participants: 2}}`)
+
+	session1 := NewSession("test-server-1", conn1, &SessionConfig{
+		Storage: store,
+		Hub:     hub,
+	})
+
+	done1 := make(chan error)
+	go func() {
+		done1 <- session1.Run()
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Get the txId from response
+	responses := conn1.GetResponses()
+	t.Logf("NewTx response: %s", responses)
+	var resp api.SessionResponse
+	if err := resp.FromTony(bytes.TrimSpace(responses)); err != nil {
+		t.Fatalf("failed to parse newtx response: %v (raw: %s)", err, responses)
+	}
+
+	if resp.Result == nil || resp.Result.NewTx == nil {
+		t.Fatalf("expected newtx response, got: %+v", resp)
+	}
+	txID := resp.Result.NewTx.TxID
+	t.Logf("Created transaction with ID: %d", txID)
+
+	// Now submit 2 patches concurrently from different sessions
+	var wg sync.WaitGroup
+	results := make([]int64, 2)
+	errors := make([]error, 2)
+
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+
+			conn := newMockConn()
+			path := fmt.Sprintf("data%d", idx)
+			req := fmt.Sprintf(`{id: "p%d", patch: {txId: %d, patch: {path: %s, data: {value: %d}}}}`, idx, txID, path, idx)
+			conn.WriteRequest(req)
+
+			session := NewSession(fmt.Sprintf("patch-session-%d", idx), conn, &SessionConfig{
+				Storage: store,
+				Hub:     hub,
+			})
+
+			done := make(chan error)
+			go func() {
+				done <- session.Run()
+			}()
+
+			// Wait for response (Commit blocks until all participants join)
+			time.Sleep(200 * time.Millisecond)
+			conn.Close()
+
+			<-done
+
+			responses := conn.GetResponses()
+			var resp api.SessionResponse
+			if err := resp.FromTony(bytes.TrimSpace(responses)); err != nil {
+				errors[idx] = fmt.Errorf("failed to parse response: %v", err)
+				return
+			}
+
+			if resp.Error != nil {
+				errors[idx] = fmt.Errorf("error response: %s: %s", resp.Error.Code, resp.Error.Message)
+				return
+			}
+
+			if resp.Result == nil || resp.Result.Patch == nil {
+				errors[idx] = fmt.Errorf("expected patch response")
+				return
+			}
+
+			results[idx] = resp.Result.Patch.Commit
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Clean up first session
+	conn1.Close()
+	<-done1
+
+	// Check results
+	for i, err := range errors {
+		if err != nil {
+			t.Errorf("participant %d error: %v", i, err)
+		}
+	}
+
+	// Both participants should get the same commit number
+	if results[0] != results[1] {
+		t.Errorf("expected same commit for all participants, got %d and %d", results[0], results[1])
+	}
+	if results[0] == 0 {
+		t.Error("expected non-zero commit number")
+	}
+	t.Logf("Both participants received commit: %d", results[0])
+}
+

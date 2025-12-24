@@ -10,6 +10,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/stream"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 // Session represents a bidirectional session with a client.
@@ -207,6 +208,8 @@ func (s *Session) dispatch(req *api.SessionRequest) {
 		s.handleMatch(req.ID, req.Match)
 	case req.Patch != nil:
 		s.handlePatch(req.ID, req.Patch)
+	case req.NewTx != nil:
+		s.handleNewTx(req.ID, req.NewTx)
 	case req.Watch != nil:
 		s.handleWatch(req.ID, req.Watch)
 	case req.Unwatch != nil:
@@ -274,6 +277,8 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 }
 
 // handlePatch handles patch (write) requests.
+// If TxID is provided, the patch joins an existing multi-participant transaction.
+// If TxID is nil, a new single-participant transaction is created.
 func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 	path := req.Patch.Path
 
@@ -289,25 +294,47 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 		return
 	}
 
-	// Create single-participant transaction
-	tx, err := s.storage.NewTx(1, nil)
-	if err != nil {
-		s.sendError(id, "storage_error", fmt.Sprintf("failed to create transaction: %v", err))
-		return
+	var txn tx.Tx
+	var err error
+
+	if req.TxID != nil {
+		// Join existing transaction
+		txn, err = s.storage.GetTx(*req.TxID)
+		if err != nil {
+			s.sendError(id, api.ErrCodeTxNotFound, fmt.Sprintf("transaction %d not found: %v", *req.TxID, err))
+			return
+		}
+		s.log.Debug("joining transaction", "txId", *req.TxID)
+	} else {
+		// Create single-participant transaction
+		txn, err = s.storage.NewTx(1, nil)
+		if err != nil {
+			s.sendError(id, "storage_error", fmt.Sprintf("failed to create transaction: %v", err))
+			return
+		}
 	}
 
 	// Create patcher and commit
-	patcher, err := tx.NewPatcher(&api.Patch{
+	patcher, err := txn.NewPatcher(&api.Patch{
 		Patch: req.Patch,
 	})
 	if err != nil {
-		s.sendError(id, "storage_error", fmt.Sprintf("failed to create patcher: %v", err))
+		if req.TxID != nil {
+			s.sendError(id, api.ErrCodeTxFull, fmt.Sprintf("failed to join transaction: %v", err))
+		} else {
+			s.sendError(id, "storage_error", fmt.Sprintf("failed to create patcher: %v", err))
+		}
 		return
 	}
 
+	// Commit blocks until all participants have joined (for multi-participant tx)
 	result := patcher.Commit()
 	if result.Error != nil {
 		s.sendError(id, "storage_error", fmt.Sprintf("failed to commit: %v", result.Error))
+		return
+	}
+	if !result.Matched {
+		s.sendError(id, api.ErrCodeMatchFailed, "transaction match condition failed")
 		return
 	}
 
@@ -317,6 +344,30 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 	}
 
 	s.send(api.NewPatchResponse(id, result.Commit))
+}
+
+// handleNewTx handles newtx requests to create multi-participant transactions.
+func (s *Session) handleNewTx(id *string, req *api.NewTxRequest) {
+	if req.Participants < 1 {
+		s.sendError(id, api.ErrCodeInvalidTx, "participants must be at least 1")
+		return
+	}
+
+	tx, err := s.storage.NewTx(req.Participants, nil)
+	if err != nil {
+		s.sendError(id, "storage_error", fmt.Sprintf("failed to create transaction: %v", err))
+		return
+	}
+
+	s.log.Debug("created transaction", "txId", tx.ID(), "participants", req.Participants)
+	s.send(&api.SessionResponse{
+		ID: id,
+		Result: &api.SessionResult{
+			NewTx: &api.NewTxResult{
+				TxID: tx.ID(),
+			},
+		},
+	})
 }
 
 // handleWatch handles watch requests.
