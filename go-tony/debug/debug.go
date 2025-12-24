@@ -22,14 +22,14 @@ var d *debug
 
 func init() {
 	d = &debug{}
-	d.LoadEnv = boolEnv("YTOOL_DEBUG_LOAD_ENV")
-	d.ExpandEnv = boolEnv("YTOOL_DEBUG_EXPAND_ENV")
-	d.Match = boolEnv("YTOOL_DEBUG_MATCH")
-	d.Matches = boolEnv("YTOOL_DEBUG_MATCHES")
-	d.Patch = boolEnv("YTOOL_DEBUG_PATCH")
-	d.Patches = boolEnv("YTOOL_DEBUG_PATCHES")
-	d.Eval = boolEnv("YTOOL_DEBUG_EVAL")
-	d.Op = boolEnv("YTOOL_DEBUG_OP")
+	d.LoadEnv = boolEnv("O_DEBUG_LOAD_ENV")
+	d.ExpandEnv = boolEnv("O_DEBUG_EXPAND_ENV")
+	d.Match = boolEnv("O_DEBUG_MATCH")
+	d.Matches = boolEnv("O_DEBUG_MATCHES")
+	d.Patch = boolEnv("O_DEBUG_PATCH")
+	d.Patches = boolEnv("O_DEBUG_PATCHES")
+	d.Eval = boolEnv("O_DEBUG_EVAL")
+	d.Op = boolEnv("O_DEBUG_OP")
 }
 
 func boolEnv(v string) bool {

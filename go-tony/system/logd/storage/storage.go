@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -20,6 +19,21 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
+// CommitNotification contains information about a committed patch.
+// This is sent to any registered CommitNotifier after a successful commit.
+type CommitNotification struct {
+	Commit    int64    // The commit number
+	TxSeq     int64    // Transaction sequence number
+	Timestamp string   // ISO8601 timestamp
+	KPaths    []string // Top-level kpaths affected by this commit
+	Patch     *ir.Node // The merged patch that was committed
+}
+
+// CommitNotifier is a callback invoked after each successful commit.
+// Implementations must not block - if async processing is needed,
+// the notifier should queue the notification and return immediately.
+type CommitNotifier func(n *CommitNotification)
+
 // Storage provides filesystem-based storage for logd.
 type Storage struct {
 	sequence *seq.Seq
@@ -28,9 +42,9 @@ type Storage struct {
 
 	index *index.Index
 
-	txStore  tx.Store     // Transaction store (in-memory for now, can be swapped for disk-based)
-	logger   *slog.Logger // Logger for error logging
-	switchMu sync.Mutex   // Protects log switching to prevent concurrent switch+snapshot
+	txStore  tx.Store // Transaction store (in-memory for now, can be swapped for disk-based)
+	logger   *slog.Logger
+	notifier CommitNotifier // Optional callback for commit notifications
 }
 
 // Open opens or creates a Storage instance with the given root directory.
@@ -61,6 +75,11 @@ func Open(root string, umask int, logger *slog.Logger) (*Storage, error) {
 	}
 
 	return s, nil
+}
+
+// ActiveLogSize returns the size of the currently active log file in bytes.
+func (s *Storage) ActiveLogSize() (int64, error) {
+	return s.dLog.ActiveLogSize()
 }
 
 // GetCurrentCommit returns the current commit number.
@@ -135,7 +154,14 @@ func (s *Storage) ReadStateAt(kp string, commit int64) (*ir.Node, error) {
 	if len(events) == 0 {
 		return nil, nil
 	}
-	return stream.EventsToNode(events)
+	node, err := stream.EventsToNode(events)
+	if err != nil {
+		return nil, err
+	}
+
+	// Strip internal patch root tags before returning
+	tx.StripPatchRootTagRecursive(node)
+	return node, nil
 }
 
 // init initializes the storage directory structure.
@@ -281,4 +307,16 @@ func (s *Storage) GetTx(txID int64) (tx.Tx, error) {
 		return nil, fmt.Errorf("transaction %d not found", txID)
 	}
 	return t, nil
+}
+
+// SetCommitNotifier sets the callback to be invoked after each successful commit.
+// Only one notifier can be active at a time - setting a new one replaces the previous.
+// Pass nil to disable notifications.
+func (s *Storage) SetCommitNotifier(notifier CommitNotifier) {
+	s.notifier = notifier
+}
+
+// GetCommitNotifier returns the currently registered commit notifier, or nil if none.
+func (s *Storage) GetCommitNotifier() CommitNotifier {
+	return s.notifier
 }

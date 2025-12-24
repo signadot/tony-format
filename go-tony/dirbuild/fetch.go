@@ -74,6 +74,9 @@ func (s *DirSource) Fetch(root string, env map[string]any) ([]*ir.Node, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error expanding path %q: %w", *s.Dir, err)
 		}
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(root, path)
+		}
 		walker := newSourceWalker(defaultForm)
 		err = filepath.WalkDir(path, walker.walk)
 		if err != nil {

@@ -38,7 +38,7 @@ func (s *Server) handlePatchData(w http.ResponseWriter, r *http.Request, req *ap
 	}
 
 	// Create single-participant transaction
-	tx, err := s.Config.Storage.NewTx(1, &req.Meta)
+	tx, err := s.Spec.Storage.NewTx(1, &req.Meta)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to create transaction: %v", err)))
 		return
@@ -56,6 +56,10 @@ func (s *Server) handlePatchData(w http.ResponseWriter, r *http.Request, req *ap
 		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to commit: %v", result.Error)))
 		return
 	}
+
+	// Track commit and check snapshot thresholds
+	s.commitsSinceSnapshot++
+	s.maybeSnapshot()
 
 	// Build response
 	resp := &api.Patch{

@@ -11,6 +11,12 @@ import (
 // and returns the edited content. Returns error if editor exits non-zero
 // or if the content is empty/unchanged.
 func EditInEditor(initialContent string) (string, error) {
+	return EditInEditorWithDir(initialContent, "")
+}
+
+// EditInEditorWithDir opens the editor with a specific working directory.
+// If workDir is empty, uses the current directory.
+func EditInEditorWithDir(initialContent, workDir string) (string, error) {
 	// Create temp file
 	tmpFile, err := os.CreateTemp("", "git-issue-*.md")
 	if err != nil {
@@ -34,6 +40,9 @@ func EditInEditor(initialContent string) (string, error) {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	if workDir != "" {
+		cmd.Dir = workDir
+	}
 
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("editor exited with error: %w", err)

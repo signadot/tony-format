@@ -1,0 +1,30 @@
+# Add Tony CMP sidecar container to argocd-repo-server
+- match:
+    kind: Deployment
+    metadata:
+      name: argocd-repo-server
+  patch:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: tony-build
+            image: .[image]
+            command: [/var/run/argocd/argocd-cmp-server]
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 999
+            volumeMounts:
+            - name: var-files
+              mountPath: /var/run/argocd
+            - name: plugins
+              mountPath: /home/argocd/cmp-server/plugins
+            - name: tony-plugin-config
+              mountPath: /home/argocd/cmp-server/config/plugin.yaml
+              subPath: plugin.yaml
+            - name: tmp
+              mountPath: /tmp
+          volumes:
+          - name: tony-plugin-config
+            configMap:
+              name: tony-build-plugin

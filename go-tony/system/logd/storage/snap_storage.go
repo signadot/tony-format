@@ -73,24 +73,23 @@ func (s *Storage) findSnapshotBaseReader(kp string, commit int64) (patches.Event
 // The snapshot is created for the current commit at the time of switching.
 // This should be called periodically (e.g., based on log size or time) to enable
 // snapshot-based read optimization and eventual compaction.
-// Protected by switchMu to prevent concurrent switching while snapshot is being written.
+//
+// Concurrency: dlog handles coordination internally via per-file snapMu locks.
+// SwitchActive blocks if a snapshot is in progress on the inactive log.
+// createSnapshot returns ErrSnapshotInProgress if called while another snapshot is running.
 func (s *Storage) SwitchAndSnapshot() error {
-	s.switchMu.Lock()
-	defer s.switchMu.Unlock()
-
 	// Get current commit before switching
 	commit, err := s.GetCurrentCommit()
 	if err != nil {
 		return fmt.Errorf("failed to get current commit: %w", err)
 	}
 
-	// Switch active log
+	// Switch active log - blocks if snapshot in progress on inactive log
 	if err := s.dLog.SwitchActive(); err != nil {
 		return fmt.Errorf("failed to switch active log: %w", err)
 	}
 
 	// Create snapshot of the inactive log (which was active before switch)
-	// This is a long operation, but switchMu prevents switching back during it
 	if err := s.createSnapshot(commit); err != nil {
 		return fmt.Errorf("failed to create snapshot: %w", err)
 	}

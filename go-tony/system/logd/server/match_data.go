@@ -6,6 +6,7 @@ import (
 
 	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
@@ -25,7 +26,7 @@ func (s *Server) handleMatchData(w http.ResponseWriter, r *http.Request, req *ap
 		commit = *req.Meta.SeqID
 	} else {
 		var err error
-		commit, err = s.Config.Storage.GetCurrentCommit()
+		commit, err = s.Spec.Storage.GetCurrentCommit()
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to get current commit: %v", err)))
 			return
@@ -33,7 +34,7 @@ func (s *Server) handleMatchData(w http.ResponseWriter, r *http.Request, req *ap
 	}
 
 	// Read state at path (returns document with path as outer structure)
-	doc, err := s.Config.Storage.ReadStateAt(kp, commit)
+	doc, err := s.Spec.Storage.ReadStateAt(kp, commit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to read state: %v", err)))
 		return
@@ -121,25 +122,7 @@ func extractPathValue(doc *ir.Node, kp string) (*ir.Node, error) {
 // For now, only handles simple dot-separated field paths like "users.posts".
 // TODO: handle array indices and sparse indices.
 func splitKPath(kp string) []string {
-	if kp == "" {
-		return nil
-	}
-	var parts []string
-	current := ""
-	for _, r := range kp {
-		if r == '.' {
-			if current != "" {
-				parts = append(parts, current)
-				current = ""
-			}
-		} else {
-			current += string(r)
-		}
-	}
-	if current != "" {
-		parts = append(parts, current)
-	}
-	return parts
+	return kpath.SplitAll(kp)
 }
 
 // filterState filters the state to match the given criteria and trims the result.

@@ -120,23 +120,31 @@ func envFunc(env map[string]*ir.Node, a string) error {
 	}
 	parts := strings.Split(key, ".")
 	n := len(parts)
-	tmpEnv := env
-	for i, part := range parts {
-		if i == n-1 {
-			tmpEnv[part] = node
-			break
+
+	// Build the nested value from the leaf up
+	current := node
+	for i := n - 1; i > 0; i-- {
+		current = ir.FromMap(map[string]*ir.Node{parts[i]: current})
+	}
+
+	// Merge into existing structure at the top level
+	topKey := parts[0]
+	if n == 1 {
+		env[topKey] = node
+	} else {
+		existing := env[topKey]
+		if existing == nil {
+			env[topKey] = current
+		} else if existing.Type == ir.ObjectType {
+			// Merge current into existing
+			merged, err := tony.Patch(existing, current)
+			if err != nil {
+				return err
+			}
+			env[topKey] = merged
+		} else {
+			return fmt.Errorf("cannot access %s, list or scalar", topKey)
 		}
-		next := tmpEnv[part]
-		if next == nil {
-			next = ir.FromMap(map[string]*ir.Node{})
-			tmpEnv[part] = next
-		}
-		switch next.Type {
-		case ir.ObjectType:
-		default:
-			return fmt.Errorf("cannot access %s, list or scalar", strings.Join(parts[:i+1], "."))
-		}
-		tmpEnv = ir.ToMap(next)
 	}
 	return nil
 }

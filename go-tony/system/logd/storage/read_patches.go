@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
@@ -77,6 +78,62 @@ func (s *Storage) readPatchesAt(kp string, commit int64) ([]patchAtSegment, erro
 			Parent:  parent,
 		})
 	}
+
+	return result, nil
+}
+
+// ReadPatchesInRange reads all patches affecting the given kpath in the commit range [from, to].
+// Returns CommitNotifications sorted by commit number, deduplicated.
+// This is used for watch replay - returning patches that affect the watched path.
+func (s *Storage) ReadPatchesInRange(kp string, from, to int64) ([]*CommitNotification, error) {
+	segments := s.index.LookupRange(kp, &from, &to)
+	if len(segments) == 0 {
+		return nil, nil
+	}
+
+	// Deduplicate by commit - same patch entry may be indexed at multiple paths
+	seen := make(map[int64]bool)
+	var result []*CommitNotification
+
+	for _, seg := range segments {
+		// Skip if we've already processed this commit
+		if seen[seg.EndCommit] {
+			continue
+		}
+		seen[seg.EndCommit] = true
+
+		// Read entry from dlog
+		logFile := dlog.LogFileID(seg.LogFile)
+		entry, err := s.dLog.ReadEntryAt(logFile, seg.LogPosition)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read entry at %s:%d: %w", seg.LogFile, seg.LogPosition, err)
+		}
+
+		if entry.Patch == nil {
+			continue
+		}
+
+		// Build CommitNotification
+		notification := &CommitNotification{
+			Commit:    entry.Commit,
+			Timestamp: entry.Timestamp,
+			Patch:     entry.Patch,
+			// KPaths not populated - would need index lookup per entry
+		}
+
+		result = append(result, notification)
+	}
+
+	// Sort by commit (segments are already sorted, but dedup may have changed order)
+	slices.SortFunc(result, func(a, b *CommitNotification) int {
+		if a.Commit < b.Commit {
+			return -1
+		}
+		if a.Commit > b.Commit {
+			return 1
+		}
+		return 0
+	})
 
 	return result, nil
 }

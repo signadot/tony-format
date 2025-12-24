@@ -2,13 +2,14 @@ package server
 
 import (
 	"log/slog"
-	"time"
 
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 )
 
-type Config struct {
-	Storage       *storage.Storage
-	Log           *slog.Logger
-	MaxTxDuration time.Duration
+// Spec holds the runtime specification for the server.
+// Config contains the serializable settings loaded from a file.
+type Spec struct {
+	Config  *Config
+	Storage *storage.Storage
+	Log     *slog.Logger
 }

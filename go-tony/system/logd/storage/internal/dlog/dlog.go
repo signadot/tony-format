@@ -40,7 +40,8 @@ type DLogFile struct {
 	path     string       // Full path to log file (e.g., "logA" or "logB")
 	file     *os.File     // Open file handle
 	mu       sync.RWMutex // Protects file operations
-	position int64        // Current write position (for appends)
+	snapMu   sync.Mutex
+	position int64 // Current write position (for appends)
 
 	// Metadata
 	logger *slog.Logger
@@ -248,11 +249,37 @@ func (dl *DLog) AppendToInactive(entry *Entry) (logPosition int64, logFile LogFi
 	return position, inactiveLog, nil
 }
 
+// ActiveLogSize returns the current size of the active log file.
+func (dl *DLog) ActiveLogSize() (int64, error) {
+	dl.mu.RLock()
+	defer dl.mu.RUnlock()
+
+	var logFile *DLogFile
+	if dl.activeLog == LogFileA {
+		logFile = dl.logA
+	} else {
+		logFile = dl.logB
+	}
+	return logFile.Size()
+}
+
 // SwitchActive switches the active log (A ↔ B).
+// Blocks if a snapshot is in progress on the inactive log (which is about to become active).
 // Called by the caller when compaction boundaries are reached.
 func (dl *DLog) SwitchActive() error {
 	dl.mu.Lock()
-	defer dl.mu.Unlock()
+
+	// Determine inactive log and acquire its snapMu
+	// This blocks if a snapshot is running on that log
+	var inactiveLog *DLogFile
+	if dl.activeLog == LogFileA {
+		inactiveLog = dl.logB
+	} else {
+		inactiveLog = dl.logA
+	}
+
+	// Block until any snapshot on inactive log completes
+	inactiveLog.snapMu.Lock()
 
 	// Switch active log
 	if dl.activeLog == LogFileA {
@@ -260,6 +287,10 @@ func (dl *DLog) SwitchActive() error {
 	} else {
 		dl.activeLog = LogFileA
 	}
+
+	// Release snapMu - the old inactive is now active and can receive writes
+	inactiveLog.snapMu.Unlock()
+	dl.mu.Unlock()
 
 	// Persist state to disk
 	statePath := filepath.Join(dl.baseDir, "dlog.state")
