@@ -58,8 +58,7 @@ func (s *Server) handlePatchData(w http.ResponseWriter, r *http.Request, req *ap
 	}
 
 	// Track commit and check snapshot thresholds
-	s.commitsSinceSnapshot++
-	s.maybeSnapshot()
+	s.onCommit()
 
 	// Build response
 	resp := &api.Patch{

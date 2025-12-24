@@ -81,6 +81,7 @@ type CommitOps interface {
 type State struct {
 	TxID        int64          // Transaction ID
 	CreatedAt   time.Time      // RFC3339 timestamp
+	Timeout     time.Duration  // Maximum time to wait for all participants (0 = no timeout)
 	Meta        *api.PatchMeta // Metadata from docd
 	PatcherData []*PatcherData // All participant patches
 }

@@ -28,8 +28,8 @@ type Server struct {
 	// Session sequence counter for HTTP sessions
 	httpSessionSeq atomic.Int64
 
-	// commitsSinceSnapshot tracks commits for snapshot policy
-	commitsSinceSnapshot int64
+	// commitsSinceSnapshot tracks commits for snapshot policy (accessed from multiple goroutines)
+	commitsSinceSnapshot atomic.Int64
 }
 
 // New creates a new Server instance.
@@ -51,6 +51,11 @@ func New(spec *Spec) *Server {
 	// Wire up commit notifications to the watch hub
 	if spec.Storage != nil {
 		spec.Storage.SetCommitNotifier(s.Hub.Broadcast)
+
+		// Set transaction timeout from config
+		if spec.Config.Tx != nil && spec.Config.Tx.Timeout > 0 {
+			spec.Storage.SetTxTimeout(spec.Config.Tx.Timeout)
+		}
 	}
 
 	return s
@@ -189,7 +194,8 @@ func (s *Server) maybeSnapshot() {
 	shouldSnapshot := false
 
 	// Check commit count threshold
-	if snap.MaxCommits > 0 && s.commitsSinceSnapshot >= snap.MaxCommits {
+	commitCount := s.commitsSinceSnapshot.Load()
+	if snap.MaxCommits > 0 && commitCount >= snap.MaxCommits {
 		shouldSnapshot = true
 	}
 
@@ -202,11 +208,11 @@ func (s *Server) maybeSnapshot() {
 	}
 
 	if shouldSnapshot {
-		s.Spec.Log.Info("triggering snapshot", "commitsSinceSnapshot", s.commitsSinceSnapshot)
+		s.Spec.Log.Info("triggering snapshot", "commitsSinceSnapshot", commitCount)
 		if err := s.Spec.Storage.SwitchAndSnapshot(); err != nil {
 			s.Spec.Log.Error("snapshot failed", "error", err)
 		} else {
-			s.commitsSinceSnapshot = 0
+			s.commitsSinceSnapshot.Store(0)
 		}
 	}
 }
@@ -270,6 +276,6 @@ func (s *Server) TCPAddr() string {
 
 // onCommit is called after successful commits for snapshot tracking.
 func (s *Server) onCommit() {
-	s.commitsSinceSnapshot++
+	s.commitsSinceSnapshot.Add(1)
 	s.maybeSnapshot()
 }

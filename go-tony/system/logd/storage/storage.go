@@ -42,9 +42,10 @@ type Storage struct {
 
 	index *index.Index
 
-	txStore  tx.Store // Transaction store (in-memory for now, can be swapped for disk-based)
-	logger   *slog.Logger
-	notifier CommitNotifier // Optional callback for commit notifications
+	txStore   tx.Store       // Transaction store (in-memory for now, can be swapped for disk-based)
+	txTimeout time.Duration  // Timeout for transaction participants to join (0 = no timeout)
+	logger    *slog.Logger
+	notifier  CommitNotifier // Optional callback for commit notifications
 }
 
 // Open opens or creates a Storage instance with the given root directory.
@@ -243,6 +244,7 @@ func (s *Storage) NewTx(participantCount int, meta *api.PatchMeta) (tx.Tx, error
 	state := &tx.State{
 		TxID:        txSeq,
 		CreatedAt:   time.Now(),
+		Timeout:     s.txTimeout,
 		Meta:        meta,
 		PatcherData: make([]*tx.PatcherData, 0, participantCount),
 	}
@@ -319,4 +321,17 @@ func (s *Storage) SetCommitNotifier(notifier CommitNotifier) {
 // GetCommitNotifier returns the currently registered commit notifier, or nil if none.
 func (s *Storage) GetCommitNotifier() CommitNotifier {
 	return s.notifier
+}
+
+// SetTxTimeout sets the timeout for transaction participants to join.
+// If not all participants join within this duration, the transaction is aborted
+// and waiting participants receive a timeout error.
+// Pass 0 to disable timeout (not recommended for production).
+func (s *Storage) SetTxTimeout(timeout time.Duration) {
+	s.txTimeout = timeout
+}
+
+// GetTxTimeout returns the current transaction timeout.
+func (s *Storage) GetTxTimeout() time.Duration {
+	return s.txTimeout
 }

@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"os"
+	"time"
 )
 
 // Config represents the logd server configuration file structure.
@@ -12,6 +13,20 @@ import (
 type Config struct {
 	// Snapshot configures automatic snapshotting behavior.
 	Snapshot *SnapshotConfig `tony:"field=snapshot"`
+
+	// Tx configures transaction behavior.
+	Tx *TxConfig `tony:"field=tx"`
+}
+
+// TxConfig configures transaction behavior.
+//
+//tony:schemagen=tx-config
+type TxConfig struct {
+	// Timeout is the maximum time to wait for all participants to join a transaction.
+	// If not all participants join within this duration, the transaction is aborted
+	// and waiting participants receive a timeout error.
+	// Default: 1s
+	Timeout time.Duration `tony:"field=timeout"`
 }
 
 // SnapshotConfig configures when automatic snapshots are triggered.
@@ -47,6 +62,9 @@ func DefaultConfig() *Config {
 	return &Config{
 		Snapshot: &SnapshotConfig{
 			MaxCommits: 1000, // Snapshot every 1000 commits by default
+		},
+		Tx: &TxConfig{
+			Timeout: 1 * time.Second, // Default transaction timeout
 		},
 	}
 }

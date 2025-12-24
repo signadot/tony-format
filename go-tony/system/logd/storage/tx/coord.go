@@ -166,8 +166,39 @@ func (co *txCoord) NewPatcher(p *api.Patch) (Patcher, error) {
 func (p *txPatcher) Commit() *Result {
 	co := p.coord
 
-	// Wait for all participants to join
-	<-co.ready
+	// Helper to set shared result for all patchers
+	setResult := func(r *Result) *Result {
+		co.resultMu.Lock()
+		if co.result == nil {
+			co.result = r
+		}
+		result := co.result
+		co.resultMu.Unlock()
+		return result
+	}
+
+	// Wait for all participants to join, with optional timeout
+	co.mu.RLock()
+	timeout := co.state.Timeout
+	co.mu.RUnlock()
+
+	if timeout > 0 {
+		select {
+		case <-co.ready:
+			// All participants joined
+		case <-time.After(timeout):
+			// Timeout waiting for participants
+			_ = co.storage.Delete(co.state.TxID)
+			return setResult(&Result{
+				Committed: false,
+				Matched:   false,
+				Error:     fmt.Errorf("transaction timeout: not all participants joined within %v", timeout),
+			})
+		}
+	} else {
+		// No timeout configured - wait indefinitely
+		<-co.ready
+	}
 
 	// Check if already committed (shared result available)
 	co.resultMu.RLock()
@@ -191,17 +222,6 @@ func (p *txPatcher) Commit() *Result {
 	state := co.state
 	commitOps := co.commitOps
 	co.mu.RUnlock()
-
-	// Helper to set shared result for all patchers
-	setResult := func(r *Result) *Result {
-		co.resultMu.Lock()
-		if co.result == nil {
-			co.result = r
-		}
-		result := co.result
-		co.resultMu.Unlock()
-		return result
-	}
 
 	if commitOps == nil {
 		return setResult(&Result{

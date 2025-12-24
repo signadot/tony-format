@@ -50,19 +50,19 @@ func TestAutoSnapshotByCommits(t *testing.T) {
 
 	// Make commits
 	doPatch("users", `{id: "1", name: "Alice"}`)
-	if srv.commitsSinceSnapshot != 1 {
-		t.Errorf("expected 1 commit, got %d", srv.commitsSinceSnapshot)
+	if srv.commitsSinceSnapshot.Load() != 1 {
+		t.Errorf("expected 1 commit, got %d", srv.commitsSinceSnapshot.Load())
 	}
 
 	doPatch("users", `{id: "2", name: "Bob"}`)
-	if srv.commitsSinceSnapshot != 2 {
-		t.Errorf("expected 2 commits, got %d", srv.commitsSinceSnapshot)
+	if srv.commitsSinceSnapshot.Load() != 2 {
+		t.Errorf("expected 2 commits, got %d", srv.commitsSinceSnapshot.Load())
 	}
 
 	doPatch("users", `{id: "3", name: "Charlie"}`)
 	// After 3rd commit, snapshot should trigger and reset counter
-	if srv.commitsSinceSnapshot != 0 {
-		t.Errorf("expected 0 commits after snapshot, got %d", srv.commitsSinceSnapshot)
+	if srv.commitsSinceSnapshot.Load() != 0 {
+		t.Errorf("expected 0 commits after snapshot, got %d", srv.commitsSinceSnapshot.Load())
 	}
 
 	t.Logf("Auto-snapshot triggered after 3 commits")
@@ -113,20 +113,20 @@ func TestAutoSnapshotBySize(t *testing.T) {
 	// Make a commit with some data
 	doPatch("users", `{id: "1", name: "Alice", email: "alice@example.com", bio: "A long bio text to increase the size of the log entry"}`)
 	size2, _ := store.ActiveLogSize()
-	t.Logf("After 1st commit, log size: %d, commits: %d", size2, srv.commitsSinceSnapshot)
+	t.Logf("After 1st commit, log size: %d, commits: %d", size2, srv.commitsSinceSnapshot.Load())
 
 	doPatch("posts", `{id: "1", title: "Hello World", content: "This is a test post with some content to increase size"}`)
 	size3, _ := store.ActiveLogSize()
-	t.Logf("After 2nd commit, log size: %d, commits: %d", size3, srv.commitsSinceSnapshot)
+	t.Logf("After 2nd commit, log size: %d, commits: %d", size3, srv.commitsSinceSnapshot.Load())
 
 	// Keep adding until snapshot triggers
-	for i := 0; i < 10 && srv.commitsSinceSnapshot > 0; i++ {
+	for i := 0; i < 10 && srv.commitsSinceSnapshot.Load() > 0; i++ {
 		doPatch("data", `{i: `+string(rune('0'+i))+`, padding: "more data to fill up the log"}`)
 		size, _ := store.ActiveLogSize()
-		t.Logf("After commit %d, log size: %d, commits: %d", i+3, size, srv.commitsSinceSnapshot)
+		t.Logf("After commit %d, log size: %d, commits: %d", i+3, size, srv.commitsSinceSnapshot.Load())
 	}
 
-	if srv.commitsSinceSnapshot != 0 {
-		t.Errorf("expected snapshot to trigger by size, but commits=%d", srv.commitsSinceSnapshot)
+	if srv.commitsSinceSnapshot.Load() != 0 {
+		t.Errorf("expected snapshot to trigger by size, but commits=%d", srv.commitsSinceSnapshot.Load())
 	}
 }
