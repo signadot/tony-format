@@ -490,42 +490,39 @@ func (dlf *DLogFile) Close() error {
 	return nil
 }
 
-// OpenReaderAt opens a new file handle and returns a reader scoped to the section
-// starting at position. All seeks in the returned reader are relative to position
-// (position becomes offset 0). This is used to read inline snapshot data.
-// The returned reader must be closed when done.
+// OpenReaderAt returns a reader scoped to the section starting at position.
+// All seeks in the returned reader are relative to position (position becomes offset 0).
+// This is used to read inline snapshot data.
+// Uses the existing file handle with ReadAt (pread) - no new file handle opened.
+// The returned reader's Close() is a no-op since it doesn't own the file handle.
 func (dlf *DLogFile) OpenReaderAt(position int64) (io.ReadSeekCloser, error) {
-	// Open a new file handle for reading (don't interfere with the main write handle)
-	file, err := os.Open(dlf.path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open log file for reading: %w", err)
-	}
+	dlf.mu.RLock()
+	defer dlf.mu.RUnlock()
 
 	// Get file size to determine section size
-	stat, err := file.Stat()
+	stat, err := dlf.file.Stat()
 	if err != nil {
-		file.Close()
 		return nil, fmt.Errorf("failed to stat log file: %w", err)
 	}
 
 	// Create a SectionReader from position to end of file
 	// This makes all seeks relative to position (position becomes offset 0)
+	// SectionReader uses ReadAt (pread) - concurrent-safe, no file pointer movement
 	sectionSize := stat.Size() - position
-	section := io.NewSectionReader(file, position, sectionSize)
+	section := io.NewSectionReader(dlf.file, position, sectionSize)
 
-	// Wrap in a closeable reader that closes the underlying file
-	return &sectionReadCloser{section, file}, nil
+	// Wrap in a no-op closer since we don't own the file handle
+	return &sectionReadCloser{section}, nil
 }
 
-// sectionReadCloser wraps an io.SectionReader with a Close method
-// that closes the underlying file.
+// sectionReadCloser wraps an io.SectionReader with a no-op Close method.
+// The underlying file handle is owned by DLogFile, not by this reader.
 type sectionReadCloser struct {
 	*io.SectionReader
-	file *os.File
 }
 
 func (src *sectionReadCloser) Close() error {
-	return src.file.Close()
+	return nil // no-op - we don't own the file handle
 }
 
 func (it *singleFileIter) next() (*Entry, int64, error) {
