@@ -23,50 +23,59 @@ func (s *Storage) findSnapshotBaseReader(kp string, commit int64) (patches.Event
 		return nil, 0, fmt.Errorf("invalid index iterator for path %q", kp)
 	}
 
+	// Find snapshot segment while holding lock, then release before I/O.
+	// Segment data (LogFile, LogPosition) is immutable once written,
+	// so it's safe to use after releasing the lock.
+	var snapSeg *index.LogSegment
 	s.index.RLock()
-	defer s.index.RUnlock()
-
 	for seg := range iter.CommitsAt(commit, index.Down) {
 		// Skip non-snapshot entries (patches have StartCommit != EndCommit)
 		if seg.StartCommit != seg.EndCommit {
 			continue
 		}
-
-		// Found snapshot - load events from it
-		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition)
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to read snapshot entry: %w", err)
-		}
-		if entry.SnapPos == nil {
-			return nil, 0, fmt.Errorf("snapshot entry missing SnapPos")
-		}
-
-		// Open reader at snapshot position to read the header
-		snapReader, err := s.dLog.OpenReaderAt(dlog.LogFileID(seg.LogFile), *entry.SnapPos)
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to open snapshot reader: %w", err)
-		}
-
-		// Open the snapshot to parse header and get event stream
-		snapshot, err := snap.Open(snapReader)
-		if err != nil {
-			snapReader.Close()
-			return nil, 0, fmt.Errorf("failed to open snapshot: %w", err)
-		}
-		defer snapshot.Close()
-		node, err := snapshot.ReadPath(kp)
-		if err != nil {
-			return nil, 0, fmt.Errorf("error reading %q from snapshot: %w", kp, err)
-		}
-		events, err := stream.NodeToEvents(node)
-		if err != nil {
-			return nil, 0, fmt.Errorf("error translating node to events: %w", err)
-		}
-		return newSliceEventReader(events), seg.StartCommit + 1, nil
+		// Found snapshot - copy segment info
+		segCopy := seg
+		snapSeg = &segCopy
+		break
 	}
+	s.index.RUnlock()
 
 	// No snapshot found - start from empty (null state at commit 0)
-	return patches.NewEmptyEventReader(), 0, nil
+	if snapSeg == nil {
+		return patches.NewEmptyEventReader(), 0, nil
+	}
+
+	// Do I/O without holding lock
+	entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(snapSeg.LogFile), snapSeg.LogPosition)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to read snapshot entry: %w", err)
+	}
+	if entry.SnapPos == nil {
+		return nil, 0, fmt.Errorf("snapshot entry missing SnapPos")
+	}
+
+	// Open reader at snapshot position to read the header
+	snapReader, err := s.dLog.OpenReaderAt(dlog.LogFileID(snapSeg.LogFile), *entry.SnapPos)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to open snapshot reader: %w", err)
+	}
+
+	// Open the snapshot to parse header and get event stream
+	snapshot, err := snap.Open(snapReader)
+	if err != nil {
+		snapReader.Close()
+		return nil, 0, fmt.Errorf("failed to open snapshot: %w", err)
+	}
+	defer snapshot.Close()
+	node, err := snapshot.ReadPath(kp)
+	if err != nil {
+		return nil, 0, fmt.Errorf("error reading %q from snapshot: %w", kp, err)
+	}
+	events, err := stream.NodeToEvents(node)
+	if err != nil {
+		return nil, 0, fmt.Errorf("error translating node to events: %w", err)
+	}
+	return newSliceEventReader(events), snapSeg.StartCommit + 1, nil
 }
 
 // SwitchAndSnapshot switches the active log and creates a snapshot of the inactive log.
