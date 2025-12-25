@@ -3,93 +3,15 @@ package server
 import (
 	"errors"
 	"fmt"
-	"net/http"
 
 	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
-	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
 // ErrPathNotFound is returned when a path does not exist in the document.
 // This is distinct from a path that exists but has a null value.
 var ErrPathNotFound = errors.New("path not found")
-
-// handleMatchData handles MATCH requests for data reads.
-func (s *Server) handleMatchData(w http.ResponseWriter, r *http.Request, req *api.Match) {
-	// Validate path (kpath format)
-	if err := validateDataPath(req.Body.Path); err != nil {
-		writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidPath, err.Error()))
-		return
-	}
-
-	kp := req.Body.Path
-
-	// Determine commit to read at
-	var commit int64
-	if req.Meta.SeqID != nil {
-		commit = *req.Meta.SeqID
-	} else {
-		var err error
-		commit, err = s.Spec.Storage.GetCurrentCommit()
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to get current commit: %v", err)))
-			return
-		}
-	}
-
-	// Read state at path (returns document with path as outer structure)
-	doc, err := s.Spec.Storage.ReadStateAt(kp, commit)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to read state: %v", err)))
-		return
-	}
-
-	// Extract value at the path from the document
-	state, err := extractPathValue(doc, kp)
-	if err != nil {
-		if errors.Is(err, ErrPathNotFound) {
-			writeError(w, http.StatusNotFound, api.NewError(api.ErrCodeNotFound, err.Error()))
-			return
-		}
-		writeError(w, http.StatusInternalServerError, api.NewError("storage_error", fmt.Sprintf("failed to extract path value: %v", err)))
-		return
-	}
-
-	// Apply match filter if provided (Data field contains match criteria)
-	if req.Body.Data != nil && req.Body.Data.Type != ir.NullType {
-		filteredState, err := filterState(state, req.Body.Data)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, api.NewError("match_error", fmt.Sprintf("failed to apply match filter: %v", err)))
-			return
-		}
-		state = filteredState
-	}
-
-	// Build response
-	resp := &api.Match{
-		Meta: req.Meta,
-		Body: api.Body{
-			Path: req.Body.Path,
-			Data: state,
-		},
-	}
-	resp.Meta.SeqID = &commit
-
-	d, err := resp.ToTony()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, api.NewError("match_error", fmt.Sprintf("failed to encode response: %v", err)))
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/x-tony")
-	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write(d); err != nil {
-		// Client likely disconnected
-		s.Spec.Log.Error("failed to write match response", "error", err)
-		return
-	}
-}
 
 // extractPathValue navigates the document structure according to the kpath
 // and returns the value at that path. The document structure mirrors the path.

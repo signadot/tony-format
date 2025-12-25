@@ -6,14 +6,12 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/http"
-	"strings"
 	"time"
 
+	"github.com/google/gops/agent"
 	"github.com/scott-cotton/cli"
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/ir"
-	"github.com/signadot/tony-format/go-tony/parse"
 	"github.com/signadot/tony-format/go-tony/stream"
 	"github.com/signadot/tony-format/go-tony/system/logd/server"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
@@ -31,7 +29,6 @@ func LogDCommand(mainCfg *MainConfig) *cli.Command {
 		WithDescription("logd storage server commands").
 		WithSubs(
 			LogDServeCommand(cfg),
-			LogDClientCommand(cfg),
 			LogDSessionCommand(cfg))
 }
 
@@ -41,7 +38,6 @@ type LogDServeConfig struct {
 	DataDir    string `cli:"name=data desc='directory for logd data'"`
 	ConfigFile string `cli:"name=config desc='configuration file (tony format)'"`
 	Addr       string `cli:"name=addr desc='TCP listen address' default=localhost:9123"`
-	HTTPPort   int    `cli:"name=http desc='HTTP server port (optional, disabled by default)'"`
 }
 
 func LogDServeCommand(logdCfg *LogDConfig) *cli.Command {
@@ -51,8 +47,8 @@ func LogDServeCommand(logdCfg *LogDConfig) *cli.Command {
 		panic(err)
 	}
 	return cli.NewCommandAt(&cfg.Serve, "serve").
-		WithSynopsis("serve -data <dir> [-addr <addr>] [-http <port>]").
-		WithDescription("run the logd storage server (TCP by default, HTTP optional)").
+		WithSynopsis("serve -data <dir> [-addr <addr>]").
+		WithDescription("run the logd storage server").
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
 			return logdServe(cfg, cc, args)
@@ -63,6 +59,11 @@ func logdServe(cfg *LogDServeConfig, cc *cli.Context, args []string) error {
 	_, err := cfg.Serve.Parse(cc, args)
 	if err != nil {
 		return err
+	}
+
+	// Start gops agent for debugging
+	if err := agent.Listen(agent.Options{}); err != nil {
+		fmt.Fprintf(cc.Out, "gops agent failed: %v\n", err)
 	}
 
 	if cfg.DataDir == "" {
@@ -90,131 +91,15 @@ func logdServe(cfg *LogDServeConfig, cc *cli.Context, args []string) error {
 		Storage: s,
 	})
 
-	// Start TCP listener (default)
+	// Start TCP listener
 	if err := srv.StartTCP(cfg.Addr); err != nil {
 		return fmt.Errorf("failed to start TCP listener: %w", err)
 	}
 	fmt.Fprintf(cc.Out, "TCP session listener on %s\n", srv.TCPAddr())
 	defer srv.StopTCP()
 
-	// Start HTTP server if port specified
-	if cfg.HTTPPort > 0 {
-		addr := fmt.Sprintf(":%d", cfg.HTTPPort)
-		fmt.Fprintf(cc.Out, "HTTP server on %s\n", addr)
-		return http.ListenAndServe(addr, srv)
-	}
-
-	// Block forever (TCP only mode)
+	// Block forever
 	select {}
-}
-
-type LogDClientConfig struct {
-	*LogDConfig
-	Client *cli.Command
-}
-
-func LogDClientCommand(logdCfg *LogDConfig) *cli.Command {
-	cfg := &LogDClientConfig{LogDConfig: logdCfg}
-	return cli.NewCommandAt(&cfg.Client, "client").
-		WithSynopsis("client <addr>").
-		WithDescription("send requests to logd server (newline-delimited wire format)").
-		WithRun(func(cc *cli.Context, args []string) error {
-			return logdClient(cfg, cc, args)
-		})
-}
-
-func logdClient(cfg *LogDClientConfig, cc *cli.Context, args []string) error {
-	args, err := cfg.Client.Parse(cc, args)
-	if err != nil {
-		return err
-	}
-
-	if len(args) < 1 {
-		return fmt.Errorf("usage: client <addr>")
-	}
-
-	addr := args[0]
-	if !strings.HasPrefix(addr, "http://") && !strings.HasPrefix(addr, "https://") {
-		addr = "http://" + addr
-	}
-
-	// Read requests from stdin, one per line (wire format)
-	scanner := bufio.NewScanner(cc.In)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(bytes.TrimSpace(line)) == 0 {
-			continue
-		}
-
-		// Parse the request to determine the method
-		req, err := parse.Parse(line)
-		if err != nil {
-			return fmt.Errorf("failed to parse request: %w", err)
-		}
-
-		// Determine HTTP method from request structure
-		// If patch: field exists at top level -> PATCH
-		// Otherwise -> MATCH
-		method := "MATCH"
-		if hasField(req, "patch") {
-			method = "PATCH"
-		}
-
-		// Send HTTP request
-		httpReq, err := http.NewRequest(method, addr+"/api/data", bytes.NewReader(line))
-		if err != nil {
-			return fmt.Errorf("failed to create request: %w", err)
-		}
-		httpReq.Header.Set("Content-Type", "application/x-tony")
-
-		resp, err := http.DefaultClient.Do(httpReq)
-		if err != nil {
-			return fmt.Errorf("request failed: %w", err)
-		}
-
-		// Read response body
-		respBody, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			return fmt.Errorf("failed to read response: %w", err)
-		}
-
-		// Parse and re-encode response (to normalize format)
-		respNode, err := parse.Parse(respBody)
-		if err != nil {
-			// If we can't parse, just output raw
-			cc.Out.Write(respBody)
-			cc.Out.Write([]byte("\n"))
-			continue
-		}
-
-		// Encode response in wire format (one line)
-		var buf bytes.Buffer
-		if err := encode.Encode(respNode, &buf, encode.EncodeWire(true)); err != nil {
-			return fmt.Errorf("failed to encode response: %w", err)
-		}
-		cc.Out.Write(buf.Bytes())
-		cc.Out.Write([]byte("\n"))
-	}
-
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("error reading stdin: %w", err)
-	}
-
-	return nil
-}
-
-// hasField checks if an object node has a field with the given name.
-func hasField(node *ir.Node, name string) bool {
-	if node == nil || node.Type != ir.ObjectType {
-		return false
-	}
-	for _, f := range node.Fields {
-		if f.ParentField == name {
-			return true
-		}
-	}
-	return false
 }
 
 type LogDSessionConfig struct {

@@ -50,7 +50,7 @@ type Storage struct {
 }
 
 // DefaultIndexPersistInterval is the default number of commits between index persists.
-const DefaultIndexPersistInterval = 100
+const DefaultIndexPersistInterval = 1000
 
 // Open opens or creates a Storage instance with the given root directory.
 // The root directory will be created if it doesn't exist.
