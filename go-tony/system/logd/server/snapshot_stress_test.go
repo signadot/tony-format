@@ -106,7 +106,6 @@ func TestReadsDuringSnapshot(t *testing.T) {
 }
 
 func TestSnapshotStress(t *testing.T) {
-	t.Skip("Skip: has a deadlock under high concurrency between Index.Add write lock and LookupRange read lock")
 	dir, err := os.MkdirTemp("", "logd-stress-*")
 	if err != nil {
 		t.Fatal(err)
