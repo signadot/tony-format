@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/stream"
@@ -311,6 +312,17 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 		return
 	}
 
+	// Parse timeout if provided
+	var timeout time.Duration
+	if req.Timeout != nil {
+		var err error
+		timeout, err = time.ParseDuration(*req.Timeout)
+		if err != nil {
+			s.sendError(id, api.ErrCodeInvalidTx, fmt.Sprintf("invalid timeout %q: %v", *req.Timeout, err))
+			return
+		}
+	}
+
 	var txn tx.Tx
 	var err error
 
@@ -344,8 +356,25 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 		return
 	}
 
-	// Commit blocks until all participants have joined (for multi-participant tx)
-	result := patcher.Commit()
+	// Commit with optional per-participant timeout
+	var result *tx.Result
+	if timeout > 0 {
+		resultCh := make(chan *tx.Result, 1)
+		go func() {
+			resultCh <- patcher.Commit()
+		}()
+		select {
+		case result = <-resultCh:
+			// Commit completed
+		case <-time.After(timeout):
+			s.sendError(id, api.ErrCodeTimeout, fmt.Sprintf("patch timed out after %v", timeout))
+			return
+		}
+	} else {
+		// No timeout - block until commit completes
+		result = patcher.Commit()
+	}
+
 	if result.Error != nil {
 		s.sendError(id, "storage_error", fmt.Sprintf("failed to commit: %v", result.Error))
 		return

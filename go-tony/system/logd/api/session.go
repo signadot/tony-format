@@ -40,8 +40,9 @@ type MatchRequest struct {
 //
 //tony:schemagen=session-patch-request
 type PatchRequest struct {
-	TxID  *int64 `tony:"field=txId"`  // Optional: transaction ID for multi-participant tx
-	Patch Body   `tony:"field=patch"`
+	TxID    *int64  `tony:"field=txId"`    // Optional: transaction ID for multi-participant tx
+	Timeout *string `tony:"field=timeout"` // Optional: timeout for this participant (e.g., "5s", "1m")
+	Patch   Body    `tony:"field=patch"`
 }
 
 // NewTxRequest creates a new multi-participant transaction.
@@ -192,6 +193,7 @@ const (
 	ErrCodeTxFull          = "tx_full"          // Transaction already has all participants
 	ErrCodeMatchFailed     = "match_failed"     // Transaction match condition failed
 	ErrCodeReplayFailed    = "replay_failed"    // Watch replay failed, data may be incomplete
+	ErrCodeTimeout         = "timeout"          // Operation timed out
 )
 
 // NewSessionError creates a new SessionError.
