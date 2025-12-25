@@ -569,6 +569,69 @@ func (s *GitStore) ReplaceTree(ref, message string, files map[string][]byte) err
 	return nil
 }
 
+// CleanupStaleRefs removes stale refs when an issue exists in both refs/issues/ and refs/closed/.
+// For each duplicate, it keeps the ref with more history (the descendant) and deletes the ancestor.
+// Returns the number of refs cleaned up.
+func (s *GitStore) CleanupStaleRefs() (int, error) {
+	// Get all open issue IDs
+	openCmd := exec.Command("git", "for-each-ref", "--format=%(refname)", "refs/issues/*")
+	openOut, _ := openCmd.Output()
+	openRefs := strings.Split(strings.TrimSpace(string(openOut)), "\n")
+
+	cleaned := 0
+	for _, openRef := range openRefs {
+		if openRef == "" {
+			continue
+		}
+		id, err := IDFromRef(openRef)
+		if err != nil {
+			continue
+		}
+
+		// Check if closed ref also exists
+		closedRef := ClosedRefForID(id)
+		checkCmd := exec.Command("git", "show-ref", closedRef)
+		if checkCmd.Run() != nil {
+			continue // No duplicate
+		}
+
+		// Both refs exist - determine which to keep based on ancestry
+		// If open is ancestor of closed, delete open (closed has more history)
+		// If closed is ancestor of open, delete closed (open has more history)
+		// If neither is ancestor, keep closed (it's explicitly marked closed)
+
+		openSHA, _ := s.GetRefCommit(openRef)
+		closedSHA, _ := s.GetRefCommit(closedRef)
+
+		var refToDelete string
+		if s.isAncestor(openSHA, closedSHA) {
+			// open is ancestor of closed - closed has more history, delete open
+			refToDelete = openRef
+		} else if s.isAncestor(closedSHA, openSHA) {
+			// closed is ancestor of open - open has more history, delete closed
+			refToDelete = closedRef
+		} else {
+			// No ancestry relationship - keep closed (explicit close wins)
+			refToDelete = openRef
+		}
+
+		deleteCmd := exec.Command("git", "update-ref", "-d", refToDelete)
+		if err := deleteCmd.Run(); err != nil {
+			fmt.Fprintf(s.out, "Warning: failed to delete stale ref %s: %v\n", refToDelete, err)
+			continue
+		}
+		cleaned++
+	}
+
+	return cleaned, nil
+}
+
+// isAncestor returns true if ancestor is an ancestor of descendant.
+func (s *GitStore) isAncestor(ancestor, descendant string) bool {
+	cmd := exec.Command("git", "merge-base", "--is-ancestor", ancestor, descendant)
+	return cmd.Run() == nil
+}
+
 // ListDir lists directory contents at a path within a ref.
 func (s *GitStore) ListDir(ref, path string) (map[string]string, error) {
 	target := ref

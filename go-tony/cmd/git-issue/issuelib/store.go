@@ -67,6 +67,10 @@ type Store interface {
 	// VerifyRemote checks if a remote exists.
 	VerifyRemote(remote string) error
 
+	// CleanupStaleRefs removes duplicate refs when an issue exists in both
+	// refs/issues/ and refs/closed/. Keeps the ref with more history.
+	CleanupStaleRefs() (int, error)
+
 	// Out returns the output writer for this store.
 	Out() io.Writer
 }

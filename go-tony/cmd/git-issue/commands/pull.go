@@ -44,6 +44,13 @@ func (cfg *pullConfig) run(cc *cli.Context, args []string) error {
 		return err
 	}
 
+	// Clean up stale refs (when issue exists in both refs/issues/ and refs/closed/)
+	// Keeps the ref with more history (the descendant)
+	cleaned, _ := cfg.store.CleanupStaleRefs()
+	if cleaned > 0 {
+		fmt.Fprintf(cc.Out, "Cleaned up %d stale ref(s).\n", cleaned)
+	}
+
 	// Count how many issues we have now
 	refs, err := cfg.store.ListRefs(true)
 	if err != nil {
