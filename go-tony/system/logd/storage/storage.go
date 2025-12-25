@@ -44,10 +44,11 @@ type Storage struct {
 	index          *index.Index
 	indexPersister *IndexPersister
 
-	txStore   tx.Store       // Transaction store (in-memory for now, can be swapped for disk-based)
-	txTimeout time.Duration  // Timeout for transaction participants to join (0 = no timeout)
-	logger    *slog.Logger
-	notifier  CommitNotifier // Optional callback for commit notifications
+	txStore        tx.Store           // Transaction store (in-memory for now, can be swapped for disk-based)
+	txTimeout      time.Duration      // Timeout for transaction participants to join (0 = no timeout)
+	logger         *slog.Logger
+	notifier       CommitNotifier     // Optional callback for commit notifications
+	schemaResolver api.SchemaResolver // Optional schema resolver for !key indexed arrays
 }
 
 // DefaultIndexPersistInterval is the default number of commits between index persists.
@@ -351,6 +352,26 @@ func (s *Storage) SetTxTimeout(timeout time.Duration) {
 // GetTxTimeout returns the current transaction timeout.
 func (s *Storage) GetTxTimeout() time.Duration {
 	return s.txTimeout
+}
+
+// SetSchemaResolver sets the schema resolver for !key indexed arrays.
+// The resolver provides schema for each scope (nil scope = baseline).
+func (s *Storage) SetSchemaResolver(resolver api.SchemaResolver) {
+	s.schemaResolver = resolver
+}
+
+// GetSchemaResolver returns the current schema resolver, or nil if none.
+func (s *Storage) GetSchemaResolver() api.SchemaResolver {
+	return s.schemaResolver
+}
+
+// schemaForScope returns the schema for a given scope.
+// Returns nil if no schema resolver is set.
+func (s *Storage) schemaForScope(scopeID *string) *api.Schema {
+	if s.schemaResolver == nil {
+		return nil
+	}
+	return s.schemaResolver.GetSchema(scopeID)
 }
 
 // DeleteScope removes all index entries for a scope.

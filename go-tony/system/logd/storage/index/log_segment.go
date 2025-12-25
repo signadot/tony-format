@@ -7,6 +7,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
+	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
 )
 
@@ -87,11 +88,11 @@ func NewLogSegmentFromPatchEntry(e *dlog.Entry, kpath string, logFile string, po
 	}
 }
 
-func IndexPatch(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int64, diff *ir.Node, scopeID *string) error {
-	return indexPatchRec(idx, e, logFile, pos, txSeq, diff, "", scopeID)
+func IndexPatch(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int64, diff *ir.Node, schema *api.Schema, scopeID *string) error {
+	return indexPatchRec(idx, e, logFile, pos, txSeq, diff, "", schema, scopeID)
 }
 
-func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int64, n *ir.Node, kPath string, scopeID *string) error {
+func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int64, n *ir.Node, kPath string, schema *api.Schema, scopeID *string) error {
 	seg := NewLogSegmentFromPatchEntry(e, kPath, logFile, pos, txSeq, scopeID)
 	idx.Add(seg)
 
@@ -108,7 +109,7 @@ func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq i
 			for i, f := range n.Fields {
 				v := n.Values[i]
 				nextPath := fmt.Sprintf("%s{%d}", kPath, *f.Int64)
-				if err := indexPatchRec(idx, e, logFile, pos, txSeq, v, nextPath, scopeID); err != nil {
+				if err := indexPatchRec(idx, e, logFile, pos, txSeq, v, nextPath, schema, scopeID); err != nil {
 					return err
 				}
 			}
@@ -124,42 +125,48 @@ func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq i
 			} else {
 				nextPath = kPath + "." + key
 			}
-			if err := indexPatchRec(idx, e, logFile, pos, txSeq, val, nextPath, scopeID); err != nil {
+			if err := indexPatchRec(idx, e, logFile, pos, txSeq, val, nextPath, schema, scopeID); err != nil {
 				return err
 			}
 		}
 		return nil
 	case ir.ArrayType:
-		key, args := ir.TagGet(n.Tag, "key")
-		if key == "" {
+		// Check schema first for key field
+		keyField := ""
+		if schema != nil {
+			keyField = schema.LookupKeyField(kPath)
+		}
+		// Fall back to !key tag in patch
+		if keyField == "" {
+			key, args := ir.TagGet(n.Tag, "key")
+			if key != "" && len(args) == 1 {
+				keyField = args[0]
+			}
+		}
+
+		// Not a keyed array - use positional indexing
+		if keyField == "" {
 			for i, v := range n.Values {
 				next := fmt.Sprintf("%s[%d]", kPath, i)
-				if err := indexPatchRec(idx, e, logFile, pos, txSeq, v, next); err != nil {
+				if err := indexPatchRec(idx, e, logFile, pos, txSeq, v, next, schema, scopeID); err != nil {
 					return err
 				}
 			}
 			return nil
 		}
-		// keys in patches just add the index item associated with the key (key).
-		// however, this lacks enforcement of using !key in the stored document
-		// TODO enforce !key in stored document with schema and ensure that storage
-		// is made aware of this somehow, and reference that here instead of
-		// just !key in the patch
-		if len(args) != 1 {
-			return fmt.Errorf("!key has incorrect form of args %v", args)
-		}
-		key = args[0]
+
+		// Keyed array - index by key value
 		for _, v := range n.Values {
 			// default to "" for things aren't indexable this way.
 			indexVal := ""
 			if v.Type == ir.ObjectType {
-				keyVal := ir.Get(n, key)
+				keyVal := ir.Get(v, keyField)
 				if keyVal != nil {
 					indexVal = keyVal.String
 				}
 			}
 			next := fmt.Sprintf("%s%s", kPath, kpath.Key(indexVal).SegmentString())
-			if err := indexPatchRec(idx, e, logFile, pos, txSeq, v, next); err != nil {
+			if err := indexPatchRec(idx, e, logFile, pos, txSeq, v, next, schema, scopeID); err != nil {
 				return err
 			}
 		}

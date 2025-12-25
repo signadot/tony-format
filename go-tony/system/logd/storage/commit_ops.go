@@ -38,8 +38,11 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 		return "", 0, err
 	}
 
+	// Get schema for this scope
+	schema := c.s.schemaForScope(scopeID)
+
 	e := entry
-	if err := index.IndexPatch(c.s.index, e, string(logFile), pos, txSeq, mergedPatch, scopeID); err != nil {
+	if err := index.IndexPatch(c.s.index, e, string(logFile), pos, txSeq, mergedPatch, schema, scopeID); err != nil {
 		return "", 0, err
 	}
 
