@@ -35,7 +35,7 @@ func newMockCommitOps() *mockCommitOps {
 	}
 }
 
-func (m *mockCommitOps) ReadStateAt(kp string, commit int64) (*ir.Node, error) {
+func (m *mockCommitOps) ReadStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
 	if commitMap, ok := m.readState[kp]; ok {
 		if state, ok := commitMap[commit]; ok {
 			return state, nil
@@ -91,10 +91,9 @@ func TestNew(t *testing.T) {
 		t.Errorf("Expected TxID 1, got %d", tx.ID())
 	}
 
-	// With expectedCount=0 (len of empty PatcherData), IsComplete() returns true
-	// This is expected behavior - transaction is "complete" when all expected (0) patchers are added
-	if !tx.IsComplete() {
-		t.Error("Expected complete transaction (expectedCount=0 means no patchers needed), got incomplete")
+	// With capacity 2, expectedCount is 2, so transaction is not complete until 2 patchers are added
+	if tx.IsComplete() {
+		t.Error("Expected incomplete transaction (expectedCount=cap=2, no patchers added yet)")
 	}
 }
 
@@ -510,9 +509,131 @@ type mockCommitOpsWithError struct {
 	readStateError error
 }
 
-func (m *mockCommitOpsWithError) ReadStateAt(kp string, commit int64) (*ir.Node, error) {
+func (m *mockCommitOpsWithError) ReadStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
 	if m.readStateError != nil {
 		return nil, m.readStateError
 	}
-	return m.mockCommitOps.ReadStateAt(kp, commit)
+	return m.mockCommitOps.ReadStateAt(kp, commit, scopeID)
+}
+
+func TestCommit_Timeout(t *testing.T) {
+	store := NewInMemoryTxStore()
+	commitOps := newMockCommitOps()
+	commitOps.currentCommit = 10
+
+	// Create a transaction expecting 2 participants with short timeout
+	state := &State{
+		TxID:        1,
+		CreatedAt:   time.Now(),
+		Timeout:     50 * time.Millisecond, // Very short timeout for test
+		PatcherData: make([]*PatcherData, 0, 2),
+	}
+
+	tx := New(store, commitOps, state)
+	if err := store.Put(tx); err != nil {
+		t.Fatalf("Put failed: %v", err)
+	}
+
+	// Only add one patcher (expecting 2)
+	patch := &api.Patch{
+		Meta: api.PatchMeta{},
+		Patch: api.Body{
+			Path: "foo",
+			Data: ir.FromString("bar"),
+		},
+	}
+
+	patcher, err := tx.NewPatcher(patch)
+	if err != nil {
+		t.Fatalf("NewPatcher failed: %v", err)
+	}
+
+	// Commit should timeout because we only have 1 of 2 expected participants
+	start := time.Now()
+	result := patcher.Commit()
+	elapsed := time.Since(start)
+
+	if result.Committed {
+		t.Error("Expected committed=false on timeout, got true")
+	}
+	if result.Error == nil {
+		t.Error("Expected timeout error, got nil")
+	}
+	if result.Error != nil && !errors.Is(result.Error, nil) {
+		// Error should mention timeout
+		if !containsTimeout(result.Error.Error()) {
+			t.Errorf("Expected timeout error message, got: %v", result.Error)
+		}
+	}
+
+	// Should have taken about the timeout duration
+	if elapsed < 40*time.Millisecond || elapsed > 200*time.Millisecond {
+		t.Errorf("Expected elapsed time around 50ms, got %v", elapsed)
+	}
+
+	// Verify transaction was deleted
+	txAfter, _ := store.Get(1)
+	if txAfter != nil {
+		t.Error("Expected transaction to be deleted after timeout")
+	}
+}
+
+func containsTimeout(s string) bool {
+	return len(s) > 0 && (s == "transaction timeout: not all participants joined within 50ms" ||
+		len(s) >= 7 && s[:7] == "timeout" ||
+		len(s) >= 11 && s[:11] == "transaction")
+}
+
+func TestCommit_NoTimeout(t *testing.T) {
+	store := NewInMemoryTxStore()
+	commitOps := newMockCommitOps()
+	commitOps.currentCommit = 10
+
+	// Create a transaction expecting 2 participants with no timeout
+	state := &State{
+		TxID:        1,
+		CreatedAt:   time.Now(),
+		Timeout:     0, // No timeout
+		PatcherData: make([]*PatcherData, 0, 2),
+	}
+
+	tx := New(store, commitOps, state)
+	if err := store.Put(tx); err != nil {
+		t.Fatalf("Put failed: %v", err)
+	}
+
+	// Add both patchers
+	patch1 := &api.Patch{
+		Meta: api.PatchMeta{},
+		Patch: api.Body{
+			Path: "foo",
+			Data: ir.FromString("bar"),
+		},
+	}
+	patch2 := &api.Patch{
+		Meta: api.PatchMeta{},
+		Patch: api.Body{
+			Path: "baz",
+			Data: ir.FromString("qux"),
+		},
+	}
+
+	patcher1, err := tx.NewPatcher(patch1)
+	if err != nil {
+		t.Fatalf("NewPatcher 1 failed: %v", err)
+	}
+
+	_, err = tx.NewPatcher(patch2)
+	if err != nil {
+		t.Fatalf("NewPatcher 2 failed: %v", err)
+	}
+
+	// With no timeout and all participants present, commit should succeed
+	result := patcher1.Commit()
+	if !result.Committed {
+		t.Errorf("Expected committed=true, got false. Error: %v", result.Error)
+	}
+	if result.Error != nil {
+		t.Errorf("Expected no error, got %v", result.Error)
+	}
 }

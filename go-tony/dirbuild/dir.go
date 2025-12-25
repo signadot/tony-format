@@ -69,9 +69,13 @@ func OpenDir(path string, env map[string]*ir.Node) (*Dir, error) {
 }
 
 func newDir(node *ir.Node, path string, env map[string]*ir.Node) (*Dir, error) {
-
+	// Make path absolute so it remains valid after chdir
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("could not get absolute path for %q: %w", path, err)
+	}
 	dir := &Dir{
-		Root:   path,
+		Root:   absPath,
 		Suffix: DefaultSuffix,
 	}
 	return initDir(dir, node, path, env)
@@ -144,7 +148,11 @@ func (dir *Dir) loadPatches(ps []DirPatch, ee map[string]any) ([]DirPatch, error
 		}
 		if p.File != "" {
 			dps := []DirPatch{}
-			d, err := os.ReadFile(p.File)
+			filePath := p.File
+			if !filepath.IsAbs(filePath) {
+				filePath = filepath.Join(dir.Root, filePath)
+			}
+			d, err := os.ReadFile(filePath)
 			if err != nil {
 				return nil, err
 			}

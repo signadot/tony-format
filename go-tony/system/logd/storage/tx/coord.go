@@ -17,6 +17,14 @@ type txCoord struct {
 	commitOps     CommitOps
 	state         *State // Core transaction state
 	expectedCount int    // Expected number of participants
+
+	// Coordination for multi-participant transactions
+	ready      chan struct{}  // Closed when all participants have joined
+	readyOnce  sync.Once      // Ensures ready is closed only once
+	commitOnce sync.Once      // Ensures only one goroutine performs commit
+	patchers   []*txPatcher   // All patchers for this transaction
+	result     *Result        // Shared result after commit
+	resultMu   sync.RWMutex   // Protects result
 }
 
 func New(store Store, commitOps CommitOps, state *State) Tx {
@@ -24,7 +32,8 @@ func New(store Store, commitOps CommitOps, state *State) Tx {
 		storage:       store,
 		commitOps:     commitOps,
 		state:         state,
-		expectedCount: len(state.PatcherData),
+		expectedCount: cap(state.PatcherData), // Use capacity, not length
+		ready:         make(chan struct{}),
 	}
 }
 
@@ -52,6 +61,20 @@ func (co *txCoord) ID() int64 {
 	co.mu.RLock()
 	defer co.mu.RUnlock()
 	return co.state.TxID
+}
+
+// CreatedAt returns when the transaction was created.
+func (co *txCoord) CreatedAt() time.Time {
+	co.mu.RLock()
+	defer co.mu.RUnlock()
+	return co.state.CreatedAt
+}
+
+// Timeout returns the configured timeout for this transaction.
+func (co *txCoord) Timeout() time.Duration {
+	co.mu.RLock()
+	defer co.mu.RUnlock()
+	return co.state.Timeout
 }
 
 // UpdateState atomically updates the transaction state.
@@ -99,8 +122,11 @@ func (co *txCoord) IsComplete() bool {
 
 // NewPatcher creates a new patcher handle for this transaction.
 // Each participant should get their own patcher.
+// When all expected participants have joined, the ready channel is closed
+// to signal that Commit can proceed.
 func (co *txCoord) NewPatcher(p *api.Patch) (Patcher, error) {
 	var res *txPatcher
+	var complete bool
 	err := co.UpdateState(func(st *State) error {
 		if len(st.PatcherData) == cap(st.PatcherData) {
 			return fmt.Errorf("%d/%d patchers already added", len(st.PatcherData), len(st.PatcherData))
@@ -115,11 +141,21 @@ func (co *txCoord) NewPatcher(p *api.Patch) (Patcher, error) {
 			allDone: make(chan struct{}),
 			data:    pData,
 		}
+		co.patchers = append(co.patchers, res)
+		complete = len(st.PatcherData) >= co.expectedCount
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
+
+	// Signal ready when all participants have joined
+	if complete {
+		co.readyOnce.Do(func() {
+			close(co.ready)
+		})
+	}
+
 	return res, nil
 }
 
@@ -128,82 +164,115 @@ func (co *txCoord) NewPatcher(p *api.Patch) (Patcher, error) {
 // This method is idempotent - if called multiple times or after the transaction is already
 // committed, it returns the existing result.
 //
+// For multi-participant transactions, Commit blocks until all participants have joined
+// (by calling NewPatcher). The first patcher to reach the commit logic performs the actual
+// commit, and all patchers receive the same shared result.
+//
 // Commit flow:
-// 1. Check if already committed (idempotent)
-// 2. Read transaction state
-// 3. Evaluate all match conditions atomically
-// 4. If any match fails → abort transaction (delete state, set error result)
-// 5. If all matches pass → write create log entry, set success result
+// 1. Wait for all participants to join (ready channel)
+// 2. Check if already committed (idempotent)
+// 3. Read transaction state
+// 4. Evaluate all match conditions atomically
+// 5. If any match fails → abort transaction (delete state, set error result)
+// 6. If all matches pass → write create log entry, set success result
+// 7. Share result with all patchers
 //
 // Errors are returned in Result.Error, not as a separate error return.
 func (p *txPatcher) Commit() *Result {
-	p.mu.Lock()
-	if p.done {
-		result := p.result
-		p.mu.Unlock()
-		return result
-	}
-	p.mu.Unlock()
-
 	co := p.coord
+
+	// Wait for all participants to join, with optional timeout
 	co.mu.RLock()
-	state := co.state
-	commitOps := co.commitOps
+	timeout := co.state.Timeout
 	co.mu.RUnlock()
 
-	if commitOps == nil {
-		p.mu.Lock()
-		p.done = true
-		p.result = &Result{
-			Committed: false,
-			Matched:   false,
-			Error:     fmt.Errorf("commit operations not available"),
+	if timeout > 0 {
+		select {
+		case <-co.ready:
+			// All participants joined
+		case <-time.After(timeout):
+			// Timeout waiting for participants - use commitOnce to set result exactly once
+			co.commitOnce.Do(func() {
+				_ = co.storage.Delete(co.state.TxID)
+				co.resultMu.Lock()
+				co.result = &Result{
+					Committed: false,
+					Matched:   false,
+					Error:     fmt.Errorf("transaction timeout: not all participants joined within %v", timeout),
+				}
+				co.resultMu.Unlock()
+			})
+			co.resultMu.RLock()
+			result := co.result
+			co.resultMu.RUnlock()
+			return result
 		}
-		result := p.result
-		p.mu.Unlock()
-		return result
+	} else {
+		// No timeout configured - wait indefinitely
+		<-co.ready
 	}
+
+	// Use commitOnce to ensure only one goroutine performs the commit.
+	// All other goroutines will skip the Do() and read the shared result.
+	co.commitOnce.Do(func() {
+		co.mu.RLock()
+		state := co.state
+		commitOps := co.commitOps
+		co.mu.RUnlock()
+
+		var result *Result
+
+		if commitOps == nil {
+			result = &Result{
+				Committed: false,
+				Matched:   false,
+				Error:     fmt.Errorf("commit operations not available"),
+			}
+		} else {
+			result = p.doCommit(state, commitOps)
+		}
+
+		co.resultMu.Lock()
+		co.result = result
+		co.resultMu.Unlock()
+	})
+
+	// All goroutines return the shared result
+	co.resultMu.RLock()
+	result := co.result
+	co.resultMu.RUnlock()
+	return result
+}
+
+// doCommit performs the actual commit logic. Called exactly once via commitOnce.
+func (p *txPatcher) doCommit(state *State, commitOps CommitOps) *Result {
+	co := p.coord
 
 	currentCommit, err := commitOps.GetCurrentCommit()
 	if err != nil {
-		p.mu.Lock()
-		p.done = true
-		p.result = &Result{
+		return &Result{
 			Committed: false,
 			Matched:   false,
 			Error:     fmt.Errorf("failed to get current commit: %w", err),
 		}
-		result := p.result
-		p.mu.Unlock()
-		return result
 	}
 
 	matched, err := evaluateMatches(state, commitOps.ReadStateAt, currentCommit)
 	if err != nil {
 		_ = co.storage.Delete(state.TxID)
-		p.mu.Lock()
-		p.done = true
-		p.result = &Result{
+		return &Result{
 			Committed: false,
 			Matched:   false,
 			Error:     fmt.Errorf("match evaluation failed: %w", err),
 		}
-		result := p.result
-		p.mu.Unlock()
-		return result
 	}
 	if !matched {
 		_ = co.storage.Delete(state.TxID)
-		p.mu.Lock()
-		p.done = true
-		p.result = &Result{
+		return &Result{
 			Committed: false,
 			Matched:   false,
 			Error:     nil,
 		}
-		result := p.result
-		p.mu.Unlock()
-		return result
 	}
 
 	// Tag each patch data root for streaming processor
@@ -212,31 +281,21 @@ func (p *txPatcher) Commit() *Result {
 	mergedPatch, err := MergePatches(state.PatcherData)
 	if err != nil {
 		_ = co.storage.Delete(state.TxID)
-		p.mu.Lock()
-		p.done = true
-		p.result = &Result{
+		return &Result{
 			Committed: false,
 			Matched:   true,
 			Error:     fmt.Errorf("failed to merge patches: %w", err),
 		}
-		result := p.result
-		p.mu.Unlock()
-		return result
 	}
 
 	commit, err := commitOps.NextCommit()
 	if err != nil {
 		_ = co.storage.Delete(state.TxID)
-		p.mu.Lock()
-		p.done = true
-		p.result = &Result{
+		return &Result{
 			Committed: false,
 			Matched:   true,
 			Error:     fmt.Errorf("failed to allocate commit: %w", err),
 		}
-		result := p.result
-		p.mu.Unlock()
-		return result
 	}
 
 	timestamp := time.Now().UTC().Format(time.RFC3339)
@@ -248,16 +307,11 @@ func (p *txPatcher) Commit() *Result {
 	_, _, err = commitOps.WriteAndIndex(commit, state.TxID, timestamp, mergedPatch, state, lastCommit)
 	if err != nil {
 		_ = co.storage.Delete(state.TxID)
-		p.mu.Lock()
-		p.done = true
-		p.result = &Result{
+		return &Result{
 			Committed: false,
 			Matched:   true,
 			Error:     fmt.Errorf("failed to write entry: %w", err),
 		}
-		result := p.result
-		p.mu.Unlock()
-		return result
 	}
 
 	_ = co.storage.Delete(state.TxID)
@@ -267,15 +321,10 @@ func (p *txPatcher) Commit() *Result {
 		StripPatchRootTag(pd.API.Patch.Data)
 	}
 
-	p.mu.Lock()
-	p.done = true
-	p.result = &Result{
+	return &Result{
 		Committed: true,
 		Matched:   true,
 		Commit:    commit,
 		Error:     nil,
 	}
-	result := p.result
-	p.mu.Unlock()
-	return result
 }

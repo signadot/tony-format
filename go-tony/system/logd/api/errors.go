@@ -96,6 +96,7 @@ func (e *Error) UnmarshalText(text []byte) error {
 const (
 	ErrCodeInvalidDiff = "invalid_diff"
 	ErrCodeInvalidPath = "invalid_path"
+	ErrCodeNotFound    = "not_found"
 )
 
 // NewError creates a new Error with the given code and message.

@@ -1,6 +1,6 @@
 // Package server provides the HTTP server implementation for logd.
 //
-// Exposes storage operations via REST API, handling transactions,
+// Exposes storage operations via API, handling transactions,
 // patches, and queries.
 //
 // # Related Packages

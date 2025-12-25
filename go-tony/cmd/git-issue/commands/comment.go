@@ -34,6 +34,12 @@ func (cfg *commentConfig) run(cc *cli.Context, args []string) error {
 		return err
 	}
 
+	// Find issue first (needed for context export)
+	ref, err := cfg.store.FindRef(id)
+	if err != nil {
+		return err
+	}
+
 	// Get comment text
 	var commentText string
 	if len(args) > 1 {
@@ -46,14 +52,23 @@ func (cfg *commentConfig) run(cc *cli.Context, args []string) error {
 		}
 		commentText = string(data)
 	} else {
-		// Open editor
-		initialContent := `
-# Enter your comment above.
-# Lines starting with # will be ignored.
-# Save and close the editor to submit, or leave empty to cancel.
-`
-		var err error
-		commentText, err = issuelib.EditInEditor(initialContent)
+		// Export issue to temp directory for context
+		contextDir, err := ExportToTempDir(cfg.store, ref)
+		if err != nil {
+			// Non-fatal: warn but continue without context
+			fmt.Fprintf(cc.Err, "Warning: could not export issue context: %v\n", err)
+			contextDir = ""
+		}
+		if contextDir != "" {
+			defer os.RemoveAll(contextDir)
+		}
+
+		// Open editor with context information
+		initialContent := "\n# Enter your comment above.\n# Lines starting with # will be ignored.\n# Save and close the editor to submit, or leave empty to cancel.\n"
+		if contextDir != "" {
+			initialContent = "\n# Issue context in current directory (existing comments in ./discussion/)\n#\n# Enter your comment above.\n# Lines starting with # will be ignored.\n# Save and close the editor to submit, or leave empty to cancel.\n"
+		}
+		commentText, err = issuelib.EditInEditorWithDir(initialContent, contextDir)
 		if err != nil {
 			return fmt.Errorf("editor failed: %w", err)
 		}
@@ -61,12 +76,6 @@ func (cfg *commentConfig) run(cc *cli.Context, args []string) error {
 
 	if strings.TrimSpace(commentText) == "" {
 		return fmt.Errorf("comment cannot be empty")
-	}
-
-	// Find issue (open or closed)
-	ref, err := cfg.store.FindRef(id)
-	if err != nil {
-		return err
 	}
 
 	issue, _, err := cfg.store.GetByRef(ref)

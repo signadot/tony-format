@@ -21,6 +21,7 @@ type LogSegment struct {
 	ArrayKeyField string   // Kpath to key field for !key arrays (e.g., "name", "address.city") - empty if not keyed
 	LogFile       string   // "A" or "B" - which log file contains this segment
 	LogPosition   int64    // Byte offset in log file
+	ScopeID       *string  // nil = baseline, non-nil = scope-specific data
 	// Semantics:
 	// - StartCommit == EndCommit: snapshot (full state at that commit)
 	// - StartCommit != EndCommit: diff (incremental changes over commit range)
@@ -69,7 +70,7 @@ func PointLogSegment(commit, txSeq int64, kpath string) *LogSegment {
 	}
 }
 
-func NewLogSegmentFromPatchEntry(e *dlog.Entry, kpath string, logFile string, pos int64, txID int64) *LogSegment {
+func NewLogSegmentFromPatchEntry(e *dlog.Entry, kpath string, logFile string, pos int64, txID int64, scopeID *string) *LogSegment {
 	// For patches: StartCommit = LastCommit, EndCommit = Commit
 	// This represents the range [LastCommit, Commit] that the patch covers
 	start := *e.LastCommit
@@ -82,15 +83,16 @@ func NewLogSegmentFromPatchEntry(e *dlog.Entry, kpath string, logFile string, po
 		KindedPath:  kpath,
 		LogFile:     logFile,
 		LogPosition: pos,
+		ScopeID:     scopeID,
 	}
 }
 
-func IndexPatch(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int64, diff *ir.Node) error {
-	return indexPatchRec(idx, e, logFile, pos, txSeq, diff, "")
+func IndexPatch(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int64, diff *ir.Node, scopeID *string) error {
+	return indexPatchRec(idx, e, logFile, pos, txSeq, diff, "", scopeID)
 }
 
-func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int64, n *ir.Node, kPath string) error {
-	seg := NewLogSegmentFromPatchEntry(e, kPath, logFile, pos, txSeq)
+func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int64, n *ir.Node, kPath string, scopeID *string) error {
+	seg := NewLogSegmentFromPatchEntry(e, kPath, logFile, pos, txSeq, scopeID)
 	idx.Add(seg)
 
 	if n == nil {
@@ -106,7 +108,7 @@ func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq i
 			for i, f := range n.Fields {
 				v := n.Values[i]
 				nextPath := fmt.Sprintf("%s{%d}", kPath, *f.Int64)
-				if err := indexPatchRec(idx, e, logFile, pos, txSeq, v, nextPath); err != nil {
+				if err := indexPatchRec(idx, e, logFile, pos, txSeq, v, nextPath, scopeID); err != nil {
 					return err
 				}
 			}
@@ -122,7 +124,7 @@ func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq i
 			} else {
 				nextPath = kPath + "." + key
 			}
-			if err := indexPatchRec(idx, e, logFile, pos, txSeq, val, nextPath); err != nil {
+			if err := indexPatchRec(idx, e, logFile, pos, txSeq, val, nextPath, scopeID); err != nil {
 				return err
 			}
 		}

@@ -1,0 +1,31 @@
+# Example ArgoCD Application using the Tony build plugin
+#
+# This Application will:
+# 1. Clone the specified git repo
+# 2. Auto-discover the build.tony file (via the plugin's discover.find.glob)
+# 3. Run "o build -y ." to generate manifests
+#
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: example-tony-app
+  namespace: argocd
+spec:
+  project: default
+  source:
+    # Point to a repo containing a build.tony file
+    repoURL: https://github.com/example/my-app
+    targetRevision: HEAD
+    path: deploy
+    # The plugin is auto-discovered via build.tony, but can be explicit:
+    plugin:
+      name: tony-build
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: my-app
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true

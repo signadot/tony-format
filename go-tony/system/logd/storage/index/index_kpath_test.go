@@ -24,21 +24,21 @@ func TestKPathDenseArray(t *testing.T) {
 	}
 
 	// Test LookupRange for root-level array indices (exact match only)
-	got := idx.LookupRange("[0]", nil, nil)
+	got := idx.LookupRange("[0]", nil, nil, nil)
 	want := []LogSegment{segs[0]} // Only [0], not [0].baz
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("LookupRange('[0]') mismatch (-want +got):\n%s", diff)
 	}
 
 	// Test LookupRange for nested array indices
-	got = idx.LookupRange("foo[0]", nil, nil)
+	got = idx.LookupRange("foo[0]", nil, nil, nil)
 	want = []LogSegment{segs[2]}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("LookupRange('foo[0]') mismatch (-want +got):\n%s", diff)
 	}
 
 	// Test LookupRange for array index with field
-	got = idx.LookupRange("foo[1].bar", nil, nil)
+	got = idx.LookupRange("foo[1].bar", nil, nil, nil)
 	want = []LogSegment{segs[3]}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("LookupRange('foo[1].bar') mismatch (-want +got):\n%s", diff)
@@ -48,7 +48,7 @@ func TestKPathDenseArray(t *testing.T) {
 	if !idx.Remove(&segs[0]) {
 		t.Error("Remove('[0]') should succeed")
 	}
-	got = idx.LookupRange("[0]", nil, nil)
+	got = idx.LookupRange("[0]", nil, nil, nil)
 	want = []LogSegment{} // [0] was removed, [0].baz is a descendant so not returned
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("LookupRange('[0]') after remove mismatch (-want +got):\n%s", diff)
@@ -73,14 +73,14 @@ func TestKPathSparseArray(t *testing.T) {
 	}
 
 	// Test LookupRange for root-level sparse indices (exact match only)
-	got := idx.LookupRange("{4}", nil, nil)
+	got := idx.LookupRange("{4}", nil, nil, nil)
 	want := []LogSegment{segs[0]} // Only {4}, not {4}.baz
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("LookupRange('{4}') mismatch (-want +got):\n%s", diff)
 	}
 
 	// Test LookupRange for nested sparse indices (exact match only)
-	got = idx.LookupRange("foo{13}", nil, nil)
+	got = idx.LookupRange("foo{13}", nil, nil, nil)
 	want = []LogSegment{segs[2]} // Only foo{13}, not foo{13}.bar
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("LookupRange('foo{13}') mismatch (-want +got):\n%s", diff)
@@ -90,7 +90,7 @@ func TestKPathSparseArray(t *testing.T) {
 	if !idx.Remove(&segs[2]) {
 		t.Error("Remove('foo{13}') should succeed")
 	}
-	got = idx.LookupRange("foo{13}", nil, nil)
+	got = idx.LookupRange("foo{13}", nil, nil, nil)
 	want = []LogSegment{} // foo{13} was removed, foo{13}.bar is a descendant so not returned
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("LookupRange('foo{13}') after remove mismatch (-want +got):\n%s", diff)
@@ -116,7 +116,7 @@ func TestKPathMixed(t *testing.T) {
 	// Test LookupRange for complex nested path
 	// LookupRange includes segments at intermediate levels (ancestors), so "a[0].b" is included
 	// Results are sorted by commit/tx first, then by path
-	got := idx.LookupRange("a[0].b{4}.c", nil, nil)
+	got := idx.LookupRange("a[0].b{4}.c", nil, nil, nil)
 	want := []LogSegment{segs[0], segs[1]} // a[0].b{4}.c (commit 10) and a[0].b (commit 11, ancestor)
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("LookupRange('a[0].b{4}.c') mismatch (-want +got):\n%s", diff)
@@ -124,14 +124,14 @@ func TestKPathMixed(t *testing.T) {
 
 	// Test LookupRange for exact path
 	// Results are sorted by commit/tx first, then by path
-	got = idx.LookupRange("a[0].b", nil, nil)
+	got = idx.LookupRange("a[0].b", nil, nil, nil)
 	want = []LogSegment{segs[1]} // Only a[0].b (exact match), not a[0].b{4}.c (descendant)
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("LookupRange('a[0].b') mismatch (-want +got):\n%s", diff)
 	}
 
 	// Test LookupRange for another complex path
-	got = idx.LookupRange("x.y[0].z{10}", nil, nil)
+	got = idx.LookupRange("x.y[0].z{10}", nil, nil, nil)
 	want = []LogSegment{segs[3]}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("LookupRange('x.y[0].z{10}') mismatch (-want +got):\n%s", diff)
@@ -238,7 +238,7 @@ func TestKPathComparison(t *testing.T) {
 
 	// Verify each path can be looked up individually
 	for _, path := range allPaths {
-		got := idx.LookupRange(path, nil, nil)
+		got := idx.LookupRange(path, nil, nil, nil)
 		if len(got) == 0 {
 			t.Errorf("Expected to find segment at path %q", path)
 		}
@@ -247,7 +247,7 @@ func TestKPathComparison(t *testing.T) {
 	// Verify ordering by checking individual lookups match expected order
 	// Note: LookupRange may return multiple segments (including ancestors), so check the first one
 	for i, expectedPath := range expectedOrder {
-		got := idx.LookupRange(expectedPath, nil, nil)
+		got := idx.LookupRange(expectedPath, nil, nil, nil)
 		if len(got) == 0 {
 			t.Errorf("Position %d: expected segment at %q, but LookupRange returned empty", i, expectedPath)
 			continue
@@ -289,7 +289,7 @@ func TestKPathListRange(t *testing.T) {
 	}
 
 	// Test ListRange at root
-	children := idx.ListRange(nil, nil)
+	children := idx.ListRange(nil, nil, nil)
 	// Should include: "[0]", "[1]", "{4}", "a", "foo"
 	expectedChildren := map[string]bool{
 		"[0]": true,

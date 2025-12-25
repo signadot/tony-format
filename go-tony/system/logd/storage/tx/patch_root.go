@@ -31,3 +31,14 @@ func StripPatchRootTag(node *ir.Node) {
 	}
 	node.Tag = ir.TagRemove(node.Tag, PatchRootTag)
 }
+
+// StripPatchRootTagRecursive removes PatchRootTag from a node and all descendants.
+func StripPatchRootTagRecursive(node *ir.Node) {
+	if node == nil {
+		return
+	}
+	StripPatchRootTag(node)
+	for _, v := range node.Values {
+		StripPatchRootTagRecursive(v)
+	}
+}

@@ -1,5 +1,9 @@
 # API
 
+## Scopes
+
+See [SCOPES.md](../storage/docs/SCOPES.md) for documentation on COW (copy-on-write) scope isolation.
+
 ## Kinded Paths
 
 ### ArrayLike

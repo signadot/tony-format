@@ -1,0 +1,5 @@
+# Substitute namespace from environment
+- match: null
+  patch:
+    metadata:
+      namespace: .[namespace]

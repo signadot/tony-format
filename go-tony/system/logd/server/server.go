@@ -2,31 +2,52 @@ package server
 
 import (
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
 	"os"
-
-	"github.com/signadot/tony-format/go-tony/encode"
-	"github.com/signadot/tony-format/go-tony/ir"
-	"github.com/signadot/tony-format/go-tony/system/logd/api"
+	"sync/atomic"
 )
 
-// Server represents the logd HTTP server.
+// Server represents the logd server.
 type Server struct {
-	Config Config
+	Spec Spec
+
+	// WatchHub manages subscriptions across sessions
+	Hub *WatchHub
+
+	// TCP listener for session protocol
+	tcpListener *TCPListener
+
+	// commitsSinceSnapshot tracks commits for snapshot policy (accessed from multiple goroutines)
+	commitsSinceSnapshot atomic.Int64
 }
 
 // New creates a new Server instance.
-func New(cfg *Config) *Server {
-	if cfg.Log == nil {
-		cfg.Log = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+func New(spec *Spec) *Server {
+	if spec.Log == nil {
+		spec.Log = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 			Level: slogLevel(),
 		}))
 	}
-	return &Server{
-		Config: *cfg,
+	if spec.Config == nil {
+		spec.Config = DefaultConfig()
 	}
+
+	s := &Server{
+		Spec: *spec,
+		Hub:  NewWatchHub(),
+	}
+
+	// Wire up commit notifications to the watch hub
+	if spec.Storage != nil {
+		spec.Storage.SetCommitNotifier(s.Hub.Broadcast)
+
+		// Set transaction timeout from config
+		if spec.Config.Tx != nil && spec.Config.Tx.Timeout > 0 {
+			spec.Storage.SetTxTimeout(spec.Config.Tx.Timeout)
+		}
+	}
+
+	return s
 }
 
 func slogLevel() slog.Level {
@@ -36,66 +57,85 @@ func slogLevel() slog.Level {
 	return slog.LevelInfo
 }
 
-// ServeHTTP implements http.Handler.
-func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Only handle /api/data for now
-	if r.URL.Path != "/api/data" {
-		http.NotFound(w, r)
+// maybeSnapshot checks snapshot thresholds and triggers SwitchAndSnapshot if needed.
+// Called after successful commits.
+func (s *Server) maybeSnapshot() {
+	cfg := s.Spec.Config
+	if cfg == nil || cfg.Snapshot == nil {
 		return
 	}
 
-	// Route based on HTTP method
-	switch r.Method {
-	case "MATCH":
-		d, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("i/o error: %v", err), http.StatusInternalServerError)
-			return
+	snap := cfg.Snapshot
+	shouldSnapshot := false
+
+	// Check commit count threshold
+	commitCount := s.commitsSinceSnapshot.Load()
+	if snap.MaxCommits > 0 && commitCount >= snap.MaxCommits {
+		shouldSnapshot = true
+	}
+
+	// Check log size threshold
+	if !shouldSnapshot && snap.MaxBytes > 0 {
+		size, err := s.Spec.Storage.ActiveLogSize()
+		if err == nil && size >= snap.MaxBytes {
+			shouldSnapshot = true
 		}
-		req := &api.Match{}
-		if err := req.FromTony(d); err != nil {
-			writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidDiff, fmt.Sprintf("failed to parse request body: %v", err)))
-			return
+	}
+
+	if shouldSnapshot {
+		s.Spec.Log.Info("triggering snapshot", "commitsSinceSnapshot", commitCount)
+		if err := s.Spec.Storage.SwitchAndSnapshot(); err != nil {
+			s.Spec.Log.Error("snapshot failed", "error", err)
+		} else {
+			s.commitsSinceSnapshot.Store(0)
 		}
-		s.handleMatch(w, r, req)
-	case "PATCH":
-		d, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("i/o error: %v", err), http.StatusInternalServerError)
-			return
-		}
-		req := &api.Patch{}
-		if err := req.FromTony(d); err != nil {
-			writeError(w, http.StatusBadRequest, api.NewError(api.ErrCodeInvalidDiff, fmt.Sprintf("failed to parse request body: %v", err)))
-			return
-		}
-		s.handlePatch(w, r, req)
-	default:
-		writeError(w, http.StatusMethodNotAllowed, api.NewError("method_not_allowed", fmt.Sprintf("method %s not allowed", r.Method)))
 	}
 }
 
-// handleMatch handles MATCH requests (reads).
-func (s *Server) handleMatch(w http.ResponseWriter, r *http.Request, req *api.Match) {
-	s.handleMatchData(w, r, req)
+// StartTCP starts the TCP listener on the given address.
+// The listener runs in a separate goroutine.
+func (s *Server) StartTCP(addr string) error {
+	if s.tcpListener != nil {
+		return fmt.Errorf("TCP listener already running")
+	}
+
+	listener, err := NewTCPListener(addr, s, s.Hub)
+	if err != nil {
+		return err
+	}
+
+	s.tcpListener = listener
+
+	go func() {
+		if err := listener.Serve(); err != nil {
+			s.Spec.Log.Error("TCP listener error", "error", err)
+		}
+	}()
+
+	return nil
 }
 
-// handlePatch handles PATCH requests (writes).
-func (s *Server) handlePatch(w http.ResponseWriter, r *http.Request, req *api.Patch) {
-	s.handlePatchData(w, r, req)
+// StopTCP stops the TCP listener.
+func (s *Server) StopTCP() error {
+	if s.tcpListener == nil {
+		return nil
+	}
+
+	err := s.tcpListener.Close()
+	s.tcpListener = nil
+	return err
 }
 
-// writeError writes an error response.
-func writeError(w http.ResponseWriter, statusCode int, err *api.Error) {
-	w.Header().Set("Content-Type", "application/x-tony")
-	w.WriteHeader(statusCode)
+// TCPAddr returns the TCP listener's address, or nil if not running.
+func (s *Server) TCPAddr() string {
+	if s.tcpListener == nil {
+		return ""
+	}
+	return s.tcpListener.Addr().String()
+}
 
-	errorNode := ir.FromMap(map[string]*ir.Node{
-		"error": ir.FromMap(map[string]*ir.Node{
-			"code":    &ir.Node{Type: ir.StringType, String: err.Code},
-			"message": &ir.Node{Type: ir.StringType, String: err.Message},
-		}),
-	})
-
-	encode.Encode(errorNode, w)
+// onCommit is called after successful commits for snapshot tracking.
+func (s *Server) onCommit() {
+	s.commitsSinceSnapshot.Add(1)
+	s.maybeSnapshot()
 }

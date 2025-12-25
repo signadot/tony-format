@@ -23,7 +23,7 @@ func TestLookupWithin_PointSegments(t *testing.T) {
 	// Lookup commit 11 - should find segments at "foo.bar" that contain commit 11
 	// PointLogSegment(10, 100, "foo.bar") creates StartCommit: 10, EndCommit: 10 (doesn't contain 11)
 	// PointLogSegment(11, 101, "foo") creates StartCommit: 11, EndCommit: 11 (contains 11, but is ancestor)
-	got := idx.LookupWithin("foo.bar", 11)
+	got := idx.LookupWithin("foo.bar", 11, nil)
 
 	// Filter to only segments that actually contain commit 11
 	var filtered []LogSegment
@@ -91,7 +91,7 @@ func TestLookupWithin_RangeSegments(t *testing.T) {
 
 	// Lookup commit 13 - should find segments that contain commit 13
 	// LookupWithin includes ancestors, so it may return "foo" as well
-	got := idx.LookupWithin("foo.bar", 13)
+	got := idx.LookupWithin("foo.bar", 13, nil)
 
 	// Filter to only segments that actually contain commit 13
 	var filtered []LogSegment
@@ -125,7 +125,7 @@ func TestLookupWithin_AtBoundaries(t *testing.T) {
 	idx.Add(&seg)
 
 	// Test at StartCommit (should match)
-	got := idx.LookupWithin("foo", 10)
+	got := idx.LookupWithin("foo", 10, nil)
 	if len(got) == 0 {
 		t.Error("LookupWithin at StartCommit should return segment")
 	}
@@ -138,7 +138,7 @@ func TestLookupWithin_AtBoundaries(t *testing.T) {
 	}
 
 	// Test at EndCommit (should match)
-	got = idx.LookupWithin("foo", 15)
+	got = idx.LookupWithin("foo", 15, nil)
 	if len(got) == 0 {
 		t.Error("LookupWithin at EndCommit should return segment")
 	}
@@ -151,7 +151,7 @@ func TestLookupWithin_AtBoundaries(t *testing.T) {
 	}
 
 	// Test before StartCommit (should not match)
-	got = idx.LookupWithin("foo", 9)
+	got = idx.LookupWithin("foo", 9, nil)
 	var found bool
 	for _, s := range got {
 		if s.StartCommit <= 9 && 9 <= s.EndCommit {
@@ -163,7 +163,7 @@ func TestLookupWithin_AtBoundaries(t *testing.T) {
 	}
 
 	// Test after EndCommit (should not match)
-	got = idx.LookupWithin("foo", 16)
+	got = idx.LookupWithin("foo", 16, nil)
 	found = false
 	for _, s := range got {
 		if s.StartCommit <= 16 && 16 <= s.EndCommit {
@@ -191,7 +191,7 @@ func TestLookupWithin_ExactMatchOnly(t *testing.T) {
 
 	// Lookup commit 11 at path "foo.bar" - should return exact match
 	// PointLogSegment(11, 101, "foo.bar") creates StartCommit: 11, EndCommit: 11
-	got := idx.LookupWithin("foo.bar", 11)
+	got := idx.LookupWithin("foo.bar", 11, nil)
 
 	// Filter to segments that actually contain commit 11
 	var filtered []LogSegment
@@ -244,7 +244,7 @@ func TestLookupWithin_ExactMatchOnly(t *testing.T) {
 
 	// Lookup commit 15 at path "foo.bar" - should find exact match
 	// LookupWithin includes ancestors, so it may return "foo" as well
-	got2 := idx2.LookupWithin("foo.bar", 15)
+	got2 := idx2.LookupWithin("foo.bar", 15, nil)
 
 	var filtered2 []LogSegment
 	for _, s := range got2 {
@@ -267,7 +267,7 @@ func TestLookupWithin_ExactMatchOnly(t *testing.T) {
 func TestLookupWithin_EmptyIndex(t *testing.T) {
 	idx := NewIndex("")
 
-	got := idx.LookupWithin("foo", 10)
+	got := idx.LookupWithin("foo", 10, nil)
 	if len(got) != 0 {
 		t.Errorf("expected empty result, got %d segments", len(got))
 	}
@@ -279,7 +279,7 @@ func TestLookupWithin_NonexistentPath(t *testing.T) {
 	seg := *PointLogSegment(10, 100, "foo")
 	idx.Add(&seg)
 
-	got := idx.LookupWithin("nonexistent", 10)
+	got := idx.LookupWithin("nonexistent", 10, nil)
 	if len(got) != 0 {
 		t.Errorf("expected empty result for nonexistent path, got %d segments", len(got))
 	}

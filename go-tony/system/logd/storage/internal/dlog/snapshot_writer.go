@@ -21,13 +21,17 @@ type SnapshotWriter struct {
 	closed    bool
 }
 
+// ErrSnapshotInProgress is returned when attempting to start a snapshot
+// while another snapshot is already running on the same log file.
+var ErrSnapshotInProgress = fmt.Errorf("snapshot already in progress on this log file")
+
 // NewSnapshotWriter creates a writer for building a snapshot in the inactive log.
+// Returns ErrSnapshotInProgress if a snapshot is already running on the inactive log.
 // The caller should create a snap.Builder with this writer, feed events to it,
 // close the builder, then close this writer to finalize the Entry.
 func (dl *DLog) NewSnapshotWriter(commit int64, timestamp string) (*SnapshotWriter, error) {
-	dl.mu.RLock()
+	dl.mu.Lock()
 	activeLog := dl.activeLog
-	dl.mu.RUnlock()
 
 	// Determine inactive log
 	var inactiveLog LogFileID
@@ -40,9 +44,17 @@ func (dl *DLog) NewSnapshotWriter(commit int64, timestamp string) (*SnapshotWrit
 		logFileObj = dl.logA
 	}
 
+	// Try to acquire snapMu - don't block if snapshot already in progress
+	if !logFileObj.snapMu.TryLock() {
+		dl.mu.Unlock()
+		return nil, ErrSnapshotInProgress
+	}
+	dl.mu.Unlock()
+
+	// snapMu is now held - get current position for snapshot start
 	logFileObj.mu.Lock()
 	startPos := logFileObj.position
-	// Don't unlock yet - caller will write through this writer
+	logFileObj.mu.Unlock()
 
 	return &SnapshotWriter{
 		dl:        dl,
@@ -87,14 +99,14 @@ func (sw *SnapshotWriter) Seek(offset int64, whence int) (int64, error) {
 	return newPos, nil
 }
 
-// Close writes the snapshot Entry metadata and unlocks the log file.
+// Close writes the snapshot Entry metadata and releases the snapshot lock.
 // The Entry is written at the end of the snapshot data (endPos).
 func (sw *SnapshotWriter) Close() error {
 	if sw.closed {
 		return nil
 	}
 	sw.closed = true
-	defer sw.logFile.mu.Unlock()
+	defer sw.logFile.snapMu.Unlock()
 
 	// Seek to end of snapshot data to write Entry
 	// (builder may have seeked back to write header)
@@ -148,11 +160,11 @@ func (sw *SnapshotWriter) Close() error {
 }
 
 // Abandon closes the SnapshotWriter without writing Entry metadata.
-// Used when snapshot creation fails and we need to unlock the log file.
+// Used when snapshot creation fails and we need to release the snapshot lock.
 func (sw *SnapshotWriter) Abandon() {
 	if !sw.closed {
 		sw.closed = true
-		sw.logFile.mu.Unlock()
+		sw.logFile.snapMu.Unlock()
 	}
 }
 

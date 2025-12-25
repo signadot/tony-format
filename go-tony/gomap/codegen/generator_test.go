@@ -279,10 +279,10 @@ func TestGenerateFromTonyIRMethod_SliceField(t *testing.T) {
 	}
 
 	// Check that slice handling is present
-	if !strings.Contains(code, "fieldNode.Type == ir.ArrayType") {
+	if !strings.Contains(code, "fieldNodeUnwrapped.Type == ir.ArrayType") {
 		t.Errorf("Expected array type check, got:\n%s", code)
 	}
-	if !strings.Contains(code, "for i, v := range fieldNode.Values") {
+	if !strings.Contains(code, "for i, v := range fieldNodeUnwrapped.Values") {
 		t.Errorf("Expected slice iteration, got:\n%s", code)
 	}
 }

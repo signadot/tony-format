@@ -1,0 +1,41 @@
+# ArgoCD patch to enable Tony build support
+#
+# Usage:
+#   o build examples/build/patch-argocd -y | kubectl apply -f -
+#
+# With custom namespace:
+#   o build examples/build/patch-argocd -y -e namespace=myns | kubectl apply -f -
+#
+# With an ArgoCD Application:
+#   o build examples/build/patch-argocd -y \
+#     -e app.name=my-app \
+#     -e app.repoURL=https://github.com/org/repo \
+#     -e app.path=deploy \
+#     -e app.project=default \
+#     -e app.revision=HEAD \
+#     -e app.destNamespace=my-ns \
+#     | kubectl apply -f -
+#
+build:
+  sources:
+  # Fetch current deployment from cluster
+  - exec: "kubectl get deployment argocd-repo-server -n .[namespace] -o yaml"
+    format: yaml
+  # Static resources
+  - dir: source
+
+  env:
+    namespace: argocd
+
+    image: ghcr.io/signadot/tony:latest
+
+    pluginName: tony-build
+
+    # Set app to configure an ArgoCD Application, e.g.:
+    # -e app.name=my-app -e app.repoURL=https://github.com/org/repo -e app.path=deploy
+    app: null
+
+  patches:
+  - file: patches/namespace.tony
+  - file: patches/repo-server.tony
+  - file: patches/application.tony

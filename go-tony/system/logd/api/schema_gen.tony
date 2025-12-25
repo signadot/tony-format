@@ -27,6 +27,20 @@ signature:
 context:
 - tony-format/context
 define:
+  clientId: .[string]
+signature:
+  name: session-hello
+---
+context:
+- tony-format/context
+define:
+  serverId: .[string]
+signature:
+  name: session-hello-response
+---
+context:
+- tony-format/context
+define:
   brackets: .[bool]
   seq: .[nullable(int)]
   wire: .[bool]
@@ -40,6 +54,36 @@ define:
   meta: !match-meta null
 signature:
   name: match
+---
+context:
+- tony-format/context
+define:
+  body: !body null
+signature:
+  name: session-match-request
+---
+context:
+- tony-format/context
+- tony-base: github.com/signadot/tony-format/go-tony/schema
+define:
+  body: .[tony-base:ir]
+  commit: .[int]
+signature:
+  name: session-match-result
+---
+context:
+- tony-format/context
+define:
+  participants: .[int]
+signature:
+  name: session-newtx-request
+---
+context:
+- tony-format/context
+define:
+  txId: .[int]
+signature:
+  name: session-newtx-result
 ---
 context:
 - tony-format/context
@@ -62,6 +106,107 @@ define:
   patch: !body null
 signature:
   name: patch
+---
+context:
+- tony-format/context
+define:
+  patch: !body null
+  txId: .[nullable(int)]
+signature:
+  name: session-patch-request
+---
+context:
+- tony-format/context
+define:
+  commit: .[int]
+signature:
+  name: session-patch-result
+---
+context:
+- tony-format/context
+define:
+  code: .[string]
+  message: .[string]
+signature:
+  name: session-error
+---
+context:
+- tony-format/context
+- tony-base: github.com/signadot/tony-format/go-tony/schema
+define:
+  commit: .[int]
+  patch: .[tony-base:ir]
+  path: .[string]
+  replayComplete: .[bool]
+  state: .[tony-base:ir]
+signature:
+  name: session-event
+---
+context:
+- tony-format/context
+define:
+  path: .[string]
+signature:
+  name: session-unwatch-request
+---
+context:
+- tony-format/context
+define:
+  fromCommit: .[nullable(int)]
+  fullState: .[bool]
+  path: .[string]
+signature:
+  name: session-watch-request
+---
+context:
+- tony-format/context
+define:
+  hello: .[nullable(session-hello)]
+  id: .[nullable(string)]
+  match: .[nullable(session-match-request)]
+  newtx: .[nullable(session-newtx-request)]
+  patch: .[nullable(session-patch-request)]
+  unwatch: .[nullable(session-unwatch-request)]
+  watch: .[nullable(session-watch-request)]
+signature:
+  name: session-request
+---
+context:
+- tony-format/context
+define:
+  unwatched: .[string]
+signature:
+  name: session-unwatch-result
+---
+context:
+- tony-format/context
+define:
+  replayingTo: .[nullable(int)]
+  watching: .[string]
+signature:
+  name: session-watch-result
+---
+context:
+- tony-format/context
+define:
+  hello: .[nullable(session-hello-response)]
+  match: .[nullable(session-match-result)]
+  newtx: .[nullable(session-newtx-result)]
+  patch: .[nullable(session-patch-result)]
+  unwatch: .[nullable(session-unwatch-result)]
+  watch: .[nullable(session-watch-result)]
+signature:
+  name: session-result
+---
+context:
+- tony-format/context
+define:
+  error: .[nullable(session-error)]
+  event: .[nullable(session-event)]
+  id: .[nullable(string)]
+  result: .[nullable(session-result)]
+signature:
+  name: session-response
 ---
 context:
 - tony-format/context

@@ -67,10 +67,10 @@ type mapConfig struct {
 	// EncodeOptions to pass through to encode.Encode
 	EncodeOptions []encode.EncodeOption
 
-	// Add mapping-specific options here in the future, e.g.:
-	// SkipZeroValues bool
-	// UseMarshalText bool
-	// CustomHandlers map[reflect.Type]func(interface{}) (*ir.Node, error)
+	// Comments controls whether comment/line-comment tagged fields
+	// generate comment nodes in output.
+	// Defaults to true.
+	Comments *bool
 }
 
 // unmapConfig holds configuration for the unmapping process.
@@ -78,9 +78,10 @@ type unmapConfig struct {
 	// ParseOptions to pass through to parse.Parse
 	ParseOptions []parse.ParseOption
 
-	// Add unmapping-specific options here in the future, e.g.:
-	// StrictMode bool
-	// CustomHandlers map[reflect.Type]func(*ir.Node, interface{}) error
+	// Comments controls whether comments are preserved in *ir.Node fields.
+	// When true, CommentType wrappers are kept. When false, they are stripped.
+	// Defaults to true when ParseComments is true.
+	Comments *bool
 }
 
 // newMapConfig creates a new mapConfig with default values.
@@ -157,4 +158,49 @@ func NoBrackets() UnmapOption {
 	return func(cfg *unmapConfig) {
 		cfg.ParseOptions = append(cfg.ParseOptions, parse.NoBrackets())
 	}
+}
+
+// UnmapComments controls whether comments are preserved in *ir.Node fields
+// during unmapping. When true, CommentType wrappers are kept. When false,
+// they are stripped. Also controls parse.ParseComments.
+func UnmapComments(v bool) UnmapOption {
+	return func(cfg *unmapConfig) {
+		cfg.Comments = &v
+		cfg.ParseOptions = append(cfg.ParseOptions, parse.ParseComments(v))
+	}
+}
+
+// MapComments controls whether comment/line-comment tagged fields generate
+// comment nodes in output. Also controls encode.EncodeComments.
+func MapComments(v bool) MapOption {
+	return func(cfg *mapConfig) {
+		cfg.Comments = &v
+		cfg.EncodeOptions = append(cfg.EncodeOptions, encode.EncodeComments(v))
+	}
+}
+
+// GetUnmapComments extracts the comments setting from UnmapOptions.
+// Returns true (preserve comments) by default.
+func GetUnmapComments(opts ...UnmapOption) bool {
+	cfg := newUnmapConfig()
+	for _, opt := range opts {
+		opt(cfg)
+	}
+	if cfg.Comments != nil {
+		return *cfg.Comments
+	}
+	return true // default to preserving comments
+}
+
+// GetMapComments extracts the comments setting from MapOptions.
+// Returns true (include comments) by default.
+func GetMapComments(opts ...MapOption) bool {
+	cfg := newMapConfig()
+	for _, opt := range opts {
+		opt(cfg)
+	}
+	if cfg.Comments != nil {
+		return *cfg.Comments
+	}
+	return true // default to including comments
 }

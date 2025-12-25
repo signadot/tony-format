@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -20,25 +19,44 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
+// CommitNotification contains information about a committed patch.
+// This is sent to any registered CommitNotifier after a successful commit.
+type CommitNotification struct {
+	Commit    int64    // The commit number
+	TxSeq     int64    // Transaction sequence number
+	Timestamp string   // ISO8601 timestamp
+	KPaths    []string // Top-level kpaths affected by this commit
+	Patch     *ir.Node // The merged patch that was committed
+	ScopeID   *string  // Scope ID (nil = baseline)
+}
+
+// CommitNotifier is a callback invoked after each successful commit.
+// Implementations must not block - if async processing is needed,
+// the notifier should queue the notification and return immediately.
+type CommitNotifier func(n *CommitNotification)
+
 // Storage provides filesystem-based storage for logd.
 type Storage struct {
 	sequence *seq.Seq
 
 	dLog *dlog.DLog
 
-	index *index.Index
+	index          *index.Index
+	indexPersister *IndexPersister
 
-	txStore  tx.Store     // Transaction store (in-memory for now, can be swapped for disk-based)
-	logger   *slog.Logger // Logger for error logging
-	switchMu sync.Mutex   // Protects log switching to prevent concurrent switch+snapshot
+	txStore   tx.Store       // Transaction store (in-memory for now, can be swapped for disk-based)
+	txTimeout time.Duration  // Timeout for transaction participants to join (0 = no timeout)
+	logger    *slog.Logger
+	notifier  CommitNotifier // Optional callback for commit notifications
 }
+
+// DefaultIndexPersistInterval is the default number of commits between index persists.
+const DefaultIndexPersistInterval = 1000
 
 // Open opens or creates a Storage instance with the given root directory.
 // The root directory will be created if it doesn't exist.
-// umask is applied to directory permissions (e.g., 022 for 0755 -> 0755).
 // If logger is nil, slog.Default() will be used.
-// compactorConfig is optional - if nil, a default config with divisor 2 and NeverRemove is used.
-func Open(root string, umask int, logger *slog.Logger) (*Storage, error) {
+func Open(root string, logger *slog.Logger) (*Storage, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -60,7 +78,16 @@ func Open(root string, umask int, logger *slog.Logger) (*Storage, error) {
 		return nil, err
 	}
 
+	// Create persister after init() since init() may replace s.index
+	s.indexPersister = NewIndexPersister(s.sequence.Root, s.index, DefaultIndexPersistInterval, logger)
+	s.indexPersister.SetLastPersisted(s.getIndexMaxCommit())
+
 	return s, nil
+}
+
+// ActiveLogSize returns the size of the currently active log file in bytes.
+func (s *Storage) ActiveLogSize() (int64, error) {
+	return s.dLog.ActiveLogSize()
 }
 
 // GetCurrentCommit returns the current commit number.
@@ -77,8 +104,9 @@ func (s *Storage) GetCurrentCommit() (int64, error) {
 
 // ReadStateAt reads the state for a given kpath at a specific commit count.
 // Searches for the most recent snapshot and applies patches from that point forward.
-func (s *Storage) ReadStateAt(kp string, commit int64) (*ir.Node, error) {
-	// Find most recent snapshot and get base event reader
+// scopeID controls filtering: nil = baseline only, non-nil = baseline + scope.
+func (s *Storage) ReadStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
+	// Find most recent snapshot and get base event reader (always baseline)
 	baseReader, startCommit, err := s.findSnapshotBaseReader(kp, commit)
 	if err != nil {
 		return nil, err
@@ -86,7 +114,7 @@ func (s *Storage) ReadStateAt(kp string, commit int64) (*ir.Node, error) {
 	defer baseReader.Close()
 
 	// Get patches from startCommit to commit
-	segments := s.index.LookupRange(kp, &startCommit, &commit)
+	segments := s.index.LookupRange(kp, &startCommit, &commit, scopeID)
 
 	// Extract patch nodes, filtering out snapshots
 	var patchNodes []*ir.Node
@@ -135,7 +163,14 @@ func (s *Storage) ReadStateAt(kp string, commit int64) (*ir.Node, error) {
 	if len(events) == 0 {
 		return nil, nil
 	}
-	return stream.EventsToNode(events)
+	node, err := stream.EventsToNode(events)
+	if err != nil {
+		return nil, err
+	}
+
+	// Strip internal patch root tags before returning
+	tx.StripPatchRootTagRecursive(node)
+	return node, nil
 }
 
 // init initializes the storage directory structure.
@@ -217,6 +252,7 @@ func (s *Storage) NewTx(participantCount int, meta *api.PatchMeta) (tx.Tx, error
 	state := &tx.State{
 		TxID:        txSeq,
 		CreatedAt:   time.Now(),
+		Timeout:     s.txTimeout,
 		Meta:        meta,
 		PatcherData: make([]*tx.PatcherData, 0, participantCount),
 	}
@@ -231,6 +267,14 @@ func (s *Storage) NewTx(participantCount int, meta *api.PatchMeta) (tx.Tx, error
 }
 
 func (s *Storage) Close() error {
+	// Stop transaction cleanup goroutine
+	s.txStore.Close()
+
+	// Wait for any pending index persist
+	if s.indexPersister != nil {
+		s.indexPersister.Close()
+	}
+
 	indexPath := filepath.Join(s.sequence.Root, "index.gob")
 	currentMaxCommit := s.getIndexMaxCommit()
 	if currentMaxCommit >= 0 {
@@ -247,7 +291,8 @@ func (s *Storage) Close() error {
 }
 
 func (s *Storage) getIndexMaxCommit() int64 {
-	segments := s.index.LookupRange("", nil, nil)
+	// Use LookupRangeAll to get all segments regardless of scope
+	segments := s.index.LookupRangeAll("", nil, nil)
 	var maxCommit int64 = -1
 	for _, seg := range segments {
 		if seg.EndCommit > maxCommit {
@@ -281,4 +326,39 @@ func (s *Storage) GetTx(txID int64) (tx.Tx, error) {
 		return nil, fmt.Errorf("transaction %d not found", txID)
 	}
 	return t, nil
+}
+
+// SetCommitNotifier sets the callback to be invoked after each successful commit.
+// Only one notifier can be active at a time - setting a new one replaces the previous.
+// Pass nil to disable notifications.
+func (s *Storage) SetCommitNotifier(notifier CommitNotifier) {
+	s.notifier = notifier
+}
+
+// GetCommitNotifier returns the currently registered commit notifier, or nil if none.
+func (s *Storage) GetCommitNotifier() CommitNotifier {
+	return s.notifier
+}
+
+// SetTxTimeout sets the timeout for transaction participants to join.
+// If not all participants join within this duration, the transaction is aborted
+// and waiting participants receive a timeout error.
+// Pass 0 to disable timeout (not recommended for production).
+func (s *Storage) SetTxTimeout(timeout time.Duration) {
+	s.txTimeout = timeout
+}
+
+// GetTxTimeout returns the current transaction timeout.
+func (s *Storage) GetTxTimeout() time.Duration {
+	return s.txTimeout
+}
+
+// DeleteScope removes all index entries for a scope.
+// The actual log entries remain (append-only), but become inaccessible.
+func (s *Storage) DeleteScope(scopeID string) error {
+	count := s.index.DeleteScope(scopeID)
+	if count == 0 {
+		return fmt.Errorf("scope %q not found or has no data", scopeID)
+	}
+	return nil
 }

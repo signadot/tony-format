@@ -1,0 +1,19 @@
+# ConfigMap containing the Tony CMP plugin configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tony-build-plugin
+  namespace: argocd
+data:
+  plugin.yaml: |
+    apiVersion: argoproj.io/v1alpha1
+    kind: ConfigManagementPlugin
+    metadata:
+      name: tony-build
+    spec:
+      version: v1.0
+      discover:
+        find:
+          glob: "**/build.tony"
+      generate:
+        command: [o, build, -y, .]

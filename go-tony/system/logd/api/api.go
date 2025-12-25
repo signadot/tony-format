@@ -1,9 +1,6 @@
 package api
 
 import (
-	"fmt"
-	"io"
-	"net/http"
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -26,7 +23,8 @@ type EncodingOptions struct {
 //tony:schemagen=match-meta
 type MatchMeta struct {
 	EncodingOptions
-	SeqID *int64 `tony:"field=seq"`
+	SeqID *int64  `tony:"field=seq"`
+	Scope *string `tony:"field=scope"`
 }
 
 //tony:schemagen=match
@@ -42,7 +40,8 @@ type PatchMeta struct {
 	MaxDuration Duration `tony:"field=maxDuration"`
 	Seq         *int64   `tony:"field=seq"` // Seq when supplied asserts that seq is the latest value for patched data, on return, if successful, seq shows the commit resulting from applying the changes.
 
-	When *time.Time `tony:"field=when"`
+	When  *time.Time `tony:"field=when"`
+	Scope *string    `tony:"field=scope"`
 }
 
 //tony:schemagen=patch
@@ -55,30 +54,9 @@ type Patch struct {
 //tony:schemagen=watch-meta
 type WatchMeta struct {
 	EncodingOptions
-	From *int64 `tony:"field=from"`
-	To   *int64 `tony:"field=to"`
-}
-
-// ParseRequestBody parses the request body as a Tony document and extracts the RequestBody structure.
-func ParseRequestBody(r *http.Request) (*Body, error) {
-	// Check Content-Type
-	if r.Header.Get("Content-Type") != "application/x-tony" {
-		return nil, fmt.Errorf("Content-Type must be application/x-tony")
-	}
-
-	// Read body
-	bodyBytes, err := io.ReadAll(r.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read body: %w", err)
-	}
-
-	// Use generated FromTony method to populate RequestBody
-	reqBody := &Body{}
-	if err := reqBody.FromTony(bodyBytes); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal request body: %w", err)
-	}
-
-	return reqBody, nil
+	From  *int64  `tony:"field=from"`
+	To    *int64  `tony:"field=to"`
+	Scope *string `tony:"field=scope"`
 }
 
 type Duration time.Duration

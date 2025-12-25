@@ -106,7 +106,9 @@ func (l *PackageLoader) FindStructType(pkg *packages.Package, typeName string) (
 }
 
 // FindNamedType finds a named type definition in a loaded package.
-// It returns the types.TypeName and the underlying types.Type.
+// It returns the types.TypeName and the named types.Type (not the underlying type).
+// This is important for checking interface implementations, since methods are defined
+// on the named type, not the underlying type.
 func (l *PackageLoader) FindNamedType(pkg *packages.Package, typeName string) (*types.TypeName, types.Type, error) {
 	obj, err := l.FindType(pkg, typeName)
 	if err != nil {
@@ -123,7 +125,9 @@ func (l *PackageLoader) FindNamedType(pkg *packages.Package, typeName string) (*
 		return nil, nil, fmt.Errorf("%q is not a named type", typeName)
 	}
 
-	return typeNameObj, named.Underlying(), nil
+	// Return the named type, not the underlying type, so that interface checks
+	// can find methods defined on the named type (e.g., TextUnmarshaler on format.Format)
+	return typeNameObj, named, nil
 }
 
 // ASTToStructType converts a types.Struct to an ast.StructType (simplified).

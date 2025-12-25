@@ -1,0 +1,23 @@
+# Configure the Application when app is set
+- if: ".[app != null]"
+  match:
+    kind: Application
+  patch:
+    metadata:
+      name: .[app.name]
+    spec:
+      project: .[app.project]
+      source:
+        repoURL: .[app.repoURL]
+        targetRevision: .[app.revision]
+        path: .[app.path]
+        plugin:
+          name: .[pluginName]
+      destination:
+        namespace: .[app.destNamespace]
+
+# Remove the Application when app is not set
+- if: ".[app == null]"
+  match:
+    kind: Application
+  patch: !delete null

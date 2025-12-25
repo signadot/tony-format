@@ -161,9 +161,9 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 
 		// Check all fields for external types
 		for _, field := range structInfo.Fields {
-			// Skip adding imports for types handled via TextMarshaler/TextUnmarshaler
-			// since they don't appear directly in the generated code
-			if field.ImplementsTextMarshaler || field.ImplementsTextUnmarshaler {
+			// For types with TextMarshaler/TextUnmarshaler from same package, skip import
+			// For external package types, we still need the import since we use new(pkg.Type)
+			if (field.ImplementsTextMarshaler || field.ImplementsTextUnmarshaler) && field.TypePkgPath == "" {
 				continue
 			}
 			if field.Type != nil {
@@ -180,6 +180,10 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 						externalImports[importPath] = true
 					}
 				}
+			}
+			// External types implementing TextUnmarshaler still need import for new(pkg.Type)
+			if field.TypePkgPath != "" {
+				externalImports[field.TypePkgPath] = true
 			}
 		}
 	}
@@ -1350,6 +1354,11 @@ func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgP
 
 	buf.WriteString("	for i, fieldName := range node.Fields {\n")
 	buf.WriteString("		fieldNode := node.Values[i]\n")
+	buf.WriteString("		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)\n")
+	buf.WriteString("		fieldNodeUnwrapped := fieldNode\n")
+	buf.WriteString("		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {\n")
+	buf.WriteString("			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]\n")
+	buf.WriteString("		}\n")
 	buf.WriteString("		switch fieldName.String {\n")
 
 	// Get struct fields from schema using GetStructFields
@@ -1583,23 +1592,28 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 
 	// Special handling for *ir.Node (and deeper pointers)
 	if depth := getIRNodeDepth(field.Type); depth > 0 {
+		// Use fieldNode (preserves comments) or fieldNodeUnwrapped (strips comments) based on option
+		buf.WriteString("	if gomap.GetUnmapComments(opts...) {\n")
 		if depth == 1 {
-			// *ir.Node - direct assignment
-			buf.WriteString(fmt.Sprintf("	s.%s = fieldNode\n", field.Name))
+			buf.WriteString(fmt.Sprintf("		s.%s = fieldNode\n", field.Name))
 		} else {
-			// Create chain of pointers
-			// We need to create a chain of pointers: s.Field -> ptr(N-1) -> ... -> ptr0 -> fieldNode
-			// v0 := fieldNode
-			// v1 := &v0
-			// ...
-			// s.Field = v(depth-1)
-
-			buf.WriteString("	v0 := fieldNode\n")
+			buf.WriteString("		v0 := fieldNode\n")
 			for i := 1; i < depth; i++ {
-				buf.WriteString(fmt.Sprintf("	v%d := &v%d\n", i, i-1))
+				buf.WriteString(fmt.Sprintf("		v%d := &v%d\n", i, i-1))
 			}
-			buf.WriteString(fmt.Sprintf("	s.%s = v%d\n", field.Name, depth-1))
+			buf.WriteString(fmt.Sprintf("		s.%s = v%d\n", field.Name, depth-1))
 		}
+		buf.WriteString("	} else {\n")
+		if depth == 1 {
+			buf.WriteString(fmt.Sprintf("		s.%s = fieldNodeUnwrapped\n", field.Name))
+		} else {
+			buf.WriteString("		v0 := fieldNodeUnwrapped\n")
+			for i := 1; i < depth; i++ {
+				buf.WriteString(fmt.Sprintf("		v%d := &v%d\n", i, i-1))
+			}
+			buf.WriteString(fmt.Sprintf("		s.%s = v%d\n", field.Name, depth-1))
+		}
+		buf.WriteString("	}\n")
 		return buf.String(), nil
 	}
 
@@ -1609,26 +1623,26 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 	if field.ImplementsTextUnmarshaler {
 		if field.Type.Kind() != reflect.Ptr {
 			// Value type implementing TextUnmarshaler (via pointer receiver)
-			buf.WriteString("	if fieldNode.Type != ir.StringType {\n")
-			buf.WriteString(fmt.Sprintf("	return fmt.Errorf(\"field %%q: expected string for TextUnmarshaler, got %%v\", %q, fieldNode.Type)\n", schemaFieldName))
+			buf.WriteString("	if fieldNodeUnwrapped.Type != ir.StringType {\n")
+			buf.WriteString(fmt.Sprintf("	return fmt.Errorf(\"field %%q: expected string for TextUnmarshaler, got %%v\", %q, fieldNodeUnwrapped.Type)\n", schemaFieldName))
 			buf.WriteString("	}\n")
-			buf.WriteString(fmt.Sprintf("	if err := s.%s.UnmarshalText([]byte(fieldNode.String)); err != nil {\n", field.Name))
+			buf.WriteString(fmt.Sprintf("	if err := s.%s.UnmarshalText([]byte(fieldNodeUnwrapped.String)); err != nil {\n", field.Name))
 			buf.WriteString(fmt.Sprintf("	return fmt.Errorf(\"field %%q: failed to unmarshal text: %%w\", %q, err)\n", schemaFieldName))
 			buf.WriteString("	}\n")
 			return buf.String(), nil
 		} else {
 			// Pointer type implementing TextUnmarshaler
-			buf.WriteString("	if fieldNode.Type == ir.NullType {\n")
+			buf.WriteString("	if fieldNodeUnwrapped.Type == ir.NullType {\n")
 			buf.WriteString(fmt.Sprintf("		s.%s = nil\n", field.Name))
-			buf.WriteString("	} else if fieldNode.Type != ir.StringType {\n")
-			buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: expected string for TextUnmarshaler, got %%v\", %q, fieldNode.Type)\n", schemaFieldName))
+			buf.WriteString("	} else if fieldNodeUnwrapped.Type != ir.StringType {\n")
+			buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: expected string for TextUnmarshaler, got %%v\", %q, fieldNodeUnwrapped.Type)\n", schemaFieldName))
 			buf.WriteString("	} else {\n")
 			buf.WriteString(fmt.Sprintf("		if s.%s == nil {\n", field.Name))
 			// Use getTypeName to handle imported types correctly
 			typeName := getTypeName(field.Type.Elem(), field.StructTypeName)
 			buf.WriteString(fmt.Sprintf("			s.%s = new(%s)\n", field.Name, typeName))
 			buf.WriteString("		}\n")
-			buf.WriteString(fmt.Sprintf("		if err := s.%s.UnmarshalText([]byte(fieldNode.String)); err != nil {\n", field.Name))
+			buf.WriteString(fmt.Sprintf("		if err := s.%s.UnmarshalText([]byte(fieldNodeUnwrapped.String)); err != nil {\n", field.Name))
 			buf.WriteString(fmt.Sprintf("			return fmt.Errorf(\"field %%q: failed to unmarshal text: %%w\", %q, err)\n", schemaFieldName))
 			buf.WriteString("		}\n")
 			buf.WriteString("	}\n")
@@ -1642,17 +1656,17 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 	// Handle different field types
 	switch field.Type.Kind() {
 	case reflect.String:
-		buf.WriteString("	if fieldNode.Type != ir.StringType {\n")
-		buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: expected string, got %%v\", %q, fieldNode.Type)\n", schemaFieldName))
+		buf.WriteString("	if fieldNodeUnwrapped.Type != ir.StringType {\n")
+		buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: expected string, got %%v\", %q, fieldNodeUnwrapped.Type)\n", schemaFieldName))
 		buf.WriteString("	}\n")
-		buf.WriteString(fmt.Sprintf("	s.%s = fieldNode.String\n", field.Name))
+		buf.WriteString(fmt.Sprintf("	s.%s = fieldNodeUnwrapped.String\n", field.Name))
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		buf.WriteString("	if fieldNode.Int64 == nil {\n")
-		buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: expected number, got %%v\", %q, fieldNode.Type)\n", schemaFieldName))
+		buf.WriteString("	if fieldNodeUnwrapped.Int64 == nil {\n")
+		buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: expected number, got %%v\", %q, fieldNodeUnwrapped.Type)\n", schemaFieldName))
 		buf.WriteString("	}\n")
 		// Handle overflow checking for smaller int types
-		intVal := "*fieldNode.Int64"
+		intVal := "*fieldNodeUnwrapped.Int64"
 		if field.Type.Kind() == reflect.Int8 {
 			buf.WriteString(fmt.Sprintf("	if %s < -128 || %s > 127 {\n", intVal, intVal))
 			buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: value %%d overflows int8\", %q, %s)\n", schemaFieldName, intVal))
@@ -1697,11 +1711,11 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 		buf.WriteString(fmt.Sprintf("	s.%s = %s(%s)\n", field.Name, typeName, intVal))
 
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		buf.WriteString("	if fieldNode.Int64 == nil {\n")
-		buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: expected number, got %%v\", %q, fieldNode.Type)\n", schemaFieldName))
+		buf.WriteString("	if fieldNodeUnwrapped.Int64 == nil {\n")
+		buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: expected number, got %%v\", %q, fieldNodeUnwrapped.Type)\n", schemaFieldName))
 		buf.WriteString("	}\n")
 		// Check for negative values and overflow
-		intVal := "*fieldNode.Int64"
+		intVal := "*fieldNodeUnwrapped.Int64"
 		buf.WriteString(fmt.Sprintf("	if %s < 0 {\n", intVal))
 		buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: negative value %%d for unsigned type\", %q, %s)\n", schemaFieldName, intVal))
 		buf.WriteString("	}\n")
@@ -1721,16 +1735,16 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 		buf.WriteString(fmt.Sprintf("	s.%s = %s(%s)\n", field.Name, field.Type.Name(), intVal))
 
 	case reflect.Float32, reflect.Float64:
-		buf.WriteString("	if fieldNode.Float64 == nil {\n")
-		buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: expected number, got %%v\", %q, fieldNode.Type)\n", schemaFieldName))
+		buf.WriteString("	if fieldNodeUnwrapped.Float64 == nil {\n")
+		buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: expected number, got %%v\", %q, fieldNodeUnwrapped.Type)\n", schemaFieldName))
 		buf.WriteString("	}\n")
-		buf.WriteString(fmt.Sprintf("	s.%s = %s(*fieldNode.Float64)\n", field.Name, field.Type.Name()))
+		buf.WriteString(fmt.Sprintf("	s.%s = %s(*fieldNodeUnwrapped.Float64)\n", field.Name, field.Type.Name()))
 
 	case reflect.Bool:
-		buf.WriteString("	if fieldNode.Type != ir.BoolType {\n")
-		buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: expected bool, got %%v\", %q, fieldNode.Type)\n", schemaFieldName))
+		buf.WriteString("	if fieldNodeUnwrapped.Type != ir.BoolType {\n")
+		buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: expected bool, got %%v\", %q, fieldNodeUnwrapped.Type)\n", schemaFieldName))
 		buf.WriteString("	}\n")
-		buf.WriteString(fmt.Sprintf("	s.%s = fieldNode.Bool\n", field.Name))
+		buf.WriteString(fmt.Sprintf("	s.%s = fieldNodeUnwrapped.Bool\n", field.Name))
 
 	case reflect.Ptr:
 		// Pointer type
@@ -1745,7 +1759,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 		} else {
 			// Pointer to primitive (or named basic type like format.Format)
 			// First check for null - leave pointer as nil
-			buf.WriteString("	if fieldNode.Type == ir.NullType {\n")
+			buf.WriteString("	if fieldNodeUnwrapped.Type == ir.NullType {\n")
 			buf.WriteString("		// null value - leave pointer as nil\n")
 			buf.WriteString("	} else {\n")
 			typeName := getTypeName(elemType, field.StructTypeName)
@@ -1754,11 +1768,11 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			// Generate validation and extraction based on underlying type
 			switch elemType.Kind() {
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-				buf.WriteString("	if fieldNode.Int64 == nil {\n")
-				buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"%%s: expected number, got %%v\", %q, fieldNode.Type)\n", fmt.Sprintf("field %q", schemaFieldName)))
+				buf.WriteString("	if fieldNodeUnwrapped.Int64 == nil {\n")
+				buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"%%s: expected number, got %%v\", %q, fieldNodeUnwrapped.Type)\n", fmt.Sprintf("field %q", schemaFieldName)))
 				buf.WriteString("	}\n")
 				// Handle overflow checking for smaller int types
-				intVal := "*fieldNode.Int64"
+				intVal := "*fieldNodeUnwrapped.Int64"
 				if elemType.Kind() == reflect.Int8 {
 					buf.WriteString(fmt.Sprintf("	if %s < -128 || %s > 127 {\n", intVal, intVal))
 					buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"%%s: value %%d overflows int8\", %q, %s)\n", fmt.Sprintf("field %q", schemaFieldName), intVal))
@@ -1774,11 +1788,11 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 				}
 				buf.WriteString(fmt.Sprintf("	*val = %s(%s)\n", typeName, intVal))
 			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-				buf.WriteString("	if fieldNode.Int64 == nil {\n")
-				buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"%%s: expected number, got %%v\", %q, fieldNode.Type)\n", fmt.Sprintf("field %q", schemaFieldName)))
+				buf.WriteString("	if fieldNodeUnwrapped.Int64 == nil {\n")
+				buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"%%s: expected number, got %%v\", %q, fieldNodeUnwrapped.Type)\n", fmt.Sprintf("field %q", schemaFieldName)))
 				buf.WriteString("	}\n")
 				// Check for negative values and overflow
-				intVal := "*fieldNode.Int64"
+				intVal := "*fieldNodeUnwrapped.Int64"
 				buf.WriteString(fmt.Sprintf("	if %s < 0 {\n", intVal))
 				buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"%%s: negative value %%d for unsigned type\", %q, %s)\n", fmt.Sprintf("field %q", schemaFieldName), intVal))
 				buf.WriteString("	}\n")
@@ -1797,20 +1811,20 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 				}
 				buf.WriteString(fmt.Sprintf("	*val = %s(%s)\n", typeName, intVal))
 			case reflect.Float32, reflect.Float64:
-				buf.WriteString("	if fieldNode.Float64 == nil {\n")
-				buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"%%s: expected number, got %%v\", %q, fieldNode.Type)\n", fmt.Sprintf("field %q", schemaFieldName)))
+				buf.WriteString("	if fieldNodeUnwrapped.Float64 == nil {\n")
+				buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"%%s: expected number, got %%v\", %q, fieldNodeUnwrapped.Type)\n", fmt.Sprintf("field %q", schemaFieldName)))
 				buf.WriteString("	}\n")
-				buf.WriteString(fmt.Sprintf("	*val = %s(*fieldNode.Float64)\n", typeName))
+				buf.WriteString(fmt.Sprintf("	*val = %s(*fieldNodeUnwrapped.Float64)\n", typeName))
 			case reflect.String:
-				buf.WriteString("	if fieldNode.Type != ir.StringType {\n")
-				buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"%%s: expected string, got %%v\", %q, fieldNode.Type)\n", fmt.Sprintf("field %q", schemaFieldName)))
+				buf.WriteString("	if fieldNodeUnwrapped.Type != ir.StringType {\n")
+				buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"%%s: expected string, got %%v\", %q, fieldNodeUnwrapped.Type)\n", fmt.Sprintf("field %q", schemaFieldName)))
 				buf.WriteString("	}\n")
-				buf.WriteString(fmt.Sprintf("	*val = %s(fieldNode.String)\n", typeName))
+				buf.WriteString(fmt.Sprintf("	*val = %s(fieldNodeUnwrapped.String)\n", typeName))
 			case reflect.Bool:
-				buf.WriteString("	if fieldNode.Type != ir.BoolType {\n")
-				buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"%%s: expected bool, got %%v\", %q, fieldNode.Type)\n", fmt.Sprintf("field %q", schemaFieldName)))
+				buf.WriteString("	if fieldNodeUnwrapped.Type != ir.BoolType {\n")
+				buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"%%s: expected bool, got %%v\", %q, fieldNodeUnwrapped.Type)\n", fmt.Sprintf("field %q", schemaFieldName)))
 				buf.WriteString("	}\n")
-				buf.WriteString(fmt.Sprintf("	*val = %s(fieldNode.Bool)\n", typeName))
+				buf.WriteString(fmt.Sprintf("	*val = %s(fieldNodeUnwrapped.Bool)\n", typeName))
 			default:
 				return "", fmt.Errorf("unsupported pointer to primitive type: %v", elemType.Kind())
 			}
@@ -1822,7 +1836,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 	case reflect.Slice, reflect.Array:
 		// Slice/Array type
 		elemType := field.Type.Elem()
-		buf.WriteString("	if fieldNode.Type == ir.ArrayType {\n")
+		buf.WriteString("	if fieldNodeUnwrapped.Type == ir.ArrayType {\n")
 		// Get the type name for the slice element
 		// If field.StructTypeName is set, use it (it contains the named type, not the underlying type)
 		// Also check field.TypeName as a fallback
@@ -1881,8 +1895,8 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 				}
 			}
 		}
-		buf.WriteString(fmt.Sprintf("		slice := make([]%s, len(fieldNode.Values))\n", structName))
-		buf.WriteString("		for i, v := range fieldNode.Values {\n")
+		buf.WriteString(fmt.Sprintf("		slice := make([]%s, len(fieldNodeUnwrapped.Values))\n", structName))
+		buf.WriteString("		for i, v := range fieldNodeUnwrapped.Values {\n")
 		if elemType.Kind() == reflect.Struct || (elemType.Kind() == reflect.Ptr && elemType.Elem().Kind() == reflect.Struct) {
 			// Slice of structs or pointers to structs - call FromTony()
 			// Need to handle both struct values and pointers
@@ -1930,10 +1944,10 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 
 		if keyType.Kind() == reflect.Uint32 {
 			// Sparse array (map[uint32]T)
-			buf.WriteString("	if fieldNode.Type == ir.ObjectType && fieldNode.Tag == \"!sparsearray\" {\n")
+			buf.WriteString("	if fieldNodeUnwrapped.Type == ir.ObjectType && fieldNodeUnwrapped.Tag == \"!sparsearray\" {\n")
 			structName := getTypeName(valueType, field.StructTypeName)
 			buf.WriteString(fmt.Sprintf("		m := make(map[uint32]%s)\n", structName))
-			buf.WriteString("		irMap := ir.ToMap(fieldNode)\n")
+			buf.WriteString("		irMap := ir.ToMap(fieldNodeUnwrapped)\n")
 			buf.WriteString("		for kStr, v := range irMap {\n")
 			buf.WriteString("			k, err := strconv.ParseUint(kStr, 10, 32)\n")
 			buf.WriteString("			if err != nil {\n")
@@ -1969,13 +1983,13 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			buf.WriteString("	}\n")
 		} else if keyType.Kind() == reflect.String {
 			// Regular map (map[string]T)
-			buf.WriteString("	if fieldNode.Type == ir.ObjectType {\n")
+			buf.WriteString("	if fieldNodeUnwrapped.Type == ir.ObjectType {\n")
 			structName := getQualifiedTypeName(valueType, currentPkgPath)
 			if depth := getIRNodeDepth(valueType); depth > 0 {
 				structName = "*ir.Node"
 			}
 			buf.WriteString(fmt.Sprintf("		m := make(map[string]%s)\n", structName))
-			buf.WriteString("		irMap := ir.ToMap(fieldNode)\n")
+			buf.WriteString("		irMap := ir.ToMap(fieldNodeUnwrapped)\n")
 			buf.WriteString("		for k, v := range irMap {\n")
 			if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) {
 				// Map value is struct or pointer to struct
@@ -2018,10 +2032,10 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			buf.WriteString("	}\n")
 		} else if keyType.Kind() == reflect.Interface {
 			// Map with interface{} (any) keys - keys were converted to strings
-			buf.WriteString("	if fieldNode.Type == ir.ObjectType {\n")
+			buf.WriteString("	if fieldNodeUnwrapped.Type == ir.ObjectType {\n")
 			structName := getQualifiedTypeName(valueType, currentPkgPath)
 			buf.WriteString(fmt.Sprintf("		m := make(map[interface{}]%s)\n", structName))
-			buf.WriteString("		irMap := ir.ToMap(fieldNode)\n")
+			buf.WriteString("		irMap := ir.ToMap(fieldNodeUnwrapped)\n")
 			buf.WriteString("		for kStr, v := range irMap {\n")
 			buf.WriteString("			// Convert string key back to interface{}\n")
 			buf.WriteString("			var k interface{} = kStr\n")
@@ -2050,7 +2064,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			// so this is a lossy conversion. The pointer address is preserved as a string.
 			buf.WriteString("	// Note: Pointer keys cannot be fully reconstructed from serialized form\n")
 			buf.WriteString("	// Pointer addresses are preserved as strings, but original pointers are lost\n")
-			buf.WriteString("	if fieldNode.Type == ir.ObjectType {\n")
+			buf.WriteString("	if fieldNodeUnwrapped.Type == ir.ObjectType {\n")
 			structName := getQualifiedTypeName(valueType, currentPkgPath)
 			elemType := keyType.Elem()
 			// Extract key struct name from AST if available (for pointer keys like *X)
@@ -2073,7 +2087,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 				keyStructName = "interface{}"
 			}
 			buf.WriteString(fmt.Sprintf("		m := make(map[*%s]%s)\n", keyStructName, structName))
-			buf.WriteString("		irMap := ir.ToMap(fieldNode)\n")
+			buf.WriteString("		irMap := ir.ToMap(fieldNodeUnwrapped)\n")
 			buf.WriteString("		for kStr, v := range irMap {\n")
 			buf.WriteString("			// Parse pointer address from string (format: 0x...)\n")
 			buf.WriteString("			var ptrAddr uintptr\n")

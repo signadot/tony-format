@@ -407,3 +407,76 @@ func TestPointerSlice(t *testing.T) {
 		t.Errorf("Expected slice creation with pointer type, got:\n%s", fromCode)
 	}
 }
+
+// TestExternalPackageTextUnmarshaler tests that types from external packages
+// implementing TextUnmarshaler are correctly detected during type resolution.
+// This specifically tests the ResolveFieldTypes function with cross-package types.
+func TestExternalPackageTextUnmarshaler(t *testing.T) {
+	// Parse the pkg5 testdata which has a struct with format.Format field
+	pkgDir := "testdata/pkg5"
+	filePath := pkgDir + "/types.go"
+
+	file, _, err := ParseFile(filePath)
+	if err != nil {
+		t.Fatalf("ParseFile failed: %v", err)
+	}
+
+	structs, err := ExtractTypes(file, filePath)
+	if err != nil {
+		t.Fatalf("ExtractTypes failed: %v", err)
+	}
+
+	if len(structs) == 0 {
+		t.Fatal("Expected at least one struct")
+	}
+
+	// Set package name
+	for _, s := range structs {
+		s.Package = "pkg5"
+	}
+
+	// Resolve field types - this is what we're testing
+	if err := ResolveFieldTypes(structs, pkgDir, "pkg5"); err != nil {
+		t.Fatalf("ResolveFieldTypes failed: %v", err)
+	}
+
+	// Find the ExternalTextUnmarshaler struct
+	var extStruct *StructInfo
+	for _, s := range structs {
+		if s.Name == "ExternalTextUnmarshaler" {
+			extStruct = s
+			break
+		}
+	}
+	if extStruct == nil {
+		t.Fatal("ExternalTextUnmarshaler struct not found")
+	}
+
+	// Find the Format field
+	var formatField *FieldInfo
+	for _, f := range extStruct.Fields {
+		if f.Name == "Format" {
+			formatField = f
+			break
+		}
+	}
+	if formatField == nil {
+		t.Fatal("Format field not found")
+	}
+
+	// Verify that TextUnmarshaler was detected for the external type
+	if !formatField.ImplementsTextUnmarshaler {
+		t.Errorf("Expected format.Format to implement TextUnmarshaler, but ImplementsTextUnmarshaler is false")
+	}
+	if !formatField.ImplementsTextMarshaler {
+		t.Errorf("Expected format.Format to implement TextMarshaler, but ImplementsTextMarshaler is false")
+	}
+
+	// Also verify the type info is correctly set
+	if formatField.TypePkgPath != "github.com/signadot/tony-format/go-tony/format" {
+		t.Errorf("Expected TypePkgPath 'github.com/signadot/tony-format/go-tony/format', got %q", formatField.TypePkgPath)
+	}
+	if formatField.TypeName != "Format" {
+		t.Errorf("Expected TypeName 'Format', got %q", formatField.TypeName)
+	}
+}
