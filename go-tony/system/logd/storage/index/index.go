@@ -97,12 +97,17 @@ func (i *Index) Remove(seg *LogSegment) bool {
 	return res
 }
 
-func (i *Index) LookupRange(kp string, from, to *int64) []LogSegment {
+// LookupRange finds segments in the given commit range.
+// If scopeID is nil, returns only baseline segments.
+// If scopeID is non-nil, returns baseline + matching scope segments.
+func (i *Index) LookupRange(kp string, from, to *int64, scopeID *string) []LogSegment {
 	i.RLock()
 	defer i.RUnlock()
 	res := []LogSegment{}
 	i.Commits.Range(func(c LogSegment) bool {
-		res = append(res, c)
+		if matchesScope(c.ScopeID, scopeID) {
+			res = append(res, c)
+		}
 		return true
 	}, rangeFunc(from, to))
 	if kp == "" {
@@ -116,8 +121,56 @@ func (i *Index) LookupRange(kp string, from, to *int64) []LogSegment {
 		return res
 	}
 	// Recursive call - child index has its own lock, so this is safe
-	cRes := c.LookupRange(restPath, from, to)
+	cRes := c.LookupRange(restPath, from, to, scopeID)
 	// Reconstruct full kpath for results
+	for j := range cRes {
+		seg := cRes[j]
+		if seg.KindedPath == "" {
+			seg.KindedPath = firstSegment
+		} else {
+			seg.KindedPath = kpath.Join(firstSegment, seg.KindedPath)
+		}
+		res = append(res, seg)
+	}
+	slices.SortFunc(res, LogSegCompare)
+	return res
+}
+
+// matchesScope returns true if the segment should be included for the given scopeID.
+// - If request scopeID is nil (baseline read): only include baseline segments (seg.ScopeID == nil)
+// - If request scopeID is non-nil (scope read): include baseline + matching scope segments
+func matchesScope(segScopeID, reqScopeID *string) bool {
+	if reqScopeID == nil {
+		// Baseline read: only baseline segments
+		return segScopeID == nil
+	}
+	// Scope read: baseline + matching scope
+	if segScopeID == nil {
+		return true // Include baseline
+	}
+	return *segScopeID == *reqScopeID
+}
+
+// LookupRangeAll returns all segments in the given range regardless of scope.
+// This is used for internal operations like computing max commit.
+func (i *Index) LookupRangeAll(kp string, from, to *int64) []LogSegment {
+	i.RLock()
+	defer i.RUnlock()
+	res := []LogSegment{}
+	i.Commits.Range(func(c LogSegment) bool {
+		res = append(res, c)
+		return true
+	}, rangeFunc(from, to))
+	if kp == "" {
+		slices.SortFunc(res, LogSegCompare)
+		return res
+	}
+	firstSegment, restPath := kpath.Split(kp)
+	c := i.Children[firstSegment]
+	if c == nil {
+		return res
+	}
+	cRes := c.LookupRangeAll(restPath, from, to)
 	for j := range cRes {
 		seg := cRes[j]
 		if seg.KindedPath == "" {
@@ -134,12 +187,14 @@ func (i *Index) LookupRange(kp string, from, to *int64) []LogSegment {
 // LookupWithin finds all segments at the given kpath where the commit is within
 // the segment's commit range (StartCommit <= commit <= EndCommit).
 // Returns ancestors and exact matches, just like LookupRange.
-func (i *Index) LookupWithin(kp string, commit int64) []LogSegment {
+// If scopeID is nil, returns only baseline segments.
+// If scopeID is non-nil, returns baseline + matching scope segments.
+func (i *Index) LookupWithin(kp string, commit int64, scopeID *string) []LogSegment {
 	i.RLock()
 	defer i.RUnlock()
 	res := []LogSegment{}
 	i.Commits.Range(func(c LogSegment) bool {
-		if c.StartCommit <= commit && commit <= c.EndCommit {
+		if c.StartCommit <= commit && commit <= c.EndCommit && matchesScope(c.ScopeID, scopeID) {
 			res = append(res, c)
 		}
 		return true
@@ -153,7 +208,7 @@ func (i *Index) LookupWithin(kp string, commit int64) []LogSegment {
 	if c == nil {
 		return res
 	}
-	cRes := c.LookupWithin(restPath, commit)
+	cRes := c.LookupWithin(restPath, commit, scopeID)
 	for j := range cRes {
 		seg := cRes[j]
 		if seg.KindedPath == "" {
@@ -244,14 +299,16 @@ func rangeFunc(from, to *int64) func(LogSegment) int {
 
 // ListRange returns the immediate child names at this index level.
 // Returns the keys of the Children map.
-func (i *Index) ListRange(from, to *int64) []string {
+// If scopeID is nil, returns only children with baseline segments.
+// If scopeID is non-nil, returns children with baseline or matching scope segments.
+func (i *Index) ListRange(from, to *int64, scopeID *string) []string {
 	i.RLock()
 	defer i.RUnlock()
 
 	children := make([]string, 0, len(i.Children))
 	for pathKey, ci := range i.Children {
 		ci.RLock()
-		segs := ci.LookupRange("", from, to)
+		segs := ci.LookupRange("", from, to, scopeID)
 		ci.RUnlock()
 		if len(segs) == 0 {
 			continue
@@ -277,4 +334,42 @@ func (i *Index) ListRange(from, to *int64) []string {
 		return aKp.Compare(bKp)
 	})
 	return children
+}
+
+// DeleteScope removes all segments with the given scopeID from the index.
+// Returns the number of segments removed.
+func (i *Index) DeleteScope(scopeID string) int {
+	i.Lock()
+	defer i.Unlock()
+	return i.deleteScopeLocked(scopeID)
+}
+
+// deleteScopeLocked removes scope segments without acquiring the lock (caller must hold it).
+func (i *Index) deleteScopeLocked(scopeID string) int {
+	count := 0
+
+	// Collect segments to remove from this node
+	var toRemove []LogSegment
+	i.Commits.All(func(seg LogSegment) bool {
+		if seg.ScopeID != nil && *seg.ScopeID == scopeID {
+			toRemove = append(toRemove, seg)
+		}
+		return true
+	})
+
+	// Remove them
+	for _, seg := range toRemove {
+		if i.Commits.Remove(seg) {
+			count++
+		}
+	}
+
+	// Recurse into children
+	for _, child := range i.Children {
+		child.Lock()
+		count += child.deleteScopeLocked(scopeID)
+		child.Unlock()
+	}
+
+	return count
 }

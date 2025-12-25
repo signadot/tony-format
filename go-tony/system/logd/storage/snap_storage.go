@@ -117,8 +117,8 @@ func (s *Storage) createSnapshot(commit int64) error {
 	}
 	defer baseReader.Close()
 
-	// Get patches from startCommit to commit
-	segments := s.index.LookupRange("", &startCommit, &commit)
+	// Get patches from startCommit to commit (baseline only - snapshots are for baseline state)
+	segments := s.index.LookupRange("", &startCommit, &commit, nil)
 
 	// Extract patch nodes, filtering out snapshots
 	var patchNodes []*ir.Node

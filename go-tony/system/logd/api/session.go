@@ -17,7 +17,8 @@ import (
 //
 //tony:schemagen=session-hello
 type Hello struct {
-	ClientID string `tony:"field=clientId"`
+	ClientID string  `tony:"field=clientId"`
+	Scope    *string `tony:"field=scope"` // Optional: scope for COW isolation (applies to all operations in session)
 }
 
 // HelloResponse is the server's response to a Hello message.
@@ -70,6 +71,14 @@ type UnwatchRequest struct {
 	Path string `tony:"field=path"`
 }
 
+// DeleteScopeRequest deletes a scope and all its data.
+// Only available from baseline sessions (no scope in hello).
+//
+//tony:schemagen=session-delete-scope-request
+type DeleteScopeRequest struct {
+	ScopeID string `tony:"field=scopeId"`
+}
+
 // SessionRequest is the top-level request message (union type).
 // Only one of the fields should be set.
 //
@@ -77,12 +86,13 @@ type UnwatchRequest struct {
 type SessionRequest struct {
 	ID *string `tony:"field=id"` // Optional: if set, response will include this ID (async mode)
 
-	Hello   *Hello          `tony:"field=hello"`
-	Match   *MatchRequest   `tony:"field=match"`
-	Patch   *PatchRequest   `tony:"field=patch"`
-	NewTx   *NewTxRequest   `tony:"field=newtx"`
-	Watch   *WatchRequest   `tony:"field=watch"`
-	Unwatch *UnwatchRequest `tony:"field=unwatch"`
+	Hello       *Hello              `tony:"field=hello"`
+	Match       *MatchRequest       `tony:"field=match"`
+	Patch       *PatchRequest       `tony:"field=patch"`
+	NewTx       *NewTxRequest       `tony:"field=newtx"`
+	Watch       *WatchRequest       `tony:"field=watch"`
+	Unwatch     *UnwatchRequest     `tony:"field=unwatch"`
+	DeleteScope *DeleteScopeRequest `tony:"field=deleteScope"`
 }
 
 // --- Server → Client Messages ---
@@ -124,17 +134,25 @@ type UnwatchResult struct {
 	Unwatched string `tony:"field=unwatched"` // The path that was unwatched
 }
 
+// DeleteScopeResult is the result of a deleteScope request.
+//
+//tony:schemagen=session-delete-scope-result
+type DeleteScopeResult struct {
+	ScopeID string `tony:"field=scopeId"` // The deleted scope ID
+}
+
 // SessionResult is the result of a request (union type).
 // Only one of the fields should be set.
 //
 //tony:schemagen=session-result
 type SessionResult struct {
-	Hello   *HelloResponse `tony:"field=hello"`
-	Match   *MatchResult   `tony:"field=match"`
-	Patch   *PatchResult   `tony:"field=patch"`
-	NewTx   *NewTxResult   `tony:"field=newtx"`
-	Watch   *WatchResult   `tony:"field=watch"`
-	Unwatch *UnwatchResult `tony:"field=unwatch"`
+	Hello       *HelloResponse     `tony:"field=hello"`
+	Match       *MatchResult       `tony:"field=match"`
+	Patch       *PatchResult       `tony:"field=patch"`
+	NewTx       *NewTxResult       `tony:"field=newtx"`
+	Watch       *WatchResult       `tony:"field=watch"`
+	Unwatch     *UnwatchResult     `tony:"field=unwatch"`
+	DeleteScope *DeleteScopeResult `tony:"field=deleteScope"`
 }
 
 // SessionEvent is a streaming event from a watch.
@@ -188,12 +206,14 @@ const (
 	ErrCodeNotWatching     = "not_watching"
 	ErrCodeAlreadyWatching = "already_watching"
 	ErrCodeCommitNotFound  = "commit_not_found"
-	ErrCodeInvalidTx       = "invalid_tx"       // Invalid transaction parameters
-	ErrCodeTxNotFound      = "tx_not_found"     // Transaction ID not found
-	ErrCodeTxFull          = "tx_full"          // Transaction already has all participants
-	ErrCodeMatchFailed     = "match_failed"     // Transaction match condition failed
-	ErrCodeReplayFailed    = "replay_failed"    // Watch replay failed, data may be incomplete
-	ErrCodeTimeout         = "timeout"          // Operation timed out
+	ErrCodeInvalidTx       = "invalid_tx"      // Invalid transaction parameters
+	ErrCodeTxNotFound      = "tx_not_found"    // Transaction ID not found
+	ErrCodeTxFull          = "tx_full"         // Transaction already has all participants
+	ErrCodeMatchFailed     = "match_failed"    // Transaction match condition failed
+	ErrCodeReplayFailed    = "replay_failed"   // Watch replay failed, data may be incomplete
+	ErrCodeTimeout         = "timeout"         // Operation timed out
+	ErrCodeScopeExists     = "scope_exists"    // Scope already exists
+	ErrCodeScopeNotFound   = "scope_not_found" // Scope not found
 )
 
 // NewSessionError creates a new SessionError.
@@ -251,6 +271,18 @@ func NewUnwatchResponse(id *string, path string) *SessionResponse {
 		Result: &SessionResult{
 			Unwatch: &UnwatchResult{
 				Unwatched: path,
+			},
+		},
+	}
+}
+
+// NewDeleteScopeResponse creates a response for a deleteScope request.
+func NewDeleteScopeResponse(id *string, scopeID string) *SessionResponse {
+	return &SessionResponse{
+		ID: id,
+		Result: &SessionResult{
+			DeleteScope: &DeleteScopeResult{
+				ScopeID: scopeID,
 			},
 		},
 	}

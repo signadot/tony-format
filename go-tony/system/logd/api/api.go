@@ -23,7 +23,8 @@ type EncodingOptions struct {
 //tony:schemagen=match-meta
 type MatchMeta struct {
 	EncodingOptions
-	SeqID *int64 `tony:"field=seq"`
+	SeqID *int64  `tony:"field=seq"`
+	Scope *string `tony:"field=scope"`
 }
 
 //tony:schemagen=match
@@ -39,7 +40,8 @@ type PatchMeta struct {
 	MaxDuration Duration `tony:"field=maxDuration"`
 	Seq         *int64   `tony:"field=seq"` // Seq when supplied asserts that seq is the latest value for patched data, on return, if successful, seq shows the commit resulting from applying the changes.
 
-	When *time.Time `tony:"field=when"`
+	When  *time.Time `tony:"field=when"`
+	Scope *string    `tony:"field=scope"`
 }
 
 //tony:schemagen=patch
@@ -52,8 +54,9 @@ type Patch struct {
 //tony:schemagen=watch-meta
 type WatchMeta struct {
 	EncodingOptions
-	From *int64 `tony:"field=from"`
-	To   *int64 `tony:"field=to"`
+	From  *int64  `tony:"field=from"`
+	To    *int64  `tony:"field=to"`
+	Scope *string `tony:"field=scope"`
 }
 
 type Duration time.Duration

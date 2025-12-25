@@ -88,7 +88,7 @@ func TestReadsDuringSnapshot(t *testing.T) {
 	commit, _ := store.GetCurrentCommit()
 	for i := 0; i < 20; i++ {
 		path := fmt.Sprintf("users.user%d", i%10)
-		state, err := store.ReadStateAt(path, commit)
+		state, err := store.ReadStateAt(path, commit, nil)
 		if err != nil {
 			t.Errorf("Read during snapshot failed: %v", err)
 		}
@@ -161,7 +161,7 @@ func TestSnapshotStress(t *testing.T) {
 		for !stop.Load() {
 			i := readCount.Add(1)
 			commit, _ := store.GetCurrentCommit()
-			_, err := store.ReadStateAt(fmt.Sprintf("data.item%d", i%100), commit)
+			_, err := store.ReadStateAt(fmt.Sprintf("data.item%d", i%100), commit, nil)
 			if err != nil {
 				errors.Add(1)
 				errorMsgs.Store(fmt.Sprintf("read-%d", i), fmt.Sprintf("MATCH %d: %v", i, err))

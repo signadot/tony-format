@@ -26,6 +26,7 @@ type WatchHub struct {
 // and the Failed channel is closed.
 type Watcher struct {
 	Path       string                           // Watched path (prefix match)
+	Scope      *string                          // Scope for COW isolation (nil = baseline only)
 	Events     chan *storage.CommitNotification // Channel for receiving events
 	Failed     chan struct{}                    // Closed when watch fails (slow consumer)
 	FullState  bool                             // Whether first event should be full state
@@ -106,6 +107,12 @@ func (h *WatchHub) Broadcast(n *storage.CommitNotification) {
 	for watcherPath, watchers := range h.watchers {
 		if matchesPath(watcherPath, n.KPaths) {
 			for watcher := range watchers {
+				// Check scope filtering:
+				// - Baseline watcher (scope=nil): only baseline events (n.ScopeID=nil)
+				// - Scoped watcher: baseline events + matching scope events
+				if !matchesScope(watcher.Scope, n.ScopeID) {
+					continue
+				}
 				targets = append(targets, sendTarget{watcher: watcher, watcherPath: watcherPath})
 			}
 		}
@@ -215,12 +222,29 @@ func matchesPath(watchPath string, kpaths []string) bool {
 	return false
 }
 
+// matchesScope checks if a watcher should receive an event based on scope.
+// - Baseline watcher (watcherScope=nil): only receive baseline events (eventScope=nil)
+// - Scoped watcher: receive baseline events AND matching scope events
+func matchesScope(watcherScope, eventScope *string) bool {
+	if watcherScope == nil {
+		// Baseline watcher: only baseline events
+		return eventScope == nil
+	}
+	// Scoped watcher: baseline events + matching scope events
+	if eventScope == nil {
+		return true // Always include baseline events
+	}
+	return *watcherScope == *eventScope
+}
+
 // NewWatcher creates a new Watcher with a buffered events channel.
 // bufferSize controls how many events can be buffered before the watch
 // is failed due to slow consumption.
-func NewWatcher(path string, fromCommit *int64, fullState bool, bufferSize int) *Watcher {
+// scope is used for COW isolation: nil = baseline only, non-nil = baseline + scope events.
+func NewWatcher(path string, scope *string, fromCommit *int64, fullState bool, bufferSize int) *Watcher {
 	return &Watcher{
 		Path:       path,
+		Scope:      scope,
 		FromCommit: fromCommit,
 		FullState:  fullState,
 		Events:     make(chan *storage.CommitNotification, bufferSize),

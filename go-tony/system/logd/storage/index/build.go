@@ -32,7 +32,7 @@ func Build(idx *Index, dlog *dlog.DLog, fromCommit int64) error {
 		}
 
 		if entry.Patch != nil {
-			if err := IndexPatch(idx, entry, string(logFile), pos, txSeq, entry.Patch); err != nil {
+			if err := IndexPatch(idx, entry, string(logFile), pos, txSeq, entry.Patch, entry.ScopeID); err != nil {
 				return fmt.Errorf("failed to index entry at commit %d: %w", entry.Commit, err)
 			}
 		}

@@ -13,8 +13,8 @@ type commitOps struct {
 	s *Storage
 }
 
-func (c *commitOps) ReadStateAt(kpath string, commit int64) (*ir.Node, error) {
-	return c.s.ReadStateAt(kpath, commit)
+func (c *commitOps) ReadStateAt(kpath string, commit int64, scopeID *string) (*ir.Node, error) {
+	return c.s.ReadStateAt(kpath, commit, scopeID)
 }
 
 func (c *commitOps) GetCurrentCommit() (int64, error) {
@@ -26,14 +26,20 @@ func (c *commitOps) NextCommit() (int64, error) {
 }
 
 func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedPatch *ir.Node, txState *tx.State, lastCommit int64) (string, int64, error) {
-	entry := dlog.NewEntry(txState, mergedPatch, commit, timestamp, lastCommit)
+	// Extract scope from transaction meta
+	var scopeID *string
+	if txState != nil && txState.Meta != nil {
+		scopeID = txState.Meta.Scope
+	}
+
+	entry := dlog.NewEntry(txState, mergedPatch, commit, timestamp, lastCommit, scopeID)
 	pos, logFile, err := c.s.dLog.AppendEntry(entry)
 	if err != nil {
 		return "", 0, err
 	}
 
 	e := entry
-	if err := index.IndexPatch(c.s.index, e, string(logFile), pos, txSeq, mergedPatch); err != nil {
+	if err := index.IndexPatch(c.s.index, e, string(logFile), pos, txSeq, mergedPatch, scopeID); err != nil {
 		return "", 0, err
 	}
 
@@ -51,6 +57,7 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 			Timestamp: timestamp,
 			KPaths:    kpaths,
 			Patch:     mergedPatch,
+			ScopeID:   scopeID,
 		}
 		c.s.notifier(notification)
 	}

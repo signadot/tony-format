@@ -70,7 +70,8 @@ type Store interface {
 // CommitOps provides the operations needed to commit a transaction.
 type CommitOps interface {
 	// ReadStateAt reads the current state at the given kpath and commit.
-	ReadStateAt(kp string, commit int64) (*ir.Node, error)
+	// scopeID controls filtering: nil = baseline only, non-nil = baseline + scope.
+	ReadStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error)
 
 	// GetCurrentCommit returns the current commit number.
 	GetCurrentCommit() (int64, error)

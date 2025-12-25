@@ -20,8 +20,9 @@ type patchAtSegment struct {
 // readPatchesAt reads all patches affecting the given kpath at the given commit.
 // Returns patches extracted from log entries, including sub-trees and reconstructed parents.
 // This is a testing/development helper - it doesn't apply or merge patches.
-func (s *Storage) readPatchesAt(kp string, commit int64) ([]patchAtSegment, error) {
-	segments := s.index.LookupWithin(kp, commit)
+// scopeID controls filtering: nil = baseline only, non-nil = baseline + scope.
+func (s *Storage) readPatchesAt(kp string, commit int64, scopeID *string) ([]patchAtSegment, error) {
+	segments := s.index.LookupWithin(kp, commit, scopeID)
 	if len(segments) == 0 {
 		return nil, nil
 	}
@@ -85,8 +86,9 @@ func (s *Storage) readPatchesAt(kp string, commit int64) ([]patchAtSegment, erro
 // ReadPatchesInRange reads all patches affecting the given kpath in the commit range [from, to].
 // Returns CommitNotifications sorted by commit number, deduplicated.
 // This is used for watch replay - returning patches that affect the watched path.
-func (s *Storage) ReadPatchesInRange(kp string, from, to int64) ([]*CommitNotification, error) {
-	segments := s.index.LookupRange(kp, &from, &to)
+// scopeID controls filtering: nil = baseline only, non-nil = baseline + scope.
+func (s *Storage) ReadPatchesInRange(kp string, from, to int64, scopeID *string) ([]*CommitNotification, error) {
+	segments := s.index.LookupRange(kp, &from, &to, scopeID)
 	if len(segments) == 0 {
 		return nil, nil
 	}

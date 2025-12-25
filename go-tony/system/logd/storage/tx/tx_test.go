@@ -35,7 +35,7 @@ func newMockCommitOps() *mockCommitOps {
 	}
 }
 
-func (m *mockCommitOps) ReadStateAt(kp string, commit int64) (*ir.Node, error) {
+func (m *mockCommitOps) ReadStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
 	if commitMap, ok := m.readState[kp]; ok {
 		if state, ok := commitMap[commit]; ok {
 			return state, nil
@@ -509,11 +509,11 @@ type mockCommitOpsWithError struct {
 	readStateError error
 }
 
-func (m *mockCommitOpsWithError) ReadStateAt(kp string, commit int64) (*ir.Node, error) {
+func (m *mockCommitOpsWithError) ReadStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
 	if m.readStateError != nil {
 		return nil, m.readStateError
 	}
-	return m.mockCommitOps.ReadStateAt(kp, commit)
+	return m.mockCommitOps.ReadStateAt(kp, commit, scopeID)
 }
 
 func TestCommit_Timeout(t *testing.T) {

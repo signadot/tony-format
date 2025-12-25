@@ -6,8 +6,14 @@ import (
 )
 
 // evaluateMatches checks all match conditions in the transaction state.
-// readState is called with (kpath, commit) to get current state at that path.
-func evaluateMatches(state *State, readState func(kpath string, commit int64) (*ir.Node, error), commit int64) (bool, error) {
+// readState is called with (kpath, commit, scopeID) to get current state at that path.
+func evaluateMatches(state *State, readState func(kpath string, commit int64, scopeID *string) (*ir.Node, error), commit int64) (bool, error) {
+	// Get scope from transaction meta
+	var scopeID *string
+	if state.Meta != nil {
+		scopeID = state.Meta.Scope
+	}
+
 	for _, patcher := range state.PatcherData {
 		m := patcher.API.Match
 		if m == nil || m.Data == nil {
@@ -15,7 +21,7 @@ func evaluateMatches(state *State, readState func(kpath string, commit int64) (*
 		}
 
 		kpath := m.Path
-		current, err := readState(kpath, commit)
+		current, err := readState(kpath, commit, scopeID)
 		if err != nil {
 			return false, err
 		}

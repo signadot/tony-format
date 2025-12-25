@@ -39,7 +39,7 @@ func TestConcurrentAddAndLookupRange(t *testing.T) {
 			defer wg.Done()
 			// Read multiple times as segments are being added
 			for i := 0; i < 50; i++ {
-				segments := idx.LookupRange("", nil, nil)
+				segments := idx.LookupRange("", nil, nil, nil)
 				if len(segments) > 0 {
 					// Store a copy of the segments
 					segCopy := make([]LogSegment, len(segments))
@@ -53,7 +53,7 @@ func TestConcurrentAddAndLookupRange(t *testing.T) {
 	wg.Wait()
 
 	// Verify final state: all segments should be present
-	finalSegments := idx.LookupRange("", nil, nil)
+	finalSegments := idx.LookupRange("", nil, nil, nil)
 	if len(finalSegments) != numWriters*segmentsPerWriter {
 		t.Errorf("expected %d segments, got %d", numWriters*segmentsPerWriter, len(finalSegments))
 	}
@@ -104,7 +104,7 @@ func TestConcurrentAddAndLookupRangeWithPath(t *testing.T) {
 			defer wg.Done()
 			// Read multiple times as segments are being added
 			for i := 0; i < 50; i++ {
-				segments := idx.LookupRange(testPath, nil, nil)
+				segments := idx.LookupRange(testPath, nil, nil, nil)
 				// Verify segments are valid (no nil pointers, valid commit numbers)
 				// With new semantics: StartCommit = LastCommit, EndCommit = Commit
 				// StartCommit can be 0 for first commit, and StartCommit != EndCommit for patches
@@ -140,7 +140,7 @@ func TestConcurrentAddAndLookupRangeWithPath(t *testing.T) {
 	}
 
 	// Verify final state: all segments should be present
-	finalSegments := idx.LookupRange(testPath, nil, nil)
+	finalSegments := idx.LookupRange(testPath, nil, nil, nil)
 	expectedCount := numWriters * segmentsPerWriter
 	if len(finalSegments) != expectedCount {
 		t.Errorf("expected %d segments, got %d", expectedCount, len(finalSegments))

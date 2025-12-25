@@ -20,6 +20,7 @@ type Entry struct {
 	TxSource   *tx.State // Transaction state (for transaction entries)
 	SnapPos    *int64    // Snapshot position (for snapshot entries)
 	LastCommit *int64    // Last commit before compaction (for compaction entries)
+	ScopeID    *string   // nil = baseline, non-nil = scope-specific data
 }
 
 // NewEntry creates a dlog.Entry for a transaction commit.
@@ -30,7 +31,8 @@ type Entry struct {
 //   - commit: The commit number for this entry
 //   - timestamp: RFC3339 timestamp string
 //   - lastCommit: The commit number before this one (typically commit-1)
-func NewEntry(state *tx.State, mergedPatch *ir.Node, commit int64, timestamp string, lastCommit int64) *Entry {
+//   - scopeID: nil for baseline, non-nil for scope-specific data
+func NewEntry(state *tx.State, mergedPatch *ir.Node, commit int64, timestamp string, lastCommit int64, scopeID *string) *Entry {
 	return &Entry{
 		Commit:     commit,
 		Timestamp:  timestamp,
@@ -38,5 +40,6 @@ func NewEntry(state *tx.State, mergedPatch *ir.Node, commit int64, timestamp str
 		TxSource:   state,
 		SnapPos:    nil,
 		LastCommit: &lastCommit,
+		ScopeID:    scopeID,
 	}
 }

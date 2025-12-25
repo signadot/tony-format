@@ -24,6 +24,9 @@ type Session struct {
 	hub     *WatchHub
 	log     *slog.Logger
 
+	// Scope for COW isolation (set in hello, applies to all operations)
+	scope *string
+
 	// Watch state
 	watchMu sync.RWMutex
 	watches map[string]*Watcher // path -> active watcher
@@ -33,8 +36,8 @@ type Session struct {
 	done     chan struct{}             // signals session shutdown
 
 	// Shutdown coordination
-	closeOnce     sync.Once
-	closeOutOnce  sync.Once
+	closeOnce    sync.Once
+	closeOutOnce sync.Once
 
 	// For tracking commits since snapshot (shared with server)
 	onCommit func()
@@ -228,6 +231,8 @@ func (s *Session) dispatch(req *api.SessionRequest) {
 		s.handleWatch(req.ID, req.Watch)
 	case req.Unwatch != nil:
 		s.handleUnwatch(req.ID, req.Unwatch)
+	case req.DeleteScope != nil:
+		s.handleDeleteScope(req.ID, req.DeleteScope)
 	default:
 		s.sendError(req.ID, api.ErrCodeInvalidMessage, "no operation specified")
 	}
@@ -235,7 +240,9 @@ func (s *Session) dispatch(req *api.SessionRequest) {
 
 // handleHello handles hello handshake.
 func (s *Session) handleHello(id *string, req *api.Hello) {
-	s.log.Debug("hello", "clientId", req.ClientID)
+	// Store scope for this session (applies to all operations)
+	s.scope = req.Scope
+	s.log.Debug("hello", "clientId", req.ClientID, "scope", req.Scope)
 	s.send(&api.SessionResponse{
 		ID: id,
 		Result: &api.SessionResult{
@@ -263,8 +270,8 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 		return
 	}
 
-	// Read state
-	doc, err := s.storage.ReadStateAt(path, commit)
+	// Read state (with session scope filtering)
+	doc, err := s.storage.ReadStateAt(path, commit, s.scope)
 	if err != nil {
 		s.sendError(id, "storage_error", fmt.Sprintf("failed to read state: %v", err))
 		return
@@ -335,8 +342,9 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 		}
 		s.log.Debug("joining transaction", "txId", *req.TxID)
 	} else {
-		// Create single-participant transaction
-		txn, err = s.storage.NewTx(1, nil)
+		// Create single-participant transaction with session scope
+		meta := &api.PatchMeta{Scope: s.scope}
+		txn, err = s.storage.NewTx(1, meta)
 		if err != nil {
 			s.sendError(id, "storage_error", fmt.Sprintf("failed to create transaction: %v", err))
 			return
@@ -441,7 +449,7 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 	// IMPORTANT: Register with hub FIRST to avoid race condition.
 	// Events that arrive between Watch and GetCurrentCommit will be queued.
 	// After replay, we skip any queued events with commit <= currentCommit.
-	watcher := NewWatcher(path, req.FromCommit, req.FullState, 100)
+	watcher := NewWatcher(path, s.scope, req.FromCommit, req.FullState, 100)
 	s.hub.Watch(watcher)
 
 	// Now get current commit - this is our replay target
@@ -493,7 +501,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, fullState b
 
 		// If fullState requested, send state at fromCommit first
 		if fullState {
-			state, err := s.storage.ReadStateAt(path, startCommit)
+			state, err := s.storage.ReadStateAt(path, startCommit, s.scope)
 			if err != nil {
 				s.log.Error("failed to read state for replay", "path", path, "commit", startCommit, "error", err)
 				s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read state at commit %d: %v", startCommit, err))
@@ -512,7 +520,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, fullState b
 
 		// Send historical patches from startCommit+1 to currentCommit
 		if startCommit < currentCommit {
-			patches, err := s.storage.ReadPatchesInRange(path, startCommit+1, currentCommit)
+			patches, err := s.storage.ReadPatchesInRange(path, startCommit+1, currentCommit, s.scope)
 			if err != nil {
 				s.log.Error("failed to read patches for replay", "path", path, "from", startCommit+1, "to", currentCommit, "error", err)
 				s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read patches from commit %d to %d: %v", startCommit+1, currentCommit, err))
@@ -570,6 +578,30 @@ func (s *Session) handleUnwatch(id *string, req *api.UnwatchRequest) {
 	s.hub.Unwatch(watcher)
 
 	s.send(api.NewUnwatchResponse(id, path))
+}
+
+// handleDeleteScope handles delete scope requests.
+// Only baseline sessions (scope=nil) can delete scopes.
+func (s *Session) handleDeleteScope(id *string, req *api.DeleteScopeRequest) {
+	// Only baseline sessions can delete scopes
+	if s.scope != nil {
+		s.sendError(id, api.ErrCodeInvalidMessage, "only baseline sessions can delete scopes")
+		return
+	}
+
+	scopeID := req.ScopeID
+	if scopeID == "" {
+		s.sendError(id, api.ErrCodeInvalidMessage, "scopeId is required")
+		return
+	}
+
+	// Delete the scope from storage
+	if err := s.storage.DeleteScope(scopeID); err != nil {
+		s.sendError(id, api.ErrCodeScopeNotFound, err.Error())
+		return
+	}
+
+	s.send(api.NewDeleteScopeResponse(id, scopeID))
 }
 
 // cleanupWatches removes all watches on session close.

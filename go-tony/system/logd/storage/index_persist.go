@@ -72,9 +72,10 @@ func (p *IndexPersister) persistAsync(commit int64) {
 
 // getMaxCommit returns the highest commit in the index.
 func (p *IndexPersister) getMaxCommit() int64 {
-	// Note: Don't lock here - LookupRange handles its own locking.
+	// Note: Don't lock here - LookupRangeAll handles its own locking.
 	// Taking RLock here would cause deadlock if a writer is waiting.
-	segments := p.index.LookupRange("", nil, nil)
+	// Use LookupRangeAll to get all segments regardless of scope.
+	segments := p.index.LookupRangeAll("", nil, nil)
 	var maxCommit int64 = -1
 	for _, seg := range segments {
 		if seg.EndCommit > maxCommit {

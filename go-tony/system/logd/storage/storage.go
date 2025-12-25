@@ -27,6 +27,7 @@ type CommitNotification struct {
 	Timestamp string   // ISO8601 timestamp
 	KPaths    []string // Top-level kpaths affected by this commit
 	Patch     *ir.Node // The merged patch that was committed
+	ScopeID   *string  // Scope ID (nil = baseline)
 }
 
 // CommitNotifier is a callback invoked after each successful commit.
@@ -103,8 +104,9 @@ func (s *Storage) GetCurrentCommit() (int64, error) {
 
 // ReadStateAt reads the state for a given kpath at a specific commit count.
 // Searches for the most recent snapshot and applies patches from that point forward.
-func (s *Storage) ReadStateAt(kp string, commit int64) (*ir.Node, error) {
-	// Find most recent snapshot and get base event reader
+// scopeID controls filtering: nil = baseline only, non-nil = baseline + scope.
+func (s *Storage) ReadStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
+	// Find most recent snapshot and get base event reader (always baseline)
 	baseReader, startCommit, err := s.findSnapshotBaseReader(kp, commit)
 	if err != nil {
 		return nil, err
@@ -112,7 +114,7 @@ func (s *Storage) ReadStateAt(kp string, commit int64) (*ir.Node, error) {
 	defer baseReader.Close()
 
 	// Get patches from startCommit to commit
-	segments := s.index.LookupRange(kp, &startCommit, &commit)
+	segments := s.index.LookupRange(kp, &startCommit, &commit, scopeID)
 
 	// Extract patch nodes, filtering out snapshots
 	var patchNodes []*ir.Node
@@ -289,7 +291,8 @@ func (s *Storage) Close() error {
 }
 
 func (s *Storage) getIndexMaxCommit() int64 {
-	segments := s.index.LookupRange("", nil, nil)
+	// Use LookupRangeAll to get all segments regardless of scope
+	segments := s.index.LookupRangeAll("", nil, nil)
 	var maxCommit int64 = -1
 	for _, seg := range segments {
 		if seg.EndCommit > maxCommit {
@@ -348,4 +351,14 @@ func (s *Storage) SetTxTimeout(timeout time.Duration) {
 // GetTxTimeout returns the current transaction timeout.
 func (s *Storage) GetTxTimeout() time.Duration {
 	return s.txTimeout
+}
+
+// DeleteScope removes all index entries for a scope.
+// The actual log entries remain (append-only), but become inaccessible.
+func (s *Storage) DeleteScope(scopeID string) error {
+	count := s.index.DeleteScope(scopeID)
+	if count == 0 {
+		return fmt.Errorf("scope %q not found or has no data", scopeID)
+	}
+	return nil
 }

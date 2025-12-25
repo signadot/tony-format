@@ -57,7 +57,7 @@ func TestBuild(t *testing.T) {
 
 	// Query for "foo" path
 	// Entry has Commit=1, LastCommit=0, so segment should be [0, 1]
-	segs := idx.LookupRange("foo", nil, nil)
+	segs := idx.LookupRange("foo", nil, nil, nil)
 	if len(segs) == 0 {
 		t.Error("expected segments for 'foo' path")
 	}
@@ -74,7 +74,7 @@ func TestBuild(t *testing.T) {
 
 	// Query for "baz" path
 	// Entry has Commit=2, LastCommit=1, so segment should be [1, 2]
-	segs = idx.LookupRange("baz", nil, nil)
+	segs = idx.LookupRange("baz", nil, nil, nil)
 	if len(segs) == 0 {
 		t.Error("expected segments for 'baz' path")
 	}
@@ -91,7 +91,7 @@ func TestBuild(t *testing.T) {
 
 	// Query for nested path
 	// Entry has Commit=3, LastCommit=2, so segment should be [2, 3]
-	segs = idx.LookupRange("nested.key", nil, nil)
+	segs = idx.LookupRange("nested.key", nil, nil, nil)
 	if len(segs) == 0 {
 		t.Error("expected segments for 'nested.key' path")
 	}
@@ -107,7 +107,7 @@ func TestBuild(t *testing.T) {
 	}
 
 	// Query all segments
-	allSegs := idx.LookupRange("", nil, nil)
+	allSegs := idx.LookupRange("", nil, nil, nil)
 	if len(allSegs) < 3 {
 		t.Errorf("expected at least 3 segments, got %d", len(allSegs))
 	}
@@ -183,7 +183,7 @@ func TestBuild_Incremental(t *testing.T) {
 	// Verify all paths are indexed
 	paths := []string{"first", "second", "third", "fourth"}
 	for _, path := range paths {
-		segs := idx.LookupRange(path, nil, nil)
+		segs := idx.LookupRange(path, nil, nil, nil)
 		if len(segs) == 0 {
 			t.Errorf("expected segments for path %q", path)
 		}
