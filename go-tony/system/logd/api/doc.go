@@ -14,7 +14,7 @@
 // Types for bidirectional TCP streaming:
 //   - [SessionRequest] - Union of all request types (Hello, Match, Patch, Watch, Unwatch)
 //   - [SessionResponse] - Union of Result, Event, or Error
-//   - [SessionEvent] - Streaming watch events with state or patch
+//   - [WatchEvent] - Streaming watch events with state or patch
 //   - [SessionError] - Error with code and message
 //
 // The session protocol supports:

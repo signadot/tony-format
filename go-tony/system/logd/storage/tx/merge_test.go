@@ -29,7 +29,7 @@ func makePatcherData(path string, data *ir.Node) *PatcherData {
 	return &PatcherData{
 		ReceivedAt: time.Now(),
 		API: &api.Patch{
-			Patch: api.PathData{
+			PathData: api.PathData{
 				Path: path,
 				Data: data,
 			},
@@ -324,7 +324,7 @@ func TestMergePatches_InvalidPath(t *testing.T) {
 	patch := &PatcherData{
 		ReceivedAt: time.Now(),
 		API: &api.Patch{
-			Patch: api.PathData{
+			PathData: api.PathData{
 				Path: "invalid[", // Invalid KPath
 				Data: ir.FromString("value"),
 			},

@@ -42,9 +42,9 @@ type MatchRequest struct {
 //
 //tony:schemagen=session-patch-request,notag
 type PatchRequest struct {
-	TxID    *int64  `tony:"field=txId"`    // Optional: transaction ID for multi-participant tx
-	Timeout *string `tony:"field=timeout"` // Optional: timeout for this participant (e.g., "5s", "1m")
-	Patch   PathData `tony:"field=patch"`
+	TxID     *int64  `tony:"field=txId"`    // Optional: transaction ID for multi-participant tx
+	Timeout  *string `tony:"field=timeout"` // Optional: timeout for this participant (e.g., "5s", "1m")
+	PathData `tony:"field=patch"`
 }
 
 // NewTxRequest creates a new multi-participant transaction.
@@ -157,14 +157,14 @@ type SessionResult struct {
 	DeleteScope *DeleteScopeResult `tony:"field=deleteScope"`
 }
 
-// SessionEvent is a streaming event from a watch.
+// WatchEvent is a streaming event from a watch.
 //
-//tony:schemagen=session-event,notag
-type SessionEvent struct {
+//tony:schemagen=watch-event,notag
+type WatchEvent struct {
 	Commit         int64    `tony:"field=commit"`
 	Path           string   `tony:"field=path"`
-	State          *ir.Node `tony:"field=state"`          // Full state (when fullState=true for first event)
-	Patch          *ir.Node `tony:"field=patch"`          // Delta patch (for subsequent events)
+	State          *ir.Node `tony:"field=state"`                   // Full state (when fullState=true for first event)
+	Patch          *ir.Node `tony:"field=patch"`                   // Delta patch (for subsequent events)
 	ReplayComplete bool     `tony:"field=replayComplete,omitzero"` // Marker that replay is complete
 }
 
@@ -195,7 +195,7 @@ type SessionResponse struct {
 	ID *string `tony:"field=id"` // Matches request ID for async mode
 
 	Result *SessionResult `tony:"field=result"`
-	Event  *SessionEvent  `tony:"field=event"`
+	Event  *WatchEvent    `tony:"field=event"`
 	Error  *SessionError  `tony:"field=error"`
 }
 
@@ -208,15 +208,15 @@ const (
 	ErrCodeNotWatching     = "not_watching"
 	ErrCodeAlreadyWatching = "already_watching"
 	ErrCodeCommitNotFound  = "commit_not_found"
-	ErrCodeInvalidTx       = "invalid_tx"      // Invalid transaction parameters
-	ErrCodeTxNotFound      = "tx_not_found"    // Transaction ID not found
-	ErrCodeTxFull          = "tx_full"         // Transaction already has all participants
+	ErrCodeInvalidTx       = "invalid_tx"        // Invalid transaction parameters
+	ErrCodeTxNotFound      = "tx_not_found"      // Transaction ID not found
+	ErrCodeTxFull          = "tx_full"           // Transaction already has all participants
 	ErrCodeTxScopeMismatch = "tx_scope_mismatch" // Participant scope doesn't match transaction scope
-	ErrCodeMatchFailed     = "match_failed"    // Transaction match condition failed
-	ErrCodeReplayFailed    = "replay_failed"   // Watch replay failed, data may be incomplete
-	ErrCodeTimeout         = "timeout"         // Operation timed out
-	ErrCodeScopeExists     = "scope_exists"    // Scope already exists
-	ErrCodeScopeNotFound   = "scope_not_found" // Scope not found
+	ErrCodeMatchFailed     = "match_failed"      // Transaction match condition failed
+	ErrCodeReplayFailed    = "replay_failed"     // Watch replay failed, data may be incomplete
+	ErrCodeTimeout         = "timeout"           // Operation timed out
+	ErrCodeScopeExists     = "scope_exists"      // Scope already exists
+	ErrCodeScopeNotFound   = "scope_not_found"   // Scope not found
 )
 
 // NewSessionError creates a new SessionError.
@@ -295,7 +295,7 @@ func NewDeleteScopeResponse(id *string, scopeID string) *SessionResponse {
 // NewStateEvent creates an event with full state.
 func NewStateEvent(commit int64, path string, state *ir.Node) *SessionResponse {
 	return &SessionResponse{
-		Event: &SessionEvent{
+		Event: &WatchEvent{
 			Commit: commit,
 			Path:   path,
 			State:  state,
@@ -306,7 +306,7 @@ func NewStateEvent(commit int64, path string, state *ir.Node) *SessionResponse {
 // NewPatchEvent creates an event with a delta patch.
 func NewPatchEvent(commit int64, path string, patch *ir.Node) *SessionResponse {
 	return &SessionResponse{
-		Event: &SessionEvent{
+		Event: &WatchEvent{
 			Commit: commit,
 			Path:   path,
 			Patch:  patch,
@@ -317,7 +317,7 @@ func NewPatchEvent(commit int64, path string, patch *ir.Node) *SessionResponse {
 // NewReplayCompleteEvent creates a replay complete marker event.
 func NewReplayCompleteEvent() *SessionResponse {
 	return &SessionResponse{
-		Event: &SessionEvent{
+		Event: &WatchEvent{
 			ReplayComplete: true,
 		},
 	}

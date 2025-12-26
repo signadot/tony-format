@@ -33,7 +33,7 @@ func doPatchErr(store *storage.Storage, srv *Server, path string, data *ir.Node)
 	}
 
 	patcher, err := tx.NewPatcher(&api.Patch{
-		Patch: api.PathData{
+		PathData: api.PathData{
 			Path: path,
 			Data: data,
 		},
@@ -68,7 +68,7 @@ func TestReadsDuringSnapshot(t *testing.T) {
 	srv := New(&Spec{Storage: store})
 
 	// Write initial data
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		data := mustParseStress(fmt.Sprintf(`{id: "%d", name: "User %d"}`, i, i))
 		if err := doPatchErr(store, srv, fmt.Sprintf("users.user%d", i), data); err != nil {
 			t.Fatal(err)
@@ -78,15 +78,13 @@ func TestReadsDuringSnapshot(t *testing.T) {
 	// Start snapshot in background
 	var snapshotErr error
 	var snapshotDone sync.WaitGroup
-	snapshotDone.Add(1)
-	go func() {
-		defer snapshotDone.Done()
+	snapshotDone.Go(func() {
 		snapshotErr = store.SwitchAndSnapshot()
-	}()
+	})
 
 	// While snapshot runs, do reads
 	commit, _ := store.GetCurrentCommit()
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		path := fmt.Sprintf("users.user%d", i%10)
 		state, err := store.ReadStateAt(path, commit, nil)
 		if err != nil {
@@ -122,7 +120,7 @@ func TestSnapshotStress(t *testing.T) {
 	srv := New(&Spec{Storage: store})
 
 	// Pre-populate data so reads don't fail on missing items
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		data := mustParseStress(fmt.Sprintf(`{id: "%d", value: "initial"}`, i))
 		if err := doPatchErr(store, srv, fmt.Sprintf("data.item%d", i), data); err != nil {
 			t.Fatalf("Failed to pre-populate item%d: %v", i, err)
@@ -200,7 +198,7 @@ func TestSnapshotStress(t *testing.T) {
 
 	if errors.Load() > 0 {
 		t.Errorf("Had %d errors during stress test:", errors.Load())
-		errorMsgs.Range(func(key, value interface{}) bool {
+		errorMsgs.Range(func(key, value any) bool {
 			t.Logf("  %s: %s", key, value)
 			return true
 		})
@@ -228,7 +226,7 @@ func TestConcurrentSnapshots(t *testing.T) {
 	srv := New(&Spec{Storage: store})
 
 	// Write some data first
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		data := mustParseStress(fmt.Sprintf(`{id: "%d"}`, i))
 		if err := doPatchErr(store, srv, fmt.Sprintf("init.item%d", i), data); err != nil {
 			t.Fatalf("Initial write failed: %v", err)
@@ -239,7 +237,7 @@ func TestConcurrentSnapshots(t *testing.T) {
 	var wg sync.WaitGroup
 	results := make(chan error, 10)
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()

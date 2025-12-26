@@ -30,7 +30,7 @@ func TestSwitchAndSnapshot(t *testing.T) {
 	}
 
 	patch1 := &api.Patch{
-		Patch: api.PathData{
+		PathData: api.PathData{
 			Path: "",
 			Data: patch1Data,
 		},
@@ -55,7 +55,7 @@ func TestSwitchAndSnapshot(t *testing.T) {
 	}
 
 	patch2 := &api.Patch{
-		Patch: api.PathData{
+		PathData: api.PathData{
 			Path: "",
 			Data: patch2Data,
 		},
@@ -152,7 +152,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 		}
 
 		patch := &api.Patch{
-			Patch: api.PathData{
+			PathData: api.PathData{
 				Path: "",
 				Data: patchData,
 			},

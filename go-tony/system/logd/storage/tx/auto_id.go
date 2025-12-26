@@ -24,12 +24,12 @@ func InjectAutoIDs(commit int64, schema *api.Schema, data []*PatcherData) int {
 	idx := 0 // Global index across all patches
 
 	for _, pd := range data {
-		if pd.API == nil || pd.API.Patch.Data == nil {
+		if pd.API == nil || pd.API.Data == nil {
 			continue
 		}
 
 		// Use the patch path as the starting kpath
-		injected := injectAutoIDsRec(commit, schema, pd.API.Patch.Data, pd.API.Patch.Path, &idx)
+		injected := injectAutoIDsRec(commit, schema, pd.API.Data, pd.API.Path, &idx)
 		count += injected
 	}
 

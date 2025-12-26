@@ -10,9 +10,9 @@ import (
 
 func TestTagPatchRoots(t *testing.T) {
 	tests := []struct {
-		name       string
-		patches    []*PatcherData
-		wantTags   []string // expected tags after TagPatchRoots
+		name     string
+		patches  []*PatcherData
+		wantTags []string // expected tags after TagPatchRoots
 	}{
 		{
 			name:     "empty patches",
@@ -44,7 +44,7 @@ func TestTagPatchRoots(t *testing.T) {
 		{
 			name: "nil data node",
 			patches: []*PatcherData{
-				{API: &api.Patch{Patch: api.PathData{Path: "a", Data: nil}}},
+				{API: &api.Patch{PathData: api.PathData{Path: "a", Data: nil}}},
 			},
 			wantTags: []string{""},
 		},
@@ -56,8 +56,8 @@ func TestTagPatchRoots(t *testing.T) {
 
 			for i, pd := range tt.patches {
 				var gotTag string
-				if pd.API.Patch.Data != nil {
-					gotTag = pd.API.Patch.Data.Tag
+				if pd.API.Data != nil {
+					gotTag = pd.API.Data.Tag
 				}
 				if i < len(tt.wantTags) && gotTag != tt.wantTags[i] {
 					t.Errorf("patch %d: got tag %q, want %q", i, gotTag, tt.wantTags[i])
@@ -156,7 +156,7 @@ func testPatcherData(path string, data *ir.Node) *PatcherData {
 	return &PatcherData{
 		ReceivedAt: time.Now(),
 		API: &api.Patch{
-			Patch: api.PathData{
+			PathData: api.PathData{
 				Path: path,
 				Data: data,
 			},

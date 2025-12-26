@@ -118,7 +118,7 @@ func TestNewPatcher(t *testing.T) {
 	}
 
 	patch1 := &api.Patch{
-		Patch: api.PathData{
+		PathData: api.PathData{
 			Path: "foo",
 			Data: ir.FromString("bar"),
 		},
@@ -138,7 +138,7 @@ func TestNewPatcher(t *testing.T) {
 
 	// Try to add another patcher when capacity is full
 	patch2 := &api.Patch{
-		Patch: api.PathData{
+		PathData: api.PathData{
 			Path: "baz",
 			Data: ir.FromString("qux"),
 		},
@@ -165,7 +165,7 @@ func TestCommit_Success(t *testing.T) {
 	_ = store.Put(tx)
 
 	patch := &api.Patch{
-		Patch: api.PathData{
+		PathData: api.PathData{
 			Path: "foo",
 			Data: ir.FromString("bar"),
 		},
@@ -227,7 +227,7 @@ func TestCommit_FirstCommit(t *testing.T) {
 	_ = store.Put(tx)
 
 	patch := &api.Patch{
-		Patch: api.PathData{
+		PathData: api.PathData{
 			Path: "foo",
 			Data: ir.FromString("bar"),
 		},
@@ -276,7 +276,7 @@ func TestCommit_MatchFailure(t *testing.T) {
 			Path: "foo",
 			Data: ir.FromString("expected"),
 		},
-		Patch: api.PathData{
+		PathData: api.PathData{
 			Path: "foo",
 			Data: ir.FromString("bar"),
 		},
@@ -329,14 +329,14 @@ func TestCommit_MultiplePatches(t *testing.T) {
 	}
 
 	patch1 := &api.Patch{
-		Patch: api.PathData{
+		PathData: api.PathData{
 			Path: "foo",
 			Data: ir.FromString("bar"),
 		},
 	}
 
 	patch2 := &api.Patch{
-		Patch: api.PathData{
+		PathData: api.PathData{
 			Path: "baz",
 			Data: ir.FromInt(42),
 		},
@@ -393,7 +393,7 @@ func TestCommit_Idempotent(t *testing.T) {
 	_ = store.Put(tx)
 
 	patch := &api.Patch{
-		Patch: api.PathData{
+		PathData: api.PathData{
 			Path: "foo",
 			Data: ir.FromString("bar"),
 		},
@@ -436,7 +436,7 @@ func TestCommit_NoCommitOps(t *testing.T) {
 	_ = store.Put(tx)
 
 	patch := &api.Patch{
-		Patch: api.PathData{
+		PathData: api.PathData{
 			Path: "foo",
 			Data: ir.FromString("bar"),
 		},
@@ -478,7 +478,7 @@ func TestCommit_ReadStateError(t *testing.T) {
 			Path: "foo",
 			Data: ir.FromString("expected"),
 		},
-		Patch: api.PathData{
+		PathData: api.PathData{
 			Path: "foo",
 			Data: ir.FromString("bar"),
 		},
@@ -530,7 +530,7 @@ func TestCommit_Timeout(t *testing.T) {
 
 	// Only add one patcher (expecting 2)
 	patch := &api.Patch{
-		Patch: api.PathData{
+		PathData: api.PathData{
 			Path: "foo",
 			Data: ir.FromString("bar"),
 		},
@@ -597,13 +597,13 @@ func TestCommit_NoTimeout(t *testing.T) {
 
 	// Add both patchers
 	patch1 := &api.Patch{
-		Patch: api.PathData{
+		PathData: api.PathData{
 			Path: "foo",
 			Data: ir.FromString("bar"),
 		},
 	}
 	patch2 := &api.Patch{
-		Patch: api.PathData{
+		PathData: api.PathData{
 			Path: "baz",
 			Data: ir.FromString("qux"),
 		},

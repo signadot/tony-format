@@ -20,7 +20,8 @@ type PathData struct {
 //tony:schemagen=patch,notag
 type Patch struct {
 	Match *PathData `tony:"field=match"`
-	Patch PathData  `tony:"field=patch"`
+	// Patch PathData  `tony:"field=patch"`
+	PathData
 }
 
 type Duration time.Duration

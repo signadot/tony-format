@@ -5,16 +5,16 @@
 {hello: {clientId: "orders-example"}}
 
 # Create order with keyed items
-{patch: {patch: {path: "orders.ord-001", data: {customer: "alice", status: "pending", items: !key(sku) [{sku: "WIDGET-A", qty: 2, price: 9.99}, {sku: "GADGET-B", qty: 1, price: 24.99}]}}}}
+{patch: {path: "orders.ord-001", data: {customer: "alice", status: "pending", items: !key(sku) [{sku: "WIDGET-A", qty: 2, price: 9.99}, {sku: "GADGET-B", qty: 1, price: 24.99}]}}}
 
 # Update order status
-{patch: {patch: {path: "orders.ord-001.status", data: "processing"}}}
+{patch: {path: "orders.ord-001.status", data: "processing"}}
 
 # Add item to order using keyed insert
-{patch: {patch: {path: "orders.ord-001.items", data: !key(sku) [!insert {sku: "GIZMO-C", qty: 3, price: 14.99}]}}}
+{patch: {path: "orders.ord-001.items", data: !key(sku) [!insert {sku: "GIZMO-C", qty: 3, price: 14.99}]}}
 
 # Update quantity of existing item
-{patch: {patch: {path: "orders.ord-001.items(WIDGET-A).qty", data: 5}}}
+{patch: {path: "orders.ord-001.items(WIDGET-A).qty", data: 5}}
 
 # Read order
 {match: {body: {path: "orders.ord-001"}}}
@@ -23,7 +23,7 @@
 {watch: {path: "orders", fromCommit: 0}}
 
 # Ship the order
-{patch: {patch: {path: "orders.ord-001.status", data: "shipped"}}}
+{patch: {path: "orders.ord-001.status", data: "shipped"}}
 
 # Stop watching
 {unwatch: {path: "orders"}}

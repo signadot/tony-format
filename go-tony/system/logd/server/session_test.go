@@ -70,7 +70,7 @@ func (c *mockConn) WriteRequest(req string) {
 	defer c.mu.Unlock()
 	c.readBuf.WriteString(req)
 	c.readBuf.WriteString("\n\n") // Blank line as document separator
-	c.cond.Signal() // Wake up reader
+	c.cond.Signal()               // Wake up reader
 }
 
 func (c *mockConn) GetResponses() []byte {
@@ -152,7 +152,7 @@ func TestSession_Match(t *testing.T) {
 
 	patchData, _ := parse.Parse([]byte(`{users: {alice: {name: "Alice"}}}`))
 	patch := &api.Patch{
-		Patch: api.PathData{Path: "", Data: patchData},
+		PathData: api.PathData{Path: "", Data: patchData},
 	}
 	patcher, err := tx.NewPatcher(patch)
 	if err != nil {
@@ -223,7 +223,7 @@ func TestSession_MatchWithFilter(t *testing.T) {
 
 	patchData, _ := parse.Parse([]byte(`{users: [{id: "1", name: "Alice", active: true}, {id: "2", name: "Bob", active: false}, {id: "3", name: "Charlie", active: true}]}`))
 	patch := &api.Patch{
-		Patch: api.PathData{Path: "", Data: patchData},
+		PathData: api.PathData{Path: "", Data: patchData},
 	}
 	patcher, err := tx.NewPatcher(patch)
 	if err != nil {
@@ -296,7 +296,7 @@ func TestSession_Patch(t *testing.T) {
 	conn := newMockConn()
 
 	// Write patch request (bracketed format for wire protocol)
-	conn.WriteRequest(`{id: "patch-1", patch: {patch: {path: "", data: {users: {bob: {name: "Bob"}}}}}}`)
+	conn.WriteRequest(`{id: "patch-1", patch: {path: "", data: {users: {bob: {name: "Bob"}}}}}`)
 
 	commitCalled := false
 	session := NewSession("test-server", conn, &SessionConfig{
@@ -479,7 +479,7 @@ func TestSession_SubscribeReceivesEvents(t *testing.T) {
 
 	patchData, _ := parse.Parse([]byte(`{users: {alice: {name: "Alice"}}}`))
 	patch := &api.Patch{
-		Patch: api.PathData{Path: "", Data: patchData},
+		PathData: api.PathData{Path: "", Data: patchData},
 	}
 	patcher, err := tx.NewPatcher(patch)
 	if err != nil {
@@ -545,7 +545,7 @@ func TestSession_SubscribeWithReplay(t *testing.T) {
 		}
 		patchData, _ := parse.Parse([]byte(fmt.Sprintf(`{users: {user%d: {name: "User %d"}}}`, i, i)))
 		patch := &api.Patch{
-			Patch: api.PathData{Path: "", Data: patchData},
+			PathData: api.PathData{Path: "", Data: patchData},
 		}
 		patcher, err := tx.NewPatcher(patch)
 		if err != nil {
@@ -582,7 +582,7 @@ func TestSession_SubscribeWithReplay(t *testing.T) {
 	}
 	patchData, _ := parse.Parse([]byte(`{users: {user4: {name: "User 4"}}}`))
 	patch := &api.Patch{
-		Patch: api.PathData{Path: "", Data: patchData},
+		PathData: api.PathData{Path: "", Data: patchData},
 	}
 	patcher, err := tx.NewPatcher(patch)
 	if err != nil {
@@ -611,9 +611,9 @@ func TestSession_SubscribeWithReplay(t *testing.T) {
 	docs := splitTonyDocs(responses)
 
 	var (
-		replayedCommits   []int64
+		replayedCommits     []int64
 		foundReplayComplete bool
-		liveCommits       []int64
+		liveCommits         []int64
 	)
 
 	inReplay := true
@@ -675,7 +675,7 @@ func TestSession_SubscribeWithFullStateReplay(t *testing.T) {
 	}
 	patchData, _ := parse.Parse([]byte(`{users: {alice: {name: "Alice"}}}`))
 	patch := &api.Patch{
-		Patch: api.PathData{Path: "", Data: patchData},
+		PathData: api.PathData{Path: "", Data: patchData},
 	}
 	patcher, err := tx.NewPatcher(patch)
 	if err != nil {
@@ -693,7 +693,7 @@ func TestSession_SubscribeWithFullStateReplay(t *testing.T) {
 	}
 	patchData, _ = parse.Parse([]byte(`{users: {bob: {name: "Bob"}}}`))
 	patch = &api.Patch{
-		Patch: api.PathData{Path: "", Data: patchData},
+		PathData: api.PathData{Path: "", Data: patchData},
 	}
 	patcher, err = tx.NewPatcher(patch)
 	if err != nil {
@@ -833,7 +833,7 @@ func TestSession_MultiParticipantTransaction(t *testing.T) {
 
 			conn := newMockConn()
 			path := fmt.Sprintf("data%d", idx)
-			req := fmt.Sprintf(`{id: "p%d", patch: {txId: %d, patch: {path: %s, data: {value: %d}}}}`, idx, txID, path, idx)
+			req := fmt.Sprintf(`{id: "p%d", patch: {txId: %d, path: %s, data: {value: %d}}}`, idx, txID, path, idx)
 			conn.WriteRequest(req)
 
 			session := NewSession(fmt.Sprintf("patch-session-%d", idx), conn, &SessionConfig{
@@ -895,4 +895,3 @@ func TestSession_MultiParticipantTransaction(t *testing.T) {
 	}
 	t.Logf("Both participants received commit: %d", results[0])
 }
-

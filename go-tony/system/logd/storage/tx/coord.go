@@ -293,7 +293,7 @@ func (p *txPatcher) Commit() *Result {
 	// Data is only populated on successful commit
 	var data *ir.Node
 	if sharedResult.Committed && p.data != nil && p.data.API != nil {
-		data = p.data.API.Patch.Data
+		data = p.data.API.Data
 	}
 
 	return &Result{
@@ -384,7 +384,7 @@ func (p *txPatcher) doCommit(state *State, commitOps CommitOps) *Result {
 
 	// Strip internal tags from original patch data before returning
 	for _, pd := range state.PatcherData {
-		StripPatchRootTag(pd.API.Patch.Data)
+		StripPatchRootTag(pd.API.Data)
 	}
 
 	return &Result{

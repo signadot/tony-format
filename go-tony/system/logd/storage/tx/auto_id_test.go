@@ -100,7 +100,7 @@ func TestInjectAutoIDs(t *testing.T) {
 
 			data := []*PatcherData{{
 				API: &api.Patch{
-					Patch: api.PathData{
+					PathData: api.PathData{
 						Path: tt.patchPath,
 						Data: node,
 					},
@@ -143,7 +143,7 @@ func TestInjectAutoIDsMonotonicity(t *testing.T) {
 
 		data := []*PatcherData{{
 			API: &api.Patch{
-				Patch: api.PathData{
+				PathData: api.PathData{
 					Path: "",
 					Data: node,
 				},

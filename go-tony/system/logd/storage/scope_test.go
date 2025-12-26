@@ -77,7 +77,7 @@ func TestScope_Isolation(t *testing.T) {
 	// 1. Write to baseline: {users: {alice: {name: "Alice"}}}
 	baselinePatch, _ := parse.Parse([]byte(`{users: {alice: {name: "Alice"}}}`))
 	tx1, _ := s.NewTx(1, nil) // nil meta = baseline
-	p1, _ := tx1.NewPatcher(&api.Patch{Patch: api.PathData{Path: "", Data: baselinePatch}})
+	p1, _ := tx1.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: baselinePatch}})
 	result1 := p1.Commit()
 	if !result1.Committed {
 		t.Fatalf("baseline commit failed: %v", result1.Error)
@@ -88,7 +88,7 @@ func TestScope_Isolation(t *testing.T) {
 	scope1 := "sandbox1"
 	scopePatch, _ := parse.Parse([]byte(`{users: {alice: {name: "Alice in Sandbox"}}}`))
 	tx2, _ := s.NewTx(1, &scope1)
-	p2, _ := tx2.NewPatcher(&api.Patch{Patch: api.PathData{Path: "", Data: scopePatch}})
+	p2, _ := tx2.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: scopePatch}})
 	result2 := p2.Commit()
 	if !result2.Committed {
 		t.Fatalf("scope commit failed: %v", result2.Error)
@@ -142,7 +142,7 @@ func TestScope_COWSemantics(t *testing.T) {
 		config: {theme: "dark"}
 	}`))
 	tx1, _ := s.NewTx(1, nil)
-	p1, _ := tx1.NewPatcher(&api.Patch{Patch: api.PathData{Path: "", Data: baselinePatch}})
+	p1, _ := tx1.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: baselinePatch}})
 	result1 := p1.Commit()
 	if !result1.Committed {
 		t.Fatalf("baseline commit failed: %v", result1.Error)
@@ -152,7 +152,7 @@ func TestScope_COWSemantics(t *testing.T) {
 	scope := "sandbox1"
 	scopePatch, _ := parse.Parse([]byte(`{users: {alice: {name: "Alice Modified"}}}`))
 	tx2, _ := s.NewTx(1, &scope)
-	p2, _ := tx2.NewPatcher(&api.Patch{Patch: api.PathData{Path: "", Data: scopePatch}})
+	p2, _ := tx2.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: scopePatch}})
 	result2 := p2.Commit()
 	if !result2.Committed {
 		t.Fatalf("scope commit failed: %v", result2.Error)
@@ -197,21 +197,21 @@ func TestScope_MultipleScopes(t *testing.T) {
 	// 1. Write baseline
 	baselinePatch, _ := parse.Parse([]byte(`{counter: 0}`))
 	tx1, _ := s.NewTx(1, nil)
-	p1, _ := tx1.NewPatcher(&api.Patch{Patch: api.PathData{Path: "", Data: baselinePatch}})
+	p1, _ := tx1.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: baselinePatch}})
 	p1.Commit()
 
 	// 2. Write to scope1
 	scope1 := "sandbox1"
 	scope1Patch, _ := parse.Parse([]byte(`{counter: 100}`))
 	tx2, _ := s.NewTx(1, &scope1)
-	p2, _ := tx2.NewPatcher(&api.Patch{Patch: api.PathData{Path: "", Data: scope1Patch}})
+	p2, _ := tx2.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: scope1Patch}})
 	p2.Commit()
 
 	// 3. Write to scope2
 	scope2 := "sandbox2"
 	scope2Patch, _ := parse.Parse([]byte(`{counter: 200}`))
 	tx3, _ := s.NewTx(1, &scope2)
-	p3, _ := tx3.NewPatcher(&api.Patch{Patch: api.PathData{Path: "", Data: scope2Patch}})
+	p3, _ := tx3.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: scope2Patch}})
 	result3 := p3.Commit()
 	commit := result3.Commit
 
@@ -248,14 +248,14 @@ func TestScope_DeleteScope(t *testing.T) {
 	// 1. Write baseline
 	baselinePatch, _ := parse.Parse([]byte(`{data: "baseline"}`))
 	tx1, _ := s.NewTx(1, nil)
-	p1, _ := tx1.NewPatcher(&api.Patch{Patch: api.PathData{Path: "", Data: baselinePatch}})
+	p1, _ := tx1.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: baselinePatch}})
 	p1.Commit()
 
 	// 2. Write to scope
 	scope := "to-delete"
 	scopePatch, _ := parse.Parse([]byte(`{data: "scoped"}`))
 	tx2, _ := s.NewTx(1, &scope)
-	p2, _ := tx2.NewPatcher(&api.Patch{Patch: api.PathData{Path: "", Data: scopePatch}})
+	p2, _ := tx2.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: scopePatch}})
 	result2 := p2.Commit()
 	commit := result2.Commit
 
@@ -302,14 +302,14 @@ func TestScope_CommitNotification(t *testing.T) {
 	// 1. Baseline commit
 	baselinePatch, _ := parse.Parse([]byte(`{x: 1}`))
 	tx1, _ := s.NewTx(1, nil)
-	p1, _ := tx1.NewPatcher(&api.Patch{Patch: api.PathData{Path: "", Data: baselinePatch}})
+	p1, _ := tx1.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: baselinePatch}})
 	p1.Commit()
 
 	// 2. Scoped commit
 	scope := "test-scope"
 	scopePatch, _ := parse.Parse([]byte(`{x: 2}`))
 	tx2, _ := s.NewTx(1, &scope)
-	p2, _ := tx2.NewPatcher(&api.Patch{Patch: api.PathData{Path: "", Data: scopePatch}})
+	p2, _ := tx2.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: scopePatch}})
 	p2.Commit()
 
 	// 3. Verify notifications
@@ -341,20 +341,20 @@ func TestScope_ReadPatchesInRange(t *testing.T) {
 	// 1. Baseline commit at path "data"
 	baselinePatch, _ := parse.Parse([]byte(`{data: {v: 1}}`))
 	tx1, _ := s.NewTx(1, nil)
-	p1, _ := tx1.NewPatcher(&api.Patch{Patch: api.PathData{Path: "", Data: baselinePatch}})
+	p1, _ := tx1.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: baselinePatch}})
 	p1.Commit()
 
 	// 2. Scope commit at path "data"
 	scope := "test"
 	scopePatch, _ := parse.Parse([]byte(`{data: {v: 2}}`))
 	tx2, _ := s.NewTx(1, &scope)
-	p2, _ := tx2.NewPatcher(&api.Patch{Patch: api.PathData{Path: "", Data: scopePatch}})
+	p2, _ := tx2.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: scopePatch}})
 	p2.Commit()
 
 	// 3. Another baseline commit
 	baselinePatch2, _ := parse.Parse([]byte(`{data: {v: 3}}`))
 	tx3, _ := s.NewTx(1, nil)
-	p3, _ := tx3.NewPatcher(&api.Patch{Patch: api.PathData{Path: "", Data: baselinePatch2}})
+	p3, _ := tx3.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: baselinePatch2}})
 	result3 := p3.Commit()
 	endCommit := result3.Commit
 
@@ -395,13 +395,13 @@ func TestScope_BaselineAndScopePaths(t *testing.T) {
 
 	baselinePatch, _ := parse.Parse([]byte(`{path1: "baseline"}`))
 	tx1, _ := s.NewTx(1, nil)
-	p1, _ := tx1.NewPatcher(&api.Patch{Patch: api.PathData{Path: "", Data: baselinePatch}})
+	p1, _ := tx1.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: baselinePatch}})
 	p1.Commit()
 
 	// Create scope data at path2 (different path)
 	scopePatch, _ := parse.Parse([]byte(`{path2: "scoped"}`))
 	tx2, _ := s.NewTx(1, &scope)
-	p2, _ := tx2.NewPatcher(&api.Patch{Patch: api.PathData{Path: "", Data: scopePatch}})
+	p2, _ := tx2.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: scopePatch}})
 	result2 := p2.Commit()
 	commit := result2.Commit
 
@@ -443,12 +443,12 @@ func TestScope_EmptyScope(t *testing.T) {
 
 	baselinePatch, _ := parse.Parse([]byte(`{val: "baseline"}`))
 	tx1, _ := s.NewTx(1, nil)
-	p1, _ := tx1.NewPatcher(&api.Patch{Patch: api.PathData{Path: "", Data: baselinePatch}})
+	p1, _ := tx1.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: baselinePatch}})
 	p1.Commit()
 
 	scopePatch, _ := parse.Parse([]byte(`{val: "empty-scope"}`))
 	tx2, _ := s.NewTx(1, &emptyScope)
-	p2, _ := tx2.NewPatcher(&api.Patch{Patch: api.PathData{Path: "", Data: scopePatch}})
+	p2, _ := tx2.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: scopePatch}})
 	result2 := p2.Commit()
 	commit := result2.Commit
 

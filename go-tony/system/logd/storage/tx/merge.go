@@ -27,11 +27,11 @@ func MergePatches(patches []*PatcherData) (*ir.Node, error) {
 
 	splitPaths := make([][]string, len(patches))
 	for i, pd := range patches {
-		_, err := kpath.Parse(pd.API.Patch.Path)
+		_, err := kpath.Parse(pd.API.Path)
 		if err != nil {
 			return nil, err
 		}
-		splitPaths[i] = kpath.SplitAll(pd.API.Patch.Path)
+		splitPaths[i] = kpath.SplitAll(pd.API.Path)
 	}
 	for i := range splitPaths {
 		for j := range i {
@@ -43,7 +43,7 @@ func MergePatches(patches []*PatcherData) (*ir.Node, error) {
 	}
 	root := &kTree{children: make(map[string]*kTree)}
 	for _, pd := range patches {
-		kp, node := pd.API.Patch.Path, pd.API.Patch.Data
+		kp, node := pd.API.Path, pd.API.Data
 		if err := root.add(kp, node); err != nil {
 			return nil, err
 		}

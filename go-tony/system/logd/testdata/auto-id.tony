@@ -13,10 +13,10 @@
 
 # Create a user without an ID - server will generate one
 # The id field can be omitted or set to null
-{patch: {patch: {path: "users", data: !key(id) [{name: "Alice"}]}}}
+{patch: {path: "users", data: !key(id) [{name: "Alice"}]}}
 
 # Create another user - also gets auto-generated ID
-{patch: {patch: {path: "users", data: !key(id) [{name: "Bob"}]}}}
+{patch: {path: "users", data: !key(id) [{name: "Bob"}]}}
 
 # Read all users to see the generated IDs
 {match: {body: {path: "users"}}}

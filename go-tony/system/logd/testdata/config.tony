@@ -5,25 +5,25 @@
 {hello: {clientId: "config-example"}}
 
 # Set initial config
-{patch: {patch: {path: "config", data: {app: {name: "myapp", version: "1.0.0", debug: false}, database: {host: "localhost", port: 5432, pool_size: 10}, features: {new_ui: false, analytics: true}}}}}
+{patch: {path: "config", data: {app: {name: "myapp", version: "1.0.0", debug: false}, database: {host: "localhost", port: 5432, pool_size: 10}, features: {new_ui: false, analytics: true}}}}
 
 # Read current config
 {match: {body: {path: "config"}}}
 
 # Enable debug mode
-{patch: {patch: {path: "config.app.debug", data: true}}}
+{patch: {path: "config.app.debug", data: true}}
 
 # Update database pool size
-{patch: {patch: {path: "config.database.pool_size", data: 20}}}
+{patch: {path: "config.database.pool_size", data: 20}}
 
 # Enable new feature flag
-{patch: {patch: {path: "config.features.new_ui", data: true}}}
+{patch: {path: "config.features.new_ui", data: true}}
 
 # Read just features
 {match: {body: {path: "config.features"}}}
 
 # Merge in new settings without overwriting existing
-{patch: {patch: {path: "config.app", data: {build: "abc123"}}}}
+{patch: {path: "config.app", data: {build: "abc123"}}}
 
 # Final config state
 {match: {body: {path: "config"}}}

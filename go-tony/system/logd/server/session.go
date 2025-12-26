@@ -52,8 +52,8 @@ type SessionConfig struct {
 	Storage        *storage.Storage
 	Hub            *WatchHub
 	Log            *slog.Logger
-	OnCommit       func() // called after successful commits (for snapshot tracking)
-	OutgoingBuffer int    // buffer size for outgoing channel (default 100)
+	OnCommit       func()   // called after successful commits (for snapshot tracking)
+	OutgoingBuffer int      // buffer size for outgoing channel (default 100)
 	Schema         *ir.Node // Server's schema (returned in hello response)
 }
 
@@ -88,19 +88,15 @@ func (s *Session) Run() error {
 
 	// Goroutine to close connection when done is signaled.
 	// This unblocks the reader if it's stuck in a blocking read.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		<-s.done
 		s.conn.Close()
-	}()
+	})
 
 	// Writer goroutine
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		s.writer()
-	}()
+	})
 
 	// Start watch event forwarders for any existing watches
 	// (none at start, but the pattern is established)
@@ -322,7 +318,7 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 // If TxID is provided, the patch joins an existing multi-participant transaction.
 // If TxID is nil, a new single-participant transaction is created.
 func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
-	path := req.Patch.Path
+	path := req.Path
 
 	// Validate path
 	if err := validateDataPath(path); err != nil {
@@ -331,7 +327,7 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 	}
 
 	// Validate patch data
-	if req.Patch.Data == nil {
+	if req.Data == nil {
 		s.sendError(id, api.ErrCodeInvalidDiff, "patch data is required")
 		return
 	}
@@ -374,7 +370,7 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 
 	// Create patcher and commit
 	patcher, err := txn.NewPatcher(&api.Patch{
-		Patch: req.Patch,
+		PathData: req.PathData,
 	})
 	if err != nil {
 		if req.TxID != nil {

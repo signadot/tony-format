@@ -79,16 +79,20 @@ signature:
 ---
 context:
 - tony-format/context
+- tony-base: github.com/signadot/tony-format/go-tony/schema
 define:
+  data: .[tony-base:ir]
   match: .[nullable(path-data)]
-  patch: !path-data null
+  path: .[string]
 signature:
   name: patch
 ---
 context:
 - tony-format/context
+- tony-base: github.com/signadot/tony-format/go-tony/schema
 define:
-  patch: !path-data null
+  data: .[tony-base:ir]
+  path: .[string]
   timeout: .[nullable(string)]
   txId: .[nullable(int)]
 signature:
@@ -110,18 +114,6 @@ define:
   message: .[string]
 signature:
   name: session-error
----
-context:
-- tony-format/context
-- tony-base: github.com/signadot/tony-format/go-tony/schema
-define:
-  commit: .[int]
-  patch: .[tony-base:ir]
-  path: .[string]
-  replayComplete: .[bool]
-  state: .[tony-base:ir]
-signature:
-  name: session-event
 ---
 context:
 - tony-format/context
@@ -183,9 +175,21 @@ signature:
 ---
 context:
 - tony-format/context
+- tony-base: github.com/signadot/tony-format/go-tony/schema
+define:
+  commit: .[int]
+  patch: .[tony-base:ir]
+  path: .[string]
+  replayComplete: .[bool]
+  state: .[tony-base:ir]
+signature:
+  name: watch-event
+---
+context:
+- tony-format/context
 define:
   error: .[nullable(session-error)]
-  event: .[nullable(session-event)]
+  event: .[nullable(watch-event)]
   id: .[nullable(string)]
   result: .[nullable(session-result)]
 signature:

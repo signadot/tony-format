@@ -106,7 +106,7 @@ func TestStorage_CommitNotifier(t *testing.T) {
 	}
 
 	patch1 := &api.Patch{
-		Patch: api.PathData{
+		PathData: api.PathData{
 			Path: "",
 			Data: patch1Data,
 		},
@@ -156,7 +156,7 @@ func TestStorage_CommitNotifier(t *testing.T) {
 	}
 
 	patch2 := &api.Patch{
-		Patch: api.PathData{
+		PathData: api.PathData{
 			Path: "",
 			Data: patch2Data,
 		},
@@ -208,7 +208,7 @@ func TestStorage_CommitNotifier(t *testing.T) {
 	}
 
 	patch3 := &api.Patch{
-		Patch: api.PathData{
+		PathData: api.PathData{
 			Path: "",
 			Data: patch3Data,
 		},

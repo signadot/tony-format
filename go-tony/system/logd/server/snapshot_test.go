@@ -30,7 +30,7 @@ func doPatch(t *testing.T, store *storage.Storage, srv *Server, path string, dat
 	}
 
 	patcher, err := tx.NewPatcher(&api.Patch{
-		Patch: api.PathData{
+		PathData: api.PathData{
 			Path: path,
 			Data: data,
 		},

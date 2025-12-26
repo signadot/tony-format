@@ -17,16 +17,16 @@
 # --- PATCH REQUESTS (writes) ---
 
 # Create/update a user
-{patch: {patch: {path: "users.alice", data: {name: "Alice", email: "alice@example.com"}}}}
+{patch: {path: "users.alice", data: {name: "Alice", email: "alice@example.com"}}}
 
 # Update a nested field
-{patch: {patch: {path: "users.alice.status", data: "active"}}}
+{patch: {path: "users.alice.status", data: "active"}}
 
 # Insert into an array using !insert
-{patch: {patch: {path: "logs", data: !insert {timestamp: "2024-01-01T00:00:00Z", message: "hello"}}}}
+{patch: {path: "logs", data: !insert {timestamp: "2024-01-01T00:00:00Z", message: "hello"}}}
 
 # Delete a field using !delete
-{patch: {patch: {path: "users.alice.temp_token", data: !delete null}}}
+{patch: {path: "users.alice.temp_token", data: !delete null}}
 
 # --- WATCH REQUESTS (subscriptions) ---
 
@@ -42,4 +42,4 @@
 {newtx: {participants: 2}}
 
 # Patch with transaction ID (response includes txId to use)
-# {patch: {txId: 123, patch: {path: "orders.order-1", data: {status: "shipped"}}}}
+# {patch: {txId: 123, path: "orders.order-1", data: {status: "shipped"}}}

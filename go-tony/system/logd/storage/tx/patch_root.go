@@ -10,8 +10,8 @@ const PatchRootTag = "!logd-patch-root"
 // Called before MergePatches to mark where patches originate.
 func TagPatchRoots(patches []*PatcherData) {
 	for _, pd := range patches {
-		if pd.API.Patch.Data != nil {
-			pd.API.Patch.Data.Tag = ir.TagCompose(PatchRootTag, nil, pd.API.Patch.Data.Tag)
+		if pd.API.Data != nil {
+			pd.API.Data.Tag = ir.TagCompose(PatchRootTag, nil, pd.API.Data.Tag)
 		}
 	}
 }
