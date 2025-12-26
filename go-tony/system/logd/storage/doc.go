@@ -1,15 +1,16 @@
-// Package storage provides a filesystem based storage layer for
-// tony system api.
+// Package storage provides the persistence layer for logd.
 //
-// Storage manages
+// [Storage] manages:
 //
-//   - mappings of virtual document paths to and from the filesyste
+//   - Patch storage in a double-buffered write-ahead log (dlog)
+//   - Path-based indexing for efficient lookups
+//   - Multi-participant transactions
+//   - Copy-on-write scopes for isolation
+//   - Snapshots for read optimization
 //
-//   - indexing of virtual document nodes
+// # Subpackages
 //
-//   - storage of diffs associated with virtual document nodes
-//
-//   - transactions of multi-participant diffs
-//
-//   - compaction of diffs
+//   - [index] - Hierarchical path-based indexing
+//   - [tx] - Transaction coordination
+//   - [autoid] - Monotonic ID generation
 package storage

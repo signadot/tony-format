@@ -5,27 +5,15 @@
 //
 // # Structure
 //
-// Index is hierarchical - each path can have child indices:
+// [Index] is hierarchical - each path segment has its own sub-index:
 //   - Root index for top-level paths
 //   - Child indices for nested paths
-//   - LogSegments track path → commit range → log offset
+//   - [LogSegment] maps path + commit range → log file offset
 //
-// # Usage
+// # LogSegment Semantics
 //
-//	// Add a segment to the index
-//	segment := &LogSegment{
-//	    Path:   "users[0].name",
-//	    Commit: 42,
-//	    LogFile: logA,
-//	    Offset: 1234,
-//	}
-//	index.Add(segment)
-//
-//	// Lookup segments for a path
-//	segments := index.LookupRange(commit)
-//
-// # Related Packages
-//
-//   - github.com/signadot/tony-format/go-tony/ir/kpath - Kinded paths
-//   - github.com/signadot/tony-format/go-tony/system/logd/storage - Storage layer
+//   - StartCommit == EndCommit: snapshot (full state at that commit)
+//   - StartCommit != EndCommit: patch (diff from StartCommit to EndCommit)
+//   - ScopeID nil: baseline data
+//   - ScopeID non-nil: scope-specific overlay
 package index

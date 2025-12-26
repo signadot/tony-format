@@ -1,31 +1,24 @@
-// Package api provides API types for the logd server.
+// Package api provides types for the logd session protocol.
 //
-// This package defines request/response structures for both protocols:
+// # Core Types
 //
-// # HTTP API
+//   - [PathData] - Path and data for match/patch operations
+//   - [Patch] - Patch with optional match precondition
+//   - [Schema] - Keyed array definitions for indexing
 //
-// Types for HTTP MATCH and PATCH operations:
-//   - [Body] - Request body with path and data
-//   - [Patch] - Patch request wrapper
-//   - [Response] - HTTP response with commit and result
+// # Session Protocol
 //
-// # Session Protocol (TCP)
+// Request/response types for bidirectional TCP streaming:
 //
-// Types for bidirectional TCP streaming:
-//   - [SessionRequest] - Union of all request types (Hello, Match, Patch, Watch, Unwatch)
+//   - [SessionRequest] - Union of Hello, Match, Patch, NewTx, Watch, Unwatch, DeleteScope
 //   - [SessionResponse] - Union of Result, Event, or Error
-//   - [WatchEvent] - Streaming watch events with state or patch
+//   - [WatchEvent] - Streaming events with state or patch
 //   - [SessionError] - Error with code and message
 //
 // The session protocol supports:
 //   - Sync mode: No ID field, client blocks for response
 //   - Async mode: With ID field, enables request pipelining
+//   - Multi-participant transactions: NewTx + Patch with txId
 //   - Watches: Real-time change notifications with replay
-//
-// See docs/tonyapi/session-protocol.md for the full protocol specification.
-//
-// # Related Packages
-//
-//   - github.com/signadot/tony-format/go-tony/system/logd/server - Server implementation
-//   - github.com/signadot/tony-format/go-tony/system/logd/storage - Storage layer
+//   - Scopes: Copy-on-write isolation via Hello scope field
 package api
