@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 )
@@ -13,7 +14,7 @@ import (
 // to avoid redundant writes.
 type IndexPersister struct {
 	mu            sync.Mutex
-	lastPersisted int64
+	lastPersisted atomic.Int64
 	interval      int64
 	wg            sync.WaitGroup
 	logger        *slog.Logger
@@ -38,7 +39,7 @@ func (p *IndexPersister) MaybePersist(commit int64) {
 	if p.interval <= 0 {
 		return
 	}
-	if commit-p.lastPersisted < p.interval {
+	if commit-p.lastPersisted.Load() < p.interval {
 		return
 	}
 
@@ -54,7 +55,7 @@ func (p *IndexPersister) persistAsync(commit int64) {
 	defer p.mu.Unlock()
 
 	// Skip if another goroutine already persisted past this commit
-	if commit <= p.lastPersisted {
+	if commit <= p.lastPersisted.Load() {
 		return
 	}
 
@@ -66,7 +67,7 @@ func (p *IndexPersister) persistAsync(commit int64) {
 		return
 	}
 
-	p.lastPersisted = maxCommit
+	p.lastPersisted.Store(maxCommit)
 	p.logger.Debug("index persisted", "commit", maxCommit)
 }
 
@@ -92,5 +93,5 @@ func (p *IndexPersister) Close() {
 
 // SetLastPersisted sets the last persisted commit (used during init).
 func (p *IndexPersister) SetLastPersisted(commit int64) {
-	p.lastPersisted = commit
+	p.lastPersisted.Store(commit)
 }

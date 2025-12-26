@@ -1,0 +1,22 @@
+# Auto-ID generation example
+#
+# Start server with schema:
+#   o sys logd serve -config testdata/auto-id-config.tony -data /tmp/auto-id-store
+#
+# Run this example:
+#   cat testdata/auto-id.tony | o sys logd session :9123
+#
+# The server will auto-generate IDs for users and tasks marked with !logd-auto-id
+
+# Handshake
+{hello: {clientId: "auto-id-example"}}
+
+# Create a user without an ID - server will generate one
+# The id field can be omitted or set to null
+{patch: {patch: {path: "users", data: !key(id) [{name: "Alice"}]}}}
+
+# Create another user - also gets auto-generated ID
+{patch: {patch: {path: "users", data: !key(id) [{name: "Bob"}]}}}
+
+# Read all users to see the generated IDs
+{match: {body: {path: "users"}}}

@@ -282,19 +282,21 @@ func (dl *DLog) SwitchActive() error {
 	inactiveLog.snapMu.Lock()
 
 	// Switch active log
+	var newActive LogFileID
 	if dl.activeLog == LogFileA {
-		dl.activeLog = LogFileB
+		newActive = LogFileB
 	} else {
-		dl.activeLog = LogFileA
+		newActive = LogFileA
 	}
+	dl.activeLog = newActive
 
 	// Release snapMu - the old inactive is now active and can receive writes
 	inactiveLog.snapMu.Unlock()
 	dl.mu.Unlock()
 
-	// Persist state to disk
+	// Persist state to disk (use captured value, not dl.activeLog which could race)
 	statePath := filepath.Join(dl.baseDir, "dlog.state")
-	if err := os.WriteFile(statePath, []byte(string(dl.activeLog)), 0644); err != nil {
+	if err := os.WriteFile(statePath, []byte(string(newActive)), 0644); err != nil {
 		// Log error but don't fail - state can be recovered
 		dl.logger.Warn("failed to persist active log state", "error", err)
 	}

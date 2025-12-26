@@ -232,7 +232,7 @@ func (s *Storage) init() error {
 // Example usage (typical pattern for parallel HTTP handlers):
 //
 //	// Create transaction
-//	tx, err := storage.NewTx(participantCount, meta)
+//	tx, err := storage.NewTx(participantCount, scope)
 //	if err != nil {
 //	    // handle error
 //	}
@@ -240,7 +240,7 @@ func (s *Storage) init() error {
 //	// Each participant gets their own patcher handle
 //	patcher := tx.NewPatcher(kp, m, p)
 //	result := patcher.WaitForCompletion()
-func (s *Storage) NewTx(participantCount int, meta *api.PatchMeta) (tx.Tx, error) {
+func (s *Storage) NewTx(participantCount int, scope *string) (tx.Tx, error) {
 	if participantCount < 1 {
 		return nil, fmt.Errorf("participantCount must be at least 1, got %d", participantCount)
 	}
@@ -254,7 +254,7 @@ func (s *Storage) NewTx(participantCount int, meta *api.PatchMeta) (tx.Tx, error
 		TxID:        txSeq,
 		CreatedAt:   time.Now(),
 		Timeout:     s.txTimeout,
-		Meta:        meta,
+		Scope:       scope,
 		PatcherData: make([]*tx.PatcherData, 0, participantCount),
 	}
 	ops := &commitOps{s: s}

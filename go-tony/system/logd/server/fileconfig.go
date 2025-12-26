@@ -3,7 +3,12 @@ package server
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
+
+	tony "github.com/signadot/tony-format/go-tony"
+	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/parse"
 )
 
 // Config represents the logd server configuration file structure.
@@ -11,6 +16,12 @@ import (
 //
 //tony:schemagen=config
 type Config struct {
+	// Schema is the Tony schema node that defines data model constraints.
+	// Use !tovalue.file to load from a file: schema: !tovalue.file path/to/schema.tony
+	// The schema is used to identify auto-id fields (tagged with !logd-auto-id).
+	// If nil, auto-id generation is disabled.
+	Schema *ir.Node `tony:"field=schema"`
+
 	// Snapshot configures automatic snapshotting behavior.
 	Snapshot *SnapshotConfig `tony:"field=snapshot"`
 
@@ -43,15 +54,38 @@ type SnapshotConfig struct {
 }
 
 // LoadConfig loads a configuration file in Tony format.
+// It uses tony.Tool to expand tags like !tovalue.file for loading schema files.
 func LoadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	cfg := &Config{}
-	if err := cfg.FromTony(data); err != nil {
+	node, err := parse.Parse(data)
+	if err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	// Change to the config file's directory for relative path resolution
+	origDir, _ := os.Getwd()
+	configDir := filepath.Dir(path)
+	if configDir != "" && configDir != "." {
+		if err := os.Chdir(configDir); err != nil {
+			return nil, fmt.Errorf("failed to change to config directory: %w", err)
+		}
+		defer os.Chdir(origDir)
+	}
+
+	// Expand tags like !tovalue.file using tony.Tool
+	tool := tony.DefaultTool()
+	expanded, err := tool.Run(node)
+	if err != nil {
+		return nil, fmt.Errorf("failed to expand config file: %w", err)
+	}
+
+	cfg := &Config{}
+	if err := cfg.FromTonyIR(expanded); err != nil {
+		return nil, fmt.Errorf("failed to convert config: %w", err)
 	}
 
 	return cfg, nil

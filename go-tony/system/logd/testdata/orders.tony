@@ -1,20 +1,29 @@
 # Order management example with keyed arrays
-# Usage: cat orders.tony | o system logd client localhost:9000
+# Usage: cat orders.tony | o system logd client localhost:9123
+
+# Handshake
+{hello: {clientId: "orders-example"}}
 
 # Create order with keyed items
-{meta: {}, patch: {path: "orders.ord-001", data: {customer: "alice", status: "pending", items: !key(sku) [{sku: "WIDGET-A", qty: 2, price: 9.99}, {sku: "GADGET-B", qty: 1, price: 24.99}]}}}
+{patch: {patch: {path: "orders.ord-001", data: {customer: "alice", status: "pending", items: !key(sku) [{sku: "WIDGET-A", qty: 2, price: 9.99}, {sku: "GADGET-B", qty: 1, price: 24.99}]}}}}
 
 # Update order status
-{meta: {}, patch: {path: "orders.ord-001.status", data: "processing"}}
+{patch: {patch: {path: "orders.ord-001.status", data: "processing"}}}
 
 # Add item to order using keyed insert
-{meta: {}, patch: {path: "orders.ord-001.items", data: !key(sku) [!insert {sku: "GIZMO-C", qty: 3, price: 14.99}]}}
+{patch: {patch: {path: "orders.ord-001.items", data: !key(sku) [!insert {sku: "GIZMO-C", qty: 3, price: 14.99}]}}}
 
 # Update quantity of existing item
-{meta: {}, patch: {path: "orders.ord-001.items(WIDGET-A).qty", data: 5}}
+{patch: {patch: {path: "orders.ord-001.items(WIDGET-A).qty", data: 5}}}
 
 # Read order
-{meta: {}, body: {path: "orders.ord-001"}}
+{match: {body: {path: "orders.ord-001"}}}
 
-# Conditional update - only ship if status is processing
-{meta: {}, match: {path: "orders.ord-001.status", data: "processing"}, patch: {path: "orders.ord-001.status", data: "shipped"}}
+# Watch for order changes
+{watch: {path: "orders", fromCommit: 0}}
+
+# Ship the order
+{patch: {patch: {path: "orders.ord-001.status", data: "shipped"}}}
+
+# Stop watching
+{unwatch: {path: "orders"}}

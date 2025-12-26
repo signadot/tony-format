@@ -6,7 +6,7 @@ import (
 
 // Error represents an API error response.
 //
-//tony:schemagen=error
+//tony:schemagen=error,notag
 type Error struct {
 	Code    string `tony:"name=code"`
 	Message string `tony:"name=message"`

@@ -9,7 +9,18 @@ signature:
 ---
 context:
 - tony-format/context
+- time: time
 define:
+  timeout: !time:duration null
+signature:
+  name: tx-config
+---
+context:
+- tony-format/context
+- tony-base: github.com/signadot/tony-format/go-tony/schema
+define:
+  schema: .[tony-base:ir]
   snapshot: .[nullable(snapshot-config)]
+  tx: .[nullable(tx-config)]
 signature:
   name: config

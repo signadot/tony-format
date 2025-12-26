@@ -1,0 +1,9 @@
+# Schema with auto-generated IDs for users and tasks
+define:
+  users:
+    id: !logd-auto-id.type ""
+    name: ""
+    tasks:
+      id: !logd-auto-id.type ""
+      title: ""
+      done: false

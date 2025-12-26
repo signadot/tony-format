@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/stream"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
@@ -23,6 +24,9 @@ type Session struct {
 	storage *storage.Storage
 	hub     *WatchHub
 	log     *slog.Logger
+
+	// Server schema (returned in hello response)
+	schema *ir.Node
 
 	// Scope for COW isolation (set in hello, applies to all operations)
 	scope *string
@@ -45,11 +49,12 @@ type Session struct {
 
 // SessionConfig contains configuration for creating a session.
 type SessionConfig struct {
-	Storage       *storage.Storage
-	Hub           *WatchHub
-	Log           *slog.Logger
-	OnCommit      func() // called after successful commits (for snapshot tracking)
-	OutgoingBuffer int   // buffer size for outgoing channel (default 100)
+	Storage        *storage.Storage
+	Hub            *WatchHub
+	Log            *slog.Logger
+	OnCommit       func() // called after successful commits (for snapshot tracking)
+	OutgoingBuffer int    // buffer size for outgoing channel (default 100)
+	Schema         *ir.Node // Server's schema (returned in hello response)
 }
 
 // NewSession creates a new session for the given connection.
@@ -68,6 +73,7 @@ func NewSession(id string, conn io.ReadWriteCloser, cfg *SessionConfig) *Session
 		storage:  cfg.Storage,
 		hub:      cfg.Hub,
 		log:      log.With("session", id),
+		schema:   cfg.Schema,
 		watches:  make(map[string]*Watcher),
 		outgoing: make(chan *api.SessionResponse, bufSize),
 		done:     make(chan struct{}),
@@ -202,7 +208,8 @@ func (s *Session) readDocument(decoder *stream.Decoder) (*ir.Node, error) {
 // writer sends outgoing responses and events.
 func (s *Session) writer() {
 	for resp := range s.outgoing {
-		data, err := resp.ToTony()
+		// Use wire format to match client's WithBrackets() decoder
+		data, err := resp.ToTony(gomap.EncodeWire(true))
 		if err != nil {
 			s.log.Error("failed to encode response", "error", err)
 			continue
@@ -243,11 +250,21 @@ func (s *Session) handleHello(id *string, req *api.Hello) {
 	// Store scope for this session (applies to all operations)
 	s.scope = req.Scope
 	s.log.Debug("hello", "clientId", req.ClientID, "scope", req.Scope)
+
+	// TODO(#87): Per-scope schema support. Currently we only return the baseline
+	// schema for baseline sessions. Scoped sessions need schema overlay support
+	// (baseline + scope-specific overrides) before we can return a schema.
+	var schema *ir.Node
+	if req.Scope == nil {
+		schema = s.schema
+	}
+
 	s.send(&api.SessionResponse{
 		ID: id,
 		Result: &api.SessionResult{
 			Hello: &api.HelloResponse{
 				ServerID: s.ID,
+				Schema:   schema,
 			},
 		},
 	})
@@ -340,11 +357,15 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 			s.sendError(id, api.ErrCodeTxNotFound, fmt.Sprintf("transaction %d not found: %v", *req.TxID, err))
 			return
 		}
+		// Validate scope matches - all participants must have the same scope
+		if !scopesEqual(s.scope, txn.Scope()) {
+			s.sendError(id, api.ErrCodeTxScopeMismatch, fmt.Sprintf("session scope %q doesn't match transaction scope %q", scopeStr(s.scope), scopeStr(txn.Scope())))
+			return
+		}
 		s.log.Debug("joining transaction", "txId", *req.TxID)
 	} else {
 		// Create single-participant transaction with session scope
-		meta := &api.PatchMeta{Scope: s.scope}
-		txn, err = s.storage.NewTx(1, meta)
+		txn, err = s.storage.NewTx(1, s.scope)
 		if err != nil {
 			s.sendError(id, "storage_error", fmt.Sprintf("failed to create transaction: %v", err))
 			return
@@ -397,7 +418,9 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 		s.onCommit()
 	}
 
-	s.send(api.NewPatchResponse(id, result.Commit))
+	// Strip internal tags before sending to client
+	tx.StripPatchRootTagRecursive(result.Data)
+	s.send(api.NewPatchResponse(id, result.Commit, result.Data))
 }
 
 // handleNewTx handles newtx requests to create multi-participant transactions.
@@ -407,7 +430,7 @@ func (s *Session) handleNewTx(id *string, req *api.NewTxRequest) {
 		return
 	}
 
-	tx, err := s.storage.NewTx(req.Participants, nil)
+	tx, err := s.storage.NewTx(req.Participants, s.scope)
 	if err != nil {
 		s.sendError(id, "storage_error", fmt.Sprintf("failed to create transaction: %v", err))
 		return
@@ -449,7 +472,7 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 	// IMPORTANT: Register with hub FIRST to avoid race condition.
 	// Events that arrive between Watch and GetCurrentCommit will be queued.
 	// After replay, we skip any queued events with commit <= currentCommit.
-	watcher := NewWatcher(path, s.scope, req.FromCommit, req.FullState, 100)
+	watcher := NewWatcher(path, s.scope, req.FromCommit, 100)
 	s.hub.Watch(watcher)
 
 	// Now get current commit - this is our replay target
@@ -475,11 +498,11 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 	s.send(api.NewWatchResponse(id, path, replayingTo))
 
 	// Start event forwarder goroutine
-	go s.forwardEvents(watcher, req.FromCommit, req.FullState, currentCommit)
+	go s.forwardEvents(watcher, req.FromCommit, req.NoInit, currentCommit)
 }
 
 // forwardEvents forwards events from a watcher to the session's outgoing channel.
-// It handles replay if needed, then forwards live events with deduplication.
+// It handles initial state and replay, then forwards live events with deduplication.
 //
 // Race prevention: We registered with the hub BEFORE getting currentCommit.
 // This means events that arrive between Watch and GetCurrentCommit are queued.
@@ -488,22 +511,30 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 //
 // Error handling: If replay fails, an error event is sent and the watch is terminated.
 // The client should re-establish the watch, possibly from a different commit.
-func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, fullState bool, currentCommit int64) {
+func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool, currentCommit int64) {
 	path := watcher.Path
 
 	// Track the highest commit we've replayed (for deduplication)
 	lastReplayedCommit := int64(0)
 
-	// Handle replay if fromCommit is specified
+	// Determine the starting commit for initial state
+	startCommit := currentCommit
 	if fromCommit != nil {
-		startCommit := *fromCommit
+		startCommit = *fromCommit
 		lastReplayedCommit = currentCommit
+	}
 
-		// If fullState requested, send state at fromCommit first
-		if fullState {
-			state, err := s.storage.ReadStateAt(path, startCommit, s.scope)
+	// Send initial state unless noInit is set
+	if !noInit {
+		var state *ir.Node
+		if startCommit == 0 {
+			// Empty store - state is null
+			state = ir.Null()
+		} else {
+			var err error
+			state, err = s.storage.ReadStateAt(path, startCommit, s.scope)
 			if err != nil {
-				s.log.Error("failed to read state for replay", "path", path, "commit", startCommit, "error", err)
+				s.log.Error("failed to read state for init", "path", path, "commit", startCommit, "error", err)
 				s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read state at commit %d: %v", startCommit, err))
 				return
 			}
@@ -511,13 +542,16 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, fullState b
 			if path != "" {
 				state, err = extractPathValue(state, path)
 				if err != nil {
-					s.log.Error("failed to extract path value for replay", "path", path, "error", err)
+					s.log.Error("failed to extract path value for init", "path", path, "error", err)
 					state = ir.Null()
 				}
 			}
-			s.send(api.NewStateEvent(startCommit, path, state))
 		}
+		s.send(api.NewStateEvent(startCommit, path, state))
+	}
 
+	// Handle replay if fromCommit is specified
+	if fromCommit != nil {
 		// Send historical patches from startCommit+1 to currentCommit
 		if startCommit < currentCommit {
 			patches, err := s.storage.ReadPatchesInRange(path, startCommit+1, currentCommit, s.scope)
@@ -527,6 +561,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, fullState b
 				return
 			}
 			for _, patch := range patches {
+				tx.StripPatchRootTagRecursive(patch.Patch)
 				s.send(api.NewPatchEvent(patch.Commit, path, patch.Patch))
 			}
 		}
@@ -552,7 +587,8 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, fullState b
 			if notification.Commit <= lastReplayedCommit {
 				continue
 			}
-			// Convert notification to event
+			// Strip internal tags and send event
+			tx.StripPatchRootTagRecursive(notification.Patch)
 			s.send(api.NewPatchEvent(notification.Commit, path, notification.Patch))
 		}
 	}
@@ -635,4 +671,24 @@ func (s *Session) failWatch(watcher *Watcher, code, message string) {
 	s.watchMu.Lock()
 	delete(s.watches, watcher.Path)
 	s.watchMu.Unlock()
+}
+
+// scopesEqual compares two scope pointers for equality.
+// nil scopes are considered equal to each other.
+func scopesEqual(a, b *string) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+// scopeStr returns a display string for a scope pointer.
+func scopeStr(s *string) string {
+	if s == nil {
+		return "<nil>"
+	}
+	return *s
 }

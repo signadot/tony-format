@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"os"
 	"sync/atomic"
+
+	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
 // Server represents the logd server.
@@ -44,6 +46,15 @@ func New(spec *Spec) *Server {
 		// Set transaction timeout from config
 		if spec.Config.Tx != nil && spec.Config.Tx.Timeout > 0 {
 			spec.Storage.SetTxTimeout(spec.Config.Tx.Timeout)
+		}
+
+		// Set up schema resolver if schema is configured
+		if spec.Config.Schema != nil {
+			schema := api.ParseSchemaFromNode(spec.Config.Schema)
+			if schema != nil {
+				spec.Storage.SetSchemaResolver(&api.StaticSchemaResolver{Schema: schema})
+				spec.Log.Info("configured schema", "autoIDFields", len(schema.AutoIDFields))
+			}
 		}
 	}
 

@@ -168,7 +168,7 @@ func logdSession(cfg *LogDSessionConfig, cc *cli.Context, args []string) error {
 
 			// Encode and print response
 			var buf bytes.Buffer
-			if err := encode.Encode(node, &buf); err != nil {
+			if err := encode.Encode(node, &buf, encode.EncodeWire(true)); err != nil {
 				fmt.Fprintf(cc.Out, "Encode error: %v\n", err)
 				continue
 			}

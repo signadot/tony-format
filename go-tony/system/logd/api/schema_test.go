@@ -24,8 +24,8 @@ func TestSchema_LookupKeyField(t *testing.T) {
 		{
 			name: "exact match",
 			schema: &Schema{
-				KeyedArrays: map[string]string{
-					"users": "id",
+				AutoIDFields: []AutoIDField{
+					{Path: "users", Field: "id"},
 				},
 			},
 			kpath:    "users",
@@ -34,8 +34,8 @@ func TestSchema_LookupKeyField(t *testing.T) {
 		{
 			name: "nested path",
 			schema: &Schema{
-				KeyedArrays: map[string]string{
-					"orders.items": "sku",
+				AutoIDFields: []AutoIDField{
+					{Path: "orders.items", Field: "sku"},
 				},
 			},
 			kpath:    "orders.items",
@@ -44,8 +44,8 @@ func TestSchema_LookupKeyField(t *testing.T) {
 		{
 			name: "no match",
 			schema: &Schema{
-				KeyedArrays: map[string]string{
-					"users": "id",
+				AutoIDFields: []AutoIDField{
+					{Path: "users", Field: "id"},
 				},
 			},
 			kpath:    "posts",
@@ -54,8 +54,8 @@ func TestSchema_LookupKeyField(t *testing.T) {
 		{
 			name: "partial path no match",
 			schema: &Schema{
-				KeyedArrays: map[string]string{
-					"users": "id",
+				AutoIDFields: []AutoIDField{
+					{Path: "users", Field: "id"},
 				},
 			},
 			kpath:    "users.items",
@@ -73,10 +73,41 @@ func TestSchema_LookupKeyField(t *testing.T) {
 	}
 }
 
+func TestSchema_AutoID(t *testing.T) {
+	schema := &Schema{
+		AutoIDFields: []AutoIDField{
+			{Path: "users", Field: "id"},
+			{Path: "orders.items", Field: "sku"},
+		},
+	}
+
+	// Test match
+	aid := schema.AutoID("users")
+	if aid == nil {
+		t.Fatal("AutoID(users) should return non-nil")
+	}
+	if aid.Field != "id" {
+		t.Errorf("AutoID(users).Field = %q, want %q", aid.Field, "id")
+	}
+
+	// Test no match
+	aid = schema.AutoID("posts")
+	if aid != nil {
+		t.Errorf("AutoID(posts) should return nil, got %+v", aid)
+	}
+
+	// Test nil schema
+	var nilSchema *Schema
+	aid = nilSchema.AutoID("users")
+	if aid != nil {
+		t.Errorf("nil schema AutoID should return nil")
+	}
+}
+
 func TestStaticSchemaResolver(t *testing.T) {
 	schema := &Schema{
-		KeyedArrays: map[string]string{
-			"users": "id",
+		AutoIDFields: []AutoIDField{
+			{Path: "users", Field: "id"},
 		},
 	}
 	resolver := &StaticSchemaResolver{Schema: schema}

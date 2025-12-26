@@ -486,7 +486,11 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 		buf.WriteString("	if err != nil {\n")
 		buf.WriteString(fmt.Sprintf("		return nil, fmt.Errorf(\"failed to marshal %s: %%w\", err)\n", s.Name))
 		buf.WriteString("	}\n")
-		buf.WriteString(fmt.Sprintf("	return ir.FromString(string(txt)).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+		if s.StructSchema.NoTag {
+			buf.WriteString("	return ir.FromString(string(txt)), nil\n")
+		} else {
+			buf.WriteString(fmt.Sprintf("	return ir.FromString(string(txt)).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+		}
 		buf.WriteString("}\n\n")
 		return buf.String(), nil
 	}
@@ -494,19 +498,23 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 	// Handle basic types (non-structs)
 	if s.Type != nil && s.Type.Kind() != reflect.Struct {
 		// Basic type conversion
+		tag := ""
+		if !s.StructSchema.NoTag {
+			tag = fmt.Sprintf(".WithTag(%q)", "!"+s.StructSchema.SchemaName)
+		}
 		switch s.Type.Kind() {
 		case reflect.String:
-			buf.WriteString(fmt.Sprintf("	return ir.FromString(string(*s)).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+			buf.WriteString(fmt.Sprintf("	return ir.FromString(string(*s))%s, nil\n", tag))
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			buf.WriteString(fmt.Sprintf("	return ir.FromInt(int64(*s)).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+			buf.WriteString(fmt.Sprintf("	return ir.FromInt(int64(*s))%s, nil\n", tag))
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 			// ir.FromInt takes int64, so we might lose precision for uint64 > max int64
 			// But for now let's cast to int64
-			buf.WriteString(fmt.Sprintf("	return ir.FromInt(int64(*s)).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+			buf.WriteString(fmt.Sprintf("	return ir.FromInt(int64(*s))%s, nil\n", tag))
 		case reflect.Float32, reflect.Float64:
-			buf.WriteString(fmt.Sprintf("	return ir.FromFloat(float64(*s)).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+			buf.WriteString(fmt.Sprintf("	return ir.FromFloat(float64(*s))%s, nil\n", tag))
 		case reflect.Bool:
-			buf.WriteString(fmt.Sprintf("	return ir.FromBool(bool(*s)).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+			buf.WriteString(fmt.Sprintf("	return ir.FromBool(bool(*s))%s, nil\n", tag))
 
 		// Handle container types (Slice, Array, Map)
 		case reflect.Slice, reflect.Array:
@@ -549,9 +557,9 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 				buf.WriteString(fmt.Sprintf("			slice[i] = %s\n", elemCode))
 			}
 			buf.WriteString("		}\n")
-			buf.WriteString(fmt.Sprintf("		return ir.FromSlice(slice).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+			buf.WriteString(fmt.Sprintf("		return ir.FromSlice(slice)%s, nil\n", tag))
 			buf.WriteString("	}\n")
-			buf.WriteString("	return ir.FromSlice(nil).WithTag(\"!\"+s.StructSchema.SchemaName), nil\n")
+			buf.WriteString(fmt.Sprintf("	return ir.FromSlice(nil)%s, nil\n", tag))
 
 		case reflect.Map:
 			keyType := s.Type.Key()
@@ -581,9 +589,9 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 					buf.WriteString(fmt.Sprintf("			intKeysMap[k] = %s\n", valueCode))
 				}
 				buf.WriteString("		}\n")
-				buf.WriteString(fmt.Sprintf("		return ir.FromIntKeysMap(intKeysMap).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+				buf.WriteString(fmt.Sprintf("		return ir.FromIntKeysMap(intKeysMap)%s, nil\n", tag))
 				buf.WriteString("	}\n")
-				buf.WriteString("	return ir.FromIntKeysMap(nil).WithTag(\"!\"+s.StructSchema.SchemaName), nil\n")
+				buf.WriteString(fmt.Sprintf("	return ir.FromIntKeysMap(nil)%s, nil\n", tag))
 
 			} else if keyType.Kind() == reflect.String {
 				// Regular map (map[string]T)
@@ -616,9 +624,9 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 					buf.WriteString(fmt.Sprintf("			mapNodes[k] = %s\n", valueCode))
 				}
 				buf.WriteString("		}\n")
-				buf.WriteString(fmt.Sprintf("		return ir.FromMap(mapNodes).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+				buf.WriteString(fmt.Sprintf("		return ir.FromMap(mapNodes)%s, nil\n", tag))
 				buf.WriteString("	}\n")
-				buf.WriteString("	return ir.FromMap(nil).WithTag(\"!\"+s.StructSchema.SchemaName), nil\n")
+				buf.WriteString(fmt.Sprintf("	return ir.FromMap(nil)%s, nil\n", tag))
 
 			} else if keyType.Kind() == reflect.Interface {
 				// Map with interface{} keys
@@ -645,9 +653,9 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 					buf.WriteString(fmt.Sprintf("			mapNodes[kStr] = %s\n", valueCode))
 				}
 				buf.WriteString("		}\n")
-				buf.WriteString(fmt.Sprintf("		return ir.FromMap(mapNodes).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+				buf.WriteString(fmt.Sprintf("		return ir.FromMap(mapNodes)%s, nil\n", tag))
 				buf.WriteString("	}\n")
-				buf.WriteString("	return ir.FromMap(nil).WithTag(\"!\"+s.StructSchema.SchemaName), nil\n")
+				buf.WriteString(fmt.Sprintf("	return ir.FromMap(nil)%s, nil\n", tag))
 			} else {
 				return "", fmt.Errorf("unsupported map key type for top-level map: %v", keyType.Kind())
 			}
@@ -733,9 +741,12 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 		buf.WriteString("\n")
 	}
 
-	// Create IR node with schema tag
-	buf.WriteString(fmt.Sprintf("	// Create IR node with schema tag\n"))
-	buf.WriteString(fmt.Sprintf("	return ir.FromMap(irMap).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+	// Create IR node (with schema tag unless notag is set)
+	if s.StructSchema.NoTag {
+		buf.WriteString("	return ir.FromMap(irMap), nil\n")
+	} else {
+		buf.WriteString(fmt.Sprintf("	return ir.FromMap(irMap).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+	}
 	buf.WriteString("}\n")
 
 	return buf.String(), nil
@@ -823,7 +834,13 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 		buf.WriteString(fmt.Sprintf("\tirMap[%q] = ir.FromFloat(float64(s.%s))\n", schemaFieldName, field.Name))
 
 	case reflect.Bool:
-		buf.WriteString(fmt.Sprintf("\tirMap[%q] = ir.FromBool(s.%s)\n", schemaFieldName, field.Name))
+		if field.Omitzero {
+			buf.WriteString(fmt.Sprintf("\tif s.%s {\n", field.Name))
+			buf.WriteString(fmt.Sprintf("\t\tirMap[%q] = ir.FromBool(s.%s)\n", schemaFieldName, field.Name))
+			buf.WriteString("\t}\n")
+		} else {
+			buf.WriteString(fmt.Sprintf("\tirMap[%q] = ir.FromBool(s.%s)\n", schemaFieldName, field.Name))
+		}
 
 	case reflect.Ptr:
 		// Pointer type - dereference and recurse

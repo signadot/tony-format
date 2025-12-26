@@ -50,6 +50,7 @@ func (s *InMemoryTxStore) cleanupLoop() {
 
 // cleanupExpired removes transactions that have exceeded their timeout.
 // Uses the same Timeout value that Commit() uses for inline timeouts.
+// Before deleting, it calls Expire() to notify any waiting participants.
 func (s *InMemoryTxStore) cleanupExpired() {
 	now := time.Now()
 
@@ -59,6 +60,8 @@ func (s *InMemoryTxStore) cleanupExpired() {
 	for id, tx := range s.d {
 		timeout := tx.Timeout()
 		if timeout > 0 && now.Sub(tx.CreatedAt()) > timeout {
+			// Notify waiting participants before removing
+			tx.Expire()
 			delete(s.d, id)
 		}
 	}

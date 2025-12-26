@@ -18,7 +18,7 @@ func TestIndexPatchWithSchema(t *testing.T) {
 	}{
 		{
 			name:   "schema keyed array",
-			schema: &api.Schema{KeyedArrays: map[string]string{"users": "id"}},
+			schema: &api.Schema{AutoIDFields: []api.AutoIDField{{Path: "users", Field: "id"}}},
 			patch: `users:
 - id: joe
   name: Joe
@@ -30,7 +30,7 @@ func TestIndexPatchWithSchema(t *testing.T) {
 		},
 		{
 			name:   "schema nested keyed array",
-			schema: &api.Schema{KeyedArrays: map[string]string{"orders.items": "sku"}},
+			schema: &api.Schema{AutoIDFields: []api.AutoIDField{{Path: "orders.items", Field: "sku"}}},
 			patch: `orders:
   items:
   - sku: ABC
@@ -119,7 +119,7 @@ func TestIndexPatchKeyedArrayBugFix(t *testing.T) {
 		t.Fatalf("failed to parse patch: %v", err)
 	}
 
-	schema := &api.Schema{KeyedArrays: map[string]string{"users": "id"}}
+	schema := &api.Schema{AutoIDFields: []api.AutoIDField{{Path: "users", Field: "id"}}}
 	lastCommit := int64(0)
 	entry := &dlog.Entry{
 		Commit:     1,

@@ -119,6 +119,7 @@ func TestSessionResponse_RoundTrip(t *testing.T) {
 			response: NewPatchResponse(
 				stringPtr("req-2"),
 				43,
+				nil,
 			),
 		},
 		{

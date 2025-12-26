@@ -1,23 +1,29 @@
 # Configuration management example
-# Usage: cat config.tony | o system logd client localhost:9000
+# Usage: cat config.tony | o system logd client localhost:9123
+
+# Handshake
+{hello: {clientId: "config-example"}}
 
 # Set initial config
-{meta: {}, patch: {path: "config", data: {app: {name: "myapp", version: "1.0.0", debug: false}, database: {host: "localhost", port: 5432, pool_size: 10}, features: {new_ui: false, analytics: true}}}}
+{patch: {patch: {path: "config", data: {app: {name: "myapp", version: "1.0.0", debug: false}, database: {host: "localhost", port: 5432, pool_size: 10}, features: {new_ui: false, analytics: true}}}}}
 
 # Read current config
-{meta: {}, body: {path: "config"}}
+{match: {body: {path: "config"}}}
 
 # Enable debug mode
-{meta: {}, patch: {path: "config.app.debug", data: true}}
+{patch: {patch: {path: "config.app.debug", data: true}}}
 
 # Update database pool size
-{meta: {}, patch: {path: "config.database.pool_size", data: 20}}
+{patch: {patch: {path: "config.database.pool_size", data: 20}}}
 
 # Enable new feature flag
-{meta: {}, patch: {path: "config.features.new_ui", data: true}}
+{patch: {patch: {path: "config.features.new_ui", data: true}}}
 
 # Read just features
-{meta: {}, body: {path: "config.features"}}
+{match: {body: {path: "config.features"}}}
 
 # Merge in new settings without overwriting existing
-{meta: {}, patch: {path: "config.app", data: {build: "abc123"}}}
+{patch: {patch: {path: "config.app", data: {build: "abc123"}}}}
+
+# Final config state
+{match: {body: {path: "config"}}}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
@@ -25,11 +26,15 @@ func (c *commitOps) NextCommit() (int64, error) {
 	return c.s.sequence.NextCommit()
 }
 
+func (c *commitOps) GetSchema(scopeID *string) *api.Schema {
+	return c.s.schemaForScope(scopeID)
+}
+
 func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedPatch *ir.Node, txState *tx.State, lastCommit int64) (string, int64, error) {
-	// Extract scope from transaction meta
+	// Extract scope from transaction state
 	var scopeID *string
-	if txState != nil && txState.Meta != nil {
-		scopeID = txState.Meta.Scope
+	if txState != nil {
+		scopeID = txState.Scope
 	}
 
 	entry := dlog.NewEntry(txState, mergedPatch, commit, timestamp, lastCommit, scopeID)

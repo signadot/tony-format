@@ -9,6 +9,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
+	"time"
 )
 
 // ToTonyIR converts Config to a Tony IR node.
@@ -24,6 +25,11 @@ func (s *Config) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
+	// Field: Schema (optional)
+	if s.Schema != nil {
+		irMap["schema"] = s.Schema
+	}
+
 	// Field: Snapshot (optional)
 	if s.Snapshot != nil {
 		node, err = s.Snapshot.ToTonyIR()
@@ -33,7 +39,15 @@ func (s *Config) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["snapshot"] = node
 	}
 
-	// Create IR node with schema tag
+	// Field: Tx (optional)
+	if s.Tx != nil {
+		node, err = s.Tx.ToTonyIR()
+		if err != nil {
+			return nil, err
+		}
+		irMap["tx"] = node
+	}
+
 	return ir.FromMap(irMap).WithTag("!config"), nil
 }
 
@@ -67,10 +81,22 @@ func (s *Config) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
 		}
 		switch fieldName.String {
+		case "schema":
+			if gomap.GetUnmapComments(opts...) {
+				s.Schema = fieldNode
+			} else {
+				s.Schema = fieldNodeUnwrapped
+			}
 		case "snapshot":
 			// Field: Snapshot
 			s.Snapshot = &SnapshotConfig{}
 			if err := s.Snapshot.FromTonyIR(fieldNode); err != nil {
+				return err
+			}
+		case "tx":
+			// Field: Tx
+			s.Tx = &TxConfig{}
+			if err := s.Tx.FromTonyIR(fieldNode); err != nil {
 				return err
 			}
 		}
@@ -101,6 +127,84 @@ func (s *Config) FromTony(data []byte, opts ...gomap.UnmapOption) error {
 	return s.FromTonyIR(node, opts...)
 }
 
+// ToTonyIR converts TxConfig to a Tony IR node.
+func (s *TxConfig) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
+	// Create IR object map
+	irMap := make(map[string]*ir.Node)
+
+	// Field: Timeout
+	irMap["timeout"] = ir.FromInt(int64(s.Timeout))
+
+	return ir.FromMap(irMap).WithTag("!tx-config"), nil
+}
+
+// FromTonyIR populates TxConfig from a Tony IR node.
+func (s *TxConfig) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
+	if node.Type != ir.ObjectType {
+		return fmt.Errorf("expected map for TxConfig, got %v", node.Type)
+	}
+
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
+		switch fieldName.String {
+		case "timeout":
+			// Field: Timeout
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "timeout", fieldNodeUnwrapped.Type)
+			}
+			s.Timeout = time.Duration(*fieldNodeUnwrapped.Int64)
+		}
+	}
+
+	return nil
+}
+
+// ToTony converts TxConfig to Tony format bytes.
+func (s *TxConfig) ToTony(opts ...gomap.MapOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// FromTony parses Tony format bytes and populates TxConfig.
+func (s *TxConfig) FromTony(data []byte, opts ...gomap.UnmapOption) error {
+	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
+	if err != nil {
+		return err
+	}
+	return s.FromTonyIR(node, opts...)
+}
+
 // ToTonyIR converts SnapshotConfig to a Tony IR node.
 func (s *SnapshotConfig) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if s == nil {
@@ -115,7 +219,6 @@ func (s *SnapshotConfig) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Field: MaxBytes
 	irMap["maxBytes"] = ir.FromInt(int64(s.MaxBytes))
 
-	// Create IR node with schema tag
 	return ir.FromMap(irMap).WithTag("!snapshot-config"), nil
 }
 

@@ -152,7 +152,7 @@ func TestSession_Match(t *testing.T) {
 
 	patchData, _ := parse.Parse([]byte(`{users: {alice: {name: "Alice"}}}`))
 	patch := &api.Patch{
-		Patch: api.Body{Path: "", Data: patchData},
+		Patch: api.PathData{Path: "", Data: patchData},
 	}
 	patcher, err := tx.NewPatcher(patch)
 	if err != nil {
@@ -223,7 +223,7 @@ func TestSession_MatchWithFilter(t *testing.T) {
 
 	patchData, _ := parse.Parse([]byte(`{users: [{id: "1", name: "Alice", active: true}, {id: "2", name: "Bob", active: false}, {id: "3", name: "Charlie", active: true}]}`))
 	patch := &api.Patch{
-		Patch: api.Body{Path: "", Data: patchData},
+		Patch: api.PathData{Path: "", Data: patchData},
 	}
 	patcher, err := tx.NewPatcher(patch)
 	if err != nil {
@@ -353,7 +353,7 @@ func TestSession_SubscribeUnsubscribe(t *testing.T) {
 	conn := newMockConn()
 
 	// Write subscribe request (bracketed format for wire protocol)
-	conn.WriteRequest(`{id: "sub-1", watch: {path: users, fullState: false}}`)
+	conn.WriteRequest(`{id: "sub-1", watch: {path: users}}`)
 
 	session := NewSession("test-server", conn, &SessionConfig{
 		Storage: store,
@@ -427,11 +427,11 @@ func TestSession_SubscribeUnsubscribe(t *testing.T) {
 }
 
 // splitTonyDocs splits response bytes into individual Tony documents.
-// Documents are separated by blank lines.
+// Wire format: each document is on a single line, separated by newlines.
 func splitTonyDocs(data []byte) [][]byte {
 	var docs [][]byte
-	// Split on double newline (blank line separator)
-	parts := bytes.Split(data, []byte("\n\n"))
+	// Wire format: split on newlines (each response is on one line)
+	parts := bytes.Split(data, []byte("\n"))
 	for _, part := range parts {
 		part = bytes.TrimSpace(part)
 		if len(part) > 0 {
@@ -457,7 +457,7 @@ func TestSession_SubscribeReceivesEvents(t *testing.T) {
 	conn := newMockConn()
 
 	// Write subscribe request (bracketed format for wire protocol)
-	conn.WriteRequest(`{watch: {path: users, fullState: false}}`)
+	conn.WriteRequest(`{watch: {path: users}}`)
 
 	session := NewSession("test-server", conn, &SessionConfig{
 		Storage: store,
@@ -479,7 +479,7 @@ func TestSession_SubscribeReceivesEvents(t *testing.T) {
 
 	patchData, _ := parse.Parse([]byte(`{users: {alice: {name: "Alice"}}}`))
 	patch := &api.Patch{
-		Patch: api.Body{Path: "", Data: patchData},
+		Patch: api.PathData{Path: "", Data: patchData},
 	}
 	patcher, err := tx.NewPatcher(patch)
 	if err != nil {
@@ -545,7 +545,7 @@ func TestSession_SubscribeWithReplay(t *testing.T) {
 		}
 		patchData, _ := parse.Parse([]byte(fmt.Sprintf(`{users: {user%d: {name: "User %d"}}}`, i, i)))
 		patch := &api.Patch{
-			Patch: api.Body{Path: "", Data: patchData},
+			Patch: api.PathData{Path: "", Data: patchData},
 		}
 		patcher, err := tx.NewPatcher(patch)
 		if err != nil {
@@ -559,8 +559,8 @@ func TestSession_SubscribeWithReplay(t *testing.T) {
 
 	conn := newMockConn()
 
-	// Subscribe with fromCommit=0 to replay from beginning
-	conn.WriteRequest(`{watch: {path: users, fromCommit: 0, fullState: false}}`)
+	// Subscribe with fromCommit=0 to replay from beginning, noInit to skip state event
+	conn.WriteRequest(`{watch: {path: users, fromCommit: 0, noInit: true}}`)
 
 	session := NewSession("test-server", conn, &SessionConfig{
 		Storage: store,
@@ -582,7 +582,7 @@ func TestSession_SubscribeWithReplay(t *testing.T) {
 	}
 	patchData, _ := parse.Parse([]byte(`{users: {user4: {name: "User 4"}}}`))
 	patch := &api.Patch{
-		Patch: api.Body{Path: "", Data: patchData},
+		Patch: api.PathData{Path: "", Data: patchData},
 	}
 	patcher, err := tx.NewPatcher(patch)
 	if err != nil {
@@ -675,7 +675,7 @@ func TestSession_SubscribeWithFullStateReplay(t *testing.T) {
 	}
 	patchData, _ := parse.Parse([]byte(`{users: {alice: {name: "Alice"}}}`))
 	patch := &api.Patch{
-		Patch: api.Body{Path: "", Data: patchData},
+		Patch: api.PathData{Path: "", Data: patchData},
 	}
 	patcher, err := tx.NewPatcher(patch)
 	if err != nil {
@@ -693,7 +693,7 @@ func TestSession_SubscribeWithFullStateReplay(t *testing.T) {
 	}
 	patchData, _ = parse.Parse([]byte(`{users: {bob: {name: "Bob"}}}`))
 	patch = &api.Patch{
-		Patch: api.Body{Path: "", Data: patchData},
+		Patch: api.PathData{Path: "", Data: patchData},
 	}
 	patcher, err = tx.NewPatcher(patch)
 	if err != nil {
@@ -706,9 +706,9 @@ func TestSession_SubscribeWithFullStateReplay(t *testing.T) {
 
 	conn := newMockConn()
 
-	// Subscribe with fromCommit=1 and fullState=true
+	// Subscribe with fromCommit=1
 	// Should get state at commit 1, then patch for commit 2
-	conn.WriteRequest(`{watch: {path: users, fromCommit: 1, fullState: true}}`)
+	conn.WriteRequest(`{watch: {path: users, fromCommit: 1}}`)
 
 	session := NewSession("test-server", conn, &SessionConfig{
 		Storage: store,

@@ -1,23 +1,26 @@
 # User CRUD operations example
-# Usage: cat user-crud.tony | o system logd client localhost:9000
+# Usage: cat user-crud.tony | o system logd client localhost:9123
+
+# Handshake
+{hello: {clientId: "user-crud-example"}}
 
 # Create user alice
-{meta: {}, patch: {path: "users.alice", data: {name: "Alice Smith", email: "alice@example.com", role: "admin"}}}
+{patch: {patch: {path: "users.alice", data: {name: "Alice Smith", email: "alice@example.com", role: "admin"}}}}
 
 # Create user bob
-{meta: {}, patch: {path: "users.bob", data: {name: "Bob Jones", email: "bob@example.com", role: "user"}}}
+{patch: {patch: {path: "users.bob", data: {name: "Bob Jones", email: "bob@example.com", role: "user"}}}}
 
 # Read all users
-{meta: {}, body: {path: "users"}}
+{match: {body: {path: "users"}}}
 
 # Update alice's role
-{meta: {}, patch: {path: "users.alice.role", data: "superadmin"}}
+{patch: {patch: {path: "users.alice.role", data: "superadmin"}}}
 
 # Read alice
-{meta: {}, body: {path: "users.alice"}}
+{match: {body: {path: "users.alice"}}}
 
 # Delete bob's email (set to null via !delete)
-{meta: {}, patch: {path: "users.bob.email", data: !delete null}}
+{patch: {patch: {path: "users.bob.email", data: !delete null}}}
 
 # Final state
-{meta: {}, body: {path: "users"}}
+{match: {body: {path: "users"}}}

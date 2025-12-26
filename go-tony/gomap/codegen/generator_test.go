@@ -98,6 +98,60 @@ func TestGenerateToTonyIRMethod_OptionalField(t *testing.T) {
 	}
 }
 
+func TestGenerateToTonyIRMethod_OmitzeroBool(t *testing.T) {
+	structInfo := &StructInfo{
+		Name:    "Event",
+		Package: "models",
+		Fields: []*FieldInfo{
+			{
+				Name:            "Name",
+				SchemaFieldName: "name",
+				Type:            reflect.TypeOf(""),
+			},
+			{
+				Name:            "Complete",
+				SchemaFieldName: "complete",
+				Type:            reflect.TypeOf(false),
+				Omitzero:       true,
+			},
+			{
+				Name:            "Required",
+				SchemaFieldName: "required",
+				Type:            reflect.TypeOf(false),
+				Omitzero:       false, // no omitzero - should always serialize
+			},
+		},
+		StructSchema: &gomap.StructSchema{
+			SchemaName: "event",
+		},
+	}
+
+	s := &schema.Schema{
+		Signature: &schema.Signature{
+			Name: "event",
+		},
+	}
+
+	code, err := GenerateToTonyIRMethod(structInfo, s, "github.com/signadot/tony-format/go-tony/gomap/codegen")
+	if err != nil {
+		t.Fatalf("GenerateToTonyMethod failed: %v", err)
+	}
+
+	// Check that omitzero bool field has conditional
+	if !strings.Contains(code, "if s.Complete {") {
+		t.Errorf("Expected conditional for omitzero Complete field, got:\n%s", code)
+	}
+
+	// Check that non-omitzero bool field is unconditional
+	// The Required field should be set directly without a conditional
+	if strings.Contains(code, "if s.Required {") {
+		t.Errorf("Did not expect conditional for non-omitzero Required field, got:\n%s", code)
+	}
+	if !strings.Contains(code, `irMap["required"] = ir.FromBool(s.Required)`) {
+		t.Errorf("Expected unconditional Required field mapping, got:\n%s", code)
+	}
+}
+
 func TestGenerateToTonyIRMethod_SliceField(t *testing.T) {
 	structInfo := &StructInfo{
 		Name:    "Person",

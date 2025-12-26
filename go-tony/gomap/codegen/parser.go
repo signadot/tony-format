@@ -29,6 +29,24 @@ func ExtractTypes(file *ast.File, filePath string) ([]*StructInfo, error) {
 	// Extract imports
 	imports := ExtractImports(file)
 
+	// First pass: collect all struct types in the file for type definition resolution
+	structTypes := make(map[string]*ast.StructType)
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok {
+			continue
+		}
+		for _, spec := range genDecl.Specs {
+			typeSpec, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+			if structType, ok := typeSpec.Type.(*ast.StructType); ok {
+				structTypes[typeSpec.Name.Name] = structType
+			}
+		}
+	}
+
 	for _, decl := range file.Decls {
 		genDecl, ok := decl.(*ast.GenDecl)
 		if !ok {
@@ -68,12 +86,22 @@ func ExtractTypes(file *ast.File, filePath string) ([]*StructInfo, error) {
 				continue
 			}
 
-			// Extract fields (only for structs)
+			// Extract fields
 			var fields []*FieldInfo
 			if structType, ok := typeSpec.Type.(*ast.StructType); ok {
+				// Direct struct type
 				fields, err = extractFields(structType)
 				if err != nil {
 					return nil, fmt.Errorf("failed to extract fields from struct %q: %w", typeSpec.Name.Name, err)
+				}
+			} else if ident, ok := typeSpec.Type.(*ast.Ident); ok {
+				// Type definition based on another type (e.g., type B A)
+				// Look up the underlying type in the same file
+				if underlyingStruct, ok := structTypes[ident.Name]; ok {
+					fields, err = extractFields(underlyingStruct)
+					if err != nil {
+						return nil, fmt.Errorf("failed to extract fields from underlying struct %q for type %q: %w", ident.Name, typeSpec.Name.Name, err)
+					}
 				}
 			}
 
@@ -332,6 +360,9 @@ func extractFields(structType *ast.StructType) ([]*FieldInfo, error) {
 				if _, ok := parsed["optional"]; ok {
 					fieldInfo.Optional = true
 				}
+				if _, ok := parsed["omitzero"]; ok {
+					fieldInfo.Omitzero = true
+				}
 
 				// Validate: cannot have both required and optional
 				if fieldInfo.Required && fieldInfo.Optional {
@@ -459,6 +490,11 @@ func parseSchemaTagContent(content string) (*gomap.StructSchema, error) {
 		allowExtra = true
 	}
 
+	noTag := false
+	if _, ok := parsed["notag"]; ok {
+		noTag = true
+	}
+
 	return &gomap.StructSchema{
 		Mode:                 mode,
 		SchemaName:           schemaName,
@@ -467,6 +503,7 @@ func parseSchemaTagContent(content string) (*gomap.StructSchema, error) {
 		CommentFieldName:     parsed["comment"],
 		LineCommentFieldName: parsed["LineComment"],
 		TagFieldName:         parsed["tag"],
+		NoTag:                noTag,
 	}, nil
 }
 

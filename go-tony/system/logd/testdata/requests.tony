@@ -1,36 +1,45 @@
-# Example logd client requests
-# Usage: cat requests.tony | o system logd client localhost:9000
+# Example logd session requests
+# Usage: cat requests.tony | o system logd client localhost:9123
 # Each non-comment line is a separate request in wire format
-# MATCH requests: have meta: and body: fields
-# PATCH requests: have meta:, patch:, and optionally match: fields
+
+# --- HELLO (handshake - always first) ---
+
+{hello: {clientId: "example-client"}}
 
 # --- MATCH REQUESTS (reads) ---
 
 # Read entire document at root
-{meta: {}, body: {path: ""}}
+{match: {body: {path: ""}}}
 
 # Read data at a specific path
-{meta: {}, body: {path: "users.alice"}}
-
-# Read at a specific commit/seq
-{meta: {seq: 42}, body: {path: "orders"}}
+{match: {body: {path: "users.alice"}}}
 
 # --- PATCH REQUESTS (writes) ---
 
 # Create/update a user
-{meta: {}, patch: {path: "users.alice", data: {name: "Alice", email: "alice@example.com"}}}
+{patch: {patch: {path: "users.alice", data: {name: "Alice", email: "alice@example.com"}}}}
 
 # Update a nested field
-{meta: {}, patch: {path: "users.alice.status", data: "active"}}
+{patch: {patch: {path: "users.alice.status", data: "active"}}}
 
 # Insert into an array using !insert
-{meta: {}, patch: {path: "logs", data: !insert {timestamp: "2024-01-01T00:00:00Z", message: "hello"}}}
+{patch: {patch: {path: "logs", data: !insert {timestamp: "2024-01-01T00:00:00Z", message: "hello"}}}}
 
 # Delete a field using !delete
-{meta: {}, patch: {path: "users.alice.temp_token", data: !delete null}}
+{patch: {patch: {path: "users.alice.temp_token", data: !delete null}}}
 
-# Conditional patch - only apply if match succeeds
-{meta: {}, match: {path: "users.alice.status", data: "active"}, patch: {path: "users.alice.last_seen", data: "2024-01-01T12:00:00Z"}}
+# --- WATCH REQUESTS (subscriptions) ---
 
-# Patch with transaction ID for multi-participant coordination
-{meta: {tx: "tx-123"}, patch: {path: "orders.order-1", data: {status: "shipped"}}}
+# Watch a path for changes
+{watch: {path: "users", fromCommit: 0}}
+
+# Unwatch a path
+{unwatch: {path: "users"}}
+
+# --- TRANSACTIONS (multi-participant coordination) ---
+
+# Create a new transaction with 2 participants
+{newtx: {participants: 2}}
+
+# Patch with transaction ID (response includes txId to use)
+# {patch: {txId: 123, patch: {path: "orders.order-1", data: {status: "shipped"}}}}

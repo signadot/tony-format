@@ -18,7 +18,7 @@ func TestWatchHub_SubscribeUnsubscribe(t *testing.T) {
 	}
 
 	// Subscribe
-	sub1 := NewWatcher("users", nil, nil, true, 10)
+	sub1 := NewWatcher("users", nil, nil, 10)
 	hub.Watch(sub1)
 
 	if hub.WatcherCount() != 1 {
@@ -29,7 +29,7 @@ func TestWatchHub_SubscribeUnsubscribe(t *testing.T) {
 	}
 
 	// Subscribe another to same path
-	sub2 := NewWatcher("users", nil, nil, false, 10)
+	sub2 := NewWatcher("users", nil, nil, 10)
 	hub.Watch(sub2)
 
 	if hub.WatcherCount() != 2 {
@@ -40,7 +40,7 @@ func TestWatchHub_SubscribeUnsubscribe(t *testing.T) {
 	}
 
 	// Subscribe to different path
-	sub3 := NewWatcher("posts", nil, nil, true, 10)
+	sub3 := NewWatcher("posts", nil, nil, 10)
 	hub.Watch(sub3)
 
 	if hub.WatcherCount() != 3 {
@@ -84,7 +84,7 @@ func TestWatchHub_SubscribeUnsubscribe(t *testing.T) {
 func TestWatchHub_Broadcast_ExactMatch(t *testing.T) {
 	hub := NewWatchHub()
 
-	sub := NewWatcher("users", nil, nil, true, 10)
+	sub := NewWatcher("users", nil, nil, 10)
 	hub.Watch(sub)
 	defer hub.Unwatch(sub)
 
@@ -112,7 +112,7 @@ func TestWatchHub_Broadcast_PrefixMatch(t *testing.T) {
 	hub := NewWatchHub()
 
 	// Subscribe to "users"
-	sub := NewWatcher("users", nil, nil, true, 10)
+	sub := NewWatcher("users", nil, nil, 10)
 	hub.Watch(sub)
 	defer hub.Unwatch(sub)
 
@@ -141,7 +141,7 @@ func TestWatchHub_Broadcast_ParentMatch(t *testing.T) {
 	hub := NewWatchHub()
 
 	// Subscribe to "users.alice"
-	sub := NewWatcher("users.alice", nil, nil, true, 10)
+	sub := NewWatcher("users.alice", nil, nil, 10)
 	hub.Watch(sub)
 	defer hub.Unwatch(sub)
 
@@ -170,7 +170,7 @@ func TestWatchHub_Broadcast_NoMatch(t *testing.T) {
 	hub := NewWatchHub()
 
 	// Subscribe to "users"
-	sub := NewWatcher("users", nil, nil, true, 10)
+	sub := NewWatcher("users", nil, nil, 10)
 	hub.Watch(sub)
 	defer hub.Unwatch(sub)
 
@@ -197,7 +197,7 @@ func TestWatchHub_Broadcast_EmptyPath(t *testing.T) {
 	hub := NewWatchHub()
 
 	// Subscribe to "" (root - matches everything)
-	sub := NewWatcher("", nil, nil, true, 10)
+	sub := NewWatcher("", nil, nil, 10)
 	hub.Watch(sub)
 	defer hub.Unwatch(sub)
 
@@ -226,7 +226,7 @@ func TestWatchHub_Broadcast_MultipleKPaths(t *testing.T) {
 	hub := NewWatchHub()
 
 	// Subscribe to "users"
-	sub := NewWatcher("users", nil, nil, true, 10)
+	sub := NewWatcher("users", nil, nil, 10)
 	hub.Watch(sub)
 	defer hub.Unwatch(sub)
 
@@ -256,7 +256,7 @@ func TestWatchHub_Broadcast_SlowConsumerFails(t *testing.T) {
 	hub := NewWatchHubWithTimeout(50 * time.Millisecond)
 
 	// Subscribe with small buffer
-	sub := NewWatcher("users", nil, nil, true, 1)
+	sub := NewWatcher("users", nil, nil, 1)
 	hub.Watch(sub)
 
 	// Fill the buffer
@@ -317,7 +317,7 @@ func TestWatchHub_Broadcast_SlowConsumerFails(t *testing.T) {
 func TestWatchHub_Broadcast_FastConsumerSucceeds(t *testing.T) {
 	hub := NewWatchHubWithTimeout(50 * time.Millisecond)
 
-	sub := NewWatcher("users", nil, nil, true, 10)
+	sub := NewWatcher("users", nil, nil, 10)
 	hub.Watch(sub)
 	defer hub.Unwatch(sub)
 
@@ -361,7 +361,7 @@ func TestWatchHub_Concurrent(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := 0; j < numOps; j++ {
-				sub := NewWatcher("test", nil, nil, true, 10)
+				sub := NewWatcher("test", nil, nil, 10)
 				hub.Watch(sub)
 				hub.Unwatch(sub)
 			}

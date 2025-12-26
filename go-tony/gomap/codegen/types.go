@@ -65,6 +65,10 @@ type FieldInfo struct {
 	// Required indicates if the field is required (overrides type-based inference)
 	Required bool
 
+	// Omitzero indicates if the field should be omitted when it has a zero value
+	// (false for bool, 0 for numeric, "" for string, nil for pointer/slice/map)
+	Omitzero bool
+
 	// Omit indicates if the field should be omitted from schema/code generation
 	Omit bool
 

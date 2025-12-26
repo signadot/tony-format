@@ -54,6 +54,10 @@ func (m *mockCommitOps) NextCommit() (int64, error) {
 	return m.currentCommit, nil
 }
 
+func (m *mockCommitOps) GetSchema(scopeID *string) *api.Schema {
+	return nil // No auto-id schema in tests by default
+}
+
 func (m *mockCommitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedPatch *ir.Node, txState *State, lastCommit int64) (string, int64, error) {
 	m.written = append(m.written, writtenEntry{
 		commit:      commit,
@@ -114,8 +118,7 @@ func TestNewPatcher(t *testing.T) {
 	}
 
 	patch1 := &api.Patch{
-		Meta: api.PatchMeta{},
-		Patch: api.Body{
+		Patch: api.PathData{
 			Path: "foo",
 			Data: ir.FromString("bar"),
 		},
@@ -135,8 +138,7 @@ func TestNewPatcher(t *testing.T) {
 
 	// Try to add another patcher when capacity is full
 	patch2 := &api.Patch{
-		Meta: api.PatchMeta{},
-		Patch: api.Body{
+		Patch: api.PathData{
 			Path: "baz",
 			Data: ir.FromString("qux"),
 		},
@@ -163,8 +165,7 @@ func TestCommit_Success(t *testing.T) {
 	_ = store.Put(tx)
 
 	patch := &api.Patch{
-		Meta: api.PatchMeta{},
-		Patch: api.Body{
+		Patch: api.PathData{
 			Path: "foo",
 			Data: ir.FromString("bar"),
 		},
@@ -226,8 +227,7 @@ func TestCommit_FirstCommit(t *testing.T) {
 	_ = store.Put(tx)
 
 	patch := &api.Patch{
-		Meta: api.PatchMeta{},
-		Patch: api.Body{
+		Patch: api.PathData{
 			Path: "foo",
 			Data: ir.FromString("bar"),
 		},
@@ -272,12 +272,11 @@ func TestCommit_MatchFailure(t *testing.T) {
 	_ = store.Put(tx)
 
 	patch := &api.Patch{
-		Meta: api.PatchMeta{},
-		Match: &api.Body{
+		Match: &api.PathData{
 			Path: "foo",
 			Data: ir.FromString("expected"),
 		},
-		Patch: api.Body{
+		Patch: api.PathData{
 			Path: "foo",
 			Data: ir.FromString("bar"),
 		},
@@ -330,16 +329,14 @@ func TestCommit_MultiplePatches(t *testing.T) {
 	}
 
 	patch1 := &api.Patch{
-		Meta: api.PatchMeta{},
-		Patch: api.Body{
+		Patch: api.PathData{
 			Path: "foo",
 			Data: ir.FromString("bar"),
 		},
 	}
 
 	patch2 := &api.Patch{
-		Meta: api.PatchMeta{},
-		Patch: api.Body{
+		Patch: api.PathData{
 			Path: "baz",
 			Data: ir.FromInt(42),
 		},
@@ -396,8 +393,7 @@ func TestCommit_Idempotent(t *testing.T) {
 	_ = store.Put(tx)
 
 	patch := &api.Patch{
-		Meta: api.PatchMeta{},
-		Patch: api.Body{
+		Patch: api.PathData{
 			Path: "foo",
 			Data: ir.FromString("bar"),
 		},
@@ -440,8 +436,7 @@ func TestCommit_NoCommitOps(t *testing.T) {
 	_ = store.Put(tx)
 
 	patch := &api.Patch{
-		Meta: api.PatchMeta{},
-		Patch: api.Body{
+		Patch: api.PathData{
 			Path: "foo",
 			Data: ir.FromString("bar"),
 		},
@@ -464,7 +459,7 @@ func TestCommit_NoCommitOps(t *testing.T) {
 func TestCommit_ReadStateError(t *testing.T) {
 	store := NewInMemoryTxStore()
 	commitOps := &mockCommitOpsWithError{
-		mockCommitOps: *newMockCommitOps(),
+		mockCommitOps:  *newMockCommitOps(),
 		readStateError: errors.New("read state failed"),
 	}
 	commitOps.currentCommit = 10
@@ -479,12 +474,11 @@ func TestCommit_ReadStateError(t *testing.T) {
 	_ = store.Put(tx)
 
 	patch := &api.Patch{
-		Meta: api.PatchMeta{},
-		Match: &api.Body{
+		Match: &api.PathData{
 			Path: "foo",
 			Data: ir.FromString("expected"),
 		},
-		Patch: api.Body{
+		Patch: api.PathData{
 			Path: "foo",
 			Data: ir.FromString("bar"),
 		},
@@ -536,8 +530,7 @@ func TestCommit_Timeout(t *testing.T) {
 
 	// Only add one patcher (expecting 2)
 	patch := &api.Patch{
-		Meta: api.PatchMeta{},
-		Patch: api.Body{
+		Patch: api.PathData{
 			Path: "foo",
 			Data: ir.FromString("bar"),
 		},
@@ -604,15 +597,13 @@ func TestCommit_NoTimeout(t *testing.T) {
 
 	// Add both patchers
 	patch1 := &api.Patch{
-		Meta: api.PatchMeta{},
-		Patch: api.Body{
+		Patch: api.PathData{
 			Path: "foo",
 			Data: ir.FromString("bar"),
 		},
 	}
 	patch2 := &api.Patch{
-		Meta: api.PatchMeta{},
-		Patch: api.Body{
+		Patch: api.PathData{
 			Path: "baz",
 			Data: ir.FromString("qux"),
 		},

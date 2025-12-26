@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
@@ -19,12 +20,14 @@ type txCoord struct {
 	expectedCount int    // Expected number of participants
 
 	// Coordination for multi-participant transactions
-	ready      chan struct{}  // Closed when all participants have joined
-	readyOnce  sync.Once      // Ensures ready is closed only once
-	commitOnce sync.Once      // Ensures only one goroutine performs commit
-	patchers   []*txPatcher   // All patchers for this transaction
-	result     *Result        // Shared result after commit
-	resultMu   sync.RWMutex   // Protects result
+	ready       chan struct{} // Closed when all participants have joined
+	readyOnce   sync.Once     // Ensures ready is closed only once
+	expired     chan struct{} // Closed when transaction expires
+	expiredOnce sync.Once     // Ensures expired is closed only once
+	commitOnce  sync.Once     // Ensures only one goroutine performs commit
+	patchers    []*txPatcher  // All patchers for this transaction
+	result      *Result       // Shared result after commit
+	resultMu    sync.RWMutex  // Protects result
 }
 
 func New(store Store, commitOps CommitOps, state *State) Tx {
@@ -34,6 +37,7 @@ func New(store Store, commitOps CommitOps, state *State) Tx {
 		state:         state,
 		expectedCount: cap(state.PatcherData), // Use capacity, not length
 		ready:         make(chan struct{}),
+		expired:       make(chan struct{}),
 	}
 }
 
@@ -77,6 +81,13 @@ func (co *txCoord) Timeout() time.Duration {
 	return co.state.Timeout
 }
 
+// Scope returns the scope for this transaction.
+func (co *txCoord) Scope() *string {
+	co.mu.RLock()
+	defer co.mu.RUnlock()
+	return co.state.Scope
+}
+
 // UpdateState atomically updates the transaction state.
 func (co *txCoord) UpdateState(updateFn func(*State) error) error {
 	co.mu.Lock()
@@ -118,6 +129,27 @@ func (co *txCoord) IsComplete() bool {
 	co.mu.RLock()
 	defer co.mu.RUnlock()
 	return len(co.state.PatcherData) >= co.expectedCount
+}
+
+// Expire marks the transaction as expired, notifying any waiting participants.
+// This is called by the store's cleanup routine before deleting the transaction.
+// Safe to call multiple times.
+func (co *txCoord) Expire() {
+	co.expiredOnce.Do(func() {
+		// Set error result for any participants that check later
+		co.resultMu.Lock()
+		if co.result == nil {
+			co.result = &Result{
+				Committed: false,
+				Matched:   false,
+				Error:     fmt.Errorf("transaction expired: cleanup removed transaction %d", co.state.TxID),
+			}
+		}
+		co.resultMu.Unlock()
+
+		// Signal expiry to any waiting participants
+		close(co.expired)
+	})
 }
 
 // NewPatcher creates a new patcher handle for this transaction.
@@ -169,7 +201,7 @@ func (co *txCoord) NewPatcher(p *api.Patch) (Patcher, error) {
 // commit, and all patchers receive the same shared result.
 //
 // Commit flow:
-// 1. Wait for all participants to join (ready channel)
+// 1. Wait for all participants to join (ready channel) or expiry (expired channel)
 // 2. Check if already committed (idempotent)
 // 3. Read transaction state
 // 4. Evaluate all match conditions atomically
@@ -190,6 +222,12 @@ func (p *txPatcher) Commit() *Result {
 		select {
 		case <-co.ready:
 			// All participants joined
+		case <-co.expired:
+			// Transaction was expired by cleanup - return the pre-set result
+			co.resultMu.RLock()
+			result := co.result
+			co.resultMu.RUnlock()
+			return result
 		case <-time.After(timeout):
 			// Timeout waiting for participants - use commitOnce to set result exactly once
 			co.commitOnce.Do(func() {
@@ -208,8 +246,17 @@ func (p *txPatcher) Commit() *Result {
 			return result
 		}
 	} else {
-		// No timeout configured - wait indefinitely
-		<-co.ready
+		// No timeout configured - wait for ready or expired
+		select {
+		case <-co.ready:
+			// All participants joined
+		case <-co.expired:
+			// Transaction was expired by cleanup - return the pre-set result
+			co.resultMu.RLock()
+			result := co.result
+			co.resultMu.RUnlock()
+			return result
+		}
 	}
 
 	// Use commitOnce to ensure only one goroutine performs the commit.
@@ -237,11 +284,25 @@ func (p *txPatcher) Commit() *Result {
 		co.resultMu.Unlock()
 	})
 
-	// All goroutines return the shared result
+	// Get the shared result
 	co.resultMu.RLock()
-	result := co.result
+	sharedResult := co.result
 	co.resultMu.RUnlock()
-	return result
+
+	// Return per-patcher result with their specific patched data
+	// Data is only populated on successful commit
+	var data *ir.Node
+	if sharedResult.Committed && p.data != nil && p.data.API != nil {
+		data = p.data.API.Patch.Data
+	}
+
+	return &Result{
+		Committed: sharedResult.Committed,
+		Matched:   sharedResult.Matched,
+		Commit:    sharedResult.Commit,
+		Data:      data,
+		Error:     sharedResult.Error,
+	}
 }
 
 // doCommit performs the actual commit logic. Called exactly once via commitOnce.
@@ -275,6 +336,21 @@ func (p *txPatcher) doCommit(state *State, commitOps CommitOps) *Result {
 		}
 	}
 
+	// Allocate commit number early so we can generate auto-IDs
+	commit, err := commitOps.NextCommit()
+	if err != nil {
+		_ = co.storage.Delete(state.TxID)
+		return &Result{
+			Committed: false,
+			Matched:   true,
+			Error:     fmt.Errorf("failed to allocate commit: %w", err),
+		}
+	}
+
+	// Inject auto-generated IDs for keyed arrays before merging
+	schema := commitOps.GetSchema(state.Scope)
+	InjectAutoIDs(commit, schema, state.PatcherData)
+
 	// Tag each patch data root for streaming processor
 	TagPatchRoots(state.PatcherData)
 
@@ -285,16 +361,6 @@ func (p *txPatcher) doCommit(state *State, commitOps CommitOps) *Result {
 			Committed: false,
 			Matched:   true,
 			Error:     fmt.Errorf("failed to merge patches: %w", err),
-		}
-	}
-
-	commit, err := commitOps.NextCommit()
-	if err != nil {
-		_ = co.storage.Delete(state.TxID)
-		return &Result{
-			Committed: false,
-			Matched:   true,
-			Error:     fmt.Errorf("failed to allocate commit: %w", err),
 		}
 	}
 

@@ -15,7 +15,7 @@ import (
 
 // Hello is the initial handshake message from client to server.
 //
-//tony:schemagen=session-hello
+//tony:schemagen=session-hello,notag
 type Hello struct {
 	ClientID string  `tony:"field=clientId"`
 	Scope    *string `tony:"field=scope"` // Optional: scope for COW isolation (applies to all operations in session)
@@ -23,50 +23,51 @@ type Hello struct {
 
 // HelloResponse is the server's response to a Hello message.
 //
-//tony:schemagen=session-hello-response
+//tony:schemagen=session-hello-response,notag
 type HelloResponse struct {
-	ServerID string `tony:"field=serverId"`
+	ServerID string   `tony:"field=serverId"`
+	Schema   *ir.Node `tony:"field=schema"` // Server's schema (if configured)
 }
 
 // MatchRequest is a request to read state at a path.
 //
-//tony:schemagen=session-match-request
+//tony:schemagen=session-match-request,notag
 type MatchRequest struct {
-	Body Body `tony:"field=body"`
+	Body PathData `tony:"field=body"`
 }
 
 // PatchRequest is a request to apply a patch.
 // If TxID is set, the patch joins an existing multi-participant transaction.
 // If TxID is nil, a new single-participant transaction is created.
 //
-//tony:schemagen=session-patch-request
+//tony:schemagen=session-patch-request,notag
 type PatchRequest struct {
 	TxID    *int64  `tony:"field=txId"`    // Optional: transaction ID for multi-participant tx
 	Timeout *string `tony:"field=timeout"` // Optional: timeout for this participant (e.g., "5s", "1m")
-	Patch   Body    `tony:"field=patch"`
+	Patch   PathData `tony:"field=patch"`
 }
 
 // NewTxRequest creates a new multi-participant transaction.
 // The transaction will wait for the specified number of participants
 // to submit their patches before committing atomically.
 //
-//tony:schemagen=session-newtx-request
+//tony:schemagen=session-newtx-request,notag
 type NewTxRequest struct {
 	Participants int `tony:"field=participants"` // Number of expected participants (must be >= 1)
 }
 
 // WatchRequest is a request to watch changes at a path.
 //
-//tony:schemagen=session-watch-request
+//tony:schemagen=session-watch-request,notag
 type WatchRequest struct {
 	Path       string `tony:"field=path"`
 	FromCommit *int64 `tony:"field=fromCommit"` // Starting commit (nil = current)
-	FullState  bool   `tony:"field=fullState"`  // If true, first event is full state at fromCommit
+	NoInit     bool   `tony:"field=noInit"`     // If true, skip initial state (default: send initial state)
 }
 
 // UnwatchRequest is a request to stop watching a path.
 //
-//tony:schemagen=session-unwatch-request
+//tony:schemagen=session-unwatch-request,notag
 type UnwatchRequest struct {
 	Path string `tony:"field=path"`
 }
@@ -74,7 +75,7 @@ type UnwatchRequest struct {
 // DeleteScopeRequest deletes a scope and all its data.
 // Only available from baseline sessions (no scope in hello).
 //
-//tony:schemagen=session-delete-scope-request
+//tony:schemagen=session-delete-scope-request,notag
 type DeleteScopeRequest struct {
 	ScopeID string `tony:"field=scopeId"`
 }
@@ -82,7 +83,7 @@ type DeleteScopeRequest struct {
 // SessionRequest is the top-level request message (union type).
 // Only one of the fields should be set.
 //
-//tony:schemagen=session-request
+//tony:schemagen=session-request,notag
 type SessionRequest struct {
 	ID *string `tony:"field=id"` // Optional: if set, response will include this ID (async mode)
 
@@ -99,7 +100,7 @@ type SessionRequest struct {
 
 // MatchResult is the result of a match request.
 //
-//tony:schemagen=session-match-result
+//tony:schemagen=session-match-result,notag
 type MatchResult struct {
 	Commit int64    `tony:"field=commit"`
 	Body   *ir.Node `tony:"field=body"`
@@ -107,21 +108,22 @@ type MatchResult struct {
 
 // PatchResult is the result of a patch request.
 //
-//tony:schemagen=session-patch-result
+//tony:schemagen=session-patch-result,notag
 type PatchResult struct {
-	Commit int64 `tony:"field=commit"`
+	Commit int64    `tony:"field=commit"`
+	Data   *ir.Node `tony:"field=data"` // The patched data (with any auto-generated IDs)
 }
 
 // NewTxResult is the result of a newtx request.
 //
-//tony:schemagen=session-newtx-result
+//tony:schemagen=session-newtx-result,notag
 type NewTxResult struct {
 	TxID int64 `tony:"field=txId"` // Transaction ID for use in subsequent patch requests
 }
 
 // WatchResult is the result of a watch request.
 //
-//tony:schemagen=session-watch-result
+//tony:schemagen=session-watch-result,notag
 type WatchResult struct {
 	Watching    string `tony:"field=watching"`    // The path being watched
 	ReplayingTo *int64 `tony:"field=replayingTo"` // If replaying, the commit we'll replay up to
@@ -129,14 +131,14 @@ type WatchResult struct {
 
 // UnwatchResult is the result of an unwatch request.
 //
-//tony:schemagen=session-unwatch-result
+//tony:schemagen=session-unwatch-result,notag
 type UnwatchResult struct {
 	Unwatched string `tony:"field=unwatched"` // The path that was unwatched
 }
 
 // DeleteScopeResult is the result of a deleteScope request.
 //
-//tony:schemagen=session-delete-scope-result
+//tony:schemagen=session-delete-scope-result,notag
 type DeleteScopeResult struct {
 	ScopeID string `tony:"field=scopeId"` // The deleted scope ID
 }
@@ -144,7 +146,7 @@ type DeleteScopeResult struct {
 // SessionResult is the result of a request (union type).
 // Only one of the fields should be set.
 //
-//tony:schemagen=session-result
+//tony:schemagen=session-result,notag
 type SessionResult struct {
 	Hello       *HelloResponse     `tony:"field=hello"`
 	Match       *MatchResult       `tony:"field=match"`
@@ -157,18 +159,18 @@ type SessionResult struct {
 
 // SessionEvent is a streaming event from a watch.
 //
-//tony:schemagen=session-event
+//tony:schemagen=session-event,notag
 type SessionEvent struct {
 	Commit         int64    `tony:"field=commit"`
 	Path           string   `tony:"field=path"`
 	State          *ir.Node `tony:"field=state"`          // Full state (when fullState=true for first event)
 	Patch          *ir.Node `tony:"field=patch"`          // Delta patch (for subsequent events)
-	ReplayComplete bool     `tony:"field=replayComplete"` // Marker that replay is complete
+	ReplayComplete bool     `tony:"field=replayComplete,omitzero"` // Marker that replay is complete
 }
 
 // SessionError is an error response.
 //
-//tony:schemagen=session-error
+//tony:schemagen=session-error,notag
 type SessionError struct {
 	Code    string `tony:"field=code"`
 	Message string `tony:"field=message"`
@@ -188,7 +190,7 @@ func (e *SessionError) Error() string {
 // SessionResponse is the top-level response message (union type).
 // Only one of Result, Event, or Error should be set.
 //
-//tony:schemagen=session-response
+//tony:schemagen=session-response,notag
 type SessionResponse struct {
 	ID *string `tony:"field=id"` // Matches request ID for async mode
 
@@ -209,6 +211,7 @@ const (
 	ErrCodeInvalidTx       = "invalid_tx"      // Invalid transaction parameters
 	ErrCodeTxNotFound      = "tx_not_found"    // Transaction ID not found
 	ErrCodeTxFull          = "tx_full"         // Transaction already has all participants
+	ErrCodeTxScopeMismatch = "tx_scope_mismatch" // Participant scope doesn't match transaction scope
 	ErrCodeMatchFailed     = "match_failed"    // Transaction match condition failed
 	ErrCodeReplayFailed    = "replay_failed"   // Watch replay failed, data may be incomplete
 	ErrCodeTimeout         = "timeout"         // Operation timed out
@@ -240,12 +243,13 @@ func NewMatchResponse(id *string, commit int64, body *ir.Node) *SessionResponse 
 }
 
 // NewPatchResponse creates a response for a patch request.
-func NewPatchResponse(id *string, commit int64) *SessionResponse {
+func NewPatchResponse(id *string, commit int64, data *ir.Node) *SessionResponse {
 	return &SessionResponse{
 		ID: id,
 		Result: &SessionResult{
 			Patch: &PatchResult{
 				Commit: commit,
+				Data:   data,
 			},
 		},
 	}

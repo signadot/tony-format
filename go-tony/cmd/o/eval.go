@@ -88,6 +88,9 @@ func evalReader(cfg *EvalConfig, w io.Writer, r io.Reader, tool *tony.Tool, colo
 		if err != nil {
 			return fmt.Errorf("error decoding document %d: %w", i, err)
 		}
+		if y == nil {
+			continue
+		}
 		y, err = tool.Run(y)
 		if err != nil {
 			return fmt.Errorf("error evaluating document %d: %w", i, err)

@@ -32,6 +32,9 @@ type StructSchema struct {
 
 	// TagFieldName is the name of a struct field (type string) to populate with the IR node's tag
 	TagFieldName string
+
+	// NoTag suppresses type tag emission in ToTony output
+	NoTag bool
 }
 
 // FieldInfo holds field metadata extracted from struct tags
@@ -348,6 +351,12 @@ func GetStructSchema(typ reflect.Type) (*StructSchema, error) {
 			tagFieldName = name
 		}
 
+		// Extract notag flag (suppress type tag in output)
+		noTag := false
+		if _, ok := parsed["notag"]; ok {
+			noTag = true
+		}
+
 		// Extract context URI
 		context := ""
 		if ctx, ok := parsed["context"]; ok {
@@ -362,6 +371,7 @@ func GetStructSchema(typ reflect.Type) (*StructSchema, error) {
 			CommentFieldName:     commentFieldName,
 			LineCommentFieldName: lineCommentFieldName,
 			TagFieldName:         tagFieldName,
+			NoTag:                noTag,
 		}
 		foundField = field.Name
 	}

@@ -19,6 +19,10 @@ type Tx interface {
 	// Timeout returns the configured timeout for this transaction.
 	Timeout() time.Duration
 
+	// Scope returns the scope for this transaction.
+	// All participants must have the same scope.
+	Scope() *string
+
 	// NewPatcher creates a new patcher handle for this transaction.
 	// Each participant should get their own patcher.  If NewPatcher
 	// has already added all patches, NewPatcher returns an error.
@@ -26,6 +30,10 @@ type Tx interface {
 
 	// IsComplete returns true if all expected participants have submitted their patches.
 	IsComplete() bool
+
+	// Expire marks the transaction as expired, notifying any waiting participants.
+	// Called by the store's cleanup routine before deleting the transaction.
+	Expire()
 }
 
 // Patcher is the public interface for a participant's handle to a transaction.
@@ -44,7 +52,8 @@ type Patcher interface {
 type Result struct {
 	Committed bool
 	Matched   bool
-	Commit    int64 // Commit identifier returned by NextCommit(), 0 if not committed
+	Commit    int64    // Commit identifier returned by NextCommit(), 0 if not committed
+	Data      *ir.Node // The patched data at the patch path (with any auto-generated IDs)
 	Error     error
 }
 
@@ -79,6 +88,9 @@ type CommitOps interface {
 	// NextCommit allocates and returns the next commit number.
 	NextCommit() (int64, error)
 
+	// GetSchema returns the schema for the given scope.
+	GetSchema(scopeID *string) *api.Schema
+
 	// WriteAndIndex writes the transaction entry and indexes the diff.
 	// Returns the log file and position where the entry was written.
 	WriteAndIndex(commit, txSeq int64, timestamp string, mergedPatch *ir.Node, txState *State, lastCommit int64) (logFile string, pos int64, err error)
@@ -92,7 +104,7 @@ type State struct {
 	TxID        int64          // Transaction ID
 	CreatedAt   time.Time      // RFC3339 timestamp
 	Timeout     time.Duration  // Maximum time to wait for all participants (0 = no timeout)
-	Meta        *api.PatchMeta // Metadata from docd
+	Scope       *string        // Scope for this transaction (nil = baseline)
 	PatcherData []*PatcherData // All participant patches
 }
 

@@ -77,6 +77,9 @@ func viewReader(cfg *ViewConfig, w io.Writer, r io.Reader) error {
 		if err != nil {
 			return fmt.Errorf("error decoding document %d: %w", i, err)
 		}
+		if y == nil {
+			continue
+		}
 		if err := encode.Encode(y, w, opts...); err != nil {
 			return fmt.Errorf("error encoding result %d: %w", i, err)
 		}

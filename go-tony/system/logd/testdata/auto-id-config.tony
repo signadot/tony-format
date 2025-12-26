@@ -1,0 +1,3 @@
+# Config for auto-id example
+# Start server: o sys logd serve -config testdata/auto-id-config.tony -data /tmp/auto-id-store
+schema: !tovalue.file auto-id-schema.tony

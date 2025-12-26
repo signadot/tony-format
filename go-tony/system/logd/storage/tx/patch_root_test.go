@@ -44,7 +44,7 @@ func TestTagPatchRoots(t *testing.T) {
 		{
 			name: "nil data node",
 			patches: []*PatcherData{
-				{API: &api.Patch{Patch: api.Body{Path: "a", Data: nil}}},
+				{API: &api.Patch{Patch: api.PathData{Path: "a", Data: nil}}},
 			},
 			wantTags: []string{""},
 		},
@@ -156,7 +156,7 @@ func testPatcherData(path string, data *ir.Node) *PatcherData {
 	return &PatcherData{
 		ReceivedAt: time.Now(),
 		API: &api.Patch{
-			Patch: api.Body{
+			Patch: api.PathData{
 				Path: path,
 				Data: data,
 			},

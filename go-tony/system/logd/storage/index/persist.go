@@ -113,6 +113,9 @@ func LoadIndexWithMetadata(path string) (*Index, int64, error) {
 // GobEncode implements the gob.GobEncoder interface.
 // It flattens the Index into a list of LogSegments for serialization.
 func (i *Index) GobEncode() ([]byte, error) {
+	i.RLock()
+	defer i.RUnlock()
+
 	// Collect all segments from this index and its children
 	// Actually, we can just serialize the PathKey and the list of local segments, and the map of children.
 	// But Tree is not serializable because of the Less function.

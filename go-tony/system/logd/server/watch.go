@@ -29,7 +29,6 @@ type Watcher struct {
 	Scope      *string                          // Scope for COW isolation (nil = baseline only)
 	Events     chan *storage.CommitNotification // Channel for receiving events
 	Failed     chan struct{}                    // Closed when watch fails (slow consumer)
-	FullState  bool                             // Whether first event should be full state
 	FromCommit *int64                           // Starting commit for replay
 
 	failOnce sync.Once // ensures Failed is closed only once
@@ -241,12 +240,11 @@ func matchesScope(watcherScope, eventScope *string) bool {
 // bufferSize controls how many events can be buffered before the watch
 // is failed due to slow consumption.
 // scope is used for COW isolation: nil = baseline only, non-nil = baseline + scope events.
-func NewWatcher(path string, scope *string, fromCommit *int64, fullState bool, bufferSize int) *Watcher {
+func NewWatcher(path string, scope *string, fromCommit *int64, bufferSize int) *Watcher {
 	return &Watcher{
 		Path:       path,
 		Scope:      scope,
 		FromCommit: fromCommit,
-		FullState:  fullState,
 		Events:     make(chan *storage.CommitNotification, bufferSize),
 		Failed:     make(chan struct{}),
 	}

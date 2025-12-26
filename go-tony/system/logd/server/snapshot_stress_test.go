@@ -33,7 +33,7 @@ func doPatchErr(store *storage.Storage, srv *Server, path string, data *ir.Node)
 	}
 
 	patcher, err := tx.NewPatcher(&api.Patch{
-		Patch: api.Body{
+		Patch: api.PathData{
 			Path: path,
 			Data: data,
 		},

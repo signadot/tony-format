@@ -495,7 +495,7 @@ func TestEntry_TransactionEntry(t *testing.T) {
 	// Create a transaction entry
 	txState := &tx.State{
 		TxID:        123,
-		Meta:        nil,
+		Scope:       nil,
 		PatcherData: []*tx.PatcherData{},
 	}
 

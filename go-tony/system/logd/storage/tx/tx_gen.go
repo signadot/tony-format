@@ -10,6 +10,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
+	"time"
 )
 
 // ToTonyIR converts State to a Tony IR node.
@@ -35,20 +36,19 @@ func (s *State) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["CreatedAt"] = ir.FromString(string(txt))
 	}
 
-	// Field: Meta (optional)
-	if s.Meta != nil {
-		node, err = s.Meta.ToTonyIR(opts...)
-		if err != nil {
-			return nil, err
-		}
-		irMap["Meta"] = node
+	// Field: Timeout
+	irMap["Timeout"] = ir.FromInt(int64(s.Timeout))
+
+	// Field: Scope (optional)
+	if s.Scope != nil {
+		irMap["Scope"] = ir.FromString(*s.Scope)
 	}
 
 	// Field: PatcherData
 	if len(s.PatcherData) > 0 {
 		slice := make([]*ir.Node, len(s.PatcherData))
 		for i, v := range s.PatcherData {
-			node, err = v.ToTonyIR(opts...)
+			node, err = v.ToTonyIR()
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert slice element %d: %w", i, err)
 			}
@@ -57,7 +57,6 @@ func (s *State) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["PatcherData"] = ir.FromSlice(slice)
 	}
 
-	// Create IR node with schema tag
 	return ir.FromMap(irMap).WithTag("!tx-state"), nil
 }
 
@@ -85,33 +84,50 @@ func (s *State) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 
 	for i, fieldName := range node.Fields {
 		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
 		switch fieldName.String {
 		case "TxID":
 			// Field: TxID
-			if fieldNode.Int64 == nil {
-				return fmt.Errorf("field %q: expected number, got %v", "TxID", fieldNode.Type)
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "TxID", fieldNodeUnwrapped.Type)
 			}
-			s.TxID = int64(*fieldNode.Int64)
+			s.TxID = int64(*fieldNodeUnwrapped.Int64)
 		case "CreatedAt":
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string for TextUnmarshaler, got %v", "CreatedAt", fieldNode.Type)
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string for TextUnmarshaler, got %v", "CreatedAt", fieldNodeUnwrapped.Type)
 			}
-			if err := s.CreatedAt.UnmarshalText([]byte(fieldNode.String)); err != nil {
+			if err := s.CreatedAt.UnmarshalText([]byte(fieldNodeUnwrapped.String)); err != nil {
 				return fmt.Errorf("field %q: failed to unmarshal text: %w", "CreatedAt", err)
 			}
-		case "Meta":
-			// Field: Meta
-			s.Meta = &api.PatchMeta{}
-			if err := s.Meta.FromTonyIR(fieldNode, opts...); err != nil {
-				return err
+		case "Timeout":
+			// Field: Timeout
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "Timeout", fieldNodeUnwrapped.Type)
+			}
+			s.Timeout = time.Duration(*fieldNodeUnwrapped.Int64)
+		case "Scope":
+			// Field: Scope
+			if fieldNodeUnwrapped.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(string)
+				if fieldNodeUnwrapped.Type != ir.StringType {
+					return fmt.Errorf("%s: expected string, got %v", "field \"Scope\"", fieldNodeUnwrapped.Type)
+				}
+				*val = string(fieldNodeUnwrapped.String)
+				s.Scope = val
 			}
 		case "PatcherData":
 			// Field: PatcherData
-			if fieldNode.Type == ir.ArrayType {
-				slice := make([]*PatcherData, len(fieldNode.Values))
-				for i, v := range fieldNode.Values {
+			if fieldNodeUnwrapped.Type == ir.ArrayType {
+				slice := make([]*PatcherData, len(fieldNodeUnwrapped.Values))
+				for i, v := range fieldNodeUnwrapped.Values {
 					elem := new(PatcherData)
-					if err := elem.FromTonyIR(v, opts...); err != nil {
+					if err := elem.FromTonyIR(v); err != nil {
 						return fmt.Errorf("failed to convert slice element %d: %w", i, err)
 					}
 					slice[i] = elem
@@ -168,14 +184,13 @@ func (s *PatcherData) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: API (optional)
 	if s.API != nil {
-		node, err = s.API.ToTonyIR(opts...)
+		node, err = s.API.ToTonyIR()
 		if err != nil {
 			return nil, err
 		}
 		irMap["API"] = node
 	}
 
-	// Create IR node with schema tag
 	return ir.FromMap(irMap).WithTag("!patcher-data"), nil
 }
 
@@ -203,18 +218,23 @@ func (s *PatcherData) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error
 
 	for i, fieldName := range node.Fields {
 		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
 		switch fieldName.String {
 		case "ReceivedAt":
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string for TextUnmarshaler, got %v", "ReceivedAt", fieldNode.Type)
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string for TextUnmarshaler, got %v", "ReceivedAt", fieldNodeUnwrapped.Type)
 			}
-			if err := s.ReceivedAt.UnmarshalText([]byte(fieldNode.String)); err != nil {
+			if err := s.ReceivedAt.UnmarshalText([]byte(fieldNodeUnwrapped.String)); err != nil {
 				return fmt.Errorf("field %q: failed to unmarshal text: %w", "ReceivedAt", err)
 			}
 		case "API":
 			// Field: API
 			s.API = &api.Patch{}
-			if err := s.API.FromTonyIR(fieldNode, opts...); err != nil {
+			if err := s.API.FromTonyIR(fieldNode); err != nil {
 				return err
 			}
 		}
