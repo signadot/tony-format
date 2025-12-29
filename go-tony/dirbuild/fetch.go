@@ -149,16 +149,7 @@ func fromReader(r io.Reader, opts []parse.ParseOption) ([]*ir.Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	docs := bytes.Split(d, []byte{'\n', '-', '-', '-', '\n'})
-	res := make([]*ir.Node, len(docs))
-	for i, doc := range docs {
-		y, err := parse.Parse(doc, opts...)
-		if err != nil {
-			return nil, err
-		}
-		res[i] = y
-	}
-	return res, nil
+	return parse.ParseMulti(d, opts...)
 }
 
 type sourceWalker struct {
