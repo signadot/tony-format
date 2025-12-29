@@ -37,11 +37,14 @@ func NewIndex(pathKey string) *Index {
 			bKp, errB := kpath.Parse(b.KindedPath)
 			// Fallback to string comparison if parsing fails
 			if errA != nil || errB != nil {
-				return a.KindedPath < b.KindedPath
+				if a.KindedPath != b.KindedPath {
+					return a.KindedPath < b.KindedPath
+				}
+				return compareScopeID(a.ScopeID, b.ScopeID) < 0
 			}
 			// Handle nil cases
 			if aKp == nil && bKp == nil {
-				return false
+				return compareScopeID(a.ScopeID, b.ScopeID) < 0
 			}
 			if aKp == nil {
 				return true // Empty < non-empty
@@ -49,7 +52,11 @@ func NewIndex(pathKey string) *Index {
 			if bKp == nil {
 				return false // Non-empty > empty
 			}
-			return aKp.Compare(bKp) < 0
+			n := aKp.Compare(bKp)
+			if n != 0 {
+				return n < 0
+			}
+			return compareScopeID(a.ScopeID, b.ScopeID) < 0
 		}),
 		Children: map[string]*Index{},
 	}
@@ -259,11 +266,15 @@ func LogSegCompare(a, b LogSegment) int {
 	bKp, errB := kpath.Parse(b.KindedPath)
 	// Fallback to string comparison if parsing fails
 	if errA != nil || errB != nil {
-		return cmp.Compare(a.KindedPath, b.KindedPath)
+		n = cmp.Compare(a.KindedPath, b.KindedPath)
+		if n != 0 {
+			return n
+		}
+		return compareScopeID(a.ScopeID, b.ScopeID)
 	}
 	// Handle nil cases (empty paths)
 	if aKp == nil && bKp == nil {
-		return 0
+		return compareScopeID(a.ScopeID, b.ScopeID)
 	}
 	if aKp == nil {
 		return -1 // Empty path < non-empty
@@ -271,7 +282,26 @@ func LogSegCompare(a, b LogSegment) int {
 	if bKp == nil {
 		return 1 // Non-empty > empty
 	}
-	return aKp.Compare(bKp)
+	n = aKp.Compare(bKp)
+	if n != 0 {
+		return n
+	}
+	return compareScopeID(a.ScopeID, b.ScopeID)
+}
+
+// compareScopeID compares two scope IDs.
+// nil (baseline) < any non-nil scope ID, then string comparison.
+func compareScopeID(a, b *string) int {
+	if a == nil && b == nil {
+		return 0
+	}
+	if a == nil {
+		return -1 // baseline < scope
+	}
+	if b == nil {
+		return 1 // scope > baseline
+	}
+	return cmp.Compare(*a, *b)
 }
 
 func rangeFunc(from, to *int64) func(LogSegment) int {

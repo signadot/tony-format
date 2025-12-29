@@ -56,6 +56,11 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 		c.s.indexPersister.MaybePersist(commit)
 	}
 
+	// Track active scope for automatic snapshot during SwitchAndSnapshot
+	if scopeID != nil {
+		c.s.trackScope(*scopeID)
+	}
+
 	// Notify any registered listener about the commit
 	if c.s.notifier != nil {
 		kpaths := extractTopLevelKPaths(mergedPatch)

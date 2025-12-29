@@ -188,7 +188,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	}
 
 	// Stage 2: Create snapshot at commit 3
-	if err := s.createSnapshot(commit3); err != nil {
+	if err := s.createSnapshot(commit3, nil); err != nil {
 		t.Fatalf("createSnapshot(commit3) error = %v", err)
 	}
 
@@ -254,7 +254,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	}
 
 	// Stage 5: Create another snapshot and verify layering works
-	if err := s.createSnapshot(commit6); err != nil {
+	if err := s.createSnapshot(commit6, nil); err != nil {
 		t.Fatalf("createSnapshot(commit6) error = %v", err)
 	}
 
@@ -286,4 +286,298 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	}
 
 	t.Logf("Round-trip test successful: created 2 snapshots, verified state reconstruction at all commits")
+}
+
+func TestScopedSnapshotRoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	s, err := Open(tmpDir, nil)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer s.Close()
+
+	// Helper to commit a patch
+	commitPatch := func(patchStr string, scopeID *string) int64 {
+		tx, err := s.NewTx(1, scopeID)
+		if err != nil {
+			t.Fatalf("NewTx() error = %v", err)
+		}
+
+		patchData, err := parse.Parse([]byte(patchStr))
+		if err != nil {
+			t.Fatalf("parse patch: %v", err)
+		}
+
+		patch := &api.Patch{
+			PathData: api.PathData{
+				Path: "",
+				Data: patchData,
+			},
+		}
+		patcher, err := tx.NewPatcher(patch)
+		if err != nil {
+			t.Fatalf("NewPatcher() error = %v", err)
+		}
+		result := patcher.Commit()
+		if !result.Committed {
+			t.Fatalf("commit failed: %v", result.Error)
+		}
+		return result.Commit
+	}
+
+	// Stage 1: Create baseline state
+	commitPatch(`{name: "baseline"}`, nil)
+	commitPatch(`{version: 1}`, nil)
+	commit3 := commitPatch(`{status: "active"}`, nil)
+
+	// Stage 2: Create scope "sandbox1" with modifications
+	scope := "sandbox1"
+	commitPatch(`{name: "scoped"}`, &scope)
+	commit5 := commitPatch(`{extra: "sandbox-data"}`, &scope)
+
+	// Verify baseline state (should not include scope changes)
+	baselineState, err := s.ReadStateAt("", commit5, nil)
+	if err != nil {
+		t.Fatalf("baseline read error: %v", err)
+	}
+	expectedBaseline := `{name: "baseline", status: "active", version: 1}`
+	expectedBaselineNode, _ := parse.Parse([]byte(expectedBaseline))
+	expectedBaselineNode.Tag = ""
+	if !baselineState.DeepEqual(expectedBaselineNode) {
+		t.Errorf("baseline state mismatch:\ngot:  %s\nwant: %s",
+			encode.MustString(baselineState), expectedBaseline)
+	}
+
+	// Verify scope state (should include baseline + scope changes)
+	scopeState, err := s.ReadStateAt("", commit5, &scope)
+	if err != nil {
+		t.Fatalf("scope read error: %v", err)
+	}
+	expectedScope := `{extra: "sandbox-data", name: "scoped", status: "active", version: 1}`
+	expectedScopeNode, _ := parse.Parse([]byte(expectedScope))
+	expectedScopeNode.Tag = ""
+	if !scopeState.DeepEqual(expectedScopeNode) {
+		t.Errorf("scope state mismatch:\ngot:  %s\nwant: %s",
+			encode.MustString(scopeState), expectedScope)
+	}
+
+	// Stage 3: Create scope snapshot at commit5
+	if err := s.CreateScopeSnapshot(scope, commit5); err != nil {
+		t.Fatalf("CreateScopeSnapshot error = %v", err)
+	}
+
+	// Verify scope snapshot was created in index
+	segments := s.index.LookupWithin("", commit5, &scope)
+	var foundScopeSnapshot *index.LogSegment
+	for i := range segments {
+		seg := &segments[i]
+		if seg.StartCommit == seg.EndCommit && seg.StartCommit == commit5 && seg.ScopeID != nil && *seg.ScopeID == scope {
+			foundScopeSnapshot = seg
+			break
+		}
+	}
+	if foundScopeSnapshot == nil {
+		t.Fatal("scope snapshot entry not found in index")
+	}
+	t.Logf("Found scope snapshot at commit %d, scopeID %s, logFile %s",
+		foundScopeSnapshot.StartCommit, *foundScopeSnapshot.ScopeID, foundScopeSnapshot.LogFile)
+
+	// Stage 4: Add more scope patches after snapshot
+	commitPatch(`{extra2: "more-data"}`, &scope)
+	commit7 := commitPatch(`{counter: 42}`, &scope)
+
+	// Verify scope state uses snapshot + new patches
+	scopeStateAfter, err := s.ReadStateAt("", commit7, &scope)
+	if err != nil {
+		t.Fatalf("scope read after snapshot error: %v", err)
+	}
+	expectedScopeAfter := `{counter: 42, extra: "sandbox-data", extra2: "more-data", name: "scoped", status: "active", version: 1}`
+	expectedScopeAfterNode, _ := parse.Parse([]byte(expectedScopeAfter))
+	expectedScopeAfterNode.Tag = ""
+	if !scopeStateAfter.DeepEqual(expectedScopeAfterNode) {
+		t.Errorf("scope state after snapshot mismatch:\ngot:  %s\nwant: %s",
+			encode.MustString(scopeStateAfter), expectedScopeAfter)
+	}
+
+	// Stage 5: Verify baseline is unaffected by scope snapshot
+	baselineStateAfter, err := s.ReadStateAt("", commit7, nil)
+	if err != nil {
+		t.Fatalf("baseline read after scope snapshot error: %v", err)
+	}
+	if !baselineStateAfter.DeepEqual(expectedBaselineNode) {
+		t.Errorf("baseline state after scope snapshot mismatch:\ngot:  %s\nwant: %s",
+			encode.MustString(baselineStateAfter), expectedBaseline)
+	}
+
+	// Stage 6: Verify old scope reads still work (should use baseline snapshot + scope patches)
+	scopeStateAt3, err := s.ReadStateAt("", commit3, &scope)
+	if err != nil {
+		t.Fatalf("scope read at commit3 error: %v", err)
+	}
+	// At commit3, no scope patches yet, so should match baseline
+	if !scopeStateAt3.DeepEqual(expectedBaselineNode) {
+		t.Errorf("scope state at commit3 mismatch:\ngot:  %s\nwant: %s",
+			encode.MustString(scopeStateAt3), expectedBaseline)
+	}
+
+	t.Logf("Scoped snapshot round-trip successful: scope snapshot created and used correctly")
+}
+
+func TestSwitchAndSnapshot_AutomaticScopeSnapshots(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	s, err := Open(tmpDir, nil)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer s.Close()
+
+	// Helper to commit a patch
+	commitPatch := func(patchStr string, scopeID *string) int64 {
+		tx, err := s.NewTx(1, scopeID)
+		if err != nil {
+			t.Fatalf("NewTx() error = %v", err)
+		}
+
+		patchData, err := parse.Parse([]byte(patchStr))
+		if err != nil {
+			t.Fatalf("parse patch: %v", err)
+		}
+
+		patch := &api.Patch{
+			PathData: api.PathData{
+				Path: "",
+				Data: patchData,
+			},
+		}
+		patcher, err := tx.NewPatcher(patch)
+		if err != nil {
+			t.Fatalf("NewPatcher() error = %v", err)
+		}
+		result := patcher.Commit()
+		if !result.Committed {
+			t.Fatalf("commit failed: %v", result.Error)
+		}
+		return result.Commit
+	}
+
+	// Stage 1: Create baseline and scope data
+	commitPatch(`{name: "baseline"}`, nil)
+	scope1 := "sandbox1"
+	scope2 := "sandbox2"
+	commitPatch(`{name: "scope1-data"}`, &scope1)
+	commitPatch(`{name: "scope2-data"}`, &scope2)
+	commit := commitPatch(`{version: 1}`, nil)
+
+	// Verify both scopes are tracked (internal check)
+	s.activeScopesMu.RLock()
+	if _, ok := s.activeScopes[scope1]; !ok {
+		t.Error("scope1 should be tracked as active")
+	}
+	if _, ok := s.activeScopes[scope2]; !ok {
+		t.Error("scope2 should be tracked as active")
+	}
+	s.activeScopesMu.RUnlock()
+
+	// Stage 2: Call SwitchAndSnapshot - should create baseline + both scope snapshots
+	if err := s.SwitchAndSnapshot(); err != nil {
+		t.Fatalf("SwitchAndSnapshot() error = %v", err)
+	}
+
+	// Verify active scopes set was cleared
+	s.activeScopesMu.RLock()
+	if len(s.activeScopes) != 0 {
+		t.Errorf("activeScopes should be empty after SwitchAndSnapshot, got %d", len(s.activeScopes))
+	}
+	s.activeScopesMu.RUnlock()
+
+	// Stage 3: Verify snapshots were created in index
+	// Use LookupRange to get all segments including scope-specific ones
+	var foundBaselineSnapshot, foundScope1Snapshot, foundScope2Snapshot bool
+
+	// Debug: dump ALL segments regardless of scope
+	start := int64(0)
+	allSegs := s.index.LookupRangeAll("", &start, &commit)
+	t.Logf("ALL segments in range [0, %d] (no scope filter):", commit)
+	for i := range allSegs {
+		seg := &allSegs[i]
+		scopeStr := "nil"
+		if seg.ScopeID != nil {
+			scopeStr = *seg.ScopeID
+		}
+		isSnap := "patch"
+		if seg.StartCommit == seg.EndCommit {
+			isSnap = "SNAPSHOT"
+		}
+		t.Logf("  [%d] %s StartCommit=%d EndCommit=%d ScopeID=%s", i, isSnap, seg.StartCommit, seg.EndCommit, scopeStr)
+	}
+
+	// Check baseline snapshot
+	baselineSegs := s.index.LookupWithin("", commit, nil)
+	t.Logf("LookupWithin baseline segments: %d", len(baselineSegs))
+	for i := range baselineSegs {
+		seg := &baselineSegs[i]
+		if seg.StartCommit == seg.EndCommit && seg.StartCommit == commit && seg.ScopeID == nil {
+			foundBaselineSnapshot = true
+			t.Logf("Found baseline snapshot at commit %d", seg.StartCommit)
+		}
+	}
+
+	// Check scope1 snapshot - use LookupRange which includes scope segments
+	scope1Segs := s.index.LookupRange("", &start, &commit, &scope1)
+	for i := range scope1Segs {
+		seg := &scope1Segs[i]
+		if seg.StartCommit == seg.EndCommit && seg.StartCommit == commit && seg.ScopeID != nil && *seg.ScopeID == scope1 {
+			foundScope1Snapshot = true
+			t.Logf("Found scope1 snapshot at commit %d", seg.StartCommit)
+		}
+	}
+
+	// Check scope2 snapshot
+	scope2Segs := s.index.LookupRange("", &start, &commit, &scope2)
+	for i := range scope2Segs {
+		seg := &scope2Segs[i]
+		if seg.StartCommit == seg.EndCommit && seg.StartCommit == commit && seg.ScopeID != nil && *seg.ScopeID == scope2 {
+			foundScope2Snapshot = true
+			t.Logf("Found scope2 snapshot at commit %d", seg.StartCommit)
+		}
+	}
+
+	if !foundBaselineSnapshot {
+		t.Error("baseline snapshot not found")
+	}
+	if !foundScope1Snapshot {
+		t.Error("scope1 snapshot not found")
+	}
+	if !foundScope2Snapshot {
+		t.Error("scope2 snapshot not found")
+	}
+
+	// Stage 4: Verify state reads still work correctly
+	baselineState, err := s.ReadStateAt("", commit, nil)
+	if err != nil {
+		t.Fatalf("baseline read error: %v", err)
+	}
+	expectedBaseline := `{name: "baseline", version: 1}`
+	expectedBaselineNode, _ := parse.Parse([]byte(expectedBaseline))
+	expectedBaselineNode.Tag = ""
+	if !baselineState.DeepEqual(expectedBaselineNode) {
+		t.Errorf("baseline state mismatch:\ngot:  %s\nwant: %s",
+			encode.MustString(baselineState), expectedBaseline)
+	}
+
+	scope1State, err := s.ReadStateAt("", commit, &scope1)
+	if err != nil {
+		t.Fatalf("scope1 read error: %v", err)
+	}
+	expectedScope1 := `{name: "scope1-data", version: 1}`
+	expectedScope1Node, _ := parse.Parse([]byte(expectedScope1))
+	expectedScope1Node.Tag = ""
+	if !scope1State.DeepEqual(expectedScope1Node) {
+		t.Errorf("scope1 state mismatch:\ngot:  %s\nwant: %s",
+			encode.MustString(scope1State), expectedScope1)
+	}
+
+	t.Logf("Automatic scope snapshots test successful")
 }
