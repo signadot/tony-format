@@ -6,19 +6,37 @@ import (
 	"io"
 )
 
+// BlobHeaderMagic is the magic marker that indicates a blob header follows.
+// This is 0xFFFFFFFF which is impossible as a normal entry length (4GB+ entries).
+const BlobHeaderMagic uint32 = 0xFFFFFFFF
+
+// BlobHeaderSize is the total size of the blob header (magic + length).
+const BlobHeaderSize = 8 // 4 bytes magic + 4 bytes length
+
 // SnapshotWriter is a writer for creating snapshots in the inactive log.
 // It implements io.WriteCloser and io.Seeker for use with snap.Builder.
 // When closed, it writes the snapshot Entry metadata to the log.
+//
+// Log format for snapshots:
+//
+//	[blob header: 8 bytes]     - magic marker (0xFFFFFFFF) + blob length
+//	[snapshot data: N bytes]   - binary event stream from snap.Builder
+//	[entry: 4+M bytes]         - length prefix + Entry with SnapPos pointing to snapshot data
+//
+// The blob header allows the dlog iterator to skip over binary snapshot data.
 type SnapshotWriter struct {
-	dl        *DLog
-	logFile   *DLogFile
-	logFileID LogFileID
-	startPos  int64 // where snapshot data starts
-	endPos    int64 // where snapshot data ends (tracked on Write)
-	commit    int64
-	timestamp string
-	entryPos  int64 // set on Close
-	closed    bool
+	dl          *DLog
+	logFile     *DLogFile
+	logFileID   LogFileID
+	headerPos   int64 // where blob header is (for patching length on Close)
+	startPos    int64 // where snapshot data starts (after blob header)
+	endPos      int64 // where snapshot data ends (tracked on Write)
+	commit      int64
+	timestamp   string
+	entryPos    int64        // set on Close
+	closed      bool
+	schemaEntry *SchemaEntry // optional schema change entry
+	scopeID     *string      // optional scope ID for scoped snapshots
 }
 
 // ErrSnapshotInProgress is returned when attempting to start a snapshot
@@ -51,15 +69,30 @@ func (dl *DLog) NewSnapshotWriter(commit int64, timestamp string) (*SnapshotWrit
 	}
 	dl.mu.Unlock()
 
-	// snapMu is now held - get current position for snapshot start
+	// snapMu is now held - get current position and write blob header placeholder
 	logFileObj.mu.Lock()
-	startPos := logFileObj.position
+	headerPos := logFileObj.position
+
+	// Write blob header placeholder: [magic marker][placeholder length]
+	// The actual length will be patched in Close() once we know the blob size
+	header := make([]byte, BlobHeaderSize)
+	binary.BigEndian.PutUint32(header[0:4], BlobHeaderMagic)
+	binary.BigEndian.PutUint32(header[4:8], 0) // placeholder, will be patched
+
+	if _, err := logFileObj.file.Write(header); err != nil {
+		logFileObj.mu.Unlock()
+		logFileObj.snapMu.Unlock()
+		return nil, fmt.Errorf("failed to write blob header: %w", err)
+	}
+	logFileObj.position += BlobHeaderSize
+	startPos := logFileObj.position // snapshot data starts after header
 	logFileObj.mu.Unlock()
 
 	return &SnapshotWriter{
 		dl:        dl,
 		logFile:   logFileObj,
 		logFileID: inactiveLog,
+		headerPos: headerPos,
 		startPos:  startPos,
 		endPos:    startPos, // Initialize to start, will be updated by Write()
 		commit:    commit,
@@ -101,12 +134,27 @@ func (sw *SnapshotWriter) Seek(offset int64, whence int) (int64, error) {
 
 // Close writes the snapshot Entry metadata and releases the snapshot lock.
 // The Entry is written at the end of the snapshot data (endPos).
+// Also patches the blob header with the actual blob length.
 func (sw *SnapshotWriter) Close() error {
 	if sw.closed {
 		return nil
 	}
 	sw.closed = true
 	defer sw.logFile.snapMu.Unlock()
+
+	// Calculate blob length (snapshot data only, not including header or entry)
+	blobLength := sw.endPos - sw.startPos
+
+	// Patch the blob header with actual length
+	// Seek to header position + 4 (skip magic marker)
+	if _, err := sw.logFile.file.Seek(sw.headerPos+4, io.SeekStart); err != nil {
+		return fmt.Errorf("failed to seek to blob header: %w", err)
+	}
+	lenBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(lenBuf, uint32(blobLength))
+	if _, err := sw.logFile.file.Write(lenBuf); err != nil {
+		return fmt.Errorf("failed to patch blob header length: %w", err)
+	}
 
 	// Seek to end of snapshot data to write Entry
 	// (builder may have seeked back to write header)
@@ -116,15 +164,17 @@ func (sw *SnapshotWriter) Close() error {
 	}
 	sw.logFile.position = sw.endPos
 
-	// Create snapshot entry pointing to the snapshot data
+	// Create snapshot entry pointing to the snapshot data (after blob header)
 	snapPos := sw.startPos
 	entry := &Entry{
-		Commit:     sw.commit,
-		Timestamp:  sw.timestamp,
-		Patch:      nil,
-		SnapPos:    &snapPos,
-		TxSource:   nil,
-		LastCommit: nil,
+		Commit:      sw.commit,
+		Timestamp:   sw.timestamp,
+		Patch:       nil,
+		SnapPos:     &snapPos,
+		TxSource:    nil,
+		LastCommit:  nil,
+		ScopeID:     sw.scopeID,
+		SchemaEntry: sw.schemaEntry,
 	}
 
 	// Serialize entry to Tony format
@@ -140,11 +190,11 @@ func (sw *SnapshotWriter) Close() error {
 
 	// Write 4-byte length prefix
 	entryPos := sw.logFile.position
-	lenBuf := make([]byte, 4)
-	binary.BigEndian.PutUint32(lenBuf, uint32(len(entryBytes)))
+	entryLenBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(entryLenBuf, uint32(len(entryBytes)))
 
 	// Write length prefix
-	if _, err := sw.logFile.file.Write(lenBuf); err != nil {
+	if _, err := sw.logFile.file.Write(entryLenBuf); err != nil {
 		return fmt.Errorf("failed to write entry length: %w", err)
 	}
 
@@ -176,4 +226,16 @@ func (sw *SnapshotWriter) EntryPosition() int64 {
 // LogFileID returns the log file ID where this snapshot was written.
 func (sw *SnapshotWriter) LogFileID() LogFileID {
 	return sw.logFileID
+}
+
+// SetSchemaEntry sets the schema entry for this snapshot.
+// Must be called before Close().
+func (sw *SnapshotWriter) SetSchemaEntry(schemaEntry *SchemaEntry) {
+	sw.schemaEntry = schemaEntry
+}
+
+// SetScopeID sets the scope ID for this snapshot.
+// Must be called before Close().
+func (sw *SnapshotWriter) SetScopeID(scopeID *string) {
+	sw.scopeID = scopeID
 }

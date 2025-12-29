@@ -36,6 +36,20 @@ func Build(idx *Index, dlog *dlog.DLog, fromCommit int64) error {
 			if err := IndexPatch(idx, entry, string(logFile), pos, txSeq, entry.Patch, nil, entry.ScopeID); err != nil {
 				return fmt.Errorf("failed to index entry at commit %d: %w", entry.Commit, err)
 			}
+		} else if entry.SnapPos != nil {
+			// Snapshot entry - add to index for state reconstruction
+			// Snapshots have StartCommit == EndCommit
+			seg := &LogSegment{
+				StartCommit: entry.Commit,
+				EndCommit:   entry.Commit,
+				StartTx:     0,
+				EndTx:       0,
+				KindedPath:  "",
+				LogFile:     string(logFile),
+				LogPosition: pos,
+				ScopeID:     entry.ScopeID,
+			}
+			idx.Add(seg)
 		}
 	}
 

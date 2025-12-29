@@ -31,6 +31,9 @@ type Session struct {
 	// Scope for COW isolation (set in hello, applies to all operations)
 	scope *string
 
+	// If true, session uses pending schema/index (for testing migrations)
+	usePending bool
+
 	// Watch state
 	watchMu sync.RWMutex
 	watches map[string]*Watcher // path -> active watcher
@@ -236,6 +239,10 @@ func (s *Session) dispatch(req *api.SessionRequest) {
 		s.handleUnwatch(req.ID, req.Unwatch)
 	case req.DeleteScope != nil:
 		s.handleDeleteScope(req.ID, req.DeleteScope)
+	case req.Schema != nil:
+		s.handleSchema(req.ID, req.Schema)
+	case req.Migration != nil:
+		s.handleMigration(req.ID, req.Migration)
 	default:
 		s.sendError(req.ID, api.ErrCodeInvalidMessage, "no operation specified")
 	}
@@ -245,29 +252,65 @@ func (s *Session) dispatch(req *api.SessionRequest) {
 func (s *Session) handleHello(id *string, req *api.Hello) {
 	// Store scope for this session (applies to all operations)
 	s.scope = req.Scope
-	s.log.Debug("hello", "clientId", req.ClientID, "scope", req.Scope)
+	s.log.Debug("hello", "clientId", req.ClientID, "scope", req.Scope, "usePending", req.UsePending)
 
-	// TODO(#87): Per-scope schema support. Currently we only return the baseline
-	// schema for baseline sessions. Scoped sessions need schema overlay support
-	// (baseline + scope-specific overrides) before we can return a schema.
 	var schema *ir.Node
-	if req.Scope == nil {
-		schema = s.schema
+	var schemaCommit int64
+	var usingPending bool
+
+	if req.UsePending {
+		// Client wants to use pending schema for testing migration
+		pendingSchema, pendingCommit := s.storage.GetPendingSchema()
+		if pendingSchema == nil {
+			s.sendError(id, api.ErrCodeNoPendingMigration, "no migration in progress")
+			return
+		}
+		s.usePending = true
+		usingPending = true
+		schema = pendingSchema
+		schemaCommit = pendingCommit
+	} else {
+		// Use active schema (default)
+		schema, schemaCommit = s.storage.GetActiveSchema()
+		if schema == nil {
+			schema = s.schema // Fallback to config schema (schemaCommit stays 0)
+		}
 	}
 
 	s.send(&api.SessionResponse{
 		ID: id,
 		Result: &api.SessionResult{
 			Hello: &api.HelloResponse{
-				ServerID: s.ID,
-				Schema:   schema,
+				ServerID:     s.ID,
+				Schema:       schema,
+				SchemaCommit: schemaCommit,
+				UsingPending: usingPending,
 			},
 		},
 	})
 }
 
+// checkPendingValid checks if a session using pending schema is still valid.
+// Returns an error message if the migration was aborted, empty string if ok.
+func (s *Session) checkPendingValid() string {
+	if !s.usePending {
+		return ""
+	}
+	pendingSchema, _ := s.storage.GetPendingSchema()
+	if pendingSchema == nil {
+		return "migration was aborted"
+	}
+	return ""
+}
+
 // handleMatch handles match (read) requests.
 func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
+	// Check if session using pending is still valid
+	if errMsg := s.checkPendingValid(); errMsg != "" {
+		s.sendError(id, api.ErrCodeMigrationAborted, errMsg)
+		return
+	}
+
 	path := req.Body.Path
 
 	// Validate path
@@ -317,8 +360,15 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 // handlePatch handles patch (write) requests.
 // If TxID is provided, the patch joins an existing multi-participant transaction.
 // If TxID is nil, a new single-participant transaction is created.
+// If Migration is true, the patch is only indexed to pending (for migration transforms).
 func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 	path := req.Path
+
+	// Check if session using pending is still valid
+	if errMsg := s.checkPendingValid(); errMsg != "" {
+		s.sendError(id, api.ErrCodeMigrationAborted, errMsg)
+		return
+	}
 
 	// Validate path
 	if err := validateDataPath(path); err != nil {
@@ -329,6 +379,32 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 	// Validate patch data
 	if req.Data == nil {
 		s.sendError(id, api.ErrCodeInvalidDiff, "patch data is required")
+		return
+	}
+
+	// Handle migration patches (only indexed to pending)
+	if req.Migration {
+		// Only baseline sessions can do migration patches
+		if s.scope != nil {
+			s.sendError(id, api.ErrCodeInvalidMessage, "only baseline sessions can apply migration patches")
+			return
+		}
+		// Cannot combine Migration with TxID
+		if req.TxID != nil {
+			s.sendError(id, api.ErrCodeInvalidTx, "migration patches cannot use transactions")
+			return
+		}
+
+		commit, data, err := s.storage.MigrationPatch(path, req.Data)
+		if err != nil {
+			if errors.Is(err, storage.ErrNoMigrationInProgress) {
+				s.sendError(id, api.ErrCodeNoMigrationInProgress, err.Error())
+			} else {
+				s.sendError(id, "storage_error", fmt.Sprintf("failed to apply migration patch: %v", err))
+			}
+			return
+		}
+		s.send(api.NewPatchResponse(id, commit, data))
 		return
 	}
 
@@ -421,6 +497,12 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 
 // handleNewTx handles newtx requests to create multi-participant transactions.
 func (s *Session) handleNewTx(id *string, req *api.NewTxRequest) {
+	// Check if session using pending is still valid
+	if errMsg := s.checkPendingValid(); errMsg != "" {
+		s.sendError(id, api.ErrCodeMigrationAborted, errMsg)
+		return
+	}
+
 	if req.Participants < 1 {
 		s.sendError(id, api.ErrCodeInvalidTx, "participants must be at least 1")
 		return
@@ -446,6 +528,12 @@ func (s *Session) handleNewTx(id *string, req *api.NewTxRequest) {
 // handleWatch handles watch requests.
 func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 	path := req.Path
+
+	// Check if session using pending is still valid
+	if errMsg := s.checkPendingValid(); errMsg != "" {
+		s.sendError(id, api.ErrCodeMigrationAborted, errMsg)
+		return
+	}
 
 	// Validate path
 	if path != "" {
@@ -634,6 +722,86 @@ func (s *Session) handleDeleteScope(id *string, req *api.DeleteScopeRequest) {
 	}
 
 	s.send(api.NewDeleteScopeResponse(id, scopeID))
+}
+
+// handleSchema handles schema get/set requests.
+// Only baseline sessions (scope=nil) can modify schema.
+func (s *Session) handleSchema(id *string, req *api.SchemaRequest) {
+	switch {
+	case req.Get != nil:
+		s.handleSchemaGet(id)
+	case req.Set != nil:
+		s.handleSchemaSet(id, req.Set)
+	default:
+		s.sendError(id, api.ErrCodeInvalidMessage, "schema request must specify get or set")
+	}
+}
+
+// handleSchemaGet returns the current schema state.
+func (s *Session) handleSchemaGet(id *string) {
+	active, activeCommit := s.storage.GetActiveSchema()
+	pending, pendingCommit := s.storage.GetPendingSchema()
+	s.send(api.NewSchemaResponse(id, active, activeCommit, pending, pendingCommit))
+}
+
+// handleSchemaSet starts a schema migration.
+func (s *Session) handleSchemaSet(id *string, req *api.SchemaSetRequest) {
+	// Only baseline sessions can modify schema
+	if s.scope != nil {
+		s.sendError(id, api.ErrCodeInvalidMessage, "only baseline sessions can modify schema")
+		return
+	}
+
+	commit, err := s.storage.StartMigration(req.Schema)
+	if err != nil {
+		if errors.Is(err, storage.ErrMigrationInProgress) {
+			s.sendError(id, api.ErrCodeMigrationInProgress, err.Error())
+		} else {
+			s.sendError(id, "storage_error", fmt.Sprintf("failed to start migration: %v", err))
+		}
+		return
+	}
+	active, activeCommit := s.storage.GetActiveSchema()
+	s.send(api.NewSchemaResponse(id, active, activeCommit, req.Schema, commit))
+}
+
+// handleMigration handles migration complete/abort requests.
+// Only baseline sessions (scope=nil) can modify schema.
+func (s *Session) handleMigration(id *string, action *api.MigrationAction) {
+	// Only baseline sessions can modify schema
+	if s.scope != nil {
+		s.sendError(id, api.ErrCodeInvalidMessage, "only baseline sessions can modify schema")
+		return
+	}
+
+	switch *action {
+	case api.MigrationComplete:
+		commit, err := s.storage.CompleteMigration()
+		if err != nil {
+			if errors.Is(err, storage.ErrNoMigrationInProgress) {
+				s.sendError(id, api.ErrCodeNoMigrationInProgress, err.Error())
+			} else {
+				s.sendError(id, "storage_error", fmt.Sprintf("failed to complete migration: %v", err))
+			}
+			return
+		}
+		s.send(api.NewMigrationResponse(id, true, commit))
+
+	case api.MigrationAbort:
+		commit, err := s.storage.AbortMigration()
+		if err != nil {
+			if errors.Is(err, storage.ErrNoMigrationInProgress) {
+				s.sendError(id, api.ErrCodeNoMigrationInProgress, err.Error())
+			} else {
+				s.sendError(id, "storage_error", fmt.Sprintf("failed to abort migration: %v", err))
+			}
+			return
+		}
+		s.send(api.NewMigrationResponse(id, false, commit))
+
+	default:
+		s.sendError(id, api.ErrCodeInvalidMessage, fmt.Sprintf("invalid migration action: %q", *action))
+	}
 }
 
 // cleanupWatches removes all watches on session close.

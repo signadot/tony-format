@@ -549,7 +549,36 @@ func (it *singleFileIter) next() (*Entry, int64, error) {
 		return nil, it.position, fmt.Errorf("failed to read length prefix: %w", err)
 	}
 
-	entryLength := int64(binary.BigEndian.Uint32(lengthBytes))
+	lengthOrMagic := binary.BigEndian.Uint32(lengthBytes)
+
+	// Check for blob header magic marker (snapshot data)
+	if lengthOrMagic == BlobHeaderMagic {
+		// Read blob length (next 4 bytes after magic)
+		blobLenBytes := make([]byte, 4)
+		it.logFile.mu.RLock()
+		_, err := it.logFile.file.ReadAt(blobLenBytes, it.position+4)
+		it.logFile.mu.RUnlock()
+		if err != nil {
+			if err == io.EOF {
+				it.done = true
+				return nil, it.position, io.EOF
+			}
+			return nil, it.position, fmt.Errorf("failed to read blob length: %w", err)
+		}
+		blobLength := int64(binary.BigEndian.Uint32(blobLenBytes))
+
+		// Skip blob header (8 bytes) + blob data
+		it.position += BlobHeaderSize + blobLength
+		if it.position >= it.fileSize {
+			it.done = true
+			return nil, it.position, io.EOF
+		}
+
+		// Recursively call next to read the entry after the blob
+		return it.next()
+	}
+
+	entryLength := int64(lengthOrMagic)
 	oldPosition := it.position
 
 	entryBytes := make([]byte, entryLength)

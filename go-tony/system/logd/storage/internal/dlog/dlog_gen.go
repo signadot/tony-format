@@ -12,6 +12,100 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
+// ToTonyIR converts SchemaEntry to a Tony IR node.
+func (s *SchemaEntry) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
+	var node *ir.Node
+	var err error
+	_ = node // suppress unused variable error
+	_ = err  // suppress unused variable error
+
+	// Create IR object map
+	irMap := make(map[string]*ir.Node)
+
+	// Field: Schema (optional)
+	if s.Schema != nil {
+		irMap["Schema"] = s.Schema
+	}
+
+	// Field: Status
+	irMap["Status"] = ir.FromString(s.Status)
+
+	return ir.FromMap(irMap).WithTag("!schema-entry"), nil
+}
+
+// FromTonyIR populates SchemaEntry from a Tony IR node.
+func (s *SchemaEntry) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
+	if node.Type != ir.ObjectType {
+		return fmt.Errorf("expected map for SchemaEntry, got %v", node.Type)
+	}
+
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
+		switch fieldName.String {
+		case "Schema":
+			if gomap.GetUnmapComments(opts...) {
+				s.Schema = fieldNode
+			} else {
+				s.Schema = fieldNodeUnwrapped
+			}
+		case "Status":
+			// Field: Status
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "Status", fieldNodeUnwrapped.Type)
+			}
+			s.Status = fieldNodeUnwrapped.String
+		}
+	}
+
+	return nil
+}
+
+// ToTony converts SchemaEntry to Tony format bytes.
+func (s *SchemaEntry) ToTony(opts ...gomap.MapOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// FromTony parses Tony format bytes and populates SchemaEntry.
+func (s *SchemaEntry) FromTony(data []byte, opts ...gomap.UnmapOption) error {
+	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
+	if err != nil {
+		return err
+	}
+	return s.FromTonyIR(node, opts...)
+}
+
 // ToTonyIR converts Entry to a Tony IR node.
 func (s *Entry) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if s == nil {
@@ -38,7 +132,7 @@ func (s *Entry) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: TxSource (optional)
 	if s.TxSource != nil {
-		node, err = s.TxSource.ToTonyIR(opts...)
+		node, err = s.TxSource.ToTonyIR()
 		if err != nil {
 			return nil, err
 		}
@@ -55,7 +149,20 @@ func (s *Entry) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["LastCommit"] = ir.FromInt(int64(*s.LastCommit))
 	}
 
-	// Create IR node with schema tag
+	// Field: ScopeID (optional)
+	if s.ScopeID != nil {
+		irMap["ScopeID"] = ir.FromString(*s.ScopeID)
+	}
+
+	// Field: SchemaEntry (optional)
+	if s.SchemaEntry != nil {
+		node, err = s.SchemaEntry.ToTonyIR()
+		if err != nil {
+			return nil, err
+		}
+		irMap["SchemaEntry"] = node
+	}
+
 	return ir.FromMap(irMap).WithTag("!entry"), nil
 }
 
@@ -83,43 +190,78 @@ func (s *Entry) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 
 	for i, fieldName := range node.Fields {
 		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
 		switch fieldName.String {
 		case "Commit":
 			// Field: Commit
-			if fieldNode.Int64 == nil {
-				return fmt.Errorf("field %q: expected number, got %v", "Commit", fieldNode.Type)
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "Commit", fieldNodeUnwrapped.Type)
 			}
-			s.Commit = int64(*fieldNode.Int64)
+			s.Commit = int64(*fieldNodeUnwrapped.Int64)
 		case "Timestamp":
 			// Field: Timestamp
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "Timestamp", fieldNode.Type)
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "Timestamp", fieldNodeUnwrapped.Type)
 			}
-			s.Timestamp = fieldNode.String
+			s.Timestamp = fieldNodeUnwrapped.String
 		case "Patch":
-			s.Patch = fieldNode
+			if gomap.GetUnmapComments(opts...) {
+				s.Patch = fieldNode
+			} else {
+				s.Patch = fieldNodeUnwrapped
+			}
 		case "TxSource":
 			// Field: TxSource
 			s.TxSource = &tx.State{}
-			if err := s.TxSource.FromTonyIR(fieldNode, opts...); err != nil {
+			if err := s.TxSource.FromTonyIR(fieldNode); err != nil {
 				return err
 			}
 		case "SnapPos":
 			// Field: SnapPos
-			val := new(int64)
-			if fieldNode.Int64 == nil {
-				return fmt.Errorf("%s: expected number, got %v", "field \"SnapPos\"", fieldNode.Type)
+			if fieldNodeUnwrapped.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(int64)
+				if fieldNodeUnwrapped.Int64 == nil {
+					return fmt.Errorf("%s: expected number, got %v", "field \"SnapPos\"", fieldNodeUnwrapped.Type)
+				}
+				*val = int64(*fieldNodeUnwrapped.Int64)
+				s.SnapPos = val
 			}
-			*val = int64(*fieldNode.Int64)
-			s.SnapPos = val
 		case "LastCommit":
 			// Field: LastCommit
-			val := new(int64)
-			if fieldNode.Int64 == nil {
-				return fmt.Errorf("%s: expected number, got %v", "field \"LastCommit\"", fieldNode.Type)
+			if fieldNodeUnwrapped.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(int64)
+				if fieldNodeUnwrapped.Int64 == nil {
+					return fmt.Errorf("%s: expected number, got %v", "field \"LastCommit\"", fieldNodeUnwrapped.Type)
+				}
+				*val = int64(*fieldNodeUnwrapped.Int64)
+				s.LastCommit = val
 			}
-			*val = int64(*fieldNode.Int64)
-			s.LastCommit = val
+		case "ScopeID":
+			// Field: ScopeID
+			if fieldNodeUnwrapped.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(string)
+				if fieldNodeUnwrapped.Type != ir.StringType {
+					return fmt.Errorf("%s: expected string, got %v", "field \"ScopeID\"", fieldNodeUnwrapped.Type)
+				}
+				*val = string(fieldNodeUnwrapped.String)
+				s.ScopeID = val
+			}
+		case "SchemaEntry":
+			// Field: SchemaEntry
+			s.SchemaEntry = &SchemaEntry{}
+			if err := s.SchemaEntry.FromTonyIR(fieldNode); err != nil {
+				return err
+			}
 		}
 	}
 

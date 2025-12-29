@@ -200,6 +200,7 @@ func (s *Storage) createSnapshot(commit int64, scopeID *string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create snapshot writer: %w", err)
 	}
+	snapWriter.SetScopeID(scopeID)
 
 	// Build snapshot directly to log file (out-of-memory)
 	snapIndex := &snap.Index{}

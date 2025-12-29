@@ -55,6 +55,18 @@ type Storage struct {
 	// Used by SwitchAndSnapshot to create scope-specific snapshots.
 	activeScopesMu sync.RWMutex
 	activeScopes   map[string]struct{}
+
+	// Schema state - derived from log entries during replay.
+	// Schema changes are stored in dlog entries and always occur at snapshot boundaries.
+	schemaMu           sync.RWMutex
+	activeSchema       *ir.Node // Current active schema (nil = schemaless)
+	activeSchemaCommit int64    // Commit where active schema was set (0 = schemaless from start)
+
+	// Pending migration state (nil if no migration in progress)
+	pendingSchema       *ir.Node     // Schema being migrated to
+	pendingSchemaCommit int64        // Commit where pending schema was set
+	pendingIndex        *index.Index // Index being built for pending schema
+	pendingSchemaParsed *api.Schema  // Cached parsed pending schema (avoids re-parsing on each write)
 }
 
 // DefaultIndexPersistInterval is the default number of commits between index persists.
@@ -209,6 +221,11 @@ func (s *Storage) init() error {
 	// Rebuild index from logs starting at maxCommit+1
 	if err := index.Build(s.index, s.dLog, maxCommit); err != nil {
 		return fmt.Errorf("failed to rebuild index: %w", err)
+	}
+
+	// Replay schema state from log entries
+	if err := s.replaySchemaState(); err != nil {
+		return fmt.Errorf("failed to replay schema state: %w", err)
 	}
 
 	// Save index with updated maxCommit
@@ -417,4 +434,27 @@ func (s *Storage) getAndClearActiveScopes() []string {
 	}
 	s.activeScopes = make(map[string]struct{})
 	return scopes
+}
+
+// GetActiveSchema returns the current active schema and the commit where it was set.
+// Returns nil schema and 0 commit if schemaless.
+func (s *Storage) GetActiveSchema() (*ir.Node, int64) {
+	s.schemaMu.RLock()
+	defer s.schemaMu.RUnlock()
+	return s.activeSchema, s.activeSchemaCommit
+}
+
+// GetPendingSchema returns the pending schema and commit if a migration is in progress.
+// Returns nil, 0 if no migration is in progress.
+func (s *Storage) GetPendingSchema() (*ir.Node, int64) {
+	s.schemaMu.RLock()
+	defer s.schemaMu.RUnlock()
+	return s.pendingSchema, s.pendingSchemaCommit
+}
+
+// HasPendingMigration returns true if a schema migration is in progress.
+func (s *Storage) HasPendingMigration() bool {
+	s.schemaMu.RLock()
+	defer s.schemaMu.RUnlock()
+	return s.pendingSchema != nil
 }
