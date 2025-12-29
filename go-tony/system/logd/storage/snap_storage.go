@@ -108,8 +108,9 @@ func (s *Storage) findSnapshotBaseReader(kp string, commit int64, scopeID *strin
 	return newSliceEventReader(events), snapSeg.StartCommit + 1, nil
 }
 
-// SwitchAndSnapshot switches the active log and creates a snapshot of the inactive log.
-// The snapshot is created for the current commit at the time of switching.
+// SwitchAndSnapshot switches the active log and creates snapshots.
+// Creates a baseline snapshot plus snapshots for all active scopes.
+// The snapshots are created for the current commit at the time of switching.
 // This should be called periodically (e.g., based on log size or time) to enable
 // snapshot-based read optimization and eventual compaction.
 //
@@ -123,14 +124,27 @@ func (s *Storage) SwitchAndSnapshot() error {
 		return fmt.Errorf("failed to get current commit: %w", err)
 	}
 
+	// Get active scopes before switching (and clear the set)
+	activeScopes := s.getAndClearActiveScopes()
+
 	// Switch active log - blocks if snapshot in progress on inactive log
 	if err := s.dLog.SwitchActive(); err != nil {
 		return fmt.Errorf("failed to switch active log: %w", err)
 	}
 
-	// Create baseline snapshot of the inactive log (which was active before switch)
+	// Create scope snapshots FIRST, before baseline.
+	// This ensures scope snapshots can use the previous baseline snapshot as base
+	// and correctly include all scope patches up to the current commit.
+	for _, scopeID := range activeScopes {
+		if err := s.createSnapshot(commit, &scopeID); err != nil {
+			// Log error but continue with other scopes
+			s.logger.Error("failed to create scope snapshot", "scopeID", scopeID, "error", err)
+		}
+	}
+
+	// Create baseline snapshot last
 	if err := s.createSnapshot(commit, nil); err != nil {
-		return fmt.Errorf("failed to create snapshot: %w", err)
+		return fmt.Errorf("failed to create baseline snapshot: %w", err)
 	}
 
 	return nil
