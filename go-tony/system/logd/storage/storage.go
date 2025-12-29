@@ -107,8 +107,8 @@ func (s *Storage) GetCurrentCommit() (int64, error) {
 // Searches for the most recent snapshot and applies patches from that point forward.
 // scopeID controls filtering: nil = baseline only, non-nil = baseline + scope.
 func (s *Storage) ReadStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
-	// Find most recent snapshot and get base event reader (always baseline)
-	baseReader, startCommit, err := s.findSnapshotBaseReader(kp, commit)
+	// Find most recent snapshot and get base event reader
+	baseReader, startCommit, err := s.findSnapshotBaseReader(kp, commit, scopeID)
 	if err != nil {
 		return nil, err
 	}
