@@ -79,7 +79,7 @@ func TestSwitchAndSnapshot(t *testing.T) {
 	}
 
 	// Switch and create snapshot
-	if err := s.SwitchAndSnapshot(); err != nil {
+	if err := s.SwitchDLog(); err != nil {
 		t.Fatalf("SwitchAndSnapshot() error = %v", err)
 	}
 
@@ -481,7 +481,7 @@ func TestSwitchAndSnapshot_AutomaticScopeSnapshots(t *testing.T) {
 	s.activeScopesMu.RUnlock()
 
 	// Stage 2: Call SwitchAndSnapshot - should create baseline + both scope snapshots
-	if err := s.SwitchAndSnapshot(); err != nil {
+	if err := s.SwitchDLog(); err != nil {
 		t.Fatalf("SwitchAndSnapshot() error = %v", err)
 	}
 

@@ -40,6 +40,7 @@ func (sp *StreamingProcessor) ApplyPatches(baseEvents stream.EventReader, patche
 	}
 	collector := NewSubtreeCollector(patchIndex)
 
+	hasBaseEvents := false
 	for {
 		ev, err := baseEvents.ReadEvent()
 		if err == io.EOF {
@@ -48,6 +49,7 @@ func (sp *StreamingProcessor) ApplyPatches(baseEvents stream.EventReader, patche
 		if err != nil {
 			return err
 		}
+		hasBaseEvents = true
 
 		// Process event through collector to detect patched paths
 		collected, err := collector.ProcessEvent(ev)
@@ -79,6 +81,26 @@ func (sp *StreamingProcessor) ApplyPatches(baseEvents stream.EventReader, patche
 
 		// Not actively collecting, pass through
 		if err := sink.WriteEvent(ev); err != nil {
+			return err
+		}
+	}
+
+	// Handle empty base with patches: apply all patches in order starting from null
+	// This matches InMemoryApplier behavior - when there's no base, we must materialize
+	if !hasBaseEvents && len(patches) > 0 {
+		result := ir.Null()
+		for _, patch := range patches {
+			if patch == nil {
+				continue
+			}
+			var err error
+			result, err = tony.Patch(result, patch)
+			if err != nil {
+				return err
+			}
+		}
+		tx.StripPatchRootTagRecursive(result)
+		if err := emitNode(result, sink); err != nil {
 			return err
 		}
 	}

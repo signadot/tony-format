@@ -115,3 +115,39 @@ func (s *Snapshot) ReadPath(p string) (*ir.Node, error) {
 	}
 	return stream.EventsToNode(events)
 }
+
+// ReadPathEventReader returns a streaming event reader for the path p.
+// Unlike ReadPath, this does not materialize the full subtree in memory.
+// The caller must call Close() on the returned reader when done.
+// Note: The Snapshot must remain open while the reader is in use.
+func (s *Snapshot) ReadPathEventReader(p string) (*PathEventReader, error) {
+	desPath, err := kpath.Parse(p)
+	if err != nil {
+		return nil, err
+	}
+
+	var offset int64
+	var startPath *kpath.KPath
+
+	// If index is empty, start from the beginning (root path)
+	if len(s.Index.Entries) == 0 {
+		offset = 0
+		startPath = nil
+	} else {
+		// Lookup the path in the index
+		i, err := s.Index.Lookup(p)
+		if err != nil {
+			return nil, fmt.Errorf("lookup path %q: %w", p, err)
+		}
+
+		entry := &s.Index.Entries[i]
+		offset = entry.Offset
+		if entry.Path == nil {
+			startPath = nil
+		} else {
+			startPath = &entry.Path.KPath
+		}
+	}
+
+	return NewPathEventReader(s.R, s.Index, offset, startPath, desPath, int64(s.EventSize))
+}

@@ -227,28 +227,6 @@ func (dl *DLog) GetInactiveLog() LogFileID {
 	return LogFileA
 }
 
-// AppendToInactive appends an entry to the inactive log file.
-// Returns the position and log file ID where the entry was written.
-func (dl *DLog) AppendToInactive(entry *Entry) (logPosition int64, logFile LogFileID, err error) {
-	dl.mu.Lock()
-	inactiveLog := dl.GetInactiveLog()
-	dl.mu.Unlock()
-
-	var logFileObj *DLogFile
-	if inactiveLog == LogFileA {
-		logFileObj = dl.logA
-	} else {
-		logFileObj = dl.logB
-	}
-
-	position, err := logFileObj.AppendEntry(entry)
-	if err != nil {
-		return 0, "", fmt.Errorf("failed to append entry to %s: %w", inactiveLog, err)
-	}
-
-	return position, inactiveLog, nil
-}
-
 // ActiveLogSize returns the current size of the active log file.
 func (dl *DLog) ActiveLogSize() (int64, error) {
 	dl.mu.RLock()

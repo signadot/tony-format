@@ -11,6 +11,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/patches"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/snap"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 // Schema operation errors
@@ -213,6 +214,9 @@ func (s *Storage) MigrationPatch(path string, patch *ir.Node) (int64, *ir.Node, 
 		lastCommit = 0
 	}
 
+	// Add PatchRootTag so StreamingProcessor can identify the patch root
+	patch.Tag = ir.TagCompose(tx.PatchRootTag, nil, patch.Tag)
+
 	// Build the root patch with path
 	rootPatch := buildRootPatch(path, patch)
 
@@ -394,7 +398,7 @@ func (s *Storage) createSchemaSnapshot(schema *ir.Node, status string, scopeID *
 	}
 
 	// Apply patches - events flow directly from baseReader → builder → log file
-	applier := patches.NewInMemoryApplier()
+	applier := patches.NewStreamingProcessor()
 	if err := applier.ApplyPatches(baseReader, patchNodes, builder); err != nil {
 		snapWriter.Abandon()
 		return 0, fmt.Errorf("failed to apply patches: %w", err)

@@ -198,3 +198,114 @@ func (pf *PathFinder) readNextChunk(fileOffset int64) (*bytes.Reader, error) {
 
 	return bytes.NewReader(buf[:n]), nil
 }
+
+// PathEventReader is a streaming version of PathFinder that yields events one at a time.
+// Implements stream.EventReader interface for use with StreamingProcessor.
+type PathEventReader struct {
+	pf               *PathFinder
+	desPathStr       string
+	collecting       bool
+	depth            int
+	chunkBuf         *bytes.Reader
+	chunkStartOffset int64
+	fileOffset       int64
+	done             bool
+}
+
+// NewPathEventReader creates a streaming event reader for the given path.
+func NewPathEventReader(r io.ReadSeekCloser, index *Index, off int64, idxPath, desPath *kpath.KPath, eventSize int64) (*PathEventReader, error) {
+	pf, err := NewPathFinder(r, index, off, idxPath, desPath, eventSize)
+	if err != nil {
+		return nil, err
+	}
+	return &PathEventReader{
+		pf:         pf,
+		desPathStr: desPath.String(),
+		fileOffset: off,
+	}, nil
+}
+
+// ReadEvent returns the next event for the target path.
+// Returns io.EOF when all events have been read.
+func (r *PathEventReader) ReadEvent() (*stream.Event, error) {
+	if r.done {
+		return nil, io.EOF
+	}
+
+	for {
+		// If no buffered chunk or exhausted, read next chunk
+		if r.chunkBuf == nil || r.chunkBuf.Len() == 0 {
+			var err error
+			r.chunkBuf, err = r.pf.readNextChunk(r.fileOffset)
+			if err == io.EOF {
+				r.done = true
+				return nil, io.EOF
+			}
+			if err != nil {
+				return nil, err
+			}
+			r.chunkStartOffset = r.fileOffset
+		}
+
+		// Read event from buffered chunk
+		evt := &stream.Event{}
+		if err := evt.ReadBinary(r.chunkBuf); err != nil {
+			if err == io.EOF {
+				// Chunk exhausted, advance fileOffset and read next chunk
+				afterPos := r.chunkBuf.Size() - int64(r.chunkBuf.Len())
+				r.fileOffset = r.chunkStartOffset + afterPos
+				continue
+			}
+			return nil, err
+		}
+		// Update fileOffset to reflect bytes consumed from chunk
+		afterPos := r.chunkBuf.Size() - int64(r.chunkBuf.Len())
+		r.fileOffset = r.chunkStartOffset + afterPos
+
+		if err := r.pf.state.ProcessEvent(evt); err != nil {
+			return nil, err
+		}
+
+		currentPath := r.pf.state.CurrentPath()
+
+		// If we were collecting and moved past the target path, stop
+		if r.collecting {
+			switch evt.Type {
+			case stream.EventBeginObject, stream.EventBeginArray:
+				r.depth++
+			case stream.EventEndObject, stream.EventEndArray:
+				r.depth--
+			}
+			if r.depth >= 0 {
+				return evt, nil
+			}
+			if r.depth <= 0 {
+				r.done = true
+				return nil, io.EOF
+			}
+		} else if currentPath == r.desPathStr {
+			switch evt.Type {
+			case stream.EventIntKey, stream.EventKey:
+				r.collecting = true
+				// Don't return the key, continue to get the value
+			case stream.EventBeginArray, stream.EventBeginObject:
+				r.collecting = true
+				r.depth++
+				return evt, nil
+			case stream.EventEndArray, stream.EventEndObject:
+				r.collecting = true
+				// Continue to next event
+			default:
+				// Scalar value - return it and we're done
+				r.done = true
+				return evt, nil
+			}
+		}
+		// Not at target path yet, continue scanning
+	}
+}
+
+// Close is a no-op - the underlying reader is owned by the Snapshot.
+func (r *PathEventReader) Close() error {
+	return nil
+}

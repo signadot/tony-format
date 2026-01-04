@@ -45,8 +45,8 @@ type Storage struct {
 	index          *index.Index
 	indexPersister *IndexPersister
 
-	txStore        tx.Store           // Transaction store (in-memory for now, can be swapped for disk-based)
-	txTimeout      time.Duration      // Timeout for transaction participants to join (0 = no timeout)
+	txStore        tx.Store      // Transaction store (in-memory for now, can be swapped for disk-based)
+	txTimeout      time.Duration // Timeout for transaction participants to join (0 = no timeout)
 	logger         *slog.Logger
 	notifier       CommitNotifier     // Optional callback for commit notifications
 	schemaResolver api.SchemaResolver // Optional schema resolver for !key indexed arrays
@@ -60,9 +60,6 @@ type Storage struct {
 	// Schema changes are stored in dlog entries and always occur at snapshot boundaries.
 	schema *storageSchema
 }
-
-// DefaultIndexPersistInterval is the default number of commits between index persists.
-const DefaultIndexPersistInterval = 1000
 
 // Open opens or creates a Storage instance with the given root directory.
 // The root directory will be created if it doesn't exist.
@@ -152,7 +149,7 @@ func (s *Storage) ReadStateAt(kp string, commit int64, scopeID *string) (*ir.Nod
 	// Apply patches using PatchApplier interface
 	eventBuffer := &bytes.Buffer{}
 	sink := stream.NewBufferEventSink(eventBuffer)
-	applier := patches.NewInMemoryApplier()
+	applier := patches.NewStreamingProcessor()
 
 	if err := applier.ApplyPatches(baseReader, patchNodes, sink); err != nil {
 		return nil, fmt.Errorf("failed to apply patches: %w", err)

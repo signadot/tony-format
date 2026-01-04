@@ -90,25 +90,25 @@ func (s *Storage) findSnapshotBaseReader(kp string, commit int64, scopeID *strin
 		return nil, 0, fmt.Errorf("failed to open snapshot reader: %w", err)
 	}
 
-	// Open the snapshot to parse header and get event stream
+	// Open the snapshot to parse header and get streaming event reader
 	snapshot, err := snap.Open(snapReader)
 	if err != nil {
 		snapReader.Close()
 		return nil, 0, fmt.Errorf("failed to open snapshot: %w", err)
 	}
-	defer snapshot.Close()
-	node, err := snapshot.ReadPath(kp)
+
+	// Get streaming event reader for the path (no in-memory materialization)
+	eventReader, err := snapshot.ReadPathEventReader(kp)
 	if err != nil {
-		return nil, 0, fmt.Errorf("error reading %q from snapshot: %w", kp, err)
+		snapshot.Close()
+		return nil, 0, fmt.Errorf("error creating event reader for %q from snapshot: %w", kp, err)
 	}
-	events, err := stream.NodeToEvents(node)
-	if err != nil {
-		return nil, 0, fmt.Errorf("error translating node to events: %w", err)
-	}
-	return newSliceEventReader(events), snapSeg.StartCommit + 1, nil
+
+	// Return wrapper that closes both the event reader and snapshot when done
+	return &snapshotEventReadCloser{snapshot: snapshot, reader: eventReader}, snapSeg.StartCommit + 1, nil
 }
 
-// SwitchAndSnapshot switches the active log and creates snapshots.
+// SwitchDLog switches the active log and creates snapshots.
 // Creates a baseline snapshot plus snapshots for all active scopes.
 // The snapshots are created for the current commit at the time of switching.
 // This should be called periodically (e.g., based on log size or time) to enable
@@ -117,7 +117,7 @@ func (s *Storage) findSnapshotBaseReader(kp string, commit int64, scopeID *strin
 // Concurrency: dlog handles coordination internally via per-file snapMu locks.
 // SwitchActive blocks if a snapshot is in progress on the inactive log.
 // createSnapshot returns ErrSnapshotInProgress if called while another snapshot is running.
-func (s *Storage) SwitchAndSnapshot() error {
+func (s *Storage) SwitchDLog() error {
 	// Get current commit before switching
 	commit, err := s.GetCurrentCommit()
 	if err != nil {
@@ -132,7 +132,7 @@ func (s *Storage) SwitchAndSnapshot() error {
 		return fmt.Errorf("failed to switch active log: %w", err)
 	}
 
-	// Create scope snapshots FIRST, before baseline.
+	// Create scope snapshots first, before baseline.
 	// This ensures scope snapshots can use the previous baseline snapshot as base
 	// and correctly include all scope patches up to the current commit.
 	for _, scopeID := range activeScopes {
@@ -211,7 +211,7 @@ func (s *Storage) createSnapshot(commit int64, scopeID *string) error {
 	}
 
 	// Apply patches - events flow directly from baseReader → builder → log file
-	applier := patches.NewInMemoryApplier()
+	applier := patches.NewStreamingProcessor()
 	if err := applier.ApplyPatches(baseReader, patchNodes, builder); err != nil {
 		snapWriter.Abandon()
 		return fmt.Errorf("failed to apply patches: %w", err)
@@ -244,6 +244,24 @@ func (s *Storage) createSnapshot(commit int64, scopeID *string) error {
 		s.logger.Info("snapshot created", "commit", commit, "logFile", snapWriter.LogFileID(), "position", snapWriter.EntryPosition())
 	}
 	return nil
+}
+
+// snapshotEventReadCloser wraps a PathEventReader and its parent Snapshot,
+// ensuring both are closed when the reader is done.
+type snapshotEventReadCloser struct {
+	snapshot *snap.Snapshot
+	reader   *snap.PathEventReader
+}
+
+func (s *snapshotEventReadCloser) ReadEvent() (*stream.Event, error) {
+	return s.reader.ReadEvent()
+}
+
+func (s *snapshotEventReadCloser) Close() error {
+	// PathEventReader.Close() is a no-op, but call it for consistency
+	s.reader.Close()
+	// Close the snapshot (which closes the underlying reader)
+	return s.snapshot.Close()
 }
 
 type sliceEventReader struct {

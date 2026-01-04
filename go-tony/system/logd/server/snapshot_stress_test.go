@@ -79,7 +79,7 @@ func TestReadsDuringSnapshot(t *testing.T) {
 	var snapshotErr error
 	var snapshotDone sync.WaitGroup
 	snapshotDone.Go(func() {
-		snapshotErr = store.SwitchAndSnapshot()
+		snapshotErr = store.SwitchDLog()
 	})
 
 	// While snapshot runs, do reads
@@ -173,7 +173,7 @@ func TestSnapshotStress(t *testing.T) {
 	go func() {
 		defer close(snapshotterDone)
 		for !stop.Load() {
-			err := store.SwitchAndSnapshot()
+			err := store.SwitchDLog()
 			if err != nil {
 				// ErrSnapshotInProgress is expected under stress
 				t.Logf("Snapshot: %v", err)
@@ -242,7 +242,7 @@ func TestConcurrentSnapshots(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			// Each goroutine tries to switch and snapshot
-			err := store.SwitchAndSnapshot()
+			err := store.SwitchDLog()
 			results <- err
 		}(i)
 	}

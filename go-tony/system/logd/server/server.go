@@ -21,6 +21,10 @@ type Server struct {
 
 	// commitsSinceSnapshot tracks commits for snapshot policy (accessed from multiple goroutines)
 	commitsSinceSnapshot atomic.Int64
+
+	// switching guards threshold check + SwitchDLog as one atomic operation.
+	// Only one goroutine checks and potentially switches at a time.
+	switching atomic.Bool
 }
 
 // New creates a new Server instance.
@@ -68,34 +72,41 @@ func slogLevel() slog.Level {
 	return slog.LevelInfo
 }
 
-// maybeSnapshot checks snapshot thresholds and triggers SwitchAndSnapshot if needed.
-// Called after successful commits.
-func (s *Server) maybeSnapshot() {
+// maybeCompact checks snapshot thresholds and triggers SwitchDLog if needed.
+// Called after successful commits. Uses CAS on switching to ensure only one
+// goroutine checks thresholds and potentially switches at a time.
+func (s *Server) maybeCompact() {
 	cfg := s.Spec.Config
 	if cfg == nil || cfg.Snapshot == nil {
 		return
 	}
 
+	// Only one goroutine checks thresholds at a time
+	if !s.switching.CompareAndSwap(false, true) {
+		return
+	}
+	defer s.switching.Store(false)
+
 	snap := cfg.Snapshot
-	shouldSnapshot := false
+	shouldSwitch := false
 
 	// Check commit count threshold
 	commitCount := s.commitsSinceSnapshot.Load()
 	if snap.MaxCommits > 0 && commitCount >= snap.MaxCommits {
-		shouldSnapshot = true
+		shouldSwitch = true
 	}
 
 	// Check log size threshold
-	if !shouldSnapshot && snap.MaxBytes > 0 {
+	if !shouldSwitch && snap.MaxBytes > 0 {
 		size, err := s.Spec.Storage.ActiveLogSize()
 		if err == nil && size >= snap.MaxBytes {
-			shouldSnapshot = true
+			shouldSwitch = true
 		}
 	}
 
-	if shouldSnapshot {
+	if shouldSwitch {
 		s.Spec.Log.Info("triggering snapshot", "commitsSinceSnapshot", commitCount)
-		if err := s.Spec.Storage.SwitchAndSnapshot(); err != nil {
+		if err := s.Spec.Storage.SwitchDLog(); err != nil {
 			s.Spec.Log.Error("snapshot failed", "error", err)
 		} else {
 			s.commitsSinceSnapshot.Store(0)
@@ -148,5 +159,5 @@ func (s *Server) TCPAddr() string {
 // onCommit is called after successful commits for snapshot tracking.
 func (s *Server) onCommit() {
 	s.commitsSinceSnapshot.Add(1)
-	s.maybeSnapshot()
+	s.maybeCompact()
 }
