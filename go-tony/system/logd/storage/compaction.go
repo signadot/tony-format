@@ -264,8 +264,11 @@ func (s *Storage) getActiveScopes() map[string]struct{} {
 }
 
 // updateIndexPositions updates segment positions in the index after compaction.
-// Removes old segments and re-adds them with new positions.
+// Removes old segments and re-adds them with new positions and updated generation.
 func (s *Storage) updateIndexPositions(logFileID dlog.LogFileID, survivors []index.LogSegment, positionMap map[int64]int64) {
+	// Get the new generation after compaction
+	newGeneration := s.dLog.GetGeneration(logFileID)
+
 	for _, seg := range survivors {
 		newPos, ok := positionMap[seg.LogPosition]
 		if !ok {
@@ -275,8 +278,9 @@ func (s *Storage) updateIndexPositions(logFileID dlog.LogFileID, survivors []ind
 		// Remove segment with old position
 		s.index.Remove(&seg)
 
-		// Add segment with new position
+		// Add segment with new position and updated generation
 		seg.LogPosition = newPos
+		seg.LogFileGeneration = newGeneration
 		s.index.Add(&seg)
 	}
 }
