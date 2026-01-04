@@ -165,42 +165,62 @@ func (s *Storage) selectSurvivors(
 	return survivors, nil
 }
 
-// buildSnapshotGroups groups snapshots by commit and filters out inactive scopes.
+// buildSnapshotGroups groups snapshots by commit and filters out:
+// - scope snapshots for inactive scopes
+// - aborted schema migration entries
+// - superseded pending schema migration entries
 func (s *Storage) buildSnapshotGroups(
 	snapshots []index.LogSegment,
 	activeScopes map[string]struct{},
 ) ([]snapshotGroup, error) {
-	// Filter out scope snapshots for inactive scopes
-	var filtered []index.LogSegment
-	for _, seg := range snapshots {
-		if seg.ScopeID != nil {
-			if _, active := activeScopes[*seg.ScopeID]; !active {
-				continue
-			}
-		}
-		filtered = append(filtered, seg)
-	}
+	// Get current pending migration state for filtering superseded pending entries
+	_, pendingCommit := s.schema.GetPending()
+	hasPending := s.schema.HasPending()
 
-	// Group by commit with timestamps
+	// Group by commit with timestamps, filtering as we go
 	byCommit := make(map[int64]*snapshotGroup)
 
-	for _, seg := range filtered {
+	for _, seg := range snapshots {
 		commit := seg.StartCommit
 
-		if byCommit[commit] == nil {
+		// Lazy-init group and read entry once per commit
+		group := byCommit[commit]
+		if group == nil {
 			entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition, seg.LogFileGeneration)
 			if err != nil {
 				return nil, fmt.Errorf("failed to read snapshot entry: %w", err)
 			}
 
+			// Check for schema migration entries to filter
+			if entry.SchemaEntry != nil {
+				if s.shouldSkipSchemaEntry(entry.SchemaEntry, commit, hasPending, pendingCommit) {
+					continue
+				}
+			}
+
 			t, _ := time.Parse(time.RFC3339, entry.Timestamp)
-			byCommit[commit] = &snapshotGroup{
+			group = &snapshotGroup{
 				commit: commit,
 				time:   t,
 			}
+			byCommit[commit] = group
 		}
 
-		byCommit[commit].segments = append(byCommit[commit].segments, seg)
+		// Filter out scope snapshots for inactive scopes
+		if seg.ScopeID != nil {
+			if _, active := activeScopes[*seg.ScopeID]; !active {
+				continue
+			}
+		}
+
+		group.segments = append(group.segments, seg)
+	}
+
+	// Remove empty groups (all segments filtered out)
+	for commit, group := range byCommit {
+		if len(group.segments) == 0 {
+			delete(byCommit, commit)
+		}
 	}
 
 	// Convert to slice and sort
@@ -211,6 +231,24 @@ func (s *Storage) buildSnapshotGroups(
 	sortSnapshotGroups(groups)
 
 	return groups, nil
+}
+
+// shouldSkipSchemaEntry returns true if a schema entry should be filtered out during compaction.
+func (s *Storage) shouldSkipSchemaEntry(schemaEntry *dlog.SchemaEntry, commit int64, hasPending bool, pendingCommit int64) bool {
+	switch schemaEntry.Status {
+	case dlog.SchemaStatusAborted:
+		// Aborted migrations are always safe to remove
+		return true
+	case dlog.SchemaStatusPending:
+		// Remove superseded pending entries:
+		// - No pending migration in progress (completed or aborted)
+		// - Different commit than current pending (stale)
+		if !hasPending || commit != pendingCommit {
+			return true
+		}
+	}
+	// Active schema entries are handled by tier policy with pinned commit
+	return false
 }
 
 // getActiveScopes returns the set of currently active scope IDs.
