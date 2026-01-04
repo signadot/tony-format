@@ -72,8 +72,9 @@ func (dl *DLog) CompactInactive(positions []int64, config *CompactConfig) ([]Com
 	}
 
 	dl.mu.Lock()
-	inactiveID := dl.activeLog
-	if inactiveID == LogFileA {
+	// Determine inactive log (opposite of active)
+	inactiveID := LogFileA
+	if dl.activeLog == LogFileA {
 		inactiveID = LogFileB
 	}
 	var inactiveLog *DLogFile
