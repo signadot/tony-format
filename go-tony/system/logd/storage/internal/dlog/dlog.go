@@ -343,6 +343,18 @@ func (dl *DLog) Iterator() (*DLogIter, error) {
 	return it, nil
 }
 
+// LogFilePath returns the file path for the specified log file ID.
+func (dl *DLog) LogFilePath(id LogFileID) string {
+	switch id {
+	case LogFileA:
+		return dl.logA.path
+	case LogFileB:
+		return dl.logB.path
+	default:
+		return ""
+	}
+}
+
 // Close closes both log files.
 func (dl *DLog) Close() error {
 	var errs error
