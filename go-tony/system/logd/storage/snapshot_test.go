@@ -110,8 +110,8 @@ func TestSwitchAndSnapshot(t *testing.T) {
 		t.Errorf("snapshot KindedPath = %q, want empty string", foundSnapshot.KindedPath)
 	}
 
-	// Verify we can read the snapshot entry
-	entry, err := s.dLog.ReadEntryAt(s.dLog.GetInactiveLog(), foundSnapshot.LogPosition)
+	// Verify we can read the snapshot entry (use segment's generation)
+	entry, err := s.dLog.ReadEntryAt(s.dLog.GetInactiveLog(), foundSnapshot.LogPosition, foundSnapshot.LogFileGeneration)
 	if err != nil {
 		t.Fatalf("ReadEntryAt() error = %v", err)
 	}

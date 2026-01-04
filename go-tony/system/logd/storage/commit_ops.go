@@ -46,15 +46,18 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	// Get schema for this scope
 	schema := c.s.schemaForScope(scopeID)
 
+	// Get current generation for indexing
+	generation := c.s.dLog.GetGeneration(logFile)
+
 	e := entry
-	if err := index.IndexPatch(c.s.index, e, string(logFile), pos, txSeq, mergedPatch, schema, scopeID); err != nil {
+	if err := index.IndexPatch(c.s.index, e, string(logFile), pos, txSeq, generation, mergedPatch, schema, scopeID); err != nil {
 		return "", 0, err
 	}
 
 	// Dual-write: also index to pending index if migration is in progress
 	if pendingIdx := c.s.schema.GetPendingIndex(); pendingIdx != nil {
 		pendingSchemaParsed := c.s.schema.GetPendingParsed()
-		if err := index.IndexPatch(pendingIdx, e, string(logFile), pos, txSeq, mergedPatch, pendingSchemaParsed, scopeID); err != nil {
+		if err := index.IndexPatch(pendingIdx, e, string(logFile), pos, txSeq, generation, mergedPatch, pendingSchemaParsed, scopeID); err != nil {
 			return "", 0, fmt.Errorf("failed to index to pending: %w", err)
 		}
 	}

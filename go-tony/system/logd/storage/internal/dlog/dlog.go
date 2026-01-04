@@ -8,9 +8,15 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 
 	"log/slog"
 )
+
+// ErrCompactionInterrupted is returned when a read fails because compaction
+// changed the log file since the segment was indexed. Callers should re-lookup
+// the segment from the index and retry.
+var ErrCompactionInterrupted = errors.New("read interrupted by compaction")
 
 // DLog manages the logA/logB double-buffered log files.
 // Follows the double-buffering pattern where one log is active for writes
@@ -21,6 +27,10 @@ type DLog struct {
 	logB      *DLogFile    // Second log file
 	activeLog LogFileID    // Which log is currently active ("A" or "B")
 	mu        sync.RWMutex // Protects activeLog and file operations
+
+	// Generation counters - incremented on compaction to detect stale reads
+	generationA atomic.Int64
+	generationB atomic.Int64
 
 	// Metadata
 	logger *slog.Logger // Logger for operations
@@ -177,7 +187,16 @@ func (dl *DLog) AppendEntry(entry *Entry) (logPosition int64, logFile LogFileID,
 
 // ReadEntryAt reads an Entry from the specified log file at the given position.
 // logFile must be "A" or "B".
-func (dl *DLog) ReadEntryAt(logFile LogFileID, position int64) (*Entry, error) {
+// expectedGeneration should match the generation when the segment was indexed.
+// Returns ErrCompactionInterrupted if generation doesn't match (caller should re-lookup and retry).
+// Automatically tracks reader refcount for compaction safety.
+func (dl *DLog) ReadEntryAt(logFile LogFileID, position int64, expectedGeneration int64) (*Entry, error) {
+	// Check generation before reading
+	currentGen := dl.GetGeneration(logFile)
+	if currentGen != expectedGeneration {
+		return nil, ErrCompactionInterrupted
+	}
+
 	var logFileObj *DLogFile
 	switch logFile {
 	case LogFileA:
@@ -187,6 +206,9 @@ func (dl *DLog) ReadEntryAt(logFile LogFileID, position int64) (*Entry, error) {
 	default:
 		return nil, fmt.Errorf("invalid log file ID: %q (must be A or B)", logFile)
 	}
+
+	dl.AcquireReader(logFile)
+	defer dl.ReleaseReader(logFile)
 
 	return logFileObj.ReadEntryAt(position)
 }
@@ -196,7 +218,16 @@ func (dl *DLog) ReadEntryAt(logFile LogFileID, position int64) (*Entry, error) {
 // All seeks in the returned reader are relative to position (position becomes offset 0).
 // The returned reader must be closed when done.
 // logFile must be "A" or "B".
-func (dl *DLog) OpenReaderAt(logFile LogFileID, position int64) (io.ReadSeekCloser, error) {
+// expectedGeneration should match the generation when the segment was indexed.
+// Returns ErrCompactionInterrupted if generation doesn't match.
+// Automatically tracks reader refcount for compaction safety - refcount is released on Close.
+func (dl *DLog) OpenReaderAt(logFile LogFileID, position int64, expectedGeneration int64) (io.ReadSeekCloser, error) {
+	// Check generation before opening
+	currentGen := dl.GetGeneration(logFile)
+	if currentGen != expectedGeneration {
+		return nil, ErrCompactionInterrupted
+	}
+
 	var logFileObj *DLogFile
 	switch logFile {
 	case LogFileA:
@@ -207,7 +238,37 @@ func (dl *DLog) OpenReaderAt(logFile LogFileID, position int64) (io.ReadSeekClos
 		return nil, fmt.Errorf("invalid log file ID: %q (must be A or B)", logFile)
 	}
 
-	return logFileObj.OpenReaderAt(position)
+	dl.AcquireReader(logFile)
+
+	reader, err := logFileObj.OpenReaderAt(position)
+	if err != nil {
+		dl.ReleaseReader(logFile)
+		return nil, err
+	}
+
+	return &refcountedReader{
+		ReadSeekCloser: reader,
+		dlog:           dl,
+		logFile:        logFile,
+	}, nil
+}
+
+// refcountedReader wraps a reader to release refcount on Close.
+type refcountedReader struct {
+	io.ReadSeekCloser
+	dlog    *DLog
+	logFile LogFileID
+	closed  bool
+}
+
+func (r *refcountedReader) Close() error {
+	if r.closed {
+		return nil
+	}
+	r.closed = true
+	err := r.ReadSeekCloser.Close()
+	r.dlog.ReleaseReader(r.logFile)
+	return err
 }
 
 // GetActiveLog returns the currently active log file ID.
@@ -225,6 +286,25 @@ func (dl *DLog) GetInactiveLog() LogFileID {
 		return LogFileB
 	}
 	return LogFileA
+}
+
+// GetGeneration returns the current generation for a log file.
+// Generation is incremented on compaction to detect stale reads.
+func (dl *DLog) GetGeneration(id LogFileID) int64 {
+	if id == LogFileA {
+		return dl.generationA.Load()
+	}
+	return dl.generationB.Load()
+}
+
+// IncrementGeneration increments the generation counter for a log file.
+// Called after compaction to invalidate stale segment references.
+func (dl *DLog) IncrementGeneration(id LogFileID) {
+	if id == LogFileA {
+		dl.generationA.Add(1)
+	} else {
+		dl.generationB.Add(1)
+	}
 }
 
 // ActiveLogSize returns the current size of the active log file.

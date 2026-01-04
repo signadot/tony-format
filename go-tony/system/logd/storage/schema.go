@@ -58,7 +58,7 @@ func (s *Storage) replaySchemaState() error {
 
 	// Process snapshots in commit order (they're already sorted)
 	for _, seg := range snapshots {
-		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition)
+		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition, seg.LogFileGeneration)
 		if err != nil {
 			return fmt.Errorf("failed to read snapshot entry at commit %d: %w", seg.StartCommit, err)
 		}
@@ -230,11 +230,14 @@ func (s *Storage) MigrationPatch(path string, patch *ir.Node) (int64, *ir.Node, 
 		return 0, nil, fmt.Errorf("failed to append entry: %w", err)
 	}
 
+	// Get current generation for indexing
+	generation := s.dLog.GetGeneration(logFile)
+
 	// Parse the pending schema for indexing
 	parsedSchema := api.ParseSchemaFromNode(pendingSchema)
 
 	// Index ONLY into pendingIndex (not the active index)
-	if err := index.IndexPatch(pendingIdx, entry, string(logFile), pos, 0, rootPatch, parsedSchema, nil); err != nil {
+	if err := index.IndexPatch(pendingIdx, entry, string(logFile), pos, 0, generation, rootPatch, parsedSchema, nil); err != nil {
 		return 0, nil, fmt.Errorf("failed to index patch: %w", err)
 	}
 
@@ -312,7 +315,7 @@ func (s *Storage) reindexForPending(fromCommit, toCommit int64) error {
 		}
 
 		// Read entry from dlog
-		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition)
+		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition, seg.LogFileGeneration)
 		if err != nil {
 			return fmt.Errorf("failed to read entry at commit %d: %w", seg.EndCommit, err)
 		}
@@ -323,7 +326,7 @@ func (s *Storage) reindexForPending(fromCommit, toCommit int64) error {
 		}
 
 		// Index into pending index
-		if err := index.IndexPatch(pendingIdx, entry, seg.LogFile, seg.LogPosition, seg.EndTx, entry.Patch, parsedSchema, entry.ScopeID); err != nil {
+		if err := index.IndexPatch(pendingIdx, entry, seg.LogFile, seg.LogPosition, seg.EndTx, seg.LogFileGeneration, entry.Patch, parsedSchema, entry.ScopeID); err != nil {
 			return fmt.Errorf("failed to index entry at commit %d: %w", entry.Commit, err)
 		}
 		indexedCount++
@@ -366,7 +369,7 @@ func (s *Storage) createSchemaSnapshot(schema *ir.Node, status string, scopeID *
 		}
 
 		// Read patch from dlog
-		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition)
+		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition, seg.LogFileGeneration)
 		if err != nil {
 			return 0, fmt.Errorf("failed to read patch entry: %w", err)
 		}
@@ -410,15 +413,19 @@ func (s *Storage) createSchemaSnapshot(schema *ir.Node, status string, scopeID *
 		return 0, fmt.Errorf("failed to close snapshot builder: %w", err)
 	}
 
+	// Get generation for the snapshot segment
+	generation := s.dLog.GetGeneration(snapWriter.LogFileID())
+
 	snapSeg := &index.LogSegment{
-		StartCommit: commit,
-		EndCommit:   commit,
-		StartTx:     0,
-		EndTx:       0,
-		KindedPath:  "",
-		LogFile:     string(snapWriter.LogFileID()),
-		LogPosition: snapWriter.EntryPosition(),
-		ScopeID:     scopeID,
+		StartCommit:       commit,
+		EndCommit:         commit,
+		StartTx:           0,
+		EndTx:             0,
+		KindedPath:        "",
+		LogFile:           string(snapWriter.LogFileID()),
+		LogPosition:       snapWriter.EntryPosition(),
+		LogFileGeneration: generation,
+		ScopeID:           scopeID,
 	}
 	s.index.Add(snapSeg)
 

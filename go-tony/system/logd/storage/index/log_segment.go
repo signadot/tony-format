@@ -13,16 +13,17 @@ import (
 
 //tony:schemagen=log-segment
 type LogSegment struct {
-	StartCommit   int64
-	StartTx       int64
-	EndCommit     int64
-	EndTx         int64
-	KindedPath    string   // Full kinded path from root (e.g., "a.b.c", "resources("joe")", "" for root)
-	ArrayKey      *ir.Node // Key value for !key arrays (e.g., ir.FromString("joe")) - nil if not keyed
-	ArrayKeyField string   // Kpath to key field for !key arrays (e.g., "name", "address.city") - empty if not keyed
-	LogFile       string   // "A" or "B" - which log file contains this segment
-	LogPosition   int64    // Byte offset in log file
-	ScopeID       *string  // nil = baseline, non-nil = scope-specific data
+	StartCommit       int64
+	StartTx           int64
+	EndCommit         int64
+	EndTx             int64
+	KindedPath        string   // Full kinded path from root (e.g., "a.b.c", "resources("joe")", "" for root)
+	ArrayKey          *ir.Node // Key value for !key arrays (e.g., ir.FromString("joe")) - nil if not keyed
+	ArrayKeyField     string   // Kpath to key field for !key arrays (e.g., "name", "address.city") - empty if not keyed
+	LogFile           string   // "A" or "B" - which log file contains this segment
+	LogPosition       int64    // Byte offset in log file
+	LogFileGeneration int64    // Generation of log file when indexed - used to detect compaction
+	ScopeID           *string  // nil = baseline, non-nil = scope-specific data
 	// Semantics:
 	// - StartCommit == EndCommit: snapshot (full state at that commit)
 	// - StartCommit != EndCommit: diff (incremental changes over commit range)
@@ -71,29 +72,30 @@ func PointLogSegment(commit, txSeq int64, kpath string) *LogSegment {
 	}
 }
 
-func NewLogSegmentFromPatchEntry(e *dlog.Entry, kpath string, logFile string, pos int64, txID int64, scopeID *string) *LogSegment {
+func NewLogSegmentFromPatchEntry(e *dlog.Entry, kpath string, logFile string, pos int64, txID int64, generation int64, scopeID *string) *LogSegment {
 	// For patches: StartCommit = LastCommit, EndCommit = Commit
 	// This represents the range [LastCommit, Commit] that the patch covers
 	start := *e.LastCommit
 	end := e.Commit
 	return &LogSegment{
-		StartCommit: start,
-		StartTx:     txID,
-		EndCommit:   end,
-		EndTx:       txID,
-		KindedPath:  kpath,
-		LogFile:     logFile,
-		LogPosition: pos,
-		ScopeID:     scopeID,
+		StartCommit:       start,
+		StartTx:           txID,
+		EndCommit:         end,
+		EndTx:             txID,
+		KindedPath:        kpath,
+		LogFile:           logFile,
+		LogPosition:       pos,
+		LogFileGeneration: generation,
+		ScopeID:           scopeID,
 	}
 }
 
-func IndexPatch(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int64, diff *ir.Node, schema *api.Schema, scopeID *string) error {
-	return indexPatchRec(idx, e, logFile, pos, txSeq, diff, "", schema, scopeID)
+func IndexPatch(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int64, generation int64, diff *ir.Node, schema *api.Schema, scopeID *string) error {
+	return indexPatchRec(idx, e, logFile, pos, txSeq, generation, diff, "", schema, scopeID)
 }
 
-func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int64, n *ir.Node, kPath string, schema *api.Schema, scopeID *string) error {
-	seg := NewLogSegmentFromPatchEntry(e, kPath, logFile, pos, txSeq, scopeID)
+func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int64, generation int64, n *ir.Node, kPath string, schema *api.Schema, scopeID *string) error {
+	seg := NewLogSegmentFromPatchEntry(e, kPath, logFile, pos, txSeq, generation, scopeID)
 	idx.Add(seg)
 
 	if n == nil {
@@ -109,7 +111,7 @@ func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq i
 			for i, f := range n.Fields {
 				v := n.Values[i]
 				nextPath := fmt.Sprintf("%s{%d}", kPath, *f.Int64)
-				if err := indexPatchRec(idx, e, logFile, pos, txSeq, v, nextPath, schema, scopeID); err != nil {
+				if err := indexPatchRec(idx, e, logFile, pos, txSeq, generation, v, nextPath, schema, scopeID); err != nil {
 					return err
 				}
 			}
@@ -125,7 +127,7 @@ func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq i
 			} else {
 				nextPath = kPath + "." + key
 			}
-			if err := indexPatchRec(idx, e, logFile, pos, txSeq, val, nextPath, schema, scopeID); err != nil {
+			if err := indexPatchRec(idx, e, logFile, pos, txSeq, generation, val, nextPath, schema, scopeID); err != nil {
 				return err
 			}
 		}
@@ -148,7 +150,7 @@ func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq i
 		if keyField == "" {
 			for i, v := range n.Values {
 				next := fmt.Sprintf("%s[%d]", kPath, i)
-				if err := indexPatchRec(idx, e, logFile, pos, txSeq, v, next, schema, scopeID); err != nil {
+				if err := indexPatchRec(idx, e, logFile, pos, txSeq, generation, v, next, schema, scopeID); err != nil {
 					return err
 				}
 			}
@@ -166,7 +168,7 @@ func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq i
 				}
 			}
 			next := fmt.Sprintf("%s%s", kPath, kpath.Key(indexVal).SegmentString())
-			if err := indexPatchRec(idx, e, logFile, pos, txSeq, v, next, schema, scopeID); err != nil {
+			if err := indexPatchRec(idx, e, logFile, pos, txSeq, generation, v, next, schema, scopeID); err != nil {
 				return err
 			}
 		}

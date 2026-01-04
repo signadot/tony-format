@@ -135,7 +135,7 @@ func (s *Storage) selectSurvivors(
 
 	// Patches: keep only those within cutoff
 	for _, patch := range patches {
-		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(patch.LogFile), patch.LogPosition)
+		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(patch.LogFile), patch.LogPosition, patch.LogFileGeneration)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read patch entry: %w", err)
 		}
@@ -188,7 +188,7 @@ func (s *Storage) buildSnapshotGroups(
 		commit := seg.StartCommit
 
 		if byCommit[commit] == nil {
-			entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition)
+			entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition, seg.LogFileGeneration)
 			if err != nil {
 				return nil, fmt.Errorf("failed to read snapshot entry: %w", err)
 			}

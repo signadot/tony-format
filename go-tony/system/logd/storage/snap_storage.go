@@ -76,7 +76,7 @@ func (s *Storage) findSnapshotBaseReader(kp string, commit int64, scopeID *strin
 	}
 
 	// Do I/O without holding lock
-	entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(snapSeg.LogFile), snapSeg.LogPosition)
+	entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(snapSeg.LogFile), snapSeg.LogPosition, snapSeg.LogFileGeneration)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to read snapshot entry: %w", err)
 	}
@@ -85,7 +85,7 @@ func (s *Storage) findSnapshotBaseReader(kp string, commit int64, scopeID *strin
 	}
 
 	// Open reader at snapshot position to read the header
-	snapReader, err := s.dLog.OpenReaderAt(dlog.LogFileID(snapSeg.LogFile), *entry.SnapPos)
+	snapReader, err := s.dLog.OpenReaderAt(dlog.LogFileID(snapSeg.LogFile), *entry.SnapPos, snapSeg.LogFileGeneration)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to open snapshot reader: %w", err)
 	}
@@ -191,7 +191,7 @@ func (s *Storage) createSnapshot(commit int64, scopeID *string) error {
 		}
 
 		// Read patch from dlog
-		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition)
+		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition, seg.LogFileGeneration)
 		if err != nil {
 			return fmt.Errorf("failed to read patch entry: %w", err)
 		}
@@ -234,15 +234,19 @@ func (s *Storage) createSnapshot(commit int64, scopeID *string) error {
 
 	// builder.Close() called snapWriter.Close(), so Entry is already written
 
+	// Get generation for the snapshot segment
+	generation := s.dLog.GetGeneration(snapWriter.LogFileID())
+
 	snapSeg := &index.LogSegment{
-		StartCommit: commit,
-		EndCommit:   commit,
-		StartTx:     0,
-		EndTx:       0,
-		KindedPath:  "",
-		LogFile:     string(snapWriter.LogFileID()),
-		LogPosition: snapWriter.EntryPosition(),
-		ScopeID:     scopeID,
+		StartCommit:       commit,
+		EndCommit:         commit,
+		StartTx:           0,
+		EndTx:             0,
+		KindedPath:        "",
+		LogFile:           string(snapWriter.LogFileID()),
+		LogPosition:       snapWriter.EntryPosition(),
+		LogFileGeneration: generation,
+		ScopeID:           scopeID,
 	}
 	s.index.Add(snapSeg)
 

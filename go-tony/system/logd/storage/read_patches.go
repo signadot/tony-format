@@ -32,7 +32,7 @@ func (s *Storage) readPatchesAt(kp string, commit int64, scopeID *string) ([]pat
 
 		// Read entry from dlog
 		logFile := dlog.LogFileID(seg.LogFile)
-		entry, err := s.dLog.ReadEntryAt(logFile, seg.LogPosition)
+		entry, err := s.dLog.ReadEntryAt(logFile, seg.LogPosition, seg.LogFileGeneration)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read entry at %s:%d: %w", seg.LogFile, seg.LogPosition, err)
 		}
@@ -106,7 +106,7 @@ func (s *Storage) ReadPatchesInRange(kp string, from, to int64, scopeID *string)
 
 		// Read entry from dlog
 		logFile := dlog.LogFileID(seg.LogFile)
-		entry, err := s.dLog.ReadEntryAt(logFile, seg.LogPosition)
+		entry, err := s.dLog.ReadEntryAt(logFile, seg.LogPosition, seg.LogFileGeneration)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read entry at %s:%d: %w", seg.LogFile, seg.LogPosition, err)
 		}

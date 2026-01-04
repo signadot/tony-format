@@ -71,8 +71,10 @@ func TestCompactInactive(t *testing.T) {
 	}
 
 	// Verify entries can be read at new positions
+	// Use current generation after compaction
 	for _, r := range results {
-		entry, err := dl.ReadEntryAt(r.LogFile, r.NewPosition)
+		gen := dl.GetGeneration(r.LogFile)
+		entry, err := dl.ReadEntryAt(r.LogFile, r.NewPosition, gen)
 		if err != nil {
 			t.Errorf("ReadEntryAt(%v, %d) error = %v", r.LogFile, r.NewPosition, err)
 		}

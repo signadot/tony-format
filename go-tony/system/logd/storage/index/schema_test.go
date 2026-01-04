@@ -69,7 +69,7 @@ func TestIndexPatchWithSchema(t *testing.T) {
 				Patch:      node,
 			}
 
-			err = IndexPatch(idx, entry, "A", 0, 1, node, tt.schema, nil)
+			err = IndexPatch(idx, entry, "A", 0, 1, 0, node, tt.schema, nil)
 			if err != nil {
 				t.Fatalf("IndexPatch failed: %v", err)
 			}
@@ -127,7 +127,7 @@ func TestIndexPatchKeyedArrayBugFix(t *testing.T) {
 		Patch:      node,
 	}
 
-	err = IndexPatch(idx, entry, "A", 0, 1, node, schema, nil)
+	err = IndexPatch(idx, entry, "A", 0, 1, 0, node, schema, nil)
 	if err != nil {
 		t.Fatalf("IndexPatch failed: %v", err)
 	}

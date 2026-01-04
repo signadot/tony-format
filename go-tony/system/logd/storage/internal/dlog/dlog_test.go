@@ -88,8 +88,8 @@ func TestDLogFile_AppendEntry_ReadEntryAt(t *testing.T) {
 		t.Errorf("expected position 0 for first entry, got %d", position)
 	}
 
-	// Read entry back
-	readEntry, err := dl.ReadEntryAt(logFile, position)
+	// Read entry back (use generation 0 for tests)
+	readEntry, err := dl.ReadEntryAt(logFile, position, 0)
 	if err != nil {
 		t.Fatalf("ReadEntryAt() error = %v", err)
 	}
@@ -146,7 +146,7 @@ func TestDLogFile_AppendEntry_Multiple(t *testing.T) {
 
 	// Read entries back and verify
 	for i, expectedEntry := range entries {
-		readEntry, err := dl.ReadEntryAt(LogFileA, positions[i])
+		readEntry, err := dl.ReadEntryAt(LogFileA, positions[i], 0)
 		if err != nil {
 			t.Fatalf("ReadEntryAt(%d) error = %v", i, err)
 		}
@@ -247,7 +247,7 @@ func TestDLog_AppendEntry_SwitchesActiveLog(t *testing.T) {
 	}
 
 	// Verify entries are in correct files
-	read1, err := dl.ReadEntryAt(LogFileA, pos1)
+	read1, err := dl.ReadEntryAt(LogFileA, pos1, 0)
 	if err != nil {
 		t.Fatalf("ReadEntryAt(logA) error = %v", err)
 	}
@@ -255,7 +255,7 @@ func TestDLog_AppendEntry_SwitchesActiveLog(t *testing.T) {
 		t.Errorf("logA entry commit mismatch: got %d, want 1", read1.Commit)
 	}
 
-	read2, err := dl.ReadEntryAt(LogFileB, pos2)
+	read2, err := dl.ReadEntryAt(LogFileB, pos2, 0)
 	if err != nil {
 		t.Fatalf("ReadEntryAt(logB) error = %v", err)
 	}
@@ -272,7 +272,7 @@ func TestDLog_ReadEntryAt_InvalidLogFile(t *testing.T) {
 	}
 	defer dl.Close()
 
-	_, err = dl.ReadEntryAt(LogFileID("invalid"), 0)
+	_, err = dl.ReadEntryAt(LogFileID("invalid"), 0, 0)
 	if err == nil {
 		t.Error("expected error for invalid log file ID")
 	}
@@ -287,7 +287,7 @@ func TestDLogFile_ReadEntryAt_InvalidPosition(t *testing.T) {
 	defer dl.Close()
 
 	// Try to read at position beyond file size
-	_, err = dl.ReadEntryAt(LogFileA, 1000000)
+	_, err = dl.ReadEntryAt(LogFileA, 1000000, 0)
 	if err == nil {
 		t.Error("expected error for invalid position")
 	}
@@ -511,7 +511,7 @@ func TestEntry_TransactionEntry(t *testing.T) {
 		t.Fatalf("AppendEntry() error = %v", err)
 	}
 
-	readEntry, err := dl.ReadEntryAt(LogFileA, pos)
+	readEntry, err := dl.ReadEntryAt(LogFileA, pos, 0)
 	if err != nil {
 		t.Fatalf("ReadEntryAt() error = %v", err)
 	}
@@ -546,7 +546,7 @@ func TestEntry_SnapshotEntry(t *testing.T) {
 		t.Fatalf("AppendEntry() error = %v", err)
 	}
 
-	readEntry, err := dl.ReadEntryAt(LogFileA, pos)
+	readEntry, err := dl.ReadEntryAt(LogFileA, pos, 0)
 	if err != nil {
 		t.Fatalf("ReadEntryAt() error = %v", err)
 	}
@@ -578,7 +578,7 @@ func TestEntry_CompactionEntry(t *testing.T) {
 		t.Fatalf("AppendEntry() error = %v", err)
 	}
 
-	readEntry, err := dl.ReadEntryAt(LogFileA, pos)
+	readEntry, err := dl.ReadEntryAt(LogFileA, pos, 0)
 	if err != nil {
 		t.Fatalf("ReadEntryAt() error = %v", err)
 	}
@@ -614,7 +614,7 @@ func TestDLogFile_AppendEntry_LargeEntry(t *testing.T) {
 	}
 
 	// Read it back
-	readEntry, err := dl.ReadEntryAt(LogFileA, pos)
+	readEntry, err := dl.ReadEntryAt(LogFileA, pos, 0)
 	if err != nil {
 		t.Fatalf("ReadEntryAt() error = %v", err)
 	}
@@ -799,8 +799,8 @@ func TestDLog_OpenReaderAt(t *testing.T) {
 	dl.logA.position += int64(n)
 	dl.logA.mu.Unlock()
 
-	// Open a reader at the snapshot position
-	reader, err := dl.OpenReaderAt(LogFileA, snapshotPos)
+	// Open a reader at the snapshot position (use generation 0 for tests)
+	reader, err := dl.OpenReaderAt(LogFileA, snapshotPos, 0)
 	if err != nil {
 		t.Fatalf("OpenReaderAt() error = %v", err)
 	}
@@ -877,7 +877,7 @@ func TestDLog_OpenReaderAt_InvalidLogFile(t *testing.T) {
 	}
 	defer dl.Close()
 
-	_, err = dl.OpenReaderAt(LogFileID("invalid"), 0)
+	_, err = dl.OpenReaderAt(LogFileID("invalid"), 0, 0)
 	if err == nil {
 		t.Error("expected error for invalid log file ID")
 	}

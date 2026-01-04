@@ -138,7 +138,7 @@ func (s *Storage) ReadStateAt(kp string, commit int64, scopeID *string) (*ir.Nod
 		}
 
 		// Read patch from dlog
-		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition)
+		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition, seg.LogFileGeneration)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read patch entry: %w", err)
 		}

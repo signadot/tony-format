@@ -275,6 +275,9 @@ func (dl *DLog) swapLogFile(logFile *DLogFile, tempPath string, gracePeriod time
 	logFile.position = stat.Size()
 	logFile.mu.Unlock()
 
+	// Increment generation to invalidate any stale index entries
+	dl.IncrementGeneration(logFile.id)
+
 	// Wait for readers then delete old file
 	dl.waitAndDeleteOld(logFile.id, oldPath, gracePeriod)
 
@@ -284,20 +287,26 @@ func (dl *DLog) swapLogFile(logFile *DLogFile, tempPath string, gracePeriod time
 // truncateLog truncates an empty log file.
 func (dl *DLog) truncateLog(logFile *DLogFile, gracePeriod time.Duration) error {
 	logFile.mu.Lock()
-	defer logFile.mu.Unlock()
 
 	// Wait for any active readers first
 	dl.waitForReaders(logFile.id, gracePeriod)
 
 	if err := logFile.file.Truncate(0); err != nil {
+		logFile.mu.Unlock()
 		return fmt.Errorf("failed to truncate log file: %w", err)
 	}
 
 	if _, err := logFile.file.Seek(0, io.SeekStart); err != nil {
+		logFile.mu.Unlock()
 		return fmt.Errorf("failed to seek to start: %w", err)
 	}
 
 	logFile.position = 0
+	logFile.mu.Unlock()
+
+	// Increment generation to invalidate any stale index entries
+	dl.IncrementGeneration(logFile.id)
+
 	return nil
 }
 
