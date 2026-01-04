@@ -58,15 +58,7 @@ type Storage struct {
 
 	// Schema state - derived from log entries during replay.
 	// Schema changes are stored in dlog entries and always occur at snapshot boundaries.
-	schemaMu           sync.RWMutex
-	activeSchema       *ir.Node // Current active schema (nil = schemaless)
-	activeSchemaCommit int64    // Commit where active schema was set (0 = schemaless from start)
-
-	// Pending migration state (nil if no migration in progress)
-	pendingSchema       *ir.Node     // Schema being migrated to
-	pendingSchemaCommit int64        // Commit where pending schema was set
-	pendingIndex        *index.Index // Index being built for pending schema
-	pendingSchemaParsed *api.Schema  // Cached parsed pending schema (avoids re-parsing on each write)
+	schema *storageSchema
 }
 
 // DefaultIndexPersistInterval is the default number of commits between index persists.
@@ -86,6 +78,7 @@ func Open(root string, logger *slog.Logger) (*Storage, error) {
 		index:        index.NewIndex(""),
 		logger:       logger,
 		activeScopes: make(map[string]struct{}),
+		schema:       newStorageSchema(),
 	}
 
 	dlog, err := dlog.NewDLog(root, logger)
@@ -439,22 +432,16 @@ func (s *Storage) getAndClearActiveScopes() []string {
 // GetActiveSchema returns the current active schema and the commit where it was set.
 // Returns nil schema and 0 commit if schemaless.
 func (s *Storage) GetActiveSchema() (*ir.Node, int64) {
-	s.schemaMu.RLock()
-	defer s.schemaMu.RUnlock()
-	return s.activeSchema, s.activeSchemaCommit
+	return s.schema.GetActive()
 }
 
 // GetPendingSchema returns the pending schema and commit if a migration is in progress.
 // Returns nil, 0 if no migration is in progress.
 func (s *Storage) GetPendingSchema() (*ir.Node, int64) {
-	s.schemaMu.RLock()
-	defer s.schemaMu.RUnlock()
-	return s.pendingSchema, s.pendingSchemaCommit
+	return s.schema.GetPending()
 }
 
 // HasPendingMigration returns true if a schema migration is in progress.
 func (s *Storage) HasPendingMigration() bool {
-	s.schemaMu.RLock()
-	defer s.schemaMu.RUnlock()
-	return s.pendingSchema != nil
+	return s.schema.HasPending()
 }

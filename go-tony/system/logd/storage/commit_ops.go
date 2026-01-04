@@ -52,12 +52,8 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	}
 
 	// Dual-write: also index to pending index if migration is in progress
-	c.s.schemaMu.RLock()
-	pendingIdx := c.s.pendingIndex
-	pendingSchemaParsed := c.s.pendingSchemaParsed
-	c.s.schemaMu.RUnlock()
-
-	if pendingIdx != nil {
+	if pendingIdx := c.s.schema.GetPendingIndex(); pendingIdx != nil {
+		pendingSchemaParsed := c.s.schema.GetPendingParsed()
 		if err := index.IndexPatch(pendingIdx, e, string(logFile), pos, txSeq, mergedPatch, pendingSchemaParsed, scopeID); err != nil {
 			return "", 0, fmt.Errorf("failed to index to pending: %w", err)
 		}

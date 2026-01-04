@@ -88,15 +88,13 @@ func (s *Storage) replaySchemaState() error {
 	}
 
 	// Apply final state (no lock needed during init - single goroutine)
-	s.activeSchema = activeSchema
-	s.activeSchemaCommit = activeSchemaCommit
-	s.pendingSchema = pendingSchema
-	s.pendingSchemaCommit = pendingSchemaCommit
+	s.schema.SetActive(activeSchema, activeSchemaCommit)
 
 	// If we ended with a pending migration, rebuild the pending index
 	if pendingSchema != nil {
-		s.pendingIndex = index.NewIndex("")
-		s.pendingSchemaParsed = api.ParseSchemaFromNode(pendingSchema)
+		pendingIdx := index.NewIndex("")
+		pendingParsed := api.ParseSchemaFromNode(pendingSchema)
+		s.schema.SetPending(pendingSchema, pendingSchemaCommit, pendingIdx, pendingParsed)
 
 		// Get current commit - we need to re-index everything from activeSchemaCommit
 		// to current, not just to pendingSchemaCommit. Data written during the migration
@@ -107,10 +105,7 @@ func (s *Storage) replaySchemaState() error {
 		}
 
 		if err := s.reindexForPending(activeSchemaCommit, currentCommit); err != nil {
-			s.pendingSchema = nil
-			s.pendingSchemaCommit = 0
-			s.pendingIndex = nil
-			s.pendingSchemaParsed = nil
+			s.schema.ClearPending()
 			return fmt.Errorf("failed to rebuild pending index: %w", err)
 		}
 
@@ -129,10 +124,7 @@ func (s *Storage) replaySchemaState() error {
 // Returns ErrMigrationInProgress if a migration is already in progress.
 // This creates a snapshot with the pending schema and starts building a new index.
 func (s *Storage) StartMigration(schema *ir.Node) (int64, error) {
-	s.schemaMu.Lock()
-	defer s.schemaMu.Unlock()
-
-	if s.pendingSchema != nil {
+	if s.schema.HasPending() {
 		return 0, ErrMigrationInProgress
 	}
 
@@ -141,18 +133,15 @@ func (s *Storage) StartMigration(schema *ir.Node) (int64, error) {
 		return 0, err
 	}
 
-	s.pendingSchema = schema
-	s.pendingSchemaCommit = commit
-	s.pendingIndex = index.NewIndex("")
-	s.pendingSchemaParsed = api.ParseSchemaFromNode(schema)
+	pendingIdx := index.NewIndex("")
+	pendingParsed := api.ParseSchemaFromNode(schema)
+	s.schema.SetPending(schema, commit, pendingIdx, pendingParsed)
 
 	// Re-index existing data from activeSchemaCommit to commit
-	if err := s.reindexForPending(s.activeSchemaCommit, commit); err != nil {
+	_, activeSchemaCommit := s.schema.GetActive()
+	if err := s.reindexForPending(activeSchemaCommit, commit); err != nil {
 		// Clear pending state on failure
-		s.pendingSchema = nil
-		s.pendingSchemaCommit = 0
-		s.pendingIndex = nil
-		s.pendingSchemaParsed = nil
+		s.schema.ClearPending()
 		return 0, fmt.Errorf("failed to re-index for pending schema: %w", err)
 	}
 
@@ -163,28 +152,19 @@ func (s *Storage) StartMigration(schema *ir.Node) (int64, error) {
 // Returns ErrNoMigrationInProgress if no migration is in progress.
 // This creates a snapshot with the active schema and swaps the indexes.
 func (s *Storage) CompleteMigration() (int64, error) {
-	s.schemaMu.Lock()
-	defer s.schemaMu.Unlock()
-
-	if s.pendingSchema == nil {
+	pendingSchema, _ := s.schema.GetPending()
+	if pendingSchema == nil {
 		return 0, ErrNoMigrationInProgress
 	}
 
-	commit, err := s.createSchemaSnapshot(s.pendingSchema, dlog.SchemaStatusActive, nil)
+	commit, err := s.createSchemaSnapshot(pendingSchema, dlog.SchemaStatusActive, nil)
 	if err != nil {
 		return 0, err
 	}
 
-	// Swap indexes
-	s.activeSchema = s.pendingSchema
-	s.activeSchemaCommit = commit
-	s.index = s.pendingIndex
-
-	// Clear pending state
-	s.pendingSchema = nil
-	s.pendingSchemaCommit = 0
-	s.pendingIndex = nil
-	s.pendingSchemaParsed = nil
+	// Promote pending to active and get new index
+	newIndex := s.schema.PromotePending(commit)
+	s.index = newIndex
 
 	return commit, nil
 }
@@ -192,10 +172,7 @@ func (s *Storage) CompleteMigration() (int64, error) {
 // AbortMigration aborts a pending schema migration.
 // Returns ErrNoMigrationInProgress if no migration is in progress.
 func (s *Storage) AbortMigration() (int64, error) {
-	s.schemaMu.Lock()
-	defer s.schemaMu.Unlock()
-
-	if s.pendingSchema == nil {
+	if !s.schema.HasPending() {
 		return 0, ErrNoMigrationInProgress
 	}
 
@@ -204,11 +181,7 @@ func (s *Storage) AbortMigration() (int64, error) {
 		return 0, err
 	}
 
-	// Clear pending state
-	s.pendingSchema = nil
-	s.pendingSchemaCommit = 0
-	s.pendingIndex = nil
-	s.pendingSchemaParsed = nil
+	s.schema.ClearPending()
 
 	return commit, nil
 }
@@ -218,14 +191,11 @@ func (s *Storage) AbortMigration() (int64, error) {
 // It becomes visible in baseline when migration completes.
 // Returns ErrNoMigrationInProgress if no migration is in progress.
 func (s *Storage) MigrationPatch(path string, patch *ir.Node) (int64, *ir.Node, error) {
-	s.schemaMu.RLock()
-	if s.pendingSchema == nil {
-		s.schemaMu.RUnlock()
+	pendingSchema, _ := s.schema.GetPending()
+	if pendingSchema == nil {
 		return 0, nil, ErrNoMigrationInProgress
 	}
-	pendingIdx := s.pendingIndex
-	pendingSchema := s.pendingSchema
-	s.schemaMu.RUnlock()
+	pendingIdx := s.schema.GetPendingIndex()
 
 	// Get next commit number
 	commit, err := s.sequence.NextCommit()
@@ -312,14 +282,14 @@ func splitPath(path string) []string {
 // reindexForPending re-indexes existing data into the pending index.
 // It uses the existing index to find segments in the commit range, then reads
 // only those entries from the dlog (avoiding a full scan).
-// Must be called with schemaMu held.
 func (s *Storage) reindexForPending(fromCommit, toCommit int64) error {
-	if s.pendingIndex == nil || s.pendingSchema == nil {
+	pendingIdx := s.schema.GetPendingIndex()
+	if pendingIdx == nil {
 		return fmt.Errorf("no pending migration in progress")
 	}
 
 	// Use cached parsed schema
-	parsedSchema := s.pendingSchemaParsed
+	parsedSchema := s.schema.GetPendingParsed()
 
 	// Use the index to find segments in the commit range (all scopes)
 	// This avoids scanning the entire dlog from the beginning
@@ -349,7 +319,7 @@ func (s *Storage) reindexForPending(fromCommit, toCommit int64) error {
 		}
 
 		// Index into pending index
-		if err := index.IndexPatch(s.pendingIndex, entry, seg.LogFile, seg.LogPosition, seg.EndTx, entry.Patch, parsedSchema, entry.ScopeID); err != nil {
+		if err := index.IndexPatch(pendingIdx, entry, seg.LogFile, seg.LogPosition, seg.EndTx, entry.Patch, parsedSchema, entry.ScopeID); err != nil {
 			return fmt.Errorf("failed to index entry at commit %d: %w", entry.Commit, err)
 		}
 		indexedCount++
