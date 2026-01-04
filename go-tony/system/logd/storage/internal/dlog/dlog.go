@@ -32,6 +32,10 @@ type DLog struct {
 	generationA atomic.Int64
 	generationB atomic.Int64
 
+	// Reader refcounts - tracks active readers per log file for compaction safety
+	readersA atomic.Int64
+	readersB atomic.Int64
+
 	// Metadata
 	logger *slog.Logger // Logger for operations
 }

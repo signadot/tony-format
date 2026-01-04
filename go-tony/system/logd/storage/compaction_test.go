@@ -83,8 +83,11 @@ func TestCompact_RemovesAbortedSchemaMigration(t *testing.T) {
 
 	// Run compaction - should filter out aborted schema entry
 	config := &CompactionConfig{
-		Cutoff:      time.Hour, // Long cutoff to keep patches, focus on schema filtering
-		GracePeriod: 100 * time.Millisecond,
+		Cutoff:       time.Hour, // Long cutoff to keep patches, focus on schema filtering
+		BaseInterval: time.Hour,
+		SlotsPerTier: 8,
+		Multiplier:   2,
+		GracePeriod:  100 * time.Millisecond,
 	}
 
 	if err := s.Compact(config); err != nil {
@@ -168,8 +171,11 @@ func TestCompact_RemovesSupersededPendingMigration(t *testing.T) {
 
 	// Run compaction
 	config := &CompactionConfig{
-		Cutoff:      time.Millisecond,
-		GracePeriod: 100 * time.Millisecond,
+		Cutoff:       time.Millisecond,
+		BaseInterval: time.Hour,
+		SlotsPerTier: 8,
+		Multiplier:   2,
+		GracePeriod:  100 * time.Millisecond,
 	}
 
 	if err := s.Compact(config); err != nil {
@@ -226,8 +232,11 @@ func TestCompact_KeepsCurrentPendingMigration(t *testing.T) {
 
 	// Run compaction - should keep current pending
 	config := &CompactionConfig{
-		Cutoff:      time.Hour, // Large cutoff so snapshots survive
-		GracePeriod: 100 * time.Millisecond,
+		Cutoff:       time.Hour, // Large cutoff so snapshots survive
+		BaseInterval: time.Hour,
+		SlotsPerTier: 8,
+		Multiplier:   2,
+		GracePeriod:  100 * time.Millisecond,
 	}
 
 	if err := s.Compact(config); err != nil {
@@ -288,8 +297,11 @@ func TestCompact_KeepsActiveSchemaViaPinnedCommit(t *testing.T) {
 
 	// Run compaction with aggressive settings
 	config := &CompactionConfig{
-		Cutoff:      time.Millisecond, // Very short cutoff
-		GracePeriod: 100 * time.Millisecond,
+		Cutoff:       time.Millisecond, // Very short cutoff
+		BaseInterval: time.Hour,
+		SlotsPerTier: 8,
+		Multiplier:   2,
+		GracePeriod:  100 * time.Millisecond,
 	}
 
 	if err := s.Compact(config); err != nil {

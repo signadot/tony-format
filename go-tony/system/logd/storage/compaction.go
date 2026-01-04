@@ -22,6 +22,10 @@ func (s *Storage) Compact(config *CompactionConfig) error {
 		config = DefaultCompactionConfig()
 	}
 
+	if err := config.Validate(); err != nil {
+		return err
+	}
+
 	s.logger.Info("starting compaction", "cutoff", config.Cutoff)
 
 	// Get the inactive log file ID
@@ -198,7 +202,14 @@ func (s *Storage) buildSnapshotGroups(
 				}
 			}
 
-			t, _ := time.Parse(time.RFC3339, entry.Timestamp)
+			t, err := time.Parse(time.RFC3339, entry.Timestamp)
+			if err != nil {
+				// If timestamp is unparseable, use current time to be safe.
+				// This ensures the snapshot won't be incorrectly aged out.
+				s.logger.Warn("failed to parse snapshot timestamp, using current time",
+					"commit", commit, "timestamp", entry.Timestamp, "error", err)
+				t = time.Now()
+			}
 			group = &snapshotGroup{
 				commit: commit,
 				time:   t,

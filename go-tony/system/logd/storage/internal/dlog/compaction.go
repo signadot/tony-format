@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sync/atomic"
 	"time"
 )
 
@@ -22,21 +21,13 @@ type CompactResult struct {
 	LogFile     LogFileID // Which log file
 }
 
-// readerRefcount tracks active readers per log file.
-type readerRefcount struct {
-	logA atomic.Int64
-	logB atomic.Int64
-}
-
-var readers readerRefcount
-
 // AcquireReader increments the reader count for a log file.
 // Call this before reading from a log file.
 func (dl *DLog) AcquireReader(id LogFileID) {
 	if id == LogFileA {
-		readers.logA.Add(1)
+		dl.readersA.Add(1)
 	} else {
-		readers.logB.Add(1)
+		dl.readersB.Add(1)
 	}
 }
 
@@ -44,18 +35,18 @@ func (dl *DLog) AcquireReader(id LogFileID) {
 // Call this when done reading from a log file.
 func (dl *DLog) ReleaseReader(id LogFileID) {
 	if id == LogFileA {
-		readers.logA.Add(-1)
+		dl.readersA.Add(-1)
 	} else {
-		readers.logB.Add(-1)
+		dl.readersB.Add(-1)
 	}
 }
 
 // ActiveReaders returns the count of active readers for a log file.
 func (dl *DLog) ActiveReaders(id LogFileID) int64 {
 	if id == LogFileA {
-		return readers.logA.Load()
+		return dl.readersA.Load()
 	}
-	return readers.logB.Load()
+	return dl.readersB.Load()
 }
 
 // CompactInactive compacts the inactive log by writing only the specified
@@ -106,7 +97,11 @@ func (dl *DLog) CompactInactive(positions []int64, config *CompactConfig) ([]Com
 }
 
 // writeCompactedEntries copies entries at specified positions to a temp file.
+// For snapshot entries (those with SnapPos), also copies the preceding blob data.
 // Returns the position mapping and temp file path.
+//
+// positions contains entry positions (not blob positions). For snapshots, the
+// blob header is at (SnapPos - 8) and must be copied along with the entry.
 func (dl *DLog) writeCompactedEntries(logFile *DLogFile, positions []int64) ([]CompactResult, string, error) {
 	// Create temp file in same directory
 	tempPath := logFile.path + ".compact.tmp"
@@ -119,70 +114,64 @@ func (dl *DLog) writeCompactedEntries(logFile *DLogFile, positions []int64) ([]C
 	results := make([]CompactResult, 0, len(positions))
 	var newPosition int64
 
-	for _, oldPos := range positions {
-		// Read entry length
-		lengthBytes := make([]byte, 4)
-		logFile.mu.RLock()
-		_, err := logFile.file.ReadAt(lengthBytes, oldPos)
-		logFile.mu.RUnlock()
+	for _, oldEntryPos := range positions {
+		// Read the entry to check if it has associated blob data
+		entry, err := logFile.ReadEntryAt(oldEntryPos)
 		if err != nil {
-			return nil, "", fmt.Errorf("failed to read entry length at %d: %w", oldPos, err)
+			return nil, "", fmt.Errorf("failed to read entry at %d: %w", oldEntryPos, err)
 		}
 
-		lengthOrMagic := binary.BigEndian.Uint32(lengthBytes)
+		// Get entry size for copying
+		_, entrySize, err := dl.readEntrySize(logFile, oldEntryPos)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to read entry size at %d: %w", oldEntryPos, err)
+		}
 
-		// Check for blob (snapshot data)
-		if lengthOrMagic == BlobHeaderMagic {
-			// Read blob length
-			blobLenBytes := make([]byte, 4)
-			logFile.mu.RLock()
-			_, err := logFile.file.ReadAt(blobLenBytes, oldPos+4)
-			logFile.mu.RUnlock()
-			if err != nil {
-				return nil, "", fmt.Errorf("failed to read blob length at %d: %w", oldPos+4, err)
+		if entry.SnapPos != nil {
+			// Snapshot entry - copy blob header + blob data, then write updated entry
+			// Blob structure: [header 8 bytes][data N bytes][entry M bytes]
+			// SnapPos points to start of blob data (after header)
+			blobHeaderPos := *entry.SnapPos - BlobHeaderSize
+			blobLength := oldEntryPos - *entry.SnapPos
+			blobTotalSize := BlobHeaderSize + blobLength
+
+			// Copy blob header + blob data
+			if err := dl.copyBytes(logFile, tempFile, blobHeaderPos, blobTotalSize); err != nil {
+				return nil, "", fmt.Errorf("failed to copy blob at %d: %w", blobHeaderPos, err)
 			}
-			blobLength := int64(binary.BigEndian.Uint32(blobLenBytes))
 
-			// Copy blob header + data
-			totalSize := BlobHeaderSize + blobLength
-			if err := dl.copyBytes(logFile, tempFile, oldPos, totalSize); err != nil {
-				return nil, "", fmt.Errorf("failed to copy blob at %d: %w", oldPos, err)
+			// Update SnapPos to point to new blob data position
+			newSnapPos := newPosition + BlobHeaderSize
+			entry.SnapPos = &newSnapPos
+
+			// Serialize and write updated entry
+			if err := dl.writeEntry(tempFile, entry); err != nil {
+				return nil, "", fmt.Errorf("failed to write entry at %d: %w", oldEntryPos, err)
 			}
 
+			// Get the new entry size after serialization
+			newEntryBytes, _ := entry.ToTony()
+			newEntrySize := int64(4 + len(newEntryBytes))
+
+			// Result maps old entry position to new entry position
 			results = append(results, CompactResult{
-				OldPosition: oldPos,
-				NewPosition: newPosition,
+				OldPosition: oldEntryPos,
+				NewPosition: newPosition + blobTotalSize, // entry position in new file
 				LogFile:     logFile.id,
 			})
-			newPosition += totalSize
-
-			// The entry follows the blob - find and copy it too
-			entryPos := oldPos + totalSize
-			entryLen, entrySize, err := dl.readEntrySize(logFile, entryPos)
-			if err != nil {
-				return nil, "", fmt.Errorf("failed to read entry after blob at %d: %w", entryPos, err)
-			}
-			_ = entryLen // unused, entrySize includes length prefix
-
-			if err := dl.copyBytes(logFile, tempFile, entryPos, entrySize); err != nil {
-				return nil, "", fmt.Errorf("failed to copy entry at %d: %w", entryPos, err)
-			}
-			newPosition += entrySize
+			newPosition += blobTotalSize + newEntrySize
 		} else {
-			// Regular entry
-			entryLength := int64(lengthOrMagic)
-			totalSize := 4 + entryLength // length prefix + data
-
-			if err := dl.copyBytes(logFile, tempFile, oldPos, totalSize); err != nil {
-				return nil, "", fmt.Errorf("failed to copy entry at %d: %w", oldPos, err)
+			// Regular entry (patch) - just copy the entry
+			if err := dl.copyBytes(logFile, tempFile, oldEntryPos, entrySize); err != nil {
+				return nil, "", fmt.Errorf("failed to copy entry at %d: %w", oldEntryPos, err)
 			}
 
 			results = append(results, CompactResult{
-				OldPosition: oldPos,
+				OldPosition: oldEntryPos,
 				NewPosition: newPosition,
 				LogFile:     logFile.id,
 			})
-			newPosition += totalSize
+			newPosition += entrySize
 		}
 	}
 
@@ -192,6 +181,28 @@ func (dl *DLog) writeCompactedEntries(logFile *DLogFile, positions []int64) ([]C
 	}
 
 	return results, tempPath, nil
+}
+
+// writeEntry writes an entry to the file with length prefix.
+func (dl *DLog) writeEntry(file *os.File, entry *Entry) error {
+	entryBytes, err := entry.ToTony()
+	if err != nil {
+		return fmt.Errorf("failed to serialize entry: %w", err)
+	}
+
+	// Write length prefix
+	lengthBytes := make([]byte, 4)
+	binary.BigEndian.PutUint32(lengthBytes, uint32(len(entryBytes)))
+	if _, err := file.Write(lengthBytes); err != nil {
+		return fmt.Errorf("failed to write length prefix: %w", err)
+	}
+
+	// Write entry data
+	if _, err := file.Write(entryBytes); err != nil {
+		return fmt.Errorf("failed to write entry data: %w", err)
+	}
+
+	return nil
 }
 
 // readEntrySize reads the size of an entry at the given position.
@@ -247,18 +258,29 @@ func (dl *DLog) swapLogFile(logFile *DLogFile, tempPath string, gracePeriod time
 
 	// Rename current -> old
 	if err := os.Rename(logFile.path, oldPath); err != nil {
-		// Try to reopen
-		logFile.file, _ = os.OpenFile(logFile.path, os.O_CREATE|os.O_RDWR, 0644)
+		// Try to reopen original file
+		reopenErr := dl.reopenLogFile(logFile)
 		logFile.mu.Unlock()
+		if reopenErr != nil {
+			dl.logger.Error("failed to reopen log file after rename failure",
+				"path", logFile.path, "renameErr", err, "reopenErr", reopenErr)
+		}
 		return fmt.Errorf("failed to rename log file: %w", err)
 	}
 
 	// Rename temp -> current
 	if err := os.Rename(tempPath, logFile.path); err != nil {
-		// Try to restore
-		os.Rename(oldPath, logFile.path)
-		logFile.file, _ = os.OpenFile(logFile.path, os.O_CREATE|os.O_RDWR, 0644)
+		// Try to restore original file
+		if restoreErr := os.Rename(oldPath, logFile.path); restoreErr != nil {
+			dl.logger.Error("failed to restore log file after temp rename failure",
+				"path", logFile.path, "renameErr", err, "restoreErr", restoreErr)
+		}
+		reopenErr := dl.reopenLogFile(logFile)
 		logFile.mu.Unlock()
+		if reopenErr != nil {
+			dl.logger.Error("failed to reopen log file after temp rename failure",
+				"path", logFile.path, "renameErr", err, "reopenErr", reopenErr)
+		}
 		return fmt.Errorf("failed to rename temp file: %w", err)
 	}
 
@@ -270,7 +292,12 @@ func (dl *DLog) swapLogFile(logFile *DLogFile, tempPath string, gracePeriod time
 	}
 
 	// Update file handle and position
-	stat, _ := newFile.Stat()
+	stat, err := newFile.Stat()
+	if err != nil {
+		newFile.Close()
+		logFile.mu.Unlock()
+		return fmt.Errorf("failed to stat new log file: %w", err)
+	}
 	logFile.file = newFile
 	logFile.position = stat.Size()
 	logFile.mu.Unlock()
@@ -281,6 +308,23 @@ func (dl *DLog) swapLogFile(logFile *DLogFile, tempPath string, gracePeriod time
 	// Wait for readers then delete old file
 	dl.waitAndDeleteOld(logFile.id, oldPath, gracePeriod)
 
+	return nil
+}
+
+// reopenLogFile attempts to reopen a log file after a failed operation.
+// Must be called with logFile.mu held.
+func (dl *DLog) reopenLogFile(logFile *DLogFile) error {
+	file, err := os.OpenFile(logFile.path, os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		return err
+	}
+	stat, err := file.Stat()
+	if err != nil {
+		file.Close()
+		return err
+	}
+	logFile.file = file
+	logFile.position = stat.Size()
 	return nil
 }
 

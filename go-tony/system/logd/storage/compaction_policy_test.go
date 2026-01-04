@@ -192,40 +192,6 @@ func TestSelectSurvivors(t *testing.T) {
 	}
 }
 
-func TestGroupSnapshots(t *testing.T) {
-	segments := []index.LogSegment{
-		// Snapshot at commit 1 (baseline)
-		{StartCommit: 1, EndCommit: 1, ScopeID: nil},
-		// Patch (should be ignored)
-		{StartCommit: 0, EndCommit: 1, ScopeID: nil},
-		// Snapshot at commit 2 (baseline + scope)
-		{StartCommit: 2, EndCommit: 2, ScopeID: nil},
-		{StartCommit: 2, EndCommit: 2, ScopeID: strPtr("scope1")},
-		// Snapshot at commit 3
-		{StartCommit: 3, EndCommit: 3, ScopeID: nil},
-	}
-
-	groups := groupSnapshots(segments)
-
-	if len(groups) != 3 {
-		t.Errorf("expected 3 groups, got %d", len(groups))
-	}
-
-	// Check groups are sorted by commit
-	for i := 1; i < len(groups); i++ {
-		if groups[i].commit < groups[i-1].commit {
-			t.Errorf("groups not sorted: %d < %d", groups[i].commit, groups[i-1].commit)
-		}
-	}
-
-	// Check commit 2 has 2 segments
-	for _, g := range groups {
-		if g.commit == 2 && len(g.segments) != 2 {
-			t.Errorf("expected 2 segments for commit 2, got %d", len(g.segments))
-		}
-	}
-}
-
 func strPtr(s string) *string {
 	return &s
 }

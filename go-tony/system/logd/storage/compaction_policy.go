@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
@@ -36,6 +37,25 @@ func DefaultCompactionConfig() *CompactionConfig {
 		Multiplier:   2,
 		GracePeriod:  5 * time.Second,
 	}
+}
+
+// Validate checks that the compaction configuration is valid.
+// Returns an error if any field has an invalid value that could cause
+// incorrect behavior (e.g., infinite loops in tier calculation).
+func (c *CompactionConfig) Validate() error {
+	if c.BaseInterval <= 0 {
+		return errors.New("compaction config: BaseInterval must be positive")
+	}
+	if c.Multiplier < 2 {
+		return errors.New("compaction config: Multiplier must be at least 2")
+	}
+	if c.SlotsPerTier <= 0 {
+		return errors.New("compaction config: SlotsPerTier must be positive")
+	}
+	if c.GracePeriod < 0 {
+		return errors.New("compaction config: GracePeriod cannot be negative")
+	}
+	return nil
 }
 
 // compactionPolicy implements the logarithmic retention algorithm.
@@ -163,43 +183,6 @@ func (p *compactionPolicy) selectFromTier(tierNum int, groups []snapshotGroup) [
 	}
 
 	return selected
-}
-
-// groupSnapshots groups baseline and scope snapshots by commit.
-// Returns groups sorted by commit ascending.
-func groupSnapshots(segments []index.LogSegment) []snapshotGroup {
-	// Map commit -> segments
-	byCommit := make(map[int64][]index.LogSegment)
-	commitTimes := make(map[int64]time.Time)
-
-	for _, seg := range segments {
-		// Only process snapshots (StartCommit == EndCommit)
-		if seg.StartCommit != seg.EndCommit {
-			continue
-		}
-		byCommit[seg.StartCommit] = append(byCommit[seg.StartCommit], seg)
-		// Use first seen time for the commit (all snapshots at same commit have same logical time)
-		if _, ok := commitTimes[seg.StartCommit]; !ok {
-			// Parse timestamp from segment if available, otherwise use commit as proxy
-			// For now, we'll need to get time from the entry - this is a simplification
-			commitTimes[seg.StartCommit] = time.Time{} // Will be set from entry
-		}
-	}
-
-	// Build groups
-	groups := make([]snapshotGroup, 0, len(byCommit))
-	for commit, segs := range byCommit {
-		groups = append(groups, snapshotGroup{
-			commit:   commit,
-			time:     commitTimes[commit],
-			segments: segs,
-		})
-	}
-
-	// Sort by commit ascending
-	sortSnapshotGroups(groups)
-
-	return groups
 }
 
 // sortSnapshotGroups sorts groups by commit ascending.
