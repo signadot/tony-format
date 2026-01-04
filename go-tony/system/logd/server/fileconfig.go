@@ -9,6 +9,7 @@ import (
 	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 )
 
 // Config represents the logd server configuration file structure.
@@ -27,6 +28,10 @@ type Config struct {
 
 	// Tx configures transaction behavior.
 	Tx *TxConfig `tony:"field=tx"`
+
+	// Compaction configures logarithmic retention policy for the inactive log.
+	// If nil, compaction is disabled (all data retained).
+	Compaction *CompactionConfig `tony:"field=compaction"`
 }
 
 // TxConfig configures transaction behavior.
@@ -51,6 +56,60 @@ type SnapshotConfig struct {
 	// MaxBytes triggers a snapshot when the active log exceeds this size in bytes.
 	// Zero or negative means disabled.
 	MaxBytes int64 `tony:"field=maxBytes"`
+}
+
+// CompactionConfig configures logarithmic retention policy for compaction.
+// Implements exponential time bucketing where older data is kept at coarser granularity.
+//
+//tony:schemagen=compaction-config
+type CompactionConfig struct {
+	// Cutoff is the duration within which all patches are kept for accurate historical reads.
+	// Beyond this cutoff, history degrades to snapshot granularity.
+	// Default: 1h
+	Cutoff time.Duration `tony:"field=cutoff"`
+
+	// BaseInterval is the snapshot retention interval for the first tier after cutoff.
+	// Default: 1h
+	BaseInterval time.Duration `tony:"field=baseInterval"`
+
+	// SlotsPerTier is the number of snapshots to keep in each time tier.
+	// Default: 8
+	SlotsPerTier int `tony:"field=slotsPerTier"`
+
+	// Multiplier is the factor by which each tier's interval increases.
+	// Tier N has interval = BaseInterval * Multiplier^N
+	// Default: 2
+	Multiplier int `tony:"field=multiplier"`
+
+	// GracePeriod is how long to wait for active readers to finish after swap.
+	// After this timeout, old file is deleted and lingering readers will error.
+	// Default: 5s
+	GracePeriod time.Duration `tony:"field=gracePeriod"`
+}
+
+// ToStorageConfig converts to storage.CompactionConfig.
+func (c *CompactionConfig) ToStorageConfig() *storage.CompactionConfig {
+	if c == nil {
+		return nil
+	}
+	cfg := storage.DefaultCompactionConfig()
+
+	if c.Cutoff > 0 {
+		cfg.Cutoff = c.Cutoff
+	}
+	if c.BaseInterval > 0 {
+		cfg.BaseInterval = c.BaseInterval
+	}
+	if c.SlotsPerTier > 0 {
+		cfg.SlotsPerTier = c.SlotsPerTier
+	}
+	if c.Multiplier > 0 {
+		cfg.Multiplier = c.Multiplier
+	}
+	if c.GracePeriod > 0 {
+		cfg.GracePeriod = c.GracePeriod
+	}
+	return cfg
 }
 
 // LoadConfig loads a configuration file in Tony format.
