@@ -226,32 +226,56 @@ func (s *Storage) getActiveScopes() map[string]struct{} {
 }
 
 // updateIndexPositions updates segment positions in the index after compaction.
+// Removes old segments and re-adds them with new positions.
 func (s *Storage) updateIndexPositions(logFileID dlog.LogFileID, survivors []index.LogSegment, positionMap map[int64]int64) {
-	// For now, we update positions in place
-	// A more robust approach would rebuild the index
-	for i := range survivors {
-		if newPos, ok := positionMap[survivors[i].LogPosition]; ok {
-			survivors[i].LogPosition = newPos
+	for _, seg := range survivors {
+		newPos, ok := positionMap[seg.LogPosition]
+		if !ok {
+			continue // Position didn't change
 		}
+
+		// Remove segment with old position
+		s.index.Remove(&seg)
+
+		// Add segment with new position
+		seg.LogPosition = newPos
+		s.index.Add(&seg)
 	}
-	// Note: The index segments are copies, so we need to update the actual index
-	// This is a simplified placeholder - proper implementation would use index methods
+}
+
+// segmentKey uniquely identifies a segment by its ordering key.
+type segmentKey struct {
+	startCommit int64
+	startTx     int64
+	kindedPath  string
+	scopeID     string // empty string for nil
+}
+
+func makeSegmentKey(seg index.LogSegment) segmentKey {
+	scopeID := ""
+	if seg.ScopeID != nil {
+		scopeID = *seg.ScopeID
+	}
+	return segmentKey{
+		startCommit: seg.StartCommit,
+		startTx:     seg.StartTx,
+		kindedPath:  seg.KindedPath,
+		scopeID:     scopeID,
+	}
 }
 
 // removeFromIndex removes non-surviving segments from the index.
 func (s *Storage) removeFromIndex(all, survivors []index.LogSegment) {
-	// Build set of surviving positions
-	survivorSet := make(map[int64]struct{}, len(survivors))
+	// Build set of survivor keys
+	survivorSet := make(map[segmentKey]struct{}, len(survivors))
 	for _, seg := range survivors {
-		survivorSet[seg.LogPosition] = struct{}{}
+		survivorSet[makeSegmentKey(seg)] = struct{}{}
 	}
 
 	// Remove non-survivors
-	// Note: This is a placeholder - proper implementation needs index.Remove()
 	for _, seg := range all {
-		if _, ok := survivorSet[seg.LogPosition]; !ok {
-			// Would call s.index.Remove(seg) if method existed
-			_ = seg
+		if _, ok := survivorSet[makeSegmentKey(seg)]; !ok {
+			s.index.Remove(&seg)
 		}
 	}
 }
