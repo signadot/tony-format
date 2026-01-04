@@ -59,6 +59,9 @@ type Storage struct {
 	// Schema state - derived from log entries during replay.
 	// Schema changes are stored in dlog entries and always occur at snapshot boundaries.
 	schema *storageSchema
+
+	// Compaction config - if set, Compact() is called after SwitchDLog
+	compactionConfig *CompactionConfig
 }
 
 // Open opens or creates a Storage instance with the given root directory.
@@ -377,6 +380,18 @@ func (s *Storage) SetSchemaResolver(resolver api.SchemaResolver) {
 // GetSchemaResolver returns the current schema resolver, or nil if none.
 func (s *Storage) GetSchemaResolver() api.SchemaResolver {
 	return s.schemaResolver
+}
+
+// SetCompactionConfig sets the compaction configuration.
+// If set, Compact() is called automatically after SwitchDLog().
+// Pass nil to disable automatic compaction.
+func (s *Storage) SetCompactionConfig(config *CompactionConfig) {
+	s.compactionConfig = config
+}
+
+// GetCompactionConfig returns the current compaction configuration.
+func (s *Storage) GetCompactionConfig() *CompactionConfig {
+	return s.compactionConfig
 }
 
 // schemaForScope returns the schema for a given scope.

@@ -60,6 +60,14 @@ func New(spec *Spec) *Server {
 				spec.Log.Info("configured schema", "autoIDFields", len(schema.AutoIDFields))
 			}
 		}
+
+		// Set up compaction if configured
+		if spec.Config.Compaction != nil {
+			spec.Storage.SetCompactionConfig(spec.Config.Compaction.ToStorageConfig())
+			spec.Log.Info("configured compaction",
+				"cutoff", spec.Config.Compaction.Cutoff,
+				"slotsPerTier", spec.Config.Compaction.SlotsPerTier)
+		}
 	}
 
 	return s

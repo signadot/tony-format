@@ -147,6 +147,14 @@ func (s *Storage) SwitchDLog() error {
 		return fmt.Errorf("failed to create baseline snapshot: %w", err)
 	}
 
+	// Run compaction on the inactive log if configured
+	if s.compactionConfig != nil {
+		if err := s.Compact(s.compactionConfig); err != nil {
+			// Log error but don't fail the switch - compaction is best-effort
+			s.logger.Error("compaction failed", "error", err)
+		}
+	}
+
 	return nil
 }
 
