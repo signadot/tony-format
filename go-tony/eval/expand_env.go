@@ -181,16 +181,21 @@ func ExpandIRWithOptions(node *ir.Node, env map[string]any, opts *EvalOptions) (
 	switch node.Type {
 	case ir.ObjectType:
 		n := len(node.Values)
-		res := make(map[string]*ir.Node, n)
+		kvs := make([]ir.KeyVal, n)
 		for i, elt := range node.Values {
 			f := node.Fields[i]
 			xc, err := ExpandIRWithOptions(elt, env, opts)
 			if err != nil {
 				return nil, err
 			}
-			res[f.String] = xc
+			// Preserve merge keys (null-typed keys) by using the original field node
+			if f.Type == ir.NullType {
+				kvs[i] = ir.KeyVal{Key: nil, Val: xc}
+			} else {
+				kvs[i] = ir.KeyVal{Key: f, Val: xc}
+			}
 		}
-		return ir.FromMap(res).WithTag(node.Tag), nil
+		return ir.FromKeyVals(kvs).WithTag(node.Tag), nil
 	case ir.ArrayType:
 		n := len(node.Values)
 		res := make([]*ir.Node, n)

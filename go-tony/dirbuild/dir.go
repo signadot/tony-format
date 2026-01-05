@@ -15,7 +15,8 @@ import (
 )
 
 const (
-	DefaultSuffix = "-ytool" + ".yaml"
+	// DefaultSuffix is empty, meaning derive from output format
+	DefaultSuffix = ""
 )
 
 type schema struct{}
@@ -75,8 +76,7 @@ func newDir(node *ir.Node, path string, env map[string]*ir.Node) (*Dir, error) {
 		return nil, fmt.Errorf("could not get absolute path for %q: %w", path, err)
 	}
 	dir := &Dir{
-		Root:   absPath,
-		Suffix: DefaultSuffix,
+		Root: absPath,
 	}
 	return initDir(dir, node, path, env)
 }
@@ -97,9 +97,7 @@ func initDir(dir *Dir, node *ir.Node, path string, env map[string]*ir.Node) (*Di
 	if err := dir.FromTonyIR(oDir); err != nil {
 		return nil, err
 	}
-	if dir.Suffix == "" {
-		dir.Suffix = DefaultSuffix
-	}
+	// Suffix remains empty if not set, meaning derive from output format
 
 	if dir.Env != nil {
 		tool := tony.DefaultTool()

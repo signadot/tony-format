@@ -27,6 +27,9 @@ func (d *Dir) patch(dst []*ir.Node) error {
 			if !match {
 				continue
 			}
+			if debug.Patches() {
+				debug.Logf("# patch IR being applied:\n%s\n", encode.MustString(dirPatch.Patch))
+			}
 			out, err := tony.Patch(doc, dirPatch.Patch)
 			if err != nil {
 				return fmt.Errorf("error patching patch %d doc %d: %w", j, i, err)

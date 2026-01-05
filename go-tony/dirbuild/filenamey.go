@@ -2,23 +2,23 @@ package dirbuild
 
 import (
 	"bytes"
-	"encoding/json"
 	"strconv"
 	"strings"
 
 	"github.com/signadot/tony-format/go-tony/encode"
+	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
 )
 
 type fileNamer struct {
-	APIVersion string `json:"apiVersion"`
-	Kind       string `json:"kind"`
-	Type       string `json:"type"`
+	APIVersion string `tony:"field=apiVersion"`
+	Kind       string `tony:"field=kind"`
+	Type       string `tony:"field=type"`
 	Metadata   struct {
-		Namespace string `json:"namespace"`
-		Name      string `json:"name"`
-	} `json:"metadata"`
-	Name string `json:"name"`
+		Namespace string `tony:"field=namespace"`
+		Name      string `tony:"field=name"`
+	} `tony:"field=metadata"`
+	Name string `tony:"field=name"`
 }
 
 func (fn *fileNamer) FileName() string {
@@ -47,13 +47,9 @@ func (fn *fileNamer) FileName() string {
 func fileName(node *ir.Node) string {
 	switch node.Type {
 	case ir.ObjectType:
-		d, err := json.Marshal(node)
-		if err != nil {
-			return "merr-" + err.Error()
-		}
 		name := &fileNamer{}
-		if err := json.Unmarshal(d, name); err != nil {
-			return "uerr-" + err.Error()
+		if err := gomap.FromTonyIR(node, name); err != nil {
+			return "obj"
 		}
 		return name.FileName()
 	case ir.ArrayType:

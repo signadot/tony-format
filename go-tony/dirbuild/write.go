@@ -57,7 +57,7 @@ func (d *Dir) write(bw *bufio.Writer, dst []*ir.Node, opts ...encode.EncodeOptio
 }
 
 func (d *Dir) writeOut(w io.Writer, y *ir.Node, j, n int, opts ...encode.EncodeOption) error {
-	wc, err := d.writeCloser(w, y)
+	wc, err := d.writeCloser(w, y, opts...)
 	if err != nil {
 		return err
 	}
@@ -81,7 +81,7 @@ func (_ nopWriterCloser) Close() error {
 	return nil
 }
 
-func (d *Dir) writeCloser(w io.Writer, node *ir.Node) (io.WriteCloser, error) {
+func (d *Dir) writeCloser(w io.Writer, node *ir.Node, opts ...encode.EncodeOption) (io.WriteCloser, error) {
 	if d.DestDir == "" {
 		return nopWriterCloser{Writer: w}, nil
 	}
@@ -91,7 +91,12 @@ func (d *Dir) writeCloser(w io.Writer, node *ir.Node) (io.WriteCloser, error) {
 	if n != 0 {
 		fn += "-" + strconv.Itoa(n)
 	}
-	fn += d.Suffix
+	// Use explicit suffix if set, otherwise derive from output format
+	suffix := d.Suffix
+	if suffix == "" {
+		suffix = encode.FormatSuffix(encode.FormatFromOpts(opts...))
+	}
+	fn += suffix
 	fp := filepath.Join(d.DestDir, fn)
 	f, err := os.OpenFile(fp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {

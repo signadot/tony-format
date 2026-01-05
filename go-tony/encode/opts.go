@@ -7,6 +7,27 @@ type EncodeOption func(*EncState)
 func EncodeFormat(f format.Format) EncodeOption {
 	return func(es *EncState) { es.format = f }
 }
+
+// FormatFromOpts extracts the format from encode options.
+func FormatFromOpts(opts ...EncodeOption) format.Format {
+	es := &EncState{}
+	for _, opt := range opts {
+		opt(es)
+	}
+	return es.format
+}
+
+// FormatSuffix returns the file extension for the given format.
+func FormatSuffix(f format.Format) string {
+	switch f {
+	case format.JSONFormat:
+		return ".json"
+	case format.TonyFormat:
+		return ".tony"
+	default:
+		return ".yaml"
+	}
+}
 func Depth(n int) EncodeOption {
 	return func(es *EncState) { es.depth = n }
 }
