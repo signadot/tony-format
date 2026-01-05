@@ -18,6 +18,7 @@ type EncState struct {
 	brackets      bool
 	comments      bool
 	injectRaw     bool
+	literal       bool
 
 	format format.Format
 	wire   bool
@@ -228,6 +229,7 @@ func encode(node *ir.Node, w io.Writer, es *EncState) error {
 
 func writeTagIfPresent(node *ir.Node, w io.Writer, es *EncState) error {
 	tag := ir.TagRemove(node.Tag, "!bracket")
+	tag = ir.TagRemove(tag, "!literal")
 	if tag == "" {
 		return nil
 	}
@@ -477,7 +479,7 @@ func encodeObjectValue(node *ir.Node, w io.Writer, es *EncState) error {
 			return err
 		}
 
-		if doBlockLit(node.String, es) {
+		if doBlockLit(node, es) {
 			es.depth--
 			err := encodeBlockLit(node, w, es)
 			es.depth++
@@ -615,7 +617,7 @@ func writeArrayElementMarker(w io.Writer, es *EncState) error {
 
 func encodeString(node *ir.Node, w io.Writer, es *EncState) error {
 	es.colorType = ir.StringType
-	if doBlockLit(node.String, es) {
+	if doBlockLit(node, es) {
 		return encodeBlockLit(node, w, es)
 	}
 	if !es.wire && len(node.Lines) != 0 && isTony(es) && strings.Join(node.Lines, "") == node.String {
@@ -862,11 +864,14 @@ func writeLineCommentLines(w io.Writer, c *ir.Node, es *EncState) error {
 	return writeString(w, ln)
 }
 
-func doBlockLit(v string, es *EncState) bool {
+func doBlockLit(node *ir.Node, es *EncState) bool {
 	if es.wire || es.format.IsJSON() {
 		return false
 	}
-	return strings.Contains(v, "\n")
+	if es.literal || ir.TagHas(node.Tag, "!literal") {
+		return true
+	}
+	return strings.Contains(node.String, "\n")
 }
 
 func doMString(node *ir.Node, es *EncState) bool {

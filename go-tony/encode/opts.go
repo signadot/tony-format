@@ -46,3 +46,6 @@ func EncodeWire(v bool) EncodeOption {
 func EncodeBrackets(v bool) EncodeOption {
 	return func(es *EncState) { es.brackets = v }
 }
+func EncodeLiteral(v bool) EncodeOption {
+	return func(es *EncState) { es.literal = v }
+}
