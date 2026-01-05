@@ -43,24 +43,44 @@ func ExpandDefBody(body *ir.Node, env map[string]any, opts *eval.EvalOptions) (*
 // BuildDefEnv creates an environment map from schema definitions.
 // Parameterized definitions are wrapped as variadic functions that call InstantiateDef.
 // Non-parameterized definitions are stored as IR nodes.
+//
+// When both parameterized and non-parameterized versions exist (e.g., array and array(t)),
+// the function returns the non-parameterized version when called with no args,
+// and instantiates the parameterized version when called with args.
 func BuildDefEnv(s *Schema) map[string]any {
 	if s == nil || s.Define == nil {
 		return nil
 	}
 
-	env := make(map[string]any)
+	// First pass: collect both parameterized and non-parameterized definitions
+	nonParam := make(map[string]*ir.Node)
+	paramDefs := make(map[string]struct {
+		body   *ir.Node
+		params []string
+	})
 
 	for defName, defBody := range s.Define {
 		baseName, params := ParseDefSignature(defName)
-
 		if len(params) == 0 {
-			// Non-parameterized: store the body directly
-			env[baseName] = defBody
+			nonParam[baseName] = defBody
 		} else {
-			// Parameterized: wrap as a function that instantiates
-			// Capture defBody and params in closure
-			body := defBody
-			paramNames := params
+			paramDefs[baseName] = struct {
+				body   *ir.Node
+				params []string
+			}{body: defBody, params: params}
+		}
+	}
+
+	env := make(map[string]any)
+
+	// Process non-parameterized definitions first
+	for baseName, defBody := range nonParam {
+		// If there's also a parameterized version, create a function that handles both
+		if pdef, hasParam := paramDefs[baseName]; hasParam {
+			nonParamBody := defBody
+			body := pdef.body
+			paramNames := pdef.params
+
 			env[baseName] = func(args ...any) any {
 				// Convert args to IR nodes
 				irArgs := make([]*ir.Node, len(args))
@@ -71,24 +91,60 @@ func BuildDefEnv(s *Schema) map[string]any {
 					case string:
 						irArgs[i] = ir.FromString(v)
 					default:
-						// For other types, try to convert
 						irArgs[i] = ir.FromString("")
 					}
 				}
 
-				// If called with no args, return the base definition (uninstantiated clone)
+				// If called with no args, return non-parameterized version
 				if len(irArgs) == 0 {
-					return body.Clone()
+					return nonParamBody.Clone()
 				}
 
 				// Instantiate with provided args
 				result, err := InstantiateDef(body, paramNames, irArgs)
 				if err != nil {
-					// Return nil on error - caller should handle
 					return nil
 				}
 				return result
 			}
+		} else {
+			// Only non-parameterized version exists
+			env[baseName] = defBody
+		}
+	}
+
+	// Process parameterized definitions that don't have a non-parameterized version
+	for baseName, pdef := range paramDefs {
+		if _, hasNonParam := nonParam[baseName]; hasNonParam {
+			continue // Already handled above
+		}
+
+		body := pdef.body
+		paramNames := pdef.params
+
+		env[baseName] = func(args ...any) any {
+			irArgs := make([]*ir.Node, len(args))
+			for i, arg := range args {
+				switch v := arg.(type) {
+				case *ir.Node:
+					irArgs[i] = v
+				case string:
+					irArgs[i] = ir.FromString(v)
+				default:
+					irArgs[i] = ir.FromString("")
+				}
+			}
+
+			// If called with no args, return uninstantiated clone
+			if len(irArgs) == 0 {
+				return body.Clone()
+			}
+
+			result, err := InstantiateDef(body, paramNames, irArgs)
+			if err != nil {
+				return nil
+			}
+			return result
 		}
 	}
 

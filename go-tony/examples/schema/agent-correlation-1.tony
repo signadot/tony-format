@@ -1,0 +1,55 @@
+live:
+  conversations:
+  - id: conv-001
+    agentId: agent-claude-001
+    startedAt: "2024-01-15T10:30:00Z"
+    updatedAt: "2024-01-15T10:31:45Z"
+    meta:
+      model: claude-3-opus
+      systemPrompt: "You are a helpful assistant."
+      temperature: 0.7
+      maxTokens: 4096
+    turns:
+    - seq: 0
+      timestamp: "2024-01-15T10:30:00Z"
+      request:
+        messages:
+        - role: user
+          content: "What files are in the current directory?"
+        tools:
+        - name: list_files
+          description: "List files in a directory"
+          inputSchema: {}
+      response:
+        id: resp-001
+        content:
+        - type: tool_use
+          text: null
+          toolUse:
+            id: tool-use-001
+            name: list_files
+            input:
+              path: "."
+          toolResult: null
+        stopReason: tool_use
+      tools:
+      - id: tool-use-001
+        name: list_files
+        input:
+          path: "."
+        output: "[\"file1.txt\", \"file2.txt\"]"
+        error: null
+        latencyMs: 45
+        timestamp: "2024-01-15T10:30:01Z"
+        correlatedAt: "2024-01-15T10:30:01Z"
+        sourceEvent: mcp-proxy-event-123
+      latencyMs: 1250
+      tokens:
+        input: 150
+        output: 45
+      source:
+        llmProxy: llm-proxy-001
+        toolProxy: mcp-proxy-001
+    status: complete
+correlator:
+  pending: []

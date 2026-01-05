@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/scott-cotton/cli"
+	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 	"github.com/signadot/tony-format/go-tony/schema"
 )
@@ -92,7 +93,59 @@ func loadSchema(cfg *SchemaCheckConfig, file string) (*schema.Schema, error) {
 		return nil, fmt.Errorf("parse error: %w", err)
 	}
 
+	// Merge base definitions (primitive types like string, number, etc.)
+	if err := mergeBaseDefinitions(node); err != nil {
+		return nil, fmt.Errorf("failed to merge base definitions: %w", err)
+	}
+
 	return schema.ParseSchema(node)
+}
+
+// mergeBaseDefinitions merges base.tony definitions into the schema node.
+// Base definitions are only added if they don't already exist in the schema.
+// Excludes _ir and ir definitions which have circular references that cause
+// infinite expansion during validation.
+func mergeBaseDefinitions(node *ir.Node) error {
+	baseDefs, err := schema.BaseDefinitions()
+	if err != nil {
+		return err
+	}
+	if baseDefs == nil {
+		return nil
+	}
+
+	// Definitions to skip - they have circular references that cause infinite expansion
+	skipDefs := map[string]bool{
+		"_ir": true,
+		"ir":  true,
+	}
+
+	// Get or create the define section
+	defineNode := ir.Get(node, "define")
+	if defineNode == nil {
+		// Create define section
+		defineNode = ir.FromMap(map[string]*ir.Node{})
+		node.Fields = append(node.Fields, ir.FromString("define"))
+		node.Values = append(node.Values, defineNode)
+	}
+
+	// Build a set of existing definition names
+	existing := make(map[string]bool)
+	for _, field := range defineNode.Fields {
+		if field.Type == ir.StringType {
+			existing[field.String] = true
+		}
+	}
+
+	// Add base definitions that don't already exist (except skip list)
+	for name, def := range baseDefs {
+		if !existing[name] && !skipDefs[name] {
+			defineNode.Fields = append(defineNode.Fields, ir.FromString(name))
+			defineNode.Values = append(defineNode.Values, def)
+		}
+	}
+
+	return nil
 }
 
 func checkFile(cfg *SchemaCheckConfig, cc *cli.Context, s *schema.Schema, file string) error {

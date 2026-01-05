@@ -1,0 +1,51 @@
+live:
+  conversations:
+  - id: conv-abc123
+    agentId: claude-code
+    startedAt: "2025-01-05T10:30:00Z"
+    updatedAt: "2025-01-05T10:31:15Z"
+    meta:
+      model: claude-sonnet-4-20250514
+      systemPrompt: "You are a helpful assistant."
+      temperature: 0.7
+      maxTokens: 4096
+    turns:
+    - seq: 1
+      timestamp: "2025-01-05T10:30:00Z"
+      request:
+        messages:
+        - role: user
+          content: "Read the config file"
+        tools:
+        - name: read_file
+          description: "Read a file"
+          inputSchema: {}
+      response:
+        id: msg_01XYZ
+        content:
+        - type: text
+          text: "I'll read that file."
+          toolUse: null
+          toolResult: null
+        stopReason: tool_use
+      tools:
+      - id: toolu_01ABC
+        name: read_file
+        input: {path: /etc/config.yaml}
+        output: "port: 8080"
+        error: null
+        latencyMs: 23
+        timestamp: "2025-01-05T10:30:01Z"
+        correlatedAt: "2025-01-05T10:30:01Z"
+        sourceEvent: evt-001
+      latencyMs: 850
+      tokens:
+        input: 150
+        output: 42
+      source:
+        llmProxy: helicone
+        toolProxy: signadot
+    status: complete
+
+correlator:
+  pending: []

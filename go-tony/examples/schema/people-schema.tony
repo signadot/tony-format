@@ -1,0 +1,6 @@
+define:
+  person:
+    name: .[string]
+	age:  .[int]
+accept:
+  .[array(person)]

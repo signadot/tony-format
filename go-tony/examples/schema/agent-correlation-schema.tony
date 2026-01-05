@@ -1,0 +1,103 @@
+context: tony-format/context
+
+signature:
+  name: agent-correlation
+  version: "0.1"
+
+define:
+  Conversation:
+    id: .[string]
+    agentId: .[string]
+    startedAt: .[string]
+    updatedAt: .[string]
+    meta: .[ConversationMeta]
+    turns: .[array(Turn)]
+    status: !or [open complete error]
+
+  ConversationMeta:
+    model: .[string]
+    systemPrompt: .[string]
+    temperature: .[number]
+    maxTokens: .[int]
+
+  Turn:
+    seq: .[int]
+    timestamp: .[string]
+    request: .[LLMRequest]
+    response: .[LLMResponse]
+    tools: .[array(ToolExecution)]
+    latencyMs: .[int]
+    tokens: .[TokenUsage]
+    source: .[TurnSource]
+
+  TurnSource:
+    llmProxy: .[string]
+    toolProxy: .[string]
+
+  LLMRequest:
+    messages: .[array(Message)]
+    tools: .[array(ToolDef)]
+
+  LLMResponse:
+    id: .[string]
+    content: .[array(ContentBlock)]
+    stopReason: !or [end_turn tool_use max_tokens error]
+
+  Message:
+    role: !or [user assistant tool_result]
+    content: .[string]
+
+  ContentBlock:
+    type: !or [text tool_use tool_result]
+    text: .[string]
+    toolUse: .[ToolUse]
+    toolResult: .[ToolResult]
+
+  ToolUse:
+    id: .[string]
+    name: .[string]
+    input: .[object]
+
+  ToolResult:
+    toolUseId: .[string]
+    content: .[string]
+    isError: .[bool]
+
+  ToolExecution:
+    id: .[string]
+    name: .[string]
+    input: .[object]
+    output: .[string]
+    error: .[ToolError]
+    latencyMs: .[int]
+    timestamp: .[string]
+    correlatedAt: .[string]
+    sourceEvent: .[string]
+
+  ToolError:
+    code: .[int]
+    message: .[string]
+
+  ToolDef:
+    name: .[string]
+    description: .[string]
+    inputSchema: .[object]
+
+  TokenUsage:
+    input: .[int]
+    output: .[int]
+
+  PendingCorrelation:
+    toolUseId: .[string]
+    convId: .[string]
+    turnSeq: .[int]
+    registeredAt: .[string]
+    expiresAt: .[string]
+
+  CorrelationState:
+    live:
+      conversations: .[array(Conversation)]
+    correlator:
+      pending: .[array(PendingCorrelation)]
+
+accept: .[CorrelationState]

@@ -165,6 +165,41 @@ func (b *formulaBuilder) buildTagged(node *ir.Node, tag string) z.Lit {
 		child.Tag = rest
 		return b.build(child)
 
+	case "!irtype":
+		// !irtype constrains value to the IR type of the exemplar node
+		switch node.Type {
+		case ir.NullType:
+			return b.getVar("null")
+		case ir.BoolType:
+			return b.getVar("bool")
+		case ir.NumberType:
+			return b.getVar("number")
+		case ir.StringType:
+			return b.getVar("string")
+		case ir.ArrayType:
+			return b.getVar("array")
+		case ir.ObjectType:
+			return b.getVar("object")
+		default:
+			b.err = fmt.Errorf("!irtype with unknown node type: %v", node.Type)
+			return b.c.F
+		}
+
+	case "!all":
+		// !all.X constrains all elements to match X
+		// For collections (array/object): satisfiable (empty collection works)
+		// For scalars: the scalar itself must match the constraint
+		if node.Type == ir.ArrayType || node.Type == ir.ObjectType {
+			return b.c.T // empty collection satisfies !all
+		}
+		// Scalar: apply the rest of the tag as a constraint
+		if rest != "" {
+			child := node.Clone()
+			child.Tag = rest
+			return b.build(child)
+		}
+		return b.c.T
+
 	default:
 		// Strip the ! prefix for lookups
 		tagName := head
@@ -191,16 +226,55 @@ func (b *formulaBuilder) buildTagged(node *ir.Node, tag string) z.Lit {
 	}
 }
 
+// baseTypes maps base type names to their SAT type variables
+var baseTypes = map[string]string{
+	"bool": "bool", "null": "null", "number": "number",
+	"int": "number", "float": "number", "string": "string",
+	"array": "array", "object": "object", "sparsearray": "object",
+}
+
 // buildRef handles definition references
 // refContent is the content inside .[...], e.g., "list(int)" or "node"
 func (b *formulaBuilder) buildRef(refContent string) z.Lit {
 	// Parse the reference to get base name and args
 	baseName, refArgs := ParseDefSignature(refContent)
 
+	// Handle built-in base types directly (no need to look up definitions)
+	if len(refArgs) == 0 {
+		if typeName, ok := baseTypes[baseName]; ok {
+			return b.getVar(typeName)
+		}
+	}
+	// Parameterized base types like array(t), nullable(t) are satisfiable
+	if len(refArgs) > 0 {
+		switch baseName {
+		case "array", "sparsearray", "object", "key":
+			return b.c.T // collections are satisfiable (empty works)
+		case "nullable":
+			return b.c.T // nullable is satisfiable (null works)
+		case "field":
+			return b.c.T // field union is satisfiable
+		}
+	}
+
 	// Check for self-reference (explicit check for definition being validated)
-	checkingBase, _ := ParseDefSignature(b.checkingDef)
+	// Only a direct self-reference if refContent matches checkingDef exactly,
+	// OR if base names match AND both have the same parameterization pattern.
+	// e.g., .[array] when checking array(t) is NOT a self-reference because
+	// "array" (non-parameterized) and "array(t)" are different definitions.
+	checkingBase, checkingArgs := ParseDefSignature(b.checkingDef)
 	if baseName == checkingBase {
-		return b.c.F // Self-reference → constant false
+		// Same base name - only self-reference if parameterization matches
+		if len(refArgs) == 0 && len(checkingArgs) == 0 {
+			// Both non-parameterized: array vs array → self-ref
+			return b.c.F
+		}
+		if len(refArgs) > 0 && len(checkingArgs) > 0 {
+			// Both parameterized: array(x) vs array(t) → self-ref
+			// (the args might be different but it's still the same template)
+			return b.c.F
+		}
+		// One is parameterized, one is not: different definitions
 	}
 
 	// Check for cycle via visiting set
