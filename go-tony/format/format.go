@@ -63,3 +63,22 @@ func (f *Format) UnmarshalText(d []byte) error {
 func (f Format) IsJSON() bool { return f == JSONFormat }
 func (f Format) IsTony() bool { return f == TonyFormat }
 func (f Format) IsYAML() bool { return f == YAMLFormat }
+
+// Suffix returns the file extension for this format (including the dot).
+func (f Format) Suffix() string {
+	switch f {
+	case TonyFormat:
+		return ".tony"
+	case YAMLFormat:
+		return ".yaml"
+	case JSONFormat:
+		return ".json"
+	default:
+		return ""
+	}
+}
+
+// AllFormats returns all supported formats in preference order.
+func AllFormats() []Format {
+	return []Format{TonyFormat, YAMLFormat, JSONFormat}
+}

@@ -9,6 +9,7 @@ import (
 	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/debug"
 	"github.com/signadot/tony-format/go-tony/eval"
+	"github.com/signadot/tony-format/go-tony/format"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 )
@@ -22,16 +23,18 @@ func (d *Dir) Profiles() ([]string, error) {
 		return nil, err
 	}
 	res := []string{}
-	suffix := d.profileSuffix()
 	for _, dirEnt := range dirEnts {
 		if dirEnt.IsDir() {
 			continue
 		}
 		fName := dirEnt.Name()
-		if !strings.HasSuffix(fName, suffix) {
-			continue
+		for _, f := range format.AllFormats() {
+			suffix := f.Suffix()
+			if strings.HasSuffix(fName, suffix) {
+				res = append(res, fName[:len(fName)-len(suffix)])
+				break
+			}
 		}
-		res = append(res, fName[:len(fName)-len(suffix)])
 	}
 	return res, nil
 }
@@ -85,29 +88,31 @@ func (d *Dir) LoadProfile(profile string, env map[string]any) error {
 }
 
 func (d *Dir) profilePath(profile string) (string, error) {
-	// try just the file
+	// try just the file path as-is
 	st, err := os.Stat(profile)
 	if err == nil {
 		if !st.IsDir() {
 			return profile, nil
 		}
+		return "", fmt.Errorf("profile path %s is a directory", profile)
 	}
 	if !os.IsNotExist(err) {
 		return "", err
 	}
-	path := filepath.Join(d.Root, "profiles", profile+d.profileSuffix())
-	st, err = os.Stat(path)
-	if err == nil {
-		if !st.IsDir() {
-			return path, nil
+
+	// try each format suffix in the profiles directory
+	for _, f := range format.AllFormats() {
+		path := filepath.Join(d.Root, "profiles", profile+f.Suffix())
+		st, err = os.Stat(path)
+		if err == nil {
+			if !st.IsDir() {
+				return path, nil
+			}
+			return "", fmt.Errorf("profile path %s is a directory", path)
+		}
+		if !os.IsNotExist(err) {
+			return "", err
 		}
 	}
-	if !os.IsNotExist(err) {
-		return "", err
-	}
-	return "", fmt.Errorf("profilePath %s is a directory", path)
-}
-
-func (d *Dir) profileSuffix() string {
-	return ".yaml"
+	return "", fmt.Errorf("profile %q not found in profiles/", profile)
 }
