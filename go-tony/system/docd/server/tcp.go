@@ -75,7 +75,8 @@ func (l *TCPListener) handleConnection(conn net.Conn) {
 
 	// Create session
 	session := NewMountSession(sessionID, conn, &MountSessionConfig{
-		Log: l.server.Spec.Log,
+		Log:    l.server.Spec.Log,
+		Server: l.server,
 	})
 
 	// Track session

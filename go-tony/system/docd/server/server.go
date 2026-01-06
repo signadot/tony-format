@@ -10,6 +10,9 @@ import (
 type Server struct {
 	Spec Spec
 
+	// Mount registry for controller registrations
+	Mounts *MountRegistry
+
 	// TCP listener for client connections
 	tcpListener *TCPListener
 }
@@ -29,7 +32,8 @@ func New(spec *Spec) *Server {
 	}
 
 	return &Server{
-		Spec: *spec,
+		Spec:   *spec,
+		Mounts: NewMountRegistry(),
 	}
 }
 
