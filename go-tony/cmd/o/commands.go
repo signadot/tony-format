@@ -313,5 +313,7 @@ func SystemCommand(mainCfg *MainConfig) *cli.Command {
 		WithDescription("system commands implementing TonyAPI components").
 		WithAliases("sys").
 		WithSubs(
-			LogDCommand(cfg.MainConfig))
+			LogDCommand(cfg.MainConfig),
+			DocDCommand(cfg.MainConfig),
+			UpCommand(cfg.MainConfig))
 }
