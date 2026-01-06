@@ -1,0 +1,230 @@
+package libctl
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/signadot/tony-format/go-tony/ir"
+	docdserver "github.com/signadot/tony-format/go-tony/system/docd/server"
+	logdserver "github.com/signadot/tony-format/go-tony/system/logd/server"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage"
+)
+
+func startLogd(t *testing.T) *logdserver.Server {
+	t.Helper()
+	tmpDir := t.TempDir()
+	store, err := storage.Open(tmpDir, nil)
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+	t.Cleanup(func() { store.Close() })
+
+	srv := logdserver.New(&logdserver.Spec{Storage: store})
+	if err := srv.StartTCP("127.0.0.1:0"); err != nil {
+		t.Fatalf("failed to start logd: %v", err)
+	}
+	t.Cleanup(func() { srv.StopTCP() })
+
+	return srv
+}
+
+func startDocd(t *testing.T) *docdserver.Server {
+	t.Helper()
+	srv := docdserver.New(&docdserver.Spec{})
+	if err := srv.StartTCP("127.0.0.1:0"); err != nil {
+		t.Fatalf("failed to start docd: %v", err)
+	}
+	t.Cleanup(func() { srv.StopTCP() })
+	return srv
+}
+
+func TestLogdSession_Connect(t *testing.T) {
+	srv := startLogd(t)
+
+	session := NewLogdSession(&LogdSessionConfig{
+		Addr:     srv.TCPAddr(),
+		ClientID: "test-client",
+	})
+	defer session.Close()
+
+	ctx := context.Background()
+	if err := session.Connect(ctx); err != nil {
+		t.Fatalf("Connect failed: %v", err)
+	}
+
+	if !session.Connected() {
+		t.Error("expected Connected() to return true")
+	}
+	if session.ServerID() == "" {
+		t.Error("expected ServerID to be set")
+	}
+}
+
+func TestLogdSession_Match(t *testing.T) {
+	srv := startLogd(t)
+
+	session := NewLogdSession(&LogdSessionConfig{
+		Addr:     srv.TCPAddr(),
+		ClientID: "test-client",
+	})
+	defer session.Close()
+
+	ctx := context.Background()
+
+	// Match on empty store returns null
+	result, err := session.Match(ctx, "")
+	if err != nil {
+		t.Fatalf("Match failed: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result.Type != ir.NullType {
+		t.Errorf("expected null result, got %v", result.Type)
+	}
+}
+
+func TestLogdSession_Patch(t *testing.T) {
+	srv := startLogd(t)
+
+	session := NewLogdSession(&LogdSessionConfig{
+		Addr:     srv.TCPAddr(),
+		ClientID: "test-client",
+	})
+	defer session.Close()
+
+	ctx := context.Background()
+
+	// Patch some data
+	data := ir.FromMap(map[string]*ir.Node{
+		"name": ir.FromString("test"),
+	})
+	if err := session.Patch(ctx, "users/1", data); err != nil {
+		t.Fatalf("Patch failed: %v", err)
+	}
+
+	// Match to verify
+	result, err := session.Match(ctx, "users/1")
+	if err != nil {
+		t.Fatalf("Match failed: %v", err)
+	}
+	if result.Type != ir.ObjectType {
+		t.Fatalf("expected object, got %v", result.Type)
+	}
+
+	// Check the value
+	nameNode, err := result.GetPath("$.name")
+	if err != nil {
+		t.Fatalf("GetPath failed: %v", err)
+	}
+	if nameNode == nil || nameNode.String != "test" {
+		t.Errorf("expected name='test', got %v", nameNode)
+	}
+}
+
+func TestLogdSession_Reconnect(t *testing.T) {
+	srv := startLogd(t)
+
+	session := NewLogdSession(&LogdSessionConfig{
+		Addr:     srv.TCPAddr(),
+		ClientID: "test-client",
+	})
+	defer session.Close()
+
+	ctx := context.Background()
+
+	// First connect
+	if err := session.Connect(ctx); err != nil {
+		t.Fatalf("Connect failed: %v", err)
+	}
+
+	// Do a match to verify connection works
+	_, err := session.Match(ctx, "")
+	if err != nil {
+		t.Fatalf("Match failed: %v", err)
+	}
+
+	// Simulate connection break by closing internally
+	session.mu.Lock()
+	session.disconnect()
+	session.mu.Unlock()
+
+	// Next operation should reconnect
+	_, err = session.Match(ctx, "")
+	if err != nil {
+		t.Fatalf("Match after reconnect failed: %v", err)
+	}
+
+	if !session.Connected() {
+		t.Error("expected Connected() to return true after reconnect")
+	}
+}
+
+func TestLogdSession_ConnectionRefused(t *testing.T) {
+	session := NewLogdSession(&LogdSessionConfig{
+		Addr:     "127.0.0.1:1", // Port 1 is unlikely to be listening
+		ClientID: "test-client",
+	})
+	defer session.Close()
+
+	// Use a context with timeout to avoid long waits
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	err := session.Connect(ctx)
+	if err == nil {
+		t.Error("expected connection error")
+	}
+	// Should be context deadline exceeded due to retry loop
+	if err != context.DeadlineExceeded {
+		t.Logf("Got error: %v", err)
+	}
+}
+
+func TestLogdSession_MountClientIntegration(t *testing.T) {
+	// Start both docd and logd
+	logdSrv := startLogd(t)
+	docdSrv := startDocd(t)
+
+	// Mount with logd address
+	client, err := Mount(&MountConfig{
+		DocdAddr:   docdSrv.TCPAddr(),
+		LogdAddr:   logdSrv.TCPAddr(),
+		Controller: "test-ctrl",
+		Path:       "/users",
+	})
+	if err != nil {
+		t.Fatalf("Mount failed: %v", err)
+	}
+	defer client.Close()
+
+	// Verify logd session exists
+	logd := client.Logd()
+	if logd == nil {
+		t.Fatal("expected Logd() to return session")
+	}
+
+	// Use logd session
+	ctx := context.Background()
+	data := ir.FromMap(map[string]*ir.Node{
+		"id":   ir.FromString("1"),
+		"name": ir.FromString("Alice"),
+	})
+	if err := logd.Patch(ctx, "users/1", data); err != nil {
+		t.Fatalf("Patch via MountClient.Logd() failed: %v", err)
+	}
+
+	// Verify data
+	result, err := logd.Match(ctx, "users/1")
+	if err != nil {
+		t.Fatalf("Match failed: %v", err)
+	}
+	nameNode, err := result.GetPath("$.name")
+	if err != nil {
+		t.Fatalf("GetPath failed: %v", err)
+	}
+	if nameNode.String != "Alice" {
+		t.Errorf("expected name='Alice', got %v", nameNode.String)
+	}
+}

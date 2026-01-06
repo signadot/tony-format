@@ -21,6 +21,9 @@ type MountClient struct {
 	docdID   string
 	path     string
 	logdAddr string
+
+	// LogdSession for writing results (created if LogdAddr provided)
+	logd *LogdSession
 }
 
 // MountConfig contains configuration for mounting to docd.
@@ -80,6 +83,14 @@ func Mount(cfg *MountConfig) (*MountClient, error) {
 	if err := client.handshake(cfg); err != nil {
 		conn.Close()
 		return nil, err
+	}
+
+	// Create logd session if address provided
+	if cfg.LogdAddr != "" {
+		client.logd = NewLogdSession(&LogdSessionConfig{
+			Addr:     cfg.LogdAddr,
+			ClientID: cfg.Controller,
+		})
 	}
 
 	return client, nil
@@ -209,6 +220,13 @@ func (c *MountClient) LogdAddr() string {
 	return c.logdAddr
 }
 
+// Logd returns the logd session for writing results.
+// Returns nil if LogdAddr was not provided in MountConfig.
+// The session connects lazily on first use.
+func (c *MountClient) Logd() *LogdSession {
+	return c.logd
+}
+
 // Conn returns the underlying connection for advanced use.
 // The connection is shared with the decoder, so care must be taken
 // when reading directly from it.
@@ -216,7 +234,10 @@ func (c *MountClient) Conn() net.Conn {
 	return c.conn
 }
 
-// Close closes the connection to docd.
+// Close closes the connection to docd and the logd session.
 func (c *MountClient) Close() error {
+	if c.logd != nil {
+		c.logd.Close()
+	}
 	return c.conn.Close()
 }
