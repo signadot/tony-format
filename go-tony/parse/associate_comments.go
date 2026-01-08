@@ -17,15 +17,23 @@ func associateComments(node *ir.Node) *ir.Node {
 		}
 	case ir.ObjectType, ir.ArrayType:
 		var (
-			lastLineComment *ir.Node
-			eltWrap         *ir.Node
+			lastLineComment   *ir.Node
+			eltWrap           *ir.Node
+			emptyCommentLines []string      // Lines from empty comment nodes to move to container
+			toRemove          map[int]bool  // Indices of empty comment nodes to remove
 		)
 		for i, elt := range node.Values {
 			elt = associateComments(elt)
 			if elt.Type == ir.CommentType {
 				eltWrap = elt
 				if len(elt.Values) == 0 {
-					// Empty comment node - skip processing
+					// Empty comment node (trailing comment) - mark for removal
+					// and collect its lines to move to the container
+					if toRemove == nil {
+						toRemove = make(map[int]bool)
+					}
+					toRemove[i] = true
+					emptyCommentLines = append(emptyCommentLines, elt.Lines...)
 					continue
 				}
 				elt = elt.Values[0]
@@ -54,6 +62,39 @@ func associateComments(node *ir.Node) *ir.Node {
 			}
 			lastLineComment = elt.Comment
 		}
+
+		// Remove empty comment nodes from Values (issue #105)
+		if len(toRemove) > 0 {
+			newValues := make([]*ir.Node, 0, len(node.Values)-len(toRemove))
+			newFields := make([]*ir.Node, 0, len(node.Fields))
+			for i, v := range node.Values {
+				if toRemove[i] {
+					continue
+				}
+				v.ParentIndex = len(newValues)
+				newValues = append(newValues, v)
+				if i < len(node.Fields) {
+					newFields = append(newFields, node.Fields[i])
+				}
+			}
+			node.Values = newValues
+			if len(newFields) > 0 {
+				node.Fields = newFields
+			}
+		}
+
+		// Move lines from empty comment nodes to container's comment
+		if len(emptyCommentLines) > 0 {
+			if node.Comment == nil {
+				node.Comment = &ir.Node{
+					Type:   ir.CommentType,
+					Parent: node,
+					Lines:  []string{""},
+				}
+			}
+			node.Comment.Lines = append(node.Comment.Lines, emptyCommentLines...)
+		}
+
 		if !hasExtraContent(lastLineComment) {
 			return node
 		}
