@@ -196,6 +196,15 @@ func BuildCommand(mainCfg *MainConfig) *cli.Command {
 		Name: "e",
 		Type: cli.NamedFuncOpt(cli.FuncOpt(envOptTypeFunc(cfg.Env)), "(path=val)"),
 	})
+	opts = append(opts, &cli.Opt{
+		Name:        "p",
+		Aliases:     []string{"profile"},
+		Description: "profile(s) to build (can be specified multiple times)",
+		Type: cli.NamedFuncOpt(cli.FuncOpt(func(_ *cli.Context, v string) (any, error) {
+			cfg.Profiles = append(cfg.Profiles, v)
+			return v, nil
+		}), "profile"),
+	})
 	return cli.NewCommandAt(&cfg.Build, "build").
 		WithAliases("b").
 		WithSynopsis("build [dir] [-l] [-p profile ] [ env ]").

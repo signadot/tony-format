@@ -49,9 +49,9 @@ func build(cfg *BuildConfig, cc *cli.Context, args []string) error {
 	if w != nil {
 		dir.DestDir = ""
 	}
-	if cfg.Profile != "" {
-		if err := dir.LoadProfile(cfg.Profile, eval.EnvToMapAny(cfg.Env)); err != nil {
-			return fmt.Errorf("error loading profile %s: %w", cfg.Profile, err)
+	for _, profile := range cfg.Profiles {
+		if err := dir.LoadProfile(profile, eval.EnvToMapAny(cfg.Env)); err != nil {
+			return fmt.Errorf("error loading profile %s: %w", profile, err)
 		}
 	}
 	if cfg.ShowEnv {

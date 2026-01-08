@@ -205,9 +205,9 @@ type BuildConfig struct {
 	*MainConfig
 	Env map[string]*ir.Node
 
-	List    bool   `cli:"name=l aliases=list desc='list profiles'"`
-	Profile string `cli:"name=p aliases=profile desc='profile to build'"`
-	ShowEnv bool   `cli:"name=s aliases=show,sh desc='show environment'"`
+	List     bool `cli:"name=l aliases=list desc='list profiles'"`
+	Profiles []string
+	ShowEnv  bool `cli:"name=s aliases=show,sh desc='show environment'"`
 
 	Build *cli.Command
 }
