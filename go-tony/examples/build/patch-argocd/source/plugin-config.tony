@@ -16,4 +16,4 @@ data:
         find:
           glob: "**/build.tony"
       generate:
-        command: [o, build, -y, .]
+        command: [sh, -c, 'o build -y $ARGOCD_ENV_ARGS .']

@@ -3,7 +3,7 @@
 # This Application will:
 # 1. Clone the specified git repo
 # 2. Auto-discover the build.tony file (via the plugin's discover.find.glob)
-# 3. Run "o build -y ." to generate manifests
+# 3. Run "o build -y $ARGOCD_ENV_ARGS ." to generate manifests
 #
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -20,6 +20,11 @@ spec:
     # The plugin is auto-discovered via build.tony, but can be explicit:
     plugin:
       name: tony-build
+      # Pass arguments to "o build" via ARGS env var
+      # Examples: "-p staging", "-p prod", "-e debug=true"
+      env:
+      - name: ARGS
+        value: "-p staging"
   destination:
     server: https://kubernetes.default.svc
     namespace: my-app
