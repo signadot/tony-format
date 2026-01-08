@@ -423,7 +423,7 @@ func encodeObjectValue(node *ir.Node, w io.Writer, es *EncState) error {
 	defer func() { es.depth-- }()
 	switch node.Type {
 	case ir.ObjectType:
-		if node.Tag != "" || (es.wire && !es.format.IsJSON() || es.brackets) {
+		if node.Tag != "" || es.wire && !es.format.IsJSON() || es.brackets || len(node.Fields) == 0 {
 			if err := writeString(w, " "); err != nil {
 				return err
 			}
@@ -447,7 +447,8 @@ func encodeObjectValue(node *ir.Node, w io.Writer, es *EncState) error {
 		}
 		// Only write space if there's a tag or we're in bracket/wire mode.
 		// Block arrays (non-bracket) go directly after colon with newline.
-		if node.Tag != "" || esBracket(es) {
+		// Empty arrays always need a space before the bracket.
+		if node.Tag != "" || esBracket(es) || len(node.Values) == 0 {
 			if err := writeString(w, " "); err != nil {
 				return err
 			}
