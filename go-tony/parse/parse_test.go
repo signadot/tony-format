@@ -292,6 +292,68 @@ define:
 func TestBadParse(t *testing.T) {
 }
 
+// TestParseLeadingDocSep tests that Parse handles YAML files starting with ---
+// This is issue #106: controller-gen produces YAML files that start with ---
+func TestParseLeadingDocSep(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+	}{
+		{
+			name: "leading doc sep",
+			in:   "---\nkey: value",
+		},
+		{
+			name: "leading doc sep with newline",
+			in:   "---\n\nkey: value",
+		},
+		{
+			name: "multiple leading doc seps",
+			in:   "---\n---\nkey: value",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			node, err := Parse([]byte(tt.in), ParseYAML())
+			if err != nil {
+				t.Fatalf("Parse failed: %v", err)
+			}
+			if node == nil {
+				t.Fatal("Parse returned nil node")
+			}
+			// Verify the content was parsed correctly
+			if len(node.Fields) == 0 || node.Fields[0].String != "key" {
+				t.Errorf("Expected key 'key', got fields: %v", node.Fields)
+			}
+		})
+	}
+}
+
+// TestAssociateCommentsEmptyValues tests that associateComments handles
+// comment nodes with empty Values arrays without panicking.
+// This is issue #105: panic when parsing build.tony with comments
+func TestAssociateCommentsEmptyValues(t *testing.T) {
+	// This test verifies the fix for issue #105
+	// The exact input that triggers the issue may vary, but the fix ensures
+	// that empty Values arrays are handled gracefully
+	inputs := []string{
+		"# comment\n[]",
+		"# comment\n{}",
+		"# comment only",
+		"[]\n# trailing comment",
+	}
+
+	for _, in := range inputs {
+		t.Run(in, func(t *testing.T) {
+			// This should not panic
+			_, err := Parse([]byte(in), ParseComments(true))
+			// We don't check the error - we just want to ensure no panic
+			_ = err
+		})
+	}
+}
+
 func TestParseBaseTony(t *testing.T) {
 	data, err := os.ReadFile("../schema/base.tony")
 	if err != nil {

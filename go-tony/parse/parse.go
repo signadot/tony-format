@@ -21,6 +21,10 @@ func Parse(d []byte, opts ...ParseOption) (*ir.Node, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Skip leading document separator (---) - common in YAML files from tools like controller-gen
+	for len(toks) > 0 && toks[0].Type == token.TDocSep {
+		toks = toks[1:]
+	}
 	bal, err := token.Balance(toks, pOpts.format)
 	if err != nil {
 		return nil, err

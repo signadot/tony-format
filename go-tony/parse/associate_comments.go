@@ -24,6 +24,10 @@ func associateComments(node *ir.Node) *ir.Node {
 			elt = associateComments(elt)
 			if elt.Type == ir.CommentType {
 				eltWrap = elt
+				if len(elt.Values) == 0 {
+					// Empty comment node - skip processing
+					continue
+				}
 				elt = elt.Values[0]
 			} else {
 				eltWrap = nil
