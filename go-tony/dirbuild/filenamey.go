@@ -45,6 +45,11 @@ func (fn *fileNamer) FileName() string {
 }
 
 func fileName(node *ir.Node) string {
+	// Check for explicit !filename(name) tag first
+	if _, args := ir.TagGet(node.Tag, "!filename"); len(args) > 0 {
+		return args[0]
+	}
+
 	switch node.Type {
 	case ir.ObjectType:
 		name := &fileNamer{}

@@ -188,7 +188,9 @@ func objPatchYWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error
 		}
 	}
 	if len(merges) == 0 {
-		return ir.FromMap(dstMap), nil
+		res := ir.FromMap(dstMap)
+		res.Tag = ir.TagRemove(patch.Tag, "!bracket")
+		return res, nil
 	}
 	n := len(dstMap) + len(merges)
 	kvs := make([]ir.KeyVal, 0, n)
@@ -218,5 +220,7 @@ func objPatchYWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error
 		kvs = append(kvs, ir.KeyVal{Val: merges[mi]})
 		mi++
 	}
-	return ir.FromKeyVals(kvs), nil
+	res := ir.FromKeyVals(kvs)
+	res.Tag = ir.TagRemove(patch.Tag, "!bracket")
+	return res, nil
 }

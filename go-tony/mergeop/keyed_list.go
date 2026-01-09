@@ -48,11 +48,11 @@ func (kl keyedListOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf Patch
 	}
 	klMap := make(map[string]*ir.Node, len(kl.child.Values))
 	for _, klItem := range kl.child.Values {
-		key, keyTag, err := yKeyOf(klItem, kl.key)
+		key, _, err := yKeyOf(klItem, kl.key)
 		if err != nil {
 			return nil, err
 		}
-		klMap[key] = klItem.WithTag(keyTag)
+		klMap[key] = klItem
 	}
 	dst := make([]*ir.Node, len(doc.Values))
 	for i := range doc.Values {

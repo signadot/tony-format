@@ -62,7 +62,13 @@ func (d *Dir) writeOut(w io.Writer, y *ir.Node, j, n int, opts ...encode.EncodeO
 		return err
 	}
 	defer wc.Close()
-	if err := encode.Encode(y, wc, opts...); err != nil {
+	// Strip !filename tag before encoding - it's only used for filename determination
+	toEncode := y
+	if ir.TagHas(y.Tag, "!filename") {
+		toEncode = y.Clone()
+		toEncode.Tag = ir.TagRemove(toEncode.Tag, "!filename")
+	}
+	if err := encode.Encode(toEncode, wc, opts...); err != nil {
 		return err
 	}
 	if d.DestDir == "" && j != n-1 {

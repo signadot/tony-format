@@ -117,15 +117,16 @@ func TagRemove(tag, what string) string {
 	b := &strings.Builder{}
 	for tag != "" {
 		hd, args, rest := TagArgs(tag)
-		if rest != "" {
-			rest = rest[1:]
-		}
 		tag = rest
 		if hd == what {
 			continue
 		}
 		if b.Len() != 0 {
 			b.WriteByte('.')
+			// Subsequent tags: strip ! prefix since only first tag has it
+			if len(hd) > 0 && hd[0] == '!' {
+				hd = hd[1:]
+			}
 		} else if len(hd) > 0 && hd[0] != '!' {
 			// First remaining tag needs ! prefix
 			b.WriteByte('!')
