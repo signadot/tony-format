@@ -22,6 +22,10 @@ func tonyEval(cfg *EvalConfig, cc *cli.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	args, err = parseEnvExtras(cfg.Env, cc, args)
+	if err != nil {
+		return err
+	}
 	if cfg.Tags {
 		fmt.Fprintf(cc.Out, "available eval tags:\n")
 		for _, s := range eval.Symbols() {

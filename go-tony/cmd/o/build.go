@@ -17,7 +17,7 @@ func build(cfg *BuildConfig, cc *cli.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	args, err = parseEnvExtras(cfg, cc, args)
+	args, err = parseEnvExtras(cfg.Env, cc, args)
 	if err != nil {
 		return err
 	}
@@ -63,29 +63,4 @@ func build(cfg *BuildConfig, cc *cli.Context, args []string) error {
 		return err
 	}
 	return nil
-}
-
-func parseEnvExtras(cfg *BuildConfig, cc *cli.Context, args []string) ([]string, error) {
-	delim := -1
-	for i, arg := range args {
-		if arg == "--" {
-			delim = i
-			break
-		}
-	}
-	if delim == -1 {
-		return args, nil
-	}
-	f := envOptTypeFunc(cfg.Env)
-	ret := args[:delim]
-	delim++
-	for delim < len(args) {
-		arg := args[delim]
-		delim++
-		_, err := f(cc, arg)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return ret, nil
 }

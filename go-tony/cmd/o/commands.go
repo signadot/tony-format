@@ -86,6 +86,33 @@ func envOptTypeFunc(env map[string]*ir.Node) func(cc *cli.Context, a string) (an
 	}
 }
 
+// parseEnvExtras parses "-- key=val ..." arguments and adds them to env.
+// Returns the args before the "--" delimiter.
+func parseEnvExtras(env map[string]*ir.Node, cc *cli.Context, args []string) ([]string, error) {
+	delim := -1
+	for i, arg := range args {
+		if arg == "--" {
+			delim = i
+			break
+		}
+	}
+	if delim == -1 {
+		return args, nil
+	}
+	f := envOptTypeFunc(env)
+	ret := args[:delim]
+	delim++
+	for delim < len(args) {
+		arg := args[delim]
+		delim++
+		_, err := f(cc, arg)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return ret, nil
+}
+
 func ViewCommand(mainCfg *MainConfig) *cli.Command {
 	cfg := &ViewConfig{MainConfig: mainCfg}
 	opts, err := cli.StructOpts(cfg)
