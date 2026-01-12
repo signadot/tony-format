@@ -395,9 +395,6 @@ func encodeMergeField(yField, yVal *ir.Node, w io.Writer, es *EncState) (bool, e
 	}
 
 	es.colorAttr = oldColorAttr
-	if err := writeNL(w, es); err != nil {
-		return false, err
-	}
 	return true, nil // Skip value encoding, already written
 }
 
