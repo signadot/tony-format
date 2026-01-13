@@ -715,3 +715,111 @@ func TestReproMapIssue(t *testing.T) {
 	// Also check if it compiles/formats (we can't run format here easily without imports, but we can check structure)
 	t.Logf("Generated code:\n%s", code)
 }
+
+// ComponentConfig is a test struct used by TestReproMapPointerValueIssue
+type ComponentConfig struct {
+	Name    string
+	Enabled bool
+}
+
+// TestReproMapPointerValueIssue tests map[string]*ComponentConfig codegen
+// This reproduces the issue where generated code has:
+//   m := make(map[string]*struct)
+//   val := new(struct)
+// instead of:
+//   m := make(map[string]*ComponentConfig)
+//   val := new(ComponentConfig)
+func TestReproMapPointerValueIssue(t *testing.T) {
+	type ConfigMap struct {
+		Components map[string]*ComponentConfig
+	}
+
+	structInfo := &StructInfo{
+		Name: "ConfigMap",
+		Fields: []*FieldInfo{
+			{
+				Name:            "Components",
+				Type:            reflect.TypeOf(map[string]*ComponentConfig{}),
+				SchemaFieldName: "components",
+			},
+		},
+		StructSchema: &gomap.StructSchema{
+			SchemaName: "config_map",
+		},
+	}
+
+	s := &schema.Schema{
+		Signature: &schema.Signature{Name: "config_map"},
+	}
+
+	// Generate FromTonyIR method
+	code, err := GenerateFromTonyIRMethod(structInfo, s, "github.com/signadot/tony-format/go-tony/gomap/codegen")
+	if err != nil {
+		t.Fatalf("GenerateFromTonyIRMethod failed: %v", err)
+	}
+
+	t.Logf("Generated code:\n%s", code)
+
+	// Check that the generated code uses ComponentConfig, not "struct"
+	if strings.Contains(code, "*struct") {
+		t.Errorf("Generated code contains '*struct' instead of '*ComponentConfig':\n%s", code)
+	}
+	if strings.Contains(code, "new(struct)") {
+		t.Errorf("Generated code contains 'new(struct)' instead of 'new(ComponentConfig)':\n%s", code)
+	}
+
+	// Verify the correct type names are used
+	if !strings.Contains(code, "*ComponentConfig") {
+		t.Errorf("Generated code should contain '*ComponentConfig':\n%s", code)
+	}
+	if !strings.Contains(code, "new(ComponentConfig)") {
+		t.Errorf("Generated code should contain 'new(ComponentConfig)':\n%s", code)
+	}
+}
+
+// TestReproMapPointerValueSparseArray tests map[uint32]*ComponentConfig codegen (sparse array)
+// This is a different code path that uses getTypeName instead of getQualifiedTypeName
+func TestReproMapPointerValueSparseArray(t *testing.T) {
+	type SparseConfigMap struct {
+		Components map[uint32]*ComponentConfig
+	}
+
+	structInfo := &StructInfo{
+		Name: "SparseConfigMap",
+		Fields: []*FieldInfo{
+			{
+				Name:            "Components",
+				Type:            reflect.TypeOf(map[uint32]*ComponentConfig{}),
+				SchemaFieldName: "components",
+			},
+		},
+		StructSchema: &gomap.StructSchema{
+			SchemaName: "sparse_config_map",
+		},
+	}
+
+	s := &schema.Schema{
+		Signature: &schema.Signature{Name: "sparse_config_map"},
+	}
+
+	// Generate FromTonyIR method
+	code, err := GenerateFromTonyIRMethod(structInfo, s, "github.com/signadot/tony-format/go-tony/gomap/codegen")
+	if err != nil {
+		t.Fatalf("GenerateFromTonyIRMethod failed: %v", err)
+	}
+
+	t.Logf("Generated code:\n%s", code)
+
+	// Check that the generated code uses ComponentConfig, not "struct"
+	if strings.Contains(code, "*struct") {
+		t.Errorf("Generated code contains '*struct' instead of '*ComponentConfig':\n%s", code)
+	}
+	if strings.Contains(code, "make(map[uint32])") {
+		t.Errorf("Generated code contains incomplete map type 'make(map[uint32])':\n%s", code)
+	}
+
+	// Verify the correct type names are used
+	if !strings.Contains(code, "*ComponentConfig") {
+		t.Errorf("Generated code should contain '*ComponentConfig':\n%s", code)
+	}
+}

@@ -1482,6 +1482,71 @@ func getTypeName(typ reflect.Type, structTypeName string) string {
 	return typ.Name()
 }
 
+// getMapValueTypeName returns the proper type name for map value types.
+// It checks field.StructTypeName first (which contains the value type name for maps),
+// then field.TypeName, and falls back to getQualifiedTypeName with recovery logic.
+func getMapValueTypeName(field *FieldInfo, valueType reflect.Type, currentPkgPath string) string {
+	isPtr := valueType.Kind() == reflect.Ptr
+
+	// Use stored struct type name if available
+	if field.StructTypeName != "" {
+		if isPtr {
+			return "*" + field.StructTypeName
+		}
+		return field.StructTypeName
+	}
+
+	// Use TypeName if available (for named types)
+	if field.TypeName != "" {
+		name := field.TypeName
+		if field.TypePkgPath != "" && field.TypePkgPath != currentPkgPath {
+			pkgParts := strings.Split(field.TypePkgPath, "/")
+			name = pkgParts[len(pkgParts)-1] + "." + name
+		}
+		if isPtr {
+			return "*" + name
+		}
+		return name
+	}
+
+	// Fallback to getQualifiedTypeName
+	structName := getQualifiedTypeName(valueType, currentPkgPath)
+
+	// Try to recover from String() if we got "struct"
+	if structName != "struct" && structName != "*struct" && structName != "" {
+		return structName
+	}
+
+	elemType := valueType
+	if isPtr {
+		elemType = valueType.Elem()
+	}
+	if elemType.Kind() != reflect.Struct {
+		return structName
+	}
+
+	typeStr := elemType.String()
+	if typeStr == "struct" || strings.HasPrefix(typeStr, "struct {") {
+		return structName
+	}
+
+	// Extract name from String() representation
+	recoveredName := typeStr
+	if strings.Contains(typeStr, ".") {
+		parts := strings.Split(typeStr, ".")
+		recoveredName = parts[len(parts)-1]
+		if elemType.PkgPath() != "" && elemType.PkgPath() != currentPkgPath {
+			pkgParts := strings.Split(elemType.PkgPath(), "/")
+			recoveredName = pkgParts[len(pkgParts)-1] + "." + recoveredName
+		}
+	}
+
+	if isPtr {
+		return "*" + recoveredName
+	}
+	return recoveredName
+}
+
 // getQualifiedTypeName returns the qualified type name for code generation.
 // It handles cross-package references by using the package name.
 func getQualifiedTypeName(typ reflect.Type, currentPkg string) string {
@@ -1655,8 +1720,8 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: expected string for TextUnmarshaler, got %%v\", %q, fieldNodeUnwrapped.Type)\n", schemaFieldName))
 			buf.WriteString("	} else {\n")
 			buf.WriteString(fmt.Sprintf("		if s.%s == nil {\n", field.Name))
-			// Use getTypeName to handle imported types correctly
-			typeName := getTypeName(field.Type.Elem(), field.StructTypeName)
+			// Use getQualifiedTypeName to handle all type cases correctly
+			typeName := getQualifiedTypeName(field.Type.Elem(), currentPkgPath)
 			buf.WriteString(fmt.Sprintf("			s.%s = new(%s)\n", field.Name, typeName))
 			buf.WriteString("		}\n")
 			buf.WriteString(fmt.Sprintf("		if err := s.%s.UnmarshalText([]byte(fieldNodeUnwrapped.String)); err != nil {\n", field.Name))
@@ -1768,7 +1833,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 		elemType := field.Type.Elem()
 		if elemType.Kind() == reflect.Struct {
 			// Pointer to struct - call FromTony()
-			structName := getTypeName(elemType, field.StructTypeName)
+			structName := getQualifiedTypeName(elemType, currentPkgPath)
 			buf.WriteString(fmt.Sprintf("	s.%s = &%s{}\n", field.Name, structName))
 			buf.WriteString(fmt.Sprintf("	if err := s.%s.FromTonyIR(fieldNode%s); err != nil {\n", field.Name, fromTonyIROptsSuffix(elemType, currentPkgPath)))
 			buf.WriteString("		return err\n")
@@ -1779,7 +1844,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			buf.WriteString("	if fieldNodeUnwrapped.Type == ir.NullType {\n")
 			buf.WriteString("		// null value - leave pointer as nil\n")
 			buf.WriteString("	} else {\n")
-			typeName := getTypeName(elemType, field.StructTypeName)
+			typeName := getQualifiedTypeName(elemType, currentPkgPath)
 			buf.WriteString(fmt.Sprintf("		val := new(%s)\n", typeName))
 
 			// Generate validation and extraction based on underlying type
@@ -1946,7 +2011,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			if err != nil {
 				return "", fmt.Errorf("unsupported slice element type %v: %w", elemType, err)
 			}
-			buf.WriteString(fmt.Sprintf("			var elem %s\n", getTypeName(elemType, "")))
+			buf.WriteString(fmt.Sprintf("			var elem %s\n", getQualifiedTypeName(elemType, currentPkgPath)))
 			buf.WriteString(fmt.Sprintf("			%s\n", elemCode))
 			buf.WriteString("			slice[i] = elem\n")
 		}
@@ -1962,7 +2027,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 		if keyType.Kind() == reflect.Uint32 {
 			// Sparse array (map[uint32]T)
 			buf.WriteString("	if fieldNodeUnwrapped.Type == ir.ObjectType && fieldNodeUnwrapped.Tag == \"!sparsearray\" {\n")
-			structName := getTypeName(valueType, field.StructTypeName)
+			structName := getMapValueTypeName(field, valueType, currentPkgPath)
 			buf.WriteString(fmt.Sprintf("		m := make(map[uint32]%s)\n", structName))
 			buf.WriteString("		irMap := ir.ToMap(fieldNodeUnwrapped)\n")
 			buf.WriteString("		for kStr, v := range irMap {\n")
@@ -1973,7 +2038,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) {
 				// Map value is struct or pointer to struct
 				if valueType.Kind() == reflect.Ptr {
-					buf.WriteString(fmt.Sprintf("			val := new(%s)\n", getTypeName(valueType.Elem(), field.StructTypeName)))
+					buf.WriteString(fmt.Sprintf("			val := new(%s)\n", strings.TrimPrefix(structName, "*")))
 					buf.WriteString(fmt.Sprintf("			if err := val.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(valueType.Elem(), currentPkgPath)))
 					buf.WriteString("				return fmt.Errorf(\"failed to convert map value at key %d: %w\", k, err)\n")
 					buf.WriteString("			}\n")
@@ -1991,7 +2056,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 				if err != nil {
 					return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
 				}
-				buf.WriteString(fmt.Sprintf("			var val %s\n", getTypeName(valueType, "")))
+				buf.WriteString(fmt.Sprintf("			var val %s\n", getQualifiedTypeName(valueType, currentPkgPath)))
 				buf.WriteString(fmt.Sprintf("			%s\n", valueCode))
 				buf.WriteString("			m[uint32(k)] = val\n")
 			}
@@ -2001,7 +2066,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 		} else if keyType.Kind() == reflect.String {
 			// Regular map (map[string]T)
 			buf.WriteString("	if fieldNodeUnwrapped.Type == ir.ObjectType {\n")
-			structName := getQualifiedTypeName(valueType, currentPkgPath)
+			structName := getMapValueTypeName(field, valueType, currentPkgPath)
 			if depth := getIRNodeDepth(valueType); depth > 0 {
 				structName = "*ir.Node"
 			}
@@ -2011,7 +2076,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) {
 				// Map value is struct or pointer to struct
 				if valueType.Kind() == reflect.Ptr {
-					buf.WriteString(fmt.Sprintf("			val := new(%s)\n", getQualifiedTypeName(valueType.Elem(), currentPkgPath)))
+					buf.WriteString(fmt.Sprintf("			val := new(%s)\n", strings.TrimPrefix(structName, "*")))
 					buf.WriteString(fmt.Sprintf("			if err := val.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(valueType.Elem(), currentPkgPath)))
 					buf.WriteString("				return fmt.Errorf(\"failed to convert map value at key %q: %w\", k, err)\n")
 					buf.WriteString("			}\n")
@@ -2050,18 +2115,27 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 		} else if keyType.Kind() == reflect.Interface {
 			// Map with interface{} (any) keys - keys were converted to strings
 			buf.WriteString("	if fieldNodeUnwrapped.Type == ir.ObjectType {\n")
-			structName := getQualifiedTypeName(valueType, currentPkgPath)
+			structName := getMapValueTypeName(field, valueType, currentPkgPath)
 			buf.WriteString(fmt.Sprintf("		m := make(map[interface{}]%s)\n", structName))
 			buf.WriteString("		irMap := ir.ToMap(fieldNodeUnwrapped)\n")
 			buf.WriteString("		for kStr, v := range irMap {\n")
 			buf.WriteString("			// Convert string key back to interface{}\n")
 			buf.WriteString("			var k interface{} = kStr\n")
-			if valueType.Kind() == reflect.Struct {
-				buf.WriteString(fmt.Sprintf("			val := %s{}\n", structName))
-				buf.WriteString("			if err := val.FromTonyIR(v); err != nil {\n")
-				buf.WriteString("				return fmt.Errorf(\"map value at key %v: %%w\", k, err)\n")
-				buf.WriteString("			}\n")
-				buf.WriteString("			m[k] = val\n")
+			if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) {
+				// Map value is struct or pointer to struct
+				if valueType.Kind() == reflect.Ptr {
+					buf.WriteString(fmt.Sprintf("			val := new(%s)\n", strings.TrimPrefix(structName, "*")))
+					buf.WriteString(fmt.Sprintf("			if err := val.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(valueType.Elem(), currentPkgPath)))
+					buf.WriteString("				return fmt.Errorf(\"map value at key %v: %w\", k, err)\n")
+					buf.WriteString("			}\n")
+					buf.WriteString("			m[k] = val\n")
+				} else {
+					buf.WriteString(fmt.Sprintf("			val := %s{}\n", structName))
+					buf.WriteString(fmt.Sprintf("			if err := val.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(valueType, currentPkgPath)))
+					buf.WriteString("				return fmt.Errorf(\"map value at key %v: %w\", k, err)\n")
+					buf.WriteString("			}\n")
+					buf.WriteString("			m[k] = val\n")
+				}
 			} else {
 				buf.WriteString("			ctx := fmt.Sprintf(\"map value at key %v\", k)\n")
 				valueCode, err := generatePrimitiveFromIR("v", valueType, "ctx")
@@ -2082,7 +2156,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			buf.WriteString("	// Note: Pointer keys cannot be fully reconstructed from serialized form\n")
 			buf.WriteString("	// Pointer addresses are preserved as strings, but original pointers are lost\n")
 			buf.WriteString("	if fieldNodeUnwrapped.Type == ir.ObjectType {\n")
-			structName := getQualifiedTypeName(valueType, currentPkgPath)
+			structName := getMapValueTypeName(field, valueType, currentPkgPath)
 			elemType := keyType.Elem()
 			// Extract key struct name from AST if available (for pointer keys like *X)
 			keyStructNameFromAST := ""
@@ -2112,19 +2186,28 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			buf.WriteString("				return fmt.Errorf(\"invalid pointer address format %%q: %%w\", kStr, err)\n")
 			buf.WriteString("			}\n")
 			buf.WriteString(fmt.Sprintf("			k := (*%s)(unsafe.Pointer(ptrAddr))\n", keyStructName))
-			if valueType.Kind() == reflect.Struct {
-				buf.WriteString(fmt.Sprintf("			val := %s{}\n", structName))
-				buf.WriteString("			if err := val.FromTonyIR(v); err != nil {\n")
-				buf.WriteString("				return fmt.Errorf(\"map value at key %p: %%w\", k, err)\n")
-				buf.WriteString("			}\n")
-				buf.WriteString("			m[k] = val\n")
+			if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) {
+				// Map value is struct or pointer to struct
+				if valueType.Kind() == reflect.Ptr {
+					buf.WriteString(fmt.Sprintf("			val := new(%s)\n", strings.TrimPrefix(structName, "*")))
+					buf.WriteString(fmt.Sprintf("			if err := val.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(valueType.Elem(), currentPkgPath)))
+					buf.WriteString("				return fmt.Errorf(\"map value at key %p: %w\", k, err)\n")
+					buf.WriteString("			}\n")
+					buf.WriteString("			m[k] = val\n")
+				} else {
+					buf.WriteString(fmt.Sprintf("			val := %s{}\n", structName))
+					buf.WriteString(fmt.Sprintf("			if err := val.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(valueType, currentPkgPath)))
+					buf.WriteString("				return fmt.Errorf(\"map value at key %p: %w\", k, err)\n")
+					buf.WriteString("			}\n")
+					buf.WriteString("			m[k] = val\n")
+				}
 			} else {
 				buf.WriteString("			ctx := fmt.Sprintf(\"map value at key %p\", k)\n")
 				valueCode, err := generatePrimitiveFromIR("v", valueType, "ctx")
 				if err != nil {
 					return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
 				}
-				buf.WriteString(fmt.Sprintf("			var val %s\n", getTypeName(valueType, "")))
+				buf.WriteString(fmt.Sprintf("			var val %s\n", getQualifiedTypeName(valueType, currentPkgPath)))
 				buf.WriteString(fmt.Sprintf("			%s\n", valueCode))
 				buf.WriteString("			m[k] = val\n")
 			}
