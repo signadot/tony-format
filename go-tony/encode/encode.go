@@ -837,7 +837,12 @@ func writeRaw(w io.Writer, v string, es *EncState) error {
 			return err
 		}
 		if i == n-1 {
-			es.col = len(ln)
+			// Only update col if line is non-empty. If content ended with newline,
+			// the last line is empty and we should keep col from previous writeNL
+			// to ensure subsequent writeNL calls don't skip.
+			if len(ln) > 0 {
+				es.col = len(ln)
+			}
 			break
 		}
 		es.col = 1
