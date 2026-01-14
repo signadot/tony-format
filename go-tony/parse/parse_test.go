@@ -292,6 +292,73 @@ define:
 func TestBadParse(t *testing.T) {
 }
 
+// TestParseYAMLImplicitNull tests that YAML implicit nulls are parsed correctly.
+// This is issue #109: helm templates can produce implicit nulls.
+func TestParseYAMLImplicitNull(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantNull bool
+	}{
+		{
+			name:     "implicit null with sibling",
+			input:    "key:\nsibling: value",
+			wantNull: true,
+		},
+		{
+			name:     "implicit null at EOF with newline",
+			input:    "key:\n",
+			wantNull: true,
+		},
+		{
+			name:     "implicit null at EOF no newline",
+			input:    "key:",
+			wantNull: true,
+		},
+		{
+			name:     "multiple implicit nulls",
+			input:    "a:\nb:\nc: value",
+			wantNull: true,
+		},
+		{
+			name:     "nested value is not implicit null",
+			input:    "parent:\n  child: value",
+			wantNull: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			node, err := Parse([]byte(tt.input), ParseYAML())
+			if err != nil {
+				t.Fatalf("Parse error: %v", err)
+			}
+			if node == nil {
+				t.Fatal("Parse returned nil")
+			}
+			// Check that we can encode it back
+			encoded := encode.MustString(node)
+			if tt.wantNull && !containsNull(encoded) {
+				t.Errorf("expected null in output, got:\n%s", encoded)
+			}
+		})
+	}
+}
+
+func containsNull(s string) bool {
+	return len(s) >= 4 && (s == "null" || s[len(s)-5:] == "null\n" ||
+		indexOf(s, "null\n") >= 0 || indexOf(s, ": null") >= 0)
+}
+
+func indexOf(s, substr string) int {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
+}
+
 // TestParseLeadingDocSep tests that Parse handles YAML files starting with ---
 // This is issue #106: controller-gen produces YAML files that start with ---
 func TestParseLeadingDocSep(t *testing.T) {

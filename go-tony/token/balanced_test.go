@@ -6,6 +6,75 @@ import (
 	"github.com/signadot/tony-format/go-tony/format"
 )
 
+func TestBalanceYAMLImplicitNull(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name:  "implicit null with sibling",
+			input: "key:\nsibling: value",
+		},
+		{
+			name:  "implicit null at EOF with newline",
+			input: "key:\n",
+		},
+		{
+			name:  "implicit null at EOF no newline",
+			input: "key:",
+		},
+		{
+			name:  "multiple implicit nulls",
+			input: "a:\nb:\nc: value",
+		},
+		{
+			name:  "implicit null with nested sibling",
+			input: "parent:\n  child: value\nsibling:",
+		},
+		{
+			name:  "implicit null in nested object",
+			input: "outer:\n  inner:\nouter2: value",
+		},
+		{
+			name:  "implicit null with comment",
+			input: "key: # comment\nsibling: value",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			toks, err := Tokenize(nil, []byte(tt.input))
+			if err != nil {
+				t.Fatalf("Tokenize error: %v", err)
+			}
+			balanced, err := Balance(toks, format.YAMLFormat)
+			if err != nil {
+				t.Fatalf("Balance error: %v", err)
+			}
+			// Verify balanced brackets
+			n := 0
+			hasNull := false
+			for i := range balanced {
+				tok := &balanced[i]
+				switch tok.Type {
+				case TLSquare, TLCurl:
+					n++
+				case TRSquare, TRCurl:
+					n--
+				case TNull:
+					hasNull = true
+				}
+			}
+			if n != 0 {
+				t.Errorf("imbalanced: %d", n)
+			}
+			if !hasNull {
+				t.Errorf("expected TNull token in output")
+			}
+		})
+	}
+}
+
 func TestBalanceOK(t *testing.T) {
 	for _, doc := range okDocs {
 		toks, err := Tokenize(nil, []byte(doc))

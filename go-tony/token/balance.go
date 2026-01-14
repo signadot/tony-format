@@ -55,6 +55,9 @@ func balanceOne(dst []Token, toks []Token, d int, y *int, underField bool, f for
 	// }()
 
 	if len(toks) == 0 {
+		if underField {
+			return append(dst, Token{Type: TNull}), 0, nil
+		}
 		return nil, 0, fmt.Errorf("%w: %w", ErrDocBalance, ErrEmptyDoc)
 	}
 	tok = &toks[0]
@@ -130,6 +133,10 @@ func balanceOne(dst []Token, toks []Token, d int, y *int, underField bool, f for
 					ErrDocBalance, string(tok.Bytes), tok.Pos)
 			}
 			// empty document should not produce error
+			// implicit null if we're expecting a value after colon
+			if underField {
+				dst = append(dst, Token{Type: TNull, Pos: tok.Pos})
+			}
 			return dst, 0, nil
 		}
 		// non empty document, no brackets
@@ -164,14 +171,17 @@ func balanceOne(dst []Token, toks []Token, d int, y *int, underField bool, f for
 			} else if underField {
 				if n < *y {
 					if toks[1].Type != TArrayElt {
-						return nil, 0, fmt.Errorf("%w: expected more indentation under field: got %d/%d %s",
-							ErrDocBalance, n, *y, tok.Pos)
+						// implicit null - indent decreased without value
+						dst = append(dst, Token{Type: TNull, Pos: tok.Pos})
+						*y = n
+						return dst, 0, nil
 					}
 				}
 				if n == *y {
 					if toks[1].Type != TArrayElt {
-						return nil, 0, fmt.Errorf("%w: only '- ' can serve as whitespace under a field, indent %s",
-							ErrDocBalance, tok.Pos)
+						// implicit null - sibling key at same indent
+						dst = append(dst, Token{Type: TNull, Pos: tok.Pos})
+						return dst, 0, nil
 					}
 				}
 			} else if n < *y {
