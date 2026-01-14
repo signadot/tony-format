@@ -265,10 +265,8 @@ func encodeObject(node *ir.Node, w io.Writer, es *EncState) error {
 	)
 	for i, yField := range node.Fields {
 		val := node.Values[i]
-		if !skipValue {
-			if err := writeObjectFieldPrefix(i, node, w, es); err != nil {
-				return err
-			}
+		if err := writeObjectFieldPrefix(i, node, w, es); err != nil {
+			return err
 		}
 		skipValue, err = encodeObjectField(yField, val, w, es)
 		if err != nil {
@@ -395,9 +393,6 @@ func encodeMergeField(yField, yVal *ir.Node, w io.Writer, es *EncState) (bool, e
 	}
 
 	es.colorAttr = oldColorAttr
-	if err := writeNL(w, es); err != nil {
-		return false, err
-	}
 	return true, nil // Skip value encoding, already written
 }
 
