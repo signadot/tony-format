@@ -1720,8 +1720,21 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: expected string for TextUnmarshaler, got %%v\", %q, fieldNodeUnwrapped.Type)\n", schemaFieldName))
 			buf.WriteString("	} else {\n")
 			buf.WriteString(fmt.Sprintf("		if s.%s == nil {\n", field.Name))
-			// Use getQualifiedTypeName to handle all type cases correctly
-			typeName := getQualifiedTypeName(field.Type.Elem(), currentPkgPath)
+			// For pointer types implementing TextUnmarshaler, use TypePkgPath and TypeName
+			// since field.Type.Elem() loses named type info for cross-package types
+			var typeName string
+			if field.TypePkgPath != "" && field.TypeName != "" {
+				// External package type - use stored type info
+				parts := strings.Split(field.TypePkgPath, "/")
+				pkgName := parts[len(parts)-1]
+				typeName = pkgName + "." + field.TypeName
+			} else if field.TypeName != "" {
+				// Same package named type
+				typeName = field.TypeName
+			} else {
+				// Fallback to getQualifiedTypeName
+				typeName = getQualifiedTypeName(field.Type.Elem(), currentPkgPath)
+			}
 			buf.WriteString(fmt.Sprintf("			s.%s = new(%s)\n", field.Name, typeName))
 			buf.WriteString("		}\n")
 			buf.WriteString(fmt.Sprintf("		if err := s.%s.UnmarshalText([]byte(fieldNodeUnwrapped.String)); err != nil {\n", field.Name))

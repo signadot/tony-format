@@ -17,6 +17,7 @@ define:
   dir: .[nullable(string)]
   exec: .[nullable(string)]
   format: .[nullable(format:format)]
+  if: .[string]
   url: .[nullable(string)]
 signature:
   name: dirsource

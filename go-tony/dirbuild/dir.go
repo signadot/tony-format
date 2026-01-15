@@ -124,6 +124,11 @@ func initDir(dir *Dir, node *ir.Node, path string, env map[string]*ir.Node) (*Di
 	}
 
 	evalEnv := eval.EnvToMapAny(dir.Env)
+	ss, err := dir.loadSources(dir.Sources, evalEnv)
+	if err != nil {
+		return nil, err
+	}
+	dir.Sources = ss
 	ps, err := dir.loadPatches(dir.Patches, evalEnv)
 	if err != nil {
 		return nil, err
@@ -131,6 +136,24 @@ func initDir(dir *Dir, node *ir.Node, path string, env map[string]*ir.Node) (*Di
 	dir.Patches = ps
 	dir.nameCache = map[string]int{}
 	return dir, nil
+}
+
+func (dir *Dir) loadSources(ss []DirSource, ee map[string]any) ([]DirSource, error) {
+	res := []DirSource{}
+	for i := range ss {
+		s := &ss[i]
+		if s.If != "" {
+			m, err := eval.ExpandIR(ir.FromString(s.If), ee)
+			if err != nil {
+				return nil, err
+			}
+			if m.Type == ir.BoolType && !m.Bool {
+				continue
+			}
+		}
+		res = append(res, *s)
+	}
+	return res, nil
 }
 
 func (dir *Dir) loadPatches(ps []DirPatch, ee map[string]any) ([]DirPatch, error) {

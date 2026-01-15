@@ -42,6 +42,7 @@ type DirSource struct {
 	Exec   *string        `tony:"field=exec"`
 	Dir    *string        `tony:"field=dir"`
 	URL    *string        `tony:"field=url"`
+	If     string         `tony:"field=if"`
 }
 
 // formatFromExtension returns the format based on file extension.

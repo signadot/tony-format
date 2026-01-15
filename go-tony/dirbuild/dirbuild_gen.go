@@ -66,7 +66,6 @@ func (s *Dir) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["env"] = ir.FromMap(mapNodes)
 	}
 
-	// Create IR node with schema tag
 	return ir.FromMap(irMap).WithTag("!dir"), nil
 }
 
@@ -217,7 +216,9 @@ func (s *DirSource) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["url"] = ir.FromString(*s.URL)
 	}
 
-	// Create IR node with schema tag
+	// Field: If
+	irMap["if"] = ir.FromString(s.If)
+
 	return ir.FromMap(irMap).WithTag("!dirsource"), nil
 }
 
@@ -300,6 +301,12 @@ func (s *DirSource) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				*val = string(fieldNodeUnwrapped.String)
 				s.URL = val
 			}
+		case "if":
+			// Field: If
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "if", fieldNodeUnwrapped.Type)
+			}
+			s.If = fieldNodeUnwrapped.String
 		}
 	}
 
@@ -357,7 +364,6 @@ func (s *DirPatch) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Field: If
 	irMap["if"] = ir.FromString(s.If)
 
-	// Create IR node with schema tag
 	return ir.FromMap(irMap).WithTag("!dirpatch"), nil
 }
 
