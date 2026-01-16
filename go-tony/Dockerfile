@@ -10,5 +10,6 @@ RUN apk add --no-cache \
     grep
 
 COPY ${GOOS}/${GOARCH}/o /usr/local/bin/o
+COPY ${GOOS}/${GOARCH}/convert-image /usr/local/bin/convert-image
 
 ENTRYPOINT ["/usr/local/bin/o"]

@@ -31,17 +31,27 @@ MODULE_ROOT := $(shell git rev-parse --show-toplevel)
 build-o:
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) $(GO) build -o $(DIST_DIR)/$(GOOS)/$(GOARCH)/o $(MODULE_ROOT)/go-tony/cmd/o
 
+build-convert-image:
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) $(GO) build -o $(DIST_DIR)/$(GOOS)/$(GOARCH)/convert-image $(MODULE_ROOT)/go-tony/cmd/convert-image
+
 build-os:
 	for os in $(OSES); do \
 		for arch in $(ARCHES); do \
 			GOOS=$$os GOARCH=$$arch $(MAKE) build-o; \
 		done; \
 	done
+	
+build-convert-images:
+	for os in $(OSES); do \
+		for arch in $(ARCHES); do \
+			GOOS=$$os GOARCH=$$arch $(MAKE) build-convert-image; \
+		done; \
+	done
 
 # Docker
 # -----------------------------------------------------------------------------
 
-build-docker-o: build-o
+build-docker-o: build-o build-convert-image
 	$(DOCKER) buildx build \
 		--platform $(GOOS)/$(GOARCH) \
 		--build-arg TARGETPLATFORM=$(GOOS)/$(GOARCH) \
@@ -50,7 +60,7 @@ build-docker-o: build-o
 		--provenance=false \
 		-f Dockerfile \
 		--load \
-		-t $(IMAGE_NAME)$(IMAGE_SUFFIX):$(IMAGE_TAG) \
+		-t $(IMAGE_NAME)$(IMAGE_SUFFIX):$(SHORTCOMMIT)-$(GOOS)-$(GOARCH) \
 		$(DIST_DIR)
 
 build-dockers-o:
