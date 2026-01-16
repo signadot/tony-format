@@ -12,8 +12,5 @@ data:
       name: tony-build
     spec:
       version: v1.0
-      discover:
-        find:
-          glob: "**/build.tony"
       generate:
         command: [sh, -c, 'o build -y $ARGOCD_ENV_ARGS .']
