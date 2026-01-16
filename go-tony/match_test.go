@@ -244,6 +244,36 @@ var trimTests = []trimTest{
 		match:  "a: b\nc: d",
 		result: "a: b\nc: d",
 	},
+	// Issue 110: !or with different type than input should work
+	{
+		doc:    "a: b",
+		match:  "a: !or [ b, c, d ]",
+		result: "a: b",
+	},
+	// !or where value doesn't match should exclude the field
+	{
+		doc:    "a: x\nb: y",
+		match:  "a: !or [ b, c, d ]\nb: y",
+		result: "b: y",
+	},
+	// !not.or should exclude matching values
+	{
+		doc:    "a: b\nc: x",
+		match:  "a: !not.or [ b, c, d ]\nc: x",
+		result: "c: x",
+	},
+	// !glob should work with trim
+	{
+		doc:    "a: hello\nb: world",
+		match:  "a: !glob 'h*'\nb: world",
+		result: "a: hello\nb: world",
+	},
+	// !glob non-match should exclude
+	{
+		doc:    "a: hello\nb: world",
+		match:  "a: !glob 'x*'\nb: world",
+		result: "b: world",
+	},
 	{
 		doc:    "a: b\nc: d",
 		match:  "a: b",

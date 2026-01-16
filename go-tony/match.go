@@ -138,7 +138,24 @@ func tagMatchArray(doc, match *ir.Node, tag string) (bool, error) {
 // Trim filters a document to only include fields/values that are present in the match criteria.
 // It recursively processes objects and arrays, removing fields that aren't in the match.
 // The result preserves the tag from the original document.
+// Returns nil if the doc doesn't match the criteria (used to signal exclusion).
 func Trim(match, doc *ir.Node) *ir.Node {
+	// Check for tags first - tags like !or, !not, !glob change matching semantics,
+	// not structure. If the match has a tag, verify doc matches it
+	// and return the doc as-is (since tags define matching criteria, not structure).
+	tag, _, _, err := mergeop.SplitChild(match)
+	if err == nil && tag != "" {
+		// This is a tagged match (like !or, !glob, !and, !not, etc.)
+		// Tags define matching semantics, not structure to preserve.
+		// If doc matches the pattern, return doc as-is.
+		// If doc doesn't match, return nil to signal exclusion.
+		matched, _ := MatchWith(doc, match, nil)
+		if matched {
+			return doc.Clone()
+		}
+		return nil
+	}
+
 	switch match.Type {
 	case ir.ObjectType:
 		docMap := ir.ToMap(doc)
@@ -150,7 +167,12 @@ func Trim(match, doc *ir.Node) *ir.Node {
 				continue
 			}
 			docVal := doc.Values[i]
-			docMap[field.String] = Trim(matchVal, docVal)
+			trimmed := Trim(matchVal, docVal)
+			if trimmed == nil {
+				delete(docMap, field.String)
+			} else {
+				docMap[field.String] = trimmed
+			}
 		}
 		return ir.FromMap(docMap).WithTag(doc.Tag)
 	case ir.ArrayType:
@@ -158,7 +180,7 @@ func Trim(match, doc *ir.Node) *ir.Node {
 		// and keep only the matching ones, trimmed
 		var res []*ir.Node
 		used := make([]bool, len(doc.Values))
-		
+
 		for _, matchElem := range match.Values {
 			// Find the first unused doc element that matches this match element
 			for i, docElem := range doc.Values {
@@ -172,7 +194,10 @@ func Trim(match, doc *ir.Node) *ir.Node {
 				}
 				if matched {
 					// Found a match - trim it and add to result
-					res = append(res, Trim(matchElem, docElem))
+					trimmed := Trim(matchElem, docElem)
+					if trimmed != nil {
+						res = append(res, trimmed)
+					}
 					used[i] = true
 					break
 				}
