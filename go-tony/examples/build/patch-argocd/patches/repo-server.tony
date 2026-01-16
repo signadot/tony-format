@@ -7,7 +7,7 @@
     spec:
       template:
         spec:
-          containers:
+          containers: !key(name)
           - name: tony-build
             image: .[image]
             command: [/var/run/argocd/argocd-cmp-server]
