@@ -1,0 +1,10 @@
+# Remove server-side fields that cause issues when re-applying
+- match:
+    kind: Deployment
+    metadata:
+      name: argocd-repo-server
+  patch:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/last-applied-configuration: !delete null
+    status: !delete null

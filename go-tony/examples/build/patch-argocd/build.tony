@@ -36,6 +36,7 @@ build:
     app: null
 
   patches:
+  - file: patches/cleanup.tony
   - file: patches/namespace.tony
   - file: patches/repo-server.tony
   - file: patches/application.tony
