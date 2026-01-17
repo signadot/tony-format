@@ -1,0 +1,22 @@
+# Example: Using getpath with .[...] syntax
+# Now getpath, whereami, listpath, and getenv are available in eval expressions
+
+---
+!eval
+config:
+  appName: my-awesome-app
+  version: "1.2.3"
+  database:
+    host: postgres.example.com
+    port: 5432
+
+deployment:
+  # Copy the app name from config.appName
+  name: '.[getpath("$.config.appName").String]'
+
+  # Copy the version from config.version
+  version: '.[getpath("$.config.version").String]'
+
+  # Build a connection string using multiple getpath calls
+  # Note: port is a number stored in Int64, convert with string()
+  connectionString: '.[getpath("$.config.database.host").String + ":" + string(getpath("$.config.database.port").Int64)]'

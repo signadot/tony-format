@@ -22,6 +22,11 @@ type EvalOptions struct {
 	// a zero-arg function call. This allows .[array] to automatically call
 	// array() to get the base definition when array is defined as array(t).
 	ParameterizedDefs map[string]bool
+
+	// Node is the current node being evaluated. When set, script functions
+	// like getpath(), whereami(), listpath(), and getenv() become available
+	// in .[...] expressions. The node's Root() is used to resolve paths.
+	Node *ir.Node
 }
 
 // evalWithOptions compiles and runs an expression with optional AST patching
@@ -32,8 +37,16 @@ func evalWithOptions(input string, env Env, opts *EvalOptions) (any, error) {
 		return evalWithDefCallPatch(input, env, opts.ParameterizedDefs)
 	}
 
-	// Otherwise, use normal compile+run
-	program, err := expr.Compile(input)
+	// Build compile options - include script funcs if we have a node
+	// Pass the node itself (not Root) so whereami() returns the correct path
+	// getpath() internally calls doc.Root() to resolve paths
+	var compileOpts []expr.Option
+	if opts != nil && opts.Node != nil {
+		compileOpts = exprOpts(opts.Node)
+	}
+
+	// Compile and run
+	program, err := expr.Compile(input, compileOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +93,14 @@ func ExpandEnv(node *ir.Node, env Env) error {
 			node.String = v
 			return nil
 		}
-		val, err := expr.Eval(raw, env)
+		// Compile with script funcs (getpath, whereami, etc.)
+		// Pass the node itself so whereami() returns the correct path
+		// getpath() internally calls doc.Root() to resolve paths
+		program, err := expr.Compile(raw, exprOpts(node)...)
+		if err != nil {
+			return fmt.Errorf("error compiling %q: %w", raw, err)
+		}
+		val, err := vm.Run(program, env)
 		if err != nil {
 			return fmt.Errorf("error evaluating %q: %w", raw, err)
 		}
@@ -178,13 +198,20 @@ func ExpandIR(node *ir.Node, env map[string]any) (*ir.Node, error) {
 // This is the main entry point for schema evaluation where parameterized
 // definition auto-calling is needed.
 func ExpandIRWithOptions(node *ir.Node, env map[string]any, opts *EvalOptions) (*ir.Node, error) {
+	// Create opts with current node for script funcs (whereami, getpath, etc.)
+	// Each recursive call gets its own opts with the current node
+	nodeOpts := &EvalOptions{Node: node}
+	if opts != nil {
+		nodeOpts.ParameterizedDefs = opts.ParameterizedDefs
+	}
+
 	switch node.Type {
 	case ir.ObjectType:
 		n := len(node.Values)
 		kvs := make([]ir.KeyVal, n)
 		for i, elt := range node.Values {
 			f := node.Fields[i]
-			xc, err := ExpandIRWithOptions(elt, env, opts)
+			xc, err := ExpandIRWithOptions(elt, env, nodeOpts)
 			if err != nil {
 				return nil, err
 			}
@@ -200,7 +227,7 @@ func ExpandIRWithOptions(node *ir.Node, env map[string]any, opts *EvalOptions) (
 		n := len(node.Values)
 		res := make([]*ir.Node, n)
 		for i, elt := range node.Values {
-			xc, err := ExpandIRWithOptions(elt, env, opts)
+			xc, err := ExpandIRWithOptions(elt, env, nodeOpts)
 			if err != nil {
 				return nil, err
 			}
@@ -211,7 +238,7 @@ func ExpandIRWithOptions(node *ir.Node, env map[string]any, opts *EvalOptions) (
 		// Check for raw env refs (.[var]) - these should replace the node, not just expand the string
 		raw := getRaw(node.String)
 		if raw != "" {
-			val, err := evalWithOptions(raw, env, opts)
+			val, err := evalWithOptions(raw, env, nodeOpts)
 			if err != nil {
 				return nil, fmt.Errorf("error evaluating %q: %w", raw, err)
 			}
@@ -220,7 +247,7 @@ func ExpandIRWithOptions(node *ir.Node, env map[string]any, opts *EvalOptions) (
 			if nodeResult, ok := val.(*ir.Node); ok {
 				repl := nodeResult.Clone()
 				// Recursively expand the result to handle nested .[ref] patterns
-				repl, err = ExpandIRWithOptions(repl, env, opts)
+				repl, err = ExpandIRWithOptions(repl, env, nodeOpts)
 				if err != nil {
 					return nil, fmt.Errorf("error expanding definition %q: %w", raw, err)
 				}
@@ -243,7 +270,7 @@ func ExpandIRWithOptions(node *ir.Node, env map[string]any, opts *EvalOptions) (
 			repl.ParentField = node.ParentField
 			return repl, nil
 		}
-		xs, err := expandStringWithOptions(node.String, env, opts)
+		xs, err := expandStringWithOptions(node.String, env, nodeOpts)
 		if err != nil {
 			return nil, err
 		}
@@ -255,7 +282,7 @@ func ExpandIRWithOptions(node *ir.Node, env map[string]any, opts *EvalOptions) (
 		}
 		return node, nil
 	case ir.CommentType:
-		inner, err := ExpandIRWithOptions(node.Values[0], env, opts)
+		inner, err := ExpandIRWithOptions(node.Values[0], env, nodeOpts)
 		if err != nil {
 			return nil, err
 		}
@@ -264,7 +291,7 @@ func ExpandIRWithOptions(node *ir.Node, env map[string]any, opts *EvalOptions) (
 			Values: []*ir.Node{inner},
 		}
 		for _, ln := range node.Lines {
-			xLn, err := expandStringWithOptions(ln, env, opts)
+			xLn, err := expandStringWithOptions(ln, env, nodeOpts)
 			if err != nil {
 				return nil, err
 			}
