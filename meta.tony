@@ -1,7 +1,13 @@
-!issue
-blocks:
-- "000032"
-created: "2025-12-24T11:53:05.0978+01:00"
-id: 61
+id: "nbn7ptxch12kr4e69dmg"
 status: closed
-updated: "2025-12-24T22:26:43.427036+01:00"
+created: "2025-12-24T11:53:05+01:00"
+updated: "2025-12-24T22:26:43+01:00"
+commits:
+branches:
+closed_by: null
+related_issues:
+blocks:
+  - "hqn7ptxch12krc218xmg"
+blocked_by:
+duplicates:
+labels:
