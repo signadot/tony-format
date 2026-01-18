@@ -1,12 +1,6 @@
-id: "g7n7ptxch12krh3w8smg"
-status: closed
-created: "2025-12-20T11:36:52+01:00"
-updated: "2025-12-20T11:42:11+01:00"
-commits:
-branches:
+!issue
 closed_by: "4fec0a62ab0bb88b501a89a080165f6d9937c3e3"
-related_issues:
-blocks:
-blocked_by:
-duplicates:
-labels:
+created: "2025-12-20T11:36:52.286813+01:00"
+id: g7n7ptxch12krh3w8smg
+status: closed
+updated: "2025-12-20T11:42:11.404928+01:00"
