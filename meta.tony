@@ -1,12 +1,5 @@
-id: "fqn7ptxch12kr2y88nmg"
-status: closed
+!issue
 created: "2025-12-19T22:47:55+01:00"
+id: fqn7ptxch12kr2y88nmg
+status: closed
 updated: "2025-12-19T22:55:11+01:00"
-commits:
-branches:
-closed_by: null
-related_issues:
-blocks:
-blocked_by:
-duplicates:
-labels:
