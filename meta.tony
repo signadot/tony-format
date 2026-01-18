@@ -1,13 +1,8 @@
-id: "jqn7ptxch12ksc1591mg"
-status: closed
-created: "2025-12-21T17:52:00+01:00"
-updated: "2025-12-21T18:01:13+01:00"
-commits:
-  - "7668aee7082a0d1d3b1a7f4e3555277d46b913bb"
-branches:
+!issue
 closed_by: "7668aee7082a0d1d3b1a7f4e3555277d46b913bb"
-related_issues:
-blocks:
-blocked_by:
-duplicates:
-labels:
+commits:
+- "7668aee7082a0d1d3b1a7f4e3555277d46b913bb"
+created: "2025-12-21T17:52:00.347143+01:00"
+id: jqn7ptxch12ksc1591mg
+status: closed
+updated: "2025-12-21T18:01:13.31773+01:00"
