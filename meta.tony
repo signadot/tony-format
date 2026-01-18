@@ -1,13 +1,7 @@
-id: "jkn7ptxch12ks8b28xmg"
-status: open
-created: "2025-12-21T03:59:45+01:00"
-updated: "2025-12-21T03:59:51+01:00"
-commits:
-branches:
-closed_by: null
+!issue
+created: "2025-12-21T03:59:45.665083+01:00"
+id: jkn7ptxch12ks8b28xmg
 related_issues:
-  - "hqn7ptxch12krc218xmg"
-blocks:
-blocked_by:
-duplicates:
-labels:
+- "000032"
+status: open
+updated: "2025-12-21T03:59:51.069788+01:00"
