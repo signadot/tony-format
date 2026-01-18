@@ -1,12 +1,13 @@
-blocked_by: []
-blocks: []
-branches: []
-closed_by: null
-commits: []
-created: "2025-12-19T12:31:27+01:00"
-duplicates: 
-- "000005"
-id: 7
-related_issues: []
+id: "eqn7ptxch12ks3sq8nmg"
 status: closed
+created: "2025-12-19T12:31:27+01:00"
 updated: "2025-12-19T12:31:34+01:00"
+commits:
+branches:
+closed_by: null
+related_issues:
+blocks:
+blocked_by:
+duplicates:
+  - "efn7ptxch12kr5sq8nmg"
+labels:
