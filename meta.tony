@@ -1,12 +1,5 @@
-id: "tvn7ptxch12kranabxmg"
+!issue
+created: "2026-01-08T13:59:22.87643+01:00"
+id: tvn7ptxch12kranabxmg
 status: closed
-created: "2026-01-08T13:59:22+01:00"
-updated: "2026-01-08T15:49:52+01:00"
-commits:
-branches:
-closed_by: null
-related_issues:
-blocks:
-blocked_by:
-duplicates:
-labels:
+updated: "2026-01-08T15:49:52.185447+01:00"
