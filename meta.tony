@@ -1,7 +1,13 @@
-!issue
-blocks:
-- "000035"
-created: "2025-12-19T21:09:14+01:00"
-id: 9
+id: "ezn7ptxch12kstng8nmg"
 status: closed
-updated: "2025-12-23T10:47:35.419219+01:00"
+created: "2025-12-19T21:09:14+01:00"
+updated: "2025-12-23T10:47:35+01:00"
+commits:
+branches:
+closed_by: null
+related_issues:
+blocks:
+  - "j3n7ptxch12ksgt48xmg"
+blocked_by:
+duplicates:
+labels:
