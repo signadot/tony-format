@@ -1,12 +1,5 @@
-id: "v3n7ptxch12ks9ddbxmg"
+!issue
+created: "2026-01-08T14:14:13.610741+01:00"
+id: v3n7ptxch12ks9ddbxmg
 status: closed
-created: "2026-01-08T14:14:13+01:00"
-updated: "2026-01-09T01:26:39+01:00"
-commits:
-branches:
-closed_by: null
-related_issues:
-blocks:
-blocked_by:
-duplicates:
-labels:
+updated: "2026-01-09T01:26:39.428017+01:00"
