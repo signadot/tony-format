@@ -44,9 +44,19 @@ func (d *Dir) LoadProfile(profile string, env map[string]any) error {
 		debug.Logf("LoadProfile with env\n%s", debug.JSON(env))
 	}
 	profilePath, err := d.profilePath(profile)
+	if err != nil {
+		return err
+	}
 	dd, err := os.ReadFile(profilePath)
 	if err != nil {
 		return err
+	}
+	return d.LoadProfileFromBytes(dd, env)
+}
+
+func (d *Dir) LoadProfileFromBytes(dd []byte, env map[string]any) error {
+	if debug.LoadEnv() {
+		debug.Logf("LoadProfileFromBytes with env\n%s", debug.JSON(env))
 	}
 	profIR, err := parse.Parse(dd)
 	if err != nil {
@@ -54,7 +64,7 @@ func (d *Dir) LoadProfile(profile string, env map[string]any) error {
 	}
 	patch := ir.Get(profIR, "env")
 	if patch == nil {
-		return fmt.Errorf("no env in profile at %s", profilePath)
+		return fmt.Errorf("no env in profile")
 	}
 	tool := tony.DefaultTool()
 	tool.Env = env

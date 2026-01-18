@@ -14,9 +14,9 @@ spec:
   project: default
   source:
     # Point to a repo containing a build.tony file
-    repoURL: https://github.com/example/my-app
+    repoURL: https://github.com/signadot/signadot
     targetRevision: HEAD
-    path: deploy
+    path: deploy/operator
     # The plugin is auto-discovered via build.tony, but can be explicit:
     plugin:
       name: tony-build

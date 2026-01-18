@@ -50,8 +50,18 @@ func build(cfg *BuildConfig, cc *cli.Context, args []string) error {
 		dir.DestDir = ""
 	}
 	for _, profile := range cfg.Profiles {
-		if err := dir.LoadProfile(profile, eval.EnvToMapAny(cfg.Env)); err != nil {
-			return fmt.Errorf("error loading profile %s: %w", profile, err)
+		if profile == "-" {
+			data, err := io.ReadAll(cc.In)
+			if err != nil {
+				return fmt.Errorf("error reading profile from stdin: %w", err)
+			}
+			if err := dir.LoadProfileFromBytes(data, eval.EnvToMapAny(cfg.Env)); err != nil {
+				return fmt.Errorf("error loading profile from stdin: %w", err)
+			}
+		} else {
+			if err := dir.LoadProfile(profile, eval.EnvToMapAny(cfg.Env)); err != nil {
+				return fmt.Errorf("error loading profile %s: %w", profile, err)
+			}
 		}
 	}
 	if cfg.ShowEnv {
