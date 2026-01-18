@@ -38,11 +38,7 @@ func (p unquoteOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFun
 	if debug.Op() {
 		debug.Logf("unquote op patch on %s\n", doc.Path())
 	}
-	childPatched, err := pf(doc, p.child, ctx)
-	if err != nil {
-		return nil, err
-	}
-	uq, err := UnquoteY(childPatched)
+	uq, err := UnquoteY(doc)
 	if err != nil {
 		return nil, err
 	}
@@ -50,5 +46,15 @@ func (p unquoteOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFun
 }
 
 func UnquoteY(node *ir.Node) (*ir.Node, error) {
-	return parse.Parse([]byte(node.String))
+	if node.Type != ir.StringType {
+		return nil, fmt.Errorf("unquote requires a string, got %s", node.Type)
+	}
+	res, err := parse.Parse([]byte(node.String))
+	if err != nil {
+		return nil, err
+	}
+	if res == nil {
+		return nil, fmt.Errorf("unquote: empty input")
+	}
+	return res, nil
 }
