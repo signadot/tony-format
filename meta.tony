@@ -1,8 +1,14 @@
-!issue
-created: "2025-12-26T18:48:09.954557+01:00"
-id: 98
-related_issues:
-- "000088"
-- "000100"
+id: "szn7ptxch12krpea9smg"
 status: open
-updated: "2025-12-27T01:03:41.794835+01:00"
+created: "2025-12-26T18:48:09+01:00"
+updated: "2025-12-27T01:03:41+01:00"
+commits:
+branches:
+closed_by: null
+related_issues:
+  - "rqn7ptxch12ksxfj9nmg"
+  - "t7n7ptxch12krm929xmg"
+blocks:
+blocked_by:
+duplicates:
+labels:
