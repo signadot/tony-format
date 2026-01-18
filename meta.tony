@@ -1,14 +1,8 @@
-id: "ekn7ptxch12kr7sq8nmg"
-status: closed
-created: "2025-12-19T12:29:35+01:00"
-updated: "2025-12-20T08:46:49+01:00"
-commits:
-branches:
-closed_by: null
-related_issues:
-blocks:
+!issue
 blocked_by:
-  - "efn7ptxch12kr5sq8nmg"
-  - "fkn7ptxch12krmdw8nmg"
-duplicates:
-labels:
+- "000005"
+- "000014"
+created: "2025-12-19T12:29:35+01:00"
+id: ekn7ptxch12kr7sq8nmg
+status: closed
+updated: "2025-12-20T08:46:49.522906+01:00"
