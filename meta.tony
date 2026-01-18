@@ -1,12 +1,14 @@
-!issue
-Ref: refs/issues/000005
-Title: "Implement cat command for viewing attachments"
-blocked_by:
-- "000014"
-blocks:
-- "000006"
-closed_by: "57e1651e03336f34586fa127f076b3b9e0128479"
-created: "2025-12-19T12:29:27+01:00"
-id: 5
+id: "efn7ptxch12kr5sq8nmg"
 status: closed
-updated: "2025-12-20T08:38:09.118475+01:00"
+created: "2025-12-19T12:29:27+01:00"
+updated: "2025-12-20T08:38:09+01:00"
+commits:
+branches:
+closed_by: "57e1651e03336f34586fa127f076b3b9e0128479"
+related_issues:
+blocks:
+  - "ekn7ptxch12kr7sq8nmg"
+blocked_by:
+  - "fkn7ptxch12krmdw8nmg"
+duplicates:
+labels:
