@@ -1,13 +1,7 @@
-id: "t7n7ptxch12krm929xmg"
-status: open
-created: "2025-12-27T01:03:29+01:00"
-updated: "2026-01-05T22:01:17+01:00"
-commits:
-branches:
-closed_by: null
+!issue
+created: "2025-12-27T01:03:29.637308+01:00"
+id: t7n7ptxch12krm929xmg
 related_issues:
-  - "szn7ptxch12krpea9smg"
-blocks:
-blocked_by:
-duplicates:
-labels:
+- "000098"
+status: open
+updated: "2026-01-05T22:01:17.079339+01:00"
