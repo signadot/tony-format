@@ -26,16 +26,13 @@ func CommentCommand(store issuelib.Store) *cli.Command {
 
 func (cfg *commentConfig) run(cc *cli.Context, args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("%w: usage: git issue comment <id> [text]", cli.ErrUsage)
+		return fmt.Errorf("%w: usage: git issue comment <xidr> [text]", cli.ErrUsage)
 	}
 
-	id, err := issuelib.ParseID(args[0])
-	if err != nil {
-		return err
-	}
+	xidrOrPrefix := args[0]
 
 	// Find issue first (needed for context export)
-	ref, err := cfg.store.FindRef(id)
+	ref, err := cfg.store.FindRef(xidrOrPrefix)
 	if err != nil {
 		return err
 	}
@@ -107,7 +104,7 @@ func (cfg *commentConfig) run(cc *cli.Context, args []string) error {
 		return fmt.Errorf("failed to add comment: %w", err)
 	}
 
-	fmt.Fprintf(cc.Out, "Added comment #%03d to issue #%s\n", commentNum, issuelib.FormatID(id))
+	fmt.Fprintf(cc.Out, "Added comment #%03d to issue %s\n", commentNum, issue.ID)
 	return nil
 }
 

@@ -30,13 +30,10 @@ func (cfg *closeConfig) run(cc *cli.Context, args []string) error {
 	}
 
 	if len(args) < 1 {
-		return fmt.Errorf("%w: usage: git issue close <id> [--commit <sha>]", cli.ErrUsage)
+		return fmt.Errorf("%w: usage: git issue close <xidr> [--commit <sha>]", cli.ErrUsage)
 	}
 
-	id, err := issuelib.ParseID(args[0])
-	if err != nil {
-		return err
-	}
+	xidrOrPrefix := args[0]
 
 	// Verify closing commit if provided
 	var closingCommit *string
@@ -48,11 +45,18 @@ func (cfg *closeConfig) run(cc *cli.Context, args []string) error {
 		closingCommit = &sha
 	}
 
-	// Get issue (must be open)
-	ref := issuelib.RefForID(id)
+	// Get issue (must be open) - try open refs only
+	ref, err := cfg.store.FindRef(xidrOrPrefix)
+	if err != nil {
+		return fmt.Errorf("issue not found: %s", xidrOrPrefix)
+	}
+	if issuelib.IsClosedRef(ref) {
+		return fmt.Errorf("issue already closed: %s", xidrOrPrefix)
+	}
+
 	issue, _, err := cfg.store.GetByRef(ref)
 	if err != nil {
-		return fmt.Errorf("issue not found or already closed: %s", issuelib.FormatID(id))
+		return fmt.Errorf("failed to read issue: %w", err)
 	}
 
 	// Update status
@@ -70,12 +74,12 @@ func (cfg *closeConfig) run(cc *cli.Context, args []string) error {
 	}
 
 	// Move ref from refs/issues/ to refs/closed/
-	newRef := issuelib.ClosedRefForID(id)
+	newRef := issuelib.ClosedRefForXIDR(issue.ID)
 	if err := cfg.store.MoveRef(ref, newRef); err != nil {
 		return fmt.Errorf("failed to move issue ref: %w", err)
 	}
 
-	fmt.Fprintf(cc.Out, "Closed issue #%s\n", issuelib.FormatID(id))
+	fmt.Fprintf(cc.Out, "Closed issue %s\n", issue.ID)
 	if closingCommit != nil {
 		fmt.Fprintf(cc.Out, "Closed by: %s\n", (*closingCommit)[:7])
 	}

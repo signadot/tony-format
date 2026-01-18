@@ -13,13 +13,26 @@ const (
 	ColorReset = "\033[0m"
 )
 
-// FormatID formats an issue ID as a 6-digit zero-padded string.
-func FormatID(id int64) string {
+// FormatID formats an issue ID for display.
+// For XIDs (20 chars), returns as-is.
+// For legacy numeric IDs, formats as 6-digit zero-padded string.
+func FormatID(id string) string {
+	// If it looks like a legacy numeric ID, format it
+	if _, err := strconv.ParseInt(id, 10, 64); err == nil {
+		if n, _ := strconv.ParseInt(id, 10, 64); n > 0 && n < 1000000 {
+			return fmt.Sprintf("%06d", n)
+		}
+	}
+	return id
+}
+
+// FormatLegacyID formats a legacy numeric ID as 6-digit zero-padded string.
+func FormatLegacyID(id int64) string {
 	return fmt.Sprintf("%06d", id)
 }
 
-// ParseID parses an issue ID string to int64.
-func ParseID(s string) (int64, error) {
+// ParseLegacyID parses a legacy numeric issue ID string to int64.
+func ParseLegacyID(s string) (int64, error) {
 	id, err := strconv.ParseInt(s, 10, 64)
 	if err != nil {
 		return 0, fmt.Errorf("invalid issue ID: %s", s)
@@ -27,14 +40,14 @@ func ParseID(s string) (int64, error) {
 	return id, nil
 }
 
-// RefForID returns the ref path for an open issue.
-func RefForID(id int64) string {
-	return fmt.Sprintf("refs/issues/%s", FormatID(id))
+// RefForXIDR returns the ref path for an open issue with XIDR.
+func RefForXIDR(xidr string) string {
+	return fmt.Sprintf("refs/issues/%s", xidr)
 }
 
-// ClosedRefForID returns the ref path for a closed issue.
-func ClosedRefForID(id int64) string {
-	return fmt.Sprintf("refs/closed/%s", FormatID(id))
+// ClosedRefForXIDR returns the ref path for a closed issue with XIDR.
+func ClosedRefForXIDR(xidr string) string {
+	return fmt.Sprintf("refs/closed/%s", xidr)
 }
 
 // IsClosedRef returns true if the ref is for a closed issue.
@@ -42,15 +55,29 @@ func IsClosedRef(ref string) bool {
 	return strings.HasPrefix(ref, "refs/closed/")
 }
 
-// IDFromRef extracts the issue ID from a ref path.
-func IDFromRef(ref string) (int64, error) {
-	if idStr, ok := strings.CutPrefix(ref, "refs/issues/"); ok {
-		return ParseID(idStr)
+// XIDRFromRef extracts the XIDR from a ref path.
+func XIDRFromRef(ref string) (string, error) {
+	if xidr, ok := strings.CutPrefix(ref, "refs/issues/"); ok {
+		return xidr, nil
 	}
-	if idStr, ok := strings.CutPrefix(ref, "refs/closed/"); ok {
-		return ParseID(idStr)
+	if xidr, ok := strings.CutPrefix(ref, "refs/closed/"); ok {
+		return xidr, nil
 	}
-	return 0, fmt.Errorf("invalid issue ref: %s", ref)
+	return "", fmt.Errorf("invalid issue ref: %s", ref)
+}
+
+// IsLegacyRef returns true if the ref uses a legacy numeric ID (6 digits).
+func IsLegacyRef(ref string) bool {
+	xidr, err := XIDRFromRef(ref)
+	if err != nil {
+		return false
+	}
+	// Legacy IDs are 6-digit numeric strings
+	if len(xidr) == 6 {
+		_, err := strconv.ParseInt(xidr, 10, 64)
+		return err == nil
+	}
+	return false
 }
 
 // StatusFromRef determines the status based on the ref path.
@@ -75,7 +102,7 @@ func FormatOneLiner(issue *Issue) string {
 	if IsClosedRef(issue.Ref) {
 		status = "closed"
 	}
-	return fmt.Sprintf("#%s %s[%s]%s %s",
+	return fmt.Sprintf("%s %s[%s]%s %s",
 		FormatID(issue.ID),
 		StatusColor(status),
 		status,

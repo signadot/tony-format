@@ -4,24 +4,24 @@ import "io"
 
 // Store defines the interface for issue storage operations.
 type Store interface {
-	// GetNextID allocates and returns the next issue ID.
-	GetNextID() (int64, error)
+	// NewXIDR generates and returns a new XIDR for a new issue.
+	NewXIDR() string
 
 	// Create creates a new issue with the given title and description.
 	// Returns the created issue with ID populated.
 	Create(title, description string) (*Issue, error)
 
-	// Get retrieves an issue by ID, searching both open and closed refs.
+	// Get retrieves an issue by XIDR or XIDR prefix, searching both open and closed refs.
 	// Returns the issue, description content, and any error.
-	Get(id int64) (*Issue, string, error)
+	Get(xidrOrPrefix string) (*Issue, string, error)
 
 	// GetByRef retrieves an issue by its git ref.
 	// Returns the issue, description content, and any error.
 	GetByRef(ref string) (*Issue, string, error)
 
-	// FindRef finds the ref for an issue ID, checking both open and closed.
-	// Returns the ref path or error if not found.
-	FindRef(id int64) (string, error)
+	// FindRef finds the ref for an issue by XIDR or XIDR prefix, checking both open and closed.
+	// Returns the ref path or error if not found or ambiguous.
+	FindRef(xidrOrPrefix string) (string, error)
 
 	// Update updates an issue's metadata and optionally additional files.
 	// The issue.Ref must be set. The message is used for the commit.

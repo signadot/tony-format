@@ -40,19 +40,16 @@ func (cfg *pushConfig) run(cc *cli.Context, args []string) error {
 	}
 
 	if len(args) < 1 {
-		return fmt.Errorf("%w: usage: git issue push <id> [remote]", cli.ErrUsage)
+		return fmt.Errorf("%w: usage: git issue push <xidr> [remote]", cli.ErrUsage)
 	}
 
-	id, err := issuelib.ParseID(args[0])
-	if err != nil {
-		return err
-	}
+	xidrOrPrefix := args[0]
 
 	if len(args) > 1 {
 		remote = args[1]
 	}
 
-	return cfg.pushSingle(cc, remote, id)
+	return cfg.pushSingle(cc, remote, xidrOrPrefix)
 }
 
 func (cfg *pushConfig) pushAll(cc *cli.Context, remote string) error {
@@ -77,19 +74,24 @@ func (cfg *pushConfig) pushAll(cc *cli.Context, remote string) error {
 	return nil
 }
 
-func (cfg *pushConfig) pushSingle(cc *cli.Context, remote string, id int64) error {
+func (cfg *pushConfig) pushSingle(cc *cli.Context, remote string, xidrOrPrefix string) error {
 	if err := cfg.store.VerifyRemote(remote); err != nil {
 		return err
 	}
 
 	// Find the issue ref (open or closed)
-	ref, err := cfg.store.FindRef(id)
+	ref, err := cfg.store.FindRef(xidrOrPrefix)
 	if err != nil {
 		return err
 	}
 
-	idStr := issuelib.FormatID(id)
-	fmt.Fprintf(cc.Out, "Pushing issue #%s to %s...\n", idStr, remote)
+	// Get issue for display
+	issue, _, err := cfg.store.GetByRef(ref)
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(cc.Out, "Pushing issue %s to %s...\n", issuelib.FormatID(issue.ID), remote)
 
 	// Push the issue ref
 	refspecs := []string{fmt.Sprintf("+%s:%s", ref, ref)}
@@ -97,15 +99,11 @@ func (cfg *pushConfig) pushSingle(cc *cli.Context, remote string, id int64) erro
 		return fmt.Errorf("failed to push issue: %w", err)
 	}
 
-	// Push issue counter (ignore error if doesn't exist)
-	_ = cfg.store.Push(remote, []string{"+refs/meta/issue-counter:refs/meta/issue-counter"})
-
 	// Push notes for commits referenced by this issue
-	issue, _, err := cfg.store.GetByRef(ref)
-	if err == nil && len(issue.Commits) > 0 {
+	if len(issue.Commits) > 0 {
 		_ = cfg.store.Push(remote, []string{"+refs/notes/issues:refs/notes/issues"})
 	}
 
-	fmt.Fprintf(cc.Out, "Pushed issue #%s\n", idStr)
+	fmt.Fprintf(cc.Out, "Pushed issue %s\n", issuelib.FormatID(issue.ID))
 	return nil
 }

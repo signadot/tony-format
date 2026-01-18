@@ -34,20 +34,16 @@ func UnlabelCommand(store issuelib.Store) *cli.Command {
 func (cfg *labelConfig) run(cc *cli.Context, args []string) error {
 	if len(args) < 2 {
 		if cfg.remove {
-			return fmt.Errorf("%w: usage: git issue unlabel <id> <label> [label...]", cli.ErrUsage)
+			return fmt.Errorf("%w: usage: git issue unlabel <xidr> <label> [label...]", cli.ErrUsage)
 		}
-		return fmt.Errorf("%w: usage: git issue label <id> <label> [label...]", cli.ErrUsage)
+		return fmt.Errorf("%w: usage: git issue label <xidr> <label> [label...]", cli.ErrUsage)
 	}
 
-	id, err := issuelib.ParseID(args[0])
-	if err != nil {
-		return err
-	}
-
+	xidrOrPrefix := args[0]
 	labels := args[1:]
 
 	// Find issue
-	ref, err := cfg.store.FindRef(id)
+	ref, err := cfg.store.FindRef(xidrOrPrefix)
 	if err != nil {
 		return err
 	}
@@ -90,7 +86,7 @@ func (cfg *labelConfig) run(cc *cli.Context, args []string) error {
 		return fmt.Errorf("failed to update issue: %w", err)
 	}
 
-	fmt.Fprintf(cc.Out, "%s label(s) %s on issue #%s\n", action, strings.Join(labels, ", "), issuelib.FormatID(id))
+	fmt.Fprintf(cc.Out, "%s label(s) %s on issue %s\n", action, strings.Join(labels, ", "), issue.ID)
 	if len(issue.Labels) > 0 {
 		fmt.Fprintf(cc.Out, "Labels: %s\n", strings.Join(issue.Labels, ", "))
 	}

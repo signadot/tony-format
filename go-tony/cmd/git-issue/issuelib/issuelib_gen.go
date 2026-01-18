@@ -25,7 +25,7 @@ func (s *Issue) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: ID
-	irMap["id"] = ir.FromInt(int64(s.ID))
+	irMap["id"] = ir.FromString(s.ID)
 
 	// Field: Status
 	irMap["status"] = ir.FromString(s.Status)
@@ -142,11 +142,17 @@ func (s *Issue) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 		fieldNode := node.Values[i]
 		switch fieldName.String {
 		case "id":
-			// Field: ID
-			if fieldNode.Int64 == nil {
-				return fmt.Errorf("field %q: expected number, got %v", "id", fieldNode.Type)
+			// Field: ID - accept both string (new format) and number (old format)
+			// TEMPORARY: Remove after migration is complete
+			switch fieldNode.Type {
+			case ir.StringType:
+				s.ID = fieldNode.String
+			case ir.NumberType:
+				// Old format: number stored as string in IR
+				s.ID = fieldNode.Number
+			default:
+				return fmt.Errorf("field %q: expected string or number, got %v", "id", fieldNode.Type)
 			}
-			s.ID = int64(*fieldNode.Int64)
 		case "status":
 			// Field: Status
 			if fieldNode.Type != ir.StringType {

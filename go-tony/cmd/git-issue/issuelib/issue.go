@@ -7,7 +7,7 @@ import (
 
 //tony:schemagen=issue
 type Issue struct {
-	ID            int64     `tony:"field=id"`
+	ID            string    `tony:"field=id"` // XID (reversed) - globally unique identifier
 	Status        string    `tony:"field=status"`
 	Created       time.Time `tony:"field=created"`
 	Updated       time.Time `tony:"field=updated"`
@@ -21,6 +21,6 @@ type Issue struct {
 	Labels        []string  `tony:"field=labels"`
 
 	// Derived fields (not serialized in meta.tony)
-	Ref   string `tony:"-"` // The git ref (e.g., "refs/issues/000001")
+	Ref   string `tony:"-"` // The git ref (e.g., "refs/issues/abc123...")
 	Title string `tony:"-"` // From description.md first line
 }

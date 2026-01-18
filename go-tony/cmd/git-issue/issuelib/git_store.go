@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"time"
 
@@ -33,91 +32,21 @@ func (s *GitStore) Out() io.Writer {
 	return s.out
 }
 
-// GetNextID allocates the next issue ID.
-// It uses the higher of: (stored counter + 1) or (max existing ID + 1)
-// to ensure IDs are never reused even if the counter is corrupted.
-func (s *GitStore) GetNextID() (int64, error) {
-	// Read stored counter
-	var counterValue int64
-	cmd := exec.Command("git", "show", "refs/meta/issue-counter")
-	out, err := cmd.Output()
-	if err != nil {
-		counterValue = 0
-	} else {
-		counterValue, err = strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
-		if err != nil {
-			counterValue = 0
-		}
-	}
-
-	// Find max ID from existing refs (both open and closed)
-	maxExistingID := s.findMaxExistingID()
-
-	// Next ID is max of (counter, maxExisting) + 1
-	nextID := counterValue
-	if maxExistingID > nextID {
-		nextID = maxExistingID
-	}
-	nextID++
-
-	// Write new counter value
-	hashCmd := exec.Command("git", "hash-object", "-w", "--stdin")
-	hashCmd.Stdin = strings.NewReader(fmt.Sprintf("%d\n", nextID))
-	hashOut, err := hashCmd.Output()
-	if err != nil {
-		return 0, fmt.Errorf("failed to hash counter: %w", err)
-	}
-	hash := strings.TrimSpace(string(hashOut))
-
-	updateCmd := exec.Command("git", "update-ref", "refs/meta/issue-counter", hash)
-	if err := updateCmd.Run(); err != nil {
-		return 0, fmt.Errorf("failed to update counter: %w", err)
-	}
-
-	return nextID, nil
-}
-
-// findMaxExistingID scans all issue refs to find the highest ID.
-func (s *GitStore) findMaxExistingID() int64 {
-	var maxID int64
-
-	// Check both open and closed refs
-	for _, pattern := range []string{"refs/issues/*", "refs/closed/*"} {
-		cmd := exec.Command("git", "for-each-ref", "--format=%(refname)", pattern)
-		out, err := cmd.Output()
-		if err != nil {
-			continue
-		}
-
-		refs := strings.Split(strings.TrimSpace(string(out)), "\n")
-		for _, ref := range refs {
-			if ref == "" {
-				continue
-			}
-			id, err := IDFromRef(ref)
-			if err != nil {
-				continue
-			}
-			if id > maxID {
-				maxID = id
-			}
-		}
-	}
-
-	return maxID
+// NewXIDR generates a new XIDR (reversed XID) for the current time.
+// Returns the XIDR string for storage and display.
+func (s *GitStore) NewXIDR() string {
+	xid := NewXID(time.Now())
+	return xid.XIDR()
 }
 
 // Create creates a new issue.
 func (s *GitStore) Create(title, description string) (*Issue, error) {
-	id, err := s.GetNextID()
-	if err != nil {
-		return nil, err
-	}
+	xidr := s.NewXIDR()
 
 	now := time.Now()
 	issue := &Issue{
-		ID:       id,
-		Ref:      RefForID(id),
+		ID:       xidr,
+		Ref:      RefForXIDR(xidr),
 		Status:   "open",
 		Created:  now,
 		Updated:  now,
@@ -161,7 +90,7 @@ func (s *GitStore) Create(title, description string) (*Issue, error) {
 	treeHash := strings.TrimSpace(string(treeOut))
 
 	// Create commit
-	commitMsg := fmt.Sprintf("create: issue %s", FormatID(id))
+	commitMsg := fmt.Sprintf("create: issue %s", xidr)
 	commitCmd := exec.Command("git", "commit-tree", treeHash, "-m", commitMsg)
 	commitOut, err := commitCmd.Output()
 	if err != nil {
@@ -178,9 +107,9 @@ func (s *GitStore) Create(title, description string) (*Issue, error) {
 	return issue, nil
 }
 
-// Get retrieves an issue by ID.
-func (s *GitStore) Get(id int64) (*Issue, string, error) {
-	ref, err := s.FindRef(id)
+// Get retrieves an issue by XID or XID prefix.
+func (s *GitStore) Get(xidOrPrefix string) (*Issue, string, error) {
+	ref, err := s.FindRef(xidOrPrefix)
 	if err != nil {
 		return nil, "", err
 	}
@@ -223,23 +152,58 @@ func (s *GitStore) GetByRef(ref string) (*Issue, string, error) {
 	return issue, desc, nil
 }
 
-// FindRef finds the ref for an issue ID.
-func (s *GitStore) FindRef(id int64) (string, error) {
-	// Try open issues first
-	ref := RefForID(id)
-	checkCmd := exec.Command("git", "show-ref", ref)
-	if err := checkCmd.Run(); err == nil {
-		return ref, nil
+// FindRef finds the ref for an issue by XIDR or XIDR prefix.
+// Returns error if not found or if prefix matches multiple issues.
+func (s *GitStore) FindRef(xidrOrPrefix string) (string, error) {
+	// If it's a full 20-char XIDR, try exact match first
+	if len(xidrOrPrefix) == 20 {
+		ref := RefForXIDR(xidrOrPrefix)
+		checkCmd := exec.Command("git", "show-ref", ref)
+		if err := checkCmd.Run(); err == nil {
+			return ref, nil
+		}
+
+		ref = ClosedRefForXIDR(xidrOrPrefix)
+		checkCmd = exec.Command("git", "show-ref", ref)
+		if err := checkCmd.Run(); err == nil {
+			return ref, nil
+		}
+
+		return "", fmt.Errorf("issue not found: %s", xidrOrPrefix)
 	}
 
-	// Try closed issues
-	ref = ClosedRefForID(id)
-	checkCmd = exec.Command("git", "show-ref", ref)
-	if err := checkCmd.Run(); err == nil {
-		return ref, nil
+	// Prefix search - find all matching refs
+	var matches []string
+	for _, pattern := range []string{"refs/issues/*", "refs/closed/*"} {
+		cmd := exec.Command("git", "for-each-ref", "--format=%(refname)", pattern)
+		out, err := cmd.Output()
+		if err != nil {
+			continue
+		}
+
+		refs := strings.Split(strings.TrimSpace(string(out)), "\n")
+		for _, ref := range refs {
+			if ref == "" {
+				continue
+			}
+			xidr, err := XIDRFromRef(ref)
+			if err != nil {
+				continue
+			}
+			if MatchesXIDRPrefix(xidrOrPrefix, xidr) {
+				matches = append(matches, ref)
+			}
+		}
 	}
 
-	return "", fmt.Errorf("issue not found: %s", FormatID(id))
+	if len(matches) == 0 {
+		return "", fmt.Errorf("issue not found: %s", xidrOrPrefix)
+	}
+	if len(matches) > 1 {
+		return "", fmt.Errorf("ambiguous prefix %q matches %d issues", xidrOrPrefix, len(matches))
+	}
+
+	return matches[0], nil
 }
 
 // Update updates an issue's metadata.
@@ -573,7 +537,7 @@ func (s *GitStore) ReplaceTree(ref, message string, files map[string][]byte) err
 // For each duplicate, it keeps the ref with more history (the descendant) and deletes the ancestor.
 // Returns the number of refs cleaned up.
 func (s *GitStore) CleanupStaleRefs() (int, error) {
-	// Get all open issue IDs
+	// Get all open issue XIDs
 	openCmd := exec.Command("git", "for-each-ref", "--format=%(refname)", "refs/issues/*")
 	openOut, _ := openCmd.Output()
 	openRefs := strings.Split(strings.TrimSpace(string(openOut)), "\n")
@@ -583,13 +547,13 @@ func (s *GitStore) CleanupStaleRefs() (int, error) {
 		if openRef == "" {
 			continue
 		}
-		id, err := IDFromRef(openRef)
+		xidr, err := XIDRFromRef(openRef)
 		if err != nil {
 			continue
 		}
 
 		// Check if closed ref also exists
-		closedRef := ClosedRefForID(id)
+		closedRef := ClosedRefForXIDR(xidr)
 		checkCmd := exec.Command("git", "show-ref", closedRef)
 		if checkCmd.Run() != nil {
 			continue // No duplicate

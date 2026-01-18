@@ -67,7 +67,7 @@ func (cfg *createConfig) run(cc *cli.Context, args []string) error {
 		return fmt.Errorf("failed to create issue: %w", err)
 	}
 
-	fmt.Fprintf(cc.Out, "Created issue #%s\n", issuelib.FormatID(issue.ID))
+	fmt.Fprintf(cc.Out, "Created issue %s\n", issuelib.FormatID(issue.ID))
 	fmt.Fprintf(cc.Out, "Ref: %s\n", issue.Ref)
 
 	return nil

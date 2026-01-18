@@ -39,38 +39,36 @@ func DuplicateCommand(store issuelib.Store) *cli.Command {
 
 func (cfg *relateConfig) run(cc *cli.Context, args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("%w: usage: git issue %s <id1> <id2>", cli.ErrUsage, cfg.relationType)
+		return fmt.Errorf("%w: usage: git issue %s <xidr1> <xidr2>", cli.ErrUsage, cfg.relationType)
 	}
 
-	id1, err := issuelib.ParseID(args[0])
-	if err != nil {
-		return err
-	}
-
-	id2, err := issuelib.ParseID(args[1])
-	if err != nil {
-		return err
-	}
-
-	id1Str := issuelib.FormatID(id1)
-	id2Str := issuelib.FormatID(id2)
+	xidrOrPrefix1 := args[0]
+	xidrOrPrefix2 := args[1]
 
 	// Find and verify both issues exist
-	ref1, err := cfg.store.FindRef(id1)
+	ref1, err := cfg.store.FindRef(xidrOrPrefix1)
 	if err != nil {
 		return err
 	}
 
-	ref2, err := cfg.store.FindRef(id2)
+	ref2, err := cfg.store.FindRef(xidrOrPrefix2)
 	if err != nil {
 		return err
 	}
 
-	// Read first issue
+	// Read both issues to get their full XIDs
 	issue1, _, err := cfg.store.GetByRef(ref1)
 	if err != nil {
 		return err
 	}
+
+	issue2, _, err := cfg.store.GetByRef(ref2)
+	if err != nil {
+		return err
+	}
+
+	id1Str := issue1.ID
+	id2Str := issue2.ID
 
 	// Add relationship
 	var added bool
@@ -93,7 +91,8 @@ func (cfg *relateConfig) run(cc *cli.Context, args []string) error {
 	}
 
 	if !added {
-		fmt.Fprintf(cc.Out, "Issue #%s already has this relationship with #%s\n", id1Str, id2Str)
+		fmt.Fprintf(cc.Out, "Issue %s already has this relationship with %s\n",
+			issuelib.FormatID(id1Str), issuelib.FormatID(id2Str))
 		return nil
 	}
 
@@ -101,11 +100,11 @@ func (cfg *relateConfig) run(cc *cli.Context, args []string) error {
 	var commitMsg string
 	switch cfg.relationType {
 	case "related":
-		commitMsg = fmt.Sprintf("relate: link to #%s", id2Str)
+		commitMsg = fmt.Sprintf("relate: link to %s", issuelib.FormatID(id2Str))
 	case "blocks":
-		commitMsg = fmt.Sprintf("blocks: #%s", id2Str)
+		commitMsg = fmt.Sprintf("blocks: %s", issuelib.FormatID(id2Str))
 	case "duplicate":
-		commitMsg = fmt.Sprintf("duplicate: of #%s", id2Str)
+		commitMsg = fmt.Sprintf("duplicate: of %s", issuelib.FormatID(id2Str))
 	}
 
 	if err := cfg.store.Update(issue1, commitMsg, nil); err != nil {
@@ -114,10 +113,9 @@ func (cfg *relateConfig) run(cc *cli.Context, args []string) error {
 
 	// For blocks relationship, add reciprocal blocked_by to second issue
 	if cfg.relationType == "blocks" {
-		issue2, _, err := cfg.store.GetByRef(ref2)
-		if err == nil && !issuelib.Contains(issue2.BlockedBy, id1Str) {
+		if !issuelib.Contains(issue2.BlockedBy, id1Str) {
 			issue2.BlockedBy = append(issue2.BlockedBy, id1Str)
-			commitMsg2 := fmt.Sprintf("blocked-by: #%s", id1Str)
+			commitMsg2 := fmt.Sprintf("blocked-by: %s", issuelib.FormatID(id1Str))
 			_ = cfg.store.Update(issue2, commitMsg2, nil)
 		}
 	}
@@ -125,11 +123,11 @@ func (cfg *relateConfig) run(cc *cli.Context, args []string) error {
 	// Print result
 	switch cfg.relationType {
 	case "related":
-		fmt.Fprintf(cc.Out, "Linked issue #%s to #%s\n", id1Str, id2Str)
+		fmt.Fprintf(cc.Out, "Linked issue %s to %s\n", issuelib.FormatID(id1Str), issuelib.FormatID(id2Str))
 	case "blocks":
-		fmt.Fprintf(cc.Out, "Issue #%s now blocks #%s\n", id1Str, id2Str)
+		fmt.Fprintf(cc.Out, "Issue %s now blocks %s\n", issuelib.FormatID(id1Str), issuelib.FormatID(id2Str))
 	case "duplicate":
-		fmt.Fprintf(cc.Out, "Issue #%s marked as duplicate of #%s\n", id1Str, id2Str)
+		fmt.Fprintf(cc.Out, "Issue %s marked as duplicate of %s\n", issuelib.FormatID(id1Str), issuelib.FormatID(id2Str))
 	}
 
 	return nil

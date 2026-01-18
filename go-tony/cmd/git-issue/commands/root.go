@@ -27,6 +27,7 @@ Usage:
   git issue import <dir>                 Import issue from directory
   git issue label <id> <label>...        Add labels to issue
   git issue unlabel <id> <label>...      Remove labels from issue
+  git issue migrate [--dry-run]          Migrate issues from numeric IDs to XIDs
 
 Examples:
   git issue create "Implement streaming processor"
@@ -71,5 +72,6 @@ func Root() *cli.Command {
 			ImportCommand(store),
 			LabelCommand(store),
 			UnlabelCommand(store),
+			MigrateCommand(store),
 		)
 }

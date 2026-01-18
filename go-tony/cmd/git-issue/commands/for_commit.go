@@ -50,33 +50,27 @@ func (cfg *forCommitConfig) run(cc *cli.Context, args []string) error {
 	fmt.Fprintf(cc.Out, "Issues linked to commit %s:\n\n", commitInfo)
 
 	// Show each linked issue
-	for _, idStr := range issueIDs {
-		idStr = strings.TrimSpace(idStr)
-		if idStr == "" {
+	for _, xidr := range issueIDs {
+		xidr = strings.TrimSpace(xidr)
+		if xidr == "" {
 			continue
 		}
 
-		id, err := issuelib.ParseID(idStr)
+		ref, err := cfg.store.FindRef(xidr)
 		if err != nil {
-			fmt.Fprintf(cc.Out, "  #%s (invalid)\n", idStr)
-			continue
-		}
-
-		ref, err := cfg.store.FindRef(id)
-		if err != nil {
-			fmt.Fprintf(cc.Out, "  #%s (not found)\n", idStr)
+			fmt.Fprintf(cc.Out, "  %s (not found)\n", xidr)
 			continue
 		}
 
 		issue, _, err := cfg.store.GetByRef(ref)
 		if err != nil {
-			fmt.Fprintf(cc.Out, "  #%s (error)\n", idStr)
+			fmt.Fprintf(cc.Out, "  %s (error)\n", xidr)
 			continue
 		}
 
 		status := issuelib.StatusFromRef(ref)
-		fmt.Fprintf(cc.Out, "  #%s %s[%s]%s %s\n",
-			idStr,
+		fmt.Fprintf(cc.Out, "  %s %s[%s]%s %s\n",
+			issuelib.FormatID(issue.ID),
 			issuelib.StatusColor(status),
 			status,
 			issuelib.ColorReset,

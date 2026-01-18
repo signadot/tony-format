@@ -25,14 +25,10 @@ func AttachCommand(store issuelib.Store) *cli.Command {
 
 func (cfg *attachConfig) run(cc *cli.Context, args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("%w: usage: git issue attach <id> <path>", cli.ErrUsage)
+		return fmt.Errorf("%w: usage: git issue attach <xidr> <path>", cli.ErrUsage)
 	}
 
-	id, err := issuelib.ParseID(args[0])
-	if err != nil {
-		return err
-	}
-
+	xidrOrPrefix := args[0]
 	attachPath := args[1]
 	info, err := os.Stat(attachPath)
 	if err != nil {
@@ -40,7 +36,7 @@ func (cfg *attachConfig) run(cc *cli.Context, args []string) error {
 	}
 
 	// Find issue
-	ref, err := cfg.store.FindRef(id)
+	ref, err := cfg.store.FindRef(xidrOrPrefix)
 	if err != nil {
 		return err
 	}
@@ -90,6 +86,6 @@ func (cfg *attachConfig) run(cc *cli.Context, args []string) error {
 		return fmt.Errorf("failed to attach files: %w", err)
 	}
 
-	fmt.Fprintf(cc.Out, "Attached %s (%d file(s)) to issue #%s\n", baseName, fileCount, issuelib.FormatID(id))
+	fmt.Fprintf(cc.Out, "Attached %s (%d file(s)) to issue %s\n", baseName, fileCount, issue.ID)
 	return nil
 }

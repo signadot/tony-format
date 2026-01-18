@@ -22,13 +22,10 @@ func LinkCommand(store issuelib.Store) *cli.Command {
 
 func (cfg *linkConfig) run(cc *cli.Context, args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("%w: usage: git issue link <id> <commit>", cli.ErrUsage)
+		return fmt.Errorf("%w: usage: git issue link <xidr> <commit>", cli.ErrUsage)
 	}
 
-	id, err := issuelib.ParseID(args[0])
-	if err != nil {
-		return err
-	}
+	xidrOrPrefix := args[0]
 
 	commitSHA, err := cfg.store.VerifyCommit(args[1])
 	if err != nil {
@@ -36,9 +33,9 @@ func (cfg *linkConfig) run(cc *cli.Context, args []string) error {
 	}
 
 	// Get issue (open or closed)
-	ref, err := cfg.store.FindRef(id)
+	ref, err := cfg.store.FindRef(xidrOrPrefix)
 	if err != nil {
-		return fmt.Errorf("issue not found: %s", issuelib.FormatID(id))
+		return fmt.Errorf("issue not found: %s", xidrOrPrefix)
 	}
 	issue, _, err := cfg.store.GetByRef(ref)
 	if err != nil {
@@ -56,9 +53,8 @@ func (cfg *linkConfig) run(cc *cli.Context, args []string) error {
 	}
 
 	// Add git note (reverse index)
-	issueIDStr := issuelib.FormatID(id)
-	_ = cfg.store.AddNote(commitSHA, issueIDStr)
+	_ = cfg.store.AddNote(commitSHA, issue.ID)
 
-	fmt.Fprintf(cc.Out, "Linked issue #%s to commit %s\n", issueIDStr, commitSHA[:7])
+	fmt.Fprintf(cc.Out, "Linked issue %s to commit %s\n", issue.ID, commitSHA[:7])
 	return nil
 }

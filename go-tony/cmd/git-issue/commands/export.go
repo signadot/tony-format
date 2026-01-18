@@ -26,23 +26,25 @@ func ExportCommand(store issuelib.Store) *cli.Command {
 
 func (cfg *exportConfig) run(cc *cli.Context, args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("%w: usage: git issue export <id> [dir]", cli.ErrUsage)
+		return fmt.Errorf("%w: usage: git issue export <xidr> [dir]", cli.ErrUsage)
 	}
 
-	id, err := issuelib.ParseID(args[0])
+	xidrOrPrefix := args[0]
+
+	ref, err := cfg.store.FindRef(xidrOrPrefix)
 	if err != nil {
 		return err
 	}
 
-	// Default directory is the formatted ID
-	dir := issuelib.FormatID(id)
+	issue, _, err := cfg.store.GetByRef(ref)
+	if err != nil {
+		return err
+	}
+
+	// Default directory is the XIDR
+	dir := issue.ID
 	if len(args) > 1 {
 		dir = args[1]
-	}
-
-	ref, err := cfg.store.FindRef(id)
-	if err != nil {
-		return err
 	}
 
 	// Get current commit SHA for breadcrumb
@@ -68,7 +70,7 @@ func (cfg *exportConfig) run(cc *cli.Context, args []string) error {
 		return fmt.Errorf("failed to write .git-issue: %w", err)
 	}
 
-	fmt.Fprintf(cc.Out, "Exported issue #%s to %s/\n", issuelib.FormatID(id), dir)
+	fmt.Fprintf(cc.Out, "Exported issue %s to %s/\n", issue.ID, dir)
 	return nil
 }
 

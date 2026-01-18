@@ -23,15 +23,10 @@ func ShowCommand(store issuelib.Store) *cli.Command {
 
 func (cfg *showConfig) run(cc *cli.Context, args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("%w: usage: git issue show <id>", cli.ErrUsage)
+		return fmt.Errorf("%w: usage: git issue show <xidr>", cli.ErrUsage)
 	}
 
-	id, err := issuelib.ParseID(args[0])
-	if err != nil {
-		return err
-	}
-
-	ref, err := cfg.store.FindRef(id)
+	ref, err := cfg.store.FindRef(args[0])
 	if err != nil {
 		return err
 	}
@@ -43,7 +38,7 @@ func (cfg *showConfig) run(cc *cli.Context, args []string) error {
 
 	// Print issue header
 	status := issuelib.StatusFromRef(ref)
-	fmt.Fprintf(cc.Out, "Issue #%s [%s]\n", issuelib.FormatID(issue.ID), status)
+	fmt.Fprintf(cc.Out, "Issue %s [%s]\n", issuelib.FormatID(issue.ID), status)
 	fmt.Fprintf(cc.Out, "Ref: %s\n", ref)
 	if len(issue.Labels) > 0 {
 		fmt.Fprintf(cc.Out, "Labels: %s\n", strings.Join(issue.Labels, ", "))
@@ -85,30 +80,25 @@ func (cfg *showConfig) run(cc *cli.Context, args []string) error {
 	return nil
 }
 
-func (cfg *showConfig) printRelatedIssues(cc *cli.Context, title string, ids []string) {
-	if len(ids) == 0 {
+func (cfg *showConfig) printRelatedIssues(cc *cli.Context, title string, xidrs []string) {
+	if len(xidrs) == 0 {
 		return
 	}
 	fmt.Fprintln(cc.Out, title)
-	for _, idStr := range ids {
-		id, err := issuelib.ParseID(idStr)
+	for _, xidr := range xidrs {
+		ref, err := cfg.store.FindRef(xidr)
 		if err != nil {
-			fmt.Fprintf(cc.Out, "  #%s (invalid)\n", idStr)
-			continue
-		}
-		ref, err := cfg.store.FindRef(id)
-		if err != nil {
-			fmt.Fprintf(cc.Out, "  #%s (not found)\n", idStr)
+			fmt.Fprintf(cc.Out, "  %s (not found)\n", xidr)
 			continue
 		}
 		issue, _, err := cfg.store.GetByRef(ref)
 		if err != nil {
-			fmt.Fprintf(cc.Out, "  #%s (error)\n", idStr)
+			fmt.Fprintf(cc.Out, "  %s (error)\n", xidr)
 			continue
 		}
 		status := issuelib.StatusFromRef(ref)
-		fmt.Fprintf(cc.Out, "  #%s %s[%s]%s %s\n",
-			idStr,
+		fmt.Fprintf(cc.Out, "  %s %s[%s]%s %s\n",
+			xidr,
 			issuelib.StatusColor(status),
 			status,
 			issuelib.ColorReset,

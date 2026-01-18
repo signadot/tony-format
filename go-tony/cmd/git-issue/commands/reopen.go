@@ -22,19 +22,23 @@ func ReopenCommand(store issuelib.Store) *cli.Command {
 
 func (cfg *reopenConfig) run(cc *cli.Context, args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("%w: usage: git issue reopen <id>", cli.ErrUsage)
+		return fmt.Errorf("%w: usage: git issue reopen <xidr>", cli.ErrUsage)
 	}
 
-	id, err := issuelib.ParseID(args[0])
+	xidrOrPrefix := args[0]
+
+	// Find the issue - must be closed
+	ref, err := cfg.store.FindRef(xidrOrPrefix)
 	if err != nil {
-		return err
+		return fmt.Errorf("issue not found: %s", xidrOrPrefix)
+	}
+	if !issuelib.IsClosedRef(ref) {
+		return fmt.Errorf("issue is not closed: %s", xidrOrPrefix)
 	}
 
-	// Get issue (must be closed)
-	ref := issuelib.ClosedRefForID(id)
 	issue, _, err := cfg.store.GetByRef(ref)
 	if err != nil {
-		return fmt.Errorf("issue not found or not closed: %s", issuelib.FormatID(id))
+		return fmt.Errorf("failed to read issue: %w", err)
 	}
 
 	// Update status
@@ -46,11 +50,11 @@ func (cfg *reopenConfig) run(cc *cli.Context, args []string) error {
 	}
 
 	// Move ref from refs/closed/ to refs/issues/
-	newRef := issuelib.RefForID(id)
+	newRef := issuelib.RefForXIDR(issue.ID)
 	if err := cfg.store.MoveRef(ref, newRef); err != nil {
 		return fmt.Errorf("failed to move issue ref: %w", err)
 	}
 
-	fmt.Fprintf(cc.Out, "Reopened issue #%s\n", issuelib.FormatID(id))
+	fmt.Fprintf(cc.Out, "Reopened issue %s\n", issuelib.FormatID(issue.ID))
 	return nil
 }

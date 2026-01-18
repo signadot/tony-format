@@ -68,9 +68,9 @@ func (cfg *importConfig) run(cc *cli.Context, args []string) error {
 		return err
 	}
 
-	// Extract ID from ref for display
-	id, _ := issuelib.IDFromRef(breadcrumb.Ref)
-	fmt.Fprintf(cc.Out, "Imported issue #%s from %s/\n", issuelib.FormatID(id), dir)
+	// Extract XIDR from ref for display
+	xidr, _ := issuelib.XIDRFromRef(breadcrumb.Ref)
+	fmt.Fprintf(cc.Out, "Imported issue %s from %s/\n", issuelib.FormatID(xidr), dir)
 	return nil
 }
 
