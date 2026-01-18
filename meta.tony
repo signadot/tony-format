@@ -1,8 +1,14 @@
-!issue
-created: "2025-12-19T11:27:36+01:00"
-id: 4
-related_issues:
-- "000005"
-- "000006"
+id: "ebn7ptxch12ks6188nmg"
 status: closed
-updated: "2025-12-21T01:49:02.623795+01:00"
+created: "2025-12-19T11:27:36+01:00"
+updated: "2025-12-21T01:49:02+01:00"
+commits:
+branches:
+closed_by: null
+related_issues:
+  - "efn7ptxch12kr5sq8nmg"
+  - "ekn7ptxch12kr7sq8nmg"
+blocks:
+blocked_by:
+duplicates:
+labels:
