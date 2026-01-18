@@ -1,8 +1,13 @@
-!issue
-closed_by: "3f14dd52c681a9a7e4f0d480f3abc2753fdfdbc2"
-commits:
-- "3f14dd52c681a9a7e4f0d480f3abc2753fdfdbc2"
-created: "2025-12-20T18:28:17.875519+01:00"
-id: 26
+id: "h3n7ptxch12kscew8smg"
 status: closed
-updated: "2025-12-20T18:48:08.327739+01:00"
+created: "2025-12-20T18:28:17+01:00"
+updated: "2025-12-20T18:48:08+01:00"
+commits:
+  - "3f14dd52c681a9a7e4f0d480f3abc2753fdfdbc2"
+branches:
+closed_by: "3f14dd52c681a9a7e4f0d480f3abc2753fdfdbc2"
+related_issues:
+blocks:
+blocked_by:
+duplicates:
+labels:
