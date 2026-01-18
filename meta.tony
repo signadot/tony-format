@@ -1,13 +1,8 @@
-id: "gfn7ptxch12kshky8smg"
-status: closed
-created: "2025-12-20T11:47:34+01:00"
-updated: "2025-12-20T15:24:33+01:00"
-commits:
-branches:
-closed_by: "37c8269d9a8010884a304c3b65f415ba38870d6b"
-related_issues:
+!issue
 blocks:
-  - "ffn7ptxch12kr85p8nmg"
-blocked_by:
-duplicates:
-labels:
+- "000013"
+closed_by: "37c8269d9a8010884a304c3b65f415ba38870d6b"
+created: "2025-12-20T11:47:34.113722+01:00"
+id: gfn7ptxch12kshky8smg
+status: closed
+updated: "2025-12-20T15:24:33.003326+01:00"
