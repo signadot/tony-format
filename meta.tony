@@ -1,13 +1,7 @@
-id: "evn7ptxch12kr15g8nmg"
-status: closed
-created: "2025-12-19T21:05:24+01:00"
-updated: "2025-12-19T22:49:16+01:00"
+!issue
 commits:
-  - "9467507622ed99b3edcd9a1df04a260393625c6e"
-branches:
-closed_by: null
-related_issues:
-blocks:
-blocked_by:
-duplicates:
-labels:
+- "9467507622ed99b3edcd9a1df04a260393625c6e"
+created: "2025-12-19T21:05:24+01:00"
+id: evn7ptxch12kr15g8nmg
+status: closed
+updated: "2025-12-19T22:49:16+01:00"
