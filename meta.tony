@@ -1,15 +1,10 @@
-id: "tbn7ptxch12ks6999xmg"
-status: open
-created: "2025-12-27T01:34:33+01:00"
-updated: "2026-01-07T00:59:39+01:00"
-commits:
-branches:
-closed_by: null
-related_issues:
-  - "hzn7ptxch12krwj18xmg"
-  - "j7n7ptxch12krpt78xmg"
-blocks:
+!issue
 blocked_by:
-  - "tqn7ptxch12kspx1bnmg"
-duplicates:
-labels:
+- "000104"
+created: "2025-12-27T01:34:33.027446+01:00"
+id: tbn7ptxch12ks6999xmg
+related_issues:
+- "000034"
+- "000036"
+status: open
+updated: "2026-01-07T00:59:39.528809+01:00"
