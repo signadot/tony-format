@@ -1,12 +1,5 @@
-id: "qfn7ptxch12krnth9hmg"
+!issue
+created: "2025-12-24T21:47:19.62322+01:00"
+id: qfn7ptxch12krnth9hmg
 status: closed
-created: "2025-12-24T21:47:19+01:00"
-updated: "2025-12-24T22:10:17+01:00"
-commits:
-branches:
-closed_by: null
-related_issues:
-blocks:
-blocked_by:
-duplicates:
-labels:
+updated: "2025-12-24T22:10:17.75403+01:00"
