@@ -1,13 +1,7 @@
-id: "hvn7ptxch12krra18xmg"
-status: closed
-created: "2025-12-21T01:37:53+01:00"
-updated: "2025-12-25T09:51:05+01:00"
-commits:
-branches:
-closed_by: null
+!issue
+created: "2025-12-21T01:37:53.203449+01:00"
+id: hvn7ptxch12krra18xmg
 related_issues:
-  - "jfn7ptxch12ks1aw8xmg"
-blocks:
-blocked_by:
-duplicates:
-labels:
+- "000038"
+status: closed
+updated: "2025-12-25T09:51:05.368092+01:00"
