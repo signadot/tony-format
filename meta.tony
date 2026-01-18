@@ -1,12 +1,5 @@
-id: "hbn7ptxch12krs778smg"
+!issue
+created: "2025-12-20T19:13:56.18742+01:00"
+id: hbn7ptxch12krs778smg
 status: closed
-created: "2025-12-20T19:13:56+01:00"
-updated: "2026-01-04T12:26:54+01:00"
-commits:
-branches:
-closed_by: null
-related_issues:
-blocks:
-blocked_by:
-duplicates:
-labels:
+updated: "2026-01-04T12:26:54.795708+01:00"
