@@ -85,9 +85,33 @@ above for environment type forms.
 If the containing expression is `.[...]` with no additional leading or trailing
 characters, that value is replaced for the node containing it.
 
-Otherwise, the containing expression is interpolated for scalars in a standard 
+Otherwise, the containing expression is interpolated for scalars in a standard
 fashion, and non-scalars are taken to be the result of marshaling them using
 json.
+
+#### Escaping
+
+To include a literal `]` character inside an expression, escape it with a backslash:
+
+- `\]` → literal `]`
+- `\\` → literal `\`
+
+For example, to access a map key containing `]`:
+
+```tony
+!eval
+result: $[data["key[0\]"]]
+```
+
+If the expression is not properly closed (no unescaped `]`), the text is treated
+as a literal string, not an expression:
+
+| Input | Output |
+|-------|--------|
+| `$[x]` | evaluates `x` |
+| `$[x` | literal `$[x` |
+| `$["a\]b"]` | evaluates to `a]b` |
+| `$[x\]` | literal `$[x\]` (no closing bracket) |
 
 For example given the environment
 

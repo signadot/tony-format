@@ -320,6 +320,16 @@ func ExpandLineComment(node *ir.Node, env Env) error {
 	return nil
 }
 
+// ExpandString expands $[...] and .[...] expressions in a string.
+//
+// Expressions are evaluated using expr-lang against the provided environment.
+// Within expressions, backslash escaping is supported:
+//   - \] → literal ] (does not close the expression)
+//   - \\ → literal \
+//   - \x → x (for any character x)
+//
+// If an expression is not closed with an unescaped ], the text is treated
+// as a literal string rather than an expression.
 func ExpandString(v string, env map[string]any) (string, error) {
 	return expandStringWithOptions(v, env, nil)
 }
@@ -328,72 +338,93 @@ func expandStringWithOptions(v string, env map[string]any, opts *EvalOptions) (s
 	if len(v) < 3 {
 		return v, nil
 	}
-	// $[x]
-	j := -1
+	// $[x] or .[x] with backslash escaping: \] -> ], \\ -> \
+	exprStart := -1 // position of $ or . that starts the expression
 	i := 0
 	n := len(v)
-	var buf []byte
+	var outBuf []byte // accumulates the final output
+	var keyBuf []byte // accumulates the current expression content (unescaped)
+
 	for i < n-1 {
 		c, next := v[i], v[i+1]
 		i++
 		switch c {
 		case '$', '.':
 			if next == '[' {
-				j = i + 1
+				exprStart = i - 1
+				keyBuf = keyBuf[:0]
 				i++
 				continue
 			}
-			if j == -1 {
-				buf = append(buf, c)
+			if exprStart == -1 {
+				outBuf = append(outBuf, c)
+			} else {
+				keyBuf = append(keyBuf, c)
 			}
+		case '\\':
+			if exprStart != -1 {
+				// backslash escapes the next character
+				keyBuf = append(keyBuf, next)
+				i++
+				continue
+			}
+			outBuf = append(outBuf, c)
 		case ']':
-			if j != -1 {
-				key := v[j : i-1]
-				x, err := evalWithOptions(strings.TrimSpace(key), env, opts)
+			if exprStart != -1 {
+				key := strings.TrimSpace(string(keyBuf))
+				x, err := evalWithOptions(key, env, opts)
 				if err != nil {
 					return "", fmt.Errorf("error evaluating %q: %w", key, err)
 				}
 				if debug.Eval() {
 					debug.Logf("eval %q gave %#v\n", key, x)
-
 				}
 				anyBytes, err := anyToBytes(x)
 				if err != nil {
 					return "", fmt.Errorf("could not marshal evaluation results for %s: %w", key, err)
 				}
-				buf = append(buf, anyBytes...)
-				j = -1
+				outBuf = append(outBuf, anyBytes...)
+				exprStart = -1
 				continue
 			}
-			buf = append(buf, c)
+			outBuf = append(outBuf, c)
 		default:
-			if j == -1 {
-				buf = append(buf, c)
+			if exprStart == -1 {
+				outBuf = append(outBuf, c)
+			} else {
+				keyBuf = append(keyBuf, c)
 			}
 		}
 	}
-	if j == -1 {
-		buf = append(buf, v[n-1])
-		return string(buf), nil
+
+	// Handle end of string
+	if exprStart == -1 {
+		outBuf = append(outBuf, v[n-1])
+		return string(outBuf), nil
 	}
-	if v[n-1] != ']' {
-		buf = append(buf, v[j-2:n]...)
-	} else {
-		key := v[j : n-1]
-		x, err := evalWithOptions(strings.TrimSpace(key), env, opts)
-		if err != nil {
-			return "", fmt.Errorf("error evaluating %q: %w", key, err)
-		}
-		if debug.Eval() {
-			debug.Logf("eval %q gave %#v\n", key, x)
-		}
-		anyBytes, err := anyToBytes(x)
-		if err != nil {
-			return "", fmt.Errorf("could not marshal evaluation results for %s: %w", key, err)
-		}
-		buf = append(buf, anyBytes...)
+
+	// Still inside expression - no unescaped ] found
+	// Check if last char is ] and we didn't escape past the end
+	if i >= n || v[n-1] != ']' {
+		// Not a valid expression - output literally
+		outBuf = append(outBuf, v[exprStart:n]...)
+		return string(outBuf), nil
 	}
-	return string(buf), nil
+
+	key := strings.TrimSpace(string(keyBuf))
+	x, err := evalWithOptions(key, env, opts)
+	if err != nil {
+		return "", fmt.Errorf("error evaluating %q: %w", key, err)
+	}
+	if debug.Eval() {
+		debug.Logf("eval %q gave %#v\n", key, x)
+	}
+	anyBytes, err := anyToBytes(x)
+	if err != nil {
+		return "", fmt.Errorf("could not marshal evaluation results for %s: %w", key, err)
+	}
+	outBuf = append(outBuf, anyBytes...)
+	return string(outBuf), nil
 }
 
 func anyToBytes(v any) ([]byte, error) {

@@ -17,6 +17,7 @@ what: !eval
   # in the below, `x` is any expr-lang expression
   - .[x] # this evaluates the the value of x in the environment
   - $[x] # this evaluates to a string containing the value of x from the environment
+  # Use \] to include literal ] in expressions: $[map["key\]"]]
   - | # below expands the expression x in the multiline string
     well hey $[x]
 ```

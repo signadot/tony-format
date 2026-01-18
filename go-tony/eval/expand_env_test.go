@@ -57,6 +57,19 @@ func TestEnv(t *testing.T) {
 			in:  " $abc",
 			out: " $abc",
 		},
+		// Escape tests: \] -> ] and \\ -> \
+		{
+			in:  `$["a\]b"]`, // expression is "a]b"
+			out: "a]b",
+		},
+		{
+			in:  `$["a\\\\b"]`, // expression is "a\\b", expr gives a\b
+			out: `a\b`,
+		},
+		{
+			in:  `$["[\]"]`, // expression is "[]", evaluates to []
+			out: "[]",
+		},
 	}
 	f := EnvToMapAny(map[string]*ir.Node{
 		"x":     ir.FromString("X"),
@@ -75,6 +88,37 @@ func TestEnv(t *testing.T) {
 			continue
 		}
 		t.Errorf("got %q want %q", got, tc.out)
+	}
+}
+
+func TestEnvEscapeLiterals(t *testing.T) {
+	// When an expression is not properly closed (no unescaped ]), treat as literal
+	f := EnvToMapAny(map[string]*ir.Node{})
+
+	tests := []envTest{
+		{
+			in:  `$[x\]`, // escapes ], no closing bracket - literal
+			out: `$[x\]`,
+		},
+		{
+			in:  `$[x\y`, // no closing bracket - literal
+			out: `$[x\y`,
+		},
+		{
+			in:  `$["a\]`, // escapes ], no closing bracket - literal
+			out: `$["a\]`,
+		},
+	}
+
+	for _, tc := range tests {
+		got, err := ExpandString(tc.in, f)
+		if err != nil {
+			t.Errorf("unexpected error for %q: %v", tc.in, err)
+			continue
+		}
+		if got != tc.out {
+			t.Errorf("for %q: got %q, want %q", tc.in, got, tc.out)
+		}
 	}
 }
 
