@@ -1,13 +1,7 @@
-id: "fzn7ptxch12ks3bm8smg"
-status: open
-created: "2025-12-20T11:03:57+01:00"
-updated: "2025-12-26T05:08:59+01:00"
-commits:
-branches:
-closed_by: null
-related_issues:
-blocks:
-blocked_by:
-duplicates:
+!issue
+created: "2025-12-20T11:03:57.503078+01:00"
+id: fzn7ptxch12ks3bm8smg
 labels:
-  - "agent"
+- agent
+status: open
+updated: "2025-12-26T05:08:59.313696+01:00"
