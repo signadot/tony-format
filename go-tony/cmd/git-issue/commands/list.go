@@ -51,9 +51,9 @@ func (cfg *listConfig) run(cc *cli.Context, args []string) error {
 		return nil
 	}
 
-	// Sort by ID (descending)
+	// Sort by created time (newest first)
 	sort.Slice(issues, func(i, j int) bool {
-		return issues[i].ID > issues[j].ID
+		return issues[i].Created.After(issues[j].Created)
 	})
 
 	// Print issues
