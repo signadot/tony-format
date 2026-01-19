@@ -1,5 +1,5 @@
 ARG TARGETPLATFORM=linux/amd64
-FROM --platform=$TARGETPLATFORM ghcr.io/oras-project/oras:latest AS oras
+FROM --platform=$TARGETPLATFORM ghcr.io/oras-project/oras:v1.2.0 AS oras
 
 FROM --platform=$TARGETPLATFORM alpine:3.20
 
