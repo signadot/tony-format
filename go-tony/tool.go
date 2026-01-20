@@ -20,7 +20,7 @@ func DefaultTool() *Tool {
 }
 
 func (t *Tool) Run(y *ir.Node) (*ir.Node, error) {
-	return t.run(y, nil)
+	return t.run(y.Clone(), nil)
 }
 
 func (t *Tool) run(node, parent *ir.Node) (*ir.Node, error) {
@@ -40,11 +40,14 @@ func (t *Tool) run(node, parent *ir.Node) (*ir.Node, error) {
 	}
 	res := &ir.Node{}
 	*res = *node
+	res.Parent = parent
+	res.ParentIndex = node.ParentIndex
+	res.ParentField = node.ParentField
 
 	switch res.Type {
 	case ir.ObjectType:
-		res.Fields = make([]*ir.Node, len(node.Fields))
-		res.Values = make([]*ir.Node, len(node.Values))
+		fields := make([]*ir.Node, len(node.Fields))
+		values := make([]*ir.Node, len(node.Values))
 		for i, field := range node.Fields {
 			value := node.Values[i]
 			yy, err := t.run(value, res)
@@ -53,24 +56,27 @@ func (t *Tool) run(node, parent *ir.Node) (*ir.Node, error) {
 			}
 			yy.Parent = res
 			yy.ParentField = field.String
-			res.Values[i] = yy
+			values[i] = yy
 			resField := field.Clone()
 			resField.Parent = res
 			resField.ParentField = field.String
-			res.Fields[i] = resField
+			fields[i] = resField
 		}
+		res.Fields = fields
+		res.Values = values
 
 	case ir.ArrayType:
-		res.Values = make([]*ir.Node, len(res.Values))
+		values := make([]*ir.Node, len(res.Values))
 		for i, yy := range node.Values {
 			resY, err := t.run(yy, res)
 			if err != nil {
 				return nil, fmt.Errorf("error processing list item %d (%s): %w", i, encode.MustString(yy), err)
 			}
-			res.Values[i] = resY
+			values[i] = resY
 			resY.Parent = res
 			resY.ParentIndex = i
 		}
+		res.Values = values
 	case ir.NumberType:
 		res = res.Clone() // this has pointers
 	case ir.BoolType, ir.StringType, ir.NullType:
@@ -106,9 +112,6 @@ func (t *Tool) run(node, parent *ir.Node) (*ir.Node, error) {
 			return nil, err
 		}
 	}
-	res.Parent = parent
-	res.ParentIndex = node.ParentIndex
-	res.ParentField = node.ParentField
 	return res, nil
 }
 
