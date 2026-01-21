@@ -9,7 +9,9 @@ define:
   EndTx: .[int]
   KindedPath: .[string]
   LogFile: .[string]
+  LogFileGeneration: .[int]
   LogPosition: .[int]
+  ScopeID: .[nullable(string)]
   StartCommit: .[int]
   StartTx: .[int]
 signature:

@@ -12,7 +12,7 @@ define:
   commits: .[array(string)]
   created: !time:time null
   duplicates: .[array(string)]
-  id: .[int]
+  id: .[string]
   labels: .[array(string)]
   related_issues: .[array(string)]
   status: .[string]

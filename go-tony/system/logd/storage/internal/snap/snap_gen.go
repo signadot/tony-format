@@ -36,7 +36,6 @@ func (s *IndexEntry) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Field: Offset
 	irMap["Offset"] = ir.FromInt(int64(s.Offset))
 
-	// Create IR node with schema tag
 	return ir.FromMap(irMap).WithTag("!index-entry"), nil
 }
 
@@ -64,26 +63,31 @@ func (s *IndexEntry) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 
 	for i, fieldName := range node.Fields {
 		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
 		switch fieldName.String {
 		case "Path":
-			if fieldNode.Type == ir.NullType {
+			if fieldNodeUnwrapped.Type == ir.NullType {
 				s.Path = nil
-			} else if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string for TextUnmarshaler, got %v", "Path", fieldNode.Type)
+			} else if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string for TextUnmarshaler, got %v", "Path", fieldNodeUnwrapped.Type)
 			} else {
 				if s.Path == nil {
 					s.Path = new(Path)
 				}
-				if err := s.Path.UnmarshalText([]byte(fieldNode.String)); err != nil {
+				if err := s.Path.UnmarshalText([]byte(fieldNodeUnwrapped.String)); err != nil {
 					return fmt.Errorf("field %q: failed to unmarshal text: %w", "Path", err)
 				}
 			}
 		case "Offset":
 			// Field: Offset
-			if fieldNode.Int64 == nil {
-				return fmt.Errorf("field %q: expected number, got %v", "Offset", fieldNode.Type)
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "Offset", fieldNodeUnwrapped.Type)
 			}
-			s.Offset = int64(*fieldNode.Int64)
+			s.Offset = int64(*fieldNodeUnwrapped.Int64)
 		}
 	}
 
@@ -129,7 +133,7 @@ func (s *Index) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if len(s.Entries) > 0 {
 		slice := make([]*ir.Node, len(s.Entries))
 		for i, v := range s.Entries {
-			node, err = v.ToTonyIR(opts...)
+			node, err = v.ToTonyIR()
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert slice element %d: %w", i, err)
 			}
@@ -138,7 +142,6 @@ func (s *Index) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["Entries"] = ir.FromSlice(slice)
 	}
 
-	// Create IR node with schema tag
 	return ir.FromMap(irMap).WithTag("!index"), nil
 }
 
@@ -166,14 +169,19 @@ func (s *Index) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 
 	for i, fieldName := range node.Fields {
 		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
 		switch fieldName.String {
 		case "Entries":
 			// Field: Entries
-			if fieldNode.Type == ir.ArrayType {
-				slice := make([]IndexEntry, len(fieldNode.Values))
-				for i, v := range fieldNode.Values {
+			if fieldNodeUnwrapped.Type == ir.ArrayType {
+				slice := make([]IndexEntry, len(fieldNodeUnwrapped.Values))
+				for i, v := range fieldNodeUnwrapped.Values {
 					elem := IndexEntry{}
-					if err := elem.FromTonyIR(v, opts...); err != nil {
+					if err := elem.FromTonyIR(v); err != nil {
 						return fmt.Errorf("failed to convert slice element %d: %w", i, err)
 					}
 					slice[i] = elem

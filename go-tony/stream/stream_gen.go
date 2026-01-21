@@ -41,6 +41,11 @@ func (s *Event) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["k"] = ir.FromString(s.Key)
 	}
 
+	// Field: IntKey (optional)
+	if !isZeroValue_Event_IntKey(s.IntKey) {
+		irMap["ik"] = ir.FromInt(int64(s.IntKey))
+	}
+
 	// Field: String (optional)
 	if !isZeroValue_Event_String(s.String) {
 		irMap["s"] = ir.FromString(s.String)
@@ -72,7 +77,6 @@ func (s *Event) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		}
 	}
 
-	// Create IR node with schema tag
 	return ir.FromMap(irMap).WithTag("!event"), nil
 }
 
@@ -100,55 +104,66 @@ func (s *Event) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 
 	for i, fieldName := range node.Fields {
 		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
 		switch fieldName.String {
 		case "t":
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string for TextUnmarshaler, got %v", "t", fieldNode.Type)
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string for TextUnmarshaler, got %v", "t", fieldNodeUnwrapped.Type)
 			}
-			if err := s.Type.UnmarshalText([]byte(fieldNode.String)); err != nil {
+			if err := s.Type.UnmarshalText([]byte(fieldNodeUnwrapped.String)); err != nil {
 				return fmt.Errorf("field %q: failed to unmarshal text: %w", "t", err)
 			}
 		case "a":
 			// Field: Tag
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "a", fieldNode.Type)
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "a", fieldNodeUnwrapped.Type)
 			}
-			s.Tag = fieldNode.String
+			s.Tag = fieldNodeUnwrapped.String
 		case "k":
 			// Field: Key
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "k", fieldNode.Type)
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "k", fieldNodeUnwrapped.Type)
 			}
-			s.Key = fieldNode.String
+			s.Key = fieldNodeUnwrapped.String
+		case "ik":
+			// Field: IntKey
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "ik", fieldNodeUnwrapped.Type)
+			}
+			s.IntKey = int64(*fieldNodeUnwrapped.Int64)
 		case "s":
 			// Field: String
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "s", fieldNode.Type)
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "s", fieldNodeUnwrapped.Type)
 			}
-			s.String = fieldNode.String
+			s.String = fieldNodeUnwrapped.String
 		case "i":
 			// Field: Int
-			if fieldNode.Int64 == nil {
-				return fmt.Errorf("field %q: expected number, got %v", "i", fieldNode.Type)
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "i", fieldNodeUnwrapped.Type)
 			}
-			s.Int = int64(*fieldNode.Int64)
+			s.Int = int64(*fieldNodeUnwrapped.Int64)
 		case "f":
 			// Field: Float
-			if fieldNode.Float64 == nil {
-				return fmt.Errorf("field %q: expected number, got %v", "f", fieldNode.Type)
+			if fieldNodeUnwrapped.Float64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "f", fieldNodeUnwrapped.Type)
 			}
-			s.Float = float64(*fieldNode.Float64)
+			s.Float = float64(*fieldNodeUnwrapped.Float64)
 		case "b":
 			// Field: Bool
-			if fieldNode.Type != ir.BoolType {
-				return fmt.Errorf("field %q: expected bool, got %v", "b", fieldNode.Type)
+			if fieldNodeUnwrapped.Type != ir.BoolType {
+				return fmt.Errorf("field %q: expected bool, got %v", "b", fieldNodeUnwrapped.Type)
 			}
-			s.Bool = fieldNode.Bool
+			s.Bool = fieldNodeUnwrapped.Bool
 		case "c":
 			// Field: CommentLines
-			if fieldNode.Type == ir.ArrayType {
-				slice := make([]string, len(fieldNode.Values))
-				for i, v := range fieldNode.Values {
+			if fieldNodeUnwrapped.Type == ir.ArrayType {
+				slice := make([]string, len(fieldNodeUnwrapped.Values))
+				for i, v := range fieldNodeUnwrapped.Values {
 					ctx := fmt.Sprintf("slice element %d", i)
 					var elem string
 					if v.Type != ir.StringType {
@@ -194,6 +209,10 @@ func isZeroValue_Event_Tag(v string) bool {
 
 func isZeroValue_Event_Key(v string) bool {
 	return v == ""
+}
+
+func isZeroValue_Event_IntKey(v int64) bool {
+	return v == 0
 }
 
 func isZeroValue_Event_String(v string) bool {

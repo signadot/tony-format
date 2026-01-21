@@ -53,7 +53,14 @@ func (s *LogSegment) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Field: LogPosition
 	irMap["LogPosition"] = ir.FromInt(int64(s.LogPosition))
 
-	// Create IR node with schema tag
+	// Field: LogFileGeneration
+	irMap["LogFileGeneration"] = ir.FromInt(int64(s.LogFileGeneration))
+
+	// Field: ScopeID (optional)
+	if s.ScopeID != nil {
+		irMap["ScopeID"] = ir.FromString(*s.ScopeID)
+	}
+
 	return ir.FromMap(irMap).WithTag("!log-segment"), nil
 }
 
@@ -81,57 +88,84 @@ func (s *LogSegment) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 
 	for i, fieldName := range node.Fields {
 		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
 		switch fieldName.String {
 		case "StartCommit":
 			// Field: StartCommit
-			if fieldNode.Int64 == nil {
-				return fmt.Errorf("field %q: expected number, got %v", "StartCommit", fieldNode.Type)
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "StartCommit", fieldNodeUnwrapped.Type)
 			}
-			s.StartCommit = int64(*fieldNode.Int64)
+			s.StartCommit = int64(*fieldNodeUnwrapped.Int64)
 		case "StartTx":
 			// Field: StartTx
-			if fieldNode.Int64 == nil {
-				return fmt.Errorf("field %q: expected number, got %v", "StartTx", fieldNode.Type)
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "StartTx", fieldNodeUnwrapped.Type)
 			}
-			s.StartTx = int64(*fieldNode.Int64)
+			s.StartTx = int64(*fieldNodeUnwrapped.Int64)
 		case "EndCommit":
 			// Field: EndCommit
-			if fieldNode.Int64 == nil {
-				return fmt.Errorf("field %q: expected number, got %v", "EndCommit", fieldNode.Type)
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "EndCommit", fieldNodeUnwrapped.Type)
 			}
-			s.EndCommit = int64(*fieldNode.Int64)
+			s.EndCommit = int64(*fieldNodeUnwrapped.Int64)
 		case "EndTx":
 			// Field: EndTx
-			if fieldNode.Int64 == nil {
-				return fmt.Errorf("field %q: expected number, got %v", "EndTx", fieldNode.Type)
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "EndTx", fieldNodeUnwrapped.Type)
 			}
-			s.EndTx = int64(*fieldNode.Int64)
+			s.EndTx = int64(*fieldNodeUnwrapped.Int64)
 		case "KindedPath":
 			// Field: KindedPath
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "KindedPath", fieldNode.Type)
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "KindedPath", fieldNodeUnwrapped.Type)
 			}
-			s.KindedPath = fieldNode.String
+			s.KindedPath = fieldNodeUnwrapped.String
 		case "ArrayKey":
-			s.ArrayKey = fieldNode
+			if gomap.GetUnmapComments(opts...) {
+				s.ArrayKey = fieldNode
+			} else {
+				s.ArrayKey = fieldNodeUnwrapped
+			}
 		case "ArrayKeyField":
 			// Field: ArrayKeyField
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "ArrayKeyField", fieldNode.Type)
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "ArrayKeyField", fieldNodeUnwrapped.Type)
 			}
-			s.ArrayKeyField = fieldNode.String
+			s.ArrayKeyField = fieldNodeUnwrapped.String
 		case "LogFile":
 			// Field: LogFile
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "LogFile", fieldNode.Type)
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "LogFile", fieldNodeUnwrapped.Type)
 			}
-			s.LogFile = fieldNode.String
+			s.LogFile = fieldNodeUnwrapped.String
 		case "LogPosition":
 			// Field: LogPosition
-			if fieldNode.Int64 == nil {
-				return fmt.Errorf("field %q: expected number, got %v", "LogPosition", fieldNode.Type)
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "LogPosition", fieldNodeUnwrapped.Type)
 			}
-			s.LogPosition = int64(*fieldNode.Int64)
+			s.LogPosition = int64(*fieldNodeUnwrapped.Int64)
+		case "LogFileGeneration":
+			// Field: LogFileGeneration
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "LogFileGeneration", fieldNodeUnwrapped.Type)
+			}
+			s.LogFileGeneration = int64(*fieldNodeUnwrapped.Int64)
+		case "ScopeID":
+			// Field: ScopeID
+			if fieldNodeUnwrapped.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(string)
+				if fieldNodeUnwrapped.Type != ir.StringType {
+					return fmt.Errorf("%s: expected string, got %v", "field \"ScopeID\"", fieldNodeUnwrapped.Type)
+				}
+				*val = string(fieldNodeUnwrapped.String)
+				s.ScopeID = val
+			}
 		}
 	}
 

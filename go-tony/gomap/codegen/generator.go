@@ -161,9 +161,15 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 
 		// Check all fields for external types
 		for _, field := range structInfo.Fields {
-			// For types with TextMarshaler/TextUnmarshaler from same package, skip import
-			// For external package types, we still need the import since we use new(pkg.Type)
-			if (field.ImplementsTextMarshaler || field.ImplementsTextUnmarshaler) && field.TypePkgPath == "" {
+			// For non-pointer types with TextMarshaler/TextUnmarshaler, skip import
+			// because the generated code just calls interface methods (MarshalText/UnmarshalText)
+			// without referencing the concrete type directly.
+			// For pointer types implementing TextUnmarshaler, we need the import for new(pkg.Type).
+			if field.ImplementsTextMarshaler || field.ImplementsTextUnmarshaler {
+				// Only need import for pointer types where we call new(pkg.Type)
+				if field.Type != nil && field.Type.Kind() == reflect.Ptr && field.TypePkgPath != "" {
+					externalImports[field.TypePkgPath] = true
+				}
 				continue
 			}
 			if field.Type != nil {
@@ -181,7 +187,7 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 					}
 				}
 			}
-			// External types implementing TextUnmarshaler still need import for new(pkg.Type)
+			// External types need import if they're used directly
 			if field.TypePkgPath != "" {
 				externalImports[field.TypePkgPath] = true
 			}
@@ -420,6 +426,14 @@ func GenerateZeroValueHelpers(structs []*StructInfo) (string, error) {
 func getTypeString(t reflect.Type) string {
 	if t == nil {
 		return "interface{}"
+	}
+
+	// Check for named types FIRST (before kind switch).
+	// This handles types like time.Duration which have an underlying primitive kind
+	// but need to be referenced by their named type in generated code.
+	if t.Name() != "" && t.PkgPath() != "" {
+		// It's a named type from a package, use the full qualified name
+		return t.String() // Returns "time.Duration" not "int64"
 	}
 
 	switch t.Kind() {
@@ -1547,6 +1561,37 @@ func getMapValueTypeName(field *FieldInfo, valueType reflect.Type, currentPkgPat
 	return recoveredName
 }
 
+// getFieldTypeName returns the qualified type name for a field, preferring stored type info
+// over reflection since reflect.Type may lose named type info when constructed via reflect.StructOf.
+func getFieldTypeName(field *FieldInfo, currentPkg string) string {
+	if field.TypePkgPath != "" && field.TypeName != "" {
+		// External package type
+		parts := strings.Split(field.TypePkgPath, "/")
+		pkgName := parts[len(parts)-1]
+		return pkgName + "." + field.TypeName
+	}
+	if field.TypeName != "" {
+		return field.TypeName
+	}
+	if field.StructTypeName != "" {
+		// Check if StructTypeName contains a package prefix (e.g., "api.Patch")
+		if strings.Contains(field.StructTypeName, ".") {
+			return field.StructTypeName
+		}
+		return field.StructTypeName
+	}
+	// Fallback to reflection-based type name extraction
+	if field.Type != nil {
+		typ := field.Type
+		// For pointer types, get the element type
+		if typ.Kind() == reflect.Ptr {
+			typ = typ.Elem()
+		}
+		return getQualifiedTypeName(typ, currentPkg)
+	}
+	return ""
+}
+
 // getQualifiedTypeName returns the qualified type name for code generation.
 // It handles cross-package references by using the package name.
 func getQualifiedTypeName(typ reflect.Type, currentPkg string) string {
@@ -1729,8 +1774,11 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 				pkgName := parts[len(parts)-1]
 				typeName = pkgName + "." + field.TypeName
 			} else if field.TypeName != "" {
-				// Same package named type
+				// Same package named type (from TypeName)
 				typeName = field.TypeName
+			} else if field.StructTypeName != "" {
+				// Same package struct type (from StructTypeName)
+				typeName = field.StructTypeName
 			} else {
 				// Fallback to getQualifiedTypeName
 				typeName = getQualifiedTypeName(field.Type.Elem(), currentPkgPath)
@@ -1846,7 +1894,8 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 		elemType := field.Type.Elem()
 		if elemType.Kind() == reflect.Struct {
 			// Pointer to struct - call FromTony()
-			structName := getQualifiedTypeName(elemType, currentPkgPath)
+			// Use getFieldTypeName which prefers stored type info over reflection
+			structName := getFieldTypeName(field, currentPkgPath)
 			buf.WriteString(fmt.Sprintf("	s.%s = &%s{}\n", field.Name, structName))
 			buf.WriteString(fmt.Sprintf("	if err := s.%s.FromTonyIR(fieldNode%s); err != nil {\n", field.Name, fromTonyIROptsSuffix(elemType, currentPkgPath)))
 			buf.WriteString("		return err\n")

@@ -48,6 +48,15 @@ func (s *Config) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["tx"] = node
 	}
 
+	// Field: Compaction (optional)
+	if s.Compaction != nil {
+		node, err = s.Compaction.ToTonyIR()
+		if err != nil {
+			return nil, err
+		}
+		irMap["compaction"] = node
+	}
+
 	return ir.FromMap(irMap).WithTag("!config"), nil
 }
 
@@ -97,6 +106,12 @@ func (s *Config) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			// Field: Tx
 			s.Tx = &TxConfig{}
 			if err := s.Tx.FromTonyIR(fieldNode); err != nil {
+				return err
+			}
+		case "compaction":
+			// Field: Compaction
+			s.Compaction = &CompactionConfig{}
+			if err := s.Compaction.FromTonyIR(fieldNode); err != nil {
 				return err
 			}
 		}
@@ -285,6 +300,120 @@ func (s *SnapshotConfig) ToTony(opts ...gomap.MapOption) ([]byte, error) {
 
 // FromTony parses Tony format bytes and populates SnapshotConfig.
 func (s *SnapshotConfig) FromTony(data []byte, opts ...gomap.UnmapOption) error {
+	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
+	if err != nil {
+		return err
+	}
+	return s.FromTonyIR(node, opts...)
+}
+
+// ToTonyIR converts CompactionConfig to a Tony IR node.
+func (s *CompactionConfig) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
+	// Create IR object map
+	irMap := make(map[string]*ir.Node)
+
+	// Field: Cutoff
+	irMap["cutoff"] = ir.FromInt(int64(s.Cutoff))
+
+	// Field: BaseInterval
+	irMap["baseInterval"] = ir.FromInt(int64(s.BaseInterval))
+
+	// Field: SlotsPerTier
+	irMap["slotsPerTier"] = ir.FromInt(int64(s.SlotsPerTier))
+
+	// Field: Multiplier
+	irMap["multiplier"] = ir.FromInt(int64(s.Multiplier))
+
+	// Field: GracePeriod
+	irMap["gracePeriod"] = ir.FromInt(int64(s.GracePeriod))
+
+	return ir.FromMap(irMap).WithTag("!compaction-config"), nil
+}
+
+// FromTonyIR populates CompactionConfig from a Tony IR node.
+func (s *CompactionConfig) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
+	if node.Type != ir.ObjectType {
+		return fmt.Errorf("expected map for CompactionConfig, got %v", node.Type)
+	}
+
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
+		switch fieldName.String {
+		case "cutoff":
+			// Field: Cutoff
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "cutoff", fieldNodeUnwrapped.Type)
+			}
+			s.Cutoff = time.Duration(*fieldNodeUnwrapped.Int64)
+		case "baseInterval":
+			// Field: BaseInterval
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "baseInterval", fieldNodeUnwrapped.Type)
+			}
+			s.BaseInterval = time.Duration(*fieldNodeUnwrapped.Int64)
+		case "slotsPerTier":
+			// Field: SlotsPerTier
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "slotsPerTier", fieldNodeUnwrapped.Type)
+			}
+			s.SlotsPerTier = int(*fieldNodeUnwrapped.Int64)
+		case "multiplier":
+			// Field: Multiplier
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "multiplier", fieldNodeUnwrapped.Type)
+			}
+			s.Multiplier = int(*fieldNodeUnwrapped.Int64)
+		case "gracePeriod":
+			// Field: GracePeriod
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "gracePeriod", fieldNodeUnwrapped.Type)
+			}
+			s.GracePeriod = time.Duration(*fieldNodeUnwrapped.Int64)
+		}
+	}
+
+	return nil
+}
+
+// ToTony converts CompactionConfig to Tony format bytes.
+func (s *CompactionConfig) ToTony(opts ...gomap.MapOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// FromTony parses Tony format bytes and populates CompactionConfig.
+func (s *CompactionConfig) FromTony(data []byte, opts ...gomap.UnmapOption) error {
 	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
 	if err != nil {
 		return err

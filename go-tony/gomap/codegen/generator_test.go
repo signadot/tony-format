@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/schema"
@@ -821,5 +822,41 @@ func TestReproMapPointerValueSparseArray(t *testing.T) {
 	// Verify the correct type names are used
 	if !strings.Contains(code, "*ComponentConfig") {
 		t.Errorf("Generated code should contain '*ComponentConfig':\n%s", code)
+	}
+}
+
+func TestGetTypeString_NamedTypes(t *testing.T) {
+	// Test that named types like time.Duration are handled correctly
+	// instead of returning their underlying primitive type
+
+	tests := []struct {
+		name     string
+		typ      reflect.Type
+		expected string
+	}{
+		{
+			name:     "time.Duration returns time.Duration not int64",
+			typ:      reflect.TypeOf(time.Duration(0)),
+			expected: "time.Duration",
+		},
+		{
+			name:     "plain int64 returns int64",
+			typ:      reflect.TypeOf(int64(0)),
+			expected: "int64",
+		},
+		{
+			name:     "plain string returns string",
+			typ:      reflect.TypeOf(""),
+			expected: "string",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getTypeString(tt.typ)
+			if result != tt.expected {
+				t.Errorf("getTypeString(%v) = %q, want %q", tt.typ, result, tt.expected)
+			}
+		})
 	}
 }
