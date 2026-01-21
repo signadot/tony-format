@@ -373,6 +373,16 @@ func (node *Node) ToTonyIR() (*Node, error) {
 	return node.Clone(), nil
 }
 
+// DeepCopyInto copies the receiver into out. Used by K8s controller-gen.
+func (n *Node) DeepCopyInto(out *Node) {
+	n.CloneTo(out)
+}
+
+// DeepCopy returns a deep copy of the node. Used by K8s controller-gen.
+func (n *Node) DeepCopy() *Node {
+	return n.Clone()
+}
+
 // DeepEqual reports whether two nodes are deeply equal.
 // It compares all data fields recursively, but does not compare
 // Parent, ParentIndex, or ParentField as these are structural metadata.
