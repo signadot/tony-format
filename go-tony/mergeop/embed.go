@@ -54,7 +54,9 @@ func (kl *embedOp) embed(doc, in *ir.Node) (*ir.Node, error) {
 			}
 			res[i] = ir.KeyVal{Key: field.Clone(), Val: newVal}
 		}
-		return ir.FromKeyVals(res), nil
+		out := ir.FromKeyVals(res)
+		out.Tag = in.Tag
+		return out, nil
 	case ir.ArrayType:
 		res := make([]*ir.Node, len(in.Values))
 		for i, child := range in.Values {
@@ -64,7 +66,9 @@ func (kl *embedOp) embed(doc, in *ir.Node) (*ir.Node, error) {
 			}
 			res[i] = newChild
 		}
-		return ir.FromSlice(res), nil
+		out := ir.FromSlice(res)
+		out.Tag = in.Tag
+		return out, nil
 	default:
 		if in.Type != ir.StringType {
 			return in, nil
