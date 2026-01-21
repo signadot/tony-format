@@ -13,32 +13,54 @@ import (
 
 // ToTonyIR converts Meta to a Tony IR node.
 func (s *Meta) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
 	// Field: A
 	irMap["a"] = ir.FromInt(int64(s.A))
 
-	// Create IR node with schema tag
 	return ir.FromMap(irMap).WithTag("!meta"), nil
 }
 
 // FromTonyIR populates Meta from a Tony IR node.
 func (s *Meta) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
-	// Validate IR node type
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
 	if node.Type != ir.ObjectType {
-		return fmt.Errorf("expected object type, got %v", node.Type)
+		return fmt.Errorf("expected map for Meta, got %v", node.Type)
 	}
 
 	for i, fieldName := range node.Fields {
 		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
 		switch fieldName.String {
 		case "a":
 			// Field: A
-			if fieldNode.Int64 == nil {
-				return fmt.Errorf("field %q: expected number, got %v", "a", fieldNode.Type)
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "a", fieldNodeUnwrapped.Type)
 			}
-			s.A = int(*fieldNode.Int64)
+			s.A = int(*fieldNodeUnwrapped.Int64)
 		}
 	}
 
@@ -69,32 +91,54 @@ func (s *Meta) FromTony(data []byte, opts ...gomap.UnmapOption) error {
 
 // ToTonyIR converts Body to a Tony IR node.
 func (s *Body) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
 	// Field: B
 	irMap["b"] = ir.FromString(s.B)
 
-	// Create IR node with schema tag
 	return ir.FromMap(irMap).WithTag("!body"), nil
 }
 
 // FromTonyIR populates Body from a Tony IR node.
 func (s *Body) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
-	// Validate IR node type
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
 	if node.Type != ir.ObjectType {
-		return fmt.Errorf("expected object type, got %v", node.Type)
+		return fmt.Errorf("expected map for Body, got %v", node.Type)
 	}
 
 	for i, fieldName := range node.Fields {
 		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
 		switch fieldName.String {
 		case "b":
 			// Field: B
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "b", fieldNode.Type)
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "b", fieldNodeUnwrapped.Type)
 			}
-			s.B = fieldNode.String
+			s.B = fieldNodeUnwrapped.String
 		}
 	}
 
@@ -125,40 +169,63 @@ func (s *Body) FromTony(data []byte, opts ...gomap.UnmapOption) error {
 
 // ToTonyIR converts Compound to a Tony IR node.
 func (s *Compound) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
-	// Declare variables for reuse
+	if s == nil {
+		return ir.Null(), nil
+	}
 	var node *ir.Node
 	var err error
+	_ = node // suppress unused variable error
+	_ = err  // suppress unused variable error
 
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Meta
-	node, err = s.Meta.ToTonyIR(opts...)
+	node, err = s.Meta.ToTonyIR()
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert field %q: %w", "Meta", err)
 	}
 	irMap["meta"] = node
 
 	// Field: Body
-	node, err = s.Body.ToTonyIR(opts...)
+	node, err = s.Body.ToTonyIR()
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert field %q: %w", "Body", err)
 	}
 	irMap["body"] = node
 
-	// Create IR node with schema tag
 	return ir.FromMap(irMap).WithTag("!compound"), nil
 }
 
 // FromTonyIR populates Compound from a Tony IR node.
 func (s *Compound) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
-	// Validate IR node type
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
 	if node.Type != ir.ObjectType {
-		return fmt.Errorf("expected object type, got %v", node.Type)
+		return fmt.Errorf("expected map for Compound, got %v", node.Type)
 	}
 
 	for i, fieldName := range node.Fields {
 		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
 		switch fieldName.String {
 		case "meta":
 			// Field: Meta

@@ -14,6 +14,9 @@ import (
 
 // ToTonyIR converts Dir to a Tony IR node.
 func (s *Dir) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
 	var node *ir.Node
 	var err error
 	_ = node // suppress unused variable error
@@ -32,7 +35,7 @@ func (s *Dir) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if len(s.Sources) > 0 {
 		slice := make([]*ir.Node, len(s.Sources))
 		for i, v := range s.Sources {
-			node, err = v.ToTonyIR(opts...)
+			node, err = v.ToTonyIR()
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert slice element %d: %w", i, err)
 			}
@@ -50,7 +53,6 @@ func (s *Dir) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["Env"] = ir.FromMap(mapNodes)
 	}
 
-	// Create IR node with schema tag
 	return ir.FromMap(irMap).WithTag("!dir"), nil
 }
 
@@ -60,33 +62,50 @@ func (s *Dir) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 		return nil
 	}
 
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
 	if node.Type != ir.ObjectType {
 		return fmt.Errorf("expected map for Dir, got %v", node.Type)
 	}
 
 	for i, fieldName := range node.Fields {
 		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
 		switch fieldName.String {
 		case "Suffix":
 			// Field: Suffix
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "Suffix", fieldNode.Type)
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "Suffix", fieldNodeUnwrapped.Type)
 			}
-			s.Suffix = fieldNode.String
+			s.Suffix = fieldNodeUnwrapped.String
 		case "DestDir":
 			// Field: DestDir
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "DestDir", fieldNode.Type)
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "DestDir", fieldNodeUnwrapped.Type)
 			}
-			s.DestDir = fieldNode.String
+			s.DestDir = fieldNodeUnwrapped.String
 		case "Sources":
 			// Field: Sources
-			if fieldNode.Type == ir.ArrayType {
-				slice := make([]DirSource, len(fieldNode.Values))
-				for i, v := range fieldNode.Values {
+			if fieldNodeUnwrapped.Type == ir.ArrayType {
+				slice := make([]DirSource, len(fieldNodeUnwrapped.Values))
+				for i, v := range fieldNodeUnwrapped.Values {
 					elem := DirSource{}
-					if err := elem.FromTonyIR(v, opts...); err != nil {
-						return fmt.Errorf("slice element %d: %w", i, err)
+					if err := elem.FromTonyIR(v); err != nil {
+						return fmt.Errorf("failed to convert slice element %d: %w", i, err)
 					}
 					slice[i] = elem
 				}
@@ -94,11 +113,15 @@ func (s *Dir) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			}
 		case "Env":
 			// Field: Env
-			if fieldNode.Type == ir.ObjectType {
+			if fieldNodeUnwrapped.Type == ir.ObjectType {
 				m := make(map[string]*ir.Node)
-				irMap := ir.ToMap(fieldNode)
+				irMap := ir.ToMap(fieldNodeUnwrapped)
 				for k, v := range irMap {
-					m[k] = v
+					val := new(ir.Node)
+					if err := val.FromTonyIR(v); err != nil {
+						return fmt.Errorf("failed to convert map value at key %q: %w", k, err)
+					}
+					m[k] = val
 				}
 				s.Env = m
 			}
@@ -132,38 +155,41 @@ func (s *Dir) FromTony(data []byte, opts ...gomap.UnmapOption) error {
 
 // ToTonyIR converts DirSource to a Tony IR node.
 func (s *DirSource) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
+	var node *ir.Node
+	var err error
+	_ = node // suppress unused variable error
+	_ = err  // suppress unused variable error
+
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Format (optional)
 	if s.Format != nil {
-		if s.Format != nil {
-			irMap["Format"] = ir.FromInt(int64(*s.Format))
+		if txt, err := s.Format.MarshalText(); err != nil {
+			return nil, fmt.Errorf("failed to marshal field %q: %w", "Format", err)
+		} else {
+			irMap["Format"] = ir.FromString(string(txt))
 		}
 	}
 
 	// Field: Exec (optional)
 	if s.Exec != nil {
-		if s.Exec != nil {
-			irMap["Exec"] = ir.FromString(*s.Exec)
-		}
+		irMap["Exec"] = ir.FromString(*s.Exec)
 	}
 
 	// Field: Dir (optional)
 	if s.Dir != nil {
-		if s.Dir != nil {
-			irMap["Dir"] = ir.FromString(*s.Dir)
-		}
+		irMap["Dir"] = ir.FromString(*s.Dir)
 	}
 
 	// Field: URL (optional)
 	if s.URL != nil {
-		if s.URL != nil {
-			irMap["URL"] = ir.FromString(*s.URL)
-		}
+		irMap["URL"] = ir.FromString(*s.URL)
 	}
 
-	// Create IR node with schema tag
 	return ir.FromMap(irMap).WithTag("!dirsource"), nil
 }
 
@@ -173,45 +199,79 @@ func (s *DirSource) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 		return nil
 	}
 
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
 	if node.Type != ir.ObjectType {
 		return fmt.Errorf("expected map for DirSource, got %v", node.Type)
 	}
 
 	for i, fieldName := range node.Fields {
 		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
 		switch fieldName.String {
 		case "Format":
-			// Field: Format
-			val := new(format.Format)
-			if fieldNode.Int64 == nil {
-				return fmt.Errorf("%s: expected number, got %v", "field \"Format\"", fieldNode.Type)
+			if fieldNodeUnwrapped.Type == ir.NullType {
+				s.Format = nil
+			} else if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string for TextUnmarshaler, got %v", "Format", fieldNodeUnwrapped.Type)
+			} else {
+				if s.Format == nil {
+					s.Format = new(format.Format)
+				}
+				if err := s.Format.UnmarshalText([]byte(fieldNodeUnwrapped.String)); err != nil {
+					return fmt.Errorf("field %q: failed to unmarshal text: %w", "Format", err)
+				}
 			}
-			*val = format.Format(*fieldNode.Int64)
-			s.Format = val
 		case "Exec":
 			// Field: Exec
-			val := new(string)
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("%s: expected string, got %v", "field \"Exec\"", fieldNode.Type)
+			if fieldNodeUnwrapped.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(string)
+				if fieldNodeUnwrapped.Type != ir.StringType {
+					return fmt.Errorf("%s: expected string, got %v", "field \"Exec\"", fieldNodeUnwrapped.Type)
+				}
+				*val = string(fieldNodeUnwrapped.String)
+				s.Exec = val
 			}
-			*val = string(fieldNode.String)
-			s.Exec = val
 		case "Dir":
 			// Field: Dir
-			val := new(string)
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("%s: expected string, got %v", "field \"Dir\"", fieldNode.Type)
+			if fieldNodeUnwrapped.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(string)
+				if fieldNodeUnwrapped.Type != ir.StringType {
+					return fmt.Errorf("%s: expected string, got %v", "field \"Dir\"", fieldNodeUnwrapped.Type)
+				}
+				*val = string(fieldNodeUnwrapped.String)
+				s.Dir = val
 			}
-			*val = string(fieldNode.String)
-			s.Dir = val
 		case "URL":
 			// Field: URL
-			val := new(string)
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("%s: expected string, got %v", "field \"URL\"", fieldNode.Type)
+			if fieldNodeUnwrapped.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(string)
+				if fieldNodeUnwrapped.Type != ir.StringType {
+					return fmt.Errorf("%s: expected string, got %v", "field \"URL\"", fieldNodeUnwrapped.Type)
+				}
+				*val = string(fieldNodeUnwrapped.String)
+				s.URL = val
 			}
-			*val = string(fieldNode.String)
-			s.URL = val
 		}
 	}
 

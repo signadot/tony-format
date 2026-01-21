@@ -373,7 +373,7 @@ func GenerateZeroValueHelpers(structs []*StructInfo) (string, error) {
 
 			// Generate helper function based on field type
 			// Use the actual field type (which may be a named type)
-			typeStr := getTypeString(field.Type)
+			typeStr := getFieldTypeName(field, structInfo.Package)
 			
 			switch field.Type.Kind() {
 			case reflect.String:
@@ -1875,13 +1875,15 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: value %%d overflows uint32\", %q, %s)\n", schemaFieldName, intVal))
 			buf.WriteString("	}\n")
 		}
-		buf.WriteString(fmt.Sprintf("	s.%s = %s(%s)\n", field.Name, field.Type.Name(), intVal))
+		uintTypeName := getFieldTypeName(field, currentPkgPath)
+		buf.WriteString(fmt.Sprintf("	s.%s = %s(%s)\n", field.Name, uintTypeName, intVal))
 
 	case reflect.Float32, reflect.Float64:
 		buf.WriteString("	if fieldNodeUnwrapped.Float64 == nil {\n")
 		buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: expected number, got %%v\", %q, fieldNodeUnwrapped.Type)\n", schemaFieldName))
 		buf.WriteString("	}\n")
-		buf.WriteString(fmt.Sprintf("	s.%s = %s(*fieldNodeUnwrapped.Float64)\n", field.Name, field.Type.Name()))
+		floatTypeName := getFieldTypeName(field, currentPkgPath)
+		buf.WriteString(fmt.Sprintf("	s.%s = %s(*fieldNodeUnwrapped.Float64)\n", field.Name, floatTypeName))
 
 	case reflect.Bool:
 		buf.WriteString("	if fieldNodeUnwrapped.Type != ir.BoolType {\n")

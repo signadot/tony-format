@@ -6,38 +6,61 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/signadot/tony-format/go-tony/encode"
+	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 )
 
 // ToTonyIR converts Inner to a Tony IR node.
-func (s *Inner) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error) {
+func (s *Inner) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
 	// Field: I
 	irMap["i"] = ir.FromInt(int64(s.I))
 
-	// Create IR node with schema tag
 	return ir.FromMap(irMap).WithTag("!inner"), nil
 }
 
 // FromTonyIR populates Inner from a Tony IR node.
-func (s *Inner) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error {
-	// Validate IR node type
+func (s *Inner) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
 	if node.Type != ir.ObjectType {
-		return fmt.Errorf("expected object type, got %v", node.Type)
+		return fmt.Errorf("expected map for Inner, got %v", node.Type)
 	}
 
 	for i, fieldName := range node.Fields {
 		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
 		switch fieldName.String {
 		case "i":
 			// Field: I
-			if fieldNode.Int64 == nil {
-				return fmt.Errorf("field %q: expected number, got %v", "i", fieldNode.Type)
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "i", fieldNodeUnwrapped.Type)
 			}
-			s.I = int(*fieldNode.Int64)
+			s.I = int(*fieldNodeUnwrapped.Int64)
 		}
 	}
 
@@ -45,21 +68,21 @@ func (s *Inner) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error {
 }
 
 // ToTony converts Inner to Tony format bytes.
-func (s *Inner) ToTony(opts ...encode.EncodeOption) ([]byte, error) {
+func (s *Inner) ToTony(opts ...gomap.MapOption) ([]byte, error) {
 	node, err := s.ToTonyIR(opts...)
 	if err != nil {
 		return nil, err
 	}
 	var buf bytes.Buffer
-	if err := encode.Encode(node, &buf, opts...); err != nil {
+	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
 }
 
 // FromTony parses Tony format bytes and populates Inner.
-func (s *Inner) FromTony(data []byte, opts ...parse.ParseOption) error {
-	node, err := parse.Parse(data, opts...)
+func (s *Inner) FromTony(data []byte, opts ...gomap.UnmapOption) error {
+	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
 	if err != nil {
 		return err
 	}
@@ -67,7 +90,10 @@ func (s *Inner) FromTony(data []byte, opts ...parse.ParseOption) error {
 }
 
 // ToTonyIR converts Outer to a Tony IR node.
-func (s *Outer) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error) {
+func (s *Outer) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
@@ -75,34 +101,53 @@ func (s *Outer) ToTonyIR(opts ...encode.EncodeOption) (*ir.Node, error) {
 	irMap["i"] = ir.FromInt(int64(s.I))
 
 	// Field: F
-	irMap["f"] = ir.FromFloat64(float64(s.F))
+	irMap["f"] = ir.FromFloat(float64(s.F))
 
-	// Create IR node with schema tag
 	return ir.FromMap(irMap).WithTag("!outer"), nil
 }
 
 // FromTonyIR populates Outer from a Tony IR node.
-func (s *Outer) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error {
-	// Validate IR node type
+func (s *Outer) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
 	if node.Type != ir.ObjectType {
-		return fmt.Errorf("expected object type, got %v", node.Type)
+		return fmt.Errorf("expected map for Outer, got %v", node.Type)
 	}
 
 	for i, fieldName := range node.Fields {
 		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
 		switch fieldName.String {
 		case "i":
 			// Field: I
-			if fieldNode.Int64 == nil {
-				return fmt.Errorf("field %q: expected number, got %v", "i", fieldNode.Type)
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "i", fieldNodeUnwrapped.Type)
 			}
-			s.I = int(*fieldNode.Int64)
+			s.I = int(*fieldNodeUnwrapped.Int64)
 		case "f":
 			// Field: F
-			if fieldNode.Float64 == nil {
-				return fmt.Errorf("field %q: expected number, got %v", "f", fieldNode.Type)
+			if fieldNodeUnwrapped.Float64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "f", fieldNodeUnwrapped.Type)
 			}
-			s.F = float64(*fieldNode.Float64)
+			s.F = float64(*fieldNodeUnwrapped.Float64)
 		}
 	}
 
@@ -110,21 +155,21 @@ func (s *Outer) FromTonyIR(node *ir.Node, opts ...parse.ParseOption) error {
 }
 
 // ToTony converts Outer to Tony format bytes.
-func (s *Outer) ToTony(opts ...encode.EncodeOption) ([]byte, error) {
+func (s *Outer) ToTony(opts ...gomap.MapOption) ([]byte, error) {
 	node, err := s.ToTonyIR(opts...)
 	if err != nil {
 		return nil, err
 	}
 	var buf bytes.Buffer
-	if err := encode.Encode(node, &buf, opts...); err != nil {
+	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
 }
 
 // FromTony parses Tony format bytes and populates Outer.
-func (s *Outer) FromTony(data []byte, opts ...parse.ParseOption) error {
-	node, err := parse.Parse(data, opts...)
+func (s *Outer) FromTony(data []byte, opts ...gomap.UnmapOption) error {
+	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
 	if err != nil {
 		return err
 	}

@@ -13,6 +13,9 @@ import (
 
 // ToTonyIR converts Inner to a Tony IR node.
 func (s *Inner) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
 	var node *ir.Node
 	var err error
 	_ = node // suppress unused variable error
@@ -28,7 +31,6 @@ func (s *Inner) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["A"] = ir.FromString(string(txt))
 	}
 
-	// Create IR node with schema tag
 	return ir.FromMap(irMap).WithTag("!inner"), nil
 }
 
@@ -38,18 +40,35 @@ func (s *Inner) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 		return nil
 	}
 
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
 	if node.Type != ir.ObjectType {
 		return fmt.Errorf("expected map for Inner, got %v", node.Type)
 	}
 
 	for i, fieldName := range node.Fields {
 		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
 		switch fieldName.String {
 		case "A":
-			if fieldNode.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string for TextUnmarshaler, got %v", "A", fieldNode.Type)
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string for TextUnmarshaler, got %v", "A", fieldNodeUnwrapped.Type)
 			}
-			if err := s.A.UnmarshalText([]byte(fieldNode.String)); err != nil {
+			if err := s.A.UnmarshalText([]byte(fieldNodeUnwrapped.String)); err != nil {
 				return fmt.Errorf("field %q: failed to unmarshal text: %w", "A", err)
 			}
 		}
