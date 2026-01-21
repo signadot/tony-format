@@ -9,22 +9,22 @@ import (
 )
 
 type Node struct {
-	Type        Type
-	Parent      *Node
-	ParentIndex int
-	ParentField string
-	Fields      []*Node
-	Values      []*Node
+	Type        Type    `json:"type"`
+	Parent      *Node   `json:"-"`
+	ParentIndex int     `json:"-"`
+	ParentField string  `json:"-"`
+	Fields      []*Node `json:"fields,omitempty"`
+	Values      []*Node `json:"values,omitempty"`
 
-	Tag     string
-	Lines   []string
-	Comment *Node
+	Tag     string   `json:"tag,omitempty"`
+	Lines   []string `json:"lines,omitempty"`
+	Comment *Node    `json:"comment,omitempty"`
 
-	String  string
-	Bool    bool
-	Number  string
-	Float64 *float64
-	Int64   *int64
+	String  string   `json:"string,omitempty"`
+	Bool    bool     `json:"bool,omitempty"`
+	Number  string   `json:"number,omitempty"`
+	Float64 *float64 `json:"float,omitempty"`
+	Int64   *int64   `json:"int,omitempty"`
 }
 
 func (y *Node) WithTag(tag string) *Node {
