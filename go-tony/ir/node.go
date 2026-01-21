@@ -8,6 +8,7 @@ import (
 	"strings"
 )
 
+// +kubebuilder:validation:Type=object
 type Node struct {
 	Type        Type    `json:"type"`
 	Parent      *Node   `json:"-"`
