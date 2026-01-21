@@ -39,6 +39,9 @@ func (y *Node) Clone() *Node {
 }
 
 func (y *Node) CloneTo(dst *Node) *Node {
+	if dst == y {
+		panic("cannot clone to self")
+	}
 	dst.Parent = y.Parent
 	dst.ParentIndex = y.ParentIndex
 	dst.ParentField = y.ParentField
@@ -82,6 +85,8 @@ func (y *Node) CloneTo(dst *Node) *Node {
 		y.Comment.CloneTo(dstComment)
 		dst.Comment = dstComment
 	}
+	dst.Lines = make([]string, len(y.Lines))
+	copy(dst.Lines, y.Lines)
 	return dst
 }
 
