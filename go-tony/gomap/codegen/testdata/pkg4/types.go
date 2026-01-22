@@ -1,6 +1,9 @@
 package main
 
-import "github.com/signadot/tony-format/go-tony/format"
+import (
+	"github.com/signadot/tony-format/go-tony/format"
+	"github.com/signadot/tony-format/go-tony/ir"
+)
 
 type schema struct{}
 
