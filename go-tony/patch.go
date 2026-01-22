@@ -77,7 +77,7 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 		if err != nil {
 			err = fmt.Errorf("%s patching %q gave %w", opInst, encode.MustString(doc), err)
 		}
-		if res != nil {
+		if res != nil && preTag != "" {
 			res.Tag = ir.TagCompose(preTag, nil, res.Tag)
 		}
 		return res, err
