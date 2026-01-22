@@ -15,6 +15,13 @@ func TestTags(t *testing.T) {
 	t.Logf("%q %v %q", head, args, rest)
 }
 
+func TestTagGet(t *testing.T) {
+	tag, args := TagGet("!filename(z).embed(w)", "!filename")
+	t.Logf("1: %s %v", tag, args)
+	tag, args = TagGet("!embed(y).filename(z).embed(w)", "!filename")
+	t.Logf("2: %s %v", tag, args)
+}
+
 func TestTagRemove(t *testing.T) {
 	tests := []struct {
 		tag    string

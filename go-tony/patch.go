@@ -53,7 +53,7 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 		}
 		panic("comment")
 	}
-	tag, args, child, err := mergeop.SplitChild(patch)
+	preTag, tag, args, child, err := mergeop.SplitChild(patch)
 	if err != nil {
 		return nil, err
 	}
@@ -76,6 +76,9 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 		res, err := opInst.Patch(doc, ctx, matchFunc, patchFunc, Diff)
 		if err != nil {
 			err = fmt.Errorf("%s patching %q gave %w", opInst, encode.MustString(doc), err)
+		}
+		if res != nil {
+			res.Tag = ir.TagCompose(preTag, nil, res.Tag)
 		}
 		return res, err
 	}

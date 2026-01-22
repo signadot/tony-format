@@ -34,7 +34,7 @@ func MatchWith(doc, match *ir.Node, ctx *mergeop.OpContext) (bool, error) {
 	if debug.Match() {
 		debug.Logf("match type %s at %s with tag %q\n", match.Type, match.Path(), match.Tag)
 	}
-	tag, args, child, err := mergeop.SplitChild(match)
+	_, tag, args, child, err := mergeop.SplitChild(match)
 	if err != nil {
 		return false, err
 	}
@@ -143,7 +143,7 @@ func Trim(match, doc *ir.Node) *ir.Node {
 	// Check for tags first - tags like !or, !not, !glob change matching semantics,
 	// not structure. If the match has a tag, verify doc matches it
 	// and return the doc as-is (since tags define matching criteria, not structure).
-	tag, _, _, err := mergeop.SplitChild(match)
+	_, tag, _, _, err := mergeop.SplitChild(match)
 	if err == nil && tag != "" {
 		// This is a tagged match (like !or, !glob, !and, !not, etc.)
 		// Tags define matching semantics, not structure to preserve.
