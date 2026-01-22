@@ -2,45 +2,29 @@
 context:
 - tony-format/context
 define:
-  a:
-  - "!or"
-  - - "!irtype"
-    - null
+  a: !or
+  - null
   - .[string]
-  b:
-  - "!or"
-  - - "!irtype"
-    - null
+  b: !or
+  - null
   - .[bool]
-  c:
-  - "!or"
-  - - "!irtype"
-    - null
+  c: !or
+  - null
   - .[array(string)]
-  f:
-  - "!or"
-  - - "!irtype"
-    - null
+  f: !or
+  - null
   - .[float]
-  i:
-  - "!or"
-  - - "!irtype"
-    - null
+  i: !or
+  - null
   - .[int]
-  ik:
-  - "!or"
-  - - "!irtype"
-    - null
+  ik: !or
+  - null
   - .[int]
-  k:
-  - "!or"
-  - - "!irtype"
-    - null
+  k: !or
+  - null
   - .[string]
-  s:
-  - "!or"
-  - - "!irtype"
-    - null
+  s: !or
+  - null
   - .[string]
   t: .[int]
 signature:

@@ -136,8 +136,6 @@ type SchemaRequest struct {
 // Valid values are "complete" or "abort".
 //
 // Note: Migration patches are sent via PatchRequest with Migration=true.
-//
-//tony:schema=.[complete,abort]
 type MigrationAction string
 
 const (

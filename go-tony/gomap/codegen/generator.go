@@ -1903,12 +1903,18 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			buf.WriteString("		return err\n")
 			buf.WriteString("	}\n")
 		} else {
-			// Pointer to primitive (or named basic type like format.Format)
+			// Pointer to primitive (or named basic type like format.Format or MigrationAction)
 			// First check for null - leave pointer as nil
 			buf.WriteString("	if fieldNodeUnwrapped.Type == ir.NullType {\n")
 			buf.WriteString("		// null value - leave pointer as nil\n")
 			buf.WriteString("	} else {\n")
-			typeName := getQualifiedTypeName(elemType, currentPkgPath)
+			// Try getFieldTypeName first (uses stored type info), fall back to getQualifiedTypeName
+			// (uses reflection). getFieldTypeName handles named types like "type MigrationAction string"
+			// while getQualifiedTypeName handles cases where reflection preserves type info.
+			typeName := getFieldTypeName(field, currentPkgPath)
+			if typeName == "" {
+				typeName = getQualifiedTypeName(elemType, currentPkgPath)
+			}
 			buf.WriteString(fmt.Sprintf("		val := new(%s)\n", typeName))
 
 			// Generate validation and extraction based on underlying type

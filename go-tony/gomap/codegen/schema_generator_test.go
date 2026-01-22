@@ -421,17 +421,10 @@ type Person struct {
 		t.Fatal("could not find Email field")
 	}
 
-	// Email should be wrapped in !or [null, string]
-	// Check if it's an ArrayType with !or tag, or check the first value
-	if emailFieldNode.Type == ir.ArrayType && len(emailFieldNode.Values) > 0 {
-		// Check if first value is the !or string
-		if len(emailFieldNode.Values) > 0 && emailFieldNode.Values[0].String == "!or" {
-			// Good, it's wrapped
-		} else {
-			t.Errorf("expected !or wrapper, got Type=%v Values=%v", emailFieldNode.Type, emailFieldNode.Values)
-		}
-	} else {
-		t.Errorf("expected ArrayType with !or, got Type=%v Tag=%q Values=%v", emailFieldNode.Type, emailFieldNode.Tag, emailFieldNode.Values)
+	// Email should be wrapped in !or [null, .[string]]
+	// Check if it's an ArrayType with !or tag
+	if emailFieldNode.Type != ir.ArrayType || emailFieldNode.Tag != "!or" {
+		t.Errorf("expected ArrayType with !or tag, got Type=%v Tag=%q", emailFieldNode.Type, emailFieldNode.Tag)
 	}
 
 	// Comment should be preserved on the wrapped node

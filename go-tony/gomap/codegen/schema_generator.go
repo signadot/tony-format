@@ -154,15 +154,13 @@ func generateStructDefinition(structInfo *StructInfo, structMap map[string]*Stru
 		// If field is optional by tag (not pointer), wrap in !or [null, T]
 		// Pointers are already handled by GoTypeToSchemaNode
 		if field.Optional && field.Type != nil && field.Type.Kind() != reflect.Ptr {
-			// Wrap non-pointer optional field
-			fieldTypeNode = ir.FromSlice([]*ir.Node{
-				ir.FromString("!or"),
-				ir.FromSlice([]*ir.Node{
-					ir.FromString("!irtype"),
-					ir.Null(),
-				}),
+			// Wrap non-pointer optional field: !or [null, T]
+			orNode := ir.FromSlice([]*ir.Node{
+				ir.Null(),
 				fieldTypeNode,
 			})
+			orNode.Tag = "!or"
+			fieldTypeNode = orNode
 		}
 
 		// Add field-level comments if present

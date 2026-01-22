@@ -266,17 +266,23 @@ func (r *TypeResolver) resolveASTType(expr ast.Expr, currentStructName string, i
 			// Look up in current package
 			if obj := currentPkg.Types.Scope().Lookup(t.Name); obj != nil {
 				typesType = obj.Type()
-				// If structName is empty but this is a named type, use the name
+				// If structName/typeName is empty but this is a named type, use the name
 				// This handles cases where resolveIdentType didn't find it in structTypeMap
 				// but go/types knows about it
-				if structName == "" && obj.Name() != "" {
+				if obj.Name() != "" {
 					// Check if it's a struct type
 					if _, ok := typesType.Underlying().(*types.Struct); ok {
-						structName = obj.Name()
+						if structName == "" {
+							structName = obj.Name()
+						}
+					}
+					// Set typeName for any named type (struct or not)
+					// This is important for named basic types like "type MigrationAction string"
+					if typeName == "" {
+						typeName = obj.Name()
 						// Also set pkgPath if it's from another package
 						if obj.Pkg() != nil && obj.Pkg().Path() != currentPkg.PkgPath {
 							pkgPath = obj.Pkg().Path()
-							typeName = obj.Name()
 						}
 					}
 				}
