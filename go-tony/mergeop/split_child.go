@@ -19,7 +19,7 @@ func SplitChild(opDoc *ir.Node) (preTag, tag string, args []string, child *ir.No
 		tag, args, rest = ir.TagArgs(tag)
 		tag = tag[1:]
 		if Lookup(tag) == nil {
-			preTag = ir.TagCompose(tag, args, preTag)
+			preTag = ir.TagCompose("!"+tag, args, preTag)
 			tag = rest
 			continue
 		}
