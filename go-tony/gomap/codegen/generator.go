@@ -411,6 +411,15 @@ func GenerateZeroValueHelpers(structs []*StructInfo) (string, error) {
 				buf.WriteString("	return len(v) == 0\n")
 				buf.WriteString("}\n\n")
 
+			case reflect.Struct:
+				// Handle time.Time specifically - it has an IsZero() method
+				if field.TypePkgPath == "time" && field.TypeName == "Time" {
+					buf.WriteString(fmt.Sprintf("func %s(v %s) bool {\n", helperName, typeStr))
+					buf.WriteString("	return v.IsZero()\n")
+					buf.WriteString("}\n\n")
+				}
+				// For other struct types, skip for now - they can be handled manually if needed
+
 			default:
 				// For other types, we might need a more sophisticated check
 				// For now, skip generating helpers for complex types

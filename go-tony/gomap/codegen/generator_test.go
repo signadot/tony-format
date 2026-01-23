@@ -860,3 +860,53 @@ func TestGetTypeString_NamedTypes(t *testing.T) {
 		})
 	}
 }
+
+// TestGenerateZeroValueHelpers_TimeTime verifies that time.Time optional fields
+// get proper zero-value helpers using IsZero() method.
+func TestGenerateZeroValueHelpers_TimeTime(t *testing.T) {
+	structInfo := &StructInfo{
+		Name:    "Run",
+		Package: "example",
+		Fields: []*FieldInfo{
+			{
+				Name:            "Started",
+				SchemaFieldName: "started",
+				Type:            reflect.TypeOf(time.Time{}),
+				TypePkgPath:     "time",
+				TypeName:        "Time",
+				Optional:        false, // required field - no helper needed
+			},
+			{
+				Name:            "Finished",
+				SchemaFieldName: "finished",
+				Type:            reflect.TypeOf(time.Time{}),
+				TypePkgPath:     "time",
+				TypeName:        "Time",
+				Optional:        true, // optional field - needs helper
+			},
+		},
+		StructSchema: &gomap.StructSchema{
+			SchemaName: "run",
+		},
+	}
+
+	code, err := GenerateZeroValueHelpers([]*StructInfo{structInfo})
+	if err != nil {
+		t.Fatalf("GenerateZeroValueHelpers failed: %v", err)
+	}
+
+	// Check that helper is generated for optional time.Time field
+	if !strings.Contains(code, "func isZeroValue_Run_Finished") {
+		t.Errorf("Expected isZeroValue_Run_Finished helper, got:\n%s", code)
+	}
+
+	// Check that it uses IsZero() method
+	if !strings.Contains(code, "return v.IsZero()") {
+		t.Errorf("Expected IsZero() check for time.Time, got:\n%s", code)
+	}
+
+	// Check that no helper is generated for required field
+	if strings.Contains(code, "isZeroValue_Run_Started") {
+		t.Errorf("Should not generate helper for required field Started, got:\n%s", code)
+	}
+}
