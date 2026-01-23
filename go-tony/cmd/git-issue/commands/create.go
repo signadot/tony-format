@@ -27,6 +27,11 @@ func CreateCommand(store issuelib.Store) *cli.Command {
 }
 
 func (cfg *createConfig) run(cc *cli.Context, args []string) error {
+	args, err := cfg.Parse(cc, args)
+	if err != nil {
+		return err
+	}
+
 	if len(args) < 1 {
 		return fmt.Errorf("%w: usage: git issue create <title>", cli.ErrUsage)
 	}
