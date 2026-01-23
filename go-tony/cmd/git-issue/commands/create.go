@@ -13,13 +13,16 @@ import (
 type createConfig struct {
 	*cli.Command
 	store issuelib.Store
+	Body  string `cli:"name=body aliases=b desc='Issue body/description'"`
 }
 
 // CreateCommand returns the create subcommand.
 func CreateCommand(store issuelib.Store) *cli.Command {
 	cfg := &createConfig{store: store}
+	opts, _ := cli.StructOpts(cfg)
 	return cli.NewCommandAt(&cfg.Command, "create").
 		WithSynopsis("create <title> - Create new issue").
+		WithOpts(opts...).
 		WithRun(cfg.run)
 }
 
@@ -32,7 +35,10 @@ func (cfg *createConfig) run(cc *cli.Context, args []string) error {
 
 	// Get description text
 	var descBody string
-	if stat, _ := os.Stdin.Stat(); (stat.Mode() & os.ModeCharDevice) == 0 {
+	if cfg.Body != "" {
+		// Use -body flag
+		descBody = cfg.Body
+	} else if stat, _ := os.Stdin.Stat(); (stat.Mode() & os.ModeCharDevice) == 0 {
 		// stdin is a pipe/file, read from it
 		data, err := io.ReadAll(os.Stdin)
 		if err != nil {
