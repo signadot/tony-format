@@ -3,5 +3,5 @@ Ref: refs/issues/vh2hk34jh12ks8ywehmg
 Title: "tony-codegen generates wrong signature for isZeroValue with slice of struct types"
 created: "2026-01-24T15:52:19.363757+01:00"
 id: vh2hk34jh12ks8ywehmg
-status: open
-updated: "2026-01-24T15:52:19.363757+01:00"
+status: closed
+updated: "2026-01-24T16:01:11.160013+01:00"
