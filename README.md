@@ -9,14 +9,14 @@ A data format where patches, queries, and schemas are expressed as documents the
 ## Status
 
 The core Tony format is fairly stable and fun.  One CLI tool with several
-basic commands, [`o`](go-tony/README.md), is in use and fairly stable.  This repository is booting.
+basic commands, [`o`](go-tony/README.md), is in use and fairly stable.
 
-Several items are in the works, ranging from under design to bleeding edge,
-buggy prototypes.
-
+**Stable and usable:**
 - Schema
 - Mappings to Go
 - Go CodeGen
+
+**In progress:**
 - System API
 - Docs Website
 - LSP
