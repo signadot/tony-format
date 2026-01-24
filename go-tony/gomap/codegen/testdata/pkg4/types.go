@@ -1,4 +1,4 @@
-package main
+package pkg4
 
 import (
 	"github.com/signadot/tony-format/go-tony/format"
