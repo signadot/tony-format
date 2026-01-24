@@ -11,7 +11,7 @@ A data format where patches, queries, and schemas are expressed as documents the
 The core Tony format is fairly stable and fun.  One CLI tool with several
 basic commands, [`o`](go-tony/README.md), is in use and fairly stable.
 
-**Stable and usable:**
+**Relatively Stable and usable:**
 - Schema
 - Mappings to Go
 - Go CodeGen
