@@ -1954,8 +1954,8 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 		elemType := field.Type.Elem()
 		if elemType.Kind() == reflect.Struct {
 			// Pointer to struct - call FromTony()
-			// Use getFieldTypeName which prefers stored type info over reflection
-			structName := getFieldTypeName(field, currentPkgPath)
+			// Use getFieldElementTypeName to get the struct name without the * prefix
+			structName := getFieldElementTypeName(field, currentPkgPath)
 			buf.WriteString(fmt.Sprintf("	s.%s = &%s{}\n", field.Name, structName))
 			buf.WriteString(fmt.Sprintf("	if err := s.%s.FromTonyIR(fieldNode%s); err != nil {\n", field.Name, fromTonyIROptsSuffix(elemType, currentPkgPath)))
 			buf.WriteString("		return err\n")
@@ -1966,10 +1966,9 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			buf.WriteString("	if fieldNodeUnwrapped.Type == ir.NullType {\n")
 			buf.WriteString("		// null value - leave pointer as nil\n")
 			buf.WriteString("	} else {\n")
-			// Try getFieldTypeName first (uses stored type info), fall back to getQualifiedTypeName
-			// (uses reflection). getFieldTypeName handles named types like "type MigrationAction string"
-			// while getQualifiedTypeName handles cases where reflection preserves type info.
-			typeName := getFieldTypeName(field, currentPkgPath)
+			// Use getFieldElementTypeName to get the element type without the * prefix,
+			// since we're inside a pointer case and will wrap with new().
+			typeName := getFieldElementTypeName(field, currentPkgPath)
 			if typeName == "" {
 				typeName = getQualifiedTypeName(elemType, currentPkgPath)
 			}
