@@ -910,3 +910,113 @@ func TestGenerateZeroValueHelpers_TimeTime(t *testing.T) {
 		t.Errorf("Should not generate helper for required field Started, got:\n%s", code)
 	}
 }
+
+// TestGenerateZeroValueHelpers_SliceOfStruct verifies that slice of struct fields
+// get proper zero-value helpers with correct slice type signature.
+func TestGenerateZeroValueHelpers_SliceOfStruct(t *testing.T) {
+	// Define a Child struct type for the slice element
+	type Child struct {
+		Name string
+		Age  int
+	}
+
+	structInfo := &StructInfo{
+		Name:    "Parent",
+		Package: "example",
+		Fields: []*FieldInfo{
+			{
+				Name:            "Children",
+				SchemaFieldName: "children",
+				Type:            reflect.TypeOf([]Child{}),
+				StructTypeName:  "Child", // Element type name, not []Child
+				Optional:        true,
+			},
+		},
+		StructSchema: &gomap.StructSchema{
+			SchemaName: "parent",
+		},
+	}
+
+	code, err := GenerateZeroValueHelpers([]*StructInfo{structInfo})
+	if err != nil {
+		t.Fatalf("GenerateZeroValueHelpers failed: %v", err)
+	}
+
+	// Check that helper is generated with correct slice signature
+	if !strings.Contains(code, "func isZeroValue_Parent_Children(v []Child) bool") {
+		t.Errorf("Expected isZeroValue_Parent_Children(v []Child), got:\n%s", code)
+	}
+
+	// Check that it uses len() check
+	if !strings.Contains(code, "return len(v) == 0") {
+		t.Errorf("Expected len(v) == 0 check for slice, got:\n%s", code)
+	}
+}
+
+// TestGenerateZeroValueHelpers_CompositeTypes verifies that various composite types
+// (slices, arrays, maps, pointers) get correct type signatures in zero-value helpers.
+func TestGenerateZeroValueHelpers_CompositeTypes(t *testing.T) {
+	type Inner struct{ X int }
+
+	tests := []struct {
+		name           string
+		fieldType      reflect.Type
+		structTypeName string
+		wantSignature  string
+	}{
+		{
+			name:           "slice of struct",
+			fieldType:      reflect.TypeOf([]Inner{}),
+			structTypeName: "Inner",
+			wantSignature:  "(v []Inner)",
+		},
+		{
+			name:           "array of struct",
+			fieldType:      reflect.TypeOf([3]Inner{}),
+			structTypeName: "Inner",
+			wantSignature:  "(v [3]Inner)",
+		},
+		{
+			name:           "map with struct value",
+			fieldType:      reflect.TypeOf(map[string]Inner{}),
+			structTypeName: "Inner",
+			wantSignature:  "(v map[string]codegen.Inner)", // codegen prefix because Inner is from different package than "example"
+		},
+		{
+			name:           "map with struct key",
+			fieldType:      reflect.TypeOf(map[Inner]string{}),
+			structTypeName: "Inner",
+			wantSignature:  "(v map[codegen.Inner]string)", // codegen prefix because Inner is from different package than "example"
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			structInfo := &StructInfo{
+				Name:    "Test",
+				Package: "example",
+				Fields: []*FieldInfo{
+					{
+						Name:            "Field",
+						SchemaFieldName: "field",
+						Type:            tt.fieldType,
+						StructTypeName:  tt.structTypeName,
+						Optional:        true,
+					},
+				},
+				StructSchema: &gomap.StructSchema{
+					SchemaName: "test",
+				},
+			}
+
+			code, err := GenerateZeroValueHelpers([]*StructInfo{structInfo})
+			if err != nil {
+				t.Fatalf("GenerateZeroValueHelpers failed: %v", err)
+			}
+
+			if !strings.Contains(code, tt.wantSignature) {
+				t.Errorf("Expected signature %q, got:\n%s", tt.wantSignature, code)
+			}
+		})
+	}
+}

@@ -1573,6 +1573,25 @@ func getMapValueTypeName(field *FieldInfo, valueType reflect.Type, currentPkgPat
 // getFieldTypeName returns the qualified type name for a field, preferring stored type info
 // over reflection since reflect.Type may lose named type info when constructed via reflect.StructOf.
 func getFieldTypeName(field *FieldInfo, currentPkg string) string {
+	// Handle composite types FIRST - the stored type info (TypeName, StructTypeName, TypePkgPath)
+	// refers to the element/value type, not the full composite type.
+	if field.Type != nil {
+		switch field.Type.Kind() {
+		case reflect.Slice:
+			return "[]" + getFieldElementTypeName(field, currentPkg)
+		case reflect.Array:
+			return fmt.Sprintf("[%d]%s", field.Type.Len(), getFieldElementTypeName(field, currentPkg))
+		case reflect.Ptr:
+			return "*" + getFieldElementTypeName(field, currentPkg)
+		case reflect.Map:
+			// For maps, StructTypeName is ambiguous (could be key or value struct),
+			// so always use reflection for both key and value types.
+			keyType := getQualifiedTypeName(field.Type.Key(), currentPkg)
+			valType := getQualifiedTypeName(field.Type.Elem(), currentPkg)
+			return fmt.Sprintf("map[%s]%s", keyType, valType)
+		}
+	}
+
 	if field.TypePkgPath != "" && field.TypeName != "" {
 		// External package type
 		parts := strings.Split(field.TypePkgPath, "/")
@@ -1591,12 +1610,42 @@ func getFieldTypeName(field *FieldInfo, currentPkg string) string {
 	}
 	// Fallback to reflection-based type name extraction
 	if field.Type != nil {
-		typ := field.Type
-		// For pointer types, get the element type
-		if typ.Kind() == reflect.Ptr {
-			typ = typ.Elem()
+		return getQualifiedTypeName(field.Type, currentPkg)
+	}
+	return ""
+}
+
+// getFieldElementTypeName returns the qualified type name for the element type of a
+// composite field (slice, array, pointer, map value). It uses stored type info when
+// available, which is more reliable than reflection for types constructed via reflect.StructOf.
+func getFieldElementTypeName(field *FieldInfo, currentPkg string) string {
+	// First try stored type info which describes the element type
+	if field.TypePkgPath != "" && field.TypeName != "" {
+		parts := strings.Split(field.TypePkgPath, "/")
+		pkgName := parts[len(parts)-1]
+		return pkgName + "." + field.TypeName
+	}
+	if field.TypeName != "" {
+		return field.TypeName
+	}
+	if field.StructTypeName != "" {
+		if strings.Contains(field.StructTypeName, ".") {
+			return field.StructTypeName
 		}
-		return getQualifiedTypeName(typ, currentPkg)
+		return field.StructTypeName
+	}
+	// Fallback to reflection-based extraction from element type
+	if field.Type != nil {
+		var elemType reflect.Type
+		switch field.Type.Kind() {
+		case reflect.Slice, reflect.Array, reflect.Ptr:
+			elemType = field.Type.Elem()
+		case reflect.Map:
+			elemType = field.Type.Elem() // value type
+		default:
+			elemType = field.Type
+		}
+		return getQualifiedTypeName(elemType, currentPkg)
 	}
 	return ""
 }
