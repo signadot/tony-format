@@ -12,8 +12,8 @@ type debug struct {
 	ExpandEnv bool
 	Match     bool
 	Matches   bool // o build matching logs per document, per match
-	Patch     bool
-	Patches   bool
+	Patch     bool // per patch op
+	Patches   bool // o build patching logs per document, per patch, not per patch Op
 	Op        bool
 	Eval      bool
 }
