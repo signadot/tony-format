@@ -11,7 +11,7 @@ type debug struct {
 	LoadEnv   bool
 	ExpandEnv bool
 	Match     bool
-	Matches   bool
+	Matches   bool // o build matching logs per document, per match
 	Patch     bool
 	Patches   bool
 	Op        bool
