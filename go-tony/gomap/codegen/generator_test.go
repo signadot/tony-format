@@ -424,6 +424,7 @@ func TestGeneratePrimitiveFromIR(t *testing.T) {
 	tests := []struct {
 		name     string
 		varName  string
+		destVar  string
 		typ      reflect.Type
 		context  string
 		wantErr  bool
@@ -432,6 +433,7 @@ func TestGeneratePrimitiveFromIR(t *testing.T) {
 		{
 			name:     "string",
 			varName:  "v",
+			destVar:  "elem",
 			typ:      reflect.TypeOf(""),
 			context:  "field",
 			wantErr:  false,
@@ -440,6 +442,7 @@ func TestGeneratePrimitiveFromIR(t *testing.T) {
 		{
 			name:     "int",
 			varName:  "v",
+			destVar:  "elem",
 			typ:      reflect.TypeOf(int(0)),
 			context:  "field",
 			wantErr:  false,
@@ -448,6 +451,7 @@ func TestGeneratePrimitiveFromIR(t *testing.T) {
 		{
 			name:     "int8",
 			varName:  "v",
+			destVar:  "elem",
 			typ:      reflect.TypeOf(int8(0)),
 			context:  "field",
 			wantErr:  false,
@@ -456,6 +460,7 @@ func TestGeneratePrimitiveFromIR(t *testing.T) {
 		{
 			name:     "uint",
 			varName:  "v",
+			destVar:  "elem",
 			typ:      reflect.TypeOf(uint(0)),
 			context:  "field",
 			wantErr:  false,
@@ -464,6 +469,7 @@ func TestGeneratePrimitiveFromIR(t *testing.T) {
 		{
 			name:     "bool",
 			varName:  "v",
+			destVar:  "elem",
 			typ:      reflect.TypeOf(false),
 			context:  "field",
 			wantErr:  false,
@@ -472,6 +478,7 @@ func TestGeneratePrimitiveFromIR(t *testing.T) {
 		{
 			name:    "unsupported",
 			varName: "v",
+			destVar: "elem",
 			typ:     reflect.TypeOf([]string{}),
 			context: "field",
 			wantErr: true,
@@ -480,7 +487,7 @@ func TestGeneratePrimitiveFromIR(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := generatePrimitiveFromIR(tt.varName, tt.typ, tt.context)
+			result, err := generatePrimitiveFromIR(tt.varName, tt.destVar, tt.typ, tt.context)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("generatePrimitiveFromIR() error = %v, wantErr %v", err, tt.wantErr)
 				return

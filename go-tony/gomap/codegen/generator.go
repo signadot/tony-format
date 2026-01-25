@@ -1225,7 +1225,7 @@ func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgP
 			} else {
 				// Slice of primitives
 				buf.WriteString("			ctx := fmt.Sprintf(\"slice element %d\", i)\n")
-				elemCode, err := generatePrimitiveFromIR("v", elemType, "ctx")
+				elemCode, err := generatePrimitiveFromIR("v", "elem", elemType, "ctx")
 				if err != nil {
 					return "", fmt.Errorf("unsupported slice element type %v: %w", elemType, err)
 				}
@@ -1269,7 +1269,7 @@ func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgP
 					}
 				} else {
 					buf.WriteString("			ctx := fmt.Sprintf(\"map value at key %d\", k)\n")
-					valueCode, err := generatePrimitiveFromIR("v", valueType, "ctx")
+					valueCode, err := generatePrimitiveFromIR("v", "val", valueType, "ctx")
 					if err != nil {
 						return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
 					}
@@ -1318,7 +1318,7 @@ func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgP
 					}
 				} else {
 					buf.WriteString("			ctx := fmt.Sprintf(\"map value at key %q\", k)\n")
-					valueCode, err := generatePrimitiveFromIR("v", valueType, "ctx")
+					valueCode, err := generatePrimitiveFromIR("v", "val", valueType, "ctx")
 					if err != nil {
 						return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
 					}
@@ -1355,7 +1355,7 @@ func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgP
 					}
 				} else {
 					buf.WriteString("			ctx := fmt.Sprintf(\"map value at key %v\", k)\n")
-					valueCode, err := generatePrimitiveFromIR("v", valueType, "ctx")
+					valueCode, err := generatePrimitiveFromIR("v", "val", valueType, "ctx")
 					if err != nil {
 						return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
 					}
@@ -2134,7 +2134,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			// Slice of primitives
 			// Generate code with a context variable that will be formatted
 			buf.WriteString("			ctx := fmt.Sprintf(\"slice element %d\", i)\n")
-			elemCode, err := generatePrimitiveFromIR("v", elemType, "ctx")
+			elemCode, err := generatePrimitiveFromIR("v", "elem", elemType, "ctx")
 			if err != nil {
 				return "", fmt.Errorf("unsupported slice element type %v: %w", elemType, err)
 			}
@@ -2179,7 +2179,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 				}
 			} else {
 				buf.WriteString("			ctx := fmt.Sprintf(\"map value at key %d\", k)\n")
-				valueCode, err := generatePrimitiveFromIR("v", valueType, "ctx")
+				valueCode, err := generatePrimitiveFromIR("v", "val", valueType, "ctx")
 				if err != nil {
 					return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
 				}
@@ -2228,7 +2228,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 				}
 			} else {
 				buf.WriteString("			ctx := fmt.Sprintf(\"map value at key %q\", k)\n")
-				valueCode, err := generatePrimitiveFromIR("v", valueType, "ctx")
+				valueCode, err := generatePrimitiveFromIR("v", "val", valueType, "ctx")
 				if err != nil {
 					return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
 				}
@@ -2265,7 +2265,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 				}
 			} else {
 				buf.WriteString("			ctx := fmt.Sprintf(\"map value at key %v\", k)\n")
-				valueCode, err := generatePrimitiveFromIR("v", valueType, "ctx")
+				valueCode, err := generatePrimitiveFromIR("v", "val", valueType, "ctx")
 				if err != nil {
 					return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
 				}
@@ -2330,7 +2330,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 				}
 			} else {
 				buf.WriteString("			ctx := fmt.Sprintf(\"map value at key %p\", k)\n")
-				valueCode, err := generatePrimitiveFromIR("v", valueType, "ctx")
+				valueCode, err := generatePrimitiveFromIR("v", "val", valueType, "ctx")
 				if err != nil {
 					return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
 				}
@@ -2366,9 +2366,10 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 }
 
 // generatePrimitiveFromIR generates code to extract a primitive value from an IR node.
-// Returns the code statement (e.g., "if v.Type != ir.StringType { return fmt.Errorf(...) }; elem = v.String").
+// Returns the code statement (e.g., "if v.Type != ir.StringType { return fmt.Errorf(...) }; val = v.String").
+// The destVar parameter specifies the destination variable name (e.g., "elem" or "val").
 // The context parameter can contain format specifiers like %d, %q, etc. that will be used in error messages.
-func generatePrimitiveFromIR(varName string, typ reflect.Type, context string) (string, error) {
+func generatePrimitiveFromIR(varName string, destVar string, typ reflect.Type, context string) (string, error) {
 	var buf strings.Builder
 
 	switch typ.Kind() {
@@ -2377,7 +2378,7 @@ func generatePrimitiveFromIR(varName string, typ reflect.Type, context string) (
 		// Use %q to properly quote the context string in the error message
 		buf.WriteString(fmt.Sprintf("	return fmt.Errorf(\"%%s: expected string, got %%v\", %s, %s.Type)\n", context, varName))
 		buf.WriteString("}\n")
-		buf.WriteString(fmt.Sprintf("elem = %s.String", varName))
+		buf.WriteString(fmt.Sprintf("%s = %s.String", destVar, varName))
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		buf.WriteString(fmt.Sprintf("if %s.Int64 == nil {\n", varName))
@@ -2398,7 +2399,7 @@ func generatePrimitiveFromIR(varName string, typ reflect.Type, context string) (
 			buf.WriteString(fmt.Sprintf("	return fmt.Errorf(\"%%s: value %%d overflows int32\", %s, %s)\n", context, intVal))
 			buf.WriteString("}\n")
 		}
-		buf.WriteString(fmt.Sprintf("elem = %s(%s)", typ.Name(), intVal))
+		buf.WriteString(fmt.Sprintf("%s = %s(%s)", destVar, typ.Name(), intVal))
 
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		buf.WriteString(fmt.Sprintf("if %s.Int64 == nil {\n", varName))
@@ -2421,19 +2422,19 @@ func generatePrimitiveFromIR(varName string, typ reflect.Type, context string) (
 			buf.WriteString(fmt.Sprintf("	return fmt.Errorf(\"%%s: value %%d overflows uint32\", %s, %s)\n", context, intVal))
 			buf.WriteString("}\n")
 		}
-		buf.WriteString(fmt.Sprintf("elem = %s(%s)", typ.Name(), intVal))
+		buf.WriteString(fmt.Sprintf("%s = %s(%s)", destVar, typ.Name(), intVal))
 
 	case reflect.Float32, reflect.Float64:
 		buf.WriteString(fmt.Sprintf("if %s.Float64 == nil {\n", varName))
 		buf.WriteString(fmt.Sprintf("	return fmt.Errorf(\"%%s: expected number, got %%v\", %s, %s.Type)\n", context, varName))
 		buf.WriteString("}\n")
-		buf.WriteString(fmt.Sprintf("elem = %s(*%s.Float64)", typ.Name(), varName))
+		buf.WriteString(fmt.Sprintf("%s = %s(*%s.Float64)", destVar, typ.Name(), varName))
 
 	case reflect.Bool:
 		buf.WriteString(fmt.Sprintf("if %s.Type != ir.BoolType {\n", varName))
 		buf.WriteString(fmt.Sprintf("	return fmt.Errorf(\"%%s: expected bool, got %%v\", %s, %s.Type)\n", context, varName))
 		buf.WriteString("}\n")
-		buf.WriteString(fmt.Sprintf("elem = %s.Bool", varName))
+		buf.WriteString(fmt.Sprintf("%s = %s.Bool", destVar, varName))
 
 	default:
 		return "", fmt.Errorf("unsupported primitive type: %v", typ.Kind())
