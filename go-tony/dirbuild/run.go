@@ -14,6 +14,10 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 )
 
+// Run executes the build pipeline: fetches documents from all sources, applies
+// patches to matching documents, evaluates tool expressions, and writes the
+// results. If w is non-nil, output is written to it; otherwise output goes to
+// DestDir if set. Returns the processed documents and any error encountered.
 func (d *Dir) Run(w io.WriteCloser, opts ...encode.EncodeOption) ([]*ir.Node, error) {
 	var (
 		docs []*ir.Node

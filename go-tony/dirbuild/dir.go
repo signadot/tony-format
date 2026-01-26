@@ -1,4 +1,3 @@
-// Package dirbuild interprets a tony build directory
 package dirbuild
 
 import (
@@ -14,28 +13,34 @@ import (
 	"github.com/signadot/tony-format/go-tony/parse"
 )
 
-const (
-	// DefaultSuffix is empty, meaning derive from output format
-	DefaultSuffix = ""
-)
+// DefaultSuffix is the default output file suffix. When empty, the suffix
+// is derived from the output format (e.g., ".yaml" for YAML, ".tony" for tony).
+const DefaultSuffix = ""
 
 type schema struct{}
 
+// Dir represents a build directory configuration parsed from a build.{tony,yaml,json} file.
+// It contains sources to fetch documents from, patches to transform them, and environment
+// variables for evaluation.
 type Dir struct {
 	schema  `tony:"schemagen=dir"`
-	Root    string              `tony:"omit"`
-	Suffix  string              `tony:"field=suffix"`
-	DestDir string              `tony:"field=destDir"`
-	Sources []DirSource         `tony:"field=sources"`
-	Patches []DirPatch          `tony:"field=patches"`
-	Env     map[string]*ir.Node `tony:"field=env"`
+	Root    string              `tony:"omit"`     // Absolute path to the build directory
+	Suffix  string              `tony:"field=suffix"`  // Output file suffix (empty means derive from format)
+	DestDir string              `tony:"field=destDir"` // Output directory (empty means write to stdout)
+	Sources []DirSource         `tony:"field=sources"` // Document sources to fetch from
+	Patches []DirPatch          `tony:"field=patches"` // Patches to apply to documents
+	Env     map[string]*ir.Node `tony:"field=env"`     // Environment variables for evaluation
 
 	nameCache map[string]int
 }
 
+// OpenDir opens and parses a build directory at the given path.
+// It looks for build.tony, build.yaml, or build.json (in that order) and
+// parses the build configuration. The env parameter provides initial
+// environment variables that are merged with those defined in the build file.
 func OpenDir(path string, env map[string]*ir.Node) (*Dir, error) {
 	if debug.LoadEnv() {
-		debug.Logf("OpenDir input env:\n%s", debug.Tony{ir.FromMap(env)})
+		debug.Logf("OpenDir input env:\n%s", debug.Tony{Node: ir.FromMap(env)})
 	}
 	// Try build.{tony,yaml,json} in order
 	extensions := []string{".tony", ".yaml", ".json"}
@@ -119,7 +124,7 @@ func initDir(dir *Dir, node *ir.Node, path string, env map[string]*ir.Node) (*Di
 		}
 		dir.Env = ir.ToMap(pEnv)
 		if debug.LoadEnv() {
-			debug.Logf("loaded env %s\n", debug.Tony{ir.FromMap(dir.Env)})
+			debug.Logf("loaded env %s\n", debug.Tony{Node: ir.FromMap(dir.Env)})
 		}
 	}
 

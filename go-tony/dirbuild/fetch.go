@@ -35,14 +35,15 @@ func (d *Dir) fetch() ([]*ir.Node, error) {
 	return res, nil
 }
 
-// DirSource represents a data source for a dirbuild.
+// DirSource represents a document source for fetching input data.
+// Exactly one of Dir, URL, or Exec should be set to define where documents come from.
 type DirSource struct {
 	schema `tony:"schemagen=dirsource"`
-	Format *format.Format `tony:"field=format"`
-	Exec   *string        `tony:"field=exec"`
-	Dir    *string        `tony:"field=dir"`
-	URL    *string        `tony:"field=url"`
-	If     string         `tony:"field=if"`
+	Format *format.Format `tony:"field=format"` // Explicit format (auto-detected if nil)
+	Exec   *string        `tony:"field=exec"`   // Command to execute; stdout is parsed
+	Dir    *string        `tony:"field=dir"`    // Directory path to walk for documents
+	URL    *string        `tony:"field=url"`    // URL to fetch documents from
+	If     string         `tony:"field=if"`     // Conditional expression; source is skipped if false
 }
 
 // formatFromExtension returns the format based on file extension.
@@ -64,6 +65,9 @@ func formatFromExtension(path string) *format.Format {
 	}
 }
 
+// Fetch retrieves documents from this source. The root parameter is the build
+// directory root (used for resolving relative paths), and env provides variables
+// for template expansion in Dir, URL, or Exec fields.
 func (s *DirSource) Fetch(root string, env map[string]any) ([]*ir.Node, error) {
 	var defaultForm *format.Format
 	if s.Format != nil {

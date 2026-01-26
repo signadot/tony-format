@@ -51,12 +51,15 @@ func (d *Dir) patch(dst []*ir.Node) error {
 	return nil
 }
 
+// DirPatch represents a transformation to apply to matching documents.
+// Either Match+Patch should be set (inline patch) or File should be set
+// (load patches from external file).
 type DirPatch struct {
 	schema `tony:"schemagen=dirpatch"`
-	Match  *ir.Node `tony:"field=match"`
-	Patch  *ir.Node `tony:"field=patch"`
-	File   string   `tony:"field=file"`
-	If     string   `tony:"field=if"`
+	Match  *ir.Node `tony:"field=match"` // Pattern to match documents against
+	Patch  *ir.Node `tony:"field=patch"` // Transformation to apply to matched documents
+	File   string   `tony:"field=file"`  // External file containing patch definitions
+	If     string   `tony:"field=if"`    // Conditional expression; patch is skipped if false
 }
 
 func (d *DirPatch) String() string {

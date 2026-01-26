@@ -14,6 +14,8 @@ import (
 	"github.com/signadot/tony-format/go-tony/parse"
 )
 
+// Profiles returns a list of available profile names from the profiles/
+// subdirectory. Returns nil if the profiles directory doesn't exist.
 func (d *Dir) Profiles() ([]string, error) {
 	dirEnts, err := os.ReadDir(filepath.Join(d.Root, "profiles"))
 	if err != nil {
@@ -39,6 +41,9 @@ func (d *Dir) Profiles() ([]string, error) {
 	return res, nil
 }
 
+// LoadProfile loads a profile by name from the profiles/ subdirectory and
+// merges its environment into the Dir. The env parameter provides additional
+// variables that override both the Dir's environment and the profile's.
 func (d *Dir) LoadProfile(profile string, env map[string]any) error {
 	if debug.LoadEnv() {
 		debug.Logf("LoadProfile with env\n%s", debug.JSON(env))
@@ -54,6 +59,9 @@ func (d *Dir) LoadProfile(profile string, env map[string]any) error {
 	return d.LoadProfileFromBytes(dd, env)
 }
 
+// LoadProfileFromBytes loads a profile from raw bytes and merges its environment
+// into the Dir. The profile data should contain an "env" field with environment
+// overrides. The env parameter provides additional variables that take precedence.
 func (d *Dir) LoadProfileFromBytes(dd []byte, env map[string]any) error {
 	if debug.LoadEnv() {
 		debug.Logf("LoadProfileFromBytes with env\n%s", debug.JSON(env))
