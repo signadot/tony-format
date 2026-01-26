@@ -559,7 +559,7 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 					derefs += "*"
 				}
 				buf.WriteString(fmt.Sprintf("			slice[i] = %sv\n", derefs))
-			} else if elemType.Kind() == reflect.Struct || (elemType.Kind() == reflect.Ptr && elemType.Elem().Kind() == reflect.Struct) || (elemType.Name() != "" && elemType.Kind() != reflect.String && !isPrimitiveKind(elemType.Kind())) || elemType.Kind() == reflect.Slice || elemType.Kind() == reflect.Map || elemType.Kind() == reflect.Array {
+			} else if isComplexType(elemType) {
 				// Slice of structs, pointers to structs, or other complex types (named types, nested containers)
 				if elemType.Kind() == reflect.Ptr {
 					buf.WriteString(fmt.Sprintf("			node, err := v.ToTonyIR(%s)\n", toTonyIROptsSuffix(elemType.Elem(), currentPkgPath)))
@@ -594,7 +594,7 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 				buf.WriteString("		intKeysMap := make(map[uint32]*ir.Node)\n")
 				buf.WriteString("		for k, v := range *s {\n")
 
-				if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) || (valueType.Name() != "" && valueType.Kind() != reflect.String && !isPrimitiveKind(valueType.Kind())) || valueType.Kind() == reflect.Slice || valueType.Kind() == reflect.Map || valueType.Kind() == reflect.Array {
+				if isComplexType(valueType) {
 					if valueType.Kind() == reflect.Ptr {
 						buf.WriteString(fmt.Sprintf("			node, err := v.ToTonyIR(%s)\n", toTonyIROptsSuffix(valueType.Elem(), currentPkgPath)))
 					} else {
@@ -629,7 +629,7 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 						derefs += "*"
 					}
 					buf.WriteString(fmt.Sprintf("			mapNodes[k] = %sv\n", derefs))
-				} else if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) || (valueType.Name() != "" && valueType.Kind() != reflect.String && !isPrimitiveKind(valueType.Kind())) || valueType.Kind() == reflect.Slice || valueType.Kind() == reflect.Map || valueType.Kind() == reflect.Array {
+				} else if isComplexType(valueType) {
 					if valueType.Kind() == reflect.Ptr {
 						buf.WriteString(fmt.Sprintf("			node, err := v.ToTonyIR(%s)\n", toTonyIROptsSuffix(valueType.Elem(), currentPkgPath)))
 					} else {
@@ -658,7 +658,7 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 				buf.WriteString("		for k, v := range *s {\n")
 				buf.WriteString("			kStr := fmt.Sprintf(\"%v\", k)\n")
 
-				if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) || (valueType.Name() != "" && valueType.Kind() != reflect.String && !isPrimitiveKind(valueType.Kind())) || valueType.Kind() == reflect.Slice || valueType.Kind() == reflect.Map || valueType.Kind() == reflect.Array {
+				if isComplexType(valueType) {
 					if valueType.Kind() == reflect.Ptr {
 						buf.WriteString(fmt.Sprintf("			node, err := v.ToTonyIR(%s)\n", toTonyIROptsSuffix(valueType.Elem(), currentPkgPath)))
 					} else {
@@ -1204,7 +1204,7 @@ func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgP
 					}
 					buf.WriteString(fmt.Sprintf("			slice[i] = v%d\n", depth-1))
 				}
-			} else if elemType.Kind() == reflect.Struct || (elemType.Kind() == reflect.Ptr && elemType.Elem().Kind() == reflect.Struct) || (elemType.Name() != "" && elemType.Kind() != reflect.String && !isPrimitiveKind(elemType.Kind())) || elemType.Kind() == reflect.Slice || elemType.Kind() == reflect.Map || elemType.Kind() == reflect.Array {
+			} else if isComplexType(elemType) {
 				// Slice of structs, pointers to structs, or other complex types
 				if elemType.Kind() == reflect.Ptr {
 					// Element is already a pointer, allocate new instance
@@ -1253,7 +1253,7 @@ func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgP
 				buf.WriteString("				return fmt.Errorf(\"invalid sparse array key %q: %w\", kStr, err)\n")
 				buf.WriteString("			}\n")
 
-				if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) || (valueType.Name() != "" && valueType.Kind() != reflect.String && !isPrimitiveKind(valueType.Kind())) || valueType.Kind() == reflect.Slice || valueType.Kind() == reflect.Map || valueType.Kind() == reflect.Array {
+				if isComplexType(valueType) {
 					if valueType.Kind() == reflect.Ptr {
 						buf.WriteString(fmt.Sprintf("			val := new(%s)\n", getQualifiedTypeName(valueType.Elem(), currentPkgPath)))
 						buf.WriteString(fmt.Sprintf("			if err := val.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(valueType.Elem(), currentPkgPath)))
@@ -1292,7 +1292,7 @@ func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgP
 				buf.WriteString("		irMap := ir.ToMap(node)\n")
 				buf.WriteString("		for k, v := range irMap {\n")
 
-				if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) || (valueType.Name() != "" && valueType.Kind() != reflect.String && !isPrimitiveKind(valueType.Kind())) || valueType.Kind() == reflect.Slice || valueType.Kind() == reflect.Map || valueType.Kind() == reflect.Array {
+				if isComplexType(valueType) {
 					if valueType.Kind() == reflect.Ptr {
 						buf.WriteString(fmt.Sprintf("			val := new(%s)\n", getQualifiedTypeName(valueType.Elem(), currentPkgPath)))
 						buf.WriteString(fmt.Sprintf("			if err := val.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(valueType.Elem(), currentPkgPath)))
@@ -1339,7 +1339,7 @@ func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgP
 				buf.WriteString("		for kStr, v := range irMap {\n")
 				buf.WriteString("			var k interface{} = kStr\n")
 
-				if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) || (valueType.Name() != "" && valueType.Kind() != reflect.String && !isPrimitiveKind(valueType.Kind())) || valueType.Kind() == reflect.Slice || valueType.Kind() == reflect.Map || valueType.Kind() == reflect.Array {
+				if isComplexType(valueType) {
 					if valueType.Kind() == reflect.Ptr {
 						buf.WriteString(fmt.Sprintf("			val := new(%s)\n", getQualifiedTypeName(valueType.Elem(), currentPkgPath)))
 						buf.WriteString(fmt.Sprintf("			if err := val.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(valueType.Elem(), currentPkgPath)))
@@ -2106,8 +2106,8 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 		}
 		buf.WriteString(fmt.Sprintf("		slice := make([]%s, len(fieldNodeUnwrapped.Values))\n", structName))
 		buf.WriteString("		for i, v := range fieldNodeUnwrapped.Values {\n")
-		if elemType.Kind() == reflect.Struct || (elemType.Kind() == reflect.Ptr && elemType.Elem().Kind() == reflect.Struct) {
-			// Slice of structs or pointers to structs - call FromTony()
+		if isComplexType(elemType) {
+			// Slice of structs, pointers to structs, or other complex types - call FromTonyIR()
 			// Need to handle both struct values and pointers
 			if elemType.Kind() == reflect.Ptr {
 				// Element is already a pointer, allocate new instance
@@ -2162,8 +2162,8 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			buf.WriteString("			if err != nil {\n")
 			buf.WriteString("				return fmt.Errorf(\"invalid sparse array key %q: %w\", kStr, err)\n")
 			buf.WriteString("			}\n")
-			if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) {
-				// Map value is struct or pointer to struct
+			if isComplexType(valueType) {
+				// Map value is struct, pointer to struct, or other complex type
 				if valueType.Kind() == reflect.Ptr {
 					buf.WriteString(fmt.Sprintf("			val := new(%s)\n", strings.TrimPrefix(structName, "*")))
 					buf.WriteString(fmt.Sprintf("			if err := val.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(valueType.Elem(), currentPkgPath)))
@@ -2200,8 +2200,8 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			buf.WriteString(fmt.Sprintf("		m := make(map[string]%s)\n", structName))
 			buf.WriteString("		irMap := ir.ToMap(fieldNodeUnwrapped)\n")
 			buf.WriteString("		for k, v := range irMap {\n")
-			if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) {
-				// Map value is struct or pointer to struct
+			if isComplexType(valueType) {
+				// Map value is struct, pointer to struct, or other complex type
 				if valueType.Kind() == reflect.Ptr {
 					buf.WriteString(fmt.Sprintf("			val := new(%s)\n", strings.TrimPrefix(structName, "*")))
 					buf.WriteString(fmt.Sprintf("			if err := val.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(valueType.Elem(), currentPkgPath)))
@@ -2248,8 +2248,8 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			buf.WriteString("		for kStr, v := range irMap {\n")
 			buf.WriteString("			// Convert string key back to interface{}\n")
 			buf.WriteString("			var k interface{} = kStr\n")
-			if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) {
-				// Map value is struct or pointer to struct
+			if isComplexType(valueType) {
+				// Map value is struct, pointer to struct, or other complex type
 				if valueType.Kind() == reflect.Ptr {
 					buf.WriteString(fmt.Sprintf("			val := new(%s)\n", strings.TrimPrefix(structName, "*")))
 					buf.WriteString(fmt.Sprintf("			if err := val.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(valueType.Elem(), currentPkgPath)))
@@ -2313,8 +2313,8 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			buf.WriteString("				return fmt.Errorf(\"invalid pointer address format %%q: %%w\", kStr, err)\n")
 			buf.WriteString("			}\n")
 			buf.WriteString(fmt.Sprintf("			k := (*%s)(unsafe.Pointer(ptrAddr))\n", keyStructName))
-			if valueType.Kind() == reflect.Struct || (valueType.Kind() == reflect.Ptr && valueType.Elem().Kind() == reflect.Struct) {
-				// Map value is struct or pointer to struct
+			if isComplexType(valueType) {
+				// Map value is struct, pointer to struct, or other complex type
 				if valueType.Kind() == reflect.Ptr {
 					buf.WriteString(fmt.Sprintf("			val := new(%s)\n", strings.TrimPrefix(structName, "*")))
 					buf.WriteString(fmt.Sprintf("			if err := val.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(valueType.Elem(), currentPkgPath)))
@@ -2453,6 +2453,33 @@ func isPrimitiveKind(k reflect.Kind) bool {
 	default:
 		return false
 	}
+}
+
+// isComplexType checks if a type requires FromTonyIR to be called for decoding,
+// rather than simple primitive extraction. This includes structs, pointers to structs,
+// named non-primitive types, and nested composites (slices, maps, arrays).
+func isComplexType(t reflect.Type) bool {
+	if t == nil {
+		return false
+	}
+	k := t.Kind()
+	// Struct types need FromTonyIR
+	if k == reflect.Struct {
+		return true
+	}
+	// Pointer to struct needs FromTonyIR
+	if k == reflect.Ptr && t.Elem().Kind() == reflect.Struct {
+		return true
+	}
+	// Named non-primitive types (e.g., "type MyInt int" but not "string")
+	if t.Name() != "" && k != reflect.String && !isPrimitiveKind(k) {
+		return true
+	}
+	// Nested composites need recursive handling
+	if k == reflect.Slice || k == reflect.Map || k == reflect.Array {
+		return true
+	}
+	return false
 }
 
 // min returns the minimum of two integers
