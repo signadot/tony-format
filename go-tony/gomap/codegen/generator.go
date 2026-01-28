@@ -207,6 +207,7 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 	// Check if standard imports are needed
 	needsStrconv := false
 	needsUnsafe := false
+	needsReflect := false
 
 	for _, structInfo := range structs {
 		if structInfo.StructSchema == nil {
@@ -228,10 +229,19 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 					needsUnsafe = true
 				}
 			}
+			// Check for optional non-pointer struct fields (not time.Time) that need reflect
+			if field.Optional && field.Type.Kind() == reflect.Struct {
+				if !(field.TypePkgPath == "time" && field.TypeName == "Time") {
+					needsReflect = true
+				}
+			}
 		}
 	}
 
 	// Add other standard imports if needed
+	if needsReflect {
+		buf.WriteString(`	"reflect"` + "\n")
+	}
 	if needsStrconv {
 		buf.WriteString(`	"strconv"` + "\n")
 	}
@@ -417,8 +427,12 @@ func GenerateZeroValueHelpers(structs []*StructInfo) (string, error) {
 					buf.WriteString(fmt.Sprintf("func %s(v %s) bool {\n", helperName, typeStr))
 					buf.WriteString("	return v.IsZero()\n")
 					buf.WriteString("}\n\n")
+				} else {
+					// For other struct types, use reflect.ValueOf(v).IsZero()
+					buf.WriteString(fmt.Sprintf("func %s(v %s) bool {\n", helperName, typeStr))
+					buf.WriteString("	return reflect.ValueOf(v).IsZero()\n")
+					buf.WriteString("}\n\n")
 				}
-				// For other struct types, skip for now - they can be handled manually if needed
 
 			default:
 				// For other types, we might need a more sophisticated check

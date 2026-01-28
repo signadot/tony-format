@@ -1027,3 +1027,46 @@ func TestGenerateZeroValueHelpers_CompositeTypes(t *testing.T) {
 		})
 	}
 }
+
+// TestGenerateZeroValueHelpers_NestedStruct verifies that optional nested struct fields
+// get proper zero-value helpers using reflect.ValueOf(v).IsZero().
+func TestGenerateZeroValueHelpers_NestedStruct(t *testing.T) {
+	// Define a nested config struct type
+	type GatewayConfig struct {
+		Enabled   bool
+		Namespace string
+	}
+
+	structInfo := &StructInfo{
+		Name:    "Config",
+		Package: "example",
+		Fields: []*FieldInfo{
+			{
+				Name:            "Gateway",
+				SchemaFieldName: "gateway",
+				Type:            reflect.TypeOf(GatewayConfig{}),
+				StructTypeName:  "GatewayConfig",
+				Optional:        true,
+				// TypePkgPath and TypeName are empty for local types
+			},
+		},
+		StructSchema: &gomap.StructSchema{
+			SchemaName: "config",
+		},
+	}
+
+	code, err := GenerateZeroValueHelpers([]*StructInfo{structInfo})
+	if err != nil {
+		t.Fatalf("GenerateZeroValueHelpers failed: %v", err)
+	}
+
+	// Check that helper is generated for optional nested struct field
+	if !strings.Contains(code, "func isZeroValue_Config_Gateway") {
+		t.Errorf("Expected isZeroValue_Config_Gateway helper, got:\n%s", code)
+	}
+
+	// Check that it uses reflect.ValueOf(v).IsZero()
+	if !strings.Contains(code, "return reflect.ValueOf(v).IsZero()") {
+		t.Errorf("Expected reflect.ValueOf(v).IsZero() check for nested struct, got:\n%s", code)
+	}
+}
