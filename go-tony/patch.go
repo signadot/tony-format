@@ -11,25 +11,18 @@ import (
 	"github.com/signadot/tony-format/go-tony/mergeop"
 )
 
-// Patch applies a patch to a document. This is the backwards-compatible
-// version that doesn't use context. Use PatchWith for schema-aware patching.
-func Patch(doc, patch *ir.Node) (*ir.Node, error) {
-	return PatchWith(doc, patch, nil)
+// Patch applies a patch to a document with optional configuration.
+// Use PatchWith for schema-aware patching with full OpContext control.
+func Patch(doc, patch *ir.Node, opts ...mergeop.PatchOpt) (*ir.Node, error) {
+	cfg := mergeop.NewConfig(opts...)
+	ctx := &mergeop.OpContext{Config: cfg}
+	return doPatchWith(doc, patch.Clone(), ctx)
 }
 
 // PatchWith applies a patch to a document with the given context.
 // The context carries schema definitions for .[ref] expansion and behavioral options.
 func PatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) {
 	return doPatchWith(doc, patch.Clone(), ctx)
-}
-
-type PatchConfig struct {
-	Comments bool
-}
-type PatchOpt func(*PatchConfig)
-
-func PatchComments(v bool) PatchOpt {
-	return func(c *PatchConfig) { c.Comments = v }
 }
 
 // doPatch is the backwards-compatible version without context
@@ -61,6 +54,9 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 		op := mergeop.Lookup(tag)
 		if op == nil {
 			return nil, fmt.Errorf("no mergeop for tag %q", tag)
+		}
+		if ctx != nil && ctx.Config != nil && ctx.Config.RejectUnsafe && mergeop.Unsafe(tag) {
+			return nil, fmt.Errorf("unsafe operation %q rejected", tag)
 		}
 		opInst, err := op.Instance(child, args)
 		if err != nil {

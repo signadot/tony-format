@@ -26,11 +26,9 @@ type OpContext struct {
 
 	// === Behavioral Options ===
 
-	// Comments controls whether comments are included in match/patch/diff operations.
-	Comments bool
-
-	// Tags controls whether tags must match exactly in matching operations.
-	Tags bool
+	// Config holds user-facing behavioral options for patch operations.
+	// May be nil if no options were specified.
+	Config *PatchConfig
 }
 
 // Clone creates a shallow copy of the context with a fresh expanding map.
@@ -46,8 +44,7 @@ func (c *OpContext) Clone() *OpContext {
 		EvalOpts:       c.EvalOpts,
 		SchemaRegistry: c.SchemaRegistry,
 		expanding:      make(map[string]bool),
-		Comments:       c.Comments,
-		Tags:           c.Tags,
+		Config:         c.Config,
 	}
 }
 

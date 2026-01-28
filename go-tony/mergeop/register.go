@@ -80,3 +80,8 @@ func Symbols() []Symbol {
 	}
 	return res
 }
+
+// Unsafe returns true if the named merge op calls out to the system.
+func Unsafe(name string) bool {
+	return name == string(pipeName)
+}
