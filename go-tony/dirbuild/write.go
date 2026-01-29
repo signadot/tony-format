@@ -23,11 +23,11 @@ func (d *Dir) writeFlush(bw *bufio.Writer, dst []*ir.Node, opts ...encode.Encode
 }
 
 func (d *Dir) write(bw *bufio.Writer, dst []*ir.Node, opts ...encode.EncodeOption) error {
-	if d.DestDir != "" {
-		st, err := os.Stat(d.DestDir)
+	if d.Output.DestDir != "" {
+		st, err := os.Stat(d.Output.DestDir)
 		if err != nil {
 			if os.IsNotExist(err) {
-				err = os.MkdirAll(d.DestDir, 0755)
+				err = os.MkdirAll(d.Output.DestDir, 0755)
 				if err != nil {
 					return err
 				}
@@ -35,7 +35,7 @@ func (d *Dir) write(bw *bufio.Writer, dst []*ir.Node, opts ...encode.EncodeOptio
 				return err
 			}
 		} else if !st.IsDir() {
-			return fmt.Errorf("%s exists but is not a directory", filepath.Join(d.Root, d.DestDir))
+			return fmt.Errorf("%s exists but is not a directory", filepath.Join(d.Root, d.Output.DestDir))
 		}
 	}
 	j := 0
@@ -71,7 +71,7 @@ func (d *Dir) writeOut(w io.Writer, y *ir.Node, j, n int, opts ...encode.EncodeO
 	if err := encode.Encode(toEncode, wc, opts...); err != nil {
 		return err
 	}
-	if d.DestDir == "" && j != n-1 {
+	if d.Output.DestDir == "" && j != n-1 {
 		// doc separator
 		_, err = wc.Write([]byte{'-', '-', '-', '\n'})
 		return err
@@ -88,22 +88,22 @@ func (_ nopWriterCloser) Close() error {
 }
 
 func (d *Dir) writeCloser(w io.Writer, node *ir.Node, opts ...encode.EncodeOption) (io.WriteCloser, error) {
-	if d.DestDir == "" {
+	if d.Output.DestDir == "" {
 		return nopWriterCloser{Writer: w}, nil
 	}
-	fn := fileName(node)
+	fn := d.fileName(node)
 	n := d.nameCache[fn]
 	d.nameCache[fn] = n + 1
 	if n != 0 {
 		fn += "-" + strconv.Itoa(n)
 	}
 	// Use explicit suffix if set, otherwise derive from output format
-	suffix := d.Suffix
+	suffix := d.Output.Suffix
 	if suffix == "" {
 		suffix = encode.FormatSuffix(encode.FormatFromOpts(opts...))
 	}
 	fn += suffix
-	fp := filepath.Join(d.DestDir, fn)
+	fp := filepath.Join(d.Output.DestDir, fn)
 	f, err := os.OpenFile(fp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return nil, err

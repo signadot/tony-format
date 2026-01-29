@@ -24,9 +24,10 @@ type schema struct{}
 // variables for evaluation.
 type Dir struct {
 	schema  `tony:"schemagen=dir"`
-	Root    string              `tony:"omit"`     // Absolute path to the build directory
-	Suffix  string              `tony:"field=suffix"`  // Output file suffix (empty means derive from format)
-	DestDir string              `tony:"field=destDir"` // Output directory (empty means write to stdout)
+	Root    string              `tony:"omit"`          // Absolute path to the build directory
+	Suffix  string              `tony:"field=suffix"`  // Legacy output file suffix (use Output.Suffix instead)
+	DestDir string              `tony:"field=destDir"` // Legacy output directory (use Output.DestDir instead)
+	Output  *DirOutput          `tony:"field=output"`  // Structured output configuration
 	Sources []DirSource         `tony:"field=sources"` // Document sources to fetch from
 	Patches []DirPatch          `tony:"field=patches"` // Patches to apply to documents
 	Env     map[string]*ir.Node `tony:"field=env"`     // Environment variables for evaluation
@@ -102,7 +103,16 @@ func initDir(dir *Dir, node *ir.Node, path string, env map[string]*ir.Node) (*Di
 	if err := dir.FromTonyIR(oDir); err != nil {
 		return nil, err
 	}
-	// Suffix remains empty if not set, meaning derive from output format
+	// Normalize Output: if absent, create from legacy fields; if present, it wins.
+	if dir.Output == nil {
+		dir.Output = &DirOutput{
+			DestDir: dir.DestDir,
+			Suffix:  dir.Suffix,
+		}
+	}
+	if err := dir.Output.validate(); err != nil {
+		return nil, err
+	}
 
 	if dir.Env != nil {
 		tool := tony.DefaultTool()

@@ -21,6 +21,39 @@ type fileNamer struct {
 	Name string `tony:"field=name"`
 }
 
+// k8sFileName builds a filename from the k8s.filenames pattern.
+// The pattern is a dash-separated list of tokens (name, kind, namespace).
+func (fn *fileNamer) k8sFileName(pattern string) string {
+	tokens := strings.Split(pattern, "-")
+	parts := make([]string, 0, len(tokens))
+	for _, tok := range tokens {
+		switch tok {
+		case "name":
+			n := fn.Metadata.Name
+			if n == "" {
+				n = "obj"
+			}
+			parts = append(parts, n)
+		case "kind":
+			k := strings.ToLower(fn.Kind)
+			if k == "" {
+				k = "unknown"
+			}
+			parts = append(parts, k)
+		case "namespace":
+			ns := fn.Metadata.Namespace
+			if ns == "" {
+				ns = "default"
+			}
+			parts = append(parts, ns)
+		}
+	}
+	if len(parts) == 0 {
+		return "obj"
+	}
+	return strings.Join(parts, "-")
+}
+
 func (fn *fileNamer) FileName() string {
 	var (
 		name      string
@@ -44,7 +77,7 @@ func (fn *fileNamer) FileName() string {
 	return name + "-" + strings.ToLower(fn.Kind) + "-" + namespace
 }
 
-func fileName(node *ir.Node) string {
+func (d *Dir) fileName(node *ir.Node) string {
 	// Check for explicit !filename(name) tag first
 	if _, args := ir.TagGet(node.Tag, "!filename"); len(args) > 0 {
 		return args[0]
@@ -56,12 +89,17 @@ func fileName(node *ir.Node) string {
 		if err := gomap.FromTonyIR(node, name); err != nil {
 			return "obj"
 		}
+		// Use k8s.filenames pattern if configured and this is a k8s object
+		if d.Output != nil && d.Output.K8s != nil && d.Output.K8s.Filenames != "" &&
+			name.Kind != "" {
+			return name.k8sFileName(d.Output.K8s.Filenames)
+		}
 		return name.FileName()
 	case ir.ArrayType:
 		if len(node.Values) == 0 {
 			return "arr"
 		}
-		return "arr-" + fileName(node.Values[0])
+		return "arr-" + d.fileName(node.Values[0])
 	case ir.NumberType:
 		buf := bytes.NewBuffer(nil)
 		err := encode.Encode(node, buf)

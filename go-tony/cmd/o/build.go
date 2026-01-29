@@ -43,11 +43,11 @@ func build(cfg *BuildConfig, cc *cli.Context, args []string) error {
 		return nil
 	}
 	var w io.WriteCloser = cc.Out
-	if dir.DestDir != "" && cfg.Out == "" {
+	if dir.Output.DestDir != "" && cfg.Out == "" {
 		w = nil
 	}
 	if w != nil {
-		dir.DestDir = ""
+		dir.Output.DestDir = ""
 	}
 	for _, profile := range cfg.Profiles {
 		if profile == "-" {

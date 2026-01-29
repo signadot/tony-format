@@ -31,6 +31,15 @@ func (s *Dir) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Field: DestDir
 	irMap["destDir"] = ir.FromString(s.DestDir)
 
+	// Field: Output (optional)
+	if s.Output != nil {
+		node, err = s.Output.ToTonyIR()
+		if err != nil {
+			return nil, err
+		}
+		irMap["output"] = node
+	}
+
 	// Field: Sources
 	if len(s.Sources) > 0 {
 		slice := make([]*ir.Node, len(s.Sources))
@@ -111,6 +120,12 @@ func (s *Dir) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				return fmt.Errorf("field %q: expected string, got %v", "destDir", fieldNodeUnwrapped.Type)
 			}
 			s.DestDir = fieldNodeUnwrapped.String
+		case "output":
+			// Field: Output
+			s.Output = &DirOutput{}
+			if err := s.Output.FromTonyIR(fieldNode); err != nil {
+				return err
+			}
 		case "sources":
 			// Field: Sources
 			if fieldNodeUnwrapped.Type == ir.ArrayType {
@@ -328,6 +343,200 @@ func (s *DirSource) ToTony(opts ...gomap.MapOption) ([]byte, error) {
 
 // FromTony parses Tony format bytes and populates DirSource.
 func (s *DirSource) FromTony(data []byte, opts ...gomap.UnmapOption) error {
+	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
+	if err != nil {
+		return err
+	}
+	return s.FromTonyIR(node, opts...)
+}
+
+// ToTonyIR converts DirOutput to a Tony IR node.
+func (s *DirOutput) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
+	var node *ir.Node
+	var err error
+	_ = node // suppress unused variable error
+	_ = err  // suppress unused variable error
+
+	// Create IR object map
+	irMap := make(map[string]*ir.Node)
+
+	// Field: DestDir
+	irMap["destDir"] = ir.FromString(s.DestDir)
+
+	// Field: Suffix
+	irMap["suffix"] = ir.FromString(s.Suffix)
+
+	// Field: Filenames
+	irMap["filenames"] = ir.FromString(s.Filenames)
+
+	// Field: K8s (optional)
+	if s.K8s != nil {
+		node, err = s.K8s.ToTonyIR()
+		if err != nil {
+			return nil, err
+		}
+		irMap["k8s"] = node
+	}
+
+	return ir.FromMap(irMap).WithTag("!diroutput"), nil
+}
+
+// FromTonyIR populates DirOutput from a Tony IR node.
+func (s *DirOutput) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
+	if node.Type != ir.ObjectType {
+		return fmt.Errorf("expected map for DirOutput, got %v", node.Type)
+	}
+
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
+		switch fieldName.String {
+		case "destDir":
+			// Field: DestDir
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "destDir", fieldNodeUnwrapped.Type)
+			}
+			s.DestDir = fieldNodeUnwrapped.String
+		case "suffix":
+			// Field: Suffix
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "suffix", fieldNodeUnwrapped.Type)
+			}
+			s.Suffix = fieldNodeUnwrapped.String
+		case "filenames":
+			// Field: Filenames
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "filenames", fieldNodeUnwrapped.Type)
+			}
+			s.Filenames = fieldNodeUnwrapped.String
+		case "k8s":
+			// Field: K8s
+			s.K8s = &DirOutputK8s{}
+			if err := s.K8s.FromTonyIR(fieldNode); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// ToTony converts DirOutput to Tony format bytes.
+func (s *DirOutput) ToTony(opts ...gomap.MapOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// FromTony parses Tony format bytes and populates DirOutput.
+func (s *DirOutput) FromTony(data []byte, opts ...gomap.UnmapOption) error {
+	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
+	if err != nil {
+		return err
+	}
+	return s.FromTonyIR(node, opts...)
+}
+
+// ToTonyIR converts DirOutputK8s to a Tony IR node.
+func (s *DirOutputK8s) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
+	// Create IR object map
+	irMap := make(map[string]*ir.Node)
+
+	// Field: Filenames
+	irMap["filenames"] = ir.FromString(s.Filenames)
+
+	return ir.FromMap(irMap).WithTag("!diroutputk8s"), nil
+}
+
+// FromTonyIR populates DirOutputK8s from a Tony IR node.
+func (s *DirOutputK8s) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
+	if node.Type != ir.ObjectType {
+		return fmt.Errorf("expected map for DirOutputK8s, got %v", node.Type)
+	}
+
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
+		switch fieldName.String {
+		case "filenames":
+			// Field: Filenames
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "filenames", fieldNodeUnwrapped.Type)
+			}
+			s.Filenames = fieldNodeUnwrapped.String
+		}
+	}
+
+	return nil
+}
+
+// ToTony converts DirOutputK8s to Tony format bytes.
+func (s *DirOutputK8s) ToTony(opts ...gomap.MapOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// FromTony parses Tony format bytes and populates DirOutputK8s.
+func (s *DirOutputK8s) FromTony(data []byte, opts ...gomap.UnmapOption) error {
 	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
 	if err != nil {
 		return err
