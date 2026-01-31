@@ -255,7 +255,7 @@ build description object in the following form:
     # env describes the variables that can be set.  It can be any object
     # notation yt understands: tony, objects , json
     # env can be overriden on the command line with '-e path=val' or 
-    # '-- key1=val1 key2=val2 ...' or via the environmental variable YTOOL_ENV
+    # '-- key1=val1 key2=val2 ...' or via the environmental variable TONY_DIRBUILD_ENV
     # which may contain a patch for the env, such as '{debug: false}'.
     env:
       debug: true
@@ -293,7 +293,7 @@ Build can have the environment set in 4 ways
 1. in the build object file.
 2. using '-e path=value'
 3. using '-- path1=value1 path2=value2 ...'
-4. setting an environment patch in the OS environment variable $YTOOL_ENV
+4. setting an environment patch in the OS environment variable $TONY_DIRBUILD_ENV
 
 Arguments take precedence over the environment and later arguments take
 precedence over earlier ones. Both take precedence over the default environment
