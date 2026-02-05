@@ -127,6 +127,10 @@ func matchReader(dst []*ir.Node, cfg *MatchConfig, cc *cli.Context, match *ir.No
 		if err != nil {
 			return nil, fmt.Errorf("error decoding document %d: %w", i, err)
 		}
+		if y == nil {
+			// skip empty documents
+			continue
+		}
 		m, err := tony.Match(y, match)
 		if err != nil {
 			return nil, fmt.Errorf("error matching document %d: %w", i, err)
