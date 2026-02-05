@@ -1,7 +1,8 @@
 !issue
-Ref: refs/closed/523kc52rh12kr3k2ghmg
+Ref: refs/issues/523kc52rh12kr3k2ghmg
 Title: "o match input empty document crashes"
+closed_by: "5bfa0b60043de8af9ba8e82440bb67475ddeb6dc"
 created: "2026-02-05T10:25:34.763705+01:00"
 id: "523kc52rh12kr3k2ghmg"
-status: open
-updated: "2026-02-05T10:28:22.402237+01:00"
+status: closed
+updated: "2026-02-05T10:28:58.80305+01:00"
