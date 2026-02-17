@@ -1587,8 +1587,13 @@ func getMapValueTypeName(field *FieldInfo, valueType reflect.Type, currentPkgPat
 // getFieldTypeName returns the qualified type name for a field, preferring stored type info
 // over reflection since reflect.Type may lose named type info when constructed via reflect.StructOf.
 func getFieldTypeName(field *FieldInfo, currentPkg string) string {
-	// Handle composite types FIRST - the stored type info (TypeName, StructTypeName, TypePkgPath)
-	// refers to the element/value type, not the full composite type.
+	// GoTypeExpr is the authoritative source when available — it's built from the AST
+	// during type resolution and preserves named type identity at all nesting depths.
+	if field.GoTypeExpr != "" {
+		return field.GoTypeExpr
+	}
+
+	// Fallback for fields not produced by the type resolver (e.g. test-constructed FieldInfo).
 	if field.Type != nil {
 		switch field.Type.Kind() {
 		case reflect.Slice:
@@ -1598,10 +1603,8 @@ func getFieldTypeName(field *FieldInfo, currentPkg string) string {
 		case reflect.Ptr:
 			return "*" + getFieldElementTypeName(field, currentPkg)
 		case reflect.Map:
-			// For maps, StructTypeName is ambiguous (could be key or value struct),
-			// so always use reflection for both key and value types.
 			keyType := getQualifiedTypeName(field.Type.Key(), currentPkg)
-			valType := getQualifiedTypeName(field.Type.Elem(), currentPkg)
+			valType := getFieldElementTypeName(field, currentPkg)
 			return fmt.Sprintf("map[%s]%s", keyType, valType)
 		}
 	}

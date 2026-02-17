@@ -1,6 +1,9 @@
 package codegen
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"reflect"
 	"strings"
 	"testing"
@@ -962,38 +965,44 @@ func TestGenerateZeroValueHelpers_SliceOfStruct(t *testing.T) {
 
 // TestGenerateZeroValueHelpers_CompositeTypes verifies that various composite types
 // (slices, arrays, maps, pointers) get correct type signatures in zero-value helpers.
+// These tests use GoTypeExpr (the production path) as the authoritative type source.
 func TestGenerateZeroValueHelpers_CompositeTypes(t *testing.T) {
 	type Inner struct{ X int }
 
 	tests := []struct {
 		name           string
 		fieldType      reflect.Type
+		goTypeExpr     string
 		structTypeName string
 		wantSignature  string
 	}{
 		{
 			name:           "slice of struct",
 			fieldType:      reflect.TypeOf([]Inner{}),
+			goTypeExpr:     "[]Inner",
 			structTypeName: "Inner",
 			wantSignature:  "(v []Inner)",
 		},
 		{
 			name:           "array of struct",
 			fieldType:      reflect.TypeOf([3]Inner{}),
+			goTypeExpr:     "[3]Inner",
 			structTypeName: "Inner",
 			wantSignature:  "(v [3]Inner)",
 		},
 		{
 			name:           "map with struct value",
 			fieldType:      reflect.TypeOf(map[string]Inner{}),
+			goTypeExpr:     "map[string]codegen.Inner",
 			structTypeName: "Inner",
-			wantSignature:  "(v map[string]codegen.Inner)", // codegen prefix because Inner is from different package than "example"
+			wantSignature:  "(v map[string]codegen.Inner)",
 		},
 		{
 			name:           "map with struct key",
 			fieldType:      reflect.TypeOf(map[Inner]string{}),
+			goTypeExpr:     "map[codegen.Inner]string",
 			structTypeName: "Inner",
-			wantSignature:  "(v map[codegen.Inner]string)", // codegen prefix because Inner is from different package than "example"
+			wantSignature:  "(v map[codegen.Inner]string)",
 		},
 	}
 
@@ -1007,6 +1016,7 @@ func TestGenerateZeroValueHelpers_CompositeTypes(t *testing.T) {
 						Name:            "Field",
 						SchemaFieldName: "field",
 						Type:            tt.fieldType,
+						GoTypeExpr:      tt.goTypeExpr,
 						StructTypeName:  tt.structTypeName,
 						Optional:        true,
 					},
@@ -1027,7 +1037,6 @@ func TestGenerateZeroValueHelpers_CompositeTypes(t *testing.T) {
 		})
 	}
 }
-
 // TestGenerateZeroValueHelpers_NestedStruct verifies that optional nested struct fields
 // get proper zero-value helpers using reflect.ValueOf(v).IsZero().
 func TestGenerateZeroValueHelpers_NestedStruct(t *testing.T) {
@@ -1068,5 +1077,132 @@ func TestGenerateZeroValueHelpers_NestedStruct(t *testing.T) {
 	// Check that it uses reflect.ValueOf(v).IsZero()
 	if !strings.Contains(code, "return reflect.ValueOf(v).IsZero()") {
 		t.Errorf("Expected reflect.ValueOf(v).IsZero() check for nested struct, got:\n%s", code)
+	}
+}
+
+// TestGenerateZeroValueHelpers_GoTypeExpr verifies that GoTypeExpr is used as the
+// authoritative type string, even when reflect.Type has lost named type identity
+// (as happens in production with reflect.StructOf/reflect.MapOf).
+func TestGenerateZeroValueHelpers_GoTypeExpr(t *testing.T) {
+	// Simulate production: reflect.StructOf produces an anonymous struct, and
+	// reflect.MapOf wraps it. Both lose Name()/PkgPath(). GoTypeExpr must
+	// be the source of truth.
+	anonStruct := reflect.StructOf([]reflect.StructField{})
+
+	tests := []struct {
+		name          string
+		fieldType     reflect.Type
+		goTypeExpr    string
+		wantSignature string
+	}{
+		{
+			name:          "map[string]StructType via synthesized types",
+			fieldType:     reflect.MapOf(reflect.TypeOf(""), anonStruct),
+			goTypeExpr:    "map[string]RepoConfig",
+			wantSignature: "(v map[string]RepoConfig)",
+		},
+		{
+			name:          "[]map[string]StructType — two levels of nesting",
+			fieldType:     reflect.SliceOf(reflect.MapOf(reflect.TypeOf(""), anonStruct)),
+			goTypeExpr:    "[]map[string]RepoConfig",
+			wantSignature: "(v []map[string]RepoConfig)",
+		},
+		{
+			name:          "map[string]*StructType — pointer in map value",
+			fieldType:     reflect.MapOf(reflect.TypeOf(""), reflect.PointerTo(anonStruct)),
+			goTypeExpr:    "map[string]*RepoConfig",
+			wantSignature: "(v map[string]*RepoConfig)",
+		},
+		{
+			name:          "map[string][]StructType — slice in map value",
+			fieldType:     reflect.MapOf(reflect.TypeOf(""), reflect.SliceOf(anonStruct)),
+			goTypeExpr:    "map[string][]RepoConfig",
+			wantSignature: "(v map[string][]RepoConfig)",
+		},
+		{
+			name:          "map[string]pkg.Type — cross-package",
+			fieldType:     reflect.MapOf(reflect.TypeOf(""), anonStruct),
+			goTypeExpr:    "map[string]api.RepoConfig",
+			wantSignature: "(v map[string]api.RepoConfig)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			structInfo := &StructInfo{
+				Name:    "Test",
+				Package: "example",
+				Fields: []*FieldInfo{
+					{
+						Name:            "Field",
+						SchemaFieldName: "field",
+						Type:            tt.fieldType,
+						GoTypeExpr:      tt.goTypeExpr,
+						Optional:        true,
+					},
+				},
+				StructSchema: &gomap.StructSchema{
+					SchemaName: "test",
+				},
+			}
+
+			code, err := GenerateZeroValueHelpers([]*StructInfo{structInfo})
+			if err != nil {
+				t.Fatalf("GenerateZeroValueHelpers failed: %v", err)
+			}
+
+			if !strings.Contains(code, tt.wantSignature) {
+				t.Errorf("Expected signature %q, got:\n%s", tt.wantSignature, code)
+			}
+		})
+	}
+}
+
+// TestBuildGoTypeExpr verifies that buildGoTypeExpr correctly reconstructs Go type
+// strings from AST expressions for all recursive type shapes.
+func TestBuildGoTypeExpr(t *testing.T) {
+	tests := []struct {
+		typeExpr string
+		want     string
+	}{
+		{"string", "string"},
+		{"int", "int"},
+		{"Foo", "Foo"},
+		{"pkg.Foo", "pkg.Foo"},
+		{"*Foo", "*Foo"},
+		{"*pkg.Foo", "*pkg.Foo"},
+		{"[]Foo", "[]Foo"},
+		{"[]pkg.Foo", "[]pkg.Foo"},
+		{"[3]Foo", "[3]Foo"},
+		{"map[string]Foo", "map[string]Foo"},
+		{"map[string]pkg.Foo", "map[string]pkg.Foo"},
+		{"map[Foo]Bar", "map[Foo]Bar"},
+		// Arbitrary nesting — the cases that previously failed
+		{"map[string]*Foo", "map[string]*Foo"},
+		{"map[string][]Foo", "map[string][]Foo"},
+		{"[]map[string]Foo", "[]map[string]Foo"},
+		{"[]map[string]*Foo", "[]map[string]*Foo"},
+		{"map[string]map[string]Foo", "map[string]map[string]Foo"},
+		{"map[string][]map[string]*pkg.Foo", "map[string][]map[string]*pkg.Foo"},
+		{"*[]map[string]Foo", "*[]map[string]Foo"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.typeExpr, func(t *testing.T) {
+			src := "package p\nvar x " + tt.typeExpr
+			fset := token.NewFileSet()
+			f, err := parser.ParseFile(fset, "", src, 0)
+			if err != nil {
+				t.Fatalf("failed to parse type expr %q: %v", tt.typeExpr, err)
+			}
+			decl := f.Decls[0].(*ast.GenDecl)
+			spec := decl.Specs[0].(*ast.ValueSpec)
+			astType := spec.Type
+
+			got := buildGoTypeExpr(astType)
+			if got != tt.want {
+				t.Errorf("buildGoTypeExpr(%q) = %q, want %q", tt.typeExpr, got, tt.want)
+			}
+		})
 	}
 }

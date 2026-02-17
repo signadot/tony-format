@@ -81,6 +81,12 @@ type FieldInfo struct {
 	// IsEmbedded indicates if this is an embedded field
 	IsEmbedded bool
 
+	// GoTypeExpr is the Go type expression string built from the AST during type resolution.
+	// Unlike reflect.Type, this preserves named type identity at all nesting depths
+	// (e.g. "map[string]*RepoConfig", "[]map[string]Foo").
+	// When set, this is the authoritative source for the field's Go type string in codegen.
+	GoTypeExpr string
+
 	// StructTypeName stores the struct type name when Type is a struct type.
 	// This is needed because reflect.StructOf creates anonymous types.
 	StructTypeName string

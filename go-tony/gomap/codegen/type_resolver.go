@@ -119,11 +119,15 @@ func ResolveFieldTypes(structs []*StructInfo, pkgDir string, pkgName string) err
 				return fmt.Errorf("failed to resolve type for field %q.%q: %w", s.Name, field.Name, err)
 			}
 			field.Type = typ
-			// For slice/array types, structName contains the element type name
-			// For pointer types, structName contains the pointed-to type name
-			// We need to preserve this so we can generate correct code
-			// IMPORTANT: structName is the named type (e.g., "PendingFileRef", "api.Patch")
-			// not the underlying type. This is what we need for code generation.
+
+			// Build the Go type expression from the AST. This is the authoritative
+			// source for type strings in codegen — it preserves named type identity
+			// at all nesting depths, unlike reflect.Type which loses names for types
+			// built via reflect.StructOf.
+			if field.ASTType != nil {
+				field.GoTypeExpr = buildGoTypeExpr(field.ASTType)
+			}
+
 			if structName != "" {
 				field.StructTypeName = structName
 			}
@@ -492,6 +496,51 @@ func (r *TypeResolver) resolveIdentType(name string, currentStructName string) (
 	// We'll return a placeholder int for now if it's not found, assuming it's a named basic type.
 	// The caller (resolveASTType) will get the real types.Type from go/types.
 	return reflect.TypeOf(int(0)), "", "", "", nil
+}
+
+// buildGoTypeExpr builds a Go type expression string from an AST type expression.
+// This produces the source-level type string suitable for code generation in the same package.
+// Unlike reflect.Type (which loses named type identity for types built via reflect.StructOf),
+// this preserves names at all nesting depths (e.g. "map[string]*RepoConfig", "[]map[string]Foo").
+func buildGoTypeExpr(expr ast.Expr) string {
+	if expr == nil {
+		return ""
+	}
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.SelectorExpr:
+		if ident, ok := t.X.(*ast.Ident); ok {
+			return ident.Name + "." + t.Sel.Name
+		}
+		return ""
+	case *ast.StarExpr:
+		return "*" + buildGoTypeExpr(t.X)
+	case *ast.ArrayType:
+		if t.Len == nil {
+			return "[]" + buildGoTypeExpr(t.Elt)
+		}
+		if lit, ok := t.Len.(*ast.BasicLit); ok {
+			return "[" + lit.Value + "]" + buildGoTypeExpr(t.Elt)
+		}
+		return "[]" + buildGoTypeExpr(t.Elt)
+	case *ast.MapType:
+		return "map[" + buildGoTypeExpr(t.Key) + "]" + buildGoTypeExpr(t.Value)
+	case *ast.InterfaceType:
+		return "interface{}"
+	case *ast.ChanType:
+		elem := buildGoTypeExpr(t.Value)
+		switch t.Dir {
+		case ast.SEND:
+			return "chan<- " + elem
+		case ast.RECV:
+			return "<-chan " + elem
+		default:
+			return "chan " + elem
+		}
+	default:
+		return ""
+	}
 }
 
 // resolveBasicType resolves a basic Go type name to a reflect.Type.
