@@ -416,10 +416,13 @@ func NewPatchEvent(commit int64, path string, patch *ir.Node) *SessionResponse {
 	}
 }
 
-// NewReplayCompleteEvent creates a replay complete marker event.
-func NewReplayCompleteEvent() *SessionResponse {
+// NewReplayCompleteEvent creates a replay complete marker event for the given
+// watch path. The path lets clients route the marker to the correct watcher
+// when multiplexing several watches over one connection.
+func NewReplayCompleteEvent(path string) *SessionResponse {
 	return &SessionResponse{
 		Event: &WatchEvent{
+			Path:           path,
 			ReplayComplete: true,
 		},
 	}

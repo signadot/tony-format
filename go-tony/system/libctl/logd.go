@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -16,7 +17,14 @@ import (
 )
 
 // LogdSession manages a controller's session with logd.
-// It handles connection, reconnection with backoff, and the session protocol.
+//
+// The logd session protocol is asynchronous and multiplexed: every request may
+// carry an id that its response echoes, and the server also pushes unsolicited
+// watch events (which carry no id). LogdSession models this directly. A single
+// connection is shared by all operations; a read-pump goroutine demultiplexes
+// incoming messages, routing responses to the request that is waiting on their
+// id and routing events to the matching Watch by path. This lets many watches
+// and in-flight requests share one connection.
 type LogdSession struct {
 	addr     string
 	clientID string
@@ -24,13 +32,17 @@ type LogdSession struct {
 
 	mu        sync.Mutex
 	conn      net.Conn
-	decoder   *stream.Decoder
 	connected bool
 	serverID  string
+	closed    bool
+	readErr   error // last read-pump failure, surfaced to blocked callers
+
+	nextID   uint64                               // request id counter
+	pending  map[string]chan *api.SessionResponse // in-flight requests by id
+	watchers map[string]*Watch                    // active watches by path
 
 	// For shutdown
-	done   chan struct{}
-	closed bool
+	done chan struct{}
 }
 
 // LogdSessionConfig contains configuration for connecting to logd.
@@ -57,6 +69,8 @@ func NewLogdSession(cfg *LogdSessionConfig) *LogdSession {
 		addr:     cfg.Addr,
 		clientID: cfg.ClientID,
 		log:      log.With("component", "logd-session"),
+		pending:  make(map[string]chan *api.SessionResponse),
+		watchers: make(map[string]*Watch),
 		done:     make(chan struct{}),
 	}
 }
@@ -74,6 +88,8 @@ func (s *LogdSession) Connect(ctx context.Context) error {
 }
 
 // connectLocked establishes connection with retry (must hold mutex).
+// On success it performs the hello handshake synchronously and then starts the
+// read-pump goroutine, which owns the decoder from that point on.
 func (s *LogdSession) connectLocked(ctx context.Context) error {
 	backoff := 100 * time.Millisecond
 	maxBackoff := 5 * time.Second
@@ -113,13 +129,12 @@ func (s *LogdSession) connectLocked(ctx context.Context) error {
 			return fmt.Errorf("failed to create decoder: %w", err)
 		}
 
-		// Send hello
+		// Perform the hello handshake synchronously, before the read-pump
+		// takes over the decoder.
 		if err := s.sendHello(conn); err != nil {
 			conn.Close()
 			return fmt.Errorf("hello failed: %w", err)
 		}
-
-		// Read hello response
 		resp, err := s.readResponseWith(decoder)
 		if err != nil {
 			conn.Close()
@@ -135,10 +150,12 @@ func (s *LogdSession) connectLocked(ctx context.Context) error {
 		}
 
 		s.conn = conn
-		s.decoder = decoder
 		s.connected = true
 		s.serverID = resp.Result.Hello.ServerID
+		s.readErr = nil
 		s.log.Info("connected to logd", "addr", s.addr, "serverID", s.serverID)
+
+		go s.readPump(conn, decoder)
 		return nil
 	}
 }
@@ -153,7 +170,7 @@ func (s *LogdSession) sendHello(conn net.Conn) error {
 	return s.sendRequestTo(conn, req)
 }
 
-// ensureConnected checks connection and reconnects if needed.
+// ensureConnected checks connection and reconnects if needed (must hold mutex).
 func (s *LogdSession) ensureConnected(ctx context.Context) error {
 	if s.connected {
 		return nil
@@ -161,86 +178,225 @@ func (s *LogdSession) ensureConnected(ctx context.Context) error {
 	return s.connectLocked(ctx)
 }
 
-// disconnect marks the connection as broken (must hold mutex).
-func (s *LogdSession) disconnect() {
-	s.connected = false
-	if s.conn != nil {
-		s.conn.Close()
-		s.conn = nil
-	}
-	s.decoder = nil
+// newIDLocked returns a fresh request id (must hold mutex).
+func (s *LogdSession) newIDLocked() string {
+	s.nextID++
+	return strconv.FormatUint(s.nextID, 10)
 }
 
 // Match performs a match query at the given path.
 func (s *LogdSession) Match(ctx context.Context, path string) (*ir.Node, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if err := s.ensureConnected(ctx); err != nil {
-		return nil, err
-	}
-
-	req := &api.SessionRequest{
+	resp, err := s.request(ctx, &api.SessionRequest{
 		Match: &api.MatchRequest{
-			Body: api.PathData{
-				Path: path,
-			},
+			Body: api.PathData{Path: path},
 		},
-	}
-
-	resp, err := s.doRequest(req)
+	})
 	if err != nil {
-		s.disconnect()
 		return nil, err
 	}
-
 	if resp.Error != nil {
 		return nil, fmt.Errorf("match error: %s", resp.Error.Message)
 	}
 	if resp.Result == nil || resp.Result.Match == nil {
 		return nil, fmt.Errorf("unexpected response: no match result")
 	}
-
 	return resp.Result.Match.Body, nil
 }
 
 // Patch applies a patch operation at the given path.
 func (s *LogdSession) Patch(ctx context.Context, path string, data *ir.Node) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if err := s.ensureConnected(ctx); err != nil {
-		return err
-	}
-
-	req := &api.SessionRequest{
+	resp, err := s.request(ctx, &api.SessionRequest{
 		Patch: &api.PatchRequest{
-			PathData: api.PathData{
-				Path: path,
-				Data: data,
-			},
+			PathData: api.PathData{Path: path, Data: data},
 		},
-	}
-
-	resp, err := s.doRequest(req)
+	})
 	if err != nil {
-		s.disconnect()
 		return err
 	}
-
 	if resp.Error != nil {
 		return fmt.Errorf("patch error: %s", resp.Error.Message)
 	}
-
 	return nil
 }
 
-// doRequest sends a request and reads the response (must hold mutex).
-func (s *LogdSession) doRequest(req *api.SessionRequest) (*api.SessionResponse, error) {
-	if err := s.sendRequestTo(s.conn, req); err != nil {
+// request sends a request and waits for its correlated response. It assigns a
+// unique id, registers a reply channel that the read-pump delivers to, sends
+// the request, and blocks until the response arrives, the context is cancelled,
+// the session closes, or the connection fails.
+func (s *LogdSession) request(ctx context.Context, req *api.SessionRequest) (*api.SessionResponse, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-s.done:
+		return nil, fmt.Errorf("session closed")
+	default:
+	}
+
+	s.mu.Lock()
+	if err := s.ensureConnected(ctx); err != nil {
+		s.mu.Unlock()
 		return nil, err
 	}
-	return s.readResponseWith(s.decoder)
+
+	id := s.newIDLocked()
+	req.ID = &id
+	replyCh := make(chan *api.SessionResponse, 1)
+	s.pending[id] = replyCh
+
+	// Write while holding the mutex so concurrent requests don't interleave
+	// bytes on the wire.
+	if err := s.sendRequestTo(s.conn, req); err != nil {
+		delete(s.pending, id)
+		conn, pending, watchers := s.teardownLocked(err)
+		s.mu.Unlock()
+		releaseResources(conn, pending, watchers, err)
+		return nil, err
+	}
+	s.mu.Unlock()
+
+	select {
+	case resp, ok := <-replyCh:
+		if !ok {
+			// Channel closed by teardown: the connection failed.
+			return nil, s.connError()
+		}
+		return resp, nil
+	case <-ctx.Done():
+		s.mu.Lock()
+		delete(s.pending, id)
+		s.mu.Unlock()
+		return nil, ctx.Err()
+	case <-s.done:
+		return nil, fmt.Errorf("session closed")
+	}
+}
+
+// readPump reads documents from the connection and demultiplexes them: events
+// (no id) are routed to the matching Watch by path; everything else is a
+// response routed to the request waiting on its id. It runs until the
+// connection fails or is closed.
+func (s *LogdSession) readPump(conn net.Conn, decoder *stream.Decoder) {
+	for {
+		node, err := readDocument(decoder)
+		if err != nil {
+			s.failConn(conn, err)
+			return
+		}
+
+		var resp api.SessionResponse
+		if err := resp.FromTonyIR(node); err != nil {
+			s.failConn(conn, fmt.Errorf("failed to parse response: %w", err))
+			return
+		}
+
+		if resp.Event != nil {
+			s.routeEvent(resp.Event)
+			continue
+		}
+
+		s.deliverResponse(&resp)
+	}
+}
+
+// deliverResponse routes a response to the request waiting on its id.
+func (s *LogdSession) deliverResponse(resp *api.SessionResponse) {
+	s.mu.Lock()
+	var ch chan *api.SessionResponse
+	if resp.ID != nil {
+		ch = s.pending[*resp.ID]
+		delete(s.pending, *resp.ID)
+	}
+	s.mu.Unlock()
+
+	if ch == nil {
+		s.log.Warn("dropping response with no matching request", "id", resp.ID)
+		return
+	}
+	ch <- resp // buffered (cap 1); never blocks
+}
+
+// routeEvent routes a watch event to the Watch registered for its path.
+func (s *LogdSession) routeEvent(ev *api.WatchEvent) {
+	s.mu.Lock()
+	w := s.watchers[ev.Path]
+	s.mu.Unlock()
+
+	if w == nil {
+		// The watch may have just been closed; drop the event.
+		return
+	}
+	w.deliver(ev)
+}
+
+// failConn tears down the connection after a read-pump failure, but only if
+// conn is still the session's current connection (guards against a stale pump
+// from a previous connection).
+func (s *LogdSession) failConn(conn net.Conn, err error) {
+	s.mu.Lock()
+	if s.conn != conn {
+		s.mu.Unlock()
+		return
+	}
+	c, pending, watchers := s.teardownLocked(err)
+	s.mu.Unlock()
+	releaseResources(c, pending, watchers, err)
+}
+
+// teardownLocked resets connection state and returns the resources that must be
+// released after the mutex is dropped (the connection, the in-flight request
+// channels, and the active watches). Must hold the mutex.
+func (s *LogdSession) teardownLocked(err error) (net.Conn, map[string]chan *api.SessionResponse, map[string]*Watch) {
+	conn := s.conn
+	pending := s.pending
+	watchers := s.watchers
+
+	s.conn = nil
+	s.connected = false
+	s.pending = make(map[string]chan *api.SessionResponse)
+	s.watchers = make(map[string]*Watch)
+	if err != nil {
+		s.readErr = err
+	}
+	return conn, pending, watchers
+}
+
+// releaseResources closes the connection, unblocks waiting requests (by closing
+// their reply channels), and fails active watches. Called without the mutex.
+func releaseResources(conn net.Conn, pending map[string]chan *api.SessionResponse, watchers map[string]*Watch, err error) {
+	if conn != nil {
+		conn.Close()
+	}
+	for _, ch := range pending {
+		close(ch)
+	}
+	for _, w := range watchers {
+		w.fail(err)
+	}
+}
+
+// disconnect tears down the current connection. Callers must hold the mutex.
+// Exposed for tests that simulate a connection break.
+func (s *LogdSession) disconnect() {
+	conn, pending, watchers := s.teardownLocked(fmt.Errorf("disconnected"))
+	releaseResources(conn, pending, watchers, fmt.Errorf("disconnected"))
+}
+
+// connError reports why a blocked request was unblocked by a connection
+// failure.
+func (s *LogdSession) connError() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.readErr != nil {
+		return fmt.Errorf("connection lost: %w", s.readErr)
+	}
+	return fmt.Errorf("connection lost")
+}
+
+// removeWatcher unregisters a watch by path.
+func (s *LogdSession) removeWatcher(path string) {
+	s.mu.Lock()
+	delete(s.watchers, path)
+	s.mu.Unlock()
 }
 
 // sendRequestTo sends a request to the given connection.
@@ -255,7 +411,8 @@ func (s *LogdSession) sendRequestTo(conn net.Conn, req *api.SessionRequest) erro
 	return nil
 }
 
-// readResponseWith reads a response using the given decoder.
+// readResponseWith reads a single response using the given decoder. Used only
+// for the synchronous hello handshake; afterwards the read-pump owns reads.
 func (s *LogdSession) readResponseWith(decoder *stream.Decoder) (*api.SessionResponse, error) {
 	node, err := readDocument(decoder)
 	if err != nil {
@@ -312,19 +469,19 @@ func (s *LogdSession) Connected() bool {
 	return s.connected
 }
 
-// Close shuts down the session and closes the connection.
+// Close shuts down the session and closes the connection. Any active watches
+// are failed and in-flight requests are unblocked.
 func (s *LogdSession) Close() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.closed {
+		s.mu.Unlock()
 		return nil
 	}
 	s.closed = true
 	close(s.done)
+	conn, pending, watchers := s.teardownLocked(fmt.Errorf("session closed"))
+	s.mu.Unlock()
 
-	if s.conn != nil {
-		return s.conn.Close()
-	}
+	releaseResources(conn, pending, watchers, fmt.Errorf("session closed"))
 	return nil
 }

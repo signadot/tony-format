@@ -650,7 +650,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 			}
 		}
 
-		s.send(api.NewReplayCompleteEvent())
+		s.send(api.NewReplayCompleteEvent(path))
 	}
 
 	// Forward live events, skipping any already replayed
@@ -671,8 +671,9 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 			if notification.Commit <= lastReplayedCommit {
 				continue
 			}
-			// Strip internal tags and send event
-			tx.StripPatchRootTagRecursive(notification.Patch)
+			// The patch has already been stripped of internal tags by the hub
+			// (WatchHub.Broadcast), which hands each notification an independent
+			// copy. Forwarding it is read-only.
 			s.send(api.NewPatchEvent(notification.Commit, path, notification.Patch))
 		}
 	}

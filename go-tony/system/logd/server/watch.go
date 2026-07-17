@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 // DefaultBroadcastTimeout is the default timeout for sending events to watchers.
@@ -117,6 +118,29 @@ func (h *WatchHub) Broadcast(n *storage.CommitNotification) {
 		}
 	}
 	h.mu.RUnlock()
+
+	if len(targets) == 0 {
+		return
+	}
+
+	// The committed patch is shared with the commit path, which strips its
+	// internal !logd-patch-root tags immediately after notifying (see
+	// tx.doCommit). Hand watchers an independent, already-stripped copy so
+	// their read-only forwarding never races with that mutation, or with each
+	// other. The copy is made here on the committing goroutine, before those
+	// strips run and before any watcher goroutine observes the notification.
+	if n.Patch != nil {
+		clean := n.Patch.DeepCopy()
+		tx.StripPatchRootTagRecursive(clean)
+		n = &storage.CommitNotification{
+			Commit:    n.Commit,
+			TxSeq:     n.TxSeq,
+			Timestamp: n.Timestamp,
+			KPaths:    n.KPaths,
+			Patch:     clean,
+			ScopeID:   n.ScopeID,
+		}
+	}
 
 	// Send to each target with timeout
 	var failedWatchers []*Watcher

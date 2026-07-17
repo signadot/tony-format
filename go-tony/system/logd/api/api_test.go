@@ -155,7 +155,7 @@ func TestSessionResponse_RoundTrip(t *testing.T) {
 		},
 		{
 			name: "replay complete event",
-			response: NewReplayCompleteEvent(),
+			response: NewReplayCompleteEvent("users"),
 		},
 		{
 			name: "error response",
