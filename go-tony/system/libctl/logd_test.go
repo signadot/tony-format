@@ -228,3 +228,108 @@ func TestLogdSession_MountClientIntegration(t *testing.T) {
 		t.Errorf("expected name='Alice', got %v", nameNode.String)
 	}
 }
+
+func TestLogdSession_Scope(t *testing.T) {
+	srv := startLogd(t)
+	ctx := context.Background()
+
+	baseline := NewLogdSession(&LogdSessionConfig{
+		Addr:     srv.TCPAddr(),
+		ClientID: "baseline",
+	})
+	defer baseline.Close()
+
+	scoped := NewLogdSession(&LogdSessionConfig{
+		Addr:     srv.TCPAddr(),
+		ClientID: "scoped",
+		Scope:    "sandbox1",
+	})
+	defer scoped.Close()
+
+	if baseline.Scope() != "" {
+		t.Errorf("baseline Scope() = %q, want empty", baseline.Scope())
+	}
+	if scoped.Scope() != "sandbox1" {
+		t.Errorf("scoped Scope() = %q, want %q", scoped.Scope(), "sandbox1")
+	}
+
+	// Baseline writes two records.
+	if err := baseline.Patch(ctx, "users/alice", ir.FromMap(map[string]*ir.Node{
+		"name": ir.FromString("Alice"),
+	})); err != nil {
+		t.Fatalf("baseline Patch alice failed: %v", err)
+	}
+	if err := baseline.Patch(ctx, "users/bob", ir.FromMap(map[string]*ir.Node{
+		"name": ir.FromString("Bob"),
+	})); err != nil {
+		t.Fatalf("baseline Patch bob failed: %v", err)
+	}
+
+	// Scope overrides alice only.
+	if err := scoped.Patch(ctx, "users/alice", ir.FromMap(map[string]*ir.Node{
+		"name": ir.FromString("Alice in Sandbox"),
+	})); err != nil {
+		t.Fatalf("scoped Patch alice failed: %v", err)
+	}
+
+	matchName := func(t *testing.T, s *LogdSession, path string) string {
+		t.Helper()
+		result, err := s.Match(ctx, path)
+		if err != nil {
+			t.Fatalf("Match %q failed: %v", path, err)
+		}
+		nameNode, err := result.GetPath("$.name")
+		if err != nil {
+			t.Fatalf("GetPath on %q failed: %v", path, err)
+		}
+		if nameNode == nil {
+			return ""
+		}
+		return nameNode.String
+	}
+
+	// Isolation: baseline still sees the baseline value.
+	if got := matchName(t, baseline, "users/alice"); got != "Alice" {
+		t.Errorf("baseline alice = %q, want %q", got, "Alice")
+	}
+	// Scope sees its own override.
+	if got := matchName(t, scoped, "users/alice"); got != "Alice in Sandbox" {
+		t.Errorf("scoped alice = %q, want %q", got, "Alice in Sandbox")
+	}
+	// COW: scope sees baseline data for paths it hasn't modified.
+	if got := matchName(t, scoped, "users/bob"); got != "Bob" {
+		t.Errorf("scoped bob = %q, want %q (COW from baseline)", got, "Bob")
+	}
+}
+
+func TestLogdSession_DeleteScope(t *testing.T) {
+	srv := startLogd(t)
+	ctx := context.Background()
+
+	scoped := NewLogdSession(&LogdSessionConfig{
+		Addr:     srv.TCPAddr(),
+		ClientID: "scoped",
+		Scope:    "to-delete",
+	})
+	defer scoped.Close()
+
+	if err := scoped.Patch(ctx, "data", ir.FromString("scoped")); err != nil {
+		t.Fatalf("scoped Patch failed: %v", err)
+	}
+
+	// A scoped session cannot delete scopes.
+	if err := scoped.DeleteScope(ctx, "to-delete"); err == nil {
+		t.Error("expected DeleteScope from a scoped session to fail")
+	}
+
+	// A baseline session can.
+	baseline := NewLogdSession(&LogdSessionConfig{
+		Addr:     srv.TCPAddr(),
+		ClientID: "baseline",
+	})
+	defer baseline.Close()
+
+	if err := baseline.DeleteScope(ctx, "to-delete"); err != nil {
+		t.Fatalf("baseline DeleteScope failed: %v", err)
+	}
+}

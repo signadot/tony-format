@@ -28,6 +28,7 @@ import (
 type LogdSession struct {
 	addr     string
 	clientID string
+	scope    *string // COW scope for this session; nil = baseline
 	log      *slog.Logger
 
 	mu        sync.Mutex
@@ -53,6 +54,14 @@ type LogdSessionConfig struct {
 	// ClientID identifies this client to logd
 	ClientID string
 
+	// Scope selects a copy-on-write scope for the session. When non-empty, every
+	// operation on the session (match, patch, watch, newtx) is isolated to this
+	// scope: reads see the scope's data overlaid on baseline (COW), and writes
+	// go to the scope without touching baseline. When empty, the session operates
+	// on baseline, which is also the only kind of session that may DeleteScope or
+	// modify the schema.
+	Scope string
+
 	// Log is an optional logger
 	Log *slog.Logger
 }
@@ -65,9 +74,16 @@ func NewLogdSession(cfg *LogdSessionConfig) *LogdSession {
 		log = slog.Default()
 	}
 
+	var scope *string
+	if cfg.Scope != "" {
+		s := cfg.Scope
+		scope = &s
+	}
+
 	return &LogdSession{
 		addr:     cfg.Addr,
 		clientID: cfg.ClientID,
+		scope:    scope,
 		log:      log.With("component", "logd-session"),
 		pending:  make(map[string]chan *api.SessionResponse),
 		watchers: make(map[string]*Watch),
@@ -165,6 +181,7 @@ func (s *LogdSession) sendHello(conn net.Conn) error {
 	req := &api.SessionRequest{
 		Hello: &api.Hello{
 			ClientID: s.clientID,
+			Scope:    s.scope,
 		},
 	}
 	return s.sendRequestTo(conn, req)
@@ -215,6 +232,24 @@ func (s *LogdSession) Patch(ctx context.Context, path string, data *ir.Node) err
 	}
 	if resp.Error != nil {
 		return fmt.Errorf("patch error: %s", resp.Error.Message)
+	}
+	return nil
+}
+
+// DeleteScope deletes a copy-on-write scope and all of its data. It is only
+// valid from a baseline session (one created with an empty Scope); logd rejects
+// the request otherwise.
+func (s *LogdSession) DeleteScope(ctx context.Context, scopeID string) error {
+	resp, err := s.request(ctx, &api.SessionRequest{
+		DeleteScope: &api.DeleteScopeRequest{
+			ScopeID: scopeID,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	if resp.Error != nil {
+		return fmt.Errorf("deleteScope error: %s", resp.Error.Message)
 	}
 	return nil
 }
@@ -460,6 +495,15 @@ func (s *LogdSession) ServerID() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.serverID
+}
+
+// Scope returns the session's copy-on-write scope, or "" for a baseline
+// session.
+func (s *LogdSession) Scope() string {
+	if s.scope == nil {
+		return ""
+	}
+	return *s.scope
 }
 
 // Connected returns whether the session is currently connected.
