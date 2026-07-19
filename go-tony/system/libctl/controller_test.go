@@ -516,6 +516,63 @@ func TestDocd_MetaMounts(t *testing.T) {
 	}
 }
 
+// TestDocd_MetaSchemaAndIndex proves docd serves per-mount schema contributions
+// at .meta/schema and a resource index at .meta, and that concurrent schema
+// reads are safe (the stored schema node is cloned per response).
+func TestDocd_MetaSchemaAndIndex(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+
+	schema := ir.FromMap(map[string]*ir.Node{"marker": ir.FromString("myschema")})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errc := make(chan error, 1)
+	go func() {
+		errc <- RunController(ctx, &ControllerConfig{
+			DocdAddr: docd.TCPAddr(), Controller: "sc", Path: "/users",
+			Schema: schema, Handler: newMemController(),
+		})
+	}()
+	waitMount(t, docd, "/users")
+
+	client := docdClient(t, docd, "admin")
+
+	// .meta lists available resources.
+	idx, err := client.Match(context.Background(), ".meta")
+	if err != nil {
+		t.Fatalf("meta index match failed: %v", err)
+	}
+	idxStr, _ := gomap.ToString(idx, gomap.EncodeWire(true))
+	for _, want := range []string{"mounts", "schema"} {
+		if !strings.Contains(idxStr, want) {
+			t.Errorf(".meta index missing %q; got: %s", want, idxStr)
+		}
+	}
+
+	// Concurrent .meta/schema reads (two clients) must both succeed and see the
+	// contribution — exercises the clone-per-response path under -race.
+	client2 := docdClient(t, docd, "admin2")
+	var wg sync.WaitGroup
+	for _, c := range []*LogdSession{client, client2} {
+		wg.Add(1)
+		go func(sess *LogdSession) {
+			defer wg.Done()
+			body, err := sess.Match(context.Background(), ".meta/schema")
+			if err != nil {
+				t.Errorf("meta schema match failed: %v", err)
+				return
+			}
+			s, _ := gomap.ToString(body, gomap.EncodeWire(true))
+			for _, want := range []string{"/users", "myschema"} {
+				if !strings.Contains(s, want) {
+					t.Errorf(".meta/schema missing %q; got: %s", want, s)
+				}
+			}
+		}(c)
+	}
+	wg.Wait()
+}
+
 // expectEvent reads the next event from a watch within a timeout.
 func expectEvent(t *testing.T, w *Watch) *api.WatchEvent {
 	t.Helper()

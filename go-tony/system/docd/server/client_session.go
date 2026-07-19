@@ -165,8 +165,12 @@ func (s *ClientSession) serveMeta(req *logdapi.SessionRequest) {
 
 	var body *ir.Node
 	switch metaLeaf(req.Match.Body.Path) {
+	case "":
+		body = metaIndexDoc()
 	case "mounts":
 		body = mountsDoc(s.server.Mounts.List())
+	case "schema":
+		body = schemaDoc(s.server.Mounts.List())
 	default:
 		body = ir.Null()
 	}

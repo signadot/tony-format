@@ -26,39 +26,43 @@ func DocDCommand(mainCfg *MainConfig) *cli.Command {
 		WithDescription("docd document server commands").
 		WithSubs(
 			DocDServeCommand(cfg),
-			DocDMountsCommand(cfg))
+			DocDMetaCommand(cfg, "mounts", "list controller mounts on a running docd"),
+			DocDMetaCommand(cfg, "schema", "show per-mount schema contributions on a running docd"))
 }
 
-type DocDMountsConfig struct {
+type DocDMetaConfig struct {
 	*DocDConfig
-	Mounts *cli.Command
-	Addr   string `cli:"name=addr desc='docd client-facing address' default=localhost:9124"`
+	Cmd      *cli.Command
+	resource string
+	Addr     string `cli:"name=addr desc='docd client-facing address' default=localhost:9124"`
 }
 
-func DocDMountsCommand(docdCfg *DocDConfig) *cli.Command {
-	cfg := &DocDMountsConfig{DocDConfig: docdCfg, Addr: "localhost:9124"}
+// DocDMetaCommand builds a subcommand that reads one docd .meta resource (e.g.
+// "mounts", "schema") from a running docd and renders it.
+func DocDMetaCommand(docdCfg *DocDConfig, resource, desc string) *cli.Command {
+	cfg := &DocDMetaConfig{DocDConfig: docdCfg, resource: resource, Addr: "localhost:9124"}
 	opts, err := cli.StructOpts(cfg)
 	if err != nil {
 		panic(err)
 	}
-	return cli.NewCommandAt(&cfg.Mounts, "mounts").
-		WithSynopsis("mounts [-addr <addr>]").
-		WithDescription("list controller mounts on a running docd").
+	return cli.NewCommandAt(&cfg.Cmd, resource).
+		WithSynopsis(resource + " [-addr <addr>]").
+		WithDescription(desc).
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
-			return docdMounts(cfg, cc, args)
+			return docdMeta(cfg, cc, args)
 		})
 }
 
-func docdMounts(cfg *DocDMountsConfig, cc *cli.Context, args []string) error {
-	if _, err := cfg.Mounts.Parse(cc, args); err != nil {
+func docdMeta(cfg *DocDMetaConfig, cc *cli.Context, args []string) error {
+	if _, err := cfg.Cmd.Parse(cc, args); err != nil {
 		return err
 	}
 
-	// Query docd's mount registry over the normal client protocol.
+	// Query docd's .meta over the normal client protocol.
 	session := libctl.NewLogdSession(&libctl.LogdSessionConfig{
 		Addr:     cfg.Addr,
-		ClientID: "o-docd-mounts",
+		ClientID: "o-docd-" + cfg.resource,
 		// Quiet: this is a one-shot query, not a long-lived session.
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
@@ -67,7 +71,7 @@ func docdMounts(cfg *DocDMountsConfig, cc *cli.Context, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	body, err := session.Match(ctx, ".meta/mounts")
+	body, err := session.Match(ctx, ".meta/"+cfg.resource)
 	if err != nil {
 		return fmt.Errorf("failed to query docd at %s: %w", cfg.Addr, err)
 	}
