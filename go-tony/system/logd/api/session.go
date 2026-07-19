@@ -313,6 +313,7 @@ const (
 	ErrCodeTimeout         = "timeout"           // Operation timed out
 	ErrCodeScopeExists     = "scope_exists"      // Scope already exists
 	ErrCodeScopeNotFound   = "scope_not_found"   // Scope not found
+	ErrCodeUnsupported     = "unsupported"       // Operation not supported by the responder (e.g. a controller declining an op it does not implement)
 
 	// Schema/migration error codes
 	ErrCodeMigrationInProgress   = "migration_in_progress"    // Cannot start migration when one is already in progress
@@ -466,4 +467,3 @@ func NewMigrationResponse(id *string, completed bool, commit int64) *SessionResp
 		},
 	}
 }
-

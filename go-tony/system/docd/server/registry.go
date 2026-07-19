@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -9,10 +10,10 @@ import (
 
 // MountEntry represents a registered controller mount.
 type MountEntry struct {
-	Path       string           // The mounted path
-	Controller string           // Controller identifier
-	Schema     *ir.Node         // Schema for this path
-	Session    *MountSession    // The session that owns this mount
+	Path       string        // The mounted path
+	Controller string        // Controller identifier
+	Schema     *ir.Node      // Schema for this path
+	Session    *MountSession // The session that owns this mount
 }
 
 // MountRegistry tracks controller mount registrations.
@@ -61,11 +62,62 @@ func (r *MountRegistry) UnregisterBySession(session *MountSession) {
 	}
 }
 
-// Lookup returns the mount entry for a path, or nil if not mounted.
+// Lookup returns the mount entry for an exact path, or nil if not mounted.
 func (r *MountRegistry) Lookup(path string) *MountEntry {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.mounts[path]
+}
+
+// LookupPrefix returns the mount entry that owns opPath — the registered mount
+// whose path is a segment-prefix of opPath — choosing the longest (most
+// specific) match when several apply. Returns nil when opPath is not under any
+// mount (a base path served directly from logd).
+func (r *MountRegistry) LookupPrefix(opPath string) *MountEntry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var best *MountEntry
+	bestLen := -1
+	for _, entry := range r.mounts {
+		mp := splitPathSegments(entry.Path)
+		if !hasSegmentPrefix(splitPathSegments(opPath), mp) {
+			continue
+		}
+		if len(mp) > bestLen {
+			best = entry
+			bestLen = len(mp)
+		}
+	}
+	return best
+}
+
+// splitPathSegments normalizes a mount or operation path into its segments,
+// tolerating leading/trailing slashes (mount paths carry a leading "/", client
+// op paths generally do not).
+func splitPathSegments(p string) []string {
+	p = strings.Trim(p, "/")
+	if p == "" {
+		return nil
+	}
+	return strings.Split(p, "/")
+}
+
+// hasSegmentPrefix reports whether prefix is a segment-wise prefix of path. An
+// empty prefix (a root mount) matches everything.
+func hasSegmentPrefix(path, prefix []string) bool {
+	if len(prefix) == 0 {
+		return true
+	}
+	if len(path) < len(prefix) {
+		return false
+	}
+	for i := range prefix {
+		if path[i] != prefix[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // List returns all current mounts.

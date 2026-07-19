@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/stream"
 	"github.com/signadot/tony-format/go-tony/system/docd/api"
+	logdapi "github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
 // MountSession represents a controller mount connection to docd.
@@ -25,8 +27,27 @@ type MountSession struct {
 	mountPath    string
 	schema       *ir.Node
 
+	// Routing state (post-handshake). docd forwards client ops to the controller
+	// over this connection using the logd session protocol, assigning its own ids
+	// so that ops from many client sessions can multiplex onto the one controller
+	// connection. routes maps a docd-assigned id to the client waiting on it.
+	routeMu sync.Mutex
+	nextID  uint64
+	routes  map[string]*routeEntry
+	writeMu sync.Mutex // serializes writes to the controller connection
+
 	done      chan struct{}
 	closeOnce sync.Once
+}
+
+// routeEntry records the client a routed operation belongs to, so the
+// controller's response (correlated by the docd-assigned id) can be delivered
+// back with the client's original id restored.
+type routeEntry struct {
+	client   *ClientSession
+	clientID *string // the client's original request id, restored on the way back
+	path     string
+	isWatch  bool // watches keep their route alive to forward streaming events
 }
 
 // MountSessionConfig contains configuration for creating a session.
@@ -46,6 +67,7 @@ func NewMountSession(id string, conn io.ReadWriteCloser, cfg *MountSessionConfig
 		conn:   conn,
 		server: cfg.Server,
 		log:    log.With("session", id),
+		routes: make(map[string]*routeEntry),
 		done:   make(chan struct{}),
 	}
 }
@@ -67,31 +89,196 @@ func (s *MountSession) Run() error {
 
 	s.log.Info("controller mounted", "controller", s.controllerID, "path", s.mountPath)
 
-	// After handshake, wait for operations or connection close
-	// TODO: Handle PATCH operations from docd to controller
-	// For now, we just wait for the connection to close by reading
-	for {
-		select {
-		case <-s.done:
-			return nil
-		default:
-		}
+	// After handshake the controller speaks the logd session protocol for its
+	// subtree: docd sends it match/patch/watch requests and it replies with
+	// results, errors, and watch events. Pump those responses back to the
+	// clients waiting on them until the connection closes.
+	return s.readPump(decoder)
+}
 
-		// Try to read - this will return error/EOF when connection closes
-		_, err := s.readDocument(decoder)
+// readPump reads responses from the controller and dispatches each to the
+// client that issued the correlated request. It runs until the connection
+// closes or errors, failing any in-flight routes on the way out.
+func (s *MountSession) readPump(decoder *stream.Decoder) error {
+	for {
+		node, err := s.readDocument(decoder)
 		if err != nil {
-			if err == io.EOF {
-				return nil // Clean disconnect
-			}
-			// Check if we're shutting down
 			select {
 			case <-s.done:
+				s.failAllRoutes(fmt.Errorf("controller session closed"))
 				return nil
 			default:
 			}
+			if err == io.EOF {
+				s.failAllRoutes(fmt.Errorf("controller disconnected"))
+				return nil
+			}
+			s.failAllRoutes(err)
 			return fmt.Errorf("read error: %w", err)
 		}
-		// TODO: Handle incoming messages from controller (e.g., PATCH responses)
+
+		var resp logdapi.SessionResponse
+		if err := resp.FromTonyIR(node); err != nil {
+			s.log.Error("failed to parse controller response", "error", err)
+			continue
+		}
+		s.dispatch(&resp)
+	}
+}
+
+// dispatch delivers a single controller response to the appropriate client.
+// Watch events (id-less) are handled separately; results and errors are
+// correlated by the docd-assigned id.
+func (s *MountSession) dispatch(resp *logdapi.SessionResponse) {
+	if resp.Event != nil {
+		s.forwardEvent(resp)
+		return
+	}
+	if resp.ID == nil {
+		s.log.Warn("dropping controller response with no id")
+		return
+	}
+
+	s.routeMu.Lock()
+	entry := s.routes[*resp.ID]
+	if entry != nil {
+		// A successful watch confirmation keeps its route alive so the streaming
+		// events that follow can be forwarded; everything else is one-shot.
+		keep := entry.isWatch && resp.Result != nil && resp.Result.Watch != nil
+		if !keep {
+			delete(s.routes, *resp.ID)
+		}
+	}
+	s.routeMu.Unlock()
+
+	if entry == nil {
+		s.log.Warn("dropping controller response for unknown route", "id", *resp.ID)
+		return
+	}
+
+	resp.ID = entry.clientID // restore the client's original id
+	if err := entry.client.writeToClient(resp); err != nil {
+		s.log.Debug("failed to forward controller response to client", "error", err)
+	}
+}
+
+// forwardEvent forwards a streaming watch event to the client that owns the
+// watch. The controller stamps events with the docd-assigned route id; docd
+// strips it before delivery because clients route events by path, as with logd.
+func (s *MountSession) forwardEvent(resp *logdapi.SessionResponse) {
+	if resp.ID == nil {
+		s.log.Warn("dropping controller watch event with no route id")
+		return
+	}
+	s.routeMu.Lock()
+	entry := s.routes[*resp.ID]
+	s.routeMu.Unlock()
+	if entry == nil {
+		return // watch already torn down
+	}
+	resp.ID = nil // events are id-less to the client
+	if err := entry.client.writeToClient(resp); err != nil {
+		s.log.Debug("failed to forward watch event to client", "error", err)
+	}
+}
+
+// RouteRequest forwards a client operation to the controller under a fresh
+// docd-assigned id, recording the route so the response can be sent back to the
+// originating client. An unwatch first tears down the matching watch route.
+func (s *MountSession) RouteRequest(cs *ClientSession, req *logdapi.SessionRequest) {
+	if req.Unwatch != nil {
+		s.dropWatch(cs, req.Unwatch.Path)
+	}
+
+	s.routeMu.Lock()
+	s.nextID++
+	docdID := strconv.FormatUint(s.nextID, 10)
+	s.routes[docdID] = &routeEntry{
+		client:   cs,
+		clientID: req.ID,
+		path:     requestPath(req),
+		isWatch:  req.Watch != nil,
+	}
+	s.routeMu.Unlock()
+
+	cs.trackMount(s)
+
+	// Copy so we can rewrite the id without mutating the client's request.
+	out := *req
+	out.ID = &docdID
+	if err := s.writeToController(&out); err != nil {
+		s.routeMu.Lock()
+		delete(s.routes, docdID)
+		s.routeMu.Unlock()
+		_ = cs.writeToClient(logdapi.NewErrorResponse(req.ID, logdapi.ErrCodeSessionClosed,
+			fmt.Sprintf("controller %q unavailable: %v", s.controllerID, err)))
+	}
+}
+
+// writeToController encodes and writes a request to the controller connection,
+// serialized so concurrent client routes do not interleave on the wire.
+func (s *MountSession) writeToController(req *logdapi.SessionRequest) error {
+	data, err := req.ToTony(gomap.EncodeWire(true))
+	if err != nil {
+		return fmt.Errorf("failed to encode request: %w", err)
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := s.conn.Write(append(data, '\n')); err != nil {
+		return fmt.Errorf("failed to write to controller: %w", err)
+	}
+	return nil
+}
+
+// dropWatch removes the watch route(s) a client holds for a path, stopping event
+// forwarding to it. Called when the client unwatches.
+func (s *MountSession) dropWatch(cs *ClientSession, path string) {
+	s.routeMu.Lock()
+	defer s.routeMu.Unlock()
+	for id, e := range s.routes {
+		if e.client == cs && e.isWatch && e.path == path {
+			delete(s.routes, id)
+		}
+	}
+}
+
+// dropClient removes every route a departing client holds and best-effort tells
+// the controller to stop the client's watches.
+func (s *MountSession) dropClient(cs *ClientSession) {
+	s.routeMu.Lock()
+	var unwatch []string
+	for id, e := range s.routes {
+		if e.client == cs {
+			if e.isWatch {
+				unwatch = append(unwatch, e.path)
+			}
+			delete(s.routes, id)
+		}
+	}
+	s.routeMu.Unlock()
+
+	for _, path := range unwatch {
+		_ = s.writeToController(&logdapi.SessionRequest{
+			Unwatch: &logdapi.UnwatchRequest{Path: path},
+		})
+	}
+}
+
+// failAllRoutes drops every route and tells the waiting clients that in-flight
+// (non-watch) operations will not complete. Called when the controller
+// connection ends.
+func (s *MountSession) failAllRoutes(err error) {
+	s.routeMu.Lock()
+	entries := s.routes
+	s.routes = make(map[string]*routeEntry)
+	s.routeMu.Unlock()
+
+	for _, e := range entries {
+		if e.isWatch {
+			continue // the watch simply stops delivering events
+		}
+		_ = e.client.writeToClient(logdapi.NewErrorResponse(e.clientID,
+			logdapi.ErrCodeSessionClosed, "controller disconnected: "+err.Error()))
 	}
 }
 
