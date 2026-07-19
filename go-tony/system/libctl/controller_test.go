@@ -2,6 +2,7 @@ package libctl
 
 import (
 	"context"
+	"net"
 	"strings"
 	"sync"
 	"testing"
@@ -11,6 +12,8 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 	docdserver "github.com/signadot/tony-format/go-tony/system/docd/server"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
+	logdserver "github.com/signadot/tony-format/go-tony/system/logd/server"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 )
 
 // memController is a reference in-memory controller for tests. It stores patched
@@ -285,6 +288,74 @@ func TestDocd_RemountClearsTombstone(t *testing.T) {
 	ctrl2.mu.Unlock()
 	if !ok {
 		t.Fatal("remounted controller did not receive the patch")
+	}
+}
+
+// freeAddr reserves and releases a loopback TCP address so a server can be
+// (re)started on it shortly after.
+func freeAddr(t *testing.T) string {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("freeAddr: %v", err)
+	}
+	addr := l.Addr().String()
+	l.Close()
+	return addr
+}
+
+// startLogdAt starts a logd server on a specific address.
+func startLogdAt(t *testing.T, addr string) *logdserver.Server {
+	t.Helper()
+	store, err := storage.Open(t.TempDir(), nil)
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+	t.Cleanup(func() { store.Close() })
+
+	srv := logdserver.New(&logdserver.Spec{Storage: store})
+	if err := srv.StartTCP(addr); err != nil {
+		t.Fatalf("failed to start logd at %s: %v", addr, err)
+	}
+	t.Cleanup(func() { srv.StopTCP() })
+	return srv
+}
+
+// TestDocd_LogdDialBackoff proves docd retries its logd dial with backoff: a
+// client connects while logd is down, and its operation completes once logd
+// comes up (rather than failing immediately).
+func TestDocd_LogdDialBackoff(t *testing.T) {
+	addr := freeAddr(t) // logd not started yet
+
+	docd := docdserver.New(&docdserver.Spec{LogdAddr: addr})
+	if err := docd.StartClientTCP("127.0.0.1:0"); err != nil {
+		t.Fatalf("failed to start docd client listener: %v", err)
+	}
+	t.Cleanup(func() { docd.StopClientTCP() })
+
+	client := docdClient(t, docd, "client")
+
+	// The client connects to docd immediately; docd retries the logd dial while
+	// logd is down.
+	matchErr := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, err := client.Match(ctx, "") // root match returns cleanly on an empty store
+		matchErr <- err
+	}()
+
+	// Bring logd up after a delay; the pending operation should then complete.
+	time.Sleep(300 * time.Millisecond)
+	startLogdAt(t, addr)
+
+	select {
+	case err := <-matchErr:
+		if err != nil {
+			t.Fatalf("expected match to succeed once logd started: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("match did not complete after logd started")
 	}
 }
 

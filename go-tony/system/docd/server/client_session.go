@@ -45,7 +45,15 @@ type ClientSession struct {
 
 	mountsMu   sync.Mutex
 	usedMounts map[*MountSession]struct{} // mounts this client routed to, for teardown
+
+	done      chan struct{} // closed on Close, to abort the logd dial-retry
+	closeOnce sync.Once
 }
+
+// logdConnectTimeout bounds how long a client session retries dialing logd
+// before giving up (and failing the client, which reconnects). Generous enough
+// to cover startup ordering and brief logd unavailability.
+const logdConnectTimeout = 30 * time.Second
 
 // ClientSessionConfig contains configuration for creating a client session.
 type ClientSessionConfig struct {
@@ -66,6 +74,7 @@ func NewClientSession(id string, conn net.Conn, cfg *ClientSessionConfig) *Clien
 		log:        log.With("session", id),
 		logdAddr:   cfg.Server.Spec.LogdAddr,
 		usedMounts: make(map[*MountSession]struct{}),
+		done:       make(chan struct{}),
 	}
 }
 
@@ -81,9 +90,9 @@ func (s *ClientSession) Run() error {
 	}
 	s.clientDec = clientDec
 
-	logdConn, err := net.DialTimeout("tcp", s.logdAddr, 5*time.Second)
+	logdConn, err := s.connectLogd()
 	if err != nil {
-		return fmt.Errorf("failed to connect to logd at %s: %w", s.logdAddr, err)
+		return err
 	}
 	defer logdConn.Close()
 	s.logd = logdConn
@@ -277,9 +286,49 @@ func (s *ClientSession) cleanupMounts() {
 	}
 }
 
+// connectLogd dials logd, retrying with exponential backoff so that startup
+// ordering and brief logd unavailability do not needlessly fail the client. It
+// gives up after logdConnectTimeout (the client then reconnects) or when the
+// session is closed. Mid-session logd drops are not reconnected here — the
+// session tears down and the client's own LogdSession reconnects and replays
+// its watches, so docd need not duplicate that resilience.
+func (s *ClientSession) connectLogd() (net.Conn, error) {
+	backoff := 100 * time.Millisecond
+	const maxBackoff = 5 * time.Second
+	deadline := time.Now().Add(logdConnectTimeout)
+
+	for {
+		select {
+		case <-s.done:
+			return nil, fmt.Errorf("session closed")
+		default:
+		}
+
+		conn, err := net.DialTimeout("tcp", s.logdAddr, 5*time.Second)
+		if err == nil {
+			return conn, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("logd unavailable at %s: %w", s.logdAddr, err)
+		}
+		s.log.Debug("logd dial failed, retrying", "addr", s.logdAddr, "error", err, "backoff", backoff)
+
+		select {
+		case <-s.done:
+			return nil, fmt.Errorf("session closed")
+		case <-time.After(backoff):
+		}
+		if backoff *= 2; backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+}
+
 // Close closes the client connection, which cascades through Run to the logd
-// connection and unblocks both pumps. Safe to call more than once.
+// connection and unblocks both pumps, and aborts any in-progress logd dial.
+// Safe to call more than once.
 func (s *ClientSession) Close() error {
+	s.closeOnce.Do(func() { close(s.done) })
 	return s.conn.Close()
 }
 
