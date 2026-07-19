@@ -29,8 +29,12 @@ type Pool struct {
 	conn      net.Conn
 	decoder   *stream.Decoder
 	pools     map[int][]int64 // participants -> available TxIDs
-	poolSize  int             // how many to pre-fetch per participant count
+	poolSize  int             // target count per participant count
 	connected bool
+
+	// refillCh signals the background refiller to top a participant count back up
+	// to poolSize after a Get drains one, so Gets keep being served from cache.
+	refillCh chan int
 
 	// For shutdown
 	done   chan struct{}
@@ -56,13 +60,16 @@ func New(cfg *Config) *Pool {
 		log = slog.Default()
 	}
 
-	return &Pool{
+	p := &Pool{
 		logdAddr: cfg.LogdAddr,
 		log:      log.With("component", "txpool"),
 		pools:    make(map[int][]int64),
 		poolSize: poolSize,
+		refillCh: make(chan int, 64),
 		done:     make(chan struct{}),
 	}
+	go p.refillLoop()
+	return p
 }
 
 // Connect establishes connection to logd with retry.
@@ -233,14 +240,17 @@ func (p *Pool) Get(ctx context.Context, participants int) (int64, error) {
 		}
 	}
 
-	// Check pool for existing TxID
+	// Serve from the pool when possible, and refill in the background so the
+	// next Get is also served without a logd round trip.
 	if ids, ok := p.pools[participants]; ok && len(ids) > 0 {
 		txID := ids[0]
 		p.pools[participants] = ids[1:]
+		p.triggerRefill(participants)
 		return txID, nil
 	}
 
-	// Need to fetch a new one
+	// Cache miss (cold or exhausted): fetch inline as a fallback, then warm the
+	// cache for subsequent Gets.
 	txID, err := p.fetchTxID(participants)
 	if err != nil {
 		// Connection might be broken, mark as disconnected for retry
@@ -252,7 +262,64 @@ func (p *Pool) Get(ctx context.Context, participants int) (int64, error) {
 		return 0, fmt.Errorf("failed to fetch txID: %w", err)
 	}
 
+	p.triggerRefill(participants)
 	return txID, nil
+}
+
+// triggerRefill nudges the background refiller to top up a participant count.
+// Non-blocking: if a nudge is already queued, the refiller tops up to poolSize
+// anyway, so dropping this one loses nothing.
+func (p *Pool) triggerRefill(participants int) {
+	select {
+	case p.refillCh <- participants:
+	default:
+	}
+}
+
+// refillLoop tops up participant counts in the background as they are drained,
+// so Gets keep being served from cache. This is the point of pooling: amortize
+// the logd round trips instead of paying one per transaction.
+func (p *Pool) refillLoop() {
+	for {
+		select {
+		case <-p.done:
+			return
+		case participants := <-p.refillCh:
+			p.topUp(participants)
+		}
+	}
+}
+
+// topUp fetches TxIDs until the participant count's pool reaches poolSize, or
+// until the pool is disconnected/closed. Each fetch takes the lock only for one
+// round trip, so concurrent Gets interleave rather than waiting for the whole
+// batch.
+func (p *Pool) topUp(participants int) {
+	for {
+		select {
+		case <-p.done:
+			return
+		default:
+		}
+
+		p.mu.Lock()
+		if !p.connected || len(p.pools[participants]) >= p.poolSize {
+			p.mu.Unlock()
+			return
+		}
+		txID, err := p.fetchTxID(participants)
+		if err != nil {
+			p.connected = false
+			if p.conn != nil {
+				p.conn.Close()
+				p.conn = nil
+			}
+			p.mu.Unlock()
+			return // a later Get will reconnect and re-trigger
+		}
+		p.pools[participants] = append(p.pools[participants], txID)
+		p.mu.Unlock()
+	}
 }
 
 // fetchTxID requests a new transaction ID from logd (must hold mutex).
