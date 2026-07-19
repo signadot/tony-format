@@ -312,16 +312,17 @@ const (
 	ErrCodeNotWatching     = "not_watching"
 	ErrCodeAlreadyWatching = "already_watching"
 	ErrCodeCommitNotFound  = "commit_not_found"
-	ErrCodeInvalidTx       = "invalid_tx"        // Invalid transaction parameters
-	ErrCodeTxNotFound      = "tx_not_found"      // Transaction ID not found
-	ErrCodeTxFull          = "tx_full"           // Transaction already has all participants
-	ErrCodeTxScopeMismatch = "tx_scope_mismatch" // Participant scope doesn't match transaction scope
-	ErrCodeMatchFailed     = "match_failed"      // Transaction match condition failed
-	ErrCodeReplayFailed    = "replay_failed"     // Watch replay failed, data may be incomplete
-	ErrCodeTimeout         = "timeout"           // Operation timed out
-	ErrCodeScopeExists     = "scope_exists"      // Scope already exists
-	ErrCodeScopeNotFound   = "scope_not_found"   // Scope not found
-	ErrCodeUnsupported     = "unsupported"       // Operation not supported by the responder (e.g. a controller declining an op it does not implement)
+	ErrCodeInvalidTx       = "invalid_tx"             // Invalid transaction parameters
+	ErrCodeTxNotFound      = "tx_not_found"           // Transaction ID not found
+	ErrCodeTxFull          = "tx_full"                // Transaction already has all participants
+	ErrCodeTxScopeMismatch = "tx_scope_mismatch"      // Participant scope doesn't match transaction scope
+	ErrCodeMatchFailed     = "match_failed"           // Transaction match condition failed
+	ErrCodeReplayFailed    = "replay_failed"          // Watch replay failed, data may be incomplete
+	ErrCodeTimeout         = "timeout"                // Operation timed out
+	ErrCodeScopeExists     = "scope_exists"           // Scope already exists
+	ErrCodeScopeNotFound   = "scope_not_found"        // Scope not found
+	ErrCodeUnsupported     = "unsupported"            // Operation not supported by the responder (e.g. a controller declining an op it does not implement)
+	ErrCodeUnavailable     = "controller_unavailable" // The controller owning a mounted subtree has crashed/disconnected and not yet remounted
 
 	// Schema/migration error codes
 	ErrCodeMigrationInProgress   = "migration_in_progress"    // Cannot start migration when one is already in progress

@@ -158,22 +158,22 @@ func TestMount_CleanupOnClose(t *testing.T) {
 		t.Fatalf("Mount failed: %v", err)
 	}
 
-	// Verify mount exists
-	if srv.Mounts.Lookup("/users") == nil {
+	// Verify mount is live
+	if !srv.Mounts.Lookup("/users").Live() {
 		t.Fatal("expected mount to be registered")
 	}
 
 	// Close client
 	client.Close()
 
-	// Wait for cleanup (poll with timeout)
+	// After close the mount is tombstoned (present but not live), not removed.
 	for i := 0; i < 100; i++ {
-		if srv.Mounts.Lookup("/users") == nil {
-			return // Success
+		if e := srv.Mounts.Lookup("/users"); e != nil && !e.Live() {
+			return // Success: tombstoned
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Error("expected mount to be unregistered after close")
+	t.Error("expected mount to be tombstoned after close")
 }
 
 func TestMount_MultipleControllers(t *testing.T) {

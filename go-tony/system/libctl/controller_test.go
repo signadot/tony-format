@@ -140,7 +140,7 @@ func runController(t *testing.T, docd *docdserver.Server, path string, h Handler
 			t.Fatalf("controller exited early: %v", err)
 		default:
 		}
-		if docd.Mounts.Lookup(path) != nil {
+		if docd.Mounts.Lookup(path).Live() {
 			return
 		}
 		time.Sleep(5 * time.Millisecond)
@@ -163,17 +163,30 @@ func (c *blockingMatchController) Match(ctx context.Context, path string, patter
 	return ir.Null(), ctx.Err()
 }
 
-// waitMount waits for a controller mount to register with docd.
+// waitMount waits for a controller mount to become live in docd.
 func waitMount(t *testing.T, docd *docdserver.Server, path string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if docd.Mounts.Lookup(path) != nil {
+		if docd.Mounts.Lookup(path).Live() {
 			return
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatalf("mount %q did not register", path)
+}
+
+// waitTombstone waits for a mount to become tombstoned (present but not live).
+func waitTombstone(t *testing.T, docd *docdserver.Server, path string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if e := docd.Mounts.Lookup(path); e != nil && !e.Live() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("mount %q did not tombstone", path)
 }
 
 // TestDocd_ControllerCrashFailsInflight proves an in-flight client operation
@@ -224,6 +237,54 @@ func TestDocd_ControllerCrashFailsInflight(t *testing.T) {
 		t.Fatal("in-flight operation hung after controller crash")
 	}
 	<-errc
+
+	// The mount is now tombstoned: a fresh op on the subtree fails with a clear
+	// error rather than silently falling through to logd (which has no such key).
+	waitTombstone(t, docd, "/x")
+	if _, err := client.Match(context.Background(), "x/1"); err == nil {
+		t.Fatal("expected error on crashed-controller subtree, got nil")
+	} else if !strings.Contains(err.Error(), "unavailable") {
+		t.Errorf("expected controller_unavailable error, got %v", err)
+	}
+}
+
+// TestDocd_RemountClearsTombstone proves a controller can remount a path whose
+// previous controller crashed, restoring service to the subtree.
+func TestDocd_RemountClearsTombstone(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+
+	// First controller mounts /y then crashes.
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	errc1 := make(chan error, 1)
+	go func() {
+		errc1 <- RunController(ctx1, &ControllerConfig{
+			DocdAddr:   docd.TCPAddr(),
+			Controller: "c1",
+			Path:       "/y",
+			Handler:    newMemController(),
+		})
+	}()
+	waitMount(t, docd, "/y")
+	cancel1()
+	<-errc1
+	waitTombstone(t, docd, "/y")
+
+	// A new controller remounts /y, clearing the tombstone.
+	ctrl2 := newMemController()
+	runController(t, docd, "/y", ctrl2)
+
+	client := docdClient(t, docd, "client")
+	if err := client.Patch(context.Background(), "y/1",
+		ir.FromMap(map[string]*ir.Node{"v": ir.FromInt(1)})); err != nil {
+		t.Fatalf("patch after remount failed: %v", err)
+	}
+	ctrl2.mu.Lock()
+	_, ok := ctrl2.data["y/1"]
+	ctrl2.mu.Unlock()
+	if !ok {
+		t.Fatal("remounted controller did not receive the patch")
+	}
 }
 
 func docdClient(t *testing.T, docd *docdserver.Server, id string) *LogdSession {

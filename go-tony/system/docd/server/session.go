@@ -414,12 +414,14 @@ func (s *MountSession) sendError(code, message string) {
 	}
 }
 
-// cleanup removes the mount registration and closes the connection.
+// cleanup tombstones the mount and closes the connection. The mount is
+// tombstoned rather than removed so operations on its subtree fail with a clear
+// error until a controller remounts, instead of silently falling through to
+// logd (which does not hold the controller's content).
 func (s *MountSession) cleanup() {
-	// Unregister mount if we had one
 	if s.mountPath != "" {
-		s.server.Mounts.Unregister(s.mountPath)
-		s.log.Info("controller unmounted", "controller", s.controllerID, "path", s.mountPath)
+		s.server.Mounts.TombstoneBySession(s.mountPath, s)
+		s.log.Info("controller disconnected (mount tombstoned)", "controller", s.controllerID, "path", s.mountPath)
 	}
 	s.conn.Close()
 }

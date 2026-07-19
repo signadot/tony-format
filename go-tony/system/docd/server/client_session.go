@@ -127,15 +127,28 @@ func (s *ClientSession) routeClientRequests() error {
 			continue
 		}
 
-		if mount := s.routeFor(&req); mount != nil {
-			mount.RouteRequest(s, &req)
-			continue
-		}
-		if err := s.writeToLogd(&req); err != nil {
-			return err
+		switch dest, entry := s.routeFor(&req); dest {
+		case destController:
+			entry.Session.RouteRequest(s, &req)
+		case destUnavailable:
+			_ = s.writeToClient(logdapi.NewErrorResponse(req.ID, logdapi.ErrCodeUnavailable,
+				fmt.Sprintf("controller for %q is unavailable", entry.Path)))
+		default: // destLogd
+			if err := s.writeToLogd(&req); err != nil {
+				return err
+			}
 		}
 	}
 }
+
+// routeDest classifies where a request should go.
+type routeDest int
+
+const (
+	destLogd        routeDest = iota // base/unmounted path or session op -> logd
+	destController                   // mounted subtree with a live controller
+	destUnavailable                  // mounted subtree whose controller has crashed (tombstone)
+)
 
 // pumpLogdToClient forwards logd's responses and watch events back to the
 // client. Serialized against controller responses via writeToClient.
@@ -157,18 +170,23 @@ func (s *ClientSession) pumpLogdToClient() error {
 	}
 }
 
-// routeFor returns the controller session that owns the request's path, or nil
-// when the request should go to logd (no path, or a base/unmounted path).
-func (s *ClientSession) routeFor(req *logdapi.SessionRequest) *MountSession {
+// routeFor classifies a request: to the owning controller if its path is under a
+// live mount, to an "unavailable" error if under a tombstoned mount (controller
+// crashed), or to logd for a base/unmounted path or a pathless session op. The
+// entry is returned for the controller and unavailable cases.
+func (s *ClientSession) routeFor(req *logdapi.SessionRequest) (routeDest, *MountEntry) {
 	path := requestPath(req)
 	if path == "" {
-		return nil
+		return destLogd, nil
 	}
 	entry := s.server.Mounts.LookupPrefix(path)
 	if entry == nil {
-		return nil
+		return destLogd, nil
 	}
-	return entry.Session
+	if entry.Live() {
+		return destController, entry
+	}
+	return destUnavailable, entry
 }
 
 // writeToLogd encodes and writes a request to the per-client logd connection.

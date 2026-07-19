@@ -354,23 +354,24 @@ func TestMountHandshake_UnmountOnDisconnect(t *testing.T) {
 		t.Fatalf("mount failed: %s", resp.Error.Message)
 	}
 
-	// Verify mount exists
-	if server.Mounts.Lookup("/users") == nil {
+	// Verify mount is live
+	if !server.Mounts.Lookup("/users").Live() {
 		t.Fatal("expected mount to be registered")
 	}
 
 	// Close connection
 	conn.Close()
 
-	// Wait for cleanup (poll with timeout)
+	// After disconnect the mount is tombstoned (present but not live), so ops on
+	// the subtree fail clearly rather than falling through to logd.
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if server.Mounts.Lookup("/users") == nil {
-			return // Success
+		if e := server.Mounts.Lookup("/users"); e != nil && !e.Live() {
+			return // Success: tombstoned
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Error("expected mount to be unregistered after disconnect")
+	t.Error("expected mount to be tombstoned after disconnect")
 }
 
 func TestMountHandshake_MultipleControllers(t *testing.T) {
