@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
 	docdserver "github.com/signadot/tony-format/go-tony/system/docd/server"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
@@ -473,6 +474,45 @@ func TestDocd_WatchMultiClientSamePath(t *testing.T) {
 		Patch: ir.FromMap(map[string]*ir.Node{"n": ir.FromInt(2)})})
 	if ev := expectEvent(t, wB); ev.Commit != 6 {
 		t.Errorf("B: expected commit 6 after A left, got %d", ev.Commit)
+	}
+}
+
+// TestDocd_MetaMounts proves docd serves its mount registry at .meta/mounts over
+// the normal client protocol, including tombstoned (crashed) mounts.
+func TestDocd_MetaMounts(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+
+	// A live mount.
+	runController(t, docd, "/users", newMemController())
+
+	// A mount that crashes, leaving a tombstone.
+	ctx, cancel := context.WithCancel(context.Background())
+	errc := make(chan error, 1)
+	go func() {
+		errc <- RunController(ctx, &ControllerConfig{
+			DocdAddr: docd.TCPAddr(), Controller: "gone-ctrl", Path: "/gone", Handler: newMemController(),
+		})
+	}()
+	waitMount(t, docd, "/gone")
+	cancel()
+	<-errc
+	waitTombstone(t, docd, "/gone")
+
+	client := docdClient(t, docd, "admin")
+	body, err := client.Match(context.Background(), ".meta/mounts")
+	if err != nil {
+		t.Fatalf("meta mounts match failed: %v", err)
+	}
+
+	rendered, err := gomap.ToString(body, gomap.EncodeWire(true))
+	if err != nil {
+		t.Fatalf("render failed: %v", err)
+	}
+	for _, want := range []string{"/users", "live", "/gone", "tombstoned"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("meta mounts missing %q; got: %s", want, rendered)
+		}
 	}
 }
 

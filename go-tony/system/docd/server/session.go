@@ -338,6 +338,10 @@ func (s *MountSession) handleHandshake(decoder *stream.Decoder) error {
 		s.sendError(api.ErrCodeInvalidPath, "mount path must start with /")
 		return fmt.Errorf("invalid mount path: must start with /")
 	}
+	if isMetaPath(req.Mount.Path) {
+		s.sendError(api.ErrCodeInvalidPath, "path .meta is reserved by docd")
+		return fmt.Errorf("invalid mount path: .meta is reserved")
+	}
 
 	// Register mount
 	entry := &MountEntry{

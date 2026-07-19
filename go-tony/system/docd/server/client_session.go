@@ -133,6 +133,8 @@ func (s *ClientSession) routeClientRequests() error {
 		case destUnavailable:
 			_ = s.writeToClient(logdapi.NewErrorResponse(req.ID, logdapi.ErrCodeUnavailable,
 				fmt.Sprintf("controller for %q is unavailable", entry.Path)))
+		case destMeta:
+			s.serveMeta(&req)
 		default: // destLogd
 			if err := s.writeToLogd(&req); err != nil {
 				return err
@@ -148,7 +150,31 @@ const (
 	destLogd        routeDest = iota // base/unmounted path or session op -> logd
 	destController                   // mounted subtree with a live controller
 	destUnavailable                  // mounted subtree whose controller has crashed (tombstone)
+	destMeta                         // docd's own .meta subtree (mounts, schema, ...)
 )
+
+// serveMeta answers a request on docd's reserved .meta subtree from docd's own
+// state. Metadata is read-only, so only MATCH is served; an unknown resource
+// returns a null body, mirroring logd's match-on-missing-path behavior.
+func (s *ClientSession) serveMeta(req *logdapi.SessionRequest) {
+	if req.Match == nil {
+		_ = s.writeToClient(logdapi.NewErrorResponse(req.ID, logdapi.ErrCodeUnsupported,
+			"metadata paths are read-only"))
+		return
+	}
+
+	var body *ir.Node
+	switch metaLeaf(req.Match.Body.Path) {
+	case "mounts":
+		body = mountsDoc(s.server.Mounts.List())
+	default:
+		body = ir.Null()
+	}
+	_ = s.writeToClient(&logdapi.SessionResponse{
+		ID:     req.ID,
+		Result: &logdapi.SessionResult{Match: &logdapi.MatchResult{Body: body}},
+	})
+}
 
 // pumpLogdToClient forwards logd's responses and watch events back to the
 // client. Serialized against controller responses via writeToClient.
@@ -178,6 +204,9 @@ func (s *ClientSession) routeFor(req *logdapi.SessionRequest) (routeDest, *Mount
 	path := requestPath(req)
 	if path == "" {
 		return destLogd, nil
+	}
+	if isMetaPath(path) {
+		return destMeta, nil
 	}
 	entry := s.server.Mounts.LookupPrefix(path)
 	if entry == nil {

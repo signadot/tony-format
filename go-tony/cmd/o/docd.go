@@ -1,11 +1,17 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"io"
+	"log/slog"
+	"time"
 
 	"github.com/google/gops/agent"
 	"github.com/scott-cotton/cli"
+	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/system/docd/server"
+	"github.com/signadot/tony-format/go-tony/system/libctl"
 )
 
 type DocDConfig struct {
@@ -19,7 +25,53 @@ func DocDCommand(mainCfg *MainConfig) *cli.Command {
 		WithSynopsis("docd <subcommand>").
 		WithDescription("docd document server commands").
 		WithSubs(
-			DocDServeCommand(cfg))
+			DocDServeCommand(cfg),
+			DocDMountsCommand(cfg))
+}
+
+type DocDMountsConfig struct {
+	*DocDConfig
+	Mounts *cli.Command
+	Addr   string `cli:"name=addr desc='docd client-facing address' default=localhost:9124"`
+}
+
+func DocDMountsCommand(docdCfg *DocDConfig) *cli.Command {
+	cfg := &DocDMountsConfig{DocDConfig: docdCfg, Addr: "localhost:9124"}
+	opts, err := cli.StructOpts(cfg)
+	if err != nil {
+		panic(err)
+	}
+	return cli.NewCommandAt(&cfg.Mounts, "mounts").
+		WithSynopsis("mounts [-addr <addr>]").
+		WithDescription("list controller mounts on a running docd").
+		WithOpts(opts...).
+		WithRun(func(cc *cli.Context, args []string) error {
+			return docdMounts(cfg, cc, args)
+		})
+}
+
+func docdMounts(cfg *DocDMountsConfig, cc *cli.Context, args []string) error {
+	if _, err := cfg.Mounts.Parse(cc, args); err != nil {
+		return err
+	}
+
+	// Query docd's mount registry over the normal client protocol.
+	session := libctl.NewLogdSession(&libctl.LogdSessionConfig{
+		Addr:     cfg.Addr,
+		ClientID: "o-docd-mounts",
+		// Quiet: this is a one-shot query, not a long-lived session.
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	defer session.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	body, err := session.Match(ctx, ".meta/mounts")
+	if err != nil {
+		return fmt.Errorf("failed to query docd at %s: %w", cfg.Addr, err)
+	}
+	return encode.Encode(body, cc.Out, cfg.MainConfig.encOpts(cc.Out)...)
 }
 
 type DocDServeConfig struct {
