@@ -17,17 +17,19 @@ import (
 
 type UpConfig struct {
 	*MainConfig
-	Up       *cli.Command
-	DataDir  string `cli:"name=data desc='data directory for logd storage'"`
-	LogdAddr string `cli:"name=logd-addr desc='logd listen address' default=localhost:9123"`
-	DocdAddr string `cli:"name=docd-addr desc='docd listen address' default=localhost:9124"`
+	Up            *cli.Command
+	DataDir       string `cli:"name=data desc='data directory for logd storage'"`
+	LogdAddr      string `cli:"name=logd-addr desc='logd listen address' default=localhost:9123"`
+	DocdAddr      string `cli:"name=docd-addr desc='docd client-facing listen address' default=localhost:9124"`
+	DocdMountAddr string `cli:"name=docd-mount-addr desc='docd controller-facing (MOUNT) listen address' default=localhost:9125"`
 }
 
 func UpCommand(mainCfg *MainConfig) *cli.Command {
 	cfg := &UpConfig{
-		MainConfig: mainCfg,
-		LogdAddr:   "localhost:9123",
-		DocdAddr:   "localhost:9124",
+		MainConfig:    mainCfg,
+		LogdAddr:      "localhost:9123",
+		DocdAddr:      "localhost:9124",
+		DocdMountAddr: "localhost:9125",
 	}
 	opts, err := cli.StructOpts(cfg)
 	if err != nil {
@@ -105,16 +107,25 @@ func systemUp(cfg *UpConfig, cc *cli.Context, args []string) error {
 		txPool.Prefetch(ctx, 1, 2, 3)
 	}()
 
-	// Create and start docd server
+	// Create and start docd server: a client-facing listener (logd session
+	// protocol, proxied/routed to logd and controllers) and a controller-facing
+	// MOUNT listener.
 	docdSrv := docdserver.New(&docdserver.Spec{
 		LogdAddr: cfg.LogdAddr,
 	})
 
-	if err := docdSrv.StartTCP(cfg.DocdAddr); err != nil {
-		return fmt.Errorf("failed to start docd: %w", err)
+	if err := docdSrv.StartClientTCP(cfg.DocdAddr); err != nil {
+		return fmt.Errorf("failed to start docd client listener: %w", err)
 	}
-	fmt.Fprintf(cc.Out, "docd listening on %s\n", docdSrv.TCPAddr())
+	defer docdSrv.StopClientTCP()
+
+	if err := docdSrv.StartTCP(cfg.DocdMountAddr); err != nil {
+		return fmt.Errorf("failed to start docd mount listener: %w", err)
+	}
 	defer docdSrv.StopTCP()
+
+	fmt.Fprintf(cc.Out, "docd listening: client=%s mount=%s\n",
+		docdSrv.ClientTCPAddr(), docdSrv.TCPAddr())
 
 	fmt.Fprintf(cc.Out, "System up. Press Ctrl+C to stop.\n")
 
