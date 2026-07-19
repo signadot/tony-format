@@ -236,6 +236,44 @@ func (s *LogdSession) Patch(ctx context.Context, path string, data *ir.Node) err
 	return nil
 }
 
+// NewTx creates a multi-participant transaction and returns its id. The
+// transaction commits atomically once `participants` patches have joined it (by
+// writing with the returned id via PatchTx). participants must be >= 1.
+func (s *LogdSession) NewTx(ctx context.Context, participants int) (int64, error) {
+	resp, err := s.request(ctx, &api.SessionRequest{
+		NewTx: &api.NewTxRequest{Participants: participants},
+	})
+	if err != nil {
+		return 0, err
+	}
+	if resp.Error != nil {
+		return 0, fmt.Errorf("newtx error: %s", resp.Error.Message)
+	}
+	if resp.Result == nil || resp.Result.NewTx == nil {
+		return 0, fmt.Errorf("unexpected response: no newtx result")
+	}
+	return resp.Result.NewTx.TxID, nil
+}
+
+// PatchTx applies a patch as a participant in the transaction txID. The call
+// blocks until the transaction commits (all participants have joined) or fails.
+// This is how a participant joins a transaction — the write is the join.
+func (s *LogdSession) PatchTx(ctx context.Context, path string, data *ir.Node, txID int64) error {
+	resp, err := s.request(ctx, &api.SessionRequest{
+		Patch: &api.PatchRequest{
+			TxID:     &txID,
+			PathData: api.PathData{Path: path, Data: data},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	if resp.Error != nil {
+		return fmt.Errorf("patch error: %s", resp.Error.Message)
+	}
+	return nil
+}
+
 // DeleteScope deletes a copy-on-write scope and all of its data. It is only
 // valid from a baseline session (one created with an empty Scope); logd rejects
 // the request otherwise.

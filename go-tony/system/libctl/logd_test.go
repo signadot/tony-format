@@ -123,6 +123,50 @@ func TestLogdSession_Patch(t *testing.T) {
 	}
 }
 
+func TestLogdSession_Transaction(t *testing.T) {
+	srv := startLogd(t)
+	// Two sessions: a multi-participant tx's participants must be on distinct
+	// connections, since logd dispatches one connection's requests sequentially
+	// and a participant patch blocks until the whole tx commits.
+	a := NewLogdSession(&LogdSessionConfig{Addr: srv.TCPAddr(), ClientID: "txA"})
+	defer a.Close()
+	b := NewLogdSession(&LogdSessionConfig{Addr: srv.TCPAddr(), ClientID: "txB"})
+	defer b.Close()
+
+	ctx := context.Background()
+	txID, err := a.NewTx(ctx, 2)
+	if err != nil {
+		t.Fatalf("NewTx failed: %v", err)
+	}
+
+	// Both participants join by writing with the tx id; each blocks until the
+	// tx commits atomically.
+	errc := make(chan error, 2)
+	go func() {
+		errc <- a.PatchTx(ctx, "a/1", ir.FromMap(map[string]*ir.Node{"v": ir.FromInt(1)}), txID)
+	}()
+	go func() {
+		errc <- b.PatchTx(ctx, "b/1", ir.FromMap(map[string]*ir.Node{"v": ir.FromInt(2)}), txID)
+	}()
+	for i := 0; i < 2; i++ {
+		if err := <-errc; err != nil {
+			t.Fatalf("PatchTx failed: %v", err)
+		}
+	}
+
+	// Both writes are visible (committed together).
+	for path, want := range map[string]int64{"a/1": 1, "b/1": 2} {
+		res, err := a.Match(ctx, path)
+		if err != nil {
+			t.Fatalf("Match %s failed: %v", path, err)
+		}
+		v, err := res.GetPath("$.v")
+		if err != nil || v == nil || v.Int64 == nil || *v.Int64 != want {
+			t.Errorf("%s: expected v=%d, got %v (err %v)", path, want, v, err)
+		}
+	}
+}
+
 func TestLogdSession_Reconnect(t *testing.T) {
 	srv := startLogd(t)
 

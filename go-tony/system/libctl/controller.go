@@ -33,8 +33,11 @@ type Handler interface {
 	// pattern the client supplied (field selection and filtering).
 	Match(ctx context.Context, path string, pattern *ir.Node) (*ir.Node, error)
 
-	// Patch applies data at path and returns the resulting data.
-	Patch(ctx context.Context, path string, data *ir.Node) (*ir.Node, error)
+	// Patch applies data at path and returns the resulting data. When
+	// opts.TxID is set, the client is coordinating a multi-participant
+	// transaction: the controller joins it by writing to logd with that tx id
+	// (the write is the join).
+	Patch(ctx context.Context, path string, data *ir.Node, opts PatchParams) (*ir.Node, error)
 
 	// Watch streams events for path until ctx is cancelled (the client
 	// unwatched or disconnected) or it returns. emit delivers each event. To
@@ -46,6 +49,12 @@ type Handler interface {
 type WatchParams struct {
 	FromCommit *int64
 	NoInit     bool
+}
+
+// PatchParams carries a patch's options through to the Handler. TxID, when set,
+// is the multi-participant transaction the patch must join.
+type PatchParams struct {
+	TxID *int64
 }
 
 // ControllerConfig configures RunController.
@@ -192,7 +201,7 @@ func (rt *controllerRuntime) handleMatch(req *api.SessionRequest) {
 }
 
 func (rt *controllerRuntime) handlePatch(req *api.SessionRequest) {
-	data, err := rt.handler.Patch(rt.ctx, req.Patch.Path, req.Patch.Data)
+	data, err := rt.handler.Patch(rt.ctx, req.Patch.Path, req.Patch.Data, PatchParams{TxID: req.Patch.TxID})
 	if err != nil {
 		rt.replyErr(req.ID, err)
 		return

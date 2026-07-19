@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -37,6 +38,11 @@ type ClientSession struct {
 	logdAddr string
 
 	clientDec *stream.Decoder
+
+	// clientScope is the COW scope from the client's hello, if any. Only the
+	// request loop touches it. Baseline (nil) NewTx is served from docd's pool;
+	// a scoped NewTx is forwarded to logd on the client's scoped connection.
+	clientScope *string
 
 	logd    net.Conn
 	logdDec *stream.Decoder
@@ -136,6 +142,19 @@ func (s *ClientSession) routeClientRequests() error {
 			continue
 		}
 
+		if req.Hello != nil {
+			s.clientScope = req.Hello.Scope // remember for tx routing; still forwarded below
+		}
+		// Serve a baseline NewTx from docd's pre-fetched pool (fewer hops). A
+		// scoped NewTx falls through to logd on the client's scoped connection,
+		// since pooled ids are baseline-scoped.
+		if req.NewTx != nil && s.clientScope == nil {
+			if err := s.serveNewTx(&req); err != nil {
+				return err
+			}
+			continue
+		}
+
 		switch dest, entry := s.routeFor(&req); dest {
 		case destController:
 			entry.Session.RouteRequest(s, &req)
@@ -207,6 +226,24 @@ func (s *ClientSession) pumpLogdToClient() error {
 			return err
 		}
 	}
+}
+
+// serveNewTx answers a baseline client's NewTx from docd's pre-fetched pool,
+// avoiding a logd round trip. The pooled id is a real logd transaction id;
+// participants join it by writing to logd with it (WOL).
+func (s *ClientSession) serveNewTx(req *logdapi.SessionRequest) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	txID, err := s.server.txPool.Get(ctx, req.NewTx.Participants)
+	if err != nil {
+		return s.writeToClient(logdapi.NewErrorResponse(req.ID, logdapi.ErrCodeInvalidTx,
+			fmt.Sprintf("newtx failed: %v", err)))
+	}
+	return s.writeToClient(&logdapi.SessionResponse{
+		ID:     req.ID,
+		Result: &logdapi.SessionResult{NewTx: &logdapi.NewTxResult{TxID: txID}},
+	})
 }
 
 // routeFor classifies a request: to the owning controller if its path is under a

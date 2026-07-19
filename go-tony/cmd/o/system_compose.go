@@ -10,7 +10,6 @@ import (
 	"github.com/google/gops/agent"
 	"github.com/scott-cotton/cli"
 	docdserver "github.com/signadot/tony-format/go-tony/system/docd/server"
-	"github.com/signadot/tony-format/go-tony/system/docd/txpool"
 	logdserver "github.com/signadot/tony-format/go-tony/system/logd/server"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 )
@@ -88,24 +87,7 @@ func systemUp(cfg *UpConfig, cc *cli.Context, args []string) error {
 	fmt.Fprintf(cc.Out, "logd listening on %s\n", logdSrv.TCPAddr())
 	defer logdSrv.StopTCP()
 
-	// Create transaction pool (connects to logd with retry)
-	txPool := txpool.New(&txpool.Config{
-		LogdAddr: cfg.LogdAddr,
-		PoolSize: 10,
-	})
-	defer txPool.Close()
-
-	// Connect txpool in background (with retry)
-	go func() {
-		if err := txPool.Connect(ctx); err != nil {
-			if ctx.Err() == nil {
-				fmt.Fprintf(cc.Out, "txpool connect failed: %v\n", err)
-			}
-			return
-		}
-		// Prefetch TxIDs for common participant counts
-		txPool.Prefetch(ctx, 1, 2, 3)
-	}()
+	// docd owns and warms its own transaction-id pool (see StartClientTCP).
 
 	// Create and start docd server: a client-facing listener (logd session
 	// protocol, proxied/routed to logd and controllers) and a controller-facing

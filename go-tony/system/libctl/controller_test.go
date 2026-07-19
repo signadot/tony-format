@@ -45,7 +45,7 @@ func (c *memController) Match(ctx context.Context, path string, pattern *ir.Node
 	return ir.Null(), nil
 }
 
-func (c *memController) Patch(ctx context.Context, path string, data *ir.Node) (*ir.Node, error) {
+func (c *memController) Patch(ctx context.Context, path string, data *ir.Node, opts PatchParams) (*ir.Node, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.data[path] = data
@@ -102,6 +102,89 @@ func (c *memController) subCount() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.subs)
+}
+
+// logdController is a reference controller backed by logd: it reads via a logd
+// session and, on patch, writes through to logd — joining a multi-participant
+// transaction when the client supplies a TxID (the write is the join).
+type logdController struct {
+	logd *LogdSession
+}
+
+func newLogdController(t *testing.T, logdAddr, id string) *logdController {
+	t.Helper()
+	s := NewLogdSession(&LogdSessionConfig{Addr: logdAddr, ClientID: id})
+	t.Cleanup(func() { s.Close() })
+	return &logdController{logd: s}
+}
+
+func (c *logdController) Match(ctx context.Context, path string, pattern *ir.Node) (*ir.Node, error) {
+	return c.logd.Match(ctx, path)
+}
+
+func (c *logdController) Patch(ctx context.Context, path string, data *ir.Node, opts PatchParams) (*ir.Node, error) {
+	if opts.TxID != nil {
+		if err := c.logd.PatchTx(ctx, path, data, *opts.TxID); err != nil {
+			return nil, err
+		}
+	} else if err := c.logd.Patch(ctx, path, data); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+func (c *logdController) Watch(ctx context.Context, path string, opts WatchParams, emit func(*api.WatchEvent) error) error {
+	return ErrUnsupported
+}
+
+// TestDocd_MultiMountTransaction proves a client can commit a write spanning two
+// mounts atomically through docd: NewTx is served from docd's pool, and the two
+// PatchTx operations route to two logd-backed controllers that each join the
+// transaction by writing to logd; logd commits both together.
+func TestDocd_MultiMountTransaction(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+
+	runController(t, docd, "/a", newLogdController(t, logd.TCPAddr(), "ctrlA"))
+	runController(t, docd, "/b", newLogdController(t, logd.TCPAddr(), "ctrlB"))
+
+	client := docdClient(t, docd, "client")
+	ctx := context.Background()
+
+	// NewTx(2) is served from docd's pool (no logd round trip).
+	txID, err := client.NewTx(ctx, 2)
+	if err != nil {
+		t.Fatalf("NewTx via docd failed: %v", err)
+	}
+
+	// Two concurrent participant writes, routed to the two controllers; each
+	// blocks until the transaction commits atomically.
+	errc := make(chan error, 2)
+	go func() {
+		errc <- client.PatchTx(ctx, "a/1", ir.FromMap(map[string]*ir.Node{"v": ir.FromInt(1)}), txID)
+	}()
+	go func() {
+		errc <- client.PatchTx(ctx, "b/1", ir.FromMap(map[string]*ir.Node{"v": ir.FromInt(2)}), txID)
+	}()
+	for i := 0; i < 2; i++ {
+		if err := <-errc; err != nil {
+			t.Fatalf("PatchTx via docd failed: %v", err)
+		}
+	}
+
+	// Both writes committed and are visible in logd.
+	direct := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "verify"})
+	defer direct.Close()
+	for path, want := range map[string]int64{"a/1": 1, "b/1": 2} {
+		res, err := direct.Match(ctx, path)
+		if err != nil {
+			t.Fatalf("verify Match %s failed: %v", path, err)
+		}
+		v, err := res.GetPath("$.v")
+		if err != nil || v == nil || v.Int64 == nil || *v.Int64 != want {
+			t.Errorf("%s: expected v=%d, got %v (err %v)", path, want, v, err)
+		}
+	}
 }
 
 // startDocdRouting starts a docd with both listeners: the client face (logd
