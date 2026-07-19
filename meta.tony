@@ -4,6 +4,7 @@ Title: "docd: complete controller-facing library for dogfooding"
 commits:
 - fb3cd206ff929cca3d8f9f67352972ea0629e180
 - "419b5211d413da7ecad1f87a2cb8a5bb248bd7a7"
+- "35944008eda6b5ec79170d7d907b8c6efe193d28"
 created: "2026-07-19T22:46:37.913978+02:00"
 id: wcabztj2h12ksb9qbnn0
 labels:
@@ -14,4 +15,4 @@ related_issues:
 - tqn7ptxch12kspx1bnmg
 - hzn7ptxch12krwj18xmg
 status: open
-updated: "2026-07-20T00:01:12.854763+02:00"
+updated: "2026-07-20T00:19:38.67721+02:00"
