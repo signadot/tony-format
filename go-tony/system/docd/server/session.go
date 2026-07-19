@@ -186,8 +186,9 @@ func (s *MountSession) forwardEvent(resp *logdapi.SessionResponse) {
 // docd-assigned id, recording the route so the response can be sent back to the
 // originating client. An unwatch first tears down the matching watch route.
 func (s *MountSession) RouteRequest(cs *ClientSession, req *logdapi.SessionRequest) {
+	var unwatchTarget *string
 	if req.Unwatch != nil {
-		s.dropWatch(cs, req.Unwatch.Path)
+		unwatchTarget = s.dropWatch(cs, req.Unwatch.Path)
 	}
 
 	s.routeMu.Lock()
@@ -206,6 +207,11 @@ func (s *MountSession) RouteRequest(cs *ClientSession, req *logdapi.SessionReque
 	// Copy so we can rewrite the id without mutating the client's request.
 	out := *req
 	out.ID = &docdID
+	if req.Unwatch != nil {
+		// Target the specific controller-side watch this unwatch cancels, since
+		// several clients may watch the same path over this connection.
+		out.Unwatch = &logdapi.UnwatchRequest{Path: req.Unwatch.Path, WatchID: unwatchTarget}
+	}
 	if err := s.writeToController(&out); err != nil {
 		s.routeMu.Lock()
 		delete(s.routes, docdID)
@@ -218,48 +224,59 @@ func (s *MountSession) RouteRequest(cs *ClientSession, req *logdapi.SessionReque
 // writeToController encodes and writes a request to the controller connection,
 // serialized so concurrent client routes do not interleave on the wire.
 func (s *MountSession) writeToController(req *logdapi.SessionRequest) error {
+	// Encode under the write lock (see ClientSession.writeToClient): ir encoding
+	// mutates node linkage, so serializing it keeps concurrent routing goroutines
+	// from racing on a shared node.
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	data, err := req.ToTony(gomap.EncodeWire(true))
 	if err != nil {
 		return fmt.Errorf("failed to encode request: %w", err)
 	}
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
 	if _, err := s.conn.Write(append(data, '\n')); err != nil {
 		return fmt.Errorf("failed to write to controller: %w", err)
 	}
 	return nil
 }
 
-// dropWatch removes the watch route(s) a client holds for a path, stopping event
-// forwarding to it. Called when the client unwatches.
-func (s *MountSession) dropWatch(cs *ClientSession, path string) {
+// dropWatch removes the watch route a client holds for a path, stopping event
+// forwarding to it, and returns the docd-assigned id of that watch so the
+// forwarded unwatch can target the exact controller-side watch. A client can
+// hold at most one watch per path, so there is at most one to remove.
+func (s *MountSession) dropWatch(cs *ClientSession, path string) *string {
 	s.routeMu.Lock()
 	defer s.routeMu.Unlock()
 	for id, e := range s.routes {
 		if e.client == cs && e.isWatch && e.path == path {
 			delete(s.routes, id)
+			idCopy := id
+			return &idCopy
 		}
 	}
+	return nil
 }
 
 // dropClient removes every route a departing client holds and best-effort tells
 // the controller to stop the client's watches.
 func (s *MountSession) dropClient(cs *ClientSession) {
+	type target struct{ path, id string }
+
 	s.routeMu.Lock()
-	var unwatch []string
+	var unwatch []target
 	for id, e := range s.routes {
 		if e.client == cs {
 			if e.isWatch {
-				unwatch = append(unwatch, e.path)
+				unwatch = append(unwatch, target{path: e.path, id: id})
 			}
 			delete(s.routes, id)
 		}
 	}
 	s.routeMu.Unlock()
 
-	for _, path := range unwatch {
+	for _, t := range unwatch {
+		id := t.id
 		_ = s.writeToController(&logdapi.SessionRequest{
-			Unwatch: &logdapi.UnwatchRequest{Path: path},
+			Unwatch: &logdapi.UnwatchRequest{Path: t.path, WatchID: &id},
 		})
 	}
 }

@@ -188,12 +188,15 @@ func (s *ClientSession) writeToLogd(req *logdapi.SessionRequest) error {
 // called from both the logd pump and controller MountSessions, so writes are
 // serialized to keep documents from interleaving on the wire.
 func (s *ClientSession) writeToClient(resp *logdapi.SessionResponse) error {
+	// Encode under the lock: ir encoding mutates node linkage, so serializing it
+	// with the write keeps concurrent forwarders (the logd pump and controller
+	// sessions) from racing on a shared node.
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	data, err := resp.ToTony(gomap.EncodeWire(true))
 	if err != nil {
 		return fmt.Errorf("failed to encode response: %w", err)
 	}
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
 	if _, err := s.conn.Write(append(data, '\n')); err != nil {
 		return fmt.Errorf("failed to write to client: %w", err)
 	}

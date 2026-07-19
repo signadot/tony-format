@@ -127,14 +127,16 @@ type controllerRuntime struct {
 	writeMu sync.Mutex // serializes writes to docd
 
 	watchMu sync.Mutex
-	watches map[string]*watchReg // active watches by path
+	watches map[string]*watchReg // active watches by watch id
 }
 
-// watchReg is a unique handle for one active watch, so a later watch on the same
-// path can replace an earlier one and each watch's teardown only removes its own
-// registration.
+// watchReg is one active watch. Watches are keyed by the request id docd
+// assigns, not by path, because docd multiplexes many client sessions onto one
+// controller connection and several may watch the same path at once; keying by
+// id keeps each independent. path is retained for the WatchID-less fallback.
 type watchReg struct {
 	cancel context.CancelFunc
+	path   string
 }
 
 // serve reads operations from docd and dispatches each until the connection
@@ -203,21 +205,18 @@ func (rt *controllerRuntime) handlePatch(req *api.SessionRequest) {
 
 func (rt *controllerRuntime) handleWatch(req *api.SessionRequest) {
 	path := req.Watch.Path
+	key := watchKey(req.ID)
 
 	ctx, cancel := context.WithCancel(rt.ctx)
-	reg := &watchReg{cancel: cancel}
+	reg := &watchReg{cancel: cancel, path: path}
 	rt.watchMu.Lock()
-	if old := rt.watches[path]; old != nil {
-		old.cancel() // replace a prior watch on the same path
-	}
-	rt.watches[path] = reg
+	rt.watches[key] = reg
 	rt.watchMu.Unlock()
 	defer func() {
 		cancel()
 		rt.watchMu.Lock()
-		// Only remove our own registration; a newer watch may have replaced it.
-		if rt.watches[path] == reg {
-			delete(rt.watches, path)
+		if rt.watches[key] == reg { // don't clobber a reused key
+			delete(rt.watches, key)
 		}
 		rt.watchMu.Unlock()
 	}()
@@ -238,12 +237,15 @@ func (rt *controllerRuntime) handleWatch(req *api.SessionRequest) {
 	}
 	emit := func(ev *api.WatchEvent) error {
 		confirm()
-		if ev.Path == "" {
-			ev.Path = path
+		// Copy so defaulting the path never mutates the caller's event — a
+		// controller may hand the same event to several watchers.
+		out := *ev
+		if out.Path == "" {
+			out.Path = path
 		}
 		// The event carries the request id so docd can route it to the right
 		// client; docd strips the id before delivering to the client.
-		return rt.reply(&api.SessionResponse{ID: req.ID, Event: ev})
+		return rt.reply(&api.SessionResponse{ID: req.ID, Event: &out})
 	}
 
 	err := rt.handler.Watch(ctx, path, WatchParams{
@@ -263,17 +265,43 @@ func (rt *controllerRuntime) handleWatch(req *api.SessionRequest) {
 
 func (rt *controllerRuntime) handleUnwatch(req *api.SessionRequest) {
 	path := req.Unwatch.Path
+
 	rt.watchMu.Lock()
-	reg := rt.watches[path]
-	delete(rt.watches, path)
+	var cancels []context.CancelFunc
+	if req.Unwatch.WatchID != nil {
+		// Targeted: cancel exactly the identified watch.
+		if reg := rt.watches[*req.Unwatch.WatchID]; reg != nil {
+			cancels = append(cancels, reg.cancel)
+			delete(rt.watches, *req.Unwatch.WatchID)
+		}
+	} else {
+		// Fallback (e.g. a direct logd-style unwatch): cancel every watch on the
+		// path.
+		for id, reg := range rt.watches {
+			if reg.path == path {
+				cancels = append(cancels, reg.cancel)
+				delete(rt.watches, id)
+			}
+		}
+	}
 	rt.watchMu.Unlock()
-	if reg != nil {
-		reg.cancel()
+
+	for _, c := range cancels {
+		c()
 	}
 	rt.reply(&api.SessionResponse{
 		ID:     req.ID,
 		Result: &api.SessionResult{Unwatch: &api.UnwatchResult{Unwatched: path}},
 	})
+}
+
+// watchKey derives the map key for a watch from its request id. docd always
+// assigns an id, so distinct watches (even on the same path) get distinct keys.
+func watchKey(id *string) string {
+	if id == nil {
+		return ""
+	}
+	return *id
 }
 
 func (rt *controllerRuntime) cancelAllWatches() {
@@ -289,16 +317,18 @@ func (rt *controllerRuntime) cancelAllWatches() {
 	}
 }
 
-// reply encodes and writes a response to docd, serialized so concurrent handlers
-// do not interleave on the wire.
+// reply encodes and writes a response to docd. Encoding happens under the same
+// lock as the write: concurrent handlers must not interleave on the wire, and
+// encoding mutates ir node linkage, so serializing it also keeps two handlers
+// from racing on a node a controller shares across watchers.
 func (rt *controllerRuntime) reply(resp *api.SessionResponse) error {
+	rt.writeMu.Lock()
+	defer rt.writeMu.Unlock()
 	data, err := resp.ToTony(gomap.EncodeWire(true))
 	if err != nil {
 		rt.log.Error("failed to encode response", "error", err)
 		return err
 	}
-	rt.writeMu.Lock()
-	defer rt.writeMu.Unlock()
 	if _, err := rt.client.conn.Write(append(data, '\n')); err != nil {
 		rt.log.Debug("failed to write response to docd", "error", err)
 		return err

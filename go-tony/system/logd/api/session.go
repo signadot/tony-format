@@ -76,9 +76,17 @@ type WatchRequest struct {
 
 // UnwatchRequest is a request to stop watching a path.
 //
+// WatchID optionally targets a specific watch to cancel. logd allows only one
+// watch per path per session, so it identifies watches by path and ignores this
+// field. docd, however, multiplexes many client sessions onto one controller
+// connection, so several watches on the same path can coexist there; docd sets
+// WatchID to the id of the watch request it is cancelling so the controller
+// cancels exactly that one.
+//
 //tony:schemagen=session-unwatch-request,notag
 type UnwatchRequest struct {
-	Path string `tony:"field=path"`
+	Path    string  `tony:"field=path"`
+	WatchID *string `tony:"field=watchId"` // optional: target a specific watch (docd controller hop)
 }
 
 // DeleteScopeRequest deletes a scope and all its data.

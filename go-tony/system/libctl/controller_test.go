@@ -13,18 +13,23 @@ import (
 )
 
 // memController is a reference in-memory controller for tests. It stores patched
-// data by path and answers matches from that store. When events is nil it
+// data by path and answers matches from that store. When watchable is false it
 // declines watches with ErrUnsupported (the read-only / connect-controller
-// behavior); when non-nil it streams an initial state event followed by whatever
-// is pushed onto events.
+// behavior); when true, each watch emits an initial state event and then any
+// event passed to broadcast — which fans out to every active watcher, so
+// concurrent watchers on the same path each receive it.
 type memController struct {
-	mu     sync.Mutex
-	data   map[string]*ir.Node
-	events chan *api.WatchEvent // nil => watch unsupported
+	mu        sync.Mutex
+	data      map[string]*ir.Node
+	watchable bool
+	subs      map[chan *api.WatchEvent]struct{}
 }
 
 func newMemController() *memController {
-	return &memController{data: make(map[string]*ir.Node)}
+	return &memController{
+		data: make(map[string]*ir.Node),
+		subs: make(map[chan *api.WatchEvent]struct{}),
+	}
 }
 
 func (c *memController) Match(ctx context.Context, path string, pattern *ir.Node) (*ir.Node, error) {
@@ -44,13 +49,22 @@ func (c *memController) Patch(ctx context.Context, path string, data *ir.Node) (
 }
 
 func (c *memController) Watch(ctx context.Context, path string, opts WatchParams, emit func(*api.WatchEvent) error) error {
-	if c.events == nil {
+	if !c.watchable {
 		return ErrUnsupported
 	}
-	if !opts.NoInit {
+
+	ch := make(chan *api.WatchEvent, 16)
+	c.mu.Lock()
+	st := c.data[path]
+	c.subs[ch] = struct{}{} // registered before the confirming emit below
+	c.mu.Unlock()
+	defer func() {
 		c.mu.Lock()
-		st := c.data[path]
+		delete(c.subs, ch)
 		c.mu.Unlock()
+	}()
+
+	if !opts.NoInit {
 		if err := emit(&api.WatchEvent{Commit: 1, Path: path, State: st}); err != nil {
 			return err
 		}
@@ -59,12 +73,31 @@ func (c *memController) Watch(ctx context.Context, path string, opts WatchParams
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case ev := <-c.events:
+		case ev := <-ch:
 			if err := emit(ev); err != nil {
 				return err
 			}
 		}
 	}
+}
+
+// broadcast fans an event out to every active watcher.
+func (c *memController) broadcast(ev *api.WatchEvent) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for ch := range c.subs {
+		select {
+		case ch <- ev:
+		default:
+		}
+	}
+}
+
+// subCount reports how many watches are currently subscribed.
+func (c *memController) subCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.subs)
 }
 
 // startDocdRouting starts a docd with both listeners: the client face (logd
@@ -220,7 +253,7 @@ func TestDocd_WatchStreaming(t *testing.T) {
 	logd := startLogd(t)
 	docd := startDocdRouting(t, logd.TCPAddr())
 	ctrl := newMemController()
-	ctrl.events = make(chan *api.WatchEvent, 4)
+	ctrl.watchable = true
 	runController(t, docd, "/rooms", ctrl)
 
 	client := docdClient(t, docd, "client")
@@ -233,34 +266,101 @@ func TestDocd_WatchStreaming(t *testing.T) {
 	defer w.Close()
 
 	// Initial state event.
-	select {
-	case ev, ok := <-w.Events():
-		if !ok {
-			t.Fatalf("watch closed before initial event: %v", w.Err())
-		}
-		if ev.Path != "rooms/1" {
-			t.Errorf("expected initial event path rooms/1, got %q", ev.Path)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for initial watch event")
+	if ev := expectEvent(t, w); ev.Path != "rooms/1" {
+		t.Errorf("expected initial event path rooms/1, got %q", ev.Path)
 	}
 
 	// A pushed update streams through the controller and docd to the client.
-	ctrl.events <- &api.WatchEvent{
+	waitSubs(t, ctrl, 1)
+	ctrl.broadcast(&api.WatchEvent{
 		Commit: 2,
 		Path:   "rooms/1",
 		Patch:  ir.FromMap(map[string]*ir.Node{"occupants": ir.FromInt(3)}),
+	})
+	if ev := expectEvent(t, w); ev.Commit != 2 {
+		t.Errorf("expected update event commit 2, got %d", ev.Commit)
+	}
+}
+
+// TestDocd_WatchMultiClientSamePath proves that two clients watching the SAME
+// mounted path over the one controller connection are independent: both receive
+// broadcast events, and one unwatching does not disturb the other.
+func TestDocd_WatchMultiClientSamePath(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+	ctrl := newMemController()
+	ctrl.watchable = true
+	runController(t, docd, "/rooms", ctrl)
+
+	ctx := context.Background()
+	clientA := docdClient(t, docd, "A")
+	clientB := docdClient(t, docd, "B")
+
+	wA, err := clientA.Watch(ctx, "rooms/9", nil)
+	if err != nil {
+		t.Fatalf("A watch: %v", err)
+	}
+	defer wA.Close()
+	expectEvent(t, wA) // initial state
+
+	wB, err := clientB.Watch(ctx, "rooms/9", nil)
+	if err != nil {
+		t.Fatalf("B watch: %v", err)
+	}
+	defer wB.Close()
+	expectEvent(t, wB) // initial state
+
+	// Both watches are live on the one controller connection.
+	waitSubs(t, ctrl, 2)
+
+	// A broadcast reaches both clients.
+	ctrl.broadcast(&api.WatchEvent{Commit: 5, Path: "rooms/9",
+		Patch: ir.FromMap(map[string]*ir.Node{"n": ir.FromInt(1)})})
+	if ev := expectEvent(t, wA); ev.Commit != 5 {
+		t.Errorf("A: expected commit 5, got %d", ev.Commit)
+	}
+	if ev := expectEvent(t, wB); ev.Commit != 5 {
+		t.Errorf("B: expected commit 5, got %d", ev.Commit)
 	}
 
+	// A unwatches; only A's controller-side watch is cancelled.
+	if err := wA.Close(); err != nil {
+		t.Fatalf("A close: %v", err)
+	}
+	waitSubs(t, ctrl, 1)
+
+	// B still receives events.
+	ctrl.broadcast(&api.WatchEvent{Commit: 6, Path: "rooms/9",
+		Patch: ir.FromMap(map[string]*ir.Node{"n": ir.FromInt(2)})})
+	if ev := expectEvent(t, wB); ev.Commit != 6 {
+		t.Errorf("B: expected commit 6 after A left, got %d", ev.Commit)
+	}
+}
+
+// expectEvent reads the next event from a watch within a timeout.
+func expectEvent(t *testing.T, w *Watch) *api.WatchEvent {
+	t.Helper()
 	select {
 	case ev, ok := <-w.Events():
 		if !ok {
-			t.Fatalf("watch closed before update event: %v", w.Err())
+			t.Fatalf("watch closed unexpectedly: %v", w.Err())
 		}
-		if ev.Commit != 2 {
-			t.Errorf("expected update event commit 2, got %d", ev.Commit)
-		}
+		return ev
 	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for streamed update event")
+		t.Fatal("timed out waiting for watch event")
+		return nil
 	}
+}
+
+// waitSubs waits until the controller reports want active watch subscriptions.
+func waitSubs(t *testing.T, ctrl *memController, want int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if ctrl.subCount() == want {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("controller watch subscriptions = %d, want %d", ctrl.subCount(), want)
 }

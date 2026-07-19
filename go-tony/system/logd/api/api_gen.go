@@ -906,6 +906,11 @@ func (s *UnwatchRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Field: Path
 	irMap["path"] = ir.FromString(s.Path)
 
+	// Field: WatchID (optional)
+	if s.WatchID != nil {
+		irMap["watchId"] = ir.FromString(*s.WatchID)
+	}
+
 	return ir.FromMap(irMap), nil
 }
 
@@ -945,6 +950,18 @@ func (s *UnwatchRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) er
 				return fmt.Errorf("field %q: expected string, got %v", "path", fieldNodeUnwrapped.Type)
 			}
 			s.Path = fieldNodeUnwrapped.String
+		case "watchId":
+			// Field: WatchID
+			if fieldNodeUnwrapped.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(string)
+				if fieldNodeUnwrapped.Type != ir.StringType {
+					return fmt.Errorf("%s: expected string, got %v", "field \"watchId\"", fieldNodeUnwrapped.Type)
+				}
+				*val = string(fieldNodeUnwrapped.String)
+				s.WatchID = val
+			}
 		}
 	}
 
