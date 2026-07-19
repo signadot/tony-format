@@ -1,6 +1,8 @@
 !issue
 Ref: refs/issues/wcabztj2h12ksb9qbnn0
 Title: "docd: complete controller-facing library for dogfooding"
+commits:
+- fb3cd206ff929cca3d8f9f67352972ea0629e180
 created: "2026-07-19T22:46:37.913978+02:00"
 id: wcabztj2h12ksb9qbnn0
 labels:
@@ -11,4 +13,4 @@ related_issues:
 - tqn7ptxch12kspx1bnmg
 - hzn7ptxch12krwj18xmg
 status: open
-updated: "2026-07-19T23:29:55.974391+02:00"
+updated: "2026-07-19T23:50:22.972027+02:00"
