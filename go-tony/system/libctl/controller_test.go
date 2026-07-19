@@ -148,6 +148,84 @@ func runController(t *testing.T, docd *docdserver.Server, path string, h Handler
 	t.Fatalf("controller mount %q did not register", path)
 }
 
+// blockingMatchController blocks in Match until released or its context is
+// cancelled, so a test can hold an operation in-flight and then crash the
+// controller.
+type blockingMatchController struct {
+	*memController
+	entered chan struct{}
+	once    sync.Once
+}
+
+func (c *blockingMatchController) Match(ctx context.Context, path string, pattern *ir.Node) (*ir.Node, error) {
+	c.once.Do(func() { close(c.entered) })
+	<-ctx.Done()
+	return ir.Null(), ctx.Err()
+}
+
+// waitMount waits for a controller mount to register with docd.
+func waitMount(t *testing.T, docd *docdserver.Server, path string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if docd.Mounts.Lookup(path) != nil {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("mount %q did not register", path)
+}
+
+// TestDocd_ControllerCrashFailsInflight proves an in-flight client operation
+// fails deterministically (rather than hanging) when the owning controller
+// crashes mid-operation.
+func TestDocd_ControllerCrashFailsInflight(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+
+	ctrl := &blockingMatchController{memController: newMemController(), entered: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errc := make(chan error, 1)
+	go func() {
+		errc <- RunController(ctx, &ControllerConfig{
+			DocdAddr:   docd.TCPAddr(),
+			Controller: "crash-ctrl",
+			Path:       "/x",
+			Handler:    ctrl,
+		})
+	}()
+	waitMount(t, docd, "/x")
+
+	client := docdClient(t, docd, "client")
+
+	// Issue a match that will block inside the controller.
+	matchErr := make(chan error, 1)
+	go func() {
+		_, err := client.Match(context.Background(), "x/1")
+		matchErr <- err
+	}()
+
+	// Wait until the operation is in-flight in the controller, then crash it.
+	select {
+	case <-ctrl.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("match never reached the controller")
+	}
+	cancel() // crash the controller
+
+	// The in-flight op must return an error, not hang.
+	select {
+	case err := <-matchErr:
+		if err == nil {
+			t.Fatal("expected an error after controller crash, got nil")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("in-flight operation hung after controller crash")
+	}
+	<-errc
+}
+
 func docdClient(t *testing.T, docd *docdserver.Server, id string) *LogdSession {
 	t.Helper()
 	s := NewLogdSession(&LogdSessionConfig{Addr: docd.ClientTCPAddr(), ClientID: id})
