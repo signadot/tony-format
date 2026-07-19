@@ -57,19 +57,18 @@ func (l *ClientTCPListener) Serve() error {
 			continue
 		}
 
-		l.wg.Add(1)
-		go l.handleConnection(conn)
+		l.startSession(conn)
 	}
 }
 
-// handleConnection creates and runs a client session for the connection.
-func (l *ClientTCPListener) handleConnection(conn net.Conn) {
-	defer l.wg.Done()
-
+// startSession registers a session for the connection and launches it. The
+// registration and wg.Add happen under the same lock that observes closed, so a
+// concurrent Close either sees the session (and closes it) or the session sees
+// closed (and is refused) — never a session that Close missed but wg.Wait is
+// still waiting on.
+func (l *ClientTCPListener) startSession(conn net.Conn) {
 	seq := l.sessionSeq.Add(1)
 	sessionID := fmt.Sprintf("client-%d", seq)
-
-	l.server.Spec.Log.Debug("new client connection", "session", sessionID, "remote", conn.RemoteAddr().String())
 
 	session := NewClientSession(sessionID, conn, &ClientSessionConfig{
 		Log:    l.server.Spec.Log,
@@ -77,8 +76,23 @@ func (l *ClientTCPListener) handleConnection(conn net.Conn) {
 	})
 
 	l.sessionsMu.Lock()
+	if l.closed.Load() {
+		l.sessionsMu.Unlock()
+		conn.Close()
+		return
+	}
 	l.sessions[sessionID] = session
+	l.wg.Add(1)
 	l.sessionsMu.Unlock()
+
+	go l.runSession(sessionID, session)
+}
+
+// runSession runs a registered client session to completion and unregisters it.
+func (l *ClientTCPListener) runSession(sessionID string, session *ClientSession) {
+	defer l.wg.Done()
+
+	l.server.Spec.Log.Debug("new client connection", "session", sessionID, "remote", session.conn.RemoteAddr().String())
 
 	if err := session.Run(); err != nil {
 		l.server.Spec.Log.Error("client session error", "session", sessionID, "error", err)

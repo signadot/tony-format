@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"net"
-	"sync"
 	"time"
 )
 
@@ -32,9 +31,6 @@ type ClientSession struct {
 	server   *Server
 	log      *slog.Logger
 	logdAddr string
-
-	closeOnce sync.Once
-	done      chan struct{}
 }
 
 // ClientSessionConfig contains configuration for creating a client session.
@@ -55,7 +51,6 @@ func NewClientSession(id string, conn net.Conn, cfg *ClientSessionConfig) *Clien
 		server:   cfg.Server,
 		log:      log.With("session", id),
 		logdAddr: cfg.Server.Spec.LogdAddr,
-		done:     make(chan struct{}),
 	}
 }
 
@@ -98,18 +93,18 @@ func (s *ClientSession) logdToClient(logdConn net.Conn) error {
 }
 
 // pumpConn copies src into dst until EOF or error, treating a closed connection
-// (the normal teardown signal) as a clean stop.
+// (the normal teardown signal) as a clean stop. io.Copy reports EOF as a nil
+// error, so only an explicit close needs to be folded into a clean stop.
 func pumpConn(dst, src net.Conn) error {
 	_, err := io.Copy(dst, src)
-	if err == nil || errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) {
+	if err == nil || errors.Is(err, net.ErrClosed) {
 		return nil
 	}
 	return err
 }
 
-// Close signals the session to shut down and closes the client connection, which
-// cascades to the logd connection via Run.
+// Close closes the client connection, which cascades through Run to the logd
+// connection and unblocks both pumps. Safe to call more than once.
 func (s *ClientSession) Close() error {
-	s.closeOnce.Do(func() { close(s.done) })
 	return s.conn.Close()
 }
