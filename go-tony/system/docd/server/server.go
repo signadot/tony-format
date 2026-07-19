@@ -13,8 +13,11 @@ type Server struct {
 	// Mount registry for controller registrations
 	Mounts *MountRegistry
 
-	// TCP listener for client connections
+	// TCP listener for controller (mount) connections
 	tcpListener *TCPListener
+
+	// TCP listener for client connections (logd session protocol)
+	clientListener *ClientTCPListener
 }
 
 // New creates a new Server instance.
@@ -78,10 +81,56 @@ func (s *Server) StopTCP() error {
 	return err
 }
 
-// TCPAddr returns the TCP listener's address, or empty string if not running.
+// TCPAddr returns the mount TCP listener's address, or empty string if not
+// running.
 func (s *Server) TCPAddr() string {
 	if s.tcpListener == nil {
 		return ""
 	}
 	return s.tcpListener.Addr().String()
+}
+
+// StartClientTCP starts the client-facing TCP listener on the given address.
+// Clients speak the logd session protocol; docd proxies each connection to logd
+// (base paths) and, once mounts exist, routes mounted subtrees to controllers.
+// The listener runs in a separate goroutine.
+func (s *Server) StartClientTCP(addr string) error {
+	if s.clientListener != nil {
+		return fmt.Errorf("client TCP listener already running")
+	}
+
+	listener, err := NewClientTCPListener(addr, s)
+	if err != nil {
+		return err
+	}
+
+	s.clientListener = listener
+
+	go func() {
+		if err := listener.Serve(); err != nil {
+			s.Spec.Log.Error("client TCP listener error", "error", err)
+		}
+	}()
+
+	return nil
+}
+
+// StopClientTCP stops the client-facing TCP listener.
+func (s *Server) StopClientTCP() error {
+	if s.clientListener == nil {
+		return nil
+	}
+
+	err := s.clientListener.Close()
+	s.clientListener = nil
+	return err
+}
+
+// ClientTCPAddr returns the client TCP listener's address, or empty string if
+// not running.
+func (s *Server) ClientTCPAddr() string {
+	if s.clientListener == nil {
+		return ""
+	}
+	return s.clientListener.Addr().String()
 }

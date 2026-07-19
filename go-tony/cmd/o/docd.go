@@ -26,18 +26,19 @@ type DocDServeConfig struct {
 	*DocDConfig
 	Serve      *cli.Command
 	ConfigFile string `cli:"name=config desc='configuration file (tony format)'"`
-	Addr       string `cli:"name=addr desc='TCP listen address' default=localhost:9124"`
+	Addr       string `cli:"name=addr desc='client-facing TCP listen address (logd session protocol)' default=localhost:9124"`
+	MountAddr  string `cli:"name=mount-addr desc='controller-facing (MOUNT) TCP listen address' default=localhost:9125"`
 	LogdAddr   string `cli:"name=logd desc='logd server address' default=localhost:9123"`
 }
 
 func DocDServeCommand(docdCfg *DocDConfig) *cli.Command {
-	cfg := &DocDServeConfig{DocDConfig: docdCfg, Addr: "localhost:9124", LogdAddr: "localhost:9123"}
+	cfg := &DocDServeConfig{DocDConfig: docdCfg, Addr: "localhost:9124", MountAddr: "localhost:9125", LogdAddr: "localhost:9123"}
 	opts, err := cli.StructOpts(cfg)
 	if err != nil {
 		panic(err)
 	}
 	return cli.NewCommandAt(&cfg.Serve, "serve").
-		WithSynopsis("serve [-addr <addr>] [-logd <addr>]").
+		WithSynopsis("serve [-addr <addr>] [-mount-addr <addr>] [-logd <addr>]").
 		WithDescription("run the docd document server").
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
@@ -71,12 +72,20 @@ func docdServe(cfg *DocDServeConfig, cc *cli.Context, args []string) error {
 		LogdAddr: cfg.LogdAddr,
 	})
 
-	// Start TCP listener
-	if err := srv.StartTCP(cfg.Addr); err != nil {
-		return fmt.Errorf("failed to start TCP listener: %w", err)
+	// Start the client-facing listener (logd session protocol, proxied to logd).
+	if err := srv.StartClientTCP(cfg.Addr); err != nil {
+		return fmt.Errorf("failed to start client TCP listener: %w", err)
 	}
-	fmt.Fprintf(cc.Out, "docd listening on %s (logd: %s)\n", srv.TCPAddr(), cfg.LogdAddr)
+	defer srv.StopClientTCP()
+
+	// Start the controller-facing (MOUNT) listener.
+	if err := srv.StartTCP(cfg.MountAddr); err != nil {
+		return fmt.Errorf("failed to start mount TCP listener: %w", err)
+	}
 	defer srv.StopTCP()
+
+	fmt.Fprintf(cc.Out, "docd listening: client=%s mount=%s (logd: %s)\n",
+		srv.ClientTCPAddr(), srv.TCPAddr(), cfg.LogdAddr)
 
 	// Block forever
 	select {}
