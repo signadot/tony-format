@@ -3,6 +3,7 @@ Ref: refs/issues/rkrvsf1ch12kr6mcbnn0
 Title: "docd: compose ancestor reads across mount boundaries (Match/Watch)"
 commits:
 - bfb774e53e107414a862fd6ee7008219419f9d21
+- "4bd6d73d70891560b3ade398da55de30ec0421bb"
 created: "2026-07-20T04:46:50.189014+02:00"
 id: rkrvsf1ch12kr6mcbnn0
 labels:
@@ -11,4 +12,4 @@ labels:
 related_issues:
 - wcabztj2h12ksb9qbnn0
 status: open
-updated: "2026-07-20T05:00:58.083702+02:00"
+updated: "2026-07-20T05:23:09.694828+02:00"
