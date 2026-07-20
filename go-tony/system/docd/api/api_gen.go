@@ -200,6 +200,92 @@ func (s *MountSpec) FromTony(data []byte, opts ...gomap.UnmapOption) error {
 	return s.FromTonyIR(node, opts...)
 }
 
+// ToTonyIR converts UnmountSpec to a Tony IR node.
+func (s *UnmountSpec) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
+	// Create IR object map
+	irMap := make(map[string]*ir.Node)
+
+	// Field: ForceAfter (optional)
+	if s.ForceAfter != nil {
+		irMap["forceAfter"] = ir.FromString(*s.ForceAfter)
+	}
+
+	return ir.FromMap(irMap), nil
+}
+
+// FromTonyIR populates UnmountSpec from a Tony IR node.
+func (s *UnmountSpec) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
+	if node.Type != ir.ObjectType {
+		return fmt.Errorf("expected map for UnmountSpec, got %v", node.Type)
+	}
+
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
+		switch fieldName.String {
+		case "forceAfter":
+			// Field: ForceAfter
+			if fieldNodeUnwrapped.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(string)
+				if fieldNodeUnwrapped.Type != ir.StringType {
+					return fmt.Errorf("%s: expected string, got %v", "field \"forceAfter\"", fieldNodeUnwrapped.Type)
+				}
+				*val = string(fieldNodeUnwrapped.String)
+				s.ForceAfter = val
+			}
+		}
+	}
+
+	return nil
+}
+
+// ToTony converts UnmountSpec to Tony format bytes.
+func (s *UnmountSpec) ToTony(opts ...gomap.MapOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// FromTony parses Tony format bytes and populates UnmountSpec.
+func (s *UnmountSpec) FromTony(data []byte, opts ...gomap.UnmapOption) error {
+	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
+	if err != nil {
+		return err
+	}
+	return s.FromTonyIR(node, opts...)
+}
+
 // ToTonyIR converts MountRequest to a Tony IR node.
 func (s *MountRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if s == nil {
@@ -229,6 +315,15 @@ func (s *MountRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 			return nil, err
 		}
 		irMap["mount"] = node
+	}
+
+	// Field: Unmount (optional)
+	if s.Unmount != nil {
+		node, err = s.Unmount.ToTonyIR()
+		if err != nil {
+			return nil, err
+		}
+		irMap["unmount"] = node
 	}
 
 	return ir.FromMap(irMap), nil
@@ -274,6 +369,12 @@ func (s *MountRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 			// Field: Mount
 			s.Mount = &MountSpec{}
 			if err := s.Mount.FromTonyIR(fieldNode); err != nil {
+				return err
+			}
+		case "unmount":
+			// Field: Unmount
+			s.Unmount = &UnmountSpec{}
+			if err := s.Unmount.FromTonyIR(fieldNode); err != nil {
 				return err
 			}
 		}

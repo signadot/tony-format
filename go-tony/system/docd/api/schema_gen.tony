@@ -34,8 +34,16 @@ signature:
 context:
 - tony-format/context
 define:
+  forceAfter: .[nullable(string)]
+signature:
+  name: unmount-spec
+---
+context:
+- tony-format/context
+define:
   hello: .[nullable(mount-hello)]
   mount: .[nullable(mount-spec)]
+  unmount: .[nullable(unmount-spec)]
 signature:
   name: mount-request
 ---

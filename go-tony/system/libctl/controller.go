@@ -130,7 +130,9 @@ func RunController(ctx context.Context, cfg *ControllerConfig) error {
 		watches: make(map[string]*watchReg),
 	}
 
-	// Unblock the serve loop's blocking read when the caller cancels.
+	// Unblock the serve loop's blocking read when the caller cancels. Cancelling is
+	// an abrupt disconnect (docd tombstones the mount); a controller that wants to
+	// detach cleanly instead calls MountClient.Unmount for a graceful drain.
 	serveDone := make(chan struct{})
 	go func() {
 		select {

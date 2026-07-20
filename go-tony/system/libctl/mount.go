@@ -249,3 +249,29 @@ func (c *MountClient) Close() error {
 	}
 	return c.conn.Close()
 }
+
+// Unmount gracefully unmounts the controller's subtree: it asks docd to drain the
+// watches overlapping the mount (force-ending them after forceAfter so they see
+// membership_changed rather than an abrupt controller_unavailable) and fully
+// remove the mount — no tombstone — then waits for docd to close the connection,
+// which signals completion. forceAfter is as MountConfig.ForceAfter: a pointer to
+// 0 waits forever, nil uses docd's default.
+//
+// The MountClient's connection must not be concurrently read by a controller
+// runtime while Unmount runs, since Unmount reads it to completion.
+func (c *MountClient) Unmount(forceAfter *time.Duration) error {
+	spec := &api.UnmountSpec{}
+	if forceAfter != nil {
+		fa := forceAfter.String() // "0s" = wait forever
+		spec.ForceAfter = &fa
+	}
+	if err := c.sendRequest(&api.MountRequest{Unmount: spec}); err != nil {
+		return fmt.Errorf("failed to send unmount: %w", err)
+	}
+	// docd drains, removes the mount, then closes the connection; EOF is completion.
+	for {
+		if _, err := c.readDocument(); err != nil {
+			return nil
+		}
+	}
+}

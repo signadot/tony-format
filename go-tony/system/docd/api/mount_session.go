@@ -33,13 +33,24 @@ type MountSpec struct {
 	ForceAfter *string `tony:"field=forceAfter,omitzero"`
 }
 
-// MountRequest is the request message from controller to docd.
-// Contains both hello and mount in a single message.
+// UnmountSpec requests a graceful unmount of the controller's subtree: docd
+// drains (force-ending after ForceAfter) the watches overlapping the mount so
+// they see membership_changed rather than an abrupt controller_unavailable, then
+// fully removes the mount (no tombstone) and closes the connection.
+//
+//tony:schemagen=unmount-spec,notag
+type UnmountSpec struct {
+	ForceAfter *string `tony:"field=forceAfter,omitzero"` // as MountSpec.ForceAfter
+}
+
+// MountRequest is a message from controller to docd. The handshake carries Hello
+// and Mount; a later Unmount requests a graceful unmount on the same connection.
 //
 //tony:schemagen=mount-request,notag
 type MountRequest struct {
-	Hello *MountHello `tony:"field=hello"`
-	Mount *MountSpec  `tony:"field=mount"`
+	Hello   *MountHello  `tony:"field=hello"`
+	Mount   *MountSpec   `tony:"field=mount"`
+	Unmount *UnmountSpec `tony:"field=unmount,omitzero"`
 }
 
 // --- docd → Controller Messages ---

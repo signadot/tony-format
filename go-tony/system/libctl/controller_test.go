@@ -628,6 +628,46 @@ func drainUntilClosed(t *testing.T, w *Watch) {
 	}
 }
 
+// TestDocd_GracefulUnmount proves an explicit graceful unmount drains an
+// overlapping watch (membership_changed, not the abrupt controller_unavailable a
+// crash gives) and FULLY removes the mount — no tombstone, unlike a crash.
+func TestDocd_GracefulUnmount(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+
+	// A bare MountClient (no runtime): the overlapping watch is on the base path,
+	// so the controller need not serve it.
+	mc, err := Mount(&MountConfig{DocdAddr: docd.TCPAddr(), Controller: "c", Path: "a.b"})
+	if err != nil {
+		t.Fatalf("mount: %v", err)
+	}
+	waitMount(t, docd, "a.b")
+
+	client := docdClient(t, docd, "client")
+	w, err := client.Watch(context.Background(), "a", nil) // base watch overlapping a.b
+	if err != nil {
+		t.Fatalf("watch: %v", err)
+	}
+
+	short := 50 * time.Millisecond
+	if err := mc.Unmount(&short); err != nil {
+		t.Fatalf("graceful unmount: %v", err)
+	}
+
+	// The overlapping watch ended with membership_changed (graceful), not
+	// controller_unavailable (crash).
+	drainUntilClosed(t, w)
+	var ended *WatchEndedError
+	if !errors.As(w.Err(), &ended) || ended.Reason != "membership_changed" {
+		t.Fatalf("expected membership_changed, got %v", w.Err())
+	}
+
+	// The mount is fully removed — a crash would have left a tombstone.
+	if e := docd.Mounts.Lookup("a.b"); e != nil {
+		t.Fatalf("expected mount fully removed, got %+v (tombstone=%v)", e, !e.Live())
+	}
+}
+
 // TestDocd_PerMountForceAfterOverride proves a controller's per-mount force_after
 // overrides docd's server default: with a large default that would block the
 // mount ~forever behind a held watch, a short per-mount force_after force-ends the

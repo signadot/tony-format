@@ -127,6 +127,14 @@ func (s *MountSession) readPump(decoder *stream.Decoder) error {
 			return fmt.Errorf("read error: %w", err)
 		}
 
+		// A controller may send a graceful-unmount control frame on this connection
+		// (distinguished from its logd session responses by the "unmount" field);
+		// everything else is a response to a routed op.
+		if ir.Get(node, "unmount") != nil {
+			s.handleGracefulUnmount(node)
+			return nil
+		}
+
 		var resp logdapi.SessionResponse
 		if err := resp.FromTonyIR(node); err != nil {
 			s.log.Error("failed to parse controller response", "error", err)
@@ -134,6 +142,35 @@ func (s *MountSession) readPump(decoder *stream.Decoder) error {
 		}
 		s.dispatch(&resp)
 	}
+}
+
+// handleGracefulUnmount serves a controller's graceful-unmount request: it drains
+// (force-ending after force_after) the watches overlapping the mount so they see
+// membership_changed rather than an abrupt controller_unavailable, then FULLY
+// removes the mount (no tombstone, since the controller left deliberately), fails
+// any in-flight non-watch routes, and closes the connection — which the
+// controller observes as completion.
+func (s *MountSession) handleGracefulUnmount(node *ir.Node) {
+	var req api.MountRequest
+	var forceAfter time.Duration
+	if err := req.FromTonyIR(node); err == nil && req.Unmount != nil {
+		if d, ferr := s.resolveForceAfter(req.Unmount.ForceAfter); ferr == nil {
+			forceAfter = d
+		} else {
+			forceAfter = s.server.mountForceAfter()
+		}
+	} else {
+		forceAfter = s.server.mountForceAfter()
+	}
+
+	if release, ok := s.server.coord.beginWrite(s.mountPath, forceAfter); ok {
+		s.server.Mounts.Unregister(s.mountPath)
+		release()
+	}
+	s.log.Info("controller unmounted (graceful)", "controller", s.controllerID, "path", s.mountPath)
+	s.mountPath = "" // already removed; keep cleanup() from tombstoning it
+	s.failAllRoutes(fmt.Errorf("mount removed"))
+	s.Close()
 }
 
 // dispatch delivers a single controller response to the appropriate client.
