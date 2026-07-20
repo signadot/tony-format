@@ -13,7 +13,12 @@ nav:
   - 'Extra-Format Encoding': extraformat.md
   - o: o/index.md
   - Golang: gomap.md
-- Reference:   
+- docd:
+  - docd/index.md
+  - 'Mounts & routing': docd/mounts.md
+  - 'Composition: reads & watches': docd/composition.md
+  - 'Multi-mount transactions': docd/transactions.md
+- Reference:
   - build-eval.md
   - 'Tags': generated/
   - matchpatch.md
