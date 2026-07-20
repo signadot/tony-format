@@ -435,14 +435,24 @@ func (s *LogdSession) deliverResponse(resp *api.SessionResponse) {
 	ch <- resp // buffered (cap 1); never blocks
 }
 
-// routeEvent routes a watch event to the Watch registered for its path.
+// routeEvent routes a watch event to the Watch registered for its path. A
+// terminal event (Ended) fails the watch with a WatchEndedError and unregisters
+// it, so the application can re-establish (docd sends this when a mount/unmount
+// force-ends a watch or the owning controller crashes).
 func (s *LogdSession) routeEvent(ev *api.WatchEvent) {
 	s.mu.Lock()
 	w := s.watchers[ev.Path]
+	if ev.Ended && w != nil {
+		delete(s.watchers, ev.Path)
+	}
 	s.mu.Unlock()
 
 	if w == nil {
 		// The watch may have just been closed; drop the event.
+		return
+	}
+	if ev.Ended {
+		w.fail(&WatchEndedError{Path: ev.Path, Reason: ev.EndReason})
 		return
 	}
 	w.deliver(ev)

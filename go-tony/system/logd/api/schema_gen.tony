@@ -229,6 +229,8 @@ context:
 - tony-base: github.com/signadot/tony-format/go-tony/schema
 define:
   commit: .[int]
+  endReason: .[string]
+  ended: .[bool]
   patch: .[tony-base:ir]
   path: .[string]
   replayComplete: .[bool]

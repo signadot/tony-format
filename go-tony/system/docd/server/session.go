@@ -385,13 +385,19 @@ func (s *MountSession) failAllRoutes(err error) {
 		}
 		if e.stream != nil {
 			// A composed-watch sub-route: tell the composer its backend died so it
-			// can tear down and re-sync.
+			// ends the composed watch and the client re-composes.
 			e.stream(logdapi.NewErrorResponse(nil, logdapi.ErrCodeUnavailable,
 				"controller disconnected: "+err.Error()))
 			continue
 		}
 		if e.isWatch {
-			continue // the watch simply stops delivering events
+			// A single-route watch: tell the client the watch ended (off the read
+			// pump, since terminateWatch may route to other sessions) so it
+			// re-establishes rather than silently stalling.
+			if e.client != nil {
+				go e.client.terminateWatch(e.path, logdapi.ErrCodeUnavailable)
+			}
+			continue
 		}
 		_ = e.client.writeToClient(logdapi.NewErrorResponse(e.clientID,
 			logdapi.ErrCodeSessionClosed, "controller disconnected: "+err.Error()))

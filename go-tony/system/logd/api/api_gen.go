@@ -2535,6 +2535,14 @@ func (s *WatchEvent) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["replayComplete"] = ir.FromBool(s.ReplayComplete)
 	}
 
+	// Field: Ended
+	if s.Ended {
+		irMap["ended"] = ir.FromBool(s.Ended)
+	}
+
+	// Field: EndReason
+	irMap["endReason"] = ir.FromString(s.EndReason)
+
 	return ir.FromMap(irMap), nil
 }
 
@@ -2598,6 +2606,18 @@ func (s *WatchEvent) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 				return fmt.Errorf("field %q: expected bool, got %v", "replayComplete", fieldNodeUnwrapped.Type)
 			}
 			s.ReplayComplete = fieldNodeUnwrapped.Bool
+		case "ended":
+			// Field: Ended
+			if fieldNodeUnwrapped.Type != ir.BoolType {
+				return fmt.Errorf("field %q: expected bool, got %v", "ended", fieldNodeUnwrapped.Type)
+			}
+			s.Ended = fieldNodeUnwrapped.Bool
+		case "endReason":
+			// Field: EndReason
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "endReason", fieldNodeUnwrapped.Type)
+			}
+			s.EndReason = fieldNodeUnwrapped.String
 		}
 	}
 

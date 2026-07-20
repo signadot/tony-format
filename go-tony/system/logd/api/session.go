@@ -271,6 +271,8 @@ type WatchEvent struct {
 	State          *ir.Node `tony:"field=state"`                   // Full state (when fullState=true for first event)
 	Patch          *ir.Node `tony:"field=patch"`                   // Delta patch (for subsequent events)
 	ReplayComplete bool     `tony:"field=replayComplete,omitzero"` // Marker that replay is complete
+	Ended          bool     `tony:"field=ended,omitzero"`          // Terminal marker: the watch has ended and the client should re-establish it
+	EndReason      string   `tony:"field=endReason,omitzero"`      // Why the watch ended (e.g. membership_changed, controller_unavailable)
 }
 
 // SessionError is an error response.

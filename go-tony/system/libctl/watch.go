@@ -13,6 +13,21 @@ import (
 // not specify one.
 const defaultWatchBuffer = 128
 
+// WatchEndedError terminates a Watch when docd ends it server-side rather than
+// the connection dropping: a mount/unmount force-ended the watch because its
+// mount membership changed (Reason "membership_changed"), or the controller
+// owning the watched subtree crashed (Reason "controller_unavailable"). The watch
+// is re-establishable: the application should start a new Watch on the same path,
+// which re-composes against the current mount set.
+type WatchEndedError struct {
+	Path   string
+	Reason string
+}
+
+func (e *WatchEndedError) Error() string {
+	return fmt.Sprintf("watch on %q ended: %s", e.Path, e.Reason)
+}
+
 // WatchOptions configures a Watch subscription.
 type WatchOptions struct {
 	// FromCommit, when non-nil, replays historical patches after this commit up

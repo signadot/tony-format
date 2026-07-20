@@ -148,11 +148,20 @@ type composedWatch struct {
 	stops    []func()
 }
 
-// forward is the sink for every sub-watch. It drops non-events (sub-watch
-// confirmations and failures — the composer owns the client-facing stream),
-// re-stamps a delta event's path to the composed watch's path, and buffers it
-// until the initial snapshot has been sent, then forwards live.
+// forward is the sink for every sub-watch. A sub-watch failure ends the whole
+// composed watch (the client re-establishes and re-composes). Otherwise it drops
+// non-events (sub-watch confirmations), re-stamps a delta event's path to the
+// composed watch's path, and buffers it until the initial snapshot has been sent,
+// then forwards live.
 func (cw *composedWatch) forward(resp *logdapi.SessionResponse) {
+	if resp.Error != nil {
+		reason := resp.Error.Code
+		if reason == "" {
+			reason = "watch_ended"
+		}
+		cw.client.terminateWatch(cw.path, reason)
+		return
+	}
 	if resp.Event == nil {
 		return
 	}
@@ -222,15 +231,27 @@ func (s *ClientSession) releaseWatchToken(path string) {
 }
 
 // forceWatch is the coordinator's force-teardown hook: a mount/unmount whose
-// force_after elapsed is ending this watch so its membership can change. The
-// coordinator has already dropped the reader, so this drops the token and tears
-// the watch down — a composed watch's sub-watches, or a single-route watch's
-// backend. The client's watch then simply stops delivering events, as it does
-// today when a controller crashes; an explicit termination signal prompting the
-// client to re-watch is a follow-up.
+// force_after elapsed is ending this watch so its membership can change.
 func (s *ClientSession) forceWatch(path string) {
+	s.terminateWatch(path, "membership_changed")
+}
+
+// terminalWatchEvent is the id-less event that tells a client its watch on path
+// has ended (and why), so it re-establishes — the client routes it to the watch
+// by path, as with any watch event.
+func terminalWatchEvent(path, reason string) *logdapi.SessionResponse {
+	return &logdapi.SessionResponse{Event: &logdapi.WatchEvent{Path: path, Ended: true, EndReason: reason}}
+}
+
+// terminateWatch ends a client watch — whether forced by a mount/unmount, failed
+// by a crashed controller, or a base sub-watch dropping — by releasing its
+// coordinator reader token, telling the client the watch ended so it
+// re-establishes, and tearing down the backend (a composed watch's sub-watches,
+// or a single-route watch's one backend). Idempotent: only the first call for a
+// path does the work.
+func (s *ClientSession) terminateWatch(path, reason string) {
 	s.watchMu.Lock()
-	_, ok := s.watchTokens[path]
+	token, ok := s.watchTokens[path]
 	if ok {
 		delete(s.watchTokens, path)
 	}
@@ -238,8 +259,11 @@ func (s *ClientSession) forceWatch(path string) {
 	delete(s.composedWatches, path)
 	s.watchMu.Unlock()
 	if !ok {
-		return // already released (raced with unwatch/close)
+		return // already ended (raced with unwatch/close/another sub-failure)
 	}
+	s.server.coord.endRead(token) // no-op if the coordinator already forced it
+	_ = s.writeToClient(terminalWatchEvent(path, reason))
+
 	if cw != nil {
 		cw.Stop()
 		return

@@ -546,6 +546,88 @@ func TestDocd_MountForcesOverlappingWatch(t *testing.T) {
 	runController(t, docd, "a.b", newMemController())
 }
 
+// TestDocd_WatchForcedMembershipChanged proves a force-ended watch reaches the
+// client as a re-establishable WatchEndedError (not a silent stop): a mount whose
+// force_after elapses ends the overlapping watch with membership_changed, and the
+// client can re-watch (now composed over the new mount).
+func TestDocd_WatchForcedMembershipChanged(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdForce(t, logd.TCPAddr(), 50*time.Millisecond)
+	client := docdClient(t, docd, "client")
+	ctx := context.Background()
+
+	w, err := client.Watch(ctx, "a", nil) // base watch, overlapping the coming mount a.b
+	if err != nil {
+		t.Fatalf("watch: %v", err)
+	}
+
+	runController(t, docd, "a.b", newMemController()) // forces the watch after 50ms
+
+	drainUntilClosed(t, w) // past the initial state event to the terminal close
+	var ended *WatchEndedError
+	if !errors.As(w.Err(), &ended) || ended.Reason != "membership_changed" {
+		t.Fatalf("expected WatchEndedError membership_changed, got %v", w.Err())
+	}
+
+	// Re-watch succeeds (the path is now a composed ancestor of the mount).
+	w2, err := client.Watch(ctx, "a", nil)
+	if err != nil {
+		t.Fatalf("re-watch after membership change: %v", err)
+	}
+	w2.Close()
+}
+
+// TestDocd_WatchEndsOnControllerCrash proves a watch on a mounted subtree ends the
+// client with a re-establishable controller_unavailable error when the owning
+// controller crashes, rather than silently stalling.
+func TestDocd_WatchEndsOnControllerCrash(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+
+	ctrl := newMemController()
+	ctrl.watchable = true
+	ctx, cancel := context.WithCancel(context.Background())
+	errc := make(chan error, 1)
+	go func() {
+		errc <- RunController(ctx, &ControllerConfig{
+			DocdAddr: docd.TCPAddr(), Controller: "crashing", Path: "rooms", Handler: ctrl,
+		})
+	}()
+	waitMount(t, docd, "rooms")
+
+	client := docdClient(t, docd, "client")
+	w, err := client.Watch(context.Background(), "rooms.1", nil) // single-route to the controller
+	if err != nil {
+		t.Fatalf("watch: %v", err)
+	}
+
+	cancel() // crash the controller
+
+	drainUntilClosed(t, w) // past the initial state event to the terminal close
+	var ended *WatchEndedError
+	if !errors.As(w.Err(), &ended) || ended.Reason != "controller_unavailable" {
+		t.Fatalf("expected WatchEndedError controller_unavailable, got %v", w.Err())
+	}
+}
+
+// drainUntilClosed reads and discards watch events until the channel closes,
+// which is how a server-ended watch (WatchEndedError) surfaces after any initial
+// or in-flight events.
+func drainUntilClosed(t *testing.T, w *Watch) {
+	t.Helper()
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case _, ok := <-w.Events():
+			if !ok {
+				return
+			}
+		case <-timeout:
+			t.Fatal("watch did not end")
+		}
+	}
+}
+
 // startDocdForce is startDocdRouting with a specific mount/unmount reader-drain
 // timeout (mountCoord force_after).
 func startDocdForce(t *testing.T, logdAddr string, forceAfter time.Duration) *docdserver.Server {
