@@ -895,3 +895,99 @@ func TestSession_MultiParticipantTransaction(t *testing.T) {
 	}
 	t.Logf("Both participants received commit: %d", results[0])
 }
+
+// TestSession_ScopedWatch_COW verifies copy-on-write watch semantics: a scoped
+// watcher's delta stream reproduces the scoped read. A baseline write to a leaf the
+// scope has already written is shadowed (no delta), while a baseline write to an
+// un-owned leaf flows through. This is the watch-side of issue eagjggjdh12ksg00bsn0.
+func TestSession_ScopedWatch_COW(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := storage.Open(tmpDir, nil)
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+	defer store.Close()
+
+	hub := NewWatchHub()
+	store.SetCommitNotifier(hub.Broadcast)
+
+	conn := newMockConn()
+	// Scoped session (scope s1) watching path "a", no initial state event.
+	conn.WriteRequest(`{hello: {clientId: "c", scope: "s1"}}`)
+	conn.WriteRequest(`{watch: {path: "a", noInit: true}}`)
+
+	session := NewSession("test-server", conn, &SessionConfig{Storage: store, Hub: hub})
+	done := make(chan error)
+	go func() { done <- session.Run() }()
+	time.Sleep(50 * time.Millisecond)
+
+	commit := func(scopeID *string, src string) {
+		t.Helper()
+		txn, err := store.NewTx(1, scopeID)
+		if err != nil {
+			t.Fatalf("NewTx: %v", err)
+		}
+		data, err := parse.Parse([]byte(src))
+		if err != nil {
+			t.Fatalf("parse %q: %v", src, err)
+		}
+		p, err := txn.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: data}})
+		if err != nil {
+			t.Fatalf("NewPatcher: %v", err)
+		}
+		if r := p.Commit(); !r.Committed {
+			t.Fatalf("commit %q: %v", src, r.Error)
+		}
+		time.Sleep(40 * time.Millisecond)
+	}
+
+	scope := "s1"
+	commit(&scope, `{a: {x: 5}}`) // commit 1: scope writes a.x=5      -> delta
+	commit(nil, `{a: {x: 99}}`)   // commit 2: baseline a.x=99 (owned)  -> SUPPRESSED
+	commit(nil, `{a: {y: 7}}`)    // commit 3: baseline a.y=7 (unowned) -> delta
+
+	time.Sleep(80 * time.Millisecond)
+	conn.Close()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("session did not complete")
+	}
+
+	var patchCommits []int64
+	for _, doc := range splitTonyDocs(conn.GetResponses()) {
+		var resp api.SessionResponse
+		if err := resp.FromTony(doc); err != nil {
+			continue
+		}
+		if resp.Event != nil && resp.Event.Patch != nil {
+			patchCommits = append(patchCommits, resp.Event.Commit)
+		}
+	}
+
+	// Deltas only at commits 1 and 3; commit 2 (baseline write to scope-owned a.x)
+	// must be shadowed. Without the fix, the raw baseline delta at commit 2 would be
+	// forwarded (commits [1 2 3]) and the scope's a.x would be overwritten to 99.
+	if len(patchCommits) != 2 || patchCommits[0] != 1 || patchCommits[1] != 3 {
+		t.Fatalf("scoped watch delta commits = %v, want [1 3] (commit 2 shadowed)", patchCommits)
+	}
+
+	// End state: the scope still sees its own a.x=5 plus the baseline a.y=7.
+	doc, err := store.ReadStateAt("a", 3, &scope)
+	if err != nil {
+		t.Fatalf("scoped read: %v", err)
+	}
+	wantInt := func(kp string, want int64) {
+		t.Helper()
+		v, err := extractPathValue(doc, kp)
+		if err != nil {
+			t.Errorf("extract %q: %v", kp, err)
+			return
+		}
+		if v.Int64 == nil || *v.Int64 != want {
+			t.Errorf("scoped %s = %v, want %d", kp, v, want)
+		}
+	}
+	wantInt("a.x", 5)
+	wantInt("a.y", 7)
+}

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/stream"
@@ -599,6 +600,7 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 // The client should re-establish the watch, possibly from a different commit.
 func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool, currentCommit int64) {
 	path := watcher.Path
+	scoped := s.scope != nil
 
 	// Track the highest commit we've replayed (for deduplication)
 	lastReplayedCommit := int64(0)
@@ -608,6 +610,13 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 	if fromCommit != nil {
 		startCommit = *fromCommit
 		lastReplayedCommit = currentCommit
+	}
+	// A scoped watcher's initial state (below) reflects the scope at startCommit, so
+	// any event <= startCommit is already accounted for; skip it. (For fromCommit,
+	// lastReplayedCommit is already currentCommit; scoped no-replay watchers seed at
+	// currentCommit and must not emit a backwards delta for a queued earlier event.)
+	if scoped && lastReplayedCommit < startCommit {
+		lastReplayedCommit = startCommit
 	}
 
 	// Send initial state unless noInit is set
@@ -636,6 +645,23 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 		s.send(api.NewStateEvent(startCommit, path, state))
 	}
 
+	// prevDoc tracks the last-emitted scoped state (root-rooted) so a scoped watcher
+	// can emit deltas by recompute-and-diff. A scoped watcher must reproduce the scoped
+	// read at each commit; a raw committed delta (baseline or scope) does not, because
+	// scope writes shadow baseline and !key merges are identity-based. Recompute+diff
+	// also naturally suppresses baseline writes to leaves the scope has overridden (the
+	// scoped view is unchanged -> empty diff). See issue eagjggjdh12ksg00bsn0.
+	var prevDoc *ir.Node
+	if scoped {
+		var err error
+		prevDoc, err = s.scopedDocAt(path, startCommit)
+		if err != nil {
+			s.log.Error("failed to read scoped watch base", "path", path, "commit", startCommit, "error", err)
+			s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read scoped state at commit %d: %v", startCommit, err))
+			return
+		}
+	}
+
 	// Handle replay if fromCommit is specified
 	if fromCommit != nil {
 		// Send historical patches from startCommit+1 to currentCommit
@@ -647,6 +673,15 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 				return
 			}
 			for _, patch := range patches {
+				if scoped {
+					newPrev, err := s.emitScopedDelta(path, patch.Commit, prevDoc)
+					if err != nil {
+						s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read scoped state at commit %d: %v", patch.Commit, err))
+						return
+					}
+					prevDoc = newPrev
+					continue
+				}
 				tx.StripPatchRootTagRecursive(patch.Patch)
 				s.send(api.NewPatchEvent(patch.Commit, path, patch.Patch))
 			}
@@ -673,12 +708,58 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 			if notification.Commit <= lastReplayedCommit {
 				continue
 			}
+			if scoped {
+				// Recompute the scoped view at this commit and emit only the change
+				// vs. the previously emitted state. notification.Patch (the raw
+				// baseline/scope delta) is intentionally ignored.
+				newPrev, err := s.emitScopedDelta(path, notification.Commit, prevDoc)
+				if err != nil {
+					s.log.Error("failed to read scoped state for watch", "path", path, "commit", notification.Commit, "error", err)
+					s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read scoped state at commit %d: %v", notification.Commit, err))
+					return
+				}
+				prevDoc = newPrev
+				continue
+			}
 			// The patch has already been stripped of internal tags by the hub
 			// (WatchHub.Broadcast), which hands each notification an independent
 			// copy. Forwarding it is read-only.
 			s.send(api.NewPatchEvent(notification.Commit, path, notification.Patch))
 		}
 	}
+}
+
+// scopedDocAt returns the scoped state document (root-rooted, the watched path's
+// subtree) at the given commit, normalized so a nil/empty result becomes ir.Null()
+// for diffing.
+func (s *Session) scopedDocAt(path string, commit int64) (*ir.Node, error) {
+	if commit == 0 {
+		return ir.Null(), nil
+	}
+	doc, err := s.storage.ReadStateAt(path, commit, s.scope)
+	if err != nil {
+		return nil, err
+	}
+	if doc == nil {
+		return ir.Null(), nil
+	}
+	return doc, nil
+}
+
+// emitScopedDelta recomputes the scoped view at commit and, if it differs from prev,
+// sends a root-rooted delta (prev -> new) as a patch event. It returns the new
+// document to use as the next diff base (unchanged prev when there is no delta, so a
+// baseline write to a scope-overridden leaf emits nothing).
+func (s *Session) emitScopedDelta(path string, commit int64, prev *ir.Node) (*ir.Node, error) {
+	newDoc, err := s.scopedDocAt(path, commit)
+	if err != nil {
+		return prev, err
+	}
+	if newDoc.DeepEqual(prev) {
+		return prev, nil
+	}
+	s.send(api.NewPatchEvent(commit, path, tony.Diff(prev, newDoc)))
+	return newDoc, nil
 }
 
 // handleUnwatch handles unwatch requests.
