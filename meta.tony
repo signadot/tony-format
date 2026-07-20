@@ -3,5 +3,7 @@ Ref: refs/issues/favh47sxh12kraaebsn0
 Title: "docd: mount coordination force-ends legitimate long-lived overlapping watches (fixed 5s force_after; membership_changed loses the gap)"
 created: "2026-07-20T18:34:49.075945+02:00"
 id: favh47sxh12kraaebsn0
+related_issues:
+- rkrvsf1ch12kr6mcbnn0
 status: open
-updated: "2026-07-20T18:34:49.075945+02:00"
+updated: "2026-07-20T18:34:59.444618+02:00"
