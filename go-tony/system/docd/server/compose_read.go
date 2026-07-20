@@ -168,9 +168,10 @@ func (s *ClientSession) composeReadTree(path string, owner *MountEntry, below []
 // via a collected MATCH route, or logd (entry nil) over a short-lived connection.
 func (s *ClientSession) readFrom(entry *MountEntry, path string) (*ir.Node, int64, error) {
 	if entry == nil {
-		return readLogdMatch(s.logdAddr, path, matchReadTimeout)
+		return readLogdMatch(s.logdAddr, path, s.clientScope, matchReadTimeout)
 	}
 	ch := entry.Session.RouteCollect(&logdapi.SessionRequest{
+		Scope: s.clientScope,
 		Match: &logdapi.MatchRequest{Body: logdapi.PathData{Path: path}},
 	})
 	select {

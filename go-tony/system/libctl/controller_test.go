@@ -411,6 +411,93 @@ func TestDocd_ScopedSingleMount(t *testing.T) {
 	assertLogdV(t, direct, "users.1", 1) // scoped write did not leak to baseline
 }
 
+// TestDocd_ScopedMultiMountTransaction proves a scoped client's single patch
+// spanning two mounts commits atomically IN ITS SCOPE: both writes are visible in
+// the scope and neither leaks to baseline.
+func TestDocd_ScopedMultiMountTransaction(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+	runController(t, docd, "a", newLogdController(t, logd.TCPAddr(), "cA"))
+	runController(t, docd, "b", newLogdController(t, logd.TCPAddr(), "cB"))
+
+	scoped := scopedDocdClient(t, docd, "scoped", "s1")
+	ctx := context.Background()
+
+	data := ir.FromMap(map[string]*ir.Node{
+		"a": ir.FromMap(map[string]*ir.Node{"x": vObj(1)}),
+		"b": ir.FromMap(map[string]*ir.Node{"x": vObj(2)}),
+	})
+	if err := scoped.Patch(ctx, "", data); err != nil {
+		t.Fatalf("scoped multi-mount patch: %v", err)
+	}
+
+	// Committed and visible in the scope.
+	assertLogdV(t, scoped, "a.x", 1)
+	assertLogdV(t, scoped, "b.x", 2)
+
+	// Isolated from baseline: neither a baseline client nor logd's baseline sees it.
+	base := docdClient(t, docd, "base")
+	assertNull(t, base, "a.x")
+	direct := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "verify"})
+	defer direct.Close()
+	assertNull(t, direct, "a.x")
+	assertNull(t, direct, "b.x")
+}
+
+// TestDocd_ScopedComposedMatch proves a scoped client's composed ancestor read
+// sees its scoped base AND scoped mount content, while a baseline client sees
+// neither.
+func TestDocd_ScopedComposedMatch(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+	runController(t, docd, "a.b", newLogdController(t, logd.TCPAddr(), "cAB"))
+
+	scoped := scopedDocdClient(t, docd, "scoped", "s1")
+	ctx := context.Background()
+	if err := scoped.Patch(ctx, "a.x", vObj(1)); err != nil { // base -> scoped logd conn
+		t.Fatalf("scoped base: %v", err)
+	}
+	if err := scoped.Patch(ctx, "a.b", vObj(7)); err != nil { // mount -> controller in scope
+		t.Fatalf("scoped mount: %v", err)
+	}
+
+	res, err := scoped.Match(ctx, "a") // composed across base + mount, in scope
+	if err != nil {
+		t.Fatalf("scoped composed match: %v", err)
+	}
+	if v, _ := res.GetPath("$.x.v"); v == nil || v.Int64 == nil || *v.Int64 != 1 {
+		t.Errorf("scoped composed a.x.v: got %v, want 1", v)
+	}
+	if v, _ := res.GetPath("$.b.v"); v == nil || v.Int64 == nil || *v.Int64 != 7 {
+		t.Errorf("scoped composed a.b.v: got %v, want 7", v)
+	}
+
+	// A baseline composed read sees neither the scoped base nor the scoped mount.
+	base := docdClient(t, docd, "base")
+	res2, err := base.Match(ctx, "a")
+	if err != nil {
+		t.Fatalf("baseline composed match: %v", err)
+	}
+	if v, _ := res2.GetPath("$.x.v"); v != nil {
+		t.Errorf("baseline saw scoped base a.x: %v", v)
+	}
+	if v, _ := res2.GetPath("$.b.v"); v != nil {
+		t.Errorf("baseline saw scoped mount a.b: %v", v)
+	}
+}
+
+// assertNull asserts a Match at path returns no ".v" (the value is absent/null).
+func assertNull(t *testing.T, s *LogdSession, path string) {
+	t.Helper()
+	res, err := s.Match(context.Background(), path)
+	if err != nil {
+		return // not found is fine
+	}
+	if v, _ := res.GetPath("$.v"); v != nil && v.Type != ir.NullType {
+		t.Errorf("expected %q to be absent, got .v=%v", path, v)
+	}
+}
+
 // TestDocd_MatchPatternSingleRoute proves a match pattern reaches a mounted
 // controller and trims the result: the client selects one field and the secret
 // field is dropped end-to-end.

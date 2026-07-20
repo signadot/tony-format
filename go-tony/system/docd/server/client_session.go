@@ -170,9 +170,10 @@ func (s *ClientSession) routeClientRequests() error {
 		}
 
 		// A patch that spans multiple mounts is decomposed and committed as one
-		// atomic transaction (baseline clients only; scoped multi-mount tx is not
-		// yet supported). Single-participant patches fall through to normal routing.
-		if req.Patch != nil && s.clientScope == nil {
+		// atomic transaction — in the client's scope when it has one (the tx id and
+		// every participant are scoped). Single-participant patches fall through to
+		// normal routing.
+		if req.Patch != nil {
 			handled, err := s.maybeCoordinatePatch(&req)
 			if err != nil {
 				return err
@@ -302,8 +303,21 @@ func (s *ClientSession) maybeCoordinatePatch(req *logdapi.SessionRequest) (bool,
 	return true, nil
 }
 
+// allocTx allocates a transaction id for count participants. Baseline patches use
+// docd's pre-fetched (scopeless) pool; a scoped client's transaction is created
+// in its scope directly on logd, since the pool cannot serve scoped ids.
+func (s *ClientSession) allocTx(count int, scope *string) (int64, error) {
+	if scope != nil {
+		return allocScopedTx(s.logdAddr, scope, count, 5*time.Second)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return s.server.txPool.Get(ctx, count)
+}
+
 // coordinatePatch commits a multi-mount patch as one transaction: it allocates a
-// pooled tx id for all participants, writes each mount's sub-patch to its
+// tx id for all participants (pooled for baseline, scoped otherwise), writes each
+// mount's sub-patch to its
 // controller and the base remainder over docd's own logd link (concurrently,
 // since each blocks until the whole tx commits), then returns a single result to
 // the client. The client's compare-and-swap precondition, if any, rides on one
@@ -311,10 +325,9 @@ func (s *ClientSession) maybeCoordinatePatch(req *logdapi.SessionRequest) (bool,
 func (s *ClientSession) coordinatePatch(req *logdapi.SessionRequest, parts []mountPart, base []baseWrite) {
 	clientID := req.ID
 	count := len(parts) + len(base)
+	scope := s.clientScope
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	txID, err := s.server.txPool.Get(ctx, count)
-	cancel()
+	txID, err := s.allocTx(count, scope)
 	if err != nil {
 		_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeInvalidTx,
 			fmt.Sprintf("failed to allocate transaction: %v", err)))
@@ -335,7 +348,7 @@ func (s *ClientSession) coordinatePatch(req *logdapi.SessionRequest, parts []mou
 			matchNode, matchPath = req.Patch.Match.Data, req.Patch.Match.Path
 		}
 		go func(bw baseWrite, matchNode *ir.Node, matchPath string) {
-			resp, err := writeBaseParticipant(s.logdAddr, txID, bw.path, bw.data, matchNode, matchPath, txParticipantTimeout)
+			resp, err := writeBaseParticipant(s.logdAddr, txID, bw.path, bw.data, matchNode, matchPath, scope, txParticipantTimeout)
 			if err != nil {
 				results <- logdapi.NewErrorResponse(nil, logdapi.ErrCodeSessionClosed, err.Error())
 				return
@@ -350,6 +363,7 @@ func (s *ClientSession) coordinatePatch(req *logdapi.SessionRequest, parts []mou
 			match = req.Patch.Match
 		}
 		preq := &logdapi.SessionRequest{
+			Scope: scope,
 			Patch: &logdapi.PatchRequest{
 				TxID:     &txID,
 				Timeout:  &ts,

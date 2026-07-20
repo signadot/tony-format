@@ -23,7 +23,7 @@ type logdWatchStream struct {
 // composer supplies the single initial snapshot), and pumps every event to onMsg
 // until Stop is called or the connection drops. It returns once the watch is
 // confirmed, or an error if the watch cannot be established.
-func startLogdWatchStream(logdAddr, path string, onMsg func(*logdapi.SessionResponse)) (*logdWatchStream, error) {
+func startLogdWatchStream(logdAddr, path string, scope *string, onMsg func(*logdapi.SessionResponse)) (*logdWatchStream, error) {
 	conn, err := net.DialTimeout("tcp", logdAddr, 5*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("connect to logd at %s: %w", logdAddr, err)
@@ -35,7 +35,7 @@ func startLogdWatchStream(logdAddr, path string, onMsg func(*logdapi.SessionResp
 	}
 
 	if err := writeSessionRequest(conn, &logdapi.SessionRequest{
-		Hello: &logdapi.Hello{ClientID: "docd-watch"},
+		Hello: &logdapi.Hello{ClientID: "docd-watch", Scope: scope},
 	}); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("hello: %w", err)

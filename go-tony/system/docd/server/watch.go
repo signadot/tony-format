@@ -95,10 +95,10 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 	// between the snapshot and going live is missed. NoInit on each: the composer
 	// supplies the single initial snapshot below.
 	watchReq := func(p string) *logdapi.SessionRequest {
-		return &logdapi.SessionRequest{Watch: &logdapi.WatchRequest{Path: p, NoInit: true}}
+		return &logdapi.SessionRequest{Scope: s.clientScope, Watch: &logdapi.WatchRequest{Path: p, NoInit: true}}
 	}
 	if owner == nil {
-		ls, err := startLogdWatchStream(s.logdAddr, path, cw.forward)
+		ls, err := startLogdWatchStream(s.logdAddr, path, s.clientScope, cw.forward)
 		if err != nil {
 			s.releaseWatchToken(path)
 			_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeSessionClosed, err.Error()))
