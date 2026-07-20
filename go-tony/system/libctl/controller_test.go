@@ -11,6 +11,7 @@ import (
 
 	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/parse"
 	docdserver "github.com/signadot/tony-format/go-tony/system/docd/server"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	logdserver "github.com/signadot/tony-format/go-tony/system/logd/server"
@@ -120,7 +121,7 @@ func newLogdController(t *testing.T, logdAddr, id string) *logdController {
 }
 
 func (c *logdController) Match(ctx context.Context, path string, pattern *ir.Node) (*ir.Node, error) {
-	return c.logd.Match(ctx, path)
+	return c.logd.MatchPattern(ctx, path, pattern)
 }
 
 func (c *logdController) Patch(ctx context.Context, path string, data *ir.Node, opts PatchParams) (*ir.Node, error) {
@@ -333,6 +334,75 @@ func TestDocd_MultiMountCASAbort(t *testing.T) {
 	direct := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "verify"})
 	defer direct.Close()
 	assertLogdV(t, direct, "a", 1)
+}
+
+// TestDocd_MatchPatternSingleRoute proves a match pattern reaches a mounted
+// controller and trims the result: the client selects one field and the secret
+// field is dropped end-to-end.
+func TestDocd_MatchPatternSingleRoute(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+	runController(t, docd, "users", newLogdController(t, logd.TCPAddr(), "cU"))
+
+	client := docdClient(t, docd, "client")
+	ctx := context.Background()
+
+	full := ir.FromMap(map[string]*ir.Node{
+		"name":   ir.FromString("alice"),
+		"secret": ir.FromString("x"),
+	})
+	if err := client.Patch(ctx, "users.1", full); err != nil {
+		t.Fatalf("patch: %v", err)
+	}
+
+	pattern, err := parse.Parse([]byte("name: alice"))
+	if err != nil {
+		t.Fatalf("parse pattern: %v", err)
+	}
+	res, err := client.MatchPattern(ctx, "users.1", pattern)
+	if err != nil {
+		t.Fatalf("match pattern: %v", err)
+	}
+	if v, _ := res.GetPath("$.name"); v == nil || v.String != "alice" {
+		t.Errorf("expected name=alice, got %v", v)
+	}
+	if v, _ := res.GetPath("$.secret"); v != nil {
+		t.Errorf("expected secret trimmed away, got %v", v)
+	}
+}
+
+// TestDocd_MatchPatternComposed proves a match pattern applies to a composed
+// ancestor read: docd assembles base + mount, then trims to the pattern, dropping
+// the unselected base field.
+func TestDocd_MatchPatternComposed(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+
+	mem := newMemController()
+	mem.data["a.b"] = vObj(7)
+	runController(t, docd, "a.b", mem)
+
+	client := docdClient(t, docd, "client")
+	ctx := context.Background()
+	if err := client.Patch(ctx, "a.x", vObj(1)); err != nil { // base -> logd
+		t.Fatalf("seed base: %v", err)
+	}
+
+	// Select only the mount subtree b from the composed { x, b } tree.
+	pattern, err := parse.Parse([]byte("b:\n  v: 7"))
+	if err != nil {
+		t.Fatalf("parse pattern: %v", err)
+	}
+	res, err := client.MatchPattern(ctx, "a", pattern)
+	if err != nil {
+		t.Fatalf("composed match pattern: %v", err)
+	}
+	if v, _ := res.GetPath("$.b.v"); v == nil || v.Int64 == nil || *v.Int64 != 7 {
+		t.Errorf("expected composed b.v=7, got %v", v)
+	}
+	if v, _ := res.GetPath("$.x"); v != nil {
+		t.Errorf("expected base field x trimmed away, got %v", v)
+	}
 }
 
 // TestDocd_ComposeAncestorRead proves a client read whose path is a strict

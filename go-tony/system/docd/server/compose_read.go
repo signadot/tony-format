@@ -5,6 +5,7 @@ import (
 	"sort"
 	"time"
 
+	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
 	logdapi "github.com/signadot/tony-format/go-tony/system/logd/api"
 )
@@ -54,6 +55,19 @@ func (s *ClientSession) coordinateMatch(req *logdapi.SessionRequest, below []*Mo
 	if err != nil {
 		_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeSessionClosed, err.Error()))
 		return
+	}
+
+	// A match/trim pattern is applied to the assembled tree here rather than
+	// decomposed across sources, so the projection is identical to logd's (and to a
+	// single-routed match, where the pattern rides the forwarded request). Sources
+	// are read in full; narrowing the fan-out by the pattern is a later refinement.
+	if pattern := req.Match.Body.Data; pattern != nil && pattern.Type != ir.NullType {
+		filtered, ferr := tony.FilterState(root, pattern)
+		if ferr != nil {
+			_ = s.writeToClient(logdapi.NewErrorResponse(clientID, "match_error", ferr.Error()))
+			return
+		}
+		root = filtered
 	}
 	_ = s.writeToClient(logdapi.NewMatchResponse(clientID, commit, root))
 }

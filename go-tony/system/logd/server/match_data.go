@@ -59,36 +59,8 @@ func splitKPath(kp string) []string {
 }
 
 // filterState filters the state to match the given criteria and trims the result.
+// It delegates to tony.FilterState so logd and docd (which applies the same
+// projection over a composed read) stay identical.
 func filterState(state *ir.Node, match *ir.Node) (*ir.Node, error) {
-	// If state is not an array, just check if it matches
-	if state.Type != ir.ArrayType {
-		matches, err := tony.Match(state, match)
-		if err != nil {
-			return nil, err
-		}
-		if matches {
-			return tony.Trim(match, state), nil
-		}
-		// Return null if doesn't match
-		return ir.Null(), nil
-	}
-
-	// Filter array items that match
-	var filtered []*ir.Node
-	for _, item := range state.Values {
-		matches, err := tony.Match(item, match)
-		if err != nil {
-			return nil, fmt.Errorf("match error on item: %w", err)
-		}
-		if matches {
-			filtered = append(filtered, tony.Trim(match, item))
-		}
-	}
-
-	// Preserve the tag from original state (e.g., !key(id))
-	result := ir.FromSlice(filtered)
-	if state.Tag != "" {
-		result = result.WithTag(state.Tag)
-	}
-	return result, nil
+	return tony.FilterState(state, match)
 }

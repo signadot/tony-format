@@ -202,11 +202,22 @@ func (s *LogdSession) newIDLocked() string {
 	return strconv.FormatUint(s.nextID, 10)
 }
 
-// Match performs a match query at the given path.
+// Match performs a match query at the given path, returning the full state
+// there.
 func (s *LogdSession) Match(ctx context.Context, path string) (*ir.Node, error) {
+	return s.MatchPattern(ctx, path, nil)
+}
+
+// MatchPattern performs a match query at path with a match/trim pattern: only the
+// portion of the state matching pattern is returned, trimmed to the pattern's
+// shape (field selection and array filtering). A nil pattern returns the full
+// state, exactly like Match. The pattern rides the request as PathData.Data, so
+// it applies whether the path is served by logd, a controller, or a docd-composed
+// read across mounts.
+func (s *LogdSession) MatchPattern(ctx context.Context, path string, pattern *ir.Node) (*ir.Node, error) {
 	resp, err := s.request(ctx, &api.SessionRequest{
 		Match: &api.MatchRequest{
-			Body: api.PathData{Path: path},
+			Body: api.PathData{Path: path, Data: pattern},
 		},
 	})
 	if err != nil {
