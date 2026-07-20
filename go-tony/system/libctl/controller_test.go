@@ -124,18 +124,12 @@ func (c *logdController) Match(ctx context.Context, path string, pattern *ir.Nod
 }
 
 func (c *logdController) Patch(ctx context.Context, path string, data *ir.Node, opts PatchParams) (*ir.Node, error) {
-	var err error
-	switch {
-	case opts.TxID != nil && opts.Match != nil:
-		err = c.logd.PatchTxIf(ctx, path, data, *opts.TxID, opts.Match)
-	case opts.TxID != nil:
-		err = c.logd.PatchTx(ctx, path, data, *opts.TxID)
-	case opts.Match != nil:
-		err = c.logd.PatchIf(ctx, path, data, opts.Match)
-	default:
-		err = c.logd.Patch(ctx, path, data)
-	}
-	if err != nil {
+	// Faithfully forward the routed participant (tx id, precondition, timeout).
+	if err := c.logd.PatchWith(ctx, path, data, PatchOpts{
+		TxID:    opts.TxID,
+		Match:   opts.Match,
+		Timeout: opts.Timeout,
+	}); err != nil {
 		return nil, err
 	}
 	return data, nil
@@ -153,8 +147,8 @@ func TestDocd_MultiMountTransaction(t *testing.T) {
 	logd := startLogd(t)
 	docd := startDocdRouting(t, logd.TCPAddr())
 
-	runController(t, docd, "/a", newLogdController(t, logd.TCPAddr(), "ctrlA"))
-	runController(t, docd, "/b", newLogdController(t, logd.TCPAddr(), "ctrlB"))
+	runController(t, docd, "a", newLogdController(t, logd.TCPAddr(), "ctrlA"))
+	runController(t, docd, "b", newLogdController(t, logd.TCPAddr(), "ctrlB"))
 
 	client := docdClient(t, docd, "client")
 	ctx := context.Background()
@@ -169,10 +163,10 @@ func TestDocd_MultiMountTransaction(t *testing.T) {
 	// blocks until the transaction commits atomically.
 	errc := make(chan error, 2)
 	go func() {
-		errc <- client.PatchTx(ctx, "a/1", ir.FromMap(map[string]*ir.Node{"v": ir.FromInt(1)}), txID)
+		errc <- client.PatchTx(ctx, "a.1", ir.FromMap(map[string]*ir.Node{"v": ir.FromInt(1)}), txID)
 	}()
 	go func() {
-		errc <- client.PatchTx(ctx, "b/1", ir.FromMap(map[string]*ir.Node{"v": ir.FromInt(2)}), txID)
+		errc <- client.PatchTx(ctx, "b.1", ir.FromMap(map[string]*ir.Node{"v": ir.FromInt(2)}), txID)
 	}()
 	for i := 0; i < 2; i++ {
 		if err := <-errc; err != nil {
@@ -183,7 +177,7 @@ func TestDocd_MultiMountTransaction(t *testing.T) {
 	// Both writes committed and are visible in logd.
 	direct := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "verify"})
 	defer direct.Close()
-	for path, want := range map[string]int64{"a/1": 1, "b/1": 2} {
+	for path, want := range map[string]int64{"a.1": 1, "b.1": 2} {
 		res, err := direct.Match(ctx, path)
 		if err != nil {
 			t.Fatalf("verify Match %s failed: %v", path, err)
@@ -201,25 +195,25 @@ func TestDocd_MultiMountTransaction(t *testing.T) {
 func TestDocd_ControllerCAS(t *testing.T) {
 	logd := startLogd(t)
 	docd := startDocdRouting(t, logd.TCPAddr())
-	runController(t, docd, "/doc", newLogdController(t, logd.TCPAddr(), "ctrlDoc"))
+	runController(t, docd, "doc", newLogdController(t, logd.TCPAddr(), "ctrlDoc"))
 
 	client := docdClient(t, docd, "client")
 	ctx := context.Background()
 	vNode := func(n int64) *ir.Node { return ir.FromMap(map[string]*ir.Node{"v": ir.FromInt(n)}) }
 
-	if err := client.Patch(ctx, "doc/1", vNode(1)); err != nil {
+	if err := client.Patch(ctx, "doc.1", vNode(1)); err != nil {
 		t.Fatalf("seed via controller: %v", err)
 	}
 
-	match1 := &api.PathData{Path: "doc/1", Data: vNode(1)}
-	if err := client.PatchIf(ctx, "doc/1", vNode(2), match1); err != nil {
+	match1 := &api.PathData{Path: "doc.1", Data: vNode(1)}
+	if err := client.PatchIf(ctx, "doc.1", vNode(2), match1); err != nil {
 		t.Fatalf("routed CAS should succeed: %v", err)
 	}
-	if err := client.PatchIf(ctx, "doc/1", vNode(3), match1); !errors.Is(err, ErrMatchFailed) {
+	if err := client.PatchIf(ctx, "doc.1", vNode(3), match1); !errors.Is(err, ErrMatchFailed) {
 		t.Fatalf("expected ErrMatchFailed through docd, got %v", err)
 	}
 
-	res, err := client.Match(ctx, "doc/1")
+	res, err := client.Match(ctx, "doc.1")
 	if err != nil {
 		t.Fatalf("verify Match: %v", err)
 	}
@@ -227,6 +221,118 @@ func TestDocd_ControllerCAS(t *testing.T) {
 	if err != nil || v == nil || v.Int64 == nil || *v.Int64 != 2 {
 		t.Errorf("expected v=2 after failed CAS, got %v (err %v)", v, err)
 	}
+}
+
+func vObj(n int64) *ir.Node { return ir.FromMap(map[string]*ir.Node{"v": ir.FromInt(n)}) }
+
+func assertLogdV(t *testing.T, s *LogdSession, path string, want int64) {
+	t.Helper()
+	res, err := s.Match(context.Background(), path)
+	if err != nil {
+		t.Fatalf("match %s: %v", path, err)
+	}
+	v, err := res.GetPath("$.v")
+	if err != nil || v == nil || v.Int64 == nil || *v.Int64 != want {
+		t.Errorf("%s: expected v=%d, got %v (err %v)", path, want, v, err)
+	}
+}
+
+// TestDocd_MultiMountPatchSplit proves a single client patch spanning two mounts
+// is decomposed and committed atomically through docd.
+func TestDocd_MultiMountPatchSplit(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+	runController(t, docd, "a", newLogdController(t, logd.TCPAddr(), "cA"))
+	runController(t, docd, "b", newLogdController(t, logd.TCPAddr(), "cB"))
+
+	client := docdClient(t, docd, "client")
+	ctx := context.Background()
+
+	// One patch at root writing NESTED data under both mounts; reading the deeper
+	// kpath (a.x) navigates into it (this is what the slash bug broke).
+	data := ir.FromMap(map[string]*ir.Node{
+		"a": ir.FromMap(map[string]*ir.Node{"x": vObj(1)}),
+		"b": ir.FromMap(map[string]*ir.Node{"x": vObj(2)}),
+	})
+	if err := client.Patch(ctx, "", data); err != nil {
+		t.Fatalf("multi-mount patch failed: %v", err)
+	}
+
+	direct := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "verify"})
+	defer direct.Close()
+	assertLogdV(t, direct, "a.x", 1)
+	assertLogdV(t, direct, "b.x", 2)
+}
+
+// TestDocd_MultiMountPatchWithBase proves a patch spanning a mount and the base
+// store commits atomically — the controller writes its subtree and docd writes
+// the base remainder as the extra participant.
+func TestDocd_MultiMountPatchWithBase(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+	runController(t, docd, "a", newLogdController(t, logd.TCPAddr(), "cA"))
+
+	client := docdClient(t, docd, "client")
+	ctx := context.Background()
+
+	data := ir.FromMap(map[string]*ir.Node{"a": vObj(1), "cfg": vObj(9)})
+	if err := client.Patch(ctx, "", data); err != nil {
+		t.Fatalf("mount+base patch failed: %v", err)
+	}
+
+	direct := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "verify"})
+	defer direct.Close()
+	assertLogdV(t, direct, "a", 1)   // written by the controller
+	assertLogdV(t, direct, "cfg", 9) // base remainder written by docd
+}
+
+// TestDocd_MultiMountUndecomposable proves docd rejects a patch it cannot split
+// statically — a higher-order op above a mount boundary.
+func TestDocd_MultiMountUndecomposable(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+	runController(t, docd, "a", newLogdController(t, logd.TCPAddr(), "cA"))
+	runController(t, docd, "b", newLogdController(t, logd.TCPAddr(), "cB"))
+
+	client := docdClient(t, docd, "client")
+	ctx := context.Background()
+
+	tagged := ir.FromMap(map[string]*ir.Node{"a": vObj(1)}).WithTag("!all")
+	err := client.Patch(ctx, "", tagged)
+	if err == nil {
+		t.Fatal("expected error for undecomposable patch, got nil")
+	}
+	if !strings.Contains(err.Error(), "decompose") {
+		t.Errorf("expected decomposition error, got %v", err)
+	}
+}
+
+// TestDocd_MultiMountCASAbort proves a failed precondition aborts the whole
+// multi-mount transaction — no participant's write is applied.
+func TestDocd_MultiMountCASAbort(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+	runController(t, docd, "a", newLogdController(t, logd.TCPAddr(), "cA"))
+	runController(t, docd, "b", newLogdController(t, logd.TCPAddr(), "cB"))
+
+	client := docdClient(t, docd, "client")
+	ctx := context.Background()
+
+	// Seed a readable value at /a, then a multi-mount patch whose precondition on
+	// "a" does not hold; the whole tx must abort.
+	if err := client.Patch(ctx, "a", vObj(1)); err != nil {
+		t.Fatalf("seed a: %v", err)
+	}
+	data := ir.FromMap(map[string]*ir.Node{"a": vObj(5), "b": vObj(6)})
+	match := &api.PathData{Path: "a", Data: vObj(42)}
+	if err := client.PatchIf(ctx, "", data, match); !errors.Is(err, ErrMatchFailed) {
+		t.Fatalf("expected ErrMatchFailed, got %v", err)
+	}
+
+	// The aborted tx applied nothing: a is unchanged.
+	direct := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "verify"})
+	defer direct.Close()
+	assertLogdV(t, direct, "a", 1)
 }
 
 // startDocdRouting starts a docd with both listeners: the client face (logd
@@ -333,18 +439,18 @@ func TestDocd_ControllerCrashFailsInflight(t *testing.T) {
 		errc <- RunController(ctx, &ControllerConfig{
 			DocdAddr:   docd.TCPAddr(),
 			Controller: "crash-ctrl",
-			Path:       "/x",
+			Path:       "x",
 			Handler:    ctrl,
 		})
 	}()
-	waitMount(t, docd, "/x")
+	waitMount(t, docd, "x")
 
 	client := docdClient(t, docd, "client")
 
 	// Issue a match that will block inside the controller.
 	matchErr := make(chan error, 1)
 	go func() {
-		_, err := client.Match(context.Background(), "x/1")
+		_, err := client.Match(context.Background(), "x.1")
 		matchErr <- err
 	}()
 
@@ -369,8 +475,8 @@ func TestDocd_ControllerCrashFailsInflight(t *testing.T) {
 
 	// The mount is now tombstoned: a fresh op on the subtree fails with a clear
 	// error rather than silently falling through to logd (which has no such key).
-	waitTombstone(t, docd, "/x")
-	if _, err := client.Match(context.Background(), "x/1"); err == nil {
+	waitTombstone(t, docd, "x")
+	if _, err := client.Match(context.Background(), "x.1"); err == nil {
 		t.Fatal("expected error on crashed-controller subtree, got nil")
 	} else if !strings.Contains(err.Error(), "unavailable") {
 		t.Errorf("expected controller_unavailable error, got %v", err)
@@ -390,26 +496,26 @@ func TestDocd_RemountClearsTombstone(t *testing.T) {
 		errc1 <- RunController(ctx1, &ControllerConfig{
 			DocdAddr:   docd.TCPAddr(),
 			Controller: "c1",
-			Path:       "/y",
+			Path:       "y",
 			Handler:    newMemController(),
 		})
 	}()
-	waitMount(t, docd, "/y")
+	waitMount(t, docd, "y")
 	cancel1()
 	<-errc1
-	waitTombstone(t, docd, "/y")
+	waitTombstone(t, docd, "y")
 
 	// A new controller remounts /y, clearing the tombstone.
 	ctrl2 := newMemController()
-	runController(t, docd, "/y", ctrl2)
+	runController(t, docd, "y", ctrl2)
 
 	client := docdClient(t, docd, "client")
-	if err := client.Patch(context.Background(), "y/1",
+	if err := client.Patch(context.Background(), "y.1",
 		ir.FromMap(map[string]*ir.Node{"v": ir.FromInt(1)})); err != nil {
 		t.Fatalf("patch after remount failed: %v", err)
 	}
 	ctrl2.mu.Lock()
-	_, ok := ctrl2.data["y/1"]
+	_, ok := ctrl2.data["y.1"]
 	ctrl2.mu.Unlock()
 	if !ok {
 		t.Fatal("remounted controller did not receive the patch")
@@ -498,25 +604,25 @@ func TestDocd_RouteMountedToController(t *testing.T) {
 	logd := startLogd(t)
 	docd := startDocdRouting(t, logd.TCPAddr())
 	ctrl := newMemController()
-	runController(t, docd, "/users", ctrl)
+	runController(t, docd, "users", ctrl)
 
 	client := docdClient(t, docd, "client")
 	ctx := context.Background()
 
 	data := ir.FromMap(map[string]*ir.Node{"name": ir.FromString("alice")})
-	if err := client.Patch(ctx, "users/1", data); err != nil {
+	if err := client.Patch(ctx, "users.1", data); err != nil {
 		t.Fatalf("Patch failed: %v", err)
 	}
 
 	// The patch landed in the controller, not logd.
 	ctrl.mu.Lock()
-	stored := ctrl.data["users/1"]
+	stored := ctrl.data["users.1"]
 	ctrl.mu.Unlock()
 	if stored == nil {
 		t.Fatal("controller did not receive the routed patch")
 	}
 
-	res, err := client.Match(ctx, "users/1")
+	res, err := client.Match(ctx, "users.1")
 	if err != nil {
 		t.Fatalf("Match failed: %v", err)
 	}
@@ -533,19 +639,19 @@ func TestDocd_BasePathToLogd(t *testing.T) {
 	logd := startLogd(t)
 	docd := startDocdRouting(t, logd.TCPAddr())
 	ctrl := newMemController()
-	runController(t, docd, "/users", ctrl)
+	runController(t, docd, "users", ctrl)
 
 	client := docdClient(t, docd, "client")
 	ctx := context.Background()
 
 	data := ir.FromMap(map[string]*ir.Node{"theme": ir.FromString("dark")})
-	if err := client.Patch(ctx, "config/1", data); err != nil {
+	if err := client.Patch(ctx, "config.1", data); err != nil {
 		t.Fatalf("base Patch failed: %v", err)
 	}
 
 	// Not routed to the controller.
 	ctrl.mu.Lock()
-	_, inCtrl := ctrl.data["config/1"]
+	_, inCtrl := ctrl.data["config.1"]
 	ctrl.mu.Unlock()
 	if inCtrl {
 		t.Error("base-path patch wrongly reached the controller")
@@ -554,7 +660,7 @@ func TestDocd_BasePathToLogd(t *testing.T) {
 	// Visible in logd directly.
 	direct := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "direct"})
 	defer direct.Close()
-	res, err := direct.Match(ctx, "config/1")
+	res, err := direct.Match(ctx, "config.1")
 	if err != nil {
 		t.Fatalf("direct logd Match failed: %v", err)
 	}
@@ -569,12 +675,12 @@ func TestDocd_BasePathToLogd(t *testing.T) {
 func TestDocd_WatchUnsupported(t *testing.T) {
 	logd := startLogd(t)
 	docd := startDocdRouting(t, logd.TCPAddr())
-	runController(t, docd, "/users", newMemController()) // events nil => declines watch
+	runController(t, docd, "users", newMemController()) // events nil => declines watch
 
 	client := docdClient(t, docd, "client")
 	ctx := context.Background()
 
-	_, err := client.Watch(ctx, "users/1", nil)
+	_, err := client.Watch(ctx, "users.1", nil)
 	if err == nil {
 		t.Fatal("expected watch to be declined")
 	}
@@ -590,19 +696,19 @@ func TestDocd_WatchStreaming(t *testing.T) {
 	docd := startDocdRouting(t, logd.TCPAddr())
 	ctrl := newMemController()
 	ctrl.watchable = true
-	runController(t, docd, "/rooms", ctrl)
+	runController(t, docd, "rooms", ctrl)
 
 	client := docdClient(t, docd, "client")
 	ctx := context.Background()
 
-	w, err := client.Watch(ctx, "rooms/1", nil)
+	w, err := client.Watch(ctx, "rooms.1", nil)
 	if err != nil {
 		t.Fatalf("Watch failed: %v", err)
 	}
 	defer w.Close()
 
 	// Initial state event.
-	if ev := expectEvent(t, w); ev.Path != "rooms/1" {
+	if ev := expectEvent(t, w); ev.Path != "rooms.1" {
 		t.Errorf("expected initial event path rooms/1, got %q", ev.Path)
 	}
 
@@ -610,7 +716,7 @@ func TestDocd_WatchStreaming(t *testing.T) {
 	waitSubs(t, ctrl, 1)
 	ctrl.broadcast(&api.WatchEvent{
 		Commit: 2,
-		Path:   "rooms/1",
+		Path:   "rooms.1",
 		Patch:  ir.FromMap(map[string]*ir.Node{"occupants": ir.FromInt(3)}),
 	})
 	if ev := expectEvent(t, w); ev.Commit != 2 {
@@ -626,20 +732,20 @@ func TestDocd_WatchMultiClientSamePath(t *testing.T) {
 	docd := startDocdRouting(t, logd.TCPAddr())
 	ctrl := newMemController()
 	ctrl.watchable = true
-	runController(t, docd, "/rooms", ctrl)
+	runController(t, docd, "rooms", ctrl)
 
 	ctx := context.Background()
 	clientA := docdClient(t, docd, "A")
 	clientB := docdClient(t, docd, "B")
 
-	wA, err := clientA.Watch(ctx, "rooms/9", nil)
+	wA, err := clientA.Watch(ctx, "rooms.9", nil)
 	if err != nil {
 		t.Fatalf("A watch: %v", err)
 	}
 	defer wA.Close()
 	expectEvent(t, wA) // initial state
 
-	wB, err := clientB.Watch(ctx, "rooms/9", nil)
+	wB, err := clientB.Watch(ctx, "rooms.9", nil)
 	if err != nil {
 		t.Fatalf("B watch: %v", err)
 	}
@@ -650,7 +756,7 @@ func TestDocd_WatchMultiClientSamePath(t *testing.T) {
 	waitSubs(t, ctrl, 2)
 
 	// A broadcast reaches both clients.
-	ctrl.broadcast(&api.WatchEvent{Commit: 5, Path: "rooms/9",
+	ctrl.broadcast(&api.WatchEvent{Commit: 5, Path: "rooms.9",
 		Patch: ir.FromMap(map[string]*ir.Node{"n": ir.FromInt(1)})})
 	if ev := expectEvent(t, wA); ev.Commit != 5 {
 		t.Errorf("A: expected commit 5, got %d", ev.Commit)
@@ -666,7 +772,7 @@ func TestDocd_WatchMultiClientSamePath(t *testing.T) {
 	waitSubs(t, ctrl, 1)
 
 	// B still receives events.
-	ctrl.broadcast(&api.WatchEvent{Commit: 6, Path: "rooms/9",
+	ctrl.broadcast(&api.WatchEvent{Commit: 6, Path: "rooms.9",
 		Patch: ir.FromMap(map[string]*ir.Node{"n": ir.FromInt(2)})})
 	if ev := expectEvent(t, wB); ev.Commit != 6 {
 		t.Errorf("B: expected commit 6 after A left, got %d", ev.Commit)
@@ -680,20 +786,20 @@ func TestDocd_MetaMounts(t *testing.T) {
 	docd := startDocdRouting(t, logd.TCPAddr())
 
 	// A live mount.
-	runController(t, docd, "/users", newMemController())
+	runController(t, docd, "users", newMemController())
 
 	// A mount that crashes, leaving a tombstone.
 	ctx, cancel := context.WithCancel(context.Background())
 	errc := make(chan error, 1)
 	go func() {
 		errc <- RunController(ctx, &ControllerConfig{
-			DocdAddr: docd.TCPAddr(), Controller: "gone-ctrl", Path: "/gone", Handler: newMemController(),
+			DocdAddr: docd.TCPAddr(), Controller: "gone-ctrl", Path: "gone", Handler: newMemController(),
 		})
 	}()
-	waitMount(t, docd, "/gone")
+	waitMount(t, docd, "gone")
 	cancel()
 	<-errc
-	waitTombstone(t, docd, "/gone")
+	waitTombstone(t, docd, "gone")
 
 	client := docdClient(t, docd, "admin")
 	body, err := client.Match(context.Background(), ".meta/mounts")
@@ -705,7 +811,7 @@ func TestDocd_MetaMounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render failed: %v", err)
 	}
-	for _, want := range []string{"/users", "live", "/gone", "tombstoned"} {
+	for _, want := range []string{"users", "live", "gone", "tombstoned"} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("meta mounts missing %q; got: %s", want, rendered)
 		}
@@ -725,11 +831,11 @@ func TestDocd_MetaSchemaAndIndex(t *testing.T) {
 	errc := make(chan error, 1)
 	go func() {
 		errc <- RunController(ctx, &ControllerConfig{
-			DocdAddr: docd.TCPAddr(), Controller: "sc", Path: "/users",
+			DocdAddr: docd.TCPAddr(), Controller: "sc", Path: "users",
 			Schema: schema, Handler: newMemController(),
 		})
 	}()
-	waitMount(t, docd, "/users")
+	waitMount(t, docd, "users")
 
 	client := docdClient(t, docd, "admin")
 
@@ -759,7 +865,7 @@ func TestDocd_MetaSchemaAndIndex(t *testing.T) {
 				return
 			}
 			s, _ := gomap.ToString(body, gomap.EncodeWire(true))
-			for _, want := range []string{"/users", "myschema"} {
+			for _, want := range []string{"users", "myschema"} {
 				if !strings.Contains(s, want) {
 					t.Errorf(".meta/schema missing %q; got: %s", want, s)
 				}

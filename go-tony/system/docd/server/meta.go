@@ -2,29 +2,26 @@ package server
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/signadot/tony-format/go-tony/ir"
 )
 
-// metaSegment is the reserved top-level path segment under which docd serves its
-// own metadata (mounts, and later schema). It is served by docd directly rather
-// than routed to logd or a controller, and controllers may not mount under it.
-const metaSegment = ".meta"
+// metaPrefix is the reserved namespace under which docd serves its own metadata
+// (mounts, schema). It is a string sentinel — handled by docd directly rather
+// than parsed as a kpath or routed to logd/controllers — and controllers may not
+// mount under it. Resources beneath it are addressed as ".meta/<resource>".
+const metaPrefix = ".meta"
 
-// isMetaPath reports whether path is under the reserved .meta subtree.
+// isMetaPath reports whether path is the reserved .meta path or under it.
 func isMetaPath(path string) bool {
-	segs := splitPathSegments(path)
-	return len(segs) > 0 && segs[0] == metaSegment
+	return path == metaPrefix || strings.HasPrefix(path, metaPrefix+"/")
 }
 
 // metaLeaf returns the metadata resource named after .meta (e.g. "mounts" for
 // ".meta/mounts"), or "" for ".meta" itself.
 func metaLeaf(path string) string {
-	segs := splitPathSegments(path)
-	if len(segs) < 2 || segs[0] != metaSegment {
-		return ""
-	}
-	return segs[1]
+	return strings.TrimPrefix(strings.TrimPrefix(path, metaPrefix), "/")
 }
 
 // metaIndexDoc lists the metadata resources docd serves, so .meta is

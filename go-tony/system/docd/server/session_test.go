@@ -29,7 +29,7 @@ func TestMountHandshake_Success(t *testing.T) {
 	defer conn.Close()
 
 	// Send mount request
-	mountReq := `{hello: {controller: "user-ctrl"}, mount: {path: "/users"}}` + "\n"
+	mountReq := `{hello: {controller: "user-ctrl"}, mount: {path: "users"}}` + "\n"
 	if _, err := conn.Write([]byte(mountReq)); err != nil {
 		t.Fatalf("failed to write: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestMountHandshake_Success(t *testing.T) {
 	if resp.Result.Mount == nil {
 		t.Fatal("expected mount in result")
 	}
-	if resp.Result.Mount.Path != "/users" {
+	if resp.Result.Mount.Path != "users" {
 		t.Errorf("expected path '/users', got %q", resp.Result.Mount.Path)
 	}
 	if !resp.Result.Mount.Accepted {
@@ -75,7 +75,7 @@ func TestMountHandshake_Success(t *testing.T) {
 	}
 
 	// Verify mount is registered
-	entry := server.Mounts.Lookup("/users")
+	entry := server.Mounts.Lookup("users")
 	if entry == nil {
 		t.Fatal("expected mount to be registered")
 	}
@@ -99,7 +99,7 @@ func TestMountHandshake_WithSchema(t *testing.T) {
 	defer conn.Close()
 
 	// Send mount request with schema
-	mountReq := `{hello: {controller: "user-ctrl"}, mount: {path: "/users", schema: {define: {User: {id: .string, name: .string}}, accept: {users: .array(.User)}}}}` + "\n"
+	mountReq := `{hello: {controller: "user-ctrl"}, mount: {path: "users", schema: {define: {User: {id: .string, name: .string}}, accept: {users: .array(.User)}}}}` + "\n"
 	if _, err := conn.Write([]byte(mountReq)); err != nil {
 		t.Fatalf("failed to write: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestMountHandshake_WithSchema(t *testing.T) {
 	}
 
 	// Verify schema is stored
-	entry := server.Mounts.Lookup("/users")
+	entry := server.Mounts.Lookup("users")
 	if entry == nil {
 		t.Fatal("expected mount to be registered")
 	}
@@ -147,7 +147,7 @@ func TestMountHandshake_PathAlreadyMounted(t *testing.T) {
 	}
 	defer conn1.Close()
 
-	mountReq := `{hello: {controller: "ctrl-1"}, mount: {path: "/users"}}` + "\n"
+	mountReq := `{hello: {controller: "ctrl-1"}, mount: {path: "users"}}` + "\n"
 	if _, err := conn1.Write([]byte(mountReq)); err != nil {
 		t.Fatalf("failed to write: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestMountHandshake_PathAlreadyMounted(t *testing.T) {
 	}
 	defer conn2.Close()
 
-	mountReq2 := `{hello: {controller: "ctrl-2"}, mount: {path: "/users"}}` + "\n"
+	mountReq2 := `{hello: {controller: "ctrl-2"}, mount: {path: "users"}}` + "\n"
 	if _, err := conn2.Write([]byte(mountReq2)); err != nil {
 		t.Fatalf("failed to write: %v", err)
 	}
@@ -214,8 +214,8 @@ func TestMountHandshake_InvalidPath(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// Path without leading slash
-	mountReq := `{hello: {controller: "ctrl"}, mount: {path: "users"}}` + "\n"
+	// Not a valid mount path: a bare array index is not a field-rooted kpath.
+	mountReq := `{hello: {controller: "ctrl"}, mount: {path: "[0]"}}` + "\n"
 	if _, err := conn.Write([]byte(mountReq)); err != nil {
 		t.Fatalf("failed to write: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestMountHandshake_MissingHello(t *testing.T) {
 	defer conn.Close()
 
 	// Missing hello
-	mountReq := `{mount: {path: "/users"}}` + "\n"
+	mountReq := `{mount: {path: "users"}}` + "\n"
 	if _, err := conn.Write([]byte(mountReq)); err != nil {
 		t.Fatalf("failed to write: %v", err)
 	}
@@ -334,7 +334,7 @@ func TestMountHandshake_UnmountOnDisconnect(t *testing.T) {
 	}
 
 	// Mount
-	mountReq := `{hello: {controller: "ctrl"}, mount: {path: "/users"}}` + "\n"
+	mountReq := `{hello: {controller: "ctrl"}, mount: {path: "users"}}` + "\n"
 	if _, err := conn.Write([]byte(mountReq)); err != nil {
 		t.Fatalf("failed to write: %v", err)
 	}
@@ -355,7 +355,7 @@ func TestMountHandshake_UnmountOnDisconnect(t *testing.T) {
 	}
 
 	// Verify mount is live
-	if !server.Mounts.Lookup("/users").Live() {
+	if !server.Mounts.Lookup("users").Live() {
 		t.Fatal("expected mount to be registered")
 	}
 
@@ -366,7 +366,7 @@ func TestMountHandshake_UnmountOnDisconnect(t *testing.T) {
 	// the subtree fail clearly rather than falling through to logd.
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if e := server.Mounts.Lookup("/users"); e != nil && !e.Live() {
+		if e := server.Mounts.Lookup("users"); e != nil && !e.Live() {
 			return // Success: tombstoned
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -385,7 +385,7 @@ func TestMountHandshake_MultipleControllers(t *testing.T) {
 	addr := server.TCPAddr()
 
 	// Mount different paths from different controllers
-	paths := []string{"/users", "/posts", "/comments"}
+	paths := []string{"users", "posts", "comments"}
 	conns := make([]net.Conn, len(paths))
 
 	for i, path := range paths {

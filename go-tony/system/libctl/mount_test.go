@@ -20,7 +20,7 @@ func TestMount_Success(t *testing.T) {
 	client, err := Mount(&MountConfig{
 		DocdAddr:   srv.TCPAddr(),
 		Controller: "test-ctrl",
-		Path:       "/users",
+		Path:       "users",
 	})
 	if err != nil {
 		t.Fatalf("Mount failed: %v", err)
@@ -31,12 +31,12 @@ func TestMount_Success(t *testing.T) {
 	if client.DocdID() == "" {
 		t.Error("expected DocdID to be set")
 	}
-	if client.Path() != "/users" {
+	if client.Path() != "users" {
 		t.Errorf("expected path '/users', got %q", client.Path())
 	}
 
 	// Verify server registered the mount
-	entry := srv.Mounts.Lookup("/users")
+	entry := srv.Mounts.Lookup("users")
 	if entry == nil {
 		t.Fatal("expected mount to be registered on server")
 	}
@@ -61,7 +61,7 @@ func TestMount_WithSchema(t *testing.T) {
 	client, err := Mount(&MountConfig{
 		DocdAddr:   srv.TCPAddr(),
 		Controller: "user-ctrl",
-		Path:       "/users",
+		Path:       "users",
 		Schema:     schema,
 	})
 	if err != nil {
@@ -70,7 +70,7 @@ func TestMount_WithSchema(t *testing.T) {
 	defer client.Close()
 
 	// Verify schema was stored
-	entry := srv.Mounts.Lookup("/users")
+	entry := srv.Mounts.Lookup("users")
 	if entry == nil {
 		t.Fatal("expected mount to be registered")
 	}
@@ -90,7 +90,7 @@ func TestMount_PathAlreadyMounted(t *testing.T) {
 	client1, err := Mount(&MountConfig{
 		DocdAddr:   srv.TCPAddr(),
 		Controller: "ctrl-1",
-		Path:       "/users",
+		Path:       "users",
 	})
 	if err != nil {
 		t.Fatalf("first Mount failed: %v", err)
@@ -101,7 +101,7 @@ func TestMount_PathAlreadyMounted(t *testing.T) {
 	client2, err := Mount(&MountConfig{
 		DocdAddr:   srv.TCPAddr(),
 		Controller: "ctrl-2",
-		Path:       "/users",
+		Path:       "users",
 	})
 	if err == nil {
 		client2.Close()
@@ -115,8 +115,8 @@ func TestMount_InvalidConfig(t *testing.T) {
 		name string
 		cfg  *MountConfig
 	}{
-		{"missing DocdAddr", &MountConfig{Controller: "ctrl", Path: "/users"}},
-		{"missing Controller", &MountConfig{DocdAddr: "localhost:9090", Path: "/users"}},
+		{"missing DocdAddr", &MountConfig{Controller: "ctrl", Path: "users"}},
+		{"missing Controller", &MountConfig{DocdAddr: "localhost:9090", Path: "users"}},
 		{"missing Path", &MountConfig{DocdAddr: "localhost:9090", Controller: "ctrl"}},
 	}
 
@@ -135,7 +135,7 @@ func TestMount_ConnectionRefused(t *testing.T) {
 	_, err := Mount(&MountConfig{
 		DocdAddr:   "127.0.0.1:1", // Port 1 is unlikely to be listening
 		Controller: "ctrl",
-		Path:       "/users",
+		Path:       "users",
 	})
 	if err == nil {
 		t.Error("expected connection error")
@@ -152,14 +152,14 @@ func TestMount_CleanupOnClose(t *testing.T) {
 	client, err := Mount(&MountConfig{
 		DocdAddr:   srv.TCPAddr(),
 		Controller: "ctrl",
-		Path:       "/users",
+		Path:       "users",
 	})
 	if err != nil {
 		t.Fatalf("Mount failed: %v", err)
 	}
 
 	// Verify mount is live
-	if !srv.Mounts.Lookup("/users").Live() {
+	if !srv.Mounts.Lookup("users").Live() {
 		t.Fatal("expected mount to be registered")
 	}
 
@@ -168,7 +168,7 @@ func TestMount_CleanupOnClose(t *testing.T) {
 
 	// After close the mount is tombstoned (present but not live), not removed.
 	for i := 0; i < 100; i++ {
-		if e := srv.Mounts.Lookup("/users"); e != nil && !e.Live() {
+		if e := srv.Mounts.Lookup("users"); e != nil && !e.Live() {
 			return // Success: tombstoned
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -183,7 +183,7 @@ func TestMount_MultipleControllers(t *testing.T) {
 	}
 	defer srv.StopTCP()
 
-	paths := []string{"/users", "/posts", "/comments"}
+	paths := []string{"users", "posts", "comments"}
 	clients := make([]*MountClient, len(paths))
 
 	// Mount all paths

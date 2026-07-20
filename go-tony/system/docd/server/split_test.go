@@ -33,7 +33,7 @@ func partsByMount(parts []mountPart) map[string]*ir.Node {
 }
 
 func TestSplitPatch_RootSpanningMountsAndBase(t *testing.T) {
-	reg := regWith("/users", "/posts")
+	reg := regWith("users", "posts")
 	data := obj(
 		"users", obj("alice", ir.FromInt(1)),
 		"posts", obj("p1", ir.FromInt(2)),
@@ -48,19 +48,22 @@ func TestSplitPatch_RootSpanningMountsAndBase(t *testing.T) {
 	if len(byMount) != 2 {
 		t.Fatalf("expected 2 mount parts, got %d", len(byMount))
 	}
-	if got := byMount["/users"]; !got.DeepEqual(obj("alice", ir.FromInt(1))) {
+	if got := byMount["users"]; !got.DeepEqual(obj("alice", ir.FromInt(1))) {
 		t.Errorf("/users part wrong: %v", got)
 	}
-	if got := byMount["/posts"]; !got.DeepEqual(obj("p1", ir.FromInt(2))) {
+	if got := byMount["posts"]; !got.DeepEqual(obj("p1", ir.FromInt(2))) {
 		t.Errorf("/posts part wrong: %v", got)
 	}
-	if base == nil || !base.DeepEqual(obj("config", obj("theme", ir.FromString("dark")))) {
-		t.Errorf("base remainder wrong: %v", base)
+	// Base is written at "config" (not root, which would prefix-conflict with the
+	// mount participants).
+	if len(base) != 1 || base[0].path != "config" ||
+		!base[0].data.DeepEqual(obj("theme", ir.FromString("dark"))) {
+		t.Errorf("base remainder wrong: %+v", base)
 	}
 }
 
 func TestSplitPatch_NestedMountsLongestPrefixWins(t *testing.T) {
-	reg := regWith("/users", "/users/admins")
+	reg := regWith("users", "users.admins")
 	data := obj("users", obj(
 		"admins", obj("root", ir.FromInt(1)),
 		"1", obj("name", ir.FromString("alice")),
@@ -71,19 +74,19 @@ func TestSplitPatch_NestedMountsLongestPrefixWins(t *testing.T) {
 	}
 
 	byMount := partsByMount(parts)
-	if got := byMount["/users/admins"]; !got.DeepEqual(obj("root", ir.FromInt(1))) {
+	if got := byMount["users.admins"]; !got.DeepEqual(obj("root", ir.FromInt(1))) {
 		t.Errorf("/users/admins part wrong: %v", got)
 	}
-	if got := byMount["/users"]; !got.DeepEqual(obj("1", obj("name", ir.FromString("alice")))) {
+	if got := byMount["users"]; !got.DeepEqual(obj("1", obj("name", ir.FromString("alice")))) {
 		t.Errorf("/users part wrong: %v", got)
 	}
-	if base != nil {
-		t.Errorf("expected no base remainder, got %v", base)
+	if len(base) != 0 {
+		t.Errorf("expected no base remainder, got %+v", base)
 	}
 }
 
 func TestSplitPatch_NonRootPath(t *testing.T) {
-	reg := regWith("/org/users")
+	reg := regWith("org.users")
 	// patch at "org" writing {users: {...}} -> full tree {org:{users:{...}}}
 	data := obj("users", obj("alice", ir.FromInt(1)))
 	parts, base, err := splitPatch(reg, "org", data, nil)
@@ -91,31 +94,31 @@ func TestSplitPatch_NonRootPath(t *testing.T) {
 		t.Fatalf("split failed: %v", err)
 	}
 
-	if len(parts) != 1 || parts[0].mount.Path != "/org/users" {
+	if len(parts) != 1 || parts[0].mount.Path != "org.users" {
 		t.Fatalf("expected one part for /org/users, got %+v", parts)
 	}
 	if !parts[0].data.DeepEqual(obj("alice", ir.FromInt(1))) {
 		t.Errorf("/org/users part wrong: %v", parts[0].data)
 	}
-	if base != nil {
-		t.Errorf("expected no base, got %v", base)
+	if len(base) != 0 {
+		t.Errorf("expected no base, got %+v", base)
 	}
 }
 
 func TestSplitPatch_SingleMountNoBase(t *testing.T) {
-	reg := regWith("/users")
+	reg := regWith("users")
 	data := obj("users", obj("alice", ir.FromInt(1)))
 	parts, base, err := splitPatch(reg, "", data, nil)
 	if err != nil {
 		t.Fatalf("split failed: %v", err)
 	}
-	if len(parts) != 1 || base != nil {
-		t.Fatalf("expected single mount part and no base, got parts=%d base=%v", len(parts), base)
+	if len(parts) != 1 || len(base) != 0 {
+		t.Fatalf("expected single mount part and no base, got parts=%d base=%+v", len(parts), base)
 	}
 }
 
 func TestSplitPatch_BaseOnly(t *testing.T) {
-	reg := regWith("/users")
+	reg := regWith("users")
 	data := obj("config", obj("theme", ir.FromString("dark")))
 	parts, base, err := splitPatch(reg, "", data, nil)
 	if err != nil {
@@ -124,13 +127,14 @@ func TestSplitPatch_BaseOnly(t *testing.T) {
 	if len(parts) != 0 {
 		t.Fatalf("expected no mount parts, got %d", len(parts))
 	}
-	if base == nil || !base.DeepEqual(data) {
-		t.Errorf("expected base to equal full patch, got %v", base)
+	if len(base) != 1 || base[0].path != "config" ||
+		!base[0].data.DeepEqual(obj("theme", ir.FromString("dark"))) {
+		t.Errorf("expected base at config, got %+v", base)
 	}
 }
 
 func TestSplitPatch_RejectsHigherOrderOpAboveMount(t *testing.T) {
-	reg := regWith("/users", "/posts")
+	reg := regWith("users", "posts")
 
 	// A merge op (!all) on an object above the mount boundary cannot be attributed
 	// to a specific controller -> reject.
@@ -150,7 +154,7 @@ func TestSplitPatch_RejectsHigherOrderOpAboveMount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("op within a mount should be allowed, got: %v", err)
 	}
-	if len(parts) != 1 || parts[0].mount.Path != "/users" {
+	if len(parts) != 1 || parts[0].mount.Path != "users" {
 		t.Fatalf("expected the tagged subtree routed to /users, got %+v", parts)
 	}
 

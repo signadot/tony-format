@@ -289,6 +289,27 @@ func (s *LogdSession) PatchTx(ctx context.Context, path string, data *ir.Node, t
 	})
 }
 
+// PatchOpts carries the optional aspects of a patch: a transaction to join, a
+// compare-and-swap precondition, and a per-participant timeout.
+type PatchOpts struct {
+	TxID    *int64        // join this multi-participant transaction
+	Match   *api.PathData // compare-and-swap precondition
+	Timeout *string       // per-participant wait timeout (e.g. "10s"); aborts a stalled tx
+}
+
+// PatchWith applies a patch with the given options. It is the general form behind
+// Patch/PatchTx/PatchIf/PatchTxIf, and is what a controller uses to faithfully
+// forward a docd-routed transaction participant (tx id, precondition, timeout) to
+// logd.
+func (s *LogdSession) PatchWith(ctx context.Context, path string, data *ir.Node, opts PatchOpts) error {
+	return s.doPatch(ctx, &api.PatchRequest{
+		TxID:     opts.TxID,
+		Match:    opts.Match,
+		Timeout:  opts.Timeout,
+		PathData: api.PathData{Path: path, Data: data},
+	})
+}
+
 // PatchTxIf is PatchTx with a compare-and-swap precondition (see PatchIf). The
 // match is evaluated atomically with all other participants' matches at commit;
 // returns ErrMatchFailed if it does not hold.

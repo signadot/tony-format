@@ -155,6 +155,19 @@ func (s *ClientSession) routeClientRequests() error {
 			continue
 		}
 
+		// A patch that spans multiple mounts is decomposed and committed as one
+		// atomic transaction (baseline clients only; scoped multi-mount tx is not
+		// yet supported). Single-participant patches fall through to normal routing.
+		if req.Patch != nil && s.clientScope == nil {
+			handled, err := s.maybeCoordinatePatch(&req)
+			if err != nil {
+				return err
+			}
+			if handled {
+				continue
+			}
+		}
+
 		switch dest, entry := s.routeFor(&req); dest {
 		case destController:
 			entry.Session.RouteRequest(s, &req)
@@ -226,6 +239,111 @@ func (s *ClientSession) pumpLogdToClient() error {
 			return err
 		}
 	}
+}
+
+// txParticipantTimeout bounds how long each participant of a coordinated
+// multi-mount transaction waits for the others; if a participant fails to write,
+// the rest time out and the transaction aborts rather than hanging.
+const txParticipantTimeout = 10 * time.Second
+
+// maybeCoordinatePatch splits a client patch across mounts. If it spans two or
+// more participants it is committed as one atomic transaction (handled here,
+// returning handled=true) and the coordination runs in the background so the read
+// loop keeps serving. A single-participant patch returns handled=false to fall
+// through to normal routing. A patch that cannot be decomposed statically (a
+// higher-order op above a mount boundary) is answered with an error.
+func (s *ClientSession) maybeCoordinatePatch(req *logdapi.SessionRequest) (bool, error) {
+	parts, base, err := splitPatch(s.server.Mounts, req.Patch.Path, req.Patch.Data, s.server.patchTagFilter())
+	if err != nil {
+		return true, s.writeToClient(logdapi.NewErrorResponse(req.ID, logdapi.ErrCodeInvalidMessage, err.Error()))
+	}
+
+	if len(parts)+len(base) < 2 {
+		return false, nil // single participant: route normally
+	}
+
+	go s.coordinatePatch(req, parts, base)
+	return true, nil
+}
+
+// coordinatePatch commits a multi-mount patch as one transaction: it allocates a
+// pooled tx id for all participants, writes each mount's sub-patch to its
+// controller and the base remainder over docd's own logd link (concurrently,
+// since each blocks until the whole tx commits), then returns a single result to
+// the client. The client's compare-and-swap precondition, if any, rides on one
+// participant unsplit (the base if present, else the first mount).
+func (s *ClientSession) coordinatePatch(req *logdapi.SessionRequest, parts []mountPart, base []baseWrite) {
+	clientID := req.ID
+	count := len(parts) + len(base)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	txID, err := s.server.txPool.Get(ctx, count)
+	cancel()
+	if err != nil {
+		_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeInvalidTx,
+			fmt.Sprintf("failed to allocate transaction: %v", err)))
+		return
+	}
+
+	ts := txParticipantTimeout.String()
+	results := make(chan *logdapi.SessionResponse, count)
+
+	// The client's precondition rides on exactly one participant, unsplit: the
+	// first base write if any, else the first mount part.
+	baseCarriesMatch := len(base) > 0
+
+	for i, bw := range base {
+		var matchNode *ir.Node
+		var matchPath string
+		if i == 0 && req.Patch.Match != nil {
+			matchNode, matchPath = req.Patch.Match.Data, req.Patch.Match.Path
+		}
+		go func(bw baseWrite, matchNode *ir.Node, matchPath string) {
+			resp, err := writeBaseParticipant(s.logdAddr, txID, bw.path, bw.data, matchNode, matchPath, txParticipantTimeout)
+			if err != nil {
+				results <- logdapi.NewErrorResponse(nil, logdapi.ErrCodeSessionClosed, err.Error())
+				return
+			}
+			results <- resp
+		}(bw, matchNode, matchPath)
+	}
+
+	for i, p := range parts {
+		var match *logdapi.PathData
+		if !baseCarriesMatch && i == 0 {
+			match = req.Patch.Match
+		}
+		preq := &logdapi.SessionRequest{
+			Patch: &logdapi.PatchRequest{
+				TxID:     &txID,
+				Timeout:  &ts,
+				Match:    match,
+				PathData: logdapi.PathData{Path: p.mount.Path, Data: p.data},
+			},
+		}
+		ch := p.mount.Session.RouteCollect(preq)
+		go func(ch <-chan *logdapi.SessionResponse) { results <- <-ch }(ch)
+	}
+
+	var commit int64
+	var firstErr *logdapi.SessionError
+	for i := 0; i < count; i++ {
+		resp := <-results
+		switch {
+		case resp.Error != nil:
+			if firstErr == nil {
+				firstErr = resp.Error
+			}
+		case resp.Result != nil && resp.Result.Patch != nil:
+			commit = resp.Result.Patch.Commit
+		}
+	}
+
+	if firstErr != nil {
+		_ = s.writeToClient(logdapi.NewErrorResponse(clientID, firstErr.Code, firstErr.Message))
+		return
+	}
+	_ = s.writeToClient(logdapi.NewPatchResponse(clientID, commit, nil))
 }
 
 // serveNewTx answers a baseline client's NewTx from docd's pre-fetched pool,

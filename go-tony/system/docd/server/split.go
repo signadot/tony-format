@@ -14,6 +14,16 @@ type mountPart struct {
 	data  *ir.Node // the sub-patch data, rooted at the mount path
 }
 
+// baseWrite is a portion of a client patch that falls outside every mount, to be
+// written by docd over its own logd link. Each base write sits at a path that is
+// not an ancestor of any mount path, so it never conflicts with a mount
+// participant in the transaction merge (which rejects a patch whose path is a
+// prefix of another's).
+type baseWrite struct {
+	path string
+	data *ir.Node
+}
+
 // TagFilter reports whether a single tag head blocks static decomposition when it
 // sits on a node ABOVE a mount boundary. The head is passed as it appears on the
 // node, including its leading "!" (e.g. "!all", "!dive"). Only tags above a mount
@@ -67,20 +77,65 @@ type mountInfo struct {
 // that sits ABOVE a mount boundary cannot be attributed to a specific controller,
 // so splitPatch rejects it. Ops WITHIN a single mount's subtree are fine — that
 // subtree is handed to the controller untouched.
-func splitPatch(reg *MountRegistry, path string, data *ir.Node, blocks TagFilter) (parts []mountPart, base *ir.Node, err error) {
+func splitPatch(reg *MountRegistry, path string, data *ir.Node, blocks TagFilter) (parts []mountPart, base []baseWrite, err error) {
 	if blocks == nil {
 		blocks = defaultTagFilter
 	}
-	full := nestAt(path, data)
+	clientFields, err := pathFields(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	full := nestAtFields(clientFields, data)
 
 	var mounts []mountInfo
 	for _, m := range reg.List() {
-		if m.Live() {
-			mounts = append(mounts, mountInfo{entry: m, segs: splitPathSegments(m.Path)})
+		if !m.Live() {
+			continue
 		}
+		mf, ferr := pathFields(m.Path)
+		if ferr != nil {
+			continue // mount paths are validated at registration
+		}
+		mounts = append(mounts, mountInfo{entry: m, segs: mf})
 	}
 
-	return partition(full, nil, mounts, blocks)
+	parts, baseTree, perr := partition(full, nil, mounts, blocks)
+	if perr != nil {
+		return nil, nil, perr
+	}
+	return parts, emitBase(baseTree, nil, mounts), nil
+}
+
+// emitBase decomposes the base remainder into writes at paths that are not
+// ancestors of any mount path (so they don't conflict with mount participants in
+// the transaction merge). A node with no mount beneath it is emitted whole at its
+// path; a spine node that is an ancestor of a mount is recursed into.
+func emitBase(n *ir.Node, cur []string, mounts []mountInfo) []baseWrite {
+	if isEmptyObject(n) {
+		return nil
+	}
+	if !anyMountUnder(cur, mounts) {
+		return []baseWrite{{path: fieldsToKPath(cur), data: n.Clone()}}
+	}
+	if n.Type != ir.ObjectType {
+		return nil // defensive: spine nodes above a mount are plain objects
+	}
+	var out []baseWrite
+	for i := range n.Fields {
+		childSegs := append(append([]string{}, cur...), n.Fields[i].String)
+		out = append(out, emitBase(n.Values[i], childSegs, mounts)...)
+	}
+	return out
+}
+
+// anyMountUnder reports whether any mount path lies strictly below cur.
+func anyMountUnder(cur []string, mounts []mountInfo) bool {
+	for _, mi := range mounts {
+		if !fieldsEqual(mi.segs, cur) && hasFieldPrefix(mi.segs, cur) {
+			return true
+		}
+	}
+	return false
 }
 
 // partition recursively splits the node at path cur into per-mount parts and a
@@ -91,9 +146,9 @@ func partition(n *ir.Node, cur []string, mounts []mountInfo, blocks TagFilter) (
 	deeper := false
 	for _, mi := range mounts {
 		switch {
-		case segsEqual(mi.segs, cur):
+		case fieldsEqual(mi.segs, cur):
 			exact = mi.entry
-		case hasSegmentPrefix(mi.segs, cur): // cur is a strict prefix of a mount path
+		case hasFieldPrefix(mi.segs, cur): // cur is a strict prefix of a mount path
 			deeper = true
 		}
 	}
@@ -115,12 +170,12 @@ func partition(n *ir.Node, cur []string, mounts []mountInfo, blocks TagFilter) (
 	if n == nil || n.Type != ir.ObjectType {
 		return nil, nil, fmt.Errorf(
 			"cannot decompose patch across mounts: %s at %q spans a mount boundary",
-			describeUndecomposable(n), "/"+strings.Join(cur, "/"))
+			describeUndecomposable(n), fieldsToKPath(cur))
 	}
 	if op, ok := blockedTag(n.Tag, blocks); ok {
 		return nil, nil, fmt.Errorf(
 			"cannot decompose patch across mounts: higher-order op %q at %q spans a mount boundary",
-			op, "/"+strings.Join(cur, "/"))
+			op, fieldsToKPath(cur))
 	}
 
 	var parts []mountPart
@@ -162,13 +217,12 @@ func describeUndecomposable(n *ir.Node) string {
 	return fmt.Sprintf("non-object value (%v)", n.Type)
 }
 
-// nestAt roots data at the document root by wrapping it under each segment of
-// path. An empty path returns data unchanged.
-func nestAt(path string, data *ir.Node) *ir.Node {
-	segs := splitPathSegments(path)
+// nestAtFields roots data at the document root by wrapping it under each field
+// of the client patch path. No fields returns data unchanged.
+func nestAtFields(fields []string, data *ir.Node) *ir.Node {
 	node := data
-	for i := len(segs) - 1; i >= 0; i-- {
-		node = ir.FromKeyVals([]ir.KeyVal{{Key: ir.FromString(segs[i]), Val: node}})
+	for i := len(fields) - 1; i >= 0; i-- {
+		node = ir.FromKeyVals([]ir.KeyVal{{Key: ir.FromString(fields[i]), Val: node}})
 	}
 	return node
 }
@@ -182,16 +236,13 @@ func cloneOrNil(n *ir.Node) *ir.Node {
 	return n.Clone()
 }
 
-func segsEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
+// patchTagFilter returns the server's configured cross-mount tag filter, or the
+// default.
+func (s *Server) patchTagFilter() TagFilter {
+	if s.Spec.PatchTagFilter != nil {
+		return s.Spec.PatchTagFilter
 	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
+	return defaultTagFilter
 }
 
 // isEmptyObject reports whether n carries no data — nil, null, or an object with

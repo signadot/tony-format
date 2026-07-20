@@ -103,6 +103,7 @@ context:
 - tony-base: github.com/signadot/tony-format/go-tony/schema
 define:
   data: .[tony-base:ir]
+  match: .[nullable(path-data)]
   migration: .[bool]
   path: .[string]
   timeout: .[nullable(string)]
@@ -164,6 +165,7 @@ context:
 - tony-format/context
 define:
   path: .[string]
+  watchId: .[nullable(string)]
 signature:
   name: session-unwatch-request
 ---

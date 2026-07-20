@@ -5,7 +5,6 @@ import (
 	"io"
 	"log/slog"
 	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/signadot/tony-format/go-tony/gomap"
@@ -48,6 +47,11 @@ type routeEntry struct {
 	clientID *string // the client's original request id, restored on the way back
 	path     string
 	isWatch  bool // watches keep their route alive to forward streaming events
+
+	// collect, when non-nil, marks a coordinator route: the controller's response
+	// is delivered here (one-shot) instead of being forwarded to a client. Used by
+	// docd-coordinated multi-mount transactions.
+	collect chan *logdapi.SessionResponse
 }
 
 // MountSessionConfig contains configuration for creating a session.
@@ -156,10 +160,40 @@ func (s *MountSession) dispatch(resp *logdapi.SessionResponse) {
 		return
 	}
 
+	if entry.collect != nil {
+		entry.collect <- resp // buffered (cap 1); coordinator route
+		return
+	}
+
 	resp.ID = entry.clientID // restore the client's original id
 	if err := entry.client.writeToClient(resp); err != nil {
 		s.log.Debug("failed to forward controller response to client", "error", err)
 	}
+}
+
+// RouteCollect forwards a request to the controller under a fresh docd-assigned
+// id and returns a channel that receives the single response. Unlike
+// RouteRequest, the response is collected (not forwarded to a client) — used by
+// the multi-mount transaction coordinator.
+func (s *MountSession) RouteCollect(req *logdapi.SessionRequest) <-chan *logdapi.SessionResponse {
+	ch := make(chan *logdapi.SessionResponse, 1)
+
+	s.routeMu.Lock()
+	s.nextID++
+	docdID := strconv.FormatUint(s.nextID, 10)
+	s.routes[docdID] = &routeEntry{path: requestPath(req), collect: ch}
+	s.routeMu.Unlock()
+
+	out := *req
+	out.ID = &docdID
+	if err := s.writeToController(&out); err != nil {
+		s.routeMu.Lock()
+		delete(s.routes, docdID)
+		s.routeMu.Unlock()
+		ch <- logdapi.NewErrorResponse(nil, logdapi.ErrCodeSessionClosed,
+			fmt.Sprintf("controller %q unavailable: %v", s.controllerID, err))
+	}
+	return ch
 }
 
 // forwardEvent forwards a streaming watch event to the client that owns the
@@ -291,6 +325,11 @@ func (s *MountSession) failAllRoutes(err error) {
 	s.routeMu.Unlock()
 
 	for _, e := range entries {
+		if e.collect != nil {
+			e.collect <- logdapi.NewErrorResponse(nil, logdapi.ErrCodeSessionClosed,
+				"controller disconnected: "+err.Error())
+			continue
+		}
 		if e.isWatch {
 			continue // the watch simply stops delivering events
 		}
@@ -334,9 +373,9 @@ func (s *MountSession) handleHandshake(decoder *stream.Decoder) error {
 		s.sendError(api.ErrCodeInvalidPath, "mount path is required")
 		return fmt.Errorf("missing mount path")
 	}
-	if !strings.HasPrefix(req.Mount.Path, "/") {
-		s.sendError(api.ErrCodeInvalidPath, "mount path must start with /")
-		return fmt.Errorf("invalid mount path: must start with /")
+	if fields, ferr := pathFields(req.Mount.Path); ferr != nil || len(fields) == 0 {
+		s.sendError(api.ErrCodeInvalidPath, "mount path must be a non-empty kpath (no leading /)")
+		return fmt.Errorf("invalid mount path %q", req.Mount.Path)
 	}
 	if isMetaPath(req.Mount.Path) {
 		s.sendError(api.ErrCodeInvalidPath, "path .meta is reserved by docd")

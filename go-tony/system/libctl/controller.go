@@ -53,11 +53,15 @@ type WatchParams struct {
 
 // PatchParams carries a patch's options through to the Handler. TxID, when set,
 // is the multi-participant transaction the patch must join. Match, when set, is a
-// compare-and-swap precondition the controller must carry to logd (via
-// LogdSession.PatchIf/PatchTxIf) so the write commits only if it holds.
+// compare-and-swap precondition. Timeout, when set, is the per-participant wait
+// timeout for the transaction. A controller participating in a docd-coordinated
+// transaction must carry all three to its logd write (e.g. via
+// LogdSession.PatchWith) so the participant behaves correctly and a stalled
+// transaction aborts.
 type PatchParams struct {
-	TxID  *int64
-	Match *api.PathData
+	TxID    *int64
+	Match   *api.PathData
+	Timeout *string
 }
 
 // ControllerConfig configures RunController.
@@ -205,8 +209,9 @@ func (rt *controllerRuntime) handleMatch(req *api.SessionRequest) {
 
 func (rt *controllerRuntime) handlePatch(req *api.SessionRequest) {
 	data, err := rt.handler.Patch(rt.ctx, req.Patch.Path, req.Patch.Data, PatchParams{
-		TxID:  req.Patch.TxID,
-		Match: req.Patch.Match,
+		TxID:    req.Patch.TxID,
+		Match:   req.Patch.Match,
+		Timeout: req.Patch.Timeout,
 	})
 	if err != nil {
 		rt.replyErr(req.ID, err)
