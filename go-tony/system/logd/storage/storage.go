@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -51,11 +50,6 @@ type Storage struct {
 	notifier       CommitNotifier     // Optional callback for commit notifications
 	schemaResolver api.SchemaResolver // Optional schema resolver for !key indexed arrays
 
-	// activeScopes tracks scope IDs that have had commits since the last snapshot.
-	// Used by SwitchAndSnapshot to create scope-specific snapshots.
-	activeScopesMu sync.RWMutex
-	activeScopes   map[string]struct{}
-
 	// Schema state - derived from log entries during replay.
 	// Schema changes are stored in dlog entries and always occur at snapshot boundaries.
 	schema *storageSchema
@@ -74,11 +68,10 @@ func Open(root string, logger *slog.Logger) (*Storage, error) {
 	s := &Storage{
 		sequence: seq.NewSeq(root),
 
-		txStore:      tx.NewInMemoryTxStore(),
-		index:        index.NewIndex(""),
-		logger:       logger,
-		activeScopes: make(map[string]struct{}),
-		schema:       newStorageSchema(),
+		txStore: tx.NewInMemoryTxStore(),
+		index:   index.NewIndex(""),
+		logger:  logger,
+		schema:  newStorageSchema(),
 	}
 
 	dlog, err := dlog.NewDLog(root, logger)
@@ -130,7 +123,7 @@ func (s *Storage) ReadStateAt(kp string, commit int64, scopeID *string) (*ir.Nod
 // readBaselineStateAt reads baseline state at commit: the most recent baseline
 // snapshot plus baseline patches applied from that point forward.
 func (s *Storage) readBaselineStateAt(kp string, commit int64) (*ir.Node, error) {
-	baseReader, startCommit, err := s.findSnapshotBaseReader(kp, commit, nil)
+	baseReader, startCommit, err := s.findSnapshotBaseReader(kp, commit)
 	if err != nil {
 		return nil, err
 	}
@@ -482,35 +475,7 @@ func (s *Storage) DeleteScope(scopeID string) error {
 	if count == 0 {
 		return fmt.Errorf("scope %q not found or has no data", scopeID)
 	}
-	// Remove from active scopes tracking
-	s.untrackScope(scopeID)
 	return nil
-}
-
-// trackScope marks a scope as active (has had commits since last snapshot).
-func (s *Storage) trackScope(scopeID string) {
-	s.activeScopesMu.Lock()
-	s.activeScopes[scopeID] = struct{}{}
-	s.activeScopesMu.Unlock()
-}
-
-// untrackScope removes a scope from active tracking.
-func (s *Storage) untrackScope(scopeID string) {
-	s.activeScopesMu.Lock()
-	delete(s.activeScopes, scopeID)
-	s.activeScopesMu.Unlock()
-}
-
-// getAndClearActiveScopes returns all active scope IDs and clears the set.
-func (s *Storage) getAndClearActiveScopes() []string {
-	s.activeScopesMu.Lock()
-	defer s.activeScopesMu.Unlock()
-	scopes := make([]string, 0, len(s.activeScopes))
-	for scopeID := range s.activeScopes {
-		scopes = append(scopes, scopeID)
-	}
-	s.activeScopes = make(map[string]struct{})
-	return scopes
 }
 
 // GetActiveSchema returns the current active schema and the commit where it was set.

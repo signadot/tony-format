@@ -129,7 +129,7 @@ func (s *Storage) StartMigration(schema *ir.Node) (int64, error) {
 		return 0, ErrMigrationInProgress
 	}
 
-	commit, err := s.createSchemaSnapshot(schema, dlog.SchemaStatusPending, nil)
+	commit, err := s.createSchemaSnapshot(schema, dlog.SchemaStatusPending)
 	if err != nil {
 		return 0, err
 	}
@@ -158,7 +158,7 @@ func (s *Storage) CompleteMigration() (int64, error) {
 		return 0, ErrNoMigrationInProgress
 	}
 
-	commit, err := s.createSchemaSnapshot(pendingSchema, dlog.SchemaStatusActive, nil)
+	commit, err := s.createSchemaSnapshot(pendingSchema, dlog.SchemaStatusActive)
 	if err != nil {
 		return 0, err
 	}
@@ -177,7 +177,7 @@ func (s *Storage) AbortMigration() (int64, error) {
 		return 0, ErrNoMigrationInProgress
 	}
 
-	commit, err := s.createSchemaSnapshot(nil, dlog.SchemaStatusAborted, nil)
+	commit, err := s.createSchemaSnapshot(nil, dlog.SchemaStatusAborted)
 	if err != nil {
 		return 0, err
 	}
@@ -339,7 +339,7 @@ func (s *Storage) reindexForPending(fromCommit, toCommit int64) error {
 // createSchemaSnapshot creates a snapshot with a schema change entry.
 // This is similar to createSnapshot but includes the SchemaEntry.
 // Each schema snapshot gets its own commit number to avoid duplicates at the same commit.
-func (s *Storage) createSchemaSnapshot(schema *ir.Node, status string, scopeID *string) (int64, error) {
+func (s *Storage) createSchemaSnapshot(schema *ir.Node, status string) (int64, error) {
 	// Allocate a new commit number for this schema snapshot
 	commit, err := s.sequence.NextCommit()
 	if err != nil {
@@ -351,14 +351,14 @@ func (s *Storage) createSchemaSnapshot(schema *ir.Node, status string, scopeID *
 	if prevCommit < 0 {
 		prevCommit = 0
 	}
-	baseReader, startCommit, err := s.findSnapshotBaseReader("", prevCommit, scopeID)
+	baseReader, startCommit, err := s.findSnapshotBaseReader("", prevCommit)
 	if err != nil {
 		return 0, err
 	}
 	defer baseReader.Close()
 
 	// Get patches from startCommit to prevCommit
-	segments := s.index.LookupRange("", &startCommit, &prevCommit, scopeID)
+	segments := s.index.LookupRange("", &startCommit, &prevCommit, nil)
 
 	// Extract patch nodes, filtering out snapshots
 	var patchNodes []*ir.Node
@@ -386,7 +386,7 @@ func (s *Storage) createSchemaSnapshot(schema *ir.Node, status string, scopeID *
 	if err != nil {
 		return 0, fmt.Errorf("failed to create snapshot writer: %w", err)
 	}
-	snapWriter.SetScopeID(scopeID)
+	snapWriter.SetScopeID(nil)
 	snapWriter.SetSchemaEntry(&dlog.SchemaEntry{
 		Schema: schema,
 		Status: status,
@@ -425,7 +425,7 @@ func (s *Storage) createSchemaSnapshot(schema *ir.Node, status string, scopeID *
 		LogFile:           string(snapWriter.LogFileID()),
 		LogPosition:       snapWriter.EntryPosition(),
 		LogFileGeneration: generation,
-		ScopeID:           scopeID,
+		ScopeID:           nil,
 	}
 	s.index.Add(snapSeg)
 

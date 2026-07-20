@@ -13,16 +13,14 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/snap"
 )
 
-// findSnapshotBaseReader searches for the most recent snapshot <= commit
-// for a given path and returns an EventReadCloser starting from that snapshot, plus the startCommit
-// for patches that should be applied after it.
-//
-// For scoped reads (scopeID != nil):
-//   - First looks for a scope-specific snapshot
-//   - Falls back to baseline snapshot if no scope snapshot exists
+// findSnapshotBaseReader searches for the most recent baseline snapshot <= commit
+// for a given path and returns an EventReadCloser starting from that snapshot, plus
+// the startCommit for patches that should be applied after it. Scope snapshots are
+// not created, so only baseline snapshots are considered; scoped reads layer the
+// scope's patches over this baseline (see readScopedStateAt).
 //
 // Caller is responsible for closing the returned reader.
-func (s *Storage) findSnapshotBaseReader(kp string, commit int64, scopeID *string) (patches.EventReadCloser, int64, error) {
+func (s *Storage) findSnapshotBaseReader(kp string, commit int64) (patches.EventReadCloser, int64, error) {
 	iter := s.index.IterAtPath(kp)
 	if !iter.Valid() {
 		return nil, 0, fmt.Errorf("invalid index iterator for path %q", kp)
@@ -32,31 +30,13 @@ func (s *Storage) findSnapshotBaseReader(kp string, commit int64, scopeID *strin
 	// Segment data (LogFile, LogPosition) is immutable once written,
 	// so it's safe to use after releasing the lock.
 	var snapSeg *index.LogSegment
-	var baselineSnapSeg *index.LogSegment // fallback for scoped reads
 	s.index.RLock()
 	for seg := range iter.CommitsAt(commit, index.Down) {
 		// Skip non-snapshot entries (patches have StartCommit != EndCommit)
 		if seg.StartCommit != seg.EndCommit {
 			continue
 		}
-
-		// For scoped reads, first try to find a scope-specific snapshot
-		if scopeID != nil {
-			if seg.ScopeID != nil && *seg.ScopeID == *scopeID {
-				// Found scope-specific snapshot
-				segCopy := seg
-				snapSeg = &segCopy
-				break
-			}
-			// Remember baseline snapshot as fallback
-			if seg.ScopeID == nil && baselineSnapSeg == nil {
-				segCopy := seg
-				baselineSnapSeg = &segCopy
-			}
-			continue
-		}
-
-		// Baseline read: only consider baseline snapshots
+		// Only baseline snapshots.
 		if seg.ScopeID == nil {
 			segCopy := seg
 			snapSeg = &segCopy
@@ -64,11 +44,6 @@ func (s *Storage) findSnapshotBaseReader(kp string, commit int64, scopeID *strin
 		}
 	}
 	s.index.RUnlock()
-
-	// For scoped reads, use baseline snapshot as fallback
-	if snapSeg == nil && scopeID != nil && baselineSnapSeg != nil {
-		snapSeg = baselineSnapSeg
-	}
 
 	// No snapshot found - start from empty (null state at commit 0)
 	if snapSeg == nil {
@@ -124,20 +99,16 @@ func (s *Storage) SwitchDLog() error {
 		return fmt.Errorf("failed to get current commit: %w", err)
 	}
 
-	// Clear the per-switch active-scope set. Scope snapshots are intentionally NOT
-	// created: a materialized scope snapshot resolves !key away and is unsound to
-	// re-apply onto a changed baseline. The scope layer is instead read as raw,
-	// op-preserving patches (see readScopedStateAt). Bounded, sound scope-overlay
-	// compaction is tracked in issue 5hmq80f3h12krh1mbsn0.
-	s.getAndClearActiveScopes()
-
 	// Switch active log - blocks if snapshot in progress on inactive log
 	if err := s.dLog.SwitchActive(); err != nil {
 		return fmt.Errorf("failed to switch active log: %w", err)
 	}
 
-	// Create baseline snapshot
-	if err := s.createSnapshot(commit, nil); err != nil {
+	// Create baseline snapshot. Scope snapshots are intentionally not created: a
+	// materialized scope overlay resolves !key away and is unsound to re-apply onto a
+	// changed baseline. The scope layer is read as raw op-preserving patches instead
+	// (see readScopedStateAt). Bounded scope-overlay compaction: 5hmq80f3h12krh1mbsn0.
+	if err := s.createSnapshot(commit); err != nil {
 		return fmt.Errorf("failed to create baseline snapshot: %w", err)
 	}
 
@@ -155,20 +126,19 @@ func (s *Storage) SwitchDLog() error {
 // createSnapshot creates a baseline snapshot of the full state at the given commit.
 // Writes snapshot events to the inactive log and adds an index entry.
 //
-// scopeID is threaded through for the (now baseline-only) callers; scope snapshots
-// are no longer created because a materialized scope overlay is unsound for !key.
-// The scope layer is read as raw op-preserving patches instead. See readScopedStateAt
-// and issue 5hmq80f3h12krh1mbsn0.
-func (s *Storage) createSnapshot(commit int64, scopeID *string) error {
+// Scope snapshots are no longer created (a materialized scope overlay is unsound for
+// !key); the scope layer is read as raw op-preserving patches instead. See
+// readScopedStateAt and issue 5hmq80f3h12krh1mbsn0.
+func (s *Storage) createSnapshot(commit int64) error {
 	// Find most recent snapshot and get base event reader
-	baseReader, startCommit, err := s.findSnapshotBaseReader("", commit, scopeID)
+	baseReader, startCommit, err := s.findSnapshotBaseReader("", commit)
 	if err != nil {
 		return err
 	}
 	defer baseReader.Close()
 
 	// Get patches from startCommit to commit
-	segments := s.index.LookupRange("", &startCommit, &commit, scopeID)
+	segments := s.index.LookupRange("", &startCommit, &commit, nil)
 
 	// Extract patch nodes, filtering out snapshots
 	var patchNodes []*ir.Node
@@ -196,7 +166,7 @@ func (s *Storage) createSnapshot(commit int64, scopeID *string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create snapshot writer: %w", err)
 	}
-	snapWriter.SetScopeID(scopeID)
+	snapWriter.SetScopeID(nil)
 
 	// Build snapshot directly to log file (out-of-memory)
 	snapIndex := &snap.Index{}
@@ -234,15 +204,11 @@ func (s *Storage) createSnapshot(commit int64, scopeID *string) error {
 		LogFile:           string(snapWriter.LogFileID()),
 		LogPosition:       snapWriter.EntryPosition(),
 		LogFileGeneration: generation,
-		ScopeID:           scopeID,
+		ScopeID:           nil,
 	}
 	s.index.Add(snapSeg)
 
-	if scopeID != nil {
-		s.logger.Info("scope snapshot created", "commit", commit, "scopeID", *scopeID, "logFile", snapWriter.LogFileID(), "position", snapWriter.EntryPosition())
-	} else {
-		s.logger.Info("snapshot created", "commit", commit, "logFile", snapWriter.LogFileID(), "position", snapWriter.EntryPosition())
-	}
+	s.logger.Info("snapshot created", "commit", commit, "logFile", snapWriter.LogFileID(), "position", snapWriter.EntryPosition())
 	return nil
 }
 

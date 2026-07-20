@@ -122,9 +122,6 @@ func (s *Storage) selectSurvivors(
 ) ([]index.LogSegment, error) {
 	var survivors []index.LogSegment
 
-	// Get active scopes
-	activeScopes := s.getActiveScopes()
-
 	// Separate patches and snapshots
 	var patches []index.LogSegment
 	var snapshots []index.LogSegment
@@ -168,7 +165,7 @@ func (s *Storage) selectSurvivors(
 	}
 
 	// Snapshots: apply tier policy
-	groups, err := s.buildSnapshotGroups(snapshots, activeScopes)
+	groups, err := s.buildSnapshotGroups(snapshots)
 	if err != nil {
 		return nil, err
 	}
@@ -181,12 +178,10 @@ func (s *Storage) selectSurvivors(
 }
 
 // buildSnapshotGroups groups snapshots by commit and filters out:
-// - scope snapshots for inactive scopes
 // - aborted schema migration entries
 // - superseded pending schema migration entries
 func (s *Storage) buildSnapshotGroups(
 	snapshots []index.LogSegment,
-	activeScopes map[string]struct{},
 ) ([]snapshotGroup, error) {
 	// Get current pending migration state for filtering superseded pending entries
 	_, pendingCommit := s.schema.GetPending()
@@ -228,13 +223,6 @@ func (s *Storage) buildSnapshotGroups(
 			byCommit[commit] = group
 		}
 
-		// Filter out scope snapshots for inactive scopes
-		if seg.ScopeID != nil {
-			if _, active := activeScopes[*seg.ScopeID]; !active {
-				continue
-			}
-		}
-
 		group.segments = append(group.segments, seg)
 	}
 
@@ -271,18 +259,6 @@ func (s *Storage) shouldSkipSchemaEntry(schemaEntry *dlog.SchemaEntry, commit in
 	}
 	// Active schema entries are handled by tier policy with pinned commit
 	return false
-}
-
-// getActiveScopes returns the set of currently active scope IDs.
-func (s *Storage) getActiveScopes() map[string]struct{} {
-	s.activeScopesMu.RLock()
-	defer s.activeScopesMu.RUnlock()
-
-	result := make(map[string]struct{}, len(s.activeScopes))
-	for scopeID := range s.activeScopes {
-		result[scopeID] = struct{}{}
-	}
-	return result
 }
 
 // updateIndexPositions updates segment positions in the index after compaction.
