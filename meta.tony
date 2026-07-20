@@ -1,6 +1,8 @@
 !issue
 Ref: refs/issues/0qt62a91h12kr2b8bnn0
 Title: "logd/libctl: expose CAS (match preconditions) in the session patch protocol"
+commits:
+- "0ac7428ad1b3695d2aca3436edc83778b9161982"
 created: "2026-07-20T02:12:57.498558+02:00"
 id: "0qt62a91h12kr2b8bnn0"
 labels:
@@ -9,4 +11,4 @@ related_issues:
 - wcabztj2h12ksb9qbnn0
 - qf58mz22h12krzk2bnn0
 status: open
-updated: "2026-07-20T02:13:05.147822+02:00"
+updated: "2026-07-20T02:27:08.573989+02:00"
