@@ -48,7 +48,8 @@ supplies an expected value at a path, and the patch commits **only if** the curr
 state at that path still matches. On a mismatch the write is rejected (`match_failed`)
 and nothing is committed — optimistic concurrency without locks.
 
-Combined with logd's multi-participant transactions (see
-[Multi-mount transactions](../docd/transactions.md)), a conditional write can span
-several paths atomically: the whole transaction commits only if every precondition
-holds, or none of it does.
+Preconditions compose atomically across logd's multi-participant transactions (see
+[Multi-mount transactions](../docd/transactions.md)). When the transaction is ready,
+logd checks *every* participant's precondition against current state, and either they
+all hold and the whole transaction commits, or one fails and the entire transaction
+aborts — nothing is written. There is no partial commit.
