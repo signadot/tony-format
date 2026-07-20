@@ -991,3 +991,76 @@ func TestSession_ScopedWatch_COW(t *testing.T) {
 	wantInt("a.x", 5)
 	wantInt("a.y", 7)
 }
+
+// TestSession_ScopedWatch_QueuedRaceEventNotDropped reproduces the scoped-watch
+// regression deterministically: a write that races into the [hub-register,
+// GetCurrentCommit] window is queued with commit <= startCommit. The recompute-and-diff
+// scoped path skipped it (folding it into the baseline snapshot), dropping exactly one
+// delta per watch under rapid writes. It must be delivered.
+func TestSession_ScopedWatch_QueuedRaceEventNotDropped(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := storage.Open(tmpDir, nil)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer store.Close()
+
+	hub := NewWatchHub()
+	store.SetCommitNotifier(hub.Broadcast)
+
+	conn := newMockConn()
+	session := NewSession("srv", conn, &SessionConfig{Storage: store, Hub: hub})
+	scope := "s1"
+	session.scope = &scope
+	defer close(session.done)
+
+	commit := func(src string) int64 {
+		t.Helper()
+		data, err := parse.Parse([]byte(src))
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		txn, err := store.NewTx(1, &scope)
+		if err != nil {
+			t.Fatalf("tx: %v", err)
+		}
+		p, err := txn.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: data}})
+		if err != nil {
+			t.Fatalf("patcher: %v", err)
+		}
+		r := p.Commit()
+		if !r.Committed {
+			t.Fatalf("commit: %v", r.Error)
+		}
+		return r.Commit
+	}
+
+	commit(`{a: {f1: 1}}`) // commit 1, before the watch exists
+
+	// handleWatch registers the watcher with the hub FIRST...
+	watcher := NewWatcher("a", &scope, nil, 100)
+	hub.Watch(watcher)
+
+	// ...then a write races in and its notification queues (commit 2)...
+	c2 := commit(`{a: {f2: 2}}`)
+
+	// ...and forwardEvents captures currentCommit = c2. NoInit, like a composed sub-watch.
+	go session.forwardEvents(watcher, nil, true, c2)
+
+	var gotC2 bool
+	deadline := time.After(500 * time.Millisecond)
+loop:
+	for {
+		select {
+		case resp := <-session.outgoing:
+			if resp.Event != nil && resp.Event.Patch != nil && resp.Event.Commit == c2 {
+				gotC2 = true
+			}
+		case <-deadline:
+			break loop
+		}
+	}
+	if !gotC2 {
+		t.Fatalf("scoped watch dropped the queued commit-%d delta (f2): regression", c2)
+	}
+}

@@ -611,14 +611,6 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 		startCommit = *fromCommit
 		lastReplayedCommit = currentCommit
 	}
-	// A scoped watcher's initial state (below) reflects the scope at startCommit, so
-	// any event <= startCommit is already accounted for; skip it. (For fromCommit,
-	// lastReplayedCommit is already currentCommit; scoped no-replay watchers seed at
-	// currentCommit and must not emit a backwards delta for a queued earlier event.)
-	if scoped && lastReplayedCommit < startCommit {
-		lastReplayedCommit = startCommit
-	}
-
 	// Send initial state unless noInit is set
 	if !noInit {
 		var state *ir.Node
@@ -651,8 +643,17 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 	// scope writes shadow baseline and !key merges are identity-based. Recompute+diff
 	// also naturally suppresses baseline writes to leaves the scope has overridden (the
 	// scoped view is unchanged -> empty diff). See issue eagjggjdh12ksg00bsn0.
+	//
+	// prevDoc is seeded at startCommit only for a fromCommit replay (the replay below
+	// diffs forward from it). For a no-replay watcher it is seeded LAZILY, at
+	// (firstEvent.commit - 1) when the first event arrives — never at startCommit —
+	// because a write can race into [hub-register, GetCurrentCommit] and be queued with
+	// commit <= startCommit; seeding at startCommit would fold that write into the
+	// baseline and drop its delta (the scoped-watch drop-one-event regression). Lazy
+	// seeding makes every queued or live event a correct forward diff.
 	var prevDoc *ir.Node
-	if scoped {
+	prevSeeded := false
+	if scoped && fromCommit != nil {
 		var err error
 		prevDoc, err = s.scopedDocAt(path, startCommit)
 		if err != nil {
@@ -660,6 +661,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 			s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read scoped state at commit %d: %v", startCommit, err))
 			return
 		}
+		prevSeeded = true
 	}
 
 	// Handle replay if fromCommit is specified
@@ -709,6 +711,19 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 				continue
 			}
 			if scoped {
+				// Lazily seed the diff baseline at the commit just before the first
+				// event, so a queued race-window event (commit <= startCommit) yields a
+				// correct forward delta instead of being folded into the baseline.
+				if !prevSeeded {
+					var err error
+					prevDoc, err = s.scopedDocAt(path, notification.Commit-1)
+					if err != nil {
+						s.log.Error("failed to read scoped watch base", "path", path, "commit", notification.Commit-1, "error", err)
+						s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read scoped state at commit %d: %v", notification.Commit-1, err))
+						return
+					}
+					prevSeeded = true
+				}
 				// Recompute the scoped view at this commit and emit only the change
 				// vs. the previously emitted state. notification.Patch (the raw
 				// baseline/scope delta) is intentionally ignored.
