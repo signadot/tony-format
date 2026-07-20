@@ -1,6 +1,7 @@
 !issue
 Ref: refs/issues/3vm6gq21h12krv32bnn0
 Title: "docd: scoped multi-mount transactions"
+closed_by: "7e151d05ac48d85b32b31b284e3504016a0bc61c"
 commits:
 - "7e151d05ac48d85b32b31b284e3504016a0bc61c"
 created: "2026-07-20T01:49:00.937413+02:00"
@@ -10,5 +11,5 @@ labels:
 related_issues:
 - wcabztj2h12ksb9qbnn0
 - qf58mz22h12krzk2bnn0
-status: open
-updated: "2026-07-20T15:16:41.42826+02:00"
+status: closed
+updated: "2026-07-20T15:16:41.516995+02:00"
