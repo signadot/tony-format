@@ -4,4 +4,4 @@ Title: "logd: baseline write overrides a scope's prior write (COW isolation bug)
 created: "2026-07-20T13:04:32.807753+02:00"
 id: eagjggjdh12ksg00bsn0
 status: open
-updated: "2026-07-20T13:04:32.807753+02:00"
+updated: "2026-07-20T13:04:48.32675+02:00"
