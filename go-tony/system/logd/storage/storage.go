@@ -138,36 +138,46 @@ func (s *Storage) readBaselineStateAt(kp string, commit int64) (*ir.Node, error)
 }
 
 // readScopedStateAt implements copy-on-write scope reads. The scoped view at commit C
-// is the baseline state at C (same commit bound) with the scope's OWN patches replayed
-// on top, verbatim, via the normal patch machinery. Replaying real patches — rather
-// than merging a materialized overlay — keeps op semantics (notably !key identity
-// merges) durable against ongoing baseline changes: a later baseline write to a leaf
-// the scope has written is shadowed, while baseline writes elsewhere still show
-// through. The scope layer is deliberately NOT read from a scope snapshot: materialized
-// scope snapshots resolve !key away and are unsound here (see issue
-// eagjggjdh12ksg00bsn0; bounded op-preserving compaction is tracked in
-// 5hmq80f3h12krh1mbsn0).
+// is the baseline state at C (same commit bound) with the scope's OWN patches applied
+// on top, verbatim. It is computed in a SINGLE apply pass: the baseline snapshot as
+// base, then all baseline patches (commit order), then this scope's patches (commit
+// order). Applying the scope's writes last makes them sticky over baseline — a later
+// baseline write to a leaf the scope has written is shadowed, while baseline writes
+// elsewhere still show through — and replaying real patches (not a materialized
+// overlay) keeps op semantics durable (notably !key identity merges).
+//
+// The single pass matters: materializing baseline first and re-applying the scope
+// patches over it round-trips through node<->events, and that round-trip mis-handles
+// numeric-string field keys (e.g. path "users.1"), so the scope patch fails to align
+// with the base and is dropped. Keeping every patch in one apply pass gives every
+// patch the same path computation.
+//
+// The scope layer is deliberately NOT read from a scope snapshot: materialized scope
+// snapshots resolve !key away and are unsound here (see issue eagjggjdh12ksg00bsn0;
+// bounded op-preserving compaction is tracked in 5hmq80f3h12krh1mbsn0).
 func (s *Storage) readScopedStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
-	baseline, err := s.readBaselineStateAt(kp, commit)
+	baseReader, startCommit, err := s.findSnapshotBaseReader(kp, commit)
+	if err != nil {
+		return nil, err
+	}
+	defer baseReader.Close()
+
+	// Baseline patches from the snapshot forward.
+	baseSegments := s.index.LookupRange(kp, &startCommit, &commit, nil)
+	patchNodes, err := s.patchNodesFromSegments(baseSegments, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	// The scope's own patches in [0, commit], in commit order, ops intact.
-	segments := s.index.LookupRange(kp, nil, &commit, scopeID)
-	scopePatches, err := s.patchNodesFromSegments(segments, scopeID)
+	// This scope's own patches over the full [0, commit] range, applied last.
+	scopeSegments := s.index.LookupRange(kp, nil, &commit, scopeID)
+	scopePatches, err := s.patchNodesFromSegments(scopeSegments, scopeID)
 	if err != nil {
 		return nil, err
 	}
-	if len(scopePatches) == 0 {
-		return baseline, nil // no scope writes: baseline shows through unchanged
-	}
+	patchNodes = append(patchNodes, scopePatches...)
 
-	baseReader, err := nodeEventReader(baseline)
-	if err != nil {
-		return nil, err
-	}
-	return applyPatchesToBase(baseReader, scopePatches)
+	return applyPatchesToBase(baseReader, patchNodes)
 }
 
 // patchNodesFromSegments reads patch nodes from segments in commit order, skipping
@@ -229,26 +239,6 @@ func applyPatchesToBase(baseReader stream.EventReader, patchNodes []*ir.Node) (*
 	}
 	tx.StripPatchRootTagRecursive(node)
 	return node, nil
-}
-
-// nodeEventReader returns a stream.EventReader over a materialized node. A nil node
-// yields an empty reader, which the processor treats as an empty base (folding patches
-// from null).
-func nodeEventReader(node *ir.Node) (stream.EventReader, error) {
-	buf := &bytes.Buffer{}
-	if node != nil {
-		events, err := stream.NodeToEvents(node)
-		if err != nil {
-			return nil, err
-		}
-		sink := stream.NewBufferEventSink(buf)
-		for i := range events {
-			if err := sink.WriteEvent(&events[i]); err != nil {
-				return nil, err
-			}
-		}
-	}
-	return stream.NewBinaryEventReader(buf), nil
 }
 
 // init initializes the storage directory structure.
