@@ -382,6 +382,18 @@ func (s *MountSession) handleHandshake(decoder *stream.Decoder) error {
 		return fmt.Errorf("invalid mount path: .meta is reserved")
 	}
 
+	// Serialize the mount against active watches: writer priority blocks new
+	// overlapping watches, then existing overlapping watches are drained (and any
+	// straggler force-ended after mountForceAfter) so a composed watch never
+	// observes its mount membership change mid-stream. A controller crash is
+	// involuntary and cannot block, so this applies only to a deliberate mount.
+	release, ok := s.server.coord.beginWrite(req.Mount.Path, s.server.mountForceAfter())
+	if !ok {
+		s.sendError(api.ErrCodeInvalidPath, "invalid mount path")
+		return fmt.Errorf("invalid mount path %q", req.Mount.Path)
+	}
+	defer release()
+
 	// Register mount
 	entry := &MountEntry{
 		Path:       req.Mount.Path,

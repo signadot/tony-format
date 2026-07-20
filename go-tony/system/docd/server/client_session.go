@@ -44,10 +44,20 @@ type ClientSession struct {
 	// a scoped NewTx is forwarded to logd on the client's scoped connection.
 	clientScope *string
 
-	logd    net.Conn
-	logdDec *stream.Decoder
+	logd     net.Conn
+	logdDec  *stream.Decoder
+	logdWMu  sync.Mutex // serializes writes to logd (request loop + watch coordination + force teardown)
 
 	writeMu sync.Mutex // serializes writes to the client connection
+
+	// watchMu guards the active-watch bookkeeping. Each active watch holds a
+	// coordinator reader token (path -> token) so a mount/unmount can drain or
+	// force-end the watches that overlap it. closing is set during teardown so a
+	// still-registering watch releases its token instead of leaking it past the
+	// session.
+	watchMu     sync.Mutex
+	watchTokens map[string]uint64
+	closing     bool
 
 	mountsMu   sync.Mutex
 	usedMounts map[*MountSession]struct{} // mounts this client routed to, for teardown
@@ -74,13 +84,14 @@ func NewClientSession(id string, conn net.Conn, cfg *ClientSessionConfig) *Clien
 		log = slog.Default()
 	}
 	return &ClientSession{
-		id:         id,
-		conn:       conn,
-		server:     cfg.Server,
-		log:        log.With("session", id),
-		logdAddr:   cfg.Server.Spec.LogdAddr,
-		usedMounts: make(map[*MountSession]struct{}),
-		done:       make(chan struct{}),
+		id:          id,
+		conn:        conn,
+		server:      cfg.Server,
+		log:         log.With("session", id),
+		logdAddr:    cfg.Server.Spec.LogdAddr,
+		watchTokens: make(map[string]uint64),
+		usedMounts:  make(map[*MountSession]struct{}),
+		done:        make(chan struct{}),
 	}
 }
 
@@ -122,6 +133,7 @@ func (s *ClientSession) Run() error {
 	logdConn.Close()
 	<-errc
 
+	s.releaseAllWatches()
 	s.cleanupMounts()
 	return firstErr
 }
@@ -174,6 +186,20 @@ func (s *ClientSession) routeClientRequests() error {
 		// through to normal single-route routing.
 		if req.Match != nil && s.maybeCoordinateMatch(&req) {
 			continue
+		}
+
+		// A watch registers as a reader with the mount coordinator so a concurrent
+		// mount/unmount on an overlapping path drains or force-ends it. Coordination
+		// runs off the request loop: a pending overlapping writer would otherwise
+		// block the loop (and all this client's other ops) until the mount resolves.
+		if req.Watch != nil {
+			s.coordinateWatch(&req)
+			continue
+		}
+		// Releasing the reader token before routing the unwatch keeps a concurrent
+		// mount from waiting on a watch the client has already dropped.
+		if req.Unwatch != nil {
+			s.releaseWatchToken(req.Unwatch.Path)
 		}
 
 		switch dest, entry := s.routeFor(&req); dest {
@@ -395,8 +421,12 @@ func (s *ClientSession) routeFor(req *logdapi.SessionRequest) (routeDest, *Mount
 }
 
 // writeToLogd encodes and writes a request to the per-client logd connection.
-// Only routeClientRequests writes to logd, so no serialization is needed.
+// The request loop, watch coordination goroutines, and force-teardown can all
+// write to logd, so writes are serialized (and encoded under the lock, since ir
+// encoding mutates node linkage).
 func (s *ClientSession) writeToLogd(req *logdapi.SessionRequest) error {
+	s.logdWMu.Lock()
+	defer s.logdWMu.Unlock()
 	data, err := req.ToTony(gomap.EncodeWire(true))
 	if err != nil {
 		return fmt.Errorf("failed to encode request: %w", err)

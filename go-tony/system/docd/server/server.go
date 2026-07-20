@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/signadot/tony-format/go-tony/system/docd/txpool"
 )
@@ -15,6 +16,10 @@ type Server struct {
 
 	// Mount registry for controller registrations
 	Mounts *MountRegistry
+
+	// coord serializes mount/unmount against active watches so a composed watch's
+	// mount membership stays fixed for its lifetime (see mountCoord).
+	coord *mountCoord
 
 	// TCP listener for controller (mount) connections
 	tcpListener *TCPListener
@@ -45,11 +50,21 @@ func New(spec *Spec) *Server {
 	return &Server{
 		Spec:   *spec,
 		Mounts: NewMountRegistry(),
+		coord:  newMountCoord(),
 		txPool: txpool.New(&txpool.Config{
 			LogdAddr: spec.LogdAddr,
 			Log:      spec.Log,
 		}),
 	}
+}
+
+// mountForceAfter resolves the configured drain timeout, substituting the
+// built-in default when the spec leaves it unset.
+func (s *Server) mountForceAfter() time.Duration {
+	if s.Spec.MountForceAfter <= 0 {
+		return defaultMountForceAfter
+	}
+	return s.Spec.MountForceAfter
 }
 
 func slogLevel() slog.Level {

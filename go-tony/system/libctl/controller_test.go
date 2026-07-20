@@ -421,6 +421,81 @@ func TestDocd_ComposeNestedMountsOverlay(t *testing.T) {
 	}
 }
 
+// TestDocd_MountBlocksOnOverlappingWatch proves a mount waits for an overlapping
+// watch to drain: with force_after effectively infinite for the test window, a
+// controller mounting a.b cannot register while a client watches the ancestor a,
+// and proceeds the moment that watch is dropped.
+func TestDocd_MountBlocksOnOverlappingWatch(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdForce(t, logd.TCPAddr(), 10*time.Second)
+
+	client := docdClient(t, docd, "client")
+	// A base watch on "a" (routed to logd) registers a reader overlapping a.b.
+	w, err := client.Watch(context.Background(), "a", nil)
+	if err != nil {
+		t.Fatalf("watch a: %v", err)
+	}
+
+	// Launch a controller mounting a.b; its handshake must block on the watch.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errc := make(chan error, 1)
+	go func() {
+		errc <- RunController(ctx, &ControllerConfig{
+			DocdAddr: docd.TCPAddr(), Controller: "cB", Path: "a.b", Handler: newMemController(),
+		})
+	}()
+
+	time.Sleep(300 * time.Millisecond)
+	select {
+	case err := <-errc:
+		t.Fatalf("controller exited early: %v", err)
+	default:
+	}
+	if docd.Mounts.Lookup("a.b").Live() {
+		t.Fatal("mount registered despite an active overlapping watch")
+	}
+
+	// Dropping the watch drains the reader and the mount proceeds.
+	w.Close()
+	waitMount(t, docd, "a.b")
+}
+
+// TestDocd_MountForcesOverlappingWatch proves the mount is not blocked forever: a
+// finite force_after force-ends the overlapping watch so the mount registers even
+// while the client still holds it.
+func TestDocd_MountForcesOverlappingWatch(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdForce(t, logd.TCPAddr(), 50*time.Millisecond)
+
+	client := docdClient(t, docd, "client")
+	w, err := client.Watch(context.Background(), "a", nil)
+	if err != nil {
+		t.Fatalf("watch a: %v", err)
+	}
+	defer w.Close()
+
+	// runController asserts registration within 2s; the watch is never dropped, so
+	// registering proves force_after force-ended it.
+	runController(t, docd, "a.b", newMemController())
+}
+
+// startDocdForce is startDocdRouting with a specific mount/unmount reader-drain
+// timeout (mountCoord force_after).
+func startDocdForce(t *testing.T, logdAddr string, forceAfter time.Duration) *docdserver.Server {
+	t.Helper()
+	srv := docdserver.New(&docdserver.Spec{LogdAddr: logdAddr, MountForceAfter: forceAfter})
+	if err := srv.StartClientTCP("127.0.0.1:0"); err != nil {
+		t.Fatalf("failed to start docd client listener: %v", err)
+	}
+	t.Cleanup(func() { srv.StopClientTCP() })
+	if err := srv.StartTCP("127.0.0.1:0"); err != nil {
+		t.Fatalf("failed to start docd mount listener: %v", err)
+	}
+	t.Cleanup(func() { srv.StopTCP() })
+	return srv
+}
+
 // startDocdRouting starts a docd with both listeners: the client face (logd
 // session protocol) and the mount face (MOUNT), proxying/routing to logd.
 func startDocdRouting(t *testing.T, logdAddr string) *docdserver.Server {
