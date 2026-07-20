@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -404,6 +405,24 @@ func (s *MountSession) failAllRoutes(err error) {
 	}
 }
 
+// resolveForceAfter parses a per-mount force_after override into the coordinator
+// drain timeout, falling back to the server default when the controller sends
+// none. "0" parses to a zero duration, which the coordinator treats as
+// wait-forever (never force).
+func (s *MountSession) resolveForceAfter(spec *string) (time.Duration, error) {
+	if spec == nil {
+		return s.server.mountForceAfter(), nil
+	}
+	d, err := time.ParseDuration(*spec)
+	if err != nil {
+		return 0, fmt.Errorf("invalid force_after %q: %w", *spec, err)
+	}
+	if d < 0 {
+		return 0, fmt.Errorf("invalid force_after %q: must not be negative", *spec)
+	}
+	return d, nil
+}
+
 // handleHandshake reads the mount request and registers the controller.
 func (s *MountSession) handleHandshake(decoder *stream.Decoder) error {
 	// Read mount request
@@ -450,10 +469,15 @@ func (s *MountSession) handleHandshake(decoder *stream.Decoder) error {
 
 	// Serialize the mount against active watches: writer priority blocks new
 	// overlapping watches, then existing overlapping watches are drained (and any
-	// straggler force-ended after mountForceAfter) so a composed watch never
+	// straggler force-ended after the drain timeout) so a composed watch never
 	// observes its mount membership change mid-stream. A controller crash is
 	// involuntary and cannot block, so this applies only to a deliberate mount.
-	release, ok := s.server.coord.beginWrite(req.Mount.Path, s.server.mountForceAfter())
+	forceAfter, ferr := s.resolveForceAfter(req.Mount.ForceAfter)
+	if ferr != nil {
+		s.sendError(api.ErrCodeInvalidMessage, ferr.Error())
+		return ferr
+	}
+	release, ok := s.server.coord.beginWrite(req.Mount.Path, forceAfter)
 	if !ok {
 		s.sendError(api.ErrCodeInvalidPath, "invalid mount path")
 		return fmt.Errorf("invalid mount path %q", req.Mount.Path)

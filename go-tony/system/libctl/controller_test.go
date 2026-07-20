@@ -628,6 +628,37 @@ func drainUntilClosed(t *testing.T, w *Watch) {
 	}
 }
 
+// TestDocd_PerMountForceAfterOverride proves a controller's per-mount force_after
+// overrides docd's server default: with a large default that would block the
+// mount ~forever behind a held watch, a short per-mount force_after force-ends the
+// watch so the mount registers.
+func TestDocd_PerMountForceAfterOverride(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdForce(t, logd.TCPAddr(), 10*time.Second) // large server default
+
+	client := docdClient(t, docd, "client")
+	w, err := client.Watch(context.Background(), "a", nil)
+	if err != nil {
+		t.Fatalf("watch: %v", err)
+	}
+	defer w.Close()
+
+	short := 40 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errc := make(chan error, 1)
+	go func() {
+		errc <- RunController(ctx, &ControllerConfig{
+			DocdAddr: docd.TCPAddr(), Controller: "cB", Path: "a.b",
+			Handler: newMemController(), ForceAfter: &short,
+		})
+	}()
+
+	// Registers within waitMount's 2s only because the short override beat the 10s
+	// default.
+	waitMount(t, docd, "a.b")
+}
+
 // startDocdForce is startDocdRouting with a specific mount/unmount reader-drain
 // timeout (mountCoord force_after).
 func startDocdForce(t *testing.T, logdAddr string, forceAfter time.Duration) *docdserver.Server {

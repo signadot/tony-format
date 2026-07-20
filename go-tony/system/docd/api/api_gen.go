@@ -110,6 +110,11 @@ func (s *MountSpec) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["schema"] = s.Schema
 	}
 
+	// Field: ForceAfter (optional)
+	if s.ForceAfter != nil {
+		irMap["forceAfter"] = ir.FromString(*s.ForceAfter)
+	}
+
 	return ir.FromMap(irMap), nil
 }
 
@@ -154,6 +159,18 @@ func (s *MountSpec) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				s.Schema = fieldNode
 			} else {
 				s.Schema = fieldNodeUnwrapped
+			}
+		case "forceAfter":
+			// Field: ForceAfter
+			if fieldNodeUnwrapped.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(string)
+				if fieldNodeUnwrapped.Type != ir.StringType {
+					return fmt.Errorf("%s: expected string, got %v", "field \"forceAfter\"", fieldNodeUnwrapped.Type)
+				}
+				*val = string(fieldNodeUnwrapped.String)
+				s.ForceAfter = val
 			}
 		}
 	}

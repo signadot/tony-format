@@ -25,6 +25,7 @@ context:
 - tony-format/context
 - tony-base: github.com/signadot/tony-format/go-tony/schema
 define:
+  forceAfter: .[nullable(string)]
   path: .[string]
   schema: .[tony-base:ir]
 signature:

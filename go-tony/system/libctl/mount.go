@@ -46,6 +46,11 @@ type MountConfig struct {
 
 	// DialTimeout is the timeout for connecting (default: 5s)
 	DialTimeout time.Duration
+
+	// ForceAfter, when non-nil, overrides how long docd waits for overlapping
+	// watch readers to drain before force-ending them so this mount can proceed. A
+	// pointer to 0 means wait forever (never force); nil uses docd's default.
+	ForceAfter *time.Duration
 }
 
 // Mount connects to docd and performs the mount handshake.
@@ -106,14 +111,17 @@ func (c *MountClient) handshake(cfg *MountConfig) error {
 	c.decoder = decoder
 
 	// Build mount request
+	mount := &api.MountSpec{
+		Path:   cfg.Path,
+		Schema: cfg.Schema,
+	}
+	if cfg.ForceAfter != nil {
+		fa := cfg.ForceAfter.String() // "0s" (wait forever) or e.g. "5s"
+		mount.ForceAfter = &fa
+	}
 	req := &api.MountRequest{
-		Hello: &api.MountHello{
-			Controller: cfg.Controller,
-		},
-		Mount: &api.MountSpec{
-			Path:   cfg.Path,
-			Schema: cfg.Schema,
-		},
+		Hello: &api.MountHello{Controller: cfg.Controller},
+		Mount: mount,
 	}
 
 	// Send request

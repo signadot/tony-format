@@ -24,8 +24,13 @@ type MountHello struct {
 //
 //tony:schemagen=mount-spec,notag
 type MountSpec struct {
-	Path   string   `tony:"field=path"`   // Path to mount (e.g., "/users")
+	Path   string   `tony:"field=path"`   // Path to mount (e.g., "users")
 	Schema *ir.Node `tony:"field=schema"` // Schema for this path
+
+	// ForceAfter bounds how long docd waits for overlapping watch readers to drain
+	// before force-ending them so this mount can proceed (e.g. "5s"). "0" means
+	// wait forever (never force); absent uses docd's configured default.
+	ForceAfter *string `tony:"field=forceAfter,omitzero"`
 }
 
 // MountRequest is the request message from controller to docd.

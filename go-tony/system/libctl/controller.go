@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -88,6 +89,10 @@ type ControllerConfig struct {
 	Schema *ir.Node
 	// Handler implements the controller's behavior.
 	Handler Handler
+	// ForceAfter, when non-nil, overrides how long docd waits for overlapping
+	// watch readers to drain before force-ending them so this mount can proceed (a
+	// pointer to 0 means wait forever). Passed through to the mount handshake.
+	ForceAfter *time.Duration
 	// Log is an optional logger.
 	Log *slog.Logger
 }
@@ -110,6 +115,7 @@ func RunController(ctx context.Context, cfg *ControllerConfig) error {
 		Controller: cfg.Controller,
 		Path:       cfg.Path,
 		Schema:     cfg.Schema,
+		ForceAfter: cfg.ForceAfter,
 	})
 	if err != nil {
 		return fmt.Errorf("mount failed: %w", err)
