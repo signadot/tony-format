@@ -20,10 +20,16 @@ const defaultWatchBuffer = 128
 // is re-establishable: the application should start a new Watch on the same path,
 // which re-composes against the current mount set.
 //
-// Commit is the highest commit the watch delivered before ending — a resume point:
-// re-watching with WatchOptions.FromCommit set to Commit replays the gap and resumes
-// without losing deltas. It is exact for a single-route watch; for a composed watch
-// (whose sub-streams have independent commit sequences) it is best-effort.
+// Event-preservation is a logd guarantee that docd inherits fully only for a
+// single-route watch (a path served by one backend): re-watching with
+// WatchOptions.FromCommit set to Commit replays the exact delta history from Commit
+// with no loss. A COMPOSED watch (an ancestor path spanning several mounts) multiplexes
+// backends with independent commit sequences, so across a mount membership change
+// docd's event-preservation is best-effort: the re-watch re-inits with a fresh State
+// snapshot (a re-sync to current) rather than replaying the gap, conveying net state
+// rather than the intermediate deltas. Commit is thus an exact resume point for a
+// single-route watch and a best-effort hint for a composed one — a snapshot-diffing
+// consumer needs neither and can just re-watch and reconcile against its last snapshot.
 type WatchEndedError struct {
 	Path   string
 	Reason string

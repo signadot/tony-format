@@ -78,6 +78,15 @@ func (s *ClientSession) coordinateWatch(req *logdapi.SessionRequest) {
 // forwarded with only its Path re-stamped to the client's watch path — the patch
 // itself passes through unchanged. token is the coordinator reader already held
 // for path.
+//
+// Event-preservation is a logd guarantee (single commit sequence); docd inherits it
+// for single-route watches but is best-effort across mount boundaries. A composed
+// watch is event-preserving while its mount membership is stable and during live
+// streaming, but a membership change ends it (see terminateWatch) and the re-watch
+// RE-INITS with a fresh composed snapshot rather than replaying the gap. FromCommit is
+// therefore not honored here: the sub-streams have independent commit sequences, so a
+// single resume commit cannot replay them, and re-init (a re-sync to current state)
+// sidesteps that. A snapshot-diffing consumer reconciles the re-init with no gap.
 func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []*MountEntry, token uint64) {
 	clientID := req.ID
 	path := req.Watch.Path

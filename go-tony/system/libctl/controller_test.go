@@ -1573,3 +1573,56 @@ func TestDocd_WatchEndedCarriesResumeCommit(t *testing.T) {
 		t.Errorf("WatchEndedError.Commit = %d, want 7 (last delivered commit / resume point)", ended.Commit)
 	}
 }
+
+// TestDocd_RewatchAfterMembershipChangeReInits pins the reconnect contract for a
+// membership change: after a mount force-ends an overlapping watch, a plain re-watch
+// (now composed over the new mount) delivers a fresh init State — NOT a replay of the
+// gap — and then streams live. A snapshot-diffing consumer swallows the init state
+// with no gap, which is why docd need not replay FromCommit across the membership
+// change (and sidesteps the composed sub-streams' independent commit sequences).
+func TestDocd_RewatchAfterMembershipChangeReInits(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdForce(t, logd.TCPAddr(), 50*time.Millisecond)
+	ctx := context.Background()
+
+	base := docdClient(t, docd, "base")
+	if err := base.Patch(ctx, "a.x", vObj(1)); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	client := docdClient(t, docd, "watcher")
+	w, err := client.Watch(ctx, "a", nil)
+	if err != nil {
+		t.Fatalf("watch: %v", err)
+	}
+	expectEvent(t, w) // initial state
+
+	mc := newMemController()
+	mc.watchable = true
+	runController(t, docd, "a.b", mc) // force-ends the watch after 50ms
+
+	drainUntilClosed(t, w)
+	var ended *WatchEndedError
+	if !errors.As(w.Err(), &ended) || ended.Reason != "membership_changed" {
+		t.Fatalf("expected membership_changed, got %v", w.Err())
+	}
+
+	// Plain re-watch (now composed over base + a.b): the reconnect is a fresh init
+	// State snapshot, not a replay.
+	w2, err := client.Watch(ctx, "a", nil)
+	if err != nil {
+		t.Fatalf("re-watch: %v", err)
+	}
+	defer w2.Close()
+	if init := expectEvent(t, w2); init.State == nil {
+		t.Fatalf("expected re-watch to re-init with a State snapshot, got %+v", init)
+	}
+
+	// And live streaming resumes: a new base put reaches the composed re-watch.
+	if err := base.Patch(ctx, "a.y", vObj(2)); err != nil {
+		t.Fatalf("live put: %v", err)
+	}
+	if ev := expectEvent(t, w2); ev.Patch == nil {
+		t.Fatalf("expected a live delta after re-init, got %+v", ev)
+	}
+}
