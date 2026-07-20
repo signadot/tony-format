@@ -222,6 +222,9 @@ func (s *ClientSession) releaseWatchToken(path string) {
 	cw := s.composedWatches[path]
 	delete(s.composedWatches, path)
 	s.watchMu.Unlock()
+	s.lastSeenMu.Lock()
+	delete(s.lastSeen, path)
+	s.lastSeenMu.Unlock()
 	if ok {
 		s.server.coord.endRead(token)
 	}
@@ -238,9 +241,10 @@ func (s *ClientSession) forceWatch(path string) {
 
 // terminalWatchEvent is the id-less event that tells a client its watch on path
 // has ended (and why), so it re-establishes — the client routes it to the watch
-// by path, as with any watch event.
-func terminalWatchEvent(path, reason string) *logdapi.SessionResponse {
-	return &logdapi.SessionResponse{Event: &logdapi.WatchEvent{Path: path, Ended: true, EndReason: reason}}
+// by path, as with any watch event. commit is the highest commit delivered on the
+// watch, a resume point the client can re-watch FromCommit for a gapless reconnect.
+func terminalWatchEvent(path, reason string, commit int64) *logdapi.SessionResponse {
+	return &logdapi.SessionResponse{Event: &logdapi.WatchEvent{Path: path, Commit: commit, Ended: true, EndReason: reason}}
 }
 
 // terminateWatch ends a client watch — whether forced by a mount/unmount, failed
@@ -261,8 +265,13 @@ func (s *ClientSession) terminateWatch(path, reason string) {
 	if !ok {
 		return // already ended (raced with unwatch/close/another sub-failure)
 	}
+	s.lastSeenMu.Lock()
+	commit := s.lastSeen[path]
+	delete(s.lastSeen, path)
+	s.lastSeenMu.Unlock()
+
 	s.server.coord.endRead(token) // no-op if the coordinator already forced it
-	_ = s.writeToClient(terminalWatchEvent(path, reason))
+	_ = s.writeToClient(terminalWatchEvent(path, reason, commit))
 
 	if cw != nil {
 		cw.Stop()
@@ -294,6 +303,9 @@ func (s *ClientSession) releaseAllWatches() {
 	}
 	s.composedWatches = make(map[string]*composedWatch)
 	s.watchMu.Unlock()
+	s.lastSeenMu.Lock()
+	s.lastSeen = make(map[string]int64)
+	s.lastSeenMu.Unlock()
 	for _, t := range tokens {
 		s.server.coord.endRead(t)
 	}

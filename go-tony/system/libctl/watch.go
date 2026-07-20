@@ -19,13 +19,19 @@ const defaultWatchBuffer = 128
 // owning the watched subtree crashed (Reason "controller_unavailable"). The watch
 // is re-establishable: the application should start a new Watch on the same path,
 // which re-composes against the current mount set.
+//
+// Commit is the highest commit the watch delivered before ending — a resume point:
+// re-watching with WatchOptions.FromCommit set to Commit replays the gap and resumes
+// without losing deltas. It is exact for a single-route watch; for a composed watch
+// (whose sub-streams have independent commit sequences) it is best-effort.
 type WatchEndedError struct {
 	Path   string
 	Reason string
+	Commit int64
 }
 
 func (e *WatchEndedError) Error() string {
-	return fmt.Sprintf("watch on %q ended: %s", e.Path, e.Reason)
+	return fmt.Sprintf("watch on %q ended at commit %d: %s", e.Path, e.Commit, e.Reason)
 }
 
 // WatchOptions configures a Watch subscription.

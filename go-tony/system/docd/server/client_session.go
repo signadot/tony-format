@@ -60,6 +60,14 @@ type ClientSession struct {
 	composedWatches map[string]*composedWatch
 	closing         bool
 
+	// lastSeenMu guards lastSeen: the highest commit delivered to the client per
+	// watch path. A force-end stamps it onto the terminal WatchEvent so the client
+	// can re-watch FromCommit and resume with no gap. Exact for single-route watches;
+	// best-effort for composed watches, whose sub-streams have independent commit
+	// sequences, until composed watches honor FromCommit on re-establish.
+	lastSeenMu sync.Mutex
+	lastSeen   map[string]int64
+
 	mountsMu   sync.Mutex
 	usedMounts map[*MountSession]struct{} // mounts this client routed to, for teardown
 
@@ -92,6 +100,7 @@ func NewClientSession(id string, conn net.Conn, cfg *ClientSessionConfig) *Clien
 		logdAddr:        cfg.Server.Spec.LogdAddr,
 		watchTokens:     make(map[string]uint64),
 		composedWatches: make(map[string]*composedWatch),
+		lastSeen:        make(map[string]int64),
 		usedMounts:      make(map[*MountSession]struct{}),
 		done:            make(chan struct{}),
 	}
@@ -468,6 +477,15 @@ func (s *ClientSession) writeToClient(resp *logdapi.SessionResponse) error {
 	}
 	if _, err := s.conn.Write(append(data, '\n')); err != nil {
 		return fmt.Errorf("failed to write to client: %w", err)
+	}
+	// Record the resume point for a possible force-end: the highest commit delivered
+	// on this watch path (skip the terminal event itself). See lastSeen.
+	if ev := resp.Event; ev != nil && ev.Path != "" && ev.Commit > 0 && !ev.Ended {
+		s.lastSeenMu.Lock()
+		if ev.Commit > s.lastSeen[ev.Path] {
+			s.lastSeen[ev.Path] = ev.Commit
+		}
+		s.lastSeenMu.Unlock()
 	}
 	return nil
 }

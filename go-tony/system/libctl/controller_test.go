@@ -1520,3 +1520,56 @@ func waitSubs(t *testing.T, ctrl *memController, want int) {
 	}
 	t.Fatalf("controller watch subscriptions = %d, want %d", ctrl.subCount(), want)
 }
+
+// TestDocd_WatchEndedCarriesResumeCommit proves the terminal WatchEndedError carries
+// the last commit delivered to the client — a resume point for a gapless re-watch via
+// FromCommit. Single-route watch (exact commit sequence): the controller streams an
+// update at commit 7, then crashes; the ended error must report commit 7.
+func TestDocd_WatchEndedCarriesResumeCommit(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+
+	ctrl := newMemController()
+	ctrl.watchable = true
+	ctx, cancel := context.WithCancel(context.Background())
+	errc := make(chan error, 1)
+	go func() {
+		errc <- RunController(ctx, &ControllerConfig{
+			DocdAddr: docd.TCPAddr(), Controller: "crashing", Path: "rooms", Handler: ctrl,
+		})
+	}()
+	waitMount(t, docd, "rooms")
+
+	client := docdClient(t, docd, "client")
+	w, err := client.Watch(context.Background(), "rooms.1", nil) // single-route to the controller
+	if err != nil {
+		t.Fatalf("watch: %v", err)
+	}
+	expectEvent(t, w) // initial state
+
+	// Deliver an update at commit 7 — the last commit the client sees before the crash.
+	waitSubs(t, ctrl, 1)
+	ctrl.broadcast(&api.WatchEvent{
+		Commit: 7,
+		Path:   "rooms.1",
+		Patch: ir.FromMap(map[string]*ir.Node{
+			"rooms": ir.FromMap(map[string]*ir.Node{
+				"1": ir.FromMap(map[string]*ir.Node{"occupants": ir.FromInt(3)}),
+			}),
+		}),
+	})
+	if ev := expectEvent(t, w); ev.Commit != 7 {
+		t.Fatalf("expected update commit 7, got %d", ev.Commit)
+	}
+
+	cancel() // crash the controller -> terminate the overlapping watch
+
+	drainUntilClosed(t, w)
+	var ended *WatchEndedError
+	if !errors.As(w.Err(), &ended) || ended.Reason != "controller_unavailable" {
+		t.Fatalf("expected controller_unavailable, got %v", w.Err())
+	}
+	if ended.Commit != 7 {
+		t.Errorf("WatchEndedError.Commit = %d, want 7 (last delivered commit / resume point)", ended.Commit)
+	}
+}
