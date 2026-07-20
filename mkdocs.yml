@@ -13,6 +13,8 @@ nav:
   - 'Extra-Format Encoding': extraformat.md
   - o: o/index.md
   - Golang: gomap.md
+- logd:
+  - logd/index.md
 - docd:
   - docd/index.md
   - 'Mounts & routing': docd/mounts.md
