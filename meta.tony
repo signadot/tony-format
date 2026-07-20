@@ -3,11 +3,12 @@ Ref: refs/issues/qf58mz22h12krzk2bnn0
 Title: "docd-coordinated patch splitting (transparent multi-mount transactions)"
 blocks:
 - wcabztj2h12ksb9qbnn0
+closed_by: "57dbc86cd24ec288b411dad16d22d8ec2ab20a22"
 commits:
 - "57dbc86cd24ec288b411dad16d22d8ec2ab20a22"
 created: "2026-07-20T01:49:18.134879+02:00"
 id: qf58mz22h12krzk2bnn0
 labels:
 - docd
-status: open
-updated: "2026-07-20T03:46:39.864923+02:00"
+status: closed
+updated: "2026-07-20T03:46:39.956318+02:00"
