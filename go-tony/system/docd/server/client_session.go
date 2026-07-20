@@ -168,6 +168,14 @@ func (s *ClientSession) routeClientRequests() error {
 			}
 		}
 
+		// A read whose path is a strict ancestor of one or more mounts is composed
+		// from the base owner plus each mounted subtree, since docd single-routes and
+		// would otherwise miss the mounts. Reads with no mount beneath them fall
+		// through to normal single-route routing.
+		if req.Match != nil && s.maybeCoordinateMatch(&req) {
+			continue
+		}
+
 		switch dest, entry := s.routeFor(&req); dest {
 		case destController:
 			entry.Session.RouteRequest(s, &req)

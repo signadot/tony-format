@@ -335,6 +335,92 @@ func TestDocd_MultiMountCASAbort(t *testing.T) {
 	assertLogdV(t, direct, "a", 1)
 }
 
+// TestDocd_ComposeAncestorRead proves a client read whose path is a strict
+// ancestor of a mount is composed from the base store (logd) AND the mounted
+// subtree (a controller whose content does NOT live in logd) — the mount content
+// a naive single-routed read would miss.
+func TestDocd_ComposeAncestorRead(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+
+	// In-memory controller mounted at a.b; its content lives in the controller,
+	// not logd. Seed before runController so the write happens-before the session
+	// goroutine reads it.
+	mem := newMemController()
+	mem.data["a.b"] = vObj(7)
+	runController(t, docd, "a.b", mem)
+
+	client := docdClient(t, docd, "client")
+	ctx := context.Background()
+
+	// Base content under a.x goes straight to logd (no mount owns it).
+	if err := client.Patch(ctx, "a.x", vObj(1)); err != nil {
+		t.Fatalf("base patch: %v", err)
+	}
+
+	// A read at the ancestor "a" must surface both the base (a.x) and the mount
+	// (a.b) — the latter is invisible to a plain logd read.
+	res, err := client.Match(ctx, "a")
+	if err != nil {
+		t.Fatalf("composed match: %v", err)
+	}
+	if v, err := res.GetPath("$.x.v"); err != nil || v == nil || v.Int64 == nil || *v.Int64 != 1 {
+		t.Errorf("composed a.x.v: got %v (err %v), want 1", v, err)
+	}
+	if v, err := res.GetPath("$.b.v"); err != nil || v == nil || v.Int64 == nil || *v.Int64 != 7 {
+		t.Errorf("composed a.b.v: got %v (err %v), want 7", v, err)
+	}
+
+	// Sanity: a plain logd read of "a" is blind to the mount — this is exactly the
+	// naive gap composition closes.
+	direct := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "verify"})
+	defer direct.Close()
+	naive, err := direct.Match(ctx, "a")
+	if err != nil {
+		t.Fatalf("naive logd match: %v", err)
+	}
+	if v, _ := naive.GetPath("$.b.v"); v != nil {
+		t.Errorf("naive logd read unexpectedly saw the mount: %v", v)
+	}
+}
+
+// TestDocd_ComposeNestedMountsOverlay proves that when a read spans nested mounts,
+// the deeper mount overlays the shallower owner's stale slot: the base owner is
+// itself a controller (mounted at a.b) and a nested controller (a.b.c) replaces
+// the c subtree in the composed result.
+func TestDocd_ComposeNestedMountsOverlay(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+
+	owner := newMemController() // a.b: has a stale "c" plus its own "k"
+	owner.data["a.b"] = ir.FromMap(map[string]*ir.Node{
+		"k": vObj(1),
+		"c": ir.FromMap(map[string]*ir.Node{"old": ir.FromInt(0)}),
+	})
+	nested := newMemController() // a.b.c: the authoritative c subtree
+	nested.data["a.b.c"] = vObj(9)
+
+	runController(t, docd, "a.b", owner)
+	runController(t, docd, "a.b.c", nested)
+
+	client := docdClient(t, docd, "client")
+	ctx := context.Background()
+
+	res, err := client.Match(ctx, "a.b")
+	if err != nil {
+		t.Fatalf("composed match: %v", err)
+	}
+	if v, err := res.GetPath("$.k.v"); err != nil || v == nil || v.Int64 == nil || *v.Int64 != 1 {
+		t.Errorf("owner k.v: got %v (err %v), want 1", v, err)
+	}
+	if v, err := res.GetPath("$.c.v"); err != nil || v == nil || v.Int64 == nil || *v.Int64 != 9 {
+		t.Errorf("nested c.v: got %v (err %v), want 9 (deeper mount must overlay)", v, err)
+	}
+	if v, _ := res.GetPath("$.c.old"); v != nil {
+		t.Errorf("stale owner c.old should be replaced by the nested mount, got %v", v)
+	}
+}
+
 // startDocdRouting starts a docd with both listeners: the client face (logd
 // session protocol) and the mount face (MOUNT), proxying/routing to logd.
 func startDocdRouting(t *testing.T, logdAddr string) *docdserver.Server {

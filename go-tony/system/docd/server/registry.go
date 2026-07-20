@@ -119,6 +119,32 @@ func (r *MountRegistry) LookupPrefix(opPath string) *MountEntry {
 	return best
 }
 
+// MountsUnder returns every mount whose path lies strictly below opPath (opPath
+// is a proper field-prefix of the mount path). Tombstones are included so a
+// composed read can detect an unavailable subtree rather than silently omit it.
+// Returns nil when opPath owns no nested mounts.
+func (r *MountRegistry) MountsUnder(opPath string) []*MountEntry {
+	opFields, err := pathFields(opPath)
+	if err != nil {
+		return nil
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var out []*MountEntry
+	for _, entry := range r.mounts {
+		mf, err := pathFields(entry.Path)
+		if err != nil {
+			continue
+		}
+		if len(mf) > len(opFields) && hasFieldPrefix(mf, opFields) {
+			out = append(out, entry)
+		}
+	}
+	return out
+}
+
 // List returns all current mounts.
 func (r *MountRegistry) List() []*MountEntry {
 	r.mu.RLock()
