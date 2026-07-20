@@ -2,21 +2,22 @@ package server
 
 import (
 	"fmt"
+	"sync"
 
 	logdapi "github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
-// coordinateWatch registers a client watch as a reader with the mount
-// coordinator, then routes it to its backend (a controller, or logd for a base
-// path). Admission runs on its own goroutine so writer priority — a pending
-// overlapping mount holding off new watches — does not stall the client's request
-// loop and its other in-flight ops.
+// coordinateWatch registers a client watch as a reader with the mount coordinator
+// (so a concurrent mount/unmount on an overlapping path drains or force-ends it),
+// then serves it — composed across the base owner and mounts below when the watch
+// path is a strict ancestor of one or more mounts, or single-routed otherwise.
 //
-// A client is expected to unwatch a path only after its watch is confirmed, and
-// the token is registered before the watch is routed (hence before any
-// confirmation), so releaseWatchToken and close reliably find it. If the session
-// is already closing when admission completes, the token is released rather than
-// leaked past the session's lifetime.
+// Admission runs on its own goroutine so writer priority — a pending overlapping
+// mount holding off new watches — does not stall the client's request loop. A
+// client is expected to unwatch a path only after its watch is confirmed, and the
+// token is registered before the watch is served, so releaseWatchToken and close
+// reliably find it. A session already closing when admission completes releases
+// the token instead of leaking it.
 func (s *ClientSession) coordinateWatch(req *logdapi.SessionRequest) {
 	path := req.Watch.Path
 	go func() {
@@ -33,11 +34,22 @@ func (s *ClientSession) coordinateWatch(req *logdapi.SessionRequest) {
 			s.server.coord.endRead(token)
 			return
 		}
-		if old, exists := s.watchTokens[path]; exists { // re-watch replaces prior token
-			s.server.coord.endRead(old)
-		}
+		oldTok, hadOld := s.watchTokens[path] // a re-watch of the same path replaces
+		oldCW := s.composedWatches[path]
+		delete(s.composedWatches, path)
 		s.watchTokens[path] = token
 		s.watchMu.Unlock()
+		if hadOld {
+			s.server.coord.endRead(oldTok)
+		}
+		if oldCW != nil {
+			oldCW.Stop()
+		}
+
+		if below := s.server.Mounts.MountsUnder(path); len(below) > 0 {
+			s.startComposedWatch(req, below, token)
+			return
+		}
 
 		switch dest, entry := s.routeFor(req); dest {
 		case destController:
@@ -59,38 +71,179 @@ func (s *ClientSession) coordinateWatch(req *logdapi.SessionRequest) {
 	}()
 }
 
+// startComposedWatch fans a client watch on an ancestor path across the base owner
+// and every mount below it: it sends one client confirmation and one composed
+// initial snapshot, then multiplexes the sub-watches' deltas into the single
+// client watch. Because delta patches are root-rooted, a sub-watch event is
+// forwarded with only its Path re-stamped to the client's watch path — the patch
+// itself passes through unchanged. token is the coordinator reader already held
+// for path.
+func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []*MountEntry, token uint64) {
+	clientID := req.ID
+	path := req.Watch.Path
+
+	owner, pFields, errResp := s.composeCheck(clientID, path, below)
+	if errResp != nil {
+		s.releaseWatchToken(path)
+		_ = s.writeToClient(errResp)
+		return
+	}
+
+	cw := &composedWatch{path: path, client: s}
+
+	// Establish sub-watches FIRST — their deltas buffer in cw — so no change
+	// between the snapshot and going live is missed. NoInit on each: the composer
+	// supplies the single initial snapshot below.
+	watchReq := func(p string) *logdapi.SessionRequest {
+		return &logdapi.SessionRequest{Watch: &logdapi.WatchRequest{Path: p, NoInit: true}}
+	}
+	if owner == nil {
+		ls, err := startLogdWatchStream(s.logdAddr, path, cw.forward)
+		if err != nil {
+			s.releaseWatchToken(path)
+			_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeSessionClosed, err.Error()))
+			return
+		}
+		cw.addStop(ls.Stop)
+	} else {
+		ms := owner.Session
+		id := ms.RouteWatchStream(watchReq(path), cw.forward)
+		cw.addStop(func() { ms.stopWatchStream(id, path) })
+	}
+	for _, m := range below {
+		ms, mp := m.Session, m.Path
+		id := ms.RouteWatchStream(watchReq(mp), cw.forward)
+		cw.addStop(func() { ms.stopWatchStream(id, mp) })
+	}
+
+	// Register cw for teardown — unless the session is closing or this watch was
+	// force-ended during setup (its token replaced/dropped), in which case tear the
+	// freshly-built sub-watches back down.
+	s.watchMu.Lock()
+	if s.closing || s.watchTokens[path] != token {
+		s.watchMu.Unlock()
+		cw.Stop()
+		return
+	}
+	s.composedWatches[path] = cw
+	s.watchMu.Unlock()
+
+	_ = s.writeToClient(logdapi.NewWatchResponse(clientID, path, nil))
+	if !req.Watch.NoInit {
+		if root, commit, err := s.composeReadTree(path, owner, below, pFields); err == nil {
+			_ = s.writeToClient(logdapi.NewStateEvent(commit, path, root))
+		}
+	}
+	cw.begin()
+}
+
+// composedWatch multiplexes several backend sub-watches into one client watch.
+type composedWatch struct {
+	path   string
+	client *ClientSession
+
+	mu       sync.Mutex
+	started  bool
+	buffered []*logdapi.SessionResponse
+	stops    []func()
+}
+
+// forward is the sink for every sub-watch. It drops non-events (sub-watch
+// confirmations and failures — the composer owns the client-facing stream),
+// re-stamps a delta event's path to the composed watch's path, and buffers it
+// until the initial snapshot has been sent, then forwards live.
+func (cw *composedWatch) forward(resp *logdapi.SessionResponse) {
+	if resp.Event == nil {
+		return
+	}
+	ev := *resp.Event
+	ev.Path = cw.path // patch is root-rooted; only the routing path is re-stamped
+	out := &logdapi.SessionResponse{Event: &ev}
+
+	cw.mu.Lock()
+	if !cw.started {
+		cw.buffered = append(cw.buffered, out)
+		cw.mu.Unlock()
+		return
+	}
+	cw.mu.Unlock()
+	_ = cw.client.writeToClient(out)
+}
+
+func (cw *composedWatch) addStop(fn func()) {
+	cw.mu.Lock()
+	cw.stops = append(cw.stops, fn)
+	cw.mu.Unlock()
+}
+
+// begin flushes the deltas buffered during setup and switches to live forwarding,
+// after the confirmation and initial snapshot have been written.
+func (cw *composedWatch) begin() {
+	cw.mu.Lock()
+	cw.started = true
+	buf := cw.buffered
+	cw.buffered = nil
+	cw.mu.Unlock()
+	for _, out := range buf {
+		_ = cw.client.writeToClient(out)
+	}
+}
+
+// Stop tears down every sub-watch.
+func (cw *composedWatch) Stop() {
+	cw.mu.Lock()
+	stops := cw.stops
+	cw.stops = nil
+	cw.mu.Unlock()
+	for _, fn := range stops {
+		fn()
+	}
+}
+
 // releaseWatchToken releases the coordinator reader token the client holds for
-// path, if any. Safe to call when none is held (an unwatch of a base path docd
-// did not track, or a watch already force-ended).
+// path and tears down a composed watch if one is registered there. Safe to call
+// when none is held (an unwatch of a base path docd did not track, or a watch
+// already force-ended).
 func (s *ClientSession) releaseWatchToken(path string) {
 	s.watchMu.Lock()
 	token, ok := s.watchTokens[path]
 	if ok {
 		delete(s.watchTokens, path)
 	}
+	cw := s.composedWatches[path]
+	delete(s.composedWatches, path)
 	s.watchMu.Unlock()
 	if ok {
 		s.server.coord.endRead(token)
+	}
+	if cw != nil {
+		cw.Stop()
 	}
 }
 
 // forceWatch is the coordinator's force-teardown hook: a mount/unmount whose
 // force_after elapsed is ending this watch so its membership can change. The
-// coordinator has already dropped the reader, so this only drops the token and
-// tears down the backend watch — the client's watch then simply stops delivering
-// events, as it does today when a controller crashes. An explicit termination
-// signal prompting the client to re-watch is a follow-up.
+// coordinator has already dropped the reader, so this drops the token and tears
+// the watch down — a composed watch's sub-watches, or a single-route watch's
+// backend. The client's watch then simply stops delivering events, as it does
+// today when a controller crashes; an explicit termination signal prompting the
+// client to re-watch is a follow-up.
 func (s *ClientSession) forceWatch(path string) {
 	s.watchMu.Lock()
 	_, ok := s.watchTokens[path]
 	if ok {
 		delete(s.watchTokens, path)
 	}
+	cw := s.composedWatches[path]
+	delete(s.composedWatches, path)
 	s.watchMu.Unlock()
 	if !ok {
 		return // already released (raced with unwatch/close)
 	}
-
+	if cw != nil {
+		cw.Stop()
+		return
+	}
 	unwatch := &logdapi.SessionRequest{Unwatch: &logdapi.UnwatchRequest{Path: path}}
 	switch dest, entry := s.routeFor(unwatch); dest {
 	case destController:
@@ -101,8 +254,8 @@ func (s *ClientSession) forceWatch(path string) {
 }
 
 // releaseAllWatches marks the session closing and releases every coordinator
-// reader token it still holds, so a departing client cannot wedge mounts waiting
-// on watches that will never drain.
+// reader token and composed watch it still holds, so a departing client neither
+// wedges mounts nor leaks sub-watch connections.
 func (s *ClientSession) releaseAllWatches() {
 	s.watchMu.Lock()
 	s.closing = true
@@ -111,8 +264,16 @@ func (s *ClientSession) releaseAllWatches() {
 		tokens = append(tokens, t)
 	}
 	s.watchTokens = make(map[string]uint64)
+	cws := make([]*composedWatch, 0, len(s.composedWatches))
+	for _, cw := range s.composedWatches {
+		cws = append(cws, cw)
+	}
+	s.composedWatches = make(map[string]*composedWatch)
 	s.watchMu.Unlock()
 	for _, t := range tokens {
 		s.server.coord.endRead(t)
+	}
+	for _, cw := range cws {
+		cw.Stop()
 	}
 }

@@ -44,9 +44,9 @@ type ClientSession struct {
 	// a scoped NewTx is forwarded to logd on the client's scoped connection.
 	clientScope *string
 
-	logd     net.Conn
-	logdDec  *stream.Decoder
-	logdWMu  sync.Mutex // serializes writes to logd (request loop + watch coordination + force teardown)
+	logd    net.Conn
+	logdDec *stream.Decoder
+	logdWMu sync.Mutex // serializes writes to logd (request loop + watch coordination + force teardown)
 
 	writeMu sync.Mutex // serializes writes to the client connection
 
@@ -55,9 +55,10 @@ type ClientSession struct {
 	// force-end the watches that overlap it. closing is set during teardown so a
 	// still-registering watch releases its token instead of leaking it past the
 	// session.
-	watchMu     sync.Mutex
-	watchTokens map[string]uint64
-	closing     bool
+	watchMu         sync.Mutex
+	watchTokens     map[string]uint64
+	composedWatches map[string]*composedWatch
+	closing         bool
 
 	mountsMu   sync.Mutex
 	usedMounts map[*MountSession]struct{} // mounts this client routed to, for teardown
@@ -84,14 +85,15 @@ func NewClientSession(id string, conn net.Conn, cfg *ClientSessionConfig) *Clien
 		log = slog.Default()
 	}
 	return &ClientSession{
-		id:          id,
-		conn:        conn,
-		server:      cfg.Server,
-		log:         log.With("session", id),
-		logdAddr:    cfg.Server.Spec.LogdAddr,
-		watchTokens: make(map[string]uint64),
-		usedMounts:  make(map[*MountSession]struct{}),
-		done:        make(chan struct{}),
+		id:              id,
+		conn:            conn,
+		server:          cfg.Server,
+		log:             log.With("session", id),
+		logdAddr:        cfg.Server.Spec.LogdAddr,
+		watchTokens:     make(map[string]uint64),
+		composedWatches: make(map[string]*composedWatch),
+		usedMounts:      make(map[*MountSession]struct{}),
+		done:            make(chan struct{}),
 	}
 }
 

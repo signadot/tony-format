@@ -421,6 +421,72 @@ func TestDocd_ComposeNestedMountsOverlay(t *testing.T) {
 	}
 }
 
+// TestDocd_ComposeAncestorWatch proves a client watching an ancestor path gets a
+// single composed initial snapshot (base + mount) and then live deltas from BOTH
+// the base store (logd) and the mounted controller, each re-stamped to the watch
+// path with its root-rooted patch intact.
+func TestDocd_ComposeAncestorWatch(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+
+	ctrl := newMemController()
+	ctrl.watchable = true
+	ctrl.data["a.b"] = vObj(7) // mount content, in the controller (not logd)
+	runController(t, docd, "a.b", ctrl)
+
+	client := docdClient(t, docd, "client")
+	ctx := context.Background()
+
+	if err := client.Patch(ctx, "a.x", vObj(1)); err != nil { // base content -> logd
+		t.Fatalf("seed base: %v", err)
+	}
+
+	// Composed watch on the ancestor "a" (strict ancestor of mount a.b).
+	w, err := client.Watch(ctx, "a", nil)
+	if err != nil {
+		t.Fatalf("watch a: %v", err)
+	}
+	defer w.Close()
+
+	// 1. One composed initial State event: base a.x AND mount a.b.
+	ev := expectEvent(t, w)
+	if ev.State == nil {
+		t.Fatalf("expected a composed initial State event, got %+v", ev)
+	}
+	if v, _ := ev.State.GetPath("$.x.v"); v == nil || v.Int64 == nil || *v.Int64 != 1 {
+		t.Errorf("composed init a.x.v: got %v, want 1", v)
+	}
+	if v, _ := ev.State.GetPath("$.b.v"); v == nil || v.Int64 == nil || *v.Int64 != 7 {
+		t.Errorf("composed init a.b.v: got %v, want 7", v)
+	}
+
+	// 2. A base delta (logd) streams through, re-stamped to Path "a", patch
+	// root-rooted.
+	if err := client.Patch(ctx, "a.x", vObj(2)); err != nil {
+		t.Fatalf("base delta: %v", err)
+	}
+	ev = expectEvent(t, w)
+	if ev.Path != "a" {
+		t.Errorf("base delta path: got %q, want a", ev.Path)
+	}
+	if v, _ := ev.Patch.GetPath("$.a.x.v"); v == nil || v.Int64 == nil || *v.Int64 != 2 {
+		t.Errorf("base delta a.x.v: got %v, want 2 (root-rooted)", v)
+	}
+
+	// 3. A mount delta (controller) streams through the same composed watch.
+	waitSubs(t, ctrl, 1)
+	ctrl.broadcast(&api.WatchEvent{Commit: 5, Path: "a.b", Patch: ir.FromMap(map[string]*ir.Node{
+		"a": ir.FromMap(map[string]*ir.Node{"b": vObj(9)}),
+	})})
+	ev = expectEvent(t, w)
+	if ev.Path != "a" {
+		t.Errorf("mount delta path: got %q, want a", ev.Path)
+	}
+	if v, _ := ev.Patch.GetPath("$.a.b.v"); v == nil || v.Int64 == nil || *v.Int64 != 9 {
+		t.Errorf("mount delta a.b.v: got %v, want 9 (root-rooted)", v)
+	}
+}
+
 // TestDocd_MountBlocksOnOverlappingWatch proves a mount waits for an overlapping
 // watch to drain: with force_after effectively infinite for the test window, a
 // controller mounting a.b cannot register while a client watches the ancestor a,
@@ -873,12 +939,18 @@ func TestDocd_WatchStreaming(t *testing.T) {
 		t.Errorf("expected initial event path rooms/1, got %q", ev.Path)
 	}
 
-	// A pushed update streams through the controller and docd to the client.
+	// A pushed update streams through the controller and docd to the client. Per
+	// the canonical contract the delta Patch is root-rooted (absolute from the
+	// document root), while Path names the watch.
 	waitSubs(t, ctrl, 1)
 	ctrl.broadcast(&api.WatchEvent{
 		Commit: 2,
 		Path:   "rooms.1",
-		Patch:  ir.FromMap(map[string]*ir.Node{"occupants": ir.FromInt(3)}),
+		Patch: ir.FromMap(map[string]*ir.Node{
+			"rooms": ir.FromMap(map[string]*ir.Node{
+				"1": ir.FromMap(map[string]*ir.Node{"occupants": ir.FromInt(3)}),
+			}),
+		}),
 	})
 	if ev := expectEvent(t, w); ev.Commit != 2 {
 		t.Errorf("expected update event commit 2, got %d", ev.Commit)

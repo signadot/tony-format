@@ -42,6 +42,14 @@ type Handler interface {
 	// Watch streams events for path until ctx is cancelled (the client
 	// unwatched or disconnected) or it returns. emit delivers each event. To
 	// decline watching, return ErrUnsupported before emitting.
+	//
+	// Event rooting follows the canonical logd contract so a client cannot tell a
+	// controller-served subtree from logd: the first event's State is the full
+	// state AT path (relative to it), but every subsequent event's Patch is
+	// ROOT-ROOTED — the delta expressed from the document root (e.g. a change to
+	// "a.b.x" is {a:{b:{x:...}}}), not relative to path. docd composes an ancestor
+	// watch by forwarding these absolute deltas unchanged, re-stamping only the
+	// event path, so controllers must emit root-rooted patches.
 	Watch(ctx context.Context, path string, opts WatchParams, emit func(*api.WatchEvent) error) error
 }
 

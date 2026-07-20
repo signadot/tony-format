@@ -45,30 +45,49 @@ func (s *ClientSession) coordinateMatch(req *logdapi.SessionRequest, below []*Mo
 	clientID := req.ID
 	path := req.Match.Body.Path
 
-	pFields, err := pathFields(path)
-	if err != nil {
-		_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeInvalidPath, err.Error()))
+	owner, pFields, errResp := s.composeCheck(clientID, path, below)
+	if errResp != nil {
+		_ = s.writeToClient(errResp)
 		return
 	}
+	root, commit, err := s.composeReadTree(path, owner, below, pFields)
+	if err != nil {
+		_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeSessionClosed, err.Error()))
+		return
+	}
+	_ = s.writeToClient(logdapi.NewMatchResponse(clientID, commit, root))
+}
 
-	// A dead controller anywhere in range means that subtree cannot be composed.
+// composeCheck validates that path can be composed — parsing it and refusing if a
+// tombstoned controller owns any subtree in range (matching the write path's
+// refusal to compose across a dead controller). It returns the base owner (nil =
+// logd) and path fields, or a ready-to-send error response.
+func (s *ClientSession) composeCheck(clientID *string, path string, below []*MountEntry) (*MountEntry, []string, *logdapi.SessionResponse) {
+	pFields, err := pathFields(path)
+	if err != nil {
+		return nil, nil, logdapi.NewErrorResponse(clientID, logdapi.ErrCodeInvalidPath, err.Error())
+	}
 	for _, m := range below {
 		if !m.Live() {
-			_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeUnavailable,
-				fmt.Sprintf("controller for %q is unavailable", m.Path)))
-			return
+			return nil, nil, logdapi.NewErrorResponse(clientID, logdapi.ErrCodeUnavailable,
+				fmt.Sprintf("controller for %q is unavailable", m.Path))
 		}
 	}
-
 	// The base owner is the deepest mount containing path, or logd (nil) when path
 	// sits on a base/unmounted region.
 	owner := s.server.Mounts.LookupPrefix(path)
 	if owner != nil && !owner.Live() {
-		_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeUnavailable,
-			fmt.Sprintf("controller for %q is unavailable", owner.Path)))
-		return
+		return nil, nil, logdapi.NewErrorResponse(clientID, logdapi.ErrCodeUnavailable,
+			fmt.Sprintf("controller for %q is unavailable", owner.Path))
 	}
+	return owner, pFields, nil
+}
 
+// composeReadTree reads the base owner of path plus every mount below it
+// concurrently, then merges the results — deeper mounts overlaying shallower —
+// into a single document rooted at path, returning it with the max commit across
+// sources.
+func (s *ClientSession) composeReadTree(path string, owner *MountEntry, below []*MountEntry, pFields []string) (*ir.Node, int64, error) {
 	// readResult carries one source's subtree and where it sits relative to path
 	// (nil fields = the base owner, rooted at path itself).
 	type readResult struct {
@@ -112,8 +131,7 @@ func (s *ClientSession) coordinateMatch(req *logdapi.SessionRequest, below []*Mo
 		collected = append(collected, r)
 	}
 	if firstErr != nil {
-		_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeSessionClosed, firstErr.Error()))
-		return
+		return nil, 0, firstErr
 	}
 
 	// Overlay shallow→deep so a nested mount replaces its slot within the enclosing
@@ -129,7 +147,7 @@ func (s *ClientSession) coordinateMatch(req *logdapi.SessionRequest, below []*Mo
 		}
 		root = setAtFields(root, r.fields, r.body)
 	}
-	_ = s.writeToClient(logdapi.NewMatchResponse(clientID, commit, root))
+	return root, commit, nil
 }
 
 // readFrom reads the state at path from one source: a controller (entry non-nil)

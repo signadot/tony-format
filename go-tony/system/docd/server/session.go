@@ -52,6 +52,11 @@ type routeEntry struct {
 	// is delivered here (one-shot) instead of being forwarded to a client. Used by
 	// docd-coordinated multi-mount transactions.
 	collect chan *logdapi.SessionResponse
+
+	// stream, when non-nil, marks a composed-watch sub-route: the controller's
+	// confirmation, events, and any failure are delivered here (instead of to a
+	// client) so docd can multiplex several backend watches into one client watch.
+	stream func(*logdapi.SessionResponse)
 }
 
 // MountSessionConfig contains configuration for creating a session.
@@ -164,6 +169,10 @@ func (s *MountSession) dispatch(resp *logdapi.SessionResponse) {
 		entry.collect <- resp // buffered (cap 1); coordinator route
 		return
 	}
+	if entry.stream != nil {
+		entry.stream(resp) // composed-watch sub-route (confirmation / result)
+		return
+	}
 
 	resp.ID = entry.clientID // restore the client's original id
 	if err := entry.client.writeToClient(resp); err != nil {
@@ -196,6 +205,46 @@ func (s *MountSession) RouteCollect(req *logdapi.SessionRequest) <-chan *logdapi
 	return ch
 }
 
+// RouteWatchStream forwards a watch request to the controller under a fresh
+// docd-assigned id and delivers the confirmation, every event, and any failure to
+// onMsg instead of to a client. Used by a docd-composed watch, which multiplexes
+// several backend watches into one client watch. It returns the docd-assigned id
+// so the caller can stop the stream with stopWatchStream.
+func (s *MountSession) RouteWatchStream(req *logdapi.SessionRequest, onMsg func(*logdapi.SessionResponse)) string {
+	s.routeMu.Lock()
+	s.nextID++
+	docdID := strconv.FormatUint(s.nextID, 10)
+	s.routes[docdID] = &routeEntry{path: requestPath(req), isWatch: true, stream: onMsg}
+	s.routeMu.Unlock()
+
+	out := *req
+	out.ID = &docdID
+	if err := s.writeToController(&out); err != nil {
+		s.routeMu.Lock()
+		delete(s.routes, docdID)
+		s.routeMu.Unlock()
+		onMsg(logdapi.NewErrorResponse(nil, logdapi.ErrCodeSessionClosed,
+			fmt.Sprintf("controller %q unavailable: %v", s.controllerID, err)))
+	}
+	return docdID
+}
+
+// stopWatchStream removes a streamed watch route and tells the controller to stop
+// the underlying watch (targeted by the docd-assigned id).
+func (s *MountSession) stopWatchStream(docdID, path string) {
+	s.routeMu.Lock()
+	_, ok := s.routes[docdID]
+	delete(s.routes, docdID)
+	s.routeMu.Unlock()
+	if !ok {
+		return
+	}
+	id := docdID
+	_ = s.writeToController(&logdapi.SessionRequest{
+		Unwatch: &logdapi.UnwatchRequest{Path: path, WatchID: &id},
+	})
+}
+
 // forwardEvent forwards a streaming watch event to the client that owns the
 // watch. The controller stamps events with the docd-assigned route id; docd
 // strips it before delivery because clients route events by path, as with logd.
@@ -209,6 +258,10 @@ func (s *MountSession) forwardEvent(resp *logdapi.SessionResponse) {
 	s.routeMu.Unlock()
 	if entry == nil {
 		return // watch already torn down
+	}
+	if entry.stream != nil {
+		entry.stream(resp) // composed-watch sub-route re-stamps and forwards
+		return
 	}
 	resp.ID = nil // events are id-less to the client
 	if err := entry.client.writeToClient(resp); err != nil {
@@ -328,6 +381,13 @@ func (s *MountSession) failAllRoutes(err error) {
 		if e.collect != nil {
 			e.collect <- logdapi.NewErrorResponse(nil, logdapi.ErrCodeSessionClosed,
 				"controller disconnected: "+err.Error())
+			continue
+		}
+		if e.stream != nil {
+			// A composed-watch sub-route: tell the composer its backend died so it
+			// can tear down and re-sync.
+			e.stream(logdapi.NewErrorResponse(nil, logdapi.ErrCodeUnavailable,
+				"controller disconnected: "+err.Error()))
 			continue
 		}
 		if e.isWatch {
