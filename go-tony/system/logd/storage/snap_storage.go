@@ -124,25 +124,19 @@ func (s *Storage) SwitchDLog() error {
 		return fmt.Errorf("failed to get current commit: %w", err)
 	}
 
-	// Get active scopes before switching (and clear the set)
-	activeScopes := s.getAndClearActiveScopes()
+	// Clear the per-switch active-scope set. Scope snapshots are intentionally NOT
+	// created: a materialized scope snapshot resolves !key away and is unsound to
+	// re-apply onto a changed baseline. The scope layer is instead read as raw,
+	// op-preserving patches (see readScopedStateAt). Bounded, sound scope-overlay
+	// compaction is tracked in issue 5hmq80f3h12krh1mbsn0.
+	s.getAndClearActiveScopes()
 
 	// Switch active log - blocks if snapshot in progress on inactive log
 	if err := s.dLog.SwitchActive(); err != nil {
 		return fmt.Errorf("failed to switch active log: %w", err)
 	}
 
-	// Create scope snapshots first, before baseline.
-	// This ensures scope snapshots can use the previous baseline snapshot as base
-	// and correctly include all scope patches up to the current commit.
-	for _, scopeID := range activeScopes {
-		if err := s.createSnapshot(commit, &scopeID); err != nil {
-			// Log error but continue with other scopes
-			s.logger.Error("failed to create scope snapshot", "scopeID", scopeID, "error", err)
-		}
-	}
-
-	// Create baseline snapshot last
+	// Create baseline snapshot
 	if err := s.createSnapshot(commit, nil); err != nil {
 		return fmt.Errorf("failed to create baseline snapshot: %w", err)
 	}
@@ -158,19 +152,13 @@ func (s *Storage) SwitchDLog() error {
 	return nil
 }
 
-// CreateScopeSnapshot creates a snapshot of scope state at a specific commit.
-// The snapshot captures the combined baseline + scope state, enabling efficient
-// reads for frequently accessed scopes without replaying all patches.
-// This is useful for long-running scopes (e.g., experiments) with many patches.
-func (s *Storage) CreateScopeSnapshot(scopeID string, commit int64) error {
-	return s.createSnapshot(commit, &scopeID)
-}
-
-// createSnapshot creates a snapshot of the full state at the given commit.
+// createSnapshot creates a baseline snapshot of the full state at the given commit.
 // Writes snapshot events to the inactive log and adds an index entry.
-// For baseline snapshots, pass nil for scopeID.
-// For scope snapshots, pass the scope ID - the snapshot will include baseline + scope patches.
-// Returns error if snapshot creation fails.
+//
+// scopeID is threaded through for the (now baseline-only) callers; scope snapshots
+// are no longer created because a materialized scope overlay is unsound for !key.
+// The scope layer is read as raw op-preserving patches instead. See readScopedStateAt
+// and issue 5hmq80f3h12krh1mbsn0.
 func (s *Storage) createSnapshot(commit int64, scopeID *string) error {
 	// Find most recent snapshot and get base event reader
 	baseReader, startCommit, err := s.findSnapshotBaseReader("", commit, scopeID)
