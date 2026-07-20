@@ -139,6 +139,17 @@ func (s *Storage) selectSurvivors(
 
 	// Patches: keep only those within cutoff
 	for _, patch := range patches {
+		// Scope patches form the scope's op-preserving overlay log. A scoped read
+		// replays them in full (scope snapshots resolve !key away and are unsound as a
+		// base, so they are not used). Retain every scope patch until the scope is
+		// deleted (DeleteScope removes them from the index), regardless of cutoff.
+		// Bounded compaction of the scope overlay is tracked in issue
+		// 5hmq80f3h12krh1mbsn0.
+		if patch.ScopeID != nil {
+			survivors = append(survivors, patch)
+			continue
+		}
+
 		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(patch.LogFile), patch.LogPosition, patch.LogFileGeneration)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read patch entry: %w", err)

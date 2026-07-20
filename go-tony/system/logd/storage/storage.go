@@ -116,28 +116,81 @@ func (s *Storage) GetCurrentCommit() (int64, error) {
 }
 
 // ReadStateAt reads the state for a given kpath at a specific commit count.
-// Searches for the most recent snapshot and applies patches from that point forward.
-// scopeID controls filtering: nil = baseline only, non-nil = baseline + scope.
+// scopeID controls the view: nil = baseline only; non-nil = the scope's copy-on-write
+// overlay. A scope is a LIVE OVERLAY, not a frozen branch: the scoped view at commit C
+// is the baseline state at C with the scope's OWN writes replayed on top. See
+// readScopedStateAt and issue eagjggjdh12ksg00bsn0.
 func (s *Storage) ReadStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
-	// Find most recent snapshot and get base event reader
-	baseReader, startCommit, err := s.findSnapshotBaseReader(kp, commit, scopeID)
+	if scopeID != nil {
+		return s.readScopedStateAt(kp, commit, scopeID)
+	}
+	return s.readBaselineStateAt(kp, commit)
+}
+
+// readBaselineStateAt reads baseline state at commit: the most recent baseline
+// snapshot plus baseline patches applied from that point forward.
+func (s *Storage) readBaselineStateAt(kp string, commit int64) (*ir.Node, error) {
+	baseReader, startCommit, err := s.findSnapshotBaseReader(kp, commit, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer baseReader.Close()
 
-	// Get patches from startCommit to commit
-	segments := s.index.LookupRange(kp, &startCommit, &commit, scopeID)
+	segments := s.index.LookupRange(kp, &startCommit, &commit, nil)
+	patchNodes, err := s.patchNodesFromSegments(segments, nil)
+	if err != nil {
+		return nil, err
+	}
+	return applyPatchesToBase(baseReader, patchNodes)
+}
 
-	// Extract patch nodes, filtering out snapshots
+// readScopedStateAt implements copy-on-write scope reads. The scoped view at commit C
+// is the baseline state at C (same commit bound) with the scope's OWN patches replayed
+// on top, verbatim, via the normal patch machinery. Replaying real patches — rather
+// than merging a materialized overlay — keeps op semantics (notably !key identity
+// merges) durable against ongoing baseline changes: a later baseline write to a leaf
+// the scope has written is shadowed, while baseline writes elsewhere still show
+// through. The scope layer is deliberately NOT read from a scope snapshot: materialized
+// scope snapshots resolve !key away and are unsound here (see issue
+// eagjggjdh12ksg00bsn0; bounded op-preserving compaction is tracked in
+// 5hmq80f3h12krh1mbsn0).
+func (s *Storage) readScopedStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
+	baseline, err := s.readBaselineStateAt(kp, commit)
+	if err != nil {
+		return nil, err
+	}
+
+	// The scope's own patches in [0, commit], in commit order, ops intact.
+	segments := s.index.LookupRange(kp, nil, &commit, scopeID)
+	scopePatches, err := s.patchNodesFromSegments(segments, scopeID)
+	if err != nil {
+		return nil, err
+	}
+	if len(scopePatches) == 0 {
+		return baseline, nil // no scope writes: baseline shows through unchanged
+	}
+
+	baseReader, err := nodeEventReader(baseline)
+	if err != nil {
+		return nil, err
+	}
+	return applyPatchesToBase(baseReader, scopePatches)
+}
+
+// patchNodesFromSegments reads patch nodes from segments in commit order, skipping
+// snapshots. If scopeID is non-nil, only that scope's segments are kept (baseline and
+// other scopes dropped); if nil, segments are taken as filtered by the caller.
+func (s *Storage) patchNodesFromSegments(segments []index.LogSegment, scopeID *string) ([]*ir.Node, error) {
 	var patchNodes []*ir.Node
 	for _, seg := range segments {
-		// Skip snapshots (StartCommit == EndCommit)
+		// Skip snapshots (StartCommit == EndCommit).
 		if seg.StartCommit == seg.EndCommit {
 			continue
 		}
-
-		// Read patch from dlog
+		// Scope layer: keep only this scope's patches, op-preserving.
+		if scopeID != nil && (seg.ScopeID == nil || *seg.ScopeID != *scopeID) {
+			continue
+		}
 		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition, seg.LogFileGeneration)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read patch entry: %w", err)
@@ -145,11 +198,14 @@ func (s *Storage) ReadStateAt(kp string, commit int64, scopeID *string) (*ir.Nod
 		if entry.Patch == nil {
 			continue
 		}
-
 		patchNodes = append(patchNodes, entry.Patch)
 	}
+	return patchNodes, nil
+}
 
-	// Apply patches using PatchApplier interface
+// applyPatchesToBase applies patchNodes onto baseReader via the streaming processor
+// and materializes the result as an ir.Node (nil for empty state).
+func applyPatchesToBase(baseReader stream.EventReader, patchNodes []*ir.Node) (*ir.Node, error) {
 	eventBuffer := &bytes.Buffer{}
 	sink := stream.NewBufferEventSink(eventBuffer)
 	applier := patches.NewStreamingProcessor()
@@ -158,7 +214,6 @@ func (s *Storage) ReadStateAt(kp string, commit int64, scopeID *string) (*ir.Nod
 		return nil, fmt.Errorf("failed to apply patches: %w", err)
 	}
 
-	// Read events from buffer and convert to ir.Node
 	var events []stream.Event
 	eventReader := stream.NewBinaryEventReader(eventBuffer)
 	for {
@@ -172,7 +227,6 @@ func (s *Storage) ReadStateAt(kp string, commit int64, scopeID *string) (*ir.Nod
 		events = append(events, *evt)
 	}
 
-	// Convert events to ir.Node
 	if len(events) == 0 {
 		return nil, nil
 	}
@@ -180,10 +234,28 @@ func (s *Storage) ReadStateAt(kp string, commit int64, scopeID *string) (*ir.Nod
 	if err != nil {
 		return nil, err
 	}
-
-	// Strip internal patch root tags before returning
 	tx.StripPatchRootTagRecursive(node)
 	return node, nil
+}
+
+// nodeEventReader returns a stream.EventReader over a materialized node. A nil node
+// yields an empty reader, which the processor treats as an empty base (folding patches
+// from null).
+func nodeEventReader(node *ir.Node) (stream.EventReader, error) {
+	buf := &bytes.Buffer{}
+	if node != nil {
+		events, err := stream.NodeToEvents(node)
+		if err != nil {
+			return nil, err
+		}
+		sink := stream.NewBufferEventSink(buf)
+		for i := range events {
+			if err := sink.WriteEvent(&events[i]); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return stream.NewBinaryEventReader(buf), nil
 }
 
 // init initializes the storage directory structure.
