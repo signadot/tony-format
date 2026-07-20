@@ -31,13 +31,17 @@ var ErrUnsupported = errors.New("unsupported operation")
 // owner and answers for the subtree; content need not live in logd.
 type Handler interface {
 	// Match returns the data at path. pattern, when non-nil, is the match/trim
-	// pattern the client supplied (field selection and filtering).
-	Match(ctx context.Context, path string, pattern *ir.Node) (*ir.Node, error)
+	// pattern the client supplied (field selection and filtering). opts.Scope, when
+	// set, is the COW scope the read belongs to — a scope-aware controller returns
+	// its scoped view (a logd-backed one reads logd in that scope).
+	Match(ctx context.Context, path string, pattern *ir.Node, opts MatchParams) (*ir.Node, error)
 
 	// Patch applies data at path and returns the resulting data. When
 	// opts.TxID is set, the client is coordinating a multi-participant
 	// transaction: the controller joins it by writing to logd with that tx id
-	// (the write is the join).
+	// (the write is the join). opts.Scope, when set, is the COW scope the write
+	// belongs to; a scope-aware controller must join the transaction in that scope
+	// (a logd-backed one writes on a connection with that scope).
 	Patch(ctx context.Context, path string, data *ir.Node, opts PatchParams) (*ir.Node, error)
 
 	// Watch streams events for path until ctx is cancelled (the client
@@ -54,10 +58,18 @@ type Handler interface {
 	Watch(ctx context.Context, path string, opts WatchParams, emit func(*api.WatchEvent) error) error
 }
 
-// WatchParams carries the client's watch options through to the Handler.
+// MatchParams carries a match's ancillary options through to the Handler.
+// Scope, when set, is the COW scope the read belongs to.
+type MatchParams struct {
+	Scope *string
+}
+
+// WatchParams carries the client's watch options through to the Handler. Scope,
+// when set, is the COW scope the watch belongs to.
 type WatchParams struct {
 	FromCommit *int64
 	NoInit     bool
+	Scope      *string
 }
 
 // PatchParams carries a patch's options through to the Handler. TxID, when set,
@@ -71,6 +83,7 @@ type PatchParams struct {
 	TxID    *int64
 	Match   *api.PathData
 	Timeout *string
+	Scope   *string
 }
 
 // ControllerConfig configures RunController.
@@ -212,7 +225,7 @@ func (rt *controllerRuntime) dispatch(req *api.SessionRequest) {
 }
 
 func (rt *controllerRuntime) handleMatch(req *api.SessionRequest) {
-	body, err := rt.handler.Match(rt.ctx, req.Match.Body.Path, req.Match.Body.Data)
+	body, err := rt.handler.Match(rt.ctx, req.Match.Body.Path, req.Match.Body.Data, MatchParams{Scope: req.Scope})
 	if err != nil {
 		rt.replyErr(req.ID, err)
 		return
@@ -228,6 +241,7 @@ func (rt *controllerRuntime) handlePatch(req *api.SessionRequest) {
 		TxID:    req.Patch.TxID,
 		Match:   req.Patch.Match,
 		Timeout: req.Patch.Timeout,
+		Scope:   req.Scope,
 	})
 	if err != nil {
 		rt.replyErr(req.ID, err)
@@ -287,6 +301,7 @@ func (rt *controllerRuntime) handleWatch(req *api.SessionRequest) {
 	err := rt.handler.Watch(ctx, path, WatchParams{
 		FromCommit: req.Watch.FromCommit,
 		NoInit:     req.Watch.NoInit,
+		Scope:      req.Scope,
 	}, emit)
 
 	switch {

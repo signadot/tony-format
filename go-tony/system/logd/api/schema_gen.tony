@@ -189,6 +189,7 @@ define:
   newtx: .[nullable(session-newtx-request)]
   patch: .[nullable(session-patch-request)]
   schema: .[nullable(session-schema-request)]
+  scope: .[nullable(string)]
   unwatch: .[nullable(session-unwatch-request)]
   watch: .[nullable(session-watch-request)]
 signature:

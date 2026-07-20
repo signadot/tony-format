@@ -1359,6 +1359,11 @@ func (s *SessionRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["id"] = ir.FromString(*s.ID)
 	}
 
+	// Field: Scope (optional)
+	if s.Scope != nil {
+		irMap["scope"] = ir.FromString(*s.Scope)
+	}
+
 	// Field: Hello (optional)
 	if s.Hello != nil {
 		node, err = s.Hello.ToTonyIR()
@@ -1484,6 +1489,18 @@ func (s *SessionRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) er
 				}
 				*val = string(fieldNodeUnwrapped.String)
 				s.ID = val
+			}
+		case "scope":
+			// Field: Scope
+			if fieldNodeUnwrapped.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(string)
+				if fieldNodeUnwrapped.Type != ir.StringType {
+					return fmt.Errorf("%s: expected string, got %v", "field \"scope\"", fieldNodeUnwrapped.Type)
+				}
+				*val = string(fieldNodeUnwrapped.String)
+				s.Scope = val
 			}
 		case "hello":
 			// Field: Hello

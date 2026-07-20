@@ -332,6 +332,10 @@ func (s *MountSession) RouteRequest(cs *ClientSession, req *logdapi.SessionReque
 	// Copy so we can rewrite the id without mutating the client's request.
 	out := *req
 	out.ID = &docdID
+	// Convey the client's COW scope so the controller reads/writes in it. docd
+	// multiplexes many client scopes onto this one controller connection, so scope
+	// must ride the request, not the connection.
+	out.Scope = cs.clientScope
 	if req.Unwatch != nil {
 		// Target the specific controller-side watch this unwatch cancels, since
 		// several clients may watch the same path over this connection.

@@ -38,7 +38,7 @@ func newMemController() *memController {
 	}
 }
 
-func (c *memController) Match(ctx context.Context, path string, pattern *ir.Node) (*ir.Node, error) {
+func (c *memController) Match(ctx context.Context, path string, pattern *ir.Node, opts MatchParams) (*ir.Node, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if v := c.data[path]; v != nil {
@@ -110,23 +110,61 @@ func (c *memController) subCount() int {
 // session and, on patch, writes through to logd — joining a multi-participant
 // transaction when the client supplies a TxID (the write is the join).
 type logdController struct {
-	logd *LogdSession
+	t        *testing.T
+	logdAddr string
+	id       string
+	baseline *LogdSession
+
+	mu     sync.Mutex
+	scoped map[string]*LogdSession // COW scope -> session
 }
 
 func newLogdController(t *testing.T, logdAddr, id string) *logdController {
 	t.Helper()
-	s := NewLogdSession(&LogdSessionConfig{Addr: logdAddr, ClientID: id})
-	t.Cleanup(func() { s.Close() })
-	return &logdController{logd: s}
+	c := &logdController{
+		t:        t,
+		logdAddr: logdAddr,
+		id:       id,
+		baseline: NewLogdSession(&LogdSessionConfig{Addr: logdAddr, ClientID: id}),
+		scoped:   make(map[string]*LogdSession),
+	}
+	t.Cleanup(func() {
+		c.baseline.Close()
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		for _, s := range c.scoped {
+			s.Close()
+		}
+	})
+	return c
 }
 
-func (c *logdController) Match(ctx context.Context, path string, pattern *ir.Node) (*ir.Node, error) {
-	return c.logd.MatchPattern(ctx, path, pattern)
+// session returns the logd session for a scope (nil/empty => baseline), creating
+// a scoped session lazily so the controller reads and writes in the client's
+// scope. This is the reference way a logd-backed controller becomes scope-aware:
+// it reuses logd's COW scopes rather than implementing its own.
+func (c *logdController) session(scope *string) *LogdSession {
+	if scope == nil || *scope == "" {
+		return c.baseline
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	s := c.scoped[*scope]
+	if s == nil {
+		s = NewLogdSession(&LogdSessionConfig{Addr: c.logdAddr, ClientID: c.id + ":" + *scope, Scope: *scope})
+		c.scoped[*scope] = s
+	}
+	return s
+}
+
+func (c *logdController) Match(ctx context.Context, path string, pattern *ir.Node, opts MatchParams) (*ir.Node, error) {
+	return c.session(opts.Scope).MatchPattern(ctx, path, pattern)
 }
 
 func (c *logdController) Patch(ctx context.Context, path string, data *ir.Node, opts PatchParams) (*ir.Node, error) {
-	// Faithfully forward the routed participant (tx id, precondition, timeout).
-	if err := c.logd.PatchWith(ctx, path, data, PatchOpts{
+	// Faithfully forward the routed participant (tx id, precondition, timeout) in
+	// the client's scope.
+	if err := c.session(opts.Scope).PatchWith(ctx, path, data, PatchOpts{
 		TxID:    opts.TxID,
 		Match:   opts.Match,
 		Timeout: opts.Timeout,
@@ -334,6 +372,43 @@ func TestDocd_MultiMountCASAbort(t *testing.T) {
 	direct := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "verify"})
 	defer direct.Close()
 	assertLogdV(t, direct, "a", 1)
+}
+
+// scopedDocdClient is a docd client operating in a COW scope (its hello scope is
+// forwarded to logd and recorded by docd for routing).
+func scopedDocdClient(t *testing.T, docd *docdserver.Server, id, scope string) *LogdSession {
+	t.Helper()
+	s := NewLogdSession(&LogdSessionConfig{Addr: docd.ClientTCPAddr(), ClientID: id, Scope: scope})
+	t.Cleanup(func() { s.Close() })
+	return s
+}
+
+// TestDocd_ScopedSingleMount proves a scoped client's write to a mounted subtree
+// lands in its scope (not baseline) and its scoped read sees it, while a baseline
+// client and logd's baseline are unaffected — scope isolation now crosses the
+// mount boundary.
+func TestDocd_ScopedSingleMount(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+	runController(t, docd, "users", newLogdController(t, logd.TCPAddr(), "cU"))
+
+	base := docdClient(t, docd, "base")
+	scoped := scopedDocdClient(t, docd, "scoped", "s1")
+	ctx := context.Background()
+
+	if err := base.Patch(ctx, "users.1", vObj(1)); err != nil {
+		t.Fatalf("base patch: %v", err)
+	}
+	if err := scoped.Patch(ctx, "users.1", vObj(2)); err != nil {
+		t.Fatalf("scoped patch: %v", err)
+	}
+
+	assertLogdV(t, scoped, "users.1", 2) // scoped read sees the scoped write
+	assertLogdV(t, base, "users.1", 1)   // baseline client unaffected
+
+	direct := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "verify"})
+	defer direct.Close()
+	assertLogdV(t, direct, "users.1", 1) // scoped write did not leak to baseline
 }
 
 // TestDocd_MatchPatternSingleRoute proves a match pattern reaches a mounted
@@ -842,7 +917,7 @@ type blockingMatchController struct {
 	once    sync.Once
 }
 
-func (c *blockingMatchController) Match(ctx context.Context, path string, pattern *ir.Node) (*ir.Node, error) {
+func (c *blockingMatchController) Match(ctx context.Context, path string, pattern *ir.Node, opts MatchParams) (*ir.Node, error) {
 	c.once.Do(func() { close(c.entered) })
 	<-ctx.Done()
 	return ir.Null(), ctx.Err()

@@ -170,6 +170,13 @@ func (a *MigrationAction) UnmarshalText(text []byte) error {
 type SessionRequest struct {
 	ID *string `tony:"field=id"` // Optional: if set, response will include this ID (async mode)
 
+	// Scope names the COW scope an operation belongs to. logd itself takes scope
+	// from the connection (Hello) and ignores this field; it is set by docd when it
+	// routes an op to a controller, because docd multiplexes many client sessions
+	// (each with its own scope) onto one controller connection, so per-connection
+	// scope cannot distinguish them. A scope-aware controller honors it.
+	Scope *string `tony:"field=scope,omitzero"`
+
 	Hello       *Hello              `tony:"field=hello"`
 	Match       *MatchRequest       `tony:"field=match"`
 	Patch       *PatchRequest       `tony:"field=patch"`
