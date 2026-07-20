@@ -2,9 +2,35 @@ package token
 
 import (
 	"fmt"
+	"io"
 	"unicode"
 	"unicode/utf8"
 )
+
+// getSingleLiteralStreaming is a streaming-aware getSingleLiteral for use by the
+// tokenizer: when the literal's scan runs to the end of the buffer (so it may
+// continue in the next read), it returns io.EOF instead of a possibly-truncated
+// literal, and the source grows the buffer and retries. In-memory callers
+// (litOrString, NeedsQuote) keep using getSingleLiteral, where reaching the end
+// is legitimate.
+//
+// getSingleLiteral trims a trailing ':' or ',', which hides the raw scan end, so
+// that trimmed separator is added back when checking against the buffer end (a
+// literal like "foo:bar" split as "foo:" | "bar" must not be emitted as "foo").
+func getSingleLiteralStreaming(d []byte) ([]byte, error) {
+	lit, err := getSingleLiteral(d)
+	if err != nil {
+		return nil, err
+	}
+	end := len(lit)
+	if end < len(d) && (d[end] == ':' || d[end] == ',') {
+		end++ // account for the trimmed trailing separator
+	}
+	if end == len(d) {
+		return nil, io.EOF
+	}
+	return lit, nil
+}
 
 func getSingleLiteral(d []byte) ([]byte, error) {
 	var (

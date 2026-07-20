@@ -1,5 +1,36 @@
 package token
 
+import "io"
+
+// numberStreaming is number() with read-buffer-boundary awareness for the
+// streaming tokenizer. number() (via asciiDigits/fract/exp) treats the end of the
+// slice as the end of the token, so a number whose digits/fraction/exponent run
+// to the buffer end is under-parsed (e.g. "3.14159" without a terminator parses
+// as the integer 3, and "10000000005" that continues is truncated). To avoid
+// that, this scans the maximal run of number characters: if that run reaches the
+// end of d the number may continue, so it returns io.EOF and the source grows the
+// buffer and retries; otherwise a terminator is present and number() parses the
+// fully-buffered token correctly. At true EOF a trailing newline terminates the
+// run, so this does not loop.
+func numberStreaming(d []byte) (int, bool, error) {
+	i := 0
+	for i < len(d) {
+		c := d[i]
+		switch {
+		case asciiDigit(c) || c == '.':
+			i++
+		case c == 'e' || c == 'E':
+			i++
+			if i < len(d) && (d[i] == '+' || d[i] == '-') {
+				i++
+			}
+		default:
+			return number(d) // terminator in view: the whole number is buffered
+		}
+	}
+	return 0, false, io.EOF // number characters run to the buffer end; need more
+}
+
 func number(d []byte) (int, bool, error) {
 	digits := asciiDigits(d)
 	if digits == 0 {

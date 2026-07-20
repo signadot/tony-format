@@ -441,7 +441,10 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 
 	case '-':
 		if pos == n-1 {
-			return nil, 0, UnexpectedErr("end", t.posDoc.Pos(int(absOffset)))
+			// '-' is the last byte of the buffer: the number continues in the next
+			// chunk. At true EOF the trailing newline follows it, so this only
+			// happens mid-stream — request more data rather than erroring.
+			return nil, 0, io.EOF
 		}
 		if pos == 0 && n >= 3 && data[1] == '-' && data[2] == '-' {
 			if t.opt.format == format.JSONFormat {
@@ -480,7 +483,10 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			t.ts.hasValue = true
 			return []Token{*tok}, off + 1, nil
 		}
-			numLen, isFloat, err := number(data[pos+1:])
+			numLen, isFloat, err := numberStreaming(data[pos+1:])
+			if err == io.EOF {
+				return nil, 0, io.EOF // number may continue past the buffer; need more data
+			}
 			if err != nil {
 				return nil, 0, NewTokenizeErr(err, t.posDoc.Pos(int(absOffset)))
 			}
@@ -527,7 +533,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			case format.JSONFormat:
 				return nil, 0, UnexpectedErr("n...", t.posDoc.Pos(int(absOffset)))
 			case format.TonyFormat:
-				lit, err := getSingleLiteral(data[pos:])
+				lit, err := getSingleLiteralStreaming(data[pos:])
 				if err != nil {
 					return nil, 0, err
 				}
@@ -574,7 +580,10 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			t.ts.hasValue = true
 			return []Token{*tok}, off, nil
 		}
-		numLen, isFloat, err := number(data[pos:])
+		numLen, isFloat, err := numberStreaming(data[pos:])
+		if err == io.EOF {
+			return nil, 0, io.EOF // number may continue past the buffer; need more data
+		}
 		if err != nil {
 			return nil, 0, NewTokenizeErr(err, t.posDoc.Pos(int(absOffset)))
 		}
@@ -644,7 +653,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		return nil, 1, nil // Whitespace, no token
 
 	case 'n':
-		if pos+4 <= n && string(data[pos:pos+4]) == "null" && isKeyWordPrefix(data[pos:], []byte("null")) {
+		if pos+4 < n && string(data[pos:pos+4]) == "null" && isKeyWordPrefix(data[pos:], []byte("null")) {
 			tok := Token{
 				Type:  TNull,
 				Bytes: data[pos : pos+4],
@@ -657,7 +666,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		case format.JSONFormat:
 			return nil, 0, UnexpectedErr("n...", t.posDoc.Pos(int(absOffset)))
 		case format.TonyFormat:
-			lit, err := getSingleLiteral(data[pos:])
+			lit, err := getSingleLiteralStreaming(data[pos:])
 			if err != nil {
 				return nil, 0, err
 			}
@@ -681,7 +690,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		}
 
 	case 't':
-		if pos+4 <= n && string(data[pos:pos+4]) == "true" && isKeyWordPrefix(data[pos:], []byte("true")) {
+		if pos+4 < n && string(data[pos:pos+4]) == "true" && isKeyWordPrefix(data[pos:], []byte("true")) {
 			tok := Token{
 				Type:  TTrue,
 				Bytes: data[pos : pos+4],
@@ -694,7 +703,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		case format.JSONFormat:
 			return nil, 0, UnexpectedErr("n...", t.posDoc.Pos(int(absOffset)))
 		case format.TonyFormat:
-			lit, err := getSingleLiteral(data[pos:])
+			lit, err := getSingleLiteralStreaming(data[pos:])
 			if err != nil {
 				return nil, 0, err
 			}
@@ -718,7 +727,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		}
 
 	case 'f':
-		if pos+5 <= n && string(data[pos:pos+5]) == "false" && isKeyWordPrefix(data[pos:], []byte("false")) {
+		if pos+5 < n && string(data[pos:pos+5]) == "false" && isKeyWordPrefix(data[pos:], []byte("false")) {
 			tok := Token{
 				Type:  TFalse,
 				Bytes: data[pos : pos+5],
@@ -731,7 +740,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		case format.JSONFormat:
 			return nil, 0, UnexpectedErr("f...", t.posDoc.Pos(int(absOffset)))
 		case format.TonyFormat:
-			lit, err := getSingleLiteral(data[pos:])
+			lit, err := getSingleLiteralStreaming(data[pos:])
 			if err != nil {
 				return nil, 0, err
 			}
@@ -820,7 +829,10 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 	default:
 		switch t.opt.format {
 		case format.TonyFormat:
-			lit, err := getSingleLiteral(data[pos:])
+			lit, err := getSingleLiteralStreaming(data[pos:])
+			if err == io.EOF {
+				return nil, 0, io.EOF // literal runs to the buffer end; need more data
+			}
 			if err != nil {
 				return nil, 0, NewTokenizeErr(ErrLiteral, t.posDoc.Pos(int(absOffset)))
 			}
@@ -832,7 +844,10 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			t.ts.hasValue = true
 			return []Token{tok}, len(lit), nil
 		case format.JSONFormat:
-			lit, err := getSingleLiteral(data[pos:])
+			lit, err := getSingleLiteralStreaming(data[pos:])
+			if err == io.EOF {
+				return nil, 0, io.EOF // literal runs to the buffer end; need more data
+			}
 			if err != nil {
 				return nil, 0, NewTokenizeErr(ErrLiteral, t.posDoc.Pos(int(absOffset)))
 			}
