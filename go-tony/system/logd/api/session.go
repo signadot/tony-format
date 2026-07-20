@@ -50,9 +50,10 @@ type MatchRequest struct {
 //
 //tony:schemagen=session-patch-request,notag
 type PatchRequest struct {
-	TxID      *int64  `tony:"field=txId"`      // Optional: transaction ID for multi-participant tx
-	Timeout   *string `tony:"field=timeout"`   // Optional: timeout for this participant (e.g., "5s", "1m")
-	Migration bool    `tony:"field=migration"` // If true, only index to pending (for migration transforms)
+	TxID      *int64    `tony:"field=txId"`      // Optional: transaction ID for multi-participant tx
+	Timeout   *string   `tony:"field=timeout"`   // Optional: timeout for this participant (e.g., "5s", "1m")
+	Migration bool      `tony:"field=migration"` // If true, only index to pending (for migration transforms)
+	Match     *PathData `tony:"field=match"`     // Optional: compare-and-swap precondition — the patch commits only if the current state at Match.Path matches Match.Data
 	PathData  `tony:"field=patch"`
 }
 

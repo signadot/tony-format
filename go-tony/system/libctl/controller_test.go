@@ -2,6 +2,7 @@ package libctl
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strings"
 	"sync"
@@ -123,11 +124,18 @@ func (c *logdController) Match(ctx context.Context, path string, pattern *ir.Nod
 }
 
 func (c *logdController) Patch(ctx context.Context, path string, data *ir.Node, opts PatchParams) (*ir.Node, error) {
-	if opts.TxID != nil {
-		if err := c.logd.PatchTx(ctx, path, data, *opts.TxID); err != nil {
-			return nil, err
-		}
-	} else if err := c.logd.Patch(ctx, path, data); err != nil {
+	var err error
+	switch {
+	case opts.TxID != nil && opts.Match != nil:
+		err = c.logd.PatchTxIf(ctx, path, data, *opts.TxID, opts.Match)
+	case opts.TxID != nil:
+		err = c.logd.PatchTx(ctx, path, data, *opts.TxID)
+	case opts.Match != nil:
+		err = c.logd.PatchIf(ctx, path, data, opts.Match)
+	default:
+		err = c.logd.Patch(ctx, path, data)
+	}
+	if err != nil {
 		return nil, err
 	}
 	return data, nil
@@ -184,6 +192,40 @@ func TestDocd_MultiMountTransaction(t *testing.T) {
 		if err != nil || v == nil || v.Int64 == nil || *v.Int64 != want {
 			t.Errorf("%s: expected v=%d, got %v (err %v)", path, want, v, err)
 		}
+	}
+}
+
+// TestDocd_ControllerCAS proves a compare-and-swap precondition routes through
+// docd to a controller and is honored: the CAS succeeds while the precondition
+// holds and fails (ErrMatchFailed) once it does not, with no write applied.
+func TestDocd_ControllerCAS(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+	runController(t, docd, "/doc", newLogdController(t, logd.TCPAddr(), "ctrlDoc"))
+
+	client := docdClient(t, docd, "client")
+	ctx := context.Background()
+	vNode := func(n int64) *ir.Node { return ir.FromMap(map[string]*ir.Node{"v": ir.FromInt(n)}) }
+
+	if err := client.Patch(ctx, "doc/1", vNode(1)); err != nil {
+		t.Fatalf("seed via controller: %v", err)
+	}
+
+	match1 := &api.PathData{Path: "doc/1", Data: vNode(1)}
+	if err := client.PatchIf(ctx, "doc/1", vNode(2), match1); err != nil {
+		t.Fatalf("routed CAS should succeed: %v", err)
+	}
+	if err := client.PatchIf(ctx, "doc/1", vNode(3), match1); !errors.Is(err, ErrMatchFailed) {
+		t.Fatalf("expected ErrMatchFailed through docd, got %v", err)
+	}
+
+	res, err := client.Match(ctx, "doc/1")
+	if err != nil {
+		t.Fatalf("verify Match: %v", err)
+	}
+	v, err := res.GetPath("$.v")
+	if err != nil || v == nil || v.Int64 == nil || *v.Int64 != 2 {
+		t.Errorf("expected v=2 after failed CAS, got %v (err %v)", v, err)
 	}
 }
 

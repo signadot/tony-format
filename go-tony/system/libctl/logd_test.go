@@ -2,11 +2,13 @@ package libctl
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
 	docdserver "github.com/signadot/tony-format/go-tony/system/docd/server"
+	logdapi "github.com/signadot/tony-format/go-tony/system/logd/api"
 	logdserver "github.com/signadot/tony-format/go-tony/system/logd/server"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 )
@@ -165,6 +167,54 @@ func TestLogdSession_Transaction(t *testing.T) {
 			t.Errorf("%s: expected v=%d, got %v (err %v)", path, want, v, err)
 		}
 	}
+}
+
+func TestLogdSession_CAS(t *testing.T) {
+	srv := startLogd(t)
+	s := NewLogdSession(&LogdSessionConfig{Addr: srv.TCPAddr(), ClientID: "cas"})
+	defer s.Close()
+	ctx := context.Background()
+
+	vNode := func(n int64) *ir.Node { return ir.FromMap(map[string]*ir.Node{"v": ir.FromInt(n)}) }
+	assertV := func(path string, want int64) {
+		t.Helper()
+		res, err := s.Match(ctx, path)
+		if err != nil {
+			t.Fatalf("match %s: %v", path, err)
+		}
+		v, err := res.GetPath("$.v")
+		if err != nil || v == nil || v.Int64 == nil || *v.Int64 != want {
+			t.Errorf("%s: expected v=%d, got %v (err %v)", path, want, v, err)
+		}
+	}
+
+	// Seed.
+	if err := s.Patch(ctx, "users/1", vNode(1)); err != nil {
+		t.Fatalf("seed Patch: %v", err)
+	}
+
+	matchV1 := &logdapi.PathData{Path: "users/1", Data: vNode(1)}
+
+	// CAS succeeds while the precondition (v==1) holds.
+	if err := s.PatchIf(ctx, "users/1", vNode(2), matchV1); err != nil {
+		t.Fatalf("expected CAS to succeed: %v", err)
+	}
+	assertV("users/1", 2)
+
+	// CAS fails once the precondition no longer holds (v is now 2).
+	if err := s.PatchIf(ctx, "users/1", vNode(3), matchV1); !errors.Is(err, ErrMatchFailed) {
+		t.Fatalf("expected ErrMatchFailed, got %v", err)
+	}
+	assertV("users/1", 2) // unchanged
+
+	// Match path independent of patch path: gate a write to a/1 on b/1's state.
+	if err := s.Patch(ctx, "b/1", vNode(7)); err != nil {
+		t.Fatalf("seed b/1: %v", err)
+	}
+	if err := s.PatchIf(ctx, "a/1", vNode(1), &logdapi.PathData{Path: "b/1", Data: vNode(7)}); err != nil {
+		t.Fatalf("cross-path CAS should succeed: %v", err)
+	}
+	assertV("a/1", 1)
 }
 
 func TestLogdSession_Reconnect(t *testing.T) {

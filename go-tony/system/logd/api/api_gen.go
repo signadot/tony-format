@@ -602,6 +602,15 @@ func (s *PatchRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Field: Migration
 	irMap["migration"] = ir.FromBool(s.Migration)
 
+	// Field: Match (optional)
+	if s.Match != nil {
+		node, err = s.Match.ToTonyIR()
+		if err != nil {
+			return nil, err
+		}
+		irMap["match"] = node
+	}
+
 	// Field: Path
 	irMap["path"] = ir.FromString(s.Path)
 
@@ -673,6 +682,12 @@ func (s *PatchRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 				return fmt.Errorf("field %q: expected bool, got %v", "migration", fieldNodeUnwrapped.Type)
 			}
 			s.Migration = fieldNodeUnwrapped.Bool
+		case "match":
+			// Field: Match
+			s.Match = &PathData{}
+			if err := s.Match.FromTonyIR(fieldNode); err != nil {
+				return err
+			}
 		case "path":
 			// Field: Path
 			if fieldNodeUnwrapped.Type != ir.StringType {

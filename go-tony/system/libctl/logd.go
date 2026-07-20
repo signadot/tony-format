@@ -2,6 +2,7 @@ package libctl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -220,20 +221,43 @@ func (s *LogdSession) Match(ctx context.Context, path string) (*ir.Node, error) 
 	return resp.Result.Match.Body, nil
 }
 
-// Patch applies a patch operation at the given path.
-func (s *LogdSession) Patch(ctx context.Context, path string, data *ir.Node) error {
-	resp, err := s.request(ctx, &api.SessionRequest{
-		Patch: &api.PatchRequest{
-			PathData: api.PathData{Path: path, Data: data},
-		},
-	})
+// ErrMatchFailed is returned by PatchIf/PatchTxIf when the compare-and-swap
+// precondition did not hold against current state, so the patch was not applied.
+// Callers doing optimistic concurrency can detect this with errors.Is and retry.
+var ErrMatchFailed = errors.New("match precondition failed")
+
+// doPatch sends a patch request and maps the response, surfacing a failed
+// compare-and-swap precondition as ErrMatchFailed.
+func (s *LogdSession) doPatch(ctx context.Context, req *api.PatchRequest) error {
+	resp, err := s.request(ctx, &api.SessionRequest{Patch: req})
 	if err != nil {
 		return err
 	}
 	if resp.Error != nil {
+		if resp.Error.Code == api.ErrCodeMatchFailed {
+			return ErrMatchFailed
+		}
 		return fmt.Errorf("patch error: %s", resp.Error.Message)
 	}
 	return nil
+}
+
+// Patch applies a patch operation at the given path.
+func (s *LogdSession) Patch(ctx context.Context, path string, data *ir.Node) error {
+	return s.doPatch(ctx, &api.PatchRequest{
+		PathData: api.PathData{Path: path, Data: data},
+	})
+}
+
+// PatchIf applies a patch only if the compare-and-swap precondition holds: the
+// current state at match.Path must match the pattern match.Data (evaluated
+// atomically at commit). The match path may differ from the patch path. Returns
+// ErrMatchFailed if the precondition does not hold.
+func (s *LogdSession) PatchIf(ctx context.Context, path string, data *ir.Node, match *api.PathData) error {
+	return s.doPatch(ctx, &api.PatchRequest{
+		Match:    match,
+		PathData: api.PathData{Path: path, Data: data},
+	})
 }
 
 // NewTx creates a multi-participant transaction and returns its id. The
@@ -259,19 +283,21 @@ func (s *LogdSession) NewTx(ctx context.Context, participants int) (int64, error
 // blocks until the transaction commits (all participants have joined) or fails.
 // This is how a participant joins a transaction — the write is the join.
 func (s *LogdSession) PatchTx(ctx context.Context, path string, data *ir.Node, txID int64) error {
-	resp, err := s.request(ctx, &api.SessionRequest{
-		Patch: &api.PatchRequest{
-			TxID:     &txID,
-			PathData: api.PathData{Path: path, Data: data},
-		},
+	return s.doPatch(ctx, &api.PatchRequest{
+		TxID:     &txID,
+		PathData: api.PathData{Path: path, Data: data},
 	})
-	if err != nil {
-		return err
-	}
-	if resp.Error != nil {
-		return fmt.Errorf("patch error: %s", resp.Error.Message)
-	}
-	return nil
+}
+
+// PatchTxIf is PatchTx with a compare-and-swap precondition (see PatchIf). The
+// match is evaluated atomically with all other participants' matches at commit;
+// returns ErrMatchFailed if it does not hold.
+func (s *LogdSession) PatchTxIf(ctx context.Context, path string, data *ir.Node, txID int64, match *api.PathData) error {
+	return s.doPatch(ctx, &api.PatchRequest{
+		TxID:     &txID,
+		Match:    match,
+		PathData: api.PathData{Path: path, Data: data},
+	})
 }
 
 // DeleteScope deletes a copy-on-write scope and all of its data. It is only

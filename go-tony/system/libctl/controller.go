@@ -52,9 +52,12 @@ type WatchParams struct {
 }
 
 // PatchParams carries a patch's options through to the Handler. TxID, when set,
-// is the multi-participant transaction the patch must join.
+// is the multi-participant transaction the patch must join. Match, when set, is a
+// compare-and-swap precondition the controller must carry to logd (via
+// LogdSession.PatchIf/PatchTxIf) so the write commits only if it holds.
 type PatchParams struct {
-	TxID *int64
+	TxID  *int64
+	Match *api.PathData
 }
 
 // ControllerConfig configures RunController.
@@ -201,7 +204,10 @@ func (rt *controllerRuntime) handleMatch(req *api.SessionRequest) {
 }
 
 func (rt *controllerRuntime) handlePatch(req *api.SessionRequest) {
-	data, err := rt.handler.Patch(rt.ctx, req.Patch.Path, req.Patch.Data, PatchParams{TxID: req.Patch.TxID})
+	data, err := rt.handler.Patch(rt.ctx, req.Patch.Path, req.Patch.Data, PatchParams{
+		TxID:  req.Patch.TxID,
+		Match: req.Patch.Match,
+	})
 	if err != nil {
 		rt.replyErr(req.ID, err)
 		return
@@ -349,8 +355,13 @@ func (rt *controllerRuntime) reply(resp *api.SessionResponse) error {
 // error code so docd and the client can distinguish a declined operation.
 func (rt *controllerRuntime) replyErr(id *string, err error) {
 	code := api.ErrCodeInvalidMessage
-	if errors.Is(err, ErrUnsupported) {
+	switch {
+	case errors.Is(err, ErrUnsupported):
 		code = api.ErrCodeUnsupported
+	case errors.Is(err, ErrMatchFailed):
+		// A failed compare-and-swap must reach the client as match_failed so its
+		// PatchIf/PatchTxIf surfaces ErrMatchFailed.
+		code = api.ErrCodeMatchFailed
 	}
 	rt.reply(api.NewErrorResponse(id, code, err.Error()))
 }

@@ -444,8 +444,10 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 		}
 	}
 
-	// Create patcher and commit
+	// Create patcher and commit. Match, if set, is a compare-and-swap
+	// precondition evaluated atomically at commit time.
 	patcher, err := txn.NewPatcher(&api.Patch{
+		Match:    req.Match,
 		PathData: req.PathData,
 	})
 	if err != nil {
