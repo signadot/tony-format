@@ -223,3 +223,41 @@ func sameSet(got, want []string) bool {
 	}
 	return true
 }
+
+// TestScope_ReadAbsentPathIsEmpty verifies that reading a path with no index node is
+// empty (null), not an "invalid index iterator" error. The scoped read layers the
+// scope's patches over the baseline, and an absent baseline must be an empty base.
+// Regression: erroring here failed scoped watch init on a not-yet-populated subtree
+// (a multi-file connect on verse.local.dir-status-<scope>).
+func TestScope_ReadAbsentPathIsEmpty(t *testing.T) {
+	s := openTestStorage(t)
+	sc := "sc1"
+	mustCommit(t, s, nil, `{base: {y: 2}}`)       // baseline data elsewhere
+	c := mustCommit(t, s, &sc, `{other: {x: 1}}`) // scope data elsewhere
+
+	// ReadStateAt returns the whole reconstructed doc (the caller narrows); the fix is
+	// that an absent path no longer errors, and it resolves to nothing.
+	for _, tc := range []struct {
+		name  string
+		scope *string
+	}{{"baseline", nil}, {"scoped", &sc}} {
+		got, err := s.ReadStateAt("verse.local.status", c, tc.scope)
+		if err != nil {
+			t.Errorf("%s: absent-path read errored: %v", tc.name, err)
+		}
+		if v := getInt(got, "verse", "local", "status", "f0", "v"); v != -1 {
+			t.Errorf("%s: absent path unexpectedly resolved to %d", tc.name, v)
+		}
+	}
+
+	// Once the scope populates the path, the scoped read returns its data — the empty
+	// baseline is layered under the scope's patches, not lost.
+	c2 := mustCommit(t, s, &sc, `{verse: {local: {status: {f0: {v: 0}}}}}`)
+	got, err := s.ReadStateAt("verse.local.status", c2, &sc)
+	if err != nil {
+		t.Fatalf("scoped read after populate: %v", err)
+	}
+	if v := getInt(got, "verse", "local", "status", "f0", "v"); v != 0 {
+		t.Errorf("scoped read after populate f0.v = %d, want 0", v)
+	}
+}

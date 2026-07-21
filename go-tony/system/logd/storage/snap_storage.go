@@ -23,7 +23,12 @@ import (
 func (s *Storage) findSnapshotBaseReader(kp string, commit int64) (patches.EventReadCloser, int64, error) {
 	iter := s.index.IterAtPath(kp)
 	if !iter.Valid() {
-		return nil, 0, fmt.Errorf("invalid index iterator for path %q", kp)
+		// No index node at this path: nothing has ever been written here (or nothing
+		// survives at this commit). That is an empty base — null state — not an error.
+		// A plain read of an absent path is null, and a scoped read layers the scope's
+		// own patches over this empty baseline (see readScopedStateAt). Erroring here
+		// instead failed scoped watch init on a not-yet-populated subtree.
+		return patches.NewEmptyEventReader(), 0, nil
 	}
 
 	// Find snapshot segment while holding lock, then release before I/O.
