@@ -1,5 +1,7 @@
 !issue
+Ref: refs/issues/q3n7ptxch12kspj99hmg
+Title: "logd: session handleMatch doesn't support SeqID for historical reads"
 created: "2025-12-24T21:15:22.38152+01:00"
 id: q3n7ptxch12kspj99hmg
 status: open
-updated: "2025-12-24T22:16:30.967892+01:00"
+updated: "2026-07-22T17:46:23.302859+02:00"
