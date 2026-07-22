@@ -158,6 +158,12 @@ func (c *logdController) session(scope *string) *LogdSession {
 }
 
 func (c *logdController) Match(ctx context.Context, path string, pattern *ir.Node, opts MatchParams) (*ir.Node, error) {
+	// A logd-backed controller honors a historical commit by reading logd at it —
+	// coherent because the commit is from logd's single sequence, the same one the
+	// base and every other logd-backed mount share.
+	if opts.Commit != nil {
+		return c.session(opts.Scope).MatchPatternAt(ctx, path, pattern, *opts.Commit)
+	}
 	return c.session(opts.Scope).MatchPattern(ctx, path, pattern)
 }
 
@@ -613,6 +619,70 @@ func TestDocd_ComposeAncestorRead(t *testing.T) {
 	}
 	if v, _ := naive.GetPath("$.b.v"); v != nil {
 		t.Errorf("naive logd read unexpectedly saw the mount: %v", v)
+	}
+}
+
+// TestDocd_ComposeAncestorReadAtCommit proves a historical composed read fans the
+// SAME commit to the base and a logd-backed mount, yielding one consistent
+// point-in-time snapshot — coherent because both live in logd's single commit
+// sequence. The base (a.x) and the mount subtree (a.b) are advanced past a
+// captured commit; a read at that commit must still see the earlier values.
+func TestDocd_ComposeAncestorReadAtCommit(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+
+	// logd-backed mount at a.b: its subtree lives in logd, so the client's commit
+	// addresses it exactly as it addresses the base.
+	runController(t, docd, "a.b", newLogdController(t, logd.TCPAddr(), "ctrlB"))
+
+	client := docdClient(t, docd, "client")
+	ctx := context.Background()
+
+	// State A: base a.x=1 and mount a.b.k=1.
+	if err := client.Patch(ctx, "a.x", vObj(1)); err != nil {
+		t.Fatalf("seed base a.x: %v", err)
+	}
+	if err := client.Patch(ctx, "a.b.k", vObj(1)); err != nil {
+		t.Fatalf("seed mount a.b.k: %v", err)
+	}
+
+	// Capture the commit at state A (the composed read reports logd's base commit).
+	resp, err := client.request(ctx, &api.SessionRequest{Match: &api.MatchRequest{Body: api.PathData{Path: "a"}}})
+	if err != nil || resp.Result == nil || resp.Result.Match == nil {
+		t.Fatalf("capture commit: resp=%+v err=%v", resp, err)
+	}
+	atA := resp.Result.Match.Commit
+
+	// State B: advance both the base and the mount past commit atA.
+	if err := client.Patch(ctx, "a.x", vObj(2)); err != nil {
+		t.Fatalf("advance base a.x: %v", err)
+	}
+	if err := client.Patch(ctx, "a.b.k", vObj(2)); err != nil {
+		t.Fatalf("advance mount a.b.k: %v", err)
+	}
+
+	// Historical composed read at atA: both base and mount show their state-A values.
+	hist, err := client.MatchAt(ctx, "a", atA)
+	if err != nil {
+		t.Fatalf("historical composed match: %v", err)
+	}
+	if v, err := hist.GetPath("$.x.v"); err != nil || v == nil || v.Int64 == nil || *v.Int64 != 1 {
+		t.Errorf("historical a.x.v: got %v (err %v), want 1", v, err)
+	}
+	if v, err := hist.GetPath("$.b.k.v"); err != nil || v == nil || v.Int64 == nil || *v.Int64 != 1 {
+		t.Errorf("historical a.b.k.v: got %v (err %v), want 1", v, err)
+	}
+
+	// Current composed read: both show their state-B values.
+	cur, err := client.Match(ctx, "a")
+	if err != nil {
+		t.Fatalf("current composed match: %v", err)
+	}
+	if v, err := cur.GetPath("$.x.v"); err != nil || v == nil || v.Int64 == nil || *v.Int64 != 2 {
+		t.Errorf("current a.x.v: got %v (err %v), want 2", v, err)
+	}
+	if v, err := cur.GetPath("$.b.k.v"); err != nil || v == nil || v.Int64 == nil || *v.Int64 != 2 {
+		t.Errorf("current a.b.k.v: got %v (err %v), want 2", v, err)
 	}
 }
 

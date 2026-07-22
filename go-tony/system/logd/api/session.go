@@ -34,9 +34,18 @@ type HelloResponse struct {
 
 // MatchRequest is a request to read state at a path.
 //
+// Commit, when set, reads historical state at that commit instead of the current
+// commit — a point-in-time read. It must be in range [0, current]; logd rejects
+// an out-of-range commit with ErrCodeCommitNotFound. Across docd this addresses
+// logd's single commit sequence: base reads and logd-backed mounts all live in
+// that one sequence, so a composed read at a commit is a consistent snapshot. A
+// self-backed controller (one not persisting to logd) has its own timeline and
+// must answer for the commit itself.
+//
 //tony:schemagen=session-match-request,notag
 type MatchRequest struct {
-	Body PathData `tony:"field=body"`
+	Body   PathData `tony:"field=body"`
+	Commit *int64   `tony:"field=commit"` // Optional: read historical state at this commit (nil = current)
 }
 
 // PatchRequest is a request to apply a patch.

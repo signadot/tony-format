@@ -34,6 +34,19 @@ type Handler interface {
 	// pattern the client supplied (field selection and filtering). opts.Scope, when
 	// set, is the COW scope the read belongs to — a scope-aware controller returns
 	// its scoped view (a logd-backed one reads logd in that scope).
+	//
+	// opts.Commit, when set, is a point-in-time read: return the subtree's state as
+	// of that commit. A logd-backed controller just reads logd at that commit
+	// (LogdSession.MatchAt), which is coherent because the commit comes from logd's
+	// single sequence — the same one base reads and every other logd-backed mount
+	// share. A SELF-BACKED controller (one not persisting to logd) has NO way to
+	// honor this correctly: the commit is a logd commit, unrelated to its own
+	// timeline, and it cannot coordinate a consistent point-in-time with the other
+	// controllers, so serving it risks returning a subtree out of sync with the rest
+	// of the composed document. Honoring it is only safe when every write to this
+	// mount is isolated entirely to this mount (no multi-mount transactions touch
+	// it); otherwise a self-backed controller should reject a historical read
+	// (return an error) rather than answer from an uncoordinated timeline.
 	Match(ctx context.Context, path string, pattern *ir.Node, opts MatchParams) (*ir.Node, error)
 
 	// Patch applies data at path and returns the resulting data. When
@@ -59,9 +72,12 @@ type Handler interface {
 }
 
 // MatchParams carries a match's ancillary options through to the Handler.
-// Scope, when set, is the COW scope the read belongs to.
+// Scope, when set, is the COW scope the read belongs to. Commit, when set, is a
+// point-in-time read at that logd commit (see Handler.Match for the self-backed
+// caveat).
 type MatchParams struct {
-	Scope *string
+	Scope  *string
+	Commit *int64
 }
 
 // WatchParams carries the client's watch options through to the Handler. Scope,
@@ -225,7 +241,7 @@ func (rt *controllerRuntime) dispatch(req *api.SessionRequest) {
 }
 
 func (rt *controllerRuntime) handleMatch(req *api.SessionRequest) {
-	body, err := rt.handler.Match(rt.ctx, req.Match.Body.Path, req.Match.Body.Data, MatchParams{Scope: req.Scope})
+	body, err := rt.handler.Match(rt.ctx, req.Match.Body.Path, req.Match.Body.Data, MatchParams{Scope: req.Scope, Commit: req.Match.Commit})
 	if err != nil {
 		rt.replyErr(req.ID, err)
 		return

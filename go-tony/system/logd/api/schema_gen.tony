@@ -54,6 +54,7 @@ context:
 - tony-format/context
 define:
   body: !path-data null
+  commit: .[nullable(int)]
 signature:
   name: session-match-request
 ---

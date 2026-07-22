@@ -207,6 +207,107 @@ func TestSession_Match(t *testing.T) {
 	}
 }
 
+func TestSession_MatchAtCommit(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := storage.Open(tmpDir, nil)
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+	defer store.Close()
+
+	commitPatch := func(doc string) {
+		t.Helper()
+		tx, err := store.NewTx(1, nil)
+		if err != nil {
+			t.Fatalf("failed to create tx: %v", err)
+		}
+		data, perr := parse.Parse([]byte(doc))
+		if perr != nil {
+			t.Fatalf("failed to parse %q: %v", doc, perr)
+		}
+		patcher, err := tx.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: data}})
+		if err != nil {
+			t.Fatalf("failed to create patcher: %v", err)
+		}
+		if r := patcher.Commit(); !r.Committed {
+			t.Fatalf("failed to commit: %v", r.Error)
+		}
+	}
+
+	// commit 1: only alice. commit 2: bob joins.
+	commitPatch(`{users: {alice: {name: "Alice"}}}`)
+	commitPatch(`{users: {bob: {name: "Bob"}}}`)
+
+	hub := NewWatchHub()
+	conn := newMockConn()
+
+	// A historical read at commit 1 (before bob), a current read, and an
+	// out-of-range commit that must be rejected rather than read as current.
+	conn.WriteRequest(`{id: "at1", match: {body: {path: users}, commit: 1}}`)
+	conn.WriteRequest(`{id: "cur", match: {body: {path: users}}}`)
+	conn.WriteRequest(`{id: "bad", match: {body: {path: users}, commit: 99}}`)
+
+	session := NewSession("test-server", conn, &SessionConfig{Storage: store, Hub: hub})
+	done := make(chan error)
+	go func() { done <- session.Run() }()
+
+	time.Sleep(50 * time.Millisecond)
+	conn.Close()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("session did not complete")
+	}
+
+	byID := map[string]*api.SessionResponse{}
+	for _, doc := range splitTonyDocs(conn.GetResponses()) {
+		var resp api.SessionResponse
+		if err := resp.FromTony(doc); err != nil {
+			t.Fatalf("failed to parse response %q: %v", doc, err)
+		}
+		if resp.ID != nil {
+			r := resp
+			byID[*resp.ID] = &r
+		}
+	}
+
+	// Historical read at commit 1: alice present, bob absent, commit echoed as 1.
+	at1 := byID["at1"]
+	if at1 == nil || at1.Result == nil || at1.Result.Match == nil {
+		t.Fatalf("expected match result for at1, got %+v", at1)
+	}
+	if at1.Result.Match.Commit != 1 {
+		t.Errorf("at1: expected commit 1, got %d", at1.Result.Match.Commit)
+	}
+	if ir.Get(at1.Result.Match.Body, "alice") == nil {
+		t.Errorf("at1: expected alice at commit 1, body=%v", at1.Result.Match.Body)
+	}
+	if ir.Get(at1.Result.Match.Body, "bob") != nil {
+		t.Errorf("at1: bob should not exist at commit 1, body=%v", at1.Result.Match.Body)
+	}
+
+	// Current read: both present.
+	cur := byID["cur"]
+	if cur == nil || cur.Result == nil || cur.Result.Match == nil {
+		t.Fatalf("expected match result for cur, got %+v", cur)
+	}
+	if cur.Result.Match.Commit != 2 {
+		t.Errorf("cur: expected commit 2, got %d", cur.Result.Match.Commit)
+	}
+	if ir.Get(cur.Result.Match.Body, "alice") == nil || ir.Get(cur.Result.Match.Body, "bob") == nil {
+		t.Errorf("cur: expected alice and bob, body=%v", cur.Result.Match.Body)
+	}
+
+	// Out-of-range commit: rejected, not silently read as current.
+	bad := byID["bad"]
+	if bad == nil || bad.Error == nil {
+		t.Fatalf("expected error response for bad, got %+v", bad)
+	}
+	if bad.Error.Code != api.ErrCodeCommitNotFound {
+		t.Errorf("bad: expected %s, got %s (%s)", api.ErrCodeCommitNotFound, bad.Error.Code, bad.Error.Message)
+	}
+}
+
 func TestSession_MatchWithFilter(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, err := storage.Open(tmpDir, nil)

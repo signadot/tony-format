@@ -320,11 +320,23 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 		return
 	}
 
-	// Get current commit
-	commit, err := s.storage.GetCurrentCommit()
+	// Resolve the commit to read at: an explicit historical commit if the request
+	// carries one, otherwise the current commit. A historical commit must fall in
+	// [0, current]; a commit past current would silently read as current and a
+	// negative one as empty, so reject both rather than return misleading state.
+	current, err := s.storage.GetCurrentCommit()
 	if err != nil {
 		s.sendError(id, "storage_error", fmt.Sprintf("failed to get current commit: %v", err))
 		return
+	}
+	commit := current
+	if req.Commit != nil {
+		commit = *req.Commit
+		if commit < 0 || commit > current {
+			s.sendError(id, api.ErrCodeCommitNotFound,
+				fmt.Sprintf("commit %d out of range [0, %d]", commit, current))
+			return
+		}
 	}
 
 	// Read state (with session scope filtering)

@@ -51,7 +51,10 @@ func (s *ClientSession) coordinateMatch(req *logdapi.SessionRequest, below []*Mo
 		_ = s.writeToClient(errResp)
 		return
 	}
-	root, commit, err := s.composeReadTree(path, owner, below, pFields)
+	// A historical read at a commit fans the same commit to every source. This is
+	// coherent because base and logd-backed mounts share logd's one commit
+	// sequence; a self-backed mount answers for the commit itself (see Handler).
+	root, commit, err := s.composeReadTree(path, owner, below, pFields, req.Match.Commit)
 	if err != nil {
 		_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeSessionClosed, err.Error()))
 		return
@@ -101,7 +104,7 @@ func (s *ClientSession) composeCheck(clientID *string, path string, below []*Mou
 // concurrently, then merges the results — deeper mounts overlaying shallower —
 // into a single document rooted at path, returning it with the max commit across
 // sources.
-func (s *ClientSession) composeReadTree(path string, owner *MountEntry, below []*MountEntry, pFields []string) (*ir.Node, int64, error) {
+func (s *ClientSession) composeReadTree(path string, owner *MountEntry, below []*MountEntry, pFields []string, atCommit *int64) (*ir.Node, int64, error) {
 	// readResult carries one source's subtree and where it sits relative to path
 	// (nil fields = the base owner, rooted at path itself).
 	type readResult struct {
@@ -113,7 +116,7 @@ func (s *ClientSession) composeReadTree(path string, owner *MountEntry, below []
 	results := make(chan readResult, len(below)+1)
 
 	go func() {
-		body, commit, err := s.readFrom(owner, path)
+		body, commit, err := s.readFrom(owner, path, atCommit)
 		results <- readResult{fields: nil, body: body, commit: commit, err: err}
 	}()
 	for _, m := range below {
@@ -123,7 +126,7 @@ func (s *ClientSession) composeReadTree(path string, owner *MountEntry, below []
 				results <- readResult{err: ferr}
 				return
 			}
-			body, commit, err := s.readFrom(m, m.Path)
+			body, commit, err := s.readFrom(m, m.Path, atCommit)
 			results <- readResult{fields: mf[len(pFields):], body: body, commit: commit, err: err}
 		}(m)
 	}
@@ -166,13 +169,16 @@ func (s *ClientSession) composeReadTree(path string, owner *MountEntry, below []
 
 // readFrom reads the state at path from one source: a controller (entry non-nil)
 // via a collected MATCH route, or logd (entry nil) over a short-lived connection.
-func (s *ClientSession) readFrom(entry *MountEntry, path string) (*ir.Node, int64, error) {
+// atCommit, when non-nil, reads historical state at that commit; it is the same
+// commit for every source, which is coherent for logd-backed sources sharing
+// logd's sequence (a self-backed controller answers for it).
+func (s *ClientSession) readFrom(entry *MountEntry, path string, atCommit *int64) (*ir.Node, int64, error) {
 	if entry == nil {
-		return readLogdMatch(s.logdAddr, path, s.clientScope, matchReadTimeout)
+		return readLogdMatch(s.logdAddr, path, s.clientScope, atCommit, matchReadTimeout)
 	}
 	ch := entry.Session.RouteCollect(&logdapi.SessionRequest{
 		Scope: s.clientScope,
-		Match: &logdapi.MatchRequest{Body: logdapi.PathData{Path: path}},
+		Match: &logdapi.MatchRequest{Body: logdapi.PathData{Path: path}, Commit: atCommit},
 	})
 	select {
 	case resp := <-ch:

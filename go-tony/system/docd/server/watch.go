@@ -139,7 +139,9 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 
 	_ = s.writeToClient(logdapi.NewWatchResponse(clientID, path, nil))
 	if !req.Watch.NoInit {
-		if root, commit, err := s.composeReadTree(path, owner, below, pFields); err == nil {
+		// nil commit: a composed watch's initial state is always current (it re-inits
+		// to current on membership change rather than replaying a historical commit).
+		if root, commit, err := s.composeReadTree(path, owner, below, pFields, nil); err == nil {
 			_ = s.writeToClient(logdapi.NewStateEvent(commit, path, root))
 		}
 	}

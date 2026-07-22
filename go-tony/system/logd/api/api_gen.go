@@ -510,6 +510,11 @@ func (s *MatchRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	}
 	irMap["body"] = node
 
+	// Field: Commit (optional)
+	if s.Commit != nil {
+		irMap["commit"] = ir.FromInt(int64(*s.Commit))
+	}
+
 	return ir.FromMap(irMap), nil
 }
 
@@ -547,6 +552,18 @@ func (s *MatchRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 			// Field: Body
 			if err := s.Body.FromTonyIR(fieldNode); err != nil {
 				return fmt.Errorf("field %q: %w", "body", err)
+			}
+		case "commit":
+			// Field: Commit
+			if fieldNodeUnwrapped.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(int64)
+				if fieldNodeUnwrapped.Int64 == nil {
+					return fmt.Errorf("%s: expected number, got %v", "field \"commit\"", fieldNodeUnwrapped.Type)
+				}
+				*val = int64(*fieldNodeUnwrapped.Int64)
+				s.Commit = val
 			}
 		}
 	}

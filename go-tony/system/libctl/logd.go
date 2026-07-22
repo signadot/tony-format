@@ -205,7 +205,7 @@ func (s *LogdSession) newIDLocked() string {
 // Match performs a match query at the given path, returning the full state
 // there.
 func (s *LogdSession) Match(ctx context.Context, path string) (*ir.Node, error) {
-	return s.MatchPattern(ctx, path, nil)
+	return s.matchAt(ctx, path, nil, nil)
 }
 
 // MatchPattern performs a match query at path with a match/trim pattern: only the
@@ -215,9 +215,31 @@ func (s *LogdSession) Match(ctx context.Context, path string) (*ir.Node, error) 
 // it applies whether the path is served by logd, a controller, or a docd-composed
 // read across mounts.
 func (s *LogdSession) MatchPattern(ctx context.Context, path string, pattern *ir.Node) (*ir.Node, error) {
+	return s.matchAt(ctx, path, pattern, nil)
+}
+
+// MatchAt performs a point-in-time match query at path, returning the full state
+// as of the given commit rather than the current one. The commit must be in range
+// [0, current]; an out-of-range commit is rejected. Across docd this reads base
+// and every logd-backed mount at the same commit — one consistent snapshot, since
+// they share logd's single commit sequence.
+func (s *LogdSession) MatchAt(ctx context.Context, path string, commit int64) (*ir.Node, error) {
+	return s.matchAt(ctx, path, nil, &commit)
+}
+
+// MatchPatternAt combines MatchPattern and MatchAt: a point-in-time read at commit,
+// trimmed to pattern.
+func (s *LogdSession) MatchPatternAt(ctx context.Context, path string, pattern *ir.Node, commit int64) (*ir.Node, error) {
+	return s.matchAt(ctx, path, pattern, &commit)
+}
+
+// matchAt is the general form behind Match/MatchPattern/MatchAt: a match at path
+// with an optional trim pattern and an optional historical commit (nil = current).
+func (s *LogdSession) matchAt(ctx context.Context, path string, pattern *ir.Node, commit *int64) (*ir.Node, error) {
 	resp, err := s.request(ctx, &api.SessionRequest{
 		Match: &api.MatchRequest{
-			Body: api.PathData{Path: path, Data: pattern},
+			Body:   api.PathData{Path: path, Data: pattern},
+			Commit: commit,
 		},
 	})
 	if err != nil {

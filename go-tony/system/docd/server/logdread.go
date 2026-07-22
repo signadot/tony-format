@@ -11,14 +11,15 @@ import (
 )
 
 // readLogdMatch reads the state at path directly from logd over a short-lived
-// baseline connection, returning the matched body and commit.
+// baseline connection, returning the matched body and commit. atCommit, when
+// non-nil, reads historical state at that commit rather than the current one.
 //
 // A composed read cannot use the client's own logd connection for its base
 // portion: responses on that connection are auto-forwarded to the client by the
 // logd pump, but a composed read must intercept the base result and merge it with
 // the mount subtrees before replying. A dedicated connection keeps the base read
 // collectable, mirroring writeBaseParticipant on the write path.
-func readLogdMatch(logdAddr, path string, scope *string, timeout time.Duration) (*ir.Node, int64, error) {
+func readLogdMatch(logdAddr, path string, scope *string, atCommit *int64, timeout time.Duration) (*ir.Node, int64, error) {
 	conn, err := net.DialTimeout("tcp", logdAddr, 5*time.Second)
 	if err != nil {
 		return nil, 0, fmt.Errorf("connect to logd at %s: %w", logdAddr, err)
@@ -42,7 +43,7 @@ func readLogdMatch(logdAddr, path string, scope *string, timeout time.Duration) 
 	}
 
 	if err := writeSessionRequest(conn, &logdapi.SessionRequest{
-		Match: &logdapi.MatchRequest{Body: logdapi.PathData{Path: path}},
+		Match: &logdapi.MatchRequest{Body: logdapi.PathData{Path: path}, Commit: atCommit},
 	}); err != nil {
 		return nil, 0, err
 	}
