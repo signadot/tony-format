@@ -4,7 +4,9 @@ import (
 	"testing"
 	"time"
 
+	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/parse"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
@@ -400,4 +402,48 @@ func containsMiddle(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// TestRootPatchAt covers re-rooting a value at each kpath segment kind (object,
+// array [i], sparse {n}), which the scoped-watch delta relies on. RootPatchAt
+// produces a PATCH (arrays as !arraydiff), so it is verified by APPLYING it to null
+// and reading the value at the path — the invariant the watch delta contract needs.
+func TestRootPatchAt(t *testing.T) {
+	// base provides the surrounding structure a delta is applied onto: an array
+	// delta (!arraydiff) needs the array to exist, exactly as a client applies a
+	// watch delta onto its accumulated state.
+	tests := []struct {
+		name    string
+		kp      string
+		base    string
+		getPath string
+	}{
+		{"object", "p.a.x", `null`, "$.p.a.x.v"},
+		{"array index", "p.items[2]", `{p: {items: [{v: 0}, {v: 0}, {v: 0}]}}`, "$.p.items[2].v"},
+		{"root", "", `null`, "$.v"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			val, err := parse.Parse([]byte(`{v: 7}`))
+			if err != nil {
+				t.Fatalf("parse val: %v", err)
+			}
+			base, err := parse.Parse([]byte(tt.base))
+			if err != nil {
+				t.Fatalf("parse base: %v", err)
+			}
+			rooted, err := RootPatchAt(tt.kp, val)
+			if err != nil {
+				t.Fatalf("RootPatchAt(%q): %v", tt.kp, err)
+			}
+			applied, err := tony.Patch(base, rooted)
+			if err != nil {
+				t.Fatalf("apply RootPatchAt(%q): %v", tt.kp, err)
+			}
+			got, err := applied.GetPath(tt.getPath)
+			if err != nil || got == nil || got.Int64 == nil || *got.Int64 != 7 {
+				t.Errorf("applied RootPatchAt(%q) at %q = %v (err %v), want 7", tt.kp, tt.getPath, got, err)
+			}
+		})
+	}
 }

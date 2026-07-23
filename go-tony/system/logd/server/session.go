@@ -770,13 +770,28 @@ func (s *Session) scopedDocAt(path string, commit int64) (*ir.Node, error) {
 	if doc == nil {
 		return ir.Null(), nil
 	}
-	return doc, nil
+	// ReadStateAt returns a rooted SUPERSET: it collects ancestor-level index
+	// segments and applies whole patch entries, so a read of "p.b" carries a
+	// sibling "p.a" write done under the shared ancestor "p". Trim to the path's
+	// own subtree (mirroring handleMatch and watch-init, which extract after
+	// reading) so a scoped watcher does not see a sibling's write as a change.
+	sub, err := extractPathValue(doc, path)
+	if err != nil {
+		return ir.Null(), nil // path absent in this commit's state
+	}
+	if sub == nil || sub.Type == ir.NullType {
+		return ir.Null(), nil
+	}
+	return sub, nil
 }
 
-// emitScopedDelta recomputes the scoped view at commit and, if it differs from prev,
-// sends a root-rooted delta (prev -> new) as a patch event. It returns the new
-// document to use as the next diff base (unchanged prev when there is no delta, so a
-// baseline write to a scope-overridden leaf emits nothing).
+// emitScopedDelta recomputes the scoped view of the watched path's subtree at
+// commit and, if it differs from prev, sends a root-rooted delta (prev -> new) as a
+// patch event. prev and the returned value are the path's own subtree (as
+// scopedDocAt trims it), so the diff is taken at the path and then re-rooted to the
+// document root for the watch delta contract. It returns the new subtree to use as
+// the next diff base (unchanged prev when there is no delta, so a baseline write to
+// a scope-overridden leaf — or any sibling write — emits nothing).
 func (s *Session) emitScopedDelta(path string, commit int64, prev *ir.Node) (*ir.Node, error) {
 	newDoc, err := s.scopedDocAt(path, commit)
 	if err != nil {
@@ -785,7 +800,11 @@ func (s *Session) emitScopedDelta(path string, commit int64, prev *ir.Node) (*ir
 	if newDoc.DeepEqual(prev) {
 		return prev, nil
 	}
-	s.send(api.NewPatchEvent(commit, path, tony.Diff(prev, newDoc)))
+	rooted, err := tx.RootPatchAt(path, tony.Diff(prev, newDoc))
+	if err != nil {
+		return prev, err
+	}
+	s.send(api.NewPatchEvent(commit, path, rooted))
 	return newDoc, nil
 }
 

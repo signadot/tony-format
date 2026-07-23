@@ -100,6 +100,19 @@ func newKTree(kp string, node *ir.Node) (*kTree, error) {
 	return res, nil
 }
 
+// RootPatchAt wraps node as a patch rooted at the document root under kp, using
+// the same canonical rooting as a client patch (object fields, sparse {n}, and
+// array [i] via !arraydiff). kp == "" returns node unchanged. This is the inverse
+// of navigating to kp: a delta computed at kp's subtree is re-rooted for the
+// root-rooted watch delta contract.
+func RootPatchAt(kp string, node *ir.Node) (*ir.Node, error) {
+	kt, err := newKTree(kp, node)
+	if err != nil {
+		return nil, err
+	}
+	return kt.node()
+}
+
 func (kt *kTree) add(kp string, node *ir.Node) error {
 	ot, err := newKTree(kp, node)
 	if err != nil {
