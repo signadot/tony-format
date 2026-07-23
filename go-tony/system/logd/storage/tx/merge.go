@@ -159,10 +159,17 @@ func (kt *kTree) node() (*ir.Node, error) {
 			if err != nil {
 				return nil, err
 			}
-			if strings.HasPrefix(f, ".") {
-				f = f[1:]
+			// Use the canonical (unquoted) field name, not the raw segment string.
+			// SegmentString re-quotes a key that needs quoting (a digit-first key
+			// becomes "9digit"); storing that quoted form as the object key makes it
+			// fail to match an unquoted pattern field later — the CAS precondition
+			// over a digit-first subtree reads null and the commit is revoked.
+			// KPath.Field is already the unquoted name.
+			if child.KPath != nil && child.KPath.Field != nil {
+				m[*child.KPath.Field] = cNode
+				continue
 			}
-			m[f] = cNode
+			m[strings.TrimPrefix(f, ".")] = cNode
 		}
 		return ir.FromMap(m), nil
 	case sparseArrayKind:

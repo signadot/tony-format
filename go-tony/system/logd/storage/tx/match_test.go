@@ -58,3 +58,25 @@ func mustParseTx(t *testing.T, s string) *ir.Node {
 	}
 	return n
 }
+
+// TestRootPatchAt_CanonicalFieldKey guards the path->tree nesting: a digit-first
+// segment in the write path (which kpath quotes, as docd's fieldsToKPath does) must
+// be stored under the canonical unquoted field key, or an unquoted precondition
+// pattern can never match it — the residual §8 monitor spin.
+func TestRootPatchAt_CanonicalFieldKey(t *testing.T) {
+	leaf := mustParseTx(t, `{choice: "approve"}`)
+	got, err := RootPatchAt(`vote."9digit"`, leaf)
+	if err != nil {
+		t.Fatalf("RootPatchAt: %v", err)
+	}
+	vote := ir.Get(got, "vote")
+	if vote == nil {
+		t.Fatalf("no vote field in %v", got)
+	}
+	if len(vote.Fields) != 1 {
+		t.Fatalf("expected one field under vote, got %d", len(vote.Fields))
+	}
+	if key := vote.Fields[0].String; key != "9digit" {
+		t.Fatalf("field key = %q, want canonical unquoted %q", key, "9digit")
+	}
+}
