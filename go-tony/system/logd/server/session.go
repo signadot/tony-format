@@ -11,6 +11,7 @@ import (
 	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/stream"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
@@ -770,6 +771,15 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 			if notification.Commit <= lastReplayedCommit {
 				continue
 			}
+			// Cheap pre-filter: the coarse wake fires this watcher for every write
+			// under a shared top-level subtree, but recomputing full state per event
+			// is O(log) and collapses under many watches. If the committed delta
+			// clearly cannot reach this watcher's subtree (a plain merge that misses
+			// the path), skip the recompute. Conservative: any op tag or a
+			// non-navigable ancestor falls through to the authoritative recompute.
+			if !patchMayAffect(notification.Patch, path) {
+				continue
+			}
 			if scoped {
 				// Lazily seed the diff baseline at the commit just before the first
 				// event, so a queued race-window event (commit <= startCommit) yields a
@@ -857,6 +867,61 @@ func (s *Session) scopedDocAt(path string, commit int64) (*ir.Node, error) {
 		return ir.Null(), nil
 	}
 	return sub, nil
+}
+
+// patchMayAffect reports whether the committed delta could change the subtree at
+// path. It is a cheap structural pre-filter that lets a watcher skip the expensive
+// full-state recompute for the common case — a sibling write, under a shared
+// ancestor, that does not reach the watched path. It is CONSERVATIVE: it returns
+// true (fall through to the authoritative recompute) for any op-tagged node along
+// the path (an op's effect can extend beyond its structural location — !replace,
+// !delete, !key, !arraydiff, ...) or a non-navigable ancestor. It returns false
+// only for a plain merge that structurally misses the path — a merge only adds or
+// overwrites the keys it names, so if it never reaches the path, the subtree is
+// unchanged. Soundness rests on the recompute, not on this filter.
+func patchMayAffect(patch *ir.Node, path string) bool {
+	if patch == nil {
+		return false
+	}
+	if path == "" {
+		return true
+	}
+	kp, err := kpath.Parse(path)
+	if err != nil {
+		return true
+	}
+	cur := patch
+	for kp != nil {
+		if cur == nil {
+			return false
+		}
+		if cur.Tag != "" { // an op node — cannot reason structurally; recompute decides
+			return true
+		}
+		switch {
+		case kp.Field != nil:
+			if cur.Type != ir.ObjectType {
+				return true // an ancestor set to a non-object (replaced) — may affect
+			}
+			cur = ir.Get(cur, *kp.Field)
+			if cur == nil {
+				return false // a plain-merge sibling: this subtree is untouched
+			}
+		case kp.Index != nil:
+			if cur.Type != ir.ArrayType {
+				return true
+			}
+			i := *kp.Index
+			if i < 0 || i >= len(cur.Values) {
+				return false
+			}
+			cur = cur.Values[i]
+		default:
+			return true // sparse/wildcard segment: conservative
+		}
+		kp = kp.Next
+	}
+	return cur != nil // a node exists at the watched path — it was touched
 }
 
 // emitScopedDelta recomputes the scoped view of the watched path's subtree at
