@@ -47,8 +47,7 @@ type Session struct {
 	done     chan struct{}             // signals session shutdown
 
 	// Shutdown coordination
-	closeOnce    sync.Once
-	closeOutOnce sync.Once
+	closeOnce sync.Once
 
 	// For tracking commits since snapshot (shared with server)
 	onCommit func()
@@ -119,10 +118,8 @@ func (s *Session) Run() error {
 	// Clean up watches
 	s.cleanupWatches()
 
-	// Close outgoing to stop writer (safe to call multiple times)
-	s.closeOutOnce.Do(func() {
-		close(s.outgoing)
-	})
+	// The writer exits on s.done (closed above); outgoing is intentionally never
+	// closed so a shutdown-racing send() cannot panic on a closed channel.
 
 	// Wait for writer to finish
 	wg.Wait()
@@ -208,20 +205,30 @@ func (s *Session) readDocument(decoder *stream.Decoder) (*ir.Node, error) {
 	}
 }
 
-// writer sends outgoing responses and events.
+// writer sends outgoing responses and events. It exits when the session is done
+// rather than when outgoing is closed: outgoing is deliberately never closed, so
+// that a late send() from a forwardEvents/failWatch goroutine racing shutdown can
+// never panic with "send on closed channel" (send selects on outgoing vs done, and
+// a select with both channels ready may pick the closed send). Losing any buffered
+// responses on a closing session is harmless — the peer is already gone.
 func (s *Session) writer() {
-	for resp := range s.outgoing {
-		// Use wire format to match client's WithBrackets() decoder
-		data, err := resp.ToTony(gomap.EncodeWire(true))
-		if err != nil {
-			s.log.Error("failed to encode response", "error", err)
-			continue
-		}
-
-		// Write with newline delimiter
-		if _, err := s.conn.Write(append(data, '\n')); err != nil {
-			s.log.Error("failed to write response", "error", err)
+	for {
+		select {
+		case <-s.done:
 			return
+		case resp := <-s.outgoing:
+			// Use wire format to match client's WithBrackets() decoder
+			data, err := resp.ToTony(gomap.EncodeWire(true))
+			if err != nil {
+				s.log.Error("failed to encode response", "error", err)
+				continue
+			}
+
+			// Write with newline delimiter
+			if _, err := s.conn.Write(append(data, '\n')); err != nil {
+				s.log.Error("failed to write response", "error", err)
+				return
+			}
 		}
 	}
 }
