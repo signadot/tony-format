@@ -12,10 +12,12 @@ import (
 	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
+	"github.com/signadot/tony-format/go-tony/mergeop"
 	"github.com/signadot/tony-format/go-tony/stream"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
+	"github.com/signadot/tony-format/go-tony/token"
 )
 
 // Session represents a bidirectional session with a client.
@@ -879,6 +881,14 @@ func (s *Session) scopedDocAt(path string, commit int64) (*ir.Node, error) {
 // only for a plain merge that structurally misses the path — a merge only adds or
 // overwrites the keys it names, so if it never reaches the path, the subtree is
 // unchanged. Soundness rests on the recompute, not on this filter.
+//
+// Segment matching MUST normalize quoting, mirroring the read side's path handling
+// (docd pathFields): SplitAll yields a digit-first key as the quoted "9reprokind",
+// but the field is stored as the unquoted 9reprokind. SegmentFieldName unquotes the
+// path segment to its canonical field name; the field key is matched in either
+// stored form. Getting this wrong (comparing the quoted segment verbatim, or
+// unquoting only one side) makes every quoted key — decision ids are %08x, ~62%
+// digit-first — miss its field and silently drops the watcher's events.
 func patchMayAffect(patch *ir.Node, path string) bool {
 	if patch == nil {
 		return false
@@ -886,42 +896,84 @@ func patchMayAffect(patch *ir.Node, path string) bool {
 	if path == "" {
 		return true
 	}
-	kp, err := kpath.Parse(path)
-	if err != nil {
-		return true
+	names, ok := pathFieldNames(path)
+	if !ok {
+		return true // malformed, or a non-field segment (array/sparse index)
 	}
 	cur := patch
-	for kp != nil {
+	for _, name := range names {
 		if cur == nil {
 			return false
 		}
-		if cur.Tag != "" { // an op node — cannot reason structurally; recompute decides
+		// A genuine merge operation (!replace, !delete, !key, ...) can change the
+		// subtree even when structural navigation would miss it, so any op tag along
+		// the path falls through to the authoritative recompute. Presentation tags
+		// (!bracket, ...) are NOT operations and must be ignored — SplitChild strips
+		// them exactly as the patch applier does. Using cur.Tag != "" instead would
+		// treat every bracket-encoded node as an op and defeat the filter entirely.
+		if _, op, _, _, err := mergeop.SplitChild(cur); err != nil || op != "" {
 			return true
 		}
-		switch {
-		case kp.Field != nil:
-			if cur.Type != ir.ObjectType {
-				return true // an ancestor set to a non-object (replaced) — may affect
-			}
-			cur = ir.Get(cur, *kp.Field)
-			if cur == nil {
-				return false // a plain-merge sibling: this subtree is untouched
-			}
-		case kp.Index != nil:
-			if cur.Type != ir.ArrayType {
-				return true
-			}
-			i := *kp.Index
-			if i < 0 || i >= len(cur.Values) {
-				return false
-			}
-			cur = cur.Values[i]
-		default:
-			return true // sparse/wildcard segment: conservative
+		if cur.Type != ir.ObjectType {
+			// A non-object ancestor (array/scalar), or a non-field segment such as
+			// an array index that the read side does not navigate structurally —
+			// be conservative and let the recompute decide.
+			return true
 		}
-		kp = kp.Next
+		next := getField(cur, name)
+		if next == nil {
+			return false // a plain-merge sibling: this subtree is untouched
+		}
+		cur = next
 	}
 	return cur != nil // a node exists at the watched path — it was touched
+}
+
+// pathFieldNames splits path into canonical (unquoted) field names in a single
+// kpath.Parse — which already unquotes each field segment (a digit-first key parses
+// to the bare 9reprokind). It reports ok=false for a malformed path or any non-field
+// segment (array/sparse index/wildcard) that cannot be navigated structurally, so
+// the caller falls back to the authoritative recompute. This runs on every watch
+// event, so it must stay a single Parse — do NOT reparse per segment.
+func pathFieldNames(path string) ([]string, bool) {
+	kp, err := kpath.Parse(path)
+	if err != nil {
+		return nil, false
+	}
+	var names []string
+	for ; kp != nil; kp = kp.Next {
+		if kp.Field == nil {
+			return nil, false // a non-field segment (array/sparse index/wildcard)
+		}
+		names = append(names, *kp.Field)
+	}
+	return names, true
+}
+
+// getField looks up the field whose key equals name (already the unquoted canonical
+// form from pathFieldNames), comparing against the field key in either stored form:
+// the unquoted key directly (parse stores keys unquoted), or the key unquoted via a
+// cheap quote strip (in case a producer stored it quoted). Biasing toward a match is
+// safe — a false match only forces the authoritative recompute; a false miss would
+// wrongly drop the event. Kept allocation- and Parse-free: it runs per field per
+// event on the hot watch-delivery path.
+func getField(node *ir.Node, name string) *ir.Node {
+	for i, field := range node.Fields {
+		if field.String == name || unquoteFieldKey(field.String) == name {
+			return node.Values[i]
+		}
+	}
+	return nil
+}
+
+// unquoteFieldKey strips surrounding quotes from a stored field key, mirroring the
+// field-name branch of kpath's segment parser. A bare key is returned unchanged, so
+// this is safe to call on any key and avoids a full kpath.Parse.
+func unquoteFieldKey(s string) string {
+	if len(s) >= 2 && (s[0] == '"' || s[0] == '\'') && s[len(s)-1] == s[0] {
+		return token.QuotedToString([]byte(s))
+	}
+	return s
 }
 
 // emitScopedDelta recomputes the scoped view of the watched path's subtree at
