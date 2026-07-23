@@ -819,7 +819,11 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 				continue
 			}
 			prevDoc = newSub
-			s.send(api.NewPatchEvent(watcher.ID, notification.Commit, path, notification.Patch))
+			// The hub broadcasts ONE shared notification.Patch to every watcher on the
+			// path (across sessions); encoding mutates a node's parent linkage
+			// (ir.FromMap), so two session writers serializing the same node race. Hand
+			// this watcher its own copy — the shared node is then only ever read.
+			s.send(api.NewPatchEvent(watcher.ID, notification.Commit, path, notification.Patch.DeepCopy()))
 		}
 	}
 }

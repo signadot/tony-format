@@ -382,6 +382,38 @@ func TestMultiWatch_SamePathViaDocd(t *testing.T) {
 	assertRootedDelta(t, "w2", w2, "$.m.a.v", 2)
 }
 
+// TestWatch_TwoSessionsSamePathNoRace is a -race regression: the hub broadcasts one
+// shared notification.Patch to every watcher on a path, and encoding it mutates the
+// node's parent linkage (ir.FromMap), so two separate sessions' writers serializing
+// the same node raced. Each watcher must get its own copy. Run under `go test -race`.
+func TestWatch_TwoSessionsSamePathNoRace(t *testing.T) {
+	logd := startLogd(t)
+	ctx := context.Background()
+	s1 := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "s1"})
+	t.Cleanup(func() { s1.Close() })
+	s2 := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "s2"})
+	t.Cleanup(func() { s2.Close() })
+	w1, err := s1.Watch(ctx, "a", nil)
+	if err != nil {
+		t.Fatalf("watch s1: %v", err)
+	}
+	w2, err := s2.Watch(ctx, "a", nil)
+	if err != nil {
+		t.Fatalf("watch s2: %v", err)
+	}
+	expectEvent(t, w1) // drain init
+	expectEvent(t, w2)
+
+	writer := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "wr"})
+	t.Cleanup(func() { writer.Close() })
+	if err := writer.Patch(ctx, "a", vObj(1)); err != nil {
+		t.Fatalf("patch: %v", err)
+	}
+	// Both sessions deliver (and encode) the broadcast concurrently.
+	expectEvent(t, w1)
+	expectEvent(t, w2)
+}
+
 // expectQuiet asserts no event arrives on w within a short window.
 func expectQuiet(t *testing.T, p string, w *Watch) {
 	t.Helper()
