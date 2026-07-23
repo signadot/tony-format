@@ -25,7 +25,12 @@ func extractPathValue(doc *ir.Node, kp string) (*ir.Node, error) {
 		return doc, nil
 	}
 
-	// Navigate through the document following the path structure
+	// Navigate through the document following the path structure. Segment matching
+	// canonicalizes quoting (see valueAtPath / patchMayAffect): SplitAll yields a
+	// digit-first key as the quoted "9digitdid" but it is stored unquoted, so the
+	// segment is reduced to its canonical field name and the key is matched in
+	// either stored form. A verbatim compare drops every quoted key (~62% of %08x
+	// decision ids are digit-first), which here would report the subtree absent.
 	current := doc
 	parts := splitKPath(kp)
 
@@ -34,10 +39,15 @@ func extractPathValue(doc *ir.Node, kp string) (*ir.Node, error) {
 			return nil, fmt.Errorf("%w: expected object at path segment %q", ErrPathNotFound, part)
 		}
 
+		name, isField := kpath.SegmentFieldName(part)
+		if !isField {
+			return nil, fmt.Errorf("%w: non-field path segment %q", ErrPathNotFound, part)
+		}
+
 		// Find the field matching this part
 		found := false
 		for i, field := range current.Fields {
-			if field.String == part {
+			if field.String == name || unquoteFieldKey(field.String) == name {
 				current = current.Values[i]
 				found = true
 				break
