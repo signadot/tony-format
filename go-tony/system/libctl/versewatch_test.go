@@ -239,16 +239,10 @@ func TestVerse_WatchCrosstalk_DirectLogd_CommonParent(t *testing.T) {
 			name = "scoped"
 		}
 		t.Run(name, func(t *testing.T) {
-			if scope == "" {
-				// SEPARATE, UNFIXED FACET: a baseline watcher on p.b is still woken by
-				// a baseline write to sibling p.a (coarse top-level KPath wakes every
-				// watcher under the shared ancestor) and forwards the raw committed
-				// diff. Verse is entirely scoped, so this is out of scope for the
-				// scoped-watch fix; the scoped subtest below is the verse case. The
-				// baseline facet needs a precise wake or a per-watcher delivery gate
-				// and is tracked separately.
-				t.Skip("baseline common-parent cross-talk is a separate, unfixed facet")
-			}
+			// Both baseline and scoped are now covered: the baseline watcher is woken
+			// by the coarse wake but its forward is gated on whether its own subtree
+			// changed (materialized), so a sibling write to p.a no longer reaches the
+			// p.b watch; the scoped watcher trims+diffs its subtree.
 			logd := startLogd(t)
 			ctx := context.Background()
 			cfg := func(id string) *LogdSessionConfig {
@@ -278,9 +272,9 @@ func TestVerse_WatchCrosstalk_DirectLogd_CommonParent(t *testing.T) {
 				t.Fatalf("patch p.a: %v", err)
 			}
 
-			if ev := expectEvent(t, wa); ev.Patch == nil {
-				t.Errorf("watch p.a: expected delta, got %+v", ev)
-			}
+			// p.a's own watch fires, and its forwarded delta is correct (applies to
+			// the written value). Baseline forwards the raw committed delta.
+			assertRootedDelta(t, "p.a", wa, "$.p.a.v", 1)
 			expectQuiet(t, "p.b", wb) // p.b must NOT fire on a write to p.a
 		})
 	}

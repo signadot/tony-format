@@ -649,15 +649,18 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 		s.send(api.NewStateEvent(startCommit, path, state))
 	}
 
-	// prevDoc tracks the last-emitted scoped state (root-rooted) so a scoped watcher
-	// can emit deltas by recompute-and-diff. A scoped watcher must reproduce the scoped
-	// read at each commit; a raw committed delta (baseline or scope) does not, because
-	// scope writes shadow baseline and !key merges are identity-based. Recompute+diff
-	// also naturally suppresses baseline writes to leaves the scope has overridden (the
-	// scoped view is unchanged -> empty diff). See issue eagjggjdh12ksg00bsn0.
+	// prevDoc tracks the watched path's own subtree (as scopedDocAt trims it) at the
+	// last delivered commit. A scoped watcher uses it to emit deltas by
+	// recompute-and-diff (it must reproduce the scoped read at each commit; a raw
+	// committed delta does not, because scope writes shadow baseline and !key merges
+	// are identity-based). A BASELINE watcher uses it only as a change GATE: a coarse
+	// wake (top-level KPath) plus the superset read can wake a watcher for a commit
+	// that only touched a sibling under a shared ancestor, so before forwarding the
+	// raw committed delta (which baseline keeps for op fidelity) we confirm the
+	// watcher's own subtree actually changed. See issue eagjggjdh12ksg00bsn0.
 	//
-	// prevDoc is seeded at startCommit only for a fromCommit replay (the replay below
-	// diffs forward from it). For a no-replay watcher it is seeded LAZILY, at
+	// prevDoc is seeded at startCommit for a fromCommit replay (the replay below diffs
+	// or gates forward from it). For a no-replay watcher it is seeded LAZILY, at
 	// (firstEvent.commit - 1) when the first event arrives — never at startCommit —
 	// because a write can race into [hub-register, GetCurrentCommit] and be queued with
 	// commit <= startCommit; seeding at startCommit would fold that write into the
@@ -665,12 +668,12 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 	// seeding makes every queued or live event a correct forward diff.
 	var prevDoc *ir.Node
 	prevSeeded := false
-	if scoped && fromCommit != nil {
+	if fromCommit != nil {
 		var err error
 		prevDoc, err = s.scopedDocAt(path, startCommit)
 		if err != nil {
-			s.log.Error("failed to read scoped watch base", "path", path, "commit", startCommit, "error", err)
-			s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read scoped state at commit %d: %v", startCommit, err))
+			s.log.Error("failed to read watch base", "path", path, "commit", startCommit, "error", err)
+			s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read state at commit %d: %v", startCommit, err))
 			return
 		}
 		prevSeeded = true
@@ -696,6 +699,18 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 					prevDoc = newPrev
 					continue
 				}
+				// Baseline: forward the raw delta (op fidelity), but only if this
+				// watcher's own subtree actually changed at this commit — the range
+				// read can include a sibling's write under a shared ancestor.
+				newSub, err := s.scopedDocAt(path, patch.Commit)
+				if err != nil {
+					s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read state at commit %d: %v", patch.Commit, err))
+					return
+				}
+				if newSub.DeepEqual(prevDoc) {
+					continue
+				}
+				prevDoc = newSub
 				tx.StripPatchRootTagRecursive(patch.Patch)
 				s.send(api.NewPatchEvent(patch.Commit, path, patch.Patch))
 			}
@@ -748,9 +763,31 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 				prevDoc = newPrev
 				continue
 			}
-			// The patch has already been stripped of internal tags by the hub
-			// (WatchHub.Broadcast), which hands each notification an independent
-			// copy. Forwarding it is read-only.
+			// Baseline: forward the raw committed delta (already tag-stripped by the
+			// hub, so read-only) to preserve op fidelity (!key etc.), but only if this
+			// watcher's own subtree actually changed. A coarse wake plus the superset
+			// read can deliver a commit that only touched a sibling under a shared
+			// ancestor; the gate suppresses it. prevDoc is seeded lazily as scoped does.
+			if !prevSeeded {
+				var err error
+				prevDoc, err = s.scopedDocAt(path, notification.Commit-1)
+				if err != nil {
+					s.log.Error("failed to read watch base", "path", path, "commit", notification.Commit-1, "error", err)
+					s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read state at commit %d: %v", notification.Commit-1, err))
+					return
+				}
+				prevSeeded = true
+			}
+			newSub, err := s.scopedDocAt(path, notification.Commit)
+			if err != nil {
+				s.log.Error("failed to read state for watch", "path", path, "commit", notification.Commit, "error", err)
+				s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read state at commit %d: %v", notification.Commit, err))
+				return
+			}
+			if newSub.DeepEqual(prevDoc) {
+				continue
+			}
+			prevDoc = newSub
 			s.send(api.NewPatchEvent(notification.Commit, path, notification.Patch))
 		}
 	}
