@@ -70,6 +70,7 @@ type WatchOptions struct {
 // reconnect: if the connection drops, the watch fails and the caller must
 // re-establish it.
 type Watch struct {
+	id      string
 	path    string
 	session *LogdSession
 	events  chan *api.WatchEvent
@@ -83,7 +84,8 @@ type Watch struct {
 // watch request, and waits for logd's confirmation before returning. Events
 // then stream on the returned Watch's Events() channel until it is closed.
 //
-// Only one watch per path may be active on a session at a time.
+// A session may hold several watches on the same path; each is identified by its
+// own request id, and events are routed by that id.
 func (s *LogdSession) Watch(ctx context.Context, path string, opts *WatchOptions) (*Watch, error) {
 	if opts == nil {
 		opts = &WatchOptions{}
@@ -112,16 +114,15 @@ func (s *LogdSession) Watch(ctx context.Context, path string, opts *WatchOptions
 		s.mu.Unlock()
 		return nil, err
 	}
-	if _, exists := s.watchers[path]; exists {
-		s.mu.Unlock()
-		return nil, fmt.Errorf("already watching %q", path)
-	}
-
-	// Register the watcher BEFORE sending, so the initial state event (which
-	// logd may push immediately) is routed to us rather than dropped.
-	s.watchers[path] = w
 
 	id := s.newIDLocked()
+	w.id = id
+
+	// Register the watcher BEFORE sending, so the initial state event (which
+	// logd may push immediately) is routed to us rather than dropped. Keyed by the
+	// watch's request id so multiple watches on one path stay distinct.
+	s.watchers[id] = w
+
 	replyCh := make(chan *api.SessionResponse, 1)
 	s.pending[id] = replyCh
 
@@ -135,7 +136,7 @@ func (s *LogdSession) Watch(ctx context.Context, path string, opts *WatchOptions
 	}
 	if err := s.sendRequestTo(s.conn, req); err != nil {
 		delete(s.pending, id)
-		delete(s.watchers, path)
+		delete(s.watchers, id)
 		conn, pending, watchers := s.teardownLocked(err)
 		s.mu.Unlock()
 		releaseResources(conn, pending, watchers, err)
@@ -149,18 +150,18 @@ func (s *LogdSession) Watch(ctx context.Context, path string, opts *WatchOptions
 			return nil, s.connError()
 		}
 		if resp.Error != nil {
-			s.removeWatcher(path)
+			s.removeWatcher(id)
 			return nil, fmt.Errorf("watch error: %s", resp.Error.Message)
 		}
 		if resp.Result == nil || resp.Result.Watch == nil {
-			s.removeWatcher(path)
+			s.removeWatcher(id)
 			return nil, fmt.Errorf("unexpected response: no watch result")
 		}
 		return w, nil
 	case <-ctx.Done():
 		s.mu.Lock()
 		delete(s.pending, id)
-		delete(s.watchers, path)
+		delete(s.watchers, id)
 		s.mu.Unlock()
 		return nil, ctx.Err()
 	case <-s.done:
@@ -199,12 +200,12 @@ func (w *Watch) Close() error {
 	close(w.events)
 	w.mu.Unlock()
 
-	w.session.removeWatcher(w.path)
+	w.session.removeWatcher(w.id)
 
 	// Tell logd to stop the watch. Bounded so Close can't hang.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return w.session.unwatch(ctx, w.path)
+	return w.session.unwatch(ctx, w.path, w.id)
 }
 
 // deliver hands an event to the consumer. It never blocks the read-pump: if the
@@ -239,9 +240,10 @@ func (w *Watch) fail(err error) {
 	close(w.events)
 }
 
-// unwatch sends an unwatch request for path. It is best-effort: if the session
-// is not currently connected, there is nothing to unwatch.
-func (s *LogdSession) unwatch(ctx context.Context, path string) error {
+// unwatch sends an unwatch request targeting the specific watch id on path. It is
+// best-effort: if the session is not currently connected, there is nothing to
+// unwatch.
+func (s *LogdSession) unwatch(ctx context.Context, path, watchID string) error {
 	s.mu.Lock()
 	connected := s.connected
 	s.mu.Unlock()
@@ -250,7 +252,7 @@ func (s *LogdSession) unwatch(ctx context.Context, path string) error {
 	}
 
 	resp, err := s.request(ctx, &api.SessionRequest{
-		Unwatch: &api.UnwatchRequest{Path: path},
+		Unwatch: &api.UnwatchRequest{Path: path, WatchID: &watchID},
 	})
 	if err != nil {
 		return err

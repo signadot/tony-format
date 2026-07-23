@@ -540,6 +540,17 @@ func (s *Session) handleNewTx(id *string, req *api.NewTxRequest) {
 	})
 }
 
+// watchKey is the s.watches map key for a watch. An id-bearing watch is keyed by
+// its (session-unique) request id, so several watches on the same path coexist; an
+// id-less (legacy) watch is keyed by path, of which there is at most one. The
+// "id:"/"path:" prefixes keep the two namespaces from colliding.
+func watchKey(id *string, path string) string {
+	if id != nil {
+		return "id:" + *id
+	}
+	return "path:" + path
+}
+
 // handleWatch handles watch requests.
 func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 	path := req.Path
@@ -558,13 +569,32 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 		}
 	}
 
-	// Check if already watching
+	// Admission: a path is either a single id-less watch or N distinct id-bearing
+	// watches, never mixed, so events route unambiguously. Reject an id-less watch
+	// when the path is already watched, an id-bearing watch when an id-less watch
+	// holds the path, and any request whose id duplicates an existing watch.
 	s.watchMu.RLock()
-	_, exists := s.watches[path]
+	var reject string
+	for _, w := range s.watches {
+		if id != nil && w.ID != nil && *w.ID == *id {
+			reject = fmt.Sprintf("already watching with id %q", *id)
+			break
+		}
+		if w.Path != path {
+			continue
+		}
+		if id == nil {
+			reject = fmt.Sprintf("already watching %q", path)
+			break
+		}
+		if w.ID == nil {
+			reject = fmt.Sprintf("%q already has an id-less watch", path)
+			break
+		}
+	}
 	s.watchMu.RUnlock()
-
-	if exists {
-		s.sendError(id, api.ErrCodeAlreadyWatching, fmt.Sprintf("already watching %q", path))
+	if reject != "" {
+		s.sendError(id, api.ErrCodeAlreadyWatching, reject)
 		return
 	}
 
@@ -572,6 +602,7 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 	// Events that arrive between Watch and GetCurrentCommit will be queued.
 	// After replay, we skip any queued events with commit <= currentCommit.
 	watcher := NewWatcher(path, s.scope, req.FromCommit, 100)
+	watcher.ID = id
 	s.hub.Watch(watcher)
 
 	// Now get current commit - this is our replay target
@@ -584,7 +615,7 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 
 	// Store watcher
 	s.watchMu.Lock()
-	s.watches[path] = watcher
+	s.watches[watchKey(id, path)] = watcher
 	s.watchMu.Unlock()
 
 	// Determine replay range
@@ -646,7 +677,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 				}
 			}
 		}
-		s.send(api.NewStateEvent(startCommit, path, state))
+		s.send(api.NewStateEvent(watcher.ID, startCommit, path, state))
 	}
 
 	// prevDoc tracks the watched path's own subtree (as scopedDocAt trims it) at the
@@ -691,7 +722,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 			}
 			for _, patch := range patches {
 				if scoped {
-					newPrev, err := s.emitScopedDelta(path, patch.Commit, prevDoc)
+					newPrev, err := s.emitScopedDelta(watcher.ID, path, patch.Commit, prevDoc)
 					if err != nil {
 						s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read scoped state at commit %d: %v", patch.Commit, err))
 						return
@@ -712,11 +743,11 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 				}
 				prevDoc = newSub
 				tx.StripPatchRootTagRecursive(patch.Patch)
-				s.send(api.NewPatchEvent(patch.Commit, path, patch.Patch))
+				s.send(api.NewPatchEvent(watcher.ID, patch.Commit, path, patch.Patch))
 			}
 		}
 
-		s.send(api.NewReplayCompleteEvent(path))
+		s.send(api.NewReplayCompleteEvent(watcher.ID, path))
 	}
 
 	// Forward live events, skipping any already replayed
@@ -754,7 +785,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 				// Recompute the scoped view at this commit and emit only the change
 				// vs. the previously emitted state. notification.Patch (the raw
 				// baseline/scope delta) is intentionally ignored.
-				newPrev, err := s.emitScopedDelta(path, notification.Commit, prevDoc)
+				newPrev, err := s.emitScopedDelta(watcher.ID, path, notification.Commit, prevDoc)
 				if err != nil {
 					s.log.Error("failed to read scoped state for watch", "path", path, "commit", notification.Commit, "error", err)
 					s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read scoped state at commit %d: %v", notification.Commit, err))
@@ -788,7 +819,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 				continue
 			}
 			prevDoc = newSub
-			s.send(api.NewPatchEvent(notification.Commit, path, notification.Patch))
+			s.send(api.NewPatchEvent(watcher.ID, notification.Commit, path, notification.Patch))
 		}
 	}
 }
@@ -829,7 +860,7 @@ func (s *Session) scopedDocAt(path string, commit int64) (*ir.Node, error) {
 // document root for the watch delta contract. It returns the new subtree to use as
 // the next diff base (unchanged prev when there is no delta, so a baseline write to
 // a scope-overridden leaf — or any sibling write — emits nothing).
-func (s *Session) emitScopedDelta(path string, commit int64, prev *ir.Node) (*ir.Node, error) {
+func (s *Session) emitScopedDelta(id *string, path string, commit int64, prev *ir.Node) (*ir.Node, error) {
 	newDoc, err := s.scopedDocAt(path, commit)
 	if err != nil {
 		return prev, err
@@ -841,7 +872,7 @@ func (s *Session) emitScopedDelta(path string, commit int64, prev *ir.Node) (*ir
 	if err != nil {
 		return prev, err
 	}
-	s.send(api.NewPatchEvent(commit, path, rooted))
+	s.send(api.NewPatchEvent(id, commit, path, rooted))
 	return newDoc, nil
 }
 
@@ -849,20 +880,34 @@ func (s *Session) emitScopedDelta(path string, commit int64, prev *ir.Node) (*ir
 func (s *Session) handleUnwatch(id *string, req *api.UnwatchRequest) {
 	path := req.Path
 
+	// req.WatchID targets one specific watch; without it, cancel every watch on the
+	// path (the legacy id-less behavior, and a bulk unwatch).
 	s.watchMu.Lock()
-	watcher, exists := s.watches[path]
-	if exists {
-		delete(s.watches, path)
+	var removed []*Watcher
+	if req.WatchID != nil {
+		key := watchKey(req.WatchID, path)
+		if w, ok := s.watches[key]; ok {
+			removed = append(removed, w)
+			delete(s.watches, key)
+		}
+	} else {
+		for k, w := range s.watches {
+			if w.Path == path {
+				removed = append(removed, w)
+				delete(s.watches, k)
+			}
+		}
 	}
 	s.watchMu.Unlock()
 
-	if !exists {
+	if len(removed) == 0 {
 		s.sendError(id, api.ErrCodeNotWatching, fmt.Sprintf("not watching %q", path))
 		return
 	}
 
-	// Unwatch from hub
-	s.hub.Unwatch(watcher)
+	for _, w := range removed {
+		s.hub.Unwatch(w)
+	}
 
 	s.send(api.NewUnwatchResponse(id, path))
 }
@@ -976,9 +1021,9 @@ func (s *Session) cleanupWatches() {
 	s.watchMu.Lock()
 	defer s.watchMu.Unlock()
 
-	for path, watcher := range s.watches {
+	for key, watcher := range s.watches {
 		s.hub.Unwatch(watcher)
-		delete(s.watches, path)
+		delete(s.watches, key)
 	}
 }
 
@@ -997,10 +1042,11 @@ func (s *Session) sendError(id *string, code, message string) {
 
 // failWatch terminates a watch, sending an error to the client and cleaning up.
 func (s *Session) failWatch(watcher *Watcher, code, message string) {
-	s.send(api.NewErrorResponse(nil, code, message))
+	// Stamp the watch id so the client fails the right watch (several may share a path).
+	s.send(api.NewErrorResponse(watcher.ID, code, message))
 	s.hub.Unwatch(watcher)
 	s.watchMu.Lock()
-	delete(s.watches, watcher.Path)
+	delete(s.watches, watchKey(watcher.ID, watcher.Path))
 	s.watchMu.Unlock()
 }
 

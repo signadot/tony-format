@@ -423,9 +423,13 @@ func NewDeleteScopeResponse(id *string, scopeID string) *SessionResponse {
 	}
 }
 
-// NewStateEvent creates an event with full state.
-func NewStateEvent(commit int64, path string, state *ir.Node) *SessionResponse {
+// NewStateEvent creates an event with full state. id, when non-nil, is the
+// originating watch's request id, stamped on SessionResponse.ID so a client can
+// route the event to the right watch when several watches (even on the same path)
+// share one connection. A nil id keeps the legacy path-routed behavior.
+func NewStateEvent(id *string, commit int64, path string, state *ir.Node) *SessionResponse {
 	return &SessionResponse{
+		ID: id,
 		Event: &WatchEvent{
 			Commit: commit,
 			Path:   path,
@@ -434,9 +438,10 @@ func NewStateEvent(commit int64, path string, state *ir.Node) *SessionResponse {
 	}
 }
 
-// NewPatchEvent creates an event with a delta patch.
-func NewPatchEvent(commit int64, path string, patch *ir.Node) *SessionResponse {
+// NewPatchEvent creates an event with a delta patch. See NewStateEvent for id.
+func NewPatchEvent(id *string, commit int64, path string, patch *ir.Node) *SessionResponse {
 	return &SessionResponse{
+		ID: id,
 		Event: &WatchEvent{
 			Commit: commit,
 			Path:   path,
@@ -446,10 +451,12 @@ func NewPatchEvent(commit int64, path string, patch *ir.Node) *SessionResponse {
 }
 
 // NewReplayCompleteEvent creates a replay complete marker event for the given
-// watch path. The path lets clients route the marker to the correct watcher
-// when multiplexing several watches over one connection.
-func NewReplayCompleteEvent(path string) *SessionResponse {
+// watch path. The path lets clients route the marker to the correct watcher when
+// multiplexing several watches over one connection; id (see NewStateEvent) makes
+// that routing exact when the watch carries one.
+func NewReplayCompleteEvent(id *string, path string) *SessionResponse {
 	return &SessionResponse{
+		ID: id,
 		Event: &WatchEvent{
 			Path:           path,
 			ReplayComplete: true,

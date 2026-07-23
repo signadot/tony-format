@@ -285,7 +285,8 @@ func (s *MountSession) stopWatchStream(docdID, path string) {
 
 // forwardEvent forwards a streaming watch event to the client that owns the
 // watch. The controller stamps events with the docd-assigned route id; docd
-// strips it before delivery because clients route events by path, as with logd.
+// restores the client's original watch id so the client routes the event to the
+// right watch (several may share a path).
 func (s *MountSession) forwardEvent(resp *logdapi.SessionResponse) {
 	if resp.ID == nil {
 		s.log.Warn("dropping controller watch event with no route id")
@@ -301,7 +302,7 @@ func (s *MountSession) forwardEvent(resp *logdapi.SessionResponse) {
 		entry.stream(resp) // composed-watch sub-route re-stamps and forwards
 		return
 	}
-	resp.ID = nil // events are id-less to the client
+	resp.ID = entry.clientID // restore the client's watch id for id-based routing
 	if err := entry.client.writeToClient(resp); err != nil {
 		s.log.Debug("failed to forward watch event to client", "error", err)
 	}
@@ -313,7 +314,7 @@ func (s *MountSession) forwardEvent(resp *logdapi.SessionResponse) {
 func (s *MountSession) RouteRequest(cs *ClientSession, req *logdapi.SessionRequest) {
 	var unwatchTarget *string
 	if req.Unwatch != nil {
-		unwatchTarget = s.dropWatch(cs, req.Unwatch.Path)
+		unwatchTarget = s.dropWatch(cs, req.Unwatch.Path, req.Unwatch.WatchID)
 	}
 
 	s.routeMu.Lock()
@@ -368,15 +369,25 @@ func (s *MountSession) writeToController(req *logdapi.SessionRequest) error {
 	return nil
 }
 
-// dropWatch removes the watch route a client holds for a path, stopping event
-// forwarding to it, and returns the docd-assigned id of that watch so the
-// forwarded unwatch can target the exact controller-side watch. A client can
-// hold at most one watch per path, so there is at most one to remove.
-func (s *MountSession) dropWatch(cs *ClientSession, path string) *string {
+// dropWatch removes the watch route a client holds — the one whose client watch id
+// matches watchID when given (a client may hold several watches on one path), else
+// the single legacy watch on path — stopping event forwarding to it, and returns
+// the docd-assigned id so the forwarded unwatch targets the exact controller-side
+// watch.
+func (s *MountSession) dropWatch(cs *ClientSession, path string, watchID *string) *string {
 	s.routeMu.Lock()
 	defer s.routeMu.Unlock()
 	for id, e := range s.routes {
-		if e.client == cs && e.isWatch && e.path == path {
+		if e.client != cs || !e.isWatch {
+			continue
+		}
+		var match bool
+		if watchID != nil {
+			match = e.clientID != nil && *e.clientID == *watchID
+		} else {
+			match = e.path == path
+		}
+		if match {
 			delete(s.routes, id)
 			idCopy := id
 			return &idCopy
@@ -437,7 +448,7 @@ func (s *MountSession) failAllRoutes(err error) {
 			// pump, since terminateWatch may route to other sessions) so it
 			// re-establishes rather than silently stalling.
 			if e.client != nil {
-				go e.client.terminateWatch(e.path, logdapi.ErrCodeUnavailable)
+				go e.client.terminateWatch(watchKeyFor(e.clientID, e.path), logdapi.ErrCodeUnavailable)
 			}
 			continue
 		}

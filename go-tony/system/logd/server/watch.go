@@ -28,6 +28,7 @@ type WatchHub struct {
 type Watcher struct {
 	Path       string                           // Watched path (prefix match)
 	Scope      *string                          // Scope for COW isolation (nil = baseline only)
+	ID         *string                          // Originating watch request id (nil = legacy path-routed watch)
 	Events     chan *storage.CommitNotification // Channel for receiving events
 	Failed     chan struct{}                    // Closed when watch fails (slow consumer)
 	FromCommit *int64                           // Starting commit for replay

@@ -41,7 +41,7 @@ type LogdSession struct {
 
 	nextID   uint64                               // request id counter
 	pending  map[string]chan *api.SessionResponse // in-flight requests by id
-	watchers map[string]*Watch                    // active watches by path
+	watchers map[string]*Watch                    // active watches by request id
 
 	// For shutdown
 	done chan struct{}
@@ -443,7 +443,7 @@ func (s *LogdSession) readPump(conn net.Conn, decoder *stream.Decoder) {
 		}
 
 		if resp.Event != nil {
-			s.routeEvent(resp.Event)
+			s.routeEvent(resp.ID, resp.Event)
 			continue
 		}
 
@@ -468,15 +468,30 @@ func (s *LogdSession) deliverResponse(resp *api.SessionResponse) {
 	ch <- resp // buffered (cap 1); never blocks
 }
 
-// routeEvent routes a watch event to the Watch registered for its path. A
-// terminal event (Ended) fails the watch with a WatchEndedError and unregisters
-// it, so the application can re-establish (docd sends this when a mount/unmount
+// routeEvent routes a watch event to its Watch. Events carry the originating
+// watch's request id on the response (id), which is the routing key — several
+// watches (even on one path) are demuxed by it. An id-less event (an older server
+// that does not stamp one) falls back to the single watch registered on ev.Path. A
+// terminal event (Ended) fails the watch with a WatchEndedError and unregisters it,
+// so the application can re-establish (docd sends this when a mount/unmount
 // force-ends a watch or the owning controller crashes).
-func (s *LogdSession) routeEvent(ev *api.WatchEvent) {
+func (s *LogdSession) routeEvent(id *string, ev *api.WatchEvent) {
 	s.mu.Lock()
-	w := s.watchers[ev.Path]
+	var w *Watch
+	var key string
+	if id != nil {
+		key = *id
+		w = s.watchers[key]
+	} else {
+		for k, cand := range s.watchers {
+			if cand.path == ev.Path {
+				w, key = cand, k
+				break
+			}
+		}
+	}
 	if ev.Ended && w != nil {
-		delete(s.watchers, ev.Path)
+		delete(s.watchers, key)
 	}
 	s.mu.Unlock()
 
@@ -555,10 +570,10 @@ func (s *LogdSession) connError() error {
 	return fmt.Errorf("connection lost")
 }
 
-// removeWatcher unregisters a watch by path.
-func (s *LogdSession) removeWatcher(path string) {
+// removeWatcher unregisters a watch by its request id.
+func (s *LogdSession) removeWatcher(id string) {
 	s.mu.Lock()
-	delete(s.watchers, path)
+	delete(s.watchers, id)
 	s.mu.Unlock()
 }
 

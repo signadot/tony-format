@@ -311,6 +311,77 @@ func TestVerse_BaselineWatchCrosstalk_DirectLogd(t *testing.T) {
 	expectQuiet(t, "b", wb)
 }
 
+// TestMultiWatch_SamePathDirectLogd: one session holds two watches on the SAME
+// path; each is keyed by its own request id, so both receive every delta, and
+// closing one (unwatch by id) leaves the other streaming.
+func TestMultiWatch_SamePathDirectLogd(t *testing.T) {
+	logd := startLogd(t)
+	ctx := context.Background()
+
+	sess := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "w"})
+	t.Cleanup(func() { sess.Close() })
+	w1, err := sess.Watch(ctx, "a", nil)
+	if err != nil {
+		t.Fatalf("watch 1: %v", err)
+	}
+	w2, err := sess.Watch(ctx, "a", nil) // same path — previously rejected, now allowed
+	if err != nil {
+		t.Fatalf("watch 2 on same path: %v", err)
+	}
+	expectEvent(t, w1) // drain init
+	expectEvent(t, w2)
+
+	writer := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "wr"})
+	t.Cleanup(func() { writer.Close() })
+	if err := writer.Patch(ctx, "a", vObj(1)); err != nil {
+		t.Fatalf("patch a: %v", err)
+	}
+	assertRootedDelta(t, "w1", w1, "$.a.v", 1)
+	assertRootedDelta(t, "w2", w2, "$.a.v", 1)
+
+	// Unwatch one; the other keeps receiving.
+	w1.Close()
+	if err := writer.Patch(ctx, "a", vObj(2)); err != nil {
+		t.Fatalf("patch a again: %v", err)
+	}
+	assertRootedDelta(t, "w2", w2, "$.a.v", 2)
+}
+
+// TestMultiWatch_SamePathViaDocd: two watches on the same path under a mount,
+// through docd — exercises the docd id-restore on forwarded events and dropWatch
+// by id. Both stream; closing one leaves the other.
+func TestMultiWatch_SamePathViaDocd(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+	runController(t, docd, "m", newWatchableLogdController(t, logd.TCPAddr(), "cM"))
+
+	client := docdClient(t, docd, "client")
+	ctx := context.Background()
+
+	w1, err := client.Watch(ctx, "m.a", nil)
+	if err != nil {
+		t.Fatalf("watch 1: %v", err)
+	}
+	w2, err := client.Watch(ctx, "m.a", nil)
+	if err != nil {
+		t.Fatalf("watch 2 on same path: %v", err)
+	}
+	expectEvent(t, w1) // drain init
+	expectEvent(t, w2)
+
+	if err := client.Patch(ctx, "m.a", vObj(1)); err != nil {
+		t.Fatalf("patch m.a: %v", err)
+	}
+	assertRootedDelta(t, "w1", w1, "$.m.a.v", 1)
+	assertRootedDelta(t, "w2", w2, "$.m.a.v", 1)
+
+	w1.Close()
+	if err := client.Patch(ctx, "m.a", vObj(2)); err != nil {
+		t.Fatalf("patch m.a again: %v", err)
+	}
+	assertRootedDelta(t, "w2", w2, "$.m.a.v", 2)
+}
+
 // expectQuiet asserts no event arrives on w within a short window.
 func expectQuiet(t *testing.T, p string, w *Watch) {
 	t.Helper()

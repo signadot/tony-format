@@ -385,6 +385,59 @@ func TestSession_MatchWithFilter(t *testing.T) {
 	}
 }
 
+// TestSession_MultiWatchAdmission checks the per-path admission rule: distinct
+// id-bearing watches on one path coexist; an id-less watch is rejected when the
+// path is already watched; a duplicate id is rejected.
+func TestSession_MultiWatchAdmission(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := storage.Open(tmpDir, nil)
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+	defer store.Close()
+
+	hub := NewWatchHub()
+	conn := newMockConn()
+	// noInit keeps the only responses per request its confirmation or error.
+	conn.WriteRequest(`{id: "a1", watch: {path: users, noInit: true}}`) // ok
+	conn.WriteRequest(`{id: "a2", watch: {path: users, noInit: true}}`) // ok: distinct id, same path
+	conn.WriteRequest(`{id: "a1", watch: {path: posts, noInit: true}}`) // reject: duplicate id
+	conn.WriteRequest(`{watch: {path: users, noInit: true}}`)           // reject: id-less on watched path
+
+	session := NewSession("test-server", conn, &SessionConfig{Storage: store, Hub: hub})
+	done := make(chan error)
+	go func() { done <- session.Run() }()
+	time.Sleep(50 * time.Millisecond)
+	conn.Close()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("session did not complete")
+	}
+
+	var confirms, rejects int
+	for _, doc := range splitTonyDocs(conn.GetResponses()) {
+		var resp api.SessionResponse
+		if err := resp.FromTony(doc); err != nil {
+			t.Fatalf("parse %q: %v", doc, err)
+		}
+		switch {
+		case resp.Result != nil && resp.Result.Watch != nil:
+			confirms++
+		case resp.Error != nil && resp.Error.Code == api.ErrCodeAlreadyWatching:
+			rejects++
+		default:
+			t.Errorf("unexpected response: %q", doc)
+		}
+	}
+	if confirms != 2 {
+		t.Errorf("expected 2 watch confirmations, got %d", confirms)
+	}
+	if rejects != 2 {
+		t.Errorf("expected 2 already_watching rejections, got %d", rejects)
+	}
+}
+
 func TestSession_Patch(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, err := storage.Open(tmpDir, nil)

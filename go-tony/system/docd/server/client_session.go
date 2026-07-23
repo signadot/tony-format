@@ -51,20 +51,21 @@ type ClientSession struct {
 	writeMu sync.Mutex // serializes writes to the client connection
 
 	// watchMu guards the active-watch bookkeeping. Each active watch holds a
-	// coordinator reader token (path -> token) so a mount/unmount can drain or
-	// force-end the watches that overlap it. closing is set during teardown so a
-	// still-registering watch releases its token instead of leaking it past the
-	// session.
-	watchMu         sync.Mutex
-	watchTokens     map[string]uint64
-	composedWatches map[string]*composedWatch
-	closing         bool
+	// coordinator reader token so a mount/unmount can drain or force-end the watches
+	// that overlap it. watches is keyed by the watch KEY (the client's request id, or
+	// the path for a legacy id-less watch), so a session can hold several watches on
+	// the same path. closing is set during teardown so a still-registering watch
+	// releases its token instead of leaking it past the session.
+	watchMu sync.Mutex
+	watches map[string]*clientWatch
+	closing bool
 
 	// lastSeenMu guards lastSeen: the highest commit delivered to the client per
-	// watch path. A force-end stamps it onto the terminal WatchEvent so the client
-	// can re-watch FromCommit and resume with no gap. Exact for single-route watches;
-	// best-effort for composed watches, whose sub-streams have independent commit
-	// sequences, until composed watches honor FromCommit on re-establish.
+	// watch (keyed by watch key). A force-end stamps it onto the terminal WatchEvent
+	// so the client can re-watch FromCommit and resume with no gap. Exact for
+	// single-route watches; best-effort for composed watches, whose sub-streams have
+	// independent commit sequences, until composed watches honor FromCommit on
+	// re-establish.
 	lastSeenMu sync.Mutex
 	lastSeen   map[string]int64
 
@@ -98,8 +99,7 @@ func NewClientSession(id string, conn net.Conn, cfg *ClientSessionConfig) *Clien
 		server:          cfg.Server,
 		log:             log.With("session", id),
 		logdAddr:        cfg.Server.Spec.LogdAddr,
-		watchTokens:     make(map[string]uint64),
-		composedWatches: make(map[string]*composedWatch),
+		watches:         make(map[string]*clientWatch),
 		lastSeen:        make(map[string]int64),
 		usedMounts:      make(map[*MountSession]struct{}),
 		done:            make(chan struct{}),
@@ -209,9 +209,11 @@ func (s *ClientSession) routeClientRequests() error {
 			continue
 		}
 		// Releasing the reader token before routing the unwatch keeps a concurrent
-		// mount from waiting on a watch the client has already dropped.
+		// mount from waiting on a watch the client has already dropped. The unwatch
+		// targets a specific watch by its id (WatchID); without one it drops the
+		// legacy path-keyed watch.
 		if req.Unwatch != nil {
-			s.releaseWatchToken(req.Unwatch.Path)
+			s.releaseWatchToken(watchKeyFor(req.Unwatch.WatchID, req.Unwatch.Path))
 		}
 
 		switch dest, entry := s.routeFor(&req); dest {
@@ -479,11 +481,13 @@ func (s *ClientSession) writeToClient(resp *logdapi.SessionResponse) error {
 		return fmt.Errorf("failed to write to client: %w", err)
 	}
 	// Record the resume point for a possible force-end: the highest commit delivered
-	// on this watch path (skip the terminal event itself). See lastSeen.
+	// on this watch (keyed by watch key, from the event's stamped id; skip the
+	// terminal event itself). See lastSeen.
 	if ev := resp.Event; ev != nil && ev.Path != "" && ev.Commit > 0 && !ev.Ended {
+		key := watchKeyFor(resp.ID, ev.Path)
 		s.lastSeenMu.Lock()
-		if ev.Commit > s.lastSeen[ev.Path] {
-			s.lastSeen[ev.Path] = ev.Commit
+		if ev.Commit > s.lastSeen[key] {
+			s.lastSeen[key] = ev.Commit
 		}
 		s.lastSeenMu.Unlock()
 	}

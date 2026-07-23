@@ -140,6 +140,7 @@ func TestSessionResponse_RoundTrip(t *testing.T) {
 		{
 			name: "state event",
 			response: NewStateEvent(
+				nil,
 				42,
 				"users",
 				mustParse(`{alice: {name: "Alice"}, bob: {name: "Bob"}}`),
@@ -148,6 +149,7 @@ func TestSessionResponse_RoundTrip(t *testing.T) {
 		{
 			name: "patch event",
 			response: NewPatchEvent(
+				nil,
 				43,
 				"users.charlie",
 				mustParse(`{name: "Charlie"}`),
@@ -155,7 +157,7 @@ func TestSessionResponse_RoundTrip(t *testing.T) {
 		},
 		{
 			name: "replay complete event",
-			response: NewReplayCompleteEvent("users"),
+			response: NewReplayCompleteEvent(nil, "users"),
 		},
 		{
 			name: "error response",
