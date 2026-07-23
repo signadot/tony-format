@@ -168,6 +168,15 @@ func (s *ClientSession) routeClientRequests() error {
 		if req.Hello != nil {
 			s.clientScope = req.Hello.Scope // remember for tx routing; still forwarded below
 		}
+		// Answer a liveness ping from docd itself: a Pong confirms this client
+		// session's request loop is alive, which is exactly what a wedged-session
+		// probe needs to detect. Do not forward it downstream.
+		if req.Ping != nil {
+			if err := s.writeToClient(logdapi.NewPongResponse(req.ID)); err != nil {
+				return err
+			}
+			continue
+		}
 		// Serve a baseline NewTx from docd's pre-fetched pool (fewer hops). A
 		// scoped NewTx falls through to logd on the client's scoped connection,
 		// since pooled ids are baseline-scoped.

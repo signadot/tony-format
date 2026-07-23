@@ -43,9 +43,21 @@ type LogdSession struct {
 	pending  map[string]chan *api.SessionResponse // in-flight requests by id
 	watchers map[string]*Watch                    // active watches by request id
 
+	heartbeatInterval time.Duration // how often to ping; 0 disables the heartbeat
+	heartbeatTimeout  time.Duration // how long to wait for a pong before tearing down
+
 	// For shutdown
 	done chan struct{}
 }
+
+// Default session liveness settings. TCP keepalive catches a genuinely dead peer;
+// the application heartbeat (ping/pong) catches a peer whose TCP is alive but whose
+// session loop is gone (a wedged/half-open session), which keepalive cannot see.
+const (
+	defaultHeartbeatInterval = 10 * time.Second
+	defaultHeartbeatTimeout  = 5 * time.Second
+	tcpKeepAlivePeriod       = 15 * time.Second
+)
 
 // LogdSessionConfig contains configuration for connecting to logd.
 type LogdSessionConfig struct {
@@ -65,6 +77,15 @@ type LogdSessionConfig struct {
 
 	// Log is an optional logger
 	Log *slog.Logger
+
+	// HeartbeatInterval is how often the session pings the server to prove the
+	// connection is live. Zero uses a default; negative disables the heartbeat.
+	HeartbeatInterval time.Duration
+
+	// HeartbeatTimeout is how long a ping waits for its pong before the session is
+	// declared wedged and torn down (failing pending requests so callers reconnect).
+	// Zero uses a default.
+	HeartbeatTimeout time.Duration
 }
 
 // NewLogdSession creates a new logd session.
@@ -81,14 +102,25 @@ func NewLogdSession(cfg *LogdSessionConfig) *LogdSession {
 		scope = &s
 	}
 
+	interval := cfg.HeartbeatInterval
+	if interval == 0 {
+		interval = defaultHeartbeatInterval
+	}
+	timeout := cfg.HeartbeatTimeout
+	if timeout == 0 {
+		timeout = defaultHeartbeatTimeout
+	}
+
 	return &LogdSession{
-		addr:     cfg.Addr,
-		clientID: cfg.ClientID,
-		scope:    scope,
-		log:      log.With("component", "logd-session"),
-		pending:  make(map[string]chan *api.SessionResponse),
-		watchers: make(map[string]*Watch),
-		done:     make(chan struct{}),
+		addr:              cfg.Addr,
+		clientID:          cfg.ClientID,
+		scope:             scope,
+		log:               log.With("component", "logd-session"),
+		pending:           make(map[string]chan *api.SessionResponse),
+		watchers:          make(map[string]*Watch),
+		heartbeatInterval: interval,
+		heartbeatTimeout:  timeout,
+		done:              make(chan struct{}),
 	}
 }
 
@@ -139,6 +171,14 @@ func (s *LogdSession) connectLocked(ctx context.Context) error {
 			continue
 		}
 
+		// TCP keepalive so the OS surfaces a genuinely dead peer as a read error
+		// (the application heartbeat below covers the harder case: a peer whose TCP
+		// is alive but whose session loop is gone).
+		if tc, ok := conn.(*net.TCPConn); ok {
+			_ = tc.SetKeepAlive(true)
+			_ = tc.SetKeepAlivePeriod(tcpKeepAlivePeriod)
+		}
+
 		// Create decoder for responses
 		decoder, err := stream.NewDecoder(conn, stream.WithBrackets())
 		if err != nil {
@@ -173,7 +213,48 @@ func (s *LogdSession) connectLocked(ctx context.Context) error {
 		s.log.Info("connected to logd", "addr", s.addr, "serverID", s.serverID)
 
 		go s.readPump(conn, decoder)
+		if s.heartbeatInterval > 0 {
+			go s.heartbeat(conn)
+		}
 		return nil
+	}
+}
+
+// heartbeat periodically pings the server on conn and, if a pong does not arrive
+// within heartbeatTimeout, tears the connection down so the read-pump errors and
+// every pending request fails (the caller then reconnects) — rather than hanging
+// forever on a wedged or half-open session. It exits once conn is no longer the
+// session's connection (a reconnect starts a fresh heartbeat) or the session closes.
+func (s *LogdSession) heartbeat(conn net.Conn) {
+	ticker := time.NewTicker(s.heartbeatInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.done:
+			return
+		case <-ticker.C:
+		}
+
+		s.mu.Lock()
+		current := s.conn == conn && s.connected
+		s.mu.Unlock()
+		if !current {
+			return // conn replaced or session down; its own path handles teardown
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), s.heartbeatTimeout)
+		_, err := s.request(ctx, &api.SessionRequest{Ping: &api.PingRequest{}})
+		cancel()
+		if err == nil {
+			continue
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			// No pong in time: the session is wedged. Closing conn unblocks the
+			// read-pump, which fails all pending requests via teardown.
+			s.log.Warn("session heartbeat timed out; tearing down connection", "addr", s.addr, "serverID", s.serverID)
+			conn.Close()
+		}
+		return // any error means this connection is done; a new one gets a new heartbeat
 	}
 }
 

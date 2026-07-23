@@ -195,7 +195,20 @@ type SessionRequest struct {
 	DeleteScope *DeleteScopeRequest `tony:"field=deleteScope"`
 	Schema      *SchemaRequest      `tony:"field=schema"`
 	Migration   *MigrationAction    `tony:"field=migration"` // "complete" or "abort"
+	Ping        *PingRequest        `tony:"field=ping"`      // liveness probe; answered by whatever server owns the connection
 }
+
+// PingRequest is a liveness probe. The server that owns the connection answers it
+// with a Pong immediately; a client sends it periodically (with a response
+// deadline) to detect a wedged or half-open session and tear it down.
+//
+//tony:schemagen=session-ping-request,notag
+type PingRequest struct{}
+
+// PongResult is the reply to a PingRequest.
+//
+//tony:schemagen=session-pong-result,notag
+type PongResult struct{}
 
 // --- Server → Client Messages ---
 
@@ -276,6 +289,7 @@ type SessionResult struct {
 	DeleteScope *DeleteScopeResult `tony:"field=deleteScope"`
 	Schema      *SchemaResult      `tony:"field=schema"`
 	Migration   *MigrationResult   `tony:"field=migration"`
+	Pong        *PongResult        `tony:"field=pong"`
 }
 
 // WatchEvent is a streaming event from a watch.
@@ -461,6 +475,14 @@ func NewReplayCompleteEvent(id *string, path string) *SessionResponse {
 			Path:           path,
 			ReplayComplete: true,
 		},
+	}
+}
+
+// NewPongResponse creates a response to a ping (liveness probe).
+func NewPongResponse(id *string) *SessionResponse {
+	return &SessionResponse{
+		ID:     id,
+		Result: &SessionResult{Pong: &PongResult{}},
 	}
 }
 

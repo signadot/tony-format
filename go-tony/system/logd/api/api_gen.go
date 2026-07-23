@@ -1462,6 +1462,15 @@ func (s *SessionRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		}
 	}
 
+	// Field: Ping (optional)
+	if s.Ping != nil {
+		node, err = s.Ping.ToTonyIR()
+		if err != nil {
+			return nil, err
+		}
+		irMap["ping"] = node
+	}
+
 	return ir.FromMap(irMap), nil
 }
 
@@ -1580,6 +1589,12 @@ func (s *SessionRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) er
 					return fmt.Errorf("field %q: failed to unmarshal text: %w", "migration", err)
 				}
 			}
+		case "ping":
+			// Field: Ping
+			s.Ping = &PingRequest{}
+			if err := s.Ping.FromTonyIR(fieldNode); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -1601,6 +1616,144 @@ func (s *SessionRequest) ToTony(opts ...gomap.MapOption) ([]byte, error) {
 
 // FromTony parses Tony format bytes and populates SessionRequest.
 func (s *SessionRequest) FromTony(data []byte, opts ...gomap.UnmapOption) error {
+	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
+	if err != nil {
+		return err
+	}
+	return s.FromTonyIR(node, opts...)
+}
+
+// ToTonyIR converts PingRequest to a Tony IR node.
+func (s *PingRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
+	// Create IR object map
+	irMap := make(map[string]*ir.Node)
+
+	return ir.FromMap(irMap), nil
+}
+
+// FromTonyIR populates PingRequest from a Tony IR node.
+func (s *PingRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
+	if node.Type != ir.ObjectType {
+		return fmt.Errorf("expected map for PingRequest, got %v", node.Type)
+	}
+
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
+		switch fieldName.String {
+		}
+	}
+
+	return nil
+}
+
+// ToTony converts PingRequest to Tony format bytes.
+func (s *PingRequest) ToTony(opts ...gomap.MapOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// FromTony parses Tony format bytes and populates PingRequest.
+func (s *PingRequest) FromTony(data []byte, opts ...gomap.UnmapOption) error {
+	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
+	if err != nil {
+		return err
+	}
+	return s.FromTonyIR(node, opts...)
+}
+
+// ToTonyIR converts PongResult to a Tony IR node.
+func (s *PongResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
+	// Create IR object map
+	irMap := make(map[string]*ir.Node)
+
+	return ir.FromMap(irMap), nil
+}
+
+// FromTonyIR populates PongResult from a Tony IR node.
+func (s *PongResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
+	if node.Type != ir.ObjectType {
+		return fmt.Errorf("expected map for PongResult, got %v", node.Type)
+	}
+
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
+		switch fieldName.String {
+		}
+	}
+
+	return nil
+}
+
+// ToTony converts PongResult to Tony format bytes.
+func (s *PongResult) ToTony(opts ...gomap.MapOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// FromTony parses Tony format bytes and populates PongResult.
+func (s *PongResult) FromTony(data []byte, opts ...gomap.UnmapOption) error {
 	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
 	if err != nil {
 		return err
@@ -2420,6 +2573,15 @@ func (s *SessionResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["migration"] = node
 	}
 
+	// Field: Pong (optional)
+	if s.Pong != nil {
+		node, err = s.Pong.ToTonyIR()
+		if err != nil {
+			return nil, err
+		}
+		irMap["pong"] = node
+	}
+
 	return ir.FromMap(irMap), nil
 }
 
@@ -2505,6 +2667,12 @@ func (s *SessionResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) err
 			// Field: Migration
 			s.Migration = &MigrationResult{}
 			if err := s.Migration.FromTonyIR(fieldNode); err != nil {
+				return err
+			}
+		case "pong":
+			// Field: Pong
+			s.Pong = &PongResult{}
+			if err := s.Pong.FromTonyIR(fieldNode); err != nil {
 				return err
 			}
 		}

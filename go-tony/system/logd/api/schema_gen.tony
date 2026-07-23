@@ -125,6 +125,18 @@ context:
 - tony-format/context
 define: {}
 signature:
+  name: session-ping-request
+---
+context:
+- tony-format/context
+define: {}
+signature:
+  name: session-pong-result
+---
+context:
+- tony-format/context
+define: {}
+signature:
   name: session-schema-get-request
 ---
 context:
@@ -189,6 +201,7 @@ define:
   migration: .[nullable(int)]
   newtx: .[nullable(session-newtx-request)]
   patch: .[nullable(session-patch-request)]
+  ping: .[nullable(session-ping-request)]
   schema: .[nullable(session-schema-request)]
   scope: .[nullable(string)]
   unwatch: .[nullable(session-unwatch-request)]
@@ -220,6 +233,7 @@ define:
   migration: .[nullable(session-migration-result)]
   newtx: .[nullable(session-newtx-result)]
   patch: .[nullable(session-patch-result)]
+  pong: .[nullable(session-pong-result)]
   schema: .[nullable(session-schema-result)]
   unwatch: .[nullable(session-unwatch-result)]
   watch: .[nullable(session-watch-result)]

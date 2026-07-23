@@ -244,6 +244,8 @@ func (s *Session) dispatch(req *api.SessionRequest) {
 		s.handleSchema(req.ID, req.Schema)
 	case req.Migration != nil:
 		s.handleMigration(req.ID, req.Migration)
+	case req.Ping != nil:
+		s.send(api.NewPongResponse(req.ID)) // liveness probe
 	default:
 		s.sendError(req.ID, api.ErrCodeInvalidMessage, "no operation specified")
 	}
