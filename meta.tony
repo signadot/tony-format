@@ -1,6 +1,8 @@
 !issue
 Ref: refs/issues/656g8yt5h12krdrmcdn0
 Title: "storage/dlog: compaction is not crash-atomic — in-memory generation resets to 0; no startup recovery of .old/.compact.tmp"
+commits:
+- "753e2440b70cb44c86395ffb0455ca9ae1454c68"
 created: "2026-07-24T09:28:55.208063+02:00"
 id: "656g8yt5h12krdrmcdn0"
 labels:
@@ -9,4 +11,4 @@ labels:
 - critical
 - durability
 status: open
-updated: "2026-07-24T09:28:55.306657+02:00"
+updated: "2026-07-24T10:12:52.604982+02:00"
