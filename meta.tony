@@ -1,0 +1,7 @@
+!issue
+Ref: refs/issues/cdnxmna8h12ksarmcdn0
+Title: "logd: a patch request-timeout abandons (does not cancel) the commit → phantom write + client/server divergence"
+created: "2026-07-24T09:30:51.296855+02:00"
+id: cdnxmna8h12ksarmcdn0
+status: open
+updated: "2026-07-24T09:30:51.296855+02:00"
