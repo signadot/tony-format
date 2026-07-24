@@ -1,0 +1,7 @@
+!issue
+Ref: refs/issues/r1w4k6g2h12krp8mcdn0
+Title: "storage/tx: CAS/PatchIf lost update — precondition eval is not serialized with the write"
+created: "2026-07-24T09:29:29.103677+02:00"
+id: r1w4k6g2h12krp8mcdn0
+status: open
+updated: "2026-07-24T09:29:29.103677+02:00"
