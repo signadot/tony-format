@@ -1,6 +1,7 @@
 !issue
 Ref: refs/issues/yfqsz3j6h12ksagmcdn0
 Title: "logd: watch fan-out runs synchronously on the commit path → cross-session head-of-line + blocks the session's own heartbeat"
+closed_by: "3a8656a9a468e68aa7cb2ca9b10a601dcb33a62a"
 commits:
 - "3a8656a9a468e68aa7cb2ca9b10a601dcb33a62a"
 created: "2026-07-24T09:30:50.910721+02:00"
@@ -10,5 +11,5 @@ labels:
 - concurrency
 - hang
 - high
-status: open
-updated: "2026-07-24T10:28:40.211884+02:00"
+status: closed
+updated: "2026-07-24T10:28:40.314674+02:00"
