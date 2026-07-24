@@ -45,6 +45,7 @@ type LogdSession struct {
 
 	heartbeatInterval time.Duration // how often to ping; 0 disables the heartbeat
 	heartbeatTimeout  time.Duration // how long to wait for a pong before tearing down
+	wireTimeout       time.Duration // deadline for a single request write / hello handshake
 
 	// For shutdown
 	done chan struct{}
@@ -57,6 +58,12 @@ const (
 	defaultHeartbeatInterval = 10 * time.Second
 	defaultHeartbeatTimeout  = 5 * time.Second
 	tcpKeepAlivePeriod       = 15 * time.Second
+	// defaultWireTimeout bounds a single request write and the hello handshake read. request()
+	// holds s.mu across the write, so without a deadline a peer that stops READING (TCP alive,
+	// send buffer full) blocks the write — and thus s.mu — forever, freezing every operation
+	// including the heartbeat's own recovery ping, which needs s.mu (issue 9zkm8f1y). A
+	// bounded write errors instead, triggering teardown + reconnect.
+	defaultWireTimeout = 30 * time.Second
 )
 
 // LogdSessionConfig contains configuration for connecting to logd.
@@ -86,6 +93,10 @@ type LogdSessionConfig struct {
 	// declared wedged and torn down (failing pending requests so callers reconnect).
 	// Zero uses a default.
 	HeartbeatTimeout time.Duration
+
+	// WireTimeout bounds a single request write and the hello handshake so a peer that
+	// stops reading cannot block s.mu forever. Zero uses a default (30s).
+	WireTimeout time.Duration
 }
 
 // NewLogdSession creates a new logd session.
@@ -110,6 +121,10 @@ func NewLogdSession(cfg *LogdSessionConfig) *LogdSession {
 	if timeout == 0 {
 		timeout = defaultHeartbeatTimeout
 	}
+	wireTimeout := cfg.WireTimeout
+	if wireTimeout <= 0 {
+		wireTimeout = defaultWireTimeout
+	}
 
 	return &LogdSession{
 		addr:              cfg.Addr,
@@ -120,6 +135,7 @@ func NewLogdSession(cfg *LogdSessionConfig) *LogdSession {
 		watchers:          make(map[string]*Watch),
 		heartbeatInterval: interval,
 		heartbeatTimeout:  timeout,
+		wireTimeout:       wireTimeout,
 		done:              make(chan struct{}),
 	}
 }
@@ -186,8 +202,12 @@ func (s *LogdSession) connectLocked(ctx context.Context) error {
 			return fmt.Errorf("failed to create decoder: %w", err)
 		}
 
-		// Perform the hello handshake synchronously, before the read-pump
-		// takes over the decoder.
+		// Perform the hello handshake synchronously, before the read-pump takes over the
+		// decoder. Bound the handshake read: a peer that completes the TCP dial but never
+		// answers hello must not block forever under s.mu. Cleared before the read-pump starts
+		// so the pump's long-lived reads aren't deadlined. (The hello write is bounded by
+		// sendRequestTo's write deadline.)
+		_ = conn.SetReadDeadline(time.Now().Add(s.wireTimeout))
 		if err := s.sendHello(conn); err != nil {
 			conn.Close()
 			return fmt.Errorf("hello failed: %w", err)
@@ -197,6 +217,7 @@ func (s *LogdSession) connectLocked(ctx context.Context) error {
 			conn.Close()
 			return fmt.Errorf("failed to read hello response: %w", err)
 		}
+		_ = conn.SetReadDeadline(time.Time{}) // clear; the read-pump owns reads from here
 		if resp.Error != nil {
 			conn.Close()
 			return fmt.Errorf("hello error: %s", resp.Error.Message)
@@ -664,6 +685,10 @@ func (s *LogdSession) sendRequestTo(conn net.Conn, req *api.SessionRequest) erro
 	if err != nil {
 		return fmt.Errorf("failed to encode request: %w", err)
 	}
+	// Write-only deadline: request() holds s.mu across this write, so a peer that stopped
+	// reading must not block it (and s.mu) forever. On timeout the write errors, which the
+	// caller turns into teardown + reconnect. The read-pump's reads are unaffected.
+	_ = conn.SetWriteDeadline(time.Now().Add(s.wireTimeout))
 	if _, err := conn.Write(append(data, '\n')); err != nil {
 		return fmt.Errorf("failed to write request: %w", err)
 	}
