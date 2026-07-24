@@ -1,0 +1,7 @@
+!issue
+Ref: refs/issues/rgn4amswh12kryrmcdn0
+Title: "docd/txpool: Get holds p.mu across a deadline-less blocking read → a stalled logd wedges all pooled tx allocation"
+created: "2026-07-24T09:30:03.275546+02:00"
+id: rgn4amswh12kryrmcdn0
+status: open
+updated: "2026-07-24T09:30:03.275546+02:00"
