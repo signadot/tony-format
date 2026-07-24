@@ -74,6 +74,8 @@ type ClientSession struct {
 
 	done      chan struct{} // closed on Close, to abort the logd dial-retry
 	closeOnce sync.Once
+
+	writeTimeout time.Duration // per-write deadline to the client (see clientWriteTimeout)
 }
 
 // logdConnectTimeout bounds how long a client session retries dialing logd
@@ -81,10 +83,18 @@ type ClientSession struct {
 // to cover startup ordering and brief logd unavailability.
 const logdConnectTimeout = 30 * time.Second
 
+// clientWriteTimeout bounds a single write to the client connection. Without it, a slow or
+// dead client (a full TCP send buffer) blocks writeToClient forever — and because the mount
+// coordinator's force path and composed-watch forwarding call it synchronously, one stuck
+// client wedges watch/mount coordination for its whole path region (issue 0tarechx).
+// Generous, so a legitimately slow-but-alive client isn't failed on normal responses.
+const clientWriteTimeout = 30 * time.Second
+
 // ClientSessionConfig contains configuration for creating a client session.
 type ClientSessionConfig struct {
-	Log    *slog.Logger
-	Server *Server
+	Log          *slog.Logger
+	Server       *Server
+	WriteTimeout time.Duration // per-write deadline to the client (default: clientWriteTimeout)
 }
 
 // NewClientSession creates a new client-facing session for the given connection.
@@ -93,16 +103,21 @@ func NewClientSession(id string, conn net.Conn, cfg *ClientSessionConfig) *Clien
 	if log == nil {
 		log = slog.Default()
 	}
+	wt := cfg.WriteTimeout
+	if wt <= 0 {
+		wt = clientWriteTimeout
+	}
 	return &ClientSession{
-		id:              id,
-		conn:            conn,
-		server:          cfg.Server,
-		log:             log.With("session", id),
-		logdAddr:        cfg.Server.Spec.LogdAddr,
-		watches:         make(map[string]*clientWatch),
-		lastSeen:        make(map[string]int64),
-		usedMounts:      make(map[*MountSession]struct{}),
-		done:            make(chan struct{}),
+		id:           id,
+		conn:         conn,
+		server:       cfg.Server,
+		log:          log.With("session", id),
+		logdAddr:     cfg.Server.Spec.LogdAddr,
+		watches:      make(map[string]*clientWatch),
+		lastSeen:     make(map[string]int64),
+		usedMounts:   make(map[*MountSession]struct{}),
+		done:         make(chan struct{}),
+		writeTimeout: wt,
 	}
 }
 
@@ -486,6 +501,10 @@ func (s *ClientSession) writeToClient(resp *logdapi.SessionResponse) error {
 	if err != nil {
 		return fmt.Errorf("failed to encode response: %w", err)
 	}
+	// Bound the write so a slow/dead client can't block this call forever — it is invoked
+	// synchronously from the mount coordinator's force path and composed-watch forwarding.
+	// Write-only deadline: the client read pump is unaffected.
+	_ = s.conn.SetWriteDeadline(time.Now().Add(s.writeTimeout))
 	if _, err := s.conn.Write(append(data, '\n')); err != nil {
 		return fmt.Errorf("failed to write to client: %w", err)
 	}
