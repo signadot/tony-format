@@ -309,6 +309,20 @@ func (p *txPatcher) Commit() *Result {
 func (p *txPatcher) doCommit(state *State, commitOps CommitOps) *Result {
 	co := p.coord
 
+	// Serialize the read-modify-write: evaluate the CAS precondition, allocate the commit,
+	// and append under one lock so no other commit's write can land between this commit's
+	// match evaluation and its own write (CAS lost update, issue r1w4k6g2). The fan-out
+	// notify is fired AFTER release (below), never under this lock.
+	release := commitOps.LockCommit()
+	released := false
+	unlock := func() {
+		if !released {
+			released = true
+			release()
+		}
+	}
+	defer unlock() // safety net for every early return; the success path unlocks explicitly
+
 	currentCommit, err := commitOps.GetCurrentCommit()
 	if err != nil {
 		return &Result{
@@ -379,6 +393,11 @@ func (p *txPatcher) doCommit(state *State, commitOps CommitOps) *Result {
 			Error:     fmt.Errorf("failed to write entry: %w", err),
 		}
 	}
+
+	// The write is durable and indexed; release the commit lock so the fan-out below (which
+	// may block on a slow watcher) can't serialize other commits.
+	unlock()
+	commitOps.Notify(commit, state.TxID, timestamp, mergedPatch, state)
 
 	_ = co.storage.Delete(state.TxID)
 

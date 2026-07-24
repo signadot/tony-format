@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -37,6 +38,15 @@ type CommitNotifier func(n *CommitNotification)
 
 // Storage provides filesystem-based storage for logd.
 type Storage struct {
+	// commitMu serializes a commit's read-modify-write — CAS precondition evaluation,
+	// commit-number allocation, and log append — so it is atomic w.r.t. other commits.
+	// Without it, two conditional patches with the same precondition both evaluate against
+	// the same pre-commit state, both pass, and both write (CAS lost update, issue r1w4k6g2).
+	// It is deliberately NOT held across the post-commit fan-out notify: the notifier contract
+	// is non-blocking, but until that holds everywhere, keeping notify outside the lock ensures
+	// a slow watcher can never serialize all commits.
+	commitMu sync.Mutex
+
 	sequence *seq.Seq
 
 	dLog *dlog.DLog

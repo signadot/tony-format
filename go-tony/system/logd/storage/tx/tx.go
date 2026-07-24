@@ -93,7 +93,19 @@ type CommitOps interface {
 
 	// WriteAndIndex writes the transaction entry and indexes the diff.
 	// Returns the log file and position where the entry was written.
+	// It does NOT fire the commit notification — the caller must call Notify after releasing
+	// the commit lock (see LockCommit), so a blocking notifier can't serialize commits.
 	WriteAndIndex(commit, txSeq int64, timestamp string, mergedPatch *ir.Node, txState *State, lastCommit int64) (logFile string, pos int64, err error)
+
+	// LockCommit acquires the storage-wide commit lock and returns its release func. The
+	// CAS-precondition evaluation, NextCommit, and WriteAndIndex must all run under it so the
+	// compare-and-swap is atomic w.r.t. other commits (no lost update). Release it before
+	// calling Notify.
+	LockCommit() (release func())
+
+	// Notify fires the post-commit fan-out for a successful commit. It is called AFTER the
+	// commit lock is released so a slow/blocking notifier cannot stall other commits.
+	Notify(commit, txSeq int64, timestamp string, mergedPatch *ir.Node, txState *State)
 }
 
 // State is the structure tracking transaction evolution over time until

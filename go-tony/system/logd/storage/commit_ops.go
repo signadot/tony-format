@@ -67,21 +67,36 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 		c.s.indexPersister.MaybePersist(commit)
 	}
 
-	// Notify any registered listener about the commit
-	if c.s.notifier != nil {
-		kpaths := extractTopLevelKPaths(mergedPatch)
-		notification := &CommitNotification{
-			Commit:    commit,
-			TxSeq:     txSeq,
-			Timestamp: timestamp,
-			KPaths:    kpaths,
-			Patch:     mergedPatch,
-			ScopeID:   scopeID,
-		}
-		c.s.notifier(notification)
-	}
-
+	// The commit notification (fan-out) is intentionally NOT fired here — doCommit calls
+	// Notify after releasing the commit lock, so a blocking notifier can't serialize commits.
 	return string(logFile), pos, nil
+}
+
+// LockCommit acquires the storage-wide commit lock; the returned func releases it.
+func (c *commitOps) LockCommit() func() {
+	c.s.commitMu.Lock()
+	return c.s.commitMu.Unlock
+}
+
+// Notify fires the post-commit fan-out for a successful commit. Called by doCommit AFTER the
+// commit lock is released (the notifier contract is non-blocking, but this also guarantees a
+// slow notifier can't stall other commits).
+func (c *commitOps) Notify(commit, txSeq int64, timestamp string, mergedPatch *ir.Node, txState *tx.State) {
+	if c.s.notifier == nil {
+		return
+	}
+	var scopeID *string
+	if txState != nil {
+		scopeID = txState.Scope
+	}
+	c.s.notifier(&CommitNotification{
+		Commit:    commit,
+		TxSeq:     txSeq,
+		Timestamp: timestamp,
+		KPaths:    extractTopLevelKPaths(mergedPatch),
+		Patch:     mergedPatch,
+		ScopeID:   scopeID,
+	})
 }
 
 // extractTopLevelKPaths extracts the top-level kpaths from a patch node.
