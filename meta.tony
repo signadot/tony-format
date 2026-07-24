@@ -1,0 +1,7 @@
+!issue
+Ref: refs/issues/0tarechxh12kryrmcdn0
+Title: "docd: no write deadline on the client socket → a slow client wedges the mount-coordinator force path and composed-watch forwarding"
+created: "2026-07-24T09:30:03.416811+02:00"
+id: "0tarechxh12kryrmcdn0"
+status: open
+updated: "2026-07-24T09:30:03.416811+02:00"
