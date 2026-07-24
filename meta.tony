@@ -1,0 +1,7 @@
+!issue
+Ref: refs/issues/v67hjrjbh12ksarmcdn0
+Title: "logd/libctl: sustained concurrent Match+Patch on one shared session degrades — serial per-conn dispatch + O(history) re-parse per Match (throughput ceiling, not a hang)"
+created: "2026-07-24T09:30:51.726628+02:00"
+id: v67hjrjbh12ksarmcdn0
+status: open
+updated: "2026-07-24T09:30:51.726628+02:00"
