@@ -1,0 +1,7 @@
+!issue
+Ref: refs/issues/hyda9h82h12krp8mcdn0
+Title: "storage: commits are acked before fsync (durability) — DELIBERATE, tracking for crash-recovery/group-commit follow-ups"
+created: "2026-07-24T09:29:29.247775+02:00"
+id: hyda9h82h12krp8mcdn0
+status: open
+updated: "2026-07-24T09:29:29.247775+02:00"
