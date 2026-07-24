@@ -1,6 +1,7 @@
 !issue
 Ref: refs/issues/9zkm8f1yh12kryrmcdn0
 Title: "libctl: session mutex held across deadline-less conn.Write/Read → heartbeat cannot fire when the peer stops READING (heartbeat fix incomplete)"
+closed_by: "22ba7233ee20dc5c3df6ac2199809b8de479adbb"
 commits:
 - "22ba7233ee20dc5c3df6ac2199809b8de479adbb"
 created: "2026-07-24T09:30:03.561413+02:00"
@@ -10,5 +11,5 @@ labels:
 - concurrency
 - hang
 - high
-status: open
-updated: "2026-07-24T10:41:48.23373+02:00"
+status: closed
+updated: "2026-07-24T10:41:48.405872+02:00"
