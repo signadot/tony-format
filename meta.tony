@@ -1,0 +1,7 @@
+!issue
+Ref: refs/issues/hqhyyat8h12ksarmcdn0
+Title: "logd: single-threaded dispatch + a no-timeout tx blocks the reader forever → TCPListener.Close() hangs on shutdown"
+created: "2026-07-24T09:30:51.114686+02:00"
+id: hqhyyat8h12ksarmcdn0
+status: open
+updated: "2026-07-24T09:30:51.114686+02:00"
