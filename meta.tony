@@ -1,0 +1,7 @@
+!issue
+Ref: refs/issues/yfqsz3j6h12ksagmcdn0
+Title: "logd: watch fan-out runs synchronously on the commit path → cross-session head-of-line + blocks the session's own heartbeat"
+created: "2026-07-24T09:30:50.910721+02:00"
+id: yfqsz3j6h12ksagmcdn0
+status: open
+updated: "2026-07-24T09:30:50.910721+02:00"
