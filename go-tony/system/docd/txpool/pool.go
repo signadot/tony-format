@@ -19,6 +19,12 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
+// ioTimeout bounds each request/response round trip to logd (the hello handshake and each
+// newtx fetch). Get holds p.mu across the fetch, so without a deadline a stalled or half-open
+// logd would wedge every pooled tx allocation server-wide, forever (issue rgn4amsw). A
+// deadline turns a hung read/write into an error, which the caller turns into a reconnect.
+const ioTimeout = 10 * time.Second
+
 // Pool manages pre-fetched transaction IDs from logd.
 // It maintains a connection to logd and pools TxIDs by participant count.
 type Pool struct {
@@ -39,13 +45,16 @@ type Pool struct {
 	// For shutdown
 	done   chan struct{}
 	closed bool
+
+	ioTimeout time.Duration // per round-trip deadline to logd (see ioTimeout const)
 }
 
 // Config holds configuration for the transaction pool.
 type Config struct {
-	LogdAddr string       // Address of logd server
-	PoolSize int          // Number of TxIDs to pre-fetch per participant count (default: 10)
-	Log      *slog.Logger // Logger (optional)
+	LogdAddr  string        // Address of logd server
+	PoolSize  int           // Number of TxIDs to pre-fetch per participant count (default: 10)
+	Log       *slog.Logger  // Logger (optional)
+	IOTimeout time.Duration // Per round-trip deadline to logd (default: ioTimeout)
 }
 
 // New creates a new transaction ID pool.
@@ -60,13 +69,19 @@ func New(cfg *Config) *Pool {
 		log = slog.Default()
 	}
 
+	ioT := cfg.IOTimeout
+	if ioT <= 0 {
+		ioT = ioTimeout
+	}
+
 	p := &Pool{
-		logdAddr: cfg.LogdAddr,
-		log:      log.With("component", "txpool"),
-		pools:    make(map[int][]int64),
-		poolSize: poolSize,
-		refillCh: make(chan int, 64),
-		done:     make(chan struct{}),
+		logdAddr:  cfg.LogdAddr,
+		log:       log.With("component", "txpool"),
+		pools:     make(map[int][]int64),
+		poolSize:  poolSize,
+		refillCh:  make(chan int, 64),
+		done:      make(chan struct{}),
+		ioTimeout: ioT,
 	}
 	go p.refillLoop()
 	return p
@@ -125,6 +140,10 @@ func (p *Pool) connectLocked(ctx context.Context) error {
 			return fmt.Errorf("failed to create decoder: %w", err)
 		}
 
+		// Bound the hello handshake: a peer that completes the TCP dial but never answers
+		// hello must not block forever under p.mu.
+		_ = conn.SetDeadline(time.Now().Add(p.ioTimeout))
+
 		// Send hello
 		if err := p.sendHello(conn); err != nil {
 			conn.Close()
@@ -141,6 +160,7 @@ func (p *Pool) connectLocked(ctx context.Context) error {
 			conn.Close()
 			return fmt.Errorf("hello error: %s", resp.Error.Message)
 		}
+		_ = conn.SetDeadline(time.Time{}) // clear; fetchTxID sets its own per round trip
 
 		p.conn = conn
 		p.decoder = decoder
@@ -328,6 +348,12 @@ func (p *Pool) fetchTxID(participants int) (int64, error) {
 		NewTx: &api.NewTxRequest{
 			Participants: participants,
 		},
+	}
+
+	// Bound the round trip: p.mu is held here, so a hung logd must not block forever.
+	if p.conn != nil {
+		_ = p.conn.SetDeadline(time.Now().Add(p.ioTimeout))
+		defer func() { _ = p.conn.SetDeadline(time.Time{}) }()
 	}
 
 	if err := p.sendRequest(p.conn, req); err != nil {
