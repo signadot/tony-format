@@ -1,6 +1,7 @@
 !issue
 Ref: refs/issues/r1w4k6g2h12krp8mcdn0
 Title: "storage/tx: CAS/PatchIf lost update — precondition eval is not serialized with the write"
+closed_by: b23fdeefa0293d1de699af24911a06c747f9dea5
 commits:
 - b23fdeefa0293d1de699af24911a06c747f9dea5
 created: "2026-07-24T09:29:29.103677+02:00"
@@ -10,5 +11,5 @@ labels:
 - concurrency
 - correctness
 - high
-status: open
-updated: "2026-07-24T09:45:20.964265+02:00"
+status: closed
+updated: "2026-07-24T09:45:21.069807+02:00"
