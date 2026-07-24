@@ -251,6 +251,19 @@ func applyPatchesToBase(baseReader stream.EventReader, patchNodes []*ir.Node) (*
 	return node, nil
 }
 
+// persistedIndexStale reports whether the loaded index disagrees with the restored dlog
+// generation for any segment — the signature of a compaction whose file swap became durable
+// but whose index (and its new positions) did not. In a consistent state every segment for a
+// log file carries that file's current generation.
+func (s *Storage) persistedIndexStale() bool {
+	for _, seg := range s.index.LookupRangeAll("", nil, nil) {
+		if seg.LogFileGeneration != s.dLog.GetGeneration(dlog.LogFileID(seg.LogFile)) {
+			return true
+		}
+	}
+	return false
+}
+
 // init initializes the storage directory structure.
 func (s *Storage) init() error {
 	dirs := []string{
@@ -275,6 +288,17 @@ func (s *Storage) init() error {
 		maxCommit = -1
 	}
 	s.index = idx
+
+	// Guard against a persisted index left inconsistent with the logs by a compaction that
+	// did not complete durably: if any segment's recorded log-file generation disagrees with
+	// the generation restored from dlog.state, the persisted positions are stale for the
+	// actual on-disk layout. Discard the persisted index and rebuild from the logs, which
+	// reflect the true current layout (issue 656g8yt5).
+	if s.persistedIndexStale() {
+		s.logger.Warn("persisted index generation mismatch after restart; rebuilding index from logs")
+		s.index = index.NewIndex("")
+		maxCommit = -1
+	}
 
 	// Rebuild index from logs starting at maxCommit+1
 	if err := index.Build(s.index, s.dLog, maxCommit); err != nil {

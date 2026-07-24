@@ -284,6 +284,12 @@ func (dl *DLog) swapLogFile(logFile *DLogFile, tempPath string, gracePeriod time
 		return fmt.Errorf("failed to rename temp file: %w", err)
 	}
 
+	// Make the two renames durable so a crash can't leave the directory pointing at a
+	// half-swapped state that startup recovery would misread (issue 656g8yt5).
+	if err := fsyncDir(dl.baseDir); err != nil {
+		dl.logger.Warn("failed to fsync dir after log swap", "path", logFile.path, "error", err)
+	}
+
 	// Open new file
 	newFile, err := os.OpenFile(logFile.path, os.O_CREATE|os.O_RDWR, 0644)
 	if err != nil {

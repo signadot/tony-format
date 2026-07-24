@@ -95,28 +95,43 @@ func NewDLog(baseDir string, logger *slog.Logger) (*DLog, error) {
 		return nil, fmt.Errorf("failed to create base directory: %w", err)
 	}
 
-	// Initialize logA
 	logAPath := filepath.Join(baseDir, "logA")
+	logBPath := filepath.Join(baseDir, "logB")
+
+	// Recover any compaction that was interrupted before it finished (crash between the two
+	// renames in swapLogFile, or before the post-swap index was made durable). This restores
+	// the log from its `.old` undo copy and discards any `.compact.tmp`, so the file matches
+	// the last durable state. Must run BEFORE opening the files. See issue 656g8yt5.
+	recoverCompactionArtifacts(logAPath, logger)
+	recoverCompactionArtifacts(logBPath, logger)
+
+	// Initialize logA
 	logA, err := newDLogFile(LogFileA, logAPath, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize logA: %w", err)
 	}
 
 	// Initialize logB
-	logBPath := filepath.Join(baseDir, "logB")
 	logB, err := newDLogFile(LogFileB, logBPath, logger)
 	if err != nil {
 		logA.Close() // Clean up on error
 		return nil, fmt.Errorf("failed to initialize logB: %w", err)
 	}
 
-	// Determine active log from state file (if exists)
-	// For now, default to LogA. State persistence can be added later.
+	// Restore active log AND the per-file generation counters from state. Persisting the
+	// generation is what lets a restart detect a stale index after compaction (the generation
+	// is the staleness token used by ReadEntryAt); without it, generation reset to 0 on every
+	// restart and reads of compacted data silently returned the wrong bytes. Format:
+	// "<active> <genA> <genB>"; a bare "A"/"B" (legacy) means generations 0.
 	activeLog := LogFileA
+	var genA, genB int64
 	statePath := filepath.Join(baseDir, "dlog.state")
 	if stateData, err := os.ReadFile(statePath); err == nil && len(stateData) > 0 {
-		if string(stateData) == "B" {
-			activeLog = LogFileB
+		var active string
+		if n, _ := fmt.Sscanf(string(stateData), "%s %d %d", &active, &genA, &genB); n >= 1 {
+			if active == "B" {
+				activeLog = LogFileB
+			}
 		}
 	}
 
@@ -127,8 +142,75 @@ func NewDLog(baseDir string, logger *slog.Logger) (*DLog, error) {
 		activeLog: activeLog,
 		logger:    logger,
 	}
+	dl.generationA.Store(genA)
+	dl.generationB.Store(genB)
 
 	return dl, nil
+}
+
+// recoverCompactionArtifacts rolls back an interrupted compaction of one log file. `.old` is
+// the undo copy created by swapLogFile before it replaces the file; its presence means the
+// compaction did not finish durably, so restore it (this overwrites a partially-swapped or
+// missing file with the pre-compaction original). A leftover `.compact.tmp` is discarded. The
+// compaction simply re-runs later. Best-effort: failures are logged, not fatal.
+func recoverCompactionArtifacts(path string, logger *slog.Logger) {
+	oldPath := path + ".old"
+	tmpPath := path + ".compact.tmp"
+	if _, err := os.Stat(oldPath); err == nil {
+		if err := os.Rename(oldPath, path); err != nil {
+			logger.Error("compaction recovery: failed to restore log from .old", "path", path, "error", err)
+		} else {
+			logger.Warn("compaction recovery: restored log from an interrupted compaction", "path", path)
+		}
+	}
+	if _, err := os.Stat(tmpPath); err == nil {
+		if err := os.Remove(tmpPath); err != nil {
+			logger.Warn("compaction recovery: failed to remove stale temp", "path", tmpPath, "error", err)
+		}
+	}
+}
+
+// writeState persists the active log and both generation counters to dlog.state, durably
+// (fsync of the file and its directory), so a compaction's generation bump and the active-log
+// choice survive a crash. Written via a temp file + rename so a crash never leaves a
+// half-written state file.
+func (dl *DLog) writeState() error {
+	dl.mu.RLock()
+	active := dl.activeLog
+	dl.mu.RUnlock()
+	line := fmt.Sprintf("%s %d %d", active, dl.generationA.Load(), dl.generationB.Load())
+
+	statePath := filepath.Join(dl.baseDir, "dlog.state")
+	tmpPath := statePath + ".tmp"
+	f, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write([]byte(line)); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, statePath); err != nil {
+		return err
+	}
+	return fsyncDir(dl.baseDir)
+}
+
+// fsyncDir fsyncs a directory so a rename/create within it is durable.
+func fsyncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }
 
 // newDLogFile creates and opens a log file for appending.
@@ -309,6 +391,11 @@ func (dl *DLog) IncrementGeneration(id LogFileID) {
 	} else {
 		dl.generationB.Add(1)
 	}
+	// Persist the bump durably: the generation is the token a restart uses to detect a stale
+	// index after compaction, so it must survive a crash (issue 656g8yt5).
+	if err := dl.writeState(); err != nil {
+		dl.logger.Warn("failed to persist generation state", "error", err)
+	}
 }
 
 // ActiveLogSize returns the current size of the active log file.
@@ -356,9 +443,8 @@ func (dl *DLog) SwitchActive() error {
 	inactiveLog.snapMu.Unlock()
 	dl.mu.Unlock()
 
-	// Persist state to disk (use captured value, not dl.activeLog which could race)
-	statePath := filepath.Join(dl.baseDir, "dlog.state")
-	if err := os.WriteFile(statePath, []byte(string(newActive)), 0644); err != nil {
+	// Persist state (active log + generations) durably.
+	if err := dl.writeState(); err != nil {
 		// Log error but don't fail - state can be recovered
 		dl.logger.Warn("failed to persist active log state", "error", err)
 	}
