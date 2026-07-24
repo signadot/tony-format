@@ -314,6 +314,47 @@ func TestWatchHub_Broadcast_SlowConsumerFails(t *testing.T) {
 	}
 }
 
+// Regression for issue yfqsz3j6: Broadcast runs on the committing goroutine and must never
+// block on a slow consumer (which would stall unrelated writers and the session heartbeat). A
+// full watcher is failed immediately; a healthy watcher alongside it still receives the event.
+func TestWatchHub_Broadcast_DoesNotBlockOnSlowWatcher(t *testing.T) {
+	hub := NewWatchHub() // default 5s timeout — if Broadcast still waited, this test would hang ~5s
+
+	slow := NewWatcher("users", nil, nil, 1)
+	fast := NewWatcher("users", nil, nil, 8)
+	hub.Watch(slow)
+	hub.Watch(fast)
+
+	n := func(c int64) *storage.CommitNotification {
+		return &storage.CommitNotification{Commit: c, KPaths: []string{"users"}}
+	}
+
+	hub.Broadcast(n(1)) // both buffer commit 1; slow is now full (1/1), fast is 1/8
+	<-fast.Events       // drain fast only; slow stays full (never drained)
+
+	start := time.Now()
+	hub.Broadcast(n(2)) // slow's buffer is full -> must fail it without waiting
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("Broadcast blocked %v on a slow watcher; it must be non-blocking", elapsed)
+	}
+
+	if !slow.IsFailed() {
+		t.Error("slow (full-buffer) watcher should have been failed")
+	}
+	// The healthy watcher must still get commit 2 (slow one didn't starve it).
+	select {
+	case ev := <-fast.Events:
+		if ev.Commit != 2 {
+			t.Errorf("fast watcher got commit %d, want 2", ev.Commit)
+		}
+	default:
+		t.Error("fast watcher did not receive commit 2")
+	}
+	if hub.WatcherCount() != 1 {
+		t.Errorf("expected 1 watcher after slow-fail, got %d", hub.WatcherCount())
+	}
+}
+
 func TestWatchHub_Broadcast_FastConsumerSucceeds(t *testing.T) {
 	hub := NewWatchHubWithTimeout(50 * time.Millisecond)
 

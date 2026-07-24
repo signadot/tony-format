@@ -16,9 +16,11 @@ const DefaultBroadcastTimeout = 5 * time.Second
 // WatchHub manages watches and broadcasts commit notifications to watchers.
 // It is thread-safe and designed for concurrent access from multiple sessions.
 type WatchHub struct {
-	mu               sync.RWMutex
-	watchers         map[string]map[*Watcher]struct{} // path -> set of watchers
-	broadcastTimeout time.Duration                    // timeout for sending to watchers
+	mu       sync.RWMutex
+	watchers map[string]map[*Watcher]struct{} // path -> set of watchers
+	// broadcastTimeout is retained for API/test compatibility but no longer gates delivery:
+	// Broadcast is non-blocking and fails a watcher whose buffer is full (see Broadcast).
+	broadcastTimeout time.Duration
 }
 
 // Watcher represents a watch on a path.
@@ -88,9 +90,11 @@ func (h *WatchHub) Unwatch(watcher *Watcher) {
 // Broadcast sends a commit notification to all matching watchers.
 // A watcher matches if any of the notification's KPaths has the watcher's path as a prefix.
 //
-// If a watcher's channel blocks for longer than the broadcast timeout, the watch
-// is failed (Failed channel is closed) and the watcher is removed. This ensures slow
-// consumers don't miss events silently - they are notified of failure instead.
+// It is non-blocking: delivery to each watcher is a non-blocking send to its buffered Events
+// channel. A watcher whose buffer is full has fallen behind and is failed (its Failed channel
+// is closed and it is removed), so slow consumers don't miss events silently — they are
+// notified of failure and re-establish. Broadcast never waits on a consumer, because it runs
+// on the committing goroutine as the CommitNotifier (whose contract is to return immediately).
 //
 // This method is designed to be used as a CommitNotifier callback:
 //
@@ -143,28 +147,26 @@ func (h *WatchHub) Broadcast(n *storage.CommitNotification) {
 		}
 	}
 
-	// Send to each target with timeout
+	// Enqueue to each watcher's buffered Events channel WITHOUT blocking. Broadcast runs on
+	// the committing goroutine (it is the CommitNotifier, whose contract is to return
+	// immediately), so it must never wait on a consumer: a slow watcher would otherwise stall
+	// every unrelated writer's commit and the committing session's own heartbeat. A watcher
+	// whose buffer is full has fallen behind — fail it loudly (its Failed channel is closed,
+	// forwardEvents sends a terminal event, and the client re-establishes/resyncs) rather than
+	// block. The buffer is the burst grace; there is no time-based wait. (issue yfqsz3j6)
 	var failedWatchers []*Watcher
 	for _, target := range targets {
-		// Check if already failed
-		select {
-		case <-target.watcher.Failed:
-			continue // Already failed, skip
-		default:
-		}
-
-		// Try to send with timeout
 		select {
 		case target.watcher.Events <- n:
-			// Sent successfully
-		case <-time.After(h.broadcastTimeout):
-			// Timeout - watcher is too slow, fail it
+			// delivered
+		case <-target.watcher.Failed:
+			// already failing, skip
+		default:
+			// buffer full: too slow to keep up
 			target.watcher.failOnce.Do(func() {
 				close(target.watcher.Failed)
 			})
 			failedWatchers = append(failedWatchers, target.watcher)
-		case <-target.watcher.Failed:
-			// Failed while waiting, skip
 		}
 	}
 

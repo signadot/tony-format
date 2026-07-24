@@ -613,7 +613,10 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 	// IMPORTANT: Register with hub FIRST to avoid race condition.
 	// Events that arrive between Watch and GetCurrentCommit will be queued.
 	// After replay, we skip any queued events with commit <= currentCommit.
-	watcher := NewWatcher(path, s.scope, req.FromCommit, 100)
+	// Buffer sized for burst tolerance: Broadcast is non-blocking and fails a watcher whose
+	// buffer is full (see WatchHub.Broadcast), so the buffer — not a time grace — is what
+	// absorbs a transient read stall before the watch is failed.
+	watcher := NewWatcher(path, s.scope, req.FromCommit, 1024)
 	watcher.ID = id
 	s.hub.Watch(watcher)
 
