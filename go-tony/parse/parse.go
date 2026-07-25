@@ -25,6 +25,14 @@ func Parse(d []byte, opts ...ParseOption) (*ir.Node, error) {
 	for len(toks) > 0 && toks[0].Type == token.TDocSep {
 		toks = toks[1:]
 	}
+	// A whitespace-only body is an empty document. Every kind of blank input
+	// tokenizes to nothing but TIndent tokens; without this, a body of spaces
+	// ("   ") reaches Balance as a lone non-empty indent and fails with a confusing
+	// "extraneous indent", while "\n\t\n" or "" quietly return (nil, nil). Treat
+	// them all alike.
+	if allBlank(toks) {
+		return nil, nil
+	}
 	bal, err := token.Balance(toks, pOpts.format)
 	if err != nil {
 		return nil, err
@@ -41,6 +49,20 @@ func Parse(d []byte, opts ...ParseOption) (*ir.Node, error) {
 		res = associateComments(res)
 	}
 	return res, nil
+}
+
+// allBlank reports whether toks contains only indent tokens, i.e. the input is
+// whitespace-only (a blank document).
+func allBlank(toks []token.Token) bool {
+	if len(toks) == 0 {
+		return false // empty stream is handled by the normal path (returns nil, nil)
+	}
+	for i := range toks {
+		if toks[i].Type != token.TIndent {
+			return false
+		}
+	}
+	return true
 }
 
 // ParseMulti parses multiple Tony documents separated by '---' from a single byte slice.
