@@ -1002,6 +1002,14 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 				buf.WriteString("			return nil, fmt.Errorf(\"failed to convert map value at key %q: %w\", k, err)\n")
 				buf.WriteString("		}\n")
 				buf.WriteString("		mapNodes[k] = node\n")
+			} else if valueType.Kind() == reflect.Interface {
+				// map[string]any: dispatch the value through the reflection path,
+				// which handles arbitrary document fragments (and any nested codecs).
+				buf.WriteString(fmt.Sprintf("		node, err %s gomap.ToTonyIR(v, opts...)\n", assign))
+				buf.WriteString("		if err != nil {\n")
+				buf.WriteString("			return nil, fmt.Errorf(\"failed to convert map value at key %q: %w\", k, err)\n")
+				buf.WriteString("		}\n")
+				buf.WriteString("		mapNodes[k] = node\n")
 			} else {
 				valueCode, err := generatePrimitiveToIR("v", valueType)
 				if err != nil {
@@ -1690,6 +1698,12 @@ func getQualifiedTypeName(typ reflect.Type, currentPkg string) string {
 		return typ.Name()
 	}
 
+	// Anonymous interface (interface{} / any) — Kind().String() alone yields the
+	// invalid spelling "interface", so name it explicitly.
+	if typ.Kind() == reflect.Interface && typ.Name() == "" {
+		return "interface{}"
+	}
+
 	// For struct types without a name, try to extract from String()
 	// This handles cases where Name() returns empty but String() has the type info
 	if typ.Kind() == reflect.Struct && typ.Name() == "" {
@@ -2248,6 +2262,13 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 					}
 					buf.WriteString(fmt.Sprintf("			m[k] = v%d\n", depth-1))
 				}
+			} else if valueType.Kind() == reflect.Interface {
+				// map[string]any: decode the value through the reflection path.
+				buf.WriteString(fmt.Sprintf("			var val %s\n", structName))
+				buf.WriteString("			if err := gomap.FromTonyIR(v, &val, opts...); err != nil {\n")
+				buf.WriteString("				return fmt.Errorf(\"failed to convert map value at key %q: %w\", k, err)\n")
+				buf.WriteString("			}\n")
+				buf.WriteString("			m[k] = val\n")
 			} else {
 				buf.WriteString("			ctx := fmt.Sprintf(\"map value at key %q\", k)\n")
 				valueCode, err := generatePrimitiveFromIR("v", "val", valueType, "ctx")
