@@ -7,5 +7,7 @@ labels:
 - agent
 - codegen
 - gomap
+related_issues:
+- cc5rbhv8h12krppwjhmg
 status: open
-updated: "2026-07-26T01:24:31.919234+02:00"
+updated: "2026-07-26T01:24:32.005886+02:00"
