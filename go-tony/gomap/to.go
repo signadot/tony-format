@@ -161,6 +161,20 @@ func toIRReflectValue(val reflect.Value, fieldPath string, visited map[uintptr]s
 		return node, err
 	}
 
+	// Check for a ToTonyIR() method on a non-pointer value: a value receiver via
+	// val, or a pointer receiver via val.Addr() when addressable. This mirrors the
+	// TextMarshaler treatment below and the pointer branch above — without it a
+	// value-typed field (including a named map type) whose whole purpose is a
+	// custom wire form is silently walked structurally instead of dispatched.
+	if method := val.MethodByName("ToTonyIR"); method.IsValid() {
+		return callToTonyIR(method, opts...)
+	}
+	if val.CanAddr() {
+		if method := val.Addr().MethodByName("ToTonyIR"); method.IsValid() {
+			return callToTonyIR(method, opts...)
+		}
+	}
+
 	// Check for encoding.TextMarshaler for non-pointers
 	if tm, ok := val.Interface().(encoding.TextMarshaler); ok {
 		text, err := tm.MarshalText()
