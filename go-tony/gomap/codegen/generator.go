@@ -97,7 +97,6 @@ func toTonyIROptsSuffix(t reflect.Type, currentPkgPath string) string {
 	return ""
 }
 
-
 // GenerateCode generates Go code for ToTony() and FromTony() methods for all structs.
 // Returns formatted Go source code.
 func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, config *CodegenConfig) (string, error) {
@@ -384,7 +383,7 @@ func GenerateZeroValueHelpers(structs []*StructInfo) (string, error) {
 			// Generate helper function based on field type
 			// Use the actual field type (which may be a named type)
 			typeStr := getFieldTypeName(field, structInfo.Package)
-			
+
 			switch field.Type.Kind() {
 			case reflect.String:
 				buf.WriteString(fmt.Sprintf("func %s(v %s) bool {\n", helperName, typeStr))
@@ -1101,9 +1100,13 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 // generatePrimitiveToIR generates code to convert a primitive value to an IR node.
 // Returns the code expression (e.g., "ir.FromString(v)").
 func generatePrimitiveToIR(varName string, typ reflect.Type) (string, error) {
+	// Cast to the builtin in every case: for a named scalar (e.g. `type Verb
+	// string`, a slice element) varName has that named type, and ir.FromString/
+	// FromBool take the builtin. The conversion is an identity no-op for a plain
+	// builtin, so this is safe for both.
 	switch typ.Kind() {
 	case reflect.String:
-		return fmt.Sprintf("ir.FromString(%s)", varName), nil
+		return fmt.Sprintf("ir.FromString(string(%s))", varName), nil
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return fmt.Sprintf("ir.FromInt(int64(%s))", varName), nil
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
@@ -1111,7 +1114,7 @@ func generatePrimitiveToIR(varName string, typ reflect.Type) (string, error) {
 	case reflect.Float32, reflect.Float64:
 		return fmt.Sprintf("ir.FromFloat64(float64(%s))", varName), nil
 	case reflect.Bool:
-		return fmt.Sprintf("ir.FromBool(%s)", varName), nil
+		return fmt.Sprintf("ir.FromBool(bool(%s))", varName), nil
 	default:
 		return "", fmt.Errorf("unsupported primitive type: %v", typ.Kind())
 	}
@@ -1695,12 +1698,12 @@ func getQualifiedTypeName(typ reflect.Type, currentPkg string) string {
 		// - "package.TypeName" for external packages (e.g., "storage.PendingFileRef")
 		// - "TypeName" for same package (e.g., "PendingFileRef")
 		// - "struct {...}" for anonymous structs
-		
+
 		// Skip anonymous structs
 		if strings.HasPrefix(typeStr, "struct {") {
 			return "struct" // Will cause compile error
 		}
-		
+
 		// If String() contains a dot, extract type name
 		if strings.Contains(typeStr, ".") {
 			parts := strings.Split(typeStr, ".")
@@ -1722,13 +1725,13 @@ func getQualifiedTypeName(typ reflect.Type, currentPkg string) string {
 			}
 			return typeName
 		}
-		
+
 		// If String() has no dot but PkgPath is set, it's likely same package
 		// Use String() as the type name (it should be just the type name)
 		if typ.PkgPath() != "" && typ.PkgPath() == currentPkg && typeStr != "struct" {
 			return typeStr
 		}
-		
+
 		// If PkgPath is set, try to construct the name
 		if typ.PkgPath() != "" && typeStr != "struct" && typeStr != "" {
 			// Check if it's current package
@@ -1740,7 +1743,7 @@ func getQualifiedTypeName(typ reflect.Type, currentPkg string) string {
 			pkgName := pkgParts[len(pkgParts)-1]
 			return pkgName + "." + typeStr
 		}
-		
+
 		// Fallback: return "struct" which will cause a compile error
 		return "struct"
 	}
@@ -1902,7 +1905,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 		// Check if this is time.Duration by checking type string, PkgPath/Name, or StructTypeName
 		typeName := field.Type.Name()
 		typeStr := field.Type.String()
-		
+
 		// Check type string first (most reliable for type aliases)
 		if typeStr == "time.Duration" {
 			typeName = "time.Duration"
@@ -2148,8 +2151,10 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 				buf.WriteString("			slice[i] = elem\n")
 			}
 		} else {
-			// Slice of primitives
-			// Generate code with a context variable that will be formatted
+			// Slice of primitives. elem is decoded into the underlying builtin type,
+			// then converted to the slice's (possibly named) element type on assign:
+			// for a []Verb the element decodes as string and slice[i] = Verb(elem).
+			// The conversion is an identity no-op for a plain builtin element.
 			buf.WriteString("			ctx := fmt.Sprintf(\"slice element %d\", i)\n")
 			elemCode, err := generatePrimitiveFromIR("v", "elem", elemType, "ctx")
 			if err != nil {
@@ -2157,7 +2162,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			}
 			buf.WriteString(fmt.Sprintf("			var elem %s\n", getQualifiedTypeName(elemType, currentPkgPath)))
 			buf.WriteString(fmt.Sprintf("			%s\n", elemCode))
-			buf.WriteString("			slice[i] = elem\n")
+			buf.WriteString(fmt.Sprintf("			slice[i] = %s(elem)\n", structName))
 		}
 		buf.WriteString("		}\n")
 		buf.WriteString(fmt.Sprintf("		s.%s = slice\n", field.Name))

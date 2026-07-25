@@ -297,6 +297,19 @@ func (r *TypeResolver) resolveASTType(expr ast.Expr, currentStructName string, i
 			}
 		}
 
+		// Recover the underlying kind for a named non-struct scalar type (e.g.
+		// `type Verb string`). resolveIdentType cannot resolve it and falls back to
+		// int, which makes codegen emit ir.FromInt for what is really a string —
+		// invalid Go. go/types knows the underlying basic kind; use it so the
+		// generator picks the right conversion. Structs keep their placeholder.
+		if structName == "" && typesType != nil {
+			if basic, ok := typesType.Underlying().(*types.Basic); ok {
+				if rt := reflectForBasicKind(basic.Kind()); rt != nil {
+					reflectType = rt
+				}
+			}
+		}
+
 		return reflectType, typesType, structName, pkgPath, typeName, nil
 
 	case *ast.StarExpr:
@@ -540,6 +553,48 @@ func buildGoTypeExpr(expr ast.Expr) string {
 		}
 	default:
 		return ""
+	}
+}
+
+// reflectForBasicKind maps a go/types basic kind to a representative reflect.Type,
+// so a named scalar type resolved from source (e.g. `type Verb string`) generates
+// the conversion for its underlying kind rather than the int fallback. Returns nil
+// for kinds tony does not model as a scalar (e.g. complex, unsafe pointer), leaving
+// the caller's existing type in place.
+func reflectForBasicKind(k types.BasicKind) reflect.Type {
+	switch k {
+	case types.Bool, types.UntypedBool:
+		return reflect.TypeOf(false)
+	case types.String, types.UntypedString:
+		return reflect.TypeOf("")
+	case types.Int:
+		return reflect.TypeOf(int(0))
+	case types.Int8:
+		return reflect.TypeOf(int8(0))
+	case types.Int16:
+		return reflect.TypeOf(int16(0))
+	case types.Int32, types.UntypedRune:
+		return reflect.TypeOf(int32(0))
+	case types.Int64, types.UntypedInt:
+		return reflect.TypeOf(int64(0))
+	case types.Uint:
+		return reflect.TypeOf(uint(0))
+	case types.Uint8:
+		return reflect.TypeOf(uint8(0))
+	case types.Uint16:
+		return reflect.TypeOf(uint16(0))
+	case types.Uint32:
+		return reflect.TypeOf(uint32(0))
+	case types.Uint64:
+		return reflect.TypeOf(uint64(0))
+	case types.Uintptr:
+		return reflect.TypeOf(uintptr(0))
+	case types.Float32:
+		return reflect.TypeOf(float32(0))
+	case types.Float64, types.UntypedFloat:
+		return reflect.TypeOf(float64(0))
+	default:
+		return nil
 	}
 }
 

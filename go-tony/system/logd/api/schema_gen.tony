@@ -198,7 +198,7 @@ define:
   hello: .[nullable(session-hello)]
   id: .[nullable(string)]
   match: .[nullable(session-match-request)]
-  migration: .[nullable(int)]
+  migration: .[nullable(string)]
   newtx: .[nullable(session-newtx-request)]
   patch: .[nullable(session-patch-request)]
   ping: .[nullable(session-ping-request)]
