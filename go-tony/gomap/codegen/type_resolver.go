@@ -11,6 +11,19 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
+// isNamedTypeExpr reports whether e denotes a named type by reference — a plain
+// identifier (`Match`) or a package-qualified selector (`pkg.Match`) — rather than
+// a composite type literal (`map[...]...`, `[]T`, `*T`). Only a named type can
+// carry its own codec method, so this gates method dispatch for named-map fields
+// (see DispatchViaMethod, issue cc5rbhv8h12k).
+func isNamedTypeExpr(e ast.Expr) bool {
+	switch e.(type) {
+	case *ast.Ident, *ast.SelectorExpr:
+		return true
+	}
+	return false
+}
+
 // TypeResolver handles type resolution for a package.
 type TypeResolver struct {
 	loader        *PackageLoader
@@ -154,8 +167,16 @@ func ResolveFieldTypes(structs []*StructInfo, pkgDir string, pkgName string) err
 			// struct and pointer-to-struct fields already dispatch correctly via
 			// their own paths (and a pointer needs allocation before decode), and
 			// named scalars are handled by their kind.
+			//
+			// The declared type must be a NAMED map (an identifier/selector like
+			// `type Match map[string]any` used as a field), not an unnamed map
+			// literal (`map[string]RepoConfig`) whose VALUE type happens to have a
+			// codec — the literal has no ToTonyIR method of its own, so dispatching
+			// to one generates invalid Go (issue cc5rbhv8h12k). An unnamed map is
+			// inlined by the reflect.Map path, which dispatches per value.
 			if field.Type != nil && field.Type.Kind() == reflect.Map &&
-				field.TypeName != "" && codecTypeNames[field.TypeName] {
+				field.TypeName != "" && codecTypeNames[field.TypeName] &&
+				isNamedTypeExpr(field.ASTType) {
 				field.DispatchViaMethod = true
 			}
 
