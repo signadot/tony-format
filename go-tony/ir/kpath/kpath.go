@@ -136,8 +136,24 @@ func (p *KPath) EntryKind() EntryKind {
 	panic("entry kind")
 }
 
+// Wild reports whether the HEAD segment of p is a wildcard (.* [*] {*}). It is a
+// segment predicate — consistent with Type returning a SegmentType — so on a
+// multi-segment path it answers only about the first segment, NOT the whole path.
+// For the whole-path question ("does any segment glob?") use HasWild; for the
+// last segment use p.LastSegment().Wild().
 func (p *KPath) Wild() bool {
 	return p.FieldAll || p.IndexAll || p.SparseIndexAll
+}
+
+// HasWild reports whether ANY segment of the path is a wildcard (.* [*] {*}).
+// This is the whole-path counterpart to the head-segment-only Wild.
+func (p *KPath) HasWild() bool {
+	for x := p; x != nil; x = x.Next {
+		if x.Wild() {
+			return true
+		}
+	}
+	return false
 }
 
 // LastSegment returns the last segment as a single-segment KPath.
@@ -201,6 +217,43 @@ func (p *KPath) AncestorOrEqual(other *KPath) (anc, eq bool) {
 func (p *KPath) IsPrefix(o *KPath) bool {
 	anc, _ := p.AncestorOrEqual(o)
 	return anc
+}
+
+// Matches reports whether p, read as a pattern, denotes o. It is the wildcard-
+// aware analog of segment-wise equality: a wildcard segment in p (.* [*] {*})
+// matches any segment of the same kind in o, and concrete segments compare by
+// value as in AncestorOrEqual. The paths must have equal depth.
+//
+// Matching is one-directional — p is the pattern, o the (typically concrete)
+// target — so a concrete segment in p does not match a wildcard in o. It is
+// reflexive (p.Matches(p) is always true, wildcards included) and kind-strict
+// (see segmentMatches): review.seq[*] matches review.seq[2] but a dense [*] never
+// matches a keyed element. A nil receiver (root) matches only nil.
+func (p *KPath) Matches(o *KPath) bool {
+	pa, pb := p, o
+	for pa != nil && pb != nil {
+		if !segmentMatches(pa, pb) {
+			return false
+		}
+		pa, pb = pa.Next, pb.Next
+	}
+	return pa == nil && pb == nil
+}
+
+// MatchesPrefix reports whether p, read as a pattern, denotes an ancestor-or-equal
+// of o under the same wildcard rule as Matches: every segment of p matches the
+// corresponding segment of o, and p may be shorter than o. review.seq[*] thus
+// MatchesPrefix review.seq[2].onDone. A nil receiver (root) is a prefix of every
+// path.
+func (p *KPath) MatchesPrefix(o *KPath) bool {
+	pa, pb := p, o
+	for pa != nil && pb != nil {
+		if !segmentMatches(pa, pb) {
+			return false
+		}
+		pa, pb = pa.Next, pb.Next
+	}
+	return pa == nil
 }
 
 // Parse parses a kinded path string into a KPath structure.
