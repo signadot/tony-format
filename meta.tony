@@ -1,6 +1,8 @@
 !issue
 Ref: refs/issues/f69agjyeh12ksa25cnn0
 Title: "tony-codegen/gomap: hand-written ToTonyIR codecs are unreachable or unusable in several common shapes (tracking)"
+commits:
+- afacf92bdb548996d061fbb63f202ba763acca20
 created: "2026-07-26T01:24:24.666865+02:00"
 id: f69agjyeh12ksa25cnn0
 labels:
@@ -11,4 +13,4 @@ related_issues:
 - cc5rbhv8h12krppwjhmg
 - "602tf318h12krj0kf9mg"
 status: open
-updated: "2026-07-26T16:35:23.695639+02:00"
+updated: "2026-07-26T16:46:48.715342+02:00"
