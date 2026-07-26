@@ -68,7 +68,7 @@ func (s *Event) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: CommentLines (optional)
 	if !isZeroValue_Event_CommentLines(s.CommentLines) {
-		if len(s.CommentLines) > 0 {
+		{
 			slice := make([]*ir.Node, len(s.CommentLines))
 			for i, v := range s.CommentLines {
 				slice[i] = ir.FromString(string(v))

@@ -45,7 +45,7 @@ func (s *State) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	}
 
 	// Field: PatcherData
-	if len(s.PatcherData) > 0 {
+	{
 		slice := make([]*ir.Node, len(s.PatcherData))
 		for i, v := range s.PatcherData {
 			node, err = v.ToTonyIR()

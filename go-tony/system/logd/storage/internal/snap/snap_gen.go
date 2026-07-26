@@ -130,7 +130,7 @@ func (s *Index) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Entries
-	if len(s.Entries) > 0 {
+	{
 		slice := make([]*ir.Node, len(s.Entries))
 		for i, v := range s.Entries {
 			node, err = v.ToTonyIR()

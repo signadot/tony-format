@@ -963,7 +963,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 	case reflect.Slice, reflect.Array:
 		// Slice/Array type
 		elemType := field.Type.Elem()
-		buf.WriteString(fmt.Sprintf("	if len(s.%s) > 0 {\n", field.Name))
+		buf.WriteString(collectionGuardOpen(field))
 		buf.WriteString(fmt.Sprintf("		slice := make([]*ir.Node, len(s.%s))\n", field.Name))
 		buf.WriteString(fmt.Sprintf("		for i, v := range s.%s {\n", field.Name))
 		if depth := getIRNodeDepth(elemType); depth > 0 {
@@ -1152,6 +1152,21 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 
 // generatePrimitiveToIR generates code to convert a primitive value to an IR node.
 // Returns the code expression (e.g., "ir.FromString(v)").
+// collectionGuardOpen returns the opening line for a slice field's encode block. A
+// slice with omitzero is guarded on len > 0 so an empty slice is dropped; a slice
+// without omitzero opens a bare block so an empty slice is still emitted as [] —
+// matching the reflection path (a nil/empty slice encodes as []) and letting a
+// caller put an explicitly-empty slice on the wire (issue f69agjyeh12ks item 10B).
+// The matching closing brace is unchanged in both cases. Maps are intentionally not
+// covered: the reflection path distinguishes a nil map (null) from an empty map
+// ({}), a round-tripping unset-vs-empty distinction codegen would have to mirror.
+func collectionGuardOpen(field *FieldInfo) string {
+	if field.Omitzero {
+		return fmt.Sprintf("\tif len(s.%s) > 0 {\n", field.Name)
+	}
+	return "\t{\n"
+}
+
 func generatePrimitiveToIR(varName string, typ reflect.Type) (string, error) {
 	// Cast to the builtin in every case: for a named scalar (e.g. `type Verb
 	// string`, a slice element) varName has that named type, and ir.FromString/

@@ -41,7 +41,7 @@ func (s *Dir) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	}
 
 	// Field: Sources
-	if len(s.Sources) > 0 {
+	{
 		slice := make([]*ir.Node, len(s.Sources))
 		for i, v := range s.Sources {
 			node, err = v.ToTonyIR()
@@ -54,7 +54,7 @@ func (s *Dir) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	}
 
 	// Field: Patches
-	if len(s.Patches) > 0 {
+	{
 		slice := make([]*ir.Node, len(s.Patches))
 		for i, v := range s.Patches {
 			node, err = v.ToTonyIR()

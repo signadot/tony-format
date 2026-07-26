@@ -279,6 +279,8 @@ func toIRReflectSlice(val reflect.Value, fieldPath string, visited map[uintptr]s
 // Maps with string keys are converted to regular objects.
 func toIRReflectMap(val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...MapOption) (*ir.Node, error) {
 	if val.IsNil() {
+		// A nil map serializes as null (distinct from an empty {}); this is a
+		// deliberate unset-vs-empty distinction that round-trips (null -> nil map).
 		return ir.Null(), nil
 	}
 

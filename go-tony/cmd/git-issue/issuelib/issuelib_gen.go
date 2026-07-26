@@ -45,7 +45,7 @@ func (s *Issue) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	}
 
 	// Field: Commits
-	if len(s.Commits) > 0 {
+	{
 		slice := make([]*ir.Node, len(s.Commits))
 		for i, v := range s.Commits {
 			slice[i] = ir.FromString(string(v))
@@ -54,7 +54,7 @@ func (s *Issue) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	}
 
 	// Field: Branches
-	if len(s.Branches) > 0 {
+	{
 		slice := make([]*ir.Node, len(s.Branches))
 		for i, v := range s.Branches {
 			slice[i] = ir.FromString(string(v))
@@ -68,7 +68,7 @@ func (s *Issue) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	}
 
 	// Field: RelatedIssues
-	if len(s.RelatedIssues) > 0 {
+	{
 		slice := make([]*ir.Node, len(s.RelatedIssues))
 		for i, v := range s.RelatedIssues {
 			slice[i] = ir.FromString(string(v))
@@ -77,7 +77,7 @@ func (s *Issue) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	}
 
 	// Field: Blocks
-	if len(s.Blocks) > 0 {
+	{
 		slice := make([]*ir.Node, len(s.Blocks))
 		for i, v := range s.Blocks {
 			slice[i] = ir.FromString(string(v))
@@ -86,7 +86,7 @@ func (s *Issue) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	}
 
 	// Field: BlockedBy
-	if len(s.BlockedBy) > 0 {
+	{
 		slice := make([]*ir.Node, len(s.BlockedBy))
 		for i, v := range s.BlockedBy {
 			slice[i] = ir.FromString(string(v))
@@ -95,7 +95,7 @@ func (s *Issue) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	}
 
 	// Field: Duplicates
-	if len(s.Duplicates) > 0 {
+	{
 		slice := make([]*ir.Node, len(s.Duplicates))
 		for i, v := range s.Duplicates {
 			slice[i] = ir.FromString(string(v))
@@ -104,7 +104,7 @@ func (s *Issue) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	}
 
 	// Field: Labels
-	if len(s.Labels) > 0 {
+	{
 		slice := make([]*ir.Node, len(s.Labels))
 		for i, v := range s.Labels {
 			slice[i] = ir.FromString(string(v))
