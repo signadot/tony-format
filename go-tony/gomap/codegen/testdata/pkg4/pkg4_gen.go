@@ -32,10 +32,10 @@ func (s *Dir) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap["DestDir"] = ir.FromString(s.DestDir)
 
 	// Field: Sources
-	if len(s.Sources) > 0 {
+	{
 		slice := make([]*ir.Node, len(s.Sources))
 		for i, v := range s.Sources {
-			node, err = v.ToTonyIR()
+			node, err = v.ToTonyIR(opts...)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert slice element %d: %w", i, err)
 			}
@@ -104,7 +104,7 @@ func (s *Dir) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				slice := make([]DirSource, len(fieldNodeUnwrapped.Values))
 				for i, v := range fieldNodeUnwrapped.Values {
 					elem := DirSource{}
-					if err := elem.FromTonyIR(v); err != nil {
+					if err := elem.FromTonyIR(v, opts...); err != nil {
 						return fmt.Errorf("failed to convert slice element %d: %w", i, err)
 					}
 					slice[i] = elem

@@ -181,14 +181,14 @@ func (s *Compound) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Meta
-	node, err = s.Meta.ToTonyIR()
+	node, err = s.Meta.ToTonyIR(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert field %q: %w", "Meta", err)
 	}
 	irMap["meta"] = node
 
 	// Field: Body
-	node, err = s.Body.ToTonyIR()
+	node, err = s.Body.ToTonyIR(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert field %q: %w", "Body", err)
 	}
@@ -229,12 +229,12 @@ func (s *Compound) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 		switch fieldName.String {
 		case "meta":
 			// Field: Meta
-			if err := s.Meta.FromTonyIR(fieldNode); err != nil {
+			if err := s.Meta.FromTonyIR(fieldNode, opts...); err != nil {
 				return fmt.Errorf("field %q: %w", "meta", err)
 			}
 		case "body":
 			// Field: Body
-			if err := s.Body.FromTonyIR(fieldNode); err != nil {
+			if err := s.Body.FromTonyIR(fieldNode, opts...); err != nil {
 				return fmt.Errorf("field %q: %w", "body", err)
 			}
 		}

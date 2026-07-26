@@ -25,7 +25,7 @@ func (s *Host) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Leaf
-	node, err = s.Leaf.ToTonyIR()
+	node, err = s.Leaf.ToTonyIR(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert field %q: %w", "Leaf", err)
 	}
@@ -66,7 +66,7 @@ func (s *Host) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 		switch fieldName.String {
 		case "leaf":
 			// Field: Leaf
-			if err := s.Leaf.FromTonyIR(fieldNode); err != nil {
+			if err := s.Leaf.FromTonyIR(fieldNode, opts...); err != nil {
 				return fmt.Errorf("field %q: %w", "leaf", err)
 			}
 		}
