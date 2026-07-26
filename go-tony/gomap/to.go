@@ -399,11 +399,18 @@ func toIRReflectStruct(val reflect.Value, fieldPath string, visited map[uintptr]
 		}
 
 		fieldName := field.Name
-		// Parse field tag to check for field= renaming
+		// Parse field tag to check for omission and field= renaming.
 		tag := field.Tag.Get("tony")
 		if tag != "" {
 			parsed, err := ParseStructTag(tag)
 			if err == nil {
+				// A field marked omit / - / field=- is excluded from the wire, just
+				// as codegen excludes it — otherwise the same struct tag produces
+				// different documents on the two paths, and a field explicitly marked
+				// not to be serialized (e.g. a secret) leaks.
+				if tagOmits(parsed) {
+					continue
+				}
 				// Check for field name override (field= tag)
 				if renamed, ok := parsed["field"]; ok && renamed != "" && renamed != "-" {
 					fieldName = renamed

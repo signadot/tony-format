@@ -112,12 +112,6 @@ func (s *Issue) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["labels"] = ir.FromSlice(slice)
 	}
 
-	// Field: Ref
-	irMap["Ref"] = ir.FromString(s.Ref)
-
-	// Field: Title
-	irMap["Title"] = ir.FromString(s.Title)
-
 	return ir.FromMap(irMap).WithTag("!issue"), nil
 }
 
@@ -294,18 +288,6 @@ func (s *Issue) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				}
 				s.Labels = slice
 			}
-		case "Ref":
-			// Field: Ref
-			if fieldNodeUnwrapped.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "Ref", fieldNodeUnwrapped.Type)
-			}
-			s.Ref = fieldNodeUnwrapped.String
-		case "Title":
-			// Field: Title
-			if fieldNodeUnwrapped.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "Title", fieldNodeUnwrapped.Type)
-			}
-			s.Title = fieldNodeUnwrapped.String
 		}
 	}
 

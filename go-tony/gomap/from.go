@@ -836,6 +836,11 @@ func fromIRToStruct(node *ir.Node, val reflect.Value, fieldPath string, visited 
 		if tag != "" {
 			parsed, err := ParseStructTag(tag)
 			if err == nil {
+				// A field marked omit / - / field=- is not read from the wire (it is
+				// never written there either), matching codegen and the encode path.
+				if tagOmits(parsed) {
+					continue
+				}
 				// Check for field name override (field= tag)
 				if renamed, ok := parsed["field"]; ok && renamed != "" && renamed != "-" {
 					schemaFieldName = renamed

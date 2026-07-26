@@ -77,6 +77,22 @@ type FieldInfo struct {
 	ImplementsTextUnmarshaler bool
 }
 
+// tagOmits reports whether a parsed tony struct tag marks the field for exclusion
+// from marshaling/unmarshaling. It recognizes all three spellings: the `omit`
+// flag, `field=-`, and a bare `-` (which ParseStructTag stores as the key "-").
+func tagOmits(parsed map[string]string) bool {
+	if _, ok := parsed["omit"]; ok {
+		return true
+	}
+	if parsed["field"] == "-" {
+		return true
+	}
+	if _, ok := parsed["-"]; ok {
+		return true
+	}
+	return false
+}
+
 // ParseStructTag parses a struct tag string and returns a map of key-value pairs.
 // Handles comma-separated values: `tony:"key1=value1,key2=value2,flag"`
 // Supports quoted values with spaces: `tony:"key='value with spaces'"`

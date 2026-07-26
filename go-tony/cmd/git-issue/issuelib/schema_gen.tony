@@ -3,8 +3,6 @@ context:
 - tony-format/context
 - time: time
 define:
-  Ref: .[string]
-  Title: .[string]
   blocked_by: .[array(string)]
   blocks: .[array(string)]
   branches: .[array(string)]

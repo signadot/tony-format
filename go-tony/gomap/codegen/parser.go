@@ -295,8 +295,10 @@ func extractFields(structType *ast.StructType) ([]*FieldInfo, error) {
 				fieldInfo.SchemaFieldName = name
 			}
 
-			// Extract omit flag
-			if _, ok := parsed["omit"]; ok || parsed["field"] == "-" {
+			// Extract omit flag (omit / field=- / bare -)
+			_, omitFlag := parsed["omit"]
+			_, dashFlag := parsed["-"]
+			if omitFlag || dashFlag || parsed["field"] == "-" {
 				fieldInfo.Omit = true
 			}
 
@@ -349,8 +351,10 @@ func extractFields(structType *ast.StructType) ([]*FieldInfo, error) {
 					fieldInfo.SchemaFieldName = fieldName
 				}
 
-				// Extract omit flag
-				if _, ok := parsed["omit"]; ok || parsed["field"] == "-" {
+				// Extract omit flag (omit / field=- / bare -)
+				_, omitFlag := parsed["omit"]
+				_, dashFlag := parsed["-"]
+				if omitFlag || dashFlag || parsed["field"] == "-" {
 					fieldInfo.Omit = true
 				}
 
