@@ -118,28 +118,46 @@ func (s *Storage) GetCurrentCommit() (int64, error) {
 	return commit, nil
 }
 
-// ReadStateAt reads the state for a given kpath at a specific commit count.
+// ReadStateAt reads the state at a specific commit count.
 // scopeID controls the view: nil = baseline only; non-nil = the scope's copy-on-write
 // overlay. A scope is a LIVE OVERLAY, not a frozen branch: the scoped view at commit C
 // is the baseline state at C with the scope's OWN writes replayed on top. See
 // readScopedStateAt and issue eagjggjdh12ksg00bsn0.
+//
+// kp does NOT narrow the result: log entries are whole-document patches, so what comes
+// back is the document, root-rooted — a SUPERSET of kp's subtree. Callers trim it (see
+// session.go handleMatch, scopedDocAt). kp is kept in the signature because it is the
+// read's declared subject and the natural hook for a future path-scoped read, but it is
+// deliberately not used to pick the snapshot base or the patch range: doing so silently
+// returned no snapshot for every non-root read (issue bvm163tyh12krwcqcsn0), and applied
+// each entry once per level of kp.
 func (s *Storage) ReadStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
 	if scopeID != nil {
-		return s.readScopedStateAt(kp, commit, scopeID)
+		return s.readScopedStateAt(commit, scopeID)
 	}
-	return s.readBaselineStateAt(kp, commit)
+	return s.readBaselineStateAt(commit)
 }
 
 // readBaselineStateAt reads baseline state at commit: the most recent baseline
 // snapshot plus baseline patches applied from that point forward.
-func (s *Storage) readBaselineStateAt(kp string, commit int64) (*ir.Node, error) {
-	baseReader, startCommit, err := s.findSnapshotBaseReader(kp, commit)
+//
+// The patch range is taken at the document ROOT, not at kp. Every entry is indexed at
+// the root as well as at each path inside it (index.indexPatchRec starts at ""), so the
+// root range is already the complete set of entries in the range — and it is the set
+// createSnapshot itself applies. LookupRange(kp) returns that same set PLUS a repeat of
+// each entry for every level of kp the entry also touches, and the applier paid to apply
+// every repeat: reading "demo.x.hot" from a log written entirely at that path applied
+// each entry four times (root, demo, demo.x, demo.x.hot), costing ~5x a read of a path
+// written once over the same log. The result was the same only because merging a whole
+// document twice is a no-op; it is not a property to rely on.
+func (s *Storage) readBaselineStateAt(commit int64) (*ir.Node, error) {
+	baseReader, startCommit, err := s.findSnapshotBaseReader(commit)
 	if err != nil {
 		return nil, err
 	}
 	defer baseReader.Close()
 
-	segments := s.index.LookupRange(kp, &startCommit, &commit, nil)
+	segments := s.index.LookupRange("", &startCommit, &commit, nil)
 	patchNodes, err := s.patchNodesFromSegments(segments, nil)
 	if err != nil {
 		return nil, err
@@ -165,22 +183,23 @@ func (s *Storage) readBaselineStateAt(kp string, commit int64) (*ir.Node, error)
 // The scope layer is deliberately NOT read from a scope snapshot: materialized scope
 // snapshots resolve !key away and are unsound here (see issue eagjggjdh12ksg00bsn0;
 // bounded op-preserving compaction is tracked in 5hmq80f3h12krh1mbsn0).
-func (s *Storage) readScopedStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
-	baseReader, startCommit, err := s.findSnapshotBaseReader(kp, commit)
+func (s *Storage) readScopedStateAt(commit int64, scopeID *string) (*ir.Node, error) {
+	baseReader, startCommit, err := s.findSnapshotBaseReader(commit)
 	if err != nil {
 		return nil, err
 	}
 	defer baseReader.Close()
 
-	// Baseline patches from the snapshot forward.
-	baseSegments := s.index.LookupRange(kp, &startCommit, &commit, nil)
+	// Baseline patches from the snapshot forward. Taken at the root for the same reason
+	// as readBaselineStateAt: the root range is the complete, non-repeating entry set.
+	baseSegments := s.index.LookupRange("", &startCommit, &commit, nil)
 	patchNodes, err := s.patchNodesFromSegments(baseSegments, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	// This scope's own patches over the full [0, commit] range, applied last.
-	scopeSegments := s.index.LookupRange(kp, nil, &commit, scopeID)
+	scopeSegments := s.index.LookupRange("", nil, &commit, scopeID)
 	scopePatches, err := s.patchNodesFromSegments(scopeSegments, scopeID)
 	if err != nil {
 		return nil, err
