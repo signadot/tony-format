@@ -92,7 +92,8 @@ func (l *PackageLoader) FindStructType(pkg *packages.Package, typeName string) (
 		return nil, nil, fmt.Errorf("%q is not a type name", typeName)
 	}
 
-	named, ok := typeNameObj.Type().(*types.Named)
+	// Follow type aliases to the target named type (see FindNamedType).
+	named, ok := types.Unalias(typeNameObj.Type()).(*types.Named)
 	if !ok {
 		return nil, nil, fmt.Errorf("%q is not a named type", typeName)
 	}
@@ -120,7 +121,11 @@ func (l *PackageLoader) FindNamedType(pkg *packages.Package, typeName string) (*
 		return nil, nil, fmt.Errorf("%q is not a type name", typeName)
 	}
 
-	named, ok := typeNameObj.Type().(*types.Named)
+	// Follow type aliases (e.g. `type Format = format.Format` re-exported from
+	// another package) to the target named type. Since Go 1.23 an alias's Type()
+	// is a *types.Alias, not the *types.Named it points at; types.Unalias resolves
+	// it (issue f69agjyeh12ks item 14).
+	named, ok := types.Unalias(typeNameObj.Type()).(*types.Named)
 	if !ok {
 		return nil, nil, fmt.Errorf("%q is not a named type", typeName)
 	}
