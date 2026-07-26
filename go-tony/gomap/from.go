@@ -209,6 +209,18 @@ func fromIRReflectWithVisited(node *ir.Node, val reflect.Value, fieldPath string
 		delete(visited, ptrAddr)
 		return err
 	}
+
+	// Check for a FromTonyIR() method on a non-pointer value: dispatch via
+	// val.Addr() when addressable (FromTonyIR needs a pointer receiver to mutate).
+	// The pointer branch above already dispatches; without this a value-typed field
+	// (map or struct) with a custom codec is walked structurally on decode — the
+	// exact asymmetry left after item 1 fixed only the encode (ToTonyIR) side.
+	if val.CanAddr() {
+		if m := val.Addr().MethodByName("FromTonyIR"); m.IsValid() {
+			return callFromTonyIR(m, node, opts...)
+		}
+	}
+
 	// Handle null values
 	if node.Type == ir.NullType {
 		// Set zero value for the target

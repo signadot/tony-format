@@ -66,3 +66,42 @@ func TestUpstreamItem2_NamedMapCodecDispatched_Reflection(t *testing.T) {
 		t.Errorf("named map codec not dispatched: got %s", encode.MustString(n))
 	}
 }
+
+// item1FromLeaf has both codecs; its FromTonyIR marks the value so a test can tell
+// whether the reflection decode dispatched to it or walked the struct.
+type item1FromLeaf struct{ V string }
+
+func (l item1FromLeaf) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	return ir.FromString("L:" + l.V), nil
+}
+
+func (l *item1FromLeaf) FromTonyIR(n *ir.Node, opts ...gomap.UnmapOption) error {
+	l.V = "decoded:" + n.String
+	return nil
+}
+
+type item1FromHost struct {
+	Val item1FromLeaf  `tony:"field=val"`
+	Ptr *item1FromLeaf `tony:"field=ptr"`
+}
+
+// TestUpstreamItem1_FromValueDispatched guards the FROM-direction half of item 1:
+// gomap reflection must dispatch to FromTonyIR for a value field, not only a
+// pointer field — item 1 fixed only the ToTonyIR (encode) side, leaving decode
+// with the exact asymmetry it removed from encode.
+func TestUpstreamItem1_FromValueDispatched(t *testing.T) {
+	node, err := gomap.ToTonyIR(&item1FromHost{Val: item1FromLeaf{V: "a"}, Ptr: &item1FromLeaf{V: "b"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got item1FromHost
+	if err := gomap.FromTonyIR(node, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Val.V != "decoded:L:a" {
+		t.Errorf("value field not decoded via FromTonyIR: %q", got.Val.V)
+	}
+	if got.Ptr == nil || got.Ptr.V != "decoded:L:b" {
+		t.Errorf("pointer field not decoded via FromTonyIR: %v", got.Ptr)
+	}
+}
