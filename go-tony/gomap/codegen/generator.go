@@ -1079,11 +1079,10 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 		}
 
 	case reflect.Interface:
-		// Interface{} type - use reflection-based conversion
-		// For codegen, we'll use a helper that calls ToIR recursively
+		// Interface{} type - dispatch through the reflection path (there is no
+		// generated helper; gomap.ToTonyIR handles arbitrary values and nested codecs).
 		buf.WriteString(fmt.Sprintf("	if s.%s != nil {\n", field.Name))
-		buf.WriteString(fmt.Sprintf("	// Interface{} conversion requires runtime reflection\n"))
-		buf.WriteString(fmt.Sprintf("	node, err %s toIRInterface(s.%s)\n", assign, field.Name))
+		buf.WriteString(fmt.Sprintf("	node, err %s gomap.ToTonyIR(s.%s, opts...)\n", assign, field.Name))
 		buf.WriteString("	if err != nil {\n")
 		buf.WriteString(fmt.Sprintf("		return nil, fmt.Errorf(\"failed to convert field %%q: %%w\", %q, err)\n", field.Name))
 		buf.WriteString("	}\n")
@@ -2389,9 +2388,9 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 		}
 
 	case reflect.Interface:
-		// Interface{} type - use reflection-based conversion
-		buf.WriteString(fmt.Sprintf("	// Interface{} conversion requires runtime reflection\n"))
-		buf.WriteString(fmt.Sprintf("	if err := fromIRInterface(fieldNode, &s.%s); err != nil {\n", field.Name))
+		// Interface{} type - dispatch through the reflection path (there is no
+		// generated helper; gomap.FromTonyIR decodes into any Go value).
+		buf.WriteString(fmt.Sprintf("	if err := gomap.FromTonyIR(fieldNode, &s.%s, opts...); err != nil {\n", field.Name))
 		buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: %%w\", %q, err)\n", schemaFieldName))
 		buf.WriteString("	}\n")
 
