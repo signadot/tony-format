@@ -8,5 +8,7 @@ labels:
 - measured
 - performance
 - scalability
+related_issues:
+- v67hjrjbh12ksarmcdn0
 status: open
-updated: "2026-07-27T01:25:42.96723+02:00"
+updated: "2026-07-27T01:25:43.04717+02:00"
