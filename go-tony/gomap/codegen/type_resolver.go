@@ -51,6 +51,16 @@ func ResolveFieldTypes(structs []*StructInfo, pkgDir string, pkgName string) err
 	}
 	textUnmarshalerInterface := textUnmarshalerObj.Type().Underlying().(*types.Interface)
 
+	// Names of types that carry a schema directive, i.e. are resolvable and have a
+	// codec (generated, or hand-written under codec=custom). A field of such a
+	// NAMED non-struct type must dispatch to its ToTonyIR/FromTonyIR (item 2).
+	codecTypeNames := make(map[string]bool)
+	for _, s := range structs {
+		if s.StructSchema != nil {
+			codecTypeNames[s.Name] = true
+		}
+	}
+
 	// First pass: create placeholder types for all structs/types
 	for _, s := range structs {
 		// If it's a struct, create a placeholder struct type
@@ -136,6 +146,17 @@ func ResolveFieldTypes(structs []*StructInfo, pkgDir string, pkgName string) err
 			}
 			if typeName != "" {
 				field.TypeName = typeName
+			}
+
+			// A field whose named type is a MAP with its own codec must call that
+			// codec rather than have codegen inline the map — which loses the codec
+			// and generates invalid Go (issue f69agjyeh12ks item 2). Scoped to Map:
+			// struct and pointer-to-struct fields already dispatch correctly via
+			// their own paths (and a pointer needs allocation before decode), and
+			// named scalars are handled by their kind.
+			if field.Type != nil && field.Type.Kind() == reflect.Map &&
+				field.TypeName != "" && codecTypeNames[field.TypeName] {
+				field.DispatchViaMethod = true
 			}
 
 			// Check for TextMarshaler/TextUnmarshaler implementation

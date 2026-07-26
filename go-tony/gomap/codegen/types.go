@@ -104,6 +104,13 @@ type FieldInfo struct {
 
 	// ImplementsTextUnmarshaler indicates if the field type implements encoding.TextUnmarshaler
 	ImplementsTextUnmarshaler bool
+
+	// DispatchViaMethod is set when the field's type is a NAMED non-struct type
+	// (e.g. a named map) that has its own codec — generated, or hand-written under
+	// codec=custom. Such a field must call the type's ToTonyIR/FromTonyIR rather
+	// than have codegen inline the underlying map/slice, which both loses the
+	// custom codec and (for a named map) generates invalid Go.
+	DispatchViaMethod bool
 }
 
 // SchemaInfo holds schema metadata for code generation

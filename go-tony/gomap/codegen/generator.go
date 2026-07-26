@@ -861,6 +861,18 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 		return buf.String(), nil
 	}
 
+	// A named non-struct type with its own codec (e.g. a named map, or a
+	// codec=custom type) dispatches to its ToTonyIR rather than inlining the
+	// underlying map/slice (issue f69agjyeh12ks item 2).
+	if field.DispatchViaMethod {
+		buf.WriteString(fmt.Sprintf("	node, err %s s.%s.ToTonyIR(%s)\n", assign, field.Name, toTonyIROptsSuffix(field.Type, currentPkgPath)))
+		buf.WriteString("	if err != nil {\n")
+		buf.WriteString(fmt.Sprintf("		return nil, fmt.Errorf(\"failed to convert field %%q: %%w\", %q, err)\n", field.Name))
+		buf.WriteString("	}\n")
+		buf.WriteString(fmt.Sprintf("	irMap[%q] = node\n", schemaFieldName))
+		return buf.String(), nil
+	}
+
 	// Handle different field types
 	switch field.Type.Kind() {
 	case reflect.String:
@@ -1893,6 +1905,16 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 
 	// Field comment
 	buf.WriteString(fmt.Sprintf("	// Field: %s\n", field.Name))
+
+	// A named non-struct type with its own codec (e.g. a named map, or a
+	// codec=custom type) dispatches to its FromTonyIR rather than inlining the
+	// underlying map/slice decode (issue f69agjyeh12ks item 2).
+	if field.DispatchViaMethod {
+		buf.WriteString(fmt.Sprintf("	if err := s.%s.FromTonyIR(fieldNode); err != nil {\n", field.Name))
+		buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: %%w\", %q, err)\n", schemaFieldName))
+		buf.WriteString("	}\n")
+		return buf.String(), nil
+	}
 
 	// Handle different field types
 	switch field.Type.Kind() {
