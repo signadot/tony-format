@@ -155,6 +155,31 @@ func GoTypeToSchemaNode(typ reflect.Type, fieldInfo *FieldInfo, structMap map[st
 
 	kind := typ.Kind()
 
+	// A field whose type implements encoding.TextMarshaler is written as a
+	// string, whatever its underlying kind or package: the generated code calls
+	// MarshalText and emits ir.FromString (see generator.go's field emitter),
+	// and the reflection path in gomap/to.go does the same. The schema has to
+	// say string too, or it describes a document neither encoder produces.
+	//
+	// This has to precede every branch below, including the cross-package one:
+	// a named scalar resolved to its underlying kind reported .[int] for a value
+	// that is always a string, and a cross-package type like time.Time reported
+	// a !time:time reference to a schema that does not exist. Both are worse
+	// than an absent signature — nothing fails to compile and nothing misbehaves
+	// at runtime, so only a published schema carries the lie.
+	//
+	// Only the field's own type is considered. A []T of a TextMarshaler T is
+	// not affected: neither encoder marshals the elements as text (the flag is
+	// set from the field type, and []T does not implement the interface), so
+	// .[array(int)] there is the truth.
+	if fieldInfo != nil && fieldInfo.ImplementsTextMarshaler {
+		if kind == reflect.Ptr {
+			// A nil pointer emits ir.Null(), anything else a string.
+			return ir.FromString(".[nullable(string)]"), nil
+		}
+		return ir.FromString(".[string]"), nil
+	}
+
 	// Check for cross-package named types (including non-struct types like format.Format)
 	// This must come before kind-based handling to catch named types from other packages
 

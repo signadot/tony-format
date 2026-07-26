@@ -26,6 +26,6 @@ define:
   s: !or
   - null
   - .[string]
-  t: .[int]
+  t: .[string]
 signature:
   name: event

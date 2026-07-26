@@ -29,11 +29,10 @@ signature:
 ---
 context:
 - tony-format/context
-- format: github.com/signadot/tony-format/go-tony/format
 define:
   dir: .[nullable(string)]
   exec: .[nullable(string)]
-  format: .[nullable(format:format)]
+  format: .[nullable(string)]
   if: .[string]
   url: .[nullable(string)]
 signature:

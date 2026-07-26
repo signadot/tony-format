@@ -3,7 +3,7 @@ context:
 - tony-format/context
 define:
   Offset: .[int]
-  Path: .[nullable(int)]
+  Path: .[nullable(string)]
 signature:
   name: index-entry
 ---
