@@ -378,12 +378,28 @@ func (r *TypeResolver) resolveASTType(expr ast.Expr, currentStructName string, i
 			}
 		}
 
-		// Recover the underlying kind for a named non-struct scalar type (e.g.
-		// `type Verb string`). resolveIdentType cannot resolve it and falls back to
-		// int, which makes codegen emit ir.FromInt for what is really a string —
-		// invalid Go. go/types knows the underlying basic kind; use it so the
-		// generator picks the right conversion. Structs keep their placeholder.
-		if structName == "" && typesType != nil {
+		// An alias names another type rather than defining one, so resolve what it
+		// names. resolveIdentType only knows types it can find by name and falls
+		// back to int, which for `type Local = *ir.Node` describes the one type
+		// every open-valued field wants as an integer — and generates Go that does
+		// not compile (issue f69agjyeh12ks item 18).
+		if aliasRT, aliasStruct, aliasPkg, aliasName, ok := resolveAliasTarget(typesType); ok {
+			reflectType = aliasRT
+			if aliasStruct != "" {
+				structName = aliasStruct
+			}
+			if aliasPkg != "" {
+				pkgPath = aliasPkg
+			}
+			if aliasName != "" {
+				typeName = aliasName
+			}
+		} else if structName == "" && typesType != nil {
+			// Recover the underlying kind for a named non-struct scalar type (e.g.
+			// `type Verb string`). resolveIdentType cannot resolve it and falls back to
+			// int, which makes codegen emit ir.FromInt for what is really a string —
+			// invalid Go. go/types knows the underlying basic kind; use it so the
+			// generator picks the right conversion. Structs keep their placeholder.
 			if basic, ok := typesType.Underlying().(*types.Basic); ok {
 				if rt := reflectForBasicKind(basic.Kind()); rt != nil {
 					reflectType = rt
@@ -471,6 +487,16 @@ func (r *TypeResolver) resolveASTType(expr ast.Expr, currentStructName string, i
 			pkg, err := r.loader.LoadPackage(importPath)
 			if err != nil {
 				return nil, nil, "", "", "", fmt.Errorf("failed to load package %q: %w", importPath, err)
+			}
+
+			// An alias to a non-named type (type Payload = *ir.Node) has no
+			// *types.Named to find, so FindNamedType reports "is not a named
+			// type" and the whole package fails to generate. Resolve what the
+			// alias names instead (issue f69agjyeh12ks item 18).
+			if obj := pkg.Types.Scope().Lookup(typeName); obj != nil {
+				if rt, structName, aliasPkg, aliasName, ok := resolveAliasTarget(obj.Type()); ok {
+					return rt, types.Unalias(obj.Type()), structName, aliasPkg, aliasName, nil
+				}
 			}
 
 			// Find type in package
@@ -750,3 +776,49 @@ func codecTakesOpts(t types.Type, methodName string) (takesOpts, found bool) {
 	}
 	return false, false
 }
+
+// resolveAliasTarget resolves a type alias to the shape it names, for the shapes
+// an alias can usefully take in a codec'd field. ok is false when t is not an
+// alias, or names something this cannot place — in which case the caller's own
+// handling stands.
+//
+// The case that matters is an alias to a POINTER (type Local = *ir.Node).
+// An alias to a named type is already followed by types.Unalias where the type
+// is looked up (item 14), and an alias to a basic type is recovered from the
+// underlying kind; a pointer is neither, so it fell through to the int fallback.
+func resolveAliasTarget(t types.Type) (rt reflect.Type, structName, pkgPath, typeName string, ok bool) {
+	if t == nil {
+		return nil, "", "", "", false
+	}
+	target := types.Unalias(t)
+	if target == t {
+		return nil, "", "", "", false // not an alias
+	}
+	ptr, isPtr := target.(*types.Pointer)
+	if !isPtr {
+		return nil, "", "", "", false
+	}
+	named, isNamed := types.Unalias(ptr.Elem()).(*types.Named)
+	if !isNamed || named.Obj() == nil || named.Obj().Pkg() == nil {
+		return nil, "", "", "", false
+	}
+	obj := named.Obj()
+	// *ir.Node is spelled out by the SelectorExpr branch as the real struct type;
+	// match that so an aliased spelling resolves identically to a direct one.
+	if obj.Pkg().Path() == irPkgPath && obj.Name() == "Node" {
+		return reflect.PtrTo(reflect.TypeOf(ir.Node{})), "ir.Node", "", "", true
+	}
+	if _, isStruct := named.Underlying().(*types.Struct); isStruct {
+		return reflect.PtrTo(reflect.StructOf(nil)), obj.Name(), obj.Pkg().Path(), obj.Name(), true
+	}
+	if basic, isBasic := named.Underlying().(*types.Basic); isBasic {
+		if elem := reflectForBasicKind(basic.Kind()); elem != nil {
+			return reflect.PtrTo(elem), "", obj.Pkg().Path(), obj.Name(), true
+		}
+	}
+	return nil, "", "", "", false
+}
+
+// irPkgPath is the import path of the ir package, whose Node is the type an
+// open-valued field carries.
+const irPkgPath = "github.com/signadot/tony-format/go-tony/ir"
