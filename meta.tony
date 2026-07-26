@@ -3,5 +3,10 @@ Ref: refs/issues/m2y1cqc5h12ks4k3cnn0
 Title: "token streaming: tags truncated at a buffer refill, block-style strings and end-of-document multiline literals lost"
 created: "2026-07-26T03:32:02.08213+02:00"
 id: m2y1cqc5h12ks4k3cnn0
+labels:
+- agent
+- docd
+- stream
+- tokenizer
 status: open
-updated: "2026-07-26T03:32:02.08213+02:00"
+updated: "2026-07-26T03:32:06.916228+02:00"
