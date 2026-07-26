@@ -22,7 +22,7 @@ func (s *StatusConfig) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: OK (optional)
 	if !isZeroValue_StatusConfig_OK(s.OK) {
-		irMap["ok"] = ir.FromBool(s.OK)
+		irMap["ok"] = ir.FromBool(bool(s.OK))
 	}
 
 	return ir.FromMap(irMap), nil
@@ -63,7 +63,7 @@ func (s *StatusConfig) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 			if fieldNodeUnwrapped.Type != ir.BoolType {
 				return fmt.Errorf("field %q: expected bool, got %v", "ok", fieldNodeUnwrapped.Type)
 			}
-			s.OK = fieldNodeUnwrapped.Bool
+			s.OK = bool(fieldNodeUnwrapped.Bool)
 		}
 	}
 
@@ -107,7 +107,7 @@ func (s *RepoConfig) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Branch (optional)
 	if !isZeroValue_RepoConfig_Branch(s.Branch) {
-		irMap["branch"] = ir.FromString(s.Branch)
+		irMap["branch"] = ir.FromString(string(s.Branch))
 	}
 
 	// Field: Status (optional)
@@ -157,7 +157,7 @@ func (s *RepoConfig) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "branch", fieldNodeUnwrapped.Type)
 			}
-			s.Branch = fieldNodeUnwrapped.String
+			s.Branch = string(fieldNodeUnwrapped.String)
 		case "status":
 			// Field: Status
 			if err := s.Status.FromTonyIR(fieldNode, opts...); err != nil {

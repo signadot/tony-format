@@ -116,13 +116,13 @@ func TestGenerateToTonyIRMethod_OmitzeroBool(t *testing.T) {
 				Name:            "Complete",
 				SchemaFieldName: "complete",
 				Type:            reflect.TypeOf(false),
-				Omitzero:       true,
+				Omitzero:        true,
 			},
 			{
 				Name:            "Required",
 				SchemaFieldName: "required",
 				Type:            reflect.TypeOf(false),
-				Omitzero:       false, // no omitzero - should always serialize
+				Omitzero:        false, // no omitzero - should always serialize
 			},
 		},
 		StructSchema: &gomap.StructSchema{
@@ -151,7 +151,9 @@ func TestGenerateToTonyIRMethod_OmitzeroBool(t *testing.T) {
 	if strings.Contains(code, "if s.Required {") {
 		t.Errorf("Did not expect conditional for non-omitzero Required field, got:\n%s", code)
 	}
-	if !strings.Contains(code, `irMap["required"] = ir.FromBool(s.Required)`) {
+	// bool(...) is an identity conversion for a plain bool and the conversion a
+	// named bool (type Flag bool) needs, so it is emitted unconditionally.
+	if !strings.Contains(code, `irMap["required"] = ir.FromBool(bool(s.Required))`) {
 		t.Errorf("Expected unconditional Required field mapping, got:\n%s", code)
 	}
 }
@@ -735,11 +737,14 @@ type ComponentConfig struct {
 
 // TestReproMapPointerValueIssue tests map[string]*ComponentConfig codegen
 // This reproduces the issue where generated code has:
-//   m := make(map[string]*struct)
-//   val := new(struct)
+//
+//	m := make(map[string]*struct)
+//	val := new(struct)
+//
 // instead of:
-//   m := make(map[string]*ComponentConfig)
-//   val := new(ComponentConfig)
+//
+//	m := make(map[string]*ComponentConfig)
+//	val := new(ComponentConfig)
 func TestReproMapPointerValueIssue(t *testing.T) {
 	type ConfigMap struct {
 		Components map[string]*ComponentConfig
@@ -1037,6 +1042,7 @@ func TestGenerateZeroValueHelpers_CompositeTypes(t *testing.T) {
 		})
 	}
 }
+
 // TestGenerateZeroValueHelpers_NestedStruct verifies that optional nested struct fields
 // get proper zero-value helpers using reflect.ValueOf(v).IsZero().
 func TestGenerateZeroValueHelpers_NestedStruct(t *testing.T) {

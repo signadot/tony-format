@@ -21,7 +21,7 @@ func (s *Inner) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Kind
-	irMap["kind"] = ir.FromString(s.Kind)
+	irMap["kind"] = ir.FromString(string(s.Kind))
 
 	return ir.FromMap(irMap), nil
 }
@@ -61,7 +61,7 @@ func (s *Inner) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "kind", fieldNodeUnwrapped.Type)
 			}
-			s.Kind = fieldNodeUnwrapped.String
+			s.Kind = string(fieldNodeUnwrapped.String)
 		}
 	}
 
@@ -104,7 +104,7 @@ func (s *Config) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Addr
-	irMap["addr"] = ir.FromString(s.Addr)
+	irMap["addr"] = ir.FromString(string(s.Addr))
 
 	// Field: Format (optional)
 	if !isZeroValue_Config_Format(s.Format) {
@@ -153,7 +153,7 @@ func (s *Config) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "addr", fieldNodeUnwrapped.Type)
 			}
-			s.Addr = fieldNodeUnwrapped.String
+			s.Addr = string(fieldNodeUnwrapped.String)
 		case "format":
 			// Field: Format
 			if err := s.Format.FromTonyIR(fieldNode, opts...); err != nil {

@@ -20,7 +20,7 @@ func (s *Child) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: V
-	irMap["v"] = ir.FromString(s.V)
+	irMap["v"] = ir.FromString(string(s.V))
 
 	return ir.FromMap(irMap), nil
 }
@@ -60,7 +60,7 @@ func (s *Child) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "v", fieldNodeUnwrapped.Type)
 			}
-			s.V = fieldNodeUnwrapped.String
+			s.V = string(fieldNodeUnwrapped.String)
 		}
 	}
 

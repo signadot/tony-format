@@ -42,7 +42,7 @@ func (s *Entity) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Name
 	if s.Name != "" {
-		irMap["name"] = ir.FromString(s.Name)
+		irMap["name"] = ir.FromString(string(s.Name))
 	}
 
 	// Field: Count
@@ -113,7 +113,7 @@ func (s *Entity) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "name", fieldNodeUnwrapped.Type)
 			}
-			s.Name = fieldNodeUnwrapped.String
+			s.Name = string(fieldNodeUnwrapped.String)
 		case "count":
 			// Field: Count
 			if fieldNodeUnwrapped.Int64 == nil {

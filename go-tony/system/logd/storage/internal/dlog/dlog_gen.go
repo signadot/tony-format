@@ -31,7 +31,7 @@ func (s *SchemaEntry) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	}
 
 	// Field: Status
-	irMap["Status"] = ir.FromString(s.Status)
+	irMap["Status"] = ir.FromString(string(s.Status))
 
 	return ir.FromMap(irMap).WithTag("!schema-entry"), nil
 }
@@ -77,7 +77,7 @@ func (s *SchemaEntry) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "Status", fieldNodeUnwrapped.Type)
 			}
-			s.Status = fieldNodeUnwrapped.String
+			s.Status = string(fieldNodeUnwrapped.String)
 		}
 	}
 
@@ -123,7 +123,7 @@ func (s *Entry) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap["Commit"] = ir.FromInt(int64(s.Commit))
 
 	// Field: Timestamp
-	irMap["Timestamp"] = ir.FromString(s.Timestamp)
+	irMap["Timestamp"] = ir.FromString(string(s.Timestamp))
 
 	// Field: Patch (optional)
 	if s.Patch != nil {
@@ -151,7 +151,7 @@ func (s *Entry) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: ScopeID (optional)
 	if s.ScopeID != nil {
-		irMap["ScopeID"] = ir.FromString(*s.ScopeID)
+		irMap["ScopeID"] = ir.FromString(string(*s.ScopeID))
 	}
 
 	// Field: SchemaEntry (optional)
@@ -207,7 +207,7 @@ func (s *Entry) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "Timestamp", fieldNodeUnwrapped.Type)
 			}
-			s.Timestamp = fieldNodeUnwrapped.String
+			s.Timestamp = string(fieldNodeUnwrapped.String)
 		case "Patch":
 			if gomap.GetUnmapComments(opts...) {
 				s.Patch = fieldNode

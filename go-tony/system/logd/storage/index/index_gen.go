@@ -37,7 +37,7 @@ func (s *LogSegment) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap["EndTx"] = ir.FromInt(int64(s.EndTx))
 
 	// Field: KindedPath
-	irMap["KindedPath"] = ir.FromString(s.KindedPath)
+	irMap["KindedPath"] = ir.FromString(string(s.KindedPath))
 
 	// Field: ArrayKey (optional)
 	if s.ArrayKey != nil {
@@ -45,10 +45,10 @@ func (s *LogSegment) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	}
 
 	// Field: ArrayKeyField
-	irMap["ArrayKeyField"] = ir.FromString(s.ArrayKeyField)
+	irMap["ArrayKeyField"] = ir.FromString(string(s.ArrayKeyField))
 
 	// Field: LogFile
-	irMap["LogFile"] = ir.FromString(s.LogFile)
+	irMap["LogFile"] = ir.FromString(string(s.LogFile))
 
 	// Field: LogPosition
 	irMap["LogPosition"] = ir.FromInt(int64(s.LogPosition))
@@ -58,7 +58,7 @@ func (s *LogSegment) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: ScopeID (optional)
 	if s.ScopeID != nil {
-		irMap["ScopeID"] = ir.FromString(*s.ScopeID)
+		irMap["ScopeID"] = ir.FromString(string(*s.ScopeID))
 	}
 
 	return ir.FromMap(irMap).WithTag("!log-segment"), nil
@@ -123,7 +123,7 @@ func (s *LogSegment) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "KindedPath", fieldNodeUnwrapped.Type)
 			}
-			s.KindedPath = fieldNodeUnwrapped.String
+			s.KindedPath = string(fieldNodeUnwrapped.String)
 		case "ArrayKey":
 			if gomap.GetUnmapComments(opts...) {
 				s.ArrayKey = fieldNode
@@ -135,13 +135,13 @@ func (s *LogSegment) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "ArrayKeyField", fieldNodeUnwrapped.Type)
 			}
-			s.ArrayKeyField = fieldNodeUnwrapped.String
+			s.ArrayKeyField = string(fieldNodeUnwrapped.String)
 		case "LogFile":
 			// Field: LogFile
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "LogFile", fieldNodeUnwrapped.Type)
 			}
-			s.LogFile = fieldNodeUnwrapped.String
+			s.LogFile = string(fieldNodeUnwrapped.String)
 		case "LogPosition":
 			// Field: LogPosition
 			if fieldNodeUnwrapped.Int64 == nil {

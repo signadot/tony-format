@@ -33,12 +33,12 @@ func (s *Event) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Tag (optional)
 	if !isZeroValue_Event_Tag(s.Tag) {
-		irMap["a"] = ir.FromString(s.Tag)
+		irMap["a"] = ir.FromString(string(s.Tag))
 	}
 
 	// Field: Key (optional)
 	if !isZeroValue_Event_Key(s.Key) {
-		irMap["k"] = ir.FromString(s.Key)
+		irMap["k"] = ir.FromString(string(s.Key))
 	}
 
 	// Field: IntKey (optional)
@@ -48,7 +48,7 @@ func (s *Event) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: String (optional)
 	if !isZeroValue_Event_String(s.String) {
-		irMap["s"] = ir.FromString(s.String)
+		irMap["s"] = ir.FromString(string(s.String))
 	}
 
 	// Field: Int (optional)
@@ -63,7 +63,7 @@ func (s *Event) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Bool (optional)
 	if !isZeroValue_Event_Bool(s.Bool) {
-		irMap["b"] = ir.FromBool(s.Bool)
+		irMap["b"] = ir.FromBool(bool(s.Bool))
 	}
 
 	// Field: CommentLines (optional)
@@ -122,13 +122,13 @@ func (s *Event) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "a", fieldNodeUnwrapped.Type)
 			}
-			s.Tag = fieldNodeUnwrapped.String
+			s.Tag = string(fieldNodeUnwrapped.String)
 		case "k":
 			// Field: Key
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "k", fieldNodeUnwrapped.Type)
 			}
-			s.Key = fieldNodeUnwrapped.String
+			s.Key = string(fieldNodeUnwrapped.String)
 		case "ik":
 			// Field: IntKey
 			if fieldNodeUnwrapped.Int64 == nil {
@@ -140,7 +140,7 @@ func (s *Event) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "s", fieldNodeUnwrapped.Type)
 			}
-			s.String = fieldNodeUnwrapped.String
+			s.String = string(fieldNodeUnwrapped.String)
 		case "i":
 			// Field: Int
 			if fieldNodeUnwrapped.Int64 == nil {
@@ -158,7 +158,7 @@ func (s *Event) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if fieldNodeUnwrapped.Type != ir.BoolType {
 				return fmt.Errorf("field %q: expected bool, got %v", "b", fieldNodeUnwrapped.Type)
 			}
-			s.Bool = fieldNodeUnwrapped.Bool
+			s.Bool = bool(fieldNodeUnwrapped.Bool)
 		case "c":
 			// Field: CommentLines
 			if fieldNodeUnwrapped.Type == ir.ArrayType {

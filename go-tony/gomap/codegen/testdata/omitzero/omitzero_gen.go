@@ -20,11 +20,11 @@ func (s *OZ) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Plain
-	irMap["plain"] = ir.FromString(s.Plain)
+	irMap["plain"] = ir.FromString(string(s.Plain))
 
 	// Field: Str
 	if s.Str != "" {
-		irMap["str"] = ir.FromString(s.Str)
+		irMap["str"] = ir.FromString(string(s.Str))
 	}
 
 	// Field: Num
@@ -39,7 +39,7 @@ func (s *OZ) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Flag
 	if s.Flag {
-		irMap["flag"] = ir.FromBool(s.Flag)
+		irMap["flag"] = ir.FromBool(bool(s.Flag))
 	}
 
 	return ir.FromMap(irMap), nil
@@ -80,13 +80,13 @@ func (s *OZ) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "plain", fieldNodeUnwrapped.Type)
 			}
-			s.Plain = fieldNodeUnwrapped.String
+			s.Plain = string(fieldNodeUnwrapped.String)
 		case "str":
 			// Field: Str
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "str", fieldNodeUnwrapped.Type)
 			}
-			s.Str = fieldNodeUnwrapped.String
+			s.Str = string(fieldNodeUnwrapped.String)
 		case "num":
 			// Field: Num
 			if fieldNodeUnwrapped.Int64 == nil {
@@ -104,7 +104,7 @@ func (s *OZ) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if fieldNodeUnwrapped.Type != ir.BoolType {
 				return fmt.Errorf("field %q: expected bool, got %v", "flag", fieldNodeUnwrapped.Type)
 			}
-			s.Flag = fieldNodeUnwrapped.Bool
+			s.Flag = bool(fieldNodeUnwrapped.Bool)
 		}
 	}
 

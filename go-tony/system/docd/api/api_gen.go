@@ -25,7 +25,7 @@ func (s *MountHello) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Controller
-	irMap["controller"] = ir.FromString(s.Controller)
+	irMap["controller"] = ir.FromString(string(s.Controller))
 
 	// Field: Clock (optional)
 	if s.Clock != nil {
@@ -74,7 +74,7 @@ func (s *MountHello) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "controller", fieldNodeUnwrapped.Type)
 			}
-			s.Controller = fieldNodeUnwrapped.String
+			s.Controller = string(fieldNodeUnwrapped.String)
 		case "clock":
 			// Field: Clock
 			s.Clock = &ClockSpec{}
@@ -118,10 +118,10 @@ func (s *ClockSpec) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Path
-	irMap["path"] = ir.FromString(s.Path)
+	irMap["path"] = ir.FromString(string(s.Path))
 
 	// Field: Frequency
-	irMap["frequency"] = ir.FromString(s.Frequency)
+	irMap["frequency"] = ir.FromString(string(s.Frequency))
 
 	// Field: Epoch
 	irMap["epoch"] = ir.FromInt(int64(s.Epoch))
@@ -164,13 +164,13 @@ func (s *ClockSpec) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "path", fieldNodeUnwrapped.Type)
 			}
-			s.Path = fieldNodeUnwrapped.String
+			s.Path = string(fieldNodeUnwrapped.String)
 		case "frequency":
 			// Field: Frequency
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "frequency", fieldNodeUnwrapped.Type)
 			}
-			s.Frequency = fieldNodeUnwrapped.String
+			s.Frequency = string(fieldNodeUnwrapped.String)
 		case "epoch":
 			// Field: Epoch
 			if fieldNodeUnwrapped.Int64 == nil {
@@ -219,7 +219,7 @@ func (s *MountSpec) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Path
-	irMap["path"] = ir.FromString(s.Path)
+	irMap["path"] = ir.FromString(string(s.Path))
 
 	// Field: Schema (optional)
 	if s.Schema != nil {
@@ -228,7 +228,7 @@ func (s *MountSpec) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: ForceAfter (optional)
 	if s.ForceAfter != nil {
-		irMap["forceAfter"] = ir.FromString(*s.ForceAfter)
+		irMap["forceAfter"] = ir.FromString(string(*s.ForceAfter))
 	}
 
 	return ir.FromMap(irMap), nil
@@ -269,7 +269,7 @@ func (s *MountSpec) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "path", fieldNodeUnwrapped.Type)
 			}
-			s.Path = fieldNodeUnwrapped.String
+			s.Path = string(fieldNodeUnwrapped.String)
 		case "schema":
 			if gomap.GetUnmapComments(opts...) {
 				s.Schema = fieldNode
@@ -326,7 +326,7 @@ func (s *UnmountSpec) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: ForceAfter (optional)
 	if s.ForceAfter != nil {
-		irMap["forceAfter"] = ir.FromString(*s.ForceAfter)
+		irMap["forceAfter"] = ir.FromString(string(*s.ForceAfter))
 	}
 
 	return ir.FromMap(irMap), nil
@@ -530,7 +530,7 @@ func (s *MountHelloResponse) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error)
 	irMap := make(map[string]*ir.Node)
 
 	// Field: DocdID
-	irMap["docdId"] = ir.FromString(s.DocdID)
+	irMap["docdId"] = ir.FromString(string(s.DocdID))
 
 	return ir.FromMap(irMap), nil
 }
@@ -570,7 +570,7 @@ func (s *MountHelloResponse) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "docdId", fieldNodeUnwrapped.Type)
 			}
-			s.DocdID = fieldNodeUnwrapped.String
+			s.DocdID = string(fieldNodeUnwrapped.String)
 		}
 	}
 
@@ -608,10 +608,10 @@ func (s *MountResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Path
-	irMap["path"] = ir.FromString(s.Path)
+	irMap["path"] = ir.FromString(string(s.Path))
 
 	// Field: Accepted
-	irMap["accepted"] = ir.FromBool(s.Accepted)
+	irMap["accepted"] = ir.FromBool(bool(s.Accepted))
 
 	return ir.FromMap(irMap), nil
 }
@@ -651,13 +651,13 @@ func (s *MountResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "path", fieldNodeUnwrapped.Type)
 			}
-			s.Path = fieldNodeUnwrapped.String
+			s.Path = string(fieldNodeUnwrapped.String)
 		case "accepted":
 			// Field: Accepted
 			if fieldNodeUnwrapped.Type != ir.BoolType {
 				return fmt.Errorf("field %q: expected bool, got %v", "accepted", fieldNodeUnwrapped.Type)
 			}
-			s.Accepted = fieldNodeUnwrapped.Bool
+			s.Accepted = bool(fieldNodeUnwrapped.Bool)
 		}
 	}
 
@@ -799,10 +799,10 @@ func (s *MountError) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Code
-	irMap["code"] = ir.FromString(s.Code)
+	irMap["code"] = ir.FromString(string(s.Code))
 
 	// Field: Message
-	irMap["message"] = ir.FromString(s.Message)
+	irMap["message"] = ir.FromString(string(s.Message))
 
 	return ir.FromMap(irMap), nil
 }
@@ -842,13 +842,13 @@ func (s *MountError) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "code", fieldNodeUnwrapped.Type)
 			}
-			s.Code = fieldNodeUnwrapped.String
+			s.Code = string(fieldNodeUnwrapped.String)
 		case "message":
 			// Field: Message
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "message", fieldNodeUnwrapped.Type)
 			}
-			s.Message = fieldNodeUnwrapped.String
+			s.Message = string(fieldNodeUnwrapped.String)
 		}
 	}
 

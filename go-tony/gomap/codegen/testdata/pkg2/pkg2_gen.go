@@ -98,7 +98,7 @@ func (s *Body) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: B
-	irMap["b"] = ir.FromString(s.B)
+	irMap["b"] = ir.FromString(string(s.B))
 
 	return ir.FromMap(irMap).WithTag("!body"), nil
 }
@@ -138,7 +138,7 @@ func (s *Body) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "b", fieldNodeUnwrapped.Type)
 			}
-			s.B = fieldNodeUnwrapped.String
+			s.B = string(fieldNodeUnwrapped.String)
 		}
 	}
 

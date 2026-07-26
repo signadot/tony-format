@@ -41,7 +41,7 @@ func (s *State) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Scope (optional)
 	if s.Scope != nil {
-		irMap["Scope"] = ir.FromString(*s.Scope)
+		irMap["Scope"] = ir.FromString(string(*s.Scope))
 	}
 
 	// Field: PatcherData

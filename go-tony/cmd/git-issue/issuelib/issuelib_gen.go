@@ -25,10 +25,10 @@ func (s *Issue) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: ID
-	irMap["id"] = ir.FromString(s.ID)
+	irMap["id"] = ir.FromString(string(s.ID))
 
 	// Field: Status
-	irMap["status"] = ir.FromString(s.Status)
+	irMap["status"] = ir.FromString(string(s.Status))
 
 	// Field: Created
 	if txt, err := s.Created.MarshalText(); err != nil {
@@ -64,7 +64,7 @@ func (s *Issue) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: ClosedBy (optional)
 	if s.ClosedBy != nil {
-		irMap["closed_by"] = ir.FromString(*s.ClosedBy)
+		irMap["closed_by"] = ir.FromString(string(*s.ClosedBy))
 	}
 
 	// Field: RelatedIssues
@@ -150,13 +150,13 @@ func (s *Issue) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "id", fieldNodeUnwrapped.Type)
 			}
-			s.ID = fieldNodeUnwrapped.String
+			s.ID = string(fieldNodeUnwrapped.String)
 		case "status":
 			// Field: Status
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "status", fieldNodeUnwrapped.Type)
 			}
-			s.Status = fieldNodeUnwrapped.String
+			s.Status = string(fieldNodeUnwrapped.String)
 		case "created":
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string for TextUnmarshaler, got %v", "created", fieldNodeUnwrapped.Type)

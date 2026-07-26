@@ -25,7 +25,7 @@ func (s *PathData) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Path
-	irMap["path"] = ir.FromString(s.Path)
+	irMap["path"] = ir.FromString(string(s.Path))
 
 	// Field: Data (optional)
 	if s.Data != nil {
@@ -70,7 +70,7 @@ func (s *PathData) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "path", fieldNodeUnwrapped.Type)
 			}
-			s.Path = fieldNodeUnwrapped.String
+			s.Path = string(fieldNodeUnwrapped.String)
 		case "data":
 			if gomap.GetUnmapComments(opts...) {
 				s.Data = fieldNode
@@ -128,7 +128,7 @@ func (s *Patch) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	}
 
 	// Field: Path
-	irMap["path"] = ir.FromString(s.Path)
+	irMap["path"] = ir.FromString(string(s.Path))
 
 	// Field: Data (optional)
 	if s.Data != nil {
@@ -179,7 +179,7 @@ func (s *Patch) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "path", fieldNodeUnwrapped.Type)
 			}
-			s.Path = fieldNodeUnwrapped.String
+			s.Path = string(fieldNodeUnwrapped.String)
 		case "data":
 			if gomap.GetUnmapComments(opts...) {
 				s.Data = fieldNode
@@ -283,15 +283,15 @@ func (s *Hello) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: ClientID
-	irMap["clientId"] = ir.FromString(s.ClientID)
+	irMap["clientId"] = ir.FromString(string(s.ClientID))
 
 	// Field: Scope (optional)
 	if s.Scope != nil {
-		irMap["scope"] = ir.FromString(*s.Scope)
+		irMap["scope"] = ir.FromString(string(*s.Scope))
 	}
 
 	// Field: UsePending
-	irMap["usePending"] = ir.FromBool(s.UsePending)
+	irMap["usePending"] = ir.FromBool(bool(s.UsePending))
 
 	return ir.FromMap(irMap), nil
 }
@@ -331,7 +331,7 @@ func (s *Hello) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "clientId", fieldNodeUnwrapped.Type)
 			}
-			s.ClientID = fieldNodeUnwrapped.String
+			s.ClientID = string(fieldNodeUnwrapped.String)
 		case "scope":
 			// Field: Scope
 			if fieldNodeUnwrapped.Type == ir.NullType {
@@ -349,7 +349,7 @@ func (s *Hello) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if fieldNodeUnwrapped.Type != ir.BoolType {
 				return fmt.Errorf("field %q: expected bool, got %v", "usePending", fieldNodeUnwrapped.Type)
 			}
-			s.UsePending = fieldNodeUnwrapped.Bool
+			s.UsePending = bool(fieldNodeUnwrapped.Bool)
 		}
 	}
 
@@ -392,7 +392,7 @@ func (s *HelloResponse) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: ServerID
-	irMap["serverId"] = ir.FromString(s.ServerID)
+	irMap["serverId"] = ir.FromString(string(s.ServerID))
 
 	// Field: Schema (optional)
 	if s.Schema != nil {
@@ -403,7 +403,7 @@ func (s *HelloResponse) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap["schemaCommit"] = ir.FromInt(int64(s.SchemaCommit))
 
 	// Field: UsingPending
-	irMap["usingPending"] = ir.FromBool(s.UsingPending)
+	irMap["usingPending"] = ir.FromBool(bool(s.UsingPending))
 
 	return ir.FromMap(irMap), nil
 }
@@ -443,7 +443,7 @@ func (s *HelloResponse) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) err
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "serverId", fieldNodeUnwrapped.Type)
 			}
-			s.ServerID = fieldNodeUnwrapped.String
+			s.ServerID = string(fieldNodeUnwrapped.String)
 		case "schema":
 			if gomap.GetUnmapComments(opts...) {
 				s.Schema = fieldNode
@@ -461,7 +461,7 @@ func (s *HelloResponse) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) err
 			if fieldNodeUnwrapped.Type != ir.BoolType {
 				return fmt.Errorf("field %q: expected bool, got %v", "usingPending", fieldNodeUnwrapped.Type)
 			}
-			s.UsingPending = fieldNodeUnwrapped.Bool
+			s.UsingPending = bool(fieldNodeUnwrapped.Bool)
 		}
 	}
 
@@ -613,11 +613,11 @@ func (s *PatchRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Timeout (optional)
 	if s.Timeout != nil {
-		irMap["timeout"] = ir.FromString(*s.Timeout)
+		irMap["timeout"] = ir.FromString(string(*s.Timeout))
 	}
 
 	// Field: Migration
-	irMap["migration"] = ir.FromBool(s.Migration)
+	irMap["migration"] = ir.FromBool(bool(s.Migration))
 
 	// Field: Match (optional)
 	if s.Match != nil {
@@ -629,7 +629,7 @@ func (s *PatchRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	}
 
 	// Field: Path
-	irMap["path"] = ir.FromString(s.Path)
+	irMap["path"] = ir.FromString(string(s.Path))
 
 	// Field: Data (optional)
 	if s.Data != nil {
@@ -698,7 +698,7 @@ func (s *PatchRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 			if fieldNodeUnwrapped.Type != ir.BoolType {
 				return fmt.Errorf("field %q: expected bool, got %v", "migration", fieldNodeUnwrapped.Type)
 			}
-			s.Migration = fieldNodeUnwrapped.Bool
+			s.Migration = bool(fieldNodeUnwrapped.Bool)
 		case "match":
 			// Field: Match
 			s.Match = &PathData{}
@@ -710,7 +710,7 @@ func (s *PatchRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "path", fieldNodeUnwrapped.Type)
 			}
-			s.Path = fieldNodeUnwrapped.String
+			s.Path = string(fieldNodeUnwrapped.String)
 		case "data":
 			if gomap.GetUnmapComments(opts...) {
 				s.Data = fieldNode
@@ -832,7 +832,7 @@ func (s *WatchRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Path
-	irMap["path"] = ir.FromString(s.Path)
+	irMap["path"] = ir.FromString(string(s.Path))
 
 	// Field: FromCommit (optional)
 	if s.FromCommit != nil {
@@ -840,7 +840,7 @@ func (s *WatchRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	}
 
 	// Field: NoInit
-	irMap["noInit"] = ir.FromBool(s.NoInit)
+	irMap["noInit"] = ir.FromBool(bool(s.NoInit))
 
 	return ir.FromMap(irMap), nil
 }
@@ -880,7 +880,7 @@ func (s *WatchRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "path", fieldNodeUnwrapped.Type)
 			}
-			s.Path = fieldNodeUnwrapped.String
+			s.Path = string(fieldNodeUnwrapped.String)
 		case "fromCommit":
 			// Field: FromCommit
 			if fieldNodeUnwrapped.Type == ir.NullType {
@@ -898,7 +898,7 @@ func (s *WatchRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 			if fieldNodeUnwrapped.Type != ir.BoolType {
 				return fmt.Errorf("field %q: expected bool, got %v", "noInit", fieldNodeUnwrapped.Type)
 			}
-			s.NoInit = fieldNodeUnwrapped.Bool
+			s.NoInit = bool(fieldNodeUnwrapped.Bool)
 		}
 	}
 
@@ -936,11 +936,11 @@ func (s *UnwatchRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Path
-	irMap["path"] = ir.FromString(s.Path)
+	irMap["path"] = ir.FromString(string(s.Path))
 
 	// Field: WatchID (optional)
 	if s.WatchID != nil {
-		irMap["watchId"] = ir.FromString(*s.WatchID)
+		irMap["watchId"] = ir.FromString(string(*s.WatchID))
 	}
 
 	return ir.FromMap(irMap), nil
@@ -981,7 +981,7 @@ func (s *UnwatchRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) er
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "path", fieldNodeUnwrapped.Type)
 			}
-			s.Path = fieldNodeUnwrapped.String
+			s.Path = string(fieldNodeUnwrapped.String)
 		case "watchId":
 			// Field: WatchID
 			if fieldNodeUnwrapped.Type == ir.NullType {
@@ -1031,7 +1031,7 @@ func (s *DeleteScopeRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error)
 	irMap := make(map[string]*ir.Node)
 
 	// Field: ScopeID
-	irMap["scopeId"] = ir.FromString(s.ScopeID)
+	irMap["scopeId"] = ir.FromString(string(s.ScopeID))
 
 	return ir.FromMap(irMap), nil
 }
@@ -1071,7 +1071,7 @@ func (s *DeleteScopeRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "scopeId", fieldNodeUnwrapped.Type)
 			}
-			s.ScopeID = fieldNodeUnwrapped.String
+			s.ScopeID = string(fieldNodeUnwrapped.String)
 		}
 	}
 
@@ -1373,12 +1373,12 @@ func (s *SessionRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: ID (optional)
 	if s.ID != nil {
-		irMap["id"] = ir.FromString(*s.ID)
+		irMap["id"] = ir.FromString(string(*s.ID))
 	}
 
 	// Field: Scope (optional)
 	if s.Scope != nil {
-		irMap["scope"] = ir.FromString(*s.Scope)
+		irMap["scope"] = ir.FromString(string(*s.Scope))
 	}
 
 	// Field: Hello (optional)
@@ -2036,7 +2036,7 @@ func (s *WatchResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Watching
-	irMap["watching"] = ir.FromString(s.Watching)
+	irMap["watching"] = ir.FromString(string(s.Watching))
 
 	// Field: ReplayingTo (optional)
 	if s.ReplayingTo != nil {
@@ -2081,7 +2081,7 @@ func (s *WatchResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "watching", fieldNodeUnwrapped.Type)
 			}
-			s.Watching = fieldNodeUnwrapped.String
+			s.Watching = string(fieldNodeUnwrapped.String)
 		case "replayingTo":
 			// Field: ReplayingTo
 			if fieldNodeUnwrapped.Type == ir.NullType {
@@ -2131,7 +2131,7 @@ func (s *UnwatchResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Unwatched
-	irMap["unwatched"] = ir.FromString(s.Unwatched)
+	irMap["unwatched"] = ir.FromString(string(s.Unwatched))
 
 	return ir.FromMap(irMap), nil
 }
@@ -2171,7 +2171,7 @@ func (s *UnwatchResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) err
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "unwatched", fieldNodeUnwrapped.Type)
 			}
-			s.Unwatched = fieldNodeUnwrapped.String
+			s.Unwatched = string(fieldNodeUnwrapped.String)
 		}
 	}
 
@@ -2209,7 +2209,7 @@ func (s *DeleteScopeResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) 
 	irMap := make(map[string]*ir.Node)
 
 	// Field: ScopeID
-	irMap["scopeId"] = ir.FromString(s.ScopeID)
+	irMap["scopeId"] = ir.FromString(string(s.ScopeID))
 
 	return ir.FromMap(irMap), nil
 }
@@ -2249,7 +2249,7 @@ func (s *DeleteScopeResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption)
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "scopeId", fieldNodeUnwrapped.Type)
 			}
-			s.ScopeID = fieldNodeUnwrapped.String
+			s.ScopeID = string(fieldNodeUnwrapped.String)
 		}
 	}
 
@@ -2401,7 +2401,7 @@ func (s *MigrationResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Completed
-	irMap["completed"] = ir.FromBool(s.Completed)
+	irMap["completed"] = ir.FromBool(bool(s.Completed))
 
 	// Field: Commit
 	irMap["commit"] = ir.FromInt(int64(s.Commit))
@@ -2444,7 +2444,7 @@ func (s *MigrationResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) e
 			if fieldNodeUnwrapped.Type != ir.BoolType {
 				return fmt.Errorf("field %q: expected bool, got %v", "completed", fieldNodeUnwrapped.Type)
 			}
-			s.Completed = fieldNodeUnwrapped.Bool
+			s.Completed = bool(fieldNodeUnwrapped.Bool)
 		case "commit":
 			// Field: Commit
 			if fieldNodeUnwrapped.Int64 == nil {
@@ -2720,7 +2720,7 @@ func (s *WatchEvent) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap["commit"] = ir.FromInt(int64(s.Commit))
 
 	// Field: Path
-	irMap["path"] = ir.FromString(s.Path)
+	irMap["path"] = ir.FromString(string(s.Path))
 
 	// Field: State (optional)
 	if s.State != nil {
@@ -2734,17 +2734,17 @@ func (s *WatchEvent) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: ReplayComplete
 	if s.ReplayComplete {
-		irMap["replayComplete"] = ir.FromBool(s.ReplayComplete)
+		irMap["replayComplete"] = ir.FromBool(bool(s.ReplayComplete))
 	}
 
 	// Field: Ended
 	if s.Ended {
-		irMap["ended"] = ir.FromBool(s.Ended)
+		irMap["ended"] = ir.FromBool(bool(s.Ended))
 	}
 
 	// Field: EndReason
 	if s.EndReason != "" {
-		irMap["endReason"] = ir.FromString(s.EndReason)
+		irMap["endReason"] = ir.FromString(string(s.EndReason))
 	}
 
 	return ir.FromMap(irMap), nil
@@ -2791,7 +2791,7 @@ func (s *WatchEvent) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "path", fieldNodeUnwrapped.Type)
 			}
-			s.Path = fieldNodeUnwrapped.String
+			s.Path = string(fieldNodeUnwrapped.String)
 		case "state":
 			if gomap.GetUnmapComments(opts...) {
 				s.State = fieldNode
@@ -2809,19 +2809,19 @@ func (s *WatchEvent) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 			if fieldNodeUnwrapped.Type != ir.BoolType {
 				return fmt.Errorf("field %q: expected bool, got %v", "replayComplete", fieldNodeUnwrapped.Type)
 			}
-			s.ReplayComplete = fieldNodeUnwrapped.Bool
+			s.ReplayComplete = bool(fieldNodeUnwrapped.Bool)
 		case "ended":
 			// Field: Ended
 			if fieldNodeUnwrapped.Type != ir.BoolType {
 				return fmt.Errorf("field %q: expected bool, got %v", "ended", fieldNodeUnwrapped.Type)
 			}
-			s.Ended = fieldNodeUnwrapped.Bool
+			s.Ended = bool(fieldNodeUnwrapped.Bool)
 		case "endReason":
 			// Field: EndReason
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "endReason", fieldNodeUnwrapped.Type)
 			}
-			s.EndReason = fieldNodeUnwrapped.String
+			s.EndReason = string(fieldNodeUnwrapped.String)
 		}
 	}
 
@@ -2859,10 +2859,10 @@ func (s *SessionError) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Code
-	irMap["code"] = ir.FromString(s.Code)
+	irMap["code"] = ir.FromString(string(s.Code))
 
 	// Field: Message
-	irMap["message"] = ir.FromString(s.Message)
+	irMap["message"] = ir.FromString(string(s.Message))
 
 	return ir.FromMap(irMap), nil
 }
@@ -2902,13 +2902,13 @@ func (s *SessionError) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "code", fieldNodeUnwrapped.Type)
 			}
-			s.Code = fieldNodeUnwrapped.String
+			s.Code = string(fieldNodeUnwrapped.String)
 		case "message":
 			// Field: Message
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "message", fieldNodeUnwrapped.Type)
 			}
-			s.Message = fieldNodeUnwrapped.String
+			s.Message = string(fieldNodeUnwrapped.String)
 		}
 	}
 
@@ -2952,7 +2952,7 @@ func (s *SessionResponse) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: ID (optional)
 	if s.ID != nil {
-		irMap["id"] = ir.FromString(*s.ID)
+		irMap["id"] = ir.FromString(string(*s.ID))
 	}
 
 	// Field: Result (optional)

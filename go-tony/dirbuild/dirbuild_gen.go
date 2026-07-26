@@ -26,10 +26,10 @@ func (s *Dir) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Suffix
-	irMap["suffix"] = ir.FromString(s.Suffix)
+	irMap["suffix"] = ir.FromString(string(s.Suffix))
 
 	// Field: DestDir
-	irMap["destDir"] = ir.FromString(s.DestDir)
+	irMap["destDir"] = ir.FromString(string(s.DestDir))
 
 	// Field: Output (optional)
 	if s.Output != nil {
@@ -113,13 +113,13 @@ func (s *Dir) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "suffix", fieldNodeUnwrapped.Type)
 			}
-			s.Suffix = fieldNodeUnwrapped.String
+			s.Suffix = string(fieldNodeUnwrapped.String)
 		case "destDir":
 			// Field: DestDir
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "destDir", fieldNodeUnwrapped.Type)
 			}
-			s.DestDir = fieldNodeUnwrapped.String
+			s.DestDir = string(fieldNodeUnwrapped.String)
 		case "output":
 			// Field: Output
 			s.Output = &DirOutput{}
@@ -218,21 +218,21 @@ func (s *DirSource) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Exec (optional)
 	if s.Exec != nil {
-		irMap["exec"] = ir.FromString(*s.Exec)
+		irMap["exec"] = ir.FromString(string(*s.Exec))
 	}
 
 	// Field: Dir (optional)
 	if s.Dir != nil {
-		irMap["dir"] = ir.FromString(*s.Dir)
+		irMap["dir"] = ir.FromString(string(*s.Dir))
 	}
 
 	// Field: URL (optional)
 	if s.URL != nil {
-		irMap["url"] = ir.FromString(*s.URL)
+		irMap["url"] = ir.FromString(string(*s.URL))
 	}
 
 	// Field: If
-	irMap["if"] = ir.FromString(s.If)
+	irMap["if"] = ir.FromString(string(s.If))
 
 	return ir.FromMap(irMap).WithTag("!dirsource"), nil
 }
@@ -321,7 +321,7 @@ func (s *DirSource) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "if", fieldNodeUnwrapped.Type)
 			}
-			s.If = fieldNodeUnwrapped.String
+			s.If = string(fieldNodeUnwrapped.String)
 		}
 	}
 
@@ -364,13 +364,13 @@ func (s *DirOutput) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: DestDir
-	irMap["destDir"] = ir.FromString(s.DestDir)
+	irMap["destDir"] = ir.FromString(string(s.DestDir))
 
 	// Field: Suffix
-	irMap["suffix"] = ir.FromString(s.Suffix)
+	irMap["suffix"] = ir.FromString(string(s.Suffix))
 
 	// Field: Filenames
-	irMap["filenames"] = ir.FromString(s.Filenames)
+	irMap["filenames"] = ir.FromString(string(s.Filenames))
 
 	// Field: K8s (optional)
 	if s.K8s != nil {
@@ -419,19 +419,19 @@ func (s *DirOutput) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "destDir", fieldNodeUnwrapped.Type)
 			}
-			s.DestDir = fieldNodeUnwrapped.String
+			s.DestDir = string(fieldNodeUnwrapped.String)
 		case "suffix":
 			// Field: Suffix
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "suffix", fieldNodeUnwrapped.Type)
 			}
-			s.Suffix = fieldNodeUnwrapped.String
+			s.Suffix = string(fieldNodeUnwrapped.String)
 		case "filenames":
 			// Field: Filenames
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "filenames", fieldNodeUnwrapped.Type)
 			}
-			s.Filenames = fieldNodeUnwrapped.String
+			s.Filenames = string(fieldNodeUnwrapped.String)
 		case "k8s":
 			// Field: K8s
 			s.K8s = &DirOutputK8s{}
@@ -475,7 +475,7 @@ func (s *DirOutputK8s) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Filenames
-	irMap["filenames"] = ir.FromString(s.Filenames)
+	irMap["filenames"] = ir.FromString(string(s.Filenames))
 
 	return ir.FromMap(irMap).WithTag("!diroutputk8s"), nil
 }
@@ -515,7 +515,7 @@ func (s *DirOutputK8s) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "filenames", fieldNodeUnwrapped.Type)
 			}
-			s.Filenames = fieldNodeUnwrapped.String
+			s.Filenames = string(fieldNodeUnwrapped.String)
 		}
 	}
 
@@ -568,10 +568,10 @@ func (s *DirPatch) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	}
 
 	// Field: File
-	irMap["file"] = ir.FromString(s.File)
+	irMap["file"] = ir.FromString(string(s.File))
 
 	// Field: If
-	irMap["if"] = ir.FromString(s.If)
+	irMap["if"] = ir.FromString(string(s.If))
 
 	return ir.FromMap(irMap).WithTag("!dirpatch"), nil
 }
@@ -623,13 +623,13 @@ func (s *DirPatch) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "file", fieldNodeUnwrapped.Type)
 			}
-			s.File = fieldNodeUnwrapped.String
+			s.File = string(fieldNodeUnwrapped.String)
 		case "if":
 			// Field: If
 			if fieldNodeUnwrapped.Type != ir.StringType {
 				return fmt.Errorf("field %q: expected string, got %v", "if", fieldNodeUnwrapped.Type)
 			}
-			s.If = fieldNodeUnwrapped.String
+			s.If = string(fieldNodeUnwrapped.String)
 		}
 	}
 

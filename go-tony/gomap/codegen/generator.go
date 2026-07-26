@@ -345,8 +345,10 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 		buf.WriteString("\n")
 	}
 
-	// Format the generated code
-	codeStr := buf.String()
+	// Format the generated code. Imports were collected from the field types, so
+	// some may not be spelled anywhere in the body that just got written; drop
+	// those before formatting rather than emitting a package that cannot compile.
+	codeStr := pruneUnusedImports(buf.String())
 	formatted, err := format.Source([]byte(codeStr))
 	if err != nil {
 		// Return unformatted code if formatting fails (with error)
@@ -909,7 +911,11 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 	// Handle different field types
 	switch field.Type.Kind() {
 	case reflect.String:
-		emit := fmt.Sprintf("\tirMap[%q] = ir.FromString(s.%s)\n", schemaFieldName, field.Name)
+		// Cast to the builtin: for a named string (type Op string) s.Op has that
+		// named type and ir.FromString takes a string. The conversion is an
+		// identity no-op for a plain string, so it is right for both — the same
+		// reasoning generatePrimitiveToIR applies to slice and map elements.
+		emit := fmt.Sprintf("\tirMap[%q] = ir.FromString(string(s.%s))\n", schemaFieldName, field.Name)
 		if field.Omitzero {
 			buf.WriteString(fmt.Sprintf("\tif s.%s != \"\" {\n", field.Name))
 			buf.WriteString("\t" + emit)
@@ -949,12 +955,13 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 		}
 
 	case reflect.Bool:
+		// Cast for the same reason as String above (type Flag bool).
 		if field.Omitzero {
 			buf.WriteString(fmt.Sprintf("\tif s.%s {\n", field.Name))
-			buf.WriteString(fmt.Sprintf("\t\tirMap[%q] = ir.FromBool(s.%s)\n", schemaFieldName, field.Name))
+			buf.WriteString(fmt.Sprintf("\t\tirMap[%q] = ir.FromBool(bool(s.%s))\n", schemaFieldName, field.Name))
 			buf.WriteString("\t}\n")
 		} else {
-			buf.WriteString(fmt.Sprintf("\tirMap[%q] = ir.FromBool(s.%s)\n", schemaFieldName, field.Name))
+			buf.WriteString(fmt.Sprintf("\tirMap[%q] = ir.FromBool(bool(s.%s))\n", schemaFieldName, field.Name))
 		}
 
 	case reflect.Ptr:
@@ -1997,7 +2004,11 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 		buf.WriteString("	if fieldNodeUnwrapped.Type != ir.StringType {\n")
 		buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: expected string, got %%v\", %q, fieldNodeUnwrapped.Type)\n", schemaFieldName))
 		buf.WriteString("	}\n")
-		buf.WriteString(fmt.Sprintf("	s.%s = fieldNodeUnwrapped.String\n", field.Name))
+		// Convert to the field's own type: for a named string (type Op string)
+		// a plain assignment from node.String does not compile. The int branch
+		// below has always done this; string and bool did not.
+		buf.WriteString(fmt.Sprintf("	s.%s = %s(fieldNodeUnwrapped.String)\n",
+			field.Name, getFieldTypeName(field, currentPkgPath)))
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		buf.WriteString("	if fieldNodeUnwrapped.Int64 == nil {\n")
@@ -2084,7 +2095,8 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 		buf.WriteString("	if fieldNodeUnwrapped.Type != ir.BoolType {\n")
 		buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: expected bool, got %%v\", %q, fieldNodeUnwrapped.Type)\n", schemaFieldName))
 		buf.WriteString("	}\n")
-		buf.WriteString(fmt.Sprintf("	s.%s = fieldNodeUnwrapped.Bool\n", field.Name))
+		buf.WriteString(fmt.Sprintf("	s.%s = %s(fieldNodeUnwrapped.Bool)\n",
+			field.Name, getFieldTypeName(field, currentPkgPath)))
 
 	case reflect.Ptr:
 		// Pointer type
