@@ -354,6 +354,20 @@ func toIRReflectMap(val reflect.Value, fieldPath string, visited map[uintptr]str
 // Embedded structs are flattened (fields are promoted to the parent object).
 // Note: We don't track struct values themselves for cycle detection, only pointers/slices/maps.
 // A struct value appearing multiple times is not a cycle - only reference types can create cycles.
+// isZeroForOmit reports whether v is empty for the purpose of the omitzero tag: an
+// empty slice/map/array, a nil pointer/interface, or a zero scalar. This mirrors
+// codegen's emptiness tests (len(...) > 0 for collections, != zero for scalars).
+func isZeroForOmit(v reflect.Value) bool {
+	switch v.Kind() {
+	case reflect.Slice, reflect.Map, reflect.Array:
+		return v.Len() == 0
+	case reflect.Ptr, reflect.Interface:
+		return v.IsNil()
+	default:
+		return v.IsZero()
+	}
+}
+
 func toIRReflectStruct(val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...MapOption) (*ir.Node, error) {
 	typ := val.Type()
 
@@ -409,6 +423,12 @@ func toIRReflectStruct(val reflect.Value, fieldPath string, visited map[uintptr]
 				// different documents on the two paths, and a field explicitly marked
 				// not to be serialized (e.g. a secret) leaks.
 				if tagOmits(parsed) {
+					continue
+				}
+				// A field marked omitzero is dropped when it holds the zero value,
+				// matching codegen — so the documented tag means the same thing on
+				// both paths (it was previously ignored here entirely).
+				if _, ok := parsed["omitzero"]; ok && isZeroForOmit(fieldVal) {
 					continue
 				}
 				// Check for field name override (field= tag)

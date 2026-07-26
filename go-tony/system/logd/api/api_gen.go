@@ -2743,7 +2743,9 @@ func (s *WatchEvent) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	}
 
 	// Field: EndReason
-	irMap["endReason"] = ir.FromString(s.EndReason)
+	if s.EndReason != "" {
+		irMap["endReason"] = ir.FromString(s.EndReason)
+	}
 
 	return ir.FromMap(irMap), nil
 }

@@ -876,17 +876,44 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 	// Handle different field types
 	switch field.Type.Kind() {
 	case reflect.String:
-		buf.WriteString(fmt.Sprintf("\tirMap[%q] = ir.FromString(s.%s)\n", schemaFieldName, field.Name))
+		emit := fmt.Sprintf("\tirMap[%q] = ir.FromString(s.%s)\n", schemaFieldName, field.Name)
+		if field.Omitzero {
+			buf.WriteString(fmt.Sprintf("\tif s.%s != \"\" {\n", field.Name))
+			buf.WriteString("\t" + emit)
+			buf.WriteString("\t}\n")
+		} else {
+			buf.WriteString(emit)
+		}
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		buf.WriteString(fmt.Sprintf("\tirMap[%q] = ir.FromInt(int64(s.%s))\n", schemaFieldName, field.Name))
+		emit := fmt.Sprintf("\tirMap[%q] = ir.FromInt(int64(s.%s))\n", schemaFieldName, field.Name)
+		if field.Omitzero {
+			buf.WriteString(fmt.Sprintf("\tif s.%s != 0 {\n", field.Name))
+			buf.WriteString("\t" + emit)
+			buf.WriteString("\t}\n")
+		} else {
+			buf.WriteString(emit)
+		}
 
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		// For unsigned types, we need to handle them carefully
-		buf.WriteString(fmt.Sprintf("\tirMap[%q] = ir.FromInt(int64(s.%s))\n", schemaFieldName, field.Name))
+		emit := fmt.Sprintf("\tirMap[%q] = ir.FromInt(int64(s.%s))\n", schemaFieldName, field.Name)
+		if field.Omitzero {
+			buf.WriteString(fmt.Sprintf("\tif s.%s != 0 {\n", field.Name))
+			buf.WriteString("\t" + emit)
+			buf.WriteString("\t}\n")
+		} else {
+			buf.WriteString(emit)
+		}
 
 	case reflect.Float32, reflect.Float64:
-		buf.WriteString(fmt.Sprintf("\tirMap[%q] = ir.FromFloat(float64(s.%s))\n", schemaFieldName, field.Name))
+		emit := fmt.Sprintf("\tirMap[%q] = ir.FromFloat(float64(s.%s))\n", schemaFieldName, field.Name)
+		if field.Omitzero {
+			buf.WriteString(fmt.Sprintf("\tif s.%s != 0 {\n", field.Name))
+			buf.WriteString("\t" + emit)
+			buf.WriteString("\t}\n")
+		} else {
+			buf.WriteString(emit)
+		}
 
 	case reflect.Bool:
 		if field.Omitzero {
