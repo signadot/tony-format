@@ -3,20 +3,25 @@ package codegen
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/signadot/tony-format/go-tony/gomap"
 )
 
 func TestTypeToSchemaRef(t *testing.T) {
 	tests := []struct {
-		name        string
-		typ         reflect.Type
-		fieldInfo   *FieldInfo
-		structMap   map[string]*StructInfo
-		currentPkg  string
-		wantRef     string
-		wantErr     bool
-		errContains string
+		name       string
+		typ        reflect.Type
+		fieldInfo  *FieldInfo
+		structMap  map[string]*StructInfo
+		currentPkg string
+		loader     *PackageLoader
+		wantRef    string
+		// wantImportPkg is the local name the cross-package import must be
+		// registered under; empty means no import should be recorded.
+		wantImportPkg string
+		wantErr       bool
+		errContains   string
 	}{
 		{
 			name:    "string type",
@@ -89,14 +94,33 @@ func TestTypeToSchemaRef(t *testing.T) {
 			errContains: "has no schema definition",
 		},
 		{
-			name: "cross-package type",
+			// A cross-package type is referenced only when the target declares
+			// a schema. format.Format does, in format/format.tony.
+			name: "cross-package type with a schema",
 			typ:  reflect.TypeOf(struct{ Name string }{}),
 			fieldInfo: &FieldInfo{
-				TypePkgPath: "github.com/example/format",
+				TypePkgPath: "github.com/signadot/tony-format/go-tony/format",
 				TypeName:    "Format",
 			},
-			currentPkg: "github.com/example/models",
-			wantRef:    "format:format",
+			currentPkg:    "github.com/signadot/tony-format/go-tony/dirbuild",
+			loader:        NewPackageLoader(),
+			wantRef:       "format:format",
+			wantImportPkg: "format",
+			wantErr:       false,
+		},
+		{
+			// time.Duration declares nothing, so there is no reference to make:
+			// describe what the encoder emits instead of naming a schema that
+			// cannot be looked up.
+			name: "cross-package type without a schema",
+			typ:  reflect.TypeOf(time.Duration(0)),
+			fieldInfo: &FieldInfo{
+				TypePkgPath: "time",
+				TypeName:    "Duration",
+			},
+			currentPkg: "github.com/signadot/tony-format/go-tony/system/logd/server",
+			loader:     NewPackageLoader(),
+			wantRef:    "int",
 			wantErr:    false,
 		},
 		{
@@ -115,9 +139,9 @@ func TestTypeToSchemaRef(t *testing.T) {
 				tt.fieldInfo,
 				tt.structMap,
 				tt.currentPkg,
-				"",  // currentStructName
-				"",  // currentSchemaName
-				nil, // loader
+				"", // currentStructName
+				"", // currentSchemaName
+				tt.loader,
 				imports,
 			)
 
@@ -139,12 +163,12 @@ func TestTypeToSchemaRef(t *testing.T) {
 				t.Errorf("typeToSchemaRef() = %q, want %q", gotRef, tt.wantRef)
 			}
 
-			// Check imports for cross-package types
-			if tt.fieldInfo != nil && tt.fieldInfo.TypePkgPath != "" && tt.fieldInfo.TypePkgPath != tt.currentPkg {
-				expectedPkgName := "format" // Based on the test case
-				if imports[tt.fieldInfo.TypePkgPath] != expectedPkgName {
+			// A reference must bring its import with it; a type that resolved
+			// to a plain kind must not leave a dangling one behind.
+			if tt.fieldInfo != nil && tt.fieldInfo.TypePkgPath != "" {
+				if got := imports[tt.fieldInfo.TypePkgPath]; got != tt.wantImportPkg {
 					t.Errorf("typeToSchemaRef() imports[%q] = %q, want %q",
-						tt.fieldInfo.TypePkgPath, imports[tt.fieldInfo.TypePkgPath], expectedPkgName)
+						tt.fieldInfo.TypePkgPath, got, tt.wantImportPkg)
 				}
 			}
 		})

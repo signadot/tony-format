@@ -2,6 +2,6 @@
 context:
 - tony-format/context
 define:
-  A: .[int]
+  A: .[string]
 signature:
   name: inner

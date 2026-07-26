@@ -20,6 +20,6 @@ define:
   ScopeID: .[nullable(string)]
   SnapPos: .[nullable(int)]
   Timestamp: .[string]
-  TxSource: .[nullable(tx:state)]
+  TxSource: .[nullable(tx:tx-state)]
 signature:
   name: entry

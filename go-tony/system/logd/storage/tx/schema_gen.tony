@@ -10,12 +10,11 @@ signature:
 ---
 context:
 - tony-format/context
-- time: time
 define:
   CreatedAt: .[string]
   PatcherData: .[array(object)]
   Scope: .[nullable(string)]
-  Timeout: !time:duration null
+  Timeout: .[int]
   TxID: .[int]
 signature:
   name: tx-state

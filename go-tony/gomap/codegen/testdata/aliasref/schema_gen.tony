@@ -3,6 +3,6 @@ context:
 - tony-format/context
 - aliastarget: github.com/signadot/tony-format/go-tony/gomap/codegen/testdata/aliastarget
 define:
-  default: .[nullable(aliastarget:format)]
+  default: .[nullable(aliastarget:aliastarget-real)]
 signature:
   name: aliasref-host

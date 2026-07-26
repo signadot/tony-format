@@ -3,7 +3,6 @@ package codegen
 import (
 	"fmt"
 	"go/ast"
-	"path/filepath"
 	"reflect"
 
 	"strings"
@@ -80,13 +79,19 @@ func typeToSchemaRef(typ reflect.Type, fieldInfo *FieldInfo, structMap map[strin
 		}
 	}
 
+	// A cross-package type is described by the target's own schema when it has
+	// one. When it does not, fall through: a fabricated reference names nothing.
 	if pkgPath != "" && pkgPath != currentPkg && typeName != "" {
-		// Cross-package type
-		pkgName := filepath.Base(pkgPath)
-		lowerTypeName := strings.ToLower(typeName)
-		imports[pkgPath] = pkgName
-		return fmt.Sprintf("%s:%s", pkgName, lowerTypeName), nil
+		if ref, ok := crossPkgSchema(pkgPath, typeName, loader, imports); ok {
+			return ref, nil
+		}
 	}
+
+	// Note this deliberately does NOT consult fieldInfo.ImplementsTextMarshaler.
+	// It is reached for slice, map and pointer ELEMENTS, and the flag describes
+	// the field: a []T of a TextMarshaler T is written by both encoders as an
+	// array of the underlying kind, not of strings. The one element that does
+	// take the field's marshaling — a pointer's — is handled by the caller.
 
 	// Special handling for *ir.Node
 	if kind == reflect.Ptr && typ.Elem().PkgPath() == "github.com/signadot/tony-format/go-tony/ir" && typ.Elem().Name() == "Node" {
@@ -155,33 +160,24 @@ func GoTypeToSchemaNode(typ reflect.Type, fieldInfo *FieldInfo, structMap map[st
 
 	kind := typ.Kind()
 
-	// A field whose type implements encoding.TextMarshaler is written as a
-	// string, whatever its underlying kind or package: the generated code calls
-	// MarshalText and emits ir.FromString (see generator.go's field emitter),
-	// and the reflection path in gomap/to.go does the same. The schema has to
-	// say string too, or it describes a document neither encoder produces.
+	// A field's schema should be the most precise statement that is true of what
+	// the encoder emits, which orders the three branches below:
 	//
-	// This has to precede every branch below, including the cross-package one:
-	// a named scalar resolved to its underlying kind reported .[int] for a value
-	// that is always a string, and a cross-package type like time.Time reported
-	// a !time:time reference to a schema that does not exist. Both are worse
-	// than an absent signature — nothing fails to compile and nothing misbehaves
-	// at runtime, so only a published schema carries the lie.
+	//  1. the schema the target itself declares, when there is one — precise and
+	//     true, and what the generated code means when it dispatches to that
+	//     type's codec;
+	//  2. failing that, string if the type implements encoding.TextMarshaler,
+	//     because the generated code calls MarshalText and emits ir.FromString
+	//     (see generator.go's field emitter) and gomap's reflection path does
+	//     the same;
+	//  3. failing that, the underlying kind, which is what both encoders fall
+	//     back to.
 	//
-	// Only the field's own type is considered. A []T of a TextMarshaler T is
-	// not affected: neither encoder marshals the elements as text (the flag is
-	// set from the field type, and []T does not implement the interface), so
-	// .[array(int)] there is the truth.
-	if fieldInfo != nil && fieldInfo.ImplementsTextMarshaler {
-		if kind == reflect.Ptr {
-			// A nil pointer emits ir.Null(), anything else a string.
-			return ir.FromString(".[nullable(string)]"), nil
-		}
-		return ir.FromString(".[string]"), nil
-	}
-
-	// Check for cross-package named types (including non-struct types like format.Format)
-	// This must come before kind-based handling to catch named types from other packages
+	// What must never happen is a reference to a schema that does not exist. It
+	// is not an imprecise description, it is not a description — nothing can
+	// look it up — and it reads as authoritative. Nothing fails to compile and
+	// nothing misbehaves at runtime when a schema is wrong, so only a published
+	// schema carries the lie.
 
 	// Determine package path and type name
 	// Use reflect.Type info if available (for structs and some named types)
@@ -202,22 +198,14 @@ func GoTypeToSchemaNode(typ reflect.Type, fieldInfo *FieldInfo, structMap map[st
 		}
 	}
 
-	if pkgPath != "" && pkgPath != currentPkg && typeName != "" && loader != nil {
-		// This is a named type from another package
-		pkgName := filepath.Base(pkgPath)          // Use last component as package name
-		lowerTypeName := strings.ToLower(typeName) // Lowercase type name for schema reference
-
-		// Add to imports
-		imports[pkgPath] = pkgName
-
-		// Create !pkgName:typeName reference
-		// Format: !pkg:typename (e.g., !format:format)
-		node := ir.Null()
-		node.Tag = fmt.Sprintf("!%s:%s", pkgName, lowerTypeName)
-		return node, nil
+	if pkgPath != "" && pkgPath != currentPkg && typeName != "" {
+		if ref, ok := crossPkgSchema(pkgPath, typeName, loader, imports); ok {
+			node := ir.Null()
+			node.Tag = "!" + ref
+			return node, nil
+		}
 	}
 
-	// Special handling for *ir.Node - represents any Tony value
 	// Special handling for *ir.Node - represents any Tony value
 	if kind == reflect.Ptr && typ.Elem().PkgPath() == "github.com/signadot/tony-format/go-tony/ir" && typ.Elem().Name() == "Node" {
 		// *ir.Node maps to tony-base:ir
@@ -228,9 +216,26 @@ func GoTypeToSchemaNode(typ reflect.Type, fieldInfo *FieldInfo, structMap map[st
 		return ir.FromString(".[tony-base:ir]"), nil
 	}
 
-	// Handle pointers (nullable types)
+	// Handle pointers (nullable types). The pointer's target carries the same
+	// three-step order as a field: its own schema first, then the field's text
+	// marshaling, then its underlying kind. A pointer is the one element type
+	// that does inherit the field's marshaling — the generated code emits
+	// ir.Null() or MarshalText's output, nothing in between.
 	if kind == reflect.Ptr {
 		elemType := typ.Elem()
+		// A cross-package named type often reaches here as a placeholder
+		// reflect.Type with no name of its own; for a pointer field, fieldInfo
+		// carries the pointee's identity.
+		elemPkg, elemName := elemType.PkgPath(), elemType.Name()
+		if elemPkg == "" && fieldInfo != nil {
+			elemPkg, elemName = fieldInfo.TypePkgPath, fieldInfo.TypeName
+		}
+		if ref, ok := crossPkgSchema(elemPkg, elemName, loader, imports); ok {
+			return ir.FromString(fmt.Sprintf(".[nullable(%s)]", ref)), nil
+		}
+		if fieldInfo != nil && fieldInfo.ImplementsTextMarshaler {
+			return ir.FromString(".[nullable(string)]"), nil
+		}
 		// Get the schema reference for the element type
 		elemTypeRef, err := typeToSchemaRef(elemType, fieldInfo, structMap, currentPkg, currentStructName, currentSchemaName, loader, imports)
 		if err != nil {
@@ -239,6 +244,12 @@ func GoTypeToSchemaNode(typ reflect.Type, fieldInfo *FieldInfo, structMap map[st
 		// Create .[nullable(elemTypeRef)] format
 		// This uses the parameterized nullable type from base.tony
 		return ir.FromString(fmt.Sprintf(".[nullable(%s)]", elemTypeRef)), nil
+	}
+
+	// No schema to point at, and not a container: a TextMarshaler is written as
+	// a string whatever its underlying kind or package.
+	if fieldInfo != nil && fieldInfo.ImplementsTextMarshaler {
+		return ir.FromString(".[string]"), nil
 	}
 
 	// Handle slices (arrays)
