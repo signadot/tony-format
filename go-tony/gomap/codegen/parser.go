@@ -243,9 +243,32 @@ func extractStructSchemaTag(structType *ast.StructType) (*gomap.StructSchema, er
 				TagFieldName:         tagFieldName,
 			}, nil
 		}
+
+		// A schema tag on a NAMED field (e.g. `_ struct{} `tony:"schemagen=..."`)
+		// is a common mistake: codegen only reads the marker on an anonymous field
+		// or a //tony: doc comment, so it would otherwise process the package and
+		// silently generate nothing. Diagnose it (issue f69agjyeh12ks item 13).
+		tag := getFieldTag(field, "tony")
+		if tag == "" {
+			continue
+		}
+		parsed, perr := ParseStructTag(tag)
+		if perr != nil {
+			continue
+		}
+		if _, ok := parsed["schema"]; ok {
+			return nil, namedSchemaMarkerError(field.Names[0].Name)
+		}
+		if _, ok := parsed["schemagen"]; ok {
+			return nil, namedSchemaMarkerError(field.Names[0].Name)
+		}
 	}
 
 	return nil, nil
+}
+
+func namedSchemaMarkerError(fieldName string) error {
+	return fmt.Errorf("field %q carries a schema tag but codegen only reads the schema marker on an anonymous field or a //tony: doc comment; move it to a `//tony:schemagen=<name>` doc comment on the type, or make it an anonymous embedded marker type", fieldName)
 }
 
 // extractFields extracts field information from a struct type.
