@@ -7,8 +7,7 @@ labels:
 - compaction
 - correctness
 - measured
-- medium
 related_issues:
 - bvm163tyh12krwcqcsn0
 status: open
-updated: "2026-07-27T01:56:01.318702+02:00"
+updated: "2026-07-27T01:56:01.393211+02:00"
