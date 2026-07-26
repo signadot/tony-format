@@ -241,6 +241,30 @@ func ResolveFieldTypes(structs []*StructInfo, pkgDir string, pkgName string) err
 					}
 				}
 			}
+
+			// Diagnostic (issue f69agjyeh12ks item 3): if go/types says the field's
+			// type is a struct but it resolved to a non-struct reflect.Type, it is a
+			// type codegen cannot handle — neither generated, codec=custom, nor a
+			// TextMarshaler — and it fell back to int. Generating for it would emit
+			// invalid Go (e.g. ir.FromInt on a struct). Fail with an actionable
+			// message rather than uncompilable output.
+			if typesType != nil && field.Type != nil && !field.ImplementsTextMarshaler {
+				tt := typesType
+				if ptr, ok := tt.(*types.Pointer); ok {
+					tt = ptr.Elem()
+				}
+				rt := field.Type
+				for rt.Kind() == reflect.Ptr {
+					rt = rt.Elem()
+				}
+				if _, isStruct := tt.Underlying().(*types.Struct); isStruct && rt.Kind() != reflect.Struct {
+					name := field.TypeName
+					if name == "" {
+						name = field.StructTypeName
+					}
+					return fmt.Errorf("field %s.%s references type %q, which codegen cannot resolve: annotate that type with a //tony:schemagen= or schema= directive (add codec=custom if it has its own ToTonyIR/FromTonyIR), or mark the field `omit`", s.Name, field.Name, name)
+				}
+			}
 		}
 	}
 
