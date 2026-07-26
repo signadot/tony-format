@@ -3,5 +3,8 @@ Ref: refs/issues/61766xadh12kstqqcnn0
 Title: "kpath: no wildcard matching between paths — [*]/.* compare literally, and Wild() is head-segment-only"
 created: "2026-07-26T14:04:58.140819+02:00"
 id: "61766xadh12kstqqcnn0"
+labels:
+- agent
+- kpath
 status: open
-updated: "2026-07-26T14:04:58.140819+02:00"
+updated: "2026-07-26T14:05:04.338944+02:00"
