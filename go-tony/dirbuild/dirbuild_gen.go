@@ -33,7 +33,7 @@ func (s *Dir) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Output (optional)
 	if s.Output != nil {
-		node, err = s.Output.ToTonyIR()
+		node, err = s.Output.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -44,7 +44,7 @@ func (s *Dir) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	{
 		slice := make([]*ir.Node, len(s.Sources))
 		for i, v := range s.Sources {
-			node, err = v.ToTonyIR()
+			node, err = v.ToTonyIR(opts...)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert slice element %d: %w", i, err)
 			}
@@ -57,7 +57,7 @@ func (s *Dir) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	{
 		slice := make([]*ir.Node, len(s.Patches))
 		for i, v := range s.Patches {
-			node, err = v.ToTonyIR()
+			node, err = v.ToTonyIR(opts...)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert slice element %d: %w", i, err)
 			}
@@ -123,7 +123,7 @@ func (s *Dir) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 		case "output":
 			// Field: Output
 			s.Output = &DirOutput{}
-			if err := s.Output.FromTonyIR(fieldNode); err != nil {
+			if err := s.Output.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "sources":
@@ -132,7 +132,7 @@ func (s *Dir) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				slice := make([]DirSource, len(fieldNodeUnwrapped.Values))
 				for i, v := range fieldNodeUnwrapped.Values {
 					elem := DirSource{}
-					if err := elem.FromTonyIR(v); err != nil {
+					if err := elem.FromTonyIR(v, opts...); err != nil {
 						return fmt.Errorf("failed to convert slice element %d: %w", i, err)
 					}
 					slice[i] = elem
@@ -145,7 +145,7 @@ func (s *Dir) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				slice := make([]DirPatch, len(fieldNodeUnwrapped.Values))
 				for i, v := range fieldNodeUnwrapped.Values {
 					elem := DirPatch{}
-					if err := elem.FromTonyIR(v); err != nil {
+					if err := elem.FromTonyIR(v, opts...); err != nil {
 						return fmt.Errorf("failed to convert slice element %d: %w", i, err)
 					}
 					slice[i] = elem
@@ -374,7 +374,7 @@ func (s *DirOutput) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: K8s (optional)
 	if s.K8s != nil {
-		node, err = s.K8s.ToTonyIR()
+		node, err = s.K8s.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -435,7 +435,7 @@ func (s *DirOutput) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 		case "k8s":
 			// Field: K8s
 			s.K8s = &DirOutputK8s{}
-			if err := s.K8s.FromTonyIR(fieldNode); err != nil {
+			if err := s.K8s.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		}

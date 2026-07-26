@@ -133,7 +133,7 @@ func (s *Index) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	{
 		slice := make([]*ir.Node, len(s.Entries))
 		for i, v := range s.Entries {
-			node, err = v.ToTonyIR()
+			node, err = v.ToTonyIR(opts...)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert slice element %d: %w", i, err)
 			}
@@ -181,7 +181,7 @@ func (s *Index) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				slice := make([]IndexEntry, len(fieldNodeUnwrapped.Values))
 				for i, v := range fieldNodeUnwrapped.Values {
 					elem := IndexEntry{}
-					if err := elem.FromTonyIR(v); err != nil {
+					if err := elem.FromTonyIR(v, opts...); err != nil {
 						return fmt.Errorf("failed to convert slice element %d: %w", i, err)
 					}
 					slice[i] = elem

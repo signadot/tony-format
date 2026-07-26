@@ -32,7 +32,7 @@ func (s *Config) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Snapshot (optional)
 	if s.Snapshot != nil {
-		node, err = s.Snapshot.ToTonyIR()
+		node, err = s.Snapshot.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -41,7 +41,7 @@ func (s *Config) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Tx (optional)
 	if s.Tx != nil {
-		node, err = s.Tx.ToTonyIR()
+		node, err = s.Tx.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -50,7 +50,7 @@ func (s *Config) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Compaction (optional)
 	if s.Compaction != nil {
-		node, err = s.Compaction.ToTonyIR()
+		node, err = s.Compaction.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -99,19 +99,19 @@ func (s *Config) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 		case "snapshot":
 			// Field: Snapshot
 			s.Snapshot = &SnapshotConfig{}
-			if err := s.Snapshot.FromTonyIR(fieldNode); err != nil {
+			if err := s.Snapshot.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "tx":
 			// Field: Tx
 			s.Tx = &TxConfig{}
-			if err := s.Tx.FromTonyIR(fieldNode); err != nil {
+			if err := s.Tx.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "compaction":
 			// Field: Compaction
 			s.Compaction = &CompactionConfig{}
-			if err := s.Compaction.FromTonyIR(fieldNode); err != nil {
+			if err := s.Compaction.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		}

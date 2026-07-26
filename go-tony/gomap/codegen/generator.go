@@ -55,6 +55,14 @@ func methodAcceptsOpts(t reflect.Type, currentPkgPath, methodName string, minInp
 	if baseType.PkgPath() == currentPkgPath {
 		return true
 	}
+	// A type resolved from source is represented by a placeholder reflect.Type with
+	// no package path (reflect.StructOf yields PkgPath ""). A struct placeholder is
+	// a local type being generated in this package, so its generated ToTonyIR/
+	// FromTonyIR accept opts — the PkgPath comparison above cannot see it because
+	// the placeholder carries no path, which is why nested calls were emitted bare.
+	if baseType.PkgPath() == "" && baseType.Kind() == reflect.Struct {
+		return true
+	}
 	// For external types, use reflection to check
 	pt := t
 	if t.Kind() != reflect.Ptr {
@@ -1952,7 +1960,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 	// codec=custom type) dispatches to its FromTonyIR rather than inlining the
 	// underlying map/slice decode (issue f69agjyeh12ks item 2).
 	if field.DispatchViaMethod {
-		buf.WriteString(fmt.Sprintf("	if err := s.%s.FromTonyIR(fieldNode); err != nil {\n", field.Name))
+		buf.WriteString(fmt.Sprintf("	if err := s.%s.FromTonyIR(fieldNode%s); err != nil {\n", field.Name, fromTonyIROptsSuffix(field.Type, currentPkgPath)))
 		buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: %%w\", %q, err)\n", schemaFieldName))
 		buf.WriteString("	}\n")
 		return buf.String(), nil
@@ -2467,7 +2475,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 
 	case reflect.Struct:
 		// Nested struct - call FromTony()
-		buf.WriteString(fmt.Sprintf("	if err := s.%s.FromTonyIR(fieldNode); err != nil {\n", field.Name))
+		buf.WriteString(fmt.Sprintf("	if err := s.%s.FromTonyIR(fieldNode%s); err != nil {\n", field.Name, fromTonyIROptsSuffix(field.Type, currentPkgPath)))
 		buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: %%w\", %q, err)\n", schemaFieldName))
 		buf.WriteString("	}\n")
 

@@ -120,7 +120,7 @@ func (s *Patch) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Match (optional)
 	if s.Match != nil {
-		node, err = s.Match.ToTonyIR()
+		node, err = s.Match.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -171,7 +171,7 @@ func (s *Patch) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 		case "match":
 			// Field: Match
 			s.Match = &PathData{}
-			if err := s.Match.FromTonyIR(fieldNode); err != nil {
+			if err := s.Match.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "path":
@@ -504,7 +504,7 @@ func (s *MatchRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Body
-	node, err = s.Body.ToTonyIR()
+	node, err = s.Body.ToTonyIR(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert field %q: %w", "Body", err)
 	}
@@ -550,7 +550,7 @@ func (s *MatchRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 		switch fieldName.String {
 		case "body":
 			// Field: Body
-			if err := s.Body.FromTonyIR(fieldNode); err != nil {
+			if err := s.Body.FromTonyIR(fieldNode, opts...); err != nil {
 				return fmt.Errorf("field %q: %w", "body", err)
 			}
 		case "commit":
@@ -621,7 +621,7 @@ func (s *PatchRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Match (optional)
 	if s.Match != nil {
-		node, err = s.Match.ToTonyIR()
+		node, err = s.Match.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -702,7 +702,7 @@ func (s *PatchRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 		case "match":
 			// Field: Match
 			s.Match = &PathData{}
-			if err := s.Match.FromTonyIR(fieldNode); err != nil {
+			if err := s.Match.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "path":
@@ -1269,7 +1269,7 @@ func (s *SchemaRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Get (optional)
 	if s.Get != nil {
-		node, err = s.Get.ToTonyIR()
+		node, err = s.Get.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -1278,7 +1278,7 @@ func (s *SchemaRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Set (optional)
 	if s.Set != nil {
-		node, err = s.Set.ToTonyIR()
+		node, err = s.Set.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -1321,13 +1321,13 @@ func (s *SchemaRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) err
 		case "get":
 			// Field: Get
 			s.Get = &SchemaGetRequest{}
-			if err := s.Get.FromTonyIR(fieldNode); err != nil {
+			if err := s.Get.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "set":
 			// Field: Set
 			s.Set = &SchemaSetRequest{}
-			if err := s.Set.FromTonyIR(fieldNode); err != nil {
+			if err := s.Set.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		}
@@ -1383,7 +1383,7 @@ func (s *SessionRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Hello (optional)
 	if s.Hello != nil {
-		node, err = s.Hello.ToTonyIR()
+		node, err = s.Hello.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -1392,7 +1392,7 @@ func (s *SessionRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Match (optional)
 	if s.Match != nil {
-		node, err = s.Match.ToTonyIR()
+		node, err = s.Match.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -1401,7 +1401,7 @@ func (s *SessionRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Patch (optional)
 	if s.Patch != nil {
-		node, err = s.Patch.ToTonyIR()
+		node, err = s.Patch.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -1410,7 +1410,7 @@ func (s *SessionRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: NewTx (optional)
 	if s.NewTx != nil {
-		node, err = s.NewTx.ToTonyIR()
+		node, err = s.NewTx.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -1419,7 +1419,7 @@ func (s *SessionRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Watch (optional)
 	if s.Watch != nil {
-		node, err = s.Watch.ToTonyIR()
+		node, err = s.Watch.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -1428,7 +1428,7 @@ func (s *SessionRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Unwatch (optional)
 	if s.Unwatch != nil {
-		node, err = s.Unwatch.ToTonyIR()
+		node, err = s.Unwatch.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -1437,7 +1437,7 @@ func (s *SessionRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: DeleteScope (optional)
 	if s.DeleteScope != nil {
-		node, err = s.DeleteScope.ToTonyIR()
+		node, err = s.DeleteScope.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -1446,7 +1446,7 @@ func (s *SessionRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Schema (optional)
 	if s.Schema != nil {
-		node, err = s.Schema.ToTonyIR()
+		node, err = s.Schema.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -1464,7 +1464,7 @@ func (s *SessionRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Ping (optional)
 	if s.Ping != nil {
-		node, err = s.Ping.ToTonyIR()
+		node, err = s.Ping.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -1531,49 +1531,49 @@ func (s *SessionRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) er
 		case "hello":
 			// Field: Hello
 			s.Hello = &Hello{}
-			if err := s.Hello.FromTonyIR(fieldNode); err != nil {
+			if err := s.Hello.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "match":
 			// Field: Match
 			s.Match = &MatchRequest{}
-			if err := s.Match.FromTonyIR(fieldNode); err != nil {
+			if err := s.Match.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "patch":
 			// Field: Patch
 			s.Patch = &PatchRequest{}
-			if err := s.Patch.FromTonyIR(fieldNode); err != nil {
+			if err := s.Patch.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "newtx":
 			// Field: NewTx
 			s.NewTx = &NewTxRequest{}
-			if err := s.NewTx.FromTonyIR(fieldNode); err != nil {
+			if err := s.NewTx.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "watch":
 			// Field: Watch
 			s.Watch = &WatchRequest{}
-			if err := s.Watch.FromTonyIR(fieldNode); err != nil {
+			if err := s.Watch.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "unwatch":
 			// Field: Unwatch
 			s.Unwatch = &UnwatchRequest{}
-			if err := s.Unwatch.FromTonyIR(fieldNode); err != nil {
+			if err := s.Unwatch.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "deleteScope":
 			// Field: DeleteScope
 			s.DeleteScope = &DeleteScopeRequest{}
-			if err := s.DeleteScope.FromTonyIR(fieldNode); err != nil {
+			if err := s.DeleteScope.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "schema":
 			// Field: Schema
 			s.Schema = &SchemaRequest{}
-			if err := s.Schema.FromTonyIR(fieldNode); err != nil {
+			if err := s.Schema.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "migration":
@@ -1592,7 +1592,7 @@ func (s *SessionRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) er
 		case "ping":
 			// Field: Ping
 			s.Ping = &PingRequest{}
-			if err := s.Ping.FromTonyIR(fieldNode); err != nil {
+			if err := s.Ping.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		}
@@ -2494,7 +2494,7 @@ func (s *SessionResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Hello (optional)
 	if s.Hello != nil {
-		node, err = s.Hello.ToTonyIR()
+		node, err = s.Hello.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -2503,7 +2503,7 @@ func (s *SessionResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Match (optional)
 	if s.Match != nil {
-		node, err = s.Match.ToTonyIR()
+		node, err = s.Match.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -2512,7 +2512,7 @@ func (s *SessionResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Patch (optional)
 	if s.Patch != nil {
-		node, err = s.Patch.ToTonyIR()
+		node, err = s.Patch.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -2521,7 +2521,7 @@ func (s *SessionResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: NewTx (optional)
 	if s.NewTx != nil {
-		node, err = s.NewTx.ToTonyIR()
+		node, err = s.NewTx.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -2530,7 +2530,7 @@ func (s *SessionResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Watch (optional)
 	if s.Watch != nil {
-		node, err = s.Watch.ToTonyIR()
+		node, err = s.Watch.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -2539,7 +2539,7 @@ func (s *SessionResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Unwatch (optional)
 	if s.Unwatch != nil {
-		node, err = s.Unwatch.ToTonyIR()
+		node, err = s.Unwatch.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -2548,7 +2548,7 @@ func (s *SessionResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: DeleteScope (optional)
 	if s.DeleteScope != nil {
-		node, err = s.DeleteScope.ToTonyIR()
+		node, err = s.DeleteScope.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -2557,7 +2557,7 @@ func (s *SessionResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Schema (optional)
 	if s.Schema != nil {
-		node, err = s.Schema.ToTonyIR()
+		node, err = s.Schema.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -2566,7 +2566,7 @@ func (s *SessionResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Migration (optional)
 	if s.Migration != nil {
-		node, err = s.Migration.ToTonyIR()
+		node, err = s.Migration.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -2575,7 +2575,7 @@ func (s *SessionResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Pong (optional)
 	if s.Pong != nil {
-		node, err = s.Pong.ToTonyIR()
+		node, err = s.Pong.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -2618,61 +2618,61 @@ func (s *SessionResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) err
 		case "hello":
 			// Field: Hello
 			s.Hello = &HelloResponse{}
-			if err := s.Hello.FromTonyIR(fieldNode); err != nil {
+			if err := s.Hello.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "match":
 			// Field: Match
 			s.Match = &MatchResult{}
-			if err := s.Match.FromTonyIR(fieldNode); err != nil {
+			if err := s.Match.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "patch":
 			// Field: Patch
 			s.Patch = &PatchResult{}
-			if err := s.Patch.FromTonyIR(fieldNode); err != nil {
+			if err := s.Patch.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "newtx":
 			// Field: NewTx
 			s.NewTx = &NewTxResult{}
-			if err := s.NewTx.FromTonyIR(fieldNode); err != nil {
+			if err := s.NewTx.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "watch":
 			// Field: Watch
 			s.Watch = &WatchResult{}
-			if err := s.Watch.FromTonyIR(fieldNode); err != nil {
+			if err := s.Watch.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "unwatch":
 			// Field: Unwatch
 			s.Unwatch = &UnwatchResult{}
-			if err := s.Unwatch.FromTonyIR(fieldNode); err != nil {
+			if err := s.Unwatch.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "deleteScope":
 			// Field: DeleteScope
 			s.DeleteScope = &DeleteScopeResult{}
-			if err := s.DeleteScope.FromTonyIR(fieldNode); err != nil {
+			if err := s.DeleteScope.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "schema":
 			// Field: Schema
 			s.Schema = &SchemaResult{}
-			if err := s.Schema.FromTonyIR(fieldNode); err != nil {
+			if err := s.Schema.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "migration":
 			// Field: Migration
 			s.Migration = &MigrationResult{}
-			if err := s.Migration.FromTonyIR(fieldNode); err != nil {
+			if err := s.Migration.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "pong":
 			// Field: Pong
 			s.Pong = &PongResult{}
-			if err := s.Pong.FromTonyIR(fieldNode); err != nil {
+			if err := s.Pong.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		}
@@ -2957,7 +2957,7 @@ func (s *SessionResponse) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Result (optional)
 	if s.Result != nil {
-		node, err = s.Result.ToTonyIR()
+		node, err = s.Result.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -2966,7 +2966,7 @@ func (s *SessionResponse) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Event (optional)
 	if s.Event != nil {
-		node, err = s.Event.ToTonyIR()
+		node, err = s.Event.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -2975,7 +2975,7 @@ func (s *SessionResponse) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Error (optional)
 	if s.Error != nil {
-		node, err = s.Error.ToTonyIR()
+		node, err = s.Error.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -3030,19 +3030,19 @@ func (s *SessionResponse) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) e
 		case "result":
 			// Field: Result
 			s.Result = &SessionResult{}
-			if err := s.Result.FromTonyIR(fieldNode); err != nil {
+			if err := s.Result.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "event":
 			// Field: Event
 			s.Event = &WatchEvent{}
-			if err := s.Event.FromTonyIR(fieldNode); err != nil {
+			if err := s.Event.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "error":
 			// Field: Error
 			s.Error = &SessionError{}
-			if err := s.Error.FromTonyIR(fieldNode); err != nil {
+			if err := s.Error.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		}

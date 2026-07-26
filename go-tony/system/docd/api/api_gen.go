@@ -301,7 +301,7 @@ func (s *MountRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Hello (optional)
 	if s.Hello != nil {
-		node, err = s.Hello.ToTonyIR()
+		node, err = s.Hello.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -310,7 +310,7 @@ func (s *MountRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Mount (optional)
 	if s.Mount != nil {
-		node, err = s.Mount.ToTonyIR()
+		node, err = s.Mount.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -319,7 +319,7 @@ func (s *MountRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Unmount (optional)
 	if s.Unmount != nil {
-		node, err = s.Unmount.ToTonyIR()
+		node, err = s.Unmount.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -362,19 +362,19 @@ func (s *MountRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 		case "hello":
 			// Field: Hello
 			s.Hello = &MountHello{}
-			if err := s.Hello.FromTonyIR(fieldNode); err != nil {
+			if err := s.Hello.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "mount":
 			// Field: Mount
 			s.Mount = &MountSpec{}
-			if err := s.Mount.FromTonyIR(fieldNode); err != nil {
+			if err := s.Mount.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "unmount":
 			// Field: Unmount
 			s.Unmount = &UnmountSpec{}
-			if err := s.Unmount.FromTonyIR(fieldNode); err != nil {
+			if err := s.Unmount.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		}
@@ -585,7 +585,7 @@ func (s *MountResponseResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error
 
 	// Field: Hello (optional)
 	if s.Hello != nil {
-		node, err = s.Hello.ToTonyIR()
+		node, err = s.Hello.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -594,7 +594,7 @@ func (s *MountResponseResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error
 
 	// Field: Mount (optional)
 	if s.Mount != nil {
-		node, err = s.Mount.ToTonyIR()
+		node, err = s.Mount.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -637,13 +637,13 @@ func (s *MountResponseResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOptio
 		case "hello":
 			// Field: Hello
 			s.Hello = &MountHelloResponse{}
-			if err := s.Hello.FromTonyIR(fieldNode); err != nil {
+			if err := s.Hello.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "mount":
 			// Field: Mount
 			s.Mount = &MountResult{}
-			if err := s.Mount.FromTonyIR(fieldNode); err != nil {
+			if err := s.Mount.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		}
@@ -776,7 +776,7 @@ func (s *MountResponse) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Result (optional)
 	if s.Result != nil {
-		node, err = s.Result.ToTonyIR()
+		node, err = s.Result.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -785,7 +785,7 @@ func (s *MountResponse) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Error (optional)
 	if s.Error != nil {
-		node, err = s.Error.ToTonyIR()
+		node, err = s.Error.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -828,13 +828,13 @@ func (s *MountResponse) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) err
 		case "result":
 			// Field: Result
 			s.Result = &MountResponseResult{}
-			if err := s.Result.FromTonyIR(fieldNode); err != nil {
+			if err := s.Result.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "error":
 			// Field: Error
 			s.Error = &MountError{}
-			if err := s.Error.FromTonyIR(fieldNode); err != nil {
+			if err := s.Error.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		}

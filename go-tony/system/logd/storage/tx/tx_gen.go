@@ -48,7 +48,7 @@ func (s *State) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	{
 		slice := make([]*ir.Node, len(s.PatcherData))
 		for i, v := range s.PatcherData {
-			node, err = v.ToTonyIR()
+			node, err = v.ToTonyIR(opts...)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert slice element %d: %w", i, err)
 			}
@@ -127,7 +127,7 @@ func (s *State) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				slice := make([]*PatcherData, len(fieldNodeUnwrapped.Values))
 				for i, v := range fieldNodeUnwrapped.Values {
 					elem := new(PatcherData)
-					if err := elem.FromTonyIR(v); err != nil {
+					if err := elem.FromTonyIR(v, opts...); err != nil {
 						return fmt.Errorf("failed to convert slice element %d: %w", i, err)
 					}
 					slice[i] = elem
@@ -184,7 +184,7 @@ func (s *PatcherData) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: API (optional)
 	if s.API != nil {
-		node, err = s.API.ToTonyIR()
+		node, err = s.API.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -234,7 +234,7 @@ func (s *PatcherData) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error
 		case "API":
 			// Field: API
 			s.API = &api.Patch{}
-			if err := s.API.FromTonyIR(fieldNode); err != nil {
+			if err := s.API.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		}

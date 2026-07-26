@@ -132,7 +132,7 @@ func (s *Entry) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: TxSource (optional)
 	if s.TxSource != nil {
-		node, err = s.TxSource.ToTonyIR()
+		node, err = s.TxSource.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -156,7 +156,7 @@ func (s *Entry) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: SchemaEntry (optional)
 	if s.SchemaEntry != nil {
-		node, err = s.SchemaEntry.ToTonyIR()
+		node, err = s.SchemaEntry.ToTonyIR(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -217,7 +217,7 @@ func (s *Entry) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 		case "TxSource":
 			// Field: TxSource
 			s.TxSource = &tx.State{}
-			if err := s.TxSource.FromTonyIR(fieldNode); err != nil {
+			if err := s.TxSource.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "SnapPos":
@@ -259,7 +259,7 @@ func (s *Entry) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 		case "SchemaEntry":
 			// Field: SchemaEntry
 			s.SchemaEntry = &SchemaEntry{}
-			if err := s.SchemaEntry.FromTonyIR(fieldNode); err != nil {
+			if err := s.SchemaEntry.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		}
