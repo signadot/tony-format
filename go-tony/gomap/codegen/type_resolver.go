@@ -180,6 +180,21 @@ func ResolveFieldTypes(structs []*StructInfo, pkgDir string, pkgName string) err
 				field.DispatchViaMethod = true
 			}
 
+			// Ask go/types whether this field's codec takes encode options.
+			// methodAcceptsOpts falls back to reflection, which cannot answer for
+			// a type resolved from source — the placeholder reflect.Type has no
+			// package path and no methods — so it reports "no opts" and the call
+			// is emitted bare (issue f69agjyeh12ks item 5).
+			if typesType != nil {
+				toOpts, toOK := codecTakesOpts(typesType, "ToTonyIR")
+				fromOpts, fromOK := codecTakesOpts(typesType, "FromTonyIR")
+				if toOK || fromOK {
+					field.CodecOptsKnown = true
+					field.CodecToTonyIROpts = toOpts
+					field.CodecFromTonyIROpts = fromOpts
+				}
+			}
+
 			// Check for TextMarshaler/TextUnmarshaler implementation
 			// First try using types.Type, then fall back to reflect.Type
 			if typesType != nil {
@@ -712,4 +727,26 @@ func resolveBasicType(name string) reflect.Type {
 	default:
 		return nil
 	}
+}
+
+// codecTakesOpts reports whether t (or *t) has the named codec method and, if
+// so, whether it is variadic — a codec written as ToTonyIR(opts ...MapOption)
+// versus one written bare. found is false when the type has no such method, in
+// which case the caller has nothing to say about it.
+func codecTakesOpts(t types.Type, methodName string) (takesOpts, found bool) {
+	for _, candidate := range []types.Type{t, types.NewPointer(t)} {
+		ms := types.NewMethodSet(candidate)
+		for i := 0; i < ms.Len(); i++ {
+			fn, ok := ms.At(i).Obj().(*types.Func)
+			if !ok || fn.Name() != methodName {
+				continue
+			}
+			sig, ok := fn.Type().(*types.Signature)
+			if !ok {
+				continue
+			}
+			return sig.Variadic(), true
+		}
+	}
+	return false, false
 }

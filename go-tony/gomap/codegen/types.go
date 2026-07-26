@@ -105,6 +105,16 @@ type FieldInfo struct {
 	// ImplementsTextUnmarshaler indicates if the field type implements encoding.TextUnmarshaler
 	ImplementsTextUnmarshaler bool
 
+	// CodecOptsKnown is set when go/types could answer whether the field type's
+	// ToTonyIR/FromTonyIR take encode options, in which case CodecToTonyIROpts
+	// and CodecFromTonyIROpts hold the answer. reflect.Type cannot: a type
+	// resolved from source is a placeholder carrying neither the real package
+	// path nor any methods, so asking it reports "no opts" for every such type
+	// and the nested call is emitted bare (issue f69agjyeh12ks item 5).
+	CodecOptsKnown      bool
+	CodecToTonyIROpts   bool
+	CodecFromTonyIROpts bool
+
 	// DispatchViaMethod is set when the field's type is a NAMED non-struct type
 	// (e.g. a named map) that has its own codec — generated, or hand-written under
 	// codec=custom. Such a field must call the type's ToTonyIR/FromTonyIR rather

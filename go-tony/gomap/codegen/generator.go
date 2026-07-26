@@ -105,6 +105,33 @@ func toTonyIROptsSuffix(t reflect.Type, currentPkgPath string) string {
 	return ""
 }
 
+// fieldToTonyIROpts returns the argument for a nested ToTonyIR call on field.
+// The answer comes from go/types when the resolver could get one, since
+// toTonyIROptsSuffix falls back to reflection and a type resolved from source
+// has a placeholder reflect.Type with no methods to inspect — which is why
+// these calls were emitted bare (issue f69agjyeh12ks item 5).
+func fieldToTonyIROpts(field *FieldInfo, currentPkgPath string) string {
+	if field.CodecOptsKnown {
+		if field.CodecToTonyIROpts {
+			return "opts..."
+		}
+		return ""
+	}
+	return toTonyIROptsSuffix(field.Type, currentPkgPath)
+}
+
+// fieldFromTonyIROpts is fieldToTonyIROpts for the decode direction; the leading
+// comma is included because FromTonyIR always has a node argument before opts.
+func fieldFromTonyIROpts(field *FieldInfo, currentPkgPath string) string {
+	if field.CodecOptsKnown {
+		if field.CodecFromTonyIROpts {
+			return ", opts..."
+		}
+		return ""
+	}
+	return fromTonyIROptsSuffix(field.Type, currentPkgPath)
+}
+
 // GenerateCode generates Go code for ToTony() and FromTony() methods for all structs.
 // Returns formatted Go source code.
 func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, config *CodegenConfig) (string, error) {
@@ -900,7 +927,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 	// codec=custom type) dispatches to its ToTonyIR rather than inlining the
 	// underlying map/slice (issue f69agjyeh12ks item 2).
 	if field.DispatchViaMethod {
-		buf.WriteString(fmt.Sprintf("	node, err %s s.%s.ToTonyIR(%s)\n", assign, field.Name, toTonyIROptsSuffix(field.Type, currentPkgPath)))
+		buf.WriteString(fmt.Sprintf("	node, err %s s.%s.ToTonyIR(%s)\n", assign, field.Name, fieldToTonyIROpts(field, currentPkgPath)))
 		buf.WriteString("	if err != nil {\n")
 		buf.WriteString(fmt.Sprintf("		return nil, fmt.Errorf(\"failed to convert field %%q: %%w\", %q, err)\n", field.Name))
 		buf.WriteString("	}\n")
@@ -1992,7 +2019,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 	// codec=custom type) dispatches to its FromTonyIR rather than inlining the
 	// underlying map/slice decode (issue f69agjyeh12ks item 2).
 	if field.DispatchViaMethod {
-		buf.WriteString(fmt.Sprintf("	if err := s.%s.FromTonyIR(fieldNode%s); err != nil {\n", field.Name, fromTonyIROptsSuffix(field.Type, currentPkgPath)))
+		buf.WriteString(fmt.Sprintf("	if err := s.%s.FromTonyIR(fieldNode%s); err != nil {\n", field.Name, fieldFromTonyIROpts(field, currentPkgPath)))
 		buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: %%w\", %q, err)\n", schemaFieldName))
 		buf.WriteString("	}\n")
 		return buf.String(), nil
