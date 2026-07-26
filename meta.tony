@@ -1,0 +1,7 @@
+!issue
+Ref: refs/issues/hb8c72fph12krv2wcnn0
+Title: "stream.Decoder: a multi-byte UTF-8 rune straddling the 8KiB buffer refill fails the document (kills logd/docd sessions)"
+created: "2026-07-26T03:01:32.956471+02:00"
+id: hb8c72fph12krv2wcnn0
+status: open
+updated: "2026-07-26T03:01:32.956471+02:00"
