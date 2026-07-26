@@ -236,8 +236,9 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 					needsUnsafe = true
 				}
 			}
-			// Check for optional non-pointer struct fields (not time.Time) that need reflect
-			if field.Optional && field.Type.Kind() == reflect.Struct {
+			// Optional/omitzero non-pointer struct fields (not time.Time) get an
+			// isZeroValue helper that uses reflect.ValueOf(v).IsZero().
+			if (field.Optional || field.Omitzero) && field.Type.Kind() == reflect.Struct {
 				if !(field.TypePkgPath == "time" && field.TypeName == "Time") {
 					needsReflect = true
 				}
@@ -378,15 +379,16 @@ func GenerateZeroValueHelpers(structs []*StructInfo) (string, error) {
 		}
 
 		for _, field := range structInfo.Fields {
-			// Only generate helpers for optional non-pointer fields
-			if !field.Optional {
-				continue
-			}
 			if field.Type == nil {
 				continue
 			}
 			if field.Type.Kind() == reflect.Ptr {
 				continue // Pointer fields use nil checks, not zero-value checks
+			}
+			// Generate helpers for optional non-pointer fields, and for value-struct
+			// fields marked omitzero (item 12) — both are guarded by isZeroValue.
+			if !field.Optional && !(field.Omitzero && field.Type.Kind() == reflect.Struct) {
+				continue
 			}
 
 			helperName := fmt.Sprintf("isZeroValue_%s_%s", structInfo.Name, field.Name)
@@ -764,13 +766,20 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 			schemaFieldName = field.Name
 		}
 
-		// Handle optional fields (skip zero values)
-		if field.Optional || (field.Type != nil && field.Type.Kind() == reflect.Ptr) {
+		// Handle optional fields (skip zero values). A value-struct field with
+		// omitzero also needs the zero guard — the scalar and collection cases carry
+		// omitzero themselves, but the value-struct branch emits its nested call
+		// unconditionally, so guard it here with the same isZeroValue check optional
+		// fields use (issue f69agjyeh12ks item 12).
+		isPtr := field.Type != nil && field.Type.Kind() == reflect.Ptr
+		omitzeroStruct := field.Omitzero && field.Type != nil && field.Type.Kind() == reflect.Struct
+		wrapZero := field.Optional || isPtr || omitzeroStruct
+		if wrapZero {
 			buf.WriteString(fmt.Sprintf("	// Field: %s (optional)\n", field.Name))
-			if field.Type != nil && field.Type.Kind() == reflect.Ptr {
+			if isPtr {
 				buf.WriteString(fmt.Sprintf("	if s.%s != nil {\n", field.Name))
 			} else {
-				// Non-pointer optional field - check if zero value
+				// Non-pointer optional/omitzero field - check if zero value
 				buf.WriteString(fmt.Sprintf("	if !isZeroValue_%s_%s(s.%s) {\n", s.Name, field.Name, field.Name))
 			}
 		} else {
@@ -779,14 +788,13 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 
 		// Generate code to convert field to IR node
 		// Pass true for alreadyInNilCheck if we've already wrapped this field in a nil check
-		alreadyInNilCheck := field.Optional || (field.Type != nil && field.Type.Kind() == reflect.Ptr)
-		fieldCode, err := generateFieldToIR(s, field, schemaFieldName, i != 0, needsVars, alreadyInNilCheck, currentPkgPath)
+		fieldCode, err := generateFieldToIR(s, field, schemaFieldName, i != 0, needsVars, wrapZero, currentPkgPath)
 		if err != nil {
 			return "", fmt.Errorf("failed to generate field conversion for %q: %w", field.Name, err)
 		}
 		buf.WriteString(fieldCode)
 
-		if field.Optional || (field.Type != nil && field.Type.Kind() == reflect.Ptr) {
+		if wrapZero {
 			buf.WriteString("	}\n")
 		}
 		buf.WriteString("\n")
