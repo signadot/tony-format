@@ -72,7 +72,7 @@ func yamlDoubleQuoted(d []byte, pos *Pos) (*Token, int, error) {
 		i += sz
 		switch r {
 		case utf8.RuneError:
-			return nil, 0, ErrBadUTF8
+			return nil, 0, badRune(d[i-sz:])
 		case '\r':
 			if i > n-1 || d[i+1] != '\n' {
 				return nil, 0, ErrYAMLDoubleQuote

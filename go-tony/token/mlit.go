@@ -213,7 +213,7 @@ func scanLine(d []byte, indent int) (bool, int, error) {
 		i += sz
 		switch r {
 		case utf8.RuneError:
-			return false, 0, ErrBadUTF8
+			return false, 0, badRune(d[i-sz:])
 		case '\n':
 			if leading >= indent {
 				return false, i, nil

@@ -1,6 +1,7 @@
 package token
 
 import (
+	"errors"
 	"fmt"
 	"io"
 )
@@ -43,6 +44,10 @@ func scanLinesStreaming(d []byte, posDoc *PosDoc, off, indent int, format byte) 
 	for i < n {
 		end, lineSz, err := scanLine(d[i:], indent)
 		if err != nil {
+			if errors.Is(err, ErrPartialRune) {
+				// The line ran out mid-rune: it continues in the next read.
+				return i, io.EOF
+			}
 			return 0, err
 		}
 		if end {

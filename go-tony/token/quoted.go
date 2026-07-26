@@ -136,7 +136,9 @@ func bsEscQuoted(d []byte) (int, error) {
 		start += sz
 		switch r {
 		case utf8.RuneError:
-			return 0, ErrBadUTF8
+			// start-sz is the offending byte, not the opening quote: report
+			// that so the caller's position points at the actual problem.
+			return start - sz, badRune(d[start-sz:])
 		case quoteChar:
 			if !escaped {
 				return start, nil

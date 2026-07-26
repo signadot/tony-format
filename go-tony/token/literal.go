@@ -1,6 +1,7 @@
 package token
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"unicode"
@@ -20,6 +21,12 @@ import (
 func getSingleLiteralStreaming(d []byte) ([]byte, error) {
 	lit, err := getSingleLiteral(d)
 	if err != nil {
+		// A rune cut off by the end of the buffer is the same situation as a
+		// literal that runs to the end: the scan needs the next read, not a
+		// verdict.
+		if errors.Is(err, ErrPartialRune) {
+			return nil, io.EOF
+		}
 		return nil, err
 	}
 	end := len(lit)
@@ -43,7 +50,7 @@ func getSingleLiteral(d []byte) ([]byte, error) {
 	for i < n {
 		r, sz = utf8.DecodeRune(d[i:])
 		if r == utf8.RuneError {
-			return nil, ErrBadUTF8
+			return nil, badRune(d[i:])
 		}
 		if unicode.IsSpace(r) {
 			break

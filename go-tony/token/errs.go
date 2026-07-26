@@ -6,7 +6,13 @@ import (
 )
 
 var (
-	ErrBadUTF8           = errors.New("bad utf8")
+	ErrBadUTF8 = errors.New("bad utf8")
+	// ErrPartialRune is a UTF-8 sequence cut off by the end of the data a
+	// scanner was given, rather than invalid input. In streaming mode it means
+	// "refill the buffer and retry", so the tokenizer turns it into io.EOF; if
+	// it survives to the real end of a document the sequence is genuinely
+	// truncated, and it reports as ErrBadUTF8, which it wraps.
+	ErrPartialRune       = fmt.Errorf("%w: truncated sequence", ErrBadUTF8)
 	ErrUnterminated      = errors.New("unterminated")
 	ErrNumberLeadingZero = errors.New("leading zero")
 	ErrNoIndent          = errors.New("indentation needed")

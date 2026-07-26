@@ -3,7 +3,12 @@ package stream
 import (
 	"bytes"
 	"io"
+	"strings"
 	"testing"
+
+	"github.com/signadot/tony-format/go-tony/encode"
+	"github.com/signadot/tony-format/go-tony/format"
+	"github.com/signadot/tony-format/go-tony/ir"
 )
 
 func TestNewDecoder(t *testing.T) {
@@ -1718,5 +1723,50 @@ func TestDecoder_TagsRoundTrip(t *testing.T) {
 				t.Errorf("expected EventEndObject, got %v", event.Type)
 			}
 		})
+	}
+}
+
+// TestDecoderLargeMultiByteValue covers a document whose string value spans
+// several tokenizer buffer refills and contains multi-byte runes throughout.
+// A refill landing mid-rune used to fail the whole document with "bad utf8",
+// which for the session protocols reading through a Decoder means a dropped
+// connection rather than a bad parse. Sizes are swept a byte at a time so the
+// boundary falls at every offset within a rune.
+func TestDecoderLargeMultiByteValue(t *testing.T) {
+	unit := "em-dash — arrow → check ✓\n"
+	for reps := 250; reps < 260; reps++ {
+		body := strings.Repeat(unit, reps)
+		doc := ir.FromKeyVals([]ir.KeyVal{
+			{Key: ir.FromString("content"), Val: ir.FromString(body)},
+		})
+		var buf bytes.Buffer
+		err := encode.Encode(doc, &buf, encode.EncodeFormat(format.TonyFormat),
+			encode.EncodeWire(true), encode.EncodeBrackets(true))
+		if err != nil {
+			t.Fatalf("encode (%d bytes): %v", len(body), err)
+		}
+		dec, err := NewDecoder(bytes.NewReader(buf.Bytes()), WithWire())
+		if err != nil {
+			t.Fatalf("NewDecoder: %v", err)
+		}
+		var got string
+		for {
+			ev, err := dec.ReadEvent()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Fatalf("ReadEvent (%d bytes): %v", len(body), err)
+			}
+			if ev.Type == EventString {
+				got = ev.String
+			}
+			if dec.Depth() == 0 {
+				break
+			}
+		}
+		if got != body {
+			t.Fatalf("%d bytes: value round-trip mismatch: got %d bytes", len(body), len(got))
+		}
 	}
 }

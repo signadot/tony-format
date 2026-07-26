@@ -351,11 +351,15 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 
 		j, err := bsEscQuoted(data[pos:])
 		if err != nil {
-			// In streaming mode, convert ErrUnterminated to io.EOF
-			if err == ErrUnterminated && t.reader != nil {
+			// In streaming mode, convert ErrUnterminated to io.EOF. A rune cut
+			// off by the end of the buffer is the same situation: the string
+			// continues in the next read, so ask for more data rather than
+			// failing the document.
+			if t.reader != nil && (err == ErrUnterminated || errors.Is(err, ErrPartialRune)) {
 				return nil, 0, io.EOF
 			}
-			return nil, 0, NewTokenizeErr(err, t.posDoc.Pos(int(absOffset)))
+			// j is the offset of the offending byte within the token.
+			return nil, 0, NewTokenizeErr(err, t.posDoc.Pos(int(absOffset)+j))
 		}
 		tok := Token{
 			Type:  TString,
@@ -373,6 +377,9 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		for start < n {
 			r, sz := utf8.DecodeRune(data[start:])
 			if r == utf8.RuneError {
+				if t.reader != nil && partialRune(data[start:]) {
+					return nil, 0, io.EOF // tag continues in the next read
+				}
 				return nil, 0, UnexpectedErr("bad utf8", t.posDoc.Pos(int(bufferStartOffset)+start))
 			}
 			if unicode.IsSpace(r) {
@@ -623,6 +630,11 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		for end < n {
 			r, sz := utf8.DecodeRune(data[end:])
 			if r == utf8.RuneError {
+				if t.reader != nil && partialRune(data[end:]) {
+					// Comment continues in the next read, same as reaching the
+					// buffer end without a newline below.
+					return nil, 0, io.EOF
+				}
 				return nil, 0, UnexpectedErr("bad utf8", t.posDoc.Pos(int(bufferStartOffset)+end))
 			}
 			if r != '\n' {
@@ -653,14 +665,20 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		return nil, 1, nil // Whitespace, no token
 
 	case 'n':
-		if pos+4 < n && string(data[pos:pos+4]) == "null" && isKeyWordPrefix(data[pos:], []byte("null")) {
-			tok := Token{
-				Type:  TNull,
-				Bytes: data[pos : pos+4],
-				Pos:   t.posDoc.Pos(int(absOffset)),
+		if pos+4 < n && string(data[pos:pos+4]) == "null" {
+			kw, partial := isKeyWordPrefix(data[pos:], []byte("null"))
+			if partial && t.reader != nil {
+				return nil, 0, io.EOF // rune after the keyword is cut off
 			}
-			t.ts.hasValue = true
-			return []Token{tok}, 4, nil
+			if kw {
+				tok := Token{
+					Type:  TNull,
+					Bytes: data[pos : pos+4],
+					Pos:   t.posDoc.Pos(int(absOffset)),
+				}
+				t.ts.hasValue = true
+				return []Token{tok}, 4, nil
+			}
 		}
 		switch t.opt.format {
 		case format.JSONFormat:
@@ -690,14 +708,20 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		}
 
 	case 't':
-		if pos+4 < n && string(data[pos:pos+4]) == "true" && isKeyWordPrefix(data[pos:], []byte("true")) {
-			tok := Token{
-				Type:  TTrue,
-				Bytes: data[pos : pos+4],
-				Pos:   t.posDoc.Pos(int(absOffset)),
+		if pos+4 < n && string(data[pos:pos+4]) == "true" {
+			kw, partial := isKeyWordPrefix(data[pos:], []byte("true"))
+			if partial && t.reader != nil {
+				return nil, 0, io.EOF // rune after the keyword is cut off
 			}
-			t.ts.hasValue = true
-			return []Token{tok}, 4, nil
+			if kw {
+				tok := Token{
+					Type:  TTrue,
+					Bytes: data[pos : pos+4],
+					Pos:   t.posDoc.Pos(int(absOffset)),
+				}
+				t.ts.hasValue = true
+				return []Token{tok}, 4, nil
+			}
 		}
 		switch t.opt.format {
 		case format.JSONFormat:
@@ -727,14 +751,20 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		}
 
 	case 'f':
-		if pos+5 < n && string(data[pos:pos+5]) == "false" && isKeyWordPrefix(data[pos:], []byte("false")) {
-			tok := Token{
-				Type:  TFalse,
-				Bytes: data[pos : pos+5],
-				Pos:   t.posDoc.Pos(int(absOffset)),
+		if pos+5 < n && string(data[pos:pos+5]) == "false" {
+			kw, partial := isKeyWordPrefix(data[pos:], []byte("false"))
+			if partial && t.reader != nil {
+				return nil, 0, io.EOF // rune after the keyword is cut off
 			}
-			t.ts.hasValue = true
-			return []Token{tok}, 5, nil
+			if kw {
+				tok := Token{
+					Type:  TFalse,
+					Bytes: data[pos : pos+5],
+					Pos:   t.posDoc.Pos(int(absOffset)),
+				}
+				t.ts.hasValue = true
+				return []Token{tok}, 5, nil
+			}
 		}
 		switch t.opt.format {
 		case format.JSONFormat:
