@@ -6,8 +6,9 @@ id: "1d52zghth12ks0cvcsn0"
 labels:
 - compaction
 - correctness
+- low
 - measured
 related_issues:
 - bvm163tyh12krwcqcsn0
 status: open
-updated: "2026-07-27T01:56:01.393211+02:00"
+updated: "2026-07-27T01:56:01.456853+02:00"
