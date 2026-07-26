@@ -200,27 +200,33 @@ func (ts *TokenSource) ensureBufferData() (bool, error) {
 	return true, nil
 }
 
-// ensureTrailingNewline ensures the buffer ends with a newline if needed.
-// This is required because the tokenizer expects input to end with a newline.
-// Returns (needsMoreData, error) where needsMoreData is true if we added a newline
-// and should retry tokenization.
+// ensureTrailingNewline makes the final tokenization pass: the reader is
+// drained, so it supplies the trailing newline the tokenizer expects and marks
+// the tokenizer as drained, telling the scanners that a construct reaching the
+// end of the buffer ends there rather than continuing into a refill.
+//
+// Returns (needsMoreData, error) where needsMoreData is true if tokenization
+// should be retried. The retry always happens exactly once — trailingNL guards
+// re-entry — so a scan that still cannot complete terminates the stream rather
+// than looping.
 func (ts *TokenSource) ensureTrailingNewline() (bool, error) {
 	if ts.trailingNL {
-		// Already added trailing newline, we're done
+		// Final pass already made, we're done
 		return false, io.EOF
 	}
 
 	ts.trailingNL = true
+	ts.tokenizer.drained = true
 
-	// Check if buffer already ends with newline
-	if len(ts.buf) > 0 && ts.buf[len(ts.buf)-1] == '\n' {
-		// Already ends with newline, we're done
-		return false, io.EOF
+	if len(ts.buf) == 0 || ts.buf[len(ts.buf)-1] != '\n' {
+		ts.buf = append(ts.buf, '\n')
 	}
 
-	// Append virtual newline to buffer for tokenization
-	ts.buf = append(ts.buf, '\n')
-	// Retry tokenization with the newline
+	// Retry tokenization in terminal mode. This retry is what emits a construct
+	// that was waiting on more data — a multiline literal at the end of the
+	// document, say. Returning io.EOF here instead (as this did when the buffer
+	// already ended with a newline) drops that construct, and everything after
+	// it, without an error.
 	return true, nil
 }
 

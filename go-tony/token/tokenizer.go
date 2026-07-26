@@ -42,6 +42,18 @@ type Tokenizer struct {
 	// EOF handling
 	eof        bool
 	trailingNL bool // whether we've added trailing newline (streaming only)
+
+	// drained is set by whoever owns the buffer (TokenSource, or readStreaming
+	// below) once the reader has returned io.EOF and the trailing newline has
+	// been supplied: no more data is coming, so a scan that reaches the end of
+	// the buffer must terminate there instead of asking for a refill that will
+	// never arrive.
+	//
+	// Without it the streaming scanners are selected by reader != nil alone,
+	// which never stops being true, and any construct terminated by end of
+	// input rather than by a delimiter — a multiline literal at the end of a
+	// document — is asked for forever and silently dropped.
+	drained bool
 }
 
 // NewTokenizer creates a new Tokenizer for streaming mode (from io.Reader).
@@ -128,6 +140,7 @@ func (t *Tokenizer) readStreaming() ([]byte, int64, error) {
 				t.trailingNL = true
 			}
 		}
+		t.drained = true
 	} else if err != nil {
 		return nil, 0, err
 	}
@@ -239,6 +252,20 @@ func (t *Tokenizer) extractTrailingWhitespace(data []byte) []byte {
 	return nil
 }
 
+// needsMoreData reports whether a scan failed only because the buffer ran out
+// under it, and more data can still arrive to complete the construct — in which
+// case the caller signals io.EOF to have the buffer grown and the scan retried.
+//
+// Once the reader is drained the same errors are real: the buffer holds the
+// whole document, so the string really is unterminated and the rune really is
+// truncated.
+func (t *Tokenizer) needsMoreData(err error) bool {
+	if t.reader == nil || t.drained {
+		return false
+	}
+	return errors.Is(err, ErrUnterminated) || errors.Is(err, ErrPartialRune)
+}
+
 // TokenizeOne tokenizes one or more tokens from a buffer slice.
 // This is the core tokenization logic, adapted to use Tokenizer's state
 // and lineStartOffset for comment prefix calculation (no recentBuf/docPrefix fallback).
@@ -338,8 +365,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 				// multiline enabled string - returns multiple tokens
 				toks, off, err := mString(data[pos:], int(absOffset), indent, t.posDoc)
 				if err != nil {
-					// In streaming mode (reader != nil), convert ErrUnterminated to io.EOF
-					if t.reader != nil && errors.Is(err, ErrUnterminated) {
+					if t.needsMoreData(err) {
 						return nil, 0, io.EOF
 					}
 					return nil, 0, err
@@ -351,11 +377,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 
 		j, err := bsEscQuoted(data[pos:])
 		if err != nil {
-			// In streaming mode, convert ErrUnterminated to io.EOF. A rune cut
-			// off by the end of the buffer is the same situation: the string
-			// continues in the next read, so ask for more data rather than
-			// failing the document.
-			if t.reader != nil && (err == ErrUnterminated || errors.Is(err, ErrPartialRune)) {
+			if t.needsMoreData(err) {
 				return nil, 0, io.EOF
 			}
 			// j is the offset of the offending byte within the token.
@@ -377,7 +399,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		for start < n {
 			r, sz := utf8.DecodeRune(data[start:])
 			if r == utf8.RuneError {
-				if t.reader != nil && partialRune(data[start:]) {
+				if t.reader != nil && !t.drained && partialRune(data[start:]) {
 					return nil, 0, io.EOF // tag continues in the next read
 				}
 				return nil, 0, UnexpectedErr("bad utf8", t.posDoc.Pos(int(bufferStartOffset)+start))
@@ -391,8 +413,16 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			start += sz
 		}
 
+		if t.reader != nil && !t.drained && start == n {
+			// The tag runs to the end of the buffer with no whitespace to end
+			// it, so it may continue in the next read. Emitting it here cuts it
+			// at the refill boundary and re-tokenizes the tail as a separate
+			// literal — silently, since both halves are well formed.
+			return nil, 0, io.EOF
+		}
+
 		if pos+1 == start {
-			return nil, 0, UnexpectedErr("end", t.posDoc.Pos(int(absOffset)+start))
+			return nil, 0, UnexpectedErr("end", t.posDoc.Pos(int(bufferStartOffset)+start))
 		}
 
 		tok := Token{
@@ -415,12 +445,15 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		}
 		var sz int
 		var err error
-		// Use streaming-aware version if reader is non-nil (indicates streaming mode)
-		if t.reader != nil {
-			// Streaming mode: use streaming-aware version that can return io.EOF
+		// A multiline literal ends where its indentation ends, so a literal
+		// running to the end of the buffer may or may not be complete: only the
+		// bytes after it can say. Use the streaming-aware version, which asks
+		// for those bytes with io.EOF, while more data can still arrive; once
+		// the reader is drained the buffer holds the whole document and the
+		// literal ends where it ends.
+		if t.reader != nil && !t.drained {
 			sz, err = mLitStreaming(data[pos:], mIndent, t.posDoc, int(absOffset))
 		} else {
-			// Non-streaming mode: use original version
 			sz, err = mLit(data[pos:], mIndent, t.posDoc, int(absOffset))
 		}
 		if err != nil {

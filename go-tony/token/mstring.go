@@ -11,7 +11,14 @@ func mString(d []byte, start, indent int, posDoc *PosDoc) ([]Token, int, error) 
 	for i < n {
 		toks, off, err := mStringOne(d[i:], start+i, indent, posDoc)
 		if err != nil {
-			return nil, 0, NewTokenizeErr(ErrMultilineString, posDoc.Pos(i))
+			// Keep err in the chain. The caller tests it for ErrUnterminated
+			// to decide whether the string merely runs past the end of the
+			// buffer and needs a refill; rewriting it outright turned every
+			// block-style string in a document larger than the buffer into a
+			// document failure. start+i is the absolute offset — posDoc.Pos
+			// wants one, and i alone is relative to this slice.
+			return nil, 0, NewTokenizeErr(
+				fmt.Errorf("%w: %w", ErrMultilineString, err), posDoc.Pos(start+i))
 		}
 		res = append(res, toks...)
 		i += off
