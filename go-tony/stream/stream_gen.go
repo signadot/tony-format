@@ -71,7 +71,7 @@ func (s *Event) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		if len(s.CommentLines) > 0 {
 			slice := make([]*ir.Node, len(s.CommentLines))
 			for i, v := range s.CommentLines {
-				slice[i] = ir.FromString(v)
+				slice[i] = ir.FromString(string(v))
 			}
 			irMap["c"] = ir.FromSlice(slice)
 		}
@@ -170,7 +170,7 @@ func (s *Event) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 						return fmt.Errorf("%s: expected string, got %v", ctx, v.Type)
 					}
 					elem = v.String
-					slice[i] = elem
+					slice[i] = string(elem)
 				}
 				s.CommentLines = slice
 			}

@@ -48,7 +48,7 @@ func (s *Issue) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if len(s.Commits) > 0 {
 		slice := make([]*ir.Node, len(s.Commits))
 		for i, v := range s.Commits {
-			slice[i] = ir.FromString(v)
+			slice[i] = ir.FromString(string(v))
 		}
 		irMap["commits"] = ir.FromSlice(slice)
 	}
@@ -57,7 +57,7 @@ func (s *Issue) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if len(s.Branches) > 0 {
 		slice := make([]*ir.Node, len(s.Branches))
 		for i, v := range s.Branches {
-			slice[i] = ir.FromString(v)
+			slice[i] = ir.FromString(string(v))
 		}
 		irMap["branches"] = ir.FromSlice(slice)
 	}
@@ -71,7 +71,7 @@ func (s *Issue) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if len(s.RelatedIssues) > 0 {
 		slice := make([]*ir.Node, len(s.RelatedIssues))
 		for i, v := range s.RelatedIssues {
-			slice[i] = ir.FromString(v)
+			slice[i] = ir.FromString(string(v))
 		}
 		irMap["related_issues"] = ir.FromSlice(slice)
 	}
@@ -80,7 +80,7 @@ func (s *Issue) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if len(s.Blocks) > 0 {
 		slice := make([]*ir.Node, len(s.Blocks))
 		for i, v := range s.Blocks {
-			slice[i] = ir.FromString(v)
+			slice[i] = ir.FromString(string(v))
 		}
 		irMap["blocks"] = ir.FromSlice(slice)
 	}
@@ -89,7 +89,7 @@ func (s *Issue) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if len(s.BlockedBy) > 0 {
 		slice := make([]*ir.Node, len(s.BlockedBy))
 		for i, v := range s.BlockedBy {
-			slice[i] = ir.FromString(v)
+			slice[i] = ir.FromString(string(v))
 		}
 		irMap["blocked_by"] = ir.FromSlice(slice)
 	}
@@ -98,7 +98,7 @@ func (s *Issue) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if len(s.Duplicates) > 0 {
 		slice := make([]*ir.Node, len(s.Duplicates))
 		for i, v := range s.Duplicates {
-			slice[i] = ir.FromString(v)
+			slice[i] = ir.FromString(string(v))
 		}
 		irMap["duplicates"] = ir.FromSlice(slice)
 	}
@@ -107,7 +107,7 @@ func (s *Issue) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if len(s.Labels) > 0 {
 		slice := make([]*ir.Node, len(s.Labels))
 		for i, v := range s.Labels {
-			slice[i] = ir.FromString(v)
+			slice[i] = ir.FromString(string(v))
 		}
 		irMap["labels"] = ir.FromSlice(slice)
 	}
@@ -188,7 +188,7 @@ func (s *Issue) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 						return fmt.Errorf("%s: expected string, got %v", ctx, v.Type)
 					}
 					elem = v.String
-					slice[i] = elem
+					slice[i] = string(elem)
 				}
 				s.Commits = slice
 			}
@@ -203,7 +203,7 @@ func (s *Issue) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 						return fmt.Errorf("%s: expected string, got %v", ctx, v.Type)
 					}
 					elem = v.String
-					slice[i] = elem
+					slice[i] = string(elem)
 				}
 				s.Branches = slice
 			}
@@ -230,7 +230,7 @@ func (s *Issue) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 						return fmt.Errorf("%s: expected string, got %v", ctx, v.Type)
 					}
 					elem = v.String
-					slice[i] = elem
+					slice[i] = string(elem)
 				}
 				s.RelatedIssues = slice
 			}
@@ -245,7 +245,7 @@ func (s *Issue) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 						return fmt.Errorf("%s: expected string, got %v", ctx, v.Type)
 					}
 					elem = v.String
-					slice[i] = elem
+					slice[i] = string(elem)
 				}
 				s.Blocks = slice
 			}
@@ -260,7 +260,7 @@ func (s *Issue) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 						return fmt.Errorf("%s: expected string, got %v", ctx, v.Type)
 					}
 					elem = v.String
-					slice[i] = elem
+					slice[i] = string(elem)
 				}
 				s.BlockedBy = slice
 			}
@@ -275,7 +275,7 @@ func (s *Issue) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 						return fmt.Errorf("%s: expected string, got %v", ctx, v.Type)
 					}
 					elem = v.String
-					slice[i] = elem
+					slice[i] = string(elem)
 				}
 				s.Duplicates = slice
 			}
@@ -290,7 +290,7 @@ func (s *Issue) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 						return fmt.Errorf("%s: expected string, got %v", ctx, v.Type)
 					}
 					elem = v.String
-					slice[i] = elem
+					slice[i] = string(elem)
 				}
 				s.Labels = slice
 			}
