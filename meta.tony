@@ -1,7 +1,9 @@
 !issue
 Ref: refs/issues/cc5rbhv8h12krppwjhmg
 Title: "tony-codegen: map[string]StructType generates invalid Go code"
+commits:
+- "7a04f3345f77d79edffc23839494c1d7ea84dba9"
 created: "2026-02-17T22:23:38.563765+01:00"
 id: cc5rbhv8h12krppwjhmg
 status: open
-updated: "2026-02-17T22:23:38.563765+01:00"
+updated: "2026-07-26T16:06:10.140108+02:00"
