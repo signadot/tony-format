@@ -2,6 +2,15 @@
 context:
 - tony-format/context
 define:
+  epoch: .[int]
+  frequency: .[string]
+  path: .[string]
+signature:
+  name: clock-spec
+---
+context:
+- tony-format/context
+define:
   code: .[string]
   message: .[string]
 signature:
@@ -10,6 +19,7 @@ signature:
 context:
 - tony-format/context
 define:
+  clock: .[nullable(clock-spec)]
   controller: .[string]
 signature:
   name: mount-hello

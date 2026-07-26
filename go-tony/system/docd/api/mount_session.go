@@ -18,6 +18,25 @@ import (
 //tony:schemagen=mount-hello,notag
 type MountHello struct {
 	Controller string `tony:"field=controller"` // Controller identifier
+
+	// Clock, when set, asks docd to drive a virtual system clock at Clock.Path
+	// instead of (or in addition to) a controller-backed mount. It is docd-specific
+	// — logd knows nothing of it.
+	Clock *ClockSpec `tony:"field=clock,omitzero"`
+}
+
+// ClockSpec configures a docd-driven virtual clock served at Path. docd ticks it
+// every Frequency and, at tick N (N whole Frequencies since the mount was
+// established), serves the single int64 value Epoch + N*Frequency, with Frequency
+// counted in nanoseconds — a monotonic, quantized clock. docd computes each value
+// on demand; no tick history is retained. Epoch is also recorded under
+// .meta/clocks so it can be recovered without replaying ticks.
+//
+//tony:schemagen=clock-spec,notag
+type ClockSpec struct {
+	Path      string `tony:"field=path"`      // Path to serve the clock at (e.g. "sys/clock")
+	Frequency string `tony:"field=frequency"` // Tick interval as a Go duration, e.g. "1s"
+	Epoch     int64  `tony:"field=epoch"`     // Value at tick 0
 }
 
 // MountSpec specifies the path and schema for a mount.

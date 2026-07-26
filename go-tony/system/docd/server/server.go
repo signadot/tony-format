@@ -17,6 +17,11 @@ type Server struct {
 	// Mount registry for controller registrations
 	Mounts *MountRegistry
 
+	// Clocks holds docd-driven virtual system clocks (see clock.go). A clock is
+	// established over a mount connection via MountHello.Clock and served directly
+	// by docd rather than routed to a controller.
+	Clocks *clockRegistry
+
 	// coord serializes mount/unmount against active watches so a composed watch's
 	// mount membership stays fixed for its lifetime (see mountCoord).
 	coord *mountCoord
@@ -50,6 +55,7 @@ func New(spec *Spec) *Server {
 	return &Server{
 		Spec:   *spec,
 		Mounts: NewMountRegistry(),
+		Clocks: newClockRegistry(),
 		coord:  newMountCoord(),
 		txPool: txpool.New(&txpool.Config{
 			LogdAddr: spec.LogdAddr,

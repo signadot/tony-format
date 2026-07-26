@@ -58,7 +58,11 @@ type ClientSession struct {
 	// releases its token instead of leaking it past the session.
 	watchMu sync.Mutex
 	watches map[string]*clientWatch
-	closing bool
+	// clockWatches holds live docd-driven clock watches (see clock.go), keyed by the
+	// same watch key as watches. Clocks are served directly by docd (no controller,
+	// no coordinator token), so they are tracked separately. Guarded by watchMu.
+	clockWatches map[string]*clockWatcher
+	closing      bool
 
 	// lastSeenMu guards lastSeen: the highest commit delivered to the client per
 	// watch (keyed by watch key). A force-end stamps it onto the terminal WatchEvent
@@ -114,6 +118,7 @@ func NewClientSession(id string, conn net.Conn, cfg *ClientSessionConfig) *Clien
 		log:          log.With("session", id),
 		logdAddr:     cfg.Server.Spec.LogdAddr,
 		watches:      make(map[string]*clientWatch),
+		clockWatches: make(map[string]*clockWatcher),
 		lastSeen:     make(map[string]int64),
 		usedMounts:   make(map[*MountSession]struct{}),
 		done:         make(chan struct{}),
@@ -160,6 +165,7 @@ func (s *ClientSession) Run() error {
 	<-errc
 
 	s.releaseAllWatches()
+	s.stopAllClockWatches()
 	s.cleanupMounts()
 	return firstErr
 }
@@ -198,6 +204,24 @@ func (s *ClientSession) routeClientRequests() error {
 		if req.NewTx != nil && s.clientScope == nil {
 			if err := s.serveNewTx(&req); err != nil {
 				return err
+			}
+			continue
+		}
+
+		// docd-driven virtual clocks are served directly, like .meta: a clock has no
+		// controller and needs no mount coordination, so intercept its reads and
+		// watches before the mount-coordination paths below. Clocks are read-only.
+		if clk := s.clockFor(&req); clk != nil {
+			switch {
+			case req.Match != nil:
+				s.serveClockMatch(&req, clk)
+			case req.Watch != nil:
+				s.serveClockWatch(&req, clk)
+			case req.Unwatch != nil:
+				s.stopClockWatch(watchKeyFor(req.Unwatch.WatchID, req.Unwatch.Path))
+			default:
+				_ = s.writeToClient(logdapi.NewErrorResponse(req.ID, logdapi.ErrCodeUnsupported,
+					"clock paths are read-only"))
 			}
 			continue
 		}
@@ -280,6 +304,8 @@ func (s *ClientSession) serveMeta(req *logdapi.SessionRequest) {
 	switch metaLeaf(req.Match.Body.Path) {
 	case "":
 		body = metaIndexDoc()
+	case "clocks":
+		body = clocksDoc(s.server.Clocks.list())
 	case "mounts":
 		body = mountsDoc(s.server.Mounts.List())
 	case "schema":

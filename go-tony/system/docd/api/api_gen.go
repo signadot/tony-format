@@ -16,11 +16,25 @@ func (s *MountHello) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if s == nil {
 		return ir.Null(), nil
 	}
+	var node *ir.Node
+	var err error
+	_ = node // suppress unused variable error
+	_ = err  // suppress unused variable error
+
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Controller
 	irMap["controller"] = ir.FromString(s.Controller)
+
+	// Field: Clock (optional)
+	if s.Clock != nil {
+		node, err = s.Clock.ToTonyIR(opts...)
+		if err != nil {
+			return nil, err
+		}
+		irMap["clock"] = node
+	}
 
 	return ir.FromMap(irMap), nil
 }
@@ -61,6 +75,12 @@ func (s *MountHello) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 				return fmt.Errorf("field %q: expected string, got %v", "controller", fieldNodeUnwrapped.Type)
 			}
 			s.Controller = fieldNodeUnwrapped.String
+		case "clock":
+			// Field: Clock
+			s.Clock = &ClockSpec{}
+			if err := s.Clock.FromTonyIR(fieldNode, opts...); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -82,6 +102,102 @@ func (s *MountHello) ToTony(opts ...gomap.MapOption) ([]byte, error) {
 
 // FromTony parses Tony format bytes and populates MountHello.
 func (s *MountHello) FromTony(data []byte, opts ...gomap.UnmapOption) error {
+	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
+	if err != nil {
+		return err
+	}
+	return s.FromTonyIR(node, opts...)
+}
+
+// ToTonyIR converts ClockSpec to a Tony IR node.
+func (s *ClockSpec) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
+	// Create IR object map
+	irMap := make(map[string]*ir.Node)
+
+	// Field: Path
+	irMap["path"] = ir.FromString(s.Path)
+
+	// Field: Frequency
+	irMap["frequency"] = ir.FromString(s.Frequency)
+
+	// Field: Epoch
+	irMap["epoch"] = ir.FromInt(int64(s.Epoch))
+
+	return ir.FromMap(irMap), nil
+}
+
+// FromTonyIR populates ClockSpec from a Tony IR node.
+func (s *ClockSpec) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
+	if node.Type != ir.ObjectType {
+		return fmt.Errorf("expected map for ClockSpec, got %v", node.Type)
+	}
+
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
+		switch fieldName.String {
+		case "path":
+			// Field: Path
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "path", fieldNodeUnwrapped.Type)
+			}
+			s.Path = fieldNodeUnwrapped.String
+		case "frequency":
+			// Field: Frequency
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "frequency", fieldNodeUnwrapped.Type)
+			}
+			s.Frequency = fieldNodeUnwrapped.String
+		case "epoch":
+			// Field: Epoch
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "epoch", fieldNodeUnwrapped.Type)
+			}
+			s.Epoch = int64(*fieldNodeUnwrapped.Int64)
+		}
+	}
+
+	return nil
+}
+
+// ToTony converts ClockSpec to Tony format bytes.
+func (s *ClockSpec) ToTony(opts ...gomap.MapOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// FromTony parses Tony format bytes and populates ClockSpec.
+func (s *ClockSpec) FromTony(data []byte, opts ...gomap.UnmapOption) error {
 	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
 	if err != nil {
 		return err
