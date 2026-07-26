@@ -1,6 +1,8 @@
 !issue
 Ref: refs/issues/bvm163tyh12krwcqcsn0
 Title: "logd: snapshots are indexed at the document root but looked up at the read's path, so no read below the root ever uses one (state reads stay O(entire history) forever)"
+commits:
+- "67220e2397be324a1fdd409f33eb2704648caf0a"
 created: "2026-07-27T01:25:37.768206+02:00"
 id: bvm163tyh12krwcqcsn0
 labels:
@@ -11,4 +13,4 @@ labels:
 related_issues:
 - v67hjrjbh12ksarmcdn0
 status: open
-updated: "2026-07-27T01:25:43.04717+02:00"
+updated: "2026-07-27T01:43:03.870412+02:00"
