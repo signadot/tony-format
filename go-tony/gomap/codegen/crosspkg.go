@@ -157,7 +157,11 @@ func packageDefinesSchema(dir, name string) bool {
 				if err != nil {
 					continue
 				}
-				for _, n := range schemaSignatureNames(data) {
+				// A generated schema publishes exactly one name per document,
+				// its signature.name; its define: keys are one struct's field
+				// names and reference nothing. Only a hand-written schema
+				// publishes reusable definitions that way.
+				for _, n := range schemaNames(data, e.Name() != generatedSchemaFile) {
 					names[n] = true
 				}
 			}
@@ -167,11 +171,15 @@ func packageDefinesSchema(dir, name string) bool {
 	return names[name]
 }
 
-// schemaSignatureNames returns every name a .tony file makes referenceable: the
-// signature.name of each document in it, and the keys of each document's
-// define: block. A "pkg:name" reference resolves against either — schema/base.tony
-// publishes ir as a define key, dirbuild's format as a signature name.
-func schemaSignatureNames(data []byte) []string {
+// generatedSchemaFile is the schema tony-codegen writes for a package.
+const generatedSchemaFile = "schema_gen.tony"
+
+// schemaNames returns every name a .tony file makes referenceable: the
+// signature.name of each document in it and, when withDefines is set, the keys
+// of each document's define: block. A "pkg:name" reference resolves against
+// either — schema/base.tony publishes ir as a define key, format/format.tony
+// publishes format as a signature name.
+func schemaNames(data []byte, withDefines bool) []string {
 	docs, err := parse.ParseMulti(data)
 	if err != nil {
 		return nil
@@ -183,7 +191,7 @@ func schemaSignatureNames(data []byte) []string {
 				names = append(names, n.String)
 			}
 		}
-		if define := ir.ToMap(doc)["define"]; define != nil {
+		if define := ir.ToMap(doc)["define"]; withDefines && define != nil {
 			for name := range ir.ToMap(define) {
 				names = append(names, name)
 			}
