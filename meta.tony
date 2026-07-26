@@ -1,10 +1,12 @@
 !issue
 Ref: refs/issues/61766xadh12kstqqcnn0
 Title: "kpath: no wildcard matching between paths — [*]/.* compare literally, and Wild() is head-segment-only"
+commits:
+- "1d2538e5bfad59592bfa5aa814f9a05915d1b125"
 created: "2026-07-26T14:04:58.140819+02:00"
 id: "61766xadh12kstqqcnn0"
 labels:
 - agent
 - kpath
 status: open
-updated: "2026-07-26T14:05:04.338944+02:00"
+updated: "2026-07-26T14:08:59.133942+02:00"
