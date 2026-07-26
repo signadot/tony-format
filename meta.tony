@@ -1,0 +1,7 @@
+!issue
+Ref: refs/issues/1d52zghth12ks0cvcsn0
+Title: "logd: compaction maintains only root index segments, so per-path segments below the root keep stale positions and break watch replay"
+created: "2026-07-27T01:42:57.892603+02:00"
+id: "1d52zghth12ks0cvcsn0"
+status: open
+updated: "2026-07-27T01:42:57.892603+02:00"
