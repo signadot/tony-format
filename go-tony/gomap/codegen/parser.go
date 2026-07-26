@@ -237,6 +237,7 @@ func extractStructSchemaTag(structType *ast.StructType) (*gomap.StructSchema, er
 				SchemaName:           schemaName,
 				Context:              context,
 				AllowExtra:           allowExtra,
+				CustomCodec:          parsed["codec"] == "custom",
 				CommentFieldName:     commentFieldName,
 				LineCommentFieldName: lineCommentFieldName,
 				TagFieldName:         tagFieldName,
@@ -495,11 +496,14 @@ func parseSchemaTagContent(content string) (*gomap.StructSchema, error) {
 		noTag = true
 	}
 
+	customCodec := parsed["codec"] == "custom"
+
 	return &gomap.StructSchema{
 		Mode:                 mode,
 		SchemaName:           schemaName,
 		Context:              parsed["context"],
 		AllowExtra:           allowExtra,
+		CustomCodec:          customCodec,
 		CommentFieldName:     parsed["comment"],
 		LineCommentFieldName: parsed["LineComment"],
 		TagFieldName:         parsed["tag"],

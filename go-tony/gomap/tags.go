@@ -35,6 +35,13 @@ type StructSchema struct {
 
 	// NoTag suppresses type tag emission in ToTony output
 	NoTag bool
+
+	// CustomCodec (directive `codec=custom`) marks the type as resolvable — so a
+	// referencing type calls its ToTonyIR/FromTonyIR — while suppressing method
+	// generation for it, because the type supplies its own hand-written codec.
+	// This lets a package mix generated and hand-written codecs without a
+	// "method redeclared" collision.
+	CustomCodec bool
 }
 
 // FieldInfo holds field metadata extracted from struct tags

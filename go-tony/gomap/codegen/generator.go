@@ -256,6 +256,13 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 			continue
 		}
 
+		// codec=custom: the type is resolvable and its schema is generated, but it
+		// supplies its own hand-written ToTonyIR/FromTonyIR — generating them here
+		// would collide (method redeclared). Skip method generation for it.
+		if structInfo.StructSchema.CustomCodec {
+			continue
+		}
+
 		// Get schema for this struct
 		schemaName := structInfo.StructSchema.SchemaName
 		s, ok := schemas[schemaName]
