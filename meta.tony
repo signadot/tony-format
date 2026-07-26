@@ -3,5 +3,8 @@ Ref: refs/issues/n1x09bryh12ks9aecsn0
 Title: "libctl: 'dropping response with no matching request' logs the id POINTER, so the warning cannot be correlated"
 created: "2026-07-26T20:15:01.368982+02:00"
 id: n1x09bryh12ks9aecsn0
+labels:
+- agent
+- libctl
 status: open
-updated: "2026-07-26T20:15:01.368982+02:00"
+updated: "2026-07-26T20:15:31.854916+02:00"
