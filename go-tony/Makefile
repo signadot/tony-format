@@ -83,10 +83,43 @@ push-dockers-o: build-dockers-o
 	$(DOCKER) manifest push $(IMAGE_NAME)$(IMAGE_SUFFIX):$(VERSION)
 	$(DOCKER) manifest push $(IMAGE_NAME)$(IMAGE_SUFFIX):latest
 
+# Code generation
+# -----------------------------------------------------------------------------
+
+# Packages whose Go codecs (<pkg>_gen.go) and Tony schemas (schema_gen.tony) are
+# generated from //tony:schemagen markers by cmd/tony-codegen. Keep this list in
+# sync when a new package grows schemagen markers.
+CODEGEN_PKGS = \
+	cmd/git-issue/issuelib \
+	dirbuild \
+	stream \
+	system/docd/api \
+	system/logd/api \
+	system/logd/server \
+	system/logd/storage/index \
+	system/logd/storage/internal/dlog \
+	system/logd/storage/internal/snap \
+	system/logd/storage/tx
+
+generate:
+	for pkg in $(CODEGEN_PKGS); do \
+		echo "generate $$pkg"; \
+		$(GO) run ./cmd/tony-codegen -dir $$pkg -schema-dir-flat $$pkg; \
+	done
+
+# generate-verify regenerates and fails if anything changed — a CI guard that the
+# committed *_gen.go / schema_gen.tony are in sync with their source structs.
+generate-verify: generate
+	@if [ -n "$$(git status --porcelain -- '*_gen.go' '*schema_gen.tony')" ]; then \
+		echo "generated files are out of date; run 'make generate' and commit:"; \
+		git --no-pager diff -- '*_gen.go' '*schema_gen.tony'; \
+		exit 1; \
+	fi
+
 # Convenience targets
 # -----------------------------------------------------------------------------
 
-.PHONY: build build-docker build-dockers push-dockers clean
+.PHONY: build build-docker build-dockers push-dockers clean generate generate-verify
 
 build: build-o
 build-docker: build-docker-o
