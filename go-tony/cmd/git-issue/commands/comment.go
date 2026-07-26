@@ -80,15 +80,12 @@ func (cfg *commentConfig) run(cc *cli.Context, args []string) error {
 		return err
 	}
 
-	// Count existing comments to get next number
-	commentNum := cfg.countComments(ref) + 1
-
-	// Create comment content
-	timestamp := time.Now().Format(time.RFC3339)
-	commentContent := fmt.Sprintf("<!-- Comment %03d - %s -->\n\n%s\n", commentNum, timestamp, commentText)
-
-	// Prepare update
-	commentFile := fmt.Sprintf("discussion/%03d.md", commentNum)
+	// Store the comment under a collision-free, content-addressed name
+	// (discussion/<ts>-<hash>.md) so independent clones adding different comments
+	// never overwrite each other on merge — the old count-based numbering did.
+	now := time.Now()
+	commentContent := commentBody(now, commentText)
+	commentFile := commentFileName(now, commentContent)
 	extraFiles := map[string]string{
 		commentFile: commentContent,
 	}
@@ -104,23 +101,6 @@ func (cfg *commentConfig) run(cc *cli.Context, args []string) error {
 		return fmt.Errorf("failed to add comment: %w", err)
 	}
 
-	fmt.Fprintf(cc.Out, "Added comment #%03d to issue %s\n", commentNum, issue.ID)
+	fmt.Fprintf(cc.Out, "Added comment to issue %s (%s)\n", issue.ID, strings.TrimPrefix(commentFile, "discussion/"))
 	return nil
-}
-
-func (cfg *commentConfig) countComments(ref string) int {
-	// Count .md files in discussion directory
-	content, err := cfg.store.ReadFile(ref, "discussion")
-	if err != nil {
-		return 0
-	}
-
-	count := 0
-	lines := strings.Split(string(content), "\n")
-	for _, line := range lines {
-		if strings.TrimSpace(line) != "" {
-			count++
-		}
-	}
-	return count
 }

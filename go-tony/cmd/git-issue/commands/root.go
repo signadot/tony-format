@@ -28,6 +28,7 @@ Usage:
   git issue label <id> <label>...        Add labels to issue
   git issue unlabel <id> <label>...      Remove labels from issue
   git issue migrate [--dry-run]          Migrate issues from numeric IDs to XIDs
+  git issue migrate-comments [--apply]   Rename comments to collision-free names
 
 Examples:
   git issue create "Implement streaming processor"
@@ -73,5 +74,6 @@ func Root() *cli.Command {
 			LabelCommand(store),
 			UnlabelCommand(store),
 			MigrateCommand(store),
+			MigrateCommentsCommand(store),
 		)
 }

@@ -2,7 +2,9 @@ package commands
 
 import (
 	"fmt"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/scott-cotton/cli"
 	"github.com/signadot/tony-format/go-tony/cmd/git-issue/issuelib"
@@ -130,17 +132,38 @@ func (cfg *showConfig) printDiscussion(cc *cli.Context, ref string) {
 
 	cfg.walkDiscussion(gitStore, ref, "discussion", &comments, &attachments)
 
-	// Show comments
+	// Show comments in chronological order. walkDiscussion collects files by
+	// ranging a map (unordered), and content-addressed filenames don't sort
+	// chronologically, so order by each comment's embedded timestamp (falling
+	// back to the path when a timestamp can't be parsed).
 	if len(comments) > 0 {
-		fmt.Fprintln(cc.Out, "Discussion:")
-		fmt.Fprintln(cc.Out)
+		type discComment struct {
+			path, content string
+			ts            time.Time
+			hasTS         bool
+		}
+		items := make([]discComment, 0, len(comments))
 		for _, file := range comments {
 			content, err := cfg.store.ReadFile(ref, file)
-			if err == nil {
-				fmt.Fprintf(cc.Out, "--- %s ---\n", file)
-				fmt.Fprint(cc.Out, string(content))
-				fmt.Fprintln(cc.Out)
+			if err != nil {
+				continue
 			}
+			ts, ok := parseCommentTime(string(content))
+			items = append(items, discComment{path: file, content: string(content), ts: ts, hasTS: ok})
+		}
+		sort.SliceStable(items, func(i, j int) bool {
+			if items[i].hasTS && items[j].hasTS && !items[i].ts.Equal(items[j].ts) {
+				return items[i].ts.Before(items[j].ts)
+			}
+			return items[i].path < items[j].path
+		})
+
+		fmt.Fprintln(cc.Out, "Discussion:")
+		fmt.Fprintln(cc.Out)
+		for _, it := range items {
+			fmt.Fprintf(cc.Out, "--- %s ---\n", it.path)
+			fmt.Fprint(cc.Out, it.content)
+			fmt.Fprintln(cc.Out)
 		}
 	}
 
