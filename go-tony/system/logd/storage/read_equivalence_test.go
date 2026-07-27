@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -162,6 +163,59 @@ func (r readResult) equal(o readResult) bool {
 	return r.node.DeepEqual(o.node)
 }
 
+// orderOnly reports whether the two results hold the same content and differ only in
+// object field order. Tony preserves field order, so this is still a divergence — a read
+// should not depend on whether a snapshot happens to exist — but it is a different
+// finding from losing or reverting a value, and worth naming as such.
+func (r readResult) orderOnly(o readResult) bool {
+	if r.err != nil || o.err != nil || r.node == nil || o.node == nil {
+		return false
+	}
+	return canonicalNode(r.node).DeepEqual(canonicalNode(o.node))
+}
+
+// canonicalNode returns a copy with every object's fields sorted by key.
+func canonicalNode(n *ir.Node) *ir.Node {
+	c := n.Clone()
+	sortFieldsRecursive(c)
+	return c
+}
+
+func sortFieldsRecursive(n *ir.Node) {
+	if n == nil {
+		return
+	}
+	for _, v := range n.Values {
+		sortFieldsRecursive(v)
+	}
+	if n.Type != ir.ObjectType || len(n.Fields) != len(n.Values) {
+		return
+	}
+	idx := make([]int, len(n.Fields))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.SliceStable(idx, func(a, b int) bool {
+		return fieldKey(n.Fields[idx[a]]) < fieldKey(n.Fields[idx[b]])
+	})
+	fields := make([]*ir.Node, len(idx))
+	values := make([]*ir.Node, len(idx))
+	for i, j := range idx {
+		fields[i], values[i] = n.Fields[j], n.Values[j]
+	}
+	n.Fields, n.Values = fields, values
+}
+
+func fieldKey(f *ir.Node) string {
+	if f == nil {
+		return ""
+	}
+	if f.Type == ir.StringType {
+		return f.String
+	}
+	return nodeText(f)
+}
+
 func (r readResult) String() string {
 	if r.err != nil {
 		return "ERROR " + r.err.Error()
@@ -214,8 +268,12 @@ func runEquivalenceSeed(t *testing.T, seed int64, nOps int) {
 			if want.equal(got) {
 				continue
 			}
-			t.Fatalf("seed %d: read(%q, commit=%d) diverged\n  reference: %s\n  subject:   %s\n%s",
-				seed, kp, commit, want, got, dumpOps(ops))
+			kind := "diverged"
+			if want.orderOnly(got) {
+				kind = "diverged (field ORDER only, same content)"
+			}
+			t.Fatalf("seed %d: read(%q, commit=%d) %s\n  reference: %s\n  subject:   %s\n%s",
+				seed, kp, commit, kind, want, got, dumpOps(ops))
 		}
 	}
 }

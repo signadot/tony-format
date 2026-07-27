@@ -630,11 +630,16 @@ func TestStreamingProcessor_InternalTagsStripped(t *testing.T) {
 	}
 }
 
-func TestStreamingProcessor_RootDominatesAll(t *testing.T) {
+// Was TestStreamingProcessor_RootDominatesAll, which asserted that the child patch was
+// filtered out. That is the reverse of what the log says: patch 2 is a LATER commit than
+// patch 1, so its write must win. Dominance decides WHERE a subtree is collected and
+// patched, not WHICH writes survive — dropping the dominated patch made an ancestor write
+// erase every descendant write made since the last snapshot.
+func TestStreamingProcessor_ChildPatchAfterRootPatch(t *testing.T) {
 	// Base: { "a": 1, "b": 2 }
 	// Patch 1: { "a": 10, "b": 20 } !logd-patch-root (root level)
-	// Patch 2: { "a": 999 !logd-patch-root } (child - dominated by root)
-	// Expected: { "a": 10, "b": 20 } (child patch filtered out)
+	// Patch 2: { "a": 999 !logd-patch-root } (child, dominated by the root patch)
+	// Expected: { "a": 999, "b": 20 } — both applied, in commit order
 
 	base := ir.FromMap(map[string]*ir.Node{
 		"a": ir.FromInt(1),
@@ -658,8 +663,8 @@ func TestStreamingProcessor_RootDominatesAll(t *testing.T) {
 	}
 
 	a := findField(result, "a")
-	if a == nil || *a.Int64 != 10 {
-		t.Errorf("expected a=10 (from root patch, not 999), got %v", a)
+	if a == nil || *a.Int64 != 999 {
+		t.Errorf("expected a=999 (the later commit wins over the earlier root patch), got %v", a)
 	}
 
 	b := findField(result, "b")
@@ -668,11 +673,13 @@ func TestStreamingProcessor_RootDominatesAll(t *testing.T) {
 	}
 }
 
-func TestStreamingProcessor_DominatedPathFiltered(t *testing.T) {
+// Was TestStreamingProcessor_DominatedPathFiltered. Same correction as above: the
+// dominated child patch is folded into the dominating path in commit order, not dropped.
+func TestStreamingProcessor_DominatedPathFolded(t *testing.T) {
 	// Base: { "users": { "alice": "old", "bob": "old" } }
 	// Patch 1: { "users": { "alice": "new", "bob": "new" } !logd-patch-root } (parent)
-	// Patch 2: { "users": { "alice": "ignored" !logd-patch-root } } (child - dominated)
-	// Expected: { "users": { "alice": "new", "bob": "new" } } (child patch filtered out)
+	// Patch 2: { "users": { "alice": "later" !logd-patch-root } } (child, dominated)
+	// Expected: { "users": { "alice": "later", "bob": "new" } }
 
 	base := ir.FromMap(map[string]*ir.Node{
 		"users": ir.FromMap(map[string]*ir.Node{
@@ -692,7 +699,7 @@ func TestStreamingProcessor_DominatedPathFiltered(t *testing.T) {
 	// Child patch at "users.alice" level - should be filtered out
 	childPatch := ir.FromMap(map[string]*ir.Node{
 		"users": ir.FromMap(map[string]*ir.Node{
-			"alice": ir.FromString("ignored").WithTag(tx.PatchRootTag),
+			"alice": ir.FromString("later").WithTag(tx.PatchRootTag),
 		}),
 	})
 
@@ -707,8 +714,8 @@ func TestStreamingProcessor_DominatedPathFiltered(t *testing.T) {
 	}
 
 	alice := findField(users, "alice")
-	if alice == nil || alice.String != "new" {
-		t.Errorf("expected alice='new' (from parent patch, not 'ignored'), got %v", alice)
+	if alice == nil || alice.String != "later" {
+		t.Errorf("expected alice='later' (the later commit wins over the parent patch), got %v", alice)
 	}
 
 	bob := findField(users, "bob")
