@@ -1,10 +1,12 @@
 !issue
 Ref: refs/issues/axp74f1wh12krznjcxn0
-Title: "match: a mismatch is a bare false — no path, no expected, no found (request: an explanation MatchOpt)"
+Title: "match: a mismatch is a bare `false` — no path, no expected, no found (request: an explanation MatchOpt)"
+commits:
+- "9922c7c1fc631fc25fbba84325e4976808ff3ad6"
 created: "2026-07-27T21:33:18.847328+02:00"
 id: axp74f1wh12krznjcxn0
 labels:
 - agent
 - match
 status: open
-updated: "2026-07-27T21:33:23.238596+02:00"
+updated: "2026-07-27T22:02:59.385853+02:00"
