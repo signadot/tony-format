@@ -396,7 +396,14 @@ func (s *ClientSession) coordinatePatch(req *logdapi.SessionRequest, parts []mou
 	}
 
 	ts := txParticipantTimeout.String()
-	results := make(chan *logdapi.SessionResponse, count)
+	// Each participant's response is tagged with the path it wrote at, so the
+	// data they report can be reassembled into the one subtree the client asked
+	// for (joinPatchResults).
+	type partResponse struct {
+		path string
+		resp *logdapi.SessionResponse
+	}
+	results := make(chan partResponse, count)
 
 	// The client's precondition rides on exactly one participant, unsplit: the
 	// first base write if any, else the first mount part.
@@ -411,10 +418,10 @@ func (s *ClientSession) coordinatePatch(req *logdapi.SessionRequest, parts []mou
 		go func(bw baseWrite, matchNode *ir.Node, matchPath string) {
 			resp, err := writeBaseParticipant(s.logdAddr, txID, bw.path, bw.data, matchNode, matchPath, scope, txParticipantTimeout)
 			if err != nil {
-				results <- logdapi.NewErrorResponse(nil, logdapi.ErrCodeSessionClosed, err.Error())
+				results <- partResponse{bw.path, logdapi.NewErrorResponse(nil, logdapi.ErrCodeSessionClosed, err.Error())}
 				return
 			}
-			results <- resp
+			results <- partResponse{bw.path, resp}
 		}(bw, matchNode, matchPath)
 	}
 
@@ -433,20 +440,26 @@ func (s *ClientSession) coordinatePatch(req *logdapi.SessionRequest, parts []mou
 			},
 		}
 		ch := p.mount.Session.RouteCollect(preq)
-		go func(ch <-chan *logdapi.SessionResponse) { results <- <-ch }(ch)
+		go func(path string, ch <-chan *logdapi.SessionResponse) {
+			results <- partResponse{path, <-ch}
+		}(p.mount.Path, ch)
 	}
 
 	var commit int64
 	var firstErr *logdapi.SessionError
+	reported := make([]participantResult, 0, count)
 	for i := 0; i < count; i++ {
-		resp := <-results
+		pr := <-results
 		switch {
-		case resp.Error != nil:
+		case pr.resp.Error != nil:
 			if firstErr == nil {
-				firstErr = resp.Error
+				firstErr = pr.resp.Error
 			}
-		case resp.Result != nil && resp.Result.Patch != nil:
-			commit = resp.Result.Patch.Commit
+		case pr.resp.Result != nil && pr.resp.Result.Patch != nil:
+			// Every participant joined the same transaction, so they all report
+			// its commit.
+			commit = pr.resp.Result.Patch.Commit
+			reported = append(reported, participantResult{path: pr.path, data: pr.resp.Result.Patch.Data})
 		}
 	}
 
@@ -454,7 +467,16 @@ func (s *ClientSession) coordinatePatch(req *logdapi.SessionRequest, parts []mou
 		_ = s.writeToClient(logdapi.NewErrorResponse(clientID, firstErr.Code, firstErr.Message))
 		return
 	}
-	_ = s.writeToClient(logdapi.NewPatchResponse(clientID, commit, nil))
+
+	// Reassemble the participants' data into the subtree the client patched, so a
+	// split write reports what it stored (auto-generated ids included) like an
+	// unsplit one. The write has already committed, so a failure here costs the
+	// data, not the commit.
+	data, err := joinPatchResults(req.Patch.Path, reported)
+	if err != nil {
+		s.log.Error("failed to reassemble split patch result", "path", req.Patch.Path, "error", err)
+	}
+	_ = s.writeToClient(logdapi.NewPatchResponse(clientID, commit, data))
 }
 
 // serveNewTx answers a baseline client's NewTx from docd's pre-fetched pool,

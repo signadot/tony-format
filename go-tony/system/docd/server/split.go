@@ -245,6 +245,111 @@ func (s *Server) patchTagFilter() TagFilter {
 	return defaultTagFilter
 }
 
+// participantResult is one participant's report of the write it made: the
+// absolute path it wrote at, and the data it reported as stored there (with any
+// auto-generated ids).
+type participantResult struct {
+	path string
+	data *ir.Node
+}
+
+// joinPatchResults is splitPatch's inverse for a write's reported data: it
+// reassembles the participants' per-path results into the single subtree a
+// direct logd write would have returned — rooted at, and relative to, the
+// client's patch path — so a client cannot tell a write docd split across mounts
+// from one logd served whole. This is the channel auto-generated ids ride on.
+//
+// A participant that reports no data (a self-backed controller with no stored
+// form to hand back) leaves its subtree absent rather than voiding the result:
+// the hole is exactly what that client would see writing to that mount alone,
+// and discarding the other participants' ids would be worse.
+func joinPatchResults(clientPath string, results []participantResult) (*ir.Node, error) {
+	clientFields, err := pathFields(clientPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var tree *ir.Node
+	for _, r := range results {
+		if r.data == nil {
+			continue
+		}
+		segs, err := pathFields(r.path)
+		if err != nil {
+			return nil, err
+		}
+		// Clone: the merge re-parents what it embeds, and the response the data
+		// came from is not ours to mutate.
+		tree = mergeDisjoint(tree, nestAtFields(segs, r.data.Clone()))
+	}
+
+	// Participants write at absolute paths; the client is answered relative to the
+	// path it patched, as logd answers it.
+	for _, f := range clientFields {
+		if tree == nil || tree.Type != ir.ObjectType {
+			return nil, nil
+		}
+		tree = fieldValue(tree, f)
+	}
+	return tree, nil
+}
+
+// fieldValue returns the value of the named field of an object, or nil.
+func fieldValue(n *ir.Node, name string) *ir.Node {
+	for i := range n.Fields {
+		if i < len(n.Values) && n.Fields[i].String == name {
+			return n.Values[i]
+		}
+	}
+	return nil
+}
+
+// mergeDisjoint merges b into a. Participants write disjoint subtrees, so the
+// only place the two overlap is a spine object above a nested mount, where the
+// merge recurses; anywhere else b is a subtree a does not have. Fields come out
+// sorted, as storage keeps them.
+func mergeDisjoint(a, b *ir.Node) *ir.Node {
+	switch {
+	case a == nil:
+		return b
+	case b == nil:
+		return a
+	case !stringKeyedObject(a) || !stringKeyedObject(b):
+		// Not a spine: disjoint participants cannot collide on a value, and docd
+		// never splits through a non-object or a non-field key (splitPatch rejects
+		// both), so there is nothing here to interleave.
+		return b
+	}
+
+	merged := make(map[string]*ir.Node, len(a.Fields)+len(b.Fields))
+	for i := range a.Fields {
+		merged[a.Fields[i].String] = a.Values[i]
+	}
+	for i := range b.Fields {
+		key := b.Fields[i].String
+		if prev, ok := merged[key]; ok {
+			merged[key] = mergeDisjoint(prev, b.Values[i])
+			continue
+		}
+		merged[key] = b.Values[i]
+	}
+	return ir.FromMap(merged)
+}
+
+// stringKeyedObject reports whether n is an object whose keys are all strings —
+// the only shape mergeDisjoint can safely rebuild key by key.
+func stringKeyedObject(n *ir.Node) bool {
+	if n.Type != ir.ObjectType || len(n.Fields) != len(n.Values) {
+		return false
+	}
+	for _, f := range n.Fields {
+		if f.Type != ir.StringType {
+			return false
+		}
+	}
+	return true
+}
+
 // isEmptyObject reports whether n carries no data — nil, null, or an object with
 // no fields.
 func isEmptyObject(n *ir.Node) bool {

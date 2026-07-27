@@ -348,6 +348,79 @@ func TestDocd_MultiMountPatchWithBase(t *testing.T) {
 	assertLogdV(t, direct, "cfg", 9) // base remainder written by docd
 }
 
+// TestDocd_SplitPatchReportsStoredData proves a write docd splits across mounts
+// reports what it stored exactly as an unsplit logd write does: same data back,
+// and a commit. That is the property a client depends on to read back what the
+// store filled in (auto-generated ids) without knowing whether the subtree it
+// wrote is mounted or served by logd itself.
+func TestDocd_SplitPatchReportsStoredData(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+	runController(t, docd, "a", newLogdController(t, logd.TCPAddr(), "cA"))
+	runController(t, docd, "b", newLogdController(t, logd.TCPAddr(), "cB"))
+
+	client := docdClient(t, docd, "client")
+	ctx := context.Background()
+
+	// Three participants: two mounts and the base remainder docd writes itself.
+	data := ir.FromMap(map[string]*ir.Node{
+		"a":   ir.FromMap(map[string]*ir.Node{"x": vObj(1)}),
+		"b":   ir.FromMap(map[string]*ir.Node{"x": vObj(2)}),
+		"cfg": vObj(9),
+	})
+	res, err := client.Patch(ctx, "", data)
+	if err != nil {
+		t.Fatalf("split patch failed: %v", err)
+	}
+	if res.Commit == 0 {
+		t.Errorf("split patch reported no commit")
+	}
+	if res.Data == nil {
+		t.Fatalf("split patch reported no data")
+	}
+
+	// The same write against plain logd, on its own server: whatever it reports is
+	// what the docd client must see too.
+	plain := startLogd(t)
+	direct := NewLogdSession(&LogdSessionConfig{Addr: plain.TCPAddr(), ClientID: "direct"})
+	defer direct.Close()
+	want, err := direct.Patch(ctx, "", data)
+	if err != nil {
+		t.Fatalf("direct patch failed: %v", err)
+	}
+	if !res.Data.DeepEqual(want.Data) {
+		t.Errorf("split write reported different data than an unsplit one:\n docd %v\n logd %v", res.Data, want.Data)
+	}
+}
+
+// TestDocd_SplitPatchAtNonRootPath proves the reported data is rooted where the
+// client patched, not at the document root, when the split happens below the
+// client's path.
+func TestDocd_SplitPatchAtNonRootPath(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+	runController(t, docd, "org.users", newLogdController(t, logd.TCPAddr(), "cU"))
+
+	client := docdClient(t, docd, "client")
+	ctx := context.Background()
+
+	// Patch at "org": the mount takes org.users, the base takes org.cfg.
+	data := ir.FromMap(map[string]*ir.Node{
+		"users": ir.FromMap(map[string]*ir.Node{"alice": vObj(1)}),
+		"cfg":   vObj(9),
+	})
+	res, err := client.Patch(ctx, "org", data)
+	if err != nil {
+		t.Fatalf("split patch at org failed: %v", err)
+	}
+	if res.Data == nil {
+		t.Fatalf("split patch reported no data")
+	}
+	if !res.Data.DeepEqual(data) {
+		t.Errorf("expected data rooted at the patched path:\n got %v\nwant %v", res.Data, data)
+	}
+}
+
 // TestDocd_MultiMountUndecomposable proves docd rejects a patch it cannot split
 // statically — a higher-order op above a mount boundary.
 func TestDocd_MultiMountUndecomposable(t *testing.T) {
