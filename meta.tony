@@ -3,7 +3,8 @@ Ref: refs/issues/7rdzbjjbh12krw58cxn0
 Title: "diff: two shipped corpus cases produce a diff that Patch cannot apply (arraydiff index numbering, !key list)"
 commits:
 - eed348682a06bdd9bc55d6d005413a10ee8c045a
+- "3dcb44f14beb8be235a8aff8bb62872dbf913ce2"
 created: "2026-07-27T20:50:24.298514+02:00"
 id: "7rdzbjjbh12krw58cxn0"
 status: open
-updated: "2026-07-27T21:28:39.942425+02:00"
+updated: "2026-07-27T21:33:24.306771+02:00"
