@@ -84,13 +84,11 @@ func genOps(rng *rand.Rand, n int) []genOp {
 		var src string
 		switch rng.Intn(10) {
 		case 0:
-			// Delete at this path. Deleting the whole document is legal but makes for a
-			// dull stream, so skip it at the root.
-			if path == "" {
-				src = fmt.Sprintf(`{k%d: %d}`, rng.Intn(3), i)
-			} else {
-				src = `!delete`
-			}
+			// Delete at this path, INCLUDING the document root. A root delete is the one
+			// shape that reaches whole-document deletion: an empty snapshot, a null-state
+			// read, and writing again afterwards. Excluding it as "a dull stream" hid the
+			// empty-base fold's own nil handling, which the reference instance depends on.
+			src = `!delete`
 		case 1, 2:
 			src = fmt.Sprintf(`{k%d: {nested: %d}}`, rng.Intn(3), i)
 			// NOTE: !replace is absent on purpose — it takes {from:, to:} and the from:

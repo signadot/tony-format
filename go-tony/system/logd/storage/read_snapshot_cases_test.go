@@ -136,3 +136,53 @@ func nodeAt(n *ir.Node, fields ...string) *ir.Node {
 	}
 	return n
 }
+
+// Class 3: a delete makes a subtree absent, and absent is written by writing nothing.
+// The whole document is the sharpest version — the snapshot that follows holds zero
+// events, which nothing had ever produced before (snap/builder_test.go fakes the offset
+// rather than building one), and the read after it has to come back as null state.
+func TestSnapshotRead_RootDelete(t *testing.T) {
+	s := openTestStorage(t)
+	applyOp(t, s, genOp{path: "a.b", src: `{k1: 0}`})
+	applyOp(t, s, genOp{path: "d.e", src: `{k1: 1}`})
+	if err := s.SwitchDLog(); err != nil {
+		t.Fatal(err)
+	}
+
+	commit, err := applyOp(t, s, genOp{path: "", src: `!delete`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ReadStateAt("", commit, nil)
+	if err != nil {
+		t.Fatalf("read after deleting the document: %v", err)
+	}
+	if got != nil && got.Type != ir.NullType {
+		t.Errorf("document survived its own delete: %s", nodeText(got))
+	}
+
+	// The snapshot of an empty document must be writable and re-openable.
+	if err := s.SwitchDLog(); err != nil {
+		t.Fatalf("snapshot of an empty document: %v", err)
+	}
+	got, err = s.ReadStateAt("", commit, nil)
+	if err != nil {
+		t.Fatalf("read through an empty snapshot: %v", err)
+	}
+	if got != nil && got.Type != ir.NullType {
+		t.Errorf("empty snapshot read back non-null: %s", nodeText(got))
+	}
+
+	// And the log has to keep working on top of it.
+	commit, err = applyOp(t, s, genOp{path: "n.new", src: `{k: 7}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.ReadStateAt("", commit, nil)
+	if err != nil {
+		t.Fatalf("read after writing onto an empty snapshot: %v", err)
+	}
+	if nodeAt(got, "n", "new", "k") == nil {
+		t.Errorf("write onto an empty snapshot is missing: %s", nodeText(got))
+	}
+}

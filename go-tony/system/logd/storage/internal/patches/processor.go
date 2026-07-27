@@ -49,6 +49,12 @@ func (sp *StreamingProcessor) ApplyPatches(baseEvents stream.EventReader, patche
 	// deepest point of the base that does exist.
 	unreached := newUnreachedPatches(patchValues)
 
+	// A key whose value is about to be patched is held rather than written: the patch may
+	// resolve the value to nothing, and then the key must not appear either. The collector
+	// deliberately leaves the key to us (see SubtreeCollector.ProcessEvent), and by the
+	// time the patched value is known the key would already be in the sink.
+	var heldKey *stream.Event
+
 	hasBaseEvents := false
 	for {
 		ev, err := baseEvents.ReadEvent()
@@ -73,6 +79,23 @@ func (sp *StreamingProcessor) ApplyPatches(baseEvents stream.EventReader, patche
 				return err
 			}
 			unreached.reached(collected.Path)
+
+			// The patches deleted this subtree. Absent is written by writing nothing —
+			// which is what every layer above already reads as null state — so drop the
+			// key that would have introduced it. At the document root there is no key,
+			// and an array element has none either: dropping it removes the element and
+			// shifts the rest, which is what deleting an array element means.
+			if patchedNode == nil {
+				heldKey = nil
+				continue
+			}
+
+			if heldKey != nil {
+				if err := sink.WriteEvent(heldKey); err != nil {
+					return err
+				}
+				heldKey = nil
+			}
 
 			// Strip internal tags before emitting
 			tx.StripPatchRootTag(patchedNode)
@@ -99,10 +122,22 @@ func (sp *StreamingProcessor) ApplyPatches(baseEvents stream.EventReader, patche
 			continue // the event was replaced by a graft (a scalar becoming a subtree)
 		}
 
+		// This key's value is about to be collected and patched: hold it until we know
+		// whether there is a value to write.
+		if collector.PendingPath() != "" {
+			held := *ev
+			heldKey = &held
+			continue
+		}
+
 		// Not actively collecting, pass through
 		if err := sink.WriteEvent(ev); err != nil {
 			return err
 		}
+	}
+
+	if heldKey != nil {
+		return fmt.Errorf("base document ended after key %q with no value", heldKey.Key)
 	}
 
 	if hasBaseEvents && !unreached.empty() {
@@ -117,11 +152,19 @@ func (sp *StreamingProcessor) ApplyPatches(baseEvents stream.EventReader, patche
 			if patch == nil {
 				continue
 			}
-			var err error
-			result, err = tony.Patch(result, patch)
+			// A delete leaves nil, and tony.Patch panics if handed one as the document.
+			// Absent is null here, so a delete followed by a write rebuilds from null.
+			if result == nil {
+				result = ir.Null()
+			}
+			next, err := tony.Patch(result, patch)
 			if err != nil {
 				return err
 			}
+			result = next
+		}
+		if result == nil {
+			return nil // everything folded away: no events is the null state
 		}
 		tx.StripPatchRootTagRecursive(result)
 		if err := emitNode(result, sink); err != nil {
@@ -579,9 +622,13 @@ func (u *unreachedPatches) graftUpTo(f unreachedFrame, before string, sink strea
 		}
 		// nestUnder built the value from the container's perspective, so it already
 		// carries the key: emit the field name, then the value under it.
+		// The fold can leave this key with nothing under it — a write and a later delete
+		// of the same path net out, and the key is simply absent from the folded node,
+		// exactly as it would be if the entries had been applied to the document
+		// directly. Nothing to graft, so nothing to emit.
 		value, err := node.GetKPath(seg)
-		if err != nil {
-			return fmt.Errorf("graft of %q lost its key: %w", seg, err)
+		if err != nil || value == nil {
+			continue
 		}
 		tx.StripPatchRootTagRecursive(value)
 		if err := sink.WriteEvent(&stream.Event{Type: stream.EventKey, Key: seg}); err != nil {

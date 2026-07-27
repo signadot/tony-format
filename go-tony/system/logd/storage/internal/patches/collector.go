@@ -157,6 +157,15 @@ func (sc *SubtreeCollector) finishCollecting() (*CollectedSubtree, error) {
 	return result, nil
 }
 
+// PendingPath returns the path whose value is about to be collected, or "" if none.
+//
+// A key event at a patched path deliberately does not start collection (see
+// ProcessEvent), so that the caller decides what to do with the key. It has to: the
+// value may patch away to nothing, and then the key must not be written either.
+func (sc *SubtreeCollector) PendingPath() string {
+	return sc.pendingPath
+}
+
 // IsCollecting returns true if currently collecting a subtree.
 func (sc *SubtreeCollector) IsCollecting() bool {
 	return sc.collecting
