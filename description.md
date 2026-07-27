@@ -1,4 +1,4 @@
-# match: a mismatch is a bare false — no path, no expected, no found (request: an explanation MatchOpt)
+# match: a mismatch is a bare `false` — no path, no expected, no found (request: an explanation MatchOpt)
 
 `tony.Match` answers yes or no. When the answer is no, nothing says WHY: not which path failed,
 not what was expected there, not what was found. I would like an option — `MatchOpt` is already
@@ -15,6 +15,7 @@ against **v0.0.99**, identical on v0.0.100.
 
 ---
 
+## What happens today
 
 A schema's `accept` clause is the natural way to write such a contract, and `schema.Validate` is
 `tony.MatchWith` plus a wrapper (`schema/schema.go:52-85`). Against this schema:
@@ -52,6 +53,7 @@ Underneath, `tony.Match(doc, pat)` returns `matched=false, err=nil`. The error r
 malformed patterns (`no mergeop for tag %q`), not for mismatches — which is right, and is exactly
 why the explanation needs a channel of its own rather than a richer `error`.
 
+## Why a caller cannot build this outside
 
 Enough is visible from outside to do the boring half. Object structure is a plain field walk, so an
 external explainer can recurse over the pattern, notice `severity` is absent from the document, and
@@ -72,6 +74,7 @@ It stops at the first tag. Every operator goes through `Op.Match(doc, ctx, f) (b
 So an external explainer can explain structure and nothing else, while the tagged parts are
 precisely the parts an author or a model gets wrong.
 
+## What would help
 
 Shape, not a demand on naming:
 
@@ -106,6 +109,7 @@ versions — we format it ourselves and we do not test against its wording. One 
 be an arbitrarily large subtree, and ours goes into a model prompt, so a size bound or a
 caller-supplied truncation would earn its keep.
 
+## Also, while in this file
 
 `MatchConfig` and `MatchOpt` (`match.go:11-23`) are declared and consumed by nothing: `Match` and
 `MatchWith` take no options, and the `Comments`/`Tags` fields have no effect on matching. The
