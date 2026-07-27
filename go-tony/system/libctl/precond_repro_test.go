@@ -32,14 +32,14 @@ func TestPreconditionQuotedKind(t *testing.T) {
 		// (vote."9digitkind".alice) is how docd's split writes a mounted subtree:
 		// fieldsToKPath quotes the digit-first segment, so logd must still store the
 		// key canonically (unquoted) for the unquoted precondition pattern to match.
-		if err := sess.Patch(ctx, seedPath, leaf); err != nil {
+		if _, err := sess.Patch(ctx, seedPath, leaf); err != nil {
 			t.Fatalf("seed patch: %v", err)
 		}
 		// root-anchored precondition matching the same subtree
 		pattern := nestObj(leaf, "vote", kind, "alice")
 		match := &api.PathData{Path: "", Data: pattern}
 		// patch: bump an unrelated field, only if precondition holds
-		err := sess.PatchIf(ctx, "committed", ir.FromString("yes"), match)
+		_, err := sess.PatchIf(ctx, "committed", ir.FromString("yes"), match)
 		if err != nil {
 			if errors.Is(err, ErrMatchFailed) {
 				t.Fatalf("PRECONDITION FAILED for kind %q (should have held)", kind)

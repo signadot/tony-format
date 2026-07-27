@@ -49,13 +49,21 @@ type Handler interface {
 	// (return an error) rather than answer from an uncoordinated timeline.
 	Match(ctx context.Context, path string, pattern *ir.Node, opts MatchParams) (*ir.Node, error)
 
-	// Patch applies data at path and returns the resulting data. When
-	// opts.TxID is set, the client is coordinating a multi-participant
+	// Patch applies data at path and reports what the write landed as: Commit is
+	// the commit it committed at and Data is the resulting data (with any
+	// auto-generated ids). A logd-backed controller returns its LogdSession.PatchWith
+	// result unchanged, so the client sees the same commit it would from a direct
+	// logd write. A SELF-BACKED controller has no logd commit to report and should
+	// leave Commit zero rather than invent one from its own timeline — the same
+	// reason Match cannot honor a historical read. Returning nil is treated as an
+	// empty result (no commit, no data).
+	//
+	// When opts.TxID is set, the client is coordinating a multi-participant
 	// transaction: the controller joins it by writing to logd with that tx id
 	// (the write is the join). opts.Scope, when set, is the COW scope the write
 	// belongs to; a scope-aware controller must join the transaction in that scope
 	// (a logd-backed one writes on a connection with that scope).
-	Patch(ctx context.Context, path string, data *ir.Node, opts PatchParams) (*ir.Node, error)
+	Patch(ctx context.Context, path string, data *ir.Node, opts PatchParams) (*api.PatchResult, error)
 
 	// Watch streams events for path until ctx is cancelled (the client
 	// unwatched or disconnected) or it returns. emit delivers each event. To
@@ -253,7 +261,7 @@ func (rt *controllerRuntime) handleMatch(req *api.SessionRequest) {
 }
 
 func (rt *controllerRuntime) handlePatch(req *api.SessionRequest) {
-	data, err := rt.handler.Patch(rt.ctx, req.Patch.Path, req.Patch.Data, PatchParams{
+	res, err := rt.handler.Patch(rt.ctx, req.Patch.Path, req.Patch.Data, PatchParams{
 		TxID:    req.Patch.TxID,
 		Match:   req.Patch.Match,
 		Timeout: req.Patch.Timeout,
@@ -263,9 +271,12 @@ func (rt *controllerRuntime) handlePatch(req *api.SessionRequest) {
 		rt.replyErr(req.ID, err)
 		return
 	}
+	if res == nil { // a handler that reports neither commit nor data
+		res = &api.PatchResult{}
+	}
 	rt.reply(&api.SessionResponse{
 		ID:     req.ID,
-		Result: &api.SessionResult{Patch: &api.PatchResult{Data: data}},
+		Result: &api.SessionResult{Patch: res},
 	})
 }
 

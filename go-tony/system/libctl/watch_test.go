@@ -34,7 +34,7 @@ func TestLogdSession_WatchInitialState(t *testing.T) {
 
 	// Seed some state.
 	data := ir.FromMap(map[string]*ir.Node{"name": ir.FromString("Alice")})
-	if err := session.Patch(ctx, "users/1", data); err != nil {
+	if _, err := session.Patch(ctx, "users/1", data); err != nil {
 		t.Fatalf("Patch failed: %v", err)
 	}
 
@@ -74,7 +74,7 @@ func TestLogdSession_WatchLiveEvents(t *testing.T) {
 
 	// A patch after the watch is established should stream as a delta.
 	data := ir.FromMap(map[string]*ir.Node{"name": ir.FromString("Bob")})
-	if err := session.Patch(ctx, "users/1", data); err != nil {
+	if _, err := session.Patch(ctx, "users/1", data); err != nil {
 		t.Fatalf("Patch failed: %v", err)
 	}
 
@@ -87,6 +87,54 @@ func TestLogdSession_WatchLiveEvents(t *testing.T) {
 	}
 	if ev.Commit == 0 {
 		t.Errorf("expected non-zero commit, got %d", ev.Commit)
+	}
+}
+
+// TestLogdSession_PatchReportsCommit proves a writer can name what it just did:
+// the commit Patch returns is the commit the watch reports for that same write,
+// so a client no longer has to guess its own write out of a watch stream. It also
+// checks that the data the server stored comes back — the channel auto-generated
+// ids ride on.
+func TestLogdSession_PatchReportsCommit(t *testing.T) {
+	srv := startLogd(t)
+	session := NewLogdSession(&LogdSessionConfig{Addr: srv.TCPAddr(), ClientID: "test-client"})
+	defer session.Close()
+
+	ctx := context.Background()
+
+	w, err := session.Watch(ctx, "users/1", &WatchOptions{NoInit: true})
+	if err != nil {
+		t.Fatalf("Watch failed: %v", err)
+	}
+	defer w.Close()
+
+	// Three writes, so a stale or off-by-one commit cannot pass by coincidence.
+	for i, name := range []string{"Alice", "Bob", "Carol"} {
+		data := ir.FromMap(map[string]*ir.Node{"name": ir.FromString(name)})
+		res, err := session.Patch(ctx, "users/1", data)
+		if err != nil {
+			t.Fatalf("Patch %d failed: %v", i, err)
+		}
+		if res == nil {
+			t.Fatalf("Patch %d returned no result", i)
+		}
+
+		ev := recvEvent(t, w, 2*time.Second)
+		if res.Commit != ev.Commit {
+			t.Errorf("write %d: Patch reported commit %d, watch reported %d", i, res.Commit, ev.Commit)
+		}
+
+		// The stored data comes back, not just the commit.
+		if res.Data == nil {
+			t.Fatalf("write %d: Patch returned no data", i)
+		}
+		got, err := res.Data.GetPath("$.name")
+		if err != nil {
+			t.Fatalf("write %d: GetPath failed: %v", i, err)
+		}
+		if got == nil || got.String != name {
+			t.Errorf("write %d: expected returned data name=%q, got %v", i, name, got)
+		}
 	}
 }
 
@@ -112,10 +160,10 @@ func TestLogdSession_WatchConcurrent(t *testing.T) {
 	defer wb.Close()
 
 	// Patch both paths on the same connection.
-	if err := session.Patch(ctx, "a/1", ir.FromMap(map[string]*ir.Node{"v": ir.FromString("A")})); err != nil {
+	if _, err := session.Patch(ctx, "a/1", ir.FromMap(map[string]*ir.Node{"v": ir.FromString("A")})); err != nil {
 		t.Fatalf("Patch a failed: %v", err)
 	}
-	if err := session.Patch(ctx, "b/1", ir.FromMap(map[string]*ir.Node{"v": ir.FromString("B")})); err != nil {
+	if _, err := session.Patch(ctx, "b/1", ir.FromMap(map[string]*ir.Node{"v": ir.FromString("B")})); err != nil {
 		t.Fatalf("Patch b failed: %v", err)
 	}
 

@@ -70,7 +70,7 @@ func TestVerse_ScopedSiblingWatchesUnderMount(t *testing.T) {
 	}
 
 	// Write only m.a. Only the m.a watch should fire.
-	if err := scoped.Patch(ctx, "m.a", vObj(1)); err != nil {
+	if _, err := scoped.Patch(ctx, "m.a", vObj(1)); err != nil {
 		t.Fatalf("scoped patch m.a: %v", err)
 	}
 	if ev := expectEvent(t, watches["m.a"]); ev.Patch == nil {
@@ -112,7 +112,7 @@ func TestVerse_ScopedOverlappingWatchesUnderMount(t *testing.T) {
 
 	// Write the nested path: fires the ancestor (m.a) and nested (m.a.x), NOT m.b.
 	// Both deltas must be ROOT-ROOTED (the watch contract), so both carry m.a.x.v=1.
-	if err := scoped.Patch(ctx, "m.a.x", vObj(1)); err != nil {
+	if _, err := scoped.Patch(ctx, "m.a.x", vObj(1)); err != nil {
 		t.Fatalf("scoped patch m.a.x: %v", err)
 	}
 	assertRootedDelta(t, "m.a", wA, "$.m.a.x.v", 1)
@@ -120,7 +120,7 @@ func TestVerse_ScopedOverlappingWatchesUnderMount(t *testing.T) {
 	expectQuiet(t, "m.b", wB)
 
 	// Write the disjoint sibling: fires only m.b, root-rooted at m.b.
-	if err := scoped.Patch(ctx, "m.b", vObj(2)); err != nil {
+	if _, err := scoped.Patch(ctx, "m.b", vObj(2)); err != nil {
 		t.Fatalf("scoped patch m.b: %v", err)
 	}
 	assertRootedDelta(t, "m.b", wB, "$.m.b.v", 2)
@@ -170,7 +170,7 @@ func TestVerse_ScopedIncrementalDeltaPreservesSiblings(t *testing.T) {
 	writer := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "wr", Scope: "s1"})
 	t.Cleanup(func() { writer.Close() })
 
-	if err := writer.Patch(ctx, "m.a", vObj(1)); err != nil {
+	if _, err := writer.Patch(ctx, "m.a", vObj(1)); err != nil {
 		t.Fatalf("patch m.a: %v", err)
 	}
 	state, err := tony.Patch(ir.Null(), expectEvent(t, watch).Patch)
@@ -178,7 +178,7 @@ func TestVerse_ScopedIncrementalDeltaPreservesSiblings(t *testing.T) {
 		t.Fatalf("apply delta 1: %v", err)
 	}
 
-	if err := writer.Patch(ctx, "m.b", vObj(2)); err != nil {
+	if _, err := writer.Patch(ctx, "m.b", vObj(2)); err != nil {
 		t.Fatalf("patch m.b: %v", err)
 	}
 	state, err = tony.Patch(state, expectEvent(t, watch).Patch) // apply incrementally
@@ -216,7 +216,7 @@ func TestVerse_ScopedWatchCrosstalk_DirectLogd(t *testing.T) {
 
 	writer := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "wr", Scope: "s1"})
 	t.Cleanup(func() { writer.Close() })
-	if err := writer.Patch(ctx, "a", vObj(1)); err != nil {
+	if _, err := writer.Patch(ctx, "a", vObj(1)); err != nil {
 		t.Fatalf("scoped patch a: %v", err)
 	}
 
@@ -268,7 +268,7 @@ func TestVerse_WatchCrosstalk_DirectLogd_CommonParent(t *testing.T) {
 
 			writer := NewLogdSession(cfg("wr"))
 			t.Cleanup(func() { writer.Close() })
-			if err := writer.Patch(ctx, "p.a", vObj(1)); err != nil {
+			if _, err := writer.Patch(ctx, "p.a", vObj(1)); err != nil {
 				t.Fatalf("patch p.a: %v", err)
 			}
 
@@ -301,7 +301,7 @@ func TestVerse_BaselineWatchCrosstalk_DirectLogd(t *testing.T) {
 
 	writer := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "wr"})
 	t.Cleanup(func() { writer.Close() })
-	if err := writer.Patch(ctx, "a", vObj(1)); err != nil {
+	if _, err := writer.Patch(ctx, "a", vObj(1)); err != nil {
 		t.Fatalf("patch a: %v", err)
 	}
 
@@ -333,7 +333,7 @@ func TestMultiWatch_SamePathDirectLogd(t *testing.T) {
 
 	writer := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "wr"})
 	t.Cleanup(func() { writer.Close() })
-	if err := writer.Patch(ctx, "a", vObj(1)); err != nil {
+	if _, err := writer.Patch(ctx, "a", vObj(1)); err != nil {
 		t.Fatalf("patch a: %v", err)
 	}
 	assertRootedDelta(t, "w1", w1, "$.a.v", 1)
@@ -341,7 +341,7 @@ func TestMultiWatch_SamePathDirectLogd(t *testing.T) {
 
 	// Unwatch one; the other keeps receiving.
 	w1.Close()
-	if err := writer.Patch(ctx, "a", vObj(2)); err != nil {
+	if _, err := writer.Patch(ctx, "a", vObj(2)); err != nil {
 		t.Fatalf("patch a again: %v", err)
 	}
 	assertRootedDelta(t, "w2", w2, "$.a.v", 2)
@@ -369,14 +369,14 @@ func TestMultiWatch_SamePathViaDocd(t *testing.T) {
 	expectEvent(t, w1) // drain init
 	expectEvent(t, w2)
 
-	if err := client.Patch(ctx, "m.a", vObj(1)); err != nil {
+	if _, err := client.Patch(ctx, "m.a", vObj(1)); err != nil {
 		t.Fatalf("patch m.a: %v", err)
 	}
 	assertRootedDelta(t, "w1", w1, "$.m.a.v", 1)
 	assertRootedDelta(t, "w2", w2, "$.m.a.v", 1)
 
 	w1.Close()
-	if err := client.Patch(ctx, "m.a", vObj(2)); err != nil {
+	if _, err := client.Patch(ctx, "m.a", vObj(2)); err != nil {
 		t.Fatalf("patch m.a again: %v", err)
 	}
 	assertRootedDelta(t, "w2", w2, "$.m.a.v", 2)
@@ -406,7 +406,7 @@ func TestWatch_TwoSessionsSamePathNoRace(t *testing.T) {
 
 	writer := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "wr"})
 	t.Cleanup(func() { writer.Close() })
-	if err := writer.Patch(ctx, "a", vObj(1)); err != nil {
+	if _, err := writer.Patch(ctx, "a", vObj(1)); err != nil {
 		t.Fatalf("patch: %v", err)
 	}
 	// Both sessions deliver (and encode) the broadcast concurrently.

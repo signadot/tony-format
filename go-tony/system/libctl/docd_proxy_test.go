@@ -51,7 +51,7 @@ func TestLogdSession_ThroughDocd(t *testing.T) {
 	data := ir.FromMap(map[string]*ir.Node{
 		"name": ir.FromString("alice"),
 	})
-	if err := session.Patch(ctx, "users/1", data); err != nil {
+	if _, err := session.Patch(ctx, "users/1", data); err != nil {
 		t.Fatalf("Patch through docd failed: %v", err)
 	}
 
@@ -86,7 +86,7 @@ func TestLogdSession_WatchThroughDocd(t *testing.T) {
 	ctx := context.Background()
 
 	// Seed initial state.
-	if err := session.Patch(ctx, "users/1", ir.FromMap(map[string]*ir.Node{
+	if _, err := session.Patch(ctx, "users/1", ir.FromMap(map[string]*ir.Node{
 		"name": ir.FromString("alice"),
 	})); err != nil {
 		t.Fatalf("initial Patch failed: %v", err)
@@ -112,7 +112,7 @@ func TestLogdSession_WatchThroughDocd(t *testing.T) {
 	}
 
 	// Mutate and confirm a subsequent event streams through docd.
-	if err := session.Patch(ctx, "users/1", ir.FromMap(map[string]*ir.Node{
+	if _, err := session.Patch(ctx, "users/1", ir.FromMap(map[string]*ir.Node{
 		"name": ir.FromString("bob"),
 	})); err != nil {
 		t.Fatalf("second Patch failed: %v", err)

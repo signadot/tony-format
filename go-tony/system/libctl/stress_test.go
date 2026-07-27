@@ -43,7 +43,7 @@ func stressGates(t *testing.T, sess *LogdSession) {
 			defer wg.Done()
 			path := fmt.Sprintf("gate.%d", g)
 
-			if err := sess.Patch(ctx, path, vObj(0)); err != nil { // create the path first
+			if _, err := sess.Patch(ctx, path, vObj(0)); err != nil { // create the path first
 				errCh <- fmt.Errorf("gate %d seed: %w", g, err)
 				return
 			}
@@ -65,7 +65,8 @@ func stressGates(t *testing.T, sess *LogdSession) {
 						done <- e
 						return
 					}
-					done <- sess.Patch(ctx, path, vObj(int64(i)))
+					_, e := sess.Patch(ctx, path, vObj(int64(i)))
+					done <- e
 				}()
 				select {
 				case e := <-done:

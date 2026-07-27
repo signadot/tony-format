@@ -102,7 +102,7 @@ func TestLogdSession_Patch(t *testing.T) {
 	data := ir.FromMap(map[string]*ir.Node{
 		"name": ir.FromString("test"),
 	})
-	if err := session.Patch(ctx, "users/1", data); err != nil {
+	if _, err := session.Patch(ctx, "users/1", data); err != nil {
 		t.Fatalf("Patch failed: %v", err)
 	}
 
@@ -143,16 +143,33 @@ func TestLogdSession_Transaction(t *testing.T) {
 
 	// Both participants join by writing with the tx id; each blocks until the
 	// tx commits atomically.
-	errc := make(chan error, 2)
-	go func() {
-		errc <- a.PatchTx(ctx, "a/1", ir.FromMap(map[string]*ir.Node{"v": ir.FromInt(1)}), txID)
-	}()
-	go func() {
-		errc <- b.PatchTx(ctx, "b/1", ir.FromMap(map[string]*ir.Node{"v": ir.FromInt(2)}), txID)
-	}()
+	type joined struct {
+		res *logdapi.PatchResult
+		err error
+	}
+	resc := make(chan joined, 2)
+	join := func(s *LogdSession, path string, v int64) {
+		res, err := s.PatchTx(ctx, path, ir.FromMap(map[string]*ir.Node{"v": ir.FromInt(v)}), txID)
+		resc <- joined{res, err}
+	}
+	go join(a, "a/1", 1)
+	go join(b, "b/1", 2)
+
+	// The write committed atomically, so every participant is told the same
+	// commit — its own, and the transaction's.
+	var commit int64
 	for i := 0; i < 2; i++ {
-		if err := <-errc; err != nil {
-			t.Fatalf("PatchTx failed: %v", err)
+		got := <-resc
+		if got.err != nil {
+			t.Fatalf("PatchTx failed: %v", got.err)
+		}
+		if got.res.Commit == 0 {
+			t.Fatalf("PatchTx reported no commit")
+		}
+		if commit == 0 {
+			commit = got.res.Commit
+		} else if got.res.Commit != commit {
+			t.Fatalf("participants disagree on commit: %d vs %d", commit, got.res.Commit)
 		}
 	}
 
@@ -189,29 +206,29 @@ func TestLogdSession_CAS(t *testing.T) {
 	}
 
 	// Seed.
-	if err := s.Patch(ctx, "users/1", vNode(1)); err != nil {
+	if _, err := s.Patch(ctx, "users/1", vNode(1)); err != nil {
 		t.Fatalf("seed Patch: %v", err)
 	}
 
 	matchV1 := &logdapi.PathData{Path: "users/1", Data: vNode(1)}
 
 	// CAS succeeds while the precondition (v==1) holds.
-	if err := s.PatchIf(ctx, "users/1", vNode(2), matchV1); err != nil {
+	if _, err := s.PatchIf(ctx, "users/1", vNode(2), matchV1); err != nil {
 		t.Fatalf("expected CAS to succeed: %v", err)
 	}
 	assertV("users/1", 2)
 
 	// CAS fails once the precondition no longer holds (v is now 2).
-	if err := s.PatchIf(ctx, "users/1", vNode(3), matchV1); !errors.Is(err, ErrMatchFailed) {
+	if _, err := s.PatchIf(ctx, "users/1", vNode(3), matchV1); !errors.Is(err, ErrMatchFailed) {
 		t.Fatalf("expected ErrMatchFailed, got %v", err)
 	}
 	assertV("users/1", 2) // unchanged
 
 	// Match path independent of patch path: gate a write to a/1 on b/1's state.
-	if err := s.Patch(ctx, "b/1", vNode(7)); err != nil {
+	if _, err := s.Patch(ctx, "b/1", vNode(7)); err != nil {
 		t.Fatalf("seed b/1: %v", err)
 	}
-	if err := s.PatchIf(ctx, "a/1", vNode(1), &logdapi.PathData{Path: "b/1", Data: vNode(7)}); err != nil {
+	if _, err := s.PatchIf(ctx, "a/1", vNode(1), &logdapi.PathData{Path: "b/1", Data: vNode(7)}); err != nil {
 		t.Fatalf("cross-path CAS should succeed: %v", err)
 	}
 	assertV("a/1", 1)
@@ -305,7 +322,7 @@ func TestLogdSession_MountClientIntegration(t *testing.T) {
 		"id":   ir.FromString("1"),
 		"name": ir.FromString("Alice"),
 	})
-	if err := logd.Patch(ctx, "users/1", data); err != nil {
+	if _, err := logd.Patch(ctx, "users/1", data); err != nil {
 		t.Fatalf("Patch via MountClient.Logd() failed: %v", err)
 	}
 
@@ -348,19 +365,19 @@ func TestLogdSession_Scope(t *testing.T) {
 	}
 
 	// Baseline writes two records.
-	if err := baseline.Patch(ctx, "users/alice", ir.FromMap(map[string]*ir.Node{
+	if _, err := baseline.Patch(ctx, "users/alice", ir.FromMap(map[string]*ir.Node{
 		"name": ir.FromString("Alice"),
 	})); err != nil {
 		t.Fatalf("baseline Patch alice failed: %v", err)
 	}
-	if err := baseline.Patch(ctx, "users/bob", ir.FromMap(map[string]*ir.Node{
+	if _, err := baseline.Patch(ctx, "users/bob", ir.FromMap(map[string]*ir.Node{
 		"name": ir.FromString("Bob"),
 	})); err != nil {
 		t.Fatalf("baseline Patch bob failed: %v", err)
 	}
 
 	// Scope overrides alice only.
-	if err := scoped.Patch(ctx, "users/alice", ir.FromMap(map[string]*ir.Node{
+	if _, err := scoped.Patch(ctx, "users/alice", ir.FromMap(map[string]*ir.Node{
 		"name": ir.FromString("Alice in Sandbox"),
 	})); err != nil {
 		t.Fatalf("scoped Patch alice failed: %v", err)
@@ -407,7 +424,7 @@ func TestLogdSession_DeleteScope(t *testing.T) {
 	})
 	defer scoped.Close()
 
-	if err := scoped.Patch(ctx, "data", ir.FromString("scoped")); err != nil {
+	if _, err := scoped.Patch(ctx, "data", ir.FromString("scoped")); err != nil {
 		t.Fatalf("scoped Patch failed: %v", err)
 	}
 
