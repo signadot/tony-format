@@ -1,6 +1,8 @@
 !issue
 Ref: refs/issues/ahsepc6vh12ksg6bcxn0
 Title: "encode: a value's preceding comment renders under its key, not above the pair, so formatting reflows every document once"
+commits:
+- "911d959998bb4962198e817d6b40d3f7036ca63a"
 created: "2026-07-27T23:21:04.890927+02:00"
 id: ahsepc6vh12ksg6bcxn0
 labels:
@@ -10,4 +12,4 @@ labels:
 related_issues:
 - "23b00eyvh12ksgebcxn0"
 status: open
-updated: "2026-07-27T23:21:12.962635+02:00"
+updated: "2026-07-27T23:21:13.030091+02:00"
