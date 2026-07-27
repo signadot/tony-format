@@ -391,9 +391,11 @@ type unreachedPatches struct {
 }
 
 type unreachedFrame struct {
-	path    string
-	isArray bool
-	idx     int
+	path     string
+	isArray  bool
+	idx      int
+	lastKey  string // previous key seen in this container
+	unsorted bool   // this container's keys did not arrive in order
 }
 
 func newUnreachedPatches(patchValues map[string][]*ir.Node) *unreachedPatches {
@@ -424,6 +426,23 @@ func (u *unreachedPatches) observe(ev *stream.Event, sink stream.EventWriter) (b
 	case stream.EventKey:
 		u.nextSeg = ev.Key
 		u.nextIsInt = false
+		if len(u.pending) > 0 && len(u.stack) > 0 {
+			top := &u.stack[len(u.stack)-1]
+			if top.lastKey > ev.Key {
+				// Keys out of order: this base predates the storage invariant, so
+				// position cannot be inferred. Fall back to grafting at the close.
+				top.unsorted = true
+			}
+			top.lastKey = ev.Key
+			if !top.unsorted {
+				// Storage keeps objects sorted, so a grafted key belongs where it sorts,
+				// not at the end. Keys arrive in order, so anything sorting before this
+				// one can be emitted now and nothing later can collide with it.
+				if err := u.graftUpTo(*top, ev.Key, sink); err != nil {
+					return false, err
+				}
+			}
+		}
 		return false, nil
 	case stream.EventIntKey:
 		// A sparse array's keys are int-keyed object fields, pathed as "{n}" — the same
@@ -452,7 +471,7 @@ func (u *unreachedPatches) observe(ev *stream.Event, sink stream.EventWriter) (b
 		}
 		// Anything still pending under this container is missing from the base: this is
 		// the last chance to add it, just before the container closes.
-		return false, u.graftInto(top, sink)
+		return false, u.graftUpTo(top, "", sink)
 	default:
 		// A scalar. If a patch lives underneath it, the patch turns this value into a
 		// subtree, so the base's scalar must be replaced rather than followed by a
@@ -494,8 +513,10 @@ func (u *unreachedPatches) advanceIndex() {
 	}
 }
 
-// graftInto emits the pending paths whose deepest existing ancestor is this container.
-func (u *unreachedPatches) graftInto(f unreachedFrame, sink stream.EventWriter) error {
+// graftUpTo emits the pending paths whose deepest existing ancestor is this container
+// and whose key sorts before `before`. An empty `before` means "everything left", which
+// is what the container's closing event asks for.
+func (u *unreachedPatches) graftUpTo(f unreachedFrame, before string, sink stream.EventWriter) error {
 	// Group by first missing segment: two pending paths under the same missing key must
 	// become one key with a merged value, not the same key twice.
 	groups := map[string][]string{}
@@ -507,7 +528,17 @@ func (u *unreachedPatches) graftInto(f unreachedFrame, sink stream.EventWriter) 
 		}
 		seg, _, err := splitFieldSegment(rest)
 		if err != nil {
+			if before != "" {
+				// Mid-container: this path may still be reached by an element the base
+				// has not streamed yet. Only the container's close proves it absent, and
+				// that is where the error belongs.
+				continue
+			}
 			return fmt.Errorf("cannot graft %q into %q: %w", path, f.path, err)
+		}
+		if before != "" && seg >= before {
+			// seg == before is the base's own key: the graft belongs deeper, under it.
+			continue
 		}
 		if _, seen := groups[seg]; !seen {
 			order = append(order, seg)
