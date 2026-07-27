@@ -3,5 +3,8 @@ Ref: refs/issues/axp74f1wh12krznjcxn0
 Title: "match: a mismatch is a bare false — no path, no expected, no found (request: an explanation MatchOpt)"
 created: "2026-07-27T21:33:18.847328+02:00"
 id: axp74f1wh12krznjcxn0
+labels:
+- agent
+- match
 status: open
-updated: "2026-07-27T21:33:18.847328+02:00"
+updated: "2026-07-27T21:33:23.238596+02:00"
