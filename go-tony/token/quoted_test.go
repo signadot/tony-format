@@ -24,8 +24,11 @@ func do(v string, t *testing.T) {
 		t.Errorf("error unquoting %q (from %q): %v", q, v, err)
 		return
 	}
-	if uq != q {
-		t.Errorf("unquote(quote(%q)) = %q", v, q)
+	// Unquote must return the original value. This used to compare against q, the
+	// quoted form, which is what Unquote returned when it validated the input and then
+	// handed it back undecoded — the assertion held the bug in place.
+	if uq != v {
+		t.Errorf("Unquote(Quote(%q) = %q) = %q, want %q", v, q, uq, v)
 	}
 	if NeedsQuote(v) {
 		t.Logf("%q needs quote\n", v)

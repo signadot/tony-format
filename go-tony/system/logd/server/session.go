@@ -979,9 +979,14 @@ func getField(node *ir.Node, name string) *ir.Node {
 // unquoteFieldKey strips surrounding quotes from a stored field key, mirroring the
 // field-name branch of kpath's segment parser. A bare key is returned unchanged, so
 // this is safe to call on any key and avoids a full kpath.Parse.
+//
+// token.Unquote validates before it decodes. The shape test this used to do instead —
+// opens with a quote, ends with the same one — admits keys that are not well-formed
+// quoted strings (`"a"b"`, `"a\qb"`), and the decoder used to panic on exactly those.
+// Anything Unquote rejects is not a quoted key, so the raw key is the right answer.
 func unquoteFieldKey(s string) string {
-	if len(s) >= 2 && (s[0] == '"' || s[0] == '\'') && s[len(s)-1] == s[0] {
-		return token.QuotedToString([]byte(s))
+	if u, err := token.Unquote(s); err == nil {
+		return u
 	}
 	return s
 }

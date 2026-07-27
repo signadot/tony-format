@@ -30,6 +30,13 @@ var (
 	ErrYAMLPlain         = errors.New("yaml plain string")
 	ErrUnsupported       = errors.New("unsupported")
 	ErrNumber            = errors.New("number")
+	// ErrNotQuoted is a value that is not a quoted string at all — it does not open
+	// with a quote character. Distinct from ErrUnterminated, which is a quoted string
+	// whose closing quote is missing or misplaced.
+	ErrNotQuoted = errors.New("not a quoted string")
+	// ErrTrailing is a quoted string with bytes after its closing quote, i.e. the byte
+	// range handed to the decoder is wider than the string it contains.
+	ErrTrailing = errors.New("trailing bytes after closing quote")
 )
 
 func LeadingZeroErr(pos *Pos) error {

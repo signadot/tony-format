@@ -111,16 +111,32 @@ func Quote(v string, autoSingle bool) string {
 	return string(sd)
 }
 
+// Unquote decodes a complete quoted string into its value: it validates the whole of v
+// with the scanner and only then decodes it. This is the safe entry point for a string of
+// unknown provenance — anything that is not exactly one well-formed quoted string is
+// reported as an error rather than decoded on a best-effort basis.
+//
+// The scanner-then-decoder order is what makes it total: bsEscQuoted rejects every input
+// that would make the decoder misbehave, and requiring n == len(v) rejects the rest (a
+// value like `"a"b"` scans fine but only as its first three bytes).
+//
+// It previously validated and then returned v unchanged, which meant it never actually
+// unquoted anything and had no callers; the three places that needed it had each
+// hand-rolled a shape check with no validation, and those reimplementations are where the
+// decoder's panics were reachable from stored data.
 func Unquote(v string) (string, error) {
 	b := []byte(v)
+	if len(b) < 2 || (b[0] != '"' && b[0] != '\'') {
+		return "", ErrNotQuoted
+	}
 	n, err := bsEscQuoted(b)
 	if err != nil {
 		return "", err
 	}
 	if n != len(v) {
-		return "", ErrUnterminated
+		return "", ErrTrailing
 	}
-	return string(b), nil
+	return quotedToString(b)
 }
 
 func bsEscQuoted(d []byte) (int, error) {
@@ -187,7 +203,26 @@ func allHex(d []byte) bool {
 	return true
 }
 
+// QuotedToString decodes a complete quoted string token into its value.
+//
+// It assumes d is exactly one well-formed quoted string, which is what the tokenizer
+// produces: the byte range bsEscQuoted returns is always safe to pass here. For a string
+// of unknown provenance use Unquote, which validates first and reports what is wrong.
+//
+// It does not panic. On malformed input it returns the value decoded up to the point of
+// the problem, which keeps callers that cannot return an error — Token.String, and so
+// every fmt verb that reaches it — from taking down the process over one bad byte.
 func QuotedToString(d []byte) string {
+	s, _ := quotedToString(d)
+	return s
+}
+
+// quotedToString is QuotedToString with the diagnosis kept. It returns the value decoded
+// so far alongside any error, so callers may use the partial result or discard it.
+func quotedToString(d []byte) (string, error) {
+	if len(d) == 0 {
+		return "", ErrNotQuoted
+	}
 	qc := rune(d[0])
 	b := &strings.Builder{}
 	i := 1
@@ -204,9 +239,9 @@ func QuotedToString(d []byte) string {
 		case qc:
 			if !esc {
 				if i != len(d) {
-					panic(fmt.Sprintf("internal string: trailing %q", string(d[i:])))
+					return b.String(), fmt.Errorf("%w: %q", ErrTrailing, string(d[i:]))
 				}
-				return b.String()
+				return b.String(), nil
 			}
 			b.WriteRune(qc)
 			esc = false
@@ -232,21 +267,25 @@ func QuotedToString(d []byte) string {
 			case 'u':
 				if i >= len(d) || len(d[i:]) < 4 {
 					b.WriteRune(utf8.RuneError)
-					return b.String()
+					return b.String(), ErrUnterminated
 				}
 				dst := []byte{0, 0}
 				_, err := hex.Decode(dst, d[i:i+4])
 				if err != nil {
 					b.WriteRune(utf8.RuneError)
-					return b.String()
+					return b.String(), ErrBadUnicode
 				}
 				r := rune(dst[0])<<8 | rune(dst[1])
 				b.WriteRune(r)
 				i += 4
 			default:
-				panic(fmt.Sprintf("internal string %q", string(d[i-sz-4:i+10])))
+				// The offending escape only. The previous message sliced a fixed
+				// window around it (d[i-sz-4:i+10]) which ran out of bounds on short
+				// input, so this arm panicked inside its own panic message and the
+				// real diagnosis never reached anyone.
+				return b.String(), fmt.Errorf("%w: %q", ErrBadEscape, string(r))
 			}
 		}
 	}
-	return b.String()
+	return b.String(), ErrUnterminated
 }

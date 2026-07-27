@@ -86,9 +86,14 @@ func valueAtPath(doc *ir.Node, kp string) *ir.Node {
 // unquoteFieldKey strips surrounding quotes from a stored field key so a key stored
 // quoted still matches its canonical (unquoted) name. A bare key is returned
 // unchanged, so it is safe to call on any key.
+//
+// token.Unquote validates before it decodes. The shape test this used to do instead —
+// opens with a quote, ends with the same one — admits keys that are not well-formed
+// quoted strings (`"a"b"`, `"a\qb"`), and the decoder used to panic on exactly those.
+// Anything Unquote rejects is not a quoted key, so the raw key is the right answer.
 func unquoteFieldKey(s string) string {
-	if len(s) >= 2 && (s[0] == '"' || s[0] == '\'') && s[len(s)-1] == s[0] {
-		return token.QuotedToString([]byte(s))
+	if u, err := token.Unquote(s); err == nil {
+		return u
 	}
 	return s
 }
