@@ -1,10 +1,12 @@
 !issue
 Ref: refs/issues/7f8rsk22h12ks2vscxn0
 Title: "mergeop: no escape — a patch cannot carry an operator tag as DATA, so a document containing tony operators cannot be stored (request: !raw)"
+commits:
+- ad0e2018fd349c3f22767d7740ca13bede2a843f
 created: "2026-07-27T17:30:19.19735+02:00"
 id: "7f8rsk22h12ks2vscxn0"
 labels:
 - agent
 - mergeop
 status: open
-updated: "2026-07-27T17:30:25.280699+02:00"
+updated: "2026-07-27T20:29:08.162286+02:00"
