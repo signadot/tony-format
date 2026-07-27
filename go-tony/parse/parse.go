@@ -598,12 +598,19 @@ func parseObj(toks []token.Token, p *ir.Node, tag string, pi *int, opts *parseOp
 	ycMap := map[int]*ir.Node{}
 
 	for *pi < len(toks) {
-		if len(kvs) > 0 {
-			yc := comments(toks, pi, opts)
-			if yc != nil {
-				ycMap[len(kvs)] = yc
-				continue
-			}
+		// Collect head comments for the pair that follows, keyed by its index. This used
+		// to run only once len(kvs) > 0, so a comment before the first key was never
+		// consumed and fell through to the default arm below, which rejects it — a
+		// comment as the first thing inside { } failed to parse while the same comment
+		// one line lower was fine.
+		yc := comments(toks, pi, opts)
+		if yc != nil {
+			ycMap[len(kvs)] = yc
+			continue
+		}
+		// comments consumes indent tokens too, so it can reach the end of the input.
+		if *pi >= len(toks) {
+			break
 		}
 		tok := &toks[*pi]
 		switch tok.Type {
@@ -668,7 +675,37 @@ func parseObj(toks []token.Token, p *ir.Node, tag string, pi *int, opts *parseOp
 	return objFromKVs(p, kvs, tag, keyToks, ycMap)
 }
 
+// applyHeadComments attaches the comments parseObj collected between pairs to the pair
+// each one precedes. ycMap is keyed by the index of the following pair, so ycMap[i] is the
+// head comment of kvs[i].
+//
+// The representation is the one parseBalanced uses for a head comment on a value and that
+// associateComments already walks: a CommentType node holding the value as its only child,
+// standing in the value's place. Without this the map was collected and then dropped on the
+// floor — objFromKVs took ycMap as a parameter and never read it — so every comment between
+// object keys was silently lost on a round trip, in brace and indented objects alike.
+//
+// ycMap[len(kvs)] — comments after the last pair, with no pair to head — is not attached
+// here; an object has no place to hang a value with no key. Those are still dropped.
+func applyHeadComments(kvs []ir.KeyVal, ycMap map[int]*ir.Node) {
+	if len(ycMap) == 0 {
+		return
+	}
+	for i := range kvs {
+		yc := ycMap[i]
+		if yc == nil {
+			continue
+		}
+		val := kvs[i].Val
+		yc.Values = []*ir.Node{val}
+		val.Parent = yc
+		val.ParentIndex = 0
+		kvs[i].Val = yc
+	}
+}
+
 func objFromKVs(at *ir.Node, kvs []ir.KeyVal, tag string, keyToks []token.Token, ycMap map[int]*ir.Node) (*ir.Node, error) {
+	applyHeadComments(kvs, ycMap)
 	var keyType *ir.Type
 	for i := range kvs {
 		if kvs[i].Key.Type == ir.NullType {
@@ -680,10 +717,7 @@ func objFromKVs(at *ir.Node, kvs []ir.KeyVal, tag string, keyToks []token.Token,
 		break
 	}
 	if keyType == nil {
-		result := ir.FromKeyValsAt(at, kvs).WithTag(tag)
-		if result != nil && len(result.Values) > 0 && result.Values[0].Comment != nil {
-		}
-		return result, nil
+		return ir.FromKeyValsAt(at, kvs).WithTag(tag), nil
 	}
 	if *keyType == ir.StringType {
 		for i := range kvs {
@@ -695,10 +729,7 @@ func objFromKVs(at *ir.Node, kvs []ir.KeyVal, tag string, keyToks []token.Token,
 			}
 			return nil, fmt.Errorf("%w: mixed key types in map %s", ErrParse, keyToks[i].Pos)
 		}
-		result := ir.FromKeyValsAt(at, kvs).WithTag(tag)
-		if result != nil && len(result.Values) > 0 && result.Values[0].Comment != nil {
-		}
-		return result, nil
+		return ir.FromKeyValsAt(at, kvs).WithTag(tag), nil
 	}
 	d := make(map[uint32]*ir.Node, len(kvs))
 	for i := range kvs {
