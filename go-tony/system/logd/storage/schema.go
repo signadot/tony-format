@@ -351,7 +351,7 @@ func (s *Storage) createSchemaSnapshot(schema *ir.Node, status string) (int64, e
 	if prevCommit < 0 {
 		prevCommit = 0
 	}
-	baseReader, startCommit, err := s.findSnapshotBaseReader(prevCommit)
+	baseReader, startCommit, err := s.findSnapshotBaseReader("", prevCommit)
 	if err != nil {
 		return 0, err
 	}
