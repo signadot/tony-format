@@ -1,0 +1,7 @@
+!issue
+Ref: refs/issues/7d7hhbhmh12ksebkcxn0
+Title: "dlog: SnapshotWriter mutates logFile.position without logFile.mu, racing Position() (latent — safe only by the A/B active-log invariant)"
+created: "2026-07-27T17:05:29.444659+02:00"
+id: "7d7hhbhmh12ksebkcxn0"
+status: open
+updated: "2026-07-27T17:05:29.444659+02:00"
