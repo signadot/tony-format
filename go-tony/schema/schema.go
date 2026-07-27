@@ -48,7 +48,32 @@ type Arg struct {
 	Match *ir.Node
 }
 
-// Validate validates a document against this schema
+// ValidationError is what Validate returns for a document the schema does not
+// accept.  It carries the reasons: which paths failed, what the accept clause
+// asked for there, and what the document had instead.
+//
+//	if err := s.Validate(doc); err != nil {
+//	    var invalid *schema.ValidationError
+//	    if errors.As(err, &invalid) {
+//	        for _, f := range invalid.Explanation.Failures {
+//	            ...
+//	        }
+//	    }
+//	}
+type ValidationError struct {
+	Explanation *tony.Explanation
+}
+
+func (e *ValidationError) Error() string {
+	const msg = "document does not match schema"
+	if e.Explanation == nil || len(e.Explanation.Failures) == 0 {
+		return msg
+	}
+	return msg + ":\n" + e.Explanation.String()
+}
+
+// Validate validates a document against this schema.  A document which is not
+// accepted yields a *ValidationError saying where and why.
 func (s *Schema) Validate(doc *ir.Node) error {
 	if s.Accept == nil {
 		return nil // No accept clause means everything is accepted
@@ -77,11 +102,17 @@ func (s *Schema) Validate(doc *ir.Node) error {
 	if err != nil {
 		return fmt.Errorf("match error: %w", err)
 	}
-	if !matched {
-		return fmt.Errorf("document does not match schema")
+	if matched {
+		return nil
 	}
 
-	return nil
+	// The document is not accepted; say why.  Collecting the explanation is a
+	// second walk, so a document which validates never pays for it.  The
+	// verdict is already in, so an error this walk turns up belongs in the
+	// explanation rather than in place of it.
+	why := &tony.Explanation{}
+	tony.MatchWith(doc, expanded, ctx.Clone(), tony.Explaining(why))
+	return &ValidationError{Explanation: why}
 }
 
 // ToIR converts a Schema to an IR node
