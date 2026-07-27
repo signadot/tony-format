@@ -7,5 +7,7 @@ labels:
 - agent
 - comments
 - encode
+related_issues:
+- "23b00eyvh12ksgebcxn0"
 status: open
-updated: "2026-07-27T23:21:12.819688+02:00"
+updated: "2026-07-27T23:21:12.962635+02:00"
