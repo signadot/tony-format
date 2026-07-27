@@ -34,11 +34,57 @@ directories and via `o match` and `o patch`.
 | json-patch | -     |   +   |     -             | apply a json patch to the corresponding doc node                                |
 | pass       |   +   |   +   |     -             | match: always accept / patch: return the current doc                            |
 | if         |   -   |   +   |     -             | evaluate a condition and patch either with `then` or `else`                     |
+| raw        |   +   |   +   |     -             | the escape: treat the subtree as data, interpreting no operation at any depth   |
 
 Operations are indicated by YAML tags within a match or a patch.
 
 Most operations are either match operations or patch operations but not both.
 Some operations, such as `key` and `field`, are both.
+
+### The `raw` escape
+
+The patch grammar and the data grammar share one tag namespace.  Without an
+escape, a value whose tag happens to name a registered operation is always
+_interpreted_, so a tony document which itself contains tony operators — a
+match, a patch, a rule — cannot be written into a document at all:
+
+```tony
+# patch                                  # applied to {}
+rule: {id: !glob "hot-*"}                # error: cannot patch with glob operation
+rule: {tmp: !delete null, keep: 1}       # keep: 1 — the !delete executed
+```
+
+`!raw` says _this tag is data_.  Its subtree is stored as values, no operation
+is interpreted anywhere beneath it, and the `!raw` tag itself is consumed so
+the subtree lands with its own tags intact:
+
+```tony
+# patch
+rule: !raw {id: !glob "hotfix-*", patch: {tmp: !delete null}}
+# doc after
+rule: {id: !glob "hotfix-*", patch: {tmp: !delete null}}
+```
+
+The escape belongs to the patch, not to the document, which is why the tag is
+consumed: a stored patch keeps its `!raw`, so replaying it escapes again.  A
+`!raw` _nested_ under a `!raw` is data like everything else beneath it.
+
+In a match, `!raw` compares its subtree to the document as literal data: tags
+are compared rather than evaluated, and the comparison is exact — same fields,
+same length, `null` means `null` — rather than the partial object match of an
+ordinary pattern.  Put `!raw` at the depth where literal comparison starts and
+the enclosing pattern keeps ordinary match semantics:
+
+```tony
+# doc
+rule: {id: !glob "hot-*", stage: open}
+
+rule: !raw {id: !glob "hot-*"}    # no match: rule has a stage field too
+rule: {id: !raw.glob "hot-*"}     # match: id compared literally, stage ignored
+```
+
+`!raw` executes nothing — it is the opposite of `!pipe` — so `RejectUnsafe`
+has no quarrel with it, whatever the data it stores happens to name.
 
 ### Considerations
 

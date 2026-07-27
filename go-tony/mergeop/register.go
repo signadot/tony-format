@@ -46,6 +46,7 @@ func init() {
 	Register(If())
 	Register(Let())
 	Register(Pass())
+	Register(Raw())
 	Register(Quote())
 	Register(Unquote())
 	Register(Dive())
