@@ -788,10 +788,11 @@ func TestDLog_OpenReaderAt(t *testing.T) {
 	// Get current position (this is where we'll write inline snapshot data)
 	snapshotPos := dl.logA.Position()
 
-	// Write some inline data directly to the file (simulating snapshot data)
+	// Write some inline data directly to the file (simulating snapshot data).
+	// Writes go through WriteAt at logFile.position — the file offset is never used.
 	testData := []byte("This is inline snapshot data for testing")
 	dl.logA.mu.Lock()
-	n, err := dl.logA.file.Write(testData)
+	n, err := dl.logA.file.WriteAt(testData, dl.logA.position)
 	if err != nil {
 		dl.logA.mu.Unlock()
 		t.Fatalf("failed to write test data: %v", err)

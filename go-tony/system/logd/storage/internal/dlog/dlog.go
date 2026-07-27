@@ -214,36 +214,110 @@ func fsyncDir(dir string) error {
 }
 
 // newDLogFile creates and opens a log file for appending.
+//
+// All writes go through WriteAt (pwrite) at an explicit offset, and all reads through
+// ReadAt, so the OS file offset is never used or advanced. DLogFile.position is the sole
+// authority for where the next record goes. This is deliberate: O_APPEND cannot work here
+// because the snapshot writer patches a blob header in place (see SnapshotWriter.Close),
+// and an offset-based append gives two sources of truth for the write frontier that
+// nothing keeps in sync — a failed append, or a reopened handle, silently desynchronizes
+// them and every later entry reports a position that does not point at its own header.
 func newDLogFile(id LogFileID, path string, logger *slog.Logger) (*DLogFile, error) {
 	// Open file in read-write mode (create if doesn't exist)
-	// Note: Not using O_APPEND since we need to seek for snapshot writes
-	// Atomicity is guaranteed by logFile.mu lock
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open log file %q: %w", path, err)
 	}
 
-	// Get current file size (position for appends)
+	// Get current file size (upper bound for the append position)
 	stat, err := file.Stat()
 	if err != nil {
 		file.Close()
 		return nil, fmt.Errorf("failed to stat log file %q: %w", path, err)
 	}
 
-	// Seek to end of file for appending
-	// (needed since we're not using O_APPEND)
-	if _, err := file.Seek(0, io.SeekEnd); err != nil {
+	// Records are not fsynced on append, so the tail may be torn: a length prefix whose
+	// payload never reached disk, or a partial prefix. Adopting stat.Size() as the append
+	// point would write the next record after that stump and put every frame boundary from
+	// there on at the wrong offset. Find the end of the last complete frame instead.
+	end, err := scanFrames(file, stat.Size())
+	if err != nil {
 		file.Close()
-		return nil, fmt.Errorf("failed to seek to end of log file %q: %w", path, err)
+		return nil, fmt.Errorf("failed to scan log file %q: %w", path, err)
+	}
+	if end < stat.Size() {
+		logger.Warn("dropping torn tail from log file",
+			"path", path, "lastGoodEnd", end, "size", stat.Size(),
+			"discardedBytes", stat.Size()-end)
+		if err := file.Truncate(end); err != nil {
+			file.Close()
+			return nil, fmt.Errorf("failed to truncate torn tail of %q: %w", path, err)
+		}
 	}
 
 	return &DLogFile{
 		id:       id,
 		path:     path,
 		file:     file,
-		position: stat.Size(),
+		position: end,
 		logger:   logger,
 	}, nil
+}
+
+// scanFrames walks the record framing from the start of the file and returns the offset
+// just past the last complete frame. It mirrors the framing that singleFileIter.next
+// reads: a 4-byte big-endian length prefix followed by that many payload bytes, or a
+// BlobHeaderMagic marker followed by a 4-byte blob length and that many blob bytes.
+//
+// A frame is accepted only if it lies entirely within size, which is what makes both tear
+// modes detectable — a partial prefix cannot be read, and a prefix whose payload was cut
+// short runs past the end. It does not validate payload contents, so a frame boundary
+// landing on plausible-looking garbage is still accepted; per-record checksums are what
+// would make this decisive.
+func scanFrames(file *os.File, size int64) (int64, error) {
+	hdr := make([]byte, 4)
+	pos := int64(0)
+	for pos < size {
+		if pos+4 > size {
+			return pos, nil // partial length prefix
+		}
+		if _, err := file.ReadAt(hdr, pos); err != nil {
+			if err == io.EOF {
+				return pos, nil
+			}
+			return 0, fmt.Errorf("read length prefix at %d: %w", pos, err)
+		}
+		lengthOrMagic := binary.BigEndian.Uint32(hdr)
+
+		if lengthOrMagic == BlobHeaderMagic {
+			if pos+BlobHeaderSize > size {
+				return pos, nil // partial blob header
+			}
+			if _, err := file.ReadAt(hdr, pos+4); err != nil {
+				if err == io.EOF {
+					return pos, nil
+				}
+				return 0, fmt.Errorf("read blob length at %d: %w", pos, err)
+			}
+			end := pos + BlobHeaderSize + int64(binary.BigEndian.Uint32(hdr))
+			if end > size {
+				return pos, nil // blob data cut short
+			}
+			pos = end
+			continue
+		}
+
+		// A zero length is never a real entry; treat it as unwritten space.
+		if lengthOrMagic == 0 {
+			return pos, nil
+		}
+		end := pos + 4 + int64(lengthOrMagic)
+		if end > size {
+			return pos, nil // payload cut short
+		}
+		pos = end
+	}
+	return pos, nil
 }
 
 // AppendEntry appends an Entry to the active log file.
@@ -557,25 +631,25 @@ func (dlf *DLogFile) AppendEntry(entry *Entry) (position int64, err error) {
 		return 0, fmt.Errorf("entry too large: %d bytes (max %d)", len(entryBytes), 0xFFFFFFFF)
 	}
 
-	// Write length prefix (4 bytes, big-endian uint32)
-	lengthBytes := make([]byte, 4)
-	binary.BigEndian.PutUint32(lengthBytes, uint32(len(entryBytes)))
+	// Frame the record in one buffer and issue a single write, so there is no window in
+	// which a length prefix exists on disk without its payload. (This is not crash
+	// atomicity — a single write can still tear — which is why scanFrames runs on open.)
+	rec := make([]byte, 4+len(entryBytes))
+	binary.BigEndian.PutUint32(rec[:4], uint32(len(entryBytes)))
+	copy(rec[4:], entryBytes)
 
 	// Get current position before writing
 	currentPos := dlf.position
 
-	// Write length prefix
-	if _, err := dlf.file.Write(lengthBytes); err != nil {
-		return 0, fmt.Errorf("failed to write length prefix: %w", err)
-	}
-
-	// Write entry data
-	if _, err := dlf.file.Write(entryBytes); err != nil {
-		return 0, fmt.Errorf("failed to write entry data: %w", err)
+	// WriteAt neither reads nor advances the file offset, so position stays the only
+	// authority. On failure position is left untouched and the next append rewrites these
+	// bytes, rather than appending after a stump the index would never point at.
+	if _, err := dlf.file.WriteAt(rec, currentPos); err != nil {
+		return 0, fmt.Errorf("failed to write entry at %d: %w", currentPos, err)
 	}
 
 	// Update position
-	dlf.position = currentPos + 4 + int64(len(entryBytes))
+	dlf.position = currentPos + int64(len(rec))
 
 	return currentPos, nil
 }

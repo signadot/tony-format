@@ -346,11 +346,7 @@ func (dl *DLog) truncateLog(logFile *DLogFile, gracePeriod time.Duration) error 
 		return fmt.Errorf("failed to truncate log file: %w", err)
 	}
 
-	if _, err := logFile.file.Seek(0, io.SeekStart); err != nil {
-		logFile.mu.Unlock()
-		return fmt.Errorf("failed to seek to start: %w", err)
-	}
-
+	// No seek needed: writes use WriteAt at logFile.position, not the file offset.
 	logFile.position = 0
 	logFile.mu.Unlock()
 

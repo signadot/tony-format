@@ -79,12 +79,12 @@ func (dl *DLog) NewSnapshotWriter(commit int64, timestamp string) (*SnapshotWrit
 	binary.BigEndian.PutUint32(header[0:4], BlobHeaderMagic)
 	binary.BigEndian.PutUint32(header[4:8], 0) // placeholder, will be patched
 
-	if _, err := logFileObj.file.Write(header); err != nil {
+	if _, err := logFileObj.file.WriteAt(header, headerPos); err != nil {
 		logFileObj.mu.Unlock()
 		logFileObj.snapMu.Unlock()
 		return nil, fmt.Errorf("failed to write blob header: %w", err)
 	}
-	logFileObj.position += BlobHeaderSize
+	logFileObj.position = headerPos + BlobHeaderSize
 	startPos := logFileObj.position // snapshot data starts after header
 	logFileObj.mu.Unlock()
 
@@ -105,7 +105,7 @@ func (sw *SnapshotWriter) Write(p []byte) (n int, err error) {
 	if sw.closed {
 		return 0, fmt.Errorf("write to closed SnapshotWriter")
 	}
-	n, err = sw.logFile.file.Write(p)
+	n, err = sw.logFile.file.WriteAt(p, sw.logFile.position)
 	if err != nil {
 		return n, err
 	}
@@ -117,15 +117,32 @@ func (sw *SnapshotWriter) Write(p []byte) (n int, err error) {
 	return n, nil
 }
 
-// Seek implements io.Seeker
+// Seek implements io.Seeker.
+//
+// The cursor is virtual: it moves logFile.position only, and never seeks the shared file
+// descriptor. snap.Builder seeks backwards to patch its own header, and doing that on the
+// real fd would relocate the append point for anyone else holding the file.
 func (sw *SnapshotWriter) Seek(offset int64, whence int) (int64, error) {
 	if sw.closed {
 		return 0, fmt.Errorf("seek on closed SnapshotWriter")
 	}
-	// Seek within the log file
-	newPos, err := sw.logFile.file.Seek(offset, whence)
-	if err != nil {
-		return 0, err
+	var newPos int64
+	switch whence {
+	case io.SeekStart:
+		newPos = offset
+	case io.SeekCurrent:
+		newPos = sw.logFile.position + offset
+	case io.SeekEnd:
+		stat, err := sw.logFile.file.Stat()
+		if err != nil {
+			return 0, fmt.Errorf("failed to stat log file: %w", err)
+		}
+		newPos = stat.Size() + offset
+	default:
+		return 0, fmt.Errorf("invalid whence %d", whence)
+	}
+	if newPos < 0 {
+		return 0, fmt.Errorf("negative seek position %d", newPos)
 	}
 	sw.logFile.position = newPos
 	// Don't update endPos on seek - only track actual writes
@@ -145,23 +162,16 @@ func (sw *SnapshotWriter) Close() error {
 	// Calculate blob length (snapshot data only, not including header or entry)
 	blobLength := sw.endPos - sw.startPos
 
-	// Patch the blob header with actual length
-	// Seek to header position + 4 (skip magic marker)
-	if _, err := sw.logFile.file.Seek(sw.headerPos+4, io.SeekStart); err != nil {
-		return fmt.Errorf("failed to seek to blob header: %w", err)
-	}
+	// Patch the blob header with the actual length, in place at headerPos+4 (skipping the
+	// magic marker). This in-place patch is why the log cannot be opened with O_APPEND.
 	lenBuf := make([]byte, 4)
 	binary.BigEndian.PutUint32(lenBuf, uint32(blobLength))
-	if _, err := sw.logFile.file.Write(lenBuf); err != nil {
+	if _, err := sw.logFile.file.WriteAt(lenBuf, sw.headerPos+4); err != nil {
 		return fmt.Errorf("failed to patch blob header length: %w", err)
 	}
 
-	// Seek to end of snapshot data to write Entry
-	// (builder may have seeked back to write header)
-	_, err := sw.logFile.file.Seek(sw.endPos, io.SeekStart)
-	if err != nil {
-		return fmt.Errorf("failed to seek to end of snapshot: %w", err)
-	}
+	// The Entry goes after the snapshot data; the builder may have left the cursor
+	// somewhere earlier, so reset it to the high-water mark.
 	sw.logFile.position = sw.endPos
 
 	// Create snapshot entry pointing to the snapshot data (after blob header)
@@ -188,22 +198,17 @@ func (sw *SnapshotWriter) Close() error {
 		return fmt.Errorf("entry too large: %d bytes", len(entryBytes))
 	}
 
-	// Write 4-byte length prefix
+	// Frame the entry in one buffer and write it in a single call, as AppendEntry does.
 	entryPos := sw.logFile.position
-	entryLenBuf := make([]byte, 4)
-	binary.BigEndian.PutUint32(entryLenBuf, uint32(len(entryBytes)))
+	rec := make([]byte, 4+len(entryBytes))
+	binary.BigEndian.PutUint32(rec[:4], uint32(len(entryBytes)))
+	copy(rec[4:], entryBytes)
 
-	// Write length prefix
-	if _, err := sw.logFile.file.Write(entryLenBuf); err != nil {
-		return fmt.Errorf("failed to write entry length: %w", err)
+	if _, err := sw.logFile.file.WriteAt(rec, entryPos); err != nil {
+		return fmt.Errorf("failed to write entry at %d: %w", entryPos, err)
 	}
 
-	// Write entry data
-	if _, err := sw.logFile.file.Write(entryBytes); err != nil {
-		return fmt.Errorf("failed to write entry: %w", err)
-	}
-
-	sw.logFile.position += int64(4 + len(entryBytes))
+	sw.logFile.position = entryPos + int64(len(rec))
 	sw.entryPos = entryPos
 
 	return nil
