@@ -376,6 +376,10 @@ func emitNode(node *ir.Node, sink stream.EventWriter) error {
 // its parent container closes, or in place of a scalar that the patch turns into a
 // subtree.
 //
+// Grafted keys must land where they SORT, not at the end: storage keeps object keys
+// sorted, and createSnapshot runs through this same code, so an unsorted read result
+// becomes an unsorted snapshot. See system/logd/storage/docs/KEY_ORDER.md.
+//
 // Only plain field segments can be grafted. A missing keyed-array element ("items{42}")
 // or array index would have to be created inside an array whose elements have already
 // streamed past, and doing that correctly needs the key field, which lives in the
