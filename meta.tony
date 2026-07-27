@@ -1,0 +1,7 @@
+!issue
+Ref: refs/issues/pb1aj0sqh12ksp38cxn0
+Title: "token: QuotedToString panics on a quoted string the scanner accepted — unrecovered in docd's read pump, and the same string desynchronizes log frame alignment on restart"
+created: "2026-07-27T16:19:04.622813+02:00"
+id: pb1aj0sqh12ksp38cxn0
+status: open
+updated: "2026-07-27T16:19:04.622813+02:00"
