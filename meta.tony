@@ -10,5 +10,7 @@ labels:
 - panic
 - storage
 - tokenizer
+related_issues:
+- hb8c72fph12krv2wcnn0
 status: open
-updated: "2026-07-27T16:19:10.274869+02:00"
+updated: "2026-07-27T16:19:10.365241+02:00"
