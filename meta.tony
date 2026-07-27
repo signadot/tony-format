@@ -1,0 +1,7 @@
+!issue
+Ref: refs/issues/sj7yw11ph12kshkkcxn0
+Title: "dlog: records have no checksum, so frame misalignment is undetectable and surfaces as a tokenizer error far from the cause"
+created: "2026-07-27T17:05:42.488529+02:00"
+id: sj7yw11ph12kshkkcxn0
+status: open
+updated: "2026-07-27T17:05:42.488529+02:00"
