@@ -47,7 +47,11 @@ func (op arrayDiffOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf Patch
 	if doc.Type != ir.ArrayType {
 		return nil, fmt.Errorf("arraydiff only applies to arrays, got %s at %s", doc.Type, doc.Path())
 	}
-	return patchArrayByIndex(doc, op.child, ctx, pf, df)
+	res, err := patchArrayByIndex(doc, op.child, ctx, pf, df)
+	if err != nil {
+		return nil, err
+	}
+	return retagFromDiff(doc, res, op.child, ctx, pf)
 }
 
 func patchArrayByIndex(doc, patch *ir.Node, ctx *OpContext, pf PatchFunc, df libdiff.DiffFunc) (*ir.Node, error) {
@@ -60,12 +64,24 @@ func patchArrayByIndex(doc, patch *ir.Node, ctx *OpContext, pf PatchFunc, df lib
 	docVals := doc.Values
 	fi, di := uint32(0), uint32(0)
 	diffCount := 0
+	// A key of an arraydiff is a position in the sequence the two arrays share,
+	// which every slot advances by one, and fi is where in the document that
+	// leaves us.  A patch whose keys claim more of the document than it has is
+	// malformed; say so rather than reading off the end of it.
+	overrun := func(what string) error {
+		return fmt.Errorf(
+			"invalid arraydiff at %s: %s at key %d reaches element %d of %d",
+			patch.Path(), what, di, fi, len(docVals))
+	}
 	for diffCount <= len(diffMap) {
 		op := diffMap[di]
 		if op == nil {
 			if diffCount == len(diffMap) {
 				res = append(res, docVals[fi:]...)
 				break
+			}
+			if int(fi) >= len(docVals) {
+				return nil, overrun("unchanged element")
 			}
 			res = append(res, docVals[fi])
 			fi++
@@ -87,6 +103,9 @@ func patchArrayByIndex(doc, patch *ir.Node, ctx *OpContext, pf PatchFunc, df lib
 		}
 		switch tag {
 		case "!delete":
+			if int(fi) >= len(docVals) {
+				return nil, overrun("delete")
+			}
 			if d := df(docVals[fi], op.Clone().WithTag(replTag)); d != nil {
 				return nil, fmt.Errorf(
 					"cannot patch, unexpected value at %s",
@@ -113,17 +132,26 @@ func patchArrayByIndex(doc, patch *ir.Node, ctx *OpContext, pf PatchFunc, df lib
 					"invalid arraydiff, missing 'from:' under !replace at %s",
 					op.Path())
 			}
-			if df(docVals[fi], from.Clone().WithTag(replTag)) != nil {
+			if int(fi) >= len(docVals) {
+				return nil, overrun("replace")
+			}
+			// from: and to: are whole values, tags included -- a !replace
+			// never carries the tag as an argument the way !insert and
+			// !delete do, so there is nothing here to put back.
+			if df(docVals[fi], from.Clone()) != nil {
 				return nil, fmt.Errorf("cannot patch, unexpected value at %s",
 					docVals[fi].Path())
 			}
-			res = append(res, to.Clone().WithTag(replTag))
+			res = append(res, to.Clone())
 			di++
 			fi++
 		case "!insert":
 			res = append(res, op.Clone().WithTag(replTag))
 			di++
 		default:
+			if int(fi) >= len(docVals) {
+				return nil, overrun("patch " + tag)
+			}
 			tmp, err := pf(docVals[fi], op, ctx)
 			if err != nil {
 				return nil, err

@@ -14,29 +14,40 @@ var IsOp = func(tag string) bool { return false }
 // a patch, so a value which holds a merge operation as data -- a stored rule,
 // a stored patch -- would be interpreted rather than stored when the diff was
 // applied.  Such a value is escaped with !raw, under which nothing is
-// interpreted at any depth.  A deleted value is never applied, and !replace
-// installs its to: verbatim, so neither needs the escape.
+// interpreted at any depth.
+//
+// A deleted value needs the escape just as much, though !delete never applies
+// what it carries: Reverse turns the !delete into an !insert, which does, and
+// a diff which cannot be reversed is not one.  !replace is the exception --
+// it compares its from: and installs its to: whole, in either direction.
 func MakeDiff(from, to *ir.Node) *ir.Node {
 	switch {
 	case from == nil:
-		if hasOpTag(to) {
-			return to.Clone().WithTag(
-				ir.TagCompose(InsertTag, nil, ir.TagCompose(RawTag, nil, to.Tag)))
-		}
-		if to.Tag == "" {
-			return to.Clone().WithTag(InsertTag)
-		}
-		return to.Clone().WithTag(InsertTag + "(" + to.Tag[1:] + ")")
+		return escaped(to, InsertTag)
 	case to == nil:
-		if from.Tag == "" {
-			return from.Clone().WithTag(DeleteTag)
-		}
-		return from.Clone().WithTag(DeleteTag + "(" + from.Tag[1:] + ")")
+		return escaped(from, DeleteTag)
 	default:
 		return ir.FromMap(map[string]*ir.Node{
 			"from": from,
 			"to":   to,
 		}).WithTag(ReplaceTag)
+	}
+}
+
+// escaped writes node into a diff under op -- !insert or !delete -- carrying
+// its own tag.  A value holding no merge operation keeps the long standing
+// shape, its tag as the operation's argument; one which does gets !raw, which
+// preserves the tag where it is and stops anything beneath being read as an
+// instruction.
+func escaped(node *ir.Node, op string) *ir.Node {
+	switch {
+	case hasOpTag(node):
+		return node.Clone().WithTag(
+			ir.TagCompose(op, nil, ir.TagCompose(RawTag, nil, node.Tag)))
+	case node.Tag == "":
+		return node.Clone().WithTag(op)
+	default:
+		return node.Clone().WithTag(op + "(" + node.Tag[1:] + ")")
 	}
 }
 

@@ -67,23 +67,27 @@ func (op strDiffOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFu
 	if err != nil {
 		return nil, err
 	}
-	return op.retag(doc, res, ctx, pf)
+	return retagFromDiff(doc, res, op.child, ctx, pf)
 }
 
-// retag restores the tag of the patched string.  A string patch builds a bare
-// string, so the tag has to be put back: a strdiff describes the characters of
-// a string, never its tag, so the tag is the document's own unless the diff
-// composed a tag diff -- !addtag, !rmtag, !retag -- after the !strdiff.
+// retagFromDiff restores the tag of a patched value.  A strdiff describes the
+// characters of a string and an arraydiff the elements of an array; neither
+// describes the tag, and both build a fresh node, so the tag has to be put
+// back.  It is the document's own unless the diff composed a tag diff --
+// !addtag, !rmtag, !retag -- after the operation, which is the only case a
+// diff needs to say anything about.
 //
-// Any other residual tag belongs to the diff's own int-keyed child, not to the
-// result: !sparsearray and !bracket land there from parsing, and older diffs
-// restated the unchanged tag there too, which the document already carries.
-func (op strDiffOp) retag(doc, res *ir.Node, ctx *OpContext, pf PatchFunc) (*ir.Node, error) {
+// Any other residual tag belongs to the diff's own int-keyed child rather than
+// to the result: !sparsearray and !bracket land there from parsing, and older
+// diffs restated the unchanged tag there too, which the document already
+// carries.
+func retagFromDiff(doc, res, child *ir.Node, ctx *OpContext, pf PatchFunc) (*ir.Node, error) {
 	res = res.WithTag(doc.Tag)
-	for tag := op.child.Tag; tag != ""; {
-		head, _, rest := ir.TagArgs(tag)
+	for tag := child.Tag; tag != ""; {
+		head, args, rest := ir.TagArgs(tag)
 		if isTagDiff(head) {
-			return pf(res, ir.Null().WithTag(tag), ctx)
+			// just this one, not whatever the child's own tag composed after it
+			return pf(res, ir.Null().WithTag(ir.TagCompose(head, args, "")), ctx)
 		}
 		tag = rest
 	}

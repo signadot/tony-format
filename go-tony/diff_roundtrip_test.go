@@ -144,18 +144,9 @@ func TestDiffRoundTrip(t *testing.T) {
 // TestDiffTestsRoundTrip holds the same invariant over the corpus TestDiff
 // already checks the shape of.  A diff whose text is right but which does not
 // apply is not right.
-// notApplicable are diffTests indices whose generated diff cannot be applied
-// to a at all, for a reason which predates the escape and has nothing to do
-// with it: an arraydiff whose keys are numbered past the end of the document,
-// which panics rather than erroring.  Issue 7rdzbjjbh12krw58cxn0.
-var notApplicable = map[int]bool{2: true}
-
 func TestDiffTestsRoundTrip(t *testing.T) {
 	for i := range diffTests {
 		test := &diffTests[i]
-		if notApplicable[i] {
-			continue
-		}
 		t.Run(strconv.Itoa(i), func(t *testing.T) {
 			a := mustParse(t, test.a)
 			b := mustParse(t, test.b)

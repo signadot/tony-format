@@ -27,8 +27,17 @@ func DiffArrayByIndex(from, to *ir.Node, df DiffFunc) *ir.Node {
 	diffs := diffCfg.DiffMainRunes(fromRunes, toRunes, false)
 	resMap := make(map[uint32]*ir.Node, len(diffs))
 
+	// ri is a position in the sequence the two arrays share.  Every slot
+	// advances it by one and stands for one element of each array which has
+	// one: a delete has only a from, an insert only a to, an equal and a
+	// replace both.  The applier walks the same positions and reads a missing
+	// one as an unchanged element, so a slot which does not account for
+	// exactly this throws off every key after it.
 	fi, ti, ri := 0, 0, uint32(0)
-	var delIndex *uint32
+	var (
+		delIndex *uint32
+		delNode  *ir.Node
+	)
 	for i := range diffs {
 		diff := &diffs[i]
 		switch diff.Type {
@@ -38,11 +47,12 @@ func DiffArrayByIndex(from, to *ir.Node, df DiffFunc) *ir.Node {
 				resMap[ri] = MakeDiff(from.Values[fi], nil)
 				tmp := ri
 				delIndex = &tmp
+				delNode = from.Values[fi]
 				ri++
 				fi++
 			}
 		case diffpatch.DiffEqual:
-			delIndex = nil
+			delIndex, delNode = nil, nil
 			for _, r := range diff.Text {
 				_ = r
 				di := df(from.Values[fi], to.Values[ti])
@@ -57,21 +67,36 @@ func DiffArrayByIndex(from, to *ir.Node, df DiffFunc) *ir.Node {
 			for _, r := range diff.Text {
 				_ = r
 				if delIndex != nil && *delIndex == ri-1 {
-					resMap[ri-1] = MakeDiff(resMap[ri-1].WithTag(""), to.Values[ti])
+					// this insert lands on the element the slot before it
+					// deleted, which is a replace: one slot for one element of
+					// each array, so ri does not advance again.  delNode is
+					// the element itself, tags and all -- the !delete written
+					// into resMap holds its tag as an argument instead, and a
+					// !replace states its from: whole.
+					resMap[*delIndex] = MakeDiff(delNode, to.Values[ti])
 				} else {
 					resMap[ri] = MakeDiff(nil, to.Values[ti])
+					ri++
 				}
-				ri++
 				ti++
-				delIndex = nil
+				delIndex, delNode = nil, nil
 			}
-			delIndex = nil
+			delIndex, delNode = nil, nil
 		}
 	}
+	// an arraydiff describes the elements of an array, never its tag, so a
+	// change to that is composed after it, as DiffObject and DiffString do
 	if len(resMap) == 0 {
-		return nil
+		if from.Tag == to.Tag {
+			return nil
+		}
+		return ir.Null().WithTag(mkTagDiff(from.Tag, to.Tag))
 	}
-	return ir.FromIntKeysMap(resMap).WithTag(ArrayDiffTag)
+	tag := ArrayDiffTag
+	if from.Tag != to.Tag {
+		tag = ir.TagCompose(ArrayDiffTag, nil, mkTagDiff(from.Tag, to.Tag))
+	}
+	return ir.FromIntKeysMap(resMap).WithTag(tag)
 }
 
 func mapValues(m map[string]rune, node *ir.Node) []rune {

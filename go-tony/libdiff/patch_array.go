@@ -76,11 +76,14 @@ func PatchArrayByIndex(doc, patch *ir.Node, df DiffFunc) (*ir.Node, error) {
 					"invalid arraydiff, missing 'from:' under !replace at %s",
 					op.Path())
 			}
-			if df(docVals[fi], from.Clone().WithTag(replTag)) != nil {
+			// from: and to: are whole values, tags included -- a !replace
+			// never carries the tag as an argument the way !insert and
+			// !delete do, so there is nothing here to put back.
+			if df(docVals[fi], from.Clone()) != nil {
 				return nil, fmt.Errorf("cannot patch, unexpected value at %s",
 					docVals[fi].Path())
 			}
-			res = append(res, to.Clone().WithTag(replTag))
+			res = append(res, to.Clone())
 			di++
 			fi++
 		case "!insert":

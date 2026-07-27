@@ -10,20 +10,29 @@ func Reverse(diff *ir.Node) (*ir.Node, error) {
 	tmp := diff.Clone()
 	err := tmp.Visit(func(node *ir.Node, isPost bool) (bool, error) {
 		if !isPost {
-			// Everything under a !raw is the document's data, not
-			// instructions, so the operation names in it must be left alone:
-			// reversing them would rewrite the values themselves.  The !raw
-			// node's own tag is still reversed, on the way back out.
-			return !hasTag(node.Tag, RawTag), nil
+			// Reversing rewrites operation names in place, so it may only
+			// descend through the diff's own structure.  Beneath these four
+			// lies the document: what !insert and !delete carry, the from: and
+			// to: of a !replace, and everything under a !raw are values, and an
+			// operation name in a value is data.  Rewriting one would change
+			// what the diff says the document is.  Their own tags are still
+			// reversed, on the way back out.
+			for _, valueTag := range [...]string{InsertTag, DeleteTag, ReplaceTag, RawTag} {
+				if hasTag(node.Tag, valueTag) {
+					return false, nil
+				}
+			}
+			return true, nil
 		}
 		headTag, args, rest := ir.TagArgs(node.Tag)
-		if headTag == StringDiffTag {
-			// a strdiff reverses by reversing the pieces beneath it, but a
-			// tag diff composed after it still has to be reversed itself
-			strDiffArgs := args
+		if headTag == StringDiffTag || headTag == ArrayDiffTag {
+			// these reverse by reversing what is beneath them, but a tag diff
+			// composed after one is still a tag diff and has to be reversed
+			// itself
+			containerTag, containerArgs := headTag, args
 			node.Tag = rest
 			defer func() {
-				node.Tag = ir.TagCompose(StringDiffTag, strDiffArgs, node.Tag)
+				node.Tag = ir.TagCompose(containerTag, containerArgs, node.Tag)
 			}()
 			headTag, args, rest = ir.TagArgs(rest)
 		}

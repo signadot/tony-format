@@ -23,30 +23,56 @@ func DiffObject(from, to *ir.Node, df DiffFunc) *ir.Node {
 	toRunes := mapFieldsTo(fieldMap, runeMap, to)
 	diffCfg := diffpatch.New()
 	diffs := diffCfg.DiffMainRunes(fromRunes, toRunes, false)
-	resMap := map[string]*ir.Node{}
+	// The sequence of field names is diffed to find which fields each side
+	// has, but the result is keyed by name rather than by position, and a
+	// reordering shows up as a field deleted here and inserted there.  Both
+	// land on the same key, so collect where each name occurs on each side
+	// first: a name on both sides is a field which changed value, whatever the
+	// sequence diff made of the move.
+	type sides struct{ fromIdx, toIdx int }
+	occurs := make(map[string]*sides, len(fieldMap))
+	at := func(name string) *sides {
+		s := occurs[name]
+		if s == nil {
+			s = &sides{fromIdx: -1, toIdx: -1}
+			occurs[name] = s
+		}
+		return s
+	}
 	fi, ti := 0, 0
 	for i := range diffs {
 		diff := &diffs[i]
 		switch diff.Type {
 		case diffpatch.DiffDelete:
 			for _, r := range diff.Text {
-				resMap[runeMap[r]] = MakeDiff(from.Values[fi], nil)
+				at(runeMap[r]).fromIdx = fi
 				fi++
 			}
 		case diffpatch.DiffEqual:
 			for _, r := range diff.Text {
-				fRes := df(from.Values[fi], to.Values[ti])
-				if fRes != nil {
-					resMap[runeMap[r]] = fRes
-				}
+				s := at(runeMap[r])
+				s.fromIdx, s.toIdx = fi, ti
 				fi++
 				ti++
 			}
 		case diffpatch.DiffInsert:
 			for _, r := range diff.Text {
-				resMap[runeMap[r]] = MakeDiff(nil, to.Values[ti])
+				at(runeMap[r]).toIdx = ti
 				ti++
 			}
+		}
+	}
+	resMap := map[string]*ir.Node{}
+	for name, s := range occurs {
+		switch {
+		case s.fromIdx >= 0 && s.toIdx >= 0:
+			if fRes := df(from.Values[s.fromIdx], to.Values[s.toIdx]); fRes != nil {
+				resMap[name] = fRes
+			}
+		case s.fromIdx >= 0:
+			resMap[name] = MakeDiff(from.Values[s.fromIdx], nil)
+		default:
+			resMap[name] = MakeDiff(nil, to.Values[s.toIdx])
 		}
 	}
 	if len(resMap) == 0 {

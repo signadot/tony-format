@@ -92,8 +92,8 @@ f5:
 4: !replace
   from: hellp
   to: hello
-6: !insert 4
-8: !replace
+5: !insert 4
+7: !replace
   from: 8
   to: 9`,
 	},
