@@ -83,6 +83,11 @@ rule: !raw {id: !glob "hot-*"}    # no match: rule has a stage field too
 rule: {id: !raw.glob "hot-*"}     # match: id compared literally, stage ignored
 ```
 
+`Diff` emits `!raw` itself for a value which carries operator tags as data, so
+that `Patch(a, Diff(a, b))` is `b` for documents which contain operations, and
+`Reverse` stops at a `!raw` rather than reversing the operations named inside
+it — those are the document's values, not the diff's instructions.
+
 `!raw` executes nothing — it is the opposite of `!pipe` — so `RejectUnsafe`
 has no quarrel with it, whatever the data it stores happens to name.
 

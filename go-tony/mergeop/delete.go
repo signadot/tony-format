@@ -46,7 +46,8 @@ func (n deleteOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc
 		debug.Logf("delete op called on %s\n", doc.Path())
 	}
 	if n.tag != nil {
-		if doc.Tag != *n.tag {
+		// the argument is a tag label, a node's Tag is the "!" and the label
+		if doc.Tag != "!"+*n.tag {
 			return nil, fmt.Errorf("doc tag %s at %s didn't match %s", doc.Tag, doc.Path(), *n.tag)
 		}
 	}

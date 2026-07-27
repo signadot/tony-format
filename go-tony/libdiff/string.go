@@ -52,12 +52,12 @@ func DiffString(from, to *ir.Node) *ir.Node {
 		return MakeDiff(from, to)
 	}
 	res := ir.FromIntKeysMap(resMap)
+	// A strdiff describes the characters of a string, never its tag: an
+	// unchanged tag stays on the document and is preserved by the patch.  Only
+	// a change to it needs saying.
 	tag := ir.TagCompose(StringDiffTag, []string{strconv.FormatBool(doMultiLine)}, "")
-	//tag := y.TagCompose(res.Tag, nil, strDiffTag)
 	if from.Tag != to.Tag {
 		tag = tag + "." + mkTagDiff(from.Tag, to.Tag)[1:]
-	} else if from.Tag != "" {
-		tag = ir.TagCompose(tag, nil, from.Tag)
 	}
 	return res.WithTag(tag)
 }

@@ -38,5 +38,20 @@ func (p addTagOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc
 	if debug.Op() {
 		debug.Logf("addtag op patch on %s\n", doc.Path())
 	}
-	return doc.WithTag("!" + p.tag), nil
+	res, err := patchUnderTagDiff(doc, p.child, ctx, pf)
+	if err != nil {
+		return nil, err
+	}
+	return res.WithTag("!" + p.tag), nil
+}
+
+// patchUnderTagDiff applies whatever a tag diff decorates.  A diff says a tag
+// changed by composing !addtag, !rmtag or !retag over the diff of the value,
+// which is a bare null when only the tag changed and the value's own diff when
+// both did -- and dropping that would silently discard every change beneath it.
+func patchUnderTagDiff(doc, child *ir.Node, ctx *OpContext, pf PatchFunc) (*ir.Node, error) {
+	if child.Type == ir.NullType && child.Tag == "" {
+		return doc.Clone(), nil
+	}
+	return pf(doc, child, ctx)
 }

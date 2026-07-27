@@ -50,7 +50,8 @@ func (n insertOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc
 		return nil, err
 	}
 	if n.tag != nil {
-		res = res.WithTag(*n.tag)
+		// the argument is a tag label, a node's Tag is the "!" and the label
+		res = res.WithTag("!" + *n.tag)
 	}
 	return res, nil
 }

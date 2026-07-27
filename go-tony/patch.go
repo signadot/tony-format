@@ -165,12 +165,15 @@ func objPatchYWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error
 		if err != nil {
 			return nil, err
 		}
+		// consumed whatever it produced: a patch which removes the field is
+		// still a patch which was applied, and the leftover loop below would
+		// otherwise apply it a second time to a null.
+		delete(patchMap, field.String)
 		if yy == nil {
 			//fmt.Printf("sub patch nil\n")
 			continue
 		}
 		dstMap[field.String] = yy
-		delete(patchMap, field.String)
 	}
 	//fmt.Printf("dstMap from doc %v\n", dstMap)
 	for k, pv := range patchMap {

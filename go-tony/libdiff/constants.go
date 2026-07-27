@@ -7,6 +7,7 @@ const (
 	TagDeleteTag  = "!rmtag"
 	TagInsertTag  = "!addtag"
 	TagReplaceTag = "!retag"
+	RawTag        = "!raw"
 	StringDiffTag = "!strdiff"
 	ArrayDiffTag  = "!arraydiff"
 )

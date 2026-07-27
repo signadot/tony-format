@@ -173,13 +173,16 @@ func CheckTag(tag string) error {
 			if i < n {
 				rest = tag[i+1:]
 			}
+			// arguments and the labels after a '.' are written without the
+			// '!', which only the whole tag's first label carries, so they
+			// are checked as they stand.
 			for _, arg := range args {
-				if err := CheckTag("!" + arg); err != nil {
+				if err := CheckTag(arg); err != nil {
 					return err
 				}
 			}
 			if rest != "" {
-				return CheckTag("!" + rest)
+				return CheckTag(rest)
 			}
 			return nil
 		case '(':
@@ -218,7 +221,7 @@ func CheckTag(tag string) error {
 			if '0' <= c && c <= '9' {
 				continue
 			}
-			if c == '[' || c == ']' {
+			if c == '[' || c == ']' || c == '-' || c == '_' {
 				continue
 			}
 			return fmt.Errorf("invalid char: %c", c)
@@ -226,6 +229,19 @@ func CheckTag(tag string) error {
 	}
 	if depth != 0 {
 		return errors.New("imbalanced parentheses")
+	}
+	if head == "" {
+		// no '.' ended a label, so the whole tag is one, with its arguments
+		if open != 0 {
+			head = tag[:open]
+		} else if tag != "" && tag[0] != '(' {
+			head = tag
+		}
+		for _, arg := range args {
+			if err := CheckTag(arg); err != nil {
+				return err
+			}
+		}
 	}
 	if tag != "" && head == "" {
 		return errors.New("missing tag label")

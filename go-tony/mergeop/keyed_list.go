@@ -73,15 +73,27 @@ func (kl keyedListOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf Patch
 			return nil, err
 		}
 		//fmt.Printf("patched key %q\npatch\n%s\nres\n%s", key, patchObj.MustString(), v.MustString())
+		// v is nil when the patch for this key removed the item, as !delete
+		// does; the item leaves the list rather than becoming a hole in it.
 		dst[i] = v
 		delete(klMap, key)
+	}
+	res := make([]*ir.Node, 0, len(dst)+len(klMap))
+	for _, v := range dst {
+		if v == nil {
+			continue
+		}
+		res = append(res, v)
 	}
 	keys := slices.Sorted(maps.Keys(klMap))
 	for _, key := range keys {
 		patchChild := klMap[key]
-		dst = append(dst, patchChild)
+		res = append(res, patchChild)
 	}
-	return ir.FromSlice(dst), nil
+	// patching the items of a list does not change what the list is, so it
+	// keeps its own tag -- !key(...) above all, without which the result is no
+	// longer a keyed list.
+	return ir.FromSlice(res).WithTag(doc.Tag), nil
 }
 
 func (kl keyedListOp) Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, error) {

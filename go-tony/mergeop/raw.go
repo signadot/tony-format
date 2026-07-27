@@ -33,9 +33,6 @@ var rawSym = &rawSymbol{name: rawName}
 
 const (
 	rawName name = "raw"
-
-	// RawTag is the tag form of the raw op, for composition by diff.
-	RawTag = "!" + string(rawName)
 )
 
 type rawSymbol struct {

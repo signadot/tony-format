@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	"github.com/signadot/tony-format/go-tony/libdiff"
 )
 
 var (
@@ -30,6 +32,15 @@ func Register(s Symbol) error {
 }
 
 func init() {
+	// libdiff cannot import mergeop, but a diff has to know which tags name
+	// operations in order to escape the ones a document holds as data.
+	libdiff.IsOp = func(tag string) bool {
+		if len(tag) == 0 || tag[0] != '!' {
+			return false
+		}
+		return Lookup(tag[1:]) != nil
+	}
+
 	Register(And())
 	Register(Or())
 	Register(Not())

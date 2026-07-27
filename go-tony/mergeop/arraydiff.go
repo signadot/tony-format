@@ -73,10 +73,17 @@ func patchArrayByIndex(doc, patch *ir.Node, ctx *OpContext, pf PatchFunc, df lib
 			continue
 		}
 		diffCount++
-		tag, args, _ := ir.TagArgs(op.Tag)
+		tag, args, rest := ir.TagArgs(op.Tag)
 		replTag := ""
-		if len(args) == 1 {
+		switch {
+		case len(args) == 1:
 			replTag = "!" + args[0]
+		case ir.TagHas(rest, libdiff.RawTag):
+			// the element holds merge operations as data: the escape is
+			// consumed here, as it is in a patch, and the element keeps its
+			// own tags.  Nothing beneath it is interpreted -- this installs
+			// the element, it does not walk it.
+			replTag = ir.TagRemove(rest, libdiff.RawTag)
 		}
 		switch tag {
 		case "!delete":

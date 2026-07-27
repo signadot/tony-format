@@ -41,5 +41,9 @@ func (p retagOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc,
 	if doc.Tag != "!"+p.from {
 		return nil, fmt.Errorf("doc tag %q doesn't match %q", doc.Tag, p.from)
 	}
-	return doc.Clone().WithTag("!" + p.to), nil
+	res, err := patchUnderTagDiff(doc, p.child, ctx, pf)
+	if err != nil {
+		return nil, err
+	}
+	return res.WithTag("!" + p.to), nil
 }

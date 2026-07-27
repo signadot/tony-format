@@ -35,11 +35,19 @@ func PatchArrayByIndex(doc, patch *ir.Node, df DiffFunc) (*ir.Node, error) {
 			continue
 		}
 		diffCount++
-		tag, args, _ := ir.TagArgs(op.Tag)
+		tag, args, rest := ir.TagArgs(op.Tag)
 		replTag := ""
-		if len(args) == 1 {
+		switch {
+		case len(args) == 1:
 			replTag = "!" + args[0]
+		case hasTag(rest, RawTag):
+			// the value holds merge operations as data: the escape is
+			// consumed here, as it is in a patch, and the value keeps its own
+			// tags.  Nothing beneath is interpreted -- this path installs the
+			// value, it does not walk it.
+			replTag = ir.TagRemove(rest, RawTag)
 		}
+
 		switch tag {
 		case "!delete":
 			if d := df(docVals[fi], op.Clone().WithTag(replTag)); d != nil {
