@@ -3,5 +3,9 @@ Ref: refs/issues/sxssdmcyh12kssdfcsn0
 Title: "libctl: a writer cannot learn its own commit — the server sends PatchResult{Commit,Data} and doPatch discards it (auto-generated ids unreachable too)"
 created: "2026-07-27T03:09:57.737461+02:00"
 id: sxssdmcyh12kssdfcsn0
+labels:
+- api
+- libctl
+- medium
 status: open
-updated: "2026-07-27T03:09:57.737461+02:00"
+updated: "2026-07-27T03:10:04.87781+02:00"
