@@ -56,11 +56,21 @@ func (a *InMemoryApplier) ApplyPatches(baseEvents stream.EventReader, patches []
 
 	// Apply patches in order
 	for _, patch := range patches {
-		var err error
-		state, err = tony.Patch(state, patch)
+		// A delete leaves nil, and tony.Patch panics if handed one as the document.
+		// Absent is null here, matching StreamingProcessor, so a delete followed by a
+		// write rebuilds from null.
+		if state == nil {
+			state = ir.Null()
+		}
+		next, err := tony.Patch(state, patch)
 		if err != nil {
 			return err
 		}
+		state = next
+	}
+
+	if state == nil {
+		return nil // everything deleted: no events is the null state
 	}
 
 	// Convert result back to events
