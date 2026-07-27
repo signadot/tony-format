@@ -1,0 +1,7 @@
+!issue
+Ref: refs/issues/23b00eyvh12ksgebcxn0
+Title: "parse: a comment at the end of a container is dropped instead of cascading to the next value (spec: 'dedented or higher')"
+created: "2026-07-27T23:21:05.263979+02:00"
+id: "23b00eyvh12ksgebcxn0"
+status: open
+updated: "2026-07-27T23:21:05.263979+02:00"
