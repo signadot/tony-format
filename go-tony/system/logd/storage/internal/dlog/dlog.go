@@ -245,26 +245,26 @@ func newDLogFile(id LogFileID, path string, logger *slog.Logger) (*DLogFile, err
 		file.Close()
 		return nil, fmt.Errorf("failed to scan log file %q: %w", path, err)
 	}
+	// Opening a log never deletes anything. The scan decides where the next record goes,
+	// not what survives, so a scan that is wrong costs a failed read rather than bytes.
+	//
+	// A torn tail needs no truncation to be dealt with: appends are WriteAt at position,
+	// so setting position to the last complete frame means the next record simply
+	// overwrites the stump. Truncation only ever bought a clean bound for iteration, and
+	// the iterator takes that bound from position instead (see Iterator).
 	position := stat.Size()
 	switch {
 	case tornTail:
-		// Provably incomplete: the last frame runs past the end of the file, so it was
-		// never fully written. Discarding it is bounded by that one record.
-		logger.Warn("dropping torn tail from log file",
+		logger.Warn("log file ends in an incomplete record; it will be overwritten",
 			"path", path, "lastGoodEnd", end, "size", stat.Size(),
-			"discardedBytes", stat.Size()-end)
-		if err := file.Truncate(end); err != nil {
-			file.Close()
-			return nil, fmt.Errorf("failed to truncate torn tail of %q: %w", path, err)
-		}
+			"incompleteBytes", stat.Size()-end)
 		position = end
 	case end < stat.Size():
 		// The walk stopped on something it cannot cross, with the file continuing past
-		// it. That is NOT a torn tail and must never be truncated — an abandoned
-		// snapshot leaves an unpatched blob header mid-file with live entries after it,
-		// and treating that as a tail would discard the entire rest of the log. Append
-		// at the real end of file so nothing already written is overwritten.
-		logger.Warn("log file has a region the frame walk cannot cross; leaving it intact",
+		// it — an abandoned snapshot leaves an unpatched blob header mid-file with live
+		// entries behind it. Append at the real end of file so nothing already written
+		// is overwritten.
+		logger.Warn("log file has a region the frame walk cannot cross; appending past it",
 			"path", path, "stoppedAt", end, "size", stat.Size(),
 			"bytesBeyond", stat.Size()-end)
 	}
@@ -561,14 +561,13 @@ func (dl *DLog) SwitchActive() error {
 // Starts at position 0 for both files.
 // Note: Currently uses non-streaming reads. Streaming support can be added later.
 func (dl *DLog) Iterator() (*DLogIter, error) {
-	sizeA, err := dl.logA.Size()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get logA size: %w", err)
-	}
-	sizeB, err := dl.logB.Size()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get logB size: %w", err)
-	}
+	// Bound by the append frontier, not the file size. position is the end of the last
+	// complete record: on open it is where the frame scan stopped, and every append moves
+	// it by exactly what was written. An incomplete tail therefore falls outside the
+	// iteration without having to be deleted from the file first — which is what let
+	// opening a log stop truncating.
+	sizeA := dl.logA.Position()
+	sizeB := dl.logB.Position()
 
 	iterA := &singleFileIter{
 		logFile:  dl.logA,

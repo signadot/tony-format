@@ -2,6 +2,7 @@ package dlog
 
 import (
 	"encoding/binary"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -100,10 +101,11 @@ func TestAppendPositionMatchesFileSize(t *testing.T) {
 	}
 }
 
-// A torn tail — a length prefix whose payload never made it to disk — must be detected
-// and dropped on open, not silently adopted as the append point. Adopting it puts every
-// later frame boundary at the wrong offset.
-func TestOpenTruncatesTornTail(t *testing.T) {
+// A torn tail — a length prefix whose payload never made it to disk — must be detected on
+// open and excluded from the append point, not silently adopted. Adopting it puts every
+// later frame boundary at the wrong offset. The bytes stay on disk and are overwritten by
+// the next append; nothing is deleted.
+func TestOpenExcludesTornTailFromAppendPoint(t *testing.T) {
 	tmpDir := t.TempDir()
 	dl, err := NewDLog(tmpDir, nil)
 	if err != nil {
@@ -140,7 +142,7 @@ func TestOpenTruncatesTornTail(t *testing.T) {
 	defer dl2.Close()
 
 	if got := dl2.logA.Position(); got != goodEnd {
-		t.Errorf("position after reopen = %d, want %d (torn tail not dropped)", got, goodEnd)
+		t.Errorf("position after reopen = %d, want %d (torn tail not excluded)", got, goodEnd)
 	}
 
 	// The surviving entry must still read, and a new append must be readable too.
@@ -239,5 +241,117 @@ func TestOpenKeepsDataBeyondUnpatchedBlobHeader(t *testing.T) {
 	}
 	if got2.Commit != 2 {
 		t.Errorf("entry at pos2: commit = %d, want 2", got2.Commit)
+	}
+}
+
+// Opening a log never deletes. A torn tail is dealt with by where the next record goes,
+// not by removing bytes: position is set to the last complete frame, so the next append
+// overwrites the stump, and iteration is bounded by that same position so the stump falls
+// outside it. Truncation's only job was that bound.
+func TestOpenDoesNotTruncateAndIterationStaysClean(t *testing.T) {
+	tmpDir := t.TempDir()
+	dl, err := NewDLog(tmpDir, nil)
+	if err != nil {
+		t.Fatalf("NewDLog() error = %v", err)
+	}
+	for i := 1; i <= 4; i++ {
+		if _, _, err := dl.AppendEntry(testEntry(int64(i), "v")); err != nil {
+			t.Fatalf("AppendEntry(%d) error = %v", i, err)
+		}
+	}
+	goodEnd := dl.logA.Position()
+	if err := dl.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	// Crash mid-append: a length prefix whose payload never landed.
+	path := filepath.Join(tmpDir, "logA")
+	f, err := os.OpenFile(path, os.O_RDWR, 0644)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	hdr := make([]byte, 4)
+	binary.BigEndian.PutUint32(hdr, 8192)
+	if _, err := f.WriteAt(hdr, goodEnd); err != nil {
+		t.Fatalf("write stump: %v", err)
+	}
+	f.Close()
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	sizeWithStump := st.Size()
+
+	dl2, err := NewDLog(tmpDir, nil)
+	if err != nil {
+		t.Fatalf("NewDLog() (reopen) error = %v", err)
+	}
+	defer dl2.Close()
+
+	st2, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat after reopen: %v", err)
+	}
+	if st2.Size() != sizeWithStump {
+		t.Errorf("open truncated the file: %d -> %d bytes", sizeWithStump, st2.Size())
+	}
+	if got := dl2.logA.Position(); got != goodEnd {
+		t.Errorf("append position = %d, want %d (last complete frame)", got, goodEnd)
+	}
+
+	it, err := dl2.Iterator()
+	if err != nil {
+		t.Fatalf("Iterator() error = %v", err)
+	}
+	n := 0
+	for {
+		e, _, _, err := it.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("iteration errored on the stump instead of stopping cleanly: %v", err)
+		}
+		if e != nil {
+			n++
+		}
+	}
+	if n != 4 {
+		t.Errorf("iterated %d entries, want 4", n)
+	}
+}
+
+// Opens a real data directory read-write, exactly as the daemon does, and requires the
+// files to be the same size afterwards. Set REAL_DLOG_DIR to a COPY of one — this opens
+// for write. Skipped by default; the failure this guards against was only ever visible
+// against real data, where an abandoned snapshot sits mid-file.
+func TestOpenRealDataDirDeletesNothing(t *testing.T) {
+	dir := os.Getenv("REAL_DLOG_DIR")
+	if dir == "" {
+		t.Skip("REAL_DLOG_DIR not set (point it at a COPY of a data dir)")
+	}
+	before := map[string]int64{}
+	for _, n := range []string{"logA", "logB"} {
+		st, err := os.Stat(filepath.Join(dir, n))
+		if err != nil {
+			t.Fatalf("stat %s: %v", n, err)
+		}
+		before[n] = st.Size()
+	}
+	dl, err := NewDLog(dir, nil)
+	if err != nil {
+		t.Fatalf("NewDLog: %v", err)
+	}
+	if err := dl.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	for _, n := range []string{"logA", "logB"} {
+		st, err := os.Stat(filepath.Join(dir, n))
+		if err != nil {
+			t.Fatalf("stat %s: %v", n, err)
+		}
+		if st.Size() != before[n] {
+			t.Errorf("%s: %d -> %d bytes, DELETED %d", n, before[n], st.Size(), before[n]-st.Size())
+		}
 	}
 }
