@@ -620,8 +620,8 @@ func (dlf *DLogFile) AppendEntry(entry *Entry) (position int64, err error) {
 	dlf.mu.Lock()
 	defer dlf.mu.Unlock()
 
-	// Serialize entry to Tony format
-	entryBytes, err := entry.ToTony()
+	// Serialize entry to the binary event stream (see codec.go)
+	entryBytes, err := encodeEntry(entry)
 	if err != nil {
 		return 0, fmt.Errorf("failed to serialize entry: %w", err)
 	}
@@ -680,9 +680,9 @@ func (dlf *DLogFile) ReadEntryAt(position int64) (*Entry, error) {
 		return nil, fmt.Errorf("failed to read entry data at position %d: %w", position+4, err)
 	}
 
-	// Deserialize entry
-	entry := &Entry{}
-	if err := entry.FromTony(entryBytes); err != nil {
+	// Deserialize entry (binary, or legacy tony text — see codec.go)
+	entry, err := decodeEntry(entryBytes)
+	if err != nil {
 		return nil, fmt.Errorf("failed to deserialize entry at position %d: %w", position, err)
 	}
 
@@ -827,8 +827,8 @@ func (it *singleFileIter) next() (*Entry, int64, error) {
 		return nil, it.position, fmt.Errorf("failed to read entry data: %w", err)
 	}
 
-	entry := &Entry{}
-	if err := entry.FromTony(entryBytes); err != nil {
+	entry, err := decodeEntry(entryBytes)
+	if err != nil {
 		return nil, it.position, fmt.Errorf("failed to deserialize entry: %w", err)
 	}
 

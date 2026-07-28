@@ -187,8 +187,9 @@ func (sw *SnapshotWriter) Close() error {
 		SchemaEntry: sw.schemaEntry,
 	}
 
-	// Serialize entry to Tony format
-	entryBytes, err := entry.ToTony()
+	// Binary event stream, matching AppendEntry — a snapshot's own Entry is a log record
+	// like any other and is encoded the same way (see codec.go).
+	entryBytes, err := encodeEntry(entry)
 	if err != nil {
 		return fmt.Errorf("failed to serialize entry: %w", err)
 	}

@@ -144,14 +144,16 @@ func (dl *DLog) writeCompactedEntries(logFile *DLogFile, positions []int64) ([]C
 			newSnapPos := newPosition + BlobHeaderSize
 			entry.SnapPos = &newSnapPos
 
-			// Serialize and write updated entry
-			if err := dl.writeEntry(tempFile, entry); err != nil {
+			// Serialize and write updated entry. writeEntry reports what it wrote:
+			// this used to serialize the entry a second time purely to measure it,
+			// which assumed the two serializations agreed byte for byte. If they ever
+			// did not, newPosition would drift and every later entry would be recorded
+			// at the wrong offset — and a re-encode is exactly what happens here when
+			// the surviving entry came from a log written in the old text form.
+			newEntrySize, err := dl.writeEntry(tempFile, entry)
+			if err != nil {
 				return nil, "", fmt.Errorf("failed to write entry at %d: %w", oldEntryPos, err)
 			}
-
-			// Get the new entry size after serialization
-			newEntryBytes, _ := entry.ToTony()
-			newEntrySize := int64(4 + len(newEntryBytes))
 
 			// Result maps old entry position to new entry position
 			results = append(results, CompactResult{
@@ -183,26 +185,27 @@ func (dl *DLog) writeCompactedEntries(logFile *DLogFile, positions []int64) ([]C
 	return results, tempPath, nil
 }
 
-// writeEntry writes an entry to the file with length prefix.
-func (dl *DLog) writeEntry(file *os.File, entry *Entry) error {
-	entryBytes, err := entry.ToTony()
+// writeEntry writes an entry to the file with length prefix, returning the total bytes
+// written including that prefix, so the caller advances by what actually landed rather
+// than by a second guess at it.
+//
+// Binary event stream, matching AppendEntry: a compacted snapshot entry is rewritten, so
+// this is also where an entry from an old text-form log gets carried over into the current
+// encoding.
+func (dl *DLog) writeEntry(file *os.File, entry *Entry) (int64, error) {
+	entryBytes, err := encodeEntry(entry)
 	if err != nil {
-		return fmt.Errorf("failed to serialize entry: %w", err)
+		return 0, fmt.Errorf("failed to serialize entry: %w", err)
 	}
 
-	// Write length prefix
-	lengthBytes := make([]byte, 4)
-	binary.BigEndian.PutUint32(lengthBytes, uint32(len(entryBytes)))
-	if _, err := file.Write(lengthBytes); err != nil {
-		return fmt.Errorf("failed to write length prefix: %w", err)
+	// Frame the record in one buffer and write it once, as AppendEntry does.
+	rec := make([]byte, 4+len(entryBytes))
+	binary.BigEndian.PutUint32(rec[:4], uint32(len(entryBytes)))
+	copy(rec[4:], entryBytes)
+	if _, err := file.Write(rec); err != nil {
+		return 0, fmt.Errorf("failed to write entry data: %w", err)
 	}
-
-	// Write entry data
-	if _, err := file.Write(entryBytes); err != nil {
-		return fmt.Errorf("failed to write entry data: %w", err)
-	}
-
-	return nil
+	return int64(len(rec)), nil
 }
 
 // readEntrySize reads the size of an entry at the given position.

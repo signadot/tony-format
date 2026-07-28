@@ -358,10 +358,11 @@ func TestDLogFile_Position(t *testing.T) {
 
 	// Position should match append position
 	newPos := dl.logA.Position()
-	// Position should be appendPos + 4 (length prefix) + entry size
-	entryBytes, err := entry.ToTony()
+	// Position should be appendPos + 4 (length prefix) + entry size.
+	// Measured with the encoder AppendEntry actually uses, not ToTony.
+	entryBytes, err := encodeEntry(entry)
 	if err != nil {
-		t.Fatalf("ToTony() error = %v", err)
+		t.Fatalf("encodeEntry() error = %v", err)
 	}
 	expectedPos := appendPos + 4 + int64(len(entryBytes))
 	if newPos != expectedPos {
