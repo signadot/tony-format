@@ -1,6 +1,8 @@
 !issue
 Ref: refs/issues/prfzxpa2h12ks3vscxn0
 Title: "token: a correctly encoded U+FFFD is rejected as bad utf8 — RuneError checked without sz==1, so any document containing the replacement character fails to parse"
+commits:
+- "436de39a3901199f9b1a4d43581829d109f4e657"
 created: "2026-07-27T17:30:23.667271+02:00"
 id: prfzxpa2h12ks3vscxn0
 labels:
@@ -10,4 +12,4 @@ related_issues:
 - pb1aj0sqh12ksp38cxn0
 - hb8c72fph12krv2wcnn0
 status: open
-updated: "2026-07-28T15:15:59.700808+02:00"
+updated: "2026-07-28T15:16:28.088599+02:00"
