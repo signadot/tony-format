@@ -6,6 +6,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/signadot/tony-format/go-tony/format"
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -13,7 +14,12 @@ import (
 )
 
 type EncState struct {
-	line, col     int
+	// atCol0 records that nothing has been written on the current line and that
+	// the line carries no indent either -- the one question writeNL needs answered.
+	// This replaced a column counter that was maintained at two dozen sites and read
+	// in exactly one, where it was compared against zero. The arithmetic was all in
+	// service of that comparison, and two places wrote bytes without updating it.
+	atCol0        bool
 	depth, indent int
 	brackets      bool
 	comments      bool
@@ -31,6 +37,7 @@ type EncState struct {
 func Encode(node *ir.Node, w io.Writer, opts ...EncodeOption) error {
 	es := &EncState{
 		indent: 2,
+		atCol0: true,
 	}
 	for _, opt := range opts {
 		opt(es)
@@ -45,7 +52,7 @@ func Encode(node *ir.Node, w io.Writer, opts ...EncodeOption) error {
 		return err
 	}
 	if !es.comments {
-		es.col = 1
+		es.atCol0 = false
 		es.depth = 0
 		return writeNL(w, es)
 	}
@@ -87,15 +94,14 @@ func writeNL(w io.Writer, es *EncState) error {
 	if es.wire {
 		return nil
 	}
-	if es.col == 0 {
+	if es.atCol0 {
 		return nil
 	}
 	indentString := strings.Repeat(strings.Repeat(" ", es.indent), es.depth)
 	if err := writeString(w, "\n"+indentString); err != nil {
 		return err
 	}
-	es.line++
-	es.col = len(indentString)
+	es.atCol0 = indentString == ""
 	return nil
 }
 
@@ -140,7 +146,7 @@ func writeCommaSeparator(w io.Writer, es *EncState, cType ir.Type, forMLString b
 	default:
 		panic("format")
 	}
-	es.col += len(sep)
+	es.atCol0 = false
 	if es.Color != nil {
 		sep = es.Color(cType, SepColor, sep)
 	}
@@ -236,7 +242,7 @@ func writeTagIfPresent(node *ir.Node, w io.Writer, es *EncState) error {
 	if err := writeTag(w, tag, es); err != nil {
 		return err
 	}
-	es.col += len(tag)
+	es.atCol0 = false
 	switch node.Type {
 	case ir.ObjectType, ir.ArrayType:
 		if len(node.Values) > 0 && !es.wire {
@@ -291,7 +297,7 @@ func writeObjectOpen(w io.Writer, es *EncState, nFields int) error {
 		return nil
 	}
 	open := "{"
-	es.col++
+	es.atCol0 = false
 	if err := writeString(w, open); err != nil {
 		return err
 	}
@@ -309,7 +315,7 @@ func writeObjectClose(w io.Writer, es *EncState, nFields int) error {
 			return err
 		}
 	}
-	es.col++
+	es.atCol0 = false
 	return writeString(w, "}")
 }
 
@@ -376,8 +382,7 @@ func encodeMergeField(yField, yVal *ir.Node, w io.Writer, es *EncState) (bool, e
 		buf := bytes.NewBuffer(nil)
 		subEncState := &EncState{}
 		*subEncState = *es
-		subEncState.line = 0
-		subEncState.col = 0
+		subEncState.atCol0 = true
 		subEncState.depth = 0
 		if err := encode(yVal, buf, subEncState); err != nil {
 			es.colorAttr = oldColorAttr
@@ -404,7 +409,7 @@ func encodeNumberField(yField *ir.Node, w io.Writer, es *EncState) error {
 		return fmt.Errorf("number typed key without int value")
 	}
 	v := strconv.FormatInt(*yField.Int64, 10)
-	es.col += len(v)
+	es.atCol0 = false
 	sep := ":"
 	if es.Color != nil {
 		v = applyColor(es, ir.NumberType, FieldColor, v)
@@ -422,7 +427,7 @@ func encodeObjectValue(node *ir.Node, w io.Writer, es *EncState) error {
 			if err := writeString(w, " "); err != nil {
 				return err
 			}
-			es.col += 1
+			es.atCol0 = false
 		}
 		br := false
 		if esBracket(es) || ir.TagHas(node.Tag, "!bracket") {
@@ -447,7 +452,7 @@ func encodeObjectValue(node *ir.Node, w io.Writer, es *EncState) error {
 			if err := writeString(w, " "); err != nil {
 				return err
 			}
-			es.col += 1
+			es.atCol0 = false
 		}
 		err := encode(node, w, es)
 		if br {
@@ -469,7 +474,7 @@ func encodeObjectValue(node *ir.Node, w io.Writer, es *EncState) error {
 			if err := writeString(w, " "); err != nil {
 				return err
 			}
-			es.col += 1
+			es.atCol0 = false
 		}
 		if err := writeTagIfPresent(node, w, es); err != nil {
 			return err
@@ -506,7 +511,7 @@ func encodeSimpleLeafValue(yVal *ir.Node, w io.Writer, es *EncState) error {
 		if err := writeString(w, " "); err != nil {
 			return err
 		}
-		es.col += 1
+		es.atCol0 = false
 	}
 	return encode(yVal, w, es)
 }
@@ -558,7 +563,7 @@ func writeArrayOpen(w io.Writer, es *EncState, nValues int) error {
 	if err := writeString(w, open); err != nil {
 		return err
 	}
-	es.col += 1
+	es.atCol0 = false
 	es.depth++
 	return nil
 }
@@ -573,7 +578,7 @@ func writeArrayClose(w io.Writer, es *EncState, nValues int) error {
 			return err
 		}
 	}
-	es.col++
+	es.atCol0 = false
 	return writeString(w, "]")
 }
 
@@ -605,7 +610,7 @@ func writeArrayElementMarker(w io.Writer, es *EncState) error {
 	if err := writeString(w, sep); err != nil {
 		return err
 	}
-	es.col += 2
+	es.atCol0 = false
 	return nil
 }
 
@@ -642,7 +647,7 @@ func encodeBlockLit(node *ir.Node, w io.Writer, es *EncState) error {
 	if err := writeString(w, startBLit); err != nil {
 		return err
 	}
-	es.col += len(startBLit)
+	es.atCol0 = false
 	es.depth++
 	defer func() { es.depth-- }()
 	if err := writeNL(w, es); err != nil {
@@ -657,9 +662,18 @@ func encodeBlockLit(node *ir.Node, w io.Writer, es *EncState) error {
 		return err
 	}
 	if strings.HasSuffix(startBLit, "+") {
+		// "|+" keeps the trailing newline that was stripped above, closing the block's
+		// last line. writeRaw leaves the cursor mid-line, so this cannot go through
+		// writeNL -- it is one of the two places that write to w directly.
+		//
+		// Recording that we are now at column 0 is what makes the caller's writeNL skip
+		// rather than open a second, empty line. Without it the value came back with one
+		// more trailing newline than went in. The old column counter was never updated
+		// here at all, so the state simply lied about where the cursor was.
 		if _, err := w.Write([]byte{'\n'}); err != nil {
 			return err
 		}
+		es.atCol0 = true
 	}
 	return nil
 }
@@ -678,12 +692,12 @@ func encodeMString(node *ir.Node, w io.Writer, es *EncState) error {
 		if err := writeString(w, ln); err != nil {
 			return err
 		}
-		es.col += len(ln)
+		es.atCol0 = false
 		if i < len(commentLines) {
 			if es.comments {
 				commentText := commentLines[i]
 				if commentText != "" {
-					es.col += len(commentText)
+					es.atCol0 = false
 					commentText = applyValueColor(es, ir.CommentType, commentText)
 					if err := writeString(w, commentText); err != nil {
 						return err
@@ -697,7 +711,7 @@ func encodeMString(node *ir.Node, w io.Writer, es *EncState) error {
 
 func encodeStringOrLit(node *ir.Node, w io.Writer, es *EncState) error {
 	v := quoteString(node.String, es)
-	es.col += len(v)
+	es.atCol0 = false
 	v = applyStringColor(es, v)
 	if err := writeString(w, v); err != nil {
 		return err
@@ -717,7 +731,7 @@ func encodeNumber(node *ir.Node, w io.Writer, es *EncState) error {
 	if node.Int64 != nil {
 		v := strconv.FormatInt(*node.Int64, 10)
 		v = applyValueColor(es, ir.NumberType, v)
-		es.col += len(v)
+		es.atCol0 = false
 		if err := writeString(w, v); err != nil {
 			return err
 		}
@@ -729,7 +743,7 @@ func encodeNumber(node *ir.Node, w io.Writer, es *EncState) error {
 			v = "0.0"
 		}
 		v = applyValueColor(es, ir.NumberType, v)
-		es.col += len(v)
+		es.atCol0 = false
 		if err := writeString(w, v); err != nil {
 			return err
 		}
@@ -745,7 +759,7 @@ func encodeBool(node *ir.Node, w io.Writer, es *EncState) error {
 	if err := writeString(w, v); err != nil {
 		return err
 	}
-	es.col += len(v)
+	es.atCol0 = false
 	return writeLineCommentLines(w, node.Comment, es)
 }
 
@@ -757,7 +771,7 @@ func encodeNull(node *ir.Node, w io.Writer, es *EncState) error {
 	if _, err := w.Write([]byte(v)); err != nil {
 		return err
 	}
-	es.col += 4
+	es.atCol0 = false
 	return writeLineCommentLines(w, node.Comment, es)
 }
 
@@ -794,7 +808,6 @@ func encodeComment(node *ir.Node, w io.Writer, es *EncState) error {
 
 func writeField(w io.Writer, f string, es *EncState) error {
 	sep := ":"
-	col := &es.col
 	if isJSON(es) || token.NeedsQuote(f) {
 		f = token.Quote(f, true)
 	}
@@ -811,7 +824,7 @@ func writeField(w io.Writer, f string, es *EncState) error {
 	if err := writeString(w, ff); err != nil {
 		return err
 	}
-	*col += len(f) + len(sep)
+	es.atCol0 = false
 	return nil
 }
 
@@ -836,16 +849,16 @@ func writeRaw(w io.Writer, v string, es *EncState) error {
 			// the last line is empty and we should keep col from previous writeNL
 			// to ensure subsequent writeNL calls don't skip.
 			if len(ln) > 0 {
-				es.col = len(ln)
+				es.atCol0 = len(ln) == 0
 			}
 			break
 		}
-		es.col = 1
+		es.atCol0 = false
 		if err := writeNL(w, es); err != nil {
-			es.col = len(ln)
+			es.atCol0 = len(ln) == 0
 			return err
 		}
-		es.col = len(ln)
+		es.atCol0 = len(ln) == 0
 	}
 	return nil
 }
@@ -860,13 +873,21 @@ func writeLineCommentLines(w io.Writer, c *ir.Node, es *EncState) error {
 	// Only write Lines[0] (the line comment on the same line as the value).
 	// Lines[1:] (trailing comments) are written by the finalization code in Encode().
 	ln := c.Lines[0]
-	es.col += len(ln)
+	es.atCol0 = false
 	ln = applyValueColor(es, ir.CommentType, ln)
 	return writeString(w, ln)
 }
 
 func doBlockLit(node *ir.Node, es *EncState) bool {
 	if es.wire || es.format.IsJSON() {
+		return false
+	}
+	// A block literal writes its content out raw, so nothing inside one can be escaped.
+	// U+FFFD has to be escaped or the document will not read back -- the scanners take a
+	// decoded RuneError as bad utf8 -- so a value containing one takes the quoted form
+	// instead, which escapes per line. This wins over an explicit literal request: a
+	// formatting preference is not worth emitting a document that cannot be parsed.
+	if strings.ContainsRune(node.String, utf8.RuneError) {
 		return false
 	}
 	if es.literal || ir.TagHas(node.Tag, "!literal") {

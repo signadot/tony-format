@@ -3,7 +3,6 @@ package parse
 import (
 	"bytes"
 	"fmt"
-	"strings"
 	"testing"
 	"unicode/utf8"
 
@@ -51,21 +50,12 @@ func reparseScalar(t *testing.T, body string) (*ir.Node, error) {
 	return ir.Get(ir.Get(ir.Get(n, "lvl1"), "lvl2"), "a_scalar"), nil
 }
 
-// sameScalar compares a reparsed scalar to what went in.
-//
-// Multi-line values are compared with trailing newlines trimmed. Block-literal chomping
-// does not preserve them exactly — "one\ntwo\n\n" comes back with a third newline — which
-// is a real defect, tracked separately, in a different part of the encoder from the quoting
-// this file is about. Trimming keeps that known gap from masking a NEW multi-line failure:
-// any difference in content still fails here.
+// sameScalar compares a reparsed scalar to what went in — exactly, including trailing
+// newlines on multi-line values. This used to trim them: block-literal chomping added one,
+// so "one\ntwo\n\n" came back with a third. That is fixed, so the comparison is exact and
+// the target has its teeth back on multi-line input.
 func sameScalar(in string, v *ir.Node) bool {
-	if v.Type != ir.StringType {
-		return false
-	}
-	if !strings.Contains(in, "\n") {
-		return v.String == in
-	}
-	return strings.TrimRight(v.String, "\n") == strings.TrimRight(in, "\n")
+	return v.Type == ir.StringType && v.String == in
 }
 
 // A string scalar must come back as the same string. The scalars that broke this were bare
