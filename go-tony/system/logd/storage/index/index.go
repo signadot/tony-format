@@ -191,6 +191,36 @@ func (i *Index) LookupRangeAll(kp string, from, to *int64) []LogSegment {
 	return res
 }
 
+// AllSegments returns every segment in the index, at every path it is indexed at, with
+// KindedPath set to the full path rather than the remainder relative to its node.
+//
+// This is deliberately different from LookupRangeAll(""), which returns only the root
+// node's own commits: that one descends solely along a path it is given, so it cannot see
+// a segment indexed below the root. A log entry is indexed at the root AND at every path
+// inside its patch (indexPatchRec), and all of those copies name the same log position, so
+// anything maintaining positions has to reach all of them.
+func (i *Index) AllSegments() []LogSegment {
+	i.RLock()
+	defer i.RUnlock()
+	res := []LogSegment{}
+	i.Commits.Range(func(c LogSegment) bool {
+		res = append(res, c)
+		return true
+	}, rangeFunc(nil, nil))
+	for pathKey, c := range i.Children {
+		for _, seg := range c.AllSegments() {
+			if seg.KindedPath == "" {
+				seg.KindedPath = pathKey
+			} else {
+				seg.KindedPath = kpath.Join(pathKey, seg.KindedPath)
+			}
+			res = append(res, seg)
+		}
+	}
+	slices.SortFunc(res, LogSegCompare)
+	return res
+}
+
 // LookupWithin finds all segments at the given kpath where the commit is within
 // the segment's commit range (StartCommit <= commit <= EndCommit).
 // Returns ancestors and exact matches, just like LookupRange.

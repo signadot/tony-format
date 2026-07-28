@@ -91,11 +91,16 @@ func (s *Storage) Compact(config *CompactionConfig) error {
 		positionMap[r.OldPosition] = r.NewPosition
 	}
 
+	// Where every entry is indexed, captured once before anything moves. Taken before
+	// both maintenance passes: updateIndexPositions only touches survivors, so the
+	// non-survivor entries removeFromIndex looks up are still where this says they are.
+	copies := s.indexCopies()
+
 	// Update index with new positions
-	s.updateIndexPositions(inactiveLogID, survivors, positionMap)
+	s.updateIndexPositions(inactiveLogID, survivors, positionMap, copies)
 
 	// Remove non-surviving segments from index
-	s.removeFromIndex(inactiveSegments, survivors)
+	s.removeFromIndex(inactiveSegments, survivors, copies)
 
 	s.logger.Info("compaction complete",
 		"removed", len(inactiveSegments)-len(survivors))
@@ -261,9 +266,51 @@ func (s *Storage) shouldSkipSchemaEntry(schemaEntry *dlog.SchemaEntry, commit in
 	return false
 }
 
+// entryID identifies one log entry. Every copy of that entry in the index — the root copy
+// and one per path inside its patch — shares these and names the same log position, since
+// indexPatchRec passes the same entry, file and position down every level of the recursion.
+type entryID struct {
+	startCommit int64
+	startTx     int64
+	scopeID     string
+}
+
+func makeEntryID(seg index.LogSegment) entryID {
+	scopeID := ""
+	if seg.ScopeID != nil {
+		scopeID = *seg.ScopeID
+	}
+	return entryID{startCommit: seg.StartCommit, startTx: seg.StartTx, scopeID: scopeID}
+}
+
+// indexCopies maps each entry to every place it is indexed, keyed by entry identity.
+//
+// Compaction's work list comes from the root, which is the authoritative entry set — every
+// entry has a root copy — but maintaining only that left every below-root copy of a moved
+// or dropped entry pointing at a position that no longer holds it, which is what watch
+// replay reads through (issue 1d52zghth12ks0cvcsn0).
+func (s *Storage) indexCopies() map[entryID][]index.LogSegment {
+	all := s.index.AllSegments()
+	res := make(map[entryID][]index.LogSegment, len(all))
+	for _, seg := range all {
+		id := makeEntryID(seg)
+		res[id] = append(res[id], seg)
+	}
+	return res
+}
+
+// sameEntry reports whether a copy found by identity really is the entry in hand. Identity
+// should be unique, so this only guards against a copy that has already been repositioned
+// or belongs to a different log file.
+func sameEntry(copy, seg index.LogSegment) bool {
+	return copy.LogFile == seg.LogFile && copy.LogPosition == seg.LogPosition
+}
+
 // updateIndexPositions updates segment positions in the index after compaction.
 // Removes old segments and re-adds them with new positions and updated generation.
-func (s *Storage) updateIndexPositions(logFileID dlog.LogFileID, survivors []index.LogSegment, positionMap map[int64]int64) {
+// Every copy of a moved entry is repositioned, not just the root one.
+func (s *Storage) updateIndexPositions(logFileID dlog.LogFileID, survivors []index.LogSegment,
+	positionMap map[int64]int64, copies map[entryID][]index.LogSegment) {
 	// Get the new generation after compaction
 	newGeneration := s.dLog.GetGeneration(logFileID)
 
@@ -273,13 +320,18 @@ func (s *Storage) updateIndexPositions(logFileID dlog.LogFileID, survivors []ind
 			continue // Position didn't change
 		}
 
-		// Remove segment with old position
-		s.index.Remove(&seg)
-
-		// Add segment with new position and updated generation
-		seg.LogPosition = newPos
-		seg.LogFileGeneration = newGeneration
-		s.index.Add(&seg)
+		for _, c := range copies[makeEntryID(seg)] {
+			if !sameEntry(c, seg) {
+				continue
+			}
+			// Remove the copy at its old position, re-add it at the new one. Remove and
+			// Add both navigate by KindedPath, and c carries the full path it is
+			// indexed at, so this reaches below-root copies as well as the root.
+			s.index.Remove(&c)
+			c.LogPosition = newPos
+			c.LogFileGeneration = newGeneration
+			s.index.Add(&c)
+		}
 	}
 }
 
@@ -304,8 +356,10 @@ func makeSegmentKey(seg index.LogSegment) segmentKey {
 	}
 }
 
-// removeFromIndex removes non-surviving segments from the index.
-func (s *Storage) removeFromIndex(all, survivors []index.LogSegment) {
+// removeFromIndex removes non-surviving segments from the index, including every
+// below-root copy of each one. A non-survivor's position is freed by the rewrite, so a
+// copy left behind is a segment pointing into space that now holds something else.
+func (s *Storage) removeFromIndex(all, survivors []index.LogSegment, copies map[entryID][]index.LogSegment) {
 	// Build set of survivor keys
 	survivorSet := make(map[segmentKey]struct{}, len(survivors))
 	for _, seg := range survivors {
@@ -314,8 +368,14 @@ func (s *Storage) removeFromIndex(all, survivors []index.LogSegment) {
 
 	// Remove non-survivors
 	for _, seg := range all {
-		if _, ok := survivorSet[makeSegmentKey(seg)]; !ok {
-			s.index.Remove(&seg)
+		if _, ok := survivorSet[makeSegmentKey(seg)]; ok {
+			continue
+		}
+		for _, c := range copies[makeEntryID(seg)] {
+			if !sameEntry(c, seg) {
+				continue
+			}
+			s.index.Remove(&c)
 		}
 	}
 }
