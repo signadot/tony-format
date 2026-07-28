@@ -217,11 +217,48 @@ func (sw *SnapshotWriter) Close() error {
 
 // Abandon closes the SnapshotWriter without writing Entry metadata.
 // Used when snapshot creation fails and we need to release the snapshot lock.
+//
+// It leaves the log walkable. The blob header is written with a placeholder length that
+// only Close patches, so abandoning used to leave that placeholder — a header claiming
+// length 0 — in the middle of the log, with the blob's data and every later append behind
+// it. The frame walk cannot cross such a header, so iteration stopped there for the life
+// of the file; a real log was found with 179 MB sitting behind one.
+//
+// Patching the header with what was actually written makes the region a well-formed blob
+// that the walk skips like any other, just one no Entry refers to. Nothing points into it
+// — a snapshot's index segment is added only after Close writes the Entry — so it is dead
+// space until compaction drops it, not a hole.
+//
+// When nothing was written the header is all that exists, and rewinding the append point
+// over it is both simpler and complete.
 func (sw *SnapshotWriter) Abandon() {
-	if !sw.closed {
-		sw.closed = true
-		sw.logFile.snapMu.Unlock()
+	if sw.closed {
+		return
 	}
+	sw.closed = true
+	defer sw.logFile.snapMu.Unlock()
+
+	blobLength := sw.endPos - sw.startPos
+	if blobLength == 0 {
+		sw.logFile.mu.Lock()
+		sw.logFile.position = sw.headerPos
+		sw.logFile.mu.Unlock()
+		return
+	}
+
+	lenBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(lenBuf, uint32(blobLength))
+	if _, err := sw.logFile.file.WriteAt(lenBuf, sw.headerPos+4); err != nil {
+		// The header keeps its placeholder, so the walk will stop at it rather than
+		// cross it. That is safe — nothing is deleted — but it is a hole, so say so.
+		sw.logFile.logger.Error("failed to patch blob header of an abandoned snapshot; "+
+			"the log has an uncrossable region from here",
+			"path", sw.logFile.path, "headerPos", sw.headerPos, "error", err)
+		return
+	}
+	sw.logFile.mu.Lock()
+	sw.logFile.position = sw.endPos
+	sw.logFile.mu.Unlock()
 }
 
 // EntryPosition returns the position of the Entry in the log (available after Close).

@@ -355,3 +355,93 @@ func TestOpenRealDataDirDeletesNothing(t *testing.T) {
 		}
 	}
 }
+
+// An abandoned snapshot must not leave a region the frame walk cannot cross. Abandon
+// patches the blob header with what was actually written, so the orphaned blob is skipped
+// like any other and the entries appended after it stay reachable. Before that, the
+// unpatched placeholder stopped the walk permanently — the shape found on a real log with
+// 179 MB behind it.
+func TestAbandonedSnapshotLeavesAWalkableLog(t *testing.T) {
+	tmpDir := t.TempDir()
+	dl, err := NewDLog(tmpDir, nil)
+	if err != nil {
+		t.Fatalf("NewDLog() error = %v", err)
+	}
+	if _, _, err := dl.AppendEntry(testEntry(1, "before")); err != nil {
+		t.Fatalf("AppendEntry(1) error = %v", err)
+	}
+
+	// A snapshot on the inactive log that writes blob data and then fails.
+	sw, err := dl.NewSnapshotWriter(1, "2026-07-28T10:00:00Z")
+	if err != nil {
+		t.Fatalf("NewSnapshotWriter() error = %v", err)
+	}
+	if _, err := sw.Write(make([]byte, 3000)); err != nil {
+		t.Fatalf("snapshot Write error = %v", err)
+	}
+	sw.Abandon()
+
+	// Make that log active and keep appending, as the daemon would.
+	if err := dl.SwitchActive(); err != nil {
+		t.Fatalf("SwitchActive() error = %v", err)
+	}
+	for i := 2; i <= 5; i++ {
+		if _, _, err := dl.AppendEntry(testEntry(int64(i), "after the abandoned snapshot")); err != nil {
+			t.Fatalf("AppendEntry(%d) error = %v", i, err)
+		}
+	}
+	if err := dl.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	// The frame walk must reach the end of both files: no uncrossable region.
+	for _, name := range []string{"logA", "logB"} {
+		p := filepath.Join(tmpDir, name)
+		f, err := os.Open(p)
+		if err != nil {
+			t.Fatalf("open %s: %v", name, err)
+		}
+		st, _ := f.Stat()
+		end, torn, err := scanFrames(f, st.Size())
+		f.Close()
+		if err != nil {
+			t.Fatalf("scanFrames(%s): %v", name, err)
+		}
+		if torn {
+			t.Errorf("%s: walk reports a torn tail it should not have", name)
+		}
+		if end != st.Size() {
+			t.Errorf("%s: walk stopped at %d of %d — %d bytes unreachable",
+				name, end, st.Size(), st.Size()-end)
+		}
+	}
+
+	// And every entry is still iterable across the orphaned blob.
+	dl2, err := NewDLog(tmpDir, nil)
+	if err != nil {
+		t.Fatalf("NewDLog() (reopen) error = %v", err)
+	}
+	defer dl2.Close()
+	it, err := dl2.Iterator()
+	if err != nil {
+		t.Fatalf("Iterator() error = %v", err)
+	}
+	seen := map[int64]bool{}
+	for {
+		e, _, _, err := it.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("iteration failed across the abandoned snapshot: %v", err)
+		}
+		if e != nil {
+			seen[e.Commit] = true
+		}
+	}
+	for i := int64(1); i <= 5; i++ {
+		if !seen[i] {
+			t.Errorf("entry commit=%d not reachable after the abandoned snapshot", i)
+		}
+	}
+}
