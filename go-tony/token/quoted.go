@@ -98,7 +98,13 @@ func Quote(v string, autoSingle bool) string {
 		case '\t':
 			d = append(d, '\\', 't')
 		default:
-			if unicode.IsControl(r) {
+			// U+FFFD is escaped rather than written out. A raw EF BF BD in a document
+			// is rejected on the way back in — the scanners take a decoded RuneError
+			// as bad utf8, deliberately, since it means the text was already damaged
+			// upstream. Writing it raw therefore produced a document this library
+			// could not read. Escaped, the value survives the round trip while a
+			// genuinely raw one is still refused.
+			if unicode.IsControl(r) || r == utf8.RuneError {
 				ucs[0] = byte(r >> 8)
 				ucs[1] = byte(r)
 				cps = hex.AppendEncode(cps[:0], ucs)

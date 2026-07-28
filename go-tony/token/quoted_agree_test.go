@@ -138,15 +138,6 @@ func FuzzQuoteRoundTrip(f *testing.F) {
 		if !utf8.ValidString(s) {
 			return
 		}
-		// A *valid* string containing U+FFFD is a different matter: the scanners test
-		// `r == utf8.RuneError` without the accompanying `sz == 1`, so a correctly
-		// encoded replacement character is rejected as bad utf8 and any document
-		// carrying one fails to parse. That is a real bug, tracked separately, and it
-		// is excluded here rather than fixed because it spans every rune-decoding
-		// scanner in the package, not just this path.
-		if strings.ContainsRune(s, utf8.RuneError) {
-			return
-		}
 		for _, autoSingle := range []bool{false, true} {
 			q := Quote(s, autoSingle)
 			got, err := Unquote(q)
@@ -191,5 +182,40 @@ func TestQuotedTokenStringPaths(t *testing.T) {
 				t.Errorf("tokenizing %q panicked: %v", doc, panicked)
 			}
 		}
+	}
+}
+
+// U+FFFD is escaped on the way out rather than written raw.
+//
+// The scanners treat a decoded RuneError as bad utf8 on the way in, deliberately: a raw
+// EF BF BD in a document means the text was damaged before it got here. But Quote wrote the
+// character out raw, so the library emitted documents it then refused to read. Escaping it
+// keeps both halves — the value survives a round trip, and a genuinely raw one is still
+// rejected.
+func TestQuoteEscapesReplacementChar(t *testing.T) {
+	for _, s := range []string{"�", "a�b", "x�", "��", "ok"} {
+		q := Quote(s, false)
+		got, err := Unquote(q)
+		if err != nil {
+			t.Errorf("Quote(%q) = %q, which Unquote rejects: %v", s, q, err)
+			continue
+		}
+		if got != s {
+			t.Errorf("round trip: Quote(%q) = %q, Unquote = %q", s, q, got)
+		}
+		// Built from bytes so nothing can turn the escape back into the character.
+		escape := string([]byte{'\\', 'u', 'f', 'f', 'f', 'd'})
+		if strings.ContainsRune(s, utf8.RuneError) && !strings.Contains(q, escape) {
+			t.Errorf("Quote(%q) = %q, expected %s", s, q, escape)
+		}
+	}
+}
+
+// The other half of the policy: a raw EF BF BD is still refused, so nothing is silently
+// accepted just because the encoder learned to escape.
+func TestRawReplacementCharStillRejected(t *testing.T) {
+	raw := string([]byte{'"', 'a', 0xEF, 0xBF, 0xBD, 'b', '"'})
+	if got, err := Unquote(raw); err == nil {
+		t.Errorf("raw EF BF BD accepted as %q; it must be rejected as bad utf8", got)
 	}
 }

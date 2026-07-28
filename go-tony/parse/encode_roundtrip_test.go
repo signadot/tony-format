@@ -151,12 +151,6 @@ func FuzzEncodeParseRoundTrip(f *testing.F) {
 		if !utf8.ValidString(body) {
 			return
 		}
-		// A correctly encoded U+FFFD is rejected by the scanners as bad utf8 -- they test
-		// r == utf8.RuneError without the accompanying sz == 1. Tracked in
-		// prfzxpa2h12ks3vscxn0; excluded here so it does not mask quoting failures.
-		if strings.ContainsRune(body, utf8.RuneError) {
-			return
-		}
 		v, err := reparseScalar(t, body)
 		if err != nil {
 			t.Fatalf("encoder emitted something the parser rejects: %v\nbody=%q", err, body)
