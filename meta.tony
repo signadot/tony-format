@@ -1,6 +1,8 @@
 !issue
 Ref: refs/issues/dss3tkggh12kr4w2d1n0
 Title: "encode: scalars that are bare '-' or start with '<', '>' or '|' are emitted unquoted and the parser rejects them (NeedsQuote misses structural indicators)"
+commits:
+- "15f2ca6c8ca7318ed18e3a18b18d3315d32b75ae"
 created: "2026-07-28T12:18:59.492602+02:00"
 id: dss3tkggh12kr4w2d1n0
 labels:
@@ -10,4 +12,4 @@ labels:
 related_issues:
 - prfzxpa2h12ks3vscxn0
 status: open
-updated: "2026-07-28T14:08:04.644078+02:00"
+updated: "2026-07-28T14:08:15.757335+02:00"
