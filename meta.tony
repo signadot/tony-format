@@ -1,6 +1,8 @@
 !issue
 Ref: refs/issues/pyhfz6h6h12ks3cjd1n0
 Title: "encode: a multi-line string gains a trailing newline through the |+ block literal, so it does not survive encode -> parse"
+commits:
+- "265cbc8104e5244cd517a4351a48c2a87ba38eb4"
 created: "2026-07-28T13:29:17.394785+02:00"
 id: pyhfz6h6h12ks3cjd1n0
 labels:
@@ -9,4 +11,4 @@ labels:
 related_issues:
 - dss3tkggh12kr4w2d1n0
 status: open
-updated: "2026-07-28T15:16:28.001667+02:00"
+updated: "2026-07-28T15:16:28.17099+02:00"
