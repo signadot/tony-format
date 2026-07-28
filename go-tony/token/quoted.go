@@ -9,6 +9,21 @@ import (
 	"unicode/utf8"
 )
 
+// NeedsQuote reports whether v must be quoted to survive as a scalar value.
+//
+// getSingleLiteral answers a narrower question than this one: whether v is a valid literal
+// token. That is not the same as whether v, written unquoted in value position, reads back
+// as itself — the tokenizer dispatches on the first byte of a value before it ever gets to
+// literal scanning, and several bytes are claimed there (see TokenizeOne: ':' '"' '\'' '!'
+// '|' '>' '-' digits '<'). A value beginning with one of those is read as the construct it
+// introduces, not as text.
+//
+// Most of that set is already covered: leading digits below, and quotes, ':' and '!' by
+// getSingleLiteral chopping or rejecting. What is left is the block-scalar and list
+// markers, which is what this switch adds.
+//
+// This is a mirror of a dispatch that lives somewhere else, so it can go stale if a new
+// sigil is introduced. TestNeedsQuoteAgreesWithRoundTrip is what notices.
 func NeedsQuote(v string) bool {
 	if v == "" {
 		return true
@@ -24,9 +39,23 @@ func NeedsQuote(v string) bool {
 	switch v[0] {
 	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 		return true
+	case '<', '>', '|':
+		// Block-scalar and stream markers: "|x" opens a multiline literal that
+		// swallows the following key, ">x" and "<x" are rejected outright.
+		return true
+	case '-':
+		// A negative number reads back as a number, not as this string. The leading
+		// digit case above misses these because the sign comes first: "-1" and "-1.5"
+		// silently changed type on a round trip, and "-00" did not parse at all.
+		if len(v) > 1 && v[1] >= '0' && v[1] <= '9' {
+			return true
+		}
 	}
 	switch v {
 	case "true", "false", "null":
+		return true
+	case "-":
+		// A bare dash is a list marker. "-x" is a literal and needs no quoting.
 		return true
 	default:
 		return false
