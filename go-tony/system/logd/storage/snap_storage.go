@@ -14,22 +14,28 @@ import (
 )
 
 // findSnapshotBaseReader searches for the most recent baseline snapshot <= commit
-// for a given path and returns an EventReadCloser starting from that snapshot, plus
-// the startCommit for patches that should be applied after it. Scope snapshots are
-// not created, so only baseline snapshots are considered; scoped reads layer the
-// scope's patches over this baseline (see readScopedStateAt).
+// and returns an EventReadCloser over the whole document at that snapshot, plus the
+// startCommit for patches that should be applied after it. Scope snapshots are not
+// created, so only baseline snapshots are considered; scoped reads layer the scope's
+// patches over this baseline (see readScopedStateAt).
+//
+// The lookup is at the document ROOT, not at the read's path, and the base it returns
+// is the whole document, not a subtree. Both follow from what is on either side of it:
+// createSnapshot indexes the snapshot segment with KindedPath "" (root), and the
+// patches layered on top of this base are whole-document entries, so a subtree base
+// would not align with them. This is why the read's kpath is not a parameter — reads
+// are rooted supersets that callers trim (see readBaselineStateAt, session.go
+// scopedDocAt). If reads ever become genuinely path-scoped (patches sub-extracted at
+// the path), a subtree base via snapshot.ReadPathEventReader(kp) becomes right again.
+//
+// Looking the snapshot up at the read's path instead — IterAtPath(kp) descends to kp's
+// index node and never consults ancestors — found nothing for every non-root read, so
+// every such read fell back to an empty base and replayed from commit 0 for the life of
+// the document, straight through each snapshot (issue bvm163tyh12krwcqcsn0).
 //
 // Caller is responsible for closing the returned reader.
-func (s *Storage) findSnapshotBaseReader(kp string, commit int64) (patches.EventReadCloser, int64, error) {
-	iter := s.index.IterAtPath(kp)
-	if !iter.Valid() {
-		// No index node at this path: nothing has ever been written here (or nothing
-		// survives at this commit). That is an empty base — null state — not an error.
-		// A plain read of an absent path is null, and a scoped read layers the scope's
-		// own patches over this empty baseline (see readScopedStateAt). Erroring here
-		// instead failed scoped watch init on a not-yet-populated subtree.
-		return patches.NewEmptyEventReader(), 0, nil
-	}
+func (s *Storage) findSnapshotBaseReader(commit int64) (patches.EventReadCloser, int64, error) {
+	iter := s.index.IterAtPath("")
 
 	// Find snapshot segment while holding lock, then release before I/O.
 	// Segment data (LogFile, LogPosition) is immutable once written,
@@ -77,11 +83,11 @@ func (s *Storage) findSnapshotBaseReader(kp string, commit int64) (patches.Event
 		return nil, 0, fmt.Errorf("failed to open snapshot: %w", err)
 	}
 
-	// Get streaming event reader for the path (no in-memory materialization)
-	eventReader, err := snapshot.ReadPathEventReader(kp)
+	// Get streaming event reader for the document (no in-memory materialization)
+	eventReader, err := snapshot.ReadPathEventReader("")
 	if err != nil {
 		snapshot.Close()
-		return nil, 0, fmt.Errorf("error creating event reader for %q from snapshot: %w", kp, err)
+		return nil, 0, fmt.Errorf("error creating event reader from snapshot: %w", err)
 	}
 
 	// Return wrapper that closes both the event reader and snapshot when done
@@ -136,7 +142,7 @@ func (s *Storage) SwitchDLog() error {
 // readScopedStateAt and issue 5hmq80f3h12krh1mbsn0.
 func (s *Storage) createSnapshot(commit int64) error {
 	// Find most recent snapshot and get base event reader
-	baseReader, startCommit, err := s.findSnapshotBaseReader("", commit)
+	baseReader, startCommit, err := s.findSnapshotBaseReader(commit)
 	if err != nil {
 		return err
 	}
