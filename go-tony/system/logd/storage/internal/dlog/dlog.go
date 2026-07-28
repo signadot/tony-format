@@ -240,12 +240,16 @@ func newDLogFile(id LogFileID, path string, logger *slog.Logger) (*DLogFile, err
 	// payload never reached disk, or a partial prefix. Adopting stat.Size() as the append
 	// point would write the next record after that stump and put every frame boundary from
 	// there on at the wrong offset. Find the end of the last complete frame instead.
-	end, err := scanFrames(file, stat.Size())
+	end, tornTail, err := scanFrames(file, stat.Size())
 	if err != nil {
 		file.Close()
 		return nil, fmt.Errorf("failed to scan log file %q: %w", path, err)
 	}
-	if end < stat.Size() {
+	position := stat.Size()
+	switch {
+	case tornTail:
+		// Provably incomplete: the last frame runs past the end of the file, so it was
+		// never fully written. Discarding it is bounded by that one record.
 		logger.Warn("dropping torn tail from log file",
 			"path", path, "lastGoodEnd", end, "size", stat.Size(),
 			"discardedBytes", stat.Size()-end)
@@ -253,71 +257,98 @@ func newDLogFile(id LogFileID, path string, logger *slog.Logger) (*DLogFile, err
 			file.Close()
 			return nil, fmt.Errorf("failed to truncate torn tail of %q: %w", path, err)
 		}
+		position = end
+	case end < stat.Size():
+		// The walk stopped on something it cannot cross, with the file continuing past
+		// it. That is NOT a torn tail and must never be truncated — an abandoned
+		// snapshot leaves an unpatched blob header mid-file with live entries after it,
+		// and treating that as a tail would discard the entire rest of the log. Append
+		// at the real end of file so nothing already written is overwritten.
+		logger.Warn("log file has a region the frame walk cannot cross; leaving it intact",
+			"path", path, "stoppedAt", end, "size", stat.Size(),
+			"bytesBeyond", stat.Size()-end)
 	}
 
 	return &DLogFile{
 		id:       id,
 		path:     path,
 		file:     file,
-		position: end,
+		position: position,
 		logger:   logger,
 	}, nil
 }
 
 // scanFrames walks the record framing from the start of the file and returns the offset
-// just past the last complete frame. It mirrors the framing that singleFileIter.next
-// reads: a 4-byte big-endian length prefix followed by that many payload bytes, or a
+// just past the last complete frame, plus whether everything from there to size is a
+// PROVABLY incomplete tail. It mirrors the framing that singleFileIter.next reads: a
+// 4-byte big-endian length prefix followed by that many payload bytes, or a
 // BlobHeaderMagic marker followed by a 4-byte blob length and that many blob bytes.
 //
-// A frame is accepted only if it lies entirely within size, which is what makes both tear
-// modes detectable — a partial prefix cannot be read, and a prefix whose payload was cut
-// short runs past the end. It does not validate payload contents, so a frame boundary
-// landing on plausible-looking garbage is still accepted; per-record checksums are what
-// would make this decisive.
-func scanFrames(file *os.File, size int64) (int64, error) {
+// The bool is the whole safety story. tornTail is true only when the walk reaches a frame
+// that runs past the end of the file — that frame was interrupted mid-write, nothing can
+// follow it, and discarding it costs at most that one record. Every other stop means the
+// walk hit something it cannot interpret while the file continues past it, which is not a
+// tail and must never be discarded: an abandoned snapshot (SnapshotWriter.Abandon, or a
+// crash before Close patches the header) leaves a blob header holding its placeholder
+// length of 0, with the blob's data and every entry appended afterwards sitting behind it.
+// Treating that as a tail truncates the entire remainder of the log — on a real 185 MB
+// verse log it proposed discarding 179 MB.
+//
+// It does not validate payload contents, so a frame boundary landing on plausible-looking
+// garbage is still accepted; per-record checksums are what would make this decisive.
+func scanFrames(file *os.File, size int64) (end int64, tornTail bool, err error) {
 	hdr := make([]byte, 4)
 	pos := int64(0)
 	for pos < size {
 		if pos+4 > size {
-			return pos, nil // partial length prefix
+			return pos, true, nil // partial length prefix: interrupted mid-write
 		}
 		if _, err := file.ReadAt(hdr, pos); err != nil {
 			if err == io.EOF {
-				return pos, nil
+				return pos, true, nil
 			}
-			return 0, fmt.Errorf("read length prefix at %d: %w", pos, err)
+			return 0, false, fmt.Errorf("read length prefix at %d: %w", pos, err)
 		}
 		lengthOrMagic := binary.BigEndian.Uint32(hdr)
 
 		if lengthOrMagic == BlobHeaderMagic {
 			if pos+BlobHeaderSize > size {
-				return pos, nil // partial blob header
+				return pos, true, nil // partial blob header
 			}
 			if _, err := file.ReadAt(hdr, pos+4); err != nil {
 				if err == io.EOF {
-					return pos, nil
+					return pos, true, nil
 				}
-				return 0, fmt.Errorf("read blob length at %d: %w", pos, err)
+				return 0, false, fmt.Errorf("read blob length at %d: %w", pos, err)
 			}
-			end := pos + BlobHeaderSize + int64(binary.BigEndian.Uint32(hdr))
-			if end > size {
-				return pos, nil // blob data cut short
+			blobLen := int64(binary.BigEndian.Uint32(hdr))
+			if blobLen == 0 {
+				// Unpatched placeholder: an abandoned or interrupted snapshot. The
+				// blob's extent is unknowable from here, so the walk stops — but the
+				// data beyond it is real and is not ours to drop.
+				return pos, false, nil
 			}
-			pos = end
+			blobEnd := pos + BlobHeaderSize + blobLen
+			if blobEnd > size {
+				return pos, true, nil // blob data cut short
+			}
+			pos = blobEnd
 			continue
 		}
 
-		// A zero length is never a real entry; treat it as unwritten space.
+		// A zero length is never a real entry. At the very end of the file it is
+		// unwritten space; with data behind it, it is something this walk cannot read,
+		// and the difference is not decidable here — so never call it a tail.
 		if lengthOrMagic == 0 {
-			return pos, nil
+			return pos, false, nil
 		}
-		end := pos + 4 + int64(lengthOrMagic)
-		if end > size {
-			return pos, nil // payload cut short
+		frameEnd := pos + 4 + int64(lengthOrMagic)
+		if frameEnd > size {
+			return pos, true, nil // payload cut short
 		}
-		pos = end
+		pos = frameEnd
 	}
-	return pos, nil
+	return pos, false, nil
 }
 
 // AppendEntry appends an Entry to the active log file.

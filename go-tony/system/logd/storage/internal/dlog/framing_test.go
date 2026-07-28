@@ -159,3 +159,85 @@ func TestOpenTruncatesTornTail(t *testing.T) {
 		t.Errorf("entry at pos2: commit = %d, want 2", got2.Commit)
 	}
 }
+
+// An abandoned snapshot leaves a blob header holding its placeholder length of 0 —
+// SnapshotWriter.Abandon releases the lock without patching it, and a crash before Close
+// does the same. The blob's data, and every entry appended afterwards, sit behind it.
+//
+// The frame walk cannot cross that header, but what follows is live data, not a torn tail.
+// Truncating there discards the entire rest of the log: against a real 185 MB verse log
+// this proposed dropping 179 MB.
+func TestOpenKeepsDataBeyondUnpatchedBlobHeader(t *testing.T) {
+	tmpDir := t.TempDir()
+	dl, err := NewDLog(tmpDir, nil)
+	if err != nil {
+		t.Fatalf("NewDLog() error = %v", err)
+	}
+	pos1, lf, err := dl.AppendEntry(testEntry(1, "before"))
+	if err != nil {
+		t.Fatalf("AppendEntry(1) error = %v", err)
+	}
+	afterFirst := dl.logA.Position()
+	if err := dl.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	// Abandoned snapshot: magic + unpatched length 0, then blob data nobody can measure.
+	path := filepath.Join(tmpDir, "logA")
+	f, err := os.OpenFile(path, os.O_RDWR, 0644)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	hdr := make([]byte, BlobHeaderSize)
+	binary.BigEndian.PutUint32(hdr[0:4], BlobHeaderMagic)
+	binary.BigEndian.PutUint32(hdr[4:8], 0) // never patched
+	if _, err := f.WriteAt(hdr, afterFirst); err != nil {
+		t.Fatalf("write blob header: %v", err)
+	}
+	blob := make([]byte, 512) // event bytes; not framed as records
+	if _, err := f.WriteAt(blob, afterFirst+BlobHeaderSize); err != nil {
+		t.Fatalf("write blob data: %v", err)
+	}
+	f.Close()
+
+	sizeBefore := int64(0)
+	if st, err := os.Stat(path); err == nil {
+		sizeBefore = st.Size()
+	}
+
+	dl2, err := NewDLog(tmpDir, nil)
+	if err != nil {
+		t.Fatalf("NewDLog() (reopen) error = %v", err)
+	}
+	defer dl2.Close()
+
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if st.Size() != sizeBefore {
+		t.Fatalf("log truncated on open: %d -> %d bytes (dropped %d)",
+			sizeBefore, st.Size(), sizeBefore-st.Size())
+	}
+	// Appends must land after everything already written, never over it.
+	if got := dl2.logA.Position(); got != sizeBefore {
+		t.Errorf("append position = %d, want %d (end of file)", got, sizeBefore)
+	}
+	if _, err := dl2.ReadEntryAt(lf, pos1, 0); err != nil {
+		t.Errorf("entry before the blob header no longer reads: %v", err)
+	}
+	pos2, _, err := dl2.AppendEntry(testEntry(2, "after"))
+	if err != nil {
+		t.Fatalf("AppendEntry(2) error = %v", err)
+	}
+	if pos2 < sizeBefore {
+		t.Errorf("append at %d overwrites existing data (file was %d bytes)", pos2, sizeBefore)
+	}
+	got2, err := dl2.ReadEntryAt(lf, pos2, 0)
+	if err != nil {
+		t.Fatalf("ReadEntryAt(pos2=%d) error = %v", pos2, err)
+	}
+	if got2.Commit != 2 {
+		t.Errorf("entry at pos2: commit = %d, want 2", got2.Commit)
+	}
+}
