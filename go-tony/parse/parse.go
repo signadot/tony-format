@@ -662,7 +662,13 @@ func parseObj(toks []token.Token, p *ir.Node, tag string, pi *int, opts *parseOp
 				return nil, fmt.Errorf("%w: missing value after colon %s",
 					ErrParse, colTok.Pos)
 			}
-			kvs = append(kvs, ir.KeyVal{Key: key, Val: val})
+			// A scalar value consumes its own line comment in noComments, but an
+			// object or array value returns with the comment still on the input, as
+			// parseObj/parseArr stop at the closing token. Take it here, the way
+			// parseArr does for its elements: "a: {} # c" used to leave the
+			// TLineComment for the loop below, where the default arm ignored it
+			// without advancing pi, and the parser spun forever.
+			kvs = append(kvs, ir.KeyVal{Key: key, Val: checkLineComment(val, toks, pi, tok.Pos, opts)})
 		case token.TTag:
 			return nil, fmt.Errorf("%w %s", ErrKeyTag, tok.Pos)
 		default:
@@ -670,6 +676,9 @@ func parseObj(toks []token.Token, p *ir.Node, tag string, pi *int, opts *parseOp
 				return nil, fmt.Errorf("%w: parseObj: unexpected token %q %s",
 					ErrParse, string(tok.Bytes), tok.Pos)
 			}
+			// Tolerated, but consumed: leaving pi where it is means this arm is
+			// reached again with the same token, forever.
+			*pi++
 		}
 	}
 	return objFromKVs(p, kvs, tag, keyToks, ycMap)

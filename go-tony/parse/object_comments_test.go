@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/format"
@@ -108,5 +109,44 @@ func TestTrailingContainerCommentIsDroppedForNow(t *testing.T) {
 	if strings.Contains(got, "# c") {
 		t.Fatalf("trailing container comment is now preserved (%q) — the cascade rule may be "+
 			"implemented; update this test and close the tracking issue", got)
+	}
+}
+
+// "a: {} # c" used to hang. The line comment after a collection value was left on the
+// input — only scalars consume their own in noComments — and parseObj's default arm
+// ignored it without advancing, so the loop spun forever. The comment now lands on the
+// collection, as it already did for an array element ("- {} # c"), and encodes after the
+// closing token.
+func TestLineCommentAfterCollectionValue(t *testing.T) {
+	// The encoder spreads a non-empty bracket collection over lines regardless of how it
+	// was written, so want is not always src; what matters is where the comment lands.
+	for _, tc := range []struct{ src, want string }{
+		{"a: {} # c\n", "a: {} # c\n"},
+		{"a: [] # c\n", "a: [] # c\n"},
+		{"a: {b: 1} # c\n", "a: {\n  b: 1\n} # c\n"},
+		{"a: [1] # c\n", "a: [\n  1\n] # c\n"},
+		{"a:\n  b: {} # c\n  d: 2\n", "a:\n  b: {} # c\n  d: 2\n"},
+		{"- {} # c\n- 1\n", "- {} # c\n- 1\n"},
+		{"a: !tag {} # c\n", "a: !tag {} # c\n"},
+	} {
+		done := make(chan struct{})
+		var got string
+		var err error
+		go func() {
+			defer close(done)
+			got, err = roundTripComments(t, tc.src)
+		}()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%q: parse did not terminate", tc.src)
+		}
+		if err != nil {
+			t.Errorf("%q: %v", tc.src, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("round trip %q = %q, want %q", tc.src, got, tc.want)
+		}
 	}
 }

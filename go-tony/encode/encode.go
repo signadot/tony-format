@@ -289,7 +289,26 @@ func encodeObject(node *ir.Node, w io.Writer, es *EncState) error {
 			}
 		}
 	}
-	return writeObjectClose(w, es, n)
+	if err := writeObjectClose(w, es, n); err != nil {
+		return err
+	}
+	return writeCloseLineComment(node, w, es, n)
+}
+
+// writeCloseLineComment writes the line comment of an object or array that ends
+// in a closing token, as in "a: {} # c". A scalar writes its own line comment
+// when it encodes itself; a collection cannot, because the comment belongs after
+// the close. Without this the comment parsed onto the collection was dropped.
+//
+// Only a collection that writes a closing token can carry one: an indented block
+// has no line of its own to end, and a comment on such a node came from before
+// the block ("a: # c" over an indented object), which is not this position. The
+// condition is writeObjectClose/writeArrayClose's, inverted.
+func writeCloseLineComment(node *ir.Node, w io.Writer, es *EncState, n int) error {
+	if !esBracket(es) && n != 0 {
+		return nil
+	}
+	return writeLineCommentLines(w, node.Comment, es)
 }
 
 func writeObjectOpen(w io.Writer, es *EncState, nFields int) error {
@@ -552,7 +571,10 @@ func encodeArray(node *ir.Node, w io.Writer, es *EncState) error {
 			es.depth--
 		}
 	}
-	return writeArrayClose(w, es, n)
+	if err := writeArrayClose(w, es, n); err != nil {
+		return err
+	}
+	return writeCloseLineComment(node, w, es, n)
 }
 
 func writeArrayOpen(w io.Writer, es *EncState, nValues int) error {
