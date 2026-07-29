@@ -159,3 +159,96 @@ func TestIndexPatchKeyedArrayBugFix(t *testing.T) {
 		}
 	}
 }
+
+// TestIndexPatchKeyTag covers the other source of a key field: the !key(...)
+// tag the patch itself carries.  A path recorded from it has to be a path a
+// reader can follow back through the same patch, which is the check at the end.
+func TestIndexPatchKeyTag(t *testing.T) {
+	tests := []struct {
+		name           string
+		schema         *api.Schema
+		patch          string
+		expectedPaths  []string
+		notExpectPaths []string
+	}{
+		{
+			name:           "keyed by a field",
+			patch:          `{items: !key(sku) [{sku: WIDGET, qty: 1}, {sku: GADGET, qty: 2}]}`,
+			expectedPaths:  []string{"items(WIDGET)", "items(GADGET)", "items(WIDGET).qty"},
+			notExpectPaths: []string{"items[0]", "items[1]"},
+		},
+		{
+			name:           "keyed by a nested field",
+			patch:          `{items: !key(meta.name) [{meta: {name: joe}, qty: 1}]}`,
+			expectedPaths:  []string{"items(joe)", "items(joe).qty"},
+			notExpectPaths: []string{"items[0]"},
+		},
+		{
+			name:           "a bare !key keys the elements by themselves",
+			patch:          `{items: !key [joe, bob]}`,
+			expectedPaths:  []string{"items(joe)", "items(bob)"},
+			notExpectPaths: []string{"items[0]", "items[1]"},
+		},
+		{
+			// a key which would read as a number is quoted, so the segment says
+			// key rather than index
+			name:           "keyed by a number",
+			patch:          `{items: !key(id) [{id: 7, qty: 1}]}`,
+			expectedPaths:  []string{`items("7")`, `items("7").qty`},
+			notExpectPaths: []string{"items[0]", "items(7)"},
+		},
+		{
+			// the schema is asked first, so it decides when both say something
+			name:           "schema wins over the tag",
+			schema:         &api.Schema{AutoIDFields: []api.AutoIDField{{Path: "items", Field: "id"}}},
+			patch:          `{items: !key(sku) [{id: 7, sku: WIDGET}]}`,
+			expectedPaths:  []string{`items("7")`},
+			notExpectPaths: []string{"items(WIDGET)", "items[0]"},
+		},
+		{
+			name:           "an untagged list stays positional",
+			patch:          `{items: [{sku: WIDGET, qty: 1}]}`,
+			expectedPaths:  []string{"items[0]"},
+			notExpectPaths: []string{"items(WIDGET)"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idx := NewIndex("")
+			node, err := parse.Parse([]byte(tt.patch))
+			if err != nil {
+				t.Fatalf("failed to parse patch: %v", err)
+			}
+			lastCommit := int64(0)
+			entry := &dlog.Entry{Commit: 1, LastCommit: &lastCommit, Patch: node}
+			if err := IndexPatch(idx, entry, "A", 0, 1, 0, node, tt.schema, nil); err != nil {
+				t.Fatalf("IndexPatch failed: %v", err)
+			}
+			indexed := map[string]bool{}
+			for _, seg := range idx.AllSegments() {
+				indexed[seg.KindedPath] = true
+			}
+			for _, path := range tt.expectedPaths {
+				if !indexed[path] {
+					t.Errorf("expected path %q not found in index", path)
+					continue
+				}
+				// the read side extracts the patch at the path it recorded, so a
+				// path which does not lead back to a node would drop the patch
+				if tt.schema != nil {
+					continue // a schema key is not written down in the patch
+				}
+				at, err := node.GetKPath(path)
+				if err != nil || at == nil {
+					t.Errorf("indexed path %q does not reach into the patch: %v", path, err)
+				}
+			}
+			for _, path := range tt.notExpectPaths {
+				if indexed[path] {
+					t.Errorf("unexpected path %q found in index", path)
+				}
+			}
+		})
+	}
+}

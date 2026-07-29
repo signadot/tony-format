@@ -134,20 +134,20 @@ func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq i
 		return nil
 	case ir.ArrayType:
 		// Check schema first for key field
-		keyField := ""
+		keyField, keyed := "", false
 		if schema != nil {
 			keyField = schema.LookupKeyField(kPath)
+			keyed = keyField != ""
 		}
-		// Fall back to !key tag in patch
-		if keyField == "" {
-			key, args := ir.TagGet(n.Tag, "key")
-			if key != "" && len(args) == 1 {
-				keyField = args[0]
-			}
+		// Fall back to the !key tag the patch carries.  keyed is tracked apart
+		// from keyField because a bare !key keys its elements by themselves,
+		// which is an empty field and still a keyed list.
+		if !keyed {
+			keyField, keyed = n.KeyField()
 		}
 
 		// Not a keyed array - use positional indexing
-		if keyField == "" {
+		if !keyed {
 			for i, v := range n.Values {
 				next := fmt.Sprintf("%s[%d]", kPath, i)
 				if err := indexPatchRec(idx, e, logFile, pos, txSeq, generation, v, next, schema, scopeID); err != nil {
@@ -157,16 +157,12 @@ func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq i
 			return nil
 		}
 
-		// Keyed array - index by key value
+		// Keyed array - index by key value.  The key comes from ir.ElemKey, the
+		// same reading a walk gives a (key) segment, so a path this records is a
+		// path a reader can follow back.
 		for _, v := range n.Values {
 			// default to "" for things aren't indexable this way.
-			indexVal := ""
-			if v.Type == ir.ObjectType {
-				keyVal := ir.Get(v, keyField)
-				if keyVal != nil {
-					indexVal = keyVal.String
-				}
-			}
+			indexVal, _ := ir.ElemKey(v, keyField)
 			next := fmt.Sprintf("%s%s", kPath, kpath.Key(indexVal).SegmentString())
 			if err := indexPatchRec(idx, e, logFile, pos, txSeq, generation, v, next, schema, scopeID); err != nil {
 				return err
