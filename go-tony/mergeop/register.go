@@ -50,6 +50,7 @@ func init() {
 	Register(Type())
 	Register(Subtree())
 	Register(HasPath())
+	Register(At())
 	Register(Nullify())
 	Register(JSONPatch())
 	Register(KeyedList())

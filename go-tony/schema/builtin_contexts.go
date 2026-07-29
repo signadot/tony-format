@@ -16,6 +16,7 @@ func (r *ContextRegistry) registerBuiltinContexts() {
 			"tag":     {Name: "tag", Contexts: []string{"tony-format/context/match"}},
 			"subtree": {Name: "subtree", Contexts: []string{"tony-format/context/match"}},
 			"has-path": {Name: "has-path", Contexts: []string{"tony-format/context/match"}},
+			"at":      {Name: "at", Contexts: []string{"tony-format/context/match"}},
 			"all":     {Name: "all", Contexts: []string{"tony-format/context/match"}},
 			"let":     {Name: "let", Contexts: []string{"tony-format/context/match"}},
 			"if":      {Name: "if", Contexts: []string{"tony-format/context/match"}},

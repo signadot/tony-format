@@ -200,6 +200,164 @@ var matchTests = []matchTest{
 		match: "!not.has-path a",
 		res:   false,
 	},
+	{
+		in:    "a:\n  b: 3\n  d: e",
+		match: "!at(a.b) 3",
+		res:   true,
+	},
+	{
+		in:    "a:\n  b: 3\n  d: e",
+		match: "!at(a.b) 4",
+		res:   false,
+	},
+	{
+		in:    "a:\n  b: 3",
+		match: "!at(a.b).irtype 0",
+		res:   true,
+	},
+	{
+		in:    "a:\n  b: 3",
+		match: "!at(a)\nb: 3",
+		res:   true,
+	},
+	{
+		// the path names nothing, so there is nothing to match
+		in:    "a:\n  b: 3",
+		match: "!at(a.x) 3",
+		res:   false,
+	},
+	{
+		// a.b is not an object, so a.b.c names nothing either
+		in:    "a:\n  b: 3",
+		match: "!at(a.b.c) 3",
+		res:   false,
+	},
+	{
+		in:    "arr:\n- x: 1\n- x: 2",
+		match: "!at(arr[1].x) 2",
+		res:   true,
+	},
+	{
+		in:    "arr:\n- x: 1\n- x: 2",
+		match: "!at(arr[5].x) 2",
+		res:   false,
+	},
+	{
+		// a wildcard names every node it reaches, and all of them must match
+		in:    "arr:\n- x: 1\n- x: 2",
+		match: "!at(arr[*].x).irtype 0",
+		res:   true,
+	},
+	{
+		in:    "arr:\n- x: 1\n- x: hello",
+		match: "!at(arr[*].x).irtype 0",
+		res:   false,
+	},
+	{
+		in:    "a:\n  b: 1\n  c: 2",
+		match: "!at(a.*).irtype 0",
+		res:   true,
+	},
+	{
+		in:    "a:\n  b: hello",
+		match: "!at(a.b).glob 'h*'",
+		res:   true,
+	},
+	{
+		// !not.at negates the walk as well as the pattern: no a.b at all
+		in:    "a:\n  b: 3",
+		match: "!not.at(a.x) 3",
+		res:   true,
+	},
+	{
+		in:    "a:\n  b: 3",
+		match: "!not.at(a.b) 4",
+		res:   true,
+	},
+	{
+		in:    "a:\n  b: 3",
+		match: "!not.at(a.b) 3",
+		res:   false,
+	},
+	{
+		// !at(...) !not asks instead for a node which is there and differs
+		in:    "a:\n  b: 3",
+		match: "!at(a.b).not 4",
+		res:   true,
+	},
+	{
+		in:    "a:\n  b: 3",
+		match: "!at(a.x).not 4",
+		res:   false,
+	},
+	{
+		in:    "- a:\n    b: 1\n- a:\n    b: 2",
+		match: "!all.at(a.b).irtype 0",
+		res:   true,
+	},
+	{
+		in:    "- a:\n    b: 1\n- a:\n    x: 2",
+		match: "!all.at(a.b).irtype 0",
+		res:   false,
+	},
+	{
+		in:    "people: !key(name)\n- name: joe\n  x: 1\n- name: bob\n  x: 2",
+		match: "!at(people(joe).x) 1",
+		res:   true,
+	},
+	{
+		in:    "people: !key(name)\n- name: joe\n  x: 1\n- name: bob\n  x: 2",
+		match: "!at(people(bob).x) 1",
+		res:   false,
+	},
+	{
+		in:    "people: !key(name)\n- name: joe\n  x: 1",
+		match: "!at(people(nope).x) 1",
+		res:   false,
+	},
+	{
+		// the !key tag is what says which field the key is, so an untagged
+		// list has no keyed element to reach
+		in:    "people:\n- name: joe\n  x: 1",
+		match: "!at(people(joe).x) 1",
+		res:   false,
+	},
+	{
+		in:    "people: !key(name)\n- name: joe\n  x: 1",
+		match: "!has-path people(joe).x",
+		res:   true,
+	},
+	{
+		in:    "people: !key(name)\n- name: joe\n  x: 1",
+		match: "!has-path people(bob)",
+		res:   false,
+	},
+}
+
+// TestMatchAtBadPath covers the paths !at rejects when the pattern is built,
+// rather than reporting as a mismatch.
+func TestMatchAtBadPath(t *testing.T) {
+	for _, match := range []string{
+		"!at 3",      // no kpath
+		"!at(a,b) 3", // two of them
+		"!at('unclosed) 3",
+	} {
+		doc, err := parse.Parse([]byte("a:\n  b: 3"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		m, err := parse.Parse([]byte(match))
+		if err != nil {
+			t.Errorf("could not parse %q: %v", match, err)
+			continue
+		}
+		res, err := Match(doc, m)
+		if err == nil {
+			t.Errorf("match %q: got %t, want an error", match, res)
+			continue
+		}
+		t.Logf("match %q: %v", match, err)
+	}
 }
 
 func TestMatchY(t *testing.T) {
