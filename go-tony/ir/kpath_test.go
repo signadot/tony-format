@@ -432,3 +432,152 @@ func stringPtr(s string) *string {
 func intPtr(i int) *int {
 	return &i
 }
+
+// keyedDoc is a document holding keyed lists of every shape the walk has to
+// read: keyed by a field, by a nested field, by a number, by the element
+// itself, and an array with no !key tag at all.
+func keyedDoc() *Node {
+	return FromMap(map[string]*Node{
+		"people": FromSlice([]*Node{
+			FromMap(map[string]*Node{"name": FromString("joe"), "x": FromInt(1)}),
+			FromMap(map[string]*Node{"name": FromString("bob"), "x": FromInt(2)}),
+		}).WithTag("!key(name)"),
+		"nested": FromSlice([]*Node{
+			FromMap(map[string]*Node{
+				"meta": FromMap(map[string]*Node{"name": FromString("joe")}),
+				"x":    FromInt(3),
+			}),
+		}).WithTag("!key(meta.name)"),
+		"byID": FromSlice([]*Node{
+			FromMap(map[string]*Node{"id": FromInt(7), "x": FromInt(4)}),
+		}).WithTag("!key(id)"),
+		"bare": FromSlice([]*Node{
+			FromString("joe"),
+			FromString("bob"),
+		}).WithTag("!key"),
+		"twice": FromSlice([]*Node{
+			FromMap(map[string]*Node{"name": FromString("joe"), "x": FromInt(5)}),
+			FromMap(map[string]*Node{"name": FromString("joe"), "x": FromInt(6)}),
+		}).WithTag("!key(name)"),
+		"plain": FromSlice([]*Node{
+			FromMap(map[string]*Node{"name": FromString("joe"), "x": FromInt(9)}),
+		}),
+		"obj": FromMap(map[string]*Node{"joe": FromInt(8)}),
+	})
+}
+
+func TestNode_GetKPath_Keyed(t *testing.T) {
+	doc := keyedDoc()
+	tests := []struct {
+		kpath string
+		want  int64 // the x of the element reached, or -1 for no node
+		err   bool
+	}{
+		{kpath: "people(joe).x", want: 1},
+		{kpath: "people(bob).x", want: 2},
+		{kpath: "people('joe').x", want: 1}, // a quoted key is the same key
+		{kpath: "nested(joe).x", want: 3},
+		{kpath: "byID(7).x", want: 4},
+		{kpath: "twice(joe).x", want: 5}, // the first, Get taking one node
+		// no element carries the key, so the path reaches nothing
+		{kpath: "people(nope).x", want: -1},
+		// nothing keys a list without the tag, so its elements have no keys
+		{kpath: "plain(joe).x", want: -1},
+		// the key is there but the field under it is not
+		{kpath: "people(joe).zz", want: -1},
+		// a key names an element of a list, and obj is not one
+		{kpath: "obj(joe)", err: true},
+	}
+	for _, tt := range tests {
+		got, err := doc.GetKPath(tt.kpath)
+		if tt.err {
+			if err == nil {
+				t.Errorf("GetKPath(%q): got %v, want an error", tt.kpath, got)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("GetKPath(%q): %v", tt.kpath, err)
+			continue
+		}
+		if tt.want == -1 {
+			if got != nil {
+				t.Errorf("GetKPath(%q): got %v, want nothing", tt.kpath, got)
+			}
+			continue
+		}
+		if got == nil {
+			t.Errorf("GetKPath(%q): got nothing, want %d", tt.kpath, tt.want)
+			continue
+		}
+		if got.Int64 == nil || *got.Int64 != tt.want {
+			t.Errorf("GetKPath(%q): got %v, want %d", tt.kpath, got, tt.want)
+		}
+	}
+}
+
+func TestNode_GetKPath_KeyedBare(t *testing.T) {
+	doc := keyedDoc()
+	got, err := doc.GetKPath("bare(joe)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || got.String != "joe" {
+		t.Errorf(`GetKPath("bare(joe)"): got %v, want joe`, got)
+	}
+}
+
+func TestNode_ListKPath_Keyed(t *testing.T) {
+	doc := keyedDoc()
+	tests := []struct {
+		kpath string
+		want  []int64 // the x of each element reached
+	}{
+		{kpath: "people(joe).x", want: []int64{1}},
+		{kpath: "twice(joe).x", want: []int64{5, 6}}, // a key held twice names both
+		{kpath: "people(nope).x", want: nil},
+		{kpath: "plain(joe).x", want: nil},
+		{kpath: "obj(joe)", want: nil},
+	}
+	for _, tt := range tests {
+		nodes, err := doc.ListKPath(nil, tt.kpath)
+		if err != nil {
+			t.Errorf("ListKPath(%q): %v", tt.kpath, err)
+			continue
+		}
+		var got []int64
+		for _, n := range nodes {
+			if n.Int64 == nil {
+				t.Errorf("ListKPath(%q): reached %v, want a number", tt.kpath, n)
+				continue
+			}
+			got = append(got, *n.Int64)
+		}
+		if !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("ListKPath(%q): got %v, want %v", tt.kpath, got, tt.want)
+		}
+	}
+}
+
+func TestNode_KeyField(t *testing.T) {
+	tests := []struct {
+		tag   string
+		field string
+		keyed bool
+	}{
+		{tag: "!key(name)", field: "name", keyed: true},
+		{tag: "!key(meta.name)", field: "meta.name", keyed: true},
+		{tag: "!key", keyed: true}, // the elements are their own keys
+		{tag: "!other.key(name)", field: "name", keyed: true},
+		{tag: "!key(name).other", field: "name", keyed: true},
+		{tag: ""},
+		{tag: "!other"},
+	}
+	for _, tt := range tests {
+		field, keyed := FromSlice(nil).WithTag(tt.tag).KeyField()
+		if field != tt.field || keyed != tt.keyed {
+			t.Errorf("KeyField() of %q: got (%q, %t), want (%q, %t)",
+				tt.tag, field, keyed, tt.field, tt.keyed)
+		}
+	}
+}
