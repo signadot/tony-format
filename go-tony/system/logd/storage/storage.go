@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -105,6 +106,10 @@ type Storage struct {
 	// durability decides whether the commit path fsyncs. Read under commitMu (the
 	// commit path) or by the accessors; set at configuration time, before serving.
 	durability Durability
+
+	// replayFloor is the highest commit whose delta history compaction has removed.
+	// See replay_floor.go. Read on the replay path, raised by Compact.
+	replayFloor atomic.Int64
 }
 
 // Open opens or creates a Storage instance with the given root directory.
@@ -394,6 +399,14 @@ func (s *Storage) init() error {
 	if err := s.reconcileWatermark(); err != nil {
 		return err
 	}
+
+	// How far back delta replay is still exact, as left by past compactions.
+	floor, err := loadReplayFloor(s.sequence.Root)
+	if err != nil {
+		return fmt.Errorf("failed to load replay floor: %w", err)
+	}
+	s.replayFloor.Store(floor)
+
 	return nil
 }
 

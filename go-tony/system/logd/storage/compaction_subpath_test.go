@@ -154,8 +154,12 @@ func TestCompactionRepositionsBelowRootCopiesOfRetainedEntry(t *testing.T) {
 	}
 	t.Logf("checked %d below-root copies of the retained entry", checked)
 
-	// The consumer-visible symptom this mechanism produced.
-	if _, err := s.ReadPatchesInRange("demo.x.scoped", 0, startCommit+1, &scope); err != nil {
+	// The consumer-visible symptom this mechanism produced. The range is the retained
+	// entry's own commit, not [0, ...]: this compaction dropped the baseline patches
+	// below it, so a range starting at 0 is now correctly refused with
+	// ErrReplayCompacted, and would say nothing about whether the deep path resolves.
+	entryCommit := startCommit + 1
+	if _, err := s.ReadPatchesInRange("demo.x.scoped", entryCommit, entryCommit, &scope); err != nil {
 		t.Errorf("ReadPatchesInRange at the deep path: %v", err)
 	}
 }

@@ -68,6 +68,15 @@ func (s *Storage) Compact(config *CompactionConfig) error {
 		"original", len(inactiveSegments),
 		"surviving", len(survivors))
 
+	// Record how far back delta replay will still be exact BEFORE dropping anything, so a
+	// crash in between leaves the floor too high rather than too low — pessimistic costs a
+	// spurious ErrReplayCompacted, optimistic costs silent event loss. See raiseReplayFloor.
+	if floor := droppedPatchFloor(inactiveSegments, survivors); floor > 0 {
+		if err := s.raiseReplayFloor(floor); err != nil {
+			return fmt.Errorf("failed to record replay floor: %w", err)
+		}
+	}
+
 	// Extract positions to keep (sorted)
 	positions := make([]int64, 0, len(survivors))
 	for _, seg := range survivors {

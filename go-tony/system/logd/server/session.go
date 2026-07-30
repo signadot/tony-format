@@ -669,6 +669,27 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 		startCommit = *fromCommit
 		lastReplayedCommit = currentCommit
 	}
+
+	// Refuse a cursor below the retained delta window before sending ANYTHING. The
+	// replay itself would catch this (ReadPatchesInRange returns ErrReplayCompacted), but
+	// only after the initial state has gone out — and a state read below the floor is
+	// itself approximate, since compaction leaves historical reads at snapshot
+	// granularity. Handing the client a state it cannot trust and then an error is worse
+	// than the error alone.
+	//
+	// The bound matches the replay's: it reads [startCommit+1, ...], so a cursor AT the
+	// floor is fine — "I have through commit F" needs only the deltas above F, which are
+	// intact — and one below it is not.
+	if fromCommit != nil {
+		if floor := s.storage.ReplayFloor(); *fromCommit < floor {
+			s.log.Warn("watch cursor below retained history", "path", path, "fromCommit", *fromCommit, "floor", floor)
+			s.failWatch(watcher, api.ErrCodeReplayCompacted, fmt.Sprintf(
+				"cannot replay from commit %d: delta history is retained only from commit %d; re-watch without fromCommit to re-initialize",
+				*fromCommit, floor+1))
+			return
+		}
+	}
+
 	// Send initial state unless noInit is set
 	if !noInit {
 		var state *ir.Node
@@ -730,6 +751,17 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 		// Send historical patches from startCommit+1 to currentCommit
 		if startCommit < currentCommit {
 			patches, err := s.storage.ReadPatchesInRange(path, startCommit+1, currentCommit, s.scope)
+			if errors.Is(err, storage.ErrReplayCompacted) {
+				// The cursor predates the retained delta window (compaction cutoff), so
+				// the exact history it asked for no longer exists. Say that specifically:
+				// a client told "replay_compacted" re-watches without fromCommit and
+				// re-initializes from current state, where "replay_failed" reads as a
+				// transient fault worth retrying with the same doomed cursor.
+				s.log.Warn("watch replay below retained history", "path", path, "fromCommit", startCommit, "error", err)
+				s.failWatch(watcher, api.ErrCodeReplayCompacted,
+					fmt.Sprintf("cannot replay from commit %d: %v; re-watch without fromCommit to re-initialize", startCommit, err))
+				return
+			}
 			if err != nil {
 				s.log.Error("failed to read patches for replay", "path", path, "from", startCommit+1, "to", currentCommit, "error", err)
 				s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read patches from commit %d to %d: %v", startCommit+1, currentCommit, err))

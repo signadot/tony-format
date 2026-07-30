@@ -351,6 +351,7 @@ const (
 	ErrCodeTxScopeMismatch = "tx_scope_mismatch"      // Participant scope doesn't match transaction scope
 	ErrCodeMatchFailed     = "match_failed"           // Transaction match condition failed
 	ErrCodeReplayFailed    = "replay_failed"          // Watch replay failed, data may be incomplete
+	ErrCodeReplayCompacted = "replay_compacted"       // fromCommit is older than retained delta history; re-watch without it to re-initialize
 	ErrCodeTimeout         = "timeout"                // Operation timed out
 	ErrCodeScopeExists     = "scope_exists"           // Scope already exists
 	ErrCodeScopeNotFound   = "scope_not_found"        // Scope not found
