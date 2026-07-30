@@ -43,6 +43,16 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 		return "", 0, err
 	}
 
+	// Under DurabilitySync, flush before indexing: the index is what makes a commit
+	// readable, so syncing first means the index never points at a record that is not
+	// yet on stable storage. Under the default DurabilityOS this is skipped and the
+	// record is durable only once the OS flushes it (see Durability).
+	if c.s.durability == DurabilitySync {
+		if err := c.s.dLog.Sync(logFile); err != nil {
+			return "", 0, fmt.Errorf("failed to sync log after append: %w", err)
+		}
+	}
+
 	// Get schema for this scope
 	schema := c.s.schemaForScope(scopeID)
 
@@ -67,8 +77,13 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 		c.s.indexPersister.MaybePersist(commit)
 	}
 
-	// The commit notification (fan-out) is intentionally NOT fired here — doCommit calls
-	// Notify after releasing the commit lock, so a blocking notifier can't serialize commits.
+	// The entry is now in the log and in the index, so it is readable: publish it. This
+	// runs under the commit lock (doCommit holds it across this call), which is what
+	// makes the watermark and the notification queue both ordered by commit. The fan-out
+	// itself happens later, on the tick's dispatcher goroutine, so a slow notifier still
+	// cannot serialize commits.
+	c.s.tick.publish(commit, newCommitNotification(commit, txSeq, timestamp, mergedPatch, scopeID))
+
 	return string(logFile), pos, nil
 }
 
@@ -76,27 +91,6 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 func (c *commitOps) LockCommit() func() {
 	c.s.commitMu.Lock()
 	return c.s.commitMu.Unlock
-}
-
-// Notify fires the post-commit fan-out for a successful commit. Called by doCommit AFTER the
-// commit lock is released (the notifier contract is non-blocking, but this also guarantees a
-// slow notifier can't stall other commits).
-func (c *commitOps) Notify(commit, txSeq int64, timestamp string, mergedPatch *ir.Node, txState *tx.State) {
-	if c.s.notifier == nil {
-		return
-	}
-	var scopeID *string
-	if txState != nil {
-		scopeID = txState.Scope
-	}
-	c.s.notifier(&CommitNotification{
-		Commit:    commit,
-		TxSeq:     txSeq,
-		Timestamp: timestamp,
-		KPaths:    extractTopLevelKPaths(mergedPatch),
-		Patch:     mergedPatch,
-		ScopeID:   scopeID,
-	})
 }
 
 // extractTopLevelKPaths extracts the top-level kpaths from a patch node.

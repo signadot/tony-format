@@ -120,13 +120,20 @@ func TestStorage_CommitNotifier(t *testing.T) {
 		t.Fatalf("first commit failed: %v", result1.Error)
 	}
 
-	// Verify notification was received
+	// Notifications are delivered on the tick's dispatcher, so a returned commit does
+	// not by itself mean the notifier has run; wait for the queue to drain.
+	s.tick.waitDrained()
+
 	mu.Lock()
-	if len(notifications) != 1 {
-		t.Fatalf("expected 1 notification, got %d", len(notifications))
+	got := len(notifications)
+	var n1 *CommitNotification
+	if got == 1 {
+		n1 = notifications[0]
 	}
-	n1 := notifications[0]
 	mu.Unlock()
+	if got != 1 {
+		t.Fatalf("expected 1 notification, got %d", got)
+	}
 
 	if n1.Commit != 1 {
 		t.Errorf("expected commit 1, got %d", n1.Commit)
@@ -171,12 +178,18 @@ func TestStorage_CommitNotifier(t *testing.T) {
 	}
 
 	// Verify second notification
+	s.tick.waitDrained()
+
 	mu.Lock()
-	if len(notifications) != 2 {
-		t.Fatalf("expected 2 notifications, got %d", len(notifications))
+	got = len(notifications)
+	var n2 *CommitNotification
+	if got == 2 {
+		n2 = notifications[1]
 	}
-	n2 := notifications[1]
 	mu.Unlock()
+	if got != 2 {
+		t.Fatalf("expected 2 notifications, got %d", got)
+	}
 
 	if n2.Commit != 2 {
 		t.Errorf("expected commit 2, got %d", n2.Commit)
@@ -223,6 +236,8 @@ func TestStorage_CommitNotifier(t *testing.T) {
 	}
 
 	// Verify no new notifications
+	s.tick.waitDrained()
+
 	mu.Lock()
 	if len(notifications) != 2 {
 		t.Errorf("expected 2 notifications after clearing notifier, got %d", len(notifications))

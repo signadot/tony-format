@@ -21,6 +21,13 @@ signature:
 context:
 - tony-format/context
 define:
+  durability: .[string]
+signature:
+  name: storage-config
+---
+context:
+- tony-format/context
+define:
   timeout: .[int]
 signature:
   name: tx-config
@@ -32,6 +39,7 @@ define:
   compaction: .[nullable(compaction-config)]
   schema: .[tony-base:ir]
   snapshot: .[nullable(snapshot-config)]
+  storage: .[nullable(storage-config)]
   tx: .[nullable(tx-config)]
 signature:
   name: config

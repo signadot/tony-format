@@ -311,8 +311,9 @@ func (p *txPatcher) doCommit(state *State, commitOps CommitOps) *Result {
 
 	// Serialize the read-modify-write: evaluate the CAS precondition, allocate the commit,
 	// and append under one lock so no other commit's write can land between this commit's
-	// match evaluation and its own write (CAS lost update, issue r1w4k6g2). The fan-out
-	// notify is fired AFTER release (below), never under this lock.
+	// match evaluation and its own write (CAS lost update, issue r1w4k6g2). Publication —
+	// the watermark and the queued notification — happens inside WriteAndIndex, under this
+	// same lock, so both are ordered by commit; only the delivery runs outside it.
 	release := commitOps.LockCommit()
 	released := false
 	unlock := func() {
@@ -394,10 +395,11 @@ func (p *txPatcher) doCommit(state *State, commitOps CommitOps) *Result {
 		}
 	}
 
-	// The write is durable and indexed; release the commit lock so the fan-out below (which
-	// may block on a slow watcher) can't serialize other commits.
+	// Written, indexed, and published — WriteAndIndex did all three under this lock, so
+	// the commit is readable and its notification is queued in commit order. The fan-out
+	// runs on the storage's dispatcher, off this goroutine, so releasing here does not
+	// hand a slow watcher the power to stall other commits.
 	unlock()
-	commitOps.Notify(commit, state.TxID, timestamp, mergedPatch, state)
 
 	_ = co.storage.Delete(state.TxID)
 

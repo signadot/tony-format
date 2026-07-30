@@ -27,6 +27,11 @@ func NewSeq(root string) *Seq {
 	return &Seq{Root: root}
 }
 
+// StateFilePath returns the path of the file holding the sequence state.
+func (s *Seq) StateFilePath() string {
+	return filepath.Join(s.Root, "meta", seqFile)
+}
+
 // State represents the sequence number state.
 type State struct {
 	Commit int64 // Monotonic commit count

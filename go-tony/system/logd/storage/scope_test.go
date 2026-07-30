@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -294,8 +295,13 @@ func TestScope_CommitNotification(t *testing.T) {
 	}
 	defer s.Close()
 
+	// The dispatcher delivers on its own goroutine, so guard the slice even though
+	// delivery is serialized; waitDrained below is what makes the read well-defined.
+	var notifyMu sync.Mutex
 	var notifications []*CommitNotification
 	s.SetCommitNotifier(func(n *CommitNotification) {
+		notifyMu.Lock()
+		defer notifyMu.Unlock()
 		notifications = append(notifications, n)
 	})
 
@@ -313,6 +319,10 @@ func TestScope_CommitNotification(t *testing.T) {
 	p2.Commit()
 
 	// 3. Verify notifications
+	s.tick.waitDrained()
+	notifyMu.Lock()
+	defer notifyMu.Unlock()
+
 	if len(notifications) != 2 {
 		t.Fatalf("expected 2 notifications, got %d", len(notifications))
 	}

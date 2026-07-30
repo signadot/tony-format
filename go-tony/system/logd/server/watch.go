@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 // DefaultBroadcastTimeout is the default timeout for sending events to watchers.
@@ -128,32 +127,20 @@ func (h *WatchHub) Broadcast(n *storage.CommitNotification) {
 		return
 	}
 
-	// The committed patch is shared with the commit path, which strips its
-	// internal !logd-patch-root tags immediately after notifying (see
-	// tx.doCommit). Hand watchers an independent, already-stripped copy so
-	// their read-only forwarding never races with that mutation, or with each
-	// other. The copy is made here on the committing goroutine, before those
-	// strips run and before any watcher goroutine observes the notification.
-	if n.Patch != nil {
-		clean := n.Patch.DeepCopy()
-		tx.StripPatchRootTagRecursive(clean)
-		n = &storage.CommitNotification{
-			Commit:    n.Commit,
-			TxSeq:     n.TxSeq,
-			Timestamp: n.Timestamp,
-			KPaths:    n.KPaths,
-			Patch:     clean,
-			ScopeID:   n.ScopeID,
-		}
-	}
+	// n.Patch needs no defensive copy here: storage builds each notification with a
+	// stripped deep copy of the committed patch, on the committing goroutine, so the
+	// notification owns its patch and nothing else can mutate it (see
+	// storage.newCommitNotification). It is still SHARED across the watchers below, which
+	// is why forwardEvents copies again before encoding — encoding mutates parent linkage.
 
 	// Enqueue to each watcher's buffered Events channel WITHOUT blocking. Broadcast runs on
-	// the committing goroutine (it is the CommitNotifier, whose contract is to return
-	// immediately), so it must never wait on a consumer: a slow watcher would otherwise stall
-	// every unrelated writer's commit and the committing session's own heartbeat. A watcher
-	// whose buffer is full has fallen behind — fail it loudly (its Failed channel is closed,
-	// forwardEvents sends a terminal event, and the client re-establishes/resyncs) rather than
-	// block. The buffer is the burst grace; there is no time-based wait. (issue yfqsz3j6)
+	// the storage tick's dispatcher goroutine (it is the CommitNotifier, whose contract is to
+	// return immediately), so it must never wait on a consumer: a slow watcher would otherwise
+	// hold up the notification of every LATER commit, including for unrelated watchers. A
+	// watcher whose buffer is full has fallen behind — fail it loudly (its Failed channel is
+	// closed, forwardEvents sends a terminal event, and the client re-establishes/resyncs)
+	// rather than block. The buffer is the burst grace; there is no time-based wait. (issue
+	// yfqsz3j6)
 	var failedWatchers []*Watcher
 	for _, target := range targets {
 		select {

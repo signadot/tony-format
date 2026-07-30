@@ -61,6 +61,21 @@ func New(spec *Spec) *Server {
 			}
 		}
 
+		// Set storage durability if configured
+		if spec.Config.Storage != nil {
+			d, err := spec.Config.Storage.ToStorageDurability()
+			if err != nil {
+				// LoadConfig rejects this, so getting here means a Config built in
+				// code. Keep the storage default and say so, rather than guess which
+				// way the caller meant to err.
+				spec.Log.Error("invalid storage durability; keeping default",
+					"error", err, "durability", spec.Storage.GetDurability())
+			} else {
+				spec.Storage.SetDurability(d)
+				spec.Log.Info("configured storage durability", "durability", d)
+			}
+		}
+
 		// Set up compaction if configured
 		if spec.Config.Compaction != nil {
 			spec.Storage.SetCompactionConfig(spec.Config.Compaction.ToStorageConfig())

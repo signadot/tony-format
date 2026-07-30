@@ -72,9 +72,6 @@ func (m *mockCommitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mer
 
 func (m *mockCommitOps) LockCommit() func() { return func() {} }
 
-func (m *mockCommitOps) Notify(commit, txSeq int64, timestamp string, mergedPatch *ir.Node, txState *State) {
-}
-
 func (m *mockCommitOps) setState(kpath string, commit int64, state *ir.Node) {
 	if m.readState[kpath] == nil {
 		m.readState[kpath] = make(map[int64]*ir.Node)

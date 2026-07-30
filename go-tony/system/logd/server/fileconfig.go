@@ -32,6 +32,46 @@ type Config struct {
 	// Compaction configures logarithmic retention policy for the inactive log.
 	// If nil, compaction is disabled (all data retained).
 	Compaction *CompactionConfig `tony:"field=compaction"`
+
+	// Storage configures the storage layer itself.
+	// If nil, storage defaults apply.
+	Storage *StorageConfig `tony:"field=storage"`
+}
+
+// StorageConfig configures the storage layer.
+//
+//tony:schemagen=storage-config
+type StorageConfig struct {
+	// Durability controls when a commit's log record is forced to stable storage:
+	//
+	//	os   — (default) acknowledge a commit once its record is written to the OS
+	//	       page cache. No fsync on the commit path, so a machine crash — as
+	//	       opposed to a process crash, which the page cache survives — loses
+	//	       whatever the OS had not yet flushed.
+	//	sync — fsync each commit's record before it is indexed, so a commit that has
+	//	       been acknowledged is on stable storage. Costs one fsync per commit.
+	//
+	// Either way a lost tail costs commits, never their identity: the commit
+	// watermark is reconciled against the log on open, so a number the log already
+	// holds is never reissued.
+	Durability string `tony:"field=durability"`
+}
+
+// ToStorageDurability maps the configured name to a storage.Durability. A nil
+// section, or an empty name, means the storage default.
+func (c *StorageConfig) ToStorageDurability() (storage.Durability, error) {
+	if c == nil || c.Durability == "" {
+		return storage.DurabilityOS, nil
+	}
+	switch c.Durability {
+	case "os":
+		return storage.DurabilityOS, nil
+	case "sync":
+		return storage.DurabilitySync, nil
+	default:
+		return storage.DurabilityOS, fmt.Errorf("unknown storage durability %q: want %q or %q",
+			c.Durability, "os", "sync")
+	}
 }
 
 // TxConfig configures transaction behavior.
@@ -147,6 +187,10 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to convert config: %w", err)
 	}
 
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config %s: %w", path, err)
+	}
+
 	return cfg, nil
 }
 
@@ -162,8 +206,14 @@ func DefaultConfig() *Config {
 	}
 }
 
-// Validate checks the configuration for errors.
+// Validate checks the configuration for errors. Called by LoadConfig, so a file
+// that names something logd does not understand is rejected rather than run.
 func (c *Config) Validate() error {
-	// Currently no validation rules, but this is where they would go
+	// A misspelled durability must not fall back to the default: an operator who
+	// wrote "fsync" and silently got page-cache writes has the opposite of what
+	// they asked for, and would not find out until a crash.
+	if _, err := c.Storage.ToStorageDurability(); err != nil {
+		return err
+	}
 	return nil
 }

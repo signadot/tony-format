@@ -204,12 +204,11 @@ func (s *Storage) MigrationPatch(path string, patch *ir.Node) (int64, *ir.Node, 
 		return 0, nil, fmt.Errorf("failed to get next commit: %w", err)
 	}
 
-	// Get current commit for lastCommit
-	currentCommit, err := s.GetCurrentCommit()
-	if err != nil {
-		return 0, nil, fmt.Errorf("failed to get current commit: %w", err)
-	}
-	lastCommit := currentCommit - 1
+	// The range this entry covers ends at the commit just allocated, so it starts at the
+	// one before. Taken from commit directly, not from the watermark: the watermark is
+	// the last PUBLISHED commit, which is a different number the moment anything is
+	// allocated but not yet visible — including this very entry.
+	lastCommit := commit - 1
 	if lastCommit < 0 {
 		lastCommit = 0
 	}
@@ -241,6 +240,11 @@ func (s *Storage) MigrationPatch(path string, patch *ir.Node) (int64, *ir.Node, 
 		return 0, nil, fmt.Errorf("failed to index patch: %w", err)
 	}
 
+	// Deliberately NOT published: this entry goes only into the pending index, so it is
+	// not readable in the baseline view, and the watermark means "readable". It becomes
+	// visible when CompleteMigration promotes the pending index, whose schema snapshot
+	// publishes a commit of its own. Until then the watermark simply skips this number,
+	// which is the benign direction (see GetCurrentCommit).
 	s.logger.Info("migration patch applied", "commit", commit, "path", path)
 	return commit, rootPatch, nil
 }
@@ -428,6 +432,10 @@ func (s *Storage) createSchemaSnapshot(schema *ir.Node, status string) (int64, e
 		ScopeID:           nil,
 	}
 	s.index.Add(snapSeg)
+
+	// In the log and in the baseline index, so it is readable: advance the watermark.
+	// No notification — a schema snapshot carries no patch for a watcher to apply.
+	s.tick.publish(commit, nil)
 
 	s.logger.Info("schema snapshot created", "commit", commit, "status", status, "logFile", snapWriter.LogFileID(), "position", snapWriter.EntryPosition())
 	return commit, nil

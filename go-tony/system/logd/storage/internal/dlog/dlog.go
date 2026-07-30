@@ -517,6 +517,33 @@ func (dl *DLog) ActiveLogSize() (int64, error) {
 	return logFile.Size()
 }
 
+// Sync forces the given log file's appended records to stable storage.
+// Appends go to the page cache (see DLogFile.AppendEntry); until this returns, a
+// machine crash can lose records the caller has already been told were written.
+func (dl *DLog) Sync(id LogFileID) error {
+	switch id {
+	case LogFileA:
+		return dl.logA.Sync()
+	case LogFileB:
+		return dl.logB.Sync()
+	default:
+		return fmt.Errorf("unknown log file %q", id)
+	}
+}
+
+// SyncAll forces both log files to stable storage. Used on a clean shutdown, and
+// available to a caller that wants a flush point without knowing which log is active.
+func (dl *DLog) SyncAll() error {
+	var errs error
+	if err := dl.logA.Sync(); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("failed to sync logA: %w", err))
+	}
+	if err := dl.logB.Sync(); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("failed to sync logB: %w", err))
+	}
+	return errs
+}
+
 // SwitchActive switches the active log (A ↔ B).
 // Blocks if a snapshot is in progress on the inactive log (which is about to become active).
 // Called by the caller when compaction boundaries are reached.
@@ -629,9 +656,14 @@ func (dl *DLog) LogFilePath(id LogFileID) string {
 	}
 }
 
-// Close closes both log files.
+// Close closes both log files, flushing them first: a clean shutdown is the one
+// point where durability costs nothing, whatever the per-commit durability mode.
 func (dl *DLog) Close() error {
 	var errs error
+
+	if err := dl.SyncAll(); err != nil {
+		errs = errors.Join(errs, err)
+	}
 
 	if err := dl.logA.Close(); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("failed to close logA: %w", err))
@@ -737,6 +769,25 @@ func (dlf *DLogFile) Position() int64 {
 	dlf.mu.RLock()
 	defer dlf.mu.RUnlock()
 	return dlf.position
+}
+
+// Sync forces this log file's contents to stable storage.
+//
+// RLock, not Lock: the only field read is the handle (Close nils it under Lock), and
+// fsync is safe alongside a concurrent pwrite. A caller syncing its own append has
+// already returned from AppendEntry, so the bytes it cares about are in the file;
+// whether a later concurrent append also lands in this flush does not matter.
+func (dlf *DLogFile) Sync() error {
+	dlf.mu.RLock()
+	defer dlf.mu.RUnlock()
+
+	if dlf.file == nil {
+		return nil // closed
+	}
+	if err := dlf.file.Sync(); err != nil {
+		return fmt.Errorf("failed to sync log file %q: %w", dlf.path, err)
+	}
+	return nil
 }
 
 // Close closes the log file.

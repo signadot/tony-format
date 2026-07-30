@@ -36,6 +36,38 @@ type CommitNotification struct {
 // the notifier should queue the notification and return immediately.
 type CommitNotifier func(n *CommitNotification)
 
+// Durability controls when a commit's log record is forced to stable storage.
+//
+// It trades write latency against the size of the window a machine crash (as opposed
+// to a process crash, which the page cache survives) can erase. It does NOT affect
+// what a restart can make sense of: an unsynced tail is recovered by the frame scan
+// on open, and the commit watermark is reconciled against the log either way
+// (reconcileWatermark), so a lost tail costs commits, never their identity.
+type Durability int
+
+const (
+	// DurabilityOS acknowledges a commit once its record is written to the OS page
+	// cache — no fsync on the commit path. This is the default: it is the historical
+	// behavior, and the per-write fsync cost is not worth paying for every commit.
+	// A machine crash loses whatever the OS had not yet flushed.
+	DurabilityOS Durability = iota
+
+	// DurabilitySync fsyncs the log record before the commit is indexed, so a commit
+	// that has been acknowledged is on stable storage. Costs one fsync per commit.
+	DurabilitySync
+)
+
+func (d Durability) String() string {
+	switch d {
+	case DurabilityOS:
+		return "os"
+	case DurabilitySync:
+		return "sync"
+	default:
+		return fmt.Sprintf("Durability(%d)", int(d))
+	}
+}
+
 // Storage provides filesystem-based storage for logd.
 type Storage struct {
 	// commitMu serializes a commit's read-modify-write — CAS precondition evaluation,
@@ -54,10 +86,13 @@ type Storage struct {
 	index          *index.Index
 	indexPersister *IndexPersister
 
+	// tick holds the published commit watermark and the ordered notification fan-out.
+	// Created in Open once the watermark has been reconciled against the log.
+	tick *tick
+
 	txStore        tx.Store      // Transaction store (in-memory for now, can be swapped for disk-based)
 	txTimeout      time.Duration // Timeout for transaction participants to join (0 = no timeout)
 	logger         *slog.Logger
-	notifier       CommitNotifier     // Optional callback for commit notifications
 	schemaResolver api.SchemaResolver // Optional schema resolver for !key indexed arrays
 
 	// Schema state - derived from log entries during replay.
@@ -66,6 +101,10 @@ type Storage struct {
 
 	// Compaction config - if set, Compact() is called after SwitchDLog
 	compactionConfig *CompactionConfig
+
+	// durability decides whether the commit path fsyncs. Read under commitMu (the
+	// commit path) or by the accessors; set at configuration time, before serving.
+	durability Durability
 }
 
 // Open opens or creates a Storage instance with the given root directory.
@@ -98,6 +137,14 @@ func Open(root string, logger *slog.Logger) (*Storage, error) {
 	s.indexPersister = NewIndexPersister(s.sequence.Root, s.index, DefaultIndexPersistInterval, logger)
 	s.indexPersister.SetLastPersisted(s.getIndexMaxCommit())
 
+	// The tick starts at the reconciled watermark: everything the log holds is already
+	// indexed by now, so everything up to it is readable.
+	published, err := s.sequence.CurrentSeqState()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read sequence state: %w", err)
+	}
+	s.tick = newTick(published.Commit)
+
 	return s, nil
 }
 
@@ -106,16 +153,21 @@ func (s *Storage) ActiveLogSize() (int64, error) {
 	return s.dLog.ActiveLogSize()
 }
 
-// GetCurrentCommit returns the current commit number.
+// GetCurrentCommit returns the published commit watermark: the highest commit that is
+// in the log AND in the index, and so can be read or replayed right now.
+//
+// It is deliberately NOT the sequence counter. The counter is bumped when a commit is
+// allocated, before its entry is written or indexed, so reporting it handed callers a
+// commit that did not yet exist for any reader — and a watch that took it as a replay
+// target dropped that commit entirely (see tick). The counter remains the allocator;
+// this is the reader's view, and it is served from memory rather than off disk.
+//
+// The watermark can sit ahead of the last entry the log actually holds, when a commit
+// was allocated and then failed to write, or when reconcileWatermark restored a counter
+// that had run ahead. That is the benign direction: it names a commit that no patch
+// occupies, and a read there simply sees the state as of the last commit before it.
 func (s *Storage) GetCurrentCommit() (int64, error) {
-	s.sequence.Lock()
-	defer s.sequence.Unlock()
-	state, err := s.sequence.ReadStateLocked()
-	if err != nil {
-		return 0, err
-	}
-	commit := state.Commit
-	return commit, nil
+	return s.tick.current(), nil
 }
 
 // ReadStateAt reads the state at a specific commit count.
@@ -337,18 +389,82 @@ func (s *Storage) init() error {
 		}
 	}
 
-	// Initialize sequence number file if it doesn't exist
-	seqFile := filepath.Join(s.sequence.Root, "meta", "seq")
-	if _, err := os.Stat(seqFile); os.IsNotExist(err) {
-		s.sequence.Lock()
-		state := &seq.State{Commit: 0, TxSeq: 0}
-		err := s.sequence.WriteStateLocked(state)
-		s.sequence.Unlock()
-		if err != nil {
-			return err
+	// Bring the sequence counters up to what the log actually contains, and create
+	// the file if this is a fresh store.
+	if err := s.reconcileWatermark(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// reconcileWatermark raises the persisted sequence counters to the maxima the log
+// holds, so a reopened store never reissues a commit or transaction number.
+//
+// The counters and the log are two separate files and neither is fsynced on the
+// commit path (see Durability), so a crash can leave them disagreeing in either
+// direction. Ahead of the log is benign: the unused numbers are a hole, and a hole
+// costs nothing because readers address state by commit, not by counting. BEHIND the
+// log is corruption: the next commit reuses a number the log already has, and the
+// commit number stops naming one state forever — which is the single assumption every
+// watch cursor rests on (a client resumes by saying "I have through commit N"). Losing
+// meta/seq entirely, with the log intact, restarted the whole sequence from 1.
+//
+// max() is therefore the only safe direction, and it is safe even when the index
+// overstates the log: an index persisted ahead of a lost log tail yields a watermark
+// past the last real entry, which is the benign hole again.
+//
+// The maxima come from the index rather than a log scan because the index has just
+// been rebuilt from the log (or loaded and caught up from maxCommit+1), so it already
+// reflects every entry — every one of which is indexed at the root.
+func (s *Storage) reconcileWatermark() error {
+	logCommit, logTxSeq := s.indexWatermarks()
+
+	s.sequence.Lock()
+	defer s.sequence.Unlock()
+
+	state, err := s.sequence.ReadStateLocked()
+	if err != nil {
+		return fmt.Errorf("failed to read sequence state: %w", err)
+	}
+
+	raised := false
+	if logCommit > state.Commit {
+		s.logger.Warn("sequence commit counter is behind the log; raising it to avoid reissuing commit numbers",
+			"counter", state.Commit, "log", logCommit)
+		state.Commit = logCommit
+		raised = true
+	}
+	if logTxSeq > state.TxSeq {
+		state.TxSeq = logTxSeq
+		raised = true
+	}
+
+	// Write when raised, and on a fresh store so meta/seq exists from the start.
+	if _, statErr := os.Stat(s.sequence.StateFilePath()); raised || os.IsNotExist(statErr) {
+		if err := s.sequence.WriteStateLocked(state); err != nil {
+			return fmt.Errorf("failed to write sequence state: %w", err)
 		}
 	}
 	return nil
+}
+
+// indexWatermarks returns the highest commit and transaction sequence the index
+// holds, or 0 for each if it is empty. Snapshot segments carry EndTx 0 and are
+// simply never the maximum.
+//
+// Kept apart from getIndexMaxCommit, which reports -1 for an empty index because its
+// caller distinguishes "nothing to persist" from "commit 0"; here 0 is the right
+// floor, since it is what an unwritten counter already reads as.
+func (s *Storage) indexWatermarks() (commit, txSeq int64) {
+	for _, seg := range s.index.LookupRangeAll("", nil, nil) {
+		if seg.EndCommit > commit {
+			commit = seg.EndCommit
+		}
+		if seg.EndTx > txSeq {
+			txSeq = seg.EndTx
+		}
+	}
+	return commit, txSeq
 }
 
 // NewTx creates a new transaction with the specified number of participants.
@@ -395,6 +511,10 @@ func (s *Storage) NewTx(participantCount int, scope *string) (tx.Tx, error) {
 func (s *Storage) Close() error {
 	// Stop transaction cleanup goroutine
 	s.txStore.Close()
+
+	// Deliver whatever the dispatcher still holds, then stop it, before the log it
+	// describes goes away.
+	s.tick.close()
 
 	// Wait for any pending index persist
 	if s.indexPersister != nil {
@@ -457,13 +577,16 @@ func (s *Storage) GetTx(txID int64) (tx.Tx, error) {
 // SetCommitNotifier sets the callback to be invoked after each successful commit.
 // Only one notifier can be active at a time - setting a new one replaces the previous.
 // Pass nil to disable notifications.
+//
+// The notifier is called on the tick's dispatcher goroutine, once per commit, in commit
+// order — never on the committing goroutine, and never under the commit lock.
 func (s *Storage) SetCommitNotifier(notifier CommitNotifier) {
-	s.notifier = notifier
+	s.tick.setNotifier(notifier)
 }
 
 // GetCommitNotifier returns the currently registered commit notifier, or nil if none.
 func (s *Storage) GetCommitNotifier() CommitNotifier {
-	return s.notifier
+	return s.tick.getNotifier()
 }
 
 // SetTxTimeout sets the timeout for transaction participants to join.
@@ -488,6 +611,24 @@ func (s *Storage) SetSchemaResolver(resolver api.SchemaResolver) {
 // GetSchemaResolver returns the current schema resolver, or nil if none.
 func (s *Storage) GetSchemaResolver() api.SchemaResolver {
 	return s.schemaResolver
+}
+
+// SetDurability sets when the commit path forces records to stable storage.
+// Set it before serving; it is not meant to change under live commits.
+func (s *Storage) SetDurability(d Durability) {
+	s.durability = d
+}
+
+// GetDurability returns the current durability mode.
+func (s *Storage) GetDurability() Durability {
+	return s.durability
+}
+
+// Sync forces all written log records to stable storage. Under the default
+// DurabilityOS this is how a caller takes a flush point of its own choosing —
+// after a batch of writes, say — without paying an fsync per commit.
+func (s *Storage) Sync() error {
+	return s.dLog.SyncAll()
 }
 
 // SetCompactionConfig sets the compaction configuration.

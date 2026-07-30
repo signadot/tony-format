@@ -57,6 +57,15 @@ func (s *Config) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["compaction"] = node
 	}
 
+	// Field: Storage (optional)
+	if s.Storage != nil {
+		node, err = s.Storage.ToTonyIR(opts...)
+		if err != nil {
+			return nil, err
+		}
+		irMap["storage"] = node
+	}
+
 	return ir.FromMap(irMap).WithTag("!config"), nil
 }
 
@@ -114,6 +123,12 @@ func (s *Config) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if err := s.Compaction.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
+		case "storage":
+			// Field: Storage
+			s.Storage = &StorageConfig{}
+			if err := s.Storage.FromTonyIR(fieldNode, opts...); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -135,6 +150,84 @@ func (s *Config) ToTony(opts ...gomap.MapOption) ([]byte, error) {
 
 // FromTony parses Tony format bytes and populates Config.
 func (s *Config) FromTony(data []byte, opts ...gomap.UnmapOption) error {
+	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
+	if err != nil {
+		return err
+	}
+	return s.FromTonyIR(node, opts...)
+}
+
+// ToTonyIR converts StorageConfig to a Tony IR node.
+func (s *StorageConfig) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
+	// Create IR object map
+	irMap := make(map[string]*ir.Node)
+
+	// Field: Durability
+	irMap["durability"] = ir.FromString(string(s.Durability))
+
+	return ir.FromMap(irMap).WithTag("!storage-config"), nil
+}
+
+// FromTonyIR populates StorageConfig from a Tony IR node.
+func (s *StorageConfig) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
+	if node.Type != ir.ObjectType {
+		return fmt.Errorf("expected map for StorageConfig, got %v", node.Type)
+	}
+
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
+		switch fieldName.String {
+		case "durability":
+			// Field: Durability
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "durability", fieldNodeUnwrapped.Type)
+			}
+			s.Durability = string(fieldNodeUnwrapped.String)
+		}
+	}
+
+	return nil
+}
+
+// ToTony converts StorageConfig to Tony format bytes.
+func (s *StorageConfig) ToTony(opts ...gomap.MapOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// FromTony parses Tony format bytes and populates StorageConfig.
+func (s *StorageConfig) FromTony(data []byte, opts ...gomap.UnmapOption) error {
 	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
 	if err != nil {
 		return err
