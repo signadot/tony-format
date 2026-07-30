@@ -663,6 +663,13 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 	// Track the highest commit we've replayed (for deduplication)
 	lastReplayedCommit := int64(0)
 
+	// The highest commit this watch has accounted for, handed to the client on a terminal
+	// event as its resume point. It advances even for a commit that produced no event for
+	// this path — the watch is correct through that commit, so resuming above it skips
+	// replaying history the client already has. Zero until the watch has caught up to
+	// anything, which is what a client that never got started should resume from.
+	lastDelivered := int64(0)
+
 	// Determine the starting commit for initial state
 	startCommit := currentCommit
 	if fromCommit != nil {
@@ -685,7 +692,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 			s.log.Warn("watch cursor below retained history", "path", path, "fromCommit", *fromCommit, "floor", floor)
 			s.failWatch(watcher, api.ErrCodeReplayCompacted, fmt.Sprintf(
 				"cannot replay from commit %d: delta history is retained only from commit %d; re-watch without fromCommit to re-initialize",
-				*fromCommit, floor+1))
+				*fromCommit, floor+1), 0)
 			return
 		}
 	}
@@ -701,7 +708,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 			state, err = s.storage.ReadStateAt(path, startCommit, s.scope)
 			if err != nil {
 				s.log.Error("failed to read state for init", "path", path, "commit", startCommit, "error", err)
-				s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read state at commit %d: %v", startCommit, err))
+				s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read state at commit %d: %v", startCommit, err), lastDelivered)
 				return
 			}
 			// Extract value at path if needed
@@ -714,6 +721,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 			}
 		}
 		s.send(api.NewStateEvent(watcher.ID, startCommit, path, state))
+		lastDelivered = startCommit
 	}
 
 	// prevDoc tracks the watched path's own subtree (as scopedDocAt trims it) at the
@@ -740,7 +748,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 		prevDoc, err = s.scopedDocAt(path, startCommit)
 		if err != nil {
 			s.log.Error("failed to read watch base", "path", path, "commit", startCommit, "error", err)
-			s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read state at commit %d: %v", startCommit, err))
+			s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read state at commit %d: %v", startCommit, err), lastDelivered)
 			return
 		}
 		prevSeeded = true
@@ -759,22 +767,23 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 				// transient fault worth retrying with the same doomed cursor.
 				s.log.Warn("watch replay below retained history", "path", path, "fromCommit", startCommit, "error", err)
 				s.failWatch(watcher, api.ErrCodeReplayCompacted,
-					fmt.Sprintf("cannot replay from commit %d: %v; re-watch without fromCommit to re-initialize", startCommit, err))
+					fmt.Sprintf("cannot replay from commit %d: %v; re-watch without fromCommit to re-initialize", startCommit, err), lastDelivered)
 				return
 			}
 			if err != nil {
 				s.log.Error("failed to read patches for replay", "path", path, "from", startCommit+1, "to", currentCommit, "error", err)
-				s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read patches from commit %d to %d: %v", startCommit+1, currentCommit, err))
+				s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read patches from commit %d to %d: %v", startCommit+1, currentCommit, err), lastDelivered)
 				return
 			}
 			for _, patch := range patches {
 				if scoped {
 					newPrev, err := s.emitScopedDelta(watcher.ID, path, patch.Commit, prevDoc)
 					if err != nil {
-						s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read scoped state at commit %d: %v", patch.Commit, err))
+						s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read scoped state at commit %d: %v", patch.Commit, err), lastDelivered)
 						return
 					}
 					prevDoc = newPrev
+					lastDelivered = patch.Commit
 					continue
 				}
 				// Baseline: forward the raw delta (op fidelity), but only if this
@@ -782,9 +791,12 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 				// read can include a sibling's write under a shared ancestor.
 				newSub, err := s.scopedDocAt(path, patch.Commit)
 				if err != nil {
-					s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read state at commit %d: %v", patch.Commit, err))
+					s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read state at commit %d: %v", patch.Commit, err), lastDelivered)
 					return
 				}
+				// Accounted for either way: a commit that changed nothing under this path
+				// still leaves the watch correct through it, so it is a valid resume point.
+				lastDelivered = patch.Commit
 				if newSub.DeepEqual(prevDoc) {
 					continue
 				}
@@ -803,9 +815,11 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 		case <-s.done:
 			return
 		case <-watcher.Failed:
-			// Watch failed (slow consumer)
-			s.log.Warn("watch failed (slow consumer)", "path", path)
-			s.failWatch(watcher, api.ErrCodeSessionClosed, fmt.Sprintf("watch on %q failed: slow consumer", path))
+			// Broadcast dropped this watcher because its buffer was full. Report it as
+			// what it is: the client fell behind, and it can resume from lastDelivered
+			// rather than re-reading the whole document.
+			s.failWatch(watcher, api.ErrCodeSlowConsumer,
+				fmt.Sprintf("watch on %q dropped: consumer did not keep up", path), lastDelivered)
 			return
 		case notification, ok := <-watcher.Events:
 			if !ok {
@@ -833,7 +847,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 					prevDoc, err = s.scopedDocAt(path, notification.Commit-1)
 					if err != nil {
 						s.log.Error("failed to read scoped watch base", "path", path, "commit", notification.Commit-1, "error", err)
-						s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read scoped state at commit %d: %v", notification.Commit-1, err))
+						s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read scoped state at commit %d: %v", notification.Commit-1, err), lastDelivered)
 						return
 					}
 					prevSeeded = true
@@ -844,7 +858,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 				newPrev, err := s.emitScopedDelta(watcher.ID, path, notification.Commit, prevDoc)
 				if err != nil {
 					s.log.Error("failed to read scoped state for watch", "path", path, "commit", notification.Commit, "error", err)
-					s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read scoped state at commit %d: %v", notification.Commit, err))
+					s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read scoped state at commit %d: %v", notification.Commit, err), lastDelivered)
 					return
 				}
 				prevDoc = newPrev
@@ -860,7 +874,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 				prevDoc, err = s.scopedDocAt(path, notification.Commit-1)
 				if err != nil {
 					s.log.Error("failed to read watch base", "path", path, "commit", notification.Commit-1, "error", err)
-					s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read state at commit %d: %v", notification.Commit-1, err))
+					s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read state at commit %d: %v", notification.Commit-1, err), lastDelivered)
 					return
 				}
 				prevSeeded = true
@@ -868,9 +882,11 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 			newSub, err := s.scopedDocAt(path, notification.Commit)
 			if err != nil {
 				s.log.Error("failed to read state for watch", "path", path, "commit", notification.Commit, "error", err)
-				s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read state at commit %d: %v", notification.Commit, err))
+				s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read state at commit %d: %v", notification.Commit, err), lastDelivered)
 				return
 			}
+			// Accounted for whether or not it changed anything here (see the replay loop).
+			lastDelivered = notification.Commit
 			if newSub.DeepEqual(prevDoc) {
 				continue
 			}
@@ -1210,10 +1226,37 @@ func (s *Session) sendError(id *string, code, message string) {
 	s.send(api.NewErrorResponse(id, code, message))
 }
 
-// failWatch terminates a watch, sending an error to the client and cleaning up.
-func (s *Session) failWatch(watcher *Watcher, code, message string) {
+// failWatch terminates an established watch and tells the client, so it can re-establish.
+//
+// It sends a TERMINAL WATCH EVENT (Ended, with reason), not an error response. The
+// distinction is the difference between the client finding out and not, and the failure
+// it exists for is silent and not hypothetical: measured, a slice taking sustained writes
+// lost 550 of 1000 events and never recovered. The path was —
+//
+//  1. logd fails a watcher whose buffer it cannot drain: Broadcast runs on the tick's
+//     dispatcher and will not block on a slow consumer, so a full buffer drops the
+//     watcher (see WatchHub.Broadcast, "fail it loudly").
+//  2. "Loudly" meant an error response stamped with the watch's id.
+//  3. libctl's read pump sends anything with no Event to deliverResponse, which looks the
+//     id up in the table of in-flight REQUESTS. A watch id was never in that table — its
+//     request completed when the watch opened — so the failure was logged as "dropping
+//     response with no matching request" and thrown away.
+//
+// The client was then waiting on a watch the server had already abandoned, with no error
+// and no events, forever. routeEvent handles Ended correctly and always did (it fails the
+// Watch with a WatchEndedError and unregisters it); logd was the only sender not using it,
+// while docd had been sending terminal events for membership_changed all along.
+//
+// An error response remains right for rejecting a watch REQUEST that is still in flight —
+// handleWatch's admission checks — because that id is in the pending table.
+//
+// commit is the highest commit this watch accounted for, so the client can resume from it
+// rather than re-reading everything; 0 when it never got that far. message is for the
+// server log, since the terminal event carries a short reason code and no prose.
+func (s *Session) failWatch(watcher *Watcher, reason, message string, commit int64) {
+	s.log.Warn("watch ended", "path", watcher.Path, "reason", reason, "detail", message, "commit", commit)
 	// Stamp the watch id so the client fails the right watch (several may share a path).
-	s.send(api.NewErrorResponse(watcher.ID, code, message))
+	s.send(api.NewEndedEvent(watcher.ID, watcher.Path, reason, commit))
 	s.hub.Unwatch(watcher)
 	s.watchMu.Lock()
 	delete(s.watches, watchKey(watcher.ID, watcher.Path))

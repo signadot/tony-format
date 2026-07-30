@@ -75,13 +75,17 @@ func TestSession_WatchBelowReplayFloorReportsCompacted(t *testing.T) {
 	var gotCode string
 	var sawReplayComplete bool
 	var sawDataEvent bool
+	var sawErrorResponse bool
 	for _, doc := range splitTonyDocs(responses) {
 		var resp api.SessionResponse
 		if err := resp.FromTony(doc); err != nil {
 			continue
 		}
 		if resp.Error != nil {
-			gotCode = resp.Error.Code
+			sawErrorResponse = true
+		}
+		if resp.Event != nil && resp.Event.Ended {
+			gotCode = resp.Event.EndReason
 		}
 		if resp.Event != nil && resp.Event.ReplayComplete {
 			sawReplayComplete = true
@@ -92,7 +96,12 @@ func TestSession_WatchBelowReplayFloorReportsCompacted(t *testing.T) {
 	}
 
 	if gotCode != api.ErrCodeReplayCompacted {
-		t.Errorf("error code = %q, want %q", gotCode, api.ErrCodeReplayCompacted)
+		t.Errorf("terminal event reason = %q, want %q", gotCode, api.ErrCodeReplayCompacted)
+	}
+	// An error response would be routed by request id, and this watch's request already
+	// completed — the client would drop it and wait forever. See Session.failWatch.
+	if sawErrorResponse {
+		t.Errorf("ended an established watch with an error response, which the client cannot route: %s", responses)
 	}
 	if sawReplayComplete {
 		t.Error("replay reported complete despite history having been compacted away")
@@ -156,13 +165,16 @@ func TestSession_WatchAboveReplayFloorReplays(t *testing.T) {
 		if resp.Error != nil {
 			gotCode = resp.Error.Code
 		}
+		if resp.Event != nil && resp.Event.Ended {
+			gotCode = resp.Event.EndReason
+		}
 		if resp.Event != nil && resp.Event.ReplayComplete {
 			sawReplayComplete = true
 		}
 	}
 
 	if gotCode != "" {
-		t.Errorf("unexpected error code %q for an intact cursor", gotCode)
+		t.Errorf("unexpected failure %q for an intact cursor", gotCode)
 	}
 	if !sawReplayComplete {
 		t.Error("expected replay to complete for a cursor above the floor")

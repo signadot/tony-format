@@ -352,6 +352,7 @@ const (
 	ErrCodeMatchFailed     = "match_failed"           // Transaction match condition failed
 	ErrCodeReplayFailed    = "replay_failed"          // Watch replay failed, data may be incomplete
 	ErrCodeReplayCompacted = "replay_compacted"       // fromCommit is older than retained delta history; re-watch without it to re-initialize
+	ErrCodeSlowConsumer    = "slow_consumer"          // Watch dropped: the client did not read fast enough to keep its buffer from filling
 	ErrCodeTimeout         = "timeout"                // Operation timed out
 	ErrCodeScopeExists     = "scope_exists"           // Scope already exists
 	ErrCodeScopeNotFound   = "scope_not_found"        // Scope not found
@@ -475,6 +476,28 @@ func NewReplayCompleteEvent(id *string, path string) *SessionResponse {
 		Event: &WatchEvent{
 			Path:           path,
 			ReplayComplete: true,
+		},
+	}
+}
+
+// NewEndedEvent creates the terminal event that tells a client its watch has ended, and
+// why, so it re-establishes. reason is a short code (the ErrCode* vocabulary), and commit
+// is the highest commit the watch accounted for — a resume point for a gapless reconnect.
+// See NewStateEvent for id.
+//
+// A watch that has already been confirmed must end with THIS, never with an error
+// response. An error response is routed by request id, and a watch's request completed
+// when the watch opened, so the id no longer matches anything in flight: the client drops
+// it and waits forever on a watch the server has already abandoned. Ending a request that
+// is still in flight — rejecting the watch request itself — is the error response's job.
+func NewEndedEvent(id *string, path, reason string, commit int64) *SessionResponse {
+	return &SessionResponse{
+		ID: id,
+		Event: &WatchEvent{
+			Path:      path,
+			Commit:    commit,
+			Ended:     true,
+			EndReason: reason,
 		},
 	}
 }

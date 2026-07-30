@@ -444,3 +444,16 @@ func TestLogdSession_DeleteScope(t *testing.T) {
 		t.Fatalf("baseline DeleteScope failed: %v", err)
 	}
 }
+
+// newLogdOn starts a logd server on an existing store, so a test can reach the storage
+// directly (to compact, inspect the replay floor, and so on) while the client talks to it
+// over TCP. startLogd owns its store; this one does not.
+func newLogdOn(t *testing.T, store *storage.Storage) *logdserver.Server {
+	t.Helper()
+	srv := logdserver.New(&logdserver.Spec{Storage: store})
+	if err := srv.StartTCP("127.0.0.1:0"); err != nil {
+		t.Fatalf("failed to start logd: %v", err)
+	}
+	t.Cleanup(func() { srv.StopTCP() })
+	return srv
+}
