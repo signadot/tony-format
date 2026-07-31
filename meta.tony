@@ -5,5 +5,7 @@ created: "2026-07-31T02:35:04.645983+02:00"
 id: rg5nd1psh12kse7dddn0
 labels:
 - logd
+related_issues:
+- "3yd6d6msh12krwqaddn0"
 status: open
-updated: "2026-07-31T02:35:08.530015+02:00"
+updated: "2026-07-31T02:35:08.636904+02:00"
