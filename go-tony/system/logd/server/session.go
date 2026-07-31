@@ -741,11 +741,32 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 	// commit <= startCommit; seeding at startCommit would fold that write into the
 	// baseline and drop its delta (the scoped-watch drop-one-event regression). Lazy
 	// seeding makes every queued or live event a correct forward diff.
+	//
+	// A BASELINE watcher additionally keeps curDoc, the whole document at that same
+	// commit, and STEPS it: curDoc = Patch(curDoc, committedPatch), then trims to get the
+	// subtree. That is the read path's own fold (processor.go applies patches with
+	// tony.Patch, and read_equivalence_test's oracle calls the fold from commit 0 "the
+	// semantics of record"), just not restarted from a snapshot every time. It replaces a
+	// full ReadStateAt per event per watcher, which was O(patches since the last
+	// snapshot): 1.6ms at 50 commits, 62ms at 1550, paid again by every watcher on every
+	// commit that reached it. Nothing is kept that was not already built — the old code
+	// materialized a whole document per event and threw it away.
+	//
+	// A SCOPED watcher cannot step: its view is baseline with the scope's own writes
+	// applied LAST, so they shadow baseline stickily, and applying a baseline patch to a
+	// materialized scoped document would let a baseline write overwrite a leaf the scope
+	// owns. It keeps recompute-and-diff until the scope layer gets the same treatment.
 	var prevDoc *ir.Node
+	var curDoc *ir.Node
 	prevSeeded := false
 	if fromCommit != nil {
 		var err error
-		prevDoc, err = s.scopedDocAt(path, startCommit)
+		if scoped {
+			prevDoc, err = s.scopedDocAt(path, startCommit)
+		} else {
+			curDoc, err = s.fullDocAt(startCommit)
+			prevDoc = subtreeOf(curDoc, path)
+		}
 		if err != nil {
 			s.log.Error("failed to read watch base", "path", path, "commit", startCommit, "error", err)
 			s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read state at commit %d: %v", startCommit, err), lastDelivered)
@@ -789,11 +810,18 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 				// Baseline: forward the raw delta (op fidelity), but only if this
 				// watcher's own subtree actually changed at this commit — the range
 				// read can include a sibling's write under a shared ancestor.
-				newSub, err := s.scopedDocAt(path, patch.Commit)
+				//
+				// Step rather than re-read. The tags are stripped first because they are
+				// the streaming processor's patch-root markers, not part of the value; the
+				// send below strips for the same reason.
+				tx.StripPatchRootTagRecursive(patch.Patch)
+				stepped, err := tony.Patch(curDoc, patch.Patch)
 				if err != nil {
-					s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read state at commit %d: %v", patch.Commit, err), lastDelivered)
+					s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to apply patch at commit %d: %v", patch.Commit, err), lastDelivered)
 					return
 				}
+				curDoc = stepped
+				newSub := subtreeOf(curDoc, path)
 				// Accounted for either way: a commit that changed nothing under this path
 				// still leaves the watch correct through it, so it is a valid resume point.
 				lastDelivered = patch.Commit
@@ -801,7 +829,6 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 					continue
 				}
 				prevDoc = newSub
-				tx.StripPatchRootTagRecursive(patch.Patch)
 				s.send(api.NewPatchEvent(watcher.ID, patch.Commit, path, patch.Patch))
 			}
 		}
@@ -871,20 +898,26 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 			// ancestor; the gate suppresses it. prevDoc is seeded lazily as scoped does.
 			if !prevSeeded {
 				var err error
-				prevDoc, err = s.scopedDocAt(path, notification.Commit-1)
+				curDoc, err = s.fullDocAt(notification.Commit - 1)
 				if err != nil {
 					s.log.Error("failed to read watch base", "path", path, "commit", notification.Commit-1, "error", err)
 					s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read state at commit %d: %v", notification.Commit-1, err), lastDelivered)
 					return
 				}
+				prevDoc = subtreeOf(curDoc, path)
 				prevSeeded = true
 			}
-			newSub, err := s.scopedDocAt(path, notification.Commit)
+			// Step the document by this commit's delta instead of rebuilding it from the
+			// last snapshot. notification.Patch is already the tick's private, stripped
+			// copy, so it can be applied as-is and is not mutated by Patch.
+			stepped, err := tony.Patch(curDoc, notification.Patch)
 			if err != nil {
-				s.log.Error("failed to read state for watch", "path", path, "commit", notification.Commit, "error", err)
-				s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read state at commit %d: %v", notification.Commit, err), lastDelivered)
+				s.log.Error("failed to apply patch for watch", "path", path, "commit", notification.Commit, "error", err)
+				s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to apply patch at commit %d: %v", notification.Commit, err), lastDelivered)
 				return
 			}
+			curDoc = stepped
+			newSub := subtreeOf(curDoc, path)
 			// Accounted for whether or not it changed anything here (see the replay loop).
 			lastDelivered = notification.Commit
 			if newSub.DeepEqual(prevDoc) {
@@ -898,6 +931,41 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 			s.send(api.NewPatchEvent(watcher.ID, notification.Commit, path, notification.Patch.DeepCopy()))
 		}
 	}
+}
+
+// fullDocAt reads the whole document at a commit, normalized so an empty store is
+// ir.Null(). It is the seed for a stepped watch (see forwardEvents): the one O(history)
+// read a watch pays, after which each commit costs one patch application instead.
+func (s *Session) fullDocAt(commit int64) (*ir.Node, error) {
+	if commit <= 0 {
+		return ir.Null(), nil
+	}
+	doc, err := s.storage.ReadStateAt("", commit, s.scope)
+	if err != nil {
+		return nil, err
+	}
+	if doc == nil {
+		return ir.Null(), nil
+	}
+	return doc, nil
+}
+
+// subtreeOf trims a document to the watched path, with scopedDocAt's normalization —
+// an absent or null subtree becomes ir.Null() so the change gate can compare it. It is
+// scopedDocAt's second half, separated so a stepped document can be trimmed without
+// being re-read.
+func subtreeOf(doc *ir.Node, path string) *ir.Node {
+	if doc == nil {
+		return ir.Null()
+	}
+	sub, err := extractPathValue(doc, path)
+	if err != nil {
+		return ir.Null() // path absent in this commit's state
+	}
+	if sub == nil || sub.Type == ir.NullType {
+		return ir.Null()
+	}
+	return sub
 }
 
 // scopedDocAt returns the scoped state document (root-rooted, the watched path's
