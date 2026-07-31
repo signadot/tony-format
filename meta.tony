@@ -1,6 +1,8 @@
 !issue
 Ref: refs/issues/rg5nd1psh12kse7dddn0
 Title: "logd: a watch's state event is rooted at the watched path but its patch events are rooted at the document"
+commits:
+- af02e9f6547a6e89d4825154538caeb90ca29242
 created: "2026-07-31T02:35:04.645983+02:00"
 id: rg5nd1psh12kse7dddn0
 labels:
@@ -8,4 +10,4 @@ labels:
 related_issues:
 - "3yd6d6msh12krwqaddn0"
 status: open
-updated: "2026-07-31T02:35:08.636904+02:00"
+updated: "2026-07-31T02:35:44.305702+02:00"
