@@ -873,6 +873,8 @@ func fromIRToStruct(node *ir.Node, val reflect.Value, fieldPath string, visited 
 		}
 	}
 
+	strict := IsStrict(opts...)
+
 	// Unmarshal each field from IR object
 	for i, fieldNameNode := range node.Fields {
 		if i >= len(node.Values) {
@@ -885,7 +887,15 @@ func fromIRToStruct(node *ir.Node, val reflect.Value, fieldPath string, visited 
 		// Find matching struct field (case-sensitive)
 		fieldInfo, found := structFieldMap[fieldName]
 		if !found {
-			// Field not found - skip it (could be extra field)
+			// Not declared by the target type. Ignored by default, so a peer can decode
+			// a message carrying fields it does not know yet; reported under Strict(),
+			// for input where an unread field means a mistake rather than a newer writer.
+			if strict {
+				return &UnmarshalError{
+					FieldPath: fieldPath,
+					Message:   fmt.Sprintf("unknown field %q for %s", fieldName, typ),
+				}
+			}
 			continue
 		}
 

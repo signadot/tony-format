@@ -78,6 +78,10 @@ func (s *SchemaEntry) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error
 				return fmt.Errorf("field %q: expected string, got %v", "Status", fieldNodeUnwrapped.Type)
 			}
 			s.Status = string(fieldNodeUnwrapped.String)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for SchemaEntry", fieldName.String)
+			}
 		}
 	}
 
@@ -261,6 +265,10 @@ func (s *Entry) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			s.SchemaEntry = &SchemaEntry{}
 			if err := s.SchemaEntry.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
+			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for Entry", fieldName.String)
 			}
 		}
 	}

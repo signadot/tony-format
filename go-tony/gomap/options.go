@@ -82,6 +82,9 @@ type unmapConfig struct {
 	// When true, CommentType wrappers are kept. When false, they are stripped.
 	// Defaults to true when ParseComments is true.
 	Comments *bool
+
+	// Strict rejects fields the target type does not declare. Defaults to false.
+	Strict bool
 }
 
 // newMapConfig creates a new mapConfig with default values.
@@ -203,4 +206,32 @@ func GetMapComments(opts ...MapOption) bool {
 		return *cfg.Comments
 	}
 	return true // default to including comments
+}
+
+// Strict makes decoding reject a field the target type does not declare, instead of
+// silently ignoring it.
+//
+// The lenient default is what a wire protocol wants: a peer running an older build must
+// be able to decode a message from a newer one, ignoring fields it does not know yet.
+// Strictness is for inputs a human wrote and expects to have been read — a config file
+// above all, where a misspelled key is otherwise indistinguishable from one deliberately
+// left out, and is discovered only by the setting not taking effect.
+//
+// It rejects UNKNOWN fields; it does not tighten how known ones are matched. The
+// reflection path continues to accept a field under both its schema name and its Go
+// field name, as it does without this option.
+func Strict() UnmapOption {
+	return func(cfg *unmapConfig) {
+		cfg.Strict = true
+	}
+}
+
+// IsStrict reports whether the options ask for strict decoding. Generated decoders call
+// it to decide what to do with a field they have no case for.
+func IsStrict(opts ...UnmapOption) bool {
+	cfg := newUnmapConfig()
+	for _, opt := range opts {
+		opt(cfg)
+	}
+	return cfg.Strict
 }

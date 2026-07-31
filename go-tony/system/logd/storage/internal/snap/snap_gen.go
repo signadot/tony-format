@@ -88,6 +88,10 @@ func (s *IndexEntry) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 				return fmt.Errorf("field %q: expected number, got %v", "Offset", fieldNodeUnwrapped.Type)
 			}
 			s.Offset = int64(*fieldNodeUnwrapped.Int64)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for IndexEntry", fieldName.String)
+			}
 		}
 	}
 
@@ -187,6 +191,10 @@ func (s *Index) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 					slice[i] = elem
 				}
 				s.Entries = slice
+			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for Index", fieldName.String)
 			}
 		}
 	}

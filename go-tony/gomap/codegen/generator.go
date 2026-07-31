@@ -1580,6 +1580,13 @@ func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgP
 		}
 	}
 
+	// A field this type does not declare is ignored by default, so a peer can decode a
+	// message carrying fields it does not know yet, and reported under gomap.Strict(),
+	// for input where an unread field means a mistake rather than a newer writer.
+	buf.WriteString("		default:\n")
+	buf.WriteString("			if gomap.IsStrict(opts...) {\n")
+	buf.WriteString(fmt.Sprintf("				return fmt.Errorf(\"unknown field %%q for %s\", fieldName.String)\n", s.Name))
+	buf.WriteString("			}\n")
 	buf.WriteString("		}\n")
 	buf.WriteString("	}\n\n")
 

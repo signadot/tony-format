@@ -129,6 +129,10 @@ func (s *Config) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if err := s.Storage.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for Config", fieldName.String)
+			}
 		}
 	}
 
@@ -207,6 +211,10 @@ func (s *StorageConfig) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) err
 				return fmt.Errorf("field %q: expected string, got %v", "durability", fieldNodeUnwrapped.Type)
 			}
 			s.Durability = string(fieldNodeUnwrapped.String)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for StorageConfig", fieldName.String)
+			}
 		}
 	}
 
@@ -285,6 +293,10 @@ func (s *TxConfig) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				return fmt.Errorf("field %q: expected number, got %v", "timeout", fieldNodeUnwrapped.Type)
 			}
 			s.Timeout = time.Duration(*fieldNodeUnwrapped.Int64)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for TxConfig", fieldName.String)
+			}
 		}
 	}
 
@@ -372,6 +384,10 @@ func (s *SnapshotConfig) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) er
 				return fmt.Errorf("field %q: expected number, got %v", "maxBytes", fieldNodeUnwrapped.Type)
 			}
 			s.MaxBytes = int64(*fieldNodeUnwrapped.Int64)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for SnapshotConfig", fieldName.String)
+			}
 		}
 	}
 
@@ -486,6 +502,10 @@ func (s *CompactionConfig) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) 
 				return fmt.Errorf("field %q: expected number, got %v", "gracePeriod", fieldNodeUnwrapped.Type)
 			}
 			s.GracePeriod = time.Duration(*fieldNodeUnwrapped.Int64)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for CompactionConfig", fieldName.String)
+			}
 		}
 	}
 

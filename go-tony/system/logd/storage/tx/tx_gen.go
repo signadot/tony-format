@@ -134,6 +134,10 @@ func (s *State) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				}
 				s.PatcherData = slice
 			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for State", fieldName.String)
+			}
 		}
 	}
 
@@ -236,6 +240,10 @@ func (s *PatcherData) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error
 			s.API = &api.Patch{}
 			if err := s.API.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
+			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for PatcherData", fieldName.String)
 			}
 		}
 	}

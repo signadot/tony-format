@@ -81,6 +81,10 @@ func (s *MountHello) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 			if err := s.Clock.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for MountHello", fieldName.String)
+			}
 		}
 	}
 
@@ -177,6 +181,10 @@ func (s *ClockSpec) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				return fmt.Errorf("field %q: expected number, got %v", "epoch", fieldNodeUnwrapped.Type)
 			}
 			s.Epoch = int64(*fieldNodeUnwrapped.Int64)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for ClockSpec", fieldName.String)
+			}
 		}
 	}
 
@@ -288,6 +296,10 @@ func (s *MountSpec) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				*val = string(fieldNodeUnwrapped.String)
 				s.ForceAfter = val
 			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for MountSpec", fieldName.String)
+			}
 		}
 	}
 
@@ -373,6 +385,10 @@ func (s *UnmountSpec) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error
 				}
 				*val = string(fieldNodeUnwrapped.String)
 				s.ForceAfter = val
+			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for UnmountSpec", fieldName.String)
 			}
 		}
 	}
@@ -493,6 +509,10 @@ func (s *MountRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 			if err := s.Unmount.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for MountRequest", fieldName.String)
+			}
 		}
 	}
 
@@ -571,6 +591,10 @@ func (s *MountHelloResponse) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption
 				return fmt.Errorf("field %q: expected string, got %v", "docdId", fieldNodeUnwrapped.Type)
 			}
 			s.DocdID = string(fieldNodeUnwrapped.String)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for MountHelloResponse", fieldName.String)
+			}
 		}
 	}
 
@@ -658,6 +682,10 @@ func (s *MountResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error
 				return fmt.Errorf("field %q: expected bool, got %v", "accepted", fieldNodeUnwrapped.Type)
 			}
 			s.Accepted = bool(fieldNodeUnwrapped.Bool)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for MountResult", fieldName.String)
+			}
 		}
 	}
 
@@ -762,6 +790,10 @@ func (s *MountResponseResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOptio
 			if err := s.Mount.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for MountResponseResult", fieldName.String)
+			}
 		}
 	}
 
@@ -849,6 +881,10 @@ func (s *MountError) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 				return fmt.Errorf("field %q: expected string, got %v", "message", fieldNodeUnwrapped.Type)
 			}
 			s.Message = string(fieldNodeUnwrapped.String)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for MountError", fieldName.String)
+			}
 		}
 	}
 
@@ -952,6 +988,10 @@ func (s *MountResponse) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) err
 			s.Error = &MountError{}
 			if err := s.Error.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
+			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for MountResponse", fieldName.String)
 			}
 		}
 	}

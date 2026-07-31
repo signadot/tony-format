@@ -77,6 +77,10 @@ func (s *PathData) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			} else {
 				s.Data = fieldNodeUnwrapped
 			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for PathData", fieldName.String)
+			}
 		}
 	}
 
@@ -185,6 +189,10 @@ func (s *Patch) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				s.Data = fieldNode
 			} else {
 				s.Data = fieldNodeUnwrapped
+			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for Patch", fieldName.String)
 			}
 		}
 	}
@@ -350,6 +358,10 @@ func (s *Hello) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				return fmt.Errorf("field %q: expected bool, got %v", "usePending", fieldNodeUnwrapped.Type)
 			}
 			s.UsePending = bool(fieldNodeUnwrapped.Bool)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for Hello", fieldName.String)
+			}
 		}
 	}
 
@@ -462,6 +474,10 @@ func (s *HelloResponse) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) err
 				return fmt.Errorf("field %q: expected bool, got %v", "usingPending", fieldNodeUnwrapped.Type)
 			}
 			s.UsingPending = bool(fieldNodeUnwrapped.Bool)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for HelloResponse", fieldName.String)
+			}
 		}
 	}
 
@@ -564,6 +580,10 @@ func (s *MatchRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 				}
 				*val = int64(*fieldNodeUnwrapped.Int64)
 				s.Commit = val
+			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for MatchRequest", fieldName.String)
 			}
 		}
 	}
@@ -717,6 +737,10 @@ func (s *PatchRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 			} else {
 				s.Data = fieldNodeUnwrapped
 			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for PatchRequest", fieldName.String)
+			}
 		}
 	}
 
@@ -795,6 +819,10 @@ func (s *NewTxRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 				return fmt.Errorf("field %q: expected number, got %v", "participants", fieldNodeUnwrapped.Type)
 			}
 			s.Participants = int(*fieldNodeUnwrapped.Int64)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for NewTxRequest", fieldName.String)
+			}
 		}
 	}
 
@@ -899,6 +927,10 @@ func (s *WatchRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 				return fmt.Errorf("field %q: expected bool, got %v", "noInit", fieldNodeUnwrapped.Type)
 			}
 			s.NoInit = bool(fieldNodeUnwrapped.Bool)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for WatchRequest", fieldName.String)
+			}
 		}
 	}
 
@@ -994,6 +1026,10 @@ func (s *UnwatchRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) er
 				*val = string(fieldNodeUnwrapped.String)
 				s.WatchID = val
 			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for UnwatchRequest", fieldName.String)
+			}
 		}
 	}
 
@@ -1072,6 +1108,10 @@ func (s *DeleteScopeRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption
 				return fmt.Errorf("field %q: expected string, got %v", "scopeId", fieldNodeUnwrapped.Type)
 			}
 			s.ScopeID = string(fieldNodeUnwrapped.String)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for DeleteScopeRequest", fieldName.String)
+			}
 		}
 	}
 
@@ -1141,6 +1181,10 @@ func (s *SchemaGetRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) 
 			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
 		}
 		switch fieldName.String {
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for SchemaGetRequest", fieldName.String)
+			}
 		}
 	}
 
@@ -1225,6 +1269,10 @@ func (s *SchemaSetRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) 
 				s.Schema = fieldNode
 			} else {
 				s.Schema = fieldNodeUnwrapped
+			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for SchemaSetRequest", fieldName.String)
 			}
 		}
 	}
@@ -1329,6 +1377,10 @@ func (s *SchemaRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) err
 			s.Set = &SchemaSetRequest{}
 			if err := s.Set.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
+			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for SchemaRequest", fieldName.String)
 			}
 		}
 	}
@@ -1595,6 +1647,10 @@ func (s *SessionRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) er
 			if err := s.Ping.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for SessionRequest", fieldName.String)
+			}
 		}
 	}
 
@@ -1664,6 +1720,10 @@ func (s *PingRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error
 			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
 		}
 		switch fieldName.String {
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for PingRequest", fieldName.String)
+			}
 		}
 	}
 
@@ -1733,6 +1793,10 @@ func (s *PongResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
 		}
 		switch fieldName.String {
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for PongResult", fieldName.String)
+			}
 		}
 	}
 
@@ -1826,6 +1890,10 @@ func (s *MatchResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error
 				s.Body = fieldNode
 			} else {
 				s.Body = fieldNodeUnwrapped
+			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for MatchResult", fieldName.String)
 			}
 		}
 	}
@@ -1921,6 +1989,10 @@ func (s *PatchResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error
 			} else {
 				s.Data = fieldNodeUnwrapped
 			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for PatchResult", fieldName.String)
+			}
 		}
 	}
 
@@ -1999,6 +2071,10 @@ func (s *NewTxResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error
 				return fmt.Errorf("field %q: expected number, got %v", "txId", fieldNodeUnwrapped.Type)
 			}
 			s.TxID = int64(*fieldNodeUnwrapped.Int64)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for NewTxResult", fieldName.String)
+			}
 		}
 	}
 
@@ -2094,6 +2170,10 @@ func (s *WatchResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error
 				*val = int64(*fieldNodeUnwrapped.Int64)
 				s.ReplayingTo = val
 			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for WatchResult", fieldName.String)
+			}
 		}
 	}
 
@@ -2172,6 +2252,10 @@ func (s *UnwatchResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) err
 				return fmt.Errorf("field %q: expected string, got %v", "unwatched", fieldNodeUnwrapped.Type)
 			}
 			s.Unwatched = string(fieldNodeUnwrapped.String)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for UnwatchResult", fieldName.String)
+			}
 		}
 	}
 
@@ -2250,6 +2334,10 @@ func (s *DeleteScopeResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption)
 				return fmt.Errorf("field %q: expected string, got %v", "scopeId", fieldNodeUnwrapped.Type)
 			}
 			s.ScopeID = string(fieldNodeUnwrapped.String)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for DeleteScopeResult", fieldName.String)
+			}
 		}
 	}
 
@@ -2364,6 +2452,10 @@ func (s *SchemaResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 				return fmt.Errorf("field %q: expected number, got %v", "pendingCommit", fieldNodeUnwrapped.Type)
 			}
 			s.PendingCommit = int64(*fieldNodeUnwrapped.Int64)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for SchemaResult", fieldName.String)
+			}
 		}
 	}
 
@@ -2451,6 +2543,10 @@ func (s *MigrationResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) e
 				return fmt.Errorf("field %q: expected number, got %v", "commit", fieldNodeUnwrapped.Type)
 			}
 			s.Commit = int64(*fieldNodeUnwrapped.Int64)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for MigrationResult", fieldName.String)
+			}
 		}
 	}
 
@@ -2675,6 +2771,10 @@ func (s *SessionResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) err
 			if err := s.Pong.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for SessionResult", fieldName.String)
+			}
 		}
 	}
 
@@ -2822,6 +2922,10 @@ func (s *WatchEvent) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 				return fmt.Errorf("field %q: expected string, got %v", "endReason", fieldNodeUnwrapped.Type)
 			}
 			s.EndReason = string(fieldNodeUnwrapped.String)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for WatchEvent", fieldName.String)
+			}
 		}
 	}
 
@@ -2909,6 +3013,10 @@ func (s *SessionError) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 				return fmt.Errorf("field %q: expected string, got %v", "message", fieldNodeUnwrapped.Type)
 			}
 			s.Message = string(fieldNodeUnwrapped.String)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for SessionError", fieldName.String)
+			}
 		}
 	}
 
@@ -3044,6 +3152,10 @@ func (s *SessionResponse) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) e
 			s.Error = &SessionError{}
 			if err := s.Error.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
+			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for SessionResponse", fieldName.String)
 			}
 		}
 	}

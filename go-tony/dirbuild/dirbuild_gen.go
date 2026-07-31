@@ -166,6 +166,10 @@ func (s *Dir) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				}
 				s.Env = m
 			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for Dir", fieldName.String)
+			}
 		}
 	}
 
@@ -322,6 +326,10 @@ func (s *DirSource) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				return fmt.Errorf("field %q: expected string, got %v", "if", fieldNodeUnwrapped.Type)
 			}
 			s.If = string(fieldNodeUnwrapped.String)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for DirSource", fieldName.String)
+			}
 		}
 	}
 
@@ -438,6 +446,10 @@ func (s *DirOutput) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if err := s.K8s.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for DirOutput", fieldName.String)
+			}
 		}
 	}
 
@@ -516,6 +528,10 @@ func (s *DirOutputK8s) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 				return fmt.Errorf("field %q: expected string, got %v", "filenames", fieldNodeUnwrapped.Type)
 			}
 			s.Filenames = string(fieldNodeUnwrapped.String)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for DirOutputK8s", fieldName.String)
+			}
 		}
 	}
 
@@ -630,6 +646,10 @@ func (s *DirPatch) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				return fmt.Errorf("field %q: expected string, got %v", "if", fieldNodeUnwrapped.Type)
 			}
 			s.If = string(fieldNodeUnwrapped.String)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for DirPatch", fieldName.String)
+			}
 		}
 	}
 

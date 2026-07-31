@@ -288,6 +288,10 @@ func (s *Issue) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				}
 				s.Labels = slice
 			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for Issue", fieldName.String)
+			}
 		}
 	}
 

@@ -166,6 +166,10 @@ func (s *LogSegment) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 				*val = string(fieldNodeUnwrapped.String)
 				s.ScopeID = val
 			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for LogSegment", fieldName.String)
+			}
 		}
 	}
 

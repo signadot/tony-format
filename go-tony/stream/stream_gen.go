@@ -174,6 +174,10 @@ func (s *Event) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				}
 				s.CommentLines = slice
 			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for Event", fieldName.String)
+			}
 		}
 	}
 
