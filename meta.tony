@@ -1,7 +1,12 @@
 !issue
-Ref: refs/issues/hk6f2e89h12ksj5wdnn0
-Title: "git issue serve"
+blocked_by: []
+blocks: []
+branches: []
+commits: []
 created: "2026-08-01T11:30:48.967464+02:00"
+duplicates: []
 id: hk6f2e89h12ksj5wdnn0
+labels: []
+related_issues: []
 status: open
-updated: "2026-08-01T11:30:48.967464+02:00"
+updated: "2026-08-01T13:18:29.629987+02:00"
