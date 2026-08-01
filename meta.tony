@@ -2,11 +2,12 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: "038a6164aac9aae3bc2d715a01ddf7cd49fd2bd9"
 commits: []
 created: "2026-08-01T11:30:48.967464+02:00"
 duplicates: []
 id: hk6f2e89h12ksj5wdnn0
 labels: []
 related_issues: []
-status: open
-updated: "2026-08-01T13:18:29.629987+02:00"
+status: closed
+updated: "2026-08-01T13:18:34.054869+02:00"
