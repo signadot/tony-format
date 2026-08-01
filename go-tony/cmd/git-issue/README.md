@@ -10,6 +10,7 @@ A git-native issue tracker that stores issues as git refs and uses Tony format f
 - **Commit linking**: Link issues to commits with bidirectional lookup
 - **Tony format**: Metadata stored in human-readable Tony format
 - **Color-coded status**: Visual distinction between open and closed issues
+- **Shareable links**: `git issue serve` puts a stable URL on every issue
 
 ## Installation
 
@@ -108,6 +109,30 @@ git issue close 1 --commit abc123      # Close and record closing commit
 ```
 
 Moves issue from `refs/issues/000001` to `refs/closed/000001`.
+
+### Browse issues in a browser
+
+```bash
+git issue serve                      # http://localhost:8080/
+git issue serve --addr 127.0.0.1:9000
+```
+
+Serves a read-only view of the issues in the current repository:
+
+- `/` lists open issues; `/?all=1` includes closed ones
+- `/i/<xidr>` is an issue. XID prefixes work and redirect to the full-XIDR URL,
+  so the link you copy out of the address bar is the one that keeps resolving
+- Links survive closing an issue: resolution searches both `refs/issues/` and
+  `refs/closed/`, so a URL pasted into chat does not rot when the ref moves
+- Attachments download from `/i/<xidr>/files/<path>` as opaque bytes; nothing
+  attached to an issue is ever rendered in the browser
+
+`serve` is read-only by design, not as a first cut. Issue sync is a force-push
+in both directions with no merge step, so a second writer would silently drop
+whichever update lost the race. Issues are edited with the CLI.
+
+There is no authentication, and there should not be: bind loopback unless you
+know exactly who else can reach the address you pick.
 
 ## Storage Model
 
@@ -237,6 +262,17 @@ Provides room for up to 999,999 issues while keeping IDs readable and sortable.
 - Comments and metadata support
 - Native Go implementation in this project
 
+### Why goldmark for `serve`?
+
+Issue text is written by whoever filed the issue and is served from the same
+origin as every other page, so raw HTML must not reach the browser. That
+escaping is the part of a markdown renderer that is easiest to get subtly wrong,
+so `serve` uses goldmark with its default (safe) renderer rather than a
+hand-rolled subset: raw HTML becomes a placeholder comment and `javascript:`
+link targets are refused. goldmark was already in this module's build graph as
+an indirect dependency of `golang.org/x/tools`, so depending on it directly adds
+no new module.
+
 ### Commit messages
 
 Issue operations create commits with descriptive messages:
@@ -256,7 +292,7 @@ Uses `refs/notes/issues` for reverse index. Notes contain newline-separated issu
 
 ## Limitations
 
-- No built-in web UI (git-native only)
+- Read-only web UI (`git issue serve`); all edits go through the CLI
 - No email notifications
 - No advanced search (use `git log` and `git grep`)
 - No user assignment (use git commit authorship)

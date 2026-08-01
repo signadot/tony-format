@@ -29,6 +29,7 @@ Usage:
   git issue unlabel <id> <label>...      Remove labels from issue
   git issue migrate [--dry-run]          Migrate issues from numeric IDs to XIDs
   git issue migrate-comments [--apply]   Rename comments to collision-free names
+  git issue serve [--addr <addr>]        Read-only web view (default localhost:8080)
 
 Examples:
   git issue create "Implement streaming processor"
@@ -45,7 +46,8 @@ Examples:
   git issue for-commit HEAD
   git issue close 1 --commit def456
   git issue export 1 ./my-issue
-  git issue import ./my-issue`
+  git issue import ./my-issue
+  git issue serve             # browse issues at http://localhost:8080/`
 
 // Root returns the root command for git-issue.
 func Root() *cli.Command {
@@ -75,5 +77,6 @@ func Root() *cli.Command {
 			UnlabelCommand(store),
 			MigrateCommand(store),
 			MigrateCommentsCommand(store),
+			ServeCommand(store),
 		)
 }
