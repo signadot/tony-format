@@ -1,10 +1,12 @@
 !issue
-Ref: refs/issues/pb1aj0sqh12ksp38cxn0
-Title: "token: QuotedToString panics on a quoted string the scanner accepted — unrecovered in docd's read pump, and the same string desynchronizes log frame alignment on restart"
+blocked_by: []
+blocks: []
+branches: []
 commits:
 - "955fdfb92ec056cfe7e57c8f9cf6f07a31067b4c"
 - "666f9ad2113e63dea294a7da21aea78585233570"
 created: "2026-07-27T16:19:04.622813+02:00"
+duplicates: []
 id: pb1aj0sqh12ksp38cxn0
 labels:
 - agent
@@ -17,5 +19,5 @@ related_issues:
 - hb8c72fph12krv2wcnn0
 - m2y1cqc5h12ks4k3cnn0
 - hyda9h82h12krp8mcdn0
-status: open
-updated: "2026-07-27T17:31:38.0676+02:00"
+status: closed
+updated: "2026-08-04T08:26:14.355509+02:00"
