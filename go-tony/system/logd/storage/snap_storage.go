@@ -123,6 +123,12 @@ func (s *Storage) SwitchDLog() error {
 		return fmt.Errorf("failed to create baseline snapshot: %w", err)
 	}
 
+	// The stepped head is a second way of computing the same state, so check it against
+	// a full read here — the one place a full read is already the order of the work
+	// being done. Any drift is then bounded by the snapshot interval instead of running
+	// until something downstream notices. See head.go.
+	s.CheckHead()
+
 	// Run compaction on the inactive log if configured
 	if s.compactionConfig != nil {
 		if err := s.Compact(s.compactionConfig); err != nil {

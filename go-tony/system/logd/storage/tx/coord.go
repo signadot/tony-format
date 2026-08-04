@@ -333,7 +333,7 @@ func (p *txPatcher) doCommit(state *State, commitOps CommitOps) *Result {
 		}
 	}
 
-	matched, err := evaluateMatches(state, commitOps.ReadStateAt, currentCommit)
+	matched, err := evaluateMatches(state, commitOps.MatchStateAt, currentCommit)
 	if err != nil {
 		_ = co.storage.Delete(state.TxID)
 		return &Result{

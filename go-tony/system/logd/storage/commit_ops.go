@@ -18,6 +18,20 @@ func (c *commitOps) ReadStateAt(kpath string, commit int64, scopeID *string) (*i
 	return c.s.ReadStateAt(kpath, commit, scopeID)
 }
 
+// MatchStateAt serves a precondition read from the stepped head when it can.
+//
+// Only baseline: a scoped view is baseline with the scope's own writes applied last, so
+// it cannot be stepped and has no head to serve from (issue 9b2vpggxh).
+//
+// doCommit holds commitMu across match evaluation, which is what makes reading the head
+// here safe — it is the same lock stepHead is written under.
+func (c *commitOps) MatchStateAt(kpath string, commit int64, scopeID *string) (*ir.Node, error) {
+	if scopeID != nil {
+		return c.s.ReadStateAt(kpath, commit, scopeID)
+	}
+	return c.s.headStateAt(commit)
+}
+
 func (c *commitOps) GetCurrentCommit() (int64, error) {
 	return c.s.GetCurrentCommit()
 }
@@ -82,7 +96,23 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	// makes the watermark and the notification queue both ordered by commit. The fan-out
 	// itself happens later, on the tick's dispatcher goroutine, so a slow notifier still
 	// cannot serialize commits.
-	c.s.tick.publish(commit, newCommitNotification(commit, txSeq, timestamp, mergedPatch, scopeID))
+	notification := newCommitNotification(commit, txSeq, timestamp, mergedPatch, scopeID)
+
+	// Step the head by this commit before publishing, while still under the commit lock,
+	// so the head is current for the next precondition. The notification's patch is the
+	// stripped copy — the merged patch still carries !logd-patch-root tags, which must
+	// not reach a document a precondition is matched against.
+	//
+	// A scoped write steps with no patch: LookupRange filters by scope, so a scoped entry
+	// is not part of baseline state, but it does take a commit number, and the head has
+	// to follow that number or the next step reads as a gap.
+	headPatch := notification.Patch
+	if scopeID != nil {
+		headPatch = nil
+	}
+	c.s.stepHead(commit, headPatch)
+
+	c.s.tick.publish(commit, notification)
 
 	return string(logFile), pos, nil
 }

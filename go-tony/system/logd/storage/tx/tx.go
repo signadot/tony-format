@@ -82,6 +82,15 @@ type CommitOps interface {
 	// scopeID controls filtering: nil = baseline only, non-nil = baseline + scope.
 	ReadStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error)
 
+	// MatchStateAt reads the state a CAS precondition is evaluated against. Same
+	// answer as ReadStateAt, but the baseline case may serve it from a kept document
+	// rather than rebuilding one per conditional write (issue x2bn8w56h).
+	//
+	// The result is READ-ONLY: it may be the live head, whose subtrees are shared with
+	// earlier heads and with watcher documents. Navigate it and match it; do not
+	// mutate it, and do not keep it past the commit lock.
+	MatchStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error)
+
 	// GetCurrentCommit returns the current commit number.
 	GetCurrentCommit() (int64, error)
 

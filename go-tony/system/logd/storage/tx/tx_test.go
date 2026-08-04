@@ -44,6 +44,13 @@ func (m *mockCommitOps) ReadStateAt(kp string, commit int64, scopeID *string) (*
 	return nil, nil // Return nil for missing state (not an error)
 }
 
+// MatchStateAt is the precondition read. The real one may answer from a stepped head; the
+// mock has no head, so it answers from the same table, which is what these tests are
+// about.
+func (m *mockCommitOps) MatchStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
+	return m.ReadStateAt(kp, commit, scopeID)
+}
+
 func (m *mockCommitOps) GetCurrentCommit() (int64, error) {
 	return m.currentCommit, nil
 }
@@ -510,6 +517,10 @@ func (m *mockCommitOpsWithError) ReadStateAt(kp string, commit int64, scopeID *s
 		return nil, m.readStateError
 	}
 	return m.mockCommitOps.ReadStateAt(kp, commit, scopeID)
+}
+
+func (m *mockCommitOpsWithError) MatchStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
+	return m.ReadStateAt(kp, commit, scopeID)
 }
 
 func TestCommit_Timeout(t *testing.T) {

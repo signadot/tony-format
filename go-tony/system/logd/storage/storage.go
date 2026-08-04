@@ -80,6 +80,17 @@ type Storage struct {
 	// a slow watcher can never serialize all commits.
 	commitMu sync.Mutex
 
+	// head is the baseline document at headCommit, kept so a CAS precondition can be
+	// evaluated without materializing the whole document per conditional write. All
+	// three fields are owned by commitMu: read and written only while it is held.
+	//
+	// headSeeded, not head != nil, is what says the head is usable: empty state reads
+	// back as a nil document, so an empty log would otherwise look permanently unseeded
+	// and never start stepping. Nothing may mutate head — see stepHead.
+	head       *ir.Node
+	headCommit int64
+	headSeeded bool
+
 	sequence *seq.Seq
 
 	dLog *dlog.DLog
