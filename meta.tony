@@ -10,6 +10,7 @@ labels:
 - agent
 - parse
 - yaml
-related_issues: []
+related_issues:
+- v0tp11hmh12krncwe5n0
 status: open
-updated: "2026-08-04T12:34:48.061463+02:00"
+updated: "2026-08-04T12:34:48.218313+02:00"
