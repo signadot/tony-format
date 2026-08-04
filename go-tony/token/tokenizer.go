@@ -22,10 +22,10 @@ type Tokenizer struct {
 	opt    *tokenOpts
 
 	// Buffer management (for streaming)
-	reader  io.Reader // nil for non-streaming mode
-	buffer  []byte    // current buffer
-	bufPos  int       // position in buffer
-	bufStart int64    // absolute offset where buffer starts
+	reader   io.Reader // nil for non-streaming mode
+	buffer   []byte    // current buffer
+	bufPos   int       // position in buffer
+	bufStart int64     // absolute offset where buffer starts
 
 	// Trailing whitespace tracking
 	// Accumulates whitespace at the end of each buffer read
@@ -501,28 +501,28 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		next := data[pos+1]
 		switch next {
 		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-		if t.opt.format == format.YAMLFormat {
-			off, err := yamlPlain(data[pos+1:], t.ts, int(absOffset+1), t.posDoc)
-			if err != nil {
-				return nil, 0, err
-			}
-			numLen, isFloat, err := number(data[pos+1 : pos+1+off])
-			if err == nil && numLen == off {
-				tok := Token{
-					Type:  TInteger,
-					Pos:   t.posDoc.Pos(int(absOffset)),
-					Bytes: data[pos : pos+numLen+1],
+			if t.opt.format == format.YAMLFormat {
+				off, err := yamlPlain(data[pos+1:], t.ts, int(absOffset+1), t.posDoc)
+				if err != nil {
+					return nil, 0, err
 				}
-				if isFloat {
-					tok.Type = TFloat
+				numLen, isFloat, err := number(data[pos+1 : pos+1+off])
+				if err == nil && numLen == off {
+					tok := Token{
+						Type:  TInteger,
+						Pos:   t.posDoc.Pos(int(absOffset)),
+						Bytes: data[pos : pos+numLen+1],
+					}
+					if isFloat {
+						tok.Type = TFloat
+					}
+					t.ts.hasValue = true
+					return []Token{tok}, numLen + 1, nil
 				}
+				tok := yamlPlainToken(data[pos:pos+off+1], t.posDoc.Pos(int(absOffset)))
 				t.ts.hasValue = true
-				return []Token{tok}, numLen + 1, nil
+				return []Token{*tok}, off + 1, nil
 			}
-			tok := yamlPlainToken(data[pos:pos+off+1], t.posDoc.Pos(int(absOffset)))
-			t.ts.hasValue = true
-			return []Token{*tok}, off + 1, nil
-		}
 			numLen, isFloat, err := numberStreaming(data[pos+1:])
 			if err == io.EOF {
 				return nil, 0, io.EOF // number may continue past the buffer; need more data

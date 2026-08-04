@@ -13,9 +13,10 @@ import (
 // For non-leaf array elements, uses the actual index for path matching.
 //
 // Examples:
-//   KPathState("users[3]")      → positioned at "users[2]" (leaf)
-//   KPathState("users[0]")      → positioned at "users" (leaf at index 0)
-//   KPathState("users[0].name") → positioned at "users[0].name" (non-leaf)
+//
+//	KPathState("users[3]")      → positioned at "users[2]" (leaf)
+//	KPathState("users[0]")      → positioned at "users" (leaf at index 0)
+//	KPathState("users[0].name") → positioned at "users[0].name" (non-leaf)
 //
 // Returns an error if the kpath string is invalid.
 func KPathState(kp string) (*State, error) {

@@ -199,7 +199,7 @@ func TestResolveDefinitionNameWithRealSchema(t *testing.T) {
 				Values: []*ir.Node{
 					&ir.Node{Tag: ".[number]"}, // Reference
 					&ir.Node{
-						Type: ir.ObjectType,
+						Type:   ir.ObjectType,
 						Fields: []*ir.Node{ir.FromString("int")},
 						Values: []*ir.Node{&ir.Node{Tag: "!not null"}},
 					},

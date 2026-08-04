@@ -53,11 +53,11 @@ func (cfg *migrateConfig) run(cc *cli.Context, args []string) error {
 
 	// Step 3: Generate XIDs and build mapping
 	type mapping struct {
-		oldIDStr   string // padded old ID like "000001"
-		oldRef     string
-		newXIDR    string // reversed XID for display/storage
-		rawXID     issuelib.XID
-		isClosed   bool
+		oldIDStr string // padded old ID like "000001"
+		oldRef   string
+		newXIDR  string // reversed XID for display/storage
+		rawXID   issuelib.XID
+		isClosed bool
 	}
 
 	mappings := make([]mapping, len(issues))

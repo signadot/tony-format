@@ -127,12 +127,12 @@ func TestValidXIDPrefix(t *testing.T) {
 		{"ABC123", true},
 		{"0123456789", true},
 		{"abcdefghjkmnpqrstvwxyz", true}, // all valid chars
-		{"", false},                       // empty
-		{"abci", false},                   // 'i' is invalid
-		{"abcl", false},                   // 'l' is invalid
-		{"abco", false},                   // 'o' is invalid
-		{"abcu", false},                   // 'u' is invalid
-		{"abc-123", false},                // hyphen invalid
+		{"", false},                      // empty
+		{"abci", false},                  // 'i' is invalid
+		{"abcl", false},                  // 'l' is invalid
+		{"abco", false},                  // 'o' is invalid
+		{"abcu", false},                  // 'u' is invalid
+		{"abc-123", false},               // hyphen invalid
 	}
 
 	for _, tt := range tests {

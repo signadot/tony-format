@@ -58,29 +58,29 @@ func TestLookupWithin_RangeSegments(t *testing.T) {
 		{
 			StartCommit: 10, StartTx: 100,
 			EndCommit: 15, EndTx: 105,
-			KindedPath: "foo.bar",
-			LogFile:    "A",
+			KindedPath:  "foo.bar",
+			LogFile:     "A",
 			LogPosition: 0,
 		},
 		{
 			StartCommit: 12, StartTx: 102,
 			EndCommit: 18, EndTx: 108,
-			KindedPath: "foo",
-			LogFile:    "A",
+			KindedPath:  "foo",
+			LogFile:     "A",
 			LogPosition: 100,
 		},
 		{
 			StartCommit: 20, StartTx: 110,
 			EndCommit: 25, EndTx: 115,
-			KindedPath: "foo.bar.baz",
-			LogFile:    "A",
+			KindedPath:  "foo.bar.baz",
+			LogFile:     "A",
 			LogPosition: 200,
 		},
 		{
 			StartCommit: 5, StartTx: 50,
 			EndCommit: 8, EndTx: 55,
-			KindedPath: "qux",
-			LogFile:    "A",
+			KindedPath:  "qux",
+			LogFile:     "A",
 			LogPosition: 300,
 		},
 	}
@@ -117,8 +117,8 @@ func TestLookupWithin_AtBoundaries(t *testing.T) {
 	seg := LogSegment{
 		StartCommit: 10, StartTx: 100,
 		EndCommit: 15, EndTx: 105,
-		KindedPath: "foo",
-		LogFile:    "A",
+		KindedPath:  "foo",
+		LogFile:     "A",
 		LogPosition: 0,
 	}
 
@@ -179,10 +179,10 @@ func TestLookupWithin_ExactMatchOnly(t *testing.T) {
 	idx := NewIndex("")
 
 	segs := []LogSegment{
-		*PointLogSegment(10, 100, "foo"),           // ancestor (not returned)
-		*PointLogSegment(11, 101, "foo.bar"),       // exact match
-		*PointLogSegment(12, 102, "foo.bar.baz"),   // descendant (not returned)
-		*PointLogSegment(13, 103, "qux"),           // unrelated
+		*PointLogSegment(10, 100, "foo"),         // ancestor (not returned)
+		*PointLogSegment(11, 101, "foo.bar"),     // exact match
+		*PointLogSegment(12, 102, "foo.bar.baz"), // descendant (not returned)
+		*PointLogSegment(13, 103, "qux"),         // unrelated
 	}
 
 	for i := range segs {
@@ -218,22 +218,22 @@ func TestLookupWithin_ExactMatchOnly(t *testing.T) {
 		{
 			StartCommit: 10, StartTx: 100,
 			EndCommit: 15, EndTx: 105,
-			KindedPath: "foo",
-			LogFile:    "A",
+			KindedPath:  "foo",
+			LogFile:     "A",
 			LogPosition: 0,
 		},
 		{
 			StartCommit: 12, StartTx: 102,
 			EndCommit: 18, EndTx: 108,
-			KindedPath: "foo.bar",
-			LogFile:    "A",
+			KindedPath:  "foo.bar",
+			LogFile:     "A",
 			LogPosition: 100,
 		},
 		{
 			StartCommit: 14, StartTx: 104,
 			EndCommit: 20, EndTx: 110,
-			KindedPath: "foo.bar.baz",
-			LogFile:    "A",
+			KindedPath:  "foo.bar.baz",
+			LogFile:     "A",
 			LogPosition: 200,
 		},
 	}

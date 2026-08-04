@@ -15,10 +15,10 @@ import (
 func parseTxtar(content string) map[string]string {
 	files := make(map[string]string)
 	lines := strings.Split(content, "\n")
-	
+
 	var currentFile string
 	var currentContent []string
-	
+
 	for _, line := range lines {
 		if strings.HasPrefix(line, "-- ") && strings.HasSuffix(line, " --") {
 			// Save previous file if any
@@ -32,18 +32,18 @@ func parseTxtar(content string) map[string]string {
 			currentContent = append(currentContent, line)
 		}
 	}
-	
+
 	// Save last file
 	if currentFile != "" {
 		files[currentFile] = strings.Join(currentContent, "\n")
 	}
-	
+
 	return files
 }
 
 func TestFieldRenaming_FromTxtar(t *testing.T) {
 	testdataDir := filepath.Join("..", "testdata")
-	
+
 	tests := []struct {
 		name     string
 		filename string
@@ -65,7 +65,7 @@ func TestFieldRenaming_FromTxtar(t *testing.T) {
 		{"cross_package_pointer_type", "field_renaming_cross_package_pointer_type.txtar"},
 		{"cross_package_slice_type", "field_renaming_cross_package_slice_type.txtar"},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			filePath := filepath.Join(testdataDir, tt.filename)
@@ -73,9 +73,9 @@ func TestFieldRenaming_FromTxtar(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to read test file %q: %v", filePath, err)
 			}
-			
+
 			files := parseTxtar(string(content))
-			
+
 			// Get schema file
 			var schemaFile string
 			var schemaContent string
@@ -89,24 +89,24 @@ func TestFieldRenaming_FromTxtar(t *testing.T) {
 			if schemaFile == "" {
 				t.Fatal("no .tony schema file found in txtar")
 			}
-			
+
 			// Parse schema
 			irNode, err := parse.Parse([]byte(schemaContent), parse.ParseComments(true))
 			if err != nil {
 				t.Fatalf("failed to parse schema: %v", err)
 			}
-			
+
 			// Unwrap comment node if present
 			if irNode.Type == ir.CommentType && len(irNode.Values) > 0 {
 				irNode = irNode.Values[0]
 			}
-			
+
 			// Parse schema from IR node
 			s, err := schema.ParseSchema(irNode)
 			if err != nil {
 				t.Fatalf("failed to parse schema: %v", err)
 			}
-			
+
 			// Get Go file (for reference, not used in this test)
 			var goFile string
 			for name := range files {
@@ -118,12 +118,12 @@ func TestFieldRenaming_FromTxtar(t *testing.T) {
 			if goFile == "" {
 				t.Fatal("no .go file found in txtar")
 			}
-			
+
 			// Parse Go file to extract struct info
 			// For now, we'll use a simplified approach - we need to actually compile/parse the Go code
 			// This is a placeholder that shows the structure - in practice, you'd use go/parser
 			// or reflect to load the struct types
-			
+
 			// For this test, we'll verify the schema can be loaded and has the expected structure
 			// Schemas can have either Accept (for schema= mode) or Define (for schemagen= mode)
 			var fieldCount int
@@ -158,14 +158,14 @@ func TestFieldRenaming_FromTxtar(t *testing.T) {
 			} else {
 				t.Fatal("schema has neither Accept nor Define fields")
 			}
-			
+
 			// Verify schema has fields
 			if fieldCount == 0 {
 				t.Fatal("schema has no fields")
 			}
-			
+
 			t.Logf("Schema fields: %v", schemaFields)
-			
+
 			// Check expected_fields.txt if present
 			if expectedFields, ok := files["expected_fields.txt"]; ok {
 				// Parse expected fields
@@ -178,11 +178,11 @@ func TestFieldRenaming_FromTxtar(t *testing.T) {
 					}
 				}
 				if len(nonEmptyLines) != fieldCount {
-					t.Logf("Note: expected_fields.txt has %d fields, schema has %d fields", 
+					t.Logf("Note: expected_fields.txt has %d fields, schema has %d fields",
 						len(nonEmptyLines), fieldCount)
 				}
 			}
-			
+
 			t.Logf("Successfully loaded schema from %q with %d fields", schemaFile, fieldCount)
 		})
 	}

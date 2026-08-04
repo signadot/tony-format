@@ -26,19 +26,19 @@ type TokenSink struct {
 	// Encoding state
 	depth    int       // Current nesting depth (for indentation tracking)
 	lastType TokenType // Last token type written (for spacing)
-	
+
 	// Node start detection state
 	nextIsNodeStart bool // True if next token is a node start (after TArrayElt or TColon)
-	keyProcessed bool   // True if we just processed a key (for triggering node start)
-	
+	keyProcessed    bool // True if we just processed a key (for triggering node start)
+
 	// Path tracking (using kinded path syntax: "", "key", "key[0]", "key{0}", "a.b.c")
-	currentPath string   // Current kinded path from root (e.g., "", "key", "key[0]", "a.b")
-	pathStack   []string // Stack of path components for nested structures
+	currentPath  string      // Current kinded path from root (e.g., "", "key", "key[0]", "a.b")
+	pathStack    []string    // Stack of path components for nested structures
 	bracketStack []TokenType // Stack of bracket types ('[' or '{') for each level
-	arrayIndex  int      // Current array index (incremented in bracketed arrays)
-	pendingKey  string   // Key name seen before TColon (TLiteral)
-	pendingInt  string   // Integer key seen before TColon (for sparse arrays)
-	pendingValue bool    // True if we've seen a value token that needs path update
+	arrayIndex   int         // Current array index (incremented in bracketed arrays)
+	pendingKey   string      // Key name seen before TColon (TLiteral)
+	pendingInt   string      // Integer key seen before TColon (for sparse arrays)
+	pendingValue bool        // True if we've seen a value token that needs path update
 }
 
 // NewTokenSink creates a new TokenSink writing to w.
@@ -57,10 +57,10 @@ func (ts *TokenSink) Write(tokens []Token) error {
 	for _, tok := range tokens {
 		// Update path before detecting node start
 		ts.updatePath(tok)
-		
+
 		// Detect node start before writing
 		// TArrayElt and TColon indicate the NEXT token is a node start
-		
+
 		// Handle keyProcessed flag - must be cleared even if callback is nil
 		if ts.keyProcessed {
 			// We just processed a key (without a value) - trigger node start
@@ -95,7 +95,7 @@ func (ts *TokenSink) Write(tokens []Token) error {
 		if tok.Type == TArrayElt || tok.Type == TColon {
 			ts.nextIsNodeStart = true
 		}
-		
+
 		// Reset nextIsNodeStart when structural tokens appear (they consume the expectation)
 		// or when value tokens are processed (they consume it in updatePath)
 		if tok.Type == TLCurl || tok.Type == TLSquare {
@@ -195,8 +195,8 @@ func (ts *TokenSink) updateDepth(tok Token) {
 		if ts.depth > 0 {
 			ts.depth--
 		}
-	// Note: TIndent doesn't change depth - depth is about bracket nesting,
-	// not indentation level
+		// Note: TIndent doesn't change depth - depth is about bracket nesting,
+		// not indentation level
 	}
 }
 
@@ -214,7 +214,7 @@ func (ts *TokenSink) updatePath(tok Token) {
 		ts.pendingKey = ""
 		ts.pendingInt = ""
 		ts.pendingValue = false
-		
+
 	case TInteger:
 		// If we're in an array context and no pending key, this is an array element value
 		if len(ts.bracketStack) > 0 && ts.bracketStack[len(ts.bracketStack)-1] == TLSquare && ts.pendingKey == "" {
@@ -253,7 +253,7 @@ func (ts *TokenSink) updatePath(tok Token) {
 			ts.pendingInt = string(tok.Bytes)
 			ts.pendingKey = ""
 		}
-		
+
 	case TLiteral:
 		// If we're in an array context (top of bracketStack is TLSquare),
 		// and we don't have a pending key, this is an array element value
@@ -292,7 +292,7 @@ func (ts *TokenSink) updatePath(tok Token) {
 			// Might be a key - store it and wait for TColon
 			ts.pendingKey = string(tok.Bytes)
 		}
-		
+
 	case TString:
 		// TString can be either a key or a value
 		// First check if we're in an array context (even if nextIsNodeStart is true,
@@ -340,7 +340,7 @@ func (ts *TokenSink) updatePath(tok Token) {
 			// Might be a key - store it and wait for TColon
 			ts.pendingKey = tok.String()
 		}
-		
+
 	case TColon:
 		// Check if previous token was an integer (sparse array), literal (key), or string (key)
 		if ts.pendingInt != "" {
@@ -378,25 +378,25 @@ func (ts *TokenSink) updatePath(tok Token) {
 			// Mark that next token will be a value
 			ts.pendingValue = true
 		}
-		
+
 	case TArrayElt:
 		// Block-style array element - skip path tracking
 		// Path tracking only works for bracketed structures (TLSquare/TRSquare)
 		// Block-style arrays don't have explicit boundaries, so we can't track them accurately
-		
+
 	case TLCurl:
 		// Opening object - push current path and bracket type to stack
 		ts.pathStack = append(ts.pathStack, ts.currentPath)
 		ts.bracketStack = append(ts.bracketStack, TLCurl)
 		// Path doesn't change until we see a key
-		
+
 	case TLSquare:
 		// Opening array - push current path and bracket type to stack, reset index
 		ts.pathStack = append(ts.pathStack, ts.currentPath)
 		ts.bracketStack = append(ts.bracketStack, TLSquare)
 		ts.arrayIndex = 0
 		// Path doesn't change until we see an element
-		
+
 	case TRCurl, TRSquare:
 		// Closing bracket - pop path stack and bracket stack
 		// If we're closing an object and have a pending key or pending int, process it first
@@ -484,7 +484,7 @@ func (ts *TokenSink) updatePath(tok Token) {
 			}
 		}
 		ts.pendingValue = false
-		
+
 	case TFloat, TTrue, TFalse, TNull, TMString, TMLit:
 		// Value tokens - if we're in an array context, treat as array element
 		if len(ts.bracketStack) > 0 && ts.bracketStack[len(ts.bracketStack)-1] == TLSquare && ts.pendingKey == "" {

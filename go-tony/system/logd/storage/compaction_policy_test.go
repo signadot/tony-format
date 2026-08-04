@@ -55,12 +55,12 @@ func TestAssignToTiers(t *testing.T) {
 	policy := newCompactionPolicy(config, now, pinCommit)
 
 	groups := []snapshotGroup{
-		{commit: 1, time: now.Add(-30 * time.Minute)},  // within cutoff
-		{commit: 2, time: now.Add(-90 * time.Minute)},  // tier 0
-		{commit: 3, time: now.Add(-3 * time.Hour)},     // tier 1
-		{commit: 4, time: now.Add(-6 * time.Hour)},     // tier 2
-		{commit: 5, time: now.Add(-10 * time.Hour)},    // pinned (regardless of age)
-		{commit: 6, time: now.Add(-20 * time.Minute)},  // within cutoff
+		{commit: 1, time: now.Add(-30 * time.Minute)}, // within cutoff
+		{commit: 2, time: now.Add(-90 * time.Minute)}, // tier 0
+		{commit: 3, time: now.Add(-3 * time.Hour)},    // tier 1
+		{commit: 4, time: now.Add(-6 * time.Hour)},    // tier 2
+		{commit: 5, time: now.Add(-10 * time.Hour)},   // pinned (regardless of age)
+		{commit: 6, time: now.Add(-20 * time.Minute)}, // within cutoff
 	}
 
 	tiers := policy.assignToTiers(groups)

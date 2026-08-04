@@ -484,4 +484,3 @@ func TestStateTripleNestedArrays(t *testing.T) {
 		t.Errorf("expected empty path after closing all arrays, got %q", state.CurrentPath())
 	}
 }
-

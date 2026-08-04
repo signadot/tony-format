@@ -58,10 +58,10 @@ func (e *SchemaError) Unwrap() error {
 
 // TypeError represents a type mismatch error
 type TypeError struct {
-	FieldPath   string
-	Expected    string
-	Actual      string
-	Message     string
+	FieldPath string
+	Expected  string
+	Actual    string
+	Message   string
 }
 
 func (e *TypeError) Error() string {

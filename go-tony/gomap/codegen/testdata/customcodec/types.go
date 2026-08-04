@@ -8,6 +8,7 @@ import (
 // Leaf supplies its own codec and is marked codec=custom (issue f69agjyeh12ks
 // item 4): it stays resolvable — Host calls its methods — but codegen must not
 // generate ToTonyIR/FromTonyIR for it (that would collide with these).
+//
 //tony:schemagen=customcodec-leaf,notag,codec=custom
 type Leaf struct {
 	V string `tony:"field=v"`

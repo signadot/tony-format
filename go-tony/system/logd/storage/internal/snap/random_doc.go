@@ -13,20 +13,20 @@ type RandomDocConfig struct {
 	// MinSize and MaxSize control the approximate size range in bytes
 	MinSize int
 	MaxSize int
-	
+
 	// MaxDepth controls maximum nesting depth
 	MaxDepth int
-	
+
 	// ObjectFieldProbability is probability (0.0-1.0) that a container will be an object vs array
 	ObjectFieldProbability float64
-	
+
 	// ContainerProbability is probability (0.0-1.0) that a value will be a container vs primitive
 	ContainerProbability float64
-	
+
 	// StringLengthRange controls string value lengths
 	StringLengthMin int
 	StringLengthMax int
-	
+
 	// Seed for random number generator (0 means use current time)
 	Seed int64
 }
@@ -34,14 +34,14 @@ type RandomDocConfig struct {
 // DefaultRandomDocConfig returns a reasonable default configuration
 func DefaultRandomDocConfig() RandomDocConfig {
 	return RandomDocConfig{
-		MinSize:               100000,  // 100KB
-		MaxSize:               10000000, // 10MB
-		MaxDepth:              5,
+		MinSize:                100000,   // 100KB
+		MaxSize:                10000000, // 10MB
+		MaxDepth:               5,
 		ObjectFieldProbability: 0.6,
 		ContainerProbability:   0.3,
-		StringLengthMin:       10,
-		StringLengthMax:       1000,
-		Seed:                  0,
+		StringLengthMin:        10,
+		StringLengthMax:        1000,
+		Seed:                   0,
 	}
 }
 
@@ -52,15 +52,15 @@ func RandomDocument(config RandomDocConfig) (*ir.Node, []string, error) {
 		config.Seed = rand.Int63()
 	}
 	rng := rand.New(rand.NewSource(config.Seed))
-	
+
 	targetSize := config.MinSize
 	if config.MaxSize > config.MinSize {
 		targetSize = config.MinSize + rng.Intn(config.MaxSize-config.MinSize)
 	}
-	
+
 	// Generate document
 	doc, paths, size := generateRandomNode(rng, config, 0, targetSize)
-	
+
 	// If document is too small, add more fields
 	for size < targetSize {
 		// Add more top-level fields
@@ -101,7 +101,7 @@ func RandomDocument(config RandomDocConfig) (*ir.Node, []string, error) {
 			break
 		}
 	}
-	
+
 	return doc, paths, nil
 }
 
@@ -110,18 +110,18 @@ func RandomDocument(config RandomDocConfig) (*ir.Node, []string, error) {
 func generateRandomNode(rng *rand.Rand, config RandomDocConfig, depth int, remainingSize int) (*ir.Node, []string, int) {
 	var paths []string
 	size := 0
-	
+
 	// Decide if this should be a container or primitive
 	isContainer := depth < config.MaxDepth && rng.Float64() < config.ContainerProbability && remainingSize > 1000
-	
+
 	if isContainer {
 		isObject := rng.Float64() < config.ObjectFieldProbability
-		
+
 		if isObject {
 			// Generate object using FromMap helper
 			objMap := make(map[string]*ir.Node)
 			size += 2 // {} brackets
-			
+
 			// Generate fields
 			numFields := 5 + rng.Intn(20) // 5-25 fields
 			for i := 0; i < numFields && remainingSize > 100; i++ {
@@ -136,14 +136,14 @@ func generateRandomNode(rng *rand.Rand, config RandomDocConfig, depth int, remai
 				size += len(key) + valueSize + 5 // key + value + overhead
 				remainingSize -= valueSize
 			}
-			
+
 			node := ir.FromMap(objMap)
 			return node, paths, size
 		} else {
 			// Generate array using FromSlice helper
 			elements := []*ir.Node{}
 			size += 2 // [] brackets
-			
+
 			// Generate elements
 			numElements := 3 + rng.Intn(15) // 3-18 elements
 			for i := 0; i < numElements && remainingSize > 100; i++ {
@@ -158,7 +158,7 @@ func generateRandomNode(rng *rand.Rand, config RandomDocConfig, depth int, remai
 				size += valueSize + 2 // value + overhead
 				remainingSize -= valueSize
 			}
-			
+
 			node := ir.FromSlice(elements)
 			return node, paths, size
 		}
@@ -188,7 +188,7 @@ func generateRandomNode(rng *rand.Rand, config RandomDocConfig, depth int, remai
 			return &ir.Node{Type: ir.NullType}, []string{}, size
 		}
 	}
-	
+
 	// Fallback
 	return &ir.Node{Type: ir.NullType}, []string{}, 4
 }
@@ -230,7 +230,7 @@ func encodeNodeToEvents(node *ir.Node, enc *stream.Encoder) error {
 	if node == nil {
 		return enc.WriteNull()
 	}
-	
+
 	switch node.Type {
 	case ir.ObjectType:
 		if err := enc.BeginObject(); err != nil {
@@ -257,7 +257,7 @@ func encodeNodeToEvents(node *ir.Node, enc *stream.Encoder) error {
 			}
 		}
 		return enc.EndObject()
-		
+
 	case ir.ArrayType:
 		if err := enc.BeginArray(); err != nil {
 			return err
@@ -268,10 +268,10 @@ func encodeNodeToEvents(node *ir.Node, enc *stream.Encoder) error {
 			}
 		}
 		return enc.EndArray()
-		
+
 	case ir.StringType:
 		return enc.WriteString(node.String)
-		
+
 	case ir.NumberType:
 		if node.Int64 != nil {
 			return enc.WriteInt(*node.Int64)
@@ -280,13 +280,13 @@ func encodeNodeToEvents(node *ir.Node, enc *stream.Encoder) error {
 			return enc.WriteFloat(*node.Float64)
 		}
 		return enc.WriteNull()
-		
+
 	case ir.BoolType:
 		return enc.WriteBool(node.Bool)
-		
+
 	case ir.NullType:
 		return enc.WriteNull()
-		
+
 	default:
 		return enc.WriteNull()
 	}

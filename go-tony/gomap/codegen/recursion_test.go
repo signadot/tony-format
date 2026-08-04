@@ -292,12 +292,12 @@ func TestTimeTimeField(t *testing.T) {
 		Package: "codegen",
 		Fields: []*FieldInfo{
 			{
-				Name:            "When",
-				SchemaFieldName: "when",
-				Type:            reflect.TypeOf((*time.Time)(nil)).Elem(),
-				TypePkgPath:     "time",
-				TypeName:        "Time",
-				StructTypeName:  "time.Time",
+				Name:                      "When",
+				SchemaFieldName:           "when",
+				Type:                      reflect.TypeOf((*time.Time)(nil)).Elem(),
+				TypePkgPath:               "time",
+				TypeName:                  "Time",
+				StructTypeName:            "time.Time",
 				ImplementsTextMarshaler:   true,
 				ImplementsTextUnmarshaler: true,
 			},

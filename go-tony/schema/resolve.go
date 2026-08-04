@@ -18,17 +18,18 @@ import (
 // it evaluates to the definition node stored in schema.Define["number"].
 //
 // Example usage:
-//   // In a Tony schema file:
-//   define:
-//     number: !irtype 1
-//     int: !and
-//       - .[number]    # This references the "number" definition above
-//       - int: !not null
 //
-//   // When processing the "int" definition, extract the name from ".[number]":
-//   refTag := ".[number]"  // As it appears in the schema
-//   name := eval.GetRaw(refTag)  // Extracts "number" from ".[number]"
-//   defNode, err := ResolveDefinitionName(schema, name)  // Looks up "number"
+//	// In a Tony schema file:
+//	define:
+//	  number: !irtype 1
+//	  int: !and
+//	    - .[number]    # This references the "number" definition above
+//	    - int: !not null
+//
+//	// When processing the "int" definition, extract the name from ".[number]":
+//	refTag := ".[number]"  // As it appears in the schema
+//	name := eval.GetRaw(refTag)  // Extracts "number" from ".[number]"
+//	defNode, err := ResolveDefinitionName(schema, name)  // Looks up "number"
 //
 // Note: This function only resolves definitions within the same schema.
 // For cross-schema references (using !from), use SchemaRegistry.ResolveDefinition.

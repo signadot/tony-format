@@ -19,8 +19,8 @@ func associateComments(node *ir.Node) *ir.Node {
 		var (
 			lastLineComment   *ir.Node
 			eltWrap           *ir.Node
-			emptyCommentLines []string      // Lines from empty comment nodes to move to container
-			toRemove          map[int]bool  // Indices of empty comment nodes to remove
+			emptyCommentLines []string     // Lines from empty comment nodes to move to container
+			toRemove          map[int]bool // Indices of empty comment nodes to remove
 		)
 		for i, elt := range node.Values {
 			elt = associateComments(elt)

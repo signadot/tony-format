@@ -80,8 +80,8 @@ func TestScope_COW_ScopeWinsOverLaterBaseline(t *testing.T) {
 	s := openTestStorage(t)
 	sc := "s1"
 
-	mustCommit(t, s, nil, `{a: {x: 1}}`)  // baseline a.x=1
-	mustCommit(t, s, &sc, `{a: {x: 5}}`)  // scope a.x=5
+	mustCommit(t, s, nil, `{a: {x: 1}}`)       // baseline a.x=1
+	mustCommit(t, s, &sc, `{a: {x: 5}}`)       // scope a.x=5
 	c := mustCommit(t, s, nil, `{a: {x: 99}}`) // baseline a.x=99 (LATER than scope)
 
 	if got := getInt(mustReadScope(t, s, c, &sc), "a", "x"); got != 5 {
@@ -98,8 +98,8 @@ func TestScope_COW_TracksOngoingBaseline(t *testing.T) {
 	s := openTestStorage(t)
 	sc := "s1"
 
-	mustCommit(t, s, nil, `{a: {x: 1}}`) // baseline a.x=1
-	mustCommit(t, s, &sc, `{a: {z: 7}}`) // scope writes a DIFFERENT leaf a.z=7
+	mustCommit(t, s, nil, `{a: {x: 1}}`)      // baseline a.x=1
+	mustCommit(t, s, &sc, `{a: {z: 7}}`)      // scope writes a DIFFERENT leaf a.z=7
 	c := mustCommit(t, s, nil, `{a: {x: 2}}`) // baseline a.x=2 (later)
 
 	sv := mustReadScope(t, s, c, &sc)
@@ -116,7 +116,7 @@ func TestScope_COW_AncestorMerge(t *testing.T) {
 	s := openTestStorage(t)
 	sc := "s1"
 
-	mustCommit(t, s, &sc, `{a: {x: 5}}`)  // scope a.x=5
+	mustCommit(t, s, &sc, `{a: {x: 5}}`)      // scope a.x=5
 	c := mustCommit(t, s, nil, `{a: {y: 9}}`) // baseline writes ancestor a={y:9}
 
 	sv := mustReadScope(t, s, c, &sc)
@@ -134,7 +134,7 @@ func TestScope_COW_AncestorClobber(t *testing.T) {
 	s := openTestStorage(t)
 	sc := "s1"
 
-	mustCommit(t, s, &sc, `{a: {x: 5}}`)   // scope a.x=5
+	mustCommit(t, s, &sc, `{a: {x: 5}}`)       // scope a.x=5
 	c := mustCommit(t, s, nil, `{a: {x: 99}}`) // baseline ancestor write sets a.x=99
 
 	if got := getInt(mustReadScope(t, s, c, &sc), "a", "x"); got != 5 {

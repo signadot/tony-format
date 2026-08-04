@@ -128,10 +128,10 @@ type MountResponse struct {
 // --- Error codes ---
 
 const (
-	ErrCodeMountFailed      = "mount_failed"
+	ErrCodeMountFailed        = "mount_failed"
 	ErrCodePathAlreadyMounted = "path_already_mounted"
-	ErrCodeInvalidPath      = "invalid_path"
-	ErrCodeInvalidMessage   = "invalid_message"
+	ErrCodeInvalidPath        = "invalid_path"
+	ErrCodeInvalidMessage     = "invalid_message"
 )
 
 // --- Helper constructors ---

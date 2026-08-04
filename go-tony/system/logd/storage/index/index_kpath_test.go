@@ -223,15 +223,15 @@ func TestKPathComparison(t *testing.T) {
 	// to verify they exist and are sorted correctly
 	allPaths := []string{"[0]", "[1]", "[10]", "{0}", "{4}", "{42}", "a", "a[0]", "a[1]", "a{0}", "a{4}"}
 	expectedOrder := []string{
-		"a",      // Field names come first
-		"a[0]",   // Then fields with dense arrays
+		"a",    // Field names come first
+		"a[0]", // Then fields with dense arrays
 		"a[1]",
-		"a{0}",   // Then fields with sparse arrays
+		"a{0}", // Then fields with sparse arrays
 		"a{4}",
-		"[0]",    // Then root-level dense arrays
+		"[0]", // Then root-level dense arrays
 		"[1]",
 		"[10]",
-		"{0}",    // Finally root-level sparse arrays
+		"{0}", // Finally root-level sparse arrays
 		"{4}",
 		"{42}",
 	}
@@ -277,10 +277,10 @@ func TestKPathListRange(t *testing.T) {
 		*PointLogSegment(11, 101, "[0]"),
 		*PointLogSegment(12, 102, "[1]"),
 		*PointLogSegment(13, 103, "{4}"),
-		*PointLogSegment(14, 104, "foo"),      // parent path (IndexPatch would add this)
-		*PointLogSegment(14, 104, "foo[0]"),   // child path
-		*PointLogSegment(15, 105, "foo"),      // parent path (IndexPatch would add this)
-		*PointLogSegment(15, 105, "foo{13}"),  // child path
+		*PointLogSegment(14, 104, "foo"),     // parent path (IndexPatch would add this)
+		*PointLogSegment(14, 104, "foo[0]"),  // child path
+		*PointLogSegment(15, 105, "foo"),     // parent path (IndexPatch would add this)
+		*PointLogSegment(15, 105, "foo{13}"), // child path
 	}
 
 	// Add segments

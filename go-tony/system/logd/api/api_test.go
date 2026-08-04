@@ -156,7 +156,7 @@ func TestSessionResponse_RoundTrip(t *testing.T) {
 			),
 		},
 		{
-			name: "replay complete event",
+			name:     "replay complete event",
 			response: NewReplayCompleteEvent(nil, "users"),
 		},
 		{

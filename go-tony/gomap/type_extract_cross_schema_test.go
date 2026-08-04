@@ -64,13 +64,13 @@ func TestExtractGoType_CrossSchemaReferences(t *testing.T) {
 	}
 
 	tests := []struct {
-		name         string
-		def          *ir.Node
-		s            *schema.Schema
-		registry     *schema.SchemaRegistry
-		useRegistry  bool // Whether to use registry (false means use nil)
-		want         reflect.Type
-		wantErr      bool
+		name        string
+		def         *ir.Node
+		s           *schema.Schema
+		registry    *schema.SchemaRegistry
+		useRegistry bool // Whether to use registry (false means use nil)
+		want        reflect.Type
+		wantErr     bool
 	}{
 		{
 			name:        "!from(base-schema,number) - cross-schema reference",

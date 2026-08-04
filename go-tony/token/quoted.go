@@ -14,7 +14,7 @@ import (
 // getSingleLiteral answers a narrower question than this one: whether v is a valid literal
 // token. That is not the same as whether v, written unquoted in value position, reads back
 // as itself — the tokenizer dispatches on the first byte of a value before it ever gets to
-// literal scanning, and several bytes are claimed there (see TokenizeOne: ':' '"' '\'' '!'
+// literal scanning, and several bytes are claimed there (see TokenizeOne: ':' '"' "'" '!'
 // '|' '>' '-' digits '<'). A value beginning with one of those is read as the construct it
 // introduces, not as text.
 //

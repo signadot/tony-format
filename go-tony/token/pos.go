@@ -60,7 +60,7 @@ func (p *PosDoc) PosWithContext(absoluteOffset int, context []byte, bufferStartO
 	// Extract context snippet (e.g., 10 bytes before/after)
 	contextStart := max(0, absoluteOffset-10)
 	contextEnd := min(absoluteOffset+10, len(context)+bufferStartOffset)
-	
+
 	var contextBytes []byte
 	if len(context) > 0 {
 		relStart := max(0, contextStart-bufferStartOffset)
@@ -69,7 +69,7 @@ func (p *PosDoc) PosWithContext(absoluteOffset int, context []byte, bufferStartO
 			contextBytes = context[relStart:relEnd]
 		}
 	}
-	
+
 	return &Pos{
 		I:       absoluteOffset,
 		D:       p,

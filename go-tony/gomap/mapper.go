@@ -28,7 +28,7 @@ func GetDefaultRegistries() (*schema.SchemaRegistry, *schema.ContextRegistry) {
 // It holds optional schema and context registries for resolving schema references.
 // If registries are nil, the default registries are used (set via SetDefaultRegistries).
 type Mapper struct {
-	schemaRegistry *schema.SchemaRegistry
+	schemaRegistry  *schema.SchemaRegistry
 	contextRegistry *schema.ContextRegistry
 }
 

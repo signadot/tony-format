@@ -2,8 +2,8 @@ package token
 
 import (
 	"fmt"
-	"testing"
 	"github.com/signadot/tony-format/go-tony/format"
+	"testing"
 )
 
 func TestBalanceYAMLImplicitNull(t *testing.T) {

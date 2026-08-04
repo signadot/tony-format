@@ -175,7 +175,7 @@ func TestMapOptions(t *testing.T) {
 		}
 	})
 
-		t.Run("MultipleOptions", func(t *testing.T) {
+	t.Run("MultipleOptions", func(t *testing.T) {
 		bytes, err := gomap.ToTony(&s,
 			gomap.EncodeFormat(format.TonyFormat),
 			gomap.EncodeComments(true),

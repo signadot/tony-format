@@ -76,7 +76,7 @@ func ParseSchemaReference(node *ir.Node) (*SchemaReference, error) {
 	// Use ir.TagArgs to parse the schema reference (it might have parentheses)
 	// TagArgs expects a tag starting with "!", so prepend it
 	schemaHead, schemaArgs, _ := ir.TagArgs("!" + schemaRef)
-	
+
 	// Remove the "!" prefix to get the actual schema name/URI
 	schemaNameOrURI := schemaHead
 	if strings.HasPrefix(schemaHead, "!") {
@@ -131,12 +131,12 @@ func ParseFromRefFromTag(tag string) (string, string, []string, error) {
 	// Validate no spaces in arguments (strict parsing)
 	schemaArg := args[0]
 	defName := args[1]
-	
+
 	// Check for leading/trailing spaces in schema name
 	if strings.HasPrefix(schemaArg, " ") || strings.HasSuffix(schemaArg, " ") {
 		return "", "", nil, fmt.Errorf("!from tag schema-name argument cannot have leading or trailing spaces: %q", schemaArg)
 	}
-	
+
 	// Check for leading/trailing spaces in definition name
 	if strings.HasPrefix(defName, " ") || strings.HasSuffix(defName, " ") {
 		return "", "", nil, fmt.Errorf("!from tag def-name argument cannot have leading or trailing spaces: %q", defName)
@@ -146,7 +146,7 @@ func ParseFromRefFromTag(tag string) (string, string, []string, error) {
 	// Use ir.TagArgs to parse the schema reference (it might have parentheses)
 	// TagArgs expects a tag starting with "!", so prepend it
 	schemaHead, schemaArgs, _ := ir.TagArgs("!" + schemaArg)
-	
+
 	// Remove the "!" prefix to get the actual schema name
 	schemaName := schemaHead
 	if strings.HasPrefix(schemaHead, "!") {

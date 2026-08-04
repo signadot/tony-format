@@ -96,7 +96,6 @@ func GenerateSchema(allStructs []*StructInfo, targetStruct *StructInfo, loader *
 
 	contextNode := ir.FromSlice(contextItems)
 
-
 	// Create the schema IR node
 	schemaNode := ir.FromMap(map[string]*ir.Node{
 		"context": contextNode,

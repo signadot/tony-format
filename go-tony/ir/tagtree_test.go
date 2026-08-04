@@ -31,9 +31,9 @@ func TestParseTag(t *testing.T) {
 
 func TestTagTreeMap(t *testing.T) {
 	tests := []struct {
-		tag     string
-		subst   map[string]string
-		want    string
+		tag   string
+		subst map[string]string
+		want  string
 	}{
 		{"!t", map[string]string{"t": "int"}, "!int"},
 		{"!all.t", map[string]string{"t": "int"}, "!all.int"},

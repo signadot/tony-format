@@ -38,7 +38,7 @@ func TestCRDs_PathTracking(t *testing.T) {
 
 	// Now test path tracking using TokenSource
 	source := token.NewTokenSource(bytes.NewReader(bracketedData))
-	
+
 	var allPaths []string
 	var pathCounts = make(map[string]int)
 	var maxDepth int
@@ -235,7 +235,6 @@ func TestCRDs_TokenSink_PathTracking(t *testing.T) {
 		t.Errorf("Expected max depth >= 5, got %d (crds.yaml is deeply nested)", maxDepth)
 	}
 }
-
 
 // estimateDepthFromPath estimates nesting depth from a JSONPath string
 func estimateDepthFromPath(path string) int {

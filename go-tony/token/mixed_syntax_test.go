@@ -107,12 +107,12 @@ func TestMixedSyntax_OptionalCommasAndColons(t *testing.T) {
 				path  string
 				token TokenType
 			}{
-				{"arr[0]", TLiteral},  // array element
-				{"arr[1]", TLiteral},  // array element
-				{"arr[2]", TLiteral},  // array element
-				{"obj", TLiteral},     // key "obj" (the object key itself)
-				{"obj.x", TInteger},   // key "x" with value 1
-				{"obj.y", TLiteral},   // key "y" with implicit value "z"
+				{"arr[0]", TLiteral}, // array element
+				{"arr[1]", TLiteral}, // array element
+				{"arr[2]", TLiteral}, // array element
+				{"obj", TLiteral},    // key "obj" (the object key itself)
+				{"obj.x", TInteger},  // key "x" with value 1
+				{"obj.y", TLiteral},  // key "y" with implicit value "z"
 			},
 		},
 	}

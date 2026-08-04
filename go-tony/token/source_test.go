@@ -82,7 +82,7 @@ func TestTokenSource_WithIndent(t *testing.T) {
 
 func TestTokenSource_MultilineFolding(t *testing.T) {
 	// Test multiline folding - according to Tony spec:
-	// "Multiline quoting is permitted for any string whose opening quotation 
+	// "Multiline quoting is permitted for any string whose opening quotation
 	// character is the first non whitespace character of the line in which it occurs."
 	// "Multiline capable strings may be folded, which can be convenient for entering
 	// very long lines in a readable and editable fashion"

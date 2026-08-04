@@ -33,7 +33,7 @@ type SnapshotWriter struct {
 	endPos      int64 // where snapshot data ends (tracked on Write)
 	commit      int64
 	timestamp   string
-	entryPos    int64        // set on Close
+	entryPos    int64 // set on Close
 	closed      bool
 	schemaEntry *SchemaEntry // optional schema change entry
 	scopeID     *string      // optional scope ID for scoped snapshots

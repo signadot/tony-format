@@ -18,11 +18,11 @@ type tkState struct {
 func Tokenize(dst []Token, src []byte, opts ...TokenOpt) ([]Token, error) {
 	// Create Tokenizer for non-streaming mode
 	tokenizer := NewTokenizerFromBytes(src, opts...)
-	
+
 	// Get the full document (Tokenizer already added trailing newline)
 	d := tokenizer.doc
 	n := len(d)
-	
+
 	// Handle initial indent
 	i := 0
 	indent := readIndent(d)

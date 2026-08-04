@@ -49,9 +49,9 @@ func NewTokenSource(r io.Reader, opts ...TokenOpt) *TokenSource {
 	tokenizer := NewTokenizer(r, opts...)
 
 	return &TokenSource{
-		reader:    r,
-		tokenizer: tokenizer,
-		bufferSize: defaultBufferSize,
+		reader:      r,
+		tokenizer:   tokenizer,
+		bufferSize:  defaultBufferSize,
 		currentPath: "", // Root path is empty string in kinded path syntax
 	}
 }
@@ -115,9 +115,9 @@ func (ts *TokenSource) Read() ([]Token, error) {
 
 		// Call Tokenizer.TokenizeOne with streaming parameters
 		tokens, consumed, err := ts.tokenizer.TokenizeOne(
-			ts.buf,          // buffer
-			ts.bufPos,       // current position in buffer
-			ts.bufStart,     // absolute offset where buffer starts
+			ts.buf,      // buffer
+			ts.bufPos,   // current position in buffer
+			ts.bufStart, // absolute offset where buffer starts
 		)
 
 		if err == io.EOF {

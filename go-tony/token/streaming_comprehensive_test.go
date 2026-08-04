@@ -353,7 +353,7 @@ func TestTokenSink_NestedSparseArrays(t *testing.T) {
 
 	// Verify nested sparse array paths
 	t.Logf("Paths detected: %v", paths)
-	
+
 	found0 := false
 	found13 := false
 	found42 := false
@@ -368,7 +368,7 @@ func TestTokenSink_NestedSparseArrays(t *testing.T) {
 			found42 = true
 		}
 	}
-	
+
 	if !found0 {
 		t.Errorf("Expected to find path key{0}")
 	}
@@ -571,7 +571,7 @@ func TestTokenSink_OffsetTracking(t *testing.T) {
 // TestTokenSource_SmallBuffer tests with very small buffer sizes
 func TestTokenSource_SmallBuffer(t *testing.T) {
 	input := "key: value\n"
-	
+
 	// Create a custom reader that reads one byte at a time
 	reader := &byteReader{data: []byte(input)}
 	source := NewTokenSource(reader)

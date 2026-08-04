@@ -118,4 +118,3 @@ func TestIndexPersist(t *testing.T) {
 		t.Errorf("Loaded Index mismatch (-want +got):\n%s", diff)
 	}
 }
-

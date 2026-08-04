@@ -53,7 +53,7 @@ func TestTokenSink_Basic(t *testing.T) {
 	for i, ns := range nodeStarts {
 		t.Logf("  [%d] offset=%d, path=%q, token=%v", i, ns.offset, ns.path, ns.token.Type)
 	}
-	
+
 	// Verify paths
 	if len(nodeStarts) >= 1 {
 		if nodeStarts[0].path != "key" {
@@ -149,7 +149,7 @@ key2: value2
 	for i, ns := range nodeStarts {
 		t.Logf("  [%d] offset=%d, path=%q, token=%v", i, ns.offset, ns.path, ns.token.Type)
 	}
-	
+
 	// Verify nested path
 	foundNested := false
 	for _, ns := range nodeStarts {
@@ -198,7 +198,7 @@ func TestTokenSink_ArrayPaths(t *testing.T) {
 	for i, ns := range nodeStarts {
 		t.Logf("  [%d] offset=%d, path=%q, token=%v", i, ns.offset, ns.path, ns.token.Type)
 	}
-	
+
 	// Verify array paths (only bracketed arrays are tracked)
 	found0 := false
 	found1 := false
@@ -256,7 +256,7 @@ func TestTokenSink_SparseArrayPaths(t *testing.T) {
 	for i, ns := range nodeStarts {
 		t.Logf("  [%d] offset=%d, path=%q, token=%v", i, ns.offset, ns.path, ns.token.Type)
 	}
-	
+
 	// Verify sparse array paths (use {index} syntax)
 	found0 := false
 	found13 := false
@@ -419,10 +419,10 @@ key2: value2
 // Then it processes more tokens to verify the flag doesn't affect subsequent writes.
 func TestTokenSink_NilCallback_KeyProcessedFlag(t *testing.T) {
 	var buf bytes.Buffer
-	
+
 	// Create sink with nil callback - this is the scenario where the bug occurs
 	sink := NewTokenSink(&buf, nil)
-	
+
 	// Test case 1: Object with keys that have implicit values (no colons)
 	// This sets keyProcessed = true when processing the keys in updatePath()
 	input1 := `{key1 key2: value2}`
@@ -430,13 +430,13 @@ func TestTokenSink_NilCallback_KeyProcessedFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Tokenize error: %v", err)
 	}
-	
+
 	if err := sink.Write(tokens1); err != nil {
 		t.Fatalf("Write error: %v", err)
 	}
-	
+
 	offset1 := sink.Offset()
-	
+
 	// Test case 2: Process more tokens after the first batch
 	// If keyProcessed flag wasn't cleared, this might be affected
 	input2 := `key3: value3
@@ -446,30 +446,30 @@ key4: value4
 	if err != nil {
 		t.Fatalf("Tokenize error: %v", err)
 	}
-	
+
 	if err := sink.Write(tokens2); err != nil {
 		t.Fatalf("Write error: %v", err)
 	}
-	
+
 	offset2 := sink.Offset()
-	
+
 	// Verify offset tracking is correct and incremental
 	if offset2 <= offset1 {
 		t.Errorf("Offset should increase: offset1=%d, offset2=%d", offset1, offset2)
 	}
-	
+
 	// Verify output can be re-tokenized (round-trip test)
 	output := buf.String()
 	tokens3, err := Tokenize(nil, []byte(output))
 	if err != nil {
 		t.Fatalf("Re-tokenize error: %v", err)
 	}
-	
+
 	// Verify we got tokens back (basic sanity check)
 	if len(tokens3) == 0 {
 		t.Errorf("Re-tokenized output produced no tokens")
 	}
-	
+
 	t.Logf("Output length: %d, offset: %d", len(output), offset2)
 	t.Logf("Re-tokenized tokens: %d", len(tokens3))
 }
@@ -478,10 +478,10 @@ key4: value4
 // is properly handled for sparse array keys (integer keys) with nil callback.
 func TestTokenSink_NilCallback_SparseArrayKeys(t *testing.T) {
 	var buf bytes.Buffer
-	
+
 	// Create sink with nil callback
 	sink := NewTokenSink(&buf, nil)
-	
+
 	// Test case: Sparse array with integer keys that have implicit values
 	// This sets keyProcessed = true when processing integer keys in updatePath()
 	// Use comma-separated format to avoid tokenization issues
@@ -490,13 +490,13 @@ func TestTokenSink_NilCallback_SparseArrayKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Tokenize error: %v", err)
 	}
-	
+
 	if err := sink.Write(tokens); err != nil {
 		t.Fatalf("Write error: %v", err)
 	}
-	
+
 	offset1 := sink.Offset()
-	
+
 	// Process more tokens to verify flag doesn't affect subsequent writes
 	input2 := `key: value
 `
@@ -504,29 +504,29 @@ func TestTokenSink_NilCallback_SparseArrayKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Tokenize error: %v", err)
 	}
-	
+
 	if err := sink.Write(tokens2); err != nil {
 		t.Fatalf("Write error: %v", err)
 	}
-	
+
 	offset2 := sink.Offset()
-	
+
 	// Verify offset tracking is correct and incremental
 	if offset2 <= offset1 {
 		t.Errorf("Offset should increase: offset1=%d, offset2=%d", offset1, offset2)
 	}
-	
+
 	// Verify output can be re-tokenized
 	output := buf.String()
 	tokens3, err := Tokenize(nil, []byte(output))
 	if err != nil {
 		t.Fatalf("Re-tokenize error: %v", err)
 	}
-	
+
 	if len(tokens3) == 0 {
 		t.Errorf("Re-tokenized output produced no tokens")
 	}
-	
+
 	t.Logf("Output length: %d, offset: %d", len(output), offset2)
 	t.Logf("Re-tokenized tokens: %d", len(tokens3))
 }
@@ -536,10 +536,10 @@ func TestTokenSink_NilCallback_SparseArrayKeys(t *testing.T) {
 // This test verifies that keyProcessed flag doesn't leak between Write() calls.
 func TestTokenSink_NilCallback_MultipleWrites(t *testing.T) {
 	var buf bytes.Buffer
-	
+
 	// Create sink with nil callback
 	sink := NewTokenSink(&buf, nil)
-	
+
 	// First write: Object with key that has implicit value (sets keyProcessed)
 	tokens1, err := Tokenize(nil, []byte(`{key1 key2: value}`))
 	if err != nil {
@@ -549,7 +549,7 @@ func TestTokenSink_NilCallback_MultipleWrites(t *testing.T) {
 		t.Fatalf("Write error: %v", err)
 	}
 	offset1 := sink.Offset()
-	
+
 	// Second write: More content
 	// If keyProcessed flag wasn't cleared, this might be affected
 	tokens2, err := Tokenize(nil, []byte(`key3: value3
@@ -561,7 +561,7 @@ func TestTokenSink_NilCallback_MultipleWrites(t *testing.T) {
 		t.Fatalf("Write error: %v", err)
 	}
 	offset2 := sink.Offset()
-	
+
 	// Third write: Another object with implicit value key
 	// This would set keyProcessed again - verify it doesn't interfere
 	tokens3, err := Tokenize(nil, []byte(`{key4 key5: value5}`))
@@ -572,7 +572,7 @@ func TestTokenSink_NilCallback_MultipleWrites(t *testing.T) {
 		t.Fatalf("Write error: %v", err)
 	}
 	offset3 := sink.Offset()
-	
+
 	// Verify offsets are incremental (flag doesn't cause issues)
 	if offset2 <= offset1 {
 		t.Errorf("Offset should increase: offset1=%d, offset2=%d", offset1, offset2)
@@ -580,23 +580,23 @@ func TestTokenSink_NilCallback_MultipleWrites(t *testing.T) {
 	if offset3 <= offset2 {
 		t.Errorf("Offset should increase: offset2=%d, offset3=%d", offset2, offset3)
 	}
-	
+
 	// Verify output can be re-tokenized (round-trip test)
 	output := buf.String()
 	tokens4, err := Tokenize(nil, []byte(output))
 	if err != nil {
 		t.Fatalf("Re-tokenize error: %v", err)
 	}
-	
+
 	if len(tokens4) == 0 {
 		t.Errorf("Re-tokenized output produced no tokens")
 	}
-	
+
 	// Verify final offset matches output length
 	if sink.Offset() != len(output) {
 		t.Errorf("Final offset mismatch: got %d, expected %d", sink.Offset(), len(output))
 	}
-	
+
 	t.Logf("Output length: %d, final offset: %d", len(output), offset3)
 	t.Logf("Re-tokenized tokens: %d", len(tokens4))
 }

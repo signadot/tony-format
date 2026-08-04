@@ -4,9 +4,9 @@ import "testing"
 
 func TestKPath_Type(t *testing.T) {
 	tests := []struct {
-		path      string
-		wantKind  EntryKind
-		wantWild  bool
+		path     string
+		wantKind EntryKind
+		wantWild bool
 	}{
 		{"a", FieldEntry, false},
 		{"*", FieldEntry, true},
@@ -125,10 +125,10 @@ func TestKPath_Parent(t *testing.T) {
 
 func TestKPath_AncestorOrEqual(t *testing.T) {
 	tests := []struct {
-		path      string
-		other     string
-		wantAnc   bool
-		wantEq    bool
+		path    string
+		other   string
+		wantAnc bool
+		wantEq  bool
 	}{
 		{"a", "a.b", true, false},
 		{"a", "a.b.c", true, false},
@@ -169,14 +169,14 @@ func TestKPath_AncestorOrEqual(t *testing.T) {
 
 func TestKPath_IsPrefix(t *testing.T) {
 	tests := []struct {
-		path   string
-		other  string
-		want   bool
+		path  string
+		other string
+		want  bool
 	}{
 		{"a", "a.b", true},
 		{"a", "a.b.c", true},
 		{"a.b", "a.b.c", true},
-		{"a", "a", true},  // Equal is also a prefix
+		{"a", "a", true}, // Equal is also a prefix
 		{"a.b", "a", false},
 		{"a.c", "a.b", false},
 		{"", "a", true},

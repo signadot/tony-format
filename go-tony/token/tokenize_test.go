@@ -2,8 +2,8 @@ package token
 
 import (
 	"fmt"
-	"testing"
 	"github.com/signadot/tony-format/go-tony/format"
+	"testing"
 )
 
 func TestTokenize(t *testing.T) {
@@ -150,19 +150,19 @@ func TestYQTokenize(t *testing.T) {
 
 func TestTraceNull(t *testing.T) {
 	input := `{ "null": null }`
-	
+
 	fmt.Printf("Input: %q\n\n", input)
 	fmt.Println("Tokenization trace:")
 	fmt.Println("==================================================")
-	
+
 	toks, err := Tokenize(nil, []byte(input))
 	if err != nil {
 		t.Errorf("Error: %v", err)
 		return
 	}
-	
+
 	fmt.Printf("\nTotal tokens: %d\n\n", len(toks))
-	
+
 	for i, t := range toks {
 		fmt.Printf("Token %d:\n", i+1)
 		fmt.Printf("  Type:  %s\n", t.Type.String())
@@ -175,11 +175,11 @@ func TestTraceNull(t *testing.T) {
 		}
 		fmt.Println()
 	}
-	
+
 	fmt.Println("==================================================")
 	fmt.Println("\nCompact format:")
 	PrintTokens(toks, "Trace")
-	
+
 	fmt.Println("\n==================================================")
 	fmt.Println("Testing Balance():")
 	balanced, err := Balance(toks, format.TonyFormat)
@@ -194,19 +194,19 @@ func TestTraceNull(t *testing.T) {
 
 func TestTraceNullable(t *testing.T) {
 	input := `nullable(t)`
-	
+
 	fmt.Printf("Input: %q\n\n", input)
 	fmt.Println("Tokenization trace:")
 	fmt.Println("==================================================")
-	
+
 	toks, err := Tokenize(nil, []byte(input))
 	if err != nil {
 		t.Errorf("Error: %v", err)
 		return
 	}
-	
+
 	fmt.Printf("\nTotal tokens: %d\n\n", len(toks))
-	
+
 	for i, t := range toks {
 		fmt.Printf("Token %d:\n", i+1)
 		fmt.Printf("  Type:  %s\n", t.Type.String())
@@ -221,7 +221,7 @@ func TestTraceNullable(t *testing.T) {
 		}
 		fmt.Println()
 	}
-	
+
 	fmt.Println("==================================================")
 	fmt.Println("\nCompact format:")
 	PrintTokens(toks, "Trace")
@@ -337,7 +337,7 @@ func TestKeywordPrefixBug(t *testing.T) {
 				t.Errorf("Error tokenizing %q: %v", tt.input, err)
 				return
 			}
-			
+
 			// Filter out TIndent tokens for comparison
 			var filtered []Token
 			for i := range toks {
@@ -345,7 +345,7 @@ func TestKeywordPrefixBug(t *testing.T) {
 					filtered = append(filtered, toks[i])
 				}
 			}
-			
+
 			if len(filtered) != len(tt.expected) {
 				t.Errorf("Expected %d tokens, got %d", len(tt.expected), len(filtered))
 				for i, tok := range filtered {
@@ -353,7 +353,7 @@ func TestKeywordPrefixBug(t *testing.T) {
 				}
 				return
 			}
-			
+
 			for i, exp := range tt.expected {
 				if filtered[i].Type != exp.typ {
 					t.Errorf("Token %d: expected type %s, got %s", i, exp.typ, filtered[i].Type)
@@ -376,19 +376,19 @@ c:
 # comment 2
   # comment 3
   f: g`
-	
+
 	fmt.Printf("Input:\n%s\n\n", input)
 	fmt.Println("Tokenization trace:")
 	fmt.Println("==================================================")
-	
+
 	toks, err := Tokenize(nil, []byte(input))
 	if err != nil {
 		t.Errorf("Error tokenizing: %v", err)
 		return
 	}
-	
+
 	fmt.Printf("\nTotal tokens: %d\n\n", len(toks))
-	
+
 	for i, t := range toks {
 		fmt.Printf("Token %d:\n", i+1)
 		fmt.Printf("  Type:  %s\n", t.Type.String())
@@ -401,11 +401,11 @@ c:
 		}
 		fmt.Println()
 	}
-	
+
 	fmt.Println("==================================================")
 	fmt.Println("\nCompact format:")
 	PrintTokens(toks, "Trace")
-	
+
 	fmt.Println("\n==================================================")
 	fmt.Println("Testing Balance():")
 	balanced, err := Balance(toks, format.TonyFormat)

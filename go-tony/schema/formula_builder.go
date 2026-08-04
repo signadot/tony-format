@@ -26,15 +26,15 @@ type varDef struct {
 // formulaBuilder builds a SAT formula from schema IR
 type formulaBuilder struct {
 	c           *logic.C
-	path        string              // current kinded path position
-	vars        map[varDef]z.Lit    // (position, type) → literal
-	mutexes     map[string][]z.Lit  // position → types seen (for mutex)
-	checkingDef string              // definition being checked (self-ref → false)
-	defParams   map[string]bool     // parameter names of current definition (e.g., "t" for list(t))
-	visiting    map[string]bool     // definitions currently being visited (cycle detection)
+	path        string             // current kinded path position
+	vars        map[varDef]z.Lit   // (position, type) → literal
+	mutexes     map[string][]z.Lit // position → types seen (for mutex)
+	checkingDef string             // definition being checked (self-ref → false)
+	defParams   map[string]bool    // parameter names of current definition (e.g., "t" for list(t))
+	visiting    map[string]bool    // definitions currently being visited (cycle detection)
 	definitions map[string]*ir.Node
-	defIndex    map[string]string   // base name → full definition name (e.g., "list" → "list(t)")
-	err         error               // first error encountered
+	defIndex    map[string]string // base name → full definition name (e.g., "list" → "list(t)")
+	err         error             // first error encountered
 }
 
 // newFormulaBuilder creates a new formula builder for checking a definition

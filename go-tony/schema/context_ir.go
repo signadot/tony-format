@@ -11,6 +11,7 @@ import (
 //   - A string (URI)
 //   - An object mapping terms to URIs (e.g., {"match": "tony-format/context/match"})
 //   - An array of contexts
+//
 // Ensures InOut and OutIn are always consistent: OutIn[uri][short] == true iff InOut[short] == uri
 func (c *Context) FromIR(node *ir.Node) error {
 	// Initialize maps if nil
@@ -36,13 +37,13 @@ func (c *Context) FromIR(node *ir.Node) error {
 		for i := range node.Fields {
 			term := node.Fields[i].String
 			value := node.Values[i]
-			
+
 			if value.Type != ir.StringType {
 				return fmt.Errorf("context term %q has non-string value (type %v), only string URIs are supported", term, value.Type)
 			}
-			
+
 			uri := value.String
-			
+
 			// Remove any existing mapping for this term to maintain consistency
 			if oldURI, exists := c.InOut[term]; exists {
 				if c.OutIn[oldURI] != nil {
@@ -52,7 +53,7 @@ func (c *Context) FromIR(node *ir.Node) error {
 					}
 				}
 			}
-			
+
 			// Set the new mapping in both directions
 			c.InOut[term] = uri
 			if c.OutIn[uri] == nil {

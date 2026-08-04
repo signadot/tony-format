@@ -14,12 +14,12 @@ func TestGenerate(t *testing.T) {
 		{1, 1, "a1a1"},
 		{1, 2, "a1a2"},
 		{2, 0, "a2a0"},
-		{15, 0, "afa0"},   // 0xf
-		{16, 0, "b10a0"},  // 0x10
-		{255, 0, "bffa0"}, // 0xff
+		{15, 0, "afa0"},    // 0xf
+		{16, 0, "b10a0"},   // 0x10
+		{255, 0, "bffa0"},  // 0xff
 		{256, 0, "c100a0"}, // 0x100
 		{256, 5, "c100a5"},
-		{1000000, 0, "ef4240a0"},   // 0xf4240 = 5 hex digits
+		{1000000, 0, "ef4240a0"}, // 0xf4240 = 5 hex digits
 		{1000000, 5, "ef4240a5"},
 		{1000000, 99, "ef4240b63"}, // 99 = 0x63
 	}
@@ -95,13 +95,13 @@ func TestFormatLex(t *testing.T) {
 	}{
 		{0, "a0"},
 		{1, "a1"},
-		{15, "af"},    // 0xf
-		{16, "b10"},   // 0x10
-		{255, "bff"},  // 0xff
-		{256, "c100"}, // 0x100
-		{4095, "cfff"}, // 0xfff
-		{4096, "d1000"}, // 0x1000
-		{0xffffffff, "hffffffff"},  // 8 hex digits
+		{15, "af"},                // 0xf
+		{16, "b10"},               // 0x10
+		{255, "bff"},              // 0xff
+		{256, "c100"},             // 0x100
+		{4095, "cfff"},            // 0xfff
+		{4096, "d1000"},           // 0x1000
+		{0xffffffff, "hffffffff"}, // 8 hex digits
 		{0x7fffffffffffffff, "p7fffffffffffffff"}, // int64 max (16 hex digits)
 	}
 

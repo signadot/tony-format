@@ -64,9 +64,9 @@ func TestExtractGoType_BasicTypes(t *testing.T) {
 		{
 			name: "!irtype number",
 			def: &ir.Node{
-				Type:   ir.NumberType,
-				Int64:  intPtr(1),
-				Tag:    "!irtype",
+				Type:  ir.NumberType,
+				Int64: intPtr(1),
+				Tag:   "!irtype",
 			},
 			want: reflect.TypeOf(float64(0)),
 		},
@@ -80,8 +80,8 @@ func TestExtractGoType_BasicTypes(t *testing.T) {
 			want: reflect.TypeOf(false),
 		},
 		{
-			name: "nil node",
-			def:  nil,
+			name:    "nil node",
+			def:     nil,
 			wantErr: true,
 		},
 	}
@@ -116,8 +116,8 @@ func TestExtractGoType_References(t *testing.T) {
 				Tag:  "!irtype",
 			},
 			"int": &ir.Node{
-				Type: ir.ObjectType,
-				Tag:  "!and",
+				Type:   ir.ObjectType,
+				Tag:    "!and",
 				Fields: []*ir.Node{ir.FromString("number")},
 				Values: []*ir.Node{
 					&ir.Node{Tag: ".[number]"}, // Reference
@@ -306,8 +306,8 @@ func TestExtractGoType_Arrays(t *testing.T) {
 		{
 			name: "empty array",
 			def: &ir.Node{
-				Type:  ir.ArrayType,
-				Tag:   "!irtype",
+				Type:   ir.ArrayType,
+				Tag:    "!irtype",
 				Values: []*ir.Node{},
 			},
 			want: reflect.TypeOf([]interface{}(nil)), // []interface{} (default)
@@ -355,13 +355,13 @@ func TestExtractGoType_AndConstraints(t *testing.T) {
 		{
 			name: "!and with reference and !not null constraint",
 			def: &ir.Node{
-				Type: ir.ObjectType,
-				Tag:  "!and",
+				Type:   ir.ObjectType,
+				Tag:    "!and",
 				Fields: []*ir.Node{ir.FromString("number")},
 				Values: []*ir.Node{
 					&ir.Node{Tag: ".[number]"}, // Base type
 					&ir.Node{
-						Type: ir.ObjectType,
+						Type:   ir.ObjectType,
 						Fields: []*ir.Node{ir.FromString("int")},
 						Values: []*ir.Node{&ir.Node{Tag: "!not null"}}, // Constraint - should be skipped
 					},

@@ -427,16 +427,16 @@ func TestParseBaseTony(t *testing.T) {
 		t.Skipf("base.tony not found: %v", err)
 		return
 	}
-	
+
 	node, err := Parse(data)
 	if err != nil {
 		t.Fatalf("Failed to parse base.tony: %v", err)
 	}
-	
+
 	if node == nil {
 		t.Fatal("Parsed node is nil")
 	}
-	
+
 	t.Logf("Successfully parsed base.tony")
 }
 
@@ -446,15 +446,15 @@ func TestParseSchemaTony(t *testing.T) {
 		t.Skipf("schema.tony not found: %v", err)
 		return
 	}
-	
+
 	nodes, err := ParseMulti(data)
 	if err != nil {
 		t.Fatalf("Failed to parse schema.tony: %v", err)
 	}
-	
+
 	if len(nodes) == 0 {
 		t.Fatal("No nodes parsed from schema.tony")
 	}
-	
+
 	t.Logf("Successfully parsed schema.tony: %d documents", len(nodes))
 }

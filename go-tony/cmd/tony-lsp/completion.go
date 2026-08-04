@@ -147,6 +147,6 @@ func (s *Server) Completion(ctx context.Context, params *protocol.CompletionPara
 
 	return &protocol.CompletionList{
 		IsIncomplete: false,
-		Items:       completions,
+		Items:        completions,
 	}, nil
 }
