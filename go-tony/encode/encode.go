@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -750,6 +751,37 @@ func encodeStringOrLit(node *ir.Node, w io.Writer, es *EncState) error {
 
 // Number encoding
 
+// formatFloat renders a float so that reading it back yields the same float.
+//
+// Two things have to hold and neither did.  The text must parse as a number at all:
+// 'f' format wrote the largest float64 as its 309 digit decimal expansion, which reads
+// back as an integer token and overflows int64, so the encoder emitted a document Tony
+// could not parse.  'g' switches to an exponent where that would happen.
+//
+// And the text must parse as a *float*: 'g' writes 1.0 as "1" and 1e2 as "100", which
+// read back as integers, so an integral float silently changed type on a round trip.  A
+// ".0" is appended when nothing else marks the value as a float.
+//
+// Zero is written "0.0" whatever its sign.  -0.0 and 0.0 are the same value -- DeepEqual
+// says so, and Hash is made to agree -- and one value gets one text.
+//
+// Infinities and NaN have no Tony syntax.  They cannot come from parsing, since a number
+// too large for float64 is refused, but they can arrive through the Go API, and writing
+// "+Inf" would put back the unparseable output this function exists to prevent.
+func formatFloat(f float64) (string, error) {
+	if math.IsInf(f, 0) || math.IsNaN(f) {
+		return "", fmt.Errorf("%w: %v has no number syntax", ErrEncoding, f)
+	}
+	v := strconv.FormatFloat(f, 'g', -1, 64)
+	if v == "0" || v == "-0" {
+		return "0.0", nil
+	}
+	if !strings.ContainsAny(v, ".eE") {
+		v += ".0"
+	}
+	return v, nil
+}
+
 func encodeNumber(node *ir.Node, w io.Writer, es *EncState) error {
 	if node.Int64 != nil {
 		v := strconv.FormatInt(*node.Int64, 10)
@@ -760,10 +792,9 @@ func encodeNumber(node *ir.Node, w io.Writer, es *EncState) error {
 		}
 	}
 	if node.Float64 != nil {
-		v := strconv.FormatFloat(*node.Float64, 'f', -1, 64)
-		// Ensure zero floats encode as "0.0" not "0"
-		if v == "0" || v == "-0" {
-			v = "0.0"
+		v, err := formatFloat(*node.Float64)
+		if err != nil {
+			return err
 		}
 		v = applyValueColor(es, ir.NumberType, v)
 		es.atCol0 = false

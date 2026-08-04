@@ -7,7 +7,9 @@ safety through simplicity and coherent tooling.
 
 ### Tony and JSON
 
-Valid JSON is valid Tony with no changes in semantics.
+Valid JSON is valid Tony with no changes in semantics.  The current
+implementation does not yet reach that for numbers of very large magnitude or
+precision; see [Number Range](#number-range).
 
 Tony extends this base by providing a human friendly syntax which is ergonomic
 and clear.  In most cases the extensions to JSON syntax do not in any form
@@ -373,6 +375,33 @@ since the run would otherwise stop at the colon.
 ```tony
 { zip: "007", mask: "0x1f", mode: "0644", range: "30s:60s" }
 ```
+
+#### Number Range
+
+The format puts no bound on how large or how precise a number may be: a Tony
+number is a JSON number.
+
+The current implementation does not go that far.  It reads an integer as an
+int64 and any other number as a float64, and rejects what does not fit rather
+than silently rounding it:
+
+```
+1e400                           # rejected
+123456789012345678901234567890  # rejected
+9223372036854775808             # rejected, int64 max + 1
+```
+
+This is a limitation of the implementation rather than a property of the
+format, and arbitrary precision numbers can be added later.  Until then
+rejecting is the conservative reading -- for comparison, Go's `encoding/json`
+rejects the first two of those and silently rounds the third to
+`1.2345678901234568e+29`.
+
+A float that does fit is written so that it reads back as the same float: never
+as a bare integer, and in exponent form where a decimal expansion would run to
+hundreds of digits.  Infinity and NaN have no Tony syntax; they cannot be
+parsed, and encoding a document containing one is an error rather than output
+that will not parse.
 
 ## Collections
 

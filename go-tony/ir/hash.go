@@ -47,7 +47,16 @@ func (n *Node) Hash() uint64 {
 			binary.LittleEndian.PutUint64(b[:], uint64(*n.Int64))
 			h.Write(b[:])
 		} else if n.Float64 != nil {
-			binary.LittleEndian.PutUint64(b[:], math.Float64bits(*n.Float64))
+			f := *n.Float64
+			if f == 0 {
+				// -0.0 and 0.0 compare equal in DeepEqual, which uses Go's ==,
+				// but their Float64bits differ by the sign bit. Hashing them
+				// apart breaks equal-implies-same-hash, so anything keyed on
+				// Hash could hold both as distinct entries while every
+				// comparison said they were the same value.
+				f = 0
+			}
+			binary.LittleEndian.PutUint64(b[:], math.Float64bits(f))
 			h.Write(b[:])
 		} else {
 			h.Write([]byte(n.Number))
