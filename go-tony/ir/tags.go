@@ -122,7 +122,7 @@ func TagGet(tag, what string) (string, []string) {
 // several packages, and a tag that belongs here but is missing does not fail
 // loudly: it surfaces as a spurious retag in a diff, or as "cannot encode tags
 // in json" from the encoder.
-var presentationTags = [...]string{BracketTag, LiteralTag}
+var presentationTags = [...]string{BracketTag, LiteralTag, HexTag, OctTag, BinTag, ExpTag}
 
 // IsPresentation reports whether a single tag label is a presentation tag.  The
 // label is '!' prefixed and carries no arguments, which is what TagArgs yields

@@ -247,20 +247,14 @@ func parseSimpleValueFromToken(tok *token.Token, leadingComments []token.Token, 
 	case token.TMLit:
 		node = ir.FromString(tok.String())
 		pos = tok.Pos
-	case token.TInteger:
+	case token.TInteger, token.TFloat:
 		pos = tok.Pos
-		i, err := strconv.ParseInt(string(tok.Bytes), 10, 64)
+		n, notation, err := numberNode(tok)
 		if err != nil {
-			return nil, fmt.Errorf("invalid integer %w: %s", err, tok.Pos)
+			return nil, err
 		}
-		node = ir.FromInt(i)
-	case token.TFloat:
-		pos = tok.Pos
-		f, err := strconv.ParseFloat(string(tok.Bytes), 64)
-		if err != nil {
-			return nil, fmt.Errorf("invalid float %w: %s", err, tok.Pos)
-		}
-		node = ir.FromFloat(f)
+		node = n
+		node.Tag = composeNotation(notation, node.Tag)
 	case token.TTrue:
 		pos = tok.Pos
 		node = ir.FromBool(true)
@@ -445,34 +439,20 @@ func noComments(toks []token.Token, p *ir.Node, tag string, pi *int, opts *parse
 		}
 		return checkLineComment(sy, toks, pi, t.Pos, opts), nil
 
-	case token.TInteger:
+	case token.TInteger, token.TFloat:
 		pos := t.Pos
-		i, err := strconv.ParseInt(string(t.Bytes), 10, 64)
+		ny, notation, err := numberNode(t)
 		if err != nil {
-			return nil, fmt.Errorf("invalid integer %w: %s", err, t.Pos)
+			return nil, err
 		}
 		*pi++
-		iy := ir.FromInt(i)
-		iy.Tag = tag
-		iy.Parent = p
-		trackPos(iy, pos, opts)
+		ny.Tag = composeNotation(notation, tag)
+		ny.Parent = p
+		trackPos(ny, pos, opts)
 		if len(toks) == *pi {
-			return iy, nil
+			return ny, nil
 		}
-		return checkLineComment(iy, toks, pi, t.Pos, opts), nil
-
-	case token.TFloat:
-		pos := t.Pos
-		*pi++
-		f, err := strconv.ParseFloat(string(t.Bytes), 64)
-		if err != nil {
-			return nil, fmt.Errorf("invalid err %w: %s", err, t.Pos)
-		}
-		fy := ir.FromFloat(f)
-		fy.Tag = tag
-		fy.Parent = p
-		trackPos(fy, pos, opts)
-		return checkLineComment(fy, toks, pi, t.Pos, opts), nil
+		return checkLineComment(ny, toks, pi, t.Pos, opts), nil
 	case token.TFalse:
 		pos := t.Pos
 		*pi++
@@ -625,6 +605,15 @@ func parseObj(toks []token.Token, p *ir.Node, tag string, pi *int, opts *parseOp
 				key = ir.FromString(tok.String())
 				trackPos(key, tok.Pos, opts)
 			case token.TInteger:
+				// A key cannot carry a tag, so a key written in a non-decimal
+				// notation has nowhere to record it and would come back
+				// silently as decimal. Integer keys are base-10 by definition
+				// (see docs/tony.md, Sparse Arrays), so this is refused rather
+				// than quietly rewritten.
+				if _, _, radix := token.RadixLiteral(string(tok.Bytes)); radix {
+					return nil, fmt.Errorf("%w: int key must be base-10, got %q %s",
+						ErrParse, tok.Bytes, tok.Pos)
+				}
 				u64, err := strconv.ParseUint(string(tok.Bytes), 10, 64)
 				if err != nil {
 					return nil, fmt.Errorf("%w: bad int key (%w) %s",

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"strings"
 	"unicode"
 
 	"github.com/signadot/tony-format/go-tony/format"
@@ -59,15 +60,31 @@ func digitLeadingLiteral(d []byte, numLen int) ([]byte, error) {
 // outruns its number there is an error whatever shape it has.  YAML never reaches here:
 // its plain-scalar scanner handles the same ground earlier in TokenizeOne.
 func (t *Tokenizer) digitLeadingToken(lit []byte, absOffset int) (Token, bool) {
-	if t.opt.format != format.TonyFormat || !digitLeadingString(lit) {
+	if t.opt.format != format.TonyFormat {
+		return Token{}, false
+	}
+	typ := TokenType(TLiteral)
+	switch {
+	case radixOK(lit):
+		// A radix literal is a number, so it is claimed before the string rules
+		// get to it -- "0x1f" holds a letter, and reading it as the text "0x1f"
+		// rather than as 31 is the misreading all of this is arranged to avoid.
+		typ = TInteger
+	case digitLeadingString(lit):
+	default:
 		return Token{}, false
 	}
 	t.ts.hasValue = true
 	return Token{
-		Type:  TLiteral,
+		Type:  typ,
 		Pos:   t.posDoc.Pos(absOffset),
 		Bytes: lit,
 	}, true
+}
+
+func radixOK(lit []byte) bool {
+	_, _, ok := RadixLiteral(string(lit))
+	return ok
 }
 
 // digitLeadingString reports whether a digit-leading literal run reads as a string rather
@@ -136,6 +153,72 @@ func radixPrefixed(d []byte) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// RadixLiteral splits an integer written in a non-decimal notation into its base and its
+// digits, reporting false when s is not one.  A leading '-' is accepted and left for the
+// caller to apply; the digits never carry it.
+//
+// The whole of s must be digits of that base, so "0x1f" splits and "0xzz" does not.  A
+// prefix with nothing after it -- "0x" -- does not either.
+//
+// The tokenizer uses this to decide that a digit-leading run is a number after all, and
+// parse uses it to read the value, so both work from one definition of the notation.
+func RadixLiteral(s string) (base int, digits string, ok bool) {
+	if strings.HasPrefix(s, "-") {
+		s = s[1:]
+	}
+	if len(s) < 3 || s[0] != '0' {
+		return 0, "", false
+	}
+	switch s[1] {
+	case 'x', 'X':
+		base = 16
+	case 'o', 'O':
+		base = 8
+	case 'b', 'B':
+		base = 2
+	default:
+		return 0, "", false
+	}
+	digits = s[2:]
+	for i := 0; i < len(digits); i++ {
+		if digitValue(digits[i]) >= base {
+			return 0, "", false
+		}
+	}
+	return base, digits, true
+}
+
+// RadixNotation names the notation of a radix literal's base, as one of the presentation
+// tags a number can carry.  It returns "" for base 10, which has no tag.
+func RadixNotation(base int) string {
+	switch base {
+	case 16:
+		return "!hex"
+	case 8:
+		return "!oct"
+	case 2:
+		return "!bin"
+	default:
+		return ""
+	}
+}
+
+// digitValue returns the value of c as a digit, or a number at least 16 when c is not one,
+// so that a single comparison against the base rejects both a wrong-base digit and a
+// non-digit.
+func digitValue(c byte) int {
+	switch {
+	case c >= '0' && c <= '9':
+		return int(c - '0')
+	case c >= 'a' && c <= 'f':
+		return int(c-'a') + 10
+	case c >= 'A' && c <= 'F':
+		return int(c-'A') + 10
+	default:
+		return 16
 	}
 }
 

@@ -768,6 +768,32 @@ func encodeStringOrLit(node *ir.Node, w io.Writer, es *EncState) error {
 // Infinities and NaN have no Tony syntax.  They cannot come from parsing, since a number
 // too large for float64 is refused, but they can arrive through the Go API, and writing
 // "+Inf" would put back the unparseable output this function exists to prevent.
+// expText renders a float in exponent form, for a value written that way and carrying
+// ExpTag.  Go writes a padded, signed exponent -- 1e9 as "1e+09" -- which is not the text
+// that went in, so the '+' and the padding come back off: one text per value, and the one
+// the author wrote.
+func expText(f float64) (string, error) {
+	if math.IsInf(f, 0) || math.IsNaN(f) {
+		return "", fmt.Errorf("%w: %v has no number syntax", ErrEncoding, f)
+	}
+	v := strconv.FormatFloat(f, 'e', -1, 64)
+	i := strings.IndexAny(v, "eE")
+	if i < 0 {
+		return v, nil // no exponent to tidy; FormatFloat 'e' always writes one
+	}
+	mant, exp := v[:i], v[i+1:]
+	neg := strings.HasPrefix(exp, "-")
+	exp = strings.TrimLeft(exp, "+-")
+	exp = strings.TrimLeft(exp, "0")
+	if exp == "" {
+		exp = "0"
+	}
+	if neg {
+		exp = "-" + exp
+	}
+	return mant + "e" + exp, nil
+}
+
 func formatFloat(f float64) (string, error) {
 	if math.IsInf(f, 0) || math.IsNaN(f) {
 		return "", fmt.Errorf("%w: %v has no number syntax", ErrEncoding, f)
@@ -782,9 +808,41 @@ func formatFloat(f float64) (string, error) {
 	return v, nil
 }
 
+// formatInt renders an integer in the notation its presentation tag names.
+//
+// JSON has no radix notation, so there the notation is dropped and the decimal value is
+// written: 0x1f goes out as 31, which is the same number.  Tony and YAML both read the
+// prefixed forms, so both keep them -- and for YAML that is the point, since 0o644 means
+// 420 to a YAML reader where a bare 0644 means 420 to one reader and 644 to another.
+func formatInt(node *ir.Node, es *EncState) string {
+	i := *node.Int64
+	if !es.format.IsJSON() {
+		switch {
+		case ir.TagHas(node.Tag, ir.HexTag):
+			return radixText(i, 16, "0x")
+		case ir.TagHas(node.Tag, ir.OctTag):
+			return radixText(i, 8, "0o")
+		case ir.TagHas(node.Tag, ir.BinTag):
+			return radixText(i, 2, "0b")
+		}
+	}
+	return strconv.FormatInt(i, 10)
+}
+
+// radixText writes i in the given base, with the sign ahead of the prefix so that the
+// result reads back as the same number: "-0x1f", not "0x-1f".  Digits are lower case, one
+// text per value, as the normalized form asks.
+func radixText(i int64, base int, prefix string) string {
+	if i < 0 {
+		// Negating math.MinInt64 overflows, so the magnitude is taken unsigned.
+		return "-" + prefix + strconv.FormatUint(-uint64(i), base)
+	}
+	return prefix + strconv.FormatUint(uint64(i), base)
+}
+
 func encodeNumber(node *ir.Node, w io.Writer, es *EncState) error {
 	if node.Int64 != nil {
-		v := strconv.FormatInt(*node.Int64, 10)
+		v := formatInt(node, es)
 		v = applyValueColor(es, ir.NumberType, v)
 		es.atCol0 = false
 		if err := writeString(w, v); err != nil {
@@ -795,6 +853,12 @@ func encodeNumber(node *ir.Node, w io.Writer, es *EncState) error {
 		v, err := formatFloat(*node.Float64)
 		if err != nil {
 			return err
+		}
+		if ir.TagHas(node.Tag, ir.ExpTag) {
+			v, err = expText(*node.Float64)
+			if err != nil {
+				return err
+			}
 		}
 		v = applyValueColor(es, ir.NumberType, v)
 		es.atCol0 = false

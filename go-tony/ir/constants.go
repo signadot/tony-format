@@ -17,4 +17,13 @@ const (
 	// BracketTag it selects a rendering for a value that is the same value
 	// either way.  See IsPresentation.
 	LiteralTag = "!literal"
+
+	// HexTag, OctTag, BinTag and ExpTag record the notation a number was
+	// written in.  The value is the number: 0x1f is 31, and it compares,
+	// hashes and patches as 31.  Only the rendering differs, which is why
+	// these are presentation tags and not part of the number.
+	HexTag = "!hex"
+	OctTag = "!oct"
+	BinTag = "!bin"
+	ExpTag = "!exp"
 )

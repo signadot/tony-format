@@ -63,12 +63,12 @@ func TestDigitLeadingErrors(t *testing.T) {
 		doc  string
 		want string // the scalar the error must name
 	}{
-		// Radix notations, held back until number() learns them. "0x1f" means 31 to
-		// anyone who writes it, so reading it as text would be the silent misreading
-		// this rule set exists to prevent.
-		{"k: 0x1f\n", "0x1f"},
-		{"k: 0b1010\n", "0b1010"},
-		{"k: 0o777\n", "0o777"},
+		// A radix prefix with digits that are not of that base. The prefix says
+		// "number", so this is a botched one rather than text.
+		{"k: 0xzz\n", "0xzz"},
+		{"k: 0b1210\n", "0b1210"},
+		{"k: 0o888\n", "0o888"},
+		{"k: 0x\n", "0x"},
 		// mistyped numbers
 		{"k: 1_000\n", "1_000"},
 		{"k: 3..14\n", "3..14"},
@@ -118,6 +118,14 @@ func TestDigitLeadingNumbers(t *testing.T) {
 		{"k: -2.5\n", TFloat},
 		{"k: 1e9\n", TFloat},
 		{"k: -0e24\n", TFloat},
+		// Radix literals are integers. The run holds letters, so without this it
+		// would meet the string rule and 0x1f would read as text rather than 31.
+		{"k: 0x1f\n", TInteger},
+		{"k: 0X1F\n", TInteger},
+		{"k: 0o777\n", TInteger},
+		{"k: 0b1010\n", TInteger},
+		{"k: -0x1f\n", TInteger},
+		{"k: 0xdeadbeef\n", TInteger},
 	} {
 		toks, err := Tokenize(nil, []byte(c.doc))
 		if err != nil {
@@ -195,7 +203,7 @@ func TestDigitLeadingStreaming(t *testing.T) {
 		}
 	}
 	for _, c := range []struct{ doc, want string }{
-		{"k: 0x1f\n", "0x1f"},
+		{"k: 0xzz\n", "0xzz"},
 		{"k: 3..14\n", "3..14"},
 	} {
 		_, err := streamTokens(c.doc)

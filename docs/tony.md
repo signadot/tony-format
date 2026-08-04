@@ -335,7 +335,9 @@ the whole run rather than at the number-shaped prefix of it.
 Let `R` be the maximal literal run at that point, stopping at the first ':',
 which is always a key separator because no number contains one.
 
-1. If `R` is entirely a number, it is that number.
+1. If `R` is entirely a number, it is that number.  A number may be written in
+   decimal, or in hexadecimal, octal or binary with a `0x`, `0o` or `0b`
+   prefix.
 2. Otherwise, if `R` is all digits with a leading zero, it is an error.
 3. Otherwise, if `R` contains a letter, it is a string.
 4. Otherwise, if `R` is three or more '.'-separated groups of digits, it is a
@@ -362,11 +364,50 @@ is not a number as text, which would quietly turn a mistyped number into a
 string.  `1_000`, `3..14`, `1.` and `1e+` are typing accidents rather than
 values, and they stay loud.
 
-Rule 5 also covers `0x1f`, `0o777` and `0b1010`.  Those are numbers in many
-languages and in YAML, and Tony does not read them, so it rejects them rather
-than reading them as text and silently changing what they mean.  Rule 2 is the
-same judgement about `0644`, which is 420 to a YAML 1.1 reader, 644 under the
-YAML 1.2 core schema, and invalid JSON.
+Rule 2 is about `0644`, which is 420 to a YAML 1.1 reader, 644 under the YAML
+1.2 core schema, and invalid JSON.  No reading Tony could pick would be right
+for all three, so it asks for `0o644`, which is 420 everywhere.  `0xzz` is an
+error for a related reason: the prefix says the run is a number, so digits that
+do not belong to that base make it a botched one rather than text.
+
+### Number Notation
+
+The notation a number is written in is not part of its value.  `0x1f` **is**
+31: the two compare equal, hash equal, and patch as the same number.  What
+differs is only how they are written, so the notation is carried as a
+[presentation tag](#tags) -- `!hex`, `!oct`, `!bin`, `!exp` -- alongside
+`!bracket` and `!literal`.
+
+```tony
+# a diff between 0x1f and 31 is about the notation, not the number
+k: !rmtag(hex) null
+---
+# a diff between 0x1f and 0x20 is about the number
+k: !replace
+  from: 0x1f
+  to: 0x20
+```
+
+Because it is presentation, the notation is dropped where the output format has
+no syntax for it.  The same document written three ways:
+
+| written | Tony | YAML | JSON |
+| --- | --- | --- | --- |
+| `0x1f` | `0x1f` | `0x1f` | `31` |
+| `0o644` | `0o644` | `0o644` | `420` |
+| `0b1010` | `0b1010` | `0b1010` | `10` |
+| `1e9` | `1e9` | `1e9` | `1e9` |
+
+YAML keeps the prefixed forms because YAML reads them, and that is the point of
+writing `0o644` rather than `0644`: a bare `0644` is 420 to one YAML reader and
+644 to another, while `0o644` is 420 to both.
+
+Notation is normalized like everything else, one text per value: digits are
+lower case, the sign leads (`-0x1f`), and an exponent carries neither padding
+nor a `+` (`1e9`, not `1e+09`).
+
+A key cannot carry a tag, so an integer key has nowhere to record a notation
+and must be written in base 10.
 
 A string of any of the rejected shapes is written quoted, and Tony writes it
 that way itself.  A digit-leading string containing ':' is also written quoted,
