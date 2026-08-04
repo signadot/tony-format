@@ -53,9 +53,11 @@ bracketing can still be exploited for constructs like block literals.
 
 ### Normalization
 
-Like Go, Tony defines a single normalized form for human editing.  This form
-has exactly 1 degree of freedom: a subtree may optionally be bracketed.
-Otherwise, everything, including indentation, is fixed.
+Like Go, Tony defines a single normalized form for human editing.  Its only
+degrees of freedom are the [presentation tags](#presentation-tags): whether a
+subtree is bracketed, whether a string is written as a block literal, and which
+notation a number is written in.  Otherwise everything, including indentation,
+is fixed.
 
 Tony also supports a single normalized wire format form, which uses bracketed
 style and contains no newlines within a subtree.  
@@ -375,7 +377,7 @@ do not belong to that base make it a botched one rather than text.
 The notation a number is written in is not part of its value.  `0x1f` **is**
 31: the two compare equal, hash equal, and patch as the same number.  What
 differs is only how they are written, so the notation is carried as a
-[presentation tag](#tags) -- `!hex`, `!oct`, `!bin`, `!exp` -- alongside
+[presentation tag](#presentation-tags) -- `!hex`, `!oct`, `!bin`, `!exp` -- alongside
 `!bracket` and `!literal`.
 
 ```tony
@@ -639,6 +641,30 @@ One inserts a tag by placing it immediately before a value
 Tony does not support placing tags on keys in maps, doing so is interpreted as
 applying to the map if it is the first map element and block mode, otherwise
 as a syntax error.
+
+### Presentation Tags
+
+Most tags say something about the data.  A few say only how it was written, and
+those are called _presentation tags_:
+
+| tag | records |
+| --- | --- |
+| `!bracket` | the subtree is written in bracketed style |
+| `!literal` | the string is written as a block literal |
+| `!hex` `!oct` `!bin` | the integer's notation — see [Number Notation](#number-notation) |
+| `!exp` | the float is written in exponent form |
+
+Two documents differing only in these hold the same data.  So they are the
+degrees of freedom the [normalized form](#normalization) allows, and everything
+that compares or combines data drops them first: `0x1f` and `31` are equal, hash
+equal, and patch as the same number, and a diff between them describes the
+notation rather than the value.
+
+They are also dropped when the output format has no syntax for them, which is
+why a document holding `0x1f` can still be written as JSON.
+
+A key cannot carry a tag, so a value that needs one to be written back as
+itself cannot be used as a key: integer keys are base-10.
 
 ### Tag Composition
 
