@@ -191,7 +191,7 @@ func objPatchYWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error
 	}
 	if len(merges) == 0 {
 		res := ir.FromMap(dstMap)
-		patchTag := ir.TagRemove(patch.Tag, "!bracket")
+		patchTag := ir.StripPresentation(patch.Tag)
 		if doc.Tag != "" {
 			res.Tag = ir.TagCompose(doc.Tag, nil, patchTag)
 		} else {
@@ -228,7 +228,7 @@ func objPatchYWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error
 		mi++
 	}
 	res := ir.FromKeyVals(kvs)
-	patchTag := ir.TagRemove(patch.Tag, "!bracket")
+	patchTag := ir.StripPresentation(patch.Tag)
 	if doc.Tag != "" {
 		res.Tag = ir.TagCompose(doc.Tag, nil, patchTag)
 	} else {

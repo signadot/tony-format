@@ -234,8 +234,9 @@ func encode(node *ir.Node, w io.Writer, es *EncState) error {
 }
 
 func writeTagIfPresent(node *ir.Node, w io.Writer, es *EncState) error {
-	tag := ir.TagRemove(node.Tag, "!bracket")
-	tag = ir.TagRemove(tag, "!literal")
+	// Presentation tags are consumed as rendering directives elsewhere in this
+	// package, so they are never written back out as tags.
+	tag := ir.StripPresentation(node.Tag)
 	if tag == "" {
 		return nil
 	}
@@ -256,7 +257,7 @@ func writeTagIfPresent(node *ir.Node, w io.Writer, es *EncState) error {
 
 // encodeObject
 func encodeObject(node *ir.Node, w io.Writer, es *EncState) error {
-	if !es.brackets && ir.TagHas(node.Tag, "!bracket") {
+	if !es.brackets && ir.TagHas(node.Tag, ir.BracketTag) {
 		es.brackets = true
 		defer func() { es.brackets = false }()
 	}
@@ -449,7 +450,7 @@ func encodeObjectValue(node *ir.Node, w io.Writer, es *EncState) error {
 			es.atCol0 = false
 		}
 		br := false
-		if esBracket(es) || ir.TagHas(node.Tag, "!bracket") {
+		if esBracket(es) || ir.TagHas(node.Tag, ir.BracketTag) {
 			es.depth--
 			br = true
 		}
@@ -460,7 +461,7 @@ func encodeObjectValue(node *ir.Node, w io.Writer, es *EncState) error {
 		return err
 	case ir.ArrayType:
 		br := false
-		if !esBracket(es) || ir.TagHas(node.Tag, "!bracket") {
+		if !esBracket(es) || ir.TagHas(node.Tag, ir.BracketTag) {
 			es.depth--
 			br = true
 		}
@@ -538,7 +539,7 @@ func encodeSimpleLeafValue(yVal *ir.Node, w io.Writer, es *EncState) error {
 // Array encoding
 
 func encodeArray(node *ir.Node, w io.Writer, es *EncState) error {
-	if !es.brackets && ir.TagHas(node.Tag, "!bracket") {
+	if !es.brackets && ir.TagHas(node.Tag, ir.BracketTag) {
 		es.brackets = true
 		defer func() { es.brackets = false }()
 	}
@@ -555,7 +556,7 @@ func encodeArray(node *ir.Node, w io.Writer, es *EncState) error {
 		if err := writeArrayElementMarker(w, es); err != nil {
 			return err
 		}
-		doDepth := !esBracket(es) && !ir.TagHas(v.Tag, "!bracket")
+		doDepth := !esBracket(es) && !ir.TagHas(v.Tag, ir.BracketTag)
 		if doDepth {
 			es.depth++
 		}
@@ -912,7 +913,7 @@ func doBlockLit(node *ir.Node, es *EncState) bool {
 	if strings.ContainsRune(node.String, utf8.RuneError) {
 		return false
 	}
-	if es.literal || ir.TagHas(node.Tag, "!literal") {
+	if es.literal || ir.TagHas(node.Tag, ir.LiteralTag) {
 		return true
 	}
 	return strings.Contains(node.String, "\n")

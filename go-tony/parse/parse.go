@@ -394,7 +394,7 @@ func noComments(toks []token.Token, p *ir.Node, tag string, pi *int, opts *parse
 		*pi++
 		objY := &ir.Node{Type: ir.ObjectType}
 		if string(t.Bytes) == "{" && !opts.noBrackets {
-			tag = ir.TagCompose("!bracket", nil, tag)
+			tag = ir.TagCompose(ir.BracketTag, nil, tag)
 		}
 
 		trackPos(objY, pos, opts)
@@ -407,7 +407,7 @@ func noComments(toks []token.Token, p *ir.Node, tag string, pi *int, opts *parse
 		*pi++
 		arrY := &ir.Node{Type: ir.ArrayType}
 		if string(t.Bytes) == "[" && !opts.noBrackets {
-			tag = ir.TagCompose("!bracket", nil, tag)
+			tag = ir.TagCompose(ir.BracketTag, nil, tag)
 		}
 		trackPos(arrY, pos, opts)
 		return parseArr(toks, arrY, tag, pi, opts)

@@ -115,6 +115,14 @@ func (b *formulaBuilder) build(node *ir.Node) z.Lit {
 func (b *formulaBuilder) buildTagged(node *ir.Node, tag string) z.Lit {
 	head, _, rest := ir.TagArgs(tag)
 
+	if ir.IsPresentation(head) {
+		// Presentation tags select a rendering, not a value, so they do not
+		// affect satisfiability: build from the content.
+		child := node.Clone()
+		child.Tag = rest
+		return b.build(child)
+	}
+
 	switch head {
 	case "!not":
 		child := node.Clone()
@@ -158,12 +166,6 @@ func (b *formulaBuilder) buildTagged(node *ir.Node, tag string) z.Lit {
 			return b.buildObject(node)
 		}
 		return b.getVar("object")
-
-	case "!bracket":
-		// Formatting tag - doesn't affect satisfiability, just process the content
-		child := node.Clone()
-		child.Tag = rest
-		return b.build(child)
 
 	case "!irtype":
 		// !irtype constrains value to the IR type of the exemplar node

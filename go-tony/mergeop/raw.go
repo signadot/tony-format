@@ -146,5 +146,5 @@ func uncomment(n *ir.Node) *ir.Node {
 // dataTag drops the tags which record how a node was written rather than what
 // it is, so that literal comparison survives an encode/parse round trip.
 func dataTag(tag string) string {
-	return ir.TagRemove(tag, "!bracket")
+	return ir.StripPresentation(tag)
 }

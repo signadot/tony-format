@@ -113,12 +113,48 @@ func TagGet(tag, what string) (string, []string) {
 	return TagGet(rest, what)
 }
 
+// presentationTags record how a value is written rather than what it is.  Two
+// documents differing only in these hold the same data, so the operations that
+// compare or combine data — patching, raw matching — drop them first, and the
+// encoder consumes them instead of emitting them as tags.
+//
+// Keep this the single definition of the category.  It is consulted from
+// several packages, and a tag that belongs here but is missing does not fail
+// loudly: it surfaces as a spurious retag in a diff, or as "cannot encode tags
+// in json" from the encoder.
+var presentationTags = [...]string{BracketTag, LiteralTag}
+
+// IsPresentation reports whether a single tag label is a presentation tag.  The
+// label is '!' prefixed and carries no arguments, which is what TagArgs yields
+// for each label of a composed tag.
+func IsPresentation(label string) bool {
+	for _, p := range presentationTags {
+		if label == p {
+			return true
+		}
+	}
+	return false
+}
+
+// StripPresentation removes every presentation label from a composed tag,
+// leaving the labels that say what the value is.
+func StripPresentation(tag string) string {
+	return tagFilter(tag, IsPresentation)
+}
+
 func TagRemove(tag, what string) string {
+	return tagFilter(tag, func(label string) bool { return label == what })
+}
+
+// tagFilter rebuilds tag without the labels drop selects, preserving each
+// label's arguments and the '!' which only the first label of a composed tag
+// carries.
+func tagFilter(tag string, drop func(label string) bool) string {
 	b := &strings.Builder{}
 	for tag != "" {
 		hd, args, rest := TagArgs(tag)
 		tag = rest
-		if hd == what {
+		if drop(hd) {
 			continue
 		}
 		if b.Len() != 0 {
