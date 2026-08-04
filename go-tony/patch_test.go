@@ -2,6 +2,7 @@ package tony
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 
@@ -433,6 +434,35 @@ d: e
 z: 1
 zz: 2`,
 		},
+		{
+			// A patch element that does not carry the merge key is
+			// unmergeable: it matches nothing, and appending it anyway would
+			// be worse than refusing.
+			Doc: `
+- name: c
+  image: x`,
+			Patch: `
+!key(name)
+- imagePullPolicy: Never`,
+			Error: errors.New("patch element has no key"),
+		},
+		{
+			// A *document* element without the key is a different matter: no
+			// patch element can address it, so it rides along untouched.
+			Doc: `
+- image: x
+- name: c
+  image: y`,
+			Patch: `
+!key(name)
+- name: c
+  imagePullPolicy: Never`,
+			Res: `
+- image: x
+- image: y
+  imagePullPolicy: Never
+  name: c`,
+		},
 	}
 	for i := range tests {
 		test := &tests[i]
@@ -479,5 +509,57 @@ zz: 2`,
 			t.Fail()
 			continue
 		}
+	}
+}
+
+// TestKeyedListNoKey covers the crash reported in bzf782sph12krsmwe5n0: a
+// !key(name) element that omits the key. GetPath answers a missing field with
+// (nil, nil), and the nil went unchecked, so the process died on a nil deref
+// where it should have said what was wrong. The table above pins the
+// behaviour; this pins the message, which is the whole point of the fix.
+func TestKeyedListNoKey(t *testing.T) {
+	doc, err := parse.Parse([]byte("- name: c\n  image: x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	patch, err := parse.Parse([]byte("!key(name)\n- imagePullPolicy: Never"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Patch: an error, not a panic.
+	_, err = Patch(doc, patch)
+	if err == nil {
+		t.Fatal("a patch element without its merge key must be an error")
+	}
+	for _, want := range []string{`!key(name)`, "element 0", `"name"`, "imagePullPolicy"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not mention %s: %v", want, err)
+		}
+	}
+
+	// Match reaches the same key lookup and must not panic there either.
+	if _, err := Match(doc, patch); err == nil {
+		t.Error("matching against a patch element without its merge key must be an error")
+	}
+
+	// The document side is not an error: an element that carries no key is
+	// simply not one of the ones being merged, and stays put.
+	doc2, err := parse.Parse([]byte("- image: x\n- name: c"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	patch2, err := parse.Parse([]byte("!key(name)\n- name: c\n  imagePullPolicy: Never"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := Patch(doc2, patch2)
+	if err != nil {
+		t.Fatalf("a document element without the key must ride along, not fail the patch: %v", err)
+	}
+	got := strings.TrimSpace(encode.MustString(res))
+	want := "- image: x\n- imagePullPolicy: Never\n  name: c"
+	if got != want {
+		t.Errorf("got\n%s\nwant\n%s", got, want)
 	}
 }

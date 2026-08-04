@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/signadot/tony-format/go-tony/debug"
 	"github.com/signadot/tony-format/go-tony/encode"
@@ -47,10 +48,13 @@ func (kl keyedListOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf Patch
 		debug.Logf("patch op key on %s\n", doc.Path())
 	}
 	klMap := make(map[string]*ir.Node, len(kl.child.Values))
-	for _, klItem := range kl.child.Values {
-		key, _, err := yKeyOf(klItem, kl.key)
+	for i, klItem := range kl.child.Values {
+		key, ok, err := yKeyOf(klItem, kl.key)
 		if err != nil {
 			return nil, err
+		}
+		if !ok {
+			return nil, kl.errNoKey(i, klItem)
 		}
 		klMap[key] = klItem
 	}
@@ -59,9 +63,16 @@ func (kl keyedListOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf Patch
 		dst[i] = doc.Values[i].Clone()
 	}
 	for i, docItem := range dst {
-		key, _, err := yKeyOf(docItem, kl.key)
+		key, ok, err := yKeyOf(docItem, kl.key)
 		if err != nil {
 			return nil, err
+		}
+		if !ok {
+			// A document element without the key is not an error the way a
+			// patch element without it is: no patch element can address it, so
+			// it is simply not one of the ones being merged. It stays in the
+			// list untouched rather than failing a patch that never named it.
+			continue
 		}
 		patchObj, ok := klMap[key]
 		if !ok {
@@ -104,11 +115,14 @@ func (kl keyedListOp) Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, er
 		return false, nil
 	}
 	klMap := make(map[string]*ir.Node, len(kl.child.Values))
-	for _, klItem := range kl.child.Values {
+	for i, klItem := range kl.child.Values {
 		// TODO match key tag
-		key, _, err := yKeyOf(klItem, kl.key)
+		key, ok, err := yKeyOf(klItem, kl.key)
 		if err != nil {
 			return false, err
+		}
+		if !ok {
+			return false, kl.errNoKey(i, klItem)
 		}
 		klMap[key] = klItem
 		if debug.Op() {
@@ -118,9 +132,14 @@ func (kl keyedListOp) Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, er
 	matched := 0
 	for _, docItem := range doc.Values {
 		// TODO match w/ tagged key
-		key, _, err := yKeyOf(docItem, kl.key)
+		key, ok, err := yKeyOf(docItem, kl.key)
 		if err != nil {
 			return false, err
+		}
+		if !ok {
+			// No key, so nothing in the patch names it: not a match, not an
+			// error. Same reasoning as the document side of Patch.
+			continue
 		}
 		matchObj, ok := klMap[key]
 		if !ok {
@@ -141,7 +160,11 @@ func (kl keyedListOp) Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, er
 	return matched == len(kl.child.Values), nil
 }
 
-func yKeyOf(y *ir.Node, key string) (string, string, error) {
+// yKeyOf renders the merge key of y as a string. The bool reports whether y
+// carries the key at all: GetPath answers a missing field with (nil, nil), so
+// absence is not an error here and callers decide what it means -- see the two
+// call sites in Patch, which differ.
+func yKeyOf(y *ir.Node, key string) (string, bool, error) {
 	p := key
 	if p == "" {
 		p = "$"
@@ -152,14 +175,35 @@ func yKeyOf(y *ir.Node, key string) (string, string, error) {
 	}
 	v, err := y.GetPath(p)
 	if err != nil {
-		return "", "", err
+		return "", false, err
+	}
+	if v == nil {
+		return "", false, nil
 	}
 	buf := bytes.NewBuffer(nil)
 	orgTag := v.Tag
 	defer func() { v.Tag = orgTag }()
 	v.Tag = ""
 	if err := encode.Encode(v, buf); err != nil {
-		return "", "", err
+		return "", false, err
 	}
-	return buf.String(), orgTag, nil
+	return buf.String(), true, nil
+}
+
+// errNoKey reports a patch element that cannot be merged because it does not
+// carry the key the list is merged by. It names the fields the element does
+// have, since the usual cause is a typo or -- as in the report this came from
+// -- an attempt to write "the only element" by leaving the key out.
+func (kl keyedListOp) errNoKey(i int, item *ir.Node) error {
+	have := ""
+	if item.Type == ir.ObjectType && len(item.Fields) > 0 {
+		names := make([]string, 0, len(item.Fields))
+		for _, f := range item.Fields {
+			names = append(names, f.String)
+		}
+		have = fmt.Sprintf(" (it has %s)", strings.Join(names, ", "))
+	}
+	return fmt.Errorf(
+		"!%s(%s): patch element %d has no %q to merge by%s; a keyed-list element without its key matches nothing and cannot be placed",
+		kl.name, kl.key, i, kl.key, have)
 }
