@@ -86,7 +86,8 @@ literal
 
 - may contain unicode digits, letters, and graphics.
 - may not contain white space or unicode control characters.
-- may not start with a digit.
+- may start with a digit only in the shapes given in [Numbers](#numbers), and
+  then may not contain a ':'.
 - may not contain punctuation unless it follows the rules described below.
 
 #### Literals and Punctuation
@@ -321,6 +322,56 @@ multiline folding strings.
 - help
 - " the"
 - " world"
+```
+
+### Numbers
+
+JSON numbers are Tony numbers.  Where Tony differs is in how it reads an
+unquoted scalar that _begins_ with a digit, or with '-' and a digit: it looks at
+the whole run rather than at the number-shaped prefix of it.
+
+Let `R` be the maximal literal run at that point, stopping at the first ':',
+which is always a key separator because no number contains one.
+
+1. If `R` is entirely a number, it is that number.
+2. Otherwise, if `R` is all digits with a leading zero, it is an error.
+3. Otherwise, if `R` contains a letter, it is a string.
+4. Otherwise, if `R` is three or more '.'-separated groups of digits, it is a
+   string.  Two groups is a float, which rule 1 has already taken.
+5. Otherwise it is an error, which names `R`.
+
+```tony
+# rule 3: quantities and durations
+{ cpu: 100m, memory: 1Gi, timeout: 30s, backoff: 1h30m }
+---
+# rule 4: versions and addresses
+{ version: 1.2.3, addr: 192.168.1.1 }
+---
+# rule 1: still numbers
+{ replicas: 3, ratio: 1.5, big: 1e9, neg: -2.5 }
+```
+
+Rules 3 and 4 are there because the values they describe are unavoidable in the
+documents Tony is written for: a Kubernetes quantity is digits followed by a
+suffix by definition, and so is every duration.
+
+Rule 5 is there because the alternative is to read every digit-leading run that
+is not a number as text, which would quietly turn a mistyped number into a
+string.  `1_000`, `3..14`, `1.` and `1e+` are typing accidents rather than
+values, and they stay loud.
+
+Rule 5 also covers `0x1f`, `0o777` and `0b1010`.  Those are numbers in many
+languages and in YAML, and Tony does not read them, so it rejects them rather
+than reading them as text and silently changing what they mean.  Rule 2 is the
+same judgement about `0644`, which is 420 to a YAML 1.1 reader, 644 under the
+YAML 1.2 core schema, and invalid JSON.
+
+A string of any of the rejected shapes is written quoted, and Tony writes it
+that way itself.  A digit-leading string containing ':' is also written quoted,
+since the run would otherwise stop at the colon.
+
+```tony
+{ zip: "007", mask: "0x1f", mode: "0644", range: "30s:60s" }
 ```
 
 ## Collections

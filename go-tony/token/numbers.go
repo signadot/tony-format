@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"unicode"
+
+	"github.com/signadot/tony-format/go-tony/format"
 )
 
 // digitLeadingLiteral returns the maximal literal run at the start of d when that run is
@@ -46,6 +49,124 @@ func digitLeadingLiteral(d []byte, numLen int) ([]byte, error) {
 		return nil, nil
 	}
 	return lit, nil
+}
+
+// digitLeadingToken builds the literal token for a digit-leading run that reads as a
+// string, reporting false when the run is a botched number and the caller should raise
+// ErrDigitLeading instead.
+//
+// Only the tony format accepts these.  JSON has no unquoted scalars at all, so a run that
+// outruns its number there is an error whatever shape it has.  YAML never reaches here:
+// its plain-scalar scanner handles the same ground earlier in TokenizeOne.
+func (t *Tokenizer) digitLeadingToken(lit []byte, absOffset int) (Token, bool) {
+	if t.opt.format != format.TonyFormat || !digitLeadingString(lit) {
+		return Token{}, false
+	}
+	t.ts.hasValue = true
+	return Token{
+		Type:  TLiteral,
+		Pos:   t.posDoc.Pos(absOffset),
+		Bytes: lit,
+	}, true
+}
+
+// digitLeadingString reports whether a digit-leading literal run reads as a string rather
+// than as a botched number.  It is the rule the tokenizer applies once a run has outrun
+// the number inside it, and NeedsQuote applies the same rule in reverse.
+//
+// Two shapes qualify.  A run containing a letter is a quantity or a duration -- "100m",
+// "1Gi", "30s", "1h30m" -- which is the shape Kubernetes manifests are full of and the
+// reason any of this exists.  A run of three or more dot-separated digit groups is a
+// version or an address -- "1.2.3", "192.168.1.1".  Two groups is a float and never
+// reaches here.
+//
+// Everything else stays an error, which keeps a mistyped number loud: "1_000", "3..14",
+// "1." and "1e+" are all typing accidents rather than text, and reading them as strings
+// would hide that.
+//
+// A run holding ':' is not a string either.  The tokenizer stops a digit-leading run at
+// the first colon, so it can never produce one; the check is here for NeedsQuote, which is
+// handed a whole string and would otherwise call "30s:x" safe to write bare, where it
+// would read back as the key "30s".
+//
+// Radix prefixes are excluded for now.  "0x1f" means 31 to everyone who writes it, so
+// reading it as text would be exactly the silent misreading this rule set exists to avoid.
+// It stays an error until number() learns the notation, so the value only ever moves from
+// error to number and never quietly changes meaning.
+func digitLeadingString(lit []byte) bool {
+	if bytes.IndexByte(lit, ':') >= 0 {
+		return false
+	}
+	d := lit
+	if len(d) > 0 && d[0] == '-' {
+		d = d[1:]
+	}
+	if len(d) == 0 || radixPrefixed(d) {
+		return false
+	}
+	if hasLetter(d) {
+		return true
+	}
+	return dottedDigits(d)
+}
+
+// digitLeadingNeedsQuote reports whether a string starting with a digit, or with '-' and a
+// digit, has to be quoted to come back as itself.  A run that is entirely a number reads
+// back as that number rather than as text, so "1e9" and "-1" need quoting where "100m"
+// does not.
+func digitLeadingNeedsQuote(v string) bool {
+	d := []byte(v)
+	off := 0
+	if d[0] == '-' {
+		off = 1
+	}
+	if numLen, _, err := number(d[off:]); err == nil && numLen+off == len(d) {
+		return true
+	}
+	return !digitLeadingString(d)
+}
+
+// radixPrefixed reports whether d opens with a hexadecimal, binary or octal prefix.
+func radixPrefixed(d []byte) bool {
+	if len(d) < 2 || d[0] != '0' {
+		return false
+	}
+	switch d[1] {
+	case 'x', 'X', 'b', 'B', 'o', 'O':
+		return true
+	default:
+		return false
+	}
+}
+
+func hasLetter(d []byte) bool {
+	for _, r := range string(d) {
+		if unicode.IsLetter(r) {
+			return true
+		}
+	}
+	return false
+}
+
+// dottedDigits reports whether d is three or more '.'-separated groups of ASCII digits,
+// each non-empty: "1.2.3", "192.168.1.1".  Two groups is a float, which number() has
+// already claimed, and an empty group is a mistyped number rather than a version.
+func dottedDigits(d []byte) bool {
+	groups := bytes.Split(d, []byte("."))
+	if len(groups) < 3 {
+		return false
+	}
+	for _, g := range groups {
+		if len(g) == 0 {
+			return false
+		}
+		for _, c := range g {
+			if !asciiDigit(c) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // endsNumber reports whether c terminates a literal run, so that a number followed by it

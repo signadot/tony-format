@@ -112,6 +112,19 @@ func TestNeedsQuoteAgreesWithRoundTrip(t *testing.T) {
 	}
 	corpus = append(corpus, "true", "false", "null", "0", "-", "-x", "|", "|x", "<", ">",
 		"a", "abc", "a.b", "a/b", "a-b", "a_b")
+	// Digit-leading scalars, where NeedsQuote has the most to get wrong: some of these
+	// are strings written bare, some are numbers that must be quoted to stay strings,
+	// and some do not tokenize at all unquoted.
+	corpus = append(corpus,
+		// strings the tokenizer accepts bare
+		"30s", "100m", "1Gi", "1h30m", "3d", "10x", "0m", "007m",
+		"1.2.3", "192.168.1.1", "1.2.3.4.5", "-30s",
+		// numbers: bare, these come back as Numbers rather than as these strings
+		"0", "12", "100", "1.5", "0.5", "-1", "-2.5", "1e9", "-0e24", "10000000005",
+		// runs the tokenizer rejects bare
+		"0x1f", "0b1010", "0o777", "007", "0644", "1_000", "3..14", "1.", "1.2.", "-1-2",
+		// a colon stops a digit-leading run, so these cannot be written bare either
+		"30s:x", "1:2", "0:42")
 	for _, s := range corpus {
 		if token.NeedsQuote(s) {
 			continue // claimed unsafe; quoting is always allowed

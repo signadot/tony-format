@@ -38,7 +38,7 @@ func NeedsQuote(v string) bool {
 	}
 	switch v[0] {
 	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-		return true
+		return digitLeadingNeedsQuote(v)
 	case '<', '>', '|':
 		// Block-scalar and stream markers: "|x" opens a multiline literal that
 		// swallows the following key, ">x" and "<x" are rejected outright.
@@ -48,7 +48,7 @@ func NeedsQuote(v string) bool {
 		// digit case above misses these because the sign comes first: "-1" and "-1.5"
 		// silently changed type on a round trip, and "-00" did not parse at all.
 		if len(v) > 1 && v[1] >= '0' && v[1] <= '9' {
-			return true
+			return digitLeadingNeedsQuote(v)
 		}
 	}
 	switch v {

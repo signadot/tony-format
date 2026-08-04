@@ -523,12 +523,9 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 				t.ts.hasValue = true
 				return []Token{*tok}, off + 1, nil
 			}
-			numLen, isFloat, err := numberStreaming(data[pos+1:])
-			if err == io.EOF {
+			numLen, isFloat, numErr := numberStreaming(data[pos+1:])
+			if numErr == io.EOF {
 				return nil, 0, io.EOF // number may continue past the buffer; need more data
-			}
-			if err != nil {
-				return nil, 0, NewTokenizeErr(err, t.posDoc.Pos(int(absOffset)))
 			}
 			// numLen+1 accounts for the '-', which is part of the literal run.
 			lit, err := digitLeadingLiteral(data[pos:], numLen+1)
@@ -539,7 +536,13 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 				return nil, 0, NewTokenizeErr(err, t.posDoc.Pos(int(absOffset)))
 			}
 			if lit != nil {
+				if tok, ok := t.digitLeadingToken(lit, int(absOffset)); ok {
+					return []Token{tok}, len(lit), nil
+				}
 				return nil, 0, DigitLeadingErr(lit, t.posDoc.Pos(int(absOffset)))
+			}
+			if numErr != nil {
+				return nil, 0, NewTokenizeErr(numErr, t.posDoc.Pos(int(absOffset)))
 			}
 			tok := Token{
 				Type:  TInteger,
@@ -631,13 +634,12 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			t.ts.hasValue = true
 			return []Token{*tok}, off, nil
 		}
-		numLen, isFloat, err := numberStreaming(data[pos:])
-		if err == io.EOF {
+		numLen, isFloat, numErr := numberStreaming(data[pos:])
+		if numErr == io.EOF {
 			return nil, 0, io.EOF // number may continue past the buffer; need more data
 		}
-		if err != nil {
-			return nil, 0, NewTokenizeErr(err, t.posDoc.Pos(int(absOffset)))
-		}
+		// numErr is held rather than returned: the run decides first. "007" is a
+		// leading zero, but "007m" is a quantity, and only the run tells them apart.
 		lit, err := digitLeadingLiteral(data[pos:], numLen)
 		if err == io.EOF {
 			return nil, 0, io.EOF // literal may continue past the buffer; need more data
@@ -646,7 +648,13 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			return nil, 0, NewTokenizeErr(err, t.posDoc.Pos(int(absOffset)))
 		}
 		if lit != nil {
+			if tok, ok := t.digitLeadingToken(lit, int(absOffset)); ok {
+				return []Token{tok}, len(lit), nil
+			}
 			return nil, 0, DigitLeadingErr(lit, t.posDoc.Pos(int(absOffset)))
+		}
+		if numErr != nil {
+			return nil, 0, NewTokenizeErr(numErr, t.posDoc.Pos(int(absOffset)))
 		}
 		tok := Token{
 			Type:  TInteger,
