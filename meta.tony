@@ -6,7 +6,10 @@ commits: []
 created: "2026-08-04T12:34:43.961096+02:00"
 duplicates: []
 id: dfazjr7hh12krgy0e5n0
-labels: []
+labels:
+- agent
+- parse
+- yaml
 related_issues: []
 status: open
-updated: "2026-08-04T12:34:43.961096+02:00"
+updated: "2026-08-04T12:34:48.061463+02:00"
