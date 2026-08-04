@@ -6,7 +6,11 @@ commits: []
 created: "2026-08-04T02:16:07.086299+02:00"
 duplicates: []
 id: s7ftddgrh12krhsfe5n0
-labels: []
+labels:
+- agent
+- diagnostics
+- reliability
+- verse
 related_issues: []
 status: open
-updated: "2026-08-04T02:16:07.086299+02:00"
+updated: "2026-08-04T02:16:13.360306+02:00"
