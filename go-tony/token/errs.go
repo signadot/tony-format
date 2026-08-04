@@ -30,6 +30,12 @@ var (
 	ErrYAMLPlain         = errors.New("yaml plain string")
 	ErrUnsupported       = errors.New("unsupported")
 	ErrNumber            = errors.New("number")
+	// ErrDigitLeading is an unquoted scalar that begins with a digit and does not
+	// finish as a number: "30s", "100m", "1Gi", "1.2.3". Without it the number
+	// scanner takes the digits and leaves the rest as a separate token, and the
+	// document fails later as two adjacent values — an error that names neither the
+	// scalar nor the cause, and in a mapping points at the following line.
+	ErrDigitLeading = errors.New("scalar starts with a digit but is not a number")
 	// ErrNotQuoted is a value that is not a quoted string at all — it does not open
 	// with a quote character. Distinct from ErrUnterminated, which is a quoted string
 	// whose closing quote is missing or misplaced.
@@ -41,6 +47,11 @@ var (
 
 func LeadingZeroErr(pos *Pos) error {
 	return NewTokenizeErr(ErrNumberLeadingZero, pos)
+}
+
+func DigitLeadingErr(lit []byte, pos *Pos) error {
+	return NewTokenizeErr(
+		fmt.Errorf("%w: %q; quote it to use it as a string", ErrDigitLeading, string(lit)), pos)
 }
 
 type ErrImbalancedStructure struct {

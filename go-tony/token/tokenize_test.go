@@ -7,7 +7,10 @@ import (
 )
 
 func TestTokenize(t *testing.T) {
-	s := `-1-2
+	// "-1 -2" was "-1-2", which lexed as the two integers -1 and -2. That split is
+	// what ErrDigitLeading now rejects, and docs/tony.md bars a literal from starting
+	// with '-', so the run has no other reading. See TestDigitLeading.
+	s := `-1 -2
 - 1
 - 2
 # comment

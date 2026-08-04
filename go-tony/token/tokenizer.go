@@ -530,6 +530,17 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			if err != nil {
 				return nil, 0, NewTokenizeErr(err, t.posDoc.Pos(int(absOffset)))
 			}
+			// numLen+1 accounts for the '-', which is part of the literal run.
+			lit, err := digitLeadingLiteral(data[pos:], numLen+1)
+			if err == io.EOF {
+				return nil, 0, io.EOF // literal may continue past the buffer; need more data
+			}
+			if err != nil {
+				return nil, 0, NewTokenizeErr(err, t.posDoc.Pos(int(absOffset)))
+			}
+			if lit != nil {
+				return nil, 0, DigitLeadingErr(lit, t.posDoc.Pos(int(absOffset)))
+			}
 			tok := Token{
 				Type:  TInteger,
 				Pos:   t.posDoc.Pos(int(absOffset)),
@@ -626,6 +637,16 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		}
 		if err != nil {
 			return nil, 0, NewTokenizeErr(err, t.posDoc.Pos(int(absOffset)))
+		}
+		lit, err := digitLeadingLiteral(data[pos:], numLen)
+		if err == io.EOF {
+			return nil, 0, io.EOF // literal may continue past the buffer; need more data
+		}
+		if err != nil {
+			return nil, 0, NewTokenizeErr(err, t.posDoc.Pos(int(absOffset)))
+		}
+		if lit != nil {
+			return nil, 0, DigitLeadingErr(lit, t.posDoc.Pos(int(absOffset)))
 		}
 		tok := Token{
 			Type:  TInteger,
