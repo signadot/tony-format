@@ -144,4 +144,3 @@ func matchReader(dst []*ir.Node, cfg *MatchConfig, cc *cli.Context, match *ir.No
 	}
 	return dst, nil
 }
-

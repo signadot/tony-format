@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
-	"os"
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/parse"
+	"io"
+	"os"
 
 	"github.com/scott-cotton/cli"
 )
