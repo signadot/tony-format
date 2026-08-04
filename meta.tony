@@ -2,7 +2,8 @@
 blocked_by: []
 blocks: []
 branches: []
-commits: []
+commits:
+- "0562622d243ee825c7edf315b679ebd59d485f11"
 created: "2026-08-04T12:18:24.703629+02:00"
 duplicates: []
 id: x2bn8w56h12krw5we5n0
@@ -12,4 +13,4 @@ labels:
 - performance
 related_issues: []
 status: open
-updated: "2026-08-04T15:48:41.802137+02:00"
+updated: "2026-08-04T16:02:15.418589+02:00"
