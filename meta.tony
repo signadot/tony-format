@@ -3,6 +3,7 @@ blocked_by: []
 blocks:
 - v0tp11hmh12krncwe5n0
 branches: []
+closed_by: b50645fddbc56948cdd53bb8167da9ad81864aa1
 commits:
 - b50645fddbc56948cdd53bb8167da9ad81864aa1
 created: "2026-08-04T10:57:48.573877+02:00"
@@ -13,5 +14,5 @@ labels:
 - encode
 - ir
 related_issues: []
-status: open
-updated: "2026-08-04T12:17:57.931005+02:00"
+status: closed
+updated: "2026-08-04T12:17:58.02208+02:00"
