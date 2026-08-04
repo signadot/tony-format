@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/stream"
+	"github.com/signadot/tony-format/go-tony/system/admin"
 	"github.com/signadot/tony-format/go-tony/system/logd/server"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 )
@@ -38,16 +40,17 @@ type LogDServeConfig struct {
 	DataDir    string `cli:"name=data desc='directory for logd data'"`
 	ConfigFile string `cli:"name=config desc='configuration file (tony format)'"`
 	Addr       string `cli:"name=addr desc='TCP listen address' default=localhost:9123"`
+	AdminAddr  string `cli:"name=admin-addr desc='admin/pprof listen address, or off to disable' default=localhost:9223"`
 }
 
 func LogDServeCommand(logdCfg *LogDConfig) *cli.Command {
-	cfg := &LogDServeConfig{LogDConfig: logdCfg, Addr: "localhost:9123"}
+	cfg := &LogDServeConfig{LogDConfig: logdCfg, Addr: "localhost:9123", AdminAddr: "localhost:9223"}
 	opts, err := cli.StructOpts(cfg)
 	if err != nil {
 		panic(err)
 	}
 	return cli.NewCommandAt(&cfg.Serve, "serve").
-		WithSynopsis("serve -data <dir> [-addr <addr>]").
+		WithSynopsis("serve -data <dir> [-addr <addr>] [-admin-addr <addr>]").
 		WithDescription("run the logd storage server").
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
@@ -64,6 +67,21 @@ func logdServe(cfg *LogDServeConfig, cc *cli.Context, args []string) error {
 	// Start gops agent for debugging
 	if err := agent.Listen(agent.Options{}); err != nil {
 		fmt.Fprintf(cc.Out, "gops agent failed: %v\n", err)
+	}
+
+	// The admin listener comes up before anything that can wedge: it is the
+	// channel that has to answer when the data path cannot.
+	adminSrv := admin.New(&admin.Spec{
+		Addr: cfg.AdminAddr,
+		Name: "o logd serve",
+		Log:  slog.Default(),
+	})
+	if err := adminSrv.Start(); err != nil {
+		return err
+	}
+	defer adminSrv.Close()
+	if a := adminSrv.Addr(); a != "" {
+		fmt.Fprintf(cc.Out, "admin listening on %s (%s/debug/pprof/)\n", a, adminSrv.URL())
 	}
 
 	if cfg.DataDir == "" {
@@ -97,6 +115,7 @@ func logdServe(cfg *LogDServeConfig, cc *cli.Context, args []string) error {
 	}
 	fmt.Fprintf(cc.Out, "TCP session listener on %s\n", srv.TCPAddr())
 	defer srv.StopTCP()
+	adminSrv.SetAddrs(admin.Addr{Name: "logd", Addr: srv.TCPAddr()})
 
 	// Block forever
 	select {}

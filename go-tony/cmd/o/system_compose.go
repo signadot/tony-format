@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/google/gops/agent"
 	"github.com/scott-cotton/cli"
+	"github.com/signadot/tony-format/go-tony/system/admin"
 	docdserver "github.com/signadot/tony-format/go-tony/system/docd/server"
 	logdserver "github.com/signadot/tony-format/go-tony/system/logd/server"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
@@ -21,6 +23,7 @@ type UpConfig struct {
 	LogdAddr      string `cli:"name=logd-addr desc='logd listen address' default=localhost:9123"`
 	DocdAddr      string `cli:"name=docd-addr desc='docd client-facing listen address' default=localhost:9124"`
 	DocdMountAddr string `cli:"name=docd-mount-addr desc='docd controller-facing (MOUNT) listen address' default=localhost:9125"`
+	AdminAddr     string `cli:"name=admin-addr desc='admin/pprof listen address, or off to disable' default=localhost:9223"`
 }
 
 func UpCommand(mainCfg *MainConfig) *cli.Command {
@@ -29,6 +32,7 @@ func UpCommand(mainCfg *MainConfig) *cli.Command {
 		LogdAddr:      "localhost:9123",
 		DocdAddr:      "localhost:9124",
 		DocdMountAddr: "localhost:9125",
+		AdminAddr:     "localhost:9223",
 	}
 	opts, err := cli.StructOpts(cfg)
 	if err != nil {
@@ -56,6 +60,21 @@ func systemUp(cfg *UpConfig, cc *cli.Context, args []string) error {
 	// Start gops agent for debugging
 	if err := agent.Listen(agent.Options{}); err != nil {
 		fmt.Fprintf(cc.Out, "gops agent failed: %v\n", err)
+	}
+
+	// The admin listener comes up before anything that can wedge: it is the
+	// channel that has to answer when the data path cannot.
+	adminSrv := admin.New(&admin.Spec{
+		Addr: cfg.AdminAddr,
+		Name: "o sys up",
+		Log:  slog.Default(),
+	})
+	if err := adminSrv.Start(); err != nil {
+		return err
+	}
+	defer adminSrv.Close()
+	if a := adminSrv.Addr(); a != "" {
+		fmt.Fprintf(cc.Out, "admin listening on %s (%s/debug/pprof/)\n", a, adminSrv.URL())
 	}
 
 	// Set up signal handling for graceful shutdown
@@ -108,6 +127,12 @@ func systemUp(cfg *UpConfig, cc *cli.Context, args []string) error {
 
 	fmt.Fprintf(cc.Out, "docd listening: client=%s mount=%s\n",
 		docdSrv.ClientTCPAddr(), docdSrv.TCPAddr())
+
+	adminSrv.SetAddrs(
+		admin.Addr{Name: "logd", Addr: logdSrv.TCPAddr()},
+		admin.Addr{Name: "docd-client", Addr: docdSrv.ClientTCPAddr()},
+		admin.Addr{Name: "docd-mount", Addr: docdSrv.TCPAddr()},
+	)
 
 	fmt.Fprintf(cc.Out, "System up. Press Ctrl+C to stop.\n")
 

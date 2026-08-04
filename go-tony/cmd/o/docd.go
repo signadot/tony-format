@@ -10,6 +10,7 @@ import (
 	"github.com/google/gops/agent"
 	"github.com/scott-cotton/cli"
 	"github.com/signadot/tony-format/go-tony/encode"
+	"github.com/signadot/tony-format/go-tony/system/admin"
 	"github.com/signadot/tony-format/go-tony/system/docd/server"
 	"github.com/signadot/tony-format/go-tony/system/libctl"
 )
@@ -85,16 +86,17 @@ type DocDServeConfig struct {
 	Addr       string `cli:"name=addr desc='client-facing TCP listen address (logd session protocol)' default=localhost:9124"`
 	MountAddr  string `cli:"name=mount-addr desc='controller-facing (MOUNT) TCP listen address' default=localhost:9125"`
 	LogdAddr   string `cli:"name=logd desc='logd server address' default=localhost:9123"`
+	AdminAddr  string `cli:"name=admin-addr desc='admin/pprof listen address, or off to disable' default=localhost:9224"`
 }
 
 func DocDServeCommand(docdCfg *DocDConfig) *cli.Command {
-	cfg := &DocDServeConfig{DocDConfig: docdCfg, Addr: "localhost:9124", MountAddr: "localhost:9125", LogdAddr: "localhost:9123"}
+	cfg := &DocDServeConfig{DocDConfig: docdCfg, Addr: "localhost:9124", MountAddr: "localhost:9125", LogdAddr: "localhost:9123", AdminAddr: "localhost:9224"}
 	opts, err := cli.StructOpts(cfg)
 	if err != nil {
 		panic(err)
 	}
 	return cli.NewCommandAt(&cfg.Serve, "serve").
-		WithSynopsis("serve [-addr <addr>] [-mount-addr <addr>] [-logd <addr>]").
+		WithSynopsis("serve [-addr <addr>] [-mount-addr <addr>] [-logd <addr>] [-admin-addr <addr>]").
 		WithDescription("run the docd document server").
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
@@ -111,6 +113,21 @@ func docdServe(cfg *DocDServeConfig, cc *cli.Context, args []string) error {
 	// Start gops agent for debugging
 	if err := agent.Listen(agent.Options{}); err != nil {
 		fmt.Fprintf(cc.Out, "gops agent failed: %v\n", err)
+	}
+
+	// The admin listener comes up before anything that can wedge: it is the
+	// channel that has to answer when the data path cannot.
+	adminSrv := admin.New(&admin.Spec{
+		Addr: cfg.AdminAddr,
+		Name: "o docd serve",
+		Log:  slog.Default(),
+	})
+	if err := adminSrv.Start(); err != nil {
+		return err
+	}
+	defer adminSrv.Close()
+	if a := adminSrv.Addr(); a != "" {
+		fmt.Fprintf(cc.Out, "admin listening on %s (%s/debug/pprof/)\n", a, adminSrv.URL())
 	}
 
 	// Load configuration
@@ -142,6 +159,11 @@ func docdServe(cfg *DocDServeConfig, cc *cli.Context, args []string) error {
 
 	fmt.Fprintf(cc.Out, "docd listening: client=%s mount=%s (logd: %s)\n",
 		srv.ClientTCPAddr(), srv.TCPAddr(), cfg.LogdAddr)
+	adminSrv.SetAddrs(
+		admin.Addr{Name: "docd-client", Addr: srv.ClientTCPAddr()},
+		admin.Addr{Name: "docd-mount", Addr: srv.TCPAddr()},
+		admin.Addr{Name: "logd-upstream", Addr: cfg.LogdAddr},
+	)
 
 	// Block forever
 	select {}
