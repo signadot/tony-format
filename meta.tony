@@ -1,5 +1,6 @@
 !issue
-blocked_by: []
+blocked_by:
+- "6fnd2hxeh12ks359e5n0"
 blocks: []
 branches: []
 commits: []
@@ -12,4 +13,4 @@ labels:
 - parse
 related_issues: []
 status: open
-updated: "2026-08-04T10:52:58.06828+02:00"
+updated: "2026-08-04T10:57:52.589285+02:00"
