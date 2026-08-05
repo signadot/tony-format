@@ -1,3 +1,18 @@
 mkdocs==1.6.1
 mkdocs-mermaid2-plugin==1.2.3
-pymdown-extensions==10.17.1
+pymdown-extensions==11.0.1
+
+# Pygments was the one dependency left to resolve on its own, and 2.20.0
+# broke the build outright: it escapes the formatter's `filename` option,
+# which pymdown-extensions passes as None for a fenced block whose first line
+# is blank and whose body is indented -- gomap.md has one, and `mkdocs build`
+# exited 1 without writing a page. 11.0.1 is the pymdown-extensions release
+# that stopped passing None; it and 2.20.0 build this site byte for byte the
+# same as the versions before them.
+pygments==2.20.0
+
+# The tony lexer, versioned with the documents it highlights. Without it
+# pygments has no 'tony' lexer and every tony block builds unhighlighted,
+# which is what the published site did while this line was missing.
+# The path is relative to where pip runs, which is the repository root.
+./docs/sketchy/pygments-tony

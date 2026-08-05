@@ -23,6 +23,14 @@ nav:
   - 'Tags': generated/
   - matchpatch.md
 
+# The tony lexer lives under docs/ so that a change to it triggers the docs
+# workflow, but installing it leaves build artifacts next to it, and those are
+# not documentation.
+exclude_docs: |
+  sketchy/pygments-tony/build/
+  sketchy/pygments-tony/*.egg-info/
+  sketchy/pygments-tony/__pycache__/
+
 theme:
   name: mkdocs
   highlightjs: false
