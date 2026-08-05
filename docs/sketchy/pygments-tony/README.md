@@ -5,13 +5,20 @@ Pygments syntax highlighting lexer for
 
 ## Installation
 
+The docs build installs this from the repository root, along with everything
+else the site needs:
+
 ```bash
-pip install -e docs/pygments-tony
+pip install -r requirements.txt
 ```
 
-Or if published to PyPI:
+To work on the lexer, install it editable so that a change takes effect
+without reinstalling -- a plain install copies the module into site-packages,
+and a local `mkdocs build` then highlights with the copy rather than with the
+file you are editing:
+
 ```bash
-pip install pygments-tony
+pip install -e docs/sketchy/pygments-tony
 ```
 
 ## Usage
@@ -26,8 +33,6 @@ from pygments_tony import TonyLexer
 code = '''!tag
 key: value
 <<: merge
-$[var]
-.[path]
 '''
 
 # HTML output
@@ -85,13 +90,29 @@ Pelican uses Pygments by default. Install this package and `tony` code blocks wi
 ## Features
 
 The lexer highlights:
-- **Tags**: `!tag`, `!tag.subtag`, `!tag(args)`
+- **Tags**: `!tag`, `!tag.subtag`, `!tag(args)`, including arguments that are
+  themselves tags
 - **Merge keys**: `<<:`
-- **String interpolation**: `$[var]`
-- **Node replacement**: `.[path]`
-- **Block literals**: `|`, `|-`, `|+`
-- **Comments**: `# comment`
-- **Strings, numbers, booleans, null**
+- **Keys**, told from values by the `:` separator, and sparse-array keys from
+  object keys
+- **Literals** holding the punctuation Tony allows in them: `a:b`, `.[x]`,
+  `$y`, `no-delegate`, `tony-format/context`
+- **Digit-leading strings**: `100m`, `1.2.3` are strings, not `100` and `1.2`
+- **Block literals**: `|`, `|-`, `|+`, and the lines indented past them
+- **Comments**: `# comment`, which need no preceding space
+- **Strings, numbers** in every notation, **booleans, null**
+
+Each construct is given the token whose CSS class carries the colour `o v`
+prints it in; `docs/pygments.css` holds the other half of that mapping.
+
+## Tests
+
+```bash
+python test_lexer.py
+```
+
+The last test lexes every ```tony block in the docs and fails on any character
+the lexer has no rule for.
 
 ## License
 
