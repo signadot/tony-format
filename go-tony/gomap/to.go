@@ -45,14 +45,16 @@ func ToTonyIR(v interface{}, opts ...MapOption) (*ir.Node, error) {
 	val := reflect.ValueOf(v)
 	typ := val.Type()
 
-	// Check for ToTonyIR() method on the value type (works for both value and pointer types)
-	if method := val.MethodByName("ToTonyIR"); method.IsValid() {
+	// Check for ToTonyIR() method on the value type (works for both value and pointer types).
+	// A method the type only inherits by embedding is not its own: dispatching on it
+	// would encode the embedded value in place of the whole struct.
+	if method := val.MethodByName("ToTonyIR"); method.IsValid() && declaresMethod(typ, "ToTonyIR") {
 		return callToTonyIR(method, opts...)
 	}
 
 	// If v is a value type, check if pointer type has the method
 	if typ.Kind() != reflect.Ptr {
-		if _, ok := reflect.PtrTo(typ).MethodByName("ToTonyIR"); ok {
+		if _, ok := reflect.PtrTo(typ).MethodByName("ToTonyIR"); ok && declaresMethod(typ, "ToTonyIR") {
 			// Create a pointer to the value and call the method
 			ptrVal := reflect.New(typ)
 			ptrVal.Elem().Set(val)
@@ -131,17 +133,19 @@ func toIRReflectValue(val reflect.Value, fieldPath string, visited map[uintptr]s
 			return ir.Null(), nil
 		}
 		// Check for ToTonyIR() method on the value type (works for both value and pointer types)
-		if method := val.MethodByName("ToTonyIR"); method.IsValid() {
+		if method := val.MethodByName("ToTonyIR"); method.IsValid() && declaresMethod(typ, "ToTonyIR") {
 			return callToTonyIR(method, opts...)
 		}
 
 		// Check for encoding.TextMarshaler
-		if tm, ok := val.Interface().(encoding.TextMarshaler); ok {
-			text, err := tm.MarshalText()
-			if err != nil {
-				return nil, err
+		if val.CanInterface() && declaresMethod(typ, "MarshalText") {
+			if tm, ok := val.Interface().(encoding.TextMarshaler); ok {
+				text, err := tm.MarshalText()
+				if err != nil {
+					return nil, err
+				}
+				return ir.FromString(string(text)), nil
 			}
-			return ir.FromString(string(text)), nil
 		}
 
 		// Check if we've seen this pointer before
@@ -166,31 +170,37 @@ func toIRReflectValue(val reflect.Value, fieldPath string, visited map[uintptr]s
 	// TextMarshaler treatment below and the pointer branch above — without it a
 	// value-typed field (including a named map type) whose whole purpose is a
 	// custom wire form is silently walked structurally instead of dispatched.
-	if method := val.MethodByName("ToTonyIR"); method.IsValid() {
-		return callToTonyIR(method, opts...)
-	}
-	if val.CanAddr() {
-		if method := val.Addr().MethodByName("ToTonyIR"); method.IsValid() {
+	if declaresMethod(typ, "ToTonyIR") {
+		if method := val.MethodByName("ToTonyIR"); method.IsValid() {
 			return callToTonyIR(method, opts...)
+		}
+		if val.CanAddr() {
+			if method := val.Addr().MethodByName("ToTonyIR"); method.IsValid() {
+				return callToTonyIR(method, opts...)
+			}
 		}
 	}
 
 	// Check for encoding.TextMarshaler for non-pointers
-	if tm, ok := val.Interface().(encoding.TextMarshaler); ok {
-		text, err := tm.MarshalText()
-		if err != nil {
-			return nil, err
-		}
-		return ir.FromString(string(text)), nil
-	}
-	// Also check pointer receiver if addressable
-	if val.CanAddr() {
-		if tm, ok := val.Addr().Interface().(encoding.TextMarshaler); ok {
-			text, err := tm.MarshalText()
-			if err != nil {
-				return nil, err
+	if declaresMethod(typ, "MarshalText") {
+		if val.CanInterface() {
+			if tm, ok := val.Interface().(encoding.TextMarshaler); ok {
+				text, err := tm.MarshalText()
+				if err != nil {
+					return nil, err
+				}
+				return ir.FromString(string(text)), nil
 			}
-			return ir.FromString(string(text)), nil
+		}
+		// Also check pointer receiver if addressable
+		if val.CanAddr() && val.Addr().CanInterface() {
+			if tm, ok := val.Addr().Interface().(encoding.TextMarshaler); ok {
+				text, err := tm.MarshalText()
+				if err != nil {
+					return nil, err
+				}
+				return ir.FromString(string(text)), nil
+			}
 		}
 	}
 
@@ -378,39 +388,17 @@ func toIRReflectStruct(val reflect.Value, fieldPath string, visited map[uintptr]
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 
-		// Skip unexported fields
-		if !field.IsExported() {
+		fieldVal := val.Field(i)
+
+		// Embedded fields are merged in a second pass, so that the type's own
+		// fields shadow what embedding brings in — Go's rule, and the one the
+		// decode side follows.
+		if field.Anonymous {
 			continue
 		}
 
-		fieldVal := val.Field(i)
-
-		if field.Anonymous {
-			// Handle embedded structs - flatten their fields
-			if fieldVal.Kind() == reflect.Struct {
-				// Recursively marshal embedded struct and merge its fields
-				embeddedNode, err := toIRReflectValue(fieldVal, fieldPath, visited, opts...)
-				if err != nil {
-					return nil, err
-				}
-				// Merge embedded struct's fields into parent
-				if embeddedNode.Type == ir.ObjectType {
-					for j, fieldNameNode := range embeddedNode.Fields {
-						if j < len(embeddedNode.Values) {
-							fieldName := fieldNameNode.String
-							// Check for field name conflicts
-							if _, exists := irMap[fieldName]; exists {
-								return nil, &MarshalError{
-									FieldPath: fieldPath,
-									Message:   fmt.Sprintf("field name conflict: embedded struct field %q conflicts with existing field", fieldName),
-								}
-							}
-							irMap[fieldName] = embeddedNode.Values[j]
-						}
-					}
-				}
-			}
-			// Skip anonymous non-struct fields (they're used for schema tags)
+		// Skip unexported fields
+		if !field.IsExported() {
 			continue
 		}
 
@@ -455,6 +443,74 @@ func toIRReflectStruct(val reflect.Value, fieldPath string, visited map[uintptr]
 		}
 
 		irMap[fieldName] = fieldNode
+	}
+
+	// Second pass: merge the embedded structs. A key the type declares itself is
+	// left alone; two embedded types offering the same key at the same depth are
+	// genuinely ambiguous and are an error.
+	fromEmbedded := make(map[string]bool)
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		fieldVal := val.Field(i)
+
+		// Anonymous non-struct fields carry schema tags, not data.
+		if !field.Anonymous || fieldVal.Kind() != reflect.Struct {
+			continue
+		}
+
+		var embeddedNode *ir.Node
+		var err error
+		if field.IsExported() {
+			// The embedded value may carry a codec of its own; going through
+			// toIRReflectValue dispatches to it, and the object it returns is
+			// merged here rather than taken as the whole struct.
+			embeddedNode, err = toIRReflectValue(fieldVal, fieldPath, visited, opts...)
+		} else {
+			// reflect refuses to call a method on a value read out of an unexported
+			// field, so an embedded unexported struct type contributes its exported
+			// fields structurally and its own codec is not consulted. This is the
+			// rule encoding/json uses, and it is why such a type is flattened at all
+			// rather than skipped.
+			embeddedNode, err = toIRReflectStruct(fieldVal, fieldPath, visited, opts...)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if embeddedNode.Type != ir.ObjectType {
+			// A wrapper around a single embedded type has no parent object for the
+			// scalar to go into, and nothing of its own to lose: it encodes as what
+			// it wraps.
+			if _, wrapper := soleEmbeddedField(typ); wrapper {
+				return embeddedNode, nil
+			}
+			// Otherwise a codec that renders the embedded type as a scalar leaves the
+			// parent nothing to merge, and the parent's own fields would go with it.
+			// Saying so beats dropping them silently, which is what this branch used
+			// to do.
+			return nil, &MarshalError{
+				FieldPath: fieldPath,
+				Message: fmt.Sprintf("embedded %s encodes as %s, not an object, so its value cannot be merged into %s; give it a name instead of embedding it",
+					field.Type, embeddedNode.Type, typ),
+			}
+		}
+
+		for j, fieldNameNode := range embeddedNode.Fields {
+			if j >= len(embeddedNode.Values) {
+				break
+			}
+			fieldName := fieldNameNode.String
+			if fromEmbedded[fieldName] {
+				return nil, &MarshalError{
+					FieldPath: fieldPath,
+					Message:   fmt.Sprintf("field name conflict: embedded struct field %q conflicts with existing field", fieldName),
+				}
+			}
+			if _, declared := irMap[fieldName]; declared {
+				continue // shadowed by a field the type declares itself
+			}
+			irMap[fieldName] = embeddedNode.Values[j]
+			fromEmbedded[fieldName] = true
+		}
 	}
 
 	return ir.FromMap(irMap), nil

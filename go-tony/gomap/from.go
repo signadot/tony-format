@@ -52,14 +52,17 @@ func FromTonyIR(node *ir.Node, v interface{}, opts ...UnmapOption) error {
 	elemVal := val.Elem()
 	elemType := elemVal.Type()
 
-	// Check for FromTonyIR() method on the element type
-	if method := elemVal.MethodByName("FromTonyIR"); method.IsValid() {
+	// Check for FromTonyIR() method on the element type. A method the type only
+	// inherits by embedding belongs to the embedded field, not to this type:
+	// dispatching on it would decode into the embedded value and leave the outer
+	// struct's own fields untouched.
+	if method := elemVal.MethodByName("FromTonyIR"); method.IsValid() && declaresMethod(elemType, "FromTonyIR") {
 		return callFromTonyIR(method, node, opts...)
 	}
 
 	// Check for FromTonyIR() method on pointer type
 	ptrType := reflect.PointerTo(elemType)
-	if _, ok := ptrType.MethodByName("FromTonyIR"); ok {
+	if _, ok := ptrType.MethodByName("FromTonyIR"); ok && declaresMethod(elemType, "FromTonyIR") {
 		// Call on the pointer value itself
 		return callFromTonyIR(val.MethodByName("FromTonyIR"), node, opts...)
 	}
@@ -165,23 +168,25 @@ func fromIRReflectWithVisited(node *ir.Node, val reflect.Value, fieldPath string
 			val.Set(reflect.New(typ.Elem()))
 		}
 		// Check for FromTonyIR() method on pointer type
-		if m := val.MethodByName("FromTonyIR"); m.IsValid() {
+		if m := val.MethodByName("FromTonyIR"); m.IsValid() && declaresMethod(typ, "FromTonyIR") {
 			// Call on the pointer value itself
 			return callFromTonyIR(m, node, opts...)
 		}
 
 		// Check for encoding.TextUnmarshaler
-		if tu, ok := val.Interface().(encoding.TextUnmarshaler); ok {
-			if node.Type != ir.StringType {
-				if node.Type == ir.NullType {
-					return nil
+		if val.CanInterface() && declaresMethod(typ, "UnmarshalText") {
+			if tu, ok := val.Interface().(encoding.TextUnmarshaler); ok {
+				if node.Type != ir.StringType {
+					if node.Type == ir.NullType {
+						return nil
+					}
+					return &UnmarshalError{
+						FieldPath: fieldPath,
+						Message:   fmt.Sprintf("expected string for TextUnmarshaler, got %s", node.Type),
+					}
 				}
-				return &UnmarshalError{
-					FieldPath: fieldPath,
-					Message:   fmt.Sprintf("expected string for TextUnmarshaler, got %s", node.Type),
-				}
+				return tu.UnmarshalText([]byte(node.String))
 			}
-			return tu.UnmarshalText([]byte(node.String))
 		}
 
 		// Handle null values
@@ -215,7 +220,7 @@ func fromIRReflectWithVisited(node *ir.Node, val reflect.Value, fieldPath string
 	// The pointer branch above already dispatches; without this a value-typed field
 	// (map or struct) with a custom codec is walked structurally on decode — the
 	// exact asymmetry left after item 1 fixed only the encode (ToTonyIR) side.
-	if val.CanAddr() {
+	if val.CanAddr() && declaresMethod(typ, "FromTonyIR") {
 		if m := val.Addr().MethodByName("FromTonyIR"); m.IsValid() {
 			return callFromTonyIR(m, node, opts...)
 		}
@@ -231,7 +236,7 @@ func fromIRReflectWithVisited(node *ir.Node, val reflect.Value, fieldPath string
 	}
 
 	// Check for encoding.TextUnmarshaler for non-pointers (addressable)
-	if val.CanAddr() {
+	if val.CanAddr() && val.Addr().CanInterface() && declaresMethod(typ, "UnmarshalText") {
 		if tu, ok := val.Addr().Interface().(encoding.TextUnmarshaler); ok {
 			if node.Type != ir.StringType {
 				return &UnmarshalError{
@@ -788,64 +793,59 @@ func fromIRToMap(node *ir.Node, val reflect.Value, fieldPath string, visited map
 	return nil
 }
 
-// fromIRToStruct unmarshals an IR object node to a struct value.
-// Embedded structs are handled by flattening (fields are promoted from embedded structs).
-func fromIRToStruct(node *ir.Node, val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...UnmapOption) error {
-	if node.Type != ir.ObjectType {
-		return &UnmarshalError{
-			FieldPath: fieldPath,
-			Message:   fmt.Sprintf("expected object, got %s", node.Type),
-		}
-	}
+// structFieldInfo locates one decodable field, by the full index path reaching it
+// through any embedded structs in between.
+type structFieldInfo struct {
+	index []int // e.g. [0, 1] for embedded struct at index 0, field at index 1
+	field reflect.StructField
+	depth int // 0 for the type's own fields, 1 per embedding hop
+}
 
-	typ := val.Type()
-	// Note: We don't track struct values themselves for cycle detection, only pointers/slices/maps.
-	// A struct value appearing multiple times is not a cycle - only reference types can create cycles.
+// withoutStrict returns opts with Strict() turned back off. Appending wins because
+// options are applied in order.
+func withoutStrict(opts []UnmapOption) []UnmapOption {
+	relaxed := make([]UnmapOption, len(opts), len(opts)+1)
+	copy(relaxed, opts)
+	return append(relaxed, func(cfg *unmapConfig) { cfg.Strict = false })
+}
 
-	// Build a map of struct field names (case-sensitive) to their field indices
-	// For embedded structs, we need to track both the embedded struct index and the field index
-	type fieldInfo struct {
-		index []int // Full index path (e.g., [0, 1] for embedded struct at index 0, field at index 1)
-		field reflect.StructField
-	}
-	structFieldMap := make(map[string]fieldInfo)
+// collectStructFields fills fields with everything typ can decode into, walking
+// embedded structs to any depth so the decode side flattens what the encode side
+// flattened. It records in codecs, rather than descending into, an embedded type
+// that declares a FromTonyIR of its own.
+//
+// Shallower fields win: an embedded field whose name is already claimed from a
+// smaller depth is skipped, as Go shadows a promoted field with a nearer one. Two
+// fields claiming a name at the SAME depth are genuinely ambiguous and are an error.
+func collectStructFields(typ reflect.Type, prefix []int, fields map[string]structFieldInfo, codecs *[][]int, fieldPath string) error {
+	depth := len(prefix)
 
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		if !field.IsExported() {
-			continue
-		}
-		if field.Anonymous {
-			// Handle embedded structs - flatten their fields
-			if field.Type.Kind() == reflect.Struct {
-				embeddedType := field.Type
-				for j := 0; j < embeddedType.NumField(); j++ {
-					embeddedField := embeddedType.Field(j)
-					if !embeddedField.IsExported() || embeddedField.Anonymous {
-						continue
-					}
-					// Check for conflicts
-					if _, exists := structFieldMap[embeddedField.Name]; exists {
-						return &UnmarshalError{
-							FieldPath: fieldPath,
-							Message:   fmt.Sprintf("field name conflict: embedded struct field %q conflicts with existing field", embeddedField.Name),
-						}
-					}
-					// Build full index path: [embeddedStructIndex, embeddedFieldIndex]
-					fullIndex := append(field.Index, embeddedField.Index...)
-					structFieldMap[embeddedField.Name] = fieldInfo{
-						index: fullIndex,
-						field: embeddedField,
-					}
+	claim := func(name string, info structFieldInfo) error {
+		if existing, taken := fields[name]; taken {
+			if existing.depth < info.depth {
+				return nil // shadowed by a nearer field
+			}
+			if existing.depth == info.depth {
+				return &UnmarshalError{
+					FieldPath: fieldPath,
+					Message:   fmt.Sprintf("field name conflict: embedded struct field %q conflicts with existing field", name),
 				}
 			}
+		}
+		fields[name] = info
+		return nil
+	}
+
+	// The type's own fields first, so they shadow anything embedding brings in.
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if field.Anonymous || !field.IsExported() {
 			continue
 		}
 
 		// Get schema field name (from field= tag if present, otherwise struct field name)
 		schemaFieldName := field.Name
-		tag := field.Tag.Get("tony")
-		if tag != "" {
+		if tag := field.Tag.Get("tony"); tag != "" {
 			parsed, err := ParseStructTag(tag)
 			if err == nil {
 				// A field marked omit / - / field=- is not read from the wire (it is
@@ -860,20 +860,93 @@ func fromIRToStruct(node *ir.Node, val reflect.Value, fieldPath string, visited 
 			}
 		}
 
-		structFieldMap[schemaFieldName] = fieldInfo{
-			index: field.Index,
-			field: field,
+		index := append(append([]int(nil), prefix...), field.Index...)
+		info := structFieldInfo{index: index, field: field, depth: depth}
+		if err := claim(schemaFieldName, info); err != nil {
+			return err
 		}
 		// Also allow lookup by struct field name for backwards compatibility
 		if schemaFieldName != field.Name {
-			structFieldMap[field.Name] = fieldInfo{
-				index: field.Index,
-				field: field,
+			if err := claim(field.Name, info); err != nil {
+				return err
 			}
 		}
 	}
 
-	strict := IsStrict(opts...)
+	// Then the embedded ones.
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		// Anonymous non-struct fields carry schema tags, not data.
+		if !field.Anonymous || field.Type.Kind() != reflect.Struct {
+			continue
+		}
+		index := append(append([]int(nil), prefix...), field.Index...)
+
+		// An unexported embedded TYPE contributes its exported fields — reflect will
+		// not let us call a method on a value read out of such a field, so its own
+		// codec is out of reach either way. This is the rule encoding/json uses.
+		if field.IsExported() && declaresMethod(field.Type, "FromTonyIR") {
+			if _, ok := reflect.PointerTo(field.Type).MethodByName("FromTonyIR"); ok {
+				*codecs = append(*codecs, index)
+				continue
+			}
+		}
+		if err := collectStructFields(field.Type, index, fields, codecs, fieldPath); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// fromIRToStruct unmarshals an IR object node to a struct value.
+// Embedded structs are handled by flattening (fields are promoted from embedded structs).
+func fromIRToStruct(node *ir.Node, val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...UnmapOption) error {
+	typ := val.Type()
+
+	if node.Type != ir.ObjectType {
+		// A wrapper around a single embedded type encodes as what it wraps, so it
+		// decodes from it too — the value reaches the embedded field's own codec.
+		if index, wrapper := soleEmbeddedField(typ); wrapper {
+			return fromIRReflectWithVisited(node, val.FieldByIndex(index), fieldPath, visited, opts...)
+		}
+		return &UnmarshalError{
+			FieldPath: fieldPath,
+			Message:   fmt.Sprintf("expected object, got %s", node.Type),
+		}
+	}
+
+	// Note: We don't track struct values themselves for cycle detection, only pointers/slices/maps.
+	// A struct value appearing multiple times is not a cycle - only reference types can create cycles.
+
+	structFieldMap := make(map[string]structFieldInfo)
+	var embeddedCodecs [][]int
+	if err := collectStructFields(typ, nil, structFieldMap, &embeddedCodecs, fieldPath); err != nil {
+		return err
+	}
+
+	// An embedded type with a decoder of its own is handed the WHOLE object. The
+	// encode side merged that type's keys into this one, so they arrive as siblings
+	// of the parent's, and only the embedded codec knows which of them are its —
+	// a hand-written one need not key its wire form off its Go fields at all.
+	// It runs first so the parent's own fields are decoded over the top of it.
+	for _, index := range embeddedCodecs {
+		target := val.FieldByIndex(index)
+		if !target.CanAddr() {
+			return &UnmarshalError{
+				FieldPath: fieldPath,
+				Message:   fmt.Sprintf("embedded %s has a FromTonyIR method but is not addressable", target.Type()),
+			}
+		}
+		if err := callFromTonyIR(target.Addr().MethodByName("FromTonyIR"), node, withoutStrict(opts)...); err != nil {
+			return err
+		}
+	}
+
+	// Strict() reports fields the target type does not declare. An embedded codec
+	// makes that unanswerable — its keys are its own business and are not in
+	// structFieldMap — so a struct that has one is decoded leniently.
+	strict := IsStrict(opts...) && len(embeddedCodecs) == 0
 
 	// Unmarshal each field from IR object
 	for i, fieldNameNode := range node.Fields {
