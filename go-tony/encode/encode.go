@@ -15,8 +15,12 @@ import (
 )
 
 type EncState struct {
-	// atCol0 records that nothing has been written on the current line and that
-	// the line carries no indent either -- the one question writeNL needs answered.
+	// atCol0 records that nothing has been written on the current line -- the one
+	// question writeNL needs answered. It says nothing about whether the line's
+	// indent has been written yet, so writeNL supplies the indent in this state
+	// and only skips the newline; a caller that is at column 0 with the indent
+	// already written must leave this false.
+	//
 	// This replaced a column counter that was maintained at two dozen sites and read
 	// in exactly one, where it was compared against zero. The arithmetic was all in
 	// service of that comparison, and two places wrote bytes without updating it.
@@ -95,10 +99,22 @@ func writeNL(w io.Writer, es *EncState) error {
 	if es.wire {
 		return nil
 	}
+	indentString := strings.Repeat(strings.Repeat(" ", es.indent), es.depth)
 	if es.atCol0 {
+		// Already at column 0, but the indent for this line has not been written:
+		// the newline came from content (a block literal's kept trailing newline,
+		// or an empty line inside raw content) rather than from here. Opening
+		// another line would leave a blank one behind, and skipping outright is
+		// what dropped the indent and let the next key escape its parent.
+		if indentString == "" {
+			return nil
+		}
+		if err := writeString(w, indentString); err != nil {
+			return err
+		}
+		es.atCol0 = false
 		return nil
 	}
-	indentString := strings.Repeat(strings.Repeat(" ", es.indent), es.depth)
 	if err := writeString(w, "\n"+indentString); err != nil {
 		return err
 	}

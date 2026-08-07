@@ -6,8 +6,74 @@ import (
 	"testing"
 
 	"github.com/signadot/tony-format/go-tony/format"
+	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 )
+
+// A "|+" block keeps a trailing newline that the encoder writes itself, leaving
+// the cursor at column 0 with the line's indent unwritten. writeNL used to skip
+// entirely in that state, so the key after such a block came out at column 0 --
+// either making the document unreadable or, when it happened to parse, silently
+// reparenting the key out of the object it belonged to.
+//
+// Every case here is a nested block followed by a sibling, and every one asserts
+// through parse: the string survives byte-exact and the sibling is still where it
+// was put. CRLF is the shape that found this (GitHub's web UI submits it), but it
+// is not about carriage returns -- any content selecting "|+" does it.
+func TestBlockLiteralKeepsSiblingIndent(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"crlf", "a\r\nb\r\n"},
+		{"crlf single line", "a\r\n"},
+		{"lf trailing blank line", "a\nb\n\n"},
+		{"lf trailing space", "a\nb \n"},
+		{"lf plain", "a\nb\n"},
+		{"lf no trailing newline", "a\nb"},
+		{"blank lines within", "a\n\nb\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			node := ir.FromKeyVals([]ir.KeyVal{
+				{Key: ir.FromString("payload"), Val: ir.FromKeyVals([]ir.KeyVal{
+					{Key: ir.FromString("body"), Val: ir.FromString(tc.body)},
+					{Key: ir.FromString("id"), Val: ir.FromInt(2)},
+				})},
+				{Key: ir.FromString("ref"), Val: ir.FromString("x/y#1")},
+			})
+
+			var buf bytes.Buffer
+			if err := Encode(node, &buf, EncodeFormat(format.TonyFormat)); err != nil {
+				t.Fatalf("encode: %v", err)
+			}
+			out := buf.String()
+
+			got, err := parse.Parse([]byte(out))
+			if err != nil {
+				t.Fatalf("encoded document does not parse: %v\noutput: %q", err, out)
+			}
+
+			// GetPath reports a missing path as a nil node with a nil error, so
+			// both have to be checked or a lost key arrives as a panic.
+			body, err := got.GetPath("$.payload.body")
+			if err != nil || body == nil {
+				t.Fatalf("payload.body not found: %v\noutput: %q", err, out)
+			}
+			if body.String != tc.body {
+				t.Errorf("body: got %q, want %q\noutput: %q", body.String, tc.body, out)
+			}
+
+			// The sibling after the block is the one that used to escape.
+			id, err := got.GetPath("$.payload.id")
+			if err != nil || id == nil {
+				t.Fatalf("payload.id not found -- the key escaped its parent: %v\noutput: %q", err, out)
+			}
+			if id.Int64 == nil || *id.Int64 != 2 {
+				t.Errorf("payload.id: got %v, want 2\noutput: %q", id.Int64, out)
+			}
+		})
+	}
+}
 
 func TestMultilineStringWithLineComments(t *testing.T) {
 	// Test parsing and encoding a multiline string with line comments
