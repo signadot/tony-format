@@ -256,12 +256,26 @@ func (ts *TokenSource) handleTokenizeEOF() (bool, error) {
 
 // fillBuffer reads more data into the buffer.
 func (ts *TokenSource) fillBuffer() error {
-	// If buffer is getting large and we've consumed a lot, compact it
+	// If buffer is getting large and we've consumed a lot, compact it.
+	//
+	// Compaction moves to a FRESH array rather than shifting within the current
+	// one. Every Token this source has handed out carries Bytes aliasing the
+	// buffer, and a caller accumulates tokens across many Reads before parsing
+	// them -- ParseNodeFromSource holds a whole node's worth. Shifting in place
+	// rewrote the bytes under those tokens with data from later in the document,
+	// so a document large enough to compact (over two buffers of tokens in one
+	// node) parsed to something other than what was sent: a "bad literal" where
+	// the shifted bytes happened to be unlexable, and silently wrong values where
+	// they happened not to be.
+	//
+	// The old array stays alive exactly as long as the tokens pointing into it,
+	// which is what makes this correct rather than merely lucky, and it is one
+	// allocation per compaction rather than one per token.
 	if ts.bufPos > ts.bufferSize && len(ts.buf) > ts.bufferSize*2 {
-		// Move remaining data to front
 		remaining := ts.buf[ts.bufPos:]
-		copy(ts.buf, remaining)
-		ts.buf = ts.buf[:len(remaining)]
+		compacted := make([]byte, len(remaining), len(remaining)+ts.bufferSize)
+		copy(compacted, remaining)
+		ts.buf = compacted
 		ts.bufStart += int64(ts.bufPos)
 		ts.bufPos = 0
 	}
