@@ -2,7 +2,16 @@ package issuelib
 
 import "io"
 
-// Store defines the interface for issue storage operations.
+// Store is everything git-issue does to a repository. Commands are written
+// against it rather than against git directly, so a test can hand them a store
+// aimed at a scratch repository; GitStore is the only implementation.
+//
+// Methods naming an issue take a full XIDR or any unambiguous prefix of one and
+// search open and closed refs alike, so an ID keeps resolving after the issue
+// closes. Methods naming a ref take the exact ref and do not search.
+//
+// Mutations append a commit to the issue's chain and never rewrite it, so an
+// issue's history survives every edit.
 type Store interface {
 	// NewXIDR generates and returns a new XIDR for a new issue.
 	NewXIDR() string
@@ -23,7 +32,8 @@ type Store interface {
 	// Returns the ref path or error if not found or ambiguous.
 	FindRef(xidrOrPrefix string) (string, error)
 
-	// Update updates an issue's metadata and optionally additional files.
+	// Update commits the issue's metadata forward, along with any extraFiles
+	// keyed by path in the issue tree; paths not named keep their content.
 	// The issue.Ref must be set. The message is used for the commit.
 	Update(issue *Issue, message string, extraFiles map[string]string) error
 
@@ -58,10 +68,11 @@ type Store interface {
 	// GetNotes returns the git notes for a commit.
 	GetNotes(commit string) (string, error)
 
-	// Push pushes refs to a remote.
+	// Push pushes refspecs to a remote. A refspec that fails is reported on
+	// Out and skipped, so one bad ref does not abandon the rest.
 	Push(remote string, refspecs []string) error
 
-	// Fetch fetches refs from a remote.
+	// Fetch fetches refspecs from a remote, skipping failures as Push does.
 	Fetch(remote string, refspecs []string) error
 
 	// VerifyRemote checks if a remote exists.

@@ -61,7 +61,10 @@ func init() {
 	counter = binary.BigEndian.Uint32(b[:])
 }
 
-// NewXID creates a new XID with the given timestamp.
+// NewXID creates an XID stamped with t. The counter advances atomically, so
+// concurrent calls within the same second still differ, and it starts from a
+// random value so two processes that begin at once do not walk the same
+// sequence. Safe for concurrent use.
 func NewXID(t time.Time) XID {
 	var x XID
 

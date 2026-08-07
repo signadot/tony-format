@@ -6,16 +6,16 @@ import (
 	"strings"
 )
 
-// ANSI color codes
+// ANSI color codes used in issue listings. They are written unconditionally;
+// git-issue does not check whether its output is a terminal.
 const (
 	ColorGreen = "\033[32m"
 	ColorGray  = "\033[90m"
 	ColorReset = "\033[0m"
 )
 
-// FormatID formats an issue ID for display.
-// For XIDs (20 chars), returns as-is.
-// For legacy numeric IDs, formats as 6-digit zero-padded string.
+// FormatID renders an issue ID for display. A legacy numeric ID is zero-padded
+// to six digits; anything else, XIDRs included, is returned unchanged.
 func FormatID(id string) string {
 	// If it looks like a legacy numeric ID, format it
 	if _, err := strconv.ParseInt(id, 10, 64); err == nil {
@@ -96,7 +96,9 @@ func StatusColor(status string) string {
 	return ColorGray
 }
 
-// FormatOneLiner formats an issue as a one-line summary.
+// FormatOneLiner renders an issue as the single colored line used by listings.
+// The status comes from the ref the issue was read from when that says closed,
+// which keeps a listing honest about an issue whose meta.tony disagrees.
 func FormatOneLiner(issue *Issue) string {
 	status := issue.Status
 	if IsClosedRef(issue.Ref) {

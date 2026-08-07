@@ -1,376 +1,238 @@
-# Git-Native Issue Tracker Design
+# git-issue design
+
+This is the design of the tracker as built, and the reasoning behind the parts
+that are not obvious. For how to use it, see [README.md](README.md); for the API,
+see the package docs in `issuelib` and `commands`.
 
 ## Goals
 
-1. Track issues/tasks/decisions that span commits and branches
-2. Close issues on commit while keeping them accessible
-3. Link issues to commits/branches (bidirectional)
-4. Organize discussion files and artifacts per issue
-5. No external services, everything in git
+1. Track issues, tasks and decisions that span commits and branches
+2. Keep an issue accessible after it closes, at the same name
+3. Link issues to commits, in both directions
+4. Organize discussion and artifacts per issue
+5. No external service: everything lives in git
 
-## Non-Goals
+## Non-goals
 
-- Issue tracker bridges (GitHub, GitLab, etc)
-- Complex workflows (milestones, sprints, etc)
-- Full-text search
-- Web UI (CLI only for now)
+- Bridges to other trackers (GitHub, GitLab)
+- Milestones, sprints, assignment
+- Full-text search — `git log` and `git grep` reach the objects
+- A writable web UI. `git issue serve` is a read-only viewer, and read-only is a
+  consequence of the sync model rather than a stage on the way to something else;
+  see [Sync](#sync-and-what-it-costs).
 
-## Storage Model
+## Storage model
 
-### Issue Storage
-
-Each issue is stored as a git ref with commit chain:
-
-```
-refs/issues/001      # Open issue
-refs/issues/002      # Another open issue
-refs/closed/003      # Closed issue (still accessible)
-```
-
-Each commit in the chain represents an operation (create, update, link, close):
+An issue is a git ref pointing at a commit chain. The ref namespace carries the
+status:
 
 ```
-refs/issues/001
-  ↓
-Commit: "create: implement streaming processor"
-  Tree:
-    meta.tony
-    description.md
-  ↓
-Commit: "link: abc123def (initial implementation)"
-  Tree:
-    meta.tony         # Updated with commit link
-    description.md
-  ↓
-Commit: "discuss: add integration notes"
-  Tree:
-    meta.tony
-    description.md
-    discussion/
-      2025-12-19-integration.md
-      diagrams/
-        flow.svg
-  ↓
-Commit: "label: add 'streaming' label"
-  Tree:
-    meta.tony
-    description.md
-    labels.tony       # New file
-    discussion/...
+refs/issues/<xidr>    an open issue
+refs/closed/<xidr>    a closed issue
+refs/notes/issues     reverse index, commit -> issue IDs
 ```
 
-### Reverse Index (Commit → Issues)
-
-Use git notes to track which issues link to each commit:
+Each operation appends a commit whose tree is the whole issue:
 
 ```
-refs/notes/issues
-  Notes on commit abc123def: "001 005"
-  Notes on commit def456abc: "003"
+refs/issues/j2dzt7xph12kswa9esn0
+  |
+  create: issue j2dzt7xph12kswa9esn0
+  |   description.md, meta.tony
+  |
+  label: added bug, urgent
+  |   meta.tony updated
+  |
+  link: c477908
+  |   meta.tony updated
+  |
+  comment: a comment
+      discussion/20260807T211114Z-4ca263f7.md added
 ```
 
-### Sequential ID Allocation
+`meta.tony` is generated from the `Issue` struct in `issuelib`, so the on-disk
+schema and the Go type cannot drift; `description.md` and the discussion are
+markdown, written and read by people.
 
-Store next ID in a ref:
+## Decisions
 
-```
-refs/meta/issue-counter → blob "4\n"
-```
+### Refs, not files in the working tree
 
-Increment atomically when creating issues.
+An issue tracked as a file in the tree would be a file in every diff, every
+merge, and every `git status` — issue edits would collide with code review, and
+checking out an old commit would take the issues back in time with it. Under
+`refs/`, issues are in the repository, clone with it and travel over the same
+transport, but they are not in the working tree and never appear in a code diff.
 
-## File Formats
+The cost is that issues do not clone by default: `git clone` fetches `refs/heads`
+and `refs/tags`, so a new clone starts with no issues until `git issue pull`.
 
-### meta.tony
+### A commit chain per issue
 
-```tony
-id: 1
-status: open          # or: closed
-created: 2025-12-19T10:00:00Z
-updated: 2025-12-19T10:00:00Z
-commits: [            # Linked commits (optional)
-  abc123def456
-  def456abc123
-]
-branches: [           # Linked branches (optional)
-  tip/streaming-processor
-]
-closed_by: null       # Commit SHA when closed, or null
-```
+Every mutation appends a commit rather than rewriting the tip, so
+`git log refs/issues/<xidr>` is the issue's history for free — who changed what,
+when — with no separate event log to keep consistent with the state. Commit
+messages name the operation (`link: c477908`, `label: added bug, urgent`), which
+makes the log readable without tooling.
 
-### description.md
+### Status is the namespace
 
-Plain markdown describing the issue:
+Closing moves the ref from `refs/issues/` to `refs/closed/`; the commit chain is
+untouched. Status could have been a field in `meta.tony` alone, but then listing
+open issues would mean reading every issue's metadata, and the field is written
+too. It is written — `meta.tony` has `status` — but where the ref lives is what
+listings believe, because that is what a ref scan can answer cheaply and what
+cannot disagree with itself.
 
-```markdown
-# Implement streaming patch processor
+Because both namespaces are searched on every lookup, an ID keeps resolving after
+the issue closes. A link handed to someone does not rot when the issue is
+finished.
 
-## Context
-Need to apply patches while streaming events without loading full document.
+### XIDR, not a sequential counter
 
-## Approach
-See docs/streaming_patch_processor.md for full design.
-```
+The original design allocated six-digit IDs from `refs/meta/issue-counter`,
+incremented under git's atomic ref update. That is correct within one repository
+and wrong across clones: two people filing an issue offline both allocate
+`000042`, and on sync there is no way to tell the two issues apart — same ID,
+different content, and force-push means one simply disappears.
 
-### labels.tony (optional)
+An XID is 12 bytes — timestamp, machine, process, counter — so it needs no
+coordination. An XIDR is those bytes reversed, and the reversal is the point:
+counter and machine bytes come first, so the three or four characters a person
+types are already the part that varies. Unreversed, every issue filed in the same
+second shares its leading characters and no short prefix resolves.
 
-```tony
-labels: [
-  bug
-  performance
-  streaming
-]
-```
+Prefix lookup is therefore the normal way to name an issue, and an ambiguous
+prefix is an error rather than a guess.
 
-### discussion/ directory (optional)
+### Content-addressed comment names
 
-Arbitrary files organized by date or topic:
+Comments were `discussion/001.md`, `002.md`, numbered by counting the files
+already present. Two clones each adding a comment both wrote `003.md`; sync kept
+one and dropped the other, silently, because both sides had a file at that path.
+The count also skewed whenever an attachment was present.
 
-```
-discussion/
-  2025-12-19-initial-thoughts.md
-  2025-12-20-integration-notes.md
-  2025-12-21-performance-results.tony
-  diagrams/
-    architecture.svg
-    flow.png
-```
+The name is now `discussion/<timestamp>-<hash>.md`, where the hash is over the
+comment's own bytes. Two different comments cannot collide; two identical ones
+collapse, which is the right answer. The timestamp keeps names sorting
+chronologically, but `show` sorts on the timestamp *inside* each comment, so a
+renamed or hand-written file still lands in the right place.
 
-## Commands
+`git issue migrate-comments` converts the old names. It appends a commit rather
+than rewriting history, but that commit replaces the issue's tree wholesale, so
+it is dry-run by default and stashes each ref it touches under
+`refs/issue-backup/<ts>/` first.
 
-### Create Issue
+### Labels in `meta.tony`, not `labels.tony`
 
-```bash
-git issue create "Implement streaming processor"
-# Creates refs/issues/001 with initial commit
-# Opens editor for description
-# Increments issue counter
-```
+The original design gave labels their own file. A second file means a second
+parse, a second write path, and two documents that can disagree about which issue
+they belong to. Labels are a small list of short strings — they belong in the
+metadata document with everything else, and `list --label` gets them from the
+same read that produced the issue.
 
-### List Issues
+### Plumbing over a temporary index
 
-```bash
-git issue list
-# Lists open issues, sorted by updated (newest first)
+Writes go through `hash-object`, `mktree`/`update-index`, `commit-tree` and
+`update-ref`, with `GIT_INDEX_FILE` pointed at a temporary file. Nothing touches
+the caller's index or working tree, so filing an issue in the middle of a messy
+edit is safe, and no operation needs a clean tree to run.
 
-git issue list --all
-# Includes closed issues
+### Read-only `serve`
 
-git issue list --label streaming
-# Filter by label
-```
+`serve` exists because nothing else in the tool can hand someone a link. It reads;
+it does not write. See [Sync](#sync-and-what-it-costs) — a second writer racing
+the CLI would silently drop whichever update lost, and no amount of care in the
+HTTP layer fixes that. Markdown is rendered with goldmark's default (safe)
+renderer, since issue text is attacker-controlled in the sense that matters:
+served from the same origin as everything else.
 
-### Show Issue
+There is no authentication and should not be; the default bind is loopback.
 
-```bash
-git issue show 001
-# Displays:
-# - meta.tony content
-# - description.md
-# - labels (if any)
-# - discussion/ tree
-# - linked commits/branches
-```
+## Sync, and what it costs
 
-### Link Issue to Commit
-
-```bash
-git issue link 001 abc123def
-# Adds commit to meta.tony commits list
-# Adds issue to git notes for that commit
-# Creates new commit in issue chain
-
-git issue link 001 --branch tip/streaming
-# Links to branch
-```
-
-### Add Discussion
-
-```bash
-git issue discuss 001 notes.md
-# Prompts for content or reads from file
-# Adds to discussion/ directory
-# Creates new commit in issue chain
-
-git issue discuss 001 --file diagrams/flow.svg
-# Adds binary file
-```
-
-### Label Issue
-
-```bash
-git issue label 001 streaming performance
-# Sets labels in labels.tony
-# Creates new commit in issue chain
-
-git issue label 001 --remove bug
-# Removes label
-```
-
-### Close Issue
-
-```bash
-git issue close 001
-# Moves ref: refs/issues/001 → refs/closed/001
-# Updates meta.tony status to closed
-# Optionally records closing commit
-
-git issue close 001 --commit def456abc
-# Records which commit closed it
-```
-
-### Reopen Issue
-
-```bash
-git issue reopen 001
-# Moves ref: refs/closed/001 → refs/issues/001
-# Updates meta.tony status to open
-```
-
-### Query by Commit
-
-```bash
-git issue for-commit abc123def
-# Uses git notes to find linked issues
-# Shows issue summaries
-```
-
-## Commit Message Integration
-
-Support auto-closing issues via commit message patterns:
-
-```bash
-git commit -m "Implement streaming processor
-
-Closes #001
-See #005"
-
-# Hook detects patterns:
-# - "Closes #NNN" → closes issue NNN
-# - "See #NNN" → links to issue NNN (doesn't close)
-```
-
-Hook location: `.git/hooks/post-commit`
-
-## Implementation Notes
-
-### Concurrency
-
-Issue creation requires atomic ID allocation:
-- Read refs/meta/issue-counter
-- Increment
-- Create refs/issues/NNN
-- Update counter
-
-Use git's atomic ref updates to handle races.
-
-### Merging
-
-When pulling/merging:
-- Issue refs merge like branches (git handles this)
-- Git notes have built-in merge strategy
-- Manual conflict resolution if needed
-
-### Remote Sharing
-
-Push/pull issues to remotes:
-
-```bash
-git push origin 'refs/issues/*' 'refs/closed/*' 'refs/notes/issues'
-git fetch origin 'refs/issues/*:refs/issues/*' 'refs/notes/issues:refs/notes/issues'
-```
-
-Can add to `.git/config`:
+`push` and `pull` move refs with force refspecs:
 
 ```
-[remote "origin"]
-  fetch = +refs/issues/*:refs/issues/*
-  fetch = +refs/closed/*:refs/closed/*
-  fetch = +refs/notes/issues:refs/notes/issues
-  push = refs/issues/*
-  push = refs/closed/*
-  push = refs/notes/issues
++refs/issues/*:refs/issues/*
++refs/closed/*:refs/closed/*
++refs/notes/issues:refs/notes/issues
 ```
 
-### Storage Size
+Force is what makes the model work at all: two clones that both edited an issue
+have divergent chains, and without force neither could push. With it, the last
+writer wins — the loser's commits remain in the object store but drop off the
+ref, recoverable only by someone who knows to go looking in the reflog.
 
-Each issue is a commit chain. Small metadata changes create small commits.
-Discussion files are stored as blobs (deduplicated by git).
-Efficient for typical usage (dozens to hundreds of issues).
+The same applies in reverse, which is the part that surprises people: `pull`
+force-fetches, so a local issue that diverged from the remote is reset to the
+remote's version. Comment locally, don't push, then pull, and the comment is off
+the ref.
 
-## Tool Integration
+For the way this is used — one person editing an issue at a time, pushing when
+they are done — that has been acceptable. It is still the single largest thing
+wrong with the design, and everything else marked "read-only" or "one at a time"
+in this document is downstream of it.
 
-### As Go Tool Dependency
+The notes ref is the sharper edge: `refs/notes/issues` is one ref for the whole
+repository, so force-pushing it replaces the remote's entire reverse index. A
+link made in another clone and not yet fetched is dropped from the remote ref by
+the next `push --all`. The issue itself still lists the commit — only the
+commit → issue direction is lost, and `git issue link` again restores it.
 
-In `tools.go`:
+Fixing this properly means real merge semantics for issue refs: a three-way merge
+over `meta.tony` (the list fields union cleanly; `status` and `closed_by` need a
+rule) and a union merge for notes, which git already supports via
+`notes.mergeStrategy`. That work would also unlock a writable `serve`.
 
-```go
-//go:build tools
+`pull` does one small repair: an issue that arrives in both namespaces is
+resolved by keeping whichever ref has more history, or the closed one if neither
+descends from the other.
 
-package tools
+## Designed but not built
 
-import (
-	_ "github.com/signadot/tony-format/go-tony/cmd/git-issue"
-)
-```
+From the original design, still absent:
 
-Install with:
+- **Commit-message integration.** `Closes #NNN` / `See #NNN` parsed by a
+  `post-commit` hook. Nothing installs a hook and nothing parses commit messages;
+  linking and closing are explicit commands. The XIDR makes the syntax less
+  attractive than it looked with short numeric IDs.
+- **Branch linking.** `meta.tony` has a `branches` field and `show` prints it,
+  but no command writes it.
+- **`git issue discuss`.** Split into `comment` (text) and `attach` (files), which
+  are different enough operations to want different arguments.
+- **Merging issue refs.** The original design assumed "issue refs merge like
+  branches (git handles this)". They do not: git can merge them, but nothing
+  invokes it, and the transport is force-push. See above.
 
-```bash
-go install github.com/signadot/tony-format/go-tony/cmd/git-issue
-# Now available as: git-issue or git issue
-```
+## Changes from the original design
 
-### Git Alias
+| Original | Now | Why |
+|---|---|---|
+| `refs/issues/001`, counter ref | `refs/issues/<xidr>` | counters cannot be allocated offline |
+| `labels.tony` | `labels` in `meta.tony` | one document, one write path |
+| `discussion/<date>-<topic>.md`, hand-named | `discussion/<ts>-<hash>.md` | names that cannot collide on sync |
+| `git issue discuss` | `comment`, `attach` | different inputs, different commands |
+| `git issue label --remove` | `git issue unlabel` | reads better, parses simpler |
+| Hook-driven `Closes #NNN` | explicit `close`, `link` | never built |
+| "Web UI: non-goal" | read-only `serve` | a link to an issue is worth having |
 
-Git automatically finds executables named `git-*` on PATH:
+## Known defects
 
-```bash
-git issue list
-# Calls: git-issue list
-```
-
-## Example Workflow
-
-```bash
-# Create issue
-git issue create "Implement streaming processor"
-# Creates refs/issues/001
-
-# Work on feature
-git checkout -b tip/streaming
-# ... make changes ...
-git commit -m "Initial streaming processor implementation
-
-See #001"
-# Hook links commit to issue 001
-
-# Add discussion notes
-git issue discuss 001 <<EOF
-## Integration Notes
-The event collection logic is tricky - see streaming_processor_integration.md
-EOF
-
-# Add label
-git issue label 001 streaming
-
-# Complete implementation
-git commit -m "Complete streaming processor
-
-Closes #001"
-# Hook closes issue, moves to refs/closed/001
-
-# Later: find issues for a commit
-git issue for-commit abc123
-# Shows: Issue #001: Implement streaming processor (closed)
-
-# View closed issue
-git issue show 001
-# Still accessible even though closed
-```
+- **No merge for issue refs.** The one described above, and the root of most of
+  the rest.
+- **`git issue migrate` is not idempotent.** It re-identifies every issue it
+  finds rather than only the legacy-numeric ones, so a second run mints fresh
+  XIDRs for issues that already had them and every ID recorded elsewhere stops
+  resolving. Filtering on `IsLegacyRef` would fix it.
+- **Colors are unconditional.** Listings write ANSI escapes whether or not the
+  output is a terminal, so piping to a file captures them.
+- **One repository per process.** `GitStore` drives the git binary in the
+  process's working directory and holds no path of its own, which is why the
+  tests must not run in parallel.
 
 ## Status
 
-- Design: Complete
-- Implementation: In progress
-- Location: `cmd/git-issue/`
+Implemented and in use. `refs/meta/issue-counter` no longer allocates anything;
+`push` and `pull` still carry its refspec, harmlessly, for repositories that
+still have the ref.

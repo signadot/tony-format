@@ -7,15 +7,26 @@ import (
 	"strings"
 )
 
-// EditInEditor opens the user's preferred editor with initial content
-// and returns the edited content. Returns error if editor exits non-zero
-// or if the content is empty/unchanged.
+// EditInEditor opens the user's editor on initialContent and returns what they
+// wrote, in the current working directory. See EditInEditorWithDir.
 func EditInEditor(initialContent string) (string, error) {
 	return EditInEditorWithDir(initialContent, "")
 }
 
-// EditInEditorWithDir opens the editor with a specific working directory.
-// If workDir is empty, uses the current directory.
+// EditInEditorWithDir opens the user's editor -- $VISUAL, else $EDITOR, else the
+// first of vim, vi or nano on PATH -- on a temporary file holding
+// initialContent, and returns the result once the editor exits. It errors if the
+// editor exits non-zero; an empty result is not an error, and callers that
+// require text are expected to reject it themselves.
+//
+// Lines whose first non-space character is "#" are stripped, so a prompt can
+// carry instructions the user does not have to delete. The result is then
+// trimmed. Note that this takes markdown ATX headings with it: text that must
+// survive cannot start a line with "#".
+//
+// The editor runs in workDir when it is set, which is how commands hand it a
+// directory of context -- an exported copy of the issue -- for the user to read
+// from inside the editor. An empty workDir leaves the process's own.
 func EditInEditorWithDir(initialContent, workDir string) (string, error) {
 	// Create temp file
 	tmpFile, err := os.CreateTemp("", "git-issue-*.md")
@@ -67,7 +78,7 @@ func EditInEditorWithDir(initialContent, workDir string) (string, error) {
 	return result, nil
 }
 
-// getEditor returns the user's preferred editor
+// getEditor returns the user's preferred editor, falling back to vi.
 func getEditor() string {
 	if editor := os.Getenv("VISUAL"); editor != "" {
 		return editor

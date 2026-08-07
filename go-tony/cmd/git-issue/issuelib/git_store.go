@@ -13,33 +13,47 @@ import (
 	"github.com/signadot/tony-format/go-tony/parse"
 )
 
-// GitStore implements Store using git refs and objects.
+// GitStore implements Store on git refs and objects.
+//
+// It works by driving the git binary -- plumbing commands (hash-object, mktree,
+// commit-tree, update-ref) over a temporary index, so writing an issue never
+// touches the caller's index or working tree, and a repository with uncommitted
+// work is a fine place to file one. Nothing is cached: each call asks git.
+//
+// The repository is the git binary's own choice of one, meaning the process's
+// working directory. A GitStore holds no path, so a test selects its repository
+// with t.Chdir and callers must not run two against different repositories
+// concurrently.
 type GitStore struct {
 	out io.Writer
 }
 
-// NewGitStore creates a new GitStore.
+// NewGitStore creates a GitStore that reports warnings on stdout.
 func NewGitStore() *GitStore {
 	return &GitStore{out: os.Stdout}
 }
 
-// NewGitStoreWithOutput creates a GitStore with custom output.
+// NewGitStoreWithOutput creates a GitStore writing its warnings to out.
 func NewGitStoreWithOutput(out io.Writer) *GitStore {
 	return &GitStore{out: out}
 }
 
+// Out returns the writer the store reports warnings on.
 func (s *GitStore) Out() io.Writer {
 	return s.out
 }
 
-// NewXIDR generates a new XIDR (reversed XID) for the current time.
-// Returns the XIDR string for storage and display.
+// NewXIDR mints an XIDR for the current time. It allocates nothing in the
+// repository -- uniqueness comes from the XID itself, not from a counter ref
+// that two clones would have to agree on.
 func (s *GitStore) NewXIDR() string {
 	xid := NewXID(time.Now())
 	return xid.XIDR()
 }
 
-// Create creates a new issue.
+// Create writes a new open issue: a root commit holding description.md and
+// meta.tony, and refs/issues/<xidr> pointing at it. The returned Issue has its
+// ID and Ref filled in.
 func (s *GitStore) Create(title, description string) (*Issue, error) {
 	xidr := s.NewXIDR()
 
@@ -107,7 +121,8 @@ func (s *GitStore) Create(title, description string) (*Issue, error) {
 	return issue, nil
 }
 
-// Get retrieves an issue by XID or XID prefix.
+// Get retrieves an issue by XIDR or XIDR prefix, open or closed, and returns it
+// with the text of its description.
 func (s *GitStore) Get(xidOrPrefix string) (*Issue, string, error) {
 	ref, err := s.FindRef(xidOrPrefix)
 	if err != nil {
@@ -116,7 +131,9 @@ func (s *GitStore) Get(xidOrPrefix string) (*Issue, string, error) {
 	return s.GetByRef(ref)
 }
 
-// GetByRef retrieves an issue by ref.
+// GetByRef reads the issue at ref and the text of its description. Ref and
+// Title are derived here rather than read from meta.tony: Ref is where the issue
+// was found, Title the first line of description.md with any "# " stripped.
 func (s *GitStore) GetByRef(ref string) (*Issue, string, error) {
 	// Read meta.tony
 	metaCmd := exec.Command("git", "show", ref+":meta.tony")
@@ -206,7 +223,11 @@ func (s *GitStore) FindRef(xidrOrPrefix string) (string, error) {
 	return matches[0], nil
 }
 
-// Update updates an issue's metadata.
+// Update commits issue.Ref forward with a rewritten meta.tony and any
+// extraFiles, each keyed by its path in the issue tree. Paths not mentioned keep
+// the content they had, and issue.Updated is stamped as a side effect. The
+// issue's Ref must be set, which it is for anything that came out of Get,
+// GetByRef, List or Create.
 func (s *GitStore) Update(issue *Issue, message string, extraFiles map[string]string) error {
 	if issue.Ref == "" {
 		return fmt.Errorf("issue ref not set")
@@ -228,7 +249,8 @@ func (s *GitStore) Update(issue *Issue, message string, extraFiles map[string]st
 	return s.updateCommit(issue.Ref, message, updates)
 }
 
-// updateCommit adds a new commit to an issue chain.
+// updateCommit adds a commit to an issue chain, carrying the previous tree
+// forward through a temporary index and overwriting only the given paths.
 func (s *GitStore) updateCommit(ref, message string, updates map[string]string) error {
 	// Get current commit
 	showCmd := exec.Command("git", "show-ref", ref)
@@ -292,7 +314,9 @@ func (s *GitStore) updateCommit(ref, message string, updates map[string]string) 
 	return nil
 }
 
-// List returns all issues.
+// List returns the open issues, or every issue when includeAll is set. An issue
+// whose tree cannot be read is skipped rather than failing the listing, so one
+// damaged ref does not hide the rest.
 func (s *GitStore) List(includeAll bool) ([]*Issue, error) {
 	refs, err := s.ListRefs(includeAll)
 	if err != nil {
@@ -311,7 +335,8 @@ func (s *GitStore) List(includeAll bool) ([]*Issue, error) {
 	return issues, nil
 }
 
-// ListRefs returns all issue refs.
+// ListRefs returns the refs under refs/issues/, plus refs/closed/ when
+// includeAll is set.
 func (s *GitStore) ListRefs(includeAll bool) ([]string, error) {
 	patterns := []string{"refs/issues/*"}
 	if includeAll {
@@ -337,7 +362,8 @@ func (s *GitStore) ListRefs(includeAll bool) ([]string, error) {
 	return allRefs, nil
 }
 
-// MoveRef moves an issue from one ref to another.
+// MoveRef repoints to at from's commit and deletes from. This is how an issue
+// changes status: the commit chain is untouched, only the namespace changes.
 func (s *GitStore) MoveRef(from, to string) error {
 	// Get current commit SHA
 	showCmd := exec.Command("git", "show-ref", from)
@@ -362,7 +388,8 @@ func (s *GitStore) MoveRef(from, to string) error {
 	return nil
 }
 
-// ReadFile reads a file from an issue's tree.
+// ReadFile returns the bytes of path within ref's tree, or an error if there is
+// no such file.
 func (s *GitStore) ReadFile(ref, path string) ([]byte, error) {
 	cmd := exec.Command("git", "show", ref+":"+path)
 	return cmd.Output()
@@ -378,7 +405,10 @@ func (s *GitStore) GetRefCommit(ref string) (string, error) {
 	return strings.Fields(string(out))[0], nil
 }
 
-// GetCommitInfo returns the short commit info.
+// GetCommitInfo returns the commit's "git log --oneline" line. A commit that is
+// not in this repository -- an issue can outlive the branch its commits were on
+// -- degrades to the abbreviated SHA rather than an error, so listings still
+// have something to print.
 func (s *GitStore) GetCommitInfo(sha string) (string, error) {
 	cmd := exec.Command("git", "log", "-1", "--oneline", sha)
 	out, err := cmd.Output()
@@ -388,7 +418,9 @@ func (s *GitStore) GetCommitInfo(sha string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// VerifyCommit verifies a commit exists.
+// VerifyCommit resolves any commit-ish -- "HEAD", a branch, an abbreviated SHA
+// -- to a full SHA, erroring if it names nothing. Commits are recorded on issues
+// in resolved form so the reference stays meaningful after the branch moves.
 func (s *GitStore) VerifyCommit(commit string) (string, error) {
 	cmd := exec.Command("git", "rev-parse", "--verify", commit)
 	out, err := cmd.Output()
@@ -398,7 +430,10 @@ func (s *GitStore) VerifyCommit(commit string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// AddNote adds a git note to a commit.
+// AddNote records content in the commit's note under refs/notes/issues, which
+// is the reverse index that answers "which issues mention this commit". It
+// appends to an existing note and is idempotent: content already present as a
+// line is not added twice.
 func (s *GitStore) AddNote(commit, content string) error {
 	// Check if note exists
 	checkCmd := exec.Command("git", "notes", "--ref=refs/notes/issues", "show", commit)
@@ -422,7 +457,8 @@ func (s *GitStore) AddNote(commit, content string) error {
 	return addCmd.Run()
 }
 
-// GetNotes returns the git notes for a commit.
+// GetNotes returns the commit's refs/notes/issues note, one issue ID per line.
+// A commit with no note is an error, not an empty string.
 func (s *GitStore) GetNotes(commit string) (string, error) {
 	cmd := exec.Command("git", "notes", "--ref=refs/notes/issues", "show", commit)
 	out, err := cmd.Output()
@@ -432,7 +468,15 @@ func (s *GitStore) GetNotes(commit string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// Push pushes refs to a remote.
+// Push pushes each refspec to the remote in turn. A refspec that fails is
+// reported on Out and skipped rather than returned as an error, so one
+// unpushable issue does not abandon the rest; a refspec matching nothing locally
+// is not worth mentioning and stays quiet.
+//
+// Callers pass force refspecs ("+src:dst"). Issue refs are rewritten in place by
+// migrations and moved between namespaces on close, so a non-force push would
+// reject exactly the updates that need to travel. The cost is that the last
+// writer of an issue wins; see the commands package.
 func (s *GitStore) Push(remote string, refspecs []string) error {
 	for _, refspec := range refspecs {
 		cmd := exec.Command("git", "push", remote, refspec)
@@ -446,7 +490,9 @@ func (s *GitStore) Push(remote string, refspecs []string) error {
 	return nil
 }
 
-// Fetch fetches refs from a remote.
+// Fetch fetches each refspec from the remote, warning on Out and continuing
+// when one fails, as Push does. A refspec the remote does not have is silently
+// skipped: a repository with no closed issues yet is not an error.
 func (s *GitStore) Fetch(remote string, refspecs []string) error {
 	for _, refspec := range refspecs {
 		cmd := exec.Command("git", "fetch", remote, refspec)
@@ -469,12 +515,15 @@ func (s *GitStore) VerifyRemote(remote string) error {
 	return nil
 }
 
-// GetTree reads the tree for a ref and returns entries.
+// GetTree lists the top level of an issue's tree, in ListDir's format.
 func (s *GitStore) GetTree(ref string) (map[string]string, error) {
 	return s.ListDir(ref, "")
 }
 
-// ReplaceTree replaces the entire tree with new files and creates a commit.
+// ReplaceTree commits ref forward with a tree built from files alone. Unlike
+// Update, nothing is carried over: a path absent from files is gone from the new
+// tree, which is what a rewrite such as migration wants and what an ordinary
+// edit does not. The old tree stays reachable through the commit's parent.
 func (s *GitStore) ReplaceTree(ref, message string, files map[string][]byte) error {
 	// Get current commit as parent
 	showCmd := exec.Command("git", "show-ref", ref)
@@ -596,7 +645,10 @@ func (s *GitStore) isAncestor(ancestor, descendant string) bool {
 	return cmd.Run() == nil
 }
 
-// ListDir lists directory contents at a path within a ref.
+// ListDir lists one level of an issue tree: the entries directly under path
+// within ref, or the tree root when path is empty. Each entry maps its name to
+// "type:hash", e.g. "blob:abc123" or "tree:def456", so a caller can tell a file
+// from a subdirectory without a second lookup.
 func (s *GitStore) ListDir(ref, path string) (map[string]string, error) {
 	target := ref
 	if path != "" {

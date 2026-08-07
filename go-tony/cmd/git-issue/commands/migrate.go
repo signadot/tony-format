@@ -19,7 +19,15 @@ type migrateConfig struct {
 	DryRun bool `cli:"name=dry-run aliases=n desc='show what would be done without making changes'"`
 }
 
-// MigrateCommand returns the migrate subcommand.
+// MigrateCommand rewrites issues from the original six-digit numeric IDs to
+// XIDRs: each issue is rebuilt under its new ref with the whole tree copied
+// across, cross-references between issues are translated, the refs/notes/issues
+// reverse index is rewritten, and the old ref is deleted.
+//
+// It is not idempotent. It migrates every issue it finds rather than only the
+// legacy ones, so a second run mints fresh XIDRs for issues that already had
+// them and every ID recorded elsewhere -- links, notes, anything a person wrote
+// down -- stops resolving. Run it with --dry-run first, and run it once.
 func MigrateCommand(store issuelib.Store) *cli.Command {
 	cfg := &migrateConfig{store: store}
 	opts, _ := cli.StructOpts(cfg)
