@@ -17,6 +17,33 @@ func mustParseNode(t *testing.T, s string) *ir.Node {
 	return n
 }
 
+// leftover reports what a round trip failed to reproduce, ignoring presentation.
+//
+// Presentation tags -- !bracket and friends -- record how a value was WRITTEN, and
+// ir/tags.go names them a category that "patching, raw matching" drop first: an object
+// a patch introduces onto an absent document comes back without the braces the patch
+// was written with. That is the same normalization logd's own snapshot round trip
+// asserts (snapshot_test compares against a node with its formatting tag cleared). So
+// a presentation-only difference is not a failure of the diff to carry the data, and
+// this compares what the data is.
+func leftover(a, b *ir.Node) *ir.Node {
+	return Diff(stripPresentationDeep(a.Clone()), stripPresentationDeep(b.Clone()))
+}
+
+func stripPresentationDeep(n *ir.Node) *ir.Node {
+	if n == nil {
+		return nil
+	}
+	n.Tag = ir.StripPresentation(n.Tag)
+	for _, f := range n.Fields {
+		stripPresentationDeep(f)
+	}
+	for _, v := range n.Values {
+		stripPresentationDeep(v)
+	}
+	return n
+}
+
 // TestDiffKeyedArray exercises diffArray's keyed branch, which is taken only when BOTH
 // sides carry !key(f) with the same field. Equal lists are the ordinary case there and
 // used to panic: the keyed diff indexed a nil result.
@@ -100,33 +127,59 @@ func TestPatchKeyedDiffRoundTrip(t *testing.T) {
 		// Element ORDER within the list is a different matter and is preserved, so the
 		// cases above still pin it: a diff that reordered elements would leave a
 		// difference here.
-		if left := Diff(got, to); left != nil {
+		if left := leftover(got, to); left != nil {
 			t.Errorf("round trip left a difference\n from: %s\n   to: %s\n  remaining: %s",
 				tc.from, tc.to, encode.MustString(left))
 		}
 	}
 }
 
-// TestDiffKeyedArrayNestedKeyField records a keyed diff whose key field is a PATH, not
-// a plain field name. DiffArrayByKey puts the key back with resMap[key] = keyVal, and
-// key here is "meta.name", so the rebuilt element carries one flat field literally
-// named "meta.name" instead of a nested meta: {name: ...}. Patching then fails: the
-// element has no meta.name to merge by, as the error says while listing "meta.name"
-// among the fields it does have.
-//
-// Nested key fields are supported elsewhere -- ir.ElemKey and Node.KeyField resolve
-// !key(meta.name) -- so this is the diff side falling behind, not a limit of the form.
+// TestDiffKeyedArrayNestedKeyField covers a key field that is a PATH rather than a
+// plain field name. Both readers of a key resolve one -- ir.ElemKey and YKeyOf's
+// GetPath -- so the diff has to put it back the same shape it read it from, nested
+// rather than as a flat field literally named "meta.name".
 func TestDiffKeyedArrayNestedKeyField(t *testing.T) {
-	t.Skip("keyed diff flattens a nested key field; see comment above")
-
-	from := mustParseNode(t, `!key(meta.name) [{meta: {name: "a"}, v: 1}]`)
-	to := mustParseNode(t, `!key(meta.name) [{meta: {name: "a"}, v: 2}]`)
-	d := Diff(from, to)
-	got, err := Patch(from, d)
-	if err != nil {
-		t.Fatalf("Patch: %v", err)
-	}
-	if left := Diff(got, to); left != nil {
-		t.Errorf("round trip left: %s", encode.MustString(left))
+	for _, tc := range []struct {
+		name     string
+		from, to string
+	}{
+		{"value changed",
+			`!key(meta.name) [{meta: {name: "a"}, v: 1}]`,
+			`!key(meta.name) [{meta: {name: "a"}, v: 2}]`},
+		{"sibling under the key's own parent changed",
+			`!key(meta.name) [{meta: {name: "a", rev: 1}, v: 1}]`,
+			`!key(meta.name) [{meta: {name: "a", rev: 2}, v: 1}]`},
+		{"element added",
+			`!key(meta.name) [{meta: {name: "a"}, v: 1}]`,
+			`!key(meta.name) [{meta: {name: "a"}, v: 1}, {meta: {name: "b"}, v: 2}]`},
+		{"element removed",
+			`!key(meta.name) [{meta: {name: "a"}, v: 1}, {meta: {name: "b"}, v: 2}]`,
+			`!key(meta.name) [{meta: {name: "a"}, v: 1}]`},
+		{"three levels deep",
+			`!key(a.b.name) [{a: {b: {name: "x"}}, v: 1}]`,
+			`!key(a.b.name) [{a: {b: {name: "x"}}, v: 2}]`},
+		{"unchanged",
+			`!key(meta.name) [{meta: {name: "a"}, v: 1}]`,
+			`!key(meta.name) [{meta: {name: "a"}, v: 1}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			from, to := mustParseNode(t, tc.from), mustParseNode(t, tc.to)
+			d := Diff(from, to)
+			if d == nil {
+				// No change: nothing to apply, and nothing to check beyond that.
+				if left := Diff(from, to); left != nil {
+					t.Fatalf("Diff disagreed with itself")
+				}
+				return
+			}
+			got, err := Patch(from, d)
+			if err != nil {
+				t.Fatalf("Patch(%s, %s): %v", tc.from, encode.MustString(d), err)
+			}
+			if left := leftover(got, to); left != nil {
+				t.Errorf("round trip left a difference\n from: %s\n   to: %s\n diff: %s\n left: %s",
+					tc.from, tc.to, encode.MustString(d), encode.MustString(left))
+			}
+		})
 	}
 }

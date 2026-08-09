@@ -83,7 +83,9 @@ func DiffArrayByKey(from, to *ir.Node, key string, df DiffFunc) (*ir.Node, error
 		} else {
 			keyVal.Tag = fkvTag
 		}
-		resMap[key] = keyVal
+		if err := placeKey(resMap, key, keyVal); err != nil {
+			return nil, err
+		}
 		item := ir.FromMap(resMap)
 		item.Tag = v.Tag
 		resItems[i] = item
@@ -99,6 +101,69 @@ func DiffArrayByKey(from, to *ir.Node, key string, df DiffFunc) (*ir.Node, error
 		return res.WithTag(MakeTagDiff(from.Tag, to.Tag)), nil
 	}
 	res.Tag = from.Tag
+	return res, nil
+}
+
+// placeKey puts a rebuilt element's key back where the key field says it lives.
+//
+// The key field is a PATH, not just a field name: !key(meta.name) is legal, and both
+// readers of a key -- ir.ElemKey and YKeyOf's GetPath -- resolve it as one. Writing it
+// as a single flat field named "meta.name" therefore produced an element whose own key
+// no one could find, and a patch carrying it failed with "no meta.name to merge by"
+// while listing "meta.name" among the fields it had.
+//
+// The element's diff may already hold part of that path, when a sibling under the same
+// parent also changed, so each level merges into what is there rather than replacing it.
+func placeKey(resMap map[string]*ir.Node, key string, keyVal *ir.Node) error {
+	p, err := ir.ParsePath("$." + key)
+	if err != nil {
+		return err
+	}
+	if p == nil || p.Field == nil {
+		return fmt.Errorf("key %q does not name a field", key)
+	}
+	if p.Next == nil {
+		resMap[*p.Field] = keyVal
+		return nil
+	}
+	child, err := placeKeyIn(resMap[*p.Field], p.Next, keyVal, key)
+	if err != nil {
+		return err
+	}
+	resMap[*p.Field] = child
+	return nil
+}
+
+// placeKeyIn returns node with keyVal placed at p inside it, building the objects the
+// diff does not already have. A non-object already sitting on the path is reported
+// rather than overwritten: the key would be unreachable either way, and saying so beats
+// discarding whatever the diff meant to say there.
+func placeKeyIn(node *ir.Node, p *ir.Path, keyVal *ir.Node, key string) (*ir.Node, error) {
+	if p.Field == nil {
+		return nil, fmt.Errorf("key %q: only field segments can be rebuilt", key)
+	}
+	var m map[string]*ir.Node
+	switch {
+	case node == nil:
+		m = map[string]*ir.Node{}
+	case node.Type == ir.ObjectType:
+		m = ir.ToMap(node)
+	default:
+		return nil, fmt.Errorf("key %q: cannot place it under a %s", key, node.Type)
+	}
+	if p.Next == nil {
+		m[*p.Field] = keyVal
+	} else {
+		child, err := placeKeyIn(m[*p.Field], p.Next, keyVal, key)
+		if err != nil {
+			return nil, err
+		}
+		m[*p.Field] = child
+	}
+	res := ir.FromMap(m)
+	if node != nil {
+		res.Tag = node.Tag
+	}
 	return res, nil
 }
 
