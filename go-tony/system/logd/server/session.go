@@ -358,9 +358,16 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 		return
 	}
 
-	// Extract value at path
+	// Extract value at path. A bad segment is the client's path being wrong, not
+	// its data being missing: reporting it as not-found reads as "nothing there
+	// yet" and invites a retry that can never succeed.
 	state, err := extractPathValue(doc, path)
 	if err != nil {
+		var pe *PathError
+		if errors.As(err, &pe) && pe.Kind == PathBadSegment {
+			s.sendError(id, api.ErrCodeInvalidPath, err.Error())
+			return
+		}
 		if errors.Is(err, ErrPathNotFound) {
 			s.sendError(id, api.ErrCodeNotFound, err.Error())
 			return
@@ -697,6 +704,12 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 		}
 	}
 
+	// A watch whose path has no value yet is the ordinary way to start watching
+	// something that does not exist. Say it once, quietly, and say so again when
+	// it arrives: the pair is a story an operator can follow, where the same line
+	// repeated per event is just an alarm they learn to ignore.
+	absent := &watchAbsence{log: s.log, path: path}
+
 	// Send initial state unless noInit is set
 	if !noInit {
 		var state *ir.Node
@@ -711,12 +724,30 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 				s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read state at commit %d: %v", startCommit, err), lastDelivered)
 				return
 			}
-			// Extract value at path if needed
+			// Extract value at path if needed.
+			//
+			// A failure here says nothing about storage: the read above already
+			// succeeded, and this is navigation of the document it returned. What
+			// it says is which of three things is true, and they want three
+			// different volumes -- see PathErrorKind.
 			if path != "" {
 				state, err = extractPathValue(state, path)
 				if err != nil {
-					s.log.Error("failed to extract path value for init", "path", path, "error", err)
+					var pe *PathError
+					switch {
+					case errors.As(err, &pe) && pe.Kind == PathBadSegment:
+						// This one never resolves, so serving null forever would
+						// tell the client its path is empty when it is invalid.
+						s.log.Warn("watch path cannot be extracted", "path", path, "error", err)
+						s.failWatch(watcher, api.ErrCodeInvalidPath, err.Error(), lastDelivered)
+						return
+					case errors.As(err, &pe) && pe.Kind == PathTypeConflict:
+						s.log.Warn("watched path is shadowed by a non-object", "path", path, "error", err)
+					default:
+						s.log.Debug("watched path has no value yet", "path", path, "detail", err.Error())
+					}
 					state = ir.Null()
+					absent.arm()
 				}
 			}
 		}
@@ -804,6 +835,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 						return
 					}
 					prevDoc = newPrev
+					absent.observe(prevDoc)
 					lastDelivered = patch.Commit
 					continue
 				}
@@ -829,6 +861,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 					continue
 				}
 				prevDoc = newSub
+				absent.observe(prevDoc)
 				s.send(api.NewPatchEvent(watcher.ID, patch.Commit, path, patch.Patch))
 			}
 		}
@@ -889,6 +922,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 					return
 				}
 				prevDoc = newPrev
+				absent.observe(prevDoc)
 				continue
 			}
 			// Baseline: forward the raw committed delta (already tag-stripped by the
@@ -924,6 +958,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 				continue
 			}
 			prevDoc = newSub
+			absent.observe(prevDoc)
 			// The hub broadcasts ONE shared notification.Patch to every watcher on the
 			// path (across sessions); encoding mutates a node's parent linkage
 			// (ir.FromMap), so two session writers serializing the same node race. Hand
