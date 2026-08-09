@@ -96,10 +96,27 @@ func (kl keyedListOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf Patch
 		}
 		res = append(res, v)
 	}
+	// What is left in klMap is keyed by something the document does not have, so the
+	// element is being introduced. Its patch is still a PATCH -- it can carry ops, and
+	// !insert(t) in particular means "insert this, tagged !t" -- so it is applied
+	// against an absent document rather than appended as data. Appending it raw left
+	// the op tag itself on the result: patching [{name: a}] with
+	// !key(name)[!insert(bracket){name: b}] produced [{name: a} !insert(bracket){name: b}],
+	// storing a diff marker as though it were part of the value.
+	//
+	// Absent is null here, the same reading the read path uses for an empty base. An op
+	// that resolves to nothing -- a !delete for a key the document never had -- drops
+	// out instead of being stored verbatim.
 	keys := slices.Sorted(maps.Keys(klMap))
 	for _, key := range keys {
-		patchChild := klMap[key]
-		res = append(res, patchChild)
+		v, err := pf(ir.Null(), klMap[key], ctx)
+		if err != nil {
+			return nil, err
+		}
+		if v == nil {
+			continue
+		}
+		res = append(res, v)
 	}
 	// patching the items of a list does not change what the list is, so it
 	// keeps its own tag -- !key(...) above all, without which the result is no

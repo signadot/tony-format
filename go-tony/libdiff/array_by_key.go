@@ -6,18 +6,24 @@ import (
 
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/ir"
-	"github.com/signadot/tony-format/go-tony/parse"
 )
 
 func DiffArrayByKey(from, to *ir.Node, key string, df DiffFunc) (*ir.Node, error) {
+	// keyNodes keeps each key as the node it was written as, so the result can carry it
+	// across rather than re-parsing its rendering (see yKeyNodeOf). `to` overwrites
+	// `from`, so a key that survives is described the way the target holds it, and a
+	// key only `from` has -- a removal -- still has its node.
+	keyNodes := make(map[string]*ir.Node, len(from.Values)+len(to.Values))
+
 	fromMap := make(map[string]*ir.Node, len(from.Values))
 	fromTagMap := make(map[string]string)
 	for _, val := range from.Values {
-		valKey, vkTag, err := YKeyOf(val, key)
+		keyNode, valKey, vkTag, err := yKeyNodeOf(val, key)
 		if err != nil {
 			return nil, err
 		}
 		fromMap[valKey] = val
+		keyNodes[valKey] = keyNode
 		if vkTag != "" {
 			fromTagMap[valKey] = vkTag
 		}
@@ -25,11 +31,12 @@ func DiffArrayByKey(from, to *ir.Node, key string, df DiffFunc) (*ir.Node, error
 	toMap := make(map[string]*ir.Node, len(to.Values))
 	toTagMap := make(map[string]string)
 	for _, val := range to.Values {
-		valKey, vkTag, err := YKeyOf(val, key)
+		keyNode, valKey, vkTag, err := yKeyNodeOf(val, key)
 		if err != nil {
 			return nil, err
 		}
 		toMap[valKey] = val
+		keyNodes[valKey] = keyNode
 		if vkTag != "" {
 			toTagMap[valKey] = vkTag
 		}
@@ -62,10 +69,13 @@ func DiffArrayByKey(from, to *ir.Node, key string, df DiffFunc) (*ir.Node, error
 			return nil, fmt.Errorf("wrong type for value: %s", v.Type)
 		}
 		keyValStr := objDiff.Fields[i].String
-		keyVal, err := parse.Parse([]byte(keyValStr))
-		if err != nil {
-			return nil, err
+		keyNode := keyNodes[keyValStr]
+		if keyNode == nil {
+			// Every field of objDiff came from fromMap or toMap, both of which record
+			// their key node here, so this cannot happen without one of them lying.
+			return nil, fmt.Errorf("no key node recorded for %q", keyValStr)
 		}
+		keyVal := keyNode.Clone()
 		fkvTag := fromTagMap[keyValStr]
 		tkvTag := toTagMap[keyValStr]
 		if fkvTag != tkvTag {
@@ -93,16 +103,26 @@ func DiffArrayByKey(from, to *ir.Node, key string, df DiffFunc) (*ir.Node, error
 }
 
 func YKeyOf(y *ir.Node, key string) (string, string, error) {
+	_, s, tag, err := yKeyNodeOf(y, key)
+	return s, tag, err
+}
+
+// yKeyNodeOf is YKeyOf plus the key NODE. The rendered form identifies an element, but
+// it is lossy as a value: rebuilding a key by re-parsing its rendering turns a quoted
+// key into a bare one, so the rebuilt element no longer compares equal to the original
+// even though the two encode identically. Keeping the node lets the diff carry the key
+// across unchanged.
+func yKeyNodeOf(y *ir.Node, key string) (*ir.Node, string, string, error) {
 	v, err := y.GetPath("$." + key)
 	if err != nil {
-		return "", "", err
+		return nil, "", "", err
 	}
 	orgTag := v.Tag
 	defer func() { v.Tag = orgTag }()
 	v.Tag = ""
 	buf := bytes.NewBuffer(nil)
 	if err := encode.Encode(v, buf); err != nil {
-		return "", "", err
+		return nil, "", "", err
 	}
-	return buf.String(), orgTag, nil
+	return v, buf.String(), orgTag, nil
 }

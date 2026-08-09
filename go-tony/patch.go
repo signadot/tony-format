@@ -73,7 +73,13 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 		if err != nil {
 			err = fmt.Errorf("%s patching %q gave %w", opInst, encode.MustString(doc), err)
 		}
-		if res != nil && preTag != "" {
+		// Restore the non-op part of the patch's tag onto the result -- unless the op
+		// already produced it. Most ops return a fresh value carrying no tag of their
+		// own, but one that answers with the DOCUMENT's tag (!key, which must stay a
+		// keyed list) hands back a tag that already holds this one, and composing again
+		// duplicated it: patching !bracket.key(name)[...] gave a result tagged
+		// !bracket.bracket.key(name), so Patch(a, Diff(a,b)) did not equal b.
+		if res != nil && preTag != "" && !ir.TagHas(res.Tag, preTag) {
 			res.Tag = ir.TagCompose(preTag, nil, res.Tag)
 		}
 		return res, err
