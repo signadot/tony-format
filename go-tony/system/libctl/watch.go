@@ -14,11 +14,21 @@ import (
 const defaultWatchBuffer = 128
 
 // WatchEndedError terminates a Watch when docd ends it server-side rather than
-// the connection dropping: a mount/unmount force-ended the watch because its
-// mount membership changed (Reason "membership_changed"), or the controller
-// owning the watched subtree crashed (Reason "controller_unavailable"). The watch
-// is re-establishable: the application should start a new Watch on the same path,
-// which re-composes against the current mount set.
+// the connection dropping. Reason says which of these happened, from the
+// api.ErrCode* vocabulary:
+//
+//	session_mounted         a mount registered at or under the watched path, so a
+//	                        re-watch composes over a source that was not there
+//	session_unmounted       a mount at or under it was removed, so a source that
+//	                        was answering is gone
+//	controller_unavailable  the controller owning the watched subtree crashed
+//	match_failed            the composed read backing the watch failed, so there
+//	                        is no baseline to stream deltas against
+//
+// The watch is re-establishable in every case: the application should start a new
+// Watch on the same path, which re-composes against the current mount set. The
+// reason is for a caller that does more than reconnect — one deciding whether the
+// content it is about to see should differ, or reporting why the stream broke.
 //
 // Event-preservation is a logd guarantee that docd inherits fully only for a
 // single-route watch (a path served by one backend): re-watching with

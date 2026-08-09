@@ -32,7 +32,12 @@ type mountCoord struct {
 
 type coordReader struct {
 	fields []string
-	cancel func() // force-teardown, invoked when a writer forces this reader
+	// cancel is the force-teardown, invoked with the forcing writer's reason when
+	// that writer gives up waiting for this reader to drain. The reason travels
+	// from the writer rather than being decided here: the coordinator serializes
+	// mounts and unmounts identically and cannot tell them apart, but the reader
+	// it ends has to be told which one happened.
+	cancel func(reason string)
 }
 
 func newMountCoord() *mountCoord {
@@ -54,9 +59,11 @@ func coordOverlap(a, b []string) bool {
 // blocking while any writer overlapping path is pending (writer priority). It
 // returns a token to release with endRead, and ok=false for an invalid path.
 //
+// cancel is called with the forcing writer's reason (see beginWrite).
+//
 // The teardown hook must be idempotent: a reader can be ended either normally
 // (endRead) or by a writer forcing it, and both may race.
-func (c *mountCoord) beginRead(path string, cancel func()) (uint64, bool) {
+func (c *mountCoord) beginRead(path string, cancel func(reason string)) (uint64, bool) {
 	fields, err := pathFields(path)
 	if err != nil {
 		return 0, false
@@ -87,7 +94,12 @@ func (c *mountCoord) endRead(id uint64) {
 // force-cancels the stragglers via their teardown hooks and proceeds. It returns
 // a release func to call when the mount/unmount completes, and ok=false for an
 // invalid path.
-func (c *mountCoord) beginWrite(path string, forceAfter time.Duration) (func(), bool) {
+//
+// reason is what a force-cancelled reader is told — api.ErrCodeSessionMounted or
+// api.ErrCodeSessionUnmounted, per which of the two this writer is. The caller
+// supplies it because only the caller knows; from here a mount and an unmount are
+// the same exclusion.
+func (c *mountCoord) beginWrite(path, reason string, forceAfter time.Duration) (func(), bool) {
 	fields, err := pathFields(path)
 	if err != nil {
 		return nil, false
@@ -109,7 +121,7 @@ func (c *mountCoord) beginWrite(path string, forceAfter time.Duration) (func(), 
 		})
 	}
 
-	var toForce []func()
+	var toForce []func(string)
 	for {
 		strag := c.readersOverlapping(fields)
 		if len(strag) == 0 {
@@ -135,7 +147,7 @@ func (c *mountCoord) beginWrite(path string, forceAfter time.Duration) (func(), 
 	// (e.g. endRead), which would deadlock under c.mu.
 	for _, cancel := range toForce {
 		if cancel != nil {
-			cancel()
+			cancel(reason)
 		}
 	}
 

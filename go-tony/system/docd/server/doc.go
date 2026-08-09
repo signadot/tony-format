@@ -41,8 +41,9 @@
 // initial State event is relative to the watched path.
 //
 // A composed watch treats its mount membership as fixed for its lifetime. A
-// mount/unmount that changes membership ends the watch (a terminal WatchEvent with
-// EndReason "membership_changed") so the client re-watches against the new mount set.
+// mount/unmount that changes membership ends the watch — a terminal WatchEvent whose
+// EndReason says which happened, "session_mounted" or "session_unmounted" — so the
+// client re-watches against the new mount set knowing which way it moved.
 // Event preservation is a logd guarantee (single commit sequence) that docd inherits
 // for single-route watches; across mount boundaries it is best-effort — a re-watch
 // re-inits with a fresh composed snapshot rather than replaying the gap. The terminal

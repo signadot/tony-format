@@ -252,7 +252,7 @@ func (c *MountClient) Close() error {
 
 // Unmount gracefully unmounts the controller's subtree: it asks docd to drain the
 // watches overlapping the mount (force-ending them after forceAfter so they see
-// membership_changed rather than an abrupt controller_unavailable) and fully
+// session_unmounted rather than an abrupt controller_unavailable) and fully
 // remove the mount — no tombstone — then waits for docd to close the connection,
 // which signals completion. forceAfter is as MountConfig.ForceAfter: a pointer to
 // 0 waits forever, nil uses docd's default.

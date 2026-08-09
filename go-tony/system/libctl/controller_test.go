@@ -938,11 +938,12 @@ func TestDocd_MountForcesOverlappingWatch(t *testing.T) {
 	runController(t, docd, "a.b", newMemController())
 }
 
-// TestDocd_WatchForcedMembershipChanged proves a force-ended watch reaches the
-// client as a re-establishable WatchEndedError (not a silent stop): a mount whose
-// force_after elapses ends the overlapping watch with membership_changed, and the
-// client can re-watch (now composed over the new mount).
-func TestDocd_WatchForcedMembershipChanged(t *testing.T) {
+// TestDocd_WatchForcedByMount proves a force-ended watch reaches the client as a
+// re-establishable WatchEndedError (not a silent stop): a mount whose force_after
+// elapses ends the overlapping watch with session_mounted — naming the mount, not
+// just "something changed" — and the client can re-watch (now composed over the
+// new mount).
+func TestDocd_WatchForcedByMount(t *testing.T) {
 	logd := startLogd(t)
 	docd := startDocdForce(t, logd.TCPAddr(), 50*time.Millisecond)
 	client := docdClient(t, docd, "client")
@@ -957,8 +958,8 @@ func TestDocd_WatchForcedMembershipChanged(t *testing.T) {
 
 	drainUntilClosed(t, w) // past the initial state event to the terminal close
 	var ended *WatchEndedError
-	if !errors.As(w.Err(), &ended) || ended.Reason != "membership_changed" {
-		t.Fatalf("expected WatchEndedError membership_changed, got %v", w.Err())
+	if !errors.As(w.Err(), &ended) || ended.Reason != api.ErrCodeSessionMounted {
+		t.Fatalf("expected WatchEndedError session_mounted, got %v", w.Err())
 	}
 
 	// Re-watch succeeds (the path is now a composed ancestor of the mount).
@@ -1021,7 +1022,7 @@ func drainUntilClosed(t *testing.T, w *Watch) {
 }
 
 // TestDocd_GracefulUnmount proves an explicit graceful unmount drains an
-// overlapping watch (membership_changed, not the abrupt controller_unavailable a
+// overlapping watch (session_unmounted, not the abrupt controller_unavailable a
 // crash gives) and FULLY removes the mount — no tombstone, unlike a crash.
 func TestDocd_GracefulUnmount(t *testing.T) {
 	logd := startLogd(t)
@@ -1046,12 +1047,13 @@ func TestDocd_GracefulUnmount(t *testing.T) {
 		t.Fatalf("graceful unmount: %v", err)
 	}
 
-	// The overlapping watch ended with membership_changed (graceful), not
-	// controller_unavailable (crash).
+	// The overlapping watch ended with session_unmounted (graceful), not
+	// controller_unavailable (crash) — and not session_mounted, which is the other
+	// direction of the same coordination.
 	drainUntilClosed(t, w)
 	var ended *WatchEndedError
-	if !errors.As(w.Err(), &ended) || ended.Reason != "membership_changed" {
-		t.Fatalf("expected membership_changed, got %v", w.Err())
+	if !errors.As(w.Err(), &ended) || ended.Reason != api.ErrCodeSessionUnmounted {
+		t.Fatalf("expected session_unmounted, got %v", w.Err())
 	}
 
 	// The mount is fully removed — a crash would have left a tombstone.
@@ -1763,8 +1765,8 @@ func TestDocd_RewatchAfterMembershipChangeReInits(t *testing.T) {
 
 	drainUntilClosed(t, w)
 	var ended *WatchEndedError
-	if !errors.As(w.Err(), &ended) || ended.Reason != "membership_changed" {
-		t.Fatalf("expected membership_changed, got %v", w.Err())
+	if !errors.As(w.Err(), &ended) || ended.Reason != api.ErrCodeSessionMounted {
+		t.Fatalf("expected session_mounted, got %v", w.Err())
 	}
 
 	// Plain re-watch (now composed over base + a.b): the reconnect is a fresh init

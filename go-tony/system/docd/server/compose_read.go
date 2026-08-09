@@ -56,7 +56,11 @@ func (s *ClientSession) coordinateMatch(req *logdapi.SessionRequest, below []*Mo
 	// sequence; a self-backed mount answers for the commit itself (see Handler).
 	root, commit, err := s.composeReadTree(path, owner, below, pFields, req.Match.Commit)
 	if err != nil {
-		_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeSessionClosed, err.Error()))
+		// The match failed. It used to report session_closed, which named a
+		// condition that had not happened — the client's session is fine, and a
+		// client that believes otherwise reconnects a healthy connection instead of
+		// dealing with the read that actually broke.
+		_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeMatchFailed, err.Error()))
 		return
 	}
 

@@ -54,7 +54,7 @@ type MountSpec struct {
 
 // UnmountSpec requests a graceful unmount of the controller's subtree: docd
 // drains (force-ending after ForceAfter) the watches overlapping the mount so
-// they see membership_changed rather than an abrupt controller_unavailable, then
+// they see session_unmounted rather than an abrupt controller_unavailable, then
 // fully removes the mount (no tombstone) and closes the connection.
 //
 //tony:schemagen=unmount-spec,notag

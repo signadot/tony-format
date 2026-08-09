@@ -154,7 +154,7 @@ func (s *MountSession) readPump(decoder *stream.Decoder) error {
 
 // handleGracefulUnmount serves a controller's graceful-unmount request: it drains
 // (force-ending after force_after) the watches overlapping the mount so they see
-// membership_changed rather than an abrupt controller_unavailable, then FULLY
+// session_unmounted rather than an abrupt controller_unavailable, then FULLY
 // removes the mount (no tombstone, since the controller left deliberately), fails
 // any in-flight non-watch routes, and closes the connection — which the
 // controller observes as completion.
@@ -171,7 +171,7 @@ func (s *MountSession) handleGracefulUnmount(node *ir.Node) {
 		forceAfter = s.server.mountForceAfter()
 	}
 
-	if release, ok := s.server.coord.beginWrite(s.mountPath, forceAfter); ok {
+	if release, ok := s.server.coord.beginWrite(s.mountPath, logdapi.ErrCodeSessionUnmounted, forceAfter); ok {
 		s.server.Mounts.Unregister(s.mountPath)
 		release()
 	}
@@ -545,7 +545,7 @@ func (s *MountSession) handleHandshake(decoder *stream.Decoder) error {
 		s.sendError(api.ErrCodeInvalidMessage, ferr.Error())
 		return ferr
 	}
-	release, ok := s.server.coord.beginWrite(req.Mount.Path, forceAfter)
+	release, ok := s.server.coord.beginWrite(req.Mount.Path, logdapi.ErrCodeSessionMounted, forceAfter)
 	if !ok {
 		s.sendError(api.ErrCodeInvalidPath, "invalid mount path")
 		return fmt.Errorf("invalid mount path %q", req.Mount.Path)

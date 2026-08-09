@@ -43,7 +43,10 @@ func (s *ClientSession) coordinateWatch(req *logdapi.SessionRequest) {
 	clientID := req.ID
 	key := watchKeyFor(clientID, path)
 	go func() {
-		token, ok := s.server.coord.beginRead(path, func() { s.terminateWatch(key, "membership_changed") })
+		// The reason comes from the writer that forces us — session_mounted or
+		// session_unmounted — so the client learns WHICH way the mount set moved
+		// under it, not merely that it moved.
+		token, ok := s.server.coord.beginRead(path, func(reason string) { s.terminateWatch(key, reason) })
 		if !ok {
 			_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeInvalidPath,
 				fmt.Sprintf("invalid watch path %q", path)))
@@ -162,9 +165,17 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 	if !req.Watch.NoInit {
 		// nil commit: a composed watch's initial state is always current (it re-inits
 		// to current on membership change rather than replaying a historical commit).
-		if root, commit, err := s.composeReadTree(path, owner, below, pFields, nil); err == nil {
-			_ = s.writeToClient(logdapi.NewStateEvent(clientID, commit, path, root))
+		root, commit, err := s.composeReadTree(path, owner, below, pFields, nil)
+		if err != nil {
+			// The initial snapshot IS a match, and a watch whose match failed has no
+			// baseline. Deltas against a baseline the client never received would be
+			// applied to whatever it already held, so it is better to end the watch
+			// than to stream into a state nobody established. The confirmation is
+			// already out, so this ends the watch rather than answering the request.
+			s.terminateWatch(key, logdapi.ErrCodeMatchFailed)
+			return
 		}
+		_ = s.writeToClient(logdapi.NewStateEvent(clientID, commit, path, root))
 	}
 	cw.begin()
 }

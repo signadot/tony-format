@@ -304,7 +304,7 @@ type WatchEvent struct {
 	Patch          *ir.Node `tony:"field=patch"`                   // Delta patch (for subsequent events)
 	ReplayComplete bool     `tony:"field=replayComplete,omitzero"` // Marker that replay is complete
 	Ended          bool     `tony:"field=ended,omitzero"`          // Terminal marker: the watch has ended and the client should re-establish it
-	EndReason      string   `tony:"field=endReason,omitzero"`      // Why the watch ended (e.g. membership_changed, controller_unavailable)
+	EndReason      string   `tony:"field=endReason,omitzero"`      // Why the watch ended, from the ErrCode* vocabulary (e.g. session_mounted, session_unmounted, controller_unavailable)
 }
 
 // SessionError is an error response.
@@ -401,6 +401,19 @@ const (
 	ErrCodeScopeNotFound   = "scope_not_found"        // Scope not found
 	ErrCodeUnsupported     = "unsupported"            // Operation not supported by the responder (e.g. a controller declining an op it does not implement)
 	ErrCodeUnavailable     = "controller_unavailable" // The controller owning a mounted subtree has crashed/disconnected and not yet remounted
+
+	// Mount-membership watch endings. A watch spanning a path whose mount set is
+	// about to change is ended so it never observes the change mid-stream; it says
+	// WHICH change, because the two are not the same news to a client.
+	//
+	// Mounted: a subtree that was answered by one source will now be answered by a
+	// controller, so a re-watch composes over more sources than before and content
+	// under the mount may differ. Unmounted: a source that was there has gone, and
+	// what it served is either back to base or no longer served at all. A client
+	// that only re-watches treats them alike; one that reconciles, or reports, or
+	// decides whether the gap it just saw was expected, does not.
+	ErrCodeSessionMounted   = "session_mounted"   // A mount registered under/at this watch's path; re-watch to compose over it
+	ErrCodeSessionUnmounted = "session_unmounted" // A mount at/under this watch's path was removed; re-watch without it
 
 	// Schema/migration error codes
 	ErrCodeMigrationInProgress   = "migration_in_progress"    // Cannot start migration when one is already in progress

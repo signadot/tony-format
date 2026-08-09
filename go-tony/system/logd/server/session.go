@@ -1348,7 +1348,7 @@ func (s *Session) sendError(id *string, code, message string) {
 // The client was then waiting on a watch the server had already abandoned, with no error
 // and no events, forever. routeEvent handles Ended correctly and always did (it fails the
 // Watch with a WatchEndedError and unregisters it); logd was the only sender not using it,
-// while docd had been sending terminal events for membership_changed all along.
+// while docd had been sending terminal events for mount-membership changes all along.
 //
 // An error response remains right for rejecting a watch REQUEST that is still in flight —
 // handleWatch's admission checks — because that id is in the pending table.
