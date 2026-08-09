@@ -36,9 +36,22 @@ func DiffArrayByKey(from, to *ir.Node, key string, df DiffFunc) (*ir.Node, error
 	}
 	fromObj := ir.FromMap(fromMap).WithTag(from.Tag)
 	toObj := ir.FromMap(toMap).WithTag(to.Tag)
+	// df reports "no difference" as a nil node rather than as an object holding
+	// nothing, and two keyed lists holding the same elements under the same keys is the
+	// ordinary case, not a corner one: most changes leave most lists alone. Indexing
+	// that nil is a panic, and the branch reaching it only runs when BOTH sides carry
+	// !key(f) with the same field -- which no materialized state does today (the op is
+	// resolved at apply time), so nothing had exercised it.
+	//
+	// An empty result is left to the tail below, which already knows what it means and
+	// still reports a change to the list's OWN tag.
 	objDiff := df(fromObj, toObj)
-	resItems := make([]*ir.Node, len(objDiff.Values))
-	for i, v := range objDiff.Values {
+	var resItems []*ir.Node
+	if objDiff != nil {
+		resItems = make([]*ir.Node, len(objDiff.Values))
+	}
+	for i := range resItems {
+		v := objDiff.Values[i]
 		var resMap map[string]*ir.Node
 		switch v.Type {
 		case ir.ObjectType:
