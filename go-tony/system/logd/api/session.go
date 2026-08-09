@@ -1,6 +1,8 @@
 package api
 
 import (
+	"errors"
+
 	"github.com/signadot/tony-format/go-tony/ir"
 )
 
@@ -322,6 +324,47 @@ func (e *SessionError) Error() string {
 		return e.Code + ": " + e.Message
 	}
 	return e.Message
+}
+
+// Is matches by CODE, so a client can ask which of the ErrCode* vocabulary it got
+// without knowing how the message was phrased:
+//
+//	errors.Is(err, &api.SessionError{Code: api.ErrCodeNotFound})
+//
+// The code is the stable part of a response error. The message is prose, written for
+// an operator reading a log, and it changes whenever that prose improves — so a
+// client that discriminates on the message is a client that breaks on a rewording.
+//
+// A target with no code falls back to matching the message exactly, which is only
+// useful for an error a server built without one. Mirrors (*Error).Is.
+func (e *SessionError) Is(target error) bool {
+	t, ok := target.(*SessionError)
+	if !ok || e == nil || t == nil {
+		return false
+	}
+	if t.Code != "" {
+		return e.Code == t.Code
+	}
+	return t.Message != "" && e.Message == t.Message
+}
+
+// ErrorCode digs the server's ErrCode* out of err, through any wrapping, and returns
+// "" if no server response is in the chain. It is the accessor form of the question
+// SessionError.Is answers one code at a time — useful for switching on the code, or
+// for reporting it.
+//
+// It reaches both response error types: SessionError (the session protocol) and
+// Error (the request/response API).
+func ErrorCode(err error) string {
+	var se *SessionError
+	if errors.As(err, &se) && se != nil {
+		return se.Code
+	}
+	var e *Error
+	if errors.As(err, &e) && e != nil {
+		return e.Code
+	}
+	return ""
 }
 
 // SessionResponse is the top-level response message (union type).

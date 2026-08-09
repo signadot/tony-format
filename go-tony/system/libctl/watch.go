@@ -151,7 +151,7 @@ func (s *LogdSession) Watch(ctx context.Context, path string, opts *WatchOptions
 		}
 		if resp.Error != nil {
 			s.removeWatcher(id)
-			return nil, fmt.Errorf("watch error: %s", resp.Error.Message)
+			return nil, fmt.Errorf("watch error: %w", resp.Error)
 		}
 		if resp.Result == nil || resp.Result.Watch == nil {
 			s.removeWatcher(id)
@@ -263,7 +263,7 @@ func (s *LogdSession) unwatch(ctx context.Context, path, watchID string) error {
 		if resp.Error.Code == api.ErrCodeNotWatching {
 			return nil
 		}
-		return fmt.Errorf("unwatch error: %s", resp.Error.Message)
+		return fmt.Errorf("unwatch error: %w", resp.Error)
 	}
 	return nil
 }

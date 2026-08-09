@@ -220,7 +220,7 @@ func (s *LogdSession) connectLocked(ctx context.Context) error {
 		_ = conn.SetReadDeadline(time.Time{}) // clear; the read-pump owns reads from here
 		if resp.Error != nil {
 			conn.Close()
-			return fmt.Errorf("hello error: %s", resp.Error.Message)
+			return fmt.Errorf("hello error: %w", resp.Error)
 		}
 		if resp.Result == nil || resp.Result.Hello == nil {
 			conn.Close()
@@ -348,7 +348,7 @@ func (s *LogdSession) matchAt(ctx context.Context, path string, pattern *ir.Node
 		return nil, err
 	}
 	if resp.Error != nil {
-		return nil, fmt.Errorf("match error: %s", resp.Error.Message)
+		return nil, fmt.Errorf("match error: %w", resp.Error)
 	}
 	if resp.Result == nil || resp.Result.Match == nil {
 		return nil, fmt.Errorf("unexpected response: no match result")
@@ -359,6 +359,10 @@ func (s *LogdSession) matchAt(ctx context.Context, path string, pattern *ir.Node
 // ErrMatchFailed is returned by PatchIf/PatchTxIf when the compare-and-swap
 // precondition did not hold against current state, so the patch was not applied.
 // Callers doing optimistic concurrency can detect this with errors.Is and retry.
+//
+// It predates the general code propagation (see the package doc) and is kept
+// because callers use it. A match_failed response satisfies both
+// errors.Is(err, ErrMatchFailed) and api.ErrorCode(err) == api.ErrCodeMatchFailed.
 var ErrMatchFailed = errors.New("match precondition failed")
 
 // doPatch sends a patch request and maps the response, surfacing a failed
@@ -375,9 +379,12 @@ func (s *LogdSession) doPatch(ctx context.Context, req *api.PatchRequest) (*api.
 	}
 	if resp.Error != nil {
 		if resp.Error.Code == api.ErrCodeMatchFailed {
-			return nil, ErrMatchFailed
+			// Both wrapped: the sentinel callers already match on, and the response
+			// itself, so this arm reports the server's message like every other arm
+			// instead of replacing it with the sentinel's fixed text.
+			return nil, fmt.Errorf("%w: %w", ErrMatchFailed, resp.Error)
 		}
-		return nil, fmt.Errorf("patch error: %s", resp.Error.Message)
+		return nil, fmt.Errorf("patch error: %w", resp.Error)
 	}
 	if resp.Result == nil || resp.Result.Patch == nil {
 		return nil, fmt.Errorf("unexpected response: no patch result")
@@ -416,7 +423,7 @@ func (s *LogdSession) NewTx(ctx context.Context, participants int) (int64, error
 		return 0, err
 	}
 	if resp.Error != nil {
-		return 0, fmt.Errorf("newtx error: %s", resp.Error.Message)
+		return 0, fmt.Errorf("newtx error: %w", resp.Error)
 	}
 	if resp.Result == nil || resp.Result.NewTx == nil {
 		return 0, fmt.Errorf("unexpected response: no newtx result")
@@ -484,7 +491,7 @@ func (s *LogdSession) DeleteScope(ctx context.Context, scopeID string) error {
 		return err
 	}
 	if resp.Error != nil {
-		return fmt.Errorf("deleteScope error: %s", resp.Error.Message)
+		return fmt.Errorf("deleteScope error: %w", resp.Error)
 	}
 	return nil
 }
