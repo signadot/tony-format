@@ -321,14 +321,43 @@ schema. Meanwhile the auto-id route injects the id field but no `!key` tag
 navigated by that path — the gap `5hmq80f3h12krh1mbsn0` recorded as "remaining, unfixed",
 inherited from `hbn7ptxch12krs778smg`.
 
-**Proposed: schema authoritative.** Extend `Schema` past `AutoIDFields` to express keying
-generally; index and apply both consult the active schema; a disagreeing tag is rejected.
-State stays op-free, keying is declared, and the existing schema-migration machinery
-carries changes.
+**Proposed: schema is the write-time AUTHORITY, the tag is the durable RECORD.** Extend
+`Schema` past `AutoIDFields` to express keying generally. At write time the schema decides
+what keys an array; the lowered delta (§7) carries `!key(f)` in its own tag, put there by
+the annotation that produced it. So the tag stops being a client-supplied hint that may or
+may not agree with anything, and becomes server-produced provenance: a record of what the
+schema decided at that commit.
+
+This is not the same as "persist `!key` on state", which is rejected below. State stays
+op-free. What carries a tag is the DELTA, and a delta is a write — the one place ops
+belong.
+
+Three things follow, and they are why this shape is worth more than picking a route:
+
+- **A delta is self-describing, so replay needs no schema.** The schema is required to
+  *produce* a delta, never to *apply* one. `{items: !key(sku) [!insert {…}]}` merges by
+  identity because it says so itself.
+- **Schema migration stops rewriting history.** A delta lowered under yesterday's schema
+  keeps meaning what it meant. The schema dependency is pinned at the moment of lowering,
+  which is what makes the stability requirement in §7 satisfiable at all: it only has to
+  hold for one commit, not forever.
+- **The two routes stop being disjoint by construction rather than by care.** Today the
+  live index applies the schema to the client's patch while `index.Build` reads tags off
+  that same patch — hence one log, two shapes. Under lowering both index the *stored
+  delta*, whose tag came from the schema, so a rebuild reproduces the live index without
+  being told anything. `build.go`'s "we rely on `!key` tags stored in the patches" becomes
+  true, having been false since the schema route existed.
+
+**Two things to check before leaning on it**, and they are P1's first tests rather than
+its last: that annotation emits the tag for *every* keyed array in a delta, nested ones
+included; and that `IndexPatch` over a lowered delta yields the same paths the schema route
+yields today.
 
 Rejected — persisting `!key` on state: it embeds a schema statement in every instance, has
 no declaration point and no migration path, and any writer can plant a different tag, so
-the key space still forks — permanently and invisibly.
+the key space still forks — permanently and invisibly. Note the contrast with the proposal
+above: a tag on a *delta* is written once by the server and never revised, where a tag on
+*state* is rewritten by whoever touches it next.
 
 **Measured, and latent rather than live** (`keyed_test.go`). The same log rebuilds to a
 different shape than the live index describes, because `index.Build` passes `nil` schema
@@ -347,10 +376,19 @@ copy — both shapes reply to a replay with the same commits
 BY the keyed path, which is precisely the overlay. So this does not block the spike on
 non-keyed data; it blocks the keyed half of the overlay, and nothing else.
 
-Notes: `index.Build` needs the schema **at that commit** — schema replay has to interleave
-with index build.
-`SchemaResolver.GetSchema(scopeID)` is per-scope, so two scopes can key one path
-differently; needs a rule (inherit baseline keying, or reject divergence).
+This is the divergence the proposal above closes by construction — both sides index the
+same self-describing delta — rather than by making two derivations agree.
+
+**And it removes work rather than adding it.** An earlier draft of this section said
+`index.Build` would need the schema *at that commit*, which meant interleaving schema
+replay with index build: a restructure of `Build` for the sake of reproducing a derivation.
+Under lowering `Build` needs no schema at all. It reads the tag, which is what it already
+does, and gets the right answer because the tag is the schema's own record.
+
+Remaining note: `SchemaResolver.GetSchema(scopeID)` is per-scope, so two scopes can key one
+path differently; needs a rule (inherit baseline keying, or reject divergence). Lowering
+narrows this too — the disagreement can only affect deltas written after it, not the
+meaning of ones already stored.
 
 **Migration: decided — none. Existing stores are discarded.** Changing key derivation
 changes what `Build` produces, while a persisted `index.gob` holds paths derived the old
