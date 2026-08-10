@@ -463,18 +463,30 @@ Under lowering that is survivable but not comfortable: the tag rides in the delt
 But two logd instances with different config files over one store would key new writes
 differently, and nothing would say so.
 
-**So P1's first job is to unify, not to extend.** Make the persisted schema authoritative
-for keying, and decide what the config schema then is — bootstrap for an empty store, a
-proposal that gets committed through the existing pending/active path, or rejected when it
-disagrees with what is stored. `Schema` gaining a general keying declaration is the second
-step, and it is the easy one.
+**Done — the persisted schema is now the authority** (`schema_authority_test.go`).
+`schemaForScope` returns `storageSchema.GetActiveParsed()` when the store has a schema of
+its own, so live keying and the pending dual-write index finally come from one source. The
+parsed form is derived inside `SetActive` and carried across `PromotePending`, so it cannot
+drift from the node it came from.
 
-**The per-scope dimension is unused, not undecided.** `StaticSchemaResolver.GetSchema`
-ignores `scopeID`, and nothing else implements the interface outside tests, so two scopes
-keying one path differently is reachable by interface and by nothing else. It needs a
-decision only in the sense that an unused, undefined dimension is a trap: either give it a
-meaning (scopes inherit baseline keying) or drop the parameter. Do not write a divergence
-rule for it — there is no divergence to rule on.
+The configured resolver is the **bootstrap only**: a store that has never been given a
+schema through `StartMigration`/`CompleteMigration` keys the way its configuration says,
+which is how every existing store behaves. The end state is that a configured schema is
+COMMITTED rather than consulted; that fallback is where it goes away.
+
+Pinned: config wins when the store has nothing, persisted wins over a *disagreeing* config,
+and the persisted answer survives a restart with no configuration at all.
+
+`Schema` gaining a general keying declaration — so a client-supplied key like `!key(name)`
+is sayable at all, rather than only as a side effect of auto-id — is the next step, and the
+easy one.
+
+**The per-scope dimension settled itself.** `StaticSchemaResolver.GetSchema` ignores
+`scopeID` and nothing else implements the interface outside tests, so two scopes keying one
+path differently was reachable by interface and by nothing else. Now that the authority is
+the persisted schema, which is per-store, `schemaForScope` accepts `scopeID` and ignores it:
+every scope keys the way baseline does. That is the rule this section was going to have to
+choose, arrived at by construction rather than by a policy nobody could name a user for.
 
 **Migration: decided — none. Existing stores are discarded.** Changing key derivation
 changes what `Build` produces, while a persisted `index.gob` holds paths derived the old

@@ -748,9 +748,26 @@ func (s *Storage) GetCompactionConfig() *CompactionConfig {
 	return s.compactionConfig
 }
 
-// schemaForScope returns the schema for a given scope.
-// Returns nil if no schema resolver is set.
+// schemaForScope returns the schema that decides what keys an array.
+//
+// The PERSISTED active schema is the authority. It is in the log, it moves only through
+// the migration path (pending -> active at a snapshot boundary), and it is what the
+// pending dual-write index is already keyed from — so live and pending keying now come
+// from one source instead of two.
+//
+// The resolver is the bootstrap only: a store with no schema of its own yet still keys
+// from the one its configuration names, which is how every existing store behaves. The
+// end state is that a configured schema is COMMITTED rather than consulted, at which point
+// this fallback goes away; until then a store that has never been given a schema through
+// StartMigration/CompleteMigration keeps working exactly as before.
+//
+// scopeID is accepted and ignored. The persisted schema is per-store, so every scope keys
+// the way baseline does — which is the rule the plan wanted for the per-scope dimension,
+// arrived at by construction rather than by a policy nobody could point at a user for.
 func (s *Storage) schemaForScope(scopeID *string) *api.Schema {
+	if persisted := s.schema.GetActiveParsed(); persisted != nil {
+		return persisted
+	}
 	if s.schemaResolver == nil {
 		return nil
 	}

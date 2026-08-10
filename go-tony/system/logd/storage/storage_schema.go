@@ -13,9 +13,12 @@ import (
 type storageSchema struct {
 	mu sync.RWMutex
 
-	// Active schema state
+	// Active schema state. activeParsed is the same schema in the form key derivation
+	// needs, cached rather than re-parsed per write: schemaForScope consults it on every
+	// commit. It is set wherever active is, so the two cannot drift.
 	active       *ir.Node
 	activeCommit int64
+	activeParsed *api.Schema
 
 	// Pending migration state (nil if no migration in progress)
 	pending       *ir.Node
@@ -67,13 +70,27 @@ func (ss *storageSchema) GetPendingParsed() *api.Schema {
 	return ss.pendingParsed
 }
 
+// GetActiveParsed returns the active schema in the form key derivation needs, or nil if
+// the store is schemaless. This is the authority for what keys an array; see
+// Storage.schemaForScope.
+func (ss *storageSchema) GetActiveParsed() *api.Schema {
+	ss.mu.RLock()
+	defer ss.mu.RUnlock()
+	return ss.activeParsed
+}
+
 // SetActive sets the active schema state.
 // Call with nil schema and 0 commit to reset to schemaless.
+//
+// The parsed form is derived here rather than passed in, so no caller can set one without
+// the other -- unlike SetPending, whose parsed form is built by its caller alongside the
+// pending index.
 func (ss *storageSchema) SetActive(schema *ir.Node, commit int64) {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 	ss.active = schema
 	ss.activeCommit = commit
+	ss.activeParsed = api.ParseSchemaFromNode(schema)
 }
 
 // SetPending sets the pending migration state.
@@ -103,6 +120,7 @@ func (ss *storageSchema) PromotePending(commit int64) *index.Index {
 	defer ss.mu.Unlock()
 	ss.active = ss.pending
 	ss.activeCommit = commit
+	ss.activeParsed = ss.pendingParsed
 	newIndex := ss.pendingIndex
 	ss.pending = nil
 	ss.pendingCommit = 0
