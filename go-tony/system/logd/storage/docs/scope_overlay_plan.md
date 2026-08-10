@@ -380,7 +380,7 @@ that commit". Pin the property that survives both — *a rebuilt index agrees wi
 one* — rather than the mechanism, or P1 arrives having to rewrite the test that was
 supposed to guard it.
 
-### P3 — unconditional primitives, as a post-pass
+### P3 — unconditional primitives (and, per §7, the storage format's vocabulary)
 
 **Measured** (`scope_overlay_uncond_test.go`): this needs no change to `Diff` either.
 `libdiff.MakeDiff` is the only source of `!replace{from,to}`, and its branches are
@@ -514,9 +514,43 @@ nothing.
 
 ## 7. Open decisions
 
-**Freeze semantics.** §3.2. Baseline's existing bargain makes *the past* approximate; this
-makes *the future* of an old scope write frozen. Defensible — arguably what "the scope owns
-that path" always meant — but it is a decision, not an inheritance.
+**Freeze semantics — direction set, and it dissolves the question.** §3.2 asks whether a
+scope's relative op should keep tracking baseline or freeze. The answer is to stop storing
+relative ops at all, on BOTH layers:
+
+> A patch may be written with arbitrary expressivity. What the log stores is
+> `Diff(before, after)`, lowered to a vocabulary in which **the data reflects the result** —
+> an operation leaves no residual meaning once applied.
+
+The user of a store believes they are working with data; an op that re-evaluates later
+breaks that belief, and a store cannot know what mergeops will exist next year. So the
+restriction is on what is STORED, and it applies to baseline too, rather than being a
+scope-specific concession.
+
+Note that baseline gets away with arbitrary ops today only because its replay is
+deterministic — the same patches re-apply in the same order to the same predecessor
+states, so a `!rename` recomputes the same answer. A scope's base moves underneath it,
+which is why scopes hit this first. Baseline is not actually clean either: `!pipe`
+re-executes on every replay from a snapshot (`RejectUnsafe` defaults false and nothing
+sets it), so baseline's determinism is a property of the ops people happen to use rather
+than one the store enforces.
+
+Consequences, in order of size:
+
+- There is nothing to freeze, so §3.2's decision and the accepted-consequence paragraph
+  it carries both go away — deleted rather than answered.
+- Ops execute exactly once, at write. `!pipe` stops being a per-read hazard on both layers.
+- `unconditionalPatch` (R1) stops being an overlay-local post-pass and becomes a property
+  of the storage format, which is where it belongs: a trick in one caller is fine, a
+  storage invariant wants to live in `Diff` as an option.
+- Watch deltas change shape. `session.go` forwards the raw committed patch today "to
+  preserve op fidelity (!key etc.)"; it would forward the lowered diff. Absolute is
+  arguably better for a consumer, but it is a wire-contract change and wants saying out
+  loud.
+- **P1 moves upstream of everything.** Lowering `{items: !key(sku) [...]}` through `Diff`
+  over op-free state yields a POSITIONAL arraydiff (measured, §3.4 R2). So identity merge
+  survives the lowering only once something knows what keys an array — which makes P1 a
+  prerequisite for the storage format itself, not just for the scope overlay's keyed half.
 
 **Expansion granularity.** `!rename a→b` where `a` is a large baseline subtree freezes a
 copy of it into the scope's ownership; later baseline edits under it stop showing through.
