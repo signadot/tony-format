@@ -296,6 +296,11 @@ func (s *Storage) readScopedStateAtReplay(commit int64, scopeID *string) (*ir.No
 // above T. With no overlay yet it is exactly the replay path, so enabling the flag on a
 // store that has never had one written changes nothing.
 func (s *Storage) readScopedStateAtOverlay(commit int64, scopeID *string) (*ir.Node, error) {
+	// A keyed path anywhere in the scope means the overlay cannot answer for it; see
+	// scopeHasKeyedPaths. Replay instead -- slower, and right.
+	if s.scopeHasKeyedPaths(*scopeID) {
+		return s.readScopedStateAtReplay(commit, scopeID)
+	}
 	ov := s.latestOverlay(*scopeID, commit)
 	if ov == nil {
 		return s.readScopedStateAtReplay(commit, scopeID)
@@ -356,6 +361,15 @@ func (s *Storage) patchNodesFromSegments(segments []index.LogSegment, scopeID *s
 		}
 		// Scope layer: keep only this scope's patches, op-preserving.
 		if scopeID != nil && (seg.ScopeID == nil || *seg.ScopeID != *scopeID) {
+			continue
+		}
+		// An overlay is a scope-tagged patch entry, so it looks exactly like one of the
+		// scope's own writes here. It is not: it SUBSUMES them, and the replay path is
+		// the definition the overlay is checked against. Left in, a store that ever had
+		// an overlay written would replay it as an extra patch, and -- worse -- the
+		// differential would be comparing two paths that both consume it. Only
+		// readScopedStateAtOverlay applies one, and it does so explicitly.
+		if isOverlaySegment(seg) {
 			continue
 		}
 		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition, seg.LogFileGeneration)

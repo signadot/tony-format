@@ -139,6 +139,11 @@ func (s *Storage) WriteScopeOverlay(scopeID string, commit int64) error {
 	if commit <= 0 {
 		return nil
 	}
+	if s.scopeHasKeyedPaths(scopeID) {
+		s.logger.Warn("scope has keyed paths; no overlay written, reads keep replaying",
+			"scope", scopeID, "commit", commit)
+		return nil
+	}
 	overlay, err := s.BuildScopeOverlay(scopeID, commit)
 	if err != nil {
 		return err
@@ -268,4 +273,33 @@ func (s *Storage) writeScopeOverlays(commit int64) {
 				"scope", sc, "commit", commit, "error", err)
 		}
 	}
+}
+
+// scopeHasKeyedPaths reports whether any path the scope has written contains a kinded KEY
+// segment -- items("G") rather than items[0] or items.field.
+//
+// The spike cannot serve those correctly and must not pretend to. Two independent reasons,
+// both tracing to the same missing fact -- nothing tells the overlay builder what keys an
+// array (plan P1):
+//
+//  1. Ownership granularity. A key segment is not a DOTTED descendant, so items("G").q
+//     does not make items an ancestor by the prefix test below, and items survives as an
+//     owned "leaf". The overlay then re-states the whole array as the scope's, freezing
+//     baseline out of it: baseline adds an element and the scope never sees it; baseline
+//     updates its own element and the scope keeps the old value. Measured, and silent.
+//  2. Even with ownership at element granularity, Diff over op-free state cannot take its
+//     keyed branch (plan R2/3.5), so the overlay comes out positional and lands the
+//     scope's elements by index.
+//
+// Falling back to the replay path is correct, just slow -- which is the right way round.
+func (s *Storage) scopeHasKeyedPaths(scopeID string) bool {
+	for _, seg := range s.index.AllSegments() {
+		if seg.ScopeID == nil || *seg.ScopeID != scopeID || isOverlaySegment(seg) {
+			continue
+		}
+		if strings.ContainsRune(seg.KindedPath, '(') {
+			return true
+		}
+	}
+	return false
 }
