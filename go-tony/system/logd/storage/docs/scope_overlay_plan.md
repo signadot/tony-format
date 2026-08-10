@@ -442,10 +442,39 @@ replay with index build: a restructure of `Build` for the sake of reproducing a 
 Under lowering `Build` needs no schema at all. It reads the tag, which is what it already
 does, and gets the right answer because the tag is the schema's own record.
 
-Remaining note: `SchemaResolver.GetSchema(scopeID)` is per-scope, so two scopes can key one
-path differently; needs a rule (inherit baseline keying, or reject divergence). Lowering
-narrows this too — the disagreement can only affect deltas written after it, not the
-meaning of ones already stored.
+**Which schema? There are two, and keying uses the one that is not persisted.**
+
+Traced rather than assumed:
+
+- Live keying is `schemaForScope` → `SchemaResolver` → the **config file**. The only
+  production `SetSchemaResolver` call is `server.go:59`, from `spec.Config.Schema`. That
+  schema never reaches `createSchemaSnapshot`, so it is never in the log.
+- `storageSchema` — active/pending/aborted at snapshot boundaries, with the migration
+  machinery — drives the pending dual-write index (`commit_ops.go` uses
+  `GetPendingParsed()`), compaction pinning, and migration state. Not live keying.
+
+So during a migration the PENDING index is keyed from the persisted pending schema while
+the LIVE index is keyed from a config file, in the same commit path. And key derivation is
+controlled by a file that can change under a restart without the store knowing, while the
+store has a whole migration mechanism for schema changes that this route bypasses.
+
+Under lowering that is survivable but not comfortable: the tag rides in the delta, so
+*reproduction* never needs the schema, and the config dependency is confined to write time.
+But two logd instances with different config files over one store would key new writes
+differently, and nothing would say so.
+
+**So P1's first job is to unify, not to extend.** Make the persisted schema authoritative
+for keying, and decide what the config schema then is — bootstrap for an empty store, a
+proposal that gets committed through the existing pending/active path, or rejected when it
+disagrees with what is stored. `Schema` gaining a general keying declaration is the second
+step, and it is the easy one.
+
+**The per-scope dimension is unused, not undecided.** `StaticSchemaResolver.GetSchema`
+ignores `scopeID`, and nothing else implements the interface outside tests, so two scopes
+keying one path differently is reachable by interface and by nothing else. It needs a
+decision only in the sense that an unused, undefined dimension is a trap: either give it a
+meaning (scopes inherit baseline keying) or drop the parameter. Do not write a divergence
+rule for it — there is no divergence to rule on.
 
 **Migration: decided — none. Existing stores are discarded.** Changing key derivation
 changes what `Build` produces, while a persisted `index.gob` holds paths derived the old
