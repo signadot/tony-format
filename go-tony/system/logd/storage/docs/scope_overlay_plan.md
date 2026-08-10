@@ -235,6 +235,50 @@ array, frozen at `T`.
 
 ---
 
+### 3.6 Stepping a scoped view — measured
+
+`head.go` records why a scoped view cannot be stepped today: a scope's writes apply last
+and shadow stickily, so folding a baseline patch into a materialized scoped document lets
+baseline overwrite a leaf the scope owns. **Measured** (`scope_stepping_test.go`), an
+explicit ownership set fixes that, checked against the replay oracle at every commit:
+
+```
+on a baseline commit:  stepped = Patch(stepped, p)
+                       then re-assert: overlay, owned values, owned keyed elements
+on a scope commit:     stepped = Patch(stepped, p) ; record what it now owns
+```
+
+Passing: baseline writes elsewhere flowing through, baseline writes at an owned leaf being
+shadowed, scope-only paths, a scope's `!delete` staying sticky against a baseline rewrite,
+a baseline `!delete` flowing through, coincident values, and keyed additions on both sides.
+
+Four things the proof established that the design has to carry:
+
+- **Apply-then-reassert, never mask-then-apply.** Dropping the parts of a baseline patch
+  that touch owned paths is wrong for a case that arises: when baseline REPLACES an
+  ancestor of an owned leaf, replay wipes the ancestor's other fields and keeps the
+  scope's leaf. Masking would keep the other fields too.
+- **Owned values are captured when written, never re-read from the live document.** Both
+  failure modes showed up: after a baseline delta is folded in, the live value at an owned
+  path is baseline's, so the assertion hands baseline the path it was meant to defend; and
+  a path the scope DELETED reads back as whatever baseline has since put there, so the
+  assertion undoes its own tombstone.
+- **Ownership inside a keyed list is per ELEMENT, not the array.** Owning the array path
+  re-asserts the whole list and wipes every element baseline has added since — the failure
+  the old materialized scope snapshots had. The index already records the finer path.
+- **R2 and R3 bind harder here than in a one-shot overlay.** A positional diff re-asserted
+  once gets the order wrong; re-asserted every event it DUPLICATES the scope's elements.
+
+One behavioural difference remains, and it is not an equality failure. Replay appends the
+scope's keyed elements **last**, because scope patches apply after every baseline patch;
+stepping appends them where they were written. So the two can order a keyed list
+differently while holding the same elements with the same values — `Diff` under the same
+annotation reports no difference between them (§3.4's "reordered, same elements"). A
+consumer reading by key sees nothing; one comparing positions does. Worth deciding
+explicitly rather than discovering.
+
+---
+
 ## 4. Prerequisites
 
 ### P1 — single-sourced key derivation
@@ -393,12 +437,7 @@ scope with an overlay and no stepping still pays a snapshot-interval replay on e
 conditional write and every watch event, where baseline pays a patch.
 
 So steps 7–8 are **parity work, not a bonus increment**, and the ~7600× in §1 lives there.
-They are also the one part of this plan with no measurement behind it: `head.go` records
-why a scoped view cannot be stepped today — a scope's writes apply last and shadow
-stickily, so folding a baseline patch into a materialized scoped document lets baseline
-overwrite a leaf the scope owns — and the claim that an explicit ownership set fixes that
-is so far an argument. The mitigation is that both are ports of machinery that already
-exists and is already load-bearing for baseline, not new mechanisms.
+They are no longer unmeasured — see §3.6.
 
 ---
 
