@@ -375,19 +375,40 @@ paths of what the scope wrote, precisely so a scope writing a value baseline alr
 still owns that path — a reconciling controller does exactly this on every pass. Index the
 delta instead and that write leaves no path, so R3's fix stops working.
 
-So there is a three-way tension, and any two are easy:
+So there is a three-way tension:
 
 1. **store deltas** — the point of the lowering
 2. **index what was written** — what R3's ownership set needs
 3. **rebuild the index from the log** — what makes live and rebuilt agree
 
-Storing deltas and indexing writes means the log must carry the written paths (or the
-patch) alongside the delta, or a rebuild cannot reproduce the index. Storing deltas and
-rebuilding from them means ownership must come from somewhere other than the index — or
-ownership must be redefined as *divergence from baseline*, in which case a coincident write
-establishes nothing and the scope follows baseline afterwards. That is simpler and may even
-be defensible, but it contradicts the COW design's "once s1 has written a.x, it owns that
-path in its view", so it is a semantic decision rather than an implementation one.
+Dropping 2 is not available. A sandbox whose controller reconciles a value to match
+baseline must still pin it, or isolation lapses precisely when the two coincide — and
+"once s1 has written a.x, it owns that path in its view" is the COW design, not an
+implementation detail.
+
+**Resolved: a lowered delta is the WRITE EXPRESSED ABSOLUTELY, not the minimal
+difference.** `Diff(before, after)`, then union in an assertion at each path the patch
+named, valued from `after`. Measured across update, add, coincident write and delete
+(`keyed_lowering_writes_test.go`): the delta names everything the schema route names, and
+still carries the document from `before` to `after`.
+
+```
+coincident write   delta {items: !key(sku) [{sku: A  q: 1}]}                   names items("A")
+element deleted    delta {items: !key(sku) [!delete {sku: B …}  {sku: A  q: 1}]}  names both
+```
+
+All three legs survive. The price is that a delta is no longer minimal — a coincident
+write stores a redundant assertion, a delete stores the tombstone plus whatever else the
+write named — and that cost is proportional to what the client wrote rather than to
+history. It is also arguably the more honest record: the store says what a commit *did*,
+including that it asserted something already true.
+
+**One concrete gap this names for P1.** `tx.RootPatchAt` cannot root a patch at a keyed
+path: `RootPatchAt("items(\"A\")", …)` fails with "ir node unspecified", because a key
+segment carries the key VALUE while building the patch needs the key FIELD. The workaround
+is to root at the array and carry a one-element keyed list — used twice now, in the
+stepping harness and here — so P1 should either teach `RootPatchAt` the key field or
+factor that helper out rather than let it be rediscovered a third time.
 
 Rejected — persisting `!key` on state: it embeds a schema statement in every instance, has
 no declaration point and no migration path, and any writer can plant a different tag, so
