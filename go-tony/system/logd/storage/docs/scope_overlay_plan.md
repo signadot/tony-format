@@ -15,9 +15,9 @@ marked **proposed** is a decision this plan is asking for.
 
 ## 1. Why
 
-**Measured** (`scope_scaling_test.go`). A scope's writes are replayed in full on every
-read, forever. Baseline is not, because a snapshot truncates its replay. Document size
-held constant; only the number of accumulated writes varies.
+**Measured** (`scope_scaling_test.go`), taken immediately after a snapshot — which is
+baseline's BEST case, not its steady state. Document size held constant; only the number
+of accumulated writes varies.
 
 | N writes | baseline read | scoped read | baseline CAS write | scoped CAS write | baseline watch/event | scoped watch/event |
 |---:|---:|---:|---:|---:|---:|---:|
@@ -25,6 +25,32 @@ held constant; only the number of accumulated writes varies.
 | 100 | 17.8 µs | 1.72 ms | 367 µs | 2.67 ms | 945 ns | 1.69 ms |
 | 200 | 12.1 µs | 3.74 ms | 547 µs | 5.14 ms | 1.08 µs | 3.71 ms |
 | 400 | 13.5 µs | 7.83 ms | 389 µs | 10.55 ms | 1.03 µs | 7.85 ms |
+
+**Baseline is fast for two different reasons, with two different bounds**
+(`baseline_since_snapshot_test.go`). Holding the snapshot fixed and adding M commits after
+it separates them:
+
+| M commits since snapshot | baseline read | baseline CAS write |
+|---:|---:|---:|
+| 0 | 15.8 µs | 372 µs |
+| 50 | 750 µs | 391 µs |
+| 100 | 1.54 ms | 436 µs |
+| 200 | 3.63 ms | 529 µs |
+| 400 | 7.40 ms | 742 µs |
+
+The **read** grows ~470× — it is O(patches since the snapshot), with nothing cached, and
+only a snapshot resets it. The **conditional write** grows 2×, and that residue tracks
+index growth rather than replay: it is O(patch) because `headStateAt` serves it from a
+document `stepHead` folds each commit into (`head.go`). A baseline **watch event** is the
+same trick in `session.go`, at ~1 µs.
+
+So the honest comparison is not "a scoped read is 580× a baseline read" — that was against
+baseline's best case. At 400 patches of replay each, they cost about the same (7.40 ms vs
+7.83 ms). **The per-patch cost is identical; what differs is that baseline's counter
+resets at every snapshot and the scope's never does, and that baseline's two hot paths do
+not replay at all.** Which is exactly the shape of the fix: give the scope a snapshot
+(§3.1) for reads, and give it the stepping baseline already has (steps 7–8) for the other
+two.
 
 In order of how much they hurt:
 
@@ -359,12 +385,20 @@ cost of §3.2 and buys speed with it, not disk. If the freeze turns out wrong fo
 workload, that is the exposure.
 
 **And what steps 1–6 alone are worth.** They bound every cost in §1 to *one snapshot
-interval* — the same bound baseline lives with — not to O(1). A scoped read still replays
-baseline patches since the snapshot plus scope patches since the snapshot. That is the
-difference between unbounded and bounded, which is the whole problem; but the ~7600×
-figure in §1 needs the stepping in 7–8, and stepping is asserted here, not demonstrated.
-`head.go` documents why a scoped view cannot be stepped today, and the claim that explicit
-ownership changes that is the one part of this plan with no measurement behind it.
+interval*, which is the difference between unbounded and bounded and is the whole problem.
+But that is parity with baseline only on the **read** path. Baseline's other two hot paths
+are not bounded by the snapshot at all — they are O(patch), because `head.go` steps a head
+document for CAS preconditions and `session.go` steps a watch document per event (§1). A
+scope with an overlay and no stepping still pays a snapshot-interval replay on every
+conditional write and every watch event, where baseline pays a patch.
+
+So steps 7–8 are **parity work, not a bonus increment**, and the ~7600× in §1 lives there.
+They are also the one part of this plan with no measurement behind it: `head.go` records
+why a scoped view cannot be stepped today — a scope's writes apply last and shadow
+stickily, so folding a baseline patch into a materialized scoped document lets baseline
+overwrite a leaf the scope owns — and the claim that an explicit ownership set fixes that
+is so far an argument. The mitigation is that both are ports of machinery that already
+exists and is already load-bearing for baseline, not new mechanisms.
 
 ---
 
@@ -443,12 +477,17 @@ that lets step replace recompute rather than an assumption that it can.
 
 ## 9. Payoff
 
-Bounded replay is the smaller half. The larger one: the overlay makes scope ownership
-**explicit** — owned paths, values, tombstones — which is exactly what a scoped watcher
-needs in order to *step*: apply the baseline delta, then re-assert the overlay over the
-touched region. That turns the scoped watch from O(events × writes) into O(events), the
-~7600× in §1, and it is the same move `head.go` already made for baseline CAS writes and
-`session.go` for baseline watches.
+Bounded replay is the smaller half, and on its own it only brings the read path level with
+baseline. The larger one: the overlay makes scope ownership **explicit** — owned paths,
+values, tombstones — which is what a scoped view needs in order to *step*: apply the
+baseline delta, then re-assert the overlay over the touched region, so a baseline write to
+a path the scope owns is suppressed rather than folded in.
+
+That is not a new idea to invent for scopes. It is what baseline already does on both of
+its hot paths, and the measurements in §1 are what it bought there: a conditional write
+that stays at O(patch) while a cold read of the same state grows to 7.4 ms, and a watch
+event at ~1 µs against a full recompute. Scopes are simply the case that never got it,
+because until there is an explicit ownership set there is nothing to re-assert.
 
 It only works if the layer holds no re-evaluating ops. Which is §3.2, and why that decision
 comes first.
