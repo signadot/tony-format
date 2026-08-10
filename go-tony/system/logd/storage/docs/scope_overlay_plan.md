@@ -547,10 +547,21 @@ Consequences, in order of size:
   preserve op fidelity (!key etc.)"; it would forward the lowered diff. Absolute is
   arguably better for a consumer, but it is a wire-contract change and wants saying out
   loud.
-- **P1 moves upstream of everything.** Lowering `{items: !key(sku) [...]}` through `Diff`
-  over op-free state yields a POSITIONAL arraydiff (measured, §3.4 R2). So identity merge
-  survives the lowering only once something knows what keys an array — which makes P1 a
-  prerequisite for the storage format itself, not just for the scope overlay's keyed half.
+- **P1 moves upstream of everything.** Not because `Diff` mishandles a keyed patch — it
+  never sees one. The patch is applied first, and what gets diffed is the before and after
+  STATES, which are op-free. `diffArray` keys a diff only when both sides carry
+  `!key(f)`, so two op-free states take the positional branch and identity merge is lost
+  in the lowering (measured, §3.4 R2; §3.5 shows annotating the states first restores it).
+  So the lowering needs something that knows what keys an array, which makes P1 a
+  prerequisite for the storage format itself, not just for the overlay's keyed half.
+
+  Worth knowing precisely, since the format would depend on it: `diffArray` has five gates
+  — a `!key` with exactly one arg on each side, the two args EQUAL, the arg parseable as a
+  path, and `DiffArrayByKey` not erroring — and every miss falls through to positional
+  **silently**. Two states keyed by different fields degrade rather than complain. Under
+  lowering that is a correctness hazard rather than a quality one, so P1 owes not just a
+  single source for the key field but a stable one: if a re-derivation ever disagrees with
+  what was in force when a delta was lowered, the stored delta quietly changes meaning.
 
 **Expansion granularity.** `!rename a→b` where `a` is a large baseline subtree freezes a
 copy of it into the scope's ownership; later baseline edits under it stop showing through.
