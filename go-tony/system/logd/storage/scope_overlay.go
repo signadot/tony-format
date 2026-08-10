@@ -8,6 +8,7 @@ import (
 
 	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
@@ -150,6 +151,14 @@ func (s *Storage) WriteScopeOverlay(scopeID string, commit int64) error {
 	}
 	if overlay == nil {
 		return nil // the scope holds nothing of its own
+	}
+
+	// An overlay is the first thing logd stores that came out of lowering, so it is the
+	// first thing that can be held to the storage vocabulary. Failing here is right: an
+	// overlay that cannot be stored is one a read would apply wrongly, and the replay path
+	// it falls back to is correct.
+	if err := api.ValidateForStorage(overlay); err != nil {
+		return fmt.Errorf("overlay for scope %q at %d is not storable: %w", scopeID, commit, err)
 	}
 
 	// Mark the root the way the commit path marks every stored patch (tx.TagPatchRoots,

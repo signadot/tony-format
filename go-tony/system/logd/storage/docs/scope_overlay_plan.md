@@ -509,13 +509,32 @@ meaningful for a merge; requiring a renderable, injective path segment is a cons
 having an index. So logd declares the narrower rule and rejects at write time rather than
 collapsing silently — and `ElemKey`'s bool stops being discarded.
 
-**There is a mechanism for this already, unused.** `schema.Context` + `schema.TagDefinition`
-express which tags are available in a context, which is the same lever §7's op restriction
-needs, and `TagDefinition.SchemaRef` is the hook for "`!key`'s field must resolve to a
-scalar". Note that logd does not import `go-tony/schema` anywhere: its whole notion of
-schema is `api.Schema`, i.e. `AutoIDFields`. Adopting contexts would give the op restriction
-and the key constraint one home instead of two ad-hoc validations, but it is a real step,
-not a small one — worth deciding deliberately rather than drifting into a third schema.
+**Done — both restrictions now live in one place** (`api/storage_context.go`).
+`StorageContext()` is a `schema.Context` declaring the vocabulary a stored delta may use,
+and `ValidateForStorage` enforces it together with the index's key rule. logd now imports
+`go-tony/schema` for the first time; nothing was added to the shared package, which is the
+point — the narrower rule is logd's because the index is logd's.
+
+The vocabulary is declared IN FULL rather than as an extension of
+`tony-format/context/patch`, so adding a mergeop to tony does not silently make it
+storable: `insert`, `delete`, `key`, `raw`, `addtag`, `rmtag`, `retag`. Every omission
+carries its reason in the code, and the reasons differ — `!replace` is *checked* and errors
+against a moved base, `!strdiff`/`!arraydiff`/`!rename`/`!jsonpatch` re-evaluate, `!if`/
+`!let` are conditional, `!pipe` calls out to the system so storing one means re-running it
+per replay.
+
+The key rule rejects what the index cannot represent, rather than collapsing it: a
+non-scalar key, a bare `!key`, and two elements whose keys render alike. Errors name the
+path and say what the index would have done.
+
+Wired at the one artefact logd already stores that came out of lowering: `WriteScopeOverlay`
+validates before appending. Mutation-checked — stop lowering `!replace` and the differential
+reports `at a.x: operation "!replace" may not be stored: it is checked …`.
+
+Worth noting what that check also revealed: `unconditionalPatch` is redundant for any path
+the ownership walk names, because R3's union overwrites the checked node with a plain
+value. It earns its keep only where the diff finds a difference the walk does not name — a
+delete's side effects, or an op that creates a key no leaf path mentions.
 
 **The per-scope dimension settled itself.** `StaticSchemaResolver.GetSchema` ignores
 `scopeID` and nothing else implements the interface outside tests, so two scopes keying one
