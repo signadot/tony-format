@@ -343,29 +343,43 @@ func (s *Storage) scopeHasKeyedPaths(scopeID string) bool {
 		if !strings.ContainsRune(p, '(') {
 			continue
 		}
-		// Any keyed path, declared or not, still falls back to replay -- see the note
-		// below. keys is consulted only so the reason can be logged accurately.
-		_ = keys
-		return true
+		// A keyed path the SCHEMA declares is now safe: the merge identifies elements the
+		// same way (tx.InjectKeyTags puts !key(f) on the write), and the overlay is
+		// annotated from that same schema, so diff, merge and index all key alike.
+		//
+		// A keyed path the schema does NOT declare exists only because some write carried
+		// its own !key tag. Nothing can annotate the materialized states for it, so the
+		// overlay's diff would go positional while the merge stayed identity-based. Replay
+		// for those.
+		arr := p
+		if i := strings.LastIndexByte(arr, ')'); i >= 0 {
+			arr = arr[:i+1]
+		}
+		if _, _, declared := splitKeyedElemPath(arr, keys); !declared {
+			return true
+		}
 	}
 	return false
 }
 
-// Why a SCHEMA-DECLARED keyed path still falls back, even though the overlay can now be
-// annotated from that schema and produces a correct identity-based diff:
+// Why an UNDECLARED keyed path falls back, and why a declared one no longer has to.
 //
-// the schema keys the INDEX, not the MERGE. schemaForScope is handed to IndexPatch, and
+// The schema used to key the INDEX and not the MERGE. schemaForScope is handed to IndexPatch, and
 // nothing puts !key(f) into the patch itself, so a write of {items: [{sku: "G"}]} against
 // a baseline holding sku W merges POSITIONALLY -- W is replaced, not merged -- while the
 // index records items("G"). Annotating the overlay therefore makes it identity-based while
 // the replay it is checked against stays positional, and the two disagree by construction:
 // the overlay keeps baseline's other elements and the replay does not.
 //
-// The overlay is arguably the answer the declaration asked for. It is not the answer the
-// store gives. Making them agree means deciding the question issue hbn7ptxch12krs778smg
-// left open and 5hmq80f3h12krh1mbsn0 inherited: whether logd INJECTS !key(f) into a write
-// whose array the schema declares keyed, or REJECTS a write that omits it. Until then a
-// keyed scope replays, which is slow and right.
+// That is settled: logd INJECTS. tx.InjectKeyTags puts !key(f) on a write whose array the
+// schema declares keyed, so the merge identifies elements the way the index and the overlay
+// do. A patch carrying its own !key for that array is left alone if it agrees and refused
+// if it does not.
+//
+// An UNDECLARED keyed path is the remaining case. It exists only because a write carried
+// its own tag, and nothing can annotate the materialized states for it -- the schema has
+// never heard of that array -- so the overlay's diff would go positional while the merge
+// stayed identity-based. Those still replay.
 
 // keyedArrayPaths is the schema's keying as the overlay builder needs it: array path ->
 // key field, over both declarations, since auto-id is keying that also generates.

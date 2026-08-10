@@ -366,6 +366,19 @@ func (p *txPatcher) doCommit(state *State, commitOps CommitOps) *Result {
 	schema := commitOps.GetSchema(state.Scope)
 	InjectAutoIDs(commit, schema, state.PatcherData)
 
+	// And put !key(f) on the arrays the schema declares keyed, so the merge identifies
+	// elements the way the index does. Without it, declaring a key changed how a write was
+	// INDEXED and not what it MEANT: an untagged write to a keyed array merged positionally
+	// and replaced whatever sat at that position.
+	if err := InjectKeyTags(schema, state.PatcherData); err != nil {
+		_ = co.storage.Delete(state.TxID)
+		return &Result{
+			Committed: false,
+			Matched:   true,
+			Error:     fmt.Errorf("patch conflicts with the schema's keying: %w", err),
+		}
+	}
+
 	// Tag each patch data root for streaming processor
 	TagPatchRoots(state.PatcherData)
 

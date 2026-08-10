@@ -483,7 +483,17 @@ refuses a schema that cannot mean one thing, checked at `StartMigration` so a st
 adopts one: key derivation decides what a stored delta records, and a delta cannot be
 un-recorded.
 
-**But the keyed guard does NOT lift, and the reason is the question this issue inherited.**
+**Settled: logd INJECTS, and the keyed guard lifts for a declared key**
+(`schema_inject_key_test.go`, `scope_overlay_keyed_test.go`). `tx.InjectKeyTags` puts
+`!key(f)` on a write whose array the schema declares keyed, at the same point auto-id
+injection already happens, so diff, merge and index all key alike. A patch carrying its own
+`!key` for that array is left alone if it agrees and refused if it does not — two identities
+for one array is what `Schema.Validate` already refuses to adopt, and it is no better
+arriving one write at a time. An UNDECLARED keyed path — one existing only because a write
+carried its own tag — still replays: nothing can annotate the materialized states for an
+array the schema has never heard of.
+
+What that fixed, and why it had to be settled first:
 The schema keys the **index**, not the **merge**. `schemaForScope` is handed to
 `IndexPatch`, and nothing puts `!key(f)` into the patch, so a write of
 `{items: [{sku: "G"}]}` against a baseline holding `sku: W` merges POSITIONALLY — W is
@@ -492,12 +502,11 @@ same schema and it produces a correct identity-based diff, which then disagrees 
 positional replay it is checked against: the overlay keeps baseline's other elements, the
 replay does not.
 
-The overlay is arguably the answer the declaration asked for; it is not the answer the store
-gives. Making them agree means settling **inject or reject** — whether logd puts `!key(f)`
-into a write whose array the schema declares keyed, or refuses a write that omits it. That
-is `hbn7ptxch12krs778smg`'s open question, inherited here, and it is now the single thing
-between the overlay and keyed data. Until it is settled a keyed scope replays, which is
-slow and right.
+The overlay was arguably the answer the declaration asked for; it was not the answer the
+store gave. Injection makes them the same answer, which closes `hbn7ptxch12krs778smg`'s
+open question — inherited here — in the direction that puts the work on the store: the
+schema says these elements have identities, so a client naming one should not also have to
+repeat how identity works on every write.
 
 Two fixes worth keeping that came out of trying:
 

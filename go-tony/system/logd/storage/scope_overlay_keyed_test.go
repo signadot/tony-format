@@ -8,11 +8,6 @@ import "testing"
 //
 // Before, all of that failed silently -- the scope froze baseline's whole array.
 func TestScopeOverlay_KeyedUnderSchema(t *testing.T) {
-	t.Skip("schema keys the INDEX, not the MERGE: an untagged write to a declared-keyed " +
-		"array merges positionally, so the annotated overlay (identity-based) and the " +
-		"replay it is checked against (positional) disagree by construction. Needs the " +
-		"inject-or-reject decision -- see scope_overlay.go and the plan's P1.")
-
 	for _, tc := range []struct{ name, base2 string }{
 		{"baseline adds an element", `{items: [{sku: "S", q: 1}]}`},
 		{"baseline updates its own element", `{items: [{sku: "W", q: 9}]}`},
