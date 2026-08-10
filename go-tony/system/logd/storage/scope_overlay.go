@@ -14,7 +14,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
-// SPIKE — bounded scope overlay, non-keyed data only. See docs/scope_overlay_plan.md.
+// Bounded scope overlay. See docs/scope_overlay_plan.md.
 //
 // A scope's writes replay in full on every read, forever, because they are exempt from
 // both snapshotting and compaction. The overlay is the scope's ownership, materialized at
@@ -23,9 +23,12 @@ import (
 //
 //	overlay(T) = unconditional(Diff(baseline@T, scoped@T))  ∪  an entry per owned path
 //
-// What this spike leaves out, deliberately: keyed arrays (they need the annotation
-// pre-pass, plan R2/P1), compaction of the patches the overlay subsumes (plan phase 2),
-// and a durable marker — see scopeOverlayTx.
+// Left out deliberately: compaction of the patches an overlay subsumes (plan phase 2), and
+// stepping, which would take the CAS precondition and the watch recompute from "bounded by
+// the snapshot interval" to O(patch) as baseline already is (plan steps 7-8).
+//
+// A scope whose keyed arrays the schema does not declare still replays -- see
+// scopeHasKeyedPaths.
 
 // scopeOverlayTx is the tx number an overlay entry carries. An overlay belongs to no
 // transaction; this keeps it out of the way of real ones and out of indexWatermarks'
@@ -35,8 +38,9 @@ import (
 // log rather than inferred from the index, which is rebuildable.
 const scopeOverlayTx = int64(-1)
 
-// EnableScopeOverlay turns the overlay read path on. Off by default: with it off, nothing
-// in this file runs and scoped reads replay as before.
+// EnableScopeOverlay turns the overlay paths on or off. ON by default; passing false is
+// the escape hatch, and with it off nothing in this file runs, scoped reads replay as
+// before, and no overlay is written.
 func (s *Storage) EnableScopeOverlay(v bool) { s.scopeOverlay = v }
 
 // isOverlaySegment reports whether seg is an overlay rather than one of the scope's own

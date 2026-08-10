@@ -118,7 +118,9 @@ type Storage struct {
 	// commit path) or by the accessors; set at configuration time, before serving.
 	durability Durability
 
-	// scopeOverlay turns on the overlay read path (SPIKE, see scope_overlay.go).
+	// scopeOverlay turns on the overlay read and write paths (see scope_overlay.go). ON by
+	// default; EnableScopeOverlay(false) is the escape hatch, and with it off a store is
+	// byte-identical to one that never had the feature.
 	scopeOverlay bool
 
 	// replayFloor is the highest commit whose delta history compaction has removed.
@@ -136,10 +138,11 @@ func Open(root string, logger *slog.Logger) (*Storage, error) {
 	s := &Storage{
 		sequence: seq.NewSeq(root),
 
-		txStore: tx.NewInMemoryTxStore(),
-		index:   index.NewIndex(""),
-		logger:  logger,
-		schema:  newStorageSchema(),
+		txStore:      tx.NewInMemoryTxStore(),
+		index:        index.NewIndex(""),
+		logger:       logger,
+		schema:       newStorageSchema(),
+		scopeOverlay: true,
 	}
 
 	dlog, err := dlog.NewDLog(root, logger)

@@ -694,8 +694,20 @@ inferred it (`EndTx == -1`) and that cannot survive `index.Build`, which takes t
 the whole optimisation until the next snapshot and left the read path unable to exclude the
 entry it is the base of. Pinned by `scope_overlay_rebuild_test.go`.
 
+**On by default.** `EnableScopeOverlay(false)` is the escape hatch, and with it off a store
+is byte-identical to one that never had the feature. The whole suite passes with it on,
+including the COW tests, which now exercise the overlay without asking for it.
+
 **What phase 1 does not fix.** Scope patches still accumulate, still get rewritten by every
-compaction, still pin their log segments until `DeleteScope`. Phase 1 takes the semantic
+compaction, still pin their log segments until `DeleteScope` — and now an overlay per
+snapshot per active scope accumulates beside them. Measured over ten snapshot cycles with
+twenty scope writes each: ten overlays, and the log grew 40,546 → 41,319 bytes, under 2%.
+That is for a one-path ownership set; the cost is proportional to the SET, not to history,
+so a scope owning a thousand paths writes a thousand-path overlay each snapshot.
+
+Old overlays are not dead weight — a read at a historical commit takes the newest overlay
+at or below it, exactly as it takes the newest baseline snapshot — so retention wants the
+same tiering baseline snapshots get, which is phase 2's business. Phase 1 takes the semantic
 cost of §3.2 and buys speed with it, not disk. If the freeze turns out wrong for a real
 workload, that is the exposure.
 
