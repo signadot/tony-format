@@ -18,6 +18,7 @@ define:
   Patch: .[tony-base:ir]
   SchemaEntry: .[nullable(schema-entry)]
   ScopeID: .[nullable(string)]
+  ScopeOverlay: .[bool]
   SnapPos: .[nullable(int)]
   Timestamp: .[string]
   TxSource: .[nullable(tx:tx-state)]

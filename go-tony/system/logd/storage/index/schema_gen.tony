@@ -12,6 +12,7 @@ define:
   LogFileGeneration: .[int]
   LogPosition: .[int]
   ScopeID: .[nullable(string)]
+  ScopeOverlay: .[bool]
   StartCommit: .[int]
   StartTx: .[int]
 signature:

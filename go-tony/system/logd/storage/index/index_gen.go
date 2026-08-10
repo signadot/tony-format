@@ -61,6 +61,9 @@ func (s *LogSegment) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["ScopeID"] = ir.FromString(string(*s.ScopeID))
 	}
 
+	// Field: ScopeOverlay
+	irMap["ScopeOverlay"] = ir.FromBool(bool(s.ScopeOverlay))
+
 	return ir.FromMap(irMap).WithTag("!log-segment"), nil
 }
 
@@ -166,6 +169,12 @@ func (s *LogSegment) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 				*val = string(fieldNodeUnwrapped.String)
 				s.ScopeID = val
 			}
+		case "ScopeOverlay":
+			// Field: ScopeOverlay
+			if fieldNodeUnwrapped.Type != ir.BoolType {
+				return fmt.Errorf("field %q: expected bool, got %v", "ScopeOverlay", fieldNodeUnwrapped.Type)
+			}
+			s.ScopeOverlay = bool(fieldNodeUnwrapped.Bool)
 		default:
 			if gomap.IsStrict(opts...) {
 				return fmt.Errorf("unknown field %q for LogSegment", fieldName.String)

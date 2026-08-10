@@ -27,12 +27,12 @@ import (
 // pre-pass, plan R2/P1), compaction of the patches the overlay subsumes (plan phase 2),
 // and a durable marker — see scopeOverlayTx.
 
-// scopeOverlayTx marks an index segment as an overlay rather than a scope patch.
+// scopeOverlayTx is the tx number an overlay entry carries. An overlay belongs to no
+// transaction; this keeps it out of the way of real ones and out of indexWatermarks'
+// maximum, which ignores anything below what it has seen.
 //
-// SPIKE-GRADE. It survives in the live index but not a rebuild: index.Build takes the tx
-// from entry.TxSource, which an overlay has none of, so a rebuilt index reads 0. A real
-// implementation wants a field on dlog.Entry, which means codegen. Everything else here
-// is the shape the plan describes.
+// It is NOT how an overlay is recognised -- dlog.Entry.ScopeOverlay is, and it is in the
+// log rather than inferred from the index, which is rebuildable.
 const scopeOverlayTx = int64(-1)
 
 // EnableScopeOverlay turns the overlay read path on. Off by default: with it off, nothing
@@ -42,7 +42,7 @@ func (s *Storage) EnableScopeOverlay(v bool) { s.scopeOverlay = v }
 // isOverlaySegment reports whether seg is an overlay rather than one of the scope's own
 // patches.
 func isOverlaySegment(seg index.LogSegment) bool {
-	return seg.ScopeID != nil && seg.EndTx == scopeOverlayTx
+	return seg.ScopeID != nil && seg.ScopeOverlay
 }
 
 // BuildScopeOverlay computes the overlay for a scope at commit, without writing it.
@@ -203,6 +203,7 @@ func (s *Storage) WriteScopeOverlay(scopeID string, commit int64) error {
 	overlay.Tag = ir.TagCompose(tx.PatchRootTag, nil, overlay.Tag)
 
 	entry := dlog.NewEntry(nil, overlay, commit, time.Now().UTC().Format(time.RFC3339), commit-1, &scopeID)
+	entry.ScopeOverlay = true
 	pos, logFile, err := s.dLog.AppendEntry(entry)
 	if err != nil {
 		return fmt.Errorf("overlay: append: %w", err)

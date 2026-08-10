@@ -685,8 +685,14 @@ loses its only path-level consumer. As a patch entry, path indexing survives —
 needs those paths.
 
 Two traps: the overlay must span `StartCommit != EndCommit` or `patchNodesFromSegments`
-skips it as a snapshot; and it must sort before any retained later scope patch, which
-`[0, T]` gives for free.
+skips it as a snapshot; and it must sort before any retained later scope patch.
+
+**An overlay is recognised from the LOG** — `dlog.Entry.ScopeOverlay`, carried onto every
+segment by `IndexPatch` — not inferred from the index, which is rebuildable. The spike
+inferred it (`EndTx == -1`) and that cannot survive `index.Build`, which takes the tx from
+`TxSource` and an overlay has none. It degraded gracefully rather than wrongly, but it cost
+the whole optimisation until the next snapshot and left the read path unable to exclude the
+entry it is the base of. Pinned by `scope_overlay_rebuild_test.go`.
 
 **What phase 1 does not fix.** Scope patches still accumulate, still get rewritten by every
 compaction, still pin their log segments until `DeleteScope`. Phase 1 takes the semantic

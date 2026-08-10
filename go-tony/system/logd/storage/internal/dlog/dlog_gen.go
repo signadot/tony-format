@@ -167,6 +167,9 @@ func (s *Entry) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["SchemaEntry"] = node
 	}
 
+	// Field: ScopeOverlay
+	irMap["ScopeOverlay"] = ir.FromBool(bool(s.ScopeOverlay))
+
 	return ir.FromMap(irMap).WithTag("!entry"), nil
 }
 
@@ -266,6 +269,12 @@ func (s *Entry) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if err := s.SchemaEntry.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
+		case "ScopeOverlay":
+			// Field: ScopeOverlay
+			if fieldNodeUnwrapped.Type != ir.BoolType {
+				return fmt.Errorf("field %q: expected bool, got %v", "ScopeOverlay", fieldNodeUnwrapped.Type)
+			}
+			s.ScopeOverlay = bool(fieldNodeUnwrapped.Bool)
 		default:
 			if gomap.IsStrict(opts...) {
 				return fmt.Errorf("unknown field %q for Entry", fieldName.String)

@@ -24,6 +24,7 @@ type LogSegment struct {
 	LogPosition       int64    // Byte offset in log file
 	LogFileGeneration int64    // Generation of log file when indexed - used to detect compaction
 	ScopeID           *string  // nil = baseline, non-nil = scope-specific data
+	ScopeOverlay      bool     // the entry is a scope's materialized ownership, not one of its writes
 	// Semantics:
 	// - StartCommit == EndCommit: snapshot (full state at that commit)
 	// - StartCommit != EndCommit: diff (incremental changes over commit range)
@@ -87,6 +88,7 @@ func NewLogSegmentFromPatchEntry(e *dlog.Entry, kpath string, logFile string, po
 		LogPosition:       pos,
 		LogFileGeneration: generation,
 		ScopeID:           scopeID,
+		ScopeOverlay:      e.ScopeOverlay,
 	}
 }
 
