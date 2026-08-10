@@ -477,9 +477,38 @@ COMMITTED rather than consulted; that fallback is where it goes away.
 Pinned: config wins when the store has nothing, persisted wins over a *disagreeing* config,
 and the persisted answer survives a restart with no configuration at all.
 
-`Schema` gaining a general keying declaration — so a client-supplied key like `!key(name)`
-is sayable at all, rather than only as a side effect of auto-id — is the next step. It is
-not quite the easy one, because of what follows.
+**Done — `!logd-key` declares a client-supplied key** (`schema_keyfield_test.go`), so
+"items is keyed by name" is sayable without calling the key auto-generated. `Schema.Validate`
+refuses a schema that cannot mean one thing, checked at `StartMigration` so a store never
+adopts one: key derivation decides what a stored delta records, and a delta cannot be
+un-recorded.
+
+**But the keyed guard does NOT lift, and the reason is the question this issue inherited.**
+The schema keys the **index**, not the **merge**. `schemaForScope` is handed to
+`IndexPatch`, and nothing puts `!key(f)` into the patch, so a write of
+`{items: [{sku: "G"}]}` against a baseline holding `sku: W` merges POSITIONALLY — W is
+replaced, not merged — while the index records `items("G")`. Annotate the overlay from that
+same schema and it produces a correct identity-based diff, which then disagrees with the
+positional replay it is checked against: the overlay keeps baseline's other elements, the
+replay does not.
+
+The overlay is arguably the answer the declaration asked for; it is not the answer the store
+gives. Making them agree means settling **inject or reject** — whether logd puts `!key(f)`
+into a write whose array the schema declares keyed, or refuses a write that omits it. That
+is `hbn7ptxch12krs778smg`'s open question, inherited here, and it is now the single thing
+between the overlay and keyed data. Until it is settled a keyed scope replays, which is
+slow and right.
+
+Two fixes worth keeping that came out of trying:
+
+- **`!retag` is checked** and was wrongly in the storage vocabulary. It reads as a statement
+  of the resulting tag and behaves as an assertion about the previous one, refusing unless
+  the document's tag already equals `from` — the same trap as `!replace`, less obviously.
+  `addtag` and `rmtag` are the unconditional halves and stay.
+- **Presentation is stripped from both states before diffing.** Two materialized states can
+  differ in `!bracket` for reasons that are nobody's intent — one side rebuilt from a
+  snapshot, the other from replay — and a diff over that emits a tag op the overlay then
+  re-asserts against a document that never had the tag.
 
 **The index accepts a narrower key than a merge does, and says nothing when handed
 something wider.** `indexPatchRec` does `indexVal, _ := ir.ElemKey(v, keyField)` — the bool

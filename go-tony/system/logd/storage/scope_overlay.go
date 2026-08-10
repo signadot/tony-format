@@ -68,17 +68,37 @@ func (s *Storage) BuildScopeOverlay(scopeID string, commit int64) (*ir.Node, err
 		scoped = ir.Null()
 	}
 
-	overlay := unconditionalPatch(tony.Diff(base.Clone(), scoped.Clone()))
+	// Presentation is how a value was WRITTEN, not what it is, and ir/tags.go names it a
+	// category that patching drops first. Two materialized states can differ in it for
+	// reasons that are nobody's intent -- one side reconstructed from a snapshot, the
+	// other from patch replay -- and a diff over that difference emits a tag op, which an
+	// overlay then re-asserts against a document that never had the tag. Strip it from
+	// both before comparing, so the overlay describes data.
+	keys := s.keyedArrayPaths()
+	annBase, annScoped := stripPresentationDeepIR(base.Clone()), stripPresentationDeepIR(scoped.Clone())
+	annotateKeyed(annBase, "", keys)
+	annotateKeyed(annScoped, "", keys)
+	overlay := unconditionalPatch(tony.Diff(annBase, annScoped))
 
 	// A minimal diff records only where the two states differ, so a scope that wrote the
 	// value baseline already holds records nothing and loses the path. The index knows
 	// what it wrote; re-state each of those from the scoped view. Plan R3.
 	for _, p := range s.scopeOwnedLeafPaths(scopeID) {
-		v, err := scoped.GetPath("$." + p)
+		v, err := scoped.GetKPath(p)
 		if err != nil || v == nil {
 			continue // absent in the scoped view: the diff's tombstone is what holds it
 		}
-		rooted, err := tx.RootPatchAt(p, v.Clone())
+		// A keyed element cannot be rooted at items("A"): RootPatchAt builds from a kpath,
+		// and a key segment carries the key VALUE while constructing the patch needs the
+		// key FIELD. Root at the array with a one-element keyed list, so the assertion
+		// merges by identity and leaves every element baseline owns alone.
+		root, val := p, v.Clone()
+		if arr, field, keyed := splitKeyedElemPath(p, keys); keyed {
+			list := ir.FromSlice([]*ir.Node{val})
+			list.Tag = ir.TagCompose("!key", []string{field}, "")
+			root, val = arr, list
+		}
+		rooted, err := tx.RootPatchAt(root, val)
 		if err != nil {
 			return nil, fmt.Errorf("overlay: rooting %q: %w", p, err)
 		}
@@ -102,9 +122,17 @@ func (s *Storage) scopeOwnedLeafPaths(scopeID string) []string {
 		if seg.ScopeID == nil || *seg.ScopeID != scopeID || isOverlaySegment(seg) {
 			continue
 		}
-		if seg.KindedPath != "" {
-			seen[seg.KindedPath] = true
+		p := seg.KindedPath
+		if p == "" {
+			continue
 		}
+		// A keyed ELEMENT is the ownership unit, not the fields inside it: items("G").q
+		// cannot be rooted on its own, since RootPatchAt has no way to build the keyed
+		// list a key segment implies. Truncate to the deepest element.
+		if i := strings.LastIndexByte(p, ')'); i >= 0 {
+			p = p[:i+1]
+		}
+		seen[p] = true
 	}
 	paths := make([]string, 0, len(seen))
 	for p := range seen {
@@ -116,9 +144,13 @@ func (s *Storage) scopeOwnedLeafPaths(scopeID string) []string {
 	return paths
 }
 
+// hasDescendant reports whether any recorded path lies beneath p. A key segment is a
+// descendant marker just as a dot is: items("G") is beneath items. Testing only for "."
+// left items itself looking like a leaf, so the overlay re-stated the WHOLE array as the
+// scope's and froze baseline out of it.
 func hasDescendant(p string, all map[string]bool) bool {
 	for q := range all {
-		if q != p && strings.HasPrefix(q, p+".") {
+		if q != p && (strings.HasPrefix(q, p+".") || strings.HasPrefix(q, p+"(")) {
 			return true
 		}
 	}
@@ -302,13 +334,123 @@ func (s *Storage) writeScopeOverlays(commit int64) {
 //
 // Falling back to the replay path is correct, just slow -- which is the right way round.
 func (s *Storage) scopeHasKeyedPaths(scopeID string) bool {
+	keys := s.keyedArrayPaths()
 	for _, seg := range s.index.AllSegments() {
 		if seg.ScopeID == nil || *seg.ScopeID != scopeID || isOverlaySegment(seg) {
 			continue
 		}
-		if strings.ContainsRune(seg.KindedPath, '(') {
-			return true
+		p := seg.KindedPath
+		if !strings.ContainsRune(p, '(') {
+			continue
 		}
+		// Any keyed path, declared or not, still falls back to replay -- see the note
+		// below. keys is consulted only so the reason can be logged accurately.
+		_ = keys
+		return true
 	}
 	return false
+}
+
+// Why a SCHEMA-DECLARED keyed path still falls back, even though the overlay can now be
+// annotated from that schema and produces a correct identity-based diff:
+//
+// the schema keys the INDEX, not the MERGE. schemaForScope is handed to IndexPatch, and
+// nothing puts !key(f) into the patch itself, so a write of {items: [{sku: "G"}]} against
+// a baseline holding sku W merges POSITIONALLY -- W is replaced, not merged -- while the
+// index records items("G"). Annotating the overlay therefore makes it identity-based while
+// the replay it is checked against stays positional, and the two disagree by construction:
+// the overlay keeps baseline's other elements and the replay does not.
+//
+// The overlay is arguably the answer the declaration asked for. It is not the answer the
+// store gives. Making them agree means deciding the question issue hbn7ptxch12krs778smg
+// left open and 5hmq80f3h12krh1mbsn0 inherited: whether logd INJECTS !key(f) into a write
+// whose array the schema declares keyed, or REJECTS a write that omits it. Until then a
+// keyed scope replays, which is slow and right.
+
+// keyedArrayPaths is the schema's keying as the overlay builder needs it: array path ->
+// key field, over both declarations, since auto-id is keying that also generates.
+func (s *Storage) keyedArrayPaths() map[string]string {
+	sch := s.schemaForScope(nil)
+	if sch == nil {
+		return nil
+	}
+	out := map[string]string{}
+	for _, f := range sch.AutoIDFields {
+		out[f.Path] = f.Field
+	}
+	for _, f := range sch.KeyFields {
+		out[f.Path] = f.Field
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// annotateKeyed tags arrays at the schema's keyed paths with !key(f), in place.
+//
+// Stored state is op-free, so diffArray cannot take its keyed branch: it needs !key(f) on
+// BOTH sides. Without this the overlay comes out POSITIONAL and lands the scope's elements
+// by index -- and re-asserted on every read, a positional diff duplicates them. Annotating
+// is legitimate exactly where storing the tag is not: the overlay is a WRITE, and a write
+// is where ops belong.
+//
+// Elements inherit the array's path, matching api.AutoIDField.Path ("orders.items") and
+// indexPatchRec's own recursion. Node.GetPath returns a Clone, so this tags on the way
+// down rather than by lookup.
+func annotateKeyed(n *ir.Node, prefix string, keys map[string]string) {
+	if n == nil {
+		return
+	}
+	if f, ok := keys[prefix]; ok && n.Type == ir.ArrayType {
+		if _, args := ir.TagGet(n.Tag, "!key"); len(args) != 1 {
+			n.Tag = ir.TagCompose("!key", []string{f}, n.Tag)
+		}
+	}
+	switch n.Type {
+	case ir.ObjectType:
+		for i, fld := range n.Fields {
+			p := fld.String
+			if prefix != "" {
+				p = prefix + "." + fld.String
+			}
+			if i < len(n.Values) {
+				annotateKeyed(n.Values[i], p, keys)
+			}
+		}
+	case ir.ArrayType:
+		for _, v := range n.Values {
+			annotateKeyed(v, prefix, keys)
+		}
+	}
+}
+
+// splitKeyedElemPath reports the array path and key field when p names a keyed ELEMENT --
+// items("A") rather than items or items.field.
+func splitKeyedElemPath(p string, keys map[string]string) (arrayPath, keyField string, ok bool) {
+	if len(p) == 0 || p[len(p)-1] != ')' {
+		return "", "", false
+	}
+	open := strings.LastIndexByte(p, '(')
+	if open <= 0 {
+		return "", "", false
+	}
+	arrayPath = p[:open]
+	f, ok := keys[arrayPath]
+	return arrayPath, f, ok
+}
+
+// stripPresentationDeepIR removes presentation tags throughout, in place.
+func stripPresentationDeepIR(n *ir.Node) *ir.Node {
+	if n == nil {
+		return nil
+	}
+	n.Tag = ir.StripPresentation(n.Tag)
+	for _, f := range n.Fields {
+		stripPresentationDeepIR(f)
+	}
+	for _, v := range n.Values {
+		stripPresentationDeepIR(v)
+	}
+	return n
 }

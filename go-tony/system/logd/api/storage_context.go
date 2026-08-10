@@ -38,6 +38,10 @@ const StorageContextURI = "logd/context/storage"
 //
 //	replace    CHECKED -- verifies the document still equals from:, so against a moved
 //	           baseline it errors outright rather than applying. Lowering rewrites it.
+//	retag      CHECKED for the same reason, and less obviously: retagOp refuses unless the
+//	           document's tag already equals from. It reads like a statement of the
+//	           resulting tag and behaves like an assertion about the previous one. addtag
+//	           and rmtag are the unconditional halves and are storable.
 //	strdiff    relative to the string that was there
 //	arraydiff  relative to the array that was there, and positional
 //	rename     relative to the keys that were there; lowers to delete + insert
@@ -53,7 +57,6 @@ var storableTags = map[string]string{
 	"raw":    "escapes data that would otherwise read as an operation",
 	"addtag": "adds a tag; the tag is what results",
 	"rmtag":  "removes a tag; its absence is what results",
-	"retag":  "replaces a tag; the new tag is what results",
 }
 
 // StorageContext is logd's storage vocabulary as a schema context.
@@ -172,7 +175,7 @@ func at(path string) string {
 
 func whyNotStorable(op string) string {
 	switch op {
-	case "replace":
+	case "replace", "retag":
 		return "it is checked, so against a base that has moved it errors rather than applying"
 	case "strdiff", "arraydiff", "rename", "jsonpatch":
 		return "its result depends on what was there, so it re-evaluates against a base that has moved"
