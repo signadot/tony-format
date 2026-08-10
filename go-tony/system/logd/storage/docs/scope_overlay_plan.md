@@ -64,6 +64,25 @@ In order of how much they hurt:
 3. **Scoped reads are O(N)** and never truncate: scope patches are exempt from both
    snapshotting and compaction (`snap_storage.go`, `compaction.go selectSurvivors`).
 
+**What the spike already buys** (`scope_overlay_costs_test.go`), with an overlay cut at N
+and the flag toggled around the same store:
+
+| N scope writes | read | CAS write | watch/event |
+|---:|---:|---:|---:|
+| 50 | 884 µs → 71 µs | 1.44 ms → 805 µs | 834 µs → 36 µs |
+| 100 | 1.80 ms → 56 µs | 2.48 ms → 725 µs | 1.85 ms → 54 µs |
+| 200 | 4.21 ms → 42 µs | 4.92 ms → 697 µs | 4.18 ms → 55 µs |
+| 400 | 8.79 ms → 51 µs | 9.83 ms → 761 µs | 9.25 ms → 72 µs |
+
+All three go flat in the scope's history — so steps 5–6 fix all of §1, not just the read,
+because `MatchStateAt` and the watcher's recompute both route through `ReadStateAt`.
+
+The CAS write is flat but sits at ~2× baseline's ~370 µs, and that residue is the whole of
+what remains: it is replaying the patches written **since the overlay**. Measured directly
+by varying how many writes a run does from a fixed start — per-op cost rises 502 µs → 1.29
+ms as the run goes from 5 writes to 80. That is "bounded by the snapshot interval" rather
+than "O(1)", in one number, and it is exactly what a scoped stepped head removes.
+
 Beyond latency: compaction rewrites the entire retained scope history of every scope on
 every `SwitchDLog`, and a scope's patches pin their log segments until `DeleteScope`.
 
@@ -445,16 +464,24 @@ compaction, still pin their log segments until `DeleteScope`. Phase 1 takes the 
 cost of §3.2 and buys speed with it, not disk. If the freeze turns out wrong for a real
 workload, that is the exposure.
 
-**And what steps 1–6 alone are worth.** They bound every cost in §1 to *one snapshot
-interval*, which is the difference between unbounded and bounded and is the whole problem.
-But that is parity with baseline only on the **read** path. Baseline's other two hot paths
-are not bounded by the snapshot at all — they are O(patch), because `head.go` steps a head
-document for CAS preconditions and `session.go` steps a watch document per event (§1). A
-scope with an overlay and no stepping still pays a snapshot-interval replay on every
-conditional write and every watch event, where baseline pays a patch.
+**And what steps 1–6 alone are worth — now measured, not projected.** They bound all three
+costs in §1 to *one snapshot interval*, and all three go flat in the scope's history
+(§1's second table), because `MatchStateAt` and the watcher's recompute both route through
+`ReadStateAt`. That is the difference between unbounded and bounded, and it is the whole
+problem.
 
-So steps 7–8 are **parity work, not a bonus increment**, and the ~7600× in §1 lives there.
-They are no longer unmeasured — see §3.6.
+What is left is the interval itself. Baseline's other two hot paths are not
+snapshot-bounded at all — they are O(patch), because `head.go` steps a head document for
+CAS preconditions and `session.go` steps a watch document per event. A scope with an
+overlay and no stepping still replays whatever it has written since the last snapshot, on
+every conditional write and every watch event, where baseline replays nothing. Measured:
+per-op CAS cost rises 502 µs → 1.29 ms as a run goes from 5 writes to 80 from the same
+starting point.
+
+So steps 7–8 are **parity work**, worth a constant factor of about 2 on the CAS path
+rather than the order-of-magnitude that 5–6 just delivered — and no longer unmeasured as a
+mechanism either, see §3.6. That reordering is the point of having measured: the bulk of
+§1 is already paid for.
 
 ---
 
