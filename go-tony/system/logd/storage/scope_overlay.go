@@ -147,6 +147,15 @@ func (s *Storage) WriteScopeOverlay(scopeID string, commit int64) error {
 		return nil // the scope holds nothing of its own
 	}
 
+	// Mark the root the way the commit path marks every stored patch (tx.TagPatchRoots,
+	// before MergePatches). The streaming processor finds what to apply by walking for
+	// !logd-patch-root, so an entry without it contributes NOTHING when the base is a
+	// snapshot -- and contributes normally when the base is empty, because that path
+	// folds patches directly instead. An untagged overlay therefore looks correct until
+	// the first snapshot exists, which is exactly when it is supposed to start earning
+	// its keep.
+	overlay.Tag = ir.TagCompose(tx.PatchRootTag, nil, overlay.Tag)
+
 	entry := dlog.NewEntry(nil, overlay, commit, time.Now().UTC().Format(time.RFC3339), commit-1, &scopeID)
 	pos, logFile, err := s.dLog.AppendEntry(entry)
 	if err != nil {
@@ -201,4 +210,62 @@ func unconditionalPatch(n *ir.Node) *ir.Node {
 		n.Values[i] = unconditionalPatch(v)
 	}
 	return n
+}
+
+// liveScopes lists every scope the index holds data for. P4 in the plan: there is no
+// other way to ask -- activeScopes was excised with the old scope-snapshot code and
+// DeleteScope is the only lifecycle signal, so a scope exists exactly as long as its
+// segments do.
+func (s *Storage) liveScopes() []string {
+	seen := map[string]bool{}
+	for _, seg := range s.index.AllSegments() {
+		if seg.ScopeID != nil {
+			seen[*seg.ScopeID] = true
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for sc := range seen {
+		out = append(out, sc)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// scopeNeedsOverlay reports whether the scope has written anything the newest overlay does
+// not already subsume. Without this every snapshot writes a fresh overlay for every scope
+// forever, including scopes nothing has touched since the last one -- which is how a fix
+// for unbounded growth becomes a source of it.
+func (s *Storage) scopeNeedsOverlay(scopeID string, commit int64) bool {
+	ov := s.latestOverlay(scopeID, commit)
+	if ov == nil {
+		return true // never had one; the scope has segments or liveScopes would not name it
+	}
+	if ov.EndCommit >= commit {
+		return false
+	}
+	from := ov.EndCommit
+	for _, seg := range s.index.LookupRange("", &from, &commit, &scopeID) {
+		if seg.ScopeID == nil || *seg.ScopeID != scopeID || isOverlaySegment(seg) {
+			continue
+		}
+		if seg.EndCommit > ov.EndCommit {
+			return true
+		}
+	}
+	return false
+}
+
+// writeScopeOverlays refreshes every live scope's overlay at commit. Best effort, like
+// compaction in SwitchDLog: an overlay is an optimisation over a replay path that still
+// works, so failing to write one must not fail the snapshot that carries baseline's.
+func (s *Storage) writeScopeOverlays(commit int64) {
+	for _, sc := range s.liveScopes() {
+		if !s.scopeNeedsOverlay(sc, commit) {
+			continue
+		}
+		if err := s.WriteScopeOverlay(sc, commit); err != nil {
+			s.logger.Error("failed to write scope overlay; the scope keeps replaying its patches",
+				"scope", sc, "commit", commit, "error", err)
+		}
+	}
 }

@@ -226,6 +226,15 @@ func (s *Storage) createSnapshot(commit int64) error {
 	s.index.Add(snapSeg)
 
 	s.logger.Info("snapshot created", "commit", commit, "logFile", snapWriter.LogFileID(), "position", snapWriter.EntryPosition())
+
+	// SPIKE (docs/scope_overlay_plan.md): give each live scope the same treatment the
+	// baseline just had. Scope patches are exempt from snapshotting, which is why a
+	// scoped read replays the scope's whole history; an overlay written here bounds it
+	// to what the scope has written since. Gated with the read path, so a store with the
+	// flag off is byte-identical to before.
+	if s.scopeOverlay {
+		s.writeScopeOverlays(commit)
+	}
 	return nil
 }
 
