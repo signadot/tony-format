@@ -35,7 +35,18 @@ func Build(idx *Index, dlog *dlog.DLog, fromCommit int64) error {
 		generation := dlog.GetGeneration(logFile)
 
 		if entry.Patch != nil {
-			// Schema is nil here - we rely on !key tags stored in the patches
+			// Schema is nil here, so keyed arrays are recognised only by the !key tag a
+			// patch carries. That does NOT reproduce a live index built under a schema:
+			// the schema route (AutoIDFields) keys arrays whose patches carry no tag, so
+			// the same log rebuilds to items[0] where the live index held items("<id>").
+			//
+			// Harmless as things stand, and measured: path-level entries have one
+			// consumer, ReadPatchesInRange, and LookupRange collects a node's own
+			// segments before descending — so a lookup at any path already returns every
+			// entry's root copy and both shapes answer a replay identically
+			// (TestKeyed_RebuildDivergenceImpact). It stops being harmless for anything
+			// that addresses BY the keyed path, which is what a scope overlay does; see
+			// docs/scope_overlay_plan.md P1.
 			if err := IndexPatch(idx, entry, string(logFile), pos, txSeq, generation, entry.Patch, nil, entry.ScopeID); err != nil {
 				return fmt.Errorf("failed to index entry at commit %d: %w", entry.Commit, err)
 			}

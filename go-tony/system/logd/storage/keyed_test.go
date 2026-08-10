@@ -294,3 +294,90 @@ func TestKeyed_WatchDeltaStepsCorrectly(t *testing.T) {
 		prev = stepped
 	}
 }
+
+// TestKeyed_RebuildDivergenceImpact asks whether the live/rebuilt index shape difference
+// under a schema actually changes any ANSWER, or only the shape.
+//
+// Path-level index entries have exactly one consumer, ReadPatchesInRange (watch replay);
+// every other lookup is at the root. And LookupRange collects the current node's own
+// segments BEFORE descending, so a lookup at any path already includes every entry's root
+// copy. If that makes replay's answer identical either way, the divergence is latent
+// rather than live -- it starts to matter when something addresses BY the keyed path,
+// which is exactly what the overlay does and what P1 has to settle first.
+func TestKeyed_RebuildDivergenceImpact(t *testing.T) {
+	root := t.TempDir()
+	s, err := Open(root, nil)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	resolver := &api.StaticSchemaResolver{Schema: &api.Schema{
+		AutoIDFields: []api.AutoIDField{{Path: "items", Field: "id"}},
+	}}
+	s.SetSchemaResolver(resolver)
+
+	mustCommit(t, s, nil, `{items: [{q: 1}]}`)
+	mustCommit(t, s, nil, `{items: [{q: 2}]}`)
+	mustCommit(t, s, nil, `{other: 1}`)
+	last, err := s.GetCurrentCommit()
+	if err != nil {
+		t.Fatalf("GetCurrentCommit: %v", err)
+	}
+
+	// The keyed path as the LIVE index spells it.
+	var keyedPath string
+	for _, p := range indexPathSet(s) {
+		if len(p) > 6 && p[:6] == "items(" {
+			keyedPath = p
+			break
+		}
+	}
+	if keyedPath == "" {
+		t.Fatal("expected a keyed index path under the schema route")
+	}
+
+	commitsFor := func(st *Storage, kp string) []int64 {
+		notes, err := st.ReadPatchesInRange(kp, 1, last, nil)
+		if err != nil {
+			t.Fatalf("ReadPatchesInRange(%q): %v", kp, err)
+		}
+		var out []int64
+		for _, n := range notes {
+			out = append(out, n.Commit)
+		}
+		sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+		return out
+	}
+
+	liveKeyed := commitsFor(s, keyedPath)
+	livePlain := commitsFor(s, "items")
+
+	re := reopenRebuilt(t, s, root, resolver)
+	defer re.Close()
+	rebuiltKeyed := commitsFor(re, keyedPath)
+	rebuiltPlain := commitsFor(re, "items")
+
+	t.Logf("keyed path %q", keyedPath)
+	t.Logf("  replay commits live=%v rebuilt=%v", liveKeyed, rebuiltKeyed)
+	t.Logf("  replay commits at \"items\" live=%v rebuilt=%v", livePlain, rebuiltPlain)
+
+	if !sameInts(liveKeyed, rebuiltKeyed) {
+		t.Errorf("watch replay at the keyed path answers differently after a rebuild:\n live=%v rebuilt=%v",
+			liveKeyed, rebuiltKeyed)
+	}
+	if !sameInts(livePlain, rebuiltPlain) {
+		t.Errorf("watch replay at %q answers differently after a rebuild:\n live=%v rebuilt=%v",
+			"items", livePlain, rebuiltPlain)
+	}
+}
+
+func sameInts(a, b []int64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}

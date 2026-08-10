@@ -311,8 +311,25 @@ Rejected — persisting `!key` on state: it embeds a schema statement in every i
 no declaration point and no migration path, and any writer can plant a different tag, so
 the key space still forks — permanently and invisibly.
 
-Notes: `index.Build` passes `nil` schema and relies on tags, so it needs the schema **at
-that commit** — schema replay has to interleave with index build.
+**Measured, and latent rather than live** (`keyed_test.go`). The same log rebuilds to a
+different shape than the live index describes, because `index.Build` passes `nil` schema
+and reads only tags while the live index used the schema:
+
+```
+live (schema route):  items("a1a0")  items("a1a0").id  ...
+rebuilt (tag route):  items[0]       items[0].id       ...
+```
+
+One store disagreeing with itself across a restart. It changes no ANSWER today: path-level
+entries have one consumer, `ReadPatchesInRange`, and `LookupRange` collects a node's own
+segments before descending, so a lookup at any path already returns every entry's root
+copy — both shapes reply to a replay with the same commits
+(`TestKeyed_RebuildDivergenceImpact`). It stops being harmless for anything that addresses
+BY the keyed path, which is precisely the overlay. So this does not block the spike on
+non-keyed data; it blocks the keyed half of the overlay, and nothing else.
+
+Notes: `index.Build` needs the schema **at that commit** — schema replay has to interleave
+with index build.
 `SchemaResolver.GetSchema(scopeID)` is per-scope, so two scopes can key one path
 differently; needs a rule (inherit baseline keying, or reject divergence).
 
