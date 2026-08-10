@@ -730,6 +730,28 @@ rather than the order-of-magnitude that 5–6 just delivered — and no longer u
 mechanism either, see §3.6. That reordering is the point of having measured: the bulk of
 §1 is already paid for.
 
+**Step 7 is done, and not by stepping a scoped document.** `MatchStateAt` runs under
+`commitMu`, where baseline's stepped head is already current, and the overlay states the
+scope's ownership — so the scoped view is `baseline head + overlay(T) + the scope's patches
+after T`, and the term that used to dominate (replaying baseline from the last snapshot)
+disappears without any new stepped structure to keep honest. `scopedHeadStateAt` falls back
+to a full read whenever it cannot be sure: overlays off, no overlay yet, a scope the overlay
+cannot serve, or a commit the head cannot answer for. Checked against replay over generated
+histories at the commit a precondition is actually evaluated at
+(`TestScopedHead_AgreesWithReplay`).
+
+**A regression this uncovered, which had been live since the keyed guard landed.**
+`scopeHasKeyedPaths` walks the whole index, and the read path calls it on every scoped
+read — so it cost more than the overlay saves: 53 µs → 1.19 ms at 400 accumulated writes,
+turning a flat read back into a linear one. It is cached now. Invalidating that cache on
+every scoped write was the obvious fix and the wrong one, since the precondition path both
+writes and reads, so each write forced the next read to walk the index again — measured
+turning a flat CAS into one that grows. A write can only ADD keyed paths, and only ones
+appearing in the patch, so the patch decides.
+
+All three costs are flat again with step 7 in: read 36 → 72 µs, CAS 744 → 775 µs, watch
+53 → 74 µs across 50 → 400 accumulated scope writes.
+
 ---
 
 ## 6. Phase 2 — compaction drops what the overlay subsumes

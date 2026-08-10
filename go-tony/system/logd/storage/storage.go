@@ -118,6 +118,12 @@ type Storage struct {
 	// commit path) or by the accessors; set at configuration time, before serving.
 	durability Durability
 
+	// scopeKeyedCache answers "does this scope hold keyed paths the schema does not
+	// declare", which the read path asks per scoped read and which costs a walk of the
+	// whole index to work out. See scopeHasKeyedPaths.
+	scopeKeyedMu    sync.RWMutex
+	scopeKeyedCache map[string]bool
+
 	// scopeOverlay turns on the overlay read and write paths (see scope_overlay.go). ON by
 	// default; EnableScopeOverlay(false) is the escape hatch, and with it off a store is
 	// byte-identical to one that never had the feature.

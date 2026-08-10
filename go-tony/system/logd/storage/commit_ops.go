@@ -20,14 +20,21 @@ func (c *commitOps) ReadStateAt(kpath string, commit int64, scopeID *string) (*i
 
 // MatchStateAt serves a precondition read from the stepped head when it can.
 //
-// Only baseline: a scoped view is baseline with the scope's own writes applied last, so
-// it cannot be stepped and has no head to serve from (issue 9b2vpggxh).
+// Baseline is served from the stepped head. A scope cannot be stepped the same way -- its
+// writes apply last and shadow baseline stickily, so folding a baseline patch into a
+// materialized scoped document lets baseline overwrite a leaf the scope owns (issue
+// 9b2vpggxh) -- but with an overlay stating that ownership explicitly, the scoped view can
+// be rebuilt on top of the baseline head instead of on top of a fresh baseline read.
 //
 // doCommit holds commitMu across match evaluation, which is what makes reading the head
 // here safe — it is the same lock stepHead is written under.
 func (c *commitOps) MatchStateAt(kpath string, commit int64, scopeID *string) (*ir.Node, error) {
 	if scopeID != nil {
-		return c.s.ReadStateAt(kpath, commit, scopeID)
+		// Not a full read any more: with an overlay stating the scope's ownership, the
+		// scoped view can be built ON TOP of the baseline head rather than replaying
+		// baseline from the last snapshot. See scopedHeadStateAt, which falls back to a
+		// full read whenever it cannot be sure.
+		return c.s.scopedHeadStateAt(commit, scopeID)
 	}
 	return c.s.headStateAt(commit)
 }
@@ -84,6 +91,13 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 		if err := index.IndexPatch(pendingIdx, e, string(logFile), pos, txSeq, generation, mergedPatch, pendingSchemaParsed, scopeID); err != nil {
 			return "", 0, fmt.Errorf("failed to index to pending: %w", err)
 		}
+	}
+
+	// A scoped write can add a keyed path the schema does not declare, which is what
+	// decides whether this scope can be served from an overlay at all. Decided from the
+	// patch rather than by re-reading the index -- see noteScopeKeyedWrite.
+	if scopeID != nil {
+		c.s.noteScopeKeyedWrite(*scopeID, mergedPatch)
 	}
 
 	// Trigger periodic index persistence

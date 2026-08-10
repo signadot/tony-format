@@ -339,6 +339,101 @@ func (s *Storage) writeScopeOverlays(commit int64) {
 //
 // Falling back to the replay path is correct, just slow -- which is the right way round.
 func (s *Storage) scopeHasKeyedPaths(scopeID string) bool {
+	// Cached, because this walks the WHOLE index and the read path asks on every scoped
+	// read. Uncached it cost more than the overlay saves: 53us -> 1.19ms at 400 accumulated
+	// writes, turning a flat read back into a linear one. Invalidated where the answer can
+	// change -- a scoped write, or a schema change, since "declared" is the schema's word.
+	s.scopeKeyedMu.RLock()
+	cached, ok := s.scopeKeyedCache[scopeID]
+	s.scopeKeyedMu.RUnlock()
+	if ok {
+		return cached
+	}
+	res := s.computeScopeHasKeyedPaths(scopeID)
+	s.scopeKeyedMu.Lock()
+	if s.scopeKeyedCache == nil {
+		s.scopeKeyedCache = map[string]bool{}
+	}
+	s.scopeKeyedCache[scopeID] = res
+	s.scopeKeyedMu.Unlock()
+	return res
+}
+
+// invalidateScopeKeyed forgets what is known about every scope's keyed paths. Called on a
+// schema change, since "declared" is the schema's word and a change can redraw the answer
+// for every scope at once.
+func (s *Storage) invalidateScopeKeyed(scopeID *string) {
+	s.scopeKeyedMu.Lock()
+	defer s.scopeKeyedMu.Unlock()
+	if scopeID == nil {
+		s.scopeKeyedCache = nil
+		return
+	}
+	delete(s.scopeKeyedCache, *scopeID)
+}
+
+// noteScopeKeyedWrite updates what is known about a scope from the patch just written,
+// without re-reading the index.
+//
+// Dropping the cached answer on every scoped write would be correct and useless: the
+// precondition path both writes and reads, so each write would force the next read to walk
+// the whole index again -- measured turning a flat CAS into one that grows with the index.
+// A write can only ADD keyed paths, and only ones that appear in the patch itself, so the
+// patch is enough to decide.
+func (s *Storage) noteScopeKeyedWrite(scopeID string, patch *ir.Node) {
+	s.scopeKeyedMu.RLock()
+	cached, ok := s.scopeKeyedCache[scopeID]
+	s.scopeKeyedMu.RUnlock()
+	if ok && cached {
+		return // already unserviceable; nothing a write can do makes it serviceable again
+	}
+	if !patchHasUndeclaredKey(patch, "", s.keyedArrayPaths()) {
+		return // the answer is unchanged, whatever it was
+	}
+	s.scopeKeyedMu.Lock()
+	if s.scopeKeyedCache == nil {
+		s.scopeKeyedCache = map[string]bool{}
+	}
+	s.scopeKeyedCache[scopeID] = true
+	s.scopeKeyedMu.Unlock()
+}
+
+// patchHasUndeclaredKey reports whether the patch keys an array the schema does not
+// declare -- a !key the client supplied for a path the schema has never heard of, which
+// nothing can annotate a materialized state for.
+func patchHasUndeclaredKey(n *ir.Node, prefix string, keys map[string]string) bool {
+	if n == nil {
+		return false
+	}
+	if n.Type == ir.ArrayType {
+		if _, keyed := n.KeyField(); keyed {
+			if _, declared := keys[prefix]; !declared {
+				return true
+			}
+		}
+	}
+	switch n.Type {
+	case ir.ObjectType:
+		for i, f := range n.Fields {
+			p := f.String
+			if prefix != "" {
+				p = prefix + "." + f.String
+			}
+			if i < len(n.Values) && patchHasUndeclaredKey(n.Values[i], p, keys) {
+				return true
+			}
+		}
+	case ir.ArrayType:
+		for _, v := range n.Values {
+			if patchHasUndeclaredKey(v, prefix, keys) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (s *Storage) computeScopeHasKeyedPaths(scopeID string) bool {
 	keys := s.keyedArrayPaths()
 	for _, seg := range s.index.AllSegments() {
 		if seg.ScopeID == nil || *seg.ScopeID != scopeID || isOverlaySegment(seg) {
