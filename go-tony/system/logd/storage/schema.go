@@ -129,6 +129,13 @@ func (s *Storage) StartMigration(schema *ir.Node) (int64, error) {
 		return 0, ErrMigrationInProgress
 	}
 
+	// Reject a schema that cannot mean what it says BEFORE it is written. Key derivation
+	// decides what a stored delta records, and a delta cannot be un-recorded, so an
+	// ambiguous schema is caught where it is proposed rather than where it bites.
+	if err := api.ParseSchemaFromNode(schema).Validate(); err != nil {
+		return 0, fmt.Errorf("schema cannot be adopted: %w", err)
+	}
+
 	commit, err := s.createSchemaSnapshot(schema, dlog.SchemaStatusPending)
 	if err != nil {
 		return 0, err

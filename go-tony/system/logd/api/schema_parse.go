@@ -4,7 +4,12 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 )
 
-const autoIDTag = "!logd-auto-id"
+const (
+	autoIDTag = "!logd-auto-id"
+	// keyTag declares an array keyed on a field the CLIENT supplies, where !logd-auto-id
+	// declares one the server generates. Both mean "merged and indexed by identity".
+	keyTag = "!logd-key"
+)
 
 // ParseSchemaFromNode extracts logd schema from a Tony schema node.
 // It walks the "define" section looking for fields tagged with !logd-auto-id.
@@ -35,17 +40,18 @@ func ParseSchemaFromNode(node *ir.Node) *Schema {
 	}
 
 	var fields []AutoIDField
-	walkDefine(defineNode, "", &fields)
+	var keys []KeyField
+	walkDefine(defineNode, "", &fields, &keys)
 
-	if len(fields) == 0 {
+	if len(fields) == 0 && len(keys) == 0 {
 		return nil
 	}
 
-	return &Schema{AutoIDFields: fields}
+	return &Schema{AutoIDFields: fields, KeyFields: keys}
 }
 
 // walkDefine recursively walks the define tree to find !logd-auto-id tagged fields.
-func walkDefine(node *ir.Node, parentPath string, fields *[]AutoIDField) {
+func walkDefine(node *ir.Node, parentPath string, fields *[]AutoIDField, keys *[]KeyField) {
 	if node == nil || node.Type != ir.ObjectType {
 		return
 	}
@@ -53,6 +59,13 @@ func walkDefine(node *ir.Node, parentPath string, fields *[]AutoIDField) {
 	for i, field := range node.Fields {
 		fieldName := field.String
 		value := node.Values[i]
+
+		// An explicitly declared key: the parent path is the array, this field identifies
+		// its elements, and the client supplies the value.
+		if ir.TagHas(value.Tag, keyTag) {
+			*keys = append(*keys, KeyField{Path: parentPath, Field: fieldName})
+			continue
+		}
 
 		// Check if this field has !logd-auto-id tag
 		if ir.TagHas(value.Tag, autoIDTag) {
@@ -71,7 +84,7 @@ func walkDefine(node *ir.Node, parentPath string, fields *[]AutoIDField) {
 			if parentPath != "" {
 				childPath = parentPath + "." + fieldName
 			}
-			walkDefine(value, childPath, fields)
+			walkDefine(value, childPath, fields, keys)
 		}
 	}
 }
