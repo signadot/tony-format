@@ -752,6 +752,25 @@ appearing in the patch, so the patch decides.
 All three costs are flat again with step 7 in: read 36 → 72 µs, CAS 744 → 775 µs, watch
 53 → 74 µs across 50 → 400 accumulated scope writes.
 
+**Step 8 is done too, and by the same move.** A scoped watcher cannot step a scoped
+document — head.go's objection is unchanged — but it CAN step a baseline one, which is the
+machinery a baseline watcher already uses, and derive its own view as
+`baseline + overlay(T) + the scope's patches after T`. `ScopedWatchStepper` holds those
+three terms; nothing tracks ownership, because the overlay IS the ownership and is read
+once per snapshot interval rather than per event. It returns nil for a scope the overlay
+cannot serve, and the watcher recomputes as before.
+
+Per delivered event, against the recompute it replaces: 30 → 2.5 µs at 50 accumulated
+writes, 52 → 6.7 µs at 400. Checked against the read at every commit over generated
+interleavings with snapshots cutting new overlays mid-stream
+(`TestScopedWatchStepper_AgreesWithRead`), and the live path is covered by the four
+end-to-end scoped watch tests in libctl — verified by breaking the stepper deliberately and
+watching all four fail.
+
+The delta is still recompute-and-diff against the previously emitted state: a scope's raw
+committed patch is not its delta, because scope writes shadow baseline stickily and `!key`
+merges are identity-based. What stepping removes is the READ, not the diff.
+
 ---
 
 ## 6. Phase 2 — compaction drops what the overlay subsumes

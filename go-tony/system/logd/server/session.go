@@ -789,6 +789,10 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 	// owns. It keeps recompute-and-diff until the scope layer gets the same treatment.
 	var prevDoc *ir.Node
 	var curDoc *ir.Node
+	// A scoped watcher's stepper, seeded with prevDoc. nil means recompute per event, which
+	// is what every scoped watcher did before and what a scope the overlay cannot serve
+	// still does.
+	var stepper *storage.ScopedWatchStepper
 	prevSeeded := false
 	if fromCommit != nil {
 		var err error
@@ -911,11 +915,24 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 						return
 					}
 					prevSeeded = true
+
+					// Seed a stepper at the same commit. From here the scoped view is
+					// derived by folding each event into a baseline document the watcher
+					// keeps -- the same move a baseline watcher already makes -- instead
+					// of recomputing the whole view per event. It returns nil when the
+					// scope cannot be served that way, and then nothing below changes.
+					stepper, err = s.storage.NewScopedWatchStepper(*s.scope, notification.Commit-1)
+					if err != nil {
+						s.log.Warn("scoped watch stepper unavailable; recomputing per event",
+							"path", path, "error", err)
+						stepper = nil
+					}
 				}
 				// Recompute the scoped view at this commit and emit only the change
 				// vs. the previously emitted state. notification.Patch (the raw
-				// baseline/scope delta) is intentionally ignored.
-				newPrev, err := s.emitScopedDelta(watcher.ID, path, notification.Commit, prevDoc)
+				// baseline/scope delta) is intentionally ignored -- except by the
+				// stepper, which folds it.
+				newPrev, err := s.emitScopedDeltaStepped(watcher.ID, path, notification.Commit, prevDoc, stepper, notification)
 				if err != nil {
 					s.log.Error("failed to read scoped state for watch", "path", path, "commit", notification.Commit, "error", err)
 					s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read scoped state at commit %d: %v", notification.Commit, err), lastDelivered)
@@ -1149,11 +1166,36 @@ func unquoteFieldKey(s string) string {
 // document root for the watch delta contract. It returns the new subtree to use as
 // the next diff base (unchanged prev when there is no delta, so a baseline write to
 // a scope-overridden leaf — or any sibling write — emits nothing).
+// emitScopedDeltaStepped is emitScopedDelta with the option of a stepper. With one, the
+// scope's document is folded from the committed patch rather than read back; without one,
+// this is exactly the old path.
+//
+// The delta is still recompute-and-diff against the previous emitted state: a scope's raw
+// committed patch is not its delta, because scope writes shadow baseline stickily and
+// !key merges are identity-based. What the stepper removes is the READ, not the diff.
+func (s *Session) emitScopedDeltaStepped(id *string, path string, commit int64, prev *ir.Node,
+	stepper *storage.ScopedWatchStepper, n *storage.CommitNotification) (*ir.Node, error) {
+	if stepper == nil {
+		return s.emitScopedDelta(id, path, commit, prev)
+	}
+	full, err := stepper.Step(n)
+	if err != nil {
+		return prev, err
+	}
+	return s.emitScopedDeltaFrom(id, path, commit, prev, subtreeOf(full, path))
+}
+
 func (s *Session) emitScopedDelta(id *string, path string, commit int64, prev *ir.Node) (*ir.Node, error) {
 	newDoc, err := s.scopedDocAt(path, commit)
 	if err != nil {
 		return prev, err
 	}
+	return s.emitScopedDeltaFrom(id, path, commit, prev, newDoc)
+}
+
+// emitScopedDeltaFrom sends the change between prev and newDoc, both already trimmed to
+// the watched path.
+func (s *Session) emitScopedDeltaFrom(id *string, path string, commit int64, prev, newDoc *ir.Node) (*ir.Node, error) {
 	if newDoc.DeepEqual(prev) {
 		return prev, nil
 	}
