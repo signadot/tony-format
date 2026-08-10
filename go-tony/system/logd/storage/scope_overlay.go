@@ -125,9 +125,16 @@ func hasDescendant(p string, all map[string]bool) bool {
 }
 
 // WriteScopeOverlay computes the overlay at commit and appends it as a scope-tagged log
-// entry, indexed like any patch so its paths stay addressable. It spans [0, commit], which
-// sorts it before every scope patch and keeps it out of patchNodesFromSegments' snapshot
-// test (StartCommit != EndCommit).
+// entry, indexed like any patch so its paths stay addressable.
+//
+// It spans [commit-1, commit], the same shape a patch at that commit has, NOT [0, commit].
+// Spanning from zero looks right -- it sorts the overlay before every scope patch -- but
+// the index tree is ORDERED by StartCommit while rangeFunc prunes on EndCommit, so an
+// overlay parked at position 0 while claiming to be at T is invisible to any bounded
+// query: LookupRange with from=T-1 does not return it, though its EndCommit is exactly T.
+// That forces every lookup to scan from zero, which was the whole cost this is meant to
+// remove. Sharing a patch's shape keeps position and predicate in agreement, and it still
+// orders before everything the overlay does not subsume, which is all that is required.
 func (s *Storage) WriteScopeOverlay(scopeID string, commit int64) error {
 	if commit <= 0 {
 		return nil
@@ -140,7 +147,7 @@ func (s *Storage) WriteScopeOverlay(scopeID string, commit int64) error {
 		return nil // the scope holds nothing of its own
 	}
 
-	entry := dlog.NewEntry(nil, overlay, commit, time.Now().UTC().Format(time.RFC3339), 0, &scopeID)
+	entry := dlog.NewEntry(nil, overlay, commit, time.Now().UTC().Format(time.RFC3339), commit-1, &scopeID)
 	pos, logFile, err := s.dLog.AppendEntry(entry)
 	if err != nil {
 		return fmt.Errorf("overlay: append: %w", err)
@@ -155,18 +162,26 @@ func (s *Storage) WriteScopeOverlay(scopeID string, commit int64) error {
 }
 
 // latestOverlay returns the newest overlay at or below commit for this scope.
+//
+// It walks DOWN from commit and stops at the first one, the same way
+// findSnapshotBaseReader finds a baseline snapshot, so the work is proportional to what
+// has been written since the overlay rather than to the scope's whole history. That only
+// works because the overlay carries a patch's segment shape -- see WriteScopeOverlay.
 func (s *Storage) latestOverlay(scopeID string, commit int64) *index.LogSegment {
-	var best *index.LogSegment
-	for _, seg := range s.index.LookupRange("", nil, &commit, &scopeID) {
+	iter := s.index.IterAtPath("")
+	s.index.RLock()
+	defer s.index.RUnlock()
+	for seg := range iter.CommitsAt(commit, index.Down) {
 		if !isOverlaySegment(seg) || *seg.ScopeID != scopeID {
 			continue
 		}
-		if best == nil || seg.EndCommit > best.EndCommit {
-			c := seg
-			best = &c
+		if seg.EndCommit > commit {
+			continue
 		}
+		c := seg
+		return &c
 	}
-	return best
+	return nil
 }
 
 // unconditionalPatch rewrites checked replaces into the value they install. An overlay is
