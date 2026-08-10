@@ -348,10 +348,46 @@ Three things follow, and they are why this shape is worth more than picking a ro
   being told anything. `build.go`'s "we rely on `!key` tags stored in the patches" becomes
   true, having been false since the schema route existed.
 
-**Two things to check before leaning on it**, and they are P1's first tests rather than
-its last: that annotation emits the tag for *every* keyed array in a delta, nested ones
-included; and that `IndexPatch` over a lowered delta yields the same paths the schema route
-yields today.
+**Both opening checks were run** (`keyed_lowering_test.go`), and one of them found a fork
+that has to be settled before P1 starts.
+
+*Annotation records every keyed array* — including nested ones, and one inside a keyed
+element: `{items: !key(sku) [{sku: A  sub: !key(id) [...]}]}`. The record is complete.
+
+*Index paths agree — while a write changes what it names.* Element updated and element
+added both produce identical paths through the tag route on the delta and the schema route
+on the client patch. But that is a coincidence of the common case, because **the two
+routes answer different questions**:
+
+```
+the schema route indexes what a commit WROTE
+the delta  route indexes what a commit CHANGED
+```
+
+Measured, they come apart twice. A *delete* indexes `items("B")` — the element that went —
+where the client patch indexes `items("A")`, what was sent. Arguably the delta is the
+better answer for a watch, since nothing about A changed; it is still a change in which
+commits wake a watcher on A. And a *coincident write* — the client sets the value already
+present — produces no delta at all, so no index paths at all.
+
+**That second one collides with R3.** The overlay's ownership set is built from the index
+paths of what the scope wrote, precisely so a scope writing a value baseline already holds
+still owns that path — a reconciling controller does exactly this on every pass. Index the
+delta instead and that write leaves no path, so R3's fix stops working.
+
+So there is a three-way tension, and any two are easy:
+
+1. **store deltas** — the point of the lowering
+2. **index what was written** — what R3's ownership set needs
+3. **rebuild the index from the log** — what makes live and rebuilt agree
+
+Storing deltas and indexing writes means the log must carry the written paths (or the
+patch) alongside the delta, or a rebuild cannot reproduce the index. Storing deltas and
+rebuilding from them means ownership must come from somewhere other than the index — or
+ownership must be redefined as *divergence from baseline*, in which case a coincident write
+establishes nothing and the scope follows baseline afterwards. That is simpler and may even
+be defensible, but it contradicts the COW design's "once s1 has written a.x, it owns that
+path in its view", so it is a semantic decision rather than an implementation one.
 
 Rejected — persisting `!key` on state: it embeds a schema statement in every instance, has
 no declaration point and no migration path, and any writer can plant a different tag, so
