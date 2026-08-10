@@ -118,6 +118,9 @@ type Storage struct {
 	// commit path) or by the accessors; set at configuration time, before serving.
 	durability Durability
 
+	// scopeOverlay turns on the overlay read path (SPIKE, see scope_overlay.go).
+	scopeOverlay bool
+
 	// replayFloor is the highest commit whose delta history compaction has removed.
 	// See replay_floor.go. Read on the replay path, raised by Compact.
 	replayFloor atomic.Int64
@@ -252,6 +255,18 @@ func (s *Storage) readBaselineStateAt(commit int64) (*ir.Node, error) {
 // snapshots resolve !key away and are unsound here (see issue eagjggjdh12ksg00bsn0;
 // bounded op-preserving compaction is tracked in 5hmq80f3h12krh1mbsn0).
 func (s *Storage) readScopedStateAt(commit int64, scopeID *string) (*ir.Node, error) {
+	// SPIKE (docs/scope_overlay_plan.md): with an overlay in the log, the scope layer is
+	// that overlay plus only what the scope has written since -- instead of every scope
+	// patch ever. Off by default; see EnableScopeOverlay.
+	if s.scopeOverlay {
+		return s.readScopedStateAtOverlay(commit, scopeID)
+	}
+	return s.readScopedStateAtReplay(commit, scopeID)
+}
+
+// readScopedStateAtReplay is the definition: every scope patch, replayed. It stays the
+// oracle the overlay path is checked against, and the source the overlay is built from.
+func (s *Storage) readScopedStateAtReplay(commit int64, scopeID *string) (*ir.Node, error) {
 	baseReader, startCommit, err := s.findSnapshotBaseReader(commit)
 	if err != nil {
 		return nil, err
@@ -273,6 +288,58 @@ func (s *Storage) readScopedStateAt(commit int64, scopeID *string) (*ir.Node, er
 		return nil, err
 	}
 	patchNodes = append(patchNodes, scopePatches...)
+
+	return applyPatchesToBase(baseReader, patchNodes)
+}
+
+// readScopedStateAtOverlay reads the scope layer as overlay(T) plus the scope's patches
+// above T. With no overlay yet it is exactly the replay path, so enabling the flag on a
+// store that has never had one written changes nothing.
+func (s *Storage) readScopedStateAtOverlay(commit int64, scopeID *string) (*ir.Node, error) {
+	ov := s.latestOverlay(*scopeID, commit)
+	if ov == nil {
+		return s.readScopedStateAtReplay(commit, scopeID)
+	}
+
+	baseReader, startCommit, err := s.findSnapshotBaseReader(commit)
+	if err != nil {
+		return nil, err
+	}
+	defer baseReader.Close()
+
+	baseSegments := s.index.LookupRange("", &startCommit, &commit, nil)
+	patchNodes, err := s.patchNodesFromSegments(baseSegments, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// The overlay first -- it is the scope's ownership as of its own commit -- then only
+	// what the scope has written since. Both still apply after every baseline patch, which
+	// is what makes a scope write shadow a later baseline one.
+	overlayEntry, err := s.dLog.ReadEntryAt(dlog.LogFileID(ov.LogFile), ov.LogPosition, ov.LogFileGeneration)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read scope overlay: %w", err)
+	}
+	if overlayEntry.Patch != nil {
+		patchNodes = append(patchNodes, overlayEntry.Patch)
+	}
+
+	after := ov.EndCommit
+	for _, seg := range s.index.LookupRange("", &after, &commit, scopeID) {
+		if seg.ScopeID == nil || *seg.ScopeID != *scopeID || isOverlaySegment(seg) {
+			continue
+		}
+		if seg.StartCommit == seg.EndCommit || seg.EndCommit <= ov.EndCommit {
+			continue
+		}
+		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition, seg.LogFileGeneration)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read scope patch: %w", err)
+		}
+		if entry.Patch != nil {
+			patchNodes = append(patchNodes, entry.Patch)
+		}
+	}
 
 	return applyPatchesToBase(baseReader, patchNodes)
 }
