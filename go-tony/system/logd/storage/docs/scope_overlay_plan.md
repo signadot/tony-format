@@ -478,8 +478,44 @@ Pinned: config wins when the store has nothing, persisted wins over a *disagreei
 and the persisted answer survives a restart with no configuration at all.
 
 `Schema` gaining a general keying declaration — so a client-supplied key like `!key(name)`
-is sayable at all, rather than only as a side effect of auto-id — is the next step, and the
-easy one.
+is sayable at all, rather than only as a side effect of auto-id — is the next step. It is
+not quite the easy one, because of what follows.
+
+**The index accepts a narrower key than a merge does, and says nothing when handed
+something wider.** `indexPatchRec` does `indexVal, _ := ir.ElemKey(v, keyField)` — the bool
+is discarded, so *not a key* becomes *the empty key*, which looks like a perfectly good
+path segment. Measured:
+
+| key | index paths |
+|---|---|
+| `sku: "A"`, `"B"` | `items(A)`, `items(B)` |
+| `sku: 1`, `2` | `items("1")`, `items("2")` — stringified |
+| `sku: 1` **and** `sku: "1"` | `items("1")` — one path, two elements |
+| `sku: {a: 1}`, `{a: 2}` | `items("")` — both collapse |
+| bare `!key` (element is the key) | `items("")` — all collapse |
+
+`ir.ElemKey` admits String, Bool and Number and returns false for everything else, while
+mergeop's `yKeyOf` ENCODES any node — so an object-valued key and a bare `!key` are
+ordinary in a merge and unrepresentable in the index. Stringifying also loses type, so `1`
+and `"1"` are distinct elements sharing one index path.
+
+This is latent today and load-bearing under the overlay: **the index is the ownership set**
+(R3). A collapse means two elements share one ownership path, so the overlay asserts one
+element's value for both or loses one. The keyed guard falls back to replay for now, which
+is what keeps it latent — and this is what has to be fixed before that guard lifts.
+
+**The restriction belongs to logd, not to tony.** Encoding any node as a merge key is
+meaningful for a merge; requiring a renderable, injective path segment is a consequence of
+having an index. So logd declares the narrower rule and rejects at write time rather than
+collapsing silently — and `ElemKey`'s bool stops being discarded.
+
+**There is a mechanism for this already, unused.** `schema.Context` + `schema.TagDefinition`
+express which tags are available in a context, which is the same lever §7's op restriction
+needs, and `TagDefinition.SchemaRef` is the hook for "`!key`'s field must resolve to a
+scalar". Note that logd does not import `go-tony/schema` anywhere: its whole notion of
+schema is `api.Schema`, i.e. `AutoIDFields`. Adopting contexts would give the op restriction
+and the key constraint one home instead of two ad-hoc validations, but it is a real step,
+not a small one — worth deciding deliberately rather than drifting into a third schema.
 
 **The per-scope dimension settled itself.** `StaticSchemaResolver.GetSchema` ignores
 `scopeID` and nothing else implements the interface outside tests, so two scopes keying one
