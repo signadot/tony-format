@@ -1,3 +1,6 @@
 /dist/
-# `go build ./cmd/o` lands here; it was committed once by accident.
+# The `o` binary, wherever `go build` drops it: at the module root when built as
+# `go build ./cmd/o`, and beside its source when built from within that directory.
+# Both were committed by accident, the second for nine months.
 /o
+/cmd/o/o
