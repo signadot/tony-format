@@ -20,7 +20,7 @@ The !all operation applies its child match or patch to all elements of an array 
 
 **Examples:**
 
-1. ```tony
+```tony
 array(t): !and
   - .array
   - !all.type t
@@ -45,13 +45,13 @@ The !and operation matches when all child conditions match. If the child is an a
 
 **Examples:**
 
-1. ```tony
+```tony
 !and
   - name: "test"
   - version: 1
 ```
 
-2. ```tony
+```tony
 !and
   status: "active"
   enabled: true
@@ -71,7 +71,7 @@ The !delete operation removes a matched value from its parent. For arrays, it re
 
 **Examples:**
 
-1. ```tony
+```tony
 - !delete
   id: "old-id"
 ```
@@ -92,13 +92,13 @@ The !insert operation inserts a new value into an array. It can optionally take 
 
 **Examples:**
 
-1. ```tony
+```tony
 - !insert
   id: "new-id"
   name: "New Item"
 ```
 
-2. ```tony
+```tony
 - !insert !key(id)
   id: "new-id"
   name: "New Item"
@@ -123,7 +123,7 @@ The !not operation matches when its child condition does not match.
 
 **Examples:**
 
-1. ```tony
+```tony
 !not
   status: "deleted"
 ```
@@ -147,7 +147,7 @@ The !or operation matches when any child condition matches. If the child is an a
 
 **Examples:**
 
-1. ```tony
+```tony
 !or
   - name: "test"
   - name: "prod"
@@ -174,13 +174,13 @@ a patch which is stored, or re-applied to a document expected to have moved on, 
 
 **Examples:**
 
-1. ```tony
+```tony
 name: !replace
   from: "old"
   to: "new"
 ```
 
-2. ```tony
+```tony
 version: !replace
   from: 1
   to: 2
@@ -206,14 +206,14 @@ which replaces whatever happened to sit there.
 
 **Examples:**
 
-1. ```tony
+```tony
 # updates only WIDGET, however many other items the document holds
 items: !key(sku)
 - sku: WIDGET
   qty: 5
 ```
 
-2. ```tony
+```tony
 # the key may be a path, not just a field name
 items: !key(meta.name)
 - meta:
@@ -246,7 +246,7 @@ returns an **error** otherwise. `!addtag(t)` and `!rmtag(t)` are the uncondition
 
 **Examples:**
 
-1. ```tony
+```tony
 # the output of a diff between a node tagged !tag1.tag2(a,b) and one tagged !tag2(z).other(x)
 f: !retag(tag1.tag2(a,b),tag2(z).other(x))
 ```
@@ -270,15 +270,15 @@ The !irtype operation matches nodes based on their type. The child must be a val
 
 **Examples:**
 
-1. ```tony
+```tony
 bool: !irtype true
 ```
 
-2. ```tony
+```tony
 number: !irtype 1
 ```
 
-3. ```tony
+```tony
 string: !irtype ""
 ```
 
