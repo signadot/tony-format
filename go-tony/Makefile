@@ -132,5 +132,12 @@ build-docker: build-docker-o
 build-dockers: build-dockers-o
 push-dockers: push-dockers-o
 
+# Binaries `go build` leaves in the tree when given no -o: at the module root for
+# `go build ./cmd/o`, and beside the source when built from within that directory.
+# Both have been committed by accident before, so .gitignore keeps them out and
+# clean takes them away.
+BUILD_ARTIFACTS = o cmd/o/o
+
 clean:
 	rm -rf $(DIST_DIR)
+	rm -f $(BUILD_ARTIFACTS)
