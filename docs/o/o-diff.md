@@ -44,7 +44,7 @@ Boolean options take no argument and may be negated with a `no-` prefix, as in `
 
 ## See also
 
-- [published documentation](https://signadot.github.io/tony-format/o/diff/)
+- [published documentation](https://signadot.github.io/tony-format/o/o-diff/)
 - [`o`](README.md)
 - [`o view`](o-view.md)
 - [`o eval`](o-eval.md)

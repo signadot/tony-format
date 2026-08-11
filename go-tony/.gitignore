@@ -1,1 +1,3 @@
 /dist/
+# `go build ./cmd/o` lands here; it was committed once by accident.
+/o

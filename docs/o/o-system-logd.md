@@ -38,7 +38,7 @@ Boolean options take no argument and may be negated with a `no-` prefix, as in `
 
 ## See also
 
-- [published documentation](https://signadot.github.io/tony-format/o/system/logd/)
+- [published documentation](https://signadot.github.io/tony-format/o/o-system-logd/)
 - [`o system`](o-system.md)
 - [`o system docd`](o-system-docd.md)
 - [`o system up`](o-system-up.md)

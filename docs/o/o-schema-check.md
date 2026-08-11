@@ -31,6 +31,6 @@ Boolean options take no argument and may be negated with a `no-` prefix, as in `
 
 ## See also
 
-- [published documentation](https://signadot.github.io/tony-format/o/schema/check/)
+- [published documentation](https://signadot.github.io/tony-format/o/o-schema-check/)
 - [`o schema`](o-schema.md)
 
