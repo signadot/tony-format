@@ -1,0 +1,10 @@
+a:
+  <<: |
+    {{ stuff }}
+  <<: |
+    {{ line 2 stuff }}
+  b:
+    c: d
+    c1: d1
+  <<: |
+    {{ end stuff }}

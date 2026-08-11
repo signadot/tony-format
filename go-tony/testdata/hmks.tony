@@ -1,0 +1,6 @@
+# test-source.tony
+container:
+  securityContext:
+    allowPrivilegeEscalation: false
+  volumeMounts:
+  - name: foo

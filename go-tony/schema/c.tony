@@ -1,0 +1,9 @@
+a: b
+c:
+  d:
+  - 1
+  - 2
+# comment 1
+# comment 2
+  # comment 3
+  f: g

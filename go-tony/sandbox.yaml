@@ -1,0 +1,17 @@
+name: ci-agent-tony-format
+spec:
+  cluster: minikube
+  description: CI agent for tony-format repo
+  forks:
+  - forkOf:
+      kind: Deployment
+      namespace: ci-agent
+      name: ci-agent
+    customizations:
+      env:
+      - name: REPO_URL
+        container: ci-agent
+        value: "https://github.com/signadot/tony-format.git"
+      - name: BRANCH
+        container: ci-agent
+        value: "main"

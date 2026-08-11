@@ -1,0 +1,9 @@
+# test-patch.tony
+container:
+  resources:
+    <<: |
+      {{- if }}
+    limits:
+      cpu: "100m"
+    <<: |
+      {{- end }}

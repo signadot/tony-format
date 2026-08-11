@@ -101,6 +101,12 @@ CODEGEN_PKGS = \
 	system/logd/storage/internal/snap \
 	system/logd/storage/tx
 
+# docs-o regenerates the `o` command reference under docs/o/. The tree documents
+# itself: MainCommand lives in package main, so nothing outside the binary can
+# walk it, which also means the pages cannot describe a command o does not have.
+docs-o:
+	$(GO) run ./cmd/o docs ../docs/o
+
 generate:
 	for pkg in $(CODEGEN_PKGS); do \
 		echo "generate $$pkg"; \

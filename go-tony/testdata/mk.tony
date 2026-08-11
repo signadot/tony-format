@@ -1,0 +1,11 @@
+a:
+  <<: |
+    {{ stuff }}
+  <<: |
+    {{ line 2 stuff }}
+  b:
+    c: d
+    c1: d1
+  e: 22
+  <<: |
+    {{ end stuff }}
