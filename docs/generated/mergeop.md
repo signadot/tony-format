@@ -1,6 +1,9 @@
 # Mergeop Operations
 
-This page documents all mergeop operations.
+This page documents mergeop operations. It is **not yet complete** -- the library
+registers considerably more than are described here, including `!key`, `!retag`,
+`!addtag`, `!rmtag`, `!rename`, `!strdiff`, `!arraydiff` and the match-side operations.
+See `mergeop/register.go` for the full set.
 
 ## `!all`
 
@@ -158,7 +161,14 @@ The !or operation matches when any child condition matches. If the child is an a
 
 **Replace a value with another value**
 
-The !replace operation replaces a matched value with a new value. It requires both 'from' and 'to' fields in its child object. The operation matches nodes that equal the 'from' value and replaces them with the 'to' value.
+The !replace operation replaces a value with another. It requires both 'from' and 'to'
+fields in its child object.
+
+As a patch it is **checked**: it verifies that the node still equals 'from' and returns an
+**error** if it does not -- it does not skip the node or apply anyway. That is what makes
+it safe in a diff, which describes the step between two specific documents; it is also why
+a patch which is stored, or re-applied to a document expected to have moved on, wants
+`!insert` instead.
 
 **Child:** Object with 'from' and 'to' fields
 
@@ -176,7 +186,72 @@ version: !replace
   to: 2
 ```
 
-**See also:** [`!insert`](./mergeop.md#insert), [`!delete`](./mergeop.md#delete)
+**See also:** [`!insert`](./mergeop.md#insert), [`!delete`](./mergeop.md#delete), [`!retag`](./mergeop.md#retag)
+
+---
+
+## `!key`
+
+**Identify array elements by a field rather than by position**
+
+The !key operation merges a list by identity. `!key(f)` names the field which identifies
+an element; elements of the patch are matched against elements of the document by that
+field, so a patch naming one element leaves the others alone and a repeated write to the
+same key updates in place rather than appending.
+
+A list patched without `!key` merges positionally instead, element 0 against element 0,
+which replaces whatever happened to sit there.
+
+**Child:** Array of elements, each carrying the key field
+
+**Examples:**
+
+1. ```tony
+# updates only WIDGET, however many other items the document holds
+items: !key(sku)
+- sku: WIDGET
+  qty: 5
+```
+
+2. ```tony
+# the key may be a path, not just a field name
+items: !key(meta.name)
+- meta:
+    name: alpha
+  qty: 1
+```
+
+**Notes:**
+
+- The result carries the **document's** tag, not the patch's. A document already tagged
+  `!key(f)` stays keyed; a plain list patched with `!key(f)` merges by identity for that
+  patch and comes back untagged, so the next patch must name the key again. Keying is
+  therefore a property of each write unless something puts the tag on the stored value --
+  which is why logd declares it in schema instead (see `!logd-key`).
+- A diff keys its output only when **both** sides carry `!key(f)` with the same field;
+  otherwise it falls back to a positional array diff, silently.
+- A bare `!key` keys each element by the whole element.
+
+---
+
+## `!retag`
+
+**Replace a node's tag**
+
+`!retag(from,to)` replaces the tag `!from` with `!to`.
+
+Like `!replace` it is **checked**: it verifies the node's tag is already `!from` and
+returns an **error** otherwise. `!addtag(t)` and `!rmtag(t)` are the unconditional halves
+-- they state the resulting tag without asserting the previous one.
+
+**Examples:**
+
+1. ```tony
+# the output of a diff between a node tagged !tag1.tag2(a,b) and one tagged !tag2(z).other(x)
+f: !retag(tag1.tag2(a,b),tag2(z).other(x))
+```
+
+**See also:** [`!replace`](./mergeop.md#replace)
 
 ---
 

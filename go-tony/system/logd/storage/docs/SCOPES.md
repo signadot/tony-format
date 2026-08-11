@@ -43,12 +43,16 @@ Scoped sessions are isolated:
 When reading from a scoped session:
 
 ```
-Final State = Baseline + Scope Overlay
+Final State = Baseline + the scope's own writes
 ```
 
 1. Read baseline state at the given commit
-2. Apply scope-specific patches on top
+2. Apply the scope's own writes on top
 3. Return merged result
+
+Applying the scope's writes *last* is what makes them sticky: a later baseline write to a
+path the scope has written is shadowed, while baseline writes elsewhere still show
+through.
 
 Example:
 ```tony
@@ -117,7 +121,41 @@ This removes all index entries for the scope. The underlying log entries remain 
 `ReadStateAt(path, commit, scopeID)`:
 1. Query index for segments (filtered by scope)
 2. Read and merge patches from baseline
-3. If scoped, apply scope patches on top
+3. If scoped, apply the scope's layer on top
+
+### The overlay
+
+Step 3 used to mean *every write the scope had ever made*, replayed on every read: scope
+patches are exempt from both snapshotting and compaction, so a scoped read cost the
+scope's whole history where a baseline read cost only what had happened since the last
+snapshot.
+
+Each baseline snapshot now also materializes each live scope's ownership as an **overlay**
+— a scope-tagged log entry holding what that scope asserts, as of that commit. A scoped
+read is then
+
+```
+baseline snapshot + baseline patches since + overlay(T) + the scope's patches after T
+```
+
+which is bounded by the snapshot interval, exactly as baseline is. Nothing about the
+semantics above changes; what changes is how much has to be replayed to produce them.
+
+Two consequences worth knowing:
+
+- **A scope's operations freeze at a snapshot.** Between snapshots a stored op is
+  re-applied to the live baseline, so an operation whose result depends on what it meets
+  (`!rename`, `!strdiff`, …) tracks baseline. Once folded into an overlay it is the value
+  it produced. This is the same shape as baseline history degrading to snapshot
+  granularity, applied forwards rather than backwards.
+- **A scope holding keyed arrays the schema does not declare replays instead.** An overlay
+  is built by diffing two materialized states, and a `!key` that exists only because some
+  write carried the tag cannot be reproduced on those states — so the diff would key by
+  position where the merge keys by identity. Declaring the key in schema (`!logd-key` or
+  `!logd-auto-id`) is what makes such a scope servable.
+
+`EnableScopeOverlay(false)` turns all of this off; a store then behaves exactly as it did
+before, at the old cost. See `scope_overlay_plan.md` for the design and the measurements.
 
 ### LogSegment
 

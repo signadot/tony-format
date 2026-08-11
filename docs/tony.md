@@ -728,6 +728,41 @@ Tags are used in Tony for clear and highly expressive diffing, patching, and
 matching operations.  A large set such tags are available.  Additionally The Go
 Tony library supports adding custom tags to perform catered actions.
 
+#### Checked operations
+
+Two patch operations read as statements of a result and behave as assertions about
+what was already there:
+
+```tony
+# verifies the node still equals 0x1f, and fails if it does not
+k: !replace
+  from: 0x1f
+  to: 0x20
+
+# verifies the node's tag is already !tag1.tag2(a,b), and fails if it is not
+f: !retag(tag1.tag2(a,b),tag2(z).other(x))
+```
+
+That is what a diff wants.  A diff describes the step from one specific document to
+another, and applying it to a document which has since moved should say so rather
+than quietly overwrite the move.
+
+It is not what a patch re-applied to a moving document wants, since such a patch
+meets a document which is *expected* to have changed.  The unconditional forms are
+`!insert` -- the value is what results -- `!delete` -- absence is what results --
+and `!addtag` / `!rmtag`, which are `!retag`'s two halves without the assertion.
+
+#### Relative operations
+
+A second distinction cuts across the first.  `!strdiff`, `!arraydiff`, `!rename` and
+`!jsonpatch` describe a change *relative to* what they meet, so the same operation
+applied to two different documents produces two different results.  `!pipe` calls out
+to the system, so applying it twice runs it twice.
+
+Anything which stores operations, or replays them against a base which has moved on,
+needs both distinctions: the checked ones will refuse, and the relative ones will
+quietly mean something else.
+
 ## Comments
 
 Comments are indicated by '#' and continue to the end of the line.
