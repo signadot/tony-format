@@ -51,11 +51,19 @@ func (g *randomDoc) value(depth int) string {
 		return g.tag() + "null"
 	case 4, 5, 6:
 		// long enough that a small edit is worth a strdiff rather than a
-		// replace, which is the branch worth exercising
+		// replace, which is the branch worth exercising, and in three shapes:
+		// one line of ASCII, one of runes wider than the bytes holding them,
+		// and several lines, which a strdiff keys by line rather than by rune
 		return g.tag() + `"` + []string{
 			"a-fairly-long-identifier", "b-fairly-long-identifier",
 			"a-fairly-long-idxntifier", "short", "shore",
-		}[g.rnd.Intn(5)] + `"`
+			"une-chaîne-un-peu-longue", "une-chaîne-un-peü-longue",
+			"日本語のテキストです、これはかなり長い",
+			"日本語のテキストです、これはかなり短い",
+			`alpha\nbeta\ngamma\ndelta\nepsilon\nzeta\neta\ntheta\niota\n`,
+			`alpha\nbeta\nGAMMA\ndelta\nepsilon\nzeta\neta\ntheta\niota\n`,
+			`alpha\ndelta\nepsilon\nzeta\neta\ntheta\niota\nkappa`,
+		}[g.rnd.Intn(12)] + `"`
 	case 7, 8:
 		n := g.rnd.Intn(4)
 		parts := make([]string, n)

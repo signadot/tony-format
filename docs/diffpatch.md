@@ -50,6 +50,39 @@ Anywhere there is a diff we can generate a forward patch by eliding from
 and embedding to where the diff node is.  Likewise in reverse, since a diff
 can be reversed.
 
+### What a key means
+
+The keys of an `!arraydiff` or a `!strdiff` are positions in the sequence the two
+sides share, not offsets into either one of them.  Every unit of either side takes
+one position: an unchanged unit takes the same position in both, a deleted one is
+the from's alone, an inserted one the to's alone, and a `!replace` takes as many as
+its longer side.
+
+The unit is the element for an `!arraydiff`, and for a `!strdiff` it is whichever
+the argument names -- a line under `!strdiff(true)`, where the lines are those of
+splitting on `\n`, and a rune, never a byte, under `!strdiff(false)`.
+
+```tony
+# alpha         ->  alpha        the from's beta, gamma and delta take
+# beta              BETA         positions 1, 2 and 3, so what follows
+# gamma             epsilon      them starts at 4 whichever side it is
+# delta             ...          read from
+# epsilon
+# ...
+!strdiff(true)
+1: !replace
+  from: |-
+    beta
+    gamma
+    delta
+  to: BETA
+```
+
+Reversing a diff swaps every `from` with its `to` and rewrites no key, so a position
+has to mean the same thing read in either direction.  That is why a delete counts and
+why a `!replace` counts by its longer side: either one measured from the result alone
+would move under reversal and throw off every key after it.
+
 ### Tag Format 
 
 In the basic format, tags are preserved in any `!replace` operation,
