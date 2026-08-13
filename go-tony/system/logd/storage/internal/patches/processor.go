@@ -1,10 +1,12 @@
 package patches
 
 import (
+	"cmp"
 	"fmt"
 	"io"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -188,6 +190,13 @@ func (sp *StreamingProcessor) ApplyPatches(baseEvents stream.EventReader, patche
 // holds there, in commit order. docs/streaming_patch_processor.md describes this as
 // applying the patches sequentially at the dominating path, which is what the worked
 // example in that doc does; only the implementation diverged.
+//
+// Every path here is parsed exactly once, into `parsed`, and every comparison after
+// that is between parsed forms. The paths arrive as strings whose structure the walk
+// below already knows, and each one is compared many times — against every other root
+// for dominance, and once per entry for containment. Re-parsing at each comparison put
+// kpath.parseKFrag at half the CPU of a server replaying a long delta log, with mallocgc
+// under it (issue ps8kfs9dh12kr777fnn0).
 func buildPatchValueIndex(patches []*ir.Node) (map[string][]*ir.Node, error) {
 	rootPaths := make(map[string]bool)
 	entryRoots := make([]map[string]*ir.Node, len(patches))
@@ -206,37 +215,53 @@ func buildPatchValueIndex(patches []*ir.Node) (map[string][]*ir.Node, error) {
 		return map[string][]*ir.Node{}, nil
 	}
 
-	applyPaths, err := maximalPaths(rootPaths)
-	if err != nil {
-		return nil, err
+	parsed := make(map[string]*kpath.KPath, len(rootPaths))
+	for path := range rootPaths {
+		if path == "" {
+			parsed[path] = nil // the document root, which a nil KPath denotes
+			continue
+		}
+		kp, err := kpath.Parse(path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse path %q: %w", path, err)
+		}
+		parsed[path] = kp
+	}
+
+	applyPaths, dominator := maximalPaths(parsed)
+	isApplyPath := make(map[string]bool, len(applyPaths))
+	for _, path := range applyPaths {
+		isApplyPath[path] = true
 	}
 
 	// Commit order is the order of `patches`, so the outer loop must be over entries.
+	// Within one entry the order is immaterial: an entry contributes at most one node
+	// per apply path, so no apply path sees two of its writes out of order.
 	result := make(map[string][]*ir.Node, len(applyPaths))
+	folded := make(map[string]bool, len(applyPaths))
 	for i, patch := range patches {
 		if patch == nil {
 			continue
 		}
-		for _, path := range applyPaths {
-			// An entry with a root exactly here contributes that node, as it always has.
+		clear(folded)
+		for rootPath, node := range entryRoots[i] {
+			// A root exactly at an apply path contributes that node, as it always has.
 			// Re-deriving it by navigating from the entry root would be equivalent only
 			// for plain field paths — GetKPath does not resolve a sparse-index segment
 			// ("items{1}") back to the node the walk found, so navigating unconditionally
 			// silently dropped sparse-array patches.
-			if node, ok := entryRoots[i][path]; ok {
-				result[path] = append(result[path], node)
+			if isApplyPath[rootPath] {
+				result[rootPath] = append(result[rootPath], node)
 				continue
 			}
-			// Otherwise this entry only matters here if it wrote BELOW this path and was
-			// dominated: navigate to the applied path so its write is folded in rather
-			// than discarded.
-			below, err := hasRootBelow(entryRoots[i], path)
-			if err != nil {
-				return nil, err
-			}
-			if !below {
+			// Otherwise this root was dominated: navigate to the applied path so the
+			// write is folded in rather than discarded. Several dominated roots in one
+			// entry fold to the same subtree, which is contributed once.
+			path, ok := dominator[rootPath]
+			if !ok || folded[path] {
 				continue
 			}
+			folded[path] = true
 			if sub, ok := subtreeAt(patch, path); ok {
 				result[path] = append(result[path], sub)
 			}
@@ -245,61 +270,112 @@ func buildPatchValueIndex(patches []*ir.Node) (map[string][]*ir.Node, error) {
 	return result, nil
 }
 
-// hasRootBelow reports whether any of the entry's patch roots lies strictly under path.
-func hasRootBelow(roots map[string]*ir.Node, path string) (bool, error) {
-	if len(roots) == 0 {
-		return false, nil
-	}
-	var anc *kpath.KPath
-	if path != "" {
-		var err error
-		anc, err = kpath.Parse(path)
-		if err != nil {
-			return false, fmt.Errorf("failed to parse path %q: %w", path, err)
-		}
-	}
-	for rootPath := range roots {
-		if rootPath == path {
-			continue
-		}
-		if path == "" {
-			return true, nil // every non-root path is under the document root
-		}
-		kp, err := kpath.Parse(rootPath)
-		if err != nil {
-			return false, fmt.Errorf("failed to parse path %q: %w", rootPath, err)
-		}
-		if isAnc, eq := anc.AncestorOrEqual(kp); isAnc && !eq {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
 // maximalPaths returns the paths with no strict ancestor in the set — the paths at
-// which subtrees will be collected and patched. The result is sorted for determinism.
-func maximalPaths(paths map[string]bool) ([]string, error) {
-	parsed := make(map[string]*kpath.KPath, len(paths))
-	for path := range paths {
-		if path == "" {
-			parsed[path] = nil // root
-		} else {
-			kp, err := kpath.Parse(path)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse path %q: %w", path, err)
-			}
-			parsed[path] = kp
-		}
+// which subtrees will be collected and patched — sorted for determinism, along with
+// the apply path that dominates each of the remaining paths. It takes the paths
+// already parsed (a nil KPath being the document root).
+//
+// A path is dominated by at most one apply path: the ancestors of a path form a
+// chain, so two apply paths dominating it would be comparable, and an apply path
+// with a strict ancestor in the set is not maximal.
+//
+// Both answers come out of one pass over the paths in segment order, in which an
+// ancestor immediately precedes its descendants (see comparePaths). Whatever lies
+// between a maximal path and a later path it dominates is a descendant of it too,
+// and so was skipped — which is why the last maximal path seen is the only candidate
+// each path has to test against. Comparing every pair instead is quadratic in the
+// number of distinct paths a delta-log range touches, which for a long range is the
+// whole cost of reading (issue ps8kfs9dh12kr777fnn0).
+func maximalPaths(parsed map[string]*kpath.KPath) ([]string, map[string]string) {
+	ordered := make([]string, 0, len(parsed))
+	for path := range parsed {
+		ordered = append(ordered, path)
 	}
+	sort.Slice(ordered, func(i, j int) bool {
+		return comparePaths(parsed[ordered[i]], parsed[ordered[j]]) < 0
+	})
 
-	out := make([]string, 0, len(parsed))
-	for path, kp := range parsed {
-		if !isDominated(kp, path, parsed) {
-			out = append(out, path)
+	out := make([]string, 0, len(ordered))
+	dominator := make(map[string]string)
+	var maxPath string
+	var maxKP *kpath.KPath
+	haveMax := false
+	for _, path := range ordered {
+		kp := parsed[path]
+		if haveMax {
+			if anc, eq := maxKP.AncestorOrEqual(kp); anc && !eq {
+				dominator[path] = maxPath
+				continue
+			}
 		}
+		out = append(out, path)
+		maxPath, maxKP, haveMax = path, kp, true
 	}
 	sort.Strings(out)
-	return out, nil
+	return out, dominator
+}
+
+// comparePaths orders paths lexicographically by segment. The order this produces is
+// what maximalPaths relies on: a path sorts immediately before its descendants, and
+// anything sorting between a path and one of its descendants is a descendant too.
+// Ordering the path STRINGS would not do — '-' sorts below the '.' that starts a
+// child segment, so "a-b" would land between "a" and "a.b" without being under "a".
+func comparePaths(a, b *kpath.KPath) int {
+	for a != nil && b != nil {
+		if c := compareSegments(a, b); c != 0 {
+			return c
+		}
+		a, b = a.Next, b.Next
+	}
+	switch {
+	case a == nil && b == nil:
+		return 0
+	case a == nil:
+		return -1 // a is a prefix of b, so an ancestor: it comes first
+	default:
+		return 1
+	}
+}
+
+// compareSegments totally orders two path segments: by kind first (so only like is
+// compared with like), then by the segment's own value.
+func compareSegments(a, b *kpath.KPath) int {
+	if ra, rb := segmentRank(a), segmentRank(b); ra != rb {
+		return cmp.Compare(ra, rb)
+	}
+	switch {
+	case a.Field != nil:
+		return strings.Compare(*a.Field, *b.Field)
+	case a.Index != nil:
+		return cmp.Compare(*a.Index, *b.Index)
+	case a.SparseIndex != nil:
+		return cmp.Compare(*a.SparseIndex, *b.SparseIndex)
+	case a.Key != nil:
+		return strings.Compare(*a.Key, *b.Key)
+	}
+	return 0 // same kind, both wildcards
+}
+
+// segmentRank ranks a segment by kind, keeping each kind's wildcard distinct from
+// its concrete form. Patch roots come from a walk of the entry and so are concrete;
+// the wildcard ranks are here so the order is total whatever it is handed.
+func segmentRank(s *kpath.KPath) int {
+	switch {
+	case s.FieldAll:
+		return 0
+	case s.Field != nil:
+		return 1
+	case s.IndexAll:
+		return 2
+	case s.Index != nil:
+		return 3
+	case s.SparseIndexAll:
+		return 4
+	case s.SparseIndex != nil:
+		return 5
+	default:
+		return 6 // key
+	}
 }
 
 // subtreeAt returns the entry's node at path, and whether the entry reaches it.
@@ -312,19 +388,6 @@ func subtreeAt(patch *ir.Node, path string) (*ir.Node, bool) {
 		return nil, false
 	}
 	return sub, true
-}
-
-// isDominated returns true if any other path in parsed is an ancestor of kp.
-func isDominated(kp *kpath.KPath, path string, parsed map[string]*kpath.KPath) bool {
-	for otherPath, otherKp := range parsed {
-		if otherPath == path {
-			continue // skip self
-		}
-		if anc, eq := otherKp.AncestorOrEqual(kp); anc && !eq {
-			return true
-		}
-	}
-	return false
 }
 
 // walkAndCollectPatchRoots walks the IR tree and collects nodes with PatchRootTag.
