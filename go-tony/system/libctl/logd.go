@@ -32,12 +32,25 @@ type LogdSession struct {
 	scope    *string // COW scope for this session; nil = baseline
 	log      *slog.Logger
 
+	// mu guards the session's state — the fields below, and the pending/watcher
+	// maps. It is held only for as long as it takes to read or update them, never
+	// across I/O: a Go mutex takes no context, so a caller queued on one spends its
+	// budget waiting and then reports a deadline for an operation that never
+	// happened. The two things that DO take time — connecting and writing — are
+	// serialized by the channel semaphores below, which a caller can wait on with
+	// its own deadline.
 	mu        sync.Mutex
 	conn      net.Conn
 	connected bool
 	serverID  string
 	closed    bool
 	readErr   error // last read-pump failure, surfaced to blocked callers
+
+	// connecting admits one connector at a time; wire admits one writer at a time,
+	// so concurrent requests do not interleave bytes on the shared connection. Both
+	// have capacity 1 and are taken with select on the caller's context.
+	connecting chan struct{}
+	wire       chan struct{}
 
 	nextID   uint64                               // request id counter
 	pending  map[string]chan *api.SessionResponse // in-flight requests by id
@@ -58,6 +71,9 @@ const (
 	defaultHeartbeatInterval = 10 * time.Second
 	defaultHeartbeatTimeout  = 5 * time.Second
 	tcpKeepAlivePeriod       = 15 * time.Second
+	// dialTimeout bounds one dial attempt. The caller's context bounds the retry
+	// loop around it, so this only decides how long a single unanswered SYN costs.
+	dialTimeout = 5 * time.Second
 	// defaultWireTimeout bounds a single request write and the hello handshake read. request()
 	// holds s.mu across the write, so without a deadline a peer that stops READING (TCP alive,
 	// send buffer full) blocks the write — and thus s.mu — forever, freezing every operation
@@ -133,6 +149,8 @@ func NewLogdSession(cfg *LogdSessionConfig) *LogdSession {
 		log:               log.With("component", "logd-session"),
 		pending:           make(map[string]chan *api.SessionResponse),
 		watchers:          make(map[string]*Watch),
+		connecting:        make(chan struct{}, 1),
+		wire:              make(chan struct{}, 1),
 		heartbeatInterval: interval,
 		heartbeatTimeout:  timeout,
 		wireTimeout:       wireTimeout,
@@ -142,22 +160,25 @@ func NewLogdSession(cfg *LogdSessionConfig) *LogdSession {
 
 // Connect establishes connection to logd with retry.
 func (s *LogdSession) Connect(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.connected {
-		return nil
-	}
-
-	return s.connectLocked(ctx)
+	return s.ensureConnected(ctx)
 }
 
-// connectLocked establishes connection with retry (must hold mutex).
-// On success it performs the hello handshake synchronously and then starts the
-// read-pump goroutine, which owns the decoder from that point on.
-func (s *LogdSession) connectLocked(ctx context.Context) error {
+// connect dials, performs the hello handshake, and publishes the connection, then
+// starts the read-pump goroutine, which owns the decoder from that point on.
+//
+// The session mutex is NOT held across any of this — only to publish the result.
+// Holding it meant a reconnect stood between every other caller and state they
+// needed, for as long as the reconnect took, which is unbounded: connectLocked
+// looped on dial-and-back-off and consulted ctx only BETWEEN attempts. Callers with
+// their own budgets inherited that patience, and every one of them then reported
+// `context deadline exceeded` on a request that never reached the wire.
+//
+// Only one connector runs at a time (the connecting semaphore, taken by
+// ensureConnected). The rest wait on their own deadlines.
+func (s *LogdSession) connect(ctx context.Context) error {
 	backoff := 100 * time.Millisecond
 	maxBackoff := 5 * time.Second
+	dialer := &net.Dialer{Timeout: dialTimeout}
 
 	for {
 		select {
@@ -168,7 +189,7 @@ func (s *LogdSession) connectLocked(ctx context.Context) error {
 		default:
 		}
 
-		conn, err := net.DialTimeout("tcp", s.addr, 5*time.Second)
+		conn, err := dialer.DialContext(ctx, "tcp", s.addr)
 		if err != nil {
 			s.log.Debug("failed to connect to logd, retrying", "addr", s.addr, "error", err, "backoff", backoff)
 
@@ -203,35 +224,56 @@ func (s *LogdSession) connectLocked(ctx context.Context) error {
 		}
 
 		// Perform the hello handshake synchronously, before the read-pump takes over the
-		// decoder. Bound the handshake read: a peer that completes the TCP dial but never
-		// answers hello must not block forever under s.mu. Cleared before the read-pump starts
-		// so the pump's long-lived reads aren't deadlined. (The hello write is bounded by
-		// sendRequestTo's write deadline.)
-		_ = conn.SetReadDeadline(time.Now().Add(s.wireTimeout))
-		if err := s.sendHello(conn); err != nil {
-			conn.Close()
-			return fmt.Errorf("hello failed: %w", err)
-		}
-		resp, err := s.readResponseWith(decoder)
+		// decoder. Bound it by the wire timeout AND by what the caller is waiting for,
+		// whichever comes first: a peer that completes the TCP dial and then says nothing —
+		// a blackholed route, a rolled pod, a server too busy to answer — held a caller who
+		// asked for ten seconds for thirty. Cleared before the read-pump starts so the
+		// pump's long-lived reads aren't deadlined.
+		deadline := s.wireDeadline(ctx)
+		_ = conn.SetReadDeadline(deadline)
+
+		// A caller can also be cancelled outright, and a blocking read notices that
+		// no more than it notices a deadline it was not given. Close the connection
+		// under it so the caller comes back when it asked to. The watcher stops the
+		// moment the handshake is over: past that point the connection is the
+		// session's, outliving the request that happened to establish it — and
+		// callers cancel their contexts as a matter of course.
+		handshake := make(chan struct{})
+		go func() {
+			select {
+			case <-ctx.Done():
+				conn.Close()
+			case <-s.done:
+				conn.Close()
+			case <-handshake:
+			}
+		}()
+
+		resp, err := s.hello(conn, decoder, deadline)
+		close(handshake)
 		if err != nil {
 			conn.Close()
-			return fmt.Errorf("failed to read hello response: %w", err)
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr // the read was interrupted because the caller gave up
+			}
+			return err
 		}
 		_ = conn.SetReadDeadline(time.Time{}) // clear; the read-pump owns reads from here
-		if resp.Error != nil {
+		s.mu.Lock()
+		if s.closed {
+			// Close ran while this handshake was in flight; publishing now would
+			// strand the connection and its read-pump on a dead session.
+			s.mu.Unlock()
 			conn.Close()
-			return fmt.Errorf("hello error: %w", resp.Error)
+			return fmt.Errorf("session closed")
 		}
-		if resp.Result == nil || resp.Result.Hello == nil {
-			conn.Close()
-			return fmt.Errorf("unexpected response: no hello result")
-		}
-
 		s.conn = conn
 		s.connected = true
 		s.serverID = resp.Result.Hello.ServerID
 		s.readErr = nil
-		s.log.Info("connected to logd", "addr", s.addr, "serverID", s.serverID)
+		serverID := s.serverID
+		s.mu.Unlock()
+		s.log.Info("connected to logd", "addr", s.addr, "serverID", serverID)
 
 		go s.readPump(conn, decoder)
 		if s.heartbeatInterval > 0 {
@@ -239,6 +281,17 @@ func (s *LogdSession) connectLocked(ctx context.Context) error {
 		}
 		return nil
 	}
+}
+
+// wireDeadline bounds one wire operation by the wire timeout and by what the caller
+// is actually waiting for, whichever expires first. A caller cannot be made to wait
+// past its own deadline for an answer it will not use.
+func (s *LogdSession) wireDeadline(ctx context.Context) time.Time {
+	deadline := time.Now().Add(s.wireTimeout)
+	if cd, ok := ctx.Deadline(); ok && cd.Before(deadline) {
+		return cd
+	}
+	return deadline
 }
 
 // heartbeat periodically pings the server on conn and, if a pong does not arrive
@@ -279,24 +332,69 @@ func (s *LogdSession) heartbeat(conn net.Conn) {
 	}
 }
 
-// sendHello sends the hello message to logd.
-func (s *LogdSession) sendHello(conn net.Conn) error {
+// hello performs the handshake on a freshly dialled connection, bounding both the
+// write and the read by deadline, and returns the server's answer.
+func (s *LogdSession) hello(conn net.Conn, decoder *stream.Decoder, deadline time.Time) (*api.SessionResponse, error) {
 	req := &api.SessionRequest{
 		Hello: &api.Hello{
 			ClientID: s.clientID,
 			Scope:    s.scope,
 		},
 	}
-	return s.sendRequestTo(conn, req)
+	if err := s.sendRequestWithin(conn, req, deadline); err != nil {
+		return nil, fmt.Errorf("hello failed: %w", err)
+	}
+	resp, err := s.readResponseWith(decoder)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read hello response: %w", err)
+	}
+	if resp.Error != nil {
+		return nil, fmt.Errorf("hello error: %w", resp.Error)
+	}
+	if resp.Result == nil || resp.Result.Hello == nil {
+		return nil, fmt.Errorf("unexpected response: no hello result")
+	}
+	return resp, nil
 }
 
-// ensureConnected checks connection and reconnects if needed (must hold mutex).
+// ensureConnected connects if the session is not connected. It must NOT be called
+// with the session mutex held: one connector runs at a time, and the callers waiting
+// behind it wait on their own contexts rather than on a lock that takes none.
 func (s *LogdSession) ensureConnected(ctx context.Context) error {
-	if s.connected {
+	if s.Connected() {
 		return nil
 	}
-	return s.connectLocked(ctx)
+
+	select {
+	case s.connecting <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.done:
+		return fmt.Errorf("session closed")
+	}
+	defer func() { <-s.connecting }()
+
+	// Someone else may have connected while we waited our turn.
+	if s.Connected() {
+		return nil
+	}
+	return s.connect(ctx)
 }
+
+// acquireWire takes the connection for one write, or gives up on the caller's terms.
+// releaseWire hands it to the next writer.
+func (s *LogdSession) acquireWire(ctx context.Context) error {
+	select {
+	case s.wire <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.done:
+		return fmt.Errorf("session closed")
+	}
+}
+
+func (s *LogdSession) releaseWire() { <-s.wire }
 
 // newIDLocked returns a fresh request id (must hold mutex).
 func (s *LogdSession) newIDLocked() string {
@@ -509,27 +607,39 @@ func (s *LogdSession) request(ctx context.Context, req *api.SessionRequest) (*ap
 	default:
 	}
 
-	s.mu.Lock()
 	if err := s.ensureConnected(ctx); err != nil {
-		s.mu.Unlock()
 		return nil, err
 	}
 
+	// Take the wire first: the id is registered only once this request is the one
+	// being written, so a caller that gives up waiting its turn leaves nothing behind.
+	if err := s.acquireWire(ctx); err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	conn := s.conn
+	if conn == nil {
+		s.mu.Unlock()
+		s.releaseWire()
+		return nil, s.connError()
+	}
 	id := s.newIDLocked()
 	req.ID = &id
 	replyCh := make(chan *api.SessionResponse, 1)
 	s.pending[id] = replyCh
+	s.mu.Unlock()
 
-	// Write while holding the mutex so concurrent requests don't interleave
-	// bytes on the wire.
-	if err := s.sendRequestTo(s.conn, req); err != nil {
+	// Write with the wire held so concurrent requests don't interleave bytes.
+	err := s.sendRequestTo(conn, req)
+	s.releaseWire()
+	if err != nil {
+		s.mu.Lock()
 		delete(s.pending, id)
-		conn, pending, watchers := s.teardownLocked(err)
 		s.mu.Unlock()
-		releaseResources(conn, pending, watchers, err)
+		s.failConn(conn, err)
 		return nil, err
 	}
-	s.mu.Unlock()
 
 	select {
 	case resp, ok := <-replyCh:
@@ -707,16 +817,24 @@ func (s *LogdSession) removeWatcher(id string) {
 	s.mu.Unlock()
 }
 
-// sendRequestTo sends a request to the given connection.
+// sendRequestTo sends a request to the given connection, bounded by the wire timeout.
 func (s *LogdSession) sendRequestTo(conn net.Conn, req *api.SessionRequest) error {
+	return s.sendRequestWithin(conn, req, time.Now().Add(s.wireTimeout))
+}
+
+// sendRequestWithin sends a request to the given connection, bounded by deadline.
+//
+// The write is deadlined because the writer holds the wire while it runs: a peer that
+// stopped READING (TCP alive, send buffer full) would otherwise block every other
+// writer, including the heartbeat's own recovery ping (issue 9zkm8f1y). On timeout
+// the write errors, which the caller turns into teardown + reconnect. The read-pump's
+// reads are unaffected.
+func (s *LogdSession) sendRequestWithin(conn net.Conn, req *api.SessionRequest, deadline time.Time) error {
 	data, err := req.ToTony(gomap.EncodeWire(true))
 	if err != nil {
 		return fmt.Errorf("failed to encode request: %w", err)
 	}
-	// Write-only deadline: request() holds s.mu across this write, so a peer that stopped
-	// reading must not block it (and s.mu) forever. On timeout the write errors, which the
-	// caller turns into teardown + reconnect. The read-pump's reads are unaffected.
-	_ = conn.SetWriteDeadline(time.Now().Add(s.wireTimeout))
+	_ = conn.SetWriteDeadline(deadline)
 	if _, err := conn.Write(append(data, '\n')); err != nil {
 		return fmt.Errorf("failed to write request: %w", err)
 	}

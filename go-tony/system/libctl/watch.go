@@ -124,12 +124,20 @@ func (s *LogdSession) Watch(ctx context.Context, path string, opts *WatchOptions
 		events:  make(chan *api.WatchEvent, bufSize),
 	}
 
-	s.mu.Lock()
 	if err := s.ensureConnected(ctx); err != nil {
-		s.mu.Unlock()
+		return nil, err
+	}
+	if err := s.acquireWire(ctx); err != nil {
 		return nil, err
 	}
 
+	s.mu.Lock()
+	conn := s.conn
+	if conn == nil {
+		s.mu.Unlock()
+		s.releaseWire()
+		return nil, s.connError()
+	}
 	id := s.newIDLocked()
 	w.id = id
 
@@ -140,6 +148,7 @@ func (s *LogdSession) Watch(ctx context.Context, path string, opts *WatchOptions
 
 	replyCh := make(chan *api.SessionResponse, 1)
 	s.pending[id] = replyCh
+	s.mu.Unlock()
 
 	req := &api.SessionRequest{
 		ID: &id,
@@ -149,15 +158,16 @@ func (s *LogdSession) Watch(ctx context.Context, path string, opts *WatchOptions
 			NoInit:     opts.NoInit,
 		},
 	}
-	if err := s.sendRequestTo(s.conn, req); err != nil {
+	err := s.sendRequestTo(conn, req)
+	s.releaseWire()
+	if err != nil {
+		s.mu.Lock()
 		delete(s.pending, id)
 		delete(s.watchers, id)
-		conn, pending, watchers := s.teardownLocked(err)
 		s.mu.Unlock()
-		releaseResources(conn, pending, watchers, err)
+		s.failConn(conn, err)
 		return nil, err
 	}
-	s.mu.Unlock()
 
 	select {
 	case resp, ok := <-replyCh:
