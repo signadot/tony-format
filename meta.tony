@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 7454eff0f1efbc2b209a27f1b25a888a403cbd34
 commits: []
 created: "2026-08-13T21:59:18.278001+02:00"
 duplicates: []
@@ -9,5 +10,5 @@ id: br4262r9h12kr5h2fsn0
 labels:
 - bug
 related_issues: []
-status: open
-updated: "2026-08-13T21:59:25.474408+02:00"
+status: closed
+updated: "2026-08-13T22:11:17.442304+02:00"
