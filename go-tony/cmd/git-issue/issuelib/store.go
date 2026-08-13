@@ -75,6 +75,9 @@ type Store interface {
 	// Fetch fetches refspecs from a remote, skipping failures as Push does.
 	Fetch(remote string, refspecs []string) error
 
+	// RemoteRefs returns the refs the remote holds that match the patterns.
+	RemoteRefs(remote string, patterns ...string) ([]string, error)
+
 	// VerifyRemote checks if a remote exists.
 	VerifyRemote(remote string) error
 

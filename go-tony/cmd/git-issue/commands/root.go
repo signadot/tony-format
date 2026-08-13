@@ -20,6 +20,13 @@
 // merge step, so the last writer of a given issue wins. Everything downstream of
 // that -- serve being read-only, comments being stored under content-addressed
 // names that two clones cannot collide on -- follows from it.
+//
+// What sync is not blunt about is the namespace: an issue is in refs/issues/ or
+// in refs/closed/, never both, and that holds across a push or a pull as it does
+// locally. Push deletes the ref a status change moved out of, pull deletes the
+// one a fetched status change made stale, because a remote holding an id in both
+// namespaces cannot be read for a status at all -- a close and a reopen leave
+// the same pair of refs behind.
 package commands
 
 import (
