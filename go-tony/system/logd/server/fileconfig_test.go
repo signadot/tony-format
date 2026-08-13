@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 )
@@ -125,5 +126,66 @@ func TestNew_LeavesDurabilityAloneWithoutSection(t *testing.T) {
 
 	if got := st.GetDurability(); got != storage.DurabilityOS {
 		t.Errorf("durability after New = %v, want the default %v", got, storage.DurabilityOS)
+	}
+}
+
+// A config file that says nothing about snapshots must still get a snapshot policy.
+// It used to get none: LoadConfig returned the file as written, and a server with a
+// nil Snapshot section never snapshots — so a file configuring a schema, and nothing
+// else, silently left the delta log to grow forever (issue ps8kfs9dh12kr777fnn0).
+func TestLoadConfig_SnapshotDefaultsWhenSectionAbsent(t *testing.T) {
+	path := writeConfig(t, "tx:\n  timeout: 1000000000\n")
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Snapshot == nil {
+		t.Fatal("no snapshot policy: the log would grow without bound")
+	}
+	if cfg.Snapshot.MaxBytes != defaultSnapshotMaxBytes {
+		t.Errorf("maxBytes = %d, want the default %d", cfg.Snapshot.MaxBytes, defaultSnapshotMaxBytes)
+	}
+	if cfg.Snapshot.MaxCommits != defaultSnapshotMaxCommits {
+		t.Errorf("maxCommits = %d, want the default %d", cfg.Snapshot.MaxCommits, defaultSnapshotMaxCommits)
+	}
+	// The section the file DID write is its own.
+	if cfg.Tx == nil || cfg.Tx.Timeout != time.Second {
+		t.Errorf("tx = %+v, want the configured 1s", cfg.Tx)
+	}
+}
+
+// Written thresholds are the operator's, defaults included where they left one out.
+func TestLoadConfig_SnapshotSectionIsTakenAsWritten(t *testing.T) {
+	path := writeConfig(t, "snapshot:\n  maxBytes: 65536\n")
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Snapshot.MaxBytes != 65536 {
+		t.Errorf("maxBytes = %d, want 65536", cfg.Snapshot.MaxBytes)
+	}
+	// A present section is left exactly as written: zero here is "off", which is how
+	// an operator turns a threshold off on purpose.
+	if cfg.Snapshot.MaxCommits != 0 {
+		t.Errorf("maxCommits = %d, want 0: the section was written without it", cfg.Snapshot.MaxCommits)
+	}
+}
+
+// A config built in code can be as partial as one written in a file.
+func TestNew_SnapshotDefaultsForPartialConfig(t *testing.T) {
+	st, err := storage.Open(t.TempDir(), slog.Default())
+	if err != nil {
+		t.Fatalf("storage.Open: %v", err)
+	}
+	defer st.Close()
+
+	cfg := &Config{Storage: &StorageConfig{Durability: "sync"}}
+	srv := New(&Spec{Config: cfg, Storage: st, Log: slog.Default()})
+
+	snap := srv.Spec.Config.Snapshot
+	if snap == nil || snap.MaxBytes != defaultSnapshotMaxBytes {
+		t.Fatalf("snapshot policy = %+v, want the default byte threshold", snap)
 	}
 }

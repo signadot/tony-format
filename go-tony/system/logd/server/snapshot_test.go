@@ -143,3 +143,47 @@ func TestAutoSnapshotBySize(t *testing.T) {
 		t.Errorf("expected snapshot to trigger by size, but commits=%d", srv.commitsSinceSnapshot.Load())
 	}
 }
+
+// A size threshold bounds the delta a read replays; it is not a cliff the store
+// falls off. Read against the whole active log — which never comes back down, since
+// a switch does not empty the log it switches into — the threshold was crossed once
+// and then never uncrossed: the store snapshotted on EVERY commit for the rest of
+// its life, and 400 writes to a 100 KB store left 4 MB of log behind
+// (issue ps8kfs9dh12kr777fnn0).
+func TestAutoSnapshotBySize_IsABoundNotACliff(t *testing.T) {
+	dir := t.TempDir()
+	store, err := storage.Open(dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	// Bytes only: any reset of the commit counter below is a snapshot this policy
+	// took because of the size.
+	srv := New(&Spec{
+		Config:  &Config{Snapshot: &SnapshotConfig{MaxBytes: 3000}},
+		Storage: store,
+	})
+
+	const commits = 60
+	snapshots := 0
+	for i := 0; i < commits; i++ {
+		doPatch(t, store, srv, "data", mustParse(fmt.Sprintf(
+			`{i: %d, padding: "a body long enough that a few of these cross three kilobytes"}`, i)))
+		if srv.commitsSinceSnapshot.Load() == 0 {
+			snapshots++
+		}
+	}
+
+	if snapshots == 0 {
+		t.Fatalf("no snapshot in %d commits: the size threshold never fired", commits)
+	}
+	// Each snapshot has to be earned with another MaxBytes of delta. Snapshotting on
+	// every commit is the failure; this bound is far looser than the real ratio and
+	// still an order of magnitude below it.
+	if snapshots > commits/3 {
+		t.Errorf("%d snapshots in %d commits: the threshold is firing on nearly every commit",
+			snapshots, commits)
+	}
+	t.Logf("%d snapshots in %d commits", snapshots, commits)
+}

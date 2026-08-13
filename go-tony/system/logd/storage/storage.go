@@ -181,6 +181,13 @@ func (s *Storage) ActiveLogSize() (int64, error) {
 	return s.dLog.ActiveLogSize()
 }
 
+// DeltaBytesSinceSnapshot returns how many bytes of the active log a read must
+// replay on top of the newest snapshot. It is what a size-based snapshot policy
+// thresholds; ActiveLogSize is not (see DLog.DeltaBytesSinceSnapshot).
+func (s *Storage) DeltaBytesSinceSnapshot() (int64, error) {
+	return s.dLog.DeltaBytesSinceSnapshot()
+}
+
 // GetCurrentCommit returns the published commit watermark: the highest commit that is
 // in the log AND in the index, and so can be read or replayed right now.
 //

@@ -884,3 +884,82 @@ func TestDLog_OpenReaderAt_InvalidLogFile(t *testing.T) {
 		t.Error("expected error for invalid log file ID")
 	}
 }
+
+// The delta a read replays is what a size-based snapshot policy has to threshold,
+// and a switch is where it goes back to zero — the active log's own size does not,
+// because a switch does not empty the log it switches into. Reading the size alone
+// meant a threshold, once crossed, stayed crossed for the life of the store: it
+// snapshotted on every commit thereafter (issue ps8kfs9dh12kr777fnn0).
+func TestDLog_DeltaBytesSinceSnapshot(t *testing.T) {
+	tmpDir := t.TempDir()
+	dl, err := NewDLog(tmpDir, nil)
+	if err != nil {
+		t.Fatalf("NewDLog() error = %v", err)
+	}
+
+	appendOne := func(commit int64) {
+		t.Helper()
+		if _, _, err := dl.AppendEntry(&Entry{
+			Commit:    commit,
+			Timestamp: time.Now().Format(time.RFC3339),
+			Patch:     ir.FromMap(map[string]*ir.Node{"pad": ir.FromString("some value worth bytes")}),
+		}); err != nil {
+			t.Fatalf("AppendEntry(%d): %v", commit, err)
+		}
+	}
+	delta := func() int64 {
+		t.Helper()
+		d, err := dl.DeltaBytesSinceSnapshot()
+		if err != nil {
+			t.Fatalf("DeltaBytesSinceSnapshot: %v", err)
+		}
+		return d
+	}
+
+	for i := int64(1); i <= 3; i++ {
+		appendOne(i)
+	}
+	firstRound := delta()
+	if firstRound <= 0 {
+		t.Fatalf("delta after three appends = %d, want the bytes they wrote", firstRound)
+	}
+
+	// Switching to the other log starts a new delta: the snapshot taken with the
+	// switch covers everything before it.
+	if err := dl.SwitchActive(); err != nil {
+		t.Fatalf("SwitchActive: %v", err)
+	}
+	if got := delta(); got != 0 {
+		t.Errorf("delta right after a switch = %d, want 0", got)
+	}
+	appendOne(4)
+	afterSwitch := delta()
+	if afterSwitch <= 0 || afterSwitch >= firstRound {
+		t.Errorf("delta after one post-switch append = %d, want the bytes of one entry (< %d)", afterSwitch, firstRound)
+	}
+
+	// Switching back must not count the records that log already held from its
+	// previous turn, which is the whole failure this guards.
+	if err := dl.SwitchActive(); err != nil {
+		t.Fatalf("SwitchActive: %v", err)
+	}
+	if got := delta(); got != 0 {
+		t.Errorf("delta after switching back to a log with records = %d, want 0", got)
+	}
+	appendOne(5)
+	reused := delta()
+
+	// And a restart remembers where the delta starts, or every restart would begin
+	// counting from zero and a store that restarts often would never snapshot.
+	if err := dl.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	dl, err = NewDLog(tmpDir, nil)
+	if err != nil {
+		t.Fatalf("NewDLog() after reopen: %v", err)
+	}
+	defer dl.Close()
+	if got := delta(); got != reused {
+		t.Errorf("delta after reopen = %d, want %d: the mark did not survive", got, reused)
+	}
+}

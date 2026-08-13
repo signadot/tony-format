@@ -20,6 +20,7 @@ type UpConfig struct {
 	*MainConfig
 	Up            *cli.Command
 	DataDir       string `cli:"name=data desc='data directory for logd storage'"`
+	ConfigFile    string `cli:"name=config desc='logd configuration file (tony format), as for o system logd serve'"`
 	LogdAddr      string `cli:"name=logd-addr desc='logd listen address' default=localhost:9123"`
 	DocdAddr      string `cli:"name=docd-addr desc='docd client-facing listen address' default=localhost:9124"`
 	DocdMountAddr string `cli:"name=docd-mount-addr desc='docd controller-facing (MOUNT) listen address' default=localhost:9125"`
@@ -39,7 +40,7 @@ func UpCommand(mainCfg *MainConfig) *cli.Command {
 		panic(err)
 	}
 	return cli.NewCommandAt(&cfg.Up, "up").
-		WithSynopsis("up -data <dir>").
+		WithSynopsis("up -data <dir> [-config <file>]").
 		WithDescription("start logd and docd servers").
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
@@ -55,6 +56,19 @@ func systemUp(cfg *UpConfig, cc *cli.Context, args []string) error {
 
 	if cfg.DataDir == "" {
 		return fmt.Errorf("-data is required")
+	}
+
+	// The same configuration file `o system logd serve` takes. Without this the
+	// system stood up the documented way could not be configured at all — including
+	// its snapshot policy, which is what bounds the cost of every read (issue
+	// ps8kfs9dh12kr777fnn0). A nil config still gets logd's defaults, so the flag
+	// overrides a policy rather than supplying the only one.
+	var logdConfig *logdserver.Config
+	if cfg.ConfigFile != "" {
+		logdConfig, err = logdserver.LoadConfig(cfg.ConfigFile)
+		if err != nil {
+			return fmt.Errorf("failed to load config %s: %w", cfg.ConfigFile, err)
+		}
 	}
 
 	// Start gops agent for debugging
@@ -98,6 +112,7 @@ func systemUp(cfg *UpConfig, cc *cli.Context, args []string) error {
 	// Create and start logd server
 	logdSrv := logdserver.New(&logdserver.Spec{
 		Storage: s,
+		Config:  logdConfig,
 	})
 
 	if err := logdSrv.StartTCP(cfg.LogdAddr); err != nil {

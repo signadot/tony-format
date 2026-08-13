@@ -36,6 +36,20 @@ func New(spec *Spec) *Server {
 	}
 	if spec.Config == nil {
 		spec.Config = DefaultConfig()
+	} else {
+		// A config built in code can be as partial as one written in a file, and a
+		// missing snapshot section means the same thing in both: nobody said, not
+		// nobody wants one.
+		spec.Config = spec.Config.WithDefaults()
+	}
+
+	// Say what the snapshot policy is on the way up. A store that never snapshots
+	// has no symptom until its reads take seconds, so the one moment it can be
+	// noticed for free is here.
+	if snap := spec.Config.Snapshot; snap != nil {
+		spec.Log.Info("snapshot policy", "maxCommits", snap.MaxCommits, "maxBytes", snap.MaxBytes)
+	} else {
+		spec.Log.Warn("snapshotting disabled: the delta log will grow without bound")
 	}
 
 	s := &Server{
@@ -119,10 +133,15 @@ func (s *Server) maybeCompact() {
 		shouldSwitch = true
 	}
 
-	// Check log size threshold
+	// Check log size threshold — against the delta accumulated since the last
+	// snapshot, which is what a read has to replay. Measured on the file, so unlike
+	// the commit count above it means the same thing after a restart.
 	if !shouldSwitch && snap.MaxBytes > 0 {
-		size, err := s.Spec.Storage.ActiveLogSize()
-		if err == nil && size >= snap.MaxBytes {
+		delta, err := s.Spec.Storage.DeltaBytesSinceSnapshot()
+		if err != nil {
+			s.Spec.Log.Error("failed to size the delta log; snapshot policy is running on commits alone",
+				"error", err)
+		} else if delta >= snap.MaxBytes {
 			shouldSwitch = true
 		}
 	}

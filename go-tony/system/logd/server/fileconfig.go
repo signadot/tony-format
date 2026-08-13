@@ -87,14 +87,36 @@ type TxConfig struct {
 
 // SnapshotConfig configures when automatic snapshots are triggered.
 //
+// A snapshot is what bounds the cost of reading: without one, every read replays
+// the whole delta log, and the log only grows. Both thresholds are ceilings on how
+// much log a read can be made to replay, and a store with neither is unbounded by
+// construction — it degrades from the first commit, with no threshold anyone
+// crosses and no symptom until reads take seconds.
+//
+// The two are not equivalent, and MaxBytes is the one to rely on:
+//
+//   - MaxBytes measures the delta the log has accumulated since the last snapshot,
+//     which is exactly what a read has to replay, and it is measured on the file —
+//     so it means the same thing to a process that has just started as to one that
+//     has been up for weeks.
+//   - MaxCommits counts commits THIS process has seen. A server that restarts
+//     before reaching the threshold starts counting again from zero, so a store
+//     whose pod restarts often enough never snapshots however long it runs — which
+//     is one of the two reasons a staging store reached 15 MB of log with an empty
+//     snapshot file (issue ps8kfs9dh12kr777fnn0).
+//
+// Zero or negative disables a threshold. A config file with no snapshot section at
+// all gets the defaults (see DefaultConfig); writing the section and leaving a
+// threshold at zero is how it is turned off deliberately.
+//
 //tony:schemagen=snapshot-config
 type SnapshotConfig struct {
-	// MaxCommits triggers a snapshot after this many commits since the last snapshot.
-	// Zero or negative means disabled.
+	// MaxCommits triggers a snapshot after this many commits since the last snapshot
+	// taken by this process. Zero or negative means disabled.
 	MaxCommits int64 `tony:"field=maxCommits"`
 
-	// MaxBytes triggers a snapshot when the active log exceeds this size in bytes.
-	// Zero or negative means disabled.
+	// MaxBytes triggers a snapshot once the active log has grown by this many bytes
+	// since the last snapshot. Zero or negative means disabled.
 	MaxBytes int64 `tony:"field=maxBytes"`
 }
 
@@ -191,19 +213,47 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("invalid config %s: %w", path, err)
 	}
 
-	return cfg, nil
+	return cfg.WithDefaults(), nil
 }
+
+// Default snapshot thresholds. They are a guess, and a guess is the point: a store
+// whose operator never thought about snapshotting still has to survive, and the
+// alternative to a guess here is not a better number but unbounded growth.
+//
+// The byte threshold is the one that does the work — it is what read cost tracks,
+// and it is measured on the file rather than counted in memory (see SnapshotConfig).
+// 4 MiB is well under the 15 MB that took reads from milliseconds to seconds, and
+// far above a single write, so it costs a store that is barely used nothing.
+const (
+	defaultSnapshotMaxCommits = 1000
+	defaultSnapshotMaxBytes   = 4 << 20
+	defaultTxTimeout          = 1 * time.Second
+)
 
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() *Config {
-	return &Config{
-		Snapshot: &SnapshotConfig{
-			MaxCommits: 1000, // Snapshot every 1000 commits by default
-		},
-		Tx: &TxConfig{
-			Timeout: 1 * time.Second, // Default transaction timeout
-		},
+	return (&Config{}).WithDefaults()
+}
+
+// WithDefaults fills in the sections the config does not have and returns it. A
+// section that IS present is left exactly as written, zeros included: writing
+// `snapshot: {}` is how a threshold is turned off on purpose, and a default that
+// overrode it would make that impossible to say.
+//
+// It is applied to loaded config files as well as to servers given no config at all,
+// because the hole is the same either way — a file that configures a schema and says
+// nothing about snapshots used to disable snapshotting silently.
+func (c *Config) WithDefaults() *Config {
+	if c.Snapshot == nil {
+		c.Snapshot = &SnapshotConfig{
+			MaxCommits: defaultSnapshotMaxCommits,
+			MaxBytes:   defaultSnapshotMaxBytes,
+		}
 	}
+	if c.Tx == nil {
+		c.Tx = &TxConfig{Timeout: defaultTxTimeout}
+	}
+	return c
 }
 
 // Validate checks the configuration for errors. Called by LoadConfig, so a file

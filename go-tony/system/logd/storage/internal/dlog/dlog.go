@@ -36,6 +36,14 @@ type DLog struct {
 	readersA atomic.Int64
 	readersB atomic.Int64
 
+	// snapMark is how far into the ACTIVE log the last snapshot's coverage reaches:
+	// the size that log had when it became active, which is the moment the snapshot
+	// taken with it was written to the other one. Everything appended past it is
+	// delta a reader has to replay on top of that snapshot, which is the only
+	// quantity a size threshold can usefully bound (see DeltaBytesSinceSnapshot).
+	// Persisted with the rest of the state, so a restart does not forget it.
+	snapMark atomic.Int64
+
 	// Metadata
 	logger *slog.Logger // Logger for operations
 }
@@ -122,13 +130,15 @@ func NewDLog(baseDir string, logger *slog.Logger) (*DLog, error) {
 	// generation is what lets a restart detect a stale index after compaction (the generation
 	// is the staleness token used by ReadEntryAt); without it, generation reset to 0 on every
 	// restart and reads of compacted data silently returned the wrong bytes. Format:
-	// "<active> <genA> <genB>"; a bare "A"/"B" (legacy) means generations 0.
+	// "<active> <genA> <genB> <snapMark>"; a bare "A"/"B" (legacy) means generations 0, and a
+	// state file written before snapMark existed means 0 — the whole active log counts as
+	// delta, which errs toward snapshotting sooner.
 	activeLog := LogFileA
-	var genA, genB int64
+	var genA, genB, snapMark int64
 	statePath := filepath.Join(baseDir, "dlog.state")
 	if stateData, err := os.ReadFile(statePath); err == nil && len(stateData) > 0 {
 		var active string
-		if n, _ := fmt.Sscanf(string(stateData), "%s %d %d", &active, &genA, &genB); n >= 1 {
+		if n, _ := fmt.Sscanf(string(stateData), "%s %d %d %d", &active, &genA, &genB, &snapMark); n >= 1 {
 			if active == "B" {
 				activeLog = LogFileB
 			}
@@ -144,6 +154,7 @@ func NewDLog(baseDir string, logger *slog.Logger) (*DLog, error) {
 	}
 	dl.generationA.Store(genA)
 	dl.generationB.Store(genB)
+	dl.snapMark.Store(snapMark)
 
 	return dl, nil
 }
@@ -178,7 +189,7 @@ func (dl *DLog) writeState() error {
 	dl.mu.RLock()
 	active := dl.activeLog
 	dl.mu.RUnlock()
-	line := fmt.Sprintf("%s %d %d", active, dl.generationA.Load(), dl.generationB.Load())
+	line := fmt.Sprintf("%s %d %d %d", active, dl.generationA.Load(), dl.generationB.Load(), dl.snapMark.Load())
 
 	statePath := filepath.Join(dl.baseDir, "dlog.state")
 	tmpPath := statePath + ".tmp"
@@ -517,6 +528,32 @@ func (dl *DLog) ActiveLogSize() (int64, error) {
 	return logFile.Size()
 }
 
+// DeltaBytesSinceSnapshot reports how much of the active log a read has to replay on
+// top of the newest snapshot: everything appended since this log became active.
+//
+// This, and not ActiveLogSize, is what a size-based snapshot policy has to threshold.
+// A switch does not empty the log it switches INTO — that log still holds the records
+// from its previous turn, and truncating them is compaction's decision, not the
+// switch's — so the active log's size never comes back down. A policy reading it
+// crosses its threshold once and then never uncrosses it: it snapshots on every
+// commit from then on, forever, which is how a 100 KB store grew 4 MB of logs in 400
+// writes (issue ps8kfs9dh12kr777fnn0).
+//
+// A mark ahead of the file means compaction rewrote it shorter since; count the whole
+// file as delta rather than none, since erring toward a snapshot costs one snapshot
+// and the switch that takes it re-marks the log.
+func (dl *DLog) DeltaBytesSinceSnapshot() (int64, error) {
+	size, err := dl.ActiveLogSize()
+	if err != nil {
+		return 0, err
+	}
+	mark := dl.snapMark.Load()
+	if mark > size {
+		return size, nil
+	}
+	return size - mark, nil
+}
+
 // Sync forces the given log file's appended records to stable storage.
 // Appends go to the page cache (see DLogFile.AppendEntry); until this returns, a
 // machine crash can lose records the caller has already been told were written.
@@ -570,6 +607,19 @@ func (dl *DLog) SwitchActive() error {
 		newActive = LogFileA
 	}
 	dl.activeLog = newActive
+
+	// Mark where this log stands as it becomes active. The snapshot about to be
+	// written covers everything up to here, so only what is appended past this point
+	// is delta a reader must replay (see DeltaBytesSinceSnapshot). A size we cannot
+	// read is recorded as 0, which counts the whole log as delta — snapshotting
+	// sooner than needed rather than not at all.
+	if size, err := inactiveLog.Size(); err == nil {
+		dl.snapMark.Store(size)
+	} else {
+		dl.logger.Warn("failed to size the newly active log; snapshot threshold will count it whole",
+			"log", newActive, "error", err)
+		dl.snapMark.Store(0)
+	}
 
 	// Release snapMu - the old inactive is now active and can receive writes
 	inactiveLog.snapMu.Unlock()
