@@ -586,7 +586,13 @@ func (s *LogdSession) deliverResponse(resp *api.SessionResponse) {
 	s.mu.Unlock()
 
 	if ch == nil {
-		s.log.Warn("dropping response with no matching request", "id", resp.ID)
+		// Log the id, not the pointer to it: this line is read when a response and
+		// its request have parted company, which is a question about which id.
+		id := "<none>"
+		if resp.ID != nil {
+			id = *resp.ID
+		}
+		s.log.Warn("dropping response with no matching request", "id", id)
 		return
 	}
 	ch <- resp // buffered (cap 1); never blocks

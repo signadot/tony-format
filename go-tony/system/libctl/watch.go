@@ -13,6 +13,11 @@ import (
 // not specify one.
 const defaultWatchBuffer = 128
 
+// unwatchTimeout bounds the unwatch a client sends when it stops reading a watch,
+// whether by Close or by abandoning one it was still establishing. It is a courtesy
+// to the server, so it is bounded and its failure is not the caller's problem.
+const unwatchTimeout = 5 * time.Second
+
 // WatchEndedError terminates a Watch when docd ends it server-side rather than
 // the connection dropping. Reason says which of these happened, from the
 // api.ErrCode* vocabulary:
@@ -173,6 +178,13 @@ func (s *LogdSession) Watch(ctx context.Context, path string, opts *WatchOptions
 		delete(s.pending, id)
 		delete(s.watchers, id)
 		s.mu.Unlock()
+		// The request is already on the wire, so logd may well have registered this
+		// watch — and the session stays up on the same connection, so from the
+		// server's side this is a healthy client with a watch it does not read.
+		// Nothing will ever tell it otherwise, and every commit thereafter fans out
+		// to a watcher no one will receive from. Only the client knows, so it says
+		// so on the way out.
+		go s.unwatchAbandoned(path, id)
 		return nil, ctx.Err()
 	case <-s.done:
 		return nil, fmt.Errorf("session closed")
@@ -213,9 +225,23 @@ func (w *Watch) Close() error {
 	w.session.removeWatcher(w.id)
 
 	// Tell logd to stop the watch. Bounded so Close can't hang.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), unwatchTimeout)
 	defer cancel()
 	return w.session.unwatch(ctx, w.path, w.id)
+}
+
+// unwatchAbandoned tells logd to drop a watch whose caller gave up while the watch
+// request was in flight. It runs off the caller's goroutine and on a context of its
+// own: the caller's context is what expired, and the caller is not waiting for this.
+// Best-effort — if the connection is gone the server has already dropped the watch
+// with the session.
+func (s *LogdSession) unwatchAbandoned(path, id string) {
+	ctx, cancel := context.WithTimeout(context.Background(), unwatchTimeout)
+	defer cancel()
+	if err := s.unwatch(ctx, path, id); err != nil {
+		s.log.Debug("unwatch of abandoned watch failed",
+			"path", path, "watchID", id, "error", err)
+	}
 }
 
 // deliver hands an event to the consumer. It never blocks the read-pump: if the
