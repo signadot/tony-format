@@ -254,7 +254,8 @@ jsondiff which uses path references.
 - **`!replace`** when types differ: `!replace { from: "old", to: "new" }`
 - **`!delete`** for removed fields or elements
 - **`!insert`** for added fields or elements
-- **`!strdiff`** for character-level string changes
+- **`!strdiff`** for changes within a string, by character or, where both sides
+  have lines to compare, by line
 - **`!arraydiff`** for array changes with key matching
 - **`!addtag` / `!rmtag` / `!retag`** for tag-only changes
 
