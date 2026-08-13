@@ -21,6 +21,9 @@ func diff(cfg *DiffConfig, cc *cli.Context, args []string) error {
 		cfg.Diff.Usage(cc, err)
 		return cli.ExitCodeErr(1)
 	}
+	if cfg.LoopUntil != "" && cfg.Loop == "" {
+		return fmt.Errorf("%w: -loopUntil is a condition on -loop, which was not given", cli.ErrUsage)
+	}
 	if cfg.Loop == "" {
 		if len(args) != 2 {
 			return fmt.Errorf("%w: diff (without -loop) requires 2 args, got %v", cli.ErrUsage, args)
@@ -47,6 +50,17 @@ func diff(cfg *DiffConfig, cc *cli.Context, args []string) error {
 }
 
 func diffLoop(cfg *DiffConfig, cc *cli.Context) error {
+	// The condition is decoded before the first command runs.  A match object
+	// which does not parse is a usage error, and finding that out on whichever
+	// iteration would otherwise have satisfied it is finding it out too late.
+	var until *ir.Node
+	if cfg.LoopUntil != "" {
+		var err error
+		until, err = getish(false, false, cc, cfg.LoopUntil, cfg.parseOpts())
+		if err != nil {
+			return fmt.Errorf("%w: -loopUntil: %w", cli.ErrUsage, err)
+		}
+	}
 	i := 0
 	last := ir.Null()
 	ticker := time.NewTicker(cfg.LoopEvery)
@@ -54,6 +68,11 @@ func diffLoop(cfg *DiffConfig, cc *cli.Context) error {
 	diffCount := 0
 	for {
 		if i == cfg.LoopLim {
+			if until != nil {
+				// the loop ran out before the condition held, which is a
+				// failure of what was asked for and not of the command
+				return fmt.Errorf("-loopUntil did not match in %d iterations", i)
+			}
 			break
 		}
 		cmd := exec.Command("sh", "-c", cfg.Loop)
@@ -86,6 +105,17 @@ func diffLoop(cfg *DiffConfig, cc *cli.Context) error {
 		}
 		if err := cmd.Wait(); err != nil {
 			return fmt.Errorf("command %q exited with an error: %w", cfg.Loop, err)
+		}
+		// checked after the difference is written, so that the change which
+		// satisfied the condition is the last thing reported
+		if until != nil && next != nil {
+			done, err := tony.Match(next, until)
+			if err != nil {
+				return fmt.Errorf("error matching -loopUntil: %w", err)
+			}
+			if done {
+				return nil
+			}
 		}
 		last = next
 		<-ticker.C

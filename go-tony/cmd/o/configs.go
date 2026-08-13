@@ -175,7 +175,8 @@ type DiffConfig struct {
 	Reverse   bool   `cli:"name=r desc='reverse the diff'"`
 	Loop      string `cli:"name=loop desc='command to produce objects to diff in a loop'"`
 	LoopEvery time.Duration
-	LoopLim   int `cli:"name=loopLim desc='max number of times to loop'"`
+	LoopLim   int    `cli:"name=loopLim desc='max number of times to loop'"`
+	LoopUntil string `cli:"name=loopUntil desc='stop once the looped command output matches this match object'"`
 
 	Diff *cli.Command
 }

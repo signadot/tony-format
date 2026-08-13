@@ -175,8 +175,9 @@ func MatchCommand(mainCfg *MainConfig) *cli.Command {
 func DiffCommand(mainCfg *MainConfig) *cli.Command {
 	cfg := &DiffConfig{MainConfig: mainCfg, LoopEvery: time.Second, LoopLim: -1}
 	loopEveryOpt := &cli.Opt{
-		Name: "loopEvery",
-		Type: cli.FuncOpt(cfg.mkLoopEvery()),
+		Name:        "loopEvery",
+		Description: "how long to wait between runs of the looped command",
+		Type:        cli.FuncOpt(cfg.mkLoopEvery()),
 	}
 	opts, err := cli.StructOpts(cfg)
 	if err != nil {
@@ -188,13 +189,35 @@ func DiffCommand(mainCfg *MainConfig) *cli.Command {
 		WithAliases("d", "di").
 		WithOpts(opts...).
 		WithSynopsis("diff a b or diff -loop <cmd>").
-		WithDescription("diff object documents").
+		WithDescription(diffDescription).
 		WithRun(func(cc *cli.Context, args []string) error {
 			return diff(cfg, cc, args)
 		})
 	cfg.Diff = cmd
 	return cmd
 }
+
+const diffDescription = `diff object documents
+
+Given two arguments, diff writes what turns the first into the second, and
+exits 1 if they differ at all.
+
+Loop Mode
+
+With -loop <cmd>, diff runs the command every -loopEvery and writes what
+changed since the run before, until -loopLim runs have happened.  The command
+is expected to write an object; watching one is what this is for.
+
+-loopUntil <match> stops the loop once the command's output matches, which
+makes diff a way to wait for a state and see how it got there:
+
+    o d -loop 'kubectl get pod x -o yaml' -loopUntil '{status: {phase: Running}}'
+
+The match is a match object, as taken by 'o match', so it need only name the
+fields it cares about.  It is matched against what the command wrote and not
+against the difference, and it is checked after that difference is written, so
+the change which satisfied it is the last thing reported.  Should the loop hit
+-loopLim first, diff exits 1: the condition asked for did not hold.`
 
 func PatchCommand(mainCfg *MainConfig) *cli.Command {
 	cfg := &PatchConfig{MainConfig: mainCfg}
