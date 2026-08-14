@@ -112,6 +112,19 @@ func typeToSchemaRef(typ reflect.Type, fieldInfo *FieldInfo, structMap map[strin
 		return "bool", nil
 	}
 
+	// A slice reached as an ELEMENT -- the []T inside a *[]T, or the inner []T
+	// of a [][]T. Without this it falls through to the "object" fallback below,
+	// which is not merely imprecise: it says object of data that is an array, so
+	// a document the generated codec produces does not validate against the
+	// schema generated beside it.
+	if kind == reflect.Slice || kind == reflect.Array {
+		elemRef, err := typeToSchemaRef(typ.Elem(), fieldInfo, structMap, currentPkg, currentStructName, currentSchemaName, loader, imports)
+		if err != nil {
+			return "", fmt.Errorf("failed to get schema reference for slice element type: %w", err)
+		}
+		return fmt.Sprintf("array(%s)", elemRef), nil
+	}
+
 	// Handle struct types - check for schema references
 	if kind == reflect.Struct {
 		// First, check if this is a struct with a schema using fieldInfo

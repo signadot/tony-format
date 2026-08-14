@@ -51,4 +51,5 @@ Boolean options take no argument and may be negated with a `no-` prefix, as in `
 - [`o load`](o-load.md)
 - [`o system`](o-system.md)
 - [`o docs`](o-docs.md)
+- [`o version`](o-version.md)
 

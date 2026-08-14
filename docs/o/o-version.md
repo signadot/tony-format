@@ -1,11 +1,13 @@
-# o docs
+# o version
 
-Write this command tree as markdown, one page per command
+version
+
+Print the version of o
 
 ## Usage
 
 ```
-o docs <dir>
+o version [options] [arguments]
 ```
 
 ## Options
@@ -25,19 +27,13 @@ o docs <dir>
 | `-I`, `-ifmt` | (format) |  | input format: tony/t, json/j, yaml/y |
 | `-O`, `-ofmt` | (format) |  | output format: tony/t, json/j, yaml/y |
 
-### `o docs` options
-
-| option | type | default | description |
-| --- | --- | --- | --- |
-| `-site` | string |  | base URL of the published docs, for cross-page links |
-
 Inherited options may be given either before or after the command they are inherited by.
 
 Boolean options take no argument and may be negated with a `no-` prefix, as in `-no-debug`.
 
 ## See also
 
-- [published documentation](https://signadot.github.io/tony-format/o/o-docs/)
+- [published documentation](https://signadot.github.io/tony-format/o/o-version/)
 - [`o`](README.md)
 - [`o view`](o-view.md)
 - [`o eval`](o-eval.md)
@@ -51,5 +47,5 @@ Boolean options take no argument and may be negated with a `no-` prefix, as in `
 - [`o load`](o-load.md)
 - [`o schema`](o-schema.md)
 - [`o system`](o-system.md)
-- [`o version`](o-version.md)
+- [`o docs`](o-docs.md)
 

@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"github.com/scott-cotton/cli"
+	"github.com/signadot/tony-format/go-tony/buildinfo"
 	"github.com/signadot/tony-format/go-tony/gomap/codegen"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/schema"
@@ -41,6 +42,11 @@ type Config struct {
 	Recursive      bool   `cli:"name=recursive desc='scan subdirectories recursively'"`
 	SchemaRegistry string `cli:"name=schema-registry desc='path to schema registry for cross-package references (optional)'"`
 
+	// Version asks what build this is. tony-codegen has no subcommands to hang
+	// a `version` on, so it is an option, and one that answers before any of
+	// the work below is decided on.
+	Version bool `cli:"name=version desc='print the version and exit'"`
+
 	Command *cli.Command
 }
 
@@ -48,6 +54,11 @@ func run(cfg *Config, cc *cli.Context, args []string) error {
 	args, err := cfg.Command.Parse(cc, args)
 	if err != nil {
 		return err
+	}
+
+	if cfg.Version {
+		fmt.Fprintln(cc.Out, buildinfo.Line("tony-codegen"))
+		return nil
 	}
 
 	// Set default directory to current directory if not specified
@@ -79,11 +90,26 @@ func run(cfg *Config, cc *cli.Context, args []string) error {
 	for _, pkg := range packages {
 		fmt.Printf("Processing package: %s\n", pkg.Name)
 		if err := processPackage(cfg, pkg); err != nil {
-			return fmt.Errorf("failed to process package %q: %w", pkg.Path, err)
+			// Name the package and where it is. Under `go generate ./...` this
+			// error is one line among many packages' output, and pkg.Path is
+			// "." for every one of them -- the directive's own file:line says
+			// which package failed, but the reason should not need it.
+			return fmt.Errorf("failed to process package %q in %s: %w", pkg.Name, packageDir(pkg.Path), err)
 		}
 	}
 
 	return nil
+}
+
+// packageDir answers where a package is in terms a reader can act on: an
+// absolute path, since the relative one is "." whenever the tool was pointed at
+// a single directory, which is how `go generate` always calls it.
+func packageDir(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return path
+	}
+	return abs
 }
 
 func processPackage(cfg *Config, pkg *codegen.PackageInfo) error {

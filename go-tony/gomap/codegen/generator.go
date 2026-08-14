@@ -1008,6 +1008,14 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			if !alreadyInNilCheck {
 				buf.WriteString("	}\n")
 			}
+		} else if isNestedContainer(field.Type) {
+			// Pointer to a container. This cannot go through the deref-and-recurse
+			// path below, because the container cases it lands in drop an EMPTY
+			// container -- map does so unconditionally -- and dropping it is
+			// exactly what the pointer was chosen to prevent: the reader cannot
+			// then tell "no opinion" from "explicitly none". Inside the nil check
+			// the value is written whatever its length.
+			return nestedFieldToIR(field, schemaFieldName, currentPkgPath)
 		} else {
 			// Pointer to primitive - handle based on element type
 			// Only add nil check if we're not already inside one
@@ -1030,6 +1038,9 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 	case reflect.Slice, reflect.Array:
 		// Slice/Array type
 		elemType := field.Type.Elem()
+		if isNestedContainer(elemType) || isArrayExpr(getFieldTypeName(field, currentPkgPath), field.Type) {
+			return nestedFieldToIR(field, schemaFieldName, currentPkgPath)
+		}
 		buf.WriteString(collectionGuardOpen(field))
 		buf.WriteString(fmt.Sprintf("		slice := make([]*ir.Node, len(s.%s))\n", field.Name))
 		buf.WriteString(fmt.Sprintf("		for i, v := range s.%s {\n", field.Name))
@@ -1067,6 +1078,10 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 		// Map type
 		keyType := field.Type.Key()
 		valueType := field.Type.Elem()
+
+		if isNestedContainer(valueType) || hasNamedMapKey(field.Type, getFieldTypeName(field, currentPkgPath), currentPkgPath) {
+			return nestedFieldToIR(field, schemaFieldName, currentPkgPath)
+		}
 
 		if keyType.Kind() == reflect.Uint32 {
 			// Sparse array (map[uint32]T)
@@ -1777,6 +1792,23 @@ func getFieldTypeName(field *FieldInfo, currentPkg string) string {
 	return ""
 }
 
+// ptrSliceElemTypeName names the element type of a pointer-to-slice field as the
+// generated file must spell it: for a *[]Step field it answers "Step".
+//
+// It reads the field's own type expression, which is built from the AST and so
+// keeps the element's name at both levels of nesting; reflection cannot be asked,
+// because a type resolved from source reaches here as an unnamed placeholder.
+// The reflection fallback is for a FieldInfo a test built by hand.
+func ptrSliceElemTypeName(field *FieldInfo, sliceElemType reflect.Type, currentPkg string) string {
+	expr := getFieldTypeName(field, currentPkg)
+	if rest, ok := strings.CutPrefix(expr, "*["); ok {
+		if _, elem, found := strings.Cut(rest, "]"); found && elem != "" {
+			return elem
+		}
+	}
+	return getQualifiedTypeName(sliceElemType, currentPkg)
+}
+
 // getFieldElementTypeName returns the qualified type name for the element type of a
 // composite field (slice, array, pointer, map value). It uses stored type info when
 // available, which is more reliable than reflection for types constructed via reflect.StructOf.
@@ -2143,6 +2175,20 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			buf.WriteString(fmt.Sprintf("	if err := s.%s.FromTonyIR(fieldNode%s); err != nil {\n", field.Name, fromTonyIROptsSuffix(elemType, currentPkgPath)))
 			buf.WriteString("		return err\n")
 			buf.WriteString("	}\n")
+		} else if isNestedContainer(field.Type) {
+			// Pointer to a container: *[]T, *map[string]T, and anything composed
+			// further. The pointer is what lets such a field say three things
+			// where the bare container says two -- nil is "absent, no opinion", a
+			// pointer to an empty one is "explicitly none", and a pointer to a
+			// full one is the value -- so an array or object node, INCLUDING an
+			// empty one, allocates, and null or absence leaves the pointer nil.
+			code, err := emitFromIR(field.Type, getFieldTypeName(field, currentPkgPath),
+				"fieldNodeUnwrapped", "s."+field.Name,
+				fmt.Sprintf("%q", fmt.Sprintf("field %q", schemaFieldName)), 0, "	", currentPkgPath)
+			if err != nil {
+				return "", err
+			}
+			buf.WriteString(code)
 		} else {
 			// Pointer to primitive (or named basic type like format.Format or MigrationAction)
 			// First check for null - leave pointer as nil
@@ -2218,7 +2264,13 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 				buf.WriteString("	}\n")
 				buf.WriteString(fmt.Sprintf("	*val = %s(fieldNodeUnwrapped.Bool)\n", typeName))
 			default:
-				return "", fmt.Errorf("unsupported pointer to primitive type: %v", elemType.Kind())
+				// Reached by a pointer to something this switch has no decoder
+				// for -- a map, an interface, an array, a pointer. Say the type
+				// rather than its kind, and say the way out: the message a
+				// generator gives is the whole of what its user has to work
+				// with, and "unsupported pointer to primitive type: slice"
+				// named neither the field's type nor anything to do about it.
+				return "", fmt.Errorf("unsupported pointer to %s: declare codec=custom on the field and write FromTonyIR/ToTonyIR for it", elemType)
 			}
 
 			buf.WriteString(fmt.Sprintf("		s.%s = val\n", field.Name))
@@ -2228,6 +2280,20 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 	case reflect.Slice, reflect.Array:
 		// Slice/Array type
 		elemType := field.Type.Elem()
+		if isNestedContainer(elemType) || isArrayExpr(getFieldTypeName(field, currentPkgPath), field.Type) {
+			// An element that is itself a container is neither a codec call nor
+			// a scalar extraction, which is all the code below can emit. A fixed
+			// -size array is here for a different reason: the code below makes a
+			// slice and assigns it, which does not compile against [N]T.
+			code, err := emitFromIR(field.Type, getFieldTypeName(field, currentPkgPath),
+				"fieldNodeUnwrapped", "s."+field.Name,
+				fmt.Sprintf("%q", fmt.Sprintf("field %q", schemaFieldName)), 0, "	", currentPkgPath)
+			if err != nil {
+				return "", err
+			}
+			buf.WriteString(code)
+			break
+		}
 		buf.WriteString("	if fieldNodeUnwrapped.Type == ir.ArrayType {\n")
 		// Get the type name for the slice element
 		// If field.StructTypeName is set, use it (it contains the named type, not the underlying type)
@@ -2289,44 +2355,11 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 		}
 		buf.WriteString(fmt.Sprintf("		slice := make([]%s, len(fieldNodeUnwrapped.Values))\n", structName))
 		buf.WriteString("		for i, v := range fieldNodeUnwrapped.Values {\n")
-		if isComplexType(elemType) {
-			// Slice of structs, pointers to structs, or other complex types - call FromTonyIR()
-			// Need to handle both struct values and pointers
-			if elemType.Kind() == reflect.Ptr {
-				// Element is already a pointer, allocate new instance
-				// structName has the * prefix (e.g., "*api.Patch"), but new() needs the base type (e.g., "api.Patch")
-				// So we need to remove the * prefix if it exists
-				baseTypeName := structName
-				if strings.HasPrefix(baseTypeName, "*") {
-					baseTypeName = baseTypeName[1:]
-				}
-				buf.WriteString(fmt.Sprintf("			elem := new(%s)\n", baseTypeName))
-				buf.WriteString(fmt.Sprintf("			if err := elem.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(elemType.Elem(), currentPkgPath)))
-				buf.WriteString("				return fmt.Errorf(\"failed to convert slice element %d: %w\", i, err)\n")
-				buf.WriteString("			}\n")
-				buf.WriteString("			slice[i] = elem\n")
-			} else {
-				// Element is a struct value
-				buf.WriteString(fmt.Sprintf("			elem := %s{}\n", structName))
-				buf.WriteString(fmt.Sprintf("			if err := elem.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(elemType, currentPkgPath)))
-				buf.WriteString("				return fmt.Errorf(\"failed to convert slice element %d: %w\", i, err)\n")
-				buf.WriteString("			}\n")
-				buf.WriteString("			slice[i] = elem\n")
-			}
-		} else {
-			// Slice of primitives. elem is decoded into the underlying builtin type,
-			// then converted to the slice's (possibly named) element type on assign:
-			// for a []Verb the element decodes as string and slice[i] = Verb(elem).
-			// The conversion is an identity no-op for a plain builtin element.
-			buf.WriteString("			ctx := fmt.Sprintf(\"slice element %d\", i)\n")
-			elemCode, err := generatePrimitiveFromIR("v", "elem", elemType, "ctx")
-			if err != nil {
-				return "", fmt.Errorf("unsupported slice element type %v: %w", elemType, err)
-			}
-			buf.WriteString(fmt.Sprintf("			var elem %s\n", getQualifiedTypeName(elemType, currentPkgPath)))
-			buf.WriteString(fmt.Sprintf("			%s\n", elemCode))
-			buf.WriteString(fmt.Sprintf("			slice[i] = %s(elem)\n", structName))
+		elemCode, err := generateSliceElemDecoding(elemType, structName, currentPkgPath)
+		if err != nil {
+			return "", err
 		}
+		buf.WriteString(elemCode)
 		buf.WriteString("		}\n")
 		buf.WriteString(fmt.Sprintf("		s.%s = slice\n", field.Name))
 		buf.WriteString("	}\n")
@@ -2335,6 +2368,20 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 		// Map type
 		keyType := field.Type.Key()
 		valueType := field.Type.Elem()
+
+		if isNestedContainer(valueType) || hasNamedMapKey(field.Type, getFieldTypeName(field, currentPkgPath), currentPkgPath) {
+			// A value that is itself a container, as in map[string][]T, or a key
+			// that is a named string, which the path below spells as "string" and
+			// so cannot index the map it just made.
+			code, err := emitFromIR(field.Type, getFieldTypeName(field, currentPkgPath),
+				"fieldNodeUnwrapped", "s."+field.Name,
+				fmt.Sprintf("%q", fmt.Sprintf("field %q", schemaFieldName)), 0, "	", currentPkgPath)
+			if err != nil {
+				return "", err
+			}
+			buf.WriteString(code)
+			break
+		}
 
 		if keyType.Kind() == reflect.Uint32 {
 			// Sparse array (map[uint32]T)
@@ -2561,6 +2608,56 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 // Returns the code statement (e.g., "if v.Type != ir.StringType { return fmt.Errorf(...) }; val = v.String").
 // The destVar parameter specifies the destination variable name (e.g., "elem" or "val").
 // The context parameter can contain format specifiers like %d, %q, etc. that will be used in error messages.
+// generateSliceElemDecoding writes the body of the loop that decodes one array
+// element, reading from v and assigning slice[i]. elemTypeName is the slice's
+// element type as it must be spelled in the generated file, which is not always
+// what reflection would say: a type resolved from source carries its name in the
+// caller's recovered name rather than in reflect.Type.
+//
+// Shared by the slice field path and the pointer-to-slice one so that what an
+// element decodes to does not depend on whether the field that holds it is a
+// pointer.
+func generateSliceElemDecoding(elemType reflect.Type, elemTypeName, currentPkgPath string) (string, error) {
+	var buf strings.Builder
+	if isComplexType(elemType) {
+		// Slice of structs, pointers to structs, or other complex types - call FromTonyIR()
+		// Need to handle both struct values and pointers
+		if elemType.Kind() == reflect.Ptr {
+			// Element is already a pointer, allocate new instance
+			// elemTypeName has the * prefix (e.g., "*api.Patch"), but new() needs the base type (e.g., "api.Patch")
+			// So we need to remove the * prefix if it exists
+			baseTypeName := strings.TrimPrefix(elemTypeName, "*")
+			buf.WriteString(fmt.Sprintf("			elem := new(%s)\n", baseTypeName))
+			buf.WriteString(fmt.Sprintf("			if err := elem.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(elemType.Elem(), currentPkgPath)))
+			buf.WriteString("				return fmt.Errorf(\"failed to convert slice element %d: %w\", i, err)\n")
+			buf.WriteString("			}\n")
+			buf.WriteString("			slice[i] = elem\n")
+		} else {
+			// Element is a struct value
+			buf.WriteString(fmt.Sprintf("			elem := %s{}\n", elemTypeName))
+			buf.WriteString(fmt.Sprintf("			if err := elem.FromTonyIR(v%s); err != nil {\n", fromTonyIROptsSuffix(elemType, currentPkgPath)))
+			buf.WriteString("				return fmt.Errorf(\"failed to convert slice element %d: %w\", i, err)\n")
+			buf.WriteString("			}\n")
+			buf.WriteString("			slice[i] = elem\n")
+		}
+		return buf.String(), nil
+	}
+
+	// Slice of primitives. elem is decoded into the underlying builtin type,
+	// then converted to the slice's (possibly named) element type on assign:
+	// for a []Verb the element decodes as string and slice[i] = Verb(elem).
+	// The conversion is an identity no-op for a plain builtin element.
+	buf.WriteString("			ctx := fmt.Sprintf(\"slice element %d\", i)\n")
+	elemCode, err := generatePrimitiveFromIR("v", "elem", elemType, "ctx")
+	if err != nil {
+		return "", fmt.Errorf("unsupported slice element type %v: %w", elemType, err)
+	}
+	buf.WriteString(fmt.Sprintf("			var elem %s\n", getQualifiedTypeName(elemType, currentPkgPath)))
+	buf.WriteString(fmt.Sprintf("			%s\n", elemCode))
+	buf.WriteString(fmt.Sprintf("			slice[i] = %s(elem)\n", elemTypeName))
+	return buf.String(), nil
+}
+
 func generatePrimitiveFromIR(varName string, destVar string, typ reflect.Type, context string) (string, error) {
 	var buf strings.Builder
 

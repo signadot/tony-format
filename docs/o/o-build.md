@@ -126,4 +126,5 @@ Boolean options take no argument and may be negated with a `no-` prefix, as in `
 - [`o schema`](o-schema.md)
 - [`o system`](o-system.md)
 - [`o docs`](o-docs.md)
+- [`o version`](o-version.md)
 

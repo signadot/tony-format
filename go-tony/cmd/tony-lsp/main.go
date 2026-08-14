@@ -2,20 +2,31 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 
 	"go.lsp.dev/jsonrpc2"
 	"go.lsp.dev/protocol"
+
+	"github.com/signadot/tony-format/go-tony/buildinfo"
 )
 
 const lsName = "tony-lsp"
 
-var (
-	version = "0.0.1"
-)
-
 func main() {
+	// An editor launches tony-lsp with no arguments and starts talking LSP on
+	// stdio. Someone typing the name at a shell is asking something else, and
+	// the only question worth answering before the protocol begins is which
+	// build this is -- what an editor's configuration actually resolved to.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "version", "--version", "-version":
+			fmt.Println(buildinfo.Line(lsName))
+			return
+		}
+	}
+
 	ctx := context.Background()
 	stream := jsonrpc2.NewStream(&stdioReadWriteCloser{
 		read:  os.Stdin,
@@ -93,8 +104,11 @@ func (s *Server) Initialize(ctx context.Context, params *protocol.InitializePara
 	return &protocol.InitializeResult{
 		Capabilities: capabilities,
 		ServerInfo: &protocol.ServerInfo{
-			Name:    lsName,
-			Version: version,
+			Name: lsName,
+			// The handshake reports the build, not a hand-maintained constant:
+			// this is what shows up in an editor's LSP log when a client and a
+			// server disagree about what the server can do.
+			Version: buildinfo.Version(),
 		},
 	}, nil
 }

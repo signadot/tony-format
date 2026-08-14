@@ -51,7 +51,8 @@ func MainCommand() *cli.Command {
 			LoadCommand(cfg),
 			SchemaCommand(cfg),
 			SystemCommand(cfg),
-			DocsCommand(cfg))
+			DocsCommand(cfg),
+			VersionCommand())
 }
 
 func EvalCommand(mainCfg *MainConfig) *cli.Command {

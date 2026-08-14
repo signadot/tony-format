@@ -63,6 +63,7 @@ Usage:
   git issue serve [--addr <addr>]           Read-only web view (default localhost:8080)
   git issue migrate [--dry-run]             Migrate issues from numeric IDs to XIDs
   git issue migrate-comments [--apply]      Rename comments to collision-free names
+  git issue version                         Print the version of git-issue
 
 Examples:
   git issue create "Implement streaming processor"
@@ -112,5 +113,6 @@ func Root() *cli.Command {
 			MigrateCommand(store),
 			MigrateCommentsCommand(store),
 			ServeCommand(store),
+			VersionCommand(store),
 		)
 }

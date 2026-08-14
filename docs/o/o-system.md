@@ -16,7 +16,7 @@ o system <subcommand>
 | --- | --- |
 | [`logd`](o-system-logd.md) | `o system logd <subcommand>` |
 | [`docd`](o-system-docd.md) | `o system docd <subcommand>` |
-| [`up`](o-system-up.md) | `o system up -data <dir>` |
+| [`up`](o-system-up.md) | `o system up -data <dir> [-config <file>]` |
 
 ## Options
 
@@ -55,4 +55,5 @@ Boolean options take no argument and may be negated with a `no-` prefix, as in `
 - [`o load`](o-load.md)
 - [`o schema`](o-schema.md)
 - [`o docs`](o-docs.md)
+- [`o version`](o-version.md)
 

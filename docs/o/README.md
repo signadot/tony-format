@@ -25,6 +25,7 @@ o [opts] command [opts]
 | [`schema`](o-schema.md) | `o schema <subcommand>` |
 | [`system`](o-system.md) | `o system <subcommand>` |
 | [`docs`](o-docs.md) | `o docs <dir>` |
+| [`version`](o-version.md) | version |
 
 ## Options
 

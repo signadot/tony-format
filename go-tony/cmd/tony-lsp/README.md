@@ -19,6 +19,11 @@ go build ./cmd/tony-lsp
 
 The language server communicates via stdio using the Language Server Protocol. It can be used with any LSP-compatible editor.
 
+`tony-lsp --version` prints which build it is and exits, without starting the
+protocol — the way to check what an editor's configuration resolves to. The same
+version is reported in the LSP handshake, so it also appears in an editor's
+server log.
+
 ### VS Code
 
 Create a VS Code extension configuration or use a generic LSP client:
