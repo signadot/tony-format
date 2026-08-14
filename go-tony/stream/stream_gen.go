@@ -173,6 +173,8 @@ func (s *Event) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 					slice[i] = string(elem)
 				}
 				s.CommentLines = slice
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"c\"", fieldNodeUnwrapped.Type)
 			}
 		default:
 			if gomap.IsStrict(opts...) {

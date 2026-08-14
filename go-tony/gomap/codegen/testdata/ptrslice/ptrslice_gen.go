@@ -189,6 +189,8 @@ func (s *PS) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 					slice[i] = string(elem)
 				}
 				s.Plain = slice
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"plain\"", fieldNodeUnwrapped.Type)
 			}
 		default:
 			if gomap.IsStrict(opts...) {

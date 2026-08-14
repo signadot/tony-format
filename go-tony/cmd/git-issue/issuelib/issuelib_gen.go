@@ -185,6 +185,8 @@ func (s *Issue) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 					slice[i] = string(elem)
 				}
 				s.Commits = slice
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"commits\"", fieldNodeUnwrapped.Type)
 			}
 		case "branches":
 			// Field: Branches
@@ -200,6 +202,8 @@ func (s *Issue) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 					slice[i] = string(elem)
 				}
 				s.Branches = slice
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"branches\"", fieldNodeUnwrapped.Type)
 			}
 		case "closed_by":
 			// Field: ClosedBy
@@ -227,6 +231,8 @@ func (s *Issue) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 					slice[i] = string(elem)
 				}
 				s.RelatedIssues = slice
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"related_issues\"", fieldNodeUnwrapped.Type)
 			}
 		case "blocks":
 			// Field: Blocks
@@ -242,6 +248,8 @@ func (s *Issue) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 					slice[i] = string(elem)
 				}
 				s.Blocks = slice
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"blocks\"", fieldNodeUnwrapped.Type)
 			}
 		case "blocked_by":
 			// Field: BlockedBy
@@ -257,6 +265,8 @@ func (s *Issue) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 					slice[i] = string(elem)
 				}
 				s.BlockedBy = slice
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"blocked_by\"", fieldNodeUnwrapped.Type)
 			}
 		case "duplicates":
 			// Field: Duplicates
@@ -272,6 +282,8 @@ func (s *Issue) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 					slice[i] = string(elem)
 				}
 				s.Duplicates = slice
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"duplicates\"", fieldNodeUnwrapped.Type)
 			}
 		case "labels":
 			// Field: Labels
@@ -287,6 +299,8 @@ func (s *Issue) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 					slice[i] = string(elem)
 				}
 				s.Labels = slice
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"labels\"", fieldNodeUnwrapped.Type)
 			}
 		default:
 			if gomap.IsStrict(opts...) {

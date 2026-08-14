@@ -694,6 +694,8 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 					slice[i] = string(elem)
 				}
 				s.Sl = slice
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"sl\"", fieldNodeUnwrapped.Type)
 			}
 		case "mp":
 			// Field: Mp
@@ -710,6 +712,8 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 					m[k] = val
 				}
 				s.Mp = m
+			} else {
+				return fmt.Errorf("%s: expected object, got %v", "field \"mp\"", fieldNodeUnwrapped.Type)
 			}
 		case "ptrSl":
 			// Field: PtrSl
@@ -751,6 +755,8 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 					slice[i] = elem
 				}
 				s.SlLf = slice
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"slLf\"", fieldNodeUnwrapped.Type)
 			}
 		case "mpLf":
 			// Field: MpLf
@@ -765,6 +771,8 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 					m[k] = val
 				}
 				s.MpLf = m
+			} else {
+				return fmt.Errorf("%s: expected object, got %v", "field \"mpLf\"", fieldNodeUnwrapped.Type)
 			}
 		case "slSl":
 			// Field: SlSl
@@ -912,6 +920,8 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 					slice[i] = elem
 				}
 				s.SlPtr = slice
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"slPtr\"", fieldNodeUnwrapped.Type)
 			}
 		case "mpPtr":
 			// Field: MpPtr
@@ -926,6 +936,8 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 					m[k] = val
 				}
 				s.MpPtr = m
+			} else {
+				return fmt.Errorf("%s: expected object, got %v", "field \"mpPtr\"", fieldNodeUnwrapped.Type)
 			}
 		case "slSlLf":
 			// Field: SlSlLf

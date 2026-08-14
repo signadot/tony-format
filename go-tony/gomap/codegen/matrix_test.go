@@ -213,6 +213,91 @@ func TestMatrix_ArrayRejectsTooManyElements(t *testing.T) {
 	}
 }
 
+// TestMatrix_AWrongTypedNodeIsRefused: a container field given a node of the
+// wrong type is an error, not a field quietly left at its zero value.
+//
+// The zero value reads as absent, so ignoring the mismatch made a field the
+// author got WRONG indistinguishable from one they never wrote, and every
+// default downstream applied as though nothing had been said. gomap's reflection
+// path has always refused these documents; this is codegen catching up, and the
+// messages are checked against each other in
+// TestMatrix_GeneratedAndReflectionRefuseTheSameDocuments.
+func TestMatrix_AWrongTypedNodeIsRefused(t *testing.T) {
+	for _, tc := range []struct {
+		name, doc, want string
+	}{
+		{"scalar for a list", "sl: hello\n", "expected array, got String"},
+		{"object for a list", "sl: {a: 1}\n", "expected array, got Object"},
+		{"scalar for a map", "mp: hello\n", "expected object, got String"},
+		{"list for a map", "mp: [a]\n", "expected object, got Array"},
+		{"scalar for a nested list", "slSl: hello\n", "expected array, got String"},
+		{"scalar inside a list of lists", "slSl: [hello]\n", "expected array, got String"},
+		{"scalar for a list of structs", "slLf: hello\n", "expected array, got String"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			node, err := parse.Parse([]byte(tc.doc))
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = (&matrix.M{}).FromTonyIR(node)
+			if err == nil {
+				t.Fatalf("%q decoded without error", tc.doc)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error was %q, want it to contain %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// TestMatrix_GeneratedAndReflectionRefuseTheSameDocuments: agreement on valid
+// documents is half the property. Two paths that accept the same documents but
+// disagree about which ones are broken still disagree about what a document
+// means -- and that half is what let the divergence survive.
+func TestMatrix_GeneratedAndReflectionRefuseTheSameDocuments(t *testing.T) {
+	type refl struct {
+		Sl []string          `tony:"field=sl,omitzero"`
+		Mp map[string]string `tony:"field=mp,omitzero"`
+	}
+	for _, doc := range []string{
+		"sl: hello\n", "sl: {a: 1}\n", "mp: hello\n", "mp: [a]\n",
+		"sl: []\n", "mp: {}\n", "sl: [a]\n", "{}\n",
+	} {
+		t.Run(doc, func(t *testing.T) {
+			node, err := parse.Parse([]byte(doc))
+			if err != nil {
+				t.Fatal(err)
+			}
+			genErr := (&matrix.M{}).FromTonyIR(node)
+			reflErr := gomap.FromTonyIR(node, &refl{})
+			if (genErr != nil) != (reflErr != nil) {
+				t.Fatalf("codegen err=%v but reflection err=%v", genErr, reflErr)
+			}
+		})
+	}
+}
+
+// TestMatrix_SparseArrayNeedsNoTag: gomap decodes an untagged object into a
+// map[uint32]T, so codegen must too. It used to require the !sparsearray tag and
+// silently ignore an object without one, which is the same silence this change
+// is about.
+func TestMatrix_SparseArrayNeedsNoTag(t *testing.T) {
+	type sparse struct {
+		Sp map[uint32]string `tony:"field=sp"`
+	}
+	node, err := parse.Parse([]byte("sp: {1: a}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := &sparse{}
+	if err := gomap.FromTonyIR(node, out); err != nil {
+		t.Fatalf("reflection refused an untagged sparse object: %v", err)
+	}
+	if out.Sp[1] != "a" {
+		t.Fatalf("reflection read %v", out.Sp)
+	}
+}
+
 // TestMatrix_GeneratedAgreesWithReflection: gomap's reflection path reads types
 // without generated codecs, and the two must not disagree about what a document
 // means. The generated encoder's output is decoded by reflection and vice versa.

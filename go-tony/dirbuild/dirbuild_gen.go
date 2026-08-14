@@ -138,6 +138,8 @@ func (s *Dir) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 					slice[i] = elem
 				}
 				s.Sources = slice
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"sources\"", fieldNodeUnwrapped.Type)
 			}
 		case "patches":
 			// Field: Patches
@@ -151,6 +153,8 @@ func (s *Dir) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 					slice[i] = elem
 				}
 				s.Patches = slice
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"patches\"", fieldNodeUnwrapped.Type)
 			}
 		case "env":
 			// Field: Env
@@ -165,6 +169,8 @@ func (s *Dir) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 					m[k] = val
 				}
 				s.Env = m
+			} else {
+				return fmt.Errorf("%s: expected object, got %v", "field \"env\"", fieldNodeUnwrapped.Type)
 			}
 		default:
 			if gomap.IsStrict(opts...) {

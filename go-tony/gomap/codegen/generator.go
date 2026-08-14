@@ -2362,7 +2362,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 		buf.WriteString(elemCode)
 		buf.WriteString("		}\n")
 		buf.WriteString(fmt.Sprintf("		s.%s = slice\n", field.Name))
-		buf.WriteString("	}\n")
+		buf.WriteString(mismatch("	", "fieldNodeUnwrapped", "array", fmt.Sprintf("%q", fmt.Sprintf("field %q", schemaFieldName))))
 
 	case reflect.Map:
 		// Map type
@@ -2385,7 +2385,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 
 		if keyType.Kind() == reflect.Uint32 {
 			// Sparse array (map[uint32]T)
-			buf.WriteString("	if fieldNodeUnwrapped.Type == ir.ObjectType && fieldNodeUnwrapped.Tag == \"!sparsearray\" {\n")
+			buf.WriteString("	if fieldNodeUnwrapped.Type == ir.ObjectType {\n")
 			structName := getMapValueTypeName(field, valueType, currentPkgPath)
 			buf.WriteString(fmt.Sprintf("		m := make(map[uint32]%s)\n", structName))
 			buf.WriteString("		irMap := ir.ToMap(fieldNodeUnwrapped)\n")
@@ -2421,7 +2421,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			}
 			buf.WriteString("		}\n")
 			buf.WriteString(fmt.Sprintf("		s.%s = m\n", field.Name))
-			buf.WriteString("	}\n")
+			buf.WriteString(mismatch("	", "fieldNodeUnwrapped", "object", fmt.Sprintf("%q", fmt.Sprintf("field %q", schemaFieldName))))
 		} else if keyType.Kind() == reflect.String {
 			// Regular map (map[string]T)
 			buf.WriteString("	if fieldNodeUnwrapped.Type == ir.ObjectType {\n")
@@ -2477,7 +2477,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			}
 			buf.WriteString("		}\n")
 			buf.WriteString(fmt.Sprintf("		s.%s = m\n", field.Name))
-			buf.WriteString("	}\n")
+			buf.WriteString(mismatch("	", "fieldNodeUnwrapped", "object", fmt.Sprintf("%q", fmt.Sprintf("field %q", schemaFieldName))))
 		} else if keyType.Kind() == reflect.Interface {
 			// Map with interface{} (any) keys - keys were converted to strings
 			buf.WriteString("	if fieldNodeUnwrapped.Type == ir.ObjectType {\n")
@@ -2514,7 +2514,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			}
 			buf.WriteString("		}\n")
 			buf.WriteString(fmt.Sprintf("		s.%s = m\n", field.Name))
-			buf.WriteString("	}\n")
+			buf.WriteString(mismatch("	", "fieldNodeUnwrapped", "object", fmt.Sprintf("%q", fmt.Sprintf("field %q", schemaFieldName))))
 		} else if keyType.Kind() == reflect.Ptr {
 			// Map with pointer keys - keys were converted to strings (pointer addresses)
 			// Note: We can't reconstruct the original pointer from the address string,
@@ -2579,7 +2579,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			}
 			buf.WriteString("		}\n")
 			buf.WriteString(fmt.Sprintf("		s.%s = m\n", field.Name))
-			buf.WriteString("	}\n")
+			buf.WriteString(mismatch("	", "fieldNodeUnwrapped", "object", fmt.Sprintf("%q", fmt.Sprintf("field %q", schemaFieldName))))
 		} else {
 			return "", fmt.Errorf("unsupported map key type: %v (only string, uint32, interface{}, and pointer types are supported)", keyType.Kind())
 		}
