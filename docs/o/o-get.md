@@ -2,12 +2,21 @@
 
 get objects elements from files
 
+The path says WHERE to look. -if says WHICH of what is there to keep: the node
+is written only when it matches the match document given, so
+
+    o get -if '{state: open}' '$.items[0]' doc.tony && deploy
+
+reads as the guard it is. Exit codes are the search convention: 0 when something
+was written, 1 when the path named nothing or what it named did not match, 2 for
+a fault.
+
 Also known as `g`, `ge`.
 
 ## Usage
 
 ```
-o get <objectpath> [files]
+o get [opts] <objectpath> [files]
 ```
 
 ## Options
@@ -26,6 +35,13 @@ o get <objectpath> [files]
 | `-o` | (filepath) |  | output file (default stdout) |
 | `-I`, `-ifmt` | (format) |  | input format: tony/t, json/j, yaml/y |
 | `-O`, `-ofmt` | (format) |  | output format: tony/t, json/j, yaml/y |
+
+### `o get` options
+
+| option | type | default | description |
+| --- | --- | --- | --- |
+| `-if` | string |  | keep the node only if it matches this match document |
+| `-if-file` | string |  | read the match document from a file |
 
 Inherited options may be given either before or after the command they are inherited by.
 

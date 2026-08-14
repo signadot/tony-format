@@ -151,11 +151,17 @@ func (cfg *ViewConfig) parseOpts() []parse.ParseOption {
 type GetConfig struct {
 	*MainConfig
 
+	If     string `cli:"name=if desc='keep the node only if it matches this match document'"`
+	IfFile string `cli:"name=if-file desc='read the match document from a file'"`
+
 	Get *cli.Command
 }
 
 type ListConfig struct {
 	*MainConfig
+
+	If     string `cli:"name=if desc='keep only the nodes matching this match document'"`
+	IfFile string `cli:"name=if-file desc='read the match document from a file'"`
 
 	List *cli.Command
 }

@@ -2,12 +2,23 @@
 
 list or query objects elements from files
 
+The path says WHERE to look and -if says WHICH of what is there to keep, which
+together are how a list is filtered by a match:
+
+    x | o list -if '{state: open}' '$[*]' -          # the matching elements
+    o list -if '{state: open}' '$.items[*]' doc.tony # at any depth the path reaches
+
+Without -if the path is the whole question and every node it names is written.
+The answer is a list, and the empty list is written as one; the exit code says
+whether it was empty: 0 when something was kept, 1 when nothing was, 2 for a
+fault.
+
 Also known as `l`.
 
 ## Usage
 
 ```
-o list <objectpath> [files]
+o list [opts] <objectpath> [files]
 ```
 
 ## Options
@@ -26,6 +37,13 @@ o list <objectpath> [files]
 | `-o` | (filepath) |  | output file (default stdout) |
 | `-I`, `-ifmt` | (format) |  | input format: tony/t, json/j, yaml/y |
 | `-O`, `-ofmt` | (format) |  | output format: tony/t, json/j, yaml/y |
+
+### `o list` options
+
+| option | type | default | description |
+| --- | --- | --- | --- |
+| `-if` | string |  | keep only the nodes matching this match document |
+| `-if-file` | string |  | read the match document from a file |
 
 Inherited options may be given either before or after the command they are inherited by.
 
