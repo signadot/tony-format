@@ -153,6 +153,7 @@ type GetConfig struct {
 
 	If     string `cli:"name=if desc='keep the node only if it matches this match document'"`
 	IfFile string `cli:"name=if-file desc='read the match document from a file'"`
+	Trim   string `cli:"name=trim desc='write only the parts this match document names'"`
 
 	Get *cli.Command
 }
@@ -162,6 +163,7 @@ type ListConfig struct {
 
 	If     string `cli:"name=if desc='keep only the nodes matching this match document'"`
 	IfFile string `cli:"name=if-file desc='read the match document from a file'"`
+	Trim   string `cli:"name=trim desc='write only the parts this match document names'"`
 
 	List *cli.Command
 }

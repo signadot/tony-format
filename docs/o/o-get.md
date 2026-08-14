@@ -7,9 +7,11 @@ is written only when it matches the match document given, so
 
     o get -if '{state: open}' '$.items[0]' doc.tony && deploy
 
-reads as the guard it is. Exit codes are the search convention: 0 when something
-was written, 1 when the path named nothing or what it named did not match, 2 for
-a fault.
+reads as the guard it is. -trim writes only the parts its own match document
+names. A file is optional: with none, a pipe is read.
+
+Exit codes are the search convention: 0 when something was written, 1 when the
+path named nothing or what it named did not match, 2 for a fault.
 
 Also known as `g`, `ge`.
 
@@ -42,6 +44,7 @@ o get [opts] <objectpath> [files]
 | --- | --- | --- | --- |
 | `-if` | string |  | keep the node only if it matches this match document |
 | `-if-file` | string |  | read the match document from a file |
+| `-trim` | string |  | write only the parts this match document names |
 
 Inherited options may be given either before or after the command they are inherited by.
 

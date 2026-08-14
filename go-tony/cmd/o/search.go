@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/mattn/go-isatty"
 	"github.com/scott-cotton/cli"
+	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 )
@@ -69,4 +71,29 @@ func ifPredicate(text, file string, opts []parse.ParseOption) (*ir.Node, error) 
 		return nil, fmt.Errorf("error decoding match document: %w", err)
 	}
 	return pred, nil
+}
+
+// inputsOrStdin answers what to read when the command was given no file.
+//
+// A pipe means stdin: `x | o m PAT` is the shape everyone writes, and requiring
+// the `-` is a toll on the common case. A TERMINAL means the file was forgotten,
+// and reading it would hang waiting for a person to type a document -- so that
+// stays a usage error, which is the case the trailing `-` was protecting.
+func inputsOrStdin(args []string) ([]string, bool) {
+	if len(args) > 0 {
+		return args, true
+	}
+	if isatty.IsTerminal(os.Stdin.Fd()) || isatty.IsCygwinTerminal(os.Stdin.Fd()) {
+		return nil, false
+	}
+	return []string{"-"}, true
+}
+
+// trimTo projects node to the shape pat names, which is what -trim means on
+// match: the fields asked for and nothing else. A nil pat leaves the node whole.
+func trimTo(node, pat *ir.Node) *ir.Node {
+	if pat == nil || node == nil {
+		return node
+	}
+	return tony.Trim(pat, node)
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +30,7 @@ func TestPatchWholeDocumentDelete(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			outBuf, errBuf := &strings.Builder{}, &strings.Builder{}
-			cc := &cli.Context{Out: nopWC{outBuf}, Err: nopWC{errBuf}}
+			cc := &cli.Context{Out: nopWC{outBuf}, Err: nopWC{errBuf}, In: io.NopCloser(strings.NewReader(""))}
 			cmd := MainCommand()
 			err := cmd.Run(cc, []string{"patch", "-s", tc.patch, doc})
 			if code := cmd.Exit(cc, err); code != 0 {

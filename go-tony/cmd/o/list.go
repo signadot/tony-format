@@ -34,13 +34,17 @@ func list(cfg *ListConfig, cc *cli.Context, args []string) error {
 	if err != nil {
 		return fault(cc, err)
 	}
-	args = args[1:]
-	if len(args) == 0 {
+	trim, err := ifPredicate(cfg.Trim, "", cfg.parseOpts())
+	if err != nil {
+		return fault(cc, err)
+	}
+	args, ok := inputsOrStdin(args[1:])
+	if !ok {
 		return usageErr(cfg.List, cc, "list requires something to query: a file, or - for stdin")
 	}
 	found := 0
 	for _, arg := range args {
-		n, err := queryArg(cfg.MainConfig, cc.Out, arg, path, true, false, pred)
+		n, err := queryArg(cfg.MainConfig, cc.Out, arg, path, true, false, pred, trim)
 		if err != nil {
 			return fault(cc, fmt.Errorf("error querying %s with %s: %w", arg, path, err))
 		}
@@ -55,7 +59,7 @@ func list(cfg *ListConfig, cc *cli.Context, args []string) error {
 // queryArg writes what query names in arg, keeping only what pred matches when
 // one was given, and answers how many nodes it wrote -- which is what decides
 // between "found" and "found nothing" for the caller's exit code.
-func queryArg(cfg *MainConfig, w io.Writer, arg, query string, list, sep bool, pred *ir.Node) (int, error) {
+func queryArg(cfg *MainConfig, w io.Writer, arg, query string, list, sep bool, pred, trim *ir.Node) (int, error) {
 	var targetReader io.Reader
 	if arg == "-" {
 		targetReader = os.Stdin
@@ -75,6 +79,12 @@ func queryArg(cfg *MainConfig, w io.Writer, arg, query string, list, sep bool, p
 	if err != nil {
 		return 0, fmt.Errorf("error decoding %s: %w", arg, err)
 	}
+	if target == nil {
+		// An empty document, which parse reports as a nil node. It names nothing,
+		// which is an answer -- the caller's exit code says so -- and asking a
+		// nil node for a path is a segfault.
+		return 0, nil
+	}
 	if list {
 		res, err := target.ListPath(nil, query)
 		if err != nil {
@@ -83,6 +93,9 @@ func queryArg(cfg *MainConfig, w io.Writer, arg, query string, list, sep bool, p
 		res, err = keepMatching(res, pred)
 		if err != nil {
 			return 0, fmt.Errorf("error matching results of %s: %w", query, err)
+		}
+		for i, n := range res {
+			res[i] = trimTo(n, trim)
 		}
 		// The empty list is still written: a query for a collection answers with
 		// a collection, and [] is the honest one. The exit code is what says it
@@ -127,7 +140,7 @@ func queryArg(cfg *MainConfig, w io.Writer, arg, query string, list, sep bool, p
 		}
 
 	}
-	if err := encode.Encode(res, w, cfg.encOpts(w)...); err != nil {
+	if err := encode.Encode(trimTo(res, trim), w, cfg.encOpts(w)...); err != nil {
 		return 0, fmt.Errorf("error encoding result: %w", err)
 	}
 	return 1, nil

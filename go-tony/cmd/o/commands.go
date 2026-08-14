@@ -140,9 +140,11 @@ is written only when it matches the match document given, so
 
     o get -if '{state: open}' '$.items[0]' doc.tony && deploy
 
-reads as the guard it is. Exit codes are the search convention: 0 when something
-was written, 1 when the path named nothing or what it named did not match, 2 for
-a fault.`
+reads as the guard it is. -trim writes only the parts its own match document
+names. A file is optional: with none, a pipe is read.
+
+Exit codes are the search convention: 0 when something was written, 1 when the
+path named nothing or what it named did not match, 2 for a fault.`
 
 func GetCommand(mainCfg *MainConfig) *cli.Command {
 	cfg := &GetConfig{MainConfig: mainCfg}
@@ -167,8 +169,16 @@ const listDesc = `list or query objects elements from files
 The path says WHERE to look and -if says WHICH of what is there to keep, which
 together are how a list is filtered by a match:
 
-    x | o list -if '{state: open}' '$[*]' -          # the matching elements
+    x | o list -if '{state: open}' '$[*]'            # the matching elements
     o list -if '{state: open}' '$.items[*]' doc.tony # at any depth the path reaches
+
+-trim writes only the parts its own match document names, so which nodes and how
+much of each are asked separately:
+
+    x | o list -if '{status: running}' -trim '{runner: null, started: null}' '[*]'
+
+A file is optional: with none, a pipe is read, and only a terminal -- where there
+is nothing to read -- is a usage error.
 
 Without -if the path is the whole question and every node it names is written.
 The answer is a list, and the empty list is written as one; the exit code says
@@ -197,6 +207,9 @@ Each document is matched whole: a file holding a list is one document, and the
 pattern is asked about the list rather than about its elements. A file holding
 several documents separated by --- is matched one at a time, and the ones which
 match are written, so match reads as a filter over a document stream.
+
+A file is optional: with none, a pipe is read, so "x | o m PAT" needs no
+trailing -. Only a terminal, where there is nothing to read, is a usage error.
 
 Exit codes follow grep, so that a pipe can tell an answer from a fault:
 

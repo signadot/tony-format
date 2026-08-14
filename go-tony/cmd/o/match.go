@@ -45,19 +45,18 @@ func match(cfg *MatchConfig, cc *cli.Context, args []string) error {
 	if len(args) == 0 {
 		return usageErr(cfg.Command, cc, "match requires 1 argument, a match object")
 	}
-	if len(args) == 1 {
-		// Naming no input is a mistake and not an empty search: `x | o m PAT`
-		// with the - forgotten would otherwise read every document there is not,
-		// match nothing, and report "nothing matched" -- the answer to a question
-		// nobody asked.
-		return usageErr(cfg.Command, cc, "match requires something to match against: a file, or - for stdin")
-	}
 	match, err := getMatch(cfg, cc, args[0])
 	if err != nil {
 		return fault(cc, err)
 	}
+	// A pipe means stdin; a terminal means the file was forgotten, and waiting
+	// for one to be typed is not an answer.
+	inputs, ok := inputsOrStdin(args[1:])
+	if !ok {
+		return usageErr(cfg.Command, cc, "match requires something to match against: a file, or - for stdin")
+	}
 	written := 0
-	for _, arg := range args[1:] {
+	for _, arg := range inputs {
 		res, err := matchFile(nil, cfg, cc, match, arg)
 		if err != nil {
 			return fault(cc, fmt.Errorf("error matching %s: %w", arg, err))

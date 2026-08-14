@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,7 +22,9 @@ func (nopWC) Close() error { return nil }
 func runMatch(t *testing.T, args ...string) (code int, out string) {
 	t.Helper()
 	outBuf, errBuf := &strings.Builder{}, &strings.Builder{}
-	cc := &cli.Context{Out: nopWC{outBuf}, Err: nopWC{errBuf}}
+	// In matters: a command given no file reads stdin, and the harness has to
+	// supply one -- an empty document, which names nothing.
+	cc := &cli.Context{Out: nopWC{outBuf}, Err: nopWC{errBuf}, In: io.NopCloser(strings.NewReader(""))}
 
 	// Through the whole tree rather than the subcommand alone: MainCommand wires
 	// the config the subcommand reads, and the exit code is the root's answer.
@@ -59,7 +62,10 @@ func TestMatchExitCodes(t *testing.T) {
 		{"a list is one document, so an element pattern matches nothing", []string{"{state: open}", list}, 1},
 		{"a whole-list pattern does match", []string{"!subtree {state: open}", list}, 0},
 		{"unreadable input", []string{"{state: open}", missing}, 2},
-		{"no input named", []string{"{state: open}"}, 2},
+		// No file means stdin when stdin is a pipe, which is what it is under
+		// `go test`: an empty one matches nothing. A TERMINAL is still a usage
+		// error, which needs a pty to exercise and so is not tested here.
+		{"no file, stdin empty", []string{"{state: open}"}, 1},
 		{"no pattern", []string{}, 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -5,8 +5,16 @@ list or query objects elements from files
 The path says WHERE to look and -if says WHICH of what is there to keep, which
 together are how a list is filtered by a match:
 
-    x | o list -if '{state: open}' '$[*]' -          # the matching elements
+    x | o list -if '{state: open}' '$[*]'            # the matching elements
     o list -if '{state: open}' '$.items[*]' doc.tony # at any depth the path reaches
+
+-trim writes only the parts its own match document names, so which nodes and how
+much of each are asked separately:
+
+    x | o list -if '{status: running}' -trim '{runner: null, started: null}' '[*]'
+
+A file is optional: with none, a pipe is read, and only a terminal -- where there
+is nothing to read -- is a usage error.
 
 Without -if the path is the whole question and every node it names is written.
 The answer is a list, and the empty list is written as one; the exit code says
@@ -44,6 +52,7 @@ o list [opts] <objectpath> [files]
 | --- | --- | --- | --- |
 | `-if` | string |  | keep only the nodes matching this match document |
 | `-if-file` | string |  | read the match document from a file |
+| `-trim` | string |  | write only the parts this match document names |
 
 Inherited options may be given either before or after the command they are inherited by.
 

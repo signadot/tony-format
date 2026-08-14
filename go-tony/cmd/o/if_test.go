@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +15,9 @@ import (
 func runO(t *testing.T, args ...string) (code int, out string) {
 	t.Helper()
 	outBuf, errBuf := &strings.Builder{}, &strings.Builder{}
-	cc := &cli.Context{Out: nopWC{outBuf}, Err: nopWC{errBuf}}
+	// In matters: a command given no file reads stdin, and the harness has to
+	// supply one -- an empty document, which names nothing.
+	cc := &cli.Context{Out: nopWC{outBuf}, Err: nopWC{errBuf}, In: io.NopCloser(strings.NewReader(""))}
 	cmd := MainCommand()
 	err := cmd.Run(cc, args)
 	return cmd.Exit(cc, err), outBuf.String()
@@ -85,9 +88,11 @@ func TestListIf(t *testing.T) {
 			wantCode: 2,
 		},
 		{
-			name:     "naming no input is a fault",
+			// stdin is a pipe under `go test`, so no file means stdin, and an
+			// empty stdin names nothing.
+			name:     "no file reads stdin",
 			args:     []string{"list", "-if", "{state: open}", "$[*]"},
-			wantCode: 2,
+			wantCode: 1,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -174,5 +179,71 @@ func TestIfAndIfFileAgree(t *testing.T) {
 
 	if code, _ := runO(t, "list", "-if", "{state: open}", "-if-file", pat, "$[*]", list); code != 2 {
 		t.Fatalf("giving both exits %d, want 2", code)
+	}
+}
+
+// TestTrimProjects: -trim writes only the parts the match document names, which
+// is what -trim means on match. Filtering and projecting are different questions
+// -- which nodes, and how much of each -- so they take different documents, and
+// a pipeline that used to be `list -if … | get [0] | match -trim …` is one stage.
+func TestTrimProjects(t *testing.T) {
+	dir := t.TempDir()
+	ps := writeDoc(t, dir, "ps.tony",
+		"- {name: a, status: running, runner: \"http://cr:9802\", started: \"2026-08-14T23:19:49Z\", extra: noise}\n"+
+			"- {name: b, status: stopped, runner: \"http://x\", started: \"2026-08-13T10:00:00Z\", extra: noise}\n")
+
+	code, out := runO(t, "list",
+		"-if", "{status: running}",
+		"-trim", "{runner: null, status: null, started: null}",
+		"$[*]", ps)
+	if code != 0 {
+		t.Fatalf("exit %d, want 0", code)
+	}
+	for _, want := range []string{"runner:", "status: running", "started:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lost %q:\n%s", want, out)
+		}
+	}
+	for _, not := range []string{"extra", "noise", "name: a", "status: stopped"} {
+		if strings.Contains(out, not) {
+			t.Errorf("output kept %q, which -trim did not name:\n%s", not, out)
+		}
+	}
+}
+
+// TestTrimOnGet: the same projection on a single node.
+func TestTrimOnGet(t *testing.T) {
+	dir := t.TempDir()
+	nested := writeDoc(t, dir, "nested.tony", nestedDoc)
+
+	code, out := runO(t, "get", "-trim", "{name: null}", "$.items[0]", nested)
+	if code != 0 {
+		t.Fatalf("exit %d, want 0", code)
+	}
+	if !strings.Contains(out, "name: a") {
+		t.Errorf("output lost the field -trim named:\n%s", out)
+	}
+	if strings.Contains(out, "state") {
+		t.Errorf("output kept a field -trim did not name:\n%s", out)
+	}
+}
+
+// TestNoFileReadsStdin: a pipe means stdin, so the trailing - is not a toll on
+// the common case. cli.Context carries the input here; in a terminal, where
+// there is nothing to read, it stays a usage error (untestable without a pty).
+func TestNoFileReadsStdin(t *testing.T) {
+	outBuf, errBuf := &strings.Builder{}, &strings.Builder{}
+	cc := &cli.Context{
+		Out: nopWC{outBuf},
+		Err: nopWC{errBuf},
+		In:  io.NopCloser(strings.NewReader("{name: a, state: open}\n---\n{name: b, state: closed}\n")),
+	}
+	cmd := MainCommand()
+	err := cmd.Run(cc, []string{"match", "{state: open}"})
+	if code := cmd.Exit(cc, err); code != 0 {
+		t.Fatalf("exit %d, want 0 (stderr %s)", code, errBuf.String())
+	}
+	if !strings.Contains(outBuf.String(), "name: a") || strings.Contains(outBuf.String(), "name: b") {
+		t.Fatalf("filtered stdin wrongly:\n%s", outBuf.String())
 	}
 }
