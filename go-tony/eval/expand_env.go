@@ -197,6 +197,29 @@ func ExpandIR(node *ir.Node, env map[string]any) (*ir.Node, error) {
 // ExpandIRWithOptions expands an IR node with optional evaluation options.
 // This is the main entry point for schema evaluation where parameterized
 // definition auto-calling is needed.
+// retagRef puts back the tag the reference itself was wearing.
+//
+// A .[var] reference is a whole node, and expanding it REPLACES that node with
+// the bound value -- so anything the reference wore is on the node being
+// discarded. `!not .[tip]` is a String node ".[tip]" tagged !not, and without
+// this the negation left with the node: the match came back with the opposite
+// verdict and no error, which is worse than failing, since !let is the natural
+// way to write "this field differs from that value" and the differs half was the
+// half that lied. The same shape covers !glob .[pat], !type .[t] and every other
+// operator worn over a reference.
+//
+// The value's own tag is kept underneath rather than overwritten, so a !not over
+// a value that is itself a !glob composes to !not.glob -- what the two operators
+// spelled in one place would mean. The object and array branches can assign the
+// tag directly instead, because what they build carries none of its own.
+func retagRef(repl *ir.Node, tag string) *ir.Node {
+	if tag == "" || repl == nil {
+		return repl
+	}
+	repl.Tag = ir.TagCompose(tag, nil, repl.Tag)
+	return repl
+}
+
 func ExpandIRWithOptions(node *ir.Node, env map[string]any, opts *EvalOptions) (*ir.Node, error) {
 	// Create opts with current node for script funcs (whereami, getpath, etc.)
 	// Each recursive call gets its own opts with the current node
@@ -254,7 +277,7 @@ func ExpandIRWithOptions(node *ir.Node, env map[string]any, opts *EvalOptions) (
 				repl.Parent = node.Parent
 				repl.ParentIndex = node.ParentIndex
 				repl.ParentField = node.ParentField
-				return repl, nil
+				return retagRef(repl, node.Tag), nil
 			}
 			// Otherwise convert using FromJSONAny (which handles *ir.Node and []*ir.Node)
 			repl, err := FromAny(val)
@@ -268,7 +291,7 @@ func ExpandIRWithOptions(node *ir.Node, env map[string]any, opts *EvalOptions) (
 			repl.Parent = node.Parent
 			repl.ParentIndex = node.ParentIndex
 			repl.ParentField = node.ParentField
-			return repl, nil
+			return retagRef(repl, node.Tag), nil
 		}
 		xs, err := expandStringWithOptions(node.String, env, nodeOpts)
 		if err != nil {

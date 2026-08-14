@@ -76,7 +76,7 @@ The `accept` field uses match operations from the match context. Common operatio
 - `!and` - All conditions must match
 - `!or` - At least one condition must match
 - `!not` - Condition must not match
-- `!type` - Type must match
+- `!irtype` - Kind must match that of the example value (`!irtype ""` for a string, `!irtype 0` for a number)
 - `!field` - Field must exist and match
 - `.[definition]` - Reference to a definition in `define` (expr-lang format)
 
@@ -112,7 +112,7 @@ define:
     age: !and
     - .[number]
     - age: !not null
-    - age: !type number
+    - age: !irtype 0
   
   # Define what a valid user is
   valid-user: !and
@@ -121,7 +121,7 @@ define:
   - email: !not null
   - age: !and
     - !not null
-    - !type number
+    - !irtype 0
 
 accept:
   .[valid-user]

@@ -10,7 +10,7 @@ func (r *ContextRegistry) registerBuiltinContexts() {
 			"or":       {Name: "or", Contexts: []string{"tony-format/context/match"}},
 			"and":      {Name: "and", Contexts: []string{"tony-format/context/match"}},
 			"not":      {Name: "not", Contexts: []string{"tony-format/context/match"}},
-			"type":     {Name: "type", Contexts: []string{"tony-format/context/match"}},
+			"irtype":   {Name: "irtype", Contexts: []string{"tony-format/context/match"}},
 			"glob":     {Name: "glob", Contexts: []string{"tony-format/context/match"}},
 			"field":    {Name: "field", Contexts: []string{"tony-format/context/match"}},
 			"tag":      {Name: "tag", Contexts: []string{"tony-format/context/match"}},

@@ -89,7 +89,7 @@ A `TagDefinition` can have:
 ### Match Context Tags
 
 - `!or`, `!and`, `!not` - Boolean operations
-- `!type`, `!glob`, `!field` - Type and field matching
+- `!irtype`, `!glob`, `!field` - Type and field matching
 - `!tag`, `!subtree`, `!all` - Structural matching
 - `!let`, `!if`, `!dive`, `!embed` - Control flow
 
