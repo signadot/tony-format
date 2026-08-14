@@ -52,6 +52,12 @@ func patch(cfg *PatchConfig, cc *cli.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("error patching %s: %w", args[0], err)
 	}
+	if res == nil {
+		// The patch deleted the whole document. tony.Patch says so by returning
+		// nil, which is a result and not a fault: what remains is nothing, so
+		// nothing is written. Encoding it used to segfault.
+		return nil
+	}
 	mCfg := cfg.MainConfig
 	if err := encode.Encode(res, cc.Out, mCfg.encOpts(cc.Out)...); err != nil {
 		return fmt.Errorf("error encoding result: %w", err)

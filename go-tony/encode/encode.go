@@ -39,7 +39,17 @@ type EncState struct {
 	Color     func(ir.Type, ColorAttr, string) string
 }
 
+// Encode writes node to w.
+//
+// A nil node is an error and not a document. It arises because a patch reports a
+// deletion by returning nil -- tony.Patch does, and so does the IR generally --
+// so a caller that writes a patch's result without checking hands one here. That
+// used to segfault at the first field read, which told the caller nothing about
+// which of its documents had gone; say it instead.
 func Encode(node *ir.Node, w io.Writer, opts ...EncodeOption) error {
+	if node == nil {
+		return fmt.Errorf("cannot encode a nil node: nothing is not a document (a deletion is reported as a nil node)")
+	}
 	es := &EncState{
 		indent: 2,
 		atCol0: true,

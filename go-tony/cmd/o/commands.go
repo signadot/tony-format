@@ -157,6 +157,19 @@ func ListCommand(mainCfg *MainConfig) *cli.Command {
 		})
 }
 
+const matchDesc = `match objects documents with match documents
+
+Each document is matched whole: a file holding a list is one document, and the
+pattern is asked about the list rather than about its elements. A file holding
+several documents separated by --- is matched one at a time, and the ones which
+match are written, so match reads as a filter over a document stream.
+
+Exit codes follow grep, so that a pipe can tell an answer from a fault:
+
+  0  something matched and was written
+  1  nothing matched -- an answer, not an error, and written on no stream
+  2  a fault: bad usage, unreadable input, an unparseable match document`
+
 func MatchCommand(mainCfg *MainConfig) *cli.Command {
 	cfg := &MatchConfig{MainConfig: mainCfg}
 	opts, err := cli.StructOpts(cfg)
@@ -166,7 +179,7 @@ func MatchCommand(mainCfg *MainConfig) *cli.Command {
 	return cli.NewCommandAt(&cfg.Command, "match").
 		WithAliases("m").
 		WithSynopsis("match [opts] <matchobj> [files]").
-		WithDescription("match objects documents with match documents").
+		WithDescription(matchDesc).
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
 			return match(cfg, cc, args)

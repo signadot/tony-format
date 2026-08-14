@@ -16,10 +16,34 @@ import (
 	"github.com/scott-cotton/cli"
 )
 
+// Exit codes follow grep, which is what a filter in a pipe is read against:
+//
+//	0  something matched and was written
+//	1  nothing matched -- an answer, not a fault
+//	2  a fault: bad usage, unreadable input, an unparseable pattern
+//
+// The distinction is the point. Answering "nothing matched" with the same code
+// as "your pattern was nonsense" is how a mistake comes to look like an empty
+// world, and a match against a list -- which cannot match, since the unit is the
+// document -- looks exactly like a list with nothing in it.
+//
+// matchFault and matchUsage report the two kinds of fault, since returning a
+// plain error would exit 1 and collide with the answer.
+func matchFault(cc *cli.Context, err error) error {
+	fmt.Fprintln(cc.Err, err)
+	return cli.ExitCodeErr(2)
+}
+
+func matchUsage(cfg *MatchConfig, cc *cli.Context, msg string) error {
+	cfg.Command.Usage(cc, fmt.Errorf("%w: %s", cli.ErrUsage, msg))
+	return cli.ExitCodeErr(2)
+}
+
 func match(cfg *MatchConfig, cc *cli.Context, args []string) error {
 	args, err := cfg.Command.Parse(cc, args)
 	if err != nil {
-		return err
+		cfg.Command.Usage(cc, err)
+		return cli.ExitCodeErr(2)
 	}
 	if cfg.Tags {
 		fmt.Fprintf(cc.Out, "available match tags:\n")
@@ -32,29 +56,42 @@ func match(cfg *MatchConfig, cc *cli.Context, args []string) error {
 		return nil
 	}
 	if len(args) == 0 {
-		return fmt.Errorf("%w: match requires 1 argument, a match object", cli.ErrUsage)
+		return matchUsage(cfg, cc, "match requires 1 argument, a match object")
+	}
+	if len(args) == 1 {
+		// Naming no input is a mistake and not an empty search: `x | o m PAT`
+		// with the - forgotten would otherwise read every document there is not,
+		// match nothing, and report "nothing matched" -- the answer to a question
+		// nobody asked.
+		return matchUsage(cfg, cc, "match requires something to match against: a file, or - for stdin")
 	}
 	match, err := getMatch(cfg, cc, args[0])
 	if err != nil {
-		return err
+		return matchFault(cc, err)
 	}
+	written := 0
 	for _, arg := range args[1:] {
 		res, err := matchFile(nil, cfg, cc, match, arg)
 		if err != nil {
-			return fmt.Errorf("error matching %s: %w", arg, err)
+			return matchFault(cc, fmt.Errorf("error matching %s: %w", arg, err))
 		}
-		for i, oy := range res {
-			if i > 0 {
-				_, err := cc.Out.Write([]byte("---\n"))
-				if err != nil {
-					return err
+		for _, oy := range res {
+			// The separator counts documents WRITTEN, not documents within one
+			// file: two files each answering once are still two documents, and
+			// the second used to be run onto the end of the first.
+			if written > 0 {
+				if _, err := cc.Out.Write([]byte("---\n")); err != nil {
+					return matchFault(cc, err)
 				}
 			}
 			if err := encode.Encode(oy, cc.Out, cfg.MainConfig.encOpts(cc.Out)...); err != nil {
-
-				return fmt.Errorf("error encoding output: %w", err)
+				return matchFault(cc, fmt.Errorf("error encoding output: %w", err))
 			}
+			written++
 		}
+	}
+	if written == 0 {
+		return cli.ExitCodeErr(1)
 	}
 	return nil
 }
