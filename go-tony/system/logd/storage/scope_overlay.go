@@ -8,6 +8,7 @@ import (
 
 	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/libdiff"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
@@ -96,7 +97,15 @@ func (s *Storage) BuildScopeOverlay(scopeID string, commit int64) (*ir.Node, err
 		// and a key segment carries the key VALUE while constructing the patch needs the
 		// key FIELD. Root at the array with a one-element keyed list, so the assertion
 		// merges by identity and leaves every element baseline owns alone.
-		root, val := p, v.Clone()
+		// The value came out of a DOCUMENT, where an operation tag is data --
+		// what !raw says when a writer stores a rule, a charter, a patch. Putting
+		// it into an overlay unescaped hands that data to the patch applier as an
+		// instruction: a stored !let then fails every read of the scope with
+		// "cannot patch with let operation", and since one unapplicable patch
+		// stops materialization, one write takes the store down for reads.
+		// libdiff.Escape is what the diff path above already does to the same
+		// data (issue 6225etzfh12kr955fxn0).
+		root, val := p, libdiff.Escape(v.Clone())
 		if arr, field, keyed := splitKeyedElemPath(p, keys); keyed {
 			list := ir.FromSlice([]*ir.Node{val})
 			list.Tag = ir.TagCompose("!key", []string{field}, "")
@@ -251,6 +260,11 @@ func (s *Storage) latestOverlay(scopeID string, commit int64) *index.LogSegment 
 func unconditionalPatch(n *ir.Node) *ir.Node {
 	if n == nil {
 		return nil
+	}
+	if ir.TagHas(n.Tag, "!raw") {
+		// Data, at any depth: a !replace inside a stored patch or a stored rule
+		// is something a writer put there, not an instruction to lower.
+		return n
 	}
 	if ir.TagHas(n.Tag, "!replace") {
 		if to := ir.Get(n, "to"); to != nil {

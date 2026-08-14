@@ -34,6 +34,26 @@ func MakeDiff(from, to *ir.Node) *ir.Node {
 	}
 }
 
+// Escape makes node safe to carry in a patch as DATA.
+//
+// A value which holds a merge operation anywhere in it -- a stored rule, a
+// stored patch, a charter -- would be interpreted rather than stored when the
+// patch was applied, so it gets !raw, under which nothing is read as an
+// instruction at any depth.  A value holding no operation is returned as it is:
+// there is nothing to protect it from, and wrapping it would change what a
+// reader sees.
+//
+// Anything that builds a patch out of MATERIALIZED data has to do this, and a
+// diff is not the only thing that does: logd re-states a scope's owned paths
+// from the scoped view when building an overlay, and that value came from a
+// document, where an operation tag means data.
+func Escape(node *ir.Node) *ir.Node {
+	if !hasOpTag(node) {
+		return node
+	}
+	return node.Clone().WithTag(ir.TagCompose(RawTag, nil, node.Tag))
+}
+
 // escaped writes node into a diff under op -- !insert or !delete -- carrying
 // its own tag.  A value holding no merge operation keeps the long standing
 // shape, its tag as the operation's argument; one which does gets !raw, which

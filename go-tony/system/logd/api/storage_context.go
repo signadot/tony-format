@@ -111,6 +111,18 @@ func validateForStorage(n *ir.Node, path string) error {
 		return fmt.Errorf("%s: %w", at(path), fmt.Errorf("operation %q may not be stored: %s",
 			"!"+op, whyNotStorable(op)))
 	}
+	// !raw says nothing beneath is interpreted, so nothing beneath is an
+	// operation to hold to this vocabulary -- it is data that happens to be
+	// shaped like one. Walking into it refuses the one escape that lets a
+	// document holding operators be stored at all, which is what a charter, a
+	// stored rule and a stored patch are; and refusing it here refuses a write
+	// the writer escaped correctly (issue 6225etzfh12kr955fxn0).
+	//
+	// The node's own tag chain is still checked above: !strdiff.raw is refused
+	// for the strdiff, while !insert.raw is allowed and stops here.
+	if ir.TagHas(n.Tag, "!raw") {
+		return nil
+	}
 	if n.Type == ir.ArrayType {
 		if err := validateKeyedArray(n, path); err != nil {
 			return err
