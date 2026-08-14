@@ -118,6 +118,40 @@ func TestPtrSlice_EmptyIsAnArrayOnTheWire(t *testing.T) {
 	}
 }
 
+// TestPtrSlice_AMismatchIsNotAnEmptyList: a pointer field says something by
+// being non-nil, so the decoder must not set it for a document that did not say
+// it. Skipping a decode and assigning the pointer anyway reports "the author
+// wrote an empty list" for an author who wrote "hello" -- inventing the one
+// reading the pointer exists to make, out of a type error.
+func TestPtrSlice_AMismatchIsNotAnEmptyList(t *testing.T) {
+	for _, tc := range []struct {
+		name, doc string
+		wantErr   bool
+		wantNil   bool
+	}{
+		{name: "scalar where a list belongs", doc: "probe: hello\n", wantErr: true, wantNil: true},
+		{name: "object where a list belongs", doc: "probe: {a: 1}\n", wantErr: true, wantNil: true},
+		{name: "null", doc: "probe: null\n", wantNil: true},
+		{name: "absent", doc: "{}\n", wantNil: true},
+		{name: "an empty list, which is a statement", doc: "probe: []\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			node, err := parse.Parse([]byte(tc.doc))
+			if err != nil {
+				t.Fatal(err)
+			}
+			out := &ptrslice.PS{}
+			err = out.FromTonyIR(node)
+			if tc.wantErr != (err != nil) {
+				t.Fatalf("error = %v, want an error: %v", err, tc.wantErr)
+			}
+			if tc.wantNil != (out.Probe == nil) {
+				t.Fatalf("Probe nil = %v, want nil = %v (value %#v)", out.Probe == nil, tc.wantNil, out.Probe)
+			}
+		})
+	}
+}
+
 // TestPtrSlice_ReflectionPathAgrees: gomap's reflection path is the fallback for
 // types without generated code, and a document must not mean different things
 // depending on which path read it.

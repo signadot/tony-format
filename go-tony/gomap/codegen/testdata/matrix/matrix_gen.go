@@ -728,6 +728,8 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 						sl1[i1] = e1
 					}
 					d0 = sl1
+				} else {
+					return fmt.Errorf("%s: expected array, got %v", "field \"ptrSl\"", fieldNodeUnwrapped.Type)
 				}
 				s.PtrSl = &d0
 			}
@@ -783,10 +785,14 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 							sl1[i1] = e1
 						}
 						e0 = sl1
+					} else {
+						return fmt.Errorf("%s: expected array, got %v", fmt.Sprintf("%s: element %d", "field \"slSl\"", i0), v0.Type)
 					}
 					sl0[i0] = e0
 				}
 				s.SlSl = sl0
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"slSl\"", fieldNodeUnwrapped.Type)
 			}
 		case "slMp":
 			// Field: SlMp
@@ -807,10 +813,14 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 							m1[string(k1)] = mv1
 						}
 						e0 = m1
+					} else {
+						return fmt.Errorf("%s: expected object, got %v", fmt.Sprintf("%s: element %d", "field \"slMp\"", i0), v0.Type)
 					}
 					sl0[i0] = e0
 				}
 				s.SlMp = sl0
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"slMp\"", fieldNodeUnwrapped.Type)
 			}
 		case "mpSl":
 			// Field: MpSl
@@ -831,10 +841,14 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 							sl1[i1] = e1
 						}
 						mv0 = sl1
+					} else {
+						return fmt.Errorf("%s: expected array, got %v", fmt.Sprintf("%s: key %q", "field \"mpSl\"", k0), v0.Type)
 					}
 					m0[string(k0)] = mv0
 				}
 				s.MpSl = m0
+			} else {
+				return fmt.Errorf("%s: expected object, got %v", "field \"mpSl\"", fieldNodeUnwrapped.Type)
 			}
 		case "mpMp":
 			// Field: MpMp
@@ -855,10 +869,14 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 							m1[string(k1)] = mv1
 						}
 						mv0 = m1
+					} else {
+						return fmt.Errorf("%s: expected object, got %v", fmt.Sprintf("%s: key %q", "field \"mpMp\"", k0), v0.Type)
 					}
 					m0[string(k0)] = mv0
 				}
 				s.MpMp = m0
+			} else {
+				return fmt.Errorf("%s: expected object, got %v", "field \"mpMp\"", fieldNodeUnwrapped.Type)
 			}
 		case "ptrMp":
 			// Field: PtrMp
@@ -877,6 +895,8 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 						m1[string(k1)] = mv1
 					}
 					d0 = m1
+				} else {
+					return fmt.Errorf("%s: expected object, got %v", "field \"ptrMp\"", fieldNodeUnwrapped.Type)
 				}
 				s.PtrMp = &d0
 			}
@@ -925,10 +945,14 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 							sl1[i1] = e1
 						}
 						e0 = sl1
+					} else {
+						return fmt.Errorf("%s: expected array, got %v", fmt.Sprintf("%s: element %d", "field \"slSlLf\"", i0), v0.Type)
 					}
 					sl0[i0] = e0
 				}
 				s.SlSlLf = sl0
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"slSlLf\"", fieldNodeUnwrapped.Type)
 			}
 		case "mpSlLf":
 			// Field: MpSlLf
@@ -948,10 +972,14 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 							sl1[i1] = e1
 						}
 						mv0 = sl1
+					} else {
+						return fmt.Errorf("%s: expected array, got %v", fmt.Sprintf("%s: key %q", "field \"mpSlLf\"", k0), v0.Type)
 					}
 					m0[string(k0)] = mv0
 				}
 				s.MpSlLf = m0
+			} else {
+				return fmt.Errorf("%s: expected object, got %v", "field \"mpSlLf\"", fieldNodeUnwrapped.Type)
 			}
 		case "slSlSl":
 			// Field: SlSlSl
@@ -976,14 +1004,20 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 									sl2[i2] = e2
 								}
 								e1 = sl2
+							} else {
+								return fmt.Errorf("%s: expected array, got %v", fmt.Sprintf("%s: element %d", fmt.Sprintf("%s: element %d", "field \"slSlSl\"", i0), i1), v1.Type)
 							}
 							sl1[i1] = e1
 						}
 						e0 = sl1
+					} else {
+						return fmt.Errorf("%s: expected array, got %v", fmt.Sprintf("%s: element %d", "field \"slSlSl\"", i0), v0.Type)
 					}
 					sl0[i0] = e0
 				}
 				s.SlSlSl = sl0
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"slSlSl\"", fieldNodeUnwrapped.Type)
 			}
 		case "slMpSl":
 			// Field: SlMpSl
@@ -1008,14 +1042,20 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 									sl2[i2] = e2
 								}
 								mv1 = sl2
+							} else {
+								return fmt.Errorf("%s: expected array, got %v", fmt.Sprintf("%s: key %q", fmt.Sprintf("%s: element %d", "field \"slMpSl\"", i0), k1), v1.Type)
 							}
 							m1[string(k1)] = mv1
 						}
 						e0 = m1
+					} else {
+						return fmt.Errorf("%s: expected object, got %v", fmt.Sprintf("%s: element %d", "field \"slMpSl\"", i0), v0.Type)
 					}
 					sl0[i0] = e0
 				}
 				s.SlMpSl = sl0
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"slMpSl\"", fieldNodeUnwrapped.Type)
 			}
 		case "mpSlMp":
 			// Field: MpSlMp
@@ -1040,14 +1080,20 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 									m2[string(k2)] = mv2
 								}
 								e1 = m2
+							} else {
+								return fmt.Errorf("%s: expected object, got %v", fmt.Sprintf("%s: element %d", fmt.Sprintf("%s: key %q", "field \"mpSlMp\"", k0), i1), v1.Type)
 							}
 							sl1[i1] = e1
 						}
 						mv0 = sl1
+					} else {
+						return fmt.Errorf("%s: expected array, got %v", fmt.Sprintf("%s: key %q", "field \"mpSlMp\"", k0), v0.Type)
 					}
 					m0[string(k0)] = mv0
 				}
 				s.MpSlMp = m0
+			} else {
+				return fmt.Errorf("%s: expected object, got %v", "field \"mpSlMp\"", fieldNodeUnwrapped.Type)
 			}
 		case "ptrSlMp":
 			// Field: PtrSlMp
@@ -1070,10 +1116,14 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 								m2[string(k2)] = mv2
 							}
 							e1 = m2
+						} else {
+							return fmt.Errorf("%s: expected object, got %v", fmt.Sprintf("%s: element %d", "field \"ptrSlMp\"", i1), v1.Type)
 						}
 						sl1[i1] = e1
 					}
 					d0 = sl1
+				} else {
+					return fmt.Errorf("%s: expected array, got %v", "field \"ptrSlMp\"", fieldNodeUnwrapped.Type)
 				}
 				s.PtrSlMp = &d0
 			}
@@ -1098,10 +1148,14 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 								sl2[i2] = e2
 							}
 							mv1 = sl2
+						} else {
+							return fmt.Errorf("%s: expected array, got %v", fmt.Sprintf("%s: key %q", "field \"ptrMpSl\"", k1), v1.Type)
 						}
 						m1[string(k1)] = mv1
 					}
 					d0 = m1
+				} else {
+					return fmt.Errorf("%s: expected object, got %v", "field \"ptrMpSl\"", fieldNodeUnwrapped.Type)
 				}
 				s.PtrMpSl = &d0
 			}
@@ -1126,12 +1180,16 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 								sl2[i2] = e2
 							}
 							d1 = sl2
+						} else {
+							return fmt.Errorf("%s: expected array, got %v", fmt.Sprintf("%s: element %d", "field \"slPtrSl\"", i0), v0.Type)
 						}
 						e0 = &d1
 					}
 					sl0[i0] = e0
 				}
 				s.SlPtrSl = sl0
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"slPtrSl\"", fieldNodeUnwrapped.Type)
 			}
 		case "mpPtrSl":
 			// Field: MpPtrSl
@@ -1154,12 +1212,16 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 								sl2[i2] = e2
 							}
 							d1 = sl2
+						} else {
+							return fmt.Errorf("%s: expected array, got %v", fmt.Sprintf("%s: key %q", "field \"mpPtrSl\"", k0), v0.Type)
 						}
 						mv0 = &d1
 					}
 					m0[string(k0)] = mv0
 				}
 				s.MpPtrSl = m0
+			} else {
+				return fmt.Errorf("%s: expected object, got %v", "field \"mpPtrSl\"", fieldNodeUnwrapped.Type)
 			}
 		case "mpSlPtr":
 			// Field: MpSlPtr
@@ -1179,10 +1241,14 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 							sl1[i1] = e1
 						}
 						mv0 = sl1
+					} else {
+						return fmt.Errorf("%s: expected array, got %v", fmt.Sprintf("%s: key %q", "field \"mpSlPtr\"", k0), v0.Type)
 					}
 					m0[string(k0)] = mv0
 				}
 				s.MpSlPtr = m0
+			} else {
+				return fmt.Errorf("%s: expected object, got %v", "field \"mpSlPtr\"", fieldNodeUnwrapped.Type)
 			}
 		case "ptrSlPtr":
 			// Field: PtrSlPtr
@@ -1200,6 +1266,8 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 						sl1[i1] = e1
 					}
 					d0 = sl1
+				} else {
+					return fmt.Errorf("%s: expected array, got %v", "field \"ptrSlPtr\"", fieldNodeUnwrapped.Type)
 				}
 				s.PtrSlPtr = &d0
 			}
@@ -1248,6 +1316,8 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 					ar0[i0] = e0
 				}
 				s.Ar = ar0
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"ar\"", fieldNodeUnwrapped.Type)
 			}
 		case "slAr":
 			// Field: SlAr
@@ -1271,10 +1341,14 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 							ar1[i1] = e1
 						}
 						e0 = ar1
+					} else {
+						return fmt.Errorf("%s: expected array, got %v", fmt.Sprintf("%s: element %d", "field \"slAr\"", i0), v0.Type)
 					}
 					sl0[i0] = e0
 				}
 				s.SlAr = sl0
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"slAr\"", fieldNodeUnwrapped.Type)
 			}
 		case "arSl":
 			// Field: ArSl
@@ -1298,10 +1372,14 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 							sl1[i1] = e1
 						}
 						e0 = sl1
+					} else {
+						return fmt.Errorf("%s: expected array, got %v", fmt.Sprintf("%s: element %d", "field \"arSl\"", i0), v0.Type)
 					}
 					ar0[i0] = e0
 				}
 				s.ArSl = ar0
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"arSl\"", fieldNodeUnwrapped.Type)
 			}
 		case "ptrAr":
 			// Field: PtrAr
@@ -1323,6 +1401,8 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 						ar1[i1] = e1
 					}
 					d0 = ar1
+				} else {
+					return fmt.Errorf("%s: expected array, got %v", "field \"ptrAr\"", fieldNodeUnwrapped.Type)
 				}
 				s.PtrAr = &d0
 			}
@@ -1343,6 +1423,8 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 					ar0[i0] = e0
 				}
 				s.ArLeaf = ar0
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"arLeaf\"", fieldNodeUnwrapped.Type)
 			}
 		case "arPtrSl":
 			// Field: ArPtrSl
@@ -1368,12 +1450,16 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 								sl2[i2] = e2
 							}
 							d1 = sl2
+						} else {
+							return fmt.Errorf("%s: expected array, got %v", fmt.Sprintf("%s: element %d", "field \"arPtrSl\"", i0), v0.Type)
 						}
 						e0 = &d1
 					}
 					ar0[i0] = e0
 				}
 				s.ArPtrSl = ar0
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"arPtrSl\"", fieldNodeUnwrapped.Type)
 			}
 		case "mpKey":
 			// Field: MpKey
@@ -1390,6 +1476,8 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 					m0[Key(k0)] = mv0
 				}
 				s.MpKey = m0
+			} else {
+				return fmt.Errorf("%s: expected object, got %v", "field \"mpKey\"", fieldNodeUnwrapped.Type)
 			}
 		case "slMpKey":
 			// Field: SlMpKey
@@ -1410,10 +1498,14 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 							m1[Key(k1)] = mv1
 						}
 						e0 = m1
+					} else {
+						return fmt.Errorf("%s: expected object, got %v", fmt.Sprintf("%s: element %d", "field \"slMpKey\"", i0), v0.Type)
 					}
 					sl0[i0] = e0
 				}
 				s.SlMpKey = sl0
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"slMpKey\"", fieldNodeUnwrapped.Type)
 			}
 		case "mpKeySl":
 			// Field: MpKeySl
@@ -1434,10 +1526,14 @@ func (s *M) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 							sl1[i1] = e1
 						}
 						mv0 = sl1
+					} else {
+						return fmt.Errorf("%s: expected array, got %v", fmt.Sprintf("%s: key %q", "field \"mpKeySl\"", k0), v0.Type)
 					}
 					m0[Key(k0)] = mv0
 				}
 				s.MpKeySl = m0
+			} else {
+				return fmt.Errorf("%s: expected object, got %v", "field \"mpKeySl\"", fieldNodeUnwrapped.Type)
 			}
 		default:
 			if gomap.IsStrict(opts...) {

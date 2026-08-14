@@ -23,7 +23,7 @@ func (s *PS) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if s.Probe != nil {
 		if s.Probe != nil {
 			var node *ir.Node
-			ns0 := make([]*ir.Node, len(*s.Probe))
+			ns0 := make([]*ir.Node, len((*s.Probe)))
 			for i0, e0 := range *s.Probe {
 				var en0 *ir.Node
 				en0 = ir.FromString(string(e0))
@@ -38,7 +38,7 @@ func (s *PS) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if s.Ports != nil {
 		if s.Ports != nil {
 			var node *ir.Node
-			ns0 := make([]*ir.Node, len(*s.Ports))
+			ns0 := make([]*ir.Node, len((*s.Ports)))
 			for i0, e0 := range *s.Ports {
 				var en0 *ir.Node
 				en0 = ir.FromInt(int64(e0))
@@ -53,7 +53,7 @@ func (s *PS) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if s.Steps != nil {
 		if s.Steps != nil {
 			var node *ir.Node
-			ns0 := make([]*ir.Node, len(*s.Steps))
+			ns0 := make([]*ir.Node, len((*s.Steps)))
 			for i0, e0 := range *s.Steps {
 				var en0 *ir.Node
 				n1, err := e0.ToTonyIR(opts...)
@@ -127,6 +127,8 @@ func (s *PS) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 						sl1[i1] = e1
 					}
 					d0 = sl1
+				} else {
+					return fmt.Errorf("%s: expected array, got %v", "field \"probe\"", fieldNodeUnwrapped.Type)
 				}
 				s.Probe = &d0
 			}
@@ -147,6 +149,8 @@ func (s *PS) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 						sl1[i1] = e1
 					}
 					d0 = sl1
+				} else {
+					return fmt.Errorf("%s: expected array, got %v", "field \"ports\"", fieldNodeUnwrapped.Type)
 				}
 				s.Ports = &d0
 			}
@@ -166,6 +170,8 @@ func (s *PS) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 						sl1[i1] = e1
 					}
 					d0 = sl1
+				} else {
+					return fmt.Errorf("%s: expected array, got %v", "field \"steps\"", fieldNodeUnwrapped.Type)
 				}
 				s.Steps = &d0
 			}

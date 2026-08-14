@@ -137,7 +137,7 @@ func emitFromIR(typ reflect.Type, typeExpr, src, dst, ctxExpr string, depth int,
 		buf.WriteString(fmt.Sprintf("%s		%s[%s] = %s\n", i, arr, idx, elemVar))
 		buf.WriteString(fmt.Sprintf("%s	}\n", i))
 		buf.WriteString(fmt.Sprintf("%s	%s = %s\n", i, dst, arr))
-		buf.WriteString(fmt.Sprintf("%s}\n", i))
+		buf.WriteString(mismatch(i, src, "array", ctxExpr))
 
 	case typ.Kind() == reflect.Slice:
 		slice, idx, elemVar := v("sl"), v("i"), v("e")
@@ -155,7 +155,7 @@ func emitFromIR(typ reflect.Type, typeExpr, src, dst, ctxExpr string, depth int,
 		buf.WriteString(fmt.Sprintf("%s		%s[%s] = %s\n", i, slice, idx, elemVar))
 		buf.WriteString(fmt.Sprintf("%s	}\n", i))
 		buf.WriteString(fmt.Sprintf("%s	%s = %s\n", i, dst, slice))
-		buf.WriteString(fmt.Sprintf("%s}\n", i))
+		buf.WriteString(mismatch(i, src, "array", ctxExpr))
 
 	case typ.Kind() == reflect.Map && typ.Key().Kind() == reflect.Uint32:
 		// A sparse array is an object whose keys are decimal indices.
@@ -178,7 +178,7 @@ func emitFromIR(typ reflect.Type, typeExpr, src, dst, ctxExpr string, depth int,
 		buf.WriteString(fmt.Sprintf("%s		%s[uint32(%s)] = %s\n", i, m, key, valVar))
 		buf.WriteString(fmt.Sprintf("%s	}\n", i))
 		buf.WriteString(fmt.Sprintf("%s	%s = %s\n", i, dst, m))
-		buf.WriteString(fmt.Sprintf("%s}\n", i))
+		buf.WriteString(mismatch(i, src, "object", ctxExpr))
 
 	case typ.Kind() == reflect.Map && typ.Key().Kind() == reflect.String:
 		m, key, valVar := v("m"), v("k"), v("mv")
@@ -201,7 +201,7 @@ func emitFromIR(typ reflect.Type, typeExpr, src, dst, ctxExpr string, depth int,
 		buf.WriteString(fmt.Sprintf("%s		%s[%s(%s)] = %s\n", i, m, keyExpr, key, valVar))
 		buf.WriteString(fmt.Sprintf("%s	}\n", i))
 		buf.WriteString(fmt.Sprintf("%s	%s = %s\n", i, dst, m))
-		buf.WriteString(fmt.Sprintf("%s}\n", i))
+		buf.WriteString(mismatch(i, src, "object", ctxExpr))
 
 	case typ.Kind() == reflect.Map:
 		// A tony object's keys are text, so a map's are a string or the uint32 of
@@ -255,6 +255,23 @@ func nestedFieldToIR(field *FieldInfo, schemaFieldName, currentPkgPath string) (
 	buf.WriteString(fmt.Sprintf("		irMap[%q] = node\n", schemaFieldName))
 	buf.WriteString("	}\n")
 	return buf.String(), nil
+}
+
+// mismatch closes a container's type guard with an else that refuses the node,
+// naming the type the field wanted and the one the document had.
+//
+// The alternative -- close the guard and carry on -- is what the one-level paths
+// do, and it is wrong here in a way it is not there. Those leave a plain field
+// at its zero value, which reads as absent, so nothing is asserted. A pointer
+// field's decoder assigns the pointer AFTER this code, so a skipped decode would
+// leave a non-nil pointer to a nil slice: "the author wrote an empty list" for a
+// document whose author wrote "hello". That is the one reading the pointer
+// exists to make, invented from a type error. gomap's reflection path already
+// errors on the same document ("expected array, got String"), and the two paths
+// must not disagree about what a document means.
+func mismatch(indent, src, want, ctxExpr string) string {
+	return fmt.Sprintf("%s} else {\n%s	return fmt.Errorf(\"%%s: expected %s, got %%v\", %s, %s.Type)\n%s}\n",
+		indent, indent, want, ctxExpr, src, indent)
 }
 
 // emitToIR writes code that converts src, a Go expression of type typ spelled
