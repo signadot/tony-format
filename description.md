@@ -1,78 +1,55 @@
-# o: filtering a list by a match -- a !filter operator, and o m -each over it
+# o: filtering a list by a match -- `!filter`, the transformation half
 
-`x | o m <what> -`, where x produces a LIST, cannot answer "which elements match". The unit of
-matching is the DOCUMENT, and a list is one document, so the pattern is asked about the whole
-array and the elements are never considered separately.
+The CLI half of this is done in 864f8c1: `o get -if` and `o list -if` put the two halves of the
+question on one command, the path saying WHERE and the match saying WHICH.
 
-Measured against `- {name: a, state: open}` / `- {name: b, state: closed}` / `- {name: c, state: open}`:
+    x | o list -if '{state: open}' '$[*]' -            # the matching elements
+    o list -if '{state: open}' '$.items[*]' doc.tony   # wherever the path reaches
+    o get  -if '{state: open}' '$.status' doc && deploy
 
-    o m '{state: open}' list.tony        nothing, exit 0
-    o m '!all {state: ...}' list.tony    the WHOLE list, or nothing -- a boolean about the array
-    o m '!subtree {state: open}' ...     likewise
-    o m -trim '!subtree {name: c}' ...   the whole list: -trim trims to the PATTERN, not to hits
-    o list '$[*]' list.tony              the whole list back; objpath has no predicates
+The `o m -each` flag this issue originally proposed is RETIRED, unbuilt. It would have meant "the
+elements of the top-level array", which is one path spelled as a mode; as a path it costs nothing
+and `$.items[*]` comes free, which -each could never have reached. Filtering a nested list is the
+common case rather than the exotic one.
 
-The same `o m` already does exactly what is wanted when the input is a multi-document stream:
+`o m -at path` was considered and rejected for the same reason: `!at(path) PAT` already filters
+DOCUMENTS by a nested condition and has done all along. Its problem is that nobody can find it --
+see the separate report on !at being absent from the docs.
 
-    printf '{name: a, state: open}\n---\n{name: b, state: closed}\n' | o m '{state: open}' -
-    => {name: a, state: open}
+## What is left: the transformation
 
-So the semantics exist and are one granularity off from the thing people have in their hands,
-which is a list.
+`-if` is a QUERY. It answers with the nodes the path named and the match kept, and throws away
+the document they came from. That is what a pipe wants and it is not what a document wants:
 
-## What is missing in the language, not just the CLI
+    o patch -s '{items: !filter {state: open}}' doc.tony
 
-`!all` maps a patch over every element (mergeop/all.go, Patch). Nothing DROPS one. There is no
-composition of the current operators that filters: the natural attempt
+should answer with the document, its items filtered in place, everything else untouched. There is
+no way to say that today, and no composition of the existing operators does it -- the natural
+attempt, `!all !if {..., else: !delete null}`, deletes the whole document (it used to segfault;
+see a7bwkxwah12kr0n0fxn0).
 
-    o patch -s '!all !if {if: {state: open}, then: !pass null, else: !delete null}' list.tony
+`!filter <match>` is the sibling `!all` never had: `!all` says what happens to every element,
+`!filter` says which ones remain. Keep the elements of a list, or the values of an object keyed as
+they were, for which the child MATCHES; drop the rest.
 
-panics rather than filtering -- see the separate report on `o patch` and a delete at the root.
+It belongs in the operator set and not only in the CLI:
 
-## Proposal, in two parts
-
-### 1. `!filter <match>`, a patch operator
-
-    o patch -s '!filter {state: open}' list.tony
-    o patch -s '{items: !filter {state: open}}' doc.tony      # at any depth
-
-Keep the elements of a list (or the values of an object, keyed as they were) for which the child
-MATCHES; drop the rest. It is the sibling `!all` never had: `!all` says what happens to every
-element, `!filter` says which ones remain.
-
-This belongs in the operator set rather than only in the CLI:
-
-  - it reaches any depth. A flag can only ever filter the top level, and `{items: [...]}` is the
-    common shape
+  - it reaches any depth, in place, without a query-and-regraft
   - it is a pure function of the document it meets, so unlike !pipe it can be stored in a logd
     delta and replayed, and it can live in a build file or a docd patch
   - a match inside a patch has precedent: !if takes an `if:` (mergeop/if.go)
 
-Decisions it needs: the name (!filter / !select / !keep); whether the child is a bare match
-(`!filter {state: open}`) or a mapping; whether an object's values filter by value with keys kept
-(proposed) or something else; and its place in the schema context vocabulary, which after
-cv90ehkvh12krm4sfxn0 is checked to name only operators that exist.
+## Decisions it needs
 
-### 2. `o m -each`, the one-liner over it
+  - the name: !filter / !select / !keep
+  - whether the child is a bare match (`!filter {state: open}`) or a mapping
+  - an object's values filter by value with keys kept (proposed), or something else
+  - its entry in the schema context vocabulary, which since cv90ehkvh12krm4sfxn0 is checked to
+    name only operators that exist
+  - whether it is storable: it should be, and logd's StorageContext (system/logd/api) has to say
+    so explicitly rather than inherit it
 
-    x | o m -each '{state: open}' -           # the matching elements, as a list
-    x | o m -each -trim '{name: ""}' -        # ... projected to what the pattern names
+## Not needed for this
 
-`-each` changes the unit of matching from the document to the elements of the top-level array,
-and emits an array of the matches. Implemented over `!filter` rather than beside it, so there is
-one implementation of what "matches" means.
-
-Semantics to pin down:
-
-  - an object input filters its values and keeps their keys
-  - a scalar input is an error; there are no elements to match
-  - a multi-document stream applies -each per document
-  - nothing matching yields an empty list rather than no output -- the silence is half of what
-    makes the current behaviour confusing, and the other half is the exit code (filed separately)
-
-## Why both
-
-Either alone is worse. The flag alone leaves a nested list unreachable and has to be reimplemented
-the moment somebody wants the same thing inside a document. The operator alone leaves the shortest
-path -- a person with a list in a pipe -- spelled `o patch -s '!filter ...'`, which is a patch
-command doing a query, and nobody will guess it.
+`o list -if` covers the pipe. This issue is now only about saying the same thing inside a
+document, which is the part a CLI flag cannot reach.
