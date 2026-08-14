@@ -1,7 +1,5 @@
 # o: an exec-less `!convert-image` the consumer opts into, and the unknown-op tag that reads as data rather than failing
 
-# o: an exec-less `!convert-image` the consumer opts into, and the unknown-op tag that reads as data rather than failing
-
 A consumer of `o` who rewrites image references today writes `!pipe "convert-image -suffix -test"`,
 which means their deployment has to account for a second binary: `go-tony/Dockerfile` copies
 `convert-image` to `/usr/local/bin` beside `o` for no reason other than making that `!pipe` resolve,
