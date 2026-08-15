@@ -34,17 +34,34 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 	if debug.Patch() {
 		debug.Logf("patch type %s at %s with tag %q\n", patch.Type, patch.Path(), patch.Tag)
 	}
+	// A comment wraps the value it describes. Patching is about the value, so
+	// both sides are unwrapped to reach it -- and with mergeop.Comments(true) the
+	// wrapper is put back, so a store which keeps comments can keep them through
+	// a write. Off by default: the option existed and nothing read it, and every
+	// caller today expects a patch to answer with data.
+	keepComments := ctx != nil && ctx.Config != nil && ctx.Config.Comments
+	var docComment, patchComment *ir.Node
 	if doc.Type == ir.CommentType {
-		if len(doc.Values) != 0 {
-			return doPatchWith(doc.Values[0], patch, ctx)
+		if len(doc.Values) == 0 {
+			panic("comment")
 		}
-		panic("comment")
+		docComment, doc = doc, doc.Values[0]
 	}
 	if patch.Type == ir.CommentType {
-		if len(patch.Values) != 0 {
-			return doPatchWith(doc, patch.Values[0], ctx)
+		if len(patch.Values) == 0 {
+			panic("comment")
 		}
-		panic("comment")
+		patchComment, patch = patch, patch.Values[0]
+	}
+	if docComment != nil || patchComment != nil {
+		res, err := doPatchWith(doc, patch, ctx)
+		if err != nil || res == nil || !keepComments {
+			return res, err
+		}
+		// The patch's comment is what the writer just said about the value; the
+		// document's is what was said before, and stands when the patch says
+		// nothing.
+		return rewrapComment(res, patchComment, docComment), nil
 	}
 	preTag, tag, args, child, err := mergeop.SplitChild(patch)
 	if err != nil {
@@ -119,6 +136,22 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 // objPatchY is the backwards-compatible version without context
 func objPatchY(doc, patch *ir.Node) (*ir.Node, error) {
 	return objPatchYWith(doc, patch, nil)
+}
+
+// rewrapComment puts a head comment back around a patched value, preferring the
+// one the patch carried: it is the more recent statement about the value.
+func rewrapComment(res, fromPatch, fromDoc *ir.Node) *ir.Node {
+	src := fromPatch
+	if src == nil {
+		src = fromDoc
+	}
+	if src == nil {
+		return res
+	}
+	wrap := &ir.Node{Type: ir.CommentType, Lines: src.Lines, Values: []*ir.Node{res}}
+	res.Parent = wrap
+	res.ParentIndex = 0
+	return wrap
 }
 
 // restoreTag composes each label of pre onto tag, skipping any the tag already
