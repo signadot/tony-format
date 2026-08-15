@@ -194,9 +194,6 @@ func ExpandIR(node *ir.Node, env map[string]any) (*ir.Node, error) {
 	return ExpandIRWithOptions(node, env, nil)
 }
 
-// ExpandIRWithOptions expands an IR node with optional evaluation options.
-// This is the main entry point for schema evaluation where parameterized
-// definition auto-calling is needed.
 // retagRef puts back the tag the reference itself was wearing.
 //
 // A .[var] reference is a whole node, and expanding it REPLACES that node with
@@ -205,7 +202,7 @@ func ExpandIR(node *ir.Node, env map[string]any) (*ir.Node, error) {
 // this the negation left with the node: the match came back with the opposite
 // verdict and no error, which is worse than failing, since !let is the natural
 // way to write "this field differs from that value" and the differs half was the
-// half that lied. The same shape covers !glob .[pat], !type .[t] and every other
+// half that lied. The same shape covers !glob .[pat], !irtype .[t] and every other
 // operator worn over a reference.
 //
 // The value's own tag is kept underneath rather than overwritten, so a !not over
@@ -220,6 +217,9 @@ func retagRef(repl *ir.Node, tag string) *ir.Node {
 	return repl
 }
 
+// ExpandIRWithOptions expands an IR node with optional evaluation options.
+// This is the main entry point for schema evaluation where parameterized
+// definition auto-calling is needed.
 func ExpandIRWithOptions(node *ir.Node, env map[string]any, opts *EvalOptions) (*ir.Node, error) {
 	// Create opts with current node for script funcs (whereami, getpath, etc.)
 	// Each recursive call gets its own opts with the current node

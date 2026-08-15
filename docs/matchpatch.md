@@ -13,28 +13,81 @@ Tony operations are available in matches and patches when building from
 directories and via `o match` and `o patch`.
 
 
-| MergeOp    | Match | Patch | Arguments         | Description                                                                     |
-|------------|-------|-------|-------------------|---------------------------------------------------------------------------------|
-| key        |   +   |   +   | objectpath to key | associative lists as objects                                                    |
-| and        |   +   |   -   |     -             | conjoin a list of matches to be applied to the corresponding doc                |
-| or         |   +   |   -   |     -             | disjunction                                                                     |
-| not        |   +   |   -   |     -             | negate a match (eg !not.or [1,2,3])
-| all        |   +   |   +   |     -             | take the match (resp patch) apply it to all array or object elements of the doc |
-| subtree    |   +   |   -   |     -             | match any subtree of the doc                                                    |
-| dive       |   -   |   +   |     -             | dive into the doc and treat each subtree with a list of matches/patches         |
-| quote      |   -   |   +   |     -             | quote a yaml as a string                                                        |
-| unquote    |   -   |   +   |     -             | unquote a string as a yaml                                                      |
-| nullify    |   -   |   +   |     -             | turn a yaml into a null without deleting it                                     |
-| delete     |   -   |   +   |     -             | delete a top level document                                                     |
-| type       |   +   |   -   |     -             | match by type                                                                   |
-| field      |   +   |   +   |     -             | match the field (a string), not its value                                       |
-| tag        |   +   |   -   |     -             | match the tag of a node, not its value                                          |
-| glob       |   +   |   -   |     -             | glob match a string                                                             |
-| pipe       |   -   |   +   |     -             | pipe the doc node to a program and replace it with the program's output         |
-| json-patch | -     |   +   |     -             | apply a json patch to the corresponding doc node                                |
-| pass       |   +   |   +   |     -             | match: always accept / patch: return the current doc                            |
-| if         |   -   |   +   |     -             | evaluate a condition and patch either with `then` or `else`                     |
-| raw        |   +   |   +   |     -             | the escape: treat the subtree as data, interpreting no operation at any depth   |
+| MergeOp    | Match | Patch | Arguments      | Description                                                                      |
+|------------|-------|-------|----------------|----------------------------------------------------------------------------------|
+| all        |   +   |   +   |     -          | apply the match (resp. patch) to every element of an array or object             |
+| and        |   +   |   -   |     -          | conjoin a list of matches, each applied to the corresponding doc                 |
+| or         |   +   |   -   |     -          | disjunction                                                                      |
+| not        |   +   |   -   |     -          | negate a match (eg `!not.or [1,2,3]`)                                            |
+| at         |   +   |   -   | kpath          | walk to the path and apply the match there; see below                            |
+| has-path   |   +   |   -   |     -          | the document has the path the operand names                                      |
+| subtree    |   +   |   -   |     -          | match any subtree of the doc                                                     |
+| glob       |   +   |   -   |     -          | glob match a string                                                              |
+| irtype     |   +   |   -   |     -          | the node's kind equals the operand's: `!irtype ""` a string, `!irtype 0` a number|
+| tag        |   +   |   -   |     -          | match the tag of a node, not its value                                           |
+| field      |   +   |   +   | -, or from,to  | match the field (a string), not its value                                        |
+| key        |   +   |   +   | field to key by| associative lists as objects                                                     |
+| let        |   +   |   -   |     -          | bind names in `let:`, then match with `in:`, referring to them as `.[name]`      |
+| pass       |   +   |   +   |     -          | match: accept anything / patch: leave the document as it is                      |
+| raw        |   +   |   +   |     -          | the escape: treat the subtree as data, interpreting no operation at any depth    |
+| if         |   -   |   +   |     -          | evaluate `if:` and patch with `then:` or `else:`                                 |
+| dive       |   -   |   +   |     -          | dive into the doc and treat each subtree with a list of matches/patches          |
+| embed      |   -   |   +   | key            | the operand is the result, with each occurrence of the key replaced by the doc   |
+| quote      |   -   |   +   |     -          | quote a document as a string                                                     |
+| unquote    |   -   |   +   |     -          | unquote a string as a document                                                   |
+| nullify    |   -   |   +   |     -          | turn a node into a null without deleting it                                      |
+| json-patch |   -   |   +   |     -          | apply a json patch to the corresponding doc node                                 |
+| pipe       |   -   |   +   |     -          | pipe the doc node to a program and replace it with the program's output          |
+| insert     |   -   |   +   |     -          | add a value; the value is what results                                           |
+| delete     |   -   |   +   |     -          | remove a value; absence is what results                                          |
+| replace    |   -   |   +   |     -          | CHECKED: verify the node still equals `from:`, then install `to:`                |
+| addtag     |   -   |   +   | tag            | add a tag; the tag is what results                                               |
+| rmtag      |   -   |   +   | tag            | remove a tag; its absence is what results                                        |
+| retag      |   -   |   +   | from,to        | CHECKED: verify the tag is `from`, then make it `to`                             |
+| strdiff    |   -   |   +   |     -          | a string edit, relative to the string that is there                              |
+| arraydiff  |   -   |   +   |     -          | an array edit, relative and positional                                           |
+| rename     |   -   |   +   |     -          | rename fields, relative to the keys that are there                               |
+
+`o match -tags` and `o patch -tags` print this list from the binary, which is the
+authority; a test keeps the table above equal to it.
+
+The last nine are what a diff produces, and they divide on two lines worth
+knowing: CHECKED operations assert something about what they meet and fail if it
+does not hold, while insert, delete, addtag and rmtag simply state a result; and
+strdiff, arraydiff and rename are RELATIVE, re-evaluating against whatever is
+there. Both distinctions matter to anything that stores a patch and applies it
+later -- see `system/logd/api/storage_context.go`, which declares which of them
+may be stored and why.
+
+### Reaching into a document with `!at`
+
+`!at(kpath)` walks down the path and applies the match it holds to the node it
+lands on:
+
+```
+o match '!at(spec.replicas) !irtype 0' deploy.tony
+```
+
+matches a document whose `spec.replicas` is a number, whatever else it holds.
+This is how a document is filtered by a condition somewhere inside it, which is
+otherwise the thing people reach for `o list -if` to do -- the difference being
+that `!at` answers about the whole document, and `-if` answers with the nodes.
+
+A path which names nothing does not match: `!at(a.b) 3` asks for an `a.b`, so a
+document without one fails rather than matching vacuously, the same reading
+`!has-path` gives a missing path. A wildcard path (`.*`, `[*]`, `{*}`) names
+every node it reaches, and all of them have to match, as every field an object
+pattern names has to match.
+
+The path is a kpath, all of it, keyed segments included: `!at(resources(joe).x)`
+reaches into the element keyed `joe` of a list the document tags `!key(name)`. A
+key names nothing in a list which is not keyed -- the tag is what says which
+field the key is -- so that is a mismatch, not an error.
+
+Composition reaches either side of the walk, and the two are different
+questions. `!not.at(a.b) 3` negates the whole thing: it holds when there is no
+`a.b` as much as when `a.b` is 4. `!at(a.b) !not 3` asks for an `a.b` which is
+something other than 3.
 
 Operations are indicated by YAML tags within a match or a patch.
 

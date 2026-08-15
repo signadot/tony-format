@@ -111,7 +111,7 @@ metadata:
 ```
 
 `!or` matches if any alternative matches. `!glob` matches against a glob
-pattern. `!and`, `!not`, `!has-path`, `!type`, `!field`, and `!subtree` round
+pattern. `!and`, `!not`, `!has-path`, `!irtype`, `!field`, and `!subtree` round
 out the vocabulary. `!subtree` searches the entire document depth-first.
 `!let` binds variables before matching. Each callback delegates sub-matching
 back to the engine, so compound operations compose naturally.

@@ -13,7 +13,7 @@ var atSym = &atSymbol{matchName: atName}
 // At is the !at(kpath) operator: the match walks down the path and applies the
 // pattern it holds to the node it lands on.
 //
-//	!at(spec.replicas) !type int
+//	!at(spec.replicas) !irtype 0
 //
 // matches a document whose spec.replicas is an integer, no matter what else it
 // holds.  A path which names nothing does not match: !at(a.b) 3 asks for an a.b,

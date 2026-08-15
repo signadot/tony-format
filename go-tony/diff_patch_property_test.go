@@ -57,7 +57,7 @@ var (
 	keyNames = []string{"a", "b", "c", "9a", "x y", "zz"}
 	scalars  = []string{`1`, `2`, `-7`, `0`, `true`, `false`, `null`, `"s"`, `"other"`, `"9a"`, `""`}
 	// Tags that are NOT registered merge ops, so they are carried as data rather than
-	// executed. !tag and !type are real ops; these are not.
+	// executed. !tag and !irtype are real ops; these are not.
 	nonOpTags = []string{"", "", "", "!t1", "!t2"}
 )
 

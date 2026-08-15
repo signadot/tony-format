@@ -28,7 +28,7 @@
 // # Contexts
 //
 // Contexts define execution environments:
-//   - match: Validation (!or, !and, !not, !type, etc.)
+//   - match: Validation (!or, !and, !not, !irtype, etc.)
 //   - patch: Transformation (!nullify, !insert, !delete, etc.)
 //   - eval: Evaluation (!eval, !exec, !file, etc.)
 //   - diff: Diffing (!strdiff, !arraydiff)
@@ -69,7 +69,7 @@
 //	}
 //
 // The Accept pattern supports definition references (.[defName]) and
-// match operators (!and, !or, !not, !type, !glob, etc.).
+// match operators (!and, !or, !not, !irtype, !glob, etc.).
 //
 // # Related Packages
 //
