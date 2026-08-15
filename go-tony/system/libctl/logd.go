@@ -4,14 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"strconv"
 	"sync"
 	"time"
 
-	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/stream"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
@@ -664,7 +662,7 @@ func (s *LogdSession) request(ctx context.Context, req *api.SessionRequest) (*ap
 // connection fails or is closed.
 func (s *LogdSession) readPump(conn net.Conn, decoder *stream.Decoder) {
 	for {
-		node, err := readDocument(decoder)
+		node, err := stream.ReadDocument(decoder)
 		if err != nil {
 			s.failConn(conn, err)
 			return
@@ -830,7 +828,7 @@ func (s *LogdSession) sendRequestTo(conn net.Conn, req *api.SessionRequest) erro
 // the write errors, which the caller turns into teardown + reconnect. The read-pump's
 // reads are unaffected.
 func (s *LogdSession) sendRequestWithin(conn net.Conn, req *api.SessionRequest, deadline time.Time) error {
-	data, err := req.ToTony(gomap.EncodeWire(true))
+	data, err := req.ToTony(api.WireOptions()...)
 	if err != nil {
 		return fmt.Errorf("failed to encode request: %w", err)
 	}
@@ -844,7 +842,7 @@ func (s *LogdSession) sendRequestWithin(conn net.Conn, req *api.SessionRequest, 
 // readResponseWith reads a single response using the given decoder. Used only
 // for the synchronous hello handshake; afterwards the read-pump owns reads.
 func (s *LogdSession) readResponseWith(decoder *stream.Decoder) (*api.SessionResponse, error) {
-	node, err := readDocument(decoder)
+	node, err := stream.ReadDocument(decoder)
 	if err != nil {
 		return nil, err
 	}
@@ -857,32 +855,6 @@ func (s *LogdSession) readResponseWith(decoder *stream.Decoder) (*api.SessionRes
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 	return &resp, nil
-}
-
-// readDocument reads events until we have a complete document.
-func readDocument(decoder *stream.Decoder) (*ir.Node, error) {
-	var events []stream.Event
-	started := false
-
-	for {
-		event, err := decoder.ReadEvent()
-		if err != nil {
-			if err == io.EOF {
-				if len(events) > 0 {
-					return stream.EventsToNode(events)
-				}
-				return nil, io.EOF
-			}
-			return nil, err
-		}
-
-		events = append(events, *event)
-		started = true
-
-		if started && decoder.Depth() == 0 {
-			return stream.EventsToNode(events)
-		}
-	}
 }
 
 // ServerID returns the logd server ID from the handshake.

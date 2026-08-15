@@ -5,7 +5,6 @@ import (
 	"net"
 	"time"
 
-	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/stream"
 	logdapi "github.com/signadot/tony-format/go-tony/system/logd/api"
@@ -114,7 +113,7 @@ func matchPathData(path string, data *ir.Node) *logdapi.PathData {
 }
 
 func writeSessionRequest(conn net.Conn, req *logdapi.SessionRequest) error {
-	data, err := req.ToTony(gomap.EncodeWire(true))
+	data, err := req.ToTony(logdapi.WireOptions()...)
 	if err != nil {
 		return fmt.Errorf("encode request: %w", err)
 	}
@@ -125,7 +124,7 @@ func writeSessionRequest(conn net.Conn, req *logdapi.SessionRequest) error {
 }
 
 func readSessionResponse(dec *stream.Decoder) (*logdapi.SessionResponse, error) {
-	node, err := decodeDocument(dec)
+	node, err := stream.ReadDocument(dec)
 	if err != nil {
 		return nil, err
 	}

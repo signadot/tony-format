@@ -193,7 +193,7 @@ func newTestClientSession(server *Server, conn net.Conn) *ClientSession {
 // readResp decodes one SessionResponse document off conn.
 func readResp(t *testing.T, dec *stream.Decoder) *logdapi.SessionResponse {
 	t.Helper()
-	node, err := decodeDocument(dec)
+	node, err := stream.ReadDocument(dec)
 	if err != nil {
 		t.Fatalf("decode response: %v", err)
 	}

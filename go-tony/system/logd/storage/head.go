@@ -3,7 +3,6 @@ package storage
 import (
 	"fmt"
 
-	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
@@ -89,7 +88,7 @@ func (s *Storage) stepHead(commit int64, patch *ir.Node) {
 	if base == nil {
 		base = ir.Null()
 	}
-	stepped, err := tony.Patch(base, patch)
+	stepped, err := api.NextState(base, patch)
 	if err != nil {
 		s.dropHead("patch failed", err)
 		return

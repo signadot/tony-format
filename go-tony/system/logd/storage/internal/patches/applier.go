@@ -3,9 +3,9 @@ package patches
 import (
 	"io"
 
-	"github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/stream"
+	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
 // PatchApplier applies patches to streaming events.
@@ -62,7 +62,7 @@ func (a *InMemoryApplier) ApplyPatches(baseEvents stream.EventReader, patches []
 		if state == nil {
 			state = ir.Null()
 		}
-		next, err := tony.Patch(state, patch)
+		next, err := api.NextState(state, patch)
 		if err != nil {
 			return err
 		}

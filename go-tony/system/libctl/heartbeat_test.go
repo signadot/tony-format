@@ -35,7 +35,7 @@ func TestLogdSession_HeartbeatTearsDownWedgedSession(t *testing.T) {
 			return
 		}
 		for {
-			node, err := readDocument(dec)
+			node, err := stream.ReadDocument(dec)
 			if err != nil {
 				return
 			}

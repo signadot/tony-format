@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/stream"
 	"github.com/signadot/tony-format/go-tony/system/docd/api"
@@ -119,7 +118,7 @@ func (s *MountSession) Run() error {
 // closes or errors, failing any in-flight routes on the way out.
 func (s *MountSession) readPump(decoder *stream.Decoder) error {
 	for {
-		node, err := s.readDocument(decoder)
+		node, err := stream.ReadDocument(decoder)
 		if err != nil {
 			select {
 			case <-s.done:
@@ -367,7 +366,7 @@ func (s *MountSession) writeToController(req *logdapi.SessionRequest) error {
 	// from racing on a shared node.
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	data, err := req.ToTony(gomap.EncodeWire(true))
+	data, err := req.ToTony(logdapi.WireOptions()...)
 	if err != nil {
 		return fmt.Errorf("failed to encode request: %w", err)
 	}
@@ -486,7 +485,7 @@ func (s *MountSession) resolveForceAfter(spec *string) (time.Duration, error) {
 // handleHandshake reads the mount request and registers the controller.
 func (s *MountSession) handleHandshake(decoder *stream.Decoder) error {
 	// Read mount request
-	node, err := s.readDocument(decoder)
+	node, err := stream.ReadDocument(decoder)
 	if err != nil {
 		if err == io.EOF {
 			return fmt.Errorf("connection closed before handshake")
@@ -609,35 +608,9 @@ func (s *MountSession) handleClockMount(spec *api.ClockSpec) error {
 	return nil
 }
 
-// readDocument reads events until we have a complete document.
-func (s *MountSession) readDocument(decoder *stream.Decoder) (*ir.Node, error) {
-	var events []stream.Event
-	started := false
-
-	for {
-		event, err := decoder.ReadEvent()
-		if err != nil {
-			if err == io.EOF {
-				if len(events) > 0 {
-					return stream.EventsToNode(events)
-				}
-				return nil, io.EOF
-			}
-			return nil, err
-		}
-
-		events = append(events, *event)
-		started = true
-
-		if started && decoder.Depth() == 0 {
-			return stream.EventsToNode(events)
-		}
-	}
-}
-
 // sendResponse sends a mount response.
 func (s *MountSession) sendResponse(resp *api.MountResponse) error {
-	data, err := resp.ToTony(gomap.EncodeWire(true))
+	data, err := resp.ToTony(logdapi.WireOptions()...)
 	if err != nil {
 		return fmt.Errorf("failed to encode response: %w", err)
 	}

@@ -7,14 +7,11 @@ package txpool
 import (
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"sync"
 	"time"
 
-	"github.com/signadot/tony-format/go-tony/gomap"
-	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/stream"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
@@ -182,7 +179,7 @@ func (p *Pool) sendHello(conn net.Conn) error {
 
 // sendRequest sends a request to logd.
 func (p *Pool) sendRequest(conn net.Conn, req *api.SessionRequest) error {
-	data, err := req.ToTony(gomap.EncodeWire(true))
+	data, err := req.ToTony(api.WireOptions()...)
 	if err != nil {
 		return fmt.Errorf("failed to encode request: %w", err)
 	}
@@ -194,7 +191,7 @@ func (p *Pool) sendRequest(conn net.Conn, req *api.SessionRequest) error {
 
 // readResponse reads a response from logd.
 func (p *Pool) readResponse(decoder *stream.Decoder) (*api.SessionResponse, error) {
-	node, err := readDocument(decoder)
+	node, err := stream.ReadDocument(decoder)
 	if err != nil {
 		return nil, err
 	}
@@ -207,32 +204,6 @@ func (p *Pool) readResponse(decoder *stream.Decoder) (*api.SessionResponse, erro
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 	return &resp, nil
-}
-
-// readDocument reads events until we have a complete document.
-func readDocument(decoder *stream.Decoder) (*ir.Node, error) {
-	var events []stream.Event
-	started := false
-
-	for {
-		event, err := decoder.ReadEvent()
-		if err != nil {
-			if err == io.EOF {
-				if len(events) > 0 {
-					return stream.EventsToNode(events)
-				}
-				return nil, io.EOF
-			}
-			return nil, err
-		}
-
-		events = append(events, *event)
-		started = true
-
-		if started && decoder.Depth() == 0 {
-			return stream.EventsToNode(events)
-		}
-	}
 }
 
 // Get returns a transaction ID for the given participant count.

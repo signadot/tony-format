@@ -129,6 +129,12 @@ func validateForStorage(n *ir.Node, path string) error {
 	if ir.TagHas(n.Tag, "!raw") {
 		return nil
 	}
+	// A head comment wraps the value it precedes, and this walk asks what KIND of
+	// node it is standing on. A comment is not a kind of container, so the walk
+	// stopped at the wrapper and nothing beneath it was checked: an unstorable
+	// operation written under a comment passed validation and was stored. Now that
+	// a store keeps comments, that is reachable from any client (3cdjz00jh12krns4g1n0).
+	n = ir.Uncomment(n)
 	if n.Type == ir.ArrayType {
 		if err := validateKeyedArray(n, path); err != nil {
 			return err

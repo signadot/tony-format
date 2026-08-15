@@ -31,6 +31,36 @@ type SubtreeCollector struct {
 	collecting  bool   // true when actively collecting events
 	pendingPath string // path where key was matched, waiting for value
 	startPath   string // path where collection started
+
+	// preValue holds the comments that precede a value about to be collected. A
+	// head comment describes the value AFTER it, and the value at a patched path
+	// is collected, materialized, patched and re-emitted -- so its comment has to
+	// travel with it. Taken for the value instead, it WAS the collected subtree:
+	// the patch applied to a comment, the base's real value stayed in the stream,
+	// and the object came back with the same key twice
+	// (3cdjz00jh12krns4g1n0).
+	preValue []stream.Event
+	took     bool           // the last event went into preValue
+	released []stream.Event // held comments that belong to nothing being collected
+}
+
+// Took reports whether the collector kept the last event for itself, in which
+// case the caller must not also emit it.
+func (sc *SubtreeCollector) Took() bool { return sc.took }
+
+// Release hands back comments the collector held for a value it turned out not to
+// collect. They belong in the stream, in the place they were held from.
+func (sc *SubtreeCollector) Release() []stream.Event {
+	r := sc.released
+	sc.released = nil
+	return r
+}
+
+// takePreValue returns the held comments as the start of a collected window.
+func (sc *SubtreeCollector) takePreValue() []stream.Event {
+	evs := sc.preValue
+	sc.preValue = nil
+	return evs
 }
 
 // NewSubtreeCollector creates a new SubtreeCollector with the given patch index.
@@ -56,10 +86,27 @@ func (sc *SubtreeCollector) ProcessEvent(event *stream.Event) (*CollectedSubtree
 	}
 
 	currentPath := sc.state.CurrentPath()
+	sc.took = false
 
 	// If already collecting
 	if sc.collecting {
 		return sc.continueCollecting(event)
+	}
+
+	// A comment before a value that is about to be collected belongs to that
+	// value: hold it rather than take it FOR the value.
+	isComment := event.Type == stream.EventHeadComment || event.Type == stream.EventLineComment
+	if isComment {
+		if sc.pendingPath != "" || sc.index.HasPatches(currentPath) {
+			sc.preValue = append(sc.preValue, *event)
+			sc.took = true
+		}
+		return nil, nil
+	}
+	if len(sc.preValue) > 0 && !event.IsValueStart() {
+		// The value never came -- a container closed, or another key began. What
+		// was held describes nothing this collects, so it goes back to the stream.
+		sc.released = append(sc.released, sc.takePreValue()...)
 	}
 
 	// If we have a pending path from a previous key match, start collecting now
@@ -70,12 +117,12 @@ func (sc *SubtreeCollector) ProcessEvent(event *stream.Event) (*CollectedSubtree
 
 		switch event.Type {
 		case stream.EventBeginObject, stream.EventBeginArray:
-			sc.events = []stream.Event{*event}
+			sc.events = append(sc.takePreValue(), *event)
 			sc.depth = 1
 			return nil, nil
 		default:
 			// Scalar value after key
-			sc.events = []stream.Event{*event}
+			sc.events = append(sc.takePreValue(), *event)
 			return sc.finishCollecting()
 		}
 	}
@@ -98,13 +145,13 @@ func (sc *SubtreeCollector) ProcessEvent(event *stream.Event) (*CollectedSubtree
 		// Container start - collect from here
 		sc.startPath = currentPath
 		sc.collecting = true
-		sc.events = []stream.Event{*event}
+		sc.events = append(sc.takePreValue(), *event)
 		sc.depth = 1
 		return nil, nil
 
 	case stream.EventString, stream.EventInt, stream.EventFloat, stream.EventBool, stream.EventNull:
 		// Scalar value - collect immediately and complete
-		node, err := stream.EventsToNode([]stream.Event{*event})
+		node, err := stream.EventsToNode(append(sc.takePreValue(), *event))
 		if err != nil {
 			return nil, err
 		}

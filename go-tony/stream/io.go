@@ -3,6 +3,8 @@ package stream
 import (
 	"bytes"
 	"io"
+
+	"github.com/signadot/tony-format/go-tony/ir"
 )
 
 // EventReader provides events from a source (snapshot, empty stream, etc.).
@@ -75,4 +77,44 @@ func NewBufferEventSink(buf *bytes.Buffer) *BufferEventSink {
 // WriteEvent writes an event in binary format to the buffer.
 func (s *BufferEventSink) WriteEvent(ev *Event) error {
 	return ev.WriteBinary(s.buf)
+}
+
+// ReadDocument reads events until a document is complete and rebuilds it.
+//
+// A document ends where its structure closes -- depth back to zero -- and a
+// comment carries no structure, so a comment cannot end one. Read as though it
+// could, a document that OPENS with a comment looked complete at its first
+// event, and what was handed on was a document consisting of a comment: a
+// request with a leading comment parsed as no request at all.
+//
+// This loop was copied into six readers -- both logd ends, both docd ends, the
+// mount client and the transaction pool -- with the same rule in each, which is
+// how six answers to one question drift apart. It lives here now, beside the
+// decoder whose events it reads (3cdjz00jh12krns4g1n0).
+func ReadDocument(dec *Decoder) (*ir.Node, error) {
+	var events []Event
+	started := false
+
+	for {
+		event, err := dec.ReadEvent()
+		if err != nil {
+			if err == io.EOF {
+				if len(events) > 0 {
+					return EventsToNode(events)
+				}
+				return nil, io.EOF
+			}
+			return nil, err
+		}
+
+		events = append(events, *event)
+		if event.Type == EventHeadComment || event.Type == EventLineComment {
+			continue // carries no depth, so it completes nothing
+		}
+		started = true
+
+		if started && dec.Depth() == 0 {
+			return EventsToNode(events)
+		}
+	}
 }

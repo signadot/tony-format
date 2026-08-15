@@ -2,7 +2,9 @@ package stream
 
 import (
 	"io"
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/signadot/tony-format/go-tony/token"
 )
@@ -54,8 +56,7 @@ func NewDecoder(r io.Reader, opts ...StreamOption) (*Decoder, error) {
 // to the encoder's API. Low-level tokens (commas, colons) are elided.
 // Returns io.EOF when stream is exhausted.
 //
-// Phase 1: Comment tokens are skipped (no comment events emitted).
-// Phase 2: Comment tokens are converted to EventHeadComment or EventLineComment.
+// Comment tokens become EventHeadComment and EventLineComment; see commentEvent.
 func (d *Decoder) ReadEvent() (*Event, error) {
 	var pendingTag string
 	for {
@@ -70,9 +71,24 @@ func (d *Decoder) ReadEvent() (*Event, error) {
 			continue
 		}
 
-		// Phase 1: Skip comment tokens
-		if tok.Type == token.TComment {
-			continue
+		// A comment is something the stream carries, not noise it drops. It used to
+		// be dropped here, which is why nothing a client wrote ever reached a store:
+		// the strip at patch time was the second gate, this was the first.
+		//
+		// Which comment it is was already decided by the tokenizer, and this does not
+		// get to decide it again: TComment heads the value that follows, TLineComment
+		// trails the value before it. Consecutive tokens of either kind compose into
+		// ONE event, because a value has one set of preceding comments and one line
+		// comment, both of which may run to several lines (docs/ir.md).
+		if tok.Type == token.TComment || tok.Type == token.TLineComment {
+			ev, err := d.commentEvent(tok)
+			if err != nil {
+				return nil, err
+			}
+			if ev == nil {
+				continue // nothing was written there; see commentEvent
+			}
+			return ev, nil
 		}
 
 		// Handle tags - only TTag tokens (starting with !) are tags
@@ -99,6 +115,60 @@ func (d *Decoder) ReadEvent() (*Event, error) {
 
 		return event, nil
 	}
+}
+
+// commentEvent gathers a run of comment tokens of one kind into a single event.
+//
+// The text conventions are the parser's, so a document that goes out through
+// encode and comes back through here is the one that left: a head comment is
+// trimmed, and a line comment keeps the whitespace between the value and its '#',
+// which is what holds a column of them aligned.
+func (d *Decoder) commentEvent(first token.Token) (*Event, error) {
+	head := first.Type == token.TComment
+	line := func(tok token.Token) string {
+		if head {
+			return strings.TrimSpace(string(tok.Bytes))
+		}
+		return string(tok.Bytes)
+	}
+	ev := &Event{Type: EventHeadComment, CommentLines: []string{line(first)}}
+	if !head {
+		ev.Type = EventLineComment
+	}
+	for {
+		tok, err := d.nextToken()
+		if err != nil {
+			// The stream ended on a comment. It is still a comment: hand it back
+			// and let the next read report the end.
+			break
+		}
+		if tok.Type == token.TIndent {
+			continue // indentation between comment lines is not a break in them
+		}
+		if tok.Type != first.Type {
+			d.pushBack(tok)
+			break
+		}
+		ev.CommentLines = append(ev.CommentLines, line(tok))
+	}
+	// The tokenizer marks a place a line comment COULD have been -- after a key,
+	// and once per line of a multiline string -- with an empty one, so that a
+	// column of them keeps its alignment. Empty places within a run are kept for
+	// that reason; a run that is nothing but empty places is not a comment at all,
+	// and emitting one would hang an empty comment on the value before it.
+	if !slices.ContainsFunc(ev.CommentLines, func(l string) bool { return strings.TrimSpace(l) != "" }) {
+		return nil, nil
+	}
+	if err := d.state.ProcessEvent(ev); err != nil {
+		return nil, err
+	}
+	return ev, nil
+}
+
+// pushBack returns a token to the head of the pending buffer, for a peek that
+// turned out not to belong to what was being read.
+func (d *Decoder) pushBack(tok token.Token) {
+	d.pendingTokens = append([]token.Token{tok}, d.pendingTokens...)
 }
 
 // nextToken returns the next token, reading from source if pending buffer is empty.

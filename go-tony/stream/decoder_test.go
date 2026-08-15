@@ -446,9 +446,11 @@ func TestDecoder_StateTracking(t *testing.T) {
 	}
 }
 
+// TestDecoderComments: the decoder carries comments rather than dropping them.
+// It used to drop them here, which is the first of the two gates that kept
+// anything a client wrote from reaching a store -- the strip at patch time was
+// the second. A store keeps what it is given (3cdjz00jh12krns4g1n0).
 func TestDecoderComments(t *testing.T) {
-	// Object with comments (will be skipped in Phase 1)
-	// Note: Comments need to be on separate lines or properly terminated
 	data := []byte(`{"name":"value"}` + "\n" + `# comment` + "\n")
 	dec, err := NewDecoder(bytes.NewReader(data), WithBrackets())
 	if err != nil {
@@ -464,17 +466,59 @@ func TestDecoderComments(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		// Phase 1: Should not see EventHeadComment or EventLineComment
-		if event.Type == EventHeadComment || event.Type == EventLineComment {
-			t.Errorf("Phase 1: should not see comment events, got %v", event.Type)
-		}
 		events = append(events, event)
 	}
 
-	// Should have: BeginObject, Key("name"), String("value"), EndObject
-	// Comments are skipped, so no comment events
-	if len(events) != 4 {
-		t.Fatalf("expected 4 events (comments skipped), got %d: %v", len(events), events)
+	// BeginObject, Key("name"), String("value"), EndObject, and the comment
+	if len(events) != 5 {
+		t.Fatalf("expected 5 events, got %d: %v", len(events), events)
+	}
+	last := events[4]
+	if last.Type != EventHeadComment {
+		t.Fatalf("the comment came back as %v", last.Type)
+	}
+	if len(last.CommentLines) != 1 || last.CommentLines[0] != "# comment" {
+		t.Errorf("comment lines are %q", last.CommentLines)
+	}
+}
+
+// TestDecoderCommentKinds: which comment it is was decided by the tokenizer, and
+// consecutive tokens of one kind compose into one event, because a value has one
+// set of preceding comments and one line comment (docs/ir.md).
+func TestDecoderCommentKinds(t *testing.T) {
+	data := []byte("{\n# one\n# two\n\"name\": \"svc\" # after\n}\n")
+	dec, err := NewDecoder(bytes.NewReader(data), WithBrackets())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []*Event
+	for {
+		ev, err := dec.ReadEvent()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, ev)
+	}
+	var heads, lines int
+	for _, ev := range got {
+		switch ev.Type {
+		case EventHeadComment:
+			heads++
+			if len(ev.CommentLines) != 2 {
+				t.Errorf("two head comment lines became %q", ev.CommentLines)
+			}
+		case EventLineComment:
+			lines++
+			if len(ev.CommentLines) != 1 || ev.CommentLines[0] != " # after" {
+				t.Errorf("the line comment came back as %q; it keeps the space before its '#'", ev.CommentLines)
+			}
+		}
+	}
+	if heads != 1 || lines != 1 {
+		t.Errorf("got %d head comment events and %d line comment events, want 1 and 1: %v", heads, lines, got)
 	}
 }
 

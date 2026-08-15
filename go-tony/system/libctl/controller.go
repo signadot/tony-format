@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/stream"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
@@ -214,7 +214,7 @@ func (rt *controllerRuntime) serve() error {
 	defer rt.cancelAllWatches()
 
 	for {
-		node, err := rt.client.readDocument()
+		node, err := stream.ReadDocument(rt.client.decoder)
 		if err != nil {
 			if err == io.EOF || errors.Is(err, net.ErrClosed) {
 				return nil
@@ -402,7 +402,7 @@ func (rt *controllerRuntime) cancelAllWatches() {
 func (rt *controllerRuntime) reply(resp *api.SessionResponse) error {
 	rt.writeMu.Lock()
 	defer rt.writeMu.Unlock()
-	data, err := resp.ToTony(gomap.EncodeWire(true))
+	data, err := resp.ToTony(api.WireOptions()...)
 	if err != nil {
 		rt.log.Error("failed to encode response", "error", err)
 		return err

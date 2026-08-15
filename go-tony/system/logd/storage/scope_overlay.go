@@ -97,7 +97,10 @@ func (s *Storage) BuildScopeOverlay(scopeID string, commit int64) (*ir.Node, err
 	// value baseline already holds records nothing and loses the path. The index knows
 	// what it wrote; re-state each of those from the scoped view. Plan R3.
 	for _, p := range s.scopeOwnedLeafPaths(scopeID) {
-		v, err := scoped.GetKPath(p)
+		// As it stands, comment and all: the overlay re-states what the scope holds
+		// at this path, and the default answer is the value a path names rather
+		// than the node to put somewhere else (3cdjz00jh12krns4g1n0).
+		v, err := scoped.GetKPathWith(p, ir.WithComments(true))
 		if err != nil || v == nil {
 			continue // absent in the scoped view: the diff's tombstone is what holds it
 		}
@@ -127,7 +130,7 @@ func (s *Storage) BuildScopeOverlay(scopeID string, commit int64) (*ir.Node, err
 			overlay = rooted
 			continue
 		}
-		if overlay, err = tony.Patch(overlay, rooted); err != nil {
+		if overlay, err = api.NextState(overlay, rooted); err != nil {
 			return nil, fmt.Errorf("overlay: merging owned path %q: %w", p, err)
 		}
 	}

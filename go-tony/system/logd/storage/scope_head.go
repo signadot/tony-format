@@ -3,8 +3,8 @@ package storage
 import (
 	"fmt"
 
-	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
@@ -100,7 +100,7 @@ func applyStoredPatch(doc, patch *ir.Node) (*ir.Node, error) {
 	if doc == nil {
 		doc = ir.Null()
 	}
-	next, err := tony.Patch(doc, p)
+	next, err := api.NextState(doc, p)
 	if err != nil {
 		return nil, err
 	}

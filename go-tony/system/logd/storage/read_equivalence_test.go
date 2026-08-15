@@ -98,6 +98,29 @@ func genOps(rng *rand.Rand, n int) []genOp {
 		default:
 			src = fmt.Sprintf(`{k%d: %d}`, rng.Intn(3), i)
 		}
+		// A store keeps comments, so the equivalence has to hold with comments in
+		// the data. This is where the two appliers meet: the head steps patches
+		// through api.NextState while a read folds the stored entries through the
+		// streaming processor, and if they treat comments differently the head
+		// diverges from the read it is checked against -- which is the dependency
+		// section 4 of 3cdjz00jh12krns4g1n0 records. A delete is left alone: it
+		// states absence, and there is nothing there to say anything about.
+		//
+		// This draws one more random number per op, so every generated stream is a
+		// different one from here on. Seeds 88 and 122 fail on the streams that
+		// result, for a reason that has nothing to do with comments: a read whose
+		// snapshot base is the immediately preceding commit misses that commit's
+		// write. It reproduces on 48d3784 with these same streams and no comments
+		// in them -- issue gx8xvgmph12krbjpg1n0. LOGD_SEEDS=150 reaches it; the
+		// default 25 does not, before or after.
+		if src != `!delete` {
+			switch rng.Intn(4) {
+			case 0:
+				src = fmt.Sprintf("# note %d\n%s", i, src)
+			case 1:
+				src = fmt.Sprintf("%s # trailing %d", src, i)
+			}
+		}
 		ops = append(ops, genOp{path: path, src: src, snapshot: rng.Intn(8) == 0})
 	}
 	return ops
@@ -106,7 +129,7 @@ func genOps(rng *rand.Rand, n int) []genOp {
 // applyOp commits one generated op and returns the commit number.
 func applyOp(t *testing.T, s *Storage, o genOp) (int64, error) {
 	t.Helper()
-	n, err := parse.Parse([]byte(o.src))
+	n, err := parse.Parse([]byte(o.src), parse.ParseComments(true))
 	if err != nil {
 		t.Fatalf("parse %q: %v", o.src, err)
 	}

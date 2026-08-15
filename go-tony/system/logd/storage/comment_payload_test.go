@@ -54,14 +54,14 @@ func TestCommentedPayloadIsReadable(t *testing.T) {
 			t.Errorf("the data did not survive: %q missing from\n%s", want, out)
 		}
 	}
-	// No comments survive, because logd does not ask for them: a patch answers
-	// with data unless given mergeop.Comments(true). That is now a policy rather
-	// than two accidents -- a head comment used to be dropped because it is a
-	// wrapper something descended through, while a line comment rode along on
-	// the node and was kept, so "no comments" meant half of them.
-	for _, gone := range []string{"# the latch", "# leading comment", "# above the field"} {
-		if strings.Contains(out, gone) {
-			t.Errorf("a comment survived a store that did not ask for comments: %q in\n%s", gone, out)
+	// The comments survive too. A store keeps what it is given, so there is no
+	// policy here to get wrong and nothing to configure: writing through
+	// api.NextState keeps them, and a caller who wants data alone strips it from
+	// the answer. This used to assert the opposite, when every patch stripped
+	// them and a flag was going to decide it (3cdjz00jh12krns4g1n0).
+	for _, want := range []string{"# the latch", "# leading comment", "# above the field"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("a comment did not survive the store: %q missing from\n%s", want, out)
 		}
 	}
 }

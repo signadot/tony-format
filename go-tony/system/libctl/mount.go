@@ -2,14 +2,13 @@ package libctl
 
 import (
 	"fmt"
-	"io"
 	"net"
 	"time"
 
-	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/stream"
 	"github.com/signadot/tony-format/go-tony/system/docd/api"
+	logdapi "github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
 // MountClient manages a controller's connection to docd.
@@ -160,7 +159,7 @@ func (c *MountClient) handshake(cfg *MountConfig) error {
 
 // sendRequest sends a mount request to docd.
 func (c *MountClient) sendRequest(req *api.MountRequest) error {
-	data, err := req.ToTony(gomap.EncodeWire(true))
+	data, err := req.ToTony(logdapi.WireOptions()...)
 	if err != nil {
 		return fmt.Errorf("failed to encode request: %w", err)
 	}
@@ -172,7 +171,7 @@ func (c *MountClient) sendRequest(req *api.MountRequest) error {
 
 // readResponse reads a mount response from docd.
 func (c *MountClient) readResponse() (*api.MountResponse, error) {
-	node, err := c.readDocument()
+	node, err := stream.ReadDocument(c.decoder)
 	if err != nil {
 		return nil, err
 	}
@@ -185,32 +184,6 @@ func (c *MountClient) readResponse() (*api.MountResponse, error) {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 	return &resp, nil
-}
-
-// readDocument reads events until we have a complete document.
-func (c *MountClient) readDocument() (*ir.Node, error) {
-	var events []stream.Event
-	started := false
-
-	for {
-		event, err := c.decoder.ReadEvent()
-		if err != nil {
-			if err == io.EOF {
-				if len(events) > 0 {
-					return stream.EventsToNode(events)
-				}
-				return nil, io.EOF
-			}
-			return nil, err
-		}
-
-		events = append(events, *event)
-		started = true
-
-		if started && c.decoder.Depth() == 0 {
-			return stream.EventsToNode(events)
-		}
-	}
 }
 
 // DocdID returns the docd server ID from the handshake.
@@ -270,7 +243,7 @@ func (c *MountClient) Unmount(forceAfter *time.Duration) error {
 	}
 	// docd drains, removes the mount, then closes the connection; EOF is completion.
 	for {
-		if _, err := c.readDocument(); err != nil {
+		if _, err := stream.ReadDocument(c.decoder); err != nil {
 			return nil
 		}
 	}

@@ -61,7 +61,13 @@ func Encode(node *ir.Node, w io.Writer, opts ...EncodeOption) error {
 		es.brackets = es.format.IsJSON()
 	}
 	if es.comments {
-		es.comments = !es.format.IsJSON() && !es.wire
+		// JSON has nowhere to put a comment. Wire does, and used to be refused
+		// here: the compact form is one line and a '#' runs to the end of one, so
+		// comments and wire looked incompatible. They are not -- a comment simply
+		// ends its line, and everything else stays compact. That is what a session
+		// needs, since a store keeps what it is given and the wire is how it is
+		// given (3cdjz00jh12krns4g1n0).
+		es.comments = !es.format.IsJSON()
 	}
 	if err := encode(node, w, es); err != nil {
 		return err
@@ -75,7 +81,14 @@ func Encode(node *ir.Node, w io.Writer, opts ...EncodeOption) error {
 	if node.Type == ir.CommentType && len(node.Values) == 1 {
 		trailing = node.Values[0].Comment
 	}
+	// The wire form ends where the document ends. Text ends it with a newline;
+	// wire does not, and must not start doing so because comments were asked for
+	// -- a message would then arrive with a byte its reader never saw before,
+	// which for anything counting them is a second message.
 	if trailing == nil {
+		if es.wire {
+			return nil
+		}
 		return writeString(w, "\n")
 	}
 	lines := []string{}
@@ -88,6 +101,9 @@ func Encode(node *ir.Node, w io.Writer, opts ...EncodeOption) error {
 		lines = trailing.Lines[1:]
 	}
 	if len(lines) == 0 {
+		if es.wire {
+			return nil
+		}
 		return writeString(w, "\n")
 	}
 	if err := writeString(w, "\n"); err != nil {
@@ -105,6 +121,20 @@ func Encode(node *ir.Node, w io.Writer, opts ...EncodeOption) error {
 }
 
 // Helper functions for writing
+// writeCommentNL ends the line a comment is on.
+//
+// A comment runs to the end of its line, so whatever follows one has to start a
+// new line -- in the compact wire form too, where writeNL is otherwise a no-op.
+// It is the only newline wire writes, and it writes no indent with it: the line
+// break is the format's requirement, the layout is not.
+func writeCommentNL(w io.Writer, es *EncState) error {
+	if !es.wire {
+		return writeNL(w, es)
+	}
+	es.atCol0 = true
+	return writeString(w, "\n")
+}
+
 func writeNL(w io.Writer, es *EncState) error {
 	if es.wire {
 		return nil
@@ -629,10 +659,12 @@ func encodeObjectValue(node *ir.Node, w io.Writer, es *EncState) error {
 }
 
 func encodeCommentUnderField(node *ir.Node, w io.Writer, es *EncState) error {
-	if !es.wire {
-		if err := writeNL(w, es); err != nil {
-			return err
-		}
+	// The comment heads the field's VALUE, so it has to start a line of its own:
+	// left on the key's line it is a line comment on the key instead, which is a
+	// different association and, in the compact wire form, the one the tokenizer
+	// made -- "spec:# above replicas" went out and came back as nothing at all.
+	if err := writeCommentNL(w, es); err != nil {
+		return err
 	}
 	err := encode(node, w, es)
 	return err
@@ -1023,7 +1055,7 @@ func encodeComment(node *ir.Node, w io.Writer, es *EncState) error {
 		if !endNL && i == len(node.Lines)-1 {
 			continue
 		}
-		if err := writeNL(w, es); err != nil {
+		if err := writeCommentNL(w, es); err != nil {
 			return err
 		}
 	}
@@ -1104,7 +1136,16 @@ func writeLineCommentLines(w io.Writer, c *ir.Node, es *EncState) error {
 	ln := c.Lines[0]
 	es.atCol0 = false
 	ln = applyValueColor(es, ir.CommentType, ln)
-	return writeString(w, ln)
+	if err := writeString(w, ln); err != nil {
+		return err
+	}
+	// In text form the structure around this writes the newline before whatever
+	// comes next. Wire writes none, so the comment would swallow the rest of the
+	// document: end the line here.
+	if es.wire {
+		return writeCommentNL(w, es)
+	}
+	return nil
 }
 
 func doBlockLit(node *ir.Node, es *EncState) bool {

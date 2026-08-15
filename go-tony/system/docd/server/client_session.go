@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/stream"
 	logdapi "github.com/signadot/tony-format/go-tony/system/logd/api"
@@ -174,7 +173,7 @@ func (s *ClientSession) Run() error {
 // owning controller or, for base/session operations, to logd.
 func (s *ClientSession) routeClientRequests() error {
 	for {
-		node, err := decodeDocument(s.clientDec)
+		node, err := stream.ReadDocument(s.clientDec)
 		if err != nil {
 			return ignoreClosed(err)
 		}
@@ -323,7 +322,7 @@ func (s *ClientSession) serveMeta(req *logdapi.SessionRequest) {
 // client. Serialized against controller responses via writeToClient.
 func (s *ClientSession) pumpLogdToClient() error {
 	for {
-		node, err := decodeDocument(s.logdDec)
+		node, err := stream.ReadDocument(s.logdDec)
 		if err != nil {
 			return ignoreClosed(err)
 		}
@@ -526,7 +525,7 @@ func (s *ClientSession) routeFor(req *logdapi.SessionRequest) (routeDest, *Mount
 func (s *ClientSession) writeToLogd(req *logdapi.SessionRequest) error {
 	s.logdWMu.Lock()
 	defer s.logdWMu.Unlock()
-	data, err := req.ToTony(gomap.EncodeWire(true))
+	data, err := req.ToTony(logdapi.WireOptions()...)
 	if err != nil {
 		return fmt.Errorf("failed to encode request: %w", err)
 	}
@@ -545,7 +544,7 @@ func (s *ClientSession) writeToClient(resp *logdapi.SessionResponse) error {
 	// sessions) from racing on a shared node.
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	data, err := resp.ToTony(gomap.EncodeWire(true))
+	data, err := resp.ToTony(logdapi.WireOptions()...)
 	if err != nil {
 		return fmt.Errorf("failed to encode response: %w", err)
 	}
@@ -653,33 +652,6 @@ func requestPath(req *logdapi.SessionRequest) string {
 		return req.Unwatch.Path
 	}
 	return ""
-}
-
-// decodeDocument reads events from the decoder until a complete document is
-// available.
-func decodeDocument(decoder *stream.Decoder) (*ir.Node, error) {
-	var events []stream.Event
-	started := false
-
-	for {
-		event, err := decoder.ReadEvent()
-		if err != nil {
-			if err == io.EOF {
-				if len(events) > 0 {
-					return stream.EventsToNode(events)
-				}
-				return nil, io.EOF
-			}
-			return nil, err
-		}
-
-		events = append(events, *event)
-		started = true
-
-		if started && decoder.Depth() == 0 {
-			return stream.EventsToNode(events)
-		}
-	}
 }
 
 // ignoreClosed folds the expected end-of-connection signals (EOF, closed conn)

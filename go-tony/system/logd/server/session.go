@@ -9,7 +9,6 @@ import (
 	"time"
 
 	tony "github.com/signadot/tony-format/go-tony"
-	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/mergeop"
@@ -147,7 +146,7 @@ func (s *Session) reader() error {
 		// Read a complete document (events until depth returns to 0).
 		// This blocks until data arrives or connection is closed.
 		// The connection closer goroutine in Run() ensures we unblock on shutdown.
-		node, err := s.readDocument(decoder)
+		node, err := stream.ReadDocument(decoder)
 		if err != nil {
 			if err == io.EOF {
 				return nil
@@ -177,34 +176,6 @@ func (s *Session) reader() error {
 	}
 }
 
-// readDocument reads events until we have a complete document (depth returns to 0).
-func (s *Session) readDocument(decoder *stream.Decoder) (*ir.Node, error) {
-	var events []stream.Event
-	started := false
-
-	for {
-		event, err := decoder.ReadEvent()
-		if err != nil {
-			if err == io.EOF {
-				// EOF while reading - convert any accumulated events
-				if len(events) > 0 {
-					return stream.EventsToNode(events)
-				}
-				return nil, io.EOF
-			}
-			return nil, err
-		}
-
-		events = append(events, *event)
-		started = true
-
-		// Check if document is complete (depth back to 0)
-		if started && decoder.Depth() == 0 {
-			return stream.EventsToNode(events)
-		}
-	}
-}
-
 // writer sends outgoing responses and events. It exits when the session is done
 // rather than when outgoing is closed: outgoing is deliberately never closed, so
 // that a late send() from a forwardEvents/failWatch goroutine racing shutdown can
@@ -217,8 +188,11 @@ func (s *Session) writer() {
 		case <-s.done:
 			return
 		case resp := <-s.outgoing:
-			// Use wire format to match client's WithBrackets() decoder
-			data, err := resp.ToTony(gomap.EncodeWire(true))
+			// Use wire format to match client's WithBrackets() decoder. Comments
+			// go with it: a store keeps what it is given (api.NextState), and a
+			// read that dropped them on the way out would make that pointless.
+			// The wire form stays compact except where a comment ends its line.
+			data, err := resp.ToTony(api.WireOptions()...)
 			if err != nil {
 				s.log.Error("failed to encode response", "error", err)
 				continue
@@ -851,7 +825,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 				// the streaming processor's patch-root markers, not part of the value; the
 				// send below strips for the same reason.
 				tx.StripPatchRootTagRecursive(patch.Patch)
-				stepped, err := tony.Patch(curDoc, patch.Patch)
+				stepped, err := api.NextState(curDoc, patch.Patch)
 				if err != nil {
 					s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to apply patch at commit %d: %v", patch.Commit, err), lastDelivered)
 					return
@@ -962,7 +936,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 			// Step the document by this commit's delta instead of rebuilding it from the
 			// last snapshot. notification.Patch is already the tick's private, stripped
 			// copy, so it can be applied as-is and is not mutated by Patch.
-			stepped, err := tony.Patch(curDoc, notification.Patch)
+			stepped, err := api.NextState(curDoc, notification.Patch)
 			if err != nil {
 				s.log.Error("failed to apply patch for watch", "path", path, "commit", notification.Commit, "error", err)
 				s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to apply patch at commit %d: %v", notification.Commit, err), lastDelivered)

@@ -8,10 +8,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/stream"
+	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
@@ -72,6 +72,20 @@ func (sp *StreamingProcessor) ApplyPatches(baseEvents stream.EventReader, patche
 		collected, err := collector.ProcessEvent(ev)
 		if err != nil {
 			return err
+		}
+
+		// The collector holds a comment for the value it describes, so that the
+		// value is patched WITH it. Exactly one of the two owns each event: what it
+		// hands back was held for a value it did not collect and belongs in the
+		// stream here, and what it took must not also be written
+		// (3cdjz00jh12krns4g1n0).
+		for _, held := range collector.Release() {
+			if err := sink.WriteEvent(&held); err != nil {
+				return err
+			}
+		}
+		if collector.Took() {
+			continue
 		}
 
 		// If we collected a complete subtree, apply patches and emit
@@ -159,7 +173,7 @@ func (sp *StreamingProcessor) ApplyPatches(baseEvents stream.EventReader, patche
 			if result == nil {
 				result = ir.Null()
 			}
-			next, err := tony.Patch(result, patch)
+			next, err := api.NextState(result, patch)
 			if err != nil {
 				return err
 			}
@@ -383,7 +397,9 @@ func subtreeAt(patch *ir.Node, path string) (*ir.Node, bool) {
 	if path == "" {
 		return patch, true
 	}
-	sub, err := patch.GetKPath(path)
+	// The entry's node AS IT STANDS, comment and all: this is the patch that will
+	// be applied at the dominating path, not an answer to what the path names.
+	sub, err := patch.GetKPathWith(path, ir.WithComments(true))
 	if err != nil || sub == nil {
 		return nil, false
 	}
@@ -392,19 +408,21 @@ func subtreeAt(patch *ir.Node, path string) (*ir.Node, bool) {
 
 // walkAndCollectPatchRoots walks the IR tree and collects nodes with PatchRootTag.
 func walkAndCollectPatchRoots(node *ir.Node, path string, fn func(node *ir.Node, path string)) {
-	// A comment wraps the value it precedes, so the tag a patch root is found by
-	// sits on the node INSIDE the wrapper and the switch below sees a comment
-	// rather than a container. Left wrapped, a commented patch root was neither
-	// collected nor descended into, and the patch applied nothing at all
-	// (3cdjz00jh12krns4g1n0). What the wrapper says is dropped here rather than
-	// carried into the value being installed; that is a comment-policy question
-	// and it belongs with the store flag, not with finding the roots.
-	node = ir.Uncomment(node)
-
-	if tx.HasPatchRootTag(node) {
+	// A patch root is found by its tag, and a comment moves where that tag sits:
+	// TagPatchRoots tags the node it is handed, which is the WRAPPER when the patch
+	// was written with a leading comment. Looked for only on the wrapper, a
+	// commented patch was never collected and applied nothing at all; looked for
+	// only inside it, the same. Both, then -- and fn gets the node as it stands, so
+	// what the comment says travels with the value being installed rather than
+	// being dropped on the way in (3cdjz00jh12krns4g1n0).
+	//
+	// The switch below is a different question -- what KIND of node is this -- and
+	// a comment is not a kind of container, so it descends through the wrapper.
+	if tx.HasPatchRootTag(node) || tx.HasPatchRootTag(ir.Uncomment(node)) {
 		fn(node, path)
 		return // Don't recurse into patched subtrees
 	}
+	node = ir.Uncomment(node)
 
 	switch node.Type {
 	case ir.ObjectType:
@@ -459,7 +477,7 @@ func applyPatchesToNode(base *ir.Node, patches []*ir.Node) (*ir.Node, error) {
 		if result == nil {
 			result = ir.Null()
 		}
-		next, err := tony.Patch(result, patch)
+		next, err := api.NextState(result, patch)
 		if err != nil {
 			return nil, err
 		}
@@ -684,7 +702,7 @@ func (u *unreachedPatches) graftUpTo(f unreachedFrame, before string, sink strea
 			if nested == nil {
 				continue // nothing to add here
 			}
-			node, err = tony.Patch(node, nested)
+			node, err = api.NextState(node, nested)
 			if err != nil {
 				return err
 			}
@@ -698,7 +716,13 @@ func (u *unreachedPatches) graftUpTo(f unreachedFrame, before string, sink strea
 		// of the same path net out, and the key is simply absent from the folded node,
 		// exactly as it would be if the entries had been applied to the document
 		// directly. Nothing to graft, so nothing to emit.
-		value, err := node.GetKPath(seg)
+		// WithComments, because this is not asking what the path NAMES -- it is
+		// taking the node to put it back into the stream. The default answer is the
+		// value a path names, which is right for a reader and wrong here: the graft
+		// re-emitted the value without what had been said above it, so a write to a
+		// path the base does not contain arrived comment-less while the stepped
+		// head kept it (3cdjz00jh12krns4g1n0).
+		value, err := node.GetKPathWith(seg, ir.WithComments(true))
 		if err != nil || value == nil {
 			continue
 		}
@@ -745,7 +769,7 @@ func (u *unreachedPatches) replaceScalar(path string, ev *stream.Event, sink str
 		if base == nil {
 			base = ir.Null()
 		}
-		base, err = tony.Patch(base, nested)
+		base, err = api.NextState(base, nested)
 		if err != nil {
 			return false, err
 		}
@@ -837,7 +861,7 @@ func nestUnder(rest string, values []*ir.Node) (*ir.Node, error) {
 		if node == nil {
 			node = ir.Null()
 		}
-		next, err := tony.Patch(node, wrapped)
+		next, err := api.NextState(node, wrapped)
 		if err != nil {
 			return nil, err
 		}
