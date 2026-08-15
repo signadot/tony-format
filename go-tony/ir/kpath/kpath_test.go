@@ -1376,3 +1376,59 @@ func kpathEqual(a, b *KPath) bool {
 	}
 	return kpathEqual(a.Next, b.Next)
 }
+
+// TestJoinPrefixOfManySegments: Join read its prefix as a SINGLE segment, so a
+// longer one became a field name with dots in it -- and building a path a
+// segment at a time, which is the ordinary way to use this, produced a path
+// naming somewhere else:
+//
+//	Join(Join("a", "b"), "c")  ->  "a.b".c
+//
+// It parsed and it round tripped, so nothing caught it. docd builds every mount
+// path this way, so any mount three levels deep was wrong.
+func TestJoinPrefixOfManySegments(t *testing.T) {
+	for _, tc := range []struct{ prefix, suffix, want string }{
+		{"a", "b.c", "a.b.c"},
+		{"a.b", "c", "a.b.c"},
+		{"a.b.c", "d", "a.b.c.d"},
+		{"a", "[0]", "a[0]"},
+		{"[0]", "b", "[0].b"},
+		{"a[0]", "b", "a[0].b"},
+		{"a.b", "[0].c", "a.b[0].c"},
+		{"a", "", "a"},
+		{"", "b", "b"},
+		// a field that really does contain a dot stays one segment
+		{`"a.b"`, "c", `"a.b".c`},
+		{"a", `"b.c"`, `a."b.c"`},
+	} {
+		if got := Join(tc.prefix, tc.suffix); got != tc.want {
+			t.Errorf("Join(%q, %q) = %q, want %q", tc.prefix, tc.suffix, got, tc.want)
+		}
+	}
+}
+
+// TestJoinBuildsSegmentAtATime is how callers use it: accumulate, and the result
+// must have as many segments as it was given.
+func TestJoinBuildsSegmentAtATime(t *testing.T) {
+	for _, fields := range [][]string{
+		{"a", "b", "c"},
+		{"a", "b", "c", "d", "e"},
+		{"example.com", "tls", "1.2.3"},
+	} {
+		p := Field(fields[0]).String()
+		for _, f := range fields[1:] {
+			p = Join(p, Field(f).String())
+		}
+		segs := SplitAll(p)
+		if len(segs) != len(fields) {
+			t.Fatalf("building %q gave %q: %d segments, want %d", fields, p, len(segs), len(fields))
+		}
+		for i, seg := range segs {
+			name, ok := SegmentFieldName(seg)
+			if !ok || name != fields[i] {
+				t.Errorf("building %q gave %q: segment %d is %q (field %q, ok=%v)",
+					fields, p, i, seg, name, ok)
+			}
+		}
+	}
+}

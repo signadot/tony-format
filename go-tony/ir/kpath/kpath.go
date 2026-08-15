@@ -522,14 +522,25 @@ func segmentToString(kp *KPath) string {
 	return ""
 }
 
-// Join joins a prefix segment with a suffix kinded path.
-// The prefix should be a single segment (field name, [index], or {index}).
-// Returns the combined kinded path string.
+// Join joins two kinded paths. Either may be one segment or many.
+//
+// The prefix used to be read as a SINGLE segment, and a longer one was taken as
+// a field name with dots in it -- so joining onto a path that had itself been
+// joined collapsed everything before the last step into one field:
+//
+//	Join("a.b", "c")  ->  "a.b".c    two segments, the first a field named `a.b`
+//
+// It parsed, it round tripped, and it named a different place. Building a path a
+// segment at a time is the ordinary way to use this -- docd builds every mount
+// path that way -- so any path three levels deep came out wrong, silently
+// (3cdjz00jh12krns4g1n0 follow-up).
 //
 // Examples:
 //   - Join("a", "b.c") → "a.b.c"
+//   - Join("a.b", "c") → "a.b.c"
 //   - Join("a", "[0]") → "a[0]"
 //   - Join("[0]", "b") → "[0].b"
+//   - Join("'a.b'", "c") → "'a.b'.c"   a field that really does contain a dot
 //   - Join("a", "") → "a"
 //   - Join("", "b") → "b"
 func Join(prefix string, suffix string) string {
@@ -548,10 +559,11 @@ func Join(prefix string, suffix string) string {
 		return prefix + suffix
 	}
 
-	// Parse prefix as a single segment
-	prefixKp, err := parseSingleSegment(prefix)
-	if err != nil {
-		// If prefix doesn't parse as a segment, just concatenate (fallback)
+	// Parse the prefix as a PATH: it may be one segment or many, and reading it as
+	// one turned every earlier segment into part of a field name.
+	prefixKp, err := Parse(prefix)
+	if err != nil || prefixKp == nil {
+		// If prefix doesn't parse, just concatenate (fallback)
 		return prefix + suffix
 	}
 
@@ -569,87 +581,6 @@ func Join(prefix string, suffix string) string {
 	last.Next = suffixKp
 
 	return prefixKp.String()
-}
-
-// parseSingleSegment parses a single segment string into a KPath.
-// Handles: field names (quoted or unquoted), [index], {index}, [*], {*}, .*, (key)
-func parseSingleSegment(seg string) (*KPath, error) {
-	if seg == "" {
-		return nil, fmt.Errorf("empty segment")
-	}
-
-	kp := &KPath{}
-
-	// Check for wildcards first
-	// TODO tokenize this to allow spaces
-	if seg == ".*" {
-		kp.FieldAll = true
-		return kp, nil
-	}
-	if seg == "[*]" {
-		kp.IndexAll = true
-		return kp, nil
-	}
-	if seg == "{*}" {
-		kp.SparseIndexAll = true
-		return kp, nil
-	}
-
-	// Check for array/sparse array indices
-	if len(seg) > 0 && seg[0] == '[' {
-		if seg[len(seg)-1] != ']' {
-			return nil, fmt.Errorf("unclosed bracket in segment %q", seg)
-		}
-		indexStr := seg[1 : len(seg)-1]
-		if indexStr == "*" {
-			kp.IndexAll = true
-		} else {
-			index, err := strconv.Atoi(indexStr)
-			if err != nil {
-				return nil, fmt.Errorf("invalid array index %q: %w", indexStr, err)
-			}
-			kp.Index = &index
-		}
-		return kp, nil
-	}
-
-	if len(seg) > 0 && seg[0] == '{' {
-		if seg[len(seg)-1] != '}' {
-			return nil, fmt.Errorf("unclosed brace in segment %q", seg)
-		}
-		indexStr := seg[1 : len(seg)-1]
-		if indexStr == "*" {
-			kp.SparseIndexAll = true
-		} else {
-			index, err := strconv.Atoi(indexStr)
-			if err != nil {
-				return nil, fmt.Errorf("invalid sparse index %q: %w", indexStr, err)
-			}
-			kp.SparseIndex = &index
-		}
-		return kp, nil
-	}
-
-	if len(seg) > 0 && seg[0] == '(' {
-		if seg[len(seg)-1] != ')' {
-			return nil, fmt.Errorf("unclosed paren in segment %q", seg)
-		}
-		key := seg[1 : len(seg)-1]
-		if len(key) > 0 && key[0] == '\'' || key[0] == '"' {
-			key = token.QuotedToString([]byte(key))
-		}
-		kp.Key = &key
-		return kp, nil
-	}
-
-	// Must be a field name (possibly quoted)
-	field := seg
-	if (seg[0] == '"' || seg[0] == '\'') && seg[len(seg)-1] == seg[0] {
-		// Quoted field - unquote it
-		field = token.QuotedToString([]byte(seg))
-	}
-	kp.Field = &field
-	return kp, nil
 }
 
 // parseKFrag parses a fragment of a kinded path string.
