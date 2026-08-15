@@ -260,6 +260,45 @@ it. It was found because comments forced a read to be checked against the docume
        C, the read window -- 5d40481
        and the three above, 490e220 and 1c8dc80
   3. the equality policy (4) -- DONE, 48d3784: one function, api.SameState, and it counts comments
-  4. then the store flag, which by then really is a flag
+  4. the store flag -- DONE, fb23481: there is no flag
 
-logd deliberately does not turn it on (168e8ca).
+## 6. The flag, and why there is none (fb23481)
+
+The last step was going to be a flag, and working out what it would do across restarts is
+what retired it. A flag makes a store's comment policy a property of the PROCESS rather
+than of the data:
+
+  - off -> on is safe but not retroactive: what was stripped on the way in is gone
+  - on -> off does not hide comments, it LOSES them, a subtree at a time. Reads go blind
+    immediately while the log still holds them, and then the snapshot builder forwards
+    untouched base events verbatim while rebuilding patched subtrees with comments off --
+    so they survive where nobody wrote and vanish where anybody did. Turning it back on
+    returns half a document, which is worse than none because it looks like it worked.
+  - it does not even need a restart: a server and a compactor on one directory with
+    different values do the same silent narrowing
+  - and !comment is in the storage vocabulary, so with comments off a store would accept
+    and store an operation that does nothing, against that vocabulary's own rule
+
+So comments are always kept, and a client that wants data alone strips them from the
+answer -- one call, and one that cannot be applied to somebody else's store by accident.
+
+What that took, beyond the decision: the wire had to carry comments at all (the decoder
+dropped the tokens; wire encoding refused them because a '#' runs to the end of a line,
+which is answered by letting a comment end its line and leaving everything else compact),
+and eleven patch sites had to stop stripping. Three carriage bugs surfaced once the
+randomized equivalence tests had comments in their data -- the patch-root tag written onto
+a comment wrapper, which nothing carries and which cost the whole subtree; the subtree
+collector taking a head comment FOR its value, which duplicated a key; and two
+re-emission sites asking GetKPath for a node when they wanted it as it stands. All three
+are the same shape: a comment is not a value, and a tag, a patch root and a path answer
+each belong to the value.
+
+The equivalence tests now run with comments throughout, which is where a stepped head and
+a folded read are held to the same document.
+
+One thing that soak turned up is NOT ours: seeds 88 and 122 fail because a read whose
+snapshot base is the immediately preceding commit misses that commit's write. It
+reproduces on 48d3784 with the same streams and no comments in them --
+gx8xvgmph12krbjpg1n0.
+
+logd no longer deliberately does not turn it on (168e8ca is superseded).
