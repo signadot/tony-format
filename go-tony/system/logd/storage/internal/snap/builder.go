@@ -78,6 +78,12 @@ func (b *Builder) onEvent(ev *stream.Event) error {
 	}
 	// initialize chunk if not yet initialized
 	// this will refer to the path after processing this event
+	//
+	// A chunk begins at a value start, and a head comment precedes its value, so
+	// a comment can fall at the end of the chunk before the one holding what it
+	// describes. Harmless while logd stores no comments; verified before it does
+	// -- 3cdjz00jh12krns4g1n0, which is where a comment silently changing which
+	// value it belongs to would be found.
 	if b.chunkPath == nil {
 		p := b.state.CurrentPath()
 		b.chunkPath = &p

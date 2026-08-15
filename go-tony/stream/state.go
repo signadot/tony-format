@@ -130,8 +130,15 @@ func (s *State) ProcessEvent(event *Event) error {
 		cur.segment = kpath.SparseIndex(int(event.IntKey))
 
 	case EventHeadComment, EventLineComment:
-		// Comment events - don't affect state (Phase 1: no-op, Phase 2: may affect path)
-		// For now, comments don't change state
+		// A comment does not move the path: it describes the value it precedes
+		// or follows, and that value's path is its own. Nothing here to do.
+		//
+		// It does sit at a position, though, and the snapshot builder starts a
+		// chunk at a VALUE start -- so a head comment written just before one
+		// lands in the previous chunk. That is unverified: if logd ever stores
+		// comments (3cdjz00jh12krns4g1n0), a partial read from a chunk offset
+		// has to see the comment its value carries, or a comment moves to
+		// another value on the way back. See snap.Builder.onEvent.
 	}
 	return nil
 }

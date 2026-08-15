@@ -148,6 +148,10 @@ func (s *Storage) CheckHead() {
 
 // nodeEqual compares two possibly-nil documents. Empty state reads back as nil, so the
 // nil cases are ordinary rather than exceptional.
+// DeepEqual is comment blind, so head agreement is about the DATA. If logd ever
+// stores comments (3cdjz00jh12krns4g1n0), this has to move to
+// DeepEqualWithComments along with the watch paths in server/session.go, or two
+// heads differing only in a comment read as agreeing.
 func nodeEqual(a, b *ir.Node) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil

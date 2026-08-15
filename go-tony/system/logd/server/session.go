@@ -861,6 +861,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 				// Accounted for either way: a commit that changed nothing under this path
 				// still leaves the watch correct through it, so it is a valid resume point.
 				lastDelivered = patch.Commit
+				// See the note on comments at emitScopedDeltaFrom.
 				if newSub.DeepEqual(prevDoc) {
 					continue
 				}
@@ -971,6 +972,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 			newSub := subtreeOf(curDoc, path)
 			// Accounted for whether or not it changed anything here (see the replay loop).
 			lastDelivered = notification.Commit
+			// See the note on comments at emitScopedDeltaFrom.
 			if newSub.DeepEqual(prevDoc) {
 				continue
 			}
@@ -1196,6 +1198,12 @@ func (s *Session) emitScopedDelta(id *string, path string, commit int64, prev *i
 // emitScopedDeltaFrom sends the change between prev and newDoc, both already trimmed to
 // the watched path.
 func (s *Session) emitScopedDeltaFrom(id *string, path string, commit int64, prev, newDoc *ir.Node) (*ir.Node, error) {
+	// DeepEqual is comment blind, so this asks "did the DATA change". If logd ever
+	// stores comments (3cdjz00jh12krns4g1n0), this and its three siblings -- the two
+	// watch paths in session.go and nodeEqual in storage/head.go -- have to move to
+	// DeepEqualWithComments, or a comment-only edit is written to the log and then
+	// dropped from every watch: the store and its watchers disagreeing about whether
+	// anything happened.
 	if newDoc.DeepEqual(prev) {
 		return prev, nil
 	}
