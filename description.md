@@ -188,21 +188,54 @@ a comment node where it expects the tagged patch, and whether a patch's own comm
 the stored value is a comment-policy question, not a question about finding roots. It belongs with
 the store flag, step 4 below. Recorded at the call site.
 
-### the rule to build to
+### the rule to build to -- HOLDS as of 5d40481
 
 For every path in a commented document, ReadPath(p) equals ir.GetKPath(doc, p) under
 DeepEqualWithComments. That composes, it is the only rule consistent with (A) -- a node's own head
 comment is part of the value at its path -- and it settles (4) by using it.
 
-Recorded in the code at stream/state.go's comment case and snap.Builder.onEvent.
+Verified at chunk sizes 1, 64 and 4096, so the boundary falls somewhere different in each, over a
+document commented at every position: above the document, above a field, after a value, inside a
+nested object, above and after an array element. ReadPathEventReader is held to the same window and
+checked against ReadPath rather than trusted to have been edited alongside it.
+
+### what the building turned up
+
+Three things, none of which the analysis predicted, each fixed with the piece it blocked.
+
+The IR had a shape it does not have. docs/ir.md says a comment node holds "a non-comment node", and
+the parser nested them: a comment above a key and a comment above the first line of the block that
+follows it are attributed to the same value -- it is the next value to BEGIN in both cases -- and
+each wrapped it in turn. The stream cannot carry the difference, since one wrapper of two lines and
+two wrappers write the same two events, so what went in did not come back and the OUTER comment
+was the one lost. Preceding comments now compose as lines of one node, which is what the spec
+describes; NodeToEvents and EventsToNode refuse the shape rather than losing it (490e220).
+
+A line comment was attached a level too high. EventsToNode put it on the wrapper when a value had
+both a head and a line comment, where the parser and !comment both put it on the value inside. A
+value carrying both came back from the stream comparing as different to the document it was written
+from (490e220).
+
+A path that exists read as absent, with no comments involved at all. snap.Index.Lookup binary
+searched entries held in DOCUMENT order with a comparator that orders by NAME. logd's own snapshots
+satisfy both, because storage sorts object keys -- an unstated, unchecked precondition. On a
+document in any other field order the search landed past the target and the read scanned to the end
+and found nothing, without an error. The precondition is checked now, once per index; when it holds
+the search is unchanged, and when it does not the answer falls back to the deepest ancestor, which
+needs no ordering assumption (1c8dc80).
+
+The last one is worth reading twice: it is the same shape as the bug this issue came from, it was
+live for any store holding a document logd did not write, and nothing in the comments work caused
+it. It was found because comments forced a read to be checked against the document it came from.
 
 ## Order of work
 
   1. the comment op (3) -- DONE, dcdaead
-  2. path attribution (5), in this order, because each one makes the next testable:
-       E, the dlog index -- data loss, blocks enabling comments at all
-       D, the chunk offset -- C is untestable at a boundary until this lands
-       C, the read window
+  2. path attribution (5) -- DONE:
+       E, the dlog index -- edabbd6, and ir.listKPath with it
+       D, the chunk offset -- 5d40481
+       C, the read window -- 5d40481
+       and the three above, 490e220 and 1c8dc80
   3. choose the equality policy at logd's four sites (4)
   4. then the store flag, which by then really is a flag
 
