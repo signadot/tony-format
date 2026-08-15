@@ -125,7 +125,15 @@ func fromIRReflectWithVisited(node *ir.Node, val reflect.Value, fieldPath string
 	}
 
 	// Handle Head Comments (CommentType wrapping the value)
-	if node.Type == ir.CommentType {
+	//
+	// A pointer to a struct is allocated and re-entered with this same node, and
+	// the struct that names a field for the comment is only reached on that pass:
+	// unwrapping here took the comment off first, so a *T field decoded without
+	// what was said above it while a T field kept it (3cdjz00jh12krns4g1n0).
+	// Anything else unwraps here as before -- a TextUnmarshaler wants the string
+	// under the comment, not the comment.
+	deferToPointedStruct := val.Kind() == reflect.Ptr && val.Type().Elem().Kind() == reflect.Struct
+	if node.Type == ir.CommentType && !deferToPointedStruct {
 		// Check if we need to extract comments into the struct
 		if val.Kind() == reflect.Struct {
 			if schema, err := GetStructSchema(val.Type()); err == nil && schema != nil {
@@ -923,6 +931,15 @@ func fromIRToStruct(node *ir.Node, val reflect.Value, fieldPath string, visited 
 	var embeddedCodecs [][]int
 	if err := collectStructFields(typ, nil, structFieldMap, &embeddedCodecs, fieldPath); err != nil {
 		return err
+	}
+
+	// A comment carrier is filled from the comments ON the node, above, and is not
+	// a member of the object. Left in the map, a document with a literal Comments:
+	// key would overwrite what the head comment said, and the encode side no
+	// longer writes such a key at all (3cdjz00jh12krns4g1n0).
+	if structSchema, err := GetStructSchema(typ); err == nil && structSchema != nil {
+		delete(structFieldMap, structSchema.CommentFieldName)
+		delete(structFieldMap, structSchema.LineCommentFieldName)
 	}
 
 	// An embedded type with a decoder of its own is handed the WHOLE object. The

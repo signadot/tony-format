@@ -383,10 +383,21 @@ func isZeroForOmit(v reflect.Value) bool {
 func toIRReflectStruct(val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...MapOption) (*ir.Node, error) {
 	typ := val.Type()
 
+	// comment= and lineComment= name fields that CARRY comments rather than hold
+	// data. Decoding fills them; encoding used to do neither half -- it did not
+	// write the comments back, and it wrote the fields themselves out as ordinary
+	// keys, so a struct that had read "# about the doc" encoded to a document with
+	// a Comments: ["# about the doc"] member in it and no comment anywhere.
+	structSchema, _ := GetStructSchema(typ)
+
 	irMap := make(map[string]*ir.Node)
 
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
+
+		if isCommentCarrier(structSchema, field.Name) {
+			continue
+		}
 
 		fieldVal := val.Field(i)
 
@@ -513,5 +524,52 @@ func toIRReflectStruct(val reflect.Value, fieldPath string, visited map[uintptr]
 		}
 	}
 
-	return ir.FromMap(irMap), nil
+	return applyCommentFields(ir.FromMap(irMap), val, structSchema), nil
+}
+
+// isCommentCarrier reports whether a field holds comments for the node rather
+// than data in it.
+func isCommentCarrier(structSchema *StructSchema, fieldName string) bool {
+	if structSchema == nil || fieldName == "" {
+		return false
+	}
+	return fieldName == structSchema.CommentFieldName || fieldName == structSchema.LineCommentFieldName
+}
+
+// applyCommentFields puts a struct's comments back on the node it encoded to,
+// in the two places the IR keeps them: a head comment wraps the value it
+// precedes, and a line comment rides on the value it follows. It is the inverse
+// of what fromIRReflect reads, so a document that goes out through a struct and
+// comes back is the one that left.
+//
+// Empty means nothing to say, not "no comment": a struct that never had one
+// encodes exactly as it did before, so nothing gains a wrapper it did not have.
+func applyCommentFields(node *ir.Node, val reflect.Value, structSchema *StructSchema) *ir.Node {
+	if node == nil || structSchema == nil {
+		return node
+	}
+	if lines := commentLinesOf(val, structSchema.LineCommentFieldName); len(lines) > 0 {
+		node.Comment = &ir.Node{Type: ir.CommentType, Lines: lines, Parent: node}
+	}
+	if lines := commentLinesOf(val, structSchema.CommentFieldName); len(lines) > 0 {
+		wrap := &ir.Node{Type: ir.CommentType, Lines: lines, Values: []*ir.Node{node}}
+		node.Parent = wrap
+		node.ParentIndex = 0
+		node = wrap
+	}
+	return node
+}
+
+// commentLinesOf reads a named []string field, which is the only type these
+// annotations accept -- comments are lines of text.
+func commentLinesOf(val reflect.Value, fieldName string) []string {
+	if fieldName == "" {
+		return nil
+	}
+	f := val.FieldByName(fieldName)
+	if !f.IsValid() || f.Type() != reflect.TypeOf([]string(nil)) {
+		return nil
+	}
+	lines, _ := f.Interface().([]string)
+	return lines
 }

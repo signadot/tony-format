@@ -256,14 +256,24 @@ Multiple directives can be combined. For example, to capture schema comments:
 type User struct {
     ID   string
     Name string
-    UserComments []string // Populated with schema comments during unmarshaling
+    UserComments []string // the comments above the value, both directions
 }
 ```
 
 Supported directives:
 - `//tony:schemagen=<name>` - Define a new schema
 - `//tony:schema=<name>` - Use an existing schema
-- `//tony:comment=<field>` - Populate field with ir comments
+- `//tony:comment=<field>` - the field carries the comments written ABOVE the value
+- `//tony:lineComment=<field>` - the field carries the comment written after it
+
+Both are read by codegen and by the reflection mapper, spelled the same way, and
+both directions use them: decoding fills the named fields from the comments on
+the node, and encoding puts them back -- a head comment wrapping the value, a
+line comment riding on it. A carrier field is not a member of the object, so it
+is neither written as a key nor read from one.
+
+Empty means nothing to say rather than "no comment": a value whose carrier
+fields are empty encodes exactly as it would without them.
 
 **Note**: If both a struct tag and doc comment directive are present, the struct tag takes precedence.
 

@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/schema"
 )
 
@@ -805,6 +806,13 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 		if field.Omit {
 			continue
 		}
+		// comment= and lineComment= name fields that CARRY comments rather than
+		// hold data, so they are not members of the object. Emitted as fields, a
+		// struct that had read "# note" encoded to a document with a
+		// Comments: ["# note"] key in it (3cdjz00jh12krns4g1n0).
+		if isCommentCarrier(s.StructSchema, field.Name) {
+			continue
+		}
 
 		// Get schema field name
 		schemaFieldName := field.SchemaFieldName
@@ -847,10 +855,16 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 	}
 
 	// Create IR node (with schema tag unless notag is set)
-	if s.StructSchema.NoTag {
-		buf.WriteString("	return ir.FromMap(irMap), nil\n")
+	tagSuffix := ""
+	if !s.StructSchema.NoTag {
+		tagSuffix = fmt.Sprintf(".WithTag(%q)", "!"+s.StructSchema.SchemaName)
+	}
+	if comments := generateCommentsToIR(s.StructSchema); comments != "" {
+		buf.WriteString(fmt.Sprintf("	res := ir.FromMap(irMap)%s\n", tagSuffix))
+		buf.WriteString(comments)
+		buf.WriteString("	return res, nil\n")
 	} else {
-		buf.WriteString(fmt.Sprintf("	return ir.FromMap(irMap).WithTag(%q), nil\n", "!"+s.StructSchema.SchemaName))
+		buf.WriteString(fmt.Sprintf("	return ir.FromMap(irMap)%s, nil\n", tagSuffix))
 	}
 	buf.WriteString("}\n")
 
@@ -1572,6 +1586,13 @@ func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgP
 	// For now, we'll iterate over StructInfo.Fields
 	for _, field := range s.Fields {
 		if field.Omit {
+			continue
+		}
+		// A comment carrier is filled from the comments on the node, above, and is
+		// not a member of the object. Left as a case here, a document with a
+		// literal Comments: key would overwrite what the head comment said
+		// (3cdjz00jh12krns4g1n0).
+		if isCommentCarrier(s.StructSchema, field.Name) {
 			continue
 		}
 
@@ -2838,4 +2859,43 @@ func HasFromTonyMethod(typ reflect.Type) bool {
 
 	// in1 should be *ir.Node, out0 should be error
 	return in1.Kind() == reflect.Ptr && out0.Name() == "error"
+}
+
+// isCommentCarrier reports whether a field holds comments for the node rather
+// than data in it. The annotations are the ones the reflection mapper reads --
+// comment= and lineComment= -- so a struct tagged once behaves the same whether
+// its codecs are generated or reflected (3cdjz00jh12krns4g1n0).
+func isCommentCarrier(structSchema *gomap.StructSchema, fieldName string) bool {
+	if structSchema == nil || fieldName == "" {
+		return false
+	}
+	return fieldName == structSchema.CommentFieldName || fieldName == structSchema.LineCommentFieldName
+}
+
+// generateCommentsToIR emits the code that puts a struct's comments back on the
+// node it encoded to: a head comment wraps the value it precedes, a line comment
+// rides on the value it follows. It is the inverse of what the generated
+// FromTonyIR reads, and the same thing gomap's reflection path does.
+//
+// Empty means nothing to say rather than "no comment", so a struct that never
+// had one encodes exactly as it did before this existed.
+func generateCommentsToIR(structSchema *gomap.StructSchema) string {
+	if structSchema == nil {
+		return ""
+	}
+	var buf bytes.Buffer
+	if f := structSchema.LineCommentFieldName; f != "" {
+		buf.WriteString(fmt.Sprintf("	if len(s.%s) > 0 {\n", f))
+		buf.WriteString(fmt.Sprintf("		res.Comment = &ir.Node{Type: ir.CommentType, Lines: s.%s, Parent: res}\n", f))
+		buf.WriteString("	}\n")
+	}
+	if f := structSchema.CommentFieldName; f != "" {
+		buf.WriteString(fmt.Sprintf("	if len(s.%s) > 0 {\n", f))
+		buf.WriteString(fmt.Sprintf("		wrap := &ir.Node{Type: ir.CommentType, Lines: s.%s, Values: []*ir.Node{res}}\n", f))
+		buf.WriteString("		res.Parent = wrap\n")
+		buf.WriteString("		res.ParentIndex = 0\n")
+		buf.WriteString("		res = wrap\n")
+		buf.WriteString("	}\n")
+	}
+	return buf.String()
 }

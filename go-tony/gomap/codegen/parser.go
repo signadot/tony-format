@@ -228,7 +228,11 @@ func extractStructSchemaTag(structType *ast.StructType) (*gomap.StructSchema, er
 			}
 
 			commentFieldName := parsed["comment"]
-			lineCommentFieldName := parsed["LineComment"]
+			// The same annotation the reflection mapper reads (gomap/tags.go). This
+			// read "LineComment", so a struct tagged the documented way got comments
+			// through one path and not the other, and which one you got depended on
+			// whether the type had generated codecs (3cdjz00jh12krns4g1n0).
+			lineCommentFieldName := parsed["lineComment"]
 			tagFieldName := parsed["tag"]
 			context := parsed["context"]
 
@@ -532,7 +536,7 @@ func parseSchemaTagContent(content string) (*gomap.StructSchema, error) {
 		AllowExtra:           allowExtra,
 		CustomCodec:          customCodec,
 		CommentFieldName:     parsed["comment"],
-		LineCommentFieldName: parsed["LineComment"],
+		LineCommentFieldName: parsed["lineComment"],
 		TagFieldName:         parsed["tag"],
 		NoTag:                noTag,
 	}, nil

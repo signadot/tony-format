@@ -302,12 +302,32 @@ func parseBalanced(toks []token.Token, p *ir.Node, tag string, pi *int, opts *pa
 	var yComments *ir.Node
 	var leadingLineComments []string
 	if opts.comments && *pi < len(toks) && toks[*pi].Type != token.TMString {
-		yComments = comments(toks, pi, opts)
-		// TLineComment before value becomes line comment on that value
-		// (e.g., "foo: # comment\n  bar: value" - comment goes on inner object)
-		for *pi < len(toks) && toks[*pi].Type == token.TLineComment {
-			leadingLineComments = append(leadingLineComments, string(toks[*pi].Bytes))
-			*pi++
+		// Both kinds can precede the value, in either order, and there can be more
+		// of one after the other: "spec: # latch" puts a line comment on the value
+		// and the block under it may then open with head comments of its own. Taken
+		// once each, in a fixed order, the head comments AFTER a latch were left for
+		// the skip loop below to discard -- so a comment written inside a block was
+		// silently lost whenever the field line also carried one
+		// (3cdjz00jh12krns4g1n0).
+		for {
+			before := *pi
+			if yc := comments(toks, pi, opts); yc != nil {
+				if yComments == nil {
+					yComments = yc
+				} else {
+					// One value, one set of preceding comments (docs/ir.md).
+					yComments.Lines = append(yComments.Lines, yc.Lines...)
+				}
+			}
+			// TLineComment before value becomes line comment on that value
+			// (e.g., "foo: # comment\n  bar: value" - comment goes on inner object)
+			for *pi < len(toks) && toks[*pi].Type == token.TLineComment {
+				leadingLineComments = append(leadingLineComments, string(toks[*pi].Bytes))
+				*pi++
+			}
+			if *pi == before {
+				break
+			}
 		}
 	}
 	// Skip comment and indent tokens (even when not collecting comments)
