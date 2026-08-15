@@ -104,22 +104,97 @@ Recorded at the sites themselves, so it is found by whoever flips the flag: emit
 carries the note and the two watch paths point at it, and storage/head.go's nodeEqual carries its
 own.
 
-## 5. Path attribution through the event stream -- OPEN, recorded in the code
+## 5. Path attribution through the event stream -- OPEN, measured
 
-The snapshot index builds paths from the event stream, where EventHeadComment precedes the value
-it belongs to, and snap.Builder starts a chunk at a VALUE start -- so a head comment can fall at
-the end of the chunk before the one holding what it describes. A partial read from a chunk offset
-would then miss it, or attribute it to another value. Harmless while no comments are stored;
-unverified beyond that, and it is the same shape as the bug this issue came from: accepted on
-write, wrong on read.
+Attribution is decided in three places that do not agree: the IR fixes a comment's owning path at
+parse; the event stream cannot name that owner while the comment passes; and two indexes -- the
+snapshot's chunk offsets and the dlog's paths -- are built from that stream. Everything below was
+measured, not read off the source.
 
-Recorded where it would be found: stream/state.go's comment case, which is where the path
-bookkeeping ignores them, and snap.Builder.onEvent, where a chunk begins.
+### A. the IR attributes a head comment upward, and that is the spec
+
+    a:
+      # note
+      b: 1
+
+parses to Object -> field a -> Comment[# note] -> Object -> field b. The wrapper is at path a, not
+a.b: the next value to BEGIN after the comment is a's object, which begins at b. The spec's "may be
+dedented or higher" gives exactly this.
+
+So a comment a person wrote about b belongs to a. Nothing to fix -- but it decides what
+ReadPath("a") owes its caller, and every layer below inherits it. Diff already agrees: it emits
+!comment at the wrapper's path.
+
+### B. stream.State cannot name a head comment's owner
+
+The owner is announced after the comment. Offsets for "a: 1 # line on a" / "# head above b" /
+"b: 2":
+
+    off=  9 LineComment  [ # line on a]
+    off= 24 HeadComment  [# head above b]
+    off= 41 Key b
+
+At 24 CurrentPath() is "a", the previous sibling; for a first field it is the enclosing container.
+Never the owner. Line comments are fine -- they follow their value, and after EndObject the pop
+restores the container's own path. That asymmetry is the whole problem, and it is why
+stream/state.go's comment case can only be a no-op.
+
+### C. the snapshot read window drops a node's OWN comments, at both ends
+
+No chunking involved -- one index entry, whole stream scanned:
+
+    read "a"    -> 1                                     lost: its line comment
+    read "b"    -> c: 2 # line on c / # head above d / d: 3   lost: its own head comment
+    read "b.c"  -> 2                                     lost: its line comment
+    read "b.d"  -> 3                                     lost: its head comment
+
+PathFinder.FindEvents starts collecting at the key or value-start for the target -- the head
+comment has already gone by -- and closes on the scalar or on depth 0, before the line comment
+arrives. Interior comments survive because they fall inside the window. A node keeps every comment
+except its own.
+
+### D. the chunk offset puts a head comment before the seek point
+
+With SNAP_MAX_CHUNK_SIZE=1, the index entry for b is at offset 41 while "# head above b" occupies
+24-41, inside chunk a's range. PathFinder never reads before initOffset, so fixing C alone still
+loses it whenever the target begins a chunk.
+
+snap.Builder writes a comment immediately because it is not a value start, and captures chunkOffset
+later at the value. lastKey already solves precisely this for keys: buffer, then write inside the
+value's chunk. Comments need the same treatment. Line comments are placed right by accident -- they
+land in the post-flush gap, which Open counts into the previous chunk, which is their value's.
+
+### E. the dlog index truncates at a comment wrapper -- this one loses DATA
+
+indexPatchRec switches on n.Type with cases for Object and Array only. CommentType falls through
+and returns. Indexed paths:
+
+    a: / b: 1                     ->  "", a, a.b
+    # note / a: / b: 1            ->  "" only
+    a: / # note / b: 1            ->  "", a
+
+A watch on a.b does not see that commit. One comment at the top of a patch unindexes the whole
+document beneath it. Latent only because parse defaults comments off and nothing in logd turns them
+on: it goes live the day comments do. Same shape as every wrapper bug this issue has found, and the
+same audit applies to the other hand-written walkers -- scope_overlay.go, commit_ops.go,
+internal/patches/processor.go, tx/key_tags.go, tx/auto_id.go. Generated gomap code already unwraps;
+only hand-written type switches are exposed.
+
+### the rule to build to
+
+For every path in a commented document, ReadPath(p) equals ir.GetKPath(doc, p) under
+DeepEqualWithComments. That composes, it is the only rule consistent with (A) -- a node's own head
+comment is part of the value at its path -- and it settles (4) by using it.
+
+Recorded in the code at stream/state.go's comment case and snap.Builder.onEvent.
 
 ## Order of work
 
   1. the comment op (3) -- DONE, dcdaead
-  2. verify path attribution across a snapshot (5)
+  2. path attribution (5), in this order, because each one makes the next testable:
+       E, the dlog index -- data loss, blocks enabling comments at all
+       D, the chunk offset -- C is untestable at a boundary until this lands
+       C, the read window
   3. choose the equality policy at logd's four sites (4)
   4. then the store flag, which by then really is a flag
 
