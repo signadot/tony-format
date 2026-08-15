@@ -30,37 +30,26 @@ DiffComments(true) reports a comment change as a replace carrying both sides. Th
 holds: Patch(a, DiffWith(a,b,DiffComments(true)), Comments(true)) == b, over head and line
 comments, added, changed, removed, nested, and alongside a value change.
 
-## 3. The line/head policy was split -- FIXED as a policy question (09e95be), one part REMAINS
+## 3. The line/head policy was split -- FIXED (09e95be), and its granularity part -- FIXED (dcdaead)
 
 mergeop.Comments(false) used to keep line comments and drop head ones, because a head comment is
 a wrapper that anything descending through discards while a line comment rides on the node and
 every clone carries it. Off now strips both. A store that asks for no comments gets none, which
 is a decision rather than a leak.
 
-What remains from this one is GRANULARITY, and it is not a flag:
+Granularity is fixed too. !comment states what the comments at a node are, so a comment change is
+a delta about the comment rather than a replacement of the value it describes:
 
-    line comment on a.b   ->  a: {b: !replace{from: 1 # one, to: 1 # two}}   rooted at a.b
-    head comment on a     ->  a: !replace{from: {b: 1}, to: {b: 1}}          rooted at a, restating
-                                                                            the subtree
+    head at the root   24 bytes, storable      was: the document, twice, unstorable
+    head nested        27 bytes, storable
+    line               28 bytes, storable
+    removed            17 bytes, storable
 
-A line comment lands at its value's path because it is a field on the node. A head comment lands
-one level up and restates everything beneath it, because it wraps. At the document root that is
-the whole document per comment edit -- and in logd a root-rooted write is not merely large: the
-index records a write at the root, every watcher of every path sees a change, and
-scopeOwnedLeafPaths would take the whole document into the scope's ownership.
-
-The fix is NOT to change the representation. A head comment as a node field would trade loud
-failures for silent ones -- every wrapper bug in this class announced itself the first time a
-walker met one, while the single silent bug was the field-based half above -- and the format's
-association rule ("attributed to the preceding comments of the next value, which may be dedented
-or higher in the object notation") is what a wrapper states directly and a field would leave each
-walker to re-implement.
-
-The fix is an OP: a comment operation, absolute and unconditional, emitted at the path of the
-value the comment describes -- "the comment at a is now X" -- as !addtag and !rmtag are for tags.
-Then a comment edit is a small storable delta at that path, no lowering special case, and nothing
-structural is inserted. libdiff emits it when only the comment differs; StorageContext declares it
-storable with its reason line.
+The representation did not move: a head comment is still the wrapper the format's association
+rule describes. What changed is that there is now something to say about it. The design that was
+written here before building it is below, with one correction learned in the build -- the
+positions live in one operand, because tag composition shares a child and two operators on one
+node could carry only one set of lines.
 
 ## Design for (3): the comment operator
 
@@ -101,7 +90,7 @@ Three things it must get right:
 
 Nothing in the representation changes. This is an operator and a branch in diff.
 
-## 4. NEW: the equality choice is now live
+## 4. The equality choice -- OPEN, recorded in the code
 
 DeepEqual is comment blind as of 09e95be, which is right for "is this the same value" and is what
 logd asks it at session.go:864, :974, :1199 and storage/head.go:155 -- those sites mean "did this
@@ -111,16 +100,25 @@ If comments become stored data, those four must move to DeepEqualWithComments, o
 edit is written to the log and then silently dropped from every watch: the store and its watchers
 disagreeing about whether anything happened. One line each, but a deliberate choice.
 
-## 5. Unchecked: path attribution through the event stream
+Recorded at the sites themselves, so it is found by whoever flips the flag: emitScopedDeltaFrom
+carries the note and the two watch paths point at it, and storage/head.go's nodeEqual carries its
+own.
 
-The snapshot index builds paths from the event stream, where EventHeadComment precedes the
-container it belongs to. Nothing has verified that a stored head comment leaves every path naming
-what it named before a snapshot. Worth measuring before comments are stored, since that is the
-same shape as the bug this issue came from: accepted on write, wrong on read.
+## 5. Path attribution through the event stream -- OPEN, recorded in the code
+
+The snapshot index builds paths from the event stream, where EventHeadComment precedes the value
+it belongs to, and snap.Builder starts a chunk at a VALUE start -- so a head comment can fall at
+the end of the chunk before the one holding what it describes. A partial read from a chunk offset
+would then miss it, or attribute it to another value. Harmless while no comments are stored;
+unverified beyond that, and it is the same shape as the bug this issue came from: accepted on
+write, wrong on read.
+
+Recorded where it would be found: stream/state.go's comment case, which is where the path
+bookkeeping ignores them, and snap.Builder.onEvent, where a chunk begins.
 
 ## Order of work
 
-  1. the comment op (3), designed above
+  1. the comment op (3) -- DONE, dcdaead
   2. verify path attribution across a snapshot (5)
   3. choose the equality policy at logd's four sites (4)
   4. then the store flag, which by then really is a flag
