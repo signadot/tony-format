@@ -180,6 +180,14 @@ same audit applies to the other hand-written walkers -- scope_overlay.go, commit
 internal/patches/processor.go, tx/key_tags.go, tx/auto_id.go. Generated gomap code already unwraps;
 only hand-written type switches are exposed.
 
+One of them carries a decision the unwrap records rather than settles.
+walkAndCollectPatchRoots finds a patch root by the !logd-patch-root tag, which sits on the node
+INSIDE the wrapper, so it now unwraps before looking -- and what the wrapper SAYS is dropped there
+rather than carried into the value being installed. Carrying it would hand the streaming processor
+a comment node where it expects the tagged patch, and whether a patch's own comments should reach
+the stored value is a comment-policy question, not a question about finding roots. It belongs with
+the store flag, step 4 below. Recorded at the call site.
+
 ### the rule to build to
 
 For every path in a commented document, ReadPath(p) equals ir.GetKPath(doc, p) under
