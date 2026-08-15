@@ -13,7 +13,7 @@ var atSym = &atSymbol{matchName: atName}
 // At is the !at(kpath) operator: the match walks down the path and applies the
 // pattern it holds to the node it lands on.
 //
-//	!at(spec.replicas) !irtype 0
+//	!at(spec.replicas).irtype 0
 //
 // matches a document whose spec.replicas is an integer, no matter what else it
 // holds.  A path which names nothing does not match: !at(a.b) 3 asks for an a.b,
@@ -29,7 +29,7 @@ var atSym = &atSymbol{matchName: atName}
 //
 // Composition reaches either side of the walk, and the two are different
 // questions.  !not.at(a.b) 3 negates the whole thing -- it holds when there is
-// no a.b as much as when a.b is 4 -- while !at(a.b) !not 3 asks for an a.b which
+// no a.b as much as when a.b is 4 -- while !at(a.b).not 3 asks for an a.b which
 // is something other than 3.
 func At() Symbol {
 	return atSym

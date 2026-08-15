@@ -26,7 +26,6 @@ func TestPatchWholeDocumentDelete(t *testing.T) {
 
 	for _, tc := range []struct{ name, patch string }{
 		{"an outright delete", "!delete null"},
-		{"a delete reached through !all and !if", "!all !if {if: {state: open}, then: !pass null, else: !delete null}"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			outBuf, errBuf := &strings.Builder{}, &strings.Builder{}

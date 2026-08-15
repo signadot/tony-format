@@ -284,8 +284,21 @@ func (n *gnode) render() string {
 }
 
 func (n *gnode) renderTo(b *strings.Builder) {
-	if n.tag != "" {
-		b.WriteString(n.tag)
+	// A node takes one tag, composed with '.', so a keyed list carrying a data
+	// tag renders as !t1.key(name) rather than !t1 !key(name). The latter used
+	// to parse -- as !key(name), with the data tag dropped -- so this generator
+	// was quietly testing documents other than the ones it built.
+	tag := n.tag
+	if n.kind == "keyed" {
+		// The key tag alone. A data tag composed over it -- !t1.key(name) --
+		// renders documents diff and patch do not yet round trip; that is filed
+		// rather than generated here, so this test keeps saying what it does
+		// cover. It could not produce them at all until the parser stopped
+		// accepting `!t1 !key(name)` and silently dropping the !t1.
+		tag = "!key(" + n.keyPath + ")"
+	}
+	if tag != "" {
+		b.WriteString(tag)
 		b.WriteByte(' ')
 	}
 	switch n.kind {
@@ -302,9 +315,6 @@ func (n *gnode) renderTo(b *strings.Builder) {
 		}
 		b.WriteByte('}')
 	case "array", "keyed":
-		if n.kind == "keyed" {
-			fmt.Fprintf(b, "!key(%s) ", n.keyPath)
-		}
 		b.WriteByte('[')
 		for i, e := range n.elems {
 			if i > 0 {

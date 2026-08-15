@@ -38,6 +38,10 @@ func (a allOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, _
 		debug.Logf("all op called on %s\n", doc.Path())
 	}
 	switch doc.Type {
+	// A child patch that deletes reports it by returning nil -- the convention
+	// throughout -- and an element or field it deleted is one that is GONE, not
+	// one that is nil. Keeping the nil put it in the slice for ir.FromSlice to
+	// dereference, so `!all.if {..., else: !delete null}` over a list crashed.
 	case ir.ObjectType:
 		dst := make(map[string]*ir.Node, len(doc.Fields))
 		for i := range doc.Fields {
@@ -47,18 +51,24 @@ func (a allOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, _
 			if err != nil {
 				return nil, err
 			}
+			if patched == nil {
+				continue
+			}
 			dst[field.String] = patched
 		}
 		return ir.FromMap(dst), nil
 	case ir.ArrayType:
-		dst := make([]*ir.Node, len(doc.Values))
-		for i, docChild := range doc.Values {
+		dst := make([]*ir.Node, 0, len(doc.Values))
+		for _, docChild := range doc.Values {
 			patch := a.child.Clone()
 			patched, err := pf(docChild, patch, ctx)
 			if err != nil {
 				return nil, err
 			}
-			dst[i] = patched
+			if patched == nil {
+				continue
+			}
+			dst = append(dst, patched)
 		}
 		return ir.FromSlice(dst), nil
 	default:

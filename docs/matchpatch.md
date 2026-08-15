@@ -65,7 +65,7 @@ may be stored and why.
 lands on:
 
 ```
-o match '!at(spec.replicas) !irtype 0' deploy.tony
+o match '!at(spec.replicas).irtype 0' deploy.tony
 ```
 
 matches a document whose `spec.replicas` is a number, whatever else it holds.
@@ -86,7 +86,7 @@ field the key is -- so that is a mismatch, not an error.
 
 Composition reaches either side of the walk, and the two are different
 questions. `!not.at(a.b) 3` negates the whole thing: it holds when there is no
-`a.b` as much as when `a.b` is 4. `!at(a.b) !not 3` asks for an `a.b` which is
+`a.b` as much as when `a.b` is 4. `!at(a.b).not 3` asks for an `a.b` which is
 something other than 3.
 
 Operations are indicated by YAML tags within a match or a patch.

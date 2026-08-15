@@ -482,6 +482,20 @@ func noComments(toks []token.Token, p *ir.Node, tag string, pi *int, opts *parse
 		return checkLineComment(res, toks, pi, t.Pos, opts), nil
 
 	case token.TTag:
+		// A node takes ONE tag. Tags compose with '.' -- the grammar says
+		// <tag-content> ::= <single-tag> [ '.' <single-tag> ]... -- and there is
+		// no form in which two of them sit side by side.
+		//
+		// This used to recurse with the new tag and drop the one it was called
+		// with, so `!raw !let {...}` parsed as a bare !let: the escape that says
+		// "this subtree is data" vanished at parse time, and what got stored was
+		// an instruction. Refusing beats dropping, since a tag that is silently
+		// discarded takes the meaning of the document with it.
+		if tag != "" {
+			return nil, fmt.Errorf("%w: two tags on one node, %s and %s %s: tags compose with '.', as %s",
+				ErrParse, tag, string(t.Bytes), t.Pos,
+				ir.TagCompose(tag, nil, string(t.Bytes)))
+		}
 		*pi++
 		return parseBalanced(toks, p, string(t.Bytes), pi, opts)
 

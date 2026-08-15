@@ -79,8 +79,8 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 		// keyed list) hands back a tag that already holds this one, and composing again
 		// duplicated it: patching !bracket.key(name)[...] gave a result tagged
 		// !bracket.bracket.key(name), so Patch(a, Diff(a,b)) did not equal b.
-		if res != nil && preTag != "" && !ir.TagHas(res.Tag, preTag) {
-			res.Tag = ir.TagCompose(preTag, nil, res.Tag)
+		if res != nil && preTag != "" {
+			res.Tag = restoreTag(preTag, res.Tag)
 		}
 		return res, err
 	}
@@ -119,6 +119,39 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 // objPatchY is the backwards-compatible version without context
 func objPatchY(doc, patch *ir.Node) (*ir.Node, error) {
 	return objPatchYWith(doc, patch, nil)
+}
+
+// restoreTag composes each label of pre onto tag, skipping any the tag already
+// carries.
+//
+// It is label by label because pre is a whole tag and can hold several: the
+// check this replaces asked ir.TagHas whether the tag held pre ENTIRE, which a
+// composed pre such as !t1.bracket never is, so it composed again and the result
+// came back tagged !t1.bracket.t1.bracket -- and Patch(a, Diff(a,b)) stopped
+// equalling b for any document whose tag was composed. The single-label case it
+// was written for, !bracket over a !key that already answered with one, is the
+// same question asked once per label.
+func restoreTag(pre, tag string) string {
+	var labels []struct {
+		head string
+		args []string
+	}
+	for t := pre; t != ""; {
+		head, args, rest := ir.TagArgs(t)
+		labels = append(labels, struct {
+			head string
+			args []string
+		}{head, args})
+		t = rest
+	}
+	// Rightmost first, so the composed order is the order pre had.
+	for i := len(labels) - 1; i >= 0; i-- {
+		if ir.TagHas(tag, labels[i].head) {
+			continue
+		}
+		tag = ir.TagCompose(labels[i].head, labels[i].args, tag)
+	}
+	return tag
 }
 
 func objPatchYWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) {

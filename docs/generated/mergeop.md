@@ -99,7 +99,7 @@ The !insert operation inserts a new value into an array. It can optionally take 
 ```
 
 ```tony
-- !insert !key(id)
+- !insert.key(id)
   id: "new-id"
   name: "New Item"
 ```
