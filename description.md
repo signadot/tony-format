@@ -62,6 +62,45 @@ Then a comment edit is a small storable delta at that path, no lowering special 
 structural is inserted. libdiff emits it when only the comment differs; StorageContext declares it
 storable with its reason line.
 
+## Design for (3): the comment operator
+
+Attribution is already right -- a comment-only delta roots at the node the comment describes, not
+above it. What is wrong is the PAYLOAD: the only way to say "the comment here changed" is a
+whole-node !replace, which carries the subtree twice.
+
+    head comment on a  ->  a: !replace{from: {b: 1}, to: {b: 1}}       the subtree, twice
+    line comment on b  ->  a: {b: !replace{from: 1 # one, to: 1 # two}}
+
+So comments get an operator, on the model tags already have: !retag is checked, !addtag and
+!rmtag are its absolute halves, and the absolute ones are what may be stored.
+
+    a: !comment(head) ["# new"]     the head comment at a is now this
+    a: !comment(line) []            the line comment at a is now nothing
+
+One op, the position as its argument, the lines as its CHILD -- not as tag arguments, because
+comment text is arbitrary and the format keeps the leading whitespace of the line as part of it,
+which a tag argument cannot hold cleanly. Setting to an empty list is how a comment is removed, so
+set and clear are the same absolute statement and there is no second operator to keep in step.
+
+Properties, which are the point:
+
+  - absolute: it states what the comment is, never what it was, so it applies to a moved base
+  - idempotent: applying twice is applying once
+  - proportional: the delta carries the comment, not the value it describes
+  - storable: declared in logd's StorageContext with its reason line, beside insert and addtag
+
+Three things it must get right:
+
+  1. create and remove are structural -- setting a head comment on a node without one inserts a
+     wrapper, clearing unwraps -- and the two directions have to be exact inverses or Diff and
+     Reverse stop being symmetric
+  2. head and line are different positions in the IR and on the page; the argument names which,
+     and a delta says which it meant
+  3. a value write and a comment write at one node: an operation states the whole value including
+     its comment (settled in 09e95be), so diff emits one or the other for a node, never both
+
+Nothing in the representation changes. This is an operator and a branch in diff.
+
 ## 4. NEW: the equality choice is now live
 
 DeepEqual is comment blind as of 09e95be, which is right for "is this the same value" and is what
@@ -81,8 +120,7 @@ same shape as the bug this issue came from: accepted on write, wrong on read.
 
 ## Order of work
 
-  1. the comment op (3), which is the only representation-adjacent piece and does not change the
-     representation
+  1. the comment op (3), designed above
   2. verify path attribution across a snapshot (5)
   3. choose the equality policy at logd's four sites (4)
   4. then the store flag, which by then really is a flag
