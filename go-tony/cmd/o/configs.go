@@ -190,7 +190,7 @@ type MatchConfig struct {
 	*cli.Command
 	*MainConfig
 
-	Comments bool `cli:"name=c desc='include comments'"`
+	Comments bool `cli:"name=c desc='include comments in the answer; matching is blind to them either way'"`
 	Trim     bool `cli:"name=trim desc='trim the results to the match'"`
 	String   bool `cli:"name=s desc='consider match a string argument'"`
 	File     bool `cli:"name=f desc='consider match a file path'"`
@@ -210,7 +210,7 @@ func (cfg *MatchConfig) encOpts(w io.Writer) []encode.EncodeOption {
 
 type DiffConfig struct {
 	*MainConfig
-	Comments  bool   `cli:"name=c desc='include comments'"`
+	Comments  bool   `cli:"name=c desc='include comments, and report differences in them'"`
 	Reverse   bool   `cli:"name=r desc='reverse the diff'"`
 	Loop      string `cli:"name=loop desc='command to produce objects to diff in a loop'"`
 	LoopEvery time.Duration
@@ -252,7 +252,7 @@ func (cfg *DiffConfig) mkLoopEvery() func(cc *cli.Context, a string) (any, error
 
 type PatchConfig struct {
 	*MainConfig
-	Comments bool `cli:"name=c desc='include comments'"`
+	Comments bool `cli:"name=c desc='include comments, of the document as well as the patch'"`
 	Reverse  bool `cli:"name=r desc='apply diff reversed'"`
 	String   bool `cli:"name=s desc='patch arg as string'"`
 	File     bool `cli:"name=f desc='patch arg as file'"`

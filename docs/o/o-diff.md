@@ -53,6 +53,7 @@ o diff [options] [arguments]
 
 | option | type | default | description |
 | --- | --- | --- | --- |
+| `-c` | bool |  | include comments, and report differences in them |
 | `-r` | bool |  | reverse the diff |
 | `-loop` | string |  | command to produce objects to diff in a loop |
 | `-loopLim` | int |  | max number of times to loop |

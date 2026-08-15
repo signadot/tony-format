@@ -45,6 +45,7 @@ o match [opts] <matchobj> [files]
 
 | option | type | default | description |
 | --- | --- | --- | --- |
+| `-c` | bool |  | include comments in the answer; matching is blind to them either way |
 | `-trim` | bool |  | trim the results to the match |
 | `-s` | bool |  | consider match a string argument |
 | `-f` | bool |  | consider match a file path |

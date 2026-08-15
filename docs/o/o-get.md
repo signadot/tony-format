@@ -42,6 +42,7 @@ o get [opts] <objectpath> [files]
 
 | option | type | default | description |
 | --- | --- | --- | --- |
+| `-c` | bool |  | include comments |
 | `-if` | string |  | keep the node only if it matches this match document |
 | `-if-file` | string |  | read the match document from a file |
 | `-trim` | string |  | write only the parts this match document names |

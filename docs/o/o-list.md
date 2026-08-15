@@ -50,6 +50,7 @@ o list [opts] <objectpath> [files]
 
 | option | type | default | description |
 | --- | --- | --- | --- |
+| `-c` | bool |  | include comments |
 | `-if` | string |  | keep only the nodes matching this match document |
 | `-if-file` | string |  | read the match document from a file |
 | `-trim` | string |  | write only the parts this match document names |
