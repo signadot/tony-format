@@ -71,11 +71,21 @@ func NewPathFinder(r io.ReadSeekCloser, index *Index, off int64, idxPath, desPat
 
 // FindEvents extracts events for the desired path from the snapshot.
 // Buffers chunks for efficient I/O, reading additional chunks as needed.
+//
+// The window is the value AND the comments that are its own. A head comment
+// precedes the value it describes and a line comment follows it, so collecting
+// from the value's first event to its last answered with a node stripped of
+// exactly the comments that belong to it while keeping every comment inside it.
+// Head comments are held until it is known whose they are; the window stays open
+// one event past the end for a line comment (3cdjz00jh12krns4g1n0).
 func (pf *PathFinder) FindEvents() ([]stream.Event, error) {
 	desPathStr := pf.desPath.String()
 	collecting := false
+	started := false
+	closing := false
 	depth := 0
 	events := []stream.Event{}
+	var pendingHead []stream.Event
 
 	fileOffset := pf.initOffset // Position in event stream (relative to start of events)
 	var chunkBuf *bytes.Reader
@@ -116,35 +126,75 @@ func (pf *PathFinder) FindEvents() ([]stream.Event, error) {
 
 		currentPath := pf.state.CurrentPath()
 
+		// The value is complete; only a line comment of its own may still follow.
+		if closing {
+			if evt.Type == stream.EventLineComment {
+				events = append(events, *evt)
+			}
+			break
+		}
+
 		// If we were collecting and moved past the target path, stop
 		if collecting {
 			switch evt.Type {
+			case stream.EventHeadComment, stream.EventLineComment:
+				// A comment ends nothing. Collection begins at the KEY, and a head
+				// comment stands between the key and the value it introduces, so
+				// at depth 0 this read as "the value is complete" and the window
+				// closed on a comment with no value in it -- the read answered
+				// with nothing at all (3cdjz00jh12krns4g1n0).
+				events = append(events, *evt)
+				continue
 			case stream.EventBeginObject, stream.EventBeginArray:
 				depth++
+				started = true
 			case stream.EventEndObject, stream.EventEndArray:
 				depth--
+			default:
+				started = true
 			}
 			if depth >= 0 {
 				events = append(events, *evt)
 			}
-			if depth <= 0 {
-				break
+			if started && depth <= 0 {
+				closing = true
 			}
-		} else if currentPath == desPathStr {
+			continue
+		}
+
+		// A comment before the value it belongs to: held, since whose it is is not
+		// known until the value arrives. A line comment here follows a value that
+		// was not ours, so it is not ours either.
+		switch evt.Type {
+		case stream.EventHeadComment:
+			pendingHead = append(pendingHead, *evt)
+			continue
+		case stream.EventLineComment:
+			continue
+		}
+
+		if currentPath == desPathStr {
 			switch evt.Type {
 			case stream.EventIntKey, stream.EventKey:
 				collecting = true
+				events = append(events, pendingHead...)
 			case stream.EventBeginArray, stream.EventBeginObject:
 				collecting = true
+				started = true
 				depth++
+				events = append(events, pendingHead...)
 				events = append(events, *evt)
 			case stream.EventEndArray, stream.EventEndObject:
 				collecting = true
+				started = true
 			default:
+				events = append(events, pendingHead...)
 				events = append(events, *evt)
-				return events, nil
+				closing = true
 			}
 		}
+		// Whatever was held belonged to the value just passed, ours or not.
+		pendingHead = nil
 	}
 	return events, nil
 }
@@ -205,11 +255,33 @@ type PathEventReader struct {
 	pf               *PathFinder
 	desPathStr       string
 	collecting       bool
+	started          bool
+	closing          bool
 	depth            int
 	chunkBuf         *bytes.Reader
 	chunkStartOffset int64
 	fileOffset       int64
 	done             bool
+
+	// out holds events ready to hand back: a value's head comments arrive before
+	// it is known whose they are, so they are held and then released ahead of it.
+	out         []stream.Event
+	pendingHead []stream.Event
+}
+
+// emit queues events to hand back in order.
+func (r *PathEventReader) emit(evs ...stream.Event) {
+	r.out = append(r.out, evs...)
+}
+
+// next takes the event at the head of the queue, or nil when it is empty.
+func (r *PathEventReader) next() *stream.Event {
+	if len(r.out) == 0 {
+		return nil
+	}
+	ev := r.out[0]
+	r.out = r.out[1:]
+	return &ev
 }
 
 // NewPathEventReader creates a streaming event reader for the given path.
@@ -227,7 +299,14 @@ func NewPathEventReader(r io.ReadSeekCloser, index *Index, off int64, idxPath, d
 
 // ReadEvent returns the next event for the target path.
 // Returns io.EOF when all events have been read.
+//
+// The window is FindEvents', one event at a time: a value's own head comments
+// come out ahead of it and its own line comment after it, and a comment inside
+// the window ends nothing. See FindEvents.
 func (r *PathEventReader) ReadEvent() (*stream.Event, error) {
+	if ev := r.next(); ev != nil {
+		return ev, nil
+	}
 	if r.done {
 		return nil, io.EOF
 	}
@@ -268,40 +347,72 @@ func (r *PathEventReader) ReadEvent() (*stream.Event, error) {
 
 		currentPath := r.pf.state.CurrentPath()
 
+		// The value is complete; only a line comment of its own may still follow.
+		if r.closing {
+			r.done = true
+			if evt.Type == stream.EventLineComment {
+				return evt, nil
+			}
+			return nil, io.EOF
+		}
+
 		// If we were collecting and moved past the target path, stop
 		if r.collecting {
 			switch evt.Type {
+			case stream.EventHeadComment, stream.EventLineComment:
+				return evt, nil // a comment inside the window ends nothing
 			case stream.EventBeginObject, stream.EventBeginArray:
 				r.depth++
+				r.started = true
 			case stream.EventEndObject, stream.EventEndArray:
 				r.depth--
+			default:
+				r.started = true
+			}
+			if r.started && r.depth <= 0 {
+				r.closing = true
 			}
 			if r.depth >= 0 {
 				return evt, nil
 			}
-			if r.depth <= 0 {
-				r.done = true
-				return nil, io.EOF
-			}
-		} else if currentPath == r.desPathStr {
+			continue
+		}
+
+		switch evt.Type {
+		case stream.EventHeadComment:
+			r.pendingHead = append(r.pendingHead, *evt)
+			continue
+		case stream.EventLineComment:
+			continue // it follows a value that was not ours
+		}
+
+		if currentPath == r.desPathStr {
 			switch evt.Type {
 			case stream.EventIntKey, stream.EventKey:
 				r.collecting = true
-				// Don't return the key, continue to get the value
+				r.emit(r.pendingHead...) // the comments above the value the key introduces
 			case stream.EventBeginArray, stream.EventBeginObject:
 				r.collecting = true
+				r.started = true
 				r.depth++
-				return evt, nil
+				r.emit(r.pendingHead...)
+				r.emit(*evt)
 			case stream.EventEndArray, stream.EventEndObject:
 				r.collecting = true
-				// Continue to next event
+				r.started = true
 			default:
-				// Scalar value - return it and we're done
-				r.done = true
-				return evt, nil
+				r.emit(r.pendingHead...)
+				r.emit(*evt)
+				r.closing = true
 			}
+			r.pendingHead = nil
+			if ev := r.next(); ev != nil {
+				return ev, nil
+			}
+			continue
 		}
-		// Not at target path yet, continue scanning
+		// Whatever was held belonged to the value just passed, which was not ours.
+		r.pendingHead = nil
 	}
 }
 

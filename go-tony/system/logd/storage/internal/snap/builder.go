@@ -25,7 +25,7 @@ type Builder struct {
 	chunkPath   *string
 	chunkOffset *int64
 	index       *Index
-	lastKey     *stream.Event
+	held        []*stream.Event
 }
 
 // NewBuilder creates a snapshot builder writing to w.
@@ -68,9 +68,23 @@ func (b *Builder) onEvent(ev *stream.Event) error {
 		return err
 	}
 	if !ev.IsValueStart() {
-		if ev.Type == stream.EventKey || ev.Type == stream.EventIntKey {
-			b.lastKey = ev
+		switch ev.Type {
+		case stream.EventKey, stream.EventIntKey, stream.EventHeadComment:
+			// Held until the value it introduces arrives, so that the chunk
+			// beginning at that value begins at IT. A key was always held for this
+			// reason. A head comment needs it for the same one and did not have
+			// it, so its bytes fell before the index offset of the value it
+			// describes -- not a read window that could be widened, but bytes on
+			// the far side of the seek, unreachable from that offset
+			// (3cdjz00jh12krns4g1n0).
+			b.held = append(b.held, ev)
 			return nil
+		}
+		// Anything else -- an end marker, a line comment -- belongs where it
+		// stands, after the value it follows. Whatever is held goes out first:
+		// the order of the stream is its meaning.
+		if err := b.writeHeld(); err != nil {
+			return err
 		}
 		// we just write non-key, non-value-starting events without tracking
 		// size, to keep the chunks starting with a value or a key-value
@@ -78,23 +92,14 @@ func (b *Builder) onEvent(ev *stream.Event) error {
 	}
 	// initialize chunk if not yet initialized
 	// this will refer to the path after processing this event
-	//
-	// A chunk begins at a value start, and a head comment precedes its value, so
-	// a comment can fall at the end of the chunk before the one holding what it
-	// describes. Harmless while logd stores no comments; verified before it does
-	// -- 3cdjz00jh12krns4g1n0, which is where a comment silently changing which
-	// value it belongs to would be found.
 	if b.chunkPath == nil {
 		p := b.state.CurrentPath()
 		b.chunkPath = &p
 		tmp := b.offset
 		b.chunkOffset = &tmp
 	}
-	if b.lastKey != nil {
-		if err := b.writeEvent(b.lastKey); err != nil {
-			return err
-		}
-		b.lastKey = nil
+	if err := b.writeHeld(); err != nil {
+		return err
 	}
 	if err := b.writeEvent(ev); err != nil {
 		return err
@@ -104,6 +109,18 @@ func (b *Builder) onEvent(ev *stream.Event) error {
 			return err
 		}
 	}
+	return nil
+}
+
+// writeHeld writes the events waiting for the value they introduce, in the order
+// they arrived.
+func (b *Builder) writeHeld() error {
+	for _, held := range b.held {
+		if err := b.writeEvent(held); err != nil {
+			return err
+		}
+	}
+	b.held = b.held[:0]
 	return nil
 }
 
@@ -126,6 +143,12 @@ func (b *Builder) writeEvent(ev *stream.Event) error {
 }
 
 func (b *Builder) Close() error {
+	// A document can end on a held event -- a comment after the last value, which
+	// the format attributes to whatever comes next and nothing does. It is written
+	// rather than dropped: the stream says what the document said.
+	if err := b.writeHeld(); err != nil {
+		return err
+	}
 	// Write final chunk to index if there's one pending
 	if b.chunkSize != 0 {
 		if err := b.flushChunk(); err != nil {
