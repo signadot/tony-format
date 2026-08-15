@@ -10,9 +10,9 @@ import (
 // NodeToEvents converts an ir.Node to a sequence of events.
 // Returns events that can be written via Encoder.
 //
-// Phase 2: Comments are converted to EventHeadComment or EventLineComment.
-// Head comments (CommentType node with 1 value) emit EventHeadComment before the value.
-// Line comments (CommentType node in Comment field) emit EventLineComment after the value.
+// Head comments (a CommentType node with 1 value) emit EventHeadComment before
+// the value; line comments (a CommentType node in the Comment field) emit
+// EventLineComment after it.
 func NodeToEvents(node *ir.Node) ([]Event, error) {
 	var events []Event
 	if err := nodeToEvents(node, &events); err != nil {
@@ -170,8 +170,9 @@ func addNodeToParent(stack *[]nodeFrame, node *ir.Node, root **ir.Node) {
 // EventsToNode converts a sequence of events to an ir.Node.
 // Takes events read from Decoder.
 //
-// Phase 1: Comment events are not present (comments skipped).
-// Phase 2: Comment events are converted to IR comment nodes.
+// Comment events become the IR shapes NodeToEvents writes them from: a head
+// comment wraps the value that follows it, a line comment rides on the value
+// before it.
 func EventsToNode(events []Event) (*ir.Node, error) {
 	if len(events) == 0 {
 		return nil, nil

@@ -132,3 +132,30 @@ the like under the hood and here in-string diffs don't help readability.
 String diffs do not apply to fields.
 
 
+
+## Comments
+
+A diff is about values and says nothing about comments unless asked: `Diff` is
+blind to them, and two documents differing only in what was said about a value
+diff to nothing.  `DiffWith(a, b, DiffComments(true))` asks the other question --
+are these the same document -- and answers with `!comment`, which states what the
+comments at a node are rather than replacing the value they describe (see
+matchpatch.md).
+
+A patch answers with data: the result carries no comments, neither the patch's
+nor the ones the document being patched came in with, unless the patch is given
+`mergeop.Comments(true)`.  That is a deliberate policy rather than two accidents
+-- a head comment is a wrapper anything descending through discards, while a line
+comment rides on the node and every clone carries it, so "off" once meant keeping
+half of them.
+
+The round trip holds either way: `Patch(a, DiffWith(a, b, DiffComments(true)),
+Comments(true))` is `b`, comments included.
+
+Matching is blind to comments in both directions and has no option: a match asks
+about the value and sees through what was said about it.  The format says
+comments should be matchable and the tooling does not yet do it -- issue
+8241kcggh12krgh4g1n0.
+
+In `o`, all of this is `-c`: `o diff -c`, `o patch -c`, and `o get -c` / `o list
+-c` for answering with the node as it stands rather than the value a path names.

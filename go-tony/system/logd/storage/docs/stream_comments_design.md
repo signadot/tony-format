@@ -1,3 +1,10 @@
+> **Superseded.** This describes the Phase 1 / Phase 2 plan, in which the stream
+> carried no comments and the encoder's comment methods were no-ops. Phase 2
+> happened: the decoder reads comment tokens, the encoder writes them, and a
+> store keeps what it is given rather than stripping it. There is no flag, and
+> the reasoning for that is in issue 3cdjz00jh12krns4g1n0 §6. Kept for the design
+> record; read it as history, not as the current behaviour.
+
 # Stream Comments Design
 
 ## IR Comment Specification

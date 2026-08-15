@@ -48,8 +48,13 @@
 //   - Head comments: precede a value (IR: CommentType node with 1 value in Values)
 //   - Line comments: on same line as value (IR: CommentType node in Comment field)
 //
-// Comment support is deferred to Phase 2. In Phase 1, comment methods are no-ops
-// and comment tokens are skipped.
+// Comments are carried, in both directions: the encoder writes them, the decoder
+// reads them back as EventHeadComment and EventLineComment, and EventsToNode
+// rebuilds the IR shapes above. Which kind a comment is comes from the tokenizer
+// rather than being decided here.
+//
+// A comment ends the line it is on, so a head comment starts one of its own. That
+// is the only place this format writes a newline it did not have to.
 //
 // # Tags
 //

@@ -21,7 +21,7 @@ Replace `token.{Sink,Source}` and `parse.NodeParser` with new `stream` package p
 - Implement `Decoder` (structural event-based decoding)
 - Add `NodeToEvents()` / `EventsToNode()` conversion utilities
 - **API Fix**: `NewDecoder/NewEncoder` require bracketing option (return error if not specified)
-- **Comment-Ready API**: Add comment event types and methods (no-ops in Phase 1, aligned with IR spec)
+- **Comments**: comment event types and methods, aligned with the IR spec. They were no-ops when this was written; they carry comments now (3cdjz00jh12krns4g1n0).
 
 ### Sanity Check: Evaluate Phase 1 Results
 - Review API design and implementation

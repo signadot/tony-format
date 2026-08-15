@@ -18,6 +18,7 @@ type Encoder struct {
 	opts         *streamOpts
 	lastWasValue bool   // Track if last thing written was a value (for commas)
 	pendingTag   string // Tag to apply to next value
+	atLineStart  bool   // nothing written on this line yet (see WriteHeadComment)
 }
 
 // NewEncoder creates a new Encoder writing to w.
@@ -490,21 +491,72 @@ func (e *Encoder) WriteNull() error {
 
 // Comment Writing Methods
 
-// WriteHeadComment writes a head comment (precedes a value).
+// WriteHeadComment writes a head comment, which precedes the value it describes.
 // IR: CommentType node with 1 value in Values.
-// Phase 1: No-op (comment support deferred).
+//
+// These two wrote NOTHING and answered nil, which is the quietest way an encoder
+// can lose something: a caller writing a document through this API got one back
+// without its comments and no indication of where they went. The decoder reads
+// them (see Decoder.commentEvent), so an encoder that drops them cannot round
+// trip its own output (3cdjz00jh12krns4g1n0).
+//
+// A comment runs to the end of its line, so each one ends the line it is on --
+// the same rule the bracketed and wire encodings follow. Any separator owed to
+// the previous value is written FIRST, so the comma stays with the value it
+// separates rather than landing under a comment that describes the next one.
 func (e *Encoder) WriteHeadComment(lines []string) error {
-	// Phase 1: No-op
-	// Phase 2: Write comment tokens before next value
+	if len(lines) == 0 {
+		return nil
+	}
+	if err := e.writePendingSeparator(); err != nil {
+		return err
+	}
+	// A head comment has to start its own line. Left on the line before it, the
+	// tokenizer reads it as a LINE comment on the value there -- which is a
+	// different association, and the one the reader would get back.
+	if e.offset > 0 && !e.atLineStart {
+		if err := e.writeBytes([]byte("\n")); err != nil {
+			return err
+		}
+	}
+	return e.writeCommentLines(lines)
+}
+
+// WriteLineComment writes a line comment, which follows the value it describes on
+// the same line. IR: CommentType node in the node's Comment field.
+func (e *Encoder) WriteLineComment(lines []string) error {
+	if len(lines) == 0 {
+		return nil
+	}
+	return e.writeCommentLines(lines)
+}
+
+// writePendingSeparator writes the comma a following value would have written,
+// before something that is not a value.
+func (e *Encoder) writePendingSeparator() error {
+	if !e.lastWasValue {
+		return nil
+	}
+	if !e.state.IsInObject() && !e.state.IsInArray() && !e.state.IsInSparseArray() {
+		return nil
+	}
+	if err := e.writeBytes([]byte(",")); err != nil {
+		return err
+	}
+	e.lastWasValue = false
 	return nil
 }
 
-// WriteLineComment writes a line comment (on same line as value).
-// IR: CommentType node in Comment field.
-// Phase 1: No-op (comment support deferred).
-func (e *Encoder) WriteLineComment(lines []string) error {
-	// Phase 1: No-op
-	// Phase 2: Write comment tokens after current value
+// writeCommentLines writes comment lines, each ending its own line.
+func (e *Encoder) writeCommentLines(lines []string) error {
+	for _, ln := range lines {
+		if err := e.writeBytes([]byte(ln)); err != nil {
+			return err
+		}
+		if err := e.writeBytes([]byte("\n")); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -553,5 +605,8 @@ func (e *Encoder) writeBytes(data []byte) error {
 		return err
 	}
 	e.offset += int64(n)
+	if n > 0 {
+		e.atLineStart = data[n-1] == '\n'
+	}
 	return nil
 }

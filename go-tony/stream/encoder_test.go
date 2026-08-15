@@ -330,18 +330,32 @@ func TestEncoderComments(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Phase 1: Comment methods are no-ops
-	if err := enc.WriteHeadComment([]string{"# comment"}); err != nil {
+	// Comments are written, each ending its own line. This used to assert the
+	// opposite, when both methods were no-ops and a document written through this
+	// API came back without them (3cdjz00jh12krns4g1n0).
+	if err := enc.WriteHeadComment([]string{"# head"}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := enc.WriteLineComment([]string{"# comment"}); err != nil {
+	if err := enc.WriteLineComment([]string{"# line"}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Should write nothing (comments are skipped in Phase 1)
 	output := buf.String()
-	if output != "" {
-		t.Errorf("expected empty output (comments skipped), got %q", output)
+	if output != "# head\n# line\n" {
+		t.Errorf("the comments were written as %q", output)
+	}
+
+	// and nothing is written for nothing
+	var empty bytes.Buffer
+	enc2, err := NewEncoder(&empty, WithBrackets())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enc2.WriteHeadComment(nil); err != nil {
+		t.Fatal(err)
+	}
+	if empty.String() != "" {
+		t.Errorf("an empty comment wrote %q", empty.String())
 	}
 }
 

@@ -240,9 +240,12 @@ The index mirrors document structure for efficiency:
 - Integration with `SnapshotReader` interface
 
 **Not Implemented**:
-- `Storage.ReadStateAt()` - full state reconstruction at path/commit
-- Snapshot compaction
-- Comment support in event streaming (Phase 2 feature)
+- Stepping a scoped view, which still recomputes (issue 9b2vpggxh)
+
+All three things this list used to name are done: `Storage.ReadStateAt`,
+compaction (`Compact`, `compaction.go`), and comments, which are carried through
+the event stream and kept by the store rather than stripped — see
+`api.NextState`, and issue 3cdjz00jh12krns4g1n0 for why there is no flag.
 
 ## Key Files by Purpose
 
