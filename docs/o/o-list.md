@@ -13,8 +13,8 @@ much of each are asked separately:
 
     x | o list -if '{status: running}' -trim '{runner: null, started: null}' '[*]'
 
-A file is optional: with none, a pipe is read, and only a terminal -- where there
-is nothing to read -- is a usage error.
+A file is optional: with none, stdin is read, as grep and cat do -- from a pipe,
+or typed at a terminal and ended with Ctrl-D.
 
 Without -if the path is the whole question and every node it names is written.
 The answer is a list, and the empty list is written as one; the exit code says

@@ -7,8 +7,8 @@ pattern is asked about the list rather than about its elements. A file holding
 several documents separated by --- is matched one at a time, and the ones which
 match are written, so match reads as a filter over a document stream.
 
-A file is optional: with none, a pipe is read, so "x | o m PAT" needs no
-trailing -. Only a terminal, where there is nothing to read, is a usage error.
+A file is optional: with none, stdin is read, so "x | o m PAT" needs no
+trailing -.
 
 Exit codes follow grep, so that a pipe can tell an answer from a fault:
 

@@ -8,7 +8,7 @@ is written only when it matches the match document given, so
     o get -if '{state: open}' '$.items[0]' doc.tony && deploy
 
 reads as the guard it is. -trim writes only the parts its own match document
-names. A file is optional: with none, a pipe is read.
+names. A file is optional: with none, stdin is read.
 
 Exit codes are the search convention: 0 when something was written, 1 when the
 path named nothing or what it named did not match, 2 for a fault.

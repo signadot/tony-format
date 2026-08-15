@@ -141,7 +141,7 @@ is written only when it matches the match document given, so
     o get -if '{state: open}' '$.items[0]' doc.tony && deploy
 
 reads as the guard it is. -trim writes only the parts its own match document
-names. A file is optional: with none, a pipe is read.
+names. A file is optional: with none, stdin is read.
 
 Exit codes are the search convention: 0 when something was written, 1 when the
 path named nothing or what it named did not match, 2 for a fault.`
@@ -177,8 +177,8 @@ much of each are asked separately:
 
     x | o list -if '{status: running}' -trim '{runner: null, started: null}' '[*]'
 
-A file is optional: with none, a pipe is read, and only a terminal -- where there
-is nothing to read -- is a usage error.
+A file is optional: with none, stdin is read, as grep and cat do -- from a pipe,
+or typed at a terminal and ended with Ctrl-D.
 
 Without -if the path is the whole question and every node it names is written.
 The answer is a list, and the empty list is written as one; the exit code says
@@ -208,8 +208,8 @@ pattern is asked about the list rather than about its elements. A file holding
 several documents separated by --- is matched one at a time, and the ones which
 match are written, so match reads as a filter over a document stream.
 
-A file is optional: with none, a pipe is read, so "x | o m PAT" needs no
-trailing -. Only a terminal, where there is nothing to read, is a usage error.
+A file is optional: with none, stdin is read, so "x | o m PAT" needs no
+trailing -.
 
 Exit codes follow grep, so that a pipe can tell an answer from a fault:
 

@@ -49,12 +49,7 @@ func match(cfg *MatchConfig, cc *cli.Context, args []string) error {
 	if err != nil {
 		return fault(cc, err)
 	}
-	// A pipe means stdin; a terminal means the file was forgotten, and waiting
-	// for one to be typed is not an answer.
-	inputs, ok := inputsOrStdin(args[1:])
-	if !ok {
-		return usageErr(cfg.Command, cc, "match requires something to match against: a file, or - for stdin")
-	}
+	inputs := inputsOrStdin(args[1:])
 	written := 0
 	for _, arg := range inputs {
 		res, err := matchFile(nil, cfg, cc, match, arg)

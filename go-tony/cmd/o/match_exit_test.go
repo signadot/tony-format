@@ -62,9 +62,8 @@ func TestMatchExitCodes(t *testing.T) {
 		{"a list is one document, so an element pattern matches nothing", []string{"{state: open}", list}, 1},
 		{"a whole-list pattern does match", []string{"!subtree {state: open}", list}, 0},
 		{"unreadable input", []string{"{state: open}", missing}, 2},
-		// No file means stdin when stdin is a pipe, which is what it is under
-		// `go test`: an empty one matches nothing. A TERMINAL is still a usage
-		// error, which needs a pty to exercise and so is not tested here.
+		// No file means stdin, terminal or not, as grep and cat do. Under
+		// `go test` it is empty, and an empty document matches nothing.
 		{"no file, stdin empty", []string{"{state: open}"}, 1},
 		{"no pattern", []string{}, 2},
 	} {

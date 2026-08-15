@@ -30,10 +30,7 @@ func get(cfg *GetConfig, cc *cli.Context, args []string) error {
 	if err != nil {
 		return fault(cc, err)
 	}
-	args, ok := inputsOrStdin(args[1:])
-	if !ok {
-		return usageErr(cfg.Get, cc, "get requires something to query: a file, or - for stdin")
-	}
+	args = inputsOrStdin(args[1:])
 	found := 0
 	for i, arg := range args {
 		n, err := queryArg(cfg.MainConfig, cc.Out, arg, path, false, i > 0, pred, trim)

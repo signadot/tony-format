@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/mattn/go-isatty"
 	"github.com/scott-cotton/cli"
 	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -73,20 +72,20 @@ func ifPredicate(text, file string, opts []parse.ParseOption) (*ir.Node, error) 
 	return pred, nil
 }
 
-// inputsOrStdin answers what to read when the command was given no file.
+// inputsOrStdin answers what to read when the command was given no file: stdin,
+// which is what every tool this sits beside in a pipe does.
 //
-// A pipe means stdin: `x | o m PAT` is the shape everyone writes, and requiring
-// the `-` is a toll on the common case. A TERMINAL means the file was forgotten,
-// and reading it would hang waiting for a person to type a document -- so that
-// stays a usage error, which is the case the trailing `-` was protecting.
-func inputsOrStdin(args []string) ([]string, bool) {
+// Not conditioned on whether stdin is a terminal. grep, cat, sort and jq all
+// read a terminal's stdin and wait for the document to be typed, ending at
+// Ctrl-D, and a person doing that is using the tool rather than misusing it. An
+// isatty test here would refuse that in order to catch a forgotten file, and a
+// command which waits is the ordinary, learnable signal for a forgotten file --
+// it is what the neighbours do.
+func inputsOrStdin(args []string) []string {
 	if len(args) > 0 {
-		return args, true
+		return args
 	}
-	if isatty.IsTerminal(os.Stdin.Fd()) || isatty.IsCygwinTerminal(os.Stdin.Fd()) {
-		return nil, false
-	}
-	return []string{"-"}, true
+	return []string{"-"}
 }
 
 // trimTo projects node to the shape pat names, which is what -trim means on

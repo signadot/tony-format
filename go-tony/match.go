@@ -78,10 +78,31 @@ func matchWith(doc, match *ir.Node, ctx *mergeop.OpContext, e *explainer) (bool,
 	return matched, err
 }
 
+// uncomment answers the value a comment node wraps, at whatever depth they nest.
+// A comment describes the value; it is not part of what the value IS, and no
+// question about the data should be able to see it.
+func uncomment(n *ir.Node) *ir.Node {
+	for n != nil && n.Type == ir.CommentType && len(n.Values) == 1 {
+		n = n.Values[0]
+	}
+	return n
+}
+
 func matchNode(doc, match *ir.Node, ctx *mergeop.OpContext, e *explainer) (bool, error) {
 	if debug.Match() {
 		debug.Logf("match type %s at %s with tag %q\n", match.Type, match.Path(), match.Tag)
 	}
+	// A comment describes a value; it is not what the value IS. A head comment
+	// wraps the value it precedes in a CommentType node, so a document parsed
+	// with comments failed patterns it plainly satisfies -- {name: svc} did not
+	// match "# lead\nname: svc" -- and answered false rather than erring, which
+	// is the shape of wrongness nobody finds.
+	//
+	// The format says tools support matching comments "if so desired"; nothing
+	// here can yet be so desired, because matchNode has no case that compares
+	// them -- an option was written and removed rather than shipped half-working.
+	// Filed, and blind until then.
+	doc, match = uncomment(doc), uncomment(match)
 	_, tag, args, child, err := mergeop.SplitChild(match)
 	if err != nil {
 		return false, err

@@ -88,8 +88,8 @@ func TestListIf(t *testing.T) {
 			wantCode: 2,
 		},
 		{
-			// stdin is a pipe under `go test`, so no file means stdin, and an
-			// empty stdin names nothing.
+			// No file means stdin; under `go test` it is empty, and an empty
+			// document names nothing.
 			name:     "no file reads stdin",
 			args:     []string{"list", "-if", "{state: open}", "$[*]"},
 			wantCode: 1,
@@ -228,9 +228,10 @@ func TestTrimOnGet(t *testing.T) {
 	}
 }
 
-// TestNoFileReadsStdin: a pipe means stdin, so the trailing - is not a toll on
-// the common case. cli.Context carries the input here; in a terminal, where
-// there is nothing to read, it stays a usage error (untestable without a pty).
+// TestNoFileReadsStdin: no file means stdin, so the trailing - is not a toll on
+// the common case. Whether stdin is a pipe or a terminal is not asked: grep and
+// cat read either, and a command waiting for a document to be typed is the
+// ordinary signal that a file was forgotten.
 func TestNoFileReadsStdin(t *testing.T) {
 	outBuf, errBuf := &strings.Builder{}, &strings.Builder{}
 	cc := &cli.Context{

@@ -48,9 +48,6 @@ func nodeToEvents(node *ir.Node, events *[]Event) error {
 			if err := nodeToEvents(valueNode, events); err != nil {
 				return err
 			}
-			if valueNode.Comment != nil {
-				*events = append(*events, Event{Type: EventLineComment, CommentLines: valueNode.Comment.Lines})
-			}
 		}
 		*events = append(*events, Event{Type: EventEndObject})
 
@@ -60,17 +57,11 @@ func nodeToEvents(node *ir.Node, events *[]Event) error {
 			if err := nodeToEvents(valueNode, events); err != nil {
 				return err
 			}
-			if valueNode.Comment != nil {
-				*events = append(*events, Event{Type: EventLineComment, CommentLines: valueNode.Comment.Lines})
-			}
 		}
 		*events = append(*events, Event{Type: EventEndArray})
 
 	case ir.StringType:
 		*events = append(*events, Event{Type: EventString, String: node.String, Tag: node.Tag})
-		if node.Comment != nil {
-			*events = append(*events, Event{Type: EventLineComment, CommentLines: node.Comment.Lines})
-		}
 
 	case ir.NumberType:
 		if node.Float64 != nil {
@@ -80,26 +71,20 @@ func nodeToEvents(node *ir.Node, events *[]Event) error {
 		} else {
 			return fmt.Errorf("number node has neither Float64 nor Int64 set")
 		}
-		if node.Comment != nil {
-			*events = append(*events, Event{Type: EventLineComment, CommentLines: node.Comment.Lines})
-		}
 
 	case ir.BoolType:
 		*events = append(*events, Event{Type: EventBool, Bool: node.Bool, Tag: node.Tag})
-		if node.Comment != nil {
-			*events = append(*events, Event{Type: EventLineComment, CommentLines: node.Comment.Lines})
-		}
 
 	case ir.NullType:
 		*events = append(*events, Event{Type: EventNull, Tag: node.Tag})
-		if node.Comment != nil {
-			*events = append(*events, Event{Type: EventLineComment, CommentLines: node.Comment.Lines})
-		}
 
 	default:
 		return fmt.Errorf("unsupported node type: %v", node.Type)
 	}
 
+	// One place, after the value it belongs to -- which for a container is after
+	// its EndObject/EndArray, where a reader expects it.
+	emitLineComment(node, events)
 	return nil
 }
 
@@ -110,6 +95,20 @@ type nodeFrame struct {
 }
 
 // wrapWithHeadComment wraps a node with a pending head comment if present
+// emitLineComment writes a value's trailing comment.
+//
+// One caller: nodeToEvents, after the value it belongs to. Both the value's own
+// case and its container used to write it, so every line comment appeared twice
+// in the stream; it round-tripped only because the second overwrote the first
+// with the same lines. Emitting after the switch also puts a container's own
+// comment after its EndObject, where it belongs.
+func emitLineComment(node *ir.Node, events *[]Event) {
+	if node == nil || node.Comment == nil {
+		return
+	}
+	*events = append(*events, Event{Type: EventLineComment, CommentLines: node.Comment.Lines})
+}
+
 func wrapWithHeadComment(node *ir.Node, pendingComment **ir.Node) *ir.Node {
 	if *pendingComment == nil {
 		return node
@@ -177,9 +176,14 @@ func EventsToNode(events []Event) (*ir.Node, error) {
 
 		switch ev.Type {
 		case EventBeginObject:
-			node := wrapWithHeadComment(ir.FromMap(map[string]*ir.Node{}).WithTag(ev.Tag), &pendingHeadComment)
-			addNodeToParent(&stack, node, &root)
-			stack = append(stack, nodeFrame{node: node})
+			// The wrapper goes to the parent; the OBJECT goes on the stack. A
+			// head comment wraps the container in a CommentType node, and
+			// pushing the wrapper made the next EventKey look for its object and
+			// find a comment: "unexpected EventKey (not in object)". A commented
+			// document was written to the log and could never be read back.
+			obj := ir.FromMap(map[string]*ir.Node{}).WithTag(ev.Tag)
+			addNodeToParent(&stack, wrapWithHeadComment(obj, &pendingHeadComment), &root)
+			stack = append(stack, nodeFrame{node: obj})
 
 		case EventEndObject:
 			if len(stack) == 0 {
@@ -188,9 +192,9 @@ func EventsToNode(events []Event) (*ir.Node, error) {
 			stack = stack[:len(stack)-1]
 
 		case EventBeginArray:
-			node := wrapWithHeadComment(ir.FromSlice([]*ir.Node{}).WithTag(ev.Tag), &pendingHeadComment)
-			addNodeToParent(&stack, node, &root)
-			stack = append(stack, nodeFrame{node: node})
+			arr := ir.FromSlice([]*ir.Node{}).WithTag(ev.Tag)
+			addNodeToParent(&stack, wrapWithHeadComment(arr, &pendingHeadComment), &root)
+			stack = append(stack, nodeFrame{node: arr})
 
 		case EventEndArray:
 			if len(stack) == 0 {
