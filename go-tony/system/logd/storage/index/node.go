@@ -109,6 +109,15 @@ func (n *node[T]) add(v T, p *node[T], at int) (*node[T], bool) {
 				res, _ = alt.leafAdd(v)
 			}
 			repl.N = n.N + alt.N
+			// The value went into one of the halves AFTER merge read their
+			// bounds, so repl's are one element out of date -- and when v is the
+			// new maximum, they say the subtree ends before it does. Every
+			// ancestor then copies that from here (updateBounds reads the child's
+			// cached bounds), and a range walk skips the whole subtree as lying
+			// below the range it was asked for: rangeFunc's own contract, applied
+			// to a max that is not the max. The element is in the tree, All finds
+			// it, and Range does not (issue gx8xvgmph12krbjpg1n0).
+			repl.updateBounds()
 
 			if p != nil {
 				p.C[at] = repl
