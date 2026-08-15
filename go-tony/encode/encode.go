@@ -282,6 +282,77 @@ func writeTagIfPresent(node *ir.Node, w io.Writer, es *EncState) error {
 	}
 }
 
+// writeFieldHeadComment writes the head comment of a field whose value is a
+// SCALAR above the field's line, and answers the value to encode.
+//
+// "# above c" before "c: 2" parses onto c's value, and a comment before a value
+// is written above the line that value is on -- which for a scalar is the field's
+// own line. Encoding it where the value goes instead pushed the scalar onto a
+// line of its own:
+//
+//	c:
+//	  # above c
+//	  2
+//
+// so encode(parse(x)) was not x. A container is different and already right: its
+// comment sits inside the block, above the first line of it, which is where the
+// document had it.
+func writeFieldHeadComment(val *ir.Node, w io.Writer, es *EncState) (*ir.Node, error) {
+	if !es.comments || es.wire || esBracket(es) {
+		return val, nil
+	}
+	if val.Type != ir.CommentType || len(val.Values) != 1 {
+		return val, nil
+	}
+	switch val.Values[0].Type {
+	case ir.ObjectType, ir.ArrayType:
+		return val, nil
+	}
+	es.colorType = ir.CommentType
+	es.colorAttr = ValueColor
+	for _, ln := range val.Lines {
+		if err := writeRaw(w, ln, es); err != nil {
+			return nil, err
+		}
+		if err := writeNL(w, es); err != nil {
+			return nil, err
+		}
+	}
+	return val.Values[0], nil
+}
+
+// writeBlockLatch writes the line comment of a field's value when that value is
+// a block container, which has no line of its own to end.
+//
+// "a: # c" over an indented object parses the comment onto the object, and the
+// only line it can go back on is the field's. A bracketed collection writes its
+// own after the closing token (writeCloseLineComment); a block one had nowhere
+// to write it and lost it.
+func writeBlockLatch(val *ir.Node, w io.Writer, es *EncState) error {
+	if !es.comments || es.wire || esBracket(es) || val.Comment == nil {
+		return nil
+	}
+	// A value carrying the bracket tag writes braces of its own even here, so it
+	// ends a line and writeCloseLineComment puts the comment after the close.
+	// es.brackets is the ENCLOSING state and does not answer this.
+	if ir.TagHas(val.Tag, ir.BracketTag) {
+		return nil
+	}
+	switch val.Type {
+	case ir.ObjectType:
+		if len(val.Fields) == 0 {
+			return nil // writes braces, so it ends a line of its own
+		}
+	case ir.ArrayType:
+		if len(val.Values) == 0 {
+			return nil
+		}
+	default:
+		return nil // a scalar writes its own line comment
+	}
+	return writeLineCommentLines(w, val.Comment, es)
+}
+
 // encodeObject
 func encodeObject(node *ir.Node, w io.Writer, es *EncState) error {
 	if !es.brackets && ir.TagHas(node.Tag, ir.BracketTag) {
@@ -302,8 +373,16 @@ func encodeObject(node *ir.Node, w io.Writer, es *EncState) error {
 		if err := writeObjectFieldPrefix(i, node, w, es); err != nil {
 			return err
 		}
+		var err2 error
+		val, err2 = writeFieldHeadComment(val, w, es)
+		if err2 != nil {
+			return err2
+		}
 		skipValue, err = encodeObjectField(yField, val, w, es)
 		if err != nil {
+			return err
+		}
+		if err := writeBlockLatch(val, w, es); err != nil {
 			return err
 		}
 		if !skipValue {

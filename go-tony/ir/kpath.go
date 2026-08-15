@@ -59,11 +59,22 @@ func (node *Node) KPath() string {
 //
 // Returns an error if the path doesn't exist or is invalid.
 func (node *Node) GetKPath(kp string) (*Node, error) {
+	return node.GetKPathWith(kp)
+}
+
+// GetKPathWith is GetKPath with navigation options.  See NavOpt: the walk sees
+// through comments either way, and the option says whether the node it answers
+// with keeps the one it carries.
+func (node *Node) GetKPathWith(kp string, opts ...NavOpt) (*Node, error) {
 	p, err := kpath.Parse(kp)
 	if err != nil {
 		return nil, err
 	}
-	return node.getKPath(p)
+	res, err := node.getKPath(p)
+	if err != nil {
+		return nil, err
+	}
+	return navCfg(opts).answer(res), nil
 }
 
 // getKPath is the internal implementation of GetKPath.
@@ -73,6 +84,8 @@ func (node *Node) getKPath(kp *kpath.KPath) (*Node, error) {
 	}
 	res := node
 	for kp != nil {
+		// A comment wraps the value it describes, and a path names the value.
+		res = Uncomment(res)
 		if kp.FieldAll {
 			return nil, fmt.Errorf("any field .* in get")
 		}

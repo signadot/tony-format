@@ -116,3 +116,24 @@ func TestPatchCommentsLeaveTheDataAlone(t *testing.T) {
 		})
 	}
 }
+
+// TestPatchWithoutCommentsDropsBoth: "comments off" is both kinds. A head
+// comment is a wrapper, discarded by anything that descends through it; a line
+// comment rides on the node and every clone carried it along. So off used to
+// mean "the head ones", and a store that asked for no comments kept half.
+func TestPatchWithoutCommentsDropsBoth(t *testing.T) {
+	for _, src := range []string{
+		"# head\nname: svc\n",
+		"name: svc # latch\n",
+		"# head\nname: svc # latch\n",
+		"a:\n  # about\n  b: 1 # latch\n",
+	} {
+		got, err := tony.Patch(ir.Null(), withC(t, src))
+		if err != nil {
+			t.Fatalf("patch %q: %v", src, err)
+		}
+		if out := shown(t, got); strings.Contains(out, "#") {
+			t.Errorf("a comment survived a patch that did not ask for comments:\n%s", out)
+		}
+	}
+}

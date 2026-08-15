@@ -16,13 +16,32 @@ import (
 func Patch(doc, patch *ir.Node, opts ...mergeop.PatchOpt) (*ir.Node, error) {
 	cfg := mergeop.NewConfig(opts...)
 	ctx := &mergeop.OpContext{Config: cfg}
-	return doPatchWith(doc, patch.Clone(), ctx)
+	return patchAndAnswer(doc, patch, ctx)
 }
 
 // PatchWith applies a patch to a document with the given context.
 // The context carries schema definitions for .[ref] expansion and behavioral options.
 func PatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) {
-	return doPatchWith(doc, patch.Clone(), ctx)
+	return patchAndAnswer(doc, patch, ctx)
+}
+
+// patchAndAnswer applies the patch and then honours the comment option on the
+// way out.
+//
+// Without it the result carries no comments at all. That takes stripping rather
+// than merely not preserving: a head comment is a wrapper, discarded by anything
+// that descends through it, while a line comment rides on the node and every
+// clone carries it along -- so "comments off" kept the line comments and dropped
+// the head ones, which is not a policy, it is two accidents.
+func patchAndAnswer(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) {
+	res, err := doPatchWith(doc, patch.Clone(), ctx)
+	if err != nil || res == nil {
+		return res, err
+	}
+	if ctx == nil || ctx.Config == nil || !ctx.Config.Comments {
+		res = ir.StripComments(res)
+	}
+	return res, nil
 }
 
 // doPatch is the backwards-compatible version without context
@@ -58,10 +77,21 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 		if err != nil || res == nil || !keepComments {
 			return res, err
 		}
-		// The patch's comment is what the writer just said about the value; the
-		// document's is what was said before, and stands when the patch says
-		// nothing.
-		return rewrapComment(res, patchComment, docComment), nil
+		// The patch's comment is what the writer just said about the value.
+		//
+		// The document's stands only when the patch is a structural merge which
+		// said nothing about it. An OPERATION states the whole value -- a
+		// !replace installs its to: comment and all -- so re-applying the old
+		// comment there stacked one on the other ("# old\n# new") and made a
+		// removed comment come back.
+		keep := patchComment
+		if keep == nil {
+			if _, opTag, _, _, err := mergeop.SplitChild(patch); err == nil && opTag != "" {
+				return res, nil
+			}
+			keep = docComment
+		}
+		return rewrapComment(res, keep, nil), nil
 	}
 	preTag, tag, args, child, err := mergeop.SplitChild(patch)
 	if err != nil {
@@ -145,7 +175,9 @@ func rewrapComment(res, fromPatch, fromDoc *ir.Node) *ir.Node {
 	if src == nil {
 		src = fromDoc
 	}
-	if src == nil {
+	// A result which already carries a comment got it from what was applied,
+	// and that is the more recent statement.
+	if src == nil || res.Type == ir.CommentType {
 		return res
 	}
 	wrap := &ir.Node{Type: ir.CommentType, Lines: src.Lines, Values: []*ir.Node{res}}

@@ -184,12 +184,20 @@ func parseField(frag string) (field, rest string, err error) {
 }
 
 func (y *Node) GetPath(yPath string) (*Node, error) {
+	return y.GetPathWith(yPath)
+}
+
+// GetPathWith is GetPath with navigation options.  See NavOpt.
+func (y *Node) GetPathWith(yPath string, opts ...NavOpt) (*Node, error) {
+	cfg := navCfg(opts)
 	yp, err := ParsePath(yPath)
 	if err != nil {
 		return nil, err
 	}
 	res := y
 	for yp != nil {
+		// A comment wraps the value it describes, and a path names the value.
+		res = Uncomment(res)
 		if yp.IndexAll {
 			return nil, fmt.Errorf("any index in get")
 		}
@@ -231,9 +239,9 @@ func (y *Node) GetPath(yPath string) (*Node, error) {
 		if yp.Next != nil {
 			return nil, fmt.Errorf("unexpected next w/out index or field")
 		}
-		return res.Clone(), nil
+		return cfg.answer(res).Clone(), nil
 	}
-	return res.Clone(), nil
+	return cfg.answer(res).Clone(), nil
 }
 
 func pathString(f string) string {
@@ -241,6 +249,19 @@ func pathString(f string) string {
 		return f
 	}
 	return "'" + strings.Replace(f, "'", "\\'", -1) + "'"
+}
+
+// ListPathWith is ListPath with navigation options.  See NavOpt.
+func (y *Node) ListPathWith(dst []*Node, yPath string, opts ...NavOpt) ([]*Node, error) {
+	res, err := y.ListPath(dst, yPath)
+	if err != nil {
+		return nil, err
+	}
+	cfg := navCfg(opts)
+	for i, n := range res {
+		res[i] = cfg.answer(n)
+	}
+	return res, nil
 }
 
 func (y *Node) ListPath(dst []*Node, yPath string) ([]*Node, error) {
@@ -255,6 +276,9 @@ func (y *Node) listPath(dst []*Node, yp *Path) ([]*Node, error) {
 	if yp == nil {
 		return append(dst, y.Clone()), nil
 	}
+	// A comment wraps the value it describes, and a path names the value. The
+	// type switch below has no case for a comment and panicked on one.
+	y = Uncomment(y)
 	var err error
 	if yp.Subtree {
 		if err := y.Visit(func(node *Node, isPost bool) (bool, error) {

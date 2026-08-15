@@ -391,7 +391,29 @@ func (n *Node) DeepCopy() *Node {
 // DeepEqual reports whether two nodes are deeply equal.
 // It compares all data fields recursively, but does not compare
 // Parent, ParentIndex, or ParentField as these are structural metadata.
+// DeepEqual reports whether two nodes hold the same thing.
+//
+// Comments are not part of what a node holds. They are what was SAID about it,
+// and every other question in this package agrees: a match sees through them, a
+// diff does not report them unless asked. Equality was the one that did not, and
+// equality is what decides whether a subtree changed -- logd's watch path and
+// its head agreement both ask it -- so a document differing only in a comment
+// read as changed, and two materializations which kept different halves of the
+// comments read as divergent.
+//
+// A comment wrapper is seen through, and the line comment on the node is not
+// compared. Comparing them is DeepEqualWithComments.
 func (y *Node) DeepEqual(other *Node) bool {
+	return Uncomment(y).deepEqual(Uncomment(other), false)
+}
+
+// DeepEqualWithComments is DeepEqual with the comments counted, for a caller
+// asking whether two nodes are the same DOCUMENT rather than the same value.
+func (y *Node) DeepEqualWithComments(other *Node) bool {
+	return y.deepEqual(other, true)
+}
+
+func (y *Node) deepEqual(other *Node, comments bool) bool {
 	if y == other {
 		return true
 	}
@@ -453,7 +475,7 @@ func (y *Node) DeepEqual(other *Node) bool {
 		return false
 	}
 	for i := range y.Fields {
-		if !y.Fields[i].DeepEqual(other.Fields[i]) {
+		if !fieldsEqual(y.Fields[i], other.Fields[i], comments) {
 			return false
 		}
 	}
@@ -463,15 +485,26 @@ func (y *Node) DeepEqual(other *Node) bool {
 		return false
 	}
 	for i := range y.Values {
-		if !y.Values[i].DeepEqual(other.Values[i]) {
+		if !fieldsEqual(y.Values[i], other.Values[i], comments) {
 			return false
 		}
 	}
 
-	// Compare Comment
-	if !y.Comment.DeepEqual(other.Comment) {
+	// Compare Comment, when the caller is asking about the document rather than
+	// the value.
+	if comments && !y.Comment.deepEqual(other.Comment, true) {
 		return false
 	}
 
 	return true
+}
+
+// fieldsEqual compares two children under the caller's comment policy, seeing
+// through comment wrappers when comments do not count -- a value which gained a
+// comment is the same value.
+func fieldsEqual(a, b *Node, comments bool) bool {
+	if !comments {
+		a, b = Uncomment(a), Uncomment(b)
+	}
+	return a.deepEqual(b, comments)
 }

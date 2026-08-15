@@ -54,10 +54,14 @@ func TestCommentedPayloadIsReadable(t *testing.T) {
 			t.Errorf("the data did not survive: %q missing from\n%s", want, out)
 		}
 	}
-	// The line comment survives the whole path. Head comments do not: a write is
-	// a patch, and patch drops the CommentType wrapper it descends through --
-	// filed separately, and not a reason for the read to fail.
-	if !strings.Contains(out, "# the latch") {
-		t.Errorf("the line comment did not survive:\n%s", out)
+	// No comments survive, because logd does not ask for them: a patch answers
+	// with data unless given mergeop.Comments(true). That is now a policy rather
+	// than two accidents -- a head comment used to be dropped because it is a
+	// wrapper something descended through, while a line comment rode along on
+	// the node and was kept, so "no comments" meant half of them.
+	for _, gone := range []string{"# the latch", "# leading comment", "# above the field"} {
+		if strings.Contains(out, gone) {
+			t.Errorf("a comment survived a store that did not ask for comments: %q in\n%s", gone, out)
+		}
 	}
 }
