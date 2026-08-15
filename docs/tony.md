@@ -780,6 +780,12 @@ value, which may be dedented or higher in the object notation.  All trailing
 comments at the end of a document are associated as additional lines of the
 "line comment" of the top most element.
 
+A value has one set of preceding comments however many places they were written
+in.  A comment above a key and a comment above the first line of the block which
+follows it are both attributed to the same value -- it is the next value to begin
+in either case -- and they compose as further lines of that value's preceding
+comments rather than as a second, separate association.
+
 Comments also are associated with all preceding whitespace on the line on which
 they occur.
 

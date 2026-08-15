@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -365,10 +366,7 @@ func parseBalanced(toks []token.Token, p *ir.Node, tag string, pi *int, opts *pa
 	if child == nil {
 		return yComments, nil
 	}
-	yComments.Values = []*ir.Node{child}
-	child.Parent = yComments
-	child.ParentIndex = 0
-	return yComments, nil
+	return headWrap(yComments, child), nil
 }
 
 func noComments(toks []token.Token, p *ir.Node, tag string, pi *int, opts *parseOpts) (*ir.Node, error) {
@@ -708,12 +706,28 @@ func applyHeadComments(kvs []ir.KeyVal, ycMap map[int]*ir.Node) {
 		if yc == nil {
 			continue
 		}
-		val := kvs[i].Val
-		yc.Values = []*ir.Node{val}
-		val.Parent = yc
-		val.ParentIndex = 0
-		kvs[i].Val = yc
+		kvs[i].Val = headWrap(yc, kvs[i].Val)
 	}
+}
+
+// headWrap gives node the preceding comments yc holds.
+//
+// A comment does not wrap a comment. A value can be preceded by comments written
+// at two levels -- above the key and above the first line of the block that
+// follows it -- and the format attributes both to the next value to BEGIN, which
+// is the same value. They are therefore ONE set of preceding comments and compose
+// as lines, in writing order. Wrapping twice made a shape the IR does not have,
+// and every consumer that met one kept the inner comment and dropped the outer
+// (3cdjz00jh12krns4g1n0).
+func headWrap(yc, node *ir.Node) *ir.Node {
+	if node.Type == ir.CommentType {
+		node.Lines = append(slices.Clone(yc.Lines), node.Lines...)
+		return node
+	}
+	yc.Values = []*ir.Node{node}
+	node.Parent = yc
+	node.ParentIndex = 0
+	return yc
 }
 
 func objFromKVs(at *ir.Node, kvs []ir.KeyVal, tag string, keyToks []token.Token, ycMap map[int]*ir.Node) (*ir.Node, error) {

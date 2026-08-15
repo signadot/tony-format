@@ -178,6 +178,29 @@ A comment typed node either:
 A comment typed node may not represent both a head comment and a line comment/document
 trailing comments.
 
+A comment typed node may not contain another comment typed node: a value has ONE
+set of preceding comments, and they compose as lines of a single node.  This is
+what "a non-comment node" says in case 1 above, and it is worth stating twice
+because a value can be preceded by comments written in two places -- above a key
+and above the first line of the block that follows it -- which the association
+rule attributes to the same value, since it is the next value to begin in both
+cases.  Those are one head comment of several lines, not two head comments:
+
+```tony
+# above the spec
+spec:
+  # above replicas
+  replicas: 3
+---
+# IR of above: one comment node holding both lines
+type: Comment
+lines:
+- "# above the spec"
+- "# above replicas"
+values:
+- type: Object
+```
+
 In the second case, normally it represents a single 'line comment'  such as
 `null # this is null b/c ...` and there is only 1 entry in `.lines`.  All such
 comments must contain all whitespace between the end of the value they comment

@@ -30,6 +30,15 @@ func nodeToEvents(node *ir.Node, events *[]Event) error {
 		if len(node.Values) != 1 {
 			return fmt.Errorf("comment node must have exactly 1 value for head comment")
 		}
+		// A comment does not wrap a comment: one value has one set of preceding
+		// comments, which compose as lines. Refused here rather than written,
+		// because the stream cannot express the difference -- two wrappers and one
+		// wrapper of two lines are the same pair of events -- so what goes in
+		// cannot come back, and the loss would be silent (3cdjz00jh12krns4g1n0).
+		if node.Values[0].Type == ir.CommentType {
+			return fmt.Errorf("a head comment wraps a head comment at %s: a value has one set of "+
+				"preceding comments, composed as lines", node.Path())
+		}
 		*events = append(*events, Event{Type: EventHeadComment, CommentLines: node.Lines})
 		return nodeToEvents(node.Values[0], events)
 	}
@@ -109,16 +118,20 @@ func emitLineComment(node *ir.Node, events *[]Event) {
 	*events = append(*events, Event{Type: EventLineComment, CommentLines: node.Comment.Lines})
 }
 
-func wrapWithHeadComment(node *ir.Node, pendingComment **ir.Node) *ir.Node {
-	if *pendingComment == nil {
+// wrapWithHeadComment wraps a node in the comment waiting for it, if there is
+// one. There is at most one: a value has one set of preceding comments, and a
+// comment does not wrap a comment -- see nodeToEvents, which refuses to write
+// the shape, and EventsToNode, which refuses to read it.
+func wrapWithHeadComment(node *ir.Node, pending **ir.Node) *ir.Node {
+	if *pending == nil {
 		return node
 	}
-	(*pendingComment).Values = []*ir.Node{node}
-	node.Parent = *pendingComment
+	wrap := *pending
+	wrap.Values = []*ir.Node{node}
+	node.Parent = wrap
 	node.ParentIndex = 0
-	result := *pendingComment
-	*pendingComment = nil
-	return result
+	*pending = nil
+	return wrap
 }
 
 // addNodeToParent adds a node to its parent container (object or array)
@@ -167,7 +180,7 @@ func EventsToNode(events []Event) (*ir.Node, error) {
 	state := NewState()
 	var stack []nodeFrame
 	var root *ir.Node
-	var pendingHeadComment *ir.Node
+	var pendingHead *ir.Node
 
 	for i, ev := range events {
 		if err := state.ProcessEvent(&ev); err != nil {
@@ -182,7 +195,7 @@ func EventsToNode(events []Event) (*ir.Node, error) {
 			// find a comment: "unexpected EventKey (not in object)". A commented
 			// document was written to the log and could never be read back.
 			obj := ir.FromMap(map[string]*ir.Node{}).WithTag(ev.Tag)
-			addNodeToParent(&stack, wrapWithHeadComment(obj, &pendingHeadComment), &root)
+			addNodeToParent(&stack, wrapWithHeadComment(obj, &pendingHead), &root)
 			stack = append(stack, nodeFrame{node: obj})
 
 		case EventEndObject:
@@ -193,7 +206,7 @@ func EventsToNode(events []Event) (*ir.Node, error) {
 
 		case EventBeginArray:
 			arr := ir.FromSlice([]*ir.Node{}).WithTag(ev.Tag)
-			addNodeToParent(&stack, wrapWithHeadComment(arr, &pendingHeadComment), &root)
+			addNodeToParent(&stack, wrapWithHeadComment(arr, &pendingHead), &root)
 			stack = append(stack, nodeFrame{node: arr})
 
 		case EventEndArray:
@@ -223,27 +236,31 @@ func EventsToNode(events []Event) (*ir.Node, error) {
 			parent.intKey = &ev.IntKey
 
 		case EventString:
-			node := wrapWithHeadComment(ir.FromString(ev.String).WithTag(ev.Tag), &pendingHeadComment)
+			node := wrapWithHeadComment(ir.FromString(ev.String).WithTag(ev.Tag), &pendingHead)
 			addNodeToParent(&stack, node, &root)
 
 		case EventInt:
-			node := wrapWithHeadComment(ir.FromInt(ev.Int).WithTag(ev.Tag), &pendingHeadComment)
+			node := wrapWithHeadComment(ir.FromInt(ev.Int).WithTag(ev.Tag), &pendingHead)
 			addNodeToParent(&stack, node, &root)
 
 		case EventFloat:
-			node := wrapWithHeadComment(ir.FromFloat(ev.Float).WithTag(ev.Tag), &pendingHeadComment)
+			node := wrapWithHeadComment(ir.FromFloat(ev.Float).WithTag(ev.Tag), &pendingHead)
 			addNodeToParent(&stack, node, &root)
 
 		case EventBool:
-			node := wrapWithHeadComment(ir.FromBool(ev.Bool).WithTag(ev.Tag), &pendingHeadComment)
+			node := wrapWithHeadComment(ir.FromBool(ev.Bool).WithTag(ev.Tag), &pendingHead)
 			addNodeToParent(&stack, node, &root)
 
 		case EventNull:
-			node := wrapWithHeadComment(ir.Null().WithTag(ev.Tag), &pendingHeadComment)
+			node := wrapWithHeadComment(ir.Null().WithTag(ev.Tag), &pendingHead)
 			addNodeToParent(&stack, node, &root)
 
 		case EventHeadComment:
-			pendingHeadComment = &ir.Node{
+			if pendingHead != nil {
+				return nil, fmt.Errorf("two head comments before one value at event %d: a value has "+
+					"one set of preceding comments, composed as lines", i)
+			}
+			pendingHead = &ir.Node{
 				Type:  ir.CommentType,
 				Lines: ev.CommentLines,
 			}
@@ -254,18 +271,22 @@ func EventsToNode(events []Event) (*ir.Node, error) {
 				Lines: ev.CommentLines,
 			}
 
+			// The line comment belongs to the VALUE, not to what was said above
+			// it, so a head comment's wrapper is looked through -- which is where
+			// the parser puts it, and where mergeop's comment operator puts it. Set
+			// on the wrapper instead, a value carrying both comments came back from
+			// the stream with the line one attached a level too high, and compared
+			// as different to the document it was written from
+			// (3cdjz00jh12krns4g1n0).
+			var target *ir.Node
 			if len(stack) == 0 {
-				if root != nil {
-					root.Comment = commentNode
-					commentNode.Parent = root
-				}
-			} else {
-				parent := &stack[len(stack)-1]
-				if len(parent.node.Values) > 0 {
-					lastValue := parent.node.Values[len(parent.node.Values)-1]
-					lastValue.Comment = commentNode
-					commentNode.Parent = lastValue
-				}
+				target = root
+			} else if parent := &stack[len(stack)-1]; len(parent.node.Values) > 0 {
+				target = parent.node.Values[len(parent.node.Values)-1]
+			}
+			if target = ir.Uncomment(target); target != nil {
+				target.Comment = commentNode
+				commentNode.Parent = target
 			}
 		}
 	}
