@@ -90,21 +90,44 @@ Three things it must get right:
 
 Nothing in the representation changes. This is an operator and a branch in diff.
 
-## 4. The equality choice -- OPEN, recorded in the code
+## 4. The equality choice -- DECIDED (48d3784): it counts comments
 
-DeepEqual is comment blind as of 09e95be, which is right for "is this the same value" and is what
-logd asks it at session.go:864, :974, :1199 and storage/head.go:155 -- those sites mean "did this
-subtree change".
+DeepEqual is comment blind as of 09e95be, which is right for "is this the same VALUE" and stays
+that way. What was wrong is that four places asked it a different question -- a watch replaying
+the log, a watch following it live, a scoped delta, and the head's agreement with a full read all
+mean "did the state at this path change" -- in four files, which is how four answers drift apart.
 
-If comments become stored data, those four must move to DeepEqualWithComments, or a comment-only
-edit is written to the log and then silently dropped from every watch: the store and its watchers
-disagreeing about whether anything happened. One line each, but a deliberate choice.
+The question is now one function, api.SameState, and it counts comments. Not because comments
+matter, but because the question is what the STORE holds, and it is not that function's business
+to decide that part of it does not count.
 
-Recorded at the sites themselves, so it is found by whoever flips the flag: emitScopedDeltaFrom
-carries the note and the two watch paths point at it, and storage/head.go's nodeEqual carries its
-own.
+While nothing stored carries a comment the two are the same function, so the change is inert: the
+whole suite, watches and head divergence included, passes unchanged. The day a store keeps them,
+blind equality would put the store and its watchers into disagreement about whether anything
+happened -- a commit in the log that every watch dropped. On the head it reads the same way: a
+stepped head that lost a comment a read kept is two materializations disagreeing about stored
+content, which is exactly what that check exists to catch.
 
-## 5. Path attribution through the event stream -- OPEN, measured
+Equality alone would have been half a decision. What a delta CARRIES has to be what the equality
+COUNTS, or they disagree in the other direction. With a comment-sensitive equality and a blind
+diff, a comment-only change made emitScopedDeltaFrom hand tx.RootPatchAt an empty diff and fail the
+watch outright ("ir node unspecified"). So the scoped delta diffs with comments, and so does the
+scope overlay -- which states what a scope holds that baseline does not, and would otherwise drop a
+scope's comment on the floor. That is a fifth site, found by asking where else the same question
+was being answered separately.
+
+Both halves are held by the test at the site: with blind equality no event is sent, with a blind
+diff the watch errors.
+
+Two things this rests on, worth knowing before the flag goes on:
+
+  - the overlay and the head check both assume the two materializations they compare are equally
+    faithful about comments; if a snapshot read keeps them and a replay does not, what they report
+    is the reader's difference rather than the writer's
+  - !comment is in the storage vocabulary and is absolute, so the deltas this produces are storable
+    and survive the overlay's lowering like any other statement of what is
+
+## 5. Path attribution through the event stream -- FIXED (edabbd6, 490e220, 1c8dc80, 5d40481)
 
 Attribution is decided in three places that do not agree: the IR fixes a comment's owning path at
 parse; the event stream cannot name that owner while the comment passes; and two indexes -- the
@@ -236,7 +259,7 @@ it. It was found because comments forced a read to be checked against the docume
        D, the chunk offset -- 5d40481
        C, the read window -- 5d40481
        and the three above, 490e220 and 1c8dc80
-  3. choose the equality policy at logd's four sites (4)
+  3. the equality policy (4) -- DONE, 48d3784: one function, api.SameState, and it counts comments
   4. then the store flag, which by then really is a flag
 
 logd deliberately does not turn it on (168e8ca).
