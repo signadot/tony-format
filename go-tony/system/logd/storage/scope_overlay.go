@@ -83,7 +83,15 @@ func (s *Storage) BuildScopeOverlay(scopeID string, commit int64) (*ir.Node, err
 	annBase, annScoped := stripPresentationDeepIR(base.Clone()), stripPresentationDeepIR(scoped.Clone())
 	annotateKeyed(annBase, "", keys)
 	annotateKeyed(annScoped, "", keys)
-	overlay := unconditionalPatch(tony.Diff(annBase, annScoped))
+	// Comments count, for the reason api.SameState gives: an overlay states what the
+	// scope holds that baseline does not, and if a comment is part of what a store
+	// holds then a scope whose only difference is one has to keep it. !comment is in
+	// the storage vocabulary and is absolute, so it survives the lowering below like
+	// any other statement of what is. Inert while nothing stored carries a comment,
+	// and it rests on the same condition the head's divergence check does: the two
+	// materializations must be equally faithful about them, or the difference this
+	// reports is the reader's rather than the scope's.
+	overlay := unconditionalPatch(tony.DiffWith(annBase, annScoped, tony.DiffComments(true)))
 
 	// A minimal diff records only where the two states differ, so a scope that wrote the
 	// value baseline already holds records nothing and loses the path. The index knows

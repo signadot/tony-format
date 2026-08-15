@@ -5,6 +5,7 @@ import (
 
 	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
 // The head document: the baseline state at the last commit, kept and stepped forward
@@ -148,13 +149,13 @@ func (s *Storage) CheckHead() {
 
 // nodeEqual compares two possibly-nil documents. Empty state reads back as nil, so the
 // nil cases are ordinary rather than exceptional.
-// DeepEqual is comment blind, so head agreement is about the DATA. If logd ever
-// stores comments (3cdjz00jh12krns4g1n0), this has to move to
-// DeepEqualWithComments along with the watch paths in server/session.go, or two
-// heads differing only in a comment read as agreeing.
+//
+// Agreement is api.SameState's to define -- the same question the watch paths in
+// server/session.go ask, and the same answer, which is the point of it being one
+// function. See it for why it counts comments.
 func nodeEqual(a, b *ir.Node) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil
 	}
-	return a.DeepEqual(b)
+	return api.SameState(a, b)
 }
