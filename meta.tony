@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 488bfa836bc4279ca47e34330fec0e4bf391ab6e
 commits: []
 created: "2026-08-15T14:06:06.134303+02:00"
 duplicates: []
@@ -9,5 +10,5 @@ id: gx8xvgmph12krbjpg1n0
 labels:
 - bug
 related_issues: []
-status: open
-updated: "2026-08-15T14:39:55.822991+02:00"
+status: closed
+updated: "2026-08-15T14:40:39.671015+02:00"
