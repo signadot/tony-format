@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: fb23481bc2bb02ed0fcad5208b2c50ae3e2f7057
 commits:
 - 5d40481f067340bfe8ffa0382de00d3f467ab71c
 - 48d3784787ff6cd05419ded1025bc7dd4f95ee31
@@ -12,5 +13,5 @@ id: 3cdjz00jh12krns4g1n0
 labels: []
 related_issues:
 - gx8xvgmph12krbjpg1n0
-status: open
-updated: "2026-08-15T14:08:10.399065+02:00"
+status: closed
+updated: "2026-08-15T14:44:06.269499+02:00"
