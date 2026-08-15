@@ -59,14 +59,22 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 	// a write. Off by default: the option existed and nothing read it, and every
 	// caller today expects a patch to answer with data.
 	keepComments := ctx != nil && ctx.Config != nil && ctx.Config.Comments
+	// !comment is the one operation whose subject is the comment, so it is the
+	// one that must meet the document with its wrapper still on: unwrapping here
+	// handed it the value and dropped what it was about to state. It falls
+	// through to the operator dispatch below untouched.
+	commentOp := false
+	if _, opTag, _, _, err := mergeop.SplitChild(patch); err == nil && opTag == mergeop.CommentTag {
+		commentOp = true
+	}
 	var docComment, patchComment *ir.Node
-	if doc.Type == ir.CommentType {
+	if !commentOp && doc.Type == ir.CommentType {
 		if len(doc.Values) == 0 {
 			panic("comment")
 		}
 		docComment, doc = doc, doc.Values[0]
 	}
-	if patch.Type == ir.CommentType {
+	if !commentOp && patch.Type == ir.CommentType {
 		if len(patch.Values) == 0 {
 			panic("comment")
 		}
@@ -126,7 +134,9 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 		// keyed list) hands back a tag that already holds this one, and composing again
 		// duplicated it: patching !bracket.key(name)[...] gave a result tagged
 		// !bracket.bracket.key(name), so Patch(a, Diff(a,b)) did not equal b.
-		if res != nil && preTag != "" {
+		// An op whose child is an ARGUMENT leaves the document's presentation
+		// alone: the braces on "!comment {head: []}" describe the operand.
+		if _, isArg := opInst.(mergeop.ArgumentOperand); res != nil && preTag != "" && !isArg {
 			res.Tag = restoreTag(preTag, res.Tag)
 		}
 		return res, err

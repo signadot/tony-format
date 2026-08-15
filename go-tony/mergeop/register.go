@@ -76,6 +76,11 @@ func init() {
 	Register(AddTag())
 	Register(RemoveTag())
 	Register(Retag())
+
+	// comments, which are neither data nor tags and needed an absolute operator
+	// of their own: without one, changing a comment meant replacing the value it
+	// describes.
+	Register(Comment())
 }
 
 func Lookup(s string) Symbol {

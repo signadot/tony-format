@@ -43,6 +43,7 @@ directories and via `o match` and `o patch`.
 | replace    |   -   |   +   |     -          | CHECKED: verify the node still equals `from:`, then install `to:`                |
 | addtag     |   -   |   +   | tag            | add a tag; the tag is what results                                               |
 | rmtag      |   -   |   +   | tag            | remove a tag; its absence is what results                                        |
+| comment    |   -   |   +   |     -          | state the comments here; the operand names head, line or both, `[]` removing one  |
 | retag      |   -   |   +   | from,to        | CHECKED: verify the tag is `from`, then make it `to`                             |
 | strdiff    |   -   |   +   |     -          | a string edit, relative to the string that is there                              |
 | arraydiff  |   -   |   +   |     -          | an array edit, relative and positional                                           |
@@ -50,6 +51,23 @@ directories and via `o match` and `o patch`.
 
 `o match -tags` and `o patch -tags` print this list from the binary, which is the
 authority; a test keeps the table above equal to it.
+
+`!comment` is how a comment change is written without rewriting the value it
+describes:
+
+```tony
+a: !comment {head: ["# new"]}                  # the comment above a is now this
+a: !comment {line: []}                         # the one after a is gone
+a: !comment {head: ["# h"], line: [" # l"]}    # both, in one statement
+```
+
+A position the operand does not name is left alone, as a field an object patch
+does not name is. Both positions live in one operand because tag composition
+shares a child: `!comment.comment` could only ever carry one set of lines.
+
+It states what the comment IS rather than what it was, so it applies to a
+document that has moved on -- which is what lets a store keep it, and why
+logd's storage vocabulary admits it beside `!insert` and `!addtag`.
 
 The last nine are what a diff produces, and they divide on two lines worth
 knowing: CHECKED operations assert something about what they meet and fail if it

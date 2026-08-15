@@ -44,6 +44,9 @@ func TestDiffComments(t *testing.T) {
 		{"a line comment changed", "name: svc # old\n", "name: svc # new\n"},
 		{"a comment on a nested value", "a:\n  # old\n  b: 1\n", "a:\n  # new\n  b: 1\n"},
 		{"a comment and a value together", "# old\nname: was\n", "# new\nname: now\n"},
+		{"both positions at once", "# oldh\nname: svc # oldl\n", "# newh\nname: svc # newl\n"},
+		{"head changed, line untouched", "# oldh\nname: svc # keep\n", "# newh\nname: svc # keep\n"},
+		{"line removed, head untouched", "# keep\nname: svc # gone\n", "# keep\nname: svc\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a, b := pc(t, tc.a), pc(t, tc.b)

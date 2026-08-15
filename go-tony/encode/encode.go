@@ -329,7 +329,13 @@ func writeFieldHeadComment(val *ir.Node, w io.Writer, es *EncState) (*ir.Node, e
 // own after the closing token (writeCloseLineComment); a block one had nowhere
 // to write it and lost it.
 func writeBlockLatch(val *ir.Node, w io.Writer, es *EncState) error {
-	if !es.comments || es.wire || esBracket(es) || val.Comment == nil {
+	if !es.comments || es.wire || esBracket(es) {
+		return nil
+	}
+	// A head comment wraps the value, and the latch belongs to the value inside
+	// it: "a: # latch" over a block that also has a comment above its first line.
+	val = ir.Uncomment(val)
+	if val == nil || val.Comment == nil {
 		return nil
 	}
 	// A value carrying the bracket tag writes braces of its own even here, so it

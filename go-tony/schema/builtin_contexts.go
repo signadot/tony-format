@@ -35,6 +35,7 @@ func (r *ContextRegistry) registerBuiltinContexts() {
 			"nullify":   {Name: "nullify", Contexts: []string{"tony-format/context/patch"}},
 			"jsonpatch": {Name: "jsonpatch", Contexts: []string{"tony-format/context/patch"}},
 			"pipe":      {Name: "pipe", Contexts: []string{"tony-format/context/patch"}},
+			"comment":   {Name: "comment", Contexts: []string{"tony-format/context/patch"}},
 			"insert":    {Name: "insert", Contexts: []string{"tony-format/context/patch"}},
 			"delete":    {Name: "delete", Contexts: []string{"tony-format/context/patch"}},
 			"replace":   {Name: "replace", Contexts: []string{"tony-format/context/patch"}},

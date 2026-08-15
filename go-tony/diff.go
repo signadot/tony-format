@@ -3,6 +3,7 @@ package tony
 import (
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/libdiff"
+	"github.com/signadot/tony-format/go-tony/mergeop"
 )
 
 // Diff produces a succint comparison of from and to.  If there are
@@ -118,13 +119,63 @@ func sameLines(a, b []string) bool {
 	return true
 }
 
+// commentDiff answers the operator that turns from's comments into to's, or nil
+// when the values differ as well and the value's own difference should carry
+// them.
+//
+// Both positions can change at once, and one operand states both: tag
+// composition shares a child, so two operators on one node could only ever
+// carry one set of lines.
+func (d *differ) commentDiff(from, to *ir.Node) *ir.Node {
+	// Everything except the comments AT THIS NODE has to be identical, deeper
+	// comments included, or the small operator would state this node's comments
+	// and silently drop whatever else moved. DeepEqual is comment blind, so it
+	// answered yes to a document whose comments had changed further down.
+	a, b := ir.Uncomment(from).Clone(), ir.Uncomment(to).Clone()
+	a.Comment, b.Comment = nil, nil
+	if !a.DeepEqualWithComments(b) {
+		return nil // something else moved; MakeDiff states it whole, comments included
+	}
+	positions := map[string]*ir.Node{}
+	if !sameLines(headLines(from), headLines(to)) {
+		positions[mergeop.CommentHead] = linesNode(headLines(to))
+	}
+	if !sameLines(lineLines(unwrapComment(from)), lineLines(unwrapComment(to))) {
+		positions[mergeop.CommentLine] = linesNode(lineLines(unwrapComment(to)))
+	}
+	if len(positions) == 0 {
+		return nil
+	}
+	op := ir.FromMap(positions)
+	op.Tag = "!" + mergeop.CommentTag
+	return op
+}
+
+// linesNode is a comment's lines as the operand holds them: a list of strings,
+// empty when the comment is gone.
+func linesNode(lines []string) *ir.Node {
+	vals := make([]*ir.Node, 0, len(lines))
+	for _, ln := range lines {
+		vals = append(vals, ir.FromString(ln))
+	}
+	return ir.FromSlice(vals)
+}
+
 func (d *differ) diff(from, to *ir.Node) *ir.Node {
-	// With comments in the question, a value whose comment changed is a value
-	// that changed: the difference is reported as a replace carrying both sides
-	// whole, comments included, which a patch given mergeop.Comments(true)
-	// installs. Without it -- the default -- comments are not compared and not
+	// With comments in the question, a comment that changed is reported as a
+	// change to the COMMENT -- !comment(head) or !comment(line), carrying the
+	// lines -- rather than as a replacement of the value it describes. Replacing
+	// carried the whole subtree twice for an edit to a line of text, and at the
+	// root that is the document.
+	//
+	// A value that ALSO changed is a different matter: the value's own difference
+	// carries its comments with it, and a node gets one statement, not two.
+	// Without the option -- the default -- comments are neither compared nor
 	// carried, which is what a diff of DATA wants.
 	if d.cfg.Comments && !sameComments(from, to) {
+		if cd := d.commentDiff(from, to); cd != nil {
+			return cd
+		}
 		return libdiff.MakeDiff(from, to)
 	}
 	if from.Type == ir.CommentType {

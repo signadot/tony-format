@@ -50,13 +50,19 @@ const StorageContextURI = "logd/context/storage"
 //	quote, unquote, nullify, dive, embed, pass
 //	           transforms of whatever is found, not statements of what is
 //	pipe       calls out to the system, so storing one means re-running it per replay
+//
+// comment is storable for the same reason addtag is: it states what the comment
+// IS. Without it a comment change could only be written as a replacement of the
+// value it describes -- the whole subtree, twice -- which is neither storable nor
+// proportionate to an edit of one line of text.
 var storableTags = map[string]string{
-	"insert": "adds a value; the value is what results",
-	"delete": "removes a value; absence is what results",
-	"key":    "identifies array elements so a merge is by identity rather than position",
-	"raw":    "escapes data that would otherwise read as an operation",
-	"addtag": "adds a tag; the tag is what results",
-	"rmtag":  "removes a tag; its absence is what results",
+	"insert":  "adds a value; the value is what results",
+	"delete":  "removes a value; absence is what results",
+	"key":     "identifies array elements so a merge is by identity rather than position",
+	"raw":     "escapes data that would otherwise read as an operation",
+	"addtag":  "adds a tag; the tag is what results",
+	"rmtag":   "removes a tag; its absence is what results",
+	"comment": "states the comments at a node; the lines are what results, and none removes one",
 }
 
 // StorageContext is logd's storage vocabulary as a schema context.
