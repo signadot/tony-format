@@ -33,7 +33,7 @@ func get(cfg *GetConfig, cc *cli.Context, args []string) error {
 	args = inputsOrStdin(args[1:])
 	found := 0
 	for i, arg := range args {
-		n, err := queryArg(cfg.MainConfig, cc.Out, arg, path, false, i > 0, pred, trim)
+		n, err := queryArg(cfg.parseOpts(), cfg.encOpts(cc.Out), cfg.Comments, cc.Out, arg, path, false, i > 0, pred, trim)
 		if err != nil {
 			return fault(cc, fmt.Errorf("error querying %s with %s: %w", arg, path, err))
 		}

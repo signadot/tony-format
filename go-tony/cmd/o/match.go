@@ -65,7 +65,7 @@ func match(cfg *MatchConfig, cc *cli.Context, args []string) error {
 					return fault(cc, err)
 				}
 			}
-			if err := encode.Encode(oy, cc.Out, cfg.MainConfig.encOpts(cc.Out)...); err != nil {
+			if err := encode.Encode(oy, cc.Out, cfg.encOpts(cc.Out)...); err != nil {
 				return fault(cc, fmt.Errorf("error encoding output: %w", err))
 			}
 			written++

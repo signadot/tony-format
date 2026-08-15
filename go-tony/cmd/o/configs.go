@@ -151,35 +151,66 @@ func (cfg *ViewConfig) parseOpts() []parse.ParseOption {
 type GetConfig struct {
 	*MainConfig
 
-	If     string `cli:"name=if desc='keep the node only if it matches this match document'"`
-	IfFile string `cli:"name=if-file desc='read the match document from a file'"`
-	Trim   string `cli:"name=trim desc='write only the parts this match document names'"`
+	Comments bool   `cli:"name=c desc='include comments'"`
+	If       string `cli:"name=if desc='keep the node only if it matches this match document'"`
+	IfFile   string `cli:"name=if-file desc='read the match document from a file'"`
+	Trim     string `cli:"name=trim desc='write only the parts this match document names'"`
 
 	Get *cli.Command
+}
+
+func (cfg *GetConfig) parseOpts() []parse.ParseOption {
+	return append(cfg.MainConfig.parseOpts(), parse.ParseComments(cfg.Comments))
+}
+
+func (cfg *GetConfig) encOpts(w io.Writer) []encode.EncodeOption {
+	return withComments(cfg.MainConfig.encOpts(w), cfg.Comments)
 }
 
 type ListConfig struct {
 	*MainConfig
 
-	If     string `cli:"name=if desc='keep only the nodes matching this match document'"`
-	IfFile string `cli:"name=if-file desc='read the match document from a file'"`
-	Trim   string `cli:"name=trim desc='write only the parts this match document names'"`
+	Comments bool   `cli:"name=c desc='include comments'"`
+	If       string `cli:"name=if desc='keep only the nodes matching this match document'"`
+	IfFile   string `cli:"name=if-file desc='read the match document from a file'"`
+	Trim     string `cli:"name=trim desc='write only the parts this match document names'"`
 
 	List *cli.Command
+}
+
+func (cfg *ListConfig) parseOpts() []parse.ParseOption {
+	return append(cfg.MainConfig.parseOpts(), parse.ParseComments(cfg.Comments))
+}
+
+func (cfg *ListConfig) encOpts(w io.Writer) []encode.EncodeOption {
+	return withComments(cfg.MainConfig.encOpts(w), cfg.Comments)
 }
 
 type MatchConfig struct {
 	*cli.Command
 	*MainConfig
 
-	Trim   bool `cli:"name=trim desc='trim the results to the match'"`
-	String bool `cli:"name=s desc='consider match a string argument'"`
-	File   bool `cli:"name=f desc='consider match a file path'"`
-	Tags   bool `cli:"name=tags desc='show available tags'"`
+	Comments bool `cli:"name=c desc='include comments'"`
+	Trim     bool `cli:"name=trim desc='trim the results to the match'"`
+	String   bool `cli:"name=s desc='consider match a string argument'"`
+	File     bool `cli:"name=f desc='consider match a file path'"`
+	Tags     bool `cli:"name=tags desc='show available tags'"`
+}
+
+// parseOpts reads comments when asked. Matching itself stays blind to them
+// either way -- a match asks about the value, and sees through what was said
+// about it -- so this decides what a -trim result can carry, not what matches.
+func (cfg *MatchConfig) parseOpts() []parse.ParseOption {
+	return append(cfg.MainConfig.parseOpts(), parse.ParseComments(cfg.Comments))
+}
+
+func (cfg *MatchConfig) encOpts(w io.Writer) []encode.EncodeOption {
+	return withComments(cfg.MainConfig.encOpts(w), cfg.Comments)
 }
 
 type DiffConfig struct {
 	*MainConfig
+	Comments  bool   `cli:"name=c desc='include comments'"`
 	Reverse   bool   `cli:"name=r desc='reverse the diff'"`
 	Loop      string `cli:"name=loop desc='command to produce objects to diff in a loop'"`
 	LoopEvery time.Duration
@@ -187,6 +218,25 @@ type DiffConfig struct {
 	LoopUntil string `cli:"name=loopUntil desc='stop once the looped command output matches this match object'"`
 
 	Diff *cli.Command
+}
+
+func (cfg *DiffConfig) parseOpts() []parse.ParseOption {
+	return append(cfg.MainConfig.parseOpts(), parse.ParseComments(cfg.Comments))
+}
+
+func (cfg *DiffConfig) encOpts(w io.Writer) []encode.EncodeOption {
+	return withComments(cfg.MainConfig.encOpts(w), cfg.Comments)
+}
+
+// withComments adds comments to an encoding when they were asked for. Reading
+// them is not enough on its own: a document parsed with comments and encoded
+// without them comes out stripped, which is the same answer as not having read
+// them and a confusing way to give it.
+func withComments(opts []encode.EncodeOption, on bool) []encode.EncodeOption {
+	if !on {
+		return opts
+	}
+	return append(opts, encode.EncodeComments(true))
 }
 
 func (cfg *DiffConfig) mkLoopEvery() func(cc *cli.Context, a string) (any, error) {
@@ -202,12 +252,21 @@ func (cfg *DiffConfig) mkLoopEvery() func(cc *cli.Context, a string) (any, error
 
 type PatchConfig struct {
 	*MainConfig
-	Reverse bool `cli:"name=r desc='apply diff reversed'"`
-	String  bool `cli:"name=s desc='patch arg as string'"`
-	File    bool `cli:"name=f desc='patch arg as file'"`
-	Tags    bool `cli:"name=tags desc='show available tags'"`
+	Comments bool `cli:"name=c desc='include comments'"`
+	Reverse  bool `cli:"name=r desc='apply diff reversed'"`
+	String   bool `cli:"name=s desc='patch arg as string'"`
+	File     bool `cli:"name=f desc='patch arg as file'"`
+	Tags     bool `cli:"name=tags desc='show available tags'"`
 
 	Patch *cli.Command
+}
+
+func (cfg *PatchConfig) parseOpts() []parse.ParseOption {
+	return append(cfg.MainConfig.parseOpts(), parse.ParseComments(cfg.Comments))
+}
+
+func (cfg *PatchConfig) encOpts(w io.Writer) []encode.EncodeOption {
+	return withComments(cfg.MainConfig.encOpts(w), cfg.Comments)
 }
 
 type BuildConfig struct {

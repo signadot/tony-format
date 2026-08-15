@@ -125,7 +125,11 @@ func diffLoop(cfg *DiffConfig, cc *cli.Context) error {
 }
 
 func diffInputs(do *DiffConfig, cc *cli.Context, a, b *ir.Node, sep bool) (bool, error) {
-	d := tony.Diff(a, b)
+	// Diff is blind to comments unless asked, so with -c the question changes
+	// from "do these hold the same thing" to "are these the same document".
+	// Without it a comment-only change is no change, and diff answers with
+	// nothing and an exit code of 0.
+	d := tony.DiffWith(a, b, tony.DiffComments(do.Comments))
 	w := cc.Out
 	if d == nil {
 		return false, nil
@@ -150,7 +154,7 @@ func diffInputs(do *DiffConfig, cc *cli.Context, a, b *ir.Node, sep bool) (bool,
 			return false, err
 		}
 	}
-	if err := encode.Encode(d, w, do.MainConfig.encOpts(w)...); err != nil {
+	if err := encode.Encode(d, w, do.encOpts(w)...); err != nil {
 		return false, err
 	}
 	return true, nil

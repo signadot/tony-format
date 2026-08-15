@@ -41,7 +41,7 @@ func list(cfg *ListConfig, cc *cli.Context, args []string) error {
 	args = inputsOrStdin(args[1:])
 	found := 0
 	for _, arg := range args {
-		n, err := queryArg(cfg.MainConfig, cc.Out, arg, path, true, false, pred, trim)
+		n, err := queryArg(cfg.parseOpts(), cfg.encOpts(cc.Out), cfg.Comments, cc.Out, arg, path, true, false, pred, trim)
 		if err != nil {
 			return fault(cc, fmt.Errorf("error querying %s with %s: %w", arg, path, err))
 		}
@@ -56,7 +56,7 @@ func list(cfg *ListConfig, cc *cli.Context, args []string) error {
 // queryArg writes what query names in arg, keeping only what pred matches when
 // one was given, and answers how many nodes it wrote -- which is what decides
 // between "found" and "found nothing" for the caller's exit code.
-func queryArg(cfg *MainConfig, w io.Writer, arg, query string, list, sep bool, pred, trim *ir.Node) (int, error) {
+func queryArg(pOpts []parse.ParseOption, eOpts []encode.EncodeOption, comments bool, w io.Writer, arg, query string, list, sep bool, pred, trim *ir.Node) (int, error) {
 	var targetReader io.Reader
 	if arg == "-" {
 		targetReader = os.Stdin
@@ -72,7 +72,7 @@ func queryArg(cfg *MainConfig, w io.Writer, arg, query string, list, sep bool, p
 	if err != nil {
 		return 0, err
 	}
-	target, err := parse.Parse(rd, cfg.parseOpts()...)
+	target, err := parse.Parse(rd, pOpts...)
 	if err != nil {
 		return 0, fmt.Errorf("error decoding %s: %w", arg, err)
 	}
@@ -83,7 +83,10 @@ func queryArg(cfg *MainConfig, w io.Writer, arg, query string, list, sep bool, p
 		return 0, nil
 	}
 	if list {
-		res, err := target.ListPath(nil, query)
+		// WithComments when comments were asked for: a path ANSWERS with the value
+		// it names, dropping what was said above it, which is right for a reader
+		// asking what is there and wrong for one asking to be shown the document.
+		res, err := target.ListPathWith(nil, query, ir.WithComments(comments))
 		if err != nil {
 			return 0, fmt.Errorf("error executing list on %s: %w", arg, err)
 		}
@@ -98,12 +101,12 @@ func queryArg(cfg *MainConfig, w io.Writer, arg, query string, list, sep bool, p
 		// a collection, and [] is the honest one. The exit code is what says it
 		// was empty.
 		arr := ir.FromSlice(res)
-		if err := encode.Encode(arr, w, cfg.encOpts(w)...); err != nil {
+		if err := encode.Encode(arr, w, eOpts...); err != nil {
 			return 0, fmt.Errorf("error encoding result: %w", err)
 		}
 		return len(res), nil
 	}
-	res, err := target.GetPath(query)
+	res, err := target.GetPathWith(query, ir.WithComments(comments))
 	if err != nil {
 		return 0, fmt.Errorf("error executing get on %s: %w", arg, err)
 	}
@@ -137,7 +140,7 @@ func queryArg(cfg *MainConfig, w io.Writer, arg, query string, list, sep bool, p
 		}
 
 	}
-	if err := encode.Encode(trimTo(res, trim), w, cfg.encOpts(w)...); err != nil {
+	if err := encode.Encode(trimTo(res, trim), w, eOpts...); err != nil {
 		return 0, fmt.Errorf("error encoding result: %w", err)
 	}
 	return 1, nil
