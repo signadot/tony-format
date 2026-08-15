@@ -104,6 +104,16 @@ func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq i
 		return nil
 	}
 
+	// A head comment wraps the value it precedes, so a patch carrying comments has
+	// a CommentType between a field and its contents. The switch below asks what
+	// KIND of node this is, and a comment is not a kind of container: without this
+	// the recursion stopped at the wrapper and every path beneath it went
+	// unrecorded. One comment at the top of a patch indexed the root and nothing
+	// else, so a watch on a path inside it did not see the commit -- data lost, not
+	// comments. It is the index's question, not the format's, so the wrapper is
+	// looked through rather than refused (3cdjz00jh12krns4g1n0).
+	n = ir.Uncomment(n)
+
 	switch n.Type {
 	case ir.ObjectType:
 		if len(n.Fields) == 0 {

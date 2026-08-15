@@ -64,6 +64,12 @@ func (pi *PatchIndex) Paths() []string {
 func walkIRTree(node *ir.Node, path string, fn func(node *ir.Node, path string)) {
 	fn(node, path)
 
+	// A comment wraps the value it precedes, and this asks what KIND of node it is:
+	// a comment is not a kind of container, and descending into one that was not
+	// looked through stops the walk with every path beneath it unrecorded
+	// (3cdjz00jh12krns4g1n0).
+	node = ir.Uncomment(node)
+
 	switch node.Type {
 	case ir.ObjectType:
 		for i, field := range node.Fields {

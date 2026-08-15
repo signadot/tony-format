@@ -148,6 +148,10 @@ func extractTopLevelKPaths(patch *ir.Node) []string {
 
 	var paths []string
 
+	// A comment wraps the value it precedes, and this asks what KIND of node the
+	// patch is: a comment is not a kind of container (3cdjz00jh12krns4g1n0).
+	patch = ir.Uncomment(patch)
+
 	switch patch.Type {
 	case ir.ObjectType:
 		if len(patch.Fields) == 0 {

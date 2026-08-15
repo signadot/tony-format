@@ -392,6 +392,15 @@ func subtreeAt(patch *ir.Node, path string) (*ir.Node, bool) {
 
 // walkAndCollectPatchRoots walks the IR tree and collects nodes with PatchRootTag.
 func walkAndCollectPatchRoots(node *ir.Node, path string, fn func(node *ir.Node, path string)) {
+	// A comment wraps the value it precedes, so the tag a patch root is found by
+	// sits on the node INSIDE the wrapper and the switch below sees a comment
+	// rather than a container. Left wrapped, a commented patch root was neither
+	// collected nor descended into, and the patch applied nothing at all
+	// (3cdjz00jh12krns4g1n0). What the wrapper says is dropped here rather than
+	// carried into the value being installed; that is a comment-policy question
+	// and it belongs with the store flag, not with finding the roots.
+	node = ir.Uncomment(node)
+
 	if tx.HasPatchRootTag(node) {
 		fn(node, path)
 		return // Don't recurse into patched subtrees

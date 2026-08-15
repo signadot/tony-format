@@ -44,6 +44,10 @@ func injectAutoIDsRec(commit int64, schema *api.Schema, node *ir.Node, kpath str
 
 	count := 0
 
+	// A comment wraps the value it precedes, and an id is generated for the element
+	// inside the wrapper, not for what was said about it (3cdjz00jh12krns4g1n0).
+	node = ir.Uncomment(node)
+
 	switch node.Type {
 	case ir.ObjectType:
 		for i, field := range node.Fields {
@@ -63,6 +67,7 @@ func injectAutoIDsRec(commit int64, schema *api.Schema, node *ir.Node, kpath str
 		if aid != nil {
 			// This array should have auto-generated IDs
 			for _, elem := range node.Values {
+				elem = ir.Uncomment(elem)
 				if elem.Type != ir.ObjectType {
 					continue
 				}

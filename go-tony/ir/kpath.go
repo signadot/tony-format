@@ -252,11 +252,30 @@ func (node *Node) ListKPath(dst []*Node, kp string) ([]*Node, error) {
 	return node.listKPath(dst, p)
 }
 
+// ListKPathWith is ListKPath with navigation options.  See NavOpt.
+func (node *Node) ListKPathWith(dst []*Node, kp string, opts ...NavOpt) ([]*Node, error) {
+	res, err := node.ListKPath(dst, kp)
+	if err != nil {
+		return nil, err
+	}
+	cfg := navCfg(opts)
+	for i, n := range res {
+		res[i] = cfg.answer(n)
+	}
+	return res, nil
+}
+
 // listKPath is the internal implementation of ListKPath.
 func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 	if kp == nil {
 		return append(dst, node.Clone()), nil
 	}
+	// A comment wraps the value it describes, and a path names the value. The
+	// switch below has no case for a comment, so a walk which met one answered
+	// with NOTHING and no error -- the one shape of this bug that is silent.
+	// getKPath and listPath were taught this; this one was missed
+	// (3cdjz00jh12krns4g1n0).
+	node = Uncomment(node)
 	var err error
 	switch node.Type {
 	case ObjectType:

@@ -419,6 +419,9 @@ func patchHasUndeclaredKey(n *ir.Node, prefix string, keys map[string]string) bo
 	if n == nil {
 		return false
 	}
+	// A comment wraps the value it precedes, and the !key this looks for is on the
+	// array inside it (3cdjz00jh12krns4g1n0).
+	n = ir.Uncomment(n)
 	if n.Type == ir.ArrayType {
 		if _, keyed := n.KeyField(); keyed {
 			if _, declared := keys[prefix]; !declared {
@@ -530,6 +533,10 @@ func annotateKeyed(n *ir.Node, prefix string, keys map[string]string) {
 	if n == nil {
 		return
 	}
+	// The tag belongs to the array, not to what was said above it, so the wrapper a
+	// head comment makes is looked through and the array inside is tagged in place
+	// (3cdjz00jh12krns4g1n0).
+	n = ir.Uncomment(n)
 	if f, ok := keys[prefix]; ok && n.Type == ir.ArrayType {
 		if _, args := ir.TagGet(n.Tag, "!key"); len(args) != 1 {
 			n.Tag = ir.TagCompose("!key", []string{f}, n.Tag)

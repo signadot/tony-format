@@ -46,6 +46,12 @@ func injectKeyTagsRec(schema *api.Schema, node *ir.Node, kpath string) error {
 		return nil
 	}
 
+	// A comment wraps the value it precedes, and the !key tag belongs to the array
+	// inside the wrapper, not to what was said about it. Unwrapping here tags that
+	// array in place, leaving the wrapper above it; left wrapped, a commented array
+	// was never keyed and its elements merged positionally (3cdjz00jh12krns4g1n0).
+	node = ir.Uncomment(node)
+
 	switch node.Type {
 	case ir.ObjectType:
 		for i, field := range node.Fields {
