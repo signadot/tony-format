@@ -1,13 +1,11 @@
-# o eval
+# o help
 
-Evaluate objects with !eval tags
-
-Also known as `e`, `ev`.
+Show help for o, or for one of its commands
 
 ## Usage
 
 ```
-o eval [-e path=val [ -e path2=val2 ]...] [files]
+o help [command]
 ```
 
 ## Options
@@ -28,22 +26,16 @@ o eval [-e path=val [ -e path2=val2 ]...] [files]
 | `-I`, `-ifmt` | (format) |  | input format: tony/t, json/j, yaml/y |
 | `-O`, `-ofmt` | (format) |  | output format: tony/t, json/j, yaml/y |
 
-### `o eval` options
-
-| option | type | default | description |
-| --- | --- | --- | --- |
-| `-tags` | bool |  | show available tags |
-| `-e` | (path=val) |  |  |
-
 Inherited options may be given either before or after the command they are inherited by.
 
 Boolean options take no argument and may be negated with a `no-` prefix, as in `-no-debug`.
 
 ## See also
 
-- [published documentation](https://signadot.github.io/tony-format/o/o-eval/)
+- [published documentation](https://signadot.github.io/tony-format/o/o-help/)
 - [`o`](README.md)
 - [`o view`](o-view.md)
+- [`o eval`](o-eval.md)
 - [`o diff`](o-diff.md)
 - [`o get`](o-get.md)
 - [`o list`](o-list.md)
@@ -55,7 +47,6 @@ Boolean options take no argument and may be negated with a `no-` prefix, as in `
 - [`o schema`](o-schema.md)
 - [`o system`](o-system.md)
 - [`o docs`](o-docs.md)
-- [`o help`](o-help.md)
 - [`o completion`](o-completion.md)
 - [`o version`](o-version.md)
 

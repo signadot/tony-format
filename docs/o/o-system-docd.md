@@ -26,6 +26,7 @@ o system docd <subcommand>
 | `-x` | bool |  | expand <<: merge field while encoding |
 | `-color` | bool |  | encode with color |
 | `-wire` | bool |  | output in compact format |
+| `-h`, `-help` | bool |  | show help for this command |
 | `-t`, `-tony` | bool |  | do i/o in tony |
 | `-j`, `-json` | bool |  | do i/o in json |
 | `-y`, `-yaml` | bool |  | do i/o in yaml |

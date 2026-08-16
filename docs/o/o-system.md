@@ -28,6 +28,7 @@ o system <subcommand>
 | `-x` | bool |  | expand <<: merge field while encoding |
 | `-color` | bool |  | encode with color |
 | `-wire` | bool |  | output in compact format |
+| `-h`, `-help` | bool |  | show help for this command |
 | `-t`, `-tony` | bool |  | do i/o in tony |
 | `-j`, `-json` | bool |  | do i/o in json |
 | `-y`, `-yaml` | bool |  | do i/o in yaml |
@@ -55,5 +56,7 @@ Boolean options take no argument and may be negated with a `no-` prefix, as in `
 - [`o load`](o-load.md)
 - [`o schema`](o-schema.md)
 - [`o docs`](o-docs.md)
+- [`o help`](o-help.md)
+- [`o completion`](o-completion.md)
 - [`o version`](o-version.md)
 

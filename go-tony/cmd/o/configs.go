@@ -22,6 +22,10 @@ type MainConfig struct {
 	Color   bool `cli:"name=color desc='encode with color'"`
 	WireOut bool `cli:"name=wire desc='output in compact format'"`
 
+	// Help is answered by every command, because -h is the first thing anyone
+	// types and the last thing a tool should argue with. See helpAsked.
+	Help bool `cli:"name=h aliases=help desc='show help for this command'"`
+
 	T bool `cli:"name=t aliases=tony desc='do i/o in tony'"`
 	J bool `cli:"name=j aliases=json desc='do i/o in json'"`
 	Y bool `cli:"name=y aliases=yaml desc='do i/o in yaml'"`

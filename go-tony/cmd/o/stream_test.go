@@ -221,3 +221,69 @@ func TestFaultsExitTwo(t *testing.T) {
 		})
 	}
 }
+
+// Asking what a command does is not a misuse of it. Every spelling used to print
+// the help and then say `usage error: unknown option: "help"` on stderr, exit 1.
+func TestHelpIsAnsweredNotRefused(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"the long flag", []string{"--help"}, "commands:"},
+		{"the short flag", []string{"-h"}, "commands:"},
+		{"the word", []string{"help"}, "commands:"},
+		{"for one command", []string{"help", "get"}, "get [opts] <objectpath>"},
+		{"the flag after a command", []string{"get", "-h"}, "get [opts] <objectpath>"},
+		{"nothing at all", nil, "please choose a command"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code, out := runOIn(t, "", tc.args...)
+			if code != 0 {
+				t.Errorf("exit %d, want 0", code)
+			}
+			if !strings.Contains(out, tc.want) {
+				t.Errorf("help does not mention %q:\n%s", tc.want, out)
+			}
+		})
+	}
+}
+
+// A misuse is still a misuse: exit 2, and say which word was wrong.
+func TestAMistypedCommandIsAFaultWithASuggestion(t *testing.T) {
+	code, _ := runOIn(t, "", "gett", ".a")
+	if code != 2 {
+		t.Errorf("exit %d, want 2", code)
+	}
+	if got := nearestCommand(MainCommand(), "gett"); got != "get" {
+		t.Errorf("nearest to %q is %q, want get", "gett", got)
+	}
+	if got := nearestCommand(MainCommand(), "mtch"); got != "match" {
+		t.Errorf("nearest to %q is %q, want match", "mtch", got)
+	}
+}
+
+// The completion scripts are generated from the tree, so they cannot name a
+// command o does not have -- but they can be malformed, which the shells would
+// find out at source time and the reader at completion time.
+func TestCompletionScriptsNameEveryCommand(t *testing.T) {
+	for _, shell := range []string{"bash", "zsh", "fish"} {
+		t.Run(shell, func(t *testing.T) {
+			code, out := runOIn(t, "", "completion", shell)
+			if code != 0 {
+				t.Fatalf("exit %d, want 0", code)
+			}
+			for _, c := range MainCommand().Children {
+				if !strings.Contains(out, c.Name) {
+					t.Errorf("the %s script does not name %q", shell, c.Name)
+				}
+			}
+		})
+	}
+	if code, _ := runOIn(t, "", "completion", "tcsh"); code != 2 {
+		t.Errorf("a shell with no completion exits %d, want 2", code)
+	}
+	if code, _ := runOIn(t, "", "completion"); code != 2 {
+		t.Errorf("no shell at all exits %d, want 2", code)
+	}
+}

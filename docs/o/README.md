@@ -25,6 +25,8 @@ o [opts] command [opts]
 | [`schema`](o-schema.md) | `o schema <subcommand>` |
 | [`system`](o-system.md) | `o system <subcommand>` |
 | [`docs`](o-docs.md) | `o docs <dir>` |
+| [`help`](o-help.md) | `o help [command]` |
+| [`completion`](o-completion.md) | bash\|zsh\|fish |
 | [`version`](o-version.md) | version |
 
 ## Options
@@ -37,6 +39,7 @@ o [opts] command [opts]
 | `-x` | bool |  | expand <<: merge field while encoding |
 | `-color` | bool |  | encode with color |
 | `-wire` | bool |  | output in compact format |
+| `-h`, `-help` | bool |  | show help for this command |
 | `-t`, `-tony` | bool |  | do i/o in tony |
 | `-j`, `-json` | bool |  | do i/o in json |
 | `-y`, `-yaml` | bool |  | do i/o in yaml |

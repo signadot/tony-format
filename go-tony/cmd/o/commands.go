@@ -52,6 +52,8 @@ func MainCommand() *cli.Command {
 			SchemaCommand(cfg),
 			SystemCommand(cfg),
 			DocsCommand(cfg),
+			HelpCommand(cfg),
+			CompletionCommand(cfg),
 			VersionCommand())
 }
 
@@ -149,7 +151,10 @@ one -- which is what makes the output of one command the input of the next:
     o get .spec a.tony b.tony | o get .replicas
 
 Exit codes are the search convention: 0 when something was written, 1 when the
-path named nothing or what it named did not match, 2 for a fault.`
+path named nothing or what it named did not match, 2 for a fault.
+
+The match documents -if and -trim take are the ones o match takes; the operators
+they may use are at https://signadot.github.io/tony-format/matchpatch/`
 
 func GetCommand(mainCfg *MainConfig) *cli.Command {
 	cfg := &GetConfig{MainConfig: mainCfg}
@@ -190,7 +195,10 @@ single list over all of them, whichever input each node came from.
 Without -if the path is the whole question and every node it names is written.
 The answer is a list, and the empty list is written as one; the exit code says
 whether it was empty: 0 when something was kept, 1 when nothing was, 2 for a
-fault.`
+fault.
+
+The match documents -if and -trim take are the ones o match takes; the operators
+they may use are at https://signadot.github.io/tony-format/matchpatch/`
 
 func ListCommand(mainCfg *MainConfig) *cli.Command {
 	cfg := &ListConfig{MainConfig: mainCfg}
@@ -222,7 +230,11 @@ Exit codes follow grep, so that a pipe can tell an answer from a fault:
 
   0  something matched and was written
   1  nothing matched -- an answer, not an error, and written on no stream
-  2  a fault: bad usage, unreadable input, an unparseable match document`
+  2  a fault: bad usage, unreadable input, an unparseable match document
+
+o match -tags lists the operators a match may use, from this binary. What each one
+means, and how match and patch share a vocabulary, is at
+https://signadot.github.io/tony-format/matchpatch/`
 
 func MatchCommand(mainCfg *MainConfig) *cli.Command {
 	cfg := &MatchConfig{MainConfig: mainCfg}
@@ -288,7 +300,10 @@ makes diff a way to wait for a state and see how it got there:
     o d -loop 'kubectl get pod x -o yaml' -loopUntil '{status: {phase: Running}}'
 
 The match is a match object, as taken by 'o match', so it need only name the
-fields it cares about.  It is matched against what the command wrote and not
+fields it cares about, and the operators it may use are at
+https://signadot.github.io/tony-format/matchpatch/
+
+It is matched against what the command wrote and not
 against the difference, and it is checked after that difference is written, so
 the change which satisfied it is the last thing reported.  Should the loop hit
 -loopLim first, diff exits 1: the condition asked for did not hold.`
@@ -307,7 +322,10 @@ Without -c the result carries no comments -- not the patch's, and not the ones
 the document being patched already had -- because a patch answers with data.
 
 A patch which deletes a whole document writes nothing for it, which is the result
-and not a fault. Exit codes: 0, and 2 for a fault.`
+and not a fault. Exit codes: 0, and 2 for a fault.
+
+o patch -tags lists the operators a patch may use, from this binary. What each one
+means is at https://signadot.github.io/tony-format/matchpatch/`
 
 func PatchCommand(mainCfg *MainConfig) *cli.Command {
 	cfg := &PatchConfig{MainConfig: mainCfg}

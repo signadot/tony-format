@@ -16,6 +16,10 @@ Exit codes follow grep, so that a pipe can tell an answer from a fault:
   1  nothing matched -- an answer, not an error, and written on no stream
   2  a fault: bad usage, unreadable input, an unparseable match document
 
+o match -tags lists the operators a match may use, from this binary. What each one
+means, and how match and patch share a vocabulary, is at
+<https://signadot.github.io/tony-format/matchpatch/>
+
 Also known as `m`.
 
 ## Usage
@@ -34,6 +38,7 @@ o match [opts] <matchobj> [files]
 | `-x` | bool |  | expand <<: merge field while encoding |
 | `-color` | bool |  | encode with color |
 | `-wire` | bool |  | output in compact format |
+| `-h`, `-help` | bool |  | show help for this command |
 | `-t`, `-tony` | bool |  | do i/o in tony |
 | `-j`, `-json` | bool |  | do i/o in json |
 | `-y`, `-yaml` | bool |  | do i/o in yaml |
@@ -71,5 +76,7 @@ Boolean options take no argument and may be negated with a `no-` prefix, as in `
 - [`o schema`](o-schema.md)
 - [`o system`](o-system.md)
 - [`o docs`](o-docs.md)
+- [`o help`](o-help.md)
+- [`o completion`](o-completion.md)
 - [`o version`](o-version.md)
 

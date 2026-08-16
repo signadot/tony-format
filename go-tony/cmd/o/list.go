@@ -18,6 +18,9 @@ func list(cfg *ListConfig, cc *cli.Context, args []string) error {
 		cfg.List.Usage(cc, err)
 		return cli.ExitCodeErr(2)
 	}
+	if helpAsked(cfg.List, cc, cfg.Help) {
+		return nil
+	}
 	if len(args) == 0 {
 		return usageErr(cfg.List, cc, "list requires one argument, an object path")
 	}

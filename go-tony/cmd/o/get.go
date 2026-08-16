@@ -12,6 +12,9 @@ func get(cfg *GetConfig, cc *cli.Context, args []string) error {
 		cfg.Get.Usage(cc, err)
 		return cli.ExitCodeErr(2)
 	}
+	if helpAsked(cfg.Get, cc, cfg.Help) {
+		return nil
+	}
 	if len(args) == 0 {
 		return usageErr(cfg.Get, cc, "get requires one argument, an object path")
 	}

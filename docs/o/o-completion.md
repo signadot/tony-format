@@ -1,13 +1,24 @@
-# o eval
+# o completion
 
-Evaluate objects with !eval tags
+bash|zsh|fish
 
-Also known as `e`, `ev`.
+Write a shell completion script
+
+The script is generated from the command tree in this binary, so it completes the
+commands and options this o has, rather than the ones some other copy had.
+
+    o completion zsh  > "${fpath[1]}/_o"          # zsh
+    o completion bash > /etc/bash_completion.d/o  # bash
+    source <(o completion bash)                   # bash, this shell only
+    o completion fish > ~/.config/fish/completions/o.fish
+
+Commands and options are completed; a path into a document is not, since knowing
+one means reading a file the command line has not finished naming.
 
 ## Usage
 
 ```
-o eval [-e path=val [ -e path2=val2 ]...] [files]
+o completion [options] [arguments]
 ```
 
 ## Options
@@ -28,22 +39,16 @@ o eval [-e path=val [ -e path2=val2 ]...] [files]
 | `-I`, `-ifmt` | (format) |  | input format: tony/t, json/j, yaml/y |
 | `-O`, `-ofmt` | (format) |  | output format: tony/t, json/j, yaml/y |
 
-### `o eval` options
-
-| option | type | default | description |
-| --- | --- | --- | --- |
-| `-tags` | bool |  | show available tags |
-| `-e` | (path=val) |  |  |
-
 Inherited options may be given either before or after the command they are inherited by.
 
 Boolean options take no argument and may be negated with a `no-` prefix, as in `-no-debug`.
 
 ## See also
 
-- [published documentation](https://signadot.github.io/tony-format/o/o-eval/)
+- [published documentation](https://signadot.github.io/tony-format/o/o-completion/)
 - [`o`](README.md)
 - [`o view`](o-view.md)
+- [`o eval`](o-eval.md)
 - [`o diff`](o-diff.md)
 - [`o get`](o-get.md)
 - [`o list`](o-list.md)
@@ -56,6 +61,5 @@ Boolean options take no argument and may be negated with a `no-` prefix, as in `
 - [`o system`](o-system.md)
 - [`o docs`](o-docs.md)
 - [`o help`](o-help.md)
-- [`o completion`](o-completion.md)
 - [`o version`](o-version.md)
 

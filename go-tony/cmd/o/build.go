@@ -17,6 +17,9 @@ func build(cfg *BuildConfig, cc *cli.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if helpAsked(cfg.Build, cc, cfg.Help) {
+		return nil
+	}
 	args, err = parseEnvExtras(cfg.Env, cc, args)
 	if err != nil {
 		return err

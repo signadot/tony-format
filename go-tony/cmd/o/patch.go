@@ -18,6 +18,9 @@ func patch(cfg *PatchConfig, cc *cli.Context, args []string) error {
 		cfg.Patch.Usage(cc, err)
 		return cli.ExitCodeErr(2)
 	}
+	if helpAsked(cfg.Patch, cc, cfg.Help) {
+		return nil
+	}
 	if cfg.Tags {
 		fmt.Fprintf(cc.Out, "available patch tags:\n")
 		for _, s := range mergeop.Symbols() {

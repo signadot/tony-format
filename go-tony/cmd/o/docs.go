@@ -38,6 +38,11 @@ var docsTerms = cli.Terms{
 	"logd":   "/logd/",
 	"docd":   "/docd/",
 	"IR":     "/ir/",
+	// "match document" and "patch object" are deliberately absent, for the reason
+	// "tony" is: they appear in the -if, -if-file and -trim descriptions, which
+	// repeat as three rows of one option table, and a link in a dense table of
+	// flags tells a reader nothing they were looking for. diff, match and patch
+	// name the page in their descriptions instead, where a reader is reading.
 }
 
 // DocsCommand writes this command tree as markdown.
@@ -93,6 +98,9 @@ func writeDocs(cfg *DocsConfig, cc *cli.Context, args []string) error {
 	args, err := cfg.Docs.Parse(cc, args)
 	if err != nil {
 		return err
+	}
+	if helpAsked(cfg.Docs, cc, cfg.Help) {
+		return nil
 	}
 	if len(args) != 1 {
 		return fmt.Errorf("docs takes one argument: the directory to write")

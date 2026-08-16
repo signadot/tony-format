@@ -22,6 +22,9 @@ func tonyEval(cfg *EvalConfig, cc *cli.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if helpAsked(cfg.Eval, cc, cfg.Help) {
+		return nil
+	}
 	args, err = parseEnvExtras(cfg.Env, cc, args)
 	if err != nil {
 		return err

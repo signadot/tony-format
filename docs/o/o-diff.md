@@ -25,7 +25,10 @@ makes diff a way to wait for a state and see how it got there:
     o d -loop 'kubectl get pod x -o yaml' -loopUntil '{status: {phase: Running}}'
 
 The match is a match object, as taken by 'o match', so it need only name the
-fields it cares about.  It is matched against what the command wrote and not
+fields it cares about, and the operators it may use are at
+<https://signadot.github.io/tony-format/matchpatch/>
+
+It is matched against what the command wrote and not
 against the difference, and it is checked after that difference is written, so
 the change which satisfied it is the last thing reported.  Should the loop hit
 -loopLim first, diff exits 1: the condition asked for did not hold.
@@ -48,6 +51,7 @@ o diff [options] [arguments]
 | `-x` | bool |  | expand <<: merge field while encoding |
 | `-color` | bool |  | encode with color |
 | `-wire` | bool |  | output in compact format |
+| `-h`, `-help` | bool |  | show help for this command |
 | `-t`, `-tony` | bool |  | do i/o in tony |
 | `-j`, `-json` | bool |  | do i/o in json |
 | `-y`, `-yaml` | bool |  | do i/o in yaml |
@@ -86,5 +90,7 @@ Boolean options take no argument and may be negated with a `no-` prefix, as in `
 - [`o schema`](o-schema.md)
 - [`o system`](o-system.md)
 - [`o docs`](o-docs.md)
+- [`o help`](o-help.md)
+- [`o completion`](o-completion.md)
 - [`o version`](o-version.md)
 

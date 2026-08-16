@@ -18,6 +18,9 @@ func dump(cfg *DumpConfig, cc *cli.Context, args []string) error {
 		cfg.Dump.Usage(cc, err)
 		return cli.ExitCodeErr(2)
 	}
+	if helpAsked(cfg.Dump, cc, cfg.Help) {
+		return nil
+	}
 	// A fault exits 2, as it does for get, list and match: 1 is reserved for
 	// "nothing", which is an answer, and a caller that cannot tell an unreadable
 	// file from an empty one reads a mistake as a result.

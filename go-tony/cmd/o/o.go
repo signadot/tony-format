@@ -21,12 +21,26 @@ func oMain(cfg *MainConfig, cc *cli.Context, args []string) error {
 	if count(cfg.T, cfg.J, cfg.Y) > 1 {
 		return fmt.Errorf("%w: must specify at most one of -j[son] -t[ony] -y[aml]", cli.ErrUsage)
 	}
-	if len(args) == 0 {
-		return cli.ErrNoCommandProvided
+	// Asking what a tool does is not a misuse of it. `o -h`, `o --help` and `o` with
+	// nothing at all all print the same thing, on stdout, and exit 0 -- they used to
+	// print it on stderr followed by `usage error: unknown option: "help"`, which
+	// tells a first-time reader they have already got it wrong.
+	if cfg.Help || len(args) == 0 {
+		if cfg.Help && len(args) > 0 {
+			if sub := cfg.Main.FindSub(cc, args[0]); sub != nil {
+				sub.Usage(cc, nil)
+				return nil
+			}
+		}
+		cfg.Main.Usage(cc, nil)
+		if !cfg.Help {
+			fmt.Fprintf(cc.Out, "\nplease choose a command, or run `o help <command>`.\n")
+		}
+		return nil
 	}
 	sub := cfg.Main.FindSub(cc, args[0])
 	if sub == nil {
-		return fmt.Errorf("%w: %q not found", cli.ErrNoSuchCommand, args[0])
+		return noSuchCommand(cfg.Main, cc, args[0])
 	}
 	err = sub.Run(cc, args[1:])
 	if errors.Is(err, cli.ErrUsage) {
