@@ -6,7 +6,8 @@ commits: []
 created: "2026-08-16T16:07:03.779264+02:00"
 duplicates: []
 id: c2r55zf2h12kr1y4g5n0
-labels: []
+labels:
+- bug
 related_issues: []
 status: open
-updated: "2026-08-16T16:07:03.779264+02:00"
+updated: "2026-08-16T16:07:05.587664+02:00"
