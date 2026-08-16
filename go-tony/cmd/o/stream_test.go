@@ -313,7 +313,13 @@ func TestQueryPathsAreKPaths(t *testing.T) {
 		// The old spelling still runs, rather than reading $ as a field name and
 		// answering "nothing found", which is the wrong answer worse than an error.
 		{"the legacy $ prefix", []string{"get", "$.a", plain}, "1\n", 0},
+		// The root, in the four ways it is written. A leading '.' is optional
+		// everywhere else in kpath, so a bare '.' is the whole document by the same
+		// rule, and kpath's own spelling of the root is the empty path.
+		{"the root as a dot", []string{"get", ".", plain}, "{\n  a: 1\n  b: {\n    c: 2\n  }\n}\n", 0},
+		{"the root as nothing", []string{"get", "", plain}, "{\n  a: 1\n  b: {\n    c: 2\n  }\n}\n", 0},
 		{"the legacy root", []string{"get", "$", plain}, "{\n  a: 1\n  b: {\n    c: 2\n  }\n}\n", 0},
+		{"the legacy root with its dot", []string{"get", "$.", plain}, "{\n  a: 1\n  b: {\n    c: 2\n  }\n}\n", 0},
 		// The one thing objpath had that kpath lacked, kpath has now -- and the
 		// three-dot spelling objpath needed is read as the two-dot one.
 		{"any depth", []string{"list", "..c", plain}, "- 2\n", 0},
@@ -330,5 +336,20 @@ func TestQueryPathsAreKPaths(t *testing.T) {
 				t.Errorf("got %q, want %q", out, tc.want)
 			}
 		})
+	}
+}
+
+// Naming no path and naming the whole document are different mistakes to make, so
+// they answer differently: `o get` is a usage error and `o get ”` is the root.
+func TestNoPathIsNotTheRoot(t *testing.T) {
+	if code, _ := runOIn(t, "{a: 1}\n", "get"); code != 2 {
+		t.Errorf("`o get` with no path exits %d, want 2", code)
+	}
+	code, out := runOIn(t, "{a: 1}\n", "get", "")
+	if code != 0 {
+		t.Errorf("`o get ''` exits %d, want 0", code)
+	}
+	if want := "{\n  a: 1\n}\n"; out != want {
+		t.Errorf("got %q, want %q", out, want)
 	}
 }

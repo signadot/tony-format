@@ -27,8 +27,15 @@ import (
 // queryPath reads a path argument as kpath, accepting the objpath spelling that
 // came before it.
 func queryPath(arg string) (string, error) {
-	if arg == "" {
-		return "", fmt.Errorf("invalid query %q", arg)
+	// The root, in the four ways it is written. kpath spells it as the empty path,
+	// and a leading '.' is optional everywhere else in the syntax -- `.a` and `a`
+	// are one path -- so a bare '.' is the whole document by the same rule. An
+	// explicit empty argument says the same thing; giving NO argument is still the
+	// usage error it was, because a missing path and a path naming everything are
+	// different mistakes.
+	switch arg {
+	case "", ".", "$", "$.":
+		return "", nil
 	}
 	kp := arg
 	if kp[0] == '$' {

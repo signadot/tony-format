@@ -146,6 +146,9 @@ leading $ is accepted and dropped, from when paths were written that way.
 get answers with ONE node, so it refuses the paths which may name many -- a
 wildcard, or .. for any depth. Those are list's.
 
+The whole document is "." or the empty path. Giving no path is a usage error, since
+a missing path and a path naming everything are different mistakes.
+
 The path says WHERE to look. -if says WHICH of what is there to keep: the node
 is written only when it matches the match document given, so
 
