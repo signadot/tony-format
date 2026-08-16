@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 7fc7acf4937f5d3bffd72e83fdf3994cb6f660ea
 commits:
 - 7fc7acf4937f5d3bffd72e83fdf3994cb6f660ea
 created: "2026-08-16T22:43:30.406261+02:00"
@@ -10,5 +11,5 @@ id: p7gd2y87h12kswh0g9n0
 labels:
 - enhancement
 related_issues: []
-status: open
-updated: "2026-08-16T23:11:16.342226+02:00"
+status: closed
+updated: "2026-08-16T23:11:16.481149+02:00"
