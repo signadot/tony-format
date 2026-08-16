@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 1b3621b502423dffa92c417f8ea2c53fd843e461
 commits:
 - 1b3621b502423dffa92c417f8ea2c53fd843e461
 created: "2026-08-16T15:37:46.803434+02:00"
@@ -11,5 +12,5 @@ labels:
 - bug
 related_issues:
 - 7cdvym1fh12ksmd5g5n0
-status: open
-updated: "2026-08-16T17:36:59.942734+02:00"
+status: closed
+updated: "2026-08-16T17:37:00.075201+02:00"
