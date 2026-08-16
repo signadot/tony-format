@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/ir"
 )
 
@@ -133,5 +134,83 @@ func TestLatchDoesNotSwallowHeadComments(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestCommentAboveListElement: a comment written above an element of a block
+// sequence was discarded -- on no node, at no depth. It is the natural place to
+// comment a rule in a charter, and the only spelling that did not survive: above
+// the whole list worked (it heads the array), inside the item worked
+// (`- # ...`), and separate documents worked.
+//
+// The balancer turned block form into brackets and consumed the comment while
+// looking for the next KEY of the element before it, so it was emitted inside
+// that element's braces -- a comment preceding no field, which the parser drops
+// because an object has nowhere to hang one (8rr738ffh12kr3t8g5n0).
+func TestCommentAboveListElement(t *testing.T) {
+	for _, tc := range []struct {
+		name, src string
+		want      string // the comment, and the element it must be on
+		onField   string
+	}{
+		{"between two objects", "- name: a\n# about b\n- name: b\n", "# about b", "b"},
+		{"before the first", "# about a\n- name: a\n- name: b\n", "# about a", ""},
+		{"two comments", "- name: a\n# one\n# two\n- name: b\n", "# two", "b"},
+		{"nested list", "outer:\n- name: a\n  inner:\n  - name: x\n  # about y\n  - name: y\n", "# about y", "y"},
+		{"scalar elements", "- a\n# about b\n- b\n", "# about b", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			n, err := Parse([]byte(tc.src), ParseComments(true))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if bad := nestedComment(n); bad != nil {
+				t.Fatalf("a comment node holds a comment node: %v", bad.Lines)
+			}
+			var found []string
+			var walk func(*ir.Node)
+			walk = func(x *ir.Node) {
+				if x == nil {
+					return
+				}
+				if x.Type == ir.CommentType {
+					found = append(found, x.Lines...)
+				}
+				if x.Comment != nil {
+					found = append(found, x.Comment.Lines...)
+				}
+				for _, v := range x.Values {
+					walk(v)
+				}
+			}
+			walk(n)
+			if !slices.ContainsFunc(found, func(l string) bool { return strings.Contains(l, tc.want) }) {
+				t.Errorf("the parse lost %q, keeping %q", tc.want, found)
+			}
+		})
+	}
+}
+
+// TestListElementCommentRoundTrips: what a charter looks like, in and out
+// unchanged. The comment goes back above the "- " it was written above, not
+// after it -- the two spellings share one IR, so only one can round trip.
+func TestListElementCommentRoundTrips(t *testing.T) {
+	for _, src := range []string{
+		"- name: a\n  stage: open\n# about rule b\n- name: b\n  stage: open\n",
+		"# about the whole charter\n- name: a\n# about b\n- name: b\n",
+		"rules:\n- name: a\n# about b\n- name: b\n",
+		"- a\n# about b\n- b\n",
+	} {
+		n, err := Parse([]byte(src), ParseComments(true))
+		if err != nil {
+			t.Fatalf("parse %q: %v", src, err)
+		}
+		var b strings.Builder
+		if err := encode.Encode(n, &b, encode.EncodeComments(true)); err != nil {
+			t.Fatal(err)
+		}
+		if b.String() != src {
+			t.Errorf("round trip changed the document:\n in: %q\nout: %q", src, b.String())
+		}
 	}
 }

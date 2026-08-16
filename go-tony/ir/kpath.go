@@ -245,22 +245,32 @@ func (node *Node) numberText() string {
 //
 // Returns a slice of matching nodes.
 func (node *Node) ListKPath(dst []*Node, kp string) ([]*Node, error) {
+	return node.ListKPathWith(dst, kp)
+}
+
+// ListKPathWith is ListKPath with navigation options.  See NavOpt.
+//
+// Without options the answers are VALUES, as GetKPath's is: a path names the
+// value whatever was said about it. The two disagreed -- Get uncommented its
+// answer and List handed back the comment wrapper -- so the same path through
+// the same document gave a different node depending on which of them was asked
+// (8rr738ffh12kr3t8g5n0 made that reachable, by keeping the comment that had
+// been dropped).
+func (node *Node) ListKPathWith(dst []*Node, kp string, opts ...NavOpt) ([]*Node, error) {
 	p, err := kpath.Parse(kp)
 	if err != nil {
 		return nil, err
 	}
-	return node.listKPath(dst, p)
-}
-
-// ListKPathWith is ListKPath with navigation options.  See NavOpt.
-func (node *Node) ListKPathWith(dst []*Node, kp string, opts ...NavOpt) ([]*Node, error) {
-	res, err := node.ListKPath(dst, kp)
+	start := len(dst)
+	res, err := node.listKPath(dst, p)
 	if err != nil {
 		return nil, err
 	}
+	// Only what this call found: dst may carry a caller's earlier results, which
+	// are not ours to answer for.
 	cfg := navCfg(opts)
-	for i, n := range res {
-		res[i] = cfg.answer(n)
+	for i := start; i < len(res); i++ {
+		res[i] = cfg.answer(res[i])
 	}
 	return res, nil
 }

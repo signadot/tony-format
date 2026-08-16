@@ -351,6 +351,36 @@ func writeFieldHeadComment(val *ir.Node, w io.Writer, es *EncState) (*ir.Node, e
 	return val.Values[0], nil
 }
 
+// writeElementHeadComment writes a block element's head comment on the line
+// ABOVE its "- ", which is where it was written:
+//
+//	# about rule b
+//	- name: b
+//
+// The comment wraps the element, so encode() would otherwise write it after the
+// marker -- "- # about rule b" then the fields, which is the same document and
+// not the one anybody wrote. The two spellings share one IR, so only one can
+// survive a round trip; this is the one the format's own examples use.
+func writeElementHeadComment(val *ir.Node, w io.Writer, es *EncState) (*ir.Node, error) {
+	if !es.comments || es.wire || esBracket(es) {
+		return val, nil
+	}
+	if val.Type != ir.CommentType || len(val.Values) != 1 {
+		return val, nil
+	}
+	es.colorType = ir.CommentType
+	es.colorAttr = ValueColor
+	for _, ln := range val.Lines {
+		if err := writeRaw(w, ln, es); err != nil {
+			return nil, err
+		}
+		if err := writeNL(w, es); err != nil {
+			return nil, err
+		}
+	}
+	return val.Values[0], nil
+}
+
 // writeBlockLatch writes the line comment of a field's value when that value is
 // a block container, which has no line of its own to end.
 //
@@ -695,6 +725,10 @@ func encodeArray(node *ir.Node, w io.Writer, es *EncState) error {
 	for i, v := range node.Values {
 
 		if err := writeArrayElementPrefix(i, node, w, es); err != nil {
+			return err
+		}
+		v, err := writeElementHeadComment(v, w, es)
+		if err != nil {
 			return err
 		}
 		if err := writeArrayElementMarker(w, es); err != nil {

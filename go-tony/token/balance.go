@@ -485,6 +485,24 @@ KVLoop:
 				}
 			default:
 				if tok.Type.IsComment() {
+					// A comment belongs to what FOLLOWS it. When what follows ends
+					// this object -- the next element of the array it sits in, or an
+					// outdent -- the comment is not this object's, and consuming it
+					// here put it inside the braces with no key left to head. The
+					// parser then dropped it, because an object has nowhere to hang a
+					// comment that precedes no field: a comment written above a list
+					// element vanished (8rr738ffh12kr3t8g5n0).
+					//
+					// Left for the caller, it is emitted between this object's close
+					// and the next element's open, which is where it heads the value
+					// it was written above.
+					// Only a HEAD comment can belong to what follows. A line
+					// comment trails the value before it, wherever that value sits,
+					// so it is always this object's to carry.
+					if tok.Type == TComment && commentEndsObj(toks[i:], N, f) {
+						found = true
+						continue KVLoop
+					}
 					dst = append(dst, *tok)
 					i++
 					continue KVLoop
@@ -630,4 +648,30 @@ KVLoop:
 	}
 	dst = append(dst, Token{Type: TRCurl, Pos: toks[0].Pos})
 	return dst, i, nil
+}
+
+// commentEndsObj reports whether the comment run at the head of toks is followed
+// by something that ends the object being balanced at indent N -- the next
+// element of an enclosing array, an outdent, or the end of the input.
+//
+// It answers about the comment's OWNER rather than about the comment: a run
+// followed by a key at this object's own indent heads that key and stays inside;
+// anything else is written above whatever comes next, which is outside.
+func commentEndsObj(toks []Token, N int, f format.Format) bool {
+	lastIndent := -1
+	for i := 0; i < len(toks); i++ {
+		switch {
+		case toks[i].Type == TIndent:
+			lastIndent = len(toks[i].Bytes)
+		case toks[i].Type.IsComment():
+			// keep scanning; a comment does not decide anything
+		case toks[i].Type == TArrayElt:
+			return true
+		default:
+			// a key (or anything else) at this object's indent is ours
+			return lastIndent != -1 && lastIndent < N
+		}
+	}
+	// nothing follows: the comments trail the document rather than this object
+	return true
 }

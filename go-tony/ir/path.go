@@ -253,23 +253,27 @@ func pathString(f string) string {
 
 // ListPathWith is ListPath with navigation options.  See NavOpt.
 func (y *Node) ListPathWith(dst []*Node, yPath string, opts ...NavOpt) ([]*Node, error) {
-	res, err := y.ListPath(dst, yPath)
-	if err != nil {
-		return nil, err
-	}
-	cfg := navCfg(opts)
-	for i, n := range res {
-		res[i] = cfg.answer(n)
-	}
-	return res, nil
-}
-
-func (y *Node) ListPath(dst []*Node, yPath string) ([]*Node, error) {
 	yp, err := ParsePath(yPath)
 	if err != nil {
 		return nil, err
 	}
-	return y.listPath(dst, yp)
+	start := len(dst)
+	res, err := y.listPath(dst, yp)
+	if err != nil {
+		return nil, err
+	}
+	// Only what this call found; dst may carry a caller's earlier results.
+	cfg := navCfg(opts)
+	for i := start; i < len(res); i++ {
+		res[i] = cfg.answer(res[i])
+	}
+	return res, nil
+}
+
+// ListPath answers with the values a path names.  See ListPathWith for the
+// option that keeps what was said about them.
+func (y *Node) ListPath(dst []*Node, yPath string) ([]*Node, error) {
+	return y.ListPathWith(dst, yPath)
 }
 
 func (y *Node) listPath(dst []*Node, yp *Path) ([]*Node, error) {
