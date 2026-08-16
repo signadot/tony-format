@@ -165,6 +165,15 @@ func (co *txCoord) NewPatcher(p *api.Patch) (Patcher, error) {
 		return nil, err
 	}
 
+	// A scope's base moves as baseline advances, so an operation whose meaning
+	// depends on what was there cannot be stored in one -- it stops applying later,
+	// with nothing wrong at the time of the write, and the scope is unreadable from
+	// then on (see scope_storable.go). Baseline is not held to this: its replay is
+	// deterministic, so verifying the patch applies is the whole of what it needs.
+	if err := checkStorableInScope(p, co.Scope()); err != nil {
+		return nil, err
+	}
+
 	// Refuse a positional write which names no element, here where the client is
 	// still holding the call and the array's length is a fact it can be told (see
 	// array_write.go). Checked again at commit, because the array can lose the

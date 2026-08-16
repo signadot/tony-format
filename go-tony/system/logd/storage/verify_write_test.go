@@ -147,3 +147,54 @@ func scopedCommit(t *testing.T, s *Storage, scope *string, path, body string) er
 	}
 	return nil
 }
+
+// The case a verified write cannot cover: the patch applied when it was written,
+// and baseline moved the leaf it asserts about. Verification cannot see the future,
+// so a scope is held to the storage vocabulary instead (3xn08cb6h12kr4psg5n0).
+func TestAScopeCannotStoreAnOpAgainstAMovingBase(t *testing.T) {
+	s := openWithSeed(t, `{s: bob}`)
+	defer s.Close()
+	scope := "s1"
+
+	// This applies right now -- baseline s IS bob -- and used to commit on that
+	// basis, leaving the scope unreadable the moment baseline wrote s again.
+	err := scopedCommit(t, s, &scope, "s", `!replace {from: bob, to: rob}`)
+	if err == nil {
+		t.Fatal("the scope stored a !replace; baseline moving s would have made it unreadable")
+	}
+	if !strings.Contains(err.Error(), "base moves") {
+		t.Errorf("the refusal does not say why a scope is different: %v", err)
+	}
+	t.Logf("refused: %v", err)
+
+	// Baseline moves it, and the scope is fine, which is the whole point.
+	if _, err := arrayWriteCommit(t, s, "s", `someone-else`); err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+	if got, want := readScope(t, s, &scope), "s: someone-else"; got != want {
+		t.Errorf("scoped read: got %s, want %s", got, want)
+	}
+
+	// What a scope CAN write is the value it wants, which survives baseline moving.
+	if err := scopedCommit(t, s, &scope, "s", `rob`); err != nil {
+		t.Fatalf("an absolute scoped write was refused: %v", err)
+	}
+	if _, err := arrayWriteCommit(t, s, "s", `moved-again`); err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+	if got, want := readScope(t, s, &scope), "s: rob"; got != want {
+		t.Errorf("the scope lost its own value: got %s, want %s", got, want)
+	}
+
+	// And a positional write in a scope still works: the !arraydiff MergePatches
+	// builds for it is logd's own routing, not something the client said.
+	if _, err := arrayWriteCommit(t, s, "", `{votes: [{by: scott}]}`); err != nil {
+		t.Fatalf("seed votes: %v", err)
+	}
+	if err := scopedCommit(t, s, &scope, `votes[1]`, `!insert {by: dee}`); err != nil {
+		t.Fatalf("a scoped positional insert was refused: %v", err)
+	}
+	if err := scopedCommit(t, s, &scope, `votes[0]`, `{choice: approve}`); err != nil {
+		t.Fatalf("a scoped positional patch was refused: %v", err)
+	}
+}

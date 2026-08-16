@@ -474,6 +474,13 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 			s.sendError(id, api.ErrCodeInvalidDiff, err.Error())
 			return
 		}
+		// Storable in baseline, not in a scope, and the client is told which of the
+		// two it is writing to.
+		var notInScope *tx.NotStorableInScopeError
+		if errors.As(err, &notInScope) {
+			s.sendError(id, api.ErrCodeInvalidDiff, err.Error())
+			return
+		}
 		if req.TxID != nil {
 			s.sendError(id, api.ErrCodeTxFull, fmt.Sprintf("failed to join transaction: %v", err))
 		} else {
