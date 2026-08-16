@@ -157,6 +157,13 @@ func (co *txCoord) Expire() {
 // When all expected participants have joined, the ready channel is closed
 // to signal that Commit can proceed.
 func (co *txCoord) NewPatcher(p *api.Patch) (Patcher, error) {
+	// Refuse a patch holding an operation which calls out to the system, here where
+	// the client is still holding the call. It is a property of the patch alone, so
+	// it reads nothing and asks nothing of the store (see unsafe_write.go).
+	if err := checkUnsafeWrite(p); err != nil {
+		return nil, err
+	}
+
 	// Refuse a positional write which names no element, here where the client is
 	// still holding the call and the array's length is a fact it can be told (see
 	// array_write.go). Checked again at commit, because the array can lose the

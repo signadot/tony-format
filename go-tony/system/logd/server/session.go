@@ -466,6 +466,14 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 			s.sendError(id, api.ErrCodeInvalidPath, err.Error())
 			return
 		}
+		// An operation which executes is the patch's problem, not the path's, and it
+		// is the same problem next time: the client is told what it wrote, not that
+		// the store failed.
+		var unsafeOp *tx.UnsafeOpError
+		if errors.As(err, &unsafeOp) {
+			s.sendError(id, api.ErrCodeInvalidDiff, err.Error())
+			return
+		}
 		if req.TxID != nil {
 			s.sendError(id, api.ErrCodeTxFull, fmt.Sprintf("failed to join transaction: %v", err))
 		} else {

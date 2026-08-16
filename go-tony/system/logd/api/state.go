@@ -28,8 +28,15 @@ import (
 // So there is no policy to get wrong: comments go in and come back. A caller
 // that does not want them strips them, which is one call and cannot be applied
 // to somebody else's data by accident (3cdjz00jh12krns4g1n0).
+// It also refuses an operation which calls out to the system. mergeop has had
+// RejectUnsafe since before logd stored anything and nothing set it, so a stored
+// !pipe ran -- on every read, every replay, every snapshot build. That made the
+// same commit read two ways: a store holds values, and an operation which
+// re-evaluates is not one (trqgmd1ah12kranxg5n0). It is set HERE because this is
+// the one place logd applies a patch, so no path is left able to execute one; the
+// write side refuses it too, so a store does not have to fail reads to enforce it.
 func NextState(doc, patch *ir.Node) (*ir.Node, error) {
-	return tony.Patch(doc, patch, mergeop.Comments(true))
+	return tony.Patch(doc, patch, mergeop.Comments(true), mergeop.RejectUnsafe(true))
 }
 
 // SameState reports whether two documents are the same STATE: what the store
