@@ -788,7 +788,15 @@ func objFromKVs(at *ir.Node, kvs []ir.KeyVal, tag string, keyToks []token.Token,
 	// FromIntKeysMapAt will set the !sparsearray tag, so we need to compose it with the existing tag
 	// rather than overwriting it
 	result := ir.FromIntKeysMapAt(at, d)
-	if tag != "" {
+	// ... and the written tag may BE that tag, in which case composing it adds a
+	// second copy. FromIntKeysMapAt is idempotent (it checks TagHas), and this
+	// compose went around that check, so a document written with the tag it renders
+	// with grew a label every time it was read and written:
+	//
+	//	v: {3: a}  ->  !sparsearray  ->  !sparsearray.sparsearray  ->  ...
+	//
+	// which is a round trip that does not round trip.
+	if tag = ir.TagRemove(tag, ir.IntKeysTag); tag != "" {
 		// Compose the existing tag (e.g., !bracket) with the !sparsearray tag that FromIntKeysMapAt set
 		result.Tag = ir.TagCompose(tag, nil, result.Tag)
 	}
