@@ -240,7 +240,10 @@ The index mirrors document structure for efficiency:
 - Integration with `SnapshotReader` interface
 
 **Not Implemented**:
-- Stepping a scoped view, which still recomputes (issue 9b2vpggxh)
+- Stepping a scoped view across BASELINE commits (issue 9b2vpggxh). A scope does now
+  keep its own document and step it with its own patches (`scope_head.go`), which is
+  what the commit path needs; a baseline commit in between still makes the next scoped
+  write rebuild it (issue sb33w8p9h12kr16kg5n0).
 
 All three things this list used to name are done: `Storage.ReadStateAt`,
 compaction (`Compact`, `compaction.go`), and comments, which are carried through

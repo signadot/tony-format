@@ -74,8 +74,13 @@ knowing: CHECKED operations assert something about what they meet and fail if it
 does not hold, while insert, delete, addtag and rmtag simply state a result; and
 strdiff, arraydiff and rename are RELATIVE, re-evaluating against whatever is
 there. Both distinctions matter to anything that stores a patch and applies it
-later -- see `system/logd/api/storage_context.go`, which declares which of them
-may be stored and why.
+later, and logd draws two rules from them rather than one. Baseline replays
+against a base that never moves, so what it needs is that the patch applies at
+all, checked once before the delta is stored. A scope's base MOVES as baseline
+advances, so a relative or checked operation stored in one can stop applying long
+after it was written -- those it refuses outright. See
+`system/logd/api/storage_context.go` for the vocabulary, and
+[What a write must be](logd/writes.md) for both rules as a client meets them.
 
 ### Reaching into a document with `!at`
 

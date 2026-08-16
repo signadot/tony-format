@@ -41,4 +41,14 @@
 // render as a path segment -- a scalar, unique among its siblings. The index is narrower
 // here than a merge is: mergeop keys an array by any node at all, encoded, while the index
 // needs something it can write into a path.
+//
+// Baseline and a scope are held to different rules, because their bases behave
+// differently. A baseline delta replays against a base which never moves, so what it
+// needs is that it APPLIES, which the commit path checks once before storing it
+// ([DoesNotApplyError]). A scope's base moves as baseline advances, so an operation
+// whose meaning depends on what was there can stop applying long after it was written:
+// scoped writes are held to the vocabulary above, and baseline writes are not.
+//
+// [mergeop.FindUnsafe] is the third: an operation which calls out to the system is refused
+// everywhere, and never applied, because a stored one runs again on every read.
 package api

@@ -231,7 +231,8 @@ items: !key(meta.name)
   `!key(f)` stays keyed; a plain list patched with `!key(f)` merges by identity for that
   patch and comes back untagged, so the next patch must name the key again. Keying is
   therefore a property of each write unless something puts the tag on the stored value --
-  which is why logd declares it in schema instead (see `!logd-key`).
+  which is why logd declares it in schema instead (see
+  [Keyed arrays](../logd/keyed.md)).
 - A diff keys its output only when **both** sides carry `!key(f)` with the same field;
   otherwise it falls back to a positional array diff, silently.
 - A bare `!key` keys each element by the whole element.
@@ -562,6 +563,36 @@ name: !strdiff(false)
 The array counterpart of `!strdiff`, and relative in the same way. A list merged by
 identity rather than position is `!key`'s business instead.
 
+The operand is keyed by position in the sequence the two sides share, which is not an
+offset into either one of them -- see [What a key means](../diffpatch.md#what-a-key-means).
+At each position the element says what to do there:
+
+| element | means | needs |
+|---|---|---|
+| a patch | patch the element at this position | an element there |
+| `!insert v` | insert `v` before this position | nothing; the end is a position |
+| `!delete v` | remove the element, which must equal `v` | an element there |
+| `!replace {from, to}` | replace, checking `from` first | an element there |
+
+**Examples:**
+
+```tony
+v: !arraydiff {1: !insert 99}       # [1, 2]    ->  [1, 99, 2]
+v: !arraydiff {2: !insert 99}       # [1, 2]    ->  [1, 2, 99]   (the end appends)
+v: !arraydiff {0: !delete 1}        # [1, 2]    ->  [2]
+v: !arraydiff {0: {b: 2}}           # [{a: 1}]  ->  [{a: 1, b: 2}]
+```
+
+**Notes:**
+
+- An operand key the document has no element for is an error, not a no-op: a patch
+  claiming more of the document than it has is malformed and says so.
+- The operation is the first label of the element's tag chain the registry **knows**,
+  not simply the first label. A composed tag may carry labels that are not operations
+  ahead of the one that is -- parsing alone puts one there -- and those belong to the
+  value, so they are put back on it. `!delete {by: scott}` compares a braced object
+  against the braced element it is deleting.
+
 **See also:** [`!key`](./mergeop.md#key), [`!strdiff`](./mergeop.md#strdiff)
 
 ---
@@ -723,4 +754,6 @@ name: !pipe "tr a-z A-Z"
 **Notes:**
 
 - This calls out to the system, so it is unsafe by design and cannot be stored: applying
-  a stored `!pipe` twice runs the program twice. logd's storage vocabulary refuses it.
+  a stored `!pipe` twice runs the program twice, so it states no value. logd refuses it
+  at the write and never applies one ([What a write must be](../logd/writes.md)); the
+  library itself refuses it under the `RejectUnsafe` option, which is what logd sets.

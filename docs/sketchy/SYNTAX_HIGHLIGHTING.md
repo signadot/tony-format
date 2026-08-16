@@ -10,7 +10,7 @@ code blocks for public consumption.
 Install the Pygments lexer:
 
 ```bash
-pip install -e docs/pygments-tony
+pip install -e docs/sketchy/pygments-tony
 ```
 
 Then use `tony` code blocks in your markdown:
@@ -23,14 +23,17 @@ key: value
 ```
 ````
 
-See [docs/pygments-tony/README.md](pygments-tony/README.md) for detailed integration instructions.
+See [the lexer README](pygments-tony/README.md) for detailed integration instructions.
 
-### Option 2: TextMate Grammar (For VS Code, GitHub, etc.)
+### Option 2: Tree-sitter grammar (for editors that use one)
 
-We provide a TextMate grammar at `docs/editors/tony.tmLanguage.json` that works with:
-- **VS Code**: Already configured in this repo
-- **GitHub**: Can be used via Linguist (see below)
-- **Other editors**: Any editor supporting TextMate grammars
+A tree-sitter grammar lives at
+[`docs/sketchy/editors/tree-sitter-tony`](editors/tree-sitter-tony/grammar.js), for
+editors and tools that take one — Neovim, Helix, Zed, and anything else built on
+tree-sitter.
+
+There is **no TextMate grammar** in this repository. Several of the platforms below can
+use one, and the note for each says what that would take; nothing here ships it.
 
 ## Platform-Specific Instructions
 
@@ -40,7 +43,7 @@ We provide a TextMate grammar at `docs/editors/tony.tmLanguage.json` that works 
 
 1. **Use Pygments via GitHub Pages**: If hosting docs on GitHub Pages with Jekyll, configure Pygments (see Jekyll section below)
 
-2. **Use Rouge with TextMate grammar**: Rouge (used by Jekyll) can use TextMate grammars. Convert or use Rouge's TextMate support.
+2. **Use Rouge with a TextMate grammar**: Rouge (used by Jekyll) can use TextMate grammars — but one would have to be written first; see above.
 
 3. **Fallback**: Unfortunately, GitHub's markdown renderer doesn't support custom languages in code blocks. You may need to use `yaml` as a fallback, or host docs elsewhere.
 
@@ -54,10 +57,10 @@ This makes `.tony` files render with YAML highlighting (not ideal, but better th
 
 ### VS Code
 
-VS Code already supports Tony syntax highlighting via the TextMate grammar in
-`docs/editors/tony.tmLanguage.json`.
+VS Code highlights by TextMate grammar, and there is none for Tony here, so `.tony`
+files are unhighlighted unless you write one.
 
-For markdown preview, configure in `.vscode/settings.json`:
+For markdown preview, the usual fallback is to configure in `.vscode/settings.json`:
 
 ```json
 {
@@ -74,7 +77,7 @@ Or install a markdown extension that supports custom lexers.
 MkDocs uses Pygments by default. Install the lexer:
 
 ```bash
-pip install -e docs/pygments-tony
+pip install -e docs/sketchy/pygments-tony
 ```
 
 Then `tony` code blocks will work automatically.
@@ -105,27 +108,27 @@ kramdown:
 Then install the lexer in your Jekyll environment:
 
 ```bash
-bundle exec pip install -e docs/pygments-tony
+bundle exec pip install -e docs/sketchy/pygments-tony
 ```
 
-**Option 2: Use Rouge with TextMate grammar**
+**Option 2: Use Rouge with a TextMate grammar**
 
-Rouge can use TextMate grammars. You'll need to convert `tony.tmLanguage.json`
-to Rouge format or use a converter tool.
+Rouge can use TextMate grammars, so this needs a Tony grammar written and then
+converted to Rouge format. None is provided here.
 
 ### Pelican
 
 Pelican uses Pygments by default. Install the lexer:
 
 ```bash
-pip install -e docs/pygments-tony
+pip install -e docs/sketchy/pygments-tony
 ```
 
 ### Docusaurus
 
 Docusaurus uses Prism.js or Shiki. You would need to:
 1. Create a Prism.js language definition, or
-2. Use Shiki with a custom TextMate grammar
+2. Write a TextMate grammar and use it with Shiki
 
 ### Hugo
 
@@ -153,9 +156,9 @@ print(highlight(code, TonyLexer(), TerminalFormatter()))
 
 ## Contributing
 
-To improve the lexer, edit `docs/pygments-tony/pygments_tony.py` and test with the code above.
+To improve the lexer, edit `docs/sketchy/pygments-tony/pygments_tony.py` and test with the code above.
 
 ## See Also
 
-- [TextMate Grammar](editors/tony.tmLanguage.json) - For editor support
-- [Pygments Lexer](pygments-tony/) - For markdown/documentation tools
+- [Tree-sitter grammar](editors/tree-sitter-tony/grammar.js) — for editors built on tree-sitter
+- [Pygments lexer](pygments-tony/README.md) — for markdown and documentation tools
