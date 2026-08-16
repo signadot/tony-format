@@ -7,6 +7,9 @@ object, [i] into an array, {i} into a sparse one, and (key) into a keyed array b
 identity, so "o get 'items(WIDGET).qty'" names an element wherever it sits. A
 leading $ is accepted and dropped, from when paths were written that way.
 
+get answers with ONE node, so it refuses the paths which may name many -- a
+wildcard, or .. for any depth. Those are list's.
+
 The path says WHERE to look. -if says WHICH of what is there to keep: the node
 is written only when it matches the match document given, so
 

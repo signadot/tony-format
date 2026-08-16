@@ -13,6 +13,10 @@ const (
 	ArrayEntry
 	SparseArrayEntry
 	KeyEntry
+	// DescendEntry is `..`, which names nodes at any depth rather than a step into
+	// one container. It is last so the values before it keep their numbers, and it
+	// is the one kind a STORED path can never hold.
+	DescendEntry
 )
 
 type SegmentType struct {
@@ -50,6 +54,12 @@ func (p *KPath) copySegment() *KPath {
 }
 
 func segmentsEqual(a, b *KPath) bool {
+	if a.Descend != b.Descend {
+		return false
+	}
+	if a.Descend {
+		return true
+	}
 	if (a.Field == nil) != (b.Field == nil) {
 		return false
 	}
@@ -95,6 +105,12 @@ func segmentsEqual(a, b *KPath) bool {
 // element wildcard would be a separate syntax addition).
 func segmentMatches(pat, tgt *KPath) bool {
 	switch {
+	case pat.Descend, tgt.Descend:
+		// A descent spans depths, and this asks about ONE segment against one
+		// segment. Whoever needs to match a path holding one has to walk it, which
+		// is what ir's navigation does; answering here would be answering a
+		// different question.
+		return false
 	case pat.FieldAll:
 		return tgt.Field != nil || tgt.FieldAll
 	case pat.Field != nil:
@@ -150,6 +166,9 @@ func Key(t string) *KPath {
 func (p *KPath) SegmentString() string {
 	if p == nil {
 		return ""
+	}
+	if p.Descend {
+		return ".."
 	}
 	if p.FieldAll {
 		return "*"

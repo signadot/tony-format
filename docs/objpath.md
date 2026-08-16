@@ -20,6 +20,7 @@ through — which is what "kinded path" means:
 | `{i}` | a sparse array | `items{42}` |
 | `(key)` | a [keyed array](logd/keyed.md), by identity | `items(WIDGET)` |
 | `.*` `[*]` `{*}` | all of them, at that step | `items[*].name` |
+| `..` | any depth below here, this node included | `..name`, `spec..image` |
 
 The leading `.` is optional at the start, so `spec.replicas` and `.spec.replicas` are
 the same path. A key or a field that needs quoting takes quotes: `pr."1".votes`.
@@ -27,8 +28,14 @@ the same path. A key or a field that needs quoting takes quotes: `pr."1".votes`.
 ## `get` and `list`
 
 `get` answers with the single node a path names, and `list` with every node it names.
-A wildcard therefore belongs in a `list`: `get` refuses `[*]` rather than picking one
-of the things it matched.
+A wildcard therefore belongs in a `list`: `get` refuses `[*]` or `..` rather than
+picking one of the things they matched.
+
+```bash
+o list ..image deploy.tony        # every image, wherever it is
+o list 'spec..name' deploy.tony   # every name under spec, at any depth
+o list 'a..' doc.tony             # a and everything under it
+```
 
 Both read a stream of documents and ask the path of each. See
 [What a write must be](logd/writes.md) for the paths logd accepts on the writing
@@ -42,5 +49,19 @@ a sparse element at all.
 
 A leading `$` is still accepted, so `$.spec.replicas` works and existing scripts keep
 running. It is dropped rather than treated as a field name, which is what a kpath
-would otherwise make of it. The `$...x` any-depth form has no kpath spelling and is
-refused with a message saying so; name the path, or use a wildcard.
+would otherwise make of it.
+
+That syntax spelled any-depth with three dots -- `$...x` -- because `$..x` was a
+parse error. kpath spells it `..`, and the three-dot form is read as it.
+
+## Where `..` may not go
+
+A `..` is a question: it names the nodes at any depth rather than a step to one. So
+it belongs in a query and nowhere a path has to name a place -- what a patch is
+rooted at, what a watch names, what logd indexes by. Those refuse it, and say so:
+
+    "a..c": `..` names nodes at any depth, which is a question and not a place:
+    a path here has to name one
+
+An empty field name is still sayable, in quotes: `a."".x`. That is the canonical
+spelling, and what `..` used to parse as before it meant depth.

@@ -31,7 +31,12 @@ type KPath struct {
 	SparseIndex    *int    // Sparse array index (e.g., 0, 42) - for {n} syntax
 	SparseIndexAll bool    // Sparse array wildcard {*} - matches all sparse indices
 	Key            *string // Key
-	Next           *KPath  // Next segment in path (nil for leaf) - similar to Path.Next
+	// Descend is the `..` segment: the nodes at any depth below this point, the
+	// node itself included. It is a QUERY segment -- it names a set rather than a
+	// step -- so a path holding one cannot be a stored path, and the things which
+	// keep stored paths refuse it rather than pretending to understand it.
+	Descend bool
+	Next    *KPath // Next segment in path (nil for leaf) - similar to Path.Next
 }
 
 // String returns the kinded path string representation of this KPath.
@@ -50,22 +55,33 @@ func (p *KPath) String() string {
 	}
 	buf := bytes.NewBuffer(nil)
 	x := p
+	// A descent carries its own separator: `a..x` is a, the descent, and x, and the
+	// field after it must not add the '.' it would otherwise join with -- that is
+	// what made it render as `a...x`, which is a different path.
+	afterDescend := false
+	sep := func() {
+		if buf.Len() > 0 && !afterDescend {
+			buf.WriteByte('.')
+		}
+		afterDescend = false
+	}
 	for x != nil {
+		if x.Descend {
+			buf.WriteString("..")
+			afterDescend = true
+			x = x.Next
+			continue
+		}
 		if x.FieldAll {
 			// Field wildcard
-			if buf.Len() > 0 {
-				buf.WriteByte('.')
-			}
+			sep()
 			buf.WriteString("*")
 			x = x.Next
 			continue
 		}
 		if x.Field != nil {
 			field := *x.Field
-			// Check if we need a dot separator (not first segment)
-			if buf.Len() > 0 {
-				buf.WriteByte('.')
-			}
+			sep()
 			// Quote field if it contains spaces, dots, brackets, braces, or other special characters
 			if token.KPathQuoteField(field) {
 				buf.WriteString(token.Quote(field, true))
@@ -133,19 +149,25 @@ func (p *KPath) EntryKind() EntryKind {
 	if p.Key != nil {
 		return KeyEntry
 	}
+	if p.Descend {
+		return DescendEntry
+	}
 	panic("entry kind")
 }
 
-// Wild reports whether the HEAD segment of p is a wildcard (.* [*] {*}). It is a
+// Wild reports whether the HEAD segment of p is a wildcard (.* [*] {*} ..). It is a
 // segment predicate — consistent with Type returning a SegmentType — so on a
 // multi-segment path it answers only about the first segment, NOT the whole path.
 // For the whole-path question ("does any segment glob?") use HasWild; for the
 // last segment use p.LastSegment().Wild().
 func (p *KPath) Wild() bool {
-	return p.FieldAll || p.IndexAll || p.SparseIndexAll
+	// A descent is wild in the sense that matters to every caller of this: it does
+	// not name one node. Callers which refuse wildcards were refusing exactly the
+	// paths they must also refuse a descent in.
+	return p.FieldAll || p.IndexAll || p.SparseIndexAll || p.Descend
 }
 
-// HasWild reports whether ANY segment of the path is a wildcard (.* [*] {*}).
+// HasWild reports whether ANY segment of the path is a wildcard (.* [*] {*} ..).
 // This is the whole-path counterpart to the head-segment-only Wild.
 func (p *KPath) HasWild() bool {
 	for x := p; x != nil; x = x.Next {
@@ -590,6 +612,21 @@ func parseKFrag(frag string, parent *KPath) error {
 	}
 	switch frag[0] {
 	case '.':
+		// `..` is the any-depth segment, and it comes first because `.` and `.*`
+		// would both otherwise claim it. An empty field name is spelled "" -- which
+		// is what String emits for one -- so nothing canonical is being taken.
+		if len(frag) > 1 && frag[1] == '.' {
+			parent.Descend = true
+			if len(frag) == 2 {
+				return nil
+			}
+			next := &KPath{}
+			if err := parseKFrag(frag[2:], next); err != nil {
+				return err
+			}
+			parent.Next = next
+			return nil
+		}
 		// Check for wildcard .*
 		if len(frag) > 1 && frag[1] == '*' {
 			parent.FieldAll = true

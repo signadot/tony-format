@@ -35,13 +35,11 @@ func queryPath(arg string) (string, error) {
 		// $ alone is the root, and $.a is a.
 		kp = strings.TrimPrefix(kp[1:], ".")
 	}
-	// objpath's any-depth segment, which kpath has no spelling for. It was reachable
-	// only as `$...x` -- `..` for the descent and `.x` for the field -- worked only
-	// in list, and was documented nowhere, so it is not carried over silently.
-	if strings.HasPrefix(kp, "..") {
-		return "", fmt.Errorf("%q: kpath has no any-depth segment; name the path, or use a wildcard "+
-			"(a.*, a[*], a{*})", arg)
-	}
+	// objpath spelled the any-depth segment with three dots -- `..` for the descent
+	// and `.x` for the field -- because `$..x` was a parse error. kpath spells it
+	// `..`, which is what anyone writes, so the old form is read as the new one
+	// rather than left to mean something else.
+	kp = strings.ReplaceAll(kp, "...", "..")
 	if _, err := kpath.Parse(kp); err != nil {
 		return "", fmt.Errorf("%q: %w", arg, err)
 	}

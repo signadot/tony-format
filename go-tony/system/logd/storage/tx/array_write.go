@@ -178,7 +178,21 @@ func at(kp string) string {
 // right trade here, because the answer does not have to be the last word -- the
 // commit re-asks it under the lock, where the head makes it cheap.
 func (co *txCoord) checkArrayWrite(p *api.Patch) error {
-	if p == nil || p.Data == nil || !hasArrayIndex(p.Path) {
+	if p == nil || p.Data == nil {
+		return nil
+	}
+	// A `..` names the nodes at any depth, which is a question. A write has to name
+	// a place. The session refuses one at its own boundary; this is the same refusal
+	// for a caller holding the storage API directly.
+	if kp, err := kpath.Parse(p.Path); err == nil {
+		for x := kp; x != nil; x = x.Next {
+			if x.Descend {
+				return noSuchElement(p.Path, "%q: `..` names nodes at any depth, which is a "+
+					"question and not a place: a write has to name one", p.Path)
+			}
+		}
+	}
+	if !hasArrayIndex(p.Path) {
 		return nil
 	}
 	commit, err := co.commitOps.GetCurrentCommit()

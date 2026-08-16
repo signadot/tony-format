@@ -92,6 +92,9 @@ func (node *Node) getKPath(kp *kpath.KPath) (*Node, error) {
 		if kp.IndexAll {
 			return nil, fmt.Errorf("any index [*] in get")
 		}
+		if kp.Descend {
+			return nil, fmt.Errorf("any depth .. in get: it may name many nodes, so ask list")
+		}
 		if kp.SparseIndexAll {
 			return nil, fmt.Errorf("any sparse index {*} in get")
 		}
@@ -287,6 +290,23 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 	// (3cdjz00jh12krns4g1n0).
 	node = Uncomment(node)
 	var err error
+	// `..` offers this node and every node beneath it to what follows, which is
+	// what makes a..x find an x directly under a as well as one further down. The
+	// walk is here rather than in the switch below because it is not a step into a
+	// container: an array, an object and a leaf all descend the same way.
+	if kp.Descend {
+		if kp.Next == nil {
+			// A trailing `..` names everything under here, and here itself.
+			return node.appendAll(dst), nil
+		}
+		if err := node.visitAll(func(n *Node) error {
+			dst, err = n.listKPath(dst, kp.Next)
+			return err
+		}); err != nil {
+			return nil, err
+		}
+		return dst, nil
+	}
 	switch node.Type {
 	case ObjectType:
 		if kp.Index != nil || kp.IndexAll || kp.SparseIndex != nil || kp.SparseIndexAll || kp.Key != nil {
@@ -391,4 +411,36 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 	default:
 		return dst, nil
 	}
+}
+
+// visitAll offers node and every node beneath it, in document order. It is the
+// walk `..` is defined by, and it is a walk and not a match: what to do with each
+// node is the caller's.
+func (node *Node) visitAll(fn func(*Node) error) error {
+	if node == nil {
+		return nil
+	}
+	node = Uncomment(node)
+	if node == nil {
+		return nil
+	}
+	if err := fn(node); err != nil {
+		return err
+	}
+	for _, v := range node.Values {
+		if err := v.visitAll(fn); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// appendAll answers with node and everything beneath it, which is what a path
+// ending in `..` names.
+func (node *Node) appendAll(dst []*Node) []*Node {
+	_ = node.visitAll(func(n *Node) error {
+		dst = append(dst, n.Clone())
+		return nil
+	})
+	return dst
 }

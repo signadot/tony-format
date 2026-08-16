@@ -314,8 +314,12 @@ func TestQueryPathsAreKPaths(t *testing.T) {
 		// answering "nothing found", which is the wrong answer worse than an error.
 		{"the legacy $ prefix", []string{"get", "$.a", plain}, "1\n", 0},
 		{"the legacy root", []string{"get", "$", plain}, "{\n  a: 1\n  b: {\n    c: 2\n  }\n}\n", 0},
-		// And the one thing it had that kpath does not says so.
-		{"any-depth, which kpath cannot spell", []string{"list", "$...c", plain}, "", 2},
+		// The one thing objpath had that kpath lacked, kpath has now -- and the
+		// three-dot spelling objpath needed is read as the two-dot one.
+		{"any depth", []string{"list", "..c", plain}, "- 2\n", 0},
+		{"any depth, the legacy three-dot spelling", []string{"list", "$...c", plain}, "- 2\n", 0},
+		{"any depth under a field", []string{"list", "b..c", plain}, "- 2\n", 0},
+		{"any depth in get, which has one answer", []string{"get", "..c", plain}, "", 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			code, out := runOIn(t, "", tc.args...)

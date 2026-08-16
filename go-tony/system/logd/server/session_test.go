@@ -1279,3 +1279,66 @@ func TestSession_PatchPastTheEndOfAnArrayIsInvalidPath(t *testing.T) {
 		t.Fatalf("the store is unreadable after a refused write: %v", err)
 	}
 }
+
+// A `..` names the nodes at any depth, which is a question. Every path a session
+// takes has to name a place -- what a patch is rooted at, what a match reads, what
+// a watch names -- so it is refused where it arrives, rather than turned into
+// something obscure further in.
+func TestSession_DescendPathIsRefused(t *testing.T) {
+	store, err := storage.Open(t.TempDir(), nil)
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+	defer store.Close()
+
+	conn := newMockConn()
+	conn.WriteRequest(`{id: "seed", patch: {path: "", data: {a: {b: {c: 1}}}}}`)
+	conn.WriteRequest(`{id: "descend-patch", patch: {path: "a..c", data: 2}}`)
+	conn.WriteRequest(`{id: "descend-match", match: {body: {path: "a..c", data: 1}}}`)
+
+	session := NewSession("test-server", conn, &SessionConfig{Storage: store, Hub: NewWatchHub()})
+	done := make(chan error)
+	go func() { done <- session.Run() }()
+	time.Sleep(50 * time.Millisecond)
+	conn.Close()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("session did not complete")
+	}
+
+	seen := map[string]*api.SessionError{}
+	for _, line := range bytes.Split(bytes.TrimSpace(conn.GetResponses()), []byte("\n")) {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var resp api.SessionResponse
+		if err := resp.FromTony(bytes.TrimSpace(line)); err != nil {
+			continue
+		}
+		if resp.ID != nil {
+			seen[*resp.ID] = resp.Error
+		}
+	}
+	for _, id := range []string{"descend-patch", "descend-match"} {
+		got := seen[id]
+		if got == nil {
+			t.Errorf("%s was not refused; responses:\n%s", id, conn.GetResponses())
+			continue
+		}
+		if got.Code != api.ErrCodeInvalidPath {
+			t.Errorf("%s: code %q, want %q: %s", id, got.Code, api.ErrCodeInvalidPath, got.Message)
+		}
+		if !strings.Contains(got.Message, "any depth") {
+			t.Errorf("%s: the message does not say why: %s", id, got.Message)
+		}
+	}
+
+	commit, err := store.GetCurrentCommit()
+	if err != nil {
+		t.Fatalf("GetCurrentCommit: %v", err)
+	}
+	if _, err := store.ReadStateAt("", commit, nil); err != nil {
+		t.Fatalf("the store is unreadable after a refused path: %v", err)
+	}
+}

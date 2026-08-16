@@ -142,6 +142,9 @@ object, [i] into an array, {i} into a sparse one, and (key) into a keyed array b
 identity, so "o get 'items(WIDGET).qty'" names an element wherever it sits. A
 leading $ is accepted and dropped, from when paths were written that way.
 
+get answers with ONE node, so it refuses the paths which may name many -- a
+wildcard, or .. for any depth. Those are list's.
+
 The path says WHERE to look. -if says WHICH of what is there to keep: the node
 is written only when it matches the match document given, so
 
@@ -181,9 +184,15 @@ func GetCommand(mainCfg *MainConfig) *cli.Command {
 
 const listDesc = `list or query objects elements from files
 
-The path is a kpath -- .field, [i], {i}, (key), and the wildcards .* [*] {*}, which
-belong here rather than in get: list answers with every node the path names. A
-leading $ is accepted and dropped, from when paths were written that way.
+The path is a kpath -- .field, [i], {i}, (key), the wildcards .* [*] {*}, and .. for
+any depth, which belong here rather than in get: list answers with every node the
+path names.
+
+    o list ..image deploy.tony      # every image, wherever it is
+    o list 'spec..name' deploy.tony # every name under spec, at any depth
+
+A leading $ is accepted and dropped, from when paths were written that way, and the
+$...x spelling of any-depth is read as ..x.
 
 The path says WHERE to look and -if says WHICH of what is there to keep, which
 together are how a list is filtered by a match:
