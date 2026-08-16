@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: ee1b9d42c55e00e430325a4b0eaa50c99562ba32
 commits:
 - ee1b9d42c55e00e430325a4b0eaa50c99562ba32
 - 8e1b334a5cc779f577ac9f983730224fd4e4b610
@@ -12,5 +13,5 @@ labels:
 - bug
 related_issues:
 - 7cdvym1fh12ksmd5g5n0
-status: open
-updated: "2026-08-16T17:37:27.936093+02:00"
+status: closed
+updated: "2026-08-16T17:37:28.030653+02:00"
