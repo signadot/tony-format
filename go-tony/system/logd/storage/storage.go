@@ -129,6 +129,11 @@ type Storage struct {
 	// byte-identical to one that never had the feature.
 	scopeOverlay bool
 
+	// scopeHeads keeps, per scope, the scoped document at the commit it is current at
+	// -- what head.go keeps for baseline. Guarded by commitMu, like the head.
+	// See scope_head.go.
+	scopeHeads map[string]*scopeHeadDoc
+
 	// replayFloor is the highest commit whose delta history compaction has removed.
 	// See replay_floor.go. Read on the replay path, raised by Compact.
 	replayFloor atomic.Int64
@@ -797,6 +802,8 @@ func (s *Storage) DeleteScope(scopeID string) error {
 	if count == 0 {
 		return fmt.Errorf("scope %q not found or has no data", scopeID)
 	}
+	// Nothing should hold a document for a scope which no longer has any.
+	s.forgetScopeHead(scopeID)
 	return nil
 }
 

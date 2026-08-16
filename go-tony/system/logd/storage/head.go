@@ -171,9 +171,9 @@ func nodeEqual(a, b *ir.Node) bool {
 // (7cdvym1fh12ksmd5g5n0).
 //
 // A scoped write is checked against the SCOPED view, which is the state its patch
-// will be applied to; its result is not the baseline head and is discarded. That
-// costs a scoped materialization, because a scope has no stepped head to serve it
-// from -- deliberately paid for now, and measured in sb33w8p9h12kr16kg5n0.
+// will be applied to, and its result is kept as that scope's document rather than
+// the baseline head -- so a run of scoped writes steps rather than rebuilding
+// (scope_head.go).
 //
 // Callers MUST hold commitMu.
 func (s *Storage) verifyApplies(commit int64, patch *ir.Node, scopeID *string) (*ir.Node, error) {
@@ -216,6 +216,10 @@ func (s *Storage) stateForCommit(commit int64, scopeID *string) (*ir.Node, error
 // Callers MUST hold commitMu.
 func (s *Storage) installHead(commit int64, stepped *ir.Node, scopeID *string) {
 	if scopeID != nil {
+		// The scoped document this write was verified against is the scope's state at
+		// this commit, so it is kept: the next scoped write steps it instead of
+		// rebuilding it (sb33w8p9h12kr16kg5n0).
+		s.installScopeHead(commit, *scopeID, stepped)
 		s.stepHead(commit, nil)
 		return
 	}
