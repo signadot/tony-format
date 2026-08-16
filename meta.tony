@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 6679423ce42abddadda021d4df54e1580f76134f
 commits:
 - 6679423ce42abddadda021d4df54e1580f76134f
 created: "2026-08-16T17:36:50.571841+02:00"
@@ -11,5 +12,5 @@ labels:
 - bug
 related_issues:
 - trqgmd1ah12kranxg5n0
-status: open
-updated: "2026-08-16T17:42:09.033986+02:00"
+status: closed
+updated: "2026-08-16T17:42:09.12087+02:00"
