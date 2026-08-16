@@ -6,7 +6,8 @@ commits: []
 created: "2026-08-16T22:43:30.406261+02:00"
 duplicates: []
 id: p7gd2y87h12kswh0g9n0
-labels: []
+labels:
+- enhancement
 related_issues: []
 status: open
-updated: "2026-08-16T22:43:30.406261+02:00"
+updated: "2026-08-16T22:43:48.134955+02:00"
