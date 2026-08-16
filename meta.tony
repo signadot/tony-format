@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 8e1b334a5cc779f577ac9f983730224fd4e4b610
 commits:
 - 0ac684da07cfabd8e653c1480080f1a912c46425
 - 8e1b334a5cc779f577ac9f983730224fd4e4b610
@@ -11,5 +12,5 @@ id: 7cdvym1fh12ksmd5g5n0
 labels:
 - bug
 related_issues: []
-status: open
-updated: "2026-08-16T17:37:14.681116+02:00"
+status: closed
+updated: "2026-08-16T17:37:14.773428+02:00"
