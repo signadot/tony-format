@@ -176,3 +176,100 @@ func show(t *testing.T, n *ir.Node) string {
 	}
 	return strings.ReplaceAll(strings.TrimRight(b.String(), "\n"), "\n", " | ")
 }
+
+// A charter is the shape the FIELD-level annotation exists for. Two comments an
+// author writes land on the list rather than on any element -- the one above
+// `rules:`, and the one above the FIRST element, since a block array begins
+// there -- so no struct is present to carry them and only the field that holds
+// the list can name somewhere to put them.
+//
+// The annotation was declared on FieldInfo and assigned by nothing, so a field
+// tag asking for it was accepted and did nothing: no error, no warning, and the
+// named field written into the document as data (xvexrbthh12ksrahg5n0).
+const charterDoc = `rules:
+# about rule a
+- name: a
+# about rule b
+- name: b
+`
+
+func TestGeneratedFieldComments(t *testing.T) {
+	node, err := parse.Parse([]byte(charterDoc), parse.ParseComments(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c comments.Charter
+	if err := c.FromTonyIR(node); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.RulesComment; len(got) != 1 || got[0] != "# about rule a" {
+		t.Errorf("the comment on the list came back as %q", got)
+	}
+	if len(c.Rules) != 2 {
+		t.Fatalf("%d rules", len(c.Rules))
+	}
+	if got := c.Rules[1].Comments; len(got) != 1 || got[0] != "# about rule b" {
+		t.Errorf("rule b's own comment came back as %q", got)
+	}
+	if got := c.Rules[0].Comments; len(got) != 0 {
+		t.Errorf("rule a's comment is the LIST's, not the element's, but the element got %q", got)
+	}
+
+	// and back out, unchanged
+	out, err := c.ToTonyIR()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	if err := encode.Encode(out, &b, encode.EncodeComments(true)); err != nil {
+		t.Fatal(err)
+	}
+	if b.String() != charterDoc {
+		t.Errorf("the charter came back as\n%s\nand went in as\n%s", b.String(), charterDoc)
+	}
+	if strings.Contains(b.String(), "RulesComment") {
+		t.Errorf("a carrier field was written as data:\n%s", b.String())
+	}
+}
+
+// TestFieldCommentsAgree: generated and reflected, same type, same answer.
+func TestFieldCommentsAgree(t *testing.T) {
+	node, err := parse.Parse([]byte(charterDoc), parse.ParseComments(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gen comments.Charter
+	if err := gen.FromTonyIR(node); err != nil {
+		t.Fatal(err)
+	}
+	genOut, err := gen.ToTonyIR()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	type rule struct {
+		marker   `tony:"schema=comments-rule,notag,comment=Comments"`
+		Name     string `tony:"field=name"`
+		Comments []string
+	}
+	type charter struct {
+		marker       `tony:"schema=comments-charter,notag"`
+		Rules        []rule `tony:"field=rules,comment=RulesComment,lineComment=RulesLine"`
+		RulesComment []string
+		RulesLine    []string
+	}
+	var refl charter
+	if err := gomap.FromTonyIR(node, &refl); err != nil {
+		t.Fatal(err)
+	}
+	if got := refl.RulesComment; len(got) != 1 || got[0] != "# about rule a" {
+		t.Errorf("reflection read the list comment as %q", got)
+	}
+	reflOut, err := gomap.ToTonyIR(&refl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !genOut.DeepEqualWithComments(reflOut) {
+		t.Errorf("the two paths differ:\n generated: %s\n reflected: %s", show(t, genOut), show(t, reflOut))
+	}
+}

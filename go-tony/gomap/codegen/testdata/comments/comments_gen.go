@@ -209,3 +209,206 @@ func (s *Doc) FromTony(data []byte, opts ...gomap.UnmapOption) error {
 	}
 	return s.FromTonyIR(node, opts...)
 }
+
+// ToTonyIR converts Rule to a Tony IR node.
+func (s *Rule) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
+	// Create IR object map
+	irMap := make(map[string]*ir.Node)
+
+	// Field: Name
+	irMap["name"] = ir.FromString(string(s.Name))
+
+	res := ir.FromMap(irMap)
+	if len(s.Comments) > 0 {
+		wrap := &ir.Node{Type: ir.CommentType, Lines: s.Comments, Values: []*ir.Node{res}}
+		res.Parent = wrap
+		res.ParentIndex = 0
+		res = wrap
+	}
+	return res, nil
+}
+
+// FromTonyIR populates Rule from a Tony IR node.
+func (s *Rule) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		s.Comments = node.Lines
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
+	if node.Type != ir.ObjectType {
+		return fmt.Errorf("expected map for Rule, got %v", node.Type)
+	}
+
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
+		switch fieldName.String {
+		case "name":
+			// Field: Name
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "name", fieldNodeUnwrapped.Type)
+			}
+			s.Name = string(fieldNodeUnwrapped.String)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for Rule", fieldName.String)
+			}
+		}
+	}
+
+	return nil
+}
+
+// ToTony converts Rule to Tony format bytes.
+func (s *Rule) ToTony(opts ...gomap.MapOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// FromTony parses Tony format bytes and populates Rule.
+func (s *Rule) FromTony(data []byte, opts ...gomap.UnmapOption) error {
+	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
+	if err != nil {
+		return err
+	}
+	return s.FromTonyIR(node, opts...)
+}
+
+// ToTonyIR converts Charter to a Tony IR node.
+func (s *Charter) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
+	var node *ir.Node
+	var err error
+	_ = node // suppress unused variable error
+	_ = err  // suppress unused variable error
+
+	// Create IR object map
+	irMap := make(map[string]*ir.Node)
+
+	// Field: Rules
+	{
+		slice := make([]*ir.Node, len(s.Rules))
+		for i, v := range s.Rules {
+			node, err = v.ToTonyIR(opts...)
+			if err != nil {
+				return nil, fmt.Errorf("failed to convert slice element %d: %w", i, err)
+			}
+			slice[i] = node
+		}
+		irMap["rules"] = ir.FromSlice(slice)
+	}
+	irMap["rules"] = gomap.ApplyComments(irMap["rules"], s.RulesComment, s.RulesLine)
+
+	return ir.FromMap(irMap), nil
+}
+
+// FromTonyIR populates Charter from a Tony IR node.
+func (s *Charter) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
+	if node.Type != ir.ObjectType {
+		return fmt.Errorf("expected map for Charter, got %v", node.Type)
+	}
+
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
+		switch fieldName.String {
+		case "rules":
+			// Field: Rules
+			if fieldNodeUnwrapped.Type == ir.ArrayType {
+				slice := make([]Rule, len(fieldNodeUnwrapped.Values))
+				for i, v := range fieldNodeUnwrapped.Values {
+					elem := Rule{}
+					if err := elem.FromTonyIR(v, opts...); err != nil {
+						return fmt.Errorf("failed to convert slice element %d: %w", i, err)
+					}
+					slice[i] = elem
+				}
+				s.Rules = slice
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"rules\"", fieldNodeUnwrapped.Type)
+			}
+			if fieldNode.Type == ir.CommentType {
+				s.RulesComment = fieldNode.Lines
+			}
+			if v := ir.Uncomment(fieldNode); v != nil && v.Comment != nil {
+				s.RulesLine = v.Comment.Lines
+			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for Charter", fieldName.String)
+			}
+		}
+	}
+
+	return nil
+}
+
+// ToTony converts Charter to Tony format bytes.
+func (s *Charter) ToTony(opts ...gomap.MapOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// FromTony parses Tony format bytes and populates Charter.
+func (s *Charter) FromTony(data []byte, opts ...gomap.UnmapOption) error {
+	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
+	if err != nil {
+		return err
+	}
+	return s.FromTonyIR(node, opts...)
+}

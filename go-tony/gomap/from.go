@@ -937,9 +937,8 @@ func fromIRToStruct(node *ir.Node, val reflect.Value, fieldPath string, visited 
 	// a member of the object. Left in the map, a document with a literal Comments:
 	// key would overwrite what the head comment said, and the encode side no
 	// longer writes such a key at all (3cdjz00jh12krns4g1n0).
-	if structSchema, err := GetStructSchema(typ); err == nil && structSchema != nil {
-		delete(structFieldMap, structSchema.CommentFieldName)
-		delete(structFieldMap, structSchema.LineCommentFieldName)
+	for name := range commentCarriers(typ) {
+		delete(structFieldMap, name)
 	}
 
 	// An embedded type with a decoder of its own is handed the WHOLE object. The
@@ -998,6 +997,19 @@ func fromIRToStruct(node *ir.Node, val reflect.Value, fieldPath string, visited 
 			nextPath = fmt.Sprintf("%s.%s", fieldPath, fieldName)
 		} else {
 			nextPath = fieldName
+		}
+
+		// The comments on THIS field's value, into the fields it names for them.
+		// The struct-level annotation cannot reach these: a comment above a
+		// list-valued or scalar field lands on the list or the scalar, and there is
+		// no struct there to carry it (xvexrbthh12ksrahg5n0).
+		if head, line := FieldCommentCarriers(fieldInfo.field); head != "" || line != "" {
+			if fieldNode.Type == ir.CommentType {
+				setCommentField(val, head, fieldNode.Lines)
+			}
+			if inner := ir.Uncomment(fieldNode); inner != nil && inner.Comment != nil {
+				setCommentField(val, line, inner.Comment.Lines)
+			}
 		}
 
 		// Unmarshal field value

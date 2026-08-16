@@ -389,13 +389,14 @@ func toIRReflectStruct(val reflect.Value, fieldPath string, visited map[uintptr]
 	// keys, so a struct that had read "# about the doc" encoded to a document with
 	// a Comments: ["# about the doc"] member in it and no comment anywhere.
 	structSchema, _ := GetStructSchema(typ)
+	carriers := commentCarriers(typ)
 
 	irMap := make(map[string]*ir.Node)
 
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 
-		if isCommentCarrier(structSchema, field.Name) {
+		if carriers[field.Name] {
 			continue
 		}
 
@@ -452,6 +453,13 @@ func toIRReflectStruct(val reflect.Value, fieldPath string, visited map[uintptr]
 		if err != nil {
 			return nil, err
 		}
+
+		// The comments this FIELD carries belong to the value just built: a head
+		// comment wraps it, a line comment rides on it. Same two places as a
+		// struct's own, one level down, which is the only way a comment above a
+		// list-valued field has anywhere to live (xvexrbthh12ksrahg5n0).
+		head, line := FieldCommentCarriers(field)
+		fieldNode = applyComments(fieldNode, commentLinesOf(val, head), commentLinesOf(val, line))
 
 		irMap[fieldName] = fieldNode
 	}
@@ -527,15 +535,6 @@ func toIRReflectStruct(val reflect.Value, fieldPath string, visited map[uintptr]
 	return applyCommentFields(ir.FromMap(irMap), val, structSchema), nil
 }
 
-// isCommentCarrier reports whether a field holds comments for the node rather
-// than data in it.
-func isCommentCarrier(structSchema *StructSchema, fieldName string) bool {
-	if structSchema == nil || fieldName == "" {
-		return false
-	}
-	return fieldName == structSchema.CommentFieldName || fieldName == structSchema.LineCommentFieldName
-}
-
 // applyCommentFields puts a struct's comments back on the node it encoded to,
 // in the two places the IR keeps them: a head comment wraps the value it
 // precedes, and a line comment rides on the value it follows. It is the inverse
@@ -548,11 +547,29 @@ func applyCommentFields(node *ir.Node, val reflect.Value, structSchema *StructSc
 	if node == nil || structSchema == nil {
 		return node
 	}
-	if lines := commentLinesOf(val, structSchema.LineCommentFieldName); len(lines) > 0 {
-		node.Comment = &ir.Node{Type: ir.CommentType, Lines: lines, Parent: node}
+	return applyComments(node,
+		commentLinesOf(val, structSchema.CommentFieldName),
+		commentLinesOf(val, structSchema.LineCommentFieldName))
+}
+
+// ApplyComments is applyComments for generated code, which cannot reach an
+// unexported helper.
+func ApplyComments(node *ir.Node, head, line []string) *ir.Node {
+	return applyComments(node, head, line)
+}
+
+// applyComments puts head and line comments on a node, in the two places the IR
+// keeps them. Empty means nothing to say rather than "no comment", so a value
+// with neither is left exactly as it was built.
+func applyComments(node *ir.Node, head, line []string) *ir.Node {
+	if node == nil {
+		return node
 	}
-	if lines := commentLinesOf(val, structSchema.CommentFieldName); len(lines) > 0 {
-		wrap := &ir.Node{Type: ir.CommentType, Lines: lines, Values: []*ir.Node{node}}
+	if len(line) > 0 {
+		node.Comment = &ir.Node{Type: ir.CommentType, Lines: line, Parent: node}
+	}
+	if len(head) > 0 {
+		wrap := &ir.Node{Type: ir.CommentType, Lines: head, Values: []*ir.Node{node}}
 		node.Parent = wrap
 		node.ParentIndex = 0
 		node = wrap

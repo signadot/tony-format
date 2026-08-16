@@ -3,6 +3,23 @@ context:
 - tony-format/context
 define:
   Comments: .[array(string)]
+  name: .[string]
+signature:
+  name: comments-rule
+---
+context:
+- tony-format/context
+define:
+  RulesComment: .[array(string)]
+  RulesLine: .[array(string)]
+  rules: .[array(comments-rule)]
+signature:
+  name: comments-charter
+---
+context:
+- tony-format/context
+define:
+  Comments: .[array(string)]
   LineComments: .[array(string)]
   replicas: .[int]
 signature:

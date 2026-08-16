@@ -810,7 +810,7 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 		// hold data, so they are not members of the object. Emitted as fields, a
 		// struct that had read "# note" encoded to a document with a
 		// Comments: ["# note"] key in it (3cdjz00jh12krns4g1n0).
-		if isCommentCarrier(s.StructSchema, field.Name) {
+		if carrierFields(s)[field.Name] {
 			continue
 		}
 
@@ -847,6 +847,7 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 			return "", fmt.Errorf("failed to generate field conversion for %q: %w", field.Name, err)
 		}
 		buf.WriteString(fieldCode)
+		buf.WriteString(generateFieldCommentsToIR(field, schemaFieldName))
 
 		if wrapZero {
 			buf.WriteString("	}\n")
@@ -1592,7 +1593,7 @@ func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgP
 		// not a member of the object. Left as a case here, a document with a
 		// literal Comments: key would overwrite what the head comment said
 		// (3cdjz00jh12krns4g1n0).
-		if isCommentCarrier(s.StructSchema, field.Name) {
+		if carrierFields(s)[field.Name] {
 			continue
 		}
 
@@ -1610,6 +1611,7 @@ func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgP
 			return "", fmt.Errorf("failed to generate field decoding for %q: %w", field.Name, err)
 		}
 		buf.WriteString(fieldCode)
+		buf.WriteString(generateFieldCommentsFromIR(field))
 
 		if field.Required {
 			buf.WriteString(fmt.Sprintf("			found_%s = true\n", field.Name))
@@ -2870,6 +2872,64 @@ func isCommentCarrier(structSchema *gomap.StructSchema, fieldName string) bool {
 		return false
 	}
 	return fieldName == structSchema.CommentFieldName || fieldName == structSchema.LineCommentFieldName
+}
+
+// carrierFields is every field of this struct that holds comments rather than
+// data: the ones the struct annotation names for its OWN comments, and the ones
+// each field annotation names for its value's (xvexrbthh12ksrahg5n0).
+func carrierFields(s *StructInfo) map[string]bool {
+	carriers := map[string]bool{}
+	if s.StructSchema != nil {
+		if f := s.StructSchema.CommentFieldName; f != "" {
+			carriers[f] = true
+		}
+		if f := s.StructSchema.LineCommentFieldName; f != "" {
+			carriers[f] = true
+		}
+	}
+	for _, f := range s.Fields {
+		if f.CommentFieldName != "" {
+			carriers[f.CommentFieldName] = true
+		}
+		if f.LineCommentFieldName != "" {
+			carriers[f.LineCommentFieldName] = true
+		}
+	}
+	return carriers
+}
+
+// generateFieldCommentsToIR emits the code that puts a field's carried comments
+// onto the node just built for it.
+func generateFieldCommentsToIR(field *FieldInfo, schemaFieldName string) string {
+	if field.CommentFieldName == "" && field.LineCommentFieldName == "" {
+		return ""
+	}
+	head, line := "nil", "nil"
+	if field.CommentFieldName != "" {
+		head = "s." + field.CommentFieldName
+	}
+	if field.LineCommentFieldName != "" {
+		line = "s." + field.LineCommentFieldName
+	}
+	return fmt.Sprintf("\tirMap[%q] = gomap.ApplyComments(irMap[%q], %s, %s)\n",
+		schemaFieldName, schemaFieldName, head, line)
+}
+
+// generateFieldCommentsFromIR emits the code that reads the comments on a
+// field's value into the fields it names for them.
+func generateFieldCommentsFromIR(field *FieldInfo) string {
+	var buf bytes.Buffer
+	if f := field.CommentFieldName; f != "" {
+		buf.WriteString("\t\t\tif fieldNode.Type == ir.CommentType {\n")
+		buf.WriteString(fmt.Sprintf("\t\t\t\ts.%s = fieldNode.Lines\n", f))
+		buf.WriteString("\t\t\t}\n")
+	}
+	if f := field.LineCommentFieldName; f != "" {
+		buf.WriteString("\t\t\tif v := ir.Uncomment(fieldNode); v != nil && v.Comment != nil {\n")
+		buf.WriteString(fmt.Sprintf("\t\t\t\ts.%s = v.Comment.Lines\n", f))
+		buf.WriteString("\t\t\t}\n")
+	}
+	return buf.String()
 }
 
 // generateCommentsToIR emits the code that puts a struct's comments back on the

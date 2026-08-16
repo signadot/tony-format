@@ -804,16 +804,51 @@ func isOptionalType(typ reflect.Type) bool {
 // codegen read the same two annotations, so a type tagged once behaves the same
 // however its codecs are produced.
 func commentCarriers(typ reflect.Type) map[string]bool {
-	structSchema, err := GetStructSchema(typ)
-	if err != nil || structSchema == nil {
+	carriers := map[string]bool{}
+	if structSchema, err := GetStructSchema(typ); err == nil && structSchema != nil {
+		if f := structSchema.CommentFieldName; f != "" {
+			carriers[f] = true
+		}
+		if f := structSchema.LineCommentFieldName; f != "" {
+			carriers[f] = true
+		}
+	}
+	// A FIELD may name carriers too, for the comments on ITS value. The struct
+	// annotation cannot reach those: a comment above a list-valued or scalar field
+	// has no struct of its own to carry it (xvexrbthh12ksrahg5n0).
+	if typ.Kind() == reflect.Struct {
+		for i := 0; i < typ.NumField(); i++ {
+			head, line := FieldCommentCarriers(typ.Field(i))
+			if head != "" {
+				carriers[head] = true
+			}
+			if line != "" {
+				carriers[line] = true
+			}
+		}
+	}
+	if len(carriers) == 0 {
 		return nil
 	}
-	carriers := map[string]bool{}
-	if f := structSchema.CommentFieldName; f != "" {
-		carriers[f] = true
-	}
-	if f := structSchema.LineCommentFieldName; f != "" {
-		carriers[f] = true
-	}
 	return carriers
+}
+
+// FieldCommentCarriers reads the comment= and lineComment= a FIELD tag names:
+// the fields of the same struct that hold the comments written about THIS
+// field's value.
+//
+// The struct-level annotations of the same name say where a struct's own
+// comments go, which covers a comment above a value that decodes into a struct
+// and nothing else. A comment above `gates:` -- a list -- lands on the list, and
+// only the field that holds the list can name somewhere to put it.
+func FieldCommentCarriers(field reflect.StructField) (head, line string) {
+	tag := field.Tag.Get("tony")
+	if tag == "" {
+		return "", ""
+	}
+	parsed, err := ParseStructTag(tag)
+	if err != nil {
+		return "", ""
+	}
+	return parsed["comment"], parsed["lineComment"]
 }

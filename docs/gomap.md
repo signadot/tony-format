@@ -275,6 +275,36 @@ is neither written as a key nor read from one.
 Empty means nothing to say rather than "no comment": a value whose carrier
 fields are empty encodes exactly as it would without them.
 
+#### Comments on a field's value
+
+The same two names work on a FIELD tag, where they carry the comments written
+about that field's VALUE:
+
+```go
+type Charter struct {
+    Rules        []Rule   `tony:"field=rules,comment=RulesComment"`
+    RulesComment []string
+}
+```
+
+This is not a convenience: the struct-level annotation can only reach a comment
+that sits on a value which decodes into a struct, and two comments an author
+naturally writes do not:
+
+```tony
+# about the rules      <- above a list-valued field: lands on the LIST
+rules:
+# about rule a         <- above the FIRST element: also lands on the list,
+- name: a                 because a block array begins at its first element
+# about rule b         <- above a later element: lands on that element
+- name: b
+```
+
+`Rule`'s own `comment=` catches the third. The first two have no struct to carry
+them, and only the field that holds the list can name somewhere for them to go.
+Without it an author sees every rule's comment survive except the first, which
+reads as an off-by-one rather than a missing feature.
+
 **Note**: If both a struct tag and doc comment directive are present, the struct tag takes precedence.
 
 > [!WARNING]

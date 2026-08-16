@@ -396,6 +396,13 @@ func extractFields(structType *ast.StructType) ([]*FieldInfo, error) {
 					fieldInfo.Omitzero = true
 				}
 
+				// The fields carrying this field's value's comments. Declared on
+				// FieldInfo since before this, and assigned by nothing -- so a field
+				// tag asking for it was accepted and did nothing
+				// (xvexrbthh12ksrahg5n0).
+				fieldInfo.CommentFieldName = parsed["comment"]
+				fieldInfo.LineCommentFieldName = parsed["lineComment"]
+
 				// Validate: cannot have both required and optional
 				if fieldInfo.Required && fieldInfo.Optional {
 					return nil, fmt.Errorf("field %q cannot have both required and optional tags", name.Name)

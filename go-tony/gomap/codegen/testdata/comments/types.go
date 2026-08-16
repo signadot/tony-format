@@ -21,3 +21,25 @@ type Doc struct {
 	Name string `tony:"field=name"`
 	Spec *Spec  `tony:"field=spec"`
 }
+
+// Rule is an element of a charter's list. Each carries its own comment, which
+// is what a struct-level annotation can reach.
+//
+//tony:schemagen=comments-rule,notag,comment=Comments
+type Rule struct {
+	Name     string `tony:"field=name"`
+	Comments []string
+}
+
+// Charter is the shape the field-level annotation exists for: the comment above
+// `rules:` -- and the one above the FIRST element, which the format attributes
+// to the list because a block array begins at its first element -- land on the
+// list itself. No struct is there to carry them, so the FIELD names somewhere
+// (issue xvexrbthh12ksrahg5n0).
+//
+//tony:schemagen=comments-charter,notag
+type Charter struct {
+	Rules        []Rule `tony:"field=rules,comment=RulesComment,lineComment=RulesLine"`
+	RulesComment []string
+	RulesLine    []string
+}

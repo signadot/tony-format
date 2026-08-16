@@ -72,6 +72,15 @@ type FieldInfo struct {
 	// Omit indicates if the field should be omitted from schema/code generation
 	Omit bool
 
+	// CommentFieldName and LineCommentFieldName are the fields of the same struct
+	// that carry the comments written about THIS field's value -- comment= and
+	// lineComment= on the field tag. The struct-level annotations of the same name
+	// cannot reach these: a comment above a list-valued or scalar field lands on
+	// the list or the scalar, where there is no struct to carry it
+	// (xvexrbthh12ksrahg5n0).
+	CommentFieldName     string
+	LineCommentFieldName string
+
 	// Comments contains field-level comments (above the field declaration)
 	Comments []string
 
