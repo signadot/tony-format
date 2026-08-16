@@ -209,6 +209,18 @@ much of each are asked separately:
 
     x | o list -if '{status: running}' -trim '{runner: null, started: null}' '[*]'
 
+-paths writes WHERE each node is rather than what it is, as a path this same tool
+reads, so a query can be turned into the places it found:
+
+    o list -paths ..image deploy.tony
+    - spec.containers[0].image
+    - spec.containers[1].image
+
+    o list -paths ..image deploy.tony | o list '[*]' | ...   # feed them onward
+
+It answers about the same nodes -if selects, and ignores -trim, which is about how
+much of a node to write and not about where it is.
+
 A file is optional: with none, stdin is read, as grep and cat do -- from a pipe,
 or typed at a terminal and ended with Ctrl-D. An input is a STREAM of documents,
 --- separated, and the path is asked of every one of them; the answer is a

@@ -23,8 +23,16 @@ func (node *Node) KPath() string {
 	}
 	switch node.Parent.Type {
 	case ObjectType:
-		f := node.ParentField
 		prefix := node.Parent.KPath()
+		// A sparse array is an object whose field keys are NUMBERS, and its
+		// elements are written {n}. Rendering one as a field gave a second spelling
+		// of a place logd already writes one way -- index.indexPatchRec builds
+		// "%s{%d}" from the same field -- so the path this answers with and the path
+		// the store keys by were different strings for the same node.
+		if key, sparse := node.sparseKey(); sparse {
+			return fmt.Sprintf("%s{%d}", prefix, key)
+		}
+		f := node.ParentField
 		// Quote field if it contains spaces, dots, brackets, braces, or other special characters
 		var quotedField string
 		if token.KPathQuoteField(f) {
@@ -499,4 +507,24 @@ func sparseValue(node *Node, key int) *Node {
 		}
 	}
 	return nil
+}
+
+// sparseKey answers the number key this node sits under, when its parent is a
+// sparse array -- an object whose field keys are numbers, which is the only shape
+// a sparse array has. It reads the key from the field NODE rather than from
+// ParentField, because ParentField is the key rendered as a string and what is
+// wanted is the number.
+func (node *Node) sparseKey() (int64, bool) {
+	p := node.Parent
+	if p == nil || p.Type != ObjectType {
+		return 0, false
+	}
+	if node.ParentIndex < 0 || node.ParentIndex >= len(p.Fields) {
+		return 0, false
+	}
+	f := p.Fields[node.ParentIndex]
+	if f == nil || f.Type != NumberType || f.Int64 == nil {
+		return 0, false
+	}
+	return *f.Int64, true
 }

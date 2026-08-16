@@ -44,6 +44,18 @@ o list 'spec..name' deploy.tony   # every name under spec, at any depth
 o list 'a..' doc.tony             # a and everything under it
 ```
 
+`-paths` answers with **where** each node is rather than what it is, in this same
+syntax — so the answer to one query is the input to the next:
+
+```bash
+$ o list -paths ..image deploy.tony
+- spec.containers[0].image
+- spec.containers[1].image
+
+$ o get 'spec.containers[0].image' deploy.tony
+nginx
+```
+
 Both read a stream of documents and ask the path of each. See
 [What a write must be](logd/writes.md) for the paths logd accepts on the writing
 side, which are the same syntax.

@@ -46,9 +46,23 @@ func list(cfg *ListConfig, cc *cli.Context, args []string) error {
 			return fault(cc, err)
 		}
 		for _, doc := range docs {
-			res, err := listDoc(doc, path, cfg.Comments, pred, trim)
+			// -paths answers where each node IS, and trimming answers how much of
+			// what it is to write. So a trim is not applied here: it would clone the
+			// node away from the document, and a node with no document above it has
+			// no path to report.
+			nodeTrim := trim
+			if cfg.Paths {
+				nodeTrim = nil
+			}
+			res, err := listDoc(doc, path, cfg.Comments, pred, nodeTrim)
 			if err != nil {
 				return fault(cc, fmt.Errorf("error querying %s with %s: %w", arg, path, err))
+			}
+			if cfg.Paths {
+				for _, n := range res {
+					found = append(found, ir.FromString(n.KPath()))
+				}
+				continue
 			}
 			found = append(found, res...)
 		}

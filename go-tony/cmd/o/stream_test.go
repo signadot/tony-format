@@ -353,3 +353,84 @@ func TestNoPathIsNotTheRoot(t *testing.T) {
 		t.Errorf("got %q, want %q", out, want)
 	}
 }
+
+// -paths answers where each node IS rather than what it is, and what it answers
+// with is a path this same tool reads: that round trip is the whole point, since a
+// path nobody can use again is a label rather than an answer.
+func TestListPathsAnswersWithUsablePaths(t *testing.T) {
+	dir := t.TempDir()
+	doc := write(t, dir, "doc.tony",
+		"spec:\n  containers:\n  - name: web\n    image: nginx\n  - name: side\n    image: busybox\n"+
+			"sparse: !sparsearray {3: a, 7: b}\nmeta: {name: app}\n")
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+		code int
+	}{
+		{
+			name: "where every image is",
+			args: []string{"list", "-paths", "..image", doc},
+			want: "- spec.containers[0].image\n- spec.containers[1].image\n",
+		},
+		{
+			name: "a sparse element is named the way the store names it",
+			args: []string{"list", "-paths", "sparse{*}", doc},
+			want: "- sparse{3}\n- sparse{7}\n",
+		},
+		{
+			name: "without it, the nodes themselves",
+			args: []string{"list", "..image", doc},
+			want: "- nginx\n- busybox\n",
+		},
+		{
+			name: "nothing named is still nothing, not an empty path",
+			args: []string{"list", "-paths", "..nope", doc},
+			want: "[]\n",
+			code: 1,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code, out := runOIn(t, "", tc.args...)
+			if code != tc.code {
+				t.Errorf("exit %d, want %d", code, tc.code)
+			}
+			if out != tc.want {
+				t.Errorf("got  %q\nwant %q", out, tc.want)
+			}
+		})
+	}
+
+	// Every path it prints, get reads.
+	code, out := runOIn(t, "", "list", "-paths", "..", doc)
+	if code != 0 {
+		t.Fatalf("listing every path exited %d", code)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		p := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "- "))
+		if p == "" || p == "[]" {
+			continue
+		}
+		p = strings.Trim(p, `"`)
+		code, got := runOIn(t, "", "get", p, doc)
+		if code != 0 {
+			t.Errorf("get %q exited %d: %s", p, code, got)
+		}
+	}
+}
+
+// -if says WHICH nodes, and -paths says what to write about each. They compose:
+// the paths of the nodes that matched.
+func TestListPathsRespectsIf(t *testing.T) {
+	dir := t.TempDir()
+	doc := write(t, dir, "doc.tony",
+		"items:\n- {name: a, state: open}\n- {name: b, state: closed}\n")
+	code, out := runOIn(t, "", "list", "-paths", "-if", "{state: open}", "items[*]", doc)
+	if code != 0 {
+		t.Fatalf("exit %d, want 0 (%s)", code, out)
+	}
+	if want := "- items[0]\n"; out != want {
+		t.Errorf("got %q, want %q", out, want)
+	}
+}
