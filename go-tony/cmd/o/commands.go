@@ -137,6 +137,11 @@ func ViewCommand(mainCfg *MainConfig) *cli.Command {
 
 const getDesc = `get objects elements from files
 
+The path is a kpath, the syntax the rest of the system uses: .field steps into an
+object, [i] into an array, {i} into a sparse one, and (key) into a keyed array by
+identity, so "o get 'items(WIDGET).qty'" names an element wherever it sits. A
+leading $ is accepted and dropped, from when paths were written that way.
+
 The path says WHERE to look. -if says WHICH of what is there to keep: the node
 is written only when it matches the match document given, so
 
@@ -164,7 +169,7 @@ func GetCommand(mainCfg *MainConfig) *cli.Command {
 	}
 	cmd := cli.NewCommand("get").
 		WithAliases("g", "ge").
-		WithSynopsis("get [opts] <objectpath> [files]").
+		WithSynopsis("get [opts] <kpath> [files]").
 		WithDescription(getDesc).
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
@@ -175,6 +180,10 @@ func GetCommand(mainCfg *MainConfig) *cli.Command {
 }
 
 const listDesc = `list or query objects elements from files
+
+The path is a kpath -- .field, [i], {i}, (key), and the wildcards .* [*] {*}, which
+belong here rather than in get: list answers with every node the path names. A
+leading $ is accepted and dropped, from when paths were written that way.
 
 The path says WHERE to look and -if says WHICH of what is there to keep, which
 together are how a list is filtered by a match:
@@ -208,7 +217,7 @@ func ListCommand(mainCfg *MainConfig) *cli.Command {
 	}
 	return cli.NewCommandAt(&cfg.List, "list").
 		WithAliases("l").
-		WithSynopsis("list [opts] <objectpath> [files]").
+		WithSynopsis("list [opts] <kpath> [files]").
 		WithDescription(listDesc).
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {

@@ -15,8 +15,8 @@ o [opts] command [opts]
 | [`view`](o-view.md) | `o view [files]` |
 | [`eval`](o-eval.md) | `o eval [-e path=val [ -e path2=val2 ]...] [files]` |
 | [`diff`](o-diff.md) | a b or diff -loop <cmd> |
-| [`get`](o-get.md) | `o get [opts] <objectpath> [files]` |
-| [`list`](o-list.md) | `o list [opts] <objectpath> [files]` |
+| [`get`](o-get.md) | `o get [opts] <kpath> [files]` |
+| [`list`](o-list.md) | `o list [opts] <kpath> [files]` |
 | [`match`](o-match.md) | `o match [opts] <matchobj> [files]` |
 | [`patch`](o-patch.md) | `o patch [opts] <patchobj> [files]` |
 | [`build`](o-build.md) | `o build [dir] [-l] [-p profile ] [ env ]` |

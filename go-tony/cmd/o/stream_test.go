@@ -233,8 +233,8 @@ func TestHelpIsAnsweredNotRefused(t *testing.T) {
 		{"the long flag", []string{"--help"}, "commands:"},
 		{"the short flag", []string{"-h"}, "commands:"},
 		{"the word", []string{"help"}, "commands:"},
-		{"for one command", []string{"help", "get"}, "get [opts] <objectpath>"},
-		{"the flag after a command", []string{"get", "-h"}, "get [opts] <objectpath>"},
+		{"for one command", []string{"help", "get"}, "get [opts] <kpath>"},
+		{"the flag after a command", []string{"get", "-h"}, "get [opts] <kpath>"},
 		{"nothing at all", nil, "please choose a command"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -285,5 +285,46 @@ func TestCompletionScriptsNameEveryCommand(t *testing.T) {
 	}
 	if code, _ := runOIn(t, "", "completion"); code != 2 {
 		t.Errorf("no shell at all exits %d, want 2", code)
+	}
+}
+
+// get and list ask their question in kpath, the syntax the rest of the system
+// uses -- and which the same binary already used in `!at(...)`. They asked it in
+// objpath, whose leading $ said nothing and whose grammar could not name a keyed
+// or a sparse element at all.
+func TestQueryPathsAreKPaths(t *testing.T) {
+	dir := t.TempDir()
+	plain := write(t, dir, "plain.tony", "{a: 1, b: {c: 2}}\n")
+	keyed := write(t, dir, "keyed.tony", "items: !key(sku)\n- sku: WIDGET\n  qty: 5\n- sku: BOLT\n  qty: 9\n")
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+		code int
+	}{
+		// The papercut: the natural spelling was the one that failed.
+		{"a bare field", []string{"get", "a", plain}, "1\n", 0},
+		{"a leading dot", []string{"get", ".a", plain}, "1\n", 0},
+		{"nested", []string{"get", "b.c", plain}, "2\n", 0},
+		// What objpath could not say at all.
+		{"a keyed element", []string{"get", "items(WIDGET).qty", keyed}, "5\n", 0},
+		{"a wildcard, in list where it belongs", []string{"list", "items[*].sku", keyed}, "- WIDGET\n- BOLT\n", 0},
+		// The old spelling still runs, rather than reading $ as a field name and
+		// answering "nothing found", which is the wrong answer worse than an error.
+		{"the legacy $ prefix", []string{"get", "$.a", plain}, "1\n", 0},
+		{"the legacy root", []string{"get", "$", plain}, "{\n  a: 1\n  b: {\n    c: 2\n  }\n}\n", 0},
+		// And the one thing it had that kpath does not says so.
+		{"any-depth, which kpath cannot spell", []string{"list", "$...c", plain}, "", 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code, out := runOIn(t, "", tc.args...)
+			if code != tc.code {
+				t.Errorf("exit %d, want %d (output %q)", code, tc.code, out)
+			}
+			if tc.want != "" && out != tc.want {
+				t.Errorf("got %q, want %q", out, tc.want)
+			}
+		})
 	}
 }

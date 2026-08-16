@@ -2,6 +2,10 @@
 
 list or query objects elements from files
 
+The path is a kpath -- .field, [i], {i}, (key), and the wildcards .* [*] {*}, which
+belong here rather than in get: list answers with every node the path names. A
+leading $ is accepted and dropped, from when paths were written that way.
+
 The path says WHERE to look and -if says WHICH of what is there to keep, which
 together are how a list is filtered by a match:
 
@@ -31,7 +35,7 @@ Also known as `l`.
 ## Usage
 
 ```
-o list [opts] <objectpath> [files]
+o list [opts] <kpath> [files]
 ```
 
 ## Options

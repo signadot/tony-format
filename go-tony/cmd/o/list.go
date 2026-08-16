@@ -24,12 +24,9 @@ func list(cfg *ListConfig, cc *cli.Context, args []string) error {
 	if len(args) == 0 {
 		return usageErr(cfg.List, cc, "list requires one argument, an object path")
 	}
-	path := args[0]
-	if path == "" {
-		return usageErr(cfg.List, cc, "invalid query \"\"")
-	}
-	if path[0] != '$' {
-		path = "$" + path
+	path, err := queryPath(args[0])
+	if err != nil {
+		return usageErr(cfg.List, cc, err.Error())
 	}
 	pred, err := ifPredicate(cfg.If, cfg.IfFile, cfg.parseOpts())
 	if err != nil {
@@ -73,7 +70,7 @@ func listDoc(doc *ir.Node, query string, comments bool, pred, trim *ir.Node) ([]
 	// WithComments when comments were asked for: a path ANSWERS with the value it
 	// names, dropping what was said above it, which is right for a reader asking
 	// what is there and wrong for one asking to be shown the document.
-	res, err := doc.ListPathWith(nil, query, ir.WithComments(comments))
+	res, err := doc.ListKPathWith(nil, query, ir.WithComments(comments))
 	if err != nil {
 		return nil, fmt.Errorf("error executing list: %w", err)
 	}
@@ -95,7 +92,7 @@ func listDoc(doc *ir.Node, query string, comments bool, pred, trim *ir.Node) ([]
 // what a separator depends on: two inputs answering once each are two documents, and
 // the second was run onto the end of the first when the count was per file.
 func getDoc(eOpts []encode.EncodeOption, comments bool, w io.Writer, doc *ir.Node, arg, query string, written int, pred, trim *ir.Node) (int, error) {
-	res, err := doc.GetPathWith(query, ir.WithComments(comments))
+	res, err := doc.GetKPathWith(query, ir.WithComments(comments))
 	if err != nil {
 		return 0, fmt.Errorf("error executing get: %w", err)
 	}

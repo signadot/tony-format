@@ -18,12 +18,9 @@ func get(cfg *GetConfig, cc *cli.Context, args []string) error {
 	if len(args) == 0 {
 		return usageErr(cfg.Get, cc, "get requires one argument, an object path")
 	}
-	path := args[0]
-	if path == "" {
-		return usageErr(cfg.Get, cc, "invalid query \"\"")
-	}
-	if path[0] != '$' {
-		path = "$" + path
+	path, err := queryPath(args[0])
+	if err != nil {
+		return usageErr(cfg.Get, cc, err.Error())
 	}
 	pred, err := ifPredicate(cfg.If, cfg.IfFile, cfg.parseOpts())
 	if err != nil {
