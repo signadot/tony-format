@@ -157,6 +157,16 @@ func (co *txCoord) Expire() {
 // When all expected participants have joined, the ready channel is closed
 // to signal that Commit can proceed.
 func (co *txCoord) NewPatcher(p *api.Patch) (Patcher, error) {
+	// Refuse a positional write which names no element, here where the client is
+	// still holding the call and the array's length is a fact it can be told (see
+	// array_write.go). Checked again at commit, because the array can lose the
+	// element in between; done here as well because a refusal at commit reaches a
+	// caller which has already been told its patch was accepted, and because this
+	// read is off the commit lock.
+	if err := co.checkArrayWrite(p); err != nil {
+		return nil, err
+	}
+
 	var res *txPatcher
 	var complete bool
 	err := co.UpdateState(func(st *State) error {
@@ -348,6 +358,27 @@ func (p *txPatcher) doCommit(state *State, commitOps CommitOps) *Result {
 			Committed: false,
 			Matched:   false,
 			Error:     nil,
+		}
+	}
+
+	// A positional write was held to the array's length when it was submitted, but
+	// the array can lose the element in between -- the submission is not the commit,
+	// and nothing froze the array in the meantime. Ask again here, under the commit
+	// lock, where MatchStateAt answers from the stepped head. Storing a patch which
+	// cannot be applied is what makes the whole log unreadable (7cdvym1fh12ksmd5g5n0),
+	// so this is the answer that has to be right.
+	//
+	// It asks only whether the element is STILL THERE. An insert or delete before the
+	// index leaves it there and makes it a different element, which this does not
+	// catch and a precondition would (jjbapb1ah12kranxg5n0 is not that; filed apart).
+	if err := CheckArrayWritesAt(state.PatcherData, func() (*ir.Node, error) {
+		return commitOps.MatchStateAt("", currentCommit, state.Scope)
+	}); err != nil {
+		_ = co.storage.Delete(state.TxID)
+		return &Result{
+			Committed: false,
+			Matched:   true,
+			Error:     err,
 		}
 	}
 

@@ -141,3 +141,202 @@ func flatten(t *testing.T, doc *ir.Node) string {
 	}
 	return strings.Join(strings.Fields(b.String()), " ")
 }
+
+// An index which names no element is refused AT THE WRITE, and the log stays
+// readable. Before this, each of these committed and then no read of the store
+// succeeded again -- not of the entity, not of entities the write never touched,
+// and not after a client deleted the entity, because the read dies on the way past
+// the bad patch (7cdvym1fh12ksmd5g5n0).
+func TestArrayElementWriteMustNameAnElement(t *testing.T) {
+	for _, tc := range []struct {
+		name, seed, path, body string
+	}{
+		{
+			name: "a patch one past the end",
+			seed: `{votes: [{by: scott}, {by: dee}]}`,
+			path: `votes[2]`, body: `{by: ana}`,
+		},
+		{
+			name: "a patch well past the end",
+			seed: `{votes: [{by: scott}, {by: dee}]}`,
+			path: `votes[7]`, body: `{by: ana}`,
+		},
+		{
+			name: "a patch at 0 of an empty array",
+			seed: `{votes: []}`,
+			path: `votes[0]`, body: `{by: ana}`,
+		},
+		{
+			name: "an insert past the end, which no position can be",
+			seed: `{votes: [{by: scott}, {by: dee}]}`,
+			path: `votes[5]`, body: `!insert {by: ana}`,
+		},
+		{
+			name: "a write through an index which is not there",
+			seed: `{votes: [{by: scott}]}`,
+			path: `votes[3].choice`, body: `approve`,
+		},
+		{
+			name: "an index into an array which does not exist",
+			seed: `{other: 1}`,
+			path: `votes[0]`, body: `{by: ana}`,
+		},
+		{
+			name: "an index into something which is not an array",
+			seed: `{votes: {a: 1}}`,
+			path: `votes[0]`, body: `{by: ana}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, err := Open(t.TempDir(), nil)
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			defer s.Close()
+
+			if _, err := arrayWriteCommit(t, s, "", tc.seed); err != nil {
+				t.Fatalf("seed: %v", err)
+			}
+			before, err := s.GetCurrentCommit()
+			if err != nil {
+				t.Fatalf("GetCurrentCommit: %v", err)
+			}
+			want := readWholeStore(t, s, before)
+
+			if commit, err := arrayWriteCommit(t, s, tc.path, tc.body); err == nil {
+				t.Fatalf("%s %s committed at %d; it names no element", tc.path, tc.body, commit)
+			} else {
+				t.Logf("refused: %v", err)
+			}
+
+			// Nothing was written, and everything still reads.
+			after, err := s.GetCurrentCommit()
+			if err != nil {
+				t.Fatalf("GetCurrentCommit: %v", err)
+			}
+			if after != before {
+				t.Errorf("a refused write took commit %d", after)
+			}
+			if got := readWholeStore(t, s, after); got != want {
+				t.Errorf("the store changed under a refused write:\n got %s\nwant %s", got, want)
+			}
+		})
+	}
+}
+
+// The array can lose the element between the write's submission and its commit, so
+// the commit asks again. This is the case a submit-time check alone cannot answer.
+func TestArrayElementWriteRecheckedAtCommit(t *testing.T) {
+	s, err := Open(t.TempDir(), nil)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	if _, err := arrayWriteCommit(t, s, "", `{votes: [{by: scott}, {by: dee}]}`); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// Submitted while votes[1] is there.
+	tx, err := s.NewTx(1, nil)
+	if err != nil {
+		t.Fatalf("NewTx: %v", err)
+	}
+	data, err := parse.Parse([]byte(`{choice: approve}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	p, err := tx.NewPatcher(&api.Patch{PathData: api.PathData{Path: `votes[1]`, Data: data}})
+	if err != nil {
+		t.Fatalf("the write was submitted while votes[1] existed: %v", err)
+	}
+
+	// Another writer shortens the array before this one commits.
+	if _, err := arrayWriteCommit(t, s, "votes", `[{by: scott}]`); err != nil {
+		t.Fatalf("shorten: %v", err)
+	}
+
+	if r := p.Commit(); r.Committed {
+		t.Fatalf("committed at %d; votes[1] was gone by then", r.Commit)
+	} else {
+		t.Logf("refused at commit: %v", r.Error)
+	}
+
+	commit, err := s.GetCurrentCommit()
+	if err != nil {
+		t.Fatalf("GetCurrentCommit: %v", err)
+	}
+	if got, want := readWholeStore(t, s, commit), "votes: - { by: scott }"; got != want {
+		t.Errorf("got %s, want %s", got, want)
+	}
+}
+
+func readWholeStore(t *testing.T, s *Storage, commit int64) string {
+	t.Helper()
+	doc, err := s.ReadStateAt("", commit, nil)
+	if err != nil {
+		t.Fatalf("read at %d: %v", commit, err)
+	}
+	return flatten(t, doc)
+}
+
+// The array a scoped write names is the SCOPE's array. A scope that has appended
+// to a baseline array can write the element it added, and a baseline writer cannot
+// see it -- so the check has to read the same view the write will be applied to.
+func TestArrayElementWriteSeesItsOwnScope(t *testing.T) {
+	s, err := Open(t.TempDir(), nil)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	if _, err := arrayWriteCommit(t, s, "", `{votes: [{by: scott}]}`); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	scope := "s1"
+	scopedWrite := func(path, body string) error {
+		t.Helper()
+		tx, err := s.NewTx(1, &scope)
+		if err != nil {
+			return err
+		}
+		data, err := parse.Parse([]byte(body))
+		if err != nil {
+			t.Fatalf("parse %q: %v", body, err)
+		}
+		p, err := tx.NewPatcher(&api.Patch{PathData: api.PathData{Path: path, Data: data}})
+		if err != nil {
+			return err
+		}
+		if r := p.Commit(); !r.Committed {
+			return r.Error
+		}
+		return nil
+	}
+
+	// The scope appends a second vote, which baseline does not have.
+	if err := scopedWrite(`votes[1]`, `!insert {by: dee}`); err != nil {
+		t.Fatalf("scoped append: %v", err)
+	}
+	// So votes[1] is a real element IN THE SCOPE ...
+	if err := scopedWrite(`votes[1]`, `{choice: approve}`); err != nil {
+		t.Errorf("the scope's own element was refused: %v", err)
+	}
+	// ... and is still not one in baseline.
+	if _, err := arrayWriteCommit(t, s, `votes[1]`, `{choice: approve}`); err == nil {
+		t.Error("a baseline write reached an element only the scope has")
+	}
+
+	commit, err := s.GetCurrentCommit()
+	if err != nil {
+		t.Fatalf("GetCurrentCommit: %v", err)
+	}
+	doc, err := s.ReadStateAt("", commit, &scope)
+	if err != nil {
+		t.Fatalf("scoped read: %v", err)
+	}
+	if got, want := flatten(t, doc), "votes: [ { by: scott } { by: dee choice: approve } ]"; got != want {
+		t.Errorf("got %s\nwant %s", got, want)
+	}
+}

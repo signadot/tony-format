@@ -457,6 +457,15 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 		PathData: req.PathData,
 	})
 	if err != nil {
+		// A path which names no array element is the client's mistake, and it is the
+		// same mistake next time: reporting it as a storage_error (or, in a
+		// transaction, as tx_full) tells the client to retry something that cannot
+		// work, and hides which path was wrong.
+		var noElem *tx.NoSuchElementError
+		if errors.As(err, &noElem) {
+			s.sendError(id, api.ErrCodeInvalidPath, err.Error())
+			return
+		}
 		if req.TxID != nil {
 			s.sendError(id, api.ErrCodeTxFull, fmt.Sprintf("failed to join transaction: %v", err))
 		} else {
@@ -485,6 +494,13 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 	}
 
 	if result.Error != nil {
+		// The write was accepted and the array lost the element before it committed;
+		// the store is healthy and the client's path is the thing that is wrong now.
+		var noElem *tx.NoSuchElementError
+		if errors.As(result.Error, &noElem) {
+			s.sendError(id, api.ErrCodeInvalidPath, result.Error.Error())
+			return
+		}
 		s.sendError(id, "storage_error", fmt.Sprintf("failed to commit: %v", result.Error))
 		return
 	}

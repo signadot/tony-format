@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1216,5 +1217,65 @@ loop:
 	}
 	if !gotC2 {
 		t.Fatalf("scoped watch dropped the queued commit-%d delta (f2): regression", c2)
+	}
+}
+
+// A write at an array index which names no element is the client's mistake, and
+// the client is told which path was wrong. It used to come back as a storage_error
+// -- after committing a patch that made every read of the store fail
+// (7cdvym1fh12ksmd5g5n0).
+func TestSession_PatchPastTheEndOfAnArrayIsInvalidPath(t *testing.T) {
+	store, err := storage.Open(t.TempDir(), nil)
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+	defer store.Close()
+
+	conn := newMockConn()
+	conn.WriteRequest(`{id: "seed", patch: {path: "", data: {votes: [{by: scott}, {by: dee}]}}}`)
+	conn.WriteRequest(`{id: "past-end", patch: {path: "votes[2]", data: {by: ana}}}`)
+
+	session := NewSession("test-server", conn, &SessionConfig{Storage: store, Hub: NewWatchHub()})
+	done := make(chan error)
+	go func() { done <- session.Run() }()
+
+	time.Sleep(50 * time.Millisecond)
+	conn.Close()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("session did not complete")
+	}
+
+	var got *api.SessionError
+	for _, line := range bytes.Split(bytes.TrimSpace(conn.GetResponses()), []byte("\n")) {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var resp api.SessionResponse
+		if err := resp.FromTony(bytes.TrimSpace(line)); err != nil {
+			continue
+		}
+		if resp.ID != nil && *resp.ID == "past-end" {
+			got = resp.Error
+		}
+	}
+	if got == nil {
+		t.Fatalf("the write past the end was not refused; responses:\n%s", conn.GetResponses())
+	}
+	if got.Code != api.ErrCodeInvalidPath {
+		t.Errorf("got code %q, want %q: %s", got.Code, api.ErrCodeInvalidPath, got.Message)
+	}
+	if !strings.Contains(got.Message, "votes[2]") {
+		t.Errorf("the message does not name the path that was wrong: %s", got.Message)
+	}
+
+	// And the store still reads.
+	commit, err := store.GetCurrentCommit()
+	if err != nil {
+		t.Fatalf("GetCurrentCommit: %v", err)
+	}
+	if _, err := store.ReadStateAt("", commit, nil); err != nil {
+		t.Fatalf("the store is unreadable after a refused write: %v", err)
 	}
 }
