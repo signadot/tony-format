@@ -29,8 +29,21 @@ func diff(cfg *DiffConfig, cc *cli.Context, args []string) error {
 		return usageErr(cfg.Diff, cc, "-loopUntil is a condition on -loop, which was not given")
 	}
 	if cfg.Loop == "" {
-		if len(args) != 2 {
-			return usageErr(cfg.Diff, cc, fmt.Sprintf("diff (without -loop) requires 2 args, got %v", args))
+		// One operand means the other is standard input, as a missing file does
+		// everywhere else: `o diff baseline.tony` reads as "what turns the baseline
+		// into what I piped in", which is the order diff writes anyway. Naming it
+		// with - still works and is what to write when stdin is the FIRST operand.
+		//
+		// Two of them cannot be left out: both sides would be the same stream, and
+		// a document does not differ from itself.
+		switch len(args) {
+		case 1:
+			args = append(args, "-")
+		case 2:
+		default:
+			return usageErr(cfg.Diff, cc,
+				fmt.Sprintf("diff (without -loop) compares 2 documents, and reads one of them from "+
+					"standard input when given only 1; got %v", args))
 		}
 		y1, err := getObjFile(cc, args[0], cfg.parseOpts()...)
 		if err != nil {

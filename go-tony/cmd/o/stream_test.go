@@ -165,6 +165,32 @@ func TestPatchTakesItsDocumentsLikeTheRest(t *testing.T) {
 	})
 }
 
+// A missing operand is standard input -- grep does not make you write `-`, and
+// neither does anything here. diff was the one command that did: it wanted two
+// operands and had no way to be given one but the dash.
+func TestAMissingOperandIsStandardInput(t *testing.T) {
+	dir := t.TempDir()
+	f1 := write(t, dir, "f1.tony", "{a: 1}\n")
+
+	for _, tc := range []struct {
+		name  string
+		stdin string
+		args  []string
+		want  int
+	}{
+		{"diff, one operand, the same document", "{a: 1}\n", []string{"diff", f1}, 0},
+		{"diff, one operand, a different one", "{a: 9}\n", []string{"diff", f1}, 1},
+		{"diff, the dash still says which side", "{a: 9}\n", []string{"diff", "-", f1}, 1},
+		{"diff, no operand at all, since both sides cannot be stdin", "{a: 1}\n", []string{"diff"}, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if code, out := runOIn(t, tc.stdin, tc.args...); code != tc.want {
+				t.Errorf("exit %d, want %d (output %q)", code, tc.want, out)
+			}
+		})
+	}
+}
+
 // 0 is an answer, 1 is an answer, 2 is a fault. get, list and match said so; the
 // rest reported every failure as 1, so an unreadable file and an empty result were
 // the same code -- and for diff, a fault and "the documents differ" were.

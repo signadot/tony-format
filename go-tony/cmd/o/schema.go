@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -50,7 +49,7 @@ func schemaCheck(cfg *SchemaCheckConfig, cc *cli.Context, args []string) error {
 	docFiles := args[1:]
 
 	// Parse the schema
-	s, err := loadSchema(cfg, schemaFile)
+	s, err := loadSchema(cfg, cc, schemaFile)
 	if err != nil {
 		return fmt.Errorf("failed to load schema %s: %w", schemaFile, err)
 	}
@@ -70,10 +69,11 @@ func schemaCheck(cfg *SchemaCheckConfig, cc *cli.Context, args []string) error {
 	return nil
 }
 
-func loadSchema(cfg *SchemaCheckConfig, file string) (*schema.Schema, error) {
+func loadSchema(cfg *SchemaCheckConfig, cc *cli.Context, file string) (*schema.Schema, error) {
 	var r io.Reader
 	if file == "-" {
-		r = os.Stdin
+		// cc.In, not os.Stdin: what a caller redirects is the context's.
+		r = cc.In
 	} else {
 		f, err := os.Open(file)
 		if err != nil {
@@ -169,8 +169,9 @@ func checkReader(cfg *SchemaCheckConfig, cc *cli.Context, s *schema.Schema, name
 		return fmt.Errorf("error reading %s: %w", name, err)
 	}
 
-	// Split on document separator for multi-doc files
-	docs := bytes.Split(data, []byte("\n---\n"))
+	// Split on document separator for multi-doc files. splitDocs is the one place
+	// that knows what separates them, on the way in and on the way out.
+	docs := splitDocs(data)
 	for i, docData := range docs {
 		node, err := parse.Parse(docData, cfg.parseOpts()...)
 		if err != nil {
