@@ -2,11 +2,12 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 7b32d83299c68cc9e4a087e7f9d18d2c6eaa15d5
 commits: []
 created: "2026-08-15T23:55:28.637298+02:00"
 duplicates: []
 id: vtm464whh12krm70g1n0
 labels: []
 related_issues: []
-status: open
-updated: "2026-08-15T23:55:28.637298+02:00"
+status: closed
+updated: "2026-08-16T08:23:44.358888+02:00"
