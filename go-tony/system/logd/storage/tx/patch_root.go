@@ -19,10 +19,32 @@ const PatchRootTag = "!logd-patch-root"
 // (3cdjz00jh12krns4g1n0).
 func TagPatchRoots(patches []*PatcherData) {
 	for _, pd := range patches {
-		if node := ir.Uncomment(pd.API.Data); node != nil {
-			node.Tag = ir.TagCompose(PatchRootTag, nil, node.Tag)
-		}
+		MarkPatchRoot(ir.Uncomment(pd.API.Data))
 	}
+}
+
+// MarkPatchRoot puts the marker at the END of a node's tag chain.
+//
+// Position matters, and it is not a matter of taste. The marker says where a patch
+// came from; it is not a label of the value, and a merge dispatches on the chain.
+// mergeop finds an operation by walking the chain and puts the labels AHEAD of that
+// operation back on the value as the value's own, so a marker at the head both
+// MASKED the operation -- an !insert at an array index became a positional patch
+// and overwrote the element it was meant to insert before, a !delete panicked every
+// reader -- and, once mergeop learned to walk past it, came back as part of the
+// data (jjbapb1ah12kranxg5n0).
+//
+// Every reader of the marker asks TagHas, which scans the whole chain, so the tail
+// is found exactly as the head was.
+func MarkPatchRoot(node *ir.Node) {
+	if node == nil {
+		return
+	}
+	if node.Tag == "" {
+		node.Tag = PatchRootTag
+		return
+	}
+	node.Tag = ir.TagCompose(node.Tag, nil, PatchRootTag)
 }
 
 // HasPatchRootTag checks if a node has the PatchRootTag, looking through a

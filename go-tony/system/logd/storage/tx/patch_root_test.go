@@ -27,11 +27,14 @@ func TestTagPatchRoots(t *testing.T) {
 			wantTags: []string{PatchRootTag},
 		},
 		{
+			// The marker goes at the TAIL of the chain: it is metadata about where
+			// the patch came from, and a merge dispatches on the chain, so a marker
+			// at the head masks the value's own operation -- see MarkPatchRoot.
 			name: "single patch with existing tag",
 			patches: []*PatcherData{
 				testPatcherData("a.b", ir.FromString("value").WithTag("!existing")),
 			},
-			wantTags: []string{PatchRootTag + ".existing"},
+			wantTags: []string{"!existing." + PatchRootTag[1:]},
 		},
 		{
 			name: "multiple patches",

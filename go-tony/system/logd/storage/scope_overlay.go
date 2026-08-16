@@ -224,7 +224,7 @@ func (s *Storage) WriteScopeOverlay(scopeID string, commit int64) error {
 	// folds patches directly instead. An untagged overlay therefore looks correct until
 	// the first snapshot exists, which is exactly when it is supposed to start earning
 	// its keep.
-	overlay.Tag = ir.TagCompose(tx.PatchRootTag, nil, overlay.Tag)
+	tx.MarkPatchRoot(overlay)
 
 	entry := dlog.NewEntry(nil, overlay, commit, time.Now().UTC().Format(time.RFC3339), commit-1, &scopeID)
 	entry.ScopeOverlay = true

@@ -89,7 +89,32 @@ func patchArrayByIndex(doc, patch *ir.Node, ctx *OpContext, pf PatchFunc, df lib
 			continue
 		}
 		diffCount++
-		tag, args, rest := ir.TagArgs(op.Tag)
+		// The operation is the first label of the tag chain this package KNOWS, not
+		// simply the first label.  A composed tag may carry labels which are not
+		// operations ahead of the one which is, and every other dispatch here finds
+		// the op with SplitChild rather than by demanding it come first.  Switching
+		// on the raw head instead let any leading label MASK the op: logd's
+		// !logd-patch-root marker turned !insert into a positional patch, which
+		// overwrote the element it was meant to insert before, and !delete into a
+		// patch of a null, which panicked every reader of the store
+		// (jjbapb1ah12kranxg5n0).
+		//
+		// The labels AHEAD of the op belong to the value and are put back on it.
+		// They were never part of the op's contract -- the labels after it are,
+		// which is why those are restored by name (!insert(tag)) or by !raw and
+		// otherwise dropped. Parsing alone puts one there: `!delete {by: scott}`
+		// reads as !bracket.delete, so wiping the chain compared a braceless object
+		// against a document element which had the brace, and a delete of anything
+		// but a scalar could not match.
+		head, _, _ := ir.TagArgs(op.Tag) // for the message; the op may be deeper
+		preTag, tag, args, child, err := SplitChild(op)
+		if err != nil {
+			return nil, err
+		}
+		rest := ""
+		if child != nil {
+			rest = child.Tag
+		}
 		replTag := ""
 		switch {
 		case len(args) == 1:
@@ -101,8 +126,15 @@ func patchArrayByIndex(doc, patch *ir.Node, ctx *OpContext, pf PatchFunc, df lib
 			// the element, it does not walk it.
 			replTag = ir.TagRemove(rest, libdiff.RawTag)
 		}
+		if preTag != "" {
+			if replTag == "" {
+				replTag = preTag
+			} else {
+				replTag = ir.TagCompose(replTag, nil, preTag)
+			}
+		}
 		switch tag {
-		case "!delete":
+		case "delete":
 			if int(fi) >= len(docVals) {
 				return nil, overrun("delete")
 			}
@@ -113,7 +145,7 @@ func patchArrayByIndex(doc, patch *ir.Node, ctx *OpContext, pf PatchFunc, df lib
 			}
 			fi++
 			di++
-		case "!replace":
+		case "replace":
 			if op.Type != ir.ObjectType {
 				return nil, fmt.Errorf(
 					"invalid arraydiff, got type %s at %s",
@@ -145,12 +177,12 @@ func patchArrayByIndex(doc, patch *ir.Node, ctx *OpContext, pf PatchFunc, df lib
 			res = append(res, to.Clone())
 			di++
 			fi++
-		case "!insert":
+		case "insert":
 			res = append(res, op.Clone().WithTag(replTag))
 			di++
 		default:
 			if int(fi) >= len(docVals) {
-				return nil, overrun("patch " + tag)
+				return nil, overrun("patch " + head)
 			}
 			tmp, err := pf(docVals[fi], op, ctx)
 			if err != nil {

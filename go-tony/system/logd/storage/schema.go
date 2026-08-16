@@ -223,8 +223,10 @@ func (s *Storage) MigrationPatch(path string, patch *ir.Node) (int64, *ir.Node, 
 		lastCommit = 0
 	}
 
-	// Add PatchRootTag so StreamingProcessor can identify the patch root
-	patch.Tag = ir.TagCompose(tx.PatchRootTag, nil, patch.Tag)
+	// Add PatchRootTag so StreamingProcessor can identify the patch root. It goes at
+	// the tail of the chain, where it cannot be mistaken for a label of the value --
+	// see tx.MarkPatchRoot.
+	tx.MarkPatchRoot(patch)
 
 	// Build the root patch with path
 	rootPatch := buildRootPatch(path, patch)
