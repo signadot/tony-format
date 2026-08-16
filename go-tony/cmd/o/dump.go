@@ -15,16 +15,20 @@ import (
 func dump(cfg *DumpConfig, cc *cli.Context, args []string) error {
 	args, err := cfg.Dump.Parse(cc, args)
 	if err != nil {
-		return err
+		cfg.Dump.Usage(cc, err)
+		return cli.ExitCodeErr(2)
 	}
+	// A fault exits 2, as it does for get, list and match: 1 is reserved for
+	// "nothing", which is an answer, and a caller that cannot tell an unreadable
+	// file from an empty one reads a mistake as a result.
 	if len(args) == 0 {
 		if err := dumpReader(cfg, cc.Out, cc.In); err != nil {
-			return err
+			return fault(cc, err)
 		}
 		return nil
 	}
 	if err := dumpFiles(cfg, cc.Out, args); err != nil {
-		return err
+		return fault(cc, err)
 	}
 	return nil
 }

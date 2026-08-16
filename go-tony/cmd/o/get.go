@@ -30,14 +30,19 @@ func get(cfg *GetConfig, cc *cli.Context, args []string) error {
 	if err != nil {
 		return fault(cc, err)
 	}
-	args = inputsOrStdin(args[1:])
 	found := 0
-	for i, arg := range args {
-		n, err := queryArg(cfg.parseOpts(), cfg.encOpts(cc.Out), cfg.Comments, cc.Out, arg, path, false, i > 0, pred, trim)
+	for _, arg := range inputsOrStdin(args[1:]) {
+		docs, err := readDocs(cc, arg, cfg.parseOpts()...)
 		if err != nil {
-			return fault(cc, fmt.Errorf("error querying %s with %s: %w", arg, path, err))
+			return fault(cc, err)
 		}
-		found += n
+		for _, doc := range docs {
+			n, err := getDoc(cfg.encOpts(cc.Out), cfg.Comments, cc.Out, doc, arg, path, found, pred, trim)
+			if err != nil {
+				return fault(cc, fmt.Errorf("error querying %s with %s: %w", arg, path, err))
+			}
+			found += n
+		}
 	}
 	if found == 0 {
 		return notFound()

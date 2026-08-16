@@ -143,6 +143,11 @@ is written only when it matches the match document given, so
 reads as the guard it is. -trim writes only the parts its own match document
 names. A file is optional: with none, stdin is read.
 
+An input is a STREAM of documents, --- separated, and the path is asked of each
+one -- which is what makes the output of one command the input of the next:
+
+    o get .spec a.tony b.tony | o get .replicas
+
 Exit codes are the search convention: 0 when something was written, 1 when the
 path named nothing or what it named did not match, 2 for a fault.`
 
@@ -178,7 +183,9 @@ much of each are asked separately:
     x | o list -if '{status: running}' -trim '{runner: null, started: null}' '[*]'
 
 A file is optional: with none, stdin is read, as grep and cat do -- from a pipe,
-or typed at a terminal and ended with Ctrl-D.
+or typed at a terminal and ended with Ctrl-D. An input is a STREAM of documents,
+--- separated, and the path is asked of every one of them; the answer is a
+single list over all of them, whichever input each node came from.
 
 Without -if the path is the whole question and every node it names is written.
 The answer is a list, and the empty list is written as one; the exit code says
@@ -280,6 +287,22 @@ against the difference, and it is checked after that difference is written, so
 the change which satisfied it is the last thing reported.  Should the loop hit
 -loopLim first, diff exits 1: the condition asked for did not hold.`
 
+const patchDesc = `patch object documents
+
+The patch is applied to every document of every input and each result is written,
+--- separated.
+
+Files are optional: with none, stdin is read, as grep and cat do. An input is a
+STREAM of documents, so a pipeline is written the obvious way:
+
+    o get .spec a.tony b.tony | o patch '{replicas: 3}'
+
+Without -c the result carries no comments -- not the patch's, and not the ones
+the document being patched already had -- because a patch answers with data.
+
+A patch which deletes a whole document writes nothing for it, which is the result
+and not a fault. Exit codes: 0, and 2 for a fault.`
+
 func PatchCommand(mainCfg *MainConfig) *cli.Command {
 	cfg := &PatchConfig{MainConfig: mainCfg}
 	opts, err := cli.StructOpts(cfg)
@@ -289,7 +312,7 @@ func PatchCommand(mainCfg *MainConfig) *cli.Command {
 	cmd := cli.NewCommand("patch").
 		WithAliases("p", "pa").
 		WithSynopsis("patch [opts] <patchobj> [files]").
-		WithDescription("patch object documents").
+		WithDescription(patchDesc).
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
 			return patch(cfg, cc, args)

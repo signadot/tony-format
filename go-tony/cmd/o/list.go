@@ -3,13 +3,11 @@ package main
 import (
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/ir"
-	"github.com/signadot/tony-format/go-tony/parse"
 
 	"github.com/scott-cotton/cli"
 )
@@ -38,77 +36,65 @@ func list(cfg *ListConfig, cc *cli.Context, args []string) error {
 	if err != nil {
 		return fault(cc, err)
 	}
-	args = inputsOrStdin(args[1:])
-	found := 0
-	for _, arg := range args {
-		n, err := queryArg(cfg.parseOpts(), cfg.encOpts(cc.Out), cfg.Comments, cc.Out, arg, path, true, false, pred, trim)
+	// One question over every document of every input, answered by one list.
+	// Writing a list per input concatenated two arrays, which is not a document:
+	// `o list .a empty.tony f2.tony` wrote "[]\n- 9" and o could not read it back.
+	var found []*ir.Node
+	for _, arg := range inputsOrStdin(args[1:]) {
+		docs, err := readDocs(cc, arg, cfg.parseOpts()...)
 		if err != nil {
-			return fault(cc, fmt.Errorf("error querying %s with %s: %w", arg, path, err))
+			return fault(cc, err)
 		}
-		found += n
+		for _, doc := range docs {
+			res, err := listDoc(doc, path, cfg.Comments, pred, trim)
+			if err != nil {
+				return fault(cc, fmt.Errorf("error querying %s with %s: %w", arg, path, err))
+			}
+			found = append(found, res...)
+		}
 	}
-	if found == 0 {
+	// The empty list is still written: a query for a collection answers with a
+	// collection, and [] is the honest one. The exit code is what says it was empty.
+	if err := encode.Encode(ir.FromSlice(found), cc.Out, cfg.encOpts(cc.Out)...); err != nil {
+		return fault(cc, fmt.Errorf("error encoding result: %w", err))
+	}
+	if len(found) == 0 {
 		return notFound()
 	}
 	return nil
 }
 
-// queryArg writes what query names in arg, keeping only what pred matches when
-// one was given, and answers how many nodes it wrote -- which is what decides
-// between "found" and "found nothing" for the caller's exit code.
-func queryArg(pOpts []parse.ParseOption, eOpts []encode.EncodeOption, comments bool, w io.Writer, arg, query string, list, sep bool, pred, trim *ir.Node) (int, error) {
-	var targetReader io.Reader
-	if arg == "-" {
-		targetReader = os.Stdin
-	} else {
-		targetFile, err := os.Open(arg)
-		if err != nil {
-			return 0, fmt.Errorf("error opening %s: %w", arg, err)
-		}
-		defer targetFile.Close()
-		targetReader = targetFile
-	}
-	rd, err := io.ReadAll(targetReader)
+// listDoc answers what query names in one document, keeping only what pred matches
+// when one was given.
+func listDoc(doc *ir.Node, query string, comments bool, pred, trim *ir.Node) ([]*ir.Node, error) {
+	// WithComments when comments were asked for: a path ANSWERS with the value it
+	// names, dropping what was said above it, which is right for a reader asking
+	// what is there and wrong for one asking to be shown the document.
+	res, err := doc.ListPathWith(nil, query, ir.WithComments(comments))
 	if err != nil {
-		return 0, err
+		return nil, fmt.Errorf("error executing list: %w", err)
 	}
-	target, err := parse.Parse(rd, pOpts...)
+	res, err = keepMatching(res, pred)
 	if err != nil {
-		return 0, fmt.Errorf("error decoding %s: %w", arg, err)
+		return nil, fmt.Errorf("error matching results of %s: %w", query, err)
 	}
-	if target == nil {
-		// An empty document, which parse reports as a nil node. It names nothing,
-		// which is an answer -- the caller's exit code says so -- and asking a
-		// nil node for a path is a segfault.
-		return 0, nil
+	for i, n := range res {
+		res[i] = trimTo(n, trim)
 	}
-	if list {
-		// WithComments when comments were asked for: a path ANSWERS with the value
-		// it names, dropping what was said above it, which is right for a reader
-		// asking what is there and wrong for one asking to be shown the document.
-		res, err := target.ListPathWith(nil, query, ir.WithComments(comments))
-		if err != nil {
-			return 0, fmt.Errorf("error executing list on %s: %w", arg, err)
-		}
-		res, err = keepMatching(res, pred)
-		if err != nil {
-			return 0, fmt.Errorf("error matching results of %s: %w", query, err)
-		}
-		for i, n := range res {
-			res[i] = trimTo(n, trim)
-		}
-		// The empty list is still written: a query for a collection answers with
-		// a collection, and [] is the honest one. The exit code is what says it
-		// was empty.
-		arr := ir.FromSlice(res)
-		if err := encode.Encode(arr, w, eOpts...); err != nil {
-			return 0, fmt.Errorf("error encoding result: %w", err)
-		}
-		return len(res), nil
-	}
-	res, err := target.GetPathWith(query, ir.WithComments(comments))
+	return res, nil
+}
+
+// getDoc writes what query names in one document, and answers how many nodes it
+// wrote -- which is what decides between "found" and "found nothing" for the
+// caller's exit code.
+//
+// written is the count so far across every document of every input, because that is
+// what a separator depends on: two inputs answering once each are two documents, and
+// the second was run onto the end of the first when the count was per file.
+func getDoc(eOpts []encode.EncodeOption, comments bool, w io.Writer, doc *ir.Node, arg, query string, written int, pred, trim *ir.Node) (int, error) {
+	res, err := doc.GetPathWith(query, ir.WithComments(comments))
 	if err != nil {
-		return 0, fmt.Errorf("error executing get on %s: %w", arg, err)
+		return 0, fmt.Errorf("error executing get: %w", err)
 	}
 	if res == nil {
 		// don't encode anything and don't yell either
@@ -123,7 +109,7 @@ func queryArg(pOpts []parse.ParseOption, eOpts []encode.EncodeOption, comments b
 			return 0, nil
 		}
 	}
-	if sep {
+	if written > 0 {
 		if err := writeSep(w); err != nil {
 			return 0, err
 		}
@@ -133,12 +119,10 @@ func queryArg(pOpts []parse.ParseOption, eOpts []encode.EncodeOption, comments b
 			if i != 0 {
 				msg = "#     " + argLine + "\n"
 			}
-			_, err := w.Write([]byte(msg))
-			if err != nil {
+			if _, err := w.Write([]byte(msg)); err != nil {
 				return 0, err
 			}
 		}
-
 	}
 	if err := encode.Encode(trimTo(res, trim), w, eOpts...); err != nil {
 		return 0, fmt.Errorf("error encoding result: %w", err)

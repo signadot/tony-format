@@ -2,6 +2,20 @@
 
 patch object documents
 
+The patch is applied to every document of every input and each result is written,
+--- separated.
+
+Files are optional: with none, stdin is read, as grep and cat do. An input is a
+STREAM of documents, so a pipeline is written the obvious way:
+
+    o get .spec a.tony b.tony | o patch '{replicas: 3}'
+
+Without -c the result carries no comments -- not the patch's, and not the ones
+the document being patched already had -- because a patch answers with data.
+
+A patch which deletes a whole document writes nothing for it, which is the result
+and not a fault. Exit codes: 0, and 2 for a fault.
+
 Also known as `p`, `pa`.
 
 ## Usage

@@ -14,7 +14,9 @@ much of each are asked separately:
     x | o list -if '{status: running}' -trim '{runner: null, started: null}' '[*]'
 
 A file is optional: with none, stdin is read, as grep and cat do -- from a pipe,
-or typed at a terminal and ended with Ctrl-D.
+or typed at a terminal and ended with Ctrl-D. An input is a STREAM of documents,
+--- separated, and the path is asked of every one of them; the answer is a
+single list over all of them, whichever input each node came from.
 
 Without -if the path is the whole question and every node it names is written.
 The answer is a list, and the empty list is written as one; the exit code says

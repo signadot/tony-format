@@ -36,13 +36,15 @@ func tonyEval(cfg *EvalConfig, cc *cli.Context, args []string) error {
 	tool := tony.DefaultTool()
 	tool.Env = eval.EnvToMapAny(cfg.Env)
 	if len(args) == 0 {
-		if err := evalReader(cfg, cc.Out, os.Stdin, tool, &cfg.Color); err != nil {
-			return err
+		// cc.In, not os.Stdin: the context is what a caller can redirect, and eval
+		// was the one reader of standard input that could not be.
+		if err := evalReader(cfg, cc.Out, cc.In, tool, &cfg.Color); err != nil {
+			return fault(cc, err)
 		}
 		return nil
 	}
 	if err := evalFiles(cfg, cc.Out, args, tool, &cfg.Color); err != nil {
-		return err
+		return fault(cc, err)
 	}
 
 	return nil

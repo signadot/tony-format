@@ -12,15 +12,11 @@ import (
 
 // runO runs the whole command tree, since the exit code is the root's answer and
 // the config a subcommand reads is what MainCommand wires.
+// In matters: a command given no file reads stdin, and the harness has to supply
+// one -- here an empty document, which names nothing.
 func runO(t *testing.T, args ...string) (code int, out string) {
 	t.Helper()
-	outBuf, errBuf := &strings.Builder{}, &strings.Builder{}
-	// In matters: a command given no file reads stdin, and the harness has to
-	// supply one -- an empty document, which names nothing.
-	cc := &cli.Context{Out: nopWC{outBuf}, Err: nopWC{errBuf}, In: io.NopCloser(strings.NewReader(""))}
-	cmd := MainCommand()
-	err := cmd.Run(cc, args)
-	return cmd.Exit(cc, err), outBuf.String()
+	return runOIn(t, "", args...)
 }
 
 func writeDoc(t *testing.T, dir, name, content string) string {

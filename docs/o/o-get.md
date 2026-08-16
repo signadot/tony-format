@@ -10,6 +10,11 @@ is written only when it matches the match document given, so
 reads as the guard it is. -trim writes only the parts its own match document
 names. A file is optional: with none, stdin is read.
 
+An input is a STREAM of documents, --- separated, and the path is asked of each
+one -- which is what makes the output of one command the input of the next:
+
+    o get .spec a.tony b.tony | o get .replicas
+
 Exit codes are the search convention: 0 when something was written, 1 when the
 path named nothing or what it named did not match, 2 for a fault.
 

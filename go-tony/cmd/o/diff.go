@@ -16,29 +16,33 @@ import (
 )
 
 func diff(cfg *DiffConfig, cc *cli.Context, args []string) error {
+	// diff's exit codes are diff(1)'s, and 1 is a RESULT -- the documents differ --
+	// so a fault must not share it. It did: a file that could not be read exited 1,
+	// which is exactly what "they differ" says, and a script comparing a path that
+	// had moved read it as a difference.
 	args, err := cfg.Diff.Parse(cc, args)
 	if err != nil {
 		cfg.Diff.Usage(cc, err)
-		return cli.ExitCodeErr(1)
+		return cli.ExitCodeErr(2)
 	}
 	if cfg.LoopUntil != "" && cfg.Loop == "" {
-		return fmt.Errorf("%w: -loopUntil is a condition on -loop, which was not given", cli.ErrUsage)
+		return usageErr(cfg.Diff, cc, "-loopUntil is a condition on -loop, which was not given")
 	}
 	if cfg.Loop == "" {
 		if len(args) != 2 {
-			return fmt.Errorf("%w: diff (without -loop) requires 2 args, got %v", cli.ErrUsage, args)
+			return usageErr(cfg.Diff, cc, fmt.Sprintf("diff (without -loop) requires 2 args, got %v", args))
 		}
 		y1, err := getObjFile(cc, args[0], cfg.parseOpts()...)
 		if err != nil {
-			return fmt.Errorf("error decoding %s: %w", args[0], err)
+			return fault(cc, fmt.Errorf("error decoding %s: %w", args[0], err))
 		}
 		y2, err := getObjFile(cc, args[1], cfg.parseOpts()...)
 		if err != nil {
-			return fmt.Errorf("error decoding %s: %w", args[1], err)
+			return fault(cc, fmt.Errorf("error decoding %s: %w", args[1], err))
 		}
 		diff, err := diffInputs(cfg, cc, y1, y2, false)
 		if err != nil {
-			return err
+			return fault(cc, err)
 		}
 		if diff {
 			return cli.ExitCodeErr(1)
