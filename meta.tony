@@ -8,6 +8,7 @@ duplicates: []
 id: sb33w8p9h12kr16kg5n0
 labels:
 - perf
-related_issues: []
+related_issues:
+- 9b2vpggxh12ks0qde5n0
 status: open
-updated: "2026-08-16T17:11:09.53711+02:00"
+updated: "2026-08-16T17:11:09.626194+02:00"
