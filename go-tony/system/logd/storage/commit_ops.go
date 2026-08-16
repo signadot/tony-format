@@ -58,6 +58,24 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 		scopeID = txState.Scope
 	}
 
+	// The notification's patch is the stripped copy — the merged patch still carries
+	// !logd-patch-root tags, which must not reach a document a precondition is
+	// matched against. It is built here, before the write, because the check below
+	// needs it.
+	notification := newCommitNotification(commit, txSeq, timestamp, mergedPatch, scopeID)
+
+	// Verify before storing. A delta the store cannot apply is not a write, it is a
+	// fault every later read replays, and nothing a client sends afterwards can
+	// repair it. This apply used to happen after the entry was written, in stepHead,
+	// where its only possible answer was to drop the head (7cdvym1fh12ksmd5g5n0).
+	//
+	// The result is kept: for baseline it IS the next head, so verifying costs the
+	// step that was going to happen anyway.
+	stepped, err := c.s.verifyApplies(commit, notification.Patch, scopeID)
+	if err != nil {
+		return "", 0, err
+	}
+
 	entry := dlog.NewEntry(txState, mergedPatch, commit, timestamp, lastCommit, scopeID)
 	pos, logFile, err := c.s.dLog.AppendEntry(entry)
 	if err != nil {
@@ -110,21 +128,10 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	// makes the watermark and the notification queue both ordered by commit. The fan-out
 	// itself happens later, on the tick's dispatcher goroutine, so a slow notifier still
 	// cannot serialize commits.
-	notification := newCommitNotification(commit, txSeq, timestamp, mergedPatch, scopeID)
-
-	// Step the head by this commit before publishing, while still under the commit lock,
-	// so the head is current for the next precondition. The notification's patch is the
-	// stripped copy — the merged patch still carries !logd-patch-root tags, which must
-	// not reach a document a precondition is matched against.
 	//
-	// A scoped write steps with no patch: LookupRange filters by scope, so a scoped entry
-	// is not part of baseline state, but it does take a commit number, and the head has
-	// to follow that number or the next step reads as a gap.
-	headPatch := notification.Patch
-	if scopeID != nil {
-		headPatch = nil
-	}
-	c.s.stepHead(commit, headPatch)
+	// Install the head this commit was verified against, before publishing, so it is
+	// current for the next precondition.
+	c.s.installHead(commit, stepped, scopeID)
 
 	c.s.tick.publish(commit, notification)
 

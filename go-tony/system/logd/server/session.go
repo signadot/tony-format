@@ -509,6 +509,13 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 			s.sendError(id, api.ErrCodeInvalidPath, result.Error.Error())
 			return
 		}
+		// The patch was well formed and does not apply to what is there now. The store
+		// is healthy; storing it is what would have broken it.
+		var noApply *api.DoesNotApplyError
+		if errors.As(result.Error, &noApply) {
+			s.sendError(id, api.ErrCodeInvalidDiff, result.Error.Error())
+			return
+		}
 		s.sendError(id, "storage_error", fmt.Sprintf("failed to commit: %v", result.Error))
 		return
 	}

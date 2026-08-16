@@ -1,6 +1,7 @@
 package tx
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -439,6 +440,13 @@ func (p *txPatcher) doCommit(state *State, commitOps CommitOps) *Result {
 	_, _, err = commitOps.WriteAndIndex(commit, state.TxID, timestamp, mergedPatch, state, lastCommit)
 	if err != nil {
 		_ = co.storage.Delete(state.TxID)
+		// A patch which does not apply was refused before anything was written, and
+		// the store is healthy: say what was wrong with the patch rather than report
+		// it as a failure to write.
+		var noApply *api.DoesNotApplyError
+		if errors.As(err, &noApply) {
+			return &Result{Committed: false, Matched: true, Error: err}
+		}
 		return &Result{
 			Committed: false,
 			Matched:   true,

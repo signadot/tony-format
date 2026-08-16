@@ -158,3 +158,74 @@ func nodeEqual(a, b *ir.Node) bool {
 	}
 	return api.SameState(a, b)
 }
+
+// verifyApplies applies patch to the state this commit will be applied to, and
+// returns the result so the caller can install it as the head rather than compute
+// it twice.
+//
+// The commit path calls it BEFORE the entry is appended, and refuses the write if
+// it fails. That is the whole of the change: this apply already happened, in
+// stepHead, after the write, where its failure could only be reported as a dropped
+// head -- the store logged that its own document had diverged and kept the delta
+// that caused it. The information was there and thrown away, one step too late
+// (7cdvym1fh12ksmd5g5n0).
+//
+// A scoped write is checked against the SCOPED view, which is the state its patch
+// will be applied to; its result is not the baseline head and is discarded. That
+// costs a scoped materialization, because a scope has no stepped head to serve it
+// from -- deliberately paid for now, and measured in sb33w8p9h12kr16kg5n0.
+//
+// Callers MUST hold commitMu.
+func (s *Storage) verifyApplies(commit int64, patch *ir.Node, scopeID *string) (*ir.Node, error) {
+	base, err := s.stateForCommit(commit-1, scopeID)
+	if err != nil {
+		// Not the write's fault, and not a reason to store something unverified:
+		// a write which cannot be checked is refused, and the caller retries.
+		return nil, fmt.Errorf("cannot read the state at %d to check the patch: %w", commit-1, err)
+	}
+	if patch == nil {
+		return base, nil
+	}
+	if base == nil {
+		// An empty document reads back as nil, and null is what the read path's own
+		// empty-base branch folds onto.
+		base = ir.Null()
+	}
+	next, err := api.NextState(base, patch)
+	if err != nil {
+		return nil, &api.DoesNotApplyError{Commit: commit, Err: err}
+	}
+	return next, nil
+}
+
+// stateForCommit is the state a write at the next commit will be applied to: the
+// stepped head for baseline, and for a scope the same view its own reads see.
+func (s *Storage) stateForCommit(commit int64, scopeID *string) (*ir.Node, error) {
+	if scopeID != nil {
+		return s.scopedHeadStateAt(commit, scopeID)
+	}
+	return s.headStateAt(commit)
+}
+
+// installHead takes the document verifyApplies already computed.
+//
+// A scoped write does not change baseline state, but it does take a commit number,
+// and the head has to follow that number or the next step reads as a gap -- so it
+// advances the head without applying anything, exactly as stepHead did.
+//
+// Callers MUST hold commitMu.
+func (s *Storage) installHead(commit int64, stepped *ir.Node, scopeID *string) {
+	if scopeID != nil {
+		s.stepHead(commit, nil)
+		return
+	}
+	if !s.headSeeded || s.headCommit != commit-1 {
+		// verifyApplies seeded it at commit-1 under this same lock, so this cannot
+		// happen; if it somehow does, a head of unknown provenance is worse than
+		// none.
+		s.dropHead("head moved under a verified commit",
+			fmt.Errorf("head at %d, installing %d", s.headCommit, commit))
+		return
+	}
+	s.head, s.headCommit = stepped, commit
+}
