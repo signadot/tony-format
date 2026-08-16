@@ -336,7 +336,22 @@ func writeFieldHeadComment(val *ir.Node, w io.Writer, es *EncState) (*ir.Node, e
 	}
 	switch val.Values[0].Type {
 	case ir.ObjectType, ir.ArrayType:
-		return val, nil
+		// A container's comment sits inside the block, above its first line --
+		// unless the container is TAGGED. A tag is written next to the key
+		// ("b: !and"), so a comment after the colon separates the key from its
+		// own tag and everything after it lands at column 0:
+		//
+		//	b:
+		//	# note
+		//	!and
+		//	[ ... ]
+		//
+		// which is not b's value any more, to a reader or to the parser
+		// (jjthyd92h12ks8c1g5n0). The field's own line is the one place left,
+		// and it is where the comment was written to begin with.
+		if val.Values[0].Tag == "" {
+			return val, nil
+		}
 	}
 	es.colorType = ir.CommentType
 	es.colorAttr = ValueColor
