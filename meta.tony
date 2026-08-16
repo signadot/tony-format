@@ -6,7 +6,8 @@ commits: []
 created: "2026-08-16T17:11:00.065801+02:00"
 duplicates: []
 id: sb33w8p9h12kr16kg5n0
-labels: []
+labels:
+- perf
 related_issues: []
 status: open
-updated: "2026-08-16T17:11:00.065801+02:00"
+updated: "2026-08-16T17:11:09.53711+02:00"
