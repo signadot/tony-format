@@ -1,7 +1,12 @@
 !issue
-Ref: refs/issues/5hmq80f3h12krh1mbsn0
-Title: "logd: bounded op-preserving scope overlay (scope compaction)"
+blocked_by: []
+blocks: []
+branches: []
+commits: []
 created: "2026-07-20T16:44:20.979948+02:00"
-id: "5hmq80f3h12krh1mbsn0"
+duplicates: []
+id: 5hmq80f3h12krh1mbsn0
+labels: []
+related_issues: []
 status: open
-updated: "2026-07-29T10:41:24.236858+02:00"
+updated: "2026-08-16T17:42:09.225285+02:00"
