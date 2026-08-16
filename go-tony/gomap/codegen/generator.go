@@ -2900,6 +2900,16 @@ func carrierFields(s *StructInfo) map[string]bool {
 
 // generateFieldCommentsToIR emits the code that puts a field's carried comments
 // onto the node just built for it.
+//
+// It asks the map whether the field is there rather than assigning into it. The
+// field may have been omitted -- an omitzero slice, an empty map -- by a guard
+// this emitter cannot see, since that guard is written by whichever branch of
+// generateFieldToIR built the value. An unconditional assignment would then put
+// a nil node in the map, which ir.FromMap dereferences: every value of the type
+// without that one field would panic on encode.
+//
+// A comment about a value that isn't there is dropped, which is the only thing
+// it can mean.
 func generateFieldCommentsToIR(field *FieldInfo, schemaFieldName string) string {
 	if field.CommentFieldName == "" && field.LineCommentFieldName == "" {
 		return ""
@@ -2911,7 +2921,7 @@ func generateFieldCommentsToIR(field *FieldInfo, schemaFieldName string) string 
 	if field.LineCommentFieldName != "" {
 		line = "s." + field.LineCommentFieldName
 	}
-	return fmt.Sprintf("\tirMap[%q] = gomap.ApplyComments(irMap[%q], %s, %s)\n",
+	return fmt.Sprintf("\tif n, ok := irMap[%q]; ok {\n\t\tirMap[%q] = gomap.ApplyComments(n, %s, %s)\n\t}\n",
 		schemaFieldName, schemaFieldName, head, line)
 }
 

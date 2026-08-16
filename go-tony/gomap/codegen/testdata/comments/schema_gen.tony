@@ -10,8 +10,10 @@ signature:
 context:
 - tony-format/context
 define:
+  GatesComment: .[array(string)]
   RulesComment: .[array(string)]
   RulesLine: .[array(string)]
+  gates: .[array(string)]
   rules: .[array(comments-rule)]
 signature:
   name: comments-charter

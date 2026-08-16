@@ -42,4 +42,10 @@ type Charter struct {
 	Rules        []Rule `tony:"field=rules,comment=RulesComment,lineComment=RulesLine"`
 	RulesComment []string
 	RulesLine    []string
+
+	// Gates is a carrier on a field that may not be written at all: omitzero
+	// drops it when empty, and the comment has to be dropped with it rather
+	// than assigned onto the nothing that is there.
+	Gates        []string `tony:"field=gates,omitzero,comment=GatesComment"`
+	GatesComment []string
 }

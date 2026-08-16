@@ -325,7 +325,21 @@ func (s *Charter) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		}
 		irMap["rules"] = ir.FromSlice(slice)
 	}
-	irMap["rules"] = gomap.ApplyComments(irMap["rules"], s.RulesComment, s.RulesLine)
+	if n, ok := irMap["rules"]; ok {
+		irMap["rules"] = gomap.ApplyComments(n, s.RulesComment, s.RulesLine)
+	}
+
+	// Field: Gates
+	if len(s.Gates) > 0 {
+		slice := make([]*ir.Node, len(s.Gates))
+		for i, v := range s.Gates {
+			slice[i] = ir.FromString(string(v))
+		}
+		irMap["gates"] = ir.FromSlice(slice)
+	}
+	if n, ok := irMap["gates"]; ok {
+		irMap["gates"] = gomap.ApplyComments(n, s.GatesComment, nil)
+	}
 
 	return ir.FromMap(irMap), nil
 }
@@ -380,6 +394,26 @@ func (s *Charter) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			}
 			if v := ir.Uncomment(fieldNode); v != nil && v.Comment != nil {
 				s.RulesLine = v.Comment.Lines
+			}
+		case "gates":
+			// Field: Gates
+			if fieldNodeUnwrapped.Type == ir.ArrayType {
+				slice := make([]string, len(fieldNodeUnwrapped.Values))
+				for i, v := range fieldNodeUnwrapped.Values {
+					ctx := fmt.Sprintf("slice element %d", i)
+					var elem string
+					if v.Type != ir.StringType {
+						return fmt.Errorf("%s: expected string, got %v", ctx, v.Type)
+					}
+					elem = v.String
+					slice[i] = string(elem)
+				}
+				s.Gates = slice
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"gates\"", fieldNodeUnwrapped.Type)
+			}
+			if fieldNode.Type == ir.CommentType {
+				s.GatesComment = fieldNode.Lines
 			}
 		default:
 			if gomap.IsStrict(opts...) {

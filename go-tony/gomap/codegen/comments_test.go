@@ -273,3 +273,42 @@ func TestFieldCommentsAgree(t *testing.T) {
 		t.Errorf("the two paths differ:\n generated: %s\n reflected: %s", show(t, genOut), show(t, reflOut))
 	}
 }
+
+// A carrier on a field that may not be written at all. The guard that omits the
+// field is written by whichever branch of the generator built the value, so the
+// comment emitter cannot see it; assigning through it left a nil node in the map
+// and ir.FromMap dereferenced it, so EVERY charter without gates panicked on
+// encode, whether or not it had anything to say about them.
+func TestGeneratedFieldCommentsOmitted(t *testing.T) {
+	c := comments.Charter{
+		Rules:        []comments.Rule{{Name: "a"}},
+		GatesComment: []string{"# about the gates"},
+	}
+	node, err := c.ToTonyIR()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	if err := encode.Encode(node, &b, encode.EncodeComments(true)); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(b.String(), "gates") {
+		t.Errorf("the field was omitted, so its comment goes with it:\n%s", b.String())
+	}
+
+	// and when it IS written, the comment comes along
+	c.Gates = []string{"open"}
+	node, err = c.ToTonyIR()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.Reset()
+	if err := encode.Encode(node, &b, encode.EncodeComments(true)); err != nil {
+		t.Fatal(err)
+	}
+	// above the first element, which is where the format attributes a block
+	// array's head comment -- the same shape charterDoc round-trips
+	if !strings.Contains(b.String(), "gates:\n# about the gates\n- open") {
+		t.Errorf("the comment did not head the field it belongs to:\n%s", b.String())
+	}
+}
