@@ -6,7 +6,9 @@ commits: []
 created: "2026-08-16T11:23:45.959357+02:00"
 duplicates: []
 id: jjthyd92h12ks8c1g5n0
-labels: []
+labels:
+- comments
+- encode
 related_issues: []
 status: open
-updated: "2026-08-16T11:23:45.959357+02:00"
+updated: "2026-08-16T11:23:52.029028+02:00"
