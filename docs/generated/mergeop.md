@@ -1,9 +1,13 @@
 # Mergeop Operations
 
-This page documents mergeop operations. It is **not yet complete** -- the library
-registers considerably more than are described here, including `!key`, `!retag`,
-`!addtag`, `!rmtag`, `!rename`, `!strdiff`, `!arraydiff` and the match-side operations.
-See `mergeop/register.go` for the full set.
+Every operation the library registers has an entry here, and a test keeps it that
+way: `mergeop.TestReferenceCoversEveryOperation` fails when an operation is added
+without one. `o match -tags` and `o patch -tags` print the same list from the
+binary, and [matchpatch.md](../matchpatch.md) has it as a one-line table.
+
+Whether an operation matches, patches, or both is what the registry says, not a
+property of its shape: `!and` is match-only, `!insert` patch-only, and `!all`,
+`!field`, `!key`, `!pass` and `!raw` are both.
 
 ## `!all`
 
@@ -286,3 +290,437 @@ string: !irtype ""
 
 ---
 
+
+---
+
+## `!at`
+
+**Walk to a path and apply the match there** (match)
+
+`!at(kpath)` walks down the path and applies the pattern it holds to the node it lands
+on, saying nothing about the rest of the document.
+
+A path that names nothing does not match: `!at(a.b) 3` asks for an `a.b`, so a document
+without one fails rather than matching vacuously -- the reading `!has-path` gives a
+missing path. A wildcard path (`.*`, `[*]`, `{*}`) names every node it reaches, and all
+of them have to match.
+
+**Arguments:** the kinded path to walk
+
+**Examples:**
+
+```tony
+# spec.replicas is an integer, whatever else the document holds
+!at(spec.replicas).irtype 0
+```
+
+**See also:** [`!has-path`](./mergeop.md#has-path)
+
+---
+
+## `!has-path`
+
+**The document has the path the operand names** (match)
+
+**Examples:**
+
+```tony
+!has-path spec.replicas
+```
+
+```tony
+# and its negation, for "this must be absent"
+!not !has-path spec.replicas
+```
+
+**See also:** [`!at`](./mergeop.md#at), [`!not`](./mergeop.md#not)
+
+---
+
+## `!glob`
+
+**Glob-match a string** (match)
+
+**Examples:**
+
+```tony
+name: !glob "sv*"
+```
+
+---
+
+## `!subtree`
+
+**Match any subtree of the document** (match)
+
+The match succeeds if it holds ANYWHERE beneath the node, at any depth, rather than at
+the node itself.
+
+**Examples:**
+
+```tony
+# somewhere in here, something has replicas: 3
+!subtree {replicas: 3}
+```
+
+---
+
+## `!tag`
+
+**Match a node's tag rather than its value** (match)
+
+The operand is matched against a node describing the tag -- `{name: ..., args: [...]}` --
+so a tag with arguments can be matched by name alone or by name and arguments. An
+untagged node presents an empty name and no arguments.
+
+**Examples:**
+
+```tony
+# name carries some !svc tag
+name: !tag {name: svc}
+```
+
+```tony
+# a list keyed by sku
+items: !tag {name: key, args: [sku]}
+```
+
+**See also:** [`!retag`](./mergeop.md#retag), [`!addtag`](./mergeop.md#addtag)
+
+---
+
+## `!let`
+
+**Bind names, then match with them** (match)
+
+`let:` is a list of bindings and `in:` is the match, which refers to a binding as
+`.[name]`.
+
+**Examples:**
+
+```tony
+!let
+  let:
+  - n: 3
+  in:
+    spec:
+      replicas: .[n]
+```
+
+---
+
+## `!field`
+
+**Match or rename the FIELD, not the value** (match and patch)
+
+As a match the operand applies to the field name, a string. As a patch,
+`!field(from,to)` renames a field of the object it is applied to, leaving the value
+alone; the operand is unused, so `null` is the ordinary thing to write.
+
+**Examples:**
+
+```tony
+# spec.replicas becomes spec.count, keeping its value
+spec: !field(replicas,count) null
+```
+
+**See also:** [`!rename`](./mergeop.md#rename)
+
+---
+
+## `!pass`
+
+**Accept anything, or leave the document as it is** (match and patch)
+
+As a match it accepts any node. As a patch it is the identity -- useful where a patch is
+structurally required but nothing should change, such as one arm of `!if`.
+
+**Examples:**
+
+```tony
+spec: !pass {}
+```
+
+---
+
+## `!raw`
+
+**Treat the subtree as data, interpreting no operation at any depth** (match and patch)
+
+The escape. The patch grammar and the data grammar share one tag namespace, so without
+it a value whose tag happens to name an operation is always interpreted rather than
+stored -- and a Tony document that itself holds Tony operators (a match, a patch, a
+stored rule) could not be written at all.
+
+**Examples:**
+
+```tony
+# the document gets a literal {insert: 1}, not an insertion
+spec: !raw {insert: 1}
+```
+
+**Notes:**
+
+- A store that keeps documents holding operators depends on this; logd's storage
+  vocabulary stops its walk at `!raw` for exactly that reason.
+- The node's own tag chain is still read: `!strdiff.raw` is a strdiff whose operand is
+  raw, while `!insert.raw` inserts raw data.
+
+---
+
+## `!addtag`
+
+**Add a tag; the tag is what results** (patch)
+
+`!addtag(t)` is unconditional: it states the resulting tag without asserting the previous
+one, which is what `!retag` does. A `null` operand means the statement is about the tag
+alone and the value stays as it is.
+
+**Examples:**
+
+```tony
+# spec keeps its value and gains !mine
+spec: !addtag(mine) null
+```
+
+**See also:** [`!rmtag`](./mergeop.md#rmtag), [`!retag`](./mergeop.md#retag)
+
+---
+
+## `!rmtag`
+
+**Remove a tag; its absence is what results** (patch)
+
+The other unconditional half of `!retag`.
+
+**Examples:**
+
+```tony
+spec: !rmtag(mine) null
+```
+
+**See also:** [`!addtag`](./mergeop.md#addtag), [`!retag`](./mergeop.md#retag)
+
+---
+
+## `!comment`
+
+**State the comments at a node** (patch)
+
+The operand is an object naming `head`, `line`, or both. A position the operand does not
+name is left alone, as a field an object patch does not name is; setting one to `[]`
+removes it.
+
+Both positions live in one operand rather than one operator per position because tag
+composition shares a child -- `!comment.comment` could only ever carry one set of lines,
+and two changes at one node need one statement.
+
+**Examples:**
+
+```tony
+a: !comment {head: ["# new"]}                 # the comment above a is now this
+a: !comment {line: []}                        # the one after a is gone
+a: !comment {head: ["# h"], line: [" # l"]}   # both, in one statement
+```
+
+**Notes:**
+
+- It states what the comment IS, never what it was, so it applies to a base that has
+  moved and may be stored -- which is why a comment change is a delta about the comment
+  rather than a replacement of the value it describes.
+- The lines are the child rather than tag arguments because comment text is arbitrary and
+  the format keeps the whitespace before a line comment's `#` as part of it.
+
+---
+
+## `!strdiff`
+
+**A string edit, relative to the string that is there** (patch)
+
+Produced by `o diff` for strings that differ in part. It is RELATIVE: the result depends
+on what it meets, so applying it to a different string produces a different answer.
+
+**Examples:**
+
+```tony
+# what diff writes for "svc" -> "svcx"
+name: !strdiff(false)
+  3: !insert x
+```
+
+**Notes:**
+
+- Relative operations are not storable in logd: re-applied against a base that has moved,
+  they re-evaluate. See `system/logd/api.StorageContext`.
+
+---
+
+## `!arraydiff`
+
+**An array edit, relative and positional** (patch)
+
+The array counterpart of `!strdiff`, and relative in the same way. A list merged by
+identity rather than position is `!key`'s business instead.
+
+**See also:** [`!key`](./mergeop.md#key), [`!strdiff`](./mergeop.md#strdiff)
+
+---
+
+## `!rename`
+
+**Rename fields, relative to the keys that are there** (patch)
+
+The operand is a list of `{from, to}` pairs.
+
+**Examples:**
+
+```tony
+!rename
+- from: spec
+  to: sp
+```
+
+**See also:** [`!field`](./mergeop.md#field)
+
+---
+
+## `!dive`
+
+**Apply patches to the subtrees that match** (patch)
+
+The operand is a list of `{match, patch}` pairs: each subtree of the document is offered
+to each pair, and where the match holds the patch is applied. `patch` is required;
+`match` may be omitted.
+
+**Examples:**
+
+```tony
+!dive
+- match: {replicas: 3}
+  patch: {replicas: 9}
+```
+
+---
+
+## `!embed`
+
+**The operand is the result, with the key replaced by the document** (patch)
+
+`!embed(k)` names a key; the operand becomes the result, and each occurrence of that key
+in it is replaced by the node being patched. It is how a value is wrapped in new
+structure rather than overwritten.
+
+**Examples:**
+
+```tony
+# spec becomes {before: 1, was: <the old spec>}
+spec: !embed(X)
+  before: 1
+  was: X
+```
+
+---
+
+## `!if`
+
+**Patch conditionally** (patch)
+
+`if:` is a match against the node, `then:` and `else:` are patches.
+
+**Examples:**
+
+```tony
+spec: !if
+  if: {replicas: 3}
+  then: {replicas: 4}
+  else: {replicas: 0}
+```
+
+**See also:** [`!pass`](./mergeop.md#pass)
+
+---
+
+## `!json-patch`
+
+**Apply a JSON patch to the node** (patch)
+
+An RFC 6902 sequence, applied to the node it decorates.
+
+**Examples:**
+
+```tony
+spec: !json-patch
+- op: replace
+  path: "/replicas"
+  value: 7
+```
+
+**Notes:**
+
+- Relative, like `!strdiff` and `!arraydiff`: the sequence is expressed against the
+  document it meets.
+
+---
+
+## `!nullify`
+
+**Turn a node into null without removing it** (patch)
+
+The difference from `!delete` is that the key stays, holding null.
+
+**Examples:**
+
+```tony
+spec: !nullify {}
+```
+
+**See also:** [`!delete`](./mergeop.md#delete)
+
+---
+
+## `!quote`
+
+**Quote a document as a string** (patch)
+
+**Examples:**
+
+```tony
+# spec becomes the text of what it held
+spec: !quote {}
+```
+
+**See also:** [`!unquote`](./mergeop.md#unquote)
+
+---
+
+## `!unquote`
+
+**Unquote a string as a document** (patch)
+
+**Examples:**
+
+```tony
+# doc holds Tony text; this parses it in place
+doc: !unquote ""
+```
+
+**See also:** [`!quote`](./mergeop.md#quote)
+
+---
+
+## `!pipe`
+
+**Replace the node with a program's output** (patch)
+
+The node is written to a program's standard input and its output replaces the node.
+
+**Examples:**
+
+```tony
+name: !pipe "tr a-z A-Z"
+```
+
+**Notes:**
+
+- This calls out to the system, so it is unsafe by design and cannot be stored: applying
+  a stored `!pipe` twice runs the program twice. logd's storage vocabulary refuses it.

@@ -82,3 +82,38 @@ func TestDocsTableMatchesTheRegistry(t *testing.T) {
 		}
 	}
 }
+
+// referencePath is the per-operation reference page. Unlike the table above it
+// carries prose, so nothing can generate it from the registry -- a Symbol knows
+// its name and whether it matches or patches, and no more.
+const referencePath = "../../docs/generated/mergeop.md"
+
+// TestReferenceCoversEveryOperation: the reference page documented 10 of the 33
+// operations the library registers, and said so in a preamble rather than being
+// completed. A page that names itself a reference and is missing two thirds of
+// its subject is worse than a short one: a reader who finds !insert and !delete
+// there reasonably concludes that !addtag and !comment do not exist.
+//
+// This does not check what each entry SAYS -- prose cannot be tested -- only
+// that every registered operation has one, which is the part that goes stale
+// silently every time an operation is added (3cdjz00jh12krns4g1n0 added
+// !comment, and this page did not notice).
+func TestReferenceCoversEveryOperation(t *testing.T) {
+	src, err := os.ReadFile(referencePath)
+	if err != nil {
+		t.Skipf("no %s to check against: %v", referencePath, err)
+	}
+	text := string(src)
+
+	var missing []string
+	for _, s := range Symbols() {
+		heading := "## `!" + s.String() + "`"
+		if !strings.Contains(text, heading) {
+			missing = append(missing, s.String())
+		}
+	}
+	if len(missing) > 0 {
+		t.Errorf("%s has no entry for %d of %d operations: %v",
+			referencePath, len(missing), len(Symbols()), missing)
+	}
+}
