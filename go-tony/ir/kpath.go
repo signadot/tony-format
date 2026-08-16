@@ -111,16 +111,23 @@ func (node *Node) getKPath(kp *kpath.KPath) (*Node, error) {
 			continue
 		}
 		if kp.SparseIndex != nil {
-			// Sparse array handling - for now, treat as regular array index
-			// This might need adjustment when sparse arrays are fully implemented
-			if res.Type != ArrayType {
-				return nil, fmt.Errorf("expected array for sparse index, got %s", res.Type)
+			// A sparse array is an OBJECT whose field keys are numbers -- there is no
+			// SparseArrayType -- so {7} names the value under the key 7, not the
+			// seventh value. This used to require an Array and index it positionally,
+			// which is two different wrong answers: the type never matched, and had
+			// it matched, {7} of {3: a, 7: b} would have been read off the end.
+			//
+			// It is the same node shape logd writes {n} paths FROM: index.indexPatchRec
+			// and extractTopLevelKPaths both take the key from the field's own Int64.
+			if res.Type != ObjectType {
+				return nil, fmt.Errorf("expected a sparse array (an object with number keys) "+
+					"for {%d}, got %s", *kp.SparseIndex, res.Type)
 			}
-			index := *kp.SparseIndex
-			if index < 0 || index >= len(res.Values) {
-				return nil, fmt.Errorf("sparse index out of bounds %d (len %d)", index, len(res.Values))
+			val := sparseValue(res, *kp.SparseIndex)
+			if val == nil {
+				return nil, nil // no such key, which is an absence and not a fault
 			}
-			res = res.Values[index]
+			res = val
 			kp = kp.Next
 			continue
 		}
@@ -309,7 +316,34 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 	}
 	switch node.Type {
 	case ObjectType:
-		if kp.Index != nil || kp.IndexAll || kp.SparseIndex != nil || kp.SparseIndexAll || kp.Key != nil {
+		// A sparse array is an object with number keys, so {7} and {*} are answered
+		// here rather than falling to the kind-mismatch below with everything else.
+		if kp.SparseIndex != nil {
+			if val := sparseValue(node, *kp.SparseIndex); val != nil {
+				dst, err = val.listKPath(dst, kp.Next)
+				if err != nil {
+					return nil, err
+				}
+			}
+			return dst, nil
+		}
+		if kp.SparseIndexAll {
+			for i := range node.Fields {
+				if node.Fields[i].Type != NumberType {
+					continue
+				}
+				dst, err = node.Values[i].listKPath(dst, kp.Next)
+				if err != nil {
+					return nil, err
+				}
+			}
+			return dst, nil
+		}
+		// A dense index or a key names nothing in an object, which is an answer and
+		// not a fault: a query walks nodes of every kind -- `..x` visits leaves,
+		// arrays and objects alike -- so a segment which does not fit the node it
+		// meets has to be a non-match rather than an error.
+		if kp.Index != nil || kp.IndexAll || kp.Key != nil {
 			return dst, nil
 		}
 		if kp.Field == nil && !kp.FieldAll && kp.Next == nil {
@@ -443,4 +477,26 @@ func (node *Node) appendAll(dst []*Node) []*Node {
 		return nil
 	})
 	return dst
+}
+
+// sparseValue answers the value a sparse array holds under key, or nil when it
+// holds none.
+//
+// A sparse array is an object whose field keys are numbers: {3: a, 7: b} holds b
+// under 7, at position 1. The key is the field's own value, which is where every
+// producer of a {n} path takes it from, so a lookup takes it from the same place.
+func sparseValue(node *Node, key int) *Node {
+	if node == nil || node.Type != ObjectType {
+		return nil
+	}
+	for i := range node.Fields {
+		f := node.Fields[i]
+		if f.Type != NumberType || f.Int64 == nil {
+			continue
+		}
+		if int(*f.Int64) == key {
+			return node.Values[i]
+		}
+	}
+	return nil
 }
