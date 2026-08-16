@@ -446,9 +446,21 @@ func getStructFieldsFromSchema(typ reflect.Type, s *schema.Schema, allowExtra bo
 	// Only exported fields are accessible from a different package (like json package)
 	// Embedded structs have their fields flattened into this map (schema tag is just metadata)
 	// The map keys are schema field names (from field= tag if present, otherwise struct field name)
+	// comment= and lineComment= name fields that carry what was said ABOUT the
+	// value; they are not members of it. Left in this map they were matched
+	// against the schema and, finding nothing, reported as extra -- so a type
+	// using the annotations could not be encoded through a registry-backed mapper
+	// at all: "struct has extra field \"Comments\" not in schema"
+	// (3cdjz00jh12krns4g1n0).
+	carriers := commentCarriers(typ)
+
 	structFieldMap := make(map[string]reflect.StructField)
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
+
+		if carriers[field.Name] {
+			continue
+		}
 
 		if field.Anonymous {
 			// Flatten embedded structs regardless of schema tags
@@ -647,8 +659,15 @@ func isIntegerType(typ reflect.Type) bool {
 func getStructFieldsFromStruct(typ reflect.Type) ([]*FieldInfo, error) {
 	var fields []*FieldInfo
 
+	// See getStructFieldsFromSchema: a comment carrier is not a member.
+	carriers := commentCarriers(typ)
+
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
+
+		if carriers[field.Name] {
+			continue
+		}
 
 		if field.Anonymous {
 			// In schemagen mode, flatten embedded structs regardless of schema tags
@@ -778,4 +797,23 @@ func isOptionalType(typ reflect.Type) bool {
 	default:
 		return false
 	}
+}
+
+// commentCarriers is the set of field names a type has declared to hold comments
+// rather than data, via comment= and lineComment=. Both the reflection mapper and
+// codegen read the same two annotations, so a type tagged once behaves the same
+// however its codecs are produced.
+func commentCarriers(typ reflect.Type) map[string]bool {
+	structSchema, err := GetStructSchema(typ)
+	if err != nil || structSchema == nil {
+		return nil
+	}
+	carriers := map[string]bool{}
+	if f := structSchema.CommentFieldName; f != "" {
+		carriers[f] = true
+	}
+	if f := structSchema.LineCommentFieldName; f != "" {
+		carriers[f] = true
+	}
+	return carriers
 }

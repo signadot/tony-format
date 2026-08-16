@@ -70,6 +70,27 @@ func (m *Mapper) fromIRWithSchema(node *ir.Node, val reflect.Value, typ reflect.
 		return fromIRReflect(node, val, "", opts...)
 	}
 
+	// The comments come off the node before its fields are read, and each carrier
+	// gets what it names: a head comment is the wrapper's lines, a line comment is
+	// the node's own. What this replaced looked for comment text in .Values and
+	// .String of a comment node, and in .Lines of a value -- none of which is
+	// where the IR keeps it -- so on this path the carriers were never filled at
+	// all (3cdjz00jh12krns4g1n0).
+	//
+	// The unwrap is defensive rather than load-bearing: FromTonyIR routes only
+	// ObjectType nodes here, so a wrapped document reaches the reflection path
+	// instead. It costs nothing and stops this depending on that.
+	if node != nil && node.Type == ir.CommentType {
+		setCommentField(val, structSchema.CommentFieldName, node.Lines)
+		node = ir.Uncomment(node)
+	}
+	if node != nil && node.Comment != nil {
+		setCommentField(val, structSchema.LineCommentFieldName, node.Comment.Lines)
+	}
+	if node == nil {
+		return nil
+	}
+
 	// Use GetStructFields to get field metadata
 	fields, err := GetStructFields(typ, schema, structSchema.Mode,
 		structSchema.AllowExtra, m.schemaRegistry)
@@ -134,30 +155,7 @@ func (m *Mapper) fromIRWithSchema(node *ir.Node, val reflect.Value, typ reflect.
 		}
 	}
 
-	// Handle comment/linecomment/tag fields
-	if structSchema.CommentFieldName != "" {
-		commentField := val.FieldByName(structSchema.CommentFieldName)
-		if commentField.IsValid() && commentField.CanSet() {
-			// Extract comments from IR node
-			// Comments are stored in node.Comment (a CommentType node) or in node.Values
-			// For now, extract comments from the comment node if present
-			if commentField.Type() == reflect.TypeOf([]string(nil)) {
-				comments := extractComments(node)
-				commentField.Set(reflect.ValueOf(comments))
-			}
-		}
-	}
-	if structSchema.LineCommentFieldName != "" {
-		lineCommentField := val.FieldByName(structSchema.LineCommentFieldName)
-		if lineCommentField.IsValid() && lineCommentField.CanSet() {
-			// Extract line comments from IR node
-			// Line comments might be in node.Lines or node.Comment
-			if lineCommentField.Type() == reflect.TypeOf([]string(nil)) {
-				lineComments := extractLineComments(node)
-				lineCommentField.Set(reflect.ValueOf(lineComments))
-			}
-		}
-	}
+	// Handle tag field
 	if structSchema.TagFieldName != "" {
 		tagField := val.FieldByName(structSchema.TagFieldName)
 		if tagField.IsValid() && tagField.CanSet() {
@@ -171,66 +169,16 @@ func (m *Mapper) fromIRWithSchema(node *ir.Node, val reflect.Value, typ reflect.
 	return nil
 }
 
-// extractComments extracts all comments from an IR node as a []string.
-// Comments can be in node.Comment (CommentType node) or in node.Values.
-func extractComments(node *ir.Node) []string {
-	if node == nil {
-		return nil
+// setCommentField puts comment lines on a named []string field, which is the
+// only type these annotations accept -- comments are lines of text. An unnamed
+// field (the annotation absent) is nothing to do.
+func setCommentField(val reflect.Value, fieldName string, lines []string) {
+	if fieldName == "" || len(lines) == 0 {
+		return
 	}
-
-	var comments []string
-
-	// Check if node has a Comment field (CommentType node)
-	if node.Comment != nil {
-		comments = append(comments, extractCommentsFromNode(node.Comment)...)
+	f := val.FieldByName(fieldName)
+	if !f.IsValid() || !f.CanSet() || f.Type() != reflect.TypeOf([]string(nil)) {
+		return
 	}
-
-	// Check Values for comment nodes
-	for _, val := range node.Values {
-		if val != nil && val.Type == ir.CommentType {
-			comments = append(comments, extractCommentsFromNode(val)...)
-		}
-	}
-
-	return comments
-}
-
-// extractCommentsFromNode extracts string values from a comment node.
-func extractCommentsFromNode(node *ir.Node) []string {
-	if node == nil {
-		return nil
-	}
-
-	var comments []string
-
-	// Comment nodes typically have string values in their Values array
-	if node.Type == ir.CommentType {
-		for _, val := range node.Values {
-			if val != nil && val.Type == ir.StringType {
-				comments = append(comments, val.String)
-			}
-		}
-	}
-
-	// Also check if the comment node itself has a String field
-	if node.String != "" {
-		comments = append(comments, node.String)
-	}
-
-	return comments
-}
-
-// extractLineComments extracts line comments from an IR node.
-// Line comments are typically stored in node.Lines.
-func extractLineComments(node *ir.Node) []string {
-	if node == nil {
-		return nil
-	}
-
-	// Line comments are stored in the Lines field
-	if len(node.Lines) > 0 {
-		return node.Lines
-	}
-
-	return nil
+	f.Set(reflect.ValueOf(lines))
 }

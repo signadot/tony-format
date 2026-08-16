@@ -109,21 +109,14 @@ func (m *Mapper) toIRWithSchema(val reflect.Value, typ reflect.Type, structSchem
 		node.Tag = fmt.Sprintf("!%s", structSchema.SchemaName)
 	}
 
-	// Handle comment/linecomment/tag fields
-	if structSchema.CommentFieldName != "" {
-		commentField := val.FieldByName(structSchema.CommentFieldName)
-		if commentField.IsValid() && commentField.CanSet() {
-			// Comments are stored on the IR node itself
-			// We'll populate this when we have access to the source IR node
-			// For now, this is a placeholder for when marshaling from IR -> IR
-		}
-	}
-	if structSchema.LineCommentFieldName != "" {
-		lineCommentField := val.FieldByName(structSchema.LineCommentFieldName)
-		if lineCommentField.IsValid() && lineCommentField.CanSet() {
-			// Line comments are stored on the IR node itself
-		}
-	}
+	// The comments the struct carries go back onto the node, the same way the
+	// reflection and generated encoders do it: a head comment wraps the value it
+	// precedes, a line comment rides on the value it follows. These two were empty
+	// blocks -- "a placeholder for when marshaling from IR -> IR" -- so a struct
+	// decoded through this mapper and encoded back through it lost what it had
+	// read (3cdjz00jh12krns4g1n0).
+	node = applyCommentFields(node, val, structSchema)
+
 	if structSchema.TagFieldName != "" {
 		tagField := val.FieldByName(structSchema.TagFieldName)
 		if tagField.IsValid() && tagField.CanSet() {
