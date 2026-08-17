@@ -6,7 +6,8 @@ commits: []
 created: "2026-08-17T23:23:13.436658+02:00"
 duplicates: []
 id: dp5y7ahhh12ksgbvgdn0
-labels: []
+labels:
+- agent
 related_issues: []
 status: open
-updated: "2026-08-17T23:23:13.436658+02:00"
+updated: "2026-08-17T23:23:20.923875+02:00"
