@@ -27,9 +27,14 @@ define:
   array(t): !and
   - .[array]
   - !all t
+  # a sparse array is an object whose keys are integers.  !all.field.type 0 said
+  # that and did not: !field hands over the key's NAME, a string, which is never
+  # a number, so sparsearray accepted nothing.  The keys themselves are in the
+  # node, where !ir reaches them, with their types intact.
   sparsearray: !and
   - !irtype {}
-  - !all.field.type 0
+  - !ir
+    fields: !all .[int]
   sparsearray(t): !and
   - .[sparsearray]
   - !all t

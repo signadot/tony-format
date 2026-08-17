@@ -129,3 +129,41 @@ func TestIRIsSatisfiableInBothPolarities(t *testing.T) {
 		}
 	}
 }
+
+// sparsearray accepted nothing: its key clause !all.field.type 0 asked each key
+// to be a number, and !field hands over the key's name, which is a string.  The
+// keys are in the node, where !ir reaches them with their types intact.
+func TestSparseArrayKeysAreIntegers(t *testing.T) {
+	tests := []struct {
+		accept string
+		doc    string
+		want   bool
+	}{
+		{".[sparsearray]", "0: a\n3: b", true},
+		{".[sparsearray]", "{}", true},
+		{".[sparsearray]", "a: 1", false},
+		// mixed key types do not parse, so no document can have them
+		{".[sparsearray]", "'0': a", false}, // a quoted key is a string
+		{".[sparsearray]", "- 1", false},
+		// and the element type, which is the other half of the same definition
+		{".[sparsearray(number)]", "0: 1\n3: 2", true},
+		{".[sparsearray(number)]", "0: 1\n3: x", false},
+		{".[sparsearray(number)]", "a: 1", false},
+	}
+	for _, test := range tests {
+		t.Run(test.accept+" vs "+strings.ReplaceAll(test.doc, "\n", " "), func(t *testing.T) {
+			s := baseSchema(t, "accept: "+test.accept+"\n")
+			doc, err := parse.Parse([]byte(test.doc + "\n"))
+			if err != nil {
+				t.Fatalf("parse document: %s", err)
+			}
+			err = s.Validate(doc)
+			switch {
+			case test.want && err != nil:
+				t.Errorf("%s rejected %q: %s", test.accept, test.doc, err)
+			case !test.want && err == nil:
+				t.Errorf("%s accepted %q", test.accept, test.doc)
+			}
+		})
+	}
+}

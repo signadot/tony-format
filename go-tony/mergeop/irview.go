@@ -98,10 +98,13 @@ func IRView(doc *ir.Node) *ir.Node {
 	}
 
 	put("type", ir.FromString(doc.Type.String()))
-	if len(doc.Fields) > 0 {
+	// A container HAS fields and values, empty ones included: an empty object's
+	// keys are all integers as much as a full one's are, and `!all` over nothing
+	// says so, where an absent field would fail instead.
+	if len(doc.Fields) > 0 || doc.Type == ir.ObjectType {
 		put("fields", &ir.Node{Type: ir.ArrayType, Values: doc.Fields})
 	}
-	if len(doc.Values) > 0 {
+	if len(doc.Values) > 0 || doc.Type == ir.ObjectType || doc.Type == ir.ArrayType {
 		put("values", &ir.Node{Type: ir.ArrayType, Values: doc.Values})
 	}
 	if doc.Tag != "" {
