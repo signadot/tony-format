@@ -239,19 +239,29 @@ func (b *formulaBuilder) buildTagged(node *ir.Node, tag string) z.Lit {
 		return b.c.Lit()
 
 	case "!all":
-		// !all.X constrains all elements to match X
-		// For collections (array/object): satisfiable (empty collection works)
-		// For scalars: the scalar itself must match the constraint
-		if node.Type == ir.ArrayType || node.Type == ir.ObjectType {
-			return b.c.T // empty collection satisfies !all
-		}
-		// Scalar: apply the rest of the tag as a constraint
-		if rest != "" {
-			child := node.Clone()
-			child.Tag = rest
-			return b.build(child)
-		}
-		return b.c.T
+		// !all X asks two different things of two different places, which is the
+		// walk allOp does: of a container, that every ELEMENT match X -- and an
+		// empty container matches whatever X is, so the container case constrains
+		// nothing at this position beyond being a container; of a scalar, that X
+		// hold of the scalar ITSELF.
+		//
+		//	(array here ∨ object here) ∨ X here
+		//
+		// X was built at this position unconditionally, which asserted the
+		// ELEMENT type of the node: `!and [!irtype [], !all.irtype 1]` -- a list
+		// of numbers -- mutexed number against array and read as impossible,
+		// while the same thing written `!all .[number]` was accepted, since a
+		// payload with no tag chain left nothing to build. Two spellings, one
+		// meaning, opposite verdicts.
+		//
+		// The element formula is not built at all: no assignment of it can make
+		// the whole unsatisfiable, since the empty container satisfies any X, and
+		// a checker which invents a contradiction is worse than one which misses
+		// it. What survives is the scalar reading, which is a real constraint --
+		// `!and [!irtype 1, !all.irtype ""]` asks a number to be a string.
+		child := node.Clone()
+		child.Tag = rest
+		return b.c.Ors(b.getVar("array"), b.getVar("object"), b.build(child))
 
 	default:
 		// Strip the ! prefix for lookups
