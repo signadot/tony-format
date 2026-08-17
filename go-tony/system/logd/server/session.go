@@ -384,6 +384,15 @@ func (s *Session) readDocAt(path string, commit int64) (*ir.Node, error) {
 	if narrowed {
 		return doc, nil
 	}
+	// Nothing to narrow to is not a reason to read everything. When the store can
+	// say the path has never been written, it answers with a document which resolves
+	// exactly as far as the path has -- so the extraction below fails at the same
+	// segment, with the same kind, as it would have on the whole document, and a rule
+	// watching a slice nobody has written yet stops costing a full read to be told so
+	// (ap8ddvp2h12krd43gdn0).
+	if spine, ok := s.storage.AbsentSpineAt(path, s.scope); ok {
+		return spine, nil
+	}
 	return s.storage.ReadStateAt(path, commit, s.scope)
 }
 

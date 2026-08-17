@@ -139,6 +139,89 @@ func (i *Index) LookupRange(kp string, from, to *int64, scopeID *string) []LogSe
 	return res
 }
 
+// UnwrittenBelow answers where kp stops having been written, when the index can
+// prove both halves of that: how many leading segments name paths a patch has
+// touched, and that each of those is an OBJECT which the rest of kp is simply not in.
+// ok is false when it cannot prove it, and then the caller reads the document as
+// before.
+//
+// The trie holds a node for every path any patch has ever touched (IndexPatch indexes
+// a patch at every path inside it), so a segment with no node has never been written
+// and no read can find anything there. That much is easy. The hard half is what sits
+// at the last written segment: the trie remembers that a path was written, not what
+// was written to it, and "no field x" and "that is a String, not an object" are
+// different answers to a client.
+//
+// So each node on the way is required to prove it is an object, and it proves it the
+// only way the index can: it has a child written no earlier than the newest write to
+// the node itself. A patch which had put a scalar there -- or deleted it -- would be
+// a write to the node with nothing indexed beneath it at that commit, and the proof
+// fails, and the caller reads.
+//
+// What it cannot see is deletion: a path written and later deleted keeps its node, so
+// a depth here says "never written", never "present" (ap8ddvp2h12krd43gdn0).
+func (i *Index) UnwrittenBelow(kp string) (depth int, ok bool) {
+	if kp == "" {
+		return 0, false // the root is not below anything
+	}
+	node := i
+	for rest := kp; rest != ""; {
+		first, tail := kpath.Split(rest)
+		child := node.childIndex(first)
+		if !node.provenObject() {
+			return 0, false // something may sit at node which is not an object
+		}
+		if child == nil {
+			return depth, true // kp stops here, in an object which does not have it
+		}
+		node, depth, rest = child, depth+1, tail
+	}
+	return depth, false // every segment written: only the document knows what is there
+}
+
+// provenObject says whether the newest write to this path wrote INSIDE it, which is
+// something only an object can have happen to it. A patch putting a scalar here -- or
+// deleting this -- indexes at this path and nothing under it, so it leaves every child
+// older, and the answer is no.
+//
+// It asks for ANY child, not the one the path descends into. A path is written by
+// every patch which passes through it, so requiring the child on the way would fail
+// the moment a sibling was written later, which says nothing about the shape here.
+func (i *Index) provenObject() bool {
+	mine, has := i.newestCommit()
+	if !has {
+		return false // nothing written here at all; the caller cannot lean on it
+	}
+	i.RLock()
+	children := make([]*Index, 0, len(i.Children))
+	for _, c := range i.Children {
+		children = append(children, c)
+	}
+	i.RUnlock()
+	for _, c := range children {
+		if cc, has := c.newestCommit(); has && cc >= mine {
+			return true
+		}
+	}
+	return false
+}
+
+// newestCommit is the commit of the last write indexed AT this path.
+func (i *Index) newestCommit() (int64, bool) {
+	i.RLock()
+	defer i.RUnlock()
+	for seg := range i.Commits.Commits(Down) {
+		return seg.StartCommit, true
+	}
+	return 0, false
+}
+
+func (i *Index) childIndex(name string) *Index {
+	i.RLock()
+	defer i.RUnlock()
+	return i.Children[name]
+}
+
 // LookupSubtree answers the distinct log entries in the commit range which can
 // affect the subtree at kp: the ones written AT or ABOVE it, since a write above
 // writes through it, and the ones written BELOW it, since they are part of the
