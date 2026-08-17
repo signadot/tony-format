@@ -388,32 +388,6 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 		return
 	}
 
-	// Handle migration patches (only indexed to pending)
-	if req.Migration {
-		// Only baseline sessions can do migration patches
-		if s.scope != nil {
-			s.sendError(id, api.ErrCodeInvalidMessage, "only baseline sessions can apply migration patches")
-			return
-		}
-		// Cannot combine Migration with TxID
-		if req.TxID != nil {
-			s.sendError(id, api.ErrCodeInvalidTx, "migration patches cannot use transactions")
-			return
-		}
-
-		commit, data, err := s.storage.MigrationPatch(path, req.Data)
-		if err != nil {
-			if errors.Is(err, storage.ErrNoMigrationInProgress) {
-				s.sendError(id, api.ErrCodeNoMigrationInProgress, err.Error())
-			} else {
-				s.sendError(id, "storage_error", fmt.Sprintf("failed to apply migration patch: %v", err))
-			}
-			return
-		}
-		s.send(api.NewPatchResponse(id, commit, data))
-		return
-	}
-
 	// Parse timeout if provided
 	var timeout time.Duration
 	if req.Timeout != nil {

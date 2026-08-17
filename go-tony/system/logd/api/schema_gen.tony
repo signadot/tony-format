@@ -105,7 +105,6 @@ context:
 define:
   data: .[tony-base:ir]
   match: .[nullable(path-data)]
-  migration: .[bool]
   path: .[string]
   timeout: .[nullable(string)]
   txId: .[nullable(int)]

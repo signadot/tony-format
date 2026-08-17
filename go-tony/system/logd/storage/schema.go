@@ -11,7 +11,6 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/patches"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/snap"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 // Schema operation errors
@@ -195,70 +194,6 @@ func (s *Storage) AbortMigration() (int64, error) {
 	s.schema.ClearPending()
 
 	return commit, nil
-}
-
-// MigrationPatch applies a patch during migration.
-// The patch is written to baseline (scopeID=nil) but only indexed into pendingIndex.
-// It becomes visible in baseline when migration completes.
-// Returns ErrNoMigrationInProgress if no migration is in progress.
-func (s *Storage) MigrationPatch(path string, patch *ir.Node) (int64, *ir.Node, error) {
-	pendingSchema, _ := s.schema.GetPending()
-	if pendingSchema == nil {
-		return 0, nil, ErrNoMigrationInProgress
-	}
-	pendingIdx := s.schema.GetPendingIndex()
-
-	// Get next commit number
-	commit, err := s.sequence.NextCommit()
-	if err != nil {
-		return 0, nil, fmt.Errorf("failed to get next commit: %w", err)
-	}
-
-	// The range this entry covers ends at the commit just allocated, so it starts at the
-	// one before. Taken from commit directly, not from the watermark: the watermark is
-	// the last PUBLISHED commit, which is a different number the moment anything is
-	// allocated but not yet visible — including this very entry.
-	lastCommit := commit - 1
-	if lastCommit < 0 {
-		lastCommit = 0
-	}
-
-	// Add PatchRootTag so StreamingProcessor can identify the patch root. It goes at
-	// the tail of the chain, where it cannot be mistaken for a label of the value --
-	// see tx.MarkPatchRoot.
-	tx.MarkPatchRoot(patch)
-
-	// Build the root patch with path
-	rootPatch := buildRootPatch(path, patch)
-
-	// Create entry as baseline (scopeID = nil)
-	timestamp := time.Now().UTC().Format(time.RFC3339)
-	entry := dlog.NewEntry(nil, rootPatch, commit, timestamp, lastCommit, nil)
-
-	// Write to dlog
-	pos, logFile, err := s.dLog.AppendEntry(entry)
-	if err != nil {
-		return 0, nil, fmt.Errorf("failed to append entry: %w", err)
-	}
-
-	// Get current generation for indexing
-	generation := s.dLog.GetGeneration(logFile)
-
-	// Parse the pending schema for indexing
-	parsedSchema := api.ParseSchemaFromNode(pendingSchema)
-
-	// Index ONLY into pendingIndex (not the active index)
-	if err := index.IndexPatch(pendingIdx, entry, string(logFile), pos, 0, generation, rootPatch, parsedSchema, nil); err != nil {
-		return 0, nil, fmt.Errorf("failed to index patch: %w", err)
-	}
-
-	// Deliberately NOT published: this entry goes only into the pending index, so it is
-	// not readable in the baseline view, and the watermark means "readable". It becomes
-	// visible when CompleteMigration promotes the pending index, whose schema snapshot
-	// publishes a commit of its own. Until then the watermark simply skips this number,
-	// which is the benign direction (see GetCurrentCommit).
-	s.logger.Info("migration patch applied", "commit", commit, "path", path)
-	return commit, rootPatch, nil
 }
 
 // buildRootPatch wraps a patch at a path into a root patch.

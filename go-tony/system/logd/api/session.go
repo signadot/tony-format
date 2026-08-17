@@ -54,18 +54,12 @@ type MatchRequest struct {
 // If TxID is set, the patch joins an existing multi-participant transaction.
 // If TxID is nil, a new single-participant transaction is created.
 //
-// If Migration is true, the patch is only indexed to the pending index during
-// a schema migration. It becomes visible in baseline when migration completes.
-// This is used for migration transformations (e.g., populating new fields).
-// Returns an error if no migration is in progress.
-//
 //tony:schemagen=session-patch-request,notag
 type PatchRequest struct {
-	TxID      *int64    `tony:"field=txId"`      // Optional: transaction ID for multi-participant tx
-	Timeout   *string   `tony:"field=timeout"`   // Optional: timeout for this participant (e.g., "5s", "1m")
-	Migration bool      `tony:"field=migration"` // If true, only index to pending (for migration transforms)
-	Match     *PathData `tony:"field=match"`     // Optional: compare-and-swap precondition — the patch commits only if the current state at Match.Path matches Match.Data
-	PathData  `tony:"field=patch"`
+	TxID     *int64    `tony:"field=txId"`    // Optional: transaction ID for multi-participant tx
+	Timeout  *string   `tony:"field=timeout"` // Optional: timeout for this participant (e.g., "5s", "1m")
+	Match    *PathData `tony:"field=match"`   // Optional: compare-and-swap precondition — the patch commits only if the current state at Match.Path matches Match.Data
+	PathData `tony:"field=patch"`
 }
 
 // NewTxRequest creates a new multi-participant transaction.
@@ -130,7 +124,7 @@ type SchemaGetRequest struct{}
 // !logd-auto-id (or adds !logd-auto-id to an existing field), regular patches
 // during migration will NOT auto-generate values for that field. Use a
 // two-phase approach: (1) migrate to add the new field WITHOUT !logd-auto-id,
-// use MigrationPatchRequest to populate existing records, complete migration;
+// populate the new fields with ordinary patches, complete migration;
 // (2) then migrate again to add !logd-auto-id to the field.
 //
 // Removing an auto-ID field: If the pending schema removes !logd-auto-id from
@@ -154,8 +148,6 @@ type SchemaRequest struct {
 
 // MigrationAction represents a migration lifecycle action.
 // Valid values are "complete" or "abort".
-//
-// Note: Migration patches are sent via PatchRequest with Migration=true.
 type MigrationAction string
 
 const (
