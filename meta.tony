@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 5a4e1ec3e4729df28ed007c9e72c7285617a2261
 commits:
 - 5a4e1ec3e4729df28ed007c9e72c7285617a2261
 created: "2026-08-17T03:30:29.792743+02:00"
@@ -11,5 +12,5 @@ labels:
 - bug
 related_issues:
 - 7cdvym1fh12ksmd5g5n0
-status: open
-updated: "2026-08-17T03:48:10.838654+02:00"
+status: closed
+updated: "2026-08-17T03:48:10.955592+02:00"
