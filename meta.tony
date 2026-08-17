@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 722ac5a35d274ce9ba070a9da3fe9c9b73e8f127
 commits:
 - 722ac5a35d274ce9ba070a9da3fe9c9b73e8f127
 created: "2026-08-17T09:20:05.441569+02:00"
@@ -10,5 +11,5 @@ id: 3q8z5zvkh12kr9dpg9n0
 labels:
 - enhancement
 related_issues: []
-status: open
-updated: "2026-08-17T09:28:30.818583+02:00"
+status: closed
+updated: "2026-08-17T09:28:30.918262+02:00"
