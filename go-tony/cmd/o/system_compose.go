@@ -112,6 +112,13 @@ func systemUp(cfg *UpConfig, cc *cli.Context, args []string) error {
 		return fmt.Errorf("failed to initialize storage: %w", err)
 	}
 
+	// What reads at a path are doing, on the admin listener that came up above.
+	// Wired here as well as in `o logd serve`, because this is the one people run:
+	// the report was absent from `o sys up` exactly where a verse lives, so the
+	// question it answers had to be asked with O_DEBUG_READ and a restart
+	// (ap8ddvp2h12krd43gdn0).
+	adminSrv.SetReport(func() map[string]any { return s.ReadStats().Report() })
+
 	// Create and start logd server
 	logdSrv := logdserver.New(&logdserver.Spec{
 		Storage: s,
