@@ -4,10 +4,28 @@ import (
 	"unicode/utf8"
 )
 
+// yamlPlain scans a plain (unquoted) YAML scalar and answers its length.
+//
+// See yamlPlainRun: a scan which reaches the end of the data has not necessarily
+// reached the end of the scalar, and only the caller knows whether more can come.
 func yamlPlain(d []byte, ts *tkState, off int, pd *PosDoc) (int, error) {
-	//fmt.Printf("yamlPlain on `%s`\n", d)
+	sz, _, err := yamlPlainRun(d, ts, off, pd)
+	return sz, err
+}
+
+// yamlPlainRun is yamlPlain, reporting also whether the scan ran off the end of
+// the data rather than stopping at something which ends a plain scalar.
+//
+// A plain scalar ends at a delimiter, so one which runs to the end of the buffer
+// may continue in the next read: read as complete, every scalar meeting a read
+// boundary was chopped there. `string` came back as `str`, `true` as four
+// literals which are not a boolean, and `44` as two 4s -- and a 3.6MB YAML
+// document read in 4096-byte reads lost a token at every boundary, silently
+// (75g1kbpdh12krs09gdn0).
+func yamlPlainRun(d []byte, ts *tkState, off int, pd *PosDoc) (int, bool, error) {
 	i := 0
 	n := len(d)
+	ranOut := false
 	var lastR rune
 	lastSz := 0
 	lnIndent := ts.lnIndent
@@ -55,11 +73,11 @@ func yamlPlain(d []byte, ts *tkState, off int, pd *PosDoc) (int, error) {
 				continue
 			}
 			if len(d) == 1 {
-				return 0, ErrYAMLPlain
+				return 0, false, ErrYAMLPlain
 			}
 			switch d[1] {
 			case ' ', '\t', '\r', '\n':
-				return 0, ErrYAMLPlain
+				return 0, false, ErrYAMLPlain
 			}
 
 		case '\n':
@@ -81,6 +99,15 @@ func yamlPlain(d []byte, ts *tkState, off int, pd *PosDoc) (int, error) {
 					break
 				}
 				j++
+			}
+			if j == n {
+				// The indent of the next line is not all here, so whether the
+				// scalar continues onto it cannot be told: a folded scalar --
+				// `pre\n  hello\n  post` is one value -- was cut off at the
+				// boundary and the rest read as separate tokens.
+				ranOut = true
+				i--
+				goto done
 			}
 
 			// fmt.Printf("\t\ti=%d j=%d off=%d\n", i, j, off)
@@ -114,9 +141,12 @@ func yamlPlain(d []byte, ts *tkState, off int, pd *PosDoc) (int, error) {
 		lastR = r
 		lastSz = sz
 	}
+	// Fallen out of the loop rather than jumped out of it: the data ended before
+	// anything that ends a plain scalar did.  `goto done` skips this.
+	ranOut = true
 done:
 	if i <= 0 {
-		return 0, ErrYAMLPlain
+		return 0, ranOut, ErrYAMLPlain
 	}
 	j := i - 1
 	for j >= 0 {
@@ -130,7 +160,7 @@ done:
 	}
 doneTrim:
 	i = j + 1
-	return i, nil
+	return i, ranOut, nil
 }
 
 // either return a Literal or String,

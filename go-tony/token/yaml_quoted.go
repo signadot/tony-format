@@ -186,6 +186,12 @@ func yamlDoubleQuoted(d []byte, pos *Pos) (*Token, int, error) {
 			}
 		}
 	}
+	// The closing quote is the only way out of the loop above, so falling out of
+	// it means there was none: unterminated, which the streaming tokenizer reads
+	// as "the quote may be in the next read" and a whole document reads as the
+	// error it is.  Returned as a complete string, `a: "no closing quote` was
+	// accepted with the rest of the line as its value (75g1kbpdh12krs09gdn0).
+	return nil, 0, fmt.Errorf(`%w "`, ErrUnterminated)
 done:
 	return &Token{Type: TString, Pos: pos, Bytes: dst}, i, nil
 }

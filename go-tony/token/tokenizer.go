@@ -259,6 +259,22 @@ func (t *Tokenizer) extractTrailingWhitespace(data []byte) []byte {
 	return nil
 }
 
+// yamlPlainAt scans a plain YAML scalar at the current position, asking for more
+// data when the scan reached the end of the buffer while more can still arrive: a
+// plain scalar ends at a delimiter, so one which runs to the end of the buffer
+// may continue in the next read.  Reading it as complete chopped every scalar
+// which met a read boundary (75g1kbpdh12krs09gdn0).
+func (t *Tokenizer) yamlPlainAt(d []byte, off int) (int, error) {
+	sz, ranOut, err := yamlPlainRun(d, t.ts, off, t.posDoc)
+	if err != nil {
+		return 0, err
+	}
+	if ranOut && t.reader != nil && !t.drained {
+		return 0, io.EOF
+	}
+	return sz, nil
+}
+
 // needsMoreData reports whether a scan failed only because the buffer ran out
 // under it, and more data can still arrive to complete the construct — in which
 // case the caller signals io.EOF to have the buffer grown and the scan retried.
@@ -358,13 +374,20 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 	// Main switch statement
 	switch c {
 	case ':':
+		// In YAML a ':' with no space after it is part of a plain scalar (`:9091`),
+		// and the byte after it is what says so: a buffer ending at the colon
+		// cannot tell, and calling it a key separator split `:9091` into a colon
+		// and a scalar.
+		if t.opt.format == format.YAMLFormat && pos+1 >= n && t.reader != nil && !t.drained {
+			return nil, 0, io.EOF
+		}
 		if t.opt.format == format.YAMLFormat &&
 			pos+1 < n &&
 			data[pos+1] != ' ' &&
 			data[pos+1] != '\t' &&
 			data[pos+1] != '\r' &&
 			data[pos+1] != '\n' {
-			off, err := yamlPlain(data[pos+1:], t.ts, int(absOffset+1), t.posDoc)
+			off, err := t.yamlPlainAt(data[pos+1:], int(absOffset+1))
 			if err != nil {
 				return nil, 0, err
 			}
@@ -383,6 +406,9 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		if t.opt.format == format.YAMLFormat {
 			tok, off, err := YAMLQuotedString(data[pos:], t.posDoc.Pos(int(absOffset)))
 			if err != nil {
+				if t.needsMoreData(err) {
+					return nil, 0, io.EOF // the closing quote may be in the next read
+				}
 				return nil, 0, NewTokenizeErr(err, t.posDoc.Pos(int(absOffset)))
 			}
 			tok.Pos = t.posDoc.Pos(int(absOffset))
@@ -537,7 +563,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		switch next {
 		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 			if t.opt.format == format.YAMLFormat {
-				off, err := yamlPlain(data[pos+1:], t.ts, int(absOffset+1), t.posDoc)
+				off, err := t.yamlPlainAt(data[pos+1:], int(absOffset+1))
 				if err != nil {
 					return nil, 0, err
 				}
@@ -634,7 +660,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 				t.ts.hasValue = true
 				return []Token{tok}, len(lit), nil
 			case format.YAMLFormat:
-				off, err := yamlPlain(data[pos:], t.ts, int(absOffset), t.posDoc)
+				off, err := t.yamlPlainAt(data[pos:], int(absOffset))
 				if err != nil {
 					return nil, 0, err
 				}
@@ -648,7 +674,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 
 	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 		if t.opt.format == format.YAMLFormat {
-			off, err := yamlPlain(data[pos:], t.ts, int(absOffset), t.posDoc)
+			off, err := t.yamlPlainAt(data[pos:], int(absOffset))
 			if err != nil {
 				return nil, 0, err
 			}
@@ -793,7 +819,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			t.ts.hasValue = true
 			return []Token{tok}, len(lit), nil
 		case format.YAMLFormat:
-			off, err := yamlPlain(data[pos:], t.ts, int(absOffset), t.posDoc)
+			off, err := t.yamlPlainAt(data[pos:], int(absOffset))
 			if err != nil {
 				return nil, 0, err
 			}
@@ -836,7 +862,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			t.ts.hasValue = true
 			return []Token{tok}, len(lit), nil
 		case format.YAMLFormat:
-			off, err := yamlPlain(data[pos:], t.ts, int(absOffset), t.posDoc)
+			off, err := t.yamlPlainAt(data[pos:], int(absOffset))
 			if err != nil {
 				return nil, 0, err
 			}
@@ -879,7 +905,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			t.ts.hasValue = true
 			return []Token{tok}, len(lit), nil
 		case format.YAMLFormat:
-			off, err := yamlPlain(data[pos:], t.ts, int(absOffset), t.posDoc)
+			off, err := t.yamlPlainAt(data[pos:], int(absOffset))
 			if err != nil {
 				return nil, 0, err
 			}
@@ -985,7 +1011,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			}
 			return nil, 0, UnexpectedErr(string(lit), t.posDoc.Pos(int(absOffset)))
 		case format.YAMLFormat:
-			off, err := yamlPlain(data[pos:], t.ts, int(absOffset), t.posDoc)
+			off, err := t.yamlPlainAt(data[pos:], int(absOffset))
 			if err != nil {
 				return nil, 0, err
 			}
