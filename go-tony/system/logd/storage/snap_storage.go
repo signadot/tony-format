@@ -35,29 +35,10 @@ import (
 //
 // Caller is responsible for closing the returned reader.
 func (s *Storage) findSnapshotBaseReader(commit int64) (patches.EventReadCloser, int64, error) {
-	iter := s.index.IterAtPath("")
-
-	// Find snapshot segment while holding lock, then release before I/O.
-	// Segment data (LogFile, LogPosition) is immutable once written,
-	// so it's safe to use after releasing the lock.
-	var snapSeg *index.LogSegment
-	s.index.RLock()
-	for seg := range iter.CommitsAt(commit, index.Down) {
-		// Skip non-snapshot entries (patches have StartCommit != EndCommit)
-		if seg.StartCommit != seg.EndCommit {
-			continue
-		}
-		// Only baseline snapshots.
-		if seg.ScopeID == nil {
-			segCopy := seg
-			snapSeg = &segCopy
-			break
-		}
-	}
-	s.index.RUnlock()
+	snapSeg, ok := s.baselineSnapshotSegment(commit)
 
 	// No snapshot found - start from empty (null state at commit 0)
-	if snapSeg == nil {
+	if !ok {
 		return patches.NewEmptyEventReader(), 0, nil
 	}
 
@@ -92,6 +73,29 @@ func (s *Storage) findSnapshotBaseReader(commit int64) (patches.EventReadCloser,
 
 	// Return wrapper that closes both the event reader and snapshot when done
 	return &snapshotEventReadCloser{snapshot: snapshot, reader: eventReader}, snapSeg.StartCommit + 1, nil
+}
+
+// baselineSnapshotSegment answers the most recent baseline snapshot at or below
+// commit. The lookup is at the ROOT because that is where a snapshot is indexed;
+// see findSnapshotBaseReader for what looking it up at a read's path did.
+func (s *Storage) baselineSnapshotSegment(commit int64) (index.LogSegment, bool) {
+	iter := s.index.IterAtPath("")
+
+	// Find the segment while holding the lock, then release before any I/O:
+	// LogFile and LogPosition are immutable once written.
+	s.index.RLock()
+	defer s.index.RUnlock()
+	for seg := range iter.CommitsAt(commit, index.Down) {
+		// Skip non-snapshot entries (patches have StartCommit != EndCommit)
+		if seg.StartCommit != seg.EndCommit {
+			continue
+		}
+		// Only baseline snapshots.
+		if seg.ScopeID == nil {
+			return seg, true
+		}
+	}
+	return index.LogSegment{}, false
 }
 
 // SwitchDLog switches the active log and creates snapshots.

@@ -104,7 +104,13 @@ func (i *Index) Remove(seg *LogSegment) bool {
 	return res
 }
 
-// LookupRange finds segments in the given commit range.
+// LookupRange finds segments in the given commit range, at or above kp: a write
+// above kp writes through it.  A segment appears once per path it was indexed at,
+// which is what callers reading the paths depend on.
+//
+// It does NOT descend below kp.  For "everything which can affect the subtree at
+// kp", each entry once, see LookupSubtree.
+//
 // If scopeID is nil, returns only baseline segments.
 // If scopeID is non-nil, returns baseline + matching scope segments.
 func (i *Index) LookupRange(kp string, from, to *int64, scopeID *string) []LogSegment {
@@ -128,19 +134,116 @@ func (i *Index) LookupRange(kp string, from, to *int64, scopeID *string) []LogSe
 		return res
 	}
 	// Recursive call - child index has its own lock, so this is safe
-	cRes := c.LookupRange(restPath, from, to, scopeID)
-	// Reconstruct full kpath for results
+	res = appendRelative(res, firstSegment, c.LookupRange(restPath, from, to, scopeID))
+	slices.SortFunc(res, LogSegCompare)
+	return res
+}
+
+// LookupSubtree answers the distinct log entries in the commit range which can
+// affect the subtree at kp: the ones written AT or ABOVE it, since a write above
+// writes through it, and the ones written BELOW it, since they are part of the
+// subtree.  Each entry is answered ONCE, whichever of those it is, with the highest
+// path it was indexed at -- a reader applies an entry once and reads it from the log
+// by position, so a segment per path it touches is a repeat.
+//
+// This is the query a read at a path needs, and its absence is why reads were taken
+// at the root instead. A patch is indexed at every path inside it (IndexPatch), so
+// LookupRange at a narrow path answered the same set as the root with each entry
+// repeated once per level -- no selectivity, several times the cost
+// (ap8ddvp2h12krd43gdn0). Selectivity comes with indexing a patch at what it writes
+// rather than at every level; the descent here is what makes that possible without
+// losing the writes below.
+func (i *Index) LookupSubtree(kp string, from, to *int64, scopeID *string) []LogSegment {
+	res := i.lookupSubtree(kp, from, to, scopeID, true)
+	dedupEntries(&res)
+	slices.SortFunc(res, LogSegCompare)
+	return res
+}
+
+// lookupSubtree collects without sorting or deduping, so the recursion pays for
+// neither. scoped says whether scopeID filters at all -- LookupRangeAll asks for
+// every scope, which is a different question from asking for the baseline.
+func (i *Index) lookupSubtree(kp string, from, to *int64, scopeID *string, scoped bool) []LogSegment {
+	i.RLock()
+	defer i.RUnlock()
+	res := []LogSegment{}
+	i.Commits.Range(func(c LogSegment) bool {
+		if !scoped || matchesScope(c.ScopeID, scopeID) {
+			res = append(res, c)
+		}
+		return true
+	}, rangeFunc(from, to))
+
+	if kp == "" {
+		// At the queried path: everything below it is part of the subtree.
+		for name, c := range i.Children {
+			res = appendRelative(res, name, c.lookupSubtree("", from, to, scopeID, scoped))
+		}
+		return res
+	}
+
+	// Still walking down to the queried path.  This node's own segments were
+	// collected above, since a write here writes through kp.
+	firstSegment, restPath := kpath.Split(kp)
+	c := i.Children[firstSegment]
+	if c == nil {
+		return res
+	}
+	return appendRelative(res, firstSegment, c.lookupSubtree(restPath, from, to, scopeID, scoped))
+}
+
+// appendRelative adds the child's segments to res, restoring the segment path the
+// child answered relative to itself.
+func appendRelative(res []LogSegment, name string, cRes []LogSegment) []LogSegment {
 	for j := range cRes {
 		seg := cRes[j]
 		if seg.KindedPath == "" {
-			seg.KindedPath = firstSegment
+			seg.KindedPath = name
 		} else {
-			seg.KindedPath = kpath.Join(firstSegment, seg.KindedPath)
+			seg.KindedPath = kpath.Join(name, seg.KindedPath)
 		}
 		res = append(res, seg)
 	}
-	slices.SortFunc(res, LogSegCompare)
 	return res
+}
+
+// dedupEntries keeps one segment per log entry, whatever paths it was indexed at.
+// An entry is identified by where it sits in the log, which is what a reader reads
+// from: two segments naming the same position are one write seen from two paths, and
+// applying it twice is what made a narrow read cost several times a wide one.
+//
+// The path kept is the highest the entry was indexed at, which is the one a reader
+// can use to decide what the entry writes through.
+func dedupEntries(res *[]LogSegment) {
+	seen := make(map[segKey]int, len(*res))
+	out := (*res)[:0]
+	for _, seg := range *res {
+		k := segKey{seg.LogFile, seg.LogFileGeneration, seg.LogPosition, seg.StartTx, scopeKey(seg.ScopeID)}
+		if at, dup := seen[k]; dup {
+			if len(seg.KindedPath) < len(out[at].KindedPath) {
+				out[at].KindedPath = seg.KindedPath
+			}
+			continue
+		}
+		seen[k] = len(out)
+		out = append(out, seg)
+	}
+	*res = out
+}
+
+type segKey struct {
+	logFile    string
+	generation int64
+	position   int64
+	startTx    int64
+	scope      string
+}
+
+func scopeKey(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return "s:" + *s
 }
 
 // matchesScope returns true if the segment should be included for the given scopeID.
@@ -177,16 +280,7 @@ func (i *Index) LookupRangeAll(kp string, from, to *int64) []LogSegment {
 	if c == nil {
 		return res
 	}
-	cRes := c.LookupRangeAll(restPath, from, to)
-	for j := range cRes {
-		seg := cRes[j]
-		if seg.KindedPath == "" {
-			seg.KindedPath = firstSegment
-		} else {
-			seg.KindedPath = kpath.Join(firstSegment, seg.KindedPath)
-		}
-		res = append(res, seg)
-	}
+	res = appendRelative(res, firstSegment, c.LookupRangeAll(restPath, from, to))
 	slices.SortFunc(res, LogSegCompare)
 	return res
 }
