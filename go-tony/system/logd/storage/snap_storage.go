@@ -133,6 +133,17 @@ func (s *Storage) SwitchDLog() error {
 	// until something downstream notices. See head.go.
 	s.CheckHead()
 
+	// Say what reads have been doing since the last snapshot. A store cannot be
+	// asked afterwards, and from outside a narrow read and a wide one differ only in
+	// how long they took -- which is exactly what is in doubt when a fix does not
+	// show up downstream (ap8ddvp2h12krd43gdn0).
+	if rs := s.ReadStats(); rs.Narrow+rs.WideRoot+rs.WideScope+rs.WideOperator+rs.WideAbsent > 0 {
+		s.logger.Info("reads since start",
+			"narrow", rs.Narrow, "wideRoot", rs.WideRoot, "wideScope", rs.WideScope,
+			"wideOperator", rs.WideOperator, "wideAbsent", rs.WideAbsent,
+			"wideKeyedOrIndexed", rs.WideNonField, "wideBadPath", rs.WideBadPath)
+	}
+
 	// Run compaction on the inactive log if configured
 	if s.compactionConfig != nil {
 		if err := s.Compact(s.compactionConfig); err != nil {

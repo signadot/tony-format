@@ -16,6 +16,7 @@ type debug struct {
 	Patches   bool // o build patching logs per document, per patch, not per patch Op
 	Op        bool
 	Eval      bool
+	Read      bool // logd: one line per read -- the path, whether it narrowed, and why not
 }
 
 var d *debug
@@ -30,6 +31,7 @@ func init() {
 	d.Patches = boolEnv("O_DEBUG_PATCHES")
 	d.Eval = boolEnv("O_DEBUG_EVAL")
 	d.Op = boolEnv("O_DEBUG_OP")
+	d.Read = boolEnv("O_DEBUG_READ")
 }
 
 func boolEnv(v string) bool {
@@ -46,6 +48,9 @@ func LoadEnv() bool {
 }
 func ExpandEnv() bool {
 	return d.ExpandEnv
+}
+func Read() bool {
+	return d.Read
 }
 func Match() bool {
 	return d.Match

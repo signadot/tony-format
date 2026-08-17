@@ -114,6 +114,11 @@ func logdServe(cfg *LogDServeConfig, cc *cli.Context, args []string) error {
 		return fmt.Errorf("failed to initialize storage: %w", err)
 	}
 
+	// The admin listener came up before the store; now that there is one, let it
+	// report what reads are doing. Whether a read at a path narrows or reads the
+	// whole document cannot be told from outside (ap8ddvp2h12krd43gdn0).
+	adminSrv.SetReport(func() map[string]any { return s.ReadStats().Report() })
+
 	// Create server
 	srv := server.New(&server.Spec{
 		Config:  serverConfig,

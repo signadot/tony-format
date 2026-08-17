@@ -32,6 +32,7 @@ import (
 	"net/http/pprof"
 	"os"
 	"runtime"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -77,12 +78,24 @@ type Spec struct {
 
 	// Log receives the startup line and any serve error. Defaults to discarding.
 	Log *slog.Logger
+
+	// Report, when set, answers what this process wants an operator to see beyond
+	// the process facts below: counters a running server cannot be asked for
+	// afterwards. It is called per request, so it must be cheap and must not block.
+	//
+	// It exists because a question like "is this read narrowing or reading the whole
+	// document" cannot be answered from outside -- a fast read and a read which never
+	// happened look the same from a timer (ap8ddvp2h12krd43gdn0).
+	Report func() map[string]any
 }
 
 // Server is the admin listener.
 type Server struct {
 	spec    Spec
 	started time.Time
+
+	// report is written by SetReport once the parts it reports on exist.
+	report atomic.Pointer[func() map[string]any]
 
 	// addrs is written by SetAddrs at startup and read by request handlers.
 	// An atomic pointer rather than a mutex: a handler that reports addresses
@@ -107,6 +120,13 @@ func New(spec *Spec) *Server {
 // then. Safe to call while serving.
 func (s *Server) SetAddrs(addrs ...Addr) {
 	s.addrs.Store(&addrs)
+}
+
+// SetReport sets what this process reports beyond the process facts, after the fact.
+// The listener comes up before the parts it reports on -- that is the point of it --
+// so what it can say has to be able to arrive later.
+func (s *Server) SetReport(report func() map[string]any) {
+	s.report.Store(&report)
 }
 
 // Start binds the admin address and serves in the background. A bind failure
@@ -208,17 +228,18 @@ func (s *Server) mux() *http.ServeMux {
 
 // Info is what the admin listener knows about its process.
 type Info struct {
-	Name         string    `json:"name"`
-	PID          int       `json:"pid"`
-	Executable   string    `json:"executable"`
-	GoVersion    string    `json:"goVersion"`
-	Platform     string    `json:"platform"`
-	GOMAXPROCS   int       `json:"gomaxprocs"`
-	NumCPU       int       `json:"numCPU"`
-	NumGoroutine int       `json:"numGoroutine"`
-	StartedAt    time.Time `json:"startedAt"`
-	Uptime       string    `json:"uptime"`
-	Addrs        []Addr    `json:"addrs"`
+	Name         string         `json:"name"`
+	PID          int            `json:"pid"`
+	Executable   string         `json:"executable"`
+	GoVersion    string         `json:"goVersion"`
+	Platform     string         `json:"platform"`
+	GOMAXPROCS   int            `json:"gomaxprocs"`
+	NumCPU       int            `json:"numCPU"`
+	NumGoroutine int            `json:"numGoroutine"`
+	StartedAt    time.Time      `json:"startedAt"`
+	Uptime       string         `json:"uptime"`
+	Addrs        []Addr         `json:"addrs"`
+	Report       map[string]any `json:"report,omitempty"`
 }
 
 // Info snapshots the process state the index reports.
@@ -231,7 +252,14 @@ func (s *Server) Info() Info {
 	if p := s.addrs.Load(); p != nil {
 		addrs = append(addrs, *p...)
 	}
+	var report map[string]any
+	if f := s.report.Load(); f != nil && *f != nil {
+		report = (*f)()
+	} else if s.spec.Report != nil {
+		report = s.spec.Report()
+	}
 	return Info{
+		Report:       report,
 		Name:         s.spec.Name,
 		PID:          os.Getpid(),
 		Executable:   exe,
@@ -271,6 +299,24 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "  procs       %d of %d cpu\n", info.GOMAXPROCS, info.NumCPU)
 	fmt.Fprintf(w, "  goroutines  %d\n", info.NumGoroutine)
 	fmt.Fprintf(w, "  uptime      %s\n", info.Uptime)
+
+	if len(info.Report) > 0 {
+		fmt.Fprintf(w, "\nreported\n")
+		keys := make([]string, 0, len(info.Report))
+		for k := range info.Report {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		width := 0
+		for _, k := range keys {
+			if len(k) > width {
+				width = len(k)
+			}
+		}
+		for _, k := range keys {
+			fmt.Fprintf(w, "  %-*s  %v\n", width, k, info.Report[k])
+		}
+	}
 
 	fmt.Fprintf(w, "\nlistening\n")
 	width := 0

@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
@@ -36,13 +37,30 @@ import (
 // not done here -- one place does it (the server's extractPathValue), and a second
 // would be a second set of error codes for the same question.
 func (s *Storage) ReadSubtreeAt(kp string, commit int64, scopeID *string) (*ir.Node, bool, error) {
-	if kp == "" || scopeID != nil {
+	started := time.Now()
+	if kp == "" {
+		s.readStats.note(ReadWideRoot, kp, time.Since(started))
+		return nil, false, nil
+	}
+	if scopeID != nil {
+		s.readStats.note(ReadWideScope, kp, time.Since(started))
 		return nil, false, nil
 	}
 	if _, err := kpath.Parse(kp); err != nil {
+		s.readStats.note(ReadWideBadPath, kp, time.Since(started))
 		return nil, false, nil // the wide read reports what is wrong with it
 	}
-	return s.readSubtreeNarrow(kp, commit)
+	node, narrowed, err := s.readSubtreeNarrow(kp, commit)
+	switch {
+	case err != nil:
+	case !narrowed:
+		s.readStats.note(ReadWideOperator, kp, time.Since(started))
+	case node == nil:
+		s.readStats.note(ReadWideAbsent, kp, time.Since(started))
+	default:
+		s.readStats.note(ReadNarrow, kp, time.Since(started))
+	}
+	return node, narrowed, err
 }
 
 // ReadSubtreeRootedAt is ReadSubtreeAt with the value put back under the path it
@@ -58,6 +76,10 @@ func (s *Storage) ReadSubtreeAt(kp string, commit int64, scopeID *string) (*ir.N
 // wide for those, which is what it did for everything before.
 func (s *Storage) ReadSubtreeRootedAt(kp string, commit int64, scopeID *string) (*ir.Node, bool, error) {
 	if kp == "" {
+		// Counted here rather than in ReadSubtreeAt, which this returns before
+		// reaching: a read at the root is the commonest wide read there is, and a
+		// report which leaves it out is a report about the wrong population.
+		s.readStats.note(ReadWideRoot, kp, 0)
 		return nil, false, nil
 	}
 	node, narrowed, err := s.ReadSubtreeAt(kp, commit, scopeID)
@@ -69,6 +91,7 @@ func (s *Storage) ReadSubtreeRootedAt(kp string, commit int64, scopeID *string) 
 	for i := len(segs) - 1; i >= 0; i-- {
 		name, isField := kpath.SegmentFieldName(segs[i])
 		if !isField {
+			s.readStats.note(ReadWideNonFieldPath, kp, 0)
 			return nil, false, nil // keyed or indexed: the wide read answers those
 		}
 		rooted = ir.FromKeyVals([]ir.KeyVal{{Key: ir.FromString(name), Val: rooted}})
