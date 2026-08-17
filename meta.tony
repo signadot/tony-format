@@ -8,6 +8,7 @@ duplicates: []
 id: q6f0ybmkh12krdb4g9n0
 labels:
 - bug
-related_issues: []
+related_issues:
+- 7cdvym1fh12ksmd5g5n0
 status: open
-updated: "2026-08-17T03:30:38.584682+02:00"
+updated: "2026-08-17T03:30:38.685598+02:00"
