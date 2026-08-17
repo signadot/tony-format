@@ -38,10 +38,13 @@ func KPathState(kp string) (*State, error) {
 		switch current.EntryKind() {
 		case kpath.FieldEntry:
 			state.stack = append(state.stack, item{segment: kpath.Field(*current.Field), kind: &obj})
-			if expectedPath != "" {
-				expectedPath += "."
-			}
-			expectedPath += *current.Field
+			// ChildField, not concatenation: a field name is not always its own
+			// segment. `signadot/signadot#7349` renders quoted, which is what
+			// CurrentPath below says, and pasting the bare name after a dot said
+			// something else -- so the check panicked on paths that were right.
+			// Every store holding one such path crashed every narrow read which
+			// seeked near it (0w79k6hqh12krgcwgdn0).
+			expectedPath = kpath.ChildField(expectedPath, *current.Field)
 
 		case kpath.ArrayEntry:
 			n := *current.Index
@@ -69,8 +72,12 @@ func KPathState(kp string) (*State, error) {
 		}
 	}
 
+	// The state has to land where the path says, or a seek reads the wrong events and
+	// answers them as the right ones. That is worth refusing a read over; it is not
+	// worth taking the process down, which is what this did when the disagreement was
+	// its own (see above).
 	if state.CurrentPath() != expectedPath {
-		panic(kp + " -> " + expectedPath + " != " + state.CurrentPath())
+		return nil, fmt.Errorf("kpath state for %q landed at %q, not %q", kp, state.CurrentPath(), expectedPath)
 	}
 	return state, nil
 }
