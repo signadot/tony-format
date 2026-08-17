@@ -29,9 +29,14 @@ type CompletionConfig struct {
 // CompletionCommand writes a completion script for a shell.
 func CompletionCommand(mainCfg *MainConfig) *cli.Command {
 	cfg := &CompletionConfig{MainConfig: mainCfg}
+	opts, err := cli.StructOpts(cfg)
+	if err != nil {
+		panic(err)
+	}
 	cmd := cli.NewCommand("completion").
 		WithSynopsis("completion bash|zsh|fish").
 		WithDescription(completionDesc).
+		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
 			return completion(cfg, cc, args)
 		})
@@ -53,6 +58,11 @@ Commands and options are completed; a path into a document is not, since knowing
 one means reading a file the command line has not finished naming.`
 
 func completion(cfg *CompletionConfig, cc *cli.Context, args []string) error {
+	args, err := cfg.Completion.Parse(cc, args)
+	if err != nil {
+		cfg.Completion.Usage(cc, err)
+		return cli.ExitCodeErr(2)
+	}
 	if helpAsked(cfg.Completion, cc, cfg.Help) {
 		return nil
 	}

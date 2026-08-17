@@ -2,6 +2,17 @@
 
 validate documents against a [schema](https://signadot.github.io/tony-format/tonyschema/)
 
+Every document of every file is checked, and every file is checked even after one
+of them fails, so one run says how much is wrong rather than just that something
+is.
+
+With no files, stdin is read, as grep and cat do.
+
+Exit codes are the tool's usual three: 0 when everything checked satisfies the
+schema, 1 when something did not -- which is an answer about the document -- and 2
+for a fault: a schema that cannot be read, a file that cannot be opened, or input
+which is not object notation at all.
+
 ## Usage
 
 ```

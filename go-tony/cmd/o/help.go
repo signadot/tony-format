@@ -86,9 +86,14 @@ func editDistance(a, b string) int {
 // than the flag. Both spellings answer, because both are typed.
 func HelpCommand(mainCfg *MainConfig) *cli.Command {
 	cfg := &HelpConfig{MainConfig: mainCfg}
+	opts, err := cli.StructOpts(cfg)
+	if err != nil {
+		panic(err)
+	}
 	cmd := cli.NewCommand("help").
 		WithSynopsis("help [command]").
 		WithDescription("Show help for o, or for one of its commands").
+		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
 			return help(cfg, cc, args)
 		})
@@ -104,6 +109,16 @@ type HelpConfig struct {
 }
 
 func help(cfg *HelpConfig, cc *cli.Context, args []string) error {
+	args, err := cfg.Cmd.Parse(cc, args)
+	if err != nil {
+		cfg.Cmd.Usage(cc, err)
+		return cli.ExitCodeErr(2)
+	}
+	// `o help -h` is help for help, which is a fair thing to ask of the command
+	// whose whole subject is help.
+	if helpAsked(cfg.Cmd, cc, cfg.Help) {
+		return nil
+	}
 	root := cfg.Main
 	if len(args) == 0 {
 		root.Usage(cc, nil)
@@ -147,4 +162,41 @@ func optionNames(cmd *cli.Command) []string {
 // names are Go identifiers and flags, so only the quote itself can surprise it.
 func quoteForShell(s string) string {
 	return strings.ReplaceAll(s, "'", `'\''`)
+}
+
+// A command whose job is to hold others -- schema, system -- answers the same way
+// the root does: -h and no argument at all print its help on stdout and exit 0, and
+// a name it does not have is a misuse, with the nearest one it does offered.
+//
+// They used to answer neither. `o schema -h` exited 1 with `unknown option: "h"`,
+// because a group command registers no options of its own, and `o schema` exited 1
+// on the library's ErrNoCommandProvided -- so the two ways of asking a group what
+// it holds were both errors.
+func groupRun(group *cli.Command, cfg *MainConfig, cc *cli.Context, args []string) error {
+	args, err := group.Parse(cc, args)
+	if err != nil {
+		group.Usage(cc, err)
+		return cli.ExitCodeErr(2)
+	}
+	if cfg.Help || len(args) == 0 {
+		group.Usage(cc, nil)
+		if !cfg.Help {
+			fmt.Fprintf(cc.Out, "\nplease choose a subcommand of `o %s`.\n", group.Name)
+		}
+		return nil
+	}
+	sub := group.FindSub(cc, args[0])
+	if sub == nil {
+		return noSuchSub(group, cc, args[0])
+	}
+	return sub.Run(cc, args[1:])
+}
+
+// noSuchSub is noSuchCommand for a subcommand of a group.
+func noSuchSub(group *cli.Command, cc *cli.Context, given string) error {
+	group.Usage(cc, fmt.Errorf("%w: %q", cli.ErrNoSuchCommand, given))
+	if did := nearestCommand(group, given); did != "" {
+		fmt.Fprintf(cc.Err, "\ndid you mean `o %s %s`?\n", group.Name, did)
+	}
+	return cli.ExitCodeErr(2)
 }

@@ -97,20 +97,21 @@ func sitePage(dir string) func(*cli.Command) string {
 func writeDocs(cfg *DocsConfig, cc *cli.Context, args []string) error {
 	args, err := cfg.Docs.Parse(cc, args)
 	if err != nil {
-		return err
+		cfg.Docs.Usage(cc, err)
+		return cli.ExitCodeErr(2)
 	}
 	if helpAsked(cfg.Docs, cc, cfg.Help) {
 		return nil
 	}
 	if len(args) != 1 {
-		return fmt.Errorf("docs takes one argument: the directory to write")
+		return usageErr(cfg.Docs, cc, "docs takes one argument: the directory to write")
 	}
 	doc := cli.NewDoc(MainCommand()).
 		WithSite(cfg.Site).
 		WithPage(sitePage(filepath.Base(args[0]))).
 		WithTerms(docsTerms)
 	if err := doc.Write(args[0]); err != nil {
-		return err
+		return fault(cc, err)
 	}
 	fmt.Fprintf(cc.Out, "wrote %s\n", args[0])
 	return nil

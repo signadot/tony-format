@@ -22,9 +22,17 @@ type DocDConfig struct {
 
 func DocDCommand(mainCfg *MainConfig) *cli.Command {
 	cfg := &DocDConfig{MainConfig: mainCfg}
+	opts, err := cli.StructOpts(cfg)
+	if err != nil {
+		panic(err)
+	}
 	return cli.NewCommandAt(&cfg.DocD, "docd").
 		WithSynopsis("docd <subcommand>").
 		WithDescription("docd document server commands").
+		WithOpts(opts...).
+		WithRun(func(cc *cli.Context, args []string) error {
+			return groupRun(cfg.DocD, cfg.MainConfig, cc, args)
+		}).
 		WithSubs(
 			DocDServeCommand(cfg),
 			DocDMetaCommand(cfg, "mounts", "list controller mounts on a running docd"),
@@ -58,6 +66,9 @@ func DocDMetaCommand(docdCfg *DocDConfig, resource, desc string) *cli.Command {
 func docdMeta(cfg *DocDMetaConfig, cc *cli.Context, args []string) error {
 	if _, err := cfg.Cmd.Parse(cc, args); err != nil {
 		return err
+	}
+	if helpAsked(cfg.Cmd, cc, cfg.Help) {
+		return nil
 	}
 
 	// Query docd's .meta over the normal client protocol.
@@ -108,6 +119,9 @@ func docdServe(cfg *DocDServeConfig, cc *cli.Context, args []string) error {
 	_, err := cfg.Serve.Parse(cc, args)
 	if err != nil {
 		return err
+	}
+	if helpAsked(cfg.Serve, cc, cfg.Help) {
+		return nil
 	}
 
 	// Start gops agent for debugging

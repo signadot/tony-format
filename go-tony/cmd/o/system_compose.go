@@ -53,6 +53,9 @@ func systemUp(cfg *UpConfig, cc *cli.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if helpAsked(cfg.Up, cc, cfg.Help) {
+		return nil
+	}
 
 	if cfg.DataDir == "" {
 		return fmt.Errorf("-data is required")

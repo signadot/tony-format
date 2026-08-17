@@ -15,14 +15,15 @@ import (
 func build(cfg *BuildConfig, cc *cli.Context, args []string) error {
 	args, err := cfg.Build.Parse(cc, args)
 	if err != nil {
-		return err
+		cfg.Build.Usage(cc, err)
+		return cli.ExitCodeErr(2)
 	}
 	if helpAsked(cfg.Build, cc, cfg.Help) {
 		return nil
 	}
 	args, err = parseEnvExtras(cfg.Env, cc, args)
 	if err != nil {
-		return err
+		return usageErr(cfg.Build, cc, err.Error())
 	}
 	dirPath := "."
 	if len(args) != 0 {
@@ -30,15 +31,15 @@ func build(cfg *BuildConfig, cc *cli.Context, args []string) error {
 	}
 	dir, err := dirbuild.OpenDir(dirPath, cfg.Env)
 	if err != nil {
-		return err
+		return fault(cc, err)
 	}
 	if cfg.ShowEnv && cfg.List {
-		return fmt.Errorf("%w: cannot use -s and -l together", cli.ErrUsage)
+		return usageErr(cfg.Build, cc, "cannot use -s and -l together")
 	}
 	if cfg.List {
 		profiles, err := dir.Profiles()
 		if err != nil {
-			return fmt.Errorf("error getting profiles: %w", err)
+			return fault(cc, fmt.Errorf("error getting profiles: %w", err))
 		}
 		for _, profile := range profiles {
 			fmt.Fprintln(cc.Out, profile)
@@ -56,24 +57,27 @@ func build(cfg *BuildConfig, cc *cli.Context, args []string) error {
 		if profile == "-" {
 			data, err := io.ReadAll(cc.In)
 			if err != nil {
-				return fmt.Errorf("error reading profile from stdin: %w", err)
+				return fault(cc, fmt.Errorf("error reading profile from stdin: %w", err))
 			}
 			if err := dir.LoadProfileFromBytes(data, eval.EnvToMapAny(cfg.Env)); err != nil {
-				return fmt.Errorf("error loading profile from stdin: %w", err)
+				return fault(cc, fmt.Errorf("error loading profile from stdin: %w", err))
 			}
 		} else {
 			if err := dir.LoadProfile(profile, eval.EnvToMapAny(cfg.Env)); err != nil {
-				return fmt.Errorf("error loading profile %s: %w", profile, err)
+				return fault(cc, fmt.Errorf("error loading profile %s: %w", profile, err))
 			}
 		}
 	}
 	if cfg.ShowEnv {
 		opts := append(cfg.MainConfig.encOpts(cc.Out), encode.EncodeComments(true))
-		return encode.Encode(ir.Comment(ir.FromMap(dir.Env), "# build environment:"), cc.Out, opts...)
+		if err := encode.Encode(ir.Comment(ir.FromMap(dir.Env), "# build environment:"), cc.Out, opts...); err != nil {
+			return fault(cc, err)
+		}
+		return nil
 	}
 	_, err = dir.Run(w, cfg.MainConfig.encOpts(w)...)
 	if err != nil {
-		return err
+		return fault(cc, err)
 	}
 	return nil
 }

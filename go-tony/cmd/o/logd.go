@@ -26,9 +26,17 @@ type LogDConfig struct {
 
 func LogDCommand(mainCfg *MainConfig) *cli.Command {
 	cfg := &LogDConfig{MainConfig: mainCfg}
+	opts, err := cli.StructOpts(cfg)
+	if err != nil {
+		panic(err)
+	}
 	return cli.NewCommandAt(&cfg.LogD, "logd").
 		WithSynopsis("logd <subcommand>").
 		WithDescription("logd storage server commands").
+		WithOpts(opts...).
+		WithRun(func(cc *cli.Context, args []string) error {
+			return groupRun(cfg.LogD, cfg.MainConfig, cc, args)
+		}).
 		WithSubs(
 			LogDServeCommand(cfg),
 			LogDSessionCommand(cfg))
@@ -62,6 +70,9 @@ func logdServe(cfg *LogDServeConfig, cc *cli.Context, args []string) error {
 	_, err := cfg.Serve.Parse(cc, args)
 	if err != nil {
 		return err
+	}
+	if helpAsked(cfg.Serve, cc, cfg.Help) {
+		return nil
 	}
 
 	// Start gops agent for debugging
@@ -140,6 +151,9 @@ func logdSession(cfg *LogDSessionConfig, cc *cli.Context, args []string) error {
 	args, err := cfg.Session.Parse(cc, args)
 	if err != nil {
 		return err
+	}
+	if helpAsked(cfg.Session, cc, cfg.Help) {
+		return nil
 	}
 
 	if len(args) < 1 {

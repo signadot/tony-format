@@ -16,10 +16,11 @@ func oMain(cfg *MainConfig, cc *cli.Context, args []string) error {
 	}()
 	args, err := cfg.Main.Parse(cc, args)
 	if err != nil {
-		return err
+		cfg.Main.Usage(cc, err)
+		return cli.ExitCodeErr(2)
 	}
 	if count(cfg.T, cfg.J, cfg.Y) > 1 {
-		return fmt.Errorf("%w: must specify at most one of -j[son] -t[ony] -y[aml]", cli.ErrUsage)
+		return usageErr(cfg.Main, cc, "must specify at most one of -j[son] -t[ony] -y[aml]")
 	}
 	// Asking what a tool does is not a misuse of it. `o -h`, `o --help` and `o` with
 	// nothing at all all print the same thing, on stdout, and exit 0 -- they used to
@@ -44,8 +45,17 @@ func oMain(cfg *MainConfig, cc *cli.Context, args []string) error {
 	}
 	err = sub.Run(cc, args[1:])
 	if errors.Is(err, cli.ErrUsage) {
+		// The subcommand's usage is what a misuse of the subcommand calls for, not
+		// the root's -- which is what the library would print if this error went
+		// back as it is. So it is written here and an exit code goes back in its
+		// place, since an ExitCodeErr is neither printed again nor mistaken for a
+		// usage error at the top.
+		//
+		// It is returned rather than exited on: os.Exit here skipped the deferred
+		// CloseOut above, so `o -o out.tony <cmd>` with a misuse in <cmd> left
+		// out.tony unflushed and unclosed.
 		sub.Usage(cc, err)
-		os.Exit(sub.Exit(cc, err))
+		return cli.ExitCodeErr(2)
 	}
 	return err
 }
