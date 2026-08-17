@@ -27,7 +27,7 @@ func TestDottedFieldNameAcrossASnapshot(t *testing.T) {
 
 	// ids which stress the segment renderer: a dot is what quoting is for, a slash
 	// needs none, a space and a brace are the neighbours of the same rule
-	ids := []string{"plain", "has.dot", "has/slash", "has space", "has{brace}", "a.b.c"}
+	ids := []string{"plain", "has.dot", "has/slash", "has space", "has{brace}", "a.b.c", "has(paren)", "*"}
 
 	check := func(when string, ids []string) {
 		t.Helper()

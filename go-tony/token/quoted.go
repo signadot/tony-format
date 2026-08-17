@@ -65,9 +65,16 @@ func NeedsQuote(v string) bool {
 // KPathQuoteField returns true if a field name needs to be quoted in a kinded path.
 // A field needs quoting if:
 //   - It contains characters that require quoting according to NeedsQuote (spaces, special chars)
-//   - It contains any of the path syntax characters: ".", "[", "{"
+//   - It contains any of the path syntax characters: ".", "[", "{", "("
+//   - It begins with "*", which a path reads as the wildcard rather than as a name
+//
+// A name rendered without the quoting it needs stops being a name: `has(paren)`
+// parsed back as the field `has` with a key selector on it, and logd refused to
+// write it at all ("ir node unspecified"), while `*` selected every field there is.
+// The rule is the same one the dot taught (r05ms7nch12ksxttgdn0): what a path reads
+// as structure has to be quoted, or it becomes structure.
 func KPathQuoteField(v string) bool {
-	return NeedsQuote(v) || strings.ContainsAny(v, ".[{")
+	return NeedsQuote(v) || strings.ContainsAny(v, ".[{(") || strings.HasPrefix(v, "*")
 }
 
 func Quote(v string, autoSingle bool) string {
