@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: b2c030b596febb6aba989383d5801671aa041093
 commits:
 - 900e458687304e27110b56f36bdd63468154811a
 - b2c030b596febb6aba989383d5801671aa041093
@@ -10,5 +11,5 @@ duplicates: []
 id: r05ms7nch12ksxttgdn0
 labels: []
 related_issues: []
-status: open
-updated: "2026-08-17T21:34:42.173803+02:00"
+status: closed
+updated: "2026-08-17T21:34:42.280206+02:00"
