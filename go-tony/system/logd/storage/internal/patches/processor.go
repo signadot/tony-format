@@ -694,17 +694,19 @@ func (u *unreachedPatches) graftUpTo(f unreachedFrame, before string, sink strea
 		node := ir.Null()
 		for _, path := range groups[seg] {
 			rest, _ := remainderUnder(f.path, path)
-			nested, err := nestUnder(rest, u.values[path])
+			nested, err := nestPatches(rest, u.values[path])
 			if err != nil {
 				return err
 			}
 			delete(u.pending, path)
-			if nested == nil {
-				continue // nothing to add here
-			}
-			node, err = api.NextState(node, nested)
-			if err != nil {
-				return err
+			for _, np := range nested {
+				if node == nil {
+					node = ir.Null()
+				}
+				node, err = api.NextState(node, np)
+				if err != nil {
+					return err
+				}
 			}
 		}
 		if node == nil || node.Type == ir.NullType {
@@ -758,22 +760,21 @@ func (u *unreachedPatches) replaceScalar(path string, ev *stream.Event, sink str
 	replaced := false
 	for _, p := range under {
 		rest, _ := remainderUnder(path, p)
-		nested, err := nestUnder(rest, u.values[p])
+		nested, err := nestPatches(rest, u.values[p])
 		if err != nil {
 			return false, err
 		}
 		delete(u.pending, p)
-		if nested == nil {
-			continue // a delete under a scalar leaves the scalar as it was
+		for _, np := range nested {
+			if base == nil {
+				base = ir.Null()
+			}
+			base, err = api.NextState(base, np)
+			if err != nil {
+				return false, err
+			}
+			replaced = true
 		}
-		if base == nil {
-			base = ir.Null()
-		}
-		base, err = api.NextState(base, nested)
-		if err != nil {
-			return false, err
-		}
-		replaced = true
 	}
 	if !replaced {
 		return false, nil
@@ -841,7 +842,20 @@ func splitFieldSegment(rest string) (seg, tail string, err error) {
 //
 // Returns (nil, nil) when the fold leaves nothing at all — deleting a path the base
 // never had is a no-op, not something to graft on.
-func nestUnder(rest string, values []*ir.Node) (*ir.Node, error) {
+// nestPatches wraps each patch under rest -- structurally, and nothing more.
+//
+// It used to APPLY them, to null and to each other, and answer with the single node
+// that came out. That is not composition: applying a patch consumes the operations
+// in it, and !raw is the one whose whole purpose is to be consumed -- it installs
+// its subtree AS DATA, tags intact. So an escaped document came back out of the
+// fold with its operators bare, the caller applied that result as a patch, and the
+// operators which had been escaped were live again: every read of the store then
+// answered `irtype patching "null" gave cannot patch with irtype operation`, and no
+// later write could repair it.
+//
+// A patch is applied once, by whoever is accumulating the state. What is nested
+// here is still a patch.
+func nestPatches(rest string, values []*ir.Node) ([]*ir.Node, error) {
 	var segs []string
 	for rest != "" {
 		seg, tail, err := splitFieldSegment(rest)
@@ -852,20 +866,13 @@ func nestUnder(rest string, values []*ir.Node) (*ir.Node, error) {
 		rest = tail
 	}
 
-	var node *ir.Node = ir.Null()
+	res := make([]*ir.Node, 0, len(values))
 	for _, pn := range values {
 		wrapped := pn
 		for i := len(segs) - 1; i >= 0; i-- {
 			wrapped = ir.FromKeyVals([]ir.KeyVal{{Key: ir.FromString(segs[i]), Val: wrapped}})
 		}
-		if node == nil {
-			node = ir.Null()
-		}
-		next, err := api.NextState(node, wrapped)
-		if err != nil {
-			return nil, err
-		}
-		node = next
+		res = append(res, wrapped)
 	}
-	return node, nil
+	return res, nil
 }
