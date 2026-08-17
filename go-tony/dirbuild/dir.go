@@ -88,17 +88,21 @@ func newDir(node *ir.Node, path string, env map[string]*ir.Node) (*Dir, error) {
 }
 
 func initDir(dir *Dir, node *ir.Node, path string, env map[string]*ir.Node) (*Dir, error) {
-	if node.Type == ir.CommentType {
-		node = node.Values[0]
+	// A comment wraps the value it precedes, and a build file may open with one --
+	// they usually do. Uncomment sees through however many there are and answers
+	// nothing for a file which is ONLY a comment, where taking Values[0] read off
+	// the end of an empty wrapper and brought the build down with an index panic.
+	node = ir.Uncomment(node)
+	if node == nil || node.Type != ir.ObjectType {
+		return nil, fmt.Errorf("%s holds no build: section", buildFileIn(path))
 	}
-	oDir := &ir.Node{}
-	if len(node.Fields) != 0 {
-		if node.Fields[0].String == "build" {
-			oDir = node.Values[0]
-		}
-	}
-	if oDir.Type == ir.CommentType {
-		oDir = oDir.Values[0]
+	// By NAME rather than by position. Checking Fields[0] meant a build file whose
+	// first field was anything else -- a comment-turned-field, a note, a second
+	// top-level key -- configured nothing at all: no sources, no patches, no error,
+	// and a build that quietly produced an empty output.
+	oDir := ir.Uncomment(ir.Get(node, "build"))
+	if oDir == nil {
+		return nil, fmt.Errorf("%s holds no build: section", buildFileIn(path))
 	}
 	if err := dir.FromTonyIR(oDir); err != nil {
 		return nil, err
@@ -114,7 +118,11 @@ func initDir(dir *Dir, node *ir.Node, path string, env map[string]*ir.Node) (*Di
 		return nil, err
 	}
 
-	if dir.Env != nil {
+	// The env the CALLER passed is merged even when the build file declares none.
+	// The whole merge used to sit under `if dir.Env != nil`, so OpenDir(path, env)
+	// on a build file without an env: section dropped env on the floor -- silently,
+	// and only for the files that happened not to have one.
+	if dir.Env != nil || len(env) != 0 {
 		tool := tony.DefaultTool()
 		orgDir, err := os.Getwd()
 		if err != nil {
@@ -219,4 +227,10 @@ func (dir *Dir) loadPatches(ps []DirPatch, ee map[string]any) ([]DirPatch, error
 		res = append(res, DirPatch{Match: p.Match, Patch: p.Patch})
 	}
 	return res, nil
+}
+
+// buildFileIn names the build file a directory was opened from, for an error
+// about its contents.
+func buildFileIn(path string) string {
+	return filepath.Join(path, "build.{tony,yaml,json}")
 }

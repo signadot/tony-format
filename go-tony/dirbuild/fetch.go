@@ -133,8 +133,15 @@ func (s *DirSource) Fetch(root string, env map[string]any) ([]*ir.Node, error) {
 		cmd := exec.CommandContext(ctx, cmdArgV[0], cmdArgV[1:]...)
 		out := bytes.NewBuffer(nil)
 		cmd.Stdout = out
+		// Keep stderr: a command which fails says why on it, and dropping it left
+		// the build reporting "exit status 1" and nothing else.
+		errOut := bytes.NewBuffer(nil)
+		cmd.Stderr = errOut
 		if err := cmd.Run(); err != nil {
-			return nil, err
+			if msg := strings.TrimSpace(errOut.String()); msg != "" {
+				return nil, fmt.Errorf("%q: %w: %s", cmdStr, err, msg)
+			}
+			return nil, fmt.Errorf("%q: %w", cmdStr, err)
 		}
 		// Use default format or fall back to TonyFormat
 		form := defaultForm
@@ -183,11 +190,17 @@ func (w *sourceWalker) walk(path string, info fs.DirEntry, err error) error {
 	}
 	for ignore := range w.ignore {
 		m, _ := filepath.Match(ignore, path)
-		if m {
-			if info.IsDir() {
-				return fs.SkipDir
-			}
+		if !m {
+			continue
 		}
+		if info.IsDir() {
+			return fs.SkipDir
+		}
+		// A file matching the pattern is ignored too. It used to fall through and
+		// be read: an exact name was caught by the map lookup above, so only the
+		// GLOB patterns -- the reason to write a .buildignore.tony at all -- failed,
+		// and only for files.
+		return nil
 	}
 	if info.IsDir() {
 		ignorePath := filepath.Join(path, ".buildignore.tony")

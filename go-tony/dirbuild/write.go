@@ -38,15 +38,15 @@ func (d *Dir) write(bw *bufio.Writer, dst []*ir.Node, opts ...encode.EncodeOptio
 			return fmt.Errorf("%s exists but is not a directory", filepath.Join(d.Root, d.Output.DestDir))
 		}
 	}
-	j := 0
+	// A new slice: compacting in place rewrote the caller's array, so a caller
+	// which kept its documents found them shuffled by having written them.
+	live := make([]*ir.Node, 0, len(dst))
 	for _, doc := range dst {
-		if doc == nil {
-			continue
+		if doc != nil {
+			live = append(live, doc)
 		}
-		dst[j] = doc
-		j++
 	}
-	dst = dst[:j]
+	dst = live
 	n := len(dst)
 	for i, doc := range dst {
 		if err := d.writeOut(bw, doc, i, n, opts...); err != nil {
@@ -56,12 +56,19 @@ func (d *Dir) write(bw *bufio.Writer, dst []*ir.Node, opts ...encode.EncodeOptio
 	return nil
 }
 
-func (d *Dir) writeOut(w io.Writer, y *ir.Node, j, n int, opts ...encode.EncodeOption) error {
-	wc, err := d.writeCloser(w, y, opts...)
-	if err != nil {
-		return err
+func (d *Dir) writeOut(w io.Writer, y *ir.Node, j, n int, opts ...encode.EncodeOption) (err error) {
+	wc, cerr := d.writeCloser(w, y, opts...)
+	if cerr != nil {
+		return cerr
 	}
-	defer wc.Close()
+	// Close is where the file's buffer is flushed, so it is where a write that did
+	// not fit -- a full disk, a quota -- is reported. `defer wc.Close()` threw that
+	// away, and the build said it had written a file it had truncated.
+	defer func() {
+		if e := wc.Close(); e != nil && err == nil {
+			err = e
+		}
+	}()
 	// Strip !filename tag before encoding - it's only used for filename determination
 	toEncode := y
 	if ir.TagHas(y.Tag, "!filename") {

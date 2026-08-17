@@ -18,12 +18,17 @@ import (
 // patches to matching documents, evaluates tool expressions, and writes the
 // results. If w is non-nil, output is written to it; otherwise output goes to
 // DestDir if set. Returns the processed documents and any error encountered.
-func (d *Dir) Run(w io.WriteCloser, opts ...encode.EncodeOption) ([]*ir.Node, error) {
-	var (
-		docs []*ir.Node
-		err  error
-		wd   string
-	)
+//
+// The writer belongs to the caller and is not closed here. Run used to close it,
+// so the usage this package's own documentation shows -- dir.Run(os.Stdout) --
+// closed the caller's standard output.
+//
+// Run changes the process working directory to the build root and changes it
+// back, which is why the returns are named: the restore is deferred, and a
+// failure to restore leaves the process somewhere the caller did not put it, so
+// it has to be reported rather than dropped.
+func (d *Dir) Run(w io.WriteCloser, opts ...encode.EncodeOption) (docs []*ir.Node, err error) {
+	var wd string
 	wd, err = os.Getwd()
 	if err != nil {
 		err = fmt.Errorf("error getting working dir: %w", err)
@@ -34,11 +39,8 @@ func (d *Dir) Run(w io.WriteCloser, opts ...encode.EncodeOption) ([]*ir.Node, er
 		return nil, err
 	}
 	defer func() {
-		e := os.Chdir(wd)
-		if err != nil {
-			err = errors.Join(err, e)
-		} else {
-			err = e
+		if e := os.Chdir(wd); e != nil {
+			err = errors.Join(err, fmt.Errorf("could not return to %s: %w", wd, e))
 		}
 	}()
 	//fmt.Fprintf(os.Stderr, "running with env:\n%v\n", d.Env)
@@ -60,7 +62,6 @@ func (d *Dir) Run(w io.WriteCloser, opts ...encode.EncodeOption) ([]*ir.Node, er
 	var bw *bufio.Writer
 	if w != nil {
 		bw = bufio.NewWriter(w)
-		defer w.Close()
 	}
 	err = d.writeFlush(bw, docs, opts...)
 	if err != nil {

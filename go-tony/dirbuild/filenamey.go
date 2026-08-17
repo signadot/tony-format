@@ -78,6 +78,14 @@ func (fn *fileNamer) FileName() string {
 }
 
 func (d *Dir) fileName(node *ir.Node) string {
+	// A comment wraps the value it describes, and a file is named after the value.
+	// Without this a document which opened with a comment reached the default
+	// branch and brought the build down with panic("impossible").
+	node = ir.Uncomment(node)
+	if node == nil {
+		return "obj"
+	}
+
 	// Check for explicit !filename(name) tag first
 	if _, args := ir.TagGet(node.Tag, "!filename"); len(args) > 0 {
 		return args[0]
@@ -101,12 +109,12 @@ func (d *Dir) fileName(node *ir.Node) string {
 		}
 		return "arr-" + d.fileName(node.Values[0])
 	case ir.NumberType:
+		// Encode ends with a newline, which went straight into the file name.
 		buf := bytes.NewBuffer(nil)
-		err := encode.Encode(node, buf)
-		if err != nil {
-			panic(err)
+		if err := encode.Encode(node, buf); err != nil {
+			return "num"
 		}
-		return "num-" + buf.String()
+		return "num-" + strings.TrimSpace(buf.String())
 	case ir.StringType:
 		return "str"
 	case ir.BoolType:
@@ -114,6 +122,8 @@ func (d *Dir) fileName(node *ir.Node) string {
 	case ir.NullType:
 		return "null"
 	default:
-		panic("impossible")
+		// Nothing else has a name of its own, and a build is not a place to panic
+		// over one: the caller is writing a file, not asking a question.
+		return "obj"
 	}
 }
