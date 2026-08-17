@@ -1,6 +1,10 @@
 package api
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/signadot/tony-format/go-tony/ir"
+)
 
 // AutoIDField describes a field that is auto-generated and serves as the key
 // for a keyed array. Derived from !logd-auto-id tags in Tony schema.
@@ -66,6 +70,16 @@ func (s *Schema) Validate() error {
 			return fmt.Errorf("!logd-key at %q names no field: the index turns each element "+
 				"into a path segment from a scalar field, so keying by the element itself "+
 				"cannot be represented", f.Path)
+		}
+		// The key field's name is written into a !key tag, and a tag argument has
+		// no quoting: a name holding a comma or an unbalanced parenthesis would be
+		// written as a tag which says something else.  ir.TagCompose refuses such a
+		// name, so the schema which declares it is refused here, where the error can
+		// name it (b6ad0qw0h12krhk5gdn0).
+		if !ir.TagArgOK(f.Field) {
+			return fmt.Errorf("%q is declared keyed by %q, which cannot be written in a !key tag: "+
+				"a tag argument has no quoting, so a comma or an unbalanced parenthesis in the "+
+				"name would name something else", f.Path, f.Field)
 		}
 		if prev, dup := keyed[f.Path]; dup && prev != f.Field {
 			return fmt.Errorf("%q is declared keyed by both %q and %q", f.Path, prev, f.Field)

@@ -1,6 +1,9 @@
 package api
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestSchema_LookupKeyField(t *testing.T) {
 	tests := []struct {
@@ -123,5 +126,29 @@ func TestStaticSchemaResolver(t *testing.T) {
 	s = resolver.GetSchema(&scopeID)
 	if s != schema {
 		t.Error("GetSchema with scope should return same schema")
+	}
+}
+
+// A key field's name is written into a !key tag, and a tag argument has no quoting,
+// so a name which cannot be written as one is refused where it is declared rather
+// than panicking in ir.TagCompose later (b6ad0qw0h12krhk5gdn0).
+func TestSchemaRefusesAKeyFieldNoTagCanName(t *testing.T) {
+	for _, name := range []string{"has,comma", "has)close", "has(open"} {
+		s := &Schema{KeyFields: []KeyField{{Path: "items", Field: name}}}
+		err := s.Validate()
+		if err == nil {
+			t.Errorf("a key field named %q was accepted", name)
+			continue
+		}
+		if !strings.Contains(err.Error(), name) {
+			t.Errorf("the error for %q does not name it: %s", name, err)
+		}
+	}
+	// and the names which a tag can hold are still accepted
+	for _, name := range []string{"id", "has.dot", "has space", "has{brace}", "*"} {
+		s := &Schema{KeyFields: []KeyField{{Path: "items", Field: name}}}
+		if err := s.Validate(); err != nil {
+			t.Errorf("a key field named %q was refused: %s", name, err)
+		}
 	}
 }

@@ -77,7 +77,56 @@ func TagArgs(tag string) (string, []string, string) {
 	return head, args, rest
 }
 
+// TagArgOK reports whether arg can be written as a tag argument and read back as
+// itself.
+//
+// A tag argument has no quoting, so the grammar's own characters are the limit: "("
+// and ")" delimit an argument list and "," separates arguments.  An argument may
+// still CONTAIN them, because an argument may be a tag -- !retag composes over
+// `bracket.key(meta.name)` and !map takes `array(int)` -- as long as the
+// parentheses balance and no comma sits outside them.  What cannot be written is a
+// name holding an unbalanced parenthesis, a comma at the top level, or nothing at
+// all.
+//
+// A caller which takes an argument from data -- a field name, say -- is the one
+// which has to ask.  See TagCompose.
+func TagArgOK(arg string) bool {
+	if arg == "" {
+		return false
+	}
+	depth := 0
+	for i := 0; i < len(arg); i++ {
+		switch arg[i] {
+		case '(':
+			depth++
+		case ')':
+			if depth--; depth < 0 {
+				return false
+			}
+		case ',':
+			if depth == 0 {
+				return false
+			}
+		}
+	}
+	return depth == 0
+}
+
+// TagCompose builds a tag from a head, its arguments and the tag it composes over.
+//
+// Every argument must satisfy TagArgOK, and composing one which does not PANICS: a
+// tag argument has no quoting, so `!key` over a field named "a,b" would be written
+// `!key(a,b)` and read back as two arguments -- a tag which says something the
+// caller did not. Checking what it hands over is the caller's part of this, and
+// callers whose arguments come from data have to do it before calling; the panic is
+// for the ones which do not, since a tag that quietly means something else is worse
+// than a stopped program.
 func TagCompose(tag string, args []string, oTag string) string {
+	for _, arg := range args {
+		if !TagArgOK(arg) {
+			panic(fmt.Sprintf("ir.TagCompose(%q): argument %q cannot be written as a tag argument", tag, arg))
+		}
+	}
 	headTag := tag
 	if len(args) != 0 {
 		headTag += "(" + strings.Join(args, ",") + ")"
