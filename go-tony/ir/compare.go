@@ -8,6 +8,11 @@ import (
 // Compare returns an integer comparing two nodes.
 // The result will be 0 if a==b, -1 if a < b, and +1 if a > b.
 func Compare(a, b *Node) int {
+	// A comment wraps the value it describes, and this asks about values. Without
+	// this, every commented value ranked first and compared EQUAL to every other
+	// commented value: Compare(#c 1, #c "zzz") answered 0, which a sort reads as a
+	// tie between two different things.
+	a, b = Uncomment(a), Uncomment(b)
 	if a == b {
 		return 0
 	}
@@ -48,7 +53,10 @@ func Compare(a, b *Node) int {
 }
 
 // rank returns the sorting rank of a type.
-// Order: Comment < Null < Number < String < Array < Object
+// Order: Comment < Null < Bool < Number < String < Array < Object
+//
+// CommentType ranks first and is reachable only for a BARE comment -- one with no
+// value under it -- since Compare sees through the wrappers.
 func rank(t Type) int {
 	switch t {
 	case CommentType:

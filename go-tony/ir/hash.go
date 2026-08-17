@@ -6,12 +6,19 @@ import (
 	"math"
 )
 
-// Hash returns a 64-bit content hash of the node, including its comments.
+// Hash returns a 64-bit content hash of the node: its tag, its value, its
+// structure and its comments.
+//
+// It is the hash of [Node.DeepEqualWithComments], and of that one only. Which
+// equality a hash answers for is the whole of what makes it usable as an identity
+// or dedup key, and this one used to answer for neither: it left the TAG out, so
+// {a: 1} and !delete {a: 1} -- which no equality here calls equal -- hashed the
+// same, and anything deduplicating on it would have merged a value with its own
+// deletion. It counts comments, which DeepEqual does not, so it is the document
+// question rather than the value one.
 //
 // The hash is deterministic: it depends only on the node's structure and values,
-// not on process state, so n.Hash() == n.Hash() across calls and across runs, and
-// two structurally-equal nodes hash equal. That makes it usable as an identity /
-// dedup / cache key. (It uses FNV-1a rather than maphash precisely for this: a
+// not on process state, so n.Hash() == n.Hash() across calls and across runs. (It uses FNV-1a rather than maphash precisely for this: a
 // maphash.Hash zero value takes a fresh random seed per instance, so it would drift
 // on every call — see tony-format issue f69agjyeh12ks item 16.)
 //
@@ -28,7 +35,12 @@ func (n *Node) Hash() uint64 {
 	// 1. Hash Type
 	h.Write([]byte{byte(n.Type)})
 
-	// 2. Hash Value
+	// 2. Hash Tag. A tag is what a node MEANS -- !key, !delete, !raw -- so two
+	// nodes carrying different ones are different nodes, which DeepEqual has always
+	// said and this did not.
+	h.Write([]byte(n.Tag))
+
+	// 3. Hash Value
 	switch n.Type {
 	case NullType:
 	case CommentType:

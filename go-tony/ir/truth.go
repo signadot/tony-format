@@ -1,6 +1,16 @@
 package ir
 
+// Truth is what a node says when read as a condition.
+//
+// It sees through a comment, which is what was SAID about a value and not part of
+// it: a commented true used to be false, because CommentType fell to the
+// everything-else branch. Nothing answers false, rather than panicking, since a
+// condition on a node which is not there is a question with an answer.
 func Truth(node *Node) bool {
+	node = Uncomment(node)
+	if node == nil {
+		return false
+	}
 	switch node.Type {
 	case ObjectType:
 		return len(node.Fields) != 0

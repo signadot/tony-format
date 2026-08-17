@@ -59,27 +59,45 @@ func (c navConfig) answer(n *Node) *Node {
 	return Uncomment(n)
 }
 
-// StripComments removes every comment from a tree: the wrappers a head comment
-// makes and the line comment each node carries.
+// StripComments answers a tree with every comment removed: the wrappers a head
+// comment makes and the line comment each node carries.
 //
 // It is what "without comments" means. Half of it used to happen by accident: a
 // head comment is a wrapper and was discarded when something descended through
 // it, while a line comment rides on the node and was carried along by every
 // clone -- so a patch which dropped comments dropped only half of them, and a
 // store which kept none kept some.
+//
+// It does not touch what it is given. It used to strip IN PLACE, and its one
+// caller strips the RESULT of a patch, which shares its untouched subtrees with
+// the document that was patched -- so tony.Patch, with comments off, reached back
+// into the caller's document and took the comments out of it. That is the
+// property head.go names and relies on ("it does not mutate the document it is
+// given, so an earlier head stays valid for anyone still holding it"), and it held
+// only because logd passes Comments(true) and so never reached this.
 func StripComments(n *Node) *Node {
+	if n == nil {
+		return nil
+	}
+	return stripComments(n.Clone())
+}
+
+// stripComments is StripComments on a tree the caller owns.
+func stripComments(n *Node) *Node {
 	n = Uncomment(n)
 	if n == nil {
 		return nil
 	}
 	n.Comment = nil
 	for i, f := range n.Fields {
-		if stripped := StripComments(f); stripped != nil {
+		if stripped := stripComments(f); stripped != nil {
+			stripped.Parent = n
+			stripped.ParentIndex = i
 			n.Fields[i] = stripped
 		}
 	}
 	for i, v := range n.Values {
-		if stripped := StripComments(v); stripped != nil {
+		if stripped := stripComments(v); stripped != nil {
 			stripped.Parent = n
 			stripped.ParentIndex = i
 			n.Values[i] = stripped

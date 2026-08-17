@@ -74,25 +74,39 @@ func (y *Node) UnmarshalJSON(d []byte) error {
 
 	switch y.Type {
 	case ObjectType:
+		// An object holds one value per field, and this is where that is checked:
+		// what follows reads y.Fields[i] for every value, so a document with more
+		// values than fields used to panic here rather than be reported -- `o load`
+		// on a malformed file died with a stack trace. The other way round was
+		// worse for being quiet: it was accepted, and produced a node whose fields
+		// and values were misaligned for everything downstream to trip over.
+		if len(y.Fields) != len(y.Values) {
+			return fmt.Errorf("malformed object with %d fields and %d values",
+				len(y.Fields), len(y.Values))
+		}
 		var fType *Type
 		for i, f := range y.Fields {
 			f.Parent = y
 			f.ParentIndex = i
 			f.ParentField = f.String
+			// A null key is a string key. The normalization is the point of this
+			// branch, and the line which used to follow the switch -- fType =
+			// &f.Type -- put the raw type back, so the one shape it exists to
+			// accept was rejected with the very error it exists to prevent.
+			kind := f.Type
+			if kind == NullType {
+				kind = StringType
+			}
 			if fType == nil {
-				switch f.Type {
+				switch kind {
 				case StringType, NumberType:
-					fType = &f.Type
-				case NullType:
-					tmp := StringType
-					fType = &tmp
 				default:
 					return fmt.Errorf("invalid field type %s", f.Type)
 				}
-				fType = &f.Type
+				fType = &kind
 				continue
 			}
-			if *fType != f.Type {
+			if *fType != kind {
 				return fmt.Errorf("mixed field types %s and %s", *fType, f.Type)
 			}
 		}
@@ -101,7 +115,7 @@ func (y *Node) UnmarshalJSON(d []byte) error {
 			v.ParentIndex = i
 			v.ParentField = y.Fields[i].String
 			if v.Type == CommentType && len(v.Values) != 1 {
-				return fmt.Errorf("malformed head comment with %d values", len(y.Values))
+				return fmt.Errorf("malformed head comment with %d values", len(v.Values))
 			}
 		}
 	case ArrayType:
@@ -109,7 +123,7 @@ func (y *Node) UnmarshalJSON(d []byte) error {
 			v.Parent = y
 			v.ParentIndex = i
 			if v.Type == CommentType && len(v.Values) != 1 {
-				return fmt.Errorf("malformed head comment with %d values", len(y.Values))
+				return fmt.Errorf("malformed head comment with %d values", len(v.Values))
 			}
 		}
 	case CommentType:
