@@ -92,24 +92,28 @@ define:
   bool: !irtype true
   "null": !irtype null
   number: !irtype 1
-  int: !and
-  - .[number]
-  - int: !not null
-  float: !and
-  - .[number]
-  - float: !not null
+  # int and float are the one distinction no pattern over a value can make: both
+  # are Number nodes, and there is one Number type.  !ir asks the node instead,
+  # where the two are separate fields.
+  int: !ir
+    int: .[number]
+  float: !ir
+    float: .[number]
   string: !irtype ""
   array:
   - !irtype []
+  # a type parameter stands for a match, so it goes where a match goes: as the
+  # value !all is written over.  As a component of !all's tag it substitutes
+  # nothing, and the element check silently disappears.
   array(t): !and
   - .[array]
-  - !all.type t
+  - !all t
   sparsearray: !and
   - !irtype {}
   - !all.field.type 0
   sparsearray(t): !and
   - .[sparsearray]
-  - !all.type t
+  - !all t
   # keyed lists
   keyed(p): !and
   - !irtype []

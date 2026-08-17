@@ -13,7 +13,7 @@ uses match operations to describe constraints that valid documents must satisfy.
 accept:
   !and
   - .[post]
-  - !not null
+  - !not.irtype null
 ```
 
 This `accept` clause says: "accept documents that match `.[post]` AND are not null".
@@ -52,7 +52,7 @@ accept:
   !and
   - .[post]
   - status: "published"
-  - !not null
+  - !not.irtype null
 ```
 
 Accept documents that match `post`, have `status` equal to `"published"`, and
@@ -111,16 +111,16 @@ define:
     email: !irtype ""
     age: !and
     - .[number]
-    - age: !not null
+    - age: !not.irtype null
     - age: !irtype 0
   
   # Define what a valid user is
   valid-user: !and
   - .[user]
-  - name: !not null
-  - email: !not null
+  - name: !not.irtype null
+  - email: !not.irtype null
   - age: !and
-    - !not null
+    - !not.irtype null
     - !irtype 0
 
 accept:

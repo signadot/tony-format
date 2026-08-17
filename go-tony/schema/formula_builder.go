@@ -92,7 +92,11 @@ func (b *formulaBuilder) build(node *ir.Node) z.Lit {
 		// Untagged array: implicit AND with positional elements
 		return b.buildPositionalArray(node)
 	case ir.NullType:
-		return b.getVar("null")
+		// A bare null pattern matches anything -- that is the wildcard, and it
+		// is why !not null matches nothing.  Reading it as the null TYPE is how
+		// this checker came to pass base.tony's own int, whose {int: !not null}
+		// clause can never hold.  !irtype null is the type question.
+		return b.c.T
 	case ir.StringType:
 		// Check if it's a definition reference like ".[name]" or ".[name(args)]"
 		if strings.HasPrefix(node.String, ".[") && strings.HasSuffix(node.String, "]") {
@@ -186,6 +190,15 @@ func (b *formulaBuilder) buildTagged(node *ir.Node, tag string) z.Lit {
 			b.err = fmt.Errorf("!irtype with unknown node type: %v", node.Type)
 			return b.c.F
 		}
+
+	case "!ir":
+		// The pattern is over the node's IR representation, which is a
+		// different shape from the value this checker reasons about.  An
+		// opaque proposition rather than a constant, so that a negation of it
+		// stays satisfiable too: what !ir says is unknown here, in both
+		// polarities, and a checker that invents a contradiction is worse than
+		// one that misses it.
+		return b.c.Lit()
 
 	case "!all":
 		// !all.X constrains all elements to match X
@@ -398,7 +411,12 @@ func (b *formulaBuilder) buildObject(node *ir.Node) z.Lit {
 	if len(lits) == 0 {
 		return b.getVar("object")
 	}
-	return b.c.Ands(lits...)
+	// An object pattern asks for an object, and the fields it names are asked of
+	// THAT object: without this the checker read {int: X} as a constraint on the
+	// field alone, so !and [.[number], {int: X}] -- a node required to be both a
+	// Number and an object -- looked satisfiable.  That is base.tony's own int
+	// as it was written, and nothing matched it.
+	return b.c.Ands(append(lits, b.getVar("object"))...)
 }
 
 // buildPositionalArray handles untagged arrays: implicit AND with positional elements
@@ -430,7 +448,9 @@ func (b *formulaBuilder) buildPositionalArray(node *ir.Node) z.Lit {
 	if len(lits) == 0 {
 		return b.getVar("array")
 	}
-	return b.c.Ands(lits...) // implicit AND for piecewise matching
+	// implicit AND for piecewise matching, of an array: the same reading as
+	// buildObject's, since an untagged array pattern matches only arrays
+	return b.c.Ands(append(lits, b.getVar("array"))...)
 }
 
 // buildBooleanArray handles !or and !and arrays: elements stay at same position

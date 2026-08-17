@@ -22,7 +22,7 @@ But what about this?
 define:
   node:
     next: !and
-    - !not null
+    - !not.irtype null
     - .node
 ```
 
@@ -90,7 +90,7 @@ Result: SAT (null=true works) → Escape exists ✓
 ```
 
 ```
-Checking: node: !and [!not null, .node]
+Checking: node: !and [!not.irtype null, .node]
 Expand .node → false
 Formula: (¬null) ∧ false = false
 Result: UNSAT → Impossible cycle ✓
@@ -98,7 +98,7 @@ Result: UNSAT → Impossible cycle ✓
 
 This unified approach handles both:
 - **Non-recursive contradictions**: `!and [string, int]` → UNSAT
-- **Impossible cycles**: `!and [!not null, .node]` → UNSAT
+- **Impossible cycles**: `!and [!not.irtype null, .node]` → UNSAT
 
 ### Cross-References
 

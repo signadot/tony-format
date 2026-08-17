@@ -481,3 +481,43 @@ func TestExtractGoType_ComplexTypes(t *testing.T) {
 func intPtr(i int64) *int64 {
 	return &i
 }
+
+// base.tony's int and float are !ir patterns over the node's fields, and codegen
+// emits .[int] for a Go int: extraction has to read them back as numbers rather
+// than as the map the object underneath would otherwise look like.
+func TestExtractGoTypeFromIRView(t *testing.T) {
+	s := &schema.Schema{
+		Context: schema.DefaultContext(),
+		Define: map[string]*ir.Node{
+			"number": {Type: ir.NumberType, Tag: "!irtype"},
+			"int": {
+				Type:   ir.ObjectType,
+				Tag:    "!ir",
+				Fields: []*ir.Node{ir.FromString("int")},
+				Values: []*ir.Node{{Tag: ".[number]"}},
+			},
+			"float": {
+				Type:   ir.ObjectType,
+				Tag:    "!ir",
+				Fields: []*ir.Node{ir.FromString("float")},
+				Values: []*ir.Node{{Tag: ".[number]"}},
+			},
+		},
+	}
+	for _, tc := range []struct {
+		ref  string
+		want reflect.Type
+	}{
+		{".[int]", reflect.TypeOf(int64(0))},
+		{".[float]", reflect.TypeOf(float64(0))},
+	} {
+		got, err := ExtractGoType(&ir.Node{Tag: tc.ref}, s, nil)
+		if err != nil {
+			t.Errorf("%s: %v", tc.ref, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("%s = %v, want %v", tc.ref, got, tc.want)
+		}
+	}
+}

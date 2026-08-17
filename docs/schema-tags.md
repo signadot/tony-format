@@ -29,7 +29,7 @@ define:
   bool: !irtype true
   array(t): !and
     - .array
-    - !all.type t
+    - !all t
 accept:
   !or
     - .bool

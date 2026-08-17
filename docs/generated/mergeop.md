@@ -16,7 +16,11 @@ property of its shape: `!and` is match-only, `!insert` patch-only, and `!all`,
 The !all operation applies its child match or patch to all elements of an array or object. As a match, it matches when all elements match. As a patch, it applies the patch to all elements.
 
 !!! note "Schema Usage"
-    Used in schema `define:` sections to constrain array/object elements. Example: `array(t): !and [.array, !all.type t]`
+    Used in schema `define:` sections to constrain array/object elements. Example: `array(t): !and [.[array], !all t]`
+
+    The element type goes where `!all`'s operand goes, not into its tag: a type
+    parameter stands for a match, which has no spelling as a tag component, so
+    `!all.t null` substituted nothing and the element check disappeared.
 
     See [Schema Tags Reference](../schema-tags.md) for more on using tags in schemas.
 
@@ -26,8 +30,8 @@ The !all operation applies its child match or patch to all elements of an array 
 
 ```tony
 array(t): !and
-  - .array
-  - !all.type t
+  - .[array]
+  - !all t
 ```
 
 **See also:** [`!irtype`](./mergeop.md#irtype), [`!field`](./mergeop.md#field)
@@ -41,7 +45,7 @@ array(t): !and
 The !and operation matches when all child conditions match. If the child is an array, all elements must match. If the child is a single value, it must match.
 
 !!! note "Schema Usage"
-    Used in schema `define:` sections to combine multiple constraints. Example: `array(t): !and [.array, !all.type t]`
+    Used in schema `define:` sections to combine multiple constraints. Example: `array(t): !and [.[array], !all t]`
 
     See [Schema Tags Reference](../schema-tags.md) for more on using tags in schemas.
 
@@ -287,10 +291,61 @@ number: !irtype 1
 string: !irtype ""
 ```
 
-**See also:** [`!all`](./mergeop.md#all), [`!field`](./mergeop.md#field)
+**See also:** [`!all`](./mergeop.md#all), [`!field`](./mergeop.md#field), [`!ir`](./mergeop.md#ir)
 
 ---
 
+## `!ir`
+
+**Match the node's IR representation, not its value**
+
+The !ir operation matches its child against an object over the fields of
+`ir.Node`, under the names it serializes them with, rather than against the value
+the node holds. It is how a pattern asks a question about the node itself:
+
+```
+3         !ir {type: Number, int: 3}
+3.5       !ir {type: Number, float: 3.5}
+"x"       !ir {type: String, string: "x"}
+!k v      !ir {type: String, tag: "!k", string: "v"}
+{a: 1}    !ir {type: Object, fields: [a], values: [1]}
+```
+
+A field the node does not have is absent, not null. `{int: null}` therefore says
+only that the field is there, which is enough for `int` and `float` -- they are
+pointers -- but not for `string`, `bool` and `number`, which are omitted when they
+hold their zero value: `!ir {bool: null}` does not match `false`. A pattern which
+says what the field HOLDS does not have to know which kind it is asking about.
+
+`fields` and `values` hold the node's children as they are, so a pattern under
+them descends into the document, and `!ir` applies again wherever it is written.
+
+!!! note "Schema Usage"
+    `int` and `float` are the one distinction no pattern over a value can make:
+    both are Number nodes, and there is one Number type. base.tony defines them
+    as `int: !ir {int: .[number]}` and `float: !ir {float: .[number]}`.
+
+    This is a question about the node, not about the document, which is why it is
+    an operator. A document which happens to look like an IR encoding --
+    `{type: Number, int: 3}` written out by hand -- is matched by the ordinary
+    object pattern, and by `!ir` only through ITS representation, which is
+    `{type: Object, ...}`. base.tony's `_ir` describes the first, `!ir` asks the
+    second.
+
+**Child:** Match to apply to the node's IR representation
+
+**Examples:**
+
+```tony
+int: !ir
+  int: .[number]
+```
+
+```tony
+!ir {tag: "!secret"}
+```
+
+**See also:** [`!irtype`](./mergeop.md#irtype), [`!tag`](./mergeop.md#tag), [`!field`](./mergeop.md#field)
 
 ---
 

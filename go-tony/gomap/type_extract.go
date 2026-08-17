@@ -178,6 +178,19 @@ func ExtractGoType(def *ir.Node, s *schema.Schema, registry *schema.SchemaRegist
 		}
 	}
 
+	// Handle !ir - the pattern is over the node's IR fields rather than over a
+	// value, and the field it names says which kind: base.tony defines
+	// int as !ir {int: .[number]} and float as !ir {float: .[number]}.  Without
+	// this the object underneath is read as a map, so .[int] came back as
+	// map[string]interface{} -- and codegen emits .[int] for every Go int, so
+	// the two halves have to agree about it.
+	if def.Tag != "" {
+		head, _, _ := ir.TagArgs(def.Tag)
+		if head == "!ir" {
+			return extractGoTypeFromIRView(def)
+		}
+	}
+
 	// Handle basic types by their IR node type first (before checking tags)
 	switch def.Type {
 	case ir.StringType:
@@ -481,42 +494,32 @@ func typeToFieldName(typ reflect.Type) string {
 //
 // !and means ALL constraints must be satisfied. For type extraction, we need to:
 // 1. Find the "base type" (typically a reference like .[number] or type tag like !irtype "")
-// 2. Handle parameterized types: if we see !all.type t, extract the parameter type
-// 3. Skip constraint nodes (like !not null, !not, etc.)
-//
-// Example:
-//
-//	int: !and
-//	  - .[number]        # Base type: number → float64
-//	  - int: !not null    # Constraint: skip this
-//	Result: float64
+// 2. Skip constraint nodes: they say more about the node, not what it is
 //
 // Example with parameterized type:
 //
 //	array(t): !and
 //	  - .[array]          # Base type: array
-//	  - !all.type t       # Parameter constraint: t is the element type
+//	  - !all t            # Element constraint: about the elements, not the node
 //	When used as .array(string), we extract []string
 func extractGoTypeFromAnd(def *ir.Node, s *schema.Schema, registry *schema.SchemaRegistry) (reflect.Type, error) {
 	if def.Type != ir.ObjectType && def.Type != ir.ArrayType {
 		return nil, fmt.Errorf("!and must be an object or array")
 	}
 
-	// Note: Parameterized types like array(t) with !all.type t are handled when the
+	// Note: Parameterized types like array(t) with !all t are handled when the
 	// parameterized reference is used (e.g., .array(string)), not when the definition is extracted.
 	// The parameterized reference handler (extractGoTypeFromParameterizedRef) handles the full extraction.
 
 	// For !and, we need to find the "base type" - typically the first reference or type.
-	// Skip constraint nodes like "!not null", "!not", "!all.type", etc.
 	for _, elem := range def.Values {
-		// Skip constraint nodes (these don't define types, they constrain them)
+		// Skip constraint nodes: they say something about the node, not what it
+		// is.  !all is one of them -- it constrains the ELEMENTS, so reading a
+		// type from it would answer with the element's instead of the
+		// container's, whatever order the clauses are written in.
 		if elem.Tag != "" {
 			head, _, _ := ir.TagArgs(elem.Tag)
-			if head == "!not" || head == "!not null" {
-				continue
-			}
-			// Skip !all.type constraints (handled above for parameter detection)
-			if head == "!all.type" {
+			if head == "!not" || head == "!all" {
 				continue
 			}
 		}
@@ -538,6 +541,29 @@ func extractGoTypeFromAnd(def *ir.Node, s *schema.Schema, registry *schema.Schem
 	}
 
 	return nil, fmt.Errorf("could not extract base type from !and constraints")
+}
+
+// extractGoTypeFromIRView handles !ir: a pattern over the fields of ir.Node,
+// where the field named is what says which kind of node it is.  int and float
+// are the fields a Go type can be read from -- they are the distinction !irtype
+// cannot make, which is why the operator is there.
+func extractGoTypeFromIRView(def *ir.Node) (reflect.Type, error) {
+	if def.Type != ir.ObjectType {
+		return nil, fmt.Errorf("!ir expects an object over the fields of an IR node, got %v", def.Type)
+	}
+	for _, field := range def.Fields {
+		switch field.String {
+		case "int":
+			return reflect.TypeOf(int64(0)), nil
+		case "float":
+			return reflect.TypeOf(float64(0)), nil
+		case "string":
+			return reflect.TypeOf(""), nil
+		case "bool":
+			return reflect.TypeOf(false), nil
+		}
+	}
+	return nil, fmt.Errorf("!ir names no field a Go type can be read from")
 }
 
 // extractGoTypeFromTypeTag handles !irtype tags

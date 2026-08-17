@@ -48,6 +48,7 @@ func init() {
 	Register(Field())
 	Register(Tag())
 	Register(Type())
+	Register(IR())
 	Register(Subtree())
 	Register(HasPath())
 	Register(At())

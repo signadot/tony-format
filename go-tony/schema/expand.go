@@ -81,31 +81,16 @@ func BuildDefEnv(s *Schema) map[string]any {
 			body := pdef.body
 			paramNames := pdef.params
 
-			env[baseName] = func(args ...any) any {
-				// Convert args to IR nodes
-				irArgs := make([]*ir.Node, len(args))
-				for i, arg := range args {
-					switch v := arg.(type) {
-					case *ir.Node:
-						irArgs[i] = v
-					case string:
-						irArgs[i] = ir.FromString(v)
-					default:
-						irArgs[i] = ir.FromString("")
-					}
-				}
+			env[baseName] = func(args ...any) (any, error) {
+				irArgs := defArgs(args)
 
 				// If called with no args, return non-parameterized version
 				if len(irArgs) == 0 {
-					return nonParamBody.Clone()
+					return nonParamBody.Clone(), nil
 				}
 
 				// Instantiate with provided args
-				result, err := InstantiateDef(body, paramNames, irArgs)
-				if err != nil {
-					return nil
-				}
-				return result
+				return InstantiateDef(body, paramNames, irArgs)
 			}
 		} else {
 			// Only non-parameterized version exists
@@ -122,31 +107,35 @@ func BuildDefEnv(s *Schema) map[string]any {
 		body := pdef.body
 		paramNames := pdef.params
 
-		env[baseName] = func(args ...any) any {
-			irArgs := make([]*ir.Node, len(args))
-			for i, arg := range args {
-				switch v := arg.(type) {
-				case *ir.Node:
-					irArgs[i] = v
-				case string:
-					irArgs[i] = ir.FromString(v)
-				default:
-					irArgs[i] = ir.FromString("")
-				}
-			}
+		env[baseName] = func(args ...any) (any, error) {
+			irArgs := defArgs(args)
 
 			// If called with no args, return uninstantiated clone
 			if len(irArgs) == 0 {
-				return body.Clone()
+				return body.Clone(), nil
 			}
 
-			result, err := InstantiateDef(body, paramNames, irArgs)
-			if err != nil {
-				return nil
-			}
-			return result
+			return InstantiateDef(body, paramNames, irArgs)
 		}
 	}
 
 	return env
+}
+
+// defArgs turns the values expr-lang passed a definition call into the argument
+// nodes InstantiateDef substitutes.  A reference to another definition arrives
+// as that definition's body; a bare token arrives as a string.
+func defArgs(args []any) []*ir.Node {
+	irArgs := make([]*ir.Node, len(args))
+	for i, arg := range args {
+		switch v := arg.(type) {
+		case *ir.Node:
+			irArgs[i] = v
+		case string:
+			irArgs[i] = ir.FromString(v)
+		default:
+			irArgs[i] = ir.FromString("")
+		}
+	}
+	return irArgs
 }

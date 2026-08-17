@@ -137,12 +137,12 @@ define:
     name: !irtype ""
     age: !and
     - .[number]
-    - age: !not null
+    - age: !not.irtype null
 
 accept:
   !and
   - .[user]
-  - !not null
+  - !not.irtype null
 ```
 
 This schema uses the match context, so all the match operations (`!and`,

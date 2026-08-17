@@ -171,6 +171,45 @@ func TestSchemaCheckExitCodes(t *testing.T) {
 	}
 }
 
+// A schema check that cannot fail is worse than no schema check, because it is
+// reported as a pass.  `accept: .[array(number)]` accepted a list of anything:
+// the element clause of array(t) named its parameter in a tag, where no match
+// can be spelled, so only the outer [] was ever checked.  Issue
+// bsbxmm0th12kshdwg9n0.
+func TestSchemaCheckChecksElementTypes(t *testing.T) {
+	dir := t.TempDir()
+	sch := write(t, dir, "s.tony", "accept: .[array(number)]\n")
+	ints := write(t, dir, "i.tony", "accept: .[array(int)]\n")
+	people := write(t, dir, "p.tony", "define:\n  person:\n    name: .[string]\naccept: .[array(person)]\n")
+	nums := write(t, dir, "nums.tony", "- 1\n- 2\n")
+	mixed := write(t, dir, "mixed.tony", "- 1\n- hello\n- {a: 1}\n")
+	floats := write(t, dir, "floats.tony", "- 1\n- 2.5\n")
+	crowd := write(t, dir, "crowd.tony", "- {name: a}\n- {name: b}\n")
+	notCrowd := write(t, dir, "notcrowd.tony", "- 3\n")
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want int
+	}{
+		{"numbers are numbers", []string{sch, nums}, 0},
+		{"a list of anything is not a list of numbers", []string{sch, mixed}, 1},
+		{"a defined element type holds", []string{people, crowd}, 0},
+		{"a defined element type is checked", []string{people, notCrowd}, 1},
+		// the ticket's own line: .[array(int)] accepted a list of anything
+		{"integers are integers", []string{ints, nums}, 0},
+		{"a list of anything is not a list of integers", []string{ints, mixed}, 1},
+		{"a float is not an integer", []string{ints, floats}, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code, _, errOut := runWired(t, "", append([]string{"schema", "check"}, tc.args...)...)
+			if code != tc.want {
+				t.Errorf("exit %d, want %d\n%s", code, tc.want, errOut)
+			}
+		})
+	}
+}
+
 // -o names a file, and a misuse in the subcommand used to leave it open: the
 // usage-error path called os.Exit, which runs no deferred close. What the file
 // holds afterwards is the test -- an unclosed one is short.

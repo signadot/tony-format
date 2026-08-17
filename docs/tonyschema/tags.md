@@ -173,7 +173,7 @@ define:
   # Use match operations
   valid-post: !and
   - .[post]
-  - !not null
+  - !not.irtype null
 
 tags:
   blog-post:

@@ -38,6 +38,12 @@ func TestParseDefSignature(t *testing.T) {
 	}
 }
 
+// TestInstantiateDef covers substitution of TOKEN arguments -- a name, a path --
+// which are the arguments that can be written into a tag.  A type parameter
+// bound to a definition body is not one of those: see
+// TestParameterInTagPositionIsAnError and TestInstantiateComposesTags for the
+// value position, which is where an element type goes.  `!all.t null` appears
+// here as a substitution to perform, not as a way to check element types.
 func TestInstantiateDef(t *testing.T) {
 	tests := []struct {
 		name   string

@@ -29,14 +29,19 @@ func ParseDefSignature(defName string) (string, []string) {
 //
 //	array(t): !and
 //	- .[array]
-//	- !all.t null
+//	- !all t
 //
-// And calling InstantiateDef(body, ["t"], [ir.FromString("int")]):
-//   - Tags containing the param name get substituted: !all.t -> !all.int
-//   - String values matching the param name get replaced with the argument node
+// And calling InstantiateDef(body, ["t"], [intDefBody]):
+//   - String values matching the param name get replaced with the argument node,
+//     and a tag the parameter wore composes over the tag the argument has:
+//     !all t with t bound to int's body, !ir {int: ...}, gives !all.ir {int: ...}
+//   - Tags naming the param get substituted too: !all.t -> !all.int, but only
+//     when the argument is a token that can be spelled as a tag component
 //
-// The argument nodes are expected to represent simple tokens (strings like "int",
-// "string", or potentially paths like "name.id").
+// An argument is either a token (a name like "int", a path like "name.id") or a
+// whole definition body -- a match, which has no spelling as a tag component.
+// Naming such a parameter in a tag is an error rather than a silent hole; see
+// substituteInTag.
 func InstantiateDef(body *ir.Node, params []string, args []*ir.Node) (*ir.Node, error) {
 	if len(params) != len(args) {
 		return nil, fmt.Errorf("parameter count mismatch: got %d params, %d args", len(params), len(args))
@@ -46,14 +51,17 @@ func InstantiateDef(body *ir.Node, params []string, args []*ir.Node) (*ir.Node, 
 		return body.Clone(), nil
 	}
 
-	// Build param -> argString map for tag substitution
+	// Build param -> argString map for tag substitution.  A param whose
+	// argument has no tag spelling is absent from paramMap and present in
+	// paramNodeMap, which is how substituteInTag tells the two apart.
 	paramMap := make(map[string]string, len(params))
 	paramNodeMap := make(map[string]*ir.Node, len(params))
 	for i, param := range params {
 		arg := args[i]
 		paramNodeMap[param] = arg
-		// Extract string representation for tag substitution
-		paramMap[param] = argToTagString(arg)
+		if s, ok := argToTagString(arg); ok {
+			paramMap[param] = s
+		}
 	}
 
 	// Clone and walk the body, substituting params
@@ -65,26 +73,30 @@ func InstantiateDef(body *ir.Node, params []string, args []*ir.Node) (*ir.Node, 
 	return result, nil
 }
 
-// argToTagString extracts a string suitable for tag substitution from an IR node
-func argToTagString(arg *ir.Node) string {
+// argToTagString extracts a string suitable for tag substitution from an IR
+// node, and reports whether the node has one at all.
+func argToTagString(arg *ir.Node) (string, bool) {
+	if arg.Tag != "" {
+		// A tagged argument is a match, not a token: !and [...] names no type.
+		return "", false
+	}
 	switch arg.Type {
 	case ir.StringType:
-		return arg.String
+		return arg.String, true
 	case ir.NumberType:
 		if arg.Int64 != nil {
-			return fmt.Sprintf("%d", *arg.Int64)
+			return fmt.Sprintf("%d", *arg.Int64), true
 		}
 		if arg.Float64 != nil {
-			return fmt.Sprintf("%g", *arg.Float64)
+			return fmt.Sprintf("%g", *arg.Float64), true
 		}
 	case ir.BoolType:
 		if arg.Bool {
-			return "true"
+			return "true", true
 		}
-		return "false"
+		return "false", true
 	}
-	// For complex types, use empty string (shouldn't happen for schema args)
-	return ""
+	return "", false
 }
 
 // substituteParams walks an IR node tree and substitutes parameter references.
@@ -93,18 +105,27 @@ func argToTagString(arg *ir.Node) string {
 func substituteParams(node *ir.Node, paramMap map[string]string, paramNodeMap map[string]*ir.Node) error {
 	// Substitute in tag if present
 	if node.Tag != "" {
-		node.Tag = substituteInTag(node.Tag, paramMap)
+		tag, err := substituteInTag(node.Tag, paramMap, paramNodeMap)
+		if err != nil {
+			return err
+		}
+		node.Tag = tag
 	}
 
 	// Substitute string values that match a parameter name,
 	// but skip .[...] expressions (def references in expr-lang)
 	if node.Type == ir.StringType && !isDefRef(node.String) {
 		if replacement, ok := paramNodeMap[node.String]; ok {
-			// Replace this node's content with the argument, preserving the original tag
+			// Replace this node's content with the argument.  What the
+			// parameter wore composes over what the argument wears, rather
+			// than being dropped when the argument has a tag of its own:
+			// `!all t` with t bound to `!and [...]` is `!all.and [...]`, and
+			// dropping the !all left the container matched against the
+			// element type -- the same shape retagRef fixes for .[ref].
 			originalTag := node.Tag
 			replaceNodeContent(node, replacement)
-			if originalTag != "" && node.Tag == "" {
-				node.Tag = originalTag
+			if originalTag != "" {
+				node.Tag = ir.TagCompose(originalTag, nil, node.Tag)
 			}
 		}
 	}
@@ -126,20 +147,35 @@ func substituteParams(node *ir.Node, paramMap map[string]string, paramNodeMap ma
 
 // substituteInTag uses TagTree to properly substitute parameter names in tags.
 // Handles nested args like !array(array(t)) -> !array(array(int))
-func substituteInTag(tag string, paramMap map[string]string) string {
+//
+// A parameter bound to a definition body has no spelling as a tag component,
+// and saying so is the difference between a schema that checks and one that
+// only appears to.  `array(t): !and [.[array], !all.t null]` substituted the
+// empty string for t, and `!all.` names no operation, so an unknown component
+// in a pattern is ignored and the element check was decoration: .[array(int)]
+// accepted a list of anything.  The parameter belongs in a value position,
+// where the body substitutes whole and !all composes over the tag it wears.
+func substituteInTag(tag string, paramMap map[string]string, paramNodeMap map[string]*ir.Node) (string, error) {
 	tree := ir.ParseTag(tag)
 	if tree == nil {
-		return tag
+		return tag, nil
 	}
 
+	var err error
 	mapped := tree.Map(func(name string) string {
 		if replacement, ok := paramMap[name]; ok {
 			return replacement
 		}
+		if _, isParam := paramNodeMap[name]; isParam && err == nil {
+			err = fmt.Errorf("parameter %q cannot be written in the tag %q: it is bound to a match, not a name -- put the parameter in a value position instead, the way array(t) writes `!all t`", name, tag)
+		}
 		return name
 	})
+	if err != nil {
+		return "", err
+	}
 
-	return mapped.String()
+	return mapped.String(), nil
 }
 
 // isDefRef returns true if the string is a def reference expression: .[...]

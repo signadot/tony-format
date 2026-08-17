@@ -94,13 +94,16 @@ func TestBuildDefEnv(t *testing.T) {
 	}
 
 	// Check parameterized def is stored as function
-	arrayFunc, ok := env["array"].(func(...any) any)
+	arrayFunc, ok := env["array"].(func(...any) (any, error))
 	if !ok {
-		t.Fatalf("array should be func(...any) any, got %T", env["array"])
+		t.Fatalf("array should be func(...any) (any, error), got %T", env["array"])
 	}
 
 	// Call with no args - should return base definition
-	result := arrayFunc()
+	result, err := arrayFunc()
+	if err != nil {
+		t.Fatalf("array(): %v", err)
+	}
 	resultNode, ok := result.(*ir.Node)
 	if !ok {
 		t.Fatalf("array() should return *ir.Node, got %T", result)

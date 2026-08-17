@@ -11,6 +11,7 @@ func (r *ContextRegistry) registerBuiltinContexts() {
 			"and":      {Name: "and", Contexts: []string{"tony-format/context/match"}},
 			"not":      {Name: "not", Contexts: []string{"tony-format/context/match"}},
 			"irtype":   {Name: "irtype", Contexts: []string{"tony-format/context/match"}},
+			"ir":       {Name: "ir", Contexts: []string{"tony-format/context/match"}},
 			"glob":     {Name: "glob", Contexts: []string{"tony-format/context/match"}},
 			"field":    {Name: "field", Contexts: []string{"tony-format/context/match"}},
 			"tag":      {Name: "tag", Contexts: []string{"tony-format/context/match"}},

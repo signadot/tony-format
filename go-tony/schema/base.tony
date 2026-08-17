@@ -6,29 +6,40 @@ define:
   bool: !irtype true
   "null": !irtype null
   number: !irtype 1
-  int: !and
-  - .[number]
-  - int: !not null
-  float: !and
-  - .[number]
-  - float: !not null
+  # int and float are the one distinction no pattern over a value can make: both
+  # are Number nodes, and there is one Number type.  !ir asks the node instead,
+  # where Int64 and Float64 are separate fields.  Saying what the field HOLDS
+  # rather than that it is there is what makes this insensitive to how a view
+  # renders a field the node does not have.
+  int: !ir
+    int: .[number]
+  float: !ir
+    float: .[number]
   string: !irtype ""
   array: !irtype []
+  # A type parameter stands for a match, so it goes where a match goes: as the
+  # value !all is written over, not as a component of its tag.  !all.t null read
+  # as though it applied t to each element, and did not: t has no spelling as a
+  # tag component, so the element check disappeared and array(int) accepted a
+  # list of anything.  !all t substitutes the whole definition and composes,
+  # giving !all.ir {int: ...} for array(int) and !all {name: ...} for
+  # array(person).
   array(t): !and
   - .[array]
-  - !all.t null
+  - !all t
   sparsearray: !and
   - !irtype {}
   - !all.field.type 0
   sparsearray(t): !and
   - .[sparsearray]
-  - !all.t null
+  - !all t
   object: !irtype {}
   object(t): !and
   - .[object]
+  - !all t
   nullable(t): !or
   - !irtype null
-  - !t null
+  - t
   # keyed lists
   key(p): !and
   - !irtype []
