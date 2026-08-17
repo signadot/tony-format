@@ -23,6 +23,49 @@ type varDef struct {
 	typeName string
 }
 
+// defVariants holds the definitions a base name can have.  `foo` and `foo(t)`
+// are two definitions, not one, and which of them a reference means is said by
+// whether it carries arguments -- so an index which keeps one per base name
+// answers with whichever the map iteration happened to write last.  It did:
+// `accept: .[bar(int)]` passed a schema whose bar(t) nothing can satisfy about
+// half the time, and rejected the satisfiable half of the other pair as often,
+// in the same binary, on the same input.
+type defVariants struct {
+	plain string // "foo", if there is one
+	param string // "foo(t)", if there is one
+}
+
+// pick answers the definition a reference with this many arguments means, and
+// "" when there is no such definition.  A reference with arguments means the
+// parameterized one; without, the plain one -- falling back to the
+// parameterized body uninstantiated, which is what BuildDefEnv hands a zero-arg
+// call.
+func (v defVariants) pick(nArgs int) string {
+	if nArgs > 0 {
+		return v.param
+	}
+	if v.plain != "" {
+		return v.plain
+	}
+	return v.param
+}
+
+// indexDefinitions groups definitions by base name, keeping both variants.
+func indexDefinitions(definitions map[string]*ir.Node) map[string]defVariants {
+	index := make(map[string]defVariants, len(definitions))
+	for defName := range definitions {
+		baseName, params := ParseDefSignature(defName)
+		v := index[baseName]
+		if len(params) == 0 {
+			v.plain = defName
+		} else {
+			v.param = defName
+		}
+		index[baseName] = v
+	}
+	return index
+}
+
 // formulaBuilder builds a SAT formula from schema IR
 type formulaBuilder struct {
 	c           *logic.C
@@ -33,18 +76,13 @@ type formulaBuilder struct {
 	defParams   map[string]bool    // parameter names of current definition (e.g., "t" for list(t))
 	visiting    map[string]bool    // definitions currently being visited (cycle detection)
 	definitions map[string]*ir.Node
-	defIndex    map[string]string // base name → full definition name (e.g., "list" → "list(t)")
-	err         error             // first error encountered
+	defIndex    map[string]defVariants // base name → the definitions it names
+	err         error                  // first error encountered
 }
 
 // newFormulaBuilder creates a new formula builder for checking a definition
 func newFormulaBuilder(checkingDef string, definitions map[string]*ir.Node) *formulaBuilder {
-	// Build index from base name to full definition name
-	defIndex := make(map[string]string)
-	for defName := range definitions {
-		baseName, _ := ParseDefSignature(defName)
-		defIndex[baseName] = defName
-	}
+	defIndex := indexDefinitions(definitions)
 
 	// Extract parameter names from the definition being checked
 	defParams := make(map[string]bool)
@@ -117,7 +155,7 @@ func (b *formulaBuilder) build(node *ir.Node) z.Lit {
 
 // buildTagged handles nodes with tags
 func (b *formulaBuilder) buildTagged(node *ir.Node, tag string) z.Lit {
-	head, _, rest := ir.TagArgs(tag)
+	head, args, rest := ir.TagArgs(tag)
 
 	if ir.IsPresentation(head) {
 		// Presentation tags select a rendering, not a value, so they do not
@@ -231,8 +269,16 @@ func (b *formulaBuilder) buildTagged(node *ir.Node, tag string) z.Lit {
 
 		// Check if it's a reference to a known definition
 		// (e.g., !node after instantiating wrapper(node) from wrapper(t))
+		//
+		// The tag's arguments go with it: !person(int) names the parameterized
+		// person, and dropping them referred to a definition of the same name
+		// which may be a different one, uninstantiated.
 		if _, ok := b.defIndex[tagName]; ok {
-			return b.buildRef(tagName)
+			refContent := tagName
+			if len(args) > 0 {
+				refContent += "(" + strings.Join(args, ",") + ")"
+			}
+			return b.buildRef(refContent)
 		}
 
 		// Unknown tag - set error and return false
@@ -292,38 +338,28 @@ func (b *formulaBuilder) buildRef(refContent string) z.Lit {
 		// One is parameterized, one is not: different definitions
 	}
 
-	// Check for cycle via visiting set
-	if b.visiting[baseName] {
-		// Already visiting this base definition
-		// If any arg is not a known definition (i.e., it's a parameter placeholder),
-		// treat as self-reference: .[list(t)] inside instantiated list body
-		for _, arg := range refArgs {
-			if _, ok := b.defIndex[arg]; !ok {
-				return b.c.F // Arg is a parameter → self-reference
-			}
-		}
-		// All args are known definitions - check if exact instantiation is being visited
-		if b.visiting[refContent] {
+	// Which definition this reference names: `foo` and `foo(t)` are two, and the
+	// arguments say which.  An exact hit wins outright -- a schema may define
+	// "foo(int)" as a name in its own right.
+	fullDefName := refContent
+	if _, ok := b.definitions[refContent]; !ok {
+		variants, known := b.defIndex[baseName]
+		if !known {
+			b.err = fmt.Errorf("unknown definition reference: .[%s]", refContent)
 			return b.c.F
 		}
-		// Different instantiation of same base - continue (will add to visiting)
+		fullDefName = variants.pick(len(refArgs))
+		if fullDefName == "" {
+			b.err = fmt.Errorf("%s takes no arguments: .[%s]", baseName, refContent)
+			return b.c.F
+		}
 	}
 
-	// Find the definition
-	// First try exact match (for non-parameterized defs)
-	if def, ok := b.definitions[refContent]; ok && def != nil {
-		b.visiting[baseName] = true
-		b.visiting[refContent] = true
-		result := b.build(def)
-		delete(b.visiting, baseName)
-		delete(b.visiting, refContent)
-		return result
-	}
-
-	// Look up by base name in the index
-	fullDefName, ok := b.defIndex[baseName]
-	if !ok {
-		b.err = fmt.Errorf("unknown definition reference: .[%s]", refContent)
+	// Already inside the definition this resolves to: no escape through here.
+	// Keyed by the definition, not by its base name, so a parameterized
+	// definition may refer to the plain one of the same name -- which is how
+	// array(t) is written.
+	if b.visiting[fullDefName] {
 		return b.c.F
 	}
 
@@ -333,17 +369,14 @@ func (b *formulaBuilder) buildRef(refContent string) z.Lit {
 		return b.c.F
 	}
 
-	// Mark as visiting before building
-	b.visiting[baseName] = true
-	b.visiting[refContent] = true
-	defer func() {
-		delete(b.visiting, baseName)
-		delete(b.visiting, refContent)
-	}()
+	b.visiting[fullDefName] = true
+	defer delete(b.visiting, fullDefName)
 
-	// If the definition is parameterized, instantiate it
+	// If the definition is parameterized and the reference carries arguments,
+	// instantiate it.  A parameterized definition referred to without arguments
+	// is its body as written, which is what BuildDefEnv hands a zero-arg call.
 	_, defParams := ParseDefSignature(fullDefName)
-	if len(defParams) > 0 {
+	if len(defParams) > 0 && len(refArgs) > 0 {
 		if len(refArgs) != len(defParams) {
 			b.err = fmt.Errorf("parameter count mismatch for %s: expected %d, got %d",
 				baseName, len(defParams), len(refArgs))
@@ -366,7 +399,6 @@ func (b *formulaBuilder) buildRef(refContent string) z.Lit {
 		return b.build(instantiated)
 	}
 
-	// Non-parameterized definition - use directly
 	return b.build(def)
 }
 
@@ -580,32 +612,29 @@ func findReachableDefinitions(node *ir.Node, definitions map[string]*ir.Node) ma
 	reachable := make(map[string]bool)
 	visited := make(map[string]bool)
 
-	// Build index from base name to full definition name
-	defIndex := make(map[string]string)
-	for defName := range definitions {
-		baseName, _ := ParseDefSignature(defName)
-		defIndex[baseName] = defName
-	}
+	defIndex := indexDefinitions(definitions)
 
-	// Helper to find definition by ref content and mark as reachable
+	// Helper to find definition by ref content and mark as reachable.
+	//
+	// Keyed by the definition a reference names, not by its base name: `foo` and
+	// `foo(t)` are two definitions, and marking one of them because the other
+	// was mentioned checked the wrong body -- half the time, whichever the map
+	// kept.  A schema which refers to both now has both checked.
 	findAndMark := func(refContent string) string {
-		baseName, _ := ParseDefSignature(refContent)
-		if visited[baseName] {
+		baseName, args := ParseDefSignature(refContent)
+
+		fullName := ""
+		if _, exists := definitions[refContent]; exists {
+			fullName = refContent
+		} else if variants, known := defIndex[baseName]; known {
+			fullName = variants.pick(len(args))
+		}
+		if fullName == "" || visited[fullName] {
 			return ""
 		}
-		visited[baseName] = true
-
-		// Find the full definition name
-		if fullName, ok := defIndex[baseName]; ok {
-			reachable[fullName] = true
-			return fullName
-		}
-		// Try exact match
-		if _, exists := definitions[refContent]; exists {
-			reachable[refContent] = true
-			return refContent
-		}
-		return ""
+		visited[fullName] = true
+		reachable[fullName] = true
+		return fullName
 	}
 
 	var processNode func(n *ir.Node)
