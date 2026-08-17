@@ -42,7 +42,10 @@ func TestMLit_LnIndent_Basic(t *testing.T) {
 
 
 `,
-			expected: "line1\n\nline2\n\n\n\n", // Keep mode preserves trailing newlines
+			// Keep mode preserves the trailing newlines the document HAS: three
+			// after line2, not four.  The fourth was one the reader appended to
+			// the document for itself (75g1kbpdh12krs09gdn0).
+			expected: "line1\n\nline2\n\n\n",
 		},
 		{
 			name: "2 space indent",

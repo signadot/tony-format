@@ -4,7 +4,15 @@ import (
 	"fmt"
 )
 
-func mString(d []byte, start, indent int, posDoc *PosDoc) ([]Token, int, error) {
+// mString scans a block-style string: a quoted string and the further quoted
+// strings at the same indent which continue it.
+//
+// more says whether the data can still grow.  Whether another string follows is
+// a question about the bytes AFTER the one just read, so a buffer which ends
+// before them cannot answer it -- and answering "no continuation" there split
+// one multiline string into two separate strings, with no error: a value silently
+// different from the same bytes read whole (75g1kbpdh12krs09gdn0).
+func mString(d []byte, start, indent int, posDoc *PosDoc, more bool) ([]Token, int, error) {
 	i := 0
 	n := len(d)
 	res := []Token{}
@@ -27,8 +35,13 @@ func mString(d []byte, start, indent int, posDoc *PosDoc) ([]Token, int, error) 
 		res = append(res, *commentOnSameLine)
 		i += commentOff
 		// Check for next string
-		x, comments := nextMString(d[i:], indent, start+i, posDoc)
+		x, comments, ranOut := nextMString(d[i:], indent, start+i, posDoc)
 		res = append(res, comments...)
+		if ranOut && more {
+			// ErrUnterminated is what the tokenizer reads as "refill and retry".
+			return nil, 0, NewTokenizeErr(
+				fmt.Errorf("%w: %w", ErrMultilineString, ErrUnterminated), posDoc.Pos(start+i))
+		}
 		if x == -1 {
 			break
 		}
@@ -97,7 +110,10 @@ func checkCommentOnSameLine(d []byte, start int, posDoc *PosDoc) (*Token, int) {
 	return &Token{Type: TLineComment, Pos: posDoc.Pos(start)}, 0
 }
 
-func nextMString(d []byte, desOff, start int, posDoc *PosDoc) (int, []Token) {
+// nextMString answers the offset of the next string which continues this one, -1
+// when something else comes first, and ranOut when the data ended before either
+// could be seen -- a question its caller answers with the next read.
+func nextMString(d []byte, desOff, start int, posDoc *PosDoc) (offset int, comments []Token, ranOut bool) {
 	indents := 0
 	inComment := false
 
@@ -118,7 +134,7 @@ func nextMString(d []byte, desOff, start int, posDoc *PosDoc) (int, []Token) {
 		case '"', '\'':
 			if !inComment && indents == desOff {
 				// Found next string - comments are handled by checkCommentOnSameLine
-				return i, []Token{}
+				return i, []Token{}, false
 			}
 		default:
 			if inComment {
@@ -126,10 +142,10 @@ func nextMString(d []byte, desOff, start int, posDoc *PosDoc) (int, []Token) {
 				continue
 			}
 			// Non-whitespace, non-quote, non-comment character before finding next string at correct indent
-			return -1, nil
+			return -1, nil, false
 		}
 	}
-	return -1, nil
+	return -1, nil, true
 }
 
 func msMergeToks(toks []Token) []Token {

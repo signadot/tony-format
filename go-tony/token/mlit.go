@@ -154,6 +154,13 @@ func scanLines(d []byte, posDoc *PosDoc, off, indent int, format byte) (int, err
 		posDoc.nl(i + off - 1)
 	}
 	if i == 0 {
+		if n == 0 {
+			// Nothing follows the `|` line at all: an empty literal, which is what
+			// the document says.  This was only ever reached with a newline the
+			// reader appended for itself, and that newline grew keep-chomped
+			// values on every round trip.
+			return 0, nil
+		}
 		return 0, NewTokenizeErr(ErrMalformedMLit, posDoc.Pos(off))
 	}
 	if d[i-1] != '\n' {

@@ -27,7 +27,7 @@ func testFoldedMString(fms string, t *testing.T) {
 		}
 		indent++
 	}
-	toks, off, err := mString(d[indent:], 0, indent, posDoc)
+	toks, off, err := mString(d[indent:], 0, indent, posDoc, false)
 	if err != nil {
 		t.Errorf("`%s` gave %v", fms, err)
 		return

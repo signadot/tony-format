@@ -78,10 +78,17 @@ func NewTokenizerFromBytes(doc []byte, opts ...TokenOpt) *Tokenizer {
 		o(opt)
 	}
 
-	// Create PosDoc with document (append newline like Tokenize does)
+	// The scanners want a document which ends in a newline, and one which already
+	// does must not be given a second: `a: |+\n  x\n` is a value of "x\n", and
+	// the appended newline made it "x\n\n" -- which the encoder writes out, and
+	// the next read grows again, so a keep-chomped block scalar gained newlines
+	// on every round trip.  The streaming path has always added it only when it
+	// was missing; this is the same rule (75g1kbpdh12krs09gdn0).
 	posDoc := &PosDoc{d: make([]byte, len(doc), len(doc)+1)}
 	copy(posDoc.d, doc)
-	posDoc.d = append(posDoc.d, '\n')
+	if len(posDoc.d) == 0 || posDoc.d[len(posDoc.d)-1] != '\n' {
+		posDoc.d = append(posDoc.d, '\n')
+	}
 
 	return &Tokenizer{
 		doc:    posDoc.d, // Use PosDoc's d which includes trailing newline
@@ -292,13 +299,35 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 	if c == '\n' {
 		t.posDoc.nl(int(absOffset))
 		pos++
-		if pos < n && data[pos] == '-' && pos+1 < n && data[pos+1] == '-' && pos+2 < n && data[pos+2] == '-' {
-			tok := Token{
-				Type:  TDocSep,
-				Pos:   t.posDoc.Pos(int(absOffset + 1)), // After newline
-				Bytes: data[pos : pos+4],
+		// What follows a newline decides both of the things below -- whether this
+		// is a document separator, and how far the next line is indented -- so a
+		// buffer which ends AT the newline cannot answer either. It answered
+		// anyway: `a: 1\n---\nb: 2\n` read one byte at a time reached here with
+		// nothing after the newline, took the indent branch, consumed the newline,
+		// and left the separator to be scanned as a literal.
+		if pos >= n && t.reader != nil && !t.drained {
+			return nil, 0, io.EOF
+		}
+		// A separator is `---` and the newline which ends it: four bytes. Deciding
+		// on fewer than that is two bugs, and the quiet one is worse. The guard
+		// established only that the third dash was in the buffer, and then read a
+		// fourth byte: `a: 1\n---\nb: 2\n` in 4-byte reads PANICKED with a slice
+		// out of range, and in 3-byte reads came back with `---` as a literal --
+		// two documents silently merged into one, with no error anywhere. Whether
+		// this is a separator is not knowable until the bytes are here.
+		if pos < n && data[pos] == '-' {
+			if pos+4 > n {
+				if t.reader != nil && !t.drained {
+					return nil, 0, io.EOF // need more data to tell
+				}
+			} else if data[pos+1] == '-' && data[pos+2] == '-' {
+				tok := Token{
+					Type:  TDocSep,
+					Pos:   t.posDoc.Pos(int(absOffset + 1)), // After newline
+					Bytes: data[pos : pos+4],
+				}
+				return []Token{tok}, 4, nil
 			}
-			return []Token{tok}, 4, nil
 		}
 		if pos < n && data[pos] == '\n' {
 			// Consecutive newline - consume first one, skip token
@@ -306,6 +335,12 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			return nil, 1, nil
 		}
 		indent := readIndent(data[pos:])
+		// An indent run which reaches the buffer end may continue in the next
+		// read, and the indent is the structure: reporting it short puts the line
+		// at the wrong depth, silently.
+		if pos+indent >= n && t.reader != nil && !t.drained {
+			return nil, 0, io.EOF
+		}
 		tok := Token{
 			Type:  TIndent,
 			Bytes: bytes.Repeat([]byte{' '}, indent),
@@ -363,7 +398,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			}
 			if indent != -1 {
 				// multiline enabled string - returns multiple tokens
-				toks, off, err := mString(data[pos:], int(absOffset), indent, t.posDoc)
+				toks, off, err := mString(data[pos:], int(absOffset), indent, t.posDoc, t.reader != nil && !t.drained)
 				if err != nil {
 					if t.needsMoreData(err) {
 						return nil, 0, io.EOF
@@ -860,6 +895,11 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			return nil, 0, UnexpectedErr("<", t.posDoc.Pos(int(absOffset)))
 		}
 		if pos+1 >= n {
+			// The second '<' may be in the next read: a merge key split across a
+			// read boundary is not an unterminated one.
+			if t.reader != nil && !t.drained {
+				return nil, 0, io.EOF
+			}
 			return nil, 0, NewTokenizeErr(ErrUnterminated, t.posDoc.Pos(int(absOffset)))
 		}
 		if data[pos+1] != '<' {
