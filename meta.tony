@@ -8,6 +8,7 @@ duplicates: []
 id: ap8ddvp2h12krd43gdn0
 labels:
 - agent
-related_issues: []
+related_issues:
+- 599k23e4h12krhw3gdn0
 status: open
-updated: "2026-08-17T23:55:26.333536+02:00"
+updated: "2026-08-17T23:55:26.572581+02:00"
