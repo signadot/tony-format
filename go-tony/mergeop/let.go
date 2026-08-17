@@ -94,28 +94,163 @@ func (l letOp) Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, error) {
 	// Build environment from bindings
 	env := l.buildEnv()
 
-	// A reference this let does not bind is a mistake, and it has to be said. An
-	// unbound .[name] expanded to NULL, and a null pattern matches anything, so a
-	// misspelt name did not fail -- it matched every document there is, which is
-	// the one wrong answer worse than an error:
-	//
-	//	!let {let: [{t: x}], in: {sha: .[nope]}}   matched {sha: aaa111}
-	//
-	// The same is why a nested !let is refused rather than answered: this
-	// expansion reaches the inner let's `in` and does not know its bindings, so it
-	// would blank them the same way (3q8z5zvkh12kr9dpg9n0).
-	if unbound := l.unboundRefs(l.in); len(unbound) > 0 {
-		return false, fmt.Errorf("let does not bind %s", strings.Join(unbound, ", "))
-	}
-
-	// Expand using environment expansion (expects .[var] format)
-	expandedIn, err := eval.ExpandIR(l.in.Clone(), env)
+	// Substitute the names THIS let binds, and leave the rest for an inner one.
+	expandedIn, err := l.expandScoped(l.in, env)
 	if err != nil {
 		return false, fmt.Errorf("error expanding let in body: %w", err)
 	}
 
+	// What is left over is a name nobody can bind: an enclosing let has already
+	// run, and an inner one binds only inside its own body, which this skips.
+	// Saying so is the point -- an unbound .[name] used to expand to NULL, and a
+	// null pattern matches anything, so a misspelt name matched every document
+	// there is rather than failing.
+	if unbound := unresolvedRefs(expandedIn); len(unbound) > 0 {
+		return false, fmt.Errorf("let does not bind %s", strings.Join(unbound, ", "))
+	}
+
 	// Match using the expanded 'in' node
 	return f(doc, expandedIn, ctx)
+}
+
+// expandScoped substitutes the names in env and leaves every other reference
+// exactly as it stands.
+//
+// Leaving them is what makes a nested let work. eval.ExpandIR resolves an unknown
+// name to null, so an outer let reached into an inner one's body and blanked the
+// references it meant to bind, before the inner op had run at all -- and since a
+// null pattern matches anything, the inner match then passed on every document.
+// The inner let is expanded later, by its own op, and the names it binds have to
+// still be there when it runs.
+//
+// A nested let's BINDINGS are expanded here, and that is not an oversight: a
+// binding list is evaluated in the enclosing scope, which is what makes
+// `let: [{inner: .[outer]}]` mean what it reads as. Only the body is the inner
+// scope's.
+//
+// Containers are rebuilt the way ExpandIR rebuilds them -- same keys, same tag --
+// so the only difference between this and ExpandIR is what happens to a name
+// neither of them knows.
+func (l letOp) expandScoped(n *ir.Node, env map[string]any) (*ir.Node, error) {
+	if n == nil {
+		return nil, nil
+	}
+	if name := refName(n); name != "" {
+		if _, bound := env[name]; !bound {
+			return n.Clone(), nil // an inner let's to bind, or nobody's
+		}
+		return eval.ExpandIR(n.Clone(), env)
+	}
+	// A nested let: its bindings are evaluated here, in the enclosing scope, and its
+	// body is evaluated with the names it rebinds taken OUT of scope. Without that
+	// an inner binding could not shadow an outer one -- the outer substituted first
+	// and the inner never saw its own name.
+	if ir.TagHas(n.Tag, "!"+string(letName)) && n.Type == ir.ObjectType {
+		inner := env
+		if shadowed := letBoundNames(n); len(shadowed) > 0 {
+			inner = make(map[string]any, len(env))
+			for k, v := range env {
+				if !shadowed[k] {
+					inner[k] = v
+				}
+			}
+		}
+		kvs := make([]ir.KeyVal, len(n.Values))
+		for i, elt := range n.Values {
+			use := env
+			if n.Fields[i].String == "in" {
+				use = inner
+			}
+			xc, err := l.expandScoped(elt, use)
+			if err != nil {
+				return nil, err
+			}
+			kvs[i] = ir.KeyVal{Key: n.Fields[i], Val: xc}
+		}
+		return ir.FromKeyVals(kvs).WithTag(n.Tag), nil
+	}
+
+	switch n.Type {
+	case ir.ObjectType:
+		kvs := make([]ir.KeyVal, len(n.Values))
+		for i, elt := range n.Values {
+			xc, err := l.expandScoped(elt, env)
+			if err != nil {
+				return nil, err
+			}
+			f := n.Fields[i]
+			// Preserve merge keys (null-typed keys) by using the original field node
+			if f.Type == ir.NullType {
+				kvs[i] = ir.KeyVal{Key: nil, Val: xc}
+			} else {
+				kvs[i] = ir.KeyVal{Key: f, Val: xc}
+			}
+		}
+		return ir.FromKeyVals(kvs).WithTag(n.Tag), nil
+	case ir.ArrayType:
+		res := make([]*ir.Node, len(n.Values))
+		for i, elt := range n.Values {
+			xc, err := l.expandScoped(elt, env)
+			if err != nil {
+				return nil, err
+			}
+			res[i] = xc
+		}
+		return ir.FromSlice(res).WithTag(n.Tag), nil
+	default:
+		return eval.ExpandIR(n.Clone(), env)
+	}
+}
+
+// refName is the name a whole-node .[name] reference names, or "" for anything
+// else.
+func refName(n *ir.Node) string {
+	n = ir.Uncomment(n)
+	if n == nil || n.Type != ir.StringType {
+		return ""
+	}
+	return eval.GetRaw(n.String)
+}
+
+// unresolvedRefs answers the references left in n which no let will bind, in the
+// order they are met and without repeats.
+//
+// A nested let's BODY is skipped: those names are its to bind, and it will say so
+// itself when it runs. Its bindings are not skipped -- they were evaluated in this
+// scope, so an unknown name there is unbound here.
+func unresolvedRefs(n *ir.Node) []string {
+	seen := map[string]bool{}
+	var res []string
+	var walk func(*ir.Node)
+	walk = func(n *ir.Node) {
+		if n == nil {
+			return
+		}
+		if name := refName(n); name != "" {
+			if !seen[name] {
+				seen[name] = true
+				res = append(res, ".["+name+"]")
+			}
+			return
+		}
+		u := ir.Uncomment(n)
+		if u == nil {
+			return
+		}
+		// A let anywhere in this body is a NESTED one -- this walk is over the body,
+		// never over the let it belongs to -- so its bindings are ours to have
+		// resolved and its body is its own. The body of an outer let is very often a
+		// let itself, which is the shape being made to work here.
+		if ir.TagHas(u.Tag, "!"+string(letName)) && u.Type == ir.ObjectType {
+			walk(ir.Get(u, string(letName)))
+			return
+		}
+		for _, v := range u.Values {
+			walk(v)
+		}
+	}
+	walk(n)
+	return res
 }
 
 // buildEnv creates an eval.Env from the let bindings
@@ -135,36 +270,23 @@ func bindingItemType(n *ir.Node) string {
 	return n.Type.String()
 }
 
-// unboundRefs answers the .[name] references in n which this let does not bind,
-// in the order they are met and without repeats.
-//
-// It is the check that turns a misspelt name from a match into an error. The
-// walk is over the whole `in` body, nested lets included: this expansion reaches
-// into them, so a name they mean to bind is a name this let is about to blank.
-func (l letOp) unboundRefs(n *ir.Node) []string {
-	seen := map[string]bool{}
-	var res []string
-	var walk func(*ir.Node)
-	walk = func(n *ir.Node) {
-		if n == nil {
-			return
+// letBoundNames answers the names a let node binds, read from its binding list
+// without evaluating anything. They are what an inner let takes out of scope for
+// its own body.
+func letBoundNames(letNode *ir.Node) map[string]bool {
+	bindings := ir.Get(letNode, string(letName))
+	if bindings == nil || bindings.Type != ir.ArrayType {
+		return nil
+	}
+	res := map[string]bool{}
+	for _, item := range bindings.Values {
+		item = ir.Uncomment(item)
+		if item == nil || item.Type != ir.ObjectType {
+			continue
 		}
-		n = ir.Uncomment(n)
-		if n == nil {
-			return
-		}
-		if n.Type == ir.StringType {
-			if name := eval.GetRaw(n.String); name != "" {
-				if _, ok := l.bindings[name]; !ok && !seen[name] {
-					seen[name] = true
-					res = append(res, "."+"["+name+"]")
-				}
-			}
-		}
-		for _, v := range n.Values {
-			walk(v)
+		for _, f := range item.Fields {
+			res[f.String] = true
 		}
 	}
-	walk(n)
 	return res
 }

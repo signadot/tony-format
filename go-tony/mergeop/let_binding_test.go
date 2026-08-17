@@ -39,11 +39,9 @@ func TestLetRefusesWhatItCannotBind(t *testing.T) {
 			want:    "does not bind .[nope]",
 		},
 		{
-			// the outer expansion reaches the inner body and blanks its names,
-			// which used to make the inner match pass vacuously
-			name:    "a nested let, whose names this one cannot know",
-			pattern: `!let {let: [{a: 1}], in: !let {let: [{b: zzz}], in: {sha: .[b]}}}`,
-			want:    "does not bind .[b]",
+			name:    "a name no let binds, from inside a nested one",
+			pattern: `!let {let: [{a: 1}], in: !let {let: [{b: 2}], in: {sha: .[nope]}}}`,
+			want:    "does not bind .[nope]",
 		},
 		{
 			name:    "a bound name that matches",
@@ -91,4 +89,74 @@ func mustParseNode(t *testing.T, s string) *ir.Node {
 		t.Fatalf("parse %q: %v", s, err)
 	}
 	return n
+}
+
+// A let inside a let is the ordinary shape, and it works the way a reader of the
+// two lines expects: a binding list is evaluated in the ENCLOSING scope, the body
+// in the inner one, and an inner name shadows an outer one of the same name.
+//
+// It used to lie. The outer expansion ran over the whole body, including the inner
+// let's, and eval.ExpandIR resolves a name it does not know to NULL -- so the
+// inner's references were blanked before its op ever ran, and since a null pattern
+// matches anything, the nested match passed on every document there is.
+func TestLetNests(t *testing.T) {
+	doc := mustParseNode(t, `{sha: aaa111}`)
+
+	for _, tc := range []struct {
+		name, pattern string
+		matches       bool
+	}{
+		{
+			name:    "the inner binding is what the body sees",
+			pattern: `!let {let: [{a: 1}], in: !let {let: [{b: aaa111}], in: {sha: .[b]}}}`,
+			matches: true,
+		},
+		{
+			// the case the old code could not tell from the one above
+			name:    "and it can fail to match",
+			pattern: `!let {let: [{a: 1}], in: !let {let: [{b: zzz}], in: {sha: .[b]}}}`,
+			matches: false,
+		},
+		{
+			name:    "an inner body may use an outer binding",
+			pattern: `!let {let: [{o: aaa111}], in: !let {let: [{b: 1}], in: {sha: .[o]}}}`,
+			matches: true,
+		},
+		{
+			name:    "an inner BINDING is evaluated in the outer scope",
+			pattern: `!let {let: [{o: aaa111}], in: !let {let: [{b: .[o]}], in: {sha: .[b]}}}`,
+			matches: true,
+		},
+		{
+			name:    "an inner binding shadows an outer one",
+			pattern: `!let {let: [{t: zzz}], in: !let {let: [{t: aaa111}], in: {sha: .[t]}}}`,
+			matches: true,
+		},
+		{
+			name:    "and the outer value does not leak past the shadow",
+			pattern: `!let {let: [{t: aaa111}], in: !let {let: [{t: zzz}], in: {sha: .[t]}}}`,
+			matches: false,
+		},
+		{
+			// the binding reads the outer t, then shadows it for the body
+			name:    "a shadowing binding may read what it shadows",
+			pattern: `!let {let: [{t: aaa111}], in: !let {let: [{t: .[t]}], in: {sha: .[t]}}}`,
+			matches: true,
+		},
+		{
+			name:    "three deep",
+			pattern: `!let {let: [{a: 1}], in: !let {let: [{b: 2}], in: !let {let: [{c: aaa111}], in: {sha: .[c]}}}}`,
+			matches: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ok, err := tony.Match(doc, mustParseNode(t, tc.pattern))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if ok != tc.matches {
+				t.Errorf("matched=%v, want %v", ok, tc.matches)
+			}
+		})
+	}
 }
