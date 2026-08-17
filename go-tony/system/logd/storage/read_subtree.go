@@ -20,52 +20,60 @@ import (
 // be streamed from an offset near it -- and applies only the writes which touch that
 // subtree, projected to it.
 //
-// The second result says whether it managed that. A patch cannot always be projected
-// to kp: an operator ABOVE kp (an !all, a !raw, a !delete of an ancestor) says
-// something about the subtree which the subtree cannot say about itself, and
-// deciding what it would have meant is the kind of guess that loses data. So the
-// read falls back to the whole document and navigates to kp, and answers false --
-// the same value, at the old cost, which is the honest degradation.
+// The second result says whether it managed that, and it answers (nil, false, nil)
+// rather than guessing when it did not. It declines for:
 //
-// A scoped read falls back for now: a scope is read as raw op-preserving patches
-// over the baseline in one pass (readScopedStateAt), and narrowing it wants that
-// pass to be path-aware first.
+//   - an operator ABOVE kp -- an !all, a !raw, a !delete of an ancestor -- which says
+//     something about the subtree that the subtree cannot say about itself, and
+//     deciding what it would have meant is the kind of guess which loses data;
+//   - a scoped read, which is one op-preserving pass over the baseline
+//     (readScopedStateAt) and wants that pass to be path-aware first;
+//   - the root, which is not a narrowing.
+//
+// A caller which is declined reads wide, which is also the only reader that can say
+// what a path not fitting the document means: absent, or a segment which cannot be
+// followed, which are different answers to a client. Classifying that is deliberately
+// not done here -- one place does it (the server's extractPathValue), and a second
+// would be a second set of error codes for the same question.
 func (s *Storage) ReadSubtreeAt(kp string, commit int64, scopeID *string) (*ir.Node, bool, error) {
 	if kp == "" || scopeID != nil {
-		n, err := s.ReadStateAt(kp, commit, scopeID)
-		if err != nil {
-			return nil, false, err
-		}
-		return n, false, nil
-	}
-	if _, err := kpath.Parse(kp); err != nil {
-		return nil, false, fmt.Errorf("invalid path %q: %w", kp, err)
-	}
-
-	node, narrowed, err := s.readSubtreeNarrow(kp, commit)
-	if err != nil {
-		return nil, false, err
-	}
-	if narrowed {
-		return node, true, nil
-	}
-	return s.readSubtreeWide(kp, commit)
-}
-
-// readSubtreeWide is the fallback: the whole document, navigated to kp.
-func (s *Storage) readSubtreeWide(kp string, commit int64) (*ir.Node, bool, error) {
-	full, err := s.ReadStateAt("", commit, nil)
-	if err != nil {
-		return nil, false, err
-	}
-	if full == nil {
 		return nil, false, nil
 	}
-	at, err := full.GetKPath(kp)
-	if err != nil {
-		return nil, false, fmt.Errorf("navigate to %q: %w", kp, err)
+	if _, err := kpath.Parse(kp); err != nil {
+		return nil, false, nil // the wide read reports what is wrong with it
 	}
-	return at, false, nil
+	return s.readSubtreeNarrow(kp, commit)
+}
+
+// ReadSubtreeRootedAt is ReadSubtreeAt with the value put back under the path it
+// came from, so the result is a document of the same shape as a wide read -- with
+// everything the caller did not ask for left out of it.
+//
+// It exists so that a caller which navigates a read can keep doing exactly that, on
+// a document which cost a subtree instead of a store. It answers narrowed=false and
+// a nil node when it could not narrow OR when the path holds nothing: the second is
+// where a wide read's own answer is subtle (a path which is absent, versus one whose
+// ancestor is a scalar, versus a document which is empty), and reproducing that
+// subtlety from a narrow read is not worth getting slightly wrong. The caller reads
+// wide for those, which is what it did for everything before.
+func (s *Storage) ReadSubtreeRootedAt(kp string, commit int64, scopeID *string) (*ir.Node, bool, error) {
+	if kp == "" {
+		return nil, false, nil
+	}
+	node, narrowed, err := s.ReadSubtreeAt(kp, commit, scopeID)
+	if err != nil || !narrowed || node == nil {
+		return nil, false, err
+	}
+	rooted := node
+	segs := kpath.SplitAll(kp)
+	for i := len(segs) - 1; i >= 0; i-- {
+		name, isField := kpath.SegmentFieldName(segs[i])
+		if !isField {
+			return nil, false, nil // keyed or indexed: the wide read answers those
+		}
+		rooted = ir.FromKeyVals([]ir.KeyVal{{Key: ir.FromString(name), Val: rooted}})
+	}
+	return rooted, true, nil
 }
 
 // readSubtreeNarrow reads only the subtree, or reports that it could not.

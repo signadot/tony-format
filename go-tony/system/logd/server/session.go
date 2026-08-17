@@ -326,7 +326,7 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 	}
 
 	// Read state (with session scope filtering)
-	doc, err := s.storage.ReadStateAt(path, commit, s.scope)
+	doc, err := s.readDocAt(path, commit)
 	if err != nil {
 		s.sendError(id, "storage_error", fmt.Sprintf("failed to read state: %v", err))
 		return
@@ -361,6 +361,30 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 	}
 
 	s.send(api.NewMatchResponse(id, commit, state))
+}
+
+// readDocAt reads the document a request or a watch needs to answer about path: the
+// subtree when the store can read it that way, the whole document when it cannot.
+//
+// A path restricts a read to the subdocument, which is what the request means and,
+// until ReadSubtreeRootedAt, not what it cost: the whole document was replayed and
+// materialized so that the value at the path could be taken out of it. What comes
+// back here has the same SHAPE as the wide read -- rooted, with the subtree under its
+// own path -- so everything downstream is unchanged: the path extraction with its
+// quoting rules and its not-found reporting, the filter, the diffing a watcher does.
+//
+// The store declines to narrow where narrowing would have to guess: an operator above
+// the path, a scoped read, a path holding nothing. Then this is the read it always
+// was (ap8ddvp2h12krd43gdn0).
+func (s *Session) readDocAt(path string, commit int64) (*ir.Node, error) {
+	doc, narrowed, err := s.storage.ReadSubtreeRootedAt(path, commit, s.scope)
+	if err != nil {
+		return nil, err
+	}
+	if narrowed {
+		return doc, nil
+	}
+	return s.storage.ReadStateAt(path, commit, s.scope)
 }
 
 // handlePatch handles patch (write) requests.
@@ -704,7 +728,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 			state = ir.Null()
 		} else {
 			var err error
-			state, err = s.storage.ReadStateAt(path, startCommit, s.scope)
+			state, err = s.readDocAt(path, startCommit)
 			if err != nil {
 				s.log.Error("failed to read state for init", "path", path, "commit", startCommit, "error", err)
 				s.failWatch(watcher, api.ErrCodeReplayFailed, fmt.Sprintf("failed to read state at commit %d: %v", startCommit, err), lastDelivered)
@@ -1015,7 +1039,7 @@ func (s *Session) scopedDocAt(path string, commit int64) (*ir.Node, error) {
 	if commit == 0 {
 		return ir.Null(), nil
 	}
-	doc, err := s.storage.ReadStateAt(path, commit, s.scope)
+	doc, err := s.readDocAt(path, commit)
 	if err != nil {
 		return nil, err
 	}

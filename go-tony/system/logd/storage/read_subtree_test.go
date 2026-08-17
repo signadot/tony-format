@@ -90,6 +90,12 @@ func TestReadSubtreeMatchesTheWideRead(t *testing.T) {
 				if err != nil {
 					t.Fatalf("narrow read %q: %s", kp, err)
 				}
+				if !narrowed {
+					// Declined, so the answer is the wide read's. That the caller
+					// reads wide when declined is what makes declining safe, and it
+					// is checked where the caller is: the session's readDocAt.
+					got = want
+				}
 				switch {
 				case want == nil && got == nil:
 				case want == nil || got == nil:
@@ -151,15 +157,15 @@ func TestReadSubtreeFallsBackUnderAnOperator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, narrowed, err := s.ReadSubtreeAt("verse.entities.e1", commit, nil)
+	_, narrowed, err := s.ReadSubtreeAt("verse.entities.e1", commit, nil)
 	if err != nil {
 		t.Fatalf("narrow read: %s", err)
 	}
 	if narrowed {
 		t.Error("the read narrowed through an operator above the path")
 	}
-	if got == nil || !got.DeepEqual(want) {
-		t.Errorf("the fallback answered %v, want %v", got, want)
+	if want == nil {
+		t.Fatal("the wide read holds nothing at the path, so this case proves nothing")
 	}
 }
 
