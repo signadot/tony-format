@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 72f9a040e50407a001febca4485d07d909d12ce8
 commits:
 - 72f9a040e50407a001febca4485d07d909d12ce8
 created: "2026-08-17T18:34:03.118827+02:00"
@@ -9,5 +10,5 @@ duplicates: []
 id: dyrd7cj2h12ksysqgdn0
 labels: []
 related_issues: []
-status: open
-updated: "2026-08-17T18:34:28.338862+02:00"
+status: closed
+updated: "2026-08-17T18:34:28.456018+02:00"
