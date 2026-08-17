@@ -21,10 +21,10 @@ import (
 func getSingleLiteralStreaming(d []byte) ([]byte, error) {
 	lit, err := getSingleLiteral(d)
 	if err != nil {
-		// A rune cut off by the end of the buffer is the same situation as a
-		// literal that runs to the end: the scan needs the next read, not a
-		// verdict.
-		if errors.Is(err, ErrPartialRune) {
+		// A rune cut off by the end of the buffer, or a bracket the buffer ended
+		// before closing, is the same situation as a literal that runs to the
+		// end: the scan needs the next read, not a verdict.
+		if errors.Is(err, ErrPartialRune) || errors.Is(err, ErrUnterminated) {
 			return nil, io.EOF
 		}
 		return nil, err
@@ -101,13 +101,23 @@ done:
 			return nil, fmt.Errorf("%w: invalid leading character %c", ErrLiteral, d[0])
 		}
 	}
+	// A scan which ran off the end of the data has not finished, so whether its
+	// brackets balance is not known yet: the closer is in the next read.  Called
+	// a bad literal, this killed a logd client session every time a literal
+	// holding a '{' or a '[' straddled a 4096-byte buffer boundary -- reported at
+	// the literal's own column, which is why the column was the same every time
+	// and the offset never was (75g1kbpdh12krs09gdn0).
+	//
+	// ErrUnterminated is what the tokenizer already reads as "refill and retry",
+	// and at the true end of the data the trailing newline ends the scan before
+	// this, so an unbalanced literal there still reports as one.
+	if i >= n && (cb > 0 || sb > 0) {
+		return nil, fmt.Errorf("%w: literal with an open bracket runs to the end of the data", ErrUnterminated)
+	}
 	if cb > 0 {
 		return nil, fmt.Errorf("%w: unbalanced {}", ErrLiteral)
 	}
 	if sb > 0 {
-		return nil, fmt.Errorf("%w: unbalanced [] (%d)", ErrLiteral, sb)
-	}
-	if cb > 0 {
 		return nil, fmt.Errorf("%w: unbalanced [] (%d)", ErrLiteral, sb)
 	}
 	// chop trailing colon, comma
