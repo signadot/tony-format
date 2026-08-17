@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/mergeop"
 	"github.com/signadot/tony-format/go-tony/schema"
 )
@@ -143,10 +144,7 @@ func validateForStorage(n *ir.Node, path string) error {
 	switch n.Type {
 	case ir.ObjectType:
 		for i, f := range n.Fields {
-			p := f.String
-			if path != "" {
-				p = path + "." + f.String
-			}
+			p := kpath.ChildField(path, f.String)
 			if i < len(n.Values) {
 				if err := validateForStorage(n.Values[i], p); err != nil {
 					return err

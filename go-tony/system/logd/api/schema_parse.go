@@ -2,6 +2,7 @@ package api
 
 import (
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
 )
 
 const (
@@ -80,10 +81,7 @@ func walkDefine(node *ir.Node, parentPath string, fields *[]AutoIDField, keys *[
 
 		// Recurse into object children
 		if value.Type == ir.ObjectType {
-			childPath := fieldName
-			if parentPath != "" {
-				childPath = parentPath + "." + fieldName
-			}
+			childPath := kpath.ChildField(parentPath, fieldName)
 			walkDefine(value, childPath, fields, keys)
 		}
 	}

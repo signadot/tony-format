@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/signadot/tony-format/go-tony/ir"
+	kpathpkg "github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
@@ -58,10 +59,7 @@ func injectKeyTagsRec(schema *api.Schema, node *ir.Node, kpath string) error {
 			if i >= len(node.Values) {
 				continue
 			}
-			childPath := field.String
-			if kpath != "" {
-				childPath = kpath + "." + field.String
-			}
+			childPath := kpathpkg.ChildField(kpath, field.String)
 			if err := injectKeyTagsRec(schema, node.Values[i], childPath); err != nil {
 				return err
 			}

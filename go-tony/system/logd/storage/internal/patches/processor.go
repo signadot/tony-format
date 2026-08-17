@@ -439,13 +439,26 @@ func walkAndCollectPatchRoots(node *ir.Node, path string, fn func(node *ir.Node,
 }
 
 // buildChildPath constructs the child path for an object field.
+//
+// The field name is rendered as a path SEGMENT, which means quoting it when the name
+// holds what a path would otherwise read as structure.  Concatenated raw, a field
+// named "post.dotted" produced `demo.probe.post.dotted` -- a path naming something
+// the document does not have -- and everything downstream read it that way: the
+// write was grafted under `post` as a field `dotted`, and a read at the path the
+// client asked for found nothing.
+//
+// This walk runs when patches are folded onto a BASE, so a store showed it from its
+// first snapshot onwards and never before; and a value already standing at the
+// unsplit path masks it, the read answering with that older value
+// (r05ms7nch12ksxttgdn0).
 func buildChildPath(parentPath string, field *ir.Node) string {
 	switch field.Type {
 	case ir.StringType:
+		seg := kpath.Field(field.String).String()
 		if parentPath == "" {
-			return field.String
+			return seg
 		}
-		return parentPath + "." + field.String
+		return parentPath + "." + seg
 	case ir.NumberType:
 		idx := fieldToInt64(field)
 		return parentPath + "{" + strconv.FormatInt(idx, 10) + "}"
@@ -634,10 +647,7 @@ func (u *unreachedPatches) childPath() string {
 	if u.nextIsInt {
 		return top.path + u.nextSeg // "{n}" attaches without a dot
 	}
-	if top.path == "" {
-		return u.nextSeg
-	}
-	return top.path + "." + u.nextSeg
+	return kpath.ChildField(top.path, u.nextSeg)
 }
 
 func (u *unreachedPatches) advanceIndex() {
@@ -724,8 +734,15 @@ func (u *unreachedPatches) graftUpTo(f unreachedFrame, before string, sink strea
 		// re-emitted the value without what had been said above it, so a write to a
 		// path the base does not contain arrived comment-less while the stepped
 		// head kept it (3cdjz00jh12krns4g1n0).
-		value, err := node.GetKPathWith(seg, ir.WithComments(true))
-		if err != nil || value == nil {
+		// seg is a field NAME, and this asks for a PATH: rendered as a segment, so
+		// that a name holding a dot is read as the one field it is.  Handed over
+		// raw, `post.dotted` was read as two segments, the lookup found nothing,
+		// and the write was dropped here without a word (r05ms7nch12ksxttgdn0).
+		value, err := node.GetKPathWith(kpath.Field(seg).String(), ir.WithComments(true))
+		if err != nil {
+			return fmt.Errorf("graft %q into %q: %w", seg, f.path, err)
+		}
+		if value == nil {
 			continue
 		}
 		tx.StripPatchRootTagRecursive(value)
@@ -811,25 +828,42 @@ func remainderUnder(container, path string) (string, bool) {
 }
 
 // splitFieldSegment splits a remainder into its first plain field segment and the rest.
+//
+// A field name holding a dot is QUOTED, and the quotes are what say the dot belongs
+// to the name.  Scanning bytes for '.' walked straight through them, so a write at
+// `demo.probe."post.dotted"` was grafted under a field `post` holding a field
+// `dotted`: the read at the path the client named then found nothing, the write
+// having reported a commit.  Only a write folded onto a snapshot base comes through
+// here, which is why a store showed this the moment it crossed its first snapshot
+// and never before -- and why a prior write at the same address masks it, the read
+// answering with the older value still standing at the unsplit path
+// (r05ms7nch12ksxttgdn0).
+//
+// kpath's own splitter is used instead, which knows what a segment is. It panics on
+// a path it cannot read, and a remainder arriving here may be keyed or indexed by
+// design -- remainderUnder hands those over so that the error below names them --
+// so the path is read before it is split.
 func splitFieldSegment(rest string) (seg, tail string, err error) {
 	if rest == "" {
 		return "", "", fmt.Errorf("empty path remainder")
 	}
-	for i := 0; i < len(rest); i++ {
-		switch rest[i] {
-		case '.':
-			return rest[:i], rest[i+1:], nil
-		case '{', '[':
-			if i == 0 {
-				return "", "", fmt.Errorf("segment %q is not a plain field", rest)
-			}
+	if rest[0] == '{' || rest[0] == '[' {
+		return "", "", fmt.Errorf("segment %q is not a plain field", rest)
+	}
+	if _, perr := kpath.Parse(rest); perr != nil {
+		return "", "", fmt.Errorf("segment %q is not a plain field: %w", rest, perr)
+	}
+	// Every segment has to be a plain field, as the byte scan required: a keyed or
+	// indexed one anywhere in the remainder cannot be created here, and saying so
+	// at the first segment keeps the caller from grafting half of it.
+	for _, seg := range kpath.SplitAll(rest) {
+		if _, isField := kpath.SegmentFieldName(seg); !isField {
 			return "", "", fmt.Errorf("segment %q is keyed or indexed, which cannot be created here", rest)
 		}
 	}
-	if name, isField := kpath.SegmentFieldName(rest); isField {
-		return name, "", nil
-	}
-	return rest, "", nil
+	head, tail := kpath.Split(rest)
+	name, _ := kpath.SegmentFieldName(head)
+	return name, tail, nil
 }
 
 // nestUnder folds the patch nodes as seen from a container, wrapping EACH of them in

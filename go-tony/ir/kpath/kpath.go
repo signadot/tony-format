@@ -565,6 +565,24 @@ func segmentToString(kp *KPath) string {
 //   - Join("'a.b'", "c") → "'a.b'.c"   a field that really does contain a dot
 //   - Join("a", "") → "a"
 //   - Join("", "b") → "b"
+//
+// ChildField answers the path of a field of the node at parent -- the one way to
+// render "the child named f", which is not concatenation: a field name holding a
+// dot, a brace, a bracket or a space is what quoting is FOR, and joined raw it
+// becomes structure the document does not have.
+//
+// logd rendered child paths by concatenation in eight places, so an entity whose id
+// held a dot was written at a path naming two nodes instead of one, and only once
+// the store had a snapshot to graft onto -- the write reporting a commit and the
+// read at the same path finding nothing (r05ms7nch12ksxttgdn0).
+func ChildField(parent, f string) string {
+	seg := Field(f).String()
+	if parent == "" {
+		return seg
+	}
+	return parent + "." + seg
+}
+
 func Join(prefix string, suffix string) string {
 	if prefix == "" {
 		return suffix

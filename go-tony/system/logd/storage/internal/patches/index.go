@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
@@ -76,11 +77,7 @@ func walkIRTree(node *ir.Node, path string, fn func(node *ir.Node, path string))
 			var childPath string
 			switch field.Type {
 			case ir.StringType:
-				if path == "" {
-					childPath = field.String
-				} else {
-					childPath = path + "." + field.String
-				}
+				childPath = kpath.ChildField(path, field.String)
 			case ir.NumberType:
 				var idx int64
 				if field.Int64 != nil {

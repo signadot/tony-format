@@ -2,6 +2,7 @@ package tx
 
 import (
 	"github.com/signadot/tony-format/go-tony/ir"
+	kpathpkg "github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/autoid"
 )
@@ -54,10 +55,7 @@ func injectAutoIDsRec(commit int64, schema *api.Schema, node *ir.Node, kpath str
 			if i >= len(node.Values) {
 				continue
 			}
-			childPath := field.String
-			if kpath != "" {
-				childPath = kpath + "." + childPath
-			}
+			childPath := kpathpkg.ChildField(kpath, field.String)
 			count += injectAutoIDsRec(commit, schema, node.Values[i], childPath, idx)
 		}
 

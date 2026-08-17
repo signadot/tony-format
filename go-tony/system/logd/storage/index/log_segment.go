@@ -133,12 +133,7 @@ func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq i
 			field := n.Fields[i]
 			val := n.Values[i]
 			key := field.String
-			nextPath := ""
-			if kPath == "" {
-				nextPath = key
-			} else {
-				nextPath = kPath + "." + key
-			}
+			nextPath := kpath.ChildField(kPath, key)
 			if err := indexPatchRec(idx, e, logFile, pos, txSeq, generation, val, nextPath, schema, scopeID); err != nil {
 				return err
 			}

@@ -8,6 +8,7 @@ import (
 
 	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/libdiff"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
@@ -443,10 +444,7 @@ func patchHasUndeclaredKey(n *ir.Node, prefix string, keys map[string]string) bo
 	switch n.Type {
 	case ir.ObjectType:
 		for i, f := range n.Fields {
-			p := f.String
-			if prefix != "" {
-				p = prefix + "." + f.String
-			}
+			p := kpath.ChildField(prefix, f.String)
 			if i < len(n.Values) && patchHasUndeclaredKey(n.Values[i], p, keys) {
 				return true
 			}
@@ -556,10 +554,7 @@ func annotateKeyed(n *ir.Node, prefix string, keys map[string]string) {
 	switch n.Type {
 	case ir.ObjectType:
 		for i, fld := range n.Fields {
-			p := fld.String
-			if prefix != "" {
-				p = prefix + "." + fld.String
-			}
+			p := kpath.ChildField(prefix, fld.String)
 			if i < len(n.Values) {
 				annotateKeyed(n.Values[i], p, keys)
 			}
