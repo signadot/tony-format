@@ -429,21 +429,26 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 // the path, a scoped read, a path holding nothing. Then this is the read it always
 // was (ap8ddvp2h12krd43gdn0).
 func (s *Session) readDocAt(path string, commit int64) (*ir.Node, error) {
+	// Ask the cheapest question first. When the index can say the path has never been
+	// written, it answers with a document which resolves exactly as far as the path
+	// has -- so the extraction below fails at the same segment, with the same kind, as
+	// it would have on the whole document.
+	//
+	// It is asked BEFORE the narrow read, not after: a path with nothing at it cannot
+	// narrow, so asking second meant paying a failed narrowing to be told what an index
+	// lookup already knew. Staging measured those declined attempts at 785ms each, 43
+	// of them, in front of an answer that costs nothing -- and counted each read twice
+	// besides, once as wide-absent and once as narrow-absent
+	// (ap8ddvp2h12krd43gdn0).
+	if spine, ok := s.storage.AbsentSpineAt(path, s.scopeID()); ok {
+		return spine, nil
+	}
 	doc, narrowed, err := s.storage.ReadSubtreeRootedAt(path, commit, s.scopeID())
 	if err != nil {
 		return nil, err
 	}
 	if narrowed {
 		return doc, nil
-	}
-	// Nothing to narrow to is not a reason to read everything. When the store can
-	// say the path has never been written, it answers with a document which resolves
-	// exactly as far as the path has -- so the extraction below fails at the same
-	// segment, with the same kind, as it would have on the whole document, and a rule
-	// watching a slice nobody has written yet stops costing a full read to be told so
-	// (ap8ddvp2h12krd43gdn0).
-	if spine, ok := s.storage.AbsentSpineAt(path, s.scopeID()); ok {
-		return spine, nil
 	}
 	return s.storage.ReadStateAt(path, commit, s.scopeID())
 }
