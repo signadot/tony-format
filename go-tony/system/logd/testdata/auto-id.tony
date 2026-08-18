@@ -19,4 +19,4 @@
 {patch: {path: "users", data: !key(id) [{name: "Bob"}]}}
 
 # Read all users to see the generated IDs
-{match: {body: {path: "users"}}}
+{match: {path: "users"}}

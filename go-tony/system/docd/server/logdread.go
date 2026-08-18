@@ -43,7 +43,7 @@ func readLogdMatch(logdAddr, path string, scope *string, atCommit *int64, timeou
 	}
 
 	if err := writeSessionRequest(conn, &logdapi.SessionRequest{
-		Match: &logdapi.MatchRequest{Body: logdapi.PathData{Path: path}, Commit: atCommit},
+		Match: &logdapi.MatchRequest{PathData: logdapi.PathData{Path: path}, Commit: atCommit},
 	}); err != nil {
 		return nil, 0, err
 	}

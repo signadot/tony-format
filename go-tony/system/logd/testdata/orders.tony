@@ -17,7 +17,7 @@
 {patch: {path: "orders.ord-001.items(WIDGET-A).qty", data: 5}}
 
 # Read order
-{match: {body: {path: "orders.ord-001"}}}
+{match: {path: "orders.ord-001"}}
 
 # Watch for order changes
 {watch: {path: "orders", fromCommit: 0}}

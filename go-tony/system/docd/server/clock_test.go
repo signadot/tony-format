@@ -224,7 +224,7 @@ func TestServeClockMatch(t *testing.T) {
 	s := newTestClientSession(server, client)
 	dec, _ := stream.NewDecoder(peer, stream.WithBrackets())
 
-	req := &logdapi.SessionRequest{Match: &logdapi.MatchRequest{Body: logdapi.PathData{Path: "sys/clock"}}}
+	req := &logdapi.SessionRequest{Match: &logdapi.MatchRequest{PathData: logdapi.PathData{Path: "sys/clock"}}}
 	go s.serveClockMatch(req, clk)
 
 	resp := readResp(t, dec)

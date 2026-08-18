@@ -519,16 +519,17 @@ func (s *MatchRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
-	// Field: Body
-	node, err = s.Body.ToTonyIR(opts...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert field %q: %w", "Body", err)
-	}
-	irMap["body"] = node
-
 	// Field: Commit (optional)
 	if s.Commit != nil {
 		irMap["commit"] = ir.FromInt(int64(*s.Commit))
+	}
+
+	// Field: Path
+	irMap["path"] = ir.FromString(string(s.Path))
+
+	// Field: Data (optional)
+	if s.Data != nil {
+		irMap["data"] = s.Data
 	}
 
 	return ir.FromMap(irMap), nil
@@ -564,11 +565,6 @@ func (s *MatchRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
 		}
 		switch fieldName.String {
-		case "body":
-			// Field: Body
-			if err := s.Body.FromTonyIR(fieldNode, opts...); err != nil {
-				return fmt.Errorf("field %q: %w", "body", err)
-			}
 		case "commit":
 			// Field: Commit
 			if fieldNodeUnwrapped.Type == ir.NullType {
@@ -580,6 +576,18 @@ func (s *MatchRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 				}
 				*val = int64(*fieldNodeUnwrapped.Int64)
 				s.Commit = val
+			}
+		case "path":
+			// Field: Path
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "path", fieldNodeUnwrapped.Type)
+			}
+			s.Path = string(fieldNodeUnwrapped.String)
+		case "data":
+			if gomap.GetUnmapComments(opts...) {
+				s.Data = fieldNode
+			} else {
+				s.Data = fieldNodeUnwrapped
 			}
 		default:
 			if gomap.IsStrict(opts...) {

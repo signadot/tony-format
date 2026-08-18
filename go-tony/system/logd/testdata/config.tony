@@ -8,7 +8,7 @@
 {patch: {path: "config", data: {app: {name: "myapp", version: "1.0.0", debug: false}, database: {host: "localhost", port: 5432, pool_size: 10}, features: {new_ui: false, analytics: true}}}}
 
 # Read current config
-{match: {body: {path: "config"}}}
+{match: {path: "config"}}
 
 # Enable debug mode
 {patch: {path: "config.app.debug", data: true}}
@@ -20,10 +20,10 @@
 {patch: {path: "config.features.new_ui", data: true}}
 
 # Read just features
-{match: {body: {path: "config.features"}}}
+{match: {path: "config.features"}}
 
 # Merge in new settings without overwriting existing
 {patch: {path: "config.app", data: {build: "abc123"}}}
 
 # Final config state
-{match: {body: {path: "config"}}}
+{match: {path: "config"}}

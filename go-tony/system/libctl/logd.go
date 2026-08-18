@@ -461,8 +461,8 @@ func (s *LogdSession) MatchPatternAt(ctx context.Context, path string, pattern *
 func (s *LogdSession) matchAt(ctx context.Context, path string, pattern *ir.Node, commit *int64) (*ir.Node, int64, error) {
 	resp, err := s.request(ctx, &api.SessionRequest{
 		Match: &api.MatchRequest{
-			Body:   api.PathData{Path: path, Data: pattern},
-			Commit: commit,
+			PathData: api.PathData{Path: path, Data: pattern},
+			Commit:   commit,
 		},
 	})
 	if err != nil {

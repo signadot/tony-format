@@ -25,7 +25,7 @@ const matchReadTimeout = 10 * time.Second
 // beneath it — the common single-owner case — returns false to fall through to
 // normal routing. Root and .meta reads are out of scope and single-routed.
 func (s *ClientSession) maybeCoordinateMatch(req *logdapi.SessionRequest) bool {
-	path := req.Match.Body.Path
+	path := req.Match.Path
 	if path == "" || isMetaPath(path) {
 		return false
 	}
@@ -44,7 +44,7 @@ func (s *ClientSession) maybeCoordinateMatch(req *logdapi.SessionRequest) bool {
 // refusal to compose across a dead controller.
 func (s *ClientSession) coordinateMatch(req *logdapi.SessionRequest, below []*MountEntry) {
 	clientID := req.ID
-	path := req.Match.Body.Path
+	path := req.Match.Path
 
 	owner, pFields, errResp := s.composeCheck(clientID, path, below)
 	if errResp != nil {
@@ -68,7 +68,7 @@ func (s *ClientSession) coordinateMatch(req *logdapi.SessionRequest, below []*Mo
 	// decomposed across sources, so the projection is identical to logd's (and to a
 	// single-routed match, where the pattern rides the forwarded request). Sources
 	// are read in full; narrowing the fan-out by the pattern is a later refinement.
-	if pattern := req.Match.Body.Data; pattern != nil && pattern.Type != ir.NullType {
+	if pattern := req.Match.Data; pattern != nil && pattern.Type != ir.NullType {
 		filtered, ferr := tony.FilterState(root, pattern)
 		if ferr != nil {
 			_ = s.writeToClient(logdapi.NewErrorResponse(clientID, "match_error", ferr.Error()))
@@ -182,7 +182,7 @@ func (s *ClientSession) readFrom(entry *MountEntry, path string, atCommit *int64
 	}
 	ch := entry.Session.RouteCollect(&logdapi.SessionRequest{
 		Scope: s.clientScope,
-		Match: &logdapi.MatchRequest{Body: logdapi.PathData{Path: path}, Commit: atCommit},
+		Match: &logdapi.MatchRequest{PathData: logdapi.PathData{Path: path}, Commit: atCommit},
 	})
 	select {
 	case resp := <-ch:

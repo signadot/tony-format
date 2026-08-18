@@ -45,16 +45,9 @@ context:
 - tony-format/context
 - tony-base: github.com/signadot/tony-format/go-tony/schema
 define:
+  commit: .[nullable(int)]
   data: .[tony-base:ir]
   path: .[string]
-signature:
-  name: path-data
----
-context:
-- tony-format/context
-define:
-  body: !path-data null
-  commit: .[nullable(int)]
 signature:
   name: session-match-request
 ---
@@ -88,6 +81,15 @@ define:
   txId: .[int]
 signature:
   name: session-newtx-result
+---
+context:
+- tony-format/context
+- tony-base: github.com/signadot/tony-format/go-tony/schema
+define:
+  data: .[tony-base:ir]
+  path: .[string]
+signature:
+  name: path-data
 ---
 context:
 - tony-format/context

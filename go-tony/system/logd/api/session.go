@@ -34,7 +34,17 @@ type HelloResponse struct {
 	UsingPending bool     `tony:"field=usingPending"` // True if session is using pending schema
 }
 
-// MatchRequest is a request to read state at a path.
+// MatchRequest is a request to read state at a path: the path restricts the read to
+// that subdocument, and Data, when set, is a pattern the state is matched and trimmed
+// against WITHIN it.
+//
+// PathData is embedded, as it is in PatchRequest and as path is in WatchRequest, so
+// that path means the same thing in the same place in all three. It used to sit one
+// level down under `body`, which read as sensible until you noticed that a RESPONSE's
+// body is the answer rather than a wrapper -- the same word, two meanings, one message
+// apart. The cost was not aesthetic: a client writing {match: {path: ...}}, which is
+// what the siblings taught it to write, had its path silently ignored and was answered
+// from the ROOT (k0d4y1m6h12kr7cdgdn0).
 //
 // Commit, when set, reads historical state at that commit instead of the current
 // commit — a point-in-time read. It must be in range [0, current]; logd rejects
@@ -46,8 +56,8 @@ type HelloResponse struct {
 //
 //tony:schemagen=session-match-request,notag
 type MatchRequest struct {
-	Body   PathData `tony:"field=body"`
-	Commit *int64   `tony:"field=commit"` // Optional: read historical state at this commit (nil = current)
+	Commit   *int64 `tony:"field=commit"` // Optional: read historical state at this commit (nil = current)
+	PathData `tony:"field=match"`
 }
 
 // PatchRequest is a request to apply a patch.

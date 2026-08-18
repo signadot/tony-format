@@ -43,25 +43,25 @@ func TestSessionMatchRestrictsToTheSubdocument(t *testing.T) {
 		want    string // the body, wire-encoded
 	}{{
 		name:    "a path answers its own subtree",
-		request: `{id: "r", match: {body: {path: "verse.meta"}}}`,
+		request: `{id: "r", match: {path: "verse.meta"}}`,
 		want:    `{note: hello rev: 7}`, // keys come back sorted, which is the store's contract
 	}, {
 		name:    "a leaf answers its value",
-		request: `{id: "r", match: {body: {path: "verse.meta.rev"}}}`,
+		request: `{id: "r", match: {path: "verse.meta.rev"}}`,
 		want:    `7`,
 	}, {
 		name:    "an entity out of the tree answers only itself",
-		request: `{id: "r", match: {body: {path: "verse.entities.e7.id"}}}`,
+		request: `{id: "r", match: {path: "verse.entities.e7.id"}}`,
 		want:    `e7`,
 	}, {
 		// the pattern is evaluated within the path AND selects: what comes back is
 		// what it named, which is a projection of the subdocument
 		name:    "a pattern is evaluated within the path, and selects",
-		request: `{id: "r", match: {body: {path: "verse.meta", data: {rev: !irtype 1}}}}`,
+		request: `{id: "r", match: {path: "verse.meta", data: {rev: !irtype 1}}}`,
 		want:    `{rev: 7}`,
 	}, {
 		name:    "a pattern which does not hold answers nothing",
-		request: `{id: "r", match: {body: {path: "verse.meta", data: {rev: !irtype ""}}}}`,
+		request: `{id: "r", match: {path: "verse.meta", data: {rev: !irtype ""}}}`,
 		want:    `null`,
 	}} {
 		t.Run(test.name, func(t *testing.T) {
