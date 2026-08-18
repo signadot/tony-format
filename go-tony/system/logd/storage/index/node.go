@@ -5,6 +5,14 @@ import (
 	"sort"
 )
 
+// maxChildren is the fan-out of an interior node, and maxLeaf the capacity of a leaf.
+// They are what keeps the tree shallow: a node splits when it passes the bound, and its
+// parent takes both halves as siblings.
+const (
+	maxChildren = 32
+	maxLeaf     = 32
+)
+
 type node[T any] struct {
 	N    int
 	D    []T
@@ -14,14 +22,14 @@ type node[T any] struct {
 
 func newLeaf[T any](less func(a, b T) bool) *node[T] {
 	return &node[T]{
-		D:    make([]T, 0, 32),
+		D:    make([]T, 0, maxLeaf),
 		Less: less,
 	}
 }
 
 func newParent[T any](less func(a, b T) bool) *node[T] {
 	return &node[T]{
-		C:    make([]*node[T], 0, 32),
+		C:    make([]*node[T], 0, maxChildren+1),
 		D:    make([]T, 2),
 		Less: less,
 	}
@@ -119,14 +127,16 @@ func (n *node[T]) add(v T, p *node[T], at int) (*node[T], bool) {
 			// it, and Range does not (issue gx8xvgmph12krbjpg1n0).
 			repl.updateBounds()
 
-			if p != nil {
-				p.C[at] = repl
-			}
-			if p == nil {
-				return repl, res
-			}
-			p.C[at] = repl
-			return n, res
+			// The pair goes UP for the caller to absorb: a parent replaces the
+			// child it descended into with these two, side by side. Writing
+			// p.C[at] here instead, and returning the old node, hung the pair off
+			// the parent as a new LEVEL -- so every split made the tree one deeper
+			// rather than one wider, and it degenerated into a linked list. At
+			// fifty thousand entries the depth was 3124, every internal node had
+			// exactly two children, and an insert walked the chain: O(n) per
+			// insert, and a write that got slower for as long as the store lived
+			// (kds4sx3bh12krdrkghn0).
+			return repl, res
 		}
 		return n, add
 	}
@@ -145,22 +155,29 @@ func (n *node[T]) add(v T, p *node[T], at int) (*node[T], bool) {
 
 		if isLast || !n.Less(cMax, v) {
 			repl, added := c.add(v, n, i)
-			if !added {
-				return n, false
-			}
-			n.N++
-
+			// Absorb a split BEFORE anything else. A structure change that is not
+			// taken here is a subtree that nothing points at any more, whatever the
+			// insert itself did.
 			if repl != c {
 				n.C[i] = repl.C[0]
 				n.C = slices.Insert(n.C, i+1, repl.C[1])
 			}
+			if !added {
+				if len(n.C) > 0 {
+					n.updateBounds()
+				}
+				return n, false
+			}
+			n.N++
 
 			// Update n.D (min/max) after potential structure changes
 			if len(n.C) > 0 {
 				n.updateBounds()
 			}
 
-			if len(n.C) > cap(n.C) {
+			// cap() was the bound here, which slices.Insert grows, so it was
+			// never reached and a parent never split. maxChildren is a bound.
+			if len(n.C) > maxChildren {
 				alt := n.split()
 				replParent := merge(n, alt)
 				return replParent, true
@@ -315,12 +332,16 @@ func (n *node[T]) leafRemove(v T) bool {
 }
 
 func (n *node[T]) leafAdd(v T) (added, overflow bool) {
-	if len(n.D) == cap(n.D) {
-		return false, true
-	}
+	// The duplicate check comes FIRST. Reporting overflow for a value already here
+	// made a re-insert split a full leaf for nothing -- and the caller, seeing
+	// nothing added, returned without taking the two halves, so the upper half was
+	// dropped on the floor with everything in it (kds4sx3bh12krdrkghn0).
 	index, found := slices.BinarySearchFunc(n.D, v, n.cmpFunc())
 	if found {
 		return false, false
+	}
+	if len(n.D) == cap(n.D) {
+		return false, true
 	}
 	n.D = slices.Insert(n.D, index, v)
 	n.N++

@@ -478,11 +478,24 @@ func (s *Storage) init() error {
 
 	// Load or rebuild index
 	indexPath := filepath.Join(s.sequence.Root, "index.gob")
-	idx, maxCommit, err := index.LoadIndexWithMetadata(indexPath)
+	idx, meta, err := index.LoadIndexWithMeta(indexPath)
+	maxCommit := meta.MaxCommit
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("failed to load index: %w", err)
 		}
+		idx = index.NewIndex("")
+		maxCommit = -1
+	} else if meta.Version < index.IndexFormatVersion {
+		// The file parses; that is not the question. It was written by a version
+		// whose commit tree could DROP entries -- half a leaf, on a duplicate insert
+		// into a full one -- so it may describe less than the log holds, and a read
+		// served from it would miss patches silently. The logs are the record, so it
+		// is rebuilt from them. Measured at fifty thousand commits, a rebuild costs
+		// what loading the file costs (1.5s against 1.4s), which is why this is not a
+		// flag (kds4sx3bh12krdrkghn0).
+		s.logger.Warn("persisted index predates the tree fix and may be incomplete; rebuilding from logs",
+			"fileVersion", meta.Version, "want", index.IndexFormatVersion)
 		idx = index.NewIndex("")
 		maxCommit = -1
 	}

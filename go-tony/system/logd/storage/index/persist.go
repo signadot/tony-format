@@ -9,7 +9,20 @@ import (
 // IndexMetadata contains metadata about the persisted index.
 type IndexMetadata struct {
 	MaxCommit int64 // Highest commit number in the index
+	// Version is the format-and-correctness version of the file, not of its layout:
+	// the layout has not changed. A file written by a version whose tree DROPPED
+	// entries is not to be trusted however well it parses, and Version is how a load
+	// tells. Absent (0) means "written before this existed", which is exactly the
+	// range that cannot be trusted (kds4sx3bh12krdrkghn0).
+	Version int
 }
+
+// IndexFormatVersion is stamped on every index written, and required by every index
+// loaded. Raise it when a defect makes previously written indexes untrustworthy; a load
+// below it discards the file and rebuilds from the logs, which is what the logs are for.
+//
+//	1  the commit tree could drop half a leaf on a duplicate insert
+const IndexFormatVersion = 1
 
 // IndexWithMetadata wraps an index with its metadata for persistence.
 type IndexWithMetadata struct {
@@ -70,7 +83,7 @@ func StoreIndexWithMetadata(path string, idx *Index, maxCommit int64) error {
 	}
 	defer f.Close()
 
-	metadata := IndexMetadata{MaxCommit: maxCommit}
+	metadata := IndexMetadata{MaxCommit: maxCommit, Version: IndexFormatVersion}
 	wrapper := IndexWithMetadata{
 		Index:    idx,
 		Metadata: metadata,
@@ -93,21 +106,27 @@ func StoreIndexWithMetadata(path string, idx *Index, maxCommit int64) error {
 	return nil
 }
 
-// LoadIndexWithMetadata loads the index along with its metadata.
-// Returns the index and the max commit number, or an error if loading fails.
+// LoadIndexWithMetadata loads the index and the highest commit in it.
 func LoadIndexWithMetadata(path string) (*Index, int64, error) {
+	idx, meta, err := LoadIndexWithMeta(path)
+	return idx, meta.MaxCommit, err
+}
+
+// LoadIndexWithMeta loads the index and all of its metadata, so a caller can decide
+// whether to trust the file (see IndexMetadata.Version).
+func LoadIndexWithMeta(path string) (*Index, IndexMetadata, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, 0, err
+		return nil, IndexMetadata{}, err
 	}
 	defer f.Close()
 
 	var wrapper IndexWithMetadata
 	dec := gob.NewDecoder(f)
 	if err := dec.Decode(&wrapper); err != nil {
-		return nil, 0, err
+		return nil, IndexMetadata{}, err
 	}
-	return wrapper.Index, wrapper.Metadata.MaxCommit, nil
+	return wrapper.Index, wrapper.Metadata, nil
 }
 
 // GobEncode implements the gob.GobEncoder interface.
