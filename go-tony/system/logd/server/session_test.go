@@ -1166,7 +1166,7 @@ func TestSession_ScopedWatch_QueuedRaceEventNotDropped(t *testing.T) {
 	conn := newMockConn()
 	session := NewSession("srv", conn, &SessionConfig{Storage: store, Hub: hub})
 	scope := "s1"
-	session.scope = &scope
+	session.scope.Store(&scope)
 	defer close(session.done)
 
 	commit := func(src string) int64 {

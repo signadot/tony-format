@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	tony "github.com/signadot/tony-format/go-tony"
@@ -31,11 +32,21 @@ type Session struct {
 	// Server schema (returned in hello response)
 	schema *ir.Node
 
-	// Scope for COW isolation (set in hello, applies to all operations)
-	scope *string
+	// Scope for COW isolation (set in hello, applies to all operations). Atomic
+	// because hello lands on the request loop while reads dispatched off it are
+	// running (see dispatch), and a client is free to say hello twice.
+	scope atomic.Pointer[string]
 
 	// If true, session uses pending schema/index (for testing migrations)
-	usePending bool
+	// usePending is set by hello, like scope, and read by requests running beside the
+	// loop -- atomic for the same reason.
+	usePending atomic.Bool
+
+	// readSlots bounds concurrent reads; readWG lets shutdown wait for the ones in
+	// flight. Reads run off the request loop so a slow one does not hold up the
+	// writes behind it -- see dispatch.
+	readSlots chan struct{}
+	readWG    sync.WaitGroup
 
 	// Watch state
 	watchMu sync.RWMutex
@@ -73,16 +84,17 @@ func NewSession(id string, conn io.ReadWriteCloser, cfg *SessionConfig) *Session
 		log = slog.Default()
 	}
 	return &Session{
-		ID:       id,
-		conn:     conn,
-		storage:  cfg.Storage,
-		hub:      cfg.Hub,
-		log:      log.With("session", id),
-		schema:   cfg.Schema,
-		watches:  make(map[string]*Watcher),
-		outgoing: make(chan *api.SessionResponse, bufSize),
-		done:     make(chan struct{}),
-		onCommit: cfg.OnCommit,
+		ID:        id,
+		readSlots: make(chan struct{}, maxConcurrentReads),
+		conn:      conn,
+		storage:   cfg.Storage,
+		hub:       cfg.Hub,
+		log:       log.With("session", id),
+		schema:    cfg.Schema,
+		watches:   make(map[string]*Watcher),
+		outgoing:  make(chan *api.SessionResponse, bufSize),
+		done:      make(chan struct{}),
+		onCommit:  cfg.OnCommit,
 	}
 }
 
@@ -113,6 +125,10 @@ func (s *Session) Run() error {
 	s.closeOnce.Do(func() {
 		close(s.done)
 	})
+
+	// Reads dispatched off the loop may still be running; each ends by sending, which
+	// selects on done, so this waits for them to notice rather than for their work.
+	s.readWG.Wait()
 
 	// Clean up watches
 	s.cleanupWatches()
@@ -207,13 +223,40 @@ func (s *Session) writer() {
 	}
 }
 
+// maxConcurrentReads bounds the reads one session may have in flight at once. A read
+// materializes a document, so unbounded is a memory hazard on a store with a big root;
+// beyond this the dispatch loop waits, which is what it always did.
+const maxConcurrentReads = 8
+
+// scopeID is this session's COW scope, or nil for the baseline. Read through here
+// rather than off the field: hello writes it on the request loop while reads run
+// beside it.
+func (s *Session) scopeID() *string { return s.scope.Load() }
+
 // dispatch routes a request to the appropriate handler.
+//
+// Everything here runs ON the request loop -- the next request waits -- except a read,
+// which does not. One client is one session (libctl dials once and shares it), so a
+// read taking a second put every write behind it in the same line: a source trying to
+// land a write waited on a status read of a document it had no interest in. Writes
+// stay on the loop, which is what keeps a client's own ordering: a read dispatched
+// after a write is dispatched after that write COMMITTED, so read-your-writes holds
+// without anything being tracked. A read still running when a later write commits is
+// concurrent, and says which commit it read at (7qayp3hah12kscx2gdn0).
+//
+// A ping stays on the loop deliberately: its answer means "this loop is alive", and a
+// probe answered from elsewhere cannot say that.
 func (s *Session) dispatch(req *api.SessionRequest) {
 	switch {
 	case req.Hello != nil:
 		s.handleHello(req.ID, req.Hello)
 	case req.Match != nil:
-		s.handleMatch(req.ID, req.Match)
+		s.readSlots <- struct{}{}
+		s.readWG.Add(1)
+		go func() {
+			defer func() { s.readWG.Done(); <-s.readSlots }()
+			s.handleMatch(req.ID, req.Match)
+		}()
 	case req.Patch != nil:
 		s.handlePatch(req.ID, req.Patch)
 	case req.NewTx != nil:
@@ -247,7 +290,7 @@ func (s *Session) dispatch(req *api.SessionRequest) {
 // handleHello handles hello handshake.
 func (s *Session) handleHello(id *string, req *api.Hello) {
 	// Store scope for this session (applies to all operations)
-	s.scope = req.Scope
+	s.scope.Store(req.Scope)
 	s.log.Debug("hello", "clientId", req.ClientID, "scope", req.Scope, "usePending", req.UsePending)
 
 	var schema *ir.Node
@@ -261,7 +304,7 @@ func (s *Session) handleHello(id *string, req *api.Hello) {
 			s.sendError(id, api.ErrCodeNoPendingMigration, "no migration in progress")
 			return
 		}
-		s.usePending = true
+		s.usePending.Store(true)
 		usingPending = true
 		schema = pendingSchema
 		schemaCommit = pendingCommit
@@ -289,7 +332,7 @@ func (s *Session) handleHello(id *string, req *api.Hello) {
 // checkPendingValid checks if a session using pending schema is still valid.
 // Returns an error message if the migration was aborted, empty string if ok.
 func (s *Session) checkPendingValid() string {
-	if !s.usePending {
+	if !s.usePending.Load() {
 		return ""
 	}
 	pendingSchema, _ := s.storage.GetPendingSchema()
@@ -386,7 +429,7 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 // the path, a scoped read, a path holding nothing. Then this is the read it always
 // was (ap8ddvp2h12krd43gdn0).
 func (s *Session) readDocAt(path string, commit int64) (*ir.Node, error) {
-	doc, narrowed, err := s.storage.ReadSubtreeRootedAt(path, commit, s.scope)
+	doc, narrowed, err := s.storage.ReadSubtreeRootedAt(path, commit, s.scopeID())
 	if err != nil {
 		return nil, err
 	}
@@ -399,10 +442,10 @@ func (s *Session) readDocAt(path string, commit int64) (*ir.Node, error) {
 	// segment, with the same kind, as it would have on the whole document, and a rule
 	// watching a slice nobody has written yet stops costing a full read to be told so
 	// (ap8ddvp2h12krd43gdn0).
-	if spine, ok := s.storage.AbsentSpineAt(path, s.scope); ok {
+	if spine, ok := s.storage.AbsentSpineAt(path, s.scopeID()); ok {
 		return spine, nil
 	}
-	return s.storage.ReadStateAt(path, commit, s.scope)
+	return s.storage.ReadStateAt(path, commit, s.scopeID())
 }
 
 // handlePatch handles patch (write) requests.
@@ -452,14 +495,14 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 			return
 		}
 		// Validate scope matches - all participants must have the same scope
-		if !scopesEqual(s.scope, txn.Scope()) {
-			s.sendError(id, api.ErrCodeTxScopeMismatch, fmt.Sprintf("session scope %q doesn't match transaction scope %q", scopeStr(s.scope), scopeStr(txn.Scope())))
+		if !scopesEqual(s.scopeID(), txn.Scope()) {
+			s.sendError(id, api.ErrCodeTxScopeMismatch, fmt.Sprintf("session scope %q doesn't match transaction scope %q", scopeStr(s.scopeID()), scopeStr(txn.Scope())))
 			return
 		}
 		s.log.Debug("joining transaction", "txId", *req.TxID)
 	} else {
 		// Create single-participant transaction with session scope
-		txn, err = s.storage.NewTx(1, s.scope)
+		txn, err = s.storage.NewTx(1, s.scopeID())
 		if err != nil {
 			s.sendError(id, "storage_error", fmt.Sprintf("failed to create transaction: %v", err))
 			return
@@ -570,7 +613,7 @@ func (s *Session) handleNewTx(id *string, req *api.NewTxRequest) {
 		return
 	}
 
-	tx, err := s.storage.NewTx(req.Participants, s.scope)
+	tx, err := s.storage.NewTx(req.Participants, s.scopeID())
 	if err != nil {
 		s.sendError(id, "storage_error", fmt.Sprintf("failed to create transaction: %v", err))
 		return
@@ -651,7 +694,7 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 	// Buffer sized for burst tolerance: Broadcast is non-blocking and fails a watcher whose
 	// buffer is full (see WatchHub.Broadcast), so the buffer — not a time grace — is what
 	// absorbs a transient read stall before the watch is failed.
-	watcher := NewWatcher(path, s.scope, req.FromCommit, 1024)
+	watcher := NewWatcher(path, s.scopeID(), req.FromCommit, 1024)
 	watcher.ID = id
 	s.hub.Watch(watcher)
 
@@ -693,7 +736,7 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 // The client should re-establish the watch, possibly from a different commit.
 func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool, currentCommit int64) {
 	path := watcher.Path
-	scoped := s.scope != nil
+	scoped := s.scopeID() != nil
 
 	// Track the highest commit we've replayed (for deduplication)
 	lastReplayedCommit := int64(0)
@@ -842,7 +885,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 	if fromCommit != nil {
 		// Send historical patches from startCommit+1 to currentCommit
 		if startCommit < currentCommit {
-			patches, err := s.storage.ReadPatchesInRange(path, startCommit+1, currentCommit, s.scope)
+			patches, err := s.storage.ReadPatchesInRange(path, startCommit+1, currentCommit, s.scopeID())
 			if errors.Is(err, storage.ErrReplayCompacted) {
 				// The cursor predates the retained delta window (compaction cutoff), so
 				// the exact history it asked for no longer exists. Say that specifically:
@@ -950,7 +993,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 					// keeps -- the same move a baseline watcher already makes -- instead
 					// of recomputing the whole view per event. It returns nil when the
 					// scope cannot be served that way, and then nothing below changes.
-					stepper, err = s.storage.NewScopedWatchStepper(*s.scope, notification.Commit-1)
+					stepper, err = s.storage.NewScopedWatchStepper(*s.scopeID(), notification.Commit-1)
 					if err != nil {
 						s.log.Warn("scoped watch stepper unavailable; recomputing per event",
 							"path", path, "error", err)
@@ -1022,7 +1065,7 @@ func (s *Session) fullDocAt(commit int64) (*ir.Node, error) {
 	if commit <= 0 {
 		return ir.Null(), nil
 	}
-	doc, err := s.storage.ReadStateAt("", commit, s.scope)
+	doc, err := s.storage.ReadStateAt("", commit, s.scopeID())
 	if err != nil {
 		return nil, err
 	}
@@ -1284,7 +1327,7 @@ func (s *Session) handleUnwatch(id *string, req *api.UnwatchRequest) {
 // Only baseline sessions (scope=nil) can delete scopes.
 func (s *Session) handleDeleteScope(id *string, req *api.DeleteScopeRequest) {
 	// Only baseline sessions can delete scopes
-	if s.scope != nil {
+	if s.scopeID() != nil {
 		s.sendError(id, api.ErrCodeInvalidMessage, "only baseline sessions can delete scopes")
 		return
 	}
@@ -1327,7 +1370,7 @@ func (s *Session) handleSchemaGet(id *string) {
 // handleSchemaSet starts a schema migration.
 func (s *Session) handleSchemaSet(id *string, req *api.SchemaSetRequest) {
 	// Only baseline sessions can modify schema
-	if s.scope != nil {
+	if s.scopeID() != nil {
 		s.sendError(id, api.ErrCodeInvalidMessage, "only baseline sessions can modify schema")
 		return
 	}
@@ -1349,7 +1392,7 @@ func (s *Session) handleSchemaSet(id *string, req *api.SchemaSetRequest) {
 // Only baseline sessions (scope=nil) can modify schema.
 func (s *Session) handleMigration(id *string, action *api.MigrationAction) {
 	// Only baseline sessions can modify schema
-	if s.scope != nil {
+	if s.scopeID() != nil {
 		s.sendError(id, api.ErrCodeInvalidMessage, "only baseline sessions can modify schema")
 		return
 	}
