@@ -165,5 +165,11 @@ func (s *Storage) StatsReport() map[string]any {
 	for k, v := range s.WriteStats().Report() {
 		m[k] = v
 	}
+	// A store which opened over an unreadable record says so for as long as it runs.
+	// It is serving without whatever followed that record, and an operator finding it
+	// weeks later in a log file is finding it too late.
+	if s.unreadable != nil {
+		m["log.unreadable"] = s.unreadable.String()
+	}
 	return m
 }

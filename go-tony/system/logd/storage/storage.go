@@ -86,6 +86,10 @@ type Storage struct {
 	readStats  readStats
 	writeStats writeStats
 
+	// unreadable names a log record the rebuild could not deserialize, if there was
+	// one. Set at open, read by the report; nil is the ordinary case.
+	unreadable *index.Unreadable
+
 	// head is the baseline document at headCommit, kept so a CAS precondition can be
 	// evaluated without materializing the whole document per conditional write. All
 	// three fields are owned by commitMu: read and written only while it is held.
@@ -495,9 +499,24 @@ func (s *Storage) init() error {
 		maxCommit = -1
 	}
 
-	// Rebuild index from logs starting at maxCommit+1
-	if err := index.Build(s.index, s.dLog, maxCommit); err != nil {
+	// Rebuild index from logs starting at maxCommit+1. A record which will not
+	// deserialize stops the walk rather than the store: what lies past a bad frame is
+	// unreachable whatever we do, and refusing to open recovers none of it while
+	// keeping the system down (t96b5ejqh12krprjghn0). It is kept, and reported for as
+	// long as the process runs.
+	unreadable, err := index.BuildWithLogger(s.index, s.dLog, maxCommit, s.logger)
+	if err != nil {
 		return fmt.Errorf("failed to rebuild index: %w", err)
+	}
+	s.unreadable = unreadable
+	if unreadable != nil {
+		// The loaded index may hold segments past the bad record -- it was written by
+		// a run which could still read them. They name data no read can produce now,
+		// and keeping them fails every read and every write which needs one.
+		dropped := s.index.DropFrom(unreadable.LogFile, unreadable.Position+1)
+		s.logger.Error("dropped index entries beyond an unreadable record; the store is serving what it can read",
+			"logFile", unreadable.LogFile, "beyondPosition", unreadable.Position, "segmentsDropped", dropped)
+		unreadable.Dropped = dropped
 	}
 
 	// Replay schema state from log entries

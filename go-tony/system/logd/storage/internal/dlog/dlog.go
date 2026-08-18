@@ -368,9 +368,19 @@ func scanFrames(file *os.File, size int64) (end int64, tornTail bool, err error)
 // Does NOT automatically switch active log - that's handled by the caller
 // when compaction boundaries are reached.
 func (dl *DLog) AppendEntry(entry *Entry) (logPosition int64, logFile LogFileID, err error) {
+	// dl.mu is held ACROSS the append, not merely while reading which log is active.
+	// Released early, a committer could resolve the active log, be descheduled, and
+	// have SwitchActive flip that log to inactive underneath it -- and a snapshot,
+	// which writes into the INACTIVE log on the assumption that nobody appends to it,
+	// would then be interleaved with this record. The log came back with a region no
+	// frame walk could cross and a store that would not start
+	// (t96b5ejqh12krprjghn0).
+	//
+	// The window was always here; making the snapshot run off the commit path is what
+	// made a switch ordinarily concurrent with commits rather than rare.
 	dl.mu.Lock()
+	defer dl.mu.Unlock()
 	activeLog := dl.activeLog
-	dl.mu.Unlock()
 
 	var logFileObj *DLogFile
 	if activeLog == LogFileA {

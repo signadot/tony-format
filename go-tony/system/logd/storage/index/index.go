@@ -222,6 +222,42 @@ func (i *Index) childIndex(name string) *Index {
 	return i.Children[name]
 }
 
+// DropFrom forgets every segment recorded in logFile at or beyond pos, and answers how
+// many it forgot.
+//
+// It is the repair for a log whose framing broke: what lies past an unreadable record
+// cannot be found, so an index entry pointing there names data no read can produce.
+// Keeping those entries makes every read and every write which needs one fail --
+// verifying a write reads the state -- which is a store that opens and can do nothing.
+// Dropping them makes the index describe what the store can actually read
+// (t96b5ejqh12krprjghn0).
+func (i *Index) DropFrom(logFile string, pos int64) int {
+	i.Lock()
+	var doomed []LogSegment
+	i.Commits.All(func(c LogSegment) bool {
+		if c.LogFile == logFile && c.LogPosition >= pos {
+			doomed = append(doomed, c)
+		}
+		return true
+	})
+	dropped := 0
+	for _, c := range doomed {
+		if i.Commits.Remove(c) {
+			dropped++
+		}
+	}
+	children := make([]*Index, 0, len(i.Children))
+	for _, c := range i.Children {
+		children = append(children, c)
+	}
+	i.Unlock()
+
+	for _, c := range children {
+		dropped += c.DropFrom(logFile, pos)
+	}
+	return dropped
+}
+
 // LookupSubtree answers the distinct log entries in the commit range which can
 // affect the subtree at kp: the ones written AT or ABOVE it, since a write above
 // writes through it, and the ones written BELOW it, since they are part of the

@@ -51,7 +51,7 @@ func TestBuild(t *testing.T) {
 	}
 
 	// Build index from dlog starting at commit 0
-	if err := Build(idx, dl, -1); err != nil {
+	if _, err := Build(idx, dl, -1); err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
 
@@ -148,7 +148,7 @@ func TestBuild_Incremental(t *testing.T) {
 	}
 
 	// Build index up to commit 2
-	if err := Build(idx, dl, -1); err != nil {
+	if _, err := Build(idx, dl, -1); err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
 
@@ -176,7 +176,7 @@ func TestBuild_Incremental(t *testing.T) {
 	}
 
 	// Build incrementally from commit 2
-	if err := Build(idx, dl, 2); err != nil {
+	if _, err := Build(idx, dl, 2); err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
 
