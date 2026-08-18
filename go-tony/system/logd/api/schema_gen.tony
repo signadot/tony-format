@@ -128,7 +128,8 @@ signature:
 ---
 context:
 - tony-format/context
-define: {}
+define:
+  commit: .[int]
 signature:
   name: session-pong-result
 ---

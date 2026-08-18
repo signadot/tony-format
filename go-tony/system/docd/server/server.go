@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/system/docd/txpool"
@@ -36,6 +37,26 @@ type Server struct {
 	// fewer hops when coordinating multi-participant (multi-mount) writes.
 	txPool       *txpool.Pool
 	txPoolCancel context.CancelFunc
+
+	// seen is the highest commit docd has told any client about, over every session:
+	// reads it answered, writes it reported, watch events it forwarded. A client
+	// asking "has anything happened" gets it on a pong, which is cheaper and more
+	// current than holding a watch open to be told (7qayp3hah12kscx2gdn0).
+	//
+	// It is monotonic and it chases the head. It is NOT a store head: docd composes
+	// mounts with independent commit sequences, so the number names no single store's
+	// state and must not be handed back as a commit to read at.
+	seen atomic.Int64
+}
+
+// noteCommit raises the high-water mark docd reports on a pong.
+func (s *Server) noteCommit(commit int64) {
+	for {
+		cur := s.seen.Load()
+		if commit <= cur || s.seen.CompareAndSwap(cur, commit) {
+			return
+		}
+	}
 }
 
 // New creates a new Server instance.

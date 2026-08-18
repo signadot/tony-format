@@ -199,10 +199,18 @@ type SessionRequest struct {
 //tony:schemagen=session-ping-request,notag
 type PingRequest struct{}
 
-// PongResult is the reply to a PingRequest.
+// PongResult is the reply to a PingRequest. It carries the store's head commit,
+// because a client which wants to know "has anything happened" should not have to
+// open a watch to find out: the heartbeat it already sends can say so.
+//
+// The number is monotonic and chases the head; it is not a promise that the client
+// has seen everything below it. Zero means the answering server does not track one
+// (a router in front of several stores has no single head to report).
 //
 //tony:schemagen=session-pong-result,notag
-type PongResult struct{}
+type PongResult struct {
+	Commit int64 `tony:"field=commit,omitzero"`
+}
 
 // --- Server → Client Messages ---
 
@@ -551,10 +559,10 @@ func NewEndedEvent(id *string, path, reason string, commit int64) *SessionRespon
 }
 
 // NewPongResponse creates a response to a ping (liveness probe).
-func NewPongResponse(id *string) *SessionResponse {
+func NewPongResponse(id *string, commit int64) *SessionResponse {
 	return &SessionResponse{
 		ID:     id,
-		Result: &SessionResult{Pong: &PongResult{}},
+		Result: &SessionResult{Pong: &PongResult{Commit: commit}},
 	}
 }
 

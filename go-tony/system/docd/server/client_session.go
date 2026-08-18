@@ -192,7 +192,7 @@ func (s *ClientSession) routeClientRequests() error {
 		// session's request loop is alive, which is exactly what a wedged-session
 		// probe needs to detect. Do not forward it downstream.
 		if req.Ping != nil {
-			if err := s.writeToClient(logdapi.NewPongResponse(req.ID)); err != nil {
+			if err := s.writeToClient(logdapi.NewPongResponse(req.ID, s.server.seen.Load())); err != nil {
 				return err
 			}
 			continue
@@ -565,6 +565,19 @@ func (s *ClientSession) writeToClient(resp *logdapi.SessionResponse) error {
 			s.lastSeen[key] = ev.Commit
 		}
 		s.lastSeenMu.Unlock()
+	}
+	// Everything docd tells a client passes here, so this is where it learns how far
+	// the stores behind it have got -- for the pong to pass on. See Server.seen.
+	if ev := resp.Event; ev != nil {
+		s.server.noteCommit(ev.Commit)
+	}
+	if r := resp.Result; r != nil {
+		if r.Match != nil {
+			s.server.noteCommit(r.Match.Commit)
+		}
+		if r.Patch != nil {
+			s.server.noteCommit(r.Patch.Commit)
+		}
 	}
 	return nil
 }

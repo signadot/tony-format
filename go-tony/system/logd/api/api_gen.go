@@ -1751,6 +1751,11 @@ func (s *PongResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
+	// Field: Commit
+	if s.Commit != 0 {
+		irMap["commit"] = ir.FromInt(int64(s.Commit))
+	}
+
 	return ir.FromMap(irMap), nil
 }
 
@@ -1784,6 +1789,12 @@ func (s *PongResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
 		}
 		switch fieldName.String {
+		case "commit":
+			// Field: Commit
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "commit", fieldNodeUnwrapped.Type)
+			}
+			s.Commit = int64(*fieldNodeUnwrapped.Int64)
 		default:
 			if gomap.IsStrict(opts...) {
 				return fmt.Errorf("unknown field %q for PongResult", fieldName.String)

@@ -8,6 +8,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -37,6 +38,11 @@ type LogdSession struct {
 	// happened. The two things that DO take time — connecting and writing — are
 	// serialized by the channel semaphores below, which a caller can wait on with
 	// its own deadline.
+	// knownCommit is the high-water mark KnownCommit reports. Atomic rather than
+	// under mu: it is written from the read pump for every answer that carries a
+	// commit, and read by callers who are not holding anything.
+	knownCommit atomic.Int64
+
 	mu        sync.Mutex
 	conn      net.Conn
 	connected bool
@@ -403,7 +409,23 @@ func (s *LogdSession) newIDLocked() string {
 // Match performs a match query at the given path, returning the full state
 // there.
 func (s *LogdSession) Match(ctx context.Context, path string) (*ir.Node, error) {
+	node, _, err := s.matchAt(ctx, path, nil, nil)
+	return node, err
+}
+
+// MatchCommit is Match, and also the commit the read was taken at -- which every
+// match answer has always carried and this package used to drop. A caller tracking
+// where the store is gets it from the reads it already makes, rather than by opening
+// a watch for its initial state (7qayp3hah12kscx2gdn0). See also KnownCommit, which
+// is this, remembered, and kept current by the heartbeat when nothing is being read.
+func (s *LogdSession) MatchCommit(ctx context.Context, path string) (*ir.Node, int64, error) {
 	return s.matchAt(ctx, path, nil, nil)
+}
+
+// MatchPatternCommit is MatchPattern with the read's commit, as MatchCommit is to
+// Match.
+func (s *LogdSession) MatchPatternCommit(ctx context.Context, path string, pattern *ir.Node) (*ir.Node, int64, error) {
+	return s.matchAt(ctx, path, pattern, nil)
 }
 
 // MatchPattern performs a match query at path with a match/trim pattern: only the
@@ -413,7 +435,8 @@ func (s *LogdSession) Match(ctx context.Context, path string) (*ir.Node, error) 
 // it applies whether the path is served by logd, a controller, or a docd-composed
 // read across mounts.
 func (s *LogdSession) MatchPattern(ctx context.Context, path string, pattern *ir.Node) (*ir.Node, error) {
-	return s.matchAt(ctx, path, pattern, nil)
+	node, _, err := s.matchAt(ctx, path, pattern, nil)
+	return node, err
 }
 
 // MatchAt performs a point-in-time match query at path, returning the full state
@@ -422,18 +445,20 @@ func (s *LogdSession) MatchPattern(ctx context.Context, path string, pattern *ir
 // and every logd-backed mount at the same commit — one consistent snapshot, since
 // they share logd's single commit sequence.
 func (s *LogdSession) MatchAt(ctx context.Context, path string, commit int64) (*ir.Node, error) {
-	return s.matchAt(ctx, path, nil, &commit)
+	node, _, err := s.matchAt(ctx, path, nil, &commit)
+	return node, err
 }
 
 // MatchPatternAt combines MatchPattern and MatchAt: a point-in-time read at commit,
 // trimmed to pattern.
 func (s *LogdSession) MatchPatternAt(ctx context.Context, path string, pattern *ir.Node, commit int64) (*ir.Node, error) {
-	return s.matchAt(ctx, path, pattern, &commit)
+	node, _, err := s.matchAt(ctx, path, pattern, &commit)
+	return node, err
 }
 
 // matchAt is the general form behind Match/MatchPattern/MatchAt: a match at path
 // with an optional trim pattern and an optional historical commit (nil = current).
-func (s *LogdSession) matchAt(ctx context.Context, path string, pattern *ir.Node, commit *int64) (*ir.Node, error) {
+func (s *LogdSession) matchAt(ctx context.Context, path string, pattern *ir.Node, commit *int64) (*ir.Node, int64, error) {
 	resp, err := s.request(ctx, &api.SessionRequest{
 		Match: &api.MatchRequest{
 			Body:   api.PathData{Path: path, Data: pattern},
@@ -441,15 +466,15 @@ func (s *LogdSession) matchAt(ctx context.Context, path string, pattern *ir.Node
 		},
 	})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if resp.Error != nil {
-		return nil, fmt.Errorf("match error: %w", resp.Error)
+		return nil, 0, fmt.Errorf("match error: %w", resp.Error)
 	}
 	if resp.Result == nil || resp.Result.Match == nil {
-		return nil, fmt.Errorf("unexpected response: no match result")
+		return nil, 0, fmt.Errorf("unexpected response: no match result")
 	}
-	return resp.Result.Match.Body, nil
+	return resp.Result.Match.Body, resp.Result.Match.Commit, nil
 }
 
 // ErrMatchFailed is returned by PatchIf/PatchTxIf when the compare-and-swap
@@ -674,12 +699,60 @@ func (s *LogdSession) readPump(conn net.Conn, decoder *stream.Decoder) {
 			return
 		}
 
+		// Everything the server says passes here, which is where this session
+		// learns where the store has got to. See KnownCommit.
+		s.noteResponseCommit(&resp)
+
 		if resp.Event != nil {
 			s.routeEvent(resp.ID, resp.Event)
 			continue
 		}
 
 		s.deliverResponse(&resp)
+	}
+}
+
+// KnownCommit is the highest commit this session has been told about, over every
+// answer it has had: reads, writes, watch events, and the heartbeat's pong. It is
+// monotonic and it chases the store's head without a watch, a poll or a read of its
+// own -- the heartbeat keeps it current while the session is idle, and reads keep it
+// current while it is busy.
+//
+// It says where the store has got to, not that this client has seen everything below
+// it. Zero means nothing has said yet. Against docd it is a high-water mark over
+// composed mounts with independent commit sequences, so treat it as a revision to
+// compare, never as a commit to read at (7qayp3hah12kscx2gdn0).
+func (s *LogdSession) KnownCommit() int64 { return s.knownCommit.Load() }
+
+// noteCommit raises the mark KnownCommit reports.
+func (s *LogdSession) noteCommit(commit int64) {
+	for {
+		cur := s.knownCommit.Load()
+		if commit <= cur || s.knownCommit.CompareAndSwap(cur, commit) {
+			return
+		}
+	}
+}
+
+// noteResponseCommit takes whatever a response says about where the store is. Every
+// answer from the server passes here, so a caller which never asks still learns from
+// the heartbeat.
+func (s *LogdSession) noteResponseCommit(resp *api.SessionResponse) {
+	if ev := resp.Event; ev != nil {
+		s.noteCommit(ev.Commit)
+	}
+	r := resp.Result
+	if r == nil {
+		return
+	}
+	if r.Match != nil {
+		s.noteCommit(r.Match.Commit)
+	}
+	if r.Patch != nil {
+		s.noteCommit(r.Patch.Commit)
+	}
+	if r.Pong != nil {
+		s.noteCommit(r.Pong.Commit)
 	}
 }
 

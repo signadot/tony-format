@@ -229,7 +229,16 @@ func (s *Session) dispatch(req *api.SessionRequest) {
 	case req.Migration != nil:
 		s.handleMigration(req.ID, req.Migration)
 	case req.Ping != nil:
-		s.send(api.NewPongResponse(req.ID)) // liveness probe
+		// A liveness probe which also answers "where is the store now". The head is
+		// a memory read (the tick watermark), so a client can keep a current revision
+		// from the heartbeat it already sends rather than by holding a watch open for
+		// its initial state -- which costs a full read and reports where the WATCH
+		// starts, not where the store is (7qayp3hah12kscx2gdn0).
+		head, err := s.storage.GetCurrentCommit()
+		if err != nil {
+			head = 0 // a probe answers; where the store is, is a lesser question
+		}
+		s.send(api.NewPongResponse(req.ID, head))
 	default:
 		s.sendError(req.ID, api.ErrCodeInvalidMessage, "no operation specified")
 	}
