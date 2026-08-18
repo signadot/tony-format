@@ -117,7 +117,7 @@ func systemUp(cfg *UpConfig, cc *cli.Context, args []string) error {
 	// the report was absent from `o sys up` exactly where a verse lives, so the
 	// question it answers had to be asked with O_DEBUG_READ and a restart
 	// (ap8ddvp2h12krd43gdn0).
-	adminSrv.SetReport(func() map[string]any { return s.ReadStats().Report() })
+	adminSrv.SetReport(func() map[string]any { return s.StatsReport() })
 
 	// Create and start logd server
 	logdSrv := logdserver.New(&logdserver.Spec{

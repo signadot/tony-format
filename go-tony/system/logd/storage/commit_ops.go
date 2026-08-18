@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
@@ -63,6 +64,8 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	// matched against. It is built here, before the write, because the check below
 	// needs it.
 	notification := newCommitNotification(commit, txSeq, timestamp, mergedPatch, scopeID)
+	commitStarted := time.Now()
+	var applyTook, appendTook, indexTook time.Duration
 
 	// Verify before storing. A delta the store cannot apply is not a write, it is a
 	// fault every later read replays, and nothing a client sends afterwards can
@@ -71,12 +74,15 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	//
 	// The result is kept: for baseline it IS the next head, so verifying costs the
 	// step that was going to happen anyway.
+	applyStarted := time.Now()
 	stepped, err := c.s.verifyApplies(commit, notification.Patch, scopeID)
+	applyTook = time.Since(applyStarted)
 	if err != nil {
 		return "", 0, err
 	}
 
 	entry := dlog.NewEntry(txState, mergedPatch, commit, timestamp, lastCommit, scopeID)
+	appendStarted := time.Now()
 	pos, logFile, err := c.s.dLog.AppendEntry(entry)
 	if err != nil {
 		return "", 0, err
@@ -91,6 +97,7 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 			return "", 0, fmt.Errorf("failed to sync log after append: %w", err)
 		}
 	}
+	appendTook = time.Since(appendStarted)
 
 	// Get schema for this scope
 	schema := c.s.schemaForScope(scopeID)
@@ -99,9 +106,11 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	generation := c.s.dLog.GetGeneration(logFile)
 
 	e := entry
+	indexStarted := time.Now()
 	if err := index.IndexPatch(c.s.index, e, string(logFile), pos, txSeq, generation, mergedPatch, schema, scopeID); err != nil {
 		return "", 0, err
 	}
+	indexTook = time.Since(indexStarted)
 
 	// Dual-write: also index to pending index if migration is in progress
 	if pendingIdx := c.s.schema.GetPendingIndex(); pendingIdx != nil {
@@ -134,6 +143,11 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	c.s.installHead(commit, stepped, scopeID)
 
 	c.s.tick.publish(commit, notification)
+
+	// What this commit spent its time on, for the report and for a line in the log
+	// when it was slow. A write is milliseconds when nothing is wrong, and from
+	// outside a slow write and a queued one look the same (dvgz9308h12ks4xmgdn0).
+	c.s.noteCommit(patchPathHint(mergedPatch), applyTook, appendTook, indexTook, time.Since(commitStarted))
 
 	return string(logFile), pos, nil
 }

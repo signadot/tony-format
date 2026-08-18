@@ -3,6 +3,7 @@ package server
 import (
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
@@ -14,12 +15,49 @@ const DefaultBroadcastTimeout = 5 * time.Second
 
 // WatchHub manages watches and broadcasts commit notifications to watchers.
 // It is thread-safe and designed for concurrent access from multiple sessions.
+// watchStats counts the fan-out. A store with dozens of watches over the same set does
+// this work on EVERY commit, and until it is counted, a session which is merely
+// keeping up and one which is drowning look the same from outside
+// (dvgz9308h12ks4xmgdn0).
+type watchStats struct {
+	broadcasts atomic.Int64
+	delivered  atomic.Int64
+	failed     atomic.Int64
+	fanout     atomic.Int64
+}
+
 type WatchHub struct {
+	stats    watchStats
 	mu       sync.RWMutex
 	watchers map[string]map[*Watcher]struct{} // path -> set of watchers
 	// broadcastTimeout is retained for API/test compatibility but no longer gates delivery:
 	// Broadcast is non-blocking and fails a watcher whose buffer is full (see Broadcast).
 	broadcastTimeout time.Duration
+}
+
+// Report renders the fan-out for an operator: how many watchers each commit reaches,
+// what that costs, and how many fell behind and were dropped -- a dropped watch is a
+// client re-establishing, which seeds itself with a read of the whole watched subtree.
+func (h *WatchHub) Report() map[string]any {
+	h.mu.RLock()
+	paths, watchers := len(h.watchers), 0
+	for _, set := range h.watchers {
+		watchers += len(set)
+	}
+	h.mu.RUnlock()
+
+	b := h.stats.broadcasts.Load()
+	m := map[string]any{
+		"watch.paths":      paths,
+		"watch.watchers":   watchers,
+		"watch.broadcasts": b,
+		"watch.delivered":  h.stats.delivered.Load(),
+		"watch.dropped":    h.stats.failed.Load(),
+	}
+	if b > 0 {
+		m["watch.fanout.avg"] = (time.Duration(h.stats.fanout.Load()) / time.Duration(b)).Round(time.Microsecond).String()
+	}
+	return m
 }
 
 // Watcher represents a watch on a path.
@@ -99,6 +137,7 @@ func (h *WatchHub) Unwatch(watcher *Watcher) {
 //
 //	storage.SetCommitNotifier(hub.Broadcast)
 func (h *WatchHub) Broadcast(n *storage.CommitNotification) {
+	started := time.Now()
 	h.mu.RLock()
 
 	// Collect watchers to notify and potential failures
@@ -123,6 +162,9 @@ func (h *WatchHub) Broadcast(n *storage.CommitNotification) {
 	}
 	h.mu.RUnlock()
 
+	h.stats.broadcasts.Add(1)
+	h.stats.delivered.Add(int64(len(targets)))
+	h.stats.fanout.Add(int64(time.Since(started)))
 	if len(targets) == 0 {
 		return
 	}
@@ -159,6 +201,7 @@ func (h *WatchHub) Broadcast(n *storage.CommitNotification) {
 
 	// Remove failed watchers
 	if len(failedWatchers) > 0 {
+		h.stats.failed.Add(int64(len(failedWatchers)))
 		h.mu.Lock()
 		for _, watcher := range failedWatchers {
 			if watchers, ok := h.watchers[watcher.Path]; ok {

@@ -229,7 +229,113 @@ func restoreTag(pre, tag string) string {
 	return tag
 }
 
+// objMergeFast merges patch into doc without going through a map: it walks the two
+// field lists, which are already in key order, and rebuilds only what changed. The
+// second result is false when the shape is not the one this handles, and then the
+// general path below runs.
+//
+// It exists because the general path rebuilds the WHOLE object for a patch of one
+// field: every field into a map, the keys sorted, and a fresh key node allocated for
+// each. That is O(fields) with a large constant at the level being patched, which for
+// a reconciler writing one path in a set of thousands is the whole cost of the write
+// -- and it is paid again by every watcher stepping the same commit, and by the store's
+// own head. Measured on a 3000-field object: 557µs through the map, 149µs here
+// (v552mdbqh12kr7dtgdn0).
+//
+// The conditions are the ordinary case and nothing more: both sides plain objects with
+// string keys in ascending order and no !merge fields. Anything else -- an unsorted
+// document, a merge, a keyed array -- takes the path it always took.
+func objMergeFast(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, bool, error) {
+	if !sortedStringFields(doc) || !sortedStringFields(patch) {
+		return nil, false, nil
+	}
+
+	res := &ir.Node{Type: ir.ObjectType}
+	fields := make([]*ir.Node, 0, len(doc.Fields)+len(patch.Fields))
+	values := make([]*ir.Node, 0, len(doc.Values)+len(patch.Values))
+
+	add := func(key string, val *ir.Node) {
+		if val == nil {
+			return // a patch which removed the field
+		}
+		i := len(values)
+		fields = append(fields, &ir.Node{
+			Parent: res, ParentIndex: i, ParentField: key,
+			Type: ir.StringType, String: key,
+		})
+		val.Parent, val.ParentIndex, val.ParentField = res, i, key
+		values = append(values, val)
+	}
+
+	di, pi := 0, 0
+	for di < len(doc.Fields) && pi < len(patch.Fields) {
+		dk, pk := doc.Fields[di].String, patch.Fields[pi].String
+		switch {
+		case dk < pk:
+			add(dk, doc.Values[di])
+			di++
+		case pk < dk:
+			// A field the document does not have: what the patch means on its own.
+			val, err := PatchWith(ir.Null(), patch.Values[pi], ctx)
+			if err != nil {
+				return nil, false, err
+			}
+			add(pk, val)
+			pi++
+		default:
+			val, err := PatchWith(doc.Values[di], patch.Values[pi], ctx)
+			if err != nil {
+				return nil, false, err
+			}
+			add(dk, val)
+			di++
+			pi++
+		}
+	}
+	for ; di < len(doc.Fields); di++ {
+		add(doc.Fields[di].String, doc.Values[di])
+	}
+	for ; pi < len(patch.Fields); pi++ {
+		val, err := PatchWith(ir.Null(), patch.Values[pi], ctx)
+		if err != nil {
+			return nil, false, err
+		}
+		add(patch.Fields[pi].String, val)
+	}
+
+	res.Fields, res.Values = fields, values
+	patchTag := ir.StripPresentation(patch.Tag)
+	if doc.Tag != "" {
+		res.Tag = ir.TagCompose(doc.Tag, nil, patchTag)
+	} else {
+		res.Tag = patchTag
+	}
+	return res, true, nil
+}
+
+// sortedStringFields says whether an object's keys are plain strings in ascending
+// order, which is what lets two of them be merged by walking. A store's documents are
+// sorted by construction (FromMap sorts, and storage sorts on write and read); a
+// document assembled some other way may not be, and is not this function's business.
+func sortedStringFields(n *ir.Node) bool {
+	for i := range n.Fields {
+		f := n.Fields[i]
+		if f.Type != ir.StringType {
+			return false
+		}
+		if i > 0 && n.Fields[i-1].String >= f.String {
+			return false
+		}
+	}
+	return true
+}
+
 func objPatchYWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) {
+	if res, ok, err := objMergeFast(doc, patch, ctx); err != nil {
+		return nil, err
+	} else if ok {
+		return res, nil
+	}
 	//fmt.Printf("obj patch w/out op\ndoc\n%s\npatch\n%s\n", doc.MustString(), patch.MustString())
 	var (
 		patchMap      = make(map[string]*ir.Node, len(patch.Fields))

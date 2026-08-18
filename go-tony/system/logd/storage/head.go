@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
@@ -43,9 +44,15 @@ import (
 // to a full read rather than returning state from the wrong commit.
 func (s *Storage) headStateAt(commit int64) (*ir.Node, error) {
 	if s.headSeeded && s.headCommit == commit {
+		s.writeStats.noteHead(true, 0)
 		return s.head, nil
 	}
+	// No head to step, so this write reads the whole document to find out what it is
+	// patching -- which is what the counters call a head miss. One after a restart is
+	// the cost of starting; a stream of them is a store paying a full read per write.
+	started := time.Now()
 	doc, err := s.readBaselineStateAt(commit)
+	s.writeStats.noteHead(false, time.Since(started))
 	if err != nil {
 		return nil, err
 	}

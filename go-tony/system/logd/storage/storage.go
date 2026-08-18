@@ -83,7 +83,8 @@ type Storage struct {
 	// readStats counts what reads at a path did -- narrowed, or read wide and why.
 	// A store cannot be asked afterwards, and from outside a fast read and a read
 	// that never happened look the same (ap8ddvp2h12krd43gdn0).
-	readStats readStats
+	readStats  readStats
+	writeStats writeStats
 
 	// head is the baseline document at headCommit, kept so a CAS precondition can be
 	// evaluated without materializing the whole document per conditional write. All

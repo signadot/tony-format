@@ -17,6 +17,7 @@ type debug struct {
 	Op        bool
 	Eval      bool
 	Read      bool // logd: one line per read -- the path, whether it narrowed, and why not
+	Write     bool // logd: one line per commit -- the path, and which phase took the time
 }
 
 var d *debug
@@ -32,6 +33,7 @@ func init() {
 	d.Eval = boolEnv("O_DEBUG_EVAL")
 	d.Op = boolEnv("O_DEBUG_OP")
 	d.Read = boolEnv("O_DEBUG_READ")
+	d.Write = boolEnv("O_DEBUG_WRITE")
 }
 
 func boolEnv(v string) bool {
@@ -51,6 +53,9 @@ func ExpandEnv() bool {
 }
 func Read() bool {
 	return d.Read
+}
+func Write() bool {
+	return d.Write
 }
 func Match() bool {
 	return d.Match
