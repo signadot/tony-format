@@ -85,7 +85,9 @@ func TestAutoSnapshotByCommits(t *testing.T) {
 	}
 
 	doPatch(t, store, srv, "users", mustParse(`{id: "3", name: "Charlie"}`))
-	// After 3rd commit, snapshot should trigger and reset counter
+	// The 3rd commit triggers the snapshot, which runs off the commit path so that
+	// the write which trips the threshold does not pay for it (dvgz9308h12ks4xmgdn0).
+	srv.awaitSnapshots()
 	if srv.commitsSinceSnapshot.Load() != 0 {
 		t.Errorf("expected 0 commits after snapshot, got %d", srv.commitsSinceSnapshot.Load())
 	}
@@ -132,9 +134,11 @@ func TestAutoSnapshotBySize(t *testing.T) {
 	size3, _ := store.ActiveLogSize()
 	t.Logf("After 2nd commit, log size: %d, commits: %d", size3, srv.commitsSinceSnapshot.Load())
 
-	// Keep adding until snapshot triggers
+	// Keep adding until snapshot triggers. The snapshot runs off the commit path, so
+	// each round waits for one in flight before reading the counter.
 	for i := 0; i < 10 && srv.commitsSinceSnapshot.Load() > 0; i++ {
 		doPatch(t, store, srv, "data", mustParse(fmt.Sprintf(`{i: %d, padding: "more data to fill up the log"}`, i)))
+		srv.awaitSnapshots()
 		size, _ := store.ActiveLogSize()
 		t.Logf("After commit %d, log size: %d, commits: %d", i+3, size, srv.commitsSinceSnapshot.Load())
 	}
@@ -170,6 +174,7 @@ func TestAutoSnapshotBySize_IsABoundNotACliff(t *testing.T) {
 	for i := 0; i < commits; i++ {
 		doPatch(t, store, srv, "data", mustParse(fmt.Sprintf(
 			`{i: %d, padding: "a body long enough that a few of these cross three kilobytes"}`, i)))
+		srv.awaitSnapshots()
 		if srv.commitsSinceSnapshot.Load() == 0 {
 			snapshots++
 		}

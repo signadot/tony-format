@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
@@ -21,6 +23,10 @@ type Server struct {
 
 	// commitsSinceSnapshot tracks commits for snapshot policy (accessed from multiple goroutines)
 	commitsSinceSnapshot atomic.Int64
+
+	// snapshotting counts snapshots running off the commit path, so shutdown can wait
+	// for one rather than closing the store under it.
+	snapshotting sync.WaitGroup
 
 	// switching guards threshold check + SwitchDLog as one atomic operation.
 	// Only one goroutine checks and potentially switches at a time.
@@ -112,17 +118,35 @@ func slogLevel() slog.Level {
 // maybeCompact checks snapshot thresholds and triggers SwitchDLog if needed.
 // Called after successful commits. Uses CAS on switching to ensure only one
 // goroutine checks thresholds and potentially switches at a time.
+//
+// The snapshot itself runs OFF the caller. It used to run here, which meant inside
+// handlePatch, before that patch's response was sent: whichever write happened to be
+// the thousandth paid for a full snapshot of the store -- plus CheckHead, which is a
+// whole-document read -- and every write behind it on that session waited too. On a
+// staging store that surfaced as a client deadline on an unremarkable write
+// ("context deadline exceeded" on a ref nobody was doing anything unusual with), and
+// it lands on a different write every time, which is what made it look random.
+//
+// A snapshot does not need the writer. Double-buffered logs are exactly what makes
+// this safe: SwitchActive flips the active log first, so commits during the snapshot
+// land in the new log while the old one is being snapshotted (dvgz9308h12ks4xmgdn0).
 func (s *Server) maybeCompact() {
 	cfg := s.Spec.Config
 	if cfg == nil || cfg.Snapshot == nil {
 		return
 	}
 
-	// Only one goroutine checks thresholds at a time
+	// Only one goroutine checks thresholds at a time. The flag is held until the
+	// snapshot below finishes, not just until the check does.
 	if !s.switching.CompareAndSwap(false, true) {
 		return
 	}
-	defer s.switching.Store(false)
+	released := false
+	defer func() {
+		if !released {
+			s.switching.Store(false)
+		}
+	}()
 
 	snap := cfg.Snapshot
 	shouldSwitch := false
@@ -146,14 +170,26 @@ func (s *Server) maybeCompact() {
 		}
 	}
 
-	if shouldSwitch {
-		s.Spec.Log.Info("triggering snapshot", "commitsSinceSnapshot", commitCount)
-		if err := s.Spec.Storage.SwitchDLog(); err != nil {
-			s.Spec.Log.Error("snapshot failed", "error", err)
-		} else {
-			s.commitsSinceSnapshot.Store(0)
-		}
+	if !shouldSwitch {
+		return
 	}
+
+	s.Spec.Log.Info("triggering snapshot", "commitsSinceSnapshot", commitCount)
+	released = true // the goroutine owns the flag now
+	s.snapshotting.Add(1)
+	go func() {
+		defer s.snapshotting.Done()
+		defer s.switching.Store(false)
+		start := time.Now()
+		if err := s.Spec.Storage.SwitchDLog(); err != nil {
+			s.Spec.Log.Error("snapshot failed", "error", err, "took", time.Since(start))
+			return
+		}
+		// Subtract what was counted rather than zeroing: writes kept landing while
+		// the snapshot ran, and they are commits since THIS snapshot.
+		s.commitsSinceSnapshot.Add(-commitCount)
+		s.Spec.Log.Info("snapshot complete", "commits", commitCount, "took", time.Since(start))
+	}()
 }
 
 // StartTCP starts the TCP listener on the given address.
@@ -187,8 +223,17 @@ func (s *Server) StopTCP() error {
 
 	err := s.tcpListener.Close()
 	s.tcpListener = nil
+	// A snapshot triggered by the last commits may still be running off the commit
+	// path; the store is closed after this returns, so wait for it rather than pull
+	// the log out from under it.
+	s.awaitSnapshots()
 	return err
 }
+
+// awaitSnapshots blocks until any snapshot running off the commit path has finished.
+// A caller which needs to observe the effect of a snapshot -- shutdown, or a test --
+// waits here rather than polling, since the counter is spawned before the goroutine.
+func (s *Server) awaitSnapshots() { s.snapshotting.Wait() }
 
 // TCPAddr returns the TCP listener's address, or nil if not running.
 func (s *Server) TCPAddr() string {
