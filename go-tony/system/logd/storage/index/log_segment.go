@@ -25,6 +25,15 @@ type LogSegment struct {
 	LogFileGeneration int64    // Generation of log file when indexed - used to detect compaction
 	ScopeID           *string  // nil = baseline, non-nil = scope-specific data
 	ScopeOverlay      bool     // the entry is a scope's materialized ownership, not one of its writes
+	// Spine says this path is one the patch passed THROUGH on its way to what it
+	// actually wrote: a plain container, no operator, with the written values indexed
+	// beneath it. A read below such a path is not affected by it -- what it did is
+	// described by the segments deeper down -- which is what lets a read at one path
+	// skip the writes to its siblings.
+	//
+	// False is the conservative answer and the one an older persisted index decodes to,
+	// so a read including it behaves as reads always did.
+	Spine bool
 	// Semantics:
 	// - StartCommit == EndCommit: snapshot (full state at that commit)
 	// - StartCommit != EndCommit: diff (incremental changes over commit range)
@@ -73,6 +82,28 @@ func PointLogSegment(commit, txSeq int64, kpath string) *LogSegment {
 	}
 }
 
+// passesThrough says whether a patch node is one the patch merely descends through:
+// a container with contents and no operator on it, whose effect is entirely described
+// by what is indexed beneath it. An operator is not descended through -- a !replace or
+// a !delete at a path states the whole value there, including for paths under it that
+// it never names -- and neither is a leaf, which is a write.
+func passesThrough(n *ir.Node) bool {
+	if n == nil {
+		return false
+	}
+	n = ir.Uncomment(n)
+	if n.Tag != "" {
+		return false
+	}
+	switch n.Type {
+	case ir.ObjectType:
+		return len(n.Fields) > 0
+	case ir.ArrayType:
+		return len(n.Values) > 0
+	}
+	return false
+}
+
 func NewLogSegmentFromPatchEntry(e *dlog.Entry, kpath string, logFile string, pos int64, txID int64, generation int64, scopeID *string) *LogSegment {
 	// For patches: StartCommit = LastCommit, EndCommit = Commit
 	// This represents the range [LastCommit, Commit] that the patch covers
@@ -98,6 +129,7 @@ func IndexPatch(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int6
 
 func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int64, generation int64, n *ir.Node, kPath string, schema *api.Schema, scopeID *string) error {
 	seg := NewLogSegmentFromPatchEntry(e, kPath, logFile, pos, txSeq, generation, scopeID)
+	seg.Spine = passesThrough(n)
 	idx.Add(seg)
 
 	if n == nil {

@@ -250,7 +250,17 @@ func (i *Index) lookupSubtree(kp string, from, to *int64, scopeID *string, scope
 	i.RLock()
 	defer i.RUnlock()
 	res := []LogSegment{}
+	// Above the queried path, only writes which LAND here count. A patch which merely
+	// passed through on its way to a sibling is described by its own deeper segments,
+	// and taking it here is what made a narrow read replay every commit in the store:
+	// every patch is indexed at the root, so every read at every path collected all of
+	// them. Measured on staging, a narrow read averaged three seconds
+	// (ap8ddvp2h12krd43gdn0).
+	ancestor := kp != ""
 	i.Commits.Range(func(c LogSegment) bool {
+		if ancestor && c.Spine {
+			return true
+		}
 		if !scoped || matchesScope(c.ScopeID, scopeID) {
 			res = append(res, c)
 		}
