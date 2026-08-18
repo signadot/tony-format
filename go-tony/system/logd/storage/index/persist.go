@@ -112,30 +112,44 @@ func LoadIndexWithMetadata(path string) (*Index, int64, error) {
 
 // GobEncode implements the gob.GobEncoder interface.
 // It flattens the Index into a list of LogSegments for serialization.
+//
+// The lock is held to COPY this node's data and released before encoding it. It used
+// to be held across the encode -- and since encoding a node encodes its children, the
+// root's lock was held while the whole index was serialized, while every write takes
+// that same lock to Add a segment. Every write during a persist waited for the entire
+// index to be written out. On a store of fifty thousand commits that is seconds, it
+// recurs every persist interval, and it lands on whichever write happens to be in
+// flight: three unrelated sources all reporting "context deadline exceeded" on
+// unremarkable paths at the same moment (v552mdbqh12kr7dtgdn0).
+//
+// The snapshot is therefore no longer atomic across the tree: a commit landing during
+// the encode may appear in a child encoded after it and not in one encoded before.
+// That is safe, and was already assumed -- the metadata's maxCommit is taken before
+// the encode begins, and a restart replays the log from maxCommit+1 into the loaded
+// index (see storage.loadIndex and index.Build), so anything captured beyond it is
+// re-added, and Insert is a no-op for a segment already there.
 func (i *Index) GobEncode() ([]byte, error) {
-	i.RLock()
-	defer i.RUnlock()
-
-	// Collect all segments from this index and its children
-	// Actually, we can just serialize the PathKey and the list of local segments, and the map of children.
-	// But Tree is not serializable because of the Less function.
-	// So we'll serialize a struct that holds the data.
-
+	// Tree is not serializable (it holds a Less function), so what is written is a
+	// struct of the data: this node's key, its segments, and its children.
 	type indexData struct {
 		PathKey  string
 		Segments []LogSegment
 		Children map[string]*Index
 	}
 
+	i.RLock()
 	data := indexData{
 		PathKey:  i.PathKey,
-		Children: i.Children,
+		Children: make(map[string]*Index, len(i.Children)),
 	}
-
+	for k, child := range i.Children {
+		data.Children[k] = child
+	}
 	i.Commits.Range(func(s LogSegment) bool {
 		data.Segments = append(data.Segments, s)
 		return true
 	}, func(LogSegment) int { return 0 }) // 0 means all
+	i.RUnlock()
 
 	var buf bytes.Buffer
 	enc := gob.NewEncoder(&buf)
