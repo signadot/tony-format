@@ -20,6 +20,7 @@ nav:
   - o: o/README.md
   - Golang: gomap.md
   - logd: logd/index.md
+  - 'logd: The session protocol': logd/session.md
   - 'logd: What a write must be': logd/writes.md
   - 'logd: Keyed arrays': logd/keyed.md
   - docd: docd/index.md

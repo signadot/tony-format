@@ -22,6 +22,10 @@ controller, and relays the responses back. A controller may also **unmount**
 `forceAfter` bounds how long the mount/unmount waits for overlapping watches to drain
 before force-ending them — see [Composition](./composition.md#coordination).
 
+The wire itself — the handshake, the routed requests a controller answers, how `id` and
+`scope` behave on that connection, and clock mounts — is in
+[The session protocol](../logd/session.md#the-mount-protocol).
+
 ## The mount registry
 
 docd keeps a registry of `MountEntry` records — the mounted `path`, the owning

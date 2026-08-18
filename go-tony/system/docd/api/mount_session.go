@@ -65,6 +65,15 @@ type UnmountSpec struct {
 // MountRequest is a message from controller to docd. The handshake carries Hello
 // and Mount; a later Unmount requests a graceful unmount on the same connection.
 //
+// A mount connection carries this handshake and nothing else. AFTER the mount is
+// accepted the direction inverts: docd sends the CONTROLLER logd session requests
+// (logd/api.SessionRequest) for every client operation at or under the mounted path,
+// and the controller answers them -- so a controller is a server of that protocol
+// rather than a client of it. Two things differ from a client connection: the id on a
+// routed request is docd's, since many clients share one controller connection, and
+// the client's COW scope rides the request (SessionRequest.Scope) rather than the
+// connection.
+//
 //tony:schemagen=mount-request,notag
 type MountRequest struct {
 	Hello   *MountHello  `tony:"field=hello"`
