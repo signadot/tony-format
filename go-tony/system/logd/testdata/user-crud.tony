@@ -11,16 +11,16 @@
 {patch: {patch: {path: "users.bob", data: {name: "Bob Jones", email: "bob@example.com", role: "user"}}}}
 
 # Read all users
-{match: {body: {path: "users"}}}
+{match: {path: "users"}}
 
 # Update alice's role
 {patch: {patch: {path: "users.alice.role", data: "superadmin"}}}
 
 # Read alice
-{match: {body: {path: "users.alice"}}}
+{match: {path: "users.alice"}}
 
 # Delete bob's email (set to null via !delete)
 {patch: {patch: {path: "users.bob.email", data: !delete null}}}
 
 # Final state
-{match: {body: {path: "users"}}}
+{match: {path: "users"}}

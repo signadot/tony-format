@@ -9,10 +9,10 @@
 # --- MATCH REQUESTS (reads) ---
 
 # Read entire document at root
-{match: {body: {path: ""}}}
+{match: {path: ""}}
 
 # Read data at a specific path
-{match: {body: {path: "users.alice"}}}
+{match: {path: "users.alice"}}
 
 # --- PATCH REQUESTS (writes) ---
 

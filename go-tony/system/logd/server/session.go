@@ -350,7 +350,7 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 		return
 	}
 
-	path := req.Body.Path
+	path := req.Path
 
 	// Validate path
 	if err := validateDataPath(path); err != nil {
@@ -403,8 +403,8 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 	}
 
 	// Apply match filter if provided
-	if req.Body.Data != nil && req.Body.Data.Type != ir.NullType {
-		filteredState, err := filterState(state, req.Body.Data)
+	if req.Data != nil && req.Data.Type != ir.NullType {
+		filteredState, err := filterState(state, req.Data)
 		if err != nil {
 			s.sendError(id, "match_error", fmt.Sprintf("failed to apply match filter: %v", err))
 			return

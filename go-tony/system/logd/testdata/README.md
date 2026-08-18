@@ -30,7 +30,7 @@ Each line is a separate request in Tony wire format. Comments (lines starting wi
 
 **Match** (read):
 ```tony
-{match: {body: {path: "users.alice"}}}
+{match: {path: "users.alice"}}
 ```
 
 **Patch** (write):

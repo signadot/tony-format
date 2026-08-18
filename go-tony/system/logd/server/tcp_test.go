@@ -94,7 +94,7 @@ func TestTCPListener_MatchRequest(t *testing.T) {
 	defer conn.Close()
 
 	// Send match request
-	_, err = conn.Write([]byte(`{id: "req-1", match: {body: {path: ""}}}` + "\n"))
+	_, err = conn.Write([]byte(`{id: "req-1", match: {path: ""}}` + "\n"))
 	if err != nil {
 		t.Fatalf("failed to write: %v", err)
 	}

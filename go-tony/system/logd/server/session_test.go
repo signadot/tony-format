@@ -168,7 +168,7 @@ func TestSession_Match(t *testing.T) {
 	conn := newMockConn()
 
 	// Write match request (bracketed format for wire protocol)
-	conn.WriteRequest(`{id: "req-1", match: {body: {path: users}}}`)
+	conn.WriteRequest(`{id: "req-1", match: {path: users}}`)
 
 	session := NewSession("test-server", conn, &SessionConfig{
 		Storage: store,
@@ -244,9 +244,9 @@ func TestSession_MatchAtCommit(t *testing.T) {
 
 	// A historical read at commit 1 (before bob), a current read, and an
 	// out-of-range commit that must be rejected rather than read as current.
-	conn.WriteRequest(`{id: "at1", match: {body: {path: users}, commit: 1}}`)
-	conn.WriteRequest(`{id: "cur", match: {body: {path: users}}}`)
-	conn.WriteRequest(`{id: "bad", match: {body: {path: users}, commit: 99}}`)
+	conn.WriteRequest(`{id: "at1", match: {path: users, commit: 1}}`)
+	conn.WriteRequest(`{id: "cur", match: {path: users}}`)
+	conn.WriteRequest(`{id: "bad", match: {path: users, commit: 99}}`)
 
 	session := NewSession("test-server", conn, &SessionConfig{Storage: store, Hub: hub})
 	done := make(chan error)
@@ -340,7 +340,7 @@ func TestSession_MatchWithFilter(t *testing.T) {
 	conn := newMockConn()
 
 	// Write match request with filter (only active users)
-	conn.WriteRequest(`{id: "req-1", match: {body: {path: users, data: {active: true}}}}`)
+	conn.WriteRequest(`{id: "req-1", match: {path: users, data: {active: true}}}`)
 
 	session := NewSession("test-server", conn, &SessionConfig{
 		Storage: store,
@@ -1294,7 +1294,7 @@ func TestSession_DescendPathIsRefused(t *testing.T) {
 	conn := newMockConn()
 	conn.WriteRequest(`{id: "seed", patch: {path: "", data: {a: {b: {c: 1}}}}}`)
 	conn.WriteRequest(`{id: "descend-patch", patch: {path: "a..c", data: 2}}`)
-	conn.WriteRequest(`{id: "descend-match", match: {body: {path: "a..c", data: 1}}}`)
+	conn.WriteRequest(`{id: "descend-match", match: {path: "a..c", data: 1}}`)
 
 	session := NewSession("test-server", conn, &SessionConfig{Storage: store, Hub: NewWatchHub()})
 	done := make(chan error)

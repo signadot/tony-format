@@ -249,7 +249,7 @@ func (rt *controllerRuntime) dispatch(req *api.SessionRequest) {
 }
 
 func (rt *controllerRuntime) handleMatch(req *api.SessionRequest) {
-	body, err := rt.handler.Match(rt.ctx, req.Match.Body.Path, req.Match.Body.Data, MatchParams{Scope: req.Scope, Commit: req.Match.Commit})
+	body, err := rt.handler.Match(rt.ctx, req.Match.Path, req.Match.Data, MatchParams{Scope: req.Scope, Commit: req.Match.Commit})
 	if err != nil {
 		rt.replyErr(req.ID, err)
 		return

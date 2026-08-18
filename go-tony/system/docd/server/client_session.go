@@ -300,7 +300,7 @@ func (s *ClientSession) serveMeta(req *logdapi.SessionRequest) {
 	}
 
 	var body *ir.Node
-	switch metaLeaf(req.Match.Body.Path) {
+	switch metaLeaf(req.Match.Path) {
 	case "":
 		body = metaIndexDoc()
 	case "clocks":
@@ -656,7 +656,7 @@ func (s *ClientSession) Close() error {
 func requestPath(req *logdapi.SessionRequest) string {
 	switch {
 	case req.Match != nil:
-		return req.Match.Body.Path
+		return req.Match.Path
 	case req.Patch != nil:
 		return req.Patch.Path
 	case req.Watch != nil:

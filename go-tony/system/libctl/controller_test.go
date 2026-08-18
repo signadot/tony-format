@@ -737,7 +737,7 @@ func TestDocd_ComposeAncestorReadAtCommit(t *testing.T) {
 	}
 
 	// Capture the commit at state A (the composed read reports logd's base commit).
-	resp, err := client.request(ctx, &api.SessionRequest{Match: &api.MatchRequest{Body: api.PathData{Path: "a"}}})
+	resp, err := client.request(ctx, &api.SessionRequest{Match: &api.MatchRequest{PathData: api.PathData{Path: "a"}}})
 	if err != nil || resp.Result == nil || resp.Result.Match == nil {
 		t.Fatalf("capture commit: resp=%+v err=%v", resp, err)
 	}
