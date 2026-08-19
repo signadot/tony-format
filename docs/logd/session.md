@@ -181,28 +181,21 @@ holds what the store holds.
 
 - `noInit` skips the initial state for a client that already has one.
 
-!!! note "A composed watch cannot replay"
+!!! note "A composed watch does not honour a cursor yet"
 
-    A watch on a path spanning several docd mounts multiplexes backends with independent
-    commit sequences, so no single commit can resume them: `fromCommit` — absolute or
-    relative — is not honoured, and the watch re-initializes at current state instead.
-    The confirmation then carries no replay range at all, which is how a client tells,
-    and docd logs it.
+    **Mounts share the commit sequence for their lifetime.** docd allocates a transaction
+    id from logd, every participant commits through that one logd under it, and the
+    transaction is all-or-nothing — so a multi-mount write is
+    [one commit](../docd/transactions.md) and a commit number means the same thing to every
+    mount. A [composed read at a commit](../docd/composition.md) rests on exactly that.
 
-### A watch ends rather than skipping
+    What a composed watcher must account for is **membership**: a mount arriving or leaving
+    mid-watch. It is told — the watch ends with `session_mounted` or `session_unmounted`,
+    and the re-watch composes the new membership.
 
-If a watch cannot keep that promise it **ends**, and says so, instead of quietly
-missing an event:
-
-```tony
-{event: {commit: 57 ended: true endReason: slow_consumer path: verse.entities} id: w1}
-```
-
-The `commit` on a terminal event is the last one delivered, so the client re-watches
-with `fromCommit` set to it. `endReason` comes from the error vocabulary below —
-`slow_consumer` when the client fell behind, `session_mounted` / `session_unmounted`
-when docd's mount set moved under a composed watch, `controller_unavailable` when the
-controller owning a mounted subtree went away.
+    The one thing missing is plumbing: docd does not yet pass `fromCommit` down to a
+    composed watch's sub-watches, so a client asking to resume is re-initialized at current
+    state and the confirmation carries no replay range.
 
 ## Liveness, and where the store is
 

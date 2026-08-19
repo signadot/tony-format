@@ -102,19 +102,23 @@ func (s *ClientSession) coordinateWatch(req *logdapi.SessionRequest) {
 // client's watch id stamped for routing) — the patch itself passes through
 // unchanged. token/key identify the coordinator reader already held for this watch.
 //
-// Event-preservation is a logd guarantee (single commit sequence); docd inherits it
-// for single-route watches but is best-effort across mount boundaries. A composed
-// watch is event-preserving while its mount membership is stable and during live
-// streaming, but a membership change ends it (see terminateWatch) and the re-watch
-// RE-INITS with a fresh composed snapshot rather than replaying the gap. FromCommit is
-// therefore not honored here: the sub-streams have independent commit sequences, so a
-// single resume commit cannot replay them, and re-init (a re-sync to current state)
-// sidesteps that. A snapshot-diffing consumer reconciles the re-init with no gap.
+// Mounts share the commit sequence for their lifetime: docd allocates a tx id from logd,
+// every participant commits through that one logd under it, and the transaction is
+// all-or-nothing (coordinatePatch). A commit number therefore means the same thing to
+// every mount, which is what makes a composed read at a commit well defined
+// (coordinateMatch) and a composed replay from one equally so.
+//
+// What a composed watcher must account for is MEMBERSHIP: a mount arriving or leaving
+// mid-watch. It is told -- the watch ends with session_mounted or session_unmounted and
+// the re-watch composes the new membership. That is the whole of it.
+//
+// FromCommit is not yet passed down to the sub-watches, so a client asking to resume is
+// re-initialized at current state instead (issue 4ses3fqsh12ks8awgnn0).
 func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []*MountEntry, token uint64, key string) {
 	clientID := req.ID
 	path := req.Watch.Path
 
-	// A cursor cannot be honoured here (see above), and a client which asked for one
+	// A cursor is not honoured here yet (see above), and a client which asked for one
 	// gets a confirmation with no replay range -- detectable, but only if it looks. Say
 	// so on this side too, since a request quietly not doing what it asked for is the
 	// thing that costs a day.

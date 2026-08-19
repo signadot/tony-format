@@ -35,16 +35,15 @@ const unwatchTimeout = 5 * time.Second
 // reason is for a caller that does more than reconnect — one deciding whether the
 // content it is about to see should differ, or reporting why the stream broke.
 //
-// Event-preservation is a logd guarantee that docd inherits fully only for a
-// single-route watch (a path served by one backend): re-watching with
-// WatchOptions.FromCommit set to Commit replays the exact delta history from Commit
-// with no loss. A COMPOSED watch (an ancestor path spanning several mounts) multiplexes
-// backends with independent commit sequences, so across a mount membership change
-// docd's event-preservation is best-effort: the re-watch re-inits with a fresh State
-// snapshot (a re-sync to current) rather than replaying the gap, conveying net state
-// rather than the intermediate deltas. Commit is thus an exact resume point for a
-// single-route watch and a best-effort hint for a composed one — a snapshot-diffing
-// consumer needs neither and can just re-watch and reconcile against its last snapshot.
+// Mounts share the commit sequence for their lifetime, so a commit is an exact resume
+// point across a composed path as well as a single-route one. What a watcher must account
+// for is membership: a mount arriving or leaving mid-watch ends the watch with one of the
+// reasons above, and the re-watch composes the new membership.
+//
+// One gap: docd does not yet pass WatchOptions.FromCommit down to a composed watch's
+// sub-watches, so re-watching a composed path re-inits with a fresh State snapshot rather
+// than replaying (issue 4ses3fqsh12ks8awgnn0). A snapshot-diffing consumer needs no resume
+// point either way.
 type WatchEndedError struct {
 	Path   string
 	Reason string

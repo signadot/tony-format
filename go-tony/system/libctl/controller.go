@@ -35,18 +35,17 @@ type Handler interface {
 	// set, is the COW scope the read belongs to — a scope-aware controller returns
 	// its scoped view (a logd-backed one reads logd in that scope).
 	//
-	// opts.Commit, when set, is a point-in-time read: return the subtree's state as
-	// of that commit. A logd-backed controller just reads logd at that commit
-	// (LogdSession.MatchAt), which is coherent because the commit comes from logd's
-	// single sequence — the same one base reads and every other logd-backed mount
-	// share. A SELF-BACKED controller (one not persisting to logd) has NO way to
-	// honor this correctly: the commit is a logd commit, unrelated to its own
-	// timeline, and it cannot coordinate a consistent point-in-time with the other
-	// controllers, so serving it risks returning a subtree out of sync with the rest
-	// of the composed document. Honoring it is only safe when every write to this
-	// mount is isolated entirely to this mount (no multi-mount transactions touch
-	// it); otherwise a self-backed controller should reject a historical read
-	// (return an error) rather than answer from an uncoordinated timeline.
+	// opts.Commit, when set, is a point-in-time read: answer with the subtree's state
+	// as of that commit. The commit is a logd commit, and that is the only timeline
+	// there is: a mount takes the tx id docd allocates and commits through the same
+	// backing logd, all-or-nothing, so every mount advances in one sequence and a
+	// commit number means the same thing to all of them. A controller reads logd at
+	// that commit (LogdSession.MatchAt) and is done.
+	//
+	// A controller which cannot answer for a commit is not participating in the
+	// protocol -- it is broken, not a variety. What it must not do is answer from
+	// some timeline of its own, because the answer is composed with every other
+	// mount's at that commit; if it cannot, it must say so with an error.
 	Match(ctx context.Context, path string, pattern *ir.Node, opts MatchParams) (*ir.Node, error)
 
 	// Patch applies data at path and reports what the write landed as: Commit is

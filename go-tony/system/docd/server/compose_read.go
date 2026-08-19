@@ -51,9 +51,10 @@ func (s *ClientSession) coordinateMatch(req *logdapi.SessionRequest, below []*Mo
 		_ = s.writeToClient(errResp)
 		return
 	}
-	// A historical read at a commit fans the same commit to every source. This is
-	// coherent because base and logd-backed mounts share logd's one commit
-	// sequence; a self-backed mount answers for the commit itself (see Handler).
+	// A historical read at a commit fans the SAME commit to every source, which is
+	// coherent because there is one sequence: a mount commits through the backing
+	// logd under the tx id docd allocates, all-or-nothing, so every mount advances
+	// in it (see coordinatePatch, and Handler.Match on what a mount owes a commit).
 	root, commit, err := s.composeReadTree(path, owner, below, pFields, req.Match.Commit)
 	if err != nil {
 		// The match failed. It used to report session_closed, which named a
@@ -173,9 +174,9 @@ func (s *ClientSession) composeReadTree(path string, owner *MountEntry, below []
 
 // readFrom reads the state at path from one source: a controller (entry non-nil)
 // via a collected MATCH route, or logd (entry nil) over a short-lived connection.
-// atCommit, when non-nil, reads historical state at that commit; it is the same
-// commit for every source, which is coherent for logd-backed sources sharing
-// logd's sequence (a self-backed controller answers for it).
+// atCommit, when non-nil, reads historical state at that commit. It is the same commit
+// for every source because there is one sequence for them to be in: a mount commits
+// through the backing logd under a docd-allocated tx id, all-or-nothing.
 func (s *ClientSession) readFrom(entry *MountEntry, path string, atCommit *int64) (*ir.Node, int64, error) {
 	if entry == nil {
 		return readLogdMatch(s.logdAddr, path, s.clientScope, atCommit, matchReadTimeout)

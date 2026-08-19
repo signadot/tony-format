@@ -48,11 +48,10 @@ type HelloResponse struct {
 //
 // Commit, when set, reads historical state at that commit instead of the current
 // commit — a point-in-time read. It must be in range [0, current]; logd rejects
-// an out-of-range commit with ErrCodeCommitNotFound. Across docd this addresses
-// logd's single commit sequence: base reads and logd-backed mounts all live in
-// that one sequence, so a composed read at a commit is a consistent snapshot. A
-// self-backed controller (one not persisting to logd) has its own timeline and
-// must answer for the commit itself.
+// an out-of-range commit with ErrCodeCommitNotFound. Across docd it is the same
+// commit for every source, because there is one sequence: a mount commits through the
+// backing logd under a tx id docd allocates, all-or-nothing, so a composed read at a
+// commit is a consistent snapshot of the whole document.
 //
 //tony:schemagen=session-match-request,notag
 type MatchRequest struct {
