@@ -716,17 +716,39 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 	s.watches[watchKey(id, path)] = watcher
 	s.watchMu.Unlock()
 
+	// A NEGATIVE fromCommit is relative: -N asks for the last N commits, resolved
+	// here, against the watermark this watch is being established at. It is clamped
+	// rather than refused -- a client asking for a window is asking for what there is,
+	// and it cannot name the retained floor by number because it does not know it. An
+	// absolute cursor keeps its refusal (forwardEvents), because a client naming a
+	// commit is claiming to know where it was.
+	fromCommit := req.FromCommit
+	if fromCommit != nil && *fromCommit < 0 {
+		start := currentCommit + *fromCommit
+		if floor := s.storage.ReplayFloor(); start < floor {
+			start = floor
+		}
+		if start < 0 {
+			start = 0
+		}
+		s.log.Debug("relative watch cursor", "path", path, "offset", *fromCommit,
+			"watermark", currentCommit, "from", start)
+		fromCommit = &start
+		watcher.FromCommit = fromCommit
+	}
+
 	// Determine replay range
-	var replayingTo *int64
-	if req.FromCommit != nil && *req.FromCommit < currentCommit {
+	var replayingTo, replayingFrom *int64
+	if fromCommit != nil && *fromCommit < currentCommit {
 		replayingTo = &currentCommit
+		replayingFrom = fromCommit
 	}
 
 	// Send watch confirmation
-	s.send(api.NewWatchResponse(id, path, replayingTo))
+	s.send(api.NewWatchResponseFrom(id, path, replayingFrom, replayingTo))
 
 	// Start event forwarder goroutine
-	go s.forwardEvents(watcher, req.FromCommit, req.NoInit, currentCommit)
+	go s.forwardEvents(watcher, fromCommit, req.NoInit, currentCommit)
 }
 
 // forwardEvents forwards events from a watcher to the session's outgoing channel.

@@ -160,10 +160,34 @@ holds what the store holds.
 
 - `fromCommit` replays the exact delta history from that commit before streaming live,
   so a client that knows where it left off reconnects with no gap. The watch result then
-  carries `replayingTo`, the commit the replay runs up to, and a `replayComplete` event
-  marks the end of it. Below the retained history `fromCommit` is `replay_compacted` —
-  re-watch without it to re-initialize.
+  carries `replayingFrom` and `replayingTo` — the range being replayed — and a
+  `replayComplete` event marks the end of it. Below the retained history an **absolute**
+  `fromCommit` is `replay_compacted`: a client naming a commit is claiming to know where
+  it was, and deserves to be told the history is gone.
+- **A negative `fromCommit` is relative**: `-N` asks for *the last N commits*, resolved
+  against the store's watermark at the moment the watch is established.
+
+    ```tony
+    {id: "w1", watch: {path: "verse.entities", fromCommit: -100}}
+    {id: w1 result: {watch: {replayingFrom: 41 replayingTo: 141 watching: verse.entities}}}
+    ```
+
+    It is how a client asks for a window of history **without knowing where the store
+    is** — no read, no ping, no arithmetic on a number it had to fetch first. Unlike an
+    absolute cursor it is **clamped, not refused**: below the retained history it starts
+    at the floor, and below zero at zero, because a request for a window is a request for
+    what there is. `replayingFrom` says what it resolved to, so a client that was clamped
+    can see that it was.
+
 - `noInit` skips the initial state for a client that already has one.
+
+!!! note "A composed watch cannot replay"
+
+    A watch on a path spanning several docd mounts multiplexes backends with independent
+    commit sequences, so no single commit can resume them: `fromCommit` — absolute or
+    relative — is not honoured, and the watch re-initializes at current state instead.
+    The confirmation then carries no replay range at all, which is how a client tells,
+    and docd logs it.
 
 ### A watch ends rather than skipping
 

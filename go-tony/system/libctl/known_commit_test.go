@@ -2,6 +2,7 @@ package libctl
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -159,4 +160,67 @@ func TestKnownCommitThroughDocd(t *testing.T) {
 	}
 	t.Errorf("an idle session through docd never learned of commit %d; KnownCommit is %d",
 		res.Commit, idle.KnownCommit())
+}
+
+// A caller can ask for a window of history without knowing where the store is: a
+// negative FromCommit is relative to the server's watermark, and the watch reports which
+// commit that resolved to.
+func TestRelativeWatchWindowThroughLibctl(t *testing.T) {
+	srv := startLogd(t)
+	ctx := context.Background()
+	session := NewLogdSession(&LogdSessionConfig{Addr: srv.TCPAddr(), ClientID: "window"})
+	defer session.Close()
+	if err := session.Connect(ctx); err != nil {
+		t.Fatalf("connect: %s", err)
+	}
+
+	for i := 0; i < 10; i++ {
+		if _, err := session.Patch(ctx, "verse.entities.e"+strconv.Itoa(i),
+			ir.FromMap(map[string]*ir.Node{"n": ir.FromInt(int64(i))})); err != nil {
+			t.Fatalf("write: %s", err)
+		}
+	}
+	head := session.KnownCommit()
+
+	back := int64(-3)
+	w, err := session.Watch(ctx, "verse.entities", &WatchOptions{FromCommit: &back})
+	if err != nil {
+		t.Fatalf("watch: %s", err)
+	}
+	defer w.Close()
+
+	from := w.ReplayingFrom()
+	if from == nil {
+		t.Fatal("a relative watch did not report where it starts")
+	}
+	if *from != head-3 {
+		t.Errorf("replaying from %d, want %d (head %d)", *from, head-3, head)
+	}
+	if to := w.ReplayingTo(); to == nil || *to < head {
+		t.Errorf("replaying to %v, want at least %d", to, head)
+	}
+
+	// It replays: the events arriving before replay-complete cover the window asked for.
+	deadline := time.After(3 * time.Second)
+	seen := 0
+	for {
+		select {
+		case ev, ok := <-w.Events():
+			if !ok {
+				t.Fatalf("watch closed after %d events: %v", seen, w.Err())
+			}
+			if ev.Commit > 0 && ev.Commit < head-3 {
+				t.Errorf("an event at commit %d is older than the window (%d)", ev.Commit, head-3)
+			}
+			seen++
+			if ev.ReplayComplete {
+				if seen < 2 {
+					t.Errorf("replay complete after %d events; the window replayed nothing", seen)
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatalf("no replay-complete after %d events", seen)
+		}
+	}
 }

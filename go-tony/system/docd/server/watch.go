@@ -114,6 +114,15 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 	clientID := req.ID
 	path := req.Watch.Path
 
+	// A cursor cannot be honoured here (see above), and a client which asked for one
+	// gets a confirmation with no replay range -- detectable, but only if it looks. Say
+	// so on this side too, since a request quietly not doing what it asked for is the
+	// thing that costs a day.
+	if req.Watch.FromCommit != nil {
+		s.log.Warn("composed watch cannot replay from a commit; re-initializing at current state instead",
+			"path", path, "fromCommit", *req.Watch.FromCommit, "mounts", len(below))
+	}
+
 	owner, pFields, errResp := s.composeCheck(clientID, path, below)
 	if errResp != nil {
 		s.releaseWatchToken(key)

@@ -2129,6 +2129,11 @@ func (s *WatchResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["replayingTo"] = ir.FromInt(int64(*s.ReplayingTo))
 	}
 
+	// Field: ReplayingFrom (optional)
+	if s.ReplayingFrom != nil {
+		irMap["replayingFrom"] = ir.FromInt(int64(*s.ReplayingFrom))
+	}
+
 	return ir.FromMap(irMap), nil
 }
 
@@ -2179,6 +2184,18 @@ func (s *WatchResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error
 				}
 				*val = int64(*fieldNodeUnwrapped.Int64)
 				s.ReplayingTo = val
+			}
+		case "replayingFrom":
+			// Field: ReplayingFrom
+			if fieldNodeUnwrapped.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(int64)
+				if fieldNodeUnwrapped.Int64 == nil {
+					return fmt.Errorf("%s: expected number, got %v", "field \"replayingFrom\"", fieldNodeUnwrapped.Type)
+				}
+				*val = int64(*fieldNodeUnwrapped.Int64)
+				s.ReplayingFrom = val
 			}
 		default:
 			if gomap.IsStrict(opts...) {

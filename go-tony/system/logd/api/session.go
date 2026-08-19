@@ -83,10 +83,27 @@ type NewTxRequest struct {
 
 // WatchRequest is a request to watch changes at a path.
 //
+// FromCommit is where the watch starts. Three cases:
+//
+//   - nil: start at the store's current commit. No history.
+//   - >= 0: an ABSOLUTE commit. The watch replays the exact delta history from it
+//     before streaming live, which is how a client that knows the last commit it saw
+//     resumes with no gap. Below the retained history it is refused with
+//     ErrCodeReplayCompacted, because a client naming a commit is claiming to know
+//     where it was and deserves to be told that history is gone.
+//   - < 0: RELATIVE. -N means "the last N commits", resolved against the store's
+//     watermark at the moment the watch is established: start = watermark - N, and
+//     never below the retained history or zero. A relative request is a request for
+//     what there is, so it is CLAMPED rather than refused -- a client asking for the
+//     last thousand commits of a store that only retains four hundred wants the four
+//     hundred, and does not know the floor to ask for it by number.
+//
+// WatchResult.ReplayingFrom says what a relative offset resolved to.
+//
 //tony:schemagen=session-watch-request,notag
 type WatchRequest struct {
 	Path       string `tony:"field=path"`
-	FromCommit *int64 `tony:"field=fromCommit"` // Starting commit (nil = current)
+	FromCommit *int64 `tony:"field=fromCommit"` // nil = current; >= 0 absolute; < 0 relative to the watermark
 	NoInit     bool   `tony:"field=noInit"`     // If true, skip initial state (default: send initial state)
 }
 
@@ -253,6 +270,11 @@ type NewTxResult struct {
 type WatchResult struct {
 	Watching    string `tony:"field=watching"`    // The path being watched
 	ReplayingTo *int64 `tony:"field=replayingTo"` // If replaying, the commit we'll replay up to
+	// ReplayingFrom is the commit the replay starts from, when the watch is
+	// replaying. It is what a RELATIVE FromCommit resolved to -- a client that asked
+	// for the last N commits learns which ones it is getting, and a client whose
+	// request was clamped to the retained floor can see that it was.
+	ReplayingFrom *int64 `tony:"field=replayingFrom,omitzero"`
 }
 
 // UnwatchResult is the result of an unwatch request.
@@ -470,12 +492,19 @@ func NewPatchResponse(id *string, commit int64, data *ir.Node) *SessionResponse 
 
 // NewWatchResponse creates a response for a watch request.
 func NewWatchResponse(id *string, path string, replayingTo *int64) *SessionResponse {
+	return NewWatchResponseFrom(id, path, nil, replayingTo)
+}
+
+// NewWatchResponseFrom is NewWatchResponse with the replay's starting commit, which is
+// what a relative fromCommit resolved to.
+func NewWatchResponseFrom(id *string, path string, replayingFrom, replayingTo *int64) *SessionResponse {
 	return &SessionResponse{
 		ID: id,
 		Result: &SessionResult{
 			Watch: &WatchResult{
-				Watching:    path,
-				ReplayingTo: replayingTo,
+				Watching:      path,
+				ReplayingFrom: replayingFrom,
+				ReplayingTo:   replayingTo,
 			},
 		},
 	}

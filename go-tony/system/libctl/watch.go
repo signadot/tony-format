@@ -60,6 +60,12 @@ type WatchOptions struct {
 	// FromCommit, when non-nil, replays historical patches after this commit up
 	// to the current commit before streaming live events. When nil, the watch
 	// starts from the current state.
+	//
+	// A NEGATIVE value is relative: -N asks for the last N commits, resolved by the
+	// server against its watermark when the watch is established, and clamped to the
+	// retained history rather than refused. It is how a caller asks for a window of
+	// history without knowing where the store is -- Watch.ReplayingFrom reports which
+	// commit it actually resolved to.
 	FromCommit *int64
 
 	// NoInit skips the initial full-state event. By default the first event
@@ -88,7 +94,12 @@ type Watch struct {
 	id      string
 	path    string
 	session *LogdSession
-	events  chan *api.WatchEvent
+
+	// replayingFrom/replayingTo are the confirmed replay range, nil when the watch is
+	// not replaying. See ReplayingFrom.
+	replayingFrom *int64
+	replayingTo   *int64
+	events        chan *api.WatchEvent
 
 	mu     sync.Mutex
 	closed bool
@@ -182,6 +193,8 @@ func (s *LogdSession) Watch(ctx context.Context, path string, opts *WatchOptions
 			s.removeWatcher(id)
 			return nil, fmt.Errorf("unexpected response: no watch result")
 		}
+		w.replayingFrom = resp.Result.Watch.ReplayingFrom
+		w.replayingTo = resp.Result.Watch.ReplayingTo
 		return w, nil
 	case <-ctx.Done():
 		s.mu.Lock()
@@ -200,6 +213,17 @@ func (s *LogdSession) Watch(ctx context.Context, path string, opts *WatchOptions
 		return nil, fmt.Errorf("session closed")
 	}
 }
+
+// ReplayingFrom is the commit this watch replays from, and nil when it is not
+// replaying at all. A caller which asked for a relative window (a negative
+// WatchOptions.FromCommit) learns here which commits it is getting -- and a caller
+// whose request was clamped to the retained history, or dropped by a composed watch
+// which cannot honour a cursor, can see that too.
+func (w *Watch) ReplayingFrom() *int64 { return w.replayingFrom }
+
+// ReplayingTo is the commit the replay runs up to, and nil when the watch is not
+// replaying.
+func (w *Watch) ReplayingTo() *int64 { return w.replayingTo }
 
 // Events returns the channel of streaming watch events. It is closed when the
 // watch ends; check Err afterwards for the cause.
