@@ -149,6 +149,27 @@ several controllers into exactly this — see
     The participants may share one session (as above) or sit on separate ones — a
     multi-mount write through docd is the latter, one participant per controller.
 
+**Across docd mounts**, a client's own transaction works as it does anywhere: mounts share
+the commit sequence, so each participant is routed to its owning controller, which joins
+that transaction on the one logd, and all of them report the same commit.
+
+!!! warning "A participant may not span mounts"
+
+    What a participant patch may *not* do is span mount boundaries itself. docd decomposes
+    such a patch into one participant per mount — and a transaction's participant count was
+    fixed when the client created it, counting its own patches rather than docd's
+    decomposition of one of them. It is refused:
+
+    ```tony
+    {error: {code: invalid_tx message: "a patch inside a transaction may not span mounts:
+      \"verse\" covers [verse.a verse.b] and the base; send one patch per mount as its own
+      participant, and count them in newtx"}}
+    ```
+
+    A *stand-alone* patch spanning mounts is a different thing and needs no `newtx`: docd
+    decomposes it into its own transaction, which is what
+    [Multi-mount transactions](../docd/transactions.md) describes.
+
 ## Watching
 
 ```tony

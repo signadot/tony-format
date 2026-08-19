@@ -117,3 +117,33 @@ func TestReferenceCoversEveryOperation(t *testing.T) {
 			referencePath, len(missing), len(Symbols()), missing)
 	}
 }
+
+// indexPath is the operation index: the page a reader lands on from the nav, with a
+// one-line summary per operation.
+const indexPath = "../../docs/generated/index.md"
+
+// TestIndexTableCoversEveryOperation: the index listed 8 of the 34 operations the library
+// registers, under a line claiming it was "automatically generated from the operation
+// registry" -- which nothing generated. Among the 26 missing was !key, which a reader
+// looking for how a keyed array is declared would conclude does not exist.
+//
+// Like the reference page, this checks coverage rather than prose: that every registered
+// operation has a row, which is the part that goes stale silently.
+func TestIndexTableCoversEveryOperation(t *testing.T) {
+	src, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Skipf("no %s to check against: %v", indexPath, err)
+	}
+	text := string(src)
+
+	var missing []string
+	for _, s := range Symbols() {
+		if !strings.Contains(text, "| `!"+s.String()+"` |") {
+			missing = append(missing, s.String())
+		}
+	}
+	if len(missing) > 0 {
+		t.Errorf("%s has no row for %d of %d operations: %v",
+			indexPath, len(missing), len(Symbols()), missing)
+	}
+}

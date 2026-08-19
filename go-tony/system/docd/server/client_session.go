@@ -358,6 +358,27 @@ func (s *ClientSession) maybeCoordinatePatch(req *logdapi.SessionRequest) (bool,
 	if len(parts)+len(base) < 2 {
 		return false, nil // single participant: route normally
 	}
+	// A patch which spans mounts becomes SEVERAL participants, and a transaction's
+	// participant count is fixed when it is created -- by the client here, which counted
+	// its patches and cannot have counted docd's decomposition of one of them. Joining
+	// the client's transaction is therefore impossible, and allocating docd's own for it
+	// is worse than impossible: the spanning patch then commits in a DIFFERENT
+	// transaction from the client's other participants, which is a write the client was
+	// told was atomic with them and was not. Measured before this refusal: the spanning
+	// half committed and the other half failed on the transaction timeout.
+	//
+	// So it is refused, and the message says what to do instead: one participant per
+	// mount, counted (zh3bm3msh12kscpygnn0).
+	if req.Patch.TxID != nil {
+		paths := make([]string, 0, len(parts))
+		for _, p := range parts {
+			paths = append(paths, p.mount.Path)
+		}
+		return true, s.writeToClient(logdapi.NewErrorResponse(req.ID, logdapi.ErrCodeInvalidTx,
+			fmt.Sprintf("a patch inside a transaction may not span mounts: %q covers %v and the base; "+
+				"send one patch per mount as its own participant, and count them in newtx",
+				req.Patch.Path, paths)))
+	}
 
 	go s.coordinatePatch(req, parts, base)
 	return true, nil
