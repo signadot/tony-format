@@ -181,21 +181,18 @@ holds what the store holds.
 
 - `noInit` skips the initial state for a client that already has one.
 
-!!! note "A composed watch does not honour a cursor yet"
+**Across docd mounts.** Mounts share the commit sequence for their lifetime — docd
+allocates a transaction id from logd, every participant commits through that one logd under
+it, all-or-nothing — so a commit means the same thing to every mount and a cursor works on
+a composed path too. docd resolves it once (a relative `-N` against the watermark, clamped
+to the retained floor), reads the composed initial state at that commit, replays every
+mount from it, and delivers the replayed deltas **in commit order** followed by a single
+`replayComplete`.
 
-    **Mounts share the commit sequence for their lifetime.** docd allocates a transaction
-    id from logd, every participant commits through that one logd under it, and the
-    transaction is all-or-nothing — so a multi-mount write is
-    [one commit](../docd/transactions.md) and a commit number means the same thing to every
-    mount. A [composed read at a commit](../docd/composition.md) rests on exactly that.
-
-    What a composed watcher must account for is **membership**: a mount arriving or leaving
-    mid-watch. It is told — the watch ends with `session_mounted` or `session_unmounted`,
-    and the re-watch composes the new membership.
-
-    The one thing missing is plumbing: docd does not yet pass `fromCommit` down to a
-    composed watch's sub-watches, so a client asking to resume is re-initialized at current
-    state and the confirmation carries no replay range.
+What a composed watcher must account for is **membership**: a mount arriving or leaving
+mid-watch ends the watch with `session_mounted` or `session_unmounted`, and the re-watch
+composes the new membership — the composition changed, so deltas from before it describe a
+different document.
 
 ## Liveness, and where the store is
 

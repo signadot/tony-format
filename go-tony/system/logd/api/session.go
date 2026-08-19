@@ -236,6 +236,12 @@ type PingRequest struct{}
 //tony:schemagen=session-pong-result,notag
 type PongResult struct {
 	Commit int64 `tony:"field=commit,omitzero"`
+	// Floor is the oldest commit whose delta history is still retained: a watch may
+	// replay from it, and not from below it. It is here for the same reason Commit is
+	// -- so that a client, or a router resolving a relative cursor on a client's
+	// behalf, can work out where a watch may start without a read
+	// (4ses3fqsh12ks8awgnn0).
+	Floor int64 `tony:"field=floor,omitzero"`
 }
 
 // --- Server → Client Messages ---
@@ -598,9 +604,14 @@ func NewEndedEvent(id *string, path, reason string, commit int64) *SessionRespon
 
 // NewPongResponse creates a response to a ping (liveness probe).
 func NewPongResponse(id *string, commit int64) *SessionResponse {
+	return NewPongResponseAt(id, commit, 0)
+}
+
+// NewPongResponseAt is NewPongResponse with the replay floor.
+func NewPongResponseAt(id *string, commit, floor int64) *SessionResponse {
 	return &SessionResponse{
 		ID:     id,
-		Result: &SessionResult{Pong: &PongResult{Commit: commit}},
+		Result: &SessionResult{Pong: &PongResult{Commit: commit, Floor: floor}},
 	}
 }
 

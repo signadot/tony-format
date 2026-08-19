@@ -132,6 +132,7 @@ context:
 - tony-format/context
 define:
   commit: .[int]
+  floor: .[int]
 signature:
   name: session-pong-result
 ---

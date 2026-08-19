@@ -2,7 +2,11 @@ package server
 
 import (
 	"fmt"
+	"sort"
 	"sync"
+	"time"
+
+	"github.com/signadot/tony-format/go-tony/ir"
 
 	logdapi "github.com/signadot/tony-format/go-tony/system/logd/api"
 )
@@ -112,19 +116,48 @@ func (s *ClientSession) coordinateWatch(req *logdapi.SessionRequest) {
 // mid-watch. It is told -- the watch ends with session_mounted or session_unmounted and
 // the re-watch composes the new membership. That is the whole of it.
 //
-// FromCommit is not yet passed down to the sub-watches, so a client asking to resume is
-// re-initialized at current state instead (issue 4ses3fqsh12ks8awgnn0).
+// FromCommit is honoured: docd resolves it to ONE absolute commit (a relative -N against
+// the watermark, clamped to the retained floor, both of which a ping answers from memory),
+// reads the composed initial state AT that commit, and starts every sub-watch replaying
+// from it. The replayed deltas are flushed in COMMIT ORDER before going live, which is
+// meaningful precisely because the mounts share the sequence -- and the client is sent one
+// replayComplete for the composed replay rather than one per sub-stream
+// (4ses3fqsh12ks8awgnn0).
 func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []*MountEntry, token uint64, key string) {
 	clientID := req.ID
 	path := req.Watch.Path
 
-	// A cursor is not honoured here yet (see above), and a client which asked for one
-	// gets a confirmation with no replay range -- detectable, but only if it looks. Say
-	// so on this side too, since a request quietly not doing what it asked for is the
-	// thing that costs a day.
-	if req.Watch.FromCommit != nil {
-		s.log.Warn("composed watch cannot replay from a commit; re-initializing at current state instead",
-			"path", path, "fromCommit", *req.Watch.FromCommit, "mounts", len(below))
+	// Resolve the cursor to one absolute commit for every sub-watch to share. A
+	// relative -N is resolved here rather than by each sub-watch, so they all replay
+	// from the same place as the composed initial state (see logdWatermark).
+	var from, replayingTo *int64
+	if fc := req.Watch.FromCommit; fc != nil {
+		head, floor, err := logdWatermark(s.logdAddr, matchReadTimeout)
+		if err != nil {
+			s.releaseWatchToken(key)
+			_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeSessionClosed,
+				fmt.Sprintf("cannot resolve the watch cursor: %v", err)))
+			return
+		}
+		start := *fc
+		if start < 0 {
+			// Relative: the last N commits, clamped to what is retained. Clamped
+			// rather than refused, as logd does for the same request.
+			start = head + start
+			if start < floor {
+				start = floor
+			}
+			if start < 0 {
+				start = 0
+			}
+		}
+		s.log.Debug("composed watch cursor", "path", path, "asked", *fc,
+			"watermark", head, "floor", floor, "from", start)
+		from = &start
+		if head > start {
+			h := head
+			replayingTo = &h
+		}
 	}
 
 	owner, pFields, errResp := s.composeCheck(clientID, path, below)
@@ -134,16 +167,50 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 		return
 	}
 
-	cw := &composedWatch{path: path, key: key, clientID: clientID, client: s}
+	cw := &composedWatch{path: path, key: key, clientID: clientID, client: s, replaying: from != nil}
+
+	// The sub-watch on the composed path itself sees the WHOLE subtree, mounts
+	// included: a logd-backed mount commits to the same logd, so its deltas come back
+	// on this stream as well as on the mount's own. Forwarding both delivered every
+	// commit twice -- harmless for a field write, wrong for an operation, since
+	// !arraydiff applied twice is not !arraydiff applied once (hs9fge9rh12ksztzgnn0).
+	//
+	// So this stream is trimmed to what the composed path owns, using the same
+	// partition that decomposes a WRITE across mounts -- one rule for both directions.
+	// A delta which cannot be split (an op above a mount boundary) is forwarded whole:
+	// duplicating it is better than dropping the part nobody else carries, and it says
+	// so.
+	var mounts []mountInfo
+	for _, m := range below {
+		mf, ferr := pathFields(m.Path)
+		if ferr != nil {
+			continue
+		}
+		mounts = append(mounts, mountInfo{entry: m, segs: mf})
+	}
+	blocks := s.server.patchTagFilter()
+	cw.trimOwned = func(patch *ir.Node) *ir.Node {
+		if patch == nil || len(mounts) == 0 {
+			return patch
+		}
+		_, base, err := partition(patch, nil, mounts, blocks)
+		if err != nil {
+			s.log.Warn("composed watch cannot separate a delta from the mounts below it; forwarding it whole",
+				"path", path, "error", err)
+			return patch
+		}
+		return base
+	}
 
 	// Establish sub-watches FIRST — their deltas buffer in cw — so no change
 	// between the snapshot and going live is missed. NoInit on each: the composer
 	// supplies the single initial snapshot below.
 	watchReq := func(p string) *logdapi.SessionRequest {
-		return &logdapi.SessionRequest{Scope: s.clientScope, Watch: &logdapi.WatchRequest{Path: p, NoInit: true}}
+		return &logdapi.SessionRequest{Scope: s.clientScope,
+			Watch: &logdapi.WatchRequest{Path: p, NoInit: true, FromCommit: from}}
 	}
 	if owner == nil {
-		ls, err := startLogdWatchStream(s.logdAddr, path, s.clientScope, cw.forward)
+		ls, err := startLogdWatchStream(s.logdAddr, path, s.clientScope, from, cw.forwardOwned)
 		if err != nil {
 			s.releaseWatchToken(key)
 			_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeSessionClosed, err.Error()))
@@ -152,7 +219,7 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 		cw.addStop(ls.Stop)
 	} else {
 		ms := owner.Session
-		id := ms.RouteWatchStream(watchReq(path), cw.forward)
+		id := ms.RouteWatchStream(watchReq(path), cw.forwardOwned)
 		cw.addStop(func() { ms.stopWatchStream(id, path) })
 	}
 	for _, m := range below {
@@ -174,11 +241,12 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 	w.cw = cw
 	s.watchMu.Unlock()
 
-	_ = s.writeToClient(logdapi.NewWatchResponse(clientID, path, nil))
+	_ = s.writeToClient(logdapi.NewWatchResponseFrom(clientID, path, from, replayingTo))
 	if !req.Watch.NoInit {
-		// nil commit: a composed watch's initial state is always current (it re-inits
-		// to current on membership change rather than replaying a historical commit).
-		root, commit, err := s.composeReadTree(path, owner, below, pFields, nil)
+		// The state the deltas apply to: at the resolved commit when resuming, and at
+		// current otherwise. A membership change still re-inits at current, because the
+		// composition changed and deltas from before it describe a different document.
+		root, commit, err := s.composeReadTree(path, owner, below, pFields, from)
 		if err != nil {
 			// The initial snapshot IS a match, and a watch whose match failed has no
 			// baseline. Deltas against a baseline the client never received would be
@@ -190,8 +258,14 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 		}
 		_ = s.writeToClient(logdapi.NewStateEvent(clientID, commit, path, root))
 	}
-	cw.begin()
+	cw.begin(len(below) + 1)
 }
+
+// composedReplayWait bounds how long a composed watch waits for its sub-streams to finish
+// replaying before flushing what has arrived. A replay is bounded work, so this is a
+// backstop against a participant which does not report rather than a timeout anyone should
+// reach.
+const composedReplayWait = 10 * time.Second
 
 // composedWatch multiplexes several backend sub-watches into one client watch.
 type composedWatch struct {
@@ -200,10 +274,42 @@ type composedWatch struct {
 	clientID *string
 	client   *ClientSession
 
-	mu       sync.Mutex
-	started  bool
-	buffered []*logdapi.SessionResponse
-	stops    []func()
+	// replaying says the sub-watches were given a cursor, so each will finish its
+	// replay with a replayComplete of its own and the client is owed exactly one for
+	// the composed replay.
+	replaying bool
+
+	// trimOwned removes the subtrees owned by mounts below from a delta on the
+	// composed path's own stream. See where it is built.
+	trimOwned func(*ir.Node) *ir.Node
+
+	mu        sync.Mutex
+	started   bool
+	buffered  []*logdapi.SessionResponse
+	stops     []func()
+	replayed  int // sub-streams which have reported replayComplete
+	subs      int // sub-streams expected, once known (see begin)
+	subsKnown bool
+	flushed   bool
+}
+
+// forwardOwned is the sink for the sub-watch on the composed path itself: it keeps only
+// what that path owns, since the mounts below carry their own subtrees on their own
+// streams. A delta which is entirely a mount's is dropped here -- it is not lost, it
+// arrives on that mount's stream.
+func (cw *composedWatch) forwardOwned(resp *logdapi.SessionResponse) {
+	if resp.Event != nil && resp.Event.Patch != nil && cw.trimOwned != nil {
+		kept := cw.trimOwned(resp.Event.Patch)
+		if kept == nil {
+			return
+		}
+		ev := *resp.Event
+		ev.Patch = kept
+		trimmed := *resp
+		trimmed.Event = &ev
+		resp = &trimmed
+	}
+	cw.forward(resp)
 }
 
 // forward is the sink for every sub-watch. A sub-watch failure ends the whole
@@ -225,6 +331,18 @@ func (cw *composedWatch) forward(resp *logdapi.SessionResponse) {
 	}
 	ev := *resp.Event
 	ev.Path = cw.path // patch is root-rooted; only the routing path is re-stamped
+
+	// A sub-stream's replayComplete is its own, not the composed watch's: the client
+	// gets one when every sub-stream has finished, which is what flushIfReplayed
+	// decides. Counted, not forwarded.
+	if ev.ReplayComplete {
+		cw.mu.Lock()
+		cw.replayed++
+		cw.mu.Unlock()
+		cw.flushIfReplayed()
+		return
+	}
+
 	out := &logdapi.SessionResponse{ID: cw.clientID, Event: &ev}
 
 	cw.mu.Lock()
@@ -244,15 +362,91 @@ func (cw *composedWatch) addStop(fn func()) {
 }
 
 // begin flushes the deltas buffered during setup and switches to live forwarding,
-// after the confirmation and initial snapshot have been written.
-func (cw *composedWatch) begin() {
+// after the confirmation and initial snapshot have been written. subs is how many
+// sub-streams the watch is composed of.
+//
+// Without a cursor there is nothing to wait for: the buffer holds whatever landed during
+// setup and it goes out at once. With one, each sub-stream is replaying its own history
+// and the buffer is not complete until all of them have said so -- so the flush waits,
+// and then goes out in COMMIT ORDER, which is meaningful because the mounts share the
+// sequence. A sub-stream which never reports is waited for and no longer: whatever has
+// arrived is flushed, in order, rather than a watch that never starts.
+func (cw *composedWatch) begin(subs int) {
 	cw.mu.Lock()
+	cw.subs, cw.subsKnown = subs, true
+	replaying, replayed := cw.replaying, cw.replayed
+	cw.mu.Unlock()
+
+	if !replaying {
+		cw.flush(false)
+		return
+	}
+	if replayed >= subs {
+		cw.flush(true)
+		return
+	}
+	go func() {
+		deadline := time.After(composedReplayWait)
+		tick := time.NewTicker(20 * time.Millisecond)
+		defer tick.Stop()
+		for {
+			select {
+			case <-tick.C:
+				cw.mu.Lock()
+				done := cw.replayed >= cw.subs || cw.flushed
+				cw.mu.Unlock()
+				if done {
+					cw.flushIfReplayed()
+					return
+				}
+			case <-deadline:
+				cw.client.log.Warn("composed watch replay did not complete on every sub-stream; flushing what arrived",
+					"path", cw.path, "reported", cw.replayed, "subStreams", cw.subs)
+				cw.flush(true)
+				return
+			}
+		}
+	}()
+}
+
+// flushIfReplayed flushes once every sub-stream has finished replaying. Called from a
+// sub-stream's replayComplete and from begin's wait, either of which may be last.
+func (cw *composedWatch) flushIfReplayed() {
+	cw.mu.Lock()
+	ready := cw.subsKnown && cw.replaying && cw.replayed >= cw.subs && !cw.flushed
+	cw.mu.Unlock()
+	if ready {
+		cw.flush(true)
+	}
+}
+
+// flush sends the buffered deltas and switches to live forwarding. byCommit orders them
+// first, and sends the client the one replayComplete it is owed.
+func (cw *composedWatch) flush(byCommit bool) {
+	cw.mu.Lock()
+	if cw.flushed {
+		cw.mu.Unlock()
+		return
+	}
+	cw.flushed = true
 	cw.started = true
 	buf := cw.buffered
 	cw.buffered = nil
 	cw.mu.Unlock()
+
+	if byCommit {
+		// Stable, so two events at one commit -- a transaction across mounts is ONE
+		// commit, so its participants' deltas arrive with the same number -- keep the
+		// order they arrived in.
+		sort.SliceStable(buf, func(i, j int) bool {
+			return buf[i].Event.Commit < buf[j].Event.Commit
+		})
+	}
 	for _, out := range buf {
 		_ = cw.client.writeToClient(out)
+	}
+	if byCommit {
+		_ = cw.client.writeToClient(logdapi.NewReplayCompleteEvent(cw.clientID, cw.path))
 	}
 }
 
