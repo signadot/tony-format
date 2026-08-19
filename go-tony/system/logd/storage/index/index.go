@@ -62,6 +62,52 @@ func NewIndex(pathKey string) *Index {
 	}
 }
 
+// A lock on this node is held to READ THIS NODE and released before descending. Holding
+// it across the recursion makes the walk's cost the writers' cost: a commit's Add needs
+// the root's write lock, and a reader holding the root's read lock for the length of a
+// whole-index walk stops every write for that long. Staging measured a single commit
+// paying 5.8s in its index phase, inside a snapshot window -- compaction was walking the
+// index while writes were landing (kds4sx3bh12krdrkghn0, and the same shape as the
+// persist stall in v0.0.169).
+//
+// childrenOf and childOf are how a walk gets what it descends into: named under the
+// lock, followed after it.
+
+type namedChild struct {
+	name  string
+	index *Index
+}
+
+func (i *Index) childrenOf() []namedChild {
+	i.RLock()
+	defer i.RUnlock()
+	res := make([]namedChild, 0, len(i.Children))
+	for name, c := range i.Children {
+		res = append(res, namedChild{name: name, index: c})
+	}
+	return res
+}
+
+func (i *Index) childOf(name string) *Index {
+	i.RLock()
+	defer i.RUnlock()
+	return i.Children[name]
+}
+
+// segmentsHere collects this node's OWN segments, under a brief lock.
+func (i *Index) segmentsHere(rng func(LogSegment) int, keep func(LogSegment) bool) []LogSegment {
+	i.RLock()
+	defer i.RUnlock()
+	res := []LogSegment{}
+	i.Commits.Range(func(c LogSegment) bool {
+		if keep == nil || keep(c) {
+			res = append(res, c)
+		}
+		return true
+	}, rng)
+	return res
+}
+
 func (i *Index) Add(seg *LogSegment) {
 	i.Lock()
 	defer i.Unlock()
@@ -114,26 +160,20 @@ func (i *Index) Remove(seg *LogSegment) bool {
 // If scopeID is nil, returns only baseline segments.
 // If scopeID is non-nil, returns baseline + matching scope segments.
 func (i *Index) LookupRange(kp string, from, to *int64, scopeID *string) []LogSegment {
-	i.RLock()
-	defer i.RUnlock()
-	res := []LogSegment{}
-	i.Commits.Range(func(c LogSegment) bool {
-		if matchesScope(c.ScopeID, scopeID) {
-			res = append(res, c)
-		}
-		return true
-	}, rangeFunc(from, to))
+	res := i.segmentsHere(rangeFunc(from, to), func(c LogSegment) bool {
+		return matchesScope(c.ScopeID, scopeID)
+	})
 	if kp == "" {
 		slices.SortFunc(res, LogSegCompare)
 		return res
 	}
-	// Split kpath to navigate hierarchy
+	// Split kpath to navigate hierarchy. The descent happens with this node's lock
+	// released -- see childOf.
 	firstSegment, restPath := kpath.Split(kp)
-	c := i.Children[firstSegment]
+	c := i.childOf(firstSegment)
 	if c == nil {
 		return res
 	}
-	// Recursive call - child index has its own lock, so this is safe
 	res = appendRelative(res, firstSegment, c.LookupRange(restPath, from, to, scopeID))
 	slices.SortFunc(res, LogSegCompare)
 	return res
@@ -283,9 +323,8 @@ func (i *Index) LookupSubtree(kp string, from, to *int64, scopeID *string) []Log
 // neither. scoped says whether scopeID filters at all -- LookupRangeAll asks for
 // every scope, which is a different question from asking for the baseline.
 func (i *Index) lookupSubtree(kp string, from, to *int64, scopeID *string, scoped bool) []LogSegment {
-	i.RLock()
-	defer i.RUnlock()
 	res := []LogSegment{}
+	i.RLock()
 	// Above the queried path, only writes which LAND here count. A patch which merely
 	// passed through on its way to a sibling is described by its own deeper segments,
 	// and taking it here is what made a narrow read replay every commit in the store:
@@ -303,10 +342,14 @@ func (i *Index) lookupSubtree(kp string, from, to *int64, scopeID *string, scope
 		return true
 	}, rangeFunc(from, to))
 
+	i.RUnlock()
+
+	// Everything below descends with this node's lock RELEASED: a walk holding it is a
+	// walk every write waits out (see childrenOf).
 	if kp == "" {
 		// At the queried path: everything below it is part of the subtree.
-		for name, c := range i.Children {
-			res = appendRelative(res, name, c.lookupSubtree("", from, to, scopeID, scoped))
+		for _, child := range i.childrenOf() {
+			res = appendRelative(res, child.name, child.index.lookupSubtree("", from, to, scopeID, scoped))
 		}
 		return res
 	}
@@ -314,7 +357,7 @@ func (i *Index) lookupSubtree(kp string, from, to *int64, scopeID *string, scope
 	// Still walking down to the queried path.  This node's own segments were
 	// collected above, since a write here writes through kp.
 	firstSegment, restPath := kpath.Split(kp)
-	c := i.Children[firstSegment]
+	c := i.childOf(firstSegment)
 	if c == nil {
 		return res
 	}
@@ -423,14 +466,9 @@ func (i *Index) LookupRangeAll(kp string, from, to *int64) []LogSegment {
 // inside its patch (indexPatchRec), and all of those copies name the same log position, so
 // anything maintaining positions has to reach all of them.
 func (i *Index) AllSegments() []LogSegment {
-	i.RLock()
-	defer i.RUnlock()
-	res := []LogSegment{}
-	i.Commits.Range(func(c LogSegment) bool {
-		res = append(res, c)
-		return true
-	}, rangeFunc(nil, nil))
-	for pathKey, c := range i.Children {
+	res := i.segmentsHere(rangeFunc(nil, nil), nil)
+	for _, child := range i.childrenOf() {
+		pathKey, c := child.name, child.index
 		for _, seg := range c.AllSegments() {
 			if seg.KindedPath == "" {
 				seg.KindedPath = pathKey
@@ -450,21 +488,15 @@ func (i *Index) AllSegments() []LogSegment {
 // If scopeID is nil, returns only baseline segments.
 // If scopeID is non-nil, returns baseline + matching scope segments.
 func (i *Index) LookupWithin(kp string, commit int64, scopeID *string) []LogSegment {
-	i.RLock()
-	defer i.RUnlock()
-	res := []LogSegment{}
-	i.Commits.Range(func(c LogSegment) bool {
-		if c.StartCommit <= commit && commit <= c.EndCommit && matchesScope(c.ScopeID, scopeID) {
-			res = append(res, c)
-		}
-		return true
-	}, withinFunc(commit))
+	res := i.segmentsHere(withinFunc(commit), func(c LogSegment) bool {
+		return c.StartCommit <= commit && commit <= c.EndCommit && matchesScope(c.ScopeID, scopeID)
+	})
 	if kp == "" {
 		slices.SortFunc(res, LogSegCompare)
 		return res
 	}
 	firstSegment, restPath := kpath.Split(kp)
-	c := i.Children[firstSegment]
+	c := i.childOf(firstSegment)
 	if c == nil {
 		return res
 	}
@@ -585,18 +617,17 @@ func rangeFunc(from, to *int64) func(LogSegment) int {
 // If scopeID is nil, returns only children with baseline segments.
 // If scopeID is non-nil, returns children with baseline or matching scope segments.
 func (i *Index) ListRange(from, to *int64, scopeID *string) []string {
-	i.RLock()
-	defer i.RUnlock()
-
-	children := make([]string, 0, len(i.Children))
-	for pathKey, ci := range i.Children {
-		ci.RLock()
-		segs := ci.LookupRange("", from, to, scopeID)
-		ci.RUnlock()
-		if len(segs) == 0 {
+	// LookupRange takes the child's lock itself, so nothing is held here -- and it was
+	// taken twice on the same node before, which is a deadlock the moment a writer is
+	// waiting between the two (Go's RWMutex does not admit a reader past a waiting
+	// writer).
+	snap := i.childrenOf()
+	children := make([]string, 0, len(snap))
+	for _, child := range snap {
+		if len(child.index.LookupRange("", from, to, scopeID)) == 0 {
 			continue
 		}
-		children = append(children, pathKey) // pathKey is already a valid kpath segment
+		children = append(children, child.name) // already a valid kpath segment
 	}
 	// Sort children by kpath comparison (not string comparison)
 	slices.SortFunc(children, func(a, b string) int {
