@@ -122,17 +122,32 @@ a write must satisfy to be storable at all is [What a write must be](writes.md).
 Several paths commit together by naming one transaction:
 
 ```tony
-{newtx: {participants: 2}}
-{result: {newtx: {txId: 4}}}
-{patch: {txId: 4, path: "verse.a", data: {n: 1}}}
-{patch: {txId: 4, path: "verse.b", data: {n: 2}}}
+{hello: {clientId: probe}}
+{id: "t", newtx: {participants: 2}}
+{id: t result: {newtx: {txId: 1}}}
+{id: "p1", patch: {txId: 1, path: "verse.a", data: {n: 1}}}
+{id: "p2", patch: {txId: 1, path: "verse.b", data: {n: 2}}}
+{id: p1 result: {patch: {commit: 1 data: {n: 1}}}}
+{id: p2 result: {patch: {commit: 1 data: {n: 2}}}}
 ```
 
 The transaction commits when every participant has arrived; every precondition is
 checked at that moment, and either all of them hold and the whole transaction commits,
-or one fails and none of it is written. `timeout` bounds one participant's wait. Across
-mounts, docd decomposes a patch spanning several controllers into exactly this — see
+or one fails and none of it is written. Both participants report the **same commit**.
+`timeout` bounds one participant's wait. Across mounts, docd decomposes a patch spanning
+several controllers into exactly this — see
 [Multi-mount transactions](../docd/transactions.md).
+
+!!! warning "Give the participants ids"
+
+    A joining patch does not return until the whole transaction commits, so the
+    participants must be **in flight together**. With `id`s they are: the client sends
+    them all and matches the answers as they arrive. Without ids, a client that waits for
+    the first answer before sending the second is waiting for a transaction that is
+    waiting for it, and it fails on the transaction timeout.
+
+    The participants may share one session (as above) or sit on separate ones — a
+    multi-mount write through docd is the latter, one participant per controller.
 
 ## Watching
 

@@ -258,6 +258,23 @@ func (s *Session) dispatch(req *api.SessionRequest) {
 			s.handleMatch(req.ID, req.Match)
 		}()
 	case req.Patch != nil:
+		// A patch which JOINS a transaction waits for the other participants, and
+		// blocking the loop makes that wait unsatisfiable: the participants a client
+		// pipelines behind it cannot be read, so the transaction times out and every
+		// one of them fails. It is not held here.
+		//
+		// Nothing is given up by that. A plain patch stays on the loop, which is what
+		// keeps read-your-writes; a joining patch has nothing to be read back yet,
+		// since its own write is not committed until the transaction is -- a client
+		// which wants to see it must wait for the result either way.
+		if req.Patch.TxID != nil {
+			s.readWG.Add(1)
+			go func() {
+				defer s.readWG.Done()
+				s.handlePatch(req.ID, req.Patch)
+			}()
+			return
+		}
 		s.handlePatch(req.ID, req.Patch)
 	case req.NewTx != nil:
 		s.handleNewTx(req.ID, req.NewTx)
