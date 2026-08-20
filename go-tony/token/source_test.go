@@ -99,21 +99,22 @@ func TestTokenSource_MultilineFolding(t *testing.T) {
 			break
 		}
 		if err != nil {
-			// Multiline strings may fail if they span buffer boundaries
-			// This is expected behavior - TokenSource needs more buffer
-			t.Logf("Read error (may be expected for multiline strings): %v", err)
-			break
+			// This used to be logged and broken out of, on the theory that a multiline
+			// string spanning a buffer boundary was expected to fail. It is not
+			// expected: TokenSource refills across boundaries, and
+			// TestMultilineStringAcrossAReadBoundary holds it to that.
+			t.Fatalf("read: %v", err)
 		}
 		allTokens = append(allTokens, tokens...)
 	}
 
 	// Compare with Tokenize (if it works)
+	// The comparison this test exists to make. It used to be SKIPPED when Tokenize
+	// failed, calling that a pre-existing bug -- and the bug was fixed, leaving a skip
+	// which now only means "swallow the next regression quietly".
 	expected, err := Tokenize(nil, []byte(input))
 	if err != nil {
-		// If Tokenize fails, this is a pre-existing bug, not a TokenSource issue
-		t.Logf("Tokenize also fails (pre-existing issue): %v", err)
-		t.Skip("Multiline string parsing has known issues in tokenizer")
-		return
+		t.Fatalf("Tokenize: %v", err)
 	}
 
 	if len(allTokens) != len(expected) {

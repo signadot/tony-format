@@ -166,6 +166,13 @@ func TestNode_KPath(t *testing.T) {
 	}
 }
 
+// A wildcard names a SET of values and Get answers one, so it is refused -- not because
+// wildcards are unsupported, but because this is the wrong question to put to them. The set
+// forms are where they belong: `o list 'items[*].sku'` walks them, and a match applies a
+// pattern to every node a wildcard reaches.
+//
+// Spelled out because a refusal that does not say why reads as a gap, and a later reader
+// with a wildcard in hand needs to know which of the two it is.
 func TestNode_GetKPath_Wildcard(t *testing.T) {
 	tests := []struct {
 		name  string

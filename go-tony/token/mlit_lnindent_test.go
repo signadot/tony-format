@@ -334,17 +334,17 @@ second: |
 		t.Run(tt.name, func(t *testing.T) {
 			tokens, err := Tokenize(nil, []byte(tt.input))
 			if tt.shouldError {
+				// The case says this input is not a multiline literal, so say so. This
+				// used to LOG when the tokenizer accepted it anyway ("may be
+				// acceptable"), which is a test that cannot fail: the day tabs start
+				// tokenizing, the case that exists to catch it passes quietly.
 				if err == nil {
-					// Check if we got a TMLit token despite error expectation
-					hasMLit := false
-					for i := range tokens {
-						if tokens[i].Type == TMLit {
-							hasMLit = true
-							break
-						}
-					}
-					if hasMLit {
-						t.Logf("Got mLit token despite expecting error (may be acceptable)")
+					t.Errorf("Tokenize accepted %q, which this case says is malformed", tt.input)
+				}
+				for i := range tokens {
+					if tokens[i].Type == TMLit {
+						t.Errorf("Tokenize produced an mLit for %q, which this case says is malformed", tt.input)
+						break
 					}
 				}
 				return
@@ -501,12 +501,13 @@ func TestMLit_LnIndent_LargeFile(t *testing.T) {
 
 	t.Logf("Testing with %s (%d bytes, ~%d mLits)", testdataPath, len(data), mLitCount)
 
-	// Test non-streaming mode - be lenient about syntax errors in the file
 	t.Run("non-streaming", func(t *testing.T) {
+		// The file is checked in, so "it may have syntax errors" is a thing this test can
+		// find out rather than tolerate. Logging it let a tokenizer which stopped early
+		// pass with whatever it had managed.
 		tokens, err := Tokenize(nil, data, TokenYAML())
 		if err != nil {
-			// File may have syntax errors - that's OK, just verify we can process what we can
-			t.Logf("Tokenize had errors (may be file syntax issues): %v", err)
+			t.Fatalf("Tokenize %s: %v", testdataPath, err)
 		}
 
 		mLitTokens := 0
@@ -655,6 +656,7 @@ func TestMLit_LnIndent_Regression(t *testing.T) {
 		name     string
 		input    string
 		validate func(*testing.T, []Token)
+		wantErr  bool
 	}{
 		{
 			name: "mLit after array with trailing comma",
@@ -708,30 +710,33 @@ key: |
 			input: `key: | # comment
   content
 `,
-			validate: func(t *testing.T, tokens []Token) {
-				// Comments after | may not be supported - this is a syntax limitation, not an lnIndent issue
-				// Just verify we don't panic if we got any tokens
-				for i := range tokens {
-					if tokens[i].Type == TMLit {
-						_ = mLitToString(tokens[i].Bytes)
-						return // Found at least one, that's good enough
-					}
-				}
-				// If we get here and have no tokens, the syntax wasn't accepted - that's OK for this test
-				// This test is mainly to ensure we don't panic with this input
-			},
+			// The tokenizer REFUSES this, and the spec does not say whether it should:
+			// whitespace after | is significant and there is no block-scalar header
+			// grammar for a comment to live in, but every other line in a document may
+			// carry one. Asserted rather than tolerated, so that whichever way
+			// 6ykv73beh12krzeygsn0 is decided, this test says so. It used to accept
+			// either outcome -- "we don't panic, and an mLit is good enough" -- which is
+			// a test that cannot fail.
+			wantErr:  true,
+			validate: func(t *testing.T, tokens []Token) {},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tokens, err := Tokenize(nil, []byte(tt.input))
-			// Some test cases may have syntax errors (like comments after |) - that's OK
-			// The validate function should handle this gracefully
-			tt.validate(t, tokens)
-			if err != nil {
-				t.Logf("Tokenize had error (may be expected): %v", err)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("Tokenize accepted %q; this case asserts it is refused", tt.input)
+				}
+				return
 			}
+			if err != nil {
+				// It used to log this and carry on, so a case which stopped tokenizing
+				// still passed as long as validate tolerated the empty result.
+				t.Fatalf("Tokenize %q: %v", tt.input, err)
+			}
+			tt.validate(t, tokens)
 		})
 	}
 }
