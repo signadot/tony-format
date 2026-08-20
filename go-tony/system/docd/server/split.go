@@ -65,6 +65,55 @@ type mountInfo struct {
 	segs  []string
 }
 
+// mountInfos resolves each mount's path into segments once, which is what every question
+// about who owns what is answered in. A mount whose path does not parse is skipped: mount
+// paths are validated at registration, so one that does not parse now cannot be routed to
+// either, and dropping it here is the same answer routing gives.
+//
+// It exists so that a read, a write and a watch cannot disagree about the mount set. They
+// each built this list themselves, and the copies had already drifted -- one skipped a
+// non-live mount, one did not -- which is the kind of difference that shows up as a delta
+// delivered twice rather than as an error (ntadpaech12krandgsn0).
+func mountInfos(entries []*MountEntry, liveOnly bool) []mountInfo {
+	out := make([]mountInfo, 0, len(entries))
+	for _, m := range entries {
+		if liveOnly && !m.Live() {
+			continue
+		}
+		mf, err := pathFields(m.Path)
+		if err != nil {
+			continue
+		}
+		out = append(out, mountInfo{entry: m, segs: mf})
+	}
+	return out
+}
+
+// trimToOwned removes from a root-rooted node everything the mounts below own, leaving what
+// the composed path itself owns.
+//
+// It is the read direction of the same question splitPatch asks in the write direction --
+// which of these bytes are whose -- and it is answered by the same partition, deliberately:
+// a composed watch's sub-watch on the path sees the whole subtree, mounts included, and
+// forwarding what a mount also forwards delivers a commit twice (hs9fge9rh12ksztzgnn0).
+//
+// A node which cannot be split -- an operation above a mount boundary, which splitPatch
+// refuses on the write side -- is answered whole, with why. Duplicating it beats dropping
+// the part no other stream carries.
+func trimToOwned(node *ir.Node, mounts []mountInfo, blocks TagFilter, onUnsplittable func(error)) *ir.Node {
+	if node == nil || len(mounts) == 0 {
+		return node
+	}
+	_, base, err := partition(node, nil, mounts, blocks)
+	if err != nil {
+		if onUnsplittable != nil {
+			onUnsplittable(err)
+		}
+		return node
+	}
+	return base
+}
+
 // splitPatch partitions a client patch (path, data) across the live mounts and a
 // base remainder, so a single client patch spanning multiple mounts can be
 // committed atomically. Data is first rooted at the document root (nested under
@@ -87,17 +136,7 @@ func splitPatch(reg *MountRegistry, path string, data *ir.Node, blocks TagFilter
 	}
 	full := nestAtFields(clientFields, data)
 
-	var mounts []mountInfo
-	for _, m := range reg.List() {
-		if !m.Live() {
-			continue
-		}
-		mf, ferr := pathFields(m.Path)
-		if ferr != nil {
-			continue // mount paths are validated at registration
-		}
-		mounts = append(mounts, mountInfo{entry: m, segs: mf})
-	}
+	mounts := mountInfos(reg.List(), true)
 
 	parts, baseTree, perr := partition(full, nil, mounts, blocks)
 	if perr != nil {

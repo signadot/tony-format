@@ -180,26 +180,18 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 	// A delta which cannot be split (an op above a mount boundary) is forwarded whole:
 	// duplicating it is better than dropping the part nobody else carries, and it says
 	// so.
-	var mounts []mountInfo
-	for _, m := range below {
-		mf, ferr := pathFields(m.Path)
-		if ferr != nil {
-			continue
-		}
-		mounts = append(mounts, mountInfo{entry: m, segs: mf})
-	}
+	// LIVE mounts only. Trimming a subtree is safe exactly when something else carries
+	// it, and a tombstoned mount carries nothing -- its sub-watch is gone. In practice a
+	// mount dying under a composed watch force-ends that watch, so this cannot be
+	// reached; it is the safe direction anyway, since the cost of not trimming is a
+	// duplicate and the cost of over-trimming is a delta nobody delivers.
+	mounts := mountInfos(below, true)
 	blocks := s.server.patchTagFilter()
 	cw.trimOwned = func(patch *ir.Node) *ir.Node {
-		if patch == nil || len(mounts) == 0 {
-			return patch
-		}
-		_, base, err := partition(patch, nil, mounts, blocks)
-		if err != nil {
+		return trimToOwned(patch, mounts, blocks, func(err error) {
 			s.log.Warn("composed watch cannot separate a delta from the mounts below it; forwarding it whole",
 				"path", path, "error", err)
-			return patch
-		}
-		return base
+		})
 	}
 
 	// Establish sub-watches FIRST — their deltas buffer in cw — so no change
