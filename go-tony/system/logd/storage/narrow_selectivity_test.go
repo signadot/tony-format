@@ -53,9 +53,10 @@ func TestNarrowReadIgnoresSiblingWrites(t *testing.T) {
 		quiet.Round(time.Microsecond), busy.Round(time.Microsecond))
 
 	// Some growth is fair -- the lookup still walks a bigger index -- but the read must
-	// not take on the siblings' deltas. Ten times the quiet read is far above the noise
-	// and far below replaying a thousand patches.
-	if budget := 10*quiet + time.Millisecond; busy > budget {
+	// not take on the siblings' deltas. Twenty times the quiet read plus a five
+	// millisecond floor is far above what a busy machine adds and far below replaying a
+	// thousand patches, which was ninety times.
+	if budget := 20*quiet + 5*time.Millisecond; busy > budget {
 		t.Errorf("the read costs %s after writes to other paths (was %s, budget %s): it is replaying them",
 			busy.Round(time.Microsecond), quiet.Round(time.Microsecond), budget.Round(time.Microsecond))
 	}
