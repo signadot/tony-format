@@ -6,8 +6,10 @@ commits: []
 created: "2026-08-20T23:37:07.267662+02:00"
 duplicates: []
 id: 0y342gdzh12ks0vkgxn0
-labels: []
+labels:
+- parse
+- spec
 related_issues:
 - 6ykv73beh12krzeygsn0
 status: open
-updated: "2026-08-20T23:37:14.326202+02:00"
+updated: "2026-08-20T23:37:14.426792+02:00"
