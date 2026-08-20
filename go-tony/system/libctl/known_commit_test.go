@@ -224,3 +224,87 @@ func TestRelativeWatchWindowThroughLibctl(t *testing.T) {
 		}
 	}
 }
+
+// A scoped watch which REPLAYS and then streams live: the replay recomputes the scoped view
+// per commit and folds nothing, so what follows it must not fold either. The two halves
+// disagreeing is not visible in the events unless the live half is wrong about the document
+// it is folding into, which is exactly what this checks -- every delta after the replay must
+// still describe the scoped state.
+func TestScopedWatchReplayThenLive(t *testing.T) {
+	srv := startLogd(t)
+	ctx := context.Background()
+
+	base := NewLogdSession(&LogdSessionConfig{Addr: srv.TCPAddr(), ClientID: "base"})
+	defer base.Close()
+	if err := base.Connect(ctx); err != nil {
+		t.Fatalf("connect base: %s", err)
+	}
+	if _, err := base.Patch(ctx, "verse.a", ir.FromMap(map[string]*ir.Node{"n": ir.FromInt(0)})); err != nil {
+		t.Fatalf("seed: %s", err)
+	}
+
+	scoped := NewLogdSession(&LogdSessionConfig{Addr: srv.TCPAddr(), ClientID: "scoped", Scope: "sandbox"})
+	defer scoped.Close()
+	if err := scoped.Connect(ctx); err != nil {
+		t.Fatalf("connect scoped: %s", err)
+	}
+	// History for the replay to cover.
+	for i := 1; i <= 3; i++ {
+		if _, err := scoped.Patch(ctx, "verse.a", ir.FromMap(map[string]*ir.Node{"n": ir.FromInt(int64(i))})); err != nil {
+			t.Fatalf("scoped write %d: %s", i, err)
+		}
+	}
+	head := scoped.KnownCommit()
+
+	back := int64(-3)
+	w, err := scoped.Watch(ctx, "verse.a", &WatchOptions{FromCommit: &back})
+	if err != nil {
+		t.Fatalf("watch: %s", err)
+	}
+	defer w.Close()
+
+	// Drain the replay.
+	deadline := time.After(3 * time.Second)
+	for done := false; !done; {
+		select {
+		case ev, ok := <-w.Events():
+			if !ok {
+				t.Fatalf("watch closed during replay: %v", w.Err())
+			}
+			if ev.ReplayComplete {
+				done = true
+			}
+		case <-deadline:
+			t.Fatal("no replay-complete")
+		}
+	}
+
+	// Now live, in the same scope.
+	if _, err := scoped.Patch(ctx, "verse.a", ir.FromMap(map[string]*ir.Node{"n": ir.FromInt(99)})); err != nil {
+		t.Fatalf("live write: %s", err)
+	}
+	select {
+	case ev, ok := <-w.Events():
+		if !ok {
+			t.Fatalf("watch closed after the replay: %v", w.Err())
+		}
+		if ev.Commit <= head {
+			t.Errorf("the live event is at commit %d, not past the replay (%d)", ev.Commit, head)
+		}
+		if ev.Patch == nil {
+			t.Errorf("the live event carries no delta: %+v", ev)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no live event after the replay")
+	}
+
+	// And the scoped view is what the store says it is.
+	got, err := scoped.Match(ctx, "verse.a")
+	if err != nil {
+		t.Fatalf("read back: %s", err)
+	}
+	n, err := got.GetKPath("n")
+	if err != nil || n == nil || n.Int64 == nil || *n.Int64 != 99 {
+		t.Errorf("the scope reads back as %v, want n: 99", got)
+	}
+}
