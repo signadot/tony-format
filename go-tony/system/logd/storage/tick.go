@@ -165,6 +165,28 @@ func (t *tick) close() {
 	<-t.done
 }
 
+// DeliverablePatch is a stored patch in the form a CLIENT sees: its own copy, with the
+// internal patch-root markers removed.
+//
+// It is one function because it was two, and they drifted. A live watcher went through the
+// copy-and-strip below; a REPLAYING watcher got the stored node verbatim, marker and all --
+// so a resumed watch saw `!delete.logd-patch-root` where a live one saw `!delete`, and a
+// consumer testing for `!delete` read a deletion as an ordinary write. Worse quietly: the
+// extra tag makes the folded state differ from the state before it, so the change gate
+// which suppresses an identical write stopped suppressing it, and every rewrite on a
+// resumed watch looked like a change (xmxt2p85h12ksjp1gsn0).
+//
+// The marker is deliberately STORED -- the read path uses it to find which subtrees a
+// commit patched (tx.TagPatchRoots) -- so what it must never do is leave the store.
+func DeliverablePatch(stored *ir.Node) *ir.Node {
+	if stored == nil {
+		return nil
+	}
+	patch := stored.DeepCopy()
+	tx.StripPatchRootTagRecursive(patch)
+	return patch
+}
+
 // newCommitNotification builds the notification for a committed patch.
 //
 // The patch is a stripped deep copy, and that ownership is the point: the merged patch
@@ -175,11 +197,7 @@ func (t *tick) close() {
 // committing goroutine, before the strip can start — means the notification owns its
 // patch outright and every reader downstream is working on a node nothing else touches.
 func newCommitNotification(commit, txSeq int64, timestamp string, mergedPatch *ir.Node, scopeID *string) *CommitNotification {
-	var patch *ir.Node
-	if mergedPatch != nil {
-		patch = mergedPatch.DeepCopy()
-		tx.StripPatchRootTagRecursive(patch)
-	}
+	patch := DeliverablePatch(mergedPatch)
 	return &CommitNotification{
 		Commit:    commit,
 		TxSeq:     txSeq,

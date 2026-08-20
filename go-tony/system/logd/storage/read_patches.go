@@ -50,11 +50,13 @@ func (s *Storage) ReadPatchesInRange(kp string, from, to int64, scopeID *string)
 			continue
 		}
 
-		// Build CommitNotification
+		// Build CommitNotification. The patch goes out in the form a client sees --
+		// its own copy, with the internal markers gone -- which is what the live path
+		// publishes and what this used to skip. See DeliverablePatch.
 		notification := &CommitNotification{
 			Commit:    entry.Commit,
 			Timestamp: entry.Timestamp,
-			Patch:     entry.Patch,
+			Patch:     DeliverablePatch(entry.Patch),
 			// KPaths not populated - would need index lookup per entry
 		}
 
