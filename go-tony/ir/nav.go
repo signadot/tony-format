@@ -79,7 +79,36 @@ func StripComments(n *Node) *Node {
 	if n == nil {
 		return nil
 	}
+	// Nothing to strip is the ordinary case -- a stored document carries no comments
+	// today -- and it used to cost a deep clone of the whole tree anyway, which made
+	// every Patch without Comments(true) allocate a node per node of its result. The
+	// scan below allocates nothing; the clone happens only when there is something to
+	// remove (rkb7p8v5h12ksdnmgsn0).
+	if !hasComments(n) {
+		return n
+	}
 	return stripComments(n.Clone())
+}
+
+// hasComments reports whether anything in the tree carries one, allocating nothing.
+func hasComments(n *Node) bool {
+	if n == nil {
+		return false
+	}
+	if n.Type == CommentType || n.Comment != nil {
+		return true
+	}
+	for _, f := range n.Fields {
+		if hasComments(f) {
+			return true
+		}
+	}
+	for _, v := range n.Values {
+		if hasComments(v) {
+			return true
+		}
+	}
+	return false
 }
 
 // stripComments is StripComments on a tree the caller owns.

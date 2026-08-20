@@ -251,19 +251,26 @@ func objMergeFast(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, bool, 
 	}
 
 	res := &ir.Node{Type: ir.ObjectType}
-	fields := make([]*ir.Node, 0, len(doc.Fields)+len(patch.Fields))
-	values := make([]*ir.Node, 0, len(doc.Values)+len(patch.Values))
+	n := len(doc.Fields) + len(patch.Fields)
+	keys := make([]string, 0, n)
+	values := make([]*ir.Node, 0, n)
+	// keysKept says the result holds exactly the document's keys, in the document's
+	// order: nothing added, nothing removed. Then the result SHARES the document's field
+	// slice rather than building an identical one, which is the difference between a fold
+	// that costs the size of the document and one that costs a memcpy -- at three
+	// thousand fields, 270µs to allocate a key node each against 53µs to share them
+	// (rkb7p8v5h12ksdnmgsn0).
+	keysKept := true
 
-	add := func(key string, val *ir.Node) {
+	add := func(key string, val *ir.Node, fromDoc bool) {
 		if val == nil {
-			return // a patch which removed the field
+			keysKept = false // a patch which removed the field
+			return
 		}
-		i := len(values)
-		fields = append(fields, &ir.Node{
-			Parent: res, ParentIndex: i, ParentField: key,
-			Type: ir.StringType, String: key,
-		})
-		val.Parent, val.ParentIndex, val.ParentField = res, i, key
+		if !fromDoc {
+			keysKept = false // a key the patch introduced
+		}
+		keys = append(keys, key)
 		values = append(values, val)
 	}
 
@@ -272,7 +279,7 @@ func objMergeFast(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, bool, 
 		dk, pk := doc.Fields[di].String, patch.Fields[pi].String
 		switch {
 		case dk < pk:
-			add(dk, doc.Values[di])
+			add(dk, doc.Values[di], true)
 			di++
 		case pk < dk:
 			// A field the document does not have: what the patch means on its own.
@@ -280,27 +287,51 @@ func objMergeFast(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, bool, 
 			if err != nil {
 				return nil, false, err
 			}
-			add(pk, val)
+			add(pk, val, false)
 			pi++
 		default:
 			val, err := PatchWith(doc.Values[di], patch.Values[pi], ctx)
 			if err != nil {
 				return nil, false, err
 			}
-			add(dk, val)
+			add(dk, val, true)
 			di++
 			pi++
 		}
 	}
 	for ; di < len(doc.Fields); di++ {
-		add(doc.Fields[di].String, doc.Values[di])
+		add(doc.Fields[di].String, doc.Values[di], true)
 	}
 	for ; pi < len(patch.Fields); pi++ {
 		val, err := PatchWith(ir.Null(), patch.Values[pi], ctx)
 		if err != nil {
 			return nil, false, err
 		}
-		add(patch.Fields[pi].String, val)
+		add(patch.Fields[pi].String, val, false)
+	}
+
+	var fields []*ir.Node
+	if keysKept && len(keys) == len(doc.Fields) {
+		// The document's own key nodes, shared. A key node is a descriptor -- its type,
+		// its string, its position -- and every one of those is identical here, since the
+		// keys and their order are the document's. What it does not carry over is Parent,
+		// which still names the object it was built for: nothing reads a KEY's parent
+		// except a diagnostic path, while a VALUE's is read by encoding and is set below.
+		fields = make([]*ir.Node, len(doc.Fields))
+		copy(fields, doc.Fields)
+	} else {
+		fields = make([]*ir.Node, len(keys))
+		for i, key := range keys {
+			fields[i] = &ir.Node{
+				Parent: res, ParentIndex: i, ParentField: key,
+				Type: ir.StringType, String: key,
+			}
+		}
+	}
+
+	// A value belongs to the object which now holds it.
+	for i, v := range values {
+		v.Parent, v.ParentIndex, v.ParentField = res, i, keys[i]
 	}
 
 	res.Fields, res.Values = fields, values
