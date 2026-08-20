@@ -23,10 +23,14 @@ through — which is what "kinded path" means:
 | `..` | any depth below here, this node included | `..name`, `spec..image` |
 
 The leading `.` is optional at the start, so `spec.replicas` and `.spec.replicas` are
-the same path, and by the same rule a bare `.` is the whole document. The root is
+the same path, and by the same rule a bare `.` is the whole document. It is optional
+only there: a field after an element or a key still takes its dot, so `items[0].name`
+is a path and `items[0]name` is not. The root is
 written `.`, or as the empty path — `o get . doc.tony` and `o get '' doc.tony` ask
 the same thing. Giving no path at all is a usage error rather than the root: a
-missing path and a path naming everything are different mistakes. A key or a field that needs quoting takes quotes: `pr."1".votes`.
+missing path and a path naming everything are different mistakes. A key or a field that needs quoting takes quotes: `pr."1".votes`. A `*` at the start
+of a segment is always the wildcard, so a field whose name begins with one is written
+quoted — `"*"` is the field called `*`, `*` is every field there is.
 
 A sparse array is an object whose keys are numbers, so `{i}` names the value under
 the key `i` rather than the `i`th value: in `!sparsearray {3: a, 7: b}`, `{7}` is `b`,

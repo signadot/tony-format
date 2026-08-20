@@ -687,16 +687,7 @@ func parseKFrag(frag string, parent *KPath) error {
 		if !all {
 			parent.Index = &index
 		}
-		if len(frag) == i+2 {
-			return nil
-		}
-		next := &KPath{}
-		err = parseKFrag(frag[i+2:], next)
-		if err != nil {
-			return err
-		}
-		parent.Next = next
-		return nil
+		return parseAfterSegment(frag[i+2:], parent)
 	case '{':
 		i := strings.IndexByte(frag[1:], '}')
 		if i == -1 {
@@ -710,57 +701,25 @@ func parseKFrag(frag string, parent *KPath) error {
 		if !all {
 			parent.SparseIndex = &index
 		}
-		if len(frag) == i+2 {
-			return nil
-		}
-		next := &KPath{}
-		err = parseKFrag(frag[i+2:], next)
-		if err != nil {
-			return err
-		}
-		parent.Next = next
-		return nil
+		return parseAfterSegment(frag[i+2:], parent)
 	case '(':
 		key, rest, err := parseKPathKey(frag[1:])
 		if err != nil {
 			return err
 		}
 		parent.Key = &key
-		if len(rest) == 0 {
-			return nil
-		}
-		next := &KPath{}
-		err = parseKFrag(rest, next)
-		if err != nil {
-			return err
-		}
-		parent.Next = next
-		return nil
+		return parseAfterSegment(rest, parent)
 	case '*':
-		// Top-level wildcard for all fields
-		// Check if it's followed by a separator or is the entire fragment
-		if len(frag) == 1 {
-			// Just "*" - all fields at top level
-			parent.FieldAll = true
-			return nil
-		}
-		// Check what comes after *
-		if len(frag) > 1 {
-			nextChar := frag[1]
-			if nextChar == '.' || nextChar == '[' || nextChar == '{' {
-				// "*." or "*[" or "*{" - all fields followed by more path
-				parent.FieldAll = true
-				next := &KPath{}
-				err := parseKFrag(frag[1:], next)
-				if err != nil {
-					return err
-				}
-				parent.Next = next
-				return nil
-			}
-		}
-		// Fall through to parse as literal field name "*"
-		fallthrough
+		// A leading `*` is the field wildcard, whatever follows it. It used to be
+		// the wildcard before `.`, `[` and `{` and a literal field name before
+		// anything else, so `*[0]` named every field and `*(k)` named the one field
+		// called `*` -- one character apart, and the reader has no way to tell.
+		//
+		// The name is not lost by this: a field whose name begins with `*` is
+		// QUOTED when written (token.KPathQuoteField), so `"*"` still names it and
+		// bare `*y` was a spelling only the parser knew.
+		parent.FieldAll = true
+		return parseAfterSegment(frag[1:], parent)
 	default:
 		// Start with a field (no leading dot)
 		field, rest, err := parseKField(frag)
@@ -779,6 +738,32 @@ func parseKFrag(frag string, parent *KPath) error {
 		parent.Next = next
 		return nil
 	}
+}
+
+// parseAfterSegment continues a path after a segment which ends in a character of
+// its own -- `[i]`, `{i}`, `(key)` and the `*` wildcard. What may follow is the
+// start of another segment: `.` for a field, or an opening bracket, brace or paren.
+//
+// A field there needs its dot, the way it does everywhere else. Without this the
+// separator was optional in exactly one place -- `x[0]y` read as `x[0].y` -- and
+// nothing then stopped an unbalanced closer either, so `x[0]]y` read as a field
+// named `]y` and `x[0]*` became a wildcard without the dot that spells one. The
+// renderer emits none of those forms, so they were spellings only the parser knew.
+func parseAfterSegment(rest string, parent *KPath) error {
+	if len(rest) == 0 {
+		return nil
+	}
+	switch rest[0] {
+	case '.', '[', '{', '(':
+	default:
+		return fmt.Errorf("expected '.', '[', '{' or '(' after a segment, got %q", rest[0])
+	}
+	next := &KPath{}
+	if err := parseKFrag(rest, next); err != nil {
+		return err
+	}
+	parent.Next = next
+	return nil
 }
 
 // parseKIndex parses a dense array index from a string like "0", "42", or "*".
