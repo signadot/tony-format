@@ -33,11 +33,11 @@ func (c *commitOps) MatchStateAt(kpath string, commit int64, scopeID *string) (*
 	if scopeID != nil {
 		// Not a full read any more: with an overlay stating the scope's ownership, the
 		// scoped view can be built ON TOP of the baseline head rather than replaying
-		// baseline from the last snapshot. See scopedHeadStateAt, which falls back to a
+		// baseline from the last snapshot. See steppedScopedAt, which falls back to a
 		// full read whenever it cannot be sure.
-		return c.s.scopedHeadStateAt(commit, scopeID)
+		return c.s.steppedScopedAt(commit, scopeID)
 	}
-	return c.s.headStateAt(commit)
+	return c.s.steppedBaselineAt(commit)
 }
 
 func (c *commitOps) GetCurrentCommit() (int64, error) {

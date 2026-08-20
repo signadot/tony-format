@@ -100,7 +100,7 @@ func TestHeadReseedsAfterDrop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := s.readBaselineStateAt(commit)
+	want, err := s.replayBaselineAt(commit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestHeadReseedsAfterDrop(t *testing.T) {
 	if s.headSeeded {
 		t.Fatal("dropHead left a head behind")
 	}
-	got, err := s.headStateAt(commit)
+	got, err := s.steppedBaselineAt(commit)
 	s.commitMu.Unlock()
 	if err != nil {
 		t.Fatalf("re-seed: %v", err)
@@ -188,7 +188,7 @@ func TestHeadFollowsScopedCommits(t *testing.T) {
 	if headCommit != commit {
 		t.Errorf("head is at commit %d, want %d", headCommit, commit)
 	}
-	want, err := s.readBaselineStateAt(commit)
+	want, err := s.replayBaselineAt(commit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func seedHead(t *testing.T, s *Storage) {
 	}
 	s.commitMu.Lock()
 	defer s.commitMu.Unlock()
-	if _, err := s.headStateAt(commit); err != nil {
+	if _, err := s.steppedBaselineAt(commit); err != nil {
 		t.Fatalf("seed head: %v", err)
 	}
 }

@@ -14,8 +14,8 @@ import (
 // and the state is right, both of which stayed true while nothing read it.
 //
 // Asserting on startCommit rather than on latency keeps this deterministic. startCommit
-// is the whole fix: it is the lower bound of the patch range readBaselineStateAt and
-// readScopedStateAt replay, and it was 0 for every non-root read (bvm163tyh12krwcqcsn0).
+// is the whole fix: it is the lower bound of the patch range replayBaselineAt and
+// replayScopedAt replay, and it was 0 for every non-root read (bvm163tyh12krwcqcsn0).
 func TestSnapshotBoundsReplay(t *testing.T) {
 	s := openTestStorage(t)
 

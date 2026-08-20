@@ -59,7 +59,7 @@ func isOverlaySegment(seg index.LogSegment) bool {
 // the two agree. (Stepping is where captured-at-write matters, because there the live
 // document has had a baseline delta folded in first.)
 func (s *Storage) BuildScopeOverlay(scopeID string, commit int64) (*ir.Node, error) {
-	base, err := s.readBaselineStateAt(commit)
+	base, err := s.replayBaselineAt(commit)
 	if err != nil {
 		return nil, fmt.Errorf("overlay: baseline read: %w", err)
 	}

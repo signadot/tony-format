@@ -10,7 +10,7 @@ import (
 // case, not its steady state. This separates the two mechanisms that keep baseline fast,
 // because they have different bounds and the plan leaned on the wrong one:
 //
-//   - a snapshot truncates the COLD read path (readBaselineStateAt replays from the last
+//   - a snapshot truncates the COLD read path (replayBaselineAt replays from the last
 //     snapshot forward, with nothing cached), so a baseline read costs O(patches since
 //     the snapshot) and only resets when one is taken
 //   - the stepped head (head.go) and the stepped watch document (session.go) are not

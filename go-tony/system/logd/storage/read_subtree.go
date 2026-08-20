@@ -28,7 +28,7 @@ import (
 //     something about the subtree that the subtree cannot say about itself, and
 //     deciding what it would have meant is the kind of guess which loses data;
 //   - a scoped read, which is one op-preserving pass over the baseline
-//     (readScopedStateAt) and wants that pass to be path-aware first;
+//     (replayScopedAt) and wants that pass to be path-aware first;
 //   - the root, which is not a narrowing.
 //
 // A caller which is declined reads wide, which is also the only reader that can say
@@ -50,7 +50,7 @@ func (s *Storage) ReadSubtreeAt(kp string, commit int64, scopeID *string) (*ir.N
 		s.readStats.note(ReadWideBadPath, kp, time.Since(started))
 		return nil, false, nil // the wide read reports what is wrong with it
 	}
-	node, narrowed, err := s.readSubtreeNarrow(kp, commit)
+	node, narrowed, err := s.narrowSubtreeAt(kp, commit)
 	switch {
 	case err != nil:
 	case !narrowed:
@@ -99,8 +99,10 @@ func (s *Storage) ReadSubtreeRootedAt(kp string, commit int64, scopeID *string) 
 	return rooted, true, nil
 }
 
-// readSubtreeNarrow reads only the subtree, or reports that it could not.
-func (s *Storage) readSubtreeNarrow(kp string, commit int64) (*ir.Node, bool, error) {
+// narrowSubtreeAt: baseline, SUBTREE, replayed -- the snapshot's path index seeks to kp
+// and only the deltas which touch it are applied. See read.go for the axes.
+// narrowSubtreeAt reads only the subtree, or reports that it could not.
+func (s *Storage) narrowSubtreeAt(kp string, commit int64) (*ir.Node, bool, error) {
 	baseReader, startCommit, err := s.findSubtreeBaseReader(commit, kp)
 	if err != nil {
 		return nil, false, err

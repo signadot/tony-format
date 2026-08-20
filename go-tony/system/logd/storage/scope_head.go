@@ -26,16 +26,18 @@ import (
 // snapshot interval on the scope's own writes alone -- the baseline replay, which was the
 // larger half, goes away entirely.
 //
-// Callers MUST hold commitMu: headStateAt does, and the head must not move underneath the
+// Callers MUST hold commitMu: steppedBaselineAt does, and the head must not move underneath the
 // terms applied to it.
 
-// scopedHeadStateAt returns the scoped document at commit for evaluating a precondition.
+// steppedScopedAt: a scope, whole document, STEPPED -- the scope's own kept document.
+// See read.go for the axes.
+// steppedScopedAt returns the scoped document at commit for evaluating a precondition.
 //
 // It falls back to a full read whenever it cannot be sure of the shortcut: overlays off,
 // no overlay yet for this scope, a scope the overlay cannot serve, or a commit the head
 // cannot answer for. Falling back is correct and merely slower, which is the right way
 // round for a path that decides whether a write lands.
-func (s *Storage) scopedHeadStateAt(commit int64, scopeID *string) (*ir.Node, error) {
+func (s *Storage) steppedScopedAt(commit int64, scopeID *string) (*ir.Node, error) {
 	// The scope's own kept document, when it is current, is the whole answer: no
 	// overlay to read, no patches to replay, nothing of baseline to fold. See
 	// scopeHeadDoc.
@@ -52,7 +54,7 @@ func (s *Storage) scopedHeadStateAt(commit int64, scopeID *string) (*ir.Node, er
 		return s.ReadStateAt("", commit, scopeID)
 	}
 	if !s.headSeeded || s.headCommit != commit {
-		// headStateAt would seed it with a full baseline read, which is exactly the cost
+		// steppedBaselineAt would seed it with a full baseline read, which is exactly the cost
 		// this exists to avoid paying twice. Let the ordinary read answer, and the head
 		// will be current by the next precondition.
 		return s.ReadStateAt("", commit, scopeID)

@@ -42,7 +42,7 @@ func (s *Storage) NewScopedWatchStepper(scopeID string, commit int64) (*ScopedWa
 	if !s.scopeOverlay || s.scopeHasKeyedPaths(scopeID) {
 		return nil, nil
 	}
-	base, err := s.readBaselineStateAt(commit)
+	base, err := s.replayBaselineAt(commit)
 	if err != nil {
 		return nil, err
 	}

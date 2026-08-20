@@ -17,14 +17,14 @@ import (
 // and returns an EventReadCloser over the whole document at that snapshot, plus the
 // startCommit for patches that should be applied after it. Scope snapshots are not
 // created, so only baseline snapshots are considered; scoped reads layer the scope's
-// patches over this baseline (see readScopedStateAt).
+// patches over this baseline (see replayScopedAt).
 //
 // The lookup is at the document ROOT, not at the read's path, and the base it returns
 // is the whole document, not a subtree. Both follow from what is on either side of it:
 // createSnapshot indexes the snapshot segment with KindedPath "" (root), and the
 // patches layered on top of this base are whole-document entries, so a subtree base
 // would not align with them. This is why the read's kpath is not a parameter — reads
-// are rooted supersets that callers trim (see readBaselineStateAt, session.go
+// are rooted supersets that callers trim (see replayBaselineAt, session.go
 // scopedDocAt). If reads ever become genuinely path-scoped (patches sub-extracted at
 // the path), a subtree base via snapshot.ReadPathEventReader(kp) becomes right again.
 //
@@ -122,7 +122,7 @@ func (s *Storage) SwitchDLog() error {
 	// Create baseline snapshot. Scope snapshots are intentionally not created: a
 	// materialized scope overlay resolves !key away and is unsound to re-apply onto a
 	// changed baseline. The scope layer is read as raw op-preserving patches instead
-	// (see readScopedStateAt). Bounded scope-overlay compaction: 5hmq80f3h12krh1mbsn0.
+	// (see replayScopedAt). Bounded scope-overlay compaction: 5hmq80f3h12krh1mbsn0.
 	if err := s.createSnapshot(commit); err != nil {
 		return fmt.Errorf("failed to create baseline snapshot: %w", err)
 	}
@@ -160,7 +160,7 @@ func (s *Storage) SwitchDLog() error {
 //
 // Scope snapshots are no longer created (a materialized scope overlay is unsound for
 // !key); the scope layer is read as raw op-preserving patches instead. See
-// readScopedStateAt and issue 5hmq80f3h12krh1mbsn0.
+// replayScopedAt and issue 5hmq80f3h12krh1mbsn0.
 func (s *Storage) createSnapshot(commit int64) error {
 	// Find most recent snapshot and get base event reader
 	baseReader, startCommit, err := s.findSnapshotBaseReader(commit)

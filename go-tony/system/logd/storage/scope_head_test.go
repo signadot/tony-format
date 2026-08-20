@@ -42,14 +42,14 @@ func TestScopedHead_AgreesWithReplay(t *testing.T) {
 				// Seed the baseline head the way a preceding precondition would, then ask
 				// both ways under the lock a real precondition holds.
 				s.commitMu.Lock()
-				if _, err := s.headStateAt(commit); err != nil {
+				if _, err := s.steppedBaselineAt(commit); err != nil {
 					s.commitMu.Unlock()
 					t.Fatalf("seed head: %v", err)
 				}
-				viaHead, errH := s.scopedHeadStateAt(commit, &scope)
+				viaHead, errH := s.steppedScopedAt(commit, &scope)
 				s.commitMu.Unlock()
 				if errH != nil {
-					t.Fatalf("scopedHeadStateAt: %v", errH)
+					t.Fatalf("steppedScopedAt: %v", errH)
 				}
 				viaReplay, err := s.readScopedStateAtReplay(commit, &scope)
 				if err != nil {

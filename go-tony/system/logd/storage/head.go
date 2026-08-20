@@ -33,7 +33,9 @@ import (
 // baseline overwrite a leaf the scope owns — the same reason a scoped watcher cannot step.
 // Scoped preconditions keep recomputing; issue 9b2vpggxh.
 
-// headStateAt returns the baseline document at commit for evaluating a precondition,
+// steppedBaselineAt: baseline, whole document, STEPPED -- the head this store keeps
+// current, seeded by one replay and advanced by one patch per commit. See read.go.
+// steppedBaselineAt returns the baseline document at commit for evaluating a precondition,
 // seeding the head if it is not yet current.
 //
 // Callers MUST hold commitMu and MUST NOT mutate the result: untouched subtrees are
@@ -42,7 +44,7 @@ import (
 //
 // A commit other than headCommit means the head cannot answer for it, so this falls back
 // to a full read rather than returning state from the wrong commit.
-func (s *Storage) headStateAt(commit int64) (*ir.Node, error) {
+func (s *Storage) steppedBaselineAt(commit int64) (*ir.Node, error) {
 	if s.headSeeded && s.headCommit == commit {
 		s.writeStats.noteHead(true, 0)
 		return s.head, nil
@@ -51,7 +53,7 @@ func (s *Storage) headStateAt(commit int64) (*ir.Node, error) {
 	// patching -- which is what the counters call a head miss. One after a restart is
 	// the cost of starting; a stream of them is a store paying a full read per write.
 	started := time.Now()
-	doc, err := s.readBaselineStateAt(commit)
+	doc, err := s.replayBaselineAt(commit)
 	s.writeStats.noteHead(false, time.Since(started))
 	if err != nil {
 		return nil, err
@@ -136,7 +138,7 @@ func (s *Storage) CheckHead() {
 		return
 	}
 
-	want, err := s.readBaselineStateAt(commit)
+	want, err := s.replayBaselineAt(commit)
 	if err == nil && nodeEqual(head, want) {
 		return
 	}
@@ -184,7 +186,7 @@ func nodeEqual(a, b *ir.Node) bool {
 //
 // Callers MUST hold commitMu.
 func (s *Storage) verifyApplies(commit int64, patch *ir.Node, scopeID *string) (*ir.Node, error) {
-	base, err := s.stateForCommit(commit-1, scopeID)
+	base, err := s.steppedStateAt(commit-1, scopeID)
 	if err != nil {
 		// Not the write's fault, and not a reason to store something unverified:
 		// a write which cannot be checked is refused, and the caller retries.
@@ -203,15 +205,6 @@ func (s *Storage) verifyApplies(commit int64, patch *ir.Node, scopeID *string) (
 		return nil, &api.DoesNotApplyError{Commit: commit, Err: err}
 	}
 	return next, nil
-}
-
-// stateForCommit is the state a write at the next commit will be applied to: the
-// stepped head for baseline, and for a scope the same view its own reads see.
-func (s *Storage) stateForCommit(commit int64, scopeID *string) (*ir.Node, error) {
-	if scopeID != nil {
-		return s.scopedHeadStateAt(commit, scopeID)
-	}
-	return s.headStateAt(commit)
 }
 
 // installHead takes the document verifyApplies already computed.

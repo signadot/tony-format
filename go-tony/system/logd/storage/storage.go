@@ -220,27 +220,9 @@ func (s *Storage) GetCurrentCommit() (int64, error) {
 	return s.tick.current(), nil
 }
 
-// ReadStateAt reads the state at a specific commit count.
-// scopeID controls the view: nil = baseline only; non-nil = the scope's copy-on-write
-// overlay. A scope is a LIVE OVERLAY, not a frozen branch: the scoped view at commit C
-// is the baseline state at C with the scope's OWN writes replayed on top. See
-// readScopedStateAt and issue eagjggjdh12ksg00bsn0.
-//
-// kp does NOT narrow the result: log entries are whole-document patches, so what comes
-// back is the document, root-rooted — a SUPERSET of kp's subtree. Callers trim it (see
-// session.go handleMatch, scopedDocAt). kp is kept in the signature because it is the
-// read's declared subject and the natural hook for a future path-scoped read, but it is
-// deliberately not used to pick the snapshot base or the patch range: doing so silently
-// returned no snapshot for every non-root read (issue bvm163tyh12krwcqcsn0), and applied
-// each entry once per level of kp.
-func (s *Storage) ReadStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
-	if scopeID != nil {
-		return s.readScopedStateAt(commit, scopeID)
-	}
-	return s.readBaselineStateAt(commit)
-}
-
-// readBaselineStateAt reads baseline state at commit: the most recent baseline
+// replayBaselineAt: baseline, whole document, REPLAYED -- the snapshot at or before
+// commit, plus every patch since. See read.go for the axes.
+// replayBaselineAt reads baseline state at commit: the most recent baseline
 // snapshot plus baseline patches applied from that point forward.
 //
 // The patch range is taken at the document ROOT, not at kp. Every entry is indexed at
@@ -252,7 +234,7 @@ func (s *Storage) ReadStateAt(kp string, commit int64, scopeID *string) (*ir.Nod
 // each entry four times (root, demo, demo.x, demo.x.hot), costing ~5x a read of a path
 // written once over the same log. The result was the same only because merging a whole
 // document twice is a no-op; it is not a property to rely on.
-func (s *Storage) readBaselineStateAt(commit int64) (*ir.Node, error) {
+func (s *Storage) replayBaselineAt(commit int64) (*ir.Node, error) {
 	baseReader, startCommit, err := s.findSnapshotBaseReader(commit)
 	if err != nil {
 		return nil, err
@@ -267,7 +249,9 @@ func (s *Storage) readBaselineStateAt(commit int64) (*ir.Node, error) {
 	return applyPatchesToBase(baseReader, patchNodes)
 }
 
-// readScopedStateAt implements copy-on-write scope reads. The scoped view at commit C
+// replayScopedAt: a scope, whole document, REPLAYED -- baseline as of the commit with
+// the scope's layer folded on top. See read.go for the axes.
+// replayScopedAt implements copy-on-write scope reads. The scoped view at commit C
 // is the baseline state at C (same commit bound) with the scope's OWN patches applied
 // on top, verbatim. It is computed in a SINGLE apply pass: the baseline snapshot as
 // base, then all baseline patches (commit order), then this scope's patches (commit
@@ -285,7 +269,7 @@ func (s *Storage) readBaselineStateAt(commit int64) (*ir.Node, error) {
 // The scope layer is deliberately NOT read from a scope snapshot: materialized scope
 // snapshots resolve !key away and are unsound here (see issue eagjggjdh12ksg00bsn0;
 // bounded op-preserving compaction is tracked in 5hmq80f3h12krh1mbsn0).
-func (s *Storage) readScopedStateAt(commit int64, scopeID *string) (*ir.Node, error) {
+func (s *Storage) replayScopedAt(commit int64, scopeID *string) (*ir.Node, error) {
 	// SPIKE (docs/scope_overlay_plan.md): with an overlay in the log, the scope layer is
 	// that overlay plus only what the scope has written since -- instead of every scope
 	// patch ever. Off by default; see EnableScopeOverlay.
@@ -305,7 +289,7 @@ func (s *Storage) readScopedStateAtReplay(commit int64, scopeID *string) (*ir.No
 	defer baseReader.Close()
 
 	// Baseline patches from the snapshot forward. Taken at the root for the same reason
-	// as readBaselineStateAt: the root range is the complete, non-repeating entry set.
+	// as replayBaselineAt: the root range is the complete, non-repeating entry set.
 	baseSegments := s.index.LookupRange("", &startCommit, &commit, nil)
 	patchNodes, err := s.patchNodesFromSegments(baseSegments, nil)
 	if err != nil {
