@@ -1,0 +1,10 @@
+
+# Built and local-only, never part of a release. `git add -A` at the repo root swept all of
+# this into a commit and a tag once (v0.0.186), and a published module version cannot be
+# rewritten, so it stays in that one zip. These lines are so it cannot happen a second time.
+.DS_Store
+/site/
+/.worktrees/
+/.claude/worktrees/
+docs/sketchy/pygments-tony/build/
+docs/sketchy/pygments-tony/*.egg-info/
