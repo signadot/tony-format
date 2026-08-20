@@ -21,6 +21,7 @@ context:
 define:
   clock: .[nullable(clock-spec)]
   controller: .[string]
+  protocol: .[int]
 signature:
   name: mount-hello
 ---
@@ -28,6 +29,7 @@ context:
 - tony-format/context
 define:
   docdId: .[string]
+  protocol: .[int]
 signature:
   name: mount-hello-response
 ---

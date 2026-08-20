@@ -9,6 +9,7 @@ package api
 
 import (
 	"github.com/signadot/tony-format/go-tony/ir"
+	logdapi "github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
 // --- Controller → docd Messages (Mount Protocol) ---
@@ -18,6 +19,11 @@ import (
 //tony:schemagen=mount-hello,notag
 type MountHello struct {
 	Controller string `tony:"field=controller"` // Controller identifier
+	// Protocol is the SESSION protocol version the controller speaks, since that is
+	// what it will be answering after the handshake (logd/api.ProtocolVersion). A
+	// mismatch is refused here, for the same reason as on a client connection: after
+	// this, a request field it does not know is ignored rather than refused.
+	Protocol int `tony:"field=protocol,omitzero"`
 
 	// Clock, when set, asks docd to drive a virtual system clock at Clock.Path
 	// instead of (or in addition to) a controller-backed mount. It is docd-specific
@@ -87,7 +93,8 @@ type MountRequest struct {
 //
 //tony:schemagen=mount-hello-response,notag
 type MountHelloResponse struct {
-	DocdID string `tony:"field=docdId"` // docd server identifier
+	DocdID   string `tony:"field=docdId"`            // docd server identifier
+	Protocol int    `tony:"field=protocol,omitzero"` // the version docd speaks
 }
 
 // MountResult is the mount result from docd.
@@ -150,7 +157,8 @@ func NewMountResponse(docdID, path string) *MountResponse {
 	return &MountResponse{
 		Result: &MountResponseResult{
 			Hello: &MountHelloResponse{
-				DocdID: docdID,
+				DocdID:   docdID,
+				Protocol: logdapi.ProtocolVersion,
 			},
 			Mount: &MountResult{
 				Path:     path,

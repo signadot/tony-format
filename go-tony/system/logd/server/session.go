@@ -302,6 +302,24 @@ func (s *Session) dispatch(req *api.SessionRequest) {
 
 // handleHello handles hello handshake.
 func (s *Session) handleHello(id *string, req *api.Hello) {
+	// A version this server does not speak is refused HERE, because it cannot be refused
+	// later: an unknown request field is ignored, and an unread path is the root. See
+	// api.ProtocolVersion.
+	switch {
+	case req.Protocol == 0:
+		// A client from before this existed. Say so once, at the handshake, rather than
+		// refusing a deployment which has not caught up.
+		s.log.Info("client speaks no protocol version; assuming the current one",
+			"clientId", req.ClientID, "protocol", api.ProtocolVersion)
+	case req.Protocol != api.ProtocolVersion:
+		s.log.Warn("refusing a session on a protocol this server does not speak",
+			"clientId", req.ClientID, "client", req.Protocol, "server", api.ProtocolVersion)
+		s.sendError(id, api.ErrCodeProtocolMismatch, fmt.Sprintf(
+			"client speaks session protocol %d, server speaks %d: deploy them together",
+			req.Protocol, api.ProtocolVersion))
+		return
+	}
+
 	// Store scope for this session (applies to all operations)
 	s.scope.Store(req.Scope)
 	s.log.Debug("hello", "clientId", req.ClientID, "scope", req.Scope, "usePending", req.UsePending)
@@ -334,6 +352,7 @@ func (s *Session) handleHello(id *string, req *api.Hello) {
 		Result: &api.SessionResult{
 			Hello: &api.HelloResponse{
 				ServerID:     s.ID,
+				Protocol:     api.ProtocolVersion,
 				Schema:       schema,
 				SchemaCommit: schemaCommit,
 				UsingPending: usingPending,

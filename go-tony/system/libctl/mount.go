@@ -119,7 +119,7 @@ func (c *MountClient) handshake(cfg *MountConfig) error {
 		mount.ForceAfter = &fa
 	}
 	req := &api.MountRequest{
-		Hello: &api.MountHello{Controller: cfg.Controller},
+		Hello: &api.MountHello{Controller: cfg.Controller, Protocol: logdapi.ProtocolVersion},
 		Mount: mount,
 	}
 

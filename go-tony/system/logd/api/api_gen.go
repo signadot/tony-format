@@ -293,6 +293,11 @@ func (s *Hello) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Field: ClientID
 	irMap["clientId"] = ir.FromString(string(s.ClientID))
 
+	// Field: Protocol
+	if s.Protocol != 0 {
+		irMap["protocol"] = ir.FromInt(int64(s.Protocol))
+	}
+
 	// Field: Scope (optional)
 	if s.Scope != nil {
 		irMap["scope"] = ir.FromString(string(*s.Scope))
@@ -340,6 +345,12 @@ func (s *Hello) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				return fmt.Errorf("field %q: expected string, got %v", "clientId", fieldNodeUnwrapped.Type)
 			}
 			s.ClientID = string(fieldNodeUnwrapped.String)
+		case "protocol":
+			// Field: Protocol
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "protocol", fieldNodeUnwrapped.Type)
+			}
+			s.Protocol = int(*fieldNodeUnwrapped.Int64)
 		case "scope":
 			// Field: Scope
 			if fieldNodeUnwrapped.Type == ir.NullType {
@@ -406,6 +417,11 @@ func (s *HelloResponse) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Field: ServerID
 	irMap["serverId"] = ir.FromString(string(s.ServerID))
 
+	// Field: Protocol
+	if s.Protocol != 0 {
+		irMap["protocol"] = ir.FromInt(int64(s.Protocol))
+	}
+
 	// Field: Schema (optional)
 	if s.Schema != nil {
 		irMap["schema"] = s.Schema
@@ -456,6 +472,12 @@ func (s *HelloResponse) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) err
 				return fmt.Errorf("field %q: expected string, got %v", "serverId", fieldNodeUnwrapped.Type)
 			}
 			s.ServerID = string(fieldNodeUnwrapped.String)
+		case "protocol":
+			// Field: Protocol
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "protocol", fieldNodeUnwrapped.Type)
+			}
+			s.Protocol = int(*fieldNodeUnwrapped.Int64)
 		case "schema":
 			if gomap.GetUnmapComments(opts...) {
 				s.Schema = fieldNode

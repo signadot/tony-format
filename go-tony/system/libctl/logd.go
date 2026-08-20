@@ -353,6 +353,7 @@ func (s *LogdSession) hello(conn net.Conn, decoder *stream.Decoder, deadline tim
 	req := &api.SessionRequest{
 		Hello: &api.Hello{
 			ClientID:   s.clientID,
+			Protocol:   api.ProtocolVersion,
 			UsePending: s.usePending,
 			Scope:      s.scope,
 		},
@@ -370,8 +371,24 @@ func (s *LogdSession) hello(conn net.Conn, decoder *stream.Decoder, deadline tim
 	if resp.Result == nil || resp.Result.Hello == nil {
 		return nil, fmt.Errorf("unexpected response: no hello result")
 	}
+	// The server checks this too and refuses, so this is for the case where it CANNOT:
+	// a server old enough not to know the field answers happily and then ignores whatever
+	// this version says differently. Refusing here turns that into a message instead of a
+	// read of the root (api.ProtocolVersion).
+	if p := resp.Result.Hello.Protocol; p != 0 && p != api.ProtocolVersion {
+		return nil, fmt.Errorf("%w: server %q speaks session protocol %d, this client speaks %d: deploy them together",
+			ErrProtocolMismatch, resp.Result.Hello.ServerID, p, api.ProtocolVersion)
+	}
+	if resp.Result.Hello.Protocol == 0 {
+		s.log.Warn("server does not report a session protocol version; it predates the check",
+			"addr", s.addr, "serverID", resp.Result.Hello.ServerID, "client", api.ProtocolVersion)
+	}
 	return resp, nil
 }
+
+// ErrProtocolMismatch is returned by Connect when the server speaks a session protocol this
+// client does not. It is not retryable: the deployment is wrong, not the moment.
+var ErrProtocolMismatch = errors.New("session protocol mismatch")
 
 // ensureConnected connects if the session is not connected. It must NOT be called
 // with the session mutex held: one connector runs at a time, and the callers waiting

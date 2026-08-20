@@ -27,6 +27,11 @@ func (s *MountHello) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Field: Controller
 	irMap["controller"] = ir.FromString(string(s.Controller))
 
+	// Field: Protocol
+	if s.Protocol != 0 {
+		irMap["protocol"] = ir.FromInt(int64(s.Protocol))
+	}
+
 	// Field: Clock (optional)
 	if s.Clock != nil {
 		node, err = s.Clock.ToTonyIR(opts...)
@@ -75,6 +80,12 @@ func (s *MountHello) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 				return fmt.Errorf("field %q: expected string, got %v", "controller", fieldNodeUnwrapped.Type)
 			}
 			s.Controller = string(fieldNodeUnwrapped.String)
+		case "protocol":
+			// Field: Protocol
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "protocol", fieldNodeUnwrapped.Type)
+			}
+			s.Protocol = int(*fieldNodeUnwrapped.Int64)
 		case "clock":
 			// Field: Clock
 			s.Clock = &ClockSpec{}
@@ -552,6 +563,11 @@ func (s *MountHelloResponse) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error)
 	// Field: DocdID
 	irMap["docdId"] = ir.FromString(string(s.DocdID))
 
+	// Field: Protocol
+	if s.Protocol != 0 {
+		irMap["protocol"] = ir.FromInt(int64(s.Protocol))
+	}
+
 	return ir.FromMap(irMap), nil
 }
 
@@ -591,6 +607,12 @@ func (s *MountHelloResponse) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption
 				return fmt.Errorf("field %q: expected string, got %v", "docdId", fieldNodeUnwrapped.Type)
 			}
 			s.DocdID = string(fieldNodeUnwrapped.String)
+		case "protocol":
+			// Field: Protocol
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "protocol", fieldNodeUnwrapped.Type)
+			}
+			s.Protocol = int(*fieldNodeUnwrapped.Int64)
 		default:
 			if gomap.IsStrict(opts...) {
 				return fmt.Errorf("unknown field %q for MountHelloResponse", fieldName.String)

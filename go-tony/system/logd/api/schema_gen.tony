@@ -25,6 +25,7 @@ context:
 - tony-format/context
 define:
   clientId: .[string]
+  protocol: .[int]
   scope: .[nullable(string)]
   usePending: .[bool]
 signature:
@@ -34,6 +35,7 @@ context:
 - tony-format/context
 - tony-base: github.com/signadot/tony-format/go-tony/schema
 define:
+  protocol: .[int]
   schema: .[tony-base:ir]
   schemaCommit: .[int]
   serverId: .[string]

@@ -521,6 +521,21 @@ func (s *MountSession) handleHandshake(decoder *stream.Decoder) error {
 		s.sendError(api.ErrCodeInvalidMessage, "missing controller identifier")
 		return fmt.Errorf("missing controller identifier")
 	}
+	// After this handshake the controller ANSWERS session requests, so it must speak the
+	// same session protocol -- and the mismatch has to be caught here, since from then on
+	// a field it does not know is ignored rather than refused (logdapi.ProtocolVersion).
+	switch p := req.Hello.Protocol; {
+	case p == 0:
+		s.log.Info("controller speaks no protocol version; assuming the current one",
+			"controller", req.Hello.Controller, "protocol", logdapi.ProtocolVersion)
+	case p != logdapi.ProtocolVersion:
+		s.log.Warn("refusing a mount on a protocol docd does not speak",
+			"controller", req.Hello.Controller, "controllerProtocol", p, "docd", logdapi.ProtocolVersion)
+		s.sendError(logdapi.ErrCodeProtocolMismatch, fmt.Sprintf(
+			"controller speaks session protocol %d, docd speaks %d: deploy them together",
+			p, logdapi.ProtocolVersion))
+		return fmt.Errorf("protocol mismatch: controller %d, docd %d", p, logdapi.ProtocolVersion)
+	}
 
 	// A clock hello establishes a docd-driven virtual clock instead of a
 	// controller-backed mount; it takes over the connection's lifetime and needs

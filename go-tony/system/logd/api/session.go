@@ -17,18 +17,42 @@ import (
 
 // Hello is the initial handshake message from client to server.
 //
+// Protocol is the session protocol version the client speaks. A server which speaks a
+// different one refuses the session, naming both numbers -- see ProtocolVersion for why
+// that is a check rather than a convention.
+//
 //tony:schemagen=session-hello,notag
 type Hello struct {
 	ClientID   string  `tony:"field=clientId"`
-	Scope      *string `tony:"field=scope"`      // Optional: scope for COW isolation (applies to all operations in session)
-	UsePending bool    `tony:"field=usePending"` // If true, use pending schema/index (for testing migrations)
+	Protocol   int     `tony:"field=protocol,omitzero"` // 0 = a client from before versions existed
+	Scope      *string `tony:"field=scope"`             // Optional: scope for COW isolation (applies to all operations in session)
+	UsePending bool    `tony:"field=usePending"`        // If true, use pending schema/index (for testing migrations)
 }
+
+// ProtocolVersion is the session protocol this build speaks, sent in Hello and answered in
+// HelloResponse. A mismatch is refused at the handshake.
+//
+// It exists because the protocol's safety rested on a deployment convention. A request
+// field a server does not know is IGNORED, and an unread path defaults to "" -- the whole
+// document for a read, the ROOT for a write (k0d4y1m6h12kr7cdgdn0). So a client one version
+// ahead does not fail; it is answered, wrongly, and the wrong answer looks like success.
+// "logd, docd and libctl deploy together" makes that safe and nothing enforced it: a
+// mismatched pair was indistinguishable from a working one until something read the root.
+//
+// Versions:
+//
+//	0  before this existed. Accepted, with a line in the log: an old client is a
+//	   deployment which has not caught up, not an attack, and refusing it would take a
+//	   store down for an upgrade it did not need.
+//	1  the protocol as of the flattened match request ({match: {path, data, commit}}).
+const ProtocolVersion = 1
 
 // HelloResponse is the server's response to a Hello message.
 //
 //tony:schemagen=session-hello-response,notag
 type HelloResponse struct {
 	ServerID     string   `tony:"field=serverId"`
+	Protocol     int      `tony:"field=protocol,omitzero"` // the version the SERVER speaks
 	Schema       *ir.Node `tony:"field=schema"`       // Server's schema (active or pending based on UsePending)
 	SchemaCommit int64    `tony:"field=schemaCommit"` // Commit where this schema was set (0 if schemaless)
 	UsingPending bool     `tony:"field=usingPending"` // True if session is using pending schema
@@ -424,6 +448,11 @@ const (
 	// its pattern or its precondition -- those have codes of their own. It was sent as a
 	// bare string from eleven places and had no constant, so no client could branch on
 	// it and the error table did not list it.
+	// ErrCodeProtocolMismatch is a client and a server which do not speak the same
+	// session protocol. Refused at hello, because every later request would be answered
+	// rather than refused -- see ProtocolVersion.
+	ErrCodeProtocolMismatch = "protocol_mismatch"
+
 	ErrCodeStorage = "storage_error"
 	// ErrCodeMatch is a match PATTERN which could not be applied to the state at all, as
 	// distinct from one which applied and did not hold (ErrCodeMatchFailed).
