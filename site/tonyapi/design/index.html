@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+
+<html data-bs-theme="light" lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="IE=edge" http-equiv="X-UA-Compatible"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="../../img/favicon.ico" rel="shortcut icon"/>
+<title>TonyAPI Design - Tony Format</title>
+<link href="../../css/bootstrap.min.css" rel="stylesheet"/>
+<link href="../../css/fontawesome.min.css" rel="stylesheet"/>
+<link href="../../css/brands.min.css" rel="stylesheet"/>
+<link href="../../css/solid.min.css" rel="stylesheet"/>
+<link href="../../css/v4-font-face.min.css" rel="stylesheet"/>
+<link href="../../css/base.css" rel="stylesheet"/>
+<link href="../../pygments.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="navbar fixed-top navbar-expand-lg navbar-dark bg-primary">
+<div class="container">
+<a class="navbar-brand" href="../..">Tony Format</a>
+<!-- Expander button -->
+<button aria-controls="navbar-collapse" aria-expanded="false" aria-label="Toggle navigation" class="navbar-toggler" data-bs-target="#navbar-collapse" data-bs-toggle="collapse" type="button">
+<span class="navbar-toggler-icon"></span>
+</button>
+<!-- Expanded navigation -->
+<div class="navbar-collapse collapse" id="navbar-collapse">
+<!-- Main navigation -->
+<ul class="nav navbar-nav">
+<li class="nav-item dropdown">
+<a aria-expanded="false" class="nav-link dropdown-toggle" data-bs-toggle="dropdown" href="#" role="button">Format</a>
+<ul class="dropdown-menu">
+<li>
+<a class="dropdown-item" href="../../tony/">Tony Format</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../ir/">Tony IR</a>
+</li>
+</ul>
+</li>
+<li class="nav-item dropdown">
+<a aria-expanded="false" class="nav-link dropdown-toggle" data-bs-toggle="dropdown" href="#" role="button">Schema</a>
+<ul class="dropdown-menu">
+<li>
+<a class="dropdown-item" href="../../tonyschema/">Tony Schema</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../tonyschema/schema/">Schema Structure</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../tonyschema/contexts/">Contexts</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../tonyschema/tags/">Tags</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../tonyschema/validation/">Validation</a>
+</li>
+</ul>
+</li>
+<li class="nav-item dropdown">
+<a aria-expanded="false" class="nav-link dropdown-toggle" data-bs-toggle="dropdown" href="#" role="button">Tools</a>
+<ul class="dropdown-menu">
+<li>
+<a class="dropdown-item" href="../../extraformat/">Extra-Format Encoding</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../o/">o</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../gomap/">Golang</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../logd/">logd</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../logd/session/">logd: The session protocol</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../logd/writes/">logd: What a write must be</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../logd/keyed/">logd: Keyed arrays</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../docd/">docd</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../docd/mounts/">docd: Mounts &amp; routing</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../docd/composition/">docd: Composition — reads &amp; watches</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../docd/transactions/">docd: Multi-mount transactions</a>
+</li>
+</ul>
+</li>
+<li class="nav-item dropdown">
+<a aria-expanded="false" class="nav-link dropdown-toggle" data-bs-toggle="dropdown" href="#" role="button">Reference</a>
+<ul class="dropdown-menu">
+<li>
+<a class="dropdown-item" href="../../build-eval/">Tony Evaluation Model</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../generated/">Tags</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../matchpatch/">Matching and Patching</a>
+</li>
+</ul>
+</li>
+</ul>
+<ul class="nav navbar-nav ms-md-auto">
+</ul>
+</div>
+</div>
+</div>
+<div class="container">
+<div class="row">
+<div class="col-md-3"><div class="navbar-expand-md bs-sidebar hidden-print affix" role="complementary">
+<div class="navbar-header">
+<button class="navbar-toggler collapsed" data-bs-target="#toc-collapse" data-bs-toggle="collapse" title="Table of Contents" type="button">
+<span class="fa fa-angle-down"></span>
+</button>
+</div>
+<div class="navbar-collapse collapse card bg-body-tertiary" id="toc-collapse">
+<ul class="nav flex-column">
+<li class="nav-item" data-bs-level="1"><a class="nav-link" href="#tonyapi-design">TonyAPI Design</a>
+<ul class="nav flex-column">
+<li class="nav-item" data-bs-level="2"><a class="nav-link" href="#overview">Overview</a>
+<ul class="nav flex-column">
+</ul>
+</li>
+<li class="nav-item" data-bs-level="2"><a class="nav-link" href="#architecture-three-components">Architecture: Three Components</a>
+<ul class="nav flex-column">
+</ul>
+</li>
+<li class="nav-item" data-bs-level="2"><a class="nav-link" href="#component-relationships">Component Relationships</a>
+<ul class="nav flex-column">
+</ul>
+</li>
+<li class="nav-item" data-bs-level="2"><a class="nav-link" href="#virtual-document-model">Virtual Document Model</a>
+<ul class="nav flex-column">
+</ul>
+</li>
+<li class="nav-item" data-bs-level="2"><a class="nav-link" href="#http-protocols">HTTP Protocols</a>
+<ul class="nav flex-column">
+</ul>
+</li>
+<li class="nav-item" data-bs-level="2"><a class="nav-link" href="#example-blog-api">Example: Blog API</a>
+<ul class="nav flex-column">
+</ul>
+</li>
+<li class="nav-item" data-bs-level="2"><a class="nav-link" href="#detailed-format-specifications">Detailed Format Specifications</a>
+<ul class="nav flex-column">
+</ul>
+</li>
+<li class="nav-item" data-bs-level="2"><a class="nav-link" href="#comparison-with-graphql">Comparison with GraphQL</a>
+<ul class="nav flex-column">
+</ul>
+</li>
+<li class="nav-item" data-bs-level="2"><a class="nav-link" href="#design-philosophy-plan-9-procfs-analogy">Design Philosophy: Plan 9 / procfs Analogy</a>
+<ul class="nav flex-column">
+</ul>
+</li>
+<li class="nav-item" data-bs-level="2"><a class="nav-link" href="#additional-resources">Additional Resources</a>
+<ul class="nav flex-column">
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</div>
+</div></div>
+<div class="col-md-9" role="main">
+<h1 id="tonyapi-design">TonyAPI Design<a class="headerlink" href="#tonyapi-design" title="Permanent link">#</a></h1>
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">#</a></h2>
+<p>TonyAPI presents access to "1 giant Tony document" as a computed view. The system consists of three main components working together to provide a unified API interface.</p>
+<h2 id="architecture-three-components">Architecture: Three Components<a class="headerlink" href="#architecture-three-components" title="Permanent link">#</a></h2>
+<p>The TonyAPI system consists of three main components:</p>
+<h3 id="1-document-server">1. Document Server<a class="headerlink" href="#1-document-server" title="Permanent link">#</a></h3>
+<p>The <strong>document server</strong> is the entry point for client requests. It:</p>
+<ul>
+<li>Receives HTTP requests (MATCH, PATCH, WATCH, MOUNT)</li>
+<li>Routes operations to appropriate controllers based on mount points</li>
+<li>Coordinates transactions for multi-path operations</li>
+<li>Caches the virtual document view for performance</li>
+<li>Composes unified schema from controller contributions</li>
+</ul>
+<p><strong>Key responsibilities:</strong></p>
+<ul>
+<li>Request routing and orchestration</li>
+<li>Transaction coordination</li>
+<li>Schema composition</li>
+<li>Virtual document caching</li>
+</ul>
+<h3 id="2-controllers">2. Controllers<a class="headerlink" href="#2-controllers" title="Permanent link">#</a></h3>
+<p><strong>Controllers</strong> are separate processes that handle operations for specific mount points in the virtual document. They:</p>
+<ul>
+<li>Communicate directly with the logd server (read state, write diffs)</li>
+<li>Handle MATCH operations (queries) for their mount point</li>
+<li>Handle PATCH operations (mutations) for their mount point</li>
+<li>Handle WATCH operations (subscriptions) for their mount point</li>
+<li>Validate operations and enforce business logic</li>
+<li>Contribute schema definitions during MOUNT registration</li>
+</ul>
+<p><strong>Types of controllers:</strong></p>
+<ul>
+<li><strong>Local controllers</strong>: Spawned by document server, communicate via stdin/stdout</li>
+<li><strong>Remote controllers</strong>: Connect to document server, communicate via network</li>
+</ul>
+<p><strong>Key responsibilities:</strong></p>
+<ul>
+<li>Operation validation</li>
+<li>State management for their mount point</li>
+<li>Direct communication with logd server</li>
+<li>Schema contribution</li>
+</ul>
+<p>For detailed controller documentation, see <a href="../controllers/">controllers.md</a>.</p>
+<h3 id="3-logd-server">3. LogD Server<a class="headerlink" href="#3-logd-server" title="Permanent link">#</a></h3>
+<p>The <strong>logd server</strong> is the storage backend that:</p>
+<ul>
+<li>Stores diffs (changes) as the source of truth, not full state</li>
+<li>Reconstructs current state by applying all diffs in sequence</li>
+<li>Provides transaction support with participant counting</li>
+<li>Ensures atomicity for multi-path operations</li>
+<li>Maintains complete history/audit trail</li>
+</ul>
+<p><strong>Key responsibilities:</strong>
+- Diff storage and retrieval
+- State reconstruction
+- Transaction coordination
+- History and time-travel queries</p>
+<p>For detailed logd server design, see <a href="../logd-server-design/">logd-server-design.md</a>.</p>
+<h2 id="component-relationships">Component Relationships<a class="headerlink" href="#component-relationships" title="Permanent link">#</a></h2>
+<div class="mermaid">flowchart TD
+    Client[Client]
+    DocServer[Document Server<br/>- Routes requests<br/>- Coordinates txns<br/>- Caches virtual doc]
+    UserCtrl[Controller<br/>users]
+    PostCtrl[Controller<br/>posts]
+    LogD[LogD Server<br/>- Stores diffs<br/>- Reconstructs state<br/>- Transaction support]
+    RemoteCtrl[Remote Controller<br/>initiates MOUNT]
+
+    Client --&gt;|HTTP MATCH/PATCH/WATCH| DocServer
+    DocServer --&gt;|Routes to| UserCtrl
+    DocServer --&gt;|Routes to| PostCtrl
+    UserCtrl --&gt;|Direct comm| LogD
+    PostCtrl --&gt;|Direct comm| LogD
+    UserCtrl --&gt;|Returns results| DocServer
+    PostCtrl --&gt;|Returns results| DocServer
+    DocServer --&gt;|Forwards response| Client
+
+    RemoteCtrl --&gt;|MOUNT HTTP| DocServer
+    DocServer --&gt;|Mount acceptance| RemoteCtrl
+</div>
+<p><strong>Data Flow:</strong></p>
+<h3 id="client-request-flow-matchpatchwatch">Client Request Flow (MATCH/PATCH/WATCH)<a class="headerlink" href="#client-request-flow-matchpatchwatch" title="Permanent link">#</a></h3>
+<ol>
+<li><strong>Client → Document Server</strong>: Client sends HTTP request (MATCH/PATCH/WATCH) with operation document</li>
+<li><strong>Document Server → Controller</strong>: Routes operation to appropriate controller(s) based on mount points</li>
+<li><strong>Controller → LogD Server</strong>: Controller reads state or writes diffs directly to logd server</li>
+<li><strong>Controller → Document Server</strong>: Controller returns results (query results, revision numbers, or errors)</li>
+<li><strong>Document Server → Client</strong>: Document server forwards response to client</li>
+</ol>
+<h3 id="controller-registration-flow-mount">Controller Registration Flow (MOUNT)<a class="headerlink" href="#controller-registration-flow-mount" title="Permanent link">#</a></h3>
+<ol>
+<li><strong>Controller → Document Server</strong>: Remote controller initiates connection and sends <code>MOUNT</code> request with mount point path, configuration, and schema contribution</li>
+<li><strong>Document Server</strong>: Validates mount request and accepts registration</li>
+<li><strong>Document Server</strong>: Composes unified schema with controller's contribution</li>
+<li><strong>Document Server → Controller</strong>: Confirms mount acceptance; connection remains open for operation routing</li>
+</ol>
+<p><strong>Key principles:</strong></p>
+<ul>
+<li>Controllers are the <strong>only</strong> components that communicate with the logd server. The document server orchestrates but doesn't store diffs or act as an intermediary for logd operations.</li>
+<li><strong>Controllers initiate MOUNT</strong> - Remote controllers connect to the document server (not the other way around). Local controllers are spawned by the document server.</li>
+</ul>
+<h2 id="virtual-document-model">Virtual Document Model<a class="headerlink" href="#virtual-document-model" title="Permanent link">#</a></h2>
+<p>The API exposes <strong>one giant Tony document</strong> as a virtual/computed view. All operations (queries, mutations, subscriptions) operate on this document.</p>
+<p>For a complete example of a virtual document structure, see <a href="../blog-api-example/">blog-api-example.md</a>.</p>
+<p><strong>Key concepts:</strong>
+- Mount points (like <code>/users</code>, <code>/posts</code>) are handled by controllers
+- Controllers read from/write to the same logd server
+- The document server presents a unified view</p>
+<h2 id="http-protocols">HTTP Protocols<a class="headerlink" href="#http-protocols" title="Permanent link">#</a></h2>
+<p>TonyAPI uses four HTTP methods for different operations:</p>
+<h3 id="match-queries">MATCH (Queries)<a class="headerlink" href="#match-queries" title="Permanent link">#</a></h3>
+<p><strong>Purpose</strong>: Query/read data from the virtual document</p>
+<p><strong>Flow</strong>:
+1. Client sends <code>MATCH</code> request with query document
+2. Document server routes query to appropriate controller(s) based on <code>path:</code>
+3. Controller reads current state from logd server
+4. Controller filters state to match query criteria
+5. Controller returns result document to document server
+6. Document server forwards result to client</p>
+<p><strong>Characteristics:</strong></p>
+<ul>
+<li>Query document has <code>path:</code> and <code>match:</code> but <strong>no <code>patch:</code></strong></li>
+<li>Supports field selection, filtering, nested queries, and joins</li>
+<li>Returns result documents matching the query structure</li>
+</ul>
+<p>For detailed query format specifications and examples, see <a href="../queries/">queries.md</a>.</p>
+<h3 id="patch-mutations">PATCH (Mutations)<a class="headerlink" href="#patch-mutations" title="Permanent link">#</a></h3>
+<p><strong>Purpose</strong>: Modify data in the virtual document</p>
+<p><strong>Flow</strong>:
+1. Client sends <code>PATCH</code> request with mutation document
+2. Document server determines affected mount points
+3. <strong>Single-path mutation</strong>:
+   - Document server routes diff to appropriate controller
+   - Controller validates and applies diff to logd server
+   - Controller returns revision number
+4. <strong>Multi-path mutation</strong> (transaction):
+   - Document server requests transaction ID from logd server
+   - Document server routes diffs to all relevant controllers with transaction ID
+   - Controllers validate and apply diffs to logd server with transaction ID
+   - LogD server commits atomically when all participants complete
+   - Controllers return revision numbers
+5. Document server responds to client with success or error</p>
+<p><strong>Characteristics:</strong></p>
+<ul>
+<li>Mutation document has <code>path:</code>, <code>match:</code>, and <strong><code>patch:</code></strong></li>
+<li>Uses Tony diff operations (<code>!replace</code>, <code>!insert</code>, <code>!delete</code>, etc.)</li>
+<li>Returns revision numbers (not diffs) for successful mutations</li>
+<li>Guaranteed atomicity for multi-path operations</li>
+</ul>
+<p>For detailed mutation format specifications, see <a href="../mutations/">mutations.md</a>.</p>
+<h3 id="watch-subscriptions">WATCH (Subscriptions)<a class="headerlink" href="#watch-subscriptions" title="Permanent link">#</a></h3>
+<p><strong>Purpose</strong>: Subscribe to changes in the virtual document</p>
+<p><strong>Flow</strong>:
+1. Client sends <code>WATCH</code> request with query document
+2. Document server registers watch and routes query to controller(s)
+3. Controller watches logd server for changes affecting the query
+4. When changes occur, controller computes diffs and sends to document server
+5. Document server streams diffs to client (server-side push)
+6. Connection remains open until client closes or timeout</p>
+<p><strong>Characteristics:</strong></p>
+<ul>
+<li>Uses same query document format as MATCH (no <code>patch:</code>)</li>
+<li>Server maintains query result state</li>
+<li>Server pushes diffs as changes occur</li>
+<li>Client reconstructs current state by applying diffs</li>
+</ul>
+<p>For detailed WATCH format specifications, see <a href="../subscriptions/">subscriptions.md</a>.</p>
+<h3 id="mount-controller-registration">MOUNT (Controller Registration)<a class="headerlink" href="#mount-controller-registration" title="Permanent link">#</a></h3>
+<p><strong>Purpose</strong>: Register remote controllers with the document server</p>
+<p><strong>Flow</strong>:
+1. Remote controller initiates connection to document server
+2. Controller sends <code>MOUNT</code> request with mount point path, configuration, and schema contribution
+3. Document server validates and accepts mount
+4. Document server composes unified schema with controller's contribution
+5. Document server routes operations to controller for that mount point</p>
+<p><strong>Characteristics</strong>:
+- Controllers initiate connection (not document server)
+- Controllers provide schema definitions during mount
+- Unified schema accessible at <code>/.meta/schema</code></p>
+<h2 id="example-blog-api">Example: Blog API<a class="headerlink" href="#example-blog-api" title="Permanent link">#</a></h2>
+<p>Throughout this document, we use a blog API example to illustrate concepts. For the complete virtual document structure, schema definition, and design decisions, see <a href="../blog-api-example/">blog-api-example.md</a>.</p>
+<h2 id="detailed-format-specifications">Detailed Format Specifications<a class="headerlink" href="#detailed-format-specifications" title="Permanent link">#</a></h2>
+<p>This section provides links to detailed format specifications. All formats use Tony documents with <code>!apiop</code> tags.</p>
+<ul>
+<li><strong><a href="../mutations/">Mutation Formats</a></strong>: Detailed mutation format specifications with examples</li>
+<li><strong><a href="../subscriptions/">Subscription Formats (WATCH)</a></strong>: Detailed WATCH/subscription format specifications</li>
+<li><strong><a href="../http-protocols/">HTTP Protocols</a></strong>: HTTP request/response formats for all operations (MATCH, PATCH, WATCH, MOUNT)</li>
+<li><strong><a href="../queries/">Query Formats</a></strong>: Detailed query format specifications and examples</li>
+<li><strong><a href="../schema/">Schema Formats</a></strong>: Schema format specifications and composition</li>
+</ul>
+<h2 id="comparison-with-graphql">Comparison with GraphQL<a class="headerlink" href="#comparison-with-graphql" title="Permanent link">#</a></h2>
+<p>For a detailed comparison between TonyAPI and GraphQL, including similarities, differences, advantages, trade-offs, and use cases, see <a href="../graphql-comparison/">graphql-comparison.md</a>.</p>
+<p><strong>Key highlights:</strong>
+- <strong>Transaction support</strong>: TonyAPI has built-in protocol-level transactions, while GraphQL has no transaction support in its specification
+- <strong>Mental model</strong>: GraphQL presents a graph of types; TonyAPI presents one unified document (filesystem-like)
+- <strong>Relations</strong>: GraphQL defines relations in schema; TonyAPI has relations as concrete structures in the document
+- <strong>Format</strong>: GraphQL uses custom query language; TonyAPI uses Tony format (YAML-like) for all operations</p>
+<h2 id="design-philosophy-plan-9-procfs-analogy">Design Philosophy: Plan 9 / procfs Analogy<a class="headerlink" href="#design-philosophy-plan-9-procfs-analogy" title="Permanent link">#</a></h2>
+<p>If we consider the virtual document as similar to a filesystem, we can draw inspiration from Plan 9's "everything is a file" philosophy and <strong>9p</strong> protocol. Linux's <code>/proc</code> (procfs) was inspired by Plan 9's model:</p>
+<h3 id="plan-9-philosophy">Plan 9 Philosophy<a class="headerlink" href="#plan-9-philosophy" title="Permanent link">#</a></h3>
+<p><strong>Plan 9</strong> had a philosophy where "everything is a file" - processes, network connections, system state, etc. were all accessible as files. <strong>Linux's <code>/proc</code> (procfs)</strong> was inspired by this and exposes process information as files - <code>/proc/123/status</code>, <code>/proc/self/mem</code>, etc.</p>
+<p><strong>TonyAPI equivalent</strong>: Different parts of the virtual document can be "mounted" from different sources, similar to how Plan 9 allowed mounting various system resources:</p>
+<div class="codehilite"><pre><span></span><code><a href="#__codelineno-0-1" id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="c1"># The virtual document with "mount points"</span>
+<a href="#__codelineno-0-2" id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="na">users</span><span class="o">:</span>          <span class="c1"># Mounted from database</span>
+<a href="#__codelineno-0-3" id="__codelineno-0-3" name="__codelineno-0-3"></a><span class="p">-</span> <span class="na">id</span><span class="o">:</span> <span class="s2">"123"</span>
+<a href="#__codelineno-0-4" id="__codelineno-0-4" name="__codelineno-0-4"></a>  <span class="na">name</span><span class="o">:</span> <span class="s2">"Alice"</span>
+<a href="#__codelineno-0-5" id="__codelineno-0-5" name="__codelineno-0-5"></a>
+<a href="#__codelineno-0-6" id="__codelineno-0-6" name="__codelineno-0-6"></a><span class="na">posts</span><span class="o">:</span>          <span class="c1"># Mounted from database</span>
+<a href="#__codelineno-0-7" id="__codelineno-0-7" name="__codelineno-0-7"></a><span class="p">-</span> <span class="na">id</span><span class="o">:</span> <span class="s2">"post1"</span>
+<a href="#__codelineno-0-8" id="__codelineno-0-8" name="__codelineno-0-8"></a>  <span class="na">title</span><span class="o">:</span> <span class="s2">"First Post"</span>
+<a href="#__codelineno-0-9" id="__codelineno-0-9" name="__codelineno-0-9"></a>
+<a href="#__codelineno-0-10" id="__codelineno-0-10" name="__codelineno-0-10"></a><span class="na">config</span><span class="o">:</span>         <span class="c1"># Mounted from file system</span>
+<a href="#__codelineno-0-11" id="__codelineno-0-11" name="__codelineno-0-11"></a>  <span class="na">appName</span><span class="o">:</span> <span class="s2">"MyApp"</span>
+<a href="#__codelineno-0-12" id="__codelineno-0-12" name="__codelineno-0-12"></a>  <span class="na">version</span><span class="o">:</span> <span class="s2">"1.0"</span>
+<a href="#__codelineno-0-13" id="__codelineno-0-13" name="__codelineno-0-13"></a>
+<a href="#__codelineno-0-14" id="__codelineno-0-14" name="__codelineno-0-14"></a><span class="na">metrics</span><span class="o">:</span>        <span class="c1"># Mounted from Plan 9-like source (real-time system data)</span>
+<a href="#__codelineno-0-15" id="__codelineno-0-15" name="__codelineno-0-15"></a>  <span class="na">cpu</span><span class="o">:</span> <span class="mf">45.2</span>
+<a href="#__codelineno-0-16" id="__codelineno-0-16" name="__codelineno-0-16"></a>  <span class="na">memory</span><span class="o">:</span> <span class="mi">1024</span>
+<a href="#__codelineno-0-17" id="__codelineno-0-17" name="__codelineno-0-17"></a>
+<a href="#__codelineno-0-18" id="__codelineno-0-18" name="__codelineno-0-18"></a><span class="na">remote</span><span class="o">:</span>         <span class="c1"># Mounted via 9p-like protocol</span>
+<a href="#__codelineno-0-19" id="__codelineno-0-19" name="__codelineno-0-19"></a>  <span class="na">data</span><span class="o">:</span> <span class="sx">...</span>
+</code></pre></div>
+<h3 id="9p-analogy">9p Analogy<a class="headerlink" href="#9p-analogy" title="Permanent link">#</a></h3>
+<p><strong>9p</strong> is a simple protocol for file operations (read, write, stat, open, etc.) that works over networks. TonyAPI uses HTTP methods inspired by 9p's simplicity:</p>
+<ul>
+<li><strong>MATCH</strong>: Query a path using <code>!apiop</code> document (no <code>patch:</code>)</li>
+<li><strong>PATCH</strong>: Mutate a path using <code>!apiop</code> document with <code>patch:</code></li>
+<li><strong>MATCH</strong> (metadata): Access metadata via explicit paths (e.g., <code>/.meta/users/123</code>)</li>
+<li><strong>WATCH</strong>: Monitor changes using <code>!apiop</code> document (no <code>patch:</code>)</li>
+<li><strong>MOUNT</strong>: Register a remote controller process for a mount point</li>
+</ul>
+<p>For detailed HTTP protocol formats and examples, see <a href="../http-protocols/">http-protocols.md</a>.</p>
+<h3 id="benefits-of-filesystem-model">Benefits of Filesystem Model<a class="headerlink" href="#benefits-of-filesystem-model" title="Permanent link">#</a></h3>
+<ol>
+<li><strong>Uniform Interface</strong>: Everything is just paths in a document tree</li>
+<li><strong>Composability</strong>: Mount different sources at different paths</li>
+<li><strong>Simple Operations</strong>: Just read/write/watch paths</li>
+<li><strong>Remote Access</strong>: 9p-like protocol works over network naturally</li>
+<li><strong>Caching</strong>: Filesystem-like caching strategies apply</li>
+<li><strong>Permissions</strong>: Filesystem-like permissions per path</li>
+</ol>
+<h2 id="additional-resources">Additional Resources<a class="headerlink" href="#additional-resources" title="Permanent link">#</a></h2>
+<ul>
+<li><strong><a href="../controllers/">Controllers</a></strong>: Comprehensive controller documentation including lifecycle, communication, and transaction coordination</li>
+<li><strong><a href="../queries/">Query Operations</a></strong>: Detailed query format specifications and examples</li>
+<li><strong><a href="../mutations/">Mutation Formats</a></strong>: Detailed mutation format specifications with examples</li>
+<li><strong><a href="../subscriptions/">Subscription Formats</a></strong>: Detailed WATCH/subscription format specifications</li>
+<li><strong><a href="../http-protocols/">HTTP Protocols</a></strong>: HTTP request/response formats for all operations</li>
+<li><strong><a href="../schema/">Schema Formats</a></strong>: Schema format specifications and composition</li>
+<li><strong><a href="../graphql-comparison/">GraphQL Comparison</a></strong>: Comprehensive comparison with GraphQL</li>
+<li><strong><a href="../logd-server-design/">LogD Server Design</a></strong>: Backend storage architecture and transaction implementation</li>
+<li><strong><a href="../blog-api-example/">Blog API Example</a></strong>: Complete example API used throughout documentation</li>
+<li><strong><a href="../process-controller-example/">Process Controller Example</a></strong>: Example systems-level controller implementation</li>
+</ul>
+<h3 id="questions-for-design">Questions for Design<a class="headerlink" href="#questions-for-design" title="Permanent link">#</a></h3>
+<ol>
+<li><strong>Query format</strong>: Using <code>{ field: null }</code> to express field selection in queries (null means "match anything, include this field").</li>
+<li><strong>Error format</strong>: How to represent errors in diff format?</li>
+<li><strong>Controller discovery</strong>: </li>
+<li><strong>Core controllers</strong>: Document server configuration defines kernel-level/core controllers (e.g., filesystem, database mounts)</li>
+<li><strong>Remote controllers</strong>: Controllers initiate connection to document server and request MOUNT (see below)</li>
+<li><strong>Multiple instances</strong>: Can multiple controllers handle same mount level?</li>
+<li><strong>Buffering</strong>: How to handle buffering of stdin/stdout?</li>
+<li><strong>State synchronization</strong>: How to handle controllers that disconnect and reconnect?</li>
+</ol></div>
+</div>
+</div>
+<footer class="col-md-12">
+<hr/>
+<p>Documentation built with <a href="https://www.mkdocs.org/">MkDocs</a>.</p>
+</footer>
+<script src="../../js/bootstrap.bundle.min.js"></script>
+<script>
+            var base_url = "../..",
+                shortcuts = {"help": 191, "next": 78, "previous": 80, "search": 83};
+        </script>
+<script src="../../js/base.js"></script>
+<div aria-hidden="true" aria-labelledby="keyboardModalLabel" class="modal" id="mkdocs_keyboard_modal" role="dialog" tabindex="-1">
+<div class="modal-dialog">
+<div class="modal-content">
+<div class="modal-header">
+<h4 class="modal-title" id="keyboardModalLabel">Keyboard Shortcuts</h4>
+<button aria-label="Close" class="btn-close" data-bs-dismiss="modal" type="button"></button>
+</div>
+<div class="modal-body">
+<table class="table">
+<thead>
+<tr>
+<th style="width: 20%;">Keys</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="help shortcut"><kbd>?</kbd></td>
+<td>Open this help</td>
+</tr>
+<tr>
+<td class="next shortcut"><kbd>n</kbd></td>
+<td>Next page</td>
+</tr>
+<tr>
+<td class="prev shortcut"><kbd>p</kbd></td>
+<td>Previous page</td>
+</tr>
+<tr>
+<td class="search shortcut"><kbd>s</kbd></td>
+<td>Search</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="modal-footer">
+</div>
+</div>
+</div>
+</div>
+<script type="module">import mermaid from "https://unpkg.com/mermaid@10.4.0/dist/mermaid.esm.min.mjs";
+mermaid.initialize({});</script></body>
+</html>

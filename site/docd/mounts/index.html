@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        
+        
+        <link rel="shortcut icon" href="../../img/favicon.ico">
+        <title>docd: Mounts & routing - Tony Format</title>
+        <link href="../../css/bootstrap.min.css" rel="stylesheet">
+        <link href="../../css/fontawesome.min.css" rel="stylesheet">
+        <link href="../../css/brands.min.css" rel="stylesheet">
+        <link href="../../css/solid.min.css" rel="stylesheet">
+        <link href="../../css/v4-font-face.min.css" rel="stylesheet">
+        <link href="../../css/base.css" rel="stylesheet">
+        <link href="../../pygments.css" rel="stylesheet"> 
+    </head>
+
+    <body>
+        <div class="navbar fixed-top navbar-expand-lg navbar-dark bg-primary">
+            <div class="container">
+                <a class="navbar-brand" href="../..">Tony Format</a>
+                <!-- Expander button -->
+                <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar-collapse" aria-controls="navbar-collapse" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                <!-- Expanded navigation -->
+                <div id="navbar-collapse" class="navbar-collapse collapse">
+                        <!-- Main navigation -->
+                        <ul class="nav navbar-nav">
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Format</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../tony/" class="dropdown-item">Tony Format</a>
+</li>
+                                    
+<li>
+    <a href="../../ir/" class="dropdown-item">Tony IR</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Schema</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../tonyschema/" class="dropdown-item">Tony Schema</a>
+</li>
+                                    
+<li>
+    <a href="../../tonyschema/schema/" class="dropdown-item">Schema Structure</a>
+</li>
+                                    
+<li>
+    <a href="../../tonyschema/contexts/" class="dropdown-item">Contexts</a>
+</li>
+                                    
+<li>
+    <a href="../../tonyschema/tags/" class="dropdown-item">Tags</a>
+</li>
+                                    
+<li>
+    <a href="../../tonyschema/validation/" class="dropdown-item">Validation</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle active" aria-current="page" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Tools</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../extraformat/" class="dropdown-item">Extra-Format Encoding</a>
+</li>
+                                    
+<li>
+    <a href="../../o/" class="dropdown-item">o</a>
+</li>
+                                    
+<li>
+    <a href="../../gomap/" class="dropdown-item">Golang</a>
+</li>
+                                    
+<li>
+    <a href="../../logd/" class="dropdown-item">logd</a>
+</li>
+                                    
+<li>
+    <a href="../../logd/session/" class="dropdown-item">logd: The session protocol</a>
+</li>
+                                    
+<li>
+    <a href="../../logd/writes/" class="dropdown-item">logd: What a write must be</a>
+</li>
+                                    
+<li>
+    <a href="../../logd/keyed/" class="dropdown-item">logd: Keyed arrays</a>
+</li>
+                                    
+<li>
+    <a href="../" class="dropdown-item">docd</a>
+</li>
+                                    
+<li>
+    <a href="./" class="dropdown-item active" aria-current="page">docd: Mounts & routing</a>
+</li>
+                                    
+<li>
+    <a href="../composition/" class="dropdown-item">docd: Composition — reads & watches</a>
+</li>
+                                    
+<li>
+    <a href="../transactions/" class="dropdown-item">docd: Multi-mount transactions</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Reference</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../build-eval/" class="dropdown-item">Tony Evaluation Model</a>
+</li>
+                                    
+<li>
+    <a href="../../generated/" class="dropdown-item">Tags</a>
+</li>
+                                    
+<li>
+    <a href="../../matchpatch/" class="dropdown-item">Matching and Patching</a>
+</li>
+                                </ul>
+                            </li>
+                        </ul>
+
+                    <ul class="nav navbar-nav ms-md-auto">
+                            <li class="nav-item">
+                                <a rel="prev" href="../" class="nav-link">
+                                    <i class="fa fa-arrow-left"></i> Previous
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a rel="next" href="../composition/" class="nav-link">
+                                    Next <i class="fa fa-arrow-right"></i>
+                                </a>
+                            </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="row">
+                    <div class="col-md-3"><div class="navbar-expand-md bs-sidebar hidden-print affix" role="complementary">
+    <div class="navbar-header">
+        <button type="button" class="navbar-toggler collapsed" data-bs-toggle="collapse" data-bs-target="#toc-collapse" title="Table of Contents">
+            <span class="fa fa-angle-down"></span>
+        </button>
+    </div>
+
+    
+    <div id="toc-collapse" class="navbar-collapse collapse card bg-body-tertiary">
+        <ul class="nav flex-column">
+            
+            <li class="nav-item" data-bs-level="1"><a href="#mounts-routing" class="nav-link">Mounts &amp; routing</a>
+              <ul class="nav flex-column">
+            <li class="nav-item" data-bs-level="2"><a href="#the-mount-protocol" class="nav-link">The MOUNT protocol</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#the-mount-registry" class="nav-link">The mount registry</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#routing" class="nav-link">Routing</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#tombstones" class="nav-link">Tombstones</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#the-meta-namespace" class="nav-link">The .meta namespace</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+              </ul>
+            </li>
+        </ul>
+    </div>
+</div></div>
+                    <div class="col-md-9" role="main">
+
+<h1 id="mounts-routing">Mounts &amp; routing<a class="headerlink" href="#mounts-routing" title="Permanent link">#</a></h1>
+<p>A <strong>mount</strong> delegates a subtree of the document to a controller process. This page
+covers how a controller registers a mount, how docd routes each client operation to
+its single owner, and what happens when a controller goes away.</p>
+<h2 id="the-mount-protocol">The MOUNT protocol<a class="headerlink" href="#the-mount-protocol" title="Permanent link">#</a></h2>
+<p>A controller connects to docd's mount listener and performs a two-step handshake, both
+steps as Tony documents:</p>
+<ol>
+<li><strong>Hello</strong> — <code>{hello: {controller: "&lt;id&gt;"}}</code>. docd replies with its own identity,
+   <code>{hello: {docdId: "&lt;id&gt;"}}</code>.</li>
+<li><strong>Mount</strong> — <code>{mount: {path: "&lt;path&gt;", schema: &lt;schema&gt;, forceAfter: "&lt;dur&gt;"}}</code>.
+   docd replies <code>{mount: {path: "&lt;path&gt;", accepted: true}}</code>.</li>
+</ol>
+<p>After the mount is accepted, the controller owns that subtree: docd forwards every
+client <code>Match</code>, <code>Patch</code>, and <code>Watch</code> whose path falls at or under <code>path</code> to this
+controller, and relays the responses back. A controller may also <strong>unmount</strong>
+(<code>{unmount: {forceAfter: "&lt;dur&gt;"}}</code>) to release the subtree.</p>
+<p><code>forceAfter</code> bounds how long the mount/unmount waits for overlapping watches to drain
+before force-ending them — see <a href="../composition/#coordination">Composition</a>.</p>
+<p>The wire itself — the handshake, the routed requests a controller answers, how <code>id</code> and
+<code>scope</code> behave on that connection, and clock mounts — is in
+<a href="../../logd/session/#the-mount-protocol">The session protocol</a>.</p>
+<h2 id="the-mount-registry">The mount registry<a class="headerlink" href="#the-mount-registry" title="Permanent link">#</a></h2>
+<p>docd keeps a registry of <code>MountEntry</code> records — the mounted <code>path</code>, the owning
+<code>controller</code>, its contributed <code>schema</code>, and the live <code>session</code>. Mounts are
+<strong>single-owner</strong>: a path has exactly one owner, and controllers may not mount under
+the reserved <code>.meta</code> namespace.</p>
+<p>Mounts may <strong>nest</strong>: a controller can own <code>users</code> while another owns
+<code>users.alice.inbox</code>. Routing always resolves an operation to the <em>deepest</em> mount that
+covers its path.</p>
+<h2 id="routing">Routing<a class="headerlink" href="#routing" title="Permanent link">#</a></h2>
+<p>Every client operation is routed by path to exactly one destination:</p>
+<table>
+<thead>
+<tr>
+<th>Destination</th>
+<th>When</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>logd</strong> (base)</td>
+<td>the path is outside every mount, or it is a session-level op</td>
+</tr>
+<tr>
+<td><strong>controller</strong></td>
+<td>the path is at or under a live mount</td>
+</tr>
+<tr>
+<td><strong>docd itself</strong></td>
+<td>the path is <code>.meta</code> or under it</td>
+</tr>
+<tr>
+<td><strong>unavailable</strong></td>
+<td>the path is under a mount whose controller has disconnected (a <em>tombstone</em>)</td>
+</tr>
+</tbody>
+</table>
+<p>An operation whose path is a strict <em>ancestor</em> of one or more mounts is not
+single-routed — it is <strong>composed</strong> across the owners beneath it. See
+<a href="../composition/">Composition</a>.</p>
+<h2 id="tombstones">Tombstones<a class="headerlink" href="#tombstones" title="Permanent link">#</a></h2>
+<p>When a controller disconnects, docd does <strong>not</strong> delete its mount — it keeps the entry
+as a <strong>tombstone</strong> (a mount record with no live session). Operations on that subtree
+then fail with a clear <em>controller-unavailable</em> error.</p>
+<p>This is deliberate. The mounted content lived <em>in the controller</em>, not in logd, so if
+docd simply removed the mount, reads of that subtree would silently fall through to
+logd and return stale or empty base data — a correctness trap. Failing loudly lets the
+client distinguish "the owner is down, retry" from "this data does not exist." A
+<strong>remount</strong> by the same (or a replacement) controller clears the tombstone and
+restores service.</p>
+<h2 id="the-meta-namespace">The <code>.meta</code> namespace<a class="headerlink" href="#the-meta-namespace" title="Permanent link">#</a></h2>
+<p>docd serves a small, reserved <code>.meta</code> namespace itself — it is never routed to logd or
+a controller, and controllers may not mount under it:</p>
+<ul>
+<li><strong><code>.meta/mounts</code></strong> — the current set of mounts (path, controller, live/tombstoned).</li>
+<li><strong><code>.meta/schema</code></strong> — the schema composed from every mount's contribution plus base.</li>
+<li><strong><code>.meta</code></strong> — a self-describing index listing the resources above.</li>
+</ul>
+<p>Because <code>.meta</code> is computed from docd's own registry, it reflects mount membership at
+read time and is the canonical way for a client to discover the document's shape.</p></div>
+            </div>
+        </div>
+
+        <footer class="col-md-12">
+            <hr>
+            <p>Documentation built with <a href="https://www.mkdocs.org/">MkDocs</a>.</p>
+        </footer>
+        <script src="../../js/bootstrap.bundle.min.js"></script>
+        <script>
+            var base_url = "../..",
+                shortcuts = {"help": 191, "next": 78, "previous": 80, "search": 83};
+        </script>
+        <script src="../../js/base.js"></script>
+
+        <div class="modal" id="mkdocs_keyboard_modal" tabindex="-1" role="dialog" aria-labelledby="keyboardModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="keyboardModalLabel">Keyboard Shortcuts</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th style="width: 20%;">Keys</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="help shortcut"><kbd>?</kbd></td>
+                    <td>Open this help</td>
+                  </tr>
+                  <tr>
+                    <td class="next shortcut"><kbd>n</kbd></td>
+                    <td>Next page</td>
+                  </tr>
+                  <tr>
+                    <td class="prev shortcut"><kbd>p</kbd></td>
+                    <td>Previous page</td>
+                  </tr>
+                  <tr>
+                    <td class="search shortcut"><kbd>s</kbd></td>
+                    <td>Search</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div>
+
+    </body>
+</html>

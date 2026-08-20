@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        
+        
+        <link rel="shortcut icon" href="../../img/favicon.ico">
+        <title>Query Operations - Tony Format</title>
+        <link href="../../css/bootstrap.min.css" rel="stylesheet">
+        <link href="../../css/fontawesome.min.css" rel="stylesheet">
+        <link href="../../css/brands.min.css" rel="stylesheet">
+        <link href="../../css/solid.min.css" rel="stylesheet">
+        <link href="../../css/v4-font-face.min.css" rel="stylesheet">
+        <link href="../../css/base.css" rel="stylesheet">
+        <link href="../../pygments.css" rel="stylesheet"> 
+    </head>
+
+    <body>
+        <div class="navbar fixed-top navbar-expand-lg navbar-dark bg-primary">
+            <div class="container">
+                <a class="navbar-brand" href="../..">Tony Format</a>
+                <!-- Expander button -->
+                <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar-collapse" aria-controls="navbar-collapse" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                <!-- Expanded navigation -->
+                <div id="navbar-collapse" class="navbar-collapse collapse">
+                        <!-- Main navigation -->
+                        <ul class="nav navbar-nav">
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Format</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../tony/" class="dropdown-item">Tony Format</a>
+</li>
+                                    
+<li>
+    <a href="../../ir/" class="dropdown-item">Tony IR</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Schema</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../tonyschema/" class="dropdown-item">Tony Schema</a>
+</li>
+                                    
+<li>
+    <a href="../../tonyschema/schema/" class="dropdown-item">Schema Structure</a>
+</li>
+                                    
+<li>
+    <a href="../../tonyschema/contexts/" class="dropdown-item">Contexts</a>
+</li>
+                                    
+<li>
+    <a href="../../tonyschema/tags/" class="dropdown-item">Tags</a>
+</li>
+                                    
+<li>
+    <a href="../../tonyschema/validation/" class="dropdown-item">Validation</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Tools</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../extraformat/" class="dropdown-item">Extra-Format Encoding</a>
+</li>
+                                    
+<li>
+    <a href="../../o/" class="dropdown-item">o</a>
+</li>
+                                    
+<li>
+    <a href="../../gomap/" class="dropdown-item">Golang</a>
+</li>
+                                    
+<li>
+    <a href="../../logd/" class="dropdown-item">logd</a>
+</li>
+                                    
+<li>
+    <a href="../../logd/session/" class="dropdown-item">logd: The session protocol</a>
+</li>
+                                    
+<li>
+    <a href="../../logd/writes/" class="dropdown-item">logd: What a write must be</a>
+</li>
+                                    
+<li>
+    <a href="../../logd/keyed/" class="dropdown-item">logd: Keyed arrays</a>
+</li>
+                                    
+<li>
+    <a href="../../docd/" class="dropdown-item">docd</a>
+</li>
+                                    
+<li>
+    <a href="../../docd/mounts/" class="dropdown-item">docd: Mounts & routing</a>
+</li>
+                                    
+<li>
+    <a href="../../docd/composition/" class="dropdown-item">docd: Composition — reads & watches</a>
+</li>
+                                    
+<li>
+    <a href="../../docd/transactions/" class="dropdown-item">docd: Multi-mount transactions</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Reference</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../build-eval/" class="dropdown-item">Tony Evaluation Model</a>
+</li>
+                                    
+<li>
+    <a href="../../generated/" class="dropdown-item">Tags</a>
+</li>
+                                    
+<li>
+    <a href="../../matchpatch/" class="dropdown-item">Matching and Patching</a>
+</li>
+                                </ul>
+                            </li>
+                        </ul>
+
+                    <ul class="nav navbar-nav ms-md-auto">
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="row">
+                    <div class="col-md-3"><div class="navbar-expand-md bs-sidebar hidden-print affix" role="complementary">
+    <div class="navbar-header">
+        <button type="button" class="navbar-toggler collapsed" data-bs-toggle="collapse" data-bs-target="#toc-collapse" title="Table of Contents">
+            <span class="fa fa-angle-down"></span>
+        </button>
+    </div>
+
+    
+    <div id="toc-collapse" class="navbar-collapse collapse card bg-body-tertiary">
+        <ul class="nav flex-column">
+            
+            <li class="nav-item" data-bs-level="1"><a href="#query-operations" class="nav-link">Query Operations</a>
+              <ul class="nav flex-column">
+            <li class="nav-item" data-bs-level="2"><a href="#virtual-document-structure" class="nav-link">Virtual Document Structure</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#matching-vs-selection-unified-query-schema" class="nav-link">Matching vs Selection: Unified Query Schema</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#query-examples" class="nav-link">Query Examples</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+              </ul>
+            </li>
+        </ul>
+    </div>
+</div></div>
+                    <div class="col-md-9" role="main">
+
+<h1 id="query-operations">Query Operations<a class="headerlink" href="#query-operations" title="Permanent link">#</a></h1>
+<p>This document provides comprehensive examples and format specifications for query operations in TonyAPI. For the overall design and architecture, see <a href="../design/">design.md</a>.</p>
+<h2 id="virtual-document-structure">Virtual Document Structure<a class="headerlink" href="#virtual-document-structure" title="Permanent link">#</a></h2>
+<p>All examples in this document operate on the blog API example structure. For the complete virtual document structure, schema definition, and design decisions, see <a href="../blog-api-example/">blog-api-example.md</a>.</p>
+<h2 id="matching-vs-selection-unified-query-schema">Matching vs Selection: Unified Query Schema<a class="headerlink" href="#matching-vs-selection-unified-query-schema" title="Permanent link">#</a></h2>
+<p>Operations express three key aspects:</p>
+<ol>
+<li><strong>Path</strong>: WHERE to operate (document path specified in <code>path:</code>)</li>
+<li><strong>Matching</strong>: WHAT to filter/find within that path (criteria in <code>match:</code>)</li>
+<li><strong>Selection</strong> (for queries): HOW to return results, controlled by <code>!trim</code> / <code>!notrim</code> tags on match</li>
+<li><code>!trim</code>: Return only matched sub-documents/fields</li>
+<li><code>!notrim</code>: Return full documents</li>
+<li><strong>Mutation</strong> (when <code>patch:</code> present): <code>patch:</code> modifies matched documents</li>
+</ol>
+<h3 id="key-set-notation">Key Set Notation<a class="headerlink" href="#key-set-notation" title="Permanent link">#</a></h3>
+<p>Tony supports <strong>key set notation</strong> <code>{a b c}</code> as syntactic sugar for <code>a: null, b: null, c: null</code>. This creates an object value.</p>
+<p><strong>Important</strong>: Key set notation <code>{a b c}</code> creates an <strong>object value</strong>, not keys at the same level. It cannot be used directly as a sibling to other keys in block-mode objects.</p>
+<p><strong>Key feature</strong>: Within key set notation, you can <strong>mix explicit key-value pairs with bare keys</strong>:
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span> <span class="sx">name</span> <span class="sx">email</span><span class="p">}</span>  <span class="c1"># Equivalent to: id: &quot;123&quot;, name: null, email: null</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="sx">.idMatch</span> <span class="sx">name</span> <span class="sx">email</span><span class="p">}</span>  <span class="c1"># Equivalent to: id: .idMatch, name: null, email: null</span>
+</code></pre></div></p>
+<p><strong>How tags work in key set notation</strong>: Tags like <code>!as</code> work because bare keys are syntactic sugar for <code>key: null</code>. When you add a tag, it becomes <code>key: !as(xxx) null</code>:
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span><span class="sx">id</span> <span class="sx">name</span> <span class="k">!as(userName)</span><span class="p">}</span>  <span class="c1"># Equivalent to: id: null, name: !as(userName) null</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span> <span class="sx">name</span> <span class="k">!as(userName)</span> <span class="sx">email</span><span class="p">}</span>  <span class="c1"># Equivalent to: id: &quot;123&quot;, name: !as(userName) null, email: null</span>
+</code></pre></div></p>
+<p><strong>Valid uses of key set notation:</strong></p>
+<ul>
+<li>✅ As a standalone object: <code>{a b c}</code> </li>
+<li>✅ As a value: <code>fields: {id name email}</code> creates <code>fields: {id: null, name: null, email: null}</code></li>
+<li>✅ As an array element: <code>- {a b c}</code> or <code>[{a b c}]</code></li>
+<li>✅ With tags: <code>{id !as(foo-id) location displayName}</code> - tags apply to the key before them (e.g., <code>id !as(foo-id)</code> becomes <code>id: !as(foo-id) null</code>)</li>
+<li>✅ <strong>Mixing explicit values with bare keys</strong>: <code>{id: "123" name email}</code></li>
+</ul>
+<p><strong>Invalid use:</strong></p>
+<ul>
+<li>❌ Using key set notation as a sibling to other keys in block-mode (must be the only value):
+  <div class="codehilite"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="na">match</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>  <span class="na">id</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>  <span class="p">{</span><span class="sx">name</span> <span class="sx">email</span><span class="p">}</span>  <span class="c1"># ERROR: cannot use key set notation here (sibling to id:)</span>
+</code></pre></div>
+  Or:
+  <div class="codehilite"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="na">match</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>  <span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span> <span class="sx">name</span><span class="p">}</span>  <span class="c1"># ERROR: cannot use key set notation here (sibling to posts:)</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>  <span class="na">posts</span><span class="o">:</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="k">!apiop</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="na">path</span><span class="o">:</span> <span class="sx">/posts</span>
+</code></pre></div>
+  Instead, use explicit syntax when you have sibling fields:
+  <div class="codehilite"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="na">match</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>  <span class="na">id</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span>  <span class="c1"># Match criteria</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>  <span class="na">name</span><span class="o">:</span> <span class="kc">null</span>  <span class="c1"># Field selection</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>  <span class="na">posts</span><span class="o">:</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="k">!apiop</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="na">path</span><span class="o">:</span> <span class="sx">/posts</span>
+</code></pre></div>
+  Or use key set notation when it's the only value:
+  <div class="codehilite"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="na">match</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>  <span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span> <span class="sx">name</span> <span class="sx">email</span><span class="p">}</span>  <span class="c1"># ✅ Works! No sibling fields</span>
+</code></pre></div></li>
+</ul>
+<p><strong>For field selection in queries</strong>, you can use key set notation when it's a value:
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="na">match</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>  <span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span> <span class="sx">name</span> <span class="sx">email</span><span class="p">}</span>  <span class="c1"># Mix match criteria and field selection</span>
+</code></pre></div></p>
+<p><strong>Key insight</strong>: 
+- <strong>Query</strong> = no <code>patch:</code> (read-only)
+- <strong>Mutation</strong> = has <code>patch:</code> (modifies data)
+- Selection is controlled by trim behavior on the match (for queries)</p>
+<p><strong>How it works:</strong></p>
+<ul>
+<li><strong><code>path:</code></strong>: Specifies the document path to operate on (e.g., <code>/users</code>, <code>/posts</code>, <code>/users/123</code>)</li>
+<li><strong>Query (no <code>patch:</code>)</strong>: Returns matched documents at the specified path</li>
+<li><strong>Without <code>!trim</code></strong>: Return full matched documents</li>
+<li><strong>With <code>!trim</code></strong>: Return only the matched sub-documents/fields (what's specified in the match)</li>
+<li><strong>Mutation (has <code>patch:</code>)</strong>: Modifies matched documents at the specified path using patch</li>
+<li><strong>Nested <code>!trim</code> / <code>!notrim</code></strong>: </li>
+<li><code>!trim</code> under <code>!trim</code>: Doesn't make sense - parent trim already constrains</li>
+<li><code>!notrim</code> under <code>!trim</code>: Overrides parent to return full nested documents</li>
+<li><code>!trim</code> under <code>!notrim</code>: Trims nested documents while parent is full</li>
+</ul>
+<p><strong>Example structure:</strong>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">!apiop</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/users</span>          <span class="c1"># WHERE: operate on /users path</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="na">match</span><span class="o">:</span> <span class="k">!trim</span>          <span class="c1"># WHAT: match criteria + HOW: trim selection</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>  <span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span> <span class="sx">name</span> <span class="sx">email</span><span class="p">}</span>  <span class="c1"># Match user with id &quot;123&quot;, include name and email</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="na">patch</span><span class="o">:</span>                <span class="c1"># Mutation: modify matched documents (if present)</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>  <span class="na">name</span><span class="o">:</span> <span class="s2">&quot;Updated&quot;</span>     <span class="c1"># Change name to &quot;Updated&quot;</span>
+</code></pre></div></p>
+<p><strong>Key set notation</strong>: <code>{id: "123" name email}</code> mixes explicit key-value pairs (<code>id: "123"</code>) with bare keys (<code>name email</code>), making queries more concise. Bare keys become <code>key: null</code> for field selection.</p>
+<h3 id="unified-schema">Unified Schema<a class="headerlink" href="#unified-schema" title="Permanent link">#</a></h3>
+<p>Based on <code>docs/match-sel.md</code>, we use a structure with <code>path:</code>, <code>match:</code>, and optional <code>patch:</code>:</p>
+<p><strong>Key points:</strong></p>
+<ul>
+<li><strong><code>!apiop</code></strong> - Tag required to mark operation documents (distinguishes from data fields)</li>
+<li><strong><code>path:</code></strong> - Document path to operate on</li>
+<li><strong><code>match:</code></strong> - Matching criteria (what to find)</li>
+<li><strong><code>patch:</code></strong> - <strong>Required for mutations</strong> (modifies data), <strong>absent for queries</strong> (read-only)</li>
+<li><strong>Selection is implicit</strong> - You get what matches (for queries)</li>
+<li><strong><code>!trim</code> / <code>!notrim</code></strong> - Tags on match indicating whether to restrict result to matched sub-documents</li>
+<li><strong><code>!as</code></strong> - Tag for field aliasing/renaming in query results. In key set notation: <code>name !as(userName)</code> is syntactic sugar for <code>name: !as(userName) null</code>. Explicitly: <code>name: !as(userName) null</code></li>
+</ul>
+<p><strong>Why <code>!apiop</code> is needed:</strong></p>
+<p>Without <code>!apiop</code>, there's ambiguity when data fields have names like <code>path</code>, <code>match</code>, or <code>patch</code>:</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Ambiguous: Is this an operation or data?</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/users</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="na">match</span><span class="o">:</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>  <span class="na">name</span><span class="o">:</span> <span class="s2">&quot;bob&quot;</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>  <span class="na">path</span><span class="o">:</span> <span class="s2">&quot;/some/path&quot;</span>  <span class="c1"># Is this a nested operation or a data field?</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>  <span class="na">match</span><span class="o">:</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>    <span class="na">something</span><span class="o">:</span> <span class="l">true</span>   <span class="c1"># Is this a nested operation or a data field?</span>
+</code></pre></div>
+<p>With <code>!apiop</code>, it's clear:</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Operation (has !apiop tag)</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="k">!apiop</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/users</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="na">match</span><span class="o">:</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>  <span class="na">name</span><span class="o">:</span> <span class="s2">&quot;bob&quot;</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>  <span class="na">path</span><span class="o">:</span> <span class="s2">&quot;/some/path&quot;</span>  <span class="c1"># Clearly a data field</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>  <span class="na">match</span><span class="o">:</span>
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>    <span class="na">something</span><span class="o">:</span> <span class="l">true</span>   <span class="c1"># Clearly a data field</span>
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>
+<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="c1"># Nested operation (also has !apiop tag)</span>
+<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="k">!apiop</span>
+<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/users</span>
+<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="na">match</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a>  <span class="na">id</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span>
+<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a>  <span class="na">posts</span><span class="o">:</span>
+<a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a>    <span class="k">!apiop</span>              <span class="c1"># Nested operation - clearly marked</span>
+<a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a>    <span class="na">path</span><span class="o">:</span> <span class="sx">/posts</span>
+<a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a>    <span class="na">match</span><span class="o">:</span>
+<a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a>      <span class="na">published</span><span class="o">:</span> <span class="l">true</span>
+</code></pre></div>
+<p><strong>Basic query:</strong>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Query: Find users matching criteria, return matched documents</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="k">!apiop</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/users</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="na">match</span><span class="o">:</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>  <span class="na">id</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="c1"># Returns: full user documents that match</span>
+</code></pre></div></p>
+<p><strong>Mutation (has patch):</strong>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># Mutation: Find users matching criteria, then modify them</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="k">!apiop</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/users</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="na">match</span><span class="o">:</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>  <span class="na">age</span><span class="o">:</span> <span class="k">!gt</span> <span class="mi">18</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="na">patch</span><span class="o">:</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>  <span class="na">adult</span><span class="o">:</span> <span class="l">true</span>  <span class="c1"># Modify: set adult field to true</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="c1"># Mutates: matched users get &#39;adult: true&#39; field</span>
+</code></pre></div></p>
+<p><strong>With !trim (restrict to matched sub-documents):</strong>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># Query: Find users, return only matched fields</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="k">!apiop</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/users</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="na">match</span><span class="o">:</span> <span class="k">!let</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>  <span class="na">let</span><span class="o">:</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>    <span class="p">-</span> <span class="na">idMatch</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span>
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a>  <span class="na">in</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a>    <span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="sx">.idMatch</span> <span class="sx">name</span> <span class="sx">email</span><span class="p">}</span>  <span class="c1"># Mix match criteria with field selection</span>
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="c1"># Returns: { id: &quot;123&quot;, name: &quot;Alice&quot;, email: &quot;alice@example.com&quot; } - only matched fields</span>
+<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a><span class="c1"># Note: !let binds idMatch to &quot;123&quot;, then .idMatch references it in the match</span>
+<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="c1"># Note: Key set notation allows mixing explicit values (id: .idMatch) with bare keys (name email)</span>
+</code></pre></div></p>
+<p><strong>With !notrim (return full documents):</strong>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># Query: Find users, return full documents</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="k">!apiop</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/users</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="na">match</span><span class="o">:</span> <span class="k">!notrim</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>  <span class="na">id</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span>
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="c1"># Returns: full user document with all fields</span>
+</code></pre></div></p>
+<p><strong>Nested queries with trim:</strong>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">!apiop</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/users</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="na">match</span><span class="o">:</span> <span class="k">!let</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>  <span class="na">let</span><span class="o">:</span>
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>    <span class="p">-</span> <span class="na">idMatch</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span>
+<a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>  <span class="na">in</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a>    <span class="na">id</span><span class="o">:</span> <span class="sx">.idMatch</span>  <span class="c1"># Match criteria</span>
+<a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a>    <span class="na">name</span><span class="o">:</span> <span class="kc">null</span>  <span class="c1"># Field selection</span>
+<a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a>    <span class="na">posts</span><span class="o">:</span>
+<a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a>      <span class="k">!apiop</span>
+<a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a>      <span class="na">path</span><span class="o">:</span> <span class="sx">/posts</span>
+<a id="__codelineno-14-12" name="__codelineno-14-12" href="#__codelineno-14-12"></a>      <span class="na">match</span><span class="o">:</span>
+<a id="__codelineno-14-13" name="__codelineno-14-13" href="#__codelineno-14-13"></a>        <span class="p">{</span><span class="na">authorId</span><span class="o">:</span> <span class="sx">.idMatch</span> <span class="na">published</span><span class="o">:</span> <span class="l">true</span> <span class="sx">id</span> <span class="sx">title</span><span class="p">}</span>  <span class="c1"># Mix match criteria with field selection</span>
+<a id="__codelineno-14-14" name="__codelineno-14-14" href="#__codelineno-14-14"></a><span class="c1"># Returns: user with only id and name, posts with only id and title (filtered by authorId)</span>
+<a id="__codelineno-14-15" name="__codelineno-14-15" href="#__codelineno-14-15"></a><span class="c1"># Note: !let binds idMatch to &quot;123&quot;, then .idMatch references it in both the user match and nested posts query</span>
+<a id="__codelineno-14-16" name="__codelineno-14-16" href="#__codelineno-14-16"></a><span class="c1"># Note: nested operations need !apiop tag to distinguish from data fields</span>
+<a id="__codelineno-14-17" name="__codelineno-14-17" href="#__codelineno-14-17"></a><span class="c1"># Note: When you have sibling fields like posts:, use explicit syntax for the parent match</span>
+<a id="__codelineno-14-18" name="__codelineno-14-18" href="#__codelineno-14-18"></a><span class="c1"># Note: Key set notation works when it&#39;s the only value (like in nested match)</span>
+</code></pre></div></p>
+<p><strong>Nested trim/notrim:</strong>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">!apiop</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/users</span>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="na">match</span><span class="o">:</span> <span class="k">!let</span>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>  <span class="na">let</span><span class="o">:</span>
+<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>    <span class="p">-</span> <span class="na">idMatch</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span>
+<a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>  <span class="na">in</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a>    <span class="na">id</span><span class="o">:</span> <span class="sx">.idMatch</span>
+<a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a>    <span class="na">name</span><span class="o">:</span> <span class="kc">null</span>  <span class="c1"># Include name field</span>
+<a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a>    <span class="na">posts</span><span class="o">:</span>
+<a id="__codelineno-15-10" name="__codelineno-15-10" href="#__codelineno-15-10"></a>      <span class="k">!apiop</span>
+<a id="__codelineno-15-11" name="__codelineno-15-11" href="#__codelineno-15-11"></a>      <span class="na">path</span><span class="o">:</span> <span class="sx">/posts</span>
+<a id="__codelineno-15-12" name="__codelineno-15-12" href="#__codelineno-15-12"></a>      <span class="na">match</span><span class="o">:</span> <span class="k">!notrim</span>
+<a id="__codelineno-15-13" name="__codelineno-15-13" href="#__codelineno-15-13"></a>        <span class="na">authorId</span><span class="o">:</span> <span class="sx">.idMatch</span>
+<a id="__codelineno-15-14" name="__codelineno-15-14" href="#__codelineno-15-14"></a><span class="c1"># Returns: user with only id and name, but full post documents (filtered by authorId)</span>
+<a id="__codelineno-15-15" name="__codelineno-15-15" href="#__codelineno-15-15"></a><span class="c1"># Note: !let binds idMatch to &quot;123&quot;, then .idMatch references it in both the user match and nested posts query</span>
+<a id="__codelineno-15-16" name="__codelineno-15-16" href="#__codelineno-15-16"></a><span class="c1"># Note: !notrim can be nested to override parent trim behavior</span>
+<a id="__codelineno-15-17" name="__codelineno-15-17" href="#__codelineno-15-17"></a><span class="c1"># Note: nested operations need !apiop tag</span>
+</code></pre></div></p>
+<h2 id="query-examples">Query Examples<a class="headerlink" href="#query-examples" title="Permanent link">#</a></h2>
+<p>All examples below operate on the virtual document structure defined above.</p>
+<h3 id="1-simple-query-match-only">1. Simple query - match only<a class="headerlink" href="#1-simple-query-match-only" title="Permanent link">#</a></h3>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="c1"># Query: Get user matching id</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="c1"># Client sends this document with the actual ID value they want</span>
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="c1"># Returns full user document</span>
+<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="k">!apiop</span>
+<a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/users</span>
+<a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="na">match</span><span class="o">:</span>
+<a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a>  <span class="na">id</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span>
+<a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a><span class="c1"># Returns: { id: &quot;123&quot;, name: &quot;Alice&quot;, email: &quot;alice@example.com&quot; }</span>
+<a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a><span class="c1"># Note: To get posts, use a separate query or nested operation matching author.id</span>
+</code></pre></div>
+<h3 id="2-query-with-trim-field-selection">2. Query with !trim (field selection)<a class="headerlink" href="#2-query-with-trim-field-selection" title="Permanent link">#</a></h3>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="c1"># Query: Get user, but only return specific fields</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="k">!apiop</span>
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/users</span>
+<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="na">match</span><span class="o">:</span> <span class="k">!let</span>
+<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>  <span class="na">let</span><span class="o">:</span>
+<a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a>    <span class="p">-</span> <span class="na">idMatch</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span>
+<a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a>  <span class="na">in</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a>    <span class="na">id</span><span class="o">:</span> <span class="sx">.idMatch</span>  <span class="c1"># Match criteria</span>
+<a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a>    <span class="na">name</span><span class="o">:</span> <span class="kc">null</span>  <span class="c1"># Field selection</span>
+<a id="__codelineno-17-10" name="__codelineno-17-10" href="#__codelineno-17-10"></a>    <span class="na">posts</span><span class="o">:</span>
+<a id="__codelineno-17-11" name="__codelineno-17-11" href="#__codelineno-17-11"></a>      <span class="k">!apiop</span>
+<a id="__codelineno-17-12" name="__codelineno-17-12" href="#__codelineno-17-12"></a>      <span class="na">path</span><span class="o">:</span> <span class="sx">/posts</span>
+<a id="__codelineno-17-13" name="__codelineno-17-13" href="#__codelineno-17-13"></a>      <span class="na">match</span><span class="o">:</span>
+<a id="__codelineno-17-14" name="__codelineno-17-14" href="#__codelineno-17-14"></a>        <span class="p">{</span><span class="na">authorId</span><span class="o">:</span> <span class="sx">.idMatch</span> <span class="sx">id</span> <span class="sx">title</span><span class="p">}</span>  <span class="c1"># Mix match criteria with field selection</span>
+<a id="__codelineno-17-15" name="__codelineno-17-15" href="#__codelineno-17-15"></a><span class="c1"># Returns: { id: &quot;123&quot;, name: &quot;Alice&quot;, posts: [{ id: &quot;post1&quot;, title: &quot;...&quot; }] }</span>
+<a id="__codelineno-17-16" name="__codelineno-17-16" href="#__codelineno-17-16"></a><span class="c1"># Note: !let binds idMatch to &quot;123&quot;, then .idMatch references it in both the user match and nested posts query</span>
+<a id="__codelineno-17-17" name="__codelineno-17-17" href="#__codelineno-17-17"></a><span class="c1"># Note: When you have sibling fields like posts:, use explicit syntax for the parent match</span>
+<a id="__codelineno-17-18" name="__codelineno-17-18" href="#__codelineno-17-18"></a><span class="c1"># Note: Nested match doesn&#39;t need !trim since parent !trim already constrains</span>
+<a id="__codelineno-17-19" name="__codelineno-17-19" href="#__codelineno-17-19"></a><span class="c1"># Note: Key set notation works when it&#39;s the only value (like in nested match)</span>
+</code></pre></div>
+<h3 id="3-query-with-notrim-full-documents">3. Query with !notrim (full documents)<a class="headerlink" href="#3-query-with-notrim-full-documents" title="Permanent link">#</a></h3>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="c1"># Query: Get published posts, return full documents</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="k">!apiop</span>
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/posts</span>
+<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="na">match</span><span class="o">:</span> <span class="k">!notrim</span>
+<a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a>  <span class="na">published</span><span class="o">:</span> <span class="l">true</span>
+<a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a><span class="c1"># Returns: full post documents with all fields</span>
+</code></pre></div>
+<h3 id="4-mutation-has-patch">4. Mutation (has patch)<a class="headerlink" href="#4-mutation-has-patch" title="Permanent link">#</a></h3>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="c1"># Mutation: Update users, set adult field</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="k">!apiop</span>
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/users</span>
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="na">match</span><span class="o">:</span>
+<a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a>  <span class="na">age</span><span class="o">:</span> <span class="k">!gt</span> <span class="mi">18</span>
+<a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a><span class="na">patch</span><span class="o">:</span>
+<a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a>  <span class="na">adult</span><span class="o">:</span> <span class="l">true</span>  <span class="c1"># Modify: set adult field to true</span>
+<a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a><span class="c1"># Mutates: matched users get &#39;adult: true&#39; field</span>
+</code></pre></div>
+<h3 id="5-query-with-nested-match-under-trim">5. Query with nested match under trim<a class="headerlink" href="#5-query-with-nested-match-under-trim" title="Permanent link">#</a></h3>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="c1"># Query: Get user with filtered posts</span>
+<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="c1"># Parent !trim constrains user fields, nested match constrains posts</span>
+<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="k">!apiop</span>
+<a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/users</span>
+<a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="na">match</span><span class="o">:</span> <span class="k">!let</span>
+<a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a>  <span class="na">let</span><span class="o">:</span>
+<a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a>    <span class="p">-</span> <span class="na">idMatch</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span>
+<a id="__codelineno-20-8" name="__codelineno-20-8" href="#__codelineno-20-8"></a>  <span class="na">in</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-20-9" name="__codelineno-20-9" href="#__codelineno-20-9"></a>    <span class="na">id</span><span class="o">:</span> <span class="sx">.idMatch</span>  <span class="c1"># Match criteria</span>
+<a id="__codelineno-20-10" name="__codelineno-20-10" href="#__codelineno-20-10"></a>    <span class="na">name</span><span class="o">:</span> <span class="kc">null</span>  <span class="c1"># Field selection</span>
+<a id="__codelineno-20-11" name="__codelineno-20-11" href="#__codelineno-20-11"></a>    <span class="na">posts</span><span class="o">:</span>
+<a id="__codelineno-20-12" name="__codelineno-20-12" href="#__codelineno-20-12"></a>      <span class="k">!apiop</span>
+<a id="__codelineno-20-13" name="__codelineno-20-13" href="#__codelineno-20-13"></a>      <span class="na">path</span><span class="o">:</span> <span class="sx">/posts</span>
+<a id="__codelineno-20-14" name="__codelineno-20-14" href="#__codelineno-20-14"></a>      <span class="na">match</span><span class="o">:</span>
+<a id="__codelineno-20-15" name="__codelineno-20-15" href="#__codelineno-20-15"></a>        <span class="p">{</span><span class="na">authorId</span><span class="o">:</span> <span class="sx">.idMatch</span> <span class="na">published</span><span class="o">:</span> <span class="l">true</span> <span class="sx">id</span> <span class="sx">title</span><span class="p">}</span>  <span class="c1"># Mix match criteria with field selection</span>
+<a id="__codelineno-20-16" name="__codelineno-20-16" href="#__codelineno-20-16"></a><span class="c1"># Returns: user with only id and name, posts with only id and title (filtered by authorId)</span>
+<a id="__codelineno-20-17" name="__codelineno-20-17" href="#__codelineno-20-17"></a><span class="c1"># Note: !let binds idMatch to &quot;123&quot;, then .idMatch references it in both the user match and nested posts query</span>
+<a id="__codelineno-20-18" name="__codelineno-20-18" href="#__codelineno-20-18"></a><span class="c1"># Note: nested operations need !apiop tag</span>
+<a id="__codelineno-20-19" name="__codelineno-20-19" href="#__codelineno-20-19"></a><span class="c1"># Note: Nested match doesn&#39;t need !trim since parent !trim already constrains</span>
+<a id="__codelineno-20-20" name="__codelineno-20-20" href="#__codelineno-20-20"></a><span class="c1"># Note: When you have sibling fields like posts:, use explicit syntax for the parent match</span>
+<a id="__codelineno-20-21" name="__codelineno-20-21" href="#__codelineno-20-21"></a><span class="c1"># Note: Key set notation works when it&#39;s the only value (like in nested match)</span>
+</code></pre></div>
+<h3 id="5b-nested-notrim-to-override-parent-trim">5b. Nested notrim to override parent trim<a class="headerlink" href="#5b-nested-notrim-to-override-parent-trim" title="Permanent link">#</a></h3>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="c1"># Query: Get user (trimmed), but full posts</span>
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="k">!apiop</span>
+<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/users</span>
+<a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="na">match</span><span class="o">:</span> <span class="k">!let</span>
+<a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a>  <span class="na">let</span><span class="o">:</span>
+<a id="__codelineno-21-6" name="__codelineno-21-6" href="#__codelineno-21-6"></a>    <span class="p">-</span> <span class="na">idMatch</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span>
+<a id="__codelineno-21-7" name="__codelineno-21-7" href="#__codelineno-21-7"></a>  <span class="na">in</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-21-8" name="__codelineno-21-8" href="#__codelineno-21-8"></a>    <span class="na">id</span><span class="o">:</span> <span class="sx">.idMatch</span>
+<a id="__codelineno-21-9" name="__codelineno-21-9" href="#__codelineno-21-9"></a>    <span class="na">name</span><span class="o">:</span> <span class="kc">null</span>  <span class="c1"># Include name field</span>
+<a id="__codelineno-21-10" name="__codelineno-21-10" href="#__codelineno-21-10"></a>    <span class="na">posts</span><span class="o">:</span>
+<a id="__codelineno-21-11" name="__codelineno-21-11" href="#__codelineno-21-11"></a>      <span class="k">!apiop</span>
+<a id="__codelineno-21-12" name="__codelineno-21-12" href="#__codelineno-21-12"></a>      <span class="na">path</span><span class="o">:</span> <span class="sx">/posts</span>
+<a id="__codelineno-21-13" name="__codelineno-21-13" href="#__codelineno-21-13"></a>      <span class="na">match</span><span class="o">:</span> <span class="k">!notrim</span>
+<a id="__codelineno-21-14" name="__codelineno-21-14" href="#__codelineno-21-14"></a>        <span class="na">authorId</span><span class="o">:</span> <span class="sx">.idMatch</span>
+<a id="__codelineno-21-15" name="__codelineno-21-15" href="#__codelineno-21-15"></a><span class="c1"># Returns: user with only id and name, but full post documents (filtered by authorId)</span>
+<a id="__codelineno-21-16" name="__codelineno-21-16" href="#__codelineno-21-16"></a><span class="c1"># Note: !let binds idMatch to &quot;123&quot;, then .idMatch references it in both the user match and nested posts query</span>
+<a id="__codelineno-21-17" name="__codelineno-21-17" href="#__codelineno-21-17"></a><span class="c1"># Note: !notrim overrides parent trim to return full documents</span>
+<a id="__codelineno-21-18" name="__codelineno-21-18" href="#__codelineno-21-18"></a><span class="c1"># Note: nested operations need !apiop tag</span>
+</code></pre></div>
+<h3 id="5c-nested-trim-under-notrim">5c. Nested trim under notrim<a class="headerlink" href="#5c-nested-trim-under-notrim" title="Permanent link">#</a></h3>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="c1"># Query: Full user, but trimmed posts</span>
+<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="k">!apiop</span>
+<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/users</span>
+<a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="na">match</span><span class="o">:</span> <span class="k">!let</span>
+<a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a>  <span class="na">let</span><span class="o">:</span>
+<a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a>    <span class="p">-</span> <span class="na">idMatch</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span>
+<a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a>  <span class="na">in</span><span class="o">:</span> <span class="k">!notrim</span>
+<a id="__codelineno-22-8" name="__codelineno-22-8" href="#__codelineno-22-8"></a>    <span class="na">id</span><span class="o">:</span> <span class="sx">.idMatch</span>
+<a id="__codelineno-22-9" name="__codelineno-22-9" href="#__codelineno-22-9"></a>    <span class="na">posts</span><span class="o">:</span>
+<a id="__codelineno-22-10" name="__codelineno-22-10" href="#__codelineno-22-10"></a>      <span class="k">!apiop</span>
+<a id="__codelineno-22-11" name="__codelineno-22-11" href="#__codelineno-22-11"></a>      <span class="na">path</span><span class="o">:</span> <span class="sx">/posts</span>
+<a id="__codelineno-22-12" name="__codelineno-22-12" href="#__codelineno-22-12"></a>      <span class="na">match</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-22-13" name="__codelineno-22-13" href="#__codelineno-22-13"></a>        <span class="p">{</span><span class="na">authorId</span><span class="o">:</span> <span class="sx">.idMatch</span> <span class="na">published</span><span class="o">:</span> <span class="l">true</span> <span class="sx">id</span> <span class="sx">title</span><span class="p">}</span>  <span class="c1"># Mix match criteria with field selection</span>
+<a id="__codelineno-22-14" name="__codelineno-22-14" href="#__codelineno-22-14"></a><span class="c1"># Returns: full user document, but posts only include id and title (filtered by authorId)</span>
+<a id="__codelineno-22-15" name="__codelineno-22-15" href="#__codelineno-22-15"></a><span class="c1"># Note: !let binds idMatch to &quot;123&quot;, then .idMatch references it in both the user match and nested posts query</span>
+<a id="__codelineno-22-16" name="__codelineno-22-16" href="#__codelineno-22-16"></a><span class="c1"># Note: !trim can be nested under !notrim to trim nested documents</span>
+<a id="__codelineno-22-17" name="__codelineno-22-17" href="#__codelineno-22-17"></a><span class="c1"># Note: nested operations need !apiop tag</span>
+<a id="__codelineno-22-18" name="__codelineno-22-18" href="#__codelineno-22-18"></a><span class="c1"># Note: Key set notation allows mixing explicit values with bare keys for concise syntax</span>
+</code></pre></div>
+<h3 id="6-query-with-multiple-conditions">6. Query with multiple conditions<a class="headerlink" href="#6-query-with-multiple-conditions" title="Permanent link">#</a></h3>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="c1"># Query: Get posts matching multiple criteria</span>
+<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="k">!apiop</span>
+<a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/posts</span>
+<a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a><span class="na">match</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a>  <span class="k">!and:</span>
+<a id="__codelineno-23-6" name="__codelineno-23-6" href="#__codelineno-23-6"></a>    <span class="p">-</span> <span class="na">published</span><span class="o">:</span> <span class="l">true</span>
+<a id="__codelineno-23-7" name="__codelineno-23-7" href="#__codelineno-23-7"></a>    <span class="p">-</span> <span class="na">author</span><span class="o">:</span>
+<a id="__codelineno-23-8" name="__codelineno-23-8" href="#__codelineno-23-8"></a>        <span class="na">name</span><span class="o">:</span> <span class="s2">&quot;Alice&quot;</span>
+<a id="__codelineno-23-9" name="__codelineno-23-9" href="#__codelineno-23-9"></a>  <span class="na">id</span><span class="o">:</span> <span class="kc">null</span>  <span class="c1"># Include id field</span>
+<a id="__codelineno-23-10" name="__codelineno-23-10" href="#__codelineno-23-10"></a>  <span class="na">title</span><span class="o">:</span> <span class="kc">null</span>  <span class="c1"># Include title field</span>
+<a id="__codelineno-23-11" name="__codelineno-23-11" href="#__codelineno-23-11"></a>  <span class="na">author</span><span class="o">:</span>
+<a id="__codelineno-23-12" name="__codelineno-23-12" href="#__codelineno-23-12"></a>    <span class="na">name</span><span class="o">:</span> <span class="kc">null</span>  <span class="c1"># Include author.name field</span>
+<a id="__codelineno-23-13" name="__codelineno-23-13" href="#__codelineno-23-13"></a><span class="c1"># Returns: only id, title, and author.name for matching posts</span>
+<a id="__codelineno-23-14" name="__codelineno-23-14" href="#__codelineno-23-14"></a><span class="c1"># Note: When you have other keys like !and: at the same level, use explicit field: null syntax</span>
+<a id="__codelineno-23-15" name="__codelineno-23-15" href="#__codelineno-23-15"></a><span class="c1"># Note: For nested fields like author.name, use explicit syntax: author: {name: null} or author: name: null</span>
+</code></pre></div>
+<h3 id="7-path-based-query-no-matching">7. Path-based query (no matching)<a class="headerlink" href="#7-path-based-query-no-matching" title="Permanent link">#</a></h3>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="c1"># Query: Get specific path - no match, just return document</span>
+<a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="k">!apiop</span>
+<a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/users/123</span>
+<a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a><span class="c1"># Returns: full document at that path</span>
+</code></pre></div>
+<h3 id="8-field-aliasing-with-as">8. Field aliasing with !as<a class="headerlink" href="#8-field-aliasing-with-as" title="Permanent link">#</a></h3>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="c1"># Query: Rename fields in response</span>
+<a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="k">!apiop</span>
+<a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/users</span>
+<a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a><span class="na">match</span><span class="o">:</span> <span class="k">!let</span>
+<a id="__codelineno-25-5" name="__codelineno-25-5" href="#__codelineno-25-5"></a>  <span class="na">let</span><span class="o">:</span>
+<a id="__codelineno-25-6" name="__codelineno-25-6" href="#__codelineno-25-6"></a>    <span class="p">-</span> <span class="na">idMatch</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span>
+<a id="__codelineno-25-7" name="__codelineno-25-7" href="#__codelineno-25-7"></a>  <span class="na">in</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-25-8" name="__codelineno-25-8" href="#__codelineno-25-8"></a>    <span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="sx">.idMatch</span> <span class="sx">name</span> <span class="k">!as(userName)</span> <span class="sx">email</span> <span class="k">!as(userEmail)</span><span class="p">}</span>  <span class="c1"># Mix match criteria with aliased fields</span>
+<a id="__codelineno-25-9" name="__codelineno-25-9" href="#__codelineno-25-9"></a><span class="c1"># Returns: { id: &quot;123&quot;, userName: &quot;Alice&quot;, userEmail: &quot;alice@example.com&quot; }</span>
+<a id="__codelineno-25-10" name="__codelineno-25-10" href="#__codelineno-25-10"></a><span class="c1"># Note: !let binds idMatch to &quot;123&quot;, then .idMatch references it in the match</span>
+<a id="__codelineno-25-11" name="__codelineno-25-11" href="#__codelineno-25-11"></a><span class="c1"># Note: Key set notation allows mixing explicit values with aliased fields: name !as(userName) is syntactic sugar for name: !as(userName) null</span>
+</code></pre></div>
+<p><strong>Nested field aliasing:</strong>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="c1"># Query: Rename nested fields</span>
+<a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a><span class="k">!apiop</span>
+<a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/posts</span>
+<a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a><span class="na">match</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-26-5" name="__codelineno-26-5" href="#__codelineno-26-5"></a>  <span class="na">id</span><span class="o">:</span> <span class="kc">null</span>  <span class="c1"># Include id field</span>
+<a id="__codelineno-26-6" name="__codelineno-26-6" href="#__codelineno-26-6"></a>  <span class="na">title</span><span class="o">:</span> <span class="kc">null</span>  <span class="c1"># Include title field</span>
+<a id="__codelineno-26-7" name="__codelineno-26-7" href="#__codelineno-26-7"></a>  <span class="na">author</span><span class="o">:</span>
+<a id="__codelineno-26-8" name="__codelineno-26-8" href="#__codelineno-26-8"></a>    <span class="p">{</span><span class="sx">id</span> <span class="sx">name</span> <span class="k">!as(authorName)</span><span class="p">}</span>  <span class="c1"># Include author.id and rename author.name</span>
+<a id="__codelineno-26-9" name="__codelineno-26-9" href="#__codelineno-26-9"></a><span class="c1"># Returns: { id: &quot;post1&quot;, title: &quot;First Post&quot;, author: { id: &quot;123&quot;, authorName: &quot;Alice&quot; } }</span>
+<a id="__codelineno-26-10" name="__codelineno-26-10" href="#__codelineno-26-10"></a><span class="c1"># Note: When you have sibling fields like author:, use explicit syntax for the parent match</span>
+<a id="__codelineno-26-11" name="__codelineno-26-11" href="#__codelineno-26-11"></a><span class="c1"># Note: Key set notation works for nested fields: author: {id name !as(authorName)} where name !as(authorName) is syntactic sugar for name: !as(authorName) null</span>
+</code></pre></div></p>
+<p><strong>Aliasing with nested operations:</strong>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="c1"># Query: Rename fields in nested query</span>
+<a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a><span class="k">!apiop</span>
+<a id="__codelineno-27-3" name="__codelineno-27-3" href="#__codelineno-27-3"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/users</span>
+<a id="__codelineno-27-4" name="__codelineno-27-4" href="#__codelineno-27-4"></a><span class="na">match</span><span class="o">:</span> <span class="k">!let</span>
+<a id="__codelineno-27-5" name="__codelineno-27-5" href="#__codelineno-27-5"></a>  <span class="na">let</span><span class="o">:</span>
+<a id="__codelineno-27-6" name="__codelineno-27-6" href="#__codelineno-27-6"></a>    <span class="p">-</span> <span class="na">idMatch</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span>
+<a id="__codelineno-27-7" name="__codelineno-27-7" href="#__codelineno-27-7"></a>  <span class="na">in</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-27-8" name="__codelineno-27-8" href="#__codelineno-27-8"></a>    <span class="na">id</span><span class="o">:</span> <span class="sx">.idMatch</span>  <span class="c1"># Match criteria</span>
+<a id="__codelineno-27-9" name="__codelineno-27-9" href="#__codelineno-27-9"></a>    <span class="na">name</span><span class="o">:</span> <span class="k">!as(userName)</span> <span class="kc">null</span>  <span class="c1"># Rename name field</span>
+<a id="__codelineno-27-10" name="__codelineno-27-10" href="#__codelineno-27-10"></a>    <span class="na">posts</span><span class="o">:</span>
+<a id="__codelineno-27-11" name="__codelineno-27-11" href="#__codelineno-27-11"></a>      <span class="k">!apiop</span>
+<a id="__codelineno-27-12" name="__codelineno-27-12" href="#__codelineno-27-12"></a>      <span class="na">path</span><span class="o">:</span> <span class="sx">/posts</span>
+<a id="__codelineno-27-13" name="__codelineno-27-13" href="#__codelineno-27-13"></a>      <span class="na">match</span><span class="o">:</span>
+<a id="__codelineno-27-14" name="__codelineno-27-14" href="#__codelineno-27-14"></a>        <span class="p">{</span><span class="na">authorId</span><span class="o">:</span> <span class="sx">.idMatch</span> <span class="sx">id</span> <span class="sx">title</span> <span class="k">!as(postTitle)</span><span class="p">}</span>  <span class="c1"># Mix match criteria with aliased field</span>
+<a id="__codelineno-27-15" name="__codelineno-27-15" href="#__codelineno-27-15"></a><span class="c1"># Returns: { id: &quot;123&quot;, userName: &quot;Alice&quot;, posts: [{ id: &quot;post1&quot;, postTitle: &quot;First Post&quot; }] }</span>
+<a id="__codelineno-27-16" name="__codelineno-27-16" href="#__codelineno-27-16"></a><span class="c1"># Note: !let binds idMatch to &quot;123&quot;, then .idMatch references it in both the user match and nested posts query</span>
+<a id="__codelineno-27-17" name="__codelineno-27-17" href="#__codelineno-27-17"></a><span class="c1"># Note: Nested match doesn&#39;t need !trim since parent !trim already constrains</span>
+<a id="__codelineno-27-18" name="__codelineno-27-18" href="#__codelineno-27-18"></a><span class="c1"># Note: When you have sibling fields like posts:, use explicit syntax for the parent match</span>
+<a id="__codelineno-27-19" name="__codelineno-27-19" href="#__codelineno-27-19"></a><span class="c1"># Note: Key set notation works when it&#39;s the only value (like in nested match)</span>
+</code></pre></div></p>
+<h3 id="9-query-all-user-post-pairs">9. Query all user-post pairs<a class="headerlink" href="#9-query-all-user-post-pairs" title="Permanent link">#</a></h3>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="c1"># Query: Get all pairs of user-id and post-id</span>
+<a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a><span class="k">!apiop</span>
+<a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/posts</span>
+<a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a><span class="na">match</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a>  <span class="p">{</span><span class="sx">id</span> <span class="sx">authorId</span><span class="p">}</span>  <span class="c1"># Include id and authorId fields</span>
+<a id="__codelineno-28-6" name="__codelineno-28-6" href="#__codelineno-28-6"></a><span class="c1"># Returns:</span>
+<a id="__codelineno-28-7" name="__codelineno-28-7" href="#__codelineno-28-7"></a><span class="c1"># posts: !key(id)</span>
+<a id="__codelineno-28-8" name="__codelineno-28-8" href="#__codelineno-28-8"></a><span class="c1">#   - id: &quot;post1&quot;</span>
+<a id="__codelineno-28-9" name="__codelineno-28-9" href="#__codelineno-28-9"></a><span class="c1">#     authorId: &quot;123&quot;</span>
+<a id="__codelineno-28-10" name="__codelineno-28-10" href="#__codelineno-28-10"></a><span class="c1">#   - id: &quot;post2&quot;</span>
+<a id="__codelineno-28-11" name="__codelineno-28-11" href="#__codelineno-28-11"></a><span class="c1">#     authorId: &quot;123&quot;</span>
+<a id="__codelineno-28-12" name="__codelineno-28-12" href="#__codelineno-28-12"></a><span class="c1"># This gives all (user-id, post-id) pairs via posts[key].authorId and posts[key].id</span>
+<a id="__codelineno-28-13" name="__codelineno-28-13" href="#__codelineno-28-13"></a><span class="c1"># Note: When you have only field selection (no match criteria), bare keys work: {id authorId}</span>
+</code></pre></div>
+<h3 id="9b-query-all-post-id-user-pairs">9b. Query all (post-id, user) pairs<a class="headerlink" href="#9b-query-all-post-id-user-pairs" title="Permanent link">#</a></h3>
+<p>Query posts and use a nested operation to fetch the user for each post. Use <code>!let</code> at the parent level to bind the <code>authorId</code>:</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="c1"># Query: Get all pairs of post-id and user</span>
+<a id="__codelineno-29-2" name="__codelineno-29-2" href="#__codelineno-29-2"></a><span class="k">!apiop</span>
+<a id="__codelineno-29-3" name="__codelineno-29-3" href="#__codelineno-29-3"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/posts</span>
+<a id="__codelineno-29-4" name="__codelineno-29-4" href="#__codelineno-29-4"></a><span class="na">match</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-29-5" name="__codelineno-29-5" href="#__codelineno-29-5"></a>  <span class="na">id</span><span class="o">:</span> <span class="kc">null</span>  <span class="c1"># Include id field</span>
+<a id="__codelineno-29-6" name="__codelineno-29-6" href="#__codelineno-29-6"></a>  <span class="na">authorId</span><span class="o">:</span> <span class="kc">null</span>  <span class="c1"># Include authorId field</span>
+<a id="__codelineno-29-7" name="__codelineno-29-7" href="#__codelineno-29-7"></a>  <span class="na">author</span><span class="o">:</span>
+<a id="__codelineno-29-8" name="__codelineno-29-8" href="#__codelineno-29-8"></a>    <span class="k">!apiop</span>
+<a id="__codelineno-29-9" name="__codelineno-29-9" href="#__codelineno-29-9"></a>    <span class="na">path</span><span class="o">:</span> <span class="sx">/users</span>
+<a id="__codelineno-29-10" name="__codelineno-29-10" href="#__codelineno-29-10"></a>    <span class="na">match</span><span class="o">:</span> <span class="k">!let</span>
+<a id="__codelineno-29-11" name="__codelineno-29-11" href="#__codelineno-29-11"></a>      <span class="na">let</span><span class="o">:</span>
+<a id="__codelineno-29-12" name="__codelineno-29-12" href="#__codelineno-29-12"></a>        <span class="p">-</span> <span class="na">authorIdMatch</span><span class="o">:</span> <span class="kc">null</span>  <span class="c1"># Bound from parent post&#39;s authorId field</span>
+<a id="__codelineno-29-13" name="__codelineno-29-13" href="#__codelineno-29-13"></a>      <span class="na">in</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-29-14" name="__codelineno-29-14" href="#__codelineno-29-14"></a>        <span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="sx">.authorIdMatch</span> <span class="sx">name</span> <span class="sx">email</span><span class="p">}</span>  <span class="c1"># Mix match criteria with field selection</span>
+<a id="__codelineno-29-15" name="__codelineno-29-15" href="#__codelineno-29-15"></a><span class="c1"># Returns:</span>
+<a id="__codelineno-29-16" name="__codelineno-29-16" href="#__codelineno-29-16"></a><span class="c1"># posts: !key(id)</span>
+<a id="__codelineno-29-17" name="__codelineno-29-17" href="#__codelineno-29-17"></a><span class="c1">#   - id: &quot;post1&quot;</span>
+<a id="__codelineno-29-18" name="__codelineno-29-18" href="#__codelineno-29-18"></a><span class="c1">#     authorId: &quot;123&quot;</span>
+<a id="__codelineno-29-19" name="__codelineno-29-19" href="#__codelineno-29-19"></a><span class="c1">#     author:</span>
+<a id="__codelineno-29-20" name="__codelineno-29-20" href="#__codelineno-29-20"></a><span class="c1">#       id: &quot;123&quot;</span>
+<a id="__codelineno-29-21" name="__codelineno-29-21" href="#__codelineno-29-21"></a><span class="c1">#       name: &quot;Alice&quot;</span>
+<a id="__codelineno-29-22" name="__codelineno-29-22" href="#__codelineno-29-22"></a><span class="c1">#       email: &quot;alice@example.com&quot;</span>
+<a id="__codelineno-29-23" name="__codelineno-29-23" href="#__codelineno-29-23"></a><span class="c1">#   - id: &quot;post2&quot;</span>
+<a id="__codelineno-29-24" name="__codelineno-29-24" href="#__codelineno-29-24"></a><span class="c1">#     authorId: &quot;123&quot;</span>
+<a id="__codelineno-29-25" name="__codelineno-29-25" href="#__codelineno-29-25"></a><span class="c1">#     author:</span>
+<a id="__codelineno-29-26" name="__codelineno-29-26" href="#__codelineno-29-26"></a><span class="c1">#       id: &quot;123&quot;</span>
+<a id="__codelineno-29-27" name="__codelineno-29-27" href="#__codelineno-29-27"></a><span class="c1">#       name: &quot;Alice&quot;</span>
+<a id="__codelineno-29-28" name="__codelineno-29-28" href="#__codelineno-29-28"></a><span class="c1">#       email: &quot;alice@example.com&quot;</span>
+</code></pre></div>
+<p><strong>How it works</strong>: When <code>!let</code> is used in a nested <code>!apiop</code>, variables can reference fields from the parent match context. The <code>authorIdMatch: null</code> binds the value from the parent post's <code>authorId</code> field, which is then referenced as <code>.authorIdMatch</code> to query <code>/users</code>. This effectively joins posts with users.</p>
+<p><strong>Note</strong>: When you have sibling fields like <code>author:</code>, use explicit syntax for the parent match. Key set notation works when it's the only value (like in nested match).</p></div>
+            </div>
+        </div>
+
+        <footer class="col-md-12">
+            <hr>
+            <p>Documentation built with <a href="https://www.mkdocs.org/">MkDocs</a>.</p>
+        </footer>
+        <script src="../../js/bootstrap.bundle.min.js"></script>
+        <script>
+            var base_url = "../..",
+                shortcuts = {"help": 191, "next": 78, "previous": 80, "search": 83};
+        </script>
+        <script src="../../js/base.js"></script>
+
+        <div class="modal" id="mkdocs_keyboard_modal" tabindex="-1" role="dialog" aria-labelledby="keyboardModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="keyboardModalLabel">Keyboard Shortcuts</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th style="width: 20%;">Keys</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="help shortcut"><kbd>?</kbd></td>
+                    <td>Open this help</td>
+                  </tr>
+                  <tr>
+                    <td class="next shortcut"><kbd>n</kbd></td>
+                    <td>Next page</td>
+                  </tr>
+                  <tr>
+                    <td class="prev shortcut"><kbd>p</kbd></td>
+                    <td>Previous page</td>
+                  </tr>
+                  <tr>
+                    <td class="search shortcut"><kbd>s</kbd></td>
+                    <td>Search</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div>
+
+    </body>
+</html>

@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        
+        
+        <link rel="shortcut icon" href="../../img/favicon.ico">
+        <title>logd: The session protocol - Tony Format</title>
+        <link href="../../css/bootstrap.min.css" rel="stylesheet">
+        <link href="../../css/fontawesome.min.css" rel="stylesheet">
+        <link href="../../css/brands.min.css" rel="stylesheet">
+        <link href="../../css/solid.min.css" rel="stylesheet">
+        <link href="../../css/v4-font-face.min.css" rel="stylesheet">
+        <link href="../../css/base.css" rel="stylesheet">
+        <link href="../../pygments.css" rel="stylesheet"> 
+    </head>
+
+    <body>
+        <div class="navbar fixed-top navbar-expand-lg navbar-dark bg-primary">
+            <div class="container">
+                <a class="navbar-brand" href="../..">Tony Format</a>
+                <!-- Expander button -->
+                <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar-collapse" aria-controls="navbar-collapse" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                <!-- Expanded navigation -->
+                <div id="navbar-collapse" class="navbar-collapse collapse">
+                        <!-- Main navigation -->
+                        <ul class="nav navbar-nav">
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Format</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../tony/" class="dropdown-item">Tony Format</a>
+</li>
+                                    
+<li>
+    <a href="../../ir/" class="dropdown-item">Tony IR</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Schema</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../tonyschema/" class="dropdown-item">Tony Schema</a>
+</li>
+                                    
+<li>
+    <a href="../../tonyschema/schema/" class="dropdown-item">Schema Structure</a>
+</li>
+                                    
+<li>
+    <a href="../../tonyschema/contexts/" class="dropdown-item">Contexts</a>
+</li>
+                                    
+<li>
+    <a href="../../tonyschema/tags/" class="dropdown-item">Tags</a>
+</li>
+                                    
+<li>
+    <a href="../../tonyschema/validation/" class="dropdown-item">Validation</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle active" aria-current="page" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Tools</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../extraformat/" class="dropdown-item">Extra-Format Encoding</a>
+</li>
+                                    
+<li>
+    <a href="../../o/" class="dropdown-item">o</a>
+</li>
+                                    
+<li>
+    <a href="../../gomap/" class="dropdown-item">Golang</a>
+</li>
+                                    
+<li>
+    <a href="../" class="dropdown-item">logd</a>
+</li>
+                                    
+<li>
+    <a href="./" class="dropdown-item active" aria-current="page">logd: The session protocol</a>
+</li>
+                                    
+<li>
+    <a href="../writes/" class="dropdown-item">logd: What a write must be</a>
+</li>
+                                    
+<li>
+    <a href="../keyed/" class="dropdown-item">logd: Keyed arrays</a>
+</li>
+                                    
+<li>
+    <a href="../../docd/" class="dropdown-item">docd</a>
+</li>
+                                    
+<li>
+    <a href="../../docd/mounts/" class="dropdown-item">docd: Mounts & routing</a>
+</li>
+                                    
+<li>
+    <a href="../../docd/composition/" class="dropdown-item">docd: Composition — reads & watches</a>
+</li>
+                                    
+<li>
+    <a href="../../docd/transactions/" class="dropdown-item">docd: Multi-mount transactions</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Reference</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../build-eval/" class="dropdown-item">Tony Evaluation Model</a>
+</li>
+                                    
+<li>
+    <a href="../../generated/" class="dropdown-item">Tags</a>
+</li>
+                                    
+<li>
+    <a href="../../matchpatch/" class="dropdown-item">Matching and Patching</a>
+</li>
+                                </ul>
+                            </li>
+                        </ul>
+
+                    <ul class="nav navbar-nav ms-md-auto">
+                            <li class="nav-item">
+                                <a rel="prev" href="../" class="nav-link">
+                                    <i class="fa fa-arrow-left"></i> Previous
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a rel="next" href="../writes/" class="nav-link">
+                                    Next <i class="fa fa-arrow-right"></i>
+                                </a>
+                            </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="row">
+                    <div class="col-md-3"><div class="navbar-expand-md bs-sidebar hidden-print affix" role="complementary">
+    <div class="navbar-header">
+        <button type="button" class="navbar-toggler collapsed" data-bs-toggle="collapse" data-bs-target="#toc-collapse" title="Table of Contents">
+            <span class="fa fa-angle-down"></span>
+        </button>
+    </div>
+
+    
+    <div id="toc-collapse" class="navbar-collapse collapse card bg-body-tertiary">
+        <ul class="nav flex-column">
+            
+            <li class="nav-item" data-bs-level="1"><a href="#the-session-protocol" class="nav-link">The session protocol</a>
+              <ul class="nav flex-column">
+            <li class="nav-item" data-bs-level="2"><a href="#requests" class="nav-link">Requests</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#reading" class="nav-link">Reading</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#writing" class="nav-link">Writing</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#watching" class="nav-link">Watching</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#liveness-and-where-the-store-is" class="nav-link">Liveness, and where the store is</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#scopes" class="nav-link">Scopes</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#errors" class="nav-link">Errors</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#the-mount-protocol" class="nav-link">The mount protocol</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+              </ul>
+            </li>
+        </ul>
+    </div>
+</div></div>
+                    <div class="col-md-9" role="main">
+
+<h1 id="the-session-protocol">The session protocol<a class="headerlink" href="#the-session-protocol" title="Permanent link">#</a></h1>
+<p>A session is one connection carrying a stream of <strong>newline-delimited Tony documents</strong>
+in both directions. Every message a client sends names exactly one operation; every
+message a server sends is a result, a watch event, or an error.</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span><span class="na">hello</span><span class="o">:</span> <span class="p">{</span><span class="na">clientId</span><span class="o">:</span> <span class="sx">verse</span><span class="p">}}</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="p">{</span><span class="na">patch</span><span class="o">:</span> <span class="p">{</span><span class="na">path</span><span class="o">:</span> <span class="s2">&quot;verse.entities.e1&quot;</span><span class="p">,</span> <span class="na">data</span><span class="o">:</span> <span class="p">{</span><span class="na">status</span><span class="o">:</span> <span class="sx">ready</span><span class="p">}}}</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">{</span><span class="na">match</span><span class="o">:</span> <span class="p">{</span><span class="na">path</span><span class="o">:</span> <span class="s2">&quot;verse.entities.e1&quot;</span><span class="p">}}</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="p">{</span><span class="na">watch</span><span class="o">:</span> <span class="p">{</span><span class="na">path</span><span class="o">:</span> <span class="s2">&quot;verse.entities&quot;</span><span class="p">}}</span>
+</code></pre></div>
+<p><strong>docd speaks this protocol verbatim</strong>, so a client written against logd talks to docd
+unchanged — and the operations it composes across mounts (reads, watches, transactions)
+answer in the same shapes. See <a href="../../docd/composition/">docd: Composition</a>.</p>
+<p>You can speak it by hand:</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="gp">$ </span>o<span class="w"> </span>system<span class="w"> </span>logd<span class="w"> </span>session<span class="w"> </span>localhost:7070
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="go">{hello: {clientId: probe}}</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="go">{result: {hello: {schemaCommit: 0 serverId: tcp-1 usingPending: false}}}</span>
+</code></pre></div>
+<h2 id="requests">Requests<a class="headerlink" href="#requests" title="Permanent link">#</a></h2>
+<p>Every request is an object with one operation field, and the operation's own fields sit
+directly inside it:</p>
+<table>
+<thead>
+<tr>
+<th>operation</th>
+<th>shape</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>hello</code></td>
+<td><code>{hello: {clientId: &lt;id&gt;, scope: &lt;scope&gt;}}</code></td>
+</tr>
+<tr>
+<td><code>match</code></td>
+<td><code>{match: {path: &lt;kpath&gt;, data: &lt;pattern&gt;, commit: &lt;n&gt;}}</code></td>
+</tr>
+<tr>
+<td><code>patch</code></td>
+<td><code>{patch: {path: &lt;kpath&gt;, data: &lt;value&gt;, match: {path, data}, txId: &lt;n&gt;, timeout: "5s"}}</code></td>
+</tr>
+<tr>
+<td><code>newtx</code></td>
+<td><code>{newtx: {participants: &lt;n&gt;}}</code></td>
+</tr>
+<tr>
+<td><code>watch</code></td>
+<td><code>{watch: {path: &lt;kpath&gt;, fromCommit: &lt;n&gt;, noInit: &lt;bool&gt;}}</code></td>
+</tr>
+<tr>
+<td><code>unwatch</code></td>
+<td><code>{unwatch: {path: &lt;kpath&gt;, watchId: &lt;id&gt;}}</code></td>
+</tr>
+<tr>
+<td><code>ping</code></td>
+<td><code>{ping: {}}</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>path</code> is in the same place in all of them, and <strong>a request never has a <code>body</code></strong> — a
+body is what a <em>response</em> carries, and it is the answer.</p>
+<div class="admonition warning">
+<p class="admonition-title">A request in the wrong shape is answered, not refused</p>
+<p>A field the protocol does not recognise is ignored, and an unread <code>path</code> defaults
+to <code>""</code> — which is the whole document for a read and the document <strong>root</strong> for a
+write. So <code>{match: {body: {path: "a.b"}}}</code> reads everything and reports success,
+and a patch whose <code>path</code> is misspelled merges the client's data into the top of the
+document and answers with a commit.</p>
+<p>Strict rejection of unknown fields is not implemented; until it is, the shape
+above is the contract.</p>
+</div>
+<h3 id="id-synchronous-or-pipelined">id: synchronous or pipelined<a class="headerlink" href="#id-synchronous-or-pipelined" title="Permanent link">#</a></h3>
+<p>An <code>id</code> on a request comes back on its response, so a client may keep several in
+flight:</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="s2">&quot;r1&quot;</span><span class="p">,</span> <span class="na">match</span><span class="o">:</span> <span class="p">{</span><span class="na">path</span><span class="o">:</span> <span class="s2">&quot;verse.meta&quot;</span><span class="p">}}</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="s2">&quot;r2&quot;</span><span class="p">,</span> <span class="na">patch</span><span class="o">:</span> <span class="p">{</span><span class="na">path</span><span class="o">:</span> <span class="s2">&quot;verse.meta.rev&quot;</span><span class="p">,</span> <span class="na">data</span><span class="o">:</span> <span class="p">{</span><span class="na">n</span><span class="o">:</span> <span class="mi">2</span><span class="p">}}}</span>
+</code></pre></div>
+<p><strong>Responses may arrive out of order.</strong> A server answers reads concurrently, so a read
+issued before a write can be answered after it — pipelining without ids is how a client
+loses track of which answer is which. The <code>id</code> is also the routing key for watch events,
+which is what keeps several watches on one path apart.</p>
+<p>Ordering that IS guaranteed: a request sent after its predecessor's response was
+received happens after it, and a read dispatched after a write is dispatched after that
+write committed — so read-your-writes holds for the usual write-then-read.</p>
+<h2 id="reading">Reading<a class="headerlink" href="#reading" title="Permanent link">#</a></h2>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="p">{</span><span class="na">match</span><span class="o">:</span> <span class="p">{</span><span class="na">path</span><span class="o">:</span> <span class="s2">&quot;verse.entities.e1&quot;</span><span class="p">}}</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="p">{</span><span class="na">result</span><span class="o">:</span> <span class="p">{</span><span class="na">match</span><span class="o">:</span> <span class="p">{</span><span class="na">body</span><span class="o">:</span> <span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="sx">e1</span> <span class="na">status</span><span class="o">:</span> <span class="sx">ready</span><span class="p">}</span> <span class="na">commit</span><span class="o">:</span> <span class="mi">1</span><span class="p">}}}</span>
+</code></pre></div>
+<p><code>path</code> <strong>restricts the read to that subdocument</strong> — the answer is what lives at the
+path, not the document with the path highlighted. <code>data</code>, when given, is a pattern the
+state is matched and trimmed against <em>within</em> that path, so a caller can ask for the
+shape it wants:</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="p">{</span><span class="na">match</span><span class="o">:</span> <span class="p">{</span><span class="na">path</span><span class="o">:</span> <span class="s2">&quot;verse.entities.e1&quot;</span><span class="p">,</span> <span class="na">data</span><span class="o">:</span> <span class="p">{</span><span class="na">status</span><span class="o">:</span> <span class="k">!irtype</span> <span class="s2">&quot;&quot;</span><span class="p">}}}</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="p">{</span><span class="na">result</span><span class="o">:</span> <span class="p">{</span><span class="na">match</span><span class="o">:</span> <span class="p">{</span><span class="na">body</span><span class="o">:</span> <span class="p">{</span><span class="na">status</span><span class="o">:</span> <span class="sx">ready</span><span class="p">}</span> <span class="na">commit</span><span class="o">:</span> <span class="mi">1</span><span class="p">}}}</span>
+</code></pre></div>
+<p><code>commit</code> reads the state <strong>as of a past commit</strong> rather than the current one. It must
+be in <code>[0, current]</code>; out of range is <code>commit_not_found</code>. Across docd this addresses
+logd's single commit sequence, so a composed read at a commit is one consistent
+snapshot.</p>
+<p>Every answer carries the <code>commit</code> it was read at — which is also the store's head, and
+therefore a revision a client can compare without asking for anything extra.</p>
+<h2 id="writing">Writing<a class="headerlink" href="#writing" title="Permanent link">#</a></h2>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="p">{</span><span class="na">patch</span><span class="o">:</span> <span class="p">{</span><span class="na">path</span><span class="o">:</span> <span class="s2">&quot;verse.entities.e1&quot;</span><span class="p">,</span> <span class="na">data</span><span class="o">:</span> <span class="p">{</span><span class="na">status</span><span class="o">:</span> <span class="sx">done</span><span class="p">}}}</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="p">{</span><span class="na">result</span><span class="o">:</span> <span class="p">{</span><span class="na">patch</span><span class="o">:</span> <span class="p">{</span><span class="na">commit</span><span class="o">:</span> <span class="mi">2</span> <span class="na">data</span><span class="o">:</span> <span class="p">{</span><span class="na">status</span><span class="o">:</span> <span class="sx">done</span><span class="p">}}}}</span>
+</code></pre></div>
+<p>The result's <code>data</code> is the patch <strong>as stored</strong>, which is where a client learns a value
+the server generated for it (see <a href="../keyed/">Keyed arrays</a>).</p>
+<p>A patch may carry a <strong>compare-and-swap precondition</strong> — it commits only if the state at
+that path still matches:</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="p">{</span><span class="na">patch</span><span class="o">:</span> <span class="p">{</span><span class="na">path</span><span class="o">:</span> <span class="s2">&quot;verse.entities.e1&quot;</span><span class="p">,</span> <span class="na">data</span><span class="o">:</span> <span class="p">{</span><span class="na">status</span><span class="o">:</span> <span class="sx">done</span><span class="p">},</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>         <span class="na">match</span><span class="o">:</span> <span class="p">{</span><span class="na">path</span><span class="o">:</span> <span class="s2">&quot;verse.entities.e1&quot;</span><span class="p">,</span> <span class="na">data</span><span class="o">:</span> <span class="p">{</span><span class="na">status</span><span class="o">:</span> <span class="sx">ready</span><span class="p">}}}}</span>
+</code></pre></div>
+<p>A precondition that does not hold answers <code>match_failed</code>, and nothing is written. What
+a write must satisfy to be storable at all is <a href="../writes/">What a write must be</a>.</p>
+<h3 id="transactions">Transactions<a class="headerlink" href="#transactions" title="Permanent link">#</a></h3>
+<p>Several paths commit together by naming one transaction:</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="p">{</span><span class="na">hello</span><span class="o">:</span> <span class="p">{</span><span class="na">clientId</span><span class="o">:</span> <span class="sx">probe</span><span class="p">}}</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="s2">&quot;t&quot;</span><span class="p">,</span> <span class="na">newtx</span><span class="o">:</span> <span class="p">{</span><span class="na">participants</span><span class="o">:</span> <span class="mi">2</span><span class="p">}}</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="sx">t</span> <span class="na">result</span><span class="o">:</span> <span class="p">{</span><span class="na">newtx</span><span class="o">:</span> <span class="p">{</span><span class="na">txId</span><span class="o">:</span> <span class="mi">1</span><span class="p">}}}</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="s2">&quot;p1&quot;</span><span class="p">,</span> <span class="na">patch</span><span class="o">:</span> <span class="p">{</span><span class="na">txId</span><span class="o">:</span> <span class="mi">1</span><span class="p">,</span> <span class="na">path</span><span class="o">:</span> <span class="s2">&quot;verse.a&quot;</span><span class="p">,</span> <span class="na">data</span><span class="o">:</span> <span class="p">{</span><span class="na">n</span><span class="o">:</span> <span class="mi">1</span><span class="p">}}}</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="s2">&quot;p2&quot;</span><span class="p">,</span> <span class="na">patch</span><span class="o">:</span> <span class="p">{</span><span class="na">txId</span><span class="o">:</span> <span class="mi">1</span><span class="p">,</span> <span class="na">path</span><span class="o">:</span> <span class="s2">&quot;verse.b&quot;</span><span class="p">,</span> <span class="na">data</span><span class="o">:</span> <span class="p">{</span><span class="na">n</span><span class="o">:</span> <span class="mi">2</span><span class="p">}}}</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="sx">p1</span> <span class="na">result</span><span class="o">:</span> <span class="p">{</span><span class="na">patch</span><span class="o">:</span> <span class="p">{</span><span class="na">commit</span><span class="o">:</span> <span class="mi">1</span> <span class="na">data</span><span class="o">:</span> <span class="p">{</span><span class="na">n</span><span class="o">:</span> <span class="mi">1</span><span class="p">}}}}</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="sx">p2</span> <span class="na">result</span><span class="o">:</span> <span class="p">{</span><span class="na">patch</span><span class="o">:</span> <span class="p">{</span><span class="na">commit</span><span class="o">:</span> <span class="mi">1</span> <span class="na">data</span><span class="o">:</span> <span class="p">{</span><span class="na">n</span><span class="o">:</span> <span class="mi">2</span><span class="p">}}}}</span>
+</code></pre></div>
+<p>The transaction commits when every participant has arrived; every precondition is
+checked at that moment, and either all of them hold and the whole transaction commits,
+or one fails and none of it is written. Both participants report the <strong>same commit</strong>.
+<code>timeout</code> bounds one participant's wait. Across mounts, docd decomposes a patch spanning
+several controllers into exactly this — see
+<a href="../../docd/transactions/">Multi-mount transactions</a>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Give the participants ids</p>
+<p>A joining patch does not return until the whole transaction commits, so the
+participants must be <strong>in flight together</strong>. With <code>id</code>s they are: the client sends
+them all and matches the answers as they arrive. Without ids, a client that waits for
+the first answer before sending the second is waiting for a transaction that is
+waiting for it, and it fails on the transaction timeout.</p>
+<p>The participants may share one session (as above) or sit on separate ones — a
+multi-mount write through docd is the latter, one participant per controller.</p>
+</div>
+<p><strong>Across docd mounts</strong>, a client's own transaction works as it does anywhere: mounts share
+the commit sequence, so each participant is routed to its owning controller, which joins
+that transaction on the one logd, and all of them report the same commit.</p>
+<div class="admonition warning">
+<p class="admonition-title">A participant may not span mounts</p>
+<p>What a participant patch may <em>not</em> do is span mount boundaries itself. docd decomposes
+such a patch into one participant per mount — and a transaction's participant count was
+fixed when the client created it, counting its own patches rather than docd's
+decomposition of one of them. It is refused:</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="p">{</span><span class="na">error</span><span class="o">:</span> <span class="p">{</span><span class="na">code</span><span class="o">:</span> <span class="sx">invalid_tx</span> <span class="na">message</span><span class="o">:</span> <span class="s2">&quot;a patch inside a transaction may not span mounts:</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>  <span class="sx">\</span><span class="s2">&quot;verse\&quot; covers [verse.a verse.b] and the base; send one patch per mount as its own</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>  <span class="sx">participant</span><span class="p">,</span> <span class="sx">and</span> <span class="sx">count</span> <span class="sx">them</span> <span class="sx">in</span> <span class="sx">newtx</span><span class="s2">&quot;}}</span>
+</code></pre></div>
+<p>A <em>stand-alone</em> patch spanning mounts is a different thing and needs no <code>newtx</code>: docd
+decomposes it into its own transaction, which is what
+<a href="../../docd/transactions/">Multi-mount transactions</a> describes.</p>
+</div>
+<h2 id="watching">Watching<a class="headerlink" href="#watching" title="Permanent link">#</a></h2>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="s2">&quot;w1&quot;</span><span class="p">,</span> <span class="na">watch</span><span class="o">:</span> <span class="p">{</span><span class="na">path</span><span class="o">:</span> <span class="s2">&quot;verse.entities&quot;</span><span class="p">}}</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="sx">w1</span> <span class="na">result</span><span class="o">:</span> <span class="p">{</span><span class="na">watch</span><span class="o">:</span> <span class="p">{</span><span class="na">watching</span><span class="o">:</span> <span class="sx">verse.entities</span><span class="p">}}}</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="p">{</span><span class="na">event</span><span class="o">:</span> <span class="p">{</span><span class="na">commit</span><span class="o">:</span> <span class="mi">1</span> <span class="na">path</span><span class="o">:</span> <span class="sx">verse.entities</span> <span class="na">state</span><span class="o">:</span> <span class="p">{</span><span class="na">e1</span><span class="o">:</span> <span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="sx">e1</span> <span class="na">status</span><span class="o">:</span> <span class="sx">ready</span><span class="p">}}}</span> <span class="na">id</span><span class="o">:</span> <span class="sx">w1</span><span class="p">}</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="p">{</span><span class="na">event</span><span class="o">:</span> <span class="p">{</span><span class="na">commit</span><span class="o">:</span> <span class="mi">2</span> <span class="na">patch</span><span class="o">:</span> <span class="p">{</span><span class="na">verse</span><span class="o">:</span> <span class="p">{</span><span class="na">entities</span><span class="o">:</span> <span class="p">{</span><span class="na">e2</span><span class="o">:</span> <span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="sx">e2</span><span class="p">}}}}</span> <span class="na">path</span><span class="o">:</span> <span class="sx">verse.entities</span><span class="p">}</span> <span class="na">id</span><span class="o">:</span> <span class="sx">w1</span><span class="p">}</span>
+</code></pre></div>
+<p>The first event is the <strong>state</strong> at the path; every event after it is the <strong>delta of
+one commit</strong>, in commit order, with no gaps. A consumer that applies them in order
+holds what the store holds.</p>
+<div class="admonition warning">
+<p class="admonition-title">The two event kinds are rooted differently</p>
+<p><code>state</code> carries the subtree <strong>at the watched path</strong>. <code>patch</code> carries a delta rooted
+at the <strong>document</strong>, as stored — above it is the untouched spine, <code>{verse:
+{entities: …}}</code> for a watch of <code>verse.entities</code>.</p>
+<p>So a delta cannot be applied to the state as given; a consumer either navigates the
+patch down to the watched path, or keeps a document-rooted copy. The store keeps the
+raw committed delta deliberately, because rewrapping it would lose operator fidelity
+for <code>!key</code> and friends — but the asymmetry is a trap, and it is a known one.</p>
+</div>
+<ul>
+<li><code>fromCommit</code> replays the exact delta history from that commit before streaming live,
+  so a client that knows where it left off reconnects with no gap. The watch result then
+  carries <code>replayingFrom</code> and <code>replayingTo</code> — the range being replayed — and a
+  <code>replayComplete</code> event marks the end of it. Below the retained history an <strong>absolute</strong>
+  <code>fromCommit</code> is <code>replay_compacted</code>: a client naming a commit is claiming to know where
+  it was, and deserves to be told the history is gone.</li>
+<li>
+<p><strong>A negative <code>fromCommit</code> is relative</strong>: <code>-N</code> asks for <em>the last N commits</em>, resolved
+  against the store's watermark at the moment the watch is established.</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="s2">&quot;w1&quot;</span><span class="p">,</span> <span class="na">watch</span><span class="o">:</span> <span class="p">{</span><span class="na">path</span><span class="o">:</span> <span class="s2">&quot;verse.entities&quot;</span><span class="p">,</span> <span class="na">fromCommit</span><span class="o">:</span> <span class="mi">-100</span><span class="p">}}</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="sx">w1</span> <span class="na">result</span><span class="o">:</span> <span class="p">{</span><span class="na">watch</span><span class="o">:</span> <span class="p">{</span><span class="na">replayingFrom</span><span class="o">:</span> <span class="mi">41</span> <span class="na">replayingTo</span><span class="o">:</span> <span class="mi">141</span> <span class="na">watching</span><span class="o">:</span> <span class="sx">verse.entities</span><span class="p">}}}</span>
+</code></pre></div>
+<p>It is how a client asks for a window of history <strong>without knowing where the store
+is</strong> — no read, no ping, no arithmetic on a number it had to fetch first. Unlike an
+absolute cursor it is <strong>clamped, not refused</strong>: below the retained history it starts
+at the floor, and below zero at zero, because a request for a window is a request for
+what there is. <code>replayingFrom</code> says what it resolved to, so a client that was clamped
+can see that it was.</p>
+</li>
+<li>
+<p><code>noInit</code> skips the initial state for a client that already has one.</p>
+</li>
+</ul>
+<p><strong>Across docd mounts.</strong> Mounts share the commit sequence for their lifetime — docd
+allocates a transaction id from logd, every participant commits through that one logd under
+it, all-or-nothing — so a commit means the same thing to every mount and a cursor works on
+a composed path too. docd resolves it once (a relative <code>-N</code> against the watermark, clamped
+to the retained floor), reads the composed initial state at that commit, replays every
+mount from it, and delivers the replayed deltas <strong>in commit order</strong> followed by a single
+<code>replayComplete</code>.</p>
+<p>What a composed watcher must account for is <strong>membership</strong>: a mount arriving or leaving
+mid-watch ends the watch with <code>session_mounted</code> or <code>session_unmounted</code>, and the re-watch
+composes the new membership — the composition changed, so deltas from before it describe a
+different document.</p>
+<h2 id="liveness-and-where-the-store-is">Liveness, and where the store is<a class="headerlink" href="#liveness-and-where-the-store-is" title="Permanent link">#</a></h2>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="p">{</span><span class="na">ping</span><span class="o">:</span> <span class="p">{}}</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="p">{</span><span class="na">result</span><span class="o">:</span> <span class="p">{</span><span class="na">pong</span><span class="o">:</span> <span class="p">{</span><span class="na">commit</span><span class="o">:</span> <span class="mi">52795</span><span class="p">}}}</span>
+</code></pre></div>
+<p>A ping is answered by whichever server owns the connection — logd, or docd itself for a
+client session — so a pong means <strong>that server's request loop is alive</strong>, which is what
+a liveness probe is asking. It carries the head commit with it, so a client tracks the
+store's revision from the heartbeat it already sends: no watch held open, no polling
+read, nothing extra on the wire.</p>
+<p>Through docd the number is docd's own high-water mark over everything it has told any
+client. It is monotonic and it chases the head — a revision to <strong>compare</strong>, not a commit
+to read at, since docd composes mounts with independent commit sequences.</p>
+<h2 id="scopes">Scopes<a class="headerlink" href="#scopes" title="Permanent link">#</a></h2>
+<p><code>hello</code> fixes a copy-on-write scope for everything sent on that connection:</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="p">{</span><span class="na">hello</span><span class="o">:</span> <span class="p">{</span><span class="na">clientId</span><span class="o">:</span> <span class="sx">verse</span><span class="p">,</span> <span class="na">scope</span><span class="o">:</span> <span class="s2">&quot;sandbox-7&quot;</span><span class="p">}}</span>
+</code></pre></div>
+<p>Reads then see baseline with the scope's own writes on top, and writes land in the
+scope. Baseline keeps moving underneath — a scope is a live overlay, not a frozen
+branch.</p>
+<h2 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">#</a></h2>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="p">{</span><span class="na">error</span><span class="o">:</span> <span class="p">{</span><span class="na">code</span><span class="o">:</span> <span class="sx">not_found</span> <span class="na">message</span><span class="o">:</span> <span class="s1">&#39;no value at &quot;verse.nope&quot;: resolved through &quot;verse&quot;, no field &quot;nope&quot;&#39;</span><span class="p">}}</span>
+</code></pre></div>
+<p>Branch on <code>code</code>, not on <code>message</code>. The first three are three facts about the PRESENT, and
+none of them says anything about the future: in a mutable document <code>a.b[0]</code> resolves the
+moment someone writes an array at <code>a.b</code>, exactly as <code>a.b.c</code> resolves the moment someone
+writes an object at <code>a.b</code>. What separates them is what is there now.</p>
+<table>
+<thead>
+<tr>
+<th>code</th>
+<th>means</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>not_found</code></td>
+<td><strong>nothing is there.</strong> Nothing in the document contradicts the path, so creating what is missing is a reasonable next move</td>
+</tr>
+<tr>
+<td><code>path_conflict</code></td>
+<td><strong>something is there, of a shape that cannot hold what you asked for</strong> — an index into an object, a field under a string. Creating here means clobbering what is already there, so the move is to re-examine the shape you assumed</td>
+</tr>
+<tr>
+<td><code>invalid_path</code></td>
+<td><strong>not a well-formed question</strong> — a wildcard names a set of values and a read answers one</td>
+</tr>
+<tr>
+<td><code>match_failed</code></td>
+<td>a precondition did not hold; the write did not happen</td>
+</tr>
+<tr>
+<td><code>invalid_diff</code></td>
+<td>the delta would not apply to the state it would be stored against</td>
+</tr>
+<tr>
+<td><code>commit_not_found</code></td>
+<td>a historical read outside <code>[0, current]</code></td>
+</tr>
+<tr>
+<td><code>replay_compacted</code></td>
+<td><code>fromCommit</code> is below retained delta history</td>
+</tr>
+<tr>
+<td><code>slow_consumer</code></td>
+<td>a watch was dropped because the client did not keep up</td>
+</tr>
+<tr>
+<td><code>tx_full</code>, <code>tx_not_found</code>, <code>tx_scope_mismatch</code></td>
+<td>transaction membership</td>
+</tr>
+<tr>
+<td><code>controller_unavailable</code></td>
+<td>(docd) the controller owning that subtree is gone</td>
+</tr>
+<tr>
+<td><code>unsupported</code></td>
+<td>the responder does not implement that operation</td>
+</tr>
+</tbody>
+</table>
+<p><code>timeout</code>, <code>session_closed</code> and <code>invalid_message</code> mean what they say.</p>
+<h2 id="the-mount-protocol">The mount protocol<a class="headerlink" href="#the-mount-protocol" title="Permanent link">#</a></h2>
+<p>Everything above is what a <strong>client</strong> sends. A <strong>controller</strong> — a process that owns a
+subtree of the document — connects to docd's <em>mount</em> listener instead, and the shape of
+the conversation inverts: after a short handshake, docd sends it session requests and it
+answers them.</p>
+<h3 id="handshake">Handshake<a class="headerlink" href="#handshake" title="Permanent link">#</a></h3>
+<p>Two steps, both Tony documents:</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="p">{</span><span class="na">hello</span><span class="o">:</span> <span class="p">{</span><span class="na">controller</span><span class="o">:</span> <span class="s2">&quot;git-source&quot;</span><span class="p">}}</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="p">{</span><span class="na">result</span><span class="o">:</span> <span class="p">{</span><span class="na">hello</span><span class="o">:</span> <span class="p">{</span><span class="na">docdId</span><span class="o">:</span> <span class="s2">&quot;docd-1&quot;</span><span class="p">}}}</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="p">{</span><span class="na">mount</span><span class="o">:</span> <span class="p">{</span><span class="na">path</span><span class="o">:</span> <span class="s2">&quot;verse.sources.git&quot;</span><span class="p">,</span> <span class="na">schema</span><span class="o">:</span> <span class="sx">&lt;schema&gt;</span><span class="p">,</span> <span class="na">forceAfter</span><span class="o">:</span> <span class="s2">&quot;5s&quot;</span><span class="p">}}</span>
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="p">{</span><span class="na">result</span><span class="o">:</span> <span class="p">{</span><span class="na">mount</span><span class="o">:</span> <span class="p">{</span><span class="na">path</span><span class="o">:</span> <span class="s2">&quot;verse.sources.git&quot;</span> <span class="na">accepted</span><span class="o">:</span> <span class="l">true</span><span class="p">}}}</span>
+</code></pre></div>
+<ul>
+<li><code>controller</code> names the process; docd answers with its own identity.</li>
+<li><code>path</code> is the subtree this controller owns. Mounts are single-owner and may nest;
+  routing resolves to the <strong>deepest</strong> mount covering a path. <code>.meta</code> is reserved.</li>
+<li><code>schema</code> is the controller's contribution — chiefly which of its arrays are
+  <a href="../keyed/">keyed</a>, which changes what a write to them <em>means</em>.</li>
+<li><code>forceAfter</code> bounds how long the mount waits for overlapping watches to drain before
+  force-ending them. A controller releases its subtree with
+  <code>{unmount: {forceAfter: "5s"}}</code>.</li>
+</ul>
+<p>Errors on this listener are <code>{error: {code: …, message: …}}</code>, same vocabulary.</p>
+<h3 id="then-the-session-protocol-inverted">Then the session protocol, inverted<a class="headerlink" href="#then-the-session-protocol-inverted" title="Permanent link">#</a></h3>
+<p>Once the mount is accepted, docd forwards every client <code>match</code>, <code>patch</code>, <code>watch</code> and
+<code>unwatch</code> whose path falls at or under the mounted path — <strong>as the same session
+requests documented above</strong> — and relays the controller's responses back to the client
+that asked. A controller is therefore a <em>server</em> of this protocol, not a client of it:
+it answers <code>{result: {match: …}}</code>, it emits <code>{event: …}</code> for a watch it is serving, and
+it declines what it does not implement with <code>unsupported</code>.</p>
+<p>Two differences from a client connection are worth knowing:</p>
+<ul>
+<li><strong><code>id</code> is docd's, not the client's.</strong> docd rewrites the id on the way out and maps the
+  answer back, because many clients share one controller connection. Answer with the id
+  you were given.</li>
+<li><strong>Scope rides the request.</strong> A client's COW scope is fixed by its <code>hello</code>, but docd
+  multiplexes many client sessions onto one controller connection, so per-connection
+  scope cannot tell them apart. docd sets <code>scope</code> on each routed request instead; a
+  scope-aware controller honours that field.</li>
+</ul>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="s2">&quot;7&quot;</span><span class="p">,</span> <span class="na">scope</span><span class="o">:</span> <span class="s2">&quot;sandbox-3&quot;</span><span class="p">,</span> <span class="na">match</span><span class="o">:</span> <span class="p">{</span><span class="na">path</span><span class="o">:</span> <span class="s2">&quot;verse.sources.git.repos&quot;</span><span class="p">}}</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="p">{</span><span class="na">id</span><span class="o">:</span> <span class="s2">&quot;7&quot;</span><span class="p">,</span> <span class="na">result</span><span class="o">:</span> <span class="p">{</span><span class="na">match</span><span class="o">:</span> <span class="p">{</span><span class="na">body</span><span class="o">:</span> <span class="p">{</span><span class="sx">…</span><span class="p">}</span> <span class="na">commit</span><span class="o">:</span> <span class="mi">91</span><span class="p">}}}</span>
+</code></pre></div>
+<h3 id="clocks">Clocks<a class="headerlink" href="#clocks" title="Permanent link">#</a></h3>
+<p>A mount connection can also ask docd to serve a <strong>virtual clock</strong> rather than (or
+alongside) a controller-backed subtree:</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="p">{</span><span class="na">hello</span><span class="o">:</span> <span class="p">{</span><span class="na">controller</span><span class="o">:</span> <span class="s2">&quot;ticker&quot;</span><span class="p">,</span> <span class="na">clock</span><span class="o">:</span> <span class="p">{</span><span class="na">path</span><span class="o">:</span> <span class="s2">&quot;sys.clock&quot;</span><span class="p">,</span> <span class="na">frequency</span><span class="o">:</span> <span class="s2">&quot;1s&quot;</span><span class="p">,</span> <span class="na">epoch</span><span class="o">:</span> <span class="mi">0</span><span class="p">}}}</span>
+</code></pre></div>
+<p>docd then serves <code>sys.clock</code> itself as a single monotonic int64 — <code>epoch + N ×
+frequency</code> in nanoseconds at tick N, computed on demand, with no tick history kept.
+Reads and watches of that path are answered by docd directly; it is read-only, and it
+is docd's own, so logd knows nothing about it.</p>
+<p>See <a href="../../docd/mounts/">Mounts &amp; routing</a> for the registry, tombstones and the <code>.meta</code>
+namespace, and <a href="../../docd/composition/">Composition</a> for what happens to a read or a
+watch that spans several mounts.</p></div>
+            </div>
+        </div>
+
+        <footer class="col-md-12">
+            <hr>
+            <p>Documentation built with <a href="https://www.mkdocs.org/">MkDocs</a>.</p>
+        </footer>
+        <script src="../../js/bootstrap.bundle.min.js"></script>
+        <script>
+            var base_url = "../..",
+                shortcuts = {"help": 191, "next": 78, "previous": 80, "search": 83};
+        </script>
+        <script src="../../js/base.js"></script>
+
+        <div class="modal" id="mkdocs_keyboard_modal" tabindex="-1" role="dialog" aria-labelledby="keyboardModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="keyboardModalLabel">Keyboard Shortcuts</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th style="width: 20%;">Keys</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="help shortcut"><kbd>?</kbd></td>
+                    <td>Open this help</td>
+                  </tr>
+                  <tr>
+                    <td class="next shortcut"><kbd>n</kbd></td>
+                    <td>Next page</td>
+                  </tr>
+                  <tr>
+                    <td class="prev shortcut"><kbd>p</kbd></td>
+                    <td>Previous page</td>
+                  </tr>
+                  <tr>
+                    <td class="search shortcut"><kbd>s</kbd></td>
+                    <td>Search</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div>
+
+    </body>
+</html>

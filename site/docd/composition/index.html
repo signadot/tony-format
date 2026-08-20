@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+
+<html data-bs-theme="light" lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="IE=edge" http-equiv="X-UA-Compatible"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="../../img/favicon.ico" rel="shortcut icon"/>
+<title>docd: Composition — reads &amp; watches - Tony Format</title>
+<link href="../../css/bootstrap.min.css" rel="stylesheet"/>
+<link href="../../css/fontawesome.min.css" rel="stylesheet"/>
+<link href="../../css/brands.min.css" rel="stylesheet"/>
+<link href="../../css/solid.min.css" rel="stylesheet"/>
+<link href="../../css/v4-font-face.min.css" rel="stylesheet"/>
+<link href="../../css/base.css" rel="stylesheet"/>
+<link href="../../pygments.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="navbar fixed-top navbar-expand-lg navbar-dark bg-primary">
+<div class="container">
+<a class="navbar-brand" href="../..">Tony Format</a>
+<!-- Expander button -->
+<button aria-controls="navbar-collapse" aria-expanded="false" aria-label="Toggle navigation" class="navbar-toggler" data-bs-target="#navbar-collapse" data-bs-toggle="collapse" type="button">
+<span class="navbar-toggler-icon"></span>
+</button>
+<!-- Expanded navigation -->
+<div class="navbar-collapse collapse" id="navbar-collapse">
+<!-- Main navigation -->
+<ul class="nav navbar-nav">
+<li class="nav-item dropdown">
+<a aria-expanded="false" class="nav-link dropdown-toggle" data-bs-toggle="dropdown" href="#" role="button">Format</a>
+<ul class="dropdown-menu">
+<li>
+<a class="dropdown-item" href="../../tony/">Tony Format</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../ir/">Tony IR</a>
+</li>
+</ul>
+</li>
+<li class="nav-item dropdown">
+<a aria-expanded="false" class="nav-link dropdown-toggle" data-bs-toggle="dropdown" href="#" role="button">Schema</a>
+<ul class="dropdown-menu">
+<li>
+<a class="dropdown-item" href="../../tonyschema/">Tony Schema</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../tonyschema/schema/">Schema Structure</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../tonyschema/contexts/">Contexts</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../tonyschema/tags/">Tags</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../tonyschema/validation/">Validation</a>
+</li>
+</ul>
+</li>
+<li class="nav-item dropdown">
+<a aria-current="page" aria-expanded="false" class="nav-link dropdown-toggle active" data-bs-toggle="dropdown" href="#" role="button">Tools</a>
+<ul class="dropdown-menu">
+<li>
+<a class="dropdown-item" href="../../extraformat/">Extra-Format Encoding</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../o/">o</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../gomap/">Golang</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../logd/">logd</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../logd/session/">logd: The session protocol</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../logd/writes/">logd: What a write must be</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../logd/keyed/">logd: Keyed arrays</a>
+</li>
+<li>
+<a class="dropdown-item" href="../">docd</a>
+</li>
+<li>
+<a class="dropdown-item" href="../mounts/">docd: Mounts &amp; routing</a>
+</li>
+<li>
+<a aria-current="page" class="dropdown-item active" href="./">docd: Composition — reads &amp; watches</a>
+</li>
+<li>
+<a class="dropdown-item" href="../transactions/">docd: Multi-mount transactions</a>
+</li>
+</ul>
+</li>
+<li class="nav-item dropdown">
+<a aria-expanded="false" class="nav-link dropdown-toggle" data-bs-toggle="dropdown" href="#" role="button">Reference</a>
+<ul class="dropdown-menu">
+<li>
+<a class="dropdown-item" href="../../build-eval/">Tony Evaluation Model</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../generated/">Tags</a>
+</li>
+<li>
+<a class="dropdown-item" href="../../matchpatch/">Matching and Patching</a>
+</li>
+</ul>
+</li>
+</ul>
+<ul class="nav navbar-nav ms-md-auto">
+<li class="nav-item">
+<a class="nav-link" href="../mounts/" rel="prev">
+<i class="fa fa-arrow-left"></i> Previous
+                                </a>
+</li>
+<li class="nav-item">
+<a class="nav-link" href="../transactions/" rel="next">
+                                    Next <i class="fa fa-arrow-right"></i>
+</a>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="container">
+<div class="row">
+<div class="col-md-3"><div class="navbar-expand-md bs-sidebar hidden-print affix" role="complementary">
+<div class="navbar-header">
+<button class="navbar-toggler collapsed" data-bs-target="#toc-collapse" data-bs-toggle="collapse" title="Table of Contents" type="button">
+<span class="fa fa-angle-down"></span>
+</button>
+</div>
+<div class="navbar-collapse collapse card bg-body-tertiary" id="toc-collapse">
+<ul class="nav flex-column">
+<li class="nav-item" data-bs-level="1"><a class="nav-link" href="#composition-reads-watches">Composition: reads &amp; watches</a>
+<ul class="nav flex-column">
+<li class="nav-item" data-bs-level="2"><a class="nav-link" href="#composed-reads-match">Composed reads (Match)</a>
+<ul class="nav flex-column">
+</ul>
+</li>
+<li class="nav-item" data-bs-level="2"><a class="nav-link" href="#composed-watches">Composed watches</a>
+<ul class="nav flex-column">
+</ul>
+</li>
+<li class="nav-item" data-bs-level="2"><a class="nav-link" href="#coordination">Coordination</a>
+<ul class="nav flex-column">
+</ul>
+</li>
+<li class="nav-item" data-bs-level="2"><a class="nav-link" href="#event-preservation-reconnect">Event preservation &amp; reconnect</a>
+<ul class="nav flex-column">
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</div>
+</div></div>
+<div class="col-md-9" role="main">
+<h1 id="composition-reads-watches">Composition: reads &amp; watches<a class="headerlink" href="#composition-reads-watches" title="Permanent link">#</a></h1>
+<p>docd single-routes an operation to one owner. But a read or watch whose path is an
+<em>ancestor</em> of one or more mounts has no single owner — the answer lives partly in the
+base store and partly in each mounted subtree beneath it. docd <strong>composes</strong> these.</p>
+<div class="mermaid">flowchart TD
+  op["Match/Watch on 'org' (ancestor)"] --&gt; docd
+  docd --&gt; base["base: org (minus mounts) → logd"]
+  docd --&gt; m1["mount: org.users → controller A"]
+  docd --&gt; m2["mount: org.audit → controller B"]
+  base --&gt; merge["merge subtrees"]
+  m1 --&gt; merge
+  m2 --&gt; merge
+  merge --&gt; client
+</div>
+<h2 id="composed-reads-match">Composed reads (Match)<a class="headerlink" href="#composed-reads-match" title="Permanent link">#</a></h2>
+<p>When a <code>Match</code> path is a strict ancestor of one or more mounts, docd fans the read
+across the base owner and every mount below it, reads each subtree, and merges them
+into one document before replying. Each source read is bounded by a timeout so one
+stalled controller cannot hang the client's read; the composition runs on a background
+goroutine so the client's request loop keeps serving.</p>
+<p>A read with no mount beneath it — the common single-owner case — is single-routed
+normally. Root and <code>.meta</code> reads are out of scope for composition.</p>
+<h2 id="composed-watches">Composed watches<a class="headerlink" href="#composed-watches" title="Permanent link">#</a></h2>
+<p>A composed <code>Watch</code> multiplexes several backend sub-watches into the client's one watch:</p>
+<ol>
+<li>docd opens a sub-watch on the base owner and on each mount below the watched path,
+   each with <code>noInit</code> set — their deltas are buffered as they arrive.</li>
+<li>docd sends <strong>one</strong> composed initial snapshot (the merged subtrees at the current
+   commit) as the watch's <code>State</code> event.</li>
+<li>docd flushes the buffered deltas and then forwards live deltas.</li>
+</ol>
+<p>Establishing the sub-watches <em>before</em> taking the snapshot is what makes the handoff
+gapless: any change between the snapshot and going live is buffered, not lost.</p>
+<h3 id="delta-rooting">Delta rooting<a class="headerlink" href="#delta-rooting" title="Permanent link">#</a></h3>
+<p>The watch stream follows one contract:</p>
+<ul>
+<li>the initial <strong><code>State</code></strong> event is <strong>relative to the watched path</strong> (its value is the
+  subtree at that path); and</li>
+<li>every subsequent <strong><code>Patch</code></strong> (delta) is <strong>root-rooted</strong> — an absolute patch from the
+  document root.</li>
+</ul>
+<p>Because deltas are root-rooted, docd forwards a sub-watch's delta by re-stamping only
+its <code>Path</code> to the client's watch path; the patch body passes through unchanged. (logd
+may normalize a delta's shape — e.g. emit a <code>!replace</code> — so a watch consumer <em>applies</em>
+deltas to track state rather than pattern-matching their surface form.)</p>
+<h2 id="coordination">Coordination<a class="headerlink" href="#coordination" title="Permanent link">#</a></h2>
+<p>Mount membership must stay fixed for a composed watch's lifetime, or its snapshot and
+its sub-watch set would disagree. docd enforces this with a small
+reader/writer coordinator:</p>
+<ul>
+<li><strong>Writers</strong> are <code>mount</code>/<code>unmount</code>; <strong>readers</strong> are active watches. They conflict on
+  <strong>overlapping</strong> paths — one path is a prefix of the other.</li>
+<li><strong>Writer priority</strong>: once a mount at a path is pending, new overlapping watches block
+  until it finishes, so a stream of arriving watches cannot starve a mount.</li>
+<li>The mount then waits <strong><code>forceAfter</code></strong> (<code>0</code> = forever) for the already-active
+  overlapping watches to drain; any that remain are <strong>force-ended</strong> so membership can
+  change.</li>
+</ul>
+<h2 id="event-preservation-reconnect">Event preservation &amp; reconnect<a class="headerlink" href="#event-preservation-reconnect" title="Permanent link">#</a></h2>
+<p><strong>Event preservation</strong> — every state change delivered as a discrete delta — is a
+<strong>logd guarantee</strong>, resting on logd's single commit sequence: a single-route watch
+inherits it fully, and <code>FromCommit</code> replays the exact delta history.</p>
+<p>Across <strong>mount boundaries</strong> it is <strong>best-effort</strong>. A composed watch multiplexes
+backends with <em>independent</em> commit sequences, so a single resume commit cannot replay
+them. Rather than build a multi-sequence replay, docd handles a membership change by
+<strong>re-initializing</strong>:</p>
+<ul>
+<li>a <code>mount</code>/<code>unmount</code> that changes membership <strong>ends</strong> the overlapping watch with a
+  terminal event, <code>EndReason: "membership_changed"</code>;</li>
+<li>the client <strong>re-watches</strong> the same path — now composed over the new mount set — and
+  receives a fresh composed <strong><code>State</code></strong> snapshot (a re-sync to current), not a replay
+  of the gap.</li>
+</ul>
+<p>A snapshot-diffing consumer reconciles the re-init with no lost state. The terminal
+event also carries the <strong>last delivered commit</strong> as a resume point
+(<code>WatchEndedError.Commit</code> in libctl) — exact for a single-route watch (where
+<code>Watch(FromCommit:)</code> replays the gap), a best-effort hint for a composed one.</p>
+<p>So the contract is: <strong>watches are event-preserving while streaming; a membership
+change is a re-sync, not a guaranteed replay.</strong> A watch that never spans a mount
+boundary is fully event-preserving via logd.</p></div>
+</div>
+</div>
+<footer class="col-md-12">
+<hr/>
+<p>Documentation built with <a href="https://www.mkdocs.org/">MkDocs</a>.</p>
+</footer>
+<script src="../../js/bootstrap.bundle.min.js"></script>
+<script>
+            var base_url = "../..",
+                shortcuts = {"help": 191, "next": 78, "previous": 80, "search": 83};
+        </script>
+<script src="../../js/base.js"></script>
+<div aria-hidden="true" aria-labelledby="keyboardModalLabel" class="modal" id="mkdocs_keyboard_modal" role="dialog" tabindex="-1">
+<div class="modal-dialog">
+<div class="modal-content">
+<div class="modal-header">
+<h4 class="modal-title" id="keyboardModalLabel">Keyboard Shortcuts</h4>
+<button aria-label="Close" class="btn-close" data-bs-dismiss="modal" type="button"></button>
+</div>
+<div class="modal-body">
+<table class="table">
+<thead>
+<tr>
+<th style="width: 20%;">Keys</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="help shortcut"><kbd>?</kbd></td>
+<td>Open this help</td>
+</tr>
+<tr>
+<td class="next shortcut"><kbd>n</kbd></td>
+<td>Next page</td>
+</tr>
+<tr>
+<td class="prev shortcut"><kbd>p</kbd></td>
+<td>Previous page</td>
+</tr>
+<tr>
+<td class="search shortcut"><kbd>s</kbd></td>
+<td>Search</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="modal-footer">
+</div>
+</div>
+</div>
+</div>
+<script type="module">import mermaid from "https://unpkg.com/mermaid@10.4.0/dist/mermaid.esm.min.mjs";
+mermaid.initialize({});</script></body>
+</html>

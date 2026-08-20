@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        
+        
+        <link rel="shortcut icon" href="../img/favicon.ico">
+        <title>Tags - Tony Format</title>
+        <link href="../css/bootstrap.min.css" rel="stylesheet">
+        <link href="../css/fontawesome.min.css" rel="stylesheet">
+        <link href="../css/brands.min.css" rel="stylesheet">
+        <link href="../css/solid.min.css" rel="stylesheet">
+        <link href="../css/v4-font-face.min.css" rel="stylesheet">
+        <link href="../css/base.css" rel="stylesheet">
+        <link href="../pygments.css" rel="stylesheet"> 
+    </head>
+
+    <body>
+        <div class="navbar fixed-top navbar-expand-lg navbar-dark bg-primary">
+            <div class="container">
+                <a class="navbar-brand" href="..">Tony Format</a>
+                <!-- Expander button -->
+                <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar-collapse" aria-controls="navbar-collapse" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                <!-- Expanded navigation -->
+                <div id="navbar-collapse" class="navbar-collapse collapse">
+                        <!-- Main navigation -->
+                        <ul class="nav navbar-nav">
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Format</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../tony/" class="dropdown-item">Tony Format</a>
+</li>
+                                    
+<li>
+    <a href="../ir/" class="dropdown-item">Tony IR</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Schema</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../tonyschema/" class="dropdown-item">Tony Schema</a>
+</li>
+                                    
+<li>
+    <a href="../tonyschema/schema/" class="dropdown-item">Schema Structure</a>
+</li>
+                                    
+<li>
+    <a href="../tonyschema/contexts/" class="dropdown-item">Contexts</a>
+</li>
+                                    
+<li>
+    <a href="../tonyschema/tags/" class="dropdown-item">Tags</a>
+</li>
+                                    
+<li>
+    <a href="../tonyschema/validation/" class="dropdown-item">Validation</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Tools</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../extraformat/" class="dropdown-item">Extra-Format Encoding</a>
+</li>
+                                    
+<li>
+    <a href="../o/" class="dropdown-item">o</a>
+</li>
+                                    
+<li>
+    <a href="../gomap/" class="dropdown-item">Golang</a>
+</li>
+                                    
+<li>
+    <a href="../logd/" class="dropdown-item">logd</a>
+</li>
+                                    
+<li>
+    <a href="../logd/session/" class="dropdown-item">logd: The session protocol</a>
+</li>
+                                    
+<li>
+    <a href="../logd/writes/" class="dropdown-item">logd: What a write must be</a>
+</li>
+                                    
+<li>
+    <a href="../logd/keyed/" class="dropdown-item">logd: Keyed arrays</a>
+</li>
+                                    
+<li>
+    <a href="../docd/" class="dropdown-item">docd</a>
+</li>
+                                    
+<li>
+    <a href="../docd/mounts/" class="dropdown-item">docd: Mounts & routing</a>
+</li>
+                                    
+<li>
+    <a href="../docd/composition/" class="dropdown-item">docd: Composition — reads & watches</a>
+</li>
+                                    
+<li>
+    <a href="../docd/transactions/" class="dropdown-item">docd: Multi-mount transactions</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle active" aria-current="page" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Reference</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../build-eval/" class="dropdown-item">Tony Evaluation Model</a>
+</li>
+                                    
+<li>
+    <a href="./" class="dropdown-item active" aria-current="page">Tags</a>
+</li>
+                                    
+<li>
+    <a href="../matchpatch/" class="dropdown-item">Matching and Patching</a>
+</li>
+                                </ul>
+                            </li>
+                        </ul>
+
+                    <ul class="nav navbar-nav ms-md-auto">
+                            <li class="nav-item">
+                                <a rel="prev" href="../build-eval/" class="nav-link">
+                                    <i class="fa fa-arrow-left"></i> Previous
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a rel="next" href="../matchpatch/" class="nav-link">
+                                    Next <i class="fa fa-arrow-right"></i>
+                                </a>
+                            </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="row">
+                    <div class="col-md-3"><div class="navbar-expand-md bs-sidebar hidden-print affix" role="complementary">
+    <div class="navbar-header">
+        <button type="button" class="navbar-toggler collapsed" data-bs-toggle="collapse" data-bs-target="#toc-collapse" title="Table of Contents">
+            <span class="fa fa-angle-down"></span>
+        </button>
+    </div>
+
+    
+    <div id="toc-collapse" class="navbar-collapse collapse card bg-body-tertiary">
+        <ul class="nav flex-column">
+            
+            <li class="nav-item" data-bs-level="1"><a href="#operation-reference" class="nav-link">Operation Reference</a>
+              <ul class="nav flex-column">
+            <li class="nav-item" data-bs-level="2"><a href="#eval-operations" class="nav-link">Eval Operations</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#mergeop-operations" class="nav-link">Mergeop Operations</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+              </ul>
+            </li>
+        </ul>
+    </div>
+</div></div>
+                    <div class="col-md-9" role="main">
+
+<h1 id="operation-reference">Operation Reference<a class="headerlink" href="#operation-reference" title="Permanent link">#</a></h1>
+<p>This documentation is automatically generated from the operation registry.</p>
+<h2 id="eval-operations">Eval Operations<a class="headerlink" href="#eval-operations" title="Permanent link">#</a></h2>
+<p>See <a href="eval/">eval operations</a> for details.</p>
+<table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>Summary</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>!os_env</code></td>
+<td>Get value from OS environment variable</td>
+</tr>
+<tr>
+<td><code>!to_string</code></td>
+<td>Convert a value to a string</td>
+</tr>
+<tr>
+<td><code>!to_int</code></td>
+<td>Convert a value to an integer</td>
+</tr>
+<tr>
+<td><code>!eval</code></td>
+<td>Evaluate environment variables in a document</td>
+</tr>
+<tr>
+<td><code>!file</code></td>
+<td>Load content from a file or URL</td>
+</tr>
+<tr>
+<td><code>!exec</code></td>
+<td>Execute a shell command and capture output</td>
+</tr>
+</tbody>
+</table>
+<h2 id="mergeop-operations">Mergeop Operations<a class="headerlink" href="#mergeop-operations" title="Permanent link">#</a></h2>
+<p>Every operation the registry holds, with a one-line summary.
+<code>mergeop.TestIndexTableCoversEveryOperation</code> fails when one is added without a row here.
+<a href="mergeop/">mergeop operations</a> has an entry per operation with examples;
+<a href="../matchpatch/">matchpatch.md</a> has the same list with which of match and patch each is
+for.</p>
+<p><code>!key</code> is here too, though it is not an operation in the sense the others are: it declares
+that an array is keyed by a field, so its elements merge by identity rather than by
+position. It is used alongside these constantly, and a reader who does not find it concludes
+it does not exist — see <a href="../logd/keyed/">Keyed arrays</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>Summary</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>!addtag</code></td>
+<td>add a tag; the tag is what results</td>
+</tr>
+<tr>
+<td><code>!all</code></td>
+<td>apply the match (resp. patch) to every element of an array or object</td>
+</tr>
+<tr>
+<td><code>!and</code></td>
+<td>conjoin a list of matches, each applied to the corresponding doc</td>
+</tr>
+<tr>
+<td><code>!arraydiff</code></td>
+<td>an array edit, relative and positional</td>
+</tr>
+<tr>
+<td><code>!at</code></td>
+<td>walk to the path and apply the match there; see below</td>
+</tr>
+<tr>
+<td><code>!comment</code></td>
+<td>state the comments here; the operand names head, line or both, <code>[]</code> removing one</td>
+</tr>
+<tr>
+<td><code>!delete</code></td>
+<td>remove a value; absence is what results</td>
+</tr>
+<tr>
+<td><code>!dive</code></td>
+<td>dive into the doc and treat each subtree with a list of matches/patches</td>
+</tr>
+<tr>
+<td><code>!embed</code></td>
+<td>the operand is the result, with each occurrence of the key replaced by the doc</td>
+</tr>
+<tr>
+<td><code>!field</code></td>
+<td>match the field (a string), not its value</td>
+</tr>
+<tr>
+<td><code>!glob</code></td>
+<td>glob match a string</td>
+</tr>
+<tr>
+<td><code>!has-path</code></td>
+<td>the document has the path the operand names</td>
+</tr>
+<tr>
+<td><code>!if</code></td>
+<td>evaluate <code>if:</code> and patch with <code>then:</code> or <code>else:</code></td>
+</tr>
+<tr>
+<td><code>!insert</code></td>
+<td>add a value; the value is what results</td>
+</tr>
+<tr>
+<td><code>!ir</code></td>
+<td>match the node's IR fields, not its value: <code>!ir {int: .[number]}</code> an integer</td>
+</tr>
+<tr>
+<td><code>!irtype</code></td>
+<td>the node's kind equals the operand's: <code>!irtype ""</code> a string, <code>!irtype 0</code> a number</td>
+</tr>
+<tr>
+<td><code>!json-patch</code></td>
+<td>apply a json patch to the corresponding doc node</td>
+</tr>
+<tr>
+<td><code>!key</code></td>
+<td>associative lists as objects</td>
+</tr>
+<tr>
+<td><code>!let</code></td>
+<td>bind names in <code>let:</code>, then match with <code>in:</code>, referring to them as <code>.[name]</code></td>
+</tr>
+<tr>
+<td><code>!not</code></td>
+<td>negate a match (eg <code>!not.or [1,2,3]</code>)</td>
+</tr>
+<tr>
+<td><code>!nullify</code></td>
+<td>turn a node into a null without deleting it</td>
+</tr>
+<tr>
+<td><code>!or</code></td>
+<td>disjunction</td>
+</tr>
+<tr>
+<td><code>!pass</code></td>
+<td>match: accept anything / patch: leave the document as it is</td>
+</tr>
+<tr>
+<td><code>!pipe</code></td>
+<td>pipe the doc node to a program and replace it with the program's output</td>
+</tr>
+<tr>
+<td><code>!quote</code></td>
+<td>quote a document as a string</td>
+</tr>
+<tr>
+<td><code>!raw</code></td>
+<td>the escape: treat the subtree as data, interpreting no operation at any depth</td>
+</tr>
+<tr>
+<td><code>!rename</code></td>
+<td>rename fields, relative to the keys that are there</td>
+</tr>
+<tr>
+<td><code>!replace</code></td>
+<td>CHECKED: verify the node still equals <code>from:</code>, then install <code>to:</code></td>
+</tr>
+<tr>
+<td><code>!retag</code></td>
+<td>CHECKED: verify the tag is <code>from</code>, then make it <code>to</code></td>
+</tr>
+<tr>
+<td><code>!rmtag</code></td>
+<td>remove a tag; its absence is what results</td>
+</tr>
+<tr>
+<td><code>!strdiff</code></td>
+<td>a string edit, relative to the string that is there</td>
+</tr>
+<tr>
+<td><code>!subtree</code></td>
+<td>match any subtree of the doc</td>
+</tr>
+<tr>
+<td><code>!tag</code></td>
+<td>match the tag of a node, not its value</td>
+</tr>
+<tr>
+<td><code>!unquote</code></td>
+<td>unquote a string as a document</td>
+</tr>
+</tbody>
+</table></div>
+            </div>
+        </div>
+
+        <footer class="col-md-12">
+            <hr>
+            <p>Documentation built with <a href="https://www.mkdocs.org/">MkDocs</a>.</p>
+        </footer>
+        <script src="../js/bootstrap.bundle.min.js"></script>
+        <script>
+            var base_url = "..",
+                shortcuts = {"help": 191, "next": 78, "previous": 80, "search": 83};
+        </script>
+        <script src="../js/base.js"></script>
+
+        <div class="modal" id="mkdocs_keyboard_modal" tabindex="-1" role="dialog" aria-labelledby="keyboardModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="keyboardModalLabel">Keyboard Shortcuts</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th style="width: 20%;">Keys</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="help shortcut"><kbd>?</kbd></td>
+                    <td>Open this help</td>
+                  </tr>
+                  <tr>
+                    <td class="next shortcut"><kbd>n</kbd></td>
+                    <td>Next page</td>
+                  </tr>
+                  <tr>
+                    <td class="prev shortcut"><kbd>p</kbd></td>
+                    <td>Previous page</td>
+                  </tr>
+                  <tr>
+                    <td class="search shortcut"><kbd>s</kbd></td>
+                    <td>Search</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div>
+
+    </body>
+</html>

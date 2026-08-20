@@ -93,7 +93,11 @@ func (r *MountRegistry) Lookup(path string) *MountEntry {
 // specific) match when several apply. Returns nil when opPath is not under any
 // mount (a base path served directly from logd) or is not a valid path.
 func (r *MountRegistry) LookupPrefix(opPath string) *MountEntry {
-	opFields, err := pathFields(opPath)
+	// The FIELD PREFIX, not the whole path: an operation may address an array element
+	// (a.votes[0]), and a mount path is field-only, so what owns it is decided by the
+	// fields alone. Asking pathFields here answered "no mount" for every such path, which
+	// routed a write to base that belonged to a controller (yy0cfe9mh12kr6pwgsn0).
+	opFields, _, err := fieldPrefix(opPath)
 	if err != nil {
 		return nil
 	}
@@ -124,8 +128,16 @@ func (r *MountRegistry) LookupPrefix(opPath string) *MountEntry {
 // composed read can detect an unavailable subtree rather than silently omit it.
 // Returns nil when opPath owns no nested mounts.
 func (r *MountRegistry) MountsUnder(opPath string) []*MountEntry {
-	opFields, err := pathFields(opPath)
+	// As LookupPrefix: the field prefix decides. Nothing can be mounted below an index,
+	// so a path holding one has no mounts under it beyond those under its prefix.
+	opFields, indexed, err := fieldPrefix(opPath)
 	if err != nil {
+		return nil
+	}
+	if indexed {
+		// Under an element of an array at opFields, there is no mount: a mount path is
+		// field-only. Mounts under the PREFIX are a different question, and asking it
+		// here would claim they lie under this path when they lie beside it.
 		return nil
 	}
 

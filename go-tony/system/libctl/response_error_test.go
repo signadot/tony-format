@@ -80,9 +80,13 @@ func TestPathErrorKindsCarryDistinctCodes(t *testing.T) {
 		// A field that is simply not there.
 		{"absent", "users/2", logdapi.ErrCodeNotFound},
 		// A string sits where the path expects an object to descend into.
-		{"type conflict", "users/1.name.x", logdapi.ErrCodeNotFound},
+		{"type conflict", "users/1.name.x", logdapi.ErrCodePathConflict},
 		// Extraction addresses object fields; an index is not one.
-		{"bad segment", "users/1[0]", logdapi.ErrCodeInvalidPath},
+		// Something IS there, of a shape that cannot hold an index: neither "nothing
+		// there" nor "not a well-formed question".
+		{"shape conflict", "users/1[0]", logdapi.ErrCodePathConflict},
+		// A wildcard names a set of values, and a read answers one.
+		{"not a well-formed question", "users/1.*", logdapi.ErrCodeInvalidPath},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := s.Match(ctx, tc.path)

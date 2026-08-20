@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        
+        
+        <link rel="shortcut icon" href="../img/favicon.ico">
+        <title>Motivation - Tony Format</title>
+        <link href="../css/bootstrap.min.css" rel="stylesheet">
+        <link href="../css/fontawesome.min.css" rel="stylesheet">
+        <link href="../css/brands.min.css" rel="stylesheet">
+        <link href="../css/solid.min.css" rel="stylesheet">
+        <link href="../css/v4-font-face.min.css" rel="stylesheet">
+        <link href="../css/base.css" rel="stylesheet">
+        <link href="../pygments.css" rel="stylesheet"> 
+    </head>
+
+    <body>
+        <div class="navbar fixed-top navbar-expand-lg navbar-dark bg-primary">
+            <div class="container">
+                <a class="navbar-brand" href="..">Tony Format</a>
+                <!-- Expander button -->
+                <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar-collapse" aria-controls="navbar-collapse" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                <!-- Expanded navigation -->
+                <div id="navbar-collapse" class="navbar-collapse collapse">
+                        <!-- Main navigation -->
+                        <ul class="nav navbar-nav">
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Format</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../tony/" class="dropdown-item">Tony Format</a>
+</li>
+                                    
+<li>
+    <a href="../ir/" class="dropdown-item">Tony IR</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Schema</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../tonyschema/" class="dropdown-item">Tony Schema</a>
+</li>
+                                    
+<li>
+    <a href="../tonyschema/schema/" class="dropdown-item">Schema Structure</a>
+</li>
+                                    
+<li>
+    <a href="../tonyschema/contexts/" class="dropdown-item">Contexts</a>
+</li>
+                                    
+<li>
+    <a href="../tonyschema/tags/" class="dropdown-item">Tags</a>
+</li>
+                                    
+<li>
+    <a href="../tonyschema/validation/" class="dropdown-item">Validation</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Tools</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../extraformat/" class="dropdown-item">Extra-Format Encoding</a>
+</li>
+                                    
+<li>
+    <a href="../o/" class="dropdown-item">o</a>
+</li>
+                                    
+<li>
+    <a href="../gomap/" class="dropdown-item">Golang</a>
+</li>
+                                    
+<li>
+    <a href="../logd/" class="dropdown-item">logd</a>
+</li>
+                                    
+<li>
+    <a href="../logd/session/" class="dropdown-item">logd: The session protocol</a>
+</li>
+                                    
+<li>
+    <a href="../logd/writes/" class="dropdown-item">logd: What a write must be</a>
+</li>
+                                    
+<li>
+    <a href="../logd/keyed/" class="dropdown-item">logd: Keyed arrays</a>
+</li>
+                                    
+<li>
+    <a href="../docd/" class="dropdown-item">docd</a>
+</li>
+                                    
+<li>
+    <a href="../docd/mounts/" class="dropdown-item">docd: Mounts & routing</a>
+</li>
+                                    
+<li>
+    <a href="../docd/composition/" class="dropdown-item">docd: Composition — reads & watches</a>
+</li>
+                                    
+<li>
+    <a href="../docd/transactions/" class="dropdown-item">docd: Multi-mount transactions</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Reference</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../build-eval/" class="dropdown-item">Tony Evaluation Model</a>
+</li>
+                                    
+<li>
+    <a href="../generated/" class="dropdown-item">Tags</a>
+</li>
+                                    
+<li>
+    <a href="../matchpatch/" class="dropdown-item">Matching and Patching</a>
+</li>
+                                </ul>
+                            </li>
+                        </ul>
+
+                    <ul class="nav navbar-nav ms-md-auto">
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="row">
+                    <div class="col-md-3"><div class="navbar-expand-md bs-sidebar hidden-print affix" role="complementary">
+    <div class="navbar-header">
+        <button type="button" class="navbar-toggler collapsed" data-bs-toggle="collapse" data-bs-target="#toc-collapse" title="Table of Contents">
+            <span class="fa fa-angle-down"></span>
+        </button>
+    </div>
+
+    
+    <div id="toc-collapse" class="navbar-collapse collapse card bg-body-tertiary">
+        <ul class="nav flex-column">
+            
+            <li class="nav-item" data-bs-level="2"><a href="#motivation" class="nav-link">Motivation</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            
+            <li class="nav-item" data-bs-level="2"><a href="#ytool-vs-ysyaml" class="nav-link">YTool vs YS/YAML</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            
+            <li class="nav-item" data-bs-level="2"><a href="#_1" class="nav-link"></a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+        </ul>
+    </div>
+</div></div>
+                    <div class="col-md-9" role="main">
+
+<h2 id="motivation">Motivation<a class="headerlink" href="#motivation" title="Permanent link">#</a></h2>
+<p>Kubernetes YAML from sigs.k8s.io/yaml provides a permanent fork of YAML which
+interoperates with json by always encoding/decoding it to JSON mid-flight.
+This has several benefits, including being able to use json struct tags and
+restricting the complexity of programs treating structured data, all the while
+allowing comments and in general the ergonomics of YAML.</p>
+<p>YTool attempts to fill in gaps with Kubernetes tools for managing and building
+manifests.</p>
+<h3 id="ytool-vs-helm">YTool vs Helm<a class="headerlink" href="#ytool-vs-helm" title="Permanent link">#</a></h3>
+<p>Helm uses Go-style templates to generate YAML.  While this allows having a
+notion of substitution in YAML, templates are difficult to automatically
+generate and maintain as Go-style templates are not YAML based but rather text
+based.  This creates an inherent tension when juggling templates and YAML and
+templates do not constitute a very readable source for manifests.</p>
+<p>Helm's customization via <code>values.yaml</code> is built for ease of use only for
+<code>map[string]scalar</code>, or relatively flat structures.</p>
+<p>The results of Helm, i.e. the actual manifests or changes to manifests which
+are deployed also can depend on state of the target Kubernetes API.  While this
+makes sense w.r.t. applying patches to the Kubernetes API to get to the desired
+state, it far from ideal for defining what that desired state is.</p>
+<p>By contrast, YTool uses more readable YAML sources, easily nested customisation
+values,  and maintains the separation of concerns of a manifest build from the
+state of the destination (usually a k8s API server).</p>
+<h3 id="ytool-vs-kustomize">YTool vs Kustomize<a class="headerlink" href="#ytool-vs-kustomize" title="Permanent link">#</a></h3>
+<p>Kustomize supports strategic merge patches which provides a successful 
+way of using desired pieces of manifests as patches.  While this is
+much more readable and maintainable than the alternatives (i.e. JSON Patch
+and JSON Merge Patch) it introduces a very fundamental difficulty:  the 
+patch and the document to be patched are no longer sufficient to define the
+output.</p>
+<p>Because Helm uses templates, Kustomize cannot really produce Helm charts.</p>
+<p>Kustomize is based on a transformer model, and does not really support
+replacements.  However, at the same time, Kustomize places restrictions on what
+can be transformed.  For example, one cannot change the YAML kind of a node in
+a merge patch (Kind is object/sequence/scalar/document).  This leads to many an
+unnecessary restriction; for example, rather than allowing embedding a YAML as
+YAML in a node, it has a complicated ConfigMap generator.  </p>
+<p>Kustomize does not support substitution, even with its latest attempts to do
+so with such mechanisms as its replacements mechanism.  The problem is again
+that Kustomize assumes replacements must produce documents with the same
+restrictions as strategic merge patches, i.e. not changing the YAML kind
+of nodes.</p>
+<p>Additionally, the transformer model is difficult to factor into components,
+as each component or overlay has a fixed set of inputs, so one cannot
+have components which work for multiple sets of inputs, rather they must
+be copied.</p>
+<p>All this being said, a key benefit of Kustomize is how it achieves readability
+by using merge-patch style patches.</p>
+<p>In contrast, YTool</p>
+<ul>
+<li>incorporates extended RFC 7396 merge patches, which maintain readability and
+  independence of the tool -- your sources define the output without reference to
+  anything else, such as upstream "patch strategies", or "server side" patches</li>
+<li>allows for variable substitution of arbitrary yaml associated with variables</li>
+<li>allows for executables you choose to arbitrarily transform or generate data</li>
+<li>is built for flexibility for any kind of sigs.k8s.io/yaml style YAML</li>
+<li>preserves comments and can generate Helm charts and/or YAML comments by means 
+  of more expressive beyond-YAML output capabilities</li>
+</ul>
+<h2 id="ytool-vs-ysyaml">YTool vs YS/YAML<a class="headerlink" href="#ytool-vs-ysyaml" title="Permanent link">#</a></h2>
+<p>YTool provides support for scripting via expr-lang.org instead of a clojure 
+stype script.  YTool has extensive support for matching and patching documents
+in "declarative" merge patch style.</p>
+<h2 id="_1"><a class="headerlink" href="#_1" title="Permanent link">#</a></h2></div>
+            </div>
+        </div>
+
+        <footer class="col-md-12">
+            <hr>
+            <p>Documentation built with <a href="https://www.mkdocs.org/">MkDocs</a>.</p>
+        </footer>
+        <script src="../js/bootstrap.bundle.min.js"></script>
+        <script>
+            var base_url = "..",
+                shortcuts = {"help": 191, "next": 78, "previous": 80, "search": 83};
+        </script>
+        <script src="../js/base.js"></script>
+
+        <div class="modal" id="mkdocs_keyboard_modal" tabindex="-1" role="dialog" aria-labelledby="keyboardModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="keyboardModalLabel">Keyboard Shortcuts</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th style="width: 20%;">Keys</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="help shortcut"><kbd>?</kbd></td>
+                    <td>Open this help</td>
+                  </tr>
+                  <tr>
+                    <td class="next shortcut"><kbd>n</kbd></td>
+                    <td>Next page</td>
+                  </tr>
+                  <tr>
+                    <td class="prev shortcut"><kbd>p</kbd></td>
+                    <td>Previous page</td>
+                  </tr>
+                  <tr>
+                    <td class="search shortcut"><kbd>s</kbd></td>
+                    <td>Search</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div>
+
+    </body>
+</html>

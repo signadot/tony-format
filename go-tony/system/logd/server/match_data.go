@@ -19,13 +19,27 @@ import (
 // alarmed to be wants PathError.Kind instead.
 var ErrPathNotFound = errors.New("path not found")
 
-// PathErrorKind says WHY a path did not resolve. The three reasons deserve three
-// different reactions, and collapsing them into one sentinel is what made an
-// ordinary not-written-yet path log at the same volume as a real fault.
+// PathErrorKind says what the CURRENT STATE says about a path. Three facts about the
+// present, and they call for different reactions:
 //
-// None of them indicates a storage problem. Extraction is pure navigation of a
-// document a successful read already returned, so it cannot discover anything
-// about the health of the store; that news arrives from the read itself.
+//	PathAbsent        nothing there. Nothing in the document contradicts the path, so
+//	                  creating what is missing is a reasonable next move.
+//	PathTypeConflict  something there, of a shape which cannot hold what was asked for --
+//	                  an index into an object, a field under a string. Creating here means
+//	                  CLOBBERING what is already there, so the move is to stop and
+//	                  re-examine the shape you assumed.
+//	PathBadSegment    not a well-formed question. A wildcard names a set of values and a
+//	                  read answers one.
+//
+// None of them says anything about the future, which nothing can support: in a mutable
+// document a.b[0] resolves the moment someone writes an array at a.b, exactly as a.b.c
+// resolves the moment someone writes an object at a.b. "Can never resolve" is not a
+// property of a path, and an earlier version of this comment reasoned from it -- which is
+// why an index segment was classified as a malformed path and every read at an array
+// element was refused (yy0cfe9mh12kr6pwgsn0).
+//
+// None of them indicates a storage problem: extraction is pure navigation of a document
+// that was already read.
 type PathErrorKind int
 
 const (
@@ -63,26 +77,67 @@ type PathError struct {
 func (e *PathError) Error() string {
 	switch e.Kind {
 	case PathBadSegment:
-		return fmt.Sprintf("cannot extract %q: segment %q is not an object field", e.Path, e.Segment)
+		return fmt.Sprintf("cannot extract %q: segment %q names a set of values, not one", e.Path, e.Segment)
 	case PathTypeConflict:
 		where := "the document root"
 		if e.Resolved != "" {
 			where = fmt.Sprintf("%q", e.Resolved)
 		}
-		return fmt.Sprintf("no value at %q: %s is %v, not an object", e.Path, where, e.Found)
+		// What the segment asked for, so the message names the disagreement rather than
+		// assuming every segment wants an object: `[0]` wants an array.
+		return fmt.Sprintf("no value at %q: %s is %v, not %s", e.Path, where, e.Found, wants(e.Segment))
 	default:
-		if e.Resolved == "" {
-			return fmt.Sprintf("no value at %q: no field %q at the document root", e.Path, e.Segment)
+		what := "field"
+		if _, isField := kpath.SegmentFieldName(e.Segment); !isField {
+			what = "element"
 		}
-		return fmt.Sprintf("no value at %q: resolved through %q, no field %q", e.Path, e.Resolved, e.Segment)
+		if e.Resolved == "" {
+			return fmt.Sprintf("no value at %q: no %s %q at the document root", e.Path, what, e.Segment)
+		}
+		return fmt.Sprintf("no value at %q: resolved through %q, no %s %q", e.Path, e.Resolved, what, e.Segment)
 	}
 }
 
-// Is makes every kind match ErrPathNotFound, so callers that only care whether a
-// value exists keep working unchanged.
-func (e *PathError) Is(target error) bool { return target == ErrPathNotFound }
+// wants says what kind of container a segment addresses, for a message about one that is
+// not that kind.
+func wants(seg string) string {
+	if _, isField := kpath.SegmentFieldName(seg); isField {
+		return "an object"
+	}
+	if p, err := kpath.Parse(seg); err == nil && p != nil && p.EntryKind() == kpath.SparseArrayEntry {
+		return "a sparse array"
+	}
+	return "an array"
+}
 
-// IsPathAbsent reports the ordinary case: the path has no value yet and will
+// Is matches ErrPathNotFound for ABSENCE only.
+//
+// It used to match every kind, on the reasoning that a caller which only wants to know
+// whether a value exists should not have to care why. But that is the same collapse the
+// wire codes just stopped making, one layer lower: a caller writing the obvious
+// errors.Is(err, ErrPathNotFound) read a type conflict as absence and went on to create
+// what it thought was missing, over something already there. A split which exists on the
+// wire and not in Go is a trap for whoever has not been bitten yet.
+//
+// A caller which genuinely wants "no value at this path, whatever the reason" asks
+// NoValueAt.
+func (e *PathError) Is(target error) bool {
+	return target == ErrPathNotFound && e.Kind == PathAbsent
+}
+
+// NoValueAt reports that a path holds no value, for whatever reason: nothing there, or
+// something of a shape that cannot hold it. It is the question the sentinel used to answer
+// by accident, asked on purpose.
+func NoValueAt(err error) bool {
+	var pe *PathError
+	return errors.As(err, &pe)
+}
+
+// IsPathAbsent reports the ordinary case: the path has no value and nothing there
+// contradicts it. Equivalent to errors.Is(err, ErrPathNotFound) now that the sentinel
+// narrows; kept because it says which question it is asking.
+//
+// Older doc, kept for the sense of it: the path has no value yet and will
 // have one as soon as something writes there. It is the one that should not
 // raise an alarm.
 func IsPathAbsent(err error) bool {
@@ -119,7 +174,10 @@ func extractPathValue(doc *ir.Node, kp string) (*ir.Node, error) {
 	var resolved []string
 
 	for _, part := range parts {
-		if current == nil || current.Type != ir.ObjectType {
+		// A non-field segment addresses inside a container that is not an object, so the
+		// object check below is asked only of the segments it is about.
+		_, isFieldSeg := kpath.SegmentFieldName(part)
+		if isFieldSeg && (current == nil || current.Type != ir.ObjectType) {
 			found := ir.NullType
 			if current != nil {
 				found = current.Type
@@ -132,10 +190,47 @@ func extractPathValue(doc *ir.Node, kp string) (*ir.Node, error) {
 
 		name, isField := kpath.SegmentFieldName(part)
 		if !isField {
-			return nil, &PathError{
-				Kind: PathBadSegment, Path: kp, Segment: part,
-				Resolved: strings.Join(resolved, "."),
+			// An index, a sparse index or a key. ir walks these already -- `o get
+			// 'a.votes[1]'` has always worked -- and this loop only ever knew object
+			// fields, so every read at an element of an array was refused as a bad
+			// segment. What the loop adds over ir's walk is the error taxonomy the
+			// session's codes rest on, so the step is delegated and the failure is
+			// classified here (yy0cfe9mh12kr6pwgsn0).
+			if p, perr := kpath.Parse(part); perr == nil && p != nil && p.Wild() {
+				// A wildcard names a SET of values, and a read answers one. This is the
+				// caller's path being wrong in a way no write can fix, which is what
+				// PathBadSegment is for.
+				return nil, &PathError{
+					Kind: PathBadSegment, Path: kp, Segment: part,
+					Resolved: strings.Join(resolved, "."),
+				}
 			}
+			if !segmentSuitsContainer(part, current) {
+				// The path addresses an element of a container this is not: an index
+				// into an object, a field of an array. That is the same disagreement
+				// PathTypeConflict reports for a field under a string, and it deserves
+				// the same answer rather than "nothing there".
+				found := ir.NullType
+				if current != nil {
+					found = current.Type
+				}
+				return nil, &PathError{
+					Kind: PathTypeConflict, Path: kp, Segment: part,
+					Resolved: strings.Join(resolved, "."), Found: found,
+				}
+			}
+			next, err := current.GetKPath(part)
+			if err != nil || next == nil {
+				// The right kind of container, and no such element: an answer, not a
+				// broken path.
+				return nil, &PathError{
+					Kind: PathAbsent, Path: kp, Segment: part,
+					Resolved: strings.Join(resolved, "."),
+				}
+			}
+			current = next
+			resolved = append(resolved, part)
+			continue
 		}
 
 		// Find the field matching this part
@@ -186,9 +281,32 @@ func (w *watchAbsence) observe(sub *ir.Node) {
 	}
 }
 
+// segmentSuitsContainer says whether a non-field segment addresses the KIND of container it
+// is applied to: an index wants an array, a sparse index or a key wants what holds them.
+// It exists to tell "this is not that kind of container" from "there is nothing there",
+// which are different answers to a client (PathTypeConflict against PathAbsent).
+func segmentSuitsContainer(seg string, n *ir.Node) bool {
+	if n == nil {
+		return false
+	}
+	p, err := kpath.Parse(seg)
+	if err != nil || p == nil {
+		return false
+	}
+	switch p.EntryKind() {
+	case kpath.ArrayEntry:
+		return n.Type == ir.ArrayType
+	case kpath.SparseArrayEntry:
+		// A sparse array is an object keyed by number, and an array answers a sparse
+		// index too -- both are what the store may hold for one.
+		return n.Type == ir.ObjectType || n.Type == ir.ArrayType
+	default:
+		// A keyed segment (key) addresses an element of a keyed array.
+		return n.Type == ir.ArrayType
+	}
+}
+
 // splitKPath splits a simple kpath into its parts.
-// For now, only handles simple dot-separated field paths like "users.posts".
-// TODO: handle array indices and sparse indices.
 func splitKPath(kp string) []string {
 	return kpath.SplitAll(kp)
 }

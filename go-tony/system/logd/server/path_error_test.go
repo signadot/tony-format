@@ -36,7 +36,7 @@ func mustDoc(t *testing.T, src string) *ir.Node {
 // nothing has written yet reports absence until someone writes there, which is
 // how watching something that does not exist is supposed to work.
 func TestExtractPathValueClassifiesFailures(t *testing.T) {
-	doc := mustDoc(t, "verse:\n  entity:\n    a: 1\n  scalar: hello\n")
+	doc := mustDoc(t, "verse:\n  entity:\n    a: 1\n  scalar: hello\n  votes: [1, 2]\n")
 
 	for _, tc := range []struct {
 		name     string
@@ -64,14 +64,25 @@ func TestExtractPathValueClassifiesFailures(t *testing.T) {
 		{
 			// This one never resolves however long the caller waits, which is
 			// why it must not be reported as "no data yet".
-			name: "an index segment extraction cannot address", path: "verse.entity[0]",
-			kind: PathBadSegment, resolved: "verse.entity",
-			says: []string{`cannot extract "verse.entity[0]"`, "not an object field"},
+			// An index into an object is a disagreement about what is THERE, not a
+			// malformed path: write an array at verse.entity and [0] resolves. It is
+			// the same answer a field under a string gets.
+			name: "an index where an object is", path: "verse.entity[0]",
+			kind: PathTypeConflict, resolved: "verse.entity",
+			says: []string{`no value at "verse.entity[0]"`, "not an array"},
 		},
 		{
+			// The right kind of container, and no such element.
+			name: "an index past the end of an array", path: "verse.votes[9]",
+			kind: PathAbsent, resolved: "verse.votes",
+			says: []string{`no value at "verse.votes[9]"`, `no element "[9]"`},
+		},
+		{
+			// A wildcard names a SET, and a read answers one value: no state makes it
+			// resolvable, which is what a bad segment is.
 			name: "a wildcard segment", path: "verse.*",
 			kind: PathBadSegment, resolved: "verse",
-			says: []string{"not an object field"},
+			says: []string{"names a set of values"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -96,9 +107,18 @@ func TestExtractPathValueClassifiesFailures(t *testing.T) {
 				}
 			}
 
-			// Callers that only ask "is there a value here" must keep working.
-			if !errors.Is(err, ErrPathNotFound) {
-				t.Error("errors.Is(err, ErrPathNotFound) = false, want true for every kind")
+			// The sentinel means ABSENCE, and only absence. It used to match every kind,
+			// so a caller writing the obvious errors.Is(err, ErrPathNotFound) read a
+			// type conflict as "nothing there" and created what it thought was missing,
+			// over something already there -- the same collapse the wire codes stopped
+			// making, one layer lower (yy0cfe9mh12kr6pwgsn0).
+			if got := errors.Is(err, ErrPathNotFound); got != (tc.kind == PathAbsent) {
+				t.Errorf("errors.Is(err, ErrPathNotFound) = %v for kind %v, want %v",
+					got, tc.kind, tc.kind == PathAbsent)
+			}
+			// And the question the sentinel used to answer by accident, asked on purpose.
+			if !NoValueAt(err) {
+				t.Error("NoValueAt = false; every one of these is a path holding no value")
 			}
 			if got := IsPathAbsent(err); got != (tc.kind == PathAbsent) {
 				t.Errorf("IsPathAbsent = %v, want %v", got, tc.kind == PathAbsent)

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -58,6 +59,11 @@ func blockedTag(compound string, blocks TagFilter) (string, bool) {
 	}
 	return "", false
 }
+
+// errNotDecomposable says a patch is not for docd to split across mounts -- it has exactly
+// one owner -- and the caller should route it as it routes any single-destination request.
+// It is not an error to report to a client.
+var errNotDecomposable = errors.New("patch addresses inside a value; route it whole")
 
 // mountInfo pairs a live mount with its pre-split path segments.
 type mountInfo struct {
@@ -130,9 +136,16 @@ func splitPatch(reg *MountRegistry, path string, data *ir.Node, blocks TagFilter
 	if blocks == nil {
 		blocks = defaultTagFilter
 	}
-	clientFields, err := pathFields(path)
+	clientFields, indexed, err := fieldPrefix(path)
 	if err != nil {
 		return nil, nil, err
+	}
+	if indexed {
+		// The path addresses inside a value -- an array element -- and no mount can be
+		// rooted there, so there is nothing to decompose: one owner takes the whole
+		// patch. Refusing here instead is what made every array-element write fail
+		// through docd (yy0cfe9mh12kr6pwgsn0).
+		return nil, nil, errNotDecomposable
 	}
 	full := nestAtFields(clientFields, data)
 

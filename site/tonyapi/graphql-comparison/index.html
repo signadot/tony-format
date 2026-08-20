@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        
+        
+        <link rel="shortcut icon" href="../../img/favicon.ico">
+        <title>Comparison with GraphQL - Tony Format</title>
+        <link href="../../css/bootstrap.min.css" rel="stylesheet">
+        <link href="../../css/fontawesome.min.css" rel="stylesheet">
+        <link href="../../css/brands.min.css" rel="stylesheet">
+        <link href="../../css/solid.min.css" rel="stylesheet">
+        <link href="../../css/v4-font-face.min.css" rel="stylesheet">
+        <link href="../../css/base.css" rel="stylesheet">
+        <link href="../../pygments.css" rel="stylesheet"> 
+    </head>
+
+    <body>
+        <div class="navbar fixed-top navbar-expand-lg navbar-dark bg-primary">
+            <div class="container">
+                <a class="navbar-brand" href="../..">Tony Format</a>
+                <!-- Expander button -->
+                <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar-collapse" aria-controls="navbar-collapse" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                <!-- Expanded navigation -->
+                <div id="navbar-collapse" class="navbar-collapse collapse">
+                        <!-- Main navigation -->
+                        <ul class="nav navbar-nav">
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Format</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../tony/" class="dropdown-item">Tony Format</a>
+</li>
+                                    
+<li>
+    <a href="../../ir/" class="dropdown-item">Tony IR</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Schema</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../tonyschema/" class="dropdown-item">Tony Schema</a>
+</li>
+                                    
+<li>
+    <a href="../../tonyschema/schema/" class="dropdown-item">Schema Structure</a>
+</li>
+                                    
+<li>
+    <a href="../../tonyschema/contexts/" class="dropdown-item">Contexts</a>
+</li>
+                                    
+<li>
+    <a href="../../tonyschema/tags/" class="dropdown-item">Tags</a>
+</li>
+                                    
+<li>
+    <a href="../../tonyschema/validation/" class="dropdown-item">Validation</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Tools</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../extraformat/" class="dropdown-item">Extra-Format Encoding</a>
+</li>
+                                    
+<li>
+    <a href="../../o/" class="dropdown-item">o</a>
+</li>
+                                    
+<li>
+    <a href="../../gomap/" class="dropdown-item">Golang</a>
+</li>
+                                    
+<li>
+    <a href="../../logd/" class="dropdown-item">logd</a>
+</li>
+                                    
+<li>
+    <a href="../../logd/session/" class="dropdown-item">logd: The session protocol</a>
+</li>
+                                    
+<li>
+    <a href="../../logd/writes/" class="dropdown-item">logd: What a write must be</a>
+</li>
+                                    
+<li>
+    <a href="../../logd/keyed/" class="dropdown-item">logd: Keyed arrays</a>
+</li>
+                                    
+<li>
+    <a href="../../docd/" class="dropdown-item">docd</a>
+</li>
+                                    
+<li>
+    <a href="../../docd/mounts/" class="dropdown-item">docd: Mounts & routing</a>
+</li>
+                                    
+<li>
+    <a href="../../docd/composition/" class="dropdown-item">docd: Composition — reads & watches</a>
+</li>
+                                    
+<li>
+    <a href="../../docd/transactions/" class="dropdown-item">docd: Multi-mount transactions</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Reference</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../build-eval/" class="dropdown-item">Tony Evaluation Model</a>
+</li>
+                                    
+<li>
+    <a href="../../generated/" class="dropdown-item">Tags</a>
+</li>
+                                    
+<li>
+    <a href="../../matchpatch/" class="dropdown-item">Matching and Patching</a>
+</li>
+                                </ul>
+                            </li>
+                        </ul>
+
+                    <ul class="nav navbar-nav ms-md-auto">
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="row">
+                    <div class="col-md-3"><div class="navbar-expand-md bs-sidebar hidden-print affix" role="complementary">
+    <div class="navbar-header">
+        <button type="button" class="navbar-toggler collapsed" data-bs-toggle="collapse" data-bs-target="#toc-collapse" title="Table of Contents">
+            <span class="fa fa-angle-down"></span>
+        </button>
+    </div>
+
+    
+    <div id="toc-collapse" class="navbar-collapse collapse card bg-body-tertiary">
+        <ul class="nav flex-column">
+            
+            <li class="nav-item" data-bs-level="1"><a href="#comparison-with-graphql" class="nav-link">Comparison with GraphQL</a>
+              <ul class="nav flex-column">
+            <li class="nav-item" data-bs-level="2"><a href="#similarities" class="nav-link">Similarities</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#key-differences" class="nav-link">Key Differences</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#comparison-relations" class="nav-link">Comparison: Relations</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#advantages-of-tonyapi" class="nav-link">Advantages of TonyAPI</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#advantages-of-graphql" class="nav-link">Advantages of GraphQL</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#trade-offs" class="nav-link">Trade-offs</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#use-cases" class="nav-link">Use Cases</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#related-documentation" class="nav-link">Related Documentation</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+              </ul>
+            </li>
+        </ul>
+    </div>
+</div></div>
+                    <div class="col-md-9" role="main">
+
+<h1 id="comparison-with-graphql">Comparison with GraphQL<a class="headerlink" href="#comparison-with-graphql" title="Permanent link">#</a></h1>
+<p>This document provides a detailed comparison between TonyAPI and GraphQL, highlighting similarities, differences, advantages, and use cases.</p>
+<h2 id="similarities">Similarities<a class="headerlink" href="#similarities" title="Permanent link">#</a></h2>
+<ol>
+<li><strong>Unified API</strong>: Both present a single, unified API interface</li>
+<li><strong>Schema-driven</strong>: Both use schemas to describe data structure</li>
+<li><strong>Field selection</strong>: Both allow clients to select which fields to retrieve</li>
+<li><strong>Nested queries</strong>: Both support querying nested/related data</li>
+<li><strong>Subscriptions</strong>: Both support real-time updates (GraphQL subscriptions vs Tony WATCH)</li>
+<li><strong>Type system</strong>: Both have strong type systems with schema definitions and validation</li>
+</ol>
+<h2 id="key-differences">Key Differences<a class="headerlink" href="#key-differences" title="Permanent link">#</a></h2>
+<p><strong>Note</strong>: One of the most significant differences is <strong>transaction support</strong> - TonyAPI has built-in protocol-level transactions, while GraphQL has no transaction support in its specification. See <a href="#7-transactions">Transactions</a> below for details.</p>
+<h3 id="1-mental-model">1. <strong>Mental Model</strong><a class="headerlink" href="#1-mental-model" title="Permanent link">#</a></h3>
+<p><strong>GraphQL:</strong></p>
+<ul>
+<li>Presents a <strong>graph</strong> of related types</li>
+<li>Relations are <strong>virtual</strong> - defined in schema, resolved on-demand</li>
+<li>Queries traverse the graph by explicitly requesting relations</li>
+</ul>
+<p><strong>TonyAPI:</strong></p>
+<ul>
+<li>Presents <strong>one unified document</strong> (like a filesystem)</li>
+<li>Relations are <strong>concrete</strong> - exist as nested structures in the document</li>
+<li>Queries navigate the document structure naturally</li>
+</ul>
+<h3 id="2-query-language">2. <strong>Query Language</strong><a class="headerlink" href="#2-query-language" title="Permanent link">#</a></h3>
+<p><strong>GraphQL:</strong></p>
+<ul>
+<li>Custom query language (GraphQL syntax)</li>
+<li>Separate syntax for queries vs mutations</li>
+<li>Field selection via explicit field names</li>
+<li>Variables: <code>$userId: ID!</code></li>
+</ul>
+<p><strong>TonyAPI:</strong></p>
+<ul>
+<li>Uses Tony format (YAML-like, JSON-compatible)</li>
+<li>Same document structure for queries and mutations (distinguished by presence of <code>patch:</code>)</li>
+<li>Field selection via <code>field: null</code> in <code>match:</code> with <code>!trim</code></li>
+<li>Dynamic values embedded directly in the document</li>
+</ul>
+<h3 id="3-mutations">3. <strong>Mutations</strong><a class="headerlink" href="#3-mutations" title="Permanent link">#</a></h3>
+<p><strong>GraphQL:</strong></p>
+<ul>
+<li>Separate mutation syntax</li>
+<li>Input types for mutation arguments</li>
+<li>Returns specified fields</li>
+</ul>
+<p><strong>TonyAPI:</strong>
+- Same document structure as queries, but with <code>patch:</code> section
+- Uses Tony diff/patch operations (<code>!replace</code>, <code>!insert</code>, <code>!delete</code>, etc.)
+- Returns revision numbers (not diffs) for successful mutations</p>
+<h3 id="4-subscriptions">4. <strong>Subscriptions</strong><a class="headerlink" href="#4-subscriptions" title="Permanent link">#</a></h3>
+<p><strong>GraphQL:</strong>
+- Uses WebSocket or Server-Sent Events
+- Query-based subscriptions (subscribe to query results)
+- Server pushes updates when query results change</p>
+<p><strong>TonyAPI:</strong>
+- Uses new HTTP method <code>WATCH</code>
+- Query-based subscriptions (same as MATCH queries)
+- Server streams diffs as document changes</p>
+<h3 id="5-schema">5. <strong>Schema</strong><a class="headerlink" href="#5-schema" title="Permanent link">#</a></h3>
+<p><strong>GraphQL:</strong>
+- Schema defines types and relations
+- Schema is separate from data
+- Introspection via <code>__schema</code> query
+- Strong type system with validation</p>
+<p><strong>TonyAPI:</strong>
+- Schema describes the virtual document structure
+- Schema accessed as metadata at <code>/.meta/schema</code>
+- Schema mirrors document structure (paths in <code>accept:</code>)
+- Strong type system with validation (similar to GraphQL)</p>
+<h3 id="6-backend-architecture">6. <strong>Backend Architecture</strong><a class="headerlink" href="#6-backend-architecture" title="Permanent link">#</a></h3>
+<p><strong>GraphQL:</strong>
+- Resolvers fetch data on-demand
+- N+1 problem requires dataloaders/batching
+- Backend complexity in resolvers</p>
+<p><strong>TonyAPI:</strong>
+- Controllers maintain virtual document structure
+- Document server caches computed view
+- Backend complexity in document construction/maintenance
+- Diff-based storage (like etcd) for history/audit</p>
+<h3 id="7-transactions">7. <strong>Transactions</strong><a class="headerlink" href="#7-transactions" title="Permanent link">#</a></h3>
+<p><strong>GraphQL:</strong>
+- <strong>No built-in transaction support</strong> in the GraphQL specification
+- Multiple mutations in a single request may or may not be atomic (implementation-dependent)
+- Atomicity depends on underlying database/backend, not the GraphQL layer
+- No protocol-level guarantee of atomicity across multiple mutations
+- Some implementations provide transaction support via custom directives or server configuration, but it's not standardized</p>
+<p><strong>Example GraphQL:</strong>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">mutation</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="n">updateUser</span><span class="p">(</span><span class="n">id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;123&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Alice Updated&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="n">id</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="n">name</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="n">updatePost</span><span class="p">(</span><span class="n">id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;post1&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">title</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;New Title&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span><span class="n">id</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">    </span><span class="n">title</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="p">}</span>
+</code></pre></div>
+<em>May or may not be atomic - depends on server implementation</em></p>
+<p><strong>TonyAPI:</strong>
+- <strong>Built-in transaction protocol</strong> with explicit transaction IDs
+- Document server coordinates transactions across multiple mount points
+- LogD server ensures atomicity at the storage layer
+- Controllers write with transaction IDs and participant counts
+- <strong>Guaranteed atomicity</strong>: Either all updates succeed or none do
+- Protocol-level transaction support works across distributed controllers</p>
+<p><strong>Example TonyAPI:</strong>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">!apiop</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="na">patch</span><span class="o">:</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>  <span class="na">users</span><span class="o">:</span> <span class="k">!key(id)</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="p">-</span> <span class="na">id</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>      <span class="na">name</span><span class="o">:</span> <span class="k">!replace</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>        <span class="na">from</span><span class="o">:</span> <span class="s2">&quot;Alice&quot;</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>        <span class="na">to</span><span class="o">:</span> <span class="s2">&quot;Alice Updated&quot;</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>  <span class="na">posts</span><span class="o">:</span> <span class="k">!key(id)</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    <span class="p">-</span> <span class="na">id</span><span class="o">:</span> <span class="s2">&quot;post1&quot;</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>      <span class="na">title</span><span class="o">:</span> <span class="k">!replace</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>        <span class="na">from</span><span class="o">:</span> <span class="s2">&quot;Old Title&quot;</span>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>        <span class="na">to</span><span class="o">:</span> <span class="s2">&quot;New Title&quot;</span>
+</code></pre></div>
+<em>Guaranteed atomic - all updates succeed or all fail</em></p>
+<p><strong>Key Difference:</strong>
+- GraphQL: Transaction support is implementation-dependent and not part of the spec
+- TonyAPI: Transaction support is built into the protocol and storage layer, providing guaranteed atomicity across multiple mount points</p>
+<h3 id="8-relations">8. <strong>Relations</strong><a class="headerlink" href="#8-relations" title="Permanent link">#</a></h3>
+<p><strong>GraphQL:</strong>
+- Relations defined in schema
+- Explicitly requested in queries
+- Resolved by resolvers (can be from different sources)</p>
+<p><strong>TonyAPI:</strong>
+- Relations exist in document structure
+- Implicitly available by navigating document
+- Concrete structures (can use nested <code>!apiop</code> queries for joins)</p>
+<h3 id="9-error-handling">9. <strong>Error Handling</strong><a class="headerlink" href="#9-error-handling" title="Permanent link">#</a></h3>
+<p><strong>GraphQL:</strong>
+- Errors in <code>errors</code> array separate from <code>data</code>
+- Error types, codes, paths</p>
+<p><strong>TonyAPI:</strong>
+- Errors can be represented in diff format with <code>!error</code> tag
+- Errors at specific paths in document</p>
+<h3 id="10-transport">10. <strong>Transport</strong><a class="headerlink" href="#10-transport" title="Permanent link">#</a></h3>
+<p><strong>GraphQL:</strong>
+- HTTP POST for queries/mutations
+- WebSocket/SSE for subscriptions
+- Single endpoint (usually <code>/graphql</code>)</p>
+<p><strong>TonyAPI:</strong>
+- HTTP MATCH for queries
+- HTTP PATCH for mutations
+- HTTP WATCH for subscriptions
+- HTTP MOUNT for controller registration
+- Path-based routing (like REST, but with unified document model)</p>
+<h3 id="11-file-system-analogy">11. <strong>File System Analogy</strong><a class="headerlink" href="#11-file-system-analogy" title="Permanent link">#</a></h3>
+<p><strong>GraphQL:</strong>
+- Like a database query language
+- Graph traversal</p>
+<p><strong>TonyAPI:</strong>
+- Like a filesystem (Plan 9's "everything is a file" + <code>9p</code> protocol)
+- Mount points, paths, metadata
+- Controllers as "filesystem drivers" (similar to how Linux's <code>/proc</code> mounts process information)</p>
+<h2 id="comparison-relations">Comparison: Relations<a class="headerlink" href="#comparison-relations" title="Permanent link">#</a></h2>
+<h3 id="graphql-approach">GraphQL Approach<a class="headerlink" href="#graphql-approach" title="Permanent link">#</a></h3>
+<p>In GraphQL, relations are defined at the <strong>schema level</strong> and explicitly requested in queries:</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c"># Schema</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="k">type</span><span class="w"> </span><span class="err">User</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="nl">id</span><span class="p">:</span><span class="w"> </span><span class="n">ID</span><span class="err">!</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span><span class="nl">name</span><span class="p">:</span><span class="w"> </span><span class="n">String</span><span class="err">!</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span><span class="nl">posts</span><span class="p">:</span><span class="w"> </span><span class="err">[</span><span class="n">Post</span><span class="err">!]!</span><span class="w">  </span><span class="c"># Relation defined here</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="p">}</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="k">type</span><span class="w"> </span><span class="err">Post</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">  </span><span class="nl">id</span><span class="p">:</span><span class="w"> </span><span class="n">ID</span><span class="err">!</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">  </span><span class="nl">title</span><span class="p">:</span><span class="w"> </span><span class="n">String</span><span class="err">!</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">  </span><span class="nl">author</span><span class="p">:</span><span class="w"> </span><span class="n">User</span><span class="err">!</span><span class="w">    </span><span class="c"># Relation defined here</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="p">}</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="c"># Query - must explicitly request nested relations</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="k">query</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="w">  </span><span class="n">user</span><span class="p">(</span><span class="n">id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;123&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="w">    </span><span class="n">id</span>
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="w">    </span><span class="n">name</span>
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="w">    </span><span class="n">posts</span><span class="w"> </span><span class="p">{</span><span class="w">        </span><span class="c"># Explicitly requesting the relation</span>
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="w">      </span><span class="n">id</span>
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="w">      </span><span class="n">title</span>
+<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a><span class="p">}</span>
+</code></pre></div>
+<p><strong>Characteristics:</strong>
+- Relations are <strong>schema-level declarations</strong>
+- Queries <strong>explicitly request</strong> which relations to follow
+- Resolvers handle fetching related data (N+1 problem, dataloaders)
+- Relations are <strong>virtual</strong> - the data might come from different sources</p>
+<h3 id="tonyapi-approach">TonyAPI Approach<a class="headerlink" href="#tonyapi-approach" title="Permanent link">#</a></h3>
+<p>In TonyAPI, relations are <strong>data-level structures</strong> in the virtual document. Relations are just nested data - <code>users[].posts</code> and <code>posts[].author</code> are concrete structures in the document.</p>
+<p><strong>Query - just follows the structure:</strong></p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Query naturally follows the nested structure</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="k">!apiop</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/users</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="na">match</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>  <span class="na">id</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span>  <span class="c1"># Match criteria - also includes id in result</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>  <span class="na">name</span><span class="o">:</span> <span class="kc">null</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>  <span class="na">posts</span><span class="o">:</span>                      <span class="c1"># Just navigate the structure</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>    <span class="na">id</span><span class="o">:</span> <span class="kc">null</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>    <span class="na">title</span><span class="o">:</span> <span class="kc">null</span>
+</code></pre></div>
+<p><strong>Characteristics:</strong>
+- Relations are <strong>data-level structures</strong> in the virtual document
+- Queries <strong>naturally follow</strong> nested structures - no special syntax
+- Relations are <strong>concrete</strong> - they exist in the document structure
+- No N+1 problem at query level - the document already has the structure</p>
+<h3 id="key-differences-in-relations">Key Differences in Relations<a class="headerlink" href="#key-differences-in-relations" title="Permanent link">#</a></h3>
+<ol>
+<li><strong>Explicitness</strong>: </li>
+<li>GraphQL: Must explicitly request each relation in query</li>
+<li>
+<p>TonyAPI: Relations are implicit in the document structure</p>
+</li>
+<li>
+<p><strong>Schema vs Data</strong>:</p>
+</li>
+<li>GraphQL: Relations defined in schema, data fetched separately</li>
+<li>
+<p>TonyAPI: Relations exist in the virtual document itself</p>
+</li>
+<li>
+<p><strong>Flexibility</strong>:</p>
+</li>
+<li>GraphQL: Can request different relations per query</li>
+<li>
+<p>TonyAPI: Document structure determines available relations (but queries can select subsets)</p>
+</li>
+<li>
+<p><strong>Backend Complexity</strong>:</p>
+</li>
+<li>GraphQL: Resolvers must handle relation fetching, batching, etc.</li>
+<li>
+<p>TonyAPI: Backend maintains the virtual document structure (complexity moved to document construction)</p>
+</li>
+<li>
+<p><strong>Querying Relations from Different Starting Points</strong>:</p>
+</li>
+<li>GraphQL: Can query relations from different starting points (user.posts, or posts filtered by authorId)</li>
+<li>TonyAPI: Can query related data from different starting points (query /users with nested posts, or query /posts with nested user query)</li>
+</ol>
+<h3 id="example-querying-relations-from-different-starting-points">Example: Querying Relations from Different Starting Points<a class="headerlink" href="#example-querying-relations-from-different-starting-points" title="Permanent link">#</a></h3>
+<p><strong>GraphQL:</strong>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">query</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="n">user</span><span class="p">(</span><span class="n">id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;123&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="n">posts</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">title</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span><span class="n">posts</span><span class="p">(</span><span class="n">authorId</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;123&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="n">title</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="p">}</span>
+</code></pre></div></p>
+<p><strong>TonyAPI:</strong>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Query user and get their posts via nested query</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="k">!apiop</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/users</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="na">match</span><span class="o">:</span> <span class="k">!let</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>  <span class="na">let</span><span class="o">:</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>    <span class="p">-</span> <span class="na">idMatch</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>  <span class="na">in</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>    <span class="na">id</span><span class="o">:</span> <span class="sx">.idMatch</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>    <span class="na">posts</span><span class="o">:</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>      <span class="k">!apiop</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>      <span class="na">path</span><span class="o">:</span> <span class="sx">/posts</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>      <span class="na">match</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>        <span class="na">authorId</span><span class="o">:</span> <span class="sx">.idMatch</span>
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>        <span class="na">title</span><span class="o">:</span> <span class="kc">null</span>
+<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a>
+<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="c1"># Or query posts and get the author via nested query</span>
+<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="k">!apiop</span>
+<a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a><span class="na">path</span><span class="o">:</span> <span class="sx">/posts</span>
+<a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a><span class="na">match</span><span class="o">:</span> <span class="k">!let</span>
+<a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a>  <span class="na">let</span><span class="o">:</span>
+<a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a>    <span class="p">-</span> <span class="na">authorIdMatch</span><span class="o">:</span> <span class="s2">&quot;123&quot;</span>
+<a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a>  <span class="na">in</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-5-23" name="__codelineno-5-23" href="#__codelineno-5-23"></a>    <span class="na">authorId</span><span class="o">:</span> <span class="sx">.authorIdMatch</span>
+<a id="__codelineno-5-24" name="__codelineno-5-24" href="#__codelineno-5-24"></a>    <span class="na">title</span><span class="o">:</span> <span class="kc">null</span>
+<a id="__codelineno-5-25" name="__codelineno-5-25" href="#__codelineno-5-25"></a>    <span class="na">author</span><span class="o">:</span>
+<a id="__codelineno-5-26" name="__codelineno-5-26" href="#__codelineno-5-26"></a>      <span class="k">!apiop</span>
+<a id="__codelineno-5-27" name="__codelineno-5-27" href="#__codelineno-5-27"></a>      <span class="na">path</span><span class="o">:</span> <span class="sx">/users</span>
+<a id="__codelineno-5-28" name="__codelineno-5-28" href="#__codelineno-5-28"></a>      <span class="na">match</span><span class="o">:</span> <span class="k">!trim</span>
+<a id="__codelineno-5-29" name="__codelineno-5-29" href="#__codelineno-5-29"></a>        <span class="na">id</span><span class="o">:</span> <span class="sx">.authorIdMatch</span>
+<a id="__codelineno-5-30" name="__codelineno-5-30" href="#__codelineno-5-30"></a>        <span class="na">name</span><span class="o">:</span> <span class="kc">null</span>
+</code></pre></div></p>
+<p>Both query patterns access the same underlying data (posts by user "123"), but use different starting points in the query. The document structure itself has a single representation (posts reference users via <code>authorId</code>), but queries can navigate from either direction.</p>
+<h2 id="advantages-of-tonyapi">Advantages of TonyAPI<a class="headerlink" href="#advantages-of-tonyapi" title="Permanent link">#</a></h2>
+<ol>
+<li><strong>Unified Format</strong>: Queries, mutations, and subscriptions all use the same Tony document format</li>
+<li><strong>Diff-Based</strong>: Mutations return revision numbers, enabling efficient change tracking and history</li>
+<li><strong>Filesystem Model</strong>: Familiar mental model (paths, mounts, metadata)</li>
+<li><strong>Composable</strong>: Diffs compose naturally, controllers communicate via diffs</li>
+<li><strong>Storage</strong>: Diff-based backend enables history, time-travel, audit trails</li>
+<li><strong>No N+1 at Query Level</strong>: Document structure already contains relations</li>
+<li><strong>Plan 9-like</strong>: Simple, composable, process-based architecture</li>
+<li><strong>Schema-Driven</strong>: Unified schema system with type definitions and validation (similar type safety to GraphQL)</li>
+<li><strong>Built-in Transactions</strong>: Protocol-level transaction support with guaranteed atomicity across multiple mount points (see <a href="#7-transactions">Transactions</a> comparison)</li>
+</ol>
+<h2 id="advantages-of-graphql">Advantages of GraphQL<a class="headerlink" href="#advantages-of-graphql" title="Permanent link">#</a></h2>
+<ol>
+<li><strong>Mature Ecosystem</strong>: Extensive tooling, libraries, and community</li>
+<li><strong>Type Safety</strong>: Strong typing with code generation (both GraphQL and TonyAPI have schemas, but GraphQL has more mature code generation tooling)</li>
+<li><strong>Explicit Relations</strong>: Clear schema definition of relations</li>
+<li><strong>Flexible Resolvers</strong>: Can fetch from multiple sources per query</li>
+<li><strong>Standard Protocol</strong>: Well-established specification and practices</li>
+<li><strong>Client Libraries</strong>: Rich client libraries with caching, normalization</li>
+</ol>
+<h2 id="trade-offs">Trade-offs<a class="headerlink" href="#trade-offs" title="Permanent link">#</a></h2>
+<p><strong>TonyAPI:</strong>
+- Requires maintaining virtual document structure (complexity in controllers)
+- Less mature ecosystem
+- Document structure determines available relations
+- New HTTP methods (MATCH, WATCH, MOUNT) may need proxy support</p>
+<p><strong>GraphQL:</strong>
+- Resolver complexity (N+1, batching)
+- Separate query/mutation syntax
+- No built-in diff/history capabilities
+- WebSocket complexity for subscriptions</p>
+<h2 id="use-cases">Use Cases<a class="headerlink" href="#use-cases" title="Permanent link">#</a></h2>
+<p><strong>TonyAPI might be better for:</strong>
+- Systems needing change tracking/history
+- File-like data access patterns
+- Systems already using Tony format
+- When diff-based communication is valuable
+- Plan 9-like architectures</p>
+<p><strong>GraphQL might be better for:</strong>
+- Existing GraphQL ecosystems
+- When explicit relation control is important
+- When mature code generation tooling is critical (both have schemas, but GraphQL has more established tooling)
+- When standard protocols are required</p>
+<h2 id="related-documentation">Related Documentation<a class="headerlink" href="#related-documentation" title="Permanent link">#</a></h2>
+<ul>
+<li><a href="../design/">Design Overview</a> - High-level architecture and concepts</li>
+<li><a href="../queries/">Query Operations</a> - Query format examples</li>
+<li><a href="../mutations/">Mutation Formats</a> - Mutation format examples</li>
+<li><a href="../blog-api-example/">Blog API Example</a> - Complete example API</li>
+</ul></div>
+            </div>
+        </div>
+
+        <footer class="col-md-12">
+            <hr>
+            <p>Documentation built with <a href="https://www.mkdocs.org/">MkDocs</a>.</p>
+        </footer>
+        <script src="../../js/bootstrap.bundle.min.js"></script>
+        <script>
+            var base_url = "../..",
+                shortcuts = {"help": 191, "next": 78, "previous": 80, "search": 83};
+        </script>
+        <script src="../../js/base.js"></script>
+
+        <div class="modal" id="mkdocs_keyboard_modal" tabindex="-1" role="dialog" aria-labelledby="keyboardModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="keyboardModalLabel">Keyboard Shortcuts</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th style="width: 20%;">Keys</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="help shortcut"><kbd>?</kbd></td>
+                    <td>Open this help</td>
+                  </tr>
+                  <tr>
+                    <td class="next shortcut"><kbd>n</kbd></td>
+                    <td>Next page</td>
+                  </tr>
+                  <tr>
+                    <td class="prev shortcut"><kbd>p</kbd></td>
+                    <td>Previous page</td>
+                  </tr>
+                  <tr>
+                    <td class="search shortcut"><kbd>s</kbd></td>
+                    <td>Search</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div>
+
+    </body>
+</html>

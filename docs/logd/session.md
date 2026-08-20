@@ -265,12 +265,16 @@ branch.
 {error: {code: not_found message: 'no value at "verse.nope": resolved through "verse", no field "nope"'}}
 ```
 
-Branch on `code`, not on `message`. The distinctions worth knowing:
+Branch on `code`, not on `message`. The first three are three facts about the PRESENT, and
+none of them says anything about the future: in a mutable document `a.b[0]` resolves the
+moment someone writes an array at `a.b`, exactly as `a.b.c` resolves the moment someone
+writes an object at `a.b`. What separates them is what is there now.
 
 | code | means |
 |---|---|
-| `not_found` | the path holds nothing — an answer, not a failure |
-| `invalid_path` | the path cannot address anything (a segment names a non-field, or it does not parse) |
+| `not_found` | **nothing is there.** Nothing in the document contradicts the path, so creating what is missing is a reasonable next move |
+| `path_conflict` | **something is there, of a shape that cannot hold what you asked for** — an index into an object, a field under a string. Creating here means clobbering what is already there, so the move is to re-examine the shape you assumed |
+| `invalid_path` | **not a well-formed question** — a wildcard names a set of values and a read answers one |
 | `match_failed` | a precondition did not hold; the write did not happen |
 | `invalid_diff` | the delta would not apply to the state it would be stored against |
 | `commit_not_found` | a historical read outside `[0, current]` |

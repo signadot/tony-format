@@ -1,0 +1,119 @@
+/* Syntax highlighting for the docs.
+ *
+ * Code blocks are dark so that tony blocks can carry the colours `o v` prints
+ * in a terminal.  Those colours are defined in go-tony/encode/encode_colors.go
+ * and are used verbatim here, except for three that are dark on a dark
+ * background -- tag, null and comment -- which are lightened along their own
+ * hue until they read.  The mapping from tony construct to Pygments token is
+ * in docs/sketchy/pygments-tony/pygments_tony.py; this file is its other half.
+ *
+ * The classes below the tony section are Pygments' "native" style, and cover
+ * the go, bash, json, yaml and http blocks.  Where a class serves both -- .k,
+ * .o, .p, .s, .m -- the tony colour wins, so those blocks are coloured in the
+ * same scheme rather than in two.
+ *
+ * The theme gives <pre> and <code> a light background of their own, which is
+ * why all three elements are set here.
+ */
+.codehilite,
+.codehilite pre,
+.codehilite code {
+    background: #202020;
+    color: #d0d0d0;
+    border-color: #3a3a3a;
+}
+
+/* --- Tony ---------------------------------------------------------------- */
+.codehilite .k { color: #7486b4; font-weight: bold } /* Tag - RGB(74,92,138), lightened */
+.codehilite .kd { color: #7486b4; font-weight: bold } /* Keyword.Declaration - tag colour */
+.codehilite .kn { color: #7486b4; font-weight: bold } /* Keyword.Namespace - tag colour */
+.codehilite .kp { color: #7486b4 } /* Keyword.Pseudo - tag colour */
+.codehilite .kr { color: #7486b4; font-weight: bold } /* Keyword.Reserved - tag colour */
+.codehilite .kt { color: #7486b4; font-weight: bold } /* Keyword.Type - tag colour */
+.codehilite .na { color: #80a8c4 } /* Name.Attribute: object key - RGB(128,168,196) */
+.codehilite .nl { color: #d56811 } /* Name.Label: sparse-array key - RGB(196,96,16), lightened */
+.codehilite .nb { color: #c4a880 } /* Name.Builtin: merge key - RGB(196,168,128) */
+.codehilite .o { color: #c48080 } /* Operator: ':' separator - RGB(196,128,128) */
+.codehilite .ow { color: #c48080; font-weight: bold } /* Operator.Word */
+.codehilite .p { color: #ff00c4 } /* Punctuation: '-', ',', brackets - RGB(255,0,196) */
+.codehilite .sx { color: #589e56 } /* String.Other: literal - RGB(88,158,86) */
+.codehilite .sh { color: #c6c62e } /* String.Heredoc: block literal - RGB(198,198,46) */
+.codehilite .kc { color: #df22ff; font-weight: bold } /* Keyword.Constant: null - RGB(168,0,196), lightened */
+.codehilite .l { color: #00ffff; font-weight: bold } /* Literal: true, false - cyan */
+/* Quoted strings - RGB(8,196,16) */
+.codehilite .s { color: #08c410 }
+.codehilite .s1 { color: #08c410 }
+.codehilite .s2 { color: #08c410 }
+.codehilite .sa { color: #08c410 }
+.codehilite .sb { color: #08c410 }
+.codehilite .sc { color: #08c410 }
+.codehilite .dl { color: #08c410 }
+.codehilite .sd { color: #08c410; font-style: italic }
+.codehilite .se { color: #08c410; font-weight: bold }
+.codehilite .si { color: #08c410; font-weight: bold }
+.codehilite .sr { color: #08c410 }
+.codehilite .ss { color: #08c410 }
+/* Numbers - RGB(128,216,236) */
+.codehilite .m { color: #80d8ec }
+.codehilite .mb { color: #80d8ec }
+.codehilite .mf { color: #80d8ec }
+.codehilite .mh { color: #80d8ec }
+.codehilite .mi { color: #80d8ec }
+.codehilite .mo { color: #80d8ec }
+.codehilite .il { color: #80d8ec }
+/* Comments - blue, lightened */
+.codehilite .c { color: #7676ff; font-style: italic }
+.codehilite .c1 { color: #7676ff; font-style: italic }
+.codehilite .ch { color: #7676ff; font-style: italic }
+.codehilite .cm { color: #7676ff; font-style: italic }
+.codehilite .cp { color: #7676ff; font-style: italic }
+.codehilite .cpf { color: #7676ff; font-style: italic }
+.codehilite .cs { color: #7676ff; font-style: italic }
+
+/* --- Pygments "native", for everything the tony section does not claim ---- */
+pre { line-height: 125%; }
+td.linenos .normal { color: #aaaaaa; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+span.linenos { color: #aaaaaa; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.codehilite .hll { background-color: #404040 }
+/* Error: a character its lexer had no rule for.  Marked, not shouted -- the
+ * http and graphql blocks hold a handful of these on syntax their Pygments
+ * lexers do not cover, and they are the document's, not the reader's, problem.
+ * The tony lexer emits no Error at all; see its test_lexer.py. */
+.codehilite .err { color: #d0d0d0; border-bottom: 1px dotted #a61717 }
+.codehilite .esc { color: #D0D0D0 } /* Escape */
+.codehilite .g { color: #D0D0D0 } /* Generic */
+.codehilite .n { color: #D0D0D0 } /* Name */
+.codehilite .x { color: #D0D0D0 } /* Other */
+.codehilite .gd { color: #FF3A3A } /* Generic.Deleted */
+.codehilite .ge { color: #D0D0D0; font-style: italic } /* Generic.Emph */
+.codehilite .ges { color: #D0D0D0; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.codehilite .gr { color: #FF3A3A } /* Generic.Error */
+.codehilite .gh { color: #FFF; font-weight: bold } /* Generic.Heading */
+.codehilite .gi { color: #589819 } /* Generic.Inserted */
+.codehilite .go { color: #CCC } /* Generic.Output */
+.codehilite .gp { color: #AAA } /* Generic.Prompt */
+.codehilite .gs { color: #D0D0D0; font-weight: bold } /* Generic.Strong */
+.codehilite .gu { color: #FFF; text-decoration: underline } /* Generic.Subheading */
+.codehilite .gt { color: #FF3A3A } /* Generic.Traceback */
+.codehilite .ld { color: #D0D0D0 } /* Literal.Date */
+.codehilite .nc { color: #71ADFF; text-decoration: underline } /* Name.Class */
+.codehilite .no { color: #40FFFF } /* Name.Constant */
+.codehilite .nd { color: #FFA500 } /* Name.Decorator */
+.codehilite .ni { color: #D0D0D0 } /* Name.Entity */
+.codehilite .ne { color: #BBB } /* Name.Exception */
+.codehilite .nf { color: #71ADFF } /* Name.Function */
+.codehilite .nn { color: #71ADFF; text-decoration: underline } /* Name.Namespace */
+.codehilite .nx { color: #D0D0D0 } /* Name.Other */
+.codehilite .py { color: #D0D0D0 } /* Name.Property */
+.codehilite .nt { color: #6EBF26; font-weight: bold } /* Name.Tag */
+.codehilite .nv { color: #40FFFF } /* Name.Variable */
+.codehilite .pm { color: #D0D0D0 } /* Punctuation.Marker */
+.codehilite .w { color: #666 } /* Text.Whitespace */
+.codehilite .bp { color: #2FBCCD } /* Name.Builtin.Pseudo */
+.codehilite .fm { color: #71ADFF } /* Name.Function.Magic */
+.codehilite .vc { color: #40FFFF } /* Name.Variable.Class */
+.codehilite .vg { color: #40FFFF } /* Name.Variable.Global */
+.codehilite .vi { color: #40FFFF } /* Name.Variable.Instance */
+.codehilite .vm { color: #40FFFF } /* Name.Variable.Magic */

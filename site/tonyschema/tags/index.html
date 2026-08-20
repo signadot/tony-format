@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        
+        
+        <link rel="shortcut icon" href="../../img/favicon.ico">
+        <title>Tags - Tony Format</title>
+        <link href="../../css/bootstrap.min.css" rel="stylesheet">
+        <link href="../../css/fontawesome.min.css" rel="stylesheet">
+        <link href="../../css/brands.min.css" rel="stylesheet">
+        <link href="../../css/solid.min.css" rel="stylesheet">
+        <link href="../../css/v4-font-face.min.css" rel="stylesheet">
+        <link href="../../css/base.css" rel="stylesheet">
+        <link href="../../pygments.css" rel="stylesheet"> 
+    </head>
+
+    <body>
+        <div class="navbar fixed-top navbar-expand-lg navbar-dark bg-primary">
+            <div class="container">
+                <a class="navbar-brand" href="../..">Tony Format</a>
+                <!-- Expander button -->
+                <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar-collapse" aria-controls="navbar-collapse" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                <!-- Expanded navigation -->
+                <div id="navbar-collapse" class="navbar-collapse collapse">
+                        <!-- Main navigation -->
+                        <ul class="nav navbar-nav">
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Format</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../tony/" class="dropdown-item">Tony Format</a>
+</li>
+                                    
+<li>
+    <a href="../../ir/" class="dropdown-item">Tony IR</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle active" aria-current="page" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Schema</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../" class="dropdown-item">Tony Schema</a>
+</li>
+                                    
+<li>
+    <a href="../schema/" class="dropdown-item">Schema Structure</a>
+</li>
+                                    
+<li>
+    <a href="../contexts/" class="dropdown-item">Contexts</a>
+</li>
+                                    
+<li>
+    <a href="./" class="dropdown-item active" aria-current="page">Tags</a>
+</li>
+                                    
+<li>
+    <a href="../validation/" class="dropdown-item">Validation</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Tools</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../extraformat/" class="dropdown-item">Extra-Format Encoding</a>
+</li>
+                                    
+<li>
+    <a href="../../o/" class="dropdown-item">o</a>
+</li>
+                                    
+<li>
+    <a href="../../gomap/" class="dropdown-item">Golang</a>
+</li>
+                                    
+<li>
+    <a href="../../logd/" class="dropdown-item">logd</a>
+</li>
+                                    
+<li>
+    <a href="../../logd/session/" class="dropdown-item">logd: The session protocol</a>
+</li>
+                                    
+<li>
+    <a href="../../logd/writes/" class="dropdown-item">logd: What a write must be</a>
+</li>
+                                    
+<li>
+    <a href="../../logd/keyed/" class="dropdown-item">logd: Keyed arrays</a>
+</li>
+                                    
+<li>
+    <a href="../../docd/" class="dropdown-item">docd</a>
+</li>
+                                    
+<li>
+    <a href="../../docd/mounts/" class="dropdown-item">docd: Mounts & routing</a>
+</li>
+                                    
+<li>
+    <a href="../../docd/composition/" class="dropdown-item">docd: Composition — reads & watches</a>
+</li>
+                                    
+<li>
+    <a href="../../docd/transactions/" class="dropdown-item">docd: Multi-mount transactions</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Reference</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../../build-eval/" class="dropdown-item">Tony Evaluation Model</a>
+</li>
+                                    
+<li>
+    <a href="../../generated/" class="dropdown-item">Tags</a>
+</li>
+                                    
+<li>
+    <a href="../../matchpatch/" class="dropdown-item">Matching and Patching</a>
+</li>
+                                </ul>
+                            </li>
+                        </ul>
+
+                    <ul class="nav navbar-nav ms-md-auto">
+                            <li class="nav-item">
+                                <a rel="prev" href="../contexts/" class="nav-link">
+                                    <i class="fa fa-arrow-left"></i> Previous
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a rel="next" href="../validation/" class="nav-link">
+                                    Next <i class="fa fa-arrow-right"></i>
+                                </a>
+                            </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="row">
+                    <div class="col-md-3"><div class="navbar-expand-md bs-sidebar hidden-print affix" role="complementary">
+    <div class="navbar-header">
+        <button type="button" class="navbar-toggler collapsed" data-bs-toggle="collapse" data-bs-target="#toc-collapse" title="Table of Contents">
+            <span class="fa fa-angle-down"></span>
+        </button>
+    </div>
+
+    
+    <div id="toc-collapse" class="navbar-collapse collapse card bg-body-tertiary">
+        <ul class="nav flex-column">
+            
+            <li class="nav-item" data-bs-level="1"><a href="#tags" class="nav-link">Tags</a>
+              <ul class="nav flex-column">
+            <li class="nav-item" data-bs-level="2"><a href="#what-are-tags" class="nav-link">What are Tags?</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#tag-syntax" class="nav-link">Tag Syntax</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#schema-tags" class="nav-link">Schema Tags</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#tag-definitions" class="nav-link">Tag Definitions</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#built-in-tags" class="nav-link">Built-in Tags</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#tag-composition" class="nav-link">Tag Composition</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#context-qualified-tags" class="nav-link">Context-Qualified Tags</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#tag-validation" class="nav-link">Tag Validation</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#example-using-tags" class="nav-link">Example: Using Tags</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+              </ul>
+            </li>
+        </ul>
+    </div>
+</div></div>
+                    <div class="col-md-9" role="main">
+
+<h1 id="tags">Tags<a class="headerlink" href="#tags" title="Permanent link">#</a></h1>
+<p>Tags are markers on IR nodes that provide type information, schema references,
+or operation instructions. They're the mechanism by which schemas reference
+other schemas and by which operations are invoked.</p>
+<h2 id="what-are-tags">What are Tags?<a class="headerlink" href="#what-are-tags" title="Permanent link">#</a></h2>
+<p>Tags appear on IR nodes using the <code>!tagName</code> syntax. They serve several purposes:</p>
+<ol>
+<li><strong>Schema References</strong>: <code>!person</code> means "this node conforms to the person schema"</li>
+<li><strong>Type Markers</strong>: <code>!irtype</code> marks built-in types</li>
+<li><strong>Operations</strong>: <code>!or</code>, <code>!and</code>, <code>!nullify</code> invoke operations</li>
+<li><strong>Custom Tags</strong>: Schemas can define their own tags</li>
+</ol>
+<h2 id="tag-syntax">Tag Syntax<a class="headerlink" href="#tag-syntax" title="Permanent link">#</a></h2>
+<p>Tags use the <code>!</code> prefix:</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">!person</span>           <span class="c1"># Reference to person schema</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="k">!irtype</span> <span class="mi">1</span>         <span class="c1"># Built-in number type</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">!or</span>               <span class="c1"># OR operation</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="k">!and</span>              <span class="c1"># AND operation</span>
+</code></pre></div>
+<p>Tags can be composed:</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">!tag1.tag2</span>        <span class="c1"># Composed tags</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="k">!match:or</span>          <span class="c1"># Context-qualified tag</span>
+</code></pre></div>
+<h2 id="schema-tags">Schema Tags<a class="headerlink" href="#schema-tags" title="Permanent link">#</a></h2>
+<p>When a schema has a <code>signature.name</code>, that name becomes available as a tag
+reference. For example:</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="na">signature</span><span class="o">:</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>  <span class="na">name</span><span class="o">:</span> <span class="sx">person</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="c1"># Now !person can be used to reference this schema</span>
+</code></pre></div>
+<p>Other schemas can then reference it:</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="na">define</span><span class="o">:</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>  <span class="na">user</span><span class="o">:</span> <span class="k">!person</span> <span class="kc">null</span>        <span class="c1"># Reference to person schema</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>  <span class="na">number</span><span class="o">:</span> <span class="k">!from(base-schema,number)</span> <span class="kc">null</span>  <span class="c1"># Reference to definition in another schema</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>  <span class="na">post</span><span class="o">:</span>                     <span class="c1"># post definition with structure</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="na">title</span><span class="o">:</span> <span class="k">!irtype</span> <span class="s2">&quot;&quot;</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="na">content</span><span class="o">:</span> <span class="k">!irtype</span> <span class="s2">&quot;&quot;</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    <span class="na">author</span><span class="o">:</span> <span class="sx">.[user]</span>         <span class="c1"># Reference to definition in same schema using expr-lang</span>
+</code></pre></div>
+<p>The schema system automatically creates a tag entry for <code>signature.name</code> in
+the schema's <code>tags</code> map, so you don't need to explicitly define it unless
+you want to add additional metadata (like contexts or descriptions).</p>
+<h2 id="tag-definitions">Tag Definitions<a class="headerlink" href="#tag-definitions" title="Permanent link">#</a></h2>
+<p>Schemas can define tags in the <code>tags</code> field. This is metadata about what
+tags are available and in which contexts they're valid:</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="na">tags</span><span class="o">:</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>  <span class="na">custom-or</span><span class="o">:</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="na">contexts</span><span class="o">:</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="p">-</span> <span class="sx">tony-format/context/match</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="na">description</span><span class="o">:</span> <span class="s2">&quot;Custom OR operation for matching&quot;</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="na">schema</span><span class="o">:</span> <span class="sx">.custom-or-definition</span>
+</code></pre></div>
+<p>A <code>TagDefinition</code> can have:</p>
+<ul>
+<li><strong>Name</strong>: The tag name (e.g., "or", "and")</li>
+<li><strong>Contexts</strong>: List of context URIs where this tag is valid</li>
+<li><strong>SchemaRef</strong>: Optional reference to a schema that defines this tag's behavior</li>
+<li><strong>Description</strong>: Human-readable description of what the tag does</li>
+</ul>
+<h2 id="built-in-tags">Built-in Tags<a class="headerlink" href="#built-in-tags" title="Permanent link">#</a></h2>
+<h3 id="type-tags">Type Tags<a class="headerlink" href="#type-tags" title="Permanent link">#</a></h3>
+<ul>
+<li><code>!irtype</code> - Built-in type marker (used with values like <code>1</code>, <code>""</code>, <code>true</code>, <code>null</code>, <code>[]</code>, <code>{}</code>)</li>
+</ul>
+<h3 id="match-context-tags">Match Context Tags<a class="headerlink" href="#match-context-tags" title="Permanent link">#</a></h3>
+<ul>
+<li><code>!or</code>, <code>!and</code>, <code>!not</code> - Boolean operations</li>
+<li><code>!irtype</code>, <code>!glob</code>, <code>!field</code> - Type and field matching</li>
+<li><code>!tag</code>, <code>!subtree</code>, <code>!all</code> - Structural matching</li>
+<li><code>!let</code>, <code>!if</code>, <code>!dive</code>, <code>!embed</code> - Control flow</li>
+</ul>
+<h3 id="patch-context-tags">Patch Context Tags<a class="headerlink" href="#patch-context-tags" title="Permanent link">#</a></h3>
+<ul>
+<li><code>!nullify</code>, <code>!insert</code>, <code>!delete</code>, <code>!replace</code> - Basic operations</li>
+<li><code>!rename</code>, <code>!strdiff</code>, <code>!arraydiff</code> - Transformations</li>
+<li><code>!addtag</code>, <code>!rmtag</code>, <code>!retag</code> - Tag manipulation</li>
+</ul>
+<h3 id="eval-context-tags">Eval Context Tags<a class="headerlink" href="#eval-context-tags" title="Permanent link">#</a></h3>
+<ul>
+<li><code>!eval</code>, <code>!file</code>, <code>!exec</code> - Execution</li>
+<li><code>!tostring</code>, <code>!toint</code>, <code>!tovalue</code> - Type conversion</li>
+</ul>
+<h2 id="tag-composition">Tag Composition<a class="headerlink" href="#tag-composition" title="Permanent link">#</a></h2>
+<p>Tags can be composed to create more specific tags:</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">!outer.inner</span>      <span class="c1"># Composed tag</span>
+</code></pre></div>
+<p>This is useful when you have nested structures or when you want to apply
+multiple tags to a single node.</p>
+<h2 id="context-qualified-tags">Context-Qualified Tags<a class="headerlink" href="#context-qualified-tags" title="Permanent link">#</a></h2>
+<p>You can explicitly specify which context a tag comes from:</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">!match:or</span>         <span class="c1"># !or from match context</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="k">!patch:nullify</span>    <span class="c1"># !nullify from patch context</span>
+</code></pre></div>
+<p>This is useful when:</p>
+<ul>
+<li>You need to disambiguate between tags with the same name in different contexts</li>
+<li>You want to use a tag from a different context than your schema's default</li>
+</ul>
+<h2 id="tag-validation">Tag Validation<a class="headerlink" href="#tag-validation" title="Permanent link">#</a></h2>
+<p>The schema system can validate that tags are:</p>
+<ul>
+<li>Available in the current context</li>
+<li>Properly referenced (schema exists)</li>
+<li>Used correctly (right number of arguments, etc.)</li>
+</ul>
+<p>This validation happens when:</p>
+<ul>
+<li>Parsing schemas</li>
+<li>Validating documents against schemas</li>
+<li>Resolving schema references</li>
+</ul>
+<h2 id="example-using-tags">Example: Using Tags<a class="headerlink" href="#example-using-tags" title="Permanent link">#</a></h2>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="na">context</span><span class="o">:</span> <span class="sx">tony-format/context/match</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="na">signature</span><span class="o">:</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>  <span class="na">name</span><span class="o">:</span> <span class="sx">blog-post</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="na">define</span><span class="o">:</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>  <span class="c1"># Use !irtype for built-in types</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>  <span class="na">title</span><span class="o">:</span> <span class="k">!irtype</span> <span class="s2">&quot;&quot;</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>  <span class="na">content</span><span class="o">:</span> <span class="k">!irtype</span> <span class="s2">&quot;&quot;</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>  <span class="c1"># Use !or for unions</span>
+<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>  <span class="na">status</span><span class="o">:</span> <span class="k">!or</span>
+<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a>  <span class="p">-</span> <span class="s2">&quot;draft&quot;</span>
+<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a>  <span class="p">-</span> <span class="s2">&quot;published&quot;</span>
+<a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a>  <span class="p">-</span> <span class="s2">&quot;archived&quot;</span>
+<a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a>
+<a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a>  <span class="c1"># Use !and for intersections</span>
+<a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a>  <span class="na">published-post</span><span class="o">:</span> <span class="k">!and</span>
+<a id="__codelineno-7-19" name="__codelineno-7-19" href="#__codelineno-7-19"></a>  <span class="p">-</span> <span class="sx">.[post]</span>
+<a id="__codelineno-7-20" name="__codelineno-7-20" href="#__codelineno-7-20"></a>  <span class="p">-</span> <span class="na">status</span><span class="o">:</span> <span class="s2">&quot;published&quot;</span>
+<a id="__codelineno-7-21" name="__codelineno-7-21" href="#__codelineno-7-21"></a>
+<a id="__codelineno-7-22" name="__codelineno-7-22" href="#__codelineno-7-22"></a>  <span class="c1"># Reference other schemas</span>
+<a id="__codelineno-7-23" name="__codelineno-7-23" href="#__codelineno-7-23"></a>  <span class="na">author</span><span class="o">:</span> <span class="k">!person</span>
+<a id="__codelineno-7-24" name="__codelineno-7-24" href="#__codelineno-7-24"></a>
+<a id="__codelineno-7-25" name="__codelineno-7-25" href="#__codelineno-7-25"></a>  <span class="c1"># Use match operations</span>
+<a id="__codelineno-7-26" name="__codelineno-7-26" href="#__codelineno-7-26"></a>  <span class="na">valid-post</span><span class="o">:</span> <span class="k">!and</span>
+<a id="__codelineno-7-27" name="__codelineno-7-27" href="#__codelineno-7-27"></a>  <span class="p">-</span> <span class="sx">.[post]</span>
+<a id="__codelineno-7-28" name="__codelineno-7-28" href="#__codelineno-7-28"></a>  <span class="p">-</span> <span class="k">!not.irtype</span> <span class="kc">null</span>
+<a id="__codelineno-7-29" name="__codelineno-7-29" href="#__codelineno-7-29"></a>
+<a id="__codelineno-7-30" name="__codelineno-7-30" href="#__codelineno-7-30"></a><span class="na">tags</span><span class="o">:</span>
+<a id="__codelineno-7-31" name="__codelineno-7-31" href="#__codelineno-7-31"></a>  <span class="na">blog-post</span><span class="o">:</span>
+<a id="__codelineno-7-32" name="__codelineno-7-32" href="#__codelineno-7-32"></a>    <span class="na">description</span><span class="o">:</span> <span class="s2">&quot;A blog post schema&quot;</span>
+<a id="__codelineno-7-33" name="__codelineno-7-33" href="#__codelineno-7-33"></a>    <span class="na">contexts</span><span class="o">:</span>
+<a id="__codelineno-7-34" name="__codelineno-7-34" href="#__codelineno-7-34"></a>    <span class="p">-</span> <span class="sx">tony-format/context/match</span>
+</code></pre></div></div>
+            </div>
+        </div>
+
+        <footer class="col-md-12">
+            <hr>
+            <p>Documentation built with <a href="https://www.mkdocs.org/">MkDocs</a>.</p>
+        </footer>
+        <script src="../../js/bootstrap.bundle.min.js"></script>
+        <script>
+            var base_url = "../..",
+                shortcuts = {"help": 191, "next": 78, "previous": 80, "search": 83};
+        </script>
+        <script src="../../js/base.js"></script>
+
+        <div class="modal" id="mkdocs_keyboard_modal" tabindex="-1" role="dialog" aria-labelledby="keyboardModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="keyboardModalLabel">Keyboard Shortcuts</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th style="width: 20%;">Keys</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="help shortcut"><kbd>?</kbd></td>
+                    <td>Open this help</td>
+                  </tr>
+                  <tr>
+                    <td class="next shortcut"><kbd>n</kbd></td>
+                    <td>Next page</td>
+                  </tr>
+                  <tr>
+                    <td class="prev shortcut"><kbd>p</kbd></td>
+                    <td>Previous page</td>
+                  </tr>
+                  <tr>
+                    <td class="search shortcut"><kbd>s</kbd></td>
+                    <td>Search</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div>
+
+    </body>
+</html>

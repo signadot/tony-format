@@ -53,9 +53,9 @@ const ProtocolVersion = 1
 type HelloResponse struct {
 	ServerID     string   `tony:"field=serverId"`
 	Protocol     int      `tony:"field=protocol,omitzero"` // the version the SERVER speaks
-	Schema       *ir.Node `tony:"field=schema"`       // Server's schema (active or pending based on UsePending)
-	SchemaCommit int64    `tony:"field=schemaCommit"` // Commit where this schema was set (0 if schemaless)
-	UsingPending bool     `tony:"field=usingPending"` // True if session is using pending schema
+	Schema       *ir.Node `tony:"field=schema"`            // Server's schema (active or pending based on UsePending)
+	SchemaCommit int64    `tony:"field=schemaCommit"`      // Commit where this schema was set (0 if schemaless)
+	UsingPending bool     `tony:"field=usingPending"`      // True if session is using pending schema
 }
 
 // MatchRequest is a request to read state at a path: the path restricts the read to
@@ -452,6 +452,17 @@ const (
 	// session protocol. Refused at hello, because every later request would be answered
 	// rather than refused -- see ProtocolVersion.
 	ErrCodeProtocolMismatch = "protocol_mismatch"
+
+	// ErrCodePathConflict is a path which disagrees with the SHAPE of what is there:
+	// an index into an object, a field under a string. It is neither of its neighbours
+	// -- not_found says nothing is there, invalid_path says the path can never address
+	// anything -- and it was answered as not_found, so a client waiting for a value to
+	// appear waited for one that is already there in a form it cannot read
+	// (yy0cfe9mh12kr6pwgsn0).
+	//
+	// errors.Is(err, ErrPathNotFound) still holds for it: there is no value AT that
+	// path. The code says why.
+	ErrCodePathConflict = "path_conflict"
 
 	ErrCodeStorage = "storage_error"
 	// ErrCodeMatch is a match PATTERN which could not be applied to the state at all, as

@@ -65,6 +65,13 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 			s.sendError(id, api.ErrCodeInvalidPath, err.Error())
 			return
 		}
+		if errors.As(err, &pe) && pe.Kind == PathTypeConflict {
+			// Something IS there, in a shape that cannot hold what was asked for. Saying
+			// not_found here tells a client to wait for a value which has already
+			// arrived and is the wrong kind.
+			s.sendError(id, api.ErrCodePathConflict, err.Error())
+			return
+		}
 		if errors.Is(err, ErrPathNotFound) {
 			s.sendError(id, api.ErrCodeNotFound, err.Error())
 			return

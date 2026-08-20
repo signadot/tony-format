@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        
+        
+        <link rel="shortcut icon" href="../img/favicon.ico">
+        <title>Querying Objects - Tony Format</title>
+        <link href="../css/bootstrap.min.css" rel="stylesheet">
+        <link href="../css/fontawesome.min.css" rel="stylesheet">
+        <link href="../css/brands.min.css" rel="stylesheet">
+        <link href="../css/solid.min.css" rel="stylesheet">
+        <link href="../css/v4-font-face.min.css" rel="stylesheet">
+        <link href="../css/base.css" rel="stylesheet">
+        <link href="../pygments.css" rel="stylesheet"> 
+    </head>
+
+    <body>
+        <div class="navbar fixed-top navbar-expand-lg navbar-dark bg-primary">
+            <div class="container">
+                <a class="navbar-brand" href="..">Tony Format</a>
+                <!-- Expander button -->
+                <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar-collapse" aria-controls="navbar-collapse" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                <!-- Expanded navigation -->
+                <div id="navbar-collapse" class="navbar-collapse collapse">
+                        <!-- Main navigation -->
+                        <ul class="nav navbar-nav">
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Format</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../tony/" class="dropdown-item">Tony Format</a>
+</li>
+                                    
+<li>
+    <a href="../ir/" class="dropdown-item">Tony IR</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Schema</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../tonyschema/" class="dropdown-item">Tony Schema</a>
+</li>
+                                    
+<li>
+    <a href="../tonyschema/schema/" class="dropdown-item">Schema Structure</a>
+</li>
+                                    
+<li>
+    <a href="../tonyschema/contexts/" class="dropdown-item">Contexts</a>
+</li>
+                                    
+<li>
+    <a href="../tonyschema/tags/" class="dropdown-item">Tags</a>
+</li>
+                                    
+<li>
+    <a href="../tonyschema/validation/" class="dropdown-item">Validation</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Tools</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../extraformat/" class="dropdown-item">Extra-Format Encoding</a>
+</li>
+                                    
+<li>
+    <a href="../o/" class="dropdown-item">o</a>
+</li>
+                                    
+<li>
+    <a href="../gomap/" class="dropdown-item">Golang</a>
+</li>
+                                    
+<li>
+    <a href="../logd/" class="dropdown-item">logd</a>
+</li>
+                                    
+<li>
+    <a href="../logd/session/" class="dropdown-item">logd: The session protocol</a>
+</li>
+                                    
+<li>
+    <a href="../logd/writes/" class="dropdown-item">logd: What a write must be</a>
+</li>
+                                    
+<li>
+    <a href="../logd/keyed/" class="dropdown-item">logd: Keyed arrays</a>
+</li>
+                                    
+<li>
+    <a href="../docd/" class="dropdown-item">docd</a>
+</li>
+                                    
+<li>
+    <a href="../docd/mounts/" class="dropdown-item">docd: Mounts & routing</a>
+</li>
+                                    
+<li>
+    <a href="../docd/composition/" class="dropdown-item">docd: Composition — reads & watches</a>
+</li>
+                                    
+<li>
+    <a href="../docd/transactions/" class="dropdown-item">docd: Multi-mount transactions</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Reference</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../build-eval/" class="dropdown-item">Tony Evaluation Model</a>
+</li>
+                                    
+<li>
+    <a href="../generated/" class="dropdown-item">Tags</a>
+</li>
+                                    
+<li>
+    <a href="../matchpatch/" class="dropdown-item">Matching and Patching</a>
+</li>
+                                </ul>
+                            </li>
+                        </ul>
+
+                    <ul class="nav navbar-nav ms-md-auto">
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="row">
+                    <div class="col-md-3"><div class="navbar-expand-md bs-sidebar hidden-print affix" role="complementary">
+    <div class="navbar-header">
+        <button type="button" class="navbar-toggler collapsed" data-bs-toggle="collapse" data-bs-target="#toc-collapse" title="Table of Contents">
+            <span class="fa fa-angle-down"></span>
+        </button>
+    </div>
+
+    
+    <div id="toc-collapse" class="navbar-collapse collapse card bg-body-tertiary">
+        <ul class="nav flex-column">
+            
+            <li class="nav-item" data-bs-level="1"><a href="#querying-objects" class="nav-link">Querying Objects</a>
+              <ul class="nav flex-column">
+            <li class="nav-item" data-bs-level="2"><a href="#get-and-list" class="nav-link">get and list</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#a-note-on" class="nav-link">A note on $</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#where-may-not-go" class="nav-link">Where .. may not go</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+              </ul>
+            </li>
+        </ul>
+    </div>
+</div></div>
+                    <div class="col-md-9" role="main">
+
+<h1 id="querying-objects">Querying Objects<a class="headerlink" href="#querying-objects" title="Permanent link">#</a></h1>
+<p><code>o get</code> and <code>o list</code> take a <strong>kpath</strong> — the same path syntax the rest of the system
+uses: what <code>!at(...)</code> walks in a <a href="../matchpatch/">match</a>, what logd indexes by, what a
+watch names, and what an error prints when it says where it is.</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>o<span class="w"> </span>get<span class="w"> </span>spec.replicas<span class="w"> </span>deploy.tony
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>o<span class="w"> </span>list<span class="w"> </span><span class="s1">&#39;items[*].name&#39;</span><span class="w"> </span>inventory.tony
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>o<span class="w"> </span>get<span class="w"> </span><span class="s1">&#39;items(WIDGET).qty&#39;</span><span class="w"> </span>inventory.tony
+</code></pre></div>
+<p>A path is a sequence of segments, and each segment says what KIND of thing it steps
+through — which is what "kinded path" means:</p>
+<table>
+<thead>
+<tr>
+<th>segment</th>
+<th>steps into</th>
+<th>example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>.field</code></td>
+<td>an object</td>
+<td><code>spec.replicas</code>, <code>.replicas</code></td>
+</tr>
+<tr>
+<td><code>[i]</code></td>
+<td>a dense array</td>
+<td><code>items[0]</code></td>
+</tr>
+<tr>
+<td><code>{i}</code></td>
+<td>a sparse array, <strong>by key</strong></td>
+<td><code>items{42}</code></td>
+</tr>
+<tr>
+<td><code>(key)</code></td>
+<td>a <a href="../logd/keyed/">keyed array</a>, by identity</td>
+<td><code>items(WIDGET)</code></td>
+</tr>
+<tr>
+<td><code>.*</code> <code>[*]</code> <code>{*}</code></td>
+<td>all of them, at that step</td>
+<td><code>items[*].name</code></td>
+</tr>
+<tr>
+<td><code>..</code></td>
+<td>any depth below here, this node included</td>
+<td><code>..name</code>, <code>spec..image</code></td>
+</tr>
+</tbody>
+</table>
+<p>The leading <code>.</code> is optional at the start, so <code>spec.replicas</code> and <code>.spec.replicas</code> are
+the same path, and by the same rule a bare <code>.</code> is the whole document. The root is
+written <code>.</code>, or as the empty path — <code>o get . doc.tony</code> and <code>o get '' doc.tony</code> ask
+the same thing. Giving no path at all is a usage error rather than the root: a
+missing path and a path naming everything are different mistakes. A key or a field that needs quoting takes quotes: <code>pr."1".votes</code>.</p>
+<p>A sparse array is an object whose keys are numbers, so <code>{i}</code> names the value under
+the key <code>i</code> rather than the <code>i</code>th value: in <code>!sparsearray {3: a, 7: b}</code>, <code>{7}</code> is <code>b</code>,
+which sits second.</p>
+<h2 id="get-and-list"><code>get</code> and <code>list</code><a class="headerlink" href="#get-and-list" title="Permanent link">#</a></h2>
+<p><code>get</code> answers with the single node a path names, and <code>list</code> with every node it names.
+A wildcard therefore belongs in a <code>list</code>: <code>get</code> refuses <code>[*]</code> or <code>..</code> rather than
+picking one of the things they matched.</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>o<span class="w"> </span>list<span class="w"> </span>..image<span class="w"> </span>deploy.tony<span class="w">        </span><span class="c1"># every image, wherever it is</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>o<span class="w"> </span>list<span class="w"> </span><span class="s1">&#39;spec..name&#39;</span><span class="w"> </span>deploy.tony<span class="w">   </span><span class="c1"># every name under spec, at any depth</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>o<span class="w"> </span>list<span class="w"> </span><span class="s1">&#39;a..&#39;</span><span class="w"> </span>doc.tony<span class="w">             </span><span class="c1"># a and everything under it</span>
+</code></pre></div>
+<p><code>-paths</code> answers with <strong>where</strong> each node is rather than what it is, in this same
+syntax — so the answer to one query is the input to the next:</p>
+<div class="codehilite"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>$<span class="w"> </span>o<span class="w"> </span>list<span class="w"> </span>-paths<span class="w"> </span>..image<span class="w"> </span>deploy.tony
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>-<span class="w"> </span>spec.containers<span class="o">[</span><span class="m">0</span><span class="o">]</span>.image
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>-<span class="w"> </span>spec.containers<span class="o">[</span><span class="m">1</span><span class="o">]</span>.image
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>$<span class="w"> </span>o<span class="w"> </span>get<span class="w"> </span><span class="s1">&#39;spec.containers[0].image&#39;</span><span class="w"> </span>deploy.tony
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>nginx
+</code></pre></div>
+<p>Both read a stream of documents and ask the path of each. See
+<a href="../logd/writes/">What a write must be</a> for the paths logd accepts on the writing
+side, which are the same syntax.</p>
+<h2 id="a-note-on">A note on <code>$</code><a class="headerlink" href="#a-note-on" title="Permanent link">#</a></h2>
+<p>An earlier syntax, closer to JSONPath, began every path with <code>$</code> — <code>$.field[3]</code>. That
+sigil said nothing, since every path had it, and the syntax could not name a keyed or
+a sparse element at all.</p>
+<p>A leading <code>$</code> is still accepted, so <code>$.spec.replicas</code> works and existing scripts keep
+running. It is dropped rather than treated as a field name, which is what a kpath
+would otherwise make of it.</p>
+<p>That syntax spelled any-depth with three dots -- <code>$...x</code> -- because <code>$..x</code> was a
+parse error. kpath spells it <code>..</code>, and the three-dot form is read as it.</p>
+<h2 id="where-may-not-go">Where <code>..</code> may not go<a class="headerlink" href="#where-may-not-go" title="Permanent link">#</a></h2>
+<p>A <code>..</code> is a question: it names the nodes at any depth rather than a step to one. So
+it belongs in a query and nowhere a path has to name a place -- what a patch is
+rooted at, what a watch names, what logd indexes by. Those refuse it, and say so:</p>
+<div class="codehilite"><pre><span></span><code>&quot;a..c&quot;: `..` names nodes at any depth, which is a question and not a place:
+a path here has to name one
+</code></pre></div>
+<p>An empty field name is still sayable, in quotes: <code>a."".x</code>. That is the canonical
+spelling, and what <code>..</code> used to parse as before it meant depth.</p></div>
+            </div>
+        </div>
+
+        <footer class="col-md-12">
+            <hr>
+            <p>Documentation built with <a href="https://www.mkdocs.org/">MkDocs</a>.</p>
+        </footer>
+        <script src="../js/bootstrap.bundle.min.js"></script>
+        <script>
+            var base_url = "..",
+                shortcuts = {"help": 191, "next": 78, "previous": 80, "search": 83};
+        </script>
+        <script src="../js/base.js"></script>
+
+        <div class="modal" id="mkdocs_keyboard_modal" tabindex="-1" role="dialog" aria-labelledby="keyboardModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="keyboardModalLabel">Keyboard Shortcuts</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th style="width: 20%;">Keys</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="help shortcut"><kbd>?</kbd></td>
+                    <td>Open this help</td>
+                  </tr>
+                  <tr>
+                    <td class="next shortcut"><kbd>n</kbd></td>
+                    <td>Next page</td>
+                  </tr>
+                  <tr>
+                    <td class="prev shortcut"><kbd>p</kbd></td>
+                    <td>Previous page</td>
+                  </tr>
+                  <tr>
+                    <td class="search shortcut"><kbd>s</kbd></td>
+                    <td>Search</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div>
+
+    </body>
+</html>

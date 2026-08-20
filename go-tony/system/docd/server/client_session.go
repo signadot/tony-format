@@ -351,6 +351,9 @@ const txParticipantTimeout = 10 * time.Second
 // higher-order op above a mount boundary) is answered with an error.
 func (s *ClientSession) maybeCoordinatePatch(req *logdapi.SessionRequest) (bool, error) {
 	parts, base, err := splitPatch(s.server.Mounts, req.Patch.Path, req.Patch.Data, s.server.patchTagFilter())
+	if errors.Is(err, errNotDecomposable) {
+		return false, nil // one owner: route it normally
+	}
 	if err != nil {
 		return true, s.writeToClient(logdapi.NewErrorResponse(req.ID, logdapi.ErrCodeInvalidMessage, err.Error()))
 	}
