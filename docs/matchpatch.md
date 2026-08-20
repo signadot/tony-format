@@ -15,40 +15,40 @@ directories and via `o match` and `o patch`.
 
 | MergeOp    | Match | Patch | Arguments      | Description                                                                      |
 |------------|-------|-------|----------------|----------------------------------------------------------------------------------|
-| all        |   +   |   +   |     -          | apply the match (resp. patch) to every element of an array or object             |
-| and        |   +   |   -   |     -          | conjoin a list of matches, each applied to the corresponding doc                 |
-| or         |   +   |   -   |     -          | disjunction                                                                      |
-| not        |   +   |   -   |     -          | negate a match (eg `!not.or [1,2,3]`)                                            |
-| at         |   +   |   -   | kpath          | walk to the path and apply the match there; see below                            |
-| has-path   |   +   |   -   |     -          | the document has the path the operand names                                      |
-| subtree    |   +   |   -   |     -          | match any subtree of the doc                                                     |
-| glob       |   +   |   -   |     -          | glob match a string                                                              |
-| irtype     |   +   |   -   |     -          | the node's kind equals the operand's: `!irtype ""` a string, `!irtype 0` a number|
-| ir         |   +   |   -   |     -          | match the node's IR fields, not its value: `!ir {int: .[number]}` an integer      |
-| tag        |   +   |   -   |     -          | match the tag of a node, not its value                                           |
-| field      |   +   |   +   | -, or from,to  | match the field (a string), not its value                                        |
-| key        |   +   |   +   | field to key by| associative lists as objects                                                     |
-| let        |   +   |   -   |     -          | bind names in `let:`, then match with `in:`, referring to them as `.[name]`      |
-| pass       |   +   |   +   |     -          | match: accept anything / patch: leave the document as it is                      |
-| raw        |   +   |   +   |     -          | the escape: treat the subtree as data, interpreting no operation at any depth    |
-| if         |   -   |   +   |     -          | evaluate `if:` and patch with `then:` or `else:`                                 |
-| dive       |   -   |   +   |     -          | dive into the doc and treat each subtree with a list of matches/patches          |
-| embed      |   -   |   +   | key            | the operand is the result, with each occurrence of the key replaced by the doc   |
-| quote      |   -   |   +   |     -          | quote a document as a string                                                     |
-| unquote    |   -   |   +   |     -          | unquote a string as a document                                                   |
-| nullify    |   -   |   +   |     -          | turn a node into a null without deleting it                                      |
-| json-patch |   -   |   +   |     -          | apply a json patch to the corresponding doc node                                 |
-| pipe       |   -   |   +   |     -          | pipe the doc node to a program and replace it with the program's output          |
-| insert     |   -   |   +   |     -          | add a value; the value is what results                                           |
-| delete     |   -   |   +   |     -          | remove a value; absence is what results                                          |
-| replace    |   -   |   +   |     -          | CHECKED: verify the node still equals `from:`, then install `to:`                |
-| addtag     |   -   |   +   | tag            | add a tag; the tag is what results                                               |
-| rmtag      |   -   |   +   | tag            | remove a tag; its absence is what results                                        |
-| comment    |   -   |   +   |     -          | state the comments here; the operand names head, line or both, `[]` removing one  |
-| retag      |   -   |   +   | from,to        | CHECKED: verify the tag is `from`, then make it `to`                             |
-| strdiff    |   -   |   +   |     -          | a string edit, relative to the string that is there                              |
-| arraydiff  |   -   |   +   |     -          | an array edit, relative and positional                                           |
-| rename     |   -   |   +   |     -          | rename fields, relative to the keys that are there                               |
+| `!all`     |   +   |   +   |     -          | apply the match (resp. patch) to every element of an array or object             |
+| `!and`     |   +   |   -   |     -          | conjoin a list of matches, each applied to the corresponding doc                 |
+| `!or`      |   +   |   -   |     -          | disjunction                                                                      |
+| `!not`     |   +   |   -   |     -          | negate a match (eg `!not.or [1,2,3]`)                                            |
+| `!at`      |   +   |   -   | kpath          | walk to the path and apply the match there; see below                            |
+| `!has-path`|   +   |   -   |     -          | the document has the path the operand names                                      |
+| `!subtree` |   +   |   -   |     -          | match any subtree of the doc                                                     |
+| `!glob`    |   +   |   -   |     -          | glob match a string                                                              |
+| `!irtype`  |   +   |   -   |     -          | the node's kind equals the operand's: `!irtype ""` a string, `!irtype 0` a number|
+| `!ir`      |   +   |   -   |     -          | match the node's IR fields, not its value: `!ir {int: .[number]}` an integer      |
+| `!tag`     |   +   |   -   |     -          | match the tag of a node, not its value                                           |
+| `!field`   |   +   |   +   | -, or from,to  | match the field (a string), not its value                                        |
+| `!key`     |   +   |   +   | field to key by| associative lists as objects                                                     |
+| `!let`     |   +   |   -   |     -          | bind names in `let:`, then match with `in:`, referring to them as `.[name]`      |
+| `!pass`    |   +   |   +   |     -          | match: accept anything / patch: leave the document as it is                      |
+| `!raw`     |   +   |   +   |     -          | the escape: treat the subtree as data, interpreting no operation at any depth    |
+| `!if`      |   -   |   +   |     -          | evaluate `if:` and patch with `then:` or `else:`                                 |
+| `!dive`    |   -   |   +   |     -          | dive into the doc and treat each subtree with a list of matches/patches          |
+| `!embed`   |   -   |   +   | key            | the operand is the result, with each occurrence of the key replaced by the doc   |
+| `!quote`   |   -   |   +   |     -          | quote a document as a string                                                     |
+| `!unquote` |   -   |   +   |     -          | unquote a string as a document                                                   |
+| `!nullify` |   -   |   +   |     -          | turn a node into a null without deleting it                                      |
+| `!json-patch`|   -   |   +   |     -          | apply a json patch to the corresponding doc node                                 |
+| `!pipe`    |   -   |   +   |     -          | pipe the doc node to a program and replace it with the program's output          |
+| `!insert`  |   -   |   +   |     -          | add a value; the value is what results                                           |
+| `!delete`  |   -   |   +   |     -          | remove a value; absence is what results                                          |
+| `!replace` |   -   |   +   |     -          | CHECKED: verify the node still equals `from:`, then install `to:`                |
+| `!addtag`  |   -   |   +   | tag            | add a tag; the tag is what results                                               |
+| `!rmtag`   |   -   |   +   | tag            | remove a tag; its absence is what results                                        |
+| `!comment` |   -   |   +   |     -          | state the comments here; the operand names head, line or both, `[]` removing one  |
+| `!retag`   |   -   |   +   | from,to        | CHECKED: verify the tag is `from`, then make it `to`                             |
+| `!strdiff` |   -   |   +   |     -          | a string edit, relative to the string that is there                              |
+| `!arraydiff`|   -   |   +   |     -          | an array edit, relative and positional                                           |
+| `!rename`  |   -   |   +   |     -          | rename fields, relative to the keys that are there                               |
 
 `o match -tags` and `o patch -tags` print this list from the binary, which is the
 authority; a test keeps the table above equal to it.

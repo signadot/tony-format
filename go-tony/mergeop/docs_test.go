@@ -26,7 +26,12 @@ func tableOps(t *testing.T) map[string][2]bool {
 		if len(cols) < 4 {
 			continue
 		}
-		name := strings.TrimSpace(cols[1])
+		// The table spells an operation as a reader writes it -- `!key`, not key -- so
+		// that searching the page for what you saw in a document finds it. That was the
+		// whole of the complaint: !key WAS in this table, as "key", and nobody could
+		// find it.
+		name := strings.Trim(strings.TrimSpace(cols[1]), "`")
+		name = strings.TrimPrefix(name, "!")
 		if name == "" || name == "MergeOp" || strings.HasPrefix(name, "-") {
 			continue
 		}
