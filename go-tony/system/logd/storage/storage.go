@@ -761,20 +761,10 @@ func (s *Storage) SetTxTimeout(timeout time.Duration) {
 	s.txTimeout = timeout
 }
 
-// GetTxTimeout returns the current transaction timeout.
-func (s *Storage) GetTxTimeout() time.Duration {
-	return s.txTimeout
-}
-
 // SetSchemaResolver sets the schema resolver for !key indexed arrays.
 // The resolver provides schema for each scope (nil scope = baseline).
 func (s *Storage) SetSchemaResolver(resolver api.SchemaResolver) {
 	s.schemaResolver = resolver
-}
-
-// GetSchemaResolver returns the current schema resolver, or nil if none.
-func (s *Storage) GetSchemaResolver() api.SchemaResolver {
-	return s.schemaResolver
 }
 
 // SetDurability sets when the commit path forces records to stable storage.
@@ -800,11 +790,6 @@ func (s *Storage) Sync() error {
 // Pass nil to disable automatic compaction.
 func (s *Storage) SetCompactionConfig(config *CompactionConfig) {
 	s.compactionConfig = config
-}
-
-// GetCompactionConfig returns the current compaction configuration.
-func (s *Storage) GetCompactionConfig() *CompactionConfig {
-	return s.compactionConfig
 }
 
 // schemaForScope returns the schema that decides what keys an array.

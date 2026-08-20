@@ -229,7 +229,15 @@ func (s *MountSession) dispatch(resp *logdapi.SessionResponse) {
 // id and returns a channel that receives the single response. Unlike
 // RouteRequest, the response is collected (not forwarded to a client) — used by
 // the multi-mount transaction coordinator.
-func (s *MountSession) RouteCollect(req *logdapi.SessionRequest) <-chan *logdapi.SessionResponse {
+// RouteCollect forwards a request to the controller under a fresh docd-assigned id and
+// answers the channel its single response will arrive on, plus a done func the caller
+// MUST call when it stops waiting.
+//
+// The route is otherwise removed only when a response arrives (dispatch), so a caller
+// which gave up -- every one of them has a timeout -- left the entry behind for the life
+// of the mount session, holding its channel and its path. One per timed-out read or
+// participant, forever, on exactly the controller which is already unwell.
+func (s *MountSession) RouteCollect(req *logdapi.SessionRequest) (<-chan *logdapi.SessionResponse, func()) {
 	ch := make(chan *logdapi.SessionResponse, 1)
 
 	s.routeMu.Lock()
@@ -238,16 +246,20 @@ func (s *MountSession) RouteCollect(req *logdapi.SessionRequest) <-chan *logdapi
 	s.routes[docdID] = &routeEntry{path: requestPath(req), collect: ch}
 	s.routeMu.Unlock()
 
-	out := *req
-	out.ID = &docdID
-	if err := s.writeToController(&out); err != nil {
+	done := func() {
 		s.routeMu.Lock()
 		delete(s.routes, docdID)
 		s.routeMu.Unlock()
+	}
+
+	out := *req
+	out.ID = &docdID
+	if err := s.writeToController(&out); err != nil {
+		done()
 		ch <- logdapi.NewErrorResponse(nil, logdapi.ErrCodeSessionClosed,
 			fmt.Sprintf("controller %q unavailable: %v", s.controllerID, err))
 	}
-	return ch
+	return ch, done
 }
 
 // RouteWatchStream forwards a watch request to the controller under a fresh

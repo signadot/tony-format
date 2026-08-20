@@ -72,7 +72,7 @@ func (s *ClientSession) coordinateMatch(req *logdapi.SessionRequest, below []*Mo
 	if pattern := req.Match.Data; pattern != nil && pattern.Type != ir.NullType {
 		filtered, ferr := tony.FilterState(root, pattern)
 		if ferr != nil {
-			_ = s.writeToClient(logdapi.NewErrorResponse(clientID, "match_error", ferr.Error()))
+			_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeMatch, ferr.Error()))
 			return
 		}
 		root = filtered
@@ -181,10 +181,11 @@ func (s *ClientSession) readFrom(entry *MountEntry, path string, atCommit *int64
 	if entry == nil {
 		return readLogdMatch(s.logdAddr, path, s.clientScope, atCommit, matchReadTimeout)
 	}
-	ch := entry.Session.RouteCollect(&logdapi.SessionRequest{
+	ch, done := entry.Session.RouteCollect(&logdapi.SessionRequest{
 		Scope: s.clientScope,
 		Match: &logdapi.MatchRequest{PathData: logdapi.PathData{Path: path}, Commit: atCommit},
 	})
+	defer done()
 	select {
 	case resp := <-ch:
 		if resp.Error != nil {

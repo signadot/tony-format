@@ -459,10 +459,11 @@ func (s *ClientSession) coordinatePatch(req *logdapi.SessionRequest, parts []mou
 				PathData: logdapi.PathData{Path: p.mount.Path, Data: p.data},
 			},
 		}
-		ch := p.mount.Session.RouteCollect(preq)
-		go func(path string, ch <-chan *logdapi.SessionResponse) {
+		ch, done := p.mount.Session.RouteCollect(preq)
+		go func(path string, ch <-chan *logdapi.SessionResponse, done func()) {
+			defer done()
 			results <- partResponse{path, <-ch}
-		}(p.mount.Path, ch)
+		}(p.mount.Path, ch, done)
 	}
 
 	var commit int64

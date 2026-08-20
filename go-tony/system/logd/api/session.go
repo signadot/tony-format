@@ -419,6 +419,16 @@ type SessionResponse struct {
 // --- Error codes ---
 
 const (
+	// ErrCodeStorage is the store failing at something the client cannot fix: a read
+	// which would not read, a write which would not write. It is not the client's path,
+	// its pattern or its precondition -- those have codes of their own. It was sent as a
+	// bare string from eleven places and had no constant, so no client could branch on
+	// it and the error table did not list it.
+	ErrCodeStorage = "storage_error"
+	// ErrCodeMatch is a match PATTERN which could not be applied to the state at all, as
+	// distinct from one which applied and did not hold (ErrCodeMatchFailed).
+	ErrCodeMatch = "match_error"
+
 	ErrCodeSessionClosed   = "session_closed"
 	ErrCodeInvalidMessage  = "invalid_message"
 	ErrCodeInvalidWatch    = "invalid_watch"
