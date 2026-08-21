@@ -656,7 +656,18 @@ v: !arraydiff {0: {b: 2}}           # [{a: 1}]  ->  [{a: 1, b: 2}]
 
 **Rename fields, relative to the keys that are there** (patch)
 
-The operand is a list of `{from, to}` pairs.
+The operand is a list of `{from, to}` pairs: each field of the object named by a
+`from:` is renamed to its `to:`, keeping its value and its place.
+
+The pairs are **simultaneous**. They are a list of statements about one object,
+not a program, so each is read against the document as it stands and all of them
+are installed together: `[{from: a, to: b}, {from: b, to: a}]` exchanges the two
+names, and the result does not depend on the order the pairs are written in.
+
+A `from:` which names no field renames nothing -- the operation is relative to the
+keys that are there. A `to:` which collides with a field that is still there is
+refused, since one of the two would have to be lost; rename that one too, in the
+same operand, if the collision is what you meant.
 
 **Examples:**
 
@@ -666,7 +677,8 @@ The operand is a list of `{from, to}` pairs.
   to: sp
 ```
 
-**See also:** [`!field`](./mergeop.md#field)
+**See also:** [`!field`](./mergeop.md#field), which is the same operation for a
+single field, written on the field rather than on the object holding it.
 
 ---
 
