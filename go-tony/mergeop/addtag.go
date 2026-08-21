@@ -39,7 +39,7 @@ func (p addTagOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc
 		debug.Logf("addtag op patch on %s\n", doc.Path())
 	}
 	res, err := patchUnderTagDiff(doc, p.child, ctx, pf)
-	if err != nil {
+	if err != nil || res == nil {
 		return nil, err
 	}
 	return res.WithTag("!" + p.tag), nil
@@ -49,6 +49,10 @@ func (p addTagOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc
 // changed by composing !addtag, !rmtag or !retag over the diff of the value,
 // which is a bare null when only the tag changed and the value's own diff when
 // both did -- and dropping that would silently discard every change beneath it.
+//
+// It answers with no node when the diff beneath it deleted the value, which its
+// three callers pass on: there is no node left to state a tag of, and writing
+// one onto the nil was a crash apiece.
 func patchUnderTagDiff(doc, child *ir.Node, ctx *OpContext, pf PatchFunc) (*ir.Node, error) {
 	if child.Type == ir.NullType && child.Tag == "" {
 		return doc.Clone(), nil

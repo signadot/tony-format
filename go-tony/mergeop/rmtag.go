@@ -39,7 +39,7 @@ func (p rmTagOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc,
 		debug.Logf("rmtag op patch on %s\n", doc.Path())
 	}
 	res, err := patchUnderTagDiff(doc, p.child, ctx, pf)
-	if err != nil {
+	if err != nil || res == nil {
 		return nil, err
 	}
 	for tag := "!" + p.tag; tag != ""; {

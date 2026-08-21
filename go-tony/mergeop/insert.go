@@ -49,6 +49,12 @@ func (n insertOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc
 	if err != nil {
 		return nil, err
 	}
+	// Nothing came back, so there is nothing to tag: no node is what a patch
+	// which deleted the value answers with, and it is what this has to answer
+	// with too.
+	if res == nil {
+		return nil, nil
+	}
 	if n.tag != nil {
 		// the argument is a tag label, a node's Tag is the "!" and the label
 		res = res.WithTag("!" + *n.tag)

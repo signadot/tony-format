@@ -188,7 +188,14 @@ func patchArrayByIndex(doc, patch *ir.Node, ctx *OpContext, pf PatchFunc, df lib
 			if err != nil {
 				return nil, err
 			}
-			res = append(res, tmp)
+			// No node is what a patch which deleted the element answers with,
+			// and an element that is gone is GONE, not a hole: keeping the nil
+			// put it in the slice for ir.FromSlice to dereference. The element
+			// is still consumed from the document -- it was matched, it just
+			// produced nothing.
+			if tmp != nil {
+				res = append(res, tmp)
+			}
 			di++
 			fi++
 		}

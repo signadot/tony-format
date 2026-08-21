@@ -67,8 +67,20 @@ func (a ifOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, _ 
 	if err != nil {
 		return nil, err
 	}
+	// A branch the operand does not write leaves the document alone -- Instance
+	// admits then or else or both, so the one that is missing is a statement
+	// about the other case and nothing more. Handing the nil to pf was a crash,
+	// which meant a one-sided if could not be written at all: `!if {if: X, else:
+	// !delete null}` -- delete it unless it looks like this -- died on the then
+	// it had no reason to carry.
 	if m {
+		if a.Then == nil {
+			return doc, nil
+		}
 		return pf(doc, a.Then, ctx)
+	}
+	if a.Else == nil {
+		return doc, nil
 	}
 	return pf(doc, a.Else, ctx)
 }
