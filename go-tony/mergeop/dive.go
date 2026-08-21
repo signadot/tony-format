@@ -75,24 +75,32 @@ type divePatch struct {
 func (d *diveOp) Dive(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc) (*ir.Node, error) {
 	switch doc.Type {
 	case ir.ObjectType:
-		out := make([]ir.KeyVal, len(doc.Fields))
+		out := make([]ir.KeyVal, 0, len(doc.Fields))
 		for i := range doc.Fields {
 			fieldVal, err := d.Dive(doc.Values[i], ctx, mf, pf)
 			if err != nil {
 				return nil, err
 			}
-			out[i] = ir.KeyVal{Key: doc.Fields[i].Clone(), Val: fieldVal}
+			// No node is what a patch which deleted the value answers with. The
+			// pair goes with it: a key whose value is gone is not a key.
+			if fieldVal == nil {
+				continue
+			}
+			out = append(out, ir.KeyVal{Key: doc.Fields[i].Clone(), Val: fieldVal})
 		}
 		return d.do(ir.FromKeyVals(out), ctx, mf, pf)
 
 	case ir.ArrayType:
-		out := make([]*ir.Node, len(doc.Values))
+		out := make([]*ir.Node, 0, len(doc.Values))
 		for i := range doc.Values {
 			res, err := d.Dive(doc.Values[i], ctx, mf, pf)
 			if err != nil {
 				return nil, err
 			}
-			out[i] = res
+			if res == nil {
+				continue
+			}
+			out = append(out, res)
 		}
 		return d.do(ir.FromSlice(out), ctx, mf, pf)
 	default:
@@ -124,6 +132,12 @@ func (d *diveOp) do(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc) (*
 		if err != nil {
 			return nil, err
 		}
+		// The patch deleted this node. The rules after it have nothing left to be
+		// about, and matching them against no document is a different question
+		// from matching them against this one.
+		if patchDoc == nil {
+			return nil, nil
+		}
 	}
 	return patchDoc, nil
 }
@@ -135,6 +149,11 @@ func (dive diveOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFun
 	res, err := dive.Dive(doc, ctx, mf, pf)
 	if err != nil {
 		return nil, err
+	}
+	// The dive deleted the node it was applied to, so there is nothing to link
+	// back to the parent -- and no node is what the caller has to be told.
+	if res == nil {
+		return nil, nil
 	}
 	res.ParentField = doc.ParentField
 	res.ParentIndex = doc.ParentIndex
