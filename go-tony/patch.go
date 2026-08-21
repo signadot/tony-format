@@ -162,8 +162,27 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 			}
 			res = append(res, yy)
 		}
+		// Past the end of the document the element is being introduced, and its
+		// patch is still a PATCH: it can carry ops, so it is applied against an
+		// absent document rather than appended as data. Appending it raw left
+		// the op tag itself in the result -- patching [1, 2] with
+		// [1, 2, !delete null] gave [1, 2, !delete null], storing a delete
+		// marker as though it were a value -- and made the same element mean two
+		// things depending on where it fell: !delete at index 0 removed the
+		// element, !delete past the end became one.
+		//
+		// Absent is null here, the reading the object path and !key both use. An
+		// op that resolves to nothing -- a !delete for an element the document
+		// never had -- drops out instead of being stored verbatim.
 		for i := n; i < len(patch.Values); i++ {
-			res = append(res, patch.Values[i])
+			yy, err := PatchWith(ir.Null(), patch.Values[i], ctx)
+			if err != nil {
+				return nil, err
+			}
+			if yy == nil {
+				continue
+			}
+			res = append(res, yy)
 		}
 		out := ir.FromSlice(res)
 		return out, nil

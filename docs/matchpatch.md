@@ -83,6 +83,34 @@ after it was written -- those it refuses outright. See
 `system/logd/api/storage_context.go` for the vocabulary, and
 [What a write must be](logd/writes.md) for both rules as a client meets them.
 
+### Patching an array by position
+
+An array patch which carries no operation is applied element by element, by
+position: the first element of the patch is applied to the first of the
+document, and so on.  A patch longer than the document names elements which are
+not there, and each of those is a patch applied to an ABSENT document -- null,
+the same reading `!key` gives an element whose key the document does not have,
+and an object patch gives a field it does not have.
+
+So an operation written past the end is still an operation, not data:
+
+```tony
+# doc
+{xs: [1, 2]}
+# patch
+{xs: [1, 2, !insert(t) 3]}
+# doc after
+{xs: [1, 2, !t 3]}
+```
+
+and one that resolves to nothing adds nothing -- `!delete` past the end is a
+delete of an element which was never there, so `{xs: [1, 2, !delete null]}`
+leaves `{xs: [1, 2]}`, as `!delete` in bounds removes the element it meets.
+A plain value past the end is, as ever, itself.
+
+Use `!key` when the elements have an identity, and `!arraydiff` when the edit is
+relative to what is there; position is the fallback the two of them replace.
+
 ### Reaching into a document with `!at`
 
 `!at(kpath)` walks down the path and applies the match it holds to the node it
