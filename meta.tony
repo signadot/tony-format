@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 031eb50cac19cc0a79d4df34d5e57dfc4bf1c55c
 commits: []
 created: "2026-08-26T23:34:18.90176+02:00"
 duplicates: []
@@ -14,5 +15,5 @@ labels:
 related_issues:
 - nxybjwvch12ksbj8hxn0
 - p4tzbzx7h12kr6tkhxn0
-status: open
-updated: "2026-08-27T00:03:19.420456+02:00"
+status: closed
+updated: "2026-08-27T00:24:50.040157+02:00"
