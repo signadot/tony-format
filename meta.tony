@@ -6,7 +6,11 @@ commits: []
 created: "2026-08-26T23:34:18.90176+02:00"
 duplicates: []
 id: sx1djpahh12kspjvhxn0
-labels: []
+labels:
+- agent
+- design
+- enhancement
+- mergeop
 related_issues: []
 status: open
-updated: "2026-08-26T23:34:18.90176+02:00"
+updated: "2026-08-26T23:34:23.713727+02:00"
