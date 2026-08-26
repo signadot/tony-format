@@ -447,20 +447,39 @@ items: !tag {name: key, args: [sku]}
 
 ## `!let`
 
-**Bind names, then match with them** (match)
+**Bind names, then match or patch with them** (match and patch)
 
-`let:` is a list of bindings and `in:` is the match, which refers to a binding as
-`.[name]`.
+`let:` is a list of bindings and `in:` is the match or the patch, which refers to a
+binding as `.[name]`. A binding list is read in the scope enclosing it, so a nested
+`!let` may bind a name from a value the outer one bound, and a name it rebinds
+shadows the outer one for the length of its own `in:`.
+
+A name the let does not bind is an error rather than a null.
 
 **Examples:**
 
 ```tony
+# as a match
 !let
   let:
   - n: 3
   in:
     spec:
       replicas: .[n]
+```
+
+```tony
+# as a patch: the name is written wherever the body says it
+!let
+  let:
+  - image: registry.example.com/app:1.4.2
+  in:
+    spec:
+      template:
+        spec:
+          containers:
+            main: {image: .[image]}
+            sidecar: {image: .[image]}
 ```
 
 ---

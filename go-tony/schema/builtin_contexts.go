@@ -19,7 +19,7 @@ func (r *ContextRegistry) registerBuiltinContexts() {
 			"has-path": {Name: "has-path", Contexts: []string{"tony-format/context/match"}},
 			"at":       {Name: "at", Contexts: []string{"tony-format/context/match"}},
 			"all":      {Name: "all", Contexts: []string{"tony-format/context/match"}},
-			"let":      {Name: "let", Contexts: []string{"tony-format/context/match"}},
+			"let":      {Name: "let", Contexts: []string{"tony-format/context/match", "tony-format/context/patch"}},
 			"if":       {Name: "if", Contexts: []string{"tony-format/context/match"}},
 			"pass":     {Name: "pass", Contexts: []string{"tony-format/context/match"}},
 			"raw":      {Name: "raw", Contexts: []string{"tony-format/context/match", "tony-format/context/patch"}},
@@ -48,6 +48,7 @@ func (r *ContextRegistry) registerBuiltinContexts() {
 			"retag":     {Name: "retag", Contexts: []string{"tony-format/context/patch"}},
 			"raw":       {Name: "raw", Contexts: []string{"tony-format/context/match", "tony-format/context/patch"}},
 			"dive":      {Name: "dive", Contexts: []string{"tony-format/context/patch"}},
+			"let":       {Name: "let", Contexts: []string{"tony-format/context/match", "tony-format/context/patch"}},
 			"embed":     {Name: "embed", Contexts: []string{"tony-format/context/patch"}},
 		},
 	}

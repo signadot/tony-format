@@ -48,7 +48,7 @@ it does not exist — see [Keyed arrays](../logd/keyed.md).
 | `!irtype` | the node's kind equals the operand's: `!irtype ""` a string, `!irtype 0` a number |
 | `!json-patch` | apply a json patch to the corresponding doc node |
 | `!key` | associative lists as objects |
-| `!let` | bind names in `let:`, then match with `in:`, referring to them as `.[name]` |
+| `!let` | bind names in `let:`, then match or patch with `in:`, referring to them as `.[name]` |
 | `!not` | negate a match (eg `!not.or [1,2,3]`) |
 | `!nullify` | turn a node into a null without deleting it |
 | `!or` | disjunction |

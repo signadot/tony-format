@@ -28,7 +28,7 @@ directories and via `o match` and `o patch`.
 | `!tag`     |   +   |   -   |     -          | match the tag of a node, not its value                                           |
 | `!field`   |   +   |   +   | -, or from,to  | match the field (a string), not its value                                        |
 | `!key`     |   +   |   +   | field to key by| associative lists as objects                                                     |
-| `!let`     |   +   |   -   |     -          | bind names in `let:`, then match with `in:`, referring to them as `.[name]`      |
+| `!let`     |   +   |   +   |     -          | bind names in `let:`, then match or patch with `in:`, referring to them as `.[name]`|
 | `!pass`    |   +   |   +   |     -          | match: accept anything / patch: leave the document as it is                      |
 | `!raw`     |   +   |   +   |     -          | the escape: treat the subtree as data, interpreting no operation at any depth    |
 | `!if`      |   -   |   +   |     -          | evaluate `if:` and patch with `then:` or `else:`                                 |
