@@ -187,7 +187,7 @@ func ExtractGoType(def *ir.Node, s *schema.Schema, registry *schema.SchemaRegist
 	if def.Tag != "" {
 		head, _, _ := ir.TagArgs(def.Tag)
 		if head == "!ir" {
-			return extractGoTypeFromIRView(def)
+			return extractGoTypeFromIRPattern(def)
 		}
 	}
 
@@ -543,11 +543,17 @@ func extractGoTypeFromAnd(def *ir.Node, s *schema.Schema, registry *schema.Schem
 	return nil, fmt.Errorf("could not extract base type from !and constraints")
 }
 
-// extractGoTypeFromIRView handles !ir: a pattern over the fields of ir.Node,
+// extractGoTypeFromIRPattern handles !ir: a pattern over the fields of ir.Node,
 // where the field named is what says which kind of node it is.  int and float
 // are the fields a Go type can be read from -- they are the distinction !irtype
 // cannot make, which is why the operator is there.
-func extractGoTypeFromIRView(def *ir.Node) (reflect.Type, error) {
+//
+// What is read is the PATTERN's key names, not a node and not a representation
+// of one: this runs over a schema definition, at the time a Go type is being
+// decided, and never instantiates the operator.  It was called ...FromIRView
+// after the object !ir used to build at MATCH time to answer against, which it
+// never touched, and which no longer exists (p4tzbzx7h12kr6tkhxn0).
+func extractGoTypeFromIRPattern(def *ir.Node) (reflect.Type, error) {
 	if def.Type != ir.ObjectType {
 		return nil, fmt.Errorf("!ir expects an object over the fields of an IR node, got %v", def.Type)
 	}

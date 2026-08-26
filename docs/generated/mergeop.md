@@ -317,8 +317,15 @@ pointers -- but not for `string`, `bool` and `number`, which are omitted when th
 hold their zero value: `!ir {bool: null}` does not match `false`. A pattern which
 says what the field HOLDS does not have to know which kind it is asking about.
 
-`fields` and `values` hold the node's children as they are, so a pattern under
-them descends into the document, and `!ir` applies again wherever it is written.
+A key which is not a field of an IR node is refused where the pattern is built,
+rather than never matching: `!ir {itn: 3}` is a misspelling, and a pattern which
+silently declines to match every document there is is the shape of wrongness
+nobody finds. The fields are `type`, `fields`, `values`, `tag`, `lines`,
+`comment`, `string`, `bool`, `number`, `float` and `int`.
+
+`fields` and `values` are answered as a list, built when a pattern asks for one,
+and `!ir` applies again wherever it is written. The list is one level deep: a
+node whose values are nodes gives a list of those nodes, not of views of them.
 
 !!! note "Schema Usage"
     `int` and `float` are the one distinction no pattern over a value can make:

@@ -53,14 +53,23 @@ define:
   - .[string]
   - .[int]
   - .[null]
+  # The IR encoding of a document, written out: what json.Marshal of an ir.Node
+  # gives, described in terms of itself.  !ir asks a NODE about its own
+  # representation, which is the other question -- a document shaped like this
+  # one is an ordinary object to it.
+  #
+  # tag and comment are fields ir.Node serializes and this left out, so the
+  # description was short of the thing it describes (p4tzbzx7h12kr6tkhxn0).
   _ir:
     type: !or [ Comment Null Bool Number String Array Object ]
     fields: .[array(field)]
     values: .[array(ir)]
+    tag: .[string]
     string: .[string]
     int: .[int]
     float: .[float]
     number: .[string]
     bool: .[bool]
     lines: .[array(string)]
+    comment: .[ir]
   ir: .[nullable(_ir)]

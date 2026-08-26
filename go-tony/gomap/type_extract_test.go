@@ -485,7 +485,7 @@ func intPtr(i int64) *int64 {
 // base.tony's int and float are !ir patterns over the node's fields, and codegen
 // emits .[int] for a Go int: extraction has to read them back as numbers rather
 // than as the map the object underneath would otherwise look like.
-func TestExtractGoTypeFromIRView(t *testing.T) {
+func TestExtractGoTypeFromIRPattern(t *testing.T) {
 	s := &schema.Schema{
 		Context: schema.DefaultContext(),
 		Define: map[string]*ir.Node{
