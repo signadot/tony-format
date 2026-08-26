@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 63afae1eafb9113c7d1095369c0e33b836a0515c
 commits:
 - 69b3d2f87a726c72fdaab315968c53930cc8fb40
 created: "2026-08-21T11:27:50.113451+02:00"
@@ -12,5 +13,5 @@ labels:
 - bug
 - encode
 related_issues: []
-status: open
-updated: "2026-08-21T11:28:32.542148+02:00"
+status: closed
+updated: "2026-08-26T22:07:27.20567+02:00"
