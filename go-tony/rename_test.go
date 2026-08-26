@@ -102,13 +102,6 @@ c: 2`,
 	}, {
 		// A merge key names no field, so no renaming names it. Going through a
 		// map deleted it: the field is a null-typed key, which ir.ToMap skips.
-		//
-		// It comes back written `"<<"` rather than `<<`, which is not this
-		// operation's doing -- the same document parsed and re-encoded with
-		// nothing applied to it renders the same way, and a merge key is what
-		// the IR still holds. That is the encoder's to answer for
-		// (nfs2rkf3h12kr5gth1n0), and fixing it flips this expectation on
-		// purpose; what is being checked here is that the key is STILL THERE.
 		name: "a merge key is left where it is",
 		doc: `
 a: 1
@@ -120,7 +113,7 @@ b: 2`,
   to: z`,
 		want: `
 z: 1
-"<<": "{{ tpl }}"
+<<: "{{ tpl }}"
 b: 2`,
 	}, {
 		name: "the fields keep the order they had",

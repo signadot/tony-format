@@ -571,7 +571,7 @@ func encodeMergeField(yField, yVal *ir.Node, w io.Writer, es *EncState) (bool, e
 		return false, format.ErrBadFormat
 	}
 	if !es.injectRaw {
-		err := writeField(w, ir.MergeKey, es)
+		err := writeMergeKey(w, es)
 		return false, err
 	}
 	// Save and restore colorAttr to avoid using block literal colors for raw merge content
@@ -1123,15 +1123,27 @@ func writeField(w io.Writer, f string, es *EncState) error {
 	}
 	fColor := f
 	if es.Color != nil {
-		if f == ir.MergeKey {
-			fColor = applyColor(es, ir.ObjectType, MergeColor, f)
-		} else {
-			fColor = applyColor(es, ir.ObjectType, FieldColor, f)
-		}
+		fColor = applyColor(es, ir.ObjectType, FieldColor, f)
 		sep = applyColor(es, ir.ObjectType, SepColor, sep)
 	}
 	ff := fColor + sep
 	if err := writeString(w, ff); err != nil {
+		return err
+	}
+	es.atCol0 = false
+	return nil
+}
+
+// writeMergeKey writes the merge key. `<<` is a token in the grammar, not a
+// field name: quoting it, as writeField would, spells an ordinary field whose
+// name is two angle brackets, and that is not what parsed.
+func writeMergeKey(w io.Writer, es *EncState) error {
+	f, sep := ir.MergeKey, ":"
+	if es.Color != nil {
+		f = applyColor(es, ir.ObjectType, MergeColor, f)
+		sep = applyColor(es, ir.ObjectType, SepColor, sep)
+	}
+	if err := writeString(w, f+sep); err != nil {
 		return err
 	}
 	es.atCol0 = false
