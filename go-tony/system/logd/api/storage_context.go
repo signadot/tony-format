@@ -203,6 +203,9 @@ func whyNotStorable(op string) string {
 		return "its result depends on what was there, so it re-evaluates against a base that has moved"
 	case "if", "let":
 		return "it is conditional on the document it meets"
+	case "get-path", "get-paths":
+		return "it answers with a value read from elsewhere in the document, so against a " +
+			"base that has moved it answers with a different one"
 	case "pipe":
 		return "it calls out to the system, so storing it means re-running it on every replay"
 	default:

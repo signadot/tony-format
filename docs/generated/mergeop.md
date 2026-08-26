@@ -452,6 +452,85 @@ items: !tag {name: key, args: [sku]}
 
 ---
 
+## `!get-path`
+
+**Answer with the node at a path** (match and patch)
+
+`!at` walks to a path and applies a match there, `!embed` hands over the whole node
+with no path, and `!has-path` answers whether. None of them answers WITH the value
+at a path, so nothing could be compared against one, written from one, or bound to
+a name.
+
+The path is relative to the node the operator is written at. `!get-path(root)`
+anchors it at the document instead. The anchor is a tag component rather than a
+sigil in the path, because kpath spells the root as the empty path and the `$` was
+taken out of the query surface deliberately.
+
+A path which names nothing is an **error**, where `!at` reads the same absence as a
+mismatch: `!at` relocates a pattern, so a document without an `a.b` is a document
+which fails it, while this answers with a value and there is none. A null would be
+read as "anything" by a match and WRITTEN by a patch, and a silent no-match says
+nothing about why.
+
+A wild path (`.*`, `[*]`, `{*}`, `..`) names a set rather than a node and is
+refused where the pattern is built; `!get-paths` is the operation for those.
+
+The answer is a copy, detached, so a walk up from it stops at what was asked for:
+`!get-path(root)` inside such a value means that value, not the document it came
+from.
+
+**Examples:**
+
+```tony
+# the sidecar takes the image the main container has
+sidecar: {image: !get-path(root) spec.containers.main.image}
+```
+
+```tony
+# a match on a RELATION between two parts of one document
+status: {replicas: !get-path(root) spec.replicas}
+```
+
+```tony
+# bound once, written wherever the body says
+!let
+  let:
+  - img: !get-path(root) spec.image
+  in:
+    main: {image: .[img]}
+    side: {image: .[img]}
+```
+
+**See also:** [`!at`](./mergeop.md#at), [`!has-path`](./mergeop.md#has-path), [`!get-paths`](./mergeop.md#get-paths)
+
+---
+
+## `!get-paths`
+
+**Answer with the nodes at a path, as a list** (match and patch)
+
+`!get-path`'s plural, and it takes the paths its singular refuses. A wild segment
+names a set rather than a node, and kpath already knows which is which, so the two
+operators are that distinction made into two names rather than a rule about what
+one of them does with a wild path.
+
+A path which names one node gives a list of one, so there is no special case. A
+path which names nothing is the **empty list**, where `!get-path` errors: each
+keeps the promise its name makes, and an empty list is a list.
+
+The values are copies, each parented to the list, and the list is detached.
+
+**Examples:**
+
+```tony
+# every image in the document, as a list
+images: !get-paths(root) "containers[*].image"
+```
+
+**See also:** [`!get-path`](./mergeop.md#get-path), [`!at`](./mergeop.md#at)
+
+---
+
 ## `!let`
 
 **Bind names, then match or patch with them** (match and patch)

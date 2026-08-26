@@ -40,6 +40,8 @@ it does not exist — see [Keyed arrays](../logd/keyed.md).
 | `!dive` | dive into the doc and treat each subtree with a list of matches/patches |
 | `!embed` | the operand is the result, with each occurrence of the key replaced by the doc |
 | `!field` | match the field (a string), not its value |
+| `!get-path` | the node at a kpath: `!get-path(root) spec.image` |
+| `!get-paths` | the nodes at a kpath as a list; takes the wild paths `!get-path` refuses |
 | `!glob` | glob match a string |
 | `!has-path` | the document has the path the operand names |
 | `!if` | evaluate `if:` and patch with `then:` or `else:` |

@@ -175,7 +175,7 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 		// op that resolves to nothing -- a !delete for an element the document
 		// never had -- drops out instead of being stored verbatim.
 		for i := n; i < len(patch.Values); i++ {
-			yy, err := PatchWith(ir.Null(), patch.Values[i], ctx)
+			yy, err := PatchWith(absentAt(doc, "", i), patch.Values[i], ctx)
 			if err != nil {
 				return nil, err
 			}
@@ -302,7 +302,7 @@ func objMergeFast(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, bool, 
 			di++
 		case pk < dk:
 			// A field the document does not have: what the patch means on its own.
-			val, err := PatchWith(ir.Null(), patch.Values[pi], ctx)
+			val, err := PatchWith(absentAt(doc, pk, pi), patch.Values[pi], ctx)
 			if err != nil {
 				return nil, false, err
 			}
@@ -322,7 +322,7 @@ func objMergeFast(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, bool, 
 		add(doc.Fields[di].String, doc.Values[di], true)
 	}
 	for ; pi < len(patch.Fields); pi++ {
-		val, err := PatchWith(ir.Null(), patch.Values[pi], ctx)
+		val, err := PatchWith(absentAt(doc, patch.Fields[pi].String, pi), patch.Values[pi], ctx)
 		if err != nil {
 			return nil, false, err
 		}
@@ -378,6 +378,25 @@ func sortedStringFields(n *ir.Node) bool {
 		}
 	}
 	return true
+}
+
+// absentAt is the document's absence at a place in it: the null a patch is applied
+// to where the document has no node, standing at the field or index it would have
+// had.
+//
+// It used to be a bare ir.Null(), fabricated with no parent -- a node belonging to
+// no tree, and indistinguishable from a document root, since both answer nil to
+// Parent. An operator which asks what document it is in got the placeholder and
+// could not tell (p4tzbzx7h12kr6tkhxn0 is the same shape, one operator over).
+//
+// Nothing points DOWN at it -- it is not among doc's children and the document is
+// unchanged -- so this adds a leaf which knows where it stands rather than a
+// second tree. What the patch means here is still what it means on its own: the
+// placeholder carries no value, only a place.
+func absentAt(doc *ir.Node, field string, index int) *ir.Node {
+	res := ir.Null()
+	res.Parent, res.ParentField, res.ParentIndex = doc, field, index
+	return res
 }
 
 func objPatchYWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) {
@@ -451,7 +470,7 @@ func objPatchYWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error
 		if present {
 			continue
 		}
-		ppv, err := PatchWith(ir.Null(), pv, ctx)
+		ppv, err := PatchWith(absentAt(doc, k, 0), pv, ctx)
 		if err != nil {
 			return nil, err
 		}

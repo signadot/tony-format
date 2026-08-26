@@ -84,7 +84,7 @@ func (s irSymbol) Instance(child *ir.Node, args []string) (Op, error) {
 	child = ir.Uncomment(child)
 	if child == nil || child.Type != ir.ObjectType {
 		return nil, fmt.Errorf("%s op expects an object over the fields of an IR node, got %s",
-			s, irOperandType(child))
+			s, operandType(child))
 	}
 	asks := make([]irAsk, 0, len(child.Fields))
 	for i, f := range child.Fields {
@@ -94,7 +94,7 @@ func (s irSymbol) Instance(child *ir.Node, args []string) (Op, error) {
 		}
 		if f == nil || f.Type != ir.StringType {
 			return nil, fmt.Errorf("%s op: a key names a field of an IR node, and %s does not",
-				s, irOperandType(f))
+				s, operandType(f))
 		}
 		if !isIRField(f.String) {
 			return nil, fmt.Errorf("%s op: %q is not a field of an IR node; they are %s",
@@ -249,8 +249,8 @@ func childList(kids []*ir.Node) *ir.Node {
 	return ir.FromSlice(clones)
 }
 
-// irOperandType names what a malformed operand is, for the error.
-func irOperandType(n *ir.Node) string {
+// operandType names what a malformed operand is, for the error.
+func operandType(n *ir.Node) string {
 	if n == nil {
 		return "nothing"
 	}
