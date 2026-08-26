@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 264837cd64e437b81b92606490b0cb7208556dd3
 commits: []
 created: "2026-08-26T22:56:59.584087+02:00"
 duplicates: []
@@ -13,5 +14,5 @@ labels:
 - mergeop
 related_issues:
 - nxybjwvch12ksbj8hxn0
-status: open
-updated: "2026-08-26T23:17:40.797399+02:00"
+status: closed
+updated: "2026-08-26T23:31:12.734088+02:00"
