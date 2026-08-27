@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 97e663bf6f606dce12c216d4dc70a5f1ccd3a93a
 commits: []
 created: "2026-08-16T12:27:12.118503+02:00"
 duplicates: []
@@ -10,5 +11,5 @@ labels:
 - comments
 - parse
 related_issues: []
-status: open
-updated: "2026-08-16T12:28:07.209168+02:00"
+status: closed
+updated: "2026-08-27T16:34:40.08661+02:00"
