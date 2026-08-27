@@ -861,10 +861,25 @@ Consequences, in order of size:
   Worth knowing precisely, since the format would depend on it: `diffArray` has five gates
   — a `!key` with exactly one arg on each side, the two args EQUAL, the arg parseable as a
   path, and `DiffArrayByKey` not erroring — and every miss falls through to positional
-  **silently**. Two states keyed by different fields degrade rather than complain. Under
-  lowering that is a correctness hazard rather than a quality one, so P1 owes not just a
-  single source for the key field but a stable one: if a re-derivation ever disagrees with
-  what was in force when a delta was lowered, the stored delta quietly changes meaning.
+  **silently**. Two states keyed by different fields degrade rather than complain.
+
+  **Measured, and the silence turns out to be fine where it is**
+  (`diffarray_gate_test.go`). A positional fall-through is an `!arraydiff`, and
+  `!arraydiff` is not in the storage vocabulary — excluded for exactly this reason,
+  "relative to the array that was there, and positional". `WriteScopeOverlay` validates
+  before it appends, so a fall-through cannot be stored; `writeScopeOverlays` logs the
+  refusal and the scope keeps replaying, which is correct and slow rather than fast and
+  wrong. Each of the four constructible gates was checked through the builder's own steps
+  — diff, then `unconditionalPatch` — and each is refused by name.
+
+  So `diffArray` needs nothing. For an ordinary `Diff` a positional answer is correct,
+  merely less identity-preserving, and only the storage path needs more — which the
+  storage path asks for itself. What P1 owes is unchanged and already met: a single
+  source for the key field, with the tag riding in the delta as the durable record.
+
+  This holds while the overlay is the only lowered artefact. When lowering reaches
+  baseline writes they must be held to the same vocabulary, or the guard is not there —
+  `checkStorableInScope` exempts baseline today, deliberately.
 
 **Expansion granularity.** `!rename a→b` where `a` is a large baseline subtree freezes a
 copy of it into the scope's ownership; later baseline edits under it stop showing through.
