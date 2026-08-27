@@ -5,6 +5,7 @@ import (
 
 	"github.com/signadot/tony-format/go-tony/ir"
 	kpathpkg "github.com/signadot/tony-format/go-tony/ir/kpath"
+	"github.com/signadot/tony-format/go-tony/libdiff"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
@@ -52,6 +53,17 @@ func injectKeyTagsRec(schema *api.Schema, node *ir.Node, kpath string) error {
 	// array in place, leaving the wrapper above it; left wrapped, a commented array
 	// was never keyed and its elements merged positionally (3cdjz00jh12krns4g1n0).
 	node = ir.Uncomment(node)
+
+	// A !raw subtree is a document the store CARRIES rather than one it owns: the
+	// escape says to treat it as data, interpreting no operation at any depth, and
+	// it lands with its own tags intact. Reshaping it is the store editing someone
+	// else's document -- a rule, a charter, a patch, which is what !raw is for.
+	//
+	// Both walks stopped here for the same reason and neither did: an operator tag
+	// went straight in (5hmq80f3h12krh1mbsn0).
+	if ir.TagHas(node.Tag, libdiff.RawTag) {
+		return nil
+	}
 
 	switch node.Type {
 	case ir.ObjectType:
