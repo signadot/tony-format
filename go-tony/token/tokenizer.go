@@ -528,7 +528,17 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		}
 		// Use current line indent directly (ts.lnIndent is always up-to-date)
 		// mLit content is indented 2 spaces more than the line containing |
-		mIndent := t.ts.lnIndent + 2
+		// The content is one level in from the line's OWN level, and each '- ' on
+		// the line is a level: `- - |` opens its literal inside two arrays, so its
+		// content starts at 4. Counting only lnIndent read `- - |` as though the
+		// markers were not there and put two columns of the content into the value
+		// -- and accepted content dedented past the '|' itself
+		// (crcz1erdh12ks8cvj1n0). YAML reads these the same way.
+		bElt := t.ts.bElt
+		if bElt < 1 {
+			bElt = 1 // no marker: the value of a field, one level in from its line
+		}
+		mIndent := t.ts.lnIndent + 2*bElt
 		if mIndent < 2 {
 			// Ensure minimum indent of 2 (for root-level mLits)
 			mIndent = 2

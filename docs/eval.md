@@ -18,9 +18,7 @@ what: !eval
 # in the below, `x` is any expr-lang expression
 - .[x]                        # the VALUE of x in the environment
 - $[x]                        # a string containing the value of x
-# the expression expands inside a block string too -- the comment goes here,
-# because everything after the | on its own line belongs to the block
-- |
+- | # the expression expands inside a block string too
   well hey $[x]
 ```
 
@@ -33,7 +31,7 @@ what:
 - 7
 - "7"
 - |
-    well hey 7
+  well hey 7
 ```
 
 `.[x]` answers with the value the environment holds, keeping its type -- `7`, a

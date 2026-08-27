@@ -230,6 +230,23 @@ to accomodate this.  Tony simply computes the expected indentation because
 indentation is fixed (in YAML indentation may vary from one part of a document
 to another).
 
+The content starts one level in from the level of the line the `|` is on, and
+each `- ` on that line is a level of its own:
+
+```tony
+k: |
+  one level in from k's line
+---
+- |
+  one level in from the '- '
+---
+- - |
+    two markers, so two levels
+```
+
+Anything indented past that is content, and content may not start left of where
+the level puts it.
+
 ```tony
 # same as " <   \n^ leading space\n"
 | 

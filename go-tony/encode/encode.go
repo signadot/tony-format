@@ -843,6 +843,17 @@ func encodeString(node *ir.Node, w io.Writer, es *EncState) error {
 	return encodeStringOrLit(node, w, es)
 }
 
+// isBlockArrayElement reports whether encodeArray indented for this value's '- '.
+// It is encodeArray's own doDepth, asked from the value rather than the array, and
+// the two have to keep saying the same thing.
+func isBlockArrayElement(node *ir.Node, es *EncState) bool {
+	if esBracket(es) || ir.TagHas(node.Tag, ir.BracketTag) {
+		return false
+	}
+	p := node.NonCommentParent()
+	return p != nil && p.Type == ir.ArrayType
+}
+
 func encodeBlockLit(node *ir.Node, w io.Writer, es *EncState) error {
 	startBLit := "|"
 	v := node.String
@@ -871,8 +882,15 @@ func encodeBlockLit(node *ir.Node, w io.Writer, es *EncState) error {
 	if err := writeLineCommentLines(w, node.Comment, es); err != nil {
 		return err
 	}
-	es.depth++
-	defer func() { es.depth-- }()
+	// The content is one level in from the line the '|' is on. For an array
+	// element that level is the one encodeArray already took for the '- ',
+	// under the same condition it takes it: taking it twice wrote the content
+	// two columns deeper than the reader looks for it, so the difference became
+	// part of the string and grew by two on every pass (crcz1erdh12ks8cvj1n0).
+	if !isBlockArrayElement(node, es) {
+		es.depth++
+		defer func() { es.depth-- }()
+	}
 	if err := writeNL(w, es); err != nil {
 		return err
 	}
