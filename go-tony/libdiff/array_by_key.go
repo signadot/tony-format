@@ -98,10 +98,25 @@ func DiffArrayByKey(from, to *ir.Node, key string, df DiffFunc) (*ir.Node, error
 	}
 	res := ir.FromSlice(resItems)
 	if from.Tag != to.Tag {
-		return res.WithTag(MakeTagDiff(from.Tag, to.Tag)), nil
+		// COMPOSE the tag diff over the keying rather than replacing the tag with
+		// it. A tag diff describes the container's tag; the list beneath it still
+		// has to MERGE, and a keyed list merges by the !key(f) the PATCH carries.
+		// Replacing dropped it, so the same list merged positionally -- and
+		// positional merge of a keyed diff is not a wrong answer, it is a
+		// destroyed array: `!t1.key(name) [{name: a}, {name: b}]` losing its `b`
+		// came back `!t2.key(name) []` (ha3bj8jhh12kr3dxfxn0).
+		//
+		// The by-index path already composes (array_by_index.go), which is why the
+		// same shape round trips there and not here.
+		return res.WithTag(ir.TagCompose(MakeTagDiff(from.Tag, to.Tag), nil, keyTag(key))), nil
 	}
 	res.Tag = from.Tag
 	return res, nil
+}
+
+// keyTag is the tag which says a list is keyed by a field.
+func keyTag(key string) string {
+	return "!key(" + key + ")"
 }
 
 // placeKey puts a rebuilt element's key back where the key field says it lives.

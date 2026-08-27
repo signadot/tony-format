@@ -290,12 +290,17 @@ func (n *gnode) renderTo(b *strings.Builder) {
 	// was quietly testing documents other than the ones it built.
 	tag := n.tag
 	if n.kind == "keyed" {
-		// The key tag alone. A data tag composed over it -- !t1.key(name) --
-		// renders documents diff and patch do not yet round trip; that is filed
-		// rather than generated here, so this test keeps saying what it does
-		// cover. It could not produce them at all until the parser stopped
-		// accepting `!t1 !key(name)` and silently dropping the !t1.
-		tag = "!key(" + n.keyPath + ")"
+		// A data tag composes OVER the key tag -- !t1.key(name) -- which is the
+		// shape this generator could not produce at all until the parser stopped
+		// accepting `!t1 !key(name)` and silently dropping the !t1, and which did
+		// not round trip until the keyed differ composed its tag diff over the
+		// keying instead of replacing it with one (ha3bj8jhh12kr3dxfxn0).
+		keyTag := "!key(" + n.keyPath + ")"
+		if tag == "" {
+			tag = keyTag
+		} else {
+			tag = ir.TagCompose(tag, nil, keyTag)
+		}
 	}
 	if tag != "" {
 		b.WriteString(tag)

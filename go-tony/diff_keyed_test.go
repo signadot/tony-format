@@ -5,6 +5,7 @@ import (
 
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/libdiff"
 	"github.com/signadot/tony-format/go-tony/parse"
 )
 
@@ -179,6 +180,83 @@ func TestDiffKeyedArrayNestedKeyField(t *testing.T) {
 			if left := leftover(got, to); left != nil {
 				t.Errorf("round trip left a difference\n from: %s\n   to: %s\n diff: %s\n left: %s",
 					tc.from, tc.to, encode.MustString(d), encode.MustString(left))
+			}
+		})
+	}
+}
+
+// A keyed list whose OWN tag also changes: the tag diff describes the container's
+// tag, and the list beneath it still has to merge by key.
+//
+// The keyed differ replaced the tag with the diff instead of composing over it, so
+// !key(f) was gone from the patch and the same list merged POSITIONALLY. That is
+// not a wrong answer, it is a destroyed array -- a two-element list losing one
+// element came back empty, from a diff the library produced itself
+// (ha3bj8jhh12kr3dxfxn0):
+//
+//	a    !t1.key(name) [{name: a}, {name: b}]
+//	b    !t2.key(name) [{name: a}]
+//	diff !retag(bracket.t1.key(name),bracket.t2.key(name))
+//	     - !delete(bracket) {name: b}
+//	got  !t2.key(name) []
+//
+// The by-index path composed all along, which is why the same shape round tripped
+// there and not here. These are the cases the property generator could not reach
+// until it stopped rendering a composed tag as two tags.
+func TestKeyedDiffComposesOverTheKeying(t *testing.T) {
+	for _, tc := range []struct {
+		name, a, b string
+	}{{
+		name: "an element is dropped and the tag changes",
+		a:    `!t1.key(name) [{name: a}, {name: b}]`,
+		b:    `!t2.key(name) [{name: a}]`,
+	}, {
+		name: "the keying is gained with the tag",
+		a:    `!t1 [{name: a}, {name: b}]`,
+		b:    `!t1.key(name) [{name: b}, {name: a}]`,
+	}, {
+		name: "a data tag is added to a keyed list",
+		a:    `!key(name) [{name: a, v: 1}, {name: b}]`,
+		b:    `!t1.key(name) [{name: a, v: 2}]`,
+	}, {
+		name: "a data tag is dropped from a keyed list",
+		a:    `!t1.key(name) [{name: a}, {name: b}]`,
+		b:    `!key(name) [{name: b}]`,
+	}, {
+		name: "elements are reordered and the tag changes",
+		a:    `!t1.key(name) [{name: a}, {name: b}, {name: c}]`,
+		b:    `!t2.key(name) [{name: c}, {name: a}]`,
+	}, {
+		name: "an element is added and the tag changes",
+		a:    `!t1.key(name) [{name: a}]`,
+		b:    `!t2.key(name) [{name: a}, {name: z}]`,
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, b := mustParseNode(t, tc.a), mustParseNode(t, tc.b)
+			d := Diff(a.Clone(), b.Clone())
+			if d == nil {
+				t.Fatalf("no diff between %s and %s", tc.a, tc.b)
+			}
+			got, err := Patch(a.Clone(), d.Clone())
+			if err != nil {
+				t.Fatalf("patch: %v\ndiff: %s", err, encode.MustString(d))
+			}
+			if left := leftover(got, b); left != nil {
+				t.Errorf("Patch(a, Diff(a,b)) != b\ndiff: %s\ngot:  %s\nleft: %s",
+					encode.MustString(d), encode.MustString(got), encode.MustString(left))
+			}
+
+			// and the same shape backwards, since Reverse composes the tag ops too
+			rev, err := libdiff.Reverse(d.Clone())
+			if err != nil {
+				t.Fatalf("reverse: %v", err)
+			}
+			back, err := Patch(b.Clone(), rev)
+			if err != nil {
+				t.Fatalf("patch reversed: %v", err)
+			}
+			if left := leftover(back, a); left != nil {
+				t.Errorf("Patch(b, Reverse(Diff(a,b))) != a\nleft: %s", encode.MustString(left))
 			}
 		})
 	}
