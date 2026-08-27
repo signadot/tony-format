@@ -6,7 +6,11 @@ commits: []
 created: "2026-08-27T22:49:26.79881+02:00"
 duplicates: []
 id: haw04psch12ksnn2j1n0
-labels: []
+labels:
+- agent
+- comments
+- encode
+- parse
 related_issues: []
 status: open
-updated: "2026-08-27T22:49:26.79881+02:00"
+updated: "2026-08-27T22:49:32.995473+02:00"
