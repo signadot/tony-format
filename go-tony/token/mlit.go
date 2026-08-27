@@ -49,6 +49,47 @@ func mLitIndent(toks []Token, d int) (int, error) {
 	}
 }
 
+// openLine reads a block literal's opening line: the '|', an optional chomp
+// indicator, and then what any other line may carry after its content --
+// trailing whitespace, and a comment.
+//
+// A line ends at its last non-space character or at a comment, and a block
+// literal's opening line is a line. It used to be the one place in the format
+// which was strict about this, and strict about the wrong thing: `| ` and
+// `| # why` were refused where `k: v ` and `k: v # why` are accepted, and the
+// refusal came out as `unexpected ""`, which tells a reader nothing
+// (0y342gdzh12ks0vkgxn0, 6ykv73beh12krzeygsn0). docs/tony.md's own leading-space
+// example is written `| ` and did not parse. YAML mode inherited the refusal,
+// where PyYAML accepts both.
+//
+// It answers the chomp indicator, the offset the content starts at (just past the
+// newline), the offset of the newline itself, and bad: -1 when the line is well
+// formed, len(d) when it runs out before its newline, and otherwise the offset of
+// the byte which may not be there.
+func openLine(d []byte) (chomp byte, start, nl, bad int) {
+	chomp, i := byte('\n'), 1
+	if len(d) > 1 && (d[1] == MLitChomp || d[1] == MLitKeep) {
+		chomp, i = d[1], 2
+	}
+	// \r is skipped with the rest, so a CRLF document opens a literal like any
+	// other: `|\r\n` was refused too, for the same reason.
+	for i < len(d) && (d[i] == ' ' || d[i] == '\t' || d[i] == '\r') {
+		i++
+	}
+	if i < len(d) && d[i] == '#' {
+		for i < len(d) && d[i] != '\n' {
+			i++
+		}
+	}
+	switch {
+	case i >= len(d):
+		return chomp, 0, 0, len(d)
+	case d[i] != '\n':
+		return chomp, 0, 0, i
+	}
+	return chomp, i + 1, i, -1
+}
+
 func mLit(d []byte, indent int, posDoc *PosDoc, off int) (int, error) {
 	if len(d) < 2 {
 		return 0, ErrUnterminated
@@ -56,23 +97,14 @@ func mLit(d []byte, indent int, posDoc *PosDoc, off int) (int, error) {
 	if d[0] != '|' {
 		return 0, fmt.Errorf("unexpected %q", string(d[0]))
 	}
-	start := 2
-	format := d[1]
-	switch format {
-	case MLitChomp, MLitKeep:
-		if len(d) < 3 {
-			return 0, ErrUnterminated
-		}
-		if d[2] != '\n' {
-			return 0, UnexpectedErr(string(d[2]), posDoc.Pos(off+2))
-		}
-		start++
-		posDoc.nl(off + 2)
-	case '\n':
-		posDoc.nl(off + 1)
-	default:
-		return 0, UnexpectedErr(string(format), posDoc.Pos(off+1))
+	format, start, nl, bad := openLine(d)
+	switch {
+	case bad == len(d):
+		return 0, ErrUnterminated
+	case bad >= 0:
+		return 0, UnexpectedErr(string(d[bad]), posDoc.Pos(off+bad))
 	}
+	posDoc.nl(off + nl)
 	rest, err := scanLines(d[start:], posDoc, off+start, indent, format)
 	if err != nil {
 		return 0, err
@@ -93,11 +125,7 @@ func mLitToString(d []byte) string {
 	if len(d) < 2 {
 		return ""
 	}
-	i := 1
-	if d[1] != '\n' {
-		i++
-	}
-	i++ // initial \n
+	chomp, i, _, _ := openLine(d)
 	b := &strings.Builder{}
 	trailing := 0
 	for i < len(d) {
@@ -125,11 +153,11 @@ func mLitToString(d []byte) string {
 		i = j
 	}
 	res := b.String()
-	if d[1] == '+' {
+	if chomp == MLitKeep {
 		return res
 	}
 
-	if d[1] == '-' {
+	if chomp == MLitChomp {
 		trailing++
 	}
 	end := len(res) - trailing

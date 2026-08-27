@@ -15,20 +15,17 @@ func mLitStreaming(d []byte, indent int, posDoc *PosDoc, off int) (int, error) {
 	if d[0] != '|' {
 		return 0, fmt.Errorf("unexpected %q", string(d[0]))
 	}
-	start := 2
-	format := d[1]
-	switch format {
-	case MLitChomp, MLitKeep:
-		if len(d) < 3 {
-			return 0, io.EOF // Need more buffer
-		}
-		start++
-		posDoc.nl(off + 2)
-	case '\n':
-		posDoc.nl(off + 1)
-	default:
-		return 0, UnexpectedErr(string(format), posDoc.Pos(off+1))
+	// The opening line reads the same way here as it does in mLit; what differs is
+	// that running out of buffer before its newline asks for more rather than
+	// being unterminated.
+	format, start, nl, bad := openLine(d)
+	switch {
+	case bad == len(d):
+		return 0, io.EOF
+	case bad >= 0:
+		return 0, UnexpectedErr(string(d[bad]), posDoc.Pos(off+bad))
 	}
+	posDoc.nl(off + nl)
 	rest, err := scanLinesStreaming(d[start:], posDoc, off+start, indent, format)
 	if err != nil {
 		return 0, err

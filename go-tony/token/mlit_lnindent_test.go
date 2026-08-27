@@ -710,15 +710,25 @@ key: |
 			input: `key: | # comment
   content
 `,
-			// The tokenizer REFUSES this, and the spec does not say whether it should:
-			// whitespace after | is significant and there is no block-scalar header
-			// grammar for a comment to live in, but every other line in a document may
-			// carry one. Asserted rather than tolerated, so that whichever way
-			// 6ykv73beh12krzeygsn0 is decided, this test says so. It used to accept
-			// either outcome -- "we don't panic, and an mLit is good enough" -- which is
-			// a test that cannot fail.
-			wantErr:  true,
-			validate: func(t *testing.T, tokens []Token) {},
+			// Accepted: a line ends at its last non-space character or at a comment,
+			// and a block literal's opening line is a line (6ykv73beh12krzeygsn0,
+			// decided; 0y342gdzh12ks0vkgxn0 for the rule). The comment is not part of
+			// the literal -- the content starts on the next line either way.
+			validate: func(t *testing.T, tokens []Token) {
+				hasMLit := false
+				for i := range tokens {
+					if tokens[i].Type != TMLit {
+						continue
+					}
+					hasMLit = true
+					if content := mLitToString(tokens[i].Bytes); content != "content\n" {
+						t.Errorf("Expected \"content\\n\", got %q", content)
+					}
+				}
+				if !hasMLit {
+					t.Error("No mLit found")
+				}
+			},
 		},
 	}
 

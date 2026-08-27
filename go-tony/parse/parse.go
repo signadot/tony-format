@@ -87,7 +87,8 @@ func ParseMulti(d []byte, opts ...ParseOption) ([]*ir.Node, error) {
 			currentToks = append(currentToks, t)
 			continue
 		}
-		if len(currentToks) == 0 {
+		if holdsNoValue(currentToks) {
+			currentToks = nil
 			continue
 		}
 		node, err := parseTokens(currentToks, pOpts)
@@ -99,7 +100,7 @@ func ParseMulti(d []byte, opts ...ParseOption) ([]*ir.Node, error) {
 	}
 
 	// Parse the last document if any tokens remain
-	if len(currentToks) > 0 {
+	if !holdsNoValue(currentToks) {
 		node, err := parseTokens(currentToks, pOpts)
 		if err != nil {
 			return nil, err
@@ -108,6 +109,30 @@ func ParseMulti(d []byte, opts ...ParseOption) ([]*ir.Node, error) {
 	}
 
 	return nodes, nil
+}
+
+// holdsNoValue reports whether a section between separators holds nothing a
+// document could be made of.
+//
+// A section with NOTHING in it is skipped -- a stream may separate documents with
+// a blank section, and a trailing separator is ordinary. A section holding only
+// COMMENTS is the same thing and was an error, so adding prose to an empty section
+// turned an accepted file into a rejected one, which is the opposite of what "a
+// comment is not data" means everywhere else in the format (ry96wwdvh12ks04gg5n0).
+//
+// The comment is dropped rather than kept: a comment node wraps the value it
+// describes, there is no value here, and a comment node with no child is a shape
+// the rest of the library refuses -- ir_json calls it a malformed head comment,
+// and every uncomment site unwraps exactly one value or none at all.
+func holdsNoValue(toks []token.Token) bool {
+	for _, t := range toks {
+		switch t.Type {
+		case token.TComment, token.TIndent, token.TDocSep:
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func parseTokens(toks []token.Token, pOpts *parseOpts) (*ir.Node, error) {

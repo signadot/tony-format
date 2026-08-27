@@ -56,7 +56,10 @@ func balanceOne(dst []Token, toks []Token, d int, y *int, underField bool, f for
 
 	if len(toks) == 0 {
 		if underField {
-			return append(dst, Token{Type: TNull}), 0, nil
+			if !f.IsTony() {
+				return append(dst, Token{Type: TNull}), 0, nil
+			}
+			return nil, 0, errDanglingColon(nil)
 		}
 		return nil, 0, fmt.Errorf("%w: %w", ErrDocBalance, ErrEmptyDoc)
 	}
@@ -133,9 +136,12 @@ func balanceOne(dst []Token, toks []Token, d int, y *int, underField bool, f for
 					ErrDocBalance, string(tok.Bytes), tok.Pos)
 			}
 			// empty document should not produce error
-			// implicit null if we're expecting a value after colon
 			if underField {
-				dst = append(dst, Token{Type: TNull, Pos: tok.Pos})
+				if !f.IsTony() {
+					dst = append(dst, Token{Type: TNull, Pos: tok.Pos})
+					return dst, 0, nil
+				}
+				return nil, 0, errDanglingColon(tok.Pos)
 			}
 			return dst, 0, nil
 		}
@@ -546,6 +552,33 @@ KVLoop:
 	}
 	dst = append(dst, Token{Type: TRCurl, Pos: toks[0].Pos})
 	return dst, i, nil
+}
+
+// errDanglingColon: a ':' with no value after it.
+//
+// It was accepted in exactly one position -- as the last pair of a document -- and
+// refused everywhere else, so `p:` parsed while it was last and stopped parsing the
+// moment a sibling was written below it. What it produced was a null the author had
+// not written, which is the same class of surprise as a dropped field.
+//
+// A dangling ':' is in the grammar nowhere: the key set is `{a b c}`, bracketed,
+// with no colon at all (docs/tony.md, "Key Sets"). So end-of-document stops being
+// the place it means something, and the message says both spellings that work --
+// the old one named neither the pair, nor the requirement, nor either spelling
+// (7ba8gz2eh12ksbwxe5n0).
+//
+// TONY MODE ONLY. In YAML a `key:` with nothing after it is an ordinary null, and
+// YAML mode reads what YAML writes.
+func errDanglingColon(pos *Pos) error {
+	return fmt.Errorf("%w: a ':' with no value%s: write `null` for the value, or drop "+
+		"the ':' inside {} to write a key set", ErrDocBalance, at(pos))
+}
+
+func at(pos *Pos) string {
+	if pos == nil {
+		return ""
+	}
+	return " " + pos.String()
 }
 
 func balanceBrObj(dst, toks []Token, f format.Format) ([]Token, int, error) {

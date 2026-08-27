@@ -59,6 +59,17 @@ subtree is bracketed, whether a string is written as a block literal, and which
 notation a number is written in.  Otherwise everything, including indentation,
 is fixed.
 
+What a reader ACCEPTS is deliberately wider than what a writer PRODUCES, so that a
+document part-way through being edited is still a document.  Whitespace running to
+the end of a line after a value, a line holding nothing but whitespace, a blank line
+between pairs, a comment or trailing space on a block literal's opening line, and a
+quoted string which needs no quotes are all read without complaint.  None of them
+survives being written back: the writer strips trailing whitespace, drops blank
+lines, and quotes a string only where the value requires it.
+
+So normalizing a document is reading it and writing it out, which is what `o view`
+(`o v`) does.
+
 Tony also supports a single normalized wire format form, which uses bracketed
 style and contains no newlines within a subtree.  
 
@@ -213,10 +224,20 @@ indentation is fixed (in YAML indentation may vary from one part of a document
 to another).
 
 ```tony
-# same as " <\n^ leading space\n"
+# same as " <   \n^ leading space\n"
 | 
    <   
   ^ leading space
+```
+
+The content keeps its own trailing whitespace, as YAML's does: what the block
+literal holds is the bytes after the computed indentation, up to the newline.  Only
+the OPENING line is a line in the ordinary sense, so it may carry trailing
+whitespace and a comment, and neither is part of the value:
+
+```tony
+key: |- # what this holds
+  the value
 ```
 
 Tony block literals do not support folding or any other of the myriad of 
@@ -485,6 +506,11 @@ Tony supports JSON maps and also allows 3 additional constructs.
 In bracketed mode only, a set of keys may be denoted by dropping the ':' and
 value after any key.  This is syntactic sugar for associating a null value with
 the key.
+
+Dropping the VALUE and keeping the ':' is not this, and is not anything: a `p:`
+with nothing after it is refused wherever it is written, including as the last pair
+of a document.  Write `p: null` for a null, or use the key set above.  (YAML mode
+reads `p:` as a null, because YAML does.)
 
 ```tony
 {1 2 3}
