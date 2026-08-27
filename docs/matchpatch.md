@@ -46,7 +46,7 @@ directories and via `o match` and `o patch`.
 | `!replace` |   -   |   +   |     -          | CHECKED: verify the node still equals `from:`, then install `to:`                |
 | `!addtag`  |   -   |   +   | tag            | add a tag; the tag is what results                                               |
 | `!rmtag`   |   -   |   +   | tag            | remove a tag; its absence is what results                                        |
-| `!comment` |   -   |   +   |     -          | state the comments here; the operand names head, line or both, `[]` removing one  |
+| `!comment` |   +   |   +   |     -          | match or state the comments here; the operand names head, line or both, `[]` for none|
 | `!retag`   |   -   |   +   | from,to        | CHECKED: verify the tag is `from`, then make it `to`                             |
 | `!strdiff` |   -   |   +   |     -          | a string edit, relative to the string that is there                              |
 | `!arraydiff`|   -   |   +   |     -          | an array edit, relative and positional                                           |

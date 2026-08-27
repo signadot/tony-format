@@ -35,7 +35,7 @@ it does not exist — see [Keyed arrays](../logd/keyed.md).
 | `!and` | conjoin a list of matches, each applied to the corresponding doc |
 | `!arraydiff` | an array edit, relative and positional |
 | `!at` | walk to the path and apply the match there; see below |
-| `!comment` | state the comments here; the operand names head, line or both, `[]` removing one |
+| `!comment` | match or state the comments here; the operand names head, line or both, `[]` for none |
 | `!delete` | remove a value; absence is what results |
 | `!dive` | dive into the doc and treat each subtree with a list of matches/patches |
 | `!embed` | the operand is the result, with each occurrence of the key replaced by the doc |

@@ -34,14 +34,14 @@ import (
 // what lets it apply to a base that has moved and be stored (see
 // system/logd/api's storage vocabulary). !addtag and !rmtag are the same shape
 // for tags, and !retag is the checked form neither of these needs.
-var commentSym = &commentSymbol{patchName: commentName}
+var commentSym = &commentSymbol{name: commentName}
 
 func Comment() Symbol {
 	return commentSym
 }
 
 const (
-	commentName patchName = "comment"
+	commentName name = "comment"
 
 	// CommentTag is the operator's name, for anything building one.
 	CommentTag = string(commentName)
@@ -55,7 +55,7 @@ const (
 )
 
 type commentSymbol struct {
-	patchName
+	name
 }
 
 func (s commentSymbol) Instance(child *ir.Node, args []string) (Op, error) {
@@ -72,11 +72,11 @@ func (s commentSymbol) Instance(child *ir.Node, args []string) (Op, error) {
 			return nil, fmt.Errorf("%s op position is %q or %q, got %q", s, CommentHead, CommentLine, f.String)
 		}
 	}
-	return &commentOp{patchOp: patchOp{op: op{name: s.patchName, child: child}}}, nil
+	return &commentOp{op: op{name: s.name, child: child}}, nil
 }
 
 type commentOp struct {
-	patchOp
+	op
 }
 
 // ArgumentOperand says the child is an argument and not a value being installed,
@@ -85,6 +85,101 @@ type commentOp struct {
 // with braces, as every operand of this shape is -- left the document rendered
 // with braces it never had.
 func (p commentOp) ArgumentOperand() {}
+
+// Match asks of the comments what Patch states about them: a position the operand
+// names is compared, exactly, and a position it does not name is not asked about --
+// the same silence an object pattern keeps about a field it does not mention.
+//
+// No lines is the absence of a comment, in both directions: `!comment {head: []}`
+// says the node has nothing written above it, which is the question the patch's
+// "set it to nothing" answers to.
+//
+// It asks about the comments and NOT about the value, as the patch changes the
+// comments and not the value. A pattern wanting both is `!and [!comment {...},
+// <the value>]`, which is the composition it looks like.
+//
+// The default stays blind, which is the part that could not be an option: with
+// comments participating everywhere, two identical comments still mismatched,
+// because matchNode has no case which compares them. Asking explicitly is a
+// question the walk can answer (8241kcggh12krgh4g1n0).
+func (p commentOp) Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, error) {
+	if debug.Op() {
+		debug.Logf("comment op match on %s\n", doc.Path())
+	}
+	if doc == nil {
+		return false, nil
+	}
+	for _, position := range []struct {
+		field string
+		lines func(*ir.Node) []string
+	}{
+		{CommentHead, headCommentLines},
+		{CommentLine, lineCommentLines},
+	} {
+		operand := ir.Get(p.child, position.field)
+		if operand == nil {
+			continue // not named, not asked
+		}
+		want, err := commentLines(operand)
+		if err != nil {
+			return false, err
+		}
+		if !sameLines(position.lines(doc), want) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// headCommentLines answers what is written above doc, which the IR holds as a
+// wrapper AROUND it -- so from the value the wrapper is its parent.
+//
+// Reading it through the parent rather than being handed the wrapper is what lets
+// this compose. The walk unwraps a head comment before any op sees the node, which
+// is what makes every other match comment-blind; an operation handed the unwrapped
+// node can still see what wrapped it, and so can one several compositions deep --
+// `!and [!comment {...}, <value>]` needs no special arrangement, because a node
+// keeps its parent however it was reached.
+func headCommentLines(doc *ir.Node) []string {
+	if doc == nil {
+		return nil
+	}
+	if doc.Type == ir.CommentType && len(doc.Values) == 1 {
+		return doc.Lines // handed the wrapper itself
+	}
+	if p := doc.Parent; p != nil && p.Type == ir.CommentType && len(p.Values) == 1 && p.Values[0] == doc {
+		return p.Lines
+	}
+	return nil
+}
+
+// lineCommentLines answers what is written after doc on its own line, which the IR
+// holds on the node. A head comment wrapper is looked through, as setLineComment
+// looks through it: the line comment belongs to the value, not to what was said
+// above it.
+func lineCommentLines(doc *ir.Node) []string {
+	target := doc
+	if doc != nil && doc.Type == ir.CommentType && len(doc.Values) == 1 {
+		target = doc.Values[0]
+	}
+	if target == nil || target.Comment == nil {
+		return nil
+	}
+	return target.Comment.Lines
+}
+
+// sameLines compares two comments, where no lines and no comment are one thing.
+func sameLines(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
 
 func (p commentOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, _ libdiff.DiffFunc) (*ir.Node, error) {
 	if debug.Op() {

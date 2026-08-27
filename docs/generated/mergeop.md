@@ -666,11 +666,36 @@ spec: !rmtag(mine) null
 
 ## `!comment`
 
-**State the comments at a node** (patch)
+**Match or state the comments at a node** (match and patch)
 
 The operand is an object naming `head`, `line`, or both. A position the operand does not
 name is left alone, as a field an object patch does not name is; setting one to `[]`
 removes it.
+
+As a MATCH it asks what the patch states: a position the operand names is compared,
+exactly, and one it does not name is not asked about. `[]` asks for the absence of a
+comment, which is the question "set it to nothing" answers to.
+
+Matching is comment-blind everywhere else, and stays that way -- a comment describes a
+value and is not what the value IS, so a document parsed with comments answers an
+ordinary pattern the same way as one parsed without. `!comment` is how the question is
+asked instead of a mode that changes every comparison.
+
+It asks about the comments and not about the value, as the patch changes the comments
+and not the value. A pattern wanting both is `!and [!comment {...}, <the value>]`, and
+that composes with no special arrangement: a head comment is a wrapper AROUND the
+value, so from the value it is the parent, and a node keeps its parent however many
+operations it was reached through.
+
+A comment written above a nested key belongs to that key's VALUE, so `# above b` in
+
+```tony
+a:
+  # above b
+  b: 2
+```
+
+is asked about as `{a: !comment {head: ["# above b"]}}`.
 
 Both positions live in one operand rather than one operator per position because tag
 composition shares a child -- `!comment.comment` could only ever carry one set of lines,
