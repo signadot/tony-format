@@ -53,7 +53,7 @@ func init() {
 	Register(HasPath())
 	Register(At())
 	Register(GetPath())
-	Register(GetPaths())
+	Register(ListPath())
 	Register(Nullify())
 	Register(JSONPatch())
 	Register(KeyedList())

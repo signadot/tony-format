@@ -80,25 +80,25 @@ func TestGetPathIntoAnArrayTail(t *testing.T) {
 	}
 }
 
-// !get-paths is the plural, and takes the paths its singular refuses.
-func TestGetPathsAnswersAList(t *testing.T) {
+// !list-path is the plural, and takes the paths its singular refuses.
+func TestListPathAnswersAList(t *testing.T) {
 	const doc = `{containers: [{image: a}, {image: b}], one: {image: c}}`
 
 	for _, tc := range []struct {
 		name, patch, want string
 	}{{
 		name:  "a wild path",
-		patch: `{all: !get-paths(root) "containers[*].image"}`,
+		patch: `{all: !list-path(root) "containers[*].image"}`,
 		want:  `[a, b]`,
 	}, {
 		// no special case: a path naming one node gives a list of one
 		name:  "a path which names one node",
-		patch: `{all: !get-paths(root) one.image}`,
+		patch: `{all: !list-path(root) one.image}`,
 		want:  `[c]`,
 	}, {
 		// each keeps the promise its name makes: !get-path errors here
 		name:  "a path which names nothing",
-		patch: `{all: !get-paths(root) "nope[*]"}`,
+		patch: `{all: !list-path(root) "nope[*]"}`,
 		want:  `[]`,
 	}} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -192,7 +192,7 @@ func TestGetPathRefuses(t *testing.T) {
 	}, {
 		name:    "a wild path, which names a set rather than a node",
 		pattern: `{x: !get-path(root) "a[*]"}`,
-		want:    "names a set of nodes rather than one; get-paths answers a list",
+		want:    "names a set of nodes rather than one; list-path answers a list",
 	}, {
 		name:    "a path which does not parse",
 		pattern: `{x: !get-path "a["}`,
@@ -207,7 +207,7 @@ func TestGetPathRefuses(t *testing.T) {
 		want:    `the only tag component is "root"`,
 	}, {
 		name:    "and the plural refuses the same things",
-		pattern: `{x: !get-paths(bogus) a}`,
+		pattern: `{x: !list-path(bogus) a}`,
 		want:    `the only tag component is "root"`,
 	}} {
 		t.Run(tc.name, func(t *testing.T) {

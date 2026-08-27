@@ -11,7 +11,7 @@ import (
 
 var (
 	getPathSym  = &getSymbol{name: getPathName}
-	getPathsSym = &getSymbol{name: getPathsName, list: true}
+	listPathSym = &getSymbol{name: listPathName, list: true}
 )
 
 // GetPath is the !get-path(anchor) operator: it answers with the node at a
@@ -47,9 +47,13 @@ func GetPath() Symbol {
 	return getPathSym
 }
 
-// GetPaths is the !get-paths(anchor) operator: the nodes at a kpath, as a list.
+// ListPath is the !list-path(anchor) operator: the nodes at a kpath, as a list.
 //
-//	!get-paths containers[*].image
+//	!list-path containers[*].image
+//
+// The pair is named for the two walks it is: ir.Node.GetKPath answers a node and
+// ListKPath answers the nodes, and !get-path and !list-path are those two asked
+// from a pattern.
 //
 // It is !get-path's plural and takes the paths its singular refuses: a wild
 // segment (.* [*] {*} ..) names a set rather than a node, and kpath already knows
@@ -64,16 +68,16 @@ func GetPath() Symbol {
 // tree: the patch side installs what it is given, and the container builders
 // re-parent what they are handed, so the document's own node would be spliced out
 // of the document.  The copy is detached -- !get-path's answer is a root, and each
-// of !get-paths' is parented to the list -- so a walk up stops at what was asked
+// of !list-path' is parented to the list -- so a walk up stops at what was asked
 // for.  Navigating down is what the path already did, and !get-path(root) inside
 // such a value therefore means that value, not the document it came from.
-func GetPaths() Symbol {
-	return getPathsSym
+func ListPath() Symbol {
+	return listPathSym
 }
 
 const (
 	getPathName  name = "get-path"
-	getPathsName name = "get-paths"
+	listPathName name = "list-path"
 
 	// rootArg anchors the path at the document rather than at the node met.
 	rootArg = "root"
@@ -98,7 +102,7 @@ func (s getSymbol) Instance(child *ir.Node, args []string) (Op, error) {
 	}
 	if !s.list && kp.HasWild() {
 		return nil, fmt.Errorf("%s %s: the path names a set of nodes rather than one; %s answers a list",
-			s, child.String, getPathsName)
+			s, child.String, listPathName)
 	}
 	res := &getOp{
 		op:   op{name: s.name, child: child},
@@ -119,7 +123,7 @@ func (s getSymbol) Instance(child *ir.Node, args []string) (Op, error) {
 	return res, nil
 }
 
-// getOp is !get-path and !get-paths: one operation, and the two names are which
+// getOp is !get-path and !list-path: one operation, and the two names are which
 // promise it keeps.
 type getOp struct {
 	op

@@ -41,7 +41,6 @@ it does not exist — see [Keyed arrays](../logd/keyed.md).
 | `!embed` | the operand is the result, with each occurrence of the key replaced by the doc |
 | `!field` | match the field (a string), not its value |
 | `!get-path` | the node at a kpath: `!get-path(root) spec.image` |
-| `!get-paths` | the nodes at a kpath as a list; takes the wild paths `!get-path` refuses |
 | `!glob` | glob match a string |
 | `!has-path` | the document has the path the operand names |
 | `!if` | evaluate `if:` and patch with `then:` or `else:` |
@@ -51,6 +50,7 @@ it does not exist — see [Keyed arrays](../logd/keyed.md).
 | `!json-patch` | apply a json patch to the corresponding doc node |
 | `!key` | associative lists as objects |
 | `!let` | bind names in `let:`, then match or patch with `in:`, referring to them as `.[name]` |
+| `!list-path` | the nodes at a kpath as a list; takes the wild paths `!get-path` refuses |
 | `!not` | negate a match (eg `!not.or [1,2,3]`) |
 | `!nullify` | turn a node into a null without deleting it |
 | `!or` | disjunction |

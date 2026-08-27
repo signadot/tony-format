@@ -13,7 +13,7 @@ import (
 //
 // An operator which asks what document it is in got the placeholder and could not
 // tell: !get-path(root) writing into a field the document did not have anchored at
-// the placeholder rather than at the document, which errored, and !get-paths(root)
+// the placeholder rather than at the document, which errored, and !list-path(root)
 // answered the EMPTY LIST -- a wrong answer, silently.
 //
 // It carries its place now. Nothing points down at it, so the document is

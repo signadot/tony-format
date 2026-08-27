@@ -473,7 +473,7 @@ read as "anything" by a match and WRITTEN by a patch, and a silent no-match says
 nothing about why.
 
 A wild path (`.*`, `[*]`, `{*}`, `..`) names a set rather than a node and is
-refused where the pattern is built; `!get-paths` is the operation for those.
+refused where the pattern is built; `!list-path` is the operation for those.
 
 The answer is a copy, detached, so a walk up from it stops at what was asked for:
 `!get-path(root)` inside such a value means that value, not the document it came
@@ -501,11 +501,11 @@ status: {replicas: !get-path(root) spec.replicas}
     side: {image: .[img]}
 ```
 
-**See also:** [`!at`](./mergeop.md#at), [`!has-path`](./mergeop.md#has-path), [`!get-paths`](./mergeop.md#get-paths)
+**See also:** [`!at`](./mergeop.md#at), [`!has-path`](./mergeop.md#has-path), [`!list-path`](./mergeop.md#list-path)
 
 ---
 
-## `!get-paths`
+## `!list-path`
 
 **Answer with the nodes at a path, as a list** (match and patch)
 
@@ -524,7 +524,7 @@ The values are copies, each parented to the list, and the list is detached.
 
 ```tony
 # every image in the document, as a list
-images: !get-paths(root) "containers[*].image"
+images: !list-path(root) "containers[*].image"
 ```
 
 **See also:** [`!get-path`](./mergeop.md#get-path), [`!at`](./mergeop.md#at)

@@ -30,7 +30,7 @@ directories and via `o match` and `o patch`.
 | `!key`     |   +   |   +   | field to key by| associative lists as objects                                                     |
 | `!let`     |   +   |   +   |     -          | bind names in `let:`, then match or patch with `in:`, referring to them as `.[name]`|
 | `!get-path`|   +   |   +   | -, or root     | the node at a kpath: `!get-path(root) spec.image`                                |
-| `!get-paths`|  +   |   +   | -, or root     | the nodes at a kpath as a list; takes the wild paths `!get-path` refuses          |
+| `!list-path`|  +   |   +   | -, or root     | the nodes at a kpath as a list; takes the wild paths `!get-path` refuses          |
 | `!pass`    |   +   |   +   |     -          | match: accept anything / patch: leave the document as it is                      |
 | `!raw`     |   +   |   +   |     -          | the escape: treat the subtree as data, interpreting no operation at any depth    |
 | `!if`      |   -   |   +   |     -          | evaluate `if:` and patch with `then:` or `else:`                                 |
@@ -72,7 +72,7 @@ It states what the comment IS rather than what it was, so it applies to a
 document that has moved on -- which is what lets a store keep it, and why
 logd's storage vocabulary admits it beside `!insert` and `!addtag`.
 
-`!get-path` and `!get-paths` change what a pattern IS, and it is worth saying out
+`!get-path` and `!list-path` change what a pattern IS, and it is worth saying out
 loud: a pattern holding one cannot be read on its own any more, because what it
 asserts depends on what the document says elsewhere. `status: {replicas:
 !get-path(root) spec.replicas}` is a statement about a RELATION, and no other

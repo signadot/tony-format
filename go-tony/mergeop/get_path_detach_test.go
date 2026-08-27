@@ -40,8 +40,8 @@ func TestGetPathAnswersADetachedCopy(t *testing.T) {
 		}
 	})
 
-	t.Run("get-paths", func(t *testing.T) {
-		op, err := GetPaths().Instance(ir.FromString("a"), nil)
+	t.Run("list-path", func(t *testing.T) {
+		op, err := ListPath().Instance(ir.FromString("a"), nil)
 		if err != nil {
 			t.Fatalf("instance: %v", err)
 		}
