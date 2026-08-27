@@ -3,7 +3,8 @@ blocked_by: []
 blocks: []
 branches: []
 closed_by: aed71f341ba25dae46e82c679931c7f615dfcc0f
-commits: []
+commits:
+- aed71f341ba25dae46e82c679931c7f615dfcc0f
 created: "2026-08-27T22:49:26.79881+02:00"
 duplicates: []
 id: haw04psch12ksnn2j1n0
@@ -15,4 +16,4 @@ labels:
 related_issues:
 - crcz1erdh12ks8cvj1n0
 status: closed
-updated: "2026-08-27T23:00:29.24361+02:00"
+updated: "2026-08-27T23:00:29.343785+02:00"
