@@ -68,8 +68,14 @@ survives being written back: the writer strips trailing whitespace, drops blank
 lines, and quotes a string only where the value requires it.
 
 So normalizing a document is reading it and writing it out, which is what `o view`
-(`o v`) does.  `o v -w` writes the result back over each file, leaving a file
-already in normal form untouched.
+(`o v`) does.  `o v -w` writes the result back over each file, leaving a file already
+in normal form untouched.
+
+Comments are the one thing the two disagree about, deliberately.  `o v` PRINTS a view
+and leaves them out unless asked with `-c`, as every command in the tool does; `o v
+-w` REPLACES the document and always keeps them, because a document includes its
+comments and a formatter that drops them is not one.  So `o v file` and `o v -w file`
+differ on a commented file, and `o v -c file` is what matches what `-w` writes.
 
 Tony also supports a single normalized wire format form, which uses bracketed
 style and contains no newlines within a subtree.  
