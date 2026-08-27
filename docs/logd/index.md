@@ -49,6 +49,11 @@ retention** schedule:
 The result is a bounded store that still retains an accessible long tail of history,
 rather than either unbounded growth or a hard truncation.
 
+Compaction is **off unless a config file asks for it**, and it runs as the last step
+of taking a snapshot rather than on a schedule of its own — so a store that stops
+taking writes never compacts. See [Configuring compaction](compaction.md) for the
+knobs and what cannot be asked of them.
+
 ## Conditions on writes
 
 A patch can carry a **compare-and-swap precondition**: alongside the write, the client
