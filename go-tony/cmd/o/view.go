@@ -40,7 +40,7 @@ func view(cfg *ViewConfig, cc *cli.Context, args []string) error {
 		return nil
 	}
 	if len(args) == 0 {
-		if err := viewReader(cfg, cc.Out, cc.In); err != nil {
+		if _, err := viewReader(cfg, cc.Out, cc.In); err != nil {
 			return fault(cc, err)
 		}
 		return nil
@@ -110,7 +110,7 @@ func writeFile(cfg *ViewConfig, file string) error {
 		return fmt.Errorf("could not read %q: %w", file, err)
 	}
 	var out bytes.Buffer
-	if err := viewReader(cfg, &out, bytes.NewReader(in)); err != nil {
+	if _, err := viewReader(cfg, &out, bytes.NewReader(in)); err != nil {
 		return fmt.Errorf("error processing %s: %w", file, err)
 	}
 	if bytes.Equal(in, out.Bytes()) {
@@ -147,17 +147,34 @@ func writeFile(cfg *ViewConfig, file string) error {
 
 func viewFiles(cfg *ViewConfig, w io.Writer, files []string) error {
 	for i, file := range files {
-		if err := viewFile(cfg, w, file); err != nil {
+		// The separator between FILES asks what the separator between documents
+		// asks: has the line already been ended? Writing "\n---\n" after output
+		// which ends in a newline puts a blank line before it, and separators
+		// within one file stopped doing that.
+		//
+		// Answered rather than buffered: encOpts sniffs whether the writer is a
+		// terminal to decide colour, so encoding into a buffer would turn colour
+		// off for every multi-file view.
+		endedLine, err := viewFile(cfg, w, file)
+		if err != nil {
 			return err
 		}
 		if i < len(files)-1 {
-			w.Write([]byte("\n---\n"))
+			sep := "\n---\n"
+			if endedLine {
+				sep = "---\n"
+			}
+			if _, err := w.Write([]byte(sep)); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
-func viewFile(cfg *ViewConfig, w io.Writer, file string) error {
+// viewFile answers whether what it wrote ended with a newline, which the caller
+// needs to place a separator after it.
+func viewFile(cfg *ViewConfig, w io.Writer, file string) (bool, error) {
 	var (
 		f   *os.File
 		err error
@@ -165,22 +182,24 @@ func viewFile(cfg *ViewConfig, w io.Writer, file string) error {
 	if file != "-" {
 		f, err = os.Open(file)
 		if err != nil {
-			return fmt.Errorf("could not open %q: %w", file, err)
+			return false, fmt.Errorf("could not open %q: %w", file, err)
 		}
 		defer f.Close()
 	} else {
 		f = os.Stdin
 	}
-	if err := viewReader(cfg, w, f); err != nil {
-		return fmt.Errorf("error processing %s: %w", file, err)
+	endedLine, err := viewReader(cfg, w, f)
+	if err != nil {
+		return false, fmt.Errorf("error processing %s: %w", file, err)
 	}
-	return nil
+	return endedLine, nil
 }
 
-func viewReader(cfg *ViewConfig, w io.Writer, r io.Reader) error {
+// viewReader answers whether what it wrote ended with a newline.
+func viewReader(cfg *ViewConfig, w io.Writer, r io.Reader) (bool, error) {
 	in, err := io.ReadAll(r)
 	if err != nil {
-		return fmt.Errorf("error reading: %w", err)
+		return false, fmt.Errorf("error reading: %w", err)
 	}
 	docs := bytes.Split(in, []byte("\n---\n"))
 	n := len(docs)
@@ -189,10 +208,11 @@ func viewReader(cfg *ViewConfig, w io.Writer, r io.Reader) error {
 	if cfg.Comments {
 		opts = append(opts, encode.EncodeComments(cfg.Comments))
 	}
+	endedLine := false
 	for i, doc := range docs {
 		y, err := parse.Parse(doc, cfg.parseOpts()...)
 		if err != nil {
-			return fmt.Errorf("error decoding document %d: %w", i, err)
+			return false, fmt.Errorf("error decoding document %d: %w", i, err)
 		}
 		if y == nil {
 			continue
@@ -203,20 +223,24 @@ func viewReader(cfg *ViewConfig, w io.Writer, r io.Reader) error {
 		// which the writer is documented to drop (docs/tony.md, "Normalization").
 		var one bytes.Buffer
 		if err := encode.Encode(y, &one, opts...); err != nil {
-			return fmt.Errorf("error encoding result %d: %w", i, err)
+			return false, fmt.Errorf("error encoding result %d: %w", i, err)
 		}
 		if _, err := w.Write(one.Bytes()); err != nil {
-			return fmt.Errorf("error writing document %d: %w", i, err)
+			return false, fmt.Errorf("error writing document %d: %w", i, err)
+		}
+		if b := one.Bytes(); len(b) > 0 {
+			endedLine = b[len(b)-1] == '\n'
 		}
 		if i < n-1 {
 			sep := "\n---\n"
-			if b := one.Bytes(); len(b) > 0 && b[len(b)-1] == '\n' {
+			if endedLine {
 				sep = "---\n"
 			}
 			if _, err := w.Write([]byte(sep)); err != nil {
-				return fmt.Errorf("error writing document %d: %w", i, err)
+				return false, fmt.Errorf("error writing document %d: %w", i, err)
 			}
+			endedLine = true
 		}
 	}
-	return nil
+	return endedLine, nil
 }

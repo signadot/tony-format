@@ -311,3 +311,51 @@ func TestViewWriteFollowsASymlink(t *testing.T) {
 		t.Errorf("the target was not formatted: %q", got)
 	}
 }
+
+// A separator between FILES asks what a separator between documents asks: has the
+// line already been ended? Writing "\n---\n" after output which ends in a newline
+// puts a blank line before it -- and separators WITHIN a file stopped doing that,
+// so the two disagreed about the same document.
+func TestViewSeparatesFilesWithoutABlankLine(t *testing.T) {
+	dir := t.TempDir()
+	one := filepath.Join(dir, "one.tony")
+	two := filepath.Join(dir, "two.tony")
+	if err := os.WriteFile(one, []byte("a: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(two, []byte("b: 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	code, out := runOIn(t, "", "v", one, two)
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+	if strings.Contains(out, "\n\n---") {
+		t.Errorf("a blank line before the separator: %q", out)
+	}
+
+	// two files and one file holding both documents print the same thing
+	both := filepath.Join(dir, "both.tony")
+	if err := os.WriteFile(both, []byte("a: 1\n---\nb: 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, alsoOut := runOIn(t, "", "v", both)
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, alsoOut)
+	}
+	if out != alsoOut {
+		t.Errorf("two files printed %q, one file holding both printed %q", out, alsoOut)
+	}
+
+	// and what it prints, it reads. The no-argument form, because viewFile reads
+	// os.Stdin directly for "-" rather than the context's input, so `v -` reads
+	// nothing in process.
+	code, again := runOIn(t, out, "v")
+	if code != 0 {
+		t.Fatalf("re-reading its own output: exit %d: %s", code, again)
+	}
+	if again != out {
+		t.Errorf("not re-readable\n printed: %q\n re-read: %q", out, again)
+	}
+}
