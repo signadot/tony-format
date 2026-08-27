@@ -6,6 +6,7 @@ import (
 
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/format"
+	"github.com/signadot/tony-format/go-tony/ir"
 )
 
 // A line ends at its last non-space character or at a comment, and a block
@@ -156,5 +157,53 @@ func TestNullValueRoundTrips(t *testing.T) {
 	}
 	if got, want := b.String(), "a: 1\np: null\n"; got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// ParseComments decides what is IN a document, never whether there is one.
+//
+// A document holding only comments holds no value, and every other input holding
+// none already answered (nil, nil). With comments on, this one answered a comment
+// node with no child -- a shape the rest of the library refuses: ir_json calls it a
+// malformed head comment, and every uncomment site unwraps exactly one value or
+// nothing. So the same bytes were a document or not depending on a parse option.
+func TestNoValueIsNoDocumentEitherWay(t *testing.T) {
+	for _, src := range []string{
+		"",
+		"\n",
+		"   \n",
+		"# just a comment\n",
+		"# just a comment",
+		"# one\n# two\n",
+		"\n# after a blank line\n",
+	} {
+		for _, comments := range []bool{false, true} {
+			n, err := Parse([]byte(src), ParseTony(), ParseComments(comments))
+			if err != nil {
+				t.Errorf("%q comments=%v: %v", src, comments, err)
+				continue
+			}
+			if n != nil {
+				t.Errorf("%q comments=%v: got a %v with %d values, want no document",
+					src, comments, n.Type, len(n.Values))
+			}
+		}
+	}
+}
+
+// And a document which holds one is unaffected: the comments ride on it as before.
+func TestAValueWithCommentsIsStillADocument(t *testing.T) {
+	n, err := Parse([]byte("# lead\na: 1 # why\n"), ParseTony(), ParseComments(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n == nil {
+		t.Fatal("no document")
+	}
+	if n.Type != ir.CommentType || len(n.Values) != 1 {
+		t.Fatalf("got %v with %d values, want a comment wrapping one value", n.Type, len(n.Values))
+	}
+	if got := n.Lines; len(got) != 1 || got[0] != "# lead" {
+		t.Errorf("head comment lines %v, want [# lead]", got)
 	}
 }

@@ -43,11 +43,30 @@ func Parse(d []byte, opts ...ParseOption) (*ir.Node, error) {
 	if err != nil {
 		return nil, err
 	}
+	return answerDocument(res, pOpts)
+}
+
+// answerDocument is the last step both entry points share: associate the comments
+// if they were asked for, and answer (nil, nil) for a document holding no VALUE.
+//
+// A document holding only comments holds none, and every other input which holds
+// none already answered that way -- "", "\n", "   ", and this same input with
+// comments OFF. With them ON it answered a comment node with no child, which is a
+// shape the rest of the library refuses: ir_json calls it a malformed head comment,
+// and every uncomment site unwraps exactly one value or nothing. So ParseComments
+// decided WHETHER there was a document, where it should only decide what is in one.
+//
+// ParseMulti skips such a section for the same reason (holdsNoValue); this is that
+// rule for a single document.
+func answerDocument(res *ir.Node, pOpts *parseOpts) (*ir.Node, error) {
 	if res == nil {
 		return nil, nil
 	}
 	if pOpts.comments {
 		res = associateComments(res)
+	}
+	if res.Type == ir.CommentType && len(res.Values) == 0 {
+		return nil, nil
 	}
 	return res, nil
 }
@@ -95,7 +114,9 @@ func ParseMulti(d []byte, opts ...ParseOption) ([]*ir.Node, error) {
 		if err != nil {
 			return nil, err
 		}
-		nodes = append(nodes, node)
+		if node != nil {
+			nodes = append(nodes, node)
+		}
 		currentToks = nil
 	}
 
@@ -105,7 +126,9 @@ func ParseMulti(d []byte, opts ...ParseOption) ([]*ir.Node, error) {
 		if err != nil {
 			return nil, err
 		}
-		nodes = append(nodes, node)
+		if node != nil {
+			nodes = append(nodes, node)
+		}
 	}
 
 	return nodes, nil
@@ -145,13 +168,7 @@ func parseTokens(toks []token.Token, pOpts *parseOpts) (*ir.Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	if res == nil {
-		return nil, nil
-	}
-	if pOpts.comments {
-		res = associateComments(res)
-	}
-	return res, nil
+	return answerDocument(res, pOpts)
 }
 
 // ParseNodeFromSource parses the next complete ir.Node from a TokenSource.

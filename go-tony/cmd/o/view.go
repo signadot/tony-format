@@ -116,6 +116,13 @@ func writeFile(cfg *ViewConfig, file string) error {
 	if bytes.Equal(in, out.Bytes()) {
 		return nil
 	}
+	// Normalising answered NOTHING from a file which held something. That is not a
+	// formatting: a file holding only a comment has no document to write, and the
+	// comment is not the formatter's to delete. Leave it as it is rather than
+	// replace it with nothing -- whatever the reason the answer came back empty.
+	if out.Len() == 0 && len(in) > 0 {
+		return nil
+	}
 	tmp, err := os.CreateTemp(filepath.Dir(file), "."+filepath.Base(file)+".o")
 	if err != nil {
 		return fmt.Errorf("could not write beside %q: %w", file, err)

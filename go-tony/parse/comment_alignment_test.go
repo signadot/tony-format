@@ -16,7 +16,10 @@ func TestCommentAlignment(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
-		check func(t *testing.T, node *ir.Node)
+		// noDocument says the input holds no VALUE, so Parse answers (nil, nil)
+		// and there is nothing to check.
+		noDocument bool
+		check      func(t *testing.T, node *ir.Node)
 	}{
 		{
 			name:  "head comment on scalar",
@@ -315,22 +318,19 @@ outer:
 			},
 		},
 		{
-			name:  "comment-only document",
-			input: "# just a comment",
-			check: func(t *testing.T, node *ir.Node) {
-				// A document with only comments should have CommentType with empty Values
-				if node == nil {
-					t.Error("expected non-nil node for comment-only document")
-					return
-				}
-				if node.Type != ir.CommentType {
-					t.Errorf("expected CommentType for comment-only doc, got %v", node.Type)
-					return
-				}
-				if len(node.Values) != 0 {
-					t.Errorf("expected 0 values for comment-only doc, got %d", len(node.Values))
-				}
-			},
+			// A document holding only comments holds no VALUE, and answers
+			// (nil, nil) as every other input holding none does -- "", "\n", "   ",
+			// and this same input with comments off.
+			//
+			// It used to answer a comment node with no child, and this test asserted
+			// that: "should have CommentType with empty Values". That is a shape the
+			// rest of the library refuses -- ir_json calls it a malformed head
+			// comment, and every uncomment site unwraps exactly one value or nothing
+			// -- so what it pinned was the one case where ParseComments decided
+			// WHETHER there was a document rather than what was in one.
+			name:       "comment-only document",
+			input:      "# just a comment",
+			noDocument: true,
 		},
 		{
 			name:  "empty line comment placeholder",
@@ -357,6 +357,12 @@ outer:
 			node, err := Parse([]byte(tt.input), ParseComments(true))
 			if err != nil {
 				t.Fatalf("Parse error: %v", err)
+			}
+			if tt.noDocument {
+				if node != nil {
+					t.Errorf("expected no document, got %v with %d values", node.Type, len(node.Values))
+				}
+				return
 			}
 			if node == nil {
 				t.Fatal("Parse returned nil node")
