@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: aed71f341ba25dae46e82c679931c7f615dfcc0f
 commits: []
 created: "2026-08-27T22:49:26.79881+02:00"
 duplicates: []
@@ -13,5 +14,5 @@ labels:
 - parse
 related_issues:
 - crcz1erdh12ks8cvj1n0
-status: open
-updated: "2026-08-27T22:49:33.098854+02:00"
+status: closed
+updated: "2026-08-27T23:00:29.24361+02:00"
