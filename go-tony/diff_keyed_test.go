@@ -27,6 +27,19 @@ func mustParseNode(t *testing.T, s string) *ir.Node {
 // asserts (snapshot_test compares against a node with its formatting tag cleared). So
 // a presentation-only difference is not a failure of the diff to carry the data, and
 // this compares what the data is.
+// leftover is what still differs between two documents once presentation is set
+// aside, and nil when nothing does. It is Diff itself, which makes it blind to the
+// ORDER of an object's fields: Diff matches fields by name.
+//
+// That is deliberate, not an oversight. Patch imposes a standard ordering -- it
+// merges through a map and ir.FromMap sorts -- so `Patch(a, Diff(a, b))` differs
+// from b in field order whenever b was not written sorted, and asserting otherwise
+// would assert a fidelity the format does not offer. A way to state an order is a
+// question for after v0.1; until there is one, sorted is the answer, and a
+// comparison that counted order would fail on every unsorted document while saying
+// nothing about the data.
+//
+// So: order-blind on purpose. What is being checked is that the data arrives.
 func leftover(a, b *ir.Node) *ir.Node {
 	return Diff(stripPresentationDeep(a.Clone()), stripPresentationDeep(b.Clone()))
 }
