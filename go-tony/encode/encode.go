@@ -25,6 +25,11 @@ type EncState struct {
 	// in exactly one, where it was compared against zero. The arithmetic was all in
 	// service of that comparison, and two places wrote bytes without updating it.
 	atCol0        bool
+	// eltShareLine records that the value being encoded is an array element
+	// written on its own '- ' line. A block literal there takes the level
+	// encodeArray already took for the marker; one pushed to the next line by a
+	// head comment takes a level of its own. See isBlockArrayElement.
+	eltShareLine  bool
 	depth, indent int
 	brackets      bool
 	comments      bool
@@ -366,34 +371,70 @@ func writeFieldHeadComment(val *ir.Node, w io.Writer, es *EncState) (*ir.Node, e
 	return val.Values[0], nil
 }
 
-// writeElementHeadComment writes a block element's head comment on the line
-// ABOVE its "- ", which is where it was written:
+// elementHeadComment answers the head comment wrapping an array element, or nil.
+func elementHeadComment(val *ir.Node, es *EncState) *ir.Node {
+	if !es.comments || es.wire || esBracket(es) {
+		return nil
+	}
+	if val.Type != ir.CommentType || len(val.Values) != 1 {
+		return nil
+	}
+	return val
+}
+
+// writeElementHeadCommentAbove writes an element's head comment on the line ABOVE
+// its "- ", which is where it was written and where it reads back from:
 //
 //	# about rule b
 //	- name: b
 //
-// The comment wraps the element, so encode() would otherwise write it after the
-// marker -- "- # about rule b" then the fields, which is the same document and
-// not the one anybody wrote. The two spellings share one IR, so only one can
-// survive a round trip; this is the one the format's own examples use.
-func writeElementHeadComment(val *ir.Node, w io.Writer, es *EncState) (*ir.Node, error) {
-	if !es.comments || es.wire || esBracket(es) {
-		return val, nil
-	}
-	if val.Type != ir.CommentType || len(val.Values) != 1 {
-		return val, nil
-	}
+// This is every element but the first. See writeElementHeadCommentAfter for why
+// the first cannot use it.
+func writeElementHeadCommentAbove(head *ir.Node, w io.Writer, es *EncState) error {
 	es.colorType = ir.CommentType
 	es.colorAttr = ValueColor
-	for _, ln := range val.Lines {
+	for _, ln := range head.Lines {
 		if err := writeRaw(w, ln, es); err != nil {
-			return nil, err
+			return err
 		}
 		if err := writeNL(w, es); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	return val.Values[0], nil
+	return nil
+}
+
+// writeElementHeadCommentAfter writes the FIRST element's head comment after its
+// "- ", putting the value on the line below:
+//
+//	- # about rule a
+//	  name: a
+//	# about rule b
+//	- name: b
+//
+// The first element's used to go above the marker like the rest, on the stated
+// grounds that the two spellings share one IR and only one can survive a round
+// trip. They do not share one IR. Above the FIRST marker that line is the ARRAY's
+// own comment position, so an element's comment written there re-read as the
+// array's -- and merged with whatever the array already had, so two comments about
+// two things became one about the outer one (haw04psch12ksnn2j1n0).
+//
+// Only the first element is wrong and only the first is changed. Above a later
+// marker the line is unambiguous, it already round-tripped, and it is the spelling
+// the docs and every existing document use; rewriting those would edit correct
+// files to no purpose, which is the opposite of what `o v -w` is for.
+func writeElementHeadCommentAfter(head *ir.Node, w io.Writer, es *EncState) error {
+	es.colorType = ir.CommentType
+	es.colorAttr = ValueColor
+	for _, ln := range head.Lines {
+		if err := writeRaw(w, ln, es); err != nil {
+			return err
+		}
+	}
+	// The comment runs to the end of its line, so the value starts on the next
+	// one, indented to where the marker put it.
+	es.atCol0 = false
+	return writeNL(w, es)
 }
 
 // writeBlockLatch writes the line comment of a field's value when that value is
@@ -742,9 +783,16 @@ func encodeArray(node *ir.Node, w io.Writer, es *EncState) error {
 		if err := writeArrayElementPrefix(i, node, w, es); err != nil {
 			return err
 		}
-		v, err := writeElementHeadComment(v, w, es)
-		if err != nil {
-			return err
+		head := elementHeadComment(v, es)
+		if head != nil {
+			v = v.Values[0]
+		}
+		// Only the first element's goes after the marker; see the two writers.
+		afterMarker := head != nil && i == 0
+		if head != nil && !afterMarker {
+			if err := writeElementHeadCommentAbove(head, w, es); err != nil {
+				return err
+			}
 		}
 		if err := writeArrayElementMarker(w, es); err != nil {
 			return err
@@ -753,9 +801,17 @@ func encodeArray(node *ir.Node, w io.Writer, es *EncState) error {
 		if doDepth {
 			es.depth++
 		}
+		shared := es.eltShareLine
+		es.eltShareLine = !afterMarker
+		if afterMarker {
+			if err := writeElementHeadCommentAfter(head, w, es); err != nil {
+				return err
+			}
+		}
 		if err := encode(v, w, es); err != nil {
 			return err
 		}
+		es.eltShareLine = shared
 		if i < len(node.Values)-1 {
 			if err := writeCommaSeparator(w, es, ir.ArrayType, isMultiLineString(v)); err != nil {
 				return err
@@ -848,6 +904,11 @@ func encodeString(node *ir.Node, w io.Writer, es *EncState) error {
 // the two have to keep saying the same thing.
 func isBlockArrayElement(node *ir.Node, es *EncState) bool {
 	if esBracket(es) || ir.TagHas(node.Tag, ir.BracketTag) {
+		return false
+	}
+	if !es.eltShareLine {
+		// A head comment took the marker's line, so the '|' opens a line of its
+		// own and its content is a level in from there.
 		return false
 	}
 	p := node.NonCommentParent()
