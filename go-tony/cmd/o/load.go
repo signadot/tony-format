@@ -33,15 +33,15 @@ func load(cfg *LoadConfig, cc *cli.Context, args []string) error {
 		}
 		return nil
 	}
-	if err := loadFiles(cfg, cc.Out, args); err != nil {
+	if err := loadFiles(cfg, cc.Out, cc.In, args); err != nil {
 		return fault(cc, err)
 	}
 	return nil
 }
 
-func loadFiles(cfg *LoadConfig, w io.Writer, files []string) error {
+func loadFiles(cfg *LoadConfig, w io.Writer, in io.Reader, files []string) error {
 	for i, file := range files {
-		if err := loadFile(cfg, w, file); err != nil {
+		if err := loadFile(cfg, w, in, file); err != nil {
 			return err
 		}
 		if i < len(files)-1 {
@@ -51,21 +51,20 @@ func loadFiles(cfg *LoadConfig, w io.Writer, files []string) error {
 	return nil
 }
 
-func loadFile(cfg *LoadConfig, w io.Writer, file string) error {
-	var (
-		f   *os.File
-		err error
-	)
+func loadFile(cfg *LoadConfig, w io.Writer, in io.Reader, file string) error {
+	// cc.In, not os.Stdin: the context is what a caller can redirect, and reading
+	// the process's input for "-" left that one path unreachable in process --
+	// untestable, and wrong for anything embedding the command tree.
+	r := in
 	if file != "-" {
-		f, err = os.Open(file)
+		f, err := os.Open(file)
 		if err != nil {
 			return fmt.Errorf("could not open %q: %w", file, err)
 		}
 		defer f.Close()
-	} else {
-		f = os.Stdin
+		r = f
 	}
-	if err := loadReader(cfg, w, f); err != nil {
+	if err := loadReader(cfg, w, r); err != nil {
 		return fmt.Errorf("error processing %s: %w", file, err)
 	}
 	return nil

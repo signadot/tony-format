@@ -45,7 +45,7 @@ func view(cfg *ViewConfig, cc *cli.Context, args []string) error {
 		}
 		return nil
 	}
-	if err := viewFiles(cfg, cc.Out, args); err != nil {
+	if err := viewFiles(cfg, cc.Out, cc.In, args); err != nil {
 		return fault(cc, err)
 	}
 	return nil
@@ -145,7 +145,7 @@ func writeFile(cfg *ViewConfig, file string) error {
 	return nil
 }
 
-func viewFiles(cfg *ViewConfig, w io.Writer, files []string) error {
+func viewFiles(cfg *ViewConfig, w io.Writer, in io.Reader, files []string) error {
 	for i, file := range files {
 		// The separator between FILES asks what the separator between documents
 		// asks: has the line already been ended? Writing "\n---\n" after output
@@ -155,7 +155,7 @@ func viewFiles(cfg *ViewConfig, w io.Writer, files []string) error {
 		// Answered rather than buffered: encOpts sniffs whether the writer is a
 		// terminal to decide colour, so encoding into a buffer would turn colour
 		// off for every multi-file view.
-		endedLine, err := viewFile(cfg, w, file)
+		endedLine, err := viewFile(cfg, w, in, file)
 		if err != nil {
 			return err
 		}
@@ -174,21 +174,20 @@ func viewFiles(cfg *ViewConfig, w io.Writer, files []string) error {
 
 // viewFile answers whether what it wrote ended with a newline, which the caller
 // needs to place a separator after it.
-func viewFile(cfg *ViewConfig, w io.Writer, file string) (bool, error) {
-	var (
-		f   *os.File
-		err error
-	)
+func viewFile(cfg *ViewConfig, w io.Writer, in io.Reader, file string) (bool, error) {
+	// cc.In, not os.Stdin: the context is what a caller can redirect, and reading
+	// the process's input for "-" left that one path unreachable in process --
+	// untestable, and wrong for anything embedding the command tree.
+	r := in
 	if file != "-" {
-		f, err = os.Open(file)
+		f, err := os.Open(file)
 		if err != nil {
 			return false, fmt.Errorf("could not open %q: %w", file, err)
 		}
 		defer f.Close()
-	} else {
-		f = os.Stdin
+		r = f
 	}
-	endedLine, err := viewReader(cfg, w, f)
+	endedLine, err := viewReader(cfg, w, r)
 	if err != nil {
 		return false, fmt.Errorf("error processing %s: %w", file, err)
 	}

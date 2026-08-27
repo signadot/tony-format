@@ -99,7 +99,8 @@ func getish(s, f bool, cc *cli.Context, arg string, opts []parse.ParseOption) (*
 	} else if f {
 		switch arg {
 		case "-":
-			matchReader = os.Stdin
+			// cc.In, not os.Stdin: what a caller redirects is the context's
+			matchReader = cc.In
 		default:
 			f, err := os.Open(arg)
 			if err != nil {

@@ -46,16 +46,16 @@ func tonyEval(cfg *EvalConfig, cc *cli.Context, args []string) error {
 		}
 		return nil
 	}
-	if err := evalFiles(cfg, cc.Out, args, tool, &cfg.Color); err != nil {
+	if err := evalFiles(cfg, cc.Out, cc.In, args, tool, &cfg.Color); err != nil {
 		return fault(cc, err)
 	}
 
 	return nil
 }
 
-func evalFiles(cfg *EvalConfig, w io.Writer, files []string, tool *tony.Tool, color *bool) error {
+func evalFiles(cfg *EvalConfig, w io.Writer, in io.Reader, files []string, tool *tony.Tool, color *bool) error {
 	for i, file := range files {
-		if err := evalFile(cfg, w, file, tool, color); err != nil {
+		if err := evalFile(cfg, w, in, file, tool, color); err != nil {
 			return err
 		}
 		if i < len(files)-1 {
@@ -65,21 +65,20 @@ func evalFiles(cfg *EvalConfig, w io.Writer, files []string, tool *tony.Tool, co
 	return nil
 }
 
-func evalFile(cfg *EvalConfig, w io.Writer, file string, tool *tony.Tool, color *bool) error {
-	var (
-		f   *os.File
-		err error
-	)
+func evalFile(cfg *EvalConfig, w io.Writer, in io.Reader, file string, tool *tony.Tool, color *bool) error {
+	// cc.In, not os.Stdin, for the same reason the no-argument branch above says:
+	// the context is what a caller can redirect, and "-" read the process's input
+	// instead -- forty lines below the rule.
+	r := in
 	if file != "-" {
-		f, err = os.Open(file)
+		f, err := os.Open(file)
 		if err != nil {
 			return fmt.Errorf("could not open %q: %w", file, err)
 		}
 		defer f.Close()
-	} else {
-		f = os.Stdin
+		r = f
 	}
-	if err := evalReader(cfg, w, f, tool, color); err != nil {
+	if err := evalReader(cfg, w, r, tool, color); err != nil {
 		return fmt.Errorf("error processing %s: %w", file, err)
 	}
 	return nil
