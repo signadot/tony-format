@@ -6,7 +6,10 @@ commits: []
 created: "2026-08-27T21:18:27.814745+02:00"
 duplicates: []
 id: w5dfvr3ah12ks0wdj1n0
-labels: []
+labels:
+- agent
+- mergeop
+- test-coverage
 related_issues: []
 status: open
-updated: "2026-08-27T21:18:27.814745+02:00"
+updated: "2026-08-27T21:18:35.924602+02:00"
