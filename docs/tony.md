@@ -244,6 +244,23 @@ k: |
     two markers, so two levels
 ```
 
+When the `|` is the first thing on its line, that is the same as saying the
+content starts two columns deeper than the `|`:
+
+```tony
+k:
+  |
+    two deeper than the '|'
+---
+- 
+  |
+    the same, the '- ' being on the line above
+```
+
+The two readings only differ when the `|` shares its line with something else,
+and there it is the line's level that decides, not the column the `|` happens to
+land on -- `k: |` writes its content at 2, not at 5.
+
 Anything indented past that is content, and content may not start left of where
 the level puts it.
 
