@@ -1,10 +1,12 @@
 package tx
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	tony "github.com/signadot/tony-format/go-tony"
+	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
@@ -445,5 +447,78 @@ func TestRootPatchAt(t *testing.T) {
 				t.Errorf("applied RootPatchAt(%q) at %q = %v (err %v), want 7", tt.kp, tt.getPath, got, err)
 			}
 		})
+	}
+}
+
+// RootPatchAt cannot take a keyed ELEMENT path: `items("A")` carries the key VALUE
+// where building the patch needs the key FIELD. It used to answer "ir node
+// unspecified", which says nothing about the cause -- so both callers rediscovered
+// the same workaround, and the plan asked for the helper rather than a third
+// discovery (5hmq80f3h12krh1mbsn0).
+func TestRootPatchAtRefusesAKeyedElementPath(t *testing.T) {
+	_, err := RootPatchAt(`items("A")`, ir.FromMap(map[string]*ir.Node{"qty": ir.FromInt(5)}))
+	if err == nil {
+		t.Fatal("a keyed element path was accepted")
+	}
+	for _, want := range []string{"key field", "RootKeyedListAt"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not say %q", err, want)
+		}
+	}
+}
+
+// RootKeyedListAt is what the callers were open-coding: root at the ARRAY, carry a
+// keyed list, so the merge identifies elements rather than replacing whatever sits
+// at index 0.
+func TestRootKeyedListAt(t *testing.T) {
+	elem := func(sku string, qty int64) *ir.Node {
+		return ir.FromMap(map[string]*ir.Node{"sku": ir.FromString(sku), "qty": ir.FromInt(qty)})
+	}
+	got, err := RootKeyedListAt("items", "sku", elem("A", 5))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := encode.MustString(got)
+	if !strings.Contains(out, "!key(sku)") {
+		t.Errorf("no keying on the list, so it would merge positionally:\n%s", out)
+	}
+	if !strings.Contains(out, "items") {
+		t.Errorf("not rooted at the array:\n%s", out)
+	}
+
+	// several elements, as the stepping harness builds
+	many, err := RootKeyedListAt("items", "sku", elem("A", 1), elem("B", 2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := encode.MustString(many); !strings.Contains(out, "A") || !strings.Contains(out, "B") {
+		t.Errorf("lost an element:\n%s", out)
+	}
+
+	// and it merges BY KEY rather than by position: patching a list whose order
+	// differs must update A, not whatever sits at index 0
+	doc := ir.FromSlice([]*ir.Node{elem("B", 9), elem("A", 9)})
+	doc.Tag = ir.TagCompose(ir.KeyTag, []string{"sku"}, "")
+	base := ir.FromMap(map[string]*ir.Node{"items": doc})
+	res, err := tony.Patch(base, got)
+	if err != nil {
+		t.Fatalf("patch: %v", err)
+	}
+	a, err := res.GetKPath(`items("A").qty`)
+	if err != nil || a == nil {
+		t.Fatalf("items(\"A\").qty is gone: %v\n%s", err, encode.MustString(res))
+	}
+	if a.Int64 == nil || *a.Int64 != 5 {
+		t.Errorf("A.qty = %s, want 5 -- merged positionally\n%s", encode.MustString(a), encode.MustString(res))
+	}
+	b, _ := res.GetKPath(`items("B").qty`)
+	if b == nil || b.Int64 == nil || *b.Int64 != 9 {
+		t.Errorf("B was disturbed:\n%s", encode.MustString(res))
+	}
+}
+
+func TestRootKeyedListAtNeedsAField(t *testing.T) {
+	if _, err := RootKeyedListAt("items", "", ir.Null()); err == nil {
+		t.Error("a keyed list with no key field was accepted")
 	}
 }

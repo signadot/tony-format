@@ -113,6 +113,27 @@ func RootPatchAt(kp string, node *ir.Node) (*ir.Node, error) {
 	return kt.node()
 }
 
+// RootKeyedListAt roots elems at an ARRAY path as a keyed list, which is how a
+// patch names elements by identity rather than by position.
+//
+// It exists because RootPatchAt cannot take the element path itself: `items("A")`
+// carries the key VALUE where building the patch needs the key FIELD. Both callers
+// worked around that the same way -- root at the array, carry a keyed list -- and
+// the plan asked for the helper rather than let it be found a third time
+// (scope_overlay_plan.md, P1).
+//
+// The tag is what makes the merge identify elements: without it the same list merges
+// POSITIONALLY, replacing whatever sits at index 0. That is the failure tx.InjectKeyTags
+// exists to prevent on a client write, and the same one here.
+func RootKeyedListAt(arrayPath, keyField string, elems ...*ir.Node) (*ir.Node, error) {
+	if keyField == "" {
+		return nil, errors.New("keyed list needs a key field")
+	}
+	list := ir.FromSlice(elems)
+	list.Tag = ir.TagCompose(ir.KeyTag, []string{keyField}, "")
+	return RootPatchAt(arrayPath, list)
+}
+
 func (kt *kTree) add(kp string, node *ir.Node) error {
 	ot, err := newKTree(kp, node)
 	if err != nil {
@@ -152,6 +173,14 @@ func (kt *kTree) node() (*ir.Node, error) {
 	switch kt.childKind() {
 	case unknownKind:
 		return nil, errors.New("ir node unspecified")
+	case keyedArrayKind:
+		// A key segment names an element by its key VALUE, and building the patch
+		// needs the key FIELD, which the path does not carry. This used to fall
+		// through to "ir node unspecified", which says nothing about the cause and
+		// left both callers to rediscover the same workaround (5hmq80f3h12krh1mbsn0).
+		return nil, fmt.Errorf("cannot root a patch at a keyed element path: a key " +
+			"segment names an element by value and building the patch needs the key " +
+			"field, which the path does not carry -- use RootKeyedListAt with the field")
 	case objectKind:
 		m := map[string]*ir.Node{}
 		for f, child := range kt.children {
@@ -241,6 +270,9 @@ func (kt *kTree) childKind() childKind {
 		if ct.Field != nil || ct.FieldAll {
 			return objectKind
 		}
+		if ct.Key != nil {
+			return keyedArrayKind
+		}
 		if ct.Index != nil || ct.IndexAll {
 			return arrayKind
 		}
@@ -258,4 +290,5 @@ const (
 	objectKind
 	arrayKind
 	sparseArrayKind
+	keyedArrayKind
 )

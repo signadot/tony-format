@@ -105,10 +105,10 @@ func (s *Storage) BuildScopeOverlay(scopeID string, commit int64) (*ir.Node, err
 		if err != nil || v == nil {
 			continue // absent in the scoped view: the diff's tombstone is what holds it
 		}
-		// A keyed element cannot be rooted at items("A"): RootPatchAt builds from a kpath,
-		// and a key segment carries the key VALUE while constructing the patch needs the
-		// key FIELD. Root at the array with a one-element keyed list, so the assertion
-		// merges by identity and leaves every element baseline owns alone.
+		// A keyed element cannot be rooted at items("A"): a key segment carries the key
+		// VALUE while constructing the patch needs the key FIELD. RootKeyedListAt roots
+		// at the ARRAY with a keyed list, so the assertion merges by identity and leaves
+		// every element baseline owns alone.
 		// The value came out of a DOCUMENT, where an operation tag is data --
 		// what !raw says when a writer stores a rule, a charter, a patch. Putting
 		// it into an overlay unescaped hands that data to the patch applier as an
@@ -117,13 +117,13 @@ func (s *Storage) BuildScopeOverlay(scopeID string, commit int64) (*ir.Node, err
 		// stops materialization, one write takes the store down for reads.
 		// libdiff.Escape is what the diff path above already does to the same
 		// data (issue 6225etzfh12kr955fxn0).
-		root, val := p, libdiff.Escape(v.Clone())
+		val := libdiff.Escape(v.Clone())
+		var rooted *ir.Node
 		if arr, field, keyed := splitKeyedElemPath(p, keys); keyed {
-			list := ir.FromSlice([]*ir.Node{val})
-			list.Tag = ir.TagCompose("!key", []string{field}, "")
-			root, val = arr, list
+			rooted, err = tx.RootKeyedListAt(arr, field, val)
+		} else {
+			rooted, err = tx.RootPatchAt(p, val)
 		}
-		rooted, err := tx.RootPatchAt(root, val)
 		if err != nil {
 			return nil, fmt.Errorf("overlay: rooting %q: %w", p, err)
 		}

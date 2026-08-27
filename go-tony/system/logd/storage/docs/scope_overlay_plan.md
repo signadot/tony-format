@@ -321,7 +321,18 @@ schema. Meanwhile the auto-id route injects the id field but no `!key` tag
 navigated by that path — the gap `5hmq80f3h12krh1mbsn0` recorded as "remaining, unfixed",
 inherited from `hbn7ptxch12krs778smg`.
 
-**Proposed: schema is the write-time AUTHORITY, the tag is the durable RECORD.** Extend
+**Resolved, and implemented: schema is the write-time AUTHORITY, the tag is the durable
+RECORD.** `tx.InjectKeyTags` puts `!key(f)` on every array a patch writes whose path the
+schema declares keyed, called from `coord.go` after `InjectAutoIDs` so the id exists before
+the tag goes on. Both declarations are keying — `api.Schema.LookupKeyField` reads an
+explicit `!logd-key` and an `!logd-auto-id` alike — which closes the gap the July status
+report left open, where the auto-id route wrote index paths its own patch could not
+resolve. logd INJECTS rather than rejecting: the schema says these elements have
+identities, so a client naming one should not also have to repeat how identity works on
+every write; a patch carrying its own `!key` is left alone if it agrees and refused if it
+does not.
+
+The original proposal, for the record. Extend
 `Schema` past `AutoIDFields` to express keying generally. At write time the schema decides
 what keys an array; the lowered delta (§7) carries `!key(f)` in its own tag, put there by
 the annotation that produced it. So the tag stops being a client-supplied hint that may or
@@ -403,12 +414,16 @@ write named — and that cost is proportional to what the client wrote rather th
 history. It is also arguably the more honest record: the store says what a commit *did*,
 including that it asserted something already true.
 
-**One concrete gap this names for P1.** `tx.RootPatchAt` cannot root a patch at a keyed
-path: `RootPatchAt("items(\"A\")", …)` fails with "ir node unspecified", because a key
-segment carries the key VALUE while building the patch needs the key FIELD. The workaround
-is to root at the array and carry a one-element keyed list — used twice now, in the
-stepping harness and here — so P1 should either teach `RootPatchAt` the key field or
-factor that helper out rather than let it be rediscovered a third time.
+**One concrete gap this names for P1 — DONE.** `tx.RootPatchAt` could not root a patch at
+a keyed path: `RootPatchAt("items(\"A\")", …)` failed with "ir node unspecified", because a
+key segment carries the key VALUE while building the patch needs the key FIELD. The
+workaround — root at the array and carry a keyed list — had been written twice, in the
+stepping harness and in the overlay.
+
+Factored out as `tx.RootKeyedListAt(arrayPath, keyField, elems...)`, which both now use.
+`RootPatchAt` still refuses a keyed element path, since the field is genuinely not in the
+path, but it now says so and names the helper rather than answering "ir node unspecified"
+— the message was what let the workaround be rediscovered.
 
 Rejected — persisting `!key` on state: it embeds a schema statement in every instance, has
 no declaration point and no migration path, and any writer can plant a different tag, so

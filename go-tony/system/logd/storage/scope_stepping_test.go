@@ -160,9 +160,7 @@ func (st *stepState) keyedAssert(t *testing.T) *ir.Node {
 		for _, k := range sortedKeys(byKey) {
 			elems = append(elems, byKey[k].Clone())
 		}
-		list := ir.FromSlice(elems)
-		list.Tag = ir.TagCompose("!key", []string{field}, "")
-		rooted, err := tx.RootPatchAt(path, list)
+		rooted, err := tx.RootKeyedListAt(path, field, elems...)
 		if err != nil {
 			t.Fatalf("RootPatchAt(%q): %v", path, err)
 		}
