@@ -6,9 +6,9 @@ message a server sends is a result, a watch event, or an error.
 
 ```tony
 {hello: {clientId: verse}}
-{patch: {path: "verse.entities.e1", data: {status: ready}}}
-{match: {path: "verse.entities.e1"}}
-{watch: {path: "verse.entities"}}
+{patch: {path: verse.entities.e1, data: {status: ready}}}
+{match: {path: verse.entities.e1}}
+{watch: {path: verse.entities}}
 ```
 
 **docd speaks this protocol verbatim**, so a client written against logd talks to docd
@@ -58,8 +58,8 @@ An `id` on a request comes back on its response, so a client may keep several in
 flight:
 
 ```tony
-{id: "r1", match: {path: "verse.meta"}}
-{id: "r2", patch: {path: "verse.meta.rev", data: {n: 2}}}
+{id: r1, match: {path: verse.meta}}
+{id: r2, patch: {path: verse.meta.rev, data: {n: 2}}}
 ```
 
 **Responses may arrive out of order.** A server answers reads concurrently, so a read
@@ -74,7 +74,7 @@ write committed — so read-your-writes holds for the usual write-then-read.
 ## Reading
 
 ```tony
-{match: {path: "verse.entities.e1"}}
+{match: {path: verse.entities.e1}}
 {result: {match: {body: {id: e1 status: ready} commit: 1}}}
 ```
 
@@ -84,7 +84,7 @@ state is matched and trimmed against *within* that path, so a caller can ask for
 shape it wants:
 
 ```tony
-{match: {path: "verse.entities.e1", data: {status: !irtype ""}}}
+{match: {path: verse.entities.e1, data: {status: !irtype ""}}}
 {result: {match: {body: {status: ready} commit: 1}}}
 ```
 
@@ -99,7 +99,7 @@ therefore a revision a client can compare without asking for anything extra.
 ## Writing
 
 ```tony
-{patch: {path: "verse.entities.e1", data: {status: done}}}
+{patch: {path: verse.entities.e1, data: {status: done}}}
 {result: {patch: {commit: 2 data: {status: done}}}}
 ```
 
@@ -110,8 +110,8 @@ A patch may carry a **compare-and-swap precondition** — it commits only if the
 that path still matches:
 
 ```tony
-{patch: {path: "verse.entities.e1", data: {status: done},
-         match: {path: "verse.entities.e1", data: {status: ready}}}}
+{patch: {path: verse.entities.e1, data: {status: done},
+         match: {path: verse.entities.e1, data: {status: ready}}}}
 ```
 
 A precondition that does not hold answers `match_failed`, and nothing is written. What
@@ -123,10 +123,10 @@ Several paths commit together by naming one transaction:
 
 ```tony
 {hello: {clientId: probe}}
-{id: "t", newtx: {participants: 2}}
+{id: t, newtx: {participants: 2}}
 {id: t result: {newtx: {txId: 1}}}
-{id: "p1", patch: {txId: 1, path: "verse.a", data: {n: 1}}}
-{id: "p2", patch: {txId: 1, path: "verse.b", data: {n: 2}}}
+{id: p1, patch: {txId: 1, path: verse.a, data: {n: 1}}}
+{id: p2, patch: {txId: 1, path: verse.b, data: {n: 2}}}
 {id: p1 result: {patch: {commit: 1 data: {n: 1}}}}
 {id: p2 result: {patch: {commit: 1 data: {n: 2}}}}
 ```
@@ -173,7 +173,7 @@ that transaction on the one logd, and all of them report the same commit.
 ## Watching
 
 ```tony
-{id: "w1", watch: {path: "verse.entities"}}
+{id: w1, watch: {path: verse.entities}}
 {id: w1 result: {watch: {watching: verse.entities}}}
 {event: {commit: 1 path: verse.entities state: {e1: {id: e1 status: ready}}} id: w1}
 {event: {commit: 2 patch: {verse: {entities: {e2: {id: e2}}}} path: verse.entities} id: w1}
@@ -204,7 +204,7 @@ holds what the store holds.
   against the store's watermark at the moment the watch is established.
 
     ```tony
-    {id: "w1", watch: {path: "verse.entities", fromCommit: -100}}
+    {id: w1, watch: {path: verse.entities, fromCommit: -100}}
     {id: w1 result: {watch: {replayingFrom: 41 replayingTo: 141 watching: verse.entities}}}
     ```
 
@@ -252,7 +252,7 @@ to read at, since docd composes mounts with independent commit sequences.
 `hello` fixes a copy-on-write scope for everything sent on that connection:
 
 ```tony
-{hello: {clientId: verse, scope: "sandbox-7"}}
+{hello: {clientId: verse, scope: sandbox-7}}
 ```
 
 Reads then see baseline with the scope's own writes on top, and writes land in the
@@ -346,7 +346,7 @@ A mount connection can also ask docd to serve a **virtual clock** rather than (o
 alongside) a controller-backed subtree:
 
 ```tony
-{hello: {controller: "ticker", clock: {path: "sys.clock", frequency: "1s", epoch: 0}}}
+{hello: {controller: ticker, clock: {path: sys.clock, frequency: 1s, epoch: 0}}}
 ```
 
 docd then serves `sys.clock` itself as a single monotonic int64 — `epoch + N ×

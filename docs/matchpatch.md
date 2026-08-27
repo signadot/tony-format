@@ -165,7 +165,7 @@ match, a patch, a rule — cannot be written into a document at all:
 
 ```tony
 # patch                                  # applied to {}
-rule: {id: !glob "hot-*"}                # error: cannot patch with glob operation
+rule: {id: !glob hot-*}                  # error: cannot patch with glob operation
 rule: {tmp: !delete null, keep: 1}       # keep: 1 — the !delete executed
 ```
 
@@ -175,9 +175,9 @@ the subtree lands with its own tags intact:
 
 ```tony
 # patch
-rule: !raw {id: !glob "hotfix-*", patch: {tmp: !delete null}}
+rule: !raw {id: !glob hotfix-*, patch: {tmp: !delete null}}
 # doc after
-rule: {id: !glob "hotfix-*", patch: {tmp: !delete null}}
+rule: {id: !glob hotfix-*, patch: {tmp: !delete null}}
 ```
 
 The escape belongs to the patch, not to the document, which is why the tag is
@@ -192,10 +192,10 @@ the enclosing pattern keeps ordinary match semantics:
 
 ```tony
 # doc
-rule: {id: !glob "hot-*", stage: open}
+rule: {id: !glob hot-*, stage: open}
 
-rule: !raw {id: !glob "hot-*"}    # no match: rule has a stage field too
-rule: {id: !raw.glob "hot-*"}     # match: id compared literally, stage ignored
+rule: !raw {id: !glob hot-*}    # no match: rule has a stage field too
+rule: {id: !raw.glob hot-*}     # match: id compared literally, stage ignored
 ```
 
 `Diff` emits `!raw` itself for a value which carries operator tags as data, so

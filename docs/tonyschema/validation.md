@@ -51,7 +51,7 @@ Accept documents that match any of these definitions.
 accept:
   !and
   - .[post]
-  - status: "published"
+  - status: published
   - !not.irtype null
 ```
 

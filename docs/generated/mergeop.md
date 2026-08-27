@@ -55,13 +55,13 @@ The !and operation matches when all child conditions match. If the child is an a
 
 ```tony
 !and
-  - name: "test"
+  - name: test
   - version: 1
 ```
 
 ```tony
 !and
-  status: "active"
+  status: active
   enabled: true
 ```
 
@@ -81,7 +81,7 @@ The !delete operation removes a matched value from its parent. For arrays, it re
 
 ```tony
 - !delete
-  id: "old-id"
+  id: old-id
 ```
 
 **See also:** [`!insert`](./mergeop.md#insert), [`!replace`](./mergeop.md#replace)
@@ -102,13 +102,13 @@ The !insert operation inserts a new value into an array. It can optionally take 
 
 ```tony
 - !insert
-  id: "new-id"
+  id: new-id
   name: "New Item"
 ```
 
 ```tony
 - !insert.key(id)
-  id: "new-id"
+  id: new-id
   name: "New Item"
 ```
 
@@ -133,7 +133,7 @@ The !not operation matches when its child condition does not match.
 
 ```tony
 !not
-  status: "deleted"
+  status: deleted
 ```
 
 **See also:** [`!and`](./mergeop.md#and), [`!or`](./mergeop.md#or)
@@ -157,8 +157,8 @@ The !or operation matches when any child condition matches. If the child is an a
 
 ```tony
 !or
-  - name: "test"
-  - name: "prod"
+  - name: test
+  - name: prod
 ```
 
 **See also:** [`!and`](./mergeop.md#and), [`!not`](./mergeop.md#not)
@@ -184,8 +184,8 @@ a patch which is stored, or re-applied to a document expected to have moved on, 
 
 ```tony
 name: !replace
-  from: "old"
-  to: "new"
+  from: old
+  to: new
 ```
 
 ```tony
@@ -407,7 +407,7 @@ of them have to match.
 **Examples:**
 
 ```tony
-name: !glob "sv*"
+name: !glob sv*
 ```
 
 ---
@@ -524,7 +524,7 @@ The values are copies, each parented to the list, and the list is detached.
 
 ```tony
 # every image in the document, as a list
-images: !list-path(root) "containers[*].image"
+images: !list-path(root) containers[*].image
 ```
 
 **See also:** [`!get-path`](./mergeop.md#get-path), [`!at`](./mergeop.md#at)
@@ -854,7 +854,7 @@ An RFC 6902 sequence, applied to the node it decorates.
 ```tony
 spec: !json-patch
 - op: replace
-  path: "/replicas"
+  path: /replicas
   value: 7
 ```
 

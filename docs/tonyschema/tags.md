@@ -158,14 +158,14 @@ define:
   
   # Use !or for unions
   status: !or
-  - "draft"
-  - "published"
-  - "archived"
+  - draft
+  - published
+  - archived
   
   # Use !and for intersections
   published-post: !and
   - .[post]
-  - status: "published"
+  - status: published
   
   # Reference other schemas
   author: !person
