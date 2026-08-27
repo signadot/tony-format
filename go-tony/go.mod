@@ -11,7 +11,7 @@ require (
 	github.com/google/gops v0.3.28
 	github.com/mattn/go-isatty v0.0.20
 	github.com/novln/docker-parser v1.0.0
-	github.com/scott-cotton/cli v0.3.0
+	github.com/scott-cotton/cli v0.3.1
 	github.com/sergi/go-diff v1.4.0
 	github.com/yuin/goldmark v1.7.13
 	go.lsp.dev/jsonrpc2 v0.10.0
