@@ -76,13 +76,40 @@ func (c *StorageConfig) ToStorageDurability() (storage.Durability, error) {
 
 // TxConfig configures transaction behavior.
 //
+// Duration is a length of time written the way a person writes one: "1h", "30s",
+// "500ms" — what time.ParseDuration reads and what time.Duration prints.
+//
+// time.Duration is an int64 and implements no text encoding of its own, so a config
+// field declared as one was read as a NUMBER, and the number was NANOSECONDS: an
+// hour was `cutoff: 3600000000000`, and `cutoff: 1h` was refused as "expected
+// number, got String". Nobody writes a config that way and nobody reads one back.
+//
+// The codec machinery already honours encoding.TextMarshaler and TextUnmarshaler --
+// it is how time.Time fields are written -- so saying it once here is the whole fix.
+type Duration time.Duration
+
+// MarshalText writes the duration the way time.Duration prints it.
+func (d Duration) MarshalText() ([]byte, error) {
+	return []byte(time.Duration(d).String()), nil
+}
+
+// UnmarshalText reads what time.ParseDuration reads.
+func (d *Duration) UnmarshalText(text []byte) error {
+	v, err := time.ParseDuration(string(text))
+	if err != nil {
+		return err
+	}
+	*d = Duration(v)
+	return nil
+}
+
 //tony:schemagen=tx-config
 type TxConfig struct {
 	// Timeout is the maximum time to wait for all participants to join a transaction.
 	// If not all participants join within this duration, the transaction is aborted
 	// and waiting participants receive a timeout error.
 	// Default: 1s
-	Timeout time.Duration `tony:"field=timeout"`
+	Timeout Duration `tony:"field=timeout"`
 }
 
 // SnapshotConfig configures when automatic snapshots are triggered.
@@ -128,11 +155,11 @@ type CompactionConfig struct {
 	// Cutoff is the duration within which all patches are kept for accurate historical reads.
 	// Beyond this cutoff, history degrades to snapshot granularity.
 	// Default: 1h
-	Cutoff time.Duration `tony:"field=cutoff"`
+	Cutoff Duration `tony:"field=cutoff"`
 
 	// BaseInterval is the snapshot retention interval for the first tier after cutoff.
 	// Default: 1h
-	BaseInterval time.Duration `tony:"field=baseInterval"`
+	BaseInterval Duration `tony:"field=baseInterval"`
 
 	// SlotsPerTier is the number of snapshots to keep in each time tier.
 	// Default: 8
@@ -146,7 +173,7 @@ type CompactionConfig struct {
 	// GracePeriod is how long to wait for active readers to finish after swap.
 	// After this timeout, old file is deleted and lingering readers will error.
 	// Default: 5s
-	GracePeriod time.Duration `tony:"field=gracePeriod"`
+	GracePeriod Duration `tony:"field=gracePeriod"`
 }
 
 // ToStorageConfig converts to storage.CompactionConfig.
@@ -157,10 +184,10 @@ func (c *CompactionConfig) ToStorageConfig() *storage.CompactionConfig {
 	cfg := storage.DefaultCompactionConfig()
 
 	if c.Cutoff > 0 {
-		cfg.Cutoff = c.Cutoff
+		cfg.Cutoff = time.Duration(c.Cutoff)
 	}
 	if c.BaseInterval > 0 {
-		cfg.BaseInterval = c.BaseInterval
+		cfg.BaseInterval = time.Duration(c.BaseInterval)
 	}
 	if c.SlotsPerTier > 0 {
 		cfg.SlotsPerTier = c.SlotsPerTier
@@ -169,7 +196,7 @@ func (c *CompactionConfig) ToStorageConfig() *storage.CompactionConfig {
 		cfg.Multiplier = c.Multiplier
 	}
 	if c.GracePeriod > 0 {
-		cfg.GracePeriod = c.GracePeriod
+		cfg.GracePeriod = time.Duration(c.GracePeriod)
 	}
 	return cfg
 }
@@ -251,7 +278,7 @@ func (c *Config) WithDefaults() *Config {
 		}
 	}
 	if c.Tx == nil {
-		c.Tx = &TxConfig{Timeout: defaultTxTimeout}
+		c.Tx = &TxConfig{Timeout: Duration(defaultTxTimeout)}
 	}
 	return c
 }

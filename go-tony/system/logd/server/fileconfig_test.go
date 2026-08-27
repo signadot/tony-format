@@ -81,7 +81,7 @@ func TestLoadConfig_RejectsUnknownDurability(t *testing.T) {
 }
 
 func TestLoadConfig_NoStorageSection(t *testing.T) {
-	path := writeConfig(t, "tx:\n  timeout: 1000000000\n")
+	path := writeConfig(t, "tx:\n  timeout: 1s\n")
 
 	cfg, err := LoadConfig(path)
 	if err != nil {
@@ -134,7 +134,7 @@ func TestNew_LeavesDurabilityAloneWithoutSection(t *testing.T) {
 // nil Snapshot section never snapshots — so a file configuring a schema, and nothing
 // else, silently left the delta log to grow forever (issue ps8kfs9dh12kr777fnn0).
 func TestLoadConfig_SnapshotDefaultsWhenSectionAbsent(t *testing.T) {
-	path := writeConfig(t, "tx:\n  timeout: 1000000000\n")
+	path := writeConfig(t, "tx:\n  timeout: 1s\n")
 
 	cfg, err := LoadConfig(path)
 	if err != nil {
@@ -150,7 +150,7 @@ func TestLoadConfig_SnapshotDefaultsWhenSectionAbsent(t *testing.T) {
 		t.Errorf("maxCommits = %d, want the default %d", cfg.Snapshot.MaxCommits, defaultSnapshotMaxCommits)
 	}
 	// The section the file DID write is its own.
-	if cfg.Tx == nil || cfg.Tx.Timeout != time.Second {
+	if cfg.Tx == nil || time.Duration(cfg.Tx.Timeout) != time.Second {
 		t.Errorf("tx = %+v, want the configured 1s", cfg.Tx)
 	}
 }

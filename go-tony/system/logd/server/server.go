@@ -69,7 +69,7 @@ func New(spec *Spec) *Server {
 
 		// Set transaction timeout from config
 		if spec.Config.Tx != nil && spec.Config.Tx.Timeout > 0 {
-			spec.Storage.SetTxTimeout(spec.Config.Tx.Timeout)
+			spec.Storage.SetTxTimeout(time.Duration(spec.Config.Tx.Timeout))
 		}
 
 		// Set up schema resolver if schema is configured

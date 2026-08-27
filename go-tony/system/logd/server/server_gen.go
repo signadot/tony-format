@@ -9,7 +9,6 @@ import (
 	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
-	"time"
 )
 
 // ToTonyIR converts Config to a Tony IR node.
@@ -248,11 +247,20 @@ func (s *TxConfig) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if s == nil {
 		return ir.Null(), nil
 	}
+	var node *ir.Node
+	var err error
+	_ = node // suppress unused variable error
+	_ = err  // suppress unused variable error
+
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Timeout
-	irMap["timeout"] = ir.FromInt(int64(s.Timeout))
+	if txt, err := s.Timeout.MarshalText(); err != nil {
+		return nil, fmt.Errorf("failed to marshal field %q: %w", "Timeout", err)
+	} else {
+		irMap["timeout"] = ir.FromString(string(txt))
+	}
 
 	return ir.FromMap(irMap).WithTag("!tx-config"), nil
 }
@@ -288,11 +296,12 @@ func (s *TxConfig) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 		}
 		switch fieldName.String {
 		case "timeout":
-			// Field: Timeout
-			if fieldNodeUnwrapped.Int64 == nil {
-				return fmt.Errorf("field %q: expected number, got %v", "timeout", fieldNodeUnwrapped.Type)
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string for TextUnmarshaler, got %v", "timeout", fieldNodeUnwrapped.Type)
 			}
-			s.Timeout = time.Duration(*fieldNodeUnwrapped.Int64)
+			if err := s.Timeout.UnmarshalText([]byte(fieldNodeUnwrapped.String)); err != nil {
+				return fmt.Errorf("field %q: failed to unmarshal text: %w", "timeout", err)
+			}
 		default:
 			if gomap.IsStrict(opts...) {
 				return fmt.Errorf("unknown field %q for TxConfig", fieldName.String)
@@ -421,14 +430,27 @@ func (s *CompactionConfig) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if s == nil {
 		return ir.Null(), nil
 	}
+	var node *ir.Node
+	var err error
+	_ = node // suppress unused variable error
+	_ = err  // suppress unused variable error
+
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
 	// Field: Cutoff
-	irMap["cutoff"] = ir.FromInt(int64(s.Cutoff))
+	if txt, err := s.Cutoff.MarshalText(); err != nil {
+		return nil, fmt.Errorf("failed to marshal field %q: %w", "Cutoff", err)
+	} else {
+		irMap["cutoff"] = ir.FromString(string(txt))
+	}
 
 	// Field: BaseInterval
-	irMap["baseInterval"] = ir.FromInt(int64(s.BaseInterval))
+	if txt, err := s.BaseInterval.MarshalText(); err != nil {
+		return nil, fmt.Errorf("failed to marshal field %q: %w", "BaseInterval", err)
+	} else {
+		irMap["baseInterval"] = ir.FromString(string(txt))
+	}
 
 	// Field: SlotsPerTier
 	irMap["slotsPerTier"] = ir.FromInt(int64(s.SlotsPerTier))
@@ -437,7 +459,11 @@ func (s *CompactionConfig) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	irMap["multiplier"] = ir.FromInt(int64(s.Multiplier))
 
 	// Field: GracePeriod
-	irMap["gracePeriod"] = ir.FromInt(int64(s.GracePeriod))
+	if txt, err := s.GracePeriod.MarshalText(); err != nil {
+		return nil, fmt.Errorf("failed to marshal field %q: %w", "GracePeriod", err)
+	} else {
+		irMap["gracePeriod"] = ir.FromString(string(txt))
+	}
 
 	return ir.FromMap(irMap).WithTag("!compaction-config"), nil
 }
@@ -473,17 +499,19 @@ func (s *CompactionConfig) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) 
 		}
 		switch fieldName.String {
 		case "cutoff":
-			// Field: Cutoff
-			if fieldNodeUnwrapped.Int64 == nil {
-				return fmt.Errorf("field %q: expected number, got %v", "cutoff", fieldNodeUnwrapped.Type)
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string for TextUnmarshaler, got %v", "cutoff", fieldNodeUnwrapped.Type)
 			}
-			s.Cutoff = time.Duration(*fieldNodeUnwrapped.Int64)
+			if err := s.Cutoff.UnmarshalText([]byte(fieldNodeUnwrapped.String)); err != nil {
+				return fmt.Errorf("field %q: failed to unmarshal text: %w", "cutoff", err)
+			}
 		case "baseInterval":
-			// Field: BaseInterval
-			if fieldNodeUnwrapped.Int64 == nil {
-				return fmt.Errorf("field %q: expected number, got %v", "baseInterval", fieldNodeUnwrapped.Type)
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string for TextUnmarshaler, got %v", "baseInterval", fieldNodeUnwrapped.Type)
 			}
-			s.BaseInterval = time.Duration(*fieldNodeUnwrapped.Int64)
+			if err := s.BaseInterval.UnmarshalText([]byte(fieldNodeUnwrapped.String)); err != nil {
+				return fmt.Errorf("field %q: failed to unmarshal text: %w", "baseInterval", err)
+			}
 		case "slotsPerTier":
 			// Field: SlotsPerTier
 			if fieldNodeUnwrapped.Int64 == nil {
@@ -497,11 +525,12 @@ func (s *CompactionConfig) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) 
 			}
 			s.Multiplier = int(*fieldNodeUnwrapped.Int64)
 		case "gracePeriod":
-			// Field: GracePeriod
-			if fieldNodeUnwrapped.Int64 == nil {
-				return fmt.Errorf("field %q: expected number, got %v", "gracePeriod", fieldNodeUnwrapped.Type)
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string for TextUnmarshaler, got %v", "gracePeriod", fieldNodeUnwrapped.Type)
 			}
-			s.GracePeriod = time.Duration(*fieldNodeUnwrapped.Int64)
+			if err := s.GracePeriod.UnmarshalText([]byte(fieldNodeUnwrapped.String)); err != nil {
+				return fmt.Errorf("field %q: failed to unmarshal text: %w", "gracePeriod", err)
+			}
 		default:
 			if gomap.IsStrict(opts...) {
 				return fmt.Errorf("unknown field %q for CompactionConfig", fieldName.String)

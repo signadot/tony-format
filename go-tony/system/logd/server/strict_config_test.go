@@ -52,7 +52,7 @@ func TestStrictConfig_RejectsUnknownTopLevelSection(t *testing.T) {
 }
 
 func TestStrictConfig_AcceptsAValidConfig(t *testing.T) {
-	src := "storage:\n  durability: sync\ntx:\n  timeout: 1000000000\nsnapshot:\n  maxCommits: 500\n"
+	src := "storage:\n  durability: sync\ntx:\n  timeout: 1s\nsnapshot:\n  maxCommits: 500\n"
 	if err := decodeConfig(t, src, gomap.Strict()); err != nil {
 		t.Errorf("Strict() rejected a config of only declared keys: %v", err)
 	}

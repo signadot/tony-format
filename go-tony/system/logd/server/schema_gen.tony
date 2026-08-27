@@ -2,9 +2,9 @@
 context:
 - tony-format/context
 define:
-  baseInterval: .[int]
-  cutoff: .[int]
-  gracePeriod: .[int]
+  baseInterval: .[string]
+  cutoff: .[string]
+  gracePeriod: .[string]
   multiplier: .[int]
   slotsPerTier: .[int]
 signature:
@@ -28,7 +28,7 @@ signature:
 context:
 - tony-format/context
 define:
-  timeout: .[int]
+  timeout: .[string]
 signature:
   name: tx-config
 ---
