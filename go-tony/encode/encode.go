@@ -864,6 +864,13 @@ func encodeBlockLit(node *ir.Node, w io.Writer, es *EncState) error {
 		return err
 	}
 	es.atCol0 = false
+	// The opening line is a line, so it can carry a line comment -- and the
+	// literal has no other line of its own to put one on. encodeStringOrLit
+	// writes it for every other scalar; this branch wrote the '|' and went
+	// straight to the content, so a comment there was parsed and then dropped.
+	if err := writeLineCommentLines(w, node.Comment, es); err != nil {
+		return err
+	}
 	es.depth++
 	defer func() { es.depth-- }()
 	if err := writeNL(w, es); err != nil {

@@ -62,11 +62,23 @@ func mLitIndent(toks []Token, d int) (int, error) {
 // example is written `| ` and did not parse. YAML mode inherited the refusal,
 // where PyYAML accepts both.
 //
+// A comment there is a LINE comment on the literal, the same as `k: v # why`.
+// It is not a head comment on the content: a head comment can already be written
+// on the line above, and both can be written at once
+//
+//	# what the value is
+//	| # how it is written
+//	  ...
+//
+// so reading the second as a head comment would merge the two and lose a position
+// the format lets a writer use.
+//
 // It answers the chomp indicator, the offset the content starts at (just past the
-// newline), the offset of the newline itself, and bad: -1 when the line is well
-// formed, len(d) when it runs out before its newline, and otherwise the offset of
-// the byte which may not be there.
-func openLine(d []byte) (chomp byte, start, nl, bad int) {
+// newline), the offset of the newline itself, the offset of the comment's '#' or
+// -1 when there is none, and bad: -1 when the line is well formed, len(d) when it
+// runs out before its newline, and otherwise the offset of the byte which may not
+// be there.
+func openLine(d []byte) (chomp byte, start, nl, cmt, bad int) {
 	chomp, i := byte('\n'), 1
 	if len(d) > 1 && (d[1] == MLitChomp || d[1] == MLitKeep) {
 		chomp, i = d[1], 2
@@ -76,18 +88,20 @@ func openLine(d []byte) (chomp byte, start, nl, bad int) {
 	for i < len(d) && (d[i] == ' ' || d[i] == '\t' || d[i] == '\r') {
 		i++
 	}
+	cmt = -1
 	if i < len(d) && d[i] == '#' {
+		cmt = i
 		for i < len(d) && d[i] != '\n' {
 			i++
 		}
 	}
 	switch {
 	case i >= len(d):
-		return chomp, 0, 0, len(d)
+		return chomp, 0, 0, cmt, len(d)
 	case d[i] != '\n':
-		return chomp, 0, 0, i
+		return chomp, 0, 0, cmt, i
 	}
-	return chomp, i + 1, i, -1
+	return chomp, i + 1, i, cmt, -1
 }
 
 func mLit(d []byte, indent int, posDoc *PosDoc, off int) (int, error) {
@@ -97,7 +111,7 @@ func mLit(d []byte, indent int, posDoc *PosDoc, off int) (int, error) {
 	if d[0] != '|' {
 		return 0, fmt.Errorf("unexpected %q", string(d[0]))
 	}
-	format, start, nl, bad := openLine(d)
+	format, start, nl, _, bad := openLine(d)
 	switch {
 	case bad == len(d):
 		return 0, ErrUnterminated
@@ -125,7 +139,7 @@ func mLitToString(d []byte) string {
 	if len(d) < 2 {
 		return ""
 	}
-	chomp, i, _, _ := openLine(d)
+	chomp, i, _, _, _ := openLine(d)
 	b := &strings.Builder{}
 	trailing := 0
 	for i < len(d) {

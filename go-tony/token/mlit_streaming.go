@@ -18,7 +18,7 @@ func mLitStreaming(d []byte, indent int, posDoc *PosDoc, off int) (int, error) {
 	// The opening line reads the same way here as it does in mLit; what differs is
 	// that running out of buffer before its newline asks for more rather than
 	// being unterminated.
-	format, start, nl, bad := openLine(d)
+	format, start, nl, _, bad := openLine(d)
 	switch {
 	case bad == len(d):
 		return 0, io.EOF

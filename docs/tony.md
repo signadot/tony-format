@@ -247,6 +247,15 @@ key: |- # what this holds
   the value
 ```
 
+That comment is a LINE comment on the literal, the same as `key: v # why`, not a
+head comment on the content.  Both can be written at once, and they stay apart:
+
+```tony
+# what the value is
+| # how it is written
+  the value
+```
+
 Tony block literals do not support folding or any other of the myriad of 
 YAML variants on block literals.  Folding is rather supported with multiline 
 strings.

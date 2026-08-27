@@ -561,6 +561,27 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			consumed--
 		}
 		t.ts.hasValue = true
+		// A comment on the opening line is a line comment on the literal. mLit
+		// consumed it along with the rest and mLitToString skips it, so the value
+		// is already right; without a token for it the parser has nothing to
+		// attach and the comment was accepted and then dropped, `-c` and all.
+		if _, _, _, cmt, _ := openLine(data[pos : pos+sz]); cmt >= 0 {
+			end := cmt
+			for end < sz && data[pos+end] != '\n' {
+				end++
+			}
+			// The space before the '#' belongs to the comment, the same as it does
+			// for a comment anywhere else (commentStart, above, backs over preLen).
+			start := cmt
+			for start > 0 && (data[pos+start-1] == ' ' || data[pos+start-1] == '\t') {
+				start--
+			}
+			return []Token{tok, {
+				Type:  TLineComment,
+				Bytes: data[pos+start : pos+end],
+				Pos:   t.posDoc.Pos(int(absOffset) + start),
+			}}, consumed, nil
+		}
 		return []Token{tok}, consumed, nil
 
 	case '>':
