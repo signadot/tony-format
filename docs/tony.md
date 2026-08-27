@@ -68,7 +68,8 @@ survives being written back: the writer strips trailing whitespace, drops blank
 lines, and quotes a string only where the value requires it.
 
 So normalizing a document is reading it and writing it out, which is what `o view`
-(`o v`) does.
+(`o v`) does.  `o v -w` writes the result back over each file, leaving a file
+already in normal form untouched.
 
 Tony also supports a single normalized wire format form, which uses bracketed
 style and contains no newlines within a subtree.  

@@ -33,6 +33,7 @@ o view [files]
 | option | type | default | description |
 | --- | --- | --- | --- |
 | `-c` | bool |  | include comments |
+| `-w` | bool |  | write the normalized form back to each file |
 
 Inherited options may be given either before or after the command they are inherited by.
 

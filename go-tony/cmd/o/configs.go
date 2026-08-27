@@ -145,6 +145,7 @@ type ViewConfig struct {
 	*MainConfig
 
 	Comments bool `cli:"name=c desc='include comments'"`
+	Write    bool `cli:"name=w desc='write the normalized form back to each file'"`
 	View     *cli.Command
 }
 

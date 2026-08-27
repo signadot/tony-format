@@ -7,6 +7,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/parse"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/scott-cotton/cli"
 )
@@ -23,6 +24,15 @@ func view(cfg *ViewConfig, cc *cli.Context, args []string) error {
 	// A fault exits 2, as it does for get, list and match: 1 is reserved for
 	// "nothing", which is an answer, and a caller that cannot tell an unreadable
 	// file from an empty one reads a mistake as a result.
+	if cfg.Write {
+		if msg := whyNotWritable(cfg, args); msg != "" {
+			return usageErr(cfg.View, cc, msg)
+		}
+		if err := writeFiles(cfg, args); err != nil {
+			return fault(cc, err)
+		}
+		return nil
+	}
 	if len(args) == 0 {
 		if err := viewReader(cfg, cc.Out, cc.In); err != nil {
 			return fault(cc, err)
@@ -31,6 +41,87 @@ func view(cfg *ViewConfig, cc *cli.Context, args []string) error {
 	}
 	if err := viewFiles(cfg, cc.Out, args); err != nil {
 		return fault(cc, err)
+	}
+	return nil
+}
+
+// whyNotWritable answers why -w cannot be honoured, or "" when it can: the two
+// ways it has nothing to write to, and the one way it would write something nobody
+// wants into a file.
+func whyNotWritable(cfg *ViewConfig, args []string) string {
+	if len(args) == 0 {
+		return "-w writes each file back and no file was named: name one, or drop -w " +
+			"to write the result to standard output"
+	}
+	for _, file := range args {
+		if file == "-" {
+			return `-w writes each file back and "-" is standard input: name the files, or drop -w`
+		}
+	}
+	if cfg.Color {
+		return "-w with -color would write the colouring into the file: drop one of them"
+	}
+	return ""
+}
+
+// writeFiles rewrites each file with its normal form.
+//
+// Normalising a document is reading it and writing it out. What a reader accepts is
+// wider than what a writer produces -- whitespace running to the end of a line, a
+// blank line, quotes a value does not need -- and none of it survives the round trip
+// (docs/tony.md, "Normalization").
+func writeFiles(cfg *ViewConfig, files []string) error {
+	for _, file := range files {
+		if err := writeFile(cfg, file); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// writeFile writes one file's normal form back over it.
+//
+// A file already in normal form is left ALONE rather than rewritten with identical
+// bytes, so formatting a tree does not touch the modification time of every file in
+// it -- which is what a build, a watch and a `git status` all read.
+//
+// The replacement is written beside the file and renamed over it, so an interrupted
+// run leaves the original whole. Writing in place would leave a truncated file, and
+// the file being truncated is the only copy of what it held.
+func writeFile(cfg *ViewConfig, file string) error {
+	info, err := os.Stat(file)
+	if err != nil {
+		return fmt.Errorf("could not stat %q: %w", file, err)
+	}
+	in, err := os.ReadFile(file)
+	if err != nil {
+		return fmt.Errorf("could not read %q: %w", file, err)
+	}
+	var out bytes.Buffer
+	if err := viewReader(cfg, &out, bytes.NewReader(in)); err != nil {
+		return fmt.Errorf("error processing %s: %w", file, err)
+	}
+	if bytes.Equal(in, out.Bytes()) {
+		return nil
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(file), "."+filepath.Base(file)+".o")
+	if err != nil {
+		return fmt.Errorf("could not write beside %q: %w", file, err)
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(out.Bytes()); err != nil {
+		tmp.Close()
+		return fmt.Errorf("could not write %q: %w", tmp.Name(), err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("could not close %q: %w", tmp.Name(), err)
+	}
+	// the replacement takes the file's mode, not the temporary file's 0600
+	if err := os.Chmod(tmp.Name(), info.Mode().Perm()); err != nil {
+		return fmt.Errorf("could not set the mode of %q: %w", file, err)
+	}
+	if err := os.Rename(tmp.Name(), file); err != nil {
+		return fmt.Errorf("could not replace %q: %w", file, err)
 	}
 	return nil
 }
