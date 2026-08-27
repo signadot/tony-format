@@ -18,9 +18,9 @@ import (
 // became one about the outer one. One `o v -c` pass did it and the result was a
 // fixed point, so nothing said so; `o v -w` writes it into the file.
 //
-// Only the first is affected. Above a LATER marker that line belongs to its element
-// and nothing else, so the comment goes there -- the spelling the docs use, and the
-// one already in every document (haw04psch12ksnn2j1n0).
+// Only the first was wrong, but every element comment is written after its "- ",
+// so the normal form says one thing one way: above a marker means the ARRAY, after
+// it means the ELEMENT (haw04psch12ksnn2j1n0).
 func TestElementHeadComment(t *testing.T) {
 	tests := []struct {
 		name, in, want string
@@ -29,9 +29,9 @@ func TestElementHeadComment(t *testing.T) {
 		in:   "- # c\n  5\n",
 		want: "- # c\n  5\n",
 	}, {
-		name: "a later element's stays above its marker",
+		name: "a later element's moves after its marker too",
 		in:   "- 1\n# c\n- 2\n",
-		want: "- 1\n# c\n- 2\n",
+		want: "- 1\n- # c\n  2\n",
 	}, {
 		name: "the array's own comment and the first element's are kept apart",
 		in:   "# about the array\n- # about the element\n  1\n",
@@ -51,9 +51,11 @@ func TestElementHeadComment(t *testing.T) {
 		in:   "a:\n- # c\n  1\n",
 		want: "a:\n- # c\n  1\n",
 	}, {
-		name: "the docs' spelling is left alone",
+		// "# about rule a" is above the FIRST marker, so it is the array's and
+		// stays. "# about rule b" is an element's and moves after its own.
+		name: "an array's comment and an element's, told apart by position",
 		in:   "# about rule a\n- name: a\n# about rule b\n- name: b\n",
-		want: "# about rule a\n- name: a\n# about rule b\n- name: b\n",
+		want: "# about rule a\n- name: a\n- # about rule b\n  name: b\n",
 	}}
 
 	for _, test := range tests {

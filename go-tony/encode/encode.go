@@ -382,48 +382,31 @@ func elementHeadComment(val *ir.Node, es *EncState) *ir.Node {
 	return val
 }
 
-// writeElementHeadCommentAbove writes an element's head comment on the line ABOVE
-// its "- ", which is where it was written and where it reads back from:
-//
-//	# about rule b
-//	- name: b
-//
-// This is every element but the first. See writeElementHeadCommentAfter for why
-// the first cannot use it.
-func writeElementHeadCommentAbove(head *ir.Node, w io.Writer, es *EncState) error {
-	es.colorType = ir.CommentType
-	es.colorAttr = ValueColor
-	for _, ln := range head.Lines {
-		if err := writeRaw(w, ln, es); err != nil {
-			return err
-		}
-		if err := writeNL(w, es); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// writeElementHeadCommentAfter writes the FIRST element's head comment after its
-// "- ", putting the value on the line below:
+// writeElementHeadComment writes an array element's head comment after its "- ",
+// putting the value on the line below:
 //
 //	- # about rule a
 //	  name: a
-//	# about rule b
-//	- name: b
+//	- # about rule b
+//	  name: b
 //
-// The first element's used to go above the marker like the rest, on the stated
-// grounds that the two spellings share one IR and only one can survive a round
-// trip. They do not share one IR. Above the FIRST marker that line is the ARRAY's
-// own comment position, so an element's comment written there re-read as the
-// array's -- and merged with whatever the array already had, so two comments about
-// two things became one about the outer one (haw04psch12ksnn2j1n0).
+// It used to go on the line ABOVE the marker, on the stated grounds that the two
+// spellings share one IR and only one can survive a round trip. They do not share
+// one IR. Above the FIRST marker that line is the ARRAY's own comment position, so
+// an element's comment written there re-read as the array's -- and merged with
+// whatever the array already had, so two comments about two things became one
+// about the outer one (haw04psch12ksnn2j1n0).
 //
-// Only the first element is wrong and only the first is changed. Above a later
-// marker the line is unambiguous, it already round-tripped, and it is the spelling
-// the docs and every existing document use; rewriting those would edit correct
-// files to no purpose, which is the opposite of what `o v -w` is for.
-func writeElementHeadCommentAfter(head *ir.Node, w io.Writer, es *EncState) error {
+// Only the first element was wrong, but every element is written this way, because
+// an element comment should have ONE spelling. Fixing index 0 alone left the normal
+// form saying the same thing two ways depending on where in the array it fell, and
+// left `- # c` surviving verbatim at index 0 and rewritten everywhere else.
+//
+// The line above a marker now means the array, and nothing else.
+func writeElementHeadComment(head *ir.Node, w io.Writer, es *EncState) error {
+	if head == nil {
+		return nil
+	}
 	es.colorType = ir.CommentType
 	es.colorAttr = ValueColor
 	for _, ln := range head.Lines {
@@ -787,13 +770,6 @@ func encodeArray(node *ir.Node, w io.Writer, es *EncState) error {
 		if head != nil {
 			v = v.Values[0]
 		}
-		// Only the first element's goes after the marker; see the two writers.
-		afterMarker := head != nil && i == 0
-		if head != nil && !afterMarker {
-			if err := writeElementHeadCommentAbove(head, w, es); err != nil {
-				return err
-			}
-		}
 		if err := writeArrayElementMarker(w, es); err != nil {
 			return err
 		}
@@ -802,11 +778,9 @@ func encodeArray(node *ir.Node, w io.Writer, es *EncState) error {
 			es.depth++
 		}
 		shared := es.eltShareLine
-		es.eltShareLine = !afterMarker
-		if afterMarker {
-			if err := writeElementHeadCommentAfter(head, w, es); err != nil {
-				return err
-			}
+		es.eltShareLine = head == nil
+		if err := writeElementHeadComment(head, w, es); err != nil {
+			return err
 		}
 		if err := encode(v, w, es); err != nil {
 			return err

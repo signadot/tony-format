@@ -300,6 +300,10 @@ rules:
 - name: b
 ```
 
+(`o v` writes the third back as `- # about rule b` on the element's own marker,
+which is the normal form; the ambiguity above is about what a hand-written
+document means, and only the first two are affected by it.)
+
 `Rule`'s own `comment=` catches the third. The first two have no struct to carry
 them, and only the field that holds the list can name somewhere for them to go.
 Without it an author sees every rule's comment survive except the first, which

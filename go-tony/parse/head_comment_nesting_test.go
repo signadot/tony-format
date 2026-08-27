@@ -191,26 +191,63 @@ func TestCommentAboveListElement(t *testing.T) {
 	}
 }
 
-// TestListElementCommentRoundTrips: what a charter looks like, in and out
-// unchanged. The comment goes back above the "- " it was written above, not
-// after it -- the two spellings share one IR, so only one can round trip.
+// TestListElementCommentRoundTrips: what a charter looks like, in and out.
+//
+// It used to assert the text came back byte for byte, on the premise that the two
+// spellings of an element comment share one IR so only one can round trip. They do
+// not share one IR: above the FIRST marker that line is the ARRAY's own comment
+// position (haw04psch12ksnn2j1n0). The normal form now writes every element comment
+// after its "- ", so the line above a marker means the array and nothing else.
+//
+// What is pinned is what matters: the comment still says what it said, and the
+// output is a fixed point.
 func TestListElementCommentRoundTrips(t *testing.T) {
-	for _, src := range []string{
-		"- name: a\n  stage: open\n# about rule b\n- name: b\n  stage: open\n",
-		"# about the whole charter\n- name: a\n# about b\n- name: b\n",
-		"rules:\n- name: a\n# about b\n- name: b\n",
-		"- a\n# about b\n- b\n",
-	} {
-		n, err := Parse([]byte(src), ParseComments(true))
+	for _, tc := range []struct{ in, want string }{{
+		in:   "- name: a\n  stage: open\n# about rule b\n- name: b\n  stage: open\n",
+		want: "- name: a\n  stage: open\n- # about rule b\n  name: b\n  stage: open\n",
+	}, {
+		// The charter's own comment is above the first marker and stays there;
+		// the element's moves after its own.
+		in:   "# about the whole charter\n- name: a\n# about b\n- name: b\n",
+		want: "# about the whole charter\n- name: a\n- # about b\n  name: b\n",
+	}, {
+		in:   "rules:\n- name: a\n# about b\n- name: b\n",
+		want: "rules:\n- name: a\n- # about b\n  name: b\n",
+	}, {
+		in:   "- a\n# about b\n- b\n",
+		want: "- a\n- # about b\n  b\n",
+	}, {
+		// Already in the normal form, so it comes back byte for byte.
+		in:   "- # about a\n  name: a\n- # about b\n  name: b\n",
+		want: "- # about a\n  name: a\n- # about b\n  name: b\n",
+	}} {
+		n, err := Parse([]byte(tc.in), ParseComments(true))
 		if err != nil {
-			t.Fatalf("parse %q: %v", src, err)
+			t.Fatalf("parse %q: %v", tc.in, err)
 		}
 		var b strings.Builder
 		if err := encode.Encode(n, &b, encode.EncodeComments(true)); err != nil {
 			t.Fatal(err)
 		}
-		if b.String() != src {
-			t.Errorf("round trip changed the document:\n in: %q\nout: %q", src, b.String())
+		if b.String() != tc.want {
+			t.Errorf("wrote\n%q\nwant\n%q\nfor\n%q", b.String(), tc.want, tc.in)
+			continue
+		}
+		// The comment still says what it said about what it said it about.
+		again, err := Parse([]byte(b.String()), ParseComments(true))
+		if err != nil {
+			t.Fatalf("reparse %q: %v", b.String(), err)
+		}
+		if !n.DeepEqualWithComments(again) {
+			t.Errorf("the comment moved: %q came back as %q with a different tree",
+				tc.in, b.String())
+		}
+		var b2 strings.Builder
+		if err := encode.Encode(again, &b2, encode.EncodeComments(true)); err != nil {
+			t.Fatal(err)
+		}
+		if b2.String() != b.String() {
+			t.Errorf("a second pass wrote\n%q\nafter\n%q", b2.String(), b.String())
 		}
 	}
 }

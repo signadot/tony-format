@@ -193,6 +193,18 @@ const charterDoc = `rules:
 - name: b
 `
 
+// charterNormal is charterDoc as the encoder writes it. "# about rule a" is above
+// the FIRST marker, which is the list's own comment position, so it is the list's
+// and stays where it is. "# about rule b" is an ELEMENT's, and every element
+// comment is written after its "- " -- above a marker means the list, and one
+// meaning per position (haw04psch12ksnn2j1n0).
+const charterNormal = `rules:
+# about rule a
+- name: a
+- # about rule b
+  name: b
+`
+
 func TestGeneratedFieldComments(t *testing.T) {
 	node, err := parse.Parse([]byte(charterDoc), parse.ParseComments(true))
 	if err != nil {
@@ -215,7 +227,7 @@ func TestGeneratedFieldComments(t *testing.T) {
 		t.Errorf("rule a's comment is the LIST's, not the element's, but the element got %q", got)
 	}
 
-	// and back out, unchanged
+	// and back out, in the normal form
 	out, err := c.ToTonyIR()
 	if err != nil {
 		t.Fatal(err)
@@ -224,8 +236,8 @@ func TestGeneratedFieldComments(t *testing.T) {
 	if err := encode.Encode(out, &b, encode.EncodeComments(true)); err != nil {
 		t.Fatal(err)
 	}
-	if b.String() != charterDoc {
-		t.Errorf("the charter came back as\n%s\nand went in as\n%s", b.String(), charterDoc)
+	if b.String() != charterNormal {
+		t.Errorf("the charter came back as\n%s\nand should be\n%s", b.String(), charterNormal)
 	}
 	if strings.Contains(b.String(), "RulesComment") {
 		t.Errorf("a carrier field was written as data:\n%s", b.String())

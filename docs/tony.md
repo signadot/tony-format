@@ -887,6 +887,26 @@ comments rather than as a second, separate association.
 Comments also are associated with all preceding whitespace on the line on which
 they occur.
 
+### A list element's preceding comments
+
+A block list begins at its first element, so the line above the first `- ` is the
+LIST's -- there is no earlier line that could be the element's.  Above any later
+`- ` the line belongs to that element.  The two readings cannot share the position,
+so the normal form writes an element's preceding comments after its `- `, and the
+line above a `- ` always means the list:
+
+```tony
+# about the list
+- # about a
+  name: a
+- # about b
+  name: b
+```
+
+Reading is wider than writing here, as elsewhere: a comment above a later `- ` is
+read as that element's and `o v` rewrites it to the form above.  Above the first
+`- ` it is the list's, and stays where it is.
+
 Tony tools support diffs, patching, and matching comments if so desired.
 
 ## White Space
