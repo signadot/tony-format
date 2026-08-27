@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 2819a7f709a5f1eb66533923c7fb4dc11a9b8f5e
 commits:
 - b2abea041c57bf377d7627c356e07998e2d1dc01
 - b66058764262bb0744575204c9b408ddd05b2677
@@ -16,5 +17,5 @@ related_issues:
 - ha3bj8jhh12kr3dxfxn0
 - 6225etzfh12kr955fxn0
 - 5hmq80f3h12krh1mbsn0
-status: open
-updated: "2026-08-27T23:33:01.263803+02:00"
+status: closed
+updated: "2026-08-27T23:33:14.181759+02:00"
