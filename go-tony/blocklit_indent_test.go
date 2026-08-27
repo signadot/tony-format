@@ -1,6 +1,7 @@
 package tony
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/signadot/tony-format/go-tony/parse"
@@ -82,5 +83,29 @@ func TestBlockLit_ContentMayNotOutdentThePipe(t *testing.T) {
 	}
 	if s := literalString(t, doc); s == "ape\n" {
 		t.Errorf("content at column 2 was read as the literal's, under a '|' at column 4")
+	}
+}
+
+// The indent is computed, not detected, so a reader who guessed wrong cannot see
+// the number anywhere. The refusal used to be a bare "malformed multiline literal",
+// which says that something is wrong and nothing about what.
+func TestBlockLit_RefusalNamesTheIndent(t *testing.T) {
+	tests := []struct {
+		name, in, want string
+	}{
+		{"under a field", "k: |\nape\n", "starts at column 0 and must start at 2"},
+		{"two markers", "- - |\n  ape\n", "starts at column 2 and must start at 4"},
+		{"on its own line", "- \n  |\n  ape\n", "starts at column 2 and must start at 4"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := parse.Parse([]byte(test.in))
+			if err == nil {
+				t.Fatal("it was accepted")
+			}
+			if !strings.Contains(err.Error(), test.want) {
+				t.Errorf("refused with\n%s\nwhich does not say %q", err, test.want)
+			}
+		})
 	}
 }

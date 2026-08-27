@@ -203,7 +203,13 @@ func scanLines(d []byte, posDoc *PosDoc, off, indent int, format byte) (int, err
 			// values on every round trip.
 			return 0, nil
 		}
-		return 0, NewTokenizeErr(ErrMalformedMLit, posDoc.Pos(off))
+		// The first line is not indented enough to be content, so the literal has
+		// none. Say what was wanted: the indent is computed, not detected, so a
+		// reader who guessed wrong has no way to see the number otherwise, and
+		// each '- ' on the opening line adds one level to it.
+		e := fmt.Errorf("%w: its content starts at column %d and must start at %d",
+			ErrMalformedMLit, readIndent(d), indent)
+		return 0, NewTokenizeErr(e, posDoc.Pos(off))
 	}
 	if d[i-1] != '\n' {
 		return 0, NewTokenizeErr(ErrMalformedMLit, posDoc.Pos(off+i))

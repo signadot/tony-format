@@ -64,8 +64,11 @@ func scanLinesStreaming(d []byte, posDoc *PosDoc, off, indent int, format byte) 
 		if n == 0 {
 			return 0, io.EOF // Need more buffer
 		}
-		// We have data but couldn't scan a line - malformed
-		return 0, NewTokenizeErr(ErrMalformedMLit, posDoc.Pos(off))
+		// We have data but couldn't scan a line - malformed. Say what indent was
+		// wanted, the same as the buffered path: it is computed, not detected.
+		e := fmt.Errorf("%w: its content starts at column %d and must start at %d",
+			ErrMalformedMLit, readIndent(d), indent)
+		return 0, NewTokenizeErr(e, posDoc.Pos(off))
 	}
 	// Check for newline if we actually found the end
 	if i > 0 && i <= len(d) && d[i-1] != '\n' {
