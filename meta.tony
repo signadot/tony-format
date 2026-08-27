@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 0c466dff9e3960124ca7f98a7a31da8b7a927a50
 commits: []
 created: "2026-08-27T21:29:12.734922+02:00"
 duplicates: []
@@ -9,5 +10,5 @@ id: pkj422gkh12kr24gj1n0
 labels:
 - bug
 related_issues: []
-status: open
-updated: "2026-08-27T21:29:18.585974+02:00"
+status: closed
+updated: "2026-08-27T21:39:08.898403+02:00"
