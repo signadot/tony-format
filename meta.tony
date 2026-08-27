@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 97e663bf6f606dce12c216d4dc70a5f1ccd3a93a
 commits: []
 created: "2026-08-20T23:37:07.267662+02:00"
 duplicates: []
@@ -11,5 +12,5 @@ labels:
 - spec
 related_issues:
 - 6ykv73beh12krzeygsn0
-status: open
-updated: "2026-08-20T23:37:14.426792+02:00"
+status: closed
+updated: "2026-08-27T16:34:40.271907+02:00"
