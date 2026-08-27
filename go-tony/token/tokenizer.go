@@ -457,6 +457,23 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			return nil, 0, UnexpectedErr("!", t.posDoc.Pos(int(absOffset)))
 		}
 		start := pos + 1
+		// A tag ends at whitespace OR where the flow grammar it sits inside resumes.
+		//
+		// The tag production is YAML's -- any non-whitespace unicode -- which is right
+		// where a tag is a URI and wrong here, where `,`, `[`, `]`, `{` and `}` belong
+		// to the grammar around it. Running to whitespace alone absorbed them into the
+		// NAME: `{a !delete, b: 1}` tagged a null `!delete,`, which names no operator,
+		// so it was stored as data and `a` was not deleted -- silently, and past both
+		// guards a consumer has, since an unknown tag is what neither can look up
+		// (pkj422gkh12kr24gj1n0).
+		//
+		// Only at paren depth 0. Inside a tag COMPONENT those characters are legitimate
+		// content -- `!get-path(a[0])` is an addressing form with no other spelling, and
+		// `!tag(a,b)` is two arguments -- so the depth is what tells a separator from a
+		// bracket in a kpath. An unmatched `(` never returns to 0 and the scan runs to
+		// whitespace as it always did.
+		depth := 0
+	tagScan:
 		for start < n {
 			r, sz := utf8.DecodeRune(data[start:])
 			if r == utf8.RuneError {
@@ -470,6 +487,18 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			}
 			if unicode.Is(unicode.Other, r) {
 				return nil, 0, UnexpectedErr("unicode other", t.posDoc.Pos(int(bufferStartOffset)+start))
+			}
+			switch r {
+			case '(':
+				depth++
+			case ')':
+				if depth > 0 {
+					depth--
+				}
+			case ',', '[', ']', '{', '}':
+				if depth == 0 {
+					break tagScan
+				}
 			}
 			start += sz
 		}

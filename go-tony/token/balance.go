@@ -207,6 +207,15 @@ func balanceOne(dst []Token, toks []Token, d int, y *int, underField bool, f for
 		}
 	case TTag:
 		dst = append(dst, *tok)
+		// A tag with no value is a tagged NULL -- which is what the key-set sugar
+		// already emits for `{a !delete }`, where the space is what let the scan
+		// end the tag. With the tag ending at the bracket too, the same thing
+		// written `{x: !t1}` or `[!t1]` reached here with nothing to balance, and
+		// the closing bracket was reported as unopened (pkj422gkh12kr24gj1n0).
+		if len(toks) == 1 || endsValue(toks[1].Type) {
+			dst = append(dst, Token{Type: TNull, Pos: tok.Pos})
+			return dst, 1, nil
+		}
 		dst, off, err := balanceOne(dst, toks[1:], d, y, underField, f)
 		if err != nil {
 			return nil, 0, err
@@ -223,6 +232,17 @@ func balanceOne(dst []Token, toks []Token, d int, y *int, underField bool, f for
 		}
 		return nil, 0, fmt.Errorf("`%s` cannot start a value %s", tok.Bytes, tok.Pos)
 	}
+}
+
+// endsValue reports whether a token closes the value position rather than filling
+// it: the flow grammar's separators and closers, which can follow a tag but cannot
+// be one's value.
+func endsValue(t TokenType) bool {
+	switch t {
+	case TRCurl, TRSquare, TComma:
+		return true
+	}
+	return false
 }
 
 func balanceArr(dst, toks []Token, d int, y *int, f format.Format) ([]Token, int, error) {
@@ -659,6 +679,12 @@ KVLoop:
 				}
 				keyI = -1
 				colonI = -1
+				// The sugar emitted a PAIR, so the object holds one more than it did.
+				// Not counting it made a `,` after a sugared key read as "is not a
+				// key", which is the nKVs == 0 guard below firing on the first pair:
+				// `{a, b: 1}` and `{a, b}` were refused with no tag in sight
+				// (pkj422gkh12kr24gj1n0).
+				nKVs++
 				if tok.Type == TRCurl {
 					found = true
 					i++

@@ -654,8 +654,29 @@ inserting a tag associated with any value in the object hierarchy.  In Tony,
 one cannot tag a key in a key:value pair in a map, but all other values can be
 tagged.
 
-The syntax of a tag is `!<tag-content>` where `<tag-content>` is any sequence
-of non-whitespace characters, as determined by unicode.IsSpace.
+The syntax of a tag is `!<tag-content>`.  A tag ends at whitespace (as determined
+by unicode.IsSpace), or at one of `,` `[` `]` `{` `}` — the characters belonging to
+the flow grammar the tag sits inside — so a tag written against a separator or a
+closing bracket ends there rather than swallowing it:
+
+```tony
+{a !delete, b: 1}     # the tag is !delete; the ',' separates
+{a !delete}           # the tag is !delete; the '}' closes
+```
+
+Those characters are ordinary content INSIDE a [tag argument](#tag-arguments), so a
+kpath with an index and a multi-argument component both keep them:
+
+```tony
+!get-path(a[0])       # one argument, a kpath
+!tag(a,b)             # two arguments
+```
+
+Whitespace ends a tag at every depth, including inside an argument, so `!tag(a, b)`
+is not a tag with two arguments — it is an error.  That is deliberate: YAML ends a
+tag at whitespace unconditionally, so a YAML reader given `!tag(a, b)` silently sees
+the tag `!tag(a,` and the scalar `b)`.  Refusing the spelling is better than writing
+a document another reader quietly misunderstands.  Write `!tag(a,b)`.
 
 One inserts a tag by placing it immediately before a value
 
