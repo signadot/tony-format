@@ -119,8 +119,10 @@ func TestDanglingColonIsRefused(t *testing.T) {
 			if err == nil {
 				t.Fatalf("%q was accepted", tc.src)
 			}
-			// the message names the requirement and both spellings that work
-			for _, want := range []string{"no value", "null", "key set"} {
+			// the message names the requirement and both spellings that work. It
+			// says "must be followed by a value" rather than "with no value",
+			// which would be untrue of `a: !delete` -- a tag is not a value.
+			for _, want := range []string{"must be followed by a value", "null", "key set"} {
 				if !strings.Contains(err.Error(), want) {
 					t.Errorf("error %q does not say %q", err, want)
 				}

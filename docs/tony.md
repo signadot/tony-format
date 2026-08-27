@@ -508,10 +508,11 @@ In bracketed mode only, a set of keys may be denoted by dropping the ':' and
 value after any key.  This is syntactic sugar for associating a null value with
 the key.
 
-Dropping the VALUE and keeping the ':' is not this, and is not anything: a `p:`
-with nothing after it is refused wherever it is written, including as the last pair
-of a document.  Write `p: null` for a null, or use the key set above.  (YAML mode
-reads `p:` as a null, because YAML does.)
+Dropping the VALUE and keeping the ':' is not this, and is not anything: a `p:` with
+no value after it is refused wherever it is written, including as the last pair of a
+document.  A tag is not a value, so `p: !delete` is the same case as `p:` -- write
+`p: null` or `p: !delete null`, or use the key set above.  (YAML mode reads `p:` as a
+null, because YAML does.)
 
 ```tony
 {1 2 3}

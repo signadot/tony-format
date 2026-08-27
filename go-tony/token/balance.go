@@ -570,8 +570,10 @@ KVLoop:
 // TONY MODE ONLY. In YAML a `key:` with nothing after it is an ordinary null, and
 // YAML mode reads what YAML writes.
 func errDanglingColon(pos *Pos) error {
-	return fmt.Errorf("%w: a ':' with no value%s: write `null` for the value, or drop "+
-		"the ':' inside {} to write a key set", ErrDocBalance, at(pos))
+	// "with no value" would be untrue of `a: !delete`, which has a tag and no
+	// value; a tag is not a value, and that shape is the one this was filed from.
+	return fmt.Errorf("%w: a ':' must be followed by a value%s: write `null` for a null, "+
+		"or drop the ':' inside {} to write a key set", ErrDocBalance, at(pos))
 }
 
 func at(pos *Pos) string {

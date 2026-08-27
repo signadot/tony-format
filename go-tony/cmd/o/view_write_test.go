@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -171,5 +172,142 @@ func TestViewWriteRefusals(t *testing.T) {
 	}
 	if string(got) != "a: 1\n" {
 		t.Errorf("a refused run wrote the file: %q", got)
+	}
+}
+
+// -w keeps comments whether or not -c was given. Dropping them is a display choice
+// for a command which PRINTS; for one which overwrites the source it is data loss,
+// and it went unnoticed because every other test here uses a file without one.
+func TestViewWriteKeepsComments(t *testing.T) {
+	for _, tc := range []struct {
+		name, in, want string
+	}{
+		{
+			name: "a head comment and a line comment",
+			in:   "# a header\na: 1 # why\nb: 2\n",
+			want: "# a header\na: 1 # why\nb: 2\n",
+		},
+		{
+			name: "a comment above a nested key",
+			in:   "a:\n  # about b\n  b: 1\n",
+			want: "a:\n  # about b\n  b: 1\n",
+		},
+		{
+			// this came back zero bytes
+			name: "a file holding nothing but a comment",
+			in:   "# just a note\n",
+			want: "# just a note\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "doc.tony")
+			if err := os.WriteFile(path, []byte(tc.in), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if code, out := runOIn(t, "", "v", "-w", path); code != 0 {
+				t.Fatalf("exit %d: %s", code, out)
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) == 0 {
+				t.Fatalf("the file was emptied")
+			}
+			if !strings.HasPrefix(string(got), tc.want) {
+				t.Errorf("got %q, want it to start with %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// Formatting is idempotent: what -w writes is what -w reads without changing it.
+// A formatter which does not settle rewrites a tree on every run.
+func TestViewWriteIsIdempotent(t *testing.T) {
+	for _, in := range []string{
+		"a: 1   \n\n\nb: \"x\"\n",
+		"# a header\na: 1 # why\n",
+		"# just a note\n",
+		"a: 1\n---\nb: 2\n---\nc: 3\n",
+		"a:\n  # about b\n  b: 1\n",
+	} {
+		path := filepath.Join(t.TempDir(), "doc.tony")
+		if err := os.WriteFile(path, []byte(in), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if code, out := runOIn(t, "", "v", "-w", path); code != 0 {
+			t.Fatalf("%q: exit %d: %s", in, code, out)
+		}
+		once, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if code, out := runOIn(t, "", "v", "-w", path); code != 0 {
+			t.Fatalf("%q: second run exit %d: %s", in, code, out)
+		}
+		twice, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(once) != string(twice) {
+			t.Errorf("%q: not settled\n once:  %q\n twice: %q", in, once, twice)
+		}
+	}
+}
+
+// A separator does not need a newline the document has already written. Writing
+// "\n---\n" after a document which ends in one put a blank line before every
+// separator -- a line the author did not write, and one the writer is documented
+// to drop.
+func TestViewWriteSeparatesWithoutABlankLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "doc.tony")
+	const in = "a: 1\n---\nb: 2\n---\nc: 3\n"
+	if err := os.WriteFile(path, []byte(in), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := runOIn(t, "", "v", "-w", path); code != 0 {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(got), "\n\n---") {
+		t.Errorf("a blank line before a separator: %q", got)
+	}
+	if string(got) != in {
+		t.Errorf("got %q, want %q", got, in)
+	}
+}
+
+// Through a symlink, -w formats what the link NAMES. Renaming over the link would
+// replace it with a regular file and leave the target unformatted, which detaches
+// a symlinked config from the thing it points at.
+func TestViewWriteFollowsASymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "real.tony")
+	link := filepath.Join(dir, "link.tony")
+	if err := os.WriteFile(target, []byte("x:   1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("real.tony", link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if code, out := runOIn(t, "", "v", "-w", link); code != 0 {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+	info, err := os.Lstat(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("the symlink was replaced with a regular file")
+	}
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "x: 1\n" {
+		t.Errorf("the target was not formatted: %q", got)
 	}
 }

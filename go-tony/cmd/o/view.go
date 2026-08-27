@@ -28,7 +28,13 @@ func view(cfg *ViewConfig, cc *cli.Context, args []string) error {
 		if msg := whyNotWritable(cfg, args); msg != "" {
 			return usageErr(cfg.View, cc, msg)
 		}
-		if err := writeFiles(cfg, args); err != nil {
+		// Writing a file back keeps its comments whether or not -c was given.
+		// Dropping them is a display choice for a command which PRINTS; for one
+		// which overwrites the source it is data loss, and a file holding nothing
+		// but a comment came back zero bytes.
+		keep := *cfg
+		keep.Comments = true
+		if err := writeFiles(&keep, args); err != nil {
 			return fault(cc, err)
 		}
 		return nil
@@ -89,6 +95,12 @@ func writeFiles(cfg *ViewConfig, files []string) error {
 // run leaves the original whole. Writing in place would leave a truncated file, and
 // the file being truncated is the only copy of what it held.
 func writeFile(cfg *ViewConfig, file string) error {
+	// Through a symlink, format what it NAMES. Renaming over the link would
+	// replace it with a regular file and leave the target unformatted, which
+	// silently detaches a symlinked config from the thing it points at.
+	if resolved, err := filepath.EvalSymlinks(file); err == nil {
+		file = resolved
+	}
 	info, err := os.Stat(file)
 	if err != nil {
 		return fmt.Errorf("could not stat %q: %w", file, err)
@@ -178,12 +190,23 @@ func viewReader(cfg *ViewConfig, w io.Writer, r io.Reader) error {
 		if y == nil {
 			continue
 		}
-		if err := encode.Encode(y, w, opts...); err != nil {
+		// Encoded aside so the separator can tell whether the document has already
+		// ended its line. Writing "\n---\n" after one that has put a blank line
+		// before every separator, which is a line the author did not write and
+		// which the writer is documented to drop (docs/tony.md, "Normalization").
+		var one bytes.Buffer
+		if err := encode.Encode(y, &one, opts...); err != nil {
 			return fmt.Errorf("error encoding result %d: %w", i, err)
 		}
+		if _, err := w.Write(one.Bytes()); err != nil {
+			return fmt.Errorf("error writing document %d: %w", i, err)
+		}
 		if i < n-1 {
-			_, err = w.Write([]byte("\n---\n"))
-			if err != nil {
+			sep := "\n---\n"
+			if b := one.Bytes(); len(b) > 0 && b[len(b)-1] == '\n' {
+				sep = "---\n"
+			}
+			if _, err := w.Write([]byte(sep)); err != nil {
 				return fmt.Errorf("error writing document %d: %w", i, err)
 			}
 		}

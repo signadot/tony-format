@@ -16,10 +16,18 @@ func (s *Server) Formatting(ctx context.Context, params *protocol.DocumentFormat
 		return nil, nil
 	}
 
-	// Parse the document
-	nodes, err := parse.ParseMulti([]byte(doc.content), parse.ParseTony())
+	// Parse the document. WITH comments: the encode below asks for them, and
+	// parsing without meant the formatter dropped every comment in the file.
+	nodes, err := parse.ParseMulti([]byte(doc.content), parse.ParseTony(), parse.ParseComments(true))
 	if err != nil {
 		// If parsing fails, return no edits
+		return nil, nil
+	}
+	// A document holding no VALUE -- one which is only a comment header, say --
+	// formats to nothing, and an edit replacing the file with nothing is not a
+	// formatting. ParseMulti answers no documents for one rather than one nil
+	// document, so the loop below would build an empty result and offer it.
+	if len(nodes) == 0 {
 		return nil, nil
 	}
 
