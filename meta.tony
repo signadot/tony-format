@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 92307065e3d870ad57252643098600f147e0c6ae
 commits: []
 created: "2026-08-28T08:29:43.966762+02:00"
 duplicates: []
@@ -12,5 +13,5 @@ labels:
 - mergeop
 - storage
 related_issues: []
-status: open
-updated: "2026-08-28T08:46:06.197856+02:00"
+status: closed
+updated: "2026-08-28T08:46:25.630618+02:00"
