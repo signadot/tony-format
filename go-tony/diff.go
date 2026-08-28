@@ -237,7 +237,23 @@ func (d *differ) makeDiff(from, to *ir.Node) *ir.Node {
 		// replay of this one. Diffing against an empty object of the same kind
 		// gets the fields and leaves the rest of the document alone.
 		if to != nil && to.Type == ir.ObjectType {
-			return libdiff.DiffObject(&ir.Node{Type: ir.ObjectType}, to, d.diff)
+			// Against the REAL from side when there is one. Diffing against an
+			// empty object unconditionally lost every deletion: a field that was
+			// there and is not is a difference, and an empty from has no field to
+			// miss. That is reachable whenever this is called with two objects --
+			// the comment branch above does exactly that when commentDiff declines
+			// -- and it silently dropped the !delete for a removed field, so the
+			// delta merged and what it removed stayed.
+			// Through the comment wrapper: this is reached from the comment
+			// branch above, where from is the CommentType node and the object is
+			// inside it. Testing the wrapper's type substituted an empty object,
+			// and an empty from has no field to miss -- so every deletion was
+			// dropped and the delta merged what it should have removed.
+			f := ir.Uncomment(from)
+			if f == nil || f.Type != ir.ObjectType {
+				f = &ir.Node{Type: ir.ObjectType}
+			}
+			return libdiff.DiffObject(f, to, d.diff)
 		}
 		// Everything else is stated whole, with !insert -- which is what MakeDiff
 		// answers when there was nothing there, and now says the same thing when
