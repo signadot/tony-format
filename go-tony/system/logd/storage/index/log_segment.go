@@ -6,6 +6,7 @@ import (
 
 	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/mergeop"
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
@@ -145,6 +146,22 @@ func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq i
 	// comments. It is the index's question, not the format's, so the wrapper is
 	// looked through rather than refused (3cdjz00jh12krns4g1n0).
 	n = ir.Uncomment(n)
+
+	// An operand is not ordinary structure. Descending into one recorded paths the
+	// document does not have -- a write of {a: !comment {head: ["# note"]}} indexed
+	// a.head and a.head[0] -- and, worse, would record a value an operand carries at
+	// a path below where it actually sits. mergeop.OperandPaths is the one place that
+	// knows which parts of which operand are document values and where each sits;
+	// when it has no answer the walk below runs as it always did.
+	if ops, known := mergeop.OperandPaths(n); known {
+		for _, o := range ops {
+			if err := indexPatchRec(idx, e, logFile, pos, txSeq, generation, o.Node,
+				kPath+o.Suffix, schema, scopeID); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 
 	switch n.Type {
 	case ir.ObjectType:
