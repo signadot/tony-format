@@ -366,17 +366,17 @@ func (d *differ) diff(from, to *ir.Node) *ir.Node {
 		}
 		return d.makeDiff(from, to)
 	}
-	if from.Type == ir.CommentType {
-		if len(from.Values) != 0 {
-			return d.diff(from.Values[0], to)
+	// Both sides at once, not one and then the other. Unwrapping only `from` left
+	// the next pass comparing a bare node against a wrapper, where headLines sees a
+	// comment on one side and none on the other -- so sameComments said no and a
+	// document DIFFERED FROM ITSELF, answering !comment with the lines it already
+	// had. Reached only with comments on, which is what a store diffs with.
+	if from.Type == ir.CommentType || to.Type == ir.CommentType {
+		if (from.Type == ir.CommentType && len(from.Values) == 0) ||
+			(to.Type == ir.CommentType && len(to.Values) == 0) {
+			panic("comment")
 		}
-		panic("comment")
-	}
-	if to.Type == ir.CommentType {
-		if len(to.Values) != 0 {
-			return d.diff(from, to.Values[0])
-		}
-		panic("comment")
+		return d.diff(unwrapComment(from), unwrapComment(to))
 	}
 	if from.Type != to.Type {
 		return d.makeDiff(from, to)
