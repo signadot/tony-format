@@ -3,7 +3,8 @@ blocked_by: []
 blocks: []
 branches: []
 closed_by: ab9cd31705f98ea302ec734411de74b38013ad3e
-commits: []
+commits:
+- ab9cd31705f98ea302ec734411de74b38013ad3e
 created: "2026-08-28T22:50:19.229216+02:00"
 duplicates: []
 id: nm5r3sxah12ks2zmj5n0
@@ -14,4 +15,4 @@ labels:
 related_issues:
 - xqpvk3ehh12ks89mj5n0
 status: closed
-updated: "2026-08-28T23:08:49.415679+02:00"
+updated: "2026-08-28T23:08:49.519722+02:00"
