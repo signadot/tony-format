@@ -60,6 +60,20 @@ func Escape(node *ir.Node) *ir.Node {
 // preserves the tag where it is and stops anything beneath being read as an
 // instruction.
 func escaped(node *ir.Node, op string) *ir.Node {
+	// An operation belongs on the VALUE, and a head comment is a wrapper node AROUND
+	// the value. A tag on the wrapper is seen by nothing: mergeop walks past a comment
+	// before it looks for an operation, so the operation never ran -- an !insert
+	// merged instead of replacing -- and the log writes a comment as its lines and its
+	// child, so the tag was not even serialized. A !delete on a commented value
+	// reached the log as the value, and the delta reinstated what it was meant to
+	// remove (xqpvk3ehh12ks89mj5n0).
+	if node.Type == ir.CommentType && len(node.Values) == 1 {
+		w := node.Clone()
+		w.Values[0] = escaped(w.Values[0], op)
+		w.Values[0].Parent = w
+		w.Values[0].ParentIndex = 0
+		return w
+	}
 	switch {
 	case hasOpTag(node):
 		return node.Clone().WithTag(
