@@ -5,7 +5,6 @@ import (
 
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
-	"github.com/signadot/tony-format/go-tony/mergeop"
 	"github.com/signadot/tony-format/go-tony/schema"
 )
 
@@ -31,9 +30,17 @@ import (
 // StorageContextURI names the context in the schema registry.
 const StorageContextURI = "logd/context/storage"
 
-// storableTags is the vocabulary. Absolute and unconditional: applying one leaves data
-// that reflects the result, and re-applying it to a base that has moved does not consult
-// what used to be there.
+// storableTags is the vocabulary, and the property it names is ABSOLUTENESS.
+//
+// An operation is absolute when its result is a statement of what the value IS, so
+// applying it to a base that has moved gives the same answer as applying it to the base
+// it was written against. A RELATIVE operation consults what used to be there, and a
+// store cannot promise that what used to be there still is: baseline advances underneath
+// a scope, and a snapshot re-materializes a document its patches were never applied to.
+//
+// This is the question the write path asks. A patch built only from absolute operations
+// is already its own delta and can be stored as it arrived; one that is not has to be
+// applied and the RESULT diffed, which is what lowering means. See NeedsLowering.
 //
 // Deliberately absent, with reasons, because the omissions are the point:
 //
@@ -48,9 +55,18 @@ const StorageContextURI = "logd/context/storage"
 //	rename     relative to the keys that were there; lowers to delete + insert
 //	jsonpatch  a sequence relative to the document
 //	if, let    conditional on the document
-//	quote, unquote, nullify, dive, embed, pass
+//	quote, unquote, dive, embed, pass
 //	           transforms of whatever is found, not statements of what is
-//	pipe       calls out to the system, so storing one means re-running it per replay
+//	nullify    the odd one out, and worth stating precisely because the value looks
+//	           absolute: it always answers null. The TAG is inherited -- !t1 {a: 1}
+//	           nullifies to !t1 null and {a: 1} to null -- so against a base whose tag
+//	           has since changed it answers differently than it did at the write.
+//	           Absolute in its value, relative in its tag, and that is enough.
+//	pipe       calls out to the system. Not a lowering case: lowering would make the
+//	           STORED form clean by running the pipe at commit, but running an arbitrary
+//	           system call inside commitMu is its own problem -- latency, side effects on
+//	           a retry, a commit that cannot be reproduced. mergeop.Unsafe names these and
+//	           tx refuses them at the door, before either of the questions above.
 //
 // comment is storable for the same reason addtag is: it states what the comment
 // IS. Without it a comment change could only be written as a replacement of the
@@ -114,7 +130,10 @@ func validateForStorage(n *ir.Node, path string) error {
 	if n == nil {
 		return nil
 	}
-	if _, op, _, _, err := mergeop.SplitChild(n); err == nil && op != "" && !IsStorableTag(op) {
+	// The whole chain, not just its head: !insert.retag(x,y) names two operations
+	// and the second is as binding as the first. SplitChild answers only the head,
+	// so a relative operation written behind an absolute one passed here entirely.
+	if op := firstRelativeOp(n.Tag); op != "" {
 		return fmt.Errorf("%s: %w", at(path), fmt.Errorf("operation %q may not be stored: %s",
 			"!"+op, whyNotStorable(op)))
 	}
