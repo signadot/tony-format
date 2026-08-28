@@ -144,6 +144,10 @@ type Storage struct {
 	// its place. OFF while it is being built out. See lower.go.
 	lowering bool
 
+	// lowerAll lowers every write rather than only the ones that need it. For the
+	// differential; see LowerEverything.
+	lowerAll bool
+
 	// scopeHeads keeps, per scope, the scoped document at the commit it is current at
 	// -- what head.go keeps for baseline. Guarded by commitMu, like the head.
 	// See scope_head.go.
@@ -169,6 +173,8 @@ func Open(root string, logger *slog.Logger) (*Storage, error) {
 		logger:       logger,
 		schema:       newStorageSchema(),
 		scopeOverlay: true,
+		lowering:     os.Getenv("LOGD_LOWERING") != "",
+		lowerAll:     os.Getenv("LOGD_LOWERING") == "all",
 	}
 
 	dlog, err := dlog.NewDLog(root, logger)

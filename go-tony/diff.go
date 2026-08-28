@@ -61,8 +61,77 @@ func DiffWith(from, to *ir.Node, opts ...DiffOpt) *ir.Node {
 	res := d.diff(from, to)
 	if d.cfg.Absolute {
 		absoluteTags(res)
+		absoluteInserts(res)
 	}
 	return res
+}
+
+// absoluteInserts takes the !insert off an OBJECT the diff is introducing, leaving
+// the object to state its own fields.
+//
+// !insert replaces, which is right for a value and wrong for a subtree nobody else
+// has a claim on. A scope writing {a: {x: 5}} into an empty document means "a.x is
+// 5"; if the delta said "a is {x: 5}" then a later write to a.y, by baseline or by
+// anyone, would be wiped every time this one replayed. Absoluteness is a property of
+// each path a delta NAMES, not of the subtree it hangs under.
+//
+// libdiff.DiffObject calls MakeDiff directly for a field that was not there and does
+// not take the option, which is why this is a post-pass rather than a branch.
+//
+// It stops at !raw, which is not an object being introduced but data that happens to
+// look like one.
+func absoluteInserts(n *ir.Node) {
+	if n == nil {
+		return
+	}
+	if n.Type == ir.ObjectType && ir.TagHas(n.Tag, libdiff.InsertTag) &&
+		!ir.TagHas(n.Tag, libdiff.RawTag) {
+		// !insert(t) carries the value's own tag as its ARGUMENT -- "insert this,
+		// tagged !t" -- and the node's tag chain no longer holds it. Dropping the
+		// operation without putting it back would introduce the object untagged.
+		kept := insertArgTag(n.Tag)
+		n.Tag = dropTag(n.Tag, libdiff.InsertTag)
+		if kept != "" {
+			n.Tag = ir.TagCompose(kept, nil, n.Tag)
+		}
+	}
+	for _, v := range n.Values {
+		absoluteInserts(v)
+	}
+}
+
+// insertArgTag answers the tag !insert carries as its argument, with its "!", or "".
+func insertArgTag(tag string) string {
+	for tag != "" {
+		head, args, rest := ir.TagArgs(tag)
+		if head == libdiff.InsertTag && len(args) == 1 {
+			return "!" + args[0]
+		}
+		tag = rest
+	}
+	return ""
+}
+
+// dropTag removes one label from a composed chain, keeping the rest in order.
+func dropTag(tag, what string) string {
+	out := ""
+	for tag != "" {
+		head, args, rest := ir.TagArgs(tag)
+		tag = rest
+		if head == what {
+			continue
+		}
+		part := head
+		if len(args) > 0 {
+			part += "(" + strings.Join(args, ",") + ")"
+		}
+		if out == "" {
+			out = part
+		} else {
+			out += "." + strings.TrimPrefix(part, "!")
+		}
+	}
+	return out
 }
 
 // absoluteTags rewrites every !retag(from,to) beneath n into the two unconditional
@@ -160,10 +229,20 @@ func DiffAbsolute(v bool) DiffOpt {
 // into. Absolute: the new value, which needs no base to mean what it means.
 func (d *differ) makeDiff(from, to *ir.Node) *ir.Node {
 	if d.cfg.Absolute {
-		// !insert, which is what MakeDiff answers when there was nothing there --
-		// and now says the same thing when there was: the value it carries is the
-		// result, whatever it is applied to. A bare value will not do, because a
-		// bare container MERGES with the one it lands on.
+		// An OBJECT is stated field by field, even when there was nothing here to
+		// compare it against. Absoluteness is a property of each path the delta
+		// names, not of the subtree it hangs under: a scope writing {a: {x: 5}}
+		// into an empty document means "a.x is 5", and if it said "a is {x: 5}"
+		// instead then a later write to a.y by someone else would be wiped by a
+		// replay of this one. Diffing against an empty object of the same kind
+		// gets the fields and leaves the rest of the document alone.
+		if to != nil && to.Type == ir.ObjectType {
+			return libdiff.DiffObject(&ir.Node{Type: ir.ObjectType}, to, d.diff)
+		}
+		// Everything else is stated whole, with !insert -- which is what MakeDiff
+		// answers when there was nothing there, and now says the same thing when
+		// there was: the value it carries is the result. A bare value will not do,
+		// because a bare container MERGES with the one it lands on.
 		return libdiff.MakeDiff(nil, to)
 	}
 	return libdiff.MakeDiff(from, to)
