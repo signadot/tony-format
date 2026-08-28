@@ -4,7 +4,6 @@ import (
 	"sort"
 	"testing"
 
-	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
@@ -90,9 +89,12 @@ func lower(t *testing.T, before, after string, keys map[string]string) *ir.Node 
 	if err != nil {
 		t.Fatalf("parse after: %v", err)
 	}
-	annotateKeysAt(b, "", keys)
-	annotateKeysAt(a, "", keys)
-	return unconditionalPatch(tony.Diff(b, a))
+	// The overlay's own two steps: strip presentation, then storableDelta. Presentation
+	// is how a value was WRITTEN, and two states built separately differ in it for
+	// reasons that are nobody's intent -- without the strip the delta states an
+	// !addtag(bracket) that no writer asked for.
+	return storableDelta(
+		stripPresentationDeepIR(b), stripPresentationDeepIR(a), keys, false)
 }
 
 // TestLowering_TagsEveryKeyedArray: check 1.

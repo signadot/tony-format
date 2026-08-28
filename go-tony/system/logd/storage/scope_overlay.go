@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/libdiff"
@@ -80,23 +79,28 @@ func (s *Storage) BuildScopeOverlay(scopeID string, commit int64) (*ir.Node, err
 	// other from patch replay -- and a diff over that difference emits a tag op, which an
 	// overlay then re-asserts against a document that never had the tag. Strip it from
 	// both before comparing, so the overlay describes data.
-	keys := s.keyedArrayPaths()
-	annBase, annScoped := stripPresentationDeepIR(base.Clone()), stripPresentationDeepIR(scoped.Clone())
-	annotateKeyed(annBase, "", keys)
-	annotateKeyed(annScoped, "", keys)
-	// The diff answers the VALUE difference. It does not carry comments, and does not
-	// need to: what the scope holds is re-stated below, path by path, read out of the
-	// scoped view with comments on -- so a comment at a path the scope owns arrives
-	// with the value it is about. A comment at a path the scope does NOT own is
-	// baseline's, and does not belong in the scope's overlay at all.
+	// storableDelta is the same one a write is lowered through, which is the point:
+	// an overlay IS a lowered delta -- it states what the scope holds that baseline
+	// does not, in the vocabulary a store may keep, and it is validated as such below.
+	// There used to be a second copy of that here, absolute by a different mechanism
+	// and marked by a different rule, and the gap between the two is where this file's
+	// defects lived.
 	//
-	// Asking for them here was redundant and not harmless. With comments on, a node
-	// whose comment and value both changed is stated as an OPERATION, and the
-	// owned-path union below merges a value into whatever it finds -- so the value
-	// landed among the operator's own fields and every read of the scope failed with
-	// `comment op operand names "head", "line" or "value", got "k1"`
-	// (nm5r3sxah12ks2zmj5n0).
-	overlay := unconditionalPatch(tony.DiffWith(annBase, annScoped))
+	// Presentation is stripped FIRST, which is this caller's own: two independent
+	// materializations can differ in how a value was written for reasons that are
+	// nobody's intent -- one side rebuilt from a snapshot, the other from replay --
+	// and a diff over that emits a tag operation the overlay would re-assert against a
+	// document that never had the tag.
+	//
+	// Comments are NOT asked for, which is also this caller's own: every path the
+	// scope owns is re-stated below with comments on, so asking here is redundant --
+	// and harmful, since a comment makes a node an operation and the union merges
+	// values into what it finds (nm5r3sxah12ks2zmj5n0).
+	keys := s.keyedArrayPaths()
+	overlay := storableDelta(
+		stripPresentationDeepIR(base.Clone()),
+		stripPresentationDeepIR(scoped.Clone()),
+		keys, false)
 
 	// A minimal diff records only where the two states differ, so a scope that wrote the
 	// value baseline already holds records nothing and loses the path. The index knows
@@ -269,29 +273,6 @@ func (s *Storage) latestOverlay(scopeID string, commit int64) *index.LogSegment 
 	return nil
 }
 
-// unconditionalPatch rewrites checked replaces into the value they install. An overlay is
-// re-applied to a baseline expected to have moved, and !replace{from,to} verifies the
-// document still equals from -- against a moved baseline it errors outright rather than
-// mis-applying. Plan R1.
-func unconditionalPatch(n *ir.Node) *ir.Node {
-	if n == nil {
-		return nil
-	}
-	if ir.TagHas(n.Tag, "!raw") {
-		// Data, at any depth: a !replace inside a stored patch or a stored rule
-		// is something a writer put there, not an instruction to lower.
-		return n
-	}
-	if ir.TagHas(n.Tag, "!replace") {
-		if to := ir.Get(n, "to"); to != nil {
-			return unconditionalPatch(to.Clone())
-		}
-	}
-	for i, v := range n.Values {
-		n.Values[i] = unconditionalPatch(v)
-	}
-	return n
-}
 
 // liveScopes lists every scope the index holds data for. P4 in the plan: there is no
 // other way to ask -- activeScopes was excised with the old scope-snapshot code and
