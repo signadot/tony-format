@@ -195,11 +195,21 @@ func markDeltaRoots(n *ir.Node) {
 	if n == nil {
 		return
 	}
-	if n.Type == ir.ObjectType && len(n.Fields) > 0 && n.Tag == "" {
-		for _, v := range n.Values {
-			markDeltaRoots(v)
+	// Down to the deepest CONTAINER the change is inside, and mark that -- not the
+	// changed field, and not the value under it. An operation on a field is about
+	// that field within its container, so the container is what the patch is rooted
+	// at: `a.b <- {k0: 9}` from a client is stored as
+	//
+	//	a: b: !logd-patch-root {k0: 9}
+	//
+	// and the delta for the same write should be marked in the same place. Marking
+	// the leaf instead put the marker at a.b.k0, which is not where the write lands.
+	if n.Type == ir.ObjectType && len(n.Fields) == 1 && len(n.Values) == 1 && n.Tag == "" {
+		if sub := ir.Uncomment(n.Values[0]); sub != nil && sub.Type == ir.ObjectType &&
+			sub.Tag == "" && len(sub.Fields) > 0 {
+			markDeltaRoots(n.Values[0])
+			return
 		}
-		return
 	}
 	tx.MarkPatchRoot(n)
 }
