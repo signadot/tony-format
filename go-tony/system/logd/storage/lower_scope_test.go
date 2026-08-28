@@ -88,8 +88,6 @@ func applyScopeOp(t *testing.T, s *Storage, o scopeOp, scope string) (int64, err
 // one not. A scope read must answer the same in both at every commit -- lowering
 // changes what the log KEEPS and must not change what it says.
 func TestLoweringScopeDifferential(t *testing.T) {
-	t.Skip("nm5r3sxah12ks2zmj5n0: the overlay's owned-path union merges into an operand")
-
 	const scope = "s1"
 	diverged := 0
 	for seed := 1; seed <= seedCount(); seed++ {

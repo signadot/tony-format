@@ -84,15 +84,19 @@ func (s *Storage) BuildScopeOverlay(scopeID string, commit int64) (*ir.Node, err
 	annBase, annScoped := stripPresentationDeepIR(base.Clone()), stripPresentationDeepIR(scoped.Clone())
 	annotateKeyed(annBase, "", keys)
 	annotateKeyed(annScoped, "", keys)
-	// Comments count, for the reason api.SameState gives: an overlay states what the
-	// scope holds that baseline does not, and if a comment is part of what a store
-	// holds then a scope whose only difference is one has to keep it. !comment is in
-	// the storage vocabulary and is absolute, so it survives the lowering below like
-	// any other statement of what is. Inert while nothing stored carries a comment,
-	// and it rests on the same condition the head's divergence check does: the two
-	// materializations must be equally faithful about them, or the difference this
-	// reports is the reader's rather than the scope's.
-	overlay := unconditionalPatch(tony.DiffWith(annBase, annScoped, tony.DiffComments(true)))
+	// The diff answers the VALUE difference. It does not carry comments, and does not
+	// need to: what the scope holds is re-stated below, path by path, read out of the
+	// scoped view with comments on -- so a comment at a path the scope owns arrives
+	// with the value it is about. A comment at a path the scope does NOT own is
+	// baseline's, and does not belong in the scope's overlay at all.
+	//
+	// Asking for them here was redundant and not harmless. With comments on, a node
+	// whose comment and value both changed is stated as an OPERATION, and the
+	// owned-path union below merges a value into whatever it finds -- so the value
+	// landed among the operator's own fields and every read of the scope failed with
+	// `comment op operand names "head", "line" or "value", got "k1"`
+	// (nm5r3sxah12ks2zmj5n0).
+	overlay := unconditionalPatch(tony.DiffWith(annBase, annScoped))
 
 	// A minimal diff records only where the two states differ, so a scope that wrote the
 	// value baseline already holds records nothing and loses the path. The index knows
