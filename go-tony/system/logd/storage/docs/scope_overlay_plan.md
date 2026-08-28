@@ -817,9 +817,12 @@ nothing.
 
 ## 7. Open decisions
 
-**Freeze semantics — direction set, and it dissolves the question.** §3.2 asks whether a
-scope's relative op should keep tracking baseline or freeze. The answer is to stop storing
-relative ops at all, on BOTH layers:
+**Freeze semantics — done, and it dissolved the question.** §3.2 asked whether a
+scope's relative op should keep tracking baseline or freeze. The answer was to stop
+storing relative ops at all, on BOTH layers, and that is now what happens:
+`api.NeedsLowering` asks per write, `Storage.lowerWrite` applies and diffs the ones that
+need it, and lowering is on by default. What follows is what that was decided from, kept
+because the reasoning is what the shape rests on:
 
 > A patch may be written with arbitrary expressivity. What the log stores is
 > `Diff(before, after)`, lowered to a vocabulary in which **the data reflects the result** —

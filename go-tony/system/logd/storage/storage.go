@@ -141,7 +141,8 @@ type Storage struct {
 
 	// lowering holds what the log KEEPS to the storage vocabulary: a write carrying a
 	// relative operation is applied and its result diffed, and the diff is stored in
-	// its place. OFF while it is being built out. See lower.go.
+	// its place. ON by default; EnableLowering(false) is the escape hatch, and with it
+	// off a store is byte-identical to one that never had the feature. See lower.go.
 	lowering bool
 
 	// lowerAll lowers every write rather than only the ones that need it. For the
@@ -173,8 +174,9 @@ func Open(root string, logger *slog.Logger) (*Storage, error) {
 		logger:       logger,
 		schema:       newStorageSchema(),
 		scopeOverlay: true,
-		lowering:     os.Getenv("LOGD_LOWERING") != "",
-		lowerAll:     os.Getenv("LOGD_LOWERING") == "all",
+		lowering:     true,
+		// Never on outside a test. See LowerEverything.
+		lowerAll: os.Getenv("LOGD_LOWERING") == "all",
 	}
 
 	dlog, err := dlog.NewDLog(root, logger)

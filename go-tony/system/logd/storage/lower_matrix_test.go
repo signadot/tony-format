@@ -89,8 +89,12 @@ func TestLoweringMatrix(t *testing.T) {
 		open  func(t *testing.T) *Storage
 		apply func(t *testing.T, s *Storage, o genOp) (int64, error)
 	}{{
-		name:  "plain",
-		open:  func(t *testing.T) *Storage { return openTestStorage(t) },
+		name: "plain",
+		open: func(t *testing.T) *Storage {
+			s := openTestStorage(t)
+			s.EnableLowering(false) // explicitly, since lowering is now the default
+			return s
+		},
 		apply: applyOp,
 	}, {
 		name: "engine",
@@ -101,8 +105,14 @@ func TestLoweringMatrix(t *testing.T) {
 		},
 		apply: applyOp,
 	}, {
-		name:  "client",
-		open:  func(t *testing.T) *Storage { return openTestStorage(t) },
+		name: "client",
+		open: func(t *testing.T) *Storage {
+			s := openTestStorage(t)
+			// The CLIENT lowers; the engine must not, or the delta is lowered
+			// twice and the row stops answering what it is for.
+			s.EnableLowering(false)
+			return s
+		},
 		apply: applyOpLoweredByClient,
 	}}
 

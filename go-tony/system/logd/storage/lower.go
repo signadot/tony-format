@@ -45,8 +45,8 @@ import (
 // nothing in it writes a relative operation.
 var loweringFired, loweringSkipped, loweringUndeclaredKey int64
 
-// EnableLowering turns lowering on or off. OFF while the differential below is being
-// built out; passing true is what the tests use to compare the two paths.
+// EnableLowering turns lowering on or off. ON by default; passing false is the escape
+// hatch, and with it off a store keeps what a client sent, as it always did.
 func (s *Storage) EnableLowering(v bool) { s.lowering = v }
 
 // LowerEverything lowers every write, whether or not it needs it.
@@ -60,6 +60,10 @@ func (s *Storage) EnableLowering(v bool) { s.lowering = v }
 // which is the point, and which also means a green suite says almost nothing about
 // whether lowering is correct. Forcing it puts every state transition the suite
 // produces through DiffAbsolute and back.
+//
+// It is not what ships. What ships asks api.NeedsLowering per write and lowers the
+// ones that need it, which is what makes the read on the write path free: the state
+// verifyApplies already produced is both sides of the diff.
 func (s *Storage) LowerEverything(v bool) { s.lowering, s.lowerAll = true, v }
 
 // lowerWrite answers the delta the log should keep for this write.
