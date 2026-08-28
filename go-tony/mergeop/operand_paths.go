@@ -60,8 +60,12 @@ func OperandPaths(n *ir.Node) (ops []Operand, ok bool) {
 		return nil, true
 
 	case string(commentName):
-		// The operand names comment POSITIONS -- head, line -- which are not
-		// paths. See comment.go.
+		// head: and line: name comment POSITIONS, which are not paths. value: is
+		// the one part of this operand that is a document value, and it sits
+		// where the operation sits. See comment.go.
+		if v := ir.Get(child, CommentValue); v != nil {
+			return []Operand{{Node: v, Suffix: ""}}, true
+		}
 		return nil, true
 
 	case string(keyedListName):
