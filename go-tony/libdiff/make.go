@@ -11,10 +11,10 @@ var IsOp = func(tag string) bool { return false }
 // MakeDiff builds the patch node that turns from into to at one position.
 //
 // An inserted value goes into the patch as a value, and !insert applies it as
-// a patch, so a value which holds a merge operation as data -- a stored rule,
-// a stored patch -- would be interpreted rather than stored when the diff was
-// applied.  Such a value is escaped with !raw, under which nothing is
-// interpreted at any depth.
+// a patch -- against absence, so what results is the value -- so a value which
+// holds a merge operation as data -- a stored rule, a stored patch -- would be
+// interpreted rather than stored when the diff was applied.  Such a value is
+// escaped with !raw, under which nothing is interpreted at any depth.
 //
 // A deleted value needs the escape just as much, though !delete never applies
 // what it carries: Reverse turns the !delete into an !insert, which does, and

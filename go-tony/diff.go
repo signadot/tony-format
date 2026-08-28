@@ -1,6 +1,8 @@
 package tony
 
 import (
+	"strings"
+
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/libdiff"
 	"github.com/signadot/tony-format/go-tony/mergeop"
@@ -56,7 +58,56 @@ func DiffWith(from, to *ir.Node, opts ...DiffOpt) *ir.Node {
 	for _, opt := range opts {
 		opt(&d.cfg)
 	}
-	return d.diff(from, to)
+	res := d.diff(from, to)
+	if d.cfg.Absolute {
+		absoluteTags(res)
+	}
+	return res
+}
+
+// absoluteTags rewrites every !retag(from,to) beneath n into the two unconditional
+// halves the storage vocabulary keeps, !rmtag(from).addtag(to).
+//
+// libdiff builds tag differences itself -- object.go and array_by_key.go both call
+// MakeTagDiff -- and does not take the option, so this is a post-pass. A tag is the
+// one thing a post-pass CAN rewrite: !retag names both halves, so splitting it needs
+// nothing from the document. A !strdiff cannot be flattened this way, which is why
+// the option exists rather than this doing all of it.
+func absoluteTags(n *ir.Node) {
+	if n == nil {
+		return
+	}
+	n.Tag = absoluteTagChain(n.Tag)
+	for _, f := range n.Fields {
+		absoluteTags(f)
+	}
+	for _, v := range n.Values {
+		absoluteTags(v)
+	}
+}
+
+func absoluteTagChain(tag string) string {
+	out := ""
+	add := func(part string) {
+		if out == "" {
+			out = part
+			return
+		}
+		out += "." + strings.TrimPrefix(part, "!")
+	}
+	for tag != "" {
+		head, args, rest := ir.TagArgs(tag)
+		if head == libdiff.TagReplaceTag && len(args) == 2 {
+			add(libdiff.MakeTagDiff("!"+args[0], ""))
+			add(libdiff.MakeTagDiff("", "!"+args[1]))
+		} else if len(args) > 0 {
+			add(head + "(" + strings.Join(args, ",") + ")")
+		} else {
+			add(head)
+		}
+		tag = rest
+	}
+	return out
 }
 
 type differ struct {
@@ -109,7 +160,11 @@ func DiffAbsolute(v bool) DiffOpt {
 // into. Absolute: the new value, which needs no base to mean what it means.
 func (d *differ) makeDiff(from, to *ir.Node) *ir.Node {
 	if d.cfg.Absolute {
-		return to.Clone()
+		// !insert, which is what MakeDiff answers when there was nothing there --
+		// and now says the same thing when there was: the value it carries is the
+		// result, whatever it is applied to. A bare value will not do, because a
+		// bare container MERGES with the one it lands on.
+		return libdiff.MakeDiff(nil, to)
 	}
 	return libdiff.MakeDiff(from, to)
 }
@@ -243,7 +298,7 @@ func (d *differ) diff(from, to *ir.Node) *ir.Node {
 			if from.DeepEqual(to) {
 				return nil
 			}
-			return to.Clone()
+			return libdiff.MakeDiff(nil, to)
 		}
 		return libdiff.DiffNumber(from, to)
 
@@ -253,7 +308,7 @@ func (d *differ) diff(from, to *ir.Node) *ir.Node {
 			if from.String == to.String && from.Tag == to.Tag {
 				return nil
 			}
-			return to.Clone()
+			return libdiff.MakeDiff(nil, to)
 		}
 		return libdiff.DiffString(from, to)
 	case ir.BoolType:
@@ -282,7 +337,7 @@ func (d *differ) diffArrayByIndex(from, to *ir.Node) *ir.Node {
 		if from.DeepEqual(to) {
 			return nil
 		}
-		return to.Clone()
+		return libdiff.MakeDiff(nil, to)
 	}
 	return libdiff.DiffArrayByIndex(from, to, d.diff)
 }

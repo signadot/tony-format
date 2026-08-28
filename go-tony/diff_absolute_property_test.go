@@ -18,14 +18,12 @@ import (
 // otherwise. !retag is checked in the same way. !strdiff is an edit script over the
 // string that was there and !arraydiff names positions in the array that was there.
 //
-// !retag is NOT in this list yet, and that is a gap rather than a judgement: libdiff
-// builds tag differences directly (object.go, array_by_key.go) and does not take the
-// option, and rewriting one afterwards into its two unconditional halves --
-// !rmtag(from).addtag(to) -- does not reproduce what it did: tried, and the round
-// trip went from 6 failures in 500 to 85. It belongs with the container case in
-// 5k4a6drqh12ksnsaj5n0, being the same missing thing: no way to STATE a result where
-// the vocabulary only knows how to relate one.
-var relativePrimitives = []string{"!replace", "!strdiff", "!arraydiff"}
+// !retag is here for a reason worth stating: storableTags calls !addtag and
+// !rmtag its unconditional halves, and they are -- rewriting a !retag(a,b) into
+// !rmtag(a).addtag(b) is exact. It did not look exact at first, because it was tried
+// while a container answered whole still MERGED rather than replaced, and the two
+// faults together read as one. See absoluteTags (5k4a6drqh12ksnsaj5n0).
+var relativePrimitives = []string{"!replace", "!strdiff", "!arraydiff", "!retag"}
 
 // findRelative answers the first relative primitive in a delta, or "".
 func findRelative(n *ir.Node) string {
@@ -51,8 +49,7 @@ func findRelative(n *ir.Node) string {
 }
 
 // TestDiffAbsoluteVocabulary: an absolute diff emits none of the primitives that are
-// counted from the base -- with the exception noted above, which is the same gap the
-// round trip below runs into.
+// counted from the base.
 //
 // Both halves matter and neither implies the other. A diff that answered with b
 // entire would be absolute and would round trip, and would also be useless; a diff
@@ -100,20 +97,17 @@ func TestDiffAbsoluteVocabulary(t *testing.T) {
 	}
 }
 
-// TestDiffAbsoluteRoundTrip is the other half, and it does not hold yet.
+// TestDiffAbsoluteRoundTrip is the other half: restricting the vocabulary is only
+// worth anything if the answer still reproduces b.
 //
 // An absolute answer for a POSITIONAL array or a type change is the whole new value,
-// and there is no way to say "this value, replacing what was there": the vocabulary's
-// insert describes itself as "the value is what results" and merges instead, so the
-// contents of the new container merge with the old and their tags compose
-// (5k4a6drqh12ksnsaj5n0).
-//
-// 6 of 500 seeds, every one of them that shape. Kept rather than deleted because it
-// is the acceptance test for the fix, and skipped rather than left red because a red
-// test in the tree stops being read.
+// which needs a way to say "this value, replacing what was there". !insert is that
+// -- it says so in storableTags, "adds a value; the value is what results" -- and it
+// did not do it: it applied its child as a PATCH against the document, so a container
+// merged with the one it landed on and their tags composed. Against the base it was
+// written for that is invisible, because there is nothing to merge with, which is why
+// it survived in the one place a diff emits it (5k4a6drqh12ksnsaj5n0).
 func TestDiffAbsoluteRoundTrip(t *testing.T) {
-	t.Skip("5k4a6drqh12ksnsaj5n0: no absolute primitive replaces a container")
-
 	const cases = 500
 	for i := range cases {
 		seed := int64(i) + 1
