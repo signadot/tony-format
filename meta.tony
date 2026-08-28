@@ -3,7 +3,8 @@ blocked_by: []
 blocks: []
 branches: []
 closed_by: d75919b2698236144a462bf24b5b07e6576ebc5b
-commits: []
+commits:
+- d75919b2698236144a462bf24b5b07e6576ebc5b
 created: "2026-08-28T09:11:29.379009+02:00"
 duplicates: []
 id: xqpvk3ehh12ks89mj5n0
@@ -13,4 +14,4 @@ labels:
 - storage
 related_issues: []
 status: closed
-updated: "2026-08-28T22:27:27.193139+02:00"
+updated: "2026-08-28T22:27:27.299582+02:00"
