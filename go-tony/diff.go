@@ -59,14 +59,13 @@ func DiffWith(from, to *ir.Node, opts ...DiffOpt) *ir.Node {
 	return d.diff(from, to)
 }
 
-// differ carries the options down a recursion that hands itself to libdiff as a
-// plain DiffFunc.
 type differ struct {
 	cfg DiffConfig
 }
 
 type DiffConfig struct {
 	Comments bool
+	Absolute bool
 }
 type DiffOpt func(*DiffConfig)
 
@@ -74,6 +73,45 @@ func DiffComments(v bool) DiffOpt {
 	return func(c *DiffConfig) {
 		c.Comments = v
 	}
+}
+
+// DiffAbsolute restricts the diff to primitives whose result STATES what the value
+// is, rather than how it relates to what was there.
+//
+// The default answer is the smaller one and the right one for a diff a human reads,
+// or for a patch applied to the document it was taken against: !replace{from,to}
+// checks that the value is still what it was, !strdiff names an edit to the string
+// that was there, !arraydiff names positions in the array that was there. Every one
+// of those consults the base.
+//
+// A store cannot promise the base. Baseline advances underneath a scope, and a
+// snapshot re-materializes a document these were never applied to, so what a store
+// keeps has to mean the same thing against a base that has moved. With this on, the
+// three above answer with the new value itself: to state a result rather than an
+// edit is to carry it.
+//
+// It costs size, and only where it has to. An object diffs field by field and a
+// KEYED array element by element, both unchanged -- it is a positional array and a
+// string that come out whole, because there is no way to say "this position" or
+// "this substring" without naming what was there to count from.
+//
+// It is not yet the whole of absoluteness. !retag survives, from tag differences
+// libdiff builds directly, and a container answered whole MERGES rather than
+// replaces -- both because the vocabulary has no primitive meaning "the value here
+// is exactly this" (5k4a6drqh12ksnsaj5n0).
+func DiffAbsolute(v bool) DiffOpt {
+	return func(c *DiffConfig) {
+		c.Absolute = v
+	}
+}
+
+// makeDiff answers the difference between two values that are not being descended
+// into. Absolute: the new value, which needs no base to mean what it means.
+func (d *differ) makeDiff(from, to *ir.Node) *ir.Node {
+	if d.cfg.Absolute {
+		return to.Clone()
+	}
+	return libdiff.MakeDiff(from, to)
 }
 
 // sameComments reports whether two nodes carry the same comments: the head
@@ -176,7 +214,7 @@ func (d *differ) diff(from, to *ir.Node) *ir.Node {
 		if cd := d.commentDiff(from, to); cd != nil {
 			return cd
 		}
-		return libdiff.MakeDiff(from, to)
+		return d.makeDiff(from, to)
 	}
 	if from.Type == ir.CommentType {
 		if len(from.Values) != 0 {
@@ -191,7 +229,7 @@ func (d *differ) diff(from, to *ir.Node) *ir.Node {
 		panic("comment")
 	}
 	if from.Type != to.Type {
-		return libdiff.MakeDiff(from, to)
+		return d.makeDiff(from, to)
 	}
 	switch from.Type {
 	case ir.ObjectType:
@@ -201,9 +239,22 @@ func (d *differ) diff(from, to *ir.Node) *ir.Node {
 		return d.diffArray(from, to)
 
 	case ir.NumberType:
+		if d.cfg.Absolute {
+			if from.DeepEqual(to) {
+				return nil
+			}
+			return to.Clone()
+		}
 		return libdiff.DiffNumber(from, to)
 
 	case ir.StringType:
+		if d.cfg.Absolute {
+			// !strdiff is an edit script counted from the string that was there.
+			if from.String == to.String && from.Tag == to.Tag {
+				return nil
+			}
+			return to.Clone()
+		}
 		return libdiff.DiffString(from, to)
 	case ir.BoolType:
 		if from.Bool == to.Bool {
@@ -212,7 +263,7 @@ func (d *differ) diff(from, to *ir.Node) *ir.Node {
 			}
 			return from.Clone().WithTag(libdiff.MakeTagDiff(from.Tag, to.Tag))
 		}
-		return libdiff.MakeDiff(from, to)
+		return d.makeDiff(from, to)
 
 	case ir.NullType:
 		if from.Tag == to.Tag {
@@ -223,24 +274,37 @@ func (d *differ) diff(from, to *ir.Node) *ir.Node {
 	return nil
 }
 
+// diffArrayByIndex is the positional answer, and the one that cannot be stated
+// absolutely: !arraydiff names positions in the array that WAS there. Absolute
+// carries the new array whole.
+func (d *differ) diffArrayByIndex(from, to *ir.Node) *ir.Node {
+	if d.cfg.Absolute {
+		if from.DeepEqual(to) {
+			return nil
+		}
+		return to.Clone()
+	}
+	return libdiff.DiffArrayByIndex(from, to, d.diff)
+}
+
 func (d *differ) diffArray(from, to *ir.Node) *ir.Node {
 	_, fromArgs := ir.TagGet(from.Tag, "!key")
 	if len(fromArgs) != 1 {
-		return libdiff.DiffArrayByIndex(from, to, d.diff)
+		return d.diffArrayByIndex(from, to)
 	}
 	_, toArgs := ir.TagGet(to.Tag, "!key")
 	if len(toArgs) != 1 {
-		return libdiff.DiffArrayByIndex(from, to, d.diff)
+		return d.diffArrayByIndex(from, to)
 	}
 	if fromArgs[0] != toArgs[0] {
-		return libdiff.DiffArrayByIndex(from, to, d.diff)
+		return d.diffArrayByIndex(from, to)
 	}
 	if _, err := ir.ParsePath("$." + fromArgs[0]); err != nil {
-		return libdiff.DiffArrayByIndex(from, to, d.diff)
+		return d.diffArrayByIndex(from, to)
 	}
 	res, err := libdiff.DiffArrayByKey(from, to, fromArgs[0], d.diff)
 	if err != nil {
-		return libdiff.DiffArrayByIndex(from, to, d.diff)
+		return d.diffArrayByIndex(from, to)
 	}
 	return res
 }

@@ -169,8 +169,12 @@ func nodeEqual(a, b *ir.Node) bool {
 }
 
 // verifyApplies applies patch to the state this commit will be applied to, and
-// returns the result so the caller can install it as the head rather than compute
-// it twice.
+// returns BOTH sides: the state it was applied to and the result.
+//
+// The result is what the caller installs as the head, rather than computing it
+// twice. The base is what lowering diffs the result against -- so a lowered write
+// costs a diff and no read at all, because the read the diff would need is this
+// one, already taken and already paid for by the verification.
 //
 // The commit path calls it BEFORE the entry is appended, and refuses the write if
 // it fails. That is the whole of the change: this apply already happened, in
@@ -185,26 +189,26 @@ func nodeEqual(a, b *ir.Node) bool {
 // (scope_head.go).
 //
 // Callers MUST hold commitMu.
-func (s *Storage) verifyApplies(commit int64, patch *ir.Node, scopeID *string) (*ir.Node, error) {
-	base, err := s.steppedStateAt(commit-1, scopeID)
+func (s *Storage) verifyApplies(commit int64, patch *ir.Node, scopeID *string) (base, next *ir.Node, err error) {
+	base, err = s.steppedStateAt(commit-1, scopeID)
 	if err != nil {
 		// Not the write's fault, and not a reason to store something unverified:
 		// a write which cannot be checked is refused, and the caller retries.
-		return nil, fmt.Errorf("cannot read the state at %d to check the patch: %w", commit-1, err)
-	}
-	if patch == nil {
-		return base, nil
+		return nil, nil, fmt.Errorf("cannot read the state at %d to check the patch: %w", commit-1, err)
 	}
 	if base == nil {
 		// An empty document reads back as nil, and null is what the read path's own
 		// empty-base branch folds onto.
 		base = ir.Null()
 	}
-	next, err := api.NextState(base, patch)
-	if err != nil {
-		return nil, &api.DoesNotApplyError{Commit: commit, Err: err}
+	if patch == nil {
+		return base, base, nil
 	}
-	return next, nil
+	next, err = api.NextState(base, patch)
+	if err != nil {
+		return nil, nil, &api.DoesNotApplyError{Commit: commit, Err: err}
+	}
+	return base, next, nil
 }
 
 // installHead takes the document verifyApplies already computed.

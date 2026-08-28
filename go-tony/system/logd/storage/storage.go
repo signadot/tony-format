@@ -139,6 +139,11 @@ type Storage struct {
 	// byte-identical to one that never had the feature.
 	scopeOverlay bool
 
+	// lowering holds what the log KEEPS to the storage vocabulary: a write carrying a
+	// relative operation is applied and its result diffed, and the diff is stored in
+	// its place. OFF while it is being built out. See lower.go.
+	lowering bool
+
 	// scopeHeads keeps, per scope, the scoped document at the commit it is current at
 	// -- what head.go keeps for baseline. Guarded by commitMu, like the head.
 	// See scope_head.go.
