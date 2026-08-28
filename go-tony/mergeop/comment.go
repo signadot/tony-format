@@ -31,6 +31,17 @@ import (
 // A missing value: is not `value: null`. Absent says nothing about the value and
 // leaves it alone; present says what it is, and null says it is null.
 //
+// !pass says "leave this alone" at any of the three, for a patch built by a program
+// where leaving a key out and setting it to "no change" are different amounts of
+// work. It is what !pass means everywhere else, and value: had it for free since
+// that operand goes through the patch function; the positions read their operand
+// directly and had to be told.
+//
+// The positions differ from value: in one way, deliberately: an empty list and null
+// both say the comment is GONE, because setting the lines to nothing is how a comment
+// is removed. So `head: []`, `head: null` -- comment removed; `head:` absent or
+// `head: !pass` -- comment untouched.
+//
 // A position the operand does not name is left alone, as a field an object patch
 // does not name is. Both positions in one operand rather than one operator per
 // position, because tag composition shares a child -- !comment.comment could only
@@ -145,8 +156,8 @@ func (p commentOp) Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, error
 		{CommentLine, lineCommentLines},
 	} {
 		operand := ir.Get(p.child, position.field)
-		if operand == nil {
-			continue // not named, not asked
+		if operand == nil || leaveAlone(operand) {
+			continue // not named, or named as unchanged: not asked
 		}
 		want, err := commentLines(operand)
 		if err != nil {
@@ -242,14 +253,14 @@ func (p commentOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFun
 	// The line comment before the head: setting the head comment may wrap the
 	// node, and the line comment belongs to the value inside the wrapper either
 	// way.
-	if operand := ir.Get(p.child, CommentLine); operand != nil {
+	if operand := ir.Get(p.child, CommentLine); operand != nil && !leaveAlone(operand) {
 		lines, err := commentLines(operand)
 		if err != nil {
 			return nil, err
 		}
 		res = setLineComment(res, lines)
 	}
-	if operand := ir.Get(p.child, CommentHead); operand != nil {
+	if operand := ir.Get(p.child, CommentHead); operand != nil && !leaveAlone(operand) {
 		lines, err := commentLines(operand)
 		if err != nil {
 			return nil, err
@@ -257,6 +268,22 @@ func (p commentOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFun
 		res = setHeadComment(res, lines)
 	}
 	return res, nil
+}
+
+// leaveAlone reports whether a position's operand says to leave that position as it
+// is, rather than to state what it holds.
+//
+// !pass is the format's way of saying "unchanged here" and it is honoured wherever a
+// patch is applied -- value: gets it for free, since that operand goes through the
+// patch function. The positions do not: commentLines reads the node's TYPE and never
+// looked at its tag, so `head: !pass null` cleared the comment. Silently, and doing
+// the opposite of what it said, which is worse than refusing it.
+//
+// Absence still says the same thing and is the shorter spelling. This is for saying
+// it where a field has to be present -- in a patch built by a program, where leaving
+// a key out and setting it to "no change" are different amounts of work.
+func leaveAlone(operand *ir.Node) bool {
+	return operand != nil && ir.TagHas(operand.Tag, "!"+string(passName))
 }
 
 // commentLines reads the operand: a list of strings, or null for none.

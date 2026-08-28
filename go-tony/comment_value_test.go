@@ -57,6 +57,39 @@ func TestCommentValue(t *testing.T) {
 		patch: `{a: !comment {head: ["# new"], value: null}}`,
 		want:  "# new\na: null\n",
 	}, {
+		// !pass is the format's "unchanged here", and it is honoured at all three.
+		// value: had it for free, since that operand goes through the patch
+		// function; the positions read their operand directly and used to ignore
+		// the tag, so `head: !pass` CLEARED the comment -- silently, and the
+		// opposite of what it said.
+		name:  "!pass leaves the head comment alone",
+		doc:   "a:\n  # old\n  b: 1\n",
+		patch: `{a: !comment {head: !pass null}}`,
+		want:  "a:\n  # old\n  b: 1\n",
+	}, {
+		name:  "!pass leaves the line comment alone",
+		doc:   "a: 1 # latch\n",
+		patch: `{a: !comment {line: !pass null}}`,
+		want:  "a: 1 # latch\n",
+	}, {
+		name:  "!pass leaves the value alone",
+		doc:   "a:\n  b: 1\n",
+		patch: `{a: !comment {head: ["# new"], value: !pass null}}`,
+		want:  "a:\n  # new\n  b: 1\n",
+	}, {
+		// The positions differ from value: here, deliberately. Setting the lines
+		// to nothing is how a comment is removed, so an empty list and null both
+		// say the comment is GONE -- where for the value, null says it IS null.
+		name:  "null at a position removes the comment",
+		doc:   "a:\n  # old\n  b: 1\n",
+		patch: `{a: !comment {head: null}}`,
+		want:  "a:\n  b: 1\n",
+	}, {
+		name:  "and so does an empty list",
+		doc:   "a:\n  # old\n  b: 1\n",
+		patch: `{a: !comment {head: []}}`,
+		want:  "a:\n  b: 1\n",
+	}, {
 		name:  "an unknown field is still refused",
 		doc:   "a: 1\n",
 		patch: `{a: !comment {head: ["# new"], values: 9}}`,
@@ -119,6 +152,13 @@ func TestCommentValueMatch(t *testing.T) {
 		name:    "the value agrees and the comment does not",
 		doc:     "a:\n  # other\n  b: 1\n",
 		pattern: `{a: !comment {head: ["# note"], value: {b: 1}}}`,
+	}, {
+		// A position named as unchanged is not asked about, the same as one not
+		// named at all.
+		name:    "!pass at a position asks nothing of it",
+		doc:     "a:\n  # anything\n  b: 1\n",
+		pattern: `{a: !comment {head: !pass null, value: {b: 1}}}`,
+		want:    true,
 	}, {
 		// Unchanged: with no value named it asks about the comments only.
 		name:    "no value named asks nothing of the value",
