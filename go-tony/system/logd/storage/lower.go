@@ -6,6 +6,7 @@ import (
 
 	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/libdiff"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
@@ -84,10 +85,25 @@ func (s *Storage) lowerWrite(base, next, merged *ir.Node) (*ir.Node, error) {
 	}
 	atomic.AddInt64(&loweringFired, 1)
 	if base == nil {
+		// An empty document reads back as nil, and null is what the read path's own
+		// empty-base branch folds onto.
 		base = ir.Null()
 	}
 	if next == nil {
-		next = ir.Null()
+		// The write removed everything, and a diff of two STATES cannot say that:
+		// the absent document is not the null one. Coercing next to null stored "the
+		// document is null" for a write that said "there is no document", so a root
+		// !delete read back as null where the same write kept as sent read back as
+		// nothing (xqpvk3ehh12ks89mj5n0).
+		delta := libdiff.MakeDiff(base.Clone(), nil)
+		if delta == nil {
+			return nil, nil
+		}
+		markDeltaRoots(delta)
+		if err := api.ValidateForStorage(delta); err != nil {
+			return nil, fmt.Errorf("lowering %s left something unstorable: %w", op, err)
+		}
+		return delta, nil
 	}
 	// A key the SCHEMA does not declare cannot survive the lowering. Stored state is
 	// op-free, so the only thing that can say an array is keyed is the schema; a
@@ -176,3 +192,4 @@ func markDeltaRoots(n *ir.Node) {
 	}
 	tx.MarkPatchRoot(n)
 }
+
