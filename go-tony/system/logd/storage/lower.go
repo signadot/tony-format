@@ -205,6 +205,18 @@ func markDeltaRoots(n *ir.Node) {
 	// and the delta for the same write should be marked in the same place. Marking
 	// the leaf instead put the marker at a.b.k0, which is not where the write lands.
 	if n.Type == ir.ObjectType && len(n.Fields) == 1 && len(n.Values) == 1 && n.Tag == "" {
+		// Not past a COMMENT. A head comment is a wrapper at its own path, and the
+		// marker says where the patch is applied FROM: a marker below the wrapper
+		// leaves the wrapper outside the subtree that gets applied, so the comment
+		// is simply not there on the way back in. The head keeps it, the replay does
+		// not, and the two disagree over a comment while every value matches.
+		//
+		// A client's write cannot reach this: it is rooted at the path it names,
+		// which is the path the comment is on.
+		if n.Values[0].Type == ir.CommentType {
+			tx.MarkPatchRoot(ir.Uncomment(n.Values[0]))
+			return
+		}
 		if sub := ir.Uncomment(n.Values[0]); sub != nil && sub.Type == ir.ObjectType &&
 			sub.Tag == "" && len(sub.Fields) > 0 {
 			markDeltaRoots(n.Values[0])
