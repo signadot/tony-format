@@ -184,6 +184,17 @@ func markDeltaRoots(n *ir.Node) {
 	if n == nil {
 		return
 	}
+	// Through the comment wrapper, as TagPatchRoots does -- it marks
+	// ir.Uncomment(pd.API.Data), and for the same reason. A marker on a wrapper is
+	// seen by nothing: the log writes a comment as its lines and its child, so the
+	// tag is not serialized, and the entry reaches the read path with no patch root
+	// at all. The processor then applies NOTHING from it, which is invisible while
+	// the base is empty -- that path folds patches directly -- and loses the whole
+	// write once a snapshot is the base (xqpvk3ehh12ks89mj5n0).
+	n = ir.Uncomment(n)
+	if n == nil {
+		return
+	}
 	if n.Type == ir.ObjectType && len(n.Fields) > 0 && n.Tag == "" {
 		for _, v := range n.Values {
 			markDeltaRoots(v)

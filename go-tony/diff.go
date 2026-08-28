@@ -236,7 +236,7 @@ func (d *differ) makeDiff(from, to *ir.Node) *ir.Node {
 		// instead then a later write to a.y by someone else would be wiped by a
 		// replay of this one. Diffing against an empty object of the same kind
 		// gets the fields and leaves the rest of the document alone.
-		if to != nil && to.Type == ir.ObjectType {
+		if t := ir.Uncomment(to); t != nil && t.Type == ir.ObjectType {
 			// Against the REAL from side when there is one. Diffing against an
 			// empty object unconditionally lost every deletion: a field that was
 			// there and is not is a difference, and an empty from has no field to
@@ -253,7 +253,7 @@ func (d *differ) makeDiff(from, to *ir.Node) *ir.Node {
 			if f == nil || f.Type != ir.ObjectType {
 				f = &ir.Node{Type: ir.ObjectType}
 			}
-			return libdiff.DiffObject(f, to, d.diff)
+			return libdiff.DiffObject(f, t, d.diff)
 		}
 		// Everything else is stated whole, with !insert -- which is what MakeDiff
 		// answers when there was nothing there, and now says the same thing when
@@ -327,16 +327,14 @@ func (d *differ) commentDiff(from, to *ir.Node) *ir.Node {
 	// so it answered yes to a document whose comments had changed further down.
 	a, b := ir.Uncomment(from).Clone(), ir.Uncomment(to).Clone()
 	a.Comment, b.Comment = nil, nil
-	if !a.DeepEqualWithComments(b) {
-		// Something else moved. The operand CAN carry it -- value: is there for
-		// exactly this, and !comment {head: ..., value: ...} applies and matches
-		// (comment_value_test.go) -- but wiring it in here took the lowering
-		// differential from 7 failing seeds to 13, for a reason not yet found and
-		// not this one: the deltas that diverge carry no !comment at all. Left
-		// until that is understood, rather than turned on because it type-checks.
-		return nil
-	}
 	positions := map[string]*ir.Node{}
+	// The value's own difference, carried in the same operand. Diffing the clones
+	// rather than the originals is what stops this recurring: their comments at this
+	// level are cleared, so the branch that arrives here does not fire again, and the
+	// walk descends normally carrying deeper ones.
+	if vd := d.diff(a, b); vd != nil {
+		positions[mergeop.CommentValue] = vd
+	}
 	if !sameLines(headLines(from), headLines(to)) {
 		positions[mergeop.CommentHead] = linesNode(headLines(to))
 	}
