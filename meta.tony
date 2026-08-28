@@ -10,6 +10,7 @@ labels:
 - agent
 - logd
 - storage
-related_issues: []
+related_issues:
+- 3xn08cb6h12kr4psg5n0
 status: open
-updated: "2026-08-28T08:17:43.384822+02:00"
+updated: "2026-08-28T08:17:46.115935+02:00"
