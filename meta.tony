@@ -6,7 +6,11 @@ commits: []
 created: "2026-08-28T08:29:43.966762+02:00"
 duplicates: []
 id: 5k4a6drqh12ksnsaj5n0
-labels: []
+labels:
+- agent
+- logd
+- mergeop
+- storage
 related_issues: []
 status: open
-updated: "2026-08-28T08:29:43.966762+02:00"
+updated: "2026-08-28T08:29:47.012917+02:00"
