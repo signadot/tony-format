@@ -177,12 +177,23 @@ func (sp *StreamingProcessor) ApplyPatches(baseEvents stream.EventReader, patche
 			if err != nil {
 				return err
 			}
+			// Before the NEXT patch sees it, not once at the end. The marker says where
+			// an entry is applied from and is no part of the document; left on, the
+			// accumulating result hands the previous patch's marker to the next one as
+			// data, and an operation which asks the document for its tag refuses --
+			// `!bracket.logd-patch-root` where it wants `bracket`
+			// (2w62pyyah12ksqh0jdn0). Stripping the patch instead would mutate an entry
+			// the caller still owns; this strips a node NextState just produced.
+			//
+			// The markers are not read in this branch at all: an empty base folds each
+			// patch whole rather than seeking to its roots, which is why they had nothing
+			// to do here but leak.
+			tx.StripPatchRootTagRecursive(next)
 			result = next
 		}
 		if result == nil {
 			return nil // everything folded away: no events is the null state
 		}
-		tx.StripPatchRootTagRecursive(result)
 		if err := emitNode(result, sink); err != nil {
 			return err
 		}
