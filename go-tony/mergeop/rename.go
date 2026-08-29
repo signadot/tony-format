@@ -114,9 +114,13 @@ func (p renameOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc
 	// and sp.
 	kvs := make([]ir.KeyVal, 0, len(doc.Fields))
 	held := make(map[string]int, len(doc.Fields))
+	from := make(map[string]struct{}, len(doc.Fields))
 	for i := range doc.Fields {
 		field := doc.Fields[i]
 		key := field.Clone()
+		if field.Type == ir.StringType {
+			from[field.String] = struct{}{}
+		}
 		// A merge key names no field, and neither does an integer one, so no
 		// renaming names either: they stay as they are.
 		if field.Type == ir.StringType {
@@ -131,6 +135,23 @@ func (p renameOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc
 			held[key.String] = i
 		}
 		kvs = append(kvs, ir.KeyVal{Key: key, Val: doc.Values[i]})
+	}
+	// A renaming naming no field renamed nothing, and said nothing about it: the
+	// walk above is over the DOCUMENT's fields, so a `from` the document does not
+	// have never comes up. The patch asked for a field to be moved and the field
+	// was not moved, which is a patch that did not apply -- the same answer !replace
+	// gives when the value it names is not the value that is there, and the same one
+	// this operator already gives when two fields would collide.
+	//
+	// It matters most where it is least visible. A scope's write is replayed over a
+	// baseline that moves, so a rename that quietly did nothing is a write the client
+	// was told had been made, standing in the log, doing nothing forever.
+	for i := range p.renamings {
+		r := &p.renamings[i]
+		if _, ok := from[r.from]; !ok {
+			return nil, fmt.Errorf("!%s at %s: there is no %q to rename to %q",
+				p.name, doc.Path(), r.from, r.to)
+		}
 	}
 	return ir.FromKeyVals(kvs).WithTag(doc.Tag), nil
 }

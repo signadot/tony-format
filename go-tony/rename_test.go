@@ -49,12 +49,14 @@ sp:
   a: 1
 other: 2`,
 	}, {
-		name: "a from that names no field renames nothing",
+		// A renaming naming no field renamed nothing and said nothing about it: the
+		// walk is over the DOCUMENT's fields, so a from the document does not have
+		// never comes up. The patch asked for a field to be moved and it was not
+		// moved, which is a patch that did not apply.
+		name: "a from that names no field is refused",
 		doc:  `{a: 1}`,
 		tony: "!rename\n- from: nope\n  to: x",
-		want: `{
-  a: 1
-}`,
+		err:  `there is no "nope" to rename to "x"`,
 	}, {
 		// Simultaneous: each field is read under the name it arrived with.
 		name: "two fields exchange their names",
