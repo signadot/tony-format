@@ -74,16 +74,26 @@ func touches(w, p string) bool {
 // says nothing about a's other fields, so baseline's k0 shows through and only a.k2 is
 // the scope's. ClaimPath is what says where that is, and the generator keeps patches
 // to one field so that the two agree -- a two-field patch freezes two leaves and no
-// container, which this harness has no way to name.
+// container, which this harness has no way to name. That last part is the harness's
+// limit and not the store's, and it is why ClaimPath wants replacing by the walk that
+// already assigns paths to a patch (index.indexPatchRec), which answers for all of
+// them.
 func TestAScopedWriteIsAStandingClaim(t *testing.T) {
-	// Held back on one defect it found, which is not the claim's:
+	// Held back on two defects it found, neither of them the claim's, and both
+	// reduced to reproductions needing neither lowering nor a scope claim:
 	//
 	//   fve9fxbqh12krxmpj9n0  a document-root comment is lost from a scoped read
 	//                         once a later scoped write states a field beneath it.
+	//   tmwq9mh6h12kskmxj9n0  a scoped read misses the write that follows an
+	//                         overlay: the overlay path disagrees with the replay it
+	//                         optimises, because a bounded index lookup drops a
+	//                         segment its own predicate accepts.
 	//
 	// kbkxf53ph12krswpj9n0 -- the placeholder standing at a field of a scalar, which
-	// made a refusal fatal -- is fixed.
-	t.Skip("fve9fxbqh12krxmpj9n0")
+	// made a refusal fatal -- is fixed, and so is the claim's own half: a claim was
+	// stored without a !logd-patch-root marker, since claimDelta returned before
+	// lowerWrite marked and validated its delta.
+	t.Skip("fve9fxbqh12krxmpj9n0, tmwq9mh6h12kskmxj9n0")
 
 	const scope = "s1"
 	broken, claims := 0, 0

@@ -223,25 +223,34 @@ func (s *Storage) lowerWrite(base, next, merged *ir.Node, scoped bool, paths []s
 		return merged, nil
 	}
 
-	// A scope claims; baseline differs. Only a RELATIVE write gets here for a scope
-	// -- an absolute one was kept as sent above, being a claim already. See
-	// claimDelta.
-	if scoped {
-		if len(paths) == 0 {
-			// Nothing names what is being claimed. Keeping the patch as sent is what
-			// the store did before lowering existed, and is right here for the same
-			// reason: an unattributable write must not silently claim the root.
-			atomic.AddInt64(&loweringSkipped, 1)
-			return merged, nil
-		}
-		return claimDelta(next, paths)
-	}
+	// What the log will keep: a scope's claim or baseline's difference. Whichever it
+	// is, it leaves by the same door below -- both are stored deltas and the rules
+	// that make a stored delta readable are not about which one it is.
+	var delta *ir.Node
+	switch {
+	case scoped && len(paths) == 0:
+		// Nothing names what is being claimed. Keeping the patch as sent is what the
+		// store did before lowering existed, and is right here for the same reason:
+		// an unattributable write must not silently claim the root.
+		atomic.AddInt64(&loweringSkipped, 1)
+		return merged, nil
 
-	// Presentation is not stripped, unlike the overlay: base and next come from one
-	// chain -- next is base with this patch applied -- so a difference in it is this
-	// write's. Comments are carried, because a write whose only change is a comment
-	// has nothing else to say it with.
-	delta := storableDelta(base, next, keys, true)
+	case scoped:
+		// A scope claims; baseline differs. Only a RELATIVE write gets here for a
+		// scope -- an absolute one was kept as sent above, being a claim already.
+		// See claimDelta.
+		var err error
+		if delta, err = claimDelta(next, paths); err != nil {
+			return nil, err
+		}
+
+	default:
+		// Presentation is not stripped, unlike the overlay: base and next come from
+		// one chain -- next is base with this patch applied -- so a difference in it
+		// is this write's. Comments are carried, because a write whose only change is
+		// a comment has nothing else to say it with.
+		delta = storableDelta(base, next, keys, true)
+	}
 	if delta == nil {
 		return nil, nil
 	}
@@ -369,11 +378,17 @@ func claimValue(n *ir.Node) *ir.Node {
 // not an identity (see arrayOfIndexPath). A field name that is not a plain identifier
 // stops it too, rather than composing a kinded path here that would have to be quoted.
 func ClaimPath(path string, data *ir.Node) string {
-	// Presentation is not a tag for this purpose: `{x: !replace ...}` parses with
-	// !bracket on the braces, and stopping there would claim the whole container for
-	// every patch a client happened to write in flow style.
-	for data != nil && ir.StripPresentation(data.Tag) == "" && data.Type == ir.ObjectType &&
-		len(data.Fields) == 1 && len(data.Values) == 1 {
+	// Through the comment wrapper, as markDeltaRoots does and for the same reason: a
+	// head comment is not a kind of container, so asking what KIND of node this is
+	// stopped the descent at the wrapper. `# note` above `{k2: 5}` then claimed the
+	// whole container the write landed in rather than the leaf it named.
+	//
+	// Presentation is not a tag for this purpose either: `{x: !replace ...}` parses
+	// with !bracket on the braces, and stopping there would claim the whole container
+	// for every patch a client happened to write in flow style.
+	for data = ir.Uncomment(data); data != nil &&
+		ir.StripPresentation(data.Tag) == "" && data.Type == ir.ObjectType &&
+		len(data.Fields) == 1 && len(data.Values) == 1; data = ir.Uncomment(data) {
 		f := data.Fields[0]
 		if f == nil || f.Type != ir.StringType || !plainField(f.String) {
 			break
@@ -383,7 +398,7 @@ func ClaimPath(path string, data *ir.Node) string {
 		} else {
 			path += "." + f.String
 		}
-		data = ir.Uncomment(data.Values[0])
+		data = data.Values[0]
 	}
 	return path
 }
