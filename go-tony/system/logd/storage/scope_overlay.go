@@ -110,8 +110,30 @@ func (s *Storage) BuildScopeOverlay(scopeID string, commit int64) (*ir.Node, err
 		// at this path, and the default answer is the value a path names rather
 		// than the node to put somewhere else (3cdjz00jh12krns4g1n0).
 		v, err := scoped.GetKPathWith(p, ir.WithComments(true))
-		if err != nil || v == nil {
-			continue // absent in the scoped view: the diff's tombstone is what holds it
+		if err != nil {
+			// The path came out of the INDEX, so the scoped view not being navigable
+			// to it is not an answer about the document, it is this overlay being
+			// built from a view that cannot be asked. Continuing leaves the path out
+			// and the overlay stands in for the scope with it missing, which is a
+			// wrong read rather than a slow one -- so it is at least said out loud.
+			s.logger.Warn("scope overlay: cannot read an owned path from the scoped view",
+				"scope", scopeID, "commit", commit, "path", p, "err", err)
+			continue
+		}
+		if v == nil {
+			// Absent in the scoped view, which the scope may have MADE absent. That is
+			// a claim and not a difference, and this records neither: the diff half
+			// has a tombstone only where baseline held the value at T, so a scope that
+			// deleted what baseline had not yet written is not recorded at all and
+			// baseline's later write shows through (qth3kqe9h12ksxz9j9n0).
+			//
+			// Rooting a !delete here does not fix it: the union below is api.NextState,
+			// which APPLIES the operand rather than composing with it, so a tombstone
+			// unioned in executes against the overlay instead of being recorded in it
+			// -- `{}` gains `d: {}` and the delete evaporates, and an existing tombstone
+			// is destroyed. A tombstone can only be in the overlay by being built into
+			// it, which wants a patch-level union rather than a patch application.
+			continue
 		}
 		// A keyed element cannot be rooted at items("A"): a key segment carries the key
 		// VALUE while constructing the patch needs the key FIELD. RootKeyedListAt roots
