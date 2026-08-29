@@ -149,33 +149,37 @@ func scopedCommit(t *testing.T, s *Storage, scope *string, path, body string) er
 }
 
 // The case a verified write cannot cover: the patch applied when it was written,
-// and baseline moved the leaf it asserts about. Verification cannot see the future,
-// so a scope is held to the storage vocabulary instead (3xn08cb6h12kr4psg5n0).
-func TestAScopeCannotStoreAnOpAgainstAMovingBase(t *testing.T) {
+// and baseline moved the leaf it asserts about. Verification cannot see the future.
+//
+// A scope used to be refused such a write outright (3xn08cb6h12kr4psg5n0), because
+// storing the operation left it to re-evaluate against a base that had moved, and the
+// scope became unreadable with nothing wrong at the time of the write. Lowering
+// answers it instead: the operation is applied and what it MEANT is stored, so there
+// is nothing left to re-evaluate and the write is allowed.
+func TestAScopeStoresAnOpAsWhatItMeant(t *testing.T) {
 	s := openWithSeed(t, `{s: bob}`)
 	defer s.Close()
 	scope := "s1"
 
-	// This applies right now -- baseline s IS bob -- and used to commit on that
-	// basis, leaving the scope unreadable the moment baseline wrote s again.
-	err := scopedCommit(t, s, &scope, "s", `!replace {from: bob, to: rob}`)
-	if err == nil {
-		t.Fatal("the scope stored a !replace; baseline moving s would have made it unreadable")
+	// This applies right now -- baseline s IS bob -- and it is stored as the rob it
+	// resolved to, not as the question it was asked as.
+	if err := scopedCommit(t, s, &scope, "s", `!replace {from: bob, to: rob}`); err != nil {
+		t.Fatalf("a scoped !replace was refused: %v", err)
 	}
-	if !strings.Contains(err.Error(), "base moves") {
-		t.Errorf("the refusal does not say why a scope is different: %v", err)
-	}
-	t.Logf("refused: %v", err)
-
-	// Baseline moves it, and the scope is fine, which is the whole point.
-	if _, err := arrayWriteCommit(t, s, "s", `someone-else`); err != nil {
-		t.Fatalf("baseline: %v", err)
-	}
-	if got, want := readScope(t, s, &scope), "s: someone-else"; got != want {
+	if got, want := readScope(t, s, &scope), "s: rob"; got != want {
 		t.Errorf("scoped read: got %s, want %s", got, want)
 	}
 
-	// What a scope CAN write is the value it wants, which survives baseline moving.
+	// Baseline moves the leaf the op asked about. The scope is still readable, and
+	// still holds what it wrote -- the op did not run again against someone-else.
+	if _, err := arrayWriteCommit(t, s, "s", `someone-else`); err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+	if got, want := readScope(t, s, &scope), "s: rob"; got != want {
+		t.Errorf("after baseline moved s: got %s, want %s", got, want)
+	}
+
+	// An absolute scoped write is stored as sent and behaves the same way.
 	if err := scopedCommit(t, s, &scope, "s", `rob`); err != nil {
 		t.Fatalf("an absolute scoped write was refused: %v", err)
 	}

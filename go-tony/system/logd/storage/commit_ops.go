@@ -52,6 +52,9 @@ func (c *commitOps) GetSchema(scopeID *string) *api.Schema {
 	return c.s.schemaForScope(scopeID)
 }
 
+// LowersScopeWrites reports whether lowerWrite will turn a scoped write into a claim.
+func (c *commitOps) LowersScopeWrites() bool { return c.s.lowering }
+
 func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedPatch *ir.Node, txState *tx.State, lastCommit int64) (string, int64, error) {
 	// Extract scope from transaction state
 	var scopeID *string
@@ -93,7 +96,17 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	// diff can say and a patch cannot; the patch is kept so the commit still takes a
 	// number and still notifies.
 	stored := mergedPatch
-	if lowered, err := c.s.lowerWrite(base, stepped, mergedPatch); err != nil {
+	// The paths the client named, which is what a scope claims. Baseline does not
+	// use them: it stores the difference, having nothing to own.
+	var writePaths []string
+	if txState != nil {
+		for _, pd := range txState.PatcherData {
+			if pd != nil && pd.API != nil {
+				writePaths = append(writePaths, ClaimPath(pd.API.Path, pd.API.Data))
+			}
+		}
+	}
+	if lowered, err := c.s.lowerWrite(base, stepped, mergedPatch, scopeID != nil, writePaths); err != nil {
 		return "", 0, err
 	} else if lowered != nil {
 		stored = lowered

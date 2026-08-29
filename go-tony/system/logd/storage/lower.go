@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"strings"
 	"sync/atomic"
 
 	tony "github.com/signadot/tony-format/go-tony"
@@ -107,6 +108,58 @@ func storableDelta(base, next *ir.Node, keys map[string]string, comments bool) *
 	return tony.DiffWith(base, next, opts...)
 }
 
+// claimDelta answers what a SCOPE stores for a write: the claim it is making, rather
+// than the difference it made.
+//
+// A scope's patches replay over a baseline that moves, so a scope write is a standing
+// claim -- what the scope holds at that path, whatever baseline does afterwards. A
+// diff is the effect against one baseline, and where the effect is smaller than the
+// claim the claim is lost: a !delete of a path baseline has not created yet changes
+// only the spine, so the delta says `a: {}`, which merges to nothing, and the scope
+// stops shadowing that path forever after.
+//
+// An ABSOLUTE write needs none of this. It is already a claim -- what it says is what
+// results, whatever it lands on -- and it is stored as the client sent it. Only a
+// relative write has to be converted, and a relative operation's meaning depends on
+// the whole subtree it was applied to, so the subtree is what it claims.
+//
+// So: baseline stores differences, a scope stores claims, and the two layers lower
+// differently because they own different things.
+func claimDelta(next *ir.Node, paths []string) (*ir.Node, error) {
+	var out *ir.Node
+	for _, p := range paths {
+		// A POSITION is not an identity. Rooting a claim at votes[1] builds an
+		// !arraydiff, which is relative by construction -- it names the second
+		// element of the array that was there -- so a claim at an index is not a
+		// claim at all. The array is what such a write can name absolutely, and
+		// claiming it is honest: a scope writing by position owns the order too,
+		// since nothing else in the delta says what an element is.
+		p = arrayOfIndexPath(p)
+		var rooted *ir.Node
+		var err error
+		held, herr := next.GetKPathWith(p, ir.WithComments(true))
+		switch {
+		case herr != nil || held == nil:
+			// The write left nothing there, and "nothing" is as much a claim as a
+			// value: without it a later baseline write at that path shows through.
+			rooted, err = tx.RootPatchAt(p, ir.Null().WithTag(libdiff.DeleteTag))
+		default:
+			rooted, err = tx.RootPatchAt(p, claimValue(held.Clone()))
+		}
+		if err != nil {
+			return nil, fmt.Errorf("claiming %q: %w", p, err)
+		}
+		if out == nil {
+			out = rooted
+			continue
+		}
+		if out, err = api.NextState(out, rooted); err != nil {
+			return nil, fmt.Errorf("claiming %q: %w", p, err)
+		}
+	}
+	return out, nil
+}
+
 // lowerWrite answers the delta the log should keep for this write.
 //
 // base and next come from verifyApplies -- the state the patch was applied to and
@@ -116,7 +169,7 @@ func storableDelta(base, next *ir.Node, keys map[string]string, comments bool) *
 // and a patch cannot: the caller keeps the patch rather than storing an empty delta,
 // so a commit that asserts what is already there still takes a commit number and
 // still notifies, exactly as it did before.
-func (s *Storage) lowerWrite(base, next, merged *ir.Node) (*ir.Node, error) {
+func (s *Storage) lowerWrite(base, next, merged *ir.Node, scoped bool, paths []string) (*ir.Node, error) {
 	if !s.lowering || merged == nil {
 		return merged, nil
 	}
@@ -124,7 +177,12 @@ func (s *Storage) lowerWrite(base, next, merged *ir.Node) (*ir.Node, error) {
 	// about the client's patch. Ask the deliverable copy, which is what the
 	// notification carries and what verifyApplies was given.
 	op, needs := api.NeedsLowering(DeliverablePatch(merged))
-	if !needs && !s.lowerAll {
+	if !needs && (!s.lowerAll || scoped) {
+		// Nothing to do, and for a SCOPE that is not a shortcut: an absolute patch
+		// is already the claim a scope stores, so forcing it through claimDelta
+		// would replace "what the client said" with "the subtree it landed in",
+		// taking baseline's siblings into the scope's ownership. LowerEverything
+		// cannot ask for that, because there is nothing there to lower.
 		atomic.AddInt64(&loweringSkipped, 1)
 		return merged, nil
 	}
@@ -163,6 +221,20 @@ func (s *Storage) lowerWrite(base, next, merged *ir.Node) (*ir.Node, error) {
 	if patchHasUndeclaredKey(DeliverablePatch(merged), "", keys) {
 		atomic.AddInt64(&loweringUndeclaredKey, 1)
 		return merged, nil
+	}
+
+	// A scope claims; baseline differs. Only a RELATIVE write gets here for a scope
+	// -- an absolute one was kept as sent above, being a claim already. See
+	// claimDelta.
+	if scoped {
+		if len(paths) == 0 {
+			// Nothing names what is being claimed. Keeping the patch as sent is what
+			// the store did before lowering existed, and is right here for the same
+			// reason: an unattributable write must not silently claim the root.
+			atomic.AddInt64(&loweringSkipped, 1)
+			return merged, nil
+		}
+		return claimDelta(next, paths)
 	}
 
 	// Presentation is not stripped, unlike the overlay: base and next come from one
@@ -258,3 +330,94 @@ func markDeltaRoots(n *ir.Node) {
 	tx.MarkPatchRoot(n)
 }
 
+// claimValue is a value stated as the whole of what is at its path.
+//
+// !raw answers with its child and never looks at the document, so it says both halves
+// of what a claim needs at once: the subtree is exactly this, and nothing inside it is
+// an instruction. Without it the claim is an ordinary merge patch and a CONTAINER only
+// merges -- a scope claiming `a: {y: 1}` over a baseline `a: {x: 1}` read back
+// `{x: 1, y: 1}`, so a !rename in a scope left the old field standing.
+//
+// The value came out of a document, where an operation tag is data, and !raw is what
+// says so (6225etzfh12kr955fxn0) -- the same reason libdiff.Escape reaches for it.
+//
+// A head comment is a WRAPPER around the value, and an operation belongs on the value:
+// a tag on the wrapper is seen by nothing, since mergeop walks past a comment before it
+// looks for an operation (xqpvk3ehh12ks89mj5n0).
+func claimValue(n *ir.Node) *ir.Node {
+	if n.Type == ir.CommentType && len(n.Values) == 1 {
+		n.Values[0] = claimValue(n.Values[0])
+		n.Values[0].Parent = n
+		n.Values[0].ParentIndex = 0
+		return n
+	}
+	return n.WithTag(ir.TagCompose(libdiff.RawTag, nil, n.Tag))
+}
+
+// ClaimPath answers the path a scoped write CLAIMS, which is where its operation sits
+// rather than where the client rooted it.
+//
+// A client writing at the root sends `{a: {x: !replace {...}}}`, and claiming the root
+// for it would freeze the scope's whole document: everything baseline did afterwards,
+// anywhere, would stop showing through. The patch says where the operation is, so the
+// claim follows it down -- the same descent markDeltaRoots makes for the same reason,
+// that a change is at the deepest place which contains it.
+//
+// The descent stops at anything that makes the place ambiguous: a TAG, because that is
+// the operation and what it says about is the node wearing it; more than one field,
+// because then the write is about the container; and an array, because a position is
+// not an identity (see arrayOfIndexPath). A field name that is not a plain identifier
+// stops it too, rather than composing a kinded path here that would have to be quoted.
+func ClaimPath(path string, data *ir.Node) string {
+	// Presentation is not a tag for this purpose: `{x: !replace ...}` parses with
+	// !bracket on the braces, and stopping there would claim the whole container for
+	// every patch a client happened to write in flow style.
+	for data != nil && ir.StripPresentation(data.Tag) == "" && data.Type == ir.ObjectType &&
+		len(data.Fields) == 1 && len(data.Values) == 1 {
+		f := data.Fields[0]
+		if f == nil || f.Type != ir.StringType || !plainField(f.String) {
+			break
+		}
+		if path == "" {
+			path = f.String
+		} else {
+			path += "." + f.String
+		}
+		data = ir.Uncomment(data.Values[0])
+	}
+	return path
+}
+
+func plainField(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
+			r == '_', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// arrayOfIndexPath trims a trailing positional segment, so votes[1] claims votes.
+// A keyed segment -- votes("a") -- is left alone: that IS an identity, and a claim
+// at it names the element rather than the array.
+func arrayOfIndexPath(p string) string {
+	if len(p) == 0 || p[len(p)-1] != ']' {
+		return p
+	}
+	i := strings.LastIndexByte(p, '[')
+	if i < 0 {
+		return p
+	}
+	for _, r := range p[i+1 : len(p)-1] {
+		if r < '0' || r > '9' {
+			return p // not a plain index
+		}
+	}
+	return p[:i]
+}

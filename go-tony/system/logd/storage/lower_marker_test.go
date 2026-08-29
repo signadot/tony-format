@@ -64,18 +64,24 @@ func markersAtCommit(t *testing.T, s *Storage, commit int64) []string {
 // concerned, which is what decides whether a narrow read may skip it.
 //
 // A delete of a path that does not exist yet produces exactly that shape: applying it
-// creates the spine and leaves an empty container behind. BASELINE and SCOPE alike,
-// since lowerWrite does not branch on the layer.
+// creates the spine and leaves an empty container behind.
+//
+// A SCOPE stores the claim rather than the difference, so that one case is marked a
+// level deeper -- there is a statement about a.b to mark, where baseline has only the
+// empty container the delete left. Where the two store the same thing they mark the
+// same place, which is the rest of the table.
 func TestLoweredMarkerLandsOnTheChange(t *testing.T) {
 	tests := []struct {
 		name, seed, path, src string
 		want                  string
+		scopeWant             string // when the claim differs from the difference
 	}{{
-		name: "a delete of a path that is not there yet",
-		seed: `{z: 0}`,
-		path: "a.b",
-		src:  `!delete`,
-		want: "a",
+		name:      "a delete of a path that is not there yet",
+		seed:      `{z: 0}`,
+		path:      "a.b",
+		src:       `!delete`,
+		want:      "a",
+		scopeWant: "a.b",
 	}, {
 		name: "an ordinary write, for contrast",
 		seed: `{z: 0}`,
@@ -96,6 +102,10 @@ func TestLoweredMarkerLandsOnTheChange(t *testing.T) {
 			if scoped {
 				name += " [scope]"
 			}
+			want := test.want
+			if scoped && test.scopeWant != "" {
+				want = test.scopeWant
+			}
 			t.Run(name, func(t *testing.T) {
 				s := openTestStorage(t)
 				s.LowerEverything(true)
@@ -109,8 +119,8 @@ func TestLoweredMarkerLandsOnTheChange(t *testing.T) {
 					t.Fatalf("write: %v", err)
 				}
 				got := markersAtCommit(t, s, c)
-				if strings.Join(got, ",") != test.want {
-					t.Errorf("marked at %v, want [%s]", got, test.want)
+				if strings.Join(got, ",") != want {
+					t.Errorf("marked at %v, want [%s]", got, want)
 				}
 			})
 		}
