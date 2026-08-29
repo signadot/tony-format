@@ -72,12 +72,9 @@ func touches(w, p string) bool {
 //
 // Claimed, not written: an absolute write of `{k2: 3}` at a is a merge patch, and it
 // says nothing about a's other fields, so baseline's k0 shows through and only a.k2 is
-// the scope's. ClaimPath is what says where that is, and the generator keeps patches
-// to one field so that the two agree -- a two-field patch freezes two leaves and no
-// container, which this harness has no way to name. That last part is the harness's
-// limit and not the store's, and it is why ClaimPath wants replacing by the walk that
-// already assigns paths to a patch (index.indexPatchRec), which answers for all of
-// them.
+// the scope's. ClaimPaths is what says where those are, and it answers with a SET,
+// since a patch may state more than one thing -- so a write of two fields is checked
+// as the two claims it makes and not as the container it was written at.
 func TestAScopedWriteIsAStandingClaim(t *testing.T) {
 	// Held back on two defects it found, neither of them the claim's, and both
 	// reduced to reproductions needing neither lowering nor a scope claim:
@@ -104,10 +101,13 @@ func TestAScopedWriteIsAStandingClaim(t *testing.T) {
 		s := openTestStorage(t)
 		s.EnableLowering(true)
 
-		// The claim standing right now: where the scope last wrote, and what it read
-		// back there once it had.
-		var heldPath, held string
-		var heldAt int
+		// The claims standing right now: every path the scope's last write claimed,
+		// and what it read back at each once it had.
+		type standing struct {
+			path, val string
+			at        int
+		}
+		var held []standing
 		sc := scope
 
 		// readClaim answers what the scope holds at p. ReadStateAt gives a document
@@ -133,45 +133,64 @@ func TestAScopedWriteIsAStandingClaim(t *testing.T) {
 			if err != nil {
 				continue // did not apply to the document as it stood
 			}
-			claimed := o.path
+			var claimed []string
 			if o.scoped {
 				n, perr := parse.Parse([]byte(o.src), parse.ParseComments(true))
 				if perr != nil {
 					t.Fatalf("parse %q: %v", o.src, perr)
 				}
-				claimed = ClaimPath(o.path, n)
+				claimed = ClaimPaths(o.path, n)
 			}
 			if o.snapshot {
 				if err := s.SwitchDLog(); err != nil {
 					t.Fatalf("SwitchDLog: %v", err)
 				}
 			}
-			if o.scoped && touches(claimed, heldPath) {
-				heldPath = "" // the scope moved its own claim
+			// A scoped write bearing on a standing claim replaces it; the rest stand.
+			if o.scoped {
+				kept := held[:0]
+				for _, h := range held {
+					bears := false
+					for _, cp := range claimed {
+						if touches(cp, h.path) {
+							bears = true
+							break
+						}
+					}
+					if !bears {
+						kept = append(kept, h)
+					}
+				}
+				held = kept
 			}
-			if heldPath != "" {
-				now, err := readClaim(heldPath, c)
+			moved := false
+			for _, h := range held {
+				now, err := readClaim(h.path, c)
 				if err != nil {
 					t.Errorf("seed %d: the scope became unreadable at %q after op %d %s\n"+
 						"  claim from op %d: %s\n  error: %v",
-						seed, heldPath, i, o, heldAt, held, err)
-					broken++
+						seed, h.path, i, o, h.at, h.val, err)
+					moved = true
 					break
 				}
-				if now != held {
+				if now != h.val {
 					t.Errorf("seed %d: the claim at %q moved\n  op %d %s made it: %s\n"+
 						"  op %d %s left it:  %s",
-						seed, heldPath, heldAt, ops[heldAt], held, i, o, now)
-					broken++
+						seed, h.path, h.at, ops[h.at], h.val, i, o, now)
+					moved = true
 					break
 				}
 			}
-			if o.scoped {
-				now, err := readClaim(claimed, c)
+			if moved {
+				broken++
+				break
+			}
+			for _, cp := range claimed {
+				now, err := readClaim(cp, c)
 				if err != nil {
 					t.Fatalf("seed %d op %d: reading back the scope's own write: %v", seed, i, err)
 				}
-				heldPath, held, heldAt = claimed, now, i
+				held = append(held, standing{path: cp, val: now, at: i})
 				claims++
 			}
 		}

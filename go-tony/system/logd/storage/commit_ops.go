@@ -102,7 +102,7 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	if txState != nil {
 		for _, pd := range txState.PatcherData {
 			if pd != nil && pd.API != nil {
-				writePaths = append(writePaths, ClaimPath(pd.API.Path, pd.API.Data))
+				writePaths = append(writePaths, ClaimPaths(pd.API.Path, pd.API.Data)...)
 			}
 		}
 	}

@@ -2,13 +2,15 @@ package storage
 
 import (
 	"fmt"
-	"strings"
 	"sync/atomic"
 
 	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/libdiff"
+	"github.com/signadot/tony-format/go-tony/mergeop"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
@@ -128,13 +130,6 @@ func storableDelta(base, next *ir.Node, keys map[string]string, comments bool) *
 func claimDelta(next *ir.Node, paths []string) (*ir.Node, error) {
 	var out *ir.Node
 	for _, p := range paths {
-		// A POSITION is not an identity. Rooting a claim at votes[1] builds an
-		// !arraydiff, which is relative by construction -- it names the second
-		// element of the array that was there -- so a claim at an index is not a
-		// claim at all. The array is what such a write can name absolutely, and
-		// claiming it is honest: a scope writing by position owns the order too,
-		// since nothing else in the delta says what an element is.
-		p = arrayOfIndexPath(p)
 		var rooted *ir.Node
 		var err error
 		held, herr := next.GetKPathWith(p, ir.WithComments(true))
@@ -363,76 +358,100 @@ func claimValue(n *ir.Node) *ir.Node {
 	return n.WithTag(ir.TagCompose(libdiff.RawTag, nil, n.Tag))
 }
 
-// ClaimPath answers the path a scoped write CLAIMS, which is where its operation sits
-// rather than where the client rooted it.
+// ClaimPaths answers the paths a scoped write CLAIMS: where the patch states
+// something, rather than where the client happened to root it.
 //
 // A client writing at the root sends `{a: {x: !replace {...}}}`, and claiming the root
-// for it would freeze the scope's whole document: everything baseline did afterwards,
-// anywhere, would stop showing through. The patch says where the operation is, so the
-// claim follows it down -- the same descent markDeltaRoots makes for the same reason,
-// that a change is at the deepest place which contains it.
+// for it would freeze the scope's whole document -- everything baseline did afterwards,
+// anywhere, would stop showing through. The patch says where its parts land, so the
+// claim follows them down. It is a set and not a path because a patch may state more
+// than one thing: `{a: 1, b: !replace {...}}` claims a and b, and neither claims the
+// container they share.
 //
-// The descent stops at anything that makes the place ambiguous: a TAG, because that is
-// the operation and what it says about is the node wearing it; more than one field,
-// because then the write is about the container; and an array, because a position is
-// not an identity (see arrayOfIndexPath). A field name that is not a plain identifier
-// stops it too, rather than composing a kinded path here that would have to be quoted.
-func ClaimPath(path string, data *ir.Node) string {
-	// Through the comment wrapper, as markDeltaRoots does and for the same reason: a
-	// head comment is not a kind of container, so asking what KIND of node this is
-	// stopped the descent at the wrapper. `# note` above `{k2: 5}` then claimed the
-	// whole container the write landed in rather than the leaf it named.
-	//
-	// Presentation is not a tag for this purpose either: `{x: !replace ...}` parses
-	// with !bracket on the braces, and stopping there would claim the whole container
-	// for every patch a client happened to write in flow style.
-	for data = ir.Uncomment(data); data != nil &&
-		ir.StripPresentation(data.Tag) == "" && data.Type == ir.ObjectType &&
-		len(data.Fields) == 1 && len(data.Values) == 1; data = ir.Uncomment(data) {
-		f := data.Fields[0]
-		if f == nil || f.Type != ir.StringType || !plainField(f.String) {
-			break
+// Where the parts land is index.PatchChildren, which is the one reading of that
+// question -- the same one the patch index walks to decide what a narrow read may
+// skip. Deriving it again here is how a claim came to be described by a string trim,
+// a flow-style special case and a spelling rule for field names, none of which knew
+// what a sparse index or a keyed element was.
+//
+// The descent stops at two things:
+//
+//	an OPERATION, because what it meant is about the node wearing it. Its operand is
+//	not descended into -- `!replace {from: {p: 1}, to: {p: 2}}` at a.x claims a.x, not
+//	a.x.p, since what the operation consulted was the whole of a.x.
+//
+//	a POSITION, because a position is not an identity. An element claimed at votes[1]
+//	is claimed as "the second of whatever is there", so the array is what such a write
+//	can name, and claiming it is honest: a scope writing by position owns the order
+//	too. A keyed element -- votes("a") -- is an identity, and is claimed as itself.
+func ClaimPaths(path string, data *ir.Node) []string {
+	var out []string
+	seen := map[string]bool{}
+	claim := func(p string) {
+		// Nothing BELOW a position can be named, so a claim reaching through one is
+		// made at the array instead. It has to be done to what the descent produces
+		// rather than to the path it starts from: votes[1] <- {choice: approve} is
+		// about a field of the ELEMENT, and trimming first turned choice into a field
+		// of the array and claimed votes.choice, which claimed the array as an object
+		// and emptied it.
+		p = aboveAnyIndex(p)
+		if !seen[p] {
+			seen[p] = true
+			out = append(out, p)
 		}
-		if path == "" {
-			path = f.String
-		} else {
-			path += "." + f.String
-		}
-		data = data.Values[0]
 	}
-	return path
+	var walk func(n *ir.Node, at string)
+	walk = func(n *ir.Node, at string) {
+		// Through the comment wrapper, as markDeltaRoots and the patch index both do:
+		// a head comment is not a kind of container, so asking what kind of node this
+		// is stops at the wrapper, and `# note` above `{k2: 5}` claimed the whole
+		// container the write landed in rather than the leaf it named.
+		n = ir.Uncomment(n)
+		if n == nil {
+			return
+		}
+		if _, op, _, _, err := mergeop.SplitChild(n); err == nil && op != "" {
+			claim(at)
+			return
+		}
+		kids := index.PatchChildren(n, at, nil)
+		if len(kids) == 0 {
+			claim(at)
+			return
+		}
+		for _, c := range kids {
+			walk(c.Node, c.Path)
+		}
+	}
+	walk(data, path)
+	return out
 }
 
-func plainField(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
-			r == '_', r == '-':
-		default:
-			return false
-		}
-	}
-	return true
-}
-
-// arrayOfIndexPath trims a trailing positional segment, so votes[1] claims votes.
-// A keyed segment -- votes("a") -- is left alone: that IS an identity, and a claim
-// at it names the element rather than the array.
-func arrayOfIndexPath(p string) string {
-	if len(p) == 0 || p[len(p)-1] != ']' {
+// aboveAnyIndex answers the deepest path a claim can name on the way to p, which is
+// the array above p's first POSITIONAL segment: votes[1] and votes[1].choice are both
+// claimed at votes.
+//
+// A position is not an identity -- it names the second of whatever is there -- so
+// neither an element named that way nor anything inside it can be claimed. The array
+// is what such a write can name, and claiming it is honest: a scope writing by
+// position owns the order too.
+//
+// A keyed segment -- votes("a") -- IS an identity, and is named as itself.
+func aboveAnyIndex(p string) string {
+	kp, err := kpath.Parse(p)
+	if err != nil {
 		return p
 	}
-	i := strings.LastIndexByte(p, '[')
-	if i < 0 {
-		return p
-	}
-	for _, r := range p[i+1 : len(p)-1] {
-		if r < '0' || r > '9' {
-			return p // not a plain index
+	acc := ""
+	for x := kp; x != nil; x = x.Next {
+		if x.Index != nil || x.IndexAll {
+			return acc
 		}
+		if x.Field != nil {
+			acc = kpath.ChildField(acc, *x.Field)
+			continue
+		}
+		acc += x.SegmentString()
 	}
-	return p[:i]
+	return p
 }
