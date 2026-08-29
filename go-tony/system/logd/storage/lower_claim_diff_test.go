@@ -82,10 +82,10 @@ func TestAScopedWriteIsAStandingClaim(t *testing.T) {
 	//
 	//   fve9fxbqh12krxmpj9n0  a document-root comment is lost from a scoped read
 	//                         once a later scoped write states a field beneath it.
-	//   seeds 1 and 22        a scoped {k0: !delete} stops holding, in a stream with
-	//                         snapshots. It holds in isolation, with lowering on and
-	//                         off, so what the longer stream adds is the thing to
-	//                         find. Not filed, because it is not reduced.
+	//   qth3kqe9h12ksxz9j9n0  a scope's delete of a field baseline never had is lost
+	//                         when the overlay is written, so baseline's later write
+	//                         shows through. Three ops, and it needs neither lowering
+	//                         nor a claim. Seeds 1 and 22.
 	//   seeds 11 and 15       a scoped read renders a flow value in dashes once a
 	//                         snapshot exists. That is scope_overlay.go's stated
 	//                         trade-off -- it strips presentation so that two
@@ -98,7 +98,7 @@ func TestAScopedWriteIsAStandingClaim(t *testing.T) {
 	// read missing the write that followed an overlay; and the claim's own half, a
 	// claim stored with no !logd-patch-root because claimDelta returned before
 	// lowerWrite marked and validated its delta.
-	t.Skip("fve9fxbqh12krxmpj9n0, and the two unreduced shapes above")
+	t.Skip("fve9fxbqh12krxmpj9n0, qth3kqe9h12ksxz9j9n0, and the trade-off above")
 
 	const scope = "s1"
 	broken, claims := 0, 0
