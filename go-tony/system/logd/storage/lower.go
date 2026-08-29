@@ -127,30 +127,47 @@ func storableDelta(base, next *ir.Node, keys map[string]string, comments bool) *
 //
 // So: baseline stores differences, a scope stores claims, and the two layers lower
 // differently because they own different things.
+//
+// The claim is BUILT as a patch and never applied while it is being built. A claim has
+// to be able to say that a path holds nothing -- that is the whole reason it exists --
+// and only a patch can say that. A document cannot: absence in one is indistinguishable
+// from a path nobody mentioned. So the claims are collected as (path, statement) pairs
+// and rooted together into one patch by tx.MergePatches.
+//
+// Accumulating them with api.NextState instead put each claim in the INSTRUCTION role
+// against the claim-so-far, which is a patch standing in the document position. A value
+// survives that, since a value means the same thing in both roles; a tombstone does
+// not. It ran against the half-built claim and left only its effect there, so
+//
+//	d <- {k1: !replace {from: 1, to: 5}, k0: !delete}
+//
+// stored a claim that never mentioned k0, and the scope read k0 back -- the client's
+// delete lost at the write itself, with the field ORDER deciding it: claimed after k1
+// the tombstone was applied and vanished, claimed before it, it survived as data.
+//
+// MergePatches also refuses two paths where one contains the other, which ClaimPaths
+// should never produce; if it ever does, that is an error rather than one claim
+// quietly overwriting another.
 func claimDelta(next *ir.Node, paths []string) (*ir.Node, error) {
-	var out *ir.Node
+	pds := make([]*tx.PatcherData, 0, len(paths))
 	for _, p := range paths {
-		var rooted *ir.Node
-		var err error
-		held, herr := next.GetKPathWith(p, ir.WithComments(true))
+		var stmt *ir.Node
+		held, err := next.GetKPathWith(p, ir.WithComments(true))
 		switch {
-		case herr != nil || held == nil:
+		case err != nil || held == nil:
 			// The write left nothing there, and "nothing" is as much a claim as a
 			// value: without it a later baseline write at that path shows through.
-			rooted, err = tx.RootPatchAt(p, ir.Null().WithTag(libdiff.DeleteTag))
+			stmt = ir.Null().WithTag(libdiff.DeleteTag)
 		default:
-			rooted, err = tx.RootPatchAt(p, claimValue(held.Clone()))
+			stmt = claimValue(held.Clone())
 		}
-		if err != nil {
-			return nil, fmt.Errorf("claiming %q: %w", p, err)
-		}
-		if out == nil {
-			out = rooted
-			continue
-		}
-		if out, err = api.NextState(out, rooted); err != nil {
-			return nil, fmt.Errorf("claiming %q: %w", p, err)
-		}
+		pds = append(pds, &tx.PatcherData{
+			API: &api.Patch{PathData: api.PathData{Path: p, Data: stmt}},
+		})
+	}
+	out, err := tx.MergePatches(pds)
+	if err != nil {
+		return nil, fmt.Errorf("claiming %v: %w", paths, err)
 	}
 	return out, nil
 }
