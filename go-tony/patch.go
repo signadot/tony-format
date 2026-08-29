@@ -394,9 +394,28 @@ func sortedStringFields(n *ir.Node) bool {
 // unchanged -- so this adds a leaf which knows where it stands rather than a
 // second tree. What the patch means here is still what it means on its own: the
 // placeholder carries no value, only a place.
+//
+// A place INSIDE doc is only a place if doc can hold one. An object patch reaches
+// the object merge whatever the document's type is -- doPatchWith switches on the
+// patch -- so a scalar document arrives here, its empty Fields making it behave as
+// an empty object, and a null was left standing at "field k of a number". Nothing
+// can be at a field of a number: ir.Node.Path() says so by panicking, and it was
+// right to, since an assertion that answers instead of firing is not one. It fired
+// from inside the error message !rename builds for a non-object, so a patch that
+// was going to be refused took the process down with it
+// (kbkxf53ph12krswpj9n0).
+//
+// Where the absence is, then, is where DOC is: replacing a scalar is what an
+// object patch over one does, so the placeholder stands in the scalar's own place
+// and the walk up from it is the document's own.
 func absentAt(doc *ir.Node, field string, index int) *ir.Node {
 	res := ir.Null()
-	res.Parent, res.ParentField, res.ParentIndex = doc, field, index
+	switch doc.Type {
+	case ir.ObjectType, ir.ArrayType, ir.CommentType:
+		res.Parent, res.ParentField, res.ParentIndex = doc, field, index
+	default:
+		res.Parent, res.ParentField, res.ParentIndex = doc.Parent, doc.ParentField, doc.ParentIndex
+	}
 	return res
 }
 

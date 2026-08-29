@@ -76,18 +76,14 @@ func touches(w, p string) bool {
 // to one field so that the two agree -- a two-field patch freezes two leaves and no
 // container, which this harness has no way to name.
 func TestAScopedWriteIsAStandingClaim(t *testing.T) {
-	// Held back on two defects it found, neither of them the claim's:
+	// Held back on one defect it found, which is not the claim's:
 	//
-	//   kbkxf53ph12krswpj9n0  ir.Node.Path() panics on a scalar parent, from inside
-	//                         the error message !rename builds for a non-object, so
-	//                         a refusal takes the process down (seed 3).
 	//   fve9fxbqh12krxmpj9n0  a document-root comment is lost from a scoped read
-	//                         once a later scoped write states a field beneath it
-	//                         (seed 2).
+	//                         once a later scoped write states a field beneath it.
 	//
-	// Running rather than deleted, because everything it checks besides those two is
-	// the property this file exists for. Drop the skip when they are fixed.
-	t.Skip("kbkxf53ph12krswpj9n0, fve9fxbqh12krxmpj9n0")
+	// kbkxf53ph12krswpj9n0 -- the placeholder standing at a field of a scalar, which
+	// made a refusal fatal -- is fixed.
+	t.Skip("fve9fxbqh12krxmpj9n0")
 
 	const scope = "s1"
 	broken, claims := 0, 0
