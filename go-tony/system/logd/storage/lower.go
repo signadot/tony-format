@@ -154,7 +154,19 @@ func claimDelta(next *ir.Node, paths []string) (*ir.Node, error) {
 		var stmt *ir.Node
 		held, err := next.GetKPathWith(p, ir.WithComments(true))
 		switch {
-		case err != nil || held == nil:
+		case err != nil:
+			// Not an answer about the document. Absence is (nil, nil) here, the idiom
+			// this reads; an error is a type mismatch on the way down, an index past
+			// the end, a path that will not parse -- the claim cannot be determined.
+			//
+			// Taken together with the line below it, as it was, a failure to READ the
+			// path became a claim that the path holds NOTHING, which stores a delete
+			// of the client's data. A refused write is recoverable and a stored one is
+			// not, which is the same reason lowerWrite refuses a delta it cannot
+			// promise to re-apply.
+			return nil, fmt.Errorf("claiming %q: cannot read it back from the state "+
+				"the write produced: %w", p, err)
+		case held == nil:
 			// The write left nothing there, and "nothing" is as much a claim as a
 			// value: without it a later baseline write at that path shows through.
 			stmt = ir.Null().WithTag(libdiff.DeleteTag)
