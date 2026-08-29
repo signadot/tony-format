@@ -137,9 +137,9 @@ func (s *Storage) SwitchDLog() error {
 	// asked afterwards, and from outside a narrow read and a wide one differ only in
 	// how long they took -- which is exactly what is in doubt when a fix does not
 	// show up downstream (ap8ddvp2h12krd43gdn0).
-	if rs := s.ReadStats(); rs.Narrow+rs.WideRoot+rs.WideScope+rs.WideOperator+rs.WideAbsent > 0 {
+	if rs := s.ReadStats(); rs.Narrow+rs.WideRoot+rs.WideOperator+rs.WideAbsent > 0 {
 		s.logger.Info("reads since start",
-			"narrow", rs.Narrow, "wideRoot", rs.WideRoot, "wideScope", rs.WideScope,
+			"narrow", rs.Narrow, "wideRoot", rs.WideRoot,
 			"wideOperator", rs.WideOperator, "wideAbsent", rs.WideAbsent,
 			"wideKeyedOrIndexed", rs.WideNonField, "wideBadPath", rs.WideBadPath)
 	}

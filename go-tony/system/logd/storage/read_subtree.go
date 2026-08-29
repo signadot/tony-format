@@ -27,9 +27,11 @@ import (
 //   - an operator ABOVE kp -- an !all, a !raw, a !delete of an ancestor -- which says
 //     something about the subtree that the subtree cannot say about itself, and
 //     deciding what it would have meant is the kind of guess which loses data;
-//   - a scoped read, which is one op-preserving pass over the baseline
-//     (replayScopedAt) and wants that pass to be path-aware first;
 //   - the root, which is not a narrowing.
+//
+// A SCOPED read narrows too, through narrowScopedSubtreeAt. It used to decline here,
+// wanting replayScopedAt's single op-preserving pass to be path-aware first; making
+// that pass path-aware is all it took, and it is the same pass.
 //
 // A caller which is declined reads wide, which is also the only reader that can say
 // what a path not fitting the document means: absent, or a segment which cannot be
@@ -42,15 +44,11 @@ func (s *Storage) ReadSubtreeAt(kp string, commit int64, scopeID *string) (*ir.N
 		s.readStats.note(ReadWideRoot, kp, time.Since(started))
 		return nil, false, nil
 	}
-	if scopeID != nil {
-		s.readStats.note(ReadWideScope, kp, time.Since(started))
-		return nil, false, nil
-	}
 	if _, err := kpath.Parse(kp); err != nil {
 		s.readStats.note(ReadWideBadPath, kp, time.Since(started))
 		return nil, false, nil // the wide read reports what is wrong with it
 	}
-	node, narrowed, err := s.narrowSubtreeAt(kp, commit)
+	node, narrowed, err := s.narrowSubtreeAt(kp, commit, scopeID)
 	switch {
 	case err != nil:
 	case !narrowed:
@@ -99,10 +97,10 @@ func (s *Storage) ReadSubtreeRootedAt(kp string, commit int64, scopeID *string) 
 	return rooted, true, nil
 }
 
-// narrowSubtreeAt: baseline, SUBTREE, replayed -- the snapshot's path index seeks to kp
-// and only the deltas which touch it are applied. See read.go for the axes.
-// narrowSubtreeAt reads only the subtree, or reports that it could not.
-func (s *Storage) narrowSubtreeAt(kp string, commit int64) (*ir.Node, bool, error) {
+// narrowSubtreeAt: SUBTREE, replayed, in the view scopeID names -- the snapshot's path
+// index seeks to kp and only the deltas which touch it are applied. See read.go for the
+// axes. It reads only the subtree, or reports that it could not.
+func (s *Storage) narrowSubtreeAt(kp string, commit int64, scopeID *string) (*ir.Node, bool, error) {
 	baseReader, startCommit, err := s.findSubtreeBaseReader(commit, kp)
 	if err != nil {
 		return nil, false, err
@@ -114,17 +112,17 @@ func (s *Storage) narrowSubtreeAt(kp string, commit int64) (*ir.Node, bool, erro
 	if err != nil {
 		return nil, false, err
 	}
+	if scopeID != nil {
+		scopePatches, err := s.scopeSubtreePatches(kp, commit, scopeID)
+		if err != nil {
+			return nil, false, err
+		}
+		patchNodes = append(patchNodes, scopePatches...)
+	}
 
-	projected := make([]*ir.Node, 0, len(patchNodes))
-	for _, p := range patchNodes {
-		at, ok := patchAtPath(p, kp)
-		if !ok {
-			return nil, false, nil // an operator above kp: fall back
-		}
-		if at == nil {
-			continue // this write says nothing about kp
-		}
-		projected = append(projected, at)
+	projected, ok := projectPatchesAt(patchNodes, kp)
+	if !ok {
+		return nil, false, nil // an operator above kp: fall back
 	}
 
 	node, err := applyPatchesToBase(baseReader, projected)
@@ -132,6 +130,47 @@ func (s *Storage) narrowSubtreeAt(kp string, commit int64) (*ir.Node, bool, erro
 		return nil, false, err
 	}
 	return node, true, nil
+}
+
+// scopeSubtreePatches is the scope half of a narrow read: this scope's own writes which
+// bear on kp, in commit order, to be applied AFTER every baseline patch. Appending them
+// last is what makes a scope write shadow a later baseline one, and it is the order
+// replayScopedAt uses for the same reason.
+//
+// The range is the scope's WHOLE history, [0, commit], where baseline's starts at the
+// snapshot: the snapshot is baseline's, and a scope's writes are not in it.
+//
+// Nothing here is synthesized. These are the patches the scope wrote, replayed, so !key
+// identity merges, comments and every other operation mean at kp exactly what they mean
+// in the wide read -- which is why narrowing a scope is sound where deriving a scope
+// layer from two documents was not. What a scoped read paid for was never the patches
+// that bear on the path; it was the ones that do not, and the index can already tell
+// them apart.
+func (s *Storage) scopeSubtreePatches(kp string, commit int64, scopeID *string) ([]*ir.Node, error) {
+	segments := s.index.LookupSubtree(kp, nil, &commit, scopeID)
+	return s.patchNodesFromSegments(segments, scopeID)
+}
+
+// projectPatchesAt reroots each patch as seen from kp, dropping the ones which say
+// nothing about it. It reports false when one of them cannot be seen from kp at all --
+// an operator above it -- which is the caller's signal to read wide.
+//
+// One copy, deliberately: a scope layer projected by a different rule than baseline
+// would shadow different paths than the wide read does, and the differential would then
+// be comparing two things neither of which is the definition.
+func projectPatchesAt(patchNodes []*ir.Node, kp string) ([]*ir.Node, bool) {
+	projected := make([]*ir.Node, 0, len(patchNodes))
+	for _, p := range patchNodes {
+		at, ok := patchAtPath(p, kp)
+		if !ok {
+			return nil, false
+		}
+		if at == nil {
+			continue // this write says nothing about kp
+		}
+		projected = append(projected, at)
+	}
+	return projected, true
 }
 
 // patchAtPath answers a rooted patch as seen from kp: what it writes at or below kp,

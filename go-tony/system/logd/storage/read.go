@@ -23,7 +23,7 @@ import "github.com/signadot/tony-format/go-tony/ir"
 //	                    whole document                 subtree at a path
 //	  baseline,         replayBaselineAt               narrowSubtreeAt
 //	  replayed
-//	  scope, replayed   replayScopedAt                 (none: a scope reads whole)
+//	  scope, replayed   replayScopedAt                 narrowSubtreeAt, given the scope
 //	  baseline,         steppedBaselineAt              (none: the head is whole)
 //	  stepped
 //	  scope, stepped    steppedScopedAt                (none)
