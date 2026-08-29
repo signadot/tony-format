@@ -77,6 +77,7 @@ func TestScopedWatchStepper_CostPerEvent(t *testing.T) {
 	t.Log("per delivered event, N accumulated scope writes:")
 	for _, n := range []int{50, 100, 200, 400} {
 		s := openTestStorage(t)
+		s.EnableScopeOverlay(true) // the stepper is the overlay's; it is not the default
 		mustCommit(t, s, nil, `{seed: {x: 0}, other: 0}`)
 		for i := 0; i < n; i++ {
 			commitAt(t, s, &scope, "seed.x", fmt.Sprintf("%d", i))

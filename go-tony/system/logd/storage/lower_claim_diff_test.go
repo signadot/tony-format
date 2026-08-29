@@ -76,29 +76,21 @@ func touches(w, p string) bool {
 // since a patch may state more than one thing -- so a write of two fields is checked
 // as the two claims it makes and not as the container it was written at.
 func TestAScopedWriteIsAStandingClaim(t *testing.T) {
-	// Held back on what it still finds: 5 of 293 claims over 25 seeds, none of it the
-	// claim's own doing -- four of the five reproduce with lowering switched off
-	// entirely, where no claim is made at all.
+	// This was held back on 5 broken claims in 293, and every one of them was the scope
+	// OVERLAY deriving a scope layer from two documents rather than the scope's patches:
+	// two were the delete it cannot record (qth3kqe9h12ksxz9j9n0), two the presentation
+	// it deliberately strips, one the root comment it drops (fve9fxbqh12krxmpj9n0). With
+	// the overlay off -- which is now the default, see Storage.scopeOverlay -- the same
+	// 25 seeds break none, and 200 seeds break none.
 	//
-	//   fve9fxbqh12krxmpj9n0  a document-root comment is lost from a scoped read
-	//                         once a later scoped write states a field beneath it.
-	//   qth3kqe9h12ksxz9j9n0  a scope's delete of a field baseline never had is lost
-	//                         when the overlay is written, so baseline's later write
-	//                         shows through. Three ops, and it needs neither lowering
-	//                         nor a claim. Seeds 1 and 22.
-	//   seeds 11 and 15       a scoped read renders a flow value in dashes once a
-	//                         snapshot exists. That is scope_overlay.go's stated
-	//                         trade-off -- it strips presentation so that two
-	//                         independent materializations cannot differ over
-	//                         something nobody intended -- rather than an
-	//                         undiscovered defect.
+	// So the property holds, and what was failing it was never the claim.
 	//
-	// Fixed since this was written: kbkxf53ph12krswpj9n0, a placeholder standing at a
-	// field of a scalar, which made a refusal fatal; tmwq9mh6h12kskmxj9n0, a scoped
-	// read missing the write that followed an overlay; and the claim's own half, a
-	// claim stored with no !logd-patch-root because claimDelta returned before
-	// lowerWrite marked and validated its delta.
-	t.Skip("fve9fxbqh12krxmpj9n0, qth3kqe9h12ksxz9j9n0, and the trade-off above")
+	// What a soak still finds is not the claim's either: LOGD_SEEDS=500 with
+	// LOGD_LOWERING=all breaks 2 in 6121, both reducing to four BASELINE writes at the
+	// root with no scope in them at all -- a lowered delta marked at the document root
+	// leaves !logd-patch-root on the document, and the next root operation refuses on the
+	// tag (2w62pyyah12ksqh0jdn0). The default mode does not reach it, at 500 seeds or at
+	// the documented LOGD_SEEDS=100 LOGD_LOWERING=all.
 
 	const scope = "s1"
 	broken, claims := 0, 0

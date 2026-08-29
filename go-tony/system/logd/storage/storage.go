@@ -134,9 +134,18 @@ type Storage struct {
 	scopeKeyedMu    sync.RWMutex
 	scopeKeyedCache map[string]bool
 
-	// scopeOverlay turns on the overlay read and write paths (see scope_overlay.go). ON by
-	// default; EnableScopeOverlay(false) is the escape hatch, and with it off a store is
-	// byte-identical to one that never had the feature.
+	// scopeOverlay turns on the overlay read and write paths (see scope_overlay.go). OFF
+	// by default, because the overlay derives a scope layer from two DOCUMENTS and a
+	// difference between documents cannot carry a claim -- so a scope's delete of a path
+	// baseline never held is not recorded at all, and baseline's later write shows
+	// through (qth3kqe9h12ksxz9j9n0). Replay is the definition and holds the claim; over
+	// 200 seeded streams it broke none, where the overlay broke 44.
+	//
+	// It stays here, and EnableScopeOverlay(true) still turns it on, because what it buys
+	// is real: a scoped read is flat in the scope's history with it and linear without
+	// (~40us against 7ms at 400 scope writes). What has to change before it is default
+	// again is how it is BUILT -- by composing the scope's patch sequence rather than
+	// synthesizing a layer from two documents.
 	scopeOverlay bool
 
 	// lowering holds what the log KEEPS to the storage vocabulary: a write carrying a
@@ -173,7 +182,7 @@ func Open(root string, logger *slog.Logger) (*Storage, error) {
 		index:        index.NewIndex(""),
 		logger:       logger,
 		schema:       newStorageSchema(),
-		scopeOverlay: true,
+		scopeOverlay: false,
 		lowering:     true,
 		// Never on outside a test. See LowerEverything.
 		lowerAll: os.Getenv("LOGD_LOWERING") == "all",

@@ -15,6 +15,7 @@ import "testing"
 func TestAScopedReadHasTheWriteThatFollowsAnOverlay(t *testing.T) {
 	for _, low := range []bool{false, true} {
 		s := openTestStorage(t)
+		s.EnableScopeOverlay(true) // the subject; it is not the default
 		s.EnableLowering(low)
 		const scope = "s1"
 		sc := scope
