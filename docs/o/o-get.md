@@ -27,6 +27,17 @@ one -- which is what makes the output of one command the input of the next:
 
     o get .spec a.tony b.tony | o get .replicas
 
+A comment describes a value and is not what the value IS, so -if sees through
+one. !comment is how it asks about the comments instead, and it needs -c --
+without it the comments are never read and there is nothing to ask about:
+
+    o get -c -if '!comment {head: ["# generated"]}' . doc.tony && regen
+
+A head comment belongs to the value written under it and a line comment to the
+value it follows, so the question is asked at that node and not at the one above:
+
+    o get -c -if '{name: !comment {line: [" # keep"]}}' 'items[1]' doc.tony
+
 Exit codes are the search convention: 0 when something was written, 1 when the
 path named nothing or what it named did not match, 2 for a fault.
 
@@ -63,7 +74,7 @@ o get [opts] <kpath> [files]
 
 | option | type | default | description |
 | --- | --- | --- | --- |
-| `-c` | bool |  | include comments |
+| `-c` | bool |  | include comments, and let a !comment -if pattern see them |
 | `-if` | string |  | keep the node only if it matches this match document |
 | `-if-file` | string |  | read the match document from a file |
 | `-trim` | string |  | write only the parts this match document names |

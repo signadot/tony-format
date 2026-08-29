@@ -35,6 +35,17 @@ reads, so a query can be turned into the places it found:
 It answers about the same nodes -if selects, and ignores -trim, which is about how
 much of a node to write and not about where it is.
 
+A comment describes a value and is not what the value IS, so -if sees through
+one. !comment is how it asks about the comments instead, and it needs -c --
+without it the comments are never read and there is nothing to ask about:
+
+    o list -c -if '!comment {head: ["# generated"]}' 'items[*]' doc.tony
+
+A head comment belongs to the value written under it and a line comment to the
+value it follows, so the question is asked at that node and not at the one above:
+
+    o list -c -if '{name: !comment {line: [" # keep"]}}' 'items[*]' doc.tony
+
 A file is optional: with none, stdin is read, as grep and cat do -- from a pipe,
 or typed at a terminal and ended with Ctrl-D. An input is a STREAM of documents,
 --- separated, and the path is asked of every one of them; the answer is a
@@ -78,7 +89,7 @@ o list [opts] <kpath> [files]
 
 | option | type | default | description |
 | --- | --- | --- | --- |
-| `-c` | bool |  | include comments |
+| `-c` | bool |  | include comments, and let a !comment -if pattern see them |
 | `-paths` | bool |  | write where each node is, rather than what it is |
 | `-if` | string |  | keep only the nodes matching this match document |
 | `-if-file` | string |  | read the match document from a file |

@@ -16,6 +16,19 @@ Exit codes follow grep, so that a pipe can tell an answer from a fault:
   1  nothing matched -- an answer, not an error, and written on no stream
   2  a fault: bad usage, unreadable input, an unparseable match document
 
+A comment describes a value and is not what the value IS, so a match sees through
+one: {kind: Deployment} matches a document somebody wrote a note above. !comment
+is how a pattern asks about the comments themselves, and it needs -c -- without
+it the comments are never read and there is nothing to ask about:
+
+    o m -c '!comment {head: ["# generated"]}' *.tony
+    o m -c '!comment {head: []}' *.tony   # the ones with nothing written above
+
+It asks about the comments and not about the value, so a pattern wanting both is
+the composition it looks like:
+
+    o m -c '!and [!comment {head: ["# generated"]}, {kind: Deployment}]'
+
 o match -tags lists the operators a match may use, from this binary. What each one
 means, and how match and patch share a vocabulary, is at
 <https://signadot.github.io/tony-format/matchpatch/>
@@ -50,7 +63,7 @@ o match [opts] <matchobj> [files]
 
 | option | type | default | description |
 | --- | --- | --- | --- |
-| `-c` | bool |  | include comments in the answer; matching is blind to them either way |
+| `-c` | bool |  | include comments in the answer, and let a !comment pattern see them |
 | `-trim` | bool |  | trim the results to the match |
 | `-s` | bool |  | consider match a string argument |
 | `-f` | bool |  | consider match a file path |

@@ -156,7 +156,7 @@ func (cfg *ViewConfig) parseOpts() []parse.ParseOption {
 type GetConfig struct {
 	*MainConfig
 
-	Comments bool   `cli:"name=c desc='include comments'"`
+	Comments bool   `cli:"name=c desc='include comments, and let a !comment -if pattern see them'"`
 	If       string `cli:"name=if desc='keep the node only if it matches this match document'"`
 	IfFile   string `cli:"name=if-file desc='read the match document from a file'"`
 	Trim     string `cli:"name=trim desc='write only the parts this match document names'"`
@@ -175,7 +175,7 @@ func (cfg *GetConfig) encOpts(w io.Writer) []encode.EncodeOption {
 type ListConfig struct {
 	*MainConfig
 
-	Comments bool   `cli:"name=c desc='include comments'"`
+	Comments bool   `cli:"name=c desc='include comments, and let a !comment -if pattern see them'"`
 	Paths    bool   `cli:"name=paths desc='write where each node is, rather than what it is'"`
 	If       string `cli:"name=if desc='keep only the nodes matching this match document'"`
 	IfFile   string `cli:"name=if-file desc='read the match document from a file'"`
@@ -196,16 +196,17 @@ type MatchConfig struct {
 	*cli.Command
 	*MainConfig
 
-	Comments bool `cli:"name=c desc='include comments in the answer; matching is blind to them either way'"`
+	Comments bool `cli:"name=c desc='include comments in the answer, and let a !comment pattern see them'"`
 	Trim     bool `cli:"name=trim desc='trim the results to the match'"`
 	String   bool `cli:"name=s desc='consider match a string argument'"`
 	File     bool `cli:"name=f desc='consider match a file path'"`
 	Tags     bool `cli:"name=tags desc='show available tags'"`
 }
 
-// parseOpts reads comments when asked. Matching itself stays blind to them
-// either way -- a match asks about the value, and sees through what was said
-// about it -- so this decides what a -trim result can carry, not what matches.
+// parseOpts reads comments when asked. A match sees through what was said about
+// a value unless the pattern asks with !comment, and !comment can only answer
+// about comments that were read -- so this decides both what a -trim result can
+// carry and whether a !comment pattern has anything to look at.
 func (cfg *MatchConfig) parseOpts() []parse.ParseOption {
 	return append(cfg.MainConfig.parseOpts(), parse.ParseComments(cfg.Comments))
 }

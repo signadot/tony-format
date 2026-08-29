@@ -178,17 +178,21 @@ func (d *differ) diff(from, to *ir.Node) *ir.Node {
 		}
 		return libdiff.MakeDiff(from, to)
 	}
-	if from.Type == ir.CommentType {
-		if len(from.Values) != 0 {
-			return d.diff(from.Values[0], to)
+	// Past the comparison above, a comment is not what the value IS, so the
+	// wrappers come off -- BOTH sides together. Unwrapping one side and recursing
+	// put the pair back through that comparison with only one side still wrapped,
+	// so a comment neither document had touched read as a comment that had just
+	// appeared: on an array element that restated a comment nobody changed, and
+	// on an object field it fell past commentDiff to a !replace of the whole
+	// subtree, which is the rewrite !comment exists to avoid.
+	if from.Type == ir.CommentType || to.Type == ir.CommentType {
+		f, t := ir.Uncomment(from), ir.Uncomment(to)
+		if f == from && t == to {
+			// Neither side moved, so this is a BARE comment -- one wrapping no
+			// value. Nothing here can consume it, as before.
+			panic("comment")
 		}
-		panic("comment")
-	}
-	if to.Type == ir.CommentType {
-		if len(to.Values) != 0 {
-			return d.diff(from, to.Values[0])
-		}
-		panic("comment")
+		return d.diff(f, t)
 	}
 	if from.Type != to.Type {
 		return libdiff.MakeDiff(from, to)

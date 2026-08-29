@@ -72,6 +72,20 @@ It states what the comment IS rather than what it was, so it applies to a
 document that has moved on -- which is what lets a store keep it, and why
 logd's storage vocabulary admits it beside `!insert` and `!addtag`.
 
+As a pattern it asks that same statement as a question: a position the operand
+names is compared and one it does not name is not asked about, and `[]` asks that
+there be no comment there. It asks about the comments and not about the value, so
+a pattern wanting both is the composition it looks like, `!and [!comment {head:
+["# lead"]}, {name: svc}]`. Every other question stays blind -- a comment
+describes a value and is not what the value IS, so `{name: svc}` matches a
+`name: svc` somebody wrote a note above.
+
+On the command line both sides need `-c`. Without it `o match` never reads the
+comments, so a `!comment` pattern has nothing to look at and one naming a comment
+cannot match; `o patch` drops the comment the operator states from what it
+writes, silently and with a zero exit; and `o diff` sees a comment-only change as
+no change at all, so there is nothing for either to carry.
+
 `!get-path` and `!list-path` change what a pattern IS, and it is worth saying out
 loud: a pattern holding one cannot be read on its own any more, because what it
 asserts depends on what the document says elsewhere. `status: {replicas:

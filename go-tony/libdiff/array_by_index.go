@@ -113,7 +113,19 @@ func mapValues(m map[string]rune, node *ir.Node) []rune {
 	return rs
 }
 
+// summaryStr answers what an element IS, for the alignment above: two elements
+// with the same summary are candidates for the same slot, and what actually
+// changed between a pair is left to df.
+//
+// A comment describes an element and is not what the element IS, so it is seen
+// through here, as every walk that asks what kind of node it is standing on does
+// (ir.Uncomment). Two elements differing only in a comment therefore align as one
+// element, and the comment change is the delta df reports about the pair --
+// which is the whole point of asking for comments. Before this a commented
+// element reached the default below and panicked, so `o diff -c` died on any
+// array holding one, whether or not the comment was what changed.
 func summaryStr(node *ir.Node) string {
+	node = ir.Uncomment(node)
 	switch node.Type {
 	case ir.ObjectType, ir.ArrayType, ir.NullType:
 		return node.Type.String()
