@@ -242,8 +242,15 @@ func markDeltaRoots(n *ir.Node) {
 			tx.MarkPatchRoot(ir.Uncomment(n.Values[0]))
 			return
 		}
-		if sub := ir.Uncomment(n.Values[0]); sub != nil && sub.Type == ir.ObjectType &&
-			sub.Tag == "" && len(sub.Fields) > 0 {
+		// An EMPTY container is descended into like any other. It used to require
+		// fields, on the reading that a container with none is not passed through --
+		// but it is not the statement either, the field holding it is: `{a: {}}` says
+		// a is now empty, which is a statement about a and was marked at the root.
+		//
+		// A scope's delete of a path that does not exist yet produces exactly that
+		// shape, so the entry a scope's own write became was marked as a patch on the
+		// whole document.
+		if sub := ir.Uncomment(n.Values[0]); sub != nil && sub.Type == ir.ObjectType {
 			markDeltaRoots(n.Values[0])
 			return
 		}
