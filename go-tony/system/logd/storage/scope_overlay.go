@@ -273,7 +273,6 @@ func (s *Storage) latestOverlay(scopeID string, commit int64) *index.LogSegment 
 	return nil
 }
 
-
 // liveScopes lists every scope the index holds data for. P4 in the plan: there is no
 // other way to ask -- activeScopes was excised with the old scope-snapshot code and
 // DeleteScope is the only lifecycle signal, so a scope exists exactly as long as its

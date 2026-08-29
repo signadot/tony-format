@@ -25,9 +25,9 @@ func TestDiffCommentAndValue(t *testing.T) {
 	}{{
 		// The whole point: one field changed, so one field is stated -- not the
 		// three others that did not.
-		name: "a comment and one field, out of four",
-		a:    "a: 1\nb: 2\nc: 3\n",
-		b:    "# note\na: 1\nb: 9\nc: 3\n",
+		name:    "a comment and one field, out of four",
+		a:       "a: 1\nb: 2\nc: 3\n",
+		b:       "# note\na: 1\nb: 9\nc: 3\n",
 		wantIn:  []string{"!comment", "head", "# note", "value", "b"},
 		wantOut: []string{"c: 3"},
 	}, {
