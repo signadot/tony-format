@@ -266,7 +266,7 @@ func TestArrayElementWriteRecheckedAtCommit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCurrentCommit: %v", err)
 	}
-	if got, want := readWholeStore(t, s, commit), "votes: - { by: scott }"; got != want {
+	if got, want := readWholeStore(t, s, commit), "votes: [ { by: scott } ]"; got != want {
 		t.Errorf("got %s, want %s", got, want)
 	}
 }

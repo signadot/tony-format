@@ -36,9 +36,9 @@ func TestArrayPatchPastTheEnd(t *testing.T) {
 		tony: `{xs: [1, 2, !delete null]}`,
 		want: `{
   xs: [
-      1
-      2
-    ]
+    1
+    2
+  ]
 }`,
 	}, {
 		name: "several of them",
@@ -46,8 +46,8 @@ func TestArrayPatchPastTheEnd(t *testing.T) {
 		tony: `{xs: [1, !delete null, !delete null]}`,
 		want: `{
   xs: [
-      1
-    ]
+    1
+  ]
 }`,
 	}, {
 		// The other half of the same mistake: the op tag left on a value the
@@ -57,9 +57,9 @@ func TestArrayPatchPastTheEnd(t *testing.T) {
 		tony: `{xs: [1, !insert(t) 2]}`,
 		want: `{
   xs: [
-      1
-      !t 2
-    ]
+    1
+    !t 2
+  ]
 }`,
 	}, {
 		name: "an op that computes what it adds",
@@ -67,9 +67,9 @@ func TestArrayPatchPastTheEnd(t *testing.T) {
 		tony: `{xs: [1, !nullify null]}`,
 		want: `{
   xs: [
-      1
-      null
-    ]
+    1
+    null
+  ]
 }`,
 	}, {
 		// Ordinary data past the end is what it always was: the element itself.
@@ -78,12 +78,12 @@ func TestArrayPatchPastTheEnd(t *testing.T) {
 		tony: `{xs: [1, 2, {a: 3}]}`,
 		want: `{
   xs: [
-      1
-      2
-      {
-        a: 3
-      }
-    ]
+    1
+    2
+    {
+      a: 3
+    }
+  ]
 }`,
 	}, {
 		// In bounds it always worked, and this is what it has to keep meaning:
@@ -93,8 +93,8 @@ func TestArrayPatchPastTheEnd(t *testing.T) {
 		tony: `{xs: [!delete null, 2]}`,
 		want: `{
   xs: [
-      2
-    ]
+    2
+  ]
 }`,
 	}}
 
