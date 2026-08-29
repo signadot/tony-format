@@ -376,17 +376,21 @@ func (d *differ) diff(from, to *ir.Node) *ir.Node {
 		}
 		return d.makeDiff(from, to)
 	}
-	// Both sides at once, not one and then the other. Unwrapping only `from` left
-	// the next pass comparing a bare node against a wrapper, where headLines sees a
-	// comment on one side and none on the other -- so sameComments said no and a
-	// document DIFFERED FROM ITSELF, answering !comment with the lines it already
-	// had. Reached only with comments on, which is what a store diffs with.
+	// Past the comparison above, a comment is not what the value IS, so the
+	// wrappers come off -- BOTH sides together. Unwrapping one side and recursing
+	// put the pair back through that comparison with only one side still wrapped,
+	// so a comment neither document had touched read as a comment that had just
+	// appeared: on an array element that restated a comment nobody changed, and
+	// on an object field it fell past commentDiff to a !replace of the whole
+	// subtree, which is the rewrite !comment exists to avoid.
 	if from.Type == ir.CommentType || to.Type == ir.CommentType {
-		if (from.Type == ir.CommentType && len(from.Values) == 0) ||
-			(to.Type == ir.CommentType && len(to.Values) == 0) {
+		f, t := ir.Uncomment(from), ir.Uncomment(to)
+		if f == from && t == to {
+			// Neither side moved, so this is a BARE comment -- one wrapping no
+			// value. Nothing here can consume it, as before.
 			panic("comment")
 		}
-		return d.diff(unwrapComment(from), unwrapComment(to))
+		return d.diff(f, t)
 	}
 	if from.Type != to.Type {
 		return d.makeDiff(from, to)

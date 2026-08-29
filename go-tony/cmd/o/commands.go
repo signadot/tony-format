@@ -162,6 +162,17 @@ one -- which is what makes the output of one command the input of the next:
 
     o get .spec a.tony b.tony | o get .replicas
 
+A comment describes a value and is not what the value IS, so -if sees through
+one. !comment is how it asks about the comments instead, and it needs -c --
+without it the comments are never read and there is nothing to ask about:
+
+    o get -c -if '!comment {head: ["# generated"]}' . doc.tony && regen
+
+A head comment belongs to the value written under it and a line comment to the
+value it follows, so the question is asked at that node and not at the one above:
+
+    o get -c -if '{name: !comment {line: [" # keep"]}}' 'items[1]' doc.tony
+
 Exit codes are the search convention: 0 when something was written, 1 when the
 path named nothing or what it named did not match, 2 for a fault.
 
@@ -221,6 +232,17 @@ reads, so a query can be turned into the places it found:
 It answers about the same nodes -if selects, and ignores -trim, which is about how
 much of a node to write and not about where it is.
 
+A comment describes a value and is not what the value IS, so -if sees through
+one. !comment is how it asks about the comments instead, and it needs -c --
+without it the comments are never read and there is nothing to ask about:
+
+    o list -c -if '!comment {head: ["# generated"]}' 'items[*]' doc.tony
+
+A head comment belongs to the value written under it and a line comment to the
+value it follows, so the question is asked at that node and not at the one above:
+
+    o list -c -if '{name: !comment {line: [" # keep"]}}' 'items[*]' doc.tony
+
 A file is optional: with none, stdin is read, as grep and cat do -- from a pipe,
 or typed at a terminal and ended with Ctrl-D. An input is a STREAM of documents,
 --- separated, and the path is asked of every one of them; the answer is a
@@ -265,6 +287,19 @@ Exit codes follow grep, so that a pipe can tell an answer from a fault:
   0  something matched and was written
   1  nothing matched -- an answer, not an error, and written on no stream
   2  a fault: bad usage, unreadable input, an unparseable match document
+
+A comment describes a value and is not what the value IS, so a match sees through
+one: {kind: Deployment} matches a document somebody wrote a note above. !comment
+is how a pattern asks about the comments themselves, and it needs -c -- without
+it the comments are never read and there is nothing to ask about:
+
+    o m -c '!comment {head: ["# generated"]}' *.tony
+    o m -c '!comment {head: []}' *.tony   # the ones with nothing written above
+
+It asks about the comments and not about the value, so a pattern wanting both is
+the composition it looks like:
+
+    o m -c '!and [!comment {head: ["# generated"]}, {kind: Deployment}]'
 
 o match -tags lists the operators a match may use, from this binary. What each one
 means, and how match and patch share a vocabulary, is at
@@ -354,6 +389,13 @@ STREAM of documents, so a pipeline is written the obvious way:
 
 Without -c the result carries no comments -- not the patch's, and not the ones
 the document being patched already had -- because a patch answers with data.
+
+!comment states what the comments at a node ARE, which is how a comment is
+changed without rewriting the value it describes. It needs -c as well, or the
+comment it states is dropped from what is written:
+
+    o p -c '{replicas: !comment {head: ["# bumped for the launch"]}}' d.tony
+    o p -c '!comment {head: []}' d.tony   # drop what is written above the doc
 
 A patch which deletes a whole document writes nothing for it, which is the result
 and not a fault. Exit codes: 0, and 2 for a fault.

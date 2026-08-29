@@ -98,10 +98,10 @@ func matchNode(doc, match *ir.Node, ctx *mergeop.OpContext, e *explainer) (bool,
 	// match "# lead\nname: svc" -- and answered false rather than erring, which
 	// is the shape of wrongness nobody finds.
 	//
-	// The format says tools support matching comments "if so desired"; nothing
-	// here can yet be so desired, because matchNode has no case that compares
-	// them -- an option was written and removed rather than shipped half-working.
-	// Filed, and blind until then.
+	// The format says tools support matching comments "if so desired", and
+	// !comment is how they are desired: it reads what wrapped a node through the
+	// node's parent, so unwrapping here does not put comments beyond reach -- it
+	// keeps every OTHER question blind to them. See mergeop's commentOp.Match.
 	doc, match = uncomment(doc), uncomment(match)
 	_, tag, args, child, err := mergeop.SplitChild(match)
 	if err != nil {

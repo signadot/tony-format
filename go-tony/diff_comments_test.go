@@ -47,6 +47,18 @@ func TestDiffComments(t *testing.T) {
 		{"both positions at once", "# oldh\nname: svc # oldl\n", "# newh\nname: svc # newl\n"},
 		{"head changed, line untouched", "# oldh\nname: svc # keep\n", "# newh\nname: svc # keep\n"},
 		{"line removed, head untouched", "# keep\nname: svc # gone\n", "# keep\nname: svc\n"},
+
+		// An array element's comment wraps the element, and the by-index diff
+		// summarizes each element to align the two arrays. The summary had no
+		// case for a comment, so it panicked ("type") rather than diffing --
+		// `o diff -c` died on any array holding a commented element, whether or
+		// not the comment was the thing that changed.
+		{"a comment on an array element", "items:\n- # old\n  a\n- b\n", "items:\n- # new\n  a\n- b\n"},
+		{"a comment added to an array element", "items:\n- a\n- b\n", "items:\n- # new\n  a\n- b\n"},
+		{"a comment removed from an array element", "items:\n- # old\n  a\n- b\n", "items:\n- a\n- b\n"},
+		{"a comment on the last element", "items:\n- a\n- # old\n  b\n", "items:\n- a\n- # new\n  b\n"},
+		{"a line comment on an array element", "items:\n- a # old\n- b\n", "items:\n- a # new\n- b\n"},
+		{"a comment on an element of an array of objects", "items:\n- # old\n  name: a\n- name: b\n", "items:\n- # new\n  name: a\n- name: b\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a, b := pc(t, tc.a), pc(t, tc.b)
@@ -80,6 +92,19 @@ func TestDiffCommentsLeavesDataDiffsAlone(t *testing.T) {
 		{"a: 1\n", "a: 2\n"},
 		{"a: 1\n", "a: 1\nb: 2\n"},
 		{"items:\n- a\n- b\n", "items:\n- a\n"},
+		// A data change to an array which holds a commented element: the
+		// alignment summarizes every element, so this reached the same panic
+		// even though no comment changed.
+		{"items:\n- # note\n  a\n- b\n", "items:\n- # note\n  a\n"},
+		{"items:\n- # note\n  a\n", "items:\n- # note\n  a\n- c\n"},
+		// An UNCHANGED comment on the node whose value changed. The wrappers
+		// used to come off one side at a time, so the pair met the comment
+		// comparison again half-unwrapped and the comment read as new: here that
+		// meant a !replace carrying the whole subtree, for a change to one leaf.
+		{"a:\n  # note\n  b: 1\n", "a:\n  # note\n  b: 2\n"},
+		{"# note\nname: was\n", "# note\nname: now\n"},
+		{"a:\n  # note\n  b:\n    c: 1\n", "a:\n  # note\n  b:\n    c: 2\n"},
+		{"name: svc # note\nn: 1\n", "name: svc # note\nn: 2\n"},
 	} {
 		a, b := pc(t, tc.a), pc(t, tc.b)
 		plain := tony.Diff(a, b)
