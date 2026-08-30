@@ -379,20 +379,18 @@ func (w *watchStream) stepBaseline(commit int64, patch *ir.Node, shared bool) bo
 }
 
 // emitScoped advances a scoped watch by one commit and sends what changed under the path.
-// notification is nil for a replayed commit, where there is no committed delta to fold and
-// the view is recomputed. It answers false when the watch has been failed.
+// It answers false when the watch has been failed.
 //
-// The delta is recompute-and-diff against the previously emitted state either way: a
-// scope's raw committed patch is not its delta, because scope writes shadow baseline
-// stickily and !key merges are identity-based. A stepper removes the READ, not the diff.
-func (w *watchStream) emitScoped(commit int64, notification *storage.CommitNotification) bool {
-	var next *ir.Node
-	var err error
-	if notification == nil {
-		next, err = w.s.emitScopedDelta(w.watcher.ID, w.path, commit, w.prev)
-	} else {
-		next, err = w.s.emitScopedDelta(w.watcher.ID, w.path, commit, w.prev)
-	}
+// The delta is recompute-and-diff against the previously emitted state: a scope's raw
+// committed patch is not its delta, because scope writes shadow baseline stickily and
+// !key merges are identity-based. So there is nothing to fold, and a live commit is
+// served exactly as a replayed one is -- the committed delta is not an input here.
+//
+// The recompute is a READ AT THE PATH (scopedDocAt -> readDocAt), which since scoped
+// reads narrow costs the patches bearing on that path rather than the scope's history.
+// That is what a stepper was for, and it is why removing one cost less than it looks.
+func (w *watchStream) emitScoped(commit int64) bool {
+	next, err := w.s.emitScopedDelta(w.watcher.ID, w.path, commit, w.prev)
 	if err != nil {
 		w.s.log.Error("failed to read scoped state for watch", "path", w.path, "commit", commit, "error", err)
 		w.fail(api.ErrCodeReplayFailed, "failed to read scoped state at commit %d: %v", commit, err)
@@ -432,7 +430,7 @@ func (w *watchStream) replay(from, to int64) bool {
 		for _, patch := range patches {
 			ok := false
 			if w.scoped {
-				ok = w.emitScoped(patch.Commit, nil)
+				ok = w.emitScoped(patch.Commit)
 			} else {
 				ok = w.stepBaseline(patch.Commit, patch.Patch, false)
 			}
@@ -482,7 +480,7 @@ func (w *watchStream) live() {
 			}
 			ok = false
 			if w.scoped {
-				ok = w.emitScoped(notification.Commit, notification)
+				ok = w.emitScoped(notification.Commit)
 			} else {
 				ok = w.stepBaseline(notification.Commit, notification.Patch, true)
 			}
