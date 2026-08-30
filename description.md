@@ -82,54 +82,67 @@ Verified by probe against a store with a snapshot and a keyed array of three ele
    exists: root at the ARRAY, carry a one-element `!key(f)` list. The write side already
    has this workaround; the read side does not.
 
-## An incremental path
+## The work, by what it unblocks
 
-Each stage stands alone and is measurable by the read counters.
+Numbering these 0..5 was a mistake in the first draft: it read as a sequence, and they are
+not one. There is exactly ONE ordering constraint in the whole plan, and the rest is a
+choice about which cost to stop paying first. Grouped by what each actually finishes.
 
-**0. Make the counters tell the truth (no format change). DONE, c3e53a2.** A keyed path
-that goes wide is counted as keyed rather than as "operator" or "absent", so the later
-stages have a number to move: a store doing nothing but keyed reads used to report
-reads.wide.keyed-or-idx = 0. Fence 1's return went with it -- a keyed path the narrow read
-cannot address now declines instead of answering "narrowed, absent", which was a wrong
-answer that only ReadSubtreeRootedAt's convention of reading nil as "go wide" kept from
-being seen. And ReadSubtreeRootedAt now decides from the path before reading, so the
-discarded-then-repeated read in fence 4 is gone.
+### Measurement -- DONE (c3e53a2)
 
-**1. Project through `!key` (no format change).** `projectPatchesAt`, meeting `!key(f)`
-with a `(v)` segment next, selects the element whose f is v and projects to it. This is
-the same identity the merge already implements, applied to the patch rather than the
-document, and it removes fence 2 -- the delta range then costs the element. The base still
-costs whatever fence 1 leaves.
+Counters that name a keyed read as keyed rather than as "operator" or "absent", so
+everything below has a number to move. A keyed path the narrow read cannot address now
+declines instead of answering "narrowed, absent", and ReadSubtreeRootedAt decides from the
+path before reading rather than discarding a read it just did.
 
-**2. Re-root through a keyed segment (no format change, needs the schema).**
-`ReadSubtreeRootedAt` wraps its answer in a `!key(f)` single-element list rather than
-giving up -- the RootKeyedListAt construction, in reverse. The key field comes from
-`schemaForScope`. Removes fence 4. Worth keeping the doc comment's caution: the wide read
-distinguishes absent from ancestor-is-a-scalar from empty-document, and this must not
-answer those.
+### Stands entirely alone: the write path
 
-**3. Stop cloning the array (no format change).** Two independent halves of fence 3:
-build the document's key->position map once instead of rescanning, and clone only the
-elements the patch names, sharing the rest. Both are local to keyed_list.go. This is the
-largest immediate win and the only stage that needs nothing from anyone: on the numbers
-above it takes a single-key write on 40k elements from 45ms to roughly the cost of one.
+**Stop cloning the array** (mergeop/keyed_list.go). Build the document's key->position map
+once instead of rescanning, and clone only the elements the patch names, sharing the rest.
+Depends on nothing here, is depended on by nothing here, needs no format change and no
+schema. On the numbers above it takes a single-key write on 40k elements from 45ms to
+roughly the cost of one element. Best ratio in the plan and it can be done today.
 
-**4. Index keyed elements in the snapshot (format change, compatible).** The builder
-learns the key field for an array -- from the schema, at snapshot time -- and records
-`items("G")` where it records `items[2]` today. The stream state has to carry the key for
-the array it is inside, which is where the schema-blindness has to end. Compatible in both
-directions: the index is chunk-granular and the reader already falls back to the nearest
-ancestor, so an old snapshot degrades to today's behaviour rather than breaking. This is
-the stage that makes a single-key READ cost a chunk instead of a document, and it is the
-prerequisite for the rest being worth having.
+### Finishes positional reads by itself: the read API
 
-**5. The live index, which we are not ready for.** `Index.Add` builds a child Index per
-path segment, so a keyed array of N elements is N resident subtrees -- addressable in O(1)
-and resident in O(N). Making a single-key operation out of memory END to end needs the
-index itself to be traversable on disk, which is a larger change than any of the above and
-should not be smuggled into one of them. Stages 0-4 are all worth doing before it, and
-none of them is invalidated by it: they make the DELTA and SNAPSHOT layers key-addressable,
-which is what an out-of-memory index would then be indexing.
+**Re-root through a non-field segment** (ReadSubtreeRootedAt). `items[2]` already narrows
+at the storage layer and returns the element; nothing can deliver it. Doing this alone
+makes every POSITIONAL element read narrow end to end -- no keying involved, no format
+change. For a KEYED path it also needs the two below, because the read declines earlier.
+The key field for the `!key(f)` wrapper comes from schemaForScope.
+
+### Finishes keyed reads, and only together: delta + snapshot
+
+Neither of these completes a keyed read alone -- with either missing, the read still
+declines at the other -- and both need the re-rooting above to deliver the result. This is
+the one place in the plan where order matters, and even here the order is "all three
+before any keyed read narrows", not a sequence.
+
+**Project through `!key`** (projectPatchesAt). Meeting `!key(f)` with a `(v)` segment next,
+select the element whose f is v and project to it -- the identity the merge already
+implements, applied to the patch. Covers the delta range. No format change.
+
+**Index keyed elements in the snapshot** (snap builder, format change, compatible). The
+builder learns the key field for an array from the schema at snapshot time and records
+`items("G")` where it records `items[2]`. The stream state has to carry the key for the
+array it is inside, which is where the schema-blindness ends. Compatible both ways: the
+index is chunk-granular and the reader already falls back to the nearest ancestor, so an
+old snapshot degrades to today's behaviour. Covers the base.
+
+### A different axis: residency, which we are not ready for
+
+**The live index out of memory.** `Index.Add` builds a child Index per path segment, so a
+keyed array of N elements is N resident subtrees -- addressable in O(1), resident in O(N).
+This is not the next stage of the above; it is the other half of "out of memory", and the
+work above is about ADDRESSABILITY while this is about what has to be held. Everything
+above is worth doing before it and none of it is invalidated by it: they make the delta and
+snapshot layers key-addressable, which is what an out-of-memory index would be indexing.
+
+### If you want one order
+
+The clone fix, because it is free of everyone else and buys the most. Then re-rooting,
+which finishes positional reads on its own. Then projection and the snapshot index
+together, which is when a keyed read finally narrows. Residency last, on its own terms.
 
 ## Note
 
