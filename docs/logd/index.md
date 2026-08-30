@@ -8,8 +8,10 @@ the logd protocol verbatim, clients get them through docd too.
 The wire itself — every request and response, what a watch promises, and the mount
 protocol a controller speaks — is [The session protocol](session.md).
 
-The same design decides what a store will accept: a delta it cannot apply would break
-every later read, so writes are checked before they are stored. See
+The same design decides what a store will accept, and what it keeps: a delta it cannot
+apply would break every later read, so writes are checked before they are stored — and an
+operation whose meaning depends on what it lands on is stored as the result it produced,
+so that replaying it later cannot mean something else. See
 [What a write must be](writes.md), and [Keyed arrays](keyed.md) for naming elements of
 an array by identity rather than by position.
 
