@@ -69,10 +69,7 @@ func TestIndexPatchWithSchema(t *testing.T) {
 				Patch:      node,
 			}
 
-			err = IndexPatch(idx, entry, "A", 0, 1, 0, node, tt.schema, nil)
-			if err != nil {
-				t.Fatalf("IndexPatch failed: %v", err)
-			}
+			IndexPatch(idx, entry, "A", 0, 1, 0, node, tt.schema, nil)
 
 			// Check expected paths exist
 			for _, path := range tt.expectedPaths {
@@ -127,10 +124,7 @@ func TestIndexPatchKeyedArrayBugFix(t *testing.T) {
 		Patch:      node,
 	}
 
-	err = IndexPatch(idx, entry, "A", 0, 1, 0, node, schema, nil)
-	if err != nil {
-		t.Fatalf("IndexPatch failed: %v", err)
-	}
+	IndexPatch(idx, entry, "A", 0, 1, 0, node, schema, nil)
 
 	// Verify keyed paths were created with actual key values
 	expectedPaths := []string{"users(joe)", "users(alice)"}
@@ -222,9 +216,7 @@ func TestIndexPatchKeyTag(t *testing.T) {
 			}
 			lastCommit := int64(0)
 			entry := &dlog.Entry{Commit: 1, LastCommit: &lastCommit, Patch: node}
-			if err := IndexPatch(idx, entry, "A", 0, 1, 0, node, tt.schema, nil); err != nil {
-				t.Fatalf("IndexPatch failed: %v", err)
-			}
+			IndexPatch(idx, entry, "A", 0, 1, 0, node, tt.schema, nil)
 			indexed := map[string]bool{}
 			for _, seg := range idx.AllSegments() {
 				indexed[seg.KindedPath] = true

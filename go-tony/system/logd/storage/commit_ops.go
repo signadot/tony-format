@@ -136,17 +136,16 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	// The STORED delta is what a rebuild reads back, so it is what the live index
 	// has to agree with: index.Build's "we rely on !key tags stored in the patches"
 	// is only true when the two are the same node.
-	if err := index.IndexPatch(c.s.index, e, string(logFile), pos, txSeq, generation, stored, schema, scopeID); err != nil {
-		return "", 0, err
-	}
+	index.IndexPatch(c.s.index, e, string(logFile), pos, txSeq, generation, stored, schema, scopeID)
 	indexTook = time.Since(indexStarted)
 
-	// Dual-write: also index to pending index if migration is in progress
+	// Dual-write: also index to pending index if migration is in progress. This one
+	// CompleteMigration installs as the live index verbatim, so it has to see every
+	// commit the active index saw; IndexPatch cannot fail, which is what makes the two
+	// writes here either both done or neither reached.
 	if pendingIdx := c.s.schema.GetPendingIndex(); pendingIdx != nil {
 		pendingSchemaParsed := c.s.schema.GetPendingParsed()
-		if err := index.IndexPatch(pendingIdx, e, string(logFile), pos, txSeq, generation, stored, pendingSchemaParsed, scopeID); err != nil {
-			return "", 0, fmt.Errorf("failed to index to pending: %w", err)
-		}
+		index.IndexPatch(pendingIdx, e, string(logFile), pos, txSeq, generation, stored, pendingSchemaParsed, scopeID)
 	}
 
 	// Trigger periodic index persistence

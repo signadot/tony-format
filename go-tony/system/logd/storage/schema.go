@@ -274,9 +274,7 @@ func (s *Storage) reindexForPending(fromCommit, toCommit int64) error {
 		}
 
 		// Index into pending index
-		if err := index.IndexPatch(pendingIdx, entry, seg.LogFile, seg.LogPosition, seg.EndTx, seg.LogFileGeneration, entry.Patch, parsedSchema, entry.ScopeID); err != nil {
-			return fmt.Errorf("failed to index entry at commit %d: %w", entry.Commit, err)
-		}
+		index.IndexPatch(pendingIdx, entry, seg.LogFile, seg.LogPosition, seg.EndTx, seg.LogFileGeneration, entry.Patch, parsedSchema, entry.ScopeID)
 		indexedCount++
 	}
 

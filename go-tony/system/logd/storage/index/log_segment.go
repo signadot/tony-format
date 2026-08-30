@@ -130,17 +130,33 @@ func NewLogSegmentFromPatchEntry(e *dlog.Entry, kpath string, logFile string, po
 	}
 }
 
-func IndexPatch(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int64, generation int64, diff *ir.Node, schema *api.Schema, scopeID *string) error {
-	return indexPatchRec(idx, e, logFile, pos, txSeq, generation, diff, "", schema, scopeID)
+// IndexPatch records where a stored delta lands, and CANNOT FAIL -- deliberately, and
+// the signature says so.
+//
+// Indexing happens after the log append, because a segment records the position the
+// append returns, so anything fallible here would be fallible with the record already
+// on disk: the caller is told the commit failed, replay reads the entry back, and the
+// two disagree about whether it happened. During a schema migration it would be worse
+// than that. Every commit is then indexed twice, once under each schema, and
+// CompleteMigration installs the pending index as the live one verbatim -- so an entry
+// this skipped would be missing from the index the store then runs on, permanently
+// (tkn7ptxch12krgzma9mg).
+//
+// The walk has no failure to report: it derives paths and adds segments, and a shape it
+// does not understand is a shape it descends no further into. Keep it that way. If
+// something here ever needs to refuse, the refusal belongs where the delta is BUILT,
+// before the append, not here.
+func IndexPatch(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int64, generation int64, diff *ir.Node, schema *api.Schema, scopeID *string) {
+	indexPatchRec(idx, e, logFile, pos, txSeq, generation, diff, "", schema, scopeID)
 }
 
-func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int64, generation int64, n *ir.Node, kPath string, schema *api.Schema, scopeID *string) error {
+func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int64, generation int64, n *ir.Node, kPath string, schema *api.Schema, scopeID *string) {
 	seg := NewLogSegmentFromPatchEntry(e, kPath, logFile, pos, txSeq, generation, scopeID)
 	seg.Spine = passesThrough(n)
 	idx.Add(seg)
 
 	if n == nil {
-		return nil
+		return
 	}
 
 	// A head comment wraps the value it precedes, so a patch carrying comments has
@@ -161,22 +177,17 @@ func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq i
 	// when it has no answer the walk below runs as it always did.
 	if ops, known := mergeop.OperandPaths(n); known {
 		for _, o := range ops {
-			if err := indexPatchRec(idx, e, logFile, pos, txSeq, generation, o.Node,
-				kPath+o.Suffix, schema, scopeID); err != nil {
-				return err
-			}
+			indexPatchRec(idx, e, logFile, pos, txSeq, generation, o.Node,
+				kPath+o.Suffix, schema, scopeID)
 		}
-		return nil
+		return
 	}
 
 	// Where the parts of this patch land, which is PatchChildren's single answer --
 	// a field is a .field step, an integer-keyed object a {sparse} one, an array [i]
 	// unless it is keyed, and a keyed one (key) as ir.ElemKey reads it.
 	for _, c := range PatchChildren(n, kPath, schema) {
-		if err := indexPatchRec(idx, e, logFile, pos, txSeq, generation, c.Node, c.Path,
-			schema, scopeID); err != nil {
-			return err
-		}
+		indexPatchRec(idx, e, logFile, pos, txSeq, generation, c.Node, c.Path,
+			schema, scopeID)
 	}
-	return nil
 }

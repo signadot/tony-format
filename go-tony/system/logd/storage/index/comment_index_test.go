@@ -18,9 +18,7 @@ func indexedPaths(t *testing.T, src string) []string {
 	idx := NewIndex("")
 	last := int64(0)
 	e := &dlog.Entry{Commit: 1, LastCommit: &last}
-	if err := IndexPatch(idx, e, "A", 0, 1, 0, n, nil, nil); err != nil {
-		t.Fatalf("IndexPatch %q: %v", src, err)
-	}
+	IndexPatch(idx, e, "A", 0, 1, 0, n, nil, nil)
 	paths := []string{}
 	for _, seg := range idx.AllSegments() {
 		paths = append(paths, seg.KindedPath)

@@ -167,9 +167,7 @@ func indexPathsOf(t *testing.T, patch *ir.Node, schema *api.Schema) []string {
 	idx := index.NewIndex("")
 	last := int64(0)
 	e := &dlog.Entry{Commit: 1, LastCommit: &last}
-	if err := index.IndexPatch(idx, e, "A", 0, 1, 0, patch, schema, nil); err != nil {
-		t.Fatalf("IndexPatch: %v", err)
-	}
+	index.IndexPatch(idx, e, "A", 0, 1, 0, patch, schema, nil)
 	seen := map[string]bool{}
 	for _, seg := range idx.AllSegments() {
 		seen[seg.KindedPath] = true
