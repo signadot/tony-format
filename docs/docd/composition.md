@@ -27,6 +27,13 @@ goroutine so the client's request loop keeps serving.
 A read with no mount beneath it — the common single-owner case — is single-routed
 normally. Root and `.meta` reads are out of scope for composition.
 
+A source with **nothing at its path** contributes nothing rather than failing the read.
+Most paths exist in one source and not in the others, so absence is the ordinary case; the
+composed read reports `not_found` only when *every* source is absent, which is the same
+answer a direct read of that path gives. Any other failure from any source still fails the
+composition, because a merged document missing a subtree nobody could read is not a smaller
+answer, it is a wrong one.
+
 ## Composed watches
 
 A composed `Watch` multiplexes several backend sub-watches into the client's one watch:
@@ -36,6 +43,13 @@ A composed `Watch` multiplexes several backend sub-watches into the client's one
 2. docd sends **one** composed initial snapshot (the merged subtrees at the current
    commit) as the watch's `State` event.
 3. docd flushes the buffered deltas and then forwards live deltas.
+
+That composed snapshot is a read, so it answers absence the way a read does: if no source
+has anything at the watched path, the watch ends with `not_found` rather than being
+established on a document nobody wrote. A client that meant to wait for the path sets
+`waitIfAbsent` on its watch request — docd then establishes the watch on a null snapshot,
+and carries the flag to the controller owning the subtree, since a controller serving from
+its own logd session has to pass it on in turn.
 
 Establishing the sub-watches *before* taking the snapshot is what makes the handoff
 gapless: any change between the snapshot and going live is buffered, not lost.

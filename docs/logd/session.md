@@ -34,7 +34,7 @@ directly inside it:
 | `match` | `{match: {path: <kpath>, data: <pattern>, commit: <n>}}` |
 | `patch` | `{patch: {path: <kpath>, data: <value>, match: {path, data}, txId: <n>, timeout: "5s"}}` |
 | `newtx` | `{newtx: {participants: <n>}}` |
-| `watch` | `{watch: {path: <kpath>, fromCommit: <n>, noInit: <bool>}}` |
+| `watch` | `{watch: {path: <kpath>, fromCommit: <n>, noInit: <bool>, waitIfAbsent: <bool>}}` |
 | `unwatch` | `{unwatch: {path: <kpath>, watchId: <id>}}` |
 | `ping` | `{ping: {}}` |
 
@@ -95,6 +95,22 @@ snapshot.
 
 Every answer carries the `commit` it was read at — which is also the store's head, and
 therefore a revision a client can compare without asking for anything extra.
+
+**A read answers `null` only where a null was written.** A path holding nothing is
+`not_found`, at every depth, whether or not an ancestor of it resolves — and on a store
+where nothing has been written that is true of every path, the empty one included:
+
+```tony
+{match: {path: verse.a}}
+{error: {code: not_found message: 'no value at "verse.a": no field "verse" at the document root'}}
+
+{match: {path: ""}}
+{error: {code: not_found message: 'no value at "": the store is empty'}}
+```
+
+So `null` means one thing. It used to mean two — a written null, and a path nobody had
+written to — and which one a caller got depended on whether some *ancestor* happened to
+resolve, so no client could recover the distinction from the answer.
 
 ## Writing
 
@@ -216,6 +232,24 @@ holds what the store holds.
     can see that it was.
 
 - `noInit` skips the initial state for a client that already has one.
+- `waitIfAbsent` asks to watch a path that **holds nothing yet**. Without it such a watch
+  is refused with `not_found`, for the same reason a read of that path is: a watch that
+  delivered null would say what a read says, and then "watch this, it will appear" and
+  "watch this, I have the path wrong" would be one request with one outcome. With it, the
+  watch is established, the initial state is null, and the value is reported when it
+  arrives.
+
+    Waiting is the ordinary way to start watching something a peer has not created yet, so
+    a client doing that says so:
+
+    ```tony
+    {id: w1, watch: {path: verse.entities.e9, waitIfAbsent: true}}
+    ```
+
+    It has to reach whoever serves the path. docd carries it to the controller owning that
+    subtree, and a controller serving from its own logd session passes it on — a hop that
+    drops it refuses a watch the client asked to wait for. A composed watch reports
+    `not_found` only when *every* source is absent.
 
 **Across docd mounts.** Mounts share the commit sequence for their lifetime — docd
 allocates a transaction id from logd, every participant commits through that one logd under
@@ -285,6 +319,18 @@ writes an object at `a.b`. What separates them is what is there now.
 | `unsupported` | the responder does not implement that operation |
 
 `timeout`, `session_closed` and `invalid_message` mean what they say.
+
+**Across a hop.** A code describes either the *document* or the *connection*, and only the
+first kind survives being passed on. When a controller answers for its subtree, the codes
+above about the document — `not_found`, `path_conflict`, `invalid_path`, `invalid_diff`,
+`match_failed`, `commit_not_found` — reach the client as the controller reported them,
+because they are as true for the client as they were for the controller.
+
+The ones about a connection do not travel: the controller's session closing is not the
+client's session closing, and a downstream calling the controller's message invalid is the
+controller's bug rather than the client's. A controller failing for a reason it did not
+classify reads as `storage_error` — the responder could not do it — and never as
+`invalid_message`, which would tell a client to rewrite a request that was fine.
 
 ## The mount protocol
 
