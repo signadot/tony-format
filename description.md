@@ -1,47 +1,100 @@
-# ir: Path() panics on a scalar parent, from inside an error message, so a refusal becomes a crash
+# eliminate forged ir links completely
 
-ir.Node.Path() panics when a node's parent is a scalar, and it is called from
-error messages -- so a patch that was merely going to be REFUSED kills the
-process instead.
+A forged link is a Parent/ParentField/ParentIndex triple that says a node is a child
+where it is not: the parent's Fields or Values do not contain it. The link renders,
+walks and answers Root() exactly as a real one does, and nothing checks it -- so the
+only thing separating a forged link from a true one is whether anybody wrote it down.
 
-    ir/path.go:28   default: panic("parent but not in container")
+The panic this issue was originally filed as is fixed (1029af7, c003bd5, verified: the
+repro is clean and all four document shapes refuse instead of crashing). What is left is
+the general form, which the first discussion note below raised and the fix answered by
+implementation rather than by argument.
 
-The default arm is reached whenever Parent is neither Object, Array nor Comment.
-Nothing in Path()'s contract says a node must be in a container: it is a display
-path used to say WHERE something went wrong, and the one caller that reached it
-here is an error string:
+## Where the live one is
 
-    mergeop/rename.go:88
-      return nil, fmt.Errorf("cannot rename fields in non-object at %s of type %s",
-        doc.Path(), doc.Type)
+`absentAt` (patch.go:411), on the container branch:
 
-so the refusal never gets built.
+    func absentAt(doc *ir.Node, field string, index int) *ir.Node {
+        res := ir.Null()
+        switch doc.Type {
+        case ir.ObjectType, ir.ArrayType, ir.CommentType:
+            res.Parent, res.ParentField, res.ParentIndex = doc, field, index
+        default:
+            res.Parent, res.ParentField, res.ParentIndex = doc.Parent, doc.ParentField, doc.ParentIndex
+        }
+        return res
+    }
 
-Reproduction, through the store, deterministic:
+The placeholder stands for a field the document does NOT have -- that is what it is for --
+and is then linked as the child at that field. `Patch({}, {a: !rename [...]})` produces a
+null claiming to be `{}`'s child at `a` while `{}` has no field `a`. Path() renders `$.a`
+and Root() answers the document, both from a link that describes nothing in the tree.
 
-    go test ./system/logd/storage -run TestAScopedWriteIsAStandingClaim
-    (seed 3 of genClaimOps, op 22: a scoped `!rename [{from: "k2", to: "k2"}]`
-     at path "a"; ops 0..21 in the log of that run)
+Path()'s assertion does not catch this. It asks what KIND the parent is -- Object, Array
+or Comment -- and never whether the parent contains the child, which is precisely why the
+forged link passes and the scalar one did not.
 
-    panic: parent but not in container
-      ir.(*Node).Path
-      mergeop.renameOp.Patch  rename.go:88
-      tony.doPatchWith        patch.go:127
-      tony.objMergeFast
+The scalar branch is a forged link already eliminated: 1029af7 stopped claiming a place at
+a field of a number, which was an IMPOSSIBLE claim rather than merely an untrue one, and
+so was the one Path() noticed.
 
-At the tony level the same shapes are clean -- `{}` and `{a: 1}` patched with
-`{a: !rename [...]}` both answer "cannot rename fields in non-object at $.a" --
-so the node with the scalar parent is one the STORE built, and there are two
-things here, either of which alone would have kept the process up:
+## Assessment: absentAt needs a re-design, not a fix
 
-  1. Path() should answer rather than panic. The Comment arm already handles "a
-     parent that adds no step" by returning the parent's path; an unknown parent
-     is the same situation with less information.
+The link cannot simply be deleted. It is load-bearing, and 031eb50 added it deliberately
+to fix a silent wrong answer:
 
-  2. Something in the read/fold path leaves a node whose Parent is a scalar.
-     That is worth finding on its own -- Path() is not the only thing that walks
-     parents.
+  - a placeholder with a nil Parent is a node in no tree, indistinguishable from a
+    document root, since both answer nil to Parent
+  - an operator asking which document it is in has nothing else to ask: OpContext carries
+    DefEnv, EvalOpts, SchemaRegistry and Config, and no document
+  - so `!get-path(root)` anchored at the placeholder rather than the document and errored,
+    and `!list-path(root)` answered the EMPTY LIST, silently
 
-Found by the claim-stability differential added with the scope-ownership work on
-4wpqh7t2h12ks1fvj5n0; it is only reachable now because a scope may hold a
-relative op at all.
+Two tests pin the current behaviour and would have to be rewritten, not merely updated:
+`TestAbsentPlaceholderKnowsItsPlace` (absent_place_test.go) asserts Parent, ParentField,
+ParentIndex and Root() on the placeholder, and `TestTheAbsentPlaceholderStandsWhereAScalarStands`
+(absent_scalar_test.go) asserts the scalar branch's inherited linkage.
+
+So Parent is carrying two meanings at once -- "I am the child stored here" and "this is
+the document I belong to" -- and only the first is what a link is. Eliminating the forgery
+means giving the second meaning its own carrier.
+
+### The shape it would take
+
+Put the anchor in OpContext, which is already threaded through every operation and cloned
+where isolation is needed. Set it once where a patch begins; have the three consumers of
+`doc.Root()` in the patch path read it instead -- get_path.go:168 (`anchor = doc.Root()`)
+and script_funcs.go:19 and :28 (getpath/listpath). Then absentAt has nothing to forge and
+can leave Parent nil.
+
+Care is needed on two points before this is written:
+
+  - a nested or sub-document patch must not inherit an outer anchor, so whatever sets it
+    has to be the same boundary Patch already treats as "the document"
+  - error messages lose `$.a` and fall back to the document's own path, which is less
+    useful; if that matters, the place should be passed to the operator explicitly rather
+    than smuggled through a link
+
+Four call sites build placeholders: patch.go:178, :306, :326, :493.
+
+## Possibly in scope, NOT reproduced
+
+`.Comment` is a side channel, and its node is given `Parent: target` where target may be
+any type -- mergeop/comment.go:349, gomap/to.go:569, and emitted into every generated
+codec by gomap/codegen/generator.go:2959. There "parent" means "the node I annotate", not
+"the container I am in", which is the same overloading of the same field.
+
+Recorded as scope, not as a defect: no production caller reaches Path() or Root() on a
+`.Comment` node, and the panic was only observed on a node built by hand in a probe. It is
+listed here so a sweep for forged links does not stop at absentAt.
+
+## Provenance
+
+Filed as the Path() panic (see the discussion below, where the diagnosis is corrected --
+the assertion was right and blaming it was the mistake). The general question was raised
+there and left undecided:
+
+    Either that is a legitimate "where this would go" device and the assertion is only
+    about the parent's KIND, or absentAt should not be forging links at all.
+
+This issue is that question, reopened as the work.
