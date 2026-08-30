@@ -1,0 +1,80 @@
+package entity
+
+import (
+	"context"
+	"fmt"
+	"runtime"
+	"testing"
+	"time"
+
+	"github.com/signadot/tony-format/go-tony/system/libctl"
+)
+
+// What the RANGE READ alone costs: a FromCommit replay drained as fast as it arrives, with no
+// document read and no delta applied — so what is measured is logd materialising the range plus
+// libctl delivering it, and none of verse's own work.
+func TestZZRangeReadCost(t *testing.T) {
+	for _, n := range []int{2000, 8000, 20000} {
+		s := openStore(t)
+		for i := 0; i < n; i++ {
+			set(t, s, RefAt("demo", "pr", fmt.Sprintf("%d", i)), Obj{"stage": "open", "body": "some payload text that a real entity would carry"}.Payload())
+		}
+		runtime.GC()
+		var base runtime.MemStats
+		runtime.ReadMemStats(&base)
+		idle := float64(base.HeapInuse) / (1 << 20)
+
+		got := 0
+		peak := peakDuring(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			fc := int64(0)
+			w, err := s.sess.Watch(ctx, s.root, &libctl.WatchOptions{FromCommit: &fc, NoInit: true, WaitIfAbsent: true})
+			if err != nil {
+				t.Fatalf("establish: %v", err)
+			}
+			defer w.Close()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case ev, ok := <-w.Events():
+					if !ok || ev.ReplayComplete {
+						return
+					}
+					if ev.Patch != nil {
+						got++
+					}
+				}
+			}
+		})
+		t.Logf("%6d commits: idle heap %6.1f MB | peak during a drained range read %7.1f MB (+%6.1f) | %d events",
+			n, idle, peak, peak-idle, got)
+	}
+}
+
+func peakDuring(fn func()) float64 {
+	stop := make(chan struct{})
+	peak := uint64(0)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		var m runtime.MemStats
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			runtime.ReadMemStats(&m)
+			if m.HeapInuse > peak {
+				peak = m.HeapInuse
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+	}()
+	fn()
+	close(stop)
+	<-done
+	return float64(peak) / (1 << 20)
+}
