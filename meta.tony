@@ -2,8 +2,9 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 6c4b62bf270b0a732aa0f979ee9b8288cfa12fa7
 commits:
-- "6c4b62bf270b0a732aa0f979ee9b8288cfa12fa7"
+- 6c4b62bf270b0a732aa0f979ee9b8288cfa12fa7
 created: "2026-08-04T02:16:07.086299+02:00"
 duplicates: []
 id: s7ftddgrh12krhsfe5n0
@@ -14,5 +15,5 @@ labels:
 - verse
 related_issues:
 - hw4y878ph12ksfbwd1n0
-status: open
-updated: "2026-08-04T09:08:04.980342+02:00"
+status: closed
+updated: "2026-08-30T22:52:11.463147+02:00"
