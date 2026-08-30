@@ -1,5 +1,13 @@
 !issue
+blocked_by: []
+blocks: []
+branches: []
+closed_by: 433c4d663c138dfccd19fc0c3e39f6975f189540
+commits: []
 created: "2025-12-29T22:36:03.85222+01:00"
+duplicates: []
 id: tkn7ptxch12krgzma9mg
-status: open
-updated: "2025-12-29T22:36:03.85222+01:00"
+labels: []
+related_issues: []
+status: closed
+updated: "2026-08-30T22:33:26.84663+02:00"
