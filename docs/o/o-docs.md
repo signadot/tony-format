@@ -1,6 +1,6 @@
 # o docs
 
-write this command tree as markdown, one page per command
+Write this command tree as markdown, one page per command.
 
 ## Usage
 

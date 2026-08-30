@@ -29,7 +29,7 @@ func SchemaCommand(mainCfg *MainConfig) *cli.Command {
 	}
 	return cli.NewCommandAt(&cfg.Schema, "schema").
 		WithSynopsis("schema <subcommand>").
-		WithDescription("validate documents against a schema").
+		WithDescription("Validate documents against a schema.").
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
 			return groupRun(cfg.Schema, cfg.MainConfig, cc, args)

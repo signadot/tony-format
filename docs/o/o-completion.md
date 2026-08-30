@@ -2,7 +2,7 @@
 
 bash|zsh|fish
 
-write a shell completion script
+Write a shell completion script.
 
 The script is generated from the command tree in this binary, so it completes the
 commands and options this o has, rather than the ones some other copy had.

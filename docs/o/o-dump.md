@@ -1,6 +1,6 @@
 # o dump
 
-write a document's internal representation, for debugging
+Write a document's internal representation, for debugging.
 
 ## Usage
 

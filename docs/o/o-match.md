@@ -1,13 +1,13 @@
 # o match
 
-keep the documents a match describes, and say by exit code whether any did
+Keep the documents a match describes, and report by exit code whether any did.
 
 Each document is matched whole: a file holding a list is one document, and the
 pattern is asked about the list rather than about its elements. A file holding
 several documents separated by --- is matched one at a time, and the ones which
 match are written, so match reads as a filter over a document stream.
 
-A file is optional: with none, stdin is read, so "x | o m PAT" needs no
+A file is optional: with none, stdin is read, so "x | o m '<match>'" needs no
 trailing -.
 
 Exit codes follow grep, so that a pipe can tell an answer from a fault:
@@ -16,7 +16,7 @@ Exit codes follow grep, so that a pipe can tell an answer from a fault:
   1  nothing matched -- an answer, not an error, and written on no stream
   2  a fault: bad usage, unreadable input, an unparseable match document
 
-A comment describes a value and is not what the value IS, so a match sees through
+A comment describes a value and is not the value itself, so a match sees through
 one: {kind: Deployment} matches a document somebody wrote a note above. !comment
 is how a pattern asks about the comments themselves, and it needs -c -- without
 it the comments are never read and there is nothing to ask about:

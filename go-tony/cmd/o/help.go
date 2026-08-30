@@ -93,7 +93,7 @@ func HelpCommand(mainCfg *MainConfig) *cli.Command {
 	}
 	cmd := cli.NewCommand("help").
 		WithSynopsis("help [command]").
-		WithDescription("show help for o, or for one of its commands").
+		WithDescription("Show help for o, or for one of its commands.").
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
 			return help(cfg, cc, args)
@@ -135,17 +135,17 @@ func help(cfg *HelpConfig, cc *cli.Context, args []string) error {
 	return nil
 }
 
-// listCommands writes what `o help` is for: which command to reach for, and how to call
-// it once chosen.
+// listCommands writes the two things a reader needs in order to choose a command: what it
+// does, and how to call it.
 //
-// The library's own listing gives the SYNOPSIS alone, which answers the second question
-// and not the first -- `view [file...]`, `dump [file...]` and `load [ir-file...]` are
-// three different jobs behind three identical shapes. So each command is written as what
-// it does and then how it is spelled, which is the order the two questions arrive in.
+// The library's own listing gives the synopsis alone. That answers the second question and
+// not the first, since `view [file...]`, `dump [file...]` and `load [ir-file...]` are three
+// different jobs behind three identical shapes. Each command is therefore written as what
+// it does, and then as how it is spelled.
 //
-// Both halves are here because a reader who cannot see the arguments guesses at them, and
-// the guess that costs most is the ORDER: every command that takes one takes it FIRST,
-// before the files, and reading `<kpath>` next to `[file...]` is what says so.
+// The synopsis is kept because a reader who cannot see the arguments will guess at them,
+// and the order is the easiest thing to guess wrong. A command which takes an argument
+// takes it before the files, and `<kpath>` written next to `[file...]` says so.
 func listCommands(root *cli.Command, cc *cli.Context) {
 	fmt.Fprintf(cc.Out, "%s\n\n%s\n\ncommands:\n", root.Synopsis, root.Description)
 	tw := tabwriter.NewWriter(cc.Out, 1, 4, 2, ' ', 0)
@@ -157,7 +157,7 @@ func listCommands(root *cli.Command, cc *cli.Context) {
 }
 
 // summarize is a command's first line of description, which is written as the one-line
-// answer to "what is this for". A description that opens with a longer paragraph is cut
+// answer to what the command is for. A description opening with a longer paragraph is cut
 // at its first sentence rather than wrapped, since this is a table.
 func summarize(c *cli.Command) string {
 	line, _, _ := strings.Cut(strings.TrimSpace(c.Description), "\n")
@@ -235,17 +235,20 @@ func noSuchSub(group *cli.Command, cc *cli.Context, given string) error {
 	return cli.ExitCodeErr(2)
 }
 
-// conventions are the things true of every command, which a reader would otherwise have
-// to infer from as many help pages as it takes to notice the pattern. They are here
-// rather than repeated per command because they do not vary, and the cost of not knowing
-// them is a wrong call rather than a confusing one: an argument given in the wrong place
-// is read as a filename and reported as a missing file.
+// conventions states what holds across the commands which read documents. A reader would
+// otherwise infer it from as many help pages as it takes to notice the pattern. It is
+// written once rather than repeated because it does not vary, and because the cost of not
+// knowing it is a wrong call rather than a confusing one: an argument given in the wrong
+// place is read as a filename, and reported as a missing file.
 const conventions = `
-common to the commands that read documents:
-  a command taking an argument takes it FIRST, before any files:
+The commands that read documents share a few conventions.
+
+  A command which takes an argument takes it before any files:
       o get .spec f.tony        o patch '{replicas: 3}' f.tony
-  no files means standard input, so they compose:
+  With no files, standard input is read, so the commands compose:
       o get .spec a.tony | o patch '{replicas: 3}'
-  an input is a STREAM: every document in it is read, and every answer written
-  exit 0 answered, 1 nothing found (diff: they differ), 2 a fault
+  An input is a stream of documents. Every document in it is read, and
+  every answer is written.
+  The exit code is 0 when something was answered, 1 when nothing was
+  found (for diff, that the two documents differ), and 2 for a fault.
 `

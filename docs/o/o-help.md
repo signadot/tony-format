@@ -1,6 +1,6 @@
 # o help
 
-show help for o, or for one of its commands
+Show help for o, or for one of its commands.
 
 ## Usage
 

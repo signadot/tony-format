@@ -1,6 +1,6 @@
 # o diff
 
-write the patch that turns one document into another
+Write the patch that turns one document into another.
 
 Given two arguments, diff writes what turns the first into the second, and
 exits 1 if they differ at all. Exit 2 is a fault -- a file that cannot be read is
@@ -8,7 +8,7 @@ not a difference.
 
 Given one, the other is standard input: "o diff baseline.tony" reads as what turns
 the baseline into what was piped in, which is the order diff writes anyway. Naming
-it with - still works, and is what to write when stdin is the FIRST operand. Both
+it with - still works, and is what to write when standard input is the first operand. Both
 cannot be left out, because a document does not differ from itself.
 
 Loop Mode

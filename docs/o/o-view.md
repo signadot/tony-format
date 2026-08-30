@@ -1,6 +1,6 @@
 # o view
 
-render documents, or rewrite them in place with -w
+Render documents, or rewrite them in place with -w.
 
 Also known as `v`.
 

@@ -1,6 +1,6 @@
 # o schema
 
-validate documents against a [schema](https://signadot.github.io/tony-format/tonyschema/)
+Validate documents against a [schema](https://signadot.github.io/tony-format/tonyschema/).
 
 ## Usage
 

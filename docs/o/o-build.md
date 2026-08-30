@@ -1,6 +1,6 @@
 # o build
 
-build manifests from a build object, per profile
+Build manifests from a build object, one profile at a time.
 
 Build operates on a build directory, which defaults to the current directory.
 

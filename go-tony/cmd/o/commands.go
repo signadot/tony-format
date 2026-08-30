@@ -73,7 +73,7 @@ func EvalCommand(mainCfg *MainConfig) *cli.Command {
 	cmd := cli.NewCommand("eval").
 		WithAliases("e", "ev").
 		WithSynopsis("eval [opts] [file...]").
-		WithDescription("resolve !eval tags, with values bound by -e").
+		WithDescription("Resolve !eval tags, with values bound by -e.").
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
 			return tonyEval(cfg, cc, args)
@@ -128,7 +128,7 @@ func ViewCommand(mainCfg *MainConfig) *cli.Command {
 		WithAliases("v").
 		WithOpts(opts...).
 		WithSynopsis("view [opts] [file...]").
-		WithDescription("render documents, or rewrite them in place with -w").
+		WithDescription("Render documents, or rewrite them in place with -w.").
 		WithRun(func(cc *cli.Context, args []string) error {
 			return view(cfg, cc, args)
 		})
@@ -136,21 +136,21 @@ func ViewCommand(mainCfg *MainConfig) *cli.Command {
 	return cmd
 }
 
-const getDesc = `read ONE node at a path, from files or stdin
+const getDesc = `Read a single node at a path, from files or standard input.
 
 The path is a kpath, the syntax the rest of the system uses: .field steps into an
-object, [i] into an array, {i} into a sparse one BY KEY, and (key) into a keyed
+object, [i] into an array, {i} into a sparse one by key, and (key) into a keyed
 array by identity, so "o get 'items(WIDGET).qty'" names an element wherever it
 sits. A
 leading $ is accepted and dropped, from when paths were written that way.
 
-get answers with ONE node, so it refuses the paths which may name many -- a
-wildcard, or .. for any depth. Those are list's.
+get answers with a single node, so it refuses the paths which may name many: a
+wildcard, or .. for any depth. Those belong to list.
 
 The whole document is "." or the empty path. Giving no path is a usage error, since
 a missing path and a path naming everything are different mistakes.
 
-The path says WHERE to look. -if says WHICH of what is there to keep: the node
+The path says where to look. -if says which of what is there to keep: the node
 is written only when it matches the match document given, so
 
     o get -if '{state: open}' '$.items[0]' doc.tony && deploy
@@ -158,12 +158,12 @@ is written only when it matches the match document given, so
 reads as the guard it is. -trim writes only the parts its own match document
 names. A file is optional: with none, stdin is read.
 
-An input is a STREAM of documents, --- separated, and the path is asked of each
+An input is a stream of documents, --- separated, and the path is asked of each
 one -- which is what makes the output of one command the input of the next:
 
     o get .spec a.tony b.tony | o get .replicas
 
-A comment describes a value and is not what the value IS, so -if sees through
+A comment describes a value and is not the value itself, so -if sees through
 one. !comment is how it asks about the comments instead, and it needs -c --
 without it the comments are never read and there is nothing to ask about:
 
@@ -198,7 +198,7 @@ func GetCommand(mainCfg *MainConfig) *cli.Command {
 	return cmd
 }
 
-const listDesc = `read EVERY node a path names -- wildcards, any depth, filtered by a match
+const listDesc = `Read every node a path names, optionally filtered by a match.
 
 The path is a kpath -- .field, [i], {i}, (key), the wildcards .* [*] {*}, and .. for
 any depth, which belong here rather than in get: list answers with every node the
@@ -210,7 +210,7 @@ path names.
 A leading $ is accepted and dropped, from when paths were written that way, and the
 $...x spelling of any-depth is read as ..x.
 
-The path says WHERE to look and -if says WHICH of what is there to keep, which
+The path says where to look and -if says which of what is there to keep, which
 together are how a list is filtered by a match:
 
     x | o list -if '{state: open}' '$[*]'            # the matching elements
@@ -221,7 +221,7 @@ much of each are asked separately:
 
     x | o list -if '{status: running}' -trim '{runner: null, started: null}' '[*]'
 
--paths writes WHERE each node is rather than what it is, as a path this same tool
+-paths writes where each node is rather than what it is, as a path this same tool
 reads, so a query can be turned into the places it found:
 
     o list -paths ..image deploy.tony
@@ -233,7 +233,7 @@ reads, so a query can be turned into the places it found:
 It answers about the same nodes -if selects, and ignores -trim, which is about how
 much of a node to write and not about where it is.
 
-A comment describes a value and is not what the value IS, so -if sees through
+A comment describes a value and is not the value itself, so -if sees through
 one. !comment is how it asks about the comments instead, and it needs -c --
 without it the comments are never read and there is nothing to ask about:
 
@@ -245,7 +245,7 @@ value it follows, so the question is asked at that node and not at the one above
     o list -c -if '{name: !comment {line: [" # keep"]}}' 'items[*]' doc.tony
 
 A file is optional: with none, stdin is read, as grep and cat do -- from a pipe,
-or typed at a terminal and ended with Ctrl-D. An input is a STREAM of documents,
+or typed at a terminal and ended with Ctrl-D. An input is a stream of documents,
 --- separated, and the path is asked of every one of them; the answer is a
 single list over all of them, whichever input each node came from.
 
@@ -273,14 +273,14 @@ func ListCommand(mainCfg *MainConfig) *cli.Command {
 		})
 }
 
-const matchDesc = `keep the documents a match describes, and say by exit code whether any did
+const matchDesc = `Keep the documents a match describes, and report by exit code whether any did.
 
 Each document is matched whole: a file holding a list is one document, and the
 pattern is asked about the list rather than about its elements. A file holding
 several documents separated by --- is matched one at a time, and the ones which
 match are written, so match reads as a filter over a document stream.
 
-A file is optional: with none, stdin is read, so "x | o m PAT" needs no
+A file is optional: with none, stdin is read, so "x | o m '<match>'" needs no
 trailing -.
 
 Exit codes follow grep, so that a pipe can tell an answer from a fault:
@@ -289,7 +289,7 @@ Exit codes follow grep, so that a pipe can tell an answer from a fault:
   1  nothing matched -- an answer, not an error, and written on no stream
   2  a fault: bad usage, unreadable input, an unparseable match document
 
-A comment describes a value and is not what the value IS, so a match sees through
+A comment describes a value and is not the value itself, so a match sees through
 one: {kind: Deployment} matches a document somebody wrote a note above. !comment
 is how a pattern asks about the comments themselves, and it needs -c -- without
 it the comments are never read and there is nothing to ask about:
@@ -347,7 +347,7 @@ func DiffCommand(mainCfg *MainConfig) *cli.Command {
 	return cmd
 }
 
-const diffDescription = `write the patch that turns one document into another
+const diffDescription = `Write the patch that turns one document into another.
 
 Given two arguments, diff writes what turns the first into the second, and
 exits 1 if they differ at all. Exit 2 is a fault -- a file that cannot be read is
@@ -355,7 +355,7 @@ not a difference.
 
 Given one, the other is standard input: "o diff baseline.tony" reads as what turns
 the baseline into what was piped in, which is the order diff writes anyway. Naming
-it with - still works, and is what to write when stdin is the FIRST operand. Both
+it with - still works, and is what to write when standard input is the first operand. Both
 cannot be left out, because a document does not differ from itself.
 
 Loop Mode
@@ -378,20 +378,20 @@ against the difference, and it is checked after that difference is written, so
 the change which satisfied it is the last thing reported.  Should the loop hit
 -loopLim first, diff exits 1: the condition asked for did not hold.`
 
-const patchDesc = `apply a patch to documents, writing each result
+const patchDesc = `Apply a patch to documents, writing each result.
 
 The patch is applied to every document of every input and each result is written,
 --- separated.
 
 Files are optional: with none, stdin is read, as grep and cat do. An input is a
-STREAM of documents, so a pipeline is written the obvious way:
+stream of documents, so a pipeline is written in the obvious way:
 
     o get .spec a.tony b.tony | o patch '{replicas: 3}'
 
 Without -c the result carries no comments -- not the patch's, and not the ones
 the document being patched already had -- because a patch answers with data.
 
-!comment states what the comments at a node ARE, which is how a comment is
+!comment states what the comments at a node are, which is how a comment is
 changed without rewriting the value it describes. It needs -c as well, or the
 comment it states is dropped from what is written:
 
@@ -452,7 +452,7 @@ func BuildCommand(mainCfg *MainConfig) *cli.Command {
 		})
 }
 
-const buildDescription = `build manifests from a build object, per profile
+const buildDescription = `Build manifests from a build object, one profile at a time.
 
 Build operates on a build directory, which defaults to the current directory.
 
@@ -532,7 +532,7 @@ func DumpCommand(mainCfg *MainConfig) *cli.Command {
 	}
 	return cli.NewCommandAt(&cfg.Dump, "dump").
 		WithSynopsis("dump [opts] [file...]").
-		WithDescription("write a document's internal representation, for debugging").
+		WithDescription("Write a document's internal representation, for debugging.").
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
 			return dump(cfg, cc, args)
@@ -547,7 +547,7 @@ func LoadCommand(mainCfg *MainConfig) *cli.Command {
 	}
 	return cli.NewCommandAt(&cfg.Load, "load").
 		WithSynopsis("load [opts] [ir-file...]").
-		WithDescription("render an internal representation back to a document").
+		WithDescription("Render an internal representation back to a document.").
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
 			return load(cfg, cc, args)
@@ -562,7 +562,7 @@ func SystemCommand(mainCfg *MainConfig) *cli.Command {
 	}
 	return cli.NewCommandAt(&cfg.System, "system").
 		WithSynopsis("system <subcommand>").
-		WithDescription("run and talk to the logd and docd servers").
+		WithDescription("Run and talk to the logd and docd servers.").
 		WithAliases("sys").
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {

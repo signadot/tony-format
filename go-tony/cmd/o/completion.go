@@ -44,7 +44,7 @@ func CompletionCommand(mainCfg *MainConfig) *cli.Command {
 	return cmd
 }
 
-const completionDesc = `write a shell completion script
+const completionDesc = `Write a shell completion script.
 
 The script is generated from the command tree in this binary, so it completes the
 commands and options this o has, rather than the ones some other copy had.

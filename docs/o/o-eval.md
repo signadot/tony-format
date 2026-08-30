@@ -1,6 +1,6 @@
 # o eval
 
-resolve !eval tags, with values bound by -e
+Resolve !eval tags, with values bound by -e.
 
 Also known as `e`, `ev`.
 

@@ -1,20 +1,20 @@
 # o get
 
-read ONE node at a path, from files or stdin
+Read a single node at a path, from files or standard input.
 
 The path is a kpath, the syntax the rest of the system uses: .field steps into an
-object, [i] into an array, {i} into a sparse one BY KEY, and (key) into a keyed
+object, [i] into an array, {i} into a sparse one by key, and (key) into a keyed
 array by identity, so "o get 'items(WIDGET).qty'" names an element wherever it
 sits. A
 leading $ is accepted and dropped, from when paths were written that way.
 
-get answers with ONE node, so it refuses the paths which may name many -- a
-wildcard, or .. for any depth. Those are list's.
+get answers with a single node, so it refuses the paths which may name many: a
+wildcard, or .. for any depth. Those belong to list.
 
 The whole document is "." or the empty path. Giving no path is a usage error, since
 a missing path and a path naming everything are different mistakes.
 
-The path says WHERE to look. -if says WHICH of what is there to keep: the node
+The path says where to look. -if says which of what is there to keep: the node
 is written only when it matches the match document given, so
 
     o get -if '{state: open}' '$.items[0]' doc.tony && deploy
@@ -22,12 +22,12 @@ is written only when it matches the match document given, so
 reads as the guard it is. -trim writes only the parts its own match document
 names. A file is optional: with none, stdin is read.
 
-An input is a STREAM of documents, --- separated, and the path is asked of each
+An input is a stream of documents, --- separated, and the path is asked of each
 one -- which is what makes the output of one command the input of the next:
 
     o get .spec a.tony b.tony | o get .replicas
 
-A comment describes a value and is not what the value IS, so -if sees through
+A comment describes a value and is not the value itself, so -if sees through
 one. !comment is how it asks about the comments instead, and it needs -c --
 without it the comments are never read and there is nothing to ask about:
 

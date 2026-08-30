@@ -1,6 +1,6 @@
 # o load
 
-render an internal representation back to a document
+Render an internal representation back to a document.
 
 ## Usage
 

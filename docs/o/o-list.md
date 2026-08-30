@@ -1,6 +1,6 @@
 # o list
 
-read EVERY node a path names -- wildcards, any depth, filtered by a match
+Read every node a path names, optionally filtered by a match.
 
 The path is a kpath -- .field, [i], {i}, (key), the wildcards .* [*] {*}, and .. for
 any depth, which belong here rather than in get: list answers with every node the
@@ -12,7 +12,7 @@ path names.
 A leading $ is accepted and dropped, from when paths were written that way, and the
 $...x spelling of any-depth is read as ..x.
 
-The path says WHERE to look and -if says WHICH of what is there to keep, which
+The path says where to look and -if says which of what is there to keep, which
 together are how a list is filtered by a match:
 
     x | o list -if '{state: open}' '$[*]'            # the matching elements
@@ -23,7 +23,7 @@ much of each are asked separately:
 
     x | o list -if '{status: running}' -trim '{runner: null, started: null}' '[*]'
 
--paths writes WHERE each node is rather than what it is, as a path this same tool
+-paths writes where each node is rather than what it is, as a path this same tool
 reads, so a query can be turned into the places it found:
 
     o list -paths ..image deploy.tony
@@ -35,7 +35,7 @@ reads, so a query can be turned into the places it found:
 It answers about the same nodes -if selects, and ignores -trim, which is about how
 much of a node to write and not about where it is.
 
-A comment describes a value and is not what the value IS, so -if sees through
+A comment describes a value and is not the value itself, so -if sees through
 one. !comment is how it asks about the comments instead, and it needs -c --
 without it the comments are never read and there is nothing to ask about:
 
@@ -47,7 +47,7 @@ value it follows, so the question is asked at that node and not at the one above
     o list -c -if '{name: !comment {line: [" # keep"]}}' 'items[*]' doc.tony
 
 A file is optional: with none, stdin is read, as grep and cat do -- from a pipe,
-or typed at a terminal and ended with Ctrl-D. An input is a STREAM of documents,
+or typed at a terminal and ended with Ctrl-D. An input is a stream of documents,
 --- separated, and the path is asked of every one of them; the answer is a
 single list over all of them, whichever input each node came from.
 

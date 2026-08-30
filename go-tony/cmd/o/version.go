@@ -27,7 +27,7 @@ func VersionCommand(mainCfg *MainConfig) *cli.Command {
 	}
 	return cli.NewCommandAt(&cfg.Version, "version").
 		WithSynopsis("version").
-		WithDescription("print the version of o").
+		WithDescription("Print the version of o.").
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
 			args, err := cfg.Version.Parse(cc, args)
