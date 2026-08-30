@@ -93,7 +93,8 @@ identity of a namespace; the prefix is only how a document spells it.
 **D2. A document's bindings reach the OpContext.** Decide where the declaration lives --
 `FromIR` reads the mapping, but nothing today carries it from a parsed document to the
 `OpContext` that patches it. This is the step with a real design choice in it, and it
-should be settled before D1 is written.
+should be settled before D1 is written. It is a library-side choice: the bindings travel
+with a document a consumer holds, not over the session protocol.
 
 **D3. Resolution follows the prefix.** `acme:thing` -> prefix `acme` -> the document's
 bindings -> URI -> registry -> symbol. The built-ins are the default context, always
@@ -112,7 +113,9 @@ Everything below is a SKETCH of an API that does not exist yet. Only
 `mergeop.RegisterNamespaced` is real today; the rest is what C and D would have to add,
 written out end to end so the shape can be argued with before it is built.
 
-Two consumers, both of whom chose the prefix `ext`, in one process.
+Two consumers, both of whom chose the prefix `ext`, in one process. All of it is
+library-side: nothing here changes the session protocol, for the reason in "Where this
+stops" below.
 
 ### 1. A consumer defines its operation and publishes a context
 
@@ -203,23 +206,47 @@ o patch -tags                                  # lists the built-ins, unprefixed
 A namespaced operation appears in that listing under its full name once its Tool is the one
 answering.
 
-### What this exposes that the plan above only names
+### Where this stops: the library, not the wire
 
-The document carries `context:` beside `patch:` in step 2, which is a shape logd would have
-to store and hand back -- and that is the second open decision below, made concrete: a
-stored patch holding `!ext:shout` is only meaningful to a reader that also has the binding.
-Either the binding is stored with the patch, or the store refuses the write. Step 2 is where
-that choice becomes visible, which is why it is worth settling before D1 is written.
+None of the above crosses a wire. A custom operation is Go code in the consumer's process,
+and logd is a separate binary that does not have it -- so there is nothing for a stored
+`!ext:shout` to mean. The binding is not something logd stores, and asking whether it
+should was the wrong question.
+
+The client applies its own operations and sends the RESULT, which is what the store keeps
+for a built-in relative operation anyway: lowering applies `!replace` and stores what it
+produced, because a stored operation that re-evaluates later is one the store cannot answer
+for. A consumer's operation is the same case, one step earlier -- logd cannot apply it at
+all, so the client lowers it, and what arrives is data.
+
+So the boundary is: **contexts and namespaced operations are a library concern, and the
+session protocol is unchanged.**
+
+It has to be said out loud, because today the boundary fails silently. To logd an
+unregistered tag is not an operation but a data tag, so a patch carrying one is accepted
+and stored verbatim, and read back with the tag still on it:
+
+```
+patch a <- {greeting: !ext:shout "hi"}    -> accepted, no error
+read a                                    -> greeting: !ext:shout hi
+```
+
+Nothing applied it and nothing complained. A client that forgets to lower gets its
+operation persisted as decoration. Whether that should be refused at the write is worth its
+own decision -- the store cannot tell a consumer's operation from an ordinary data tag,
+which is exactly what `!raw` exists to make deliberate.
 
 ## Decisions to settle before writing D
 
 - **Where a document's context bindings live.** A field? A separate argument to
   `PatchWith`? Both, with the field being the portable one? D2 is blocked on this.
-- **What logd stores.** `api.ValidateForStorage` asks `mergeop.Lookup` whether a tag is
-  storable. A stored patch holding `!acme:thing` is only meaningful to a reader who can
-  resolve `acme`, so either the binding is stored with it or the store refuses it. This
-  decides whether namespaced operations are usable in logd at all, and it is worth
-  answering early because it may pull D forward.
+- **Whether a custom operation reaching the store should be refused.** Settled that it is
+  not stored as an operation: the client applies it and sends the result, and the session
+  protocol is unchanged (see the walkthrough). What is open is the silent case -- logd
+  cannot tell `!ext:shout` from a data tag, so a client that forgets to lower has its
+  operation stored as decoration rather than being told. Refusing it would mean the store
+  knowing which tags are operations somewhere other than its own registry, which it has no
+  way to do.
 - **Whether `Register` stays.** After C6 the package-level registry is a convenience,
   and it is also the thing that makes tests leak. It could become the built-ins only,
   with consumers required to hold a Tool.
