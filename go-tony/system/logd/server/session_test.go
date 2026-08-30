@@ -399,11 +399,13 @@ func TestSession_MultiWatchAdmission(t *testing.T) {
 
 	hub := NewWatchHub()
 	conn := newMockConn()
-	// noInit keeps the only responses per request its confirmation or error.
-	conn.WriteRequest(`{id: "a1", watch: {path: users, noInit: true}}`) // ok
-	conn.WriteRequest(`{id: "a2", watch: {path: users, noInit: true}}`) // ok: distinct id, same path
-	conn.WriteRequest(`{id: "a1", watch: {path: posts, noInit: true}}`) // reject: duplicate id
-	conn.WriteRequest(`{watch: {path: users, noInit: true}}`)           // reject: id-less on watched path
+	// noInit keeps the only responses per request its confirmation or error, and
+	// waitIfAbsent keeps the paths from being refused for holding nothing -- what is
+	// under test is which requests are ADMITTED, not what the paths hold.
+	conn.WriteRequest(`{id: "a1", watch: {path: users, noInit: true, waitIfAbsent: true}}`) // ok
+	conn.WriteRequest(`{id: "a2", watch: {path: users, noInit: true, waitIfAbsent: true}}`) // ok: distinct id, same path
+	conn.WriteRequest(`{id: "a1", watch: {path: posts, noInit: true, waitIfAbsent: true}}`) // reject: duplicate id
+	conn.WriteRequest(`{watch: {path: users, noInit: true, waitIfAbsent: true}}`)           // reject: id-less on watched path
 
 	session := NewSession("test-server", conn, &SessionConfig{Storage: store, Hub: hub})
 	done := make(chan error)
@@ -1069,7 +1071,7 @@ func TestSession_ScopedWatch_COW(t *testing.T) {
 	conn := newMockConn()
 	// Scoped session (scope s1) watching path "a", no initial state event.
 	conn.WriteRequest(`{hello: {clientId: "c", scope: "s1"}}`)
-	conn.WriteRequest(`{watch: {path: "a", noInit: true}}`)
+	conn.WriteRequest(`{watch: {path: "a", noInit: true, waitIfAbsent: true}}`)
 
 	session := NewSession("test-server", conn, &SessionConfig{Storage: store, Hub: hub})
 	done := make(chan error)
@@ -1200,7 +1202,7 @@ func TestSession_ScopedWatch_QueuedRaceEventNotDropped(t *testing.T) {
 	c2 := commit(`{a: {f2: 2}}`)
 
 	// ...and forwardEvents captures currentCommit = c2. NoInit, like a composed sub-watch.
-	go session.forwardEvents(watcher, nil, true, false /*waitIfAbsent*/, c2)
+	go session.forwardEvents(watcher, nil, true /*noInit*/, c2)
 
 	var gotC2 bool
 	deadline := time.After(500 * time.Millisecond)

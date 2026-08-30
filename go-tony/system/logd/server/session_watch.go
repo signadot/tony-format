@@ -115,11 +115,43 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 		replayingFrom = fromCommit
 	}
 
+	// A watch that will be refused is refused HERE, before the confirmation, so that
+	// Watch() means "this watch exists" rather than "the request was well formed".
+	//
+	// Refusing after the confirmation is refusing too late for a caller who has to decide
+	// something on the answer: an HTTP endpoint bridging a watch to a stream has already
+	// committed its status by then, and cannot go back and say 404. Waiting a moment for
+	// a possible failure does not work either -- with noInit a path that exists and is
+	// quiet has no first event, so there is no signal to wait for at any duration.
+	//
+	// It belongs here on its own terms, too: whether the path holds anything is a fact
+	// about the start commit, which is already in hand, and not about the stream.
+	//
+	// Only asked when the answer could refuse. A client that said waitIfAbsent has told
+	// us absence is not a refusal, and pays nothing for the question. One that did not
+	// pays a narrow read here, which for a noInit watch is a read it would not otherwise
+	// have done.
+	// Asked of the HEAD, not of the cursor a replay starts from. "Is anything here?" is a
+	// question about the path, and a client resuming from an old cursor is asking it about
+	// the path it is resuming -- refusing because the path had not been written yet at
+	// commit 0 would 404 every full replay of a path that exists. The seed still reports
+	// the cursor's own commit, where absence is history rather than a refusal.
+	if !req.WaitIfAbsent {
+		if perr := s.absentAt(path, currentCommit); perr != nil {
+			s.hub.Unwatch(watcher)
+			s.watchMu.Lock()
+			delete(s.watches, watchKey(id, path))
+			s.watchMu.Unlock()
+			s.sendError(id, api.ErrCodeNotFound, perr.Error())
+			return
+		}
+	}
+
 	// Send watch confirmation
 	s.send(api.NewWatchResponseFrom(id, path, replayingFrom, replayingTo))
 
 	// Start event forwarder goroutine
-	go s.forwardEvents(watcher, fromCommit, req.NoInit, req.WaitIfAbsent, currentCommit)
+	go s.forwardEvents(watcher, fromCommit, req.NoInit, currentCommit)
 }
 
 // forwardEvents forwards events from a watcher to the session's outgoing channel.
@@ -147,11 +179,6 @@ type watchStream struct {
 	watcher *Watcher
 	path    string
 	scoped  bool
-
-	// waitIfAbsent: the client asked to watch a path that holds nothing yet, and to be
-	// told when it arrives. Without it a watch on such a path is refused with not_found,
-	// the same answer a read of it gives. See api.WatchRequest.
-	waitIfAbsent bool
 
 	// A watch whose path has no value yet is the ordinary way to start watching
 	// something that does not exist. Say it once, quietly, and say so again when it
@@ -205,14 +232,13 @@ type watchStream struct {
 
 // forwardEvents serves one watch until the session ends, the client falls behind, or the
 // watch is failed. Three jobs, in order, and the state between them is the stream's.
-func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool, waitIfAbsent bool, currentCommit int64) {
+func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool, currentCommit int64) {
 	w := &watchStream{
-		s:            s,
-		watcher:      watcher,
-		path:         watcher.Path,
-		scoped:       s.scopeID() != nil,
-		waitIfAbsent: waitIfAbsent,
-		absent:       &watchAbsence{log: s.log, path: watcher.Path},
+		s:       s,
+		watcher: watcher,
+		path:    watcher.Path,
+		scoped:  s.scopeID() != nil,
+		absent:  &watchAbsence{log: s.log, path: watcher.Path},
 	}
 
 	// Where the initial picture is taken, and what the replay covers.
@@ -266,34 +292,10 @@ func (w *watchStream) fail(code, format string, args ...any) {
 	w.s.failWatch(w.watcher, code, fmt.Sprintf(format, args...), w.delivered)
 }
 
-// refuseAbsent ends the watch when its path holds nothing and the client did not say it
-// meant to wait.
-//
-// Delivering null instead says what a read of the path says, and a read says not_found --
-// so a client that meant to wait and one that got the path wrong received the same answer
-// (bymhrqz7h12ksas3jhn0). It is one function because the emptiness arrives two ways, from
-// a store with no commits and from a path missing in a document that has them, and two
-// places deciding one thing is how they come to disagree.
-func (w *watchStream) refuseAbsent(detail string) bool {
-	if w.waitIfAbsent {
-		return false
-	}
-	w.s.log.Debug("watched path has no value", "path", w.path, "detail", detail)
-	w.fail(api.ErrCodeNotFound, "%s", detail)
-	return true
-}
-
 // sendInitialState sends the state at the path as of commit, which is what every delta
 // after it applies to. It answers false when the watch has been failed.
 func (w *watchStream) sendInitialState(commit int64) bool {
 	state := ir.Null() // an empty store has no state to read
-	if commit == 0 {
-		// Nothing has ever been written, so nothing is at the path -- any path, the
-		// empty one included. This used to be answered without asking the path at all.
-		if w.refuseAbsent(fmt.Sprintf("no value at %q: the store is empty", w.path)) {
-			return false
-		}
-	}
 	if commit != 0 {
 		var err error
 		state, err = w.s.readDocAt(w.path, commit)
@@ -321,10 +323,6 @@ func (w *watchStream) sendInitialState(commit int64) bool {
 					return false
 				case errors.As(err, &pe) && pe.Kind == PathTypeConflict:
 					w.s.log.Warn("watched path is shadowed by a non-object", "path", w.path, "error", err)
-				case errors.As(err, &pe) && pe.Kind == PathAbsent:
-					if w.refuseAbsent(err.Error()) {
-						return false
-					}
 				default:
 					w.s.log.Debug("watched path has no value yet", "path", w.path, "detail", err.Error())
 				}
@@ -635,4 +633,36 @@ func (s *Session) failWatch(watcher *Watcher, reason, message string, commit int
 	s.watchMu.Lock()
 	delete(s.watches, watchKey(watcher.ID, watcher.Path))
 	s.watchMu.Unlock()
+}
+
+// absentAt answers the PathError when kp holds nothing at commit, and nil when it holds
+// something -- which includes holding a null somebody wrote.
+//
+// It asks the same two questions sendInitialState asks, in the same order, because the two
+// must agree: one refuses the watch and the other seeds it, and a watch refused for a path
+// the seed would have found is worse than either answer alone.
+func (s *Session) absentAt(kp string, commit int64) *PathError {
+	if commit == 0 {
+		// Nothing has ever been written, so nothing is at kp -- any kp.
+		return &PathError{Kind: PathAbsent, Path: kp}
+	}
+	doc, err := s.readDocAt(kp, commit)
+	if err != nil {
+		// Not an answer about the path: let the watch establish and let the seed report
+		// it, which is where a read failure has always been reported from.
+		return nil
+	}
+	if kp == "" {
+		if doc == nil {
+			return &PathError{Kind: PathAbsent, Path: kp}
+		}
+		return nil
+	}
+	if _, err := extractPathValue(doc, kp); err != nil {
+		var pe *PathError
+		if errors.As(err, &pe) && pe.Kind == PathAbsent {
+			return pe
+		}
+	}
+	return nil
 }

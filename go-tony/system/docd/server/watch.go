@@ -198,9 +198,14 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 	// Establish sub-watches FIRST — their deltas buffer in cw — so no change
 	// between the snapshot and going live is missed. NoInit on each: the composer
 	// supplies the single initial snapshot below.
+	// waitIfAbsent on every sub-watch, always. A sub-watch is docd waiting for one
+	// source, and most sources hold nothing at most paths -- absence there is the
+	// ordinary case and must not refuse the sub-watch, which would refuse a composed
+	// watch the other sources can serve. Whether the CLIENT's watch is refused is decided
+	// once, from the composed read below, and not by whichever source answered first.
 	watchReq := func(p string) *logdapi.SessionRequest {
 		return &logdapi.SessionRequest{Scope: s.clientScope,
-			Watch: &logdapi.WatchRequest{Path: p, NoInit: true, FromCommit: from}}
+			Watch: &logdapi.WatchRequest{Path: p, NoInit: true, FromCommit: from, WaitIfAbsent: true}}
 	}
 	if owner == nil {
 		ls, err := startLogdWatchStream(s.logdAddr, path, s.clientScope, from, cw.forwardOwned)
@@ -234,38 +239,64 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 	w.cw = cw
 	s.watchMu.Unlock()
 
-	_ = s.writeToClient(logdapi.NewWatchResponseFrom(clientID, path, from, replayingTo))
-	if !req.Watch.NoInit {
-		// The state the deltas apply to: at the resolved commit when resuming, and at
-		// current otherwise. A membership change still re-inits at current, because the
-		// composition changed and deltas from before it describe a different document.
+	// The composed snapshot is taken BEFORE the confirmation, because ABSENCE decides
+	// whether there is a watch at all: with no source holding anything at the path this
+	// watch is refused, and a refusal is an answer to the request rather than the end of
+	// a stream the client does not yet believe in. A client that said waitIfAbsent has
+	// told us absence is not a refusal, and for it the order does not matter.
+	//
+	// Any OTHER failure of the snapshot keeps its old shape -- confirm, then end the
+	// watch with match_failed -- because a client can re-establish from that, and because
+	// making it synchronous would be a second decision wearing this one's clothes.
+	//
+	// The composed snapshot the watch starts from. Absence is an error only for a client
+	// that did not ask to wait; for one that did it is a null baseline, which is a
+	// perfectly good thing to start applying deltas to.
+	initialSnapshot := func() (*ir.Node, int64, error) {
 		root, commit, err := s.composeReadTree(path, owner, below, pFields, from)
-		switch {
-		case err == nil:
-		case errors.Is(err, errSourceAbsent):
-			// No source has anything at the path. That is the same answer a read
-			// gives, and a watch answers it the same way unless the client said it
-			// meant to wait -- in which case the watch is established on a null and
-			// reports the value when it arrives (see api.WatchRequest.WaitIfAbsent).
-			if !req.Watch.WaitIfAbsent {
-				s.terminateWatch(key, logdapi.ErrCodeNotFound)
-				return
-			}
-			// A null state at the commit the watch starts from: the client has a
-			// baseline to apply deltas to, and it says there is nothing there.
-			root = nil
+		if errors.Is(err, errSourceAbsent) && req.Watch.WaitIfAbsent {
+			root, err = nil, nil
 			if from != nil {
 				commit = *from
 			}
-		default:
-			// The initial snapshot IS a match, and a watch whose match failed has no
-			// baseline. Deltas against a baseline the client never received would be
-			// applied to whatever it already held, so it is better to end the watch
-			// than to stream into a state nobody established. The confirmation is
-			// already out, so this ends the watch rather than answering the request.
-			s.terminateWatch(key, logdapi.ErrCodeMatchFailed)
+		}
+		return root, commit, err
+	}
+
+	// A refusal is the one answer that has to precede the confirmation, since nothing
+	// after it can un-establish a watch the caller already holds. So read early exactly
+	// when absence would refuse. A client that said waitIfAbsent keeps the later read:
+	// reading early buys it nothing and costs it the wait, because a source that does not
+	// answer reads would hold up a watch it was willing to open on nothing. The
+	// sub-watches are up and buffering under either order, so neither misses an event.
+	var (
+		root    *ir.Node
+		commit  int64
+		initErr error
+	)
+	waits := req.Watch.WaitIfAbsent
+	if !waits {
+		root, commit, initErr = initialSnapshot()
+		if errors.Is(initErr, errSourceAbsent) {
+			s.refuseWatch(key, logdapi.ErrCodeNotFound, initErr.Error())
 			return
 		}
+	}
+
+	_ = s.writeToClient(logdapi.NewWatchResponseFrom(clientID, path, from, replayingTo))
+
+	if waits && !req.Watch.NoInit {
+		root, commit, initErr = initialSnapshot()
+	}
+	if initErr != nil {
+		// The initial snapshot IS a match, and a watch whose match failed has no
+		// baseline. Deltas against a baseline the client never received would be applied
+		// to whatever it already held, so it is better to end the watch than to stream
+		// into a state nobody established.
+		s.terminateWatch(key, logdapi.ErrCodeMatchFailed)
+		return
+	}
+	if !req.Watch.NoInit {
 		_ = s.writeToClient(logdapi.NewStateEvent(clientID, commit, path, root))
 	}
 	cw.begin(len(below) + 1)
@@ -508,6 +539,28 @@ func terminalWatchEvent(id *string, path, reason string, commit int64) *logdapi.
 // or a single-route watch's one backend). Idempotent: only the first call for a
 // key does the work.
 func (s *ClientSession) terminateWatch(key, reason string) {
+	s.endWatch(key, func(w *clientWatch, commit int64) {
+		_ = s.writeToClient(terminalWatchEvent(w.clientID, w.path, reason, commit))
+	})
+}
+
+// refuseWatch ends a watch that was never confirmed, and answers the REQUEST rather than
+// the stream.
+//
+// The difference is what the client is waiting for. After the confirmation there is a
+// watch to end, and a terminal event ends it; before the confirmation the client is still
+// waiting for an answer to `watch`, and an error is that answer. Ending a stream nobody
+// has been told about leaves a caller who has to decide something -- an endpoint choosing
+// a status code -- deciding it before the news arrives.
+func (s *ClientSession) refuseWatch(key, code, msg string) {
+	s.endWatch(key, func(w *clientWatch, _ int64) {
+		_ = s.writeToClient(logdapi.NewErrorResponse(w.clientID, code, msg))
+	})
+}
+
+// endWatch releases what a watch holds -- the coordinator token, the composed sub-watches
+// or the downstream watch -- and says so however the caller says it.
+func (s *ClientSession) endWatch(key string, say func(w *clientWatch, commit int64)) {
 	s.watchMu.Lock()
 	w, ok := s.watches[key]
 	if ok {
@@ -523,7 +576,7 @@ func (s *ClientSession) terminateWatch(key, reason string) {
 	s.lastSeenMu.Unlock()
 
 	s.server.coord.endRead(w.token) // no-op if the coordinator already forced it
-	_ = s.writeToClient(terminalWatchEvent(w.clientID, w.path, reason, commit))
+	say(w, commit)
 
 	if w.cw != nil {
 		w.cw.Stop()

@@ -45,7 +45,7 @@ A composed `Watch` multiplexes several backend sub-watches into the client's one
 3. docd flushes the buffered deltas and then forwards live deltas.
 
 That composed snapshot is a read, so it answers absence the way a read does: if no source
-has anything at the watched path, the watch ends with `not_found` rather than being
+has anything at the watched path, the watch is refused with `not_found` rather than being
 established on a document nobody wrote. A client that meant to wait for the path sets
 `waitIfAbsent` on its watch request — docd then establishes the watch on a null snapshot,
 and carries the flag to the controller owning the subtree, since a controller serving from
@@ -53,6 +53,14 @@ its own logd session has to pass it on in turn.
 
 Establishing the sub-watches *before* taking the snapshot is what makes the handoff
 gapless: any change between the snapshot and going live is buffered, not lost.
+
+The snapshot is taken before the confirmation only when it could refuse — that is, when
+the client did not say `waitIfAbsent`. A client that did keeps the later read, because
+reading early buys it nothing and costs it the wait: a source that does not answer reads
+would hold up establishing a watch that client was willing to open on nothing. The
+sub-watches are up and buffering under either order, so neither misses an event. Failures
+other than absence still end the watch after it is established, since by then the client
+has a stream to be told on.
 
 ### Delta rooting
 

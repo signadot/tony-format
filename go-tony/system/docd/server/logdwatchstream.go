@@ -46,7 +46,9 @@ func startLogdWatchStream(logdAddr, path string, scope *string, fromCommit *int6
 	}
 
 	if err := writeSessionRequest(conn, &logdapi.SessionRequest{
-		Watch: &logdapi.WatchRequest{Path: path, NoInit: true, FromCommit: fromCommit},
+		// waitIfAbsent: this is one source of a composed watch, and a source with
+		// nothing at the path is ordinary. See watchReq in watch.go.
+		Watch: &logdapi.WatchRequest{Path: path, NoInit: true, FromCommit: fromCommit, WaitIfAbsent: true},
 	}); err != nil {
 		conn.Close()
 		return nil, err

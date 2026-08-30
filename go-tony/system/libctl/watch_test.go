@@ -66,7 +66,7 @@ func TestLogdSession_WatchLiveEvents(t *testing.T) {
 	ctx := context.Background()
 
 	// Skip the initial state; we only want live deltas.
-	w, err := session.Watch(ctx, "users/1", &WatchOptions{NoInit: true})
+	w, err := session.Watch(ctx, "users/1", &WatchOptions{NoInit: true, WaitIfAbsent: true})
 	if err != nil {
 		t.Fatalf("Watch failed: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestLogdSession_PatchReportsCommit(t *testing.T) {
 
 	ctx := context.Background()
 
-	w, err := session.Watch(ctx, "users/1", &WatchOptions{NoInit: true})
+	w, err := session.Watch(ctx, "users/1", &WatchOptions{NoInit: true, WaitIfAbsent: true})
 	if err != nil {
 		t.Fatalf("Watch failed: %v", err)
 	}
@@ -147,13 +147,13 @@ func TestLogdSession_WatchConcurrent(t *testing.T) {
 
 	ctx := context.Background()
 
-	wa, err := session.Watch(ctx, "a/1", &WatchOptions{NoInit: true})
+	wa, err := session.Watch(ctx, "a/1", &WatchOptions{NoInit: true, WaitIfAbsent: true})
 	if err != nil {
 		t.Fatalf("Watch a failed: %v", err)
 	}
 	defer wa.Close()
 
-	wb, err := session.Watch(ctx, "b/1", &WatchOptions{NoInit: true})
+	wb, err := session.Watch(ctx, "b/1", &WatchOptions{NoInit: true, WaitIfAbsent: true})
 	if err != nil {
 		t.Fatalf("Watch b failed: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestLogdSession_WatchClose(t *testing.T) {
 
 	ctx := context.Background()
 
-	w, err := session.Watch(ctx, "users/1", &WatchOptions{NoInit: true})
+	w, err := session.Watch(ctx, "users/1", &WatchOptions{NoInit: true, WaitIfAbsent: true})
 	if err != nil {
 		t.Fatalf("Watch failed: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestLogdSession_WatchClose(t *testing.T) {
 	}
 
 	// Re-watching the same path should now succeed.
-	w2, err := session.Watch(ctx, "users/1", &WatchOptions{NoInit: true})
+	w2, err := session.Watch(ctx, "users/1", &WatchOptions{NoInit: true, WaitIfAbsent: true})
 	if err != nil {
 		t.Fatalf("re-Watch after Close failed: %v", err)
 	}

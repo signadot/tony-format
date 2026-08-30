@@ -251,6 +251,17 @@ holds what the store holds.
     drops it refuses a watch the client asked to wait for. A composed watch reports
     `not_found` only when *every* source is absent.
 
+    The refusal arrives **before the `watch` confirmation**, in place of it. That is what
+    lets a caller decide something on the answer: an HTTP endpoint bridging a watch to an
+    event stream has already committed its status code by the time a later failure could
+    arrive, so a refusal after the confirmation cannot become a 404. Waiting a moment for
+    one does not work either — with `noInit` a path that exists and is quiet sends nothing,
+    so there is no signal to wait for at any duration.
+
+    It asks whether the path holds anything **now**, not at the commit a `fromCommit`
+    replay starts from. A client replaying history is asking about the path it is
+    resuming; absence back at the cursor is history, which the replay then plays forward.
+
 **Across docd mounts.** Mounts share the commit sequence for their lifetime — docd
 allocates a transaction id from logd, every participant commits through that one logd under
 it, all-or-nothing — so a commit means the same thing to every mount and a cursor works on
