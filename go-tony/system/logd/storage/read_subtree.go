@@ -145,6 +145,13 @@ func (s *Storage) narrowSubtreeAt(kp string, commit int64, scopeID *string) (*ir
 // Both layers project through here. A scope layer projected by a different rule would
 // shadow different paths than the wide read does, and then neither answer is the
 // definition.
+//
+// Re-rooting the patch re-roots its MARKER, which is the whole of what makes a projection
+// applicable: the marker says where an entry applies from, and the entry now applies from
+// kp. It rides in the tag chain, and on an operator node that chain is also where the
+// operation lives -- so this is only safe because a merge reads a foreign label there as
+// what it is rather than as the operand (see mergeop's patchUnderTagDiff, and
+// 1hf5pzj6h12ksd40jdn0 for what it cost when it did not).
 func projectPatchesAt(patchNodes []*ir.Node, kp string) ([]*ir.Node, bool) {
 	projected := make([]*ir.Node, 0, len(patchNodes))
 	for _, p := range patchNodes {
@@ -163,19 +170,6 @@ func projectPatchesAt(patchNodes []*ir.Node, kp string) ([]*ir.Node, bool) {
 		// kp is already where it belongs: at kp the projection IS the marked node, and
 		// below it the marker is inside the projected subtree.
 		if marked && !tx.HasPatchRootTag(at) {
-			// Not onto an operator. The marker travels in the tag chain, which is also
-			// where the operation lives, and a merge dispatches on that chain -- so on an
-			// operator node the two share one namespace and the marker stops being
-			// metadata (1hf5pzj6h12ksd40jdn0). Neither end of the chain is safe: the tail
-			// is read as the operand's, the head masks the operation
-			// (jjbapb1ah12kranxg5n0). So the read declines, and the caller gets the same
-			// answer the wide read would have computed.
-			//
-			// Only the projection ITSELF is at issue. An operator on a field beneath it
-			// is ordinary, and is what nearly every delta is made of.
-			if hasOperator(ir.Uncomment(at).Tag) {
-				return nil, false
-			}
 			// On a copy: the projection is a subtree of the entry this read deserialized,
 			// and marking it in place would edit what the entry says.
 			at = at.Clone()

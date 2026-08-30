@@ -374,3 +374,46 @@ func TestANarrowReadOfAnEntitySeesTheWriteThatUpdatedIt(t *testing.T) {
 			n, mustEncode(t, got))
 	}
 }
+
+// Rule 4 where the projection lands ON an operator, which is where rules 3 and 4 meet.
+//
+// A no-op !rename at a lowers to `{a: !addtag(bracket) null}`, marked at the document root
+// because markDeltaRoots cannot descend past a null. A narrow read at "a" therefore
+// re-roots the marker onto the addtag node itself -- so this read is correct only while a
+// merge reads a foreign label in an operator's chain as what it is rather than as the
+// operand (mergeop's patchUnderTagDiff; mergeop/tagdiff_trailing_test.go holds that half).
+//
+// The read path used to DECLINE this case rather than depend on that. It no longer does,
+// and this is the test that says the dependency holds: the seeded differential finds it
+// too, but only above 200 seeds, which is not a guard.
+func TestANarrowReadReRootsAMarkerOntoAnOperator(t *testing.T) {
+	s := openTestStorage(t)
+	s.LowerEverything(true)
+
+	commitAt(t, s, nil, "a", `{k1: 2}`)
+	commitAt(t, s, nil, "a", `{k2: 4}`)
+	if err := s.SwitchDLog(); err != nil {
+		t.Fatalf("SwitchDLog: %v", err)
+	}
+	c := commitAt(t, s, nil, "a", `!rename [{from: "k1", to: "k1"}]`)
+
+	wide, err := s.ReadStateAt("", c, nil)
+	if err != nil {
+		t.Fatalf("wide read: %v", err)
+	}
+	want, err := wide.GetKPath("a")
+	if err != nil {
+		t.Fatalf("navigate: %v", err)
+	}
+	got, narrowed, err := s.ReadSubtreeAt("a", c, nil)
+	if err != nil {
+		t.Fatalf("narrow read: %v", err)
+	}
+	if !narrowed {
+		t.Skip("declined; the wide read answers")
+	}
+	if !got.DeepEqual(want) {
+		t.Errorf("the narrow read disagrees with the wide one\n got %s\nwant %s",
+			mustEncode(t, got), mustEncode(t, want))
+	}
+}
