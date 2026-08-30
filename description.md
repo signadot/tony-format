@@ -1,41 +1,52 @@
-# logd: verifying a scoped write costs a scoped materialization -- a scope needs the stepped head baseline has
+# logd: a scoped write rebuilds its view whenever baseline commits between two of its own
 
-Every write is now applied to current state before it is stored, so a delta the store cannot
-apply is refused instead of making every later read fail. For baseline that costs nothing: the
-apply was already happening in `stepHead`, one step later, and the verified result IS the next
-head. For a scope it costs a scoped materialization, and there is no scoped head to serve it
-from (9b2vpggxh12ks0qde5n0).
+A scope keeps its own document and steps it, so a RUN of scoped writes is flat (727faf5). The
+condition for using the kept document is that it is at exactly C-1, and that is self-checking:
+commits are numbered globally, so anything else committing leaves this scope's document a commit
+behind. Interleaved baseline traffic is therefore what still pays — and it is the shape a real
+deployment has, since baseline writes do not stop while a sandbox writes.
 
 ## Measured
 
-Unconditional writes, cost of the Nth write as the log grows, no overlay written:
+On main at 39e7e70, one commit past the go-tony/v0.0.203 a consumer is pinning. `TestScaling_Writes`
+in `system/logd/storage` covers the first two rows; the third is the attached
+`scope_interleave_test.go`, which has no test today.
 
-```
-baseline   first=404µs   @50=347µs    @200=507µs    @400=406µs     flat
-scoped     first=466µs   @50=1.6ms    @200=7.9ms    @400=22.6ms    O(scope patches)
-```
+    write, cost of the Nth                    N=50     N=100    N=200    N=400
+      baseline                                583µs    372µs    389µs    349µs
+      scoped, nothing else committing         359µs    369µs    367µs    371µs    flat
+      scoped, a baseline commit between      ~2.0ms   ~2.35ms  ~4.05ms  ~7.65ms   O(scope patches)
 
-Where overlays ARE being written it is about what a scoped CAS write already pays -- ~850µs
-flat (scope_overlay_costs_test.go). The bad case is a burst of scoped writes with no overlay
-yet: `scopedHeadStateAt` falls back to a full scoped read, per write.
+The third row is the measured pair — one baseline commit, one scoped — less the baseline write's
+own ~360µs. It is about 9x better than when this issue opened (546µs / 3.1ms / 21.5ms / 71.0ms on
+the same axis), and it is still 20x a scoped write with the store to itself, still growing with
+the scope's write count.
 
-Accepted deliberately for now: correctness everywhere first, cost second.
+## The first answer cannot be built any more
 
-## Shape of a fix
+This issue proposed keeping the scope's OWN overlay rather than the folded view and stepping
+that — `overlay' = apply(overlay, patch)`, with the scoped view as `apply(baselineHead, overlay)`
+— so that the cost stops caring what baseline is doing. It said that overlapped
+5hmq80f3h12krh1mbsn0 (bounded op-preserving scope overlay) and was worth doing as one piece.
 
-A stepped head per scope, which is what baseline has. The reason baseline's trick does not
-transfer is that a scope's writes apply LAST and shadow baseline stickily, so folding a
-BASELINE patch into a materialized scoped document lets baseline overwrite a leaf the scope
-owns -- that is 9b2vpggxh12ks0qde5n0.
+Neither holds now. 73e2637 DELETED the scope overlay — "a cache of a layer nothing can derive" —
+and 39e7e70 finished the prose that still described it. There is no overlay to keep, to step or
+to bound, so that plan and its overlap are both gone, and anyone picking this up from the old
+text would start from a design that was removed.
 
-Stepping it with the scope's OWN patch does not have that problem, and this is the case the
-commit path needs. The scoped view at C-1 is fold(baseline<=C-1) then fold(scope<=C-1); the new
-scope patch at C applies last, which is exactly where it belongs. The condition is that the
-cached view is at exactly C-1 -- and the commit lock is held, so the only commit since is this
-one. A baseline commit in between invalidates it, and then it is recomputed.
+## What is still wanted
 
-So: keep a per-scope document with the commit it is current at, step it on a scoped commit,
-drop it when the scope's view is not exactly one commit behind. Bursts of scoped writes go
-flat; interleaved baseline traffic falls back to what it costs today.
+The property is unchanged: cost per scoped write proportional to the scope's OWN footprint,
+rather than to the number of commits since its document was last current. Where that lives now
+the overlay does not is the open question — whether the kept document can be advanced over the
+baseline patch it is behind, which is what 9b2vpggxh12ks0qde5n0 says it cannot (a scope's writes
+apply last and shadow baseline stickily, so folding a baseline patch into a materialized scoped
+document lets baseline overwrite a leaf the scope owns), or whether the scope layer as it now
+stands (30c5fa4) composes more cheaply than the fold does.
 
-Seen on main after the verify-before-store change.
+Deferred deliberately at first — correctness everywhere first, cost second. That deferral is
+discharged: the correctness series landed, and this is the cost half that did not.
+
+A consumer that federates is in the interleaved case whenever anybody is connected: a scope gets
+its own store and its own writer while baseline traffic carries on. That is the deployment shape
+these numbers are about, and it is why the flat row above is not the one to read.
