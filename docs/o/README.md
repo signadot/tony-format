@@ -37,7 +37,7 @@ o [opts] command [opts]
 | --- | --- | --- | --- |
 | `-b` | bool |  | encode with brackets |
 | `-x` | bool |  | expand <<: merge field while encoding |
-| `-color` | bool |  | encode with color |
+| `-color` | bool |  | colorize; on by default to a terminal, -color=false to suppress |
 | `-wire` | bool |  | output in compact format |
 | `-h`, `-help` | bool |  | show help for this command |
 | `-t`, `-tony` | bool |  | do i/o in tony |

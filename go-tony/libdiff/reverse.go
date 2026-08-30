@@ -24,6 +24,22 @@ func Reverse(diff *ir.Node) (*ir.Node, error) {
 			}
 			return true, nil
 		}
+		// The operation is not always the head of the chain. A tag composes, and what
+		// comes BEFORE the operation is the value's own labels -- presentation among
+		// them. A patch written in flow style carries one: `!replace {from: 1, to: 5}`
+		// parses as `!bracket.replace`, where the same patch computed by Diff carries a
+		// bare `!replace`. Reading only the head found the operation in the second and
+		// not the first, so Reverse returned such a patch UNCHANGED and said nothing --
+		// and its caller then applied the patch it had asked to invert. The failure was
+		// silent for !insert and !delete, which apply backwards perfectly well.
+		//
+		// So the labels ahead of the operation are set aside and put back afterwards,
+		// outermost, in the order they were written. This defer is registered before the
+		// container one below, so it runs last and restores them outside it.
+		if pre, opTag := splitBeforeOp(node.Tag); pre != "" {
+			node.Tag = opTag
+			defer func() { node.Tag = joinTags(pre, node.Tag) }()
+		}
 		headTag, args, rest := ir.TagArgs(node.Tag)
 		if headTag == StringDiffTag || headTag == ArrayDiffTag {
 			// these reverse by reversing what is beneath them, but a tag diff
@@ -85,4 +101,48 @@ func Reverse(diff *ir.Node) (*ir.Node, error) {
 		return nil, err
 	}
 	return tmp, nil
+}
+
+// reversibleOps are the operations Reverse rewrites. A label that is not one of them, and
+// not one of the four whose contents Reverse must not enter, is the value's own.
+var reversibleOps = map[string]bool{
+	DeleteTag: true, InsertTag: true, ReplaceTag: true,
+	TagDeleteTag: true, TagInsertTag: true, TagReplaceTag: true,
+	StringDiffTag: true, ArrayDiffTag: true,
+}
+
+// splitBeforeOp divides a tag chain at the first operation Reverse handles: the labels
+// before it, and the chain from it onward. It answers pre == "" when the chain opens with
+// an operation, or holds none at all, which is every chain a diff builds for itself.
+func splitBeforeOp(tag string) (pre, opTag string) {
+	rest := tag
+	for rest != "" {
+		head, _, next := ir.TagArgs(rest)
+		if reversibleOps[head] {
+			return pre, rest
+		}
+		pre = joinTags(pre, headWithArgs(rest))
+		rest = next
+	}
+	return "", tag // no operation here; leave the chain as it was
+}
+
+// headWithArgs is the first label of a chain, arguments and all, as its own tag.
+func headWithArgs(tag string) string {
+	head, args, rest := ir.TagArgs(tag)
+	if rest == "" {
+		return tag
+	}
+	return ir.TagCompose(head, args, "")
+}
+
+// joinTags composes b after a, either of which may be empty.
+func joinTags(a, b string) string {
+	switch {
+	case a == "":
+		return b
+	case b == "":
+		return a
+	}
+	return a + "." + b[1:]
 }

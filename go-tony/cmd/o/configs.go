@@ -19,7 +19,7 @@ import (
 type MainConfig struct {
 	B       bool `cli:"name=b desc='encode with brackets'"`
 	X       bool `cli:"name=x desc='expand <<: merge field while encoding'"`
-	Color   bool `cli:"name=color desc='encode with color'"`
+	Color   bool `cli:"name=color desc='colorize; on by default to a terminal, -color=false to suppress'"`
 	WireOut bool `cli:"name=wire desc='output in compact format'"`
 
 	// Help is answered by every command, because -h is the first thing anyone
@@ -107,6 +107,11 @@ func (cfg *MainConfig) encOpts(w io.Writer) []encode.EncodeOption {
 		encode.EncodeWire(cfg.WireOut),
 		encode.EncodeBrackets(cfg.B),
 	}
+	// Color is decided in three steps, and only the last two can turn it on: asking
+	// for it explicitly, having asked for it explicitly with false, and otherwise
+	// whether the output is a terminal. Passing -color cannot force color where there
+	// is none, because the color library suppresses escapes globally off a terminal --
+	// so the flag earns its place as an OFF switch, which is what its description says.
 	if cfg.Color {
 		res = append(res, encode.EncodeColors(encode.NewColors()))
 		return res
