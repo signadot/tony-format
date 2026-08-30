@@ -1,5 +1,12 @@
 !issue
+blocked_by: []
+blocks: []
+branches: []
+commits: []
 created: "2025-12-27T00:06:48.005932+01:00"
+duplicates: []
 id: t3n7ptxch12kr20n9xmg
-status: open
-updated: "2025-12-27T00:06:48.005932+01:00"
+labels: []
+related_issues: []
+status: closed
+updated: "2026-08-30T21:45:16.705968+02:00"
