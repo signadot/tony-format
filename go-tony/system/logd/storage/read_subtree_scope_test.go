@@ -36,7 +36,7 @@ func TestNarrowScopedReadMatchesTheWideRead(t *testing.T) {
 func narrowScopedReadMatches(t *testing.T, gen func(*rand.Rand, int) []scopeOp) {
 	const scope = "s1"
 	sc := scope
-	checked, narrowed, restyled := 0, 0, 0
+	checked, narrowed := 0, 0
 
 	for seed := 1; seed <= seedCount(); seed++ {
 		rng := rand.New(rand.NewSource(int64(seed)))
@@ -91,25 +91,23 @@ func narrowScopedReadMatches(t *testing.T, gen func(*rand.Rand, int) []scopeOp) 
 				case want == nil || got == nil:
 					t.Fatalf("seed %d op %d (%s): %q: narrow gave %v, wide gave %v",
 						seed, i, o, kp, got, want)
-				case !stripPresentationDeepIR(got.Clone()).DeepEqual(stripPresentationDeepIR(want.Clone())):
+				case !got.DeepEqual(want):
+					// Exactly, presentation included. This was held to data-and-comments
+					// for a while, counting the style differences separately, because the
+					// narrow read restyled a value the wide read held in flow
+					// (p83xdgm2h12kre9ajdn0). That turned out to be the same defect as
+					// the data loss underneath it -- a projection whose marker was left
+					// behind is dropped whole, and what that one happened to carry was a
+					// tag (1xnezrpkh12ksavvjdn0). With the marker re-rooted there is
+					// nothing left to excuse.
 					t.Fatalf("seed %d op %d (%s): %q: narrow differs from the wide read\n"+
 						" got %s\nwant %s", seed, i, o, kp,
 						withComments(got), withComments(want))
-				case !got.DeepEqual(want):
-					// Same data and same comments, different PRESENTATION -- the wide
-					// read holds `{k1: 2 k2: 4}` where the narrow one holds it in block
-					// style. Counted rather than asserted, because it is neither this
-					// test's subject nor the scope's doing: the BASELINE narrow read
-					// diverges the same way on the same streams, 45 times over these 200
-					// seeds and never in data or comments. Filed as
-					// p83xdgm2h12kre9ajdn0.
-					restyled++
 				}
 			}
 		}
 	}
-	t.Logf("NARROW SCOPE seeds=%d reads=%d narrowed=%d restyled=%d",
-		seedCount(), checked, narrowed, restyled)
+	t.Logf("NARROW SCOPE seeds=%d reads=%d narrowed=%d", seedCount(), checked, narrowed)
 }
 
 // The point of it: reading one path out of a scope does not replay the scope's history.

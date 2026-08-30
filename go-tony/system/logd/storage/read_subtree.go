@@ -10,6 +10,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/patches"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/snap"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 // ReadSubtreeAt reads the value at kp, rather than the document which contains it.
@@ -161,12 +162,40 @@ func (s *Storage) scopeSubtreePatches(kp string, commit int64, scopeID *string) 
 func projectPatchesAt(patchNodes []*ir.Node, kp string) ([]*ir.Node, bool) {
 	projected := make([]*ir.Node, 0, len(patchNodes))
 	for _, p := range patchNodes {
-		at, ok := patchAtPath(p, kp)
+		at, marked, ok := patchAtPath(p, kp)
 		if !ok {
 			return nil, false
 		}
 		if at == nil {
 			continue // this write says nothing about kp
+		}
+		// A marker says where an entry is applied FROM, and this has just re-rooted the
+		// entry at kp -- so the marker has to be re-rooted with it. Descending past one
+		// left the projection unmarked, the streaming processor found no patch root in
+		// it, and the write contributed NOTHING: a read below a write's patch root
+		// answered from the snapshot and said so with no error
+		// (1xnezrpkh12ksavvjdn0). A marker at or below kp needs none of this: at kp the
+		// projection is the marked node itself, and below it the marker is inside the
+		// projected subtree.
+		if marked && !tx.HasPatchRootTag(at) {
+			// Except onto an OPERATOR, where the marker is not inert. A merge dispatches
+			// on the tag chain and hands back whatever trails the operation as the
+			// value's own, so appending the marker to `!addtag(bracket) null` turns the
+			// null that means "no value change" into a tagged null, and the merge
+			// answers null. Putting it at the head instead is what MarkPatchRoot exists
+			// not to do -- there it masks the operation, and comes back as data
+			// (jjbapb1ah12kranxg5n0). Neither end is safe, so this declines and the
+			// caller reads wide, which is the answer it would otherwise have computed.
+			//
+			// Only the projection ITSELF matters: an operator on a field beneath it is
+			// ordinary, and is what nearly every delta is made of.
+			if hasOperator(ir.Uncomment(at).Tag) {
+				return nil, false
+			}
+			// On a copy, because the projection is a subtree of the entry this read
+			// deserialized and marking it in place would edit what the entry says.
+			at = at.Clone()
+			tx.MarkPatchRoot(ir.Uncomment(at))
 		}
 		projected = append(projected, at)
 	}
@@ -177,36 +206,43 @@ func projectPatchesAt(patchNodes []*ir.Node, kp string) ([]*ir.Node, bool) {
 // rerooted there. It reports false when the patch cannot be seen that way, which is
 // when an operator sits above kp -- the operator's subject is the node it is written
 // on, and a subtree of that node is not it.
-func patchAtPath(patch *ir.Node, kp string) (*ir.Node, bool) {
+//
+// marked says a !logd-patch-root was passed on the way down, so the node returned lies
+// inside a region the entry declared itself applied from. The caller re-roots that
+// marker; see projectPatchesAt for why it must.
+func patchAtPath(patch *ir.Node, kp string) (at *ir.Node, marked, ok bool) {
 	if patch == nil {
-		return nil, true
+		return nil, false, true
 	}
 	segs := kpath.SplitAll(kp)
 	n := patch
 	for _, seg := range segs {
 		n = ir.Uncomment(n)
 		if n == nil {
-			return nil, true
+			return nil, marked, true
+		}
+		if tx.HasPatchRootTag(n) {
+			marked = true
 		}
 		if hasOperator(n.Tag) {
-			return nil, false
+			return nil, marked, false
 		}
 		if n.Type != ir.ObjectType {
 			// A scalar or a list where kp descends: the write replaces the node kp
 			// is inside, which is a statement about the ancestor and not about kp.
-			return nil, false
+			return nil, marked, false
 		}
 		name, isField := kpath.SegmentFieldName(seg)
 		if !isField {
-			return nil, false // keyed or indexed: not a plain descent
+			return nil, marked, false // keyed or indexed: not a plain descent
 		}
 		next := ir.Get(n, name)
 		if next == nil {
-			return nil, true // the patch does not reach kp
+			return nil, marked, true // the patch does not reach kp
 		}
 		n = next
 	}
-	return n, true
+	return n, marked, true
 }
 
 // hasOperator reports whether a tag names a merge operation, which is what makes a
