@@ -434,6 +434,11 @@ func (w *watchStream) emitScoped(commit int64) bool {
 	return true
 }
 
+// errWatchEnded stops a streaming walk because the watch is already over: the step that
+// returned false has failed it and told the client why, and there is nothing left for the
+// caller to report.
+var errWatchEnded = errors.New("watch ended")
+
 // replay sends the deltas the client missed, from the commit it resumed at up to the one
 // the watch was established at, then says the replay is complete. It answers false when the
 // watch has been failed.
@@ -442,8 +447,27 @@ func (w *watchStream) replay(from, to int64) bool {
 		return false
 	}
 	if from < to {
-		patches, err := w.s.storage.ReadPatchesInRange(w.path, from+1, to, w.s.scopeID())
+		// Streamed, not collected: the range is emitted as it is read, so a wide
+		// catch-up costs one entry rather than the whole history
+		// (89my9f0kh12ksqknjhn0). The watcher's bounded buffer is where a consumer
+		// that cannot keep up is failed, which is the existing contract -- the
+		// server does not hold the range on its behalf.
+		err := w.s.storage.EachPatchInRange(w.path, from+1, to, w.s.scopeID(), func(n *storage.CommitNotification) error {
+			ok := false
+			if w.scoped {
+				ok = w.emitScoped(n.Commit)
+			} else {
+				ok = w.stepBaseline(n.Commit, n.Patch, false)
+			}
+			if !ok {
+				return errWatchEnded
+			}
+			return nil
+		})
 		switch {
+		case errors.Is(err, errWatchEnded):
+			// Already failed, and already told the client why.
+			return false
 		case errors.Is(err, storage.ErrReplayCompacted):
 			// The cursor predates the retained delta window, so the exact history it
 			// asked for no longer exists. Say that specifically: a client told
@@ -458,17 +482,6 @@ func (w *watchStream) replay(from, to int64) bool {
 			w.s.log.Error("failed to read patches for replay", "path", w.path, "from", from+1, "to", to, "error", err)
 			w.fail(api.ErrCodeReplayFailed, "failed to read patches from commit %d to %d: %v", from+1, to, err)
 			return false
-		}
-		for _, patch := range patches {
-			ok := false
-			if w.scoped {
-				ok = w.emitScoped(patch.Commit)
-			} else {
-				ok = w.stepBaseline(patch.Commit, patch.Patch, false)
-			}
-			if !ok {
-				return false
-			}
 		}
 	}
 	w.s.send(api.NewReplayCompleteEvent(w.watcher.ID, w.path))

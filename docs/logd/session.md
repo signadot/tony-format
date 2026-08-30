@@ -216,6 +216,11 @@ holds what the store holds.
   `replayComplete` event marks the end of it. Below the retained history an **absolute**
   `fromCommit` is `replay_compacted`: a client naming a commit is claiming to know where
   it was, and deserves to be told the history is gone.
+
+    The replay is **streamed**, not collected: deltas go out as the range is read, so the
+    server holds one entry rather than the whole range however wide the catch-up. A
+    consumer that cannot keep up is failed at the watch's own buffer, which is the
+    existing contract — the server does not hold the range on its behalf.
 - **A negative `fromCommit` is relative**: `-N` asks for *the last N commits*, resolved
   against the store's watermark at the moment the watch is established.
 
