@@ -58,10 +58,29 @@ func (kl keyedListOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf Patch
 		}
 		klMap[key] = klItem
 	}
+	// The document's own elements, not copies of them. An element this patch does not
+	// name is carried across untouched, and ir.FromSlice below re-parents it into the
+	// list that now holds it -- the same rule objPatchYWith states for a field the patch
+	// does not name ("a value belongs to the object which now holds it", patch.go), and
+	// which it has always applied by sharing the node rather than cloning it.
+	//
+	// Cloning every element made a single-key write DEEP-COPY the whole array, which is
+	// the one thing keying exists to avoid. Patching one element of N, best of 5:
+	//
+	//	N        cloning     sharing     an OBJECT of N, one field patched
+	//	100      83us        83us
+	//	1000     722us       768us
+	//	10000    12.755ms    4.083ms
+	//	40000    35.41ms     18.18ms     15.27ms
+	//
+	// What is left is not keying's. An object merge of the same size, which has always
+	// shared, costs 15.27ms against this 18.18ms: rebuilding a container of N children
+	// is O(N) for every merge in this package, keyed or not, and that is a different
+	// problem from this one. Below about a thousand elements the copy was never the cost
+	// either -- it is the large arrays, which are the ones keying is for
+	// (thqtmm2th12kr051jhn0).
 	dst := make([]*ir.Node, len(doc.Values))
-	for i := range doc.Values {
-		dst[i] = doc.Values[i].Clone()
-	}
+	copy(dst, doc.Values)
 	for i, docItem := range dst {
 		key, ok, err := yKeyOf(docItem, kl.key)
 		if err != nil {
