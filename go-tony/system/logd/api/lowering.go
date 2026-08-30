@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/libdiff"
 	"github.com/signadot/tony-format/go-tony/mergeop"
 )
 
@@ -18,10 +19,26 @@ import (
 //
 // A tag that names no registered operation is neither storable nor not: data tags and
 // presentation tags travel in the same chain and are not operations at all.
+//
+// The walk ENDS at !raw, because that is what the escape says: nothing after it is
+// interpreted, so nothing after it is an operation to hold to this vocabulary -- it is
+// data that happens to be shaped like one. Reading past it refused the one escape that
+// lets a document holding operators be stored at all, and refused it in the form an
+// escaping writer actually produces: escaping a LEAF has nowhere to put the label but the
+// node's own tag, so !irtype escaped is !raw.irtype (fch8ptynh12ksfvvjdn0).
+//
+// Where the escape sits is what decides, which is why this ends the walk rather than
+// scanning the chain for a raw anywhere in it. A chain reads left to right, so an
+// operation BEFORE the escape binds and is applied to the raw data -- !strdiff.raw is a
+// strdiff -- while everything after it is the data. The two are the same labels in the
+// two orders and must not answer alike.
 func firstRelativeOp(tag string) string {
 	for tag != "" {
 		head, _, rest := ir.TagArgs(tag)
 		head = strings.TrimPrefix(head, "!")
+		if "!"+head == libdiff.RawTag {
+			return ""
+		}
 		if mergeop.Lookup(head) != nil && !IsStorableTag(head) {
 			return head
 		}
