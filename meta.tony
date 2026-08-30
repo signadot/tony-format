@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 468d03662d07128ccef0e4d70a60cb4ddf53c7ff
 commits: []
 created: "2026-08-29T20:51:37.561707+02:00"
 duplicates: []
@@ -9,5 +10,5 @@ id: p83xdgm2h12kre9ajdn0
 labels: []
 related_issues:
 - 1xnezrpkh12ksavvjdn0
-status: open
-updated: "2026-08-30T02:39:22.304164+02:00"
+status: closed
+updated: "2026-08-30T21:40:09.220804+02:00"
