@@ -5,23 +5,22 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
 )
 
-// What a scope's KEYED arrays mean to the code that has to say what a scope holds.
+// Keyed arrays, and what a DIFF has to know about them.
 //
 // A keyed array merges by identity: !key(f) says an element is the one whose f matches,
-// not the one at that index. Stored state is op-free, so the only thing that can say an
-// array is keyed is the schema -- and a write whose key the schema does not declare
-// carries that fact in the patch and nowhere else.
+// not the one at that index. Diffing two states of one is therefore only possible if
+// something says which field keys it -- and stored state is op-free, so the tag is not in
+// the states themselves. Two answers, and this file is both:
 //
-// That is why lowering refuses such a write rather than diffing it (lower.go): a diff
-// over op-free state comes out POSITIONAL, and a positional delta takes ownership of the
-// whole array, so baseline adds an element and the scope never sees it.
+//	the schema declares the key    annotate both sides before diffing, and the diff takes
+//	                               its keyed branch (annotateKeyed, keyedArrayPaths)
+//	the client's patch declares it the schema cannot annotate anything, so the diff would
+//	                               come out POSITIONAL (patchHasUndeclaredKey)
 //
-// This was the scope overlay's file, and what is left is what outlived it. The overlay
-// asked per scoped READ whether a scope held keyed paths the schema does not declare, and
-// kept a cache to make that affordable; with the overlay gone nothing asks, so the
-// question, its cache and the walk behind it went too. Lowering asks a different one, per
-// WRITE and from the patch in hand: does THIS patch carry a key the schema has not
-// declared. That is what remains here.
+// A positional delta is not merely less precise: stating an array by index takes
+// ownership of the whole of it, so baseline adds an element and the scope never sees it.
+// That is why an undeclared key means the write is not lowered at all -- the client's own
+// patch is kept, because the patch is the only thing carrying the fact. See lower.go.
 
 // patchHasUndeclaredKey reports whether the patch keys an array the schema does not
 // declare -- a !key the client supplied for a path the schema has never heard of, which

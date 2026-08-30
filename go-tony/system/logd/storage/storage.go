@@ -250,56 +250,54 @@ func (s *Storage) replayBaselineAt(commit int64) (*ir.Node, error) {
 	return applyPatchesToBase(baseReader, patchNodes)
 }
 
-// replayScopedAt: a scope, whole document, REPLAYED -- baseline as of the commit with
-// the scope's layer folded on top. See read.go for the axes.
-// replayScopedAt implements copy-on-write scope reads. The scoped view at commit C
-// is the baseline state at C (same commit bound) with the scope's OWN patches applied
-// on top, verbatim. It is computed in a SINGLE apply pass: the baseline snapshot as
-// base, then all baseline patches (commit order), then this scope's patches (commit
-// order). Applying the scope's writes last makes them sticky over baseline — a later
-// baseline write to a leaf the scope has written is shadowed, while baseline writes
-// elsewhere still show through — and replaying real patches (not a materialized
-// overlay) keeps op semantics durable (notably !key identity merges).
+// replayScopedAt: a scope, whole document, REPLAYED -- baseline as of the commit with the
+// scope's own patches folded on top. See read.go for the axes.
 //
-// The single pass matters: materializing baseline first and re-applying the scope
-// patches over it round-trips through node<->events, and that round-trip mis-handles
-// numeric-string field keys (e.g. path "users.1"), so the scope patch fails to align
-// with the base and is dropped. Keeping every patch in one apply pass gives every
-// patch the same path computation.
+// A scope is copy-on-write, not a branch: the scoped view at commit C is the baseline
+// state at C, same commit bound, with the scope's OWN patches applied over it verbatim.
+// Applying them last is what makes them sticky -- a later baseline write to a leaf the
+// scope has written is shadowed, while baseline writes elsewhere still show through.
 //
-// The scope layer is deliberately NOT read from a scope snapshot: materialized scope
-// snapshots resolve !key away and are unsound here (see issue eagjggjdh12ksg00bsn0;
-// bounded op-preserving compaction is tracked in 5hmq80f3h12krh1mbsn0).
+// Real patches, replayed. That is not an implementation detail but the definition: only
+// the patches themselves carry op semantics, so !key merges by identity here exactly as it
+// did at the write. A materialized layer cannot -- a scope snapshot resolves !key away
+// (eagjggjdh12ksg00bsn0), and a layer DERIVED from two documents cannot state a claim at
+// all, which is what retired the scope overlay.
+//
+// The two ranges differ, and have to. Baseline's runs from the last snapshot, because the
+// snapshot holds everything before it; the scope's runs from 0, because no snapshot holds
+// a scope's writes -- they are exempt from snapshotting and compaction.
+//
+// One apply pass, for both layers together. Materializing baseline first and re-applying
+// the scope over it round-trips through node<->events, and that round-trip mis-handles
+// numeric-string field keys (path "users.1"), so the scope patch fails to align with the
+// base and is dropped. A single pass gives every patch the same path computation.
+//
+// It reads the WHOLE document. A read that names a path wants narrowSubtreeAt, which is
+// this same fold asked at that path.
 func (s *Storage) replayScopedAt(commit int64, scopeID *string) (*ir.Node, error) {
-	return s.readScopedStateAtReplay(commit, scopeID)
-}
-
-// readScopedStateAtReplay is what a scope layer IS: every patch the scope wrote, replayed
-// over baseline, applied last so the scope's writes shadow baseline's stickily.
-func (s *Storage) readScopedStateAtReplay(commit int64, scopeID *string) (*ir.Node, error) {
 	baseReader, startCommit, err := s.findSnapshotBaseReader(commit)
 	if err != nil {
 		return nil, err
 	}
 	defer baseReader.Close()
 
-	// Baseline patches from the snapshot forward. Taken at the root for the same reason
-	// as replayBaselineAt: the root range is the complete, non-repeating entry set.
+	// Baseline, from the snapshot forward. Taken at the root for the same reason as
+	// replayBaselineAt: the root range is the complete, non-repeating entry set.
 	baseSegments := s.index.LookupRange("", &startCommit, &commit, nil)
 	patchNodes, err := s.patchNodesFromSegments(baseSegments, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	// This scope's own patches over the full [0, commit] range, applied last.
+	// The scope, over its whole history, last.
 	scopeSegments := s.index.LookupRange("", nil, &commit, scopeID)
 	scopePatches, err := s.patchNodesFromSegments(scopeSegments, scopeID)
 	if err != nil {
 		return nil, err
 	}
-	patchNodes = append(patchNodes, scopePatches...)
 
-	return applyPatchesToBase(baseReader, patchNodes)
+	return applyPatchesToBase(baseReader, append(patchNodes, scopePatches...))
 }
 
 // isOverlaySegment reports whether seg is a scope overlay -- a cache of a scope's layer

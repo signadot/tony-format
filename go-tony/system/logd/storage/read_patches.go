@@ -16,7 +16,7 @@ import (
 // than the subset that happens to survive. The caller asked for every change in the
 // range and cannot be given it, and an empty or short result is indistinguishable from a
 // quiet period — so this is reported, not returned as data. A scoped range is checked
-// too: a scope keeps its own overlay in full, but the baseline patches its replay
+// too: a scope's own patches are kept in full, but the baseline patches its replay
 // interleaves with are subject to the same cutoff.
 func (s *Storage) ReadPatchesInRange(kp string, from, to int64, scopeID *string) ([]*CommitNotification, error) {
 	if floor := s.replayFloor.Load(); from <= floor {

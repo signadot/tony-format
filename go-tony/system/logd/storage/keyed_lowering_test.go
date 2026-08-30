@@ -11,10 +11,10 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
 )
 
-// P1's opening tests (docs/scope_overlay_plan.md). The plan proposes that the schema is
-// the write-time AUTHORITY and the tag on a lowered delta is the durable RECORD of what it
-// decided. Two things have to hold for that, and they are cheap to ask now rather than
-// after the schema work:
+// The schema is the write-time AUTHORITY for what keys an array, and the !key tag on a
+// lowered delta is the durable RECORD of what it decided. (Proposed as P1 of
+// docs/archive/scope_overlay_plan.md, and outlived it: lowering needs the same property
+// the overlay would have.) Two things have to hold for that:
 //
 //  1. annotation puts !key(f) on EVERY keyed array a delta describes, nested included --
 //     otherwise the record is partial and a rebuild silently keys less than the live index
@@ -95,8 +95,7 @@ func lower(t *testing.T, before, after string, keys map[string]string) *ir.Node 
 	// These two states are PARSED here rather than read out of one chain, which is what
 	// makes the strip this test's business. A write's own delta keeps presentation, since
 	// its base and next come from one chain and a difference in it is the write's.
-	return storableDelta(
-		stripPresentationDeepIR(b), stripPresentationDeepIR(a), keys, false)
+	return storableDelta(stripPresentationDeepIR(b), stripPresentationDeepIR(a), keys)
 }
 
 // TestLowering_TagsEveryKeyedArray: check 1.

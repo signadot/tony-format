@@ -1,3 +1,21 @@
+> **Archived, and the feature it plans was built and then removed.**
+>
+> The overlay was a cache of a scope's layer, derived by diffing `baseline@T` against
+> `scoped@T` plus a union of owned paths. That derivation is the part that could not be
+> made to work: a difference between two DOCUMENTS cannot record that the scope removed a
+> field baseline never had, the owned-path union applied its operand rather than composing
+> with it so a tombstone could not be introduced at all, and keyed absence has no
+> vocabulary to be stated in. Over 200 seeded streams the overlay broke 44 standing claims
+> where the replay it optimises broke none.
+>
+> What replaced it is not another cache: a scoped read at a PATH replays only the patches
+> bearing on that path (`narrowSubtreeAt`), which is flat in the scope's history and was
+> the whole cost the overlay existed to remove. See `qth3kqe9h12ksxz9j9n0` for the
+> derivation's failure and the package doc for what a scope layer is now.
+>
+> Kept because the measurements in it are real and the wall it hit is worth not hitting
+> twice.
+
 # Bounded scope overlay — refreshed dev plan
 
 Refreshes the approach in issue `5hmq80f3h12krh1mbsn0`, which its own status report

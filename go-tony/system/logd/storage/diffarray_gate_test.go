@@ -70,10 +70,8 @@ func TestDiffArrayGatesStateTheArrayWhole(t *testing.T) {
 			if err != nil {
 				t.Fatalf("to: %s", err)
 			}
-			// The builder's own step, which is now one: storableDelta, the same
-			// call a write is lowered through and the overlay is built with.
-			// Validation comes after it.
-			d := storableDelta(from, to, nil, false)
+			// The same call a write is lowered through. Validation comes after it.
+			d := storableDelta(from, to, nil)
 			if d == nil {
 				t.Fatal("no diff between two states that differ")
 			}

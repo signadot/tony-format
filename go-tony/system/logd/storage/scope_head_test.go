@@ -51,7 +51,7 @@ func TestScopedHead_AgreesWithReplay(t *testing.T) {
 				if errH != nil {
 					t.Fatalf("steppedScopedAt: %v", errH)
 				}
-				viaReplay, err := s.readScopedStateAtReplay(commit, &scope)
+				viaReplay, err := s.replayScopedAt(commit, &scope)
 				if err != nil {
 					t.Fatalf("replay: %v", err)
 				}

@@ -103,7 +103,7 @@ func (s *Storage) raiseReplayFloor(floor int64) error {
 //
 // Only BASELINE PATCHES count. Snapshots are not deltas, so dropping one costs a replay
 // nothing. Scope patches are never dropped by cutoff (selectSurvivors retains a scope's
-// whole overlay until DeleteScope), and a scope's removal is not a statement about
+// patches whole until DeleteScope), and a scope's removal is not a statement about
 // baseline history, so neither belongs in a store-wide floor.
 //
 // A segment appears once per path its entry touches; taking a maximum is indifferent to
@@ -120,7 +120,7 @@ func droppedPatchFloor(all, survivors []index.LogSegment) int64 {
 	var floor int64
 	for _, seg := range all {
 		if seg.StartCommit == seg.EndCommit || seg.ScopeID != nil {
-			continue // snapshot, or a scope's retained overlay
+			continue // snapshot, or a scope's retained patch
 		}
 		if kept[seg.LogPosition][seg.EndCommit] {
 			continue

@@ -14,28 +14,20 @@ import (
 // writes applied last, and folding a baseline patch into a materialized scoped document
 // lets baseline overwrite a leaf the scope owns.
 //
-// What makes it usable is the scope's OWN kept document: when it is current at the commit
-// being asked about, it is the whole answer -- nothing to replay and nothing of baseline
-// to fold. See scopeHeadDoc. When it is not current, the ordinary read answers.
-//
-// There was a third way, through a scope overlay, which stated the scope's ownership so
-// the baseline head could be reused. It is gone: an overlay derived a scope layer from
-// two documents, and a difference between documents cannot carry a claim.
+// So a scope keeps its OWN document. When it is current at the commit being asked about it
+// is the whole answer -- nothing to replay, nothing of baseline to fold; when it is not,
+// the ordinary read answers. See scopeHeadDoc.
 //
 // Callers MUST hold commitMu: steppedBaselineAt does, and the head must not move underneath the
 // terms applied to it.
 
-// steppedScopedAt: a scope, whole document, STEPPED -- the scope's own kept document.
-// See read.go for the axes.
-// steppedScopedAt returns the scoped document at commit for evaluating a precondition.
+// steppedScopedAt: a scope, whole document, STEPPED -- the scope's own kept document. See
+// read.go for the axes. This is what a scoped CAS precondition is evaluated against.
 //
-// It falls back to a full read whenever it cannot be sure of the shortcut -- a commit the
-// scope's kept document cannot answer for. Falling back is correct and merely slower,
-// which is the right way round for a path that decides whether a write lands.
+// It falls back to a full read for any commit the kept document cannot answer for.
+// Falling back is correct and merely slower, which is the right way round for a path that
+// decides whether a write lands.
 func (s *Storage) steppedScopedAt(commit int64, scopeID *string) (*ir.Node, error) {
-	// The scope's own kept document, when it is current, is the whole answer: no
-	// overlay to read, no patches to replay, nothing of baseline to fold. See
-	// scopeHeadDoc.
 	if scopeID != nil {
 		if doc, ok := s.scopeHeadAt(commit, *scopeID); ok {
 			return doc, nil
@@ -69,12 +61,11 @@ func applyStoredPatch(doc, patch *ir.Node) (*ir.Node, error) {
 
 // A scope's own stepped document.
 //
-// The overlay this file used to reach for made a scoped precondition cost the scope's
-// writes since the last overlay instead of a replay of everything. That is a bound on
-// REPLAY, and it is not a bound on how often the replay happens: every scoped write pays
-// it, and between overlays it grew. Once a write is verified before it is stored
-// (verifyApplies), every scoped write pays it, not only the conditional ones --
-// which is what made a burst of scoped writes quadratic (sb33w8p9h12kr16kg5n0).
+// Bounding the REPLAY is not enough, and that is the whole reason this exists. A bound on
+// how much gets replayed is not a bound on how often: since a write is verified before it
+// is stored (verifyApplies), EVERY scoped write pays a read, not only the conditional
+// ones, which is what made a burst of scoped writes quadratic (sb33w8p9h12kr16kg5n0). The
+// answer has to be a document that is already there, not a cheaper way to rebuild one.
 //
 // So a scope keeps a document too. The reason baseline's trick does not transfer is
 // specific and does not apply here: folding a BASELINE patch into a materialized

@@ -120,7 +120,7 @@ func RootPatchAt(kp string, node *ir.Node) (*ir.Node, error) {
 // carries the key VALUE where building the patch needs the key FIELD. Both callers
 // worked around that the same way -- root at the array, carry a keyed list -- and
 // the plan asked for the helper rather than let it be found a third time
-// (scope_overlay_plan.md, P1).
+// (docs/archive/scope_overlay_plan.md, P1).
 //
 // The tag is what makes the merge identify elements: without it the same list merges
 // POSITIONALLY, replacing whatever sits at index 0. That is the failure tx.InjectKeyTags

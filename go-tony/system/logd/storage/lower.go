@@ -73,28 +73,27 @@ func (s *Storage) LowerEverything(v bool) { s.lowering, s.lowerAll = true, v }
 // keep: every operation in it states what a value IS, so applying it to a base that has
 // moved gives what it gave here.
 //
-// It is the one place that turns two states into a delta. There were two, and they
-// disagreed about how to be absolute -- this one asks the diff not to make a relative
-// primitive, the other let it and rewrote the !replace afterwards, which cannot reach a
-// !strdiff or an !arraydiff because an edit script does not carry the value it would
-// produce. Every difference between the two copies cost a defect this was found by.
+// It is the ONE place that turns two states into a delta, and being one place is the
+// point: there were two, and they disagreed about how to be absolute -- this one asks the
+// diff not to make a relative primitive, the other let it and rewrote the !replace
+// afterwards, which cannot reach a !strdiff or an !arraydiff because an edit script does
+// not carry the value it would produce. Every difference between the two copies cost a
+// defect it was found by.
 //
-// What it does NOT decide is left to the caller, because the two callers genuinely
-// differ and saying so is the point:
+// Base and next come from ONE chain: next is base with this write applied. Everything
+// here follows from that.
 //
-//	presentation  the overlay compares two independent materializations and strips it
-//	              first; a write's base and next come from one chain, where a difference
-//	              in it is the write's
-//	comments      a write delta must carry them, having no other way to say a comment
-//	              changed; the overlay re-states every owned path with comments on, so
-//	              asking the diff as well is redundant -- and harmful, since a comment
-//	              makes a node an operation and the overlay merges values into what it
-//	              finds (nm5r3sxah12ks2zmj5n0)
-//	marking       a write wants the marker where the change lands, so a narrow read can
-//	              skip it; an overlay is a base and wants to be applied to every read
-//	validation    identical, and the callers say it differently because the failure
-//	              means something different to each
-func storableDelta(base, next *ir.Node, keys map[string]string, comments bool) *ir.Node {
+//	presentation  carried, not stripped. A difference in how a value is written is this
+//	              write's doing, because nothing else touched it. (Two states
+//	              materialized independently are a different situation and want the
+//	              strip; no caller here is in it.)
+//	comments      carried. A write whose only change is a comment has no other way to
+//	              say so.
+//	marking       left to the caller, which wants the marker where the change LANDS so a
+//	              narrow read can skip the rest. See markDeltaRoots.
+//	validation    left to the caller, because what a failure means differs: an
+//	              unstorable write is refused, and an unstorable anything-else is a bug.
+func storableDelta(base, next *ir.Node, keys map[string]string) *ir.Node {
 	// Stored state is op-free, so diffArray cannot take its keyed branch: it needs
 	// !key(f) on BOTH sides. Without this a change to a keyed array comes out
 	// POSITIONAL, and a scope storing one takes ownership of the whole array --
@@ -103,11 +102,7 @@ func storableDelta(base, next *ir.Node, keys map[string]string, comments bool) *
 	annotateKeyed(base, "", keys)
 	annotateKeyed(next, "", keys)
 
-	opts := []tony.DiffOpt{tony.DiffAbsolute(true)}
-	if comments {
-		opts = append(opts, tony.DiffComments(true))
-	}
-	return tony.DiffWith(base, next, opts...)
+	return tony.DiffWith(base, next, tony.DiffAbsolute(true), tony.DiffComments(true))
 }
 
 // claimDelta answers what a SCOPE stores for a write: the claim it is making, rather
@@ -238,9 +233,8 @@ func (s *Storage) lowerWrite(base, next, merged *ir.Node, scoped bool, paths []s
 	// diff would then come out positional and the write would take ownership of the
 	// whole array, shutting baseline out of it.
 	//
-	// So it is not lowered. Keeping the client's patch is correct, and it is now the
-	// only place that asks: the scope overlay asked the same question per READ, of the
-	// whole index, and went with the overlay.
+	// So it is not lowered, and keeping the client's patch is the correct answer: the
+	// patch is the only thing that carries the fact.
 	keys := s.keyedArrayPaths()
 	if patchHasUndeclaredKey(DeliverablePatch(merged), "", keys) {
 		atomic.AddInt64(&loweringUndeclaredKey, 1)
@@ -269,11 +263,7 @@ func (s *Storage) lowerWrite(base, next, merged *ir.Node, scoped bool, paths []s
 		}
 
 	default:
-		// Presentation is not stripped, unlike the overlay: base and next come from
-		// one chain -- next is base with this patch applied -- so a difference in it
-		// is this write's. Comments are carried, because a write whose only change is
-		// a comment has nothing else to say it with.
-		delta = storableDelta(base, next, keys, true)
+		delta = storableDelta(base, next, keys)
 	}
 	if delta == nil {
 		return nil, nil
@@ -281,8 +271,7 @@ func (s *Storage) lowerWrite(base, next, merged *ir.Node, scoped bool, paths []s
 	// The streaming processor finds what to apply by walking for !logd-patch-root,
 	// so a delta without it contributes nothing once the base is a snapshot -- and
 	// contributes normally while the base is empty, which is how an untagged delta
-	// looks correct until the first snapshot exists (scope_overlay.go says the same
-	// of overlays).
+	// looks correct until the first snapshot exists.
 	//
 	// WHERE the marker goes is the selectivity of every narrow read: patches.
 	// BuildPatchIndex keys entries by the PATH of each marked node, so a marker at

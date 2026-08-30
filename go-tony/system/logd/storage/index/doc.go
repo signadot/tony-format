@@ -15,5 +15,5 @@
 //   - StartCommit == EndCommit: snapshot (full state at that commit)
 //   - StartCommit != EndCommit: patch (diff from StartCommit to EndCommit)
 //   - ScopeID nil: baseline data
-//   - ScopeID non-nil: scope-specific overlay
+//   - ScopeID non-nil: one scope's own patch, which layers over baseline
 package index

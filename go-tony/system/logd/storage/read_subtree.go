@@ -30,9 +30,9 @@ import (
 //     deciding what it would have meant is the kind of guess which loses data;
 //   - the root, which is not a narrowing.
 //
-// A SCOPED read narrows too, through narrowScopedSubtreeAt. It used to decline here,
-// wanting replayScopedAt's single op-preserving pass to be path-aware first; making
-// that pass path-aware is all it took, and it is the same pass.
+// A scoped read narrows on the same terms. Its layer is the scope's own patches, and
+// asking for them at kp is the same question the wide read asks at the root, so the two
+// answer alike or one of them is wrong.
 //
 // A caller which is declined reads wide, which is also the only reader that can say
 // what a path not fitting the document means: absent, or a segment which cannot be
@@ -108,13 +108,18 @@ func (s *Storage) narrowSubtreeAt(kp string, commit int64, scopeID *string) (*ir
 	}
 	defer baseReader.Close()
 
-	segments := s.index.LookupSubtree(kp, &startCommit, &commit, nil)
-	patchNodes, err := s.patchNodesFromSegments(segments, nil)
+	// Baseline from the snapshot forward, then the scope over its whole history, in that
+	// order: the same two ranges replayScopedAt uses, and the same reason for each. The
+	// snapshot is baseline's, so baseline needs only what came after it and a scope needs
+	// everything. Applying the scope last is what makes its writes shadow baseline's.
+	patchNodes, err := s.patchNodesFromSegments(
+		s.index.LookupSubtree(kp, &startCommit, &commit, nil), nil)
 	if err != nil {
 		return nil, false, err
 	}
 	if scopeID != nil {
-		scopePatches, err := s.scopeSubtreePatches(kp, commit, scopeID)
+		scopePatches, err := s.patchNodesFromSegments(
+			s.index.LookupSubtree(kp, nil, &commit, scopeID), scopeID)
 		if err != nil {
 			return nil, false, err
 		}
@@ -123,7 +128,7 @@ func (s *Storage) narrowSubtreeAt(kp string, commit int64, scopeID *string) (*ir
 
 	projected, ok := projectPatchesAt(patchNodes, kp)
 	if !ok {
-		return nil, false, nil // an operator above kp: fall back
+		return nil, false, nil // a patch kp cannot be seen from: read wide
 	}
 
 	node, err := applyPatchesToBase(baseReader, projected)
@@ -133,32 +138,13 @@ func (s *Storage) narrowSubtreeAt(kp string, commit int64, scopeID *string) (*ir
 	return node, true, nil
 }
 
-// scopeSubtreePatches is the scope half of a narrow read: this scope's own writes which
-// bear on kp, in commit order, to be applied AFTER every baseline patch. Appending them
-// last is what makes a scope write shadow a later baseline one, and it is the order
-// replayScopedAt uses for the same reason.
-//
-// The range is the scope's WHOLE history, [0, commit], where baseline's starts at the
-// snapshot: the snapshot is baseline's, and a scope's writes are not in it.
-//
-// Nothing here is synthesized. These are the patches the scope wrote, replayed, so !key
-// identity merges, comments and every other operation mean at kp exactly what they mean
-// in the wide read -- which is why narrowing a scope is sound where deriving a scope
-// layer from two documents was not. What a scoped read paid for was never the patches
-// that bear on the path; it was the ones that do not, and the index can already tell
-// them apart.
-func (s *Storage) scopeSubtreePatches(kp string, commit int64, scopeID *string) ([]*ir.Node, error) {
-	segments := s.index.LookupSubtree(kp, nil, &commit, scopeID)
-	return s.patchNodesFromSegments(segments, scopeID)
-}
-
 // projectPatchesAt reroots each patch as seen from kp, dropping the ones which say
-// nothing about it. It reports false when one of them cannot be seen from kp at all --
-// an operator above it -- which is the caller's signal to read wide.
+// nothing about it. It reports false when one of them cannot be seen from kp at all,
+// which is the caller's signal to read wide.
 //
-// One copy, deliberately: a scope layer projected by a different rule than baseline
-// would shadow different paths than the wide read does, and the differential would then
-// be comparing two things neither of which is the definition.
+// Both layers project through here. A scope layer projected by a different rule would
+// shadow different paths than the wide read does, and then neither answer is the
+// definition.
 func projectPatchesAt(patchNodes []*ir.Node, kp string) ([]*ir.Node, bool) {
 	projected := make([]*ir.Node, 0, len(patchNodes))
 	for _, p := range patchNodes {
@@ -170,30 +156,28 @@ func projectPatchesAt(patchNodes []*ir.Node, kp string) ([]*ir.Node, bool) {
 			continue // this write says nothing about kp
 		}
 		// A marker says where an entry is applied FROM, and this has just re-rooted the
-		// entry at kp -- so the marker has to be re-rooted with it. Descending past one
-		// left the projection unmarked, the streaming processor found no patch root in
-		// it, and the write contributed NOTHING: a read below a write's patch root
-		// answered from the snapshot and said so with no error
-		// (1xnezrpkh12ksavvjdn0). A marker at or below kp needs none of this: at kp the
-		// projection is the marked node itself, and below it the marker is inside the
-		// projected subtree.
+		// entry at kp, so the marker moves with it. Without that the projection carries
+		// none, the streaming processor finds no patch root in it, and the write
+		// contributes nothing -- a read below a write's patch root answering from the
+		// snapshot, with no error to say so (1xnezrpkh12ksavvjdn0). A marker at or below
+		// kp is already where it belongs: at kp the projection IS the marked node, and
+		// below it the marker is inside the projected subtree.
 		if marked && !tx.HasPatchRootTag(at) {
-			// Except onto an OPERATOR, where the marker is not inert. A merge dispatches
-			// on the tag chain and hands back whatever trails the operation as the
-			// value's own, so appending the marker to `!addtag(bracket) null` turns the
-			// null that means "no value change" into a tagged null, and the merge
-			// answers null. Putting it at the head instead is what MarkPatchRoot exists
-			// not to do -- there it masks the operation, and comes back as data
-			// (jjbapb1ah12kranxg5n0). Neither end is safe, so this declines and the
-			// caller reads wide, which is the answer it would otherwise have computed.
+			// Not onto an operator. The marker travels in the tag chain, which is also
+			// where the operation lives, and a merge dispatches on that chain -- so on an
+			// operator node the two share one namespace and the marker stops being
+			// metadata (1hf5pzj6h12ksd40jdn0). Neither end of the chain is safe: the tail
+			// is read as the operand's, the head masks the operation
+			// (jjbapb1ah12kranxg5n0). So the read declines, and the caller gets the same
+			// answer the wide read would have computed.
 			//
-			// Only the projection ITSELF matters: an operator on a field beneath it is
-			// ordinary, and is what nearly every delta is made of.
+			// Only the projection ITSELF is at issue. An operator on a field beneath it
+			// is ordinary, and is what nearly every delta is made of.
 			if hasOperator(ir.Uncomment(at).Tag) {
 				return nil, false
 			}
-			// On a copy, because the projection is a subtree of the entry this read
-			// deserialized and marking it in place would edit what the entry says.
+			// On a copy: the projection is a subtree of the entry this read deserialized,
+			// and marking it in place would edit what the entry says.
 			at = at.Clone()
 			tx.MarkPatchRoot(ir.Uncomment(at))
 		}
