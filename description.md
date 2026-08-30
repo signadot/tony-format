@@ -1,157 +1,112 @@
-# logd, mergeop: a single-key operation on a keyed array costs the whole array
+# logd: a keyed element cannot be addressed, so no operation can be confined to one
 
-A keyed array exists so an element can be named by identity instead of position. The
-STORED delta already honours that -- a write naming one element stores one element -- but
-every other stage still touches the whole array, and a read at an element touches the
-whole DOCUMENT. This is the plan for closing that, in pieces that are each useful alone.
+Filed as "a single-key operation costs the whole array", with a plan in six numbered
+stages. The first piece of it (f5f04d4) settled the part that was really about keying and
+showed that the framing was wrong, so this is re-scoped to what is actually true.
 
-## Where the cost is paid today
+## What the first fix settled, and what it showed
 
-    stage                     cost of a single-key operation
-    ---------------------------------------------------------------------------
-    stored delta              O(elements written)      already right
-    live index                O(1) added, O(N) resident  a segment per element
-    merge / apply             O(N), and deep-CLONES N  mergeop/keyed_list.go:61
-    read at an element        O(whole document)        falls back to the wide read
-    snapshot seek             not addressable at all   the index is positional
+A keyed merge deep-cloned every element before consulting the key map. It now carries the
+elements it does not name across, which is what the object merge has always done. Patching
+one element of N, best of 5:
 
-Measured, patching ONE element of an N-element keyed array through tony.Patch:
+    N        cloning     sharing     an OBJECT of N, one field patched
+    100      83us        83us
+    1000     722us       768us
+    10000    12.755ms    4.083ms
+    40000    35.41ms     18.18ms     15.27ms
 
-    N=100     316us
-    N=1000    1.155ms
-    N=10000   9.548ms
-    N=40000   44.71ms
+The last column is the finding. An object of 40k fields with ONE field patched costs
+15.27ms on the path that has always shared -- so the 18.18ms that remains is not keying's.
+Merging into a container of N children is O(N) in this package whatever the container is:
+objMergeFast already shares the document's field slice when the keys are kept, and still
+allocates two slices of N, walks N fields and re-parents N values, because the result is a
+new container node that has to list them.
 
-Linear in N at ~1.1us per element, for a patch that names one. The cause is not the scan
-but the copy:
+So "a single-key operation costs the whole array" was true, and the part of it that keying
+caused is fixed. What is left is that a single-key operation costs the whole CONTAINER, and
+a write costs the whole DOCUMENT, and neither is about keys.
 
-    dst := make([]*ir.Node, len(doc.Values))
-    for i := range doc.Values {
-        dst[i] = doc.Values[i].Clone()      // Clone -> CloneTo, recursive
-    }
+## The goal splits in two, and this issue is only one half
 
-every element deep-copied before the key map is consulted.
+"A single-key operation out of memory" needs both of:
 
-## What already streams, so this is shorter than it looks
+**Addressability -- naming one element and reading it without the rest.** This issue. It
+is a keyed problem, nothing else has it, and it is unfinished.
 
-  - the dlog is length-prefixed and read by structure, never materialized whole;
-  - a snapshot is an event stream with a chunked offset index (4096 bytes per entry,
-    snap/constants.go) and a streaming PathEventReader -- so a seek is already O(chunk);
-  - a POSITIONAL element read already works at the storage layer. Verified against a
-    store with a snapshot: ReadSubtreeAt(`items[2]`) narrows and answers `{q: 7 sku: G}`
-    without the array. It does NOT reach a client -- see fence 4, which discards it.
+**Residency -- not holding or folding what the operation does not name.** Not a keyed
+problem at all. It is rkb7p8v5h12ksdnmgsn0 (a write folds the whole document to verify and
+step the head, and every watcher folds it again per commit: 38us / 78us / 137us of apply at
+200 / 1000 / 3000 entities, scaling with the set and not the patch) plus the container cost
+above plus the live index, which holds a child Index per path segment and so keeps a keyed
+array of N as N resident subtrees.
 
-So the machinery for "seek to an element and stream it" exists. What is missing is that
-none of it can be addressed BY KEY.
+**They need each other, which is the point.** rkb7p8v5's fix is to stop keeping the head as
+one document and keep it as the subtrees a patch names, "turning both costs into O(patch)".
+That granularity can only go as deep as a path can NAME. Today a path stops at the array,
+because nothing below it can be addressed -- so a subtree head would still fold the whole
+array for a write to one element, and the container cost above is exactly what it would pay.
+Addressability is what lets the subtree be the element.
 
-## The five fences, in the order they bite
+And the reverse: addressability alone buys a narrow READ and nothing else. Writes still fold
+the document, watchers still fold the document, the index still holds every element. This
+issue on its own does not make a single-key operation out of memory and should not be read
+as claiming to.
 
-Verified by probe against a store with a snapshot and a keyed array of three elements.
+## What is left here, and it is one thing in three places
 
-1. **The snapshot index is positional and schema-blind.** Its paths come from
+A keyed element cannot be named or found. Verified by probe against a store with a snapshot
+and a keyed array:
+
+1. **The snapshot indexes elements by POSITION.** Its paths come from
    `stream.State.CurrentPath()`, whose own doc says "the current kinded path (e.g. "",
-   "key", "key[0]")". A stream carries no schema and does not read the array's `!key`
-   tag, so an element is indexed as `items[2]`, never `items("G")`.
+   "key", "key[0]")" -- a stream carries no schema and does not read the array's `!key`
+   tag. `items("G")` matches nothing there; `items[2]` matches and returns the element
+   without the array.
 
-   Consequence, measured: at a commit where the snapshot holds the element and no patch
-   is above it, `ReadSubtreeAt('items("G")')` answers **(nil, narrowed=true)** -- for an
-   element that exists. Counted as reads.wide.absent. Its one caller reads a nil node as
-   "go wide" and is therefore correct, but the pair it returns says "narrowed, and there
-   is nothing there", which is false. A second caller trusting it would be silently wrong.
+2. **projectPatchesAt will not descend the `!key` operator.** With a patch above the path
+   the projection stops there, so the delta range cannot be narrowed to an element either.
 
-2. **projectPatchesAt will not descend the `!key` operator.** With a patch above the path,
-   `ReadSubtreeAt('items("G")')` declines with reads.wide.operator -- the stored delta is
-   `{items: !key(sku) [...]}` and the projection stops at the operator. This is the fence
-   that actually fires in ordinary operation, and it fires for `items[2].q` too.
+3. **ReadSubtreeRootedAt cannot re-root through a non-field segment.** This one is not
+   keyed-specific and is the most valuable of the three: `items[2]` narrows at the storage
+   layer and returns the element, and re-rooting throws it away, so no read at an element
+   of ANY array reaches a client narrowed.
 
-3. **The merge clones the array**, above.
+Underneath all three: `RootPatchAt` cannot express an element path, because `items("A")`
+carries the key VALUE where building the structure needs the key FIELD. `RootKeyedListAt`
+is the write side's workaround -- root at the array, carry a one-element `!key(f)` list --
+and the read side has no equivalent.
 
-4. **ReadSubtreeRootedAt cannot re-root through a non-field segment**
-   (read_subtree.go): `kpath.SegmentFieldName` reports `items("G")` is not a field, so it
-   answers not-narrowed and the caller reads wide.
+## The work
 
-   This is the fence that matters most and I under-rated it when this was filed. It is not
-   keyed-specific: `items[2]` narrows at the storage layer and returns the element, and
-   this throws it away, so no read at an element of ANY array reaches a client narrowed.
-   Re-rooting is therefore worth doing for positional paths whether or not keying is
-   ever addressed. It also used to do the discarded read FIRST, paying for the narrow
-   read and the wide one; that half is fixed (c3e53a2).
+Ordering: only the last group has a constraint, and it is "all of it before a keyed read
+narrows" rather than a sequence.
 
-5. **RootPatchAt cannot express an element path at all.** `items("A")` carries the key
-   VALUE where building the structure needs the key FIELD, which is why RootKeyedListAt
-   exists: root at the ARRAY, carry a one-element `!key(f)` list. The write side already
-   has this workaround; the read side does not.
+**Done.** Counters that name a keyed read as keyed (c3e53a2), so the rest is measurable; a
+keyed path the narrow read cannot address declines instead of answering "narrowed, absent",
+which was a wrong answer about an element that exists. And the keyed merge carries across
+what it does not name (f5f04d4).
 
-## The work, by what it unblocks
+**Re-root through a non-field segment** (ReadSubtreeRootedAt), wrapping the answer in a
+`!key(f)` single-element list -- the RootKeyedListAt construction in reverse, key field from
+schemaForScope. Alone this finishes every POSITIONAL element read, with no keying and no
+format change, which is why it is worth doing first.
 
-Numbering these 0..5 was a mistake in the first draft: it read as a sequence, and they are
-not one. There is exactly ONE ordering constraint in the whole plan, and the rest is a
-choice about which cost to stop paying first. Grouped by what each actually finishes.
+**Project through `!key`** (projectPatchesAt): meeting `!key(f)` with a `(v)` segment next,
+select the element whose f is v. The identity the merge already implements, applied to the
+patch. Covers the delta range. No format change.
 
-### Measurement -- DONE (c3e53a2, "stage 0" in that commit message)
+**Index keyed elements in the snapshot** (snap builder; format change, compatible). The
+builder learns an array's key field from the schema at snapshot time and records
+`items("G")` where it records `items[2]`; the stream state has to carry the key for the
+array it is inside. Compatible both ways -- the index is chunk-granular and the reader falls
+back to the nearest ancestor, so an old snapshot degrades to today's behaviour. Covers the
+base.
 
-Counters that name a keyed read as keyed rather than as "operator" or "absent", so
-everything below has a number to move. A keyed path the narrow read cannot address now
-declines instead of answering "narrowed, absent", and ReadSubtreeRootedAt decides from the
-path before reading rather than discarding a read it just did.
+Then a keyed read narrows, and rkb7p8v5 can put the head at an element.
 
-### Stands entirely alone: the write path
+## Not on this path
 
-**Stop cloning the array** (mergeop/keyed_list.go). Build the document's key->position map
-once instead of rescanning, and clone only the elements the patch names, sharing the rest.
-Depends on nothing here, is depended on by nothing here, needs no format change and no
-schema. On the numbers above it takes a single-key write on 40k elements from 45ms to
-roughly the cost of one element. Best ratio in the plan and it can be done today.
-
-### Finishes positional reads by itself: the read API
-
-**Re-root through a non-field segment** (ReadSubtreeRootedAt). `items[2]` already narrows
-at the storage layer and returns the element; nothing can deliver it. Doing this alone
-makes every POSITIONAL element read narrow end to end -- no keying involved, no format
-change. For a KEYED path it also needs the two below, because the read declines earlier.
-The key field for the `!key(f)` wrapper comes from schemaForScope.
-
-### Finishes keyed reads, and only together: delta + snapshot
-
-Neither of these completes a keyed read alone -- with either missing, the read still
-declines at the other -- and both need the re-rooting above to deliver the result. This is
-the one place in the plan where order matters, and even here the order is "all three
-before any keyed read narrows", not a sequence.
-
-**Project through `!key`** (projectPatchesAt). Meeting `!key(f)` with a `(v)` segment next,
-select the element whose f is v and project to it -- the identity the merge already
-implements, applied to the patch. Covers the delta range. No format change.
-
-**Index keyed elements in the snapshot** (snap builder, format change, compatible). The
-builder learns the key field for an array from the schema at snapshot time and records
-`items("G")` where it records `items[2]`. The stream state has to carry the key for the
-array it is inside, which is where the schema-blindness ends. Compatible both ways: the
-index is chunk-granular and the reader already falls back to the nearest ancestor, so an
-old snapshot degrades to today's behaviour. Covers the base.
-
-### A different axis: residency, which we are not ready for
-
-**The live index out of memory.** `Index.Add` builds a child Index per path segment, so a
-keyed array of N elements is N resident subtrees -- addressable in O(1), resident in O(N).
-This is not the next stage of the above; it is the other half of "out of memory", and the
-work above is about ADDRESSABILITY while this is about what has to be held. Everything
-above is worth doing before it and none of it is invalidated by it: they make the delta and
-snapshot layers key-addressable, which is what an out-of-memory index would be indexing.
-
-### If you want one order
-
-The clone fix, because it is free of everyone else and buys the most. Then re-rooting,
-which finishes positional reads on its own. Then projection and the snapshot index
-together, which is when a keyed read finally narrows. Residency last, on its own terms.
-
-## Note
-
-The clone fix alone changes the shape of writes; projection, re-rooting and the snapshot
-index together change the shape of reads. Nothing here requires the vocabulary to grow: `!key` already means identity, and
-RootKeyedListAt already shows how an element is named in a patch. What is missing is that
-the read path, the projection and the snapshot index never learned it.
-
-The one thing that DOES need vocabulary is absence -- stating that an element is not in a
-keyed list. That was the third reason the scope overlay could not be derived
-(qth3kqe9h12ksxz9j9n0) and it is unresolved; it is not on this path, but a delete of a
-keyed element will meet it.
+Stating that an element is ABSENT from a keyed list has no vocabulary. That was the third
+reason the scope overlay could not be derived (qth3kqe9h12ksxz9j9n0). A delete of a keyed
+element meets it, and no amount of addressability answers it.
