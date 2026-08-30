@@ -88,7 +88,7 @@ func patch(cfg *PatchConfig, cc *cli.Context, args []string) error {
 }
 
 func getPatch(cfg *PatchConfig, cc *cli.Context, arg string) (*ir.Node, error) {
-	res, err := getish(cfg.String, cfg.File, cc, arg, cfg.parseOpts())
+	res, err := getish(cfg.File, cc, arg, cfg.parseOpts())
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", cli.ErrUsage, err)
 	}

@@ -81,22 +81,24 @@ func match(cfg *MatchConfig, cc *cli.Context, args []string) error {
 }
 
 func getMatch(cfg *MatchConfig, cc *cli.Context, arg string) (*ir.Node, error) {
-	res, err := getish(cfg.String, cfg.File, cc, arg, cfg.parseOpts())
+	res, err := getish(cfg.File, cc, arg, cfg.parseOpts())
 	if err != nil {
 		return nil, err
 	}
 	return res, nil
 }
 
-func getish(s, f bool, cc *cli.Context, arg string, opts []parse.ParseOption) (*ir.Node, error) {
-	if s == f && s {
-		return nil, fmt.Errorf("%w: only one of -s, -f may be specified", cli.ErrUsage)
-	}
-
+// getish reads the argument a command takes as a document: the argument ITSELF by
+// default, or the contents of the file it names under -f.
+//
+// There is no -s for "take it as a string", because that is what taking it means. One
+// existed, and did nothing: its branch and the default were the same statement, so it
+// only ever documented the default under a name that implied there was something else.
+// The argument is never guessed at -- a document that happens to look like a path is a
+// document -- so -f is the whole of the choice.
+func getish(f bool, cc *cli.Context, arg string, opts []parse.ParseOption) (*ir.Node, error) {
 	var matchReader io.Reader
-	if s {
-		matchReader = strings.NewReader(arg)
-	} else if f {
+	if f {
 		switch arg {
 		case "-":
 			// cc.In, not os.Stdin: what a caller redirects is the context's

@@ -76,7 +76,7 @@ func diffLoop(cfg *DiffConfig, cc *cli.Context) error {
 	var until *ir.Node
 	if cfg.LoopUntil != "" {
 		var err error
-		until, err = getish(false, false, cc, cfg.LoopUntil, cfg.parseOpts())
+		until, err = getish(false, cc, cfg.LoopUntil, cfg.parseOpts())
 		if err != nil {
 			return fmt.Errorf("%w: -loopUntil: %w", cli.ErrUsage, err)
 		}

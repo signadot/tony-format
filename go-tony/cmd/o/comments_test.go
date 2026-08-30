@@ -56,7 +56,7 @@ func TestPatchComments(t *testing.T) {
 	dir := t.TempDir()
 	doc := writeDoc(t, dir, "doc.tony", commentedDoc)
 
-	code, out := runO(t, "patch", "-s", "{other: 1}", doc)
+	code, out := runO(t, "patch", "{other: 1}", doc)
 	if code != 0 {
 		t.Fatalf("patch failed: %d %q", code, out)
 	}
@@ -64,7 +64,7 @@ func TestPatchComments(t *testing.T) {
 		t.Errorf("without -c the result carries a comment: %q", out)
 	}
 
-	code, out = runO(t, "patch", "-c", "-s", "{other: 1}", doc)
+	code, out = runO(t, "patch", "-c", "{other: 1}", doc)
 	if code != 0 {
 		t.Fatalf("patch -c failed: %d %q", code, out)
 	}

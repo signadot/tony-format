@@ -198,7 +198,6 @@ type MatchConfig struct {
 
 	Comments bool `cli:"name=c desc='include comments in the answer, and let a !comment pattern see them'"`
 	Trim     bool `cli:"name=trim desc='trim the results to the match'"`
-	String   bool `cli:"name=s desc='consider match a string argument'"`
 	File     bool `cli:"name=f desc='consider match a file path'"`
 	Tags     bool `cli:"name=tags desc='show available tags'"`
 }
@@ -261,7 +260,6 @@ type PatchConfig struct {
 	*MainConfig
 	Comments bool `cli:"name=c desc='include comments, of the document as well as the patch'"`
 	Reverse  bool `cli:"name=r desc='apply diff reversed'"`
-	String   bool `cli:"name=s desc='patch arg as string'"`
 	File     bool `cli:"name=f desc='patch arg as file'"`
 	Tags     bool `cli:"name=tags desc='show available tags'"`
 

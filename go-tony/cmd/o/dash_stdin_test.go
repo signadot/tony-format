@@ -36,9 +36,9 @@ func TestDashReadsTheContextsInput(t *testing.T) {
 		{"load", func(src string) []string { return []string{"load", src} }},
 		{"eval", func(src string) []string { return []string{"eval", src} }},
 		// match reads TWO things, and the one getish handles is the PATTERN, from
-		// -f. The document argument was never the broken reader, so `-s PAT src`
-		// exercises nothing -- as `-f src .a` did not either, where .a was read as
-		// a filename and both paths failed identically.
+		// -f. The document argument was never the broken reader, so passing the
+		// pattern plainly exercises nothing -- as `-f src .a` did not either, where
+		// .a was read as a filename and both paths failed identically.
 		{"match pattern", func(src string) []string { return []string{"match", "-f", src, docPath} }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

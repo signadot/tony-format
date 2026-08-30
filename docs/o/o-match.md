@@ -65,7 +65,6 @@ o match [opts] <matchobj> [files]
 | --- | --- | --- | --- |
 | `-c` | bool |  | include comments in the answer, and let a !comment pattern see them |
 | `-trim` | bool |  | trim the results to the match |
-| `-s` | bool |  | consider match a string argument |
 | `-f` | bool |  | consider match a file path |
 | `-tags` | bool |  | show available tags |
 

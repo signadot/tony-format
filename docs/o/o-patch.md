@@ -58,7 +58,6 @@ o patch [opts] <patchobj> [files]
 | --- | --- | --- | --- |
 | `-c` | bool |  | include comments, of the document as well as the patch |
 | `-r` | bool |  | apply diff reversed |
-| `-s` | bool |  | patch arg as string |
 | `-f` | bool |  | patch arg as file |
 | `-tags` | bool |  | show available tags |
 

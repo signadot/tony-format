@@ -31,7 +31,7 @@ func TestPatchWholeDocumentDelete(t *testing.T) {
 			outBuf, errBuf := &strings.Builder{}, &strings.Builder{}
 			cc := &cli.Context{Out: nopWC{outBuf}, Err: nopWC{errBuf}, In: io.NopCloser(strings.NewReader(""))}
 			cmd := MainCommand()
-			err := cmd.Run(cc, []string{"patch", "-s", tc.patch, doc})
+			err := cmd.Run(cc, []string{"patch", tc.patch, doc})
 			if code := cmd.Exit(cc, err); code != 0 {
 				t.Fatalf("exit %d, want 0 (stderr: %s)", code, errBuf.String())
 			}
