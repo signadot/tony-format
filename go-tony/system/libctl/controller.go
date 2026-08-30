@@ -93,6 +93,12 @@ type WatchParams struct {
 	FromCommit *int64
 	NoInit     bool
 	Scope      *string
+
+	// WaitIfAbsent is the client's answer to what a watch on a path holding nothing
+	// should do, and it has to reach the handler because the handler is what watches:
+	// a controller serving from its own logd session passes this to that session, or
+	// the client's request is refused at a hop it never asked about.
+	WaitIfAbsent bool
 }
 
 // PatchParams carries a patch's options through to the Handler. TxID, when set,
@@ -325,9 +331,10 @@ func (rt *controllerRuntime) handleWatch(req *api.SessionRequest) {
 	}
 
 	err := rt.handler.Watch(ctx, path, WatchParams{
-		FromCommit: req.Watch.FromCommit,
-		NoInit:     req.Watch.NoInit,
-		Scope:      req.Scope,
+		FromCommit:   req.Watch.FromCommit,
+		NoInit:       req.Watch.NoInit,
+		Scope:        req.Scope,
+		WaitIfAbsent: req.Watch.WaitIfAbsent,
 	}, emit)
 
 	switch {

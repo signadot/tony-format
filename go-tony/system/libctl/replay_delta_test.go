@@ -46,7 +46,7 @@ func TestLiveAndReplayDeliverTheSameDeltas(t *testing.T) {
 	}
 	base := s.KnownCommit()
 
-	live, err := s.Watch(ctx, "verse", nil)
+	live, err := s.Watch(ctx, "verse", waitAbsent)
 	if err != nil {
 		t.Fatalf("live watch: %s", err)
 	}

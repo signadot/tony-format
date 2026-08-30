@@ -134,7 +134,7 @@ func TestWatchEnded_ClientCanReEstablish(t *testing.T) {
 	doomed.Close()
 
 	// Re-watch without a cursor, as the terminal event's reason instructs.
-	w, err := session.Watch(ctx, "users/1", nil)
+	w, err := session.Watch(ctx, "users/1", waitAbsent)
 	if err != nil {
 		t.Fatalf("re-Watch failed: %v", err)
 	}

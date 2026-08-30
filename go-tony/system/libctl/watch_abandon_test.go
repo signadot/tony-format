@@ -105,7 +105,7 @@ func TestWatch_AbandonedInFlightIsUnwatched(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	if _, err := s.Watch(ctx, "users/1", nil); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err := s.Watch(ctx, "users/1", waitAbsent); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected the watch to be abandoned on its deadline, got %v", err)
 	}
 

@@ -30,7 +30,7 @@ func TestDocd_WatchEndReasonNamesMountVsUnmount(t *testing.T) {
 	// A watch on the base path "a", overlapping the mount about to arrive at "a.b".
 	// A bare MountClient (no runtime) is enough: the watch is on the base path, so
 	// the controller is never asked to serve it.
-	w1, err := client.Watch(ctx, "a", nil)
+	w1, err := client.Watch(ctx, "a", waitAbsent)
 	if err != nil {
 		t.Fatalf("watch before mount: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestDocd_WatchEndReasonNamesMountVsUnmount(t *testing.T) {
 	}
 
 	// Re-watch the same path, now composed over the mount, and take the mount away.
-	w2, err := client.Watch(ctx, "a", nil)
+	w2, err := client.Watch(ctx, "a", waitAbsent)
 	if err != nil {
 		t.Fatalf("re-watch after mount: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestDocd_WatchUnderMountPathSeesMount(t *testing.T) {
 	client := docdClient(t, docd, "client")
 
 	// "a.b.c" is nested under the mount that is about to register at "a.b".
-	w, err := client.Watch(context.Background(), "a.b.c", nil)
+	w, err := client.Watch(context.Background(), "a.b.c", waitAbsent)
 	if err != nil {
 		t.Fatalf("watch: %v", err)
 	}

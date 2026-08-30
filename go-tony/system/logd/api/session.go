@@ -128,6 +128,19 @@ type WatchRequest struct {
 	Path       string `tony:"field=path"`
 	FromCommit *int64 `tony:"field=fromCommit"` // nil = current; >= 0 absolute; < 0 relative to the watermark
 	NoInit     bool   `tony:"field=noInit"`     // If true, skip initial state (default: send initial state)
+
+	// WaitIfAbsent asks for a watch on a path that holds nothing YET.
+	//
+	// By default a watch on such a path is refused with not_found, for the same reason a
+	// read of it is: a read answers null where a null was written, and a watch that
+	// delivers null for a path nobody has written to says the same thing twice
+	// (bymhrqz7h12ksas3jhn0). A client that meant to wait could not be told apart from
+	// one that meant to read something and got the path wrong.
+	//
+	// Waiting is a real thing to want -- a controller watching for a subtree its peer has
+	// not created yet -- so it is asked for rather than assumed. With it set, the watch
+	// is established, delivers null, and reports the value when it arrives.
+	WaitIfAbsent bool `tony:"field=waitIfAbsent"`
 }
 
 // UnwatchRequest is a request to stop watching a path.

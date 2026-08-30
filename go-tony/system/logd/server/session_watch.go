@@ -119,7 +119,7 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 	s.send(api.NewWatchResponseFrom(id, path, replayingFrom, replayingTo))
 
 	// Start event forwarder goroutine
-	go s.forwardEvents(watcher, fromCommit, req.NoInit, currentCommit)
+	go s.forwardEvents(watcher, fromCommit, req.NoInit, req.WaitIfAbsent, currentCommit)
 }
 
 // forwardEvents forwards events from a watcher to the session's outgoing channel.
@@ -147,6 +147,11 @@ type watchStream struct {
 	watcher *Watcher
 	path    string
 	scoped  bool
+
+	// waitIfAbsent: the client asked to watch a path that holds nothing yet, and to be
+	// told when it arrives. Without it a watch on such a path is refused with not_found,
+	// the same answer a read of it gives. See api.WatchRequest.
+	waitIfAbsent bool
 
 	// A watch whose path has no value yet is the ordinary way to start watching
 	// something that does not exist. Say it once, quietly, and say so again when it
@@ -200,13 +205,14 @@ type watchStream struct {
 
 // forwardEvents serves one watch until the session ends, the client falls behind, or the
 // watch is failed. Three jobs, in order, and the state between them is the stream's.
-func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool, currentCommit int64) {
+func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool, waitIfAbsent bool, currentCommit int64) {
 	w := &watchStream{
-		s:       s,
-		watcher: watcher,
-		path:    watcher.Path,
-		scoped:  s.scopeID() != nil,
-		absent:  &watchAbsence{log: s.log, path: watcher.Path},
+		s:            s,
+		watcher:      watcher,
+		path:         watcher.Path,
+		scoped:       s.scopeID() != nil,
+		waitIfAbsent: waitIfAbsent,
+		absent:       &watchAbsence{log: s.log, path: watcher.Path},
 	}
 
 	// Where the initial picture is taken, and what the replay covers.
@@ -260,10 +266,34 @@ func (w *watchStream) fail(code, format string, args ...any) {
 	w.s.failWatch(w.watcher, code, fmt.Sprintf(format, args...), w.delivered)
 }
 
+// refuseAbsent ends the watch when its path holds nothing and the client did not say it
+// meant to wait.
+//
+// Delivering null instead says what a read of the path says, and a read says not_found --
+// so a client that meant to wait and one that got the path wrong received the same answer
+// (bymhrqz7h12ksas3jhn0). It is one function because the emptiness arrives two ways, from
+// a store with no commits and from a path missing in a document that has them, and two
+// places deciding one thing is how they come to disagree.
+func (w *watchStream) refuseAbsent(detail string) bool {
+	if w.waitIfAbsent {
+		return false
+	}
+	w.s.log.Debug("watched path has no value", "path", w.path, "detail", detail)
+	w.fail(api.ErrCodeNotFound, "%s", detail)
+	return true
+}
+
 // sendInitialState sends the state at the path as of commit, which is what every delta
 // after it applies to. It answers false when the watch has been failed.
 func (w *watchStream) sendInitialState(commit int64) bool {
 	state := ir.Null() // an empty store has no state to read
+	if commit == 0 {
+		// Nothing has ever been written, so nothing is at the path -- any path, the
+		// empty one included. This used to be answered without asking the path at all.
+		if w.refuseAbsent(fmt.Sprintf("no value at %q: the store is empty", w.path)) {
+			return false
+		}
+	}
 	if commit != 0 {
 		var err error
 		state, err = w.s.readDocAt(w.path, commit)
@@ -291,6 +321,10 @@ func (w *watchStream) sendInitialState(commit int64) bool {
 					return false
 				case errors.As(err, &pe) && pe.Kind == PathTypeConflict:
 					w.s.log.Warn("watched path is shadowed by a non-object", "path", w.path, "error", err)
+				case errors.As(err, &pe) && pe.Kind == PathAbsent:
+					if w.refuseAbsent(err.Error()) {
+						return false
+					}
 				default:
 					w.s.log.Debug("watched path has no value yet", "path", w.path, "detail", err.Error())
 				}

@@ -508,7 +508,7 @@ func TestSession_SubscribeUnsubscribe(t *testing.T) {
 	conn := newMockConn()
 
 	// Write subscribe request (bracketed format for wire protocol)
-	conn.WriteRequest(`{id: "sub-1", watch: {path: users}}`)
+	conn.WriteRequest(`{id: "sub-1", watch: {path: users, waitIfAbsent: true}}`)
 
 	session := NewSession("test-server", conn, &SessionConfig{
 		Storage: store,
@@ -612,7 +612,7 @@ func TestSession_SubscribeReceivesEvents(t *testing.T) {
 	conn := newMockConn()
 
 	// Write subscribe request (bracketed format for wire protocol)
-	conn.WriteRequest(`{watch: {path: users}}`)
+	conn.WriteRequest(`{watch: {path: users, waitIfAbsent: true}}`)
 
 	session := NewSession("test-server", conn, &SessionConfig{
 		Storage: store,
@@ -1200,7 +1200,7 @@ func TestSession_ScopedWatch_QueuedRaceEventNotDropped(t *testing.T) {
 	c2 := commit(`{a: {f2: 2}}`)
 
 	// ...and forwardEvents captures currentCommit = c2. NoInit, like a composed sub-watch.
-	go session.forwardEvents(watcher, nil, true, c2)
+	go session.forwardEvents(watcher, nil, true, false /*waitIfAbsent*/, c2)
 
 	var gotC2 bool
 	deadline := time.After(500 * time.Millisecond)

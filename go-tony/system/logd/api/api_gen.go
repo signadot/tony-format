@@ -891,6 +891,9 @@ func (s *WatchRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Field: NoInit
 	irMap["noInit"] = ir.FromBool(bool(s.NoInit))
 
+	// Field: WaitIfAbsent
+	irMap["waitIfAbsent"] = ir.FromBool(bool(s.WaitIfAbsent))
+
 	return ir.FromMap(irMap), nil
 }
 
@@ -948,6 +951,12 @@ func (s *WatchRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 				return fmt.Errorf("field %q: expected bool, got %v", "noInit", fieldNodeUnwrapped.Type)
 			}
 			s.NoInit = bool(fieldNodeUnwrapped.Bool)
+		case "waitIfAbsent":
+			// Field: WaitIfAbsent
+			if fieldNodeUnwrapped.Type != ir.BoolType {
+				return fmt.Errorf("field %q: expected bool, got %v", "waitIfAbsent", fieldNodeUnwrapped.Type)
+			}
+			s.WaitIfAbsent = bool(fieldNodeUnwrapped.Bool)
 		default:
 			if gomap.IsStrict(opts...) {
 				return fmt.Errorf("unknown field %q for WatchRequest", fieldName.String)

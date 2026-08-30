@@ -93,7 +93,7 @@ func TestLogdSession_WatchThroughDocd(t *testing.T) {
 	}
 
 	// Watch through docd; the first event carries the full state.
-	w, err := session.Watch(ctx, "users/1", nil)
+	w, err := session.Watch(ctx, "users/1", waitAbsent)
 	if err != nil {
 		t.Fatalf("Watch through docd failed: %v", err)
 	}

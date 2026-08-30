@@ -37,7 +37,7 @@ func TestWatchStepping_DeltasReproduceServerState(t *testing.T) {
 	// Watched at the root, because a watch's state event is rooted at the WATCHED PATH
 	// while its patch events are rooted at the DOCUMENT. At the root the two agree, so
 	// the deltas can be applied to the state directly, which is the property under test.
-	w, err := session.Watch(ctx, "", nil)
+	w, err := session.Watch(ctx, "", waitAbsent)
 	if err != nil {
 		t.Fatalf("Watch: %v", err)
 	}

@@ -844,7 +844,7 @@ func TestDocd_ComposeAncestorWatch(t *testing.T) {
 	}
 
 	// Composed watch on the ancestor "a" (strict ancestor of mount a.b).
-	w, err := client.Watch(ctx, "a", nil)
+	w, err := client.Watch(ctx, "a", waitAbsent)
 	if err != nil {
 		t.Fatalf("watch a: %v", err)
 	}
@@ -899,7 +899,7 @@ func TestDocd_MountBlocksOnOverlappingWatch(t *testing.T) {
 
 	client := docdClient(t, docd, "client")
 	// A base watch on "a" (routed to logd) registers a reader overlapping a.b.
-	w, err := client.Watch(context.Background(), "a", nil)
+	w, err := client.Watch(context.Background(), "a", waitAbsent)
 	if err != nil {
 		t.Fatalf("watch a: %v", err)
 	}
@@ -937,7 +937,7 @@ func TestDocd_MountForcesOverlappingWatch(t *testing.T) {
 	docd := startDocdForce(t, logd.TCPAddr(), 50*time.Millisecond)
 
 	client := docdClient(t, docd, "client")
-	w, err := client.Watch(context.Background(), "a", nil)
+	w, err := client.Watch(context.Background(), "a", waitAbsent)
 	if err != nil {
 		t.Fatalf("watch a: %v", err)
 	}
@@ -959,7 +959,7 @@ func TestDocd_WatchForcedByMount(t *testing.T) {
 	client := docdClient(t, docd, "client")
 	ctx := context.Background()
 
-	w, err := client.Watch(ctx, "a", nil) // base watch, overlapping the coming mount a.b
+	w, err := client.Watch(ctx, "a", waitAbsent) // base watch, overlapping the coming mount a.b
 	if err != nil {
 		t.Fatalf("watch: %v", err)
 	}
@@ -973,7 +973,7 @@ func TestDocd_WatchForcedByMount(t *testing.T) {
 	}
 
 	// Re-watch succeeds (the path is now a composed ancestor of the mount).
-	w2, err := client.Watch(ctx, "a", nil)
+	w2, err := client.Watch(ctx, "a", waitAbsent)
 	if err != nil {
 		t.Fatalf("re-watch after membership change: %v", err)
 	}
@@ -999,7 +999,7 @@ func TestDocd_WatchEndsOnControllerCrash(t *testing.T) {
 	waitMount(t, docd, "rooms")
 
 	client := docdClient(t, docd, "client")
-	w, err := client.Watch(context.Background(), "rooms.1", nil) // single-route to the controller
+	w, err := client.Watch(context.Background(), "rooms.1", waitAbsent) // single-route to the controller
 	if err != nil {
 		t.Fatalf("watch: %v", err)
 	}
@@ -1047,7 +1047,7 @@ func TestDocd_GracefulUnmount(t *testing.T) {
 	waitMount(t, docd, "a.b")
 
 	client := docdClient(t, docd, "client")
-	w, err := client.Watch(context.Background(), "a", nil) // base watch overlapping a.b
+	w, err := client.Watch(context.Background(), "a", waitAbsent) // base watch overlapping a.b
 	if err != nil {
 		t.Fatalf("watch: %v", err)
 	}
@@ -1081,7 +1081,7 @@ func TestDocd_PerMountForceAfterOverride(t *testing.T) {
 	docd := startDocdForce(t, logd.TCPAddr(), 10*time.Second) // large server default
 
 	client := docdClient(t, docd, "client")
-	w, err := client.Watch(context.Background(), "a", nil)
+	w, err := client.Watch(context.Background(), "a", waitAbsent)
 	if err != nil {
 		t.Fatalf("watch: %v", err)
 	}
@@ -1470,7 +1470,7 @@ func TestDocd_WatchUnsupported(t *testing.T) {
 	client := docdClient(t, docd, "client")
 	ctx := context.Background()
 
-	_, err := client.Watch(ctx, "users.1", nil)
+	_, err := client.Watch(ctx, "users.1", waitAbsent)
 	if err == nil {
 		t.Fatal("expected watch to be declined")
 	}
@@ -1491,7 +1491,7 @@ func TestDocd_WatchStreaming(t *testing.T) {
 	client := docdClient(t, docd, "client")
 	ctx := context.Background()
 
-	w, err := client.Watch(ctx, "rooms.1", nil)
+	w, err := client.Watch(ctx, "rooms.1", waitAbsent)
 	if err != nil {
 		t.Fatalf("Watch failed: %v", err)
 	}
@@ -1534,14 +1534,14 @@ func TestDocd_WatchMultiClientSamePath(t *testing.T) {
 	clientA := docdClient(t, docd, "A")
 	clientB := docdClient(t, docd, "B")
 
-	wA, err := clientA.Watch(ctx, "rooms.9", nil)
+	wA, err := clientA.Watch(ctx, "rooms.9", waitAbsent)
 	if err != nil {
 		t.Fatalf("A watch: %v", err)
 	}
 	defer wA.Close()
 	expectEvent(t, wA) // initial state
 
-	wB, err := clientB.Watch(ctx, "rooms.9", nil)
+	wB, err := clientB.Watch(ctx, "rooms.9", waitAbsent)
 	if err != nil {
 		t.Fatalf("B watch: %v", err)
 	}
@@ -1719,7 +1719,7 @@ func TestDocd_WatchEndedCarriesResumeCommit(t *testing.T) {
 	waitMount(t, docd, "rooms")
 
 	client := docdClient(t, docd, "client")
-	w, err := client.Watch(context.Background(), "rooms.1", nil) // single-route to the controller
+	w, err := client.Watch(context.Background(), "rooms.1", waitAbsent) // single-route to the controller
 	if err != nil {
 		t.Fatalf("watch: %v", err)
 	}
@@ -1769,7 +1769,7 @@ func TestDocd_RewatchAfterMembershipChangeReInits(t *testing.T) {
 	}
 
 	client := docdClient(t, docd, "watcher")
-	w, err := client.Watch(ctx, "a", nil)
+	w, err := client.Watch(ctx, "a", waitAbsent)
 	if err != nil {
 		t.Fatalf("watch: %v", err)
 	}
@@ -1787,7 +1787,7 @@ func TestDocd_RewatchAfterMembershipChangeReInits(t *testing.T) {
 
 	// Plain re-watch (now composed over base + a.b): the reconnect is a fresh init
 	// State snapshot, not a replay.
-	w2, err := client.Watch(ctx, "a", nil)
+	w2, err := client.Watch(ctx, "a", waitAbsent)
 	if err != nil {
 		t.Fatalf("re-watch: %v", err)
 	}

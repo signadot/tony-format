@@ -158,7 +158,7 @@ func TestComposedWatchDeliversEachCommitOnce(t *testing.T) {
 		t.Fatalf("seed: %s", err)
 	}
 
-	w, err := client.Watch(ctx, "verse", nil)
+	w, err := client.Watch(ctx, "verse", waitAbsent)
 	if err != nil {
 		t.Fatalf("watch: %s", err)
 	}

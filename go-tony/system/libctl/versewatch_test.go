@@ -24,7 +24,7 @@ func newWatchableLogdController(t *testing.T, logdAddr, id string) *watchableLog
 }
 
 func (c *watchableLogdController) Watch(ctx context.Context, path string, opts WatchParams, emit func(*api.WatchEvent) error) error {
-	w, err := c.session(opts.Scope).Watch(ctx, path, &WatchOptions{NoInit: opts.NoInit, FromCommit: opts.FromCommit})
+	w, err := c.session(opts.Scope).Watch(ctx, path, &WatchOptions{NoInit: opts.NoInit, FromCommit: opts.FromCommit, WaitIfAbsent: opts.WaitIfAbsent})
 	if err != nil {
 		return err
 	}
@@ -58,7 +58,7 @@ func TestVerse_ScopedSiblingWatchesUnderMount(t *testing.T) {
 	paths := []string{"m.a", "m.b", "m.c", "m.d"}
 	watches := map[string]*Watch{}
 	for _, p := range paths {
-		w, err := scoped.Watch(ctx, p, nil)
+		w, err := scoped.Watch(ctx, p, waitAbsent)
 		if err != nil {
 			t.Fatalf("watch %s: %v", p, err)
 		}
@@ -95,7 +95,7 @@ func TestVerse_ScopedOverlappingWatchesUnderMount(t *testing.T) {
 	ctx := context.Background()
 
 	open := func(p string) *Watch {
-		w, err := scoped.Watch(ctx, p, nil)
+		w, err := scoped.Watch(ctx, p, waitAbsent)
 		if err != nil {
 			t.Fatalf("watch %s: %v", p, err)
 		}
@@ -161,7 +161,7 @@ func TestVerse_ScopedIncrementalDeltaPreservesSiblings(t *testing.T) {
 
 	w := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "w", Scope: "s1"})
 	t.Cleanup(func() { w.Close() })
-	watch, err := w.Watch(ctx, "m", nil)
+	watch, err := w.Watch(ctx, "m", waitAbsent)
 	if err != nil {
 		t.Fatalf("watch m: %v", err)
 	}
@@ -203,11 +203,11 @@ func TestVerse_ScopedWatchCrosstalk_DirectLogd(t *testing.T) {
 
 	watcher := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "w", Scope: "s1"})
 	t.Cleanup(func() { watcher.Close() })
-	wa, err := watcher.Watch(ctx, "a", nil)
+	wa, err := watcher.Watch(ctx, "a", waitAbsent)
 	if err != nil {
 		t.Fatalf("watch a: %v", err)
 	}
-	wb, err := watcher.Watch(ctx, "b", nil)
+	wb, err := watcher.Watch(ctx, "b", waitAbsent)
 	if err != nil {
 		t.Fatalf("watch b: %v", err)
 	}
@@ -255,11 +255,11 @@ func TestVerse_WatchCrosstalk_DirectLogd_CommonParent(t *testing.T) {
 
 			watcher := NewLogdSession(cfg("w"))
 			t.Cleanup(func() { watcher.Close() })
-			wa, err := watcher.Watch(ctx, "p.a", nil)
+			wa, err := watcher.Watch(ctx, "p.a", waitAbsent)
 			if err != nil {
 				t.Fatalf("watch p.a: %v", err)
 			}
-			wb, err := watcher.Watch(ctx, "p.b", nil)
+			wb, err := watcher.Watch(ctx, "p.b", waitAbsent)
 			if err != nil {
 				t.Fatalf("watch p.b: %v", err)
 			}
@@ -288,11 +288,11 @@ func TestVerse_BaselineWatchCrosstalk_DirectLogd(t *testing.T) {
 
 	watcher := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "w"})
 	t.Cleanup(func() { watcher.Close() })
-	wa, err := watcher.Watch(ctx, "a", nil)
+	wa, err := watcher.Watch(ctx, "a", waitAbsent)
 	if err != nil {
 		t.Fatalf("watch a: %v", err)
 	}
-	wb, err := watcher.Watch(ctx, "b", nil)
+	wb, err := watcher.Watch(ctx, "b", waitAbsent)
 	if err != nil {
 		t.Fatalf("watch b: %v", err)
 	}
@@ -320,11 +320,11 @@ func TestMultiWatch_SamePathDirectLogd(t *testing.T) {
 
 	sess := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "w"})
 	t.Cleanup(func() { sess.Close() })
-	w1, err := sess.Watch(ctx, "a", nil)
+	w1, err := sess.Watch(ctx, "a", waitAbsent)
 	if err != nil {
 		t.Fatalf("watch 1: %v", err)
 	}
-	w2, err := sess.Watch(ctx, "a", nil) // same path — previously rejected, now allowed
+	w2, err := sess.Watch(ctx, "a", waitAbsent) // same path — previously rejected, now allowed
 	if err != nil {
 		t.Fatalf("watch 2 on same path: %v", err)
 	}
@@ -358,11 +358,11 @@ func TestMultiWatch_SamePathViaDocd(t *testing.T) {
 	client := docdClient(t, docd, "client")
 	ctx := context.Background()
 
-	w1, err := client.Watch(ctx, "m.a", nil)
+	w1, err := client.Watch(ctx, "m.a", waitAbsent)
 	if err != nil {
 		t.Fatalf("watch 1: %v", err)
 	}
-	w2, err := client.Watch(ctx, "m.a", nil)
+	w2, err := client.Watch(ctx, "m.a", waitAbsent)
 	if err != nil {
 		t.Fatalf("watch 2 on same path: %v", err)
 	}
@@ -393,11 +393,11 @@ func TestWatch_TwoSessionsSamePathNoRace(t *testing.T) {
 	t.Cleanup(func() { s1.Close() })
 	s2 := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "s2"})
 	t.Cleanup(func() { s2.Close() })
-	w1, err := s1.Watch(ctx, "a", nil)
+	w1, err := s1.Watch(ctx, "a", waitAbsent)
 	if err != nil {
 		t.Fatalf("watch s1: %v", err)
 	}
-	w2, err := s2.Watch(ctx, "a", nil)
+	w2, err := s2.Watch(ctx, "a", waitAbsent)
 	if err != nil {
 		t.Fatalf("watch s2: %v", err)
 	}

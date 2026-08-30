@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -239,7 +240,24 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 		// current otherwise. A membership change still re-inits at current, because the
 		// composition changed and deltas from before it describe a different document.
 		root, commit, err := s.composeReadTree(path, owner, below, pFields, from)
-		if err != nil {
+		switch {
+		case err == nil:
+		case errors.Is(err, errSourceAbsent):
+			// No source has anything at the path. That is the same answer a read
+			// gives, and a watch answers it the same way unless the client said it
+			// meant to wait -- in which case the watch is established on a null and
+			// reports the value when it arrives (see api.WatchRequest.WaitIfAbsent).
+			if !req.Watch.WaitIfAbsent {
+				s.terminateWatch(key, logdapi.ErrCodeNotFound)
+				return
+			}
+			// A null state at the commit the watch starts from: the client has a
+			// baseline to apply deltas to, and it says there is nothing there.
+			root = nil
+			if from != nil {
+				commit = *from
+			}
+		default:
 			// The initial snapshot IS a match, and a watch whose match failed has no
 			// baseline. Deltas against a baseline the client never received would be
 			// applied to whatever it already held, so it is better to end the watch

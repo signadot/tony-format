@@ -39,7 +39,7 @@ func TestLogdSession_WatchInitialState(t *testing.T) {
 	}
 
 	// Watch should deliver the current state as the first event.
-	w, err := session.Watch(ctx, "users/1", nil)
+	w, err := session.Watch(ctx, "users/1", waitAbsent)
 	if err != nil {
 		t.Fatalf("Watch failed: %v", err)
 	}

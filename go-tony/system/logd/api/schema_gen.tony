@@ -193,6 +193,7 @@ define:
   fromCommit: .[nullable(int)]
   noInit: .[bool]
   path: .[string]
+  waitIfAbsent: .[bool]
 signature:
   name: session-watch-request
 ---

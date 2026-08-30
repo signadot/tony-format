@@ -63,7 +63,7 @@ func TestDocd_ComposedWatchInitFailureEndsWatch(t *testing.T) {
 	runController(t, docd, "a.b", newMatchFailingController())
 
 	client := docdClient(t, docd, "client")
-	w, err := client.Watch(context.Background(), "a", nil)
+	w, err := client.Watch(context.Background(), "a", waitAbsent)
 	if err != nil {
 		t.Fatalf("watch: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestDocd_ComposedWatchInitSucceedsStillStreams(t *testing.T) {
 	runController(t, docd, "a.b", mc)
 
 	client := docdClient(t, docd, "client")
-	w, err := client.Watch(context.Background(), "a", nil)
+	w, err := client.Watch(context.Background(), "a", waitAbsent)
 	if err != nil {
 		t.Fatalf("watch: %v", err)
 	}

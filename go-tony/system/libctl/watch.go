@@ -71,6 +71,11 @@ type WatchOptions struct {
 	// carries the full state at the starting commit.
 	NoInit bool
 
+	// WaitIfAbsent asks to watch a path that holds nothing yet, and to be told when a
+	// value arrives. Without it such a watch is refused with not_found, which is what a
+	// read of the same path answers.
+	WaitIfAbsent bool
+
 	// BufferSize sets the capacity of the event channel. Defaults to 128. If a
 	// consumer falls far enough behind to fill the buffer, the watch is failed
 	// as a slow consumer (mirroring logd's own server-side behavior) rather
@@ -163,9 +168,10 @@ func (s *LogdSession) Watch(ctx context.Context, path string, opts *WatchOptions
 	req := &api.SessionRequest{
 		ID: &id,
 		Watch: &api.WatchRequest{
-			Path:       path,
-			FromCommit: opts.FromCommit,
-			NoInit:     opts.NoInit,
+			Path:         path,
+			FromCommit:   opts.FromCommit,
+			NoInit:       opts.NoInit,
+			WaitIfAbsent: opts.WaitIfAbsent,
 		},
 	}
 	err := s.sendRequestTo(conn, req)
