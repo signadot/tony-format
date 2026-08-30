@@ -757,8 +757,8 @@ func parseObj(toks []token.Token, p *ir.Node, tag string, pi *int, opts *parseOp
 // floor — objFromKVs took ycMap as a parameter and never read it — so every comment between
 // object keys was silently lost on a round trip, in brace and indented objects alike.
 //
-// ycMap[len(kvs)] — comments after the last pair, with no pair to head — is not attached
-// here; an object has no place to hang a value with no key. Those are still dropped.
+// ycMap[len(kvs)] — comments after the last pair, with no pair to head — is applied by
+// applyTrailingComments instead: an object has no place to hang a value with no key.
 func applyHeadComments(kvs []ir.KeyVal, ycMap map[int]*ir.Node) {
 	if len(ycMap) == 0 {
 		return
@@ -770,6 +770,54 @@ func applyHeadComments(kvs []ir.KeyVal, ycMap map[int]*ir.Node) {
 		}
 		kvs[i].Val = headWrap(yc, kvs[i].Val)
 	}
+}
+
+// applyTrailingComments gives the container's leftover comments -- the ones after the last
+// pair, which head no pair -- somewhere to live, so they cascade instead of vanishing.
+//
+// The spec attributes a comment to the next value to begin, "which may be dedented or higher
+// in the object notation", so a comment at the end of a container belongs to whatever follows
+// the container. A brace object had nowhere to put one: parseObj buckets head comments by the
+// index of the pair they precede, and the last bucket has no pair, so the comments were
+// collected and then dropped -- every `{ a: 1 <newline> # c }` lost its `# c`. Indented
+// objects and both array forms never had the problem: the tokenizer closes an indented
+// container before the dedented comment, and parseArr's default arm appends the childless
+// CommentType parseBalanced returns at `]` as an element.
+//
+// The representation is the one parseBalanced already uses for a comment on the line AFTER a
+// value: extra lines on the value's line comment, behind a "" placeholder that says the first
+// line is not one. associateComments carries those extra lines to the next sibling, and from
+// the last sibling to the container itself -- which is how they reach the enclosing level and
+// then the value that follows it (23b00eyvh12ksgebcxn0).
+func applyTrailingComments(at *ir.Node, kvs []ir.KeyVal, ycMap map[int]*ir.Node) {
+	yc := ycMap[len(kvs)]
+	if yc == nil || len(yc.Lines) == 0 {
+		return
+	}
+	// An empty object has no last value, so the comments start on the object itself;
+	// associateComments carries them off it just the same.
+	target := at
+	if len(kvs) > 0 {
+		target = commentTarget(kvs[len(kvs)-1].Val)
+	}
+	if target.Comment == nil {
+		target.Comment = &ir.Node{Parent: target, Type: ir.CommentType}
+	}
+	if len(target.Comment.Lines) == 0 {
+		target.Comment.Lines = []string{""}
+	}
+	target.Comment.Lines = append(target.Comment.Lines, yc.Lines...)
+}
+
+// commentTarget is the node whose line comment stands for a value's, looking through the
+// CommentType that stands in a value's place to carry its preceding comments. associateComments
+// reads the wrapped value's comment, not the wrapper's, so lines left on the wrapper are lines
+// nobody reads.
+func commentTarget(n *ir.Node) *ir.Node {
+	for n.Type == ir.CommentType && len(n.Values) == 1 {
+		n = n.Values[0]
+	}
+	return n
 }
 
 // headWrap gives node the preceding comments yc holds.
@@ -793,6 +841,7 @@ func headWrap(yc, node *ir.Node) *ir.Node {
 }
 
 func objFromKVs(at *ir.Node, kvs []ir.KeyVal, tag string, keyToks []token.Token, ycMap map[int]*ir.Node) (*ir.Node, error) {
+	applyTrailingComments(at, kvs, ycMap)
 	applyHeadComments(kvs, ycMap)
 	var keyType *ir.Type
 	for i := range kvs {

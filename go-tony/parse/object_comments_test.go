@@ -96,19 +96,41 @@ func TestCommentRoundTripIsStable(t *testing.T) {
 	}
 }
 
-// A comment at the end of a container, with a value following outside it, is still
-// dropped. The spec says it should cascade — "attributed to the preceding comments of the
-// next value, which may be dedented or higher in the object notation" — but parseObj has
-// no way to hand its trailing comments back to its caller. Pinned here so the day it
-// starts working is a deliberate change and not a surprise.
-func TestTrailingContainerCommentIsDroppedForNow(t *testing.T) {
-	got, err := roundTripComments(t, "g: {\n  a: 1\n  # c\n}\nh: 3\n")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+// A comment at the end of a container cascades to the next value, which the spec puts as
+// "attributed to the preceding comments of the next value, which may be dedented or higher
+// in the object notation". Indented objects and both array forms always did; a brace object
+// dropped its last comment, because parseObj buckets head comments by the pair they precede
+// and the last bucket heads no pair (23b00eyvh12ksgebcxn0).
+func TestTrailingContainerCommentCascades(t *testing.T) {
+	cases := map[string]struct{ src, want string }{
+		"brace, value follows":   {"g: {\n  a: 1\n  # c\n}\nh: 3\n", "g: {\n  a: 1\n}\n# c\nh: 3\n"},
+		"brace, end of document": {"g: {\n  a: 1\n  # c\n}\n", "g: {\n  a: 1\n}\n# c\n"},
+		"brace, empty object":    {"g: {\n  # c\n}\nh: 3\n", "g: {}\n# c\nh: 3\n"},
+		"brace, two lines":       {"g: {\n  a: 1\n  # c\n  # d\n}\nh: 3\n", "g: {\n  a: 1\n}\n# c\n# d\nh: 3\n"},
+		"indented object":        {"g:\n  a: 1\n  # c\nh: 3\n", "g:\n  a: 1\n# c\nh: 3\n"},
+		"bracket array":          {"g: [\n  1\n  # c\n]\nh: 3\n", "g: [\n  1\n]\n# c\nh: 3\n"},
+		"block array":            {"g:\n- 1\n# c\nh: 3\n", "g:\n- 1\n# c\nh: 3\n"},
 	}
-	if strings.Contains(got, "# c") {
-		t.Fatalf("trailing container comment is now preserved (%q) — the cascade rule may be "+
-			"implemented; update this test and close the tracking issue", got)
+	for name, c := range cases {
+		got, err := roundTripComments(t, c.src)
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("%s: round trip of %q\n  got  %q\n  want %q", name, c.src, got, c.want)
+			continue
+		}
+		// Where the comment lands has to be a fixed point, or every read-write pass
+		// walks it one value further along.
+		again, err := roundTripComments(t, got)
+		if err != nil {
+			t.Errorf("%s (second pass): %v", name, err)
+			continue
+		}
+		if again != got {
+			t.Errorf("%s: not stable\n  first  %q\n  second %q", name, got, again)
+		}
 	}
 }
 
