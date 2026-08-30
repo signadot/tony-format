@@ -238,9 +238,9 @@ func (s *Storage) lowerWrite(base, next, merged *ir.Node, scoped bool, paths []s
 	// diff would then come out positional and the write would take ownership of the
 	// whole array, shutting baseline out of it.
 	//
-	// So it is not lowered. Keeping the client's patch is what happens today and is
-	// correct -- the same conservative answer scopeHasKeyedPaths gives the overlay,
-	// for the same missing fact.
+	// So it is not lowered. Keeping the client's patch is correct, and it is now the
+	// only place that asks: the scope overlay asked the same question per READ, of the
+	// whole index, and went with the overlay.
 	keys := s.keyedArrayPaths()
 	if patchHasUndeclaredKey(DeliverablePatch(merged), "", keys) {
 		atomic.AddInt64(&loweringUndeclaredKey, 1)

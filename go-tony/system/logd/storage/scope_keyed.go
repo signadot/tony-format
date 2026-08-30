@@ -1,8 +1,6 @@
 package storage
 
 import (
-	"strings"
-
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
 )
@@ -18,87 +16,12 @@ import (
 // over op-free state comes out POSITIONAL, and a positional delta takes ownership of the
 // whole array, so baseline adds an element and the scope never sees it.
 //
-// This was the scope overlay's file, and these are what outlived it. The overlay derived
-// a scope layer from two documents and could not survive keyed arrays for the same
-// reason, among others; it is gone, and a scoped read replays the scope's own patches,
-// where !key means what it always meant.
-
-// scopeHasKeyedPaths reports whether any path the scope has written contains a kinded KEY
-// segment -- items("G") rather than items[0] or items.field.
-//
-// Nothing that has to DIFF a scope's state can serve those correctly, and it must not
-// pretend to. Two independent reasons, both tracing to the same missing fact -- nothing
-// tells the differ what keys an array:
-//
-//  1. Granularity. A key segment is not a DOTTED descendant, so items("G").q does not make
-//     items an ancestor by the prefix test below, and items survives as a "leaf". Whatever
-//     re-states it then claims the whole array for the scope, freezing baseline out of it:
-//     baseline adds an element and the scope never sees it; baseline updates its own
-//     element and the scope keeps the old value. Measured, and silent.
-//  2. Even at element granularity, Diff over op-free state cannot take its keyed branch,
-//     so the result comes out positional and lands the scope's elements by index.
-//
-// So such a write is kept as the client sent it rather than lowered (lower.go), which is
-// correct and merely less uniform -- the right way round.
-func (s *Storage) scopeHasKeyedPaths(scopeID string) bool {
-	// Cached, because this walks the WHOLE index and the read path asks on every scoped
-	// read. Uncached it cost more than it saved: 53us -> 1.19ms at 400 accumulated
-	// writes, turning a flat read back into a linear one. Invalidated where the answer can
-	// change -- a scoped write, or a schema change, since "declared" is the schema's word.
-	s.scopeKeyedMu.RLock()
-	cached, ok := s.scopeKeyedCache[scopeID]
-	s.scopeKeyedMu.RUnlock()
-	if ok {
-		return cached
-	}
-	res := s.computeScopeHasKeyedPaths(scopeID)
-	s.scopeKeyedMu.Lock()
-	if s.scopeKeyedCache == nil {
-		s.scopeKeyedCache = map[string]bool{}
-	}
-	s.scopeKeyedCache[scopeID] = res
-	s.scopeKeyedMu.Unlock()
-	return res
-}
-
-// invalidateScopeKeyed forgets what is known about every scope's keyed paths. Called on a
-// schema change, since "declared" is the schema's word and a change can redraw the answer
-// for every scope at once.
-func (s *Storage) invalidateScopeKeyed(scopeID *string) {
-	s.scopeKeyedMu.Lock()
-	defer s.scopeKeyedMu.Unlock()
-	if scopeID == nil {
-		s.scopeKeyedCache = nil
-		return
-	}
-	delete(s.scopeKeyedCache, *scopeID)
-}
-
-// noteScopeKeyedWrite updates what is known about a scope from the patch just written,
-// without re-reading the index.
-//
-// Dropping the cached answer on every scoped write would be correct and useless: the
-// precondition path both writes and reads, so each write would force the next read to walk
-// the whole index again -- measured turning a flat CAS into one that grows with the index.
-// A write can only ADD keyed paths, and only ones that appear in the patch itself, so the
-// patch is enough to decide.
-func (s *Storage) noteScopeKeyedWrite(scopeID string, patch *ir.Node) {
-	s.scopeKeyedMu.RLock()
-	cached, ok := s.scopeKeyedCache[scopeID]
-	s.scopeKeyedMu.RUnlock()
-	if ok && cached {
-		return // already unserviceable; nothing a write can do makes it serviceable again
-	}
-	if !patchHasUndeclaredKey(patch, "", s.keyedArrayPaths()) {
-		return // the answer is unchanged, whatever it was
-	}
-	s.scopeKeyedMu.Lock()
-	if s.scopeKeyedCache == nil {
-		s.scopeKeyedCache = map[string]bool{}
-	}
-	s.scopeKeyedCache[scopeID] = true
-	s.scopeKeyedMu.Unlock()
-}
+// This was the scope overlay's file, and what is left is what outlived it. The overlay
+// asked per scoped READ whether a scope held keyed paths the schema does not declare, and
+// kept a cache to make that affordable; with the overlay gone nothing asks, so the
+// question, its cache and the walk behind it went too. Lowering asks a different one, per
+// WRITE and from the patch in hand: does THIS patch carry a key the schema has not
+// declared. That is what remains here.
 
 // patchHasUndeclaredKey reports whether the patch keys an array the schema does not
 // declare -- a !key the client supplied for a path the schema has never heard of, which
@@ -133,50 +56,6 @@ func patchHasUndeclaredKey(n *ir.Node, prefix string, keys map[string]string) bo
 		}
 	}
 	return false
-}
-func (s *Storage) computeScopeHasKeyedPaths(scopeID string) bool {
-	keys := s.keyedArrayPaths()
-	for _, seg := range s.index.AllSegments() {
-		if seg.ScopeID == nil || *seg.ScopeID != scopeID || isOverlaySegment(seg) {
-			continue
-		}
-		p := seg.KindedPath
-		if !strings.ContainsRune(p, '(') {
-			continue
-		}
-		// A keyed path the SCHEMA declares is safe: the merge identifies elements the
-		// same way (tx.InjectKeyTags puts !key(f) on the write), and storableDelta
-		// annotates both sides of its diff from that same schema, so diff, merge and
-		// index all key alike.
-		//
-		// A keyed path the schema does NOT declare exists only because some write carried
-		// its own !key tag. Nothing can annotate the states for it, so the diff would go
-		// positional while the merge stayed identity-based -- and a positional delta takes
-		// ownership of the whole array. Such a write is kept as the client sent it.
-		arr := p
-		if i := strings.LastIndexByte(arr, ')'); i >= 0 {
-			arr = arr[:i+1]
-		}
-		if _, _, declared := splitKeyedElemPath(arr, keys); !declared {
-			return true
-		}
-	}
-	return false
-}
-
-// splitKeyedElemPath reports the array path and key field when p names a keyed ELEMENT --
-// items("A") rather than items or items.field.
-func splitKeyedElemPath(p string, keys map[string]string) (arrayPath, keyField string, ok bool) {
-	if len(p) == 0 || p[len(p)-1] != ')' {
-		return "", "", false
-	}
-	open := strings.LastIndexByte(p, '(')
-	if open <= 0 {
-		return "", "", false
-	}
-	arrayPath = p[:open]
-	f, ok := keys[arrayPath]
-	return arrayPath, f, ok
 }
 
 // keyedArrayPaths is the schema's keying as a diff needs it: array path -> key field,
@@ -236,19 +115,4 @@ func annotateKeyed(n *ir.Node, prefix string, keys map[string]string) {
 			annotateKeyed(v, prefix, keys)
 		}
 	}
-}
-
-// stripPresentationDeepIR removes presentation tags throughout, in place.
-func stripPresentationDeepIR(n *ir.Node) *ir.Node {
-	if n == nil {
-		return nil
-	}
-	n.Tag = ir.StripPresentation(n.Tag)
-	for _, f := range n.Fields {
-		stripPresentationDeepIR(f)
-	}
-	for _, v := range n.Values {
-		stripPresentationDeepIR(v)
-	}
-	return n
 }

@@ -152,14 +152,6 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 		}
 	}
 
-	// A scoped write can add a keyed path the schema does not declare, which is what
-	// decides whether a diff over this scope's state may be taken at all (lower.go).
-	// Decided from the patch rather than by re-reading the index -- see
-	// noteScopeKeyedWrite.
-	if scopeID != nil {
-		c.s.noteScopeKeyedWrite(*scopeID, mergedPatch)
-	}
-
 	// Trigger periodic index persistence
 	if c.s.indexPersister != nil {
 		c.s.indexPersister.MaybePersist(commit)

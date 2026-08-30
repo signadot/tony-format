@@ -89,10 +89,12 @@ func lower(t *testing.T, before, after string, keys map[string]string) *ir.Node 
 	if err != nil {
 		t.Fatalf("parse after: %v", err)
 	}
-	// The overlay's own two steps: strip presentation, then storableDelta. Presentation
-	// is how a value was WRITTEN, and two states built separately differ in it for
-	// reasons that are nobody's intent -- without the strip the delta states an
-	// !addtag(bracket) that no writer asked for.
+	// Strip presentation, then storableDelta. Presentation is how a value was WRITTEN,
+	// and two states built separately differ in it for reasons that are nobody's intent
+	// -- without the strip the delta states an !addtag(bracket) that no writer asked for.
+	// These two states are PARSED here rather than read out of one chain, which is what
+	// makes the strip this test's business. A write's own delta keeps presentation, since
+	// its base and next come from one chain and a difference in it is the write's.
 	return storableDelta(
 		stripPresentationDeepIR(b), stripPresentationDeepIR(a), keys, false)
 }
@@ -278,6 +280,26 @@ func mustParseBody(t *testing.T, body string) *ir.Node {
 	n, err := parse.Parse([]byte(body))
 	if err != nil {
 		t.Fatalf("parse %q: %v", body, err)
+	}
+	return n
+}
+
+// stripPresentationDeepIR removes presentation tags throughout, in place.
+//
+// It was the scope overlay's, which compared two independently materialized documents and
+// had to strip presentation before diffing them. Nothing in the store does that any more;
+// what is left are the tests that build two states by parsing and want the same thing of
+// them.
+func stripPresentationDeepIR(n *ir.Node) *ir.Node {
+	if n == nil {
+		return nil
+	}
+	n.Tag = ir.StripPresentation(n.Tag)
+	for _, f := range n.Fields {
+		stripPresentationDeepIR(f)
+	}
+	for _, v := range n.Values {
+		stripPresentationDeepIR(v)
 	}
 	return n
 }

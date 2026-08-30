@@ -24,10 +24,11 @@ import (
 // is what the write made it.
 //
 // For a SCOPE it is not correct, and the vocabulary is no longer what says so. Stating
-// an array whole takes ownership of every element, so baseline can never add one again
-// -- which is the failure scopeHasKeyedPaths exists to prevent, by refusing to write an
-// overlay for a scope holding a keyed path the schema does not declare, and which
-// lowerWrite prevents by not lowering such a write at all.
+// an array whole takes ownership of every element, so baseline can never add one again --
+// which lowerWrite prevents by not lowering such a write at all. The scope overlay used to
+// prevent it a second way, refusing to write an overlay for a scope holding a keyed path
+// the schema does not declare; the overlay is gone and lowerWrite's check is what is
+// left.
 //
 // So the guard moved upstream, from the vocabulary to the keyed checks, and it is worth
 // knowing that absoluteness and identity-preservation are different properties: making

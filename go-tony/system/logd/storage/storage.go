@@ -128,12 +128,6 @@ type Storage struct {
 	// commit path) or by the accessors; set at configuration time, before serving.
 	durability Durability
 
-	// scopeKeyedCache answers "does this scope hold keyed paths the schema does not
-	// declare", which the read path asks per scoped read and which costs a walk of the
-	// whole index to work out. See scopeHasKeyedPaths.
-	scopeKeyedMu    sync.RWMutex
-	scopeKeyedCache map[string]bool
-
 	// lowering holds what the log KEEPS to the storage vocabulary: a write carrying a
 	// relative operation is applied and its result diffed, and the diff is stored in
 	// its place. ON by default; EnableLowering(false) is the escape hatch, and with it

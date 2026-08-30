@@ -159,9 +159,6 @@ func (s *Storage) StartMigration(schema *ir.Node) (int64, error) {
 // Returns ErrNoMigrationInProgress if no migration is in progress.
 // This creates a snapshot with the active schema and swaps the indexes.
 func (s *Storage) CompleteMigration() (int64, error) {
-	// Whatever the outcome, the schema is about to change what counts as a declared key.
-	defer s.invalidateScopeKeyed(nil)
-
 	pendingSchema, _ := s.schema.GetPending()
 	if pendingSchema == nil {
 		return 0, ErrNoMigrationInProgress
