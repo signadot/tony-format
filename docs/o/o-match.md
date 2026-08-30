@@ -1,6 +1,6 @@
 # o match
 
-match objects documents with match documents
+keep the documents a match describes, and say by exit code whether any did
 
 Each document is matched whole: a file holding a list is one document, and the
 pattern is asked about the list rather than about its elements. A file holding
@@ -38,7 +38,7 @@ Also known as `m`.
 ## Usage
 
 ```
-o match [opts] <matchobj> [files]
+o match [opts] <match> [file...]
 ```
 
 ## Options

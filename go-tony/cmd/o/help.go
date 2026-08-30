@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/scott-cotton/cli"
 )
@@ -92,7 +93,7 @@ func HelpCommand(mainCfg *MainConfig) *cli.Command {
 	}
 	cmd := cli.NewCommand("help").
 		WithSynopsis("help [command]").
-		WithDescription("Show help for o, or for one of its commands").
+		WithDescription("show help for o, or for one of its commands").
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
 			return help(cfg, cc, args)
@@ -121,7 +122,8 @@ func help(cfg *HelpConfig, cc *cli.Context, args []string) error {
 	}
 	root := cfg.Main
 	if len(args) == 0 {
-		root.Usage(cc, nil)
+		listCommands(root, cc)
+		fmt.Fprint(cc.Out, conventions)
 		fmt.Fprintf(cc.Out, "\nrun `o help <command>` for one of them, or see %s\n", docsSite)
 		return nil
 	}
@@ -131,6 +133,38 @@ func help(cfg *HelpConfig, cc *cli.Context, args []string) error {
 	}
 	sub.Usage(cc, nil)
 	return nil
+}
+
+// listCommands writes what `o help` is for: which command to reach for, and how to call
+// it once chosen.
+//
+// The library's own listing gives the SYNOPSIS alone, which answers the second question
+// and not the first -- `view [file...]`, `dump [file...]` and `load [ir-file...]` are
+// three different jobs behind three identical shapes. So each command is written as what
+// it does and then how it is spelled, which is the order the two questions arrive in.
+//
+// Both halves are here because a reader who cannot see the arguments guesses at them, and
+// the guess that costs most is the ORDER: every command that takes one takes it FIRST,
+// before the files, and reading `<kpath>` next to `[file...]` is what says so.
+func listCommands(root *cli.Command, cc *cli.Context) {
+	fmt.Fprintf(cc.Out, "%s\n\n%s\n\ncommands:\n", root.Synopsis, root.Description)
+	tw := tabwriter.NewWriter(cc.Out, 1, 4, 2, ' ', 0)
+	for _, c := range root.Children {
+		fmt.Fprintf(tw, "  %s\t%s\n", c.Name, summarize(c))
+		fmt.Fprintf(tw, "  \t%s\n", c.Synopsis)
+	}
+	tw.Flush()
+}
+
+// summarize is a command's first line of description, which is written as the one-line
+// answer to "what is this for". A description that opens with a longer paragraph is cut
+// at its first sentence rather than wrapped, since this is a table.
+func summarize(c *cli.Command) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(c.Description), "\n")
+	if s, _, ok := strings.Cut(line, ". "); ok {
+		line = s
+	}
+	return strings.TrimSuffix(strings.TrimSpace(line), ".")
 }
 
 // commandNames is every command and alias, sorted -- what a shell needs to
@@ -200,3 +234,18 @@ func noSuchSub(group *cli.Command, cc *cli.Context, given string) error {
 	}
 	return cli.ExitCodeErr(2)
 }
+
+// conventions are the things true of every command, which a reader would otherwise have
+// to infer from as many help pages as it takes to notice the pattern. They are here
+// rather than repeated per command because they do not vary, and the cost of not knowing
+// them is a wrong call rather than a confusing one: an argument given in the wrong place
+// is read as a filename and reported as a missing file.
+const conventions = `
+common to the commands that read documents:
+  a command taking an argument takes it FIRST, before any files:
+      o get .spec f.tony        o patch '{replicas: 3}' f.tony
+  no files means standard input, so they compose:
+      o get .spec a.tony | o patch '{replicas: 3}'
+  an input is a STREAM: every document in it is read, and every answer written
+  exit 0 answered, 1 nothing found (diff: they differ), 2 a fault
+`

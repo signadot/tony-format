@@ -1,6 +1,6 @@
 # o patch
 
-patch object documents
+apply a patch to documents, writing each result
 
 The patch is applied to every document of every input and each result is written,
 --- separated.
@@ -31,7 +31,7 @@ Also known as `p`, `pa`.
 ## Usage
 
 ```
-o patch [opts] <patchobj> [files]
+o patch [opts] <patch> [file...]
 ```
 
 ## Options

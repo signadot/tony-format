@@ -1,13 +1,13 @@
 # o eval
 
-Evaluate objects with !eval tags
+resolve !eval tags, with values bound by -e
 
 Also known as `e`, `ev`.
 
 ## Usage
 
 ```
-o eval [-e path=val [ -e path2=val2 ]...] [files]
+o eval [opts] [file...]
 ```
 
 ## Options
@@ -33,7 +33,7 @@ o eval [-e path=val [ -e path2=val2 ]...] [files]
 | option | type | default | description |
 | --- | --- | --- | --- |
 | `-tags` | bool |  | show available tags |
-| `-e` | (path=val) |  |  |
+| `-e` | (path=val) |  | bind a value the document can reach as !eval env; repeatable |
 
 Inherited options may be given either before or after the command they are inherited by.
 

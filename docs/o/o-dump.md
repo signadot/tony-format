@@ -1,11 +1,11 @@
 # o dump
 
-dump [IR](https://signadot.github.io/tony-format/ir/)
+write a document's internal representation, for debugging
 
 ## Usage
 
 ```
-o dump [files]
+o dump [opts] [file...]
 ```
 
 ## Options

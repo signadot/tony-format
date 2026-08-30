@@ -1,6 +1,6 @@
 # o system
 
-system commands implementing TonyAPI components
+run and talk to the [logd](https://signadot.github.io/tony-format/logd/) and [docd](https://signadot.github.io/tony-format/docd/) servers
 
 Also known as `sys`.
 

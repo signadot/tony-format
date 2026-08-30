@@ -1,6 +1,6 @@
 # o build
 
-build is a tool for building manifests.  
+build manifests from a build object, per profile
 
 Build operates on a build directory, which defaults to the current directory.
 
@@ -77,7 +77,7 @@ Also known as `b`.
 ## Usage
 
 ```
-o build [dir] [-l] [-p profile ] [ env ]
+o build [opts] [dir]
 ```
 
 ## Options
@@ -104,7 +104,7 @@ o build [dir] [-l] [-p profile ] [ env ]
 | --- | --- | --- | --- |
 | `-l`, `-list` | bool |  | list profiles |
 | `-s`, `-show`, `-sh` | bool |  | show environment |
-| `-e` | (path=val) |  |  |
+| `-e` | (path=val) |  | bind a build environment value; repeatable |
 | `-p`, `-profile` | profile |  | profile(s) to build (can be specified multiple times) |
 
 Inherited options may be given either before or after the command they are inherited by.

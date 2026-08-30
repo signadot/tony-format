@@ -2,7 +2,7 @@
 
 version
 
-Print the version of o
+print the version of o
 
 ## Usage
 

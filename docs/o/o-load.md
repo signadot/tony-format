@@ -1,11 +1,11 @@
 # o load
 
-load [IR](https://signadot.github.io/tony-format/ir/) files and render them
+render an internal representation back to a document
 
 ## Usage
 
 ```
-o load [ir-files]
+o load [opts] [ir-file...]
 ```
 
 ## Options

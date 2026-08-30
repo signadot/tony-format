@@ -65,14 +65,15 @@ func EvalCommand(mainCfg *MainConfig) *cli.Command {
 	}
 	opts = append(opts,
 		&cli.Opt{
-			Name: "e",
-			Type: cli.NamedFuncOpt(cli.FuncOpt(envOptTypeFunc(cfg.Env)), "(path=val)"),
+			Name:        "e",
+			Description: "bind a value the document can reach as !eval env; repeatable",
+			Type:        cli.NamedFuncOpt(cli.FuncOpt(envOptTypeFunc(cfg.Env)), "(path=val)"),
 		})
 
 	cmd := cli.NewCommand("eval").
 		WithAliases("e", "ev").
-		WithSynopsis("eval [-e path=val [ -e path2=val2 ]...] [files]").
-		WithDescription("Evaluate objects with !eval tags").
+		WithSynopsis("eval [opts] [file...]").
+		WithDescription("resolve !eval tags, with values bound by -e").
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
 			return tonyEval(cfg, cc, args)
@@ -126,8 +127,8 @@ func ViewCommand(mainCfg *MainConfig) *cli.Command {
 	cmd := cli.NewCommand("view").
 		WithAliases("v").
 		WithOpts(opts...).
-		WithSynopsis("view [files]").
-		WithDescription("view object files with tags in color").
+		WithSynopsis("view [opts] [file...]").
+		WithDescription("render documents, or rewrite them in place with -w").
 		WithRun(func(cc *cli.Context, args []string) error {
 			return view(cfg, cc, args)
 		})
@@ -135,7 +136,7 @@ func ViewCommand(mainCfg *MainConfig) *cli.Command {
 	return cmd
 }
 
-const getDesc = `get objects elements from files
+const getDesc = `read ONE node at a path, from files or stdin
 
 The path is a kpath, the syntax the rest of the system uses: .field steps into an
 object, [i] into an array, {i} into a sparse one BY KEY, and (key) into a keyed
@@ -187,7 +188,7 @@ func GetCommand(mainCfg *MainConfig) *cli.Command {
 	}
 	cmd := cli.NewCommand("get").
 		WithAliases("g", "ge").
-		WithSynopsis("get [opts] <kpath> [files]").
+		WithSynopsis("get [opts] <kpath> [file...]").
 		WithDescription(getDesc).
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
@@ -197,7 +198,7 @@ func GetCommand(mainCfg *MainConfig) *cli.Command {
 	return cmd
 }
 
-const listDesc = `list or query objects elements from files
+const listDesc = `read EVERY node a path names -- wildcards, any depth, filtered by a match
 
 The path is a kpath -- .field, [i], {i}, (key), the wildcards .* [*] {*}, and .. for
 any depth, which belong here rather than in get: list answers with every node the
@@ -264,7 +265,7 @@ func ListCommand(mainCfg *MainConfig) *cli.Command {
 	}
 	return cli.NewCommandAt(&cfg.List, "list").
 		WithAliases("l").
-		WithSynopsis("list [opts] <kpath> [files]").
+		WithSynopsis("list [opts] <kpath> [file...]").
 		WithDescription(listDesc).
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
@@ -272,7 +273,7 @@ func ListCommand(mainCfg *MainConfig) *cli.Command {
 		})
 }
 
-const matchDesc = `match objects documents with match documents
+const matchDesc = `keep the documents a match describes, and say by exit code whether any did
 
 Each document is matched whole: a file holding a list is one document, and the
 pattern is asked about the list rather than about its elements. A file holding
@@ -313,7 +314,7 @@ func MatchCommand(mainCfg *MainConfig) *cli.Command {
 	}
 	return cli.NewCommandAt(&cfg.Command, "match").
 		WithAliases("m").
-		WithSynopsis("match [opts] <matchobj> [files]").
+		WithSynopsis("match [opts] <match> [file...]").
 		WithDescription(matchDesc).
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
@@ -337,7 +338,7 @@ func DiffCommand(mainCfg *MainConfig) *cli.Command {
 	cmd := cli.NewCommand("diff").
 		WithAliases("d", "di").
 		WithOpts(opts...).
-		WithSynopsis("diff a b or diff -loop <cmd>").
+		WithSynopsis("diff [opts] <a> <b>  |  diff [opts] -loop <cmd>").
 		WithDescription(diffDescription).
 		WithRun(func(cc *cli.Context, args []string) error {
 			return diff(cfg, cc, args)
@@ -346,7 +347,7 @@ func DiffCommand(mainCfg *MainConfig) *cli.Command {
 	return cmd
 }
 
-const diffDescription = `diff object documents
+const diffDescription = `write the patch that turns one document into another
 
 Given two arguments, diff writes what turns the first into the second, and
 exits 1 if they differ at all. Exit 2 is a fault -- a file that cannot be read is
@@ -377,7 +378,7 @@ against the difference, and it is checked after that difference is written, so
 the change which satisfied it is the last thing reported.  Should the loop hit
 -loopLim first, diff exits 1: the condition asked for did not hold.`
 
-const patchDesc = `patch object documents
+const patchDesc = `apply a patch to documents, writing each result
 
 The patch is applied to every document of every input and each result is written,
 --- separated.
@@ -411,7 +412,7 @@ func PatchCommand(mainCfg *MainConfig) *cli.Command {
 	}
 	cmd := cli.NewCommand("patch").
 		WithAliases("p", "pa").
-		WithSynopsis("patch [opts] <patchobj> [files]").
+		WithSynopsis("patch [opts] <patch> [file...]").
 		WithDescription(patchDesc).
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
@@ -428,8 +429,9 @@ func BuildCommand(mainCfg *MainConfig) *cli.Command {
 		panic(err)
 	}
 	opts = append(opts, &cli.Opt{
-		Name: "e",
-		Type: cli.NamedFuncOpt(cli.FuncOpt(envOptTypeFunc(cfg.Env)), "(path=val)"),
+		Name:        "e",
+		Description: "bind a build environment value; repeatable",
+		Type:        cli.NamedFuncOpt(cli.FuncOpt(envOptTypeFunc(cfg.Env)), "(path=val)"),
 	})
 	opts = append(opts, &cli.Opt{
 		Name:        "p",
@@ -442,7 +444,7 @@ func BuildCommand(mainCfg *MainConfig) *cli.Command {
 	})
 	return cli.NewCommandAt(&cfg.Build, "build").
 		WithAliases("b").
-		WithSynopsis("build [dir] [-l] [-p profile ] [ env ]").
+		WithSynopsis("build [opts] [dir]").
 		WithDescription(buildDescription).
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
@@ -450,7 +452,7 @@ func BuildCommand(mainCfg *MainConfig) *cli.Command {
 		})
 }
 
-const buildDescription = `build is a tool for building manifests.  
+const buildDescription = `build manifests from a build object, per profile
 
 Build operates on a build directory, which defaults to the current directory.
 
@@ -529,8 +531,8 @@ func DumpCommand(mainCfg *MainConfig) *cli.Command {
 		panic(err)
 	}
 	return cli.NewCommandAt(&cfg.Dump, "dump").
-		WithSynopsis("dump [files]").
-		WithDescription("dump IR").
+		WithSynopsis("dump [opts] [file...]").
+		WithDescription("write a document's internal representation, for debugging").
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
 			return dump(cfg, cc, args)
@@ -544,8 +546,8 @@ func LoadCommand(mainCfg *MainConfig) *cli.Command {
 		panic(err)
 	}
 	return cli.NewCommandAt(&cfg.Load, "load").
-		WithSynopsis("load [ir-files]").
-		WithDescription("load IR files and render them").
+		WithSynopsis("load [opts] [ir-file...]").
+		WithDescription("render an internal representation back to a document").
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
 			return load(cfg, cc, args)
@@ -560,7 +562,7 @@ func SystemCommand(mainCfg *MainConfig) *cli.Command {
 	}
 	return cli.NewCommandAt(&cfg.System, "system").
 		WithSynopsis("system <subcommand>").
-		WithDescription("system commands implementing TonyAPI components").
+		WithDescription("run and talk to the logd and docd servers").
 		WithAliases("sys").
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {

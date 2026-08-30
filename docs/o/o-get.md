@@ -1,6 +1,6 @@
 # o get
 
-get objects elements from files
+read ONE node at a path, from files or stdin
 
 The path is a kpath, the syntax the rest of the system uses: .field steps into an
 object, [i] into an array, {i} into a sparse one BY KEY, and (key) into a keyed
@@ -49,7 +49,7 @@ Also known as `g`, `ge`.
 ## Usage
 
 ```
-o get [opts] <kpath> [files]
+o get [opts] <kpath> [file...]
 ```
 
 ## Options

@@ -12,16 +12,16 @@ o [opts] command [opts]
 
 | command | synopsis |
 | --- | --- |
-| [`view`](o-view.md) | `o view [files]` |
-| [`eval`](o-eval.md) | `o eval [-e path=val [ -e path2=val2 ]...] [files]` |
-| [`diff`](o-diff.md) | a b or diff -loop <cmd> |
-| [`get`](o-get.md) | `o get [opts] <kpath> [files]` |
-| [`list`](o-list.md) | `o list [opts] <kpath> [files]` |
-| [`match`](o-match.md) | `o match [opts] <matchobj> [files]` |
-| [`patch`](o-patch.md) | `o patch [opts] <patchobj> [files]` |
-| [`build`](o-build.md) | `o build [dir] [-l] [-p profile ] [ env ]` |
-| [`dump`](o-dump.md) | `o dump [files]` |
-| [`load`](o-load.md) | `o load [ir-files]` |
+| [`view`](o-view.md) | `o view [opts] [file...]` |
+| [`eval`](o-eval.md) | `o eval [opts] [file...]` |
+| [`diff`](o-diff.md) | `o diff [opts] <a> <b>  \|  diff [opts] -loop <cmd>` |
+| [`get`](o-get.md) | `o get [opts] <kpath> [file...]` |
+| [`list`](o-list.md) | `o list [opts] <kpath> [file...]` |
+| [`match`](o-match.md) | `o match [opts] <match> [file...]` |
+| [`patch`](o-patch.md) | `o patch [opts] <patch> [file...]` |
+| [`build`](o-build.md) | `o build [opts] [dir]` |
+| [`dump`](o-dump.md) | `o dump [opts] [file...]` |
+| [`load`](o-load.md) | `o load [opts] [ir-file...]` |
 | [`schema`](o-schema.md) | `o schema <subcommand>` |
 | [`system`](o-system.md) | `o system <subcommand>` |
 | [`docs`](o-docs.md) | `o docs <dir>` |

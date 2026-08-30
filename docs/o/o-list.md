@@ -1,6 +1,6 @@
 # o list
 
-list or query objects elements from files
+read EVERY node a path names -- wildcards, any depth, filtered by a match
 
 The path is a kpath -- .field, [i], {i}, (key), the wildcards .* [*] {*}, and .. for
 any depth, which belong here rather than in get: list answers with every node the
@@ -64,7 +64,7 @@ Also known as `l`.
 ## Usage
 
 ```
-o list [opts] <kpath> [files]
+o list [opts] <kpath> [file...]
 ```
 
 ## Options

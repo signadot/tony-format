@@ -1,13 +1,13 @@
 # o view
 
-view object files with tags in color
+render documents, or rewrite them in place with -w
 
 Also known as `v`.
 
 ## Usage
 
 ```
-o view [files]
+o view [opts] [file...]
 ```
 
 ## Options

@@ -1,8 +1,6 @@
 # o diff
 
-a b or diff -loop <cmd>
-
-diff object documents
+write the patch that turns one document into another
 
 Given two arguments, diff writes what turns the first into the second, and
 exits 1 if they differ at all. Exit 2 is a fault -- a file that cannot be read is
@@ -38,7 +36,7 @@ Also known as `d`, `di`.
 ## Usage
 
 ```
-o diff [options] [arguments]
+o diff [opts] <a> <b>  |  diff [opts] -loop <cmd>
 ```
 
 ## Options

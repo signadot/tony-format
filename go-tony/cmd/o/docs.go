@@ -59,7 +59,7 @@ func DocsCommand(mainCfg *MainConfig) *cli.Command {
 	}
 	cmd := cli.NewCommand("docs").
 		WithSynopsis("docs <dir>").
-		WithDescription("Write this command tree as markdown, one page per command").
+		WithDescription("write this command tree as markdown, one page per command").
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
 			return writeDocs(cfg, cc, args)
