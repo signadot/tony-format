@@ -86,12 +86,20 @@ func PointLogSegment(commit, txSeq int64, kpath string) *LogSegment {
 // by what is indexed beneath it. An operator is not descended through -- a !replace or
 // a !delete at a path states the whole value there, including for paths under it that
 // it never names -- and neither is a leaf, which is a write.
+//
+// PRESENTATION does not count as a tag here. It is how the container was written, not
+// something the patch says about what is under it, and a read below the path cannot see
+// it either way. It counted before, and flow style always carries one -- `{b: {c: 1}}`
+// parses with !bracket where the same document in block style parses bare -- so a patch
+// written in flow, which is every patch a JSON client sends, was never marked as passing
+// through anything. The document decided the read cost, and its spelling decided the
+// document.
 func passesThrough(n *ir.Node) bool {
 	if n == nil {
 		return false
 	}
 	n = ir.Uncomment(n)
-	if n.Tag != "" {
+	if ir.StripPresentation(n.Tag) != "" {
 		return false
 	}
 	switch n.Type {
