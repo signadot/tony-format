@@ -99,7 +99,6 @@ func TestAScopedWriteIsAStandingClaim(t *testing.T) {
 		ops := genClaimOps(rng, 30)
 
 		s := openTestStorage(t)
-		s.EnableLowering(true)
 
 		// The claims standing right now: every path the scope's last write claimed,
 		// and what it read back at each once it had.

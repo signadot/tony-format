@@ -128,14 +128,9 @@ type Storage struct {
 	// commit path) or by the accessors; set at configuration time, before serving.
 	durability Durability
 
-	// lowering holds what the log KEEPS to the storage vocabulary: a write carrying a
-	// relative operation is applied and its result diffed, and the diff is stored in
-	// its place. ON by default; EnableLowering(false) is the escape hatch, and with it
-	// off a store is byte-identical to one that never had the feature. See lower.go.
-	lowering bool
-
-	// lowerAll lowers every write rather than only the ones that need it. For the
-	// differential; see LowerEverything.
+	// lowerAll lowers every write rather than only the ones that need it. Lowering
+	// itself is not optional: what the log KEEPS is held to the storage vocabulary,
+	// always. See lower.go, and LowerEverything for what this amplifies.
 	lowerAll bool
 
 	// scopeHeads keeps, per scope, the scoped document at the commit it is current at
@@ -158,11 +153,10 @@ func Open(root string, logger *slog.Logger) (*Storage, error) {
 	s := &Storage{
 		sequence: seq.NewSeq(root),
 
-		txStore:  tx.NewInMemoryTxStore(),
-		index:    index.NewIndex(""),
-		logger:   logger,
-		schema:   newStorageSchema(),
-		lowering: true,
+		txStore: tx.NewInMemoryTxStore(),
+		index:   index.NewIndex(""),
+		logger:  logger,
+		schema:  newStorageSchema(),
 		// Never on outside a test. See LowerEverything.
 		lowerAll: os.Getenv("LOGD_LOWERING") == "all",
 	}

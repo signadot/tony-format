@@ -170,7 +170,6 @@ func TestAClaimKeepsItsDeletesWhateverOrderTheyCome(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			s := openTestStorage(t)
-			s.EnableLowering(true)
 			const scope = "s1"
 			sc := scope
 			mustCommit(t, s, nil, `{d: {k0: 9, k1: 1}}`)

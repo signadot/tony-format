@@ -250,36 +250,29 @@ func TestARelativeRootWriteDoesNotDestroyTheDocument(t *testing.T) {
 		{"at the document root", "", `!rename [{from: "k1", to: "k1"}]`},
 		{"one level down", "a", `!rename [{from: "z", to: "z"}]`},
 	} {
-		for _, lower := range []bool{true, false} {
-			name := tc.name
-			if !lower {
-				name += " (lowering off)"
-			}
-			t.Run(name, func(t *testing.T) {
-				s := openTestStorage(t)
-				s.EnableLowering(lower)
-				mustCommit(t, s, nil, `{k1: 5, k2: 16, a: {z: 1}}`)
-				c := commitAt(t, s, nil, tc.path, tc.write)
+		t.Run(tc.name, func(t *testing.T) {
+			s := openTestStorage(t)
+			mustCommit(t, s, nil, `{k1: 5, k2: 16, a: {z: 1}}`)
+			c := commitAt(t, s, nil, tc.path, tc.write)
 
-				doc, err := s.ReadStateAt("", c, nil)
-				if err != nil {
-					t.Fatalf("read: %v", err)
-				}
-				if doc == nil {
-					t.Fatalf("the write destroyed the document")
-				}
-				// A no-op rename says nothing about any value, so every one stands.
-				if got := getInt(doc, "k1"); got != 5 {
-					t.Errorf("k1 = %d, want 5\n%s", got, mustEncode(t, doc))
-				}
-				if got := getInt(doc, "k2"); got != 16 {
-					t.Errorf("k2 = %d, want 16\n%s", got, mustEncode(t, doc))
-				}
-				if got := getInt(doc, "a", "z"); got != 1 {
-					t.Errorf("a.z = %d, want 1\n%s", got, mustEncode(t, doc))
-				}
-			})
-		}
+			doc, err := s.ReadStateAt("", c, nil)
+			if err != nil {
+				t.Fatalf("read: %v", err)
+			}
+			if doc == nil {
+				t.Fatalf("the write destroyed the document")
+			}
+			// A no-op rename says nothing about any value, so every one stands.
+			if got := getInt(doc, "k1"); got != 5 {
+				t.Errorf("k1 = %d, want 5\n%s", got, mustEncode(t, doc))
+			}
+			if got := getInt(doc, "k2"); got != 16 {
+				t.Errorf("k2 = %d, want 16\n%s", got, mustEncode(t, doc))
+			}
+			if got := getInt(doc, "a", "z"); got != 1 {
+				t.Errorf("a.z = %d, want 1\n%s", got, mustEncode(t, doc))
+			}
+		})
 	}
 }
 

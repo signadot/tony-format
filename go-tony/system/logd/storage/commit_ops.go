@@ -50,9 +50,6 @@ func (c *commitOps) GetSchema(scopeID *string) *api.Schema {
 	return c.s.schemaForScope(scopeID)
 }
 
-// LowersScopeWrites reports whether lowerWrite will turn a scoped write into a claim.
-func (c *commitOps) LowersScopeWrites() bool { return c.s.lowering }
-
 func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedPatch *ir.Node, txState *tx.State, lastCommit int64) (string, int64, error) {
 	// Extract scope from transaction state
 	var scopeID *string

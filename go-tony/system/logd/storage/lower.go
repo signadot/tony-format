@@ -48,10 +48,6 @@ import (
 // nothing in it writes a relative operation.
 var loweringFired, loweringSkipped, loweringUndeclaredKey int64
 
-// EnableLowering turns lowering on or off. ON by default; passing false is the escape
-// hatch, and with it off a store keeps what a client sent, as it always did.
-func (s *Storage) EnableLowering(v bool) { s.lowering = v }
-
 // LowerEverything lowers every write, whether or not it needs it.
 //
 // Not a mode to run in: it pays a diff on writes that were already their own delta,
@@ -67,7 +63,7 @@ func (s *Storage) EnableLowering(v bool) { s.lowering = v }
 // It is not what ships. What ships asks api.NeedsLowering per write and lowers the
 // ones that need it, which is what makes the read on the write path free: the state
 // verifyApplies already produced is both sides of the diff.
-func (s *Storage) LowerEverything(v bool) { s.lowering, s.lowerAll = true, v }
+func (s *Storage) LowerEverything(v bool) { s.lowerAll = v }
 
 // storableDelta answers how next differs from base, said in the vocabulary a store may
 // keep: every operation in it states what a value IS, so applying it to a base that has
@@ -189,7 +185,7 @@ func claimDelta(next *ir.Node, paths []string) (*ir.Node, error) {
 // so a commit that asserts what is already there still takes a commit number and
 // still notifies, exactly as it did before.
 func (s *Storage) lowerWrite(base, next, merged *ir.Node, scoped bool, paths []string) (*ir.Node, error) {
-	if !s.lowering || merged == nil {
+	if merged == nil {
 		return merged, nil
 	}
 	// The root tags are logd's own marker, not an operation, and the question is

@@ -78,9 +78,9 @@ func applyOpLoweredByClient(t *testing.T, s *Storage, o genOp) (int64, error) {
 // The matrix: the same generated stream, committed three ways, each checked against
 // its own head at every commit.
 //
-//	plain    the client's patch, stored as sent
-//	engine   the engine lowers inside the commit (LowerEverything)
-//	client   the client lowers and sends the delta; the engine stores it as sent
+//	ordinary the engine lowers what needs it, which is the default and almost nothing
+//	engine   the engine lowers EVERY write inside the commit (LowerEverything)
+//	client   the client lowers and sends the delta; the engine finds nothing to do
 //
 // The third is the one that separates delta SHAPE from where the engine computes it.
 func TestLoweringMatrix(t *testing.T) {
@@ -89,10 +89,12 @@ func TestLoweringMatrix(t *testing.T) {
 		open  func(t *testing.T) *Storage
 		apply func(t *testing.T, s *Storage, o genOp) (int64, error)
 	}{{
-		name: "plain",
+		name: "ordinary",
 		open: func(t *testing.T) *Storage {
 			s := openTestStorage(t)
-			s.EnableLowering(false) // explicitly, since lowering is now the default
+			// Not merely the default: LOGD_LOWERING=all would otherwise amplify this
+			// row into the engine row and the matrix would compare a thing to itself.
+			s.LowerEverything(false)
 			return s
 		},
 		apply: applyOp,
@@ -108,9 +110,11 @@ func TestLoweringMatrix(t *testing.T) {
 		name: "client",
 		open: func(t *testing.T) *Storage {
 			s := openTestStorage(t)
-			// The CLIENT lowers; the engine must not, or the delta is lowered
-			// twice and the row stops answering what it is for.
-			s.EnableLowering(false)
+			// The CLIENT lowers, and the engine's ordinary rule then finds an
+			// absolute delta and leaves it alone. Said explicitly because
+			// LOGD_LOWERING=all would lower it a second time and the row would stop
+			// answering what it is for.
+			s.LowerEverything(false)
 			return s
 		},
 		apply: applyOpLoweredByClient,

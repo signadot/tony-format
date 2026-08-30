@@ -111,13 +111,6 @@ type CommitOps interface {
 	// concurrent commits to the goroutine scheduler.
 	WriteAndIndex(commit, txSeq int64, timestamp string, mergedPatch *ir.Node, txState *State, lastCommit int64) (logFile string, pos int64, err error)
 
-	// LowersScopeWrites answers whether a scoped write will be converted to a claim
-	// before it is stored. When it is, an operation whose meaning depends on what was
-	// there never reaches the log: the claim states the result. When it is not, the
-	// operation is stored as sent and re-evaluates against a base that has moved, so
-	// it has to be refused at the door -- see scope_storable.go.
-	LowersScopeWrites() bool
-
 	// LockCommit acquires the storage-wide commit lock and returns its release func. The
 	// CAS-precondition evaluation, NextCommit, and WriteAndIndex must all run under it so the
 	// compare-and-swap is atomic w.r.t. other commits (no lost update).
