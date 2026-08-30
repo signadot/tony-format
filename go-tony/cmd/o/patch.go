@@ -21,6 +21,9 @@ func patch(cfg *PatchConfig, cc *cli.Context, args []string) error {
 	if helpAsked(cfg.Patch, cc, cfg.Help) {
 		return nil
 	}
+	if err := cfg.oneFormat(cfg.Patch, cc); err != nil {
+		return err
+	}
 	if cfg.Tags {
 		fmt.Fprintf(cc.Out, "available patch tags:\n")
 		for _, s := range mergeop.Symbols() {

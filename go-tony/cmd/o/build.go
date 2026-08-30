@@ -21,6 +21,9 @@ func build(cfg *BuildConfig, cc *cli.Context, args []string) error {
 	if helpAsked(cfg.Build, cc, cfg.Help) {
 		return nil
 	}
+	if err := cfg.oneFormat(cfg.Build, cc); err != nil {
+		return err
+	}
 	args, err = parseEnvExtras(cfg.Env, cc, args)
 	if err != nil {
 		return usageErr(cfg.Build, cc, err.Error())

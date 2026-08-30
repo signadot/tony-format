@@ -75,6 +75,9 @@ func schemaCheck(cfg *SchemaCheckConfig, cc *cli.Context, args []string) error {
 	if helpAsked(cfg.Check, cc, cfg.Help) {
 		return nil
 	}
+	if err := cfg.oneFormat(cfg.Check, cc); err != nil {
+		return err
+	}
 	if len(args) < 1 {
 		return usageErr(cfg.Check, cc, "schema check requires at least 1 argument (schema file)")
 	}

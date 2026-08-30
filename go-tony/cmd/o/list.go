@@ -21,6 +21,9 @@ func list(cfg *ListConfig, cc *cli.Context, args []string) error {
 	if helpAsked(cfg.List, cc, cfg.Help) {
 		return nil
 	}
+	if err := cfg.oneFormat(cfg.List, cc); err != nil {
+		return err
+	}
 	if len(args) == 0 {
 		return usageErr(cfg.List, cc, "list requires one argument, an object path")
 	}

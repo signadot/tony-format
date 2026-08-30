@@ -21,6 +21,9 @@ func view(cfg *ViewConfig, cc *cli.Context, args []string) error {
 	if helpAsked(cfg.View, cc, cfg.Help) {
 		return nil
 	}
+	if err := cfg.oneFormat(cfg.View, cc); err != nil {
+		return err
+	}
 	// A fault exits 2, as it does for get, list and match: 1 is reserved for
 	// "nothing", which is an answer, and a caller that cannot tell an unreadable
 	// file from an empty one reads a mistake as a result.

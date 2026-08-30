@@ -19,8 +19,8 @@ func oMain(cfg *MainConfig, cc *cli.Context, args []string) error {
 		cfg.Main.Usage(cc, err)
 		return cli.ExitCodeErr(2)
 	}
-	if count(cfg.T, cfg.J, cfg.Y) > 1 {
-		return usageErr(cfg.Main, cc, "must specify at most one of -j[son] -t[ony] -y[aml]")
+	if err := cfg.oneFormat(cfg.Main, cc); err != nil {
+		return err
 	}
 	// Asking what a tool does is not a misuse of it. `o -h`, `o --help` and `o` with
 	// nothing at all all print the same thing, on stdout, and exit 0 -- they used to
@@ -58,6 +58,23 @@ func oMain(cfg *MainConfig, cc *cli.Context, args []string) error {
 		return cli.ExitCodeErr(2)
 	}
 	return err
+}
+
+// oneFormat refuses more than one of -t, -j and -y.
+//
+// They name what a document IS, and a document is one thing, so two of them is not a
+// preference to resolve but a question the caller has to answer. Resolving it silently is
+// what happened before: the switch in parseOpts and encOpts tries tony first, so `-j -t`
+// read json as tony and said nothing.
+//
+// It is asked per COMMAND as well as at the root, because these are the root's options
+// and every command accepts them in its own position too -- `o -j -t v f` was refused
+// while `o v -j -t f` was not, which is the same mistake spelled differently.
+func (cfg *MainConfig) oneFormat(cmd *cli.Command, cc *cli.Context) error {
+	if count(cfg.T, cfg.J, cfg.Y) > 1 {
+		return usageErr(cmd, cc, "must specify at most one of -j[son] -t[ony] -y[aml]")
+	}
+	return nil
 }
 
 func count(vs ...bool) int {

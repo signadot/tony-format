@@ -15,6 +15,9 @@ func get(cfg *GetConfig, cc *cli.Context, args []string) error {
 	if helpAsked(cfg.Get, cc, cfg.Help) {
 		return nil
 	}
+	if err := cfg.oneFormat(cfg.Get, cc); err != nil {
+		return err
+	}
 	if len(args) == 0 {
 		return usageErr(cfg.Get, cc, "get requires one argument, an object path")
 	}

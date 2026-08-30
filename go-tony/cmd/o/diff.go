@@ -28,6 +28,9 @@ func diff(cfg *DiffConfig, cc *cli.Context, args []string) error {
 	if helpAsked(cfg.Diff, cc, cfg.Help) {
 		return nil
 	}
+	if err := cfg.oneFormat(cfg.Diff, cc); err != nil {
+		return err
+	}
 	if cfg.LoopUntil != "" && cfg.Loop == "" {
 		return usageErr(cfg.Diff, cc, "-loopUntil is a condition on -loop, which was not given")
 	}

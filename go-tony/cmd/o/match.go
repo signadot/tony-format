@@ -35,6 +35,9 @@ func match(cfg *MatchConfig, cc *cli.Context, args []string) error {
 	if helpAsked(cfg.Command, cc, cfg.Help) {
 		return nil
 	}
+	if err := cfg.oneFormat(cfg.Command, cc); err != nil {
+		return err
+	}
 	if cfg.Tags {
 		fmt.Fprintf(cc.Out, "available match tags:\n")
 		for _, s := range mergeop.Symbols() {
