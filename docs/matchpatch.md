@@ -241,3 +241,48 @@ array members of the corresponding input document.
 
 Match and patch operations can be created by implementing a simple interface
 and registering the operation in the `mergeop` package.
+
+A custom operation is registered under a **namespace**, and its tag is written
+`!<namespace>:<name>`:
+
+```go
+// acmeShout implements mergeop.Symbol.
+err := mergeop.RegisterNamespaced("acme", acmeShout{})
+```
+
+```tony
+greeting: !acme:shout "hi"
+```
+
+The namespace is not decoration. The names without one belong to this package, and a
+consumer who takes `!policy` today, and later upgrades into a release where `!policy` is
+built in, gets `ErrSymbolExists` from an init which very likely ignores it. Their
+operation then silently stops existing, in documents already written, because of a
+release they did not make. A namespace is somewhere no release will build.
+
+The two halves are kept apart by the registry rather than by agreement:
+`RegisterNamespaced` requires a namespace, `Register` refuses a name that has one, and
+no built-in operation is named with a `:`. A test holds that last part.
+
+The separator is `:` because the alternatives are taken. A `.` composes tags, so
+`!acme.shout` is two operations rather than one, and the registry refuses such a name for
+that reason. YAML's verbatim form, `!<tag:example.com,2026:shout>`, does not parse here —
+its comma ends the tag.
+
+A namespaced operation composes with the built-in ones like any other, in either
+position:
+
+```tony
+greeting: !acme:shout.raw "hi"
+```
+
+An operation which also implements `Summary() string` describes itself in the tooling,
+beside the built-ins:
+
+```
+o patch -tags | o get .'acme:shout'
+```
+
+Two consumers in one process still share a registry, so two of them must not both choose
+`ext`. A namespace someone owns — an organisation, a product — does not have that
+problem.

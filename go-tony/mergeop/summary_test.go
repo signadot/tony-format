@@ -7,12 +7,17 @@ import (
 	"testing"
 )
 
-// Every registered operation has a summary, or `o patch -tags` lists it with nothing
-// beside it. Coverage is the part that goes stale silently: an operation added to the
-// registry works, and is listed, and says nothing about itself until someone notices.
+// Every built-in operation has a summary, or `o patch -tags` lists it with nothing beside
+// it. Coverage is the part that goes stale silently: an operation added to the registry
+// works, and is listed, and says nothing about itself until someone notices.
+// Only the built-in operations: a namespaced one belongs to a consumer, who describes it
+// by implementing Summarized, and whose registration this package cannot audit.
 func TestEveryOperationHasASummary(t *testing.T) {
 	var missing []string
 	for _, s := range Symbols() {
+		if strings.Contains(s.String(), NamespaceSep) {
+			continue
+		}
 		if strings.TrimSpace(Summary(s.String())) == "" {
 			missing = append(missing, s.String())
 		}

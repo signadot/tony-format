@@ -48,6 +48,24 @@ var summaries = map[string]string{
 	"unquote":    "unquote a string as a document",
 }
 
-// Summary is the one-line description of an operation, by name, without the '!'. It
-// answers "" for a name the registry does not hold.
-func Summary(name string) string { return summaries[name] }
+// Summarized is a Symbol which can say in one line what it does. A consumer's operation
+// implements it to be described by `o patch -tags` alongside the built-in ones; without
+// it the operation is still listed, with nothing beside it.
+type Summarized interface {
+	Summary() string
+}
+
+// Summary is the one-line description of an operation, by name, without the '!'.
+//
+// The built-in summaries are here; anything else is asked of the Symbol itself. It
+// answers "" when neither has one, which is what a listing shows as an empty description
+// rather than as an absent operation.
+func Summary(name string) string {
+	if s, ok := summaries[name]; ok {
+		return s
+	}
+	if sym, ok := Lookup(name).(Summarized); ok {
+		return sym.Summary()
+	}
+	return ""
+}
