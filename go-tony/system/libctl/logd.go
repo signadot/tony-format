@@ -706,7 +706,7 @@ func (s *LogdSession) request(ctx context.Context, req *api.SessionRequest) (*ap
 	s.mu.Unlock()
 
 	// Write with the wire held so concurrent requests don't interleave bytes.
-	err := s.sendRequestTo(conn, req)
+	err := s.sendRequestTo(ctx, conn, req)
 	s.releaseWire()
 	if err != nil {
 		s.mu.Lock()
@@ -940,9 +940,15 @@ func (s *LogdSession) removeWatcher(id string) {
 	s.mu.Unlock()
 }
 
-// sendRequestTo sends a request to the given connection, bounded by the wire timeout.
-func (s *LogdSession) sendRequestTo(conn net.Conn, req *api.SessionRequest) error {
-	return s.sendRequestWithin(conn, req, time.Now().Add(s.wireTimeout))
+// sendRequestTo sends a request to the given connection, bounded by the wire timeout AND
+// by what the caller is waiting for, whichever expires first.
+//
+// The caller's half of that is not decoration. The writer holds the wire while it runs, so
+// a peer that has stopped READING makes every other writer wait behind this one; a caller
+// that asked for ten seconds spent thirty here, and the callers queued on acquireWire spent
+// it too. They bail on their own deadlines now, and so does this one.
+func (s *LogdSession) sendRequestTo(ctx context.Context, conn net.Conn, req *api.SessionRequest) error {
+	return s.sendRequestWithin(conn, req, s.wireDeadline(ctx))
 }
 
 // sendRequestWithin sends a request to the given connection, bounded by deadline.

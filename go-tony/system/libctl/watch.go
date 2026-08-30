@@ -184,7 +184,7 @@ func (s *LogdSession) Watch(ctx context.Context, path string, opts *WatchOptions
 			WaitIfAbsent: opts.WaitIfAbsent,
 		},
 	}
-	err := s.sendRequestTo(conn, req)
+	err := s.sendRequestTo(ctx, conn, req)
 	s.releaseWire()
 	if err != nil {
 		s.mu.Lock()
