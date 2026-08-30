@@ -6,7 +6,10 @@ commits: []
 created: "2026-08-30T23:30:40.708643+02:00"
 duplicates: []
 id: thqtmm2th12kr051jhn0
-labels: []
+labels:
+- design
+- logd
+- mergeop
 related_issues: []
 status: open
-updated: "2026-08-30T23:30:40.708643+02:00"
+updated: "2026-08-30T23:30:47.212849+02:00"
