@@ -49,17 +49,62 @@ func (s *Storage) ReadSubtreeAt(kp string, commit int64, scopeID *string) (*ir.N
 		s.readStats.note(ReadWideBadPath, kp, time.Since(started))
 		return nil, false, nil // the wide read reports what is wrong with it
 	}
+	nonField, keyed := pathSegmentShape(kp)
 	node, narrowed, err := s.narrowSubtreeAt(kp, commit, scopeID)
 	switch {
 	case err != nil:
 	case !narrowed:
-		s.readStats.note(ReadWideOperator, kp, time.Since(started))
+		// Both reasons decline here, and which one it was is the whole question a
+		// reader of the report is asking: an operator above the path is a property of
+		// what was WRITTEN and moves as writes do, while a keyed or indexed segment is
+		// a property of the path and will decline every time until the read path can
+		// address one. Counting them together said "operator" for a keyed read, which
+		// is the number that hid this (thqtmm2th12kr051jhn0).
+		if nonField {
+			s.readStats.note(ReadWideNonFieldPath, kp, time.Since(started))
+		} else {
+			s.readStats.note(ReadWideOperator, kp, time.Since(started))
+		}
+	case node == nil && keyed:
+		// A KEYED segment the narrow read found nothing at is not evidence of absence.
+		// The snapshot indexes an element by POSITION -- stream.State.CurrentPath
+		// answers `items[2]`, never `items("G")` -- so a key it cannot match and an
+		// element that is not there look identical from here, and the element may well
+		// exist. Answering "narrowed, and nothing is there" would be a wrong answer to
+		// anything that trusted the pair; the honest one is that this read cannot
+		// address the path. The caller reads wide, which is what it did anyway.
+		s.readStats.note(ReadWideNonFieldPath, kp, time.Since(started))
+		return nil, false, nil
 	case node == nil:
 		s.readStats.note(ReadWideAbsent, kp, time.Since(started))
 	default:
 		s.readStats.note(ReadNarrow, kp, time.Since(started))
 	}
 	return node, narrowed, err
+}
+
+// pathSegmentShape reports whether kp holds a segment that is not a plain field, and
+// whether one of those is a KEY. A read at such a path cannot be narrowed today: the
+// projection stops at the `!key` operator above it, the snapshot indexes elements by
+// position, and the answer cannot be re-rooted under a segment that names an element.
+// See thqtmm2th12kr051jhn0 for what each of those would take.
+//
+// kp is parsed once here rather than per segment. An unparseable path is neither: the
+// caller has already answered that case, and reporting a shape for it would invent one.
+func pathSegmentShape(kp string) (nonField, keyed bool) {
+	parsed, err := kpath.Parse(kp)
+	if err != nil || parsed == nil {
+		return false, false
+	}
+	for seg := parsed; seg != nil; seg = seg.Next {
+		if seg.Key != nil {
+			return true, true
+		}
+		if seg.Field == nil {
+			nonField = true
+		}
+	}
+	return nonField, keyed
 }
 
 // ReadSubtreeRootedAt is ReadSubtreeAt with the value put back under the path it
@@ -81,6 +126,14 @@ func (s *Storage) ReadSubtreeRootedAt(kp string, commit int64, scopeID *string) 
 		s.readStats.note(ReadWideRoot, kp, 0)
 		return nil, false, nil
 	}
+	// Asked BEFORE the read, because the answer does not depend on it: a path with a
+	// keyed or indexed segment cannot be re-rooted whatever the subtree turns out to
+	// be, and asking afterwards meant doing the narrow read and discarding it, then
+	// reading wide -- the one path that paid for both.
+	if nonField, _ := pathSegmentShape(kp); nonField {
+		s.readStats.note(ReadWideNonFieldPath, kp, 0)
+		return nil, false, nil // keyed or indexed: the wide read answers those
+	}
 	node, narrowed, err := s.ReadSubtreeAt(kp, commit, scopeID)
 	if err != nil || !narrowed || node == nil {
 		return nil, false, err
@@ -90,8 +143,10 @@ func (s *Storage) ReadSubtreeRootedAt(kp string, commit int64, scopeID *string) 
 	for i := len(segs) - 1; i >= 0; i-- {
 		name, isField := kpath.SegmentFieldName(segs[i])
 		if !isField {
+			// pathSegmentShape answered this above; kept so the construction below
+			// cannot silently build a path out of a segment that does not name a field.
 			s.readStats.note(ReadWideNonFieldPath, kp, 0)
-			return nil, false, nil // keyed or indexed: the wide read answers those
+			return nil, false, nil
 		}
 		rooted = ir.FromKeyVals([]ir.KeyVal{{Key: ir.FromString(name), Val: rooted}})
 	}
