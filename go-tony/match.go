@@ -262,15 +262,15 @@ func matchArray(doc, match *ir.Node, ctx *mergeop.OpContext, e *explainer) (bool
 // The result preserves the tag from the original document.
 // Returns nil if the doc doesn't match the criteria (used to signal exclusion).
 func Trim(match, doc *ir.Node) *ir.Node {
-	// Check for tags first - tags like !or, !not, !glob change matching semantics,
-	// not structure. If the match has a tag, verify doc matches it
-	// and return the doc as-is (since tags define matching criteria, not structure).
-	_, tag, _, _, err := mergeop.SplitChild(match)
+	_, tag, args, child, err := mergeop.SplitChild(match)
 	if err == nil && tag != "" {
-		// This is a tagged match (like !or, !glob, !and, !not, etc.)
-		// Tags define matching semantics, not structure to preserve.
-		// If doc matches the pattern, return doc as-is.
-		// If doc doesn't match, return nil to signal exclusion.
+		// An operator that names WHERE the pattern applies carries the trim with it:
+		// !at walks to the path and trims there, !all distributes over the elements.
+		// Every other operator names WHETHER a value qualifies -- !or, !not, !glob,
+		// !irtype -- and shapes nothing, so the value goes through whole or not at all.
+		if trimmed, located := trimAt(tag, args, child, doc); located {
+			return trimmed
+		}
 		matched, _ := MatchWith(doc, match, nil)
 		if matched {
 			return doc.Clone()
@@ -329,4 +329,169 @@ func Trim(match, doc *ir.Node) *ir.Node {
 	default:
 		return doc.Clone()
 	}
+}
+
+// The operators that name a LOCATION rather than a test. Taken from the symbols so a
+// rename moves them both at once.
+var (
+	atTag  = mergeop.At().String()
+	allTag = mergeop.All().String()
+)
+
+// trimAt trims through a locating operator, answering located=false for one that locates
+// nothing and is therefore a test on the value rather than a statement about which part
+// of it comes back.
+//
+// Every tagged pattern used to be a test: Trim matched it and returned the document
+// WHOLE. So `!at(verse.meta) {rev: !pass null}` -- the composition the vocabulary invites,
+// and the one a projection wants -- answered the entire document, silently doing nothing
+// rather than refusing. A projection under a path could not be written at all
+// (599k23e4h12krhw3gdn0).
+func trimAt(tag string, args []string, child, doc *ir.Node) (trimmed *ir.Node, located bool) {
+	switch tag {
+	case atTag:
+		if len(args) != 1 {
+			// A malformed !at is a defect in the pattern; let the match report it
+			// by failing, as it did before.
+			return nil, false
+		}
+		return trimKPath(args[0], child, doc), true
+	case allTag:
+		return trimAll(child, doc), true
+	}
+	return nil, false
+}
+
+// trimKPath is the trim of !at(kp): the nodes the path names, each trimmed by the pattern
+// beneath the operator, kept where they sit.
+//
+// In place is the point. A projection names what comes back and not where it moves to, so
+// the answer is rooted as the document is and the paths a caller already holds still reach
+// what they reached -- the shape the operator's own composition implies, and the one a
+// client can navigate without learning a second addressing scheme.
+//
+// A path naming nothing excludes, as !at itself does not match a document without the
+// path. A node the pattern excludes takes the whole !at with it, since !at holds only when
+// every node a wild path reaches does -- though Trim excludes rarely, because it shapes
+// rather than decides: a scalar the pattern disagrees with still comes back, and whether
+// the document qualifies is Match's question. FilterState is where the two are put
+// together.
+func trimKPath(kp string, child, doc *ir.Node) *ir.Node {
+	nodes, err := doc.ListKPath(nil, kp)
+	if err != nil || len(nodes) == 0 {
+		return nil
+	}
+	// ListKPath answers nodes detached from the tree whose parents they still point
+	// into, so the spine up to the root -- not identity with doc's own children -- is
+	// what says where each one belongs.
+	spines := map[*ir.Node]map[int]*ir.Node{}
+	for _, node := range nodes {
+		t := Trim(child, node)
+		if t == nil {
+			return nil
+		}
+		if node.Parent == nil {
+			// The path named the document itself.
+			return t
+		}
+		at, up := t, node
+		for p := node.Parent; p != nil; p, up = p.Parent, p {
+			kids := spines[p]
+			if kids == nil {
+				kids = map[int]*ir.Node{}
+				spines[p] = kids
+			}
+			if prev, seen := kids[up.ParentIndex]; !seen || prev == nil {
+				kids[up.ParentIndex] = at
+			}
+			// Above the first step the entry is a marker: what goes there is
+			// built from that container's own retained children.
+			at = nil
+		}
+	}
+	return graftSpine(doc, spines)
+}
+
+// graftSpine rebuilds n holding the retained children and nothing else, so the answer keeps
+// the document's rooting while carrying only what the path named.
+//
+// A rebuilt array closes its gaps, which is what Trim's own array case already does with
+// the elements a pattern does not name: a positional index into the answer is not the index
+// it was in the document. For a keyed list (!key) the identity a caller addresses by
+// survives, which is the case this is for.
+func graftSpine(n *ir.Node, spines map[*ir.Node]map[int]*ir.Node) *ir.Node {
+	kids := spines[n]
+	if len(kids) == 0 {
+		return nil
+	}
+	child := func(i int) *ir.Node {
+		if repl := kids[i]; repl != nil {
+			return repl
+		}
+		return graftSpine(n.Values[i], spines)
+	}
+	switch n.Type {
+	case ir.ObjectType:
+		dst := make(map[string]*ir.Node, len(kids))
+		for i := range kids {
+			if i >= len(n.Fields) || n.Fields[i].Type == ir.NullType {
+				continue
+			}
+			if kept := child(i); kept != nil {
+				dst[n.Fields[i].String] = kept
+			}
+		}
+		if len(dst) == 0 {
+			return nil
+		}
+		return ir.FromMap(dst).WithTag(n.Tag)
+	case ir.ArrayType:
+		var res []*ir.Node
+		for i := range n.Values {
+			if _, ok := kids[i]; !ok {
+				continue
+			}
+			if kept := child(i); kept != nil {
+				res = append(res, kept)
+			}
+		}
+		if len(res) == 0 {
+			return nil
+		}
+		return ir.FromSlice(res).WithTag(n.Tag)
+	}
+	return nil
+}
+
+// trimAll is the trim of !all: the pattern applies to every element, so the trim does too,
+// and the container comes back with every element trimmed. !all matches only when every
+// element does, so one element the pattern rejects excludes the whole container.
+func trimAll(child, doc *ir.Node) *ir.Node {
+	switch doc.Type {
+	case ir.ObjectType:
+		dst := make(map[string]*ir.Node, len(doc.Fields))
+		for i := range doc.Fields {
+			if doc.Fields[i].Type == ir.NullType {
+				continue
+			}
+			t := Trim(child, doc.Values[i])
+			if t == nil {
+				return nil
+			}
+			dst[doc.Fields[i].String] = t
+		}
+		return ir.FromMap(dst).WithTag(doc.Tag)
+	case ir.ArrayType:
+		res := make([]*ir.Node, 0, len(doc.Values))
+		for _, v := range doc.Values {
+			t := Trim(child, v)
+			if t == nil {
+				return nil
+			}
+			res = append(res, t)
+		}
+		return ir.FromSlice(res).WithTag(doc.Tag)
+	}
+	// A scalar has no elements; !all defers to the pattern on the value itself.
+	return Trim(child, doc)
 }
