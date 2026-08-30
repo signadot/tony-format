@@ -37,9 +37,9 @@ every element deep-copied before the key map is consulted.
   - the dlog is length-prefixed and read by structure, never materialized whole;
   - a snapshot is an event stream with a chunked offset index (4096 bytes per entry,
     snap/constants.go) and a streaming PathEventReader -- so a seek is already O(chunk);
-  - a POSITIONAL element read already works end to end. Verified against a store with a
-    snapshot: ReadSubtreeAt(`items[2]`) narrows and answers `{q: 7 sku: G}` without the
-    array.
+  - a POSITIONAL element read already works at the storage layer. Verified against a
+    store with a snapshot: ReadSubtreeAt(`items[2]`) narrows and answers `{q: 7 sku: G}`
+    without the array. It does NOT reach a client -- see fence 4, which discards it.
 
 So the machinery for "seek to an element and stream it" exists. What is missing is that
 none of it can be addressed BY KEY.
@@ -67,9 +67,15 @@ Verified by probe against a store with a snapshot and a keyed array of three ele
 3. **The merge clones the array**, above.
 
 4. **ReadSubtreeRootedAt cannot re-root through a non-field segment**
-   (read_subtree.go:90): `kpath.SegmentFieldName` reports `items("G")` is not a field, so
-   it answers not-narrowed and the caller reads wide. Rarely reached, because 1 and 2 bite
-   first -- reads.wide.keyed-or-idx stayed 0 in every probe.
+   (read_subtree.go): `kpath.SegmentFieldName` reports `items("G")` is not a field, so it
+   answers not-narrowed and the caller reads wide.
+
+   This is the fence that matters most and I under-rated it when this was filed. It is not
+   keyed-specific: `items[2]` narrows at the storage layer and returns the element, and
+   this throws it away, so no read at an element of ANY array reaches a client narrowed.
+   Stage 2 is therefore worth doing for positional paths whether or not keying is ever
+   addressed. Until stage 0 it also did the discarded read first, paying for the narrow
+   read and the wide one.
 
 5. **RootPatchAt cannot express an element path at all.** `items("A")` carries the key
    VALUE where building the structure needs the key FIELD, which is why RootKeyedListAt
@@ -80,11 +86,14 @@ Verified by probe against a store with a snapshot and a keyed array of three ele
 
 Each stage stands alone and is measurable by the read counters.
 
-**0. Make the counters tell the truth (no format change).** A keyed path that goes wide
-should be counted as keyed, not as "operator" or "absent". Today the reason a keyed read
-is slow is invisible in the report, and every stage below is judged by these numbers. Fix
-1's return with it: a keyed path the narrow read cannot address should say "could not
-narrow", not "narrowed, absent".
+**0. Make the counters tell the truth (no format change). DONE, c3e53a2.** A keyed path
+that goes wide is counted as keyed rather than as "operator" or "absent", so the later
+stages have a number to move: a store doing nothing but keyed reads used to report
+reads.wide.keyed-or-idx = 0. Fence 1's return went with it -- a keyed path the narrow read
+cannot address now declines instead of answering "narrowed, absent", which was a wrong
+answer that only ReadSubtreeRootedAt's convention of reading nil as "go wide" kept from
+being seen. And ReadSubtreeRootedAt now decides from the path before reading, so the
+discarded-then-repeated read in fence 4 is gone.
 
 **1. Project through `!key` (no format change).** `projectPatchesAt`, meeting `!key(f)`
 with a `(v)` segment next, selects the element whose f is v and projects to it. This is
