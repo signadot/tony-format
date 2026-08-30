@@ -33,11 +33,14 @@ func tonyEval(cfg *EvalConfig, cc *cli.Context, args []string) error {
 		return err
 	}
 	if cfg.Tags {
-		fmt.Fprintf(cc.Out, "available eval tags:\n")
+		// A list, not a map: the eval registry knows its names and not what they do,
+		// and a map with empty values would claim otherwise. See mergeop/summary.go
+		// for the shape this takes once there is prose to put in it.
+		var names []string
 		for _, s := range eval.Symbols() {
-			fmt.Fprintf(cc.Out, "\t- %s\n", s)
+			names = append(names, s.String())
 		}
-		return nil
+		return writeTagList(cc, cfg.encOpts(cc.Out), names)
 	}
 	tool := tony.DefaultTool()
 	tool.Env = eval.EnvToMapAny(cfg.Env)

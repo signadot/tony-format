@@ -25,16 +25,14 @@ func patch(cfg *PatchConfig, cc *cli.Context, args []string) error {
 		return err
 	}
 	if cfg.Tags {
-		fmt.Fprintf(cc.Out, "available patch tags:\n")
+		var pairs [][2]string
 		for _, s := range mergeop.Symbols() {
 			if !s.IsPatch() {
 				continue
 			}
-			fmt.Fprintf(cc.Out, "\t- %s\n", s)
-
+			pairs = append(pairs, [2]string{s.String(), mergeop.Summary(s.String())})
 		}
-		return nil
-
+		return writeTagDoc(cc, cfg.encOpts(cc.Out), pairs)
 	}
 	if len(args) == 0 {
 		return usageErr(cfg.Patch, cc, "patch requires 1 argument, a patch object, and reads the documents to patch from its file arguments or from standard input")

@@ -59,8 +59,8 @@ it does not exist — see [Keyed arrays](../logd/keyed.md).
 | `!quote` | quote a document as a string |
 | `!raw` | the escape: treat the subtree as data, interpreting no operation at any depth |
 | `!rename` | rename fields, relative to the keys that are there |
-| `!replace` | CHECKED: verify the node still equals `from:`, then install `to:` |
-| `!retag` | CHECKED: verify the tag is `from`, then make it `to` |
+| `!replace` | verify the node still equals `from:`, then install `to:` |
+| `!retag` | verify the tag is `from`, then make it `to` |
 | `!rmtag` | remove a tag; its absence is what results |
 | `!strdiff` | a string edit, relative to the string that is there |
 | `!subtree` | match any subtree of the doc |

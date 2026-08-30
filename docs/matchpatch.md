@@ -43,11 +43,11 @@ directories and via `o match` and `o patch`.
 | `!pipe`    |   -   |   +   |     -          | pipe the doc node to a program and replace it with the program's output          |
 | `!insert`  |   -   |   +   |     -          | add a value; the value is what results                                           |
 | `!delete`  |   -   |   +   |     -          | remove a value; absence is what results                                          |
-| `!replace` |   -   |   +   |     -          | CHECKED: verify the node still equals `from:`, then install `to:`                |
+| `!replace` |   -   |   +   |     -          | verify the node still equals `from:`, then install `to:`                |
 | `!addtag`  |   -   |   +   | tag            | add a tag; the tag is what results                                               |
 | `!rmtag`   |   -   |   +   | tag            | remove a tag; its absence is what results                                        |
 | `!comment` |   +   |   +   |     -          | match or state the comments here; the operand names head, line or both, `[]` for none|
-| `!retag`   |   -   |   +   | from,to        | CHECKED: verify the tag is `from`, then make it `to`                             |
+| `!retag`   |   -   |   +   | from,to        | verify the tag is `from`, then make it `to`                             |
 | `!strdiff` |   -   |   +   |     -          | a string edit, relative to the string that is there                              |
 | `!arraydiff`|   -   |   +   |     -          | an array edit, relative and positional                                           |
 | `!rename`  |   -   |   +   |     -          | rename fields, relative to the keys that are there                               |
@@ -95,9 +95,9 @@ vocabulary refuses them beside `!if` and `!let`: what they answer against a base
 that has moved is a different value.
 
 The last nine are what a diff produces, and they divide on two lines worth
-knowing: CHECKED operations assert something about what they meet and fail if it
+knowing: checked operations assert something about what they meet and fail if it
 does not hold, while insert, delete, addtag and rmtag simply state a result; and
-strdiff, arraydiff and rename are RELATIVE, re-evaluating against whatever is
+strdiff, arraydiff and rename are relative, re-evaluating against whatever is
 there. Both distinctions matter to anything that stores a patch and applies it
 later, and logd draws two rules from them rather than one. Baseline replays
 against a base that never moves, so what it needs is that the patch applies at
