@@ -84,9 +84,19 @@ func applyScopeOp(t *testing.T, s *Storage, o scopeOp, scope string) (int64, err
 // lowering on came from streams committed with NewTx(1, nil), so the scope path had
 // none of it.
 //
-// Two stores, the same mixed stream of baseline and scoped writes, one lowering and
-// one not. A scope read must answer the same in both at every commit -- lowering
-// changes what the log KEEPS and must not change what it says.
+// Two stores, the same mixed stream of baseline and scoped writes: one lowering by the
+// ordinary rule, one forced to lower every write. A scope read must answer the same in
+// both at every commit -- lowering changes what the log KEEPS and must not change what
+// it says.
+//
+// The arms are LowerEverything(false)/(true) rather than lowering off/on because the
+// amplifier is what actually exercises the transformation. Against a store with lowering
+// OFF this stream lowered NOTHING by default -- 0 fired against 750 skipped, since almost
+// nothing anyone writes is relative -- so the differential compared two stores doing the
+// same thing and held vacuously unless LOGD_LOWERING=all was set. Forcing one arm through
+// the path puts the same 372 lowered writes under the comparison with no environment
+// needed, and it is the form that survives the escape hatch going away
+// (gwdjwtz3h12ks8mfjdn0), since there will be no unlowered store to diff against.
 func TestLoweringScopeDifferential(t *testing.T) {
 	const scope = "s1"
 	diverged := 0
@@ -95,9 +105,9 @@ func TestLoweringScopeDifferential(t *testing.T) {
 		ops := genScopeOps(rng, 30)
 
 		plain := openTestStorage(t)
-		plain.EnableLowering(false)
+		plain.LowerEverything(false)
 		low := openTestStorage(t)
-		low.EnableLowering(true)
+		low.LowerEverything(true)
 
 		for i, o := range ops {
 			cp, ep := applyScopeOp(t, plain, o, scope)
