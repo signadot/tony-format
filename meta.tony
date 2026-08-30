@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 41822aba81ea6d00ded6ee1b48fd0716057a0bf7
 commits: []
 created: "2026-08-20T10:58:50.822586+02:00"
 duplicates: []
@@ -9,5 +10,5 @@ id: xmxt2p85h12ksjp1gsn0
 labels: []
 related_issues:
 - fk8hrnhrh12ks863gsn0
-status: open
-updated: "2026-08-20T11:06:42.20755+02:00"
+status: closed
+updated: "2026-08-30T22:54:19.394666+02:00"
