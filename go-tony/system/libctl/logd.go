@@ -437,6 +437,29 @@ func (s *LogdSession) newIDLocked() string {
 
 // Match performs a match query at the given path, returning the full state
 // there.
+// Ping asks whether the session is alive, and answers with where the store is: the head
+// commit and the oldest commit a watch may still replay from. Both come from memory --
+// no read, no path -- which is what makes this the right question to ask when the
+// question is about the connection.
+//
+// It was internal, used only by the heartbeat, so a caller wanting to know whether its
+// session worked reached for a read of the root instead. That is a different question,
+// and since a store where nothing has been written has nothing at any path, it is one
+// with an answer that looks like a failure (bymhrqz7h12ksas3jhn0).
+//
+// Commit is zero when the answering server tracks no single head, which a router in
+// front of several stores does not.
+func (s *LogdSession) Ping(ctx context.Context) (*api.PongResult, error) {
+	resp, err := s.request(ctx, &api.SessionRequest{Ping: &api.PingRequest{}})
+	if err != nil {
+		return nil, err
+	}
+	if resp.Result == nil || resp.Result.Pong == nil {
+		return &api.PongResult{}, nil
+	}
+	return resp.Result.Pong, nil
+}
+
 func (s *LogdSession) Match(ctx context.Context, path string) (*ir.Node, error) {
 	node, _, err := s.matchAt(ctx, path, nil, nil)
 	return node, err

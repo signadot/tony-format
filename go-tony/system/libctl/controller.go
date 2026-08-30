@@ -413,24 +413,65 @@ func (rt *controllerRuntime) reply(resp *api.SessionResponse) error {
 	return nil
 }
 
-// replyErr sends an error response, mapping ErrUnsupported to the unsupported
-// error code so docd and the client can distinguish a declined operation.
+// forwardableCodes are the error codes that mean the same thing whichever hop reports
+// them, and so may be passed to the client as the controller received them.
+//
+// The axis is what the code is ABOUT. These describe the document, or this request's
+// relationship to it: they are as true for the client as they were for the controller,
+// and a client acts on them the same way.
+//
+// The ones deliberately absent describe a CONNECTION or a lifecycle the client is not
+// party to -- session_closed, protocol_mismatch, invalid_watch, not_watching,
+// already_watching, slow_consumer, the replay_* pair, the tx_* family, and
+// invalid_message. A controller's downstream session closing is not the client's session
+// closing; a downstream calling the controller's message invalid is the controller's bug,
+// not the client's. Forwarding those would name a condition that has not happened, which
+// is the mistake docd made when a failed composed read reported session_closed.
+var forwardableCodes = map[string]bool{
+	api.ErrCodeNotFound:       true,
+	api.ErrCodePathConflict:   true,
+	api.ErrCodeInvalidPath:    true,
+	api.ErrCodeInvalidDiff:    true,
+	api.ErrCodeMatch:          true,
+	api.ErrCodeMatchFailed:    true,
+	api.ErrCodeCommitNotFound: true,
+	api.ErrCodeScopeNotFound:  true,
+	api.ErrCodeScopeExists:    true,
+	api.ErrCodeUnsupported:    true,
+	api.ErrCodeStorage:        true,
+	api.ErrCodeTimeout:        true,
+}
+
+// replyErr answers a request the controller could not serve, with a code the client can
+// act on. It takes the first of:
+//
+//  1. a forwardable code the error already carries -- a controller which serves from
+//     another session hands back that session's error, and its classification with it
+//  2. this package's own sentinels, for an error a handler built rather than received
+//  3. storage_error, for a responder that failed and did not say why
+//
+// The default used to be invalid_message, which says the CLIENT's request was wrong. Every
+// caller here but one is a handler that failed, and the one that is not passes
+// ErrUnsupported explicitly -- so the default blamed the request for the responder's
+// failure, and a client acting on it would rewrite a request that was fine. logd draws the
+// line the same way: storage_error is what it sends when the server could not do the
+// thing, and invalid_message when the message itself was wrong.
 func (rt *controllerRuntime) replyErr(id *string, err error) {
-	code := api.ErrCodeInvalidMessage
-	switch {
+	rt.reply(api.NewErrorResponse(id, replyErrCode(err), err.Error()))
+}
+
+// replyErrCode is the decision replyErr makes, as a function of the error alone, so that
+// what a client is told can be checked without a connection to tell it over.
+func replyErrCode(err error) string {
+	switch carried := api.ErrorCode(err); {
+	case forwardableCodes[carried]:
+		return carried
 	case errors.Is(err, ErrUnsupported):
-		code = api.ErrCodeUnsupported
+		return api.ErrCodeUnsupported
 	case errors.Is(err, ErrMatchFailed):
 		// A failed compare-and-swap must reach the client as match_failed so its
 		// PatchIf/PatchTxIf surfaces ErrMatchFailed.
-		code = api.ErrCodeMatchFailed
-	case api.ErrorCode(err) == api.ErrCodeNotFound:
-		// Nothing at the path is a fact about the document, not about the request, and
-		// a client acts on it -- a composed read treats an absent source as a
-		// contribution of nothing rather than as a failure. Flattened to
-		// invalid_message it said the caller had asked wrongly, which is both untrue
-		// and unactionable (bymhrqz7h12ksas3jhn0).
-		code = api.ErrCodeNotFound
+		return api.ErrCodeMatchFailed
 	}
-	rt.reply(api.NewErrorResponse(id, code, err.Error()))
+	return api.ErrCodeStorage
 }

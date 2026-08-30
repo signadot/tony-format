@@ -119,8 +119,12 @@ func TestTCPListener_MatchRequest(t *testing.T) {
 	if resp.ID == nil || *resp.ID != "req-1" {
 		t.Errorf("expected id 'req-1', got %v", resp.ID)
 	}
-	if resp.Result == nil || resp.Result.Match == nil {
-		t.Fatal("expected match result")
+	// The store is empty, and an empty store has nothing at any path -- the empty one
+	// included, since a read answers null only where a null was written
+	// (bymhrqz7h12ksas3jhn0). What this test is about is that the listener carries a
+	// match request and answers it with the request's own id, which it does either way.
+	if resp.Error == nil || resp.Error.Code != api.ErrCodeNotFound {
+		t.Fatalf("expected not_found from an empty store, got %+v", resp)
 	}
 }
 

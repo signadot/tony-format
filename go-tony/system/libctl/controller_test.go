@@ -1356,7 +1356,10 @@ func TestDocd_LogdDialBackoff(t *testing.T) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_, err := client.Match(ctx, "") // root match returns cleanly on an empty store
+		// A read, deliberately, and not a ping: docd answers a ping from its own
+		// memory without dialing logd, so a ping would complete whether or not the
+		// backoff worked. This has to be a request that only logd can answer.
+		_, err := client.Match(ctx, "")
 		matchErr <- err
 	}()
 
@@ -1366,8 +1369,11 @@ func TestDocd_LogdDialBackoff(t *testing.T) {
 
 	select {
 	case err := <-matchErr:
-		if err != nil {
-			t.Fatalf("expected match to succeed once logd started: %v", err)
+		// logd answered. The store is empty, so what it answers is that there is
+		// nothing at the path (bymhrqz7h12ksas3jhn0) -- which is an answer, and the
+		// thing being tested is that one arrived rather than a dial failure.
+		if code := api.ErrorCode(err); err != nil && code != api.ErrCodeNotFound {
+			t.Fatalf("expected match to succeed once logd started: %v (code %q)", err, code)
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("match did not complete after logd started")

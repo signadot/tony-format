@@ -211,8 +211,8 @@ func TestLogdSession_WatchClose(t *testing.T) {
 	}
 
 	// Requests on the session still work after a watch is closed.
-	if _, err := session.Match(ctx, ""); err != nil {
-		t.Errorf("Match after watch Close failed: %v", err)
+	if _, err := session.Ping(ctx); err != nil {
+		t.Errorf("Ping after watch Close failed: %v", err)
 	}
 
 	// Re-watching the same path should now succeed.

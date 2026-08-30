@@ -87,6 +87,12 @@ func (e *PathError) Error() string {
 		// assuming every segment wants an object: `[0]` wants an array.
 		return fmt.Sprintf("no value at %q: %s is %v, not %s", e.Path, where, e.Found, wants(e.Segment))
 	default:
+		// Nothing written anywhere: there is no segment that failed, and saying one did
+		// reads as nonsense ("no element \"\" at the document root"). What happened is
+		// that the store has nothing in it, which is what an operator needs to be told.
+		if e.Segment == "" && e.Resolved == "" {
+			return fmt.Sprintf("no value at %q: the store is empty", e.Path)
+		}
 		what := "field"
 		if _, isField := kpath.SegmentFieldName(e.Segment); !isField {
 			what = "element"
@@ -153,14 +159,18 @@ func IsPathAbsent(err error) bool {
 // A failure is always a *PathError; see PathErrorKind for what the caller can do
 // about each one.
 func extractPathValue(doc *ir.Node, kp string) (*ir.Node, error) {
-	if kp == "" {
-		// The whole document, including the empty one. A store where nothing has been
-		// written has a null root, and that is a fact about the store rather than about
-		// a path: there is no segment that failed to resolve, so there is nothing to
-		// report absent.
-		if doc == nil {
-			return ir.Null(), nil
+	if doc == nil {
+		// Nothing has been written anywhere. There is no path here, the empty one
+		// included: a read answers null where a null was WRITTEN, and a store nobody has
+		// written to holds no null to read. Reporting the root as a null was the same
+		// conflation one level up -- "the store is empty" and "the root is null" are
+		// different facts, and a client that cannot tell them apart cannot tell whether
+		// it is looking at a fresh store or at one somebody emptied.
+		if kp == "" {
+			return nil, &PathError{Kind: PathAbsent, Path: kp}
 		}
+	}
+	if kp == "" {
 		return doc, nil
 	}
 	if doc == nil {

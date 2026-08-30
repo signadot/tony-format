@@ -74,16 +74,24 @@ func TestLogdSession_Match(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Match on empty store returns null
+	// A store where nothing has been written has nothing at any path, the empty one
+	// included: a read answers null where a null was WRITTEN, and there is no such null
+	// here (bymhrqz7h12ksas3jhn0). This used to answer null, which made a fresh store
+	// and a root somebody wrote null to the same answer.
+	if _, err := session.Match(ctx, ""); logdapi.ErrorCode(err) != logdapi.ErrCodeNotFound {
+		t.Fatalf("match on an empty store: %v, want not_found", err)
+	}
+
+	// And once something is written, the root reads it.
+	if _, err := session.Patch(ctx, "a", ir.FromInt(1)); err != nil {
+		t.Fatalf("patch: %v", err)
+	}
 	result, err := session.Match(ctx, "")
 	if err != nil {
 		t.Fatalf("Match failed: %v", err)
 	}
-	if result == nil {
-		t.Fatal("expected non-nil result")
-	}
-	if result.Type != ir.NullType {
-		t.Errorf("expected null result, got %v", result.Type)
+	if result == nil || result.Type != ir.ObjectType {
+		t.Errorf("expected the written document, got %v", result)
 	}
 }
 
@@ -250,10 +258,10 @@ func TestLogdSession_Reconnect(t *testing.T) {
 		t.Fatalf("Connect failed: %v", err)
 	}
 
-	// Do a match to verify connection works
-	_, err := session.Match(ctx, "")
-	if err != nil {
-		t.Fatalf("Match failed: %v", err)
+	// Ping, not a read: the question is whether the session works, and ping answers it
+	// from memory without asking about any path.
+	if _, err := session.Ping(ctx); err != nil {
+		t.Fatalf("Ping failed: %v", err)
 	}
 
 	// Simulate connection break by closing internally
@@ -262,9 +270,8 @@ func TestLogdSession_Reconnect(t *testing.T) {
 	session.mu.Unlock()
 
 	// Next operation should reconnect
-	_, err = session.Match(ctx, "")
-	if err != nil {
-		t.Fatalf("Match after reconnect failed: %v", err)
+	if _, err := session.Ping(ctx); err != nil {
+		t.Fatalf("Ping after reconnect failed: %v", err)
 	}
 
 	if !session.Connected() {
