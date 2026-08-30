@@ -3,7 +3,7 @@
 A keyed array exists so an element can be named by identity instead of position. The
 STORED delta already honours that -- a write naming one element stores one element -- but
 every other stage still touches the whole array, and a read at an element touches the
-whole DOCUMENT. This is the plan for closing that, in stages that are each useful alone.
+whole DOCUMENT. This is the plan for closing that, in pieces that are each useful alone.
 
 ## Where the cost is paid today
 
@@ -73,9 +73,9 @@ Verified by probe against a store with a snapshot and a keyed array of three ele
    This is the fence that matters most and I under-rated it when this was filed. It is not
    keyed-specific: `items[2]` narrows at the storage layer and returns the element, and
    this throws it away, so no read at an element of ANY array reaches a client narrowed.
-   Stage 2 is therefore worth doing for positional paths whether or not keying is ever
-   addressed. Until stage 0 it also did the discarded read first, paying for the narrow
-   read and the wide one.
+   Re-rooting is therefore worth doing for positional paths whether or not keying is
+   ever addressed. It also used to do the discarded read FIRST, paying for the narrow
+   read and the wide one; that half is fixed (c3e53a2).
 
 5. **RootPatchAt cannot express an element path at all.** `items("A")` carries the key
    VALUE where building the structure needs the key FIELD, which is why RootKeyedListAt
@@ -88,7 +88,7 @@ Numbering these 0..5 was a mistake in the first draft: it read as a sequence, an
 not one. There is exactly ONE ordering constraint in the whole plan, and the rest is a
 choice about which cost to stop paying first. Grouped by what each actually finishes.
 
-### Measurement -- DONE (c3e53a2)
+### Measurement -- DONE (c3e53a2, "stage 0" in that commit message)
 
 Counters that name a keyed read as keyed rather than as "operator" or "absent", so
 everything below has a number to move. A keyed path the narrow read cannot address now
@@ -146,8 +146,8 @@ together, which is when a keyed read finally narrows. Residency last, on its own
 
 ## Note
 
-Stage 3 alone changes the shape of writes, and stages 1+2+4 together change the shape of
-reads. Nothing here requires the vocabulary to grow: `!key` already means identity, and
+The clone fix alone changes the shape of writes; projection, re-rooting and the snapshot
+index together change the shape of reads. Nothing here requires the vocabulary to grow: `!key` already means identity, and
 RootKeyedListAt already shows how an element is named in a patch. What is missing is that
 the read path, the projection and the snapshot index never learned it.
 
