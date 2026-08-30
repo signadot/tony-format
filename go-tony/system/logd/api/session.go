@@ -379,6 +379,7 @@ type WatchEvent struct {
 	ReplayComplete bool     `tony:"field=replayComplete,omitzero"` // Marker that replay is complete
 	Ended          bool     `tony:"field=ended,omitzero"`          // Terminal marker: the watch has ended and the client should re-establish it
 	EndReason      string   `tony:"field=endReason,omitzero"`      // Why the watch ended, from the ErrCode* vocabulary (e.g. session_mounted, session_unmounted, controller_unavailable)
+	EndMessage     string   `tony:"field=endMessage,omitzero"`     // What the reason code cannot carry: the floor a compacted replay left, the range a read failed over, why a path cannot be extracted
 }
 
 // SessionError is an error response.
@@ -648,19 +649,26 @@ func NewReplayCompleteEvent(id *string, path string) *SessionResponse {
 // is the highest commit the watch accounted for — a resume point for a gapless reconnect.
 // See NewStateEvent for id.
 //
+// message is the detail the code cannot carry, and may be empty. A code says which KIND
+// of ending this is; the numbers that make it actionable — the floor a compacted replay
+// left behind, the range a read failed over — only fit in prose. They used to be composed
+// and then written to the server's log alone, so a client could report that its cursor was
+// gone but not what the store still held (zmq8bdhwh12kstkqjhn0).
+//
 // A watch that has already been confirmed must end with THIS, never with an error
 // response. An error response is routed by request id, and a watch's request completed
 // when the watch opened, so the id no longer matches anything in flight: the client drops
 // it and waits forever on a watch the server has already abandoned. Ending a request that
 // is still in flight — rejecting the watch request itself — is the error response's job.
-func NewEndedEvent(id *string, path, reason string, commit int64) *SessionResponse {
+func NewEndedEvent(id *string, path, reason, message string, commit int64) *SessionResponse {
 	return &SessionResponse{
 		ID: id,
 		Event: &WatchEvent{
-			Path:      path,
-			Commit:    commit,
-			Ended:     true,
-			EndReason: reason,
+			Path:       path,
+			Commit:     commit,
+			Ended:      true,
+			EndReason:  reason,
+			EndMessage: message,
 		},
 	}
 }

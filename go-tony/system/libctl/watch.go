@@ -48,9 +48,19 @@ type WatchEndedError struct {
 	Path   string
 	Reason string
 	Commit int64
+
+	// Message is the detail behind Reason, and may be empty. Reason says which kind of
+	// ending this is, from a fixed vocabulary a caller can switch on; Message carries
+	// the part that does not fit in a code -- the floor a compacted replay left behind,
+	// the commit range a read failed over -- which is what a caller needs to report the
+	// ending to a person.
+	Message string
 }
 
 func (e *WatchEndedError) Error() string {
+	if e.Message != "" {
+		return fmt.Sprintf("watch on %q ended at commit %d: %s: %s", e.Path, e.Commit, e.Reason, e.Message)
+	}
 	return fmt.Sprintf("watch on %q ended at commit %d: %s", e.Path, e.Commit, e.Reason)
 }
 

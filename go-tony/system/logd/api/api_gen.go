@@ -2916,6 +2916,11 @@ func (s *WatchEvent) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["endReason"] = ir.FromString(string(s.EndReason))
 	}
 
+	// Field: EndMessage
+	if s.EndMessage != "" {
+		irMap["endMessage"] = ir.FromString(string(s.EndMessage))
+	}
+
 	return ir.FromMap(irMap), nil
 }
 
@@ -2991,6 +2996,12 @@ func (s *WatchEvent) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 				return fmt.Errorf("field %q: expected string, got %v", "endReason", fieldNodeUnwrapped.Type)
 			}
 			s.EndReason = string(fieldNodeUnwrapped.String)
+		case "endMessage":
+			// Field: EndMessage
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "endMessage", fieldNodeUnwrapped.Type)
+			}
+			s.EndMessage = string(fieldNodeUnwrapped.String)
 		default:
 			if gomap.IsStrict(opts...) {
 				return fmt.Errorf("unknown field %q for WatchEvent", fieldName.String)

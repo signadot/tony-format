@@ -638,10 +638,14 @@ func (s *Session) cleanupWatches() {
 // commit is the highest commit this watch accounted for, so the client can resume from it
 // rather than re-reading everything; 0 when it never got that far. message is for the
 // server log, since the terminal event carries a short reason code and no prose.
+// failWatch ends a watch and says why: a reason code from the ErrCode* vocabulary, and
+// the message that carries what the code cannot. The message goes to the CLIENT as well
+// as the log -- it used to be logged and dropped, so a client could be told its cursor was
+// compacted but not what the store still held (zmq8bdhwh12kstkqjhn0).
 func (s *Session) failWatch(watcher *Watcher, reason, message string, commit int64) {
 	s.log.Warn("watch ended", "path", watcher.Path, "reason", reason, "detail", message, "commit", commit)
 	// Stamp the watch id so the client fails the right watch (several may share a path).
-	s.send(api.NewEndedEvent(watcher.ID, watcher.Path, reason, commit))
+	s.send(api.NewEndedEvent(watcher.ID, watcher.Path, reason, message, commit))
 	s.hub.Unwatch(watcher)
 	s.watchMu.Lock()
 	delete(s.watches, watchKey(watcher.ID, watcher.Path))

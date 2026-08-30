@@ -863,7 +863,7 @@ func (s *LogdSession) routeEvent(id *string, ev *api.WatchEvent) {
 		return
 	}
 	if ev.Ended {
-		w.fail(&WatchEndedError{Path: ev.Path, Reason: ev.EndReason, Commit: ev.Commit})
+		w.fail(&WatchEndedError{Path: ev.Path, Reason: ev.EndReason, Message: ev.EndMessage, Commit: ev.Commit})
 		return
 	}
 	w.deliver(ev)

@@ -293,7 +293,7 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 		// baseline. Deltas against a baseline the client never received would be applied
 		// to whatever it already held, so it is better to end the watch than to stream
 		// into a state nobody established.
-		s.terminateWatch(key, logdapi.ErrCodeMatchFailed)
+		s.terminateWatchWith(key, logdapi.ErrCodeMatchFailed, initErr.Error())
 		return
 	}
 	if !req.Watch.NoInit {
@@ -364,7 +364,9 @@ func (cw *composedWatch) forward(resp *logdapi.SessionResponse) {
 		if reason == "" {
 			reason = "watch_ended"
 		}
-		cw.client.terminateWatch(cw.key, reason)
+		// The sub-watch's own message goes with it: a composed client cannot see the
+		// mount that failed, so the code alone tells it nothing it can act on or report.
+		cw.client.terminateWatchWith(cw.key, reason, resp.Error.Message)
 		return
 	}
 	if resp.Event == nil {
@@ -528,8 +530,13 @@ func (s *ClientSession) releaseWatchToken(key string) {
 // why), so it re-establishes. id, when non-nil, is the client's watch id so the
 // client routes it to the exact watch (several may share a path); commit is the
 // highest commit delivered on the watch, a resume point for a gapless reconnect.
-func terminalWatchEvent(id *string, path, reason string, commit int64) *logdapi.SessionResponse {
-	return &logdapi.SessionResponse{ID: id, Event: &logdapi.WatchEvent{Path: path, Commit: commit, Ended: true, EndReason: reason}}
+//
+// message carries what the reason code cannot, and may be empty. A membership change
+// has nothing to add -- the code says the whole of it -- but a failure relayed from a
+// sub-watch does, and dropping it left a composed client knowing only that something
+// under it failed (zmq8bdhwh12kstkqjhn0).
+func terminalWatchEvent(id *string, path, reason, message string, commit int64) *logdapi.SessionResponse {
+	return &logdapi.SessionResponse{ID: id, Event: &logdapi.WatchEvent{Path: path, Commit: commit, Ended: true, EndReason: reason, EndMessage: message}}
 }
 
 // terminateWatch ends a client watch — whether forced by a mount/unmount, failed
@@ -539,8 +546,13 @@ func terminalWatchEvent(id *string, path, reason string, commit int64) *logdapi.
 // or a single-route watch's one backend). Idempotent: only the first call for a
 // key does the work.
 func (s *ClientSession) terminateWatch(key, reason string) {
+	s.terminateWatchWith(key, reason, "")
+}
+
+// terminateWatchWith is terminateWatch with the detail behind the reason code.
+func (s *ClientSession) terminateWatchWith(key, reason, message string) {
 	s.endWatch(key, func(w *clientWatch, commit int64) {
-		_ = s.writeToClient(terminalWatchEvent(w.clientID, w.path, reason, commit))
+		_ = s.writeToClient(terminalWatchEvent(w.clientID, w.path, reason, message, commit))
 	})
 }
 

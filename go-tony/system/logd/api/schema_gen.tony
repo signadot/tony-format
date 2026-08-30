@@ -252,6 +252,7 @@ context:
 - tony-base: github.com/signadot/tony-format/go-tony/schema
 define:
   commit: .[int]
+  endMessage: .[string]
   endReason: .[string]
   ended: .[bool]
   patch: .[tony-base:ir]

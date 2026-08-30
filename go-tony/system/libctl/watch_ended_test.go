@@ -3,6 +3,8 @@ package libctl
 import (
 	"context"
 	"errors"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,6 +89,23 @@ func TestWatchEnded_ClientLearnsTheWatchDied(t *testing.T) {
 	}
 	if ended.Path != "users/1" {
 		t.Errorf("Path = %q, want %q", ended.Path, "users/1")
+	}
+
+	// And WHAT THE STORE STILL HOLDS, which is the part a reason code cannot carry. A
+	// client told only "replay_compacted" knows its cursor is gone and nothing else --
+	// it cannot tell a person where history now starts, or pick a cursor that would
+	// work. The floor was composed into a message and then written to the server's log
+	// alone (zmq8bdhwh12kstkqjhn0).
+	if ended.Message == "" {
+		t.Fatal("the ending carried no message, so the client cannot say what the store still holds")
+	}
+	if floor := store.ReplayFloor(); !strings.Contains(ended.Message, strconv.FormatInt(floor+1, 10)) {
+		t.Errorf("message %q names no exact-from commit; the floor is %d so it should name %d",
+			ended.Message, floor, floor+1)
+	}
+	// Error() puts it where a person reading a log will see it.
+	if !strings.Contains(ended.Error(), ended.Message) {
+		t.Errorf("Error() = %q, which drops the message again", ended.Error())
 	}
 }
 

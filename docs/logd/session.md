@@ -275,6 +275,12 @@ to the retained floor), reads the composed initial state at that commit, replays
 mount from it, and delivers the replayed deltas **in commit order** followed by a single
 `replayComplete`.
 
+A watch that has been confirmed always ends with a terminal **event**, never an error
+response — the request it came from finished when the watch opened, so an error routed by
+that id matches nothing in flight. The event carries `endReason`, a code from the ErrCode
+vocabulary, and `endMessage`, which is where the numbers live: `replay_compacted` says the
+cursor is gone, and only the message says from which commit the store can still serve.
+
 What a composed watcher must account for is **membership**: a mount arriving or leaving
 mid-watch ends the watch with `session_mounted` or `session_unmounted`, and the re-watch
 composes the new membership — the composition changed, so deltas from before it describe a

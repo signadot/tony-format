@@ -112,7 +112,10 @@ describing. docd handles it by **re-initializing**:
   of the gap.
 
 A snapshot-diffing consumer reconciles the re-init with no lost state. The terminal
-event also carries the **last delivered commit** as a resume point
+event carries `endReason` — a code from the same vocabulary as an error's — and
+`endMessage`, the detail the code cannot hold: the floor a compacted replay left behind,
+the commit range a read failed over, the sub-watch failure a composed client cannot see
+for itself. It also carries the **last delivered commit** as a resume point
 (`WatchEndedError.Commit` in libctl) — exact for a single-route watch, whose events
 arrive in commit order. For a composed one it is a **hint**: live deltas from different
 mounts are forwarded as they arrive rather than merged in commit order, so the mark can
