@@ -1,5 +1,13 @@
 !issue
+blocked_by: []
+blocks: []
+branches: []
+closed_by: fb23481bc2bb02ed0fcad5208b2c50ae3e2f7057
+commits: []
 created: "2025-12-21T01:35:34.061432+01:00"
+duplicates: []
 id: hkn7ptxch12ksnj08xmg
-status: open
-updated: "2025-12-21T01:35:34.061432+01:00"
+labels: []
+related_issues: []
+status: closed
+updated: "2026-08-30T21:45:44.908637+02:00"
