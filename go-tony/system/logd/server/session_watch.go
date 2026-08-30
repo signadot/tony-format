@@ -187,11 +187,14 @@ type watchStream struct {
 	// A SCOPED watcher cannot step that way: its view is baseline with the scope's writes
 	// applied LAST, so they shadow baseline stickily, and folding a baseline patch into a
 	// materialized scoped document would let a baseline write overwrite a leaf the scope
-	// owns. It steps through a ScopedWatchStepper when the scope can be served that way,
-	// and recomputes when it cannot.
+	// owns. So it RE-READS the scoped view per event.
+	//
+	// It used to step through a ScopedWatchStepper, which derived the view from a scope
+	// overlay. The overlay is gone -- it built a scope layer by diffing two documents, and
+	// a difference between documents cannot carry a claim -- and with it the only thing
+	// that made a scoped watch steppable (9b2vpggxh12ks0qde5n0).
 	prev, cur *ir.Node
 	seeded    bool
-	stepper   *storage.ScopedWatchStepper
 }
 
 // forwardEvents serves one watch until the session ends, the client falls behind, or the
@@ -326,16 +329,6 @@ func (w *watchStream) seedAt(commit int64, forLive bool) bool {
 			w.fail(api.ErrCodeReplayFailed, "failed to read scoped state at commit %d: %v", commit, err)
 			return false
 		}
-		// A stepper folds each event into a document the watcher keeps, instead of
-		// recomputing the whole scoped view per event. It is unavailable for a scope the
-		// overlay cannot serve, and then nothing changes: the recompute stays.
-		if forLive {
-			w.stepper, err = w.s.storage.NewScopedWatchStepper(*w.s.scopeID(), commit)
-			if err != nil {
-				w.s.log.Warn("scoped watch stepper unavailable; recomputing per event", "path", w.path, "error", err)
-				w.stepper = nil
-			}
-		}
 		w.seeded = true
 		return true
 	}
@@ -398,7 +391,7 @@ func (w *watchStream) emitScoped(commit int64, notification *storage.CommitNotif
 	if notification == nil {
 		next, err = w.s.emitScopedDelta(w.watcher.ID, w.path, commit, w.prev)
 	} else {
-		next, err = w.s.emitScopedDeltaStepped(w.watcher.ID, w.path, commit, w.prev, w.stepper, notification)
+		next, err = w.s.emitScopedDelta(w.watcher.ID, w.path, commit, w.prev)
 	}
 	if err != nil {
 		w.s.log.Error("failed to read scoped state for watch", "path", w.path, "commit", commit, "error", err)
@@ -499,18 +492,6 @@ func (w *watchStream) live() {
 		}
 	}
 }
-func (s *Session) emitScopedDeltaStepped(id *string, path string, commit int64, prev *ir.Node,
-	stepper *storage.ScopedWatchStepper, n *storage.CommitNotification) (*ir.Node, error) {
-	if stepper == nil {
-		return s.emitScopedDelta(id, path, commit, prev)
-	}
-	full, err := stepper.Step(n)
-	if err != nil {
-		return prev, err
-	}
-	return s.emitScopedDeltaFrom(id, path, commit, prev, subtreeOf(full, path))
-}
-
 func (s *Session) emitScopedDelta(id *string, path string, commit int64, prev *ir.Node) (*ir.Node, error) {
 	newDoc, err := s.scopedDocAt(path, commit)
 	if err != nil {

@@ -26,8 +26,8 @@ import (
 //
 // api.StorageContext is exactly the rule for this, and it says so: an operation
 // which re-evaluates against a base that has moved may not be stored. It was
-// enforced on the overlay logd builds itself (scope_overlay.go) and never on the
-// write a client sends, which is the only place it can be broken.
+// enforced on what logd built for itself and never on the write a client sends,
+// which is the only place it can be broken.
 //
 // Baseline writes are deliberately NOT held to it. `!arraydiff {0: 99}` on a
 // two-element array is sound in baseline and stays sound, so refusing it would

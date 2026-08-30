@@ -1,11 +1,8 @@
 package storage
 
 import (
-	"fmt"
-
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
@@ -17,14 +14,13 @@ import (
 // writes applied last, and folding a baseline patch into a materialized scoped document
 // lets baseline overwrite a leaf the scope owns.
 //
-// The overlay is what makes it usable. It states the scope's ownership explicitly, so the
-// scoped view at the head commit is
+// What makes it usable is the scope's OWN kept document: when it is current at the commit
+// being asked about, it is the whole answer -- nothing to replay and nothing of baseline
+// to fold. See scopeHeadDoc. When it is not current, the ordinary read answers.
 //
-//	baseline head  +  overlay(T)  +  the scope's patches after T
-//
-// and the first term is already in memory. What is left to replay is bounded by the
-// snapshot interval on the scope's own writes alone -- the baseline replay, which was the
-// larger half, goes away entirely.
+// There was a third way, through a scope overlay, which stated the scope's ownership so
+// the baseline head could be reused. It is gone: an overlay derived a scope layer from
+// two documents, and a difference between documents cannot carry a claim.
 //
 // Callers MUST hold commitMu: steppedBaselineAt does, and the head must not move underneath the
 // terms applied to it.
@@ -33,10 +29,9 @@ import (
 // See read.go for the axes.
 // steppedScopedAt returns the scoped document at commit for evaluating a precondition.
 //
-// It falls back to a full read whenever it cannot be sure of the shortcut: overlays off,
-// no overlay yet for this scope, a scope the overlay cannot serve, or a commit the head
-// cannot answer for. Falling back is correct and merely slower, which is the right way
-// round for a path that decides whether a write lands.
+// It falls back to a full read whenever it cannot be sure of the shortcut -- a commit the
+// scope's kept document cannot answer for. Falling back is correct and merely slower,
+// which is the right way round for a path that decides whether a write lands.
 func (s *Storage) steppedScopedAt(commit int64, scopeID *string) (*ir.Node, error) {
 	// The scope's own kept document, when it is current, is the whole answer: no
 	// overlay to read, no patches to replay, nothing of baseline to fold. See
@@ -46,55 +41,7 @@ func (s *Storage) steppedScopedAt(commit int64, scopeID *string) (*ir.Node, erro
 			return doc, nil
 		}
 	}
-	if !s.scopeOverlay || scopeID == nil || s.scopeHasKeyedPaths(*scopeID) {
-		return s.ReadStateAt("", commit, scopeID)
-	}
-	ov := s.latestOverlay(*scopeID, commit)
-	if ov == nil {
-		return s.ReadStateAt("", commit, scopeID)
-	}
-	if !s.headSeeded || s.headCommit != commit {
-		// steppedBaselineAt would seed it with a full baseline read, which is exactly the cost
-		// this exists to avoid paying twice. Let the ordinary read answer, and the head
-		// will be current by the next precondition.
-		return s.ReadStateAt("", commit, scopeID)
-	}
-
-	doc := s.head
-	if doc == nil {
-		doc = ir.Null()
-	}
-
-	overlayEntry, err := s.dLog.ReadEntryAt(dlog.LogFileID(ov.LogFile), ov.LogPosition, ov.LogFileGeneration)
-	if err != nil {
-		return nil, fmt.Errorf("scoped precondition: read overlay: %w", err)
-	}
-	if overlayEntry.Patch != nil {
-		if doc, err = applyStoredPatch(doc, overlayEntry.Patch); err != nil {
-			return nil, fmt.Errorf("scoped precondition: apply overlay: %w", err)
-		}
-	}
-
-	after := ov.EndCommit
-	for _, seg := range s.index.LookupRange("", &after, &commit, scopeID) {
-		if seg.ScopeID == nil || *seg.ScopeID != *scopeID || isOverlaySegment(seg) {
-			continue
-		}
-		if seg.StartCommit == seg.EndCommit || seg.EndCommit <= ov.EndCommit {
-			continue
-		}
-		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition, seg.LogFileGeneration)
-		if err != nil {
-			return nil, fmt.Errorf("scoped precondition: read scope patch: %w", err)
-		}
-		if entry.Patch == nil {
-			continue
-		}
-		if doc, err = applyStoredPatch(doc, entry.Patch); err != nil {
-			return nil, fmt.Errorf("scoped precondition: apply scope patch: %w", err)
-		}
-	}
-	return doc, nil
+	return s.ReadStateAt("", commit, scopeID)
 }
 
 // applyStoredPatch folds one stored patch into a document.
@@ -122,10 +69,10 @@ func applyStoredPatch(doc, patch *ir.Node) (*ir.Node, error) {
 
 // A scope's own stepped document.
 //
-// The overlay above made a scoped precondition cost the scope's writes since the
-// last overlay instead of a replay of everything. That is a bound on REPLAY, and it
-// is not a bound on how often the replay happens: every scoped write pays it, and
-// between overlays it grows. Once a write is verified before it is stored
+// The overlay this file used to reach for made a scoped precondition cost the scope's
+// writes since the last overlay instead of a replay of everything. That is a bound on
+// REPLAY, and it is not a bound on how often the replay happens: every scoped write pays
+// it, and between overlays it grew. Once a write is verified before it is stored
 // (verifyApplies), every scoped write pays it, not only the conditional ones --
 // which is what made a burst of scoped writes quadratic (sb33w8p9h12kr16kg5n0).
 //

@@ -242,14 +242,12 @@ func (s *Storage) createSnapshot(commit int64) error {
 
 	s.logger.Info("snapshot created", "commit", commit, "logFile", snapWriter.LogFileID(), "position", snapWriter.EntryPosition())
 
-	// SPIKE (docs/scope_overlay_plan.md): give each live scope the same treatment the
-	// baseline just had. Scope patches are exempt from snapshotting, which is why a
-	// scoped read replays the scope's whole history; an overlay written here bounds it
-	// to what the scope has written since. Gated with the read path, so a store with the
-	// flag off is byte-identical to before.
-	if s.scopeOverlay {
-		s.writeScopeOverlays(commit)
-	}
+	// Scope patches get no treatment here: they are exempt from snapshotting, which is
+	// why a scoped read replays the scope's whole history. logd used to write a per-scope
+	// overlay at this point to bound that, and it is gone -- an overlay derived a scope
+	// layer from two documents, and a difference between documents cannot carry a claim.
+	// What bounds a scoped read now is the PATH it asks about (narrowSubtreeAt), not a
+	// cache of the layer.
 	return nil
 }
 

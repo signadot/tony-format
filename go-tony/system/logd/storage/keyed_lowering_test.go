@@ -270,3 +270,14 @@ func TestLowering_IndexesChangesNotWrites(t *testing.T) {
 		t.Log("  no path, so R3's fix stops working. See the plan's P1 for the fork.")
 	})
 }
+
+// mustParseBody parses a write body or fails the test. It lived in the scope stepping
+// spike's tests until those went with the overlay they were exploring.
+func mustParseBody(t *testing.T, body string) *ir.Node {
+	t.Helper()
+	n, err := parse.Parse([]byte(body))
+	if err != nil {
+		t.Fatalf("parse %q: %v", body, err)
+	}
+	return n
+}

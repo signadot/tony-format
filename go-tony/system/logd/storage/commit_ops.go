@@ -24,16 +24,14 @@ func (c *commitOps) ReadStateAt(kpath string, commit int64, scopeID *string) (*i
 // Baseline is served from the stepped head. A scope cannot be stepped the same way -- its
 // writes apply last and shadow baseline stickily, so folding a baseline patch into a
 // materialized scoped document lets baseline overwrite a leaf the scope owns (issue
-// 9b2vpggxh) -- but with an overlay stating that ownership explicitly, the scoped view can
-// be rebuilt on top of the baseline head instead of on top of a fresh baseline read.
+// 9b2vpggxh). What a scope can be served from is its OWN kept document, when that is
+// current at the commit being asked about; otherwise the ordinary read answers.
 //
 // doCommit holds commitMu across match evaluation, which is what makes reading the head
 // here safe — it is the same lock stepHead is written under.
 func (c *commitOps) MatchStateAt(kpath string, commit int64, scopeID *string) (*ir.Node, error) {
 	if scopeID != nil {
-		// Not a full read any more: with an overlay stating the scope's ownership, the
-		// scoped view can be built ON TOP of the baseline head rather than replaying
-		// baseline from the last snapshot. See steppedScopedAt, which falls back to a
+		// See steppedScopedAt: the scope's own kept document when it is current, and a
 		// full read whenever it cannot be sure.
 		return c.s.steppedScopedAt(commit, scopeID)
 	}
@@ -155,8 +153,9 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	}
 
 	// A scoped write can add a keyed path the schema does not declare, which is what
-	// decides whether this scope can be served from an overlay at all. Decided from the
-	// patch rather than by re-reading the index -- see noteScopeKeyedWrite.
+	// decides whether a diff over this scope's state may be taken at all (lower.go).
+	// Decided from the patch rather than by re-reading the index -- see
+	// noteScopeKeyedWrite.
 	if scopeID != nil {
 		c.s.noteScopeKeyedWrite(*scopeID, mergedPatch)
 	}
