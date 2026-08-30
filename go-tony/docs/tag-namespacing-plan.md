@@ -106,6 +106,111 @@ silently treating it as data is how a patch stops meaning what it said.
 What D is worth: two consumers may both use the prefix `ext` in their own documents
 without meaning the same operation, because the URI decides and the prefix is local.
 
+## What it looks like when both are done
+
+Everything below is a SKETCH of an API that does not exist yet. Only
+`mergeop.RegisterNamespaced` is real today; the rest is what C and D would have to add,
+written out end to end so the shape can be argued with before it is built.
+
+Two consumers, both of whom chose the prefix `ext`, in one process.
+
+### 1. A consumer defines its operation and publishes a context
+
+The operation is ordinary: a `mergeop.Symbol` like any built-in. What is new is that the
+consumer also says which namespace it belongs to, and gives that namespace a URI nobody
+else will pick.
+
+```go
+// acme's side
+var acmeCtx = &schema.Context{
+    URI:       "acme.example/tony/ops",
+    ShortName: "acme",
+    Tags: map[string]*schema.TagDefinition{
+        "shout": {Name: "shout", Description: "append an exclamation mark"},
+    },
+}
+
+tool := tony.NewTool()                       // C6: a Tool owns a registry
+tool.Ops().RegisterNamespaced("shout", acmeShout{})
+tool.Contexts().Bind(acmeCtx, tool.Ops())    // D1: this URI is served by these symbols
+```
+
+The URI is the identity. `ShortName` is only a default spelling, and a document may choose
+another.
+
+### 2. A document says which namespace it means
+
+The binding is the JSON-LD shape `schema.Context.FromIR` already parses, carried by the
+document rather than assumed by the process:
+
+```tony
+context: {ext: "acme.example/tony/ops"}
+patch:
+  greeting: !ext:shout "hi"
+```
+
+`ext` is this document's word for `acme.example/tony/ops`. A second consumer's document may
+use `ext` for its own URI, and the two do not collide, because the prefix is local and the
+URI is not.
+
+### 3. Applying it
+
+```go
+ctx := tool.OpContext()             // C4: carries the Tool's registry
+ctx.Bindings = doc.Context()        // D2: prefix -> URI, from the document
+out, err := tony.PatchWith(state, doc.Patch(), ctx)
+// greeting: "hi!"
+```
+
+Resolution is `ext` -> `acme.example/tony/ops` -> that context's registry -> `shout`.
+
+### 4. The payoff, which is what C is for
+
+```go
+acme := tony.NewTool(); acme.Ops().RegisterNamespaced("shout", acmeShout{})
+beta := tony.NewTool(); beta.Ops().RegisterNamespaced("shout", betaShout{})
+```
+
+Both register `shout`. Neither sees the other's, because neither is in a process-global
+table -- and a document bound to acme's URI gets acme's operation whichever Tool-bearing
+library also happens to be linked in. Today the second `Register` fails, or silently loses,
+depending on init order.
+
+### 5. An unbound prefix is an error
+
+```tony
+greeting: !ext:shout "hi"      # with no context binding ext
+```
+
+```
+error: no context bound to prefix "ext" (at greeting)
+```
+
+Not a miss, and not data. A document holding an operation the process cannot resolve has
+not been applied, and saying so is the whole point: silently treating `!ext:shout` as a
+string is how a patch stops meaning what it said.
+
+### 6. `o` is unchanged
+
+The built-ins are the default context, always bound, so nothing a person types today needs
+a prefix:
+
+```
+o patch '{replicas: !insert 3}' svc.tony      # !insert resolves, unprefixed, as now
+o patch -tags                                  # lists the built-ins, unprefixed
+```
+
+A namespaced operation appears in that listing under its full name once its Tool is the one
+answering.
+
+### What this exposes that the plan above only names
+
+The document carries `context:` beside `patch:` in step 2, which is a shape logd would have
+to store and hand back -- and that is the second open decision below, made concrete: a
+stored patch holding `!ext:shout` is only meaningful to a reader that also has the binding.
+Either the binding is stored with the patch, or the store refuses the write. Step 2 is where
+that choice becomes visible, which is why it is worth settling before D1 is written.
+
 ## Decisions to settle before writing D
 
 - **Where a document's context bindings live.** A field? A separate argument to
