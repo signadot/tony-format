@@ -24,16 +24,14 @@ func (c *commitOps) ReadStateAt(kpath string, commit int64, scopeID *string) (*i
 // Baseline is served from the stepped head. A scope cannot be stepped the same way -- its
 // writes apply last and shadow baseline stickily, so folding a baseline patch into a
 // materialized scoped document lets baseline overwrite a leaf the scope owns (issue
-// 9b2vpggxh) -- but with an overlay stating that ownership explicitly, the scoped view can
-// be rebuilt on top of the baseline head instead of on top of a fresh baseline read.
+// 9b2vpggxh). What a scope can be served from is its OWN kept document, when that is
+// current at the commit being asked about; otherwise the ordinary read answers.
 //
 // doCommit holds commitMu across match evaluation, which is what makes reading the head
 // here safe — it is the same lock stepHead is written under.
 func (c *commitOps) MatchStateAt(kpath string, commit int64, scopeID *string) (*ir.Node, error) {
 	if scopeID != nil {
-		// Not a full read any more: with an overlay stating the scope's ownership, the
-		// scoped view can be built ON TOP of the baseline head rather than replaying
-		// baseline from the last snapshot. See steppedScopedAt, which falls back to a
+		// See steppedScopedAt: the scope's own kept document when it is current, and a
 		// full read whenever it cannot be sure.
 		return c.s.steppedScopedAt(commit, scopeID)
 	}
@@ -51,6 +49,9 @@ func (c *commitOps) NextCommit() (int64, error) {
 func (c *commitOps) GetSchema(scopeID *string) *api.Schema {
 	return c.s.schemaForScope(scopeID)
 }
+
+// LowersScopeWrites reports whether lowerWrite will turn a scoped write into a claim.
+func (c *commitOps) LowersScopeWrites() bool { return c.s.lowering }
 
 func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedPatch *ir.Node, txState *tx.State, lastCommit int64) (string, int64, error) {
 	// Extract scope from transaction state
@@ -75,13 +76,41 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	// The result is kept: for baseline it IS the next head, so verifying costs the
 	// step that was going to happen anyway.
 	applyStarted := time.Now()
-	stepped, err := c.s.verifyApplies(commit, notification.Patch, scopeID)
+	base, stepped, err := c.s.verifyApplies(commit, notification.Patch, scopeID)
 	applyTook = time.Since(applyStarted)
 	if err != nil {
 		return "", 0, err
 	}
 
-	entry := dlog.NewEntry(txState, mergedPatch, commit, timestamp, lastCommit, scopeID)
+	// What the log KEEPS may not be what the client sent. A patch carrying an
+	// operation whose meaning depends on what was there is applied and its RESULT
+	// diffed, and the diff is stored in its place -- so what a later read re-applies
+	// states what the value is rather than how it once related to something. Both
+	// sides of that diff are the two the verification above just produced, so this
+	// costs a diff and no read. See lower.go.
+	//
+	// A patch built only from absolute operations -- which is nearly every write --
+	// comes back unchanged. A nil answer means the write changed nothing, which a
+	// diff can say and a patch cannot; the patch is kept so the commit still takes a
+	// number and still notifies.
+	stored := mergedPatch
+	// The paths the client named, which is what a scope claims. Baseline does not
+	// use them: it stores the difference, having nothing to own.
+	var writePaths []string
+	if txState != nil {
+		for _, pd := range txState.PatcherData {
+			if pd != nil && pd.API != nil {
+				writePaths = append(writePaths, ClaimPaths(pd.API.Path, pd.API.Data)...)
+			}
+		}
+	}
+	if lowered, err := c.s.lowerWrite(base, stepped, mergedPatch, scopeID != nil, writePaths); err != nil {
+		return "", 0, err
+	} else if lowered != nil {
+		stored = lowered
+	}
+
+	entry := dlog.NewEntry(txState, stored, commit, timestamp, lastCommit, scopeID)
 	appendStarted := time.Now()
 	pos, logFile, err := c.s.dLog.AppendEntry(entry)
 	if err != nil {
@@ -107,7 +136,10 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 
 	e := entry
 	indexStarted := time.Now()
-	if err := index.IndexPatch(c.s.index, e, string(logFile), pos, txSeq, generation, mergedPatch, schema, scopeID); err != nil {
+	// The STORED delta is what a rebuild reads back, so it is what the live index
+	// has to agree with: index.Build's "we rely on !key tags stored in the patches"
+	// is only true when the two are the same node.
+	if err := index.IndexPatch(c.s.index, e, string(logFile), pos, txSeq, generation, stored, schema, scopeID); err != nil {
 		return "", 0, err
 	}
 	indexTook = time.Since(indexStarted)
@@ -115,16 +147,9 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	// Dual-write: also index to pending index if migration is in progress
 	if pendingIdx := c.s.schema.GetPendingIndex(); pendingIdx != nil {
 		pendingSchemaParsed := c.s.schema.GetPendingParsed()
-		if err := index.IndexPatch(pendingIdx, e, string(logFile), pos, txSeq, generation, mergedPatch, pendingSchemaParsed, scopeID); err != nil {
+		if err := index.IndexPatch(pendingIdx, e, string(logFile), pos, txSeq, generation, stored, pendingSchemaParsed, scopeID); err != nil {
 			return "", 0, fmt.Errorf("failed to index to pending: %w", err)
 		}
-	}
-
-	// A scoped write can add a keyed path the schema does not declare, which is what
-	// decides whether this scope can be served from an overlay at all. Decided from the
-	// patch rather than by re-reading the index -- see noteScopeKeyedWrite.
-	if scopeID != nil {
-		c.s.noteScopeKeyedWrite(*scopeID, mergedPatch)
 	}
 
 	// Trigger periodic index persistence

@@ -1,3 +1,21 @@
+> **Archived, and the feature it plans was built and then removed.**
+>
+> The overlay was a cache of a scope's layer, derived by diffing `baseline@T` against
+> `scoped@T` plus a union of owned paths. That derivation is the part that could not be
+> made to work: a difference between two DOCUMENTS cannot record that the scope removed a
+> field baseline never had, the owned-path union applied its operand rather than composing
+> with it so a tombstone could not be introduced at all, and keyed absence has no
+> vocabulary to be stated in. Over 200 seeded streams the overlay broke 44 standing claims
+> where the replay it optimises broke none.
+>
+> What replaced it is not another cache: a scoped read at a PATH replays only the patches
+> bearing on that path (`narrowSubtreeAt`), which is flat in the scope's history and was
+> the whole cost the overlay existed to remove. See `qth3kqe9h12ksxz9j9n0` for the
+> derivation's failure and the package doc for what a scope layer is now.
+>
+> Kept because the measurements in it are real and the wall it hit is worth not hitting
+> twice.
+
 # Bounded scope overlay — refreshed dev plan
 
 Refreshes the approach in issue `5hmq80f3h12krh1mbsn0`, which its own status report
@@ -817,9 +835,12 @@ nothing.
 
 ## 7. Open decisions
 
-**Freeze semantics — direction set, and it dissolves the question.** §3.2 asks whether a
-scope's relative op should keep tracking baseline or freeze. The answer is to stop storing
-relative ops at all, on BOTH layers:
+**Freeze semantics — done, and it dissolved the question.** §3.2 asked whether a
+scope's relative op should keep tracking baseline or freeze. The answer was to stop
+storing relative ops at all, on BOTH layers, and that is now what happens:
+`api.NeedsLowering` asks per write, `Storage.lowerWrite` applies and diffs the ones that
+need it, and lowering is on by default. What follows is what that was decided from, kept
+because the reasoning is what the shape rests on:
 
 > A patch may be written with arbitrary expressivity. What the log stores is
 > `Diff(before, after)`, lowered to a vocabulary in which **the data reflects the result** —

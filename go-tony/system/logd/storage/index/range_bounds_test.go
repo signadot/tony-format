@@ -62,7 +62,16 @@ func TestRangeAgreesWithScan(t *testing.T) {
 					for c := int64(1); c <= int64(n); c++ {
 						from, to := c, c+width
 						var walked, scanned int
-						idx.Commits.Range(func(LogSegment) bool { walked++; return true }, rangeFunc(&from, &to))
+						// The walk is bounded above and the range itself is a keep, so
+						// what the two together answer is what a scan answers. See
+						// commitsUpTo for why the lower half cannot be a prune.
+						inRange := inCommitRange(&from, &to)
+						idx.Commits.Range(func(s LogSegment) bool {
+							if inRange(s) {
+								walked++
+							}
+							return true
+						}, commitsUpTo(&to))
 						idx.Commits.All(func(s LogSegment) bool {
 							if s.EndCommit >= from && s.EndCommit <= to {
 								scanned++

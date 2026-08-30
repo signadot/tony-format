@@ -185,6 +185,7 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 			res = append(res, yy)
 		}
 		out := ir.FromSlice(res)
+		out.Tag = mergedTag(doc, patch)
 		return out, nil
 
 	default:
@@ -393,9 +394,28 @@ func sortedStringFields(n *ir.Node) bool {
 // unchanged -- so this adds a leaf which knows where it stands rather than a
 // second tree. What the patch means here is still what it means on its own: the
 // placeholder carries no value, only a place.
+//
+// A place INSIDE doc is only a place if doc can hold one. An object patch reaches
+// the object merge whatever the document's type is -- doPatchWith switches on the
+// patch -- so a scalar document arrives here, its empty Fields making it behave as
+// an empty object, and a null was left standing at "field k of a number". Nothing
+// can be at a field of a number: ir.Node.Path() says so by panicking, and it was
+// right to, since an assertion that answers instead of firing is not one. It fired
+// from inside the error message !rename builds for a non-object, so a patch that
+// was going to be refused took the process down with it
+// (kbkxf53ph12krswpj9n0).
+//
+// Where the absence is, then, is where DOC is: replacing a scalar is what an
+// object patch over one does, so the placeholder stands in the scalar's own place
+// and the walk up from it is the document's own.
 func absentAt(doc *ir.Node, field string, index int) *ir.Node {
 	res := ir.Null()
-	res.Parent, res.ParentField, res.ParentIndex = doc, field, index
+	switch doc.Type {
+	case ir.ObjectType, ir.ArrayType, ir.CommentType:
+		res.Parent, res.ParentField, res.ParentIndex = doc, field, index
+	default:
+		res.Parent, res.ParentField, res.ParentIndex = doc.Parent, doc.ParentField, doc.ParentIndex
+	}
 	return res
 }
 
@@ -480,12 +500,7 @@ func objPatchYWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error
 	}
 	if len(merges) == 0 {
 		res := ir.FromMap(dstMap)
-		patchTag := ir.StripPresentation(patch.Tag)
-		if doc.Tag != "" {
-			res.Tag = ir.TagCompose(doc.Tag, nil, patchTag)
-		} else {
-			res.Tag = patchTag
-		}
+		res.Tag = mergedTag(doc, patch)
 		return res, nil
 	}
 	n := len(dstMap) + len(merges)
@@ -517,11 +532,25 @@ func objPatchYWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error
 		mi++
 	}
 	res := ir.FromKeyVals(kvs)
-	patchTag := ir.StripPresentation(patch.Tag)
-	if doc.Tag != "" {
-		res.Tag = ir.TagCompose(doc.Tag, nil, patchTag)
-	} else {
-		res.Tag = patchTag
-	}
+	res.Tag = mergedTag(doc, patch)
 	return res, nil
+}
+
+// mergedTag answers the tag a merged CONTAINER wears.
+//
+// Presentation is the document's: a patch is a statement about content, and the
+// brackets it happens to be written with describe the patch, not an instruction to
+// restyle what it lands on -- the same reading that makes a patch unable to reorder
+// a document's fields. Everything else the patch says composes on top.
+//
+// The object path always did this; the array path built a fresh ir.FromSlice and wore
+// nothing, so replacing an array dropped BOTH sides' presentation and a flow array
+// came back written in dashes. Invisible while whole-array replaces were rare, and
+// routine once lowering turned relative writes into stated values.
+func mergedTag(doc, patch *ir.Node) string {
+	patchTag := ir.StripPresentation(patch.Tag)
+	if doc.Tag == "" {
+		return patchTag
+	}
+	return ir.TagCompose(doc.Tag, nil, patchTag)
 }

@@ -120,9 +120,9 @@ func (s *Storage) SwitchDLog() error {
 	}
 
 	// Create baseline snapshot. Scope snapshots are intentionally not created: a
-	// materialized scope overlay resolves !key away and is unsound to re-apply onto a
+	// materialized scope layer resolves !key away and is unsound to re-apply onto a
 	// changed baseline. The scope layer is read as raw op-preserving patches instead
-	// (see replayScopedAt). Bounded scope-overlay compaction: 5hmq80f3h12krh1mbsn0.
+	// (see replayScopedAt). Bounded op-preserving compaction: 5hmq80f3h12krh1mbsn0.
 	if err := s.createSnapshot(commit); err != nil {
 		return fmt.Errorf("failed to create baseline snapshot: %w", err)
 	}
@@ -137,9 +137,9 @@ func (s *Storage) SwitchDLog() error {
 	// asked afterwards, and from outside a narrow read and a wide one differ only in
 	// how long they took -- which is exactly what is in doubt when a fix does not
 	// show up downstream (ap8ddvp2h12krd43gdn0).
-	if rs := s.ReadStats(); rs.Narrow+rs.WideRoot+rs.WideScope+rs.WideOperator+rs.WideAbsent > 0 {
+	if rs := s.ReadStats(); rs.Narrow+rs.WideRoot+rs.WideOperator+rs.WideAbsent > 0 {
 		s.logger.Info("reads since start",
-			"narrow", rs.Narrow, "wideRoot", rs.WideRoot, "wideScope", rs.WideScope,
+			"narrow", rs.Narrow, "wideRoot", rs.WideRoot,
 			"wideOperator", rs.WideOperator, "wideAbsent", rs.WideAbsent,
 			"wideKeyedOrIndexed", rs.WideNonField, "wideBadPath", rs.WideBadPath)
 	}
@@ -158,7 +158,7 @@ func (s *Storage) SwitchDLog() error {
 // createSnapshot creates a baseline snapshot of the full state at the given commit.
 // Writes snapshot events to the inactive log and adds an index entry.
 //
-// Scope snapshots are no longer created (a materialized scope overlay is unsound for
+// Scope snapshots are no longer created (a materialized scope layer is unsound for
 // !key); the scope layer is read as raw op-preserving patches instead. See
 // replayScopedAt and issue 5hmq80f3h12krh1mbsn0.
 func (s *Storage) createSnapshot(commit int64) error {
@@ -242,14 +242,11 @@ func (s *Storage) createSnapshot(commit int64) error {
 
 	s.logger.Info("snapshot created", "commit", commit, "logFile", snapWriter.LogFileID(), "position", snapWriter.EntryPosition())
 
-	// SPIKE (docs/scope_overlay_plan.md): give each live scope the same treatment the
-	// baseline just had. Scope patches are exempt from snapshotting, which is why a
-	// scoped read replays the scope's whole history; an overlay written here bounds it
-	// to what the scope has written since. Gated with the read path, so a store with the
-	// flag off is byte-identical to before.
-	if s.scopeOverlay {
-		s.writeScopeOverlays(commit)
-	}
+	// A scope's patches are deliberately NOT snapshotted here. Only the patches
+	// themselves carry op semantics, and a scope needs them to: !key has to merge by
+	// identity at read time exactly as it did at the write. So a whole scoped read
+	// replays the scope's history, and what bounds a scoped read is the PATH it asks
+	// about (narrowSubtreeAt) rather than anything materialized in its place.
 	return nil
 }
 

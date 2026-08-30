@@ -104,12 +104,13 @@ than losing it.
 **Scope records are kept regardless of cutoff**, until the scope itself is deleted,
 and here the reason is a stronger one — for a scope, the records *are* the state.
 Baseline snapshots are written for the root only; scope snapshots are deliberately
-not created, because a materialized scope overlay resolves `!key` away and is unsound
-to re-apply onto a changed baseline, so a scoped read replays the raw op-preserving
-records in full. There is no coarser thing to fall back to, and dropping one would
+not created, because a materialized scope layer resolves `!key` away and is unsound to
+re-apply onto a changed baseline, so a scoped read replays the raw op-preserving records
+in full. There is no coarser thing to fall back to, and dropping one would
 lose state rather than history. Bounding this is tracked in `5hmq80f3h12krh1mbsn0`;
-until then a long-lived scope's overlay grows without limit and no setting here
-changes that.
+until then a long-lived scope's record set grows without limit and no setting here
+changes that. What it costs a *read* is bounded separately: a read that names a path
+replays only the records bearing on that path, not the scope's whole history.
 
 **Snapshots** are bucketed by age into tiers past the cutoff. With the defaults,
 measuring from the end of the cutoff window:

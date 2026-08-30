@@ -7,9 +7,12 @@ touched, since they all replay through the same log; and no later patch repairs 
 because the read dies on the way past the bad one. The store cannot snapshot past it
 either, so it cannot compact.
 
-So a write is checked *before* it is stored, and one that would do that is refused
-while the client is still holding the call. The rules below are all of it, and each
-comes back as an error code rather than as a surprise at read time.
+So a write is checked *before* it is stored, and one that would do that is refused while
+the client is still holding the call. Each refusal below comes back as an error code
+rather than as a surprise at read time.
+
+One section is not a refusal: what a write may *say* is wider than what the log *keeps*,
+and the difference is resolved by converting the write rather than rejecting it.
 
 Because docd speaks the logd protocol verbatim, clients get these through docd too.
 
@@ -65,39 +68,59 @@ Refused with `invalid_path`, and the message carries the array's length.
     land on a neighbour. For anything durable, name elements by identity instead — see
     [Keyed arrays](keyed.md).
 
-## A scope may not use relative operations
+## What is stored is what a write RESULTED in
 
-Baseline and a scope are safe from different things, because their bases behave
-differently.
+A patch may use anything the format offers. What the log *keeps* is narrower — `!insert`,
+`!delete`, `!key`, `!raw`, `!addtag`, `!rmtag`, `!comment` — and what those have in common
+is that each states what the value **is**, so that re-applying one to a base that has
+moved gives what it gave at the write.
 
-A baseline delta replays against the same base forever, so one that applied once
-applies always — checking it applies is the whole of what baseline needs. A **scope's**
-base moves: baseline advances underneath it. An operation whose meaning depends on what
-was there can therefore stop applying long after it was written, with nothing wrong at
-the time of the write:
+An operation whose meaning depends on what it lands on — `!replace`, `!rename`,
+`!strdiff`, `!arraydiff`, `!retag`, `!jsonpatch`, `!if`, `!let` — is therefore not stored
+as written. It is applied, and its **result** is stored in its place:
 
 ```tony
 # baseline holds {s: bob}
-s: !replace {from: bob, to: rob}   # in a scope: applies now, reads back "rob"
-# baseline then writes s: someone-else
-#   -> the scope can no longer be read at all
+s: !replace {from: bob, to: rob}    # accepted
+                                    # stored as  s: !insert rob
 ```
 
-So a scoped write is held to the storage vocabulary, and a baseline write is not:
+This costs the client nothing at the write and one thing at the read: a client reading
+back its own write sees what the operation produced, not the operation it sent. Nearly
+every write is unaffected, because a plain field write already states its result and is
+kept exactly as it arrived.
 
-| | replay | rule |
+### Why a scope needs it
+
+Baseline and a scope are safe from different things, because their bases behave
+differently. A baseline delta replays against the same base forever, so one that applied
+once applies always. A **scope's** base moves: baseline advances underneath it, and an
+operation whose meaning depends on what was there can stop applying long after it was
+written, with nothing wrong at the time of the write.
+
+So the two layers are converted to different things. Baseline stores the **difference**
+the write made; a scope stores the **claim** it made — what the scope holds at each path
+its patch stated, whatever baseline does next:
+
+```tony
+# baseline holds {s: bob}
+s: !replace {from: bob, to: rob}    # in a scope: stored as  s: !raw rob
+# baseline then writes s: someone-else
+#   -> baseline reads someone-else, and the scope still reads rob
+```
+
+A claim is not the same as a difference, and the distinction is load-bearing. A scope
+that deletes a field baseline has not created yet has made no *difference* to state — but
+it has made a claim, and without storing it the scope would stop shadowing that path the
+moment baseline created the field.
+
+| | replay | what is stored |
 |---|---|---|
-| baseline | deterministic | the patch must apply, once |
-| scope | base moves | the patch must state a result |
-
-A scope may write values, and `!insert`, `!delete`, `!key`, `!addtag`, `!rmtag`,
-`!comment` and `!raw`. It may not write `!arraydiff`, `!strdiff`, `!replace`, `!retag`,
-`!rename`, `!jsonpatch`, `!if` or `!let` — each of which asks what was there.
+| baseline | deterministic | the difference the write made |
+| scope | base moves | the claim the write made |
 
 Writing at an array index is unaffected: the positional form is logd's own routing, not
 an operation the client wrote, so a scoped `votes[1]` write works normally.
-
-Refused with `invalid_diff`.
 
 ## Nothing that calls out to the system
 
@@ -108,9 +131,10 @@ with each other.
 
 It is refused at the write, and never applied by a read.
 
-Escaped data is unaffected: under `!raw` nothing is interpreted, so a document that
-merely *contains* a patch — a charter, a stored rule — is ordinary data and stores
-normally.
+Escaped data is unaffected, and this is what makes storing a document *about* patches
+possible at all: under `!raw` nothing beneath is interpreted, so a charter, a stored rule
+or a stored patch is ordinary data. The escape composes onto the node's own tag when what
+it escapes is a leaf — `!irtype` escaped is `!raw.irtype` — and both forms are data.
 
 Refused with `invalid_diff`.
 

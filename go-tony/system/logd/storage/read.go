@@ -9,7 +9,7 @@ import "github.com/signadot/tony-format/go-tony/ir"
 // for another. Three of one month's performance bugs were that (ap8ddvp2h12krd43gdn0,
 // kds4sx3bh12krdrkghn0, ntadpaech12krandgsn0). Every read varies on three axes:
 //
-//	VIEW    baseline, or a scope. A scope is a live overlay -- baseline as of the commit,
+//	VIEW    baseline, or a scope. A scope is a live layer -- baseline as of the commit,
 //	        with the scope's own writes applied last -- not a branch.
 //	EXTENT  the whole document, or the subtree at a path. A subtree read is answered from
 //	        the snapshot's path index and the deltas which touch it; a whole read replays
@@ -23,7 +23,7 @@ import "github.com/signadot/tony-format/go-tony/ir"
 //	                    whole document                 subtree at a path
 //	  baseline,         replayBaselineAt               narrowSubtreeAt
 //	  replayed
-//	  scope, replayed   replayScopedAt                 (none: a scope reads whole)
+//	  scope, replayed   replayScopedAt                 narrowSubtreeAt, given a scope
 //	  baseline,         steppedBaselineAt              (none: the head is whole)
 //	  stepped
 //	  scope, stepped    steppedScopedAt                (none)

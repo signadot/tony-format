@@ -147,6 +147,12 @@ func TestLowering_PreservingWrites(t *testing.T) {
 
 func leftoverStorage(t *testing.T, a, b *ir.Node, keys map[string]string) *ir.Node {
 	t.Helper()
+	// Presentation is not counted, as it is not by diff_keyed_test.go's leftover:
+	// !bracket records how a value was WRITTEN, and two documents built separately
+	// differ in it for reasons nobody intended. An absolute delta states such a
+	// difference with !addtag, so a comparison that counted it would report the
+	// rendering of the test's own source as a round-trip failure.
+	a, b = stripPresentationDeepIR(a.Clone()), stripPresentationDeepIR(b.Clone())
 	annotateKeysAt(a, "", keys)
 	annotateKeysAt(b, "", keys)
 	return tony.Diff(a, b)

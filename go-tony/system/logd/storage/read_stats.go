@@ -15,7 +15,6 @@ const (
 	ReadNarrow           ReadKind = "narrow"            // read the subtree
 	ReadNarrowAbsent     ReadKind = "narrow-absent"     // never written, answered from the index
 	ReadWideRoot         ReadKind = "wide-root"         // the read is at the root, which is not a narrowing
-	ReadWideScope        ReadKind = "wide-scope"        // a scoped read, which is one op-preserving pass
 	ReadWideBadPath      ReadKind = "wide-bad-path"     // the path does not parse; the wide read reports it
 	ReadWideOperator     ReadKind = "wide-operator"     // an operator above the path
 	ReadWideAbsent       ReadKind = "wide-absent"       // nothing at the path; the wide read says which kind of nothing
@@ -30,7 +29,6 @@ type ReadStats struct {
 	Narrow         int64
 	NarrowAbsent   int64
 	WideRoot       int64
-	WideScope      int64
 	WideBadPath    int64
 	WideOperator   int64
 	WideAbsent     int64
@@ -43,7 +41,6 @@ type readStats struct {
 	narrow         atomic.Int64
 	narrowAbsent   atomic.Int64
 	wideRoot       atomic.Int64
-	wideScope      atomic.Int64
 	wideBadPath    atomic.Int64
 	wideOperator   atomic.Int64
 	wideAbsent     atomic.Int64
@@ -62,8 +59,6 @@ func (r *readStats) note(kind ReadKind, path string, took time.Duration) {
 		r.narrowAbsent.Add(1)
 	case ReadWideRoot:
 		r.wideRoot.Add(1)
-	case ReadWideScope:
-		r.wideScope.Add(1)
 	case ReadWideBadPath:
 		r.wideBadPath.Add(1)
 	case ReadWideOperator:
@@ -86,7 +81,6 @@ func (r *readStats) snapshot() ReadStats {
 		Narrow:         r.narrow.Load(),
 		NarrowAbsent:   r.narrowAbsent.Load(),
 		WideRoot:       r.wideRoot.Load(),
-		WideScope:      r.wideScope.Load(),
 		WideBadPath:    r.wideBadPath.Load(),
 		WideOperator:   r.wideOperator.Load(),
 		WideAbsent:     r.wideAbsent.Load(),
@@ -107,13 +101,12 @@ func (s *Storage) ReadStats() ReadStats {
 // the time went. The names are the question a reader asks -- did it narrow, and if
 // not why -- rather than the fields' own.
 func (r ReadStats) Report() map[string]any {
-	wide := r.WideRoot + r.WideScope + r.WideBadPath + r.WideOperator + r.WideAbsent + r.WideNonField
+	wide := r.WideRoot + r.WideBadPath + r.WideOperator + r.WideAbsent + r.WideNonField
 	m := map[string]any{
 		"reads.narrow":            r.Narrow,
 		"reads.narrow.absent":     r.NarrowAbsent,
 		"reads.wide":              wide,
 		"reads.wide.root":         r.WideRoot,
-		"reads.wide.scope":        r.WideScope,
 		"reads.wide.operator":     r.WideOperator,
 		"reads.wide.absent":       r.WideAbsent,
 		"reads.wide.keyed-or-idx": r.WideNonField,

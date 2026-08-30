@@ -79,6 +79,10 @@ func (m *mockCommitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mer
 
 func (m *mockCommitOps) LockCommit() func() { return func() {} }
 
+// false, so the in-scope storable check runs: these tests are where it is exercised,
+// and the real store answers true, having lowering to do the job properly.
+func (m *mockCommitOps) LowersScopeWrites() bool { return false }
+
 func (m *mockCommitOps) setState(kpath string, commit int64, state *ir.Node) {
 	if m.readState[kpath] == nil {
 		m.readState[kpath] = make(map[int64]*ir.Node)

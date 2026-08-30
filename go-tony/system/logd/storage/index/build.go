@@ -92,8 +92,8 @@ func BuildWithLogger(idx *Index, dlog *dlog.DLog, fromCommit int64, logger *slog
 			// segments before descending — so a lookup at any path already returns every
 			// entry's root copy and both shapes answer a replay identically
 			// (TestKeyed_RebuildDivergenceImpact). It stops being harmless for anything
-			// that addresses BY the keyed path, which is what a scope overlay does; see
-			// docs/scope_overlay_plan.md P1.
+			// that addresses BY the keyed path; see docs/archive/scope_overlay_plan.md
+			// P1 for where that mattered.
 			if err := IndexPatch(idx, entry, string(logFile), pos, txSeq, generation, entry.Patch, nil, entry.ScopeID); err != nil {
 				return nil, fmt.Errorf("failed to index entry at commit %d: %w", entry.Commit, err)
 			}

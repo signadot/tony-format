@@ -15,6 +15,33 @@ import (
 //	a: !comment {line: []}                 the line comment at a is now nothing
 //	a: !comment {head: ["# h"], line: [" # l"]}   both, in one statement
 //
+// The operand may also carry a VALUE, which is a patch -- or, in a match, a
+// pattern -- for what this node holds:
+//
+//	a: !comment {head: ["# new"], value: {b: !delete null}}
+//
+// so a node whose comment and whose value both changed is one statement. That is
+// what a diff of two states needs: without it the only answer for such a node is to
+// state it whole, and an absolute delta stating an object whole MERGES, so whatever
+// the new value no longer has stays.
+//
+// The value is applied FIRST and the comments are stated on the result, because a
+// comment describes what the value has become.
+//
+// A missing value: is not `value: null`. Absent says nothing about the value and
+// leaves it alone; present says what it is, and null says it is null.
+//
+// !pass says "leave this alone" at any of the three, for a patch built by a program
+// where leaving a key out and setting it to "no change" are different amounts of
+// work. It is what !pass means everywhere else, and value: had it for free since
+// that operand goes through the patch function; the positions read their operand
+// directly and had to be told.
+//
+// The positions differ from value: in one way, deliberately: an empty list and null
+// both say the comment is GONE, because setting the lines to nothing is how a comment
+// is removed. So `head: []`, `head: null` -- comment removed; `head:` absent or
+// `head: !pass` -- comment untouched.
+//
 // A position the operand does not name is left alone, as a field an object patch
 // does not name is. Both positions in one operand rather than one operator per
 // position, because tag composition shares a child -- !comment.comment could only
@@ -52,6 +79,16 @@ const (
 	// CommentLine names the comment written after a value on its own line, which
 	// the IR holds on the node. It is the operand's field name.
 	CommentLine = "line"
+
+	// CommentValue names the optional patch or match for the VALUE this node
+	// holds, so one node can state both what its comments are and what its value
+	// is. It is the operand's field name.
+	//
+	// It is a field of the operand rather than a second child because tag
+	// composition shares one child: !comment.replace hands the same operand to
+	// both, and !comment refuses one holding from: and to:. Rather than teach
+	// composition to split an operand, the operand carries the other half.
+	CommentValue = "value"
 )
 
 type commentSymbol struct {
@@ -67,9 +104,10 @@ func (s commentSymbol) Instance(child *ir.Node, args []string) (Op, error) {
 	}
 	for _, f := range child.Fields {
 		switch f.String {
-		case CommentHead, CommentLine:
+		case CommentHead, CommentLine, CommentValue:
 		default:
-			return nil, fmt.Errorf("%s op position is %q or %q, got %q", s, CommentHead, CommentLine, f.String)
+			return nil, fmt.Errorf("%s op operand names %q, %q or %q, got %q",
+				s, CommentHead, CommentLine, CommentValue, f.String)
 		}
 	}
 	return &commentOp{op: op{name: s.name, child: child}}, nil
@@ -94,9 +132,10 @@ func (p commentOp) ArgumentOperand() {}
 // says the node has nothing written above it, which is the question the patch's
 // "set it to nothing" answers to.
 //
-// It asks about the comments and NOT about the value, as the patch changes the
-// comments and not the value. A pattern wanting both is `!and [!comment {...},
-// <the value>]`, which is the composition it looks like.
+// It asks about the value only when the operand names one, as the patch changes it
+// only then. `!and [!comment {...}, <the value>]` is the same question composed, and
+// stays the natural spelling by hand; value: is what a patch derived from a diff
+// carries, so a match and a patch keep one shape.
 //
 // The default stays blind, which is the part that could not be an option: with
 // comments participating everywhere, two identical comments still mismatched,
@@ -117,8 +156,8 @@ func (p commentOp) Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, error
 		{CommentLine, lineCommentLines},
 	} {
 		operand := ir.Get(p.child, position.field)
-		if operand == nil {
-			continue // not named, not asked
+		if operand == nil || leaveAlone(operand) {
+			continue // not named, or named as unchanged: not asked
 		}
 		want, err := commentLines(operand)
 		if err != nil {
@@ -127,6 +166,13 @@ func (p commentOp) Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, error
 		if !sameLines(position.lines(doc), want) {
 			return false, nil
 		}
+	}
+	// And the value, when the operand names one. A pattern that wants both is
+	// still `!and [!comment {...}, <the value>]`, which composes; this is the
+	// same question asked in one operand, so that a patch and the match it was
+	// derived from have the same shape.
+	if operand := ir.Get(p.child, CommentValue); operand != nil {
+		return f(doc, operand, ctx)
 	}
 	return true, nil
 }
@@ -189,16 +235,32 @@ func (p commentOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFun
 		return nil, fmt.Errorf("%s op has nothing to comment", p)
 	}
 	res := doc
-	// The line comment first: setting the head comment may wrap the node, and
-	// the line comment belongs to the value inside the wrapper either way.
-	if operand := ir.Get(p.child, CommentLine); operand != nil {
+	// The value first, and the comments stated on the result: a comment describes
+	// what the value has become. Absent leaves the value alone, which is not what
+	// `value: null` says -- that says the value IS null.
+	if operand := ir.Get(p.child, CommentValue); operand != nil {
+		next, err := pf(res, operand, ctx)
+		if err != nil {
+			return nil, err
+		}
+		if next == nil {
+			// The value patch removed the node. Nothing is left to say a comment
+			// about, and saying one would put back what was just deleted.
+			return nil, nil
+		}
+		res = next
+	}
+	// The line comment before the head: setting the head comment may wrap the
+	// node, and the line comment belongs to the value inside the wrapper either
+	// way.
+	if operand := ir.Get(p.child, CommentLine); operand != nil && !leaveAlone(operand) {
 		lines, err := commentLines(operand)
 		if err != nil {
 			return nil, err
 		}
 		res = setLineComment(res, lines)
 	}
-	if operand := ir.Get(p.child, CommentHead); operand != nil {
+	if operand := ir.Get(p.child, CommentHead); operand != nil && !leaveAlone(operand) {
 		lines, err := commentLines(operand)
 		if err != nil {
 			return nil, err
@@ -206,6 +268,22 @@ func (p commentOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFun
 		res = setHeadComment(res, lines)
 	}
 	return res, nil
+}
+
+// leaveAlone reports whether a position's operand says to leave that position as it
+// is, rather than to state what it holds.
+//
+// !pass is the format's way of saying "unchanged here" and it is honoured wherever a
+// patch is applied -- value: gets it for free, since that operand goes through the
+// patch function. The positions do not: commentLines reads the node's TYPE and never
+// looked at its tag, so `head: !pass null` cleared the comment. Silently, and doing
+// the opposite of what it said, which is worse than refusing it.
+//
+// Absence still says the same thing and is the shorter spelling. This is for saying
+// it where a field has to be present -- in a patch built by a program, where leaving
+// a key out and setting it to "no change" are different amounts of work.
+func leaveAlone(operand *ir.Node) bool {
+	return operand != nil && ir.TagHas(operand.Tag, "!"+string(passName))
 }
 
 // commentLines reads the operand: a list of strings, or null for none.

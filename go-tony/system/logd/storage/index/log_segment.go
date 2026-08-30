@@ -1,12 +1,11 @@
 package index
 
 import (
-	"fmt"
 	"slices"
 
 	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
-	"github.com/signadot/tony-format/go-tony/ir/kpath"
+	"github.com/signadot/tony-format/go-tony/mergeop"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
 )
@@ -146,66 +145,29 @@ func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq i
 	// looked through rather than refused (3cdjz00jh12krns4g1n0).
 	n = ir.Uncomment(n)
 
-	switch n.Type {
-	case ir.ObjectType:
-		if len(n.Fields) == 0 {
-			return nil
-		}
-		if n.Fields[0].Type == ir.NumberType {
-			for i, f := range n.Fields {
-				v := n.Values[i]
-				nextPath := fmt.Sprintf("%s{%d}", kPath, *f.Int64)
-				if err := indexPatchRec(idx, e, logFile, pos, txSeq, generation, v, nextPath, schema, scopeID); err != nil {
-					return err
-				}
-			}
-			return nil
-		}
-		for i := range n.Fields {
-			field := n.Fields[i]
-			val := n.Values[i]
-			key := field.String
-			nextPath := kpath.ChildField(kPath, key)
-			if err := indexPatchRec(idx, e, logFile, pos, txSeq, generation, val, nextPath, schema, scopeID); err != nil {
+	// An operand is not ordinary structure. Descending into one recorded paths the
+	// document does not have -- a write of {a: !comment {head: ["# note"]}} indexed
+	// a.head and a.head[0] -- and, worse, would record a value an operand carries at
+	// a path below where it actually sits. mergeop.OperandPaths is the one place that
+	// knows which parts of which operand are document values and where each sits;
+	// when it has no answer the walk below runs as it always did.
+	if ops, known := mergeop.OperandPaths(n); known {
+		for _, o := range ops {
+			if err := indexPatchRec(idx, e, logFile, pos, txSeq, generation, o.Node,
+				kPath+o.Suffix, schema, scopeID); err != nil {
 				return err
 			}
 		}
 		return nil
-	case ir.ArrayType:
-		// Check schema first for key field
-		keyField, keyed := "", false
-		if schema != nil {
-			keyField = schema.LookupKeyField(kPath)
-			keyed = keyField != ""
-		}
-		// Fall back to the !key tag the patch carries.  keyed is tracked apart
-		// from keyField because a bare !key keys its elements by themselves,
-		// which is an empty field and still a keyed list.
-		if !keyed {
-			keyField, keyed = n.KeyField()
-		}
+	}
 
-		// Not a keyed array - use positional indexing
-		if !keyed {
-			for i, v := range n.Values {
-				next := fmt.Sprintf("%s[%d]", kPath, i)
-				if err := indexPatchRec(idx, e, logFile, pos, txSeq, generation, v, next, schema, scopeID); err != nil {
-					return err
-				}
-			}
-			return nil
-		}
-
-		// Keyed array - index by key value.  The key comes from ir.ElemKey, the
-		// same reading a walk gives a (key) segment, so a path this records is a
-		// path a reader can follow back.
-		for _, v := range n.Values {
-			// default to "" for things aren't indexable this way.
-			indexVal, _ := ir.ElemKey(v, keyField)
-			next := fmt.Sprintf("%s%s", kPath, kpath.Key(indexVal).SegmentString())
-			if err := indexPatchRec(idx, e, logFile, pos, txSeq, generation, v, next, schema, scopeID); err != nil {
-				return err
-			}
+	// Where the parts of this patch land, which is PatchChildren's single answer --
+	// a field is a .field step, an integer-keyed object a {sparse} one, an array [i]
+	// unless it is keyed, and a keyed one (key) as ir.ElemKey reads it.
+	for _, c := range PatchChildren(n, kPath, schema) {
+		if err := indexPatchRec(idx, e, logFile, pos, txSeq, generation, c.Node, c.Path,
+			schema, scopeID); err != nil {
+			return err
 		}
 	}
 	return nil

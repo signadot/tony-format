@@ -10,6 +10,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/patches"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/snap"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 // ReadSubtreeAt reads the value at kp, rather than the document which contains it.
@@ -27,9 +28,11 @@ import (
 //   - an operator ABOVE kp -- an !all, a !raw, a !delete of an ancestor -- which says
 //     something about the subtree that the subtree cannot say about itself, and
 //     deciding what it would have meant is the kind of guess which loses data;
-//   - a scoped read, which is one op-preserving pass over the baseline
-//     (replayScopedAt) and wants that pass to be path-aware first;
 //   - the root, which is not a narrowing.
+//
+// A scoped read narrows on the same terms. Its layer is the scope's own patches, and
+// asking for them at kp is the same question the wide read asks at the root, so the two
+// answer alike or one of them is wrong.
 //
 // A caller which is declined reads wide, which is also the only reader that can say
 // what a path not fitting the document means: absent, or a segment which cannot be
@@ -42,15 +45,11 @@ func (s *Storage) ReadSubtreeAt(kp string, commit int64, scopeID *string) (*ir.N
 		s.readStats.note(ReadWideRoot, kp, time.Since(started))
 		return nil, false, nil
 	}
-	if scopeID != nil {
-		s.readStats.note(ReadWideScope, kp, time.Since(started))
-		return nil, false, nil
-	}
 	if _, err := kpath.Parse(kp); err != nil {
 		s.readStats.note(ReadWideBadPath, kp, time.Since(started))
 		return nil, false, nil // the wide read reports what is wrong with it
 	}
-	node, narrowed, err := s.narrowSubtreeAt(kp, commit)
+	node, narrowed, err := s.narrowSubtreeAt(kp, commit, scopeID)
 	switch {
 	case err != nil:
 	case !narrowed:
@@ -99,32 +98,37 @@ func (s *Storage) ReadSubtreeRootedAt(kp string, commit int64, scopeID *string) 
 	return rooted, true, nil
 }
 
-// narrowSubtreeAt: baseline, SUBTREE, replayed -- the snapshot's path index seeks to kp
-// and only the deltas which touch it are applied. See read.go for the axes.
-// narrowSubtreeAt reads only the subtree, or reports that it could not.
-func (s *Storage) narrowSubtreeAt(kp string, commit int64) (*ir.Node, bool, error) {
+// narrowSubtreeAt: SUBTREE, replayed, in the view scopeID names -- the snapshot's path
+// index seeks to kp and only the deltas which touch it are applied. See read.go for the
+// axes. It reads only the subtree, or reports that it could not.
+func (s *Storage) narrowSubtreeAt(kp string, commit int64, scopeID *string) (*ir.Node, bool, error) {
 	baseReader, startCommit, err := s.findSubtreeBaseReader(commit, kp)
 	if err != nil {
 		return nil, false, err
 	}
 	defer baseReader.Close()
 
-	segments := s.index.LookupSubtree(kp, &startCommit, &commit, nil)
-	patchNodes, err := s.patchNodesFromSegments(segments, nil)
+	// Baseline from the snapshot forward, then the scope over its whole history, in that
+	// order: the same two ranges replayScopedAt uses, and the same reason for each. The
+	// snapshot is baseline's, so baseline needs only what came after it and a scope needs
+	// everything. Applying the scope last is what makes its writes shadow baseline's.
+	patchNodes, err := s.patchNodesFromSegments(
+		s.index.LookupSubtree(kp, &startCommit, &commit, nil), nil)
 	if err != nil {
 		return nil, false, err
 	}
+	if scopeID != nil {
+		scopePatches, err := s.patchNodesFromSegments(
+			s.index.LookupSubtree(kp, nil, &commit, scopeID), scopeID)
+		if err != nil {
+			return nil, false, err
+		}
+		patchNodes = append(patchNodes, scopePatches...)
+	}
 
-	projected := make([]*ir.Node, 0, len(patchNodes))
-	for _, p := range patchNodes {
-		at, ok := patchAtPath(p, kp)
-		if !ok {
-			return nil, false, nil // an operator above kp: fall back
-		}
-		if at == nil {
-			continue // this write says nothing about kp
-		}
-		projected = append(projected, at)
+	projected, ok := projectPatchesAt(patchNodes, kp)
+	if !ok {
+		return nil, false, nil // a patch kp cannot be seen from: read wide
 	}
 
 	node, err := applyPatchesToBase(baseReader, projected)
@@ -134,40 +138,89 @@ func (s *Storage) narrowSubtreeAt(kp string, commit int64) (*ir.Node, bool, erro
 	return node, true, nil
 }
 
+// projectPatchesAt reroots each patch as seen from kp, dropping the ones which say
+// nothing about it. It reports false when one of them cannot be seen from kp at all,
+// which is the caller's signal to read wide.
+//
+// Both layers project through here. A scope layer projected by a different rule would
+// shadow different paths than the wide read does, and then neither answer is the
+// definition.
+//
+// Re-rooting the patch re-roots its MARKER, which is the whole of what makes a projection
+// applicable: the marker says where an entry applies from, and the entry now applies from
+// kp. It rides in the tag chain, and on an operator node that chain is also where the
+// operation lives -- so this is only safe because a merge reads a foreign label there as
+// what it is rather than as the operand (see mergeop's patchUnderTagDiff, and
+// 1hf5pzj6h12ksd40jdn0 for what it cost when it did not).
+func projectPatchesAt(patchNodes []*ir.Node, kp string) ([]*ir.Node, bool) {
+	projected := make([]*ir.Node, 0, len(patchNodes))
+	for _, p := range patchNodes {
+		at, marked, ok := patchAtPath(p, kp)
+		if !ok {
+			return nil, false
+		}
+		if at == nil {
+			continue // this write says nothing about kp
+		}
+		// A marker says where an entry is applied FROM, and this has just re-rooted the
+		// entry at kp, so the marker moves with it. Without that the projection carries
+		// none, the streaming processor finds no patch root in it, and the write
+		// contributes nothing -- a read below a write's patch root answering from the
+		// snapshot, with no error to say so (1xnezrpkh12ksavvjdn0). A marker at or below
+		// kp is already where it belongs: at kp the projection IS the marked node, and
+		// below it the marker is inside the projected subtree.
+		if marked && !tx.HasPatchRootTag(at) {
+			// On a copy: the projection is a subtree of the entry this read deserialized,
+			// and marking it in place would edit what the entry says.
+			at = at.Clone()
+			tx.MarkPatchRoot(ir.Uncomment(at))
+		}
+		projected = append(projected, at)
+	}
+	return projected, true
+}
+
 // patchAtPath answers a rooted patch as seen from kp: what it writes at or below kp,
 // rerooted there. It reports false when the patch cannot be seen that way, which is
 // when an operator sits above kp -- the operator's subject is the node it is written
 // on, and a subtree of that node is not it.
-func patchAtPath(patch *ir.Node, kp string) (*ir.Node, bool) {
+//
+// marked says a !logd-patch-root was passed on the way down, so the node returned lies
+// inside a region the entry declared itself applied from. The caller re-roots that
+// marker; see projectPatchesAt for why it must.
+func patchAtPath(patch *ir.Node, kp string) (at *ir.Node, marked, ok bool) {
 	if patch == nil {
-		return nil, true
+		return nil, false, true
 	}
 	segs := kpath.SplitAll(kp)
 	n := patch
 	for _, seg := range segs {
 		n = ir.Uncomment(n)
 		if n == nil {
-			return nil, true
+			return nil, marked, true
+		}
+		if tx.HasPatchRootTag(n) {
+			marked = true
 		}
 		if hasOperator(n.Tag) {
-			return nil, false
+			return nil, marked, false
 		}
 		if n.Type != ir.ObjectType {
 			// A scalar or a list where kp descends: the write replaces the node kp
 			// is inside, which is a statement about the ancestor and not about kp.
-			return nil, false
+			return nil, marked, false
 		}
 		name, isField := kpath.SegmentFieldName(seg)
 		if !isField {
-			return nil, false // keyed or indexed: not a plain descent
+			return nil, marked, false // keyed or indexed: not a plain descent
 		}
 		next := ir.Get(n, name)
 		if next == nil {
-			return nil, true // the patch does not reach kp
+			return nil, marked, true // the patch does not reach kp
 		}
 		n = next
 	}
-	return n, true
+	return n, marked, true
 }
 
 // hasOperator reports whether a tag names a merge operation, which is what makes a

@@ -165,13 +165,19 @@ func (co *txCoord) NewPatcher(p *api.Patch) (Patcher, error) {
 		return nil, err
 	}
 
-	// A scope's base moves as baseline advances, so an operation whose meaning
-	// depends on what was there cannot be stored in one -- it stops applying later,
-	// with nothing wrong at the time of the write, and the scope is unreadable from
-	// then on (see scope_storable.go). Baseline is not held to this: its replay is
+	// A scope's base moves as baseline advances, so an operation whose meaning depends
+	// on what was there cannot be STORED in one -- it stops applying later, with
+	// nothing wrong at the time of the write, and the scope is unreadable from then on
+	// (see scope_storable.go). Baseline is not held to this: its replay is
 	// deterministic, so verifying the patch applies is the whole of what it needs.
-	if err := checkStorableInScope(p, co.Scope()); err != nil {
-		return nil, err
+	//
+	// Lowering answers it properly: a scoped write is converted to the claim it makes
+	// before it is stored, so the operation never reaches the log and there is nothing
+	// to re-evaluate. The refusal is what is left when that is switched off.
+	if co.commitOps == nil || !co.commitOps.LowersScopeWrites() {
+		if err := checkStorableInScope(p, co.Scope()); err != nil {
+			return nil, err
+		}
 	}
 
 	// Refuse a positional write which names no element, here where the client is

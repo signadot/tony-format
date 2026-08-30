@@ -4,7 +4,6 @@ import (
 	"sort"
 	"testing"
 
-	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
@@ -12,10 +11,10 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
 )
 
-// P1's opening tests (docs/scope_overlay_plan.md). The plan proposes that the schema is
-// the write-time AUTHORITY and the tag on a lowered delta is the durable RECORD of what it
-// decided. Two things have to hold for that, and they are cheap to ask now rather than
-// after the schema work:
+// The schema is the write-time AUTHORITY for what keys an array, and the !key tag on a
+// lowered delta is the durable RECORD of what it decided. (Proposed as P1 of
+// docs/archive/scope_overlay_plan.md, and outlived it: lowering needs the same property
+// the overlay would have.) Two things have to hold for that:
 //
 //  1. annotation puts !key(f) on EVERY keyed array a delta describes, nested included --
 //     otherwise the record is partial and a rebuild silently keys less than the live index
@@ -90,9 +89,13 @@ func lower(t *testing.T, before, after string, keys map[string]string) *ir.Node 
 	if err != nil {
 		t.Fatalf("parse after: %v", err)
 	}
-	annotateKeysAt(b, "", keys)
-	annotateKeysAt(a, "", keys)
-	return unconditionalPatch(tony.Diff(b, a))
+	// Strip presentation, then storableDelta. Presentation is how a value was WRITTEN,
+	// and two states built separately differ in it for reasons that are nobody's intent
+	// -- without the strip the delta states an !addtag(bracket) that no writer asked for.
+	// These two states are PARSED here rather than read out of one chain, which is what
+	// makes the strip this test's business. A write's own delta keeps presentation, since
+	// its base and next come from one chain and a difference in it is the write's.
+	return storableDelta(stripPresentationDeepIR(b), stripPresentationDeepIR(a), keys)
 }
 
 // TestLowering_TagsEveryKeyedArray: check 1.
@@ -267,4 +270,35 @@ func TestLowering_IndexesChangesNotWrites(t *testing.T) {
 		t.Log("  does exactly this on every pass. Index the delta instead and that write leaves")
 		t.Log("  no path, so R3's fix stops working. See the plan's P1 for the fork.")
 	})
+}
+
+// mustParseBody parses a write body or fails the test. It lived in the scope stepping
+// spike's tests until those went with the overlay they were exploring.
+func mustParseBody(t *testing.T, body string) *ir.Node {
+	t.Helper()
+	n, err := parse.Parse([]byte(body))
+	if err != nil {
+		t.Fatalf("parse %q: %v", body, err)
+	}
+	return n
+}
+
+// stripPresentationDeepIR removes presentation tags throughout, in place.
+//
+// It was the scope overlay's, which compared two independently materialized documents and
+// had to strip presentation before diffing them. Nothing in the store does that any more;
+// what is left are the tests that build two states by parsing and want the same thing of
+// them.
+func stripPresentationDeepIR(n *ir.Node) *ir.Node {
+	if n == nil {
+		return nil
+	}
+	n.Tag = ir.StripPresentation(n.Tag)
+	for _, f := range n.Fields {
+		stripPresentationDeepIR(f)
+	}
+	for _, v := range n.Values {
+		stripPresentationDeepIR(v)
+	}
+	return n
 }

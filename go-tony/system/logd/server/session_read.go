@@ -104,8 +104,10 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 // quoting rules and its not-found reporting, the filter, the diffing a watcher does.
 //
 // The store declines to narrow where narrowing would have to guess: an operator above
-// the path, a scoped read, a path holding nothing. Then this is the read it always
-// was (ap8ddvp2h12krd43gdn0).
+// the path, a path holding nothing. Then this is the read it always was
+// (ap8ddvp2h12krd43gdn0). A SCOPED read narrows too, and did not always: it is what
+// makes a scoped watch's per-event recompute cost the path rather than the scope's
+// whole history.
 func (s *Session) readDocAt(path string, commit int64) (*ir.Node, error) {
 	// Ask the cheapest question first. When the index can say the path has never been
 	// written, it answers with a document which resolves exactly as far as the path

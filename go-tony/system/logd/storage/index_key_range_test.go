@@ -1,14 +1,21 @@
 package storage
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+
+	"github.com/signadot/tony-format/go-tony/encode"
+	"github.com/signadot/tony-format/go-tony/ir"
+)
 
 // What the INDEX can represent as a key is narrower than what a merge accepts, and the
 // difference is silent: the merge is correct in every case below, the state is correct,
 // and only the index is wrong. indexPatchRec discards ElemKey's second return, so "not a
 // key" becomes "the empty key" -- which looks like a valid path segment.
 //
-// Latent today. Under the scope overlay the index IS the ownership set (plan R3), so a
-// collapse means two elements share one ownership path. See P1.
+// Latent today: nothing derives ownership from the index any more -- the scope overlay
+// did, and it is gone -- but a collapsed key still makes two elements share one indexed
+// path, and every narrow read is selected by that path.
 func TestIndexKeyRange(t *testing.T) {
 	for _, tc := range []struct {
 		name, write string
@@ -51,4 +58,15 @@ func TestIndexKeyRange(t *testing.T) {
 			}
 		})
 	}
+}
+
+// encodeWire renders a node the way the wire carries it. It lived in the scope overlay's
+// tests until those went with the overlay; this is its only remaining caller.
+func encodeWire(t *testing.T, n *ir.Node) string {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := encode.Encode(n, &buf, encode.EncodeWire(true)); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	return buf.String()
 }

@@ -51,7 +51,7 @@ func TestScopedHead_AgreesWithReplay(t *testing.T) {
 				if errH != nil {
 					t.Fatalf("steppedScopedAt: %v", errH)
 				}
-				viaReplay, err := s.readScopedStateAtReplay(commit, &scope)
+				viaReplay, err := s.replayScopedAt(commit, &scope)
 				if err != nil {
 					t.Fatalf("replay: %v", err)
 				}
@@ -70,4 +70,36 @@ func nodeOrEmpty(t *testing.T, n *ir.Node) string {
 		return "<empty>"
 	}
 	return encodeWire(t, n)
+}
+
+// wgen emits a random interleaving of baseline and scope writes over overlapping paths.
+// It was the scope overlay differential's generator; scope_head_test is what still uses
+// it now that the overlay is gone.
+type wgen struct {
+	r *rand.Rand
+}
+
+var scopeGenPaths = []string{"a.x", "a.y", "b", "c.d", "c.e", "top"}
+
+// write emits one random write: which layer, which path, and whether it sets or deletes.
+func (g *wgen) write(scope *string) (path, body string, scoped bool) {
+	scoped = g.r.Intn(2) == 0
+	path = scopeGenPaths[g.r.Intn(len(scopeGenPaths))]
+	switch g.r.Intn(6) {
+	case 0:
+		return path, `!delete`, scoped
+	case 1:
+		return path, fmt.Sprintf(`{nested: %d}`, g.r.Intn(5)), scoped
+	case 2:
+		return path, `"str"`, scoped
+	default:
+		return path, fmt.Sprintf(`%d`, g.r.Intn(9)), scoped
+	}
+}
+
+func layerName(scoped bool) string {
+	if scoped {
+		return "scope"
+	}
+	return "baseline"
 }

@@ -150,12 +150,11 @@ func (s *Storage) selectSurvivors(
 
 	// Patches: keep only those within cutoff
 	for _, patch := range patches {
-		// Scope patches form the scope's op-preserving overlay log. A scoped read
-		// replays them in full (scope snapshots resolve !key away and are unsound as a
-		// base, so they are not used). Retain every scope patch until the scope is
-		// deleted (DeleteScope removes them from the index), regardless of cutoff.
-		// Bounded compaction of the scope overlay is tracked in issue
-		// 5hmq80f3h12krh1mbsn0.
+		// A scope's patches ARE its layer -- op-preserving, and replayed in full on
+		// every scoped read, since nothing materialized can stand in for them (a scope
+		// snapshot resolves !key away). So they are retained whatever the cutoff, until
+		// DeleteScope removes them from the index. Bounded op-preserving compaction of
+		// a scope's patch log is tracked in 5hmq80f3h12krh1mbsn0.
 		if patch.ScopeID != nil {
 			survivors = append(survivors, patch)
 			continue

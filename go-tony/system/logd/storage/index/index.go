@@ -2,7 +2,6 @@ package index
 
 import (
 	"cmp"
-	"math"
 	"slices"
 	"sync"
 
@@ -160,8 +159,9 @@ func (i *Index) Remove(seg *LogSegment) bool {
 // If scopeID is nil, returns only baseline segments.
 // If scopeID is non-nil, returns baseline + matching scope segments.
 func (i *Index) LookupRange(kp string, from, to *int64, scopeID *string) []LogSegment {
-	res := i.segmentsHere(rangeFunc(from, to), func(c LogSegment) bool {
-		return matchesScope(c.ScopeID, scopeID)
+	inRange := inCommitRange(from, to)
+	res := i.segmentsHere(commitsUpTo(to), func(c LogSegment) bool {
+		return inRange(c) && matchesScope(c.ScopeID, scopeID)
 	})
 	if kp == "" {
 		slices.SortFunc(res, LogSegCompare)
@@ -332,15 +332,19 @@ func (i *Index) lookupSubtree(kp string, from, to *int64, scopeID *string, scope
 	// them. Measured on staging, a narrow read averaged three seconds
 	// (ap8ddvp2h12krd43gdn0).
 	ancestor := kp != ""
+	inRange := inCommitRange(from, to)
 	i.Commits.Range(func(c LogSegment) bool {
 		if ancestor && c.Spine {
+			return true
+		}
+		if !inRange(c) {
 			return true
 		}
 		if !scoped || matchesScope(c.ScopeID, scopeID) {
 			res = append(res, c)
 		}
 		return true
-	}, rangeFunc(from, to))
+	}, commitsUpTo(to))
 
 	i.RUnlock()
 
@@ -439,10 +443,13 @@ func (i *Index) LookupRangeAll(kp string, from, to *int64) []LogSegment {
 	i.RLock()
 	defer i.RUnlock()
 	res := []LogSegment{}
+	inRange := inCommitRange(from, to)
 	i.Commits.Range(func(c LogSegment) bool {
-		res = append(res, c)
+		if inRange(c) {
+			res = append(res, c)
+		}
 		return true
-	}, rangeFunc(from, to))
+	}, commitsUpTo(to))
 	if kp == "" {
 		slices.SortFunc(res, LogSegCompare)
 		return res
@@ -466,7 +473,7 @@ func (i *Index) LookupRangeAll(kp string, from, to *int64) []LogSegment {
 // inside its patch (indexPatchRec), and all of those copies name the same log position, so
 // anything maintaining positions has to reach all of them.
 func (i *Index) AllSegments() []LogSegment {
-	res := i.segmentsHere(rangeFunc(nil, nil), nil)
+	res := i.segmentsHere(commitsUpTo(nil), nil)
 	for _, child := range i.childrenOf() {
 		pathKey, c := child.name, child.index
 		for _, seg := range c.AllSegments() {
@@ -488,7 +495,7 @@ func (i *Index) AllSegments() []LogSegment {
 // If scopeID is nil, returns only baseline segments.
 // If scopeID is non-nil, returns baseline + matching scope segments.
 func (i *Index) LookupWithin(kp string, commit int64, scopeID *string) []LogSegment {
-	res := i.segmentsHere(withinFunc(commit), func(c LogSegment) bool {
+	res := i.segmentsHere(commitsUpTo(&commit), func(c LogSegment) bool {
 		return c.StartCommit <= commit && commit <= c.EndCommit && matchesScope(c.ScopeID, scopeID)
 	})
 	if kp == "" {
@@ -515,18 +522,6 @@ func (i *Index) LookupWithin(kp string, commit int64, scopeID *string) []LogSegm
 }
 
 // withinFunc returns a range function that matches segments containing the given commit.
-func withinFunc(commit int64) func(LogSegment) int {
-	return func(v LogSegment) int {
-		if v.EndCommit < commit {
-			return -1
-		}
-		if v.StartCommit > commit {
-			return 1
-		}
-		return 0
-	}
-}
-
 // LogSegCompare compares 2 log segments by their
 // start commit, start-tx, end-commit, end-tx, and path.
 func LogSegCompare(a, b LogSegment) int {
@@ -589,26 +584,56 @@ func compareScopeID(a, b *string) int {
 	return cmp.Compare(*a, *b)
 }
 
-func rangeFunc(from, to *int64) func(LogSegment) int {
-	start := int64(-1)
-	if from != nil {
-		start = *from
+// commitsUpTo is the walk's BOUND for a commit range, and only the upper half of one,
+// because only the upper half can be answered from the order segments are kept in.
+//
+// A range is asked in terms of EndCommit -- the commit of the patch -- and the tree is
+// ordered by StartCommit. A walk may only prune on a key the order is by, or it prunes
+// on a value that does not vary with position. Above the range that is sound in one
+// direction: EndCommit >= StartCommit always, so a segment starting past `to` ends past
+// it, and so does everything ordered after it.
+//
+// Below the range it is not sound at all, and pruning there is what this used to do. A
+// segment starting earlier may still end inside, so the segments in range are not a
+// contiguous run and the walk cannot find them by looking for one. With
+//
+//	[2,3]tx3  [3,4]tx-1  [3,3]tx0  [3,4]tx4  [4,5]tx5
+//
+// -- which is what an overlay and the writes around it produce -- a lookup for
+// EndCommit in [4,5] found [3,4], stopped at [3,3] as though it were past the range,
+// and answered [3,4] alone. The scope read built on it lost the write that followed an
+// overlay, and the write reappeared once a later commit landed (tmwq9mh6h12kskmxj9n0).
+// gx8xvgmph12krbjpg1n0 is the same walk skipping a subtree for a related reason.
+//
+// So the range is a KEEP and not a prune: every caller tests EndCommit for what the
+// range MEANS, and this only stops the walk once it is past. What that costs is a
+// cheap comparison per segment at or below `to`; what a caller does with the segments
+// it keeps is unchanged, and that is where a read's work is.
+func commitsUpTo(to *int64) func(LogSegment) int {
+	if to == nil {
+		return func(LogSegment) int { return 0 }
 	}
-	end := int64(math.MaxInt64)
-	if to != nil {
-		end = *to
-	}
+	end := *to
 	return func(v LogSegment) int {
-		// For patches: EndCommit is the commit of the patch
-		// For snapshots: StartCommit == EndCommit
-		// We want segments where the patch commit (EndCommit) is in [start, end]
-		if v.EndCommit < start {
-			return -1
-		}
-		if v.EndCommit > end {
+		if v.StartCommit > end {
 			return 1
 		}
 		return 0
+	}
+}
+
+// inCommitRange reports whether a segment's own commit -- its EndCommit -- is in
+// [from, to]. This is what a commit range means; commitsUpTo only says where the walk
+// may stop looking.
+func inCommitRange(from, to *int64) func(LogSegment) bool {
+	return func(v LogSegment) bool {
+		if from != nil && v.EndCommit < *from {
+			return false
+		}
+		if to != nil && v.EndCommit > *to {
+			return false
+		}
+		return true
 	}
 }
 

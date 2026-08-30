@@ -49,19 +49,21 @@ func TestPatch(t *testing.T) {
 			Patch: `
 - !delete 1
 - 2`,
-			Res: "- 2",
+			Res: "[\n  2\n]",
 		},
 		{
 			Doc:   `[1, 2]`,
 			Patch: "- !delete 1\n- 2",
-			Res:   "- 2",
+			Res:   "[\n  2\n]",
 		},
 		{
 			Doc:   `[1, 2]`,
 			Patch: "- !delete 1\n- 2\n- 3",
 			Res: `
-- 2
-- 3`,
+[
+  2
+  3
+]`,
 		},
 		{
 			Doc:   `a: 1`,
@@ -73,9 +75,11 @@ func TestPatch(t *testing.T) {
 			Doc:   `[1,2,3]`,
 			Patch: `[1,2,4]`,
 			Res: `
-- 1
-- 2
-- 4`,
+[
+  1
+  2
+  4
+]`,
 		},
 		/*
 		   		{

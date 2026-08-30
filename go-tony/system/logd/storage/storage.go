@@ -128,16 +128,15 @@ type Storage struct {
 	// commit path) or by the accessors; set at configuration time, before serving.
 	durability Durability
 
-	// scopeKeyedCache answers "does this scope hold keyed paths the schema does not
-	// declare", which the read path asks per scoped read and which costs a walk of the
-	// whole index to work out. See scopeHasKeyedPaths.
-	scopeKeyedMu    sync.RWMutex
-	scopeKeyedCache map[string]bool
+	// lowering holds what the log KEEPS to the storage vocabulary: a write carrying a
+	// relative operation is applied and its result diffed, and the diff is stored in
+	// its place. ON by default; EnableLowering(false) is the escape hatch, and with it
+	// off a store is byte-identical to one that never had the feature. See lower.go.
+	lowering bool
 
-	// scopeOverlay turns on the overlay read and write paths (see scope_overlay.go). ON by
-	// default; EnableScopeOverlay(false) is the escape hatch, and with it off a store is
-	// byte-identical to one that never had the feature.
-	scopeOverlay bool
+	// lowerAll lowers every write rather than only the ones that need it. For the
+	// differential; see LowerEverything.
+	lowerAll bool
 
 	// scopeHeads keeps, per scope, the scoped document at the commit it is current at
 	// -- what head.go keeps for baseline. Guarded by commitMu, like the head.
@@ -159,11 +158,13 @@ func Open(root string, logger *slog.Logger) (*Storage, error) {
 	s := &Storage{
 		sequence: seq.NewSeq(root),
 
-		txStore:      tx.NewInMemoryTxStore(),
-		index:        index.NewIndex(""),
-		logger:       logger,
-		schema:       newStorageSchema(),
-		scopeOverlay: true,
+		txStore:  tx.NewInMemoryTxStore(),
+		index:    index.NewIndex(""),
+		logger:   logger,
+		schema:   newStorageSchema(),
+		lowering: true,
+		// Never on outside a test. See LowerEverything.
+		lowerAll: os.Getenv("LOGD_LOWERING") == "all",
 	}
 
 	dlog, err := dlog.NewDLog(root, logger)
@@ -249,119 +250,61 @@ func (s *Storage) replayBaselineAt(commit int64) (*ir.Node, error) {
 	return applyPatchesToBase(baseReader, patchNodes)
 }
 
-// replayScopedAt: a scope, whole document, REPLAYED -- baseline as of the commit with
-// the scope's layer folded on top. See read.go for the axes.
-// replayScopedAt implements copy-on-write scope reads. The scoped view at commit C
-// is the baseline state at C (same commit bound) with the scope's OWN patches applied
-// on top, verbatim. It is computed in a SINGLE apply pass: the baseline snapshot as
-// base, then all baseline patches (commit order), then this scope's patches (commit
-// order). Applying the scope's writes last makes them sticky over baseline — a later
-// baseline write to a leaf the scope has written is shadowed, while baseline writes
-// elsewhere still show through — and replaying real patches (not a materialized
-// overlay) keeps op semantics durable (notably !key identity merges).
+// replayScopedAt: a scope, whole document, REPLAYED -- baseline as of the commit with the
+// scope's own patches folded on top. See read.go for the axes.
 //
-// The single pass matters: materializing baseline first and re-applying the scope
-// patches over it round-trips through node<->events, and that round-trip mis-handles
-// numeric-string field keys (e.g. path "users.1"), so the scope patch fails to align
-// with the base and is dropped. Keeping every patch in one apply pass gives every
-// patch the same path computation.
+// A scope is copy-on-write, not a branch: the scoped view at commit C is the baseline
+// state at C, same commit bound, with the scope's OWN patches applied over it verbatim.
+// Applying them last is what makes them sticky -- a later baseline write to a leaf the
+// scope has written is shadowed, while baseline writes elsewhere still show through.
 //
-// The scope layer is deliberately NOT read from a scope snapshot: materialized scope
-// snapshots resolve !key away and are unsound here (see issue eagjggjdh12ksg00bsn0;
-// bounded op-preserving compaction is tracked in 5hmq80f3h12krh1mbsn0).
+// Real patches, replayed. That is not an implementation detail but the definition: only
+// the patches themselves carry op semantics, so !key merges by identity here exactly as it
+// did at the write. A materialized layer cannot -- a scope snapshot resolves !key away
+// (eagjggjdh12ksg00bsn0), and a layer DERIVED from two documents cannot state a claim at
+// all, which is what retired the scope overlay.
+//
+// The two ranges differ, and have to. Baseline's runs from the last snapshot, because the
+// snapshot holds everything before it; the scope's runs from 0, because no snapshot holds
+// a scope's writes -- they are exempt from snapshotting and compaction.
+//
+// One apply pass, for both layers together. Materializing baseline first and re-applying
+// the scope over it round-trips through node<->events, and that round-trip mis-handles
+// numeric-string field keys (path "users.1"), so the scope patch fails to align with the
+// base and is dropped. A single pass gives every patch the same path computation.
+//
+// It reads the WHOLE document. A read that names a path wants narrowSubtreeAt, which is
+// this same fold asked at that path.
 func (s *Storage) replayScopedAt(commit int64, scopeID *string) (*ir.Node, error) {
-	// SPIKE (docs/scope_overlay_plan.md): with an overlay in the log, the scope layer is
-	// that overlay plus only what the scope has written since -- instead of every scope
-	// patch ever. Off by default; see EnableScopeOverlay.
-	if s.scopeOverlay {
-		return s.readScopedStateAtOverlay(commit, scopeID)
-	}
-	return s.readScopedStateAtReplay(commit, scopeID)
-}
-
-// readScopedStateAtReplay is the definition: every scope patch, replayed. It stays the
-// oracle the overlay path is checked against, and the source the overlay is built from.
-func (s *Storage) readScopedStateAtReplay(commit int64, scopeID *string) (*ir.Node, error) {
 	baseReader, startCommit, err := s.findSnapshotBaseReader(commit)
 	if err != nil {
 		return nil, err
 	}
 	defer baseReader.Close()
 
-	// Baseline patches from the snapshot forward. Taken at the root for the same reason
-	// as replayBaselineAt: the root range is the complete, non-repeating entry set.
+	// Baseline, from the snapshot forward. Taken at the root for the same reason as
+	// replayBaselineAt: the root range is the complete, non-repeating entry set.
 	baseSegments := s.index.LookupRange("", &startCommit, &commit, nil)
 	patchNodes, err := s.patchNodesFromSegments(baseSegments, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	// This scope's own patches over the full [0, commit] range, applied last.
+	// The scope, over its whole history, last.
 	scopeSegments := s.index.LookupRange("", nil, &commit, scopeID)
 	scopePatches, err := s.patchNodesFromSegments(scopeSegments, scopeID)
 	if err != nil {
 		return nil, err
 	}
-	patchNodes = append(patchNodes, scopePatches...)
 
-	return applyPatchesToBase(baseReader, patchNodes)
+	return applyPatchesToBase(baseReader, append(patchNodes, scopePatches...))
 }
 
-// readScopedStateAtOverlay reads the scope layer as overlay(T) plus the scope's patches
-// above T. With no overlay yet it is exactly the replay path, so enabling the flag on a
-// store that has never had one written changes nothing.
-func (s *Storage) readScopedStateAtOverlay(commit int64, scopeID *string) (*ir.Node, error) {
-	// A keyed path anywhere in the scope means the overlay cannot answer for it; see
-	// scopeHasKeyedPaths. Replay instead -- slower, and right.
-	if s.scopeHasKeyedPaths(*scopeID) {
-		return s.readScopedStateAtReplay(commit, scopeID)
-	}
-	ov := s.latestOverlay(*scopeID, commit)
-	if ov == nil {
-		return s.readScopedStateAtReplay(commit, scopeID)
-	}
-
-	baseReader, startCommit, err := s.findSnapshotBaseReader(commit)
-	if err != nil {
-		return nil, err
-	}
-	defer baseReader.Close()
-
-	baseSegments := s.index.LookupRange("", &startCommit, &commit, nil)
-	patchNodes, err := s.patchNodesFromSegments(baseSegments, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	// The overlay first -- it is the scope's ownership as of its own commit -- then only
-	// what the scope has written since. Both still apply after every baseline patch, which
-	// is what makes a scope write shadow a later baseline one.
-	overlayEntry, err := s.dLog.ReadEntryAt(dlog.LogFileID(ov.LogFile), ov.LogPosition, ov.LogFileGeneration)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read scope overlay: %w", err)
-	}
-	if overlayEntry.Patch != nil {
-		patchNodes = append(patchNodes, overlayEntry.Patch)
-	}
-
-	after := ov.EndCommit
-	for _, seg := range s.index.LookupRange("", &after, &commit, scopeID) {
-		if seg.ScopeID == nil || *seg.ScopeID != *scopeID || isOverlaySegment(seg) {
-			continue
-		}
-		if seg.StartCommit == seg.EndCommit || seg.EndCommit <= ov.EndCommit {
-			continue
-		}
-		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition, seg.LogFileGeneration)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read scope patch: %w", err)
-		}
-		if entry.Patch != nil {
-			patchNodes = append(patchNodes, entry.Patch)
-		}
-	}
-
-	return applyPatchesToBase(baseReader, patchNodes)
+// isOverlaySegment reports whether seg is a scope overlay -- a cache of a scope's layer
+// that logd used to write beside a snapshot. Nothing writes one now; this is what lets a
+// log that has them still be read. See patchNodesFromSegments.
+func isOverlaySegment(seg index.LogSegment) bool {
+	return seg.ScopeID != nil && seg.ScopeOverlay
 }
 
 // patchNodesFromSegments reads patch nodes from segments in commit order, skipping
@@ -379,11 +322,11 @@ func (s *Storage) patchNodesFromSegments(segments []index.LogSegment, scopeID *s
 			continue
 		}
 		// An overlay is a scope-tagged patch entry, so it looks exactly like one of the
-		// scope's own writes here. It is not: it SUBSUMES them, and the replay path is
-		// the definition the overlay is checked against. Left in, a store that ever had
-		// an overlay written would replay it as an extra patch, and -- worse -- the
-		// differential would be comparing two paths that both consume it. Only
-		// readScopedStateAtOverlay applies one, and it does so explicitly.
+		// scope's own writes here. It is not: it SUBSUMES them. Nothing writes one any
+		// more, but a log written by a build that did still holds them, and replaying one
+		// as an extra patch would apply the scope's history twice. The scope's own
+		// patches were never removed to make room for it, so skipping it is the whole of
+		// what reading such a log needs.
 		if isOverlaySegment(seg) {
 			continue
 		}
