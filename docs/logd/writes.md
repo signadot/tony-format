@@ -68,7 +68,7 @@ Refused with `invalid_path`, and the message carries the array's length.
     land on a neighbour. For anything durable, name elements by identity instead — see
     [Keyed arrays](keyed.md).
 
-## What is stored is what a write RESULTED in
+## What is stored is the result a write produced
 
 A patch may use anything the format offers. What the log *keeps* is narrower — `!insert`,
 `!delete`, `!key`, `!raw`, `!addtag`, `!rmtag`, `!comment` — and what those have in common

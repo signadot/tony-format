@@ -8,6 +8,9 @@ the logd protocol verbatim, clients get them through docd too.
 The wire itself — every request and response, what a watch promises, and the mount
 protocol a controller speaks — is [The session protocol](session.md).
 
+It also allows more than one view of the same store at once: a *scope* is an isolated
+layer over the shared baseline, described below.
+
 The same design decides what a store will accept, and what it keeps: a delta it cannot
 apply would break every later read, so writes are checked before they are stored — and an
 operation whose meaning depends on what it lands on is stored as the result it produced,
@@ -36,6 +39,45 @@ docd inherits it for single-route watches. Across mount boundaries it is *best-e
 a composed watch spans backends with independent commit sequences, so a mount
 membership change **re-initializes** the watch (a fresh composed snapshot) rather than
 replaying the gap. See [Composition](../docd/composition.md) for the full contract.
+
+## Scopes
+
+A **scope** is a copy-on-write layer over the store's shared *baseline*. A session
+selects one in its `hello`, and from then on reads see baseline with that scope's own
+writes applied on top, and writes land in the scope rather than in baseline. Nothing a
+scope writes is visible to baseline or to any other scope.
+
+A scope is not a branch, and not a snapshot. Baseline keeps moving underneath it, and the
+scope keeps seeing those changes, except where it has written something itself:
+
+```tony
+# baseline holds {a: {x: 1, y: 2}}
+# the scope writes  {a: {x: 5}}
+# baseline then writes {a: {x: 99, y: 7}}
+
+baseline reads  {a: {x: 99, y: 7}}
+the scope reads {a: {x: 5,  y: 7}}
+```
+
+The scope keeps its own `x` and picks up baseline's new `y`. A scope's write shadows
+later baseline writes at that path, and only at that path, which is what makes a scope
+useful for trying a change against a store that other clients are still writing to.
+
+That stickiness is why a scope stores something slightly different from what baseline
+stores. Baseline records the difference a write made; a scope records the claim it made,
+so that the claim still means what it meant however baseline moves afterwards. See
+[What a write must be](writes.md#what-is-stored-is-the-result-a-write-produced).
+
+A scope lives until it is deleted. `{deleteScope: {scopeId: <id>}}` removes it and all
+its data, and is accepted only from a baseline session — a session inside a scope cannot
+delete the scope it is reading through. Until then the scope's records are kept whatever
+[compaction](#compaction) would otherwise drop, because for a scope the records are the
+state: baseline snapshots do not contain them, so there is nothing coarser to fall back
+on.
+
+docd carries scopes across its routes. A controller serves many clients over one
+connection, so the scope travels on each routed request rather than being fixed by the
+controller's own `hello`; see [The session protocol](session.md#the-mount-protocol).
 
 ## Compaction
 
