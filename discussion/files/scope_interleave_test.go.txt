@@ -1,0 +1,32 @@
+package storage
+
+import (
+	"fmt"
+	"testing"
+)
+
+// git-issue sb33w8p9h12kr16kg5n0, the half the discussion left open: a scope writing while
+// BASELINE writes too. Every baseline commit used to leave the kept document a commit behind,
+// so the next scoped write rebuilt it — 546µs at N=50 and 71ms at N=400.
+func TestZZScopedWriteInterleavedWithBaseline(t *testing.T) {
+	scope := "sandbox"
+	const reps = 20
+	for _, n := range []int{50, 100, 200, 400} {
+		s, _ := setupStore(t, 1, n, &scope)
+		d := timeN(reps, func() {
+			// a baseline commit between every scoped one, which is what a real deployment does
+			scalingCommit(t, s, nil, `{ctr: 1, tag: "t"}`, nil)
+			scalingCommit(t, s, &scope, `{ctr: 1, tag: "t"}`, nil)
+		})
+		t.Logf("scoped write, baseline interleaved  N=%4d  %v (pair)", n, d)
+		s.Close()
+	}
+	for _, n := range []int{50, 400} {
+		s, _ := setupStore(t, 1, n, &scope)
+		d := timeN(reps, func() {
+			scalingCommit(t, s, nil, fmt.Sprintf(`{ctr: %d, tag: "t"}`, n), nil)
+		})
+		t.Logf("baseline write alone, for the pair   N=%4d  %v", n, d)
+		s.Close()
+	}
+}
