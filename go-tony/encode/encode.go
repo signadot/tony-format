@@ -24,7 +24,7 @@ type EncState struct {
 	// This replaced a column counter that was maintained at two dozen sites and read
 	// in exactly one, where it was compared against zero. The arithmetic was all in
 	// service of that comparison, and two places wrote bytes without updating it.
-	atCol0        bool
+	atCol0 bool
 	// eltShareLine records that the value being encoded is an array element
 	// written on its own '- ' line. A block literal there takes the level
 	// encodeArray already took for the marker; one pushed to the next line by a
@@ -385,10 +385,10 @@ func elementHeadComment(val *ir.Node, es *EncState) *ir.Node {
 // writeElementHeadComment writes an array element's head comment after its "- ",
 // putting the value on the line below:
 //
-//	- # about rule a
-//	  name: a
-//	- # about rule b
-//	  name: b
+//   - # about rule a
+//     name: a
+//   - # about rule b
+//     name: b
 //
 // It used to go on the line ABOVE the marker, on the stated grounds that the two
 // spellings share one IR and only one can survive a round trip. They do not share
