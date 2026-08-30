@@ -1,7 +1,10 @@
 !issue
-Ref: refs/issues/hw4y878ph12ksfbwd1n0
-Title: "store client has no failure state: a dead session, a torn tail, a panic and saturation all surface as List returning [] beside a healthy verse status"
+blocked_by: []
+blocks: []
+branches: []
+commits: []
 created: "2026-07-28T11:56:13.44817+02:00"
+duplicates: []
 id: hw4y878ph12ksfbwd1n0
 labels:
 - agent
@@ -10,4 +13,4 @@ labels:
 related_issues:
 - pb1aj0sqh12ksp38cxn0
 status: open
-updated: "2026-07-28T12:19:09.893208+02:00"
+updated: "2026-08-30T23:09:23.740606+02:00"
