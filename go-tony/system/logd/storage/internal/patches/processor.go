@@ -505,6 +505,16 @@ func applyPatchesToNode(base *ir.Node, patches []*ir.Node) (*ir.Node, error) {
 		if err != nil {
 			return nil, err
 		}
+		// Before the NEXT patch sees it. A merge composes the patch's tag onto the
+		// document's, so the marker rides out of one fold and into the next as though it
+		// were part of the value -- and an operation which checks the document's tag then
+		// refuses: `!delete(bracket)` against a document wearing `!bracket.logd-patch-root`
+		// is asked to match `bracket` and does not (2w62pyyah12ksqh0jdn0).
+		//
+		// Stripping the patch instead would mutate an entry the caller still owns; this
+		// strips a node NextState has just produced. Same reason, same shape, as the
+		// empty-base fold in ApplyPatches.
+		tx.StripPatchRootTagRecursive(next)
 		result = next
 	}
 	return result, nil

@@ -23,6 +23,22 @@ import (
 // Both arms are kept because the difference between them is the point: the same four
 // writes are clean when only the writes that need lowering are lowered.
 func TestAPatchRootMarkerDoesNotReachTheDocument(t *testing.T) {
+	markerDoesNotReachTheDocument(t, false)
+}
+
+// The same, with a SNAPSHOT under the writes, which is a different fold: with base events
+// to seek through, the streaming processor collects the node at a patch root and folds
+// that path's patches into it (applyPatchesToNode) rather than folding whole patches from
+// null. Both folds had the same defect and neither covered the other.
+//
+// This one is caught by an operation that CHECKS the document's tag rather than by a type
+// mismatch: `!delete(bracket)` against a document wearing `!bracket.logd-patch-root` is
+// asked to match `bracket`, and does not.
+func TestAPatchRootMarkerDoesNotReachTheDocumentAcrossASnapshot(t *testing.T) {
+	markerDoesNotReachTheDocument(t, true)
+}
+
+func markerDoesNotReachTheDocument(t *testing.T, snapshot bool) {
 	for _, lowerAll := range []bool{false, true} {
 		name := "lowering the writes that need it"
 		if lowerAll {
@@ -33,14 +49,20 @@ func TestAPatchRootMarkerDoesNotReachTheDocument(t *testing.T) {
 			if lowerAll {
 				s.LowerEverything(true)
 			}
-			for _, src := range []string{
-				`{k0: 0}`,
+			for i, src := range []string{
+				"# note\n{k0: 0}",
 				`!rename [{from: "k0", to: "k0"}]`,
 				`{k1: 4}`,
 				`!delete`,
 			} {
-				if _, err := applyScopeOp(t, s, scopeOp{path: "", src: src}, "s1"); err != nil {
+				op := scopeOp{path: "", src: src, snapshot: snapshot && i == 0}
+				if _, err := applyScopeOp(t, s, op, "s1"); err != nil {
 					t.Fatalf("%s: %v", src, err)
+				}
+				if op.snapshot {
+					if err := s.SwitchDLog(); err != nil {
+						t.Fatalf("SwitchDLog: %v", err)
+					}
 				}
 			}
 			c, err := s.GetCurrentCommit()
