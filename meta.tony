@@ -6,7 +6,10 @@ commits: []
 created: "2026-08-30T11:34:51.027072+02:00"
 duplicates: []
 id: jkvkx2gzh12krezsjdn0
-labels: []
+labels:
+- agent
+- mergeop
+- tony
 related_issues: []
 status: open
-updated: "2026-08-30T11:34:51.027072+02:00"
+updated: "2026-08-30T11:34:57.814395+02:00"
