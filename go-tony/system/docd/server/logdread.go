@@ -52,6 +52,11 @@ func readLogdMatch(logdAddr, path string, scope *string, atCommit *int64, timeou
 		return nil, 0, err
 	}
 	if resp.Error != nil {
+		if resp.Error.Code == logdapi.ErrCodeNotFound {
+			// Absent, which for one source of a composed read is a contribution of
+			// nothing rather than a failure. See errSourceAbsent.
+			return nil, 0, fmt.Errorf("logd match at %q: %s: %w", path, resp.Error.Message, errSourceAbsent)
+		}
 		return nil, 0, fmt.Errorf("logd match at %q: %s", path, resp.Error.Message)
 	}
 	if resp.Result == nil || resp.Result.Match == nil {

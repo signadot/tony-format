@@ -569,16 +569,26 @@ func TestDocd_ScopedComposedMatch(t *testing.T) {
 	}
 
 	// A baseline composed read sees neither the scoped base nor the scoped mount.
+	//
+	// Everything in this test was written in a scope, so baseline has nothing at "a" --
+	// in the base or in the mount -- and says so: a read answers null only where a null
+	// was written, and absence is absence at every depth (bymhrqz7h12ksas3jhn0). A
+	// document coming back at all would be the leak this guards against, so both answers
+	// are checked rather than only the one.
 	base := docdClient(t, docd, "base")
 	res2, err := base.Match(ctx, "a")
-	if err != nil {
-		t.Fatalf("baseline composed match: %v", err)
-	}
-	if v, _ := res2.GetPath("$.x.v"); v != nil {
-		t.Errorf("baseline saw scoped base a.x: %v", v)
-	}
-	if v, _ := res2.GetPath("$.b.v"); v != nil {
-		t.Errorf("baseline saw scoped mount a.b: %v", v)
+	switch {
+	case err != nil:
+		if code := api.ErrorCode(err); code != api.ErrCodeNotFound {
+			t.Fatalf("baseline composed match: %v (code %q)", err, code)
+		}
+	default:
+		if v, _ := res2.GetPath("$.x.v"); v != nil {
+			t.Errorf("baseline saw scoped base a.x: %v", v)
+		}
+		if v, _ := res2.GetPath("$.b.v"); v != nil {
+			t.Errorf("baseline saw scoped mount a.b: %v", v)
+		}
 	}
 }
 

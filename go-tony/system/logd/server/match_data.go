@@ -153,11 +153,28 @@ func IsPathAbsent(err error) bool {
 // A failure is always a *PathError; see PathErrorKind for what the caller can do
 // about each one.
 func extractPathValue(doc *ir.Node, kp string) (*ir.Node, error) {
-	if doc == nil {
-		return ir.Null(), nil
-	}
 	if kp == "" {
+		// The whole document, including the empty one. A store where nothing has been
+		// written has a null root, and that is a fact about the store rather than about
+		// a path: there is no segment that failed to resolve, so there is nothing to
+		// report absent.
+		if doc == nil {
+			return ir.Null(), nil
+		}
 		return doc, nil
+	}
+	if doc == nil {
+		// Nothing has been written anywhere, so nothing is at kp -- and that is the same
+		// answer the walk below gives for a path whose ancestors DO resolve. It used to
+		// be null, which made an unwritten path indistinguishable from a written null,
+		// and made which one a caller got depend on whether some ancestor happened to
+		// exist (bymhrqz7h12ksas3jhn0). Nothing resolved, so Resolved is empty and
+		// Segment is the first thing asked for.
+		first := kp
+		if parts := splitKPath(kp); len(parts) > 0 {
+			first = parts[0]
+		}
+		return nil, &PathError{Kind: PathAbsent, Path: kp, Segment: first}
 	}
 
 	// Navigate through the document following the path structure. Segment matching

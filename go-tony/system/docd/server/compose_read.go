@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -9,6 +10,14 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 	logdapi "github.com/signadot/tony-format/go-tony/system/logd/api"
 )
+
+// errSourceAbsent marks a source read that found nothing at its path, as opposed to one
+// that failed. A composed read is over several sources and most paths exist in one of
+// them, so absence in the others is the ordinary case and not an error to report.
+//
+// It is wrapped rather than returned bare, so the message still says which source and
+// what it said.
+var errSourceAbsent = errors.New("source has nothing at this path")
 
 // matchReadTimeout bounds each source read in a composed match, so one stalled
 // source cannot hang the client's read indefinitely.
@@ -61,7 +70,15 @@ func (s *ClientSession) coordinateMatch(req *logdapi.SessionRequest, below []*Mo
 		// condition that had not happened — the client's session is fine, and a
 		// client that believes otherwise reconnects a healthy connection instead of
 		// dealing with the read that actually broke.
-		_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeMatchFailed, err.Error()))
+		//
+		// Every source having nothing at the path is not a failure of the read but
+		// its answer, and it is the same answer a direct read gives, so it carries
+		// the same code.
+		code := logdapi.ErrCodeMatchFailed
+		if errors.Is(err, errSourceAbsent) {
+			code = logdapi.ErrCodeNotFound
+		}
+		_ = s.writeToClient(logdapi.NewErrorResponse(clientID, code, err.Error()))
 		return
 	}
 
@@ -137,11 +154,27 @@ func (s *ClientSession) composeReadTree(path string, owner *MountEntry, below []
 	}
 
 	collected := make([]readResult, 0, len(below)+1)
-	var firstErr error
+	var firstErr, firstAbsent error
 	var commit int64
 	for i := 0; i < len(below)+1; i++ {
 		r := <-results
 		if r.err != nil {
+			// A source with nothing at its path contributes nothing, and the others
+			// still answer. Absence is the ordinary state of a path before the first
+			// write to it -- a composed watch on a path no one has written to yet is
+			// the normal way to start watching -- so it must not end the read the way
+			// an unreachable controller does.
+			//
+			// It used to arrive as a null rather than as an error, and composed onto
+			// the tree as one, which is what made this work by accident. logd reports
+			// it properly now (bymhrqz7h12ksas3jhn0), so the composer has to read it
+			// properly too.
+			if errors.Is(r.err, errSourceAbsent) {
+				if firstAbsent == nil {
+					firstAbsent = r.err
+				}
+				continue
+			}
 			if firstErr == nil {
 				firstErr = r.err
 			}
@@ -154,6 +187,11 @@ func (s *ClientSession) composeReadTree(path string, owner *MountEntry, below []
 	}
 	if firstErr != nil {
 		return nil, 0, firstErr
+	}
+	// Every source was absent, so the composed path is absent too, and the caller hears
+	// that rather than being handed an empty document nobody wrote.
+	if len(collected) == 0 && firstAbsent != nil {
+		return nil, 0, firstAbsent
 	}
 
 	// Overlay shallow→deep so a nested mount replaces its slot within the enclosing
@@ -189,6 +227,10 @@ func (s *ClientSession) readFrom(entry *MountEntry, path string, atCommit *int64
 	select {
 	case resp := <-ch:
 		if resp.Error != nil {
+			if resp.Error.Code == logdapi.ErrCodeNotFound {
+				return nil, 0, fmt.Errorf("controller %q: %s: %w",
+					entry.Path, resp.Error.Message, errSourceAbsent)
+			}
 			return nil, 0, fmt.Errorf("controller %q: %s", entry.Path, resp.Error.Message)
 		}
 		if resp.Result == nil || resp.Result.Match == nil {

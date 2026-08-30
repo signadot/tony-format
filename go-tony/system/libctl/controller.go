@@ -424,6 +424,13 @@ func (rt *controllerRuntime) replyErr(id *string, err error) {
 		// A failed compare-and-swap must reach the client as match_failed so its
 		// PatchIf/PatchTxIf surfaces ErrMatchFailed.
 		code = api.ErrCodeMatchFailed
+	case api.ErrorCode(err) == api.ErrCodeNotFound:
+		// Nothing at the path is a fact about the document, not about the request, and
+		// a client acts on it -- a composed read treats an absent source as a
+		// contribution of nothing rather than as a failure. Flattened to
+		// invalid_message it said the caller had asked wrongly, which is both untrue
+		// and unactionable (bymhrqz7h12ksas3jhn0).
+		code = api.ErrCodeNotFound
 	}
 	rt.reply(api.NewErrorResponse(id, code, err.Error()))
 }
