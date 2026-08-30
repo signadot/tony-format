@@ -236,6 +236,14 @@ operation persisted as decoration. Whether that should be refused at the write i
 own decision -- the store cannot tell a consumer's operation from an ordinary data tag,
 which is exactly what `!raw` exists to make deliberate.
 
+A consumer who genuinely wants its operations applied server-side already has a way, and it
+is the mount controller: docd routes reads and writes for a subtree to the consumer's own
+binary, which is a process that HAS the operations. That does not move the boundary, it
+moves the library -- the ops still run where they are registered, and what the controller
+writes through to logd is still the result. It is a large thing to take on for the purpose
+(owning a subtree, its availability, its watches), so it is worth knowing it exists and
+worth not reaching for it to avoid calling Patch locally.
+
 ## Decisions to settle before writing D
 
 - **Where a document's context bindings live.** A field? A separate argument to
