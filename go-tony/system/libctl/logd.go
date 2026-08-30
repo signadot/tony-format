@@ -771,9 +771,9 @@ func (s *LogdSession) readPump(conn net.Conn, decoder *stream.Decoder) {
 // current while it is busy.
 //
 // It says where the store has got to, not that this client has seen everything below
-// it. Zero means nothing has said yet. Against docd it is a high-water mark over
-// composed mounts with independent commit sequences, so treat it as a revision to
-// compare, never as a commit to read at (7qayp3hah12kscx2gdn0).
+// it. Zero means nothing has said yet. Against docd it is docd's own mark over what it
+// has told any client, which is a lower bound on the head rather than the head itself
+// (7qayp3hah12kscx2gdn0).
 func (s *LogdSession) KnownCommit() int64 { return s.knownCommit.Load() }
 
 // noteCommit raises the mark KnownCommit reports.

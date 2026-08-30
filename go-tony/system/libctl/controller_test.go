@@ -1757,7 +1757,8 @@ func TestDocd_WatchEndedCarriesResumeCommit(t *testing.T) {
 // (now composed over the new mount) delivers a fresh init State — NOT a replay of the
 // gap — and then streams live. A snapshot-diffing consumer swallows the init state
 // with no gap, which is why docd need not replay FromCommit across the membership
-// change (and sidesteps the composed sub-streams' independent commit sequences).
+// change: the composition itself changed, so there is no single document a replay of
+// the gap would be describing.
 func TestDocd_RewatchAfterMembershipChangeReInits(t *testing.T) {
 	logd := startLogd(t)
 	docd := startDocdForce(t, logd.TCPAddr(), 50*time.Millisecond)

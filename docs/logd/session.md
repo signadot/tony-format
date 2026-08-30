@@ -289,8 +289,10 @@ store's revision from the heartbeat it already sends: no watch held open, no pol
 read, nothing extra on the wire.
 
 Through docd the number is docd's own high-water mark over everything it has told any
-client. It is monotonic and it chases the head — a revision to **compare**, not a commit
-to read at, since docd composes mounts with independent commit sequences.
+client — reads it answered, writes it reported, watch events it forwarded. Mounts share
+the commit sequence, so the number names a real point in it; what it is not is the
+**head**, since docd only learns of a commit by handling it. It is monotonic, it chases
+the head, and it is a lower bound on it.
 
 ## Scopes
 

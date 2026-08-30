@@ -35,10 +35,10 @@ A watch delivers **every state change as a discrete delta**, not merely a "somet
 changed" nudge — so an event-driven consumer sees each transition, in order. This is a
 logd guarantee, resting on its single commit sequence.
 
-docd inherits it for single-route watches. Across mount boundaries it is *best-effort*:
-a composed watch spans backends with independent commit sequences, so a mount
-membership change **re-initializes** the watch (a fresh composed snapshot) rather than
-replaying the gap. See [Composition](../docd/composition.md) for the full contract.
+docd inherits it for single-route watches. Across mount boundaries a change of
+**membership** re-initializes the watch with a fresh composed snapshot rather than
+replaying the gap — the composition changed, so deltas from before it describe a
+different document. See [Composition](../docd/composition.md) for the full contract.
 
 ## Scopes
 

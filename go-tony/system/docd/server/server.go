@@ -43,9 +43,10 @@ type Server struct {
 	// asking "has anything happened" gets it on a pong, which is cheaper and more
 	// current than holding a watch open to be told (7qayp3hah12kscx2gdn0).
 	//
-	// It is monotonic and it chases the head. It is NOT a store head: docd composes
-	// mounts with independent commit sequences, so the number names no single store's
-	// state and must not be handed back as a commit to read at.
+	// Mounts share the commit sequence -- that is what the transaction mechanism buys,
+	// multiple remote participants under one tx id -- so this names a real point in it.
+	// What it is not is the HEAD: docd learns of a commit by handling it, so the mark
+	// is monotonic, chases the head, and is a lower bound on it.
 	seen atomic.Int64
 }
 

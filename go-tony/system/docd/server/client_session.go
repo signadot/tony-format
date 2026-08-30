@@ -65,10 +65,12 @@ type ClientSession struct {
 
 	// lastSeenMu guards lastSeen: the highest commit delivered to the client per
 	// watch (keyed by watch key). A force-end stamps it onto the terminal WatchEvent
-	// so the client can re-watch FromCommit and resume with no gap. Exact for
-	// single-route watches; best-effort for composed watches, whose sub-streams have
-	// independent commit sequences, until composed watches honor FromCommit on
-	// re-establish.
+	// so the client can re-watch FromCommit and resume with no gap. Exact for a
+	// single-route watch, whose events arrive in commit order. Best-effort for a
+	// COMPOSED one: its mounts share the commit sequence, but their live deltas are
+	// forwarded as they arrive rather than merged in commit order, so the mark can sit
+	// above a lower commit still in flight from another mount, and resuming at it would
+	// step over that one.
 	lastSeenMu sync.Mutex
 	lastSeen   map[string]int64
 

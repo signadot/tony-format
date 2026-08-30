@@ -96,10 +96,14 @@ reader/writer coordinator:
 **logd guarantee**, resting on logd's single commit sequence: a single-route watch
 inherits it fully, and `FromCommit` replays the exact delta history.
 
-Across **mount boundaries** it is **best-effort**. A composed watch multiplexes
-backends with *independent* commit sequences, so a single resume commit cannot replay
-them. Rather than build a multi-sequence replay, docd handles a membership change by
-**re-initializing**:
+Mounts **share** the commit sequence — that is what the transaction mechanism is for,
+multiple remote participants under one tx id — so a commit means the same thing to every
+mount, and a composed watch does resolve one cursor and replay every mount from it.
+
+What a composed watch cannot replay across is a change of **membership**, and not for
+want of a sequence: the composition itself changed, so deltas from before it describe a
+different document and there is no single document a replay of the gap would be
+describing. docd handles it by **re-initializing**:
 
 - a `mount`/`unmount` that changes membership **ends** the overlapping watch with a
   terminal event, `EndReason: "membership_changed"`;
@@ -109,9 +113,12 @@ them. Rather than build a multi-sequence replay, docd handles a membership chang
 
 A snapshot-diffing consumer reconciles the re-init with no lost state. The terminal
 event also carries the **last delivered commit** as a resume point
-(`WatchEndedError.Commit` in libctl) — exact for a single-route watch (where
-`Watch(FromCommit:)` replays the gap), a best-effort hint for a composed one.
+(`WatchEndedError.Commit` in libctl) — exact for a single-route watch, whose events
+arrive in commit order. For a composed one it is a **hint**: live deltas from different
+mounts are forwarded as they arrive rather than merged in commit order, so the mark can
+sit above a lower commit still in flight from another mount, and resuming at it would
+step over that one.
 
 So the contract is: **watches are event-preserving while streaming; a membership
-change is a re-sync, not a guaranteed replay.** A watch that never spans a mount
-boundary is fully event-preserving via logd.
+change is a re-sync, not a replay.** A watch that never spans a mount boundary is fully
+event-preserving via logd.

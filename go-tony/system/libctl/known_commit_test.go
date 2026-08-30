@@ -114,10 +114,10 @@ func TestPongCarriesTheHead(t *testing.T) {
 }
 
 // docd answers the ping itself -- it never forwards it -- so the number it reports is
-// its own: the highest commit it has told any client about, over every session. That
-// is a revision to compare, not a commit to read at, because docd composes mounts with
-// independent commit sequences. What matters here is that it moves, and that a client
-// through docd is not left with nothing.
+// its own: the highest commit it has told any client about, over every session. Mounts
+// share the commit sequence, so that is a real point in it, but docd learns of a commit
+// by handling one, so it is a lower bound on the head rather than the head. What matters
+// here is that it moves, and that a client through docd is not left with nothing.
 func TestKnownCommitThroughDocd(t *testing.T) {
 	logd := startLogd(t)
 	docd := startDocdProxy(t, logd.TCPAddr())
