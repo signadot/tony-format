@@ -4,7 +4,7 @@ Scopes provide Copy-on-Write (COW) isolation for logd data, enabling features li
 
 ## Overview
 
-A scope is an isolated overlay on top of the baseline data. When you connect with a scope:
+A scope is an isolated layer on top of the baseline data. When you connect with a scope:
 - **Reads** return baseline data layered with scope-specific changes
 - **Writes** only affect the scope (baseline remains unchanged)
 - **Watches** see both baseline changes and scope-specific changes
@@ -123,39 +123,50 @@ This removes all index entries for the scope. The underlying log entries remain 
 2. Read and merge patches from baseline
 3. If scoped, apply the scope's layer on top
 
-### The overlay
+### Cost of a scoped read
 
-Step 3 used to mean *every write the scope had ever made*, replayed on every read: scope
-patches are exempt from both snapshotting and compaction, so a scoped read cost the
-scope's whole history where a baseline read cost only what had happened since the last
-snapshot.
+Step 3 means *every write the scope has ever made*. A baseline snapshot is baseline's
+only: it does not fold in a scope's patches, so a baseline read needs what happened since
+the last snapshot while a scoped read needs the scope's whole history.
 
-Each baseline snapshot now also materializes each live scope's ownership as an **overlay**
-— a scope-tagged log entry holding what that scope asserts, as of that commit. A scoped
-read is then
+What bounds that is the read PATH, not a cache. A read at a path looks both layers up at
+that path — `index.LookupSubtree`, which has always taken a `scopeID` — and replays only
+the patches that bear on it: baseline's since the snapshot, then this scope's over its
+whole history, both projected to the path. Scope patches still apply after every baseline
+patch, which is what makes a scope's write shadow a later baseline one.
 
-```
-baseline snapshot + baseline patches since + overlay(T) + the scope's patches after T
-```
+Nothing is synthesized. These are the patches the scope wrote, replayed, so `!key`
+identity merges, comments and every other operation mean at the path exactly what they
+mean in a wide read.
 
-which is bounded by the snapshot interval, exactly as baseline is. Nothing about the
-semantics above changes; what changes is how much has to be replayed to produce them.
+Measured at a path the scope wrote once, with N writes elsewhere in the scope:
 
-Two consequences worth knowing:
+| N   | read at a path | read of the whole document |
+|-----|----------------|----------------------------|
+| 50  | 33µs           | 1.0ms                      |
+| 100 | 37µs           | 1.5ms                      |
+| 200 | 31µs           | 3.4ms                      |
+| 400 | 51µs           | 6.7ms                      |
 
-- **A scope's operations freeze at a snapshot.** Between snapshots a stored op is
-  re-applied to the live baseline, so an operation whose result depends on what it meets
-  (`!rename`, `!strdiff`, …) tracks baseline. Once folded into an overlay it is the value
-  it produced. This is the same shape as baseline history degrading to snapshot
-  granularity, applied forwards rather than backwards.
-- **A scope holding keyed arrays the schema does not declare replays instead.** An overlay
-  is built by diffing two materialized states, and a `!key` that exists only because some
-  write carried the tag cannot be reproduced on those states — so the diff would key by
-  position where the merge keys by identity. Declaring the key in schema (`!logd-key` or
-  `!logd-auto-id`) is what makes such a scope servable.
+The read at a path is flat in the scope's history; the whole-document read is not, and
+still replays all of it.
 
-`EnableScopeOverlay(false)` turns all of this off; a store then behaves exactly as it did
-before, at the old cost. See `scope_overlay_plan.md` for the design and the measurements.
+#### There used to be an overlay
+
+Each baseline snapshot also materialized every live scope's ownership as a scope-tagged
+log entry, so a scoped read replayed only what the scope had written since. It was built
+by diffing two documents — baseline@T against scoped@T — plus a union of owned paths, and
+that could not be made to work: a difference between documents cannot record that the
+scope deleted a field baseline never had (`qth3kqe9h12ksxz9j9n0`), the owned-path union
+applied its operand rather than placing it, so a tombstone could not be introduced at all,
+and keyed absence has no vocabulary to be expressed in. Over 200 seeded mixed streams it
+broke 44 standing claims where replay broke none.
+
+It was deleted in `73e2637`, and path-scoped replay above is what removed the cost it
+existed to relieve. A log that still contains overlay entries stays readable —
+`dlog.Entry.ScopeOverlay` marks them and `isOverlaySegment` excludes them from the layer
+they are the base of. Nothing writes one now. See `archive/scope_overlay_plan.md` for the
+design and the measurements that went with it.
 
 ### LogSegment
 

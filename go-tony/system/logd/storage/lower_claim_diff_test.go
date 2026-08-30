@@ -79,9 +79,10 @@ func TestAScopedWriteIsAStandingClaim(t *testing.T) {
 	// This was held back on 5 broken claims in 293, and every one of them was the scope
 	// OVERLAY deriving a scope layer from two documents rather than the scope's patches:
 	// two were the delete it cannot record (qth3kqe9h12ksxz9j9n0), two the presentation
-	// it deliberately strips, one the root comment it drops (fve9fxbqh12krxmpj9n0). With
-	// the overlay off -- which is now the default, see Storage.scopeOverlay -- the same
-	// 25 seeds break none, and 200 seeds break none.
+	// it deliberately strips, one the root comment it drops (fve9fxbqh12krxmpj9n0). Without
+	// it -- the overlay was first defaulted off and then deleted outright in 73e2637, a
+	// cache of a layer nothing can derive -- the same 25 seeds break none, and 200 break
+	// none.
 	//
 	// So the property holds, and what was failing it was never the claim.
 	//
