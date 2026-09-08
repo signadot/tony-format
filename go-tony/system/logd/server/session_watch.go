@@ -6,6 +6,7 @@ import (
 
 	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/libdiff"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
@@ -556,7 +557,17 @@ func (s *Session) emitScopedDeltaFrom(id *string, path string, commit int64, pre
 	// direction: a change SameState reports would be diffed away to nothing and the
 	// watcher told a commit happened by a patch that changes nothing. Inert on a
 	// document with no comments, like the equality above it.
-	rooted, err := tx.RootPatchAt(path, tony.DiffWith(prev, newDoc, tony.DiffComments(true)))
+	//
+	// Absence is a side of the diff too, and it is stated as what it is: a value arriving
+	// where there was none is an insert, a value leaving is a delete. Neither is a null,
+	// which is a value (api/state.go). Both absent is the equality's case, above.
+	var delta *ir.Node
+	if prev == nil || newDoc == nil {
+		delta = libdiff.MakeDiff(prev, newDoc)
+	} else {
+		delta = tony.DiffWith(prev, newDoc, tony.DiffComments(true))
+	}
+	rooted, err := tx.RootPatchAt(path, delta)
 	if err != nil {
 		return prev, err
 	}

@@ -372,20 +372,20 @@ func watchKey(id *string, path string) string {
 	return "path:" + path
 }
 
-// subtreeOf trims a document to the watched path, with scopedDocAt's normalization —
-// an absent or null subtree becomes ir.Null() so the change gate can compare it. It is
-// scopedDocAt's second half, separated so a stepped document can be trimmed without
-// being re-read.
+// subtreeOf trims a document to the watched path: the value there, or nil where the path
+// resolves to nothing. It is scopedDocAt's second half, separated so a stepped document
+// can be trimmed without being re-read.
+//
+// Absent stays nil and null stays null. The change gate after this compares the two, and
+// they are different states of the path: a null that is then deleted has changed, which
+// the gate can only see if nothing before it said null for both (api/state.go).
 func subtreeOf(doc *ir.Node, path string) *ir.Node {
 	if doc == nil {
-		return ir.Null()
+		return nil
 	}
 	sub, err := extractPathValue(doc, path)
 	if err != nil {
-		return ir.Null() // path absent in this commit's state
-	}
-	if sub == nil || sub.Type == ir.NullType {
-		return ir.Null()
+		return nil
 	}
 	return sub
 }

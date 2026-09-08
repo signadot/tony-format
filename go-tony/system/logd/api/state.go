@@ -7,6 +7,22 @@ import (
 	"github.com/signadot/tony-format/go-tony/mergeop"
 )
 
+// Presence, and what a nil is.
+//
+//	A nil *ir.Node is ABSENT. Null is ir.Null(). No layer maps one onto the other.
+//
+// (nil, nil) is how a read says "there is nothing here", and it is the right spelling: it
+// is what GetPath answers for a missing field, what mergeop's keyed merge documents as
+// deliberate, and what lowering relies on to say "the document is gone" -- a diff of two
+// STATES cannot say that with a null, because a null is a state. The rule is stated here
+// rather than at each layer because a layer that turns an absent path into ir.Null() so
+// two things can be compared has made a null that is then deleted look like no change at
+// all, and the gate downstream of it tells the truth only if nothing upstream lied.
+//
+// The one place the two legitimately meet is the wire, which cannot say absent and says
+// null with the truth kept beside it in the log (see watchAbsence) until it can
+// (presence.md, wk5w1ddkh12krj1tkxn0).
+
 // NextState applies a patch the way logd materializes state: keeping comments,
 // because a store keeps what it is given.
 //

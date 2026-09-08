@@ -150,19 +150,20 @@ func (s *Session) fullDocAt(commit int64) (*ir.Node, error) {
 	return doc, nil
 }
 
-// scopedDocAt returns the scoped state document (root-rooted, the watched path's
-// subtree) at the given commit, normalized so a nil/empty result becomes ir.Null()
-// for diffing.
+// scopedDocAt is the scoped value at path as of commit: the subtree there, or nil where
+// the path resolves to nothing -- including at commit 0, where there is no document. The
+// scoped watch compares presence as well as value, so absence is not turned into a null
+// here (api/state.go).
 func (s *Session) scopedDocAt(path string, commit int64) (*ir.Node, error) {
 	if commit == 0 {
-		return ir.Null(), nil
+		return nil, nil
 	}
 	doc, err := s.readDocAt(path, commit)
 	if err != nil {
 		return nil, err
 	}
 	if doc == nil {
-		return ir.Null(), nil
+		return nil, nil
 	}
 	// ReadStateAt returns a rooted SUPERSET: it collects ancestor-level index
 	// segments and applies whole patch entries, so a read of "p.b" carries a
@@ -171,10 +172,7 @@ func (s *Session) scopedDocAt(path string, commit int64) (*ir.Node, error) {
 	// reading) so a scoped watcher does not see a sibling's write as a change.
 	sub, err := extractPathValue(doc, path)
 	if err != nil {
-		return ir.Null(), nil // path absent in this commit's state
-	}
-	if sub == nil || sub.Type == ir.NullType {
-		return ir.Null(), nil
+		return nil, nil
 	}
 	return sub, nil
 }
