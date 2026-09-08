@@ -407,6 +407,25 @@ the ten scope_* files transfer as behaviour.
 DONE WHEN: xmxt2p85h12ksjp1gsn0's shape (`!delete` vs `!delete.logd-patch-root`) is
 unrepresentable. Release point, with phase 3.
 
+4 AS BUILT: the notification is built after lowering from the entry the log keeps, and is
+a deep copy of it (`deliverable`, storage/tick.go); Deltas hands out the same copy of the
+same entry; both are raised by the one function, so live and replay are the same bytes by
+construction and delta_identity_test asserts IDENTITY and ABSOLUTENESS at the commit, with
+lowering as shipped and forced. The marker is gone -- tx/patch_root.go, DeliverablePatch,
+markDeltaRoots, the strip at every hop -- and where an entry is applied from is read from
+its shape (patches.walkAndCollectPatchRoots): an operation is about the node it is on and
+its operand is not descended into; a leaf, an array, or an empty container is a write at
+its path; a commented node is a statement at the comment's path; a plain object with
+fields is passed through. That is the reading the index (PatchChildren) and the lowering
+(LowerSites) already make, so the three agree because they are one rule. NeedsLowering
+survives as the optimisation it is -- whether an absolute write is diffed or kept as sent
+-- and cannot change what a watcher receives; `lowerEverything` is the unexported test
+knob. One consequence is recorded in the processor tests: a bare array in an entry is
+applied as a unit at the array's path, which is what the fold (api.NextState) does with
+it, and the tests that had rooted an element by tag now expect the fold's answer. Not in
+this phase: the ONE ROOTING RULE, which is where a watch's events are defined and lands
+with the wire in phase 5.
+
 ## Phase 5 -- the wire
 
 READ: api/session.go (WatchEvent 374, MatchResult 289, ProtocolVersion 48); server/
