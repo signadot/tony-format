@@ -18,6 +18,38 @@ so that replaying it later cannot mean something else. See
 [What a write must be](writes.md), and [Keyed arrays](keyed.md) for naming elements of
 an array by identity rather than by position.
 
+## What this gives you
+
+Most programs that keep documents keep them as JSON in a relational column, with the
+database's JSON-path support standing in for a document API. That is a second model
+between the program and its data: the row has one schema and the document another, a
+read is SQL around a path expression, a write replaces a column the database cannot
+patch, and change notification, audit and undo are each a mechanism built beside the
+data rather than a property of it. Every step negotiates between the two models, and the
+negotiation is where the incoherency lives.
+
+logd's unit is the document, and its operations are Tony's:
+
+- A **write is a patch** -- the same declarative patch you would apply to a file, with
+  the same operators -- and what the store keeps is what the patch did. There is no
+  mapping between the shape in the program and the shape at rest, because there is one
+  shape.
+- A **read is a match**: a path, and optionally a pattern shaped like the document you
+  want back.
+- A **watch delivers diffs**: one per commit, rooted at the watched path, in order and
+  without gaps, which a client applies with the same fold the store used. Change
+  notification is not a trigger beside the data; it is the data's own history, streamed.
+- **History is addressable.** Every write is a commit, any commit can be read, and a
+  client that knows the last commit it saw resumes from it.
+- The **schema is a Tony document**, in the format of the data it governs, and it comes
+  with the session.
+
+What a read costs is set by the path and the delta, not by the size of the store -- the
+storage engine is built around that rule, and the pages below describe it as it is,
+including what a store will not accept and what compaction does to history. It is young.
+It is not yet the store to put under a system that cannot afford one; it is the store to
+put under one whose tooling incoherency you are done paying for.
+
 ## Time travel
 
 Every write produces a monotonic commit, and logd can reconstruct the document's state

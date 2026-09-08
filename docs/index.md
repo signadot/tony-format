@@ -113,4 +113,25 @@ Some highlights of the tooling level coherency are
 - Ease of producing JSON for relevant objects.
 - Built-in support for interfacing with text templating.
 - Tooling level support for comments.
+- A document store, [logd](logd/index.md) and [docd](docd/index.md), whose reads,
+  writes and change events are the same match, patch and diff.
+
+### The same coherency, stored
+
+The classic way to keep documents is JSON in a relational column, with the database's
+JSON-path support standing in for a document API. It works, and it sets up a negotiation
+that does not end: the data is a row to the database and a document to the program, so a
+read is written twice -- SQL around a path expression inside it -- a write is a document
+serialized into a column the database cannot patch, change notification is a trigger or a
+poll built beside the data, history is whatever the application remembered to keep, and
+the schema lives in two places that drift. None of that is a defect of the database. It
+is the cost of a second model standing between a program and its documents, and it is the
+largest single source of tooling incoherency a document-shaped program lives with.
+
+[logd](logd/index.md) and [docd](docd/index.md) are Tony's answer to it: a store whose
+unit is the document and whose operations are the ones above. A write *is* a patch, a
+read *is* a match, and a watch delivers the diffs a client applies with the same fold --
+one structure at rest, on the wire and in the program, with history addressable by commit
+and the schema in the same format as the data. They are young, and say so on their own
+pages; what they are for is taking that second model out.
 

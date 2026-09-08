@@ -64,17 +64,19 @@ has a stream to be told on.
 
 ### Delta rooting
 
-The watch stream follows one contract:
+The watch stream follows one contract, the same one logd's does: the initial **`State`**
+event is the value **at the watched path**, and every **`Patch`** after it is a delta **of
+that value**, rooted at the same place, so a consumer applies each to what it holds.
 
-- the initial **`State`** event is **relative to the watched path** (its value is the
-  subtree at that path); and
-- every subsequent **`Patch`** (delta) is **root-rooted** — an absolute patch from the
-  document root.
-
-Because deltas are root-rooted, docd forwards a sub-watch's delta by re-stamping only
-its `Path` to the client's watch path; the patch body passes through unchanged. (logd
-may normalize a delta's shape — e.g. emit a `!replace` — so a watch consumer *applies*
-deltas to track state rather than pattern-matching their surface form.)
+A sub-watch on a mount below the composed path delivers deltas rooted at the *mount's*
+path; docd re-roots each under the fields between the mount and the composed path before
+forwarding it, so what the client receives is rooted where its watch is. The sub-watch on
+the composed path itself sees the whole subtree, mounts included, and is trimmed to what
+the composed path owns -- the mounts carry their own subtrees on their own streams -- by
+the same partition that splits a write across mounts. A delta that cannot be split, an
+operator above a mount boundary, is forwarded whole rather than dropped. (logd may lower an
+operation to the result it produced, so a watch consumer *applies* deltas rather than
+pattern-matching their surface form.)
 
 ## Coordination
 

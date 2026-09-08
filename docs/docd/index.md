@@ -8,6 +8,20 @@ while parts of the document tree can be delegated to separate processes.
 docd is a thin, fail-fast proxy that *routes* and *composes* operations across a base
 store (logd) and mounted controllers, without caching document state.
 
+## What this gives you
+
+A system that keeps its documents in a database and its services beside it grows one API
+per service in front of the data, each a different shape from the data itself, and each a
+place where the two have to be kept coherent by hand. docd turns that around: a service
+*owns a subtree* of one document. Its clients read, write and watch that subtree with the
+same match, patch and diff they use for the rest of the document, over the same session,
+and cannot tell where the store ends and the service begins. The mount protocol a
+controller speaks is the session protocol inverted -- the same operations, arriving
+instead of leaving -- so anything that can be a client can be a source, and there is no
+second protocol to learn or to keep coherent with the first. A service gets a document
+API, and the store's history, watches and transactions with it; a program gets one
+document, whoever serves its parts.
+
 ## Two faces
 
 docd speaks two protocols on two listeners:

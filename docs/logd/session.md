@@ -5,11 +5,16 @@ in both directions. Every message a client sends names exactly one operation; ev
 message a server sends is a result, a watch event, or an error.
 
 ```tony
-{hello: {clientId: verse}}
+{hello: {clientId: verse, protocol: 2}}
 {patch: {path: verse.entities.e1, data: {status: ready}}}
 {match: {path: verse.entities.e1}}
 {watch: {path: verse.entities}}
 ```
+
+A client says which session protocol it speaks, and a server that speaks another refuses
+the session at the handshake, naming both numbers -- a request field a server does not
+know is ignored, so a mismatch that got past the handshake would be answered rather than
+refused, and wrongly. This page describes **protocol 2**.
 
 **docd speaks this protocol verbatim**, so a client written against logd talks to docd
 unchanged — and the operations it composes across mounts (reads, watches, transactions)
@@ -30,7 +35,7 @@ directly inside it:
 
 | operation | shape |
 |---|---|
-| `hello` | `{hello: {clientId: <id>, scope: <scope>}}` |
+| `hello` | `{hello: {clientId: <id>, protocol: 2, scope: <scope>}}` |
 | `match` | `{match: {path: <kpath>, data: <pattern>, commit: <n>}}` |
 | `patch` | `{patch: {path: <kpath>, data: <value>, match: {path, data}, txId: <n>, timeout: "5s"}}` |
 | `newtx` | `{newtx: {participants: <n>}}` |
@@ -192,23 +197,28 @@ that transaction on the one logd, and all of them report the same commit.
 {id: w1, watch: {path: verse.entities}}
 {id: w1 result: {watch: {watching: verse.entities}}}
 {event: {commit: 1 path: verse.entities state: {e1: {id: e1 status: ready}}} id: w1}
-{event: {commit: 2 patch: {verse: {entities: {e2: {id: e2}}}} path: verse.entities} id: w1}
+{event: {commit: 2 patch: {e2: {id: e2}} path: verse.entities} id: w1}
 ```
 
 The first event is the **state** at the path; every event after it is the **delta of
 one commit**, in commit order, with no gaps. A consumer that applies them in order
 holds what the store holds.
 
-!!! warning "The two event kinds are rooted differently"
+!!! note "Both event kinds are rooted at the watched path"
 
-    `state` carries the subtree **at the watched path**. `patch` carries a delta rooted
-    at the **document**, as stored — above it is the untouched spine, `{verse:
-    {entities: …}}` for a watch of `verse.entities`.
+    `state` carries the value **at the watched path**, and every `patch` after it is a
+    delta **of that value**, rooted at the same place: apply the patches in order to the
+    state, with the fold the store uses (`api.NextState`, so comments count the same on
+    both sides), and you hold what the store holds at the path. Nothing has to be
+    navigated or re-rooted, and a consumer *applies* a delta rather than reading its
+    surface: the store may lower an operation to the result it produced (see [What a
+    write must be](writes.md)), so the shape that arrives is what happened, not what was
+    written.
 
-    So a delta cannot be applied to the state as given; a consumer either navigates the
-    patch down to the watched path, or keeps a document-rooted copy. The store keeps the
-    raw committed delta deliberately, because rewrapping it would lose operator fidelity
-    for `!key` and friends — but the asymmetry is a trap, and it is a known one.
+    A null in `state` or `patch` is a null the path holds. A path that holds nothing is
+    said by **`absent: true`** on the event -- the first event of a watch that asked to
+    wait, or a delta that removed the path, which is still delivered so that applying it
+    is how a client's own copy comes to hold nothing.
 
 - `fromCommit` replays the exact delta history from that commit before streaming live,
   so a client that knows where it left off reconnects with no gap. The watch result then
@@ -241,8 +251,8 @@ holds what the store holds.
   is refused with `not_found`, for the same reason a read of that path is: a watch that
   delivered null would say what a read says, and then "watch this, it will appear" and
   "watch this, I have the path wrong" would be one request with one outcome. With it, the
-  watch is established, the initial state is null, and the value is reported when it
-  arrives.
+  watch is established, the first event says `absent: true`, and the value is reported
+  when it arrives.
 
     Waiting is the ordinary way to start watching something a peer has not created yet, so
     a client doing that says so:
