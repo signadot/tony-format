@@ -104,8 +104,8 @@ WHAT THIS BUYS, and it is the reason to prefer it to any ordering rule:
 
     Element identity is what makes this pressing rather than merely true: it multiplies
     names, and a keyed array of 100,000 elements with 200 hot ones is exactly the case a
-    residency policy answers and a size bound cannot. It belongs to the proposal
-    (qvn7ptxch12krxzt9hmg), which is where it is raised.
+    residency policy answers and a size bound cannot. index_residency.md is where that is
+    settled (qvn7ptxch12krxzt9hmg).
   - An element is a field, so everything the substrate already does per path applies to it:
     a snapshot at an element, a patch at an element, a compaction that collapses an
     element's history. Property 5's headroom stops being an array special case.
