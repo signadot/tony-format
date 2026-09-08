@@ -261,3 +261,28 @@ Index residency: the durable index, regions, the ceiling.
     FOUND      a write into a cold region paged it in and the charge for the page-in
                evicted it again before the insert, forever, when it was the only evictable
                region: the write now lands in the same critical section as the paging.
+
+## Phase 5, as it happened (go-tony side)
+
+Presence on the wire, one rooting, protocol 2, the response encoded from the stream.
+
+    ADDED      server/protocol_version_test (1 and 3 refused, 2 and 0 answered);
+               server/encoded_match_test (a plain match is a frame under the budget that
+               decodes to the collected document, comments included; the same read with
+               a pattern is refused for its budget); libctl/watch_presence_test (an absent
+               path watched, delivered and read as absent by a client consulting only the
+               wire: Absent, a value, a null, Absent again; and the rooting: deltas below,
+               at and above the watched path each applied to what the client holds land
+               where a fresh read lands, and a replay of the same commits is the same
+               bytes)
+    REWRITTEN  server/patchmayaffect_test -> TestTheProjectionMatchesQuotedSegments, on
+               api.ProjectDelta; server/presence_watch_test asserts the delta at the path
+               and Absent when the value leaves; libctl's controller, versewatch and
+               multi-watch tests take deltas rooted at the watched path (the test
+               controller says its delta rooted at its mount); the sibling-watch tests
+               accept an absent initial state; the four server tests reading the session's
+               channel take the outbound
+    FOUND      libctl's suite had not compiled since 3b (a write stat the head took with
+               it) and had not run since; once it did, the canonical path spelling was
+               found dropping a wildcard's separator
+    NOT HERE   verse's four files, and measuring the bar on staging
