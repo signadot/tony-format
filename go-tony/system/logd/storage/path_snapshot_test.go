@@ -282,26 +282,40 @@ func TestASnapshotOfAPathDeclinesWhatIsNotWorthTaking(t *testing.T) {
 	if st := s.ReadStats(); st.PathSnapshots != 0 {
 		t.Errorf("an unfinished read took a snapshot")
 	}
-	// Over the budget: the read's bytes exceed it, so nothing is scheduled -- not by
-	// the writes' own reads of the site either; and a snapshot forced by hand abandons
-	// its blob and leaves the log walkable.
+	// A subtree larger than the size unit is PRICED, not excluded: it must fold
+	// proportionally more to be worth rewriting, so a short fold gets no snapshot -- and
+	// a long enough one does. That second half is the property that matters. A flat
+	// ceiling here meant the largest subtrees were never snapshotted at all, so their
+	// folds grew without end and every read of them paid the whole history.
 	s.SetPathSnapshotPolicy(2, 8)
 	for i := 1; i <= 4; i++ {
 		commitAt(t, s, nil, "a.big.p", fmt.Sprintf(`"%d123456789abcdef"`, i))
 	}
 	head, _ = s.GetCurrentCommit()
+	before := s.ReadStats().PathSnapshots
 	if _, _, err := readSubtreeAt(s, "a.big", head, nil); err != nil {
 		t.Fatalf("read a.big: %v", err)
 	}
 	s.waitPathSnapshots()
-	if err := s.snapshotPath(head, "a.big"); err != nil {
-		t.Fatalf("snapshotPath over budget: %v", err)
+	if st := s.ReadStats(); st.PathSnapshots != before {
+		t.Errorf("a subtree this size was snapshotted on a fold of four")
 	}
-	if st := s.ReadStats(); st.PathSnapshots != 0 {
-		t.Errorf("a subtree over the budget was snapshotted")
+	if st := s.ReadStats(); st.SnapNotYetWorth == 0 {
+		t.Errorf("the decline was not counted, so nothing would say why the fold grows")
+	}
+	for i := 0; i < 300; i++ {
+		commitAt(t, s, nil, "a.big.p", fmt.Sprintf(`"%d"`, i))
+	}
+	head, _ = s.GetCurrentCommit()
+	if _, _, err := readSubtreeAt(s, "a.big", head, nil); err != nil {
+		t.Fatalf("read a.big after a long fold: %v", err)
+	}
+	s.waitPathSnapshots()
+	if st := s.ReadStats(); st.PathSnapshots == before {
+		t.Errorf("a big subtree got no snapshot however long its fold: the fold is unbounded")
 	}
 	if err := s.SwitchDLog(); err != nil {
-		t.Fatalf("SwitchDLog after an abandoned snapshot: %v", err)
+		t.Fatalf("SwitchDLog: %v", err)
 	}
 	if got, _, err := readSubtreeAt(s, "a.b", head, nil); err != nil || got == nil || *got.Int64 != 12 {
 		t.Errorf("read a.b after an abandoned snapshot: %v (%v)", got, err)

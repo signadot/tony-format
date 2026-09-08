@@ -52,6 +52,15 @@ type ReadStats struct {
 	Folded        int64
 	LongestTail   int64
 	PathSnapshots int64
+
+	// Why a wanted path snapshot was not taken; see readStats.
+	SnapNotYetWorth      int64
+	SnapWantedIncomplete int64
+	SnapBusy             int64
+	SnapRootAhead        int64
+	SnapAlreadyHave      int64
+	SnapAbsent           int64
+	SnapInProgress       int64
 }
 
 // seekKind is what a read's seek found: nothing, the root snapshot, a snapshot of a path
@@ -83,6 +92,17 @@ type readStats struct {
 	folded         atomic.Int64
 	longestTail    atomic.Int64
 	pathSnapshots  atomic.Int64
+
+	// Why a read that wanted a snapshot at its path did not get one. A policy that
+	// declines silently is a policy nobody can debug: the fold grows, reads slow, and
+	// nothing says which gate is closed. One counter per branch, reported.
+	snapNotYetWorth      atomic.Int64 // the fold is not yet long enough for a subtree this size
+	snapWantedIncomplete atomic.Int64 // the read did not run to its end
+	snapBusy             atomic.Int64 // another path snapshot was already in flight
+	snapRootAhead        atomic.Int64 // the read's commit precedes the root snapshot
+	snapAlreadyHave      atomic.Int64 // a snapshot at or above the path already stands there
+	snapAbsent           atomic.Int64 // the path holds nothing
+	snapInProgress       atomic.Int64 // the log was busy with another snapshot
 }
 
 // noteBound records one read against the bound: the bytes it emitted, the largest record
@@ -159,6 +179,14 @@ func (r *readStats) snapshot() ReadStats {
 		Folded:         r.folded.Load(),
 		LongestTail:    r.longestTail.Load(),
 		PathSnapshots:  r.pathSnapshots.Load(),
+
+		SnapNotYetWorth:      r.snapNotYetWorth.Load(),
+		SnapWantedIncomplete: r.snapWantedIncomplete.Load(),
+		SnapBusy:             r.snapBusy.Load(),
+		SnapRootAhead:        r.snapRootAhead.Load(),
+		SnapAlreadyHave:      r.snapAlreadyHave.Load(),
+		SnapAbsent:           r.snapAbsent.Load(),
+		SnapInProgress:       r.snapInProgress.Load(),
 	}
 }
 
@@ -175,22 +203,29 @@ func (s *Storage) ReadStats() ReadStats {
 func (r ReadStats) Report() map[string]any {
 	wide := r.WideRoot + r.WideBadPath + r.WideOperator + r.WideAbsent + r.WideNonField
 	m := map[string]any{
-		"reads.narrow":            r.Narrow,
-		"reads.narrow.absent":     r.NarrowAbsent,
-		"reads.wide":              wide,
-		"reads.wide.root":         r.WideRoot,
-		"reads.wide.operator":     r.WideOperator,
-		"reads.wide.absent":       r.WideAbsent,
-		"reads.wide.keyed-or-idx": r.WideNonField,
-		"reads.wide.bad-path":     r.WideBadPath,
-		"reads.bytes":             r.BytesEmitted,
-		"reads.record.max":        r.LargestRecord,
-		"reads.seek.hit":          r.SeekHit,
-		"reads.seek.miss":         r.SeekMiss,
-		"reads.seek.path":         r.SeekPath,
-		"reads.folded":            r.Folded,
-		"reads.tail.max":          r.LongestTail,
-		"snapshots.path":          r.PathSnapshots,
+		"reads.narrow":                      r.Narrow,
+		"reads.narrow.absent":               r.NarrowAbsent,
+		"reads.wide":                        wide,
+		"reads.wide.root":                   r.WideRoot,
+		"reads.wide.operator":               r.WideOperator,
+		"reads.wide.absent":                 r.WideAbsent,
+		"reads.wide.keyed-or-idx":           r.WideNonField,
+		"reads.wide.bad-path":               r.WideBadPath,
+		"reads.bytes":                       r.BytesEmitted,
+		"reads.record.max":                  r.LargestRecord,
+		"reads.seek.hit":                    r.SeekHit,
+		"reads.seek.miss":                   r.SeekMiss,
+		"reads.seek.path":                   r.SeekPath,
+		"reads.folded":                      r.Folded,
+		"reads.tail.max":                    r.LongestTail,
+		"snapshots.path":                    r.PathSnapshots,
+		"snapshots.path.no.not-yet-worth":   r.SnapNotYetWorth,
+		"snapshots.path.no.incomplete-read": r.SnapWantedIncomplete,
+		"snapshots.path.no.busy":            r.SnapBusy,
+		"snapshots.path.no.root-ahead":      r.SnapRootAhead,
+		"snapshots.path.no.already-have":    r.SnapAlreadyHave,
+		"snapshots.path.no.absent":          r.SnapAbsent,
+		"snapshots.path.no.log-busy":        r.SnapInProgress,
 	}
 	if r.Narrow > 0 {
 		m["reads.narrow.avg"] = (r.NarrowDuration / time.Duration(r.Narrow)).Round(time.Microsecond).String()

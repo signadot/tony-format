@@ -45,8 +45,10 @@ const (
 	// DefaultPathSnapshotTail is the number of records a read may fold at a path before
 	// it schedules a snapshot there.
 	DefaultPathSnapshotTail int64 = 64
-	// DefaultPathSnapshotBytes is the largest subtree, in emitted bytes, a read schedules
-	// a snapshot of. Larger ones are served by the root snapshot the switch takes.
+	// DefaultPathSnapshotBytes is the subtree size a snapshot is priced in: a path whose
+	// subtree is this big must fold DefaultPathSnapshotTail records to be worth one, and
+	// a subtree N times larger must fold N times as many. It is a RATE, not a ceiling --
+	// see pathSnapshotPolicy.wants.
 	DefaultPathSnapshotBytes int64 = 1 << 20
 )
 
@@ -57,8 +59,31 @@ type pathSnapshotPolicy struct {
 	bytes int64
 }
 
+// wants prices a snapshot against what it saves. Folding `tail` records happens on EVERY
+// later read of the path; writing the subtree happens once. So the fold a path must reach
+// before it is snapshotted SCALES with the subtree's size: p.bytes is the size at which
+// p.tail records are worth it, and a subtree N times larger has to fold N times as many.
+//
+// It is deliberately not a ceiling. A flat byte budget -- "a subtree bigger than this is
+// served by the root snapshot the switch takes" -- excluded precisely the paths whose
+// folds cost the most, so between switches their folds grew without bound: measured, a
+// subtree over the budget took ZERO snapshots while its fold passed 800 records and kept
+// going, and every read of it paid the whole fold. Whatever else is true, the fold has to
+// be bounded; how big the bound is, is what size buys.
 func (p pathSnapshotPolicy) wants(kp string, tail, bytes int64, complete bool) bool {
-	return p.tail >= 0 && kp != "" && complete && tail > p.tail && bytes <= p.bytes
+	if p.tail < 0 || kp == "" || !complete {
+		return false
+	}
+	return tail > p.needs(bytes)
+}
+
+// needs is the fold a subtree of this size must reach to be worth a snapshot.
+func (p pathSnapshotPolicy) needs(bytes int64) int64 {
+	if bytes <= p.bytes || p.bytes <= 0 {
+		return p.tail
+	}
+	// Rounded up, so a subtree just over the unit costs more than one just under it.
+	return p.tail * ((bytes + p.bytes - 1) / p.bytes)
 }
 
 // SetPathSnapshotPolicy configures when a read schedules a snapshot at its path: after
@@ -85,9 +110,22 @@ func (s *Storage) PathSnapshotPolicy() (tail, bytes int64) {
 // many bytes it emitted, and whether it ran to the end.
 func (s *Storage) afterRead(at int64, kp string) func(tail, bytes int64, complete bool) {
 	return func(tail, bytes int64, complete bool) {
-		if s.pathSnap.wants(kp, tail, bytes, complete) {
-			s.schedulePathSnapshot(at, kp)
+		if s.pathSnap.tail < 0 || kp == "" || tail <= s.pathSnap.tail {
+			return // nowhere near worth one; the ordinary case, and not worth counting
 		}
+		// Past the base threshold, so it is a read a snapshot might have helped. Every
+		// path from here that does not produce one is counted, because a fold that keeps
+		// growing is the symptom and the gate that closed is the diagnosis.
+		if !complete {
+			s.readStats.snapWantedIncomplete.Add(1)
+			return
+		}
+		if tail <= s.pathSnap.needs(bytes) {
+			// Not yet worth it for a subtree this size; it will be, as the fold grows.
+			s.readStats.snapNotYetWorth.Add(1)
+			return
+		}
+		s.schedulePathSnapshot(at, kp)
 	}
 }
 
@@ -95,7 +133,11 @@ func (s *Storage) afterRead(at int64, kp string) func(tail, bytes int64, complet
 // already in flight -- the next long read at the path asks again -- or the store is
 // closing.
 func (s *Storage) schedulePathSnapshot(at int64, kp string) {
-	if s.closing.Load() || !s.pathSnapBusy.CompareAndSwap(false, true) {
+	if s.closing.Load() {
+		return
+	}
+	if !s.pathSnapBusy.CompareAndSwap(false, true) {
+		s.readStats.snapBusy.Add(1)
 		return
 	}
 	s.pathSnapWG.Add(1)
@@ -124,9 +166,11 @@ func (s *Storage) snapshotPath(at int64, kp string) error {
 	defer s.snapMu.Unlock()
 
 	if root, ok := s.index.SnapshotAtOrAbove("", math.MaxInt64); ok && at < root.StartCommit {
+		s.readStats.snapRootAhead.Add(1)
 		return nil
 	}
 	if have, ok := s.index.SnapshotAtOrAbove(kp, at); ok && have.StartCommit == at {
+		s.readStats.snapAlreadyHave.Add(1)
 		return nil
 	}
 
@@ -136,12 +180,14 @@ func (s *Storage) snapshotPath(at int64, kp string) error {
 	}
 	defer c.Close()
 	if c.Presence() == Absent {
+		s.readStats.snapAbsent.Add(1)
 		return nil
 	}
 
 	timestamp := time.Now().UTC().Format(time.RFC3339)
 	w, err := s.dLog.NewSnapshotWriter(at, timestamp)
 	if errors.Is(err, dlog.ErrSnapshotInProgress) {
+		s.readStats.snapInProgress.Add(1)
 		return nil
 	}
 	if err != nil {
@@ -165,10 +211,7 @@ func (s *Storage) snapshotPath(at int64, kp string) error {
 			w.Abandon()
 			return fmt.Errorf("snapshot of %q: %w", kp, err)
 		}
-		if emitted += eventSize(ev); emitted > s.pathSnap.bytes {
-			w.Abandon()
-			return nil
-		}
+		emitted += eventSize(ev)
 		if err := builder.WriteEvent(ev); err != nil {
 			w.Abandon()
 			return fmt.Errorf("snapshot of %q: %w", kp, err)
