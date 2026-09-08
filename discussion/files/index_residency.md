@@ -99,3 +99,48 @@ still describes everything.
     paged. The first is the cheaper start and the measurement says whether it holds.
   - Whether the trie skeleton is itself evictable or is the floor. Simplest is the floor;
     that is an answer to be measured rather than argued.
+
+## As built
+
+THE INVERSION. The durable index is two files beside the logs: index.regions, append-only,
+a framed record per region holding that region's segments; and index.manifest, small and
+written whole, saying which records are current with each region's header -- its commit
+range, its count, its snapshots -- so a store opens with the skeleton and every header and
+pages nothing in to do so (index/regions_file.go). The resident trie is a cache of it: the
+skeleton is the floor, and each node's segments are held in REGIONS, (node, commit range)
+slices of at most 64 segments contiguous in StartCommit, which is the unit admitted,
+counted, touched and evicted (index/region.go). Neither file is the record; the log is,
+and a missing, torn, differently-versioned or generation-mismatched pair sends the store
+back to it (index.OpenIndex says why; storage.init rebuilds).
+
+THE INVARIANT holds by what may be evicted: only a region that is durable and clean --
+whose record holds exactly what the tree does. A hot region, written to since the
+persister last wrote it or never written, stays until it is persisted; the persister is
+what turns hot regions into evictable ones, and Persist writes only what the file lacks.
+A read pages the regions its range needs with no lock held and installs them under the
+node's write lock in the same critical section that answers, so an eviction cannot come
+between; a write inserts in that same section, because the charge for a page-in may evict
+the region again when it is the only evictable one. A region admitted past the ceiling
+with nothing evictable is admitted -- a read must be answered and a write must land --
+and the excess is reported as index.over. What is never paged to say: the newest commit
+at a node, the seek's target (each region carries its snapshots' commits), and the store's
+watermarks, which all come from headers.
+
+THE POLICY is LRU over regions; the ceiling is configured (storage.SetIndexCeiling,
+indexCeiling in the file config), zero is unbounded, and a ceiling under the floor of
+eight regions is refused. Reported: index.resident.bytes, index.ceiling, index.evictable,
+index.hits, index.misses, index.hit.rate, index.evictions, index.over.bytes.
+
+MEASURED: the property test drives one index under a ceiling eight regions wide against
+the same index unbounded and reopened from its files, and the storage differential drives
+a store under that ceiling against one unbounded, every path at every commit, with
+evictions and misses counted; the shaped store is served under a tenth of its index's
+resident bytes. What was found on the way was older than residency: a B-tree emptied to
+its last element kept an interior root with no children and silently refused every later
+insert, and removing a child's last element was reported as no removal. Nothing had
+emptied a tree before; eviction does it routinely.
+
+NOT DECIDED HERE, still: frecency over LRU (the seam is the region and the list); whether
+the skeleton itself should be evictable (it is the floor, and it is what UnwrittenBelow
+proves absence from without a read); a rewrite of the regions file on a garbage threshold
+rather than at close.
