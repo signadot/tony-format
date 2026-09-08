@@ -504,6 +504,49 @@ tails; the crash tests transfer unchanged (the substrate they exercise is untouc
 DONE WHEN: the index the store describes is a small multiple of its live paths. Release
 point.
 
+7 AS BUILT, first half: a snapshot is OF a path. Its entry carries the path (Entry.SnapPath,
+nil for the root), its segment sits at that path and nowhere else, and a read seeks to the
+nearest snapshot at or above its path with the greatest commit (index.SnapshotAtOrAbove),
+opened at the read's path within it -- the root snapshot the switch takes is the case
+kp == "". WHEN one is taken is decided by the reads: a read that folded more than the
+policy's tail of records at a path (64) and emitted no more than its byte budget (1 MiB)
+schedules a snapshot of that path as of the commit it read, off the reader, one at a time,
+serialized with the switch by s.snapMu and written to the inactive log at or after the root
+snapshot there, so the file's commits stay ordered; a write's own read of its site is a
+read, so a hot written path is snapshotted too and its verification read shortens with it.
+A read that did not finish, an absent path, a commit before the root snapshot, and a
+subtree over the budget each decline. Retention keeps a snapshot of a path within the
+cutoff and drops it beyond, and it takes no slot in the root snapshots' tiers. The
+counters say what happened: reads.seek.path, reads.folded, reads.tail.max, snapshots.path.
+The storage suite runs 20s faster under the default policy, which is the differentials'
+own folds getting shorter.
+
+COMPACTION'S WORKING SET (decision 8) is decided in the file, by construction: the work
+list is the inactive log's own records, walked once (dlog.FileIterator); each entry's fate
+is decided from the entry; a dropped entry's segments are derived from it and removed
+before the rewrite, a survivor's re-derived and moved after it (index.EachSegment, the
+walk that indexed it). What compaction holds is one record per entry of the file it
+compacts and one entry at a time -- not every segment of both logs, which LookupRangeAll
+and indexCopies held. This is also what made per-path snapshots correct: a work list taken
+from the root's segments never saw a segment indexed only at its path, so a snapshot of a
+path survived a rewrite at a stale position.
+
+7 AS BUILT, second half (5hmq80f3h12krh1mbsn0): a scope's entry beyond the cutoff goes
+when a later entry of the scope DOMINATES it -- states every path it stated, or an ancestor,
+in a way that does not depend on what was there. That is sound because a stored scope
+write is absolute (phase 3b), and it needs no patch composition: nothing is materialized,
+the dominated entries are simply not there, and the fold of what remains is the fold of
+everything. What a later statement covers is decided by what the merge keeps
+(scope_compaction.go): !raw and !delete cover totally; a plain scalar or array of plain
+scalars replaces its path and everything beneath, but at its own path may keep a comment
+or a tag, so it dominates there only a statement that carried neither; an array with
+object elements, an empty object, and every other operation cover nothing. The pass is one
+walk of the scope newest-first holding the covers seen (patches.Roots is the reading), one
+read per entry of the scope per compaction; after the first, the scope is its layer and a
+tail. A dropped scope entry raises the store-wide replay floor like a baseline one, which
+is the pessimistic side. TestScopeCompactionDifferential holds both views at every path
+against a store that never compacts, and the scoped replay from above the floor.
+
 ## Decisions the documents leave open
 
 Each has a recommendation. Each is raised on the issue as a comment BEFORE it is built, and
