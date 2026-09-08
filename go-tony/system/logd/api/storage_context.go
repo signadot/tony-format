@@ -53,6 +53,7 @@ const StorageContextURI = "logd/context/storage"
 //	strdiff    relative to the string that was there
 //	arraydiff  relative to the array that was there, and positional
 //	rename     relative to the keys that were there; lowers to delete + insert
+//	field      the same, for one field: !field(from,to) renames whatever is at from
 //	jsonpatch  a sequence relative to the document
 //	if, let    conditional on the document
 //	quote, unquote, dive, embed, pass
@@ -218,7 +219,7 @@ func whyNotStorable(op string) string {
 	switch op {
 	case "replace", "retag":
 		return "it is checked, so against a base that has moved it errors rather than applying"
-	case "strdiff", "arraydiff", "rename", "jsonpatch":
+	case "strdiff", "arraydiff", "rename", "field", "jsonpatch":
 		return "its result depends on what was there, so it re-evaluates against a base that has moved"
 	case "if", "let":
 		return "it is conditional on the document it meets"

@@ -60,17 +60,26 @@ func (g fieldOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc,
 	if g.from == nil {
 		return nil, fmt.Errorf("field op didn't specify from, to")
 	}
-	newField := ir.FromString(*g.to)
-	newField.Parent = doc
-	newField.ParentField = newField.String
+	// A new object, with the field renamed, sharing the values -- as every merge in this
+	// package builds its result. The document is not touched: a patch never mutates what
+	// it is given, and a store that keeps a document and steps it by each patch relies
+	// on that. Renaming in place made the base and the result one object, so a store's
+	// diff of the two saw no change, kept the relative operation as written, and
+	// rewrote the kept document under every reader sharing its subtrees.
+	kvs := make([]ir.KeyVal, 0, len(doc.Fields))
 	for i, f := range doc.Fields {
-		if f.String == *g.from {
-			doc.Fields[i] = newField
-			newField.ParentIndex = i
+		if i >= len(doc.Values) {
+			break
 		}
+		key := f
+		if f.String == *g.from {
+			key = ir.FromString(*g.to)
+		}
+		kvs = append(kvs, ir.KeyVal{Key: key, Val: doc.Values[i]})
 	}
+	out := ir.FromKeyVals(kvs).WithTag(doc.Tag)
 	if g.child.Tag != "" {
-		return pf(doc, g.child, ctx)
+		return pf(out, g.child, ctx)
 	}
-	return doc, nil
+	return out, nil
 }
