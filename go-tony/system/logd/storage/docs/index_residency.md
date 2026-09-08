@@ -1,5 +1,9 @@
 # Index residency
 
+The fifth prerequisite of wk5w1ddkh12krj1tkxn0, and its sixth property. Neither number is in
+that issue's description, which names five properties and four prerequisites; both are
+settled in its discussion, and this document stands on the same footing as the other four.
+
 The index has no bound. Measured on verse staging: 1.12 GB resident, 85% of a 1.31 GB live
 floor, ~266 bytes of B-tree leaf per segment across 4,519,816 segments. That is the store's
 memory problem, and none of the five properties in wk5w1ddkh12krj1tkxn0 covers it --
