@@ -73,6 +73,14 @@ compaction:
 | `multiplier` | 2 | each tier is this many times wider than the one before it |
 | `gracePeriod` | 5s | how long a reader holding the pre-compaction file has before it is deleted |
 
+Every field may be left out, and a field left out takes its default. The server logs the
+policy it **resolved**, whole, so what a store says it is compacting with is what it is
+compacting with:
+
+```console
+level=INFO msg="configured compaction" cutoff=2h baseInterval=1h slotsPerTier=8 multiplier=2 gracePeriod=5s
+```
+
 ### Durations
 
 `cutoff`, `baseInterval` and `gracePeriod` are written the way a duration is written

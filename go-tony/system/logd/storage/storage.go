@@ -466,6 +466,15 @@ func (s *Storage) logGenerations() map[string]int64 {
 	}
 }
 
+// IndexCeiling answers the ceiling the index holds resident under, in bytes; 0 is
+// unbounded. See SetIndexCeiling.
+func (s *Storage) IndexCeiling() int64 {
+	if r := s.index.Residency(); r != nil {
+		return r.Ceiling()
+	}
+	return 0
+}
+
 // SetIndexCeiling bounds what the index holds resident, in bytes: past it, the least
 // recently used regions are evicted to the durable index and paged back on a miss
 // (index_residency.md). Zero is unbounded. A ceiling under index.MinIndexCeiling is
@@ -560,6 +569,14 @@ func (s *Storage) Sync() error {
 // Pass nil to disable automatic compaction.
 func (s *Storage) SetCompactionConfig(config *CompactionConfig) {
 	s.compactionConfig = config
+}
+
+// CompactionConfig answers the retention policy in force, or nil when the store does not
+// compact. It is what the store took, defaults resolved, and not what a caller offered:
+// a caller reporting its own half-filled config says a number that is not the one running
+// (server.New logs this one).
+func (s *Storage) CompactionConfig() *CompactionConfig {
+	return s.compactionConfig
 }
 
 // schemaForScope returns the schema that decides what keys an array.

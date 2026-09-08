@@ -96,30 +96,42 @@ func New(spec *Spec) *Server {
 			}
 		}
 
+		// EVERY LINE BELOW REPORTS WHAT THE STORE TOOK, asked of the store, and not
+		// what the file said. A config's zero field means "the default", resolved by
+		// the setter, so a line built from the file prints a 0 where an 8 is running --
+		// and an operator reading `slotsPerTier: 0` in the log has been told something
+		// that is not true of the store, which is worse than not being told.
+		//
 		// The write budget, if configured: the largest node the store builds to verify
 		// or lower one write, or to evaluate one precondition.
 		if spec.Config.Storage != nil && spec.Config.Storage.WriteBudget > 0 {
 			spec.Storage.SetWriteBudget(spec.Config.Storage.WriteBudget)
-			spec.Log.Info("configured write budget", "bytes", spec.Config.Storage.WriteBudget)
+			spec.Log.Info("configured write budget", "bytes", spec.Storage.WriteBudget())
 		}
 		if st := spec.Config.Storage; st != nil && (st.PathSnapshotTail != 0 || st.PathSnapshotBytes != 0) {
 			spec.Storage.SetPathSnapshotPolicy(st.PathSnapshotTail, st.PathSnapshotBytes)
-			spec.Log.Info("configured path snapshots", "tail", st.PathSnapshotTail, "bytes", st.PathSnapshotBytes)
+			tail, bytes := spec.Storage.PathSnapshotPolicy()
+			spec.Log.Info("configured path snapshots", "tail", tail, "bytes", bytes)
 		}
 		if st := spec.Config.Storage; st != nil && st.IndexCeiling > 0 {
 			if err := spec.Storage.SetIndexCeiling(st.IndexCeiling); err != nil {
 				spec.Log.Error("index ceiling not applied", "error", err)
 			} else {
-				spec.Log.Info("configured index ceiling", "bytes", st.IndexCeiling)
+				spec.Log.Info("configured index ceiling", "bytes", spec.Storage.IndexCeiling())
 			}
 		}
 
 		// Set up compaction if configured
 		if spec.Config.Compaction != nil {
 			spec.Storage.SetCompactionConfig(spec.Config.Compaction.ToStorageConfig())
-			spec.Log.Info("configured compaction",
-				"cutoff", spec.Config.Compaction.Cutoff,
-				"slotsPerTier", spec.Config.Compaction.SlotsPerTier)
+			if cfg := spec.Storage.CompactionConfig(); cfg != nil {
+				spec.Log.Info("configured compaction",
+					"cutoff", cfg.Cutoff,
+					"baseInterval", cfg.BaseInterval,
+					"slotsPerTier", cfg.SlotsPerTier,
+					"multiplier", cfg.Multiplier,
+					"gracePeriod", cfg.GracePeriod)
+			}
 		}
 	}
 

@@ -74,6 +74,13 @@ func (s *Storage) SetPathSnapshotPolicy(tail, bytes int64) {
 	s.pathSnap = pathSnapshotPolicy{tail: tail, bytes: bytes}
 }
 
+// PathSnapshotPolicy answers the policy in force: how many records a read may fold at a
+// path before it snapshots there, and the largest subtree it snapshots. A negative tail
+// is per-path snapshots off.
+func (s *Storage) PathSnapshotPolicy() (tail, bytes int64) {
+	return s.pathSnap.tail, s.pathSnap.bytes
+}
+
 // afterRead is what a read reports to when it is done: how many records it folded and how
 // many bytes it emitted, and whether it ran to the end.
 func (s *Storage) afterRead(at int64, kp string) func(tail, bytes int64, complete bool) {
