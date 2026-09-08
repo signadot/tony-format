@@ -8,3 +8,9 @@
 /.claude/worktrees/
 docs/sketchy/pygments-tony/build/
 docs/sketchy/pygments-tony/*.egg-info/
+
+# `git issue export <id>` with no directory argument writes <id>/ into the current one, and
+# one of those was committed (ee7c589). An issue is a git ref; a copy of one in the tree is a
+# second record, stale the moment the issue is commented on again. Exports and other
+# throwaway copies go here.
+/scratchpad/
