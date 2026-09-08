@@ -95,6 +95,53 @@ func (i *Index) Segments(kp string, from, to *int64, scopeID *string) iter.Seq[L
 	}
 }
 
+// SnapshotAtOrAbove answers the baseline snapshot a read at kp as of `at` seeks to: of
+// the snapshots at kp and at each of its ancestors with a commit at or below at, the one
+// with the greatest commit, and of two at one commit the deepest. A snapshot is indexed
+// only at the path it is of, so the walk is down kp's prefixes, one node at a time under
+// that node's own lock; nothing below kp is visited and nothing is collected.
+//
+// The greatest commit is the right one because what a read folds after the seek is the
+// writes since it: a deeper snapshot taken earlier leaves more to fold, and either is
+// opened through its own path index at the read's path, so neither is a larger base.
+func (i *Index) SnapshotAtOrAbove(kp string, at int64) (LogSegment, bool) {
+	var best LogSegment
+	found := false
+	var prefix []string
+	node, rest := i, kp
+	for {
+		if seg, ok := node.latestSnapshot(at); ok && (!found || seg.StartCommit >= best.StartCommit) {
+			seg.KindedPath = joinSegments(prefix)
+			best, found = seg, true
+		}
+		if rest == "" {
+			break
+		}
+		first, tail := kpath.Split(rest)
+		child := node.childOf(first)
+		if child == nil {
+			break
+		}
+		prefix = append(prefix, first)
+		node, rest = child, tail
+	}
+	return best, found
+}
+
+// latestSnapshot is this node's most recent baseline snapshot at or below at, under the
+// node's lock: CommitsAt walks the node's own tree and does not take it.
+func (i *Index) latestSnapshot(at int64) (LogSegment, bool) {
+	i.RLock()
+	defer i.RUnlock()
+	it := &IndexIterator{root: i, current: i, valid: true}
+	for seg := range it.CommitsAt(at, Down) {
+		if seg.StartCommit == seg.EndCommit && seg.ScopeID == nil {
+			return seg, true
+		}
+	}
+	return LogSegment{}, false
+}
+
 // joinSegments renders a path from its segments, the way IndexIterator.Path does.
 func joinSegments(segs []string) string {
 	if len(segs) == 0 {

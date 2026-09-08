@@ -58,6 +58,24 @@ func WithinCommitRange(a, b *LogSegment) bool {
 	return true
 }
 
+// NewSnapshotSegment is the segment of a snapshot OF kp at commit: StartCommit ==
+// EndCommit, at the path whose subtree the snapshot's event stream is. That path is the
+// only place it is indexed, and where a read at or below it seeks to it
+// (SnapshotAtOrAbove); a read above it does not see it and folds the writes instead.
+func NewSnapshotSegment(commit int64, kp, logFile string, pos, generation int64, scopeID *string) *LogSegment {
+	return &LogSegment{
+		StartCommit:       commit,
+		EndCommit:         commit,
+		StartTx:           0,
+		EndTx:             0,
+		KindedPath:        kp,
+		LogFile:           logFile,
+		LogPosition:       pos,
+		LogFileGeneration: generation,
+		ScopeID:           scopeID,
+	}
+}
+
 // PointLogSegment creates a LogSegment for a patch at the given commit.
 // Assumes LastCommit = commit-1, so StartCommit = LastCommit = commit-1, EndCommit = commit.
 // For test purposes, this represents a patch where Commit - LastCommit == 1.
@@ -144,13 +162,45 @@ func NewLogSegmentFromPatchEntry(e *dlog.Entry, kpath string, logFile string, po
 // something here ever needs to refuse, the refusal belongs where the delta is BUILT,
 // before the append, not here.
 func IndexPatch(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int64, generation int64, diff *ir.Node, scopeID *string) {
-	indexPatchRec(idx, e, logFile, pos, txSeq, generation, diff, "", scopeID)
+	eachPatchSegment(e, logFile, pos, txSeq, generation, diff, "", scopeID, idx.Add)
 }
 
-func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int64, generation int64, n *ir.Node, kPath string, scopeID *string) {
+// EachSegment hands fn every segment an entry is indexed at, derived from the entry
+// alone: a patch's, at every path on the way to what it writes -- IndexPatch's own walk
+// -- or a snapshot's, at the path it is of. It is how an entry leaves the index or moves
+// within it (storage.Compact) without the index being asked for every segment it holds:
+// the walk that put the segments in derives them again, and a segment is removed by its
+// key, which the walk reproduces.
+func EachSegment(e *dlog.Entry, logFile string, pos, generation int64, fn func(*LogSegment)) {
+	switch {
+	case e.Patch != nil:
+		eachPatchSegment(e, logFile, pos, TxSeqOf(e), generation, e.Patch, "", e.ScopeID, fn)
+	case e.SnapPos != nil:
+		fn(NewSnapshotSegment(e.Commit, SnapPathOf(e), logFile, pos, generation, e.ScopeID))
+	}
+}
+
+// TxSeqOf is the transaction sequence an entry is indexed under: its transaction's id,
+// and 0 for an entry with none, which is what a snapshot has.
+func TxSeqOf(e *dlog.Entry) int64 {
+	if e.TxSource != nil {
+		return e.TxSource.TxID
+	}
+	return 0
+}
+
+// SnapPathOf is the path a snapshot entry is of; "" is the root.
+func SnapPathOf(e *dlog.Entry) string {
+	if e.SnapPath != nil {
+		return *e.SnapPath
+	}
+	return ""
+}
+
+func eachPatchSegment(e *dlog.Entry, logFile string, pos int64, txSeq int64, generation int64, n *ir.Node, kPath string, scopeID *string, fn func(*LogSegment)) {
 	seg := NewLogSegmentFromPatchEntry(e, kPath, logFile, pos, txSeq, generation, scopeID)
 	seg.Spine = passesThrough(n)
-	idx.Add(seg)
+	fn(seg)
 
 	if n == nil {
 		return
@@ -174,8 +224,8 @@ func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq i
 	// when it has no answer the walk below runs as it always did.
 	if ops, known := mergeop.OperandPaths(n); known {
 		for _, o := range ops {
-			indexPatchRec(idx, e, logFile, pos, txSeq, generation, o.Node,
-				kPath+o.Suffix, scopeID)
+			eachPatchSegment(e, logFile, pos, txSeq, generation, o.Node,
+				kPath+o.Suffix, scopeID, fn)
 		}
 		return
 	}
@@ -184,6 +234,6 @@ func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq i
 	// a field is a .field step, an integer-keyed object a {sparse} one, an array [i],
 	// and an element of a keyed array the field that is its name.
 	for _, c := range PatchChildren(n, kPath) {
-		indexPatchRec(idx, e, logFile, pos, txSeq, generation, c.Node, c.Path, scopeID)
+		eachPatchSegment(e, logFile, pos, txSeq, generation, c.Node, c.Path, scopeID, fn)
 	}
 }

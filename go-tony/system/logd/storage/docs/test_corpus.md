@@ -193,3 +193,28 @@ The notification from the stored entry, and the marker gone.
                element inside a bare array -- and expected positional patching there; rooted
                by shape, the array is applied as a unit, which is what the fold does, so the
                tests' reading was the marker's and not the store's
+
+## Phase 7, as it happened (first half)
+
+Snapshots of paths, and compaction over the file.
+
+    ADDED      path_snapshot_test (a long tail takes a snapshot of its path and the next read
+               folds only what followed; a snapshot serves reads below its path and not
+               above; it survives reopen and a rebuild from the log; kept within the
+               cutoff, dropped beyond, no tier slot; the declines -- absent, unfinished,
+               behind the root snapshot, over budget -- and the log walkable after an
+               abandoned blob); TestAHotShallowPathFoldsAtMostTheTail at shapegen scale
+    REWRITTEN  read_equivalence: the subject also takes snapshots OF random paths at depths
+               unrelated to the write's, so the seek chooses between snapshots at mixed
+               depths from above, at and below each; the reference's policy is off, so
+               "never snapshots" stays true
+    TRANSFER   compaction, compaction_crash, compaction_subpath, compaction_policy,
+               replay_floor: unchanged, over a compaction that walks the file instead of
+               the index -- the policy and the floor keep their segment-shaped inputs
+    FOUND      a per-path snapshot survived a cutoff-0 compaction at a stale position:
+               compaction's work list was the root's segments, and a segment indexed only
+               at its path was neither dropped nor moved. Compaction now walks the file it
+               rewrites, which is also decision 8 answered.
+    FOUND      a write's own read of its site is a read: the first tests expected a path to
+               stay unsnapshotted through twenty writes, and the writes snapshotted it.
+               Kept, and the tests build their tails with the policy off.

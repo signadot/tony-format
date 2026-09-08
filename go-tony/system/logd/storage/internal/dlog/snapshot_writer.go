@@ -37,6 +37,7 @@ type SnapshotWriter struct {
 	closed      bool
 	schemaEntry *SchemaEntry // optional schema change entry
 	scopeID     *string      // optional scope ID for scoped snapshots
+	snapPath    *string      // the path the snapshot is of; nil is the root
 }
 
 // ErrSnapshotInProgress is returned when attempting to start a snapshot
@@ -185,6 +186,7 @@ func (sw *SnapshotWriter) Close() error {
 		LastCommit:  nil,
 		ScopeID:     sw.scopeID,
 		SchemaEntry: sw.schemaEntry,
+		SnapPath:    sw.snapPath,
 	}
 
 	// Binary event stream, matching AppendEntry — a snapshot's own Entry is a log record
@@ -281,4 +283,15 @@ func (sw *SnapshotWriter) SetSchemaEntry(schemaEntry *SchemaEntry) {
 // Must be called before Close().
 func (sw *SnapshotWriter) SetScopeID(scopeID *string) {
 	sw.scopeID = scopeID
+}
+
+// SetPath says which path the snapshot is of. The root is the default and is recorded
+// as nil, so a root snapshot's entry is the same record it always was. Must be called
+// before Close().
+func (sw *SnapshotWriter) SetPath(kp string) {
+	if kp == "" {
+		sw.snapPath = nil
+		return
+	}
+	sw.snapPath = &kp
 }

@@ -34,11 +34,16 @@ type SchemaEntry struct {
 //
 //tony:schemagen=entry
 type Entry struct {
-	Commit      int64        // Commit number (set when appended to log)
-	Timestamp   string       // RFC3339 timestamp
-	Patch       *ir.Node     // Root patch/diff (always at root, empty kinded path "")
-	TxSource    *tx.State    // Transaction state (for transaction entries)
-	SnapPos     *int64       // Snapshot position (for snapshot entries)
+	Commit    int64     // Commit number (set when appended to log)
+	Timestamp string    // RFC3339 timestamp
+	Patch     *ir.Node  // Root patch/diff (always at root, empty kinded path "")
+	TxSource  *tx.State // Transaction state (for transaction entries)
+	SnapPos   *int64    // Snapshot position (for snapshot entries)
+	// SnapPath is the path a snapshot is OF: its event stream is the subtree there, and
+	// its index segment sits at that path, which is the only place a read finds it. nil
+	// is the root -- the snapshot the switch takes -- and a log written before paths
+	// were snapshotted decodes to it (storage/path_snapshot.go).
+	SnapPath    *string
 	LastCommit  *int64       // Last commit before compaction (for compaction entries)
 	ScopeID     *string      // nil = baseline, non-nil = scope-specific data
 	SchemaEntry *SchemaEntry // Schema change (always with SnapPos for snapshot)

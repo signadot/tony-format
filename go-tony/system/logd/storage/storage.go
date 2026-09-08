@@ -116,6 +116,17 @@ type Storage struct {
 	// Compaction config - if set, Compact() is called after SwitchDLog
 	compactionConfig *CompactionConfig
 
+	// snapMu serializes the writers of the inactive log: the switch, with the root
+	// snapshot and the compaction that rewrites the log, and a snapshot of a path.
+	snapMu sync.Mutex
+	// pathSnap is when a read schedules a snapshot at its path (path_snapshot.go);
+	// pathSnapBusy is the one in flight, pathSnapWG what Close waits for, and closing
+	// what stops another being scheduled.
+	pathSnap     pathSnapshotPolicy
+	pathSnapBusy atomic.Bool
+	pathSnapWG   sync.WaitGroup
+	closing      atomic.Bool
+
 	// durability decides whether the commit path fsyncs. Read under commitMu (the
 	// commit path) or by the accessors; set at configuration time, before serving.
 	durability Durability
@@ -140,6 +151,7 @@ func Open(root string, logger *slog.Logger) (*Storage, error) {
 	s := &Storage{
 		sequence:    seq.NewSeq(root),
 		writeBudget: DefaultWriteBudget,
+		pathSnap:    pathSnapshotPolicy{tail: DefaultPathSnapshotTail, bytes: DefaultPathSnapshotBytes},
 
 		txStore: tx.NewInMemoryTxStore(),
 		index:   index.NewIndex(""),
@@ -441,6 +453,11 @@ func (s *Storage) NewTx(participantCount int, scope *string) (tx.Tx, error) {
 }
 
 func (s *Storage) Close() error {
+	// No more snapshots get scheduled, and the one in flight lands before the log it
+	// writes to goes away.
+	s.closing.Store(true)
+	s.pathSnapWG.Wait()
+
 	// Stop transaction cleanup goroutine
 	s.txStore.Close()
 

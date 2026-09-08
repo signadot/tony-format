@@ -95,10 +95,10 @@ func (s *Storage) Read(at int64, scopeID *string, kp string) (Cursor, error) {
 	started := time.Now()
 	if kp != "" && scopeID == nil && s.provenAbsent(kp) {
 		s.readStats.note(ReadNarrowAbsent, kp, time.Since(started))
-		s.readStats.noteBound(0, 0, true)
+		s.readStats.noteBound(0, 0, seekProven, 0)
 		return absentCursor{}, nil
 	}
-	return s.openRead(at, scopeID, kp, started)
+	return s.openRead(at, scopeID, kp, started, true)
 }
 
 // provenAbsent says the index shows kp was never written: every step of the written
@@ -119,15 +119,16 @@ func (s *Storage) provenAbsent(kp string) bool {
 // kp descends into that is not a container kp's next segment can step into.
 var errBlocked = errors.New("blocked above the path")
 
-func (s *Storage) openRead(at int64, scopeID *string, kp string, started time.Time) (Cursor, error) {
-	base, startCommit, err := s.findSubtreeBaseReader(at, kp)
+// openRead is the read; trigger says whether it may schedule a snapshot at its path when
+// it is done (path_snapshot.go), which the read a snapshot is built from may not.
+func (s *Storage) openRead(at int64, scopeID *string, kp string, started time.Time, trigger bool) (Cursor, error) {
+	base, startCommit, seek, err := s.findSubtreeBaseReader(at, kp)
 	if err != nil {
 		return nil, err
 	}
-	seekHit := startCommit > 0
 
 	var projected []*ir.Node
-	var largest int64
+	var largest, tail int64
 	blockedAt := -1
 	project := func(seg index.LogSegment) error {
 		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition, seg.LogFileGeneration)
@@ -159,6 +160,7 @@ func (s *Storage) openRead(at int64, scopeID *string, kp string, started time.Ti
 		if seg.StartCommit == seg.EndCommit {
 			continue // a snapshot
 		}
+		tail++
 		if err = project(seg); err != nil {
 			break
 		}
@@ -175,7 +177,7 @@ func (s *Storage) openRead(at int64, scopeID *string, kp string, started time.Ti
 	}
 	if errors.Is(err, errBlocked) {
 		base.Close()
-		return s.readThroughAncestor(at, scopeID, kp, blockedAt, started)
+		return s.readThroughAncestor(at, scopeID, kp, blockedAt, started, trigger)
 	}
 	if err != nil {
 		base.Close()
@@ -185,17 +187,21 @@ func (s *Storage) openRead(at int64, scopeID *string, kp string, started time.Ti
 	if kp == "" {
 		kind = ReadWideRoot
 	}
-	return newFoldCursor(base, projected, &s.readStats, kind, kp, started, largest, seekHit), nil
+	var after func(tail, bytes int64, complete bool)
+	if trigger {
+		after = s.afterRead(at, kp)
+	}
+	return newFoldCursor(base, projected, &s.readStats, kind, kp, started, largest, seek, tail, after), nil
 }
 
 // readThroughAncestor is the read at kp when a write above it states the whole value
 // there. The ancestor at `depth` segments is read and navigated down: what results is
 // exactly what a read at kp means, and the ancestor's value is the intermediate the
 // bound admits, being what that write installed.
-func (s *Storage) readThroughAncestor(at int64, scopeID *string, kp string, depth int, started time.Time) (Cursor, error) {
+func (s *Storage) readThroughAncestor(at int64, scopeID *string, kp string, depth int, started time.Time, trigger bool) (Cursor, error) {
 	segs := kpath.SplitAll(kp)
 	prefix := joinSegments(segs[:depth])
-	c, err := s.openRead(at, scopeID, prefix, started)
+	c, err := s.openRead(at, scopeID, prefix, started, trigger)
 	if err != nil {
 		return nil, err
 	}
@@ -369,14 +375,17 @@ type foldCursor struct {
 	presence Presence
 	known    bool
 
-	stats   *readStats
-	kind    ReadKind
-	kp      string
-	started time.Time
-	largest int64
-	bytes   int64
-	seekHit bool
-	noted   bool
+	stats    *readStats
+	kind     ReadKind
+	kp       string
+	started  time.Time
+	largest  int64
+	bytes    int64
+	seek     seekKind
+	tail     int64 // records folded after the seek
+	complete bool  // the fold ran to its end, so bytes is the whole subtree
+	after    func(tail, bytes int64, complete bool)
+	noted    bool
 }
 
 // chanSink is the processor's sink: an event writer that hands each event to the cursor.
@@ -392,7 +401,7 @@ func (s chanSink) WriteEvent(ev *stream.Event) error {
 	}
 }
 
-func newFoldCursor(base patches.EventReadCloser, projected []*ir.Node, stats *readStats, kind ReadKind, kp string, started time.Time, largest int64, seekHit bool) *foldCursor {
+func newFoldCursor(base patches.EventReadCloser, projected []*ir.Node, stats *readStats, kind ReadKind, kp string, started time.Time, largest int64, seek seekKind, tail int64, after func(tail, bytes int64, complete bool)) *foldCursor {
 	c := &foldCursor{
 		events:  make(chan stream.Event, 64),
 		errc:    make(chan error, 1),
@@ -402,7 +411,9 @@ func newFoldCursor(base patches.EventReadCloser, projected []*ir.Node, stats *re
 		kp:      kp,
 		started: started,
 		largest: largest,
-		seekHit: seekHit,
+		seek:    seek,
+		tail:    tail,
+		after:   after,
 	}
 	go func() {
 		err := patches.NewStreamingProcessor().ApplyPatches(base, projected, chanSink{c})
@@ -419,6 +430,7 @@ func (c *foldCursor) next() (*stream.Event, error) {
 		err := <-c.errc
 		c.errc <- err // for a second caller
 		if err == nil || errors.Is(err, errCursorClosed) {
+			c.complete = err == nil
 			c.note()
 			return nil, io.EOF
 		}
@@ -479,7 +491,10 @@ func (c *foldCursor) note() {
 	}
 	c.noted = true
 	c.stats.note(c.kind, c.kp, time.Since(c.started))
-	c.stats.noteBound(c.bytes, c.largest, c.seekHit)
+	c.stats.noteBound(c.bytes, c.largest, c.seek, c.tail)
+	if c.after != nil {
+		c.after(c.tail, c.bytes, c.complete)
+	}
 }
 
 // Collect materializes a cursor as a node, and it is the one place a node is built from a

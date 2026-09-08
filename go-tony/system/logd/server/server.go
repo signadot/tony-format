@@ -102,6 +102,10 @@ func New(spec *Spec) *Server {
 			spec.Storage.SetWriteBudget(spec.Config.Storage.WriteBudget)
 			spec.Log.Info("configured write budget", "bytes", spec.Config.Storage.WriteBudget)
 		}
+		if st := spec.Config.Storage; st != nil && (st.PathSnapshotTail != 0 || st.PathSnapshotBytes != 0) {
+			spec.Storage.SetPathSnapshotPolicy(st.PathSnapshotTail, st.PathSnapshotBytes)
+			spec.Log.Info("configured path snapshots", "tail", st.PathSnapshotTail, "bytes", st.PathSnapshotBytes)
+		}
 
 		// Set up compaction if configured
 		if spec.Config.Compaction != nil {

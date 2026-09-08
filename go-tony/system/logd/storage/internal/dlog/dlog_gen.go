@@ -148,6 +148,11 @@ func (s *Entry) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["SnapPos"] = ir.FromInt(int64(*s.SnapPos))
 	}
 
+	// Field: SnapPath (optional)
+	if s.SnapPath != nil {
+		irMap["SnapPath"] = ir.FromString(string(*s.SnapPath))
+	}
+
 	// Field: LastCommit (optional)
 	if s.LastCommit != nil {
 		irMap["LastCommit"] = ir.FromInt(int64(*s.LastCommit))
@@ -238,6 +243,18 @@ func (s *Entry) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				}
 				*val = int64(*fieldNodeUnwrapped.Int64)
 				s.SnapPos = val
+			}
+		case "SnapPath":
+			// Field: SnapPath
+			if fieldNodeUnwrapped.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(string)
+				if fieldNodeUnwrapped.Type != ir.StringType {
+					return fmt.Errorf("%s: expected string, got %v", "field \"SnapPath\"", fieldNodeUnwrapped.Type)
+				}
+				*val = string(fieldNodeUnwrapped.String)
+				s.SnapPath = val
 			}
 		case "LastCommit":
 			// Field: LastCommit

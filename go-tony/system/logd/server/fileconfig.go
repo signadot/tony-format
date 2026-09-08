@@ -66,6 +66,13 @@ type StorageConfig struct {
 	// write whose verification needs more is refused, naming the path and the size.
 	// Zero means the default, 128 MiB.
 	WriteBudget int64 `tony:"field=writeBudget"`
+
+	// PathSnapshotTail is how many records a read may fold at a path before it takes
+	// a snapshot there, and PathSnapshotBytes the largest subtree it snapshots. Zero
+	// means the defaults (64 records, 1 MiB); a negative tail turns per-path snapshots
+	// off. See storage/path_snapshot.go.
+	PathSnapshotTail  int64 `tony:"field=pathSnapshotTail"`
+	PathSnapshotBytes int64 `tony:"field=pathSnapshotBytes"`
 }
 
 // ToStorageDurability maps the configured name to a storage.Durability. A nil

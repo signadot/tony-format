@@ -19,6 +19,7 @@ define:
   SchemaEntry: .[nullable(schema-entry)]
   ScopeID: .[nullable(string)]
   ScopeOverlay: .[bool]
+  SnapPath: .[nullable(string)]
   SnapPos: .[nullable(int)]
   Timestamp: .[string]
   TxSource: .[nullable(tx:tx-state)]

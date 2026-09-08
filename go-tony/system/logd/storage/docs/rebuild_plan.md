@@ -504,6 +504,38 @@ tails; the crash tests transfer unchanged (the substrate they exercise is untouc
 DONE WHEN: the index the store describes is a small multiple of its live paths. Release
 point.
 
+7 AS BUILT, first half: a snapshot is OF a path. Its entry carries the path (Entry.SnapPath,
+nil for the root), its segment sits at that path and nowhere else, and a read seeks to the
+nearest snapshot at or above its path with the greatest commit (index.SnapshotAtOrAbove),
+opened at the read's path within it -- the root snapshot the switch takes is the case
+kp == "". WHEN one is taken is decided by the reads: a read that folded more than the
+policy's tail of records at a path (64) and emitted no more than its byte budget (1 MiB)
+schedules a snapshot of that path as of the commit it read, off the reader, one at a time,
+serialized with the switch by s.snapMu and written to the inactive log at or after the root
+snapshot there, so the file's commits stay ordered; a write's own read of its site is a
+read, so a hot written path is snapshotted too and its verification read shortens with it.
+A read that did not finish, an absent path, a commit before the root snapshot, and a
+subtree over the budget each decline. Retention keeps a snapshot of a path within the
+cutoff and drops it beyond, and it takes no slot in the root snapshots' tiers. The
+counters say what happened: reads.seek.path, reads.folded, reads.tail.max, snapshots.path.
+The storage suite runs 20s faster under the default policy, which is the differentials'
+own folds getting shorter.
+
+COMPACTION'S WORKING SET (decision 8) is decided in the file, by construction: the work
+list is the inactive log's own records, walked once (dlog.FileIterator); each entry's fate
+is decided from the entry; a dropped entry's segments are derived from it and removed
+before the rewrite, a survivor's re-derived and moved after it (index.EachSegment, the
+walk that indexed it). What compaction holds is one record per entry of the file it
+compacts and one entry at a time -- not every segment of both logs, which LookupRangeAll
+and indexCopies held. This is also what made per-path snapshots correct: a work list taken
+from the root's segments never saw a segment indexed only at its path, so a snapshot of a
+path survived a rewrite at a stale position.
+
+NOT YET: the scope half -- a scope's patches are still kept whole until DeleteScope
+(5hmq80f3h12krh1mbsn0). Stored scope writes are absolute now, so an entry every statement
+of which a later whole-value claim in the same scope covers can go beyond the cutoff; that
+is the second commit of this phase.
+
 ## Decisions the documents leave open
 
 Each has a recommendation. Each is raised on the issue as a comment BEFORE it is built, and

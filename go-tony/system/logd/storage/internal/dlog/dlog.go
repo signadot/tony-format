@@ -1175,6 +1175,35 @@ func (it *DLogIter) Next() (*Entry, LogFileID, int64, error) {
 	return entry, logFile, pos, nil
 }
 
+// FileIter walks one log file's records in file order, each with its position. It is
+// what compaction reads: the file it is about to rewrite, record by record, rather than
+// the index's description of it.
+type FileIter struct{ it *singleFileIter }
+
+// FileIterator opens a walk over one log file, bounded by its append frontier as
+// Iterator is.
+func (dl *DLog) FileIterator(id LogFileID) (*FileIter, error) {
+	var lf *DLogFile
+	switch id {
+	case LogFileA:
+		lf = dl.logA
+	case LogFileB:
+		lf = dl.logB
+	default:
+		return nil, fmt.Errorf("invalid log file ID: %q (must be A or B)", id)
+	}
+	size := lf.Position()
+	return &FileIter{it: &singleFileIter{logFile: lf, fileSize: size, done: size == 0}}, nil
+}
+
+// Next answers the next record and its position, and io.EOF at the end of the file.
+func (f *FileIter) Next() (*Entry, int64, error) {
+	if f.it.done {
+		return nil, 0, io.EOF
+	}
+	return f.it.next()
+}
+
 // Done returns true if iterator has reached end of both files.
 func (it *DLogIter) Done() bool {
 	return it.done

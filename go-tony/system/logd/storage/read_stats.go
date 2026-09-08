@@ -45,7 +45,25 @@ type ReadStats struct {
 	LargestRecord int64
 	SeekHit       int64
 	SeekMiss      int64
+	// SeekPath counts the hits that landed on a snapshot of a path rather than the root;
+	// Folded is the records folded after every seek, and LongestTail the most one read
+	// folded; PathSnapshots is how many snapshots reads have taken (path_snapshot.go).
+	SeekPath      int64
+	Folded        int64
+	LongestTail   int64
+	PathSnapshots int64
 }
+
+// seekKind is what a read's seek found: nothing, the root snapshot, a snapshot of a path
+// at or above the read's, or the index's own proof that the path was never written.
+type seekKind int
+
+const (
+	seekMiss seekKind = iota
+	seekRoot
+	seekPath
+	seekProven
+)
 
 type readStats struct {
 	narrow         atomic.Int64
@@ -61,22 +79,37 @@ type readStats struct {
 	largestRecord  atomic.Int64
 	seekHit        atomic.Int64
 	seekMiss       atomic.Int64
+	seekPath       atomic.Int64
+	folded         atomic.Int64
+	longestTail    atomic.Int64
+	pathSnapshots  atomic.Int64
 }
 
 // noteBound records one read against the bound: the bytes it emitted, the largest record
-// it buffered, and whether its seek found a snapshot at or above its path.
-func (r *readStats) noteBound(emitted, largest int64, seekHit bool) {
+// it buffered, what its seek found, and how many records it folded after it.
+func (r *readStats) noteBound(emitted, largest int64, seek seekKind, tail int64) {
 	r.bytesEmitted.Add(emitted)
-	for {
-		cur := r.largestRecord.Load()
-		if largest <= cur || r.largestRecord.CompareAndSwap(cur, largest) {
-			break
-		}
-	}
-	if seekHit {
-		r.seekHit.Add(1)
-	} else {
+	raiseTo(&r.largestRecord, largest)
+	raiseTo(&r.longestTail, tail)
+	r.folded.Add(tail)
+	switch seek {
+	case seekMiss:
 		r.seekMiss.Add(1)
+	case seekPath:
+		r.seekHit.Add(1)
+		r.seekPath.Add(1)
+	default:
+		r.seekHit.Add(1)
+	}
+}
+
+// raiseTo sets a gauge to v if v is larger.
+func raiseTo(g *atomic.Int64, v int64) {
+	for {
+		cur := g.Load()
+		if v <= cur || g.CompareAndSwap(cur, v) {
+			return
+		}
 	}
 }
 
@@ -122,6 +155,10 @@ func (r *readStats) snapshot() ReadStats {
 		LargestRecord:  r.largestRecord.Load(),
 		SeekHit:        r.seekHit.Load(),
 		SeekMiss:       r.seekMiss.Load(),
+		SeekPath:       r.seekPath.Load(),
+		Folded:         r.folded.Load(),
+		LongestTail:    r.longestTail.Load(),
+		PathSnapshots:  r.pathSnapshots.Load(),
 	}
 }
 
@@ -150,6 +187,10 @@ func (r ReadStats) Report() map[string]any {
 		"reads.record.max":        r.LargestRecord,
 		"reads.seek.hit":          r.SeekHit,
 		"reads.seek.miss":         r.SeekMiss,
+		"reads.seek.path":         r.SeekPath,
+		"reads.folded":            r.Folded,
+		"reads.tail.max":          r.LongestTail,
+		"snapshots.path":          r.PathSnapshots,
 	}
 	if r.Narrow > 0 {
 		m["reads.narrow.avg"] = (r.NarrowDuration / time.Duration(r.Narrow)).Round(time.Microsecond).String()

@@ -12,9 +12,19 @@ import (
 // Compact compacts the inactive log according to the compaction policy.
 // Removes:
 // - Patches before cutoff (historical reads become approximate)
-// - Superseded scope snapshots (keeps only most recent per active scope)
-// - All data for deleted/inactive scopes
+// - Snapshots of paths before cutoff (path_snapshot.go)
+// - Root snapshots the tiers do not keep
 // - Completed/aborted schema migration entries
+//
+// THE WORK LIST IS THE LOG'S OWN RECORDS. Compaction walks the inactive file once and
+// decides each entry's fate from the entry -- its time, its scope, whether it is a
+// snapshot and of what -- and never asks the index for every segment it holds: what the
+// index describes is every path of every entry in both logs, and a compaction that holds
+// that holds the store (index_residency.md). What it holds is one record per entry in the
+// file being compacted, the survivors' positions, which dlog needs, and one entry at a
+// time while that entry's segments are removed or moved (index.EachSegment). A snapshot
+// of a path is indexed only at its path, so a work list taken from the root's segments
+// would not see it; the file does.
 //
 // Uses dlog.CompactInactive for file operations, then updates the index.
 func (s *Storage) Compact(config *CompactionConfig) error {
@@ -28,21 +38,13 @@ func (s *Storage) Compact(config *CompactionConfig) error {
 
 	s.logger.Info("starting compaction", "cutoff", config.Cutoff)
 
-	// Get the inactive log file ID
 	inactiveLogID := s.dLog.GetInactiveLog()
-
-	// Get all segments from index for the inactive log
-	allSegments := s.index.LookupRangeAll("", nil, nil)
-
-	var inactiveSegments []index.LogSegment
-	for _, seg := range allSegments {
-		if dlog.LogFileID(seg.LogFile) == inactiveLogID {
-			inactiveSegments = append(inactiveSegments, seg)
-		}
+	records, err := s.compactionRecords(inactiveLogID)
+	if err != nil {
+		return err
 	}
-
-	if len(inactiveSegments) == 0 {
-		s.logger.Info("no segments in inactive log, skipping compaction")
+	if len(records) == 0 {
+		s.logger.Info("no entries in inactive log, skipping compaction")
 		return nil
 	}
 
@@ -53,68 +55,118 @@ func (s *Storage) Compact(config *CompactionConfig) error {
 	now := time.Now()
 	cutoffTime := now.Add(-config.Cutoff)
 
-	// Select survivors
-	survivors, err := s.selectSurvivors(inactiveSegments, config, now, pinCommit, cutoffTime)
-	if err != nil {
-		return fmt.Errorf("failed to select survivors: %w", err)
-	}
-
-	if len(survivors) == len(inactiveSegments) {
-		s.logger.Info("all segments survive, skipping compaction")
+	survivors, dropped := s.selectSurvivors(records, config, now, pinCommit, cutoffTime)
+	if len(dropped) == 0 {
+		s.logger.Info("all entries survive, skipping compaction")
 		return nil
 	}
 
 	s.logger.Info("compacting",
-		"original", len(inactiveSegments),
+		"original", len(records),
 		"surviving", len(survivors))
 
 	// Record how far back delta replay will still be exact BEFORE dropping anything, so a
 	// crash in between leaves the floor too high rather than too low — pessimistic costs a
 	// spurious ErrReplayCompacted, optimistic costs silent event loss. See raiseReplayFloor.
-	if floor := droppedPatchFloor(inactiveSegments, survivors); floor > 0 {
+	if floor := droppedPatchFloor(segmentsOf(records), segmentsOf(survivors)); floor > 0 {
 		if err := s.raiseReplayFloor(floor); err != nil {
 			return fmt.Errorf("failed to record replay floor: %w", err)
 		}
 	}
 
-	// Extract positions to keep (sorted)
+	// A dropped entry leaves the index before the file is rewritten, while it can still be
+	// read from where it is: its segments are derived from it and each is removed. A reader
+	// in between sees the index compaction will leave, over a file that still holds more,
+	// which is consistent; and the index is rebuilt from the log on a crash.
+	oldGeneration := s.dLog.GetGeneration(inactiveLogID)
+	for _, r := range dropped {
+		if err := s.unindexEntry(inactiveLogID, r.pos, oldGeneration); err != nil {
+			return err
+		}
+	}
+
 	positions := make([]int64, 0, len(survivors))
-	for _, seg := range survivors {
-		positions = append(positions, seg.LogPosition)
+	for _, r := range survivors {
+		positions = append(positions, r.pos)
 	}
 	sort.Slice(positions, func(i, j int) bool { return positions[i] < positions[j] })
-
-	// Deduplicate positions (multiple segments may reference same entry)
 	positions = deduplicatePositions(positions)
 
-	// Compact via dlog
 	dlogConfig := &dlog.CompactConfig{GracePeriod: config.GracePeriod}
 	results, err := s.dLog.CompactInactive(positions, dlogConfig)
 	if err != nil {
 		return fmt.Errorf("dlog compaction failed: %w", err)
 	}
-
-	// Build position mapping
 	positionMap := make(map[int64]int64, len(results))
 	for _, r := range results {
 		positionMap[r.OldPosition] = r.NewPosition
 	}
 
-	// Where every entry is indexed, captured once before anything moves. Taken before
-	// both maintenance passes: updateIndexPositions only touches survivors, so the
-	// non-survivor entries removeFromIndex looks up are still where this says they are.
-	copies := s.indexCopies()
+	// A survivor is re-indexed where the rewrite put it, read back from there: every copy
+	// of it, at every path, under the file's new generation.
+	newGeneration := s.dLog.GetGeneration(inactiveLogID)
+	for _, r := range survivors {
+		newPos, ok := positionMap[r.pos]
+		if !ok {
+			continue
+		}
+		if err := s.reindexEntry(inactiveLogID, newPos, newGeneration); err != nil {
+			return err
+		}
+	}
 
-	// Update index with new positions
-	s.updateIndexPositions(inactiveLogID, survivors, positionMap, copies)
-
-	// Remove non-surviving segments from index
-	s.removeFromIndex(inactiveSegments, survivors, copies)
-
-	s.logger.Info("compaction complete",
-		"removed", len(inactiveSegments)-len(survivors))
-
+	s.logger.Info("compaction complete", "removed", len(dropped))
 	return nil
+}
+
+// compactRecord is what compaction holds per entry of the file it compacts: the entry's
+// place and shape, said as the root-level segment the entry would be indexed by -- which
+// is what the policy and the replay floor read -- and its time and schema part, so no
+// entry is read twice to decide its fate.
+type compactRecord struct {
+	pos    int64
+	seg    index.LogSegment
+	time   time.Time
+	timeOK bool
+	schema *dlog.SchemaEntry
+}
+
+// compactionRecords walks one log file and answers a record per entry.
+func (s *Storage) compactionRecords(logFile dlog.LogFileID) ([]compactRecord, error) {
+	it, err := s.dLog.FileIterator(logFile)
+	if err != nil {
+		return nil, err
+	}
+	generation := s.dLog.GetGeneration(logFile)
+	var records []compactRecord
+	for {
+		entry, pos, err := it.Next()
+		if err != nil {
+			break // io.EOF, or a record the walk could not read: what is behind it is not compacted this time
+		}
+		r := compactRecord{pos: pos, schema: entry.SchemaEntry}
+		switch {
+		case entry.SnapPos != nil:
+			r.seg = *index.NewSnapshotSegment(entry.Commit, index.SnapPathOf(entry), string(logFile), pos, generation, entry.ScopeID)
+		case entry.Patch != nil && entry.LastCommit != nil:
+			r.seg = *index.NewLogSegmentFromPatchEntry(entry, "", string(logFile), pos, index.TxSeqOf(entry), generation, entry.ScopeID)
+		default:
+			continue // not something the index describes
+		}
+		if t, err := time.Parse(time.RFC3339, entry.Timestamp); err == nil {
+			r.time, r.timeOK = t, true
+		}
+		records = append(records, r)
+	}
+	return records, nil
+}
+
+func segmentsOf(records []compactRecord) []index.LogSegment {
+	out := make([]index.LogSegment, len(records))
+	for i, r := range records {
+		out[i] = r.seg
+	}
+	return out
 }
 
 // findPinnedCommit returns the commit of the active schema snapshot, or -1 if none.
@@ -126,134 +178,94 @@ func (s *Storage) findPinnedCommit() int64 {
 	return -1
 }
 
-// selectSurvivors determines which segments survive compaction.
+// selectSurvivors decides which entries survive compaction, and which go.
 func (s *Storage) selectSurvivors(
-	segments []index.LogSegment,
+	records []compactRecord,
 	config *CompactionConfig,
 	now time.Time,
 	pinCommit int64,
 	cutoffTime time.Time,
-) ([]index.LogSegment, error) {
-	var survivors []index.LogSegment
-
-	// Separate patches and snapshots
-	var patches []index.LogSegment
-	var snapshots []index.LogSegment
-
-	for _, seg := range segments {
-		if seg.StartCommit == seg.EndCommit {
-			snapshots = append(snapshots, seg)
-		} else {
-			patches = append(patches, seg)
+) (survivors, dropped []compactRecord) {
+	// Root snapshots are what the tiers keep; everything else -- the writes, and the
+	// snapshots of paths that stand in for a run of them (path_snapshot.go) -- is kept
+	// within the cutoff and dropped beyond it. A snapshot of a path is an accelerator
+	// for reads at the head and not a point history is read at, so it takes no tier
+	// slot from the root snapshots that are.
+	var rootSnapshots []compactRecord
+	for _, r := range records {
+		if r.seg.StartCommit == r.seg.EndCommit && r.seg.KindedPath == "" {
+			rootSnapshots = append(rootSnapshots, r)
+			continue
 		}
-	}
-
-	// Patches: keep only those within cutoff
-	for _, patch := range patches {
 		// A scope's patches ARE its layer -- op-preserving, and replayed in full on
 		// every scoped read, since nothing materialized can stand in for them (a scope
 		// snapshot resolves !key away). So they are retained whatever the cutoff, until
 		// DeleteScope removes them from the index. Bounded op-preserving compaction of
 		// a scope's patch log is tracked in 5hmq80f3h12krh1mbsn0.
-		if patch.ScopeID != nil {
-			survivors = append(survivors, patch)
+		if r.seg.ScopeID != nil {
+			survivors = append(survivors, r)
 			continue
 		}
-
-		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(patch.LogFile), patch.LogPosition, patch.LogFileGeneration)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read patch entry: %w", err)
-		}
-
-		patchTime, err := time.Parse(time.RFC3339, entry.Timestamp)
-		if err != nil {
-			// Can't parse timestamp, keep to be safe
-			survivors = append(survivors, patch)
-			continue
-		}
-
-		if patchTime.After(cutoffTime) {
-			survivors = append(survivors, patch)
+		// A time it cannot read keeps an entry, to be safe.
+		if !r.timeOK || r.time.After(cutoffTime) {
+			survivors = append(survivors, r)
+		} else {
+			dropped = append(dropped, r)
 		}
 	}
 
-	// Snapshots: apply tier policy
-	groups, err := s.buildSnapshotGroups(snapshots)
-	if err != nil {
-		return nil, err
-	}
-
+	// Root snapshots: apply tier policy, on the groups the records make.
+	groups := s.buildSnapshotGroups(rootSnapshots)
 	policy := newCompactionPolicy(config, now, pinCommit)
-	snapshotSurvivors := policy.selectSurvivors(groups)
-	survivors = append(survivors, snapshotSurvivors...)
-
-	return survivors, nil
+	kept := make(map[int64]bool)
+	for _, seg := range policy.selectSurvivors(groups) {
+		kept[seg.LogPosition] = true
+	}
+	for _, r := range rootSnapshots {
+		if kept[r.pos] {
+			survivors = append(survivors, r)
+		} else {
+			dropped = append(dropped, r)
+		}
+	}
+	return survivors, dropped
 }
 
-// buildSnapshotGroups groups snapshots by commit and filters out:
+// buildSnapshotGroups groups root snapshots by commit and filters out:
 // - aborted schema migration entries
 // - superseded pending schema migration entries
-func (s *Storage) buildSnapshotGroups(
-	snapshots []index.LogSegment,
-) ([]snapshotGroup, error) {
+func (s *Storage) buildSnapshotGroups(snapshots []compactRecord) []snapshotGroup {
 	// Get current pending migration state for filtering superseded pending entries
 	_, pendingCommit := s.schema.GetPending()
 	hasPending := s.schema.HasPending()
 
-	// Group by commit with timestamps, filtering as we go
 	byCommit := make(map[int64]*snapshotGroup)
-
-	for _, seg := range snapshots {
-		commit := seg.StartCommit
-
-		// Lazy-init group and read entry once per commit
+	for _, r := range snapshots {
+		commit := r.seg.StartCommit
+		if r.schema != nil && s.shouldSkipSchemaEntry(r.schema, commit, hasPending, pendingCommit) {
+			continue
+		}
 		group := byCommit[commit]
 		if group == nil {
-			entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition, seg.LogFileGeneration)
-			if err != nil {
-				return nil, fmt.Errorf("failed to read snapshot entry: %w", err)
-			}
-
-			// Check for schema migration entries to filter
-			if entry.SchemaEntry != nil {
-				if s.shouldSkipSchemaEntry(entry.SchemaEntry, commit, hasPending, pendingCommit) {
-					continue
-				}
-			}
-
-			t, err := time.Parse(time.RFC3339, entry.Timestamp)
-			if err != nil {
+			t := r.time
+			if !r.timeOK {
 				// If timestamp is unparseable, use current time to be safe.
 				// This ensures the snapshot won't be incorrectly aged out.
-				s.logger.Warn("failed to parse snapshot timestamp, using current time",
-					"commit", commit, "timestamp", entry.Timestamp, "error", err)
+				s.logger.Warn("failed to parse snapshot timestamp, using current time", "commit", commit)
 				t = time.Now()
 			}
-			group = &snapshotGroup{
-				commit: commit,
-				time:   t,
-			}
+			group = &snapshotGroup{commit: commit, time: t}
 			byCommit[commit] = group
 		}
-
-		group.segments = append(group.segments, seg)
+		group.segments = append(group.segments, r.seg)
 	}
 
-	// Remove empty groups (all segments filtered out)
-	for commit, group := range byCommit {
-		if len(group.segments) == 0 {
-			delete(byCommit, commit)
-		}
-	}
-
-	// Convert to slice and sort
 	groups := make([]snapshotGroup, 0, len(byCommit))
 	for _, group := range byCommit {
 		groups = append(groups, *group)
 	}
 	sortSnapshotGroups(groups)
-
-	return groups, nil
+	return groups
 }
 
 // shouldSkipSchemaEntry returns true if a schema entry should be filtered out during compaction.
@@ -274,118 +286,32 @@ func (s *Storage) shouldSkipSchemaEntry(schemaEntry *dlog.SchemaEntry, commit in
 	return false
 }
 
-// entryID identifies one log entry. Every copy of that entry in the index — the root copy
-// and one per path inside its patch — shares these and names the same log position, since
-// indexPatchRec passes the same entry, file and position down every level of the recursion.
-type entryID struct {
-	startCommit int64
-	startTx     int64
-	scopeID     string
+// unindexEntry removes every segment of the entry at pos from the index, deriving them
+// from the entry itself.
+func (s *Storage) unindexEntry(logFile dlog.LogFileID, pos, generation int64) error {
+	entry, err := s.dLog.ReadEntryAt(logFile, pos, generation)
+	if err != nil {
+		return fmt.Errorf("compaction: read entry at %s@%d: %w", logFile, pos, err)
+	}
+	index.EachSegment(entry, string(logFile), pos, generation, func(seg *index.LogSegment) {
+		s.index.Remove(seg)
+	})
+	return nil
 }
 
-func makeEntryID(seg index.LogSegment) entryID {
-	scopeID := ""
-	if seg.ScopeID != nil {
-		scopeID = *seg.ScopeID
+// reindexEntry moves every segment of the entry now at pos to where it is: each is removed
+// by its key, which does not depend on where the entry was, and added with the position
+// and generation it has now.
+func (s *Storage) reindexEntry(logFile dlog.LogFileID, pos, generation int64) error {
+	entry, err := s.dLog.ReadEntryAt(logFile, pos, generation)
+	if err != nil {
+		return fmt.Errorf("compaction: read entry at %s@%d: %w", logFile, pos, err)
 	}
-	return entryID{startCommit: seg.StartCommit, startTx: seg.StartTx, scopeID: scopeID}
-}
-
-// indexCopies maps each entry to every place it is indexed, keyed by entry identity.
-//
-// Compaction's work list comes from the root, which is the authoritative entry set — every
-// entry has a root copy — but maintaining only that left every below-root copy of a moved
-// or dropped entry pointing at a position that no longer holds it, which is what watch
-// replay reads through (issue 1d52zghth12ks0cvcsn0).
-func (s *Storage) indexCopies() map[entryID][]index.LogSegment {
-	all := s.index.AllSegments()
-	res := make(map[entryID][]index.LogSegment, len(all))
-	for _, seg := range all {
-		id := makeEntryID(seg)
-		res[id] = append(res[id], seg)
-	}
-	return res
-}
-
-// sameEntry reports whether a copy found by identity really is the entry in hand. Identity
-// should be unique, so this only guards against a copy that has already been repositioned
-// or belongs to a different log file.
-func sameEntry(copy, seg index.LogSegment) bool {
-	return copy.LogFile == seg.LogFile && copy.LogPosition == seg.LogPosition
-}
-
-// updateIndexPositions updates segment positions in the index after compaction.
-// Removes old segments and re-adds them with new positions and updated generation.
-// Every copy of a moved entry is repositioned, not just the root one.
-func (s *Storage) updateIndexPositions(logFileID dlog.LogFileID, survivors []index.LogSegment,
-	positionMap map[int64]int64, copies map[entryID][]index.LogSegment) {
-	// Get the new generation after compaction
-	newGeneration := s.dLog.GetGeneration(logFileID)
-
-	for _, seg := range survivors {
-		newPos, ok := positionMap[seg.LogPosition]
-		if !ok {
-			continue // Position didn't change
-		}
-
-		for _, c := range copies[makeEntryID(seg)] {
-			if !sameEntry(c, seg) {
-				continue
-			}
-			// Remove the copy at its old position, re-add it at the new one. Remove and
-			// Add both navigate by KindedPath, and c carries the full path it is
-			// indexed at, so this reaches below-root copies as well as the root.
-			s.index.Remove(&c)
-			c.LogPosition = newPos
-			c.LogFileGeneration = newGeneration
-			s.index.Add(&c)
-		}
-	}
-}
-
-// segmentKey uniquely identifies a segment by its ordering key.
-type segmentKey struct {
-	startCommit int64
-	startTx     int64
-	kindedPath  string
-	scopeID     string // empty string for nil
-}
-
-func makeSegmentKey(seg index.LogSegment) segmentKey {
-	scopeID := ""
-	if seg.ScopeID != nil {
-		scopeID = *seg.ScopeID
-	}
-	return segmentKey{
-		startCommit: seg.StartCommit,
-		startTx:     seg.StartTx,
-		kindedPath:  seg.KindedPath,
-		scopeID:     scopeID,
-	}
-}
-
-// removeFromIndex removes non-surviving segments from the index, including every
-// below-root copy of each one. A non-survivor's position is freed by the rewrite, so a
-// copy left behind is a segment pointing into space that now holds something else.
-func (s *Storage) removeFromIndex(all, survivors []index.LogSegment, copies map[entryID][]index.LogSegment) {
-	// Build set of survivor keys
-	survivorSet := make(map[segmentKey]struct{}, len(survivors))
-	for _, seg := range survivors {
-		survivorSet[makeSegmentKey(seg)] = struct{}{}
-	}
-
-	// Remove non-survivors
-	for _, seg := range all {
-		if _, ok := survivorSet[makeSegmentKey(seg)]; ok {
-			continue
-		}
-		for _, c := range copies[makeEntryID(seg)] {
-			if !sameEntry(c, seg) {
-				continue
-			}
-			s.index.Remove(&c)
-		}
-	}
+	index.EachSegment(entry, string(logFile), pos, generation, func(seg *index.LogSegment) {
+		s.index.Remove(seg)
+		s.index.Add(seg)
+	})
+	return nil
 }
 
 // deduplicatePositions removes duplicate positions from a sorted slice.

@@ -60,14 +60,19 @@ var readPaths = []string{"", "a", "a.b", "a.b.c", "a.x", "d", "d.e", "never.writ
 type genOp struct {
 	path     string
 	src      string
-	snapshot bool // take a snapshot AFTER this op (subject only)
+	snapshot bool    // take a snapshot AFTER this op (subject only)
+	snapAt   *string // and a snapshot of this path (subject only), which sits at that path
 }
 
 func (o genOp) String() string {
+	out := fmt.Sprintf("%s <- %s", quotePath(o.path), o.src)
 	if o.snapshot {
-		return fmt.Sprintf("%s <- %s [snapshot]", quotePath(o.path), o.src)
+		out += " [snapshot]"
 	}
-	return fmt.Sprintf("%s <- %s", quotePath(o.path), o.src)
+	if o.snapAt != nil {
+		out += fmt.Sprintf(" [snapshot of %s]", quotePath(*o.snapAt))
+	}
+	return out
 }
 
 func quotePath(p string) string {
@@ -121,7 +126,15 @@ func genOps(rng *rand.Rand, n int) []genOp {
 				src = fmt.Sprintf("%s # trailing %d", src, i)
 			}
 		}
-		ops = append(ops, genOp{path: path, src: src, snapshot: rng.Intn(8) == 0})
+		op := genOp{path: path, src: src, snapshot: rng.Intn(8) == 0}
+		// A snapshot OF a path, at a depth unrelated to the write's: the seek then has
+		// snapshots at mixed depths to choose between, and a read has to land on the
+		// right one from above, at, and below each (path_snapshot.go).
+		if rng.Intn(6) == 0 {
+			at := writePaths[1+rng.Intn(len(writePaths)-1)]
+			op.snapAt = &at
+		}
+		ops = append(ops, op)
 	}
 	return ops
 }
@@ -256,7 +269,8 @@ func runEquivalenceSeed(t *testing.T, seed int64, nOps int) {
 	rng := rand.New(rand.NewSource(seed))
 	ops := genOps(rng, nOps)
 
-	ref := openTestStorage(t)  // A: never snapshots
+	ref := openTestStorage(t) // A: never snapshots
+	ref.SetPathSnapshotPolicy(-1, 0)
 	subj := openTestStorage(t) // B: snapshots at the generated points
 
 	var commits []int64
@@ -278,6 +292,11 @@ func runEquivalenceSeed(t *testing.T, seed int64, nOps int) {
 		if o.snapshot {
 			if err := subj.SwitchDLog(); err != nil {
 				t.Fatalf("seed %d op %d: SwitchDLog: %v", seed, i, err)
+			}
+		}
+		if o.snapAt != nil {
+			if err := subj.snapshotPath(refCommit, *o.snapAt); err != nil {
+				t.Fatalf("seed %d op %d: snapshotPath(%q): %v", seed, i, *o.snapAt, err)
 			}
 		}
 	}

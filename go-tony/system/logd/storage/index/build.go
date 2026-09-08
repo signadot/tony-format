@@ -86,11 +86,6 @@ func BuildWithLogger(idx *Index, dlog *dlog.DLog, fromCommit int64, logger *slog
 			continue
 		}
 
-		txSeq := int64(0)
-		if entry.TxSource != nil {
-			txSeq = entry.TxSource.TxID
-		}
-
 		// Get current generation for this log file
 		generation := dlog.GetGeneration(logFile)
 
@@ -107,22 +102,10 @@ func BuildWithLogger(idx *Index, dlog *dlog.DLog, fromCommit int64, logger *slog
 			// (TestKeyed_RebuildDivergenceImpact). It stops being harmless for anything
 			// that addresses BY the keyed path; see docs/archive/scope_overlay_plan.md
 			// P1 for where that mattered.
-			IndexPatch(idx, entry, string(logFile), pos, txSeq, generation, entry.Patch, entry.ScopeID)
+			EachSegment(entry, string(logFile), pos, generation, idx.Add)
 		} else if entry.SnapPos != nil {
-			// Snapshot entry - add to index for state reconstruction
-			// Snapshots have StartCommit == EndCommit
-			seg := &LogSegment{
-				StartCommit:       entry.Commit,
-				EndCommit:         entry.Commit,
-				StartTx:           0,
-				EndTx:             0,
-				KindedPath:        "",
-				LogFile:           string(logFile),
-				LogPosition:       pos,
-				LogFileGeneration: generation,
-				ScopeID:           entry.ScopeID,
-			}
-			idx.Add(seg)
+			// A snapshot is indexed at the path it is of, and nowhere else.
+			EachSegment(entry, string(logFile), pos, generation, idx.Add)
 		}
 	}
 
