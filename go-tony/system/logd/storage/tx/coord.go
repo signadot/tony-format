@@ -363,7 +363,7 @@ func (p *txPatcher) doCommit(state *State, commitOps CommitOps) *Result {
 		}
 	}
 
-	matched, err := evaluateMatches(state, commitOps.MatchStateAt, currentCommit)
+	matched, err := evaluateMatches(state, commitOps.StateAt, currentCommit)
 	if err != nil {
 		_ = co.storage.Delete(state.TxID)
 		return &Result{
@@ -384,15 +384,14 @@ func (p *txPatcher) doCommit(state *State, commitOps CommitOps) *Result {
 	// A positional write was held to the array's length when it was submitted, but
 	// the array can lose the element in between -- the submission is not the commit,
 	// and nothing froze the array in the meantime. Ask again here, under the commit
-	// lock, where MatchStateAt answers from the stepped head. Storing a patch which
-	// cannot be applied is what makes the whole log unreadable (7cdvym1fh12ksmd5g5n0),
-	// so this is the answer that has to be right.
+	// lock. Storing a patch which cannot be applied is what makes the whole log
+	// unreadable (7cdvym1fh12ksmd5g5n0), so this is the answer that has to be right.
 	//
 	// It asks only whether the element is STILL THERE. An insert or delete before the
 	// index leaves it there and makes it a different element, which this does not
 	// catch and a precondition would (jjbapb1ah12kranxg5n0 is not that; filed apart).
 	if err := CheckArrayWritesAt(state.PatcherData, func() (*ir.Node, error) {
-		return commitOps.MatchStateAt("", currentCommit, state.Scope)
+		return commitOps.StateAt("", currentCommit, state.Scope)
 	}, schema); err != nil {
 		_ = co.storage.Delete(state.TxID)
 		return &Result{

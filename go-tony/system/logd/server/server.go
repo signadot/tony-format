@@ -96,6 +96,13 @@ func New(spec *Spec) *Server {
 			}
 		}
 
+		// The write budget, if configured: the largest node the store builds to verify
+		// or lower one write, or to evaluate one precondition.
+		if spec.Config.Storage != nil && spec.Config.Storage.WriteBudget > 0 {
+			spec.Storage.SetWriteBudget(spec.Config.Storage.WriteBudget)
+			spec.Log.Info("configured write budget", "bytes", spec.Config.Storage.WriteBudget)
+		}
+
 		// Set up compaction if configured
 		if spec.Config.Compaction != nil {
 			spec.Storage.SetCompactionConfig(spec.Config.Compaction.ToStorageConfig())

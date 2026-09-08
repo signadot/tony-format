@@ -86,16 +86,12 @@ type Storage struct {
 	// one. Set at open, read by the report; nil is the ordinary case.
 	unreadable *index.Unreadable
 
-	// head is the baseline document at headCommit, kept so a CAS precondition can be
-	// evaluated without materializing the whole document per conditional write. All
-	// three fields are owned by commitMu: read and written only while it is held.
-	//
-	// headSeeded, not head != nil, is what says the head is usable: empty state reads
-	// back as a nil document, so an empty log would otherwise look permanently unseeded
-	// and never start stepping. Nothing may mutate head — see stepHead.
-	head       *ir.Node
-	headCommit int64
-	headSeeded bool
+	// writeBudget is the largest node the write path builds to verify or lower one
+	// write, or to evaluate one precondition: the value at a path the write names, read
+	// under this bound. A write whose verification needs more is refused, naming the
+	// path and the size, which is the bound charging the client that asked for it
+	// (read_write_interface.md; rebuild_plan.md decision 5).
+	writeBudget int64
 
 	sequence *seq.Seq
 
@@ -129,11 +125,6 @@ type Storage struct {
 	// always. See lower.go, and LowerEverything for what this amplifies.
 	lowerAll bool
 
-	// scopeHeads keeps, per scope, the scoped document at the commit it is current at
-	// -- what head.go keeps for baseline. Guarded by commitMu, like the head.
-	// See scope_head.go.
-	scopeHeads map[string]*scopeHeadDoc
-
 	// replayFloor is the highest commit whose delta history compaction has removed.
 	// See replay_floor.go. Read on the replay path, raised by Compact.
 	replayFloor atomic.Int64
@@ -147,7 +138,8 @@ func Open(root string, logger *slog.Logger) (*Storage, error) {
 		logger = slog.Default()
 	}
 	s := &Storage{
-		sequence: seq.NewSeq(root),
+		sequence:    seq.NewSeq(root),
+		writeBudget: DefaultWriteBudget,
 
 		txStore: tx.NewInMemoryTxStore(),
 		index:   index.NewIndex(""),
@@ -594,6 +586,21 @@ func (s *Storage) schemaForScope(scopeID *string) *api.Schema {
 	return s.schemaResolver.GetSchema(scopeID)
 }
 
+// DefaultWriteBudget is the write budget a store has when its configuration names none.
+const DefaultWriteBudget = 128 << 20
+
+// SetWriteBudget sets the largest node the write path builds for one write or
+// precondition. Zero or less keeps the default.
+func (s *Storage) SetWriteBudget(b int64) {
+	if b <= 0 {
+		b = DefaultWriteBudget
+	}
+	s.writeBudget = b
+}
+
+// WriteBudget answers the store's write budget.
+func (s *Storage) WriteBudget() int64 { return s.writeBudget }
+
 // DeleteScope removes all index entries for a scope.
 // The actual log entries remain (append-only), but become inaccessible.
 func (s *Storage) DeleteScope(scopeID string) error {
@@ -602,7 +609,6 @@ func (s *Storage) DeleteScope(scopeID string) error {
 		return fmt.Errorf("scope %q not found or has no data", scopeID)
 	}
 	// Nothing should hold a document for a scope which no longer has any.
-	s.forgetScopeHead(scopeID)
 	return nil
 }
 

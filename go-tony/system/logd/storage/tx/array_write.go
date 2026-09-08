@@ -173,10 +173,8 @@ func at(kp string) string {
 // reads nothing at all unless the path names an index, which is what keeps the
 // ordinary write -- at a field -- paying nothing for this.
 //
-// The read is ValueAt rather than the head MatchStateAt serves: this runs with no
-// lock held, and the head may only be read under the commit lock. That is the right
-// trade here, because the answer does not have to be the last word -- the commit
-// re-asks it under the lock, where the head makes it cheap.
+// The read runs with no lock held, and the answer does not have to be the last word:
+// the commit re-asks it under the lock.
 func (co *txCoord) checkArrayWrite(p *api.Patch) error {
 	if p == nil || p.Data == nil {
 		return nil
@@ -207,7 +205,7 @@ func (co *txCoord) checkArrayWrite(p *api.Patch) error {
 	if err != nil {
 		return fmt.Errorf("cannot check %q against current state: %w", p.Path, err)
 	}
-	doc, err := co.commitOps.ValueAt("", commit, co.Scope())
+	doc, err := co.commitOps.StateAt("", commit, co.Scope())
 	if err != nil {
 		return fmt.Errorf("cannot read current state to check %q: %w", p.Path, err)
 	}
@@ -215,10 +213,9 @@ func (co *txCoord) checkArrayWrite(p *api.Patch) error {
 }
 
 // CheckArrayWritesAt holds every positional write in the transaction to the state
-// at commit. The commit path calls it under the commit lock, where MatchStateAt
-// answers from the stepped head, so an array which lost its element between the
-// write's submission and its commit is caught before the patch is stored rather
-// than by every read afterwards.
+// at commit. The commit path calls it under the commit lock, so an array which lost
+// its element between the write's submission and its commit is caught before the
+// patch is stored rather than by every read afterwards.
 func CheckArrayWritesAt(patches []*PatcherData, read func() (*ir.Node, error), schema *api.Schema) error {
 	var doc *ir.Node
 	loaded := false

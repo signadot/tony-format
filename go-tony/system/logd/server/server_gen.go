@@ -174,6 +174,9 @@ func (s *StorageConfig) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Field: ReadBudget
 	irMap["readBudget"] = ir.FromInt(int64(s.ReadBudget))
 
+	// Field: WriteBudget
+	irMap["writeBudget"] = ir.FromInt(int64(s.WriteBudget))
+
 	return ir.FromMap(irMap).WithTag("!storage-config"), nil
 }
 
@@ -219,6 +222,12 @@ func (s *StorageConfig) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) err
 				return fmt.Errorf("field %q: expected number, got %v", "readBudget", fieldNodeUnwrapped.Type)
 			}
 			s.ReadBudget = int64(*fieldNodeUnwrapped.Int64)
+		case "writeBudget":
+			// Field: WriteBudget
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "writeBudget", fieldNodeUnwrapped.Type)
+			}
+			s.WriteBudget = int64(*fieldNodeUnwrapped.Int64)
 		default:
 			if gomap.IsStrict(opts...) {
 				return fmt.Errorf("unknown field %q for StorageConfig", fieldName.String)

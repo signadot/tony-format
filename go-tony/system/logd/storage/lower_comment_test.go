@@ -63,7 +63,6 @@ func TestLoweredCommentSurvivesASnapshot(t *testing.T) {
 				if lowered {
 					s.LowerEverything(true)
 				}
-				seedHead(t, s)
 				mustCommit(t, s, nil, test.seed)
 				// The snapshot is what makes the marker load-bearing.
 				if err := s.SwitchDLog(); err != nil {
@@ -73,17 +72,27 @@ func TestLoweredCommentSurvivesASnapshot(t *testing.T) {
 				if err != nil {
 					t.Fatalf("write: %v", err)
 				}
-				head, hc := headOf(s)
-				if hc != c {
-					t.Fatalf("the head is at %d, want %d", hc, c)
-				}
-				replay, err := s.replayBaselineAt(c)
+				// Two computations of the state at c have to agree, comments counted: the
+				// read, and a watcher's fold of the stored delta onto the state before it.
+				prev, err := readStateAt(s, "", c-1, nil)
 				if err != nil {
-					t.Fatalf("replay: %v", err)
+					t.Fatalf("read at %d: %v", c-1, err)
 				}
-				if withComments(head) != withComments(replay) {
-					t.Errorf("the head and a full read disagree\n head:   %s\n replay: %s",
-						withComments(head), withComments(replay))
+				ns, err := readPatchesInRange(s, "", c, c, nil)
+				if err != nil || len(ns) != 1 {
+					t.Fatalf("delta for %d: %v %v", c, ns, err)
+				}
+				stepped, err := applyStoredPatch(prev, ns[0].Patch)
+				if err != nil {
+					t.Fatalf("fold: %v", err)
+				}
+				read, err := readStateAt(s, "", c, nil)
+				if err != nil {
+					t.Fatalf("read: %v", err)
+				}
+				if withComments(stepped) != withComments(read) {
+					t.Errorf("the fold and the read disagree\n fold: %s\n read: %s",
+						withComments(stepped), withComments(read))
 				}
 			})
 		}

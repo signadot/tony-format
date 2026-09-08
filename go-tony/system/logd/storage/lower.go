@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
 	"sync/atomic"
 
@@ -96,174 +97,167 @@ func storableDelta(base, next *ir.Node) *ir.Node {
 	return tony.DiffWith(base, next, tony.DiffAbsolute(true), tony.DiffComments(true))
 }
 
-// claimDelta answers what a SCOPE stores for a write: the claim it is making, rather
-// than the difference it made.
+// WriteBudgetError is a write, or a precondition, refused because verifying it would hold
+// more than the store's write budget: the value at Path is larger than Budget bytes.
 //
-// A scope's patches replay over a baseline that moves, so a scope write is a standing
-// claim -- what the scope holds at that path, whatever baseline does afterwards. A
-// diff is the effect against one baseline, and where the effect is smaller than the
-// claim the claim is lost: a !delete of a path baseline has not created yet changes
-// only the spine, so the delta says `a: {}`, which merges to nothing, and the scope
-// stops shadowing that path forever after.
+// It is the bound charging the client that asked for it. An operation's site is the node
+// it is written on, and some sites are large by construction -- a !replace of a whole
+// subtree, an !all over every element -- so the intermediate a write needs is what that
+// write installs. The remedy is in the client's hands: write narrower, or write the change
+// as absolute values at the paths that actually change, which needs no wide read at all.
 //
-// An ABSOLUTE write needs none of this. It is already a claim -- what it says is what
-// results, whatever it lands on -- and it is stored as the client sent it. Only a
-// relative write has to be converted, and a relative operation's meaning depends on
-// the whole subtree it was applied to, so the subtree is what it claims.
-//
-// So: baseline stores differences, a scope stores claims, and the two layers lower
-// differently because they own different things.
-//
-// The claim is BUILT as a patch and never applied while it is being built. A claim has
-// to be able to say that a path holds nothing -- that is the whole reason it exists --
-// and only a patch can say that. A document cannot: absence in one is indistinguishable
-// from a path nobody mentioned. So the claims are collected as (path, statement) pairs
-// and rooted together into one patch by tx.MergePatches.
-//
-// Accumulating them with api.NextState instead put each claim in the INSTRUCTION role
-// against the claim-so-far, which is a patch standing in the document position. A value
-// survives that, since a value means the same thing in both roles; a tombstone does
-// not. It ran against the half-built claim and left only its effect there, so
-//
-//	d <- {k1: !replace {from: 1, to: 5}, k0: !delete}
-//
-// stored a claim that never mentioned k0, and the scope read k0 back -- the client's
-// delete lost at the write itself, with the field ORDER deciding it: claimed after k1
-// the tombstone was applied and vanished, claimed before it, it survived as data.
-//
-// MergePatches also refuses two paths where one contains the other, which ClaimPaths
-// should never produce; if it ever does, that is an error rather than one claim
-// quietly overwriting another.
-func claimDelta(next *ir.Node, paths []string) (*ir.Node, error) {
-	pds := make([]*tx.PatcherData, 0, len(paths))
-	for _, p := range paths {
-		var stmt *ir.Node
-		held, err := next.GetKPathWith(p, ir.WithComments(true))
-		switch {
-		case err != nil:
-			// Not an answer about the document. Absence is (nil, nil) here, the idiom
-			// this reads; an error is a type mismatch on the way down, an index past
-			// the end, a path that will not parse -- the claim cannot be determined.
-			//
-			// Taken together with the line below it, as it was, a failure to READ the
-			// path became a claim that the path holds NOTHING, which stores a delete
-			// of the client's data. A refused write is recoverable and a stored one is
-			// not, which is the same reason lowerWrite refuses a delta it cannot
-			// promise to re-apply.
-			return nil, fmt.Errorf("claiming %q: cannot read it back from the state "+
-				"the write produced: %w", p, err)
-		case held == nil:
-			// The write left nothing there, and "nothing" is as much a claim as a
-			// value: without it a later baseline write at that path shows through.
-			stmt = ir.Null().WithTag(libdiff.DeleteTag)
-		default:
-			stmt = claimValue(held.Clone())
-		}
-		pds = append(pds, &tx.PatcherData{
-			API: &api.Patch{PathData: api.PathData{Path: p, Data: stmt}},
-		})
-	}
-	out, err := tx.MergePatches(pds)
-	if err != nil {
-		return nil, fmt.Errorf("claiming %v: %w", paths, err)
-	}
-	return out, nil
+// The remedy the STORE could offer, and someday will want to, is a patch exploder: one
+// write of !all at a container becomes one write per element, each within the budget,
+// committed as one transaction. That turns the one operation whose site is the whole
+// container into N whose sites are the elements, and is the natural continuation of
+// per-path lowering rather than an exception to it.
+type WriteBudgetError struct {
+	Path   string
+	Budget int64
+	Op     string
 }
 
-// lowerWrite answers the delta the log should keep for this write.
+func (e *WriteBudgetError) Error() string {
+	what := "verifying the write"
+	if e.Op != "" {
+		what = "lowering " + e.Op
+	}
+	return fmt.Sprintf("write at %s refused: %s needs more than the %d-byte write budget; "+
+		"write the change narrower, or as absolute values at the paths that change",
+		pathOrRoot(e.Path), what, e.Budget)
+}
+
+func (e *WriteBudgetError) Unwrap() error { return ErrBudget }
+
+func pathOrRoot(kp string) string {
+	if kp == "" {
+		return "the document root"
+	}
+	return fmt.Sprintf("%q", kp)
+}
+
+// lowerWrite verifies a write at every path it names and answers the delta the log should
+// keep for it: nil, with no error, when the write changed nothing.
 //
-// base and next come from verifyApplies -- the state the patch was applied to and
-// the result. merged is the patch as it would have been stored, root tags and all.
+// stripped is the write as the client sent it, markers off; merged is the same with the
+// patch-root markers TagPatchRoots put on it, which is what an absolute write is stored
+// as. sites are the leaf-most paths the write states something at (ClaimPaths): the node
+// an operation is written on, or a leaf, or an array a position reaches into.
 //
-// A nil answer with no error means the write changed nothing, which a diff can say
-// and a patch cannot: the caller keeps the patch rather than storing an empty delta,
-// so a commit that asserts what is already there still takes a commit number and
-// still notifies, exactly as it did before.
-func (s *Storage) lowerWrite(base, next, merged *ir.Node, scoped bool, paths []string) (*ir.Node, error) {
+// A WRITE IS A RECORD AT A PATH, NOT A DOCUMENT APPLIED TO A DOCUMENT. At each site the
+// current value is read -- one bounded read, under the write budget -- the write's node
+// for that site is applied to it, and for a write that needs lowering the two are diffed
+// there. What is resident is the sites' values and their results, and for a plain merge at
+// a deep path that is the leaf it merges into; for a !replace of a subtree it is the
+// subtree, which is what that write installs and the intermediate the bound admits.
+//
+// Baseline stores the DIFFERENCE; a scope stores its CLAIM. A scope's patches replay over
+// a baseline that moves, so a scope write is a standing claim -- what the scope holds at
+// that path, whatever baseline does afterwards -- and a diff is the effect against one
+// baseline, which where it is smaller than the claim loses the claim: a !delete of a path
+// baseline has not created yet changes only the spine. An ABSOLUTE scope write needs none
+// of this and is stored as sent; only a relative one is converted, and a relative
+// operation's meaning depends on the whole subtree it was applied to, so the subtree is
+// what it claims (claimValue).
+func (s *Storage) lowerWrite(commit int64, stripped, merged *ir.Node, scopeID *string, sites []string) (*ir.Node, error) {
 	if merged == nil {
 		return merged, nil
 	}
-	// The root tags are logd's own marker, not an operation, and the question is
-	// about the client's patch. Ask the deliverable copy, which is what the
-	// notification carries and what verifyApplies was given.
-	op, needs := api.NeedsLowering(DeliverablePatch(merged))
+	scoped := scopeID != nil
+	op, needs := api.NeedsLowering(stripped)
+
+	type site struct {
+		path       string
+		base, next *ir.Node
+	}
+	verified := make([]site, 0, len(sites))
+	for _, p := range sites {
+		base, err := s.stateAt(commit-1, scopeID, p)
+		if err != nil {
+			var wb *WriteBudgetError
+			if errors.As(err, &wb) {
+				wb.Op = op
+				return nil, wb
+			}
+			return nil, fmt.Errorf("cannot read the state at %d to check the patch: %w", commit-1, err)
+		}
+		at, err := stripped.GetKPathWith(p, ir.WithComments(true))
+		if err != nil || at == nil {
+			continue // the write states nothing at this site after all
+		}
+		if base == nil {
+			// An empty path reads back as nil, and null is what the read path's own
+			// empty-base branch folds onto.
+			base = ir.Null()
+		}
+		next, err := api.NextState(base, at)
+		if err != nil {
+			return nil, &api.DoesNotApplyError{Commit: commit, Err: err}
+		}
+		verified = append(verified, site{path: p, base: base, next: next})
+	}
+
 	if !needs && (!s.lowerAll || scoped) {
-		// Nothing to do, and for a SCOPE that is not a shortcut: an absolute patch
-		// is already the claim a scope stores, so forcing it through claimDelta
-		// would replace "what the client said" with "the subtree it landed in",
-		// taking baseline's siblings into the scope's ownership. LowerEverything
-		// cannot ask for that, because there is nothing there to lower.
+		// Nothing to do, and for a SCOPE that is not a shortcut: an absolute patch is
+		// already the claim a scope stores, so forcing it through the claim would replace
+		// "what the client said" with "the subtree it landed in", taking baseline's
+		// siblings into the scope's ownership.
+		atomic.AddInt64(&loweringSkipped, 1)
+		return merged, nil
+	}
+	if scoped && len(verified) == 0 {
+		// Nothing names what is being claimed: an unattributable write must not
+		// silently claim the root.
 		atomic.AddInt64(&loweringSkipped, 1)
 		return merged, nil
 	}
 	atomic.AddInt64(&loweringFired, 1)
-	if base == nil {
-		// An empty document reads back as nil, and null is what the read path's own
-		// empty-base branch folds onto.
-		base = ir.Null()
-	}
-	if next == nil {
-		// The write removed everything, and a diff of two STATES cannot say that:
-		// the absent document is not the null one. Coercing next to null stored "the
-		// document is null" for a write that said "there is no document", so a root
-		// !delete read back as null where the same write kept as sent read back as
-		// nothing (xqpvk3ehh12ks89mj5n0).
-		delta := libdiff.MakeDiff(base.Clone(), nil)
+
+	// The delta, site by site, each marked where it is applied from and the pieces
+	// rooted together into one patch -- the same construction TagPatchRoots and
+	// MergePatches give a client's own multi-participant write.
+	pds := make([]*tx.PatcherData, 0, len(verified))
+	for _, v := range verified {
+		var delta *ir.Node
+		switch {
+		case scoped:
+			if v.next == nil {
+				// The write left nothing there, and "nothing" is as much a claim as a
+				// value: without it a later baseline write at that path shows through.
+				delta = ir.Null().WithTag(libdiff.DeleteTag)
+			} else {
+				delta = claimValue(v.next.Clone())
+			}
+		case v.next == nil:
+			// The write removed everything here, and a diff of two STATES cannot say
+			// that: the absent value is not the null one (xqpvk3ehh12ks89mj5n0).
+			delta = libdiff.MakeDiff(v.base.Clone(), nil)
+		default:
+			delta = storableDelta(v.base, v.next)
+		}
 		if delta == nil {
-			return nil, nil
+			continue // nothing changed at this site
 		}
+		// WHERE the marker goes is the selectivity of every narrow read: it says where
+		// the entry is applied FROM, and a marker at the site is what lets a read below
+		// another site skip this one (TagPatchRoots does the same for a client's roots).
 		markDeltaRoots(delta)
-		if err := api.ValidateForStorage(delta); err != nil {
-			return nil, fmt.Errorf("lowering %s left something unstorable: %w", op, err)
-		}
-		return delta, nil
+		pds = append(pds, &tx.PatcherData{API: &api.Patch{PathData: api.PathData{Path: v.path, Data: delta}}})
 	}
-	// What the log will keep: a scope's claim or baseline's difference. Whichever it
-	// is, it leaves by the same door below -- both are stored deltas and the rules
-	// that make a stored delta readable are not about which one it is.
-	var delta *ir.Node
-	switch {
-	case scoped && len(paths) == 0:
-		// Nothing names what is being claimed. Keeping the patch as sent is what the
-		// store did before lowering existed, and is right here for the same reason:
-		// an unattributable write must not silently claim the root.
-		atomic.AddInt64(&loweringSkipped, 1)
-		return merged, nil
-
-	case scoped:
-		// A scope claims; baseline differs. Only a RELATIVE write gets here for a
-		// scope -- an absolute one was kept as sent above, being a claim already.
-		// See claimDelta.
-		var err error
-		if delta, err = claimDelta(next, paths); err != nil {
-			return nil, err
-		}
-
-	default:
-		delta = storableDelta(base, next)
-	}
-	if delta == nil {
+	if len(pds) == 0 {
 		return nil, nil
 	}
-	// The streaming processor finds what to apply by walking for !logd-patch-root,
-	// so a delta without it contributes nothing once the base is a snapshot -- and
-	// contributes normally while the base is empty, which is how an untagged delta
-	// looks correct until the first snapshot exists.
-	//
-	// WHERE the marker goes is the selectivity of every narrow read: patches.
-	// BuildPatchIndex keys entries by the PATH of each marked node, so a marker at
-	// the delta's root makes the entry a patch on the whole document and every
-	// narrow read replays it. TagPatchRoots marks each participant's own path for
-	// exactly this reason; a diff has no participants, so the equivalent is the
-	// paths where the change actually lands.
-	markDeltaRoots(delta)
-	// Held to the vocabulary it was lowered into. Failing here is right: a delta
-	// the store cannot promise to re-apply is worse than a refused write, because
-	// the client can retry a refusal and cannot repair a stored fault.
-	if err := api.ValidateForStorage(delta); err != nil {
+	out, err := tx.MergePatches(pds)
+	if err != nil {
+		return nil, fmt.Errorf("lowering %s: %w", op, err)
+	}
+	// Held to the vocabulary it was lowered into. Failing here is right: a delta the
+	// store cannot promise to re-apply is worse than a refused write, because the
+	// client can retry a refusal and cannot repair a stored fault.
+	if err := api.ValidateForStorage(out); err != nil {
 		return nil, fmt.Errorf("lowering %s left something unstorable: %w", op, err)
 	}
-	return delta, nil
+	return out, nil
 }
 
 // markDeltaRoots marks the shallowest nodes that carry the change, rather than the
@@ -403,6 +397,53 @@ func ClaimPaths(path string, data *ir.Node) []string {
 		// container the write landed in rather than the leaf it named.
 		n = ir.Uncomment(n)
 		if n == nil {
+			return
+		}
+		if _, op, _, _, err := mergeop.SplitChild(n); err == nil && op != "" {
+			claim(at)
+			return
+		}
+		kids := index.PatchChildren(n, at)
+		if len(kids) == 0 {
+			claim(at)
+			return
+		}
+		for _, c := range kids {
+			walk(c.Node, c.Path)
+		}
+	}
+	walk(data, path)
+	return out
+}
+
+// LowerSites answers the paths a BASELINE write is verified and lowered at. They are
+// ClaimPaths' sites -- the node an operation is written on, or a leaf, or the array a
+// position reaches into -- with one difference: a node wearing a head comment is a site
+// itself, and the walk stops there.
+//
+// A scope's claim descends through the comment to the leaf on purpose, because claiming the
+// container would freeze it (ClaimPaths). Baseline stores a DIFFERENCE, and the comment is
+// something the write states at that node: a diff taken below it, at the leaf, sees the
+// leaf's change and never the comment above it, and the comment is lost from the log.
+// Taking the site at the commented node costs the read of that node, which is what a
+// write to it is.
+func LowerSites(path string, data *ir.Node) []string {
+	var out []string
+	seen := map[string]bool{}
+	claim := func(p string) {
+		p = aboveAnyIndex(p)
+		if !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	var walk func(n *ir.Node, at string)
+	walk = func(n *ir.Node, at string) {
+		if n == nil {
+			return
+		}
+		if n.Type == ir.CommentType {
+			claim(at)
 			return
 		}
 		if _, op, _, _, err := mergeop.SplitChild(n); err == nil && op != "" {

@@ -22,19 +22,14 @@ const slowCommit = 250 * time.Millisecond
 //
 // The phases are the ones a commit can actually be slow in:
 //
-//	state    getting the document the patch applies to -- the stepped head, or a
-//	         FULL READ when the head is not there to step (see head.go). A store
-//	         missing its head pays a whole read PER WRITE, which is the thing this
-//	         exists to make visible.
-//	apply    folding the patch onto it, which also verifies the write applies
+//	apply    verifying the write at each path it names -- a bounded read of the value
+//	         there and the fold of the write's node onto it -- and lowering it where
+//	         it needs lowering (lower.go)
 //	appendLog  appending the entry, including the fsync under DurabilitySync
 //	index    indexing the patch at every path inside it
 type writeStats struct {
 	commits   atomic.Int64
-	headHits  atomic.Int64
-	headMiss  atomic.Int64
 	slow      atomic.Int64
-	state     atomic.Int64
 	apply     atomic.Int64
 	appendLog atomic.Int64
 	index     atomic.Int64
@@ -43,26 +38,12 @@ type writeStats struct {
 
 // WriteStats is a snapshot of the counters, for a report.
 type WriteStats struct {
-	Commits  int64
-	HeadHits int64
-	HeadMiss int64
-	Slow     int64
-	State    time.Duration
-	Apply    time.Duration
-	Append   time.Duration
-	Index    time.Duration
-	Total    time.Duration
-}
-
-// noteHead records where the document a write applies to came from. A miss carries
-// what the read cost, because that read is on the write's own path.
-func (w *writeStats) noteHead(hit bool, took time.Duration) {
-	if hit {
-		w.headHits.Add(1)
-	} else {
-		w.headMiss.Add(1)
-	}
-	w.state.Add(int64(took))
+	Commits int64
+	Slow    int64
+	Apply   time.Duration
+	Append  time.Duration
+	Index   time.Duration
+	Total   time.Duration
 }
 
 // noteCommit records one commit's phases, and says so when it was slow or when
@@ -85,8 +66,7 @@ func (s *Storage) noteCommit(path string, apply, appendLog, index, total time.Du
 	if s.logger == nil {
 		return
 	}
-	// The state phase is per-commit only in the miss case, where it dominates; the
-	// hit case is a pointer copy. Report the remainder so the line adds up.
+	// Report the remainder so the line adds up.
 	s.logger.Warn("slow commit",
 		"path", path,
 		"took", total.Round(time.Millisecond),
@@ -94,7 +74,6 @@ func (s *Storage) noteCommit(path string, apply, appendLog, index, total time.Du
 		"append", appendLog.Round(time.Millisecond),
 		"index", index.Round(time.Millisecond),
 		"other", (total - apply - appendLog - index).Round(time.Millisecond),
-		"headMisses", w.headMiss.Load(),
 		"commits", w.commits.Load())
 }
 
@@ -121,28 +100,22 @@ func patchPathHint(patch *ir.Node) string {
 func (s *Storage) WriteStats() WriteStats {
 	w := &s.writeStats
 	return WriteStats{
-		Commits:  w.commits.Load(),
-		HeadHits: w.headHits.Load(),
-		HeadMiss: w.headMiss.Load(),
-		Slow:     w.slow.Load(),
-		State:    time.Duration(w.state.Load()),
-		Apply:    time.Duration(w.apply.Load()),
-		Append:   time.Duration(w.appendLog.Load()),
-		Index:    time.Duration(w.index.Load()),
-		Total:    time.Duration(w.total.Load()),
+		Commits: w.commits.Load(),
+		Slow:    w.slow.Load(),
+		Apply:   time.Duration(w.apply.Load()),
+		Append:  time.Duration(w.appendLog.Load()),
+		Index:   time.Duration(w.index.Load()),
+		Total:   time.Duration(w.total.Load()),
 	}
 }
 
 // Report renders the counters for an operator, in the terms the question is asked in:
-// how long a write takes, and which phase has it. writes.head.missed is the one to
-// read first -- a miss means that write did a full document read to find out what it
-// was patching.
+// how long a write takes, and which phase has it. writes.avg.apply is the verification
+// and lowering at the paths the write named; a write to one leaf pays for that leaf.
 func (w WriteStats) Report() map[string]any {
 	m := map[string]any{
-		"writes.commits":     w.Commits,
-		"writes.slow":        w.Slow,
-		"writes.head.hit":    w.HeadHits,
-		"writes.head.missed": w.HeadMiss,
+		"writes.commits": w.Commits,
+		"writes.slow":    w.Slow,
 	}
 	if w.Commits > 0 {
 		n := time.Duration(w.Commits)
@@ -150,9 +123,6 @@ func (w WriteStats) Report() map[string]any {
 		m["writes.avg.apply"] = (w.Apply / n).Round(time.Microsecond).String()
 		m["writes.avg.append"] = (w.Append / n).Round(time.Microsecond).String()
 		m["writes.avg.index"] = (w.Index / n).Round(time.Microsecond).String()
-	}
-	if w.HeadMiss > 0 {
-		m["writes.head.missed.avg"] = (w.State / time.Duration(w.HeadMiss)).Round(time.Microsecond).String()
 	}
 	return m
 }

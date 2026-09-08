@@ -127,12 +127,6 @@ func (s *Storage) SwitchDLog() error {
 		return fmt.Errorf("failed to create baseline snapshot: %w", err)
 	}
 
-	// The stepped head is a second way of computing the same state, so check it against
-	// a full read here — the one place a full read is already the order of the work
-	// being done. Any drift is then bounded by the snapshot interval instead of running
-	// until something downstream notices. See head.go.
-	s.CheckHead()
-
 	// Say what reads have been doing since the last snapshot. A store cannot be
 	// asked afterwards, and from outside a narrow read and a wide one differ only in
 	// how long they took -- which is exactly what is in doubt when a fix does not

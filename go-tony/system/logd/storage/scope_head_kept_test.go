@@ -86,7 +86,7 @@ func TestScopeKeptDocumentStaysCurrent(t *testing.T) {
 		}
 	})
 
-	t.Run("a deleted scope keeps no document", func(t *testing.T) {
+	t.Run("a deleted scope reads as baseline", func(t *testing.T) {
 		s := openWithSeed(t, `{k: base}`)
 		defer s.Close()
 
@@ -95,12 +95,6 @@ func TestScopeKeptDocumentStaysCurrent(t *testing.T) {
 		}
 		if err := s.DeleteScope(scope); err != nil {
 			t.Fatalf("DeleteScope: %v", err)
-		}
-		s.commitMu.Lock()
-		_, kept := s.scopeHeads[scope]
-		s.commitMu.Unlock()
-		if kept {
-			t.Error("a document is held for a scope which no longer has any data")
 		}
 		if got, want := readScope(t, s, &scope), "k: base"; got != want {
 			t.Errorf("after delete:\n got %s\nwant %s", got, want)

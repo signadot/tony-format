@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -15,42 +16,26 @@ type commitOps struct {
 	s *Storage
 }
 
-// ValueAt is the value at kp in the client's vocabulary, for the checks the write path
-// makes off the commit lock. A position on an unkeyed array is checked against the array,
-// which is a value and the intermediate the bound admits for it.
-func (c *commitOps) ValueAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
-	cur, err := c.s.Read(commit, scopeID, kp)
-	if err != nil {
-		return nil, err
-	}
-	node, err := collectAll(cur)
-	if err != nil {
-		return nil, err
-	}
-	return c.s.raiseState(scopeID, node, kp), nil
+// StateAt is the value at kp as of commit, in the view scopeID names, as the store holds
+// it: one bounded read at that path, under the write budget. It serves a precondition,
+// which has been lowered to the same form (tx.LowerMatches), and the checks the write path
+// makes on the array a positional write names. Nil is absent.
+func (c *commitOps) StateAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
+	return c.s.stateAt(commit, scopeID, kp)
 }
 
-// MatchStateAt serves a precondition read from the stepped head when it can.
-//
-// Baseline is served from the stepped head. A scope cannot be stepped the same way -- its
-// writes apply last and shadow baseline stickily, so folding a baseline patch into a
-// materialized scoped document lets baseline overwrite a leaf the scope owns (issue
-// 9b2vpggxh). What a scope can be served from is its OWN kept document, when that is
-// current at the commit being asked about; otherwise the ordinary read answers.
-//
-// doCommit holds commitMu across match evaluation, which is what makes reading the head
-// here safe — it is the same lock stepHead is written under.
-//
-// The answer is the state as the store holds it -- a keyed array as an object of names --
-// and the precondition it serves has been lowered to the same form (tx.LowerMatches), so
-// the two meet in one vocabulary and the head is neither copied nor raised.
-func (c *commitOps) MatchStateAt(kpath string, commit int64, scopeID *string) (*ir.Node, error) {
-	if scopeID != nil {
-		// See steppedScopedAt: the scope's own kept document when it is current, and a
-		// full read whenever it cannot be sure.
-		return c.s.steppedScopedAt(commit, scopeID)
+// stateAt reads the value at kp under the write budget, and says which write budget
+// refused it when one does.
+func (s *Storage) stateAt(commit int64, scopeID *string, kp string) (*ir.Node, error) {
+	cur, err := s.Read(commit, scopeID, kp)
+	if err != nil {
+		return nil, err
 	}
-	return c.s.steppedBaselineAt(commit)
+	node, err := Collect(cur, s.writeBudget)
+	if errors.Is(err, ErrBudget) {
+		return nil, &WriteBudgetError{Path: kp, Budget: s.writeBudget}
+	}
+	return node, err
 }
 
 func (c *commitOps) GetCurrentCommit() (int64, error) {
@@ -87,45 +72,42 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	commitStarted := time.Now()
 	var applyTook, appendTook, indexTook time.Duration
 
-	// Verify before storing. A delta the store cannot apply is not a write, it is a
-	// fault every later read replays, and nothing a client sends afterwards can
-	// repair it. This apply used to happen after the entry was written, in stepHead,
-	// where its only possible answer was to drop the head (7cdvym1fh12ksmd5g5n0).
-	//
-	// The result is kept: for baseline it IS the next head, so verifying costs the
-	// step that was going to happen anyway.
-	applyStarted := time.Now()
-	base, stepped, err := c.s.verifyApplies(commit, stripped, scopeID)
-	applyTook = time.Since(applyStarted)
-	if err != nil {
-		return "", 0, err
-	}
-
-	// What the log KEEPS may not be what the client sent. A patch carrying an
-	// operation whose meaning depends on what was there is applied and its RESULT
-	// diffed, and the diff is stored in its place -- so what a later read re-applies
-	// states what the value is rather than how it once related to something. Both
-	// sides of that diff are the two the verification above just produced, so this
-	// costs a diff and no read. See lower.go.
+	// Verify before storing, at each path the write names. A delta the store cannot
+	// apply is not a write, it is a fault every later read replays, and nothing a
+	// client sends afterwards can repair it (7cdvym1fh12ksmd5g5n0). What the log KEEPS
+	// may not be what the client sent: an operation whose meaning depends on what was
+	// there is applied and its RESULT diffed, at the path it was applied to, and the
+	// diff is stored in its place. Both are one pass over the write's sites, each a
+	// bounded read under the write budget; see lower.go.
 	//
 	// A patch built only from absolute operations -- which is nearly every write --
 	// comes back unchanged. A nil answer means the write changed nothing, which a
 	// diff can say and a patch cannot; the patch is kept so the commit still takes a
 	// number and still notifies.
 	stored := mergedPatch
-	// The paths the client named, which is what a scope claims. Baseline does not
-	// use them: it stores the difference, having nothing to own.
-	var writePaths []string
+	// Where the write is verified and lowered: a scope at what it claims, baseline at
+	// what it states -- the same sites, except that baseline stops at a commented node
+	// (LowerSites).
+	var sites []string
 	if txState != nil {
 		for _, pd := range txState.PatcherData {
-			if pd != nil && pd.API != nil {
-				writePaths = append(writePaths, ClaimPaths(pd.API.Path, pd.API.Data)...)
+			if pd == nil || pd.API == nil {
+				continue
+			}
+			if scopeID != nil {
+				sites = append(sites, ClaimPaths(pd.API.Path, pd.API.Data)...)
+			} else {
+				sites = append(sites, LowerSites(pd.API.Path, pd.API.Data)...)
 			}
 		}
 	}
-	if lowered, err := c.s.lowerWrite(base, stepped, mergedPatch, scopeID != nil, writePaths); err != nil {
+	applyStarted := time.Now()
+	lowered, err := c.s.lowerWrite(commit, stripped, mergedPatch, scopeID, sites)
+	applyTook = time.Since(applyStarted)
+	if err != nil {
 		return "", 0, err
-	} else if lowered != nil {
+	}
+	if lowered != nil {
 		stored = lowered
 	}
 
@@ -176,11 +158,6 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	// makes the watermark and the notification queue both ordered by commit. The fan-out
 	// itself happens later, on the tick's dispatcher goroutine, so a slow notifier still
 	// cannot serialize commits.
-	//
-	// Install the head this commit was verified against, before publishing, so it is
-	// current for the next precondition.
-	c.s.installHead(commit, stepped, scopeID)
-
 	c.s.tick.publish(commit, notification)
 
 	// What this commit spent its time on, for the report and for a line in the log

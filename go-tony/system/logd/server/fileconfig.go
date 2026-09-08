@@ -60,6 +60,12 @@ type StorageConfig struct {
 	// a match, a watch's initial state, the document a baseline watch steps. A read
 	// past it is refused rather than held. Zero means the default, 64 MiB.
 	ReadBudget int64 `tony:"field=readBudget"`
+
+	// WriteBudget is the largest node the store builds to verify or lower one write, or
+	// to evaluate one precondition, in bytes: the value at a path the write names. A
+	// write whose verification needs more is refused, naming the path and the size.
+	// Zero means the default, 128 MiB.
+	WriteBudget int64 `tony:"field=writeBudget"`
 }
 
 // ToStorageDurability maps the configured name to a storage.Durability. A nil

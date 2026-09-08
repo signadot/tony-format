@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/ident"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
@@ -157,6 +158,13 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 		// is healthy; storing it is what would have broken it.
 		var noApply *api.DoesNotApplyError
 		if errors.As(result.Error, &noApply) {
+			s.sendError(id, api.ErrCodeInvalidDiff, result.Error.Error())
+			return
+		}
+		// The write asks the store to hold more than its write budget to verify it.
+		// The store is healthy and the remedy is the client's: narrower, or absolute.
+		var tooLarge *storage.WriteBudgetError
+		if errors.As(result.Error, &tooLarge) {
 			s.sendError(id, api.ErrCodeInvalidDiff, result.Error.Error())
 			return
 		}

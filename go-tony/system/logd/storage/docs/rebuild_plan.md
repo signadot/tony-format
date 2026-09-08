@@ -365,6 +365,21 @@ one path one by one onto the collected subtree; Read therefore holds the writes 
 the snapshot as a list, each cut down to kp, which is the "what changed under kp" term the
 bound admits. A literal composition is a refinement, not a prerequisite.
 
+3b AS BUILT: the head is a number. head.go and scope_head.go are gone; a write is verified
+and lowered at each SITE it states something at -- the node an operation is written on, a
+leaf, or the array a position reaches into -- by one bounded read of the value there under
+the write budget (128 MiB, storage.writeBudget), the fold of the write's node onto it and,
+where lowering is needed, the diff there; the site deltas are marked where they land and
+rooted together by MergePatches, the construction a multi-participant write already has. A
+scope is lowered at what it claims (ClaimPaths, through a comment to the leaf); baseline at
+what it states (LowerSites, stopping at a commented node, since a diff taken below a comment
+never sees it). A precondition is StateAt(path): one bounded read of the value it names, in
+the store's form, against the lowered pattern. The refusal for a write past the budget names
+the path, the operation and the budget, and reaches the client as its own mistake. The
+marker now lands at the site rather than the container the whole-document diff descended
+to; TestLoweredMarkerLandsOnTheChange records the one row where a scope differs, because an
+absolute scope write is stored as sent under the client's marker.
+
 ## Phase 4 -- one delta shape, the rest
 
 READ: one_delta_shape.md; storage/tick.go (newCommitNotification 199, DeliverablePatch 181);
@@ -510,6 +525,14 @@ the answer (or silence for a day) is recorded in the commit that builds it.
      second knob with no second reason yet. Phase 3c.
 
   8. COMPACTION'S WORKING SET. See phase 7; a choice, made in the file.
+
+  9. A PATCH EXPLODER, someday. An operation's site is the node it is written on, and !all
+     over a container -- or a !replace of one -- asks for the whole container as the
+     intermediate a write needs, which is what the write budget refuses past 128 MiB.
+     The remedy the store could offer is to explode one such write into one write per
+     element, each within the budget, committed as one transaction: the natural
+     continuation of per-path lowering, and not an exception to it. Not built; noted at
+     WriteBudgetError, where the refusal is.
 
 ## The test corpus, as a ledger
 

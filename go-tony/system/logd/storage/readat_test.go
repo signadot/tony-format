@@ -2,12 +2,16 @@ package storage
 
 import (
 	"fmt"
+	"github.com/signadot/tony-format/go-tony/parse"
 	"io"
 	"slices"
+	"testing"
 
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
+	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 // The reads, as the behavioural tests call them.
@@ -126,4 +130,73 @@ func eachPatchInRange(s *Storage, kp string, from, to int64, scopeID *string, fn
 			return err
 		}
 	}
+}
+
+// applyStoredPatch folds one stored patch into a document, the way a watcher steps: the
+// patch-root markers off a copy first, then api.NextState, which is the fold the read
+// path performs.
+func applyStoredPatch(doc, patch *ir.Node) (*ir.Node, error) {
+	p := patch.DeepCopy()
+	tx.StripPatchRootTagRecursive(p)
+	if doc == nil {
+		doc = ir.Null()
+	}
+	next, err := api.NextState(doc, p)
+	if err != nil {
+		return nil, err
+	}
+	if next == nil {
+		return ir.Null(), nil
+	}
+	return next, nil
+}
+
+// writeDoc commits src at the root; writeDocScoped in a scope.
+func writeDoc(t *testing.T, s *Storage, src string) {
+	t.Helper()
+	writeDocScoped(t, s, src, nil)
+}
+
+func writeDocScoped(t *testing.T, s *Storage, src string, scope *string) {
+	t.Helper()
+	n, err := parse.Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("parse %q: %v", src, err)
+	}
+	txn, err := s.NewTx(1, scope)
+	if err != nil {
+		t.Fatalf("write %q: %v", src, err)
+	}
+	p, err := txn.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: n}})
+	if err != nil {
+		t.Fatalf("write %q: %v", src, err)
+	}
+	if res := p.Commit(); !res.Committed {
+		t.Fatalf("write %q: %v", src, res.Error)
+	}
+}
+
+// casWriteAt commits body at path with a precondition of match at matchPath, and answers
+// the commit's error, or errNotMatched when the precondition did not hold.
+func casWriteAt(t *testing.T, s *Storage, matchPath, match, path, body string) error {
+	t.Helper()
+	txn, err := s.NewTx(1, nil)
+	if err != nil {
+		return err
+	}
+	p, err := txn.NewPatcher(&api.Patch{
+		PathData: api.PathData{Path: path, Data: mustParseBody(t, body)},
+		Match:    &api.PathData{Path: matchPath, Data: mustParseBody(t, match)},
+	})
+	if err != nil {
+		return err
+	}
+	r := p.Commit()
+	if r.Committed {
+		return nil
+	}
+	if r.Error != nil {
+		return r.Error
+	}
+	return errNotMatched
 }

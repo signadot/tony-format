@@ -77,39 +77,37 @@ func markersAtCommit(t *testing.T, s *Storage, commit int64) []string {
 	return nil
 }
 
-// A delta is marked where the change lands, and an EMPTY container is a change like
-// any other: `{a: {}}` says a is now empty, which is a statement about a.
+// A lowered delta is marked at the SITE the write states something at: the node an
+// operation is written on, or the leaf it changes (lower.go). That is at or below where a
+// client's own patch is rooted, and a narrow read is the more selective for it --
+// patches.BuildPatchIndex keys an entry by the path of each marked node, and a marker at
+// the document root makes the entry a patch on the whole document.
 //
-// markDeltaRoots used to require the child to have fields before descending into it,
-// so an empty one stopped the descent a level early and the entry was marked at the
-// document root -- a patch on the whole document as far as patches.BuildPatchIndex is
-// concerned, which is what decides whether a narrow read may skip it.
-//
-// A delete of a path that does not exist yet produces exactly that shape: applying it
-// creates the spine and leaves an empty container behind.
-//
-// A SCOPE stores the claim rather than the difference, so that one case is marked a
-// level deeper -- there is a statement about a.b to mark, where baseline has only the
-// empty container the delete left. Where the two store the same thing they mark the
-// same place, which is the rest of the table.
+// Baseline and a scope mark the same place for the same LOWERED write: a delete of a
+// path that is not there yet is marked where the delete is written, whether it is stored
+// as the difference (nothing) or as the claim (the tombstone). An ordinary write is the
+// one row where they differ, and for a reason worth keeping: an absolute scope write is
+// already the claim a scope stores and goes into the log as sent, wearing the client's own
+// marker at the path it was rooted at, while baseline under LowerEverything is lowered and
+// marked at the leaf it changed.
 func TestLoweredMarkerLandsOnTheChange(t *testing.T) {
 	tests := []struct {
 		name, seed, path, src string
 		want                  string
-		scopeWant             string // when the claim differs from the difference
+		scopeWant             string // when a scope stores the write as sent
 	}{{
-		name:      "a delete of a path that is not there yet",
-		seed:      `{z: 0}`,
-		path:      "a.b",
-		src:       `!delete`,
-		want:      "a",
-		scopeWant: "a.b",
-	}, {
-		name: "an ordinary write, for contrast",
+		name: "a delete of a path that is not there yet",
 		seed: `{z: 0}`,
 		path: "a.b",
-		src:  `{k1: 4}`,
+		src:  `!delete`,
 		want: "a.b",
+	}, {
+		name:      "an ordinary write, for contrast",
+		seed:      `{z: 0}`,
+		path:      "a.b",
+		src:       `{k1: 4}`,
+		want:      "a.b.k1",
+		scopeWant: "a.b",
 	}, {
 		name: "a delete of a path that IS there",
 		seed: `{a: {b: {k1: 1}}, z: 0}`,

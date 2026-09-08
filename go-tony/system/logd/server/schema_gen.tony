@@ -23,6 +23,7 @@ context:
 define:
   durability: .[string]
   readBudget: .[int]
+  writeBudget: .[int]
 signature:
   name: storage-config
 ---

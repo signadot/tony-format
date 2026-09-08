@@ -122,12 +122,11 @@ func TestLoweringMatrix(t *testing.T) {
 
 	for _, row := range rows {
 		t.Run(row.name, func(t *testing.T) {
-			dropped, diverged := 0, 0
+			diverged := 0
 			for seed := 1; seed <= seedCount(); seed++ {
 				rng := rand.New(rand.NewSource(int64(seed)))
 				ops := genOps(rng, 40)
 				s := row.open(t)
-				seedHead(t, s)
 				for i, o := range ops {
 					c, err := row.apply(t, s, o)
 					if err != nil {
@@ -137,27 +136,33 @@ func TestLoweringMatrix(t *testing.T) {
 						if err := s.SwitchDLog(); err != nil {
 							t.Fatalf("seed %d op %d: SwitchDLog: %v", seed, i, err)
 						}
-						if _, hc := headOf(s); hc != c {
-							dropped++
-							break
-						}
 					}
-					head, hc := headOf(s)
-					if hc != c {
-						break
+					// Two computations of the state at c have to agree: the read, and a
+					// watcher's fold of the stored delta onto the state before it.
+					prev, err := readStateAt(s, "", c-1, nil)
+					if err != nil {
+						t.Fatalf("seed %d op %d: read at %d: %v", seed, i, c-1, err)
 					}
-					replay, rerr := s.replayBaselineAt(c)
+					ns, err := readPatchesInRange(s, "", c, c, nil)
+					if err != nil || len(ns) != 1 {
+						t.Fatalf("seed %d op %d: delta: %v %v", seed, i, ns, err)
+					}
+					stepped, err := applyStoredPatch(prev, ns[0].Patch)
+					if err != nil {
+						t.Fatalf("seed %d op %d: fold: %v", seed, i, err)
+					}
+					replay, rerr := readStateAt(s, "", c, nil)
 					if rerr != nil {
 						t.Fatalf("seed %d op %d: replay: %v", seed, i, rerr)
 					}
-					if nodeText(head) != nodeText(replay) {
+					if nodeText(stepped) != nodeText(replay) {
 						diverged++
 						break
 					}
 				}
 			}
-			t.Logf("MATRIX %-7s seeds=%d dropped-at-snapshot=%d head-vs-replay=%d",
-				row.name, seedCount(), dropped, diverged)
+			t.Logf("MATRIX %-7s seeds=%d fold-vs-read=%d",
+				row.name, seedCount(), diverged)
 		})
 	}
 }

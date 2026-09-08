@@ -147,3 +147,24 @@ readat_test.go with four assertions restated:
     FOUND      the patch-root marker made the root non-spine on every commit, so a read at
                any path collected every entry through the root's copy; passesThrough now
                looks through logd's own marker
+
+## Phase 3b, as it happened
+
+The write side: the head removed, per-site verification and lowering, preconditions as
+bounded reads, the 128 MiB write budget.
+
+    DROPPED    head, scope_head (the mechanism); tx/match_test (valueAtPath: a precondition
+               reads the value at its path now, and TestPreconditionOnAKeyedElement reads a
+               quoted segment); TestAClaimRefusesWhatItCannotRead (claimDelta navigated a
+               whole next; the site's next is in hand)
+    REWRITTEN  lower_comment, lower_matrix: "the head and a replay agree" became "a
+               watcher's fold of the delta and the read agree", comments counted;
+               scope_head_kept: the mechanism assertion off, the behaviour kept;
+               patch_root_marker: the marker lands at the site, and the one row where a
+               scope stores as sent is recorded
+    ADDED      write_budget_test (a wide operation refused, the narrow one and the plain
+               merge admitted, a precondition as a bounded read, a write reads only what it
+               writes)
+    FOUND      a write with a head comment on a container is a statement at that container:
+               ClaimPaths walks through the comment to the leaf (right for a claim), and a
+               baseline diff taken at the leaf lost the comment. LowerSites stops there.

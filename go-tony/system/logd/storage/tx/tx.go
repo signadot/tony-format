@@ -78,18 +78,13 @@ type Store interface {
 
 // CommitOps provides the operations needed to commit a transaction.
 type CommitOps interface {
-	// ValueAt reads the value at kp as of commit, in the view scopeID names, in the
-	// client's vocabulary. It is a bounded read at that path.
-	ValueAt(kp string, commit int64, scopeID *string) (*ir.Node, error)
-
-	// MatchStateAt reads the state a CAS precondition is evaluated against. Same
-	// answer as ReadStateAt, but the baseline case may serve it from a kept document
-	// rather than rebuilding one per conditional write (issue x2bn8w56h).
+	// StateAt reads the value at kp as of commit, in the view scopeID names, as the
+	// store holds it: one bounded read at that path, under the store's write budget.
+	// It serves a precondition, which has been lowered to the same form, and the
+	// checks the write path makes on an array a positional write names. Nil is absent.
 	//
-	// The result is READ-ONLY: it may be the live head, whose subtrees are shared with
-	// earlier heads and with watcher documents. Navigate it and match it; do not
-	// mutate it, and do not keep it past the commit lock.
-	MatchStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error)
+	// The result is READ-ONLY: navigate it and match it; do not mutate it.
+	StateAt(kp string, commit int64, scopeID *string) (*ir.Node, error)
 
 	// GetCurrentCommit returns the current commit number.
 	GetCurrentCommit() (int64, error)
