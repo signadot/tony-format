@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/signadot/tony-format/go-tony/gomap"
+	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 )
 
@@ -25,6 +26,10 @@ func LoadConfig(path string) (*Config, error) {
 	node, err := parse.Parse(data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+	// A file with no document in it configures nothing; see logd's LoadConfig.
+	if node == nil {
+		node = ir.FromMap(map[string]*ir.Node{})
 	}
 
 	cfg := &Config{}

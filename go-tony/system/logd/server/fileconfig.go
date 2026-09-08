@@ -236,6 +236,18 @@ func LoadConfig(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
+	// A file with no DOCUMENT in it -- empty, or nothing but comments and blank lines --
+	// configures nothing, which is what an operator who has commented every setting out
+	// means by it. It is the same answer as passing no config file at all: the defaults.
+	// It is read as an empty document rather than returned early so that it takes the one
+	// path every other config takes, defaults and validation included.
+	//
+	// Parsing such a file answers a nil node, and everything downstream of here assumes a
+	// document: expansion clones it, which dereferenced the nil and took `o sys up` down
+	// with a segfault rather than a message an operator could act on.
+	if node == nil {
+		node = ir.FromMap(map[string]*ir.Node{})
+	}
 
 	// Change to the config file's directory for relative path resolution
 	origDir, _ := os.Getwd()
