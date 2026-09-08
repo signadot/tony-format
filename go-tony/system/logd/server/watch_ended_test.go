@@ -36,7 +36,7 @@ func TestFailWatch_EndsWithTerminalEventNotErrorResponse(t *testing.T) {
 	const resumeCommit = int64(42)
 	session.failWatch(watcher, api.ErrCodeSlowConsumer, "consumer did not keep up", resumeCommit)
 
-	resp := <-session.outgoing
+	resp := (<-session.outgoing).resp
 
 	if resp.Error != nil {
 		t.Fatalf("failWatch sent an error response (%s), which a client cannot route to a watch", resp.Error.Code)

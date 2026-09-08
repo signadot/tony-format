@@ -107,3 +107,14 @@ index can prove it.
   - Whether the wire spells presence as a field on the state event or a distinct event kind.
   - Whether a client ever needs "not determined" as an answer rather than an error. Nothing
     needs it today and prerequisite 1 removes the case that produced it.
+
+## As built
+
+The wire spells presence as a FIELD: `WatchEvent.Absent`, omitted when false, meaning the
+path holds nothing after this event -- on a state event, that there is nothing to start from
+(a watch that asked to wait); on a patch event, that the delta removed it. A null in State or
+Patch is a null the path holds. A match says absence as it always did, by the not_found
+error with its three kinds, and gets no second way to say the same thing. `watchAbsence`
+stays as the story in the log; nothing reads the log to learn a state. A client folds a
+delta onto what it holds -- onto a null when it holds nothing -- and holds nothing again
+when the event says so (libctl's package doc is the client's side). Protocol 2.

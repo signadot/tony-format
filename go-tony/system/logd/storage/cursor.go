@@ -10,8 +10,8 @@ import (
 
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
-	"github.com/signadot/tony-format/go-tony/mergeop"
 	"github.com/signadot/tony-format/go-tony/stream"
+	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/patches"
@@ -224,62 +224,14 @@ func (s *Storage) readThroughAncestor(at int64, scopeID *string, kp string, dept
 	return &sliceCursor{events: events}, nil
 }
 
-// projectAt answers what patch writes at or below kp, re-rooted at kp; nil when it says
-// nothing about kp. ok is false when the patch cannot be seen from kp -- an operator above
-// it, or a value kp descends into that is not a container the next segment can step into
-// -- and depth is then how many of kp's segments were descended before the block, which
-// is the ancestor a read has to be taken at instead.
+// projectAt is api.ProjectDelta: the one rooting rule, applied here to a stored entry and
+// the path a read is at.
 func projectAt(patch *ir.Node, kp string) (at *ir.Node, depth int, ok bool) {
-	if patch == nil {
-		return nil, 0, true
-	}
-	segs := kpath.SplitAll(kp)
-	n := patch
-	for depth = range segs {
-		n = ir.Uncomment(n)
-		if n == nil {
-			return nil, depth, true
-		}
-		if hasOperator(n.Tag) {
-			return nil, depth, false
-		}
-		if n.Type != ir.ObjectType {
-			// A scalar or a list where kp descends: the write replaces the node kp is
-			// inside, which is a statement about the ancestor and not about kp.
-			return nil, depth, false
-		}
-		name, isField := kpath.SegmentFieldName(segs[depth])
-		if !isField {
-			return nil, depth, false // an index: the array is the unit
-		}
-		next := ir.Get(n, name)
-		if next == nil {
-			return nil, depth, true // the patch does not reach kp
-		}
-		n = next
-	}
-	return n, len(segs), true
+	return api.ProjectDelta(patch, kp)
 }
 
-// hasOperator reports whether a tag names a merge operation, which is what makes a node's
-// subtree unable to speak for it. Presentation and data tags are not operations: they
-// travel with the value and say nothing about how it merges.
-func hasOperator(tag string) bool {
-	for t := tag; t != ""; {
-		head, _, rest := ir.TagArgs(t)
-		if head == "" {
-			return false
-		}
-		if mergeop.Lookup(head[1:]) != nil {
-			return true
-		}
-		if rest == t {
-			return false
-		}
-		t = rest
-	}
-	return false
-}
+// hasOperator is api.HasOperator.
+func hasOperator(tag string) bool { return api.HasOperator(tag) }
 
 func joinSegments(segs []string) string {
 	if len(segs) == 0 {

@@ -862,8 +862,8 @@ func TestDocd_ComposeAncestorWatch(t *testing.T) {
 		t.Errorf("composed init a.b.v: got %v, want 7", v)
 	}
 
-	// 2. A base delta (logd) streams through, re-stamped to Path "a", patch
-	// root-rooted.
+	// 2. A base delta (logd) streams through, re-stamped to Path "a" and rooted at
+	// it, as the state was.
 	if _, err := client.Patch(ctx, "a.x", vObj(2)); err != nil {
 		t.Fatalf("base delta: %v", err)
 	}
@@ -871,21 +871,21 @@ func TestDocd_ComposeAncestorWatch(t *testing.T) {
 	if ev.Path != "a" {
 		t.Errorf("base delta path: got %q, want a", ev.Path)
 	}
-	if v, _ := ev.Patch.GetPath("$.a.x.v"); v == nil || v.Int64 == nil || *v.Int64 != 2 {
-		t.Errorf("base delta a.x.v: got %v, want 2 (root-rooted)", v)
+	if v, _ := ev.Patch.GetPath("$.x.v"); v == nil || v.Int64 == nil || *v.Int64 != 2 {
+		t.Errorf("base delta x.v: got %v, want 2 (rooted at a)", v)
 	}
 
-	// 3. A mount delta (controller) streams through the same composed watch.
+	// 3. A mount delta (controller) streams through the same composed watch: the
+	// controller says it rooted at its mount, and it arrives rooted at the composed
+	// path.
 	waitSubs(t, ctrl, 1)
-	ctrl.broadcast(&api.WatchEvent{Commit: 5, Path: "a.b", Patch: ir.FromMap(map[string]*ir.Node{
-		"a": ir.FromMap(map[string]*ir.Node{"b": vObj(9)}),
-	})})
+	ctrl.broadcast(&api.WatchEvent{Commit: 5, Path: "a.b", Patch: vObj(9)})
 	ev = expectEvent(t, w)
 	if ev.Path != "a" {
 		t.Errorf("mount delta path: got %q, want a", ev.Path)
 	}
-	if v, _ := ev.Patch.GetPath("$.a.b.v"); v == nil || v.Int64 == nil || *v.Int64 != 9 {
-		t.Errorf("mount delta a.b.v: got %v, want 9 (root-rooted)", v)
+	if v, _ := ev.Patch.GetPath("$.b.v"); v == nil || v.Int64 == nil || *v.Int64 != 9 {
+		t.Errorf("mount delta b.v: got %v, want 9 (rooted at a)", v)
 	}
 }
 

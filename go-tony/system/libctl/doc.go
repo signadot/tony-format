@@ -38,4 +38,17 @@
 // substring match against the old spelling silently stopped matching, turning
 // absent reads back into hard failures. The code was stable across that change.
 // Nothing downstream could reach it.
+//
+// # What a watch delivers
+//
+// A watch on a path is a stream about THAT PATH, and every event is rooted there
+// (session protocol 2, api.ProtocolVersion). The first event carries State, the value
+// at the path; each later one carries Patch, a delta of that value, which a client
+// applies to what it holds with api.NextState -- the same fold the server uses, so
+// comments count the same on both sides -- and lands where a fresh read of the path
+// lands. Absent on an event says the path holds nothing after it: a watch that asked
+// to wait starts from nothing, and a delta that removed the path is still delivered,
+// with Absent said. A null in State or Patch is a null the path holds, never absence.
+// A client that held document-rooted patches for a path it did not watch at the root
+// has nothing to extract any more; what arrives is what to apply.
 package libctl

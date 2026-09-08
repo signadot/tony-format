@@ -11,7 +11,6 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/ident"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 // Watching: establishing a watch, and the goroutine that serves it.
@@ -212,33 +211,27 @@ type watchStream struct {
 	// It advances in ONE place: accountFor. That is the whole reason this type exists.
 	delivered int64
 
-	// prev is the watched path's own subtree at the last delivered commit. A scoped
-	// watcher emits deltas by recompute-and-diff against it (it must reproduce the scoped
-	// read at each commit; a raw committed delta does not, because scope writes shadow
-	// baseline and !key merges are identity-based). A BASELINE watcher uses it as a change
-	// GATE: a coarse wake plus the superset read can wake a watcher for a commit that only
-	// touched a sibling under a shared ancestor, so before forwarding the raw committed
-	// delta (which baseline keeps for op fidelity) it confirms this subtree changed. See
-	// issue eagjggjdh12ksg00bsn0.
+	// prev is the watched path's own value at the last delivered commit, nil where the
+	// path holds nothing, and it is all a watch holds: the client's own copy, which is
+	// what every delta is a delta of (one_delta_shape.md, one rooting).
 	//
-	// cur is the whole document at that same commit, kept by a BASELINE watcher and
-	// STEPPED: cur = Patch(cur, committedPatch), then trimmed for prev. That is the read
-	// path's own fold, just not restarted from a snapshot every time. It replaces a full
-	// ReadStateAt per event per watcher, which was O(patches since the last snapshot):
-	// 1.6ms at 50 commits, 62ms at 1550.
+	// A BASELINE watcher steps it by the stored delta PROJECTED at the path
+	// (storage.ProjectDelta): what the entry says at or below the path, re-rooted there,
+	// which is also what the client is sent. A projection that says nothing is a commit
+	// that did not reach the path, and costs nothing; one that is blocked -- an operator
+	// above the path states the whole value there -- is answered by a read at the path,
+	// which narrows, and the delta sent is the diff. Either way prev is the change GATE: a
+	// write that restates a value is not a change, and is not delivered
+	// (eagjggjdh12ksg00bsn0). No whole document is held for a watch, at any width.
 	//
-	// A SCOPED watcher cannot step that way: its view is baseline with the scope's writes
-	// applied LAST, so they shadow baseline stickily, and folding a baseline patch into a
-	// materialized scoped document would let a baseline write overwrite a leaf the scope
-	// owns (9b2vpggxh12ks0qde5n0). So it keeps no cur, and RE-READS its view per event.
-	//
-	// Which is affordable because that re-read is a read AT THE WATCHED PATH and scoped
-	// reads narrow: it costs the patches bearing on that path rather than the scope's
-	// history. Measured on a watcher whose path is quiet while its scope is busy, 41us
-	// against a wide read's 1.06ms at 50 accumulated writes, and 58us against 6.78ms at
-	// 400 -- flat where the wide read is linear.
-	prev, cur *ir.Node
-	seeded    bool
+	// A SCOPED watcher cannot step: its view is baseline with the scope's writes applied
+	// LAST, so they shadow baseline stickily, and folding a baseline delta into the
+	// scope's value would let baseline overwrite a leaf the scope owns
+	// (9b2vpggxh12ks0qde5n0). It RE-READS its view at the path per event that can reach
+	// it, and sends the diff. That read narrows: it costs the entries bearing on the path
+	// since its snapshot, not the scope's history.
+	prev   *ir.Node
+	seeded bool
 }
 
 // forwardEvents serves one watch until the session ends, the client falls behind, or the
@@ -306,7 +299,7 @@ func (w *watchStream) fail(code, format string, args ...any) {
 // sendInitialState sends the state at the path as of commit, which is what every delta
 // after it applies to. It answers false when the watch has been failed.
 func (w *watchStream) sendInitialState(commit int64) bool {
-	state := ir.Null() // an empty store has no state to read
+	var state *ir.Node // an empty store holds nothing, at any path
 	if commit != 0 {
 		var err error
 		state, err = w.s.readValueAt(w.path, commit)
@@ -331,9 +324,9 @@ func (w *watchStream) sendInitialState(commit int64) bool {
 				w.fail(api.ErrCodeReplayFailed, "failed to read state at commit %d: %v", commit, err)
 				return false
 			}
-			// The wire cannot say absent yet; it says null, and the log keeps the truth
-			// beside it (watchAbsence, api/state.go).
-			state = ir.Null()
+			// The wire says absent (WatchEvent.Absent), and the log keeps the story
+			// beside it (watchAbsence).
+			state = nil
 			w.absent.arm()
 		}
 	}
@@ -342,67 +335,66 @@ func (w *watchStream) sendInitialState(commit int64) bool {
 	return true
 }
 
-// seedAt establishes the documents deltas are taken against, at commit. It answers false
-// when the watch has been failed.
-//
-// forLive says the stream goes straight from here to live events, which is what decides
-// whether a scoped stepper is seeded: a stepper FOLDS each committed delta, so it is only
-// correct if every commit after its position is folded into it. A replay does not fold --
-// it recomputes the scoped view per commit -- so a stepper seeded before a replay would sit
-// at the commit the replay started from while the view moved on without it, and the first
-// live event would fold onto a document that is commits behind. A replay therefore seeds no
-// stepper and the live events after it recompute, which is what they did before.
+// seedAt establishes the value deltas are taken against, at commit: one read at the
+// watched path, in the session's view, nil where it holds nothing. It answers false when
+// the watch has been failed.
 //
 // A replay seeds at the commit it starts from. A live watch seeds LAZILY, at
 // (firstEvent.commit - 1) rather than at the commit it started at, because a write can race
 // into [hub-register, GetCurrentCommit] and be queued with a commit at or below it; seeding
-// at the start would fold that write into the baseline and drop its delta (the scoped-watch
-// drop-one-event regression). Lazy seeding makes every queued or live event a correct
-// forward diff.
-func (w *watchStream) seedAt(commit int64, forLive bool) bool {
-	var err error
-	if w.scoped {
-		w.prev, err = w.s.scopedDocAt(w.path, commit)
-		if err != nil {
-			w.s.log.Error("failed to read scoped watch base", "path", w.path, "commit", commit, "error", err)
-			w.fail(api.ErrCodeReplayFailed, "failed to read scoped state at commit %d: %v", commit, err)
-			return false
-		}
-		w.seeded = true
-		return true
-	}
-	w.cur, err = w.s.fullDocAt(commit)
+// at the start would fold that write into the base and drop its delta. Lazy seeding makes
+// every queued or live event a correct forward step.
+func (w *watchStream) seedAt(commit int64) bool {
+	prev, err := w.s.scopedDocAt(w.path, commit)
 	if err != nil {
 		w.s.log.Error("failed to read watch base", "path", w.path, "commit", commit, "error", err)
 		w.fail(api.ErrCodeReplayFailed, "failed to read state at commit %d: %v", commit, err)
 		return false
 	}
-	w.prev = subtreeOf(w.cur, w.path)
+	w.prev = prev
 	w.seeded = true
 	return true
 }
 
-// stepBaseline advances a baseline watch by one commit's delta and sends it if this
-// watcher's own subtree changed. patch is the raw committed delta, which baseline forwards
-// verbatim to preserve op fidelity (!key and friends). It answers false when the watch has
-// been failed.
+// stepBaseline advances a baseline watch by one commit's stored delta and sends what it
+// says at the watched path, if that changed anything there. It answers false when the
+// watch has been failed.
 //
-// share says the patch is the hub's shared copy, which several watchers hold at once:
-// encoding mutates a node's parent linkage (ir.FromMap), so two session writers serializing
-// the same node race, and this watcher is handed its own copy. A replayed patch is read
-// from the log for this watcher alone and needs none.
+// shared says the delta is the hub's copy, which several watchers hold at once: encoding
+// mutates a node's parent linkage (ir.FromMap), so what is sent is this watcher's own copy.
+// A replayed delta is read from the log for this watcher alone and needs none.
 func (w *watchStream) stepBaseline(commit int64, patch *ir.Node, shared bool) bool {
-	// Step the document by this commit's delta instead of rebuilding it from the last
-	// snapshot. A committed patch is already a private copy the tick owns, so it
-	// applies as-is and is not mutated by Patch.
-	stepped, err := api.NextState(w.cur, patch)
-	if err != nil {
-		w.s.log.Error("failed to apply patch for watch", "path", w.path, "commit", commit, "error", err)
-		w.fail(api.ErrCodeReplayFailed, "failed to apply patch at commit %d: %v", commit, err)
-		return false
+	at, _, ok := api.ProjectDelta(patch, w.path)
+	if ok && at == nil {
+		// The entry does not reach the path. Correct through this commit, nothing to say.
+		w.accountFor(commit)
+		return true
 	}
-	w.cur = stepped
-	next := subtreeOf(w.cur, w.path)
+	var next, delta *ir.Node
+	if ok {
+		delta = at
+		if shared {
+			delta = at.DeepCopy()
+		}
+		var err error
+		next, err = applyAt(w.prev, delta)
+		if err != nil {
+			w.s.log.Error("failed to apply delta for watch", "path", w.path, "commit", commit, "error", err)
+			w.fail(api.ErrCodeReplayFailed, "failed to apply delta at commit %d: %v", commit, err)
+			return false
+		}
+	} else {
+		// An operator above the path states the whole value there, and what that leaves
+		// at the path is what a read at the path says.
+		var err error
+		next, err = w.s.scopedDocAt(w.path, commit)
+		if err != nil {
+			w.s.log.Error("failed to read state for watch", "path", w.path, "commit", commit, "error", err)
+			w.fail(api.ErrCodeReplayFailed, "failed to read state at commit %d: %v", commit, err)
+			return false
+		}
+		delta = deltaAt(w.prev, next)
+	}
 	w.accountFor(commit)
 	// api.SameState decides what counts as a change; see it for comments.
 	if api.SameState(next, w.prev) {
@@ -410,11 +402,40 @@ func (w *watchStream) stepBaseline(commit int64, patch *ir.Node, shared bool) bo
 	}
 	w.prev = next
 	w.absent.observe(w.prev)
-	if shared {
-		patch = patch.DeepCopy()
-	}
-	w.s.send(api.NewPatchEvent(w.watcher.ID, commit, w.path, patch))
+	w.s.send(patchEvent(w.watcher.ID, commit, w.path, delta, next == nil))
 	return true
+}
+
+// applyAt folds a delta rooted at the path into the value there: a client's own step.
+// A base that holds nothing is a null to fold onto, and a delta that deletes the path
+// leaves nothing, which is not the null it would fold to (api/state.go).
+func applyAt(prev, delta *ir.Node) (*ir.Node, error) {
+	if n := ir.Uncomment(delta); n != nil && ir.TagHas(n.Tag, libdiff.DeleteTag) {
+		return nil, nil
+	}
+	base := prev
+	if base == nil {
+		base = ir.Null()
+	}
+	return api.NextState(base, delta)
+}
+
+// deltaAt is the delta from prev to next, both the value at the watched path, rooted
+// there. Absence is a side of the diff and is stated as what it is: a value arriving where
+// there was none is an insert, a value leaving is a delete, and neither is a null, which is
+// a value (api/state.go).
+func deltaAt(prev, next *ir.Node) *ir.Node {
+	if prev == nil || next == nil {
+		return libdiff.MakeDiff(prev, next)
+	}
+	return tony.DiffWith(prev, next, tony.DiffComments(true))
+}
+
+// patchEvent is a delta event at path, saying absent when the path holds nothing after it.
+func patchEvent(id *string, commit int64, path string, delta *ir.Node, absent bool) *api.SessionResponse {
+	ev := api.NewPatchEvent(id, commit, path, delta)
+	ev.Event.Absent = absent
+	return ev
 }
 
 // emitScoped advances a scoped watch by one commit and sends what changed under the path.
@@ -449,7 +470,7 @@ var errWatchEnded = errors.New("watch ended")
 // the watch was established at, then says the replay is complete. It answers false when the
 // watch has been failed.
 func (w *watchStream) replay(from, to int64) bool {
-	if !w.seedAt(from, false) {
+	if !w.seedAt(from) {
 		return false
 	}
 	if from < to {
@@ -516,17 +537,16 @@ func (w *watchStream) live() {
 			if notification.Commit <= w.replayedThrough {
 				continue
 			}
-			// Cheap pre-filter: the coarse wake fires this watcher for every write under
-			// a shared top-level subtree, and recomputing full state per event collapses
-			// under many watches. If the committed delta clearly cannot reach this
-			// watcher's subtree (a plain merge that misses the path), skip the recompute.
-			// Conservative: any op tag or a non-navigable ancestor falls through to the
-			// authoritative recompute. The watch is still correct through the commit.
-			if !patchMayAffect(notification.Patch, w.path) {
+			// The coarse wake fires this watcher for every write under a shared top-level
+			// subtree. The projection says cheaply whether the entry reaches this path at
+			// all -- a plain merge that misses it says nothing about it -- and a scoped
+			// watcher, which re-reads per event, is spared the read exactly then. The
+			// watch is still correct through the commit.
+			if at, _, ok := api.ProjectDelta(notification.Patch, w.path); ok && at == nil {
 				w.accountFor(notification.Commit)
 				continue
 			}
-			if !w.seeded && !w.seedAt(notification.Commit-1, true) {
+			if !w.seeded && !w.seedAt(notification.Commit-1) {
 				return
 			}
 			ok = false
@@ -566,17 +586,9 @@ func (s *Session) emitScopedDeltaFrom(id *string, path string, commit int64, pre
 	// Absence is a side of the diff too, and it is stated as what it is: a value arriving
 	// where there was none is an insert, a value leaving is a delete. Neither is a null,
 	// which is a value (api/state.go). Both absent is the equality's case, above.
-	var delta *ir.Node
-	if prev == nil || newDoc == nil {
-		delta = libdiff.MakeDiff(prev, newDoc)
-	} else {
-		delta = tony.DiffWith(prev, newDoc, tony.DiffComments(true))
-	}
-	rooted, err := tx.RootPatchAt(path, delta)
-	if err != nil {
-		return prev, err
-	}
-	s.send(api.NewPatchEvent(id, commit, path, rooted))
+	// Rooted at the path, as the state event was and as a baseline delta is: one
+	// rooting, and a client applies what arrives to what it holds.
+	s.send(patchEvent(id, commit, path, deltaAt(prev, newDoc), newDoc == nil))
 	return newDoc, nil
 }
 

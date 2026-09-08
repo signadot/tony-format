@@ -53,6 +53,21 @@ func TestHandshakeRefusesAProtocolItDoesNotSpeak(t *testing.T) {
 			t.Errorf("a client predating the version field was refused: %s", resp.Error)
 		}
 	})
+
+	// Protocol 2 is presence on the wire, one rooting for a watch's events, and a match
+	// body encoded from the stream (api.ProtocolVersion). A client at 1 would apply a
+	// delta rooted at the watched path as though it were rooted at the document, and
+	// read a null where the event says absent -- answered, wrongly, which is what the
+	// handshake exists to refuse.
+	t.Run("the version is 2, and 1 is refused", func(t *testing.T) {
+		if api.ProtocolVersion != 2 {
+			t.Fatalf("ProtocolVersion = %d, want 2", api.ProtocolVersion)
+		}
+		resp := narrowRequest(t, store, `{id: "h", hello: {clientId: behind, protocol: 1}}`)
+		if resp.Error == nil || resp.Error.Code != api.ErrCodeProtocolMismatch {
+			t.Fatalf("a client speaking protocol 1 was not refused: %+v", resp)
+		}
+	})
 }
 
 func itoa(n int) string {

@@ -84,7 +84,8 @@ func TestScopedDeltaStatesAbsence(t *testing.T) {
 			}()
 			var sent *api.SessionResponse
 			select {
-			case sent = <-session.outgoing:
+			case out := <-session.outgoing:
+				sent = out.resp
 				if err := <-done; err != nil {
 					t.Fatalf("emit: %s", err)
 				}
@@ -102,12 +103,13 @@ func TestScopedDeltaStatesAbsence(t *testing.T) {
 			if sent == nil || sent.Event == nil || sent.Event.Patch == nil {
 				t.Fatalf("want one patch event, got %+v", sent)
 			}
-			leaf, err := sent.Event.Patch.GetKPath("verse.x")
-			if err != nil {
-				t.Fatalf("the delta is not rooted at the path: %s", err)
-			}
-			if leaf == nil || leaf.Tag != tc.wantTag {
+			// Rooted at the watched path: the delta IS the statement about verse.x.
+			leaf := sent.Event.Patch
+			if leaf.Tag != tc.wantTag {
 				t.Errorf("delta at verse.x is %v, want a %s", leaf, tc.wantTag)
+			}
+			if sent.Event.Absent != (tc.next == nil) {
+				t.Errorf("Absent = %v after a delta leaving %v", sent.Event.Absent, tc.next)
 			}
 		})
 	}

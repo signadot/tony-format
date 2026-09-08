@@ -449,6 +449,25 @@ DONE WHEN: verse staging runs protocol 2 and the forensics bar is measured on it
 of one field under a hot path, the one-issue watch under load, and the root read, all with no
 GOMEMLIMIT set.
 
+5 AS BUILT, the go-tony side; verse's files are the other half and are Scott's. Protocol 2.
+PRESENCE ON THE WIRE (decision 4): a field, `WatchEvent.Absent`, on the watch event only --
+a match already says absence by the not_found error with its three kinds, and a second way
+to say it on the same result would give the client two answers to one question. ONE
+ROOTING: a watch's deltas are rooted at the watched path by the read's projection
+(`api.ProjectDelta`, moved to api so docd shares it), the whole-document stepper is gone
+and a watch holds only the value at its path, docd re-roots a mount's delta to the composed
+path. THE RESPONSE (decision 3, second half) is encoded from the store's event stream into
+the frame -- no node is built -- but OFF the request loop, into bytes under the session's
+budget, and refused past it as a node was: a body encoded on the writer as it was read
+would hold the connection for the fold, and every response behind it, a write's in
+particular, would wait for a read it has nothing to do with, which is the ordering
+7qayp3hah12kscx2gdn0 bought and TestSlowReadDoesNotBlockAWrite holds. So the server's
+allocation for a plain read is the encoded frame, which is what the budget now measures,
+and not the node. Found on the way, because libctl's suite had not compiled since 3b and
+so had not run since: the canonical spelling of a path dropped a wildcard's separator
+(`users/1.*` became `users/1*`), which turned invalid_path into not_found; a wildcard names
+a set and is now left as it came.
+
 ## Phase 6 -- index residency
 
 READ: index_residency.md; storage/index/{persist.go,index.go,tree.go,node.go,build.go};

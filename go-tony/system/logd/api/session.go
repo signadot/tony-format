@@ -45,7 +45,12 @@ type Hello struct {
 //	   deployment which has not caught up, not an attack, and refusing it would take a
 //	   store down for an upgrade it did not need.
 //	1  the protocol as of the flattened match request ({match: {path, data, commit}}).
-const ProtocolVersion = 1
+//	2  presence on the wire and one rooting (one_delta_shape.md, presence.md): a watch
+//	   event says absent (WatchEvent.Absent) where a null used to stand in for it; a
+//	   watch's deltas are rooted at the watched path, as its state event always was, so
+//	   a client applies what arrives to what it holds; and a match body may be encoded
+//	   from the store's event stream rather than from a node the server built.
+const ProtocolVersion = 2
 
 // HelloResponse is the server's response to a Hello message.
 //
@@ -372,14 +377,24 @@ type SessionResult struct {
 //
 //tony:schemagen=watch-event,notag
 type WatchEvent struct {
-	Commit         int64    `tony:"field=commit"`
-	Path           string   `tony:"field=path"`
-	State          *ir.Node `tony:"field=state"`                   // Full state (when fullState=true for first event)
-	Patch          *ir.Node `tony:"field=patch"`                   // Delta patch (for subsequent events)
-	ReplayComplete bool     `tony:"field=replayComplete,omitzero"` // Marker that replay is complete
-	Ended          bool     `tony:"field=ended,omitzero"`          // Terminal marker: the watch has ended and the client should re-establish it
-	EndReason      string   `tony:"field=endReason,omitzero"`      // Why the watch ended, from the ErrCode* vocabulary (e.g. session_mounted, session_unmounted, controller_unavailable)
-	EndMessage     string   `tony:"field=endMessage,omitzero"`     // What the reason code cannot carry: the floor a compacted replay left, the range a read failed over, why a path cannot be extracted
+	Commit int64  `tony:"field=commit"`
+	Path   string `tony:"field=path"`
+	// State is the value at Path as of Commit, on the first event: what every delta
+	// after it applies to. Patch is a delta on later events, ROOTED AT PATH -- the same
+	// rooting as State, so a client holding the state applies the patch to it directly.
+	// A null in either is a null the path holds; a path that holds nothing is said by
+	// Absent, never by a null standing in for it (presence.md).
+	State *ir.Node `tony:"field=state"`
+	Patch *ir.Node `tony:"field=patch"`
+	// Absent says the path holds nothing after this event: on a state event, there is
+	// nothing to start from (a watch that asked to wait); on a patch event, the delta
+	// removed it. State and Patch are then what they are -- a patch that deleted the path
+	// is still sent, since applying it is how a client's own copy comes to hold nothing.
+	Absent         bool   `tony:"field=absent,omitzero"`
+	ReplayComplete bool   `tony:"field=replayComplete,omitzero"` // Marker that replay is complete
+	Ended          bool   `tony:"field=ended,omitzero"`          // Terminal marker: the watch has ended and the client should re-establish it
+	EndReason      string `tony:"field=endReason,omitzero"`      // Why the watch ended, from the ErrCode* vocabulary (e.g. session_mounted, session_unmounted, controller_unavailable)
+	EndMessage     string `tony:"field=endMessage,omitzero"`     // What the reason code cannot carry: the floor a compacted replay left, the range a read failed over, why a path cannot be extracted
 }
 
 // SessionError is an error response.
@@ -614,6 +629,7 @@ func NewStateEvent(id *string, commit int64, path string, state *ir.Node) *Sessi
 			Commit: commit,
 			Path:   path,
 			State:  state,
+			Absent: state == nil,
 		},
 	}
 }

@@ -1206,7 +1206,8 @@ func TestSession_ScopedWatch_QueuedRaceEventNotDropped(t *testing.T) {
 loop:
 	for {
 		select {
-		case resp := <-session.outgoing:
+		case out := <-session.outgoing:
+			resp := out.resp
 			if resp.Event != nil && resp.Event.Patch != nil && resp.Event.Commit == c2 {
 				gotC2 = true
 			}

@@ -2901,6 +2901,11 @@ func (s *WatchEvent) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["patch"] = s.Patch
 	}
 
+	// Field: Absent
+	if s.Absent {
+		irMap["absent"] = ir.FromBool(bool(s.Absent))
+	}
+
 	// Field: ReplayComplete
 	if s.ReplayComplete {
 		irMap["replayComplete"] = ir.FromBool(bool(s.ReplayComplete))
@@ -2978,6 +2983,12 @@ func (s *WatchEvent) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 			} else {
 				s.Patch = fieldNodeUnwrapped
 			}
+		case "absent":
+			// Field: Absent
+			if fieldNodeUnwrapped.Type != ir.BoolType {
+				return fmt.Errorf("field %q: expected bool, got %v", "absent", fieldNodeUnwrapped.Type)
+			}
+			s.Absent = bool(fieldNodeUnwrapped.Bool)
 		case "replayComplete":
 			// Field: ReplayComplete
 			if fieldNodeUnwrapped.Type != ir.BoolType {

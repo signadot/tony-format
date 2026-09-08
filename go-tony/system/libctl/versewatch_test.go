@@ -64,8 +64,8 @@ func TestVerse_ScopedSiblingWatchesUnderMount(t *testing.T) {
 		}
 		t.Cleanup(func() { w.Close() })
 		watches[p] = w
-		if init := expectEvent(t, w); init.State == nil {
-			t.Fatalf("watch %s: expected initial State, got %+v", p, init)
+		if init := expectEvent(t, w); init.State == nil && !init.Absent {
+			t.Fatalf("watch %s: expected an initial state, or absence said, got %+v", p, init)
 		}
 	}
 
@@ -100,8 +100,8 @@ func TestVerse_ScopedOverlappingWatchesUnderMount(t *testing.T) {
 			t.Fatalf("watch %s: %v", p, err)
 		}
 		t.Cleanup(func() { w.Close() })
-		if init := expectEvent(t, w); init.State == nil {
-			t.Fatalf("watch %s: expected initial State, got %+v", p, init)
+		if init := expectEvent(t, w); init.State == nil && !init.Absent {
+			t.Fatalf("watch %s: expected an initial state, or absence said, got %+v", p, init)
 		}
 		return w
 	}
@@ -115,15 +115,15 @@ func TestVerse_ScopedOverlappingWatchesUnderMount(t *testing.T) {
 	if _, err := scoped.Patch(ctx, "m.a.x", vObj(1)); err != nil {
 		t.Fatalf("scoped patch m.a.x: %v", err)
 	}
-	assertRootedDelta(t, "m.a", wA, "$.m.a.x.v", 1)
-	assertRootedDelta(t, "m.a.x", wAX, "$.m.a.x.v", 1)
+	assertRootedDelta(t, "m.a", wA, "$.x.v", 1)
+	assertRootedDelta(t, "m.a.x", wAX, "$.v", 1)
 	expectQuiet(t, "m.b", wB)
 
 	// Write the disjoint sibling: fires only m.b, root-rooted at m.b.
 	if _, err := scoped.Patch(ctx, "m.b", vObj(2)); err != nil {
 		t.Fatalf("scoped patch m.b: %v", err)
 	}
-	assertRootedDelta(t, "m.b", wB, "$.m.b.v", 2)
+	assertRootedDelta(t, "m.b", wB, "$.v", 2)
 	expectQuiet(t, "m.a", wA)
 	expectQuiet(t, "m.a.x", wAX)
 }
@@ -146,7 +146,7 @@ func assertRootedDelta(t *testing.T, name string, w *Watch, kp string, want int6
 	}
 	v, err := applied.GetPath(kp)
 	if err != nil || v == nil || v.Int64 == nil || *v.Int64 != want {
-		t.Errorf("watch %s: applied delta at %s = %v (err %v), want %d (root-rooted)", name, kp, v, err, want)
+		t.Errorf("watch %s: applied delta at %s = %v (err %v), want %d (rooted at the watched path)", name, kp, v, err, want)
 	}
 }
 
@@ -186,10 +186,10 @@ func TestVerse_ScopedIncrementalDeltaPreservesSiblings(t *testing.T) {
 		t.Fatalf("apply delta 2: %v", err)
 	}
 
-	if v, _ := state.GetPath("$.m.a.v"); v == nil || v.Int64 == nil || *v.Int64 != 1 {
+	if v, _ := state.GetPath("$.a.v"); v == nil || v.Int64 == nil || *v.Int64 != 1 {
 		t.Errorf("m.a clobbered by the m.b delta: got %v, want 1", v)
 	}
-	if v, _ := state.GetPath("$.m.b.v"); v == nil || v.Int64 == nil || *v.Int64 != 2 {
+	if v, _ := state.GetPath("$.b.v"); v == nil || v.Int64 == nil || *v.Int64 != 2 {
 		t.Errorf("m.b not applied: got %v, want 2", v)
 	}
 }
@@ -274,7 +274,7 @@ func TestVerse_WatchCrosstalk_DirectLogd_CommonParent(t *testing.T) {
 
 			// p.a's own watch fires, and its forwarded delta is correct (applies to
 			// the written value). Baseline forwards the raw committed delta.
-			assertRootedDelta(t, "p.a", wa, "$.p.a.v", 1)
+			assertRootedDelta(t, "p.a", wa, "$.v", 1)
 			expectQuiet(t, "p.b", wb) // p.b must NOT fire on a write to p.a
 		})
 	}
@@ -336,15 +336,15 @@ func TestMultiWatch_SamePathDirectLogd(t *testing.T) {
 	if _, err := writer.Patch(ctx, "a", vObj(1)); err != nil {
 		t.Fatalf("patch a: %v", err)
 	}
-	assertRootedDelta(t, "w1", w1, "$.a.v", 1)
-	assertRootedDelta(t, "w2", w2, "$.a.v", 1)
+	assertRootedDelta(t, "w1", w1, "$.v", 1)
+	assertRootedDelta(t, "w2", w2, "$.v", 1)
 
 	// Unwatch one; the other keeps receiving.
 	w1.Close()
 	if _, err := writer.Patch(ctx, "a", vObj(2)); err != nil {
 		t.Fatalf("patch a again: %v", err)
 	}
-	assertRootedDelta(t, "w2", w2, "$.a.v", 2)
+	assertRootedDelta(t, "w2", w2, "$.v", 2)
 }
 
 // TestMultiWatch_SamePathViaDocd: two watches on the same path under a mount,
@@ -372,14 +372,14 @@ func TestMultiWatch_SamePathViaDocd(t *testing.T) {
 	if _, err := client.Patch(ctx, "m.a", vObj(1)); err != nil {
 		t.Fatalf("patch m.a: %v", err)
 	}
-	assertRootedDelta(t, "w1", w1, "$.m.a.v", 1)
-	assertRootedDelta(t, "w2", w2, "$.m.a.v", 1)
+	assertRootedDelta(t, "w1", w1, "$.v", 1)
+	assertRootedDelta(t, "w2", w2, "$.v", 1)
 
 	w1.Close()
 	if _, err := client.Patch(ctx, "m.a", vObj(2)); err != nil {
 		t.Fatalf("patch m.a again: %v", err)
 	}
-	assertRootedDelta(t, "w2", w2, "$.m.a.v", 2)
+	assertRootedDelta(t, "w2", w2, "$.v", 2)
 }
 
 // TestWatch_TwoSessionsSamePathNoRace is a -race regression: the hub broadcasts one

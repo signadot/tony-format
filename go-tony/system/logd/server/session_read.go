@@ -1,8 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -61,25 +63,26 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 		}
 	}
 
+	// A match with no pattern, in a view whose schema declares no keyed array, is
+	// answered from the store's event stream: the body is encoded as it is read, into
+	// the frame that goes out, and no node of it is built (rebuild_plan.md decision 3).
+	// What is held is the encoded frame, under the session's budget, and a body past
+	// the budget is refused as a node past it was. A pattern needs the node to filter,
+	// and a keyed array needs it to be raised into the client's vocabulary; those reads
+	// build the node under the same budget.
+	if (req.Data == nil || req.Data.Type == ir.NullType) && !s.raises() {
+		if err := s.encodedMatch(id, path, commit); err != nil {
+			s.sendReadError(id, err)
+		}
+		return
+	}
+
 	// The value at the path, in the session's view. A bad segment is the client's path
 	// being wrong, not its data being missing: reporting it as not-found reads as
 	// "nothing there yet" and invites a retry that can never succeed.
 	state, err := s.readValueAt(path, commit)
 	if err != nil {
-		var pe *PathError
-		switch {
-		case errors.As(err, &pe) && pe.Kind == PathBadSegment:
-			s.sendError(id, api.ErrCodeInvalidPath, err.Error())
-		case errors.As(err, &pe) && pe.Kind == PathTypeConflict:
-			// Something IS there, in a shape that cannot hold what was asked for. Saying
-			// not_found here tells a client to wait for a value which has already
-			// arrived and is the wrong kind.
-			s.sendError(id, api.ErrCodePathConflict, err.Error())
-		case errors.Is(err, ErrPathNotFound):
-			s.sendError(id, api.ErrCodeNotFound, err.Error())
-		default:
-			s.sendError(id, api.ErrCodeStorage, fmt.Sprintf("failed to read state: %v", err))
-		}
+		s.sendReadError(id, err)
 		return
 	}
 
@@ -94,6 +97,160 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 	}
 
 	s.send(api.NewMatchResponse(id, commit, state))
+}
+
+// sendReadError answers a read that could not be answered, by what kept it from being.
+func (s *Session) sendReadError(id *string, err error) {
+	var pe *PathError
+	switch {
+	case errors.As(err, &pe) && pe.Kind == PathBadSegment:
+		s.sendError(id, api.ErrCodeInvalidPath, err.Error())
+	case errors.As(err, &pe) && pe.Kind == PathTypeConflict:
+		// Something IS there, in a shape that cannot hold what was asked for. Saying
+		// not_found here tells a client to wait for a value which has already
+		// arrived and is the wrong kind.
+		s.sendError(id, api.ErrCodePathConflict, err.Error())
+	case errors.Is(err, ErrPathNotFound):
+		s.sendError(id, api.ErrCodeNotFound, err.Error())
+	default:
+		s.sendError(id, api.ErrCodeStorage, fmt.Sprintf("failed to read state: %v", err))
+	}
+}
+
+// raises says whether the session's view has keyed arrays to raise into the client's
+// vocabulary (storage.RaiseState), which a streamed body cannot do.
+func (s *Session) raises() bool {
+	schema := s.storage.SchemaFor(s.scopeID())
+	return schema != nil && len(schema.KeyedPaths()) > 0
+}
+
+// encodedMatch answers a match from the store's event stream, encoding the response --
+// {id, result: {match: {commit, body}}} -- in the wire form the node encoder writes, with
+// the body's events taken from the cursor one at a time, into the frame the writer sends.
+//
+// It runs OFF the request loop, as every read does, and the frame goes out whole: a body
+// encoded on the writer as it was read would hold the connection for the fold, and every
+// response behind it -- a write's, in particular -- would wait for a read it has nothing
+// to do with, which is the ordering 7qayp3hah12kscx2gdn0 bought. So the fold's cost is
+// paid here, in bytes rather than in a node, and the writer's is the write.
+//
+// An absent path is answered as a read of it is, before anything is encoded.
+func (s *Session) encodedMatch(id *string, path string, commit int64) error {
+	if commit == 0 {
+		return s.classifyAbsent(path, commit)
+	}
+	c, err := s.storage.Read(commit, s.scopeID(), path)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	if c.Presence() == storage.Absent {
+		return s.classifyAbsent(path, commit)
+	}
+	frame := &budgetedFrame{budget: s.readBudget}
+	enc, err := stream.NewEncoder(frame, stream.WithWire())
+	if err != nil {
+		return err
+	}
+	if err := enc.BeginObject(); err != nil {
+		return err
+	}
+	if id != nil {
+		if err := enc.WriteKey("id"); err != nil {
+			return err
+		}
+		if err := enc.WriteString(*id); err != nil {
+			return err
+		}
+	}
+	for _, key := range []string{"result", "match"} {
+		if err := enc.WriteKey(key); err != nil {
+			return err
+		}
+		if err := enc.BeginObject(); err != nil {
+			return err
+		}
+	}
+	if err := enc.WriteKey("commit"); err != nil {
+		return err
+	}
+	if err := enc.WriteInt(commit); err != nil {
+		return err
+	}
+	if err := enc.WriteKey("body"); err != nil {
+		return err
+	}
+	for {
+		ev, err := c.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if err := writeEvent(enc, ev); err != nil {
+			return err
+		}
+	}
+	for range 3 {
+		if err := enc.EndObject(); err != nil {
+			return err
+		}
+	}
+	frame.buf.WriteByte('\n')
+	s.sendFrame(frame.buf.Bytes())
+	return nil
+}
+
+// budgetedFrame collects an encoded response and refuses to grow past the budget.
+type budgetedFrame struct {
+	buf    bytes.Buffer
+	budget int64
+}
+
+func (f *budgetedFrame) Write(p []byte) (int, error) {
+	if int64(f.buf.Len()+len(p)) > f.budget {
+		return 0, fmt.Errorf("%w of %d bytes", storage.ErrBudget, f.budget)
+	}
+	return f.buf.Write(p)
+}
+
+// writeEvent hands one of the store's events to the encoder.
+func writeEvent(enc *stream.Encoder, ev *stream.Event) error {
+	if ev.Tag != "" && ev.IsValueStart() {
+		if err := enc.Tag(ev.Tag); err != nil {
+			return err
+		}
+	}
+	switch ev.Type {
+	case stream.EventBeginObject:
+		return enc.BeginObject()
+	case stream.EventEndObject:
+		return enc.EndObject()
+	case stream.EventBeginArray:
+		return enc.BeginArray()
+	case stream.EventEndArray:
+		return enc.EndArray()
+	case stream.EventKey:
+		return enc.WriteKey(ev.Key)
+	case stream.EventIntKey:
+		return enc.WriteIntKey(int(ev.IntKey))
+	case stream.EventString:
+		return enc.WriteString(ev.String)
+	case stream.EventInt:
+		return enc.WriteInt(ev.Int)
+	case stream.EventFloat:
+		return enc.WriteFloat(ev.Float)
+	case stream.EventBool:
+		return enc.WriteBool(ev.Bool)
+	case stream.EventNull:
+		return enc.WriteNull()
+	case stream.EventHeadComment:
+		return enc.WriteHeadComment(ev.CommentLines)
+	case stream.EventLineComment:
+		return enc.WriteLineComment(ev.CommentLines)
+	}
+	return fmt.Errorf("stream: event %v cannot be encoded", ev.Type)
 }
 
 // readValueAt answers the value at path as of commit, in the session's view, or a
@@ -241,28 +398,6 @@ func joinKPathSegments(segs []string) string {
 		result = kpath.Join(segs[i], result)
 	}
 	return result
-}
-
-// fullDocAt reads the whole document at a commit, normalized so an empty store is
-// ir.Null(). It is the seed for a stepped watch (see forwardEvents): the one whole read a
-// watch pays, under the session's budget, after which each commit costs one patch
-// application instead.
-func (s *Session) fullDocAt(commit int64) (*ir.Node, error) {
-	if commit <= 0 {
-		return ir.Null(), nil
-	}
-	c, err := s.storage.Read(commit, s.scopeID(), "")
-	if err != nil {
-		return nil, err
-	}
-	doc, err := storage.Collect(c, s.readBudget)
-	if err != nil {
-		return nil, err
-	}
-	if doc == nil {
-		return ir.Null(), nil
-	}
-	return s.storage.RaiseState(s.scopeID(), doc, ""), nil
 }
 
 // scopedDocAt is the scoped value at path as of commit: the subtree there, or nil where

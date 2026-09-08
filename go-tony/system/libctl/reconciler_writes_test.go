@@ -77,9 +77,9 @@ func TestSmallWriteCostAgainstSetSize(t *testing.T) {
 		sort.Slice(took, func(a, b int) bool { return took[a] < took[b] })
 
 		st := store.WriteStats()
-		t.Logf("%5d entities: median %6s worst %6s | commits %d headMiss %d avg %s apply %s append %s index %s",
+		t.Logf("%5d entities: median %6s worst %6s | commits %d avg %s apply %s append %s index %s",
 			entities, took[len(took)/2].Round(time.Microsecond), took[len(took)-1].Round(time.Millisecond),
-			st.Commits, st.HeadMiss,
+			st.Commits,
 			(st.Total / time.Duration(st.Commits)).Round(time.Microsecond),
 			(st.Apply / time.Duration(st.Commits)).Round(time.Microsecond),
 			(st.Append / time.Duration(st.Commits)).Round(time.Microsecond),

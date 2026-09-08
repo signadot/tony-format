@@ -150,6 +150,13 @@ write is diffed or kept as sent, and cannot change what a watcher receives, beca
 watcher receives the stored delta either way. `lowerEverything` is the unexported test knob
 that forces the diff.
 
-Item 4, ONE ROOTING RULE, is not in this phase. A delta is delivered rooted at the document;
-rooting it at the watched path is the projection `Read` already uses, and it lands with the
-wire, where a watch's events are defined.
+Item 4, ONE ROOTING RULE, landed with the wire (phase 5). A watch's deltas are rooted at
+the watched path, as its state event always was: a baseline watch PROJECTS the stored delta
+onto its path with the read's own projection (`api.ProjectDelta`, the one function; storage's
+`projectAt` is it), sends what the projection says, and steps the value it holds by it --
+no whole document is held for a watch at any width. A projection that says nothing is a
+commit that did not reach the path; one that is blocked, an operator above the path, is
+answered by a read at the path and the diff. A scoped watch re-reads at its path per event
+that can reach it and sends the diff, rooted there. docd lifts a sub-watch's delta from its
+mount to the document to trim it and projects it back to the composed path with the same
+function. A client applies what arrives to what it holds (rg5nd1psh12kse7dddn0).

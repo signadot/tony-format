@@ -39,7 +39,8 @@ func TestScopedDeltaOnACommentOnlyChange(t *testing.T) {
 
 	var resp *api.SessionResponse
 	select {
-	case resp = <-s.outgoing:
+	case out := <-s.outgoing:
+		resp = out.resp
 	default:
 		t.Fatal("a comment-only change sent no event: the store would hold a commit every watch dropped")
 	}

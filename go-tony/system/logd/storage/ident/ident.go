@@ -280,6 +280,13 @@ func CanonicalPath(schema *api.Schema, path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// A wildcard names a SET, and nothing in it is an element with a name to spell: the
+	// path is answered as it came, and the read says what it says about wildcards.
+	for x := kp; x != nil; x = x.Next {
+		if x.Wild() {
+			return path, nil
+		}
+	}
 	out := ""      // the canonical path so far
 	schemaAt := "" // the schema's path for the same point, names elided
 	inElement := false

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 
 	logdapi "github.com/signadot/tony-format/go-tony/system/logd/api"
 )
@@ -189,10 +191,26 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 	mounts := mountInfos(below, true)
 	blocks := s.server.patchTagFilter()
 	cw.trimOwned = func(patch *ir.Node) *ir.Node {
-		return trimToOwned(patch, mounts, blocks, func(err error) {
+		// The sub-watch's delta is rooted at the composed path; the partition works
+		// over the document, since the mounts are named from the root. Lift it,
+		// trim it, and project what is left back to the path.
+		lifted, err := tx.RootPatchAt(path, patch)
+		if err != nil {
+			s.log.Warn("composed watch cannot lift a delta to the document; forwarding it whole", "path", path, "error", err)
+			return patch
+		}
+		kept := trimToOwned(lifted, mounts, blocks, func(err error) {
 			s.log.Warn("composed watch cannot separate a delta from the mounts below it; forwarding it whole",
 				"path", path, "error", err)
 		})
+		if kept == nil {
+			return nil
+		}
+		at, _, ok := logdapi.ProjectDelta(kept, path)
+		if !ok {
+			return patch // an operator above the path: nothing to trim below it
+		}
+		return at
 	}
 
 	// Establish sub-watches FIRST — their deltas buffer in cw — so no change
@@ -222,7 +240,7 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 	}
 	for _, m := range below {
 		ms, mp := m.Session, m.Path
-		id := ms.RouteWatchStream(watchReq(mp), cw.forward)
+		id := ms.RouteWatchStream(watchReq(mp), cw.forwardFrom(mp))
 		cw.addStop(func() { ms.stopWatchStream(id, mp) })
 	}
 
@@ -353,11 +371,54 @@ func (cw *composedWatch) forwardOwned(resp *logdapi.SessionResponse) {
 	cw.forward(resp)
 }
 
+// forwardFrom is the sink for the sub-watch on a mount below the composed path. A
+// delta arrives rooted at the mount's path and leaves rooted at the composed one -- the
+// same delta, under the fields between them -- so the client applies it to the state it
+// was given (one rooting, logdapi.WatchEvent).
+func (cw *composedWatch) forwardFrom(mountPath string) func(*logdapi.SessionResponse) {
+	rel := relativePath(mountPath, cw.path)
+	return func(resp *logdapi.SessionResponse) {
+		if resp.Event != nil && resp.Event.Patch != nil && rel != "" {
+			rooted, err := tx.RootPatchAt(rel, resp.Event.Patch)
+			if err != nil {
+				cw.client.log.Warn("composed watch cannot root a mount's delta at the composed path",
+					"path", cw.path, "mount", mountPath, "error", err)
+			} else {
+				ev := *resp.Event
+				ev.Patch = rooted
+				trimmed := *resp
+				trimmed.Event = &ev
+				resp = &trimmed
+			}
+		}
+		cw.forward(resp)
+	}
+}
+
+// relativePath answers kp below prefix: the segments of kp after prefix's.
+func relativePath(kp, prefix string) string {
+	segs := kpath.SplitAll(kp)
+	n := len(kpath.SplitAll(prefix))
+	if n > len(segs) {
+		return ""
+	}
+	rest := segs[n:]
+	if len(rest) == 0 {
+		return ""
+	}
+	out := rest[len(rest)-1]
+	for i := len(rest) - 2; i >= 0; i-- {
+		out = kpath.Join(rest[i], out)
+	}
+	return out
+}
+
 // forward is the sink for every sub-watch. A sub-watch failure ends the whole
 // composed watch (the client re-establishes and re-composes). Otherwise it drops
 // non-events (sub-watch confirmations), re-stamps a delta event's path to the
 // composed watch's path and its id to the client's watch id, and buffers it until
-// the initial snapshot has been sent, then forwards live.
+// the initial snapshot has been sent, then forwards live. A delta is rooted at the
+// composed path by the time it is here (forwardOwned, forwardFrom).
 func (cw *composedWatch) forward(resp *logdapi.SessionResponse) {
 	if resp.Error != nil {
 		reason := resp.Error.Code
@@ -373,7 +434,7 @@ func (cw *composedWatch) forward(resp *logdapi.SessionResponse) {
 		return
 	}
 	ev := *resp.Event
-	ev.Path = cw.path // patch is root-rooted; only the routing path is re-stamped
+	ev.Path = cw.path
 
 	// A sub-stream's replayComplete is its own, not the composed watch's: the client
 	// gets one when every sub-stream has finished, which is what flushIfReplayed
