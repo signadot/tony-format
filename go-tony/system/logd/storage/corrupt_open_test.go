@@ -12,9 +12,9 @@ import (
 // deserialize -- "failed to initialize storage: failed to rebuild index" -- and docd
 // never started (t96b5ejqh12krprjghn0).
 //
-// Whatever lies past a bad frame is unreachable however the store reacts, since framing
-// from there on cannot be trusted. Refusing to open recovers none of it. So the walk
-// stops, the store opens with what it could read, and it says so for as long as it runs.
+// Refusing to open recovers nothing. The walk steps over what it cannot read and resumes
+// at the next record it can, the store opens with everything it could read -- before the
+// bad bytes and behind them -- and it says so for as long as it runs.
 func TestStoreOpensOverAnUnreadableRecord(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(dir, nil)
@@ -65,10 +65,19 @@ func TestStoreOpensOverAnUnreadableRecord(t *testing.T) {
 	// store at all.
 	subtreeWrite(t, s2, "verse.entities.after", "{id: after}")
 
-	// And it reads, because the index no longer points past the bad record: the state
-	// it serves is the state it can actually produce.
+	// And it reads, because the index no longer points AT the bad record: the state it
+	// serves is the state it can actually produce -- which includes what was written
+	// behind the bad bytes, since the walk resumed there.
 	commit, _ = s2.GetCurrentCommit()
-	if _, err := readStateAt(s2, "", commit, nil); err != nil {
-		t.Errorf("reading what survived: %s", err)
+	doc, err := readStateAt(s2, "", commit, nil)
+	if err != nil {
+		t.Fatalf("reading what survived: %s", err)
+	}
+	entities, _ := doc.GetKPath("verse.entities")
+	if entities == nil || len(entities.Fields) < 39 {
+		t.Errorf("the state holds %d entities of 40 written plus one after; one bad record costs one entity, not what followed it", len(entities.Fields))
+	}
+	if v, _ := doc.GetKPath("verse.entities.after"); v == nil {
+		t.Errorf("the write after the reopen is missing")
 	}
 }

@@ -298,6 +298,37 @@ func (i *Index) DropFrom(logFile string, pos int64) int {
 	return dropped
 }
 
+// DropWithin forgets every segment that points into [from, to) of a log file, and
+// answers how many it forgot. It is the repair for a region the walk could not read and
+// stepped over: an index entry pointing into it names data no read can produce, while
+// the entries behind the region are as readable as they ever were and are kept.
+func (i *Index) DropWithin(logFile string, from, to int64) int {
+	i.Lock()
+	var doomed []LogSegment
+	i.Commits.All(func(c LogSegment) bool {
+		if c.LogFile == logFile && c.LogPosition >= from && c.LogPosition < to {
+			doomed = append(doomed, c)
+		}
+		return true
+	})
+	dropped := 0
+	for _, c := range doomed {
+		if i.Commits.Remove(c) {
+			dropped++
+		}
+	}
+	children := make([]*Index, 0, len(i.Children))
+	for _, c := range i.Children {
+		children = append(children, c)
+	}
+	i.Unlock()
+
+	for _, c := range children {
+		dropped += c.DropWithin(logFile, from, to)
+	}
+	return dropped
+}
+
 // appendRelative adds the child's segments to res, restoring the segment path the
 // child answered relative to itself.
 func appendRelative(res []LogSegment, name string, cRes []LogSegment) []LogSegment {

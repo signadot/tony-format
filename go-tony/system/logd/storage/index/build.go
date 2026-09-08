@@ -11,17 +11,30 @@ import (
 // Unreadable names a record the rebuild could not deserialize, and everything after it
 // in that log, which the walk therefore never reached.
 type Unreadable struct {
-	// LogFile and Position name the last record read SUCCESSFULLY in the log which
-	// then failed: the walk cannot say where a bad frame ends, only where the last
-	// good one did, and everything past that point in that log is unreachable.
+	// LogFile and Position name where readable records stopped: the start of the first
+	// region the walk could not read.
 	LogFile  string
 	Position int64
 	Err      error
-	// Dropped is how many index entries beyond it were forgotten as a result.
+	// Regions are what the walk stepped over -- each a range of one log file it could
+	// not read, with readable records resumed at its end. Empty when the walk was
+	// stopped outright by an error reading the file.
+	Regions []Region
+	// Dropped is how many index entries pointing into unreadable bytes were forgotten.
 	Dropped int
 }
 
+// Region is a range of a log file the walk could not read.
+type Region struct {
+	LogFile  string
+	From, To int64
+}
+
 func (u *Unreadable) String() string {
+	if len(u.Regions) > 0 {
+		return fmt.Sprintf("log %s: %d unreadable region(s), first at %d, stepped over (%d index entries dropped)",
+			u.LogFile, len(u.Regions), u.Position, u.Dropped)
+	}
 	return fmt.Sprintf("log %s past position %d: %s (%d index entries dropped)",
 		u.LogFile, u.Position, u.Err, u.Dropped)
 }
@@ -113,5 +126,19 @@ func BuildWithLogger(idx *Index, dlog *dlog.DLog, fromCommit int64, logger *slog
 		}
 	}
 
+	// Regions the walk stepped over. Nothing behind them was dropped -- the walk resumed
+	// at the next record it could read -- but a region the log cannot read is worth the
+	// same noise as one that stopped it: an operator finding it weeks later in a log
+	// file is finding it too late.
+	if gaps := iter.Gaps(); len(gaps) > 0 && unreadable == nil {
+		unreadable = &Unreadable{LogFile: string(gaps[0].LogFile), Position: gaps[0].From,
+			Err: fmt.Errorf("%d unreadable region(s), first %s, stepped over", len(gaps), gaps[0])}
+		for _, g := range gaps {
+			unreadable.Regions = append(unreadable.Regions, Region{LogFile: string(g.LogFile), From: g.From, To: g.To})
+			if logger != nil {
+				logger.Error("log region will not read; indexing stepped over it", "region", g.String())
+			}
+		}
+	}
 	return unreadable, nil
 }

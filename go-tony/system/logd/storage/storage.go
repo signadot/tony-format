@@ -291,12 +291,20 @@ func (s *Storage) init() error {
 	}
 	s.unreadable = unreadable
 	if unreadable != nil {
-		// The loaded index may hold segments past the bad record -- it was written by
-		// a run which could still read them. They name data no read can produce now,
-		// and keeping them fails every read and every write which needs one.
-		dropped := s.index.DropFrom(unreadable.LogFile, unreadable.Position+1)
-		s.logger.Error("dropped index entries beyond an unreadable record; the store is serving what it can read",
-			"logFile", unreadable.LogFile, "beyondPosition", unreadable.Position, "segmentsDropped", dropped)
+		// The loaded index may hold segments pointing into the bad bytes -- it was
+		// written by a run which could still read them. They name data no read can
+		// produce now, and keeping them fails every read and every write which needs
+		// one. What lies behind a region the walk stepped over is kept: the walk read it.
+		dropped := 0
+		if len(unreadable.Regions) > 0 {
+			for _, r := range unreadable.Regions {
+				dropped += s.index.DropWithin(r.LogFile, r.From, r.To)
+			}
+		} else {
+			dropped = s.index.DropFrom(unreadable.LogFile, unreadable.Position+1)
+		}
+		s.logger.Error("dropped index entries pointing into unreadable log bytes; the store is serving what it can read",
+			"logFile", unreadable.LogFile, "position", unreadable.Position, "regions", len(unreadable.Regions), "segmentsDropped", dropped)
 		unreadable.Dropped = dropped
 	}
 

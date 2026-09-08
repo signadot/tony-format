@@ -88,6 +88,25 @@ type singleFileIter struct {
 	position int64
 	done     bool
 	fileSize int64
+	// lastCommit is the commit of the last entry read, which a frame found by resync has
+	// to exceed: entries are appended to a file in commit order.
+	lastCommit int64
+	// gaps are the regions the walk could not read and stepped over. See resync.
+	gaps []Gap
+}
+
+// Gap is a region of a log file the walk could not read and stepped over: an unpatched
+// snapshot blob whose extent the header does not say, or a record that will not decode.
+// From is where the readable frames stopped; To is where they resumed, or the end of what
+// the file holds when nothing behind the region decodes.
+type Gap struct {
+	LogFile LogFileID
+	From    int64
+	To      int64
+}
+
+func (g Gap) String() string {
+	return fmt.Sprintf("log %s bytes [%d, %d)", g.LogFile, g.From, g.To)
 }
 
 // NewDLog creates a new double-buffered log manager.
@@ -929,6 +948,12 @@ func (it *singleFileIter) next() (*Entry, int64, error) {
 			return nil, it.position, fmt.Errorf("failed to read blob length: %w", err)
 		}
 		blobLength := int64(binary.BigEndian.Uint32(blobLenBytes))
+		if blobLength == 0 {
+			// An unpatched placeholder: a snapshot interrupted before Close patched its
+			// header. Its extent is not in the header, so the walk finds where readable
+			// frames resume instead of reading the blob's bytes as a length.
+			return it.resync(it.position)
+		}
 
 		// Skip blob header (8 bytes) + blob data
 		it.position += BlobHeaderSize + blobLength
@@ -943,6 +968,11 @@ func (it *singleFileIter) next() (*Entry, int64, error) {
 
 	entryLength := int64(lengthOrMagic)
 	oldPosition := it.position
+	if entryLength == 0 || oldPosition+4+entryLength > it.fileSize {
+		// Not a frame the file holds: a length of nothing, or one that runs past the
+		// append frontier. Something unreadable sits here; find where frames resume.
+		return it.resync(oldPosition)
+	}
 
 	entryBytes := make([]byte, entryLength)
 	it.logFile.mu.RLock()
@@ -958,15 +988,128 @@ func (it *singleFileIter) next() (*Entry, int64, error) {
 
 	entry, err := decodeEntry(entryBytes)
 	if err != nil {
-		return nil, it.position, fmt.Errorf("failed to deserialize entry: %w", err)
+		// A frame boundary that lands on bytes which are not a record. The region is
+		// stepped over rather than ending the walk: what lies behind it was written by
+		// a process that had no idea this region existed, and is real.
+		return it.resync(oldPosition)
 	}
 
 	it.position = oldPosition + 4 + entryLength
+	it.lastCommit = entry.Commit
 	if it.position >= it.fileSize {
 		it.done = true
 	}
 
 	return entry, oldPosition, nil
+}
+
+// resync finds where readable frames resume after a region starting at from that the
+// walk could not read, records the region as a Gap, and continues from there. When
+// nothing behind the region decodes, the file ends at the region: an interrupted
+// snapshot's partial blob is the last thing in the file it was being written to, and
+// that is what this looks like.
+//
+// A frame is recognised by what it holds, not by its length alone: a length prefix
+// whose payload decodes as an entry with a commit above the last one read -- entries
+// are appended to a file in commit order -- or a blob header whose length fits the file
+// and is followed by such a frame or by the frontier. A run of snapshot event bytes does
+// not form that by accident.
+func (it *singleFileIter) resync(from int64) (*Entry, int64, error) {
+	const window = 1 << 20
+	buf := make([]byte, 0, window+8)
+	for start := from; start+4 <= it.fileSize; {
+		n := int64(window)
+		if start+n > it.fileSize {
+			n = it.fileSize - start
+		}
+		buf = buf[:n]
+		it.logFile.mu.RLock()
+		_, err := it.logFile.file.ReadAt(buf, start)
+		it.logFile.mu.RUnlock()
+		if err != nil && err != io.EOF {
+			return nil, it.position, fmt.Errorf("resync read at %d: %w", start, err)
+		}
+		for off := int64(0); off+4 <= n; off++ {
+			p := start + off
+			if !it.frameAt(p) {
+				continue
+			}
+			it.gaps = append(it.gaps, Gap{LogFile: it.logFile.id, From: from, To: p})
+			it.logFile.logger.Warn("log region will not read; walk resumes at the next record",
+				"path", it.logFile.path, "from", from, "resumedAt", p, "skippedBytes", p-from)
+			it.position = p
+			return it.next()
+		}
+		start += n - 8 // overlap, so a prefix straddling the window is seen whole
+		if n <= 8 {
+			break
+		}
+	}
+	it.gaps = append(it.gaps, Gap{LogFile: it.logFile.id, From: from, To: it.fileSize})
+	it.logFile.logger.Warn("log region will not read and nothing readable follows it; the file ends there",
+		"path", it.logFile.path, "from", from, "unreadBytes", it.fileSize-from)
+	it.position = it.fileSize
+	it.done = true
+	return nil, it.position, io.EOF
+}
+
+// frameAt reports whether a readable frame starts at p: a record that decodes to an entry
+// with a commit above the last one read, or a blob whose length fits and which a record
+// or the frontier follows.
+func (it *singleFileIter) frameAt(p int64) bool {
+	hdr := make([]byte, 8)
+	it.logFile.mu.RLock()
+	_, err := it.logFile.file.ReadAt(hdr[:4], p)
+	it.logFile.mu.RUnlock()
+	if err != nil {
+		return false
+	}
+	lengthOrMagic := binary.BigEndian.Uint32(hdr[:4])
+	if lengthOrMagic == BlobHeaderMagic {
+		if p+BlobHeaderSize > it.fileSize {
+			return false
+		}
+		it.logFile.mu.RLock()
+		_, err := it.logFile.file.ReadAt(hdr[4:8], p+4)
+		it.logFile.mu.RUnlock()
+		if err != nil {
+			return false
+		}
+		blobLen := int64(binary.BigEndian.Uint32(hdr[4:8]))
+		end := p + BlobHeaderSize + blobLen
+		if blobLen == 0 || end > it.fileSize {
+			return false
+		}
+		return end == it.fileSize || it.entryAt(end) != nil
+	}
+	return it.entryAt(p) != nil
+}
+
+// entryAt decodes the record at p, if there is one there whose commit follows the last.
+func (it *singleFileIter) entryAt(p int64) *Entry {
+	hdr := make([]byte, 4)
+	it.logFile.mu.RLock()
+	_, err := it.logFile.file.ReadAt(hdr, p)
+	it.logFile.mu.RUnlock()
+	if err != nil {
+		return nil
+	}
+	length := int64(binary.BigEndian.Uint32(hdr))
+	if length == 0 || length == int64(BlobHeaderMagic) || p+4+length > it.fileSize {
+		return nil
+	}
+	payload := make([]byte, length)
+	it.logFile.mu.RLock()
+	_, err = it.logFile.file.ReadAt(payload, p+4)
+	it.logFile.mu.RUnlock()
+	if err != nil {
+		return nil
+	}
+	entry, err := decodeEntry(payload)
+	if err != nil || entry == nil || entry.Commit <= it.lastCommit {
+		return nil
+	}
+	return entry
 }
 
 // Next reads and returns the next entry from both log files in commit order.
@@ -1035,4 +1178,11 @@ func (it *DLogIter) Next() (*Entry, LogFileID, int64, error) {
 // Done returns true if iterator has reached end of both files.
 func (it *DLogIter) Done() bool {
 	return it.done
+}
+
+// Gaps answers the regions the walk could not read and stepped over so far, in the order
+// they were met. A caller that indexes the log reports them; the entries behind each are
+// indexed like any other.
+func (it *DLogIter) Gaps() []Gap {
+	return append(append([]Gap(nil), it.iterA.gaps...), it.iterB.gaps...)
 }
