@@ -36,7 +36,7 @@ func writeBaseParticipant(logdAddr string, txID int64, path string, base, match 
 	// Hello in the client's scope so this participant joins the tx in that scope
 	// (logd requires all participants to share the transaction's scope).
 	if err := writeSessionRequest(conn, &logdapi.SessionRequest{
-		Hello: &logdapi.Hello{ClientID: "docd-base", Scope: scope},
+		Hello: logdHello("docd-base", scope),
 	}); err != nil {
 		return nil, fmt.Errorf("hello: %w", err)
 	}
@@ -79,7 +79,7 @@ func allocScopedTx(logdAddr string, scope *string, participants int, timeout tim
 		return 0, err
 	}
 	if err := writeSessionRequest(conn, &logdapi.SessionRequest{
-		Hello: &logdapi.Hello{ClientID: "docd-tx", Scope: scope},
+		Hello: logdHello("docd-tx", scope),
 	}); err != nil {
 		return 0, fmt.Errorf("hello: %w", err)
 	}

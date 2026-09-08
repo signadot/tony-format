@@ -34,7 +34,7 @@ func readLogdMatch(logdAddr, path string, scope *string, atCommit *int64, timeou
 
 	// Hello in the client's scope so the base read sees the scoped (COW) view.
 	if err := writeSessionRequest(conn, &logdapi.SessionRequest{
-		Hello: &logdapi.Hello{ClientID: "docd-read", Scope: scope},
+		Hello: logdHello("docd-read", scope),
 	}); err != nil {
 		return nil, 0, fmt.Errorf("hello: %w", err)
 	}
@@ -85,7 +85,7 @@ func logdWatermark(logdAddr string, timeout time.Duration) (commit, floor int64,
 		return 0, 0, err
 	}
 	if err := writeSessionRequest(conn, &logdapi.SessionRequest{
-		Hello: &logdapi.Hello{ClientID: "docd-watermark"},
+		Hello: logdHello("docd-watermark", nil),
 	}); err != nil {
 		return 0, 0, fmt.Errorf("hello: %w", err)
 	}
@@ -106,4 +106,13 @@ func logdWatermark(logdAddr string, timeout time.Duration) (commit, floor int64,
 		return 0, 0, fmt.Errorf("logd ping: empty result")
 	}
 	return resp.Result.Pong.Commit, resp.Result.Pong.Floor, nil
+}
+
+// logdHello is the handshake every session docd opens on logd sends: docd is a client of
+// logd like any other, and says which session protocol it speaks so that the one hop
+// between every verse and its logd is checked as the others are (logdapi.ProtocolVersion).
+// A hello built by hand without the version is accepted as a client from before versions
+// existed, which is exactly the hop a mismatch would then slip through.
+func logdHello(clientID string, scope *string) *logdapi.Hello {
+	return &logdapi.Hello{ClientID: clientID, Scope: scope, Protocol: logdapi.ProtocolVersion}
 }

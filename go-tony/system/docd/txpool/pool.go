@@ -172,6 +172,7 @@ func (p *Pool) sendHello(conn net.Conn) error {
 	req := &api.SessionRequest{
 		Hello: &api.Hello{
 			ClientID: "docd-txpool",
+			Protocol: api.ProtocolVersion, // checked at the handshake, as every hop is
 		},
 	}
 	return p.sendRequest(conn, req)

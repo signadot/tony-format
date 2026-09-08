@@ -35,7 +35,7 @@ func startLogdWatchStream(logdAddr, path string, scope *string, fromCommit *int6
 	}
 
 	if err := writeSessionRequest(conn, &logdapi.SessionRequest{
-		Hello: &logdapi.Hello{ClientID: "docd-watch", Scope: scope},
+		Hello: logdHello("docd-watch", scope),
 	}); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("hello: %w", err)
