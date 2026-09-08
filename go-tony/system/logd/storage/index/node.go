@@ -8,6 +8,12 @@ import (
 // maxChildren is the fan-out of an interior node, and maxLeaf the capacity of a leaf.
 // They are what keeps the tree shallow: a node splits when it passes the bound, and its
 // parent takes both halves as siblings.
+//
+// They are BOUNDS, not allocations. A leaf holds what has been put in it and grows
+// toward maxLeaf; a leaf allocated at its bound costs 32 elements before it holds one,
+// which is ~4 KB of LogSegment per trie node and is the whole cost of an index node that
+// describes one quiet path -- or, once elements are names, one element
+// (element_identity.md, qvn7ptxch12krxzt9hmg).
 const (
 	maxChildren = 32
 	maxLeaf     = 32
@@ -21,10 +27,7 @@ type node[T any] struct {
 }
 
 func newLeaf[T any](less func(a, b T) bool) *node[T] {
-	return &node[T]{
-		D:    make([]T, 0, maxLeaf),
-		Less: less,
-	}
+	return &node[T]{Less: less}
 }
 
 func newParent[T any](less func(a, b T) bool) *node[T] {
@@ -340,7 +343,7 @@ func (n *node[T]) leafAdd(v T) (added, overflow bool) {
 	if found {
 		return false, false
 	}
-	if len(n.D) == cap(n.D) {
+	if len(n.D) == maxLeaf {
 		return false, true
 	}
 	n.D = slices.Insert(n.D, index, v)
