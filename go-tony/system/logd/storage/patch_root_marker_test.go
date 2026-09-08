@@ -211,7 +211,7 @@ func markerDoesNotReachTheDocument(t *testing.T, snapshot bool) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			doc, err := s.ReadStateAt("", c, nil)
+			doc, err := readStateAt(s, "", c, nil)
 			if err != nil {
 				t.Fatalf("baseline read: %v", err)
 			}
@@ -255,7 +255,7 @@ func TestARelativeRootWriteDoesNotDestroyTheDocument(t *testing.T) {
 			mustCommit(t, s, nil, `{k1: 5, k2: 16, a: {z: 1}}`)
 			c := commitAt(t, s, nil, tc.path, tc.write)
 
-			doc, err := s.ReadStateAt("", c, nil)
+			doc, err := readStateAt(s, "", c, nil)
 			if err != nil {
 				t.Fatalf("read: %v", err)
 			}
@@ -319,7 +319,7 @@ func TestANarrowReadDoesNotDropAWriteMarkedAboveIt(t *testing.T) {
 				}
 				c := commitAt(t, s, nil, tc.writePath, tc.write)
 
-				wide, err := s.ReadStateAt("", c, nil)
+				wide, err := readStateAt(s, "", c, nil)
 				if err != nil {
 					t.Fatalf("wide read: %v", err)
 				}
@@ -327,7 +327,7 @@ func TestANarrowReadDoesNotDropAWriteMarkedAboveIt(t *testing.T) {
 				if err != nil {
 					t.Fatalf("navigate %q: %v", tc.readPath, err)
 				}
-				got, narrowed, err := s.ReadSubtreeAt(tc.readPath, c, nil)
+				got, narrowed, err := readSubtreeAt(s, tc.readPath, c, nil)
 				if err != nil {
 					t.Fatalf("narrow read %q: %v", tc.readPath, err)
 				}
@@ -355,7 +355,7 @@ func TestANarrowReadOfAnEntitySeesTheWriteThatUpdatedIt(t *testing.T) {
 	}
 	c := commitAt(t, s, nil, "verse.entities.e2", `{id: e2, n: 7}`)
 
-	got, narrowed, err := s.ReadSubtreeRootedAt("verse.entities.e2.n", c, nil)
+	got, narrowed, err := readSubtreeRootedAt(s, "verse.entities.e2.n", c, nil)
 	if err != nil {
 		t.Fatalf("narrow read: %v", err)
 	}
@@ -390,7 +390,7 @@ func TestANarrowReadReRootsAMarkerOntoAnOperator(t *testing.T) {
 	}
 	c := commitAt(t, s, nil, "a", `!rename [{from: "k1", to: "k1"}]`)
 
-	wide, err := s.ReadStateAt("", c, nil)
+	wide, err := readStateAt(s, "", c, nil)
 	if err != nil {
 		t.Fatalf("wide read: %v", err)
 	}
@@ -398,7 +398,7 @@ func TestANarrowReadReRootsAMarkerOntoAnOperator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("navigate: %v", err)
 	}
-	got, narrowed, err := s.ReadSubtreeAt("a", c, nil)
+	got, narrowed, err := readSubtreeAt(s, "a", c, nil)
 	if err != nil {
 		t.Fatalf("narrow read: %v", err)
 	}

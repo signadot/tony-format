@@ -40,14 +40,14 @@ func TestScopedWatchReadCostPerEvent(t *testing.T) {
 
 		// What the watcher's recompute did before a scoped read could narrow.
 		wide := timeN(reps, func() {
-			if _, err := s.ReadStateAt("watched.leaf", commit, &scope); err != nil {
+			if _, err := readStateAt(s, "watched.leaf", commit, &scope); err != nil {
 				t.Fatalf("wide: %v", err)
 			}
 		})
 		// What it does now: readDocAt's narrow read at the watched path.
 		var got bool
 		narrow := timeN(reps, func() {
-			_, ok, err := s.ReadSubtreeRootedAt("watched.leaf", commit, &scope)
+			_, ok, err := readSubtreeRootedAt(s, "watched.leaf", commit, &scope)
 			if err != nil {
 				t.Fatalf("narrow: %v", err)
 			}

@@ -114,7 +114,7 @@ func TestAScopedWriteIsAStandingClaim(t *testing.T) {
 		// rooted at the store's root whatever path it is asked for, so the reading
 		// has to be navigated to rather than taken whole.
 		readClaim := func(p string, c int64) (string, error) {
-			doc, err := s.ReadStateAt(p, c, &sc)
+			doc, err := readStateAt(s, p, c, &sc)
 			if err != nil {
 				return "", err
 			}

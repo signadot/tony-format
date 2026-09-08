@@ -98,7 +98,7 @@ func TestTick_WatermarkAlwaysReadableUnderConcurrency(t *testing.T) {
 			}
 			// The watermark claims c is readable: a state read at c must work, and c
 			// must not be beyond what the index knows.
-			if _, err := s.ReadStateAt("", c, nil); err != nil {
+			if _, err := readStateAt(s, "", c, nil); err != nil {
 				select {
 				case bad <- fmt.Sprintf("ReadStateAt(%d): %v", c, err):
 				default:

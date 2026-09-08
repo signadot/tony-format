@@ -72,7 +72,7 @@ func TestRawSurvivesEveryBase(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			doc, err := s.ReadStateAt("", commit, nil)
+			doc, err := readStateAt(s, "", commit, nil)
 			if err != nil {
 				t.Fatalf("the store cannot be read: %v", err)
 			}

@@ -55,7 +55,7 @@ func narrowScopedReadMatches(t *testing.T, gen func(*rand.Rand, int) []scopeOp) 
 				}
 			}
 
-			wide, err := s.ReadStateAt("", c, &sc)
+			wide, err := readStateAt(s, "", c, &sc)
 			if err != nil {
 				t.Fatalf("seed %d op %d: wide scoped read: %v", seed, i, err)
 			}
@@ -75,7 +75,7 @@ func narrowScopedReadMatches(t *testing.T, gen func(*rand.Rand, int) []scopeOp) 
 					// narrow read declines those; nothing to compare.
 					continue
 				}
-				got, ok, err := s.ReadSubtreeAt(kp, c, &sc)
+				got, ok, err := readSubtreeAt(s, kp, c, &sc)
 				if err != nil {
 					t.Fatalf("seed %d op %d: narrow scoped read %q: %v", seed, i, kp, err)
 				}
@@ -134,13 +134,13 @@ func TestNarrowScopedReadDoesNotReplayTheScope(t *testing.T) {
 		}
 
 		wide := timeN(reps, func() {
-			if _, err := s.ReadStateAt("b.y", commit, &scope); err != nil {
+			if _, err := readStateAt(s, "b.y", commit, &scope); err != nil {
 				t.Fatalf("wide: %v", err)
 			}
 		})
 		var got *ir.Node
 		narrow := timeN(reps, func() {
-			n, ok, err := s.ReadSubtreeAt("b.y", commit, &scope)
+			n, ok, err := readSubtreeAt(s, "b.y", commit, &scope)
 			if err != nil || !ok {
 				t.Fatalf("narrow declined or failed: ok=%v err=%v", ok, err)
 			}

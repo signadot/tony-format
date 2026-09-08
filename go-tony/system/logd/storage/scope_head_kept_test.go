@@ -126,7 +126,7 @@ func readScope(t *testing.T, s *Storage, scope *string) string {
 	if err != nil {
 		t.Fatalf("GetCurrentCommit: %v", err)
 	}
-	doc, err := s.ReadStateAt("", commit, scope)
+	doc, err := readStateAt(s, "", commit, scope)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}

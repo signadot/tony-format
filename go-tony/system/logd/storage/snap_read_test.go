@@ -59,7 +59,7 @@ func TestSnapshotBoundsReplay(t *testing.T) {
 	// no-op — not a property worth relying on.
 	want := mustReadScope(t, s, commit, nil)
 	for _, kp := range []string{"demo", "demo.x", "demo.x.hot", "other.y.untouched", "never.written"} {
-		got, err := s.ReadStateAt(kp, commit, nil)
+		got, err := readStateAt(s, kp, commit, nil)
 		if err != nil {
 			t.Fatalf("ReadStateAt(%q): %v", kp, err)
 		}

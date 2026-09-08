@@ -87,7 +87,7 @@ func TestAScopeStoresClaimsNotDifferences(t *testing.T) {
 				t.Fatalf("GetCurrentCommit: %v", err)
 			}
 			sc := scope
-			doc, err := s.ReadStateAt("", commit, &sc)
+			doc, err := readStateAt(s, "", commit, &sc)
 			if err != nil {
 				t.Fatalf("scoped read: %v", err)
 			}
@@ -185,7 +185,7 @@ func TestAClaimKeepsItsDeletesWhateverOrderTheyCome(t *testing.T) {
 				if err != nil {
 					t.Fatalf("GetCurrentCommit: %v", err)
 				}
-				doc, err := s.ReadStateAt("", c, &sc)
+				doc, err := readStateAt(s, "", c, &sc)
 				if err != nil {
 					t.Fatalf("scoped read %s: %v", when, err)
 				}

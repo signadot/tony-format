@@ -35,7 +35,7 @@ func TestNarrowReadIgnoresSiblingWrites(t *testing.T) {
 	read := func() time.Duration {
 		commit, _ := s.GetCurrentCommit()
 		start := time.Now()
-		if _, ok, err := s.ReadSubtreeAt("verse.meta.rev", commit, nil); err != nil || !ok {
+		if _, ok, err := readSubtreeAt(s, "verse.meta.rev", commit, nil); err != nil || !ok {
 			t.Fatalf("narrow read: ok=%v err=%v", ok, err)
 		}
 		return time.Since(start)

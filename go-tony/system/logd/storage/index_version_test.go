@@ -26,7 +26,7 @@ func TestPreFixIndexIsRebuiltFromTheLogs(t *testing.T) {
 		subtreeWrite(t, s, "verse.entities.e"+strconv.Itoa(i), "{n: "+strconv.Itoa(i)+"}")
 	}
 	commit, _ := s.GetCurrentCommit()
-	want, err := s.ReadStateAt("", commit, nil)
+	want, err := readStateAt(s, "", commit, nil)
 	if err != nil {
 		t.Fatalf("read: %s", err)
 	}
@@ -54,7 +54,7 @@ func TestPreFixIndexIsRebuiltFromTheLogs(t *testing.T) {
 		t.Fatalf("reopen: %s", err)
 	}
 	commit2, _ := s2.GetCurrentCommit()
-	got, err := s2.ReadStateAt("", commit2, nil)
+	got, err := readStateAt(s2, "", commit2, nil)
 	if err != nil {
 		t.Fatalf("read after reopen: %s", err)
 	}

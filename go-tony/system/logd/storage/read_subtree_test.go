@@ -73,7 +73,7 @@ func TestReadSubtreeMatchesTheWideRead(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			full, err := s.ReadStateAt("", commit, nil)
+			full, err := readStateAt(s, "", commit, nil)
 			if err != nil {
 				t.Fatalf("wide read: %s", err)
 			}
@@ -86,7 +86,7 @@ func TestReadSubtreeMatchesTheWideRead(t *testing.T) {
 				if err != nil {
 					t.Fatalf("navigate %q: %s", kp, err)
 				}
-				got, narrowed, err := s.ReadSubtreeAt(kp, commit, nil)
+				got, narrowed, err := readSubtreeAt(s, kp, commit, nil)
 				if err != nil {
 					t.Fatalf("narrow read %q: %s", kp, err)
 				}
@@ -117,13 +117,13 @@ func TestReadSubtreeIsNarrowerThanTheDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	full, err := s.ReadStateAt("", commit, nil)
+	full, err := readStateAt(s, "", commit, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	wide := len(mustEncode(t, full))
 
-	got, narrowed, err := s.ReadSubtreeAt("verse.meta.rev", commit, nil)
+	got, narrowed, err := readSubtreeAt(s, "verse.meta.rev", commit, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestReadSubtreeFallsBackUnderAnOperator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	full, err := s.ReadStateAt("", commit, nil)
+	full, err := readStateAt(s, "", commit, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +157,7 @@ func TestReadSubtreeFallsBackUnderAnOperator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, narrowed, err := s.ReadSubtreeAt("verse.entities.e1", commit, nil)
+	_, narrowed, err := readSubtreeAt(s, "verse.entities.e1", commit, nil)
 	if err != nil {
 		t.Fatalf("narrow read: %s", err)
 	}
@@ -203,18 +203,18 @@ func TestReadSubtreeCostsLessThanTheDocument(t *testing.T) {
 	}
 
 	wide := best(func() {
-		if _, err := s.ReadStateAt("verse.meta.rev", commit, nil); err != nil {
+		if _, err := readStateAt(s, "verse.meta.rev", commit, nil); err != nil {
 			t.Fatal(err)
 		}
 	})
 	narrow := best(func() {
-		n, ok, err := s.ReadSubtreeAt("verse.meta.rev", commit, nil)
+		n, ok, err := readSubtreeAt(s, "verse.meta.rev", commit, nil)
 		if err != nil || !ok || n == nil {
 			t.Fatalf("narrow read: ok=%v err=%v", ok, err)
 		}
 	})
 	entity := best(func() {
-		n, ok, err := s.ReadSubtreeAt("verse.entities.e7", commit, nil)
+		n, ok, err := readSubtreeAt(s, "verse.entities.e7", commit, nil)
 		if err != nil || !ok || n == nil {
 			t.Fatalf("narrow read: ok=%v err=%v", ok, err)
 		}

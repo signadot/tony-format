@@ -167,7 +167,7 @@ type readResult struct {
 }
 
 func read(s *Storage, kp string, commit int64) readResult {
-	n, err := s.ReadStateAt(kp, commit, nil)
+	n, err := readStateAt(s, kp, commit, nil)
 	return readResult{node: n, err: err}
 }
 

@@ -249,7 +249,7 @@ func TestStorage_DurabilitySync(t *testing.T) {
 	for i := range 3 {
 		last = commitValue(t, s1, fmt.Sprintf("{k%d: %d}", i, i))
 	}
-	before, err := s1.ReadStateAt("", last, nil)
+	before, err := readStateAt(s1, "", last, nil)
 	if err != nil {
 		t.Fatalf("ReadStateAt: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestStorage_DurabilitySync(t *testing.T) {
 	}
 	defer s2.Close()
 
-	after, err := s2.ReadStateAt("", last, nil)
+	after, err := readStateAt(s2, "", last, nil)
 	if err != nil {
 		t.Fatalf("ReadStateAt after reopen: %v", err)
 	}

@@ -35,6 +35,16 @@ type ReadStats struct {
 	WideNonField   int64
 	NarrowDuration time.Duration
 	WideDuration   time.Duration
+
+	// The bound, in the terms read_write_interface.md states it: what reads emitted,
+	// the largest single record any read had to hold to do so, and whether the seek
+	// found a snapshot at or above the path. A bound that is not measured is a comment;
+	// these are what says the working set of a read is the answer's size and one record,
+	// and not the history beneath the path.
+	BytesEmitted  int64
+	LargestRecord int64
+	SeekHit       int64
+	SeekMiss      int64
 }
 
 type readStats struct {
@@ -47,6 +57,27 @@ type readStats struct {
 	wideNonField   atomic.Int64
 	narrowDuration atomic.Int64
 	wideDuration   atomic.Int64
+	bytesEmitted   atomic.Int64
+	largestRecord  atomic.Int64
+	seekHit        atomic.Int64
+	seekMiss       atomic.Int64
+}
+
+// noteBound records one read against the bound: the bytes it emitted, the largest record
+// it buffered, and whether its seek found a snapshot at or above its path.
+func (r *readStats) noteBound(emitted, largest int64, seekHit bool) {
+	r.bytesEmitted.Add(emitted)
+	for {
+		cur := r.largestRecord.Load()
+		if largest <= cur || r.largestRecord.CompareAndSwap(cur, largest) {
+			break
+		}
+	}
+	if seekHit {
+		r.seekHit.Add(1)
+	} else {
+		r.seekMiss.Add(1)
+	}
 }
 
 // note records one read at a path, and says so when O_DEBUG_READ is set.
@@ -87,6 +118,10 @@ func (r *readStats) snapshot() ReadStats {
 		WideNonField:   r.wideNonField.Load(),
 		NarrowDuration: time.Duration(r.narrowDuration.Load()),
 		WideDuration:   time.Duration(r.wideDuration.Load()),
+		BytesEmitted:   r.bytesEmitted.Load(),
+		LargestRecord:  r.largestRecord.Load(),
+		SeekHit:        r.seekHit.Load(),
+		SeekMiss:       r.seekMiss.Load(),
 	}
 }
 
@@ -111,6 +146,10 @@ func (r ReadStats) Report() map[string]any {
 		"reads.wide.absent":       r.WideAbsent,
 		"reads.wide.keyed-or-idx": r.WideNonField,
 		"reads.wide.bad-path":     r.WideBadPath,
+		"reads.bytes":             r.BytesEmitted,
+		"reads.record.max":        r.LargestRecord,
+		"reads.seek.hit":          r.SeekHit,
+		"reads.seek.miss":         r.SeekMiss,
 	}
 	if r.Narrow > 0 {
 		m["reads.narrow.avg"] = (r.NarrowDuration / time.Duration(r.Narrow)).Round(time.Microsecond).String()

@@ -30,7 +30,7 @@ func applyOpLoweredByClient(t *testing.T, s *Storage, o genOp) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	base, err := s.ReadStateAt("", commit, nil)
+	base, err := readStateAt(s, "", commit, nil)
 	if err != nil {
 		return 0, err
 	}

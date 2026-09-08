@@ -35,7 +35,7 @@ func TestDottedFieldNameAcrossASnapshot(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: current commit: %s", when, err)
 		}
-		root, err := s.ReadStateAt("", commit, nil)
+		root, err := readStateAt(s, "", commit, nil)
 		if err != nil {
 			t.Fatalf("%s: read: %s", when, err)
 		}
@@ -103,7 +103,7 @@ func TestDottedFieldNameAcrossASnapshot(t *testing.T) {
 
 	// the ids are the fields of one object, not a tree the dots dug
 	commit, _ := s.GetCurrentCommit()
-	root, err := s.ReadStateAt("", commit, nil)
+	root, err := readStateAt(s, "", commit, nil)
 	if err != nil {
 		t.Fatalf("read: %s", err)
 	}

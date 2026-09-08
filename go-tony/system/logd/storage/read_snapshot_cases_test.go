@@ -30,7 +30,7 @@ func TestSnapshotRead_NewSubtreeSurvives(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := s.ReadStateAt("", commit, nil)
+	got, err := readStateAt(s, "", commit, nil)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestSnapshotRead_NewSubtreeSurvives(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err = s.ReadStateAt("", commit, nil)
+	got, err = readStateAt(s, "", commit, nil)
 	if err != nil {
 		t.Fatalf("read after second snapshot: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestSnapshotRead_AncestorWriteKeepsDescendantWrites(t *testing.T) {
 
 	// Read at the root: on the current tree only a root read consults a snapshot at
 	// all, so a repro that reads at "a.b" passes for the wrong reason.
-	got, err := s.ReadStateAt("", commit, nil)
+	got, err := readStateAt(s, "", commit, nil)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestSnapshotRead_AncestorDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := s.ReadStateAt("", commit, nil)
+	got, err := readStateAt(s, "", commit, nil)
 	if err != nil {
 		t.Errorf("read after an ancestor delete: %v", err)
 	} else {
@@ -153,7 +153,7 @@ func TestSnapshotRead_RootDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.ReadStateAt("", commit, nil)
+	got, err := readStateAt(s, "", commit, nil)
 	if err != nil {
 		t.Fatalf("read after deleting the document: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestSnapshotRead_RootDelete(t *testing.T) {
 	if err := s.SwitchDLog(); err != nil {
 		t.Fatalf("snapshot of an empty document: %v", err)
 	}
-	got, err = s.ReadStateAt("", commit, nil)
+	got, err = readStateAt(s, "", commit, nil)
 	if err != nil {
 		t.Fatalf("read through an empty snapshot: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestSnapshotRead_RootDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err = s.ReadStateAt("", commit, nil)
+	got, err = readStateAt(s, "", commit, nil)
 	if err != nil {
 		t.Fatalf("read after writing onto an empty snapshot: %v", err)
 	}

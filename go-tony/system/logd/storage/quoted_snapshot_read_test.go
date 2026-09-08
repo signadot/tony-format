@@ -41,7 +41,7 @@ func TestNarrowReadOverQuotedSnapshotPaths(t *testing.T) {
 		t.Fatalf("commit: %s", err)
 	}
 
-	full, err := s.ReadStateAt("", commit, nil)
+	full, err := readStateAt(s, "", commit, nil)
 	if err != nil {
 		t.Fatalf("wide read: %s", err)
 	}
@@ -56,7 +56,7 @@ func TestNarrowReadOverQuotedSnapshotPaths(t *testing.T) {
 			if err != nil {
 				t.Fatalf("navigate %q: %s", path, err)
 			}
-			got, narrowed, err := s.ReadSubtreeAt(path, commit, nil)
+			got, narrowed, err := readSubtreeAt(s, path, commit, nil)
 			if err != nil {
 				t.Fatalf("narrow read: %s", err)
 			}

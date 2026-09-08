@@ -37,7 +37,7 @@ func TestBaseline_CostSinceSnapshot(t *testing.T) {
 			t.Fatalf("GetCurrentCommit: %v", err)
 		}
 		d := timeN(reps, func() {
-			if _, err := s.ReadStateAt("", commit, nil); err != nil {
+			if _, err := readStateAt(s, "", commit, nil); err != nil {
 				t.Fatalf("read: %v", err)
 			}
 		})

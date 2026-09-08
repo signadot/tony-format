@@ -46,7 +46,7 @@ func readAll(t *testing.T, s *Storage) *ir.Node {
 	if err != nil {
 		t.Fatalf("GetCurrentCommit: %v", err)
 	}
-	doc, err := s.ReadStateAt("", c, nil)
+	doc, err := readStateAt(s, "", c, nil)
 	if err != nil {
 		t.Fatalf("ReadStateAt(commit=%d): %v", c, err)
 	}

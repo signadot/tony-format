@@ -40,7 +40,7 @@ func TestCommentedPayloadIsReadable(t *testing.T) {
 		t.Fatalf("commit: %v", r.Error)
 	}
 
-	got, err := s.ReadStateAt("", r.Commit, nil)
+	got, err := readStateAt(s, "", r.Commit, nil)
 	if err != nil {
 		t.Fatalf("read of a commented payload: %v", err)
 	}

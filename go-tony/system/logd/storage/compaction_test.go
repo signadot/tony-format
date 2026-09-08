@@ -523,7 +523,7 @@ func TestCompact_SustainedWriteDeleteLoad(t *testing.T) {
 		t.Fatalf("GetCurrentCommit failed: %v", err)
 	}
 
-	state, err := s.ReadStateAt("", commit, nil)
+	state, err := readStateAt(s, "", commit, nil)
 	if err != nil {
 		t.Fatalf("ReadStateAt failed after compactions: %v", err)
 	}

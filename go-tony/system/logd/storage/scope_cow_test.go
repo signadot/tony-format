@@ -34,7 +34,7 @@ func mustCommit(t *testing.T, s *Storage, scope *string, src string) int64 {
 
 func mustReadScope(t *testing.T, s *Storage, commit int64, scope *string) *ir.Node {
 	t.Helper()
-	n, err := s.ReadStateAt("", commit, scope)
+	n, err := readStateAt(s, "", commit, scope)
 	if err != nil {
 		t.Fatalf("ReadStateAt(scope=%v): %v", scope, err)
 	}
@@ -241,7 +241,7 @@ func TestScope_ReadAbsentPathIsEmpty(t *testing.T) {
 		name  string
 		scope *string
 	}{{"baseline", nil}, {"scoped", &sc}} {
-		got, err := s.ReadStateAt("verse.local.status", c, tc.scope)
+		got, err := readStateAt(s, "verse.local.status", c, tc.scope)
 		if err != nil {
 			t.Errorf("%s: absent-path read errored: %v", tc.name, err)
 		}
@@ -253,7 +253,7 @@ func TestScope_ReadAbsentPathIsEmpty(t *testing.T) {
 	// Once the scope populates the path, the scoped read returns its data — the empty
 	// baseline is layered under the scope's patches, not lost.
 	c2 := mustCommit(t, s, &sc, `{verse: {local: {status: {f0: {v: 0}}}}}`)
-	got, err := s.ReadStateAt("verse.local.status", c2, &sc)
+	got, err := readStateAt(s, "verse.local.status", c2, &sc)
 	if err != nil {
 		t.Fatalf("scoped read after populate: %v", err)
 	}

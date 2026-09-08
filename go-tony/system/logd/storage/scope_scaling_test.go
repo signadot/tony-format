@@ -98,7 +98,7 @@ func TestScaling_Reads(t *testing.T) {
 	for _, n := range sizes {
 		s, commit := setupStore(t, n, 0, &scope)
 		d := timeN(reps, func() {
-			if _, err := s.ReadStateAt("", commit, nil); err != nil {
+			if _, err := readStateAt(s, "", commit, nil); err != nil {
 				t.Fatalf("read: %v", err)
 			}
 		})
@@ -110,7 +110,7 @@ func TestScaling_Reads(t *testing.T) {
 	for _, n := range sizes {
 		s, commit := setupStore(t, 1, n, &scope)
 		d := timeN(reps, func() {
-			if _, err := s.ReadStateAt("", commit, &scope); err != nil {
+			if _, err := readStateAt(s, "", commit, &scope); err != nil {
 				t.Fatalf("read: %v", err)
 			}
 		})
@@ -122,7 +122,7 @@ func TestScaling_Reads(t *testing.T) {
 	for _, n := range sizes {
 		s, commit := setupStore(t, n, 1, &scope)
 		d := timeN(reps, func() {
-			if _, err := s.ReadStateAt("", commit, &scope); err != nil {
+			if _, err := readStateAt(s, "", commit, &scope); err != nil {
 				t.Fatalf("read: %v", err)
 			}
 		})
@@ -197,7 +197,7 @@ func TestScaling_WatchPerEvent(t *testing.T) {
 	t.Log("baseline watcher per event (step the document by the committed patch):")
 	for _, n := range sizes {
 		s, commit := setupStore(t, n, 0, &scope)
-		doc, err := s.ReadStateAt("", commit, nil)
+		doc, err := readStateAt(s, "", commit, nil)
 		if err != nil {
 			t.Fatalf("seed read: %v", err)
 		}
@@ -217,7 +217,7 @@ func TestScaling_WatchPerEvent(t *testing.T) {
 	for _, n := range sizes {
 		s, commit := setupStore(t, 1, n, &scope)
 		d := timeN(reps, func() {
-			if _, err := s.ReadStateAt("", commit, &scope); err != nil {
+			if _, err := readStateAt(s, "", commit, &scope); err != nil {
 				t.Fatalf("recompute: %v", err)
 			}
 		})

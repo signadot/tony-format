@@ -174,7 +174,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	commit3 := commitPatch(`{city: "NYC"}`)
 
 	// Verify state before snapshot
-	stateBefore, err := s.ReadStateAt("", commit3, nil)
+	stateBefore, err := readStateAt(s, "", commit3, nil)
 	if err != nil {
 		t.Fatalf("ReadStateAt(commit3) error = %v", err)
 	}
@@ -216,7 +216,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	// Stage 4: Read state at various points and verify snapshot is used
 
 	// Read at commit3 (should use snapshot, no patches needed)
-	stateAt3, err := s.ReadStateAt("", commit3, nil)
+	stateAt3, err := readStateAt(s, "", commit3, nil)
 	if err != nil {
 		t.Fatalf("ReadStateAt(commit3) error = %v", err)
 	}
@@ -226,7 +226,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	}
 
 	// Read at commit5 (should use snapshot + 2 patches)
-	stateAt5, err := s.ReadStateAt("", 5, nil)
+	stateAt5, err := readStateAt(s, "", 5, nil)
 	if err != nil {
 		t.Fatalf("ReadStateAt(commit5) error = %v", err)
 	}
@@ -240,7 +240,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	}
 
 	// Read at commit6 (should use snapshot + 3 patches)
-	stateAt6, err := s.ReadStateAt("", commit6, nil)
+	stateAt6, err := readStateAt(s, "", commit6, nil)
 	if err != nil {
 		t.Fatalf("ReadStateAt(commit6) error = %v", err)
 	}
@@ -262,7 +262,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	commit7 := commitPatch(`{premium: true}`)
 
 	// Read at commit7 (should use second snapshot + 1 patch)
-	stateAt7, err := s.ReadStateAt("", commit7, nil)
+	stateAt7, err := readStateAt(s, "", commit7, nil)
 	if err != nil {
 		t.Fatalf("ReadStateAt(commit7) error = %v", err)
 	}
@@ -276,7 +276,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	}
 
 	// Stage 6: Verify reading at old commits still works with multiple snapshots
-	stateAt3Again, err := s.ReadStateAt("", commit3, nil)
+	stateAt3Again, err := readStateAt(s, "", commit3, nil)
 	if err != nil {
 		t.Fatalf("ReadStateAt(commit3 again) error = %v", err)
 	}

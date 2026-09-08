@@ -36,7 +36,7 @@ func TestKeyedReadIsCountedAsKeyed(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			before := s.ReadStats().WideNonField
-			node, narrowed, err := s.ReadSubtreeAt(tc.kp, tc.commit, nil)
+			node, narrowed, err := readSubtreeAt(s, tc.kp, tc.commit, nil)
 			if err != nil {
 				t.Fatalf("ReadSubtreeAt(%q): %v", tc.kp, err)
 			}
@@ -65,10 +65,10 @@ func TestAKeyedElementTheNarrowReadDeclinesIsStillThere(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCurrentCommit: %v", err)
 	}
-	if _, narrowed, err := s.ReadSubtreeAt(`items("G")`, c, nil); err != nil || narrowed {
+	if _, narrowed, err := readSubtreeAt(s, `items("G")`, c, nil); err != nil || narrowed {
 		t.Fatalf("the narrow read claimed a keyed path: narrowed=%v err=%v", narrowed, err)
 	}
-	doc, err := s.ReadStateAt("", c, nil)
+	doc, err := readStateAt(s, "", c, nil)
 	if err != nil {
 		t.Fatalf("ReadStateAt: %v", err)
 	}
@@ -92,12 +92,12 @@ func TestARootedReadDecidesBeforeItReads(t *testing.T) {
 	}
 
 	// the subtree read itself can address a position, and still does
-	if node, narrowed, err := s.ReadSubtreeAt("items[2]", c, nil); err != nil || !narrowed || node == nil {
+	if node, narrowed, err := readSubtreeAt(s, "items[2]", c, nil); err != nil || !narrowed || node == nil {
 		t.Fatalf("a positional subtree read stopped working: narrowed=%v node=%v err=%v", narrowed, node, err)
 	}
 
 	before := s.ReadStats()
-	if _, narrowed, err := s.ReadSubtreeRootedAt("items[2]", c, nil); err != nil || narrowed {
+	if _, narrowed, err := readSubtreeRootedAt(s, "items[2]", c, nil); err != nil || narrowed {
 		t.Fatalf("ReadSubtreeRootedAt(items[2]) narrowed=%v err=%v, want declined", narrowed, err)
 	}
 	after := s.ReadStats()

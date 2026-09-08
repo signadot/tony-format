@@ -130,7 +130,7 @@ func TestLoweringScopeDifferential(t *testing.T) {
 				}
 			}
 			sc := scope
-			wantScoped, err := plain.ReadStateAt("", cp, &sc)
+			wantScoped, err := readStateAt(plain, "", cp, &sc)
 			if err != nil {
 				for j := 0; j <= i; j++ {
 					t.Logf("  op %d %s", j, ops[j])
@@ -154,7 +154,7 @@ func TestLoweringScopeDifferential(t *testing.T) {
 				}
 				t.Fatalf("seed %d op %d: plain scope read: %v", seed, i, err)
 			}
-			gotScoped, err := low.ReadStateAt("", cl, &sc)
+			gotScoped, err := readStateAt(low, "", cl, &sc)
 			if err != nil {
 				t.Fatalf("seed %d op %d: low scope read: %v", seed, i, err)
 			}
@@ -165,11 +165,11 @@ func TestLoweringScopeDifferential(t *testing.T) {
 				break
 			}
 			// And baseline, which a scope write must not disturb.
-			wantBase, err := plain.ReadStateAt("", cp, nil)
+			wantBase, err := readStateAt(plain, "", cp, nil)
 			if err != nil {
 				t.Fatalf("seed %d op %d: plain baseline read: %v", seed, i, err)
 			}
-			gotBase, err := low.ReadStateAt("", cl, nil)
+			gotBase, err := readStateAt(low, "", cl, nil)
 			if err != nil {
 				t.Fatalf("seed %d op %d: low baseline read: %v", seed, i, err)
 			}

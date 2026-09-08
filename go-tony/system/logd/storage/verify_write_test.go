@@ -120,10 +120,10 @@ func TestAScopedWriteThatCannotBeAppliedIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCurrentCommit: %v", err)
 	}
-	if _, err := s.ReadStateAt("", commit, &scope); err != nil {
+	if _, err := readStateAt(s, "", commit, &scope); err != nil {
 		t.Errorf("the scope is unreadable after a refused write: %v", err)
 	}
-	if _, err := s.ReadStateAt("", commit, nil); err != nil {
+	if _, err := readStateAt(s, "", commit, nil); err != nil {
 		t.Errorf("baseline is unreadable after a refused scoped write: %v", err)
 	}
 }

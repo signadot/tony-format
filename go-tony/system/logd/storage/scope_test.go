@@ -97,7 +97,7 @@ func TestScope_Isolation(t *testing.T) {
 	scopeCommit := result2.Commit
 
 	// 3. Verify baseline read sees only baseline data
-	baselineState, err := s.ReadStateAt("", scopeCommit, nil)
+	baselineState, err := readStateAt(s, "", scopeCommit, nil)
 	if err != nil {
 		t.Fatalf("baseline read error: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestScope_Isolation(t *testing.T) {
 	}
 
 	// 4. Verify scope read sees scope data (overrides baseline)
-	scopeState, err := s.ReadStateAt("", scopeCommit, &scope1)
+	scopeState, err := readStateAt(s, "", scopeCommit, &scope1)
 	if err != nil {
 		t.Fatalf("scope read error: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestScope_Isolation(t *testing.T) {
 	}
 
 	// 5. Verify historical baseline read still works
-	historicalState, err := s.ReadStateAt("", baselineCommit, nil)
+	historicalState, err := readStateAt(s, "", baselineCommit, nil)
 	if err != nil {
 		t.Fatalf("historical read error: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestScope_COWSemantics(t *testing.T) {
 	commit := result2.Commit
 
 	// 3. Read full state with scope
-	scopeState, err := s.ReadStateAt("", commit, &scope)
+	scopeState, err := readStateAt(s, "", commit, &scope)
 	if err != nil {
 		t.Fatalf("scope read error: %v", err)
 	}
@@ -217,19 +217,19 @@ func TestScope_MultipleScopes(t *testing.T) {
 	commit := result3.Commit
 
 	// 4. Verify each scope sees its own value
-	baselineState, _ := s.ReadStateAt("", commit, nil)
+	baselineState, _ := readStateAt(s, "", commit, nil)
 	baselineVal := getInt(baselineState, "counter")
 	if baselineVal != 0 {
 		t.Errorf("baseline: expected 0, got %d", baselineVal)
 	}
 
-	scope1State, _ := s.ReadStateAt("", commit, &scope1)
+	scope1State, _ := readStateAt(s, "", commit, &scope1)
 	scope1Val := getInt(scope1State, "counter")
 	if scope1Val != 100 {
 		t.Errorf("scope1: expected 100, got %d", scope1Val)
 	}
 
-	scope2State, _ := s.ReadStateAt("", commit, &scope2)
+	scope2State, _ := readStateAt(s, "", commit, &scope2)
 	scope2Val := getInt(scope2State, "counter")
 	if scope2Val != 200 {
 		t.Errorf("scope2: expected 200, got %d", scope2Val)
@@ -261,7 +261,7 @@ func TestScope_DeleteScope(t *testing.T) {
 	commit := result2.Commit
 
 	// 3. Verify scope data is visible
-	scopeState, _ := s.ReadStateAt("", commit, &scope)
+	scopeState, _ := readStateAt(s, "", commit, &scope)
 	scopeVal := getString(scopeState, "data")
 	if scopeVal != "scoped" {
 		t.Errorf("before delete: expected 'scoped', got %q", scopeVal)
@@ -273,7 +273,7 @@ func TestScope_DeleteScope(t *testing.T) {
 	}
 
 	// 5. Verify scope read now falls back to baseline (no scope data)
-	afterDeleteState, _ := s.ReadStateAt("", commit, &scope)
+	afterDeleteState, _ := readStateAt(s, "", commit, &scope)
 	afterDeleteVal := getString(afterDeleteState, "data")
 	if afterDeleteVal != "baseline" {
 		t.Errorf("after delete: expected 'baseline', got %q", afterDeleteVal)
@@ -416,7 +416,7 @@ func TestScope_BaselineAndScopePaths(t *testing.T) {
 	commit := result2.Commit
 
 	// Baseline read should only see path1, not path2
-	baselineState, _ := s.ReadStateAt("", commit, nil)
+	baselineState, _ := readStateAt(s, "", commit, nil)
 	baselinePath1 := getString(baselineState, "path1")
 	if baselinePath1 != "baseline" {
 		t.Errorf("baseline read path1: expected 'baseline', got %q", baselinePath1)
@@ -427,7 +427,7 @@ func TestScope_BaselineAndScopePaths(t *testing.T) {
 	}
 
 	// Scoped read should see both path1 (from baseline) and path2 (from scope)
-	scopeState, _ := s.ReadStateAt("", commit, &scope)
+	scopeState, _ := readStateAt(s, "", commit, &scope)
 	scopePath1 := getString(scopeState, "path1")
 	if scopePath1 != "baseline" {
 		t.Errorf("scope read path1: expected 'baseline', got %q", scopePath1)
@@ -463,14 +463,14 @@ func TestScope_EmptyScope(t *testing.T) {
 	commit := result2.Commit
 
 	// Baseline read
-	baselineState, _ := s.ReadStateAt("", commit, nil)
+	baselineState, _ := readStateAt(s, "", commit, nil)
 	baselineVal := getString(baselineState, "val")
 	if baselineVal != "baseline" {
 		t.Errorf("baseline: expected 'baseline', got %q", baselineVal)
 	}
 
 	// Empty scope read should see scope value
-	emptyState, _ := s.ReadStateAt("", commit, &emptyScope)
+	emptyState, _ := readStateAt(s, "", commit, &emptyScope)
 	emptyVal := getString(emptyState, "val")
 	if emptyVal != "empty-scope" {
 		t.Errorf("empty scope: expected 'empty-scope', got %q", emptyVal)

@@ -72,7 +72,7 @@ func TestArrayElementWriteKeepsItsOp(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetCurrentCommit: %v", err)
 			}
-			doc, err := s.ReadStateAt("", commit, nil)
+			doc, err := readStateAt(s, "", commit, nil)
 			if err != nil {
 				t.Fatalf("read after %s %s: %v", tc.path, tc.body, err)
 			}
@@ -102,7 +102,7 @@ func TestArrayElementInsertStoresNoMarker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCurrentCommit: %v", err)
 	}
-	doc, err := s.ReadStateAt("", commit, nil)
+	doc, err := readStateAt(s, "", commit, nil)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -273,7 +273,7 @@ func TestArrayElementWriteRecheckedAtCommit(t *testing.T) {
 
 func readWholeStore(t *testing.T, s *Storage, commit int64) string {
 	t.Helper()
-	doc, err := s.ReadStateAt("", commit, nil)
+	doc, err := readStateAt(s, "", commit, nil)
 	if err != nil {
 		t.Fatalf("read at %d: %v", commit, err)
 	}
@@ -332,7 +332,7 @@ func TestArrayElementWriteSeesItsOwnScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCurrentCommit: %v", err)
 	}
-	doc, err := s.ReadStateAt("", commit, &scope)
+	doc, err := readStateAt(s, "", commit, &scope)
 	if err != nil {
 		t.Fatalf("scoped read: %v", err)
 	}

@@ -234,7 +234,7 @@ func TestMigration_DualWrite(t *testing.T) {
 	duringCommit := result2.Commit
 
 	// Read from active index (baseline) - should see both users
-	state, err := s.ReadStateAt("", duringCommit, nil)
+	state, err := readStateAt(s, "", duringCommit, nil)
 	if err != nil {
 		t.Fatalf("ReadStateAt() error = %v", err)
 	}
@@ -254,7 +254,7 @@ func TestMigration_DualWrite(t *testing.T) {
 	}
 
 	// Read from new active index (was pending) - should see both users
-	stateAfter, err := s.ReadStateAt("", completeCommit, nil)
+	stateAfter, err := readStateAt(s, "", completeCommit, nil)
 	if err != nil {
 		t.Fatalf("ReadStateAt after complete() error = %v", err)
 	}
@@ -340,7 +340,7 @@ func TestMigration_ReplayPendingState(t *testing.T) {
 	}
 
 	// Verify data is accessible
-	state, err := s2.ReadStateAt("", duringCommit, nil)
+	state, err := readStateAt(s2, "", duringCommit, nil)
 	if err != nil {
 		t.Fatalf("ReadStateAt() error = %v", err)
 	}

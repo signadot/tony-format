@@ -25,7 +25,7 @@ func TestStoreOpensOverAnUnreadableRecord(t *testing.T) {
 		subtreeWrite(t, s, "verse.entities.e"+strconv.Itoa(i), "{id: e"+strconv.Itoa(i)+"}")
 	}
 	commit, _ := s.GetCurrentCommit()
-	before, err := s.ReadStateAt("", commit, nil)
+	before, err := readStateAt(s, "", commit, nil)
 	if err != nil {
 		t.Fatalf("read: %s", err)
 	}
@@ -68,7 +68,7 @@ func TestStoreOpensOverAnUnreadableRecord(t *testing.T) {
 	// And it reads, because the index no longer points past the bad record: the state
 	// it serves is the state it can actually produce.
 	commit, _ = s2.GetCurrentCommit()
-	if _, err := s2.ReadStateAt("", commit, nil); err != nil {
+	if _, err := readStateAt(s2, "", commit, nil); err != nil {
 		t.Errorf("reading what survived: %s", err)
 	}
 }

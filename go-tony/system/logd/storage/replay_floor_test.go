@@ -84,7 +84,7 @@ func TestReplayFloor_StateBelowFloorStillReadable(t *testing.T) {
 	if floor == 0 {
 		t.Fatal("expected a non-zero floor")
 	}
-	if _, err := s.ReadStateAt("", floor, nil); err != nil {
+	if _, err := readStateAt(s, "", floor, nil); err != nil {
 		t.Errorf("ReadStateAt(%d) below the floor returned err = %v, want nil", floor, err)
 	}
 }
