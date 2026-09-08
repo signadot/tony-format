@@ -53,14 +53,14 @@ func TestACommitRangeIsNotAContiguousRun(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := ends(idx.LookupRange("", test.from, test.to, nil))
+			got := ends(idx.lookupRange("", test.from, test.to, nil))
 			if !sameMultiset(got, test.want) {
 				t.Errorf("LookupRange gave EndCommits %v, want %v", got, test.want)
 			}
 			// The bounded answer must be exactly the unbounded one, filtered. That is
 			// the whole contract, and it is what a bound may not change.
 			var byHand []int64
-			for _, e := range ends(idx.LookupRange("", nil, nil, nil)) {
+			for _, e := range ends(idx.lookupRange("", nil, nil, nil)) {
 				if test.from != nil && e < *test.from {
 					continue
 				}
@@ -90,10 +90,10 @@ func TestLookupWithinFindsEverySegmentSpanningTheCommit(t *testing.T) {
 	} {
 		idx.Add(s)
 	}
-	got := len(idx.LookupWithin("", 4, nil))
+	got := len(idx.lookupWithin("", 4, nil))
 	// [3,4]tx-1, [3,4]tx4 and [4,5]tx5 all span commit 4.
 	if got != 3 {
-		t.Errorf("LookupWithin(4) found %d segments, want 3", got)
+		t.Errorf("lookupWithin(4) found %d segments, want 3", got)
 	}
 }
 

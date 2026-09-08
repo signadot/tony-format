@@ -46,7 +46,7 @@ func TestSnapshotBoundsReplay(t *testing.T) {
 			startCommit, want, snapCommit)
 	}
 
-	segs := s.index.LookupRange("", &startCommit, &commit, nil)
+	segs := segmentsAt(s.index, "", &startCommit, &commit, nil)
 	if len(segs) != after {
 		t.Errorf("replaying %d entries after the snapshot, want %d", len(segs), after)
 	}

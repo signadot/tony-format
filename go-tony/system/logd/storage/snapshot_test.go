@@ -85,7 +85,7 @@ func TestSwitchAndSnapshot(t *testing.T) {
 
 	// Verify snapshot entry was added to index
 	// Query for snapshot at commit 2
-	segments := s.index.LookupWithin("", commit, nil)
+	segments := segmentsAt(s.index, "", &commit, &commit, nil)
 	var foundSnapshot *index.LogSegment
 	for i := range segments {
 		seg := &segments[i]
@@ -193,7 +193,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	}
 
 	// Verify snapshot was created in index
-	segments := s.index.LookupWithin("", commit3, nil)
+	segments := segmentsAt(s.index, "", &commit3, &commit3, nil)
 	var foundSnapshot bool
 	for i := range segments {
 		seg := &segments[i]

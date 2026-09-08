@@ -33,11 +33,17 @@ func (s *Storage) SchemaFor(scopeID *string) *api.Schema {
 	return s.schemaForScope(scopeID)
 }
 
-// raiseState puts array-ness back on the keyed arrays in a STATE at document path kp in
-// the view scopeID names. A state is op-free: the arrays come back untagged, as a client's
-// own fold of the deltas leaves them.
-func (s *Storage) raiseState(scopeID *string, n *ir.Node, kp string) *ir.Node {
+// RaiseState puts array-ness back on the keyed arrays in a STATE at document path kp in
+// the view scopeID names -- what a caller at the boundary does to a node it collected from
+// Read before handing it to a client. A state is op-free: the arrays come back untagged,
+// as a client's own fold of the deltas leaves them. The store's own readers never call it;
+// the head and the write path speak the stored form.
+func (s *Storage) RaiseState(scopeID *string, n *ir.Node, kp string) *ir.Node {
 	return s.raise(scopeID, n, kp, false)
+}
+
+func (s *Storage) raiseState(scopeID *string, n *ir.Node, kp string) *ir.Node {
+	return s.RaiseState(scopeID, n, kp)
 }
 
 // raiseDelta puts array-ness back on the keyed arrays in a DELTA rooted at the document.

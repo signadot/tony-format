@@ -19,6 +19,9 @@ import (
 // Session represents a bidirectional session with a client.
 // It handles parsing requests, dispatching to handlers, and sending responses/events.
 type Session struct {
+	// readBudget is the largest node this session builds for one read; see SessionConfig.
+	readBudget int64
+
 	ID      string
 	conn    io.ReadWriteCloser
 	storage *storage.Storage
@@ -67,7 +70,16 @@ type SessionConfig struct {
 	OnCommit       func()   // called after successful commits (for snapshot tracking)
 	OutgoingBuffer int      // buffer size for outgoing channel (default 100)
 	Schema         *ir.Node // Server's schema (returned in hello response)
+	// ReadBudget is the largest node a session builds to answer one read: a match, a
+	// watch's initial state, the document a baseline watch steps. A read past it is
+	// refused with ErrBudget rather than held. Zero is DefaultReadBudget; every read
+	// that builds a node states a number (read_write_interface.md), and this is the
+	// session's.
+	ReadBudget int64
 }
+
+// DefaultReadBudget is the read budget a session has when its configuration names none.
+const DefaultReadBudget = 64 << 20
 
 // NewSession creates a new session for the given connection.
 func NewSession(id string, conn io.ReadWriteCloser, cfg *SessionConfig) *Session {
@@ -75,22 +87,27 @@ func NewSession(id string, conn io.ReadWriteCloser, cfg *SessionConfig) *Session
 	if bufSize <= 0 {
 		bufSize = 100
 	}
+	budget := cfg.ReadBudget
+	if budget <= 0 {
+		budget = DefaultReadBudget
+	}
 	log := cfg.Log
 	if log == nil {
 		log = slog.Default()
 	}
 	return &Session{
-		ID:        id,
-		readSlots: make(chan struct{}, maxConcurrentReads),
-		conn:      conn,
-		storage:   cfg.Storage,
-		hub:       cfg.Hub,
-		log:       log.With("session", id),
-		schema:    cfg.Schema,
-		watches:   make(map[string]*Watcher),
-		outgoing:  make(chan *api.SessionResponse, bufSize),
-		done:      make(chan struct{}),
-		onCommit:  cfg.OnCommit,
+		readBudget: budget,
+		ID:         id,
+		readSlots:  make(chan struct{}, maxConcurrentReads),
+		conn:       conn,
+		storage:    cfg.Storage,
+		hub:        cfg.Hub,
+		log:        log.With("session", id),
+		schema:     cfg.Schema,
+		watches:    make(map[string]*Watcher),
+		outgoing:   make(chan *api.SessionResponse, bufSize),
+		done:       make(chan struct{}),
+		onCommit:   cfg.OnCommit,
 	}
 }
 

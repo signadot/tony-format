@@ -24,7 +24,7 @@ func TestIndexAddLookupPointDiff(t *testing.T) {
 
 	// 2. Test LookupRange (exact matches only, no ancestors or descendants)
 
-	got := idx.LookupRange("foo.bar", nil, nil, nil)
+	got := idx.lookupRange("foo.bar", nil, nil, nil)
 
 	// LookupRange("foo.bar") navigates to "foo" child, which includes segments at "foo" level
 	// then navigates to "bar", so it returns both "foo" and "foo.bar"
@@ -72,8 +72,8 @@ func TestIndexRemove(t *testing.T) {
 
 	// LookupRange("", nil, nil, nil) only returns root-level segments, not child indices
 	// So we need to query the specific paths
-	gotFoo := idx.LookupRange("foo", nil, nil, nil)
-	gotQux := idx.LookupRange("qux", nil, nil, nil)
+	gotFoo := idx.lookupRange("foo", nil, nil, nil)
+	gotQux := idx.lookupRange("qux", nil, nil, nil)
 
 	// PointLogSegment(13, 103, "qux") creates StartCommit: 13, EndCommit: 13
 	quxSeg := PointLogSegment(13, 103, "qux")
@@ -112,7 +112,7 @@ func TestIndexPersist(t *testing.T) {
 
 	// Verify loaded index content
 	// LookupRange("foo.bar") includes ancestors, so it returns both "foo.bar" and "foo"
-	got := loadedIdx.LookupRange("foo.bar", nil, nil, nil)
+	got := loadedIdx.lookupRange("foo.bar", nil, nil, nil)
 	want := []LogSegment{segs[0], segs[1]} // "foo.bar" at commit 10, "foo" at commit 11 (ancestor)
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("Loaded Index mismatch (-want +got):\n%s", diff)

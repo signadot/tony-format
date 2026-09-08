@@ -150,7 +150,7 @@ func TestInsertingOneElementWritesOneName(t *testing.T) {
 		t.Errorf("writing D left no segment under its name; wrote %v", touched)
 	}
 	// And a client's merge, handed the raised delta, lands D beside the others.
-	ns, err := s.ReadPatchesInRange("", c, c, nil)
+	ns, err := readPatchesInRange(s, "", c, c, nil)
 	if err != nil || len(ns) != 1 {
 		t.Fatalf("delta for %d: %v %v", c, ns, err)
 	}
@@ -176,7 +176,7 @@ func TestDeletingOneElementIsRaisedAsAKeyedDelete(t *testing.T) {
 	if got := skuList(t, doc); !slices.Equal(got, []string{"B"}) {
 		t.Fatalf("after deleting A: %v", got)
 	}
-	ns, _ := s.ReadPatchesInRange("", c, c, nil)
+	ns, _ := readPatchesInRange(s, "", c, c, nil)
 	prev, _ := readStateAt(s, "", c0, nil)
 	next, err := api.NextState(prev, ns[0].Patch)
 	if err != nil {

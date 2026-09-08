@@ -158,7 +158,7 @@ func (i *Index) Remove(seg *LogSegment) bool {
 //
 // If scopeID is nil, returns only baseline segments.
 // If scopeID is non-nil, returns baseline + matching scope segments.
-func (i *Index) LookupRange(kp string, from, to *int64, scopeID *string) []LogSegment {
+func (i *Index) lookupRange(kp string, from, to *int64, scopeID *string) []LogSegment {
 	inRange := inCommitRange(from, to)
 	res := i.segmentsHere(commitsUpTo(to), func(c LogSegment) bool {
 		return inRange(c) && matchesScope(c.ScopeID, scopeID)
@@ -174,7 +174,7 @@ func (i *Index) LookupRange(kp string, from, to *int64, scopeID *string) []LogSe
 	if c == nil {
 		return res
 	}
-	res = appendRelative(res, firstSegment, c.LookupRange(restPath, from, to, scopeID))
+	res = appendRelative(res, firstSegment, c.lookupRange(restPath, from, to, scopeID))
 	slices.SortFunc(res, LogSegCompare)
 	return res
 }
@@ -298,76 +298,6 @@ func (i *Index) DropFrom(logFile string, pos int64) int {
 	return dropped
 }
 
-// LookupSubtree answers the distinct log entries in the commit range which can
-// affect the subtree at kp: the ones written AT or ABOVE it, since a write above
-// writes through it, and the ones written BELOW it, since they are part of the
-// subtree.  Each entry is answered ONCE, whichever of those it is, with the highest
-// path it was indexed at -- a reader applies an entry once and reads it from the log
-// by position, so a segment per path it touches is a repeat.
-//
-// This is the query a read at a path needs, and its absence is why reads were taken
-// at the root instead. A patch is indexed at every path inside it (IndexPatch), so
-// LookupRange at a narrow path answered the same set as the root with each entry
-// repeated once per level -- no selectivity, several times the cost
-// (ap8ddvp2h12krd43gdn0). Selectivity comes with indexing a patch at what it writes
-// rather than at every level; the descent here is what makes that possible without
-// losing the writes below.
-func (i *Index) LookupSubtree(kp string, from, to *int64, scopeID *string) []LogSegment {
-	res := i.lookupSubtree(kp, from, to, scopeID, true)
-	dedupEntries(&res)
-	slices.SortFunc(res, LogSegCompare)
-	return res
-}
-
-// lookupSubtree collects without sorting or deduping, so the recursion pays for
-// neither. scoped says whether scopeID filters at all -- LookupRangeAll asks for
-// every scope, which is a different question from asking for the baseline.
-func (i *Index) lookupSubtree(kp string, from, to *int64, scopeID *string, scoped bool) []LogSegment {
-	res := []LogSegment{}
-	i.RLock()
-	// Above the queried path, only writes which LAND here count. A patch which merely
-	// passed through on its way to a sibling is described by its own deeper segments,
-	// and taking it here is what made a narrow read replay every commit in the store:
-	// every patch is indexed at the root, so every read at every path collected all of
-	// them. Measured on staging, a narrow read averaged three seconds
-	// (ap8ddvp2h12krd43gdn0).
-	ancestor := kp != ""
-	inRange := inCommitRange(from, to)
-	i.Commits.Range(func(c LogSegment) bool {
-		if ancestor && c.Spine {
-			return true
-		}
-		if !inRange(c) {
-			return true
-		}
-		if !scoped || matchesScope(c.ScopeID, scopeID) {
-			res = append(res, c)
-		}
-		return true
-	}, commitsUpTo(to))
-
-	i.RUnlock()
-
-	// Everything below descends with this node's lock RELEASED: a walk holding it is a
-	// walk every write waits out (see childrenOf).
-	if kp == "" {
-		// At the queried path: everything below it is part of the subtree.
-		for _, child := range i.childrenOf() {
-			res = appendRelative(res, child.name, child.index.lookupSubtree("", from, to, scopeID, scoped))
-		}
-		return res
-	}
-
-	// Still walking down to the queried path.  This node's own segments were
-	// collected above, since a write here writes through kp.
-	firstSegment, restPath := kpath.Split(kp)
-	c := i.childOf(firstSegment)
-	if c == nil {
-		return res
-	}
-	return appendRelative(res, firstSegment, c.lookupSubtree(restPath, from, to, scopeID, scoped))
-}
-
 // appendRelative adds the child's segments to res, restoring the segment path the
 // child answered relative to itself.
 func appendRelative(res []LogSegment, name string, cRes []LogSegment) []LogSegment {
@@ -390,23 +320,6 @@ func appendRelative(res []LogSegment, name string, cRes []LogSegment) []LogSegme
 //
 // The path kept is the highest the entry was indexed at, which is the one a reader
 // can use to decide what the entry writes through.
-func dedupEntries(res *[]LogSegment) {
-	seen := make(map[segKey]int, len(*res))
-	out := (*res)[:0]
-	for _, seg := range *res {
-		k := segKey{seg.LogFile, seg.LogFileGeneration, seg.LogPosition, seg.StartTx, scopeKey(seg.ScopeID)}
-		if at, dup := seen[k]; dup {
-			if len(seg.KindedPath) < len(out[at].KindedPath) {
-				out[at].KindedPath = seg.KindedPath
-			}
-			continue
-		}
-		seen[k] = len(out)
-		out = append(out, seg)
-	}
-	*res = out
-}
-
 type segKey struct {
 	logFile    string
 	generation int64
@@ -489,12 +402,12 @@ func (i *Index) AllSegments() []LogSegment {
 	return res
 }
 
-// LookupWithin finds all segments at the given kpath where the commit is within
+// lookupWithin finds all segments at the given kpath where the commit is within
 // the segment's commit range (StartCommit <= commit <= EndCommit).
 // Returns ancestors and exact matches, just like LookupRange.
 // If scopeID is nil, returns only baseline segments.
 // If scopeID is non-nil, returns baseline + matching scope segments.
-func (i *Index) LookupWithin(kp string, commit int64, scopeID *string) []LogSegment {
+func (i *Index) lookupWithin(kp string, commit int64, scopeID *string) []LogSegment {
 	res := i.segmentsHere(commitsUpTo(&commit), func(c LogSegment) bool {
 		return c.StartCommit <= commit && commit <= c.EndCommit && matchesScope(c.ScopeID, scopeID)
 	})
@@ -507,7 +420,7 @@ func (i *Index) LookupWithin(kp string, commit int64, scopeID *string) []LogSegm
 	if c == nil {
 		return res
 	}
-	cRes := c.LookupWithin(restPath, commit, scopeID)
+	cRes := c.lookupWithin(restPath, commit, scopeID)
 	for j := range cRes {
 		seg := cRes[j]
 		if seg.KindedPath == "" {
@@ -649,7 +562,7 @@ func (i *Index) ListRange(from, to *int64, scopeID *string) []string {
 	snap := i.childrenOf()
 	children := make([]string, 0, len(snap))
 	for _, child := range snap {
-		if len(child.index.LookupRange("", from, to, scopeID)) == 0 {
+		if len(child.index.lookupRange("", from, to, scopeID)) == 0 {
 			continue
 		}
 		children = append(children, child.name) // already a valid kpath segment

@@ -169,27 +169,12 @@ func (s *Storage) createSnapshot(commit int64) error {
 	}
 	defer baseReader.Close()
 
-	// Get patches from startCommit to commit
-	segments := s.index.LookupRange("", &startCommit, &commit, nil)
-
-	// Extract patch nodes, filtering out snapshots
-	var patchNodes []*ir.Node
-	for _, seg := range segments {
-		// Skip snapshots (StartCommit == EndCommit)
-		if seg.StartCommit == seg.EndCommit {
-			continue
-		}
-
-		// Read patch from dlog
-		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition, seg.LogFileGeneration)
-		if err != nil {
-			return fmt.Errorf("failed to read patch entry: %w", err)
-		}
-		if entry.Patch == nil {
-			continue
-		}
-
-		patchNodes = append(patchNodes, entry.Patch)
+	// The writes since that snapshot, one record at a time off the index's cursor. What
+	// is held is the entries of one snapshot interval, which is the interval's to bound
+	// and not history's.
+	patchNodes, err := s.patchesSince(startCommit, commit)
+	if err != nil {
+		return err
 	}
 
 	// Create snapshot writer for inactive log
@@ -288,4 +273,61 @@ func (ser *sliceEventReader) ReadEvent() (*stream.Event, error) {
 
 func (ser *sliceEventReader) Close() error {
 	return nil
+}
+
+// patchesSince answers the baseline entries in [from, to], in commit order, for the
+// snapshot builders: what a root read folds, held as the builder wants it.
+func (s *Storage) patchesSince(from, to int64) ([]*ir.Node, error) {
+	var patchNodes []*ir.Node
+	for seg := range s.index.Segments("", &from, &to, nil) {
+		if seg.StartCommit == seg.EndCommit {
+			continue
+		}
+		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition, seg.LogFileGeneration)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read patch entry: %w", err)
+		}
+		if entry.Patch == nil {
+			continue
+		}
+		patchNodes = append(patchNodes, entry.Patch)
+	}
+	return patchNodes, nil
+}
+
+// findSubtreeBaseReader is findSnapshotBaseReader, reading the snapshot AT kp.
+//
+// The snapshot segment is still looked up at the root, because that is where a snapshot
+// is indexed -- looking it up at the read's path finds nothing and silently replays from
+// commit 0 (bvm163tyh12krwcqcsn0). What kp narrows is the read WITHIN the snapshot: its
+// index maps paths to offsets, so the events of one subtree can be streamed without
+// materializing the rest.
+func (s *Storage) findSubtreeBaseReader(commit int64, kp string) (patches.EventReadCloser, int64, error) {
+	snapSeg, ok := s.baselineSnapshotSegment(commit)
+	if !ok {
+		return patches.NewEmptyEventReader(), 0, nil
+	}
+
+	entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(snapSeg.LogFile), snapSeg.LogPosition, snapSeg.LogFileGeneration)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to read snapshot entry: %w", err)
+	}
+	if entry.SnapPos == nil {
+		return nil, 0, fmt.Errorf("snapshot entry missing SnapPos")
+	}
+	snapReader, err := s.dLog.OpenReaderAt(dlog.LogFileID(snapSeg.LogFile), *entry.SnapPos, snapSeg.LogFileGeneration)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to open snapshot reader: %w", err)
+	}
+	snapshot, err := snap.Open(snapReader)
+	if err != nil {
+		snapReader.Close()
+		return nil, 0, fmt.Errorf("failed to open snapshot: %w", err)
+	}
+	eventReader, err := snapshot.ReadPathEventReader(kp)
+	if err != nil {
+		snapshot.Close()
+		return nil, 0, fmt.Errorf("error creating event reader at %q: %w", kp, err)
+	}
+	return &snapshotEventReadCloser{snapshot: snapshot, reader: eventReader}, snapSeg.StartCommit + 1, nil
 }

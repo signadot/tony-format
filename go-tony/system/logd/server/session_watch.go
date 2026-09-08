@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"fmt"
+	"io"
 
 	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -308,37 +309,32 @@ func (w *watchStream) sendInitialState(commit int64) bool {
 	state := ir.Null() // an empty store has no state to read
 	if commit != 0 {
 		var err error
-		state, err = w.s.readDocAt(w.path, commit)
+		state, err = w.s.readValueAt(w.path, commit)
 		if err != nil {
-			w.s.log.Error("failed to read state for init", "path", w.path, "commit", commit, "error", err)
-			w.fail(api.ErrCodeReplayFailed, "failed to read state at commit %d: %v", commit, err)
-			return false
-		}
-		if w.path != "" {
-			// Extract the value at the path.
-			//
-			// A failure here says nothing about storage: the read above already
-			// succeeded, and this is navigation of the document it returned. What it
-			// says is which of three things is true, and they want three different
-			// volumes -- see PathErrorKind.
-			state, err = extractPathValue(state, w.path)
-			if err != nil {
-				var pe *PathError
-				switch {
-				case errors.As(err, &pe) && pe.Kind == PathBadSegment:
-					// This one never resolves, so serving null forever would tell the
-					// client its path is empty when it is invalid.
-					w.s.log.Warn("watch path cannot be extracted", "path", w.path, "error", err)
-					w.fail(api.ErrCodeInvalidPath, "%s", err.Error())
-					return false
-				case errors.As(err, &pe) && pe.Kind == PathTypeConflict:
-					w.s.log.Warn("watched path is shadowed by a non-object", "path", w.path, "error", err)
-				default:
-					w.s.log.Debug("watched path has no value yet", "path", w.path, "detail", err.Error())
-				}
-				state = ir.Null()
-				w.absent.arm()
+			// A PathError says which of three things is true about the path, and they
+			// want three different volumes -- see PathErrorKind. Anything else is the
+			// read failing, which fails the watch.
+			var pe *PathError
+			switch {
+			case errors.As(err, &pe) && pe.Kind == PathBadSegment:
+				// This one never resolves, so serving null forever would tell the
+				// client its path is empty when it is invalid.
+				w.s.log.Warn("watch path cannot be extracted", "path", w.path, "error", err)
+				w.fail(api.ErrCodeInvalidPath, "%s", err.Error())
+				return false
+			case errors.As(err, &pe) && pe.Kind == PathTypeConflict:
+				w.s.log.Warn("watched path is shadowed by a non-object", "path", w.path, "error", err)
+			case errors.As(err, &pe):
+				w.s.log.Debug("watched path has no value yet", "path", w.path, "detail", err.Error())
+			default:
+				w.s.log.Error("failed to read state for init", "path", w.path, "commit", commit, "error", err)
+				w.fail(api.ErrCodeReplayFailed, "failed to read state at commit %d: %v", commit, err)
+				return false
 			}
+			// The wire cannot say absent yet; it says null, and the log keeps the truth
+			// beside it (watchAbsence, api/state.go).
+			state = ir.Null()
+			w.absent.arm()
 		}
 	}
 	w.s.send(api.NewStateEvent(w.watcher.ID, commit, w.path, state))
@@ -462,7 +458,7 @@ func (w *watchStream) replay(from, to int64) bool {
 		// (89my9f0kh12ksqknjhn0). The watcher's bounded buffer is where a consumer
 		// that cannot keep up is failed, which is the existing contract -- the
 		// server does not hold the range on its behalf.
-		err := w.s.storage.EachPatchInRange(w.path, from+1, to, w.s.scopeID(), func(n *storage.CommitNotification) error {
+		err := w.eachDelta(from+1, to, func(n *storage.CommitNotification) error {
 			ok := false
 			if w.scoped {
 				ok = w.emitScoped(n.Commit)
@@ -675,31 +671,42 @@ func (s *Session) failWatch(watcher *Watcher, reason, message string, commit int
 // absentAt answers the PathError when kp holds nothing at commit, and nil when it holds
 // something -- which includes holding a null somebody wrote.
 //
-// It asks the same two questions sendInitialState asks, in the same order, because the two
-// must agree: one refuses the watch and the other seeds it, and a watch refused for a path
-// the seed would have found is worse than either answer alone.
+// It asks the same question sendInitialState asks, because the two must agree: one refuses
+// the watch and the other seeds it, and a watch refused for a path the seed would have
+// found is worse than either answer alone.
 func (s *Session) absentAt(kp string, commit int64) *PathError {
 	if commit == 0 {
 		// Nothing has ever been written, so nothing is at kp -- any kp.
 		return &PathError{Kind: PathAbsent, Path: kp}
 	}
-	doc, err := s.readDocAt(kp, commit)
-	if err != nil {
-		// Not an answer about the path: let the watch establish and let the seed report
-		// it, which is where a read failure has always been reported from.
-		return nil
+	_, err := s.readValueAt(kp, commit)
+	var pe *PathError
+	if errors.As(err, &pe) && pe.Kind == PathAbsent {
+		return pe
 	}
-	if kp == "" {
-		if doc == nil {
-			return &PathError{Kind: PathAbsent, Path: kp}
-		}
-		return nil
-	}
-	if _, err := extractPathValue(doc, kp); err != nil {
-		var pe *PathError
-		if errors.As(err, &pe) && pe.Kind == PathAbsent {
-			return pe
-		}
-	}
+	// Anything else is not an answer about the path: let the watch establish and let
+	// the seed report it, which is where a read failure has always been reported from.
 	return nil
+}
+
+// eachDelta walks the commits in [from, to] that can reach the watched path, in the
+// session's view, handing each to fn -- one entry in hand at a time (storage.Deltas).
+func (w *watchStream) eachDelta(from, to int64, fn func(*storage.CommitNotification) error) error {
+	cur, err := w.s.storage.Deltas(from, to, w.s.scopeID(), w.path)
+	if err != nil {
+		return err
+	}
+	defer cur.Close()
+	for {
+		n, err := cur.Next()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if err := fn(n); err != nil {
+			return err
+		}
+	}
 }

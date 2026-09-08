@@ -3,9 +3,13 @@ package server
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
+	"github.com/signadot/tony-format/go-tony/stream"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/ident"
 )
 
@@ -57,35 +61,25 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 		}
 	}
 
-	// Read state (with session scope filtering)
-	doc, err := s.readDocAt(path, commit)
-	if err != nil {
-		s.sendError(id, api.ErrCodeStorage, fmt.Sprintf("failed to read state: %v", err))
-		return
-	}
-
-	// Extract value at path. A bad segment is the client's path being wrong, not
-	// its data being missing: reporting it as not-found reads as "nothing there
-	// yet" and invites a retry that can never succeed.
-	state, err := extractPathValue(doc, path)
+	// The value at the path, in the session's view. A bad segment is the client's path
+	// being wrong, not its data being missing: reporting it as not-found reads as
+	// "nothing there yet" and invites a retry that can never succeed.
+	state, err := s.readValueAt(path, commit)
 	if err != nil {
 		var pe *PathError
-		if errors.As(err, &pe) && pe.Kind == PathBadSegment {
+		switch {
+		case errors.As(err, &pe) && pe.Kind == PathBadSegment:
 			s.sendError(id, api.ErrCodeInvalidPath, err.Error())
-			return
-		}
-		if errors.As(err, &pe) && pe.Kind == PathTypeConflict {
+		case errors.As(err, &pe) && pe.Kind == PathTypeConflict:
 			// Something IS there, in a shape that cannot hold what was asked for. Saying
 			// not_found here tells a client to wait for a value which has already
 			// arrived and is the wrong kind.
 			s.sendError(id, api.ErrCodePathConflict, err.Error())
-			return
-		}
-		if errors.Is(err, ErrPathNotFound) {
+		case errors.Is(err, ErrPathNotFound):
 			s.sendError(id, api.ErrCodeNotFound, err.Error())
-			return
+		default:
+			s.sendError(id, api.ErrCodeStorage, fmt.Sprintf("failed to read state: %v", err))
 		}
-		s.sendError(id, api.ErrCodeStorage, fmt.Sprintf("failed to extract path value: %v", err))
 		return
 	}
 
@@ -102,61 +96,173 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 	s.send(api.NewMatchResponse(id, commit, state))
 }
 
-// readDocAt reads the document a request or a watch needs to answer about path: the
-// subtree when the store can read it that way, the whole document when it cannot.
+// readValueAt answers the value at path as of commit, in the session's view, or a
+// PathError saying why there is none. It is one read at the path (storage.Read), built
+// under the session's budget; nothing wider is read on its behalf.
 //
-// A path restricts a read to the subdocument, which is what the request means and,
-// until ReadSubtreeRootedAt, not what it cost: the whole document was replayed and
-// materialized so that the value at the path could be taken out of it. What comes
-// back here has the same SHAPE as the wide read -- rooted, with the subtree under its
-// own path -- so everything downstream is unchanged: the path extraction with its
-// quoting rules and its not-found reporting, the filter, the diffing a watcher does.
-//
-// The store declines to narrow where narrowing would have to guess: an operator above
-// the path, a path holding nothing. Then this is the read it always was
-// (ap8ddvp2h12krd43gdn0). A SCOPED read narrows too, and did not always: it is what
-// makes a scoped watch's per-event recompute cost the path rather than the scope's
-// whole history.
-func (s *Session) readDocAt(path string, commit int64) (*ir.Node, error) {
-	// Ask the cheapest question first. When the index can say the path has never been
-	// written, it answers with a document which resolves exactly as far as the path
-	// has -- so the extraction below fails at the same segment, with the same kind, as
-	// it would have on the whole document.
-	//
-	// It is asked BEFORE the narrow read, not after: a path with nothing at it cannot
-	// narrow, so asking second meant paying a failed narrowing to be told what an index
-	// lookup already knew. Staging measured those declined attempts at 785ms each, 43
-	// of them, in front of an answer that costs nothing -- and counted each read twice
-	// besides, once as wide-absent and once as narrow-absent
-	// (ap8ddvp2h12krd43gdn0).
-	if spine, ok := s.storage.AbsentSpineAt(path, s.scopeID()); ok {
-		return spine, nil
+// Absence is classified without a wide read either. The PathError a client is owed says
+// how far the path resolved and what was there instead -- a missing field under an object
+// is ordinary, a field asked of a string is a disagreement about the document's shape --
+// and that is a fact about the nearest ancestor that IS there, answered from its first
+// event: an object, an array, a scalar. One event per ancestor tried, deepest first.
+func (s *Session) readValueAt(path string, commit int64) (*ir.Node, error) {
+	if commit == 0 {
+		return nil, s.classifyAbsent(path, commit)
 	}
-	doc, narrowed, err := s.storage.ReadSubtreeRootedAt(path, commit, s.scopeID())
+	c, err := s.storage.Read(commit, s.scopeID(), path)
 	if err != nil {
 		return nil, err
 	}
-	if narrowed {
-		return doc, nil
+	if c.Presence() == storage.Absent {
+		c.Close()
+		return nil, s.classifyAbsent(path, commit)
 	}
-	return s.storage.ReadStateAt(path, commit, s.scopeID())
+	node, err := storage.Collect(c, s.readBudget)
+	if err != nil {
+		return nil, err
+	}
+	if node == nil {
+		return nil, s.classifyAbsent(path, commit)
+	}
+	// In the client's vocabulary: a keyed array is an array here and an object of names
+	// in the store (storage.RaiseState).
+	return s.storage.RaiseState(s.scopeID(), node, path), nil
+}
+
+// classifyAbsent is the PathError for a path that resolves to nothing at commit.
+func (s *Session) classifyAbsent(path string, commit int64) error {
+	segs := kpath.SplitAll(path)
+	for _, part := range segs {
+		if p, err := kpath.Parse(part); err == nil && p != nil && p.Wild() {
+			// A wildcard names a SET of values, and a read answers one: the caller's path
+			// is wrong in a way no write can fix.
+			return &PathError{Kind: PathBadSegment, Path: path, Segment: part}
+		}
+	}
+	if len(segs) == 0 || commit == 0 {
+		if len(segs) == 0 {
+			return &PathError{Kind: PathAbsent, Path: path}
+		}
+		return &PathError{Kind: PathAbsent, Path: path, Segment: firstSegmentName(segs[0])}
+	}
+	resolvedNames := make([]string, len(segs))
+	for i, part := range segs {
+		if name, isField := kpath.SegmentFieldName(part); isField {
+			resolvedNames[i] = name
+		} else {
+			resolvedNames[i] = part
+		}
+	}
+	for depth := len(segs) - 1; depth >= 0; depth-- {
+		prefix := joinKPathSegments(segs[:depth])
+		c, err := s.storage.Read(commit, s.scopeID(), prefix)
+		if err != nil {
+			return err
+		}
+		if c.Presence() == storage.Absent {
+			c.Close()
+			continue
+		}
+		found := firstValueType(c)
+		c.Close()
+		seg := segs[depth]
+		resolved := strings.Join(resolvedNames[:depth], ".")
+		if _, isField := kpath.SegmentFieldName(seg); isField {
+			if found != ir.ObjectType {
+				return &PathError{Kind: PathTypeConflict, Path: path, Segment: seg, Resolved: resolved, Found: found}
+			}
+			return &PathError{Kind: PathAbsent, Path: path, Segment: resolvedNames[depth], Resolved: resolved}
+		}
+		if !segmentSuitsType(seg, found) {
+			return &PathError{Kind: PathTypeConflict, Path: path, Segment: seg, Resolved: resolved, Found: found}
+		}
+		return &PathError{Kind: PathAbsent, Path: path, Segment: seg, Resolved: resolved}
+	}
+	return &PathError{Kind: PathAbsent, Path: path, Segment: firstSegmentName(segs[0])}
+}
+
+func firstSegmentName(seg string) string {
+	if name, isField := kpath.SegmentFieldName(seg); isField {
+		return name
+	}
+	return seg
+}
+
+// firstValueType is the kind of value a cursor holds, read from its first event past any
+// head comment. The cursor is known to be present.
+func firstValueType(c storage.Cursor) ir.Type {
+	for {
+		ev, err := c.Next()
+		if err != nil {
+			return ir.NullType
+		}
+		switch ev.Type {
+		case stream.EventHeadComment, stream.EventLineComment:
+			continue
+		case stream.EventBeginObject:
+			return ir.ObjectType
+		case stream.EventBeginArray:
+			return ir.ArrayType
+		case stream.EventString:
+			return ir.StringType
+		case stream.EventInt, stream.EventFloat:
+			return ir.NumberType
+		case stream.EventBool:
+			return ir.BoolType
+		default:
+			return ir.NullType
+		}
+	}
+}
+
+// segmentSuitsType says whether a non-field segment addresses the KIND of container found:
+// an index wants an array, a sparse index an object or an array, a key an array.
+func segmentSuitsType(seg string, found ir.Type) bool {
+	p, err := kpath.Parse(seg)
+	if err != nil || p == nil {
+		return false
+	}
+	switch p.EntryKind() {
+	case kpath.ArrayEntry:
+		return found == ir.ArrayType
+	case kpath.SparseArrayEntry:
+		return found == ir.ObjectType || found == ir.ArrayType
+	default:
+		return found == ir.ArrayType
+	}
+}
+
+func joinKPathSegments(segs []string) string {
+	if len(segs) == 0 {
+		return ""
+	}
+	result := segs[len(segs)-1]
+	for i := len(segs) - 2; i >= 0; i-- {
+		result = kpath.Join(segs[i], result)
+	}
+	return result
 }
 
 // fullDocAt reads the whole document at a commit, normalized so an empty store is
-// ir.Null(). It is the seed for a stepped watch (see forwardEvents): the one O(history)
-// read a watch pays, after which each commit costs one patch application instead.
+// ir.Null(). It is the seed for a stepped watch (see forwardEvents): the one whole read a
+// watch pays, under the session's budget, after which each commit costs one patch
+// application instead.
 func (s *Session) fullDocAt(commit int64) (*ir.Node, error) {
 	if commit <= 0 {
 		return ir.Null(), nil
 	}
-	doc, err := s.storage.ReadStateAt("", commit, s.scopeID())
+	c, err := s.storage.Read(commit, s.scopeID(), "")
+	if err != nil {
+		return nil, err
+	}
+	doc, err := storage.Collect(c, s.readBudget)
 	if err != nil {
 		return nil, err
 	}
 	if doc == nil {
 		return ir.Null(), nil
 	}
-	return doc, nil
+	return s.storage.RaiseState(s.scopeID(), doc, ""), nil
 }
 
 // scopedDocAt is the scoped value at path as of commit: the subtree there, or nil where
@@ -167,21 +273,10 @@ func (s *Session) scopedDocAt(path string, commit int64) (*ir.Node, error) {
 	if commit == 0 {
 		return nil, nil
 	}
-	doc, err := s.readDocAt(path, commit)
-	if err != nil {
-		return nil, err
-	}
-	if doc == nil {
+	node, err := s.readValueAt(path, commit)
+	var pe *PathError
+	if errors.As(err, &pe) {
 		return nil, nil
 	}
-	// ReadStateAt returns a rooted SUPERSET: it collects ancestor-level index
-	// segments and applies whole patch entries, so a read of "p.b" carries a
-	// sibling "p.a" write done under the shared ancestor "p". Trim to the path's
-	// own subtree (mirroring handleMatch and watch-init, which extract after
-	// reading) so a scoped watcher does not see a sibling's write as a change.
-	sub, err := extractPathValue(doc, path)
-	if err != nil {
-		return nil, nil
-	}
-	return sub, nil
+	return node, err
 }

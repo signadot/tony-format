@@ -55,6 +55,11 @@ type StorageConfig struct {
 	// watermark is reconciled against the log on open, so a number the log already
 	// holds is never reissued.
 	Durability string `tony:"field=durability"`
+
+	// ReadBudget is the largest node the server builds to answer one read, in bytes:
+	// a match, a watch's initial state, the document a baseline watch steps. A read
+	// past it is refused rather than held. Zero means the default, 64 MiB.
+	ReadBudget int64 `tony:"field=readBudget"`
 }
 
 // ToStorageDurability maps the configured name to a storage.Durability. A nil

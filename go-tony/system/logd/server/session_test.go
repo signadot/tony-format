@@ -1130,10 +1130,7 @@ func TestSession_ScopedWatch_COW(t *testing.T) {
 	}
 
 	// End state: the scope still sees its own a.x=5 plus the baseline a.y=7.
-	doc, err := store.ReadStateAt("a", 3, &scope)
-	if err != nil {
-		t.Fatalf("scoped read: %v", err)
-	}
+	doc := readAll(t, store, 3, &scope)
 	wantInt := func(kp string, want int64) {
 		t.Helper()
 		v, err := extractPathValue(doc, kp)
@@ -1277,8 +1274,10 @@ func TestSession_PatchPastTheEndOfAnArrayIsInvalidPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCurrentCommit: %v", err)
 	}
-	if _, err := store.ReadStateAt("", commit, nil); err != nil {
+	if c, err := store.Read(commit, nil, ""); err != nil {
 		t.Fatalf("the store is unreadable after a refused write: %v", err)
+	} else {
+		c.Close()
 	}
 }
 
@@ -1340,7 +1339,9 @@ func TestSession_DescendPathIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCurrentCommit: %v", err)
 	}
-	if _, err := store.ReadStateAt("", commit, nil); err != nil {
+	if c, err := store.Read(commit, nil, ""); err != nil {
 		t.Fatalf("the store is unreadable after a refused path: %v", err)
+	} else {
+		c.Close()
 	}
 }

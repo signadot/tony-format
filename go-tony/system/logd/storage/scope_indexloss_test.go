@@ -34,7 +34,7 @@ func TestCompactionDropsPathIndexing(t *testing.T) {
 	from, to := int64(0), int64(100)
 	atPath := func() int {
 		n := 0
-		for _, seg := range s.index.LookupRange("users.alice", &from, &to, nil) {
+		for _, seg := range segmentsAt(s.index, "users.alice", &from, &to, nil) {
 			if seg.KindedPath == "users.alice" {
 				n++
 			}
@@ -64,7 +64,7 @@ func TestCompactionDropsPathIndexing(t *testing.T) {
 	}
 
 	afterPath := atPath()
-	afterRoot := s.index.LookupRange("", &from, &to, nil)
+	afterRoot := segmentsAt(s.index, "", &from, &to, nil)
 
 	t.Logf("segments indexed AT users.alice: before=%d after=%d", beforePath, afterPath)
 	t.Logf("root-level segments: after=%d", len(afterRoot))

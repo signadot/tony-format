@@ -15,7 +15,7 @@ import (
 // says so.
 func collectTheOldWay(t *testing.T, s *Storage, kp string, from, to int64, scopeID *string) []int64 {
 	t.Helper()
-	segments := s.index.LookupRange(kp, &from, &to, scopeID)
+	segments := segmentsAt(s.index, kp, &from, &to, scopeID)
 	seen := map[int64]bool{}
 	var out []*CommitNotification
 	for _, seg := range segments {
@@ -58,7 +58,7 @@ func TestEachPatchInRangeMatchesTheCollectedRange(t *testing.T) {
 			want := collectTheOldWay(t, s, kp, 1, head, nil)
 
 			var got []int64
-			if err := s.EachPatchInRange(kp, 1, head, nil, func(n *CommitNotification) error {
+			if err := eachPatchInRange(s, kp, 1, head, nil, func(n *CommitNotification) error {
 				got = append(got, n.Commit)
 				return nil
 			}); err != nil {
@@ -92,7 +92,7 @@ func TestEachPatchInRangeStopsOnError(t *testing.T) {
 
 	stop := fmt.Errorf("enough")
 	seen := 0
-	err = s.EachPatchInRange("", 1, head, nil, func(n *CommitNotification) error {
+	err = eachPatchInRange(s, "", 1, head, nil, func(n *CommitNotification) error {
 		seen++
 		if seen == 3 {
 			return stop
@@ -142,7 +142,7 @@ func TestEachPatchInRangeDoesNotHoldTheRange(t *testing.T) {
 	base := liveHeap()
 	var atLast float64
 	seen := 0
-	if err := s.EachPatchInRange("demo", 1, head, nil, func(no *CommitNotification) error {
+	if err := eachPatchInRange(s, "demo", 1, head, nil, func(no *CommitNotification) error {
 		seen++
 		if seen == n {
 			atLast = liveHeap()
@@ -157,7 +157,7 @@ func TestEachPatchInRangeDoesNotHoldTheRange(t *testing.T) {
 	streamed := atLast - base
 
 	base = liveHeap()
-	collected, err := s.ReadPatchesInRange("demo", 1, head, nil)
+	collected, err := readPatchesInRange(s, "demo", 1, head, nil)
 	if err != nil {
 		t.Fatalf("ReadPatchesInRange: %v", err)
 	}

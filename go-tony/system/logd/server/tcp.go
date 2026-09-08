@@ -76,12 +76,17 @@ func (l *TCPListener) handleConnection(conn net.Conn) {
 	l.server.Spec.Log.Debug("new TCP connection", "session", sessionID, "remote", conn.RemoteAddr().String())
 
 	// Create session
+	var readBudget int64
+	if l.server.Spec.Config != nil && l.server.Spec.Config.Storage != nil {
+		readBudget = l.server.Spec.Config.Storage.ReadBudget
+	}
 	session := NewSession(sessionID, conn, &SessionConfig{
-		Storage:  l.server.Spec.Storage,
-		Hub:      l.hub,
-		Log:      l.server.Spec.Log,
-		OnCommit: l.server.onCommit,
-		Schema:   l.server.Spec.Config.Schema,
+		Storage:    l.server.Spec.Storage,
+		Hub:        l.hub,
+		Log:        l.server.Spec.Log,
+		OnCommit:   l.server.onCommit,
+		Schema:     l.server.Spec.Config.Schema,
+		ReadBudget: readBudget,
 	})
 
 	// Track session

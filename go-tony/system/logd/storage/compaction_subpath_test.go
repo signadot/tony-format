@@ -159,7 +159,7 @@ func TestCompactionRepositionsBelowRootCopiesOfRetainedEntry(t *testing.T) {
 	// below it, so a range starting at 0 is now correctly refused with
 	// ErrReplayCompacted, and would say nothing about whether the deep path resolves.
 	entryCommit := startCommit + 1
-	if _, err := s.ReadPatchesInRange("demo.x.scoped", entryCommit, entryCommit, &scope); err != nil {
+	if _, err := readPatchesInRange(s, "demo.x.scoped", entryCommit, entryCommit, &scope); err != nil {
 		t.Errorf("ReadPatchesInRange at the deep path: %v", err)
 	}
 }

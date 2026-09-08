@@ -138,8 +138,10 @@ func TestReadSubtreeIsNarrowerThanTheDocument(t *testing.T) {
 }
 
 // An operator above the path says something the subtree cannot say for itself, so the
-// read says so by falling back rather than guessing.
-func TestReadSubtreeFallsBackUnderAnOperator(t *testing.T) {
+// read is taken at the ancestor the operator is written on and navigated down -- the
+// operand that write installed is the intermediate the bound admits -- and the answer is
+// what a read at the path means. The counters say the read was wider than its path.
+func TestReadSubtreeAnswersThroughAnOperator(t *testing.T) {
 	s := subtreeStore(t, 5, true)
 	// !all at verse.entities: what it does to each element is not a statement about
 	// any one of them that the element can carry alone.
@@ -157,15 +159,23 @@ func TestReadSubtreeFallsBackUnderAnOperator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, narrowed, err := readSubtreeAt(s, "verse.entities.e1", commit, nil)
-	if err != nil {
-		t.Fatalf("narrow read: %s", err)
-	}
-	if narrowed {
-		t.Error("the read narrowed through an operator above the path")
-	}
 	if want == nil {
 		t.Fatal("the wide read holds nothing at the path, so this case proves nothing")
+	}
+	before := s.ReadStats()
+	got, _, err := readSubtreeAt(s, "verse.entities.e1", commit, nil)
+	if err != nil {
+		t.Fatalf("read: %s", err)
+	}
+	if got == nil || !got.DeepEqual(want) {
+		t.Errorf("the read under an operator answers %s, the document says %s", mustEncode(t, got), mustEncode(t, want))
+	}
+	if touched := ir.Get(got, "touched"); touched == nil || !touched.Bool {
+		t.Errorf("the operator's effect is missing from the answer: %s", mustEncode(t, got))
+	}
+	after := s.ReadStats()
+	if after.WideOperator != before.WideOperator+1 {
+		t.Errorf("a read through an operator was not counted as one (%d -> %d)", before.WideOperator, after.WideOperator)
 	}
 }
 

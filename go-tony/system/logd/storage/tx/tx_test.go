@@ -35,7 +35,7 @@ func newMockCommitOps() *mockCommitOps {
 	}
 }
 
-func (m *mockCommitOps) ReadStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
+func (m *mockCommitOps) ValueAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
 	if commitMap, ok := m.readState[kp]; ok {
 		if state, ok := commitMap[commit]; ok {
 			return state, nil
@@ -48,7 +48,7 @@ func (m *mockCommitOps) ReadStateAt(kp string, commit int64, scopeID *string) (*
 // mock has no head, so it answers from the same table, which is what these tests are
 // about.
 func (m *mockCommitOps) MatchStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
-	return m.ReadStateAt(kp, commit, scopeID)
+	return m.ValueAt(kp, commit, scopeID)
 }
 
 func (m *mockCommitOps) GetCurrentCommit() (int64, error) {
@@ -515,15 +515,15 @@ type mockCommitOpsWithError struct {
 	readStateError error
 }
 
-func (m *mockCommitOpsWithError) ReadStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
+func (m *mockCommitOpsWithError) ValueAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
 	if m.readStateError != nil {
 		return nil, m.readStateError
 	}
-	return m.mockCommitOps.ReadStateAt(kp, commit, scopeID)
+	return m.mockCommitOps.ValueAt(kp, commit, scopeID)
 }
 
 func (m *mockCommitOpsWithError) MatchStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
-	return m.ReadStateAt(kp, commit, scopeID)
+	return m.ValueAt(kp, commit, scopeID)
 }
 
 func TestCommit_Timeout(t *testing.T) {

@@ -49,8 +49,8 @@ func TestTick_WatermarkNamesOnlyReadableCommits(t *testing.T) {
 		probing = true
 		defer func() { probing = false }()
 		inWindow, _ = s.GetCurrentCommit()
-		segments = len(s.index.LookupRange("", &inWindow, &inWindow, nil))
-		if ns, err := s.ReadPatchesInRange("", inWindow, inWindow, nil); err == nil {
+		segments = len(segmentsAt(s.index, "", &inWindow, &inWindow, nil))
+		if ns, err := readPatchesInRange(s, "", inWindow, inWindow, nil); err == nil {
 			patches = len(ns)
 		}
 	}})
@@ -74,7 +74,7 @@ func TestTick_WatermarkNamesOnlyReadableCommits(t *testing.T) {
 	if after != committed {
 		t.Errorf("watermark after commit = %d, want %d", after, committed)
 	}
-	ns, err := s.ReadPatchesInRange("", after, after, nil)
+	ns, err := readPatchesInRange(s, "", after, after, nil)
 	if err != nil {
 		t.Fatalf("ReadPatchesInRange: %v", err)
 	}

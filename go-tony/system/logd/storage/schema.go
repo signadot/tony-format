@@ -305,27 +305,9 @@ func (s *Storage) createSchemaSnapshot(schema *ir.Node, status string) (int64, e
 	}
 	defer baseReader.Close()
 
-	// Get patches from startCommit to prevCommit
-	segments := s.index.LookupRange("", &startCommit, &prevCommit, nil)
-
-	// Extract patch nodes, filtering out snapshots
-	var patchNodes []*ir.Node
-	for _, seg := range segments {
-		// Skip snapshots (StartCommit == EndCommit)
-		if seg.StartCommit == seg.EndCommit {
-			continue
-		}
-
-		// Read patch from dlog
-		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition, seg.LogFileGeneration)
-		if err != nil {
-			return 0, fmt.Errorf("failed to read patch entry: %w", err)
-		}
-		if entry.Patch == nil {
-			continue
-		}
-
-		patchNodes = append(patchNodes, entry.Patch)
+	patchNodes, err := s.patchesSince(startCommit, prevCommit)
+	if err != nil {
+		return 0, err
 	}
 
 	// Create snapshot writer for inactive log
@@ -408,7 +390,6 @@ func (s *Storage) identityChangeAllowed(pending *api.Schema) error {
 	if err != nil || commit == 0 {
 		return nil
 	}
-	var doc *ir.Node
 	for _, p := range pending.KeyedPaths() {
 		if active.Keyed(p) {
 			if !slices.Equal(active.Identity(p), pending.Identity(p)) {
@@ -417,17 +398,13 @@ func (s *Storage) identityChangeAllowed(pending *api.Schema) error {
 			}
 			continue
 		}
-		if doc == nil {
-			if doc, err = s.ReadStateAt("", commit, nil); err != nil {
-				return err
-			}
+		c, err := s.Read(commit, nil, p)
+		if err != nil {
+			return err
 		}
-		if doc == nil {
-			return nil
-		}
-		held, err := doc.GetKPath(p)
-		if err != nil || held == nil {
-			continue
+		held, err := collectAll(c)
+		if err != nil {
+			return err
 		}
 		if held = ir.Uncomment(held); held != nil && held.Type == ir.ArrayType && len(held.Values) > 0 {
 			return fmt.Errorf("%q cannot be given the identity %s: it already holds %d elements written by "+

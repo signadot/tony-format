@@ -15,8 +15,19 @@ type commitOps struct {
 	s *Storage
 }
 
-func (c *commitOps) ReadStateAt(kpath string, commit int64, scopeID *string) (*ir.Node, error) {
-	return c.s.ReadStateAt(kpath, commit, scopeID)
+// ValueAt is the value at kp in the client's vocabulary, for the checks the write path
+// makes off the commit lock. A position on an unkeyed array is checked against the array,
+// which is a value and the intermediate the bound admits for it.
+func (c *commitOps) ValueAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
+	cur, err := c.s.Read(commit, scopeID, kp)
+	if err != nil {
+		return nil, err
+	}
+	node, err := collectAll(cur)
+	if err != nil {
+		return nil, err
+	}
+	return c.s.raiseState(scopeID, node, kp), nil
 }
 
 // MatchStateAt serves a precondition read from the stepped head when it can.

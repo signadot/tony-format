@@ -1,9 +1,7 @@
 package storage
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -12,11 +10,9 @@ import (
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
-	"github.com/signadot/tony-format/go-tony/stream"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/patches"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/seq"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
@@ -215,160 +211,11 @@ func (s *Storage) GetCurrentCommit() (int64, error) {
 	return s.tick.current(), nil
 }
 
-// replayBaselineAt: baseline, whole document, REPLAYED -- the snapshot at or before
-// commit, plus every patch since. See read.go for the axes.
-// replayBaselineAt reads baseline state at commit: the most recent baseline
-// snapshot plus baseline patches applied from that point forward.
-//
-// The patch range is taken at the document ROOT, not at kp. Every entry is indexed at
-// the root as well as at each path inside it (index.indexPatchRec starts at ""), so the
-// root range is already the complete set of entries in the range — and it is the set
-// createSnapshot itself applies. LookupRange(kp) returns that same set PLUS a repeat of
-// each entry for every level of kp the entry also touches, and the applier paid to apply
-// every repeat: reading "demo.x.hot" from a log written entirely at that path applied
-// each entry four times (root, demo, demo.x, demo.x.hot), costing ~5x a read of a path
-// written once over the same log. The result was the same only because merging a whole
-// document twice is a no-op; it is not a property to rely on.
-func (s *Storage) replayBaselineAt(commit int64) (*ir.Node, error) {
-	baseReader, startCommit, err := s.findSnapshotBaseReader(commit)
-	if err != nil {
-		return nil, err
-	}
-	defer baseReader.Close()
-
-	segments := s.index.LookupRange("", &startCommit, &commit, nil)
-	patchNodes, err := s.patchNodesFromSegments(segments, nil)
-	if err != nil {
-		return nil, err
-	}
-	return applyPatchesToBase(baseReader, patchNodes)
-}
-
-// replayScopedAt: a scope, whole document, REPLAYED -- baseline as of the commit with the
-// scope's own patches folded on top. See read.go for the axes.
-//
-// A scope is copy-on-write, not a branch: the scoped view at commit C is the baseline
-// state at C, same commit bound, with the scope's OWN patches applied over it verbatim.
-// Applying them last is what makes them sticky -- a later baseline write to a leaf the
-// scope has written is shadowed, while baseline writes elsewhere still show through.
-//
-// Real patches, replayed. That is not an implementation detail but the definition: only
-// the patches themselves carry op semantics, so !key merges by identity here exactly as it
-// did at the write. A materialized layer cannot -- a scope snapshot resolves !key away
-// (eagjggjdh12ksg00bsn0), and a layer DERIVED from two documents cannot state a claim at
-// all, which is what retired the scope overlay.
-//
-// The two ranges differ, and have to. Baseline's runs from the last snapshot, because the
-// snapshot holds everything before it; the scope's runs from 0, because no snapshot holds
-// a scope's writes -- they are exempt from snapshotting and compaction.
-//
-// One apply pass, for both layers together. Materializing baseline first and re-applying
-// the scope over it round-trips through node<->events, and that round-trip mis-handles
-// numeric-string field keys (path "users.1"), so the scope patch fails to align with the
-// base and is dropped. A single pass gives every patch the same path computation.
-//
-// It reads the WHOLE document. A read that names a path wants narrowSubtreeAt, which is
-// this same fold asked at that path.
-func (s *Storage) replayScopedAt(commit int64, scopeID *string) (*ir.Node, error) {
-	baseReader, startCommit, err := s.findSnapshotBaseReader(commit)
-	if err != nil {
-		return nil, err
-	}
-	defer baseReader.Close()
-
-	// Baseline, from the snapshot forward. Taken at the root for the same reason as
-	// replayBaselineAt: the root range is the complete, non-repeating entry set.
-	baseSegments := s.index.LookupRange("", &startCommit, &commit, nil)
-	patchNodes, err := s.patchNodesFromSegments(baseSegments, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	// The scope, over its whole history, last.
-	scopeSegments := s.index.LookupRange("", nil, &commit, scopeID)
-	scopePatches, err := s.patchNodesFromSegments(scopeSegments, scopeID)
-	if err != nil {
-		return nil, err
-	}
-
-	return applyPatchesToBase(baseReader, append(patchNodes, scopePatches...))
-}
-
 // isOverlaySegment reports whether seg is a scope overlay -- a cache of a scope's layer
 // that logd used to write beside a snapshot. Nothing writes one now; this is what lets a
 // log that has them still be read. See patchNodesFromSegments.
 func isOverlaySegment(seg index.LogSegment) bool {
 	return seg.ScopeID != nil && seg.ScopeOverlay
-}
-
-// patchNodesFromSegments reads patch nodes from segments in commit order, skipping
-// snapshots. If scopeID is non-nil, only that scope's segments are kept (baseline and
-// other scopes dropped); if nil, segments are taken as filtered by the caller.
-func (s *Storage) patchNodesFromSegments(segments []index.LogSegment, scopeID *string) ([]*ir.Node, error) {
-	var patchNodes []*ir.Node
-	for _, seg := range segments {
-		// Skip snapshots (StartCommit == EndCommit).
-		if seg.StartCommit == seg.EndCommit {
-			continue
-		}
-		// Scope layer: keep only this scope's patches, op-preserving.
-		if scopeID != nil && (seg.ScopeID == nil || *seg.ScopeID != *scopeID) {
-			continue
-		}
-		// An overlay is a scope-tagged patch entry, so it looks exactly like one of the
-		// scope's own writes here. It is not: it SUBSUMES them. Nothing writes one any
-		// more, but a log written by a build that did still holds them, and replaying one
-		// as an extra patch would apply the scope's history twice. The scope's own
-		// patches were never removed to make room for it, so skipping it is the whole of
-		// what reading such a log needs.
-		if isOverlaySegment(seg) {
-			continue
-		}
-		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition, seg.LogFileGeneration)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read patch entry: %w", err)
-		}
-		if entry.Patch == nil {
-			continue
-		}
-		patchNodes = append(patchNodes, entry.Patch)
-	}
-	return patchNodes, nil
-}
-
-// applyPatchesToBase applies patchNodes onto baseReader via the streaming processor
-// and materializes the result as an ir.Node (nil for empty state).
-func applyPatchesToBase(baseReader stream.EventReader, patchNodes []*ir.Node) (*ir.Node, error) {
-	eventBuffer := &bytes.Buffer{}
-	sink := stream.NewBufferEventSink(eventBuffer)
-	applier := patches.NewStreamingProcessor()
-
-	if err := applier.ApplyPatches(baseReader, patchNodes, sink); err != nil {
-		return nil, fmt.Errorf("failed to apply patches: %w", err)
-	}
-
-	var events []stream.Event
-	eventReader := stream.NewBinaryEventReader(eventBuffer)
-	for {
-		evt, err := eventReader.ReadEvent()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("failed to read event: %w", err)
-		}
-		events = append(events, *evt)
-	}
-
-	if len(events) == 0 {
-		return nil, nil
-	}
-	node, err := stream.EventsToNode(events)
-	if err != nil {
-		return nil, err
-	}
-	tx.StripPatchRootTagRecursive(node)
-	return node, nil
 }
 
 // persistedIndexStale reports whether the loaded index disagrees with the restored dlog

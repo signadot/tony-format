@@ -78,9 +78,9 @@ type Store interface {
 
 // CommitOps provides the operations needed to commit a transaction.
 type CommitOps interface {
-	// ReadStateAt reads the current state at the given kpath and commit.
-	// scopeID controls filtering: nil = baseline only, non-nil = baseline + scope.
-	ReadStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error)
+	// ValueAt reads the value at kp as of commit, in the view scopeID names, in the
+	// client's vocabulary. It is a bounded read at that path.
+	ValueAt(kp string, commit int64, scopeID *string) (*ir.Node, error)
 
 	// MatchStateAt reads the state a CAS precondition is evaluated against. Same
 	// answer as ReadStateAt, but the baseline case may serve it from a kept document

@@ -62,9 +62,8 @@ func TestKeyedReadNarrows(t *testing.T) {
 	}
 }
 
-// A read that cannot be re-rooted must not first do the read it will discard. An indexed
-// path narrows in ReadSubtreeAt and is then thrown away by ReadSubtreeRootedAt, so asking
-// afterwards paid for the narrow read AND the wide one.
+// A read that cannot be re-rooted must not first do the read it will discard: a position
+// is not a field, so a rooted read at one is refused before any read is opened.
 func TestARootedReadDecidesBeforeItReads(t *testing.T) {
 	s := openTestStorage(t)
 	mustCommit(t, s, nil, `{items: [{q: 1}, {q: 2}, {q: 7}]}`)
@@ -82,14 +81,11 @@ func TestARootedReadDecidesBeforeItReads(t *testing.T) {
 	}
 
 	before := s.ReadStats()
-	if _, narrowed, err := readSubtreeRootedAt(s, "items[2]", c, nil); err != nil || narrowed {
-		t.Fatalf("ReadSubtreeRootedAt(items[2]) narrowed=%v err=%v, want declined", narrowed, err)
+	if _, _, err := readSubtreeRootedAt(s, "items[2]", c, nil); err == nil {
+		t.Fatal("a rooted read at a position was answered; a position is not a field")
 	}
 	after := s.ReadStats()
 	if after.Narrow != before.Narrow {
 		t.Errorf("the rooted read performed %d narrow read(s) it then discarded", after.Narrow-before.Narrow)
-	}
-	if after.WideNonField != before.WideNonField+1 {
-		t.Errorf("declined read counted %d keyed-or-idx, want 1", after.WideNonField-before.WideNonField)
 	}
 }

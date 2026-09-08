@@ -173,10 +173,10 @@ func at(kp string) string {
 // reads nothing at all unless the path names an index, which is what keeps the
 // ordinary write -- at a field -- paying nothing for this.
 //
-// The read is ReadStateAt rather than the head MatchStateAt serves: this runs with
-// no lock held, and the head may only be read under the commit lock. That is the
-// right trade here, because the answer does not have to be the last word -- the
-// commit re-asks it under the lock, where the head makes it cheap.
+// The read is ValueAt rather than the head MatchStateAt serves: this runs with no
+// lock held, and the head may only be read under the commit lock. That is the right
+// trade here, because the answer does not have to be the last word -- the commit
+// re-asks it under the lock, where the head makes it cheap.
 func (co *txCoord) checkArrayWrite(p *api.Patch) error {
 	if p == nil || p.Data == nil {
 		return nil
@@ -207,7 +207,7 @@ func (co *txCoord) checkArrayWrite(p *api.Patch) error {
 	if err != nil {
 		return fmt.Errorf("cannot check %q against current state: %w", p.Path, err)
 	}
-	doc, err := co.commitOps.ReadStateAt("", commit, co.Scope())
+	doc, err := co.commitOps.ValueAt("", commit, co.Scope())
 	if err != nil {
 		return fmt.Errorf("cannot read current state to check %q: %w", p.Path, err)
 	}

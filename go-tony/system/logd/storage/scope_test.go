@@ -369,7 +369,7 @@ func TestScope_ReadPatchesInRange(t *testing.T) {
 	endCommit := result3.Commit
 
 	// 4. Read patches for baseline - should see commits 1 and 3 only
-	baselinePatches, err := s.ReadPatchesInRange("data", 1, endCommit, nil)
+	baselinePatches, err := readPatchesInRange(s, "data", 1, endCommit, nil)
 	if err != nil {
 		t.Fatalf("ReadPatchesInRange baseline error: %v", err)
 	}
@@ -379,7 +379,7 @@ func TestScope_ReadPatchesInRange(t *testing.T) {
 	}
 
 	// 5. Read patches for scope - should see commits 1, 2, and 3
-	scopePatches, err := s.ReadPatchesInRange("data", 1, endCommit, &scope)
+	scopePatches, err := readPatchesInRange(s, "data", 1, endCommit, &scope)
 	if err != nil {
 		t.Fatalf("ReadPatchesInRange scope error: %v", err)
 	}

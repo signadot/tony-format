@@ -352,6 +352,19 @@ DONE WHEN: the signature test passes with an empty allowlist; every counter is n
 the shapegen store; no file in storage or server references a deleted name. MERGES WHOLE.
 Release point (after phase 4).
 
+AS BUILT, the phase split in two, and the split is worth recording because it is not the
+strangler the failure list forbids. 3a landed the READ side whole: Read, Deltas, Collect and
+Rooted in, the nine read entry points deleted, every caller moved, the signature rule as a
+test. The stepped head stayed for 3b as an internal cache the commit path steps -- it is not
+an entry point, nothing outside the store can reach it, and it is what per-path lowering
+(3f) replaces. The allowlist is not empty: LookupRangeAll and AllSegments are whole-index
+walks that compaction and persistence make by design, and phase 7 is where their working set
+is decided. The one composition primitive the design named -- "composed into one running
+delta" -- does not exist in the format library, and the processor folds several patches at
+one path one by one onto the collected subtree; Read therefore holds the writes to kp since
+the snapshot as a list, each cut down to kp, which is the "what changed under kp" term the
+bound admits. A literal composition is a refinement, not a prerequisite.
+
 ## Phase 4 -- one delta shape, the rest
 
 READ: one_delta_shape.md; storage/tick.go (newCommitNotification 199, DeliverablePatch 181);

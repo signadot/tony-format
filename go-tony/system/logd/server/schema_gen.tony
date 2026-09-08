@@ -22,6 +22,7 @@ context:
 - tony-format/context
 define:
   durability: .[string]
+  readBudget: .[int]
 signature:
   name: storage-config
 ---

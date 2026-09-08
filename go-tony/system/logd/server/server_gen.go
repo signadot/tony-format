@@ -171,6 +171,9 @@ func (s *StorageConfig) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Field: Durability
 	irMap["durability"] = ir.FromString(string(s.Durability))
 
+	// Field: ReadBudget
+	irMap["readBudget"] = ir.FromInt(int64(s.ReadBudget))
+
 	return ir.FromMap(irMap).WithTag("!storage-config"), nil
 }
 
@@ -210,6 +213,12 @@ func (s *StorageConfig) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) err
 				return fmt.Errorf("field %q: expected string, got %v", "durability", fieldNodeUnwrapped.Type)
 			}
 			s.Durability = string(fieldNodeUnwrapped.String)
+		case "readBudget":
+			// Field: ReadBudget
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "readBudget", fieldNodeUnwrapped.Type)
+			}
+			s.ReadBudget = int64(*fieldNodeUnwrapped.Int64)
 		default:
 			if gomap.IsStrict(opts...) {
 				return fmt.Errorf("unknown field %q for StorageConfig", fieldName.String)

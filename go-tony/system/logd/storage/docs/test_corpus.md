@@ -127,3 +127,23 @@ one of them wrote `!key` with no schema declared, which the design refuses.
     ADDED     identity_test (storage), ident (package), keyed_path_test (server)
     TOUCHED   tick_test: a resolver that reads re-enters itself now that reads consult the
               schema; the probe guards its own re-entry
+
+## Phase 3a, as it happened
+
+The read side of the cutover: Read / Deltas / Collect / Rooted in, the nine read entry
+points out, every caller moved, the head kept as an internal cache with no entry point
+(3b removes it with per-path lowering). The behavioural corpus transferred through
+readat_test.go with four assertions restated:
+
+    REWRITTEN  read_subtree (FallsBackUnderAnOperator -> AnswersThroughAnOperator: the read
+               answers through the ancestor the operator is on, and is counted WideOperator);
+               keyed_read_stats (a rooted read at a position is refused before it is opened);
+               server/absent_read (absence is classified from the nearest present ancestor's
+               first event, so "verse.gone.zz" is no longer more generous than the document)
+    RENAMED    ReadPatchesInRange / EachPatchInRange -> readPatchesInRange / eachPatchInRange
+               (test helpers over Deltas); s.index.LookupRange -> segmentsAt (over Segments);
+               index tests onto the unexported lookupRange; tx mocks onto ValueAt
+    ADDED      index/cursor_test (the invariant Segments rests on), signature_rule_test
+    FOUND      the patch-root marker made the root non-spine on every commit, so a read at
+               any path collected every entry through the root's copy; passesThrough now
+               looks through logd's own marker

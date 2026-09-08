@@ -43,7 +43,7 @@ func TestReplayFloor_TruncatedRangeIsReported(t *testing.T) {
 	}
 
 	// A replay across the whole range works while the history is intact.
-	if _, err := s.ReadPatchesInRange("", 1, 4, nil); err != nil {
+	if _, err := readPatchesInRange(s, "", 1, 4, nil); err != nil {
 		t.Fatalf("ReadPatchesInRange before compaction: %v", err)
 	}
 
@@ -54,13 +54,13 @@ func TestReplayFloor_TruncatedRangeIsReported(t *testing.T) {
 		t.Fatal("floor still 0 after compaction dropped every patch")
 	}
 
-	_, err = s.ReadPatchesInRange("", 1, floor+10, nil)
+	_, err = readPatchesInRange(s, "", 1, floor+10, nil)
 	if !errors.Is(err, ErrReplayCompacted) {
 		t.Errorf("replay from below the floor returned err = %v, want ErrReplayCompacted", err)
 	}
 
 	// Above the floor is still exact, so it must not error.
-	if _, err := s.ReadPatchesInRange("", floor+1, floor+10, nil); err != nil {
+	if _, err := readPatchesInRange(s, "", floor+1, floor+10, nil); err != nil {
 		t.Errorf("replay from above the floor (%d) returned err = %v, want nil", floor+1, err)
 	}
 }
@@ -119,7 +119,7 @@ func TestReplayFloor_SurvivesReopen(t *testing.T) {
 	if got := s2.ReplayFloor(); got != floor {
 		t.Errorf("floor after reopen = %d, want %d", got, floor)
 	}
-	if _, err := s2.ReadPatchesInRange("", 1, floor+10, nil); !errors.Is(err, ErrReplayCompacted) {
+	if _, err := readPatchesInRange(s2, "", 1, floor+10, nil); !errors.Is(err, ErrReplayCompacted) {
 		t.Errorf("after reopen, replay from below the floor returned err = %v, want ErrReplayCompacted", err)
 	}
 }

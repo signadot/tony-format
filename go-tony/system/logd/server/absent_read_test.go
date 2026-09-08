@@ -60,7 +60,10 @@ func TestAbsentPathAnswersAsTheDocumentWould(t *testing.T) {
 		// cannot tell it from a scalar landing there and declines -- which is the safe
 		// half of not being able to see deletions at all.
 		{"verse.gone.branch.k.deeper", false, false},
-		{"verse.gone.zz", true, true}, // a sibling under a deleted branch's parent
+		// A sibling under a deleted branch's parent. The index proves it absent, and the
+		// answer resolves exactly as far as the document says: the nearest ancestor that
+		// is there, not the deepest one the index once saw written.
+		{"verse.gone.zz", true, false},
 	} {
 		path := tc.path
 		t.Run(path, func(t *testing.T) {
@@ -69,27 +72,32 @@ func TestAbsentPathAnswersAsTheDocumentWould(t *testing.T) {
 			if err != nil {
 				t.Fatalf("current commit: %s", err)
 			}
-			doc, err := store.ReadStateAt("", commit, nil)
-			if err != nil {
-				t.Fatalf("wide read: %s", err)
-			}
+			doc := readAll(t, store, commit, nil)
 			_, wideErr := extractPathValue(doc, path)
 			if wideErr == nil {
 				t.Fatalf("the document has a value at %q, so this case proves nothing", path)
 			}
 
-			// and what the cheap answer says
-			spine, ok := store.AbsentSpineAt(path, nil)
-			if ok != tc.cheap {
-				t.Fatalf("answered from the index: %v, want %v", ok, tc.cheap)
+			// and what the read at the path says: absent, and -- when the index can prove
+			// it -- proven without opening the log, which the counter records
+			before := store.ReadStats().NarrowAbsent
+			c, err := store.Read(commit, nil, path)
+			if err != nil {
+				t.Fatalf("read at %q: %s", path, err)
 			}
-			if !ok {
-				// the store declined, so the client gets the wide answer unchanged
-				return
+			pres := c.Presence()
+			c.Close()
+			if pres != storage.Absent {
+				t.Fatalf("the read at %q found %s", path, pres)
 			}
-			_, cheapErr := extractPathValue(spine, path)
+			proven := store.ReadStats().NarrowAbsent == before+1
+			if proven != tc.cheap {
+				t.Fatalf("answered from the index: %v, want %v", proven, tc.cheap)
+			}
+			session := NewSession("test", newMockConn(), &SessionConfig{Storage: store, Hub: NewWatchHub()})
+			cheapErr := session.classifyAbsent(path, commit)
 			if cheapErr == nil {
-				t.Fatalf("the cheap answer found a value at %q", path)
+				t.Fatalf("the read at %q classified nothing", path)
 			}
 
 			var widePE, cheapPE *PathError
