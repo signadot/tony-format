@@ -35,7 +35,15 @@ func (t *Tree[T]) Index(v T) int {
 }
 
 func (t *Tree[T]) Remove(v T) bool {
-	return t.root.remove(v)
+	removed := t.root.remove(v)
+	// A tree emptied to the last element is left with an interior root and no
+	// children, and add descends into children: an insert into it went nowhere and
+	// said so to no one. A tree with nothing in it is a leaf, as a new one is. Nothing
+	// emptied a tree before residency evicted whole nodes (region.go).
+	if removed && !t.root.isLeaf() && len(t.root.C) == 0 {
+		t.root = newLeaf[T](t.Less)
+	}
+	return removed
 }
 
 // All applies f to all elements in T in ascending order

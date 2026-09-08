@@ -172,7 +172,7 @@ func Open(root string, logger *slog.Logger) (*Storage, error) {
 	}
 
 	// Create persister after init() since init() may replace s.index
-	s.indexPersister = NewIndexPersister(s.sequence.Root, s.index, DefaultIndexPersistInterval, logger)
+	s.indexPersister = NewIndexPersister(s.index, s.logGenerations, DefaultIndexPersistInterval, logger)
 	s.indexPersister.SetLastPersisted(s.getIndexMaxCommit())
 
 	// The tick starts at the reconciled watermark: everything the log holds is already
@@ -222,19 +222,6 @@ func isOverlaySegment(seg index.LogSegment) bool {
 	return seg.ScopeID != nil && seg.ScopeOverlay
 }
 
-// persistedIndexStale reports whether the loaded index disagrees with the restored dlog
-// generation for any segment — the signature of a compaction whose file swap became durable
-// but whose index (and its new positions) did not. In a consistent state every segment for a
-// log file carries that file's current generation.
-func (s *Storage) persistedIndexStale() bool {
-	for _, seg := range s.index.LookupRangeAll("", nil, nil) {
-		if seg.LogFileGeneration != s.dLog.GetGeneration(dlog.LogFileID(seg.LogFile)) {
-			return true
-		}
-	}
-	return false
-}
-
 // init initializes the storage directory structure.
 func (s *Storage) init() error {
 	dirs := []string{
@@ -248,41 +235,22 @@ func (s *Storage) init() error {
 		}
 	}
 
-	// Load or rebuild index
-	indexPath := filepath.Join(s.sequence.Root, "index.gob")
-	idx, meta, err := index.LoadIndexWithMeta(indexPath)
-	maxCommit := meta.MaxCommit
+	// The durable index, or a fresh one when what is there cannot be trusted --
+	// index.OpenIndex says why -- and either way the log fills in from where the index
+	// stops: the log is the record (index_residency.md).
+	idx, manifest, why, err := index.OpenIndex(s.sequence.Root, func(logFile string) int64 {
+		return s.dLog.GetGeneration(dlog.LogFileID(logFile))
+	})
 	if err != nil {
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("failed to load index: %w", err)
-		}
-		idx = index.NewIndex("")
-		maxCommit = -1
-	} else if meta.Version < index.IndexFormatVersion {
-		// The file parses; that is not the question. It was written by a version
-		// whose commit tree could DROP entries -- half a leaf, on a duplicate insert
-		// into a full one -- so it may describe less than the log holds, and a read
-		// served from it would miss patches silently. The logs are the record, so it
-		// is rebuilt from them. Measured at fifty thousand commits, a rebuild costs
-		// what loading the file costs (1.5s against 1.4s), which is why this is not a
-		// flag (kds4sx3bh12krdrkghn0).
-		s.logger.Warn("persisted index predates the tree fix and may be incomplete; rebuilding from logs",
-			"fileVersion", meta.Version, "want", index.IndexFormatVersion)
-		idx = index.NewIndex("")
-		maxCommit = -1
+		return fmt.Errorf("failed to open index: %w", err)
+	}
+	maxCommit := int64(-1)
+	if manifest != nil {
+		maxCommit = manifest.MaxCommit
+	} else if why != "" && why != "no manifest" {
+		s.logger.Warn("rebuilding the index from the logs", "reason", why)
 	}
 	s.index = idx
-
-	// Guard against a persisted index left inconsistent with the logs by a compaction that
-	// did not complete durably: if any segment's recorded log-file generation disagrees with
-	// the generation restored from dlog.state, the persisted positions are stale for the
-	// actual on-disk layout. Discard the persisted index and rebuild from the logs, which
-	// reflect the true current layout (issue 656g8yt5).
-	if s.persistedIndexStale() {
-		s.logger.Warn("persisted index generation mismatch after restart; rebuilding index from logs")
-		s.index = index.NewIndex("")
-		maxCommit = -1
-	}
 
 	// Rebuild index from logs starting at maxCommit+1. A record which will not
 	// deserialize stops the walk rather than the store: what lies past a bad frame is
@@ -317,10 +285,9 @@ func (s *Storage) init() error {
 		return fmt.Errorf("failed to replay schema state: %w", err)
 	}
 
-	// Save index with updated maxCommit
-	currentMaxCommit := s.getIndexMaxCommit()
-	if currentMaxCommit >= 0 {
-		if err := index.StoreIndexWithMetadata(indexPath, s.index, currentMaxCommit); err != nil {
+	// What the catch-up added is written now, so it is evictable from the start.
+	if s.getIndexMaxCommit() >= 0 {
+		if err := s.index.Persist(s.logGenerations()); err != nil {
 			return fmt.Errorf("failed to save index: %w", err)
 		}
 	}
@@ -400,14 +367,7 @@ func (s *Storage) reconcileWatermark() error {
 // caller distinguishes "nothing to persist" from "commit 0"; here 0 is the right
 // floor, since it is what an unwritten counter already reads as.
 func (s *Storage) indexWatermarks() (commit, txSeq int64) {
-	for _, seg := range s.index.LookupRangeAll("", nil, nil) {
-		if seg.EndCommit > commit {
-			commit = seg.EndCommit
-		}
-		if seg.EndTx > txSeq {
-			txSeq = seg.EndTx
-		}
-	}
+	commit, txSeq, _ = s.index.MaxCommit()
 	return commit, txSeq
 }
 
@@ -470,12 +430,15 @@ func (s *Storage) Close() error {
 		s.indexPersister.Close()
 	}
 
-	indexPath := filepath.Join(s.sequence.Root, "index.gob")
-	currentMaxCommit := s.getIndexMaxCommit()
-	if currentMaxCommit >= 0 {
-		if err := index.StoreIndexWithMetadata(indexPath, s.index, currentMaxCommit); err != nil {
+	// The index goes out whole and compact: every region the file lacks written, the
+	// records earlier persists superseded dropped, the manifest last.
+	if s.getIndexMaxCommit() >= 0 {
+		if err := s.index.Rewrite(s.logGenerations()); err != nil {
 			return fmt.Errorf("failed to save index: %w", err)
 		}
+	}
+	if err := s.index.Close(); err != nil {
+		return fmt.Errorf("failed to close index: %w", err)
 	}
 
 	if err := s.dLog.Close(); err != nil {
@@ -486,15 +449,37 @@ func (s *Storage) Close() error {
 }
 
 func (s *Storage) getIndexMaxCommit() int64 {
-	// Use LookupRangeAll to get all segments regardless of scope
-	segments := s.index.LookupRangeAll("", nil, nil)
-	var maxCommit int64 = -1
-	for _, seg := range segments {
-		if seg.EndCommit > maxCommit {
-			maxCommit = seg.EndCommit
-		}
+	commit, _, ok := s.index.MaxCommit()
+	if !ok {
+		return -1
 	}
-	return maxCommit
+	return commit
+}
+
+// logGenerations is what the index records about the logs it was written against: a
+// compaction moves entries and bumps the generation, and an index persisted before it
+// names positions that no longer hold what it says.
+func (s *Storage) logGenerations() map[string]int64 {
+	return map[string]int64{
+		string(dlog.LogFileA): s.dLog.GetGeneration(dlog.LogFileA),
+		string(dlog.LogFileB): s.dLog.GetGeneration(dlog.LogFileB),
+	}
+}
+
+// SetIndexCeiling bounds what the index holds resident, in bytes: past it, the least
+// recently used regions are evicted to the durable index and paged back on a miss
+// (index_residency.md). Zero is unbounded. A ceiling under index.MinIndexCeiling is
+// refused: a read at any depth would thrash under it rather than progress.
+func (s *Storage) SetIndexCeiling(bytes int64) error {
+	if bytes < 0 || (bytes > 0 && bytes < index.MinIndexCeiling) {
+		return fmt.Errorf("index ceiling %d is below the floor of %d bytes", bytes, index.MinIndexCeiling)
+	}
+	// What is evicted has to be gettable back, so the file holds everything first.
+	if err := s.index.Persist(s.logGenerations()); err != nil {
+		return fmt.Errorf("index ceiling: %w", err)
+	}
+	s.index.Residency().SetCeiling(bytes)
+	return nil
 }
 
 // GetTx gets an existing transaction by transaction ID.

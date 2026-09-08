@@ -1,7 +1,6 @@
 package index
 
 import (
-	"path/filepath"
 	"strconv"
 	"sync"
 	"testing"
@@ -17,7 +16,11 @@ import (
 //
 // A write must not wait for a persist.
 func TestAddDoesNotWaitForPersist(t *testing.T) {
-	idx := NewIndex("")
+	idx, _, _, err := OpenIndex(t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer idx.Close()
 	const paths, revs = 2000, 20
 	for p := 0; p < paths; p++ {
 		kp := "verse.entities.e" + strconv.Itoa(p)
@@ -31,9 +34,9 @@ func TestAddDoesNotWaitForPersist(t *testing.T) {
 	}
 
 	// What a persist of this index costs, so the bound below is measured, not guessed.
-	path := filepath.Join(t.TempDir(), "index.gob")
+	gens := map[string]int64{"A": 0}
 	start := time.Now()
-	if err := StoreIndexWithMetadata(path, idx, int64(paths*revs)); err != nil {
+	if err := idx.Persist(gens); err != nil {
 		t.Fatalf("persist: %s", err)
 	}
 	persistTook := time.Since(start)
@@ -46,7 +49,9 @@ func TestAddDoesNotWaitForPersist(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := StoreIndexWithMetadata(path, idx, int64(paths*revs)); err != nil {
+		// A rewrite copies every record, which is the persist that costs what the
+		// first one did.
+		if err := idx.Rewrite(gens); err != nil {
 			t.Errorf("persist: %s", err)
 		}
 	}()

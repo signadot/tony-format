@@ -149,7 +149,7 @@ func TestReplayFloor_SurvivesIndexLoss(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	if err := os.Remove(filepath.Join(dir, "index.gob")); err != nil {
+	if err := os.Remove(filepath.Join(dir, "index.manifest")); err != nil {
 		t.Fatalf("remove index: %v", err)
 	}
 

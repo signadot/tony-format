@@ -2,7 +2,6 @@ package storage
 
 import (
 	"log/slog"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 
@@ -18,18 +17,18 @@ type IndexPersister struct {
 	interval      int64
 	wg            sync.WaitGroup
 	logger        *slog.Logger
-	root          string
 	index         *index.Index
+	generations   func() map[string]int64
 }
 
 // NewIndexPersister creates a new IndexPersister.
 // interval is the number of commits between persists (0 disables periodic persistence).
-func NewIndexPersister(root string, idx *index.Index, interval int64, logger *slog.Logger) *IndexPersister {
+func NewIndexPersister(idx *index.Index, generations func() map[string]int64, interval int64, logger *slog.Logger) *IndexPersister {
 	return &IndexPersister{
-		interval: interval,
-		logger:   logger,
-		root:     root,
-		index:    idx,
+		interval:    interval,
+		logger:      logger,
+		index:       idx,
+		generations: generations,
 	}
 }
 
@@ -60,9 +59,10 @@ func (p *IndexPersister) persistAsync(commit int64) {
 	}
 
 	maxCommit := p.getMaxCommit()
-	indexPath := filepath.Join(p.root, "index.gob")
 
-	if err := index.StoreIndexWithMetadata(indexPath, p.index, maxCommit); err != nil {
+	// The regions the file lacks, and the manifest: what makes the regions written
+	// since the last persist evictable (index.Persist).
+	if err := p.index.Persist(p.generations()); err != nil {
 		p.logger.Error("failed to persist index", "error", err)
 		return
 	}
@@ -71,19 +71,13 @@ func (p *IndexPersister) persistAsync(commit int64) {
 	p.logger.Debug("index persisted", "commit", maxCommit)
 }
 
-// getMaxCommit returns the highest commit in the index.
+// getMaxCommit returns the highest commit in the index, from the regions' headers.
 func (p *IndexPersister) getMaxCommit() int64 {
-	// Note: Don't lock here - LookupRangeAll handles its own locking.
-	// Taking RLock here would cause deadlock if a writer is waiting.
-	// Use LookupRangeAll to get all segments regardless of scope.
-	segments := p.index.LookupRangeAll("", nil, nil)
-	var maxCommit int64 = -1
-	for _, seg := range segments {
-		if seg.EndCommit > maxCommit {
-			maxCommit = seg.EndCommit
-		}
+	commit, _, ok := p.index.MaxCommit()
+	if !ok {
+		return -1
 	}
-	return maxCommit
+	return commit
 }
 
 // Close waits for any pending persist to complete.

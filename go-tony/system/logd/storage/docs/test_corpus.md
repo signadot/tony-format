@@ -236,3 +236,28 @@ Scope compaction by dominance.
                write keeps the earlier node's head comment; an array replaces up to its own
                length and merges an object element into what was there; an empty object
                merges nothing away; null is a value. The rules are those observations.
+
+## Phase 6, as it happened
+
+Index residency: the durable index, regions, the ceiling.
+
+    ADDED      index/residency_test (EVICTION CHANGES A COST, NEVER AN ANSWER as a property:
+               random adds, removes, snapshots of paths and persists, then every question
+               under a ceiling eight regions wide against the same index unbounded, and
+               again reopened from its files; the durable index trusted only when whole,
+               versioned and at the logs' generation); index_residency_test at the store
+               (the floor refused; reads under the floor-sized ceiling against an unbounded
+               store, every path at every commit, evictions and misses counted; the shaped
+               store under a tenth of its index, hit rate printed);
+               TestATreeEmptiedTakesInsertsAgain
+    REWRITTEN  index_test's store/load, persist_lock_test, storage_test's close-and-reload,
+               compaction_crash's stale-index simulation, index_version_test -> the
+               manifest and index.OpenIndex/Persist; keyed, path_snapshot and replay_floor
+               remove index.manifest where they removed index.gob
+    DROPPED    the gob: StoreIndex/LoadIndex and GobEncode/GobDecode, with persist.go
+    FOUND      a B-tree emptied to its last element kept an interior root with no children
+               and dropped every later insert on the floor; and removing a child's last
+               element answered false. Eviction empties trees routinely; nothing had before.
+    FOUND      a write into a cold region paged it in and the charge for the page-in
+               evicted it again before the insert, forever, when it was the only evictable
+               region: the write now lands in the same critical section as the paging.

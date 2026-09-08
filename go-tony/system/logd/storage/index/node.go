@@ -257,11 +257,14 @@ func (n *node[T]) remove(v T) bool {
 		// outside bounds
 		return false
 	}
+	// The child is empty and goes; the element was removed all the same. Answering
+	// false here told the caller nothing had gone, and left every count it kept one
+	// too high (region.go).
 	n.C = slices.Delete(n.C, rmIndex, rmIndex+1)
 	if n.N != 0 {
 		n.updateBounds()
 	}
-	return false
+	return true
 }
 
 func (n *node[T]) all(f func(T) bool) bool {

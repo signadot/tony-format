@@ -158,8 +158,8 @@ func reopenRebuilt(t *testing.T, s *Storage, root string, resolver api.SchemaRes
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	if err := os.Remove(filepath.Join(root, "index.gob")); err != nil && !os.IsNotExist(err) {
-		t.Fatalf("remove index.gob: %v", err)
+	if err := os.Remove(filepath.Join(root, "index.manifest")); err != nil && !os.IsNotExist(err) {
+		t.Fatalf("remove index.manifest: %v", err)
 	}
 	re, err := Open(root, nil)
 	if err != nil {

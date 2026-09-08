@@ -106,3 +106,34 @@ func TestIndexRebuildIsIdempotent(t *testing.T) {
 		t.Errorf("a rebuild changed the index: %d segments, was %d", again, first)
 	}
 }
+
+// A tree emptied to nothing takes inserts again, and every removal says it removed. A
+// tree that had split once and was then emptied kept an interior root with no children,
+// and an insert into it descended into nothing and was lost; and the removal of a
+// child's last element was reported as no removal at all.
+func TestATreeEmptiedTakesInsertsAgain(t *testing.T) {
+	tr := NewTree(func(a, b int) bool { return a < b })
+	const n = 500
+	for i := 0; i < n; i++ {
+		tr.Insert(i)
+	}
+	for i := 0; i < n; i++ {
+		if !tr.Remove(i) {
+			t.Fatalf("Remove(%d) said it removed nothing", i)
+		}
+	}
+	count := 0
+	tr.All(func(int) bool { count++; return true })
+	if count != 0 {
+		t.Fatalf("%d elements left after removing all %d", count, n)
+	}
+	for i := 0; i < n; i++ {
+		if !tr.Insert(i) {
+			t.Fatalf("Insert(%d) into the emptied tree said it added nothing", i)
+		}
+	}
+	tr.All(func(int) bool { count++; return true })
+	if count != n {
+		t.Fatalf("%d elements after refilling, want %d", count, n)
+	}
+}

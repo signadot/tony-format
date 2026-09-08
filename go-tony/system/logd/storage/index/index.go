@@ -13,6 +13,20 @@ type Index struct {
 	PathKey  string // eg "" for root
 	Commits  *Tree[LogSegment]
 	Children map[string]*Index // map from subdir names to sub indices
+
+	// The node's regions in minStart order and the residency they answer to (region.go),
+	// and full, the node's path from the root, which its records are filed under.
+	regions []*region
+	res     *Residency
+	full    string
+}
+
+// newChild makes the node for a child path: the parent's residency, and the path.
+func (i *Index) newChild(name string) *Index {
+	c := NewIndex(name)
+	c.res = i.res
+	c.full = joinSegments(append(kpath.SplitAll(i.full), name))
+	return c
 }
 
 func NewIndex(pathKey string) *Index {
@@ -93,36 +107,38 @@ func (i *Index) childOf(name string) *Index {
 	return i.Children[name]
 }
 
-// segmentsHere collects this node's OWN segments, under a brief lock.
-func (i *Index) segmentsHere(rng func(LogSegment) int, keep func(LogSegment) bool) []LogSegment {
-	i.RLock()
-	defer i.RUnlock()
+// segmentsWithin collects this node's OWN segments that can have an EndCommit in
+// [from, to], with the regions that can hold them resident (region.go), under a brief
+// lock. keep narrows them further.
+func (i *Index) segmentsWithin(from, to *int64, keep func(LogSegment) bool) []LogSegment {
 	res := []LogSegment{}
-	i.Commits.Range(func(c LogSegment) bool {
-		if keep == nil || keep(c) {
-			res = append(res, c)
-		}
-		return true
-	}, rng)
+	upTo := commitsUpTo(to)
+	i.withResident(func(r *region) bool { return r.covers(from, to) }, false, func() {
+		i.Commits.Range(func(c LogSegment) bool {
+			if keep == nil || keep(c) {
+				res = append(res, c)
+			}
+			return true
+		}, upTo)
+	})
 	return res
 }
 
 func (i *Index) Add(seg *LogSegment) {
-	i.Lock()
-	defer i.Unlock()
 	if seg.KindedPath == "" {
-		i.Commits.Insert(*seg)
+		i.addSegment(*seg)
 		return
 	}
-	// Split kpath into first segment and rest for navigation
+	// Split kpath into first segment and rest for navigation. The child is named under
+	// the lock and descended into after it; a child is never removed.
 	firstSegment, restPath := kpath.Split(seg.KindedPath)
+	i.Lock()
 	child := i.Children[firstSegment]
 	if child == nil {
-		child = NewIndex(firstSegment)
+		child = i.newChild(firstSegment)
 		i.Children[firstSegment] = child
 	}
-	// Create a copy with relative path for recursive call
-	// (but we'll store the full path, so create new segment with restPath)
+	i.Unlock()
 	segCopy := *seg
 	segCopy.KindedPath = restPath
 	child.Add(&segCopy)
@@ -130,23 +146,17 @@ func (i *Index) Add(seg *LogSegment) {
 
 func (i *Index) Remove(seg *LogSegment) bool {
 	if seg.KindedPath == "" {
-		i.Lock()
-		defer i.Unlock()
-		return i.Commits.Remove(*seg)
+		return i.removeSegment(*seg)
 	}
 	firstSegment, restPath := kpath.Split(seg.KindedPath)
-	i.RLock()
-	defer i.RUnlock()
-	c := i.Children[firstSegment]
+	c := i.childOf(firstSegment)
 	if c == nil {
 		return false
 	}
-	// Create a copy with relative path for recursive call
 	segCopy := *seg
 	segCopy.KindedPath = restPath
-	res := c.Remove(&segCopy)
 	// nb low grade mem leak when c empty after remove
-	return res
+	return c.Remove(&segCopy)
 }
 
 // LookupRange finds segments in the given commit range, at or above kp: a write
@@ -160,7 +170,7 @@ func (i *Index) Remove(seg *LogSegment) bool {
 // If scopeID is non-nil, returns baseline + matching scope segments.
 func (i *Index) lookupRange(kp string, from, to *int64, scopeID *string) []LogSegment {
 	inRange := inCommitRange(from, to)
-	res := i.segmentsHere(commitsUpTo(to), func(c LogSegment) bool {
+	res := i.segmentsWithin(from, to, func(c LogSegment) bool {
 		return inRange(c) && matchesScope(c.ScopeID, scopeID)
 	})
 	if kp == "" {
@@ -246,14 +256,12 @@ func (i *Index) provenObject() bool {
 	return false
 }
 
-// newestCommit is the commit of the last write indexed AT this path.
+// newestCommit is the commit of the last write indexed AT this path, from the regions'
+// headers: nothing is paged in to say it.
 func (i *Index) newestCommit() (int64, bool) {
 	i.RLock()
 	defer i.RUnlock()
-	for seg := range i.Commits.Commits(Down) {
-		return seg.StartCommit, true
-	}
-	return 0, false
+	return i.newestStart()
 }
 
 func (i *Index) childIndex(name string) *Index {
@@ -272,28 +280,11 @@ func (i *Index) childIndex(name string) *Index {
 // Dropping them makes the index describe what the store can actually read
 // (t96b5ejqh12krprjghn0).
 func (i *Index) DropFrom(logFile string, pos int64) int {
-	i.Lock()
-	var doomed []LogSegment
-	i.Commits.All(func(c LogSegment) bool {
-		if c.LogFile == logFile && c.LogPosition >= pos {
-			doomed = append(doomed, c)
-		}
-		return true
+	dropped := i.removeAll(func(c LogSegment) bool {
+		return c.LogFile == logFile && c.LogPosition >= pos
 	})
-	dropped := 0
-	for _, c := range doomed {
-		if i.Commits.Remove(c) {
-			dropped++
-		}
-	}
-	children := make([]*Index, 0, len(i.Children))
-	for _, c := range i.Children {
-		children = append(children, c)
-	}
-	i.Unlock()
-
-	for _, c := range children {
-		dropped += c.DropFrom(logFile, pos)
+	for _, c := range i.childrenOf() {
+		dropped += c.index.DropFrom(logFile, pos)
 	}
 	return dropped
 }
@@ -303,28 +294,11 @@ func (i *Index) DropFrom(logFile string, pos int64) int {
 // stepped over: an index entry pointing into it names data no read can produce, while
 // the entries behind the region are as readable as they ever were and are kept.
 func (i *Index) DropWithin(logFile string, from, to int64) int {
-	i.Lock()
-	var doomed []LogSegment
-	i.Commits.All(func(c LogSegment) bool {
-		if c.LogFile == logFile && c.LogPosition >= from && c.LogPosition < to {
-			doomed = append(doomed, c)
-		}
-		return true
+	dropped := i.removeAll(func(c LogSegment) bool {
+		return c.LogFile == logFile && c.LogPosition >= from && c.LogPosition < to
 	})
-	dropped := 0
-	for _, c := range doomed {
-		if i.Commits.Remove(c) {
-			dropped++
-		}
-	}
-	children := make([]*Index, 0, len(i.Children))
-	for _, c := range i.Children {
-		children = append(children, c)
-	}
-	i.Unlock()
-
-	for _, c := range children {
-		dropped += c.DropWithin(logFile, from, to)
+	for _, c := range i.childrenOf() {
+		dropped += c.index.DropWithin(logFile, from, to)
 	}
 	return dropped
 }
@@ -384,22 +358,13 @@ func matchesScope(segScopeID, reqScopeID *string) bool {
 // LookupRangeAll returns all segments in the given range regardless of scope.
 // This is used for internal operations like computing max commit.
 func (i *Index) LookupRangeAll(kp string, from, to *int64) []LogSegment {
-	i.RLock()
-	defer i.RUnlock()
-	res := []LogSegment{}
-	inRange := inCommitRange(from, to)
-	i.Commits.Range(func(c LogSegment) bool {
-		if inRange(c) {
-			res = append(res, c)
-		}
-		return true
-	}, commitsUpTo(to))
+	res := i.segmentsWithin(from, to, inCommitRange(from, to))
 	if kp == "" {
 		slices.SortFunc(res, LogSegCompare)
 		return res
 	}
 	firstSegment, restPath := kpath.Split(kp)
-	c := i.Children[firstSegment]
+	c := i.childOf(firstSegment)
 	if c == nil {
 		return res
 	}
@@ -417,7 +382,7 @@ func (i *Index) LookupRangeAll(kp string, from, to *int64) []LogSegment {
 // inside its patch (indexPatchRec), and all of those copies name the same log position, so
 // anything maintaining positions has to reach all of them.
 func (i *Index) AllSegments() []LogSegment {
-	res := i.segmentsHere(commitsUpTo(nil), nil)
+	res := i.segmentsWithin(nil, nil, nil)
 	for _, child := range i.childrenOf() {
 		pathKey, c := child.name, child.index
 		for _, seg := range c.AllSegments() {
@@ -439,7 +404,7 @@ func (i *Index) AllSegments() []LogSegment {
 // If scopeID is nil, returns only baseline segments.
 // If scopeID is non-nil, returns baseline + matching scope segments.
 func (i *Index) lookupWithin(kp string, commit int64, scopeID *string) []LogSegment {
-	res := i.segmentsHere(commitsUpTo(&commit), func(c LogSegment) bool {
+	res := i.segmentsWithin(&commit, &commit, func(c LogSegment) bool {
 		return c.StartCommit <= commit && commit <= c.EndCommit && matchesScope(c.ScopeID, scopeID)
 	})
 	if kp == "" {
@@ -622,37 +587,11 @@ func (i *Index) ListRange(from, to *int64, scopeID *string) []string {
 // DeleteScope removes all segments with the given scopeID from the index.
 // Returns the number of segments removed.
 func (i *Index) DeleteScope(scopeID string) int {
-	i.Lock()
-	defer i.Unlock()
-	return i.deleteScopeLocked(scopeID)
-}
-
-// deleteScopeLocked removes scope segments without acquiring the lock (caller must hold it).
-func (i *Index) deleteScopeLocked(scopeID string) int {
-	count := 0
-
-	// Collect segments to remove from this node
-	var toRemove []LogSegment
-	i.Commits.All(func(seg LogSegment) bool {
-		if seg.ScopeID != nil && *seg.ScopeID == scopeID {
-			toRemove = append(toRemove, seg)
-		}
-		return true
+	count := i.removeAll(func(seg LogSegment) bool {
+		return seg.ScopeID != nil && *seg.ScopeID == scopeID
 	})
-
-	// Remove them
-	for _, seg := range toRemove {
-		if i.Commits.Remove(seg) {
-			count++
-		}
+	for _, c := range i.childrenOf() {
+		count += c.index.DeleteScope(scopeID)
 	}
-
-	// Recurse into children
-	for _, child := range i.Children {
-		child.Lock()
-		count += child.deleteScopeLocked(scopeID)
-		child.Unlock()
-	}
-
 	return count
 }

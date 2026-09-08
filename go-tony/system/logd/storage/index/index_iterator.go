@@ -182,6 +182,9 @@ func (it *IndexIterator) CommitsAt(commit int64, dir Direction) func(func(LogSeg
 	if it.current == nil {
 		return func(func(LogSegment) bool) {}
 	}
+	// The whole node, resident: this iterator walks the tree outside any lock, so it
+	// serves tests and startup, not the read path (region.go).
+	it.current.withResident(nil, false, func() {})
 
 	// Create a target LogSegment for seeking
 	// For descending (Down): use maximum values to find last segment <= commit

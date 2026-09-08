@@ -98,17 +98,24 @@ func TestIndexPersist(t *testing.T) {
 		idx.Add(&segs[i])
 	}
 
-	tmpDir := t.TempDir()
-	path := tmpDir + "/index.gob"
-
-	if err := StoreIndex(path, idx); err != nil {
-		t.Fatalf("StoreIndex failed: %v", err)
-	}
-
-	loadedIdx, err := LoadIndex(path)
+	dir := t.TempDir()
+	durable, _, _, err := OpenIndex(dir, nil)
 	if err != nil {
-		t.Fatalf("LoadIndex failed: %v", err)
+		t.Fatalf("OpenIndex: %v", err)
 	}
+	for i := range segs {
+		durable.Add(&segs[i])
+	}
+	if err := durable.Persist(map[string]int64{"A": 0}); err != nil {
+		t.Fatalf("Persist failed: %v", err)
+	}
+	durable.Close()
+
+	loadedIdx, m, _, err := OpenIndex(dir, func(string) int64 { return 0 })
+	if err != nil || m == nil {
+		t.Fatalf("OpenIndex again failed: %v (manifest %v)", err, m != nil)
+	}
+	defer loadedIdx.Close()
 
 	// Verify loaded index content
 	// LookupRange("foo.bar") includes ancestors, so it returns both "foo.bar" and "foo"

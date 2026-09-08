@@ -106,6 +106,13 @@ func New(spec *Spec) *Server {
 			spec.Storage.SetPathSnapshotPolicy(st.PathSnapshotTail, st.PathSnapshotBytes)
 			spec.Log.Info("configured path snapshots", "tail", st.PathSnapshotTail, "bytes", st.PathSnapshotBytes)
 		}
+		if st := spec.Config.Storage; st != nil && st.IndexCeiling > 0 {
+			if err := spec.Storage.SetIndexCeiling(st.IndexCeiling); err != nil {
+				spec.Log.Error("index ceiling not applied", "error", err)
+			} else {
+				spec.Log.Info("configured index ceiling", "bytes", st.IndexCeiling)
+			}
+		}
 
 		// Set up compaction if configured
 		if spec.Config.Compaction != nil {

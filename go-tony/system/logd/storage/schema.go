@@ -176,6 +176,7 @@ func (s *Storage) CompleteMigration() (int64, error) {
 
 	// Promote pending to active and get new index
 	newIndex := s.schema.PromotePending(commit)
+	newIndex.Adopt(s.index) // the live index's residency and file; the next persist writes it
 	s.index = newIndex
 
 	return commit, nil

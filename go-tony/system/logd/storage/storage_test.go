@@ -24,24 +24,22 @@ func TestStorage_Close(t *testing.T) {
 		t.Fatalf("Close() error = %v", err)
 	}
 
-	// With no commits, getIndexMaxCommit() returns -1, so index file is not created
+	// With no commits, getIndexMaxCommit() returns -1, so no manifest is written.
 	// This is expected behavior - index is only persisted when there are commits
-	indexPath := filepath.Join(tmpDir, "index.gob")
+	indexPath := filepath.Join(tmpDir, "index.manifest")
 	if _, err := os.Stat(indexPath); os.IsNotExist(err) {
 		// This is expected when there are no commits
 		return
 	}
 
-	// If index file exists, verify we can load it
-	idx, maxCommit, err := index.LoadIndexWithMetadata(indexPath)
-	if err != nil {
-		t.Fatalf("LoadIndexWithMetadata() error = %v", err)
+	// If the manifest exists, verify the index opens from it
+	idx, m, why, err := index.OpenIndex(tmpDir, nil)
+	if err != nil || m == nil {
+		t.Fatalf("OpenIndex() error = %v (manifest %v, %s)", err, m != nil, why)
 	}
-	if idx == nil {
-		t.Error("loaded index is nil")
-	}
-	if maxCommit < 0 {
-		t.Errorf("expected maxCommit >= 0, got %d", maxCommit)
+	defer idx.Close()
+	if m.MaxCommit < 0 {
+		t.Errorf("expected maxCommit >= 0, got %d", m.MaxCommit)
 	}
 }
 

@@ -9,7 +9,6 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 )
 
 // Regression tests for compaction crash/restart consistency (issue 656g8yt5).
@@ -163,9 +162,8 @@ func TestCompact_CrashAfterSwapBeforeIndexPersist_RebuildsIndex(t *testing.T) {
 
 	// Force the on-disk index to reflect the PRE-compaction state, then compact without any
 	// further persist (no Close) — simulating a crash between the swap and the next index persist.
-	c, _ := s.GetCurrentCommit()
-	if err := index.StoreIndexWithMetadata(filepath.Join(dir, "index.gob"), s.index, c); err != nil {
-		t.Fatalf("pre-compaction index store: %v", err)
+	if err := s.index.Persist(s.logGenerations()); err != nil {
+		t.Fatalf("pre-compaction index persist: %v", err)
 	}
 	if err := s.Compact(compactConfig()); err != nil {
 		t.Fatalf("Compact: %v", err)

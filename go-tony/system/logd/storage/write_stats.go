@@ -132,6 +132,11 @@ func (w WriteStats) Report() map[string]any {
 // which of the two it is.
 func (s *Storage) StatsReport() map[string]any {
 	m := s.ReadStats().Report()
+	if r := s.index.Residency(); r != nil {
+		for k, v := range r.Stats().Report() {
+			m[k] = v
+		}
+	}
 	for k, v := range s.WriteStats().Report() {
 		m[k] = v
 	}

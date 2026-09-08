@@ -2,6 +2,8 @@ package index
 
 import (
 	"iter"
+	"math"
+	"sort"
 
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
 )
@@ -31,7 +33,6 @@ import (
 func (i *Index) Segments(kp string, from, to *int64, scopeID *string) iter.Seq[LogSegment] {
 	return func(yield func(LogSegment) bool) {
 		inRange := inCommitRange(from, to)
-		upTo := commitsUpTo(to)
 
 		// One list per node on the path, root first.
 		var lists [][]LogSegment
@@ -39,7 +40,7 @@ func (i *Index) Segments(kp string, from, to *int64, scopeID *string) iter.Seq[L
 		node, rest := i, kp
 		for {
 			atKP := rest == ""
-			segs := node.segmentsHere(upTo, func(c LogSegment) bool {
+			segs := node.segmentsWithin(from, to, func(c LogSegment) bool {
 				if !atKP && c.Spine {
 					return false
 				}
@@ -128,18 +129,44 @@ func (i *Index) SnapshotAtOrAbove(kp string, at int64) (LogSegment, bool) {
 	return best, found
 }
 
-// latestSnapshot is this node's most recent baseline snapshot at or below at, under the
-// node's lock: CommitsAt walks the node's own tree and does not take it.
+// latestSnapshot is this node's most recent baseline snapshot at or below at. The
+// regions' headers say which commit it is at without paging anything: only the region
+// that holds it is made resident, and only when there is one to hold.
 func (i *Index) latestSnapshot(at int64) (LogSegment, bool) {
 	i.RLock()
-	defer i.RUnlock()
-	it := &IndexIterator{root: i, current: i, valid: true}
-	for seg := range it.CommitsAt(at, Down) {
-		if seg.StartCommit == seg.EndCommit && seg.ScopeID == nil {
-			return seg, true
+	var want *region
+	var commit int64
+	for k := len(i.regions) - 1; k >= 0 && want == nil; k-- {
+		reg := i.regions[k]
+		if reg.minStart > at {
+			continue
+		}
+		snaps := reg.snaps
+		j := sort.Search(len(snaps), func(j int) bool { return snaps[j] > at })
+		if j > 0 {
+			want, commit = reg, snaps[j-1]
 		}
 	}
-	return LogSegment{}, false
+	i.RUnlock()
+	if want == nil {
+		return LogSegment{}, false
+	}
+	var found LogSegment
+	ok := false
+	i.withResident(func(r *region) bool { return r == want }, false, func() {
+		target := LogSegment{StartCommit: commit, StartTx: math.MaxInt64, EndCommit: commit, EndTx: math.MaxInt64, KindedPath: "\xff\xff\xff\xff"}
+		for it := i.Commits.IterSeek(target, false); it.Valid(); it.Next() {
+			seg := it.Value()
+			if seg.StartCommit != commit {
+				return
+			}
+			if seg.StartCommit == seg.EndCommit && seg.ScopeID == nil {
+				found, ok = seg, true
+				return
+			}
+		}
+	})
+	return found, ok
 }
 
 // joinSegments renders a path from its segments, the way IndexIterator.Path does.

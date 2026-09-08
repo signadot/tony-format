@@ -73,6 +73,11 @@ type StorageConfig struct {
 	// off. See storage/path_snapshot.go.
 	PathSnapshotTail  int64 `tony:"field=pathSnapshotTail"`
 	PathSnapshotBytes int64 `tony:"field=pathSnapshotBytes"`
+
+	// IndexCeiling bounds what the index holds resident, in bytes; past it the least
+	// recently used regions are evicted to the durable index and paged back on a miss.
+	// Zero is unbounded. See storage/index/region.go.
+	IndexCeiling int64 `tony:"field=indexCeiling"`
 }
 
 // ToStorageDurability maps the configured name to a storage.Durability. A nil

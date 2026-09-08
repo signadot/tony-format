@@ -479,6 +479,17 @@ its unbounded resident size, with the hit rate printed.
 DONE WHEN: the staging-shaped store runs under a configured ceiling and says so. Release
 point.
 
+6 AS BUILT: the durable index is index.regions (append-only records, one per region) and
+index.manifest (which records are current, with every region's header), and index.gob is
+gone; the resident trie is a cache of it, the skeleton the floor, each node's segments in
+regions of at most 64 contiguous in StartCommit. A read pages what its range needs and
+answers in the same critical section that installs it; a write inserts in that section
+too; only a durable, clean region is evicted, and the persister is what makes regions
+evictable. LRU, a configured ceiling with a floor of eight regions, the counters in the
+report. The property holds against the same index unbounded and reopened from its files,
+and against an unbounded store at every path and commit. Found underneath: a B-tree
+emptied to nothing refused every later insert (index_residency.md, As built).
+
 ## Phase 7 -- snapshots into compaction
 
 READ: storage/{compaction.go,compaction_policy.go,snap_storage.go}; the compaction tests

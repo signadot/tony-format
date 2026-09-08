@@ -160,7 +160,7 @@ func TestASnapshotOfAPathSurvivesReopenAndRebuild(t *testing.T) {
 
 	for _, step := range []string{"reopened", "rebuilt"} {
 		if step == "rebuilt" {
-			if err := os.Remove(filepath.Join(dir, "index.gob")); err != nil {
+			if err := os.Remove(filepath.Join(dir, "index.manifest")); err != nil {
 				t.Fatalf("remove index: %v", err)
 			}
 		}
