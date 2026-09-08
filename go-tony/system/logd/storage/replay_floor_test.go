@@ -190,10 +190,10 @@ func TestReplayFloor_NeverLowered(t *testing.T) {
 	}
 }
 
-// Only dropped BASELINE PATCHES may raise the floor. A snapshot is not a delta, so
-// losing one costs a replay nothing, and a scope keeps its whole overlay until the scope
-// itself is deleted — neither is a statement about baseline history.
-func TestDroppedPatchFloor_CountsOnlyBaselinePatches(t *testing.T) {
+// Only dropped PATCHES raise the floor. A snapshot is not a delta, so losing one costs a
+// replay nothing; a scope's dropped entry counts as baseline's does, since a replay of
+// the scope from before it would have a hole where it was.
+func TestDroppedPatchFloor_CountsDroppedPatchesOfAnyScope(t *testing.T) {
 	scope := "s1"
 	segs := []index.LogSegment{
 		{StartCommit: 20, EndCommit: 20, LogPosition: 10},                  // snapshot at 20
@@ -201,13 +201,13 @@ func TestDroppedPatchFloor_CountsOnlyBaselinePatches(t *testing.T) {
 		{StartCommit: 10, EndCommit: 11, LogPosition: 30},                  // baseline patch
 		{StartCommit: 11, EndCommit: 12, LogPosition: 40},                  // baseline patch
 	}
-	// Everything is dropped except the last baseline patch. The snapshot at 20 and the
-	// scope patch at 19 both outrank the dropped baseline patch at 11, so a floor that
-	// counted them would come back as 20 rather than 11.
-	survivors := []index.LogSegment{segs[3]}
-
-	if got := droppedPatchFloor(segs, survivors); got != 11 {
+	// The snapshot at 20 outranks everything and never counts. With the scope patch
+	// kept, the floor is the dropped baseline patch at 11; with it dropped, 19.
+	if got := droppedPatchFloor(segs, []index.LogSegment{segs[1], segs[3]}); got != 11 {
 		t.Errorf("droppedPatchFloor = %d, want 11 (the dropped baseline patch alone)", got)
+	}
+	if got := droppedPatchFloor(segs, []index.LogSegment{segs[3]}); got != 19 {
+		t.Errorf("droppedPatchFloor = %d, want 19 (the dropped scope patch)", got)
 	}
 }
 

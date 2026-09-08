@@ -218,3 +218,21 @@ Snapshots of paths, and compaction over the file.
     FOUND      a write's own read of its site is a read: the first tests expected a path to
                stay unsnapshotted through twenty writes, and the writes snapshotted it.
                Kept, and the tests build their tails with the policy off.
+
+## Phase 7, as it happened (second half)
+
+Scope compaction by dominance.
+
+    ADDED      scope_compaction_test (a hundred rewrites of one field leave one entry, a
+               !delete nothing covers stays, a commented value a later plain write does not
+               dominate stays, a plain array is replaced by a later one; the differential
+               over genScopeOps against a store that never compacts, both views, every
+               path, and the scoped replay from above the floor)
+    REWRITTEN  TestDroppedPatchFloor_CountsOnlyBaselinePatches -> ...CountsDroppedPatchesOf
+               AnyScope: a scope's dropped entry raises the floor
+    TRANSFER   scope_cow (PatchesSurviveCompaction: one entry nothing dominates survives,
+               as before), scope_scaling, scope_watch_cost, scope_premise, scope_indexloss
+    PROBED     the fold's own semantics, before the cover rules were written: a later plain
+               write keeps the earlier node's head comment; an array replaces up to its own
+               length and merges an object element into what was there; an empty object
+               merges nothing away; null is a value. The rules are those observations.

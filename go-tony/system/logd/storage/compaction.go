@@ -11,10 +11,12 @@ import (
 
 // Compact compacts the inactive log according to the compaction policy.
 // Removes:
-// - Patches before cutoff (historical reads become approximate)
-// - Snapshots of paths before cutoff (path_snapshot.go)
-// - Root snapshots the tiers do not keep
-// - Completed/aborted schema migration entries
+//   - Patches before cutoff (historical reads become approximate)
+//   - Snapshots of paths before cutoff (path_snapshot.go)
+//   - A scope's entries before cutoff that a later entry of the scope dominates
+//     (scope_compaction.go)
+//   - Root snapshots the tiers do not keep
+//   - Completed/aborted schema migration entries
 //
 // THE WORK LIST IS THE LOG'S OWN RECORDS. Compaction walks the inactive file once and
 // decides each entry's fate from the entry -- its time, its scope, whether it is a
@@ -55,7 +57,21 @@ func (s *Storage) Compact(config *CompactionConfig) error {
 	now := time.Now()
 	cutoffTime := now.Add(-config.Cutoff)
 
-	survivors, dropped := s.selectSurvivors(records, config, now, pinCommit, cutoffTime)
+	// A scope's entries beyond the cutoff go when a later entry of the scope dominates
+	// them (scope_compaction.go). Deciding that reads the scope, so it is asked once, for
+	// the scopes the file holds, and answered by position.
+	candidates := map[int64]*string{}
+	for _, r := range records {
+		if r.seg.ScopeID != nil && r.seg.StartCommit != r.seg.EndCommit && r.timeOK && !r.time.After(cutoffTime) {
+			candidates[r.pos] = r.seg.ScopeID
+		}
+	}
+	dominated, err := s.dominatedScopeEntries(inactiveLogID, candidates)
+	if err != nil {
+		return err
+	}
+
+	survivors, dropped := s.selectSurvivors(records, config, now, pinCommit, cutoffTime, dominated)
 	if len(dropped) == 0 {
 		s.logger.Info("all entries survive, skipping compaction")
 		return nil
@@ -185,6 +201,7 @@ func (s *Storage) selectSurvivors(
 	now time.Time,
 	pinCommit int64,
 	cutoffTime time.Time,
+	dominated map[int64]bool,
 ) (survivors, dropped []compactRecord) {
 	// Root snapshots are what the tiers keep; everything else -- the writes, and the
 	// snapshots of paths that stand in for a run of them (path_snapshot.go) -- is kept
@@ -197,13 +214,16 @@ func (s *Storage) selectSurvivors(
 			rootSnapshots = append(rootSnapshots, r)
 			continue
 		}
-		// A scope's patches ARE its layer -- op-preserving, and replayed in full on
-		// every scoped read, since nothing materialized can stand in for them (a scope
-		// snapshot resolves !key away). So they are retained whatever the cutoff, until
-		// DeleteScope removes them from the index. Bounded op-preserving compaction of
-		// a scope's patch log is tracked in 5hmq80f3h12krh1mbsn0.
+		// A scope's entries ARE its layer, replayed on every scoped read, and nothing
+		// materialized stands in for them. One goes only when a later entry of the
+		// scope dominates it -- states everything it stated, in a way that does not
+		// depend on what was there -- and it is beyond the cutoff (scope_compaction.go).
 		if r.seg.ScopeID != nil {
-			survivors = append(survivors, r)
+			if dominated[r.pos] {
+				dropped = append(dropped, r)
+			} else {
+				survivors = append(survivors, r)
+			}
 			continue
 		}
 		// A time it cannot read keeps an entry, to be safe.

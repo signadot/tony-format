@@ -421,6 +421,13 @@ func subtreeAt(patch *ir.Node, path string) (*ir.Node, bool) {
 // Nothing in the entry marks a root, and nothing needs to: the shape is the statement.
 // That is what lets the stored bytes be the delivered bytes -- there is nothing on an
 // entry that a delivery, a fold, or a collected node would have to take off first.
+// Roots hands fn each node an entry states something at, with its path: the reading this
+// package applies an entry by, for a caller that has to weigh what one entry says against
+// another (storage's scope compaction).
+func Roots(patch *ir.Node, fn func(node *ir.Node, path string)) {
+	walkAndCollectPatchRoots(patch, "", fn)
+}
+
 func walkAndCollectPatchRoots(node *ir.Node, path string, fn func(node *ir.Node, path string)) {
 	if node == nil {
 		return

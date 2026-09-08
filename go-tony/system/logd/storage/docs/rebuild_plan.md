@@ -531,10 +531,21 @@ and indexCopies held. This is also what made per-path snapshots correct: a work 
 from the root's segments never saw a segment indexed only at its path, so a snapshot of a
 path survived a rewrite at a stale position.
 
-NOT YET: the scope half -- a scope's patches are still kept whole until DeleteScope
-(5hmq80f3h12krh1mbsn0). Stored scope writes are absolute now, so an entry every statement
-of which a later whole-value claim in the same scope covers can go beyond the cutoff; that
-is the second commit of this phase.
+7 AS BUILT, second half (5hmq80f3h12krh1mbsn0): a scope's entry beyond the cutoff goes
+when a later entry of the scope DOMINATES it -- states every path it stated, or an ancestor,
+in a way that does not depend on what was there. That is sound because a stored scope
+write is absolute (phase 3b), and it needs no patch composition: nothing is materialized,
+the dominated entries are simply not there, and the fold of what remains is the fold of
+everything. What a later statement covers is decided by what the merge keeps
+(scope_compaction.go): !raw and !delete cover totally; a plain scalar or array of plain
+scalars replaces its path and everything beneath, but at its own path may keep a comment
+or a tag, so it dominates there only a statement that carried neither; an array with
+object elements, an empty object, and every other operation cover nothing. The pass is one
+walk of the scope newest-first holding the covers seen (patches.Roots is the reading), one
+read per entry of the scope per compaction; after the first, the scope is its layer and a
+tail. A dropped scope entry raises the store-wide replay floor like a baseline one, which
+is the pessimistic side. TestScopeCompactionDifferential holds both views at every path
+against a store that never compacts, and the scoped replay from above the floor.
 
 ## Decisions the documents leave open
 

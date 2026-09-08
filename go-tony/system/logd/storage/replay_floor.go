@@ -98,13 +98,16 @@ func (s *Storage) raiseReplayFloor(floor int64) error {
 	return nil
 }
 
-// droppedPatchFloor returns the highest baseline commit among segments that are about to
-// be dropped, or 0 if none are.
+// droppedPatchFloor returns the highest commit among the patches that are about to be
+// dropped, or 0 if none are.
 //
-// Only BASELINE PATCHES count. Snapshots are not deltas, so dropping one costs a replay
-// nothing. Scope patches are never dropped by cutoff (selectSurvivors retains a scope's
-// patches whole until DeleteScope), and a scope's removal is not a statement about
-// baseline history, so neither belongs in a store-wide floor.
+// Only PATCHES count: snapshots are not deltas, so dropping one costs a replay nothing. A
+// scope's dropped entry counts as baseline's does. It is dominated -- a later entry of the
+// scope restates it -- so a replay that starts after it lands where it would have; but a
+// replay that starts before it would be handed the scope's history with a hole in it, and
+// the floor is what says where a replay is exact. The floor is one number for the store,
+// so a baseline watcher resuming from before a dropped scope entry is told to
+// re-initialize too: pessimistic, which is the side this file errs on.
 //
 // A segment appears once per path its entry touches; taking a maximum is indifferent to
 // the repeats.
@@ -119,8 +122,8 @@ func droppedPatchFloor(all, survivors []index.LogSegment) int64 {
 
 	var floor int64
 	for _, seg := range all {
-		if seg.StartCommit == seg.EndCommit || seg.ScopeID != nil {
-			continue // snapshot, or a scope's retained patch
+		if seg.StartCommit == seg.EndCommit {
+			continue // a snapshot
 		}
 		if kept[seg.LogPosition][seg.EndCommit] {
 			continue
