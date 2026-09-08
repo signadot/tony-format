@@ -90,10 +90,10 @@ things in one object -- WHAT CHANGED and WHAT IS OWNED -- and the fix is to say 
 separately: one `storableDelta` for the change, and the owned-path union as the overlay's own
 step, which 4wpqh7t2h12ks1fvj5n0 already identifies as the one step genuinely the overlay's.
 
-And the keyed fallback goes with it. Three places give up on a keyed array the schema does not
-declare -- `scopeHasKeyedPaths`, `readScopedStateAtOverlay`, `lowerWrite` -- because only the
-schema can say what keys an array while a client's own `!key` rides in a patch that lowering
-replaces. element_identity.md makes the schema the authority and refuses a patch that keys an
+And the keyed fallback goes with it. `scope_keyed.go` gives up on a keyed array the schema
+does not declare -- `patchHasUndeclaredKey`, `keyedArrayPaths` and `annotateKeyed`, reached
+from `lowerWrite` at two sites -- because only the schema can say what keys an array while a
+client's own `!key` rides in a patch that lowering replaces. element_identity.md makes the schema the authority and refuses a patch that keys an
 array the schema does not, so there is no undeclared keyed array to fall back for. That is
 "the last thing standing between a scope and being ordinary", removed by prerequisite 3
 rather than by scope code.
