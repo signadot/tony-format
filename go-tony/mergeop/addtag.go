@@ -59,9 +59,8 @@ func (p addTagOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc
 // hands everything after the first registered op to the child -- so
 // `!addtag(bracket).logd-patch-root null` arrived here as a TAGGED null, missed
 // this branch, and patched the document with it. Against a whole document that is
-// total loss, and it was reachable: a no-op !rename at a document root lowers to
-// exactly that shape, and logd marks a delta's root with its own label
-// (1hf5pzj6h12ksd40jdn0).
+// total loss, and it is reachable: a no-op !rename at a document root lowers to
+// exactly that shape once any label is composed onto its root (1hf5pzj6h12ksd40jdn0).
 //
 // What decides is whether an OPERATION trails the tag op, not whether anything
 // does. A trailing operation is a real composition and has to run -- `!retag(a,b).insert null`

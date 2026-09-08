@@ -25,22 +25,21 @@ func withComments(n *ir.Node) string {
 
 // A comment on a value that is itself being introduced, replayed across a snapshot.
 //
-// The lowered delta carries the comment as a WRAPPER at its own path, and
-// markDeltaRoots used to descend past it to mark the change beneath. The marker says
-// where a patch is applied FROM, so a marker below the wrapper leaves the wrapper
-// outside the subtree that gets applied: the comment was simply not there on the way
-// back in.
+// The lowered delta carries the comment as a WRAPPER at its own path, and the wrapper
+// is where the entry is applied from (patches.walkAndCollectPatchRoots): a root beneath
+// it would leave the wrapper outside the subtree that gets applied, and the comment
+// would simply not be there on the way back in.
 //
-//	stored:  d: e: # note  k2: !logd-patch-root nested: 2
-//	head:    d: e: # note  k2: nested: 2  k0: 1
-//	replay:  d: e:         k2: nested: 2  k0: 1
+//	stored:  d: e: # note  k2: nested: 2
+//	fold:    d: e: # note  k2: nested: 2  k0: 1
+//	replay:  d: e:         k2: nested: 2  k0: 1    <- a root beneath the wrapper
 //
-// Every value matched, so it took comparing the way api.SameState does to see it at
-// all. A client's write cannot reach this: it is rooted at the path it names, which is
-// the path the comment is on (xqpvk3ehh12ks89mj5n0).
+// Every value matches either way, so it takes comparing the way api.SameState does to
+// see it at all. A client's write cannot reach this: it is rooted at the path it names,
+// which is the path the comment is on (xqpvk3ehh12ks89mj5n0).
 //
 // It needs the snapshot. Without one the empty-base branch folds the patches directly
-// and the marker is not consulted, so the same write agrees.
+// and the roots are not consulted, so the same write agrees.
 func TestLoweredCommentSurvivesASnapshot(t *testing.T) {
 	tests := []struct{ name, seed, path, src string }{
 		{"a new subtree with a comment", `{d: {k0: 1}}`, "d.e", "# note\n{k2: {nested: 2}}"},
@@ -61,10 +60,10 @@ func TestLoweredCommentSurvivesASnapshot(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				s := openTestStorage(t)
 				if lowered {
-					s.LowerEverything(true)
+					s.lowerEverything(true)
 				}
 				mustCommit(t, s, nil, test.seed)
-				// The snapshot is what makes the marker load-bearing.
+				// The snapshot is what makes the rooting load-bearing.
 				if err := s.SwitchDLog(); err != nil {
 					t.Fatalf("SwitchDLog: %v", err)
 				}

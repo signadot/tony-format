@@ -7,7 +7,6 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/mergeop"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 //tony:schemagen=log-segment
@@ -92,17 +91,12 @@ func PointLogSegment(commit, txSeq int64, kpath string) *LogSegment {
 // written in flow, which is every patch a JSON client sends, was never marked as passing
 // through anything. The document decided the read cost, and its spelling decided the
 // document.
-//
-// Neither does logd's own patch-root marker. It says where an entry is applied FROM, not
-// what the entry does there, and it sits on the root of every merged patch: read as an
-// operator, it made the root a write on every commit, so a read at any path collected
-// every entry in the store through the root's copy of it.
 func passesThrough(n *ir.Node) bool {
 	if n == nil {
 		return false
 	}
 	n = ir.Uncomment(n)
-	if ir.StripPresentation(ir.TagRemove(n.Tag, tx.PatchRootTag)) != "" {
+	if ir.StripPresentation(n.Tag) != "" {
 		return false
 	}
 	switch n.Type {

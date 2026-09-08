@@ -10,10 +10,10 @@ import (
 
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
+	"github.com/signadot/tony-format/go-tony/mergeop"
 	"github.com/signadot/tony-format/go-tony/stream"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 // StreamingProcessor applies patches to streaming events without materializing
@@ -113,9 +113,6 @@ func (sp *StreamingProcessor) ApplyPatches(baseEvents stream.EventReader, patche
 				heldKey = nil
 			}
 
-			// Strip internal tags before emitting
-			tx.StripPatchRootTag(patchedNode)
-
 			// Emit patched subtree as events
 			if err := emitNode(patchedNode, sink); err != nil {
 				return err
@@ -177,18 +174,6 @@ func (sp *StreamingProcessor) ApplyPatches(baseEvents stream.EventReader, patche
 			if err != nil {
 				return err
 			}
-			// Before the NEXT patch sees it, not once at the end. The marker says where
-			// an entry is applied from and is no part of the document; left on, the
-			// accumulating result hands the previous patch's marker to the next one as
-			// data, and an operation which asks the document for its tag refuses --
-			// `!bracket.logd-patch-root` where it wants `bracket`
-			// (2w62pyyah12ksqh0jdn0). Stripping the patch instead would mutate an entry
-			// the caller still owns; this strips a node NextState just produced.
-			//
-			// The markers are not read in this branch at all: an empty base folds each
-			// patch whole rather than seeking to its roots, which is why they had nothing
-			// to do here but leak.
-			tx.StripPatchRootTagRecursive(next)
 			result = next
 		}
 		if result == nil {
@@ -204,8 +189,8 @@ func (sp *StreamingProcessor) ApplyPatches(baseEvents stream.EventReader, patche
 
 // buildPatchValueIndex builds a map from path to the ordered nodes to apply there.
 //
-// Patch roots come from the entries' !logd-patch-root tags, at whatever depth the
-// client wrote them. Roots that are dominated — an ancestor path also carries a root,
+// Patch roots are read from each entry's structure (walkAndCollectPatchRoots), at whatever
+// depth the entry states something. Roots that are dominated — an ancestor path also carries a root,
 // in this entry or any other in the range — are NOT dropped. The subtree at the
 // dominating path is collected and patched as a unit, so a dropped descendant root is a
 // write that silently disappears: with a snapshot in the base, an ancestor write erased
@@ -417,36 +402,67 @@ func subtreeAt(patch *ir.Node, path string) (*ir.Node, bool) {
 	return sub, true
 }
 
-// walkAndCollectPatchRoots walks the IR tree and collects nodes with PatchRootTag.
+// walkAndCollectPatchRoots walks a stored entry and hands fn each node the entry states
+// something AT, with its path -- the places the base is collected and patched. They are
+// read from the entry's own structure, which is the same reading the index and lowering
+// make of "where does this part of the patch land" (index.PatchChildren, LowerSites):
+//
+//	an OPERATION is about the node it is written on, and its operand is not descended
+//	into;
+//	a LEAF is a write to that path; an ARRAY is a value and a write to its path; an
+//	EMPTY container states emptiness there;
+//	a COMMENTED node is a statement at that node, comment and value together, so the
+//	wrapper is the root and what the comment says travels with the value being
+//	installed rather than being dropped on the way in (3cdjz00jh12krns4g1n0).
+//
+// A plain object with fields is only passed through: it says "something below here
+// differs", and a merge of it at this path is a merge of its parts at theirs.
+//
+// Nothing in the entry marks a root, and nothing needs to: the shape is the statement.
+// That is what lets the stored bytes be the delivered bytes -- there is nothing on an
+// entry that a delivery, a fold, or a collected node would have to take off first.
 func walkAndCollectPatchRoots(node *ir.Node, path string, fn func(node *ir.Node, path string)) {
-	// A patch root is found by its tag, and a comment moves where that tag sits:
-	// TagPatchRoots tags the node it is handed, which is the WRAPPER when the patch
-	// was written with a leading comment. Looked for only on the wrapper, a
-	// commented patch was never collected and applied nothing at all; looked for
-	// only inside it, the same. Both, then -- and fn gets the node as it stands, so
-	// what the comment says travels with the value being installed rather than
-	// being dropped on the way in (3cdjz00jh12krns4g1n0).
-	//
-	// The switch below is a different question -- what KIND of node is this -- and
-	// a comment is not a kind of container, so it descends through the wrapper.
-	if tx.HasPatchRootTag(node) || tx.HasPatchRootTag(ir.Uncomment(node)) {
+	if node == nil {
+		return
+	}
+	if node.Type == ir.CommentType {
 		fn(node, path)
-		return // Don't recurse into patched subtrees
+		return
 	}
-	node = ir.Uncomment(node)
+	if hasOperation(node.Tag) {
+		fn(node, path)
+		return
+	}
+	if node.Type != ir.ObjectType || len(node.Fields) == 0 {
+		fn(node, path)
+		return
+	}
+	for i, field := range node.Fields {
+		if i >= len(node.Values) {
+			break
+		}
+		walkAndCollectPatchRoots(node.Values[i], buildChildPath(path, field), fn)
+	}
+}
 
-	switch node.Type {
-	case ir.ObjectType:
-		for i, field := range node.Fields {
-			childPath := buildChildPath(path, field)
-			walkAndCollectPatchRoots(node.Values[i], childPath, fn)
+// hasOperation reports whether a tag chain names a merge operation. Presentation and data
+// labels are not operations: they travel with the value and say nothing about how it
+// merges.
+func hasOperation(tag string) bool {
+	for t := tag; t != ""; {
+		head, _, rest := ir.TagArgs(t)
+		if head == "" {
+			return false
 		}
-	case ir.ArrayType:
-		for i, value := range node.Values {
-			childPath := path + "[" + strconv.Itoa(i) + "]"
-			walkAndCollectPatchRoots(value, childPath, fn)
+		if mergeop.Lookup(strings.TrimPrefix(head, "!")) != nil {
+			return true
 		}
+		if rest == t {
+			return false
+		}
+		t = rest
 	}
+	return false
 }
 
 // buildChildPath constructs the child path for an object field.
@@ -505,16 +521,6 @@ func applyPatchesToNode(base *ir.Node, patches []*ir.Node) (*ir.Node, error) {
 		if err != nil {
 			return nil, err
 		}
-		// Before the NEXT patch sees it. A merge composes the patch's tag onto the
-		// document's, so the marker rides out of one fold and into the next as though it
-		// were part of the value -- and an operation which checks the document's tag then
-		// refuses: `!delete(bracket)` against a document wearing `!bracket.logd-patch-root`
-		// is asked to match `bracket` and does not (2w62pyyah12ksqh0jdn0).
-		//
-		// Stripping the patch instead would mutate an entry the caller still owns; this
-		// strips a node NextState has just produced. Same reason, same shape, as the
-		// empty-base fold in ApplyPatches.
-		tx.StripPatchRootTagRecursive(next)
 		result = next
 	}
 	return result, nil
@@ -766,7 +772,6 @@ func (u *unreachedPatches) graftUpTo(f unreachedFrame, before string, sink strea
 		if value == nil {
 			continue
 		}
-		tx.StripPatchRootTagRecursive(value)
 		if err := sink.WriteEvent(&stream.Event{Type: stream.EventKey, Key: seg}); err != nil {
 			return err
 		}
@@ -820,7 +825,6 @@ func (u *unreachedPatches) replaceScalar(path string, ev *stream.Event, sink str
 	if base == nil {
 		base = ir.Null()
 	}
-	tx.StripPatchRootTagRecursive(base)
 	return true, emitNode(base, sink)
 }
 

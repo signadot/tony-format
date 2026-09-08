@@ -428,9 +428,6 @@ func (p *txPatcher) doCommit(state *State, commitOps CommitOps) *Result {
 		}
 	}
 
-	// Tag each patch data root for streaming processor
-	TagPatchRoots(state.PatcherData)
-
 	mergedPatch, err := MergePatches(state.PatcherData)
 	if err != nil {
 		_ = co.storage.Delete(state.TxID)
@@ -471,11 +468,6 @@ func (p *txPatcher) doCommit(state *State, commitOps CommitOps) *Result {
 	unlock()
 
 	_ = co.storage.Delete(state.TxID)
-
-	// Strip internal tags from original patch data before returning
-	for _, pd := range state.PatcherData {
-		StripPatchRootTag(pd.API.Data)
-	}
 
 	return &Result{
 		Committed: true,

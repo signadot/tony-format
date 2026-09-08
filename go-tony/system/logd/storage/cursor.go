@@ -15,7 +15,6 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/patches"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 // The read interface (read_write_interface.md).
@@ -138,21 +137,13 @@ func (s *Storage) openRead(at int64, scopeID *string, kp string, started time.Ti
 		if entry.Patch == nil {
 			return nil
 		}
-		node, marked, depth, ok := projectAt(entry.Patch, kp)
+		node, depth, ok := projectAt(entry.Patch, kp)
 		if !ok {
 			blockedAt = depth
 			return errBlocked
 		}
 		if node == nil {
 			return nil // this write says nothing about kp
-		}
-		// A marker says where an entry is applied FROM, and the projection has re-rooted
-		// the entry at kp, so the marker moves with it; without it the streaming processor
-		// finds no patch root and the write contributes nothing (1xnezrpkh12ksavvjdn0). On
-		// a copy: the projection is a subtree of the entry this read deserialized.
-		if marked && !tx.HasPatchRootTag(node) {
-			node = node.Clone()
-			tx.MarkPatchRoot(ir.Uncomment(node))
 		}
 		projected = append(projected, node)
 		if n := nodeSize(node); n > largest {
@@ -228,44 +219,40 @@ func (s *Storage) readThroughAncestor(at int64, scopeID *string, kp string, dept
 }
 
 // projectAt answers what patch writes at or below kp, re-rooted at kp; nil when it says
-// nothing about kp. marked says a !logd-patch-root was passed on the way down. ok is false
-// when the patch cannot be seen from kp -- an operator above it, or a value kp descends
-// into that is not a container the next segment can step into -- and depth is then how
-// many of kp's segments were descended before the block, which is the ancestor a read has
-// to be taken at instead.
-func projectAt(patch *ir.Node, kp string) (at *ir.Node, marked bool, depth int, ok bool) {
+// nothing about kp. ok is false when the patch cannot be seen from kp -- an operator above
+// it, or a value kp descends into that is not a container the next segment can step into
+// -- and depth is then how many of kp's segments were descended before the block, which
+// is the ancestor a read has to be taken at instead.
+func projectAt(patch *ir.Node, kp string) (at *ir.Node, depth int, ok bool) {
 	if patch == nil {
-		return nil, false, 0, true
+		return nil, 0, true
 	}
 	segs := kpath.SplitAll(kp)
 	n := patch
 	for depth = range segs {
 		n = ir.Uncomment(n)
 		if n == nil {
-			return nil, marked, depth, true
-		}
-		if tx.HasPatchRootTag(n) {
-			marked = true
+			return nil, depth, true
 		}
 		if hasOperator(n.Tag) {
-			return nil, marked, depth, false
+			return nil, depth, false
 		}
 		if n.Type != ir.ObjectType {
 			// A scalar or a list where kp descends: the write replaces the node kp is
 			// inside, which is a statement about the ancestor and not about kp.
-			return nil, marked, depth, false
+			return nil, depth, false
 		}
 		name, isField := kpath.SegmentFieldName(segs[depth])
 		if !isField {
-			return nil, marked, depth, false // an index: the array is the unit
+			return nil, depth, false // an index: the array is the unit
 		}
 		next := ir.Get(n, name)
 		if next == nil {
-			return nil, marked, depth, true // the patch does not reach kp
+			return nil, depth, true // the patch does not reach kp
 		}
 		n = next
 	}
-	return n, marked, len(segs), true
+	return n, len(segs), true
 }
 
 // hasOperator reports whether a tag names a merge operation, which is what makes a node's
@@ -533,12 +520,7 @@ func collectWithin(c Cursor, budget int64) (*ir.Node, error) {
 	if len(events) == 0 {
 		return nil, nil
 	}
-	node, err := stream.EventsToNode(events)
-	if err != nil {
-		return nil, err
-	}
-	tx.StripPatchRootTagRecursive(node)
-	return node, nil
+	return stream.EventsToNode(events)
 }
 
 // Rooted answers c's events under kp's ancestors: the opens of each field on the way

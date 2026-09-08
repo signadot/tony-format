@@ -85,13 +85,6 @@ func TestAScopedWriteIsAStandingClaim(t *testing.T) {
 	// none.
 	//
 	// So the property holds, and what was failing it was never the claim.
-	//
-	// What a soak still finds is not the claim's either: LOGD_SEEDS=500 with
-	// LOGD_LOWERING=all breaks 2 in 6121, both reducing to four BASELINE writes at the
-	// root with no scope in them at all -- a lowered delta marked at the document root
-	// leaves !logd-patch-root on the document, and the next root operation refuses on the
-	// tag (2w62pyyah12ksqh0jdn0). The default mode does not reach it, at 500 seeds or at
-	// the documented LOGD_SEEDS=100 LOGD_LOWERING=all.
 
 	const scope = "s1"
 	broken, claims := 0, 0

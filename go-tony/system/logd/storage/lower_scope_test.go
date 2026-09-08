@@ -89,7 +89,7 @@ func applyScopeOp(t *testing.T, s *Storage, o scopeOp, scope string) (int64, err
 // both at every commit -- lowering changes what the log KEEPS and must not change what
 // it says.
 //
-// The arms are LowerEverything(false)/(true) rather than lowering off/on because the
+// The arms are lowerEverything(false)/(true) rather than lowering off/on because the
 // amplifier is what actually exercises the transformation. Against a store with lowering
 // OFF this stream lowered NOTHING by default -- 0 fired against 750 skipped, since almost
 // nothing anyone writes is relative -- so the differential compared two stores doing the
@@ -105,9 +105,9 @@ func TestLoweringScopeDifferential(t *testing.T) {
 		ops := genScopeOps(rng, 30)
 
 		plain := openTestStorage(t)
-		plain.LowerEverything(false)
+		plain.lowerEverything(false)
 		low := openTestStorage(t)
-		low.LowerEverything(true)
+		low.lowerEverything(true)
 
 		for i, o := range ops {
 			cp, ep := applyScopeOp(t, plain, o, scope)

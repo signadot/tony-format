@@ -393,7 +393,7 @@ func (w *watchStream) seedAt(commit int64, forLive bool) bool {
 // from the log for this watcher alone and needs none.
 func (w *watchStream) stepBaseline(commit int64, patch *ir.Node, shared bool) bool {
 	// Step the document by this commit's delta instead of rebuilding it from the last
-	// snapshot. A committed patch is already stripped and private to the tick, so it
+	// snapshot. A committed patch is already a private copy the tick owns, so it
 	// applies as-is and is not mutated by Patch.
 	stepped, err := api.NextState(w.cur, patch)
 	if err != nil {

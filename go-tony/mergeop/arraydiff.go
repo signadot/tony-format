@@ -93,10 +93,10 @@ func patchArrayByIndex(doc, patch *ir.Node, ctx *OpContext, pf PatchFunc, df lib
 		// simply the first label.  A composed tag may carry labels which are not
 		// operations ahead of the one which is, and every other dispatch here finds
 		// the op with SplitChild rather than by demanding it come first.  Switching
-		// on the raw head instead let any leading label MASK the op: logd's
-		// !logd-patch-root marker turned !insert into a positional patch, which
-		// overwrote the element it was meant to insert before, and !delete into a
-		// patch of a null, which panicked every reader of the store
+		// on the raw head instead lets any leading label MASK the op: a label
+		// composed onto the element ahead of it turns !insert into a positional
+		// patch, which overwrites the element it was meant to insert before, and
+		// !delete into a patch of a null, which panics every reader of the store
 		// (jjbapb1ah12kranxg5n0).
 		//
 		// The labels AHEAD of the op belong to the value and are put back on it.

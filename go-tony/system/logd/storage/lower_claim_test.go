@@ -65,7 +65,7 @@ func TestAScopeStoresClaimsNotDifferences(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			s := openTestStorage(t)
-			s.LowerEverything(true)
+			s.lowerEverything(true)
 			mustCommit(t, s, nil, test.seed)
 
 			const scope = "s1"

@@ -126,3 +126,30 @@ reason the absolute shape is the one.
   - The order of the two changes against 4wpqh7t2h12ks1fvj5n0's own plan, which says remove
     the scope gate only after the two pipelines are one. That ordering still holds and this
     document does not disturb it.
+
+## As built
+
+The notification is built from the stored entry, after lowering, and is a deep copy of it
+(`deliverable`, storage/tick.go). `Deltas` hands out the same copy of the same entry. Both
+are raised into the client's vocabulary by the one function (`raiseDelta`), so the live and
+the replayed delta for a commit are the same bytes by construction. delta_identity_test.go
+asserts IDENTITY and ABSOLUTENESS at the commit, with lowering as shipped and forced.
+
+`!logd-patch-root` is gone: storage/tx/patch_root.go, `DeliverablePatch`, `markDeltaRoots`,
+and the strip at every hop. Where an entry is applied from is read from its shape
+(patches.walkAndCollectPatchRoots): an operation is about the node it is on, and its operand
+is not descended into; a leaf, an array, or an empty container is a write at its path; a
+commented node is a statement at the comment's path, wrapper and value together; a plain
+object with fields is passed through. That is the reading the index (PatchChildren) and the
+lowering (LowerSites) already make, so the three agree because they are one rule. A bare
+array in an entry is applied as a unit at the array's path, which is what the fold
+(api.NextState) does with it.
+
+`NeedsLowering` survives as the optimisation and only that: it decides whether an absolute
+write is diffed or kept as sent, and cannot change what a watcher receives, because the
+watcher receives the stored delta either way. `lowerEverything` is the unexported test knob
+that forces the diff.
+
+Item 4, ONE ROOTING RULE, is not in this phase. A delta is delivered rooted at the document;
+rooting it at the watched path is the projection `Read` already uses, and it lands with the
+wire, where a watch's events are defined.

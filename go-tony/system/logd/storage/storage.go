@@ -122,7 +122,7 @@ type Storage struct {
 
 	// lowerAll lowers every write rather than only the ones that need it. Lowering
 	// itself is not optional: what the log KEEPS is held to the storage vocabulary,
-	// always. See lower.go, and LowerEverything for what this amplifies.
+	// always. See lower.go, and lowerEverything for what this amplifies.
 	lowerAll bool
 
 	// replayFloor is the highest commit whose delta history compaction has removed.
@@ -145,7 +145,7 @@ func Open(root string, logger *slog.Logger) (*Storage, error) {
 		index:   index.NewIndex(""),
 		logger:  logger,
 		schema:  newStorageSchema(),
-		// Never on outside a test. See LowerEverything.
+		// Never on outside a test. See lowerEverything.
 		lowerAll: os.Getenv("LOGD_LOWERING") == "all",
 	}
 

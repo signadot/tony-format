@@ -28,7 +28,7 @@ import (
 //	  was fixed, and it is O(history) per read, which is why it is a reference and not a
 //	  read path.
 //	B (subject) snapshots at generated points, so its reads go through
-//	  findSnapshotBaseReader + the streaming processor's patch-root matching.
+//	  findSnapshotBaseReader + the streaming processor's rooting by shape.
 //
 // Any A/B divergence is a bug in the snapshot read path. Neither instance compacts:
 // compaction is deliberately lossy beyond its cutoff, so it cannot be judged by

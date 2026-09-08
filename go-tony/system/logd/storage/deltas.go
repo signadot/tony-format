@@ -21,9 +21,9 @@ type DeltaCursor interface {
 
 // Deltas opens a cursor over every commit in [from, to] that can reach kp, in the view
 // scopeID names. Each is delivered in the client's vocabulary, exactly as the live
-// notification for the same commit was: the stored entry with its markers off and its
-// keyed arrays raised (raise.go), so a watch that replays and a watch that follows live
-// see the same bytes.
+// notification for the same commit was: a copy of the stored entry with its keyed arrays
+// raised (raise.go), so a watch that replays and a watch that follows live see the same
+// bytes.
 //
 // It refuses a range that starts at or below the replay floor rather than answering the
 // subset that survives compaction: the caller asked for every change in the range and
@@ -69,7 +69,7 @@ func (d *deltaCursor) Next() (*CommitNotification, error) {
 		return &CommitNotification{
 			Commit:    entry.Commit,
 			Timestamp: entry.Timestamp,
-			Patch:     d.s.raiseDelta(entry.ScopeID, DeliverablePatch(entry.Patch)),
+			Patch:     d.s.raiseDelta(entry.ScopeID, deliverable(entry.Patch)),
 			ScopeID:   entry.ScopeID,
 		}, nil
 	}

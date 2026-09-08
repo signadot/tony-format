@@ -5,20 +5,19 @@ import (
 
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 func TestBuildPatchIndex(t *testing.T) {
 	// Create a patch with tagged roots
 	patch1 := ir.FromMap(map[string]*ir.Node{
 		"users": ir.FromMap(map[string]*ir.Node{
-			"alice": ir.FromString("data").WithTag(tx.PatchRootTag),
+			"alice": ir.FromString("data"),
 		}),
 	})
 
 	patch2 := ir.FromMap(map[string]*ir.Node{
 		"users": ir.FromMap(map[string]*ir.Node{
-			"bob": ir.FromString("data").WithTag(tx.PatchRootTag),
+			"bob": ir.FromString("data"),
 		}),
 	})
 
@@ -56,10 +55,10 @@ func TestBuildPatchIndex(t *testing.T) {
 func TestBuildPatchIndex_MultiplePatchesSamePath(t *testing.T) {
 	// Two commits affecting the same path - must be applied in order
 	patch1 := ir.FromMap(map[string]*ir.Node{
-		"config": ir.FromString("v1").WithTag(tx.PatchRootTag),
+		"config": ir.FromString("v1"),
 	})
 	patch2 := ir.FromMap(map[string]*ir.Node{
-		"config": ir.FromString("v2").WithTag(tx.PatchRootTag),
+		"config": ir.FromString("v2"),
 	})
 
 	entries := []*dlog.Entry{
@@ -83,7 +82,7 @@ func TestBuildPatchIndex_MultiplePatchesSamePath(t *testing.T) {
 func TestBuildPatchIndex_ArrayPath(t *testing.T) {
 	patch := ir.FromSlice([]*ir.Node{
 		ir.FromString("first"),
-		ir.FromString("patched").WithTag(tx.PatchRootTag),
+		ir.FromString("patched"),
 	})
 
 	entries := []*dlog.Entry{
@@ -92,11 +91,15 @@ func TestBuildPatchIndex_ArrayPath(t *testing.T) {
 
 	index := BuildPatchIndex(entries)
 
-	if !index.HasPatches("[1]") {
-		t.Error("expected patch at [1]")
+	// An array is a value: the patch is rooted where the array is, which is the
+	// document, and no element is a root of its own.
+	if !index.HasPatches("") {
+		t.Error("expected the patch at the document root")
 	}
-	if index.HasPatches("[0]") {
-		t.Error("expected no patch at [0]")
+	for _, at := range []string{"[0]", "[1]"} {
+		if index.HasPatches(at) {
+			t.Errorf("expected no patch at %s", at)
+		}
 	}
 }
 

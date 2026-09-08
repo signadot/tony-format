@@ -11,7 +11,6 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 // The reads, as the behavioural tests call them.
@@ -132,12 +131,10 @@ func eachPatchInRange(s *Storage, kp string, from, to int64, scopeID *string, fn
 	}
 }
 
-// applyStoredPatch folds one stored patch into a document, the way a watcher steps: the
-// patch-root markers off a copy first, then api.NextState, which is the fold the read
-// path performs.
+// applyStoredPatch folds one stored patch into a document, the way a watcher steps:
+// api.NextState on a copy, which is the fold the read path performs.
 func applyStoredPatch(doc, patch *ir.Node) (*ir.Node, error) {
 	p := patch.DeepCopy()
-	tx.StripPatchRootTagRecursive(p)
 	if doc == nil {
 		doc = ir.Null()
 	}

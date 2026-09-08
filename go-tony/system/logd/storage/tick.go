@@ -4,7 +4,6 @@ import (
 	"sync"
 
 	"github.com/signadot/tony-format/go-tony/ir"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 // tick is logd's published commit watermark, and the ordered fan-out that rides on it.
@@ -165,45 +164,33 @@ func (t *tick) close() {
 	<-t.done
 }
 
-// DeliverablePatch is a stored patch in the form a CLIENT sees: its own copy, with the
-// internal patch-root markers removed.
-//
-// It is one function because it was two, and they drifted. A live watcher went through the
-// copy-and-strip below; a REPLAYING watcher got the stored node verbatim, marker and all --
-// so a resumed watch saw `!delete.logd-patch-root` where a live one saw `!delete`, and a
-// consumer testing for `!delete` read a deletion as an ordinary write. Worse quietly: the
-// extra tag makes the folded state differ from the state before it, so the change gate
-// which suppresses an identical write stopped suppressing it, and every rewrite on a
-// resumed watch looked like a change (xmxt2p85h12ksjp1gsn0).
-//
-// The marker is deliberately STORED -- the read path uses it to find which subtrees a
-// commit patched (tx.TagPatchRoots) -- so what it must never do is leave the store.
-func DeliverablePatch(stored *ir.Node) *ir.Node {
+// deliverable is a stored delta as a notification or a replay carries it: its own copy.
+// The bytes are the stored bytes; there is no other shape to convert to. Raising a keyed
+// array into the client's vocabulary is the one projection applied on top, and it is
+// applied identically on both paths (raise.go).
+func deliverable(stored *ir.Node) *ir.Node {
 	if stored == nil {
 		return nil
 	}
-	patch := stored.DeepCopy()
-	tx.StripPatchRootTagRecursive(patch)
-	return patch
+	return stored.DeepCopy()
 }
 
-// newCommitNotification builds the notification for a committed patch.
+// newCommitNotification builds the notification for a committed entry, from the delta
+// the log KEEPS: a replaying watcher reads that entry back and is handed the same bytes,
+// so live and replay agree by construction and not by care (one_delta_shape.md).
 //
-// The patch is a stripped deep copy, and that ownership is the point: the merged patch
-// shares nodes with the patcher data (MergePatches embeds each participant's node), and
-// doCommit strips those nodes as soon as the commit returns, to hand each participant
-// back clean data. Delivery is now asynchronous, so that strip would otherwise run
-// concurrently with watchers reading the very same nodes. Copying here — on the
-// committing goroutine, before the strip can start — means the notification owns its
-// patch outright and every reader downstream is working on a node nothing else touches.
-func newCommitNotification(commit, txSeq int64, timestamp string, mergedPatch *ir.Node, scopeID *string) *CommitNotification {
-	patch := DeliverablePatch(mergedPatch)
+// The patch is a deep copy, and that ownership is the point: a stored delta may share
+// nodes with the patcher data (MergePatches embeds each participant's node), which the
+// participants get back when the commit returns, and delivery is asynchronous. Copying
+// here, on the committing goroutine, means the notification owns its patch outright and
+// every reader downstream works on a node nothing else touches.
+func newCommitNotification(commit, txSeq int64, timestamp string, stored *ir.Node, scopeID *string) *CommitNotification {
 	return &CommitNotification{
 		Commit:    commit,
 		TxSeq:     txSeq,
 		Timestamp: timestamp,
-		KPaths:    extractTopLevelKPaths(mergedPatch),
-		Patch:     patch,
+		KPaths:    extractTopLevelKPaths(stored),
+		Patch:     deliverable(stored),
 		ScopeID:   scopeID,
 	}
 }

@@ -10,17 +10,16 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
-// A write at an array index carries its meaning in the op at the leaf, and logd
-// used to take that meaning away: TagPatchRoots composes !logd-patch-root onto the
-// client's data root, MergePatches then wraps a votes[i] path in an !arraydiff, so
-// the marker landed on the very node the arraydiff dispatches on. !insert became a
-// positional patch and OVERWROTE the element it was meant to insert before,
-// !delete became a patch of a null and panicked every reader, and an append became
-// a patch of an element past the end, which no read could get past afterwards
+// A write at an array index carries its meaning in the op at the leaf. MergePatches
+// wraps a votes[i] path in an !arraydiff, and the op on the element is what the
+// arraydiff dispatches on; anything composed onto that node ahead of it takes the
+// meaning away -- !insert as a positional patch that OVERWRITES the element it was
+// meant to insert before, !delete as a patch of a null that panics every reader, an
+// append as a patch of an element past the end that no read gets past afterwards
 // (jjbapb1ah12kranxg5n0).
 //
-// mergeop now finds the op the way SplitChild does -- the first label the registry
-// knows, not simply the first label -- and these are the writes that were wrong.
+// mergeop finds the op the way SplitChild does -- the first label the registry knows,
+// not simply the first label -- and these are the writes that depend on it.
 func TestArrayElementWriteKeepsItsOp(t *testing.T) {
 	const seed = `{votes: [{by: scott}, {by: dee}]}`
 	for _, tc := range []struct {
@@ -83,9 +82,9 @@ func TestArrayElementWriteKeepsItsOp(t *testing.T) {
 	}
 }
 
-// The marker is logd's own and must not be stored: an inserted element carries
-// what the client wrote and nothing of how logd routed it.
-func TestArrayElementInsertStoresNoMarker(t *testing.T) {
+// An inserted element carries what the client wrote and nothing of how logd routed it:
+// no tag on the element, none on the array.
+func TestArrayElementInsertStoresOnlyTheElement(t *testing.T) {
 	s, err := Open(t.TempDir(), nil)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -106,8 +105,19 @@ func TestArrayElementInsertStoresNoMarker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if got := flatten(t, doc); strings.Contains(got, "logd-patch-root") {
-		t.Errorf("the stored document carries logd's marker: %s", got)
+	votes, err := doc.GetKPath("votes")
+	if err != nil || votes == nil || votes.Type != ir.ArrayType || len(votes.Values) != 2 {
+		t.Fatalf("votes after the insert: %s (%v)", flatten(t, doc), err)
+	}
+	if tag := ir.StripPresentation(votes.Tag); tag != "" {
+		t.Errorf("the array carries %q", tag)
+	}
+	inserted := votes.Values[1]
+	if tag := ir.StripPresentation(inserted.Tag); tag != "" {
+		t.Errorf("the inserted element carries %q", tag)
+	}
+	if by := ir.Get(inserted, "by"); by == nil || by.String != "ana" {
+		t.Errorf("the inserted element is %s", flatten(t, inserted))
 	}
 }
 

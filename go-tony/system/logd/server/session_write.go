@@ -182,7 +182,6 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 	}
 
 	// Strip internal tags before sending to client
-	tx.StripPatchRootTagRecursive(result.Data)
 	s.send(api.NewPatchResponse(id, result.Commit, result.Data))
 }
 

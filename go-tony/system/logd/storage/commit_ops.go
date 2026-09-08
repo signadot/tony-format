@@ -57,18 +57,6 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 		scopeID = txState.Scope
 	}
 
-	// The notification's patch is the stripped copy — the merged patch still carries
-	// !logd-patch-root tags, which must not reach a document a precondition is
-	// matched against. It is built here, before the write, because the check below
-	// needs it.
-	notification := newCommitNotification(commit, txSeq, timestamp, mergedPatch, scopeID)
-	// The stripped copy in the store's own vocabulary is what the head steps and what the
-	// write is verified against. The notification is delivered in the client's: a keyed
-	// array is an array to a watcher and an object of names in the log (raise.go), and a
-	// replayed delta is raised the same way, so live and replay agree. raise shares what
-	// it does not convert, so the stripped copy is unchanged by it.
-	stripped := notification.Patch
-	notification.Patch = c.s.raiseDelta(scopeID, stripped)
 	commitStarted := time.Now()
 	var applyTook, appendTook, indexTook time.Duration
 
@@ -102,7 +90,7 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 		}
 	}
 	applyStarted := time.Now()
-	lowered, err := c.s.lowerWrite(commit, stripped, mergedPatch, scopeID, sites)
+	lowered, err := c.s.lowerWrite(commit, mergedPatch, scopeID, sites)
 	applyTook = time.Since(applyStarted)
 	if err != nil {
 		return "", 0, err
@@ -110,6 +98,13 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	if lowered != nil {
 		stored = lowered
 	}
+
+	// The notification is the STORED delta, copied, and delivered in the client's
+	// vocabulary: a keyed array is an array to a watcher and an object of names in the
+	// log (raise.go). A replay reads the same entry back and raises it the same way, so
+	// live and replay are the same bytes (one_delta_shape.md).
+	notification := newCommitNotification(commit, txSeq, timestamp, stored, scopeID)
+	notification.Patch = c.s.raiseDelta(scopeID, notification.Patch)
 
 	entry := dlog.NewEntry(txState, stored, commit, timestamp, lastCommit, scopeID)
 	appendStarted := time.Now()

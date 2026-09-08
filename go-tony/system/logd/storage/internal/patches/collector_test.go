@@ -6,14 +6,13 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/stream"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 func TestSubtreeCollector_ScalarValue(t *testing.T) {
 	// Build index with patch at "users.alice"
 	patch := ir.FromMap(map[string]*ir.Node{
 		"users": ir.FromMap(map[string]*ir.Node{
-			"alice": ir.FromString("patched").WithTag(tx.PatchRootTag),
+			"alice": ir.FromString("patched"),
 		}),
 	})
 	entries := []*dlog.Entry{{Commit: 1, Patch: patch}}
@@ -59,11 +58,10 @@ func TestSubtreeCollector_ScalarValue(t *testing.T) {
 }
 
 func TestSubtreeCollector_ContainerValue(t *testing.T) {
-	// Build index with patch at "config"
+	// A patch that states something about "config" as a whole -- here that it is empty
+	// -- is rooted there, so the base's container is what gets collected.
 	patch := ir.FromMap(map[string]*ir.Node{
-		"config": ir.FromMap(map[string]*ir.Node{
-			"nested": ir.FromString("value"),
-		}).WithTag(tx.PatchRootTag),
+		"config": ir.FromMap(map[string]*ir.Node{}),
 	})
 	entries := []*dlog.Entry{{Commit: 1, Patch: patch}}
 	index := BuildPatchIndex(entries)
@@ -109,11 +107,12 @@ func TestSubtreeCollector_ContainerValue(t *testing.T) {
 	}
 }
 
-func TestSubtreeCollector_ArrayElement(t *testing.T) {
-	// Build index with patch at "[1]"
+func TestSubtreeCollector_ArrayIsCollectedWhole(t *testing.T) {
+	// An array in a patch is a value, so a patch that IS an array is rooted at the
+	// document and the whole base is collected for it.
 	patch := ir.FromSlice([]*ir.Node{
 		ir.FromString("first"),
-		ir.FromString("patched").WithTag(tx.PatchRootTag),
+		ir.FromString("patched"),
 	})
 	entries := []*dlog.Entry{{Commit: 1, Patch: patch}}
 	index := BuildPatchIndex(entries)
@@ -123,9 +122,9 @@ func TestSubtreeCollector_ArrayElement(t *testing.T) {
 	// Simulate events for: ["a", "b", "c"]
 	events := []stream.Event{
 		{Type: stream.EventBeginArray},
-		{Type: stream.EventString, String: "a"}, // path="[0]"
-		{Type: stream.EventString, String: "b"}, // path="[1]" - matches!
-		{Type: stream.EventString, String: "c"}, // path="[2]"
+		{Type: stream.EventString, String: "a"},
+		{Type: stream.EventString, String: "b"},
+		{Type: stream.EventString, String: "c"},
 		{Type: stream.EventEndArray},
 	}
 
@@ -142,23 +141,24 @@ func TestSubtreeCollector_ArrayElement(t *testing.T) {
 	}
 
 	if collected == nil {
-		t.Fatal("expected to collect subtree at [1]")
+		t.Fatal("expected to collect the document")
 	}
-	if collected.Path != "[1]" {
-		t.Errorf("expected path [1], got %s", collected.Path)
+	if collected.Path != "" {
+		t.Errorf("expected path %q, got %q", "", collected.Path)
 	}
-	if collected.Node.String != "b" {
-		t.Errorf("expected 'b', got %s", collected.Node.String)
+	if collected.Node.Type != ir.ArrayType || len(collected.Node.Values) != 3 {
+		t.Errorf("expected the 3-element base array, got %v", collected.Node)
 	}
 }
 
-func TestSubtreeCollector_NestedContainerInArray(t *testing.T) {
-	// Build index with patch at "items[0]"
+func TestSubtreeCollector_ArrayUnderField(t *testing.T) {
+	// The same one level down: the array under "items" is the root, not the element
+	// inside it, and the base's array is collected at "items".
 	patch := ir.FromMap(map[string]*ir.Node{
 		"items": ir.FromSlice([]*ir.Node{
 			ir.FromMap(map[string]*ir.Node{
 				"nested": ir.FromString("v"),
-			}).WithTag(tx.PatchRootTag),
+			}),
 		}),
 	})
 	entries := []*dlog.Entry{{Commit: 1, Patch: patch}}
@@ -170,12 +170,12 @@ func TestSubtreeCollector_NestedContainerInArray(t *testing.T) {
 	events := []stream.Event{
 		{Type: stream.EventBeginObject},
 		{Type: stream.EventKey, Key: "items"},
-		{Type: stream.EventBeginArray},
-		{Type: stream.EventBeginObject}, // path="items[0]" - matches!
+		{Type: stream.EventBeginArray}, // path="items" - matches!
+		{Type: stream.EventBeginObject},
 		{Type: stream.EventKey, Key: "x"},
 		{Type: stream.EventInt, Int: 1},
-		{Type: stream.EventEndObject}, // End container at items[0]
-		{Type: stream.EventEndArray},
+		{Type: stream.EventEndObject},
+		{Type: stream.EventEndArray}, // End container at items
 		{Type: stream.EventEndObject},
 	}
 
@@ -192,20 +192,20 @@ func TestSubtreeCollector_NestedContainerInArray(t *testing.T) {
 	}
 
 	if collected == nil {
-		t.Fatal("expected to collect subtree at items[0]")
+		t.Fatal("expected to collect subtree at items")
 	}
-	if collected.Path != "items[0]" {
-		t.Errorf("expected path items[0], got %s", collected.Path)
+	if collected.Path != "items" {
+		t.Errorf("expected path items, got %s", collected.Path)
 	}
-	if collected.Node.Type != ir.ObjectType {
-		t.Errorf("expected ObjectType, got %v", collected.Node.Type)
+	if collected.Node.Type != ir.ArrayType {
+		t.Errorf("expected ArrayType, got %v", collected.Node.Type)
 	}
 }
 
 func TestSubtreeCollector_NoMatch(t *testing.T) {
 	// Build index with patch at "other"
 	patch := ir.FromMap(map[string]*ir.Node{
-		"other": ir.FromString("data").WithTag(tx.PatchRootTag),
+		"other": ir.FromString("data"),
 	})
 	entries := []*dlog.Entry{{Commit: 1, Patch: patch}}
 	index := BuildPatchIndex(entries)
@@ -235,8 +235,8 @@ func TestSubtreeCollector_NoMatch(t *testing.T) {
 func TestSubtreeCollector_MultiplePatches(t *testing.T) {
 	// Build index with patches at "a" and "b"
 	patch := ir.FromMap(map[string]*ir.Node{
-		"a": ir.FromString("val-a").WithTag(tx.PatchRootTag),
-		"b": ir.FromString("val-b").WithTag(tx.PatchRootTag),
+		"a": ir.FromString("val-a"),
+		"b": ir.FromString("val-b"),
 	})
 	entries := []*dlog.Entry{{Commit: 1, Patch: patch}}
 	index := BuildPatchIndex(entries)

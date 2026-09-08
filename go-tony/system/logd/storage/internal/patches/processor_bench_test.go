@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/signadot/tony-format/go-tony/ir"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 // benchPatches builds a delta-log range in the shape a long-lived store accumulates:
@@ -22,7 +21,7 @@ func benchPatches(entries, slices int) []*ir.Node {
 				"verse": ir.FromMap(map[string]*ir.Node{
 					slice: ir.FromMap(map[string]*ir.Node{
 						"generation": ir.FromInt(int64(i)),
-					}).WithTag(tx.PatchRootTag),
+					}),
 				}),
 			}))
 			continue
@@ -34,7 +33,7 @@ func benchPatches(entries, slices int) []*ir.Node {
 					entity: ir.FromMap(map[string]*ir.Node{
 						"status": ir.FromString("ready"),
 						"commit": ir.FromInt(int64(i)),
-					}).WithTag(tx.PatchRootTag),
+					}),
 				}),
 			}),
 		}))

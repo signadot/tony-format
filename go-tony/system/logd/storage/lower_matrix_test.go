@@ -79,7 +79,7 @@ func applyOpLoweredByClient(t *testing.T, s *Storage, o genOp) (int64, error) {
 // its own head at every commit.
 //
 //	ordinary the engine lowers what needs it, which is the default and almost nothing
-//	engine   the engine lowers EVERY write inside the commit (LowerEverything)
+//	engine   the engine lowers EVERY write inside the commit (lowerEverything)
 //	client   the client lowers and sends the delta; the engine finds nothing to do
 //
 // The third is the one that separates delta SHAPE from where the engine computes it.
@@ -94,7 +94,7 @@ func TestLoweringMatrix(t *testing.T) {
 			s := openTestStorage(t)
 			// Not merely the default: LOGD_LOWERING=all would otherwise amplify this
 			// row into the engine row and the matrix would compare a thing to itself.
-			s.LowerEverything(false)
+			s.lowerEverything(false)
 			return s
 		},
 		apply: applyOp,
@@ -102,7 +102,7 @@ func TestLoweringMatrix(t *testing.T) {
 		name: "engine",
 		open: func(t *testing.T) *Storage {
 			s := openTestStorage(t)
-			s.LowerEverything(true)
+			s.lowerEverything(true)
 			return s
 		},
 		apply: applyOp,
@@ -114,7 +114,7 @@ func TestLoweringMatrix(t *testing.T) {
 			// absolute delta and leaves it alone. Said explicitly because
 			// LOGD_LOWERING=all would lower it a second time and the row would stop
 			// answering what it is for.
-			s.LowerEverything(false)
+			s.lowerEverything(false)
 			return s
 		},
 		apply: applyOpLoweredByClient,

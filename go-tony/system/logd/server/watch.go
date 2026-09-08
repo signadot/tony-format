@@ -170,7 +170,7 @@ func (h *WatchHub) Broadcast(n *storage.CommitNotification) {
 	}
 
 	// n.Patch needs no defensive copy here: storage builds each notification with a
-	// stripped deep copy of the committed patch, on the committing goroutine, so the
+	// deep copy of the committed delta, on the committing goroutine, so the
 	// notification owns its patch and nothing else can mutate it (see
 	// storage.newCommitNotification). It is still SHARED across the watchers below, which
 	// is why forwardEvents copies again before encoding — encoding mutates parent linkage.

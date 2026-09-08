@@ -92,14 +92,11 @@ func narrowScopedReadMatches(t *testing.T, gen func(*rand.Rand, int) []scopeOp) 
 					t.Fatalf("seed %d op %d (%s): %q: narrow gave %v, wide gave %v",
 						seed, i, o, kp, got, want)
 				case !got.DeepEqual(want):
-					// Exactly, presentation included. This was held to data-and-comments
-					// for a while, counting the style differences separately, because the
-					// narrow read restyled a value the wide read held in flow
-					// (p83xdgm2h12kre9ajdn0). That turned out to be the same defect as
-					// the data loss underneath it -- a projection whose marker was left
-					// behind is dropped whole, and what that one happened to carry was a
-					// tag (1xnezrpkh12ksavvjdn0). With the marker re-rooted there is
-					// nothing left to excuse.
+					// Exactly, presentation included. The projection is a subtree of the
+					// entry, and whatever that subtree carries -- a tag, a style -- comes
+					// with it, so a narrow read that restyles a value the wide read holds
+					// in flow is a lost projection and not a cosmetic difference
+					// (p83xdgm2h12kre9ajdn0, 1xnezrpkh12ksavvjdn0). Nothing to excuse.
 					t.Fatalf("seed %d op %d (%s): %q: narrow differs from the wide read\n"+
 						" got %s\nwant %s", seed, i, o, kp,
 						withComments(got), withComments(want))

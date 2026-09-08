@@ -6,7 +6,6 @@ import (
 
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 func parsePaths(t *testing.T, paths ...string) map[string]*kpath.KPath {
@@ -74,21 +73,18 @@ func TestMaximalPaths(t *testing.T) {
 	}
 }
 
-// rooted marks a node as a patch root, which is what the walk collects and what
-// makes its path an apply path (or a dominated one).
-func rooted(node *ir.Node) *ir.Node { return node.WithTag(tx.PatchRootTag) }
-
 func TestBuildPatchValueIndex_DominatedRootsFoldOncePerEntry(t *testing.T) {
-	// Entry 0 writes at "a", making it the apply path. Entry 1 writes at "a.b" and
-	// "a.c" — two roots, both dominated by "a" — and must contribute the subtree at
-	// "a" exactly once, not once per dominated root.
+	// Entry 0 writes an operation at "a" -- an operation is about the node it is on,
+	// so "a" is the root and the apply path. Entry 1 writes at "a.b" and "a.c" -- two
+	// roots, both dominated by "a" -- and must contribute the subtree at "a" exactly
+	// once, not once per dominated root.
 	entry0 := ir.FromMap(map[string]*ir.Node{
-		"a": rooted(ir.FromMap(map[string]*ir.Node{"b": ir.FromInt(1)})),
+		"a": ir.FromMap(map[string]*ir.Node{"b": ir.FromInt(1)}).WithTag("!raw"),
 	})
 	entry1 := ir.FromMap(map[string]*ir.Node{
 		"a": ir.FromMap(map[string]*ir.Node{
-			"b": rooted(ir.FromInt(2)),
-			"c": rooted(ir.FromInt(3)),
+			"b": ir.FromInt(2),
+			"c": ir.FromInt(3),
 		}),
 	})
 
@@ -118,7 +114,7 @@ func TestBuildPatchValueIndex_CommitOrder(t *testing.T) {
 	var patches []*ir.Node
 	for i := int64(1); i <= 3; i++ {
 		patches = append(patches, ir.FromMap(map[string]*ir.Node{
-			"a": rooted(ir.FromInt(i)),
+			"a": ir.FromInt(i),
 		}))
 	}
 	index, err := buildPatchValueIndex(patches)
@@ -141,7 +137,7 @@ func TestBuildPatchValueIndex_SparseRootIsNotNavigated(t *testing.T) {
 	// re-derived by navigating: GetKPath does not resolve "items{1}" back to it.
 	entry := ir.FromMap(map[string]*ir.Node{
 		"items": ir.FromIntKeysMap(map[uint32]*ir.Node{
-			1: rooted(ir.FromString("B")),
+			1: ir.FromString("B"),
 		}),
 	})
 	index, err := buildPatchValueIndex([]*ir.Node{entry})

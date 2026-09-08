@@ -7,12 +7,11 @@ import (
 
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/stream"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 func TestStreamingProcessor_SimpleScalar(t *testing.T) {
 	// Base: { "users": { "alice": "old" } }
-	// Patch: { "users": { "alice": "new" !logd-patch-root } }
+	// Patch: { "users": { "alice": "new" } }
 	// Expected: { "users": { "alice": "new" } }
 
 	base := ir.FromMap(map[string]*ir.Node{
@@ -23,7 +22,7 @@ func TestStreamingProcessor_SimpleScalar(t *testing.T) {
 
 	patch := ir.FromMap(map[string]*ir.Node{
 		"users": ir.FromMap(map[string]*ir.Node{
-			"alice": ir.FromString("new").WithTag(tx.PatchRootTag),
+			"alice": ir.FromString("new"),
 		}),
 	})
 
@@ -50,7 +49,7 @@ func TestStreamingProcessor_SimpleScalar(t *testing.T) {
 
 func TestStreamingProcessor_ContainerPatch(t *testing.T) {
 	// Base: { "config": { "a": 1, "b": 2 } }
-	// Patch: { "config": { "a": 10, "c": 3 } !logd-patch-root }
+	// Patch: { "config": { "a": 10, "c": 3 } }
 	// Expected: { "config": { "a": 10, "b": 2, "c": 3 } } (merged)
 
 	base := ir.FromMap(map[string]*ir.Node{
@@ -64,7 +63,7 @@ func TestStreamingProcessor_ContainerPatch(t *testing.T) {
 		"config": ir.FromMap(map[string]*ir.Node{
 			"a": ir.FromInt(10),
 			"c": ir.FromInt(3),
-		}).WithTag(tx.PatchRootTag),
+		}),
 	})
 
 	result, err := applyStreamingProcessor(base, []*ir.Node{patch})
@@ -93,8 +92,8 @@ func TestStreamingProcessor_ContainerPatch(t *testing.T) {
 
 func TestStreamingProcessor_MultiplePatches(t *testing.T) {
 	// Base: { "x": 1 }
-	// Patch1: { "x": 2 !logd-patch-root }
-	// Patch2: { "x": 3 !logd-patch-root }
+	// Patch1: { "x": 2 }
+	// Patch2: { "x": 3 }
 	// Expected: { "x": 3 } (patches applied in order)
 
 	base := ir.FromMap(map[string]*ir.Node{
@@ -102,10 +101,10 @@ func TestStreamingProcessor_MultiplePatches(t *testing.T) {
 	})
 
 	patch1 := ir.FromMap(map[string]*ir.Node{
-		"x": ir.FromInt(2).WithTag(tx.PatchRootTag),
+		"x": ir.FromInt(2),
 	})
 	patch2 := ir.FromMap(map[string]*ir.Node{
-		"x": ir.FromInt(3).WithTag(tx.PatchRootTag),
+		"x": ir.FromInt(3),
 	})
 
 	result, err := applyStreamingProcessor(base, []*ir.Node{patch1, patch2})
@@ -121,8 +120,8 @@ func TestStreamingProcessor_MultiplePatches(t *testing.T) {
 
 func TestStreamingProcessor_ArrayElement(t *testing.T) {
 	// Base: [ "a", "b", "c" ]
-	// Patch: [ null, "B" !logd-patch-root, null ]
-	// Expected: [ "a", "B", "c" ]
+	// Patch: [ null, "B", null ]
+	// Expected: [ null, "B", null ] -- elements merge by position, and a null is a value
 
 	base := ir.FromSlice([]*ir.Node{
 		ir.FromString("a"),
@@ -132,7 +131,7 @@ func TestStreamingProcessor_ArrayElement(t *testing.T) {
 
 	patch := ir.FromSlice([]*ir.Node{
 		ir.Null(),
-		ir.FromString("B").WithTag(tx.PatchRootTag),
+		ir.FromString("B"),
 		ir.Null(),
 	})
 
@@ -174,7 +173,7 @@ func TestStreamingProcessor_NoPatches(t *testing.T) {
 
 func TestStreamingProcessor_PassthroughUnpatched(t *testing.T) {
 	// Base: { "a": 1, "b": 2, "c": 3 }
-	// Patch: { "b": 20 !logd-patch-root }
+	// Patch: { "b": 20 }
 	// Expected: { "a": 1, "b": 20, "c": 3 }
 
 	base := ir.FromMap(map[string]*ir.Node{
@@ -184,7 +183,7 @@ func TestStreamingProcessor_PassthroughUnpatched(t *testing.T) {
 	})
 
 	patch := ir.FromMap(map[string]*ir.Node{
-		"b": ir.FromInt(20).WithTag(tx.PatchRootTag),
+		"b": ir.FromInt(20),
 	})
 
 	result, err := applyStreamingProcessor(base, []*ir.Node{patch})
@@ -208,7 +207,7 @@ func TestStreamingProcessor_PassthroughUnpatched(t *testing.T) {
 
 func TestStreamingProcessor_DeeplyNestedObject(t *testing.T) {
 	// Base: { "a": { "b": { "c": { "d": "old" } } } }
-	// Patch: { "a": { "b": { "c": { "d": "new" !logd-patch-root } } } }
+	// Patch: { "a": { "b": { "c": { "d": "new" } } } }
 	// Expected: { "a": { "b": { "c": { "d": "new" } } } }
 
 	base := ir.FromMap(map[string]*ir.Node{
@@ -225,7 +224,7 @@ func TestStreamingProcessor_DeeplyNestedObject(t *testing.T) {
 		"a": ir.FromMap(map[string]*ir.Node{
 			"b": ir.FromMap(map[string]*ir.Node{
 				"c": ir.FromMap(map[string]*ir.Node{
-					"d": ir.FromString("new").WithTag(tx.PatchRootTag),
+					"d": ir.FromString("new"),
 				}),
 			}),
 		}),
@@ -244,8 +243,8 @@ func TestStreamingProcessor_DeeplyNestedObject(t *testing.T) {
 
 func TestStreamingProcessor_NestedArrays(t *testing.T) {
 	// Base: [ [ "a", "b" ], [ "c", "d" ] ]
-	// Patch: [ null, [ null, "D" !logd-patch-root ] ]
-	// Expected: [ [ "a", "b" ], [ "c", "D" ] ]
+	// Patch: [ null, [ null, "D" ] ]
+	// Expected: [ null, [ null, "D" ] ] -- elements merge by position, and a null is a value
 
 	base := ir.FromSlice([]*ir.Node{
 		ir.FromSlice([]*ir.Node{ir.FromString("a"), ir.FromString("b")}),
@@ -256,7 +255,7 @@ func TestStreamingProcessor_NestedArrays(t *testing.T) {
 		ir.Null(),
 		ir.FromSlice([]*ir.Node{
 			ir.Null(),
-			ir.FromString("D").WithTag(tx.PatchRootTag),
+			ir.FromString("D"),
 		}),
 	})
 
@@ -279,7 +278,7 @@ func TestStreamingProcessor_NestedArrays(t *testing.T) {
 
 func TestStreamingProcessor_MixedObjectArray(t *testing.T) {
 	// Base: { "items": [ { "name": "old" } ] }
-	// Patch: { "items": [ { "name": "new" !logd-patch-root } ] }
+	// Patch: { "items": [ { "name": "new" } ] }
 	// Expected: { "items": [ { "name": "new" } ] }
 
 	base := ir.FromMap(map[string]*ir.Node{
@@ -291,7 +290,7 @@ func TestStreamingProcessor_MixedObjectArray(t *testing.T) {
 	patch := ir.FromMap(map[string]*ir.Node{
 		"items": ir.FromSlice([]*ir.Node{
 			ir.FromMap(map[string]*ir.Node{
-				"name": ir.FromString("new").WithTag(tx.PatchRootTag),
+				"name": ir.FromString("new"),
 			}),
 		}),
 	})
@@ -313,7 +312,7 @@ func TestStreamingProcessor_MixedObjectArray(t *testing.T) {
 
 func TestStreamingProcessor_MultipleDifferentPaths(t *testing.T) {
 	// Base: { "a": 1, "b": 2, "c": 3 }
-	// Patch: { "a": 10 !logd-patch-root, "c": 30 !logd-patch-root }
+	// Patch: { "a": 10, "c": 30 }
 	// Expected: { "a": 10, "b": 2, "c": 30 }
 
 	base := ir.FromMap(map[string]*ir.Node{
@@ -323,8 +322,8 @@ func TestStreamingProcessor_MultipleDifferentPaths(t *testing.T) {
 	})
 
 	patch := ir.FromMap(map[string]*ir.Node{
-		"a": ir.FromInt(10).WithTag(tx.PatchRootTag),
-		"c": ir.FromInt(30).WithTag(tx.PatchRootTag),
+		"a": ir.FromInt(10),
+		"c": ir.FromInt(30),
 	})
 
 	result, err := applyStreamingProcessor(base, []*ir.Node{patch})
@@ -348,7 +347,7 @@ func TestStreamingProcessor_MultipleDifferentPaths(t *testing.T) {
 
 func TestStreamingProcessor_EmptyObject(t *testing.T) {
 	// Base: { "config": {} }
-	// Patch: { "config": { "new": "value" } !logd-patch-root }
+	// Patch: { "config": { "new": "value" } }
 	// Expected: { "config": { "new": "value" } }
 
 	base := ir.FromMap(map[string]*ir.Node{
@@ -358,7 +357,7 @@ func TestStreamingProcessor_EmptyObject(t *testing.T) {
 	patch := ir.FromMap(map[string]*ir.Node{
 		"config": ir.FromMap(map[string]*ir.Node{
 			"new": ir.FromString("value"),
-		}).WithTag(tx.PatchRootTag),
+		}),
 	})
 
 	result, err := applyStreamingProcessor(base, []*ir.Node{patch})
@@ -378,7 +377,7 @@ func TestStreamingProcessor_EmptyObject(t *testing.T) {
 
 func TestStreamingProcessor_EmptyArray(t *testing.T) {
 	// Base: { "items": [] }
-	// Patch: { "items": [ "added" ] !logd-patch-root }
+	// Patch: { "items": [ "added" ] }
 	// Expected: { "items": [ "added" ] }
 
 	base := ir.FromMap(map[string]*ir.Node{
@@ -388,7 +387,7 @@ func TestStreamingProcessor_EmptyArray(t *testing.T) {
 	patch := ir.FromMap(map[string]*ir.Node{
 		"items": ir.FromSlice([]*ir.Node{
 			ir.FromString("added"),
-		}).WithTag(tx.PatchRootTag),
+		}),
 	})
 
 	result, err := applyStreamingProcessor(base, []*ir.Node{patch})
@@ -407,8 +406,9 @@ func TestStreamingProcessor_EmptyArray(t *testing.T) {
 
 func TestStreamingProcessor_ArrayInObject(t *testing.T) {
 	// Base: { "data": { "list": [ 1, 2, 3 ] } }
-	// Patch: { "data": { "list": [ null, 20 !logd-patch-root, null ] } }
-	// Expected: { "data": { "list": [ 1, 20, 3 ] } }
+	// Patch: { "data": { "list": [ null, 20, null ] } }
+	// Expected: { "data": { "list": [ null, 20, null ] } } -- the array is applied as a
+	// unit at data.list, element by element, and a null is a value that lands
 
 	base := ir.FromMap(map[string]*ir.Node{
 		"data": ir.FromMap(map[string]*ir.Node{
@@ -424,7 +424,7 @@ func TestStreamingProcessor_ArrayInObject(t *testing.T) {
 		"data": ir.FromMap(map[string]*ir.Node{
 			"list": ir.FromSlice([]*ir.Node{
 				ir.Null(),
-				ir.FromInt(20).WithTag(tx.PatchRootTag),
+				ir.FromInt(20),
 				ir.Null(),
 			}),
 		}),
@@ -440,21 +440,22 @@ func TestStreamingProcessor_ArrayInObject(t *testing.T) {
 	if list == nil || list.Type != ir.ArrayType || len(list.Values) != 3 {
 		t.Fatalf("expected 3-element list, got %v", list)
 	}
-	if *list.Values[0].Int64 != 1 {
-		t.Errorf("expected list[0]=1, got %v", list.Values[0])
+	if list.Values[0].Type != ir.NullType {
+		t.Errorf("expected list[0]=null, got %v", list.Values[0])
 	}
-	if *list.Values[1].Int64 != 20 {
+	if list.Values[1].Int64 == nil || *list.Values[1].Int64 != 20 {
 		t.Errorf("expected list[1]=20, got %v", list.Values[1])
 	}
-	if *list.Values[2].Int64 != 3 {
-		t.Errorf("expected list[2]=3, got %v", list.Values[2])
+	if list.Values[2].Type != ir.NullType {
+		t.Errorf("expected list[2]=null, got %v", list.Values[2])
 	}
 }
 
 func TestStreamingProcessor_ObjectInArray(t *testing.T) {
 	// Base: [ { "id": 1, "v": "a" }, { "id": 2, "v": "b" } ]
-	// Patch: [ { "v": "A" !logd-patch-root }, null ]
-	// Expected: [ { "id": 1, "v": "A" }, { "id": 2, "v": "b" } ]
+	// Patch: [ { "v": "A" }, null ]
+	// Expected: [ { "id": 1, "v": "A" }, null ] -- elements merge by position: the
+	// object merges into the first, and the null is a value that lands on the second
 
 	base := ir.FromSlice([]*ir.Node{
 		ir.FromMap(map[string]*ir.Node{"id": ir.FromInt(1), "v": ir.FromString("a")}),
@@ -463,7 +464,7 @@ func TestStreamingProcessor_ObjectInArray(t *testing.T) {
 
 	patch := ir.FromSlice([]*ir.Node{
 		ir.FromMap(map[string]*ir.Node{
-			"v": ir.FromString("A").WithTag(tx.PatchRootTag),
+			"v": ir.FromString("A"),
 		}),
 		ir.Null(),
 	})
@@ -484,6 +485,9 @@ func TestStreamingProcessor_ObjectInArray(t *testing.T) {
 	id := findField(first, "id")
 	if id == nil || *id.Int64 != 1 {
 		t.Errorf("expected id=1, got %v", id)
+	}
+	if result.Values[1].Type != ir.NullType {
+		t.Errorf("expected the second element replaced by null, got %v", result.Values[1])
 	}
 }
 
@@ -561,7 +565,7 @@ func (w *bufferWriter) WriteEvent(ev *stream.Event) error {
 
 func TestStreamingProcessor_SparseArray(t *testing.T) {
 	// Base: { 0: "a", 1: "b", 2: "c" } (sparse array with {index} paths)
-	// Patch: { 1: "B" !logd-patch-root }
+	// Patch: { 1: "B" }
 	// Expected: { 0: "a", 1: "B", 2: "c" }
 
 	base := ir.FromIntKeysMap(map[uint32]*ir.Node{
@@ -571,7 +575,7 @@ func TestStreamingProcessor_SparseArray(t *testing.T) {
 	})
 
 	patch := ir.FromIntKeysMap(map[uint32]*ir.Node{
-		1: ir.FromString("B").WithTag(tx.PatchRootTag),
+		1: ir.FromString("B"),
 	})
 
 	result, err := applyStreamingProcessor(base, []*ir.Node{patch})
@@ -598,10 +602,10 @@ func TestStreamingProcessor_SparseArray(t *testing.T) {
 	}
 }
 
-func TestStreamingProcessor_InternalTagsStripped(t *testing.T) {
-	// Verify that !logd-patch-root tags are stripped from output
+func TestStreamingProcessor_ResultCarriesNoTag(t *testing.T) {
+	// A plain value comes out as it went in, with nothing the processor put on it.
 	// Base: { "val": "old" }
-	// Patch: { "val": "new" !logd-patch-root }
+	// Patch: { "val": "new" }
 	// Expected: { "val": "new" } with NO tag on the result
 
 	base := ir.FromMap(map[string]*ir.Node{
@@ -609,7 +613,7 @@ func TestStreamingProcessor_InternalTagsStripped(t *testing.T) {
 	})
 
 	patch := ir.FromMap(map[string]*ir.Node{
-		"val": ir.FromString("new").WithTag(tx.PatchRootTag),
+		"val": ir.FromString("new"),
 	})
 
 	result, err := applyStreamingProcessor(base, []*ir.Node{patch})
@@ -624,7 +628,6 @@ func TestStreamingProcessor_InternalTagsStripped(t *testing.T) {
 	if val.String != "new" {
 		t.Errorf("expected val='new', got %q", val.String)
 	}
-	// The key check: tag should be stripped
 	if val.Tag != "" {
 		t.Errorf("expected no tag on result, got %q", val.Tag)
 	}
@@ -637,8 +640,8 @@ func TestStreamingProcessor_InternalTagsStripped(t *testing.T) {
 // erase every descendant write made since the last snapshot.
 func TestStreamingProcessor_ChildPatchAfterRootPatch(t *testing.T) {
 	// Base: { "a": 1, "b": 2 }
-	// Patch 1: { "a": 10, "b": 20 } !logd-patch-root (root level)
-	// Patch 2: { "a": 999 !logd-patch-root } (child, dominated by the root patch)
+	// Patch 1: { "a": 10, "b": 20 } (root level)
+	// Patch 2: { "a": 999 } (child, dominated by the root patch)
 	// Expected: { "a": 999, "b": 20 } — both applied, in commit order
 
 	base := ir.FromMap(map[string]*ir.Node{
@@ -650,11 +653,11 @@ func TestStreamingProcessor_ChildPatchAfterRootPatch(t *testing.T) {
 	rootPatch := ir.FromMap(map[string]*ir.Node{
 		"a": ir.FromInt(10),
 		"b": ir.FromInt(20),
-	}).WithTag(tx.PatchRootTag)
+	})
 
 	// Child patch at "a" - should be filtered out
 	childPatch := ir.FromMap(map[string]*ir.Node{
-		"a": ir.FromInt(999).WithTag(tx.PatchRootTag),
+		"a": ir.FromInt(999),
 	})
 
 	result, err := applyStreamingProcessor(base, []*ir.Node{rootPatch, childPatch})
@@ -677,8 +680,8 @@ func TestStreamingProcessor_ChildPatchAfterRootPatch(t *testing.T) {
 // dominated child patch is folded into the dominating path in commit order, not dropped.
 func TestStreamingProcessor_DominatedPathFolded(t *testing.T) {
 	// Base: { "users": { "alice": "old", "bob": "old" } }
-	// Patch 1: { "users": { "alice": "new", "bob": "new" } !logd-patch-root } (parent)
-	// Patch 2: { "users": { "alice": "later" !logd-patch-root } } (child, dominated)
+	// Patch 1: { "users": { "alice": "new", "bob": "new" } } (parent)
+	// Patch 2: { "users": { "alice": "later" } } (child, dominated)
 	// Expected: { "users": { "alice": "later", "bob": "new" } }
 
 	base := ir.FromMap(map[string]*ir.Node{
@@ -693,13 +696,13 @@ func TestStreamingProcessor_DominatedPathFolded(t *testing.T) {
 		"users": ir.FromMap(map[string]*ir.Node{
 			"alice": ir.FromString("new"),
 			"bob":   ir.FromString("new"),
-		}).WithTag(tx.PatchRootTag),
+		}),
 	})
 
 	// Child patch at "users.alice" level - should be filtered out
 	childPatch := ir.FromMap(map[string]*ir.Node{
 		"users": ir.FromMap(map[string]*ir.Node{
-			"alice": ir.FromString("later").WithTag(tx.PatchRootTag),
+			"alice": ir.FromString("later"),
 		}),
 	})
 
@@ -726,7 +729,7 @@ func TestStreamingProcessor_DominatedPathFolded(t *testing.T) {
 
 func TestStreamingProcessor_SparseArrayNested(t *testing.T) {
 	// Base: { "data": { 100: { "name": "old" }, 200: { "name": "other" } } }
-	// Patch: { "data": { 100: { "name": "new" !logd-patch-root } } }
+	// Patch: { "data": { 100: { "name": "new" } } }
 	// Expected: { "data": { 100: { "name": "new" }, 200: { "name": "other" } } }
 	// Path for patch: data{100}.name
 
@@ -740,7 +743,7 @@ func TestStreamingProcessor_SparseArrayNested(t *testing.T) {
 	patch := ir.FromMap(map[string]*ir.Node{
 		"data": ir.FromIntKeysMap(map[uint32]*ir.Node{
 			100: ir.FromMap(map[string]*ir.Node{
-				"name": ir.FromString("new").WithTag(tx.PatchRootTag),
+				"name": ir.FromString("new"),
 			}),
 		}),
 	})

@@ -49,22 +49,20 @@ import (
 // nothing in it writes a relative operation.
 var loweringFired, loweringSkipped int64
 
-// LowerEverything lowers every write, whether or not it needs it.
+// lowerEverything lowers every write, whether or not it needs it. It cannot change what
+// a watcher receives -- the notification is the stored delta either way -- only whether
+// an absolute write is diffed or kept as sent, which is the optimisation NeedsLowering is.
 //
-// Not a mode to run in: it pays a diff on writes that were already their own delta,
-// and it stores a delta where the client's own patch would have been kept, so a
-// client reading its write back does not see the shape it sent.
+// Not a mode to run in: it pays a diff on writes that were already their own delta, and
+// it stores a delta where the client's own patch would have been kept, so a client
+// reading its write back does not see the shape it sent.
 //
-// It is how the lowering is TESTED. With the ordinary rule the suite exercises the
-// path 16 times in 21587 writes, because nearly nothing anyone writes is relative --
-// which is the point, and which also means a green suite says almost nothing about
-// whether lowering is correct. Forcing it puts every state transition the suite
-// produces through DiffAbsolute and back.
-//
-// It is not what ships. What ships asks api.NeedsLowering per write and lowers the
-// ones that need it, which is what makes the read on the write path free: the state
-// verifyApplies already produced is both sides of the diff.
-func (s *Storage) LowerEverything(v bool) { s.lowerAll = v }
+// It is how the lowering is TESTED. With the ordinary rule the suite exercises the path
+// a handful of times in tens of thousands of writes, because nearly nothing anyone
+// writes is relative -- which is the point, and which also means a green suite says
+// almost nothing about whether lowering is correct. Forcing it puts every state
+// transition the suite produces through DiffAbsolute and back.
+func (s *Storage) lowerEverything(v bool) { s.lowerAll = v }
 
 // storableDelta answers how next differs from base, said in the vocabulary a store may
 // keep: every operation in it states what a value IS, so applying it to a base that has
@@ -86,8 +84,6 @@ func (s *Storage) LowerEverything(v bool) { s.lowerAll = v }
 //	              strip; no caller here is in it.)
 //	comments      carried. A write whose only change is a comment has no other way to
 //	              say so.
-//	marking       left to the caller, which wants the marker where the change LANDS so a
-//	              narrow read can skip the rest. See markDeltaRoots.
 //	validation    left to the caller, because what a failure means differs: an
 //	              unstorable write is refused, and an unstorable anything-else is a bug.
 func storableDelta(base, next *ir.Node) *ir.Node {
@@ -139,10 +135,10 @@ func pathOrRoot(kp string) string {
 // lowerWrite verifies a write at every path it names and answers the delta the log should
 // keep for it: nil, with no error, when the write changed nothing.
 //
-// stripped is the write as the client sent it, markers off; merged is the same with the
-// patch-root markers TagPatchRoots put on it, which is what an absolute write is stored
-// as. sites are the leaf-most paths the write states something at (ClaimPaths): the node
-// an operation is written on, or a leaf, or an array a position reaches into.
+// merged is the write as the client sent it, rooted at the document, which is what an
+// absolute write is stored as. sites are the paths the write states something at
+// (LowerSites for baseline, ClaimPaths for a scope): the node an operation is written
+// on, or a leaf, or an array a position reaches into.
 //
 // A WRITE IS A RECORD AT A PATH, NOT A DOCUMENT APPLIED TO A DOCUMENT. At each site the
 // current value is read -- one bounded read, under the write budget -- the write's node
@@ -159,12 +155,12 @@ func pathOrRoot(kp string) string {
 // of this and is stored as sent; only a relative one is converted, and a relative
 // operation's meaning depends on the whole subtree it was applied to, so the subtree is
 // what it claims (claimValue).
-func (s *Storage) lowerWrite(commit int64, stripped, merged *ir.Node, scopeID *string, sites []string) (*ir.Node, error) {
+func (s *Storage) lowerWrite(commit int64, merged *ir.Node, scopeID *string, sites []string) (*ir.Node, error) {
 	if merged == nil {
 		return merged, nil
 	}
 	scoped := scopeID != nil
-	op, needs := api.NeedsLowering(stripped)
+	op, needs := api.NeedsLowering(merged)
 
 	type site struct {
 		path       string
@@ -181,7 +177,7 @@ func (s *Storage) lowerWrite(commit int64, stripped, merged *ir.Node, scopeID *s
 			}
 			return nil, fmt.Errorf("cannot read the state at %d to check the patch: %w", commit-1, err)
 		}
-		at, err := stripped.GetKPathWith(p, ir.WithComments(true))
+		at, err := merged.GetKPathWith(p, ir.WithComments(true))
 		if err != nil || at == nil {
 			continue // the write states nothing at this site after all
 		}
@@ -213,9 +209,9 @@ func (s *Storage) lowerWrite(commit int64, stripped, merged *ir.Node, scopeID *s
 	}
 	atomic.AddInt64(&loweringFired, 1)
 
-	// The delta, site by site, each marked where it is applied from and the pieces
-	// rooted together into one patch -- the same construction TagPatchRoots and
-	// MergePatches give a client's own multi-participant write.
+	// The delta, site by site, the pieces rooted together into one patch -- the same
+	// construction MergePatches gives a client's own multi-participant write. Where each
+	// piece lands is in the shape: a read below one site sees nothing of another.
 	pds := make([]*tx.PatcherData, 0, len(verified))
 	for _, v := range verified {
 		var delta *ir.Node
@@ -238,10 +234,6 @@ func (s *Storage) lowerWrite(commit int64, stripped, merged *ir.Node, scopeID *s
 		if delta == nil {
 			continue // nothing changed at this site
 		}
-		// WHERE the marker goes is the selectivity of every narrow read: it says where
-		// the entry is applied FROM, and a marker at the site is what lets a read below
-		// another site skip this one (TagPatchRoots does the same for a client's roots).
-		markDeltaRoots(delta)
 		pds = append(pds, &tx.PatcherData{API: &api.Patch{PathData: api.PathData{Path: v.path, Data: delta}}})
 	}
 	if len(pds) == 0 {
@@ -258,69 +250,6 @@ func (s *Storage) lowerWrite(commit int64, stripped, merged *ir.Node, scopeID *s
 		return nil, fmt.Errorf("lowering %s left something unstorable: %w", op, err)
 	}
 	return out, nil
-}
-
-// markDeltaRoots marks the shallowest nodes that carry the change, rather than the
-// delta's root.
-//
-// It descends through plain objects, which say only "something below here differs",
-// and stops at anything that says something itself: a leaf, an array, or a node
-// carrying an operation. A write to verse.meta.rev then marks verse.meta.rev, which
-// is where the client's own patch was rooted and what the patch index keys on.
-//
-// A delta that changed two disjoint places marks both, the way two participants used
-// to mark their own roots.
-func markDeltaRoots(n *ir.Node) {
-	if n == nil {
-		return
-	}
-	// Through the comment wrapper, as TagPatchRoots does -- it marks
-	// ir.Uncomment(pd.API.Data), and for the same reason. A marker on a wrapper is
-	// seen by nothing: the log writes a comment as its lines and its child, so the
-	// tag is not serialized, and the entry reaches the read path with no patch root
-	// at all. The processor then applies NOTHING from it, which is invisible while
-	// the base is empty -- that path folds patches directly -- and loses the whole
-	// write once a snapshot is the base (xqpvk3ehh12ks89mj5n0).
-	n = ir.Uncomment(n)
-	if n == nil {
-		return
-	}
-	// Down to the deepest CONTAINER the change is inside, and mark that -- not the
-	// changed field, and not the value under it. An operation on a field is about
-	// that field within its container, so the container is what the patch is rooted
-	// at: `a.b <- {k0: 9}` from a client is stored as
-	//
-	//	a: b: !logd-patch-root {k0: 9}
-	//
-	// and the delta for the same write should be marked in the same place. Marking
-	// the leaf instead put the marker at a.b.k0, which is not where the write lands.
-	if n.Type == ir.ObjectType && len(n.Fields) == 1 && len(n.Values) == 1 && n.Tag == "" {
-		// Not past a COMMENT. A head comment is a wrapper at its own path, and the
-		// marker says where the patch is applied FROM: a marker below the wrapper
-		// leaves the wrapper outside the subtree that gets applied, so the comment
-		// is simply not there on the way back in. The head keeps it, the replay does
-		// not, and the two disagree over a comment while every value matches.
-		//
-		// A client's write cannot reach this: it is rooted at the path it names,
-		// which is the path the comment is on.
-		if n.Values[0].Type == ir.CommentType {
-			tx.MarkPatchRoot(ir.Uncomment(n.Values[0]))
-			return
-		}
-		// An EMPTY container is descended into like any other. It used to require
-		// fields, on the reading that a container with none is not passed through --
-		// but it is not the statement either, the field holding it is: `{a: {}}` says
-		// a is now empty, which is a statement about a and was marked at the root.
-		//
-		// A scope's delete of a path that does not exist yet produces exactly that
-		// shape, so the entry a scope's own write became was marked as a patch on the
-		// whole document.
-		if sub := ir.Uncomment(n.Values[0]); sub != nil && sub.Type == ir.ObjectType {
-			markDeltaRoots(n.Values[0])
-			return
-		}
-	}
-	tx.MarkPatchRoot(n)
 }
 
 // claimValue is a value stated as the whole of what is at its path.
@@ -391,7 +320,7 @@ func ClaimPaths(path string, data *ir.Node) []string {
 	}
 	var walk func(n *ir.Node, at string)
 	walk = func(n *ir.Node, at string) {
-		// Through the comment wrapper, as markDeltaRoots and the patch index both do:
+		// Through the comment wrapper, as the patch index does:
 		// a head comment is not a kind of container, so asking what kind of node this
 		// is stops at the wrapper, and `# note` above `{k2: 5}` claimed the whole
 		// container the write landed in rather than the leaf it named.

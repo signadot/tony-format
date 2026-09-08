@@ -6,7 +6,6 @@ import (
 
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 func parseCommented(t *testing.T, src string) *ir.Node {
@@ -45,28 +44,31 @@ func TestWalkIRTreeThroughComments(t *testing.T) {
 	}
 }
 
-// TestPatchRootsThroughComments: a patch root is found by its tag, which sits on
-// the node INSIDE a comment wrapper. Left wrapped, the root was neither collected
-// nor descended into, so the streaming processor applied nothing at all -- the
-// write was accepted and did not happen.
-func TestPatchRootsThroughComments(t *testing.T) {
-	for _, src := range []string{"a:\n  b: 1\n", "# note\na:\n  b: 1\n"} {
-		n := parseCommented(t, src)
-		root := ir.Uncomment(n)
-		root.Tag = ir.TagCompose(tx.PatchRootTag, nil, root.Tag)
-
-		found := 0
+// TestCommentedNodeIsARoot: a patch root is read from the entry's shape, and a comment
+// is part of what an entry says. A commented node is collected whole, wrapper included,
+// at the path the comment is on -- descending past the wrapper to the value beneath
+// would apply the value and lose the comment, so a replay would disagree with the head
+// over a comment while every value matched. A comment above the first field of a block
+// is the block's, so `# note` inside `a:` roots the patch at a.
+func TestCommentedNodeIsARoot(t *testing.T) {
+	for _, tc := range []struct {
+		src  string
+		want string
+	}{
+		{"a:\n  b: 1\n", "a.b"},
+		{"a:\n  # note\n  b: 1\n", "a"},
+		{"# note\na:\n  b: 1\n", ""},
+	} {
+		n := parseCommented(t, tc.src)
+		var got []string
 		walkAndCollectPatchRoots(n, "", func(node *ir.Node, path string) {
-			found++
-			if path != "" {
-				t.Errorf("%q: patch root found at %q, and it is the document root", src, path)
-			}
-			if v, err := node.GetKPath("a.b"); err != nil || v == nil {
-				t.Errorf("%q: the collected root does not carry a.b: %v", src, err)
+			got = append(got, path)
+			if v, err := ir.Uncomment(node).GetKPath("a.b"); path == "" && (err != nil || v == nil) {
+				t.Errorf("%q: the collected root does not carry a.b: %v", tc.src, err)
 			}
 		})
-		if found != 1 {
-			t.Errorf("%q: collected %d patch roots, want 1", src, found)
+		if len(got) != 1 || got[0] != tc.want {
+			t.Errorf("%q: roots at %q, want one at %q", tc.src, got, tc.want)
 		}
 	}
 }

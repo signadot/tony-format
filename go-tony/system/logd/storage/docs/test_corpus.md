@@ -168,3 +168,28 @@ bounded reads, the 128 MiB write budget.
     FOUND      a write with a head comment on a container is a statement at that container:
                ClaimPaths walks through the comment to the leaf (right for a claim), and a
                baseline diff taken at the leaf lost the comment. LowerSites stops there.
+
+## Phase 4, as it happened
+
+The notification from the stored entry, and the marker gone.
+
+    DROPPED    tx/patch_root, tx/patch_root_test, patch_root_marker_test (the marker and its
+               tests); DeliverablePatch (a copy is all there is to do); markDeltaRoots;
+               TestArrayElementInsertStoresNoMarker's assertion (nothing to store) -- it now
+               checks the inserted element carries only what the client wrote
+    REWRITTEN  patches: TestPatchRootsThroughComments -> TestCommentedNodeIsARoot (a comment
+               above the first field of a block is the block's, so `# note` inside `a:`
+               roots at a); the collector, index and processor tests that rooted an entry by
+               tag root it by shape, and the positional-array expectations became the fold's
+               ([null, 20, null] is what api.NextState makes of it);
+               TestBuildPatchValueIndex_DominatedRootsFoldOncePerEntry dominates with an
+               operation, since roots within one entry are disjoint by construction
+    RENAMED    LowerEverything -> lowerEverything (a test knob, unexported);
+               TestTick_NotificationPatchIsPrivateAndStripped -> ...IsPrivate
+    ADDED      delta_identity_test (IDENTITY and ABSOLUTENESS at the commit, as shipped and
+               with lowering forced; a lowered !insert, a comment as a wrapper, a write that
+               changes nothing, a scope's claim, two deletes)
+    FOUND      the processor tests rooted entries where no write produces a root -- an
+               element inside a bare array -- and expected positional patching there; rooted
+               by shape, the array is applied as a unit, which is what the fold does, so the
+               tests' reading was the marker's and not the store's

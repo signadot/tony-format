@@ -6,7 +6,6 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 // PatchIndex maps kinded paths to the dlog entries that affect them.
@@ -22,8 +21,9 @@ func NewPatchIndex() *PatchIndex {
 	}
 }
 
-// BuildPatchIndex walks dlog entries to find nodes tagged with PatchRootTag.
-// Returns an index mapping paths to the entries that affect them.
+// BuildPatchIndex walks dlog entries for the paths each states something at
+// (walkAndCollectPatchRoots) and answers an index mapping paths to the entries that
+// affect them.
 func BuildPatchIndex(entries []*dlog.Entry) *PatchIndex {
 	index := NewPatchIndex()
 
@@ -31,10 +31,8 @@ func BuildPatchIndex(entries []*dlog.Entry) *PatchIndex {
 		if entry.Patch == nil {
 			continue
 		}
-		walkIRTree(entry.Patch, "", func(node *ir.Node, path string) {
-			if tx.HasPatchRootTag(node) {
-				index.byPath[path] = append(index.byPath[path], entry)
-			}
+		walkAndCollectPatchRoots(entry.Patch, "", func(node *ir.Node, path string) {
+			index.byPath[path] = append(index.byPath[path], entry)
 		})
 	}
 

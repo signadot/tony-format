@@ -1,5 +1,11 @@
 # Streaming Patch Processor Design
 
+> Rooting, as built: where this document finds a patch root by the `!logd-patch-root`
+> tag, the store finds it by the entry's SHAPE (patches.walkAndCollectPatchRoots) -- an
+> operation, a leaf, an array, an empty container, or a commented node is a root; a plain
+> object with fields is passed through. There is no marker, so there is nothing to strip
+> on the way out. See one_delta_shape.md, "As built".
+
 ## Problem
 
 Apply a sequence of patches from multiple commits to a snapshot without loading the entire document into memory.

@@ -5,10 +5,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 // windowResolver runs fn inside a commit's critical section. doCommit calls GetSchema
@@ -205,10 +203,10 @@ func TestTick_NotificationsInCommitOrder(t *testing.T) {
 	}
 }
 
-// A notification's patch must be private to it. The merged patch shares nodes with the
-// patcher data, and doCommit strips those nodes as the commit returns — concurrently
-// with the dispatcher, now that delivery is asynchronous.
-func TestTick_NotificationPatchIsPrivateAndStripped(t *testing.T) {
+// A notification's patch must be private to it. The stored delta may share nodes with
+// the patcher data, which the caller gets back as the commit returns -- concurrently
+// with the dispatcher, since delivery is asynchronous.
+func TestTick_NotificationPatchIsPrivate(t *testing.T) {
 	s, err := Open(t.TempDir(), nil)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -248,31 +246,12 @@ func TestTick_NotificationPatchIsPrivateAndStripped(t *testing.T) {
 	if got.Patch == data {
 		t.Error("notification patch is the caller's node, not a private copy")
 	}
-	// Only the internal patch-root marker must be gone; syntax tags like !bracket are
-	// part of the value and stay.
-	if n := countPatchRootTags(got.Patch); n != 0 {
-		t.Errorf("notification patch carries %d %s tags; they must be stripped", n, tx.PatchRootTag)
-	}
-	// Mutating the delivered patch must not reach the caller's node, which doCommit is
-	// free to strip the moment the commit returns.
+	// Mutating the delivered patch must not reach the caller's node, which the caller is
+	// free to touch the moment the commit returns.
 	got.Patch.Tag = "!mutated"
 	if data.Tag == "!mutated" {
 		t.Error("notification patch shares nodes with the caller's patch data")
 	}
-}
-
-func countPatchRootTags(n *ir.Node) int {
-	if n == nil {
-		return 0
-	}
-	count := 0
-	if tx.HasPatchRootTag(n) {
-		count++
-	}
-	for _, v := range n.Values {
-		count += countPatchRootTags(v)
-	}
-	return count
 }
 
 // A commit with no notifier registered still advances the watermark.
