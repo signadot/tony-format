@@ -90,19 +90,22 @@ func (co *txCoord) Scope() *string {
 }
 
 // UpdateState atomically updates the transaction state.
+//
+// The store is asked BEFORE this coordinator's lock is taken, and the id it is asked for
+// is read under that lock and released. The two locks nest the other way everywhere
+// else -- the store holds its lock while it asks a transaction its id or its age -- and a
+// coordinator holding its own lock while asking the store is the inversion: two
+// participants joining at once, one in Put and one here, each held the lock the other
+// wanted, for as long as the test that raced them was willing to wait.
 func (co *txCoord) UpdateState(updateFn func(*State) error) error {
-	co.mu.Lock()
-
-	// Get fresh tx from store
-	tx, err := co.storage.Get(co.state.TxID)
+	tx, err := co.storage.Get(co.ID())
 	if err != nil {
-		co.mu.Unlock()
 		return fmt.Errorf("failed to get transaction state: %w", err)
 	}
 	if tx == nil {
-		co.mu.Unlock()
-		return fmt.Errorf("transaction %d not found", co.state.TxID)
+		return fmt.Errorf("transaction %d not found", co.ID())
 	}
+	co.mu.Lock()
 
 	// Apply update (while holding lock)
 	txCoord := tx.(*txCoord)

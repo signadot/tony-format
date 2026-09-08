@@ -79,9 +79,13 @@ func (s *InMemoryTxStore) Put(tx Tx) error {
 	if tx == nil {
 		return fmt.Errorf("cannot store nil transaction state")
 	}
+	// The id is the transaction's to answer, under its own lock; asked before the
+	// store's is taken, so the store never waits on a transaction while holding what a
+	// transaction waits on (txCoord.UpdateState).
+	id := tx.ID()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.d[tx.ID()] = tx
+	s.d[id] = tx
 	return nil
 }
 
