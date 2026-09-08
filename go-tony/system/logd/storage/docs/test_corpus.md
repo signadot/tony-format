@@ -106,3 +106,24 @@ TRANSFER in spirit and REWRITE in mechanics, because the lookup's signature chan
 
     dlog (4 files), snap (9), patches (7), autoid (1): 21 files, untouched at every commit. An
     edit to one is a review flag.
+
+## Phase 2, as it happened
+
+Element identity moved the keyed tests further than the ledger above expected, because every
+one of them wrote `!key` with no schema declared, which the design refuses.
+
+    DROPPED   keyed_lowering, keyed_lowering_writes -- the annotate-and-tag lowering they
+              specified does not exist; its behavioural content (a delta indexes the element
+              it changed, a rebuild agrees with the live index) is in identity_test and keyed
+    REWRITTEN onto a declared identity: baseline_expressivity (keyed cases), scope_cow
+              (KeyDurability), index_key_range (what a name can spell; the rest refused),
+              key_duplicate (two elements, one name: refused), key_routes (one route),
+              keyed_read_stats (a keyed read narrows), keyed (declares; the two route-
+              divergence tests go), lower (stored-as-sent, with the keyed list respelled),
+              schema_authority / schema_keyfield (Identity; names as paths; two keys are one
+              identity), comment_walk (storage: the two deleted helpers' subtest goes; tx:
+              LowerKeyed through comments), raw_boundary, merge (RootKeyedListAt goes),
+              index/schema_test (names as fields, positions as positions), api/schema_test
+    ADDED     identity_test (storage), ident (package), keyed_path_test (server)
+    TOUCHED   tick_test: a resolver that reads re-enters itself now that reads consult the
+              schema; the probe guards its own re-entry

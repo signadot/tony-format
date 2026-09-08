@@ -21,33 +21,43 @@ func commentedPatcherData(t *testing.T, src string) (*ir.Node, []*PatcherData) {
 	}}
 }
 
-// TestKeyTagsThroughComments: a head comment wraps the value it precedes, and
-// injectKeyTagsRec switched on node.Type -- so a commented array was never given
-// the !key tag its schema declares, and its elements merged by POSITION instead
-// of by identity. The comment changed how two writes combined
-// (3cdjz00jh12krns4g1n0).
-func TestKeyTagsThroughComments(t *testing.T) {
+// TestKeyedLoweringThroughComments: a head comment wraps the value it precedes, and a
+// walk that switches on node.Type stops at the wrapper -- so a commented keyed array
+// would keep its positional form, and its elements would merge by POSITION instead of by
+// identity. The comment must not change how two writes combine (3cdjz00jh12krns4g1n0).
+func TestKeyedLoweringThroughComments(t *testing.T) {
 	schema := &api.Schema{KeyFields: []api.KeyField{{Path: "users", Field: "id"}}}
 	for _, tc := range []struct{ name, src string }{
 		{"no comment", "users:\n- id: a\n"},
 		{"comment above the document", "# note\nusers:\n- id: a\n"},
 		{"comment above the array", "users:\n# note\n- id: a\n"},
+		{"comment above the element", "users:\n# note\n- id: a\n# other\n- id: b\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			node, data := commentedPatcherData(t, tc.src)
-			if err := InjectKeyTags(schema, data); err != nil {
+			if err := LowerKeyed(schema, data); err != nil {
 				t.Fatal(err)
 			}
 			users, err := node.GetKPath("users")
 			if err != nil || users == nil {
-				t.Fatalf("no users array in %v: %v", node, err)
+				t.Fatalf("no users in %v: %v", node, err)
 			}
-			field, keyed := users.KeyField()
-			if !keyed || field != "id" {
-				t.Errorf("the array is keyed by %q (keyed=%v); the schema declares id", field, keyed)
+			if users.Type != ir.ObjectType {
+				t.Fatalf("users is %s after lowering; a keyed array is stored as an object of names", users.Type)
+			}
+			if ir.Get(users, "(id=a)") == nil {
+				t.Errorf("no element named (id=a): fields are %v", fieldNames(users))
 			}
 		})
 	}
+}
+
+func fieldNames(n *ir.Node) []string {
+	out := make([]string, 0, len(n.Fields))
+	for _, f := range n.Fields {
+		out = append(out, f.String)
+	}
+	return out
 }
 
 // TestAutoIDsThroughComments: the same wrapper stood between injectAutoIDsRec and

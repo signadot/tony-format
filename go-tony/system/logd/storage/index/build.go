@@ -94,7 +94,7 @@ func BuildWithLogger(idx *Index, dlog *dlog.DLog, fromCommit int64, logger *slog
 			// (TestKeyed_RebuildDivergenceImpact). It stops being harmless for anything
 			// that addresses BY the keyed path; see docs/archive/scope_overlay_plan.md
 			// P1 for where that mattered.
-			IndexPatch(idx, entry, string(logFile), pos, txSeq, generation, entry.Patch, nil, entry.ScopeID)
+			IndexPatch(idx, entry, string(logFile), pos, txSeq, generation, entry.Patch, entry.ScopeID)
 		} else if entry.SnapPos != nil {
 			// Snapshot entry - add to index for state reconstruction
 			// Snapshots have StartCommit == EndCommit

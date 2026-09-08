@@ -57,11 +57,21 @@ import "github.com/signadot/tony-format/go-tony/ir"
 // every non-root read (bvm163tyh12krwcqcsn0) and applied each entry once per level of kp.
 //
 // For a read which does narrow, see ReadSubtreeRootedAt.
+//
+// What comes back is in the client's vocabulary: a keyed array is an array here and an
+// object of names inside the store (raise.go).
 func (s *Storage) ReadStateAt(kp string, commit int64, scopeID *string) (*ir.Node, error) {
+	var doc *ir.Node
+	var err error
 	if scopeID != nil {
-		return s.replayScopedAt(commit, scopeID)
+		doc, err = s.replayScopedAt(commit, scopeID)
+	} else {
+		doc, err = s.replayBaselineAt(commit)
 	}
-	return s.replayBaselineAt(commit)
+	if err != nil {
+		return nil, err
+	}
+	return s.raiseState(scopeID, doc, ""), nil
 }
 
 // steppedStateAt is the state a write at the next commit is applied to: the kept baseline

@@ -6,7 +6,6 @@ import (
 	"github.com/signadot/tony-format/go-tony/gomap"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/mergeop"
-	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
 )
 
@@ -16,14 +15,12 @@ type LogSegment struct {
 	StartTx           int64
 	EndCommit         int64
 	EndTx             int64
-	KindedPath        string   // Full kinded path from root (e.g., "a.b.c", "resources("joe")", "" for root)
-	ArrayKey          *ir.Node // Key value for !key arrays (e.g., ir.FromString("joe")) - nil if not keyed
-	ArrayKeyField     string   // Kpath to key field for !key arrays (e.g., "name", "address.city") - empty if not keyed
-	LogFile           string   // "A" or "B" - which log file contains this segment
-	LogPosition       int64    // Byte offset in log file
-	LogFileGeneration int64    // Generation of log file when indexed - used to detect compaction
-	ScopeID           *string  // nil = baseline, non-nil = scope-specific data
-	ScopeOverlay      bool     // the entry is a scope's materialized ownership, not one of its writes
+	KindedPath        string  // Full kinded path from root: "a.b.c", `items."(sku=A)"`, "" for root
+	LogFile           string  // "A" or "B" - which log file contains this segment
+	LogPosition       int64   // Byte offset in log file
+	LogFileGeneration int64   // Generation of log file when indexed - used to detect compaction
+	ScopeID           *string // nil = baseline, non-nil = scope-specific data
+	ScopeOverlay      bool    // the entry is a scope's materialized ownership, not one of its writes
 	// Spine says this path is one the patch passed THROUGH on its way to what it
 	// actually wrote: a plain container, no operator, with the written values indexed
 	// beneath it. A read below such a path is not affected by it -- what it did is
@@ -146,11 +143,11 @@ func NewLogSegmentFromPatchEntry(e *dlog.Entry, kpath string, logFile string, po
 // does not understand is a shape it descends no further into. Keep it that way. If
 // something here ever needs to refuse, the refusal belongs where the delta is BUILT,
 // before the append, not here.
-func IndexPatch(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int64, generation int64, diff *ir.Node, schema *api.Schema, scopeID *string) {
-	indexPatchRec(idx, e, logFile, pos, txSeq, generation, diff, "", schema, scopeID)
+func IndexPatch(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int64, generation int64, diff *ir.Node, scopeID *string) {
+	indexPatchRec(idx, e, logFile, pos, txSeq, generation, diff, "", scopeID)
 }
 
-func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int64, generation int64, n *ir.Node, kPath string, schema *api.Schema, scopeID *string) {
+func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int64, generation int64, n *ir.Node, kPath string, scopeID *string) {
 	seg := NewLogSegmentFromPatchEntry(e, kPath, logFile, pos, txSeq, generation, scopeID)
 	seg.Spine = passesThrough(n)
 	idx.Add(seg)
@@ -178,16 +175,15 @@ func indexPatchRec(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq i
 	if ops, known := mergeop.OperandPaths(n); known {
 		for _, o := range ops {
 			indexPatchRec(idx, e, logFile, pos, txSeq, generation, o.Node,
-				kPath+o.Suffix, schema, scopeID)
+				kPath+o.Suffix, scopeID)
 		}
 		return
 	}
 
 	// Where the parts of this patch land, which is PatchChildren's single answer --
-	// a field is a .field step, an integer-keyed object a {sparse} one, an array [i]
-	// unless it is keyed, and a keyed one (key) as ir.ElemKey reads it.
-	for _, c := range PatchChildren(n, kPath, schema) {
-		indexPatchRec(idx, e, logFile, pos, txSeq, generation, c.Node, c.Path,
-			schema, scopeID)
+	// a field is a .field step, an integer-keyed object a {sparse} one, an array [i],
+	// and an element of a keyed array the field that is its name.
+	for _, c := range PatchChildren(n, kPath) {
+		indexPatchRec(idx, e, logFile, pos, txSeq, generation, c.Node, c.Path, scopeID)
 	}
 }

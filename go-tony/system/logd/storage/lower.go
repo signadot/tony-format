@@ -46,7 +46,7 @@ import (
 // loweringFired and loweringSkipped count what the differential needs to know: that
 // a suite run with lowering on actually reached the path, rather than passing because
 // nothing in it writes a relative operation.
-var loweringFired, loweringSkipped, loweringUndeclaredKey int64
+var loweringFired, loweringSkipped int64
 
 // LowerEverything lowers every write, whether or not it needs it.
 //
@@ -89,15 +89,10 @@ func (s *Storage) LowerEverything(v bool) { s.lowerAll = v }
 //	              narrow read can skip the rest. See markDeltaRoots.
 //	validation    left to the caller, because what a failure means differs: an
 //	              unstorable write is refused, and an unstorable anything-else is a bug.
-func storableDelta(base, next *ir.Node, keys map[string]string) *ir.Node {
-	// Stored state is op-free, so diffArray cannot take its keyed branch: it needs
-	// !key(f) on BOTH sides. Without this a change to a keyed array comes out
-	// POSITIONAL, and a scope storing one takes ownership of the whole array --
-	// baseline adds an element and the scope never sees it.
-	base, next = base.Clone(), next.Clone()
-	annotateKeyed(base, "", keys)
-	annotateKeyed(next, "", keys)
-
+func storableDelta(base, next *ir.Node) *ir.Node {
+	// A keyed array is an object of names in both states (tx.LowerKeyed), so the diff is
+	// an object diff and needs nothing said about keys: a changed element is a changed
+	// field, and the others are not mentioned.
 	return tony.DiffWith(base, next, tony.DiffAbsolute(true), tony.DiffComments(true))
 }
 
@@ -223,20 +218,6 @@ func (s *Storage) lowerWrite(base, next, merged *ir.Node, scoped bool, paths []s
 		}
 		return delta, nil
 	}
-	// A key the SCHEMA does not declare cannot survive the lowering. Stored state is
-	// op-free, so the only thing that can say an array is keyed is the schema; a
-	// client's own !key(f) rides in the patch, and lowering replaces the patch. The
-	// diff would then come out positional and the write would take ownership of the
-	// whole array, shutting baseline out of it.
-	//
-	// So it is not lowered, and keeping the client's patch is the correct answer: the
-	// patch is the only thing that carries the fact.
-	keys := s.keyedArrayPaths()
-	if patchHasUndeclaredKey(DeliverablePatch(merged), "", keys) {
-		atomic.AddInt64(&loweringUndeclaredKey, 1)
-		return merged, nil
-	}
-
 	// What the log will keep: a scope's claim or baseline's difference. Whichever it
 	// is, it leaves by the same door below -- both are stored deltas and the rules
 	// that make a stored delta readable are not about which one it is.
@@ -259,7 +240,7 @@ func (s *Storage) lowerWrite(base, next, merged *ir.Node, scoped bool, paths []s
 		}
 
 	default:
-		delta = storableDelta(base, next, keys)
+		delta = storableDelta(base, next)
 	}
 	if delta == nil {
 		return nil, nil
@@ -428,7 +409,7 @@ func ClaimPaths(path string, data *ir.Node) []string {
 			claim(at)
 			return
 		}
-		kids := index.PatchChildren(n, at, nil)
+		kids := index.PatchChildren(n, at)
 		if len(kids) == 0 {
 			claim(at)
 			return

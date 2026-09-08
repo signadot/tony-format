@@ -1,19 +1,19 @@
 package storage
 
 import (
+	"strings"
 	"testing"
+
+	"github.com/signadot/tony-format/go-tony/ir"
 )
 
-// Stage 0 of thqtmm2th12kr051jhn0: a read at a keyed path cannot be narrowed today, and
-// the report has to SAY that, because every later stage is judged by these counters.
-//
-// Before this, a keyed read was counted two different ways depending on what happened to
-// be in the log -- "operator" when a patch sat above the path, "absent" when the snapshot
-// held it -- and neither names the path. reads.wide.keyed-or-idx stayed 0 in a store
-// doing nothing but keyed reads.
-func TestKeyedReadIsCountedAsKeyed(t *testing.T) {
+// A read at a keyed element narrows: the element is a field of the array
+// (element_identity.md), so the snapshot's path index holds it and the projection descends
+// to it. reads.wide.keyed-or-idx stays where it was, and the answer is the element.
+func TestKeyedReadNarrows(t *testing.T) {
 	s := openTestStorage(t)
-	mustCommit(t, s, nil, `{items: !key(sku) [{sku: "A", q: 1}, {sku: "B", q: 2}, {sku: "G", q: 7}]}`)
+	declareKeyed(t, s, `{define: {items: {sku: !logd-key null}}}`)
+	mustCommit(t, s, nil, `{items: [{sku: "A", q: 1}, {sku: "B", q: 2}, {sku: "G", q: 7}]}`)
 	if err := s.SwitchDLog(); err != nil {
 		t.Fatalf("SwitchDLog: %v", err)
 	}
@@ -21,59 +21,44 @@ func TestKeyedReadIsCountedAsKeyed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCurrentCommit: %v", err)
 	}
-	patched := mustCommit(t, s, nil, `{items: !key(sku) [{sku: "G", q: 8}]}`)
+	patched := mustCommit(t, s, nil, `{items: [{sku: "G", q: 8}]}`)
 
+	g := elementName("sku", "G")
 	for _, tc := range []struct {
 		name   string
 		kp     string
 		commit int64
+		wantQ  int64
 	}{
-		// the snapshot holds the element and nothing is written above it
-		{"from the snapshot", `items("G")`, snapCommit},
-		// a patch sits above the path, so the projection meets !key first
-		{"under a patch", `items("G")`, patched},
-		{"below the element", `items("G").q`, patched},
+		{"from the snapshot", g, snapCommit, 7},
+		{"under a patch", g, patched, 8},
+		{"below the element", g + ".q", patched, 8},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			before := s.ReadStats().WideNonField
+			before := s.ReadStats()
 			node, narrowed, err := readSubtreeAt(s, tc.kp, tc.commit, nil)
 			if err != nil {
 				t.Fatalf("ReadSubtreeAt(%q): %v", tc.kp, err)
 			}
-			if narrowed || node != nil {
-				t.Errorf("ReadSubtreeAt(%q) answered narrowed=%v node=%v; a keyed path "+
-					"cannot be addressed, and saying it was narrowed invites a caller to "+
-					"trust the nil", tc.kp, narrowed, node)
+			if !narrowed || node == nil {
+				t.Fatalf("ReadSubtreeAt(%q) narrowed=%v node=%v; an element is a field", tc.kp, narrowed, node)
 			}
-			if got := s.ReadStats().WideNonField; got != before+1 {
-				t.Errorf("keyed read counted %d keyed-or-idx, want %d: the report names "+
-					"the wrong reason", got-before, 1)
+			got := node
+			if strings.HasSuffix(tc.kp, ".q") {
+				if intOf(got) != tc.wantQ {
+					t.Errorf("q = %d, want %d", intOf(got), tc.wantQ)
+				}
+			} else if intOf(ir.Get(got, "q")) != tc.wantQ {
+				t.Errorf("G.q = %d, want %d", intOf(ir.Get(got, "q")), tc.wantQ)
+			}
+			after := s.ReadStats()
+			if after.WideNonField != before.WideNonField {
+				t.Errorf("a keyed read was counted keyed-or-idx")
+			}
+			if after.Narrow != before.Narrow+1 {
+				t.Errorf("narrow reads %d -> %d, want one more", before.Narrow, after.Narrow)
 			}
 		})
-	}
-}
-
-// The element IS there: what a keyed read cannot do is find it. The wide read must still
-// answer, which is what makes declining the right answer rather than a lost one.
-func TestAKeyedElementTheNarrowReadDeclinesIsStillThere(t *testing.T) {
-	s := openTestStorage(t)
-	mustCommit(t, s, nil, `{items: !key(sku) [{sku: "A", q: 1}, {sku: "G", q: 7}]}`)
-	if err := s.SwitchDLog(); err != nil {
-		t.Fatalf("SwitchDLog: %v", err)
-	}
-	c, err := s.GetCurrentCommit()
-	if err != nil {
-		t.Fatalf("GetCurrentCommit: %v", err)
-	}
-	if _, narrowed, err := readSubtreeAt(s, `items("G")`, c, nil); err != nil || narrowed {
-		t.Fatalf("the narrow read claimed a keyed path: narrowed=%v err=%v", narrowed, err)
-	}
-	doc, err := readStateAt(s, "", c, nil)
-	if err != nil {
-		t.Fatalf("ReadStateAt: %v", err)
-	}
-	if got := intOf(elemField(t, doc, "items", "sku", "G", "q")); got != 7 {
-		t.Fatalf("the wide read answers q=%d for the element the narrow read declined, want 7", got)
 	}
 }
 

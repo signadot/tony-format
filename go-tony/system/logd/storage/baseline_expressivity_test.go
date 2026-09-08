@@ -17,7 +17,7 @@ func TestBaseline_SnapshotExpressivity(t *testing.T) {
 		name  string
 		write string
 	}{
-		{"keyed array", `{items: !key(name) [{name: "a", v: 1}]}`},
+		{"keyed array", `{items: [{name: "a", v: 1}]}`},
 		{"non-op data tag", `{t: !custom 5}`},
 		{"tagged object", `{o: !mytag {x: 1}}`},
 		{"plain nested", `{a: {b: {c: 1}}}`},
@@ -31,6 +31,9 @@ func TestBaseline_SnapshotExpressivity(t *testing.T) {
 				t.Fatalf("Open: %v", err)
 			}
 			defer s.Close()
+			if tc.name == "keyed array" {
+				declareKeyed(t, s, `{define: {items: {name: !logd-key null}}}`)
+			}
 
 			scalingCommit(t, s, nil, tc.write, nil)
 			before := showDoc(t, s, nil, "  before snapshot")
@@ -47,18 +50,18 @@ func TestBaseline_SnapshotExpressivity(t *testing.T) {
 	}
 }
 
-// TestBaseline_KeyedMergeAfterSnapshot checks whether identity merge still works once
-// the base is a snapshot. If the snapshot drops the !key tag, merges keep working only
-// because each incoming PATCH carries the tag itself — meaning the tag is a property of
-// writes, never of stored state.
+// TestBaseline_KeyedMergeAfterSnapshot: identity merge holds once the base is a snapshot,
+// and whether or not the patch spells !key -- the schema says what keys the array, and
+// the store holds the elements under their names, so a snapshot has nothing to drop.
 func TestBaseline_KeyedMergeAfterSnapshot(t *testing.T) {
 	s, err := Open(t.TempDir(), nil)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer s.Close()
+	declareKeyed(t, s, `{define: {items: {name: !logd-key null}}}`)
 
-	scalingCommit(t, s, nil, `{items: !key(name) [{name: "a", v: 1}, {name: "b", v: 1}]}`, nil)
+	scalingCommit(t, s, nil, `{items: [{name: "a", v: 1}, {name: "b", v: 1}]}`, nil)
 	showDoc(t, s, nil, "initial")
 
 	if err := s.SwitchDLog(); err != nil {
@@ -66,12 +69,19 @@ func TestBaseline_KeyedMergeAfterSnapshot(t *testing.T) {
 	}
 	showDoc(t, s, nil, "after snapshot")
 
-	// Update key "a" only. With identity merge this updates a in place (2 items);
-	// without it, a positional merge overwrites element 0 and may truncate.
-	scalingCommit(t, s, nil, `{items: !key(name) [{name: "a", v: 99}]}`, nil)
-	showDoc(t, s, nil, "after keyed update WITH !key on the patch")
+	// Update a only, with the tag the schema already implies.
+	c := scalingCommit(t, s, nil, `{items: !key(name) [{name: "a", v: 99}]}`, nil)
+	if got := skus(mustReadScope(t, s, c, nil), "items"); !sameSet(got, []string{}) && len(got) != 2 {
+		t.Errorf("after a keyed update: %d elements, want 2", len(got))
+	}
 
-	// Same update, but the patch does NOT carry the tag: positional merge territory.
-	scalingCommit(t, s, nil, `{items: [{name: "a", v: 7}]}`, nil)
-	showDoc(t, s, nil, "after update WITHOUT !key on the patch")
+	// And without it: the same merge, by identity, because the schema decides.
+	c = scalingCommit(t, s, nil, `{items: [{name: "a", v: 7}]}`, nil)
+	doc := mustReadScope(t, s, c, nil)
+	if got := intOf(elemField(t, doc, "items", "name", "a", "v")); got != 7 {
+		t.Errorf("a.v = %d, want 7", got)
+	}
+	if got := intOf(elemField(t, doc, "items", "name", "b", "v")); got != 1 {
+		t.Errorf("b.v = %d, want 1: an untagged write to a keyed array merged by position", got)
+	}
 }

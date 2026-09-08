@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestSchema_LookupKeyField(t *testing.T) {
+func TestSchema_Identity(t *testing.T) {
 	tests := []struct {
 		name     string
 		schema   *Schema
@@ -68,9 +68,9 @@ func TestSchema_LookupKeyField(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := tt.schema.LookupKeyField(tt.kpath)
+			result := strings.Join(tt.schema.Identity(tt.kpath), ",")
 			if result != tt.expected {
-				t.Errorf("LookupKeyField(%q) = %q, want %q", tt.kpath, result, tt.expected)
+				t.Errorf("Identity(%q) = %q, want %q", tt.kpath, result, tt.expected)
 			}
 		})
 	}

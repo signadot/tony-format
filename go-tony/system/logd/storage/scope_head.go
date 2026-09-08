@@ -33,7 +33,7 @@ func (s *Storage) steppedScopedAt(commit int64, scopeID *string) (*ir.Node, erro
 			return doc, nil
 		}
 	}
-	return s.ReadStateAt("", commit, scopeID)
+	return s.replayScopedAt(commit, scopeID)
 }
 
 // applyStoredPatch folds one stored patch into a document.

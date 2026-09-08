@@ -16,11 +16,6 @@ func (s *LogSegment) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if s == nil {
 		return ir.Null(), nil
 	}
-	var node *ir.Node
-	var err error
-	_ = node // suppress unused variable error
-	_ = err  // suppress unused variable error
-
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
@@ -38,14 +33,6 @@ func (s *LogSegment) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: KindedPath
 	irMap["KindedPath"] = ir.FromString(string(s.KindedPath))
-
-	// Field: ArrayKey (optional)
-	if s.ArrayKey != nil {
-		irMap["ArrayKey"] = s.ArrayKey
-	}
-
-	// Field: ArrayKeyField
-	irMap["ArrayKeyField"] = ir.FromString(string(s.ArrayKeyField))
 
 	// Field: LogFile
 	irMap["LogFile"] = ir.FromString(string(s.LogFile))
@@ -130,18 +117,6 @@ func (s *LogSegment) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 				return fmt.Errorf("field %q: expected string, got %v", "KindedPath", fieldNodeUnwrapped.Type)
 			}
 			s.KindedPath = string(fieldNodeUnwrapped.String)
-		case "ArrayKey":
-			if gomap.GetUnmapComments(opts...) {
-				s.ArrayKey = fieldNode
-			} else {
-				s.ArrayKey = fieldNodeUnwrapped
-			}
-		case "ArrayKeyField":
-			// Field: ArrayKeyField
-			if fieldNodeUnwrapped.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "ArrayKeyField", fieldNodeUnwrapped.Type)
-			}
-			s.ArrayKeyField = string(fieldNodeUnwrapped.String)
 		case "LogFile":
 			// Field: LogFile
 			if fieldNodeUnwrapped.Type != ir.StringType {

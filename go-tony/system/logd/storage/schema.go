@@ -2,7 +2,9 @@ package storage
 
 import (
 	"fmt"
+	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -134,6 +136,9 @@ func (s *Storage) StartMigration(schema *ir.Node) (int64, error) {
 	if err := api.ParseSchemaFromNode(schema).Validate(); err != nil {
 		return 0, fmt.Errorf("schema cannot be adopted: %w", err)
 	}
+	if err := s.identityChangeAllowed(api.ParseSchemaFromNode(schema)); err != nil {
+		return 0, fmt.Errorf("schema cannot be adopted: %w", err)
+	}
 
 	commit, err := s.createSchemaSnapshot(schema, dlog.SchemaStatusPending)
 	if err != nil {
@@ -243,9 +248,6 @@ func (s *Storage) reindexForPending(fromCommit, toCommit int64) error {
 		return fmt.Errorf("no pending migration in progress")
 	}
 
-	// Use cached parsed schema
-	parsedSchema := s.schema.GetPendingParsed()
-
 	// Use the index to find segments in the commit range (all scopes)
 	// This avoids scanning the entire dlog from the beginning
 	segments := s.index.LookupRangeAll("", &fromCommit, &toCommit)
@@ -274,7 +276,7 @@ func (s *Storage) reindexForPending(fromCommit, toCommit int64) error {
 		}
 
 		// Index into pending index
-		index.IndexPatch(pendingIdx, entry, seg.LogFile, seg.LogPosition, seg.EndTx, seg.LogFileGeneration, entry.Patch, parsedSchema, entry.ScopeID)
+		index.IndexPatch(pendingIdx, entry, seg.LogFile, seg.LogPosition, seg.EndTx, seg.LogFileGeneration, entry.Patch, entry.ScopeID)
 		indexedCount++
 	}
 
@@ -381,4 +383,57 @@ func (s *Storage) createSchemaSnapshot(schema *ir.Node, status string) (int64, e
 
 	s.logger.Info("schema snapshot created", "commit", commit, "status", status, "logFile", snapWriter.LogFileID(), "position", snapWriter.EntryPosition())
 	return commit, nil
+}
+
+// identityChangeAllowed refuses a schema that changes which arrays have an identity in a
+// way the stored data cannot follow.
+//
+// An array that GAINS an identity is the boundary between two regimes: before, it is one
+// indexed path whose elements have no names; after, each element is a field. Elements
+// already written by position have no names to be found under, so the identity is
+// declared before the array is written, or the array is emptied first -- a refusal here,
+// where it is a schema error, rather than elements that vanish from every read after
+// the migration commit. An array that LOSES an identity is refused for the same reason
+// a rename is: the elements it would strand have names and no successor to hold them
+// (element_identity.md).
+func (s *Storage) identityChangeAllowed(pending *api.Schema) error {
+	active := s.schemaForScope(nil)
+	for _, p := range active.KeyedPaths() {
+		if !pending.Keyed(p) {
+			return fmt.Errorf("%q cannot lose its identity %s: its elements are held under their names",
+				p, strings.Join(active.Identity(p), ","))
+		}
+	}
+	commit, err := s.GetCurrentCommit()
+	if err != nil || commit == 0 {
+		return nil
+	}
+	var doc *ir.Node
+	for _, p := range pending.KeyedPaths() {
+		if active.Keyed(p) {
+			if !slices.Equal(active.Identity(p), pending.Identity(p)) {
+				return fmt.Errorf("%q cannot change its identity from %s to %s: its elements are held under their names",
+					p, strings.Join(active.Identity(p), ","), strings.Join(pending.Identity(p), ","))
+			}
+			continue
+		}
+		if doc == nil {
+			if doc, err = s.ReadStateAt("", commit, nil); err != nil {
+				return err
+			}
+		}
+		if doc == nil {
+			return nil
+		}
+		held, err := doc.GetKPath(p)
+		if err != nil || held == nil {
+			continue
+		}
+		if held = ir.Uncomment(held); held != nil && held.Type == ir.ArrayType && len(held.Values) > 0 {
+			return fmt.Errorf("%q cannot be given the identity %s: it already holds %d elements written by "+
+				"position, which have no names; declare the identity before the array is written, or empty it first",
+				p, strings.Join(pending.Identity(p), ","), len(held.Values))
+		}
+	}
+	return nil
 }

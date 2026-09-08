@@ -2,66 +2,67 @@ package storage
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
 )
 
-// What the INDEX can represent as a key is narrower than what a merge accepts, and the
-// difference is silent: the merge is correct in every case below, the state is correct,
-// and only the index is wrong. indexPatchRec discards ElemKey's second return, so "not a
-// key" becomes "the empty key" -- which looks like a valid path segment.
-//
-// Latent today: nothing derives ownership from the index any more -- the scope overlay
-// did, and it is gone -- but a collapsed key still makes two elements share one indexed
-// path, and every narrow read is selected by that path.
+// What the index can name as an element is exactly what a name can spell: a scalar key,
+// with its type. Two elements never share a path -- a number and the string of its
+// digits are two names -- and an element whose key cannot be spelled is refused at the
+// write rather than collapsed onto a path another element holds (element_identity.md).
 func TestIndexKeyRange(t *testing.T) {
 	for _, tc := range []struct {
 		name, write string
-		wantPaths   int // distinct items(...) element paths the index ends up with
-		wantElems   int // elements the state actually holds
+		wantNames   []string // element names the index ends up with
+		refused     string   // or why the write is refused
 	}{
-		{"string keys", `{items: !key(sku) [{sku: "A", q: 1}, {sku: "B", q: 2}]}`, 2, 2},
-		{"number keys", `{items: !key(sku) [{sku: 1, q: 1}, {sku: 2, q: 2}]}`, 2, 2},
-		{"number and string that render alike", `{items: !key(sku) [{sku: 1, q: 1}, {sku: "1", q: 2}]}`, 1, 2},
-		{"object-valued key", `{items: !key(sku) [{sku: {a: 1}, q: 1}, {sku: {a: 2}, q: 2}]}`, 1, 2},
-		{"bare !key", `{items: !key [{a: 1}, {a: 2}]}`, 1, 2},
+		{"string keys", `{items: [{sku: "A", q: 1}, {sku: "B", q: 2}]}`, []string{"(sku=A)", "(sku=B)"}, ""},
+		{"number keys", `{items: [{sku: 1, q: 1}, {sku: 2, q: 2}]}`, []string{"(sku=1)", "(sku=2)"}, ""},
+		{"number and string that render alike", `{items: [{sku: 1, q: 1}, {sku: "1", q: 2}]}`, []string{"(sku=1)", `(sku="1")`}, ""},
+		{"object-valued key", `{items: [{sku: {a: 1}, q: 1}, {sku: {a: 2}, q: 2}]}`, nil, "no name"},
+		{"two elements, one name", `{items: [{sku: "A", q: 1}, {sku: "A", q: 2}]}`, nil, "names two elements"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := openTestStorage(t)
-			c := mustCommit(t, s, nil, tc.write)
-
+			declareKeyed(t, s, `{define: {items: {sku: !logd-key null}}}`)
+			err := scopedCommit(t, s, nil, "", tc.write)
+			if tc.refused != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.refused) {
+					t.Fatalf("want a refusal saying %q, got %v", tc.refused, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
 			elems := map[string]bool{}
 			for _, p := range indexPathSet(s) {
-				if len(p) > 6 && p[:6] == "items(" {
-					// keep only the element path itself, not its fields
-					seg := p
-					for i := 6; i < len(seg); i++ {
-						if seg[i] == ')' {
-							seg = seg[:i+1]
-							break
-						}
-					}
-					elems[seg] = true
+				first, rest := kpath.Split(p)
+				if first != "items" || rest == "" {
+					continue
+				}
+				seg, _ := kpath.Split(rest)
+				if name, isField := kpath.SegmentFieldName(seg); isField {
+					elems[name] = true
 				}
 			}
-			doc := mustReadScope(t, s, c, nil)
-			got := len(elems)
-			t.Logf("  index element paths: %d  state: %s", got, encodeWire(t, doc))
-			if got != tc.wantPaths {
-				t.Errorf("index has %d element paths, want %d", got, tc.wantPaths)
+			for _, want := range tc.wantNames {
+				if !elems[want] {
+					t.Errorf("index has no element %q; has %v", want, elems)
+				}
 			}
-			if tc.wantPaths < tc.wantElems {
-				t.Logf("  => %d elements share %d index path(s): the collapse P1 has to reject",
-					tc.wantElems, tc.wantPaths)
+			if len(elems) != len(tc.wantNames) {
+				t.Errorf("index has %d element paths %v, want %d", len(elems), elems, len(tc.wantNames))
 			}
 		})
 	}
 }
 
-// encodeWire renders a node the way the wire carries it. It lived in the scope overlay's
-// tests until those went with the overlay; this is its only remaining caller.
+// encodeWire renders a node the way the wire carries it.
 func encodeWire(t *testing.T, n *ir.Node) string {
 	t.Helper()
 	var buf bytes.Buffer

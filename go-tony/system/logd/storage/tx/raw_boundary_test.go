@@ -46,16 +46,17 @@ func TestInjectionStopsAtRaw(t *testing.T) {
 			}
 			pd := []*PatcherData{{API: &api.Patch{PathData: api.PathData{Path: "", Data: node}}}}
 			InjectAutoIDs(1, ids, pd)
-			if err := InjectKeyTags(keys, pd); err != nil {
-				t.Fatalf("InjectKeyTags: %v", err)
+			if err := LowerKeyed(keys, pd); err != nil {
+				t.Fatalf("LowerKeyed: %v", err)
 			}
 			got := encode.MustString(pd[0].API.Data)
 
-			hasKey := strings.Contains(got, "!key(sku)")
+			// A lowered keyed array is an object of names; the name is the mark.
+			hasKey := strings.Contains(got, "(sku=A)")
 			hasID := strings.Contains(got, "id:")
 			if tc.touched {
 				if !hasKey {
-					t.Errorf("no !key(sku) injected:\n%s", got)
+					t.Errorf("the keyed array was not lowered to its names:\n%s", got)
 				}
 				if !hasID {
 					t.Errorf("no id generated:\n%s", got)
@@ -63,7 +64,7 @@ func TestInjectionStopsAtRaw(t *testing.T) {
 				return
 			}
 			if hasKey {
-				t.Errorf("an operator tag was written into a !raw subtree:\n%s", got)
+				t.Errorf("a !raw subtree was reshaped:\n%s", got)
 			}
 			if hasID {
 				t.Errorf("a field was generated inside a !raw subtree:\n%s", got)
@@ -81,11 +82,11 @@ func TestInjectionAboveRawIsUnaffected(t *testing.T) {
 		t.Fatal(err)
 	}
 	pd := []*PatcherData{{API: &api.Patch{PathData: api.PathData{Path: "", Data: node}}}}
-	if err := InjectKeyTags(keys, pd); err != nil {
+	if err := LowerKeyed(keys, pd); err != nil {
 		t.Fatal(err)
 	}
 	got := encode.MustString(pd[0].API.Data)
-	if n := strings.Count(got, "!key(sku)"); n != 1 {
-		t.Errorf("%d keyed arrays, want 1 -- the store's own, not the payload's:\n%s", n, got)
+	if !strings.Contains(got, "(sku=A)") || strings.Contains(got, "(sku=B)") {
+		t.Errorf("the store's own array is lowered and the payload's is not:\n%s", got)
 	}
 }

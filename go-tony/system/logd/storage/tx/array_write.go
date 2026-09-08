@@ -192,6 +192,14 @@ func (co *txCoord) checkArrayWrite(p *api.Patch) error {
 			}
 		}
 	}
+	// A position under an array the schema keys names nothing: identity replaces
+	// position there, and the client is told so here rather than by a check that finds
+	// an object where it expected an array (element_identity.md).
+	if co.commitOps != nil {
+		if _, err := schemaPathOf(co.commitOps.GetSchema(co.Scope()), p.Path); err != nil {
+			return noSuchElement(p.Path, "%s", err.Error())
+		}
+	}
 	if !hasArrayIndex(p.Path) {
 		return nil
 	}
@@ -211,12 +219,18 @@ func (co *txCoord) checkArrayWrite(p *api.Patch) error {
 // answers from the stepped head, so an array which lost its element between the
 // write's submission and its commit is caught before the patch is stored rather
 // than by every read afterwards.
-func CheckArrayWritesAt(patches []*PatcherData, read func() (*ir.Node, error)) error {
+func CheckArrayWritesAt(patches []*PatcherData, read func() (*ir.Node, error), schema *api.Schema) error {
 	var doc *ir.Node
 	loaded := false
 	for _, pd := range patches {
 		if pd == nil || pd.API == nil || pd.API.Data == nil || !hasArrayIndex(pd.API.Path) {
 			continue
+		}
+		// Asked before the array is looked at: a position under a keyed array names
+		// nothing, and the answer should say why rather than that an object is not an
+		// array (element_identity.md).
+		if _, err := schemaPathOf(schema, pd.API.Path); err != nil {
+			return noSuchElement(pd.API.Path, "%s", err.Error())
 		}
 		if !loaded {
 			var err error

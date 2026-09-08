@@ -39,7 +39,15 @@ func TestTick_WatermarkNamesOnlyReadableCommits(t *testing.T) {
 
 	var inWindow int64
 	var segments, patches int
+	// A read consults the schema too -- to raise what it answers -- so the probe below
+	// would re-enter itself through its own reads. It measures once per entry.
+	var probing bool
 	s.SetSchemaResolver(windowResolver{fn: func() {
+		if probing {
+			return
+		}
+		probing = true
+		defer func() { probing = false }()
 		inWindow, _ = s.GetCurrentCommit()
 		segments = len(s.index.LookupRange("", &inWindow, &inWindow, nil))
 		if ns, err := s.ReadPatchesInRange("", inWindow, inWindow, nil); err == nil {

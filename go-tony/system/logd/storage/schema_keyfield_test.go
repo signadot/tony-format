@@ -3,6 +3,8 @@ package storage
 import (
 	"strings"
 	"testing"
+
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
 )
 
 // !logd-key declares an array keyed on a field the CLIENT supplies. Until it existed,
@@ -23,19 +25,20 @@ func TestSchemaKeyField_ClientSuppliedKeyIsSayable(t *testing.T) {
 		t.Fatalf("CompleteMigration: %v", err)
 	}
 
-	if f := s.schemaForScope(nil).LookupKeyField("items"); f != "name" {
-		t.Fatalf("LookupKeyField(items) = %q, want %q", f, "name")
+	if f := strings.Join(s.schemaForScope(nil).Identity("items"), ","); f != "name" {
+		t.Fatalf("Identity(items) = %q, want %q", f, "name")
 	}
 	// Auto-id must NOT be implied: the client supplies this key, nothing generates it.
 	if aid := s.schemaForScope(nil).AutoID("items"); aid != nil {
 		t.Errorf("!logd-key should not imply auto-id, got %+v", aid)
 	}
 
-	// A write carrying no !key tag is still indexed by identity.
+	// A write carrying no !key tag is still indexed by identity: each element under its
+	// name, which is a field of the array (element_identity.md).
 	mustCommit(t, s, nil, `{items: [{name: "A", q: 1}, {name: "B", q: 2}]}`)
 	paths := indexPathSet(s)
 	t.Logf("index paths: %v", paths)
-	for _, want := range []string{"items(A)", "items(B)"} {
+	for _, want := range []string{kpath.ChildField("items", "(name=A)"), kpath.ChildField("items", "(name=B)")} {
 		found := false
 		for _, p := range paths {
 			if p == want {
@@ -49,16 +52,26 @@ func TestSchemaKeyField_ClientSuppliedKeyIsSayable(t *testing.T) {
 	}
 }
 
+// TestSchemaKeyField_TwoKeysAreOneIdentity: several !logd-key fields on one array declare
+// one identity, the tuple of them (element_identity.md).
+func TestSchemaKeyField_TwoKeysAreOneIdentity(t *testing.T) {
+	s := openTestStorage(t)
+	if _, err := s.StartMigration(mustParseBody(t, `{define: {items: {name: !logd-key null, other: !logd-key null}}}`)); err != nil {
+		t.Fatalf("a composite identity was refused: %v", err)
+	}
+	if _, err := s.CompleteMigration(); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(s.schemaForScope(nil).Identity("items"), ","); got != "name,other" {
+		t.Errorf("identity %q, want name,other", got)
+	}
+}
+
 // TestSchemaKeyField_AmbiguousSchemaIsRejected: key derivation decides what a stored delta
 // records, and a delta cannot be un-recorded, so an ambiguous schema is refused where it is
 // proposed rather than where it bites.
 func TestSchemaKeyField_AmbiguousSchemaIsRejected(t *testing.T) {
 	for _, tc := range []struct{ name, doc, wantErr string }{
-		{
-			name:    "two keys for one array",
-			doc:     `{define: {items: {name: !logd-key null, other: !logd-key null}}}`,
-			wantErr: "declared keyed by both",
-		},
 		{
 			name:    "a key and an auto-id for one array",
 			doc:     `{define: {items: {name: !logd-key null, id: !logd-auto-id null}}}`,

@@ -22,7 +22,7 @@ type IndexMetadata struct {
 // below it discards the file and rebuilds from the logs, which is what the logs are for.
 //
 //	1  the commit tree could drop half a leaf on a duplicate insert
-const IndexFormatVersion = 1
+const IndexFormatVersion = 2
 
 // IndexWithMetadata wraps an index with its metadata for persistence.
 type IndexWithMetadata struct {

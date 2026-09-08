@@ -2,9 +2,9 @@ package storage
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
-	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/parse"
 )
@@ -22,61 +22,26 @@ func enc(t *testing.T, s string) string {
 	return buf.String()
 }
 
-// patchStr applies patch to doc at the tony.Patch level and returns the encoded result.
-func patchStr(t *testing.T, doc, patch string) string {
-	t.Helper()
-	d, err := parse.Parse([]byte(doc))
-	if err != nil {
-		t.Fatalf("parse doc: %v", err)
-	}
-	p, err := parse.Parse([]byte(patch))
-	if err != nil {
-		t.Fatalf("parse patch: %v", err)
-	}
-	res, err := tony.Patch(d, p)
-	if err != nil {
-		return "ERROR: " + err.Error()
-	}
-	if res == nil {
-		return "<nil>"
-	}
-	var buf bytes.Buffer
-	if err := encode.Encode(res, &buf, encode.EncodeWire(true)); err != nil {
-		t.Fatalf("encode: %v", err)
-	}
-	return buf.String()
-}
-
-// TestKey_ReplaceWithDuplicateKeys asks whether a keyed list can be replaced by a list
-// that violates the key invariant — two elements with the same name.
-//
-// Today (state is op-free) the second write is a plain positional merge, so it can.
-// Under option A the destination array declares itself keyed, so the same write would
-// be merged by identity instead — and identity merge cannot produce duplicates.
+// A keyed array cannot come to hold two elements with one name. The stored form makes it
+// unrepresentable -- an object has one field per name -- and a write that would say
+// otherwise is refused where it is written, whichever way it spells the array.
 func TestKey_ReplaceWithDuplicateKeys(t *testing.T) {
-	s, err := Open(t.TempDir(), nil)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
+	s := openTestStorage(t)
+	declareKeyed(t, s, `{define: {items: {name: !logd-key null}}}`)
+	mustCommit(t, s, nil, `{items: [{name: "a"}, {name: "b"}]}`)
+
+	for _, write := range []string{
+		`{items: [{name: "a"}, {name: "a"}]}`,
+		`{items: !key(name) [{name: "a"}, {name: "a"}]}`,
+		`{items: !replace {from: [{name: "a"}, {name: "b"}], to: [{name: "a"}, {name: "a"}]}}`,
+	} {
+		err := scopedCommit(t, s, nil, "", write)
+		if err == nil || !strings.Contains(err.Error(), "names two elements") {
+			t.Errorf("%s: want a refusal, got %v", enc(t, write), err)
+		}
 	}
-	defer s.Close()
-
-	scalingCommit(t, s, nil, `{items: !key(name) [{name: "a"}, {name: "b"}]}`, nil)
-	showDoc(t, s, nil, "initial (keyed write)")
-
-	scalingCommit(t, s, nil, `{items: [{name: "a"}, {name: "a"}]}`, nil)
-	showDoc(t, s, nil, "after plain write of [{a},{a}]  -- TODAY")
-
-	t.Logf("")
-	t.Logf("Now the same thing at the merge level, with the destination KEYED")
-	t.Logf("(which is what option A makes the stored state look like):")
-
-	keyedDoc := `!key(name) [{name: "a"}, {name: "b"}]`
-	t.Logf("  doc:                      %s", enc(t, keyedDoc))
-	t.Logf("  patch !key(name)[{a},{a}]: %s", patchStr(t, keyedDoc, `!key(name) [{name: "a"}, {name: "a"}]`))
-	t.Logf("  patch (untagged) [{a},{a}]: %s", patchStr(t, keyedDoc, `[{name: "a"}, {name: "a"}]`))
-	t.Logf("  patch !replace [{a},{a}]:   %s", patchStr(t, keyedDoc, `!replace [{name: "a"}, {name: "a"}]`))
-	t.Logf("  patch !rmtag(key) [{a},{a}]: %s", patchStr(t, keyedDoc, `!rmtag(key) [{name: "a"}, {name: "a"}]`))
-	t.Logf("  patch !rmtag(key) []:        %s", patchStr(t, keyedDoc, `!rmtag(key) []`))
-	t.Logf("  patch !replace{from,to}:     %s", patchStr(t, keyedDoc,
-		`!replace {from: !key(name) [{name: "a"}, {name: "b"}], to: [{name: "a"}, {name: "a"}]}`))
+	c, _ := s.GetCurrentCommit()
+	if got := skus(mustReadScope(t, s, c, nil), "items"); len(got) != 2 {
+		t.Errorf("after the refused writes the array holds %v", got)
+	}
 }

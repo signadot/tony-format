@@ -32,39 +32,3 @@ func TestTopLevelKPathsThroughComments(t *testing.T) {
 		}
 	}
 }
-
-// TestKeyedAnnotationThroughComments: annotateKeyed tags the array a schema
-// declares keyed, and patchHasUndeclaredKey looks for a !key the schema has not
-// heard of. Both switched on the node's type, so a comment above the array hid
-// it from each -- the first leaving a materialized state unkeyed, the second
-// reporting a scope safe when it is not.
-func TestKeyedAnnotationThroughComments(t *testing.T) {
-	keys := map[string]string{"users": "id"}
-	for _, src := range []string{
-		"users:\n- id: a\n",
-		"# note\nusers:\n- id: a\n",
-		"users:\n# note\n- id: a\n",
-	} {
-		n := parseCommented(t, src)
-		annotateKeyed(n, "", keys)
-		users, err := n.GetKPath("users")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if field, keyed := users.KeyField(); !keyed || field != "id" {
-			t.Errorf("%q: annotateKeyed left the array keyed by %q (keyed=%v)", src, field, keyed)
-		}
-	}
-
-	// The undeclared-key check, with nothing declared: the !key the patch carries
-	// is the one the schema has never heard of.
-	for _, src := range []string{
-		"users: !key(id)\n- id: a\n",
-		"# note\nusers: !key(id)\n- id: a\n",
-		"a:\n  # note\n  users: !key(id)\n  - id: a\n",
-	} {
-		if !patchHasUndeclaredKey(parseCommented(t, src), "", map[string]string{}) {
-			t.Errorf("%q: the undeclared !key was not seen", src)
-		}
-	}
-}

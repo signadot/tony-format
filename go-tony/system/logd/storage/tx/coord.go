@@ -351,6 +351,18 @@ func (p *txPatcher) doCommit(state *State, commitOps CommitOps) *Result {
 		}
 	}
 
+	// A precondition is written in the client's vocabulary and evaluated in the store's:
+	// lowered like a write, against the state as the store holds it (element_identity.md).
+	schema := commitOps.GetSchema(state.Scope)
+	if err := LowerMatches(schema, state.PatcherData); err != nil {
+		_ = co.storage.Delete(state.TxID)
+		return &Result{
+			Committed: false,
+			Matched:   false,
+			Error:     fmt.Errorf("precondition conflicts with the schema's keying: %w", err),
+		}
+	}
+
 	matched, err := evaluateMatches(state, commitOps.MatchStateAt, currentCommit)
 	if err != nil {
 		_ = co.storage.Delete(state.TxID)
@@ -381,7 +393,7 @@ func (p *txPatcher) doCommit(state *State, commitOps CommitOps) *Result {
 	// catch and a precondition would (jjbapb1ah12kranxg5n0 is not that; filed apart).
 	if err := CheckArrayWritesAt(state.PatcherData, func() (*ir.Node, error) {
 		return commitOps.MatchStateAt("", currentCommit, state.Scope)
-	}); err != nil {
+	}, schema); err != nil {
 		_ = co.storage.Delete(state.TxID)
 		return &Result{
 			Committed: false,
@@ -402,14 +414,13 @@ func (p *txPatcher) doCommit(state *State, commitOps CommitOps) *Result {
 	}
 
 	// Inject auto-generated IDs for keyed arrays before merging
-	schema := commitOps.GetSchema(state.Scope)
 	InjectAutoIDs(commit, schema, state.PatcherData)
 
-	// And put !key(f) on the arrays the schema declares keyed, so the merge identifies
-	// elements the way the index does. Without it, declaring a key changed how a write was
-	// INDEXED and not what it MEANT: an untagged write to a keyed array merged positionally
-	// and replaced whatever sat at that position.
-	if err := InjectKeyTags(schema, state.PatcherData); err != nil {
+	// And lower every keyed array to the form the store keeps -- an object of names --
+	// which is also where the schema's identity is enforced on the write: an element
+	// without a name, a name the element disagrees with, a key the schema does not
+	// declare, a position on an array that has none (element_identity.md).
+	if err := LowerKeyed(schema, state.PatcherData); err != nil {
 		_ = co.storage.Delete(state.TxID)
 		return &Result{
 			Committed: false,

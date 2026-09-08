@@ -22,38 +22,32 @@ func indexPaths(s *Storage) []string {
 	return out
 }
 
-// TestKey_IndexPathShapeVariesPerWrite shows that whether an array is "keyed" is
-// decided per WRITE, from the tag that write happens to carry. The same array ends up
-// indexed under both keyed and positional paths depending on which writes tagged it.
-//
-// This matters for the planned scope overlay, which is keyed BY INDEX PATH: if the same
-// logical element is reachable as items("a") from one commit and items[0] from another,
-// a latest-per-path materialization has two different keys for one element.
-func TestKey_IndexPathShapeVariesPerWrite(t *testing.T) {
-	s, err := Open(t.TempDir(), nil)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer s.Close()
+// There is one route to an element's path: the schema declares the identity, lowering
+// names the element, and the index records the name as a field. A write that spells !key
+// itself is indexed the same way, and one that does not is too.
+func TestKey_OneRouteToAnElementsPath(t *testing.T) {
+	s := openTestStorage(t)
+	declareKeyed(t, s, `{define: {items: {name: !logd-key null}}}`)
 
 	scalingCommit(t, s, nil, `{items: !key(name) [{name: "a", v: 1}]}`, nil)
-	t.Logf("after tagged write:   %v", filterItems(indexPaths(s)))
-
+	tagged := filterItems(indexPaths(s))
 	scalingCommit(t, s, nil, `{items: [{name: "a", v: 2}]}`, nil)
-	t.Logf("after untagged write: %v", filterItems(indexPaths(s)))
+	untagged := filterItems(indexPaths(s))
+	if !sameSet(tagged, untagged) {
+		t.Errorf("the tag changed the path shape\n tagged:   %v\n untagged: %v", tagged, untagged)
+	}
+	for _, p := range untagged {
+		if strings.Contains(p, "[") || strings.Contains(p, "items(") {
+			t.Errorf("an element indexed by position or by a (key) segment: %q", p)
+		}
+	}
 }
 
-// TestKey_SchemaRouteIsAutoIDOnly shows the schema route only covers auto-generated
-// keys, and that the write it produces is not navigable by the index path it records.
+// TestKey_SchemaRouteIsAutoIDOnly: an auto-id declares an identity like a key does, and
+// the generated id is the name. The recorded path is resolvable from the stored entry,
+// which holds the element under that name.
 func TestKey_SchemaRouteIsAutoIDOnly(t *testing.T) {
-	s, err := Open(t.TempDir(), nil)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer s.Close()
-
-	// Declare items as auto-id keyed by "id" — the ONLY thing a schema can say about
-	// keying (Schema holds AutoIDFields and nothing else).
+	s := openTestStorage(t)
 	s.SetSchemaResolver(&api.StaticSchemaResolver{Schema: &api.Schema{
 		AutoIDFields: []api.AutoIDField{{Path: "items", Field: "id"}},
 	}})
@@ -61,14 +55,9 @@ func TestKey_SchemaRouteIsAutoIDOnly(t *testing.T) {
 	scalingCommit(t, s, nil, `{items: [{v: 1}]}`, nil)
 	paths := filterItems(indexPaths(s))
 	t.Logf("schema-keyed write, index paths: %v", paths)
-
-	doc := showDoc(t, s, nil, "state")
-	t.Logf("the id was injected into the data (%s) but no !key tag rides with it,", doc)
-	t.Logf("so the recorded index path is not resolvable from the entry's own patch.")
-
-	// And a client-supplied key like !key(name) has NO schema route at all: Schema can
-	// only express auto-id fields, so "items is keyed by name" is unsayable in schema
-	// and can only ever be carried per-write as a tag.
+	if !hasKeyedPath(paths, `items."(id=`) {
+		t.Errorf("no element named by its generated id: %v", paths)
+	}
 }
 
 func filterItems(paths []string) []string {

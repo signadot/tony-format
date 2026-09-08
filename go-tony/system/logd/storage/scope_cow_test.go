@@ -149,9 +149,10 @@ func TestScope_COW_AncestorClobber(t *testing.T) {
 func TestScope_COW_KeyDurability(t *testing.T) {
 	s := openTestStorage(t)
 	sc := "s1"
+	declareKeyed(t, s, `{define: {items: {sku: !logd-key null}}}`)
 
 	mustCommit(t, s, nil, `{items: !key(sku) [{sku: "WIDGET", qty: 1}, {sku: "GADGET", qty: 1}]}`)
-	mustCommit(t, s, &sc, `{items: !key(sku) [{sku: "GIZMO", qty: 3}]}`)
+	mustCommit(t, s, &sc, `{items: [{sku: "GIZMO", qty: 3}]}`)
 	c := mustCommit(t, s, nil, `{items: !key(sku) [{sku: "SPROCKET", qty: 1}]}`)
 
 	scopeSkus := skus(mustReadScope(t, s, c, &sc), "items")

@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
@@ -31,7 +32,7 @@ func TestSchemaAuthority_BootstrapsFromConfigWhenStoreHasNone(t *testing.T) {
 
 	paths := indexPathSet(s)
 	t.Logf("paths: %v", paths)
-	if !hasKeyedPath(paths, "items(") {
+	if !hasKeyedPath(paths, `items."(id=`) {
 		t.Errorf("a store with no schema of its own should still key from configuration; got %v", paths)
 	}
 }
@@ -56,14 +57,14 @@ func TestSchemaAuthority_PersistedWinsOverConfig(t *testing.T) {
 	if got == nil {
 		t.Fatal("no schema after CompleteMigration")
 	}
-	if f := got.LookupKeyField("items"); f != "fromStore" {
+	if f := strings.Join(got.Identity("items"), ","); f != "fromStore" {
 		t.Errorf("keying used %q; the persisted schema says %q and it is the authority",
 			f, "fromStore")
 	}
 
 	// And a scope keys the same way, since the persisted schema is per-store.
 	scope := "s1"
-	if f := s.schemaForScope(&scope).LookupKeyField("items"); f != "fromStore" {
+	if f := strings.Join(s.schemaForScope(&scope).Identity("items"), ","); f != "fromStore" {
 		t.Errorf("scope keyed by %q, want the store's %q", f, "fromStore")
 	}
 }
@@ -95,7 +96,7 @@ func TestSchemaAuthority_SurvivesRestart(t *testing.T) {
 	if got == nil {
 		t.Fatal("the persisted schema did not survive the restart")
 	}
-	if f := got.LookupKeyField("items"); f != "fromStore" {
+	if f := strings.Join(got.Identity("items"), ","); f != "fromStore" {
 		t.Errorf("after restart keying used %q, want %q", f, "fromStore")
 	}
 }

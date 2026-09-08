@@ -29,6 +29,10 @@ func (c *commitOps) ReadStateAt(kpath string, commit int64, scopeID *string) (*i
 //
 // doCommit holds commitMu across match evaluation, which is what makes reading the head
 // here safe — it is the same lock stepHead is written under.
+//
+// The answer is the state as the store holds it -- a keyed array as an object of names --
+// and the precondition it serves has been lowered to the same form (tx.LowerMatches), so
+// the two meet in one vocabulary and the head is neither copied nor raised.
 func (c *commitOps) MatchStateAt(kpath string, commit int64, scopeID *string) (*ir.Node, error) {
 	if scopeID != nil {
 		// See steppedScopedAt: the scope's own kept document when it is current, and a
@@ -62,6 +66,13 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	// matched against. It is built here, before the write, because the check below
 	// needs it.
 	notification := newCommitNotification(commit, txSeq, timestamp, mergedPatch, scopeID)
+	// The stripped copy in the store's own vocabulary is what the head steps and what the
+	// write is verified against. The notification is delivered in the client's: a keyed
+	// array is an array to a watcher and an object of names in the log (raise.go), and a
+	// replayed delta is raised the same way, so live and replay agree. raise shares what
+	// it does not convert, so the stripped copy is unchanged by it.
+	stripped := notification.Patch
+	notification.Patch = c.s.raiseDelta(scopeID, stripped)
 	commitStarted := time.Now()
 	var applyTook, appendTook, indexTook time.Duration
 
@@ -73,7 +84,7 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	// The result is kept: for baseline it IS the next head, so verifying costs the
 	// step that was going to happen anyway.
 	applyStarted := time.Now()
-	base, stepped, err := c.s.verifyApplies(commit, notification.Patch, scopeID)
+	base, stepped, err := c.s.verifyApplies(commit, stripped, scopeID)
 	applyTook = time.Since(applyStarted)
 	if err != nil {
 		return "", 0, err
@@ -125,9 +136,6 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	}
 	appendTook = time.Since(appendStarted)
 
-	// Get schema for this scope
-	schema := c.s.schemaForScope(scopeID)
-
 	// Get current generation for indexing
 	generation := c.s.dLog.GetGeneration(logFile)
 
@@ -136,7 +144,7 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	// The STORED delta is what a rebuild reads back, so it is what the live index
 	// has to agree with: index.Build's "we rely on !key tags stored in the patches"
 	// is only true when the two are the same node.
-	index.IndexPatch(c.s.index, e, string(logFile), pos, txSeq, generation, stored, schema, scopeID)
+	index.IndexPatch(c.s.index, e, string(logFile), pos, txSeq, generation, stored, scopeID)
 	indexTook = time.Since(indexStarted)
 
 	// Dual-write: also index to pending index if migration is in progress. This one
@@ -144,8 +152,7 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	// commit the active index saw; IndexPatch cannot fail, which is what makes the two
 	// writes here either both done or neither reached.
 	if pendingIdx := c.s.schema.GetPendingIndex(); pendingIdx != nil {
-		pendingSchemaParsed := c.s.schema.GetPendingParsed()
-		index.IndexPatch(pendingIdx, e, string(logFile), pos, txSeq, generation, stored, pendingSchemaParsed, scopeID)
+		index.IndexPatch(pendingIdx, e, string(logFile), pos, txSeq, generation, stored, scopeID)
 	}
 
 	// Trigger periodic index persistence

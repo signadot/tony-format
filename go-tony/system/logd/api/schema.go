@@ -2,6 +2,8 @@ package api
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/signadot/tony-format/go-tony/ir"
 )
@@ -35,26 +37,61 @@ type Schema struct {
 	KeyFields []KeyField
 }
 
-// LookupKeyField returns the key field for a given kpath, or empty if not keyed.
+// Identity answers the fields that identify an element of the array at kpath: every
+// !logd-key declared on it, as one tuple, or the one !logd-auto-id field. Sorted, so two
+// callers spell the same identity the same way, and nil for an array the schema does not
+// key.
 //
 // Both declarations mean "keyed": an explicit !logd-key, and an !logd-auto-id, which is
-// keying plus generation. An explicit key wins if a schema somehow declares both -- though
-// Validate rejects that, so it should not arise.
-func (s *Schema) LookupKeyField(kpath string) string {
+// keying plus generation. A keyed array has ONE identity; several !logd-key fields on one
+// array are the parts of it, not alternatives (element_identity.md), and Validate refuses
+// an array that declares both kinds.
+func (s *Schema) Identity(kpath string) []string {
 	if s == nil {
-		return ""
+		return nil
 	}
+	var fields []string
 	for _, f := range s.KeyFields {
-		if f.Path == kpath {
-			return f.Field
+		if f.Path == kpath && !slices.Contains(fields, f.Field) {
+			fields = append(fields, f.Field)
 		}
+	}
+	if len(fields) > 0 {
+		slices.Sort(fields)
+		return fields
 	}
 	for _, f := range s.AutoIDFields {
 		if f.Path == kpath {
-			return f.Field
+			return []string{f.Field}
 		}
 	}
-	return ""
+	return nil
+}
+
+// Keyed reports whether the array at kpath has an identity.
+func (s *Schema) Keyed(kpath string) bool { return len(s.Identity(kpath)) > 0 }
+
+// KeyedPaths answers every array path the schema gives an identity to.
+func (s *Schema) KeyedPaths() []string {
+	if s == nil {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, f := range s.KeyFields {
+		if !seen[f.Path] {
+			seen[f.Path] = true
+			out = append(out, f.Path)
+		}
+	}
+	for _, f := range s.AutoIDFields {
+		if !seen[f.Path] {
+			seen[f.Path] = true
+			out = append(out, f.Path)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // Validate reports a schema that cannot mean what it says. It is checked where a schema
@@ -81,9 +118,14 @@ func (s *Schema) Validate() error {
 				"a tag argument has no quoting, so a comma or an unbalanced parenthesis in the "+
 				"name would name something else", f.Path, f.Field)
 		}
-		if prev, dup := keyed[f.Path]; dup && prev != f.Field {
-			return fmt.Errorf("%q is declared keyed by both %q and %q", f.Path, prev, f.Field)
+		// The name of an element binds field to value as (f=v), split at the first '=',
+		// so a field whose own name holds one would be read as a different binding.
+		if strings.ContainsAny(f.Field, "=<>") {
+			return fmt.Errorf("%q is declared keyed by %q, which cannot name an element: an "+
+				"identity field is written into the element's name as (field=value), and "+
+				"'=', '<' and '>' are the name's own punctuation", f.Path, f.Field)
 		}
+		// Several !logd-key fields on one array are one identity, the tuple of them.
 		keyed[f.Path] = f.Field
 	}
 	for _, f := range s.AutoIDFields {

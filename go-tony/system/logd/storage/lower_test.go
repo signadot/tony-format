@@ -64,24 +64,27 @@ func TestLowering_RelativeWriteIsStoredAsItsResult(t *testing.T) {
 // otherwise lowering would rewrite the whole log for nothing, and a client reading
 // its own write back would not recognise it.
 func TestLowering_AbsoluteWriteIsStoredAsSent(t *testing.T) {
-	for _, tc := range []struct{ name, src string }{
-		{"a plain data merge", `{a: 1, b: {c: 2}}`},
-		{"a delete", `{a: !delete null}`},
-		{"a keyed list, which is what logd injects for itself",
-			`{items: !key(sku) [{sku: "A", q: 1}]}`},
+	for _, tc := range []struct{ name, src, stored string }{
+		{"a plain data merge", `{a: 1, b: {c: 2}}`, "a: 1"},
+		{"a delete", `{a: !delete null}`, "!delete"},
+		// A keyed array is the one shape the store respells on the way in: the elements
+		// under their names, an object, which is what the log keeps (element_identity.md).
+		{"a keyed list", `{items: !key(sku) [{sku: "A", q: 1}]}`, "(sku=A)"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := openTestStorage(t)
-			mustCommit(t, s, nil, `{a: 0, b: {c: 0}, items: !key(sku) []}`)
+			declareKeyed(t, s, `{define: {items: {sku: !logd-key null}}}`)
+			mustCommit(t, s, nil, `{a: 0, b: {c: 0}}`)
 			mustCommit(t, s, nil, tc.src)
 			got := storedPatches(t, s)
 			if len(got) != 2 {
 				t.Fatalf("%d entries, want 2: %v", len(got), got)
 			}
-			// The second entry is this write. It came from the client, so it holds
-			// the client's own shape, not a diff of two states.
 			if op, needs := api.NeedsLowering(ir.Null()); needs {
 				t.Fatalf("a null needs lowering (%s)?", op)
+			}
+			if !strings.Contains(got[1], tc.stored) {
+				t.Errorf("stored %s, want it to carry %s", got[1], tc.stored)
 			}
 			t.Logf("stored: %s", got[1])
 		})

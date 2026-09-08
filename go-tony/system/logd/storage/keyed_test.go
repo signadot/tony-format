@@ -54,6 +54,7 @@ func strOf(n *ir.Node) string {
 // ever adds distinct keys.
 func TestKeyed_IdentityMergeAtBaseline(t *testing.T) {
 	s := openTestStorage(t)
+	declareKeyed(t, s, `{define: {items: {sku: !logd-key null}}}`)
 
 	mustCommit(t, s, nil, `{items: !key(sku) [{sku: "A", q: 1}, {sku: "B", q: 1}]}`)
 	c := mustCommit(t, s, nil, `{items: !key(sku) [{sku: "A", q: 2}]}`)
@@ -89,6 +90,7 @@ func TestKeyed_IdentityMergeAtBaseline(t *testing.T) {
 // resolve !key away and re-apply positionally.
 func TestKeyed_SurvivesSnapshotAndCompaction(t *testing.T) {
 	s := openTestStorage(t)
+	declareKeyed(t, s, `{define: {items: {sku: !logd-key null}}}`)
 
 	mustCommit(t, s, nil, `{items: !key(sku) [{sku: "A", q: 1}, {sku: "B", q: 2}]}`)
 	mustCommit(t, s, nil, `{items: !key(sku) [{sku: "C", q: 3}]}`)
@@ -180,6 +182,7 @@ func TestKeyed_RebuiltIndexAgreesWithLive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
+	declareKeyed(t, s, `{define: {items: {sku: !logd-key null}}}`)
 
 	mustCommit(t, s, nil, `{items: !key(sku) [{sku: "A", q: 1}, {sku: "B", q: 2}]}`)
 	mustCommit(t, s, nil, `{items: !key(sku) [{sku: "A", q: 9}]}`)
@@ -198,10 +201,9 @@ func TestKeyed_RebuiltIndexAgreesWithLive(t *testing.T) {
 	}
 }
 
-// TestKeyed_RebuiltIndexUnderSchema is the same property with a schema in play, which is
-// the route P1 makes authoritative. build.go states "Schema is nil here - we rely on !key
-// tags stored in the patches", so a store whose live index was built from the SCHEMA and
-// whose rebuild reads only tags has two shapes for one log.
+// TestKeyed_RebuiltIndexUnderSchema is the same property with a schema in play. The
+// stored entry holds the elements under their names, so a rebuild that reads only the log
+// describes the same paths as the index built while writing: there is one route.
 func TestKeyed_RebuiltIndexUnderSchema(t *testing.T) {
 	root := t.TempDir()
 	s, err := Open(root, nil)
@@ -221,15 +223,14 @@ func TestKeyed_RebuiltIndexUnderSchema(t *testing.T) {
 	defer re.Close()
 	rebuilt := indexPathSet(re)
 
-	t.Logf("live (schema route):   %v", live)
-	t.Logf("rebuilt (tag route):   %v", rebuilt)
+	t.Logf("live:    %v", live)
+	t.Logf("rebuilt: %v", rebuilt)
 	if !sameSet(live, rebuilt) {
-		t.Logf("KNOWN, plan P1: the live index was keyed by the schema and the rebuild was")
-		t.Logf("not, so one log has two index shapes. This is the disjoint-routes gap, and")
-		t.Logf("the guard above is what should still pass once P1 makes them one route.")
-		return
+		t.Errorf("a rebuilt index describes different paths than the live one\n live:    %v\n rebuilt: %v", live, rebuilt)
 	}
-	t.Log("the two routes agree for this shape")
+	if !hasKeyedPath(live, `items."(id=`) {
+		t.Errorf("no element named by its id: %v", live)
+	}
 }
 
 // TestKeyed_WatchDeltaStepsCorrectly pins the delta a watcher receives for a keyed
@@ -243,6 +244,7 @@ func TestKeyed_RebuiltIndexUnderSchema(t *testing.T) {
 // generalises.
 func TestKeyed_WatchDeltaStepsCorrectly(t *testing.T) {
 	s := openTestStorage(t)
+	declareKeyed(t, s, `{define: {items: {sku: !logd-key null}}}`)
 
 	type note struct {
 		commit int64
@@ -292,81 +294,6 @@ func TestKeyed_WatchDeltaStepsCorrectly(t *testing.T) {
 		}
 		t.Logf("  %d %-52s -> %s", i, src, encodeWire(t, stepped))
 		prev = stepped
-	}
-}
-
-// TestKeyed_RebuildDivergenceImpact asks whether the live/rebuilt index shape difference
-// under a schema actually changes any ANSWER, or only the shape.
-//
-// Path-level index entries have exactly one consumer, ReadPatchesInRange (watch replay);
-// every other lookup is at the root. And LookupRange collects the current node's own
-// segments BEFORE descending, so a lookup at any path already includes every entry's root
-// copy. If that makes replay's answer identical either way, the divergence is latent
-// rather than live -- it starts to matter when something addresses BY the keyed path,
-// which is exactly what the overlay does and what P1 has to settle first.
-func TestKeyed_RebuildDivergenceImpact(t *testing.T) {
-	root := t.TempDir()
-	s, err := Open(root, nil)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	resolver := &api.StaticSchemaResolver{Schema: &api.Schema{
-		AutoIDFields: []api.AutoIDField{{Path: "items", Field: "id"}},
-	}}
-	s.SetSchemaResolver(resolver)
-
-	mustCommit(t, s, nil, `{items: [{q: 1}]}`)
-	mustCommit(t, s, nil, `{items: [{q: 2}]}`)
-	mustCommit(t, s, nil, `{other: 1}`)
-	last, err := s.GetCurrentCommit()
-	if err != nil {
-		t.Fatalf("GetCurrentCommit: %v", err)
-	}
-
-	// The keyed path as the LIVE index spells it.
-	var keyedPath string
-	for _, p := range indexPathSet(s) {
-		if len(p) > 6 && p[:6] == "items(" {
-			keyedPath = p
-			break
-		}
-	}
-	if keyedPath == "" {
-		t.Fatal("expected a keyed index path under the schema route")
-	}
-
-	commitsFor := func(st *Storage, kp string) []int64 {
-		notes, err := st.ReadPatchesInRange(kp, 1, last, nil)
-		if err != nil {
-			t.Fatalf("ReadPatchesInRange(%q): %v", kp, err)
-		}
-		var out []int64
-		for _, n := range notes {
-			out = append(out, n.Commit)
-		}
-		sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
-		return out
-	}
-
-	liveKeyed := commitsFor(s, keyedPath)
-	livePlain := commitsFor(s, "items")
-
-	re := reopenRebuilt(t, s, root, resolver)
-	defer re.Close()
-	rebuiltKeyed := commitsFor(re, keyedPath)
-	rebuiltPlain := commitsFor(re, "items")
-
-	t.Logf("keyed path %q", keyedPath)
-	t.Logf("  replay commits live=%v rebuilt=%v", liveKeyed, rebuiltKeyed)
-	t.Logf("  replay commits at \"items\" live=%v rebuilt=%v", livePlain, rebuiltPlain)
-
-	if !sameInts(liveKeyed, rebuiltKeyed) {
-		t.Errorf("watch replay at the keyed path answers differently after a rebuild:\n live=%v rebuilt=%v",
-			liveKeyed, rebuiltKeyed)
-	}
-	if !sameInts(livePlain, rebuiltPlain) {
-		t.Errorf("watch replay at %q answers differently after a rebuild:\n live=%v rebuilt=%v",
-			"items", livePlain, rebuiltPlain)
 	}
 }
 

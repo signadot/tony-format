@@ -71,7 +71,7 @@ func TestDiffArrayGatesStateTheArrayWhole(t *testing.T) {
 				t.Fatalf("to: %s", err)
 			}
 			// The same call a write is lowered through. Validation comes after it.
-			d := storableDelta(from, to, nil)
+			d := storableDelta(from, to)
 			if d == nil {
 				t.Fatal("no diff between two states that differ")
 			}

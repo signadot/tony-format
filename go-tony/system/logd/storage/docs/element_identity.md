@@ -23,18 +23,30 @@ always the same shape of answer: a NAME may, a QUERY may not.
 Once identity no longer rests on position, nothing is left that makes a keyed array an array
 in the store. So it is not stored as one:
 
-    LOWERED         !logd-keyed(sku) {
-                      (sku=A): {sku: A, qty: 3}
-                      (sku=B): {sku: B, qty: 9}
+    LOWERED         {
+                      "(sku=A)": {sku: A, qty: 3}
+                      "(sku=B)": {sku: B, qty: 9}
                     }
 
-    RAISED          !key(sku) [ {sku: A, qty: 3}, {sku: B, qty: 9} ]
+    RAISED, state   [ {sku: A, qty: 3}, {sku: B, qty: 9} ]
+    RAISED, delta   !key(sku) [ {sku: A, qty: 3}, {sku: B, qty: 9} ]
 
-An object whose field names are the element names, carrying a tag that says to present it as
-an array and by which fields it is identified. Array-ness is presentation; identity is the
-field name. The format already has this construction: a sparse array is an object whose field
-keys are numbers, written `{n}` in a path (ir/kpath.go). A keyed array is the same
+An object whose field names are the element names. Array-ness is presentation; identity is
+the field name. The format already has this construction: a sparse array is an object whose
+field keys are numbers, written `{n}` in a path (ir/kpath.go). A keyed array is the same
 construction with names instead of numbers.
+
+The object carries NO tag saying it is one. The schema is the authority on which paths are
+keyed and says both things a tag would -- that the object presents as an array, and by which
+fields -- and the read has the schema. A tag on the container would also cost every element
+write its spine at the array: the index reads any label that is not presentation as an
+operator (`passesThrough`, index/log_segment.go), which is the one read cost identity exists
+to remove.
+
+Raised, a STATE is op-free: the array comes back untagged, which is what a client's own fold
+of the deltas leaves, and a read and a fold have to agree. A DELTA carries `!key(f)` where the
+identity is one field, so the client's merge identifies elements the way the store does; a
+composite identity has no `!key` spelling, and such a delta comes back untagged.
 
 WHAT THIS BUYS, and it is the reason to prefer it to any ordering rule:
 
@@ -127,7 +139,7 @@ WHAT IT COSTS:
 Three spellings, one name. A key segment binds each field of the declared identity to a
 literal value.
 
-    items.'(sku=A)'              the stored form: an ordinary field
+    items."(sku=A)"              the stored form: an ordinary field, quoted as kpath quotes
     items(sku=A)                 sugar, self-describing
     items(A)                     sugar, resolved against the schema
 
@@ -155,9 +167,10 @@ CANONICAL FORM, which is the field name:
   - Values render with the inline encoder, tag and comment stripped, so `(n=42)` and
     `(n='42')` are different names, as they must be -- the name is the only place the key's
     type survives.
-  - Inside `(...)`, an unquoted `=` at depth 0 separates field from value. A key value that
-    contains one is quoted: `items('a=b')` is the schema-resolved sugar, `items(a=b)` is a
-    binding.
+  - Inside `(...)`, the first `=` separates field from value, and an identity field's own
+    name may not contain one. In the `(key)` sugar the value's own quotes do not survive
+    kpath -- `items("42")` arrives as `items(42)` -- so a string that would read as a number
+    is named through the binding form, `items(sku="42")`, whose inner quotes do.
   - A key field whose value is null is not a name. An element carrying it is unkeyed and
     cannot be addressed -- the same reading `mergeop`'s keyed merge already takes of a
     document element that does not carry the key: it is not one of the ones being merged,

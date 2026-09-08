@@ -68,12 +68,12 @@ func (s *Storage) EachPatchInRange(kp string, from, to int64, scopeID *string, f
 			continue
 		}
 		// The patch goes out in the form a client sees -- its own copy, with the
-		// internal markers gone -- which is what the live path publishes. See
-		// DeliverablePatch.
+		// internal markers gone and its keyed arrays raised -- which is what the live
+		// path publishes. See DeliverablePatch and raise.go.
 		if err := fn(&CommitNotification{
 			Commit:    entry.Commit,
 			Timestamp: entry.Timestamp,
-			Patch:     DeliverablePatch(entry.Patch),
+			Patch:     s.raiseDelta(entry.ScopeID, DeliverablePatch(entry.Patch)),
 			// KPaths not populated - would need index lookup per entry
 		}); err != nil {
 			return err

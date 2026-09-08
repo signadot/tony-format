@@ -9,6 +9,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/libdiff"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/ident"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
@@ -33,6 +34,14 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 		if err := validateDataPath(path); err != nil {
 			s.sendError(id, api.ErrCodeInvalidPath, err.Error())
 			return
+		}
+		// And spelled as the store spells it: an element of a keyed array is addressed by its
+		// name, whichever sugar the client used (ident.CanonicalPath).
+		if canon, err := ident.CanonicalPath(s.storage.SchemaFor(s.scopeID()), path); err != nil {
+			s.sendError(id, api.ErrCodeInvalidPath, err.Error())
+			return
+		} else {
+			path = canon
 		}
 	}
 

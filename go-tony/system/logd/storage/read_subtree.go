@@ -51,6 +51,9 @@ func (s *Storage) ReadSubtreeAt(kp string, commit int64, scopeID *string) (*ir.N
 	}
 	nonField, keyed := pathSegmentShape(kp)
 	node, narrowed, err := s.narrowSubtreeAt(kp, commit, scopeID)
+	if err == nil && narrowed {
+		node = s.raiseState(scopeID, node, kp)
+	}
 	switch {
 	case err != nil:
 	case !narrowed:

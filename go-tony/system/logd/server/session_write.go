@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/ident"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
@@ -32,6 +33,23 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 	if err := validateDataPath(path); err != nil {
 		s.sendError(id, api.ErrCodeInvalidPath, err.Error())
 		return
+	}
+	// And spelled as the store spells it: an element of a keyed array is addressed by its
+	// name, whichever sugar the client used (ident.CanonicalPath).
+	if canon, err := ident.CanonicalPath(s.storage.SchemaFor(s.scopeID()), path); err != nil {
+		s.sendError(id, api.ErrCodeInvalidPath, err.Error())
+		return
+	} else {
+		path = canon
+	}
+	match := req.Match
+	if match != nil {
+		canon, err := ident.CanonicalPath(s.storage.SchemaFor(s.scopeID()), match.Path)
+		if err != nil {
+			s.sendError(id, api.ErrCodeInvalidPath, err.Error())
+			return
+		}
+		match = &api.PathData{Path: canon, Data: match.Data}
 	}
 
 	// Validate patch data
@@ -79,8 +97,8 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 	// Create patcher and commit. Match, if set, is a compare-and-swap
 	// precondition evaluated atomically at commit time.
 	patcher, err := txn.NewPatcher(&api.Patch{
-		Match:    req.Match,
-		PathData: req.PathData,
+		Match:    match,
+		PathData: api.PathData{Path: path, Data: req.Data},
 	})
 	if err != nil {
 		// A path which names no array element is the client's mistake, and it is the

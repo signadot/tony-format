@@ -6,6 +6,7 @@ import (
 
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/ident"
 )
 
 // Reading: a match, and the documents a read and a watch are answered from.
@@ -27,6 +28,14 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 	if err := validateDataPath(path); err != nil {
 		s.sendError(id, api.ErrCodeInvalidPath, err.Error())
 		return
+	}
+	// And spelled as the store spells it: an element of a keyed array is addressed by its
+	// name, whichever sugar the client used (ident.CanonicalPath).
+	if canon, err := ident.CanonicalPath(s.storage.SchemaFor(s.scopeID()), path); err != nil {
+		s.sendError(id, api.ErrCodeInvalidPath, err.Error())
+		return
+	} else {
+		path = canon
 	}
 
 	// Resolve the commit to read at: an explicit historical commit if the request
