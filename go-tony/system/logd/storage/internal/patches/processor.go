@@ -707,7 +707,7 @@ func (u *unreachedPatches) graftUpTo(f unreachedFrame, before string, sink strea
 		if !ok {
 			continue
 		}
-		seg, _, err := splitFieldSegment(rest)
+		segs, err := fieldSegments(rest)
 		if err != nil {
 			if before != "" {
 				// Mid-container: this path may still be reached by an element the base
@@ -717,6 +717,7 @@ func (u *unreachedPatches) graftUpTo(f unreachedFrame, before string, sink strea
 			}
 			return fmt.Errorf("cannot graft %q into %q: %w", path, f.path, err)
 		}
+		seg := segs[0]
 		if before != "" && seg >= before {
 			// seg == before is the base's own key: the graft belongs deeper, under it.
 			continue
@@ -859,7 +860,7 @@ func remainderUnder(container, path string) (string, bool) {
 	}
 }
 
-// splitFieldSegment splits a remainder into its first plain field segment and the rest.
+// fieldSegments is a remainder as its plain field names, from a single parse.
 //
 // A field name holding a dot is QUOTED, and the quotes are what say the dot belongs
 // to the name.  Scanning bytes for '.' walked straight through them, so a write at
@@ -875,27 +876,37 @@ func remainderUnder(container, path string) (string, bool) {
 // a path it cannot read, and a remainder arriving here may be keyed or indexed by
 // design -- remainderUnder hands those over so that the error below names them --
 // so the path is read before it is split.
-func splitFieldSegment(rest string) (seg, tail string, err error) {
+func fieldSegments(rest string) ([]string, error) {
 	if rest == "" {
-		return "", "", fmt.Errorf("empty path remainder")
+		return nil, fmt.Errorf("empty path remainder")
 	}
 	if rest[0] == '{' || rest[0] == '[' {
-		return "", "", fmt.Errorf("segment %q is not a plain field", rest)
+		return nil, fmt.Errorf("segment %q is not a plain field", rest)
 	}
-	if _, perr := kpath.Parse(rest); perr != nil {
-		return "", "", fmt.Errorf("segment %q is not a plain field: %w", rest, perr)
+	kp, err := kpath.Parse(rest)
+	if err != nil {
+		return nil, fmt.Errorf("segment %q is not a plain field: %w", rest, err)
 	}
-	// Every segment has to be a plain field, as the byte scan required: a keyed or
-	// indexed one anywhere in the remainder cannot be created here, and saying so
-	// at the first segment keeps the caller from grafting half of it.
-	for _, seg := range kpath.SplitAll(rest) {
-		if _, isField := kpath.SegmentFieldName(seg); !isField {
-			return "", "", fmt.Errorf("segment %q is keyed or indexed, which cannot be created here", rest)
+	// ONE parse answers everything, because a parsed segment already HOLDS its field
+	// name, unquoted. Splitting the remainder to strings and asking each of them what
+	// its field name is re-parsed the same bytes once per segment -- and re-quoted every
+	// segment on the way out of SplitAll, only for SegmentFieldName to unquote it again.
+	// Walked down a path a segment at a time, that was quadratic in the path's length and
+	// it ran per record, per read; a key that has to be quoted (`"signadot/x#42"` -- for
+	// the / and the #, neither of them an escape) paid a decode on every one of those
+	// parses.
+	//
+	// Every segment has to be a plain field: a keyed or indexed one anywhere in the
+	// remainder cannot be created here, and saying so before any of them is returned
+	// keeps the caller from grafting half of it.
+	var segs []string
+	for n := kp; n != nil; n = n.Next {
+		if n.Field == nil {
+			return nil, fmt.Errorf("segment %q is keyed or indexed, which cannot be created here", rest)
 		}
+		segs = append(segs, *n.Field)
 	}
-	head, tail := kpath.Split(rest)
-	name, _ := kpath.SegmentFieldName(head)
-	return name, tail, nil
+	return segs, nil
 }
 
 // nestUnder folds the patch nodes as seen from a container, wrapping EACH of them in
@@ -922,14 +933,9 @@ func splitFieldSegment(rest string) (seg, tail string, err error) {
 // A patch is applied once, by whoever is accumulating the state. What is nested
 // here is still a patch.
 func nestPatches(rest string, values []*ir.Node) ([]*ir.Node, error) {
-	var segs []string
-	for rest != "" {
-		seg, tail, err := splitFieldSegment(rest)
-		if err != nil {
-			return nil, err
-		}
-		segs = append(segs, seg)
-		rest = tail
+	segs, err := fieldSegments(rest)
+	if err != nil {
+		return nil, err
 	}
 
 	res := make([]*ir.Node, 0, len(values))
