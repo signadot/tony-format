@@ -151,7 +151,11 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 	}
 	switch patch.Type {
 	case ir.ObjectType:
-		return objPatchYWith(doc, patch, ctx)
+		res, err := objPatchYWith(doc, patch, ctx)
+		if err != nil {
+			return nil, err
+		}
+		return withLineComment(res, doc, patch, keepComments), nil
 
 	case ir.ArrayType:
 		if doc.Type != ir.ArrayType {
@@ -194,11 +198,31 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 		}
 		out := ir.FromSlice(res)
 		out.Tag = mergedTag(doc, patch)
-		return out, nil
+		return withLineComment(out, doc, patch, keepComments), nil
 
 	default:
 		return patch.Clone(), nil
 	}
+}
+
+// withLineComment carries a container's LINE comment onto the merged container. A head
+// comment is a wrapper, unwrapped on the way in and put back by rewrapComment; a line
+// comment rides on the node itself (Node.Comment), and a merged container is a fresh node
+// that had nobody's -- so a note on a scalar survived a patch, answered with the patch's
+// own node, while a note on the section heading above it did not
+// (040x4f26h12kr5acm5n0). The patch's comment is the more recent statement; the
+// document's stands when the patch made none.
+func withLineComment(res, doc, patch *ir.Node, keep bool) *ir.Node {
+	if res == nil || !keep {
+		return res
+	}
+	switch {
+	case patch.Comment != nil:
+		res.Comment = patch.Comment.Clone()
+	case doc != nil && doc.Comment != nil && res.Comment == nil:
+		res.Comment = doc.Comment.Clone()
+	}
+	return res
 }
 
 // objPatchY is the backwards-compatible version without context
