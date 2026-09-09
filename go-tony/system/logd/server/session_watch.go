@@ -224,12 +224,13 @@ type watchStream struct {
 	// write that restates a value is not a change, and is not delivered
 	// (eagjggjdh12ksg00bsn0). No whole document is held for a watch, at any width.
 	//
-	// A SCOPED watcher cannot step: its view is baseline with the scope's writes applied
-	// LAST, so they shadow baseline stickily, and folding a baseline delta into the
-	// scope's value would let baseline overwrite a leaf the scope owns
-	// (9b2vpggxh12ks0qde5n0). It RE-READS its view at the path per event that can reach
-	// it, and sends the diff. That read narrows: it costs the entries bearing on the path
-	// since its snapshot, not the scope's history.
+	// A SCOPED watcher steps too, in the three cases the footprint can vouch for
+	// (step): its own scope's commit, whose delta applies last in the fold anyway; a
+	// baseline commit that meets no statement of the scope; and a baseline commit under
+	// the scope's claim, which is dropped. What is left -- a baseline delta that meets a
+	// statement of the scope, where folding it in would let baseline overwrite what the
+	// scope holds (9b2vpggxh12ks0qde5n0) -- re-reads the view at the path and sends the
+	// difference, and that read folds the scope's live statements, not its history.
 	prev   *ir.Node
 	seeded bool
 }
@@ -438,6 +439,43 @@ func patchEvent(id *string, commit int64, path string, delta *ir.Node, absent bo
 	return ev
 }
 
+// step advances the watch by one commit and sends what changed under the path. It answers
+// false when the watch has been failed.
+//
+// A baseline watch steps by the stored delta. A scoped watch steps by its own scope's
+// delta the same way, since that delta applies last in the fold whatever baseline does;
+// and by a baseline delta when the footprint says the scope has stated nothing at, above
+// or beneath what the delta states under the path (storage.BaselineDeltaInScope). A
+// baseline delta under the scope's claim is dropped: the view there is the claim. What
+// remains overlaps a statement of the scope, and is answered by a read at the path.
+func (w *watchStream) step(commit int64, patch *ir.Node, scopeID *string, shared bool) bool {
+	if !w.scoped {
+		return w.stepBaseline(commit, patch, shared)
+	}
+	mine := w.s.scopeID()
+	if scopeID != nil && mine != nil && *scopeID == *mine {
+		w.s.hub.stats.scopeStep.Add(1)
+		return w.stepBaseline(commit, patch, shared)
+	}
+	if at, _, ok := api.ProjectDelta(patch, w.path); ok {
+		if at == nil {
+			w.accountFor(commit)
+			return true
+		}
+		switch w.s.storage.BaselineDeltaInScope(*mine, w.path, at) {
+		case storage.BaselineHidden:
+			w.s.hub.stats.scopeDrop.Add(1)
+			w.accountFor(commit)
+			return true
+		case storage.BaselineSteps:
+			w.s.hub.stats.scopeStep.Add(1)
+			return w.stepBaseline(commit, patch, shared)
+		}
+	}
+	w.s.hub.stats.scopeReread.Add(1)
+	return w.emitScoped(commit)
+}
+
 // emitScoped advances a scoped watch by one commit and sends what changed under the path.
 // It answers false when the watch has been failed.
 //
@@ -480,13 +518,7 @@ func (w *watchStream) replay(from, to int64) bool {
 		// that cannot keep up is failed, which is the existing contract -- the
 		// server does not hold the range on its behalf.
 		err := w.eachDelta(from+1, to, func(n *storage.CommitNotification) error {
-			ok := false
-			if w.scoped {
-				ok = w.emitScoped(n.Commit)
-			} else {
-				ok = w.stepBaseline(n.Commit, n.Patch, false)
-			}
-			if !ok {
+			if !w.step(n.Commit, n.Patch, n.ScopeID, false) {
 				return errWatchEnded
 			}
 			return nil
@@ -549,13 +581,7 @@ func (w *watchStream) live() {
 			if !w.seeded && !w.seedAt(notification.Commit-1) {
 				return
 			}
-			ok = false
-			if w.scoped {
-				ok = w.emitScoped(notification.Commit)
-			} else {
-				ok = w.stepBaseline(notification.Commit, notification.Patch, true)
-			}
-			if !ok {
+			if !w.step(notification.Commit, notification.Patch, notification.ScopeID, true) {
 				return
 			}
 		}

@@ -514,6 +514,25 @@ document's size for disjoint baseline commits.
 DONE WHEN: those pass, the extended watch-cost table is flat on both axes, and verse's scoped
 root watch is measured on the shapegen store before and after. Release point.
 
+3 AS BUILT: `watchStream.step` is the one step for both kinds of watch. A scoped watch
+steps by its own scope's delta exactly as a baseline watch steps by baseline's, since that
+delta applies last in the fold whatever baseline does. For a baseline delta,
+`storage.BaselineDeltaInScope` decides from the footprint with no entry read: HIDDEN when a
+total cover of the scope stands at the watched path or above it, and the commit is
+accounted for and nothing sent; STEPS when the scope has no live statement at, above or
+beneath any path the projected delta states something at; OVERLAPS otherwise, and the
+watch re-reads at the path -- a read that now folds the scope's live statements -- and
+sends the difference as it always did. Replay follows the same rule per commit. Counted as
+`watch.scope.step`, `.drop` and `.reread` in the hub's report. The property is
+`TestScopedStepAgreesWithTheRecompute`: over twenty seeds of mixed baseline and scoped
+writes with claims among them, the value the rule steps, drops or re-reads to at each
+commit is the value a scoped read at the path answers, at four watched paths. The three
+cases are each a test of their own. Not done here: the extended watch-cost table and the
+measurement of verse's root watch on the shaped store, which are the numbers to take on
+staging with the counters rather than on a laptop -- the re-read is the phase 2 read, and
+the step is one fold of one delta. The re-read's delta spells a changed scalar as
+`!replace`, as it always has; a client applies it.
+
 Then the issues, from results: sb33w8p9 and 9b2vpggx against the tables; 4wpqh7t2 as
 superseded, with the phase P argument recorded on it; mgg9nvt6 against phase P.
 
@@ -592,6 +611,10 @@ Continued from test_corpus.md in the same form; filled in as each phase lands.
                path under a scope opens no log; a path under a claim is not proven absent)
     REWRITTEN  2: the shaped store's counted reads expect one folded entry and a footprint
                answer
+    ADDED      3: server scoped_watch_step_test (under a claim: baseline dropped, its own
+               stepped; an untouched path steps baseline; an overlap re-reads and the
+               delta lands on the scope's view; the rule against the recompute at every
+               commit)
                0: scope_interleave, the differential harness, the shapegen scope workload
                1: footprint_test (covers as live statements; reopen equals rebuild; delete
                   pages nothing outside; references follow a moved entry; the pass reads

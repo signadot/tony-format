@@ -24,6 +24,12 @@ type watchStats struct {
 	delivered  atomic.Int64
 	failed     atomic.Int64
 	fanout     atomic.Int64
+	// What a scoped watch did with each commit that reached its path: stepped the value
+	// it holds, dropped the commit as hidden under the scope's claim, or re-read the
+	// path and sent the difference (session_watch.go, step).
+	scopeStep   atomic.Int64
+	scopeDrop   atomic.Int64
+	scopeReread atomic.Int64
 }
 
 type WatchHub struct {
@@ -48,11 +54,14 @@ func (h *WatchHub) Report() map[string]any {
 
 	b := h.stats.broadcasts.Load()
 	m := map[string]any{
-		"watch.paths":      paths,
-		"watch.watchers":   watchers,
-		"watch.broadcasts": b,
-		"watch.delivered":  h.stats.delivered.Load(),
-		"watch.dropped":    h.stats.failed.Load(),
+		"watch.paths":        paths,
+		"watch.watchers":     watchers,
+		"watch.broadcasts":   b,
+		"watch.delivered":    h.stats.delivered.Load(),
+		"watch.dropped":      h.stats.failed.Load(),
+		"watch.scope.step":   h.stats.scopeStep.Load(),
+		"watch.scope.drop":   h.stats.scopeDrop.Load(),
+		"watch.scope.reread": h.stats.scopeReread.Load(),
 	}
 	if b > 0 {
 		m["watch.fanout.avg"] = (time.Duration(h.stats.fanout.Load()) / time.Duration(b)).Round(time.Microsecond).String()
