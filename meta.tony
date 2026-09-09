@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: c23ad3fdf6339ba5450b2f18a26523af8609501e
 commits:
 - c23ad3fdf6339ba5450b2f18a26523af8609501e
 created: "2025-12-25T09:48:55.442546+01:00"
@@ -9,5 +10,5 @@ duplicates: []
 id: qvn7ptxch12krxzt9hmg
 labels: []
 related_issues: []
-status: open
-updated: "2026-09-09T09:19:59.069408+02:00"
+status: closed
+updated: "2026-09-09T09:19:59.155606+02:00"
