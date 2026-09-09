@@ -337,6 +337,23 @@ BUILD:
 DONE WHEN: the linear rows in "What is measured" are printed by `go test -run TestScaling`,
 the interleave row with them, and every counter above exists and reads zero.
 
+0 AS BUILT: `TestScaling_ScopedWriteInterleaved` prints the pair (3.87ms at N=50 to 15.2ms
+at N=400, the baseline write alone ~690us); the scope counters exist, `reads.scope` and
+`reads.scope.folded` count today's term from openRead and the footprint ones read zero;
+genScopeOps generates the cover shapes; `compareViews` is the reading half of every scope
+differential and the compaction differential goes through it; `shapedScopeStore` is a
+sandbox on the shaped store and `TestScopedReadsOnAShapedStoreCountTheirScopeTerm` reads
+the counters off it. The watch counters wait for phase 3, where the server's WatchHub
+reports. FOUND, and fixed here: an operation over a container was indexed at its own path
+twice, as the operation and as its operand, the copies equal to the tree; re-indexing a
+survivor after compaction left the operand's spine copy, and a read below a claim skipped
+the operator above it, so the claim stopped shadowing the moment a compaction moved it
+(index.eachPatchBelow; TestAClaimShadowsAfterCompaction). It reaches every claim on main
+too. FOUND, and filed as 0v2ws9w4h12kr7stm5n0: the fold refuses to graft a field into an
+unkeyed array the base holds, where tony.Patch replaces the array, so after a snapshot one
+write of a field under an array-valued path makes reads at that path and at the root fail.
+The generator keeps its arrays on their own key until that is decided.
+
 ## Phase 1 -- the index knows the cover
 
 READ: index_residency.md; index/{index.go (Add, Remove, DeleteScope, removeAll), region.go,
@@ -506,6 +523,14 @@ Continued from test_corpus.md in the same form; filled in as each phase lands.
                beneath it); scope_compaction_test TestAClaimDominatesWhatItCovers (a
                hundred writes and a commented value under a later claim leave one entry)
     FOUND      P: every existing !raw test passed under both semantics
+    ADDED      0: scope_scaling TestScaling_ScopedWriteInterleaved; scope_differential
+               compareViews; shapegen shapedScopeStore and the counted scoped reads;
+               index one_segment_per_path (an operation over a container is one segment
+               at its path); scope_compaction TestAClaimShadowsAfterCompaction
+    REWRITTEN  0: genScopeOps gains the cover shapes, arrays on their own key; the
+               compaction differential reads through compareViews
+    FOUND      0: the duplicate segment at an operation's path (fixed); the fold's graft
+               into an unkeyed array (0v2ws9w4h12kr7stm5n0)
                0: scope_interleave, the differential harness, the shapegen scope workload
                1: footprint_test (covers as live statements; reopen equals rebuild; delete
                   pages nothing outside; references follow a moved entry; the pass reads

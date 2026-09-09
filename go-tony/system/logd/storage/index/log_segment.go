@@ -201,7 +201,23 @@ func eachPatchSegment(e *dlog.Entry, logFile string, pos int64, txSeq int64, gen
 	seg := NewLogSegmentFromPatchEntry(e, kPath, logFile, pos, txSeq, generation, scopeID)
 	seg.Spine = passesThrough(n)
 	fn(seg)
+	eachPatchBelow(e, logFile, pos, txSeq, generation, n, kPath, scopeID, fn)
+}
 
+// eachPatchBelow records the segments BENEATH n: at the paths its own structure reaches,
+// or the paths its operand's document values sit at. An operand that sits where its
+// operation sits -- OperandPaths' Suffix "" -- is not a second statement about that path,
+// so it is walked for what is beneath it and not recorded again.
+//
+// It was recorded again, and the copies were not harmless. Two segments of one entry at
+// one path are EQUAL to the index -- LogSegCompare reads neither Spine nor the position --
+// so the tree kept the first, which was the operation's, marked a write. Compaction
+// re-indexes a survivor one segment at a time, removing and adding each, and the last
+// copy through was the operand's, marked spine where the operand is a plain container. A
+// read below a scope's claim then skipped the operator above it at the ancestor, and the
+// claim stopped shadowing baseline the moment a compaction moved it
+// (TestAClaimShadowsAfterCompaction).
+func eachPatchBelow(e *dlog.Entry, logFile string, pos int64, txSeq int64, generation int64, n *ir.Node, kPath string, scopeID *string, fn func(*LogSegment)) {
 	if n == nil {
 		return
 	}
@@ -224,6 +240,10 @@ func eachPatchSegment(e *dlog.Entry, logFile string, pos int64, txSeq int64, gen
 	// when it has no answer the walk below runs as it always did.
 	if ops, known := mergeop.OperandPaths(n); known {
 		for _, o := range ops {
+			if o.Suffix == "" {
+				eachPatchBelow(e, logFile, pos, txSeq, generation, o.Node, kPath, scopeID, fn)
+				continue
+			}
 			eachPatchSegment(e, logFile, pos, txSeq, generation, o.Node,
 				kPath+o.Suffix, scopeID, fn)
 		}

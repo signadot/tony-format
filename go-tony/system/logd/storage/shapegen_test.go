@@ -123,3 +123,79 @@ func TestRootReadIsACursorAtTheRoot(t *testing.T) {
 	}
 	_ = ir.Null
 }
+
+// scopeShape is a sandbox on a shaped store: a scope that rewrites K of the store's paths,
+// rounds times, while baseline keeps writing all of them. It is the deployment shape the
+// scope plan measures against -- a sandbox writing a few entities while baseline writes
+// many (scope_plan.md, phase 0) -- and the watch at the shared ancestor is phase 3's.
+type scopeShape struct {
+	shape
+	scope  string
+	k      int // paths the scope writes, the first k of the store's
+	rounds int // times the scope rewrites each of them
+}
+
+// shapedScopeStore builds the baseline shape, then interleaves the scope's rounds with one
+// more baseline round, so the scope's entries sit among baseline's in the log rather than
+// after them.
+func shapedScopeStore(t *testing.T, sh scopeShape) (*Storage, []string) {
+	t.Helper()
+	s, paths := shapedStore(t, sh.shape)
+	sc := sh.scope
+	for round := 0; round < sh.rounds; round++ {
+		for i := 0; i < sh.k && i < len(paths); i++ {
+			body := fmt.Sprintf("{v: %d, sandbox: %s}", 1000+round, strings.Repeat("y", 64))
+			if err := scopedCommit(t, s, &sc, paths[i], body); err != nil {
+				t.Fatalf("scope write %s: %v", paths[i], err)
+			}
+		}
+		for _, p := range paths {
+			body := fmt.Sprintf("{v: %d, blob: %s}", sh.writesPerPath+round, strings.Repeat("x", 64))
+			if err := scopedCommit(t, s, nil, p, body); err != nil {
+				t.Fatalf("baseline write %s: %v", p, err)
+			}
+		}
+	}
+	return s, paths
+}
+
+// A scoped read of one of the sandbox's paths, and of a path the sandbox never wrote,
+// counted: what the scope term of each folds today is the scope's history at the path,
+// and the footprint counters exist and read zero. Phase 2 changes the first number and
+// starts the others; this is where they are read from.
+func TestScopedReadsOnAShapedStoreCountTheirScopeTerm(t *testing.T) {
+	sh := scopeShape{
+		shape: shape{paths: 90, writesPerPath: 2, snapshotEvery: 100,
+			ancestors: []string{"verse.git.ref", "verse.github.issue", "verse.github.comment"}},
+		scope: "sandbox", k: 5, rounds: 8,
+	}
+	s, paths := shapedScopeStore(t, sh)
+	commit, _ := s.GetCurrentCommit()
+	sc := sh.scope
+
+	before := s.ReadStats()
+	if _, _, err := readSubtreeAt(s, paths[0], commit, &sc); err != nil {
+		t.Fatal(err)
+	}
+	mid := s.ReadStats()
+	if _, _, err := readSubtreeAt(s, paths[len(paths)-1], commit, &sc); err != nil {
+		t.Fatal(err)
+	}
+	after := s.ReadStats()
+
+	if after.Scope != before.Scope+2 {
+		t.Errorf("scoped reads counted %d -> %d, want two more", before.Scope, after.Scope)
+	}
+	sandboxed := mid.ScopeFolded - before.ScopeFolded
+	untouched := after.ScopeFolded - mid.ScopeFolded
+	if sandboxed < int64(sh.rounds) {
+		t.Errorf("a read of a path the sandbox rewrote %d times folded %d scope entries", sh.rounds, sandboxed)
+	}
+	if untouched != 0 {
+		t.Errorf("a read of a path the sandbox never wrote folded %d scope entries", untouched)
+	}
+	if after.ScopeFootprint != 0 || after.ScopeSkipped != 0 || after.ScopeHistoric != 0 {
+		t.Errorf("footprint counters should read zero before phase 2: %+v", after)
+	}
+	t.Logf("sandbox path folded %d scope entries, untouched path %d; wide %d", sandboxed, untouched, after.ScopeWide)
+}

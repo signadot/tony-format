@@ -166,14 +166,17 @@ func (s *Storage) openRead(at int64, scopeID *string, kp string, started time.Ti
 		}
 	}
 	if err == nil && scopeID != nil {
+		var scopeFolded int64
 		for seg := range s.index.Segments(kp, nil, &at, scopeID) {
 			if seg.StartCommit == seg.EndCommit || seg.ScopeID == nil || *seg.ScopeID != *scopeID || isOverlaySegment(seg) {
 				continue
 			}
+			scopeFolded++
 			if err = project(seg); err != nil {
 				break
 			}
 		}
+		s.readStats.noteScope(kp, scopeFolded)
 	}
 	if errors.Is(err, errBlocked) {
 		base.Close()

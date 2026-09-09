@@ -53,6 +53,21 @@ type ReadStats struct {
 	LongestTail   int64
 	PathSnapshots int64
 
+	// The SCOPE term of a scoped read (scope_plan.md). Scope counts the scoped reads and
+	// ScopeWide those at the root; ScopeFolded is the scope's entries reads have folded --
+	// today every entry of the scope that reaches the path, from commit 0, which is the
+	// number phase 2 bounds. ScopeFootprint is the footprint nodes reads walked,
+	// ScopeSkipped the live statements a read did not fold (expected zero; a non-zero is a
+	// defect in the footprint's maintenance), and ScopeHistoric the scoped reads at a
+	// commit below the scope's newest cover on the path, served from the history. The
+	// last three are zero until phase 2 reports them.
+	Scope          int64
+	ScopeWide      int64
+	ScopeFolded    int64
+	ScopeFootprint int64
+	ScopeSkipped   int64
+	ScopeHistoric  int64
+
 	// Why a wanted path snapshot was not taken; see readStats.
 	SnapNotYetWorth      int64
 	SnapWantedIncomplete int64
@@ -103,6 +118,24 @@ type readStats struct {
 	snapAlreadyHave      atomic.Int64 // a snapshot at or above the path already stands there
 	snapAbsent           atomic.Int64 // the path holds nothing
 	snapInProgress       atomic.Int64 // the log was busy with another snapshot
+
+	// The scope term of a scoped read; see ReadStats.
+	scope          atomic.Int64
+	scopeWide      atomic.Int64
+	scopeFolded    atomic.Int64
+	scopeFootprint atomic.Int64
+	scopeSkipped   atomic.Int64
+	scopeHistoric  atomic.Int64
+}
+
+// noteScope records the scope term of one scoped read: how many of the scope's entries it
+// folded after baseline, and whether it was at the root.
+func (r *readStats) noteScope(kp string, folded int64) {
+	r.scope.Add(1)
+	if kp == "" {
+		r.scopeWide.Add(1)
+	}
+	r.scopeFolded.Add(folded)
 }
 
 // noteBound records one read against the bound: the bytes it emitted, the largest record
@@ -187,6 +220,13 @@ func (r *readStats) snapshot() ReadStats {
 		SnapAlreadyHave:      r.snapAlreadyHave.Load(),
 		SnapAbsent:           r.snapAbsent.Load(),
 		SnapInProgress:       r.snapInProgress.Load(),
+
+		Scope:          r.scope.Load(),
+		ScopeWide:      r.scopeWide.Load(),
+		ScopeFolded:    r.scopeFolded.Load(),
+		ScopeFootprint: r.scopeFootprint.Load(),
+		ScopeSkipped:   r.scopeSkipped.Load(),
+		ScopeHistoric:  r.scopeHistoric.Load(),
 	}
 }
 
@@ -226,6 +266,12 @@ func (r ReadStats) Report() map[string]any {
 		"snapshots.path.no.already-have":    r.SnapAlreadyHave,
 		"snapshots.path.no.absent":          r.SnapAbsent,
 		"snapshots.path.no.log-busy":        r.SnapInProgress,
+		"reads.scope":                       r.Scope,
+		"reads.scope.wide":                  r.ScopeWide,
+		"reads.scope.folded":                r.ScopeFolded,
+		"reads.scope.footprint":             r.ScopeFootprint,
+		"reads.scope.skipped":               r.ScopeSkipped,
+		"reads.scope.historic":              r.ScopeHistoric,
 	}
 	if r.Narrow > 0 {
 		m["reads.narrow.avg"] = (r.NarrowDuration / time.Duration(r.Narrow)).Round(time.Microsecond).String()

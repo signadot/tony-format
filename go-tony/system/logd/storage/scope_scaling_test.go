@@ -234,3 +234,36 @@ func tonyPatch(base, patch *ir.Node) (*ir.Node, error) {
 	}
 	return tony.Patch(base, patch)
 }
+
+// TestScaling_ScopedWriteInterleaved is the row sb33w8p9h12kr16kg5n0 opened on: a scope
+// writing while BASELINE writes too, a baseline commit between every scoped one, which is
+// what a real deployment does. It was the one case a kept scope document could not make
+// flat; there is no kept document now, and every scoped write pays the same replay whether
+// or not baseline moved. The pair is measured, and the baseline write alone is printed so
+// the scoped share can be read off.
+func TestScaling_ScopedWriteInterleaved(t *testing.T) {
+	if testing.Short() {
+		t.Skip("scaling measurement")
+	}
+	scope := "sandbox"
+	const reps = 20
+	t.Log("scoped write with a baseline commit between every one (the pair), after N scope writes:")
+	for _, n := range []int{50, 100, 200, 400} {
+		s, _ := setupStore(t, 1, n, &scope)
+		d := timeN(reps, func() {
+			scalingCommit(t, s, nil, `{ctr: 1, tag: "t"}`, nil)
+			scalingCommit(t, s, &scope, `{ctr: 1, tag: "t"}`, nil)
+		})
+		t.Logf("  N=%4d  %v (pair)", n, d)
+		s.Close()
+	}
+	t.Log("the baseline write alone, for the pair:")
+	for _, n := range []int{50, 400} {
+		s, _ := setupStore(t, 1, n, &scope)
+		d := timeN(reps, func() {
+			scalingCommit(t, s, nil, fmt.Sprintf(`{ctr: %d, tag: "t"}`, n), nil)
+		})
+		t.Logf("  N=%4d  %v", n, d)
+		s.Close()
+	}
+}

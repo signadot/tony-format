@@ -123,22 +123,8 @@ func TestScopeCompactionDifferential(t *testing.T) {
 			}
 			head := commits[len(commits)-1]
 			sc := scope
-			for _, view := range []*string{nil, &sc} {
-				for _, kp := range paths {
-					want, _, err := readSubtreeAt(ref, kp, head, view)
-					if err != nil {
-						t.Fatalf("reference read %q: %v", kp, err)
-					}
-					got, _, err := readSubtreeAt(subj, kp, head, view)
-					if err != nil {
-						t.Fatalf("subject read %q: %v", kp, err)
-					}
-					if withComments(got) != withComments(want) {
-						t.Fatalf("read %q (scope %v) differs after compaction\n reference %s\n subject   %s\n%s",
-							kp, view != nil, withComments(want), withComments(got), dumpScopeOps(ops))
-					}
-				}
-			}
+			// At the head only: history beyond the cutoff is approximate by design.
+			compareViews(t, ref, subj, []int64{head}, paths, scope, ops)
 			floor := subj.ReplayFloor()
 			if floor == 0 {
 				return // nothing was dropped on this stream
@@ -221,4 +207,41 @@ func TestAClaimDominatesWhatItCovers(t *testing.T) {
 		t.Errorf("the scope reads differently after compaction\n before %s\n after  %s", withComments(before), withComments(after))
 	}
 	expectAt(t, s, &sc, "a", `{x: 0, z: !glob "*"}`)
+}
+
+// A claim goes on shadowing after the compaction that moved it. It did not: the claim's
+// entry was indexed at its own path twice, as the operation and as its operand, and
+// re-indexing the survivor left the operand's copy, marked spine, so a read below the
+// claim no longer saw the operator above it (index.eachPatchBelow).
+func TestAClaimShadowsAfterCompaction(t *testing.T) {
+	s := openTestStorage(t)
+	sc := "s1"
+	mustCommit(t, s, nil, `{a: {y: 2}, keep: 0}`)
+	commitAt(t, s, &sc, "a", `!insert.raw {x: 1}`)
+	mustCommit(t, s, nil, `{a: {y: 3}}`)
+	head, _ := s.GetCurrentCommit()
+	before, _, err := readSubtreeAt(s, "a.y", head, &sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before != nil {
+		t.Fatalf("a.y in the scope before compaction = %s, want absent under the claim", withComments(before))
+	}
+	for range 2 {
+		if err := s.SwitchDLog(); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Compact(everythingBeyondCutoff()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	after, _, err := readSubtreeAt(s, "a.y", head, &sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != nil {
+		t.Errorf("a.y in the scope after compaction = %s: the claim stopped shadowing", withComments(after))
+	}
+	expectAt(t, s, &sc, "a", `{x: 1}`)
+	expectAt(t, s, nil, "a", `{y: 3}`)
 }

@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"testing"
 
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/parse"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
@@ -33,6 +34,18 @@ func (o scopeOp) String() string {
 
 // genScopeOps mixes baseline and scoped writes over overlapping paths, so a scope
 // write is regularly followed by a baseline write beneath, above or at it.
+//
+// The shapes are the ones the cover rules tell apart (scope_compaction.go): a plain
+// scalar and a plain array, which replace their path; a tagged scalar, a commented value,
+// an array with an object element and an empty object, which a later plain write does
+// not fully retire; a !delete; a claim, !insert.raw with an operator held as data; and a
+// nested object, whose spine a later !delete beneath it may be the only thing to have
+// created (scope_plan.md, phase 0). Most writes stay the plain merge they always were.
+//
+// The arrays live under their own key, `arr`. An object-shaped write descending into a
+// path that holds an unkeyed array is a hole of its own -- the fold refuses to graft where
+// tony.Patch replaces the array -- and it is filed rather than guarded here, since these
+// differentials are about what a scope reads and not about that.
 func genScopeOps(rng *rand.Rand, n int) []scopeOp {
 	paths := []string{"", "a", "a.b", "d", "d.e"}
 	ops := make([]scopeOp, 0, n)
@@ -42,13 +55,29 @@ func genScopeOps(rng *rand.Rand, n int) []scopeOp {
 			path:     paths[rng.Intn(len(paths))],
 			snapshot: rng.Intn(8) == 0,
 		}
-		switch rng.Intn(8) {
+		k := rng.Intn(3)
+		switch rng.Intn(20) {
 		case 0:
 			o.src = `!delete`
 		case 1:
-			o.src = fmt.Sprintf("# note %d\n{k%d: %d}", i, rng.Intn(3), i)
+			o.src = fmt.Sprintf("# note %d\n{k%d: %d}", i, k, i)
+		case 2:
+			o.src = fmt.Sprintf(`{arr: [%d, %d]}`, i, i+1)
+		case 3:
+			o.src = fmt.Sprintf(`{arr: [{n: %d}]}`, i)
+		case 4:
+			o.src = fmt.Sprintf(`{k%d: {}}`, k)
+		case 5:
+			o.src = fmt.Sprintf(`{k%d: !t1 %d}`, k, i)
+		case 6:
+			o.src = fmt.Sprintf(`!insert.raw {k%d: %d, op: !glob "x%d"}`, k, i, i)
+		case 7:
+			o.src = fmt.Sprintf(`{k%d: {n: %d}}`, k, i)
+		case 8:
+			o.path = kpath.ChildField(kpath.ChildField(o.path, fmt.Sprintf("k%d", k)), "n")
+			o.src = `!delete`
 		default:
-			o.src = fmt.Sprintf(`{k%d: %d}`, rng.Intn(3), i)
+			o.src = fmt.Sprintf(`{k%d: %d}`, k, i)
 		}
 		ops = append(ops, o)
 	}
