@@ -349,10 +349,11 @@ twice, as the operation and as its operand, the copies equal to the tree; re-ind
 survivor after compaction left the operand's spine copy, and a read below a claim skipped
 the operator above it, so the claim stopped shadowing the moment a compaction moved it
 (index.eachPatchBelow; TestAClaimShadowsAfterCompaction). It reaches every claim on main
-too. FOUND, and filed as 0v2ws9w4h12kr7stm5n0: the fold refuses to graft a field into an
-unkeyed array the base holds, where tony.Patch replaces the array, so after a snapshot one
-write of a field under an array-valued path makes reads at that path and at the root fail.
-The generator keeps its arrays on their own key until that is decided.
+too. FOUND, filed as 0v2ws9w4h12kr7stm5n0 and fixed on main (e301ef6): the fold refused to
+graft a field into an unkeyed array the base holds, where tony.Patch replaces the array, so
+after a snapshot one write of a field under an array-valued path made reads at that path
+and at the root fail; now the fold replaces the array at its open. Not a scope defect, and
+the generator's shapes share their keys again with it fixed.
 
 ## Phase 1 -- the index knows the cover
 
@@ -530,7 +531,7 @@ Continued from test_corpus.md in the same form; filled in as each phase lands.
     REWRITTEN  0: genScopeOps gains the cover shapes, arrays on their own key; the
                compaction differential reads through compareViews
     FOUND      0: the duplicate segment at an operation's path (fixed); the fold's graft
-               into an unkeyed array (0v2ws9w4h12kr7stm5n0)
+               into an unkeyed array (0v2ws9w4h12kr7stm5n0, fixed on main in e301ef6)
                0: scope_interleave, the differential harness, the shapegen scope workload
                1: footprint_test (covers as live statements; reopen equals rebuild; delete
                   pages nothing outside; references follow a moved entry; the pass reads

@@ -2,10 +2,6 @@ package storage
 
 import (
 	"testing"
-
-	"github.com/signadot/tony-format/go-tony/encode"
-	"github.com/signadot/tony-format/go-tony/mergeop"
-	"github.com/signadot/tony-format/go-tony/parse"
 )
 
 // A field written under a path that holds an unkeyed array replaces the array, whether or
@@ -45,25 +41,5 @@ func TestAFieldWrittenUnderAnArrayAfterASnapshotReplacesIt(t *testing.T) {
 			}
 			expectAt(t, snapped, nil, "k2", tc.wantK2)
 		})
-	}
-}
-
-// expectAt reads kp at the head and compares it to want as data.
-func expectAt(t *testing.T, s *Storage, scope *string, kp, want string) {
-	t.Helper()
-	commit, err := s.GetCurrentCommit()
-	if err != nil {
-		t.Fatalf("GetCurrentCommit: %v", err)
-	}
-	got, _, err := readSubtreeAt(s, kp, commit, scope)
-	if err != nil {
-		t.Fatalf("read %s: %v", kp, err)
-	}
-	w, err := parse.Parse([]byte(want))
-	if err != nil {
-		t.Fatalf("parse %q: %v", want, err)
-	}
-	if !mergeop.RawEqual(got, w) {
-		t.Errorf("at %q:\n got  %s\n want %s", kp, encode.MustString(got), encode.MustString(w))
 	}
 }

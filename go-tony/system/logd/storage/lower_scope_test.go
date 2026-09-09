@@ -41,11 +41,6 @@ func (o scopeOp) String() string {
 // not fully retire; a !delete; a claim, !insert.raw with an operator held as data; and a
 // nested object, whose spine a later !delete beneath it may be the only thing to have
 // created (scope_plan.md, phase 0). Most writes stay the plain merge they always were.
-//
-// The arrays live under their own key, `arr`. An object-shaped write descending into a
-// path that holds an unkeyed array is a hole of its own -- the fold refuses to graft where
-// tony.Patch replaces the array -- and it is filed rather than guarded here, since these
-// differentials are about what a scope reads and not about that.
 func genScopeOps(rng *rand.Rand, n int) []scopeOp {
 	paths := []string{"", "a", "a.b", "d", "d.e"}
 	ops := make([]scopeOp, 0, n)
@@ -62,9 +57,9 @@ func genScopeOps(rng *rand.Rand, n int) []scopeOp {
 		case 1:
 			o.src = fmt.Sprintf("# note %d\n{k%d: %d}", i, k, i)
 		case 2:
-			o.src = fmt.Sprintf(`{arr: [%d, %d]}`, i, i+1)
+			o.src = fmt.Sprintf(`{k%d: [%d, %d]}`, k, i, i+1)
 		case 3:
-			o.src = fmt.Sprintf(`{arr: [{n: %d}]}`, i)
+			o.src = fmt.Sprintf(`{k%d: [{n: %d}]}`, k, i)
 		case 4:
 			o.src = fmt.Sprintf(`{k%d: {}}`, k)
 		case 5:
