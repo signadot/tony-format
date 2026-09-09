@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 153d44acf768ba3fcb9bb69c01fad18a13e87c2f
 commits:
 - 7715a4f57c91101fa3d273ba337064492c509b81
 - 625c14301fd08fcf90aebcc7f187b43b1967fe27
@@ -50,5 +51,5 @@ related_issues:
 - 4wpqh7t2h12ks1fvj5n0
 - qvn7ptxch12krxzt9hmg
 - mgg9nvt6h12krn6dksn0
-status: open
-updated: "2026-09-09T09:20:57.944839+02:00"
+status: closed
+updated: "2026-09-09T09:20:58.045185+02:00"
