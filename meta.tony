@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 9a54d21e37aaeaa523b1f64cc2c714c224853805
 commits:
 - fdf4bdd0bcd387faca7a268e9b8b48c7ea62e4a7
 - 6679423ce42abddadda021d4df54e1580f76134f
@@ -16,5 +17,5 @@ related_issues:
 - 3xn08cb6h12kr4psg5n0
 - sb33w8p9h12kr16kg5n0
 - trqgmd1ah12kranxg5n0
-status: open
-updated: "2026-09-09T09:20:36.296171+02:00"
+status: closed
+updated: "2026-09-09T09:20:36.408994+02:00"
