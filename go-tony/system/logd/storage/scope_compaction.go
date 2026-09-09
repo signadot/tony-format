@@ -28,15 +28,17 @@ import (
 //
 // COVERS. What a later statement at q says about everything at and beneath q:
 //
-//	total   !raw or !delete: the result at q is the operand, or absence, whatever was
-//	        there -- comments, tags and all.
+//	total   !insert or !delete: the result at q is the operand, or absence, whatever
+//	        was there -- comments, tags and all. A claim is !insert.raw (lower.go).
 //	whole   a plain scalar, or an array of plain scalars: the value at q is replaced, and
 //	        everything beneath q with it. At q ITSELF the merge may keep a comment or a
 //	        tag the earlier statement carried, so a whole cover at the same path dominates
 //	        only a statement that carried neither.
 //	none    anything else. An array with object elements merges element by element; an
 //	        empty object merges nothing away; an operation other than the two above
-//	        (!insert, !addtag, !comment ...) says something relative to its neighbours.
+//	        (!addtag, !comment ...) says something relative to its neighbours. A bare
+//	        !raw merges its subtree as data (mergeop/raw.go) and covers what a value of
+//	        that shape covers.
 //
 // A statement is dominated by a total cover at its path or above, by a whole cover
 // strictly above it, or -- when it is an untagged, uncommented scalar or array of them, an
@@ -94,18 +96,37 @@ func statement(root *ir.Node) (offers, needs coverStrength) {
 	// The operation a node is applied by is the first one in its chain: !insert.raw is an
 	// insert, and a label ahead of the operation is the value's.
 	switch firstOperator(n.Tag) {
-	case "raw":
-		// The operand lands as it is; a comment on the wrapper may land with it.
+	case "insert":
+		// The result is the operand whatever was there (insertOp.Patch applies it
+		// against absence); a comment on the wrapper may land with it.
 		if commented {
 			return coverTotal, coverTotal
 		}
 		return coverTotal, coverWhole
 	case "delete":
 		return coverTotal, coverWhole
+	case "raw":
+		// The escape merges, so the statement is the value it wraps, every tag beneath
+		// it a data tag. A data tag AHEAD of the escape rides on the value too.
+		pre, _, _, child, err := mergeop.SplitChild(n)
+		if err != nil || child == nil {
+			return coverNone, coverTotal
+		}
+		offers, needs = statementData(child, commented)
+		if pre != "" && needs < coverTotal {
+			needs = coverTotal
+		}
+		return offers, needs
 	case "":
 	default:
 		return coverNone, coverTotal
 	}
+	return statementData(n, commented)
+}
+
+// statementData classifies a node whose tags are data: what a value of its shape offers
+// to the statements before it and needs from the ones after, with nothing to dispatch.
+func statementData(n *ir.Node, commented bool) (offers, needs coverStrength) {
 	switch n.Type {
 	case ir.ObjectType:
 		if commented {

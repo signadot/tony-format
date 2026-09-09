@@ -15,9 +15,16 @@ import (
 // interpreted rather than stored.  A tony document which itself contains tony
 // operators — a match, a patch, a rule — could not be written at all.
 //
-// As a patch, !raw stores its subtree as data: nothing beneath it is
-// interpreted, at any depth, and the !raw tag itself is consumed so the
-// subtree lands with its own tags intact.
+// As a patch, !raw MERGES its subtree as data: the walk is the one a patch of
+// the same shape takes -- an object merges field by field, an array by
+// position, a scalar replaces -- with nothing beneath it interpreted, at any
+// depth, and the !raw tag itself is consumed so the subtree lands with its own
+// tags intact. Escaping is not replacing: a merge which reads operator tags as
+// data is still a merge in which nothing beneath is interpreted, and the
+// document keeps what the raw value does not mention. "The value is exactly
+// this, as data" is !insert.raw, which applies the escaped value against
+// absence, and is the chain a diff already emits for a value that holds an
+// operation (mgg9nvt6h12krn6dksn0).
 //
 // As a match, !raw compares its subtree to the doc as literal data: tags are
 // compared, not evaluated, and the comparison is exact rather than the partial
@@ -54,7 +61,10 @@ func (r rawOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, _
 	if debug.Op() {
 		debug.Logf("raw op patch on %s\n", doc.Path())
 	}
-	return r.child.Clone(), nil
+	// The ordinary walk with the dispatch off (OpContext.AsData). Answering a clone of
+	// the child was ONE way to interpret nothing; it was also the way that threw the
+	// document away.
+	return pf(doc, r.child, ctx.AsData())
 }
 
 func (r rawOp) Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, error) {

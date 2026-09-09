@@ -64,8 +64,10 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 	// handed it the value and dropped what it was about to state. It falls
 	// through to the operator dispatch below untouched.
 	commentOp := false
-	if _, opTag, _, _, err := mergeop.SplitChild(patch); err == nil && opTag == mergeop.CommentTag {
-		commentOp = true
+	if !ctx.IsData() {
+		if _, opTag, _, _, err := mergeop.SplitChild(patch); err == nil && opTag == mergeop.CommentTag {
+			commentOp = true
+		}
 	}
 	var docComment, patchComment *ir.Node
 	if !commentOp && doc.Type == ir.CommentType {
@@ -94,52 +96,58 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 		// removed comment come back.
 		keep := patchComment
 		if keep == nil {
-			if _, opTag, _, _, err := mergeop.SplitChild(patch); err == nil && opTag != "" {
-				return res, nil
+			if !ctx.IsData() {
+				if _, opTag, _, _, err := mergeop.SplitChild(patch); err == nil && opTag != "" {
+					return res, nil
+				}
 			}
 			keep = docComment
 		}
 		return rewrapComment(res, keep, nil), nil
 	}
-	preTag, tag, args, child, err := mergeop.SplitChild(patch)
-	if err != nil {
-		return nil, err
-	}
-	if tag != "" {
-		op := mergeop.Lookup(tag)
-		if op == nil {
-			return nil, fmt.Errorf("no mergeop for tag %q", tag)
-		}
-		if ctx != nil && ctx.Config != nil && ctx.Config.RejectUnsafe && mergeop.Unsafe(tag) {
-			return nil, fmt.Errorf("unsafe operation %q rejected", tag)
-		}
-		opInst, err := op.Instance(child, args)
+	// Inside a !raw nothing is an operation (OpContext.IsData): a tag stays on its value
+	// as data, and the structural walk below is the whole of what happens.
+	if !ctx.IsData() {
+		preTag, tag, args, child, err := mergeop.SplitChild(patch)
 		if err != nil {
 			return nil, err
 		}
-		// Create MatchFunc and PatchFunc that thread ctx through recursive calls
-		matchFunc := func(d, p *ir.Node, c *mergeop.OpContext) (bool, error) {
-			return MatchWith(d, p, c)
+		if tag != "" {
+			op := mergeop.Lookup(tag)
+			if op == nil {
+				return nil, fmt.Errorf("no mergeop for tag %q", tag)
+			}
+			if ctx != nil && ctx.Config != nil && ctx.Config.RejectUnsafe && mergeop.Unsafe(tag) {
+				return nil, fmt.Errorf("unsafe operation %q rejected", tag)
+			}
+			opInst, err := op.Instance(child, args)
+			if err != nil {
+				return nil, err
+			}
+			// Create MatchFunc and PatchFunc that thread ctx through recursive calls
+			matchFunc := func(d, p *ir.Node, c *mergeop.OpContext) (bool, error) {
+				return MatchWith(d, p, c)
+			}
+			patchFunc := func(d, p *ir.Node, c *mergeop.OpContext) (*ir.Node, error) {
+				return doPatchWith(d, p, c)
+			}
+			res, err := opInst.Patch(doc, ctx, matchFunc, patchFunc, Diff)
+			if err != nil {
+				err = fmt.Errorf("%s patching %q gave %w", opInst, encode.MustString(doc), err)
+			}
+			// Restore the non-op part of the patch's tag onto the result -- unless the op
+			// already produced it. Most ops return a fresh value carrying no tag of their
+			// own, but one that answers with the DOCUMENT's tag (!key, which must stay a
+			// keyed list) hands back a tag that already holds this one, and composing again
+			// duplicated it: patching !bracket.key(name)[...] gave a result tagged
+			// !bracket.bracket.key(name), so Patch(a, Diff(a,b)) did not equal b.
+			// An op whose child is an ARGUMENT leaves the document's presentation
+			// alone: the braces on "!comment {head: []}" describe the operand.
+			if _, isArg := opInst.(mergeop.ArgumentOperand); res != nil && preTag != "" && !isArg {
+				res.Tag = restoreTag(preTag, res.Tag)
+			}
+			return res, err
 		}
-		patchFunc := func(d, p *ir.Node, c *mergeop.OpContext) (*ir.Node, error) {
-			return doPatchWith(d, p, c)
-		}
-		res, err := opInst.Patch(doc, ctx, matchFunc, patchFunc, Diff)
-		if err != nil {
-			err = fmt.Errorf("%s patching %q gave %w", opInst, encode.MustString(doc), err)
-		}
-		// Restore the non-op part of the patch's tag onto the result -- unless the op
-		// already produced it. Most ops return a fresh value carrying no tag of their
-		// own, but one that answers with the DOCUMENT's tag (!key, which must stay a
-		// keyed list) hands back a tag that already holds this one, and composing again
-		// duplicated it: patching !bracket.key(name)[...] gave a result tagged
-		// !bracket.bracket.key(name), so Patch(a, Diff(a,b)) did not equal b.
-		// An op whose child is an ARGUMENT leaves the document's presentation
-		// alone: the braces on "!comment {head: []}" describe the operand.
-		if _, isArg := opInst.(mergeop.ArgumentOperand); res != nil && preTag != "" && !isArg {
-			res.Tag = restoreTag(preTag, res.Tag)
-		}
-		return res, err
 	}
 	switch patch.Type {
 	case ir.ObjectType:

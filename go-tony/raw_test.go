@@ -162,3 +162,81 @@ func TestRawMatchComparesLiterally(t *testing.T) {
 		})
 	}
 }
+
+// TestRawPatchMergesAsData: escaping is not replacing (mgg9nvt6h12krn6dksn0). A raw
+// subtree merges as a patch of the same shape would, with its operator tags carried as
+// data instead of dispatched, and the document keeps what the raw value does not
+// mention. "Exactly this, as data" is !insert.raw, the chain a diff emits.
+func TestRawPatchMergesAsData(t *testing.T) {
+	tests := []struct{ name, doc, patch, res string }{{
+		name:  "the control: an ordinary container patch merges",
+		doc:   `c: {b: 1}`,
+		patch: `c: {a: 2}`,
+		res:   `c: {a: 2, b: 1}`,
+	}, {
+		name:  "a raw container merges too, its operator tag as data",
+		doc:   `c: {b: 1}`,
+		patch: `c: !raw {a: !nullify null}`,
+		res:   `c: {a: !nullify null, b: 1}`,
+	}, {
+		name:  "a raw container of plain data merges",
+		doc:   `c: {b: 1}`,
+		patch: `c: !raw {a: 2}`,
+		res:   `c: {a: 2, b: 1}`,
+	}, {
+		name:  "an operation-shaped field under raw replaces the field, not the object",
+		doc:   `c: {a: 1, b: 1}`,
+		patch: `c: !raw {a: !delete null}`,
+		res:   `c: {a: !delete null, b: 1}`,
+	}, {
+		name:  "raw merges at depth",
+		doc:   `c: {d: {x: 1}, b: 1}`,
+		patch: `c: !raw {d: {y: !glob "*"}}`,
+		res:   `c: {d: {x: 1, y: !glob "*"}, b: 1}`,
+	}, {
+		name:  "a raw scalar replaces the value, tag as data",
+		doc:   `c: {b: 1}`,
+		patch: `c: !raw.glob "*"`,
+		res:   `c: !glob "*"`,
+	}, {
+		name:  "a raw array is positional like any array",
+		doc:   `c: [7, 8, 9]`,
+		patch: `c: !raw [!glob "*"]`,
+		res:   `c: [!glob "*"]`,
+	}, {
+		name:  "!insert.raw is the replacing form",
+		doc:   `c: {b: 1}`,
+		patch: `c: !insert.raw {a: !nullify null}`,
+		res:   `c: {a: !nullify null}`,
+	}, {
+		name:  "!insert alone replaces, and its child is a patch",
+		doc:   `c: {b: 1}`,
+		patch: `c: !insert {a: 2}`,
+		res:   `c: {a: 2}`,
+	}, {
+		name:  "under a head comment on the document, the same merge",
+		doc:   "c:\n  # note\n  {b: 1}",
+		patch: `c: !raw {a: !nullify null}`,
+		res:   `c: {a: !nullify null, b: 1}`,
+	}, {
+		name:  "under a head comment on the patch, the same merge",
+		doc:   `c: {b: 1}`,
+		patch: "c:\n  # note\n  !raw {a: !nullify null}",
+		res:   `c: {a: !nullify null, b: 1}`,
+	}}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			doc := mustParse(t, test.doc)
+			patch := mustParse(t, test.patch)
+			got, err := Patch(doc, patch)
+			if err != nil {
+				t.Fatalf("patch: %v", err)
+			}
+			want := mustParse(t, test.res)
+			if !mergeop.RawEqual(got, want) {
+				t.Errorf("got\n%s\nwant\n%s", encode.MustString(got), encode.MustString(want))
+			}
+		})
+	}
+}

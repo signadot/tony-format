@@ -182,3 +182,43 @@ func dumpScopeOps(ops []scopeOp) string {
 	}
 	return out
 }
+
+// A claim retires everything beneath it: !insert.raw is a total cover, so a hundred
+// scope writes under a path go when the scope later claims the path, a commented value
+// among them, and the scope reads the same before and after.
+func TestAClaimDominatesWhatItCovers(t *testing.T) {
+	s := openTestStorage(t)
+	sc := "s1"
+	mustCommit(t, s, nil, `{a: {x: 1, y: 1}}`)
+	for i := 1; i <= 100; i++ {
+		commitAt(t, s, &sc, "a.x", fmt.Sprintf("%d", i))
+	}
+	commitAt(t, s, &sc, "a.y", "# kept?\n7")
+	commitAt(t, s, &sc, "a", `!insert.raw {x: 0, z: !glob "*"}`)
+	head, _ := s.GetCurrentCommit()
+	before, _, err := readSubtreeAt(s, "", head, &sc)
+	if err != nil {
+		t.Fatalf("scoped read: %v", err)
+	}
+
+	if err := s.SwitchDLog(); err != nil {
+		t.Fatalf("SwitchDLog: %v", err)
+	}
+	if got := scopeEntries(s, sc); got != 102 {
+		t.Fatalf("scope entries before compaction: %d, want 102", got)
+	}
+	if err := s.Compact(everythingBeyondCutoff()); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	if got := scopeEntries(s, sc); got != 1 {
+		t.Errorf("scope entries after compaction: %d, want 1 (the claim)", got)
+	}
+	after, _, err := readSubtreeAt(s, "", head, &sc)
+	if err != nil {
+		t.Fatalf("scoped read after compaction: %v", err)
+	}
+	if withComments(after) != withComments(before) {
+		t.Errorf("the scope reads differently after compaction\n before %s\n after  %s", withComments(before), withComments(after))
+	}
+	expectAt(t, s, &sc, "a", `{x: 0, z: !glob "*"}`)
+}

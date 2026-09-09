@@ -198,6 +198,23 @@ The escape belongs to the patch, not to the document, which is why the tag is
 consumed: a stored patch keeps its `!raw`, so replaying it escapes again.  A
 `!raw` _nested_ under a `!raw` is data like everything else beneath it.
 
+A `!raw` patch _merges_, as a patch of the same shape without it would: an
+object field by field, an array by position, a scalar by replacing.  Escaping
+is not replacing, and the document keeps what the raw value does not mention:
+
+```tony
+# doc
+c: {b: 1}
+# patch
+c: !raw {a: !nullify null}
+# doc after
+c: {a: !nullify null, b: 1}
+```
+
+To state that a value is _exactly_ this, as data, compose the escape under
+`!insert`, which applies its child against absence: `c: !insert.raw {a:
+!nullify null}` leaves `c: {a: !nullify null}`.
+
 In a match, `!raw` compares its subtree to the document as literal data: tags
 are compared rather than evaluated, and the comparison is exact — same fields,
 same length, `null` means `null` — rather than the partial object match of an
@@ -212,8 +229,9 @@ rule: !raw {id: !glob hot-*}    # no match: rule has a stage field too
 rule: {id: !raw.glob hot-*}     # match: id compared literally, stage ignored
 ```
 
-`Diff` emits `!raw` itself for a value which carries operator tags as data, so
-that `Patch(a, Diff(a, b))` is `b` for documents which contain operations, and
+`Diff` emits `!insert.raw` itself for a value which carries operator tags as
+data, so that `Patch(a, Diff(a, b))` is `b` for documents which contain
+operations, and
 `Reverse` stops at a `!raw` rather than reversing the operations named inside
 it — those are the document's values, not the diff's instructions.
 

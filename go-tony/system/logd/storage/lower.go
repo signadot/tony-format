@@ -252,16 +252,19 @@ func (s *Storage) lowerWrite(commit int64, merged *ir.Node, scopeID *string, sit
 	return out, nil
 }
 
-// claimValue is a value stated as the whole of what is at its path.
+// claimValue is a value stated as the whole of what is at its path: !insert.raw over it.
 //
-// !raw answers with its child and never looks at the document, so it says both halves
-// of what a claim needs at once: the subtree is exactly this, and nothing inside it is
-// an instruction. Without it the claim is an ordinary merge patch and a CONTAINER only
+// A claim says two things, and they are two operations. !insert applies its child
+// against absence and answers with the result whatever was there, so the subtree is
+// exactly this: without it the claim is an ordinary merge patch and a CONTAINER only
 // merges -- a scope claiming `a: {y: 1}` over a baseline `a: {x: 1}` read back
-// `{x: 1, y: 1}`, so a !rename in a scope left the old field standing.
-//
-// The value came out of a document, where an operation tag is data, and !raw is what
-// says so (6225etzfh12kr955fxn0) -- the same reason libdiff.Escape reaches for it.
+// `{x: 1, y: 1}`, so a !rename in a scope left the old field standing. !raw says nothing
+// inside it is an instruction: the value came out of a document, where an operation tag
+// is data (6225etzfh12kr955fxn0), and the escape alone MERGES (mergeop/raw.go), which is
+// why it is not enough on its own. The chain is the one a diff already emits for a value
+// that holds an operation (libdiff.escaped), and under the cover rules it is a TOTAL
+// cover of its path (scope_compaction.go), which is what lets a later claim retire every
+// earlier statement beneath it.
 //
 // A head comment is a WRAPPER around the value, and an operation belongs on the value:
 // a tag on the wrapper is seen by nothing, since mergeop walks past a comment before it
@@ -273,7 +276,7 @@ func claimValue(n *ir.Node) *ir.Node {
 		n.Values[0].ParentIndex = 0
 		return n
 	}
-	return n.WithTag(ir.TagCompose(libdiff.RawTag, nil, n.Tag))
+	return n.WithTag(ir.TagCompose(libdiff.InsertTag, nil, ir.TagCompose(libdiff.RawTag, nil, n.Tag)))
 }
 
 // ClaimPaths answers the paths a scoped write CLAIMS: where the patch states

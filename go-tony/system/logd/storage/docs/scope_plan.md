@@ -254,10 +254,9 @@ the format library -- is not touched, with the named exceptions in phase P
 
 ## Phase P -- the escape is not the replace
 
-READ: the issue; mergeop/{raw.go,insert.go,operand_paths.go,context.go (OpContext),patch.go
-(the object merge walk)};
-libdiff/make.go (Escape, escaped); docs/matchpatch.md, the `!raw` section; api/lowering.go
-(firstRelativeOp); api/storage_context.go (storableTags); storage/lower.go (claimValue);
+READ: the issue; mergeop/{raw.go,insert.go,operand_paths.go,context.go (OpContext)}; the
+root package's patch.go (doPatchWith, the walk that dispatches); libdiff/make.go (Escape,
+escaped); docs/matchpatch.md, the `!raw` section; api/lowering.go (firstRelativeOp); api/storage_context.go (storableTags); storage/lower.go (claimValue);
 storage/scope_compaction.go (statement, firstOperator); storage/raise.go:112;
 storage/internal/patches/processor.go (Roots, hasOperation); storage/lower.go (ClaimPaths,
 LowerSites).
@@ -274,10 +273,16 @@ BUILD:
   - `statement()`: `insert` is total; a bare `!raw` is classified by what it wraps, with
     every tag under it treated as data, which is the plain-value classification with the
     tag check off. `firstOperator` stays the reading of "the operation a node is applied by".
-  - `Roots`, `ClaimPaths`, `LowerSites` descend into a bare `!raw` as the index already does,
-    with tags as data; all four stop at `!insert`.
-  - `libdiff.Escape` is checked for callers that wanted the replacing half; the overlay was
-    the named one and is gone.
+  - `Roots`, `ClaimPaths` and `LowerSites` KEEP stopping at a bare `!raw`, and this is a
+    deviation from the first draft of this document, recorded here as the ground rules
+    require. A site taken inside a raw would hand its value to the verification fold as a
+    patch, and the fold would dispatch the tag the escape exists to hide; and where an
+    entry is APPLIED is the raw node, whole, since the raw is what says its subtree is
+    data. The finer per-leaf reading of a raw's covers is phase 1's, in the index walk
+    that already descends into a raw operand. `statement()` classifying the wrapped value
+    is enough for phase P: sound, and no coarser than compaction was.
+  - `libdiff.Escape` is deleted: it had no caller in this repository or in verse, and
+    under the merge it would have meant the opposite of its name.
 
 TESTS: the issue's three lines as a table test on `tony.Patch`, plus the same three under a
 head comment. `Patch(a, Diff(a, b)) == b` for documents holding operations, unchanged. The
@@ -291,6 +296,18 @@ DONE WHEN: `go test ./...` at the go-tony root is green, matchpatch.md states bo
 `statement()` classifies `!insert.raw` as total with a test that a claim dominates what it
 covers. Release point, AFTER verse has released `!insert.raw` in `entity.Raw` and `AsData`
 and re-put its escaped records.
+
+P AS BUILT: `!raw` merges. `rawOp.Patch` hands its child to the ordinary walk under a
+context that says everything beneath is data (`OpContext.AsData`, read by the root
+package's `doPatchWith`, which then dispatches nothing and merges structure as it does for
+any patch of that shape); the match side is unchanged and matchpatch.md says both halves.
+`claimValue` composes `!insert.raw`; `statement()` classifies `insert` as total and a bare
+`!raw` by the value it wraps; `Roots`, `ClaimPaths` and `LowerSites` keep stopping at a raw,
+the deviation above. `libdiff.Escape` is gone. Found underneath: nothing in the tree told
+the two halves apart -- every existing `!raw` test passes under both semantics, because
+none put a raw over a document holding something the raw did not mention. The issue's
+table is the test now. A consumer's escape that feeds a MATCH pattern keeps `!raw`, since
+`!insert` cannot appear in one; only the write's escape changes.
 
 ## Phase 0 -- the harness
 
@@ -482,7 +499,13 @@ Continued from test_corpus.md in the same form; filled in as each phase lands.
                they assert answers, and the answers do not change
     REWRITE    scope_compaction's `scopeEntries` may count the footprint instead of the
                index if the index stops being the cheaper question; the assertion stays
-    ADDED      P: the !raw table, the claim-dominates test, the charter re-put
+    ADDED      P: raw_test TestRawPatchMergesAsData (the issue's table, the replacing form,
+               under a head comment on either side); storage raw_merge_test (a record put
+               twice with a bare !raw reads as the union, then exactly its !insert.raw
+               re-put; a scope's claim is !insert.raw and holds under a baseline write
+               beneath it); scope_compaction_test TestAClaimDominatesWhatItCovers (a
+               hundred writes and a commented value under a later claim leave one entry)
+    FOUND      P: every existing !raw test passed under both semantics
                0: scope_interleave, the differential harness, the shapegen scope workload
                1: footprint_test (covers as live statements; reopen equals rebuild; delete
                   pages nothing outside; references follow a moved entry; the pass reads
