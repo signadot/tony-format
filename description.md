@@ -1,4 +1,4 @@
-# add streaming ls to logd/docd sessions
+# add a streaming nav to logd/docd sessions (ls is nav at depth 1)
 
 logd/docd session protocols support an async watch flow which should be
 generalised to support out of memory listing of children
