@@ -572,6 +572,7 @@ type unreachedPatches struct {
 	nextSeg    string // object key awaiting its value
 	nextIsInt  bool   // that key is an int key, pathed as "{n}"
 	sawIntKeys bool   // the innermost container uses int keys
+	skipping   int    // depth inside an array of the base that a patch replaced (replaceArray)
 }
 
 type unreachedFrame struct {
@@ -606,6 +607,20 @@ func (u *unreachedPatches) reached(path string) { delete(u.pending, path) }
 // observe follows the base stream's shape and emits grafts. It reports whether it
 // consumed the event; if not, the caller passes the event through as usual.
 func (u *unreachedPatches) observe(ev *stream.Event, sink stream.EventWriter) (bool, error) {
+	if u.skipping > 0 {
+		// Inside an array the patches replaced: its events are not the document's any
+		// more, and the replacement has already been written.
+		switch ev.Type {
+		case stream.EventBeginObject, stream.EventBeginArray:
+			u.skipping++
+		case stream.EventEndObject, stream.EventEndArray:
+			u.skipping--
+			if u.skipping == 0 {
+				u.advanceIndex()
+			}
+		}
+		return true, nil
+	}
 	switch ev.Type {
 	case stream.EventKey:
 		u.nextSeg = ev.Key
@@ -640,6 +655,17 @@ func (u *unreachedPatches) observe(ev *stream.Event, sink stream.EventWriter) (b
 		return false, nil // comments carry no path
 	case stream.EventBeginObject, stream.EventBeginArray:
 		path := u.childPath()
+		if ev.Type == stream.EventBeginArray && len(u.pending) > 0 {
+			replaced, err := u.replaceArray(path, ev, sink)
+			if err != nil {
+				return false, err
+			}
+			if replaced {
+				u.skipping = 1
+				u.nextSeg = ""
+				return true, nil
+			}
+		}
 		u.stack = append(u.stack, unreachedFrame{path: path, isArray: ev.Type == stream.EventBeginArray})
 		u.nextSeg = ""
 		return false, nil
@@ -788,6 +814,66 @@ func (u *unreachedPatches) graftUpTo(f unreachedFrame, before string, sink strea
 		}
 	}
 	return nil
+}
+
+// replaceArray handles an array in the base that a patch underneath addresses by FIELD:
+// an object-shaped write descending into a path that holds an unkeyed array. It answers
+// what tony.Patch answers for the same pair -- an object patch over an array replaces it,
+// as it replaces a scalar (patch.go, absentAt) -- and it answers at the array's OPEN,
+// which is the only place it can: graftUpTo runs at a container's close, after the array's
+// elements have already streamed to the sink, and its refusal there left a store that had
+// accepted the write unable to read the path it landed under, or the root, until something
+// replaced the path whole (0v2ws9w4h12kr7stm5n0). Only a snapshot base reaches it: an
+// array that is itself a patch in the fold has a root at its path, and a field beneath it
+// is dominated by that root and applied through tony.Patch at the path.
+//
+// Only the pending paths that name a plain FIELD beneath the array take part; a pending
+// element or sparse-index path stays pending and is answered as it always was, since no
+// object can hold it. The replacement is folded from null, the array discarded, which is
+// the object-over-array answer: a delete beneath it leaves an empty object, not nothing.
+// The object starts out wearing the array's own tag, because that is what tony.Patch's
+// merged container wears -- presentation is the document's -- and a store with the array
+// in a snapshot has to read byte for byte as one without. Returns true when the array's
+// open has been replaced; the caller then drops the array's events through its close.
+func (u *unreachedPatches) replaceArray(path string, open *stream.Event, sink stream.EventWriter) (bool, error) {
+	var under []string
+	for p := range u.pending {
+		rest, ok := remainderUnder(path, p)
+		if !ok {
+			continue
+		}
+		if _, err := fieldSegments(rest); err != nil {
+			continue // an element or sparse index: not something an object holds
+		}
+		under = append(under, p)
+	}
+	if len(under) == 0 {
+		return false, nil
+	}
+	sort.Strings(under)
+	node := ir.FromKeyVals(nil)
+	node.Tag = open.Tag
+	for _, p := range under {
+		rest, _ := remainderUnder(path, p)
+		nested, err := nestPatches(rest, u.values[p])
+		if err != nil {
+			return false, err
+		}
+		delete(u.pending, p)
+		for _, np := range nested {
+			if node == nil {
+				node = ir.Null()
+			}
+			node, err = api.NextState(node, np)
+			if err != nil {
+				return false, err
+			}
+		}
+	}
+	if node == nil {
+		node = ir.Null()
+	}
+	return true, emitNode(node, sink)
 }
 
 // replaceScalar handles a scalar in the base that a patch underneath turns into a
