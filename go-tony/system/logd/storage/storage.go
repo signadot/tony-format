@@ -278,6 +278,11 @@ func (s *Storage) init() error {
 		s.logger.Error("dropped index entries pointing into unreadable log bytes; the store is serving what it can read",
 			"logFile", unreadable.LogFile, "position", unreadable.Position, "regions", len(unreadable.Regions), "segmentsDropped", dropped)
 		unreadable.Dropped = dropped
+		// A dropped segment may have been a dominator; what it dominated does not come
+		// back on its own, so the footprint is remade from what is left.
+		if dropped > 0 {
+			s.index.RebuildFootprint()
+		}
 	}
 
 	// Replay schema state from log entries

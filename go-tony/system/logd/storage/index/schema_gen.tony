@@ -8,10 +8,13 @@ define:
   LogFile: .[string]
   LogFileGeneration: .[int]
   LogPosition: .[int]
+  Needs: .[int]
+  Offers: .[int]
   ScopeID: .[nullable(string)]
   ScopeOverlay: .[bool]
   Spine: .[bool]
   StartCommit: .[int]
   StartTx: .[int]
+  Statement: .[bool]
 signature:
   name: log-segment

@@ -19,12 +19,17 @@ type Index struct {
 	regions []*region
 	res     *Residency
 	full    string
+	// foot is the scopes' footprint (footprint.go), one for the whole index and shared
+	// down the trie the way the residency is.
+	foot *Footprint
 }
 
-// newChild makes the node for a child path: the parent's residency, and the path.
+// newChild makes the node for a child path: the parent's residency and footprint, and
+// the path.
 func (i *Index) newChild(name string) *Index {
 	c := NewIndex(name)
 	c.res = i.res
+	c.foot = i.foot
 	c.full = joinSegments(append(kpath.SplitAll(i.full), name))
 	return c
 }
@@ -72,6 +77,7 @@ func NewIndex(pathKey string) *Index {
 			return compareScopeID(a.ScopeID, b.ScopeID) < 0
 		}),
 		Children: map[string]*Index{},
+		foot:     newFootprint(),
 	}
 }
 
@@ -125,6 +131,11 @@ func (i *Index) segmentsWithin(from, to *int64, keep func(LogSegment) bool) []Lo
 }
 
 func (i *Index) Add(seg *LogSegment) {
+	// A scope's statement joins the footprint once, at the root, where the segment
+	// still carries its full path.
+	if i.full == "" && seg.Statement && seg.ScopeID != nil && seg.StartCommit != seg.EndCommit {
+		i.foot.state(*seg.ScopeID, statementOf(seg))
+	}
 	if seg.KindedPath == "" {
 		i.addSegment(*seg)
 		return
@@ -145,6 +156,9 @@ func (i *Index) Add(seg *LogSegment) {
 }
 
 func (i *Index) Remove(seg *LogSegment) bool {
+	if i.full == "" && seg.Statement && seg.ScopeID != nil {
+		i.foot.forget(*seg.ScopeID, statementOf(seg))
+	}
 	if seg.KindedPath == "" {
 		return i.removeSegment(*seg)
 	}
@@ -584,14 +598,61 @@ func (i *Index) ListRange(from, to *int64, scopeID *string) []string {
 	return children
 }
 
-// DeleteScope removes all segments with the given scopeID from the index.
-// Returns the number of segments removed.
+// DeleteScope removes every segment of the scope from the index and answers how many
+// went. It walks the scope's FOOTPRINT: every segment of the scope sits at a live
+// statement's path, above one, or beneath one -- a dominated statement's dominator is
+// live and stands at or above it -- so those nodes and their subtrees are the whole of
+// what has to be paged in and searched, not the trie. A scope the footprint does not know
+// falls back to the trie, which is what a repaired index may be left with.
 func (i *Index) DeleteScope(scopeID string) int {
-	count := i.removeAll(func(seg LogSegment) bool {
+	match := func(seg LogSegment) bool {
 		return seg.ScopeID != nil && *seg.ScopeID == scopeID
-	})
+	}
+	paths, known := i.foot.Paths(scopeID)
+	if !known {
+		return i.deleteScopeEverywhere(match)
+	}
+	count := 0
+	seen := map[*Index]bool{}
+	var removeAt func(node *Index)
+	removeAt = func(node *Index) {
+		if seen[node] {
+			return
+		}
+		seen[node] = true
+		count += node.removeAll(match)
+	}
+	var removeBelow func(node *Index)
+	removeBelow = func(node *Index) {
+		removeAt(node)
+		for _, c := range node.childrenOf() {
+			removeBelow(c.index)
+		}
+	}
+	for _, p := range paths {
+		node := i
+		removeAt(node)
+		for rest := p; rest != "" && node != nil; {
+			first, tail := kpath.Split(rest)
+			node = node.childIndex(first)
+			if node != nil {
+				removeAt(node)
+			}
+			rest = tail
+		}
+		if node != nil {
+			removeBelow(node)
+		}
+	}
+	i.foot.Drop(scopeID)
+	return count
+}
+
+// deleteScopeEverywhere is DeleteScope over the whole trie.
+func (i *Index) deleteScopeEverywhere(match func(LogSegment) bool) int {
+	count := i.removeAll(match)
 	for _, c := range i.childrenOf() {
-		count += c.index.DeleteScope(scopeID)
+		count += c.index.deleteScopeEverywhere(match)
 	}
 	return count
 }

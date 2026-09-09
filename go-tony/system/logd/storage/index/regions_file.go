@@ -36,7 +36,9 @@ import (
 //	1  the commit tree could drop half a leaf on a duplicate insert
 //	2  the fix for it
 //	3  regions: index.regions and index.manifest replace index.gob
-const IndexFormatVersion = 3
+//	4  the footprint: a segment says whether it is a statement and what it covers, and the
+//	   manifest holds every scope's live statements (footprint.go)
+const IndexFormatVersion = 4
 
 const (
 	regionsFileName  = "index.regions"
@@ -146,6 +148,7 @@ type Manifest struct {
 	Generations map[string]int64 // log file -> generation when written; a mismatch means positions moved
 	FileSize    int64            // the regions file's frontier when written; beyond it is torn
 	Nodes       []ManifestNode
+	Scopes      []ManifestScope // every scope's live statements (footprint.go)
 }
 
 type ManifestNode struct {
@@ -256,6 +259,7 @@ func OpenIndex(dir string, generation func(logFile string) int64) (idx *Index, m
 			})
 		}
 	}
+	idx.foot.load(m.Scopes)
 	return idx, m, "", nil
 }
 
@@ -322,6 +326,7 @@ func (i *Index) Persist(generations map[string]int64) error {
 		Generations: generations,
 		FileSize:    size,
 		Nodes:       nodes,
+		Scopes:      i.foot.snapshot(),
 	}
 	return writeManifest(filepath.Dir(i.res.file.path), m)
 }

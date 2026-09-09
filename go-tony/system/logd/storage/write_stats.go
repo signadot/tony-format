@@ -137,6 +137,9 @@ func (s *Storage) StatsReport() map[string]any {
 			m[k] = v
 		}
 	}
+	for k, v := range s.index.Footprint().Stats().Report() {
+		m[k] = v
+	}
 	for k, v := range s.WriteStats().Report() {
 		m[k] = v
 	}

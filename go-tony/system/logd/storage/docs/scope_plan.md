@@ -403,6 +403,30 @@ its entry through a compaction that moves it.
 DONE WHEN: those pass, `index.footprint.*` is non-zero on the shapegen scope workload, and the
 compaction pass's entry reads are zero. Release point is not here; nothing reads it yet.
 
+1 AS BUILT: the cover rules are `index.Cover` and `index.Classify`, moved whole; a segment
+says whether it is a STATEMENT and what it covers (`LogSegment.Statement/Offers/Needs`),
+decided in the one walk that derives an entry's segments (`segmentWalk`, with three modes:
+a patch, the data inside a merging `!raw`, and the inside of an operand, which the
+operation states and which stays the operation's however deep). The footprint
+(`index/footprint.go`) is per scope a trie of live statements with a reference count per
+entry; it is maintained by `Add` and unmade by `Remove` at the root, where the segment
+still carries its full path, and a statement is forgotten by the identity the tree removes
+a segment by -- commit and transaction, never position, which a re-index changes. Dominance
+runs in both directions at the write, a restated statement is one, and nothing dropped
+comes back, so a repair that drops segments remakes the footprint whole
+(`RebuildFootprint`). It lives in the manifest (`Manifest.Scopes`, `IndexFormatVersion` 4),
+loaded as it was written. `DeleteScope` walks the footprint's paths, their prefixes and
+their subtrees; compaction's pass is `EntryLive` by position and reads nothing; the
+counters are `index.footprint.scopes` and `.statements`. Two readings were aligned with
+the fold's on the way: a node under a head comment is a statement at its path, and an
+ARRAY is the unit -- the entry states it whole and its elements are what it states, so
+they are indexed but are not statements; `passesThrough` says both. FOUND: the compaction
+pass never retired a flow-style plain array, because presentation counted as a tag in
+`plainValue`; and the compaction test's "a commented value survives" row was never
+exercised, because `commitAt` parsed its body without comments -- it passed with five
+survivors for the wrong two reasons and passes with five for the right ones now.
+Decisions 1, 2 and 3 taken as recommended: the manifest, per-statement need, one walk.
+
 ## Phase 2 -- the scoped read seeks to the scope's cover
 
 READ: cursor.go (openRead, readThroughAncestor, Read, provenAbsent); path_snapshot.go
@@ -532,6 +556,15 @@ Continued from test_corpus.md in the same form; filled in as each phase lands.
                compaction differential reads through compareViews
     FOUND      0: the duplicate segment at an operation's path (fixed); the fold's graft
                into an unkeyed array (0v2ws9w4h12kr7stm5n0, fixed on main in e301ef6)
+    ADDED      1: index footprint_test (the cover rows as what is live after each write; a
+               dominated statement is not resurrected; a commented container is a
+               statement); storage footprint_test (reopen equals rebuild; DeleteScope
+               pages the scope's nodes, not the trie); the claim test asserts the live
+               statement's reference after the move
+    REWRITTEN  1: segment_codec's spine row for an array, which the entry states whole;
+               scope_compaction's pass is a lookup; commitAt keeps comments
+    FOUND      1: presentation counted as a tag in the cover rules; the commented row of
+               the compaction test was never exercised
                0: scope_interleave, the differential harness, the shapegen scope workload
                1: footprint_test (covers as live statements; reopen equals rebuild; delete
                   pages nothing outside; references follow a moved entry; the pass reads

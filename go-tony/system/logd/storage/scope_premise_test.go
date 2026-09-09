@@ -76,10 +76,13 @@ func TestScope_OverwriteContainerWithScalar(t *testing.T) {
 	}
 }
 
-// commitAt commits a patch rooted at a path rather than at the document root.
+// commitAt commits a patch rooted at a path rather than at the document root. Comments
+// in the body are kept: a test that writes one means to store it, and the row of the
+// compaction test that said "a commented value a later plain write does not retire" was
+// passing with the comment dropped here at parse, for a reason it did not intend.
 func commitAt(t *testing.T, s *Storage, scope *string, path, body string) int64 {
 	t.Helper()
-	data, err := parse.Parse([]byte(body))
+	data, err := parse.Parse([]byte(body), parse.ParseComments(true))
 	if err != nil {
 		t.Fatalf("parse(%q): %v", body, err)
 	}

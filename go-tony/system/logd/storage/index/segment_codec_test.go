@@ -65,7 +65,9 @@ func TestSpineMarksAPathAPatchPassedThrough(t *testing.T) {
 		// written and not something it says about what is under it -- so it passes
 		// through too, and a JSON client's patches are indexed like anyone else's.
 		{"the same, written in flow", `{b: {c: 1}}`, true},
-		{"a list, written in flow", `[1, 2]`, true},
+		// An array is the unit: it declares no identity, so the entry states the array at
+		// its path and its elements are what it states, not paths it passed through.
+		{"a list, which the entry states whole", `[1, 2]`, false},
 		{"a scalar, which is the write itself", `1`, false},
 		{"an empty container, which states emptiness", `{}`, false},
 		{"an operator, which is about this node", `!delete`, false},

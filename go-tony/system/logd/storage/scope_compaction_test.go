@@ -244,4 +244,19 @@ func TestAClaimShadowsAfterCompaction(t *testing.T) {
 	}
 	expectAt(t, s, &sc, "a", `{x: 1}`)
 	expectAt(t, s, nil, "a", `{y: 3}`)
+	// And the footprint followed the claim to where the rewrite put it: its live
+	// statement names a position the index holds for the scope.
+	positions := map[string]bool{}
+	for seg := range s.index.Segments("", nil, nil, &sc) {
+		if seg.ScopeID != nil && *seg.ScopeID == sc {
+			positions[fmt.Sprintf("%s:%d", seg.LogFile, seg.LogPosition)] = true
+		}
+	}
+	live := s.index.Footprint().Live(sc, "")
+	if len(live) != 1 {
+		t.Fatalf("%d live statements after compaction, want the claim alone", len(live))
+	}
+	if ref := fmt.Sprintf("%s:%d", live[0].LogFile, live[0].LogPosition); !positions[ref] {
+		t.Errorf("the live statement names %s, which the index does not hold for the scope: %v", ref, positions)
+	}
 }

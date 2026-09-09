@@ -54,6 +54,15 @@ func (s *LogSegment) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Field: Spine
 	irMap["Spine"] = ir.FromBool(bool(s.Spine))
 
+	// Field: Statement
+	irMap["Statement"] = ir.FromBool(bool(s.Statement))
+
+	// Field: Offers
+	irMap["Offers"] = ir.FromInt(int64(s.Offers))
+
+	// Field: Needs
+	irMap["Needs"] = ir.FromInt(int64(s.Needs))
+
 	return ir.FromMap(irMap).WithTag("!log-segment"), nil
 }
 
@@ -159,6 +168,36 @@ func (s *LogSegment) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 				return fmt.Errorf("field %q: expected bool, got %v", "Spine", fieldNodeUnwrapped.Type)
 			}
 			s.Spine = bool(fieldNodeUnwrapped.Bool)
+		case "Statement":
+			// Field: Statement
+			if fieldNodeUnwrapped.Type != ir.BoolType {
+				return fmt.Errorf("field %q: expected bool, got %v", "Statement", fieldNodeUnwrapped.Type)
+			}
+			s.Statement = bool(fieldNodeUnwrapped.Bool)
+		case "Offers":
+			// Field: Offers
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "Offers", fieldNodeUnwrapped.Type)
+			}
+			if *fieldNodeUnwrapped.Int64 < 0 {
+				return fmt.Errorf("field %q: negative value %d for unsigned type", "Offers", *fieldNodeUnwrapped.Int64)
+			}
+			if *fieldNodeUnwrapped.Int64 > 255 {
+				return fmt.Errorf("field %q: value %d overflows uint8", "Offers", *fieldNodeUnwrapped.Int64)
+			}
+			s.Offers = Cover(*fieldNodeUnwrapped.Int64)
+		case "Needs":
+			// Field: Needs
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "Needs", fieldNodeUnwrapped.Type)
+			}
+			if *fieldNodeUnwrapped.Int64 < 0 {
+				return fmt.Errorf("field %q: negative value %d for unsigned type", "Needs", *fieldNodeUnwrapped.Int64)
+			}
+			if *fieldNodeUnwrapped.Int64 > 255 {
+				return fmt.Errorf("field %q: value %d overflows uint8", "Needs", *fieldNodeUnwrapped.Int64)
+			}
+			s.Needs = Cover(*fieldNodeUnwrapped.Int64)
 		default:
 			if gomap.IsStrict(opts...) {
 				return fmt.Errorf("unknown field %q for LogSegment", fieldName.String)

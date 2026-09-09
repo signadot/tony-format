@@ -30,6 +30,15 @@ type LogSegment struct {
 	// False is the conservative answer and the one an older persisted index decodes to,
 	// so a read including it behaves as reads always did.
 	Spine bool
+	// Statement says this segment is one of the entry's STATEMENTS: a node the entry
+	// states something at, in the reading the fold applies an entry by -- an operation, a
+	// leaf, an empty container, a commented node -- and not a path the entry passed through
+	// (Spine) or a path inside an operation's operand, which the operation states for it.
+	// Offers and Needs are its cover (Cover). A scope's statements are what the footprint
+	// holds live (footprint.go).
+	Statement bool
+	Offers    Cover
+	Needs     Cover
 	// Semantics:
 	// - StartCommit == EndCommit: snapshot (full state at that commit)
 	// - StartCommit != EndCommit: diff (incremental changes over commit range)
@@ -100,7 +109,14 @@ func PointLogSegment(commit, txSeq int64, kpath string) *LogSegment {
 // a container with contents and no operator on it, whose effect is entirely described
 // by what is indexed beneath it. An operator is not descended through -- a !replace or
 // a !delete at a path states the whole value there, including for paths under it that
-// it never names -- and neither is a leaf, which is a write.
+// it never names -- and neither is a leaf, which is a write. Neither is a node wearing a
+// HEAD COMMENT: the fold keeps the earlier node's comment under a later plain write, so
+// the comment is something the entry states at that path, and the reading the fold
+// applies an entry by (patches.Roots) says the same. Neither is an ARRAY: an array that
+// declares no identity is a value and the whole array is the unit (element_identity.md),
+// so the entry states the array at its path and its elements are what it states, not
+// paths it passed through on the way to them. A keyed array is an object of names in the
+// store and never arrives here as an array.
 //
 // PRESENTATION does not count as a tag here. It is how the container was written, not
 // something the patch says about what is under it, and a read below the path cannot see
@@ -110,20 +126,13 @@ func PointLogSegment(commit, txSeq int64, kpath string) *LogSegment {
 // through anything. The document decided the read cost, and its spelling decided the
 // document.
 func passesThrough(n *ir.Node) bool {
-	if n == nil {
+	if n == nil || n.Type == ir.CommentType {
 		return false
 	}
-	n = ir.Uncomment(n)
 	if ir.StripPresentation(n.Tag) != "" {
 		return false
 	}
-	switch n.Type {
-	case ir.ObjectType:
-		return len(n.Fields) > 0
-	case ir.ArrayType:
-		return len(n.Values) > 0
-	}
-	return false
+	return n.Type == ir.ObjectType && len(n.Fields) > 0
 }
 
 func NewLogSegmentFromPatchEntry(e *dlog.Entry, kpath string, logFile string, pos int64, txID int64, generation int64, scopeID *string) *LogSegment {
@@ -162,7 +171,8 @@ func NewLogSegmentFromPatchEntry(e *dlog.Entry, kpath string, logFile string, po
 // something here ever needs to refuse, the refusal belongs where the delta is BUILT,
 // before the append, not here.
 func IndexPatch(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int64, generation int64, diff *ir.Node, scopeID *string) {
-	eachPatchSegment(e, logFile, pos, txSeq, generation, diff, "", scopeID, idx.Add)
+	w := &segmentWalk{e: e, logFile: logFile, pos: pos, txSeq: txSeq, generation: generation, scopeID: scopeID, fn: idx.Add}
+	w.at(diff, "", asPatch)
 }
 
 // EachSegment hands fn every segment an entry is indexed at, derived from the entry
@@ -174,7 +184,8 @@ func IndexPatch(idx *Index, e *dlog.Entry, logFile string, pos int64, txSeq int6
 func EachSegment(e *dlog.Entry, logFile string, pos, generation int64, fn func(*LogSegment)) {
 	switch {
 	case e.Patch != nil:
-		eachPatchSegment(e, logFile, pos, TxSeqOf(e), generation, e.Patch, "", e.ScopeID, fn)
+		w := &segmentWalk{e: e, logFile: logFile, pos: pos, txSeq: TxSeqOf(e), generation: generation, scopeID: e.ScopeID, fn: fn}
+		w.at(e.Patch, "", asPatch)
 	case e.SnapPos != nil:
 		fn(NewSnapshotSegment(e.Commit, SnapPathOf(e), logFile, pos, generation, e.ScopeID))
 	}
@@ -197,17 +208,50 @@ func SnapPathOf(e *dlog.Entry) string {
 	return ""
 }
 
-func eachPatchSegment(e *dlog.Entry, logFile string, pos int64, txSeq int64, generation int64, n *ir.Node, kPath string, scopeID *string, fn func(*LogSegment)) {
-	seg := NewLogSegmentFromPatchEntry(e, kPath, logFile, pos, txSeq, generation, scopeID)
-	seg.Spine = passesThrough(n)
-	fn(seg)
-	eachPatchBelow(e, logFile, pos, txSeq, generation, n, kPath, scopeID, fn)
+// segmentWalk derives an entry's segments: one at every path the entry's structure or
+// its operands reach, each saying whether the entry passes through the path (Spine) or
+// states something at it (Statement), and what the statement covers.
+type segmentWalk struct {
+	e          *dlog.Entry
+	logFile    string
+	pos        int64
+	txSeq      int64
+	generation int64
+	scopeID    *string
+	fn         func(*LogSegment)
 }
 
-// eachPatchBelow records the segments BENEATH n: at the paths its own structure reaches,
-// or the paths its operand's document values sit at. An operand that sits where its
-// operation sits -- OperandPaths' Suffix "" -- is not a second statement about that path,
-// so it is walked for what is beneath it and not recorded again.
+// walkMode says what the nodes beneath mean.
+type walkMode int
+
+const (
+	// asPatch: ordinary structure; a tag names an operation.
+	asPatch walkMode = iota
+	// asData: inside a merging !raw. Every tag is data, and the nodes are still the
+	// entry's statements -- a raw object merges field by field, so its fields are what
+	// it states.
+	asData
+	// asOperand: inside an operation's operand. The paths are the document's and are
+	// recorded, but the OPERATION states them; nothing here is a statement of its own.
+	asOperand
+)
+
+// at records the segment for n at kPath and everything beneath it.
+func (w *segmentWalk) at(n *ir.Node, kPath string, mode walkMode) {
+	seg := NewLogSegmentFromPatchEntry(w.e, kPath, w.logFile, w.pos, w.txSeq, w.generation, w.scopeID)
+	seg.Spine = passesThrough(n)
+	if !seg.Spine && mode != asOperand {
+		seg.Statement = true
+		seg.Offers, seg.Needs = Classify(n, mode == asData)
+	}
+	w.fn(seg)
+	w.below(n, kPath, mode)
+}
+
+// below records the segments BENEATH n: at the paths its own structure reaches, or the
+// paths its operand's document values sit at. An operand that sits where its operation
+// sits -- OperandPaths' Suffix "" -- is not a second statement about that path, so it is
+// walked for what is beneath it and not recorded again.
 //
 // It was recorded again, and the copies were not harmless. Two segments of one entry at
 // one path are EQUAL to the index -- LogSegCompare reads neither Spine nor the position --
@@ -217,7 +261,7 @@ func eachPatchSegment(e *dlog.Entry, logFile string, pos int64, txSeq int64, gen
 // read below a scope's claim then skipped the operator above it at the ancestor, and the
 // claim stopped shadowing baseline the moment a compaction moved it
 // (TestAClaimShadowsAfterCompaction).
-func eachPatchBelow(e *dlog.Entry, logFile string, pos int64, txSeq int64, generation int64, n *ir.Node, kPath string, scopeID *string, fn func(*LogSegment)) {
+func (w *segmentWalk) below(n *ir.Node, kPath string, mode walkMode) {
 	if n == nil {
 		return
 	}
@@ -237,23 +281,37 @@ func eachPatchBelow(e *dlog.Entry, logFile string, pos int64, txSeq int64, gener
 	// a.head and a.head[0] -- and, worse, would record a value an operand carries at
 	// a path below where it actually sits. mergeop.OperandPaths is the one place that
 	// knows which parts of which operand are document values and where each sits;
-	// when it has no answer the walk below runs as it always did.
-	if ops, known := mergeop.OperandPaths(n); known {
-		for _, o := range ops {
-			if o.Suffix == "" {
-				eachPatchBelow(e, logFile, pos, txSeq, generation, o.Node, kPath, scopeID, fn)
-				continue
+	// when it has no answer the walk below runs as it always did. Inside a merging
+	// !raw nothing is an operation, so nothing there has an operand.
+	if mode != asData {
+		if ops, known := mergeop.OperandPaths(n); known {
+			// Inside an operand everything stays the operation's, a merging !raw's
+			// contents included: !insert.raw states its value whole, and the value's
+			// fields are not statements of their own.
+			childMode := asOperand
+			if mode == asPatch && firstOperator(n.Tag) == "raw" {
+				childMode = asData
 			}
-			eachPatchSegment(e, logFile, pos, txSeq, generation, o.Node,
-				kPath+o.Suffix, scopeID, fn)
+			for _, o := range ops {
+				if o.Suffix == "" {
+					w.below(o.Node, kPath, childMode)
+					continue
+				}
+				w.at(o.Node, kPath+o.Suffix, childMode)
+			}
+			return
 		}
-		return
 	}
 
 	// Where the parts of this patch land, which is PatchChildren's single answer --
 	// a field is a .field step, an integer-keyed object a {sparse} one, an array [i],
-	// and an element of a keyed array the field that is its name.
+	// and an element of a keyed array the field that is its name. An array's elements
+	// are what the ARRAY states (passesThrough): recorded, so a read at an element and
+	// the index's proof of absence know them, but not statements of their own.
+	if n.Type == ir.ArrayType && mode != asOperand {
+		mode = asOperand
+	}
 	for _, c := range PatchChildren(n, kPath) {
-		eachPatchSegment(e, logFile, pos, txSeq, generation, c.Node, c.Path, scopeID, fn)
+		w.at(c.Node, c.Path, mode)
 	}
 }
