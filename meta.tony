@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: ecde1f5173b94f59dbed4c2bb9c39504fd398994
 commits:
 - ecde1f5173b94f59dbed4c2bb9c39504fd398994
 created: "2026-08-30T02:39:27.481914+02:00"
@@ -12,5 +13,5 @@ labels:
 - logd
 - storage
 related_issues: []
-status: open
-updated: "2026-08-30T02:57:59.46937+02:00"
+status: closed
+updated: "2026-09-09T09:15:41.499474+02:00"
