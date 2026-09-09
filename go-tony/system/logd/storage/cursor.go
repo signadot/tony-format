@@ -93,7 +93,10 @@ func (s *Storage) Read(at int64, scopeID *string, kp string) (Cursor, error) {
 		return nil, fmt.Errorf("read at %q: %w", kp, err)
 	}
 	started := time.Now()
-	if kp != "" && scopeID == nil && s.provenAbsent(kp) {
+	// The index proves a path never written; for a scope, its footprint has to say the
+	// scope has nothing at, above or beneath it either -- a claim above the path puts
+	// something there that baseline never wrote.
+	if kp != "" && s.provenAbsent(kp) && (scopeID == nil || !s.index.Footprint().Reaches(*scopeID, kp)) {
 		s.readStats.note(ReadNarrowAbsent, kp, time.Since(started))
 		s.readStats.noteBound(0, 0, seekProven, 0)
 		return absentCursor{}, nil
@@ -152,10 +155,9 @@ func (s *Storage) openRead(at int64, scopeID *string, kp string, started time.Ti
 		}
 		return nil
 	}
-	// Baseline from the snapshot forward, then the scope over its whole history, in that
-	// order: the snapshot is baseline's, so baseline needs only what came after it and a
-	// scope needs everything. Applying the scope last is what makes its writes shadow
-	// baseline's.
+	// Baseline from the snapshot forward, then the scope, in that order: the snapshot is
+	// baseline's, so baseline needs only what came after it. Applying the scope last is
+	// what makes its writes shadow baseline's.
 	for seg := range s.index.Segments(kp, &startCommit, &at, nil) {
 		if seg.StartCommit == seg.EndCommit {
 			continue // a snapshot
@@ -166,17 +168,7 @@ func (s *Storage) openRead(at int64, scopeID *string, kp string, started time.Ti
 		}
 	}
 	if err == nil && scopeID != nil {
-		var scopeFolded int64
-		for seg := range s.index.Segments(kp, nil, &at, scopeID) {
-			if seg.StartCommit == seg.EndCommit || seg.ScopeID == nil || *seg.ScopeID != *scopeID || isOverlaySegment(seg) {
-				continue
-			}
-			scopeFolded++
-			if err = project(seg); err != nil {
-				break
-			}
-		}
-		s.readStats.noteScope(kp, scopeFolded)
+		err = s.projectScope(at, *scopeID, kp, project)
 	}
 	if errors.Is(err, errBlocked) {
 		base.Close()
@@ -195,6 +187,61 @@ func (s *Storage) openRead(at int64, scopeID *string, kp string, started time.Ti
 		after = s.afterRead(at, kp)
 	}
 	return newFoldCursor(base, projected, &s.readStats, kind, kp, started, largest, seek, tail, after), nil
+}
+
+// projectScope folds the scope's term of a read at kp: what the scope has stated that
+// reaches kp, projected there, after baseline.
+//
+// The footprint answers it (index/footprint.go): the scope's LIVE statements on kp's
+// ancestor chain, at kp and beneath it, each entry once, in commit order. A scope's
+// snapshot of a path is its last covering statement there, and the footprint is the index
+// knowing where that is, so the term is bounded by the scope's footprint under the path
+// and not by its history. Reading a statement's entry by its reference is the one read
+// the fold makes for it.
+//
+// The footprint is the scope AT THE HEAD. A read at an earlier commit, behind a statement
+// that has since retired others, needs what was retired, and the footprint no longer has
+// it: such a read folds the scope's history from the index as every scoped read once did,
+// and is counted as historic. The rule is exact -- a live statement past `at` is the only
+// way a dominance the read must not see can exist -- and a consumer reads its scopes at
+// the head.
+func (s *Storage) projectScope(at int64, scopeID, kp string, project func(index.LogSegment) error) error {
+	live := s.index.Footprint().Live(scopeID, kp)
+	historic := s.scopeReadsHistoric
+	for _, st := range live {
+		if st.Commit > at {
+			historic = true
+			break
+		}
+	}
+	if historic {
+		var folded int64
+		for seg := range s.index.Segments(kp, nil, &at, &scopeID) {
+			if seg.StartCommit == seg.EndCommit || seg.ScopeID == nil || *seg.ScopeID != scopeID || isOverlaySegment(seg) {
+				continue
+			}
+			folded++
+			if err := project(seg); err != nil {
+				return err
+			}
+		}
+		s.readStats.noteScope(kp, folded, int64(len(live)), true)
+		return nil
+	}
+	var folded int64
+	for _, st := range live {
+		folded++
+		seg := index.LogSegment{
+			StartCommit: st.Commit - 1, EndCommit: st.Commit, StartTx: st.Tx, EndTx: st.Tx,
+			KindedPath: st.Path, LogFile: st.LogFile, LogPosition: st.LogPosition,
+			LogFileGeneration: st.Generation, ScopeID: &scopeID,
+		}
+		if err := project(seg); err != nil {
+			return err
+		}
+	}
+	s.readStats.noteScope(kp, folded, int64(len(live)), false)
+	return nil
 }
 
 // readThroughAncestor is the read at kp when a write above it states the whole value

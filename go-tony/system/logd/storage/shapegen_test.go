@@ -160,9 +160,10 @@ func shapedScopeStore(t *testing.T, sh scopeShape) (*Storage, []string) {
 }
 
 // A scoped read of one of the sandbox's paths, and of a path the sandbox never wrote,
-// counted: what the scope term of each folds today is the scope's history at the path,
-// and the footprint counters exist and read zero. Phase 2 changes the first number and
-// starts the others; this is where they are read from.
+// counted: the scope term of the first folds the sandbox's LIVE statements there -- one,
+// however many times it rewrote the path -- and the second folds none and opens no log,
+// since the index proves the path unwritten and the footprint says the scope does not
+// reach it.
 func TestScopedReadsOnAShapedStoreCountTheirScopeTerm(t *testing.T) {
 	sh := scopeShape{
 		shape: shape{paths: 90, writesPerPath: 2, snapshotEvery: 100,
@@ -188,14 +189,15 @@ func TestScopedReadsOnAShapedStoreCountTheirScopeTerm(t *testing.T) {
 	}
 	sandboxed := mid.ScopeFolded - before.ScopeFolded
 	untouched := after.ScopeFolded - mid.ScopeFolded
-	if sandboxed < int64(sh.rounds) {
-		t.Errorf("a read of a path the sandbox rewrote %d times folded %d scope entries", sh.rounds, sandboxed)
+	if sandboxed != 1 {
+		t.Errorf("a read of a path the sandbox rewrote %d times folded %d scope entries, want its last", sh.rounds, sandboxed)
 	}
 	if untouched != 0 {
 		t.Errorf("a read of a path the sandbox never wrote folded %d scope entries", untouched)
 	}
-	if after.ScopeFootprint != 0 || after.ScopeSkipped != 0 || after.ScopeHistoric != 0 {
-		t.Errorf("footprint counters should read zero before phase 2: %+v", after)
+	if after.ScopeFootprint == 0 || after.ScopeSkipped != 0 || after.ScopeHistoric != 0 {
+		t.Errorf("the footprint answered %d statements, skipped %d, historic %d; want some, none, none",
+			after.ScopeFootprint, after.ScopeSkipped, after.ScopeHistoric)
 	}
-	t.Logf("sandbox path folded %d scope entries, untouched path %d; wide %d", sandboxed, untouched, after.ScopeWide)
+	t.Logf("sandbox path folded %d scope entries, untouched path %d; the footprint answered %d for the two reads", sandboxed, untouched, after.ScopeFootprint-before.ScopeFootprint)
 }

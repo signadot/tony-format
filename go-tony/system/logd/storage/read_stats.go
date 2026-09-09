@@ -54,13 +54,12 @@ type ReadStats struct {
 	PathSnapshots int64
 
 	// The SCOPE term of a scoped read (scope_plan.md). Scope counts the scoped reads and
-	// ScopeWide those at the root; ScopeFolded is the scope's entries reads have folded --
-	// today every entry of the scope that reaches the path, from commit 0, which is the
-	// number phase 2 bounds. ScopeFootprint is the footprint nodes reads walked,
-	// ScopeSkipped the live statements a read did not fold (expected zero; a non-zero is a
-	// defect in the footprint's maintenance), and ScopeHistoric the scoped reads at a
-	// commit below the scope's newest cover on the path, served from the history. The
-	// last three are zero until phase 2 reports them.
+	// ScopeWide those at the root; ScopeFolded is the scope's entries reads have folded
+	// after baseline; ScopeFootprint is the live statements the footprint answered for
+	// them, which is the bound the fold is held to; ScopeSkipped the statements a read was
+	// handed and did not fold (zero; a non-zero is a defect in the footprint's
+	// maintenance); ScopeHistoric the scoped reads at a commit behind a statement that has
+	// since retired others, served from the history instead (cursor.go, projectScope).
 	Scope          int64
 	ScopeWide      int64
 	ScopeFolded    int64
@@ -129,13 +128,24 @@ type readStats struct {
 }
 
 // noteScope records the scope term of one scoped read: how many of the scope's entries it
-// folded after baseline, and whether it was at the root.
-func (r *readStats) noteScope(kp string, folded int64) {
+// folded after baseline, how many live statements the footprint answered for it, whether
+// it was served from the history rather than the footprint, and whether it was at the
+// root. A footprint read that folded fewer entries than the statements it was handed
+// skipped some, which is a defect and is counted so it is seen.
+func (r *readStats) noteScope(kp string, folded, live int64, historic bool) {
 	r.scope.Add(1)
 	if kp == "" {
 		r.scopeWide.Add(1)
 	}
 	r.scopeFolded.Add(folded)
+	if historic {
+		r.scopeHistoric.Add(1)
+		return
+	}
+	r.scopeFootprint.Add(live)
+	if live > folded {
+		r.scopeSkipped.Add(live - folded)
+	}
 }
 
 // noteBound records one read against the bound: the bytes it emitted, the largest record

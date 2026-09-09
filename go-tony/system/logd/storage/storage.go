@@ -139,6 +139,12 @@ type Storage struct {
 	// replayFloor is the highest commit whose delta history compaction has removed.
 	// See replay_floor.go. Read on the replay path, raised by Compact.
 	replayFloor atomic.Int64
+
+	// scopeReadsHistoric makes every scoped read fold the scope's whole history from
+	// the index instead of the footprint's live statements. Not a mode to run in: it is
+	// the reference arm of the footprint differential, the read the footprint is held
+	// equal to (scope_plan.md, phase 2).
+	scopeReadsHistoric bool
 }
 
 // Open opens or creates a Storage instance with the given root directory.

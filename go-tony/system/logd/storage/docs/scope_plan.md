@@ -459,6 +459,29 @@ baseline rows at N=400, and `reads.scope.folded` per read on the shapegen worklo
 bounded by the sandbox's leaves under the path. Release point: the first the scoped rows can
 be measured against on staging.
 
+2 AS BUILT: `projectScope` in cursor.go is the scope term. It folds the footprint's live
+statements for the path, each entry read once by its reference, after baseline, and
+declines to the history exactly when a live statement past the read's commit exists,
+counted as `reads.scope.historic` (decision 5, as recommended). A scoped read at a path
+the index proves unwritten is absent when the footprint says the scope does not reach it.
+Writes and preconditions changed nothing of their own. The invariant is
+`TestScopeFootprintDifferential`, both views, every path, EVERY commit, against a store
+that folds the history (`scopeReadsHistoric`, the test knob), with `reads.scope.skipped`
+held at zero and the historic rule exercised. Measured, the cost of the Nth after N of the
+same, N=50 to 400:
+
+                                              before                        now
+    scoped read at the root, N scope writes   844us  1.72ms 3.79ms 7.45ms   35us  44us  40us  42us
+    scoped read, N BASELINE writes            65us   61us   66us   78us     37us  52us  56us  47us
+    scoped write, unconditional               2.26ms 4.13ms 7.88ms 17.8ms   444us 471us 447us 498us
+    scoped write, CAS                         6.5ms  6.45ms ...    ...      505us 528us 514us 549us
+    the interleaved pair                      3.87ms 4.86ms 8.35ms 15.2ms   2.33ms 1.41ms 1.39ms 1.42ms
+    (the baseline write alone in the pair                                   660us       ...   693us)
+
+Every scoped row is flat, and a scoped write is now cheaper than a baseline one, since a
+scope stores its claim as sent and baseline diffs. The sandbox's path on the shaped store
+folds one scope entry after eight rewrites.
+
 ## Phase 3 -- the scoped watch steps
 
 READ: server/session_watch.go (watchStream, stepBaseline, emitScoped, replay, the live loop);
@@ -565,6 +588,10 @@ Continued from test_corpus.md in the same form; filled in as each phase lands.
                scope_compaction's pass is a lookup; commitAt keeps comments
     FOUND      1: presentation counted as a tag in the cover rules; the commented row of
                the compaction test was never exercised
+    ADDED      2: scope_footprint_read_test (the invariant at every commit; a never-written
+               path under a scope opens no log; a path under a claim is not proven absent)
+    REWRITTEN  2: the shaped store's counted reads expect one folded entry and a footprint
+               answer
                0: scope_interleave, the differential harness, the shapegen scope workload
                1: footprint_test (covers as live statements; reopen equals rebuild; delete
                   pages nothing outside; references follow a moved entry; the pass reads
