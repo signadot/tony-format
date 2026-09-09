@@ -111,9 +111,34 @@ func diffLoop(cfg *DiffConfig, cc *cli.Context) error {
 		if err != nil {
 			return err
 		}
-		next, err := parse.Parse(d, cfg.parseOpts()...)
-		if err != nil {
-			return fmt.Errorf("error decoding command output: %w", err)
+		// A run that fails, or prints nothing, is a MISSED iteration and not a document
+		// that changed to nothing: the thing being watched was briefly unreachable, and
+		// the next answer is what to diff against. It is said on stderr, `last` is kept,
+		// it counts against -loopLim, and the loop goes round. It is neither a match nor
+		// a mismatch for -loopUntil, which is a promise about output that is not there.
+		// The command is waited for HERE, before its output is read as a document, so a
+		// command that died is reported as having died and not as having said nothing;
+		// and its output is never nil by the time it is diffed, which was a panic
+		// (02sa60w3h12kry6zm5n0).
+		missed := ""
+		if err := cmd.Wait(); err != nil {
+			missed = fmt.Sprintf("command %q exited with an error: %v", cfg.Loop, err)
+		}
+		var next *ir.Node
+		if missed == "" {
+			next, err = parse.Parse(d, cfg.parseOpts()...)
+			if err != nil {
+				return fmt.Errorf("error decoding command output: %w", err)
+			}
+			if next == nil {
+				missed = fmt.Sprintf("command %q wrote no document", cfg.Loop)
+			}
+		}
+		if missed != "" {
+			fmt.Fprintf(cc.Err, "# iteration %d missed: %s\n", i+1, missed)
+			<-ticker.C
+			i++
+			continue
 		}
 		differs, err := diffInputs(cfg, cc, last, next, diffCount > 0)
 		if err != nil {
@@ -122,16 +147,9 @@ func diffLoop(cfg *DiffConfig, cc *cli.Context) error {
 		if differs {
 			diffCount++
 		}
-
-		if err != nil {
-			return fmt.Errorf("unable to decode next object: %w", err)
-		}
-		if err := cmd.Wait(); err != nil {
-			return fmt.Errorf("command %q exited with an error: %w", cfg.Loop, err)
-		}
 		// checked after the difference is written, so that the change which
 		// satisfied the condition is the last thing reported
-		if until != nil && next != nil {
+		if until != nil {
 			done, err := tony.Match(next, until)
 			if err != nil {
 				return fmt.Errorf("error matching -loopUntil: %w", err)
