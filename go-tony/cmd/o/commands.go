@@ -280,6 +280,13 @@ pattern is asked about the list rather than about its elements. A file holding
 several documents separated by --- is matched one at a time, and the ones which
 match are written, so match reads as a filter over a document stream.
 
+-each asks about the elements instead: every document is taken as a list, each
+of its elements is matched, and the ones that match are written, one document
+each. A document that is not a list holds no elements and matches nothing. So
+"o m -each '{state: open}' issues.tony" keeps the open issues out of a file that
+holds them as one list, where without -each the pattern would be asked about the
+list itself and answer nothing.
+
 A file is optional: with none, stdin is read, so "x | o m '<match>'" needs no
 trailing -.
 

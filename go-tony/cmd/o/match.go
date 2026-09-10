@@ -158,15 +158,30 @@ func matchReader(dst []*ir.Node, cfg *MatchConfig, cc *cli.Context, match *ir.No
 			// skip empty documents
 			continue
 		}
-		m, err := tony.Match(y, match)
-		if err != nil {
-			return nil, fmt.Errorf("error matching document %d: %w", i, err)
-		}
-		if m {
-			if cfg.Trim {
-				y = tony.Trim(match, y)
+		// -each asks about a list's elements rather than the list, and a document
+		// that is not a list holds no elements to ask about, so it matches nothing.
+		// Each element that matches is written as a document of its own.
+		candidates := []*ir.Node{y}
+		if cfg.Each {
+			if ir.Uncomment(y).Type != ir.ArrayType {
+				continue
 			}
-			dst = append(dst, y)
+			candidates = ir.Uncomment(y).Values
+		}
+		for j, c := range candidates {
+			m, err := tony.Match(c, match)
+			if err != nil {
+				if cfg.Each {
+					return nil, fmt.Errorf("error matching document %d element %d: %w", i, j, err)
+				}
+				return nil, fmt.Errorf("error matching document %d: %w", i, err)
+			}
+			if m {
+				if cfg.Trim {
+					c = tony.Trim(match, c)
+				}
+				dst = append(dst, c)
+			}
 		}
 	}
 	return dst, nil

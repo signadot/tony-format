@@ -203,6 +203,7 @@ type MatchConfig struct {
 
 	Comments bool `cli:"name=c desc='include comments in the answer, and let a !comment pattern see them'"`
 	Trim     bool `cli:"name=trim desc='trim the results to the match'"`
+	Each     bool `cli:"name=each desc='match each element of a document that is a list, and write the ones that match'"`
 	File     bool `cli:"name=f desc='consider match a file path'"`
 	Tags     bool `cli:"name=tags desc='show available tags'"`
 }
