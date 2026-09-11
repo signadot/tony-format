@@ -8,6 +8,7 @@ duplicates: []
 id: gdpv3fsvh12ksynxmdn0
 labels:
 - "audit logd storage concurrency high"
-related_issues: []
+related_issues:
+- faweqnhvh12ksynxmdn0
 status: open
-updated: "2026-09-11T10:38:18.582483+02:00"
+updated: "2026-09-11T10:38:38.029003+02:00"
