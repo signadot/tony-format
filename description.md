@@ -1,0 +1,3 @@
+# go-tony: package docs describe APIs that no longer exist (gomap Encode/Decode, parse.ParseString, encode.EncodeJSON, ...)
+
+Sweep the Go package and exported-symbol docs in go-tony against the code. Mechanical pass found ~50 doc references to identifiers that do not resolve (gomap.Encode/Decode/ToIR/FromIR, parse.ParseString/WithFilename, encode.EncodeJSON/WithIndent, format.WithIndent, libdiff.Diff/Apply, storage.NewTx, tx.NewPatcher, ...), a second package comment in ir/ir_json.go that go doc concatenates, and a floating package comment in gomap/gomap.go. Beyond names, package overviews predate the storage/index/docd/libctl work of the last months.
