@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 19c78bbd90a9ffdd69328032080988fa4e6626ae
 commits:
 - 19c78bbd90a9ffdd69328032080988fa4e6626ae
 created: "2026-09-11T10:38:20.654791+02:00"
@@ -13,5 +14,5 @@ labels:
 - docd
 - low
 related_issues: []
-status: open
-updated: "2026-09-11T12:59:59.248118+02:00"
+status: closed
+updated: "2026-09-11T12:59:59.354793+02:00"
