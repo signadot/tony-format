@@ -10,5 +10,6 @@ labels:
 - "audit logd storage correctness high"
 related_issues:
 - 07g0rn9xh12ksz5xmdn0
+- y5rad087h12kswh0g9n0
 status: open
-updated: "2026-09-11T10:38:38.492245+02:00"
+updated: "2026-09-11T10:38:38.589333+02:00"
