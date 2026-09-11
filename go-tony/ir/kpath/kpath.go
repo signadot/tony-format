@@ -339,7 +339,7 @@ func Split(kpath string) (firstSegment string, restPath string) {
 	}
 
 	// Extract first segment as string
-	firstSegment = segmentToString(kp)
+	firstSegment = kp.SegmentString()
 
 	// Reconstruct rest of path
 	if kp.Next == nil {
@@ -439,7 +439,7 @@ func SplitAll(kpath string) []string {
 	var segments []string
 	current := kp
 	for current != nil {
-		segments = append(segments, segmentToString(current))
+		segments = append(segments, current.SegmentString())
 		current = current.Next
 	}
 
@@ -516,46 +516,6 @@ func copyKPathSegment(src *KPath, dst *KPath, stop *KPath) {
 		dst.Next = &KPath{}
 		copyKPathSegment(src.Next, dst.Next, stop)
 	}
-}
-
-// segmentToString converts the first segment of a KPath to its string representation.
-// Each segment is treated as a top-level kpath, so FieldAll outputs "*" not ".*".
-func segmentToString(kp *KPath) string {
-	// A descent is a segment of its own, and `..` parses back as one. It fell
-	// through to "" here, so SplitAll("a..b") gave a, "", b (addsgv1yh12kszdxmdn0).
-	if kp.Descend {
-		return ".."
-	}
-	if kp.FieldAll {
-		return "*"
-	}
-	if kp.Field != nil {
-		field := *kp.Field
-		if token.KPathQuoteField(field) {
-			return token.Quote(field, true)
-		}
-		return field
-	}
-	if kp.Key != nil {
-		key := *kp.Key
-		if token.KPathQuoteField(key) {
-			return "(" + token.Quote(key, true) + ")"
-		}
-		return "(" + key + ")"
-	}
-	if kp.IndexAll {
-		return "[*]"
-	}
-	if kp.Index != nil {
-		return fmt.Sprintf("[%d]", *kp.Index)
-	}
-	if kp.SparseIndexAll {
-		return "{*}"
-	}
-	if kp.SparseIndex != nil {
-		return fmt.Sprintf("{%d}", *kp.SparseIndex)
-	}
-	return ""
 }
 
 // ChildField answers the path of a field of the node at parent -- the one way to

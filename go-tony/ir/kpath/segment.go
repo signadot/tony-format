@@ -163,6 +163,8 @@ func Key(t string) *KPath {
 //   - KPath{FieldAll: true} → "*"
 //   - KPath{IndexAll: true} → "[*]"
 //   - KPath{SparseIndexAll: true} → "{*}"
+//   - KPath{Key: &"x"} → "(x)"
+//   - KPath{Descend: true} → ".."
 func (p *KPath) SegmentString() string {
 	if p == nil {
 		return ""
