@@ -19,12 +19,14 @@ import (
 
 // CommitNotification contains information about a committed patch.
 // This is sent to any registered CommitNotifier after a successful commit.
+// [Storage.Deltas] answers the same type for a replayed commit, with TxSeq and KPaths
+// unset.
 type CommitNotification struct {
 	Commit    int64    // The commit number
 	TxSeq     int64    // Transaction sequence number
 	Timestamp string   // ISO8601 timestamp
 	KPaths    []string // Top-level kpaths affected by this commit
-	Patch     *ir.Node // The merged patch that was committed
+	Patch     *ir.Node // The delta the log stored for the commit, keyed arrays raised (raise.go); the notification's own copy
 	ScopeID   *string  // Scope ID (nil = baseline)
 }
 
@@ -382,20 +384,24 @@ func (s *Storage) indexWatermarks() (commit, txSeq int64) {
 	return commit, txSeq
 }
 
-// NewTx creates a new transaction with the specified number of participants.
-// Returns a transaction that participants can get via GetTx or get a patcher via NewPatcher().
+// NewTx creates a new transaction with the specified number of participants, in the
+// view scope names (nil is baseline). Returns a transaction that participants can get
+// via GetTx and join through its NewPatcher.
 //
 // Example usage (typical pattern for parallel HTTP handlers):
 //
 //	// Create transaction
-//	tx, err := storage.NewTx(participantCount, scope)
+//	t, err := s.NewTx(participantCount, scope)
 //	if err != nil {
 //	    // handle error
 //	}
 //
-//	// Each participant gets their own patcher handle
-//	patcher := tx.NewPatcher(kp, m, p)
-//	result := patcher.WaitForCompletion()
+//	// Each participant gets their own patcher handle, and every one calls Commit
+//	patcher, err := t.NewPatcher(&api.Patch{PathData: api.PathData{Path: kp, Data: data}})
+//	if err != nil {
+//	    // handle error
+//	}
+//	result := patcher.Commit()
 func (s *Storage) NewTx(participantCount int, scope *string) (tx.Tx, error) {
 	if participantCount < 1 {
 		return nil, fmt.Errorf("participantCount must be at least 1, got %d", participantCount)
@@ -423,6 +429,9 @@ func (s *Storage) NewTx(participantCount int, scope *string) (tx.Tx, error) {
 	return res, nil
 }
 
+// Close shuts the store down: it waits for a snapshot of a path in flight, stops the
+// transaction store, delivers the notifications already queued, writes the index whole,
+// and closes the logs, syncing them first. Commits must have stopped before it is called.
 func (s *Storage) Close() error {
 	// No more snapshots get scheduled, and the one in flight lands before the log it
 	// writes to goes away.
@@ -509,13 +518,16 @@ func (s *Storage) SetIndexCeiling(bytes int64) error {
 // Example:
 //
 //	// Multiple parallel HTTP handlers all receive the same txID
-//	tx, err := storage.GetTx(txID)
+//	t, err := s.GetTx(txID)
 //	if err != nil {
 //	    // handle error
 //	}
 //
 //	// Each participant gets their own patcher handle
-//	patcher := tx.NewPatcher(kp, m, p)
+//	patcher, err := t.NewPatcher(&api.Patch{PathData: api.PathData{Path: kp, Data: data}})
+//	if err != nil {
+//	    // handle error
+//	}
 //	result := patcher.Commit()
 func (s *Storage) GetTx(txID int64) (tx.Tx, error) {
 	t, err := s.txStore.Get(txID)
@@ -552,7 +564,9 @@ func (s *Storage) SetTxTimeout(timeout time.Duration) {
 }
 
 // SetSchemaResolver sets the schema resolver for !key indexed arrays.
-// The resolver provides schema for each scope (nil scope = baseline).
+// The resolver provides schema for each scope (nil scope = baseline). It is consulted
+// only while the store holds no active schema of its own (StartMigration,
+// CompleteMigration); once it does, that schema decides.
 func (s *Storage) SetSchemaResolver(resolver api.SchemaResolver) {
 	s.schemaResolver = resolver
 }
@@ -631,8 +645,9 @@ func (s *Storage) SetWriteBudget(b int64) {
 // WriteBudget answers the store's write budget.
 func (s *Storage) WriteBudget() int64 { return s.writeBudget }
 
-// DeleteScope removes all index entries for a scope.
-// The actual log entries remain (append-only), but become inaccessible.
+// DeleteScope removes all index entries for a scope, and its footprint.
+// The actual log entries remain (append-only), but become inaccessible, until
+// compaction drops them beyond its cutoff.
 func (s *Storage) DeleteScope(scopeID string) error {
 	count := s.index.DeleteScope(scopeID)
 	if count == 0 {

@@ -8,11 +8,13 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
 )
 
-// Unreadable names a record the rebuild could not deserialize, and everything after it
-// in that log, which the walk therefore never reached.
+// Unreadable says what of the logs the rebuild could not read: the regions the walk
+// stepped over, or, when an error reading a log stopped the walk outright, where it
+// stopped, everything after which the walk never reached.
 type Unreadable struct {
 	// LogFile and Position name where readable records stopped: the start of the first
-	// region the walk could not read.
+	// region the walk could not read, or, when an error stopped the walk, the last record
+	// it read.
 	LogFile  string
 	Position int64
 	Err      error
@@ -39,13 +41,16 @@ func (u *Unreadable) String() string {
 		u.LogFile, u.Position, u.Err, u.Dropped)
 }
 
-// Build indexes the log from fromCommit. Its second result is non-nil when a record
-// would not deserialize: the index holds everything up to that point, and the caller
-// decides what to tell an operator.
+// Build indexes every log entry with a commit past fromCommit. Its first result is non-nil
+// when the walk stepped over a region it could not read, or was stopped by an error
+// reading a log: the index holds every entry the walk read, and the caller decides what
+// to tell an operator.
 func Build(idx *Index, dlog *dlog.DLog, fromCommit int64) (*Unreadable, error) {
 	return BuildWithLogger(idx, dlog, fromCommit, nil)
 }
 
+// BuildWithLogger is Build, logging what the walk could not read to logger when logger is
+// non-nil.
 func BuildWithLogger(idx *Index, dlog *dlog.DLog, fromCommit int64, logger *slog.Logger) (*Unreadable, error) {
 	var unreadable *Unreadable
 	// The last record read successfully, which is the only boundary the walk knows:

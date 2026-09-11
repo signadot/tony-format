@@ -22,8 +22,7 @@ func NewPatchIndex() *PatchIndex {
 }
 
 // BuildPatchIndex walks dlog entries for the paths each states something at
-// (walkAndCollectPatchRoots) and answers an index mapping paths to the entries that
-// affect them.
+// ([Roots]) and answers an index mapping paths to the entries that affect them.
 func BuildPatchIndex(entries []*dlog.Entry) *PatchIndex {
 	index := NewPatchIndex()
 

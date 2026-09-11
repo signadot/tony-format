@@ -66,7 +66,7 @@ func LowerKeyed(schema *api.Schema, data []*PatcherData) error {
 
 // LowerMatches lowers every precondition the way LowerKeyed lowers a write, so a pattern
 // written in the client's vocabulary -- a keyed array, an element under its name -- is
-// evaluated against the form the store holds, which is the form MatchStateAt answers in.
+// evaluated against the form the store holds, which is the form CommitOps.StateAt answers in.
 // A precondition that cannot be spelled in that form is refused as a write would be.
 func LowerMatches(schema *api.Schema, data []*PatcherData) error {
 	for _, pd := range data {

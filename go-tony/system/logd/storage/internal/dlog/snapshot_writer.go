@@ -46,8 +46,9 @@ var ErrSnapshotInProgress = fmt.Errorf("snapshot already in progress on this log
 
 // NewSnapshotWriter creates a writer for building a snapshot in the inactive log.
 // Returns ErrSnapshotInProgress if a snapshot is already running on the inactive log.
-// The caller should create a snap.Builder with this writer, feed events to it,
-// close the builder, then close this writer to finalize the Entry.
+// The caller should create a snap.Builder with this writer, feed events to it, and
+// close the builder, which closes this writer and so finalizes the Entry. A snapshot
+// that fails before then is released with Abandon.
 func (dl *DLog) NewSnapshotWriter(commit int64, timestamp string) (*SnapshotWriter, error) {
 	dl.mu.Lock()
 	activeLog := dl.activeLog

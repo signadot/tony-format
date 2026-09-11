@@ -27,6 +27,15 @@ func NewStreamingProcessor() *StreamingProcessor {
 
 // ApplyPatches applies patches to base events, writing results to sink.
 // Patches are applied in order for each patched path.
+//
+// The patches are in commit order, and each is applied where it states something
+// ([Roots]); one stated beneath another patch's root is folded into the subtree at that
+// root, in commit order, not dropped. A subtree the patches delete is written as nothing,
+// its key with it. A patch at a path the base does not reach is grafted at the deepest
+// point of the base that exists, as a key where it sorts among its parent's keys, so a
+// base whose object keys are sorted gives events whose object keys are sorted. A missing
+// path that goes through an index or a sparse index cannot be created here and is an
+// error. With no base events, the patches are folded from null.
 func (sp *StreamingProcessor) ApplyPatches(baseEvents stream.EventReader, patches []*ir.Node, sink stream.EventWriter) error {
 	// Build patch value index: path → ordered patch nodes
 	patchValues, err := buildPatchValueIndex(patches)
@@ -402,8 +411,8 @@ func subtreeAt(patch *ir.Node, path string) (*ir.Node, bool) {
 	return sub, true
 }
 
-// walkAndCollectPatchRoots walks a stored entry and hands fn each node the entry states
-// something AT, with its path -- the places the base is collected and patched. They are
+// Roots walks a stored entry and hands fn each node the entry states something AT, with
+// its path -- the places the base is collected and patched. They are
 // read from the entry's own structure, which is the same reading the index and lowering
 // make of "where does this part of the patch land" (index.PatchChildren, LowerSites):
 //
@@ -421,9 +430,9 @@ func subtreeAt(patch *ir.Node, path string) (*ir.Node, bool) {
 // Nothing in the entry marks a root, and nothing needs to: the shape is the statement.
 // That is what lets the stored bytes be the delivered bytes -- there is nothing on an
 // entry that a delivery, a fold, or a collected node would have to take off first.
-// Roots hands fn each node an entry states something at, with its path: the reading this
-// package applies an entry by, for a caller that has to weigh what one entry says against
-// another (storage's scope compaction).
+// It is the reading this package applies an entry by, for a caller that has to weigh
+// where one entry states something against what another has stated (storage's scoped
+// watch, which asks whether a baseline delta meets a statement of the scope).
 func Roots(patch *ir.Node, fn func(node *ir.Node, path string)) {
 	walkAndCollectPatchRoots(patch, "", fn)
 }
@@ -552,9 +561,9 @@ func emitNode(node *ir.Node, sink stream.EventWriter) error {
 // The streaming processor applies a patch when the base's current path equals the
 // patch's root path. A write that creates structure — a new key, a whole new subtree —
 // has no such path in the base, so it is never applied. This tracks those paths and
-// emits them at the deepest point of the base that does exist: as a new key just before
-// its parent container closes, or in place of a scalar that the patch turns into a
-// subtree.
+// emits them at the deepest point of the base that does exist: as a new key in its parent
+// container, in place of a scalar that the patch turns into a subtree, or in place of an
+// array beneath which the patch names a field (replaceArray).
 //
 // Grafted keys must land where they SORT, not at the end: storage keeps object keys
 // sorted, and createSnapshot runs through this same code, so an unsorted read result
@@ -995,17 +1004,14 @@ func fieldSegments(rest string) ([]string, error) {
 	return segs, nil
 }
 
-// nestUnder folds the patch nodes as seen from a container, wrapping EACH of them in
-// the objects named by rest before applying it — not folding them first and wrapping the
-// result. The difference shows when a write is later deleted: folding first collapses
-// "{b: {c: 1}} then {b: {c: !delete}}" to nothing, while the log's own semantics leave
-// "{b: {}}" behind, because the delete removes c and not the b that the earlier write
-// created. Wrapping each node keeps every step identical to applying the entries to the
-// document directly, which is what the reference does.
-//
-// Returns (nil, nil) when the fold leaves nothing at all — deleting a path the base
-// never had is a no-op, not something to graft on.
 // nestPatches wraps each patch under rest -- structurally, and nothing more.
+//
+// EACH patch is wrapped in the objects named by rest, and the caller applies them in
+// order -- they are not folded first and the result wrapped. The difference shows when a
+// write is later deleted: folding first collapses "{b: {c: 1}} then {b: {c: !delete}}" to
+// nothing, while the log's own semantics leave "{b: {}}" behind, because the delete
+// removes c and not the b that the earlier write created. Wrapping each node keeps every
+// step identical to applying the entries to the document directly.
 //
 // It used to APPLY them, to null and to each other, and answer with the single node
 // that came out. That is not composition: applying a patch consumes the operations

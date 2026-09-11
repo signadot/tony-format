@@ -304,7 +304,7 @@ func claimValue(n *ir.Node) *ir.Node {
 //	a POSITION, because a position is not an identity. An element claimed at votes[1]
 //	is claimed as "the second of whatever is there", so the array is what such a write
 //	can name, and claiming it is honest: a scope writing by position owns the order
-//	too. A keyed element -- votes("a") -- is an identity, and is claimed as itself.
+//	too. A keyed element -- votes."(id=a)" -- is an identity, and is claimed as itself.
 func ClaimPaths(path string, data *ir.Node) []string {
 	var out []string
 	seen := map[string]bool{}

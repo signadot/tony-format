@@ -11,7 +11,7 @@ import (
 
 // Compact compacts the inactive log according to the compaction policy.
 // Removes:
-//   - Patches before cutoff (historical reads become approximate)
+//   - Baseline patches before cutoff (historical reads become approximate)
 //   - Snapshots of paths before cutoff (path_snapshot.go)
 //   - A scope's entries before cutoff that a later entry of the scope dominates
 //     (scope_compaction.go)

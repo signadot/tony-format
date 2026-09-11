@@ -40,8 +40,9 @@ type Tx interface {
 // Multiple goroutines can safely call methods concurrently on patchers for the same transaction.
 type Patcher interface {
 	// Commit commits all pending diffs atomically.
-	// This should only be called by the last participant.
-	// Other participants should call WaitForCompletion() instead.
+	// Every participant calls it. It blocks until all participants have joined (or
+	// the transaction times out or expires); the first to arrive performs the commit,
+	// and every participant receives the same outcome.
 	//
 	// This method is idempotent - if called multiple times or after the transaction is already
 	// committed, it returns the existing result.
@@ -49,16 +50,19 @@ type Patcher interface {
 }
 
 // Result represents the result of a transaction commit.
+//
+// Matched false with a nil Error is a precondition that did not hold: nothing was
+// written, and it is not a failure.
 type Result struct {
-	Committed bool
-	Matched   bool
+	Committed bool     // The patch was stored, indexed and published
+	Matched   bool     // Every precondition held
 	Commit    int64    // Commit identifier returned by NextCommit(), 0 if not committed
-	Data      *ir.Node // The patched data at the patch path (with any auto-generated IDs)
+	Data      *ir.Node // This participant's patch data as committed: auto-generated IDs injected, keyed arrays in the stored form; nil unless Committed
 	Error     error
 }
 
 // Store provides storage for active transactions.
-// Implementations can be in-memory (for now) or on-disk (for later).
+// InMemoryTxStore is the implementation the storage package uses.
 type Store interface {
 	// Get retrieves a transaction state by ID, returns nil if not found
 	Get(txID int64) (Tx, error)
@@ -124,7 +128,7 @@ type State struct {
 	PatcherData []*PatcherData // All participant patches
 }
 
-// TxPatcher is a participant in a Tx.
+// PatcherData is one participant's contribution to a Tx: its patch, and when it arrived.
 //
 //tony:schemagen=patcher-data
 type PatcherData struct {

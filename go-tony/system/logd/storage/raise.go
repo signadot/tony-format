@@ -37,7 +37,7 @@ func (s *Storage) SchemaFor(scopeID *string) *api.Schema {
 // the view scopeID names -- what a caller at the boundary does to a node it collected from
 // Read before handing it to a client. A state is op-free: the arrays come back untagged,
 // as a client's own fold of the deltas leaves them. The store's own readers never call it;
-// the head and the write path speak the stored form.
+// the write path speaks the stored form.
 func (s *Storage) RaiseState(scopeID *string, n *ir.Node, kp string) *ir.Node {
 	return s.raise(scopeID, n, kp, false)
 }

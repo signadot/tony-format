@@ -12,9 +12,9 @@ import (
 // for arrays that match schema AutoIDFields.
 //
 // For each matching array element:
-// - If the key field is null or missing, a new ID is generated
-// - IDs are generated using the commit number to ensure monotonicity
-// - Index tracks position within the commit for uniqueness
+//   - If the key field is null or missing, a new ID is generated
+//   - IDs are generated using the commit number to ensure monotonicity
+//   - Index tracks position within the commit for uniqueness
 //
 // Returns the number of IDs injected.
 func InjectAutoIDs(commit int64, schema *api.Schema, data []*PatcherData) int {

@@ -8,6 +8,8 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
 )
 
+// Index is a node of the index trie, and the root node is the index: Commits holds the
+// node's resident segments and Children the node for each path segment beneath it.
 type Index struct {
 	sync.RWMutex
 	PathKey  string // eg "" for root
@@ -130,6 +132,8 @@ func (i *Index) segmentsWithin(from, to *int64, keep func(LogSegment) bool) []Lo
 	return res
 }
 
+// Add indexes seg at seg.KindedPath, taken relative to this node, creating the nodes on
+// the way. At the root, a scope's statement also joins the footprint.
 func (i *Index) Add(seg *LogSegment) {
 	// A scope's statement joins the footprint once, at the root, where the segment
 	// still carries its full path.
@@ -155,6 +159,9 @@ func (i *Index) Add(seg *LogSegment) {
 	child.Add(&segCopy)
 }
 
+// Remove removes seg from the node at seg.KindedPath, taken relative to this node, and
+// reports whether it was there. At the root, a scope's statement also leaves the
+// footprint.
 func (i *Index) Remove(seg *LogSegment) bool {
 	if i.full == "" && seg.Statement && seg.ScopeID != nil {
 		i.foot.forget(*seg.ScopeID, statementOf(seg))
@@ -173,12 +180,12 @@ func (i *Index) Remove(seg *LogSegment) bool {
 	return c.Remove(&segCopy)
 }
 
-// LookupRange finds segments in the given commit range, at or above kp: a write
+// lookupRange finds segments in the given commit range, at or above kp: a write
 // above kp writes through it.  A segment appears once per path it was indexed at,
 // which is what callers reading the paths depend on.
 //
 // It does NOT descend below kp.  For "everything which can affect the subtree at
-// kp", each entry once, see LookupSubtree.
+// kp", each entry once, see Segments.
 //
 // If scopeID is nil, returns only baseline segments.
 // If scopeID is non-nil, returns baseline + matching scope segments.
@@ -332,10 +339,10 @@ func appendRelative(res []LogSegment, name string, cRes []LogSegment) []LogSegme
 	return res
 }
 
-// dedupEntries keeps one segment per log entry, whatever paths it was indexed at.
-// An entry is identified by where it sits in the log, which is what a reader reads
-// from: two segments naming the same position are one write seen from two paths, and
-// applying it twice is what made a narrow read cost several times a wide one.
+// segKey identifies a log entry: Segments keeps one segment per key, whatever paths the
+// entry was indexed at. An entry is identified by where it sits in the log, which is what
+// a reader reads from: two segments naming the same position are one write seen from two
+// paths, and applying it twice is what made a narrow read cost several times a wide one.
 //
 // The path kept is the highest the entry was indexed at, which is the one a reader
 // can use to decide what the entry writes through.
@@ -369,8 +376,8 @@ func matchesScope(segScopeID, reqScopeID *string) bool {
 	return *segScopeID == *reqScopeID
 }
 
-// LookupRangeAll returns all segments in the given range regardless of scope.
-// This is used for internal operations like computing max commit.
+// LookupRangeAll returns the segments at kp and at each of its ancestors whose EndCommit
+// is in [from, to], regardless of scope. It does not descend below kp.
 func (i *Index) LookupRangeAll(kp string, from, to *int64) []LogSegment {
 	res := i.segmentsWithin(from, to, inCommitRange(from, to))
 	if kp == "" {
@@ -393,7 +400,7 @@ func (i *Index) LookupRangeAll(kp string, from, to *int64) []LogSegment {
 // This is deliberately different from LookupRangeAll(""), which returns only the root
 // node's own commits: that one descends solely along a path it is given, so it cannot see
 // a segment indexed below the root. A log entry is indexed at the root AND at every path
-// inside its patch (indexPatchRec), and all of those copies name the same log position, so
+// inside its patch (IndexPatch), and all of those copies name the same log position, so
 // anything maintaining positions has to reach all of them.
 func (i *Index) AllSegments() []LogSegment {
 	res := i.segmentsWithin(nil, nil, nil)
@@ -414,7 +421,7 @@ func (i *Index) AllSegments() []LogSegment {
 
 // lookupWithin finds all segments at the given kpath where the commit is within
 // the segment's commit range (StartCommit <= commit <= EndCommit).
-// Returns ancestors and exact matches, just like LookupRange.
+// Returns ancestors and exact matches, just like lookupRange.
 // If scopeID is nil, returns only baseline segments.
 // If scopeID is non-nil, returns baseline + matching scope segments.
 func (i *Index) lookupWithin(kp string, commit int64, scopeID *string) []LogSegment {
@@ -444,9 +451,8 @@ func (i *Index) lookupWithin(kp string, commit int64, scopeID *string) []LogSegm
 	return res
 }
 
-// withinFunc returns a range function that matches segments containing the given commit.
 // LogSegCompare compares 2 log segments by their
-// start commit, start-tx, end-commit, end-tx, and path.
+// start commit, start-tx, end-commit, end-tx, path, and scope (baseline first).
 func LogSegCompare(a, b LogSegment) int {
 	n := cmp.Compare(a.StartCommit, b.StartCommit)
 	if n != 0 {

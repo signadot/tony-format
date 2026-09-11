@@ -68,15 +68,19 @@ func (s *Storage) baselineSnapshotSegment(commit int64) (index.LogSegment, bool)
 	return s.index.SnapshotAtOrAbove("", commit)
 }
 
-// SwitchDLog switches the active log and creates snapshots.
-// Creates a baseline snapshot plus snapshots for all active scopes.
-// The snapshots are created for the current commit at the time of switching.
-// This should be called periodically (e.g., based on log size or time) to enable
-// snapshot-based read optimization and eventual compaction.
+// SwitchDLog switches the active log and creates a snapshot.
+// Creates a baseline snapshot of the root; a scope is not snapshotted, its layer being
+// its own patches (see the package doc).
+// The snapshot is created for the current commit at the time of switching, in the log
+// that has just become inactive, and when a compaction config is set, Compact runs on
+// that log after it. This should be called periodically (e.g., based on log size or
+// time) to enable snapshot-based read optimization and eventual compaction.
 //
-// Concurrency: dlog handles coordination internally via per-file snapMu locks.
-// SwitchActive blocks if a snapshot is in progress on the inactive log.
-// createSnapshot returns ErrSnapshotInProgress if called while another snapshot is running.
+// Concurrency: the store's snapshot lock serializes the switch, with the root snapshot
+// and the compaction after it, against a snapshot of a path. dlog also coordinates via
+// per-file snapMu locks: SwitchActive blocks if a snapshot is in progress on the inactive
+// log, and createSnapshot returns ErrSnapshotInProgress if called while another snapshot
+// is running there.
 func (s *Storage) SwitchDLog() error {
 	// The inactive log has one writer at a time: this, with the root snapshot and the
 	// compaction that rewrites the log, or a snapshot of a path (path_snapshot.go).
@@ -127,9 +131,9 @@ func (s *Storage) SwitchDLog() error {
 // createSnapshot creates a baseline snapshot of the full state at the given commit.
 // Writes snapshot events to the inactive log and adds an index entry.
 //
-// Scope snapshots are no longer created (a materialized scope layer is unsound for
-// !key); the scope layer is read as raw op-preserving patches instead. See
-// replayScopedAt and issue 5hmq80f3h12krh1mbsn0.
+// Scope snapshots are not created (a materialized scope layer cannot carry a claim); the
+// scope layer is read from the scope's own patches instead (projectScope, and issue
+// 5hmq80f3h12krh1mbsn0).
 func (s *Storage) createSnapshot(commit int64) error {
 	// Find most recent snapshot and get base event reader
 	baseReader, startCommit, err := s.findSnapshotBaseReader(commit)

@@ -1,18 +1,16 @@
-// Package patches provides streaming patch application for snapshots.
+// Package patches applies stored patches to an event stream without
+// materializing the document the stream describes.
 //
-// This package implements the PatchApplier interface for applying patches
-// to event streams without materializing full documents in memory.
+// [StreamingProcessor] streams the base events and materializes only the subtrees a
+// patch reaches: [SubtreeCollector] gathers the events at each patched path, the
+// subtree is patched with api.NextState and re-emitted, and every other event passes
+// through as it arrived. A patch at a path the base does not reach is grafted where its
+// key sorts, so the output keeps the object key order storage keeps. Storage builds its
+// snapshots, and answers a read at a path, by folding log entries onto a snapshot's
+// events, or onto an empty stream, through it.
 //
-// StreamingProcessor streams the base events and materializes only the subtrees a patch
-// reaches. An earlier InMemoryApplier, which read the whole document into memory first, is
-// gone: nothing had called it since the streaming processor landed, and its "TODO: replace
-// with a streaming implementation" outlived the replacement, which is worse than no note at
-// all -- it was cited as the state of the code a year later.
-//
-// Where a whole document is still folded is the COMMIT path and the WATCH path, not here;
-// see rkb7p8v5h12ksdnmgsn0. Future implementation (StreamingApplier) will apply
-// patches incrementally to streaming events, only materializing small
-// subtrees at patch target paths.
+// [Roots] is the reading an entry is applied by: the nodes it states something at, each
+// with its path.
 //
 // See docs/patch_design_reference.md for the full streaming design (Piece 2).
 package patches

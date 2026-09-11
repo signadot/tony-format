@@ -13,7 +13,7 @@ import (
 // replayFloorFile holds the replay floor, under the store's meta directory.
 const replayFloorFile = "replay-floor"
 
-// ErrReplayCompacted is returned by ReadPatchesInRange when the requested range starts
+// ErrReplayCompacted is returned by Storage.Deltas when the requested range starts
 // at or below the replay floor, so the deltas it asks for are no longer all on disk.
 // The caller cannot be given every change in the range and must re-initialize from a
 // state read instead of resuming.

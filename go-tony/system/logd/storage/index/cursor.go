@@ -28,6 +28,9 @@ import (
 // That is the selectivity a narrow read has (ap8ddvp2h12krd43gdn0), and
 // TestEveryEntryIsIndexedAtEveryPrefix is what holds the invariant it rests on.
 //
+// The snapshots at kp and at its ancestors in range come back among them (StartCommit ==
+// EndCommit); a caller folding writes skips them.
+//
 // The segments come back with their full paths. A caller that wants the set as a slice
 // says so with slices.Collect, and says why.
 func (i *Index) Segments(kp string, from, to *int64, scopeID *string) iter.Seq[LogSegment] {

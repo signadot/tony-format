@@ -53,7 +53,7 @@ func (i *Index) IterAtPath(kp string) *IndexIterator {
 
 // Path returns the current path in the hierarchy (e.g., "foo.bar" or "" for root)
 // Uses kpath-aware joining to properly reconstruct the path.
-// ir.Join() joins a single segment (prefix) with a path (suffix), so we build from right to left.
+// kpath.Join joins a prefix with a path (suffix), so we build from right to left.
 func (it *IndexIterator) Path() string {
 	if len(it.path) == 0 {
 		return ""

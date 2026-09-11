@@ -30,6 +30,8 @@ type Builder struct {
 
 // NewBuilder creates a snapshot builder writing to w.
 // Populates the provided index as events are written.
+// The snapshot begins at w's current position: NewBuilder reserves the header there,
+// and [Builder.Close] fills it in.
 func NewBuilder(w W, index *Index, patches []*ir.Node) (*Builder, error) {
 	pos, err := w.Seek(0, io.SeekCurrent)
 	if err != nil {
@@ -142,6 +144,8 @@ func (b *Builder) writeEvent(ev *stream.Event) error {
 	return nil
 }
 
+// Close writes any events still held, then the index, fills in the header, and
+// closes w.
 func (b *Builder) Close() error {
 	// A document can end on a held event -- a comment after the last value, which
 	// the format attributes to whatever comes next and nothing does. It is written

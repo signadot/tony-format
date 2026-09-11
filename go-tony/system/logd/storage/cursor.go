@@ -510,8 +510,9 @@ func Collect(c Cursor, budget int64) (*ir.Node, error) {
 	return collectWithin(c, budget)
 }
 
-// collectAll is the store's own materialization, for the intermediates the bound admits:
-// a write's operand read through an ancestor, and the document the stepped head holds.
+// collectAll is the store's own materialization, with no budget: a write's operand read
+// through an ancestor, which is the intermediate the bound admits, and the array a schema
+// change checks for elements written by position (identityChangeAllowed).
 func collectAll(c Cursor) (*ir.Node, error) {
 	return collectWithin(c, math.MaxInt64)
 }

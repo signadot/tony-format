@@ -9,6 +9,14 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
 )
 
+// LogSegment is one index record: the log entry at LogFile:LogPosition, indexed at
+// KindedPath, over the commit range [StartCommit, EndCommit].
+//
+//   - StartCommit == EndCommit: a snapshot, the full state of the subtree at KindedPath
+//     as of that commit, indexed at that path only
+//   - StartCommit != EndCommit: a patch entry, from the entry's LastCommit to its Commit,
+//     indexed at every path on the way to what it writes
+//
 //tony:schemagen=log-segment
 type LogSegment struct {
 	StartCommit       int64
@@ -20,7 +28,7 @@ type LogSegment struct {
 	LogPosition       int64   // Byte offset in log file
 	LogFileGeneration int64   // Generation of log file when indexed - used to detect compaction
 	ScopeID           *string // nil = baseline, non-nil = scope-specific data
-	ScopeOverlay      bool    // the entry is a scope's materialized ownership, not one of its writes
+	ScopeOverlay      bool    // the entry is a scope overlay (a cached layer logd no longer writes), not one of its writes
 	// Spine says this path is one the patch passed THROUGH on its way to what it
 	// actually wrote: a plain container, no operator, with the written values indexed
 	// beneath it. A read below such a path is not affected by it -- what it did is
@@ -39,9 +47,6 @@ type LogSegment struct {
 	Statement bool
 	Offers    Cover
 	Needs     Cover
-	// Semantics:
-	// - StartCommit == EndCommit: snapshot (full state at that commit)
-	// - StartCommit != EndCommit: diff (incremental changes over commit range)
 }
 
 func (s *LogSegment) String() string {
@@ -49,7 +54,7 @@ func (s *LogSegment) String() string {
 	return as
 }
 
-// SortLogSegments sorts a slice of LogSegment pointers by commit count, then tx.
+// SortLogSegments sorts a slice of LogSegment pointers in [LogSegCompare] order.
 func SortLogSegments(segments []*LogSegment) {
 	// Use the existing LogSegCompare function
 	slices.SortFunc(segments, func(a, b *LogSegment) int {
@@ -57,6 +62,7 @@ func SortLogSegments(segments []*LogSegment) {
 	})
 }
 
+// WithinCommitRange reports whether a's commit range lies within b's.
 func WithinCommitRange(a, b *LogSegment) bool {
 	if a.StartCommit < b.StartCommit {
 		return false
@@ -135,6 +141,9 @@ func passesThrough(n *ir.Node) bool {
 	return n.Type == ir.ObjectType && len(n.Fields) > 0
 }
 
+// NewLogSegmentFromPatchEntry is the segment of patch entry e at kpath: StartCommit is e's
+// LastCommit, which must be set, EndCommit its Commit, and txID both StartTx and EndTx.
+// Spine, Statement and the cover are left unset; IndexPatch sets them.
 func NewLogSegmentFromPatchEntry(e *dlog.Entry, kpath string, logFile string, pos int64, txID int64, generation int64, scopeID *string) *LogSegment {
 	// For patches: StartCommit = LastCommit, EndCommit = Commit
 	// This represents the range [LastCommit, Commit] that the patch covers

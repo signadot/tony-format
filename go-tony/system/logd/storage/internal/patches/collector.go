@@ -9,17 +9,19 @@ import (
 // Uses path tracking to identify patched subtrees and collect their events.
 //
 // Path timing behavior (from stream.State):
-// - EventKey("foo"): currentPath becomes "foo" immediately
-// - Value event after key: currentPath is STILL "foo" (unchanged until next key)
-// - EventBeginArray, then EventString: currentPath becomes "[0]" on the string
+//   - EventKey("foo"): currentPath becomes "foo" immediately
+//   - Value event after key: currentPath is STILL "foo" (unchanged until next key)
+//   - EventBeginArray, then EventString: currentPath becomes "[0]" on the string
 //
 // Collection algorithm (following path_finder.go pattern):
+//
 // 1. When path matches a patch path:
-//   - EventKey/EventIntKey: Set collecting=true (don't collect the key itself)
+//   - EventKey/EventIntKey: remember the path (PendingPath) without collecting the key
+//     itself; the value after it starts collection, as below
 //   - EventBegin*: Set collecting=true, depth=1, append event
 //   - Scalar: Append single event, done
 //
-// 2. While collecting (depth > 0 or waiting for value after key):
+// 2. While collecting:
 //   - Begin*: depth++, append
 //   - End*: append, depth--, done if depth=0
 //   - Others: append

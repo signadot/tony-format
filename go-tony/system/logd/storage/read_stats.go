@@ -7,8 +7,8 @@ import (
 	"github.com/signadot/tony-format/go-tony/debug"
 )
 
-// ReadKind is what a read at a path did: it read the subtree, or it read the whole
-// document because something stopped it narrowing.
+// ReadKind is what a read at a path did: it read the subtree, or it read wider -- the
+// root, or the ancestor an operator stands at -- because something stopped it narrowing.
 type ReadKind string
 
 const (

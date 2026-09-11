@@ -45,7 +45,7 @@ func DefaultRandomDocConfig() RandomDocConfig {
 	}
 }
 
-// RandomDocument generates a random document with mixed structure
+// RandomDocument generates a random document with mixed structure.
 // Returns the document as an ir.Node and all paths that exist in it
 func RandomDocument(config RandomDocConfig) (*ir.Node, []string, error) {
 	if config.Seed == 0 {

@@ -31,6 +31,9 @@ type txCoord struct {
 	resultMu    sync.RWMutex  // Protects result
 }
 
+// New returns a transaction over state: it expects cap(state.PatcherData)
+// participants, records each one's joining in store, and commits through commitOps.
+// The caller puts it in store before any participant joins (storage.Storage.NewTx).
 func New(store Store, commitOps CommitOps, state *State) Tx {
 	return &txCoord{
 		storage:       store,

@@ -1,3 +1,8 @@
+// Package autoid generates the IDs logd injects into array elements whose schema declares
+// an auto-ID field and which arrive without one (tx.InjectAutoIDs).
+//
+// [Generate] spells a commit number and a position within the commit as one string, and
+// those strings sort lexicographically in (commit, position) order.
 package autoid
 
 import (
@@ -8,9 +13,10 @@ import (
 // Generate returns a monotonic ID for the given commit and index.
 // IDs sort lexicographically in commit order.
 //
-// Format: FormatLex encoding - length-prefixed hexadecimal numbers.
+// Format: commit then index, each a length-prefixed hexadecimal number.
 // The length prefix is a letter: 'a'=1 hex digit, 'b'=2 hex digits, ..., 'p'=16 hex digits.
 // This ensures lexicographic ordering matches numeric ordering.
+// commit and index must be non-negative; Generate panics otherwise.
 //
 // Examples:
 //   - commit=1, index=0    → "a1a0"

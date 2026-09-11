@@ -10,7 +10,7 @@ import (
 
 // IndexEntry maps a kinded path to its byte offset in the event stream.
 //
-// tony:schemagen=index-entry
+//tony:schemagen=index-entry
 type IndexEntry struct {
 	Path   *Path // Kinded path (e.g., "a.b[0]", "users.123.name")
 	Offset int64 // Byte offset in event stream
@@ -18,7 +18,8 @@ type IndexEntry struct {
 }
 
 // Index maps kinded paths to event stream offsets.
-// Entries are in document order (sorted for objects, sequential for arrays).
+// Entries are in document order; for a document whose object keys are sorted, as
+// logd's are, that is name order too, which [Index.Lookup] checks rather than assumes.
 //
 //tony:schemagen=index
 type Index struct {

@@ -124,7 +124,12 @@ func (s *Storage) replaySchemaState() error {
 
 // StartMigration begins a schema migration by setting a pending schema.
 // Returns ErrMigrationInProgress if a migration is already in progress.
-// This creates a snapshot with the pending schema and starts building a new index.
+// This creates a snapshot with the pending schema and starts building a new index,
+// and answers the snapshot's commit.
+//
+// A schema that does not validate is refused, and so is one that changes an array's
+// identity in a way the stored data cannot follow: an array losing or changing its
+// identity, or gaining one while it holds elements written by position.
 func (s *Storage) StartMigration(schema *ir.Node) (int64, error) {
 	if s.schema.HasPending() {
 		return 0, ErrMigrationInProgress

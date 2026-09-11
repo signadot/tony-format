@@ -25,12 +25,13 @@ type SchemaEntry struct {
 }
 
 // Entry represents a log entry written to logA/logB.
-// This structure supports 5 types of entries:
-//   - Plain patch: Patch set, TxSource/SnapPos/SchemaEntry nil, *LastCommit=Commit-1
+// This structure supports these types of entries:
 //   - Transaction: Patch and TxSource set, SnapPos/SchemaEntry nil, *LastCommit=Commit-1
-//   - Snapshot: SnapPos set, TxSource nil, LastCommit nil, SchemaEntry nil
-//   - Compaction: Patch set, LastCommit set Commit-*LastCommit > 1, TxSource/SchemaEntry nil
+//   - Snapshot: SnapPos set, SnapPath the path it is of (nil for the root), TxSource nil,
+//     LastCommit nil, SchemaEntry nil
 //   - Schema change: SchemaEntry set, SnapPos set (schema changes require snapshot)
+//   - Scope overlay: Patch, ScopeID and ScopeOverlay set, TxSource nil. Nothing writes one;
+//     a log that holds them still decodes (see ScopeOverlay).
 //
 //tony:schemagen=entry
 type Entry struct {
@@ -44,20 +45,20 @@ type Entry struct {
 	// is the root -- the snapshot the switch takes -- and a log written before paths
 	// were snapshotted decodes to it (storage/path_snapshot.go).
 	SnapPath    *string
-	LastCommit  *int64       // Last commit before compaction (for compaction entries)
+	LastCommit  *int64       // The commit a patch entry follows (Commit-1); nil for a snapshot
 	ScopeID     *string      // nil = baseline, non-nil = scope-specific data
 	SchemaEntry *SchemaEntry // Schema change (always with SnapPos for snapshot)
 
 	// ScopeOverlay marks an entry as a scope's materialized ownership rather than one of
-	// its writes. The two are otherwise indistinguishable -- both are scope-tagged patch
-	// entries -- and confusing them is not cosmetic: an overlay SUBSUMES the patches
+	// its writes: an overlay, which logd once wrote beside a baseline snapshot and no
+	// longer writes. The two are otherwise indistinguishable -- both are scope-tagged
+	// patch entries -- and confusing them is not cosmetic: an overlay SUBSUMES the patches
 	// before it, so replaying it as an ordinary patch applies it twice, and the read path
 	// must exclude it from the layer it is the base of.
 	//
 	// It lives on the entry rather than being inferred from the index because the index
-	// is rebuildable and the log is the record. Inferring it (the spike used EndTx == -1)
-	// survives in a live index and not in a rebuilt one, since index.Build takes the tx
-	// from TxSource and an overlay has none.
+	// is rebuildable and the log is the record: index.Build takes the tx from TxSource,
+	// and an overlay has none.
 	ScopeOverlay bool
 }
 

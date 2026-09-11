@@ -66,7 +66,7 @@ func noSuchElement(path, format string, args ...any) error {
 }
 
 // checkArrayWritePath refuses a write whose index segments name no element of doc.
-// doc is the current state, rooted at the document root, as ReadStateAt returns it.
+// doc is the current state, rooted at the document root, as CommitOps.StateAt answers it at "".
 func checkArrayWritePath(path string, data, doc *ir.Node) error {
 	segs := kpath.SplitAll(path)
 	inserts := writeInserts(data)

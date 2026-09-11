@@ -53,7 +53,11 @@ func (dl *DLog) ActiveReaders(id LogFileID) int64 {
 // entries to a new file, then atomically swapping.
 //
 // positions is a list of entry positions to keep (must be sorted ascending).
-// Returns the mapping from old positions to new positions.
+// Returns the mapping from old positions to new positions. A kept snapshot entry
+// takes its blob with it. An empty positions truncates the file.
+//
+// Either way the file's generation is bumped. A rewrite deletes the file it replaced
+// once the file's readers finish or config.GracePeriod passes, whichever is first.
 //
 // The caller is responsible for determining which entries to keep.
 // After this returns, the caller should update the index with new positions.

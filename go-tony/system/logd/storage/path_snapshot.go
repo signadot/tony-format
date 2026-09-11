@@ -87,7 +87,8 @@ func (p pathSnapshotPolicy) needs(bytes int64) int64 {
 }
 
 // SetPathSnapshotPolicy configures when a read schedules a snapshot at its path: after
-// folding more than tail records of a subtree of at most bytes. Zero keeps a default; a
+// folding more than tail records for each bytes of the subtree it read, rounded up -- a
+// subtree N times bytes must fold more than N times tail. Zero keeps a default; a
 // negative tail turns per-path snapshots off.
 func (s *Storage) SetPathSnapshotPolicy(tail, bytes int64) {
 	if tail == 0 {
@@ -100,8 +101,8 @@ func (s *Storage) SetPathSnapshotPolicy(tail, bytes int64) {
 }
 
 // PathSnapshotPolicy answers the policy in force: how many records a read may fold at a
-// path before it snapshots there, and the largest subtree it snapshots. A negative tail
-// is per-path snapshots off.
+// path before it snapshots there, and the subtree size that many records is priced for.
+// A negative tail is per-path snapshots off.
 func (s *Storage) PathSnapshotPolicy() (tail, bytes int64) {
 	return s.pathSnap.tail, s.pathSnap.bytes
 }
@@ -159,8 +160,8 @@ func (s *Storage) waitPathSnapshots() { s.pathSnapWG.Wait() }
 //
 // It declines rather than fails when there is nothing to do: the path is absent, a
 // snapshot at or above it already stands at that commit, the commit precedes the root
-// snapshot in the inactive log, another snapshot holds the log, or the subtree turns out
-// larger than the budget. None is an error; each is a snapshot not worth taking.
+// snapshot in the inactive log, or another snapshot holds the log. None is an error; each
+// is a snapshot not worth taking.
 func (s *Storage) snapshotPath(at int64, kp string) error {
 	s.snapMu.Lock()
 	defer s.snapMu.Unlock()

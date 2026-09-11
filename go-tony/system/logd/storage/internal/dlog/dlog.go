@@ -69,9 +69,9 @@ type DLogFile struct {
 	logger *slog.Logger
 }
 
-// DLogIter provides sequential iteration over log entries using streaming reads.
-// Uses streaming parsing to avoid loading entire entries into memory.
-// Iterates over both logA and logB, switching between them based on commit order.
+// DLogIter walks both logA and logB, switching between them based on commit order.
+// Each record is read whole and decoded; a region that will not read is stepped over and
+// recorded as a [Gap].
 type DLogIter struct {
 	dlog  *DLog
 	iterA *singleFileIter
@@ -385,7 +385,7 @@ func scanFrames(file *os.File, size int64) (end int64, tornTail bool, err error)
 // The Entry.Commit is provided by the caller (from seq.Seq.NextCommit()).
 // Returns the log position and which log file (A or B) it was written to.
 // Does NOT automatically switch active log - that's handled by the caller
-// when compaction boundaries are reached.
+// at snapshot boundaries (SwitchActive).
 func (dl *DLog) AppendEntry(entry *Entry) (logPosition int64, logFile LogFileID, err error) {
 	// dl.mu is held ACROSS the append, not merely while reading which log is active.
 	// Released early, a committer could resolve the active log, be descheduled, and
@@ -612,7 +612,9 @@ func (dl *DLog) SyncAll() error {
 
 // SwitchActive switches the active log (A ↔ B).
 // Blocks if a snapshot is in progress on the inactive log (which is about to become active).
-// Called by the caller when compaction boundaries are reached.
+// The caller switches at snapshot boundaries and then writes the snapshot into the log that
+// has just become inactive. The switch marks where the newly active log stands, which is
+// what DeltaBytesSinceSnapshot counts from.
 func (dl *DLog) SwitchActive() error {
 	dl.mu.Lock()
 
@@ -664,8 +666,7 @@ func (dl *DLog) SwitchActive() error {
 }
 
 // Iterator creates an iterator for reading entries from both log files in commit order.
-// Starts at position 0 for both files.
-// Note: Currently uses non-streaming reads. Streaming support can be added later.
+// Starts at position 0 for both files and stops at each file's append frontier.
 func (dl *DLog) Iterator() (*DLogIter, error) {
 	// Bound by the append frontier, not the file size. position is the end of the last
 	// complete record: on open it is where the frame scan stopped, and every append moves
@@ -743,7 +744,7 @@ func (dl *DLog) Close() error {
 }
 
 // AppendEntry appends an Entry to this log file.
-// Format: [4 bytes: uint32 length (big-endian)][entry data in Tony wire format]
+// Format: [4 bytes: uint32 length (big-endian)][entry data as binary stream events]
 // Returns the byte position where the entry was written.
 func (dlf *DLogFile) AppendEntry(entry *Entry) (position int64, err error) {
 	dlf.mu.Lock()

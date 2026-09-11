@@ -18,11 +18,15 @@ const (
 	seqFileSize       = 16
 )
 
+// Seq is a store's commit and transaction counters, persisted under Root. Its embedded
+// Mutex is the lock the *Locked methods require.
 type Seq struct {
 	sync.Mutex
 	Root string
 }
 
+// NewSeq returns the counters of the store rooted at root. It reads nothing: each method
+// reads the file afresh.
 func NewSeq(root string) *Seq {
 	return &Seq{Root: root}
 }
@@ -66,6 +70,7 @@ func (s *Seq) NextCommit() (int64, error) {
 	return s.NextCommitLocked()
 }
 
+// NextCommitLocked is NextCommit for a caller that holds the Seq's lock.
 func (s *Seq) NextCommitLocked() (int64, error) {
 	state, err := s.ReadStateLocked()
 	if err != nil {
@@ -89,8 +94,8 @@ func (s *Seq) CurrentSeqState() (*State, error) {
 	return s.ReadStateLocked()
 }
 
-// readSeqState reads the sequence state from disk.
-// Caller must hold seqMu lock.
+// ReadStateLocked reads the sequence state from disk; an absent file is the zero state.
+// Caller must hold the Seq's lock.
 func (s *Seq) ReadStateLocked() (*State, error) {
 	file := filepath.Join(s.Root, "meta", seqFile)
 
@@ -120,7 +125,7 @@ func (s *Seq) ReadStateLocked() (*State, error) {
 }
 
 // WriteStateLocked writes the sequence state to disk atomically.
-// Caller must hold seqMu lock.
+// Caller must hold the Seq's lock.
 func (s *Seq) WriteStateLocked(state *State) error {
 	file := filepath.Join(s.Root, "meta", seqFile)
 

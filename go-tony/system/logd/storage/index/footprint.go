@@ -30,7 +30,7 @@ import (
 // dominates drops them, and a statement arriving after one that dominates IT -- a survivor
 // re-indexed after a compaction, an entry replayed out of order by a rebuild that is not --
 // is not added. Nothing ever comes back once dropped, which is why a repair that removes
-// segments the walk could not read rebuilds the footprint whole (Rebuild).
+// segments the walk could not read rebuilds the footprint whole (RebuildFootprint).
 
 // A Statement is one live statement of a scope: where it is, when, and how to read it.
 type Statement struct {
