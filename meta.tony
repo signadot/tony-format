@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: c59532642f8b32dc21c1a210357157c1930fd5f7
 commits:
 - c59532642f8b32dc21c1a210357157c1930fd5f7
 created: "2026-09-11T10:38:20.767691+02:00"
@@ -13,5 +14,5 @@ labels:
 - medium
 - schema
 related_issues: []
-status: open
-updated: "2026-09-11T13:51:26.998412+02:00"
+status: closed
+updated: "2026-09-11T13:51:27.088919+02:00"
