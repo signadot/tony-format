@@ -9,16 +9,21 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 )
 
+// Tool evaluates the operations package eval registers -- tags such as !eval,
+// !exec and !file -- with Env as their environment.
 type Tool struct {
 	Env map[string]any
 }
 
+// DefaultTool answers a Tool with an empty environment.
 func DefaultTool() *Tool {
 	return &Tool{
 		Env: map[string]any{},
 	}
 }
 
+// Run evaluates the operations in a copy of y and answers the result. y is not
+// modified.
 func (t *Tool) Run(y *ir.Node) (*ir.Node, error) {
 	return t.run(y.Clone(), nil)
 }

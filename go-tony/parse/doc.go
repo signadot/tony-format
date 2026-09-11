@@ -8,13 +8,16 @@
 //	    return err
 //	}
 //
-//	// Parse from string
-//	node, err := parse.ParseString(`[1, 2, 3]`)
+//	// Parse YAML, keeping comments
+//	node, err = parse.Parse(data, parse.ParseYAML(), parse.ParseComments(true))
 //
-//	// Parse with options
-//	node, err := parse.Parse(data, parse.WithFilename("config.tony"))
+//	// Parse a stream of documents separated by "---"
+//	nodes, err := parse.ParseMulti(data)
 //
-// The parser handles Tony, YAML, and JSON formats automatically.
+// The input is read as Tony unless an option selects another format:
+// [ParseYAML], [ParseJSON] or [ParseFormat]. Valid JSON is valid Tony, so Tony
+// mode reads JSON as well. [ParseNodeFromSource] reads the next bracketed value
+// or scalar from a [token.TokenSource].
 //
 // # Related Packages
 //

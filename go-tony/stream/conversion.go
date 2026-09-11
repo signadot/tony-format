@@ -103,7 +103,6 @@ type nodeFrame struct {
 	intKey *int64
 }
 
-// wrapWithHeadComment wraps a node with a pending head comment if present
 // emitLineComment writes a value's trailing comment.
 //
 // One caller: nodeToEvents, after the value it belongs to. Both the value's own

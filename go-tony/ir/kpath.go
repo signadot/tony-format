@@ -17,6 +17,7 @@ import (
 //   - Array element at index 0 → "[0]"
 //   - Nested object "a.b" → "a.b"
 //   - Mixed "a[0].b" → "a[0].b"
+//   - Sparse array element under key 3 → "{3}"
 func (node *Node) KPath() string {
 	if node.Parent == nil {
 		return ""
@@ -63,9 +64,12 @@ func (node *Node) KPath() string {
 //
 // Example:
 //
-//	rootNode.GetKPath("a.b.c") navigates to rootNode.Values["a"].Values["b"].Values["c"]
+//	rootNode.GetKPath("a.b[0]") // the first element of the array at field b of field a
 //
-// Returns an error if the path doesn't exist or is invalid.
+// It answers a copy of the node the path names, seeing through comments. A
+// field, sparse index or key the document does not hold is an absence, and
+// answers (nil, nil). A malformed path, a wildcard or `..`, an index out of
+// range, or a segment that does not fit the kind of node it meets is an error.
 func (node *Node) GetKPath(kp string) (*Node, error) {
 	return node.GetKPathWith(kp)
 }

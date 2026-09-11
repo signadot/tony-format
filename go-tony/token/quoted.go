@@ -77,6 +77,9 @@ func KPathQuoteField(v string) bool {
 	return NeedsQuote(v) || strings.ContainsAny(v, ".[{(") || strings.HasPrefix(v, "*")
 }
 
+// Quote writes v as a double-quoted string, escaping what a quoted string cannot
+// hold raw: the quote, backslash, control characters and U+FFFD. With autoSingle,
+// a v holding more double quotes than single quotes is single-quoted instead.
 func Quote(v string, autoSingle bool) string {
 	n := len(v)
 	ndq, nsq := 0, 0

@@ -1,4 +1,3 @@
-// Package ir contains the Tony format implementation.
 package ir
 
 import (

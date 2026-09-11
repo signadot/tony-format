@@ -17,12 +17,10 @@ import (
 //   - "a.*" → Object field wildcard (matches all fields)
 //   - "a[0]" → Dense Array accessed via "[0]" (a is ArrayType)
 //   - "a[*]" → Dense Array wildcard (matches all elements)
-//   - "a{0}" → Sparse Array accessed via "{0}" (a is SparseArrayType)
+//   - "a{0}" → Sparse Array accessed via "{0}" (a is a sparse array: an object with number keys)
 //   - "a{*}" → Sparse Array wildcard (matches all sparse indices)
 //   - "a(jane)" → keyed array with key jane
-//
-// Future: Support for !key(path) objects:
-//   - "a.b(<value>)[2].fred" → Object with !key path value
+//   - "a..b" → every b at any depth under a
 type KPath struct {
 	Field          *string // Object field name (e.g., "a", "b") - similar to Path.Field
 	FieldAll       bool    // Object field wildcard .* - matches all fields
@@ -213,8 +211,9 @@ func (p *KPath) Parent() *KPath {
 	}
 }
 
-// AncestorOrEqual returns true if kp is an ancestor of other.
-// "a" is ancestor of "a.b", "a.b[0]", etc.
+// AncestorOrEqual reports whether p is an ancestor of other or equal to it
+// (anc), and whether the two are equal (eq). "a" is ancestor of "a.b",
+// "a.b[0]", etc.; a nil p, the root, is an ancestor of every path.
 func (p *KPath) AncestorOrEqual(other *KPath) (anc, eq bool) {
 	if p == nil {
 		return true, other == nil
@@ -248,9 +247,10 @@ func (p *KPath) IsPrefix(o *KPath) bool {
 //
 // Matching is one-directional — p is the pattern, o the (typically concrete)
 // target — so a concrete segment in p does not match a wildcard in o. It is
-// reflexive (p.Matches(p) is always true, wildcards included) and kind-strict
-// (see segmentMatches): review.seq[*] matches review.seq[2] but a dense [*] never
-// matches a keyed element. A nil receiver (root) matches only nil.
+// reflexive for a path without `..` (p.Matches(p) is true, wildcards included)
+// and kind-strict (see segmentMatches): review.seq[*] matches review.seq[2] but a
+// dense [*] never matches a keyed element. A `..` segment, on either side,
+// matches nothing. A nil receiver (root) matches only nil.
 func (p *KPath) Matches(o *KPath) bool {
 	pa, pb := p, o
 	for pa != nil && pb != nil {
@@ -282,9 +282,13 @@ func (p *KPath) MatchesPrefix(o *KPath) bool {
 //
 // Kinded path syntax:
 //   - "a.b" → Object accessed via ".b"
+//   - "a.*" → Object field wildcard (matches all fields)
 //   - "a[0]" → Dense Array accessed via "[0]"
 //   - "a[*]" → Dense Array wildcard (matches all elements)
 //   - "a{0}" → Sparse Array accessed via "{0}"
+//   - "a{*}" → Sparse Array wildcard (matches all sparse indices)
+//   - "a(k)" → Keyed list element with key k
+//   - "a..b" → b at any depth under a
 //
 // Examples:
 //   - "a.b.c" → Object path with 3 segments
@@ -318,7 +322,7 @@ func Parse(kpath string) (*KPath, error) {
 //   - Split("") → ("", "")
 //
 // The first segment is returned as a string representation:
-//   - Field: "a" or "'field name'" (quoted if needed)
+//   - Field: "a" or `"field name"` (quoted if needed)
 //   - Dense array: "[0]"
 //   - Sparse array: "{0}"
 func Split(kpath string) (firstSegment string, restPath string) {
@@ -360,7 +364,7 @@ func Split(kpath string) (firstSegment string, restPath string) {
 //   - RSplit("") → ("", "")
 //
 // The last segment is returned as a string representation:
-//   - Field: "a" or "'field name'" (quoted if needed)
+//   - Field: "a" or `"field name"` (quoted if needed)
 //   - Dense array: "[0]"
 //   - Sparse array: "{0}"
 func RSplit(kpath string) (parentPath string, lastSegment string) {
@@ -414,10 +418,11 @@ func RSplit(kpath string) (parentPath string, lastSegment string) {
 //   - SplitAll("") → []
 //
 // Each segment is a valid top-level kpath that will parse:
-//   - Field: "a" or "'field name'" (quoted if needed)
+//   - Field: "a" or `"field name"` (quoted if needed)
 //   - Dense array: "[0]" or "[*]"
 //   - Sparse array: "{0}" or "{*}"
-//   - Field wildcard: "*" (top-level) or ".*" (nested)
+//   - Keyed list element: "(k)"
+//   - Field wildcard: "*"
 func SplitAll(kpath string) []string {
 	if kpath == "" {
 		return []string{}
@@ -544,6 +549,23 @@ func segmentToString(kp *KPath) string {
 	return ""
 }
 
+// ChildField answers the path of a field of the node at parent -- the one way to
+// render "the child named f", which is not concatenation: a field name holding a
+// dot, a brace, a bracket or a space is what quoting is FOR, and joined raw it
+// becomes structure the document does not have.
+//
+// logd rendered child paths by concatenation in eight places, so an entity whose id
+// held a dot was written at a path naming two nodes instead of one, and only once
+// the store had a snapshot to graft onto -- the write reporting a commit and the
+// read at the same path finding nothing (r05ms7nch12ksxttgdn0).
+func ChildField(parent, f string) string {
+	seg := Field(f).String()
+	if parent == "" {
+		return seg
+	}
+	return parent + "." + seg
+}
+
 // Join joins two kinded paths. Either may be one segment or many.
 //
 // The prefix used to be read as a SINGLE segment, and a longer one was taken as
@@ -562,27 +584,9 @@ func segmentToString(kp *KPath) string {
 //   - Join("a.b", "c") → "a.b.c"
 //   - Join("a", "[0]") → "a[0]"
 //   - Join("[0]", "b") → "[0].b"
-//   - Join("'a.b'", "c") → "'a.b'.c"   a field that really does contain a dot
+//   - Join("'a.b'", "c") → `"a.b".c`   a field that really does contain a dot
 //   - Join("a", "") → "a"
 //   - Join("", "b") → "b"
-//
-// ChildField answers the path of a field of the node at parent -- the one way to
-// render "the child named f", which is not concatenation: a field name holding a
-// dot, a brace, a bracket or a space is what quoting is FOR, and joined raw it
-// becomes structure the document does not have.
-//
-// logd rendered child paths by concatenation in eight places, so an entity whose id
-// held a dot was written at a path naming two nodes instead of one, and only once
-// the store had a snapshot to graft onto -- the write reporting a commit and the
-// read at the same path finding nothing (r05ms7nch12ksxttgdn0).
-func ChildField(parent, f string) string {
-	seg := Field(f).String()
-	if parent == "" {
-		return seg
-	}
-	return parent + "." + seg
-}
-
 func Join(prefix string, suffix string) string {
 	if prefix == "" {
 		return suffix

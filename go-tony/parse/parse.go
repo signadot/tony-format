@@ -13,6 +13,8 @@ import (
 	"github.com/signadot/tony-format/go-tony/token"
 )
 
+// Parse parses a single document. A leading "---" is skipped, and a document
+// holding no value -- empty, blank, or only comments -- answers (nil, nil).
 func Parse(d []byte, opts ...ParseOption) (*ir.Node, error) {
 	pOpts := &parseOpts{format: format.TonyFormat}
 	for _, f := range opts {
@@ -174,9 +176,6 @@ func parseTokens(toks []token.Token, pOpts *parseOpts) (*ir.Node, error) {
 // ParseNodeFromSource parses the next complete ir.Node from a TokenSource.
 // It reads tokens until it finds a complete bracketed structure or simple value,
 // then parses and returns it. Returns io.EOF when the source is exhausted.
-//
-// This is a simplified replacement for NodeParser.ParseNext() that handles
-// the core incremental parsing use case.
 func ParseNodeFromSource(source *token.TokenSource, opts ...ParseOption) (*ir.Node, error) {
 	pOpts := &parseOpts{format: format.TonyFormat}
 	for _, f := range opts {

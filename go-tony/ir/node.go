@@ -388,10 +388,8 @@ func (n *Node) DeepCopy() *Node {
 	return n.Clone()
 }
 
-// DeepEqual reports whether two nodes are deeply equal.
-// It compares all data fields recursively, but does not compare
-// Parent, ParentIndex, or ParentField as these are structural metadata.
-// DeepEqual reports whether two nodes hold the same thing.
+// DeepEqual reports whether two nodes hold the same thing. Parent, ParentIndex
+// and ParentField are structural metadata and are not compared.
 //
 // Comments are not part of what a node holds. They are what was SAID about it,
 // and every other question in this package agrees: a match sees through them, a

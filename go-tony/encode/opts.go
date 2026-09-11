@@ -4,6 +4,7 @@ import "github.com/signadot/tony-format/go-tony/format"
 
 type EncodeOption func(*EncState)
 
+// EncodeFormat selects the output format. The default is Tony.
 func EncodeFormat(f format.Format) EncodeOption {
 	return func(es *EncState) { es.format = f }
 }
@@ -31,6 +32,9 @@ func FormatSuffix(f format.Format) string {
 func Depth(n int) EncodeOption {
 	return func(es *EncState) { es.depth = n }
 }
+
+// EncodeComments(true) writes the comments the IR carries. By default they are
+// left out, and JSON, which has no comments, never writes them.
 func EncodeComments(v bool) EncodeOption {
 	return func(es *EncState) { es.comments = v }
 }

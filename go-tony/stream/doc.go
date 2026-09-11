@@ -3,7 +3,7 @@
 // The stream package provides structural event-based encoding and decoding
 // optimized for streaming use cases like snapshot indexing. It only supports
 // bracketed structures ({...} and [...]) and does not handle formatting
-// options like colors, comments, or block style.
+// options like colors or block style.
 //
 // For general parsing/encoding with full feature support, use the parse
 // and encode packages instead.
@@ -37,14 +37,25 @@
 //	if err != nil {
 //	    return err
 //	}
-//	event, _ := dec.ReadEvent()  // EventBeginObject (with Tag field if present)
-//	event, _ := dec.ReadEvent()  // EventKey("name")
-//	event, _ := dec.ReadEvent()  // EventString("value", with Tag field if present)
-//	event, _ := dec.ReadEvent()  // EventEndObject
+//	// For {name: "value"}, the events are
+//	//   EventBeginObject (with Tag field if present)
+//	//   EventKey("name")
+//	//   EventString("value", with Tag field if present)
+//	//   EventEndObject
+//	for {
+//	    event, err := dec.ReadEvent()
+//	    if err == io.EOF {
+//	        break
+//	    }
+//	    if err != nil {
+//	        return err
+//	    }
+//	    handle(event)
+//	}
 //
 // # Comments
 //
-// The API is comment-ready (aligned with IR specification):
+// Comments follow the IR specification:
 //   - Head comments: precede a value (IR: CommentType node with 1 value in Values)
 //   - Line comments: on same line as value (IR: CommentType node in Comment field)
 //

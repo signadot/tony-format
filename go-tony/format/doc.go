@@ -1,14 +1,17 @@
-// Package format provides formatting utilities for Tony documents.
+// Package format names the document formats this module reads and writes:
+// [TonyFormat], [YAMLFormat] and [JSONFormat].
 //
 // # Usage
 //
-//	// Format a Tony document
-//	formatted, err := format.Format(input)
+//	// Read a format's name, as a flag or a config field gives it
+//	f, err := format.ParseFormat("yaml")
 //
-//	// Format with specific options
-//	formatted, err := format.Format(input, format.WithIndent(2))
+//	// Parse and encode in that format
+//	node, err := parse.Parse(data, parse.ParseFormat(f))
+//	err = encode.Encode(node, w, encode.EncodeFormat(f))
 //
-// Formatting preserves semantic content while applying consistent style.
+// A [Format] marshals to text as its long name ("tony", "yaml", "json") and
+// unmarshals from any name [ParseFormat] reads.
 //
 // # Related Packages
 //

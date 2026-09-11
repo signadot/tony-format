@@ -18,7 +18,8 @@ import (
 //	KPathState("users[0]")      → positioned at "users" (leaf at index 0)
 //	KPathState("users[0].name") → positioned at "users[0].name" (non-leaf)
 //
-// Returns an error if the kpath string is invalid.
+// Returns an error if the kpath string is invalid, or if the State built does
+// not land at the path.
 func KPathState(kp string) (*State, error) {
 	if kp == "" {
 		return NewState(), nil

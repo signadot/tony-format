@@ -24,10 +24,10 @@ import (
 //     to: to
 //
 //   - for ObjectType any field f in to but not in from has a field
-//     `f: !delete[(<orig-tag>)] ...`
+//     `f: !insert[(<orig-tag>)] ...`
 //
 //   - for ObjectType any field f in from but not in to has a field
-//     `f: !insert[(<orig-tag>)] ...`
+//     `f: !delete[(<orig-tag>)] ...`
 //
 //   - for any field f shared by from and to which is equal, it is absent
 //     in the result.
@@ -35,15 +35,22 @@ import (
 //   - for any field f with a difference, it contains a diff of the value
 //     of f in from and respectively to.
 //
+// The order of an object's fields is not a difference: two objects holding the
+// same fields in different orders have no diff.
+//
 // For ArrayType nodes which differ, if both nodes are tagged by
 // the same key with !key(<key>), they are treated as objects but presented
-// as an array with tag !key(<key>).
+// as an array with tag !key(<key>).  Other arrays are compared by position, and
+// the result is an !arraydiff, an object keyed by position.
 //
-// For StringTypes, a string diff may computed and if the size of the string
-// diff is less than half the size of the the smallest string
+// For StringTypes, the result is a !strdiff, an edit keyed by position in the
+// string, when the edit is at most half the size of the smaller string, and a
+// !replace otherwise.
 //
 // If only the tags differ, the tags !addtag(<tag>) !rmtag(<tag>) and !retag(<from>,<to>)
-// will be present decorating a null.
+// will be present decorating a null, or for a BoolType the value itself.
+//
+// Comments are neither compared nor carried; see [DiffComments].
 func Diff(from, to *ir.Node) *ir.Node {
 	return (&differ{}).diff(from, to)
 }
@@ -189,6 +196,10 @@ type DiffConfig struct {
 }
 type DiffOpt func(*DiffConfig)
 
+// DiffComments has the diff compare comments: a node whose comments changed is
+// answered with a !comment operation carrying the new lines, and the value's own
+// difference when it has one. Without it, comments are neither compared nor
+// carried.
 func DiffComments(v bool) DiffOpt {
 	return func(c *DiffConfig) {
 		c.Comments = v

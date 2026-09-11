@@ -39,14 +39,23 @@ func ParseJSON() ParseOption {
 func ParseFormat(f format.Format) ParseOption {
 	return func(o *parseOpts) { o.format = f }
 }
+
+// ParseComments(true) keeps comments, as the IR holds them: a head comment as a
+// CommentType node wrapping the value, a line comment in the value's Comment
+// field. By default they are dropped.
 func ParseComments(v bool) ParseOption {
 	return func(o *parseOpts) { o.comments = v }
 }
+
+// ParsePositions records in m where each value and key node was read from.
 func ParsePositions(m map[*ir.Node]*token.Pos) ParseOption {
 	return func(o *parseOpts) {
 		o.positions = m
 	}
 }
+
+// NoBrackets leaves an object or array written in brackets untagged. By default
+// one carries [ir.BracketTag], so that it is encoded in brackets again.
 func NoBrackets() ParseOption {
 	return func(o *parseOpts) { o.noBrackets = true }
 }

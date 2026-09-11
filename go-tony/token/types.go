@@ -16,7 +16,7 @@ const (
 	TArrayElt
 	TDocSep
 	TComment
-	TLineComment // Comment after colon on same line (should be line comment, not head comment)
+	TLineComment // Comment after a colon or a value on the same line: a line comment, not a head comment
 	TNull
 	TTrue
 	TFalse

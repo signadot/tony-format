@@ -7,11 +7,8 @@ import (
 )
 
 // State provides minimal stack/state/path management.
-// Just processes tokens and tracks state - no tokenization, no io.Reader.
-// Use this if you already have tokens.
-//
-// Only tracks bracketed structures ({...} and [...]).
-// Block-style arrays (TArrayElt) are not tracked.
+// Just processes events and tracks state - no tokenization, no io.Reader.
+// Use this if you already have events.
 type State struct {
 	stack []item
 }
@@ -242,7 +239,7 @@ func (s *State) CurrentIntKey() (int, bool) {
 	return *cur.segment.SparseIndex, true
 }
 
-// CurrentIndex returns the current array index (if in array), -1 otherwise
+// CurrentIndex returns the current array index (if in array).
 func (s *State) CurrentIndex() (int, bool) {
 	if len(s.stack) == 0 {
 		return 0, false

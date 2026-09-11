@@ -45,6 +45,12 @@ func Tracing(why *Explanation) MatchOpt {
 
 // Match matches doc against a pattern. This is the backwards-compatible
 // version that doesn't use context. Use MatchWith for schema-aware matching.
+//
+// An object pattern matches an object holding at least the fields it names,
+// each matching; an array pattern matches an array of the same length, element
+// by element; a null pattern matches anything; a scalar matches an equal
+// scalar. A tag naming an operation applies that operation (see package
+// mergeop). Comments are not part of what is matched.
 func Match(doc, match *ir.Node, opts ...MatchOpt) (bool, error) {
 	return MatchWith(doc, match, nil, opts...)
 }
@@ -260,7 +266,12 @@ func matchArray(doc, match *ir.Node, ctx *mergeop.OpContext, e *explainer) (bool
 // Trim filters a document to only include fields/values that are present in the match criteria.
 // It recursively processes objects and arrays, removing fields that aren't in the match.
 // The result preserves the tag from the original document.
-// Returns nil if the doc doesn't match the criteria (used to signal exclusion).
+//
+// Trim shapes; it does not decide whether doc matches, which is Match's
+// question, and FilterState asks both. It returns nil only where an operator in
+// the pattern excludes the node: an operator the node does not match, or an !at
+// whose path names nothing. An !at or !all holding an excluded node is
+// excluded whole.
 func Trim(match, doc *ir.Node) *ir.Node {
 	_, tag, args, child, err := mergeop.SplitChild(match)
 	if err == nil && tag != "" {

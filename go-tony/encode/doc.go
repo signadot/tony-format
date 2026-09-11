@@ -7,13 +7,18 @@
 //	    "name": ir.FromString("alice"),
 //	    "age":  ir.FromInt(30),
 //	})
-//	output, err := encode.Encode(node)
+//	err := encode.Encode(node, os.Stdout)
 //
 //	// Encode with options
-//	output, err := encode.Encode(node, encode.WithIndent(2))
+//	err = encode.Encode(node, w, encode.EncodeBrackets(true), encode.EncodeComments(true))
 //
 //	// Encode to JSON
-//	output, err := encode.EncodeJSON(node)
+//	err = encode.Encode(node, w, encode.EncodeFormat(format.JSONFormat))
+//
+//	// Encode to a string, panicking on failure
+//	s := encode.MustString(node)
+//
+// The output is Tony unless [EncodeFormat] selects YAML or JSON.
 //
 // # Related Packages
 //

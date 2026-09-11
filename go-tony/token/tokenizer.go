@@ -106,7 +106,8 @@ func NewTokenizerFromBytes(doc []byte, opts ...TokenOpt) *Tokenizer {
 // Returns:
 //   - data: bytes read (with trailing whitespace from previous read prepended if any)
 //   - startOffset: absolute offset where this data starts in the stream
-//   - err: io.EOF when no more data, or other error
+//   - err: io.EOF when no more data, or other error; in streaming mode the last
+//     chunk arrives together with io.EOF
 func (t *Tokenizer) Read() (data []byte, startOffset int64, err error) {
 	if t.reader != nil {
 		return t.readStreaming()
@@ -290,8 +291,7 @@ func (t *Tokenizer) needsMoreData(err error) bool {
 }
 
 // TokenizeOne tokenizes one or more tokens from a buffer slice.
-// This is the core tokenization logic, adapted to use Tokenizer's state
-// and lineStartOffset for comment prefix calculation (no recentBuf/docPrefix fallback).
+// This is the core tokenization logic, shared by Tokenize and TokenSource.
 //
 // Parameters:
 //   - data: buffer slice to tokenize from (may be partial document)

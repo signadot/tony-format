@@ -157,7 +157,7 @@ func Key(t string) *KPath {
 // Unlike String(), this only returns the current segment, not the entire path.
 // Examples:
 //   - KPath{Field: &"a"} → "a"
-//   - KPath{Field: &"field name"} → "'field name'" (quoted if needed)
+//   - KPath{Field: &"field name"} → `"field name"` (quoted if needed)
 //   - KPath{Index: &0} → "[0]"
 //   - KPath{SparseIndex: &42} → "{42}"
 //   - KPath{FieldAll: true} → "*"

@@ -5,6 +5,7 @@ import (
 	"fmt"
 )
 
+// Format is a document format. The zero value is TonyFormat.
 type Format int
 
 const (
@@ -15,6 +16,8 @@ const (
 
 var ErrBadFormat = errors.New("bad format")
 
+// ParseFormat answers the format a name denotes: "tony" or "t", "yaml" or "y",
+// "json" or "j". Any other name is an [ErrBadFormat].
 func ParseFormat(v string) (Format, error) {
 	f, ok := map[string]Format{
 		"t":    TonyFormat,

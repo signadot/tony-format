@@ -13,6 +13,11 @@ import (
 
 // Patch applies a patch to a document with optional configuration.
 // Use PatchWith for schema-aware patching with full OpContext control.
+//
+// A nil result with a nil error is a deletion: the patch removed the document.
+// Each object the patch merges into comes back with its fields in sorted key
+// order. The result carries no comments unless [mergeop.Comments](true) is
+// given.
 func Patch(doc, patch *ir.Node, opts ...mergeop.PatchOpt) (*ir.Node, error) {
 	cfg := mergeop.NewConfig(opts...)
 	ctx := &mergeop.OpContext{Config: cfg}
