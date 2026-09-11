@@ -6,7 +6,11 @@ commits: []
 created: "2026-09-11T11:30:31.516537+02:00"
 duplicates: []
 id: eztp171xh12krdyamdn0
-labels: []
+labels:
+- logd
+- medium
+- performance
+- storage
 related_issues: []
 status: open
-updated: "2026-09-11T11:30:31.516537+02:00"
+updated: "2026-09-11T11:30:31.607611+02:00"
