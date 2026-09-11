@@ -65,7 +65,11 @@ type region struct {
 	version  uint64
 	rec      *recordRef // where the file holds it; nil until persisted
 
-	prev, next *region // the residency's LRU list, evictable regions only
+	// The residency's LRU list, evictable regions only. These three belong to the
+	// residency and are read and written under its lock, never the node's: touched read
+	// listed under the node's read lock while the persister listed a region under the
+	// residency's, which -race reported (hja4bgsxh12krdyamdn0).
+	prev, next *region
 	listed     bool
 }
 
@@ -173,14 +177,16 @@ func (r *Residency) release(bytes int64) {
 	r.mu.Unlock()
 }
 
-// touch marks a region most recently used, if it is in the list.
-func (r *Residency) touch(reg *region) {
+// touch marks a region most recently used, if it is in the list, and says whether it was.
+func (r *Residency) touch(reg *region) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if reg.listed {
 		r.unlinkLocked(reg)
 		r.pushLocked(reg)
+		return true
 	}
+	return false
 }
 
 // list puts a region among the evictable: it is durable and clean.
@@ -290,15 +296,19 @@ func (i *Index) touched(pred func(*region) bool) {
 	i.RLock()
 	var used []*region
 	for _, reg := range i.regions {
-		if reg.resident && reg.listed && (pred == nil || pred(reg)) {
+		if reg.resident && (pred == nil || pred(reg)) {
 			used = append(used, reg)
 		}
 	}
 	i.RUnlock()
+	// Whether each is listed is the residency's to say, under its own lock.
+	hit := false
 	for _, reg := range used {
-		i.res.touch(reg)
+		if i.res.touch(reg) {
+			hit = true
+		}
 	}
-	if len(used) > 0 {
+	if hit {
 		i.res.hits.Add(1)
 	}
 }
