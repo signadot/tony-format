@@ -104,7 +104,7 @@ func TestDeltaIdentity(t *testing.T) {
 
 				// IDENTITY, against the log: both are the stored entry, raised.
 				stored := storedDelta(t, s, c, scopeID)
-				if want := withComments(s.raiseDelta(scopeID, deliverable(stored))); want != liveBytes {
+				if want := withComments(s.raiseDelta(scopeID, deliverable(stored), c)); want != liveBytes {
 					t.Errorf("commit %d (%s at %q): live is not the stored entry raised\n live   %s\n stored %s",
 						c, writes[i].src, writes[i].path, liveBytes, want)
 				}

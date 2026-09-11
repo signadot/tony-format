@@ -69,7 +69,7 @@ func (d *deltaCursor) Next() (*CommitNotification, error) {
 		return &CommitNotification{
 			Commit:    entry.Commit,
 			Timestamp: entry.Timestamp,
-			Patch:     d.s.raiseDelta(entry.ScopeID, deliverable(entry.Patch)),
+			Patch:     d.s.raiseDelta(entry.ScopeID, deliverable(entry.Patch), entry.Commit),
 			ScopeID:   entry.ScopeID,
 		}, nil
 	}

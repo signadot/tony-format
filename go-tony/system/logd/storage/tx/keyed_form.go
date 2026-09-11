@@ -43,6 +43,18 @@ import (
 // what api.AutoIDField.Path ("orders.items") means by it. An element's own name is not a
 // step in the schema's path; a write rooted at items."(sku=A)" is a write to an element of
 // items, and is stamped with that name.
+// KeyingError is a write or precondition the schema's keying refuses: a path or a body
+// that cannot be spelled in the store's form under the schema in force -- an element
+// without a name, a position on a keyed array, a name under an unkeyed one. It is the
+// client's mistake and is typed so the session says so (invalid_diff) rather than
+// reporting the store as failed.
+type KeyingError struct {
+	Err error
+}
+
+func (e *KeyingError) Error() string { return e.Err.Error() }
+func (e *KeyingError) Unwrap() error { return e.Err }
+
 func LowerKeyed(schema *api.Schema, data []*PatcherData) error {
 	for _, pd := range data {
 		if pd.API == nil || pd.API.Data == nil {
@@ -133,6 +145,15 @@ func schemaPathOf(schema *api.Schema, path string) (schemaAddress, error) {
 				}
 				return schemaAddress{}, fmt.Errorf("path %q: %q is not a name, and %s is keyed: an element "+
 					"is addressed by its identity, as %s", path, *x.Field, pathOrRoot(acc), exampleName(schema.Identity(acc)))
+			}
+			// Under a path the schema does not key, a field spelled as a name would be
+			// merged onto the array as a field of it, turning the array into an object:
+			// what a path canonicalized under a schema that keyed it does, committed
+			// after the identity was lost (090mbrhsh12ksfr8mhn0). A name is the
+			// store's spelling of an element, and names nothing else.
+			if _, isName, err := ident.Parse(*x.Field); err == nil && isName {
+				return schemaAddress{}, fmt.Errorf("path %q: %q names an element, and %s has no identity",
+					path, *x.Field, pathOrRoot(acc))
 			}
 			acc = kpath.ChildField(acc, *x.Field)
 		case x.Key != nil:

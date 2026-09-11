@@ -277,7 +277,7 @@ func (s *Session) readValueAt(path string, commit int64) (*ir.Node, error) {
 	}
 	// In the client's vocabulary: a keyed array is an array here and an object of names
 	// in the store (storage.RaiseState).
-	return s.storage.RaiseState(s.scopeID(), node, path), nil
+	return s.storage.RaiseState(s.scopeID(), node, path, commit), nil
 }
 
 // classifyAbsent is the PathError for a path that resolves to nothing at commit.

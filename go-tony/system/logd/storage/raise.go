@@ -33,28 +33,34 @@ func (s *Storage) SchemaFor(scopeID *string) *api.Schema {
 }
 
 // RaiseState puts array-ness back on the keyed arrays in a STATE at document path kp in
-// the view scopeID names -- what a caller at the boundary does to a node it collected from
-// Read before handing it to a client. A state is op-free: the arrays come back untagged,
-// as a client's own fold of the deltas leaves them. The store's own readers never call it;
-// the write path speaks the stored form.
-func (s *Storage) RaiseState(scopeID *string, n *ir.Node, kp string) *ir.Node {
-	return s.raise(scopeID, n, kp, false)
+// the view scopeID names, as of commit -- what a caller at the boundary does to a node it
+// collected from Read before handing it to a client. A state is op-free: the arrays come
+// back untagged, as a client's own fold of the deltas leaves them. The store's own readers
+// never call it; the write path speaks the stored form.
+//
+// The schema that raises a state is the one in force at ITS commit, not the one in force
+// now: a read at a commit before an array lost its identity meets the object of names
+// that array was then, and answers the array it was read as then (schemaHistory.At).
+func (s *Storage) RaiseState(scopeID *string, n *ir.Node, kp string, commit int64) *ir.Node {
+	return s.raise(scopeID, n, kp, commit, false)
 }
 
-func (s *Storage) raiseState(scopeID *string, n *ir.Node, kp string) *ir.Node {
-	return s.RaiseState(scopeID, n, kp)
+func (s *Storage) raiseState(scopeID *string, n *ir.Node, kp string, commit int64) *ir.Node {
+	return s.RaiseState(scopeID, n, kp, commit)
 }
 
-// raiseDelta puts array-ness back on the keyed arrays in a DELTA rooted at the document.
-// A delta's arrays carry !key(f) where the identity is one field, so the client's merge
-// identifies the elements the way the store does; folding such a delta consumes the
-// operation and leaves the untagged array a state read answers with.
-func (s *Storage) raiseDelta(scopeID *string, n *ir.Node) *ir.Node {
-	return s.raise(scopeID, n, "", true)
+// raiseDelta puts array-ness back on the keyed arrays in a DELTA rooted at the document,
+// under the schema the delta was written at -- its commit's. A delta's arrays carry
+// !key(f) where the identity is one field, so the client's merge identifies the elements
+// the way the store does; folding such a delta consumes the operation and leaves the
+// untagged array a state read answers with.
+func (s *Storage) raiseDelta(scopeID *string, n *ir.Node, commit int64) *ir.Node {
+	return s.raise(scopeID, n, "", commit, true)
 }
 
-func (s *Storage) raise(scopeID *string, n *ir.Node, kp string, delta bool) *ir.Node {
-	schema := s.schemaForScope(scopeID)
+func (s *Storage) raise(scopeID *string, n *ir.Node, kp string, commit int64, delta bool) *ir.Node {
+	// scopeID is accepted for the view it names and ignored: the schema is per-store.
+	schema := s.schema.ParsedAt(commit)
 	if schema == nil || n == nil {
 		return n
 	}

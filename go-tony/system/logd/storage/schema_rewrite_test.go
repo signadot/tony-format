@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,8 @@ import (
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/system/logd/api"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 // A change to an array's identity is carried by the schema commit as a rewrite of the
@@ -235,5 +238,75 @@ func TestSchemaRewrite_NothingHeldNothingRestated(t *testing.T) {
 	}
 	if patches := storedPatches(t, s); len(patches) != 1 {
 		t.Errorf("the schema commit stored a delta: %v", patches)
+	}
+}
+
+// A state is raised under the schema in force at ITS commit, and a delta under the one it
+// was written at: after an array loses its identity, a read at a commit before the loss
+// still answers the array it answered then, and a replay of a delta written under the
+// identity still carries !key. Both were raised under the active schema, which by then
+// keyed nothing: the read answered the object of names, and the replay a bare object.
+func TestSchemaRewrite_HistoryIsRaisedUnderItsOwnSchema(t *testing.T) {
+	s := openTestStorage(t)
+	declareKeyed(t, s, `{define: {items: {sku: !logd-key null}}}`)
+	before := mustCommit(t, s, nil, `{items: [{sku: B}, {sku: A}]}`)
+	if _, err := s.SetSchema(testSchema(t, `{define: {items: {sku: null}}}`), true); err != nil {
+		t.Fatalf("forced loss: %v", err)
+	}
+	if got := flatten(t, mustReadScope(t, s, before, nil)); got != `items: - sku: A - sku: B` {
+		t.Errorf("a read before the loss: %s", got)
+	}
+	deltas, err := readPatchesInRange(s, "", before, before, nil)
+	if err != nil || len(deltas) != 1 {
+		t.Fatalf("deltas at %d: %v (%v)", before, deltas, err)
+	}
+	if got := flatten(t, deltas[0].Patch); !strings.Contains(got, "!key(sku)") {
+		t.Errorf("the replayed delta is not keyed: %s", got)
+	}
+}
+
+// A name under a path the schema does not key is refused at the commit, under the lock,
+// where the schema in force is the schema that decides. A path canonicalized under a
+// schema that keyed items -- items(A) spelled as the stored items."(sku=A)" -- committed
+// after the identity was lost merged an object onto the array, turning it into one.
+func TestSchemaRewrite_ANameUnderNoIdentityIsRefusedAtTheCommit(t *testing.T) {
+	s := openTestStorage(t)
+	declareKeyed(t, s, `{define: {items: {sku: !logd-key null}}}`)
+	mustCommit(t, s, nil, `{items: [{sku: A}]}`)
+	// Spelled while items was keyed...
+	txn, err := s.NewTx(1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := txn.NewPatcher(&api.Patch{PathData: api.PathData{Path: `items."(sku=A)"`, Data: ir.FromMap(map[string]*ir.Node{"q": ir.FromInt(1)})}})
+	if err != nil {
+		t.Fatalf("NewPatcher: %v", err)
+	}
+	// ...and the identity lost before the commit.
+	if _, err := s.SetSchema(testSchema(t, `{define: {items: {sku: null}}}`), true); err != nil {
+		t.Fatalf("forced loss: %v", err)
+	}
+	res := p.Commit()
+	if res.Committed {
+		head, _ := s.GetCurrentCommit()
+		t.Fatalf("the write committed: %s", flatten(t, mustReadScope(t, s, head, nil)))
+	}
+	var keying *tx.KeyingError
+	if !errors.As(res.Error, &keying) || !strings.Contains(res.Error.Error(), "has no identity") {
+		t.Errorf("refused as %v, want a KeyingError naming the missing identity", res.Error)
+	}
+}
+
+// A schema document that is not one is refused before anything logd reads out of it.
+func TestSchema_DocumentIsValidatedFirst(t *testing.T) {
+	s := openTestStorage(t)
+	for _, tc := range []struct{ src, want string }{
+		{`[1, 2]`, "must be an object"},
+		{`{define: 3}`, "define must be an object"},
+	} {
+		_, err := s.SetSchema(testSchema(t, tc.src), false)
+		if err == nil || !IsSchemaRefused(err) || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: answered %v", tc.src, err)
+		}
 	}
 }

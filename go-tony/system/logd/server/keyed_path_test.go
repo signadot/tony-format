@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/signadot/tony-format/go-tony/parse"
+	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 )
 
@@ -113,5 +114,30 @@ func TestPatchResponseAnswersKeyedArraysAsArrays(t *testing.T) {
 	id, err := resp.Result.Patch.Data.GetKPath("users[0].id")
 	if err != nil || id == nil || id.String == "" {
 		t.Errorf("users[0].id = %v (err %v) in %s, want the generated id", id, err, wireOf(t, resp.Result.Patch.Data))
+	}
+}
+
+// A write the schema's keying refuses is the client's mistake, answered invalid_diff: it
+// was storage_error, which told the client to retry something that cannot work
+// (k237zrhwh12ksyxxmdn0).
+func TestKeyingRefusalIsTheClientsMistake(t *testing.T) {
+	store, err := storage.Open(t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	schema, err := parse.Parse([]byte(`{define: {items: {sku: !logd-key null}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetSchema(schema, false); err != nil {
+		t.Fatalf("SetSchema: %s", err)
+	}
+	resp := narrowRequest(t, store, `{id: "w", patch: {path: "", data: {items: [{q: 1}]}}}`)
+	if resp.Error == nil {
+		t.Fatalf("an element without a name was stored: %+v", resp.Result)
+	}
+	if resp.Error.Code != api.ErrCodeInvalidDiff {
+		t.Errorf("answered %s (%s), want %s", resp.Error.Code, resp.Error.Message, api.ErrCodeInvalidDiff)
 	}
 }

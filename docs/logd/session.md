@@ -345,7 +345,7 @@ writes an object at `a.b`. What separates them is what is there now.
 | `path_conflict` | **something is there, of a shape that cannot hold what you asked for** — an index into an object, a field under a string. Creating here means clobbering what is already there, so the move is to re-examine the shape you assumed |
 | `invalid_path` | **not a well-formed question** — a wildcard names a set of values and a read answers one |
 | `match_failed` | a precondition did not hold; the write did not happen |
-| `invalid_diff` | the delta would not apply to the state it would be stored against |
+| `invalid_diff` | the delta would not apply to the state it would be stored against, or the schema's keying refuses it — an element without a name, a position on a keyed array, a name where there is no identity |
 | `commit_not_found` | a historical read outside `[0, current]` |
 | `replay_compacted` | `fromCommit` is below retained delta history |
 | `slow_consumer` | a watch was dropped because the client did not keep up |

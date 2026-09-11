@@ -60,10 +60,29 @@ func (h *schemaHistory) ActiveParsed() *api.Schema {
 func (h *schemaHistory) At(commit int64) (*ir.Node, int64) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	for i := len(h.at) - 1; i >= 0; i-- {
-		if h.at[i].Commit <= commit {
-			return h.at[i].Schema, h.at[i].Commit
-		}
+	if i := h.indexAt(commit); i >= 0 {
+		return h.at[i].Schema, h.at[i].Commit
 	}
 	return nil, 0
+}
+
+// ParsedAt is At in the form key derivation needs: the schema a commit's data was
+// lowered under, which is the one that raises it (raise.go).
+func (h *schemaHistory) ParsedAt(commit int64) *api.Schema {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if i := h.indexAt(commit); i >= 0 {
+		return h.parsed[i]
+	}
+	return nil
+}
+
+// indexAt is the position of the schema in force at commit, or -1. Caller holds mu.
+func (h *schemaHistory) indexAt(commit int64) int {
+	for i := len(h.at) - 1; i >= 0; i-- {
+		if h.at[i].Commit <= commit {
+			return i
+		}
+	}
+	return -1
 }

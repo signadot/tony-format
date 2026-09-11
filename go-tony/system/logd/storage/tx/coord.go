@@ -365,7 +365,7 @@ func (p *txPatcher) doCommit(state *State, commitOps CommitOps) *Result {
 		return &Result{
 			Committed: false,
 			Matched:   false,
-			Error:     fmt.Errorf("precondition conflicts with the schema's keying: %w", err),
+			Error:     &KeyingError{Err: fmt.Errorf("precondition conflicts with the schema's keying: %w", err)},
 		}
 	}
 
@@ -430,7 +430,7 @@ func (p *txPatcher) doCommit(state *State, commitOps CommitOps) *Result {
 		return &Result{
 			Committed: false,
 			Matched:   true,
-			Error:     fmt.Errorf("patch conflicts with the schema's keying: %w", err),
+			Error:     &KeyingError{Err: fmt.Errorf("patch conflicts with the schema's keying: %w", err)},
 		}
 	}
 

@@ -154,6 +154,14 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 			s.sendError(id, api.ErrCodeInvalidDiff, result.Error.Error())
 			return
 		}
+		// The schema's keying refuses the write: an element without a name, a position
+		// on a keyed array, a name where there is no identity. The client wrote it, and
+		// it is the same mistake next time (k237zrhwh12ksyxxmdn0).
+		var keying *tx.KeyingError
+		if errors.As(result.Error, &keying) {
+			s.sendError(id, api.ErrCodeInvalidDiff, result.Error.Error())
+			return
+		}
 		// The write asks the store to hold more than its write budget to verify it.
 		// The store is healthy and the remedy is the client's: narrower, or absolute.
 		var tooLarge *storage.WriteBudgetError
@@ -179,7 +187,7 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 	// is raised at the boundary as a read's answer is. It went out as it was stored, so
 	// a client learning its generated ids from items[0].id found an object of names
 	// instead (750qjcswh12ksyxxmdn0).
-	s.send(api.NewPatchResponse(id, result.Commit, s.storage.RaiseState(s.scopeID(), result.Data, path)))
+	s.send(api.NewPatchResponse(id, result.Commit, s.storage.RaiseState(s.scopeID(), result.Data, path, result.Commit)))
 }
 
 // handleNewTx handles newtx requests to create multi-participant transactions.

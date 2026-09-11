@@ -86,9 +86,11 @@
 // A [SessionError] names a code from the ErrCode* vocabulary, and the code is the part a
 // client should branch on. The distinctions that matter most: not_found is a path with
 // nothing at it, path_conflict is a path that disagrees with the shape of what is there,
-// invalid_path is a path that cannot address anything, match_failed is a precondition
-// that did not hold (the write did not happen), and replay_compacted, the reason a watch
-// ends rather than an error response, is a fromCommit below retained history.
+// invalid_path is a path that cannot address anything, invalid_diff is a delta that
+// would not apply or that the schema's keying refuses, match_failed is a precondition
+// that did not hold (the write did not happen), schema_refused is a schema the store will
+// not adopt, and replay_compacted, the reason a watch ends rather than an error
+// response, is a fromCommit below retained history.
 //
 // # Keyed arrays
 //

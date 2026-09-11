@@ -37,7 +37,7 @@ func readStateAt(s *Storage, kp string, commit int64, scopeID *string) (*ir.Node
 	if err != nil {
 		return nil, err
 	}
-	return s.raiseState(scopeID, doc, ""), nil
+	return s.raiseState(scopeID, doc, "", commit), nil
 }
 
 // readSubtreeAt is the value at kp at commit. The second result says the store answered
@@ -51,7 +51,7 @@ func readSubtreeAt(s *Storage, kp string, commit int64, scopeID *string) (*ir.No
 	if err != nil {
 		return nil, false, err
 	}
-	return s.raiseState(scopeID, node, kp), true, nil
+	return s.raiseState(scopeID, node, kp, commit), true, nil
 }
 
 // readSubtreeRootedAt is readSubtreeAt with the value put back under its ancestors. A
@@ -71,7 +71,7 @@ func readSubtreeRootedAt(s *Storage, kp string, commit int64, scopeID *string) (
 	if err != nil {
 		return nil, false, err
 	}
-	return s.raiseState(scopeID, node, ""), true, nil
+	return s.raiseState(scopeID, node, "", commit), true, nil
 }
 
 // presenceAt is what a read finds at kp: absent, null, or a value.

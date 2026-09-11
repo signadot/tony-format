@@ -11,6 +11,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/libdiff"
+	tschema "github.com/signadot/tony-format/go-tony/schema"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
@@ -65,6 +66,11 @@ func (s *Storage) SetSchema(schema *ir.Node, force bool) (int64, error) {
 	s.commitMu.Lock()
 	defer s.commitMu.Unlock()
 
+	// A schema document first -- an object, with define an object, and every definition
+	// one the schema package can build -- and then what logd reads out of it.
+	if _, err := tschema.ParseSchema(schema); err != nil {
+		return 0, &SchemaRefusedError{Err: err}
+	}
 	parsed := api.ParseSchemaFromNode(schema)
 	if err := parsed.Validate(); err != nil {
 		return 0, &SchemaRefusedError{Err: err}
@@ -112,7 +118,7 @@ func (s *Storage) SetSchema(schema *ir.Node, force bool) (int64, error) {
 			s.indexPersister.MaybePersist(commit)
 		}
 		n := newCommitNotification(commit, 0, timestamp, rewrite, nil)
-		n.Patch = s.raiseDelta(nil, n.Patch)
+		n.Patch = s.raiseDelta(nil, n.Patch, commit)
 		s.tick.publish(commit, n)
 	} else {
 		s.tick.publish(commit, nil)

@@ -9,6 +9,7 @@ import (
 	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
+	"github.com/signadot/tony-format/go-tony/schema"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 )
@@ -336,6 +337,9 @@ func (c *Config) Validate() error {
 	// without them, so a store ran a schema its own SetSchema refuses -- an array
 	// declared both keyed and auto-id, two identities for one array (khkedy9wh12ksyxxmdn0).
 	if c.Schema != nil {
+		if _, err := schema.ParseSchema(c.Schema); err != nil {
+			return fmt.Errorf("schema: %w", err)
+		}
 		if err := api.ParseSchemaFromNode(c.Schema).Validate(); err != nil {
 			return fmt.Errorf("schema: %w", err)
 		}

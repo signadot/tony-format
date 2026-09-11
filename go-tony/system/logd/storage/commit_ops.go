@@ -121,7 +121,7 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	// log (raise.go). A replay reads the same entry back and raises it the same way, so
 	// live and replay are the same bytes (one_delta_shape.md).
 	notification := newCommitNotification(commit, txSeq, timestamp, stored, scopeID)
-	notification.Patch = c.s.raiseDelta(scopeID, notification.Patch)
+	notification.Patch = c.s.raiseDelta(scopeID, notification.Patch, commit)
 
 	entry := dlog.NewEntry(txState, stored, commit, timestamp, lastCommit, scopeID)
 	appendStarted := time.Now()
