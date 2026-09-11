@@ -8,9 +8,9 @@ See [eval operations](./eval.md) for details.
 
 | Operation | Summary |
 |-----------|--------|
-| `!os_env` | Get value from OS environment variable |
-| `!to_string` | Convert a value to a string |
-| `!to_int` | Convert a value to an integer |
+| `!osenv` | Get value from OS environment variable |
+| `!tostring` | Convert a value to a string |
+| `!toint` | Convert a value to an integer |
 | `!eval` | Evaluate environment variables in a document |
 | `!file` | Load content from a file or URL |
 | `!exec` | Execute a shell command and capture output |
