@@ -55,8 +55,8 @@ func TestCommentOrdering_ByTimestamp(t *testing.T) {
 	type c struct {
 		path, content string
 	}
-	// Deliberately out of chronological order, and content-addressed names that do
-	// NOT sort chronologically by filename.
+	// Deliberately out of chronological order, and names made to disagree with their
+	// headers, so a sort by filename would get it wrong.
 	items := []c{
 		{"discussion/20260726T143259Z-ffff0000.md", "<!-- 2026-07-26T16:32:59+02:00 -->\n\nthird\n"},
 		{"discussion/20260726T113324Z-00001111.md", "<!-- 2026-07-26T01:33:24+02:00 -->\n\nfirst\n"},

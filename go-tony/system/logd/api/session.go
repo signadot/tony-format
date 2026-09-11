@@ -448,17 +448,10 @@ func (e *SessionError) Is(target error) bool {
 // "" if no server response is in the chain. It is the accessor form of the question
 // SessionError.Is answers one code at a time — useful for switching on the code, or
 // for reporting it.
-//
-// It reaches both response error types: SessionError (the session protocol) and
-// Error.
 func ErrorCode(err error) string {
 	var se *SessionError
 	if errors.As(err, &se) && se != nil {
 		return se.Code
-	}
-	var e *Error
-	if errors.As(err, &e) && e != nil {
-		return e.Code
 	}
 	return ""
 }
@@ -507,7 +500,6 @@ const (
 
 	ErrCodeSessionClosed   = "session_closed"
 	ErrCodeInvalidMessage  = "invalid_message"
-	ErrCodeInvalidWatch    = "invalid_watch"
 	ErrCodeNotWatching     = "not_watching"
 	ErrCodeAlreadyWatching = "already_watching"
 	ErrCodeCommitNotFound  = "commit_not_found"

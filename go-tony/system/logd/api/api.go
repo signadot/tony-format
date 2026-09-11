@@ -1,8 +1,6 @@
 package api
 
 import (
-	"time"
-
 	"github.com/signadot/tony-format/go-tony/ir"
 )
 
@@ -22,22 +20,4 @@ type Patch struct {
 	Match *PathData `tony:"field=match"`
 	// Patch PathData  `tony:"field=patch"`
 	PathData
-}
-
-// Duration is a time.Duration encoded as text: what time.Duration prints and
-// time.ParseDuration reads ("5s", "1m").
-type Duration time.Duration
-
-func (dur Duration) MarshalText() ([]byte, error) {
-	ds := time.Duration(dur).String()
-	return []byte(ds), nil
-}
-
-func (dur *Duration) UnmarshalText(d []byte) error {
-	p, err := time.ParseDuration(string(d))
-	if err != nil {
-		return err
-	}
-	*dur = Duration(p)
-	return nil
 }

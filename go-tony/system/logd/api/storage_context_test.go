@@ -23,7 +23,7 @@ func TestStorageContext_RegistersAlongsideTheBuiltins(t *testing.T) {
 		}
 	}
 	// The narrowing is the point: these are patch-context tags that are NOT storable.
-	for _, notWant := range []string{"replace", "strdiff", "arraydiff", "rename", "jsonpatch", "pipe", "if"} {
+	for _, notWant := range []string{"replace", "strdiff", "arraydiff", "rename", "json-patch", "pipe", "if"} {
 		if ctx.Tags[notWant] != nil {
 			t.Errorf("storage context declares %q, which cannot be stored", notWant)
 		}
@@ -48,6 +48,9 @@ func TestValidateForStorage_Vocabulary(t *testing.T) {
 		{"checked replace", `{a: !replace {from: 1, to: 2}}`, "checked"},
 		{"rename", `{a: !rename [{from: "x", to: "y"}]}`, "re-evaluates"},
 		{"arraydiff", `{a: !arraydiff {0: !insert 1}}`, "re-evaluates"},
+		// The op is json-patch; the reason was keyed "jsonpatch", so it fell to the
+		// default and was called a transform (addsgv1yh12kszdxmdn0).
+		{"json-patch", `{a: !json-patch [{op: "remove", path: "/x"}]}`, "re-evaluates"},
 		{"pipe", `{a: !pipe ["echo"]}`, "calls out to the system"},
 		{"nested, not just at the root", `{a: {b: !rename [{from: "x", to: "y"}]}}`, "a.b"},
 	} {

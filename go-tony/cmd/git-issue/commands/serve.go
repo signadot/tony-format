@@ -239,7 +239,8 @@ func (s *issueServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 			Updated: issue.Updated,
 		})
 	}
-	// Newest first, matching what `git issue list` prints.
+	// Most recently updated first, by the time the index shows. `git issue list`
+	// orders by Created instead, so the two can disagree.
 	sort.SliceStable(page.Issues, func(i, j int) bool {
 		return page.Issues[i].Updated.After(page.Issues[j].Updated)
 	})
@@ -368,8 +369,8 @@ func (s *issueServer) resolveLinks(xidrs []string) []issueLink {
 }
 
 // readComments loads each comment and orders it by the timestamp in its header,
-// for the same reason show.go does: the filenames are content-addressed and do
-// not sort chronologically.
+// for the same reason show.go does: the paths arrive in map order, and a legacy
+// discussion/NNN.md name carries a count rather than a time.
 func (s *issueServer) readComments(ref string, paths []string) []commentRow {
 	rows := make([]commentRow, 0, len(paths))
 	for _, p := range paths {

@@ -90,33 +90,42 @@ func (cfg *relateConfig) run(cc *cli.Context, args []string) error {
 		}
 	}
 
-	if !added {
+	// blocks is held on both issues, as blocks on the first and blocked_by on the second,
+	// and the two are separate writes: the second can fail after the first landed. So the
+	// relationship is there only when both halves are, and a rerun writes whichever half
+	// is missing (addsgv1yh12kszdxmdn0).
+	addBlockedBy := cfg.relationType == "blocks" && !issuelib.Contains(issue2.BlockedBy, id1Str)
+
+	if !added && !addBlockedBy {
 		fmt.Fprintf(cc.Out, "Issue %s already has this relationship with %s\n",
 			issuelib.FormatID(id1Str), issuelib.FormatID(id2Str))
 		return nil
 	}
 
-	// Save updated issue1
-	var commitMsg string
-	switch cfg.relationType {
-	case "related":
-		commitMsg = fmt.Sprintf("relate: link to %s", issuelib.FormatID(id2Str))
-	case "blocks":
-		commitMsg = fmt.Sprintf("blocks: %s", issuelib.FormatID(id2Str))
-	case "duplicate":
-		commitMsg = fmt.Sprintf("duplicate: of %s", issuelib.FormatID(id2Str))
-	}
+	if added {
+		// Save updated issue1
+		var commitMsg string
+		switch cfg.relationType {
+		case "related":
+			commitMsg = fmt.Sprintf("relate: link to %s", issuelib.FormatID(id2Str))
+		case "blocks":
+			commitMsg = fmt.Sprintf("blocks: %s", issuelib.FormatID(id2Str))
+		case "duplicate":
+			commitMsg = fmt.Sprintf("duplicate: of %s", issuelib.FormatID(id2Str))
+		}
 
-	if err := cfg.store.Update(issue1, commitMsg, nil); err != nil {
-		return fmt.Errorf("failed to update issue: %w", err)
+		if err := cfg.store.Update(issue1, commitMsg, nil); err != nil {
+			return fmt.Errorf("failed to update issue: %w", err)
+		}
 	}
 
 	// For blocks relationship, add reciprocal blocked_by to second issue
-	if cfg.relationType == "blocks" {
-		if !issuelib.Contains(issue2.BlockedBy, id1Str) {
-			issue2.BlockedBy = append(issue2.BlockedBy, id1Str)
-			commitMsg2 := fmt.Sprintf("blocked-by: %s", issuelib.FormatID(id1Str))
-			_ = cfg.store.Update(issue2, commitMsg2, nil)
+	if addBlockedBy {
+		issue2.BlockedBy = append(issue2.BlockedBy, id1Str)
+		commitMsg2 := fmt.Sprintf("blocked-by: %s", issuelib.FormatID(id1Str))
+		if err := cfg.store.Update(issue2, commitMsg2, nil); err != nil {
+			return fmt.Errorf("failed to record blocked_by on %s (rerun to complete it): %w",
+				issuelib.FormatID(id2Str), err)
 		}
 	}
 

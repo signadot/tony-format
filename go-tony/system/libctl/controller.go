@@ -322,6 +322,7 @@ func (rt *controllerRuntime) handleWatch(req *api.SessionRequest) {
 	// supported watch, or after the handler returns without emitting. This lets
 	// a handler decline via ErrUnsupported before any confirmation is sent.
 	confirmed := false
+	var streamed int64 // the highest commit emitted, the resume point if the watch fails
 	confirm := func() {
 		if confirmed {
 			return
@@ -342,7 +343,13 @@ func (rt *controllerRuntime) handleWatch(req *api.SessionRequest) {
 		}
 		// The event carries the request id so docd can route it to the right
 		// client; docd strips the id before delivering to the client.
-		return rt.reply(&api.SessionResponse{ID: req.ID, Event: &out})
+		if err := rt.reply(&api.SessionResponse{ID: req.ID, Event: &out}); err != nil {
+			return err
+		}
+		if out.Commit > streamed {
+			streamed = out.Commit
+		}
+		return nil
 	}
 
 	err := rt.handler.Watch(ctx, path, WatchParams{
@@ -358,7 +365,12 @@ func (rt *controllerRuntime) handleWatch(req *api.SessionRequest) {
 	case !confirmed:
 		rt.replyErr(req.ID, err) // declined before confirming
 	default:
+		// A confirmed watch ends with a terminal event, never an error response: the
+		// watch's request has completed, so an error under its id matches nothing the
+		// client is waiting on (api.NewEndedEvent). Logging it alone left the client
+		// waiting on a watch nobody was serving (addsgv1yh12kszdxmdn0).
 		rt.log.Error("watch handler failed after confirmation", "path", path, "error", err)
+		rt.reply(api.NewEndedEvent(req.ID, path, replyErrCode(err), err.Error(), streamed))
 	}
 }
 
@@ -443,7 +455,7 @@ func (rt *controllerRuntime) reply(resp *api.SessionResponse) error {
 // and a client acts on them the same way.
 //
 // The ones deliberately absent describe a CONNECTION or a lifecycle the client is not
-// party to -- session_closed, protocol_mismatch, invalid_watch, not_watching,
+// party to -- session_closed, protocol_mismatch, not_watching,
 // already_watching, slow_consumer, the replay_* pair, the tx_* family, and
 // invalid_message. A controller's downstream session closing is not the client's session
 // closing; a downstream calling the controller's message invalid is the controller's bug,

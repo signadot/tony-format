@@ -891,7 +891,7 @@ func TestDocd_ComposeAncestorWatch(t *testing.T) {
 }
 
 // TestDocd_MountBlocksOnOverlappingWatch proves a mount waits for an overlapping
-// watch to drain: with force_after effectively infinite for the test window, a
+// watch to drain: with forceAfter effectively infinite for the test window, a
 // controller mounting a.b cannot register while a client watches the ancestor a,
 // and proceeds the moment that watch is dropped.
 func TestDocd_MountBlocksOnOverlappingWatch(t *testing.T) {
@@ -931,7 +931,7 @@ func TestDocd_MountBlocksOnOverlappingWatch(t *testing.T) {
 }
 
 // TestDocd_MountForcesOverlappingWatch proves the mount is not blocked forever: a
-// finite force_after force-ends the overlapping watch so the mount registers even
+// finite forceAfter force-ends the overlapping watch so the mount registers even
 // while the client still holds it.
 func TestDocd_MountForcesOverlappingWatch(t *testing.T) {
 	logd := startLogd(t)
@@ -945,12 +945,12 @@ func TestDocd_MountForcesOverlappingWatch(t *testing.T) {
 	defer w.Close()
 
 	// runController asserts registration within 2s; the watch is never dropped, so
-	// registering proves force_after force-ended it.
+	// registering proves forceAfter force-ended it.
 	runController(t, docd, "a.b", newMemController())
 }
 
 // TestDocd_WatchForcedByMount proves a force-ended watch reaches the client as a
-// re-establishable WatchEndedError (not a silent stop): a mount whose force_after
+// re-establishable WatchEndedError (not a silent stop): a mount whose forceAfter
 // elapses ends the overlapping watch with session_mounted — naming the mount, not
 // just "something changed" — and the client can re-watch (now composed over the
 // new mount).
@@ -1014,6 +1014,58 @@ func TestDocd_WatchEndsOnControllerCrash(t *testing.T) {
 	}
 }
 
+// failingWatchController confirms a watch, streams one update, and then fails it
+// the way a controller's upstream does: its Watch returns an error of its own.
+type failingWatchController struct {
+	*memController
+}
+
+func (c *failingWatchController) Watch(ctx context.Context, path string, opts WatchParams, emit func(*api.WatchEvent) error) error {
+	if err := emit(&api.WatchEvent{Commit: 1, Path: path, State: ir.Null()}); err != nil {
+		return err
+	}
+	if err := emit(&api.WatchEvent{Commit: 4, Path: path, Patch: ir.FromMap(map[string]*ir.Node{"n": ir.FromInt(1)})}); err != nil {
+		return err
+	}
+	return errors.New("upstream feed lost")
+}
+
+// A controller watch which fails after it was confirmed ends the client's watch, with
+// the reason, the handler's message and the last commit it streamed. It used to be
+// logged by the controller and nothing else: docd was never told, and the client
+// waited on a watch nobody was serving (addsgv1yh12kszdxmdn0).
+func TestDocd_WatchEndsWhenControllerWatchFails(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+	runController(t, docd, "rooms", &failingWatchController{newMemController()})
+
+	client := docdClient(t, docd, "client")
+	w, err := client.Watch(context.Background(), "rooms.1", waitAbsent) // single-route to the controller
+	if err != nil {
+		t.Fatalf("watch: %v", err)
+	}
+	defer w.Close()
+	expectEvent(t, w) // initial state
+	if ev := expectEvent(t, w); ev.Commit != 4 {
+		t.Fatalf("expected update commit 4, got %d", ev.Commit)
+	}
+
+	drainUntilClosed(t, w)
+	var ended *WatchEndedError
+	if !errors.As(w.Err(), &ended) {
+		t.Fatalf("expected a WatchEndedError, got %v", w.Err())
+	}
+	if ended.Reason != api.ErrCodeStorage {
+		t.Errorf("WatchEndedError.Reason = %q, want %q", ended.Reason, api.ErrCodeStorage)
+	}
+	if !strings.Contains(ended.Message, "upstream feed lost") {
+		t.Errorf("WatchEndedError.Message = %q, want the handler's error", ended.Message)
+	}
+	if ended.Commit != 4 {
+		t.Errorf("WatchEndedError.Commit = %d, want 4 (the last commit streamed)", ended.Commit)
+	}
+}
+
 // drainUntilClosed reads and discards watch events until the channel closes,
 // which is how a server-ended watch (WatchEndedError) surfaces after any initial
 // or in-flight events.
@@ -1073,9 +1125,9 @@ func TestDocd_GracefulUnmount(t *testing.T) {
 	}
 }
 
-// TestDocd_PerMountForceAfterOverride proves a controller's per-mount force_after
+// TestDocd_PerMountForceAfterOverride proves a controller's per-mount forceAfter
 // overrides docd's server default: with a large default that would block the
-// mount ~forever behind a held watch, a short per-mount force_after force-ends the
+// mount ~forever behind a held watch, a short per-mount forceAfter force-ends the
 // watch so the mount registers.
 func TestDocd_PerMountForceAfterOverride(t *testing.T) {
 	logd := startLogd(t)
@@ -1105,7 +1157,7 @@ func TestDocd_PerMountForceAfterOverride(t *testing.T) {
 }
 
 // startDocdForce is startDocdRouting with a specific mount/unmount reader-drain
-// timeout (mountCoord force_after).
+// timeout (mountCoord forceAfter).
 func startDocdForce(t *testing.T, logdAddr string, forceAfter time.Duration) *docdserver.Server {
 	t.Helper()
 	srv := docdserver.New(&docdserver.Spec{LogdAddr: logdAddr, MountForceAfter: forceAfter})

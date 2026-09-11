@@ -252,8 +252,7 @@ func TestWatchHub_Broadcast_MultipleKPaths(t *testing.T) {
 }
 
 func TestWatchHub_Broadcast_SlowConsumerFails(t *testing.T) {
-	// Use short timeout for testing
-	hub := NewWatchHubWithTimeout(50 * time.Millisecond)
+	hub := NewWatchHub()
 
 	// Subscribe with small buffer
 	sub := NewWatcher("users", nil, nil, 1)
@@ -274,7 +273,7 @@ func TestWatchHub_Broadcast_SlowConsumerFails(t *testing.T) {
 		t.Error("first event should be in buffer")
 	}
 
-	// Now buffer is empty but we won't read - next broadcast should timeout and fail
+	// Now buffer is empty but we won't read - the broadcast after next finds it full and fails
 	notification2 := &storage.CommitNotification{
 		Commit: 2,
 		KPaths: []string{"users"},
@@ -284,7 +283,7 @@ func TestWatchHub_Broadcast_SlowConsumerFails(t *testing.T) {
 	// Refill buffer
 	hub.Broadcast(notification2)
 
-	// This broadcast should timeout and fail the subscription
+	// This broadcast finds the buffer full and should fail the subscription
 	notification3 := &storage.CommitNotification{
 		Commit: 3,
 		KPaths: []string{"users"},
@@ -298,14 +297,14 @@ func TestWatchHub_Broadcast_SlowConsumerFails(t *testing.T) {
 
 	select {
 	case <-done:
-		// Broadcast completed (after timeout)
+		// Broadcast completed without waiting on the full buffer
 	case <-time.After(200 * time.Millisecond):
-		t.Error("broadcast should complete after timeout")
+		t.Error("broadcast should not wait on a full buffer")
 	}
 
 	// Subscription should be failed
 	if !sub.IsFailed() {
-		t.Error("subscription should be failed after timeout")
+		t.Error("subscription should be failed once its buffer is full")
 	}
 
 	// Watcher should be removed from hub
@@ -318,7 +317,7 @@ func TestWatchHub_Broadcast_SlowConsumerFails(t *testing.T) {
 // block on a slow consumer (which would stall unrelated writers and the session heartbeat). A
 // full watcher is failed immediately; a healthy watcher alongside it still receives the event.
 func TestWatchHub_Broadcast_DoesNotBlockOnSlowWatcher(t *testing.T) {
-	hub := NewWatchHub() // default 5s timeout — if Broadcast still waited, this test would hang ~5s
+	hub := NewWatchHub()
 
 	slow := NewWatcher("users", nil, nil, 1)
 	fast := NewWatcher("users", nil, nil, 8)
@@ -356,7 +355,7 @@ func TestWatchHub_Broadcast_DoesNotBlockOnSlowWatcher(t *testing.T) {
 }
 
 func TestWatchHub_Broadcast_FastConsumerSucceeds(t *testing.T) {
-	hub := NewWatchHubWithTimeout(50 * time.Millisecond)
+	hub := NewWatchHub()
 
 	sub := NewWatcher("users", nil, nil, 10)
 	hub.Watch(sub)

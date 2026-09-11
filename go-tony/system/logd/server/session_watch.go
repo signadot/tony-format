@@ -75,8 +75,10 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 	}
 
 	// IMPORTANT: Register with hub FIRST to avoid race condition.
-	// Events that arrive between Watch and GetCurrentCommit will be queued.
-	// After replay, we skip any queued events with commit <= currentCommit.
+	// Events that arrive between Watch and GetCurrentCommit will be queued. With
+	// fromCommit, the live loop skips a queued event the replay already covered
+	// (commit <= currentCommit). Without it there is no replay to dedup against: the
+	// live loop seeds at the first event's commit - 1 instead (watchStream.seedAt).
 	// Buffer sized for burst tolerance: Broadcast is non-blocking and fails a watcher whose
 	// buffer is full (see WatchHub.Broadcast), so the buffer — not a time grace — is what
 	// absorbs a transient read stall before the watch is failed.
@@ -244,7 +246,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 	}
 
 	// Refuse a cursor below the retained delta window before sending ANYTHING. The replay
-	// itself would catch this (ReadPatchesInRange returns ErrReplayCompacted), but only
+	// itself would catch this (storage.Deltas returns ErrReplayCompacted), but only
 	// after the initial state has gone out -- and a state read below the floor is itself
 	// approximate, since compaction leaves historical reads at snapshot granularity.
 	// Handing the client a state it cannot trust and then an error is worse than the error
@@ -592,9 +594,8 @@ func (s *Session) emitScopedDelta(id *string, path string, commit int64, prev *i
 // emitScopedDeltaFrom sends the change between prev and newDoc, both already trimmed to
 // the watched path.
 func (s *Session) emitScopedDeltaFrom(id *string, path string, commit int64, prev, newDoc *ir.Node) (*ir.Node, error) {
-	// What counts as a change is api.SameState's to say, here and at the two watch
-	// paths above and the head's agreement check in storage/head.go. See it for why
-	// the answer counts comments.
+	// What counts as a change is api.SameState's to say, here and in stepBaseline. See
+	// it for why the answer counts comments.
 	if api.SameState(newDoc, prev) {
 		return prev, nil
 	}

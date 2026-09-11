@@ -221,7 +221,7 @@ func whyNotStorable(op string) string {
 	switch op {
 	case "replace", "retag":
 		return "it is checked, so against a base that has moved it errors rather than applying"
-	case "strdiff", "arraydiff", "rename", "field", "jsonpatch":
+	case "strdiff", "arraydiff", "rename", "field", "json-patch":
 		return "its result depends on what was there, so it re-evaluates against a base that has moved"
 	case "if", "let":
 		return "it is conditional on the document it meets"

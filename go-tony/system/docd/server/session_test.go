@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -443,6 +444,22 @@ func TestMountHandshake_MultipleControllers(t *testing.T) {
 	for _, path := range paths {
 		if server.Mounts.Lookup(path) == nil {
 			t.Errorf("expected mount at %s", path)
+		}
+	}
+}
+
+// A refused override names the field as the controller wrote it: forceAfter, on the wire
+// and in MountSpec. It said force_after, a field no controller sends
+// (addsgv1yh12kszdxmdn0).
+func TestResolveForceAfter_RefusalNamesTheWireField(t *testing.T) {
+	s := &MountSession{server: New(&Spec{})}
+	for _, spec := range []string{"soon", "-1s"} {
+		_, err := s.resolveForceAfter(&spec)
+		if err == nil {
+			t.Fatalf("resolveForceAfter(%q): want an error", spec)
+		}
+		if !strings.Contains(err.Error(), "forceAfter") {
+			t.Errorf("resolveForceAfter(%q) = %q; the error should name the forceAfter field", spec, err)
 		}
 	}
 }

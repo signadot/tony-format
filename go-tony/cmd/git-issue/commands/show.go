@@ -133,9 +133,10 @@ func (cfg *showConfig) printDiscussion(cc *cli.Context, ref string) {
 	cfg.walkDiscussion(gitStore, ref, "discussion", &comments, &attachments)
 
 	// Show comments in chronological order. walkDiscussion collects files by
-	// ranging a map (unordered), and content-addressed filenames don't sort
-	// chronologically, so order by each comment's embedded timestamp (falling
-	// back to the path when a timestamp can't be parsed).
+	// ranging a map (unordered), so order by each comment's embedded timestamp
+	// (falling back to the path when a timestamp can't be parsed). A current name
+	// (<UTC ts>-<hash>) sorts by time too, but a legacy discussion/NNN.md carries
+	// a count rather than a time, and only its header says when it was written.
 	if len(comments) > 0 {
 		type discComment struct {
 			path, content string

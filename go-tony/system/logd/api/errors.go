@@ -98,11 +98,3 @@ const (
 	ErrCodeInvalidPath = "invalid_path"
 	ErrCodeNotFound    = "not_found"
 )
-
-// NewError creates a new Error with the given code and message.
-func NewError(code, message string) *Error {
-	return &Error{
-		Code:    code,
-		Message: message,
-	}
-}

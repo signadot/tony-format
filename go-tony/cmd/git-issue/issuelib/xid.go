@@ -4,7 +4,6 @@ import (
 	"crypto/md5"
 	"crypto/rand"
 	"encoding/binary"
-	"errors"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -25,7 +24,6 @@ type XID [12]byte
 var (
 	// Crockford's base32 alphabet (excludes I, L, O, U)
 	base32Alphabet = "0123456789abcdefghjkmnpqrstvwxyz"
-	base32Decode   [256]byte
 
 	machineID [3]byte
 	pid       uint16
@@ -33,15 +31,6 @@ var (
 )
 
 func init() {
-	// Initialize decode table
-	for i := range base32Decode {
-		base32Decode[i] = 0xFF
-	}
-	for i, c := range base32Alphabet {
-		base32Decode[c] = byte(i)
-		base32Decode[c-32] = byte(i) // uppercase
-	}
-
 	// Initialize machine ID from hostname
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -105,12 +94,6 @@ func (x XID) XIDR() string {
 	return encodeXID(rev[:])
 }
 
-// Time returns the timestamp embedded in the XID.
-func (x XID) Time() time.Time {
-	ts := binary.BigEndian.Uint32(x[0:4])
-	return time.Unix(int64(ts), 0)
-}
-
 // encodeXID converts 12 bytes to 20-character base32 string.
 // Uses 5-bit groups: 12 bytes = 96 bits = 19.2 groups, padded to 20.
 func encodeXID(b []byte) string {
@@ -140,65 +123,6 @@ func encodeXID(b []byte) string {
 	return string(s[:])
 }
 
-// ParseXID parses a 20-character base32 string into an XID.
-func ParseXID(s string) (XID, error) {
-	var x XID
-	if len(s) != 20 {
-		return x, errors.New("xid must be 20 characters")
-	}
-
-	b, err := decodeXID(s)
-	if err != nil {
-		return x, err
-	}
-	copy(x[:], b)
-	return x, nil
-}
-
-// ParseXIDR parses an XIDR string back to canonical XID.
-func ParseXIDR(s string) (XID, error) {
-	var x XID
-	if len(s) != 20 {
-		return x, errors.New("xidr must be 20 characters")
-	}
-
-	b, err := decodeXID(s)
-	if err != nil {
-		return x, err
-	}
-
-	// Reverse the bytes back to canonical XID order
-	for i := 0; i < 12; i++ {
-		x[i] = b[11-i]
-	}
-	return x, nil
-}
-
-func decodeXID(s string) ([]byte, error) {
-	b := make([]byte, 12)
-
-	for _, c := range s {
-		if base32Decode[c] == 0xFF {
-			return nil, errors.New("invalid base32 character")
-		}
-	}
-
-	b[0] = base32Decode[s[0]]<<3 | base32Decode[s[1]]>>2
-	b[1] = base32Decode[s[1]]<<6 | base32Decode[s[2]]<<1 | base32Decode[s[3]]>>4
-	b[2] = base32Decode[s[3]]<<4 | base32Decode[s[4]]>>1
-	b[3] = base32Decode[s[4]]<<7 | base32Decode[s[5]]<<2 | base32Decode[s[6]]>>3
-	b[4] = base32Decode[s[6]]<<5 | base32Decode[s[7]]
-	b[5] = base32Decode[s[8]]<<3 | base32Decode[s[9]]>>2
-	b[6] = base32Decode[s[9]]<<6 | base32Decode[s[10]]<<1 | base32Decode[s[11]]>>4
-	b[7] = base32Decode[s[11]]<<4 | base32Decode[s[12]]>>1
-	b[8] = base32Decode[s[12]]<<7 | base32Decode[s[13]]<<2 | base32Decode[s[14]]>>3
-	b[9] = base32Decode[s[14]]<<5 | base32Decode[s[15]]
-	b[10] = base32Decode[s[16]]<<3 | base32Decode[s[17]]>>2
-	b[11] = base32Decode[s[17]]<<6 | base32Decode[s[18]]<<1 | base32Decode[s[19]]>>4
-
-	return b, nil
-}
-
 // MatchesXIDRPrefix returns true if the XIDR starts with the given prefix.
 // Case-insensitive.
 func MatchesXIDRPrefix(prefix, xidr string) bool {
@@ -206,20 +130,4 @@ func MatchesXIDRPrefix(prefix, xidr string) bool {
 		return false
 	}
 	return strings.EqualFold(prefix, xidr[:len(prefix)])
-}
-
-// IsValidXIDRChar returns true if c is a valid base32 character.
-func IsValidXIDRChar(c byte) bool {
-	return base32Decode[c] != 0xFF
-}
-
-// IsValidXIDRPrefix returns true if s is non-empty and contains only valid
-// base32 characters.
-func IsValidXIDRPrefix(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if !IsValidXIDRChar(s[i]) {
-			return false
-		}
-	}
-	return len(s) > 0
 }

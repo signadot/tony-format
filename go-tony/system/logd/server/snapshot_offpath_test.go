@@ -11,11 +11,10 @@ import (
 
 // The write which trips the snapshot threshold used to pay for the snapshot: the
 // trigger ran inside handlePatch, before that patch's response went out, so one
-// unremarkable write took a full snapshot of the store -- plus CheckHead, which reads
-// the whole document -- while every write behind it on the session waited. Staging saw
-// it as a client deadline on a write nobody was doing anything unusual with, landing on
-// a different write each time, which is what made it look random
-// (dvgz9308h12ks4xmgdn0).
+// unremarkable write took a full snapshot of the store while every write behind it on
+// the session waited. Staging saw it as a client deadline on a write nobody was doing
+// anything unusual with, landing on a different write each time, which is what made it
+// look random (dvgz9308h12ks4xmgdn0).
 //
 // A snapshot does not need the writer, and double-buffered logs are what make that
 // safe: the active log is switched first, so commits during the snapshot land in the

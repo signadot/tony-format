@@ -155,11 +155,11 @@ func slogLevel() slog.Level {
 //
 // The snapshot itself runs OFF the caller. It used to run here, which meant inside
 // handlePatch, before that patch's response was sent: whichever write happened to be
-// the thousandth paid for a full snapshot of the store -- plus CheckHead, which is a
-// whole-document read -- and every write behind it on that session waited too. On a
-// staging store that surfaced as a client deadline on an unremarkable write
-// ("context deadline exceeded" on a ref nobody was doing anything unusual with), and
-// it lands on a different write every time, which is what made it look random.
+// the thousandth paid for a full snapshot of the store, and every write behind it on
+// that session waited too. On a staging store that surfaced as a client deadline on an
+// unremarkable write ("context deadline exceeded" on a ref nobody was doing anything
+// unusual with), and it lands on a different write every time, which is what made it
+// look random.
 //
 // A snapshot does not need the writer. Double-buffered logs are exactly what makes
 // this safe: SwitchActive flips the active log first, so commits during the snapshot

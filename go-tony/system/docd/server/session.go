@@ -152,7 +152,7 @@ func (s *MountSession) readPump(decoder *stream.Decoder) error {
 }
 
 // handleGracefulUnmount serves a controller's graceful-unmount request: it drains
-// (force-ending after force_after) the watches overlapping the mount so they see
+// (force-ending after forceAfter) the watches overlapping the mount so they see
 // session_unmounted rather than an abrupt controller_unavailable, then FULLY
 // removes the mount (no tombstone, since the controller left deliberately), fails
 // any in-flight non-watch routes, and closes the connection — which the
@@ -474,7 +474,7 @@ func (s *MountSession) failAllRoutes(err error) {
 	}
 }
 
-// resolveForceAfter parses a per-mount force_after override into the coordinator
+// resolveForceAfter parses a per-mount forceAfter override into the coordinator
 // drain timeout, falling back to the server default when the controller sends
 // none. "0" parses to a zero duration, which the coordinator treats as
 // wait-forever (never force).
@@ -484,10 +484,10 @@ func (s *MountSession) resolveForceAfter(spec *string) (time.Duration, error) {
 	}
 	d, err := time.ParseDuration(*spec)
 	if err != nil {
-		return 0, fmt.Errorf("invalid force_after %q: %w", *spec, err)
+		return 0, fmt.Errorf("invalid forceAfter %q: %w", *spec, err)
 	}
 	if d < 0 {
-		return 0, fmt.Errorf("invalid force_after %q: must not be negative", *spec)
+		return 0, fmt.Errorf("invalid forceAfter %q: must not be negative", *spec)
 	}
 	return d, nil
 }

@@ -9,10 +9,6 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 )
 
-// DefaultBroadcastTimeout is the broadcast timeout NewWatchHub records. It does not
-// gate delivery: Broadcast never waits on a watcher, and fails one whose buffer is full.
-const DefaultBroadcastTimeout = 5 * time.Second
-
 // watchStats counts the fan-out. A store with dozens of watches over the same set does
 // this work on EVERY commit, and until it is counted, a session which is merely
 // keeping up and one which is drowning look the same from outside
@@ -36,9 +32,6 @@ type WatchHub struct {
 	stats    watchStats
 	mu       sync.RWMutex
 	watchers map[string]map[*Watcher]struct{} // path -> set of watchers
-	// broadcastTimeout is retained for API/test compatibility but no longer gates delivery:
-	// Broadcast is non-blocking and fails a watcher whose buffer is full (see Broadcast).
-	broadcastTimeout time.Duration
 }
 
 // Report renders the fan-out for an operator: how many watchers each commit reaches,
@@ -84,19 +77,10 @@ type Watcher struct {
 	failOnce sync.Once // ensures Failed is closed only once
 }
 
-// NewWatchHub creates a new WatchHub instance with default timeout.
+// NewWatchHub creates a new WatchHub instance.
 func NewWatchHub() *WatchHub {
 	return &WatchHub{
-		watchers:         make(map[string]map[*Watcher]struct{}),
-		broadcastTimeout: DefaultBroadcastTimeout,
-	}
-}
-
-// NewWatchHubWithTimeout creates a new WatchHub with a custom broadcast timeout.
-func NewWatchHubWithTimeout(timeout time.Duration) *WatchHub {
-	return &WatchHub{
-		watchers:         make(map[string]map[*Watcher]struct{}),
-		broadcastTimeout: timeout,
+		watchers: make(map[string]map[*Watcher]struct{}),
 	}
 }
 
@@ -185,7 +169,7 @@ func (h *WatchHub) Broadcast(n *storage.CommitNotification) {
 	// deep copy of the committed delta, on the committing goroutine, so the
 	// notification owns its patch and nothing else can mutate it (see
 	// storage.newCommitNotification). It is still SHARED across the watchers below, which
-	// is why forwardEvents copies again before encoding — encoding mutates parent linkage.
+	// is why stepBaseline copies again before encoding — encoding mutates parent linkage.
 
 	// Enqueue to each watcher's buffered Events channel WITHOUT blocking. Broadcast runs on
 	// the storage tick's dispatcher goroutine (it is the CommitNotifier, whose contract is to
@@ -226,9 +210,6 @@ func (h *WatchHub) Broadcast(n *storage.CommitNotification) {
 		h.mu.Unlock()
 	}
 }
-
-// CommitGetter retrieves the current commit.
-type CommitGetter func() (int64, error)
 
 // WatcherCount returns the total number of active watchers.
 // Useful for monitoring and debugging.

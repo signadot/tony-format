@@ -108,7 +108,8 @@ different document and there is no single document a replay of the gap would be
 describing. docd handles it by **re-initializing**:
 
 - a `mount`/`unmount` that changes membership **ends** the overlapping watch with a
-  terminal event, `EndReason: "membership_changed"`;
+  terminal event whose `EndReason` says which change: `"session_mounted"` or
+  `"session_unmounted"`;
 - the client **re-watches** the same path — now composed over the new mount set — and
   receives a fresh composed **`State`** snapshot (a re-sync to current), not a replay
   of the gap.
