@@ -30,7 +30,8 @@ type Hello struct {
 }
 
 // ProtocolVersion is the session protocol this build speaks, sent in Hello and answered in
-// HelloResponse. A mismatch is refused at the handshake.
+// HelloResponse. A mismatch is refused at the handshake, and so is every request on the
+// session after it, until a hello the server speaks.
 //
 // It exists because the protocol's safety rested on a deployment convention. A request
 // field a server does not know is IGNORED, and an unread path defaults to "" -- the whole

@@ -34,6 +34,13 @@ type Session struct {
 	// running (see dispatch), and a client is free to say hello twice.
 	scope atomic.Pointer[string]
 
+	// refused says the last hello named a protocol this server does not speak. Every
+	// request after it is refused the same way until a hello this server speaks: the
+	// refusal was answered and then everything behind it served, so a pipelining client
+	// had its writes committed by a server that had just told it they would not be
+	// (mygs3chwh12ksyxxmdn0).
+	refused atomic.Bool
+
 	// If true, the session was answered with the pending schema, and its requests fail
 	// with migration_aborted once the migration is aborted (for testing migrations).
 	// usePending is set by hello, like scope, and read by requests running beside the
@@ -275,6 +282,11 @@ func (s *Session) scopeID() *string { return s.scope.Load() }
 // A ping stays on the loop deliberately: its answer means "this loop is alive", and a
 // probe answered from elsewhere cannot say that.
 func (s *Session) dispatch(req *api.SessionRequest) {
+	if req.Hello == nil && s.refused.Load() {
+		s.sendError(req.ID, api.ErrCodeProtocolMismatch,
+			"this session was refused at hello: say hello with a protocol this server speaks")
+		return
+	}
 	switch {
 	case req.Hello != nil:
 		s.handleHello(req.ID, req.Hello)
@@ -346,11 +358,13 @@ func (s *Session) handleHello(id *string, req *api.Hello) {
 	case req.Protocol != api.ProtocolVersion:
 		s.log.Warn("refusing a session on a protocol this server does not speak",
 			"clientId", req.ClientID, "client", req.Protocol, "server", api.ProtocolVersion)
+		s.refused.Store(true)
 		s.sendError(id, api.ErrCodeProtocolMismatch, fmt.Sprintf(
 			"client speaks session protocol %d, server speaks %d: deploy them together",
 			req.Protocol, api.ProtocolVersion))
 		return
 	}
+	s.refused.Store(false)
 
 	// Store scope for this session (applies to all operations)
 	s.scope.Store(req.Scope)
