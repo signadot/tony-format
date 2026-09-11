@@ -6,7 +6,8 @@ commits: []
 created: "2026-09-11T10:38:20.153524+02:00"
 duplicates: []
 id: 07g0rn9xh12ksz5xmdn0
-labels: []
+labels:
+- "audit libdiff logd correctness medium"
 related_issues: []
 status: open
-updated: "2026-09-11T10:38:20.153524+02:00"
+updated: "2026-09-11T10:38:20.222221+02:00"
