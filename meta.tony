@@ -8,6 +8,7 @@ duplicates: []
 id: pndzjv1xh12ksz5xmdn0
 labels:
 - "audit libdiff o low"
-related_issues: []
+related_issues:
+- bzf782sph12krsmwe5n0
 status: open
-updated: "2026-09-11T10:38:20.367314+02:00"
+updated: "2026-09-11T10:38:38.864104+02:00"
