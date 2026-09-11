@@ -1,9 +1,11 @@
 package eval
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
+	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 )
@@ -364,6 +366,33 @@ func TestExpandEnvReportsAChildsError(t *testing.T) {
 			t.Errorf("%s: ExpandEnv reported no error", src)
 		} else if !strings.Contains(err.Error(), "1 +") {
 			t.Errorf("%s: the error does not name the expression: %v", src, err)
+		}
+	}
+}
+
+// A node with a head comment is expanded, and so is the comment. ExpandEnv had no
+// case for the comment that holds the node, so neither was reached: b and the
+// element stayed '$[user]', and the comment kept its $[user] too.
+func TestExpandEnvUnderAHeadComment(t *testing.T) {
+	src := "a:\n  # head $[user]\n  b: '$[user]'\nc:\n# c head\n- '$[user]'\n"
+	node, err := parse.Parse([]byte(src), parse.ParseComments(true))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if err := ExpandEnv(node, Env{"user": "bob"}); err != nil {
+		t.Fatalf("ExpandEnv: %v", err)
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, encode.EncodeComments(true)); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	got := buf.String()
+	if strings.Contains(got, "$[user]") {
+		t.Errorf("left unexpanded:\n%s", got)
+	}
+	for _, want := range []string{"# head bob", "b: bob", "- bob"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("no %q in:\n%s", want, got)
 		}
 	}
 }

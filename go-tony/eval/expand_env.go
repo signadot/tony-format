@@ -69,6 +69,22 @@ func ExpandEnv(node *ir.Node, env Env) error {
 		}
 	}
 	switch node.Type {
+	case ir.CommentType:
+		// A head comment holds the node it heads: its lines are expanded as a line
+		// comment's are, and the node like any child. Neither was reached, so a
+		// string under a comment stayed as written (addsgv1yh12kszdxmdn0).
+		for i, ln := range node.Lines {
+			lnEval, err := ExpandString(ln, env)
+			if err != nil {
+				return fmt.Errorf("error expanding comment line %q: %w", ln, err)
+			}
+			node.Lines[i] = lnEval
+		}
+		for _, cy := range node.Values {
+			if err := ExpandEnv(cy, env); err != nil {
+				return err
+			}
+		}
 	case ir.ObjectType, ir.ArrayType:
 		// A child's error is the document's: it was dropped, and the child left as
 		// written in a document that reported success (addsgv1yh12kszdxmdn0).
