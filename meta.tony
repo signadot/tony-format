@@ -6,8 +6,7 @@ commits: []
 created: "2026-09-11T10:38:20.994571+02:00"
 duplicates: []
 id: 7zawfy9xh12ksz5xmdn0
-labels:
-- "audit codegen cli low"
+labels: []
 related_issues: []
 status: open
-updated: "2026-09-11T10:38:21.054611+02:00"
+updated: "2026-09-11T10:39:02.2438+02:00"
