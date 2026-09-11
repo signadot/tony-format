@@ -207,8 +207,9 @@ func (s *ClientSession) routeClientRequests() error {
 		}
 		// Serve a baseline NewTx from docd's pre-fetched pool (fewer hops). A
 		// scoped NewTx falls through to logd on the client's scoped connection,
-		// since pooled ids are baseline-scoped.
-		if req.NewTx != nil && s.clientScope == nil {
+		// since pooled ids are baseline-scoped; so does one naming a timeout, since a
+		// pooled id was created with logd's.
+		if req.NewTx != nil && s.clientScope == nil && req.NewTx.Timeout == nil {
 			if err := s.serveNewTx(&req); err != nil {
 				return err
 			}

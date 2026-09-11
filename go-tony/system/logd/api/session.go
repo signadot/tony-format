@@ -94,7 +94,7 @@ type MatchRequest struct {
 //tony:schemagen=session-patch-request,notag
 type PatchRequest struct {
 	TxID     *int64    `tony:"field=txId"`    // Optional: transaction ID for multi-participant tx
-	Timeout  *string   `tony:"field=timeout"` // Optional: timeout for this participant (e.g., "5s", "1m")
+	Timeout  *string   `tony:"field=timeout"` // Optional: timeout for this participant (e.g., "5s", "1m"); without one it waits the transaction's
 	Match    *PathData `tony:"field=match"`   // Optional: compare-and-swap precondition — the patch commits only if the current state at Match.Path matches Match.Data
 	PathData `tony:"field=patch"`
 }
@@ -103,9 +103,15 @@ type PatchRequest struct {
 // The transaction will wait for the specified number of participants
 // to submit their patches before committing atomically.
 //
+// Timeout is how long it waits for them; without one it waits the server's (logd
+// config tx.timeout, 5m unless configured). Past it, the transaction fails and every
+// participant waiting on it is answered. A participant which names no timeout of its
+// own waits this long.
+//
 //tony:schemagen=session-newtx-request,notag
 type NewTxRequest struct {
-	Participants int `tony:"field=participants"` // Number of expected participants (must be >= 1)
+	Participants int     `tony:"field=participants"` // Number of expected participants (must be >= 1)
+	Timeout      *string `tony:"field=timeout"`      // Optional: how long to wait for the participants (e.g., "30s", "5m")
 }
 
 // WatchRequest is a request to watch changes at a path.

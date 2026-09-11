@@ -42,6 +42,8 @@ Allocating a transaction id is a round trip to logd. To keep spanning writes che
 docd keeps a small **pool** of pre-fetched transaction ids
 (package `system/docd/txpool`), replenished in the background and keyed by participant
 count, so a multi-mount write usually draws its id locally instead of waiting on logd.
+A client's baseline `newtx` is served from the pool too, unless it names a `timeout`: a
+pooled id was created with logd's timeout, so that one goes to logd.
 
 A single-owner write needs no transaction id at all — it is forwarded straight to its
 owner.

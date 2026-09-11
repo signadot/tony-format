@@ -41,7 +41,8 @@ type Tx interface {
 type Patcher interface {
 	// Commit commits all pending diffs atomically.
 	// Every participant calls it. It blocks until all participants have joined (or
-	// the transaction times out or expires); the first to arrive performs the commit,
+	// the transaction times out or expires, which bounds every wait -- a transaction
+	// always has a timeout); the first to arrive performs the commit,
 	// and every participant receives the same outcome.
 	//
 	// This method is idempotent - if called multiple times or after the transaction is already
@@ -123,7 +124,7 @@ type CommitOps interface {
 type State struct {
 	TxID        int64          // Transaction ID
 	CreatedAt   time.Time      // RFC3339 timestamp
-	Timeout     time.Duration  // Maximum time to wait for all participants (0 = no timeout)
+	Timeout     time.Duration  // Maximum time to wait for all participants; New makes 0 DefaultTimeout
 	Scope       *string        // Scope for this transaction (nil = baseline)
 	PatcherData []*PatcherData // All participant patches
 }

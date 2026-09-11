@@ -76,7 +76,8 @@
 // all-or-nothing, so the write is one commit, and the client is answered with the
 // participants' data joined back into the subtree it patched. docd pre-fetches
 // transaction ids (package system/docd/txpool) so a spanning write, and a baseline
-// client's NewTx, costs fewer round trips. Certain tags on a node above a mount
+// client's NewTx, costs fewer round trips; a NewTx naming a timeout goes to logd,
+// since a pooled id was created with logd's. Certain tags on a node above a mount
 // boundary block static decomposition; such a patch is rejected rather than
 // mis-split. A spanning patch that is itself a participant in a client's transaction
 // is refused (invalid_tx): the client sends one patch per mount and counts them in
