@@ -10,5 +10,6 @@ labels:
 - "audit logd storage concurrency high"
 related_issues:
 - faweqnhvh12ksynxmdn0
+- rgpn3v9vh12ksynxmdn0
 status: open
-updated: "2026-09-11T10:38:38.029003+02:00"
+updated: "2026-09-11T10:38:38.122208+02:00"
