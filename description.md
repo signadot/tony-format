@@ -52,5 +52,5 @@ a copy makes each patch cost the document, and every watcher step pays it. Measu
 fold and watch paths at those sizes before and after. The result's shared key nodes
 (patch.go:372-376, which name doc by design) fall under the same rule.
 
-Related: kbkxf53ph12krswpj9n0 (forged links), 6? -- a node contained twice rather than
-a link to a parent that does not contain it.
+Related: kbkxf53ph12krswpj9n0 (forged links), the neighbouring shape: here a node is
+contained twice, there a link names a parent that does not contain it.
