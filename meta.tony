@@ -8,6 +8,7 @@ duplicates: []
 id: vtjex79xh12ksz5xmdn0
 labels:
 - "audit libctl medium"
-related_issues: []
+related_issues:
+- wcabztj2h12ksb9qbnn0
 status: open
-updated: "2026-09-11T10:38:20.601527+02:00"
+updated: "2026-09-11T10:38:39.040713+02:00"
