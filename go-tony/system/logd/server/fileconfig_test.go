@@ -189,3 +189,31 @@ func TestNew_SnapshotDefaultsForPartialConfig(t *testing.T) {
 		t.Fatalf("snapshot policy = %+v, want the default byte threshold", snap)
 	}
 }
+
+// A config's schema is held to the rules a migration's is: one declaring an array both
+// keyed and auto-id -- two identities -- fails the load, as `schema: {set: ...}` refuses
+// it. It was adopted, served in the hello, and a write stored keyed by one field with an
+// id generated on the other (khkedy9wh12ksyxxmdn0).
+func TestLoadConfig_RejectsASchemaTheStoreRefuses(t *testing.T) {
+	path := writeConfig(t, "schema:\n  define:\n    items:\n      sku: !logd-key string\n      id: !logd-auto-id string\n")
+
+	_, err := LoadConfig(path)
+	if err == nil {
+		t.Fatal("LoadConfig accepted a schema declaring two identities for one array")
+	}
+	if !strings.Contains(err.Error(), "identity") {
+		t.Errorf("error does not say what is wrong: %v", err)
+	}
+
+	// A Config built in code reaches server.New without LoadConfig: it serves no schema.
+	cfg := &Config{Schema: mustParse("define:\n  items:\n    sku: !logd-key string\n    id: !logd-auto-id string\n")}
+	store, err := storage.Open(t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	New(&Spec{Config: cfg, Storage: store})
+	if got := store.SchemaFor(nil); got != nil && (len(got.KeyFields) > 0 || len(got.AutoIDFields) > 0) {
+		t.Errorf("the store adopted the refused schema: %+v", got)
+	}
+}

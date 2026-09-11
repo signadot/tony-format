@@ -9,6 +9,7 @@ import (
 	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
+	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 )
 
@@ -322,14 +323,22 @@ func (c *Config) WithDefaults() *Config {
 }
 
 // Validate checks the configuration for errors. Called by LoadConfig, so a file
-// giving a value logd does not understand -- a durability other than os or sync --
-// is rejected rather than run.
+// giving a value logd does not understand -- a durability other than os or sync, or a
+// schema api.Schema.Validate refuses -- is rejected rather than run.
 func (c *Config) Validate() error {
 	// A misspelled durability must not fall back to the default: an operator who
 	// wrote "fsync" and silently got page-cache writes has the opposite of what
 	// they asked for, and would not find out until a crash.
 	if _, err := c.Storage.ToStorageDurability(); err != nil {
 		return err
+	}
+	// A schema is held to the rules a migration is held to. The config's was adopted
+	// without them, so a store ran a schema its own StartMigration refuses -- an array
+	// declared both keyed and auto-id, two identities for one array (khkedy9wh12ksyxxmdn0).
+	if c.Schema != nil {
+		if err := api.ParseSchemaFromNode(c.Schema).Validate(); err != nil {
+			return fmt.Errorf("schema: %w", err)
+		}
 	}
 	return nil
 }

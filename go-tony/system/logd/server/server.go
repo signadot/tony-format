@@ -75,7 +75,11 @@ func New(spec *Spec) *Server {
 		// Set up schema resolver if schema is configured
 		if spec.Config.Schema != nil {
 			schema := api.ParseSchemaFromNode(spec.Config.Schema)
-			if schema != nil {
+			if err := schema.Validate(); err != nil {
+				// LoadConfig refuses this, so getting here means a Config built in code.
+				// Serve no schema and say so, rather than one the store's own rules refuse.
+				spec.Log.Error("invalid schema in config; serving none", "error", err)
+			} else if schema != nil {
 				spec.Storage.SetSchemaResolver(&api.StaticSchemaResolver{Schema: schema})
 				spec.Log.Info("configured schema", "autoIDFields", len(schema.AutoIDFields))
 			}
