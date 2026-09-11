@@ -204,6 +204,13 @@ func yKeyNodeOf(y *ir.Node, key string) (*ir.Node, string, string, error) {
 	if err != nil {
 		return nil, "", "", err
 	}
+	// An element without the field is not an element of a list keyed by it: it has no
+	// identity to diff by. GetPath answers (nil, nil) for absence, and reading the nil
+	// panicked -- `o diff` on such a list crashed (pndzjv1xh12ksz5xmdn0). The error is the
+	// differ's cue to diff the list by position instead.
+	if v == nil {
+		return nil, "", "", fmt.Errorf("an element of a list keyed by %q has no %q", key, key)
+	}
 	orgTag := v.Tag
 	defer func() { v.Tag = orgTag }()
 	v.Tag = ""
