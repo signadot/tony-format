@@ -6,10 +6,9 @@ commits: []
 created: "2026-09-11T10:38:19.220872+02:00"
 duplicates: []
 id: "0bns6k1wh12ksyxxmdn0"
-labels:
-- "audit logd storage correctness high"
+labels: []
 related_issues:
 - 07g0rn9xh12ksz5xmdn0
 - y5rad087h12kswh0g9n0
 status: open
-updated: "2026-09-11T10:38:38.589333+02:00"
+updated: "2026-09-11T10:38:59.984031+02:00"
