@@ -16,6 +16,10 @@ import (
 //
 // Allocations rather than time: the property is that the work does not scale with the
 // document, and a count says that on any machine, in any weather.
+//
+// It is PatchOwned's property. Patch copies the document it is given, so its answer
+// shares nothing with it (qzmkhfjqh12ksydsmdn0); a store stepping its own state hands
+// the last one over instead, and the step is what has to stay flat.
 func TestFoldDoesNotAllocatePerField(t *testing.T) {
 	fold := func(entities int) float64 {
 		set := map[string]*ir.Node{}
@@ -35,10 +39,12 @@ func TestFoldDoesNotAllocatePerField(t *testing.T) {
 		})
 		return testing.AllocsPerRun(20, func() {
 			// The options the store folds with: comments are kept, because a store
-			// keeps what it is given.
-			if _, err := Patch(doc, patch, mergeop.Comments(true)); err != nil {
+			// keeps what it is given. Each step hands its state over and holds the next.
+			next, err := PatchOwned(doc, patch, mergeop.Comments(true))
+			if err != nil {
 				t.Fatalf("fold: %s", err)
 			}
+			doc = next
 		})
 	}
 
@@ -54,10 +60,11 @@ func TestFoldDoesNotAllocatePerField(t *testing.T) {
 	}
 }
 
-// The same, through the public Patch with its default options -- which strip comments from
-// the result. Stripping cost a deep clone of the whole tree whether or not there was a
-// comment in it, so every caller outside the store paid a node per node
-// (rkb7p8v5h12ksdnmgsn0).
+// The same with the default options, which strip comments from the result. Stripping cost
+// a deep clone of the whole tree whether or not there was a comment in it, so every caller
+// outside the store paid a node per node (rkb7p8v5h12ksdnmgsn0). Patch now copies its
+// input by contract (qzmkhfjqh12ksydsmdn0), so the strip is measured where nothing else
+// copies: a step through PatchOwned.
 func TestStrippingCommentsCostsNothingWhenThereAreNone(t *testing.T) {
 	build := func(entities int) (doc, patch *ir.Node) {
 		set := map[string]*ir.Node{}
@@ -76,13 +83,15 @@ func TestStrippingCommentsCostsNothingWhenThereAreNone(t *testing.T) {
 	allocs := func(entities int) float64 {
 		doc, patch := build(entities)
 		return testing.AllocsPerRun(20, func() {
-			if _, err := Patch(doc, patch); err != nil {
+			next, err := PatchOwned(doc, patch)
+			if err != nil {
 				t.Fatalf("patch: %s", err)
 			}
+			doc = next
 		})
 	}
 	small, large := allocs(200), allocs(3000)
-	t.Logf("allocations for a one-field patch through Patch: %.0f at 200 entities, %.0f at 3000", small, large)
+	t.Logf("allocations for a one-field step with comments stripped: %.0f at 200 entities, %.0f at 3000", small, large)
 	if large > 2*small {
 		t.Errorf("Patch allocates %.0f at 3000 entities against %.0f at 200: the strip is cloning the document",
 			large, small)

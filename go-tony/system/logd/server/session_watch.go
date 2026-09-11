@@ -387,11 +387,14 @@ func (w *watchStream) stepBaseline(commit int64, patch *ir.Node, shared bool) bo
 		delta = deltaAt(w.prev, next)
 	}
 	w.accountFor(commit)
-	// api.SameState decides what counts as a change; see it for comments.
-	if api.SameState(next, w.prev) {
+	// api.SameState decides what counts as a change; see it for comments. The value held
+	// is next either way: stepping took the last one over (api.StepState), so it may be
+	// compared and nothing more.
+	same := api.SameState(next, w.prev)
+	w.prev = next
+	if same {
 		return true
 	}
-	w.prev = next
 	w.absent.observe(w.prev)
 	w.s.send(patchEvent(w.watcher.ID, commit, w.path, delta, next == nil))
 	return true
@@ -399,7 +402,8 @@ func (w *watchStream) stepBaseline(commit int64, patch *ir.Node, shared bool) bo
 
 // applyAt folds a delta rooted at the path into the value there: a client's own step.
 // A base that holds nothing is a null to fold onto, and a delta that deletes the path
-// leaves nothing, which is not the null it would fold to (api/state.go).
+// leaves nothing, which is not the null it would fold to (api/state.go). It takes prev
+// over (api.StepState): the caller holds the answer instead.
 func applyAt(prev, delta *ir.Node) (*ir.Node, error) {
 	if n := ir.Uncomment(delta); n != nil && ir.TagHas(n.Tag, libdiff.DeleteTag) {
 		return nil, nil
@@ -408,7 +412,7 @@ func applyAt(prev, delta *ir.Node) (*ir.Node, error) {
 	if base == nil {
 		base = ir.Null()
 	}
-	return api.NextState(base, delta)
+	return api.StepState(base, delta)
 }
 
 // deltaAt is the delta from prev to next, both the value at the watched path, rooted

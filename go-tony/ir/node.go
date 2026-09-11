@@ -81,8 +81,11 @@ func (y *Node) CloneTo(dst *Node) *Node {
 	}
 	dst.Bool = y.Bool
 	if y.Comment != nil {
+		// A line comment belongs to the node it annotates, so the copy's belongs to the
+		// copy -- not to the original it was copied from.
 		dstComment := &Node{}
 		y.Comment.CloneTo(dstComment)
+		dstComment.Parent = dst
 		dst.Comment = dstComment
 	}
 	dst.Lines = make([]string, len(y.Lines))

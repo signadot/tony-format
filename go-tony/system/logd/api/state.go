@@ -54,6 +54,16 @@ func NextState(doc, patch *ir.Node) (*ir.Node, error) {
 	return tony.Patch(doc, patch, mergeop.Comments(true), mergeop.RejectUnsafe(true))
 }
 
+// StepState is NextState for a caller stepping its own state forward, which keeps only
+// the answer: a watch's value, a fold of log records. It takes doc over
+// (tony.PatchOwned) rather than copying it, so a step costs what the patch touches and not
+// the size of the state -- a watcher on a set of three thousand entities paid a copy of
+// the set per commit otherwise. doc may be compared with the answer afterwards, and must
+// not be used for anything else.
+func StepState(doc, patch *ir.Node) (*ir.Node, error) {
+	return tony.PatchOwned(doc, patch, mergeop.Comments(true), mergeop.RejectUnsafe(true))
+}
+
 // SameState reports whether two documents are the same STATE: what the store
 // holds at a path, as the store holds it.
 //

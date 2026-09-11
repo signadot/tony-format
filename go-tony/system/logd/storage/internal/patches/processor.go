@@ -179,7 +179,7 @@ func (sp *StreamingProcessor) ApplyPatches(baseEvents stream.EventReader, patche
 			if result == nil {
 				result = ir.Null()
 			}
-			next, err := api.NextState(result, patch)
+			next, err := api.StepState(result, patch)
 			if err != nil {
 				return err
 			}
@@ -521,7 +521,9 @@ func fieldToInt64(field *ir.Node) int64 {
 	panic("number field has no numeric value")
 }
 
-// applyPatchesToNode applies a sequence of patches to a base node.
+// applyPatchesToNode applies a sequence of patches to a base node. It takes base over
+// (api.StepState), as every fold in this file does its own state: the caller keeps the
+// answer.
 func applyPatchesToNode(base *ir.Node, patches []*ir.Node) (*ir.Node, error) {
 	result := base
 	for _, patch := range patches {
@@ -533,7 +535,7 @@ func applyPatchesToNode(base *ir.Node, patches []*ir.Node) (*ir.Node, error) {
 		if result == nil {
 			result = ir.Null()
 		}
-		next, err := api.NextState(result, patch)
+		next, err := api.StepState(result, patch)
 		if err != nil {
 			return nil, err
 		}
@@ -783,7 +785,7 @@ func (u *unreachedPatches) graftUpTo(f unreachedFrame, before string, sink strea
 				if node == nil {
 					node = ir.Null()
 				}
-				node, err = api.NextState(node, np)
+				node, err = api.StepState(node, np)
 				if err != nil {
 					return err
 				}
@@ -873,7 +875,7 @@ func (u *unreachedPatches) replaceArray(path string, open *stream.Event, sink st
 			if node == nil {
 				node = ir.Null()
 			}
-			node, err = api.NextState(node, np)
+			node, err = api.StepState(node, np)
 			if err != nil {
 				return false, err
 			}
@@ -915,7 +917,7 @@ func (u *unreachedPatches) replaceScalar(path string, ev *stream.Event, sink str
 			if base == nil {
 				base = ir.Null()
 			}
-			base, err = api.NextState(base, np)
+			base, err = api.StepState(base, np)
 			if err != nil {
 				return false, err
 			}

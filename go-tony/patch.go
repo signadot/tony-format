@@ -18,16 +18,53 @@ import (
 // Each object the patch merges into comes back with its fields in sorted key
 // order. The result carries no comments unless [mergeop.Comments](true) is
 // given.
+//
+// doc and patch are left as they were, links included, and the result shares no
+// node with either.
 func Patch(doc, patch *ir.Node, opts ...mergeop.PatchOpt) (*ir.Node, error) {
+	cfg := mergeop.NewConfig(opts...)
+	ctx := &mergeop.OpContext{Config: cfg}
+	return patchAndAnswer(ownCopy(doc), patch, ctx)
+}
+
+// PatchWith applies a patch to a document with the given context.
+// The context carries schema definitions for .[ref] expansion and behavioral options.
+// Like Patch, it leaves doc and patch as they were.
+func PatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) {
+	return patchAndAnswer(ownCopy(doc), patch, ctx)
+}
+
+// PatchOwned is Patch for a caller that hands doc over and keeps only the result -- a
+// state stepped forward, the last one dropped as the next is taken. It does not copy doc,
+// so the result takes doc's untouched subtrees rather than copies of them: a step costs
+// what the patch touches, not the size of the state (rkb7p8v5h12ksdnmgsn0).
+//
+// doc's content is unchanged, so it can still be compared with the result, but its links
+// now lead into the result: the caller must not walk it, patch it again or hand it on.
+// Every other caller wants Patch.
+func PatchOwned(doc, patch *ir.Node, opts ...mergeop.PatchOpt) (*ir.Node, error) {
 	cfg := mergeop.NewConfig(opts...)
 	ctx := &mergeop.OpContext{Config: cfg}
 	return patchAndAnswer(doc, patch, ctx)
 }
 
-// PatchWith applies a patch to a document with the given context.
-// The context carries schema definitions for .[ref] expansion and behavioral options.
-func PatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) {
-	return patchAndAnswer(doc, patch, ctx)
+// ownCopy is the document a patch is applied to: a copy of the one the caller gave.
+//
+// A merge builds its result from the document's untouched subtrees rather than copies of
+// them -- every merge in mergeop does, and the object merge here -- and links each into
+// the result. A node has one Parent, so a node held by two trees names only one: the
+// caller's document still listed its children, and they named the result. Walking down
+// from the document and back up arrived somewhere else, and an operator asking what
+// document it was in -- !get-path(root), getpath() -- answered from whichever result was
+// built last (qzmkhfjqh12ksydsmdn0). Copying once, here, makes every one of those merges
+// take from a document nobody else holds; the recursion below goes through
+// patchAndAnswer, which does not copy again. PatchOwned skips the copy for a caller
+// that gives its document up.
+func ownCopy(doc *ir.Node) *ir.Node {
+	if doc == nil {
+		return nil
+	}
+	return doc.Clone()
 }
 
 // patchAndAnswer applies the patch and then honours the comment option on the
@@ -170,7 +207,7 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 		res := make([]*ir.Node, 0, n)
 
 		for i := range n {
-			yy, err := PatchWith(doc.Values[i], patch.Values[i], ctx)
+			yy, err := patchAndAnswer(doc.Values[i], patch.Values[i], ctx)
 			if err != nil {
 				return nil, err
 			}
@@ -192,7 +229,7 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 		// op that resolves to nothing -- a !delete for an element the document
 		// never had -- drops out instead of being stored verbatim.
 		for i := n; i < len(patch.Values); i++ {
-			yy, err := PatchWith(absentAt(doc, "", i), patch.Values[i], ctx)
+			yy, err := patchAndAnswer(absentAt(doc, "", i), patch.Values[i], ctx)
 			if err != nil {
 				return nil, err
 			}
@@ -224,8 +261,10 @@ func withLineComment(res, doc, patch *ir.Node, keep bool) *ir.Node {
 	switch {
 	case patch.Comment != nil:
 		res.Comment = patch.Comment.Clone()
+		res.Comment.Parent = res
 	case doc != nil && doc.Comment != nil && res.Comment == nil:
 		res.Comment = doc.Comment.Clone()
+		res.Comment.Parent = res
 	}
 	return res
 }
@@ -340,14 +379,14 @@ func objMergeFast(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, bool, 
 			di++
 		case pk < dk:
 			// A field the document does not have: what the patch means on its own.
-			val, err := PatchWith(absentAt(doc, pk, pi), patch.Values[pi], ctx)
+			val, err := patchAndAnswer(absentAt(doc, pk, pi), patch.Values[pi], ctx)
 			if err != nil {
 				return nil, false, err
 			}
 			add(pk, val, false)
 			pi++
 		default:
-			val, err := PatchWith(doc.Values[di], patch.Values[pi], ctx)
+			val, err := patchAndAnswer(doc.Values[di], patch.Values[pi], ctx)
 			if err != nil {
 				return nil, false, err
 			}
@@ -360,7 +399,7 @@ func objMergeFast(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, bool, 
 		add(doc.Fields[di].String, doc.Values[di], true)
 	}
 	for ; pi < len(patch.Fields); pi++ {
-		val, err := PatchWith(absentAt(doc, patch.Fields[pi].String, pi), patch.Values[pi], ctx)
+		val, err := patchAndAnswer(absentAt(doc, patch.Fields[pi].String, pi), patch.Values[pi], ctx)
 		if err != nil {
 			return nil, false, err
 		}
@@ -369,13 +408,16 @@ func objMergeFast(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, bool, 
 
 	var fields []*ir.Node
 	if keysKept && len(keys) == len(doc.Fields) {
-		// The document's own key nodes, shared. A key node is a descriptor -- its type,
+		// The document's own key nodes, taken over. A key node is a descriptor -- its type,
 		// its string, its position -- and every one of those is identical here, since the
-		// keys and their order are the document's. What it does not carry over is Parent,
-		// which still names the object it was built for: nothing reads a KEY's parent
-		// except a diagnostic path, while a VALUE's is read by encoding and is set below.
+		// keys and their order are the document's. The document is the patch's own copy
+		// (ownCopy), so its keys are free to take, and they are linked to the result as
+		// the values are below.
 		fields = make([]*ir.Node, len(doc.Fields))
 		copy(fields, doc.Fields)
+		for _, f := range fields {
+			f.Parent = res
+		}
 	} else {
 		fields = make([]*ir.Node, len(keys))
 		for i, key := range keys {
@@ -507,7 +549,7 @@ func objPatchYWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error
 			dstMap[field.String] = dy
 			continue
 		}
-		yy, err := PatchWith(dy, patch, ctx)
+		yy, err := patchAndAnswer(dy, patch, ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -527,7 +569,7 @@ func objPatchYWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error
 		if present {
 			continue
 		}
-		ppv, err := PatchWith(absentAt(doc, k, 0), pv, ctx)
+		ppv, err := patchAndAnswer(absentAt(doc, k, 0), pv, ctx)
 		if err != nil {
 			return nil, err
 		}

@@ -37,20 +37,25 @@ func entityWrite(i int, status string) *ir.Node {
 var storeOpts = []mergeop.PatchOpt{mergeop.Comments(true), mergeop.RejectUnsafe(true)}
 
 // BenchmarkPatchOneField is a one-field write folded onto a set of n entities: what a
-// watcher on the set pays per commit, with the store's options, and what a caller of the
-// public Patch pays, with its defaults.
+// watcher on the set pays per commit -- the store's step, which hands its state over
+// (PatchOwned, as api.StepState does) -- and what a caller of the public Patch pays, with
+// its defaults.
 func BenchmarkPatchOneField(b *testing.B) {
 	for _, n := range []int{200, 3000} {
 		for _, store := range []bool{true, false} {
-			opts := []mergeop.PatchOpt(nil)
-			if store {
-				opts = storeOpts
-			}
 			b.Run(fmt.Sprintf("entities=%d/store=%v", n, store), func(b *testing.B) {
 				doc, patch := entitySet(n), entityWrite(1, "ready")
 				b.ReportAllocs()
 				for b.Loop() {
-					if _, err := Patch(doc, patch, opts...); err != nil {
+					if store {
+						next, err := PatchOwned(doc, patch, storeOpts...)
+						if err != nil {
+							b.Fatal(err)
+						}
+						doc = next
+						continue
+					}
+					if _, err := Patch(doc, patch); err != nil {
 						b.Fatal(err)
 					}
 				}
@@ -60,20 +65,19 @@ func BenchmarkPatchOneField(b *testing.B) {
 }
 
 // BenchmarkFoldOntoSet folds 64 one-field writes to different entities, each onto the
-// result of the last: a watcher on the set stepping 64 commits.
+// result of the last, the way the store steps: a watcher on the set stepping 64 commits.
 func BenchmarkFoldOntoSet(b *testing.B) {
 	for _, n := range []int{200, 3000} {
 		b.Run(fmt.Sprintf("entities=%d/writes=64", n), func(b *testing.B) {
-			doc := entitySet(n)
+			cur := entitySet(n)
 			writes := make([]*ir.Node, 64)
 			for i := range writes {
 				writes[i] = entityWrite(i*(n/64), "s"+strconv.Itoa(i))
 			}
 			b.ReportAllocs()
 			for b.Loop() {
-				cur := doc
 				for _, w := range writes {
-					next, err := Patch(cur, w, storeOpts...)
+					next, err := PatchOwned(cur, w, storeOpts...)
 					if err != nil {
 						b.Fatal(err)
 					}

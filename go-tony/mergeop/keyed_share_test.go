@@ -25,6 +25,9 @@ func elemWithKey(t *testing.T, list *ir.Node, keyField, key string) *ir.Node {
 // It is also the rule objPatchYWith has always followed for a field the patch does not
 // name -- the document's own node, re-parented into the container that now holds it -- so
 // this pins the two paths agreeing rather than a local optimisation.
+//
+// It holds for PatchOwned, whose caller hands the document over. Patch copies the document
+// first, so the document keeps its elements, linked to it (qzmkhfjqh12ksydsmdn0).
 func TestAKeyedElementThePatchDoesNotNameIsNotCopied(t *testing.T) {
 	doc := mustParseNode(t, `{items: !key(sku) [{sku: "A", q: 1}, {sku: "B", q: 2}, {sku: "C", q: 3}]}`)
 	patch := mustParseNode(t, `{items: !key(sku) [{sku: "B", q: 99}]}`)
@@ -35,9 +38,20 @@ func TestAKeyedElementThePatchDoesNotNameIsNotCopied(t *testing.T) {
 		t.Fatal("the document does not hold the elements the test is about")
 	}
 
-	res, err := tony.Patch(doc, patch)
+	copied, err := tony.Patch(doc, patch)
 	if err != nil {
 		t.Fatalf("Patch: %v", err)
+	}
+	if got := elemWithKey(t, ir.Get(copied, "items"), "sku", "A"); got == untouchedA {
+		t.Error(`Patch's result holds the document's own element at "A"`)
+	}
+	if untouchedA.Parent != before {
+		t.Error(`Patch re-parented the document's element at "A" out of it`)
+	}
+
+	res, err := tony.PatchOwned(doc, patch)
+	if err != nil {
+		t.Fatalf("PatchOwned: %v", err)
 	}
 	after := ir.Get(res, "items")
 	if after == nil || len(after.Values) != 3 {
