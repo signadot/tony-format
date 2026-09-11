@@ -6,7 +6,8 @@ commits: []
 created: "2026-09-11T10:38:18.467441+02:00"
 duplicates: []
 id: gdpv3fsvh12ksynxmdn0
-labels: []
+labels:
+- "audit logd storage concurrency high"
 related_issues: []
 status: open
-updated: "2026-09-11T10:38:18.467441+02:00"
+updated: "2026-09-11T10:38:18.582483+02:00"
