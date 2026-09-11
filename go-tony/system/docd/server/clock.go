@@ -34,7 +34,7 @@ func newClock(spec *api.ClockSpec, start time.Time) (*clock, error) {
 	if isMetaPath(spec.Path) {
 		return nil, fmt.Errorf("path .meta is reserved by docd")
 	}
-	if fields, err := pathFields(spec.Path); err != nil || len(fields) == 0 {
+	if fields, err := claimedPathFields(spec.Path); err != nil || len(fields) == 0 {
 		return nil, fmt.Errorf("clock path must be a non-empty kpath (no leading /)")
 	}
 	freq, err := time.ParseDuration(spec.Frequency)

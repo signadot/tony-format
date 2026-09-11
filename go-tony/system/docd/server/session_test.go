@@ -200,43 +200,60 @@ func TestMountHandshake_PathAlreadyMounted(t *testing.T) {
 	t.Logf("Got expected error: %s", resp2.Error.Message)
 }
 
+// A mount path is a non-empty, field-rooted kpath. A bare array index is not one, and
+// neither is a path with a leading "/": kpath reads "/users" as one field named "/users",
+// so it was accepted, and the controller owned a key nobody's traffic names while "users"
+// went to logd (qc23sd1xh12ksz5xmdn0).
 func TestMountHandshake_InvalidPath(t *testing.T) {
-	server := New(&Spec{})
+	for _, path := range []string{"[0]", "/users", "/"} {
+		t.Run(path, func(t *testing.T) {
+			server := New(&Spec{})
 
-	if err := server.StartTCP("127.0.0.1:0"); err != nil {
-		t.Fatalf("failed to start TCP: %v", err)
-	}
-	defer server.StopTCP()
+			if err := server.StartTCP("127.0.0.1:0"); err != nil {
+				t.Fatalf("failed to start TCP: %v", err)
+			}
+			defer server.StopTCP()
 
-	conn, err := net.Dial("tcp", server.TCPAddr())
-	if err != nil {
-		t.Fatalf("failed to connect: %v", err)
-	}
-	defer conn.Close()
+			conn, err := net.Dial("tcp", server.TCPAddr())
+			if err != nil {
+				t.Fatalf("failed to connect: %v", err)
+			}
+			defer conn.Close()
 
-	// Not a valid mount path: a bare array index is not a field-rooted kpath.
-	mountReq := `{hello: {controller: "ctrl"}, mount: {path: "[0]"}}` + "\n"
-	if _, err := conn.Write([]byte(mountReq)); err != nil {
-		t.Fatalf("failed to write: %v", err)
-	}
+			mountReq := `{hello: {controller: "ctrl"}, mount: {path: "` + path + `"}}` + "\n"
+			if _, err := conn.Write([]byte(mountReq)); err != nil {
+				t.Fatalf("failed to write: %v", err)
+			}
 
-	conn.SetReadDeadline(time.Now().Add(time.Second))
-	buf := make([]byte, 4096)
-	n, err := conn.Read(buf)
-	if err != nil {
-		t.Fatalf("failed to read: %v", err)
-	}
+			conn.SetReadDeadline(time.Now().Add(time.Second))
+			buf := make([]byte, 4096)
+			n, err := conn.Read(buf)
+			if err != nil {
+				t.Fatalf("failed to read: %v", err)
+			}
 
-	var resp api.MountResponse
-	if err := resp.FromTony(bytes.TrimSpace(buf[:n])); err != nil {
-		t.Fatalf("failed to parse response: %v", err)
-	}
+			var resp api.MountResponse
+			if err := resp.FromTony(bytes.TrimSpace(buf[:n])); err != nil {
+				t.Fatalf("failed to parse response: %v", err)
+			}
 
-	if resp.Error == nil {
-		t.Fatal("expected error for invalid path")
+			if resp.Error == nil {
+				t.Fatalf("mount at %q accepted, want refused", path)
+			}
+			if resp.Error.Code != api.ErrCodeInvalidPath {
+				t.Errorf("expected error code %q, got %q", api.ErrCodeInvalidPath, resp.Error.Code)
+			}
+		})
 	}
-	if resp.Error.Code != api.ErrCodeInvalidPath {
-		t.Errorf("expected error code %q, got %q", api.ErrCodeInvalidPath, resp.Error.Code)
+}
+
+// A clock's path is held to the same rule as a mount's.
+func TestClockPathRefusesALeadingSlash(t *testing.T) {
+	if _, err := newClock(&api.ClockSpec{Path: "/sys.clock", Frequency: "1s"}, time.Now()); err == nil {
+		t.Error(`a clock at "/sys.clock" was accepted`)
+	}
+	if _, err := newClock(&api.ClockSpec{Path: "sys.clock", Frequency: "1s"}, time.Now()); err != nil {
+		t.Errorf(`a clock at "sys.clock" was refused: %v`, err)
 	}
 }
 

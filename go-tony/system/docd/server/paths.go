@@ -2,9 +2,22 @@ package server
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
 )
+
+// claimedPathFields is pathFields for a path a mount or a clock claims, refusing a leading
+// "/" by name. A kpath has none, and kpath reads "/users" as ONE field named "/users", so
+// the check the handshake's own message promised -- "(no leading /)" -- passed it: a
+// controller configured with "/users" owned a top-level key nobody's traffic names, and
+// never saw "users" (qc23sd1xh12ksz5xmdn0).
+func claimedPathFields(p string) ([]string, error) {
+	if strings.HasPrefix(p, "/") {
+		return nil, fmt.Errorf("path %q has a leading /: a kpath has none", p)
+	}
+	return pathFields(p)
+}
 
 // pathFields parses a kpath into its field-name segments (the object keys used to
 // navigate the document for mount decomposition). It errors on a malformed path

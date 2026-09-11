@@ -310,7 +310,7 @@ func TestLogdSession_MountClientIntegration(t *testing.T) {
 		DocdAddr:   docdSrv.TCPAddr(),
 		LogdAddr:   logdSrv.TCPAddr(),
 		Controller: "test-ctrl",
-		Path:       "/users",
+		Path:       "users",
 	})
 	if err != nil {
 		t.Fatalf("Mount failed: %v", err)

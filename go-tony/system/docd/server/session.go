@@ -550,7 +550,7 @@ func (s *MountSession) handleHandshake(decoder *stream.Decoder) error {
 		s.sendError(api.ErrCodeInvalidPath, "mount path is required")
 		return fmt.Errorf("missing mount path")
 	}
-	if fields, ferr := pathFields(req.Mount.Path); ferr != nil || len(fields) == 0 {
+	if fields, ferr := claimedPathFields(req.Mount.Path); ferr != nil || len(fields) == 0 {
 		s.sendError(api.ErrCodeInvalidPath, "mount path must be a non-empty kpath (no leading /)")
 		return fmt.Errorf("invalid mount path %q", req.Mount.Path)
 	}
