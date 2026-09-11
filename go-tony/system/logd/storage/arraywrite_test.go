@@ -8,6 +8,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 // A write at an array index carries its meaning in the op at the leaf. MergePatches
@@ -348,5 +349,63 @@ func TestArrayElementWriteSeesItsOwnScope(t *testing.T) {
 	}
 	if got, want := flatten(t, doc), "votes: [ { by: scott } { by: dee choice: approve } ]"; got != want {
 		t.Errorf("got %s\nwant %s", got, want)
+	}
+}
+
+// Two participants of one transaction writing different elements of one array. A
+// position is lowered at the array above it, so each participant named the array, and
+// it was lowered once per participant into two deltas at one path, which do not merge:
+// every one of these failed with "lowering !arraydiff: patch at ditems conflicts with
+// ditems" (j0ynm41xh12ksyxxmdn0).
+func TestArrayElementWritesInOneTransaction(t *testing.T) {
+	const (
+		seed = `{d: {items: [{v: 1, tags: [x, y]}, {v: 2}, {v: 3}]}}`
+		both = `d: items: [ { tags: [ x y ] v: 10 } { v: 20 } { v: 3 } ]`
+	)
+	scope := "s"
+	for _, tc := range []struct {
+		name   string
+		scope  *string
+		p1, d1 string
+		p2, d2 string
+		want   string
+	}{
+		{"a leaf of each", nil, `d.items[0].v`, `10`, `d.items[1].v`, `20`, both},
+		{"each element", nil, `d.items[0]`, `{v: 10}`, `d.items[1]`, `{v: 20}`, both},
+		{"a relative op on each", nil,
+			`d.items[0].v`, `!replace {from: 1, to: 10}`, `d.items[1].v`, `!replace {from: 2, to: 20}`, both},
+		{"in a scope", &scope, `d.items[0].v`, `10`, `d.items[1].v`, `20`, both},
+		{"an array inside one element", nil, `d.items[0].tags[1]`, `z`, `d.items[1].v`, `20`,
+			`d: items: [ { tags: [ x z ] v: 1 } { v: 20 } { v: 3 } ]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := openTestStorage(t)
+			mustCommit(t, s, nil, seed)
+			txn, err := s.NewTx(2, tc.scope)
+			if err != nil {
+				t.Fatalf("NewTx: %v", err)
+			}
+			var first interface{ Commit() *tx.Result }
+			for i, w := range [][2]string{{tc.p1, tc.d1}, {tc.p2, tc.d2}} {
+				data, err := parse.Parse([]byte(w[1]))
+				if err != nil {
+					t.Fatalf("parse %q: %v", w[1], err)
+				}
+				p, err := txn.NewPatcher(&api.Patch{PathData: api.PathData{Path: w[0], Data: data}})
+				if err != nil {
+					t.Fatalf("NewPatcher %s: %v", w[0], err)
+				}
+				if i == 0 {
+					first = p
+				}
+			}
+			res := first.Commit()
+			if !res.Committed {
+				t.Fatalf("commit: %v", res.Error)
+			}
+			if got := flatten(t, mustReadScope(t, s, res.Commit, tc.scope)); got != tc.want {
+				t.Errorf("after the transaction\n got %s\nwant %s", got, tc.want)
+			}
+		})
 	}
 }

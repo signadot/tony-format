@@ -35,9 +35,9 @@ func MergePatches(patches []*PatcherData) (*ir.Node, error) {
 	}
 	for i := range splitPaths {
 		for j := range i {
-			spi, spj := splitPaths[i], splitPaths[j]
-			if isPrefix(spi, spj) {
-				return nil, fmt.Errorf("patch at %s conflicts with %s", strings.Join(spj, ""), strings.Join(spi, ""))
+			if isPrefix(splitPaths[i], splitPaths[j]) {
+				// Named as written: the segments joined bare said d.items as "ditems".
+				return nil, fmt.Errorf("patch at %q conflicts with %q", patches[j].API.Path, patches[i].API.Path)
 			}
 		}
 	}

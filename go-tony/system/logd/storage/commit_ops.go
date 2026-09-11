@@ -76,16 +76,30 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	// Where the write is verified and lowered: a scope at what it claims, baseline at
 	// what it states -- the same sites, except that baseline stops at a commented node
 	// (LowerSites).
+	//
+	// The sites are the WRITE's, and each is named once: lowerWrite reads a site's node
+	// from the merged patch, so two participants naming one site name the same thing.
+	// Participants writing by position into one array both name the array, and listed
+	// twice it was lowered twice into two deltas at one path, which do not merge
+	// (j0ynm41xh12ksyxxmdn0).
 	var sites []string
 	if txState != nil {
+		seen := map[string]bool{}
 		for _, pd := range txState.PatcherData {
 			if pd == nil || pd.API == nil {
 				continue
 			}
+			var named []string
 			if scopeID != nil {
-				sites = append(sites, ClaimPaths(pd.API.Path, pd.API.Data)...)
+				named = ClaimPaths(pd.API.Path, pd.API.Data)
 			} else {
-				sites = append(sites, LowerSites(pd.API.Path, pd.API.Data)...)
+				named = LowerSites(pd.API.Path, pd.API.Data)
+			}
+			for _, p := range named {
+				if !seen[p] {
+					seen[p] = true
+					sites = append(sites, p)
+				}
 			}
 		}
 	}
