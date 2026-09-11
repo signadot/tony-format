@@ -6,8 +6,7 @@ commits: []
 created: "2026-09-11T10:38:20.038253+02:00"
 duplicates: []
 id: e5wt4fhxh12ksz5xmdn0
-labels:
-- "audit mergeop logd correctness medium"
+labels: []
 related_issues: []
 status: open
-updated: "2026-09-11T10:38:20.099494+02:00"
+updated: "2026-09-11T10:39:01.076468+02:00"
