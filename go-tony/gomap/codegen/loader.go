@@ -135,8 +135,9 @@ func (l *PackageLoader) FindNamedType(pkg *packages.Package, typeName string) (*
 	return typeNameObj, named, nil
 }
 
-// ASTToStructType converts a types.Struct to an ast.StructType (simplified).
-// This is useful if we need to inspect the AST, but for now we might just rely on types.Type.
+// FindASTStructType returns the *ast.StructType declared for typeName in pkg's
+// syntax trees, and an error when typeName is not declared there or is not a
+// struct.
 func (l *PackageLoader) FindASTStructType(pkg *packages.Package, typeName string) (*ast.StructType, error) {
 	// This is harder because we have to find the AST node corresponding to the type.
 	// We can iterate through the syntax trees.

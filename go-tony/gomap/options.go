@@ -11,6 +11,7 @@ import (
 // MapOption is an option for controlling the mapping process from Go to Tony IR.
 type MapOption func(*mapConfig)
 
+// EncodeWire controls whether the output is encoded in wire form ([encode.EncodeWire]).
 func EncodeWire(v bool) MapOption {
 	return func(c *mapConfig) {
 		c.EncodeOptions = append(c.EncodeOptions, encode.EncodeWire(v))

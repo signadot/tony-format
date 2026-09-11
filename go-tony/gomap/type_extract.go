@@ -90,7 +90,7 @@ func isNullableFromOr(def *ir.Node) bool {
 //
 // Examples:
 //   - "string" → reflect.TypeOf("")
-//   - ".[int]" → resolves to int definition, returns reflect.TypeOf(0)
+//   - ".[int]" → resolves to int definition, returns reflect.TypeOf(int64(0))
 //   - "!or [null, string]" → returns reflect.PtrTo(reflect.TypeOf(""))
 //   - ".array(string)" → returns reflect.SliceOf(reflect.TypeOf("")) ([]string)
 //   - ".array(.array(string))" → returns [][]string

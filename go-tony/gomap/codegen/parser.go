@@ -549,9 +549,8 @@ func parseSchemaTagContent(content string) (*gomap.StructSchema, error) {
 	}, nil
 }
 
-// ResolveType attempts to resolve an AST type expression to a reflect.Type.
-// This is a helper for when we need reflection-based type information.
-// Returns nil if the type cannot be resolved (e.g., it's a local type that hasn't been loaded).
+// ResolveType is not implemented: it returns a nil type and an error for every
+// expression. Field types are resolved by [ResolveFieldTypes].
 func ResolveType(expr ast.Expr, pkg *ast.Package) (reflect.Type, error) {
 	// TODO: Implement type resolution from AST to reflect.Type
 	// This will be needed for code generation but can be deferred to later phases

@@ -19,8 +19,8 @@ func ToString[T any](v *T, opts ...MapOption) (string, error) {
 }
 
 // ToTony converts a Go value to Tony-formatted bytes.
-// It first converts the value to an IR node (using ToTonyIR with mapOpts),
-// then marshals the IR to bytes (using encOpts from mapOpts).
+// It first converts the value to an IR node (using ToTonyIR with opts),
+// then encodes the IR with the encode options opts carries.
 func ToTony(v interface{}, opts ...MapOption) ([]byte, error) {
 	node, err := ToTonyIR(v, opts...)
 	if err != nil {
@@ -362,10 +362,6 @@ func toIRReflectMap(val reflect.Value, fieldPath string, visited map[uintptr]str
 	return ir.FromMap(irMap), nil
 }
 
-// toIRReflectStruct converts a struct to an IR object node.
-// Embedded structs are flattened (fields are promoted to the parent object).
-// Note: We don't track struct values themselves for cycle detection, only pointers/slices/maps.
-// A struct value appearing multiple times is not a cycle - only reference types can create cycles.
 // isZeroForOmit reports whether v is empty for the purpose of the omitzero tag: an
 // empty slice/map/array, a nil pointer/interface, or a zero scalar. This mirrors
 // codegen's emptiness tests (len(...) > 0 for collections, != zero for scalars).
@@ -380,6 +376,10 @@ func isZeroForOmit(v reflect.Value) bool {
 	}
 }
 
+// toIRReflectStruct converts a struct to an IR object node.
+// Embedded structs are flattened (fields are promoted to the parent object).
+// Note: We don't track struct values themselves for cycle detection, only pointers/slices/maps.
+// A struct value appearing multiple times is not a cycle - only reference types can create cycles.
 func toIRReflectStruct(val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...MapOption) (*ir.Node, error) {
 	typ := val.Type()
 

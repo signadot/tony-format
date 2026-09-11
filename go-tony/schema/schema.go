@@ -10,7 +10,7 @@ import (
 
 // Schema represents a Tony schema document
 type Schema struct {
-	// The context in which this schema lives (handles @context and with)
+	// The context in which this schema lives (read from @context, context or contexts)
 	Context *Context
 
 	// Signature defines how the schema can be referenced

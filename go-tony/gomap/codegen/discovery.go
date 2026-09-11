@@ -81,8 +81,8 @@ func DiscoverPackages(dir string, recursive bool) ([]*PackageInfo, error) {
 	return packages, nil
 }
 
-// DiscoverFiles finds all .go files in a package directory.
-// This is a convenience function that wraps DiscoverPackages for a single package.
+// DiscoverFiles returns the paths of the non-test Go files of the package with
+// import path pkgPath, as go/build locates and selects them.
 func DiscoverFiles(pkgPath string) ([]string, error) {
 	pkg, err := build.Import(pkgPath, "", 0)
 	if err != nil {

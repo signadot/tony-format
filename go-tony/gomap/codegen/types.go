@@ -66,7 +66,8 @@ type FieldInfo struct {
 	Required bool
 
 	// Omitzero indicates if the field should be omitted when it has a zero value
-	// (false for bool, 0 for numeric, "" for string, nil for pointer/slice/map)
+	// (false for bool, 0 for numeric, "" for string, nil for pointer, empty for
+	// slice/map, all-zero for struct)
 	Omitzero bool
 
 	// Omit indicates if the field should be omitted from schema/code generation
@@ -164,7 +165,8 @@ type CodegenConfig struct {
 	// OutputFile is the output file for generated Go code (default: <package>_gen.go)
 	OutputFile string
 
-	// SchemaDir is the directory for generated schema files (preserves package structure)
+	// SchemaDir is the directory for generated schema files (one subdirectory per
+	// package, named for the package's directory)
 	SchemaDir string
 
 	// SchemaDirFlat is the directory for generated schema files (flat structure)
@@ -176,7 +178,8 @@ type CodegenConfig struct {
 	// Recursive indicates whether to scan subdirectories recursively
 	Recursive bool
 
-	// SchemaRegistry is the path to schema registry for cross-package references (optional)
+	// SchemaRegistry is a directory ResolveSchemaPath searches, after the others,
+	// for a schema= type's NAME.tony (optional)
 	SchemaRegistry string
 
 	// Package is the current package being processed

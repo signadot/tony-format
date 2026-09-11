@@ -6,7 +6,9 @@
 // # Schema Structure
 //
 // A schema contains:
-//   - Context: Execution context (match, patch, eval, etc.)
+//   - Context: A JSON-LD style context (a URI, an object mapping short names
+//     to URIs, or a list of these); when absent, tony-format/context, under
+//     which the match, patch, eval, diff, encoding and schema contexts are named
 //   - Signature: Schema name and optional parameters
 //   - Define: Value definitions (like JSON Schema $defs)
 //   - Accept: Validation constraints
@@ -14,7 +16,7 @@
 //
 // Example:
 //
-//	context: match
+//	context: tony-format/context
 //	signature:
 //	  name: user-schema
 //	define:
@@ -24,6 +26,15 @@
 //	    age: .[number]
 //	accept:
 //	  .[user]
+//
+// # Base Definitions
+//
+// .[number] above refers to a base definition, from the tony-base schema in
+// base.tony: string, number, int, float, bool and null, and parameterized
+// definitions such as array(t), object(t) and nullable(t), which a reference
+// instantiates: .[array(string)]. [MergeBaseDefinitions] adds them to a
+// schema node before [ParseSchema] reads it; a schema parsed without it has
+// only the definitions it makes itself.
 //
 // # Contexts
 //
@@ -36,19 +47,20 @@
 // # Tags
 //
 // Tags invoke operations or mark types using !tagName syntax.
-// Schema references: !schema(name), !from(schema, def).
+// Schema references: !schema(name), !from(schema,def).
 // Tags compose: !all.has-path "foo".
 //
 // # Usage
 //
-//	// Parse schema
+//	// Parse schema, with the base definitions
 //	node, _ := parse.Parse(schemaBytes)
-//	schema, _ := schema.ParseSchema(node)
+//	schema.MergeBaseDefinitions(node)
+//	s, _ := schema.ParseSchema(node)
 //
 //	// Create registries
 //	ctxReg := schema.NewContextRegistry()
 //	schemaReg := schema.NewSchemaRegistry(ctxReg)
-//	schemaReg.RegisterSchema(mySchema)
+//	schemaReg.RegisterSchema(s)
 //
 //	// Resolve references
 //	ref := &schema.SchemaReference{Name: "user-schema"}
@@ -60,6 +72,7 @@
 //
 //	// Parse and validate
 //	schemaNode, _ := parse.Parse(schemaBytes)
+//	schema.MergeBaseDefinitions(schemaNode)
 //	s, _ := schema.ParseSchema(schemaNode)
 //
 //	docNode, _ := parse.Parse(docBytes)

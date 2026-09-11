@@ -22,9 +22,8 @@ import (
 //	// In a Tony schema file:
 //	define:
 //	  number: !irtype 1
-//	  int: !and
-//	    - .[number]    # This references the "number" definition above
-//	    - int: !not null
+//	  int: !ir
+//	    int: .[number]    # This references the "number" definition above
 //
 //	// When processing the "int" definition, extract the name from ".[number]":
 //	refTag := ".[number]"  // As it appears in the schema

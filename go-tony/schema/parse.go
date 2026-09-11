@@ -6,7 +6,9 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 )
 
-// ParseSchema parses a schema from an IR node
+// ParseSchema parses a schema from an IR node.
+// It rejects a schema whose accept clause, or a definition reachable from it,
+// no value can satisfy (see [CheckAcceptSatisfiability]).
 func ParseSchema(node *ir.Node) (*Schema, error) {
 	if node.Type != ir.ObjectType {
 		return nil, fmt.Errorf("schema must be an object")

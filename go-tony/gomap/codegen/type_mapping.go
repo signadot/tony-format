@@ -159,13 +159,16 @@ func typeToSchemaRef(typ reflect.Type, fieldInfo *FieldInfo, structMap map[strin
 // GoTypeToSchemaNode converts a Go type to an IR schema node.
 // This is used for generating schema definitions from Go structs.
 //
-// Type mappings:
-//   - string → !irtype ""
-//   - int, int64, float64, etc. → !irtype 1 (number)
-//   - bool → !irtype true
-//   - *T → !or [null, T] (nullable)
-//   - []T → .array(T) (array)
-//   - struct → object with fields or .schemaName reference
+// Type mappings, the first that applies:
+//   - a type from another package that declares a schema for it → !pkg:name null
+//   - *ir.Node → .[tony-base:ir]
+//   - *T → .[nullable(t)], where t names T's schema
+//   - a type implementing encoding.TextMarshaler → .[string]
+//   - []T and [N]T → .[array(t)]
+//   - map[string]T → .[object(t)]; map[uint32]T → .[sparsearray(t)]
+//   - string, integer, float and bool kinds → .[string], .[int], .[float], .[bool]
+//   - a struct with a schema directive → !name null
+//   - an interface, a map with other keys, or a struct with no schema → !irtype {}
 func GoTypeToSchemaNode(typ reflect.Type, fieldInfo *FieldInfo, structMap map[string]*StructInfo, currentPkg string, currentStructName string, currentSchemaName string, loader *PackageLoader, imports map[string]string) (*ir.Node, error) {
 	if typ == nil {
 		return nil, fmt.Errorf("type is nil")

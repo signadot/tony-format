@@ -133,8 +133,14 @@ func fieldFromTonyIROpts(field *FieldInfo, currentPkgPath string) string {
 	return fromTonyIROptsSuffix(field.Type, currentPkgPath)
 }
 
-// GenerateCode generates Go code for ToTony() and FromTony() methods for all structs.
-// Returns formatted Go source code.
+// GenerateCode generates the Go source file for a package: the ToTonyIR,
+// FromTonyIR, ToTony and FromTony methods of each type in structs that carries
+// a schema directive and is not marked codec=custom, and the zero-value helpers
+// those methods call. schemas must hold the schema of each such type. When no
+// type gets methods, the file holds only the package clause.
+//
+// It returns gofmt-formatted source with unused imports removed; when
+// formatting fails it returns the unformatted source and the error.
 func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, config *CodegenConfig) (string, error) {
 	var buf strings.Builder
 
@@ -1247,8 +1253,6 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 	return buf.String(), nil
 }
 
-// generatePrimitiveToIR generates code to convert a primitive value to an IR node.
-// Returns the code expression (e.g., "ir.FromString(v)").
 // collectionGuardOpen returns the opening line for a slice field's encode block. A
 // slice with omitzero is guarded on len > 0 so an empty slice is dropped; a slice
 // without omitzero opens a bare block so an empty slice is still emitted as [] —
@@ -1264,6 +1268,8 @@ func collectionGuardOpen(field *FieldInfo) string {
 	return "\t{\n"
 }
 
+// generatePrimitiveToIR generates code to convert a primitive value to an IR node.
+// Returns the code expression (e.g., "ir.FromString(v)").
 func generatePrimitiveToIR(varName string, typ reflect.Type) (string, error) {
 	// Cast to the builtin in every case: for a named scalar (e.g. `type Verb
 	// string`, a slice element) varName has that named type, and ir.FromString/

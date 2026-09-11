@@ -8,7 +8,7 @@ import (
 )
 
 // ToTonyIR converts a Go value to a Tony IR node using schema-aware marshaling.
-// It automatically uses a ToTony() method if available (user-implemented or generated),
+// It automatically uses a ToTonyIR() method if available (user-implemented or generated),
 // otherwise falls back to schema-aware or reflection-based conversion.
 func (m *Mapper) ToTonyIR(v interface{}, opts ...MapOption) (*ir.Node, error) {
 	if v == nil {

@@ -16,8 +16,10 @@ import (
 // targetStruct: the struct to generate the schema for (must have schemagen= tag)
 //
 // The schema has:
+//   - context: the context= URI (tony-format/context by default), followed by
+//     a name: import-path entry for each package a cross-package reference names
 //   - signature.name: schema name from schemagen= tag
-//   - define: map of struct definitions
+//   - define: each of the struct's schema field names, mapped to its type
 func GenerateSchema(allStructs []*StructInfo, targetStruct *StructInfo, loader *PackageLoader) (*ir.Node, error) {
 	if targetStruct == nil {
 		return nil, fmt.Errorf("target struct is nil")

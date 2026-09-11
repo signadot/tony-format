@@ -1,3 +1,10 @@
+// Command tony-codegen generates Go codecs and Tony schemas for the annotated
+// types of a Go package: ToTonyIR, FromTonyIR, ToTony and FromTony methods,
+// written by default to <package>_gen.go, and the schemas of the package's
+// schemagen= types, written by default to schema_gen.tony.
+//
+// Run "tony-codegen -h" for its options. The annotations it reads are
+// documented in package gomap/codegen, which does the work.
 package main
 
 import (

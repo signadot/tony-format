@@ -9,7 +9,7 @@ import (
 
 // FromTonyIR converts a Tony IR node to a Go value using schema-aware unmarshaling.
 // v must be a pointer to the target type.
-// It automatically uses a FromTony() method if available (user-implemented or generated),
+// It automatically uses a FromTonyIR() method if available (user-implemented or generated),
 // otherwise falls back to schema-aware or reflection-based conversion.
 func (m *Mapper) FromTonyIR(node *ir.Node, v interface{}, opts ...UnmapOption) error {
 	if v == nil {

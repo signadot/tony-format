@@ -26,20 +26,16 @@ func NewSchemaCache() *SchemaCache {
 type GeneratedSchema struct {
 	Name     string
 	FilePath string // Path where it will be/was written
-	// We might add the *ir.Node here if we want to skip reloading from disk
-	// But schema.Load parses from file, so we might need to write it first or convert IR to Schema
-	// For now, let's assume we load from disk after writing, or we need a way to convert IR -> Schema
-	// actually, schema.Schema is the parsed representation. ir.Node is the lower level.
-	// Converting ir.Node to schema.Schema in memory is possible but might be complex.
-	// Simpler to write to file then load, or just track the path.
-	IRNode interface{} // Placeholder if we need it
+	// IRNode is the generated schema node. LoadSchema does not read it: it
+	// loads the schema from FilePath.
+	IRNode interface{}
 }
 
-// LoadSchema loads a schema by name.
-// It checks:
-// 1. The generatedSchemas map (for schemas just generated in this run)
-// 2. The schemaCache (for already loaded schemas)
-// 3. The filesystem (resolving the path)
+// LoadSchema loads the schema named schemaName. When cache holds a schema for
+// the name, it returns that one. Otherwise it reads the file generatedSchemas
+// records for the name or, for a name not generated in this run, the file
+// [ResolveSchemaPath] finds, and returns the document in it whose
+// signature.name is schemaName.
 func LoadSchema(schemaName string, pkgDir string, config *CodegenConfig, cache *SchemaCache, generatedSchemas map[string]*GeneratedSchema) (*schema.Schema, error) {
 	// Check cache first
 	if s, ok := cache.schemas[schemaName]; ok {
@@ -105,17 +101,15 @@ func LoadSchema(schemaName string, pkgDir string, config *CodegenConfig, cache *
 	return s, nil
 }
 
-// ResolveSchemaPath resolves the filesystem path for a schema name.
-// schemaName can be:
-// - "person" (local schema)
-// - "models.person" (cross-package reference? handled by registry or convention)
-// - "./schemas/person.tony" (explicit path? usually not in tag)
+// ResolveSchemaPath resolves the filesystem path for a schema name: the file
+// schemaName + ".tony" in the first of these directories that holds it:
 //
-// Search order:
-// 1. If config.SchemaDir is set, look there (preserving package structure?)
-// 2. If config.SchemaDirFlat is set, look there
-// 3. Look in current package directory (pkgDir)
-// 4. Look in schema registry (if configured)
+//  1. config.SchemaDirFlat, if set
+//  2. config.SchemaDir, if set
+//  3. pkgDir
+//  4. config.SchemaRegistry, if set
+//
+// It returns an error when none does.
 func ResolveSchemaPath(schemaName string, pkgDir string, config *CodegenConfig) (string, error) {
 	// Handle simple case: local schema "person" -> "person.tony"
 	fileName := schemaName + ".tony"

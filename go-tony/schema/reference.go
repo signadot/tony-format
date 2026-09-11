@@ -57,7 +57,7 @@ func ParseSchemaRefFromTag(tag string) (string, error) {
 // ParseSchemaReference parses a schema reference from an IR node with a !schema(X) tag
 // Examples:
 //   - !schema(example) -> SchemaReference{Name: "example"}
-//   - !schema(tony-format/schema/base) -> SchemaReference{URI: "tony-format/schema/base"}
+//   - !schema(ctx:example) -> SchemaReference{URI: "ctx:example"} (a reference containing ":" is a URI)
 //   - !schema(p(1,2,3)) -> SchemaReference{Name: "p", Args: ["1", "2", "3"]}
 func ParseSchemaReference(node *ir.Node) (*SchemaReference, error) {
 	if node.Tag == "" {
