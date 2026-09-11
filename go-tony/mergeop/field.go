@@ -54,9 +54,6 @@ func (g fieldOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc,
 	if debug.Op() {
 		debug.Logf("patch field op called on %s\n", doc.Path())
 	}
-	if doc.Type != ir.ObjectType {
-		return nil, fmt.Errorf("cannot patch field of non-object (in %s) at %s", doc.Type, doc.Path())
-	}
 	if g.from == nil {
 		return nil, fmt.Errorf("field op didn't specify from, to")
 	}
@@ -66,18 +63,16 @@ func (g fieldOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc,
 	// on that. Renaming in place made the base and the result one object, so a store's
 	// diff of the two saw no change, kept the relative operation as written, and
 	// rewrote the kept document under every reader sharing its subtrees.
-	kvs := make([]ir.KeyVal, 0, len(doc.Fields))
-	for i, f := range doc.Fields {
-		if i >= len(doc.Values) {
-			break
-		}
-		key := f
-		if f.String == *g.from {
-			key = ir.FromString(*g.to)
-		}
-		kvs = append(kvs, ir.KeyVal{Key: key, Val: doc.Values[i]})
+	//
+	// It is !rename's renaming, refusals and all. It had its own, which refused nothing:
+	// a to the object already held answered with two fields of one name -- which a scope
+	// stored, a shape the IR cannot hold -- and at baseline the renamed value was lost
+	// from the stored delta; a from the object did not have renamed nothing, and the write
+	// was told it had been made (e5wt4fhxh12ksz5xmdn0).
+	out, err := renameFields(doc, g.name, []renaming{{from: *g.from, to: *g.to}})
+	if err != nil {
+		return nil, err
 	}
-	out := ir.FromKeyVals(kvs).WithTag(doc.Tag)
 	if g.child.Tag != "" {
 		return pf(out, g.child, ctx)
 	}

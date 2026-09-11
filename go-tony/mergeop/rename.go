@@ -84,16 +84,23 @@ func (p renameOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc
 	if debug.Op() {
 		debug.Logf("rename op patch on %s\n", doc.Path())
 	}
+	return renameFields(doc, p.name, p.renamings)
+}
+
+// renameFields is the renaming both !rename and !field(from,to) perform, refused where
+// either refuses: a from the object does not have, a field renamed twice, and a to which
+// collides with a field still there. opName names the operator in the refusal.
+func renameFields(doc *ir.Node, opName fmt.Stringer, renamings []renaming) (*ir.Node, error) {
 	if doc.Type != ir.ObjectType {
 		return nil, fmt.Errorf("cannot rename fields in non-object at %s of type %s", doc.Path(), doc.Type)
 	}
-	to := make(map[string]string, len(p.renamings))
-	for i := range p.renamings {
-		r := &p.renamings[i]
+	to := make(map[string]string, len(renamings))
+	for i := range renamings {
+		r := &renamings[i]
 		if was, twice := to[r.from]; twice {
 			return nil, fmt.Errorf(
 				"!%s at %s: %q is renamed twice, to %q and to %q",
-				p.name, doc.Path(), r.from, was, r.to)
+				opName, doc.Path(), r.from, was, r.to)
 		}
 		to[r.from] = r.to
 	}
@@ -130,7 +137,7 @@ func (p renameOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc
 			if prev, taken := held[key.String]; taken {
 				return nil, fmt.Errorf(
 					"!%s at %s: %q and %q would both be %q, and one of them would be lost",
-					p.name, doc.Path(), doc.Fields[prev].String, field.String, key.String)
+					opName, doc.Path(), doc.Fields[prev].String, field.String, key.String)
 			}
 			held[key.String] = i
 		}
@@ -146,11 +153,11 @@ func (p renameOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc
 	// It matters most where it is least visible. A scope's write is replayed over a
 	// baseline that moves, so a rename that quietly did nothing is a write the client
 	// was told had been made, standing in the log, doing nothing forever.
-	for i := range p.renamings {
-		r := &p.renamings[i]
+	for i := range renamings {
+		r := &renamings[i]
 		if _, ok := from[r.from]; !ok {
 			return nil, fmt.Errorf("!%s at %s: there is no %q to rename to %q",
-				p.name, doc.Path(), r.from, r.to)
+				opName, doc.Path(), r.from, r.to)
 		}
 	}
 	return ir.FromKeyVals(kvs).WithTag(doc.Tag), nil

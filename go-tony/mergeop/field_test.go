@@ -38,3 +38,28 @@ func TestFieldRenamesWithoutMutatingTheDocument(t *testing.T) {
 		t.Error("the result is the document itself")
 	}
 }
+
+// !field(from,to) refuses what !rename refuses. It had a renaming of its own which refused
+// nothing: a to the object already held answered with two fields of one name, and a from
+// it did not have renamed nothing and reported success (e5wt4fhxh12ksz5xmdn0).
+func TestFieldRefusesWhatRenameRefuses(t *testing.T) {
+	for _, test := range []struct{ name, doc, patch string }{
+		{"a to the object already holds", `{a: 1, b: 2}`, `!field(a,b) null`},
+		{"a from the object does not have", `{a: 1}`, `!field(z,y) null`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			doc, err := parse.Parse([]byte(test.doc))
+			if err != nil {
+				t.Fatal(err)
+			}
+			patch, err := parse.Parse([]byte(test.patch))
+			if err != nil {
+				t.Fatal(err)
+			}
+			res, err := tony.Patch(doc, patch)
+			if err == nil {
+				t.Errorf("patched to %s, want a refusal", encode.MustString(res))
+			}
+		})
+	}
+}
