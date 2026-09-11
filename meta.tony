@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 0726bc7c60505711a4638db21a9977a2d5c63c0c
 commits:
 - 0726bc7c60505711a4638db21a9977a2d5c63c0c
 created: "2026-09-11T10:38:19.347912+02:00"
@@ -14,5 +15,5 @@ labels:
 - medium
 related_issues:
 - k0d4y1m6h12kr7cdgdn0
-status: open
-updated: "2026-09-11T12:56:55.625107+02:00"
+status: closed
+updated: "2026-09-11T12:56:55.813724+02:00"
