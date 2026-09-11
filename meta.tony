@@ -6,8 +6,7 @@ commits: []
 created: "2026-09-11T10:38:21.33578+02:00"
 duplicates: []
 id: 12q8efhyh12kszdxmdn0
-labels:
-- "audit o dirbuild cli low"
+labels: []
 related_issues: []
 status: open
-updated: "2026-09-11T10:38:21.399641+02:00"
+updated: "2026-09-11T10:39:02.676533+02:00"
