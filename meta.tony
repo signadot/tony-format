@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 6f4dab2a3405d9a557b791da898a26f9b83a0a6a
 commits:
 - c7a574accec2dbf4ec92269c8a237c2ef0dc6f79
 - 6f4dab2a3405d9a557b791da898a26f9b83a0a6a
@@ -16,5 +17,5 @@ labels:
 - tony
 related_issues:
 - kbkxf53ph12krswpj9n0
-status: open
-updated: "2026-09-11T11:29:28.674868+02:00"
+status: closed
+updated: "2026-09-11T11:34:56.093192+02:00"
