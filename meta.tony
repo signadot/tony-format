@@ -6,8 +6,7 @@ commits: []
 created: "2026-09-11T10:38:20.767691+02:00"
 duplicates: []
 id: 2jb7njsxh12ksz5xmdn0
-labels:
-- "audit schema correctness medium"
+labels: []
 related_issues: []
 status: open
-updated: "2026-09-11T10:38:20.828017+02:00"
+updated: "2026-09-11T10:39:01.948869+02:00"
