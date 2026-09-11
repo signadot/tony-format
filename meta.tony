@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 685ff82990c65822d4e176d902cd71f902f771be
 commits:
 - fbc95725dc31fae12c45f7a81a8cd20e301d57b5
 - 685ff82990c65822d4e176d902cd71f902f771be
@@ -15,5 +16,5 @@ labels:
 - logd
 - medium
 related_issues: []
-status: open
-updated: "2026-09-11T12:49:16.064147+02:00"
+status: closed
+updated: "2026-09-11T12:49:16.281814+02:00"
