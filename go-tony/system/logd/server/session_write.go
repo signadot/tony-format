@@ -206,7 +206,7 @@ func (s *Session) handleNewTx(id *string, req *api.NewTxRequest) {
 		return
 	}
 	// A transaction's timeout is fixed here, where it is created; without one it is the
-	// server's (storage.SetTxTimeout).
+	// server's, which is also the most it may ask for (storage.SetTxTimeout).
 	var timeout time.Duration
 	if req.Timeout != nil {
 		var err error
@@ -219,6 +219,12 @@ func (s *Session) handleNewTx(id *string, req *api.NewTxRequest) {
 
 	tx, err := s.storage.NewTxWithTimeout(req.Participants, s.scopeID(), timeout)
 	if err != nil {
+		// A timeout above the server's is the client's to lower; the store is healthy.
+		var above *storage.TxTimeoutError
+		if errors.As(err, &above) {
+			s.sendError(id, api.ErrCodeInvalidTx, err.Error())
+			return
+		}
 		s.sendError(id, api.ErrCodeStorage, fmt.Sprintf("failed to create transaction: %v", err))
 		return
 	}

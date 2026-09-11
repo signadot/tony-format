@@ -133,10 +133,11 @@ func (d *Duration) UnmarshalText(text []byte) error {
 //
 //tony:schemagen=tx-config
 type TxConfig struct {
-	// Timeout is the maximum time to wait for all participants to join a transaction
-	// whose newtx names no timeout of its own. If not all participants join within
-	// this duration, the transaction is aborted and waiting participants receive a
-	// timeout error.
+	// Timeout is the maximum time to wait for all participants to join a transaction:
+	// what a newtx naming no timeout gets, and the most a newtx may ask for -- one
+	// asking more is refused (invalid_tx). If not all participants join within this
+	// duration, the transaction is aborted and waiting participants receive a timeout
+	// error.
 	// Default: 5m. Zero is the default too: there is no transaction without a timeout
 	// (hqhyyat8h12ksarmcdn0).
 	Timeout Duration `tony:"field=timeout"`

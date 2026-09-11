@@ -1,14 +1,11 @@
 package server
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"os"
 	"sync/atomic"
 	"time"
-
-	"github.com/signadot/tony-format/go-tony/system/docd/txpool"
 )
 
 // Server represents the docd document server.
@@ -32,11 +29,6 @@ type Server struct {
 
 	// TCP listener for client connections (logd session protocol)
 	clientListener *ClientTCPListener
-
-	// Pre-fetched transaction ids from logd, used to serve client NewTx with
-	// fewer hops when coordinating multi-participant (multi-mount) writes.
-	txPool       *txpool.Pool
-	txPoolCancel context.CancelFunc
 
 	// seen is the highest commit docd has told any client about, over every session:
 	// reads it answered, writes it reported, watch events it forwarded. A client
@@ -79,10 +71,6 @@ func New(spec *Spec) *Server {
 		Mounts: NewMountRegistry(),
 		Clocks: newClockRegistry(),
 		coord:  newMountCoord(),
-		txPool: txpool.New(&txpool.Config{
-			LogdAddr: spec.LogdAddr,
-			Log:      spec.Log,
-		}),
 	}
 }
 
@@ -167,31 +155,14 @@ func (s *Server) StartClientTCP(addr string) error {
 		}
 	}()
 
-	// Warm the transaction-id pool in the background so NewTx can be served
-	// without a logd round trip. Get() also auto-connects, so this is best-effort.
-	ctx, cancel := context.WithCancel(context.Background())
-	s.txPoolCancel = cancel
-	go func() {
-		if err := s.txPool.Connect(ctx); err != nil {
-			return // cancelled or unreachable; Get() will retry on demand
-		}
-		s.txPool.Prefetch(ctx, 1, 2, 3)
-	}()
-
 	return nil
 }
 
-// StopClientTCP stops the client-facing TCP listener and the transaction pool.
+// StopClientTCP stops the client-facing TCP listener.
 func (s *Server) StopClientTCP() error {
 	if s.clientListener == nil {
 		return nil
 	}
-
-	if s.txPoolCancel != nil {
-		s.txPoolCancel()
-		s.txPoolCancel = nil
-	}
-	s.txPool.Close()
 
 	err := s.clientListener.Close()
 	s.clientListener = nil

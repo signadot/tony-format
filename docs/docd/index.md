@@ -70,7 +70,7 @@ best-effort across mount boundaries.
 ### [Multi-mount transactions](./transactions.md)
 
 How a single client patch that spans several mounts is **decomposed** into one
-multi-participant transaction, the transaction-id pool, and copy-on-write **scopes**.
+multi-participant transaction, and copy-on-write **scopes**.
 
 ## Key concepts
 

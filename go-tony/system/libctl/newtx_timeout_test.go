@@ -12,10 +12,10 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 )
 
-// A newtx naming a timeout gets that timeout through docd too. docd answers a baseline
-// newtx from its pool of ids fetched in advance, and a pooled id was created with logd's
-// timeout: the client's would be dropped, and a transaction short of a participant would
-// hold the others for logd's 5m rather than the client's 200ms.
+// A newtx naming a timeout gets that timeout through docd too. docd used to answer a
+// baseline newtx from a pool of ids fetched in advance, created with logd's timeout: the
+// client's was dropped, and a transaction short of a participant held the others for
+// logd's 5m rather than the client's 200ms.
 func TestNewTxTimeoutThroughDocd(t *testing.T) {
 	store, err := storage.Open(t.TempDir(), nil)
 	if err != nil {

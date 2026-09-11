@@ -158,10 +158,12 @@ checked at that moment, and either all of them hold and the whole transaction co
 or one fails and none of it is written. Both participants report the **same commit**.
 
 A transaction waits for its participants for its timeout: the one `newtx` names, or the
-server's (`tx.timeout` in logd's config, 5m unless configured). Past it the transaction
-fails and every participant still waiting is answered. There is no transaction without
-a timeout — a `tx.timeout` of 0 is the 5m default. A patch's `timeout` bounds that one
-participant's wait; a participant which names none waits the transaction's.
+server's (`tx.timeout` in logd's config, 5m unless configured). The server's is also
+the most a `newtx` may ask for; a longer one is refused with `invalid_tx`. Past it the
+transaction fails and every participant still waiting is answered. There is no
+transaction without a timeout — a `tx.timeout` of 0 is the 5m default. A patch's
+`timeout` bounds that one participant's wait; a participant which names none waits
+the transaction's.
 
 Across mounts, docd decomposes a patch spanning several controllers into exactly this —
 see [Multi-mount transactions](../docd/transactions.md).

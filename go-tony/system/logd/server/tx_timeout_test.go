@@ -135,13 +135,17 @@ func TestNewTx_ParticipantWaitsTheTransactionsTimeout(t *testing.T) {
 }
 
 // A timeout newtx cannot read is the client's mistake, and is said so rather than
-// replaced by the server's.
-func TestNewTx_RefusesATimeoutItCannotRead(t *testing.T) {
-	c := dialTx(t, startTxServer(t))
-	c.send(`{id: t, newtx: {participants: 2, timeout: "soon"}}`)
-	resp := c.recv(time.Second)
-	if resp.Error == nil || resp.Error.Code != api.ErrCodeInvalidTx {
-		t.Fatalf("newtx with timeout \"soon\" answered %+v, want %s", resp, api.ErrCodeInvalidTx)
+// replaced by the server's. So is one above the server's: the server's is the ceiling,
+// and a client may ask for less of it, not more.
+func TestNewTx_RefusesATimeoutItCannotReadOrAbove(t *testing.T) {
+	c := dialTx(t, startTxServer(t)) // the server's timeout: 5m
+	for _, timeout := range []string{"soon", "6m"} {
+		c.send(fmt.Sprintf(`{id: t, newtx: {participants: 2, timeout: %q}}`, timeout))
+		resp := c.recv(time.Second)
+		if resp.Error == nil || resp.Error.Code != api.ErrCodeInvalidTx {
+			t.Fatalf("newtx with timeout %q answered %+v, want %s", timeout, resp, api.ErrCodeInvalidTx)
+		}
+		t.Logf("timeout %q: %s", timeout, resp.Error.Message)
 	}
 }
 

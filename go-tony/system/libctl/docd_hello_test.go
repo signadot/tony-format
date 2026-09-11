@@ -12,7 +12,7 @@ import (
 )
 
 // docd is a client of logd on every session it opens -- a read, a write, a watch, the
-// watermark, the transaction pool -- and each says which protocol it speaks, so the hop
+// watermark, a split write's transaction -- and each says which protocol it speaks, so the hop
 // between every verse and its logd is checked at the handshake as the others are. A
 // hello built by hand without the version is accepted as a client from before versions
 // existed, and logd says so in its log; that line must never be about docd.
@@ -46,7 +46,7 @@ func TestEveryDocdSessionSpeaksTheProtocol(t *testing.T) {
 	if _, err := client.Patch(ctx, "m", vObj(2)); err != nil {
 		t.Fatalf("mount write: %v", err)
 	}
-	// Split across base and the mount: docd-base and the pool.
+	// Split across base and the mount: docd-tx and docd-base.
 	if _, err := client.Patch(ctx, "", mustParseLibctl(t, `{base: {v: 3}, m: {v: 4}}`)); err != nil {
 		t.Fatalf("split write: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestEveryDocdSessionSpeaksTheProtocol(t *testing.T) {
 	if strings.Contains(log, "assuming the current one") {
 		t.Fatalf("logd accepted a docd session that did not say its protocol:\n%s", log)
 	}
-	for _, id := range []string{"docd-txpool", "docd-read", "docd-watch", "docd-watermark", "docd-base"} {
+	for _, id := range []string{"docd-tx", "docd-read", "docd-watch", "docd-watermark", "docd-base"} {
 		if !strings.Contains(log, "msg=hello") || !strings.Contains(log, "clientId="+id) {
 			t.Errorf("logd never saw a hello from %s:\n%s", id, log)
 		}

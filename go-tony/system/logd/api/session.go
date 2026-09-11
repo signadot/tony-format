@@ -104,7 +104,8 @@ type PatchRequest struct {
 // to submit their patches before committing atomically.
 //
 // Timeout is how long it waits for them; without one it waits the server's (logd
-// config tx.timeout, 5m unless configured). Past it, the transaction fails and every
+// config tx.timeout, 5m unless configured), which is also the most it may ask for: a
+// longer one is refused, ErrCodeInvalidTx. Past it, the transaction fails and every
 // participant waiting on it is answered. A participant which names no timeout of its
 // own waits this long.
 //

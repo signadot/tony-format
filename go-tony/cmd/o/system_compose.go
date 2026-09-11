@@ -131,8 +131,6 @@ func systemUp(cfg *UpConfig, cc *cli.Context, args []string) error {
 	fmt.Fprintf(cc.Out, "logd listening on %s\n", logdSrv.TCPAddr())
 	defer logdSrv.StopTCP()
 
-	// docd owns and warms its own transaction-id pool (see StartClientTCP).
-
 	// Create and start docd server: a client-facing listener (logd session
 	// protocol, proxied/routed to logd and controllers) and a controller-facing
 	// MOUNT listener.

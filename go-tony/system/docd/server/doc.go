@@ -74,10 +74,10 @@
 // for the remainder, then applied as one multi-participant logd transaction: every
 // participant commits through the one logd under the tx id docd allocates,
 // all-or-nothing, so the write is one commit, and the client is answered with the
-// participants' data joined back into the subtree it patched. docd pre-fetches
-// transaction ids (package system/docd/txpool) so a spanning write, and a baseline
-// client's NewTx, costs fewer round trips; a NewTx naming a timeout goes to logd,
-// since a pooled id was created with logd's. Certain tags on a node above a mount
+// participants' data joined back into the subtree it patched. The transaction is
+// created on logd for the write, with logd's timeout, and each participant waits
+// exactly that: the client is told what the transaction did. A client's own NewTx
+// goes to logd on the client's connection. Certain tags on a node above a mount
 // boundary block static decomposition; such a patch is rejected rather than
 // mis-split. A spanning patch that is itself a participant in a client's transaction
 // is refused (invalid_tx): the client sends one patch per mount and counts them in
