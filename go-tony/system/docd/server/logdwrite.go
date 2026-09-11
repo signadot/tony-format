@@ -11,8 +11,8 @@ import (
 )
 
 // writeBaseParticipant is docd's own participant in a coordinated multi-mount
-// transaction: it opens a short-lived baseline logd connection and joins
-// transaction txID by writing the base remainder at the document root, with an
+// transaction: it opens a short-lived logd connection in the client's scope and
+// joins transaction txID by writing one base remainder at its path, with an
 // optional compare-and-swap precondition and a per-participant timeout so a
 // stalled transaction aborts. It blocks until the transaction commits (all
 // participants joined) or fails, and returns the logd response.

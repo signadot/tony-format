@@ -17,7 +17,7 @@ type Spec struct {
 
 	// MountForceAfter is how long a mount/unmount waits for overlapping watch
 	// readers to drain before force-ending them (see mountCoord). A zero value
-	// uses defaultMountForceAfter; to wait forever, callers pass force_after "0" on
+	// uses defaultMountForceAfter; to wait forever, callers pass forceAfter "0" on
 	// the wire (which maps to the coordinator's 0 = infinity).
 	MountForceAfter time.Duration
 }

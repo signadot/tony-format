@@ -225,13 +225,11 @@ func (s *MountSession) dispatch(resp *logdapi.SessionResponse) {
 	}
 }
 
-// RouteCollect forwards a request to the controller under a fresh docd-assigned
-// id and returns a channel that receives the single response. Unlike
-// RouteRequest, the response is collected (not forwarded to a client) — used by
-// the multi-mount transaction coordinator.
 // RouteCollect forwards a request to the controller under a fresh docd-assigned id and
 // answers the channel its single response will arrive on, plus a done func the caller
-// MUST call when it stops waiting.
+// MUST call when it stops waiting. Unlike RouteRequest, the response is collected (not
+// forwarded to a client) — used by the multi-mount transaction coordinator and by
+// composed reads.
 //
 // The route is otherwise removed only when a response arrives (dispatch), so a caller
 // which gave up -- every one of them has a timeout -- left the entry behind for the life

@@ -5,14 +5,23 @@
 // provide a foundation for controller development without over-engineering
 // ahead of actual needs.
 //
-// Typical controller lifecycle:
+// LogdSession is a client of the logd session protocol: the connection a
+// controller writes through, and the one any other client reads, writes and
+// watches with. docd's client face speaks the same protocol, so a LogdSession
+// works unchanged against docd or logd: switching is a change of address.
 //
-//  1. Connect to docd via TCP
+// Typical controller lifecycle (RunController runs it, dispatching to a Handler):
+//
+//  1. Connect to docd's mount address via TCP
 //  2. Send mount request (hello + mount with path and schema)
 //  3. Receive mount confirmation
-//  4. Handle PATCH operations routed from docd
-//  5. Write results to logd
-//  6. Clean up on shutdown
+//  4. Serve the match, patch and watch requests docd routes for the subtree —
+//     logd session requests, with docd as the requester; a Handler declines any
+//     it does not implement with ErrUnsupported
+//  5. Write to logd through a LogdSession, joining the transaction a routed patch
+//     names (PatchParams.TxID)
+//  6. Disconnect on shutdown, which tombstones the mount until a controller
+//     remounts it; MountClient.Unmount detaches gracefully instead
 //
 // # Response errors
 //

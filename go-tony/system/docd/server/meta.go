@@ -39,7 +39,7 @@ func metaIndexDoc() *ir.Node {
 // schemaDoc renders each mount's schema contribution for .meta/schema:
 //
 //	contributions:
-//	- path: /users
+//	- path: users
 //	  status: live
 //	  schema: {define: ..., accept: ...}
 //
@@ -74,10 +74,10 @@ func schemaDoc(entries []*MountEntry) *ir.Node {
 // mountsDoc renders the mount registry as a Tony document for .meta/mounts:
 //
 //	mounts:
-//	- path: /users
+//	- path: users
 //	  controller: user-ctrl
 //	  status: live
-//	- path: /local
+//	- path: local
 //	  controller: connect
 //	  status: tombstoned
 //

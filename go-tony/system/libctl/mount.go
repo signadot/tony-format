@@ -27,7 +27,7 @@ type MountClient struct {
 
 // MountConfig contains configuration for mounting to docd.
 type MountConfig struct {
-	// DocdAddr is the address of docd (e.g., "localhost:9090")
+	// DocdAddr is docd's mount (controller-facing) address (e.g., "localhost:9125")
 	DocdAddr string
 
 	// LogdAddr is the address of logd (e.g., "localhost:9091")
@@ -37,7 +37,7 @@ type MountConfig struct {
 	// Controller is the identifier for this controller
 	Controller string
 
-	// Path is the path to mount (e.g., "/users")
+	// Path is the path to mount, a kpath (e.g., "users")
 	Path string
 
 	// Schema is the optional schema for this mount

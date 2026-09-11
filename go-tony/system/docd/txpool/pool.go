@@ -1,7 +1,11 @@
 // Package txpool provides pre-fetched transaction ID pooling for docd.
 //
-// docd caches transaction IDs from logd to reduce round trips when
-// controllers need to create multi-participant transactions.
+// docd caches transaction IDs from logd, by participant count, to reduce round
+// trips when it needs a multi-participant transaction: to answer a baseline
+// client's NewTx, and to commit a patch it splits across mounts. The pool's
+// connection to logd is baseline (no scope), so its ids are baseline
+// transactions; a scoped client's NewTx goes to logd on that client's scoped
+// connection instead.
 package txpool
 
 import (
@@ -346,8 +350,9 @@ func (p *Pool) fetchTxID(participants int) (int64, error) {
 	return resp.Result.NewTx.TxID, nil
 }
 
-// Prefetch fetches TxIDs for common participant counts in the background.
-// Call this after connecting to warm up the pool.
+// Prefetch fetches Config.PoolSize TxIDs for each of participantCounts into the
+// pool. It blocks until done, holding the pool for the duration, and does nothing
+// unless connected. Call this after connecting to warm up the pool.
 func (p *Pool) Prefetch(ctx context.Context, participantCounts ...int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

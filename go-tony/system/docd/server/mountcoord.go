@@ -95,8 +95,8 @@ func (c *mountCoord) endRead(id uint64) {
 // a release func to call when the mount/unmount completes, and ok=false for an
 // invalid path.
 //
-// reason is what a force-cancelled reader is told — api.ErrCodeSessionMounted or
-// api.ErrCodeSessionUnmounted, per which of the two this writer is. The caller
+// reason is what a force-cancelled reader is told — logdapi.ErrCodeSessionMounted or
+// logdapi.ErrCodeSessionUnmounted, per which of the two this writer is. The caller
 // supplies it because only the caller knows; from here a mount and an unmount are
 // the same exclusion.
 func (c *mountCoord) beginWrite(path, reason string, forceAfter time.Duration) (func(), bool) {

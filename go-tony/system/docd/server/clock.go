@@ -84,7 +84,7 @@ func newClockRegistry() *clockRegistry {
 	return &clockRegistry{clocks: make(map[string]*clock)}
 }
 
-// register adds c, rejecting a path already held by another clock or session.
+// register adds c, rejecting a path already held by another clock.
 func (r *clockRegistry) register(c *clock) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -82,7 +82,8 @@ type Store interface {
 	VerifyRemote(remote string) error
 
 	// CleanupStaleRefs removes duplicate refs when an issue exists in both
-	// refs/issues/ and refs/closed/. Keeps the ref with more history.
+	// refs/issues/ and refs/closed/. Keeps the ref with more history, or the
+	// closed one when neither descends from the other.
 	CleanupStaleRefs() (int, error)
 
 	// Out returns the output writer for this store.

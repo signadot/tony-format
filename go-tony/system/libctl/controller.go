@@ -49,13 +49,11 @@ type Handler interface {
 	Match(ctx context.Context, path string, pattern *ir.Node, opts MatchParams) (*ir.Node, error)
 
 	// Patch applies data at path and reports what the write landed as: Commit is
-	// the commit it committed at and Data is the resulting data (with any
-	// auto-generated ids). A logd-backed controller returns its LogdSession.PatchWith
-	// result unchanged, so the client sees the same commit it would from a direct
-	// logd write. A SELF-BACKED controller has no logd commit to report and should
-	// leave Commit zero rather than invent one from its own timeline — the same
-	// reason Match cannot honor a historical read. Returning nil is treated as an
-	// empty result (no commit, no data).
+	// the commit it committed at — a logd commit, in the one sequence every mount
+	// shares (see Match) — and Data is the resulting data (with any auto-generated
+	// ids). A logd-backed controller returns its LogdSession.PatchWith result
+	// unchanged, so the client sees the same commit it would from a direct logd
+	// write. Returning nil is treated as an empty result (no commit, no data).
 	//
 	// When opts.TxID is set, the client is coordinating a multi-participant
 	// transaction: the controller joins it by writing to logd with that tx id
@@ -69,19 +67,18 @@ type Handler interface {
 	// decline watching, return ErrUnsupported before emitting.
 	//
 	// Event rooting follows the canonical logd contract so a client cannot tell a
-	// controller-served subtree from logd: the first event's State is the full
-	// state AT path (relative to it), but every subsequent event's Patch is
-	// ROOT-ROOTED — the delta expressed from the document root (e.g. a change to
-	// "a.b.x" is {a:{b:{x:...}}}), not relative to path. docd composes an ancestor
-	// watch by forwarding these absolute deltas unchanged, re-stamping only the
-	// event path, so controllers must emit root-rooted patches.
+	// controller-served subtree from logd: every event is rooted AT path. The first
+	// event's State is the full state at path, and every subsequent event's Patch
+	// is a delta of that value, rooted at the same place (on a watch of "a.b", a
+	// change to "a.b.x" is {x:...}). docd composes an ancestor watch by re-rooting
+	// these deltas under the fields between the mount and the ancestor, so
+	// controllers must emit deltas rooted at the path they were asked to watch.
 	Watch(ctx context.Context, path string, opts WatchParams, emit func(*api.WatchEvent) error) error
 }
 
 // MatchParams carries a match's ancillary options through to the Handler.
 // Scope, when set, is the COW scope the read belongs to. Commit, when set, is a
-// point-in-time read at that logd commit (see Handler.Match for the self-backed
-// caveat).
+// point-in-time read at that logd commit (see Handler.Match).
 type MatchParams struct {
 	Scope  *string
 	Commit *int64
@@ -125,7 +122,7 @@ type ControllerConfig struct {
 	LogdAddr string
 	// Controller identifies this controller to docd.
 	Controller string
-	// Path is the subtree to mount (e.g. "/users").
+	// Path is the subtree to mount, a kpath (e.g. "users").
 	Path string
 	// Schema is the optional schema contribution for the mount.
 	Schema *ir.Node

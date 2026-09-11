@@ -20,9 +20,15 @@ import (
 //
 //   - operations under a mounted subtree go to the owning controller (via that
 //     controller's MountSession), which answers for its subtree;
+//   - ping, the .meta namespace, virtual clocks, and a baseline newtx (from docd's
+//     transaction pool) are answered by docd itself;
 //   - everything else — base/unmounted paths, the hello handshake, and
-//     session-level operations (newtx, schema, deleteScope) — goes straight to
-//     logd over a per-client logd connection.
+//     session-level operations (a scoped newtx, schema, deleteScope) — goes
+//     straight to logd over a per-client logd connection.
+//
+// A match or watch on a strict ancestor of one or more mounts is composed across
+// its owners, and a patch spanning mounts is split into one transaction (see the
+// package doc).
 //
 // Responses flow back from two sources — the logd read-pump and controller
 // MountSessions — so writes to the client connection are serialized. Because

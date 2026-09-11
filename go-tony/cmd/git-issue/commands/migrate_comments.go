@@ -22,7 +22,9 @@ type migrateCommentsConfig struct {
 // collision-free content-addressed scheme (discussion/<ts>-<hash>.md). It is
 // dry-run by default; --apply performs the rewrite, backing each rewritten ref up
 // to refs/issue-backup/<runts>/ first (unless --no-backup). It is idempotent:
-// already-migrated comments are left untouched, so it is safe to re-run.
+// already-migrated comments are left untouched, so it is safe to re-run. The
+// <ts> in a new name is the timestamp in the comment's header; a comment whose
+// header has none that parses is warned about and keeps its old name.
 func MigrateCommentsCommand(store issuelib.Store) *cli.Command {
 	cfg := &migrateCommentsConfig{store: store}
 	opts, _ := cli.StructOpts(cfg)

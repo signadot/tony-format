@@ -24,7 +24,7 @@
 //	discussion/files/...         attachments, original layout preserved
 //
 // Each edit appends a commit to the chain, so "git log refs/issues/<xidr>" is
-// the issue's audit trail and no operation loses what came before.
+// the issue's audit trail and no edit loses what came before.
 //
 // # Identifiers
 //
@@ -34,9 +34,8 @@
 // unreversed form would open with a timestamp shared by every issue filed that
 // second. Accessors take a full XIDR or any unambiguous prefix of one.
 //
-// Six-digit numeric IDs from the tracker's first iteration are still recognized
-// on read (FormatID, IsLegacyRef, ParseLegacyID) so old refs remain reachable
-// until "git issue migrate" rewrites them.
+// Six-digit numeric IDs from the tracker's first iteration are recognized by
+// FormatID, IsLegacyRef and ParseLegacyID.
 //
 // # Related Packages
 //

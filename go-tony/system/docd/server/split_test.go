@@ -262,8 +262,8 @@ func TestJoinPatchResults_CarriesGeneratedIDs(t *testing.T) {
 }
 
 // TestJoinPatchResults_SilentParticipantLeavesHole proves a participant that
-// reports no data (a self-backed controller) costs only its own subtree — the
-// other participants' data, and their ids, still reach the client.
+// reports no data (a controller whose Patch hands back none) costs only its own
+// subtree — the other participants' data, and their ids, still reach the client.
 func TestJoinPatchResults_SilentParticipantLeavesHole(t *testing.T) {
 	got := joinOrFail(t, "", []participantResult{
 		{path: "users", data: obj("alice", obj("id", ir.FromString("u-7")))},

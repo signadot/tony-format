@@ -22,7 +22,8 @@ type migrateConfig struct {
 // MigrateCommand rewrites issues from the original six-digit numeric IDs to
 // XIDRs: each issue is rebuilt under its new ref with the whole tree copied
 // across, cross-references between issues are translated, the refs/notes/issues
-// reverse index is rewritten, and the old ref is deleted.
+// reverse index is rewritten, and the old ref is deleted. The counter ref the
+// numeric IDs were allocated from, refs/meta/issue-counter, is deleted last.
 //
 // It is not idempotent. It migrates every issue it finds rather than only the
 // legacy ones, so a second run mints fresh XIDRs for issues that already had

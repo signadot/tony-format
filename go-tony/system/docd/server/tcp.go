@@ -7,7 +7,8 @@ import (
 	"sync/atomic"
 )
 
-// TCPListener manages TCP connections for client sessions.
+// TCPListener accepts controller connections on docd's mount address and runs a
+// MountSession for each. Clients connect to the separate ClientTCPListener.
 type TCPListener struct {
 	listener net.Listener
 	server   *Server

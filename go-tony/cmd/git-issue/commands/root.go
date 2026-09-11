@@ -12,7 +12,8 @@
 //   - link, relate, blocks, duplicate -- record relationships, between an issue
 //     and a commit or between two issues
 //   - push, pull -- sync issue refs with a remote
-//   - export, import -- move an issue between a repository and a directory
+//   - export, import -- copy an issue's tree out to a directory, and write an
+//     edited copy back onto the issue's ref
 //   - serve -- a read-only web view of the repository's issues
 //   - migrate, migrate-comments -- one-shot upgrades of on-disk layout
 //

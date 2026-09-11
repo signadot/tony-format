@@ -104,10 +104,12 @@ func (s *ClientSession) coordinateWatch(req *logdapi.SessionRequest) {
 // startComposedWatch fans a client watch on an ancestor path across the base owner
 // and every mount below it: it sends one client confirmation and one composed
 // initial snapshot, then multiplexes the sub-watches' deltas into the single
-// client watch. Because delta patches are root-rooted, a sub-watch event is
-// forwarded with only its Path re-stamped to the client's watch path (and the
-// client's watch id stamped for routing) — the patch itself passes through
-// unchanged. token/key identify the coordinator reader already held for this watch.
+// client watch. Every delta leaves rooted at the client's watch path, as every watch
+// event is: a mount's delta is re-rooted under the fields between the mount and the
+// watch path (forwardFrom), the watch path's own stream is trimmed to what that path
+// owns (forwardOwned), and each event's Path is re-stamped to the watch path with the
+// client's watch id stamped for routing. token/key identify the coordinator reader
+// already held for this watch.
 //
 // Mounts share the commit sequence for their lifetime: docd allocates a tx id from logd,
 // every participant commits through that one logd under it, and the transaction is

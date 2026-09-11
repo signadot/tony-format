@@ -1,10 +1,14 @@
-// Package api provides types for the docd session protocols.
+// Package api provides types for docd's MOUNT protocol.
 //
 // docd has two faces:
 //   - Mount-facing: for controllers (MOUNT protocol)
-//   - User-facing: for clients (queries, patches routed through controllers)
+//   - Client-facing: for clients, which speak the logd session protocol verbatim
+//     (package system/logd/api); docd serves base paths from logd and routes
+//     mounted subtrees to their controllers
 //
-// This package defines the mount protocol for controller registration.
+// This package defines the mount protocol for controller registration. After the
+// handshake a mount connection carries the logd session protocol, with docd
+// sending the requests and the controller answering them (see MountRequest).
 package api
 
 import (
@@ -26,8 +30,8 @@ type MountHello struct {
 	Protocol int `tony:"field=protocol,omitzero"`
 
 	// Clock, when set, asks docd to drive a virtual system clock at Clock.Path
-	// instead of (or in addition to) a controller-backed mount. It is docd-specific
-	// — logd knows nothing of it.
+	// instead of a controller-backed mount: the connection mounts no subtree, and
+	// MountRequest.Mount is ignored. It is docd-specific — logd knows nothing of it.
 	Clock *ClockSpec `tony:"field=clock,omitzero"`
 }
 
@@ -40,7 +44,7 @@ type MountHello struct {
 //
 //tony:schemagen=clock-spec,notag
 type ClockSpec struct {
-	Path      string `tony:"field=path"`      // Path to serve the clock at (e.g. "sys/clock")
+	Path      string `tony:"field=path"`      // Path to serve the clock at (e.g. "sys.clock")
 	Frequency string `tony:"field=frequency"` // Tick interval as a Go duration, e.g. "1s"
 	Epoch     int64  `tony:"field=epoch"`     // Value at tick 0
 }
@@ -71,8 +75,9 @@ type UnmountSpec struct {
 // MountRequest is a message from controller to docd. The handshake carries Hello
 // and Mount; a later Unmount requests a graceful unmount on the same connection.
 //
-// A mount connection carries this handshake and nothing else. AFTER the mount is
-// accepted the direction inverts: docd sends the CONTROLLER logd session requests
+// Apart from the handshake and an Unmount, a mount connection carries only the logd
+// session protocol. AFTER the mount is accepted the direction inverts: docd sends the
+// CONTROLLER logd session requests
 // (logd/api.SessionRequest) for every client operation at or under the mounted path,
 // and the controller answers them -- so a controller is a server of that protocol
 // rather than a client of it. Two things differ from a client connection: the id on a

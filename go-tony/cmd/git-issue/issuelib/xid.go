@@ -213,7 +213,8 @@ func IsValidXIDRChar(c byte) bool {
 	return base32Decode[c] != 0xFF
 }
 
-// IsValidXIDRPrefix returns true if s contains only valid base32 characters.
+// IsValidXIDRPrefix returns true if s is non-empty and contains only valid
+// base32 characters.
 func IsValidXIDRPrefix(s string) bool {
 	for i := 0; i < len(s); i++ {
 		if !IsValidXIDRChar(s[i]) {

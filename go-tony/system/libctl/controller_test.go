@@ -51,7 +51,7 @@ func (c *memController) Patch(ctx context.Context, path string, data *ir.Node, o
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.data[path] = data
-	// Self-backed: no logd commit to report, so Commit stays zero.
+	// A test fixture that commits nothing, so it has no commit to report.
 	return &api.PatchResult{Data: data}, nil
 }
 

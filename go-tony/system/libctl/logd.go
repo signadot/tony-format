@@ -19,12 +19,15 @@ import (
 // LogdSession manages a controller's session with logd.
 //
 // The logd session protocol is asynchronous and multiplexed: every request may
-// carry an id that its response echoes, and the server also pushes unsolicited
-// watch events (which carry no id). LogdSession models this directly. A single
-// connection is shared by all operations; a read-pump goroutine demultiplexes
-// incoming messages, routing responses to the request that is waiting on their
-// id and routing events to the matching Watch by path. This lets many watches
-// and in-flight requests share one connection.
+// carry an id that its response echoes, and the server also pushes watch events,
+// stamped with the id of the watch request they belong to. LogdSession models this
+// directly. A single connection is shared by all operations; a read-pump goroutine
+// demultiplexes incoming messages, routing responses to the request that is waiting
+// on their id and routing events to the Watch whose request id they carry. This
+// lets many watches and in-flight requests share one connection.
+//
+// docd's client face speaks the same protocol, so a LogdSession works unchanged
+// against docd: switching between them is a change of Addr.
 type LogdSession struct {
 	addr     string
 	clientID string
@@ -435,8 +438,6 @@ func (s *LogdSession) newIDLocked() string {
 	return strconv.FormatUint(s.nextID, 10)
 }
 
-// Match performs a match query at the given path, returning the full state
-// there.
 // Ping asks whether the session is alive, and answers with where the store is: the head
 // commit and the oldest commit a watch may still replay from. Both come from memory --
 // no read, no path -- which is what makes this the right question to ask when the
@@ -447,8 +448,10 @@ func (s *LogdSession) newIDLocked() string {
 // and since a store where nothing has been written has nothing at any path, it is one
 // with an answer that looks like a failure (bymhrqz7h12ksas3jhn0).
 //
-// Commit is zero when the answering server tracks no single head, which a router in
-// front of several stores does not.
+// Against docd, which answers the ping itself, Commit is the highest commit docd has
+// reported to any client -- a real point in the one sequence its mounts share, and a
+// lower bound on the head rather than the head itself (see KnownCommit) -- and Floor
+// is zero.
 func (s *LogdSession) Ping(ctx context.Context) (*api.PongResult, error) {
 	resp, err := s.request(ctx, &api.SessionRequest{Ping: &api.PingRequest{}})
 	if err != nil {
@@ -460,6 +463,8 @@ func (s *LogdSession) Ping(ctx context.Context) (*api.PongResult, error) {
 	return resp.Result.Pong, nil
 }
 
+// Match performs a match query at the given path, returning the full state
+// there.
 func (s *LogdSession) Match(ctx context.Context, path string) (*ir.Node, error) {
 	node, _, err := s.matchAt(ctx, path, nil, nil)
 	return node, err
@@ -494,8 +499,8 @@ func (s *LogdSession) MatchPattern(ctx context.Context, path string, pattern *ir
 // MatchAt performs a point-in-time match query at path, returning the full state
 // as of the given commit rather than the current one. The commit must be in range
 // [0, current]; an out-of-range commit is rejected. Across docd this reads base
-// and every logd-backed mount at the same commit — one consistent snapshot, since
-// they share logd's single commit sequence.
+// and every mount at the same commit — one consistent snapshot, since mounts share
+// logd's single commit sequence (see Handler.Match).
 func (s *LogdSession) MatchAt(ctx context.Context, path string, commit int64) (*ir.Node, error) {
 	node, _, err := s.matchAt(ctx, path, nil, &commit)
 	return node, err
@@ -542,9 +547,9 @@ var ErrMatchFailed = errors.New("match precondition failed")
 // compare-and-swap precondition as ErrMatchFailed. On success it returns what
 // the write landed as: api.PatchResult.Commit is the commit the patch committed
 // at, and Data is the patched data as stored, with any auto-generated ids filled
-// in. Data may be nil for a write docd split across mounts — there is no single
-// stored subtree to return — but the commit is the transaction's, so it is always
-// reported.
+// in. For a write docd split across mounts, the commit is the transaction's, and
+// Data is the participants' data joined back into the subtree the caller patched;
+// a participant that reports no data leaves its part absent.
 func (s *LogdSession) doPatch(ctx context.Context, req *api.PatchRequest) (*api.PatchResult, error) {
 	resp, err := s.request(ctx, &api.SessionRequest{Patch: req})
 	if err != nil {

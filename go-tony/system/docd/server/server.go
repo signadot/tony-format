@@ -102,7 +102,7 @@ func slogLevel() slog.Level {
 	return slog.LevelInfo
 }
 
-// StartTCP starts the TCP listener on the given address.
+// StartTCP starts the mount-facing (controller) TCP listener on the given address.
 // The listener runs in a separate goroutine.
 func (s *Server) StartTCP(addr string) error {
 	if s.tcpListener != nil {
@@ -125,7 +125,7 @@ func (s *Server) StartTCP(addr string) error {
 	return nil
 }
 
-// StopTCP stops the TCP listener.
+// StopTCP stops the mount-facing TCP listener.
 func (s *Server) StopTCP() error {
 	if s.tcpListener == nil {
 		return nil

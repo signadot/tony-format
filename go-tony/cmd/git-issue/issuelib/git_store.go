@@ -389,7 +389,9 @@ func (s *GitStore) MoveRef(from, to string) error {
 }
 
 // ReadFile returns the bytes of path within ref's tree, or an error if there is
-// no such file.
+// no such path. A path naming a directory is not an error: it returns git's
+// listing of that tree, so a caller that needs a file checks the entry's type
+// with ListDir first.
 func (s *GitStore) ReadFile(ref, path string) ([]byte, error) {
 	cmd := exec.Command("git", "show", ref+":"+path)
 	return cmd.Output()
@@ -457,8 +459,9 @@ func (s *GitStore) AddNote(commit, content string) error {
 	return addCmd.Run()
 }
 
-// GetNotes returns the commit's refs/notes/issues note, one issue ID per line.
-// A commit with no note is an error, not an empty string.
+// GetNotes returns the commit's refs/notes/issues note, one issue ID per line
+// with a blank line between entries, since git notes append separates what it
+// adds that way. A commit with no note is an error, not an empty string.
 func (s *GitStore) GetNotes(commit string) (string, error) {
 	cmd := exec.Command("git", "notes", "--ref=refs/notes/issues", "show", commit)
 	out, err := cmd.Output()
@@ -471,14 +474,14 @@ func (s *GitStore) GetNotes(commit string) (string, error) {
 // Push pushes each refspec to the remote in turn. A refspec that fails is
 // reported on Out and skipped rather than returned as an error, so one
 // unpushable issue does not abandon the rest; a refspec matching nothing locally
-// is not worth mentioning and stays quiet.
+// is not worth mentioning and stays quiet. A deletion refspec (":dst") naming a
+// ref the remote does not have is quiet for the same reason: the remote is
+// already in the state the deletion wanted.
 //
-// Callers pass force refspecs ("+src:dst"). Issue refs are rewritten in place by
-// migrations and moved between namespaces on close, so a non-force push would
-// reject exactly the updates that need to travel. The cost is that the last
+// Callers pass force refspecs ("+src:dst"). Two clones that both edited an issue
+// hold divergent chains for it; once one has pushed, a non-force push of the
+// other is rejected, and force is what lets it travel. The cost is that the last
 // writer of an issue wins; see the commands package.
-// A deletion refspec (":dst") naming a ref the remote does not have is quiet for
-// the same reason: the remote is already in the state the deletion wanted.
 func (s *GitStore) Push(remote string, refspecs []string) error {
 	for _, refspec := range refspecs {
 		cmd := exec.Command("git", "push", remote, refspec)
@@ -613,7 +616,8 @@ func (s *GitStore) ReplaceTree(ref, message string, files map[string][]byte) err
 }
 
 // CleanupStaleRefs removes stale refs when an issue exists in both refs/issues/ and refs/closed/.
-// For each duplicate, it keeps the ref with more history (the descendant) and deletes the ancestor.
+// For each duplicate, it keeps the ref with more history (the descendant) and deletes the ancestor;
+// when neither descends from the other it keeps the closed ref and deletes the open one.
 // Returns the number of refs cleaned up.
 func (s *GitStore) CleanupStaleRefs() (int, error) {
 	// Get all open issue XIDs

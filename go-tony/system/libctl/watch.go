@@ -18,9 +18,9 @@ const defaultWatchBuffer = 128
 // to the server, so it is bounded and its failure is not the caller's problem.
 const unwatchTimeout = 5 * time.Second
 
-// WatchEndedError terminates a Watch when docd ends it server-side rather than
-// the connection dropping. Reason says which of these happened, from the
-// api.ErrCode* vocabulary:
+// WatchEndedError terminates a Watch when the server ends it rather than the
+// connection dropping. Reason says which of these happened, from the api.ErrCode*
+// vocabulary. docd ends a watch with:
 //
 //	session_mounted         a mount registered at or under the watched path, so a
 //	                        re-watch composes over a source that was not there
@@ -30,20 +30,26 @@ const unwatchTimeout = 5 * time.Second
 //	match_failed            the composed read backing the watch failed, so there
 //	                        is no baseline to stream deltas against
 //
-// The watch is re-establishable in every case: the application should start a new
-// Watch on the same path, which re-composes against the current mount set. The
-// reason is for a caller that does more than reconnect — one deciding whether the
-// content it is about to see should differ, or reporting why the stream broke.
+// and a composed watch whose sub-watch fails ends with that sub-watch's code. logd
+// ends a watch with slow_consumer (the consumer did not keep up), replay_compacted
+// (FromCommit is below the retained history), replay_failed, or invalid_path (the
+// path can never be extracted).
 //
-// Mounts share the commit sequence for their lifetime, so a commit is an exact resume
-// point across a composed path as well as a single-route one. What a watcher must account
-// for is membership: a mount arriving or leaving mid-watch ends the watch with one of the
-// reasons above, and the re-watch composes the new membership.
+// The watch is re-establishable in every case but invalid_path: the application
+// should start a new Watch on the same path, which re-composes against the current
+// mount set — without FromCommit after replay_compacted. The reason is for a caller
+// that does more than reconnect — one deciding whether the content it is about to
+// see should differ, or reporting why the stream broke.
 //
-// One gap: docd does not yet pass WatchOptions.FromCommit down to a composed watch's
-// sub-watches, so re-watching a composed path re-inits with a fresh State snapshot rather
-// than replaying (issue 4ses3fqsh12ks8awgnn0). A snapshot-diffing consumer needs no resume
-// point either way.
+// Mounts share the commit sequence for their lifetime, so Commit, the last commit
+// delivered, is an exact resume point across a composed path as well as a single-route
+// one, and a composed watch replays from FromCommit as a single-route one does. What a
+// watcher must account for is membership: a mount arriving or leaving mid-watch ends the
+// watch with one of the reasons above, and the re-watch composes the new membership.
+//
+// One gap: a composed watch forwards its sub-watches' live deltas as they arrive rather
+// than in commit order, so its last delivered commit can stand ahead of a lower one still
+// in flight from another mount, and resuming there skips it (issue hb44wv28h12ksarmcdn0).
 type WatchEndedError struct {
 	Path   string
 	Reason string
@@ -232,8 +238,7 @@ func (s *LogdSession) Watch(ctx context.Context, path string, opts *WatchOptions
 // ReplayingFrom is the commit this watch replays from, and nil when it is not
 // replaying at all. A caller which asked for a relative window (a negative
 // WatchOptions.FromCommit) learns here which commits it is getting -- and a caller
-// whose request was clamped to the retained history, or dropped by a composed watch
-// which cannot honour a cursor, can see that too.
+// whose request was clamped to the retained history can see that too.
 func (w *Watch) ReplayingFrom() *int64 { return w.replayingFrom }
 
 // ReplayingTo is the commit the replay runs up to, and nil when the watch is not

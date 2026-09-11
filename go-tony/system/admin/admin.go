@@ -1,6 +1,6 @@
 // Package admin serves process introspection -- net/http/pprof plus a short
-// index of what this process is and where it listens -- on a listener that is
-// on by default at a known address.
+// index of what this process is, where it listens, and the counters it reports
+// (Spec.Report) -- on a listener that is on by default at a known address.
 //
 // Two properties make this worth having next to the gops agent rather than
 // instead of it.

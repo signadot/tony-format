@@ -311,8 +311,8 @@ type participantResult struct {
 // client's patch path — so a client cannot tell a write docd split across mounts
 // from one logd served whole. This is the channel auto-generated ids ride on.
 //
-// A participant that reports no data (a self-backed controller with no stored
-// form to hand back) leaves its subtree absent rather than voiding the result:
+// A participant that reports no data (a controller whose Patch hands back no
+// stored form) leaves its subtree absent rather than voiding the result:
 // the hole is exactly what that client would see writing to that mount alone,
 // and discarding the other participants' ids would be worse.
 func joinPatchResults(clientPath string, results []participantResult) (*ir.Node, error) {
