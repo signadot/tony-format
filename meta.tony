@@ -6,7 +6,12 @@ commits: []
 created: "2026-09-11T10:38:18.75691+02:00"
 duplicates: []
 id: rgpn3v9vh12ksynxmdn0
-labels: []
+labels:
+- audit
+- correctness
+- logd
+- medium
+- storage
 related_issues: []
 status: open
-updated: "2026-09-11T10:38:59.375425+02:00"
+updated: "2026-09-11T10:38:59.444836+02:00"
