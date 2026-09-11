@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 8ec484067d78044cb56182505e29cc3e77275950
 commits:
 - f133a49765efee5aa907c9be7b566a5b0ca5666e
 - 1be5bec2463a056bf45988bb81423f1f37c2e510
@@ -16,5 +17,5 @@ duplicates: []
 id: 3d7t1khxh12krsddmdn0
 labels: []
 related_issues: []
-status: open
-updated: "2026-09-11T10:39:16.053372+02:00"
+status: closed
+updated: "2026-09-11T10:43:01.936042+02:00"
