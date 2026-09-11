@@ -6,7 +6,8 @@ commits: []
 created: "2026-09-11T10:38:19.924269+02:00"
 duplicates: []
 id: fk1vg9sxh12ksyxxmdn0
-labels: []
+labels:
+- "audit mergeop logd correctness high"
 related_issues: []
 status: open
-updated: "2026-09-11T10:38:19.924269+02:00"
+updated: "2026-09-11T10:38:19.984444+02:00"
