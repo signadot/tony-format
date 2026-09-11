@@ -6,7 +6,11 @@ commits: []
 created: "2026-09-11T15:44:42.548961+02:00"
 duplicates: []
 id: 7eeepcr0h12ksjg5mhn0
-labels: []
+labels:
+- design
+- logd
+- medium
+- storage
 related_issues: []
 status: open
-updated: "2026-09-11T15:44:42.548961+02:00"
+updated: "2026-09-11T15:44:47.346749+02:00"
