@@ -6,7 +6,8 @@ commits: []
 created: "2026-09-11T10:38:19.347912+02:00"
 duplicates: []
 id: mygs3chwh12ksyxxmdn0
-labels: []
+labels:
+- "audit logd correctness medium"
 related_issues: []
 status: open
-updated: "2026-09-11T10:38:19.347912+02:00"
+updated: "2026-09-11T10:38:19.410575+02:00"
