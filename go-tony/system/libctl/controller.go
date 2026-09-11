@@ -26,9 +26,12 @@ var ErrUnsupported = errors.New("unsupported operation")
 // logd-protocol requests; the runtime dispatches them to these methods. Any
 // method may return ErrUnsupported to decline.
 //
-// A controller is free to back its subtree with anything — a logd session
-// (obtained via the mount), the local filesystem, or computed state. It is the
-// owner and answers for the subtree; content need not live in logd.
+// A controller is free to back its subtree with anything — logd, the local
+// filesystem, or computed state. It is the owner and answers for the subtree;
+// content need not live in logd. One backed by logd opens its own LogdSession, one
+// per scope when it serves scoped requests (MatchParams.Scope, PatchParams.Scope):
+// the mount's own connection to docd is not one, and a session opened for it would be
+// baseline-only while a routed request carries its client's scope.
 type Handler interface {
 	// Match returns the data at path. pattern, when non-nil, is the match/trim
 	// pattern the client supplied (field selection and filtering). opts.Scope, when
@@ -116,10 +119,6 @@ type PatchParams struct {
 type ControllerConfig struct {
 	// DocdAddr is docd's mount (controller-facing) address.
 	DocdAddr string
-	// LogdAddr is logd's address; when set, the controller's Handler can reach
-	// logd via the mount's LogdSession. Optional for controllers that back their
-	// subtree with something other than logd.
-	LogdAddr string
 	// Controller identifies this controller to docd.
 	Controller string
 	// Path is the subtree to mount, a kpath (e.g. "users").
@@ -130,8 +129,16 @@ type ControllerConfig struct {
 	Handler Handler
 	// ForceAfter, when non-nil, overrides how long docd waits for overlapping
 	// watch readers to drain before force-ending them so this mount can proceed (a
-	// pointer to 0 means wait forever). Passed through to the mount handshake.
+	// pointer to 0 means wait forever). Passed through to the mount handshake, and to
+	// the unmount when UnmountOnExit is set.
 	ForceAfter *time.Duration
+	// UnmountOnExit makes cancelling ctx a graceful unmount: docd drains the watches
+	// overlapping the mount and removes it, and RunController returns once docd has
+	// closed the connection. Unset, cancelling disconnects, and docd tombstones the
+	// mount -- its subtree answers controller_unavailable until a controller remounts
+	// it, rather than falling through to logd. Set it to retire a mount; leave it
+	// unset for a controller that is coming back.
+	UnmountOnExit bool
 	// Log is an optional logger.
 	Log *slog.Logger
 }
@@ -150,7 +157,6 @@ func RunController(ctx context.Context, cfg *ControllerConfig) error {
 
 	client, err := Mount(&MountConfig{
 		DocdAddr:   cfg.DocdAddr,
-		LogdAddr:   cfg.LogdAddr,
 		Controller: cfg.Controller,
 		Path:       cfg.Path,
 		Schema:     cfg.Schema,
@@ -169,13 +175,25 @@ func RunController(ctx context.Context, cfg *ControllerConfig) error {
 		watches: make(map[string]*watchReg),
 	}
 
-	// Unblock the serve loop's blocking read when the caller cancels. Cancelling is
-	// an abrupt disconnect (docd tombstones the mount); a controller that wants to
-	// detach cleanly instead calls MountClient.Unmount for a graceful drain.
+	// Unblock the serve loop's blocking read when the caller cancels. Cancelling is an
+	// abrupt disconnect, which docd tombstones -- unless UnmountOnExit asks for a
+	// graceful unmount. That is sent here and the serve loop keeps reading: docd drains,
+	// removes the mount and closes the connection, and the loop ends at that EOF.
+	// MountClient.Unmount cannot be called instead, since it reads the connection to
+	// completion and the serve loop is already reading it (vtjex79xh12ksz5xmdn0).
 	serveDone := make(chan struct{})
 	go func() {
 		select {
 		case <-ctx.Done():
+			if cfg.UnmountOnExit {
+				rt.writeMu.Lock()
+				err := client.sendRequest(unmountRequest(cfg.ForceAfter))
+				rt.writeMu.Unlock()
+				if err == nil {
+					return
+				}
+				rt.log.Warn("graceful unmount could not be sent; disconnecting", "error", err)
+			}
 			client.Close()
 		case <-serveDone:
 		}

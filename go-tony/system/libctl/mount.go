@@ -223,6 +223,17 @@ func (c *MountClient) Close() error {
 	return c.conn.Close()
 }
 
+// unmountRequest asks docd to unmount gracefully, draining overlapping watches for
+// forceAfter (nil: docd's default; a pointer to 0: forever).
+func unmountRequest(forceAfter *time.Duration) *api.MountRequest {
+	spec := &api.UnmountSpec{}
+	if forceAfter != nil {
+		fa := forceAfter.String() // "0s" = wait forever
+		spec.ForceAfter = &fa
+	}
+	return &api.MountRequest{Unmount: spec}
+}
+
 // Unmount gracefully unmounts the controller's subtree: it asks docd to drain the
 // watches overlapping the mount (force-ending them after forceAfter so they see
 // session_unmounted rather than an abrupt controller_unavailable) and fully
@@ -231,14 +242,10 @@ func (c *MountClient) Close() error {
 // 0 waits forever, nil uses docd's default.
 //
 // The MountClient's connection must not be concurrently read by a controller
-// runtime while Unmount runs, since Unmount reads it to completion.
+// runtime while Unmount runs, since Unmount reads it to completion; under
+// RunController, set ControllerConfig.UnmountOnExit instead.
 func (c *MountClient) Unmount(forceAfter *time.Duration) error {
-	spec := &api.UnmountSpec{}
-	if forceAfter != nil {
-		fa := forceAfter.String() // "0s" = wait forever
-		spec.ForceAfter = &fa
-	}
-	if err := c.sendRequest(&api.MountRequest{Unmount: spec}); err != nil {
+	if err := c.sendRequest(unmountRequest(forceAfter)); err != nil {
 		return fmt.Errorf("failed to send unmount: %w", err)
 	}
 	// docd drains, removes the mount, then closes the connection; EOF is completion.

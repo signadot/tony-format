@@ -3,6 +3,7 @@ package libctl
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"strings"
 	"sync"
@@ -1799,5 +1800,65 @@ func TestDocd_RewatchAfterMembershipChangeReInits(t *testing.T) {
 	}
 	if ev := expectEvent(t, w2); ev.Patch == nil {
 		t.Fatalf("expected a live delta after re-init, got %+v", ev)
+	}
+}
+
+// A RunController with UnmountOnExit detaches gracefully when its ctx is cancelled: the
+// overlapping watch ends session_unmounted and the mount is removed, not tombstoned, and
+// RunController returns. Without it a cancel disconnects, and the mount is tombstoned.
+// RunController had no way to unmount at all: MountClient.Unmount reads the connection
+// the runtime is already reading, and no Handler could reach it (vtjex79xh12ksz5xmdn0).
+func TestRunController_UnmountOnExit(t *testing.T) {
+	for _, unmount := range []bool{true, false} {
+		t.Run(fmt.Sprintf("UnmountOnExit=%v", unmount), func(t *testing.T) {
+			logd := startLogd(t)
+			docd := startDocdRouting(t, logd.TCPAddr())
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			short := 50 * time.Millisecond
+			// Watchable, so the overlapping watch on "a" composes over the mount and
+			// stays open until the unmount ends it.
+			ctrl := newMemController()
+			ctrl.watchable = true
+			errc := make(chan error, 1)
+			go func() {
+				errc <- RunController(ctx, &ControllerConfig{
+					DocdAddr:      docd.TCPAddr(),
+					Controller:    "c",
+					Path:          "a.b",
+					Handler:       ctrl,
+					ForceAfter:    &short,
+					UnmountOnExit: unmount,
+				})
+			}()
+			waitMount(t, docd, "a.b")
+
+			client := docdClient(t, docd, "client")
+			w, err := client.Watch(context.Background(), "a", waitAbsent) // base watch overlapping a.b
+			if err != nil {
+				t.Fatalf("watch: %v", err)
+			}
+
+			cancel()
+			select {
+			case <-errc:
+			case <-time.After(5 * time.Second):
+				t.Fatal("RunController did not return after cancel")
+			}
+
+			if !unmount {
+				waitTombstone(t, docd, "a.b")
+				return
+			}
+			drainUntilClosed(t, w)
+			var ended *WatchEndedError
+			if !errors.As(w.Err(), &ended) || ended.Reason != api.ErrCodeSessionUnmounted {
+				t.Fatalf("expected session_unmounted, got %v", w.Err())
+			}
+			if e := docd.Mounts.Lookup("a.b"); e != nil {
+				t.Fatalf("expected the mount removed, got %+v (tombstone=%v)", e, !e.Live())
+			}
+		})
 	}
 }

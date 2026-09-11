@@ -18,10 +18,10 @@
 //  4. Serve the match, patch and watch requests docd routes for the subtree —
 //     logd session requests, with docd as the requester; a Handler declines any
 //     it does not implement with ErrUnsupported
-//  5. Write to logd through a LogdSession, joining the transaction a routed patch
-//     names (PatchParams.TxID)
+//  5. Write to logd through the controller's own LogdSession, one per scope it
+//     serves, joining the transaction a routed patch names (PatchParams.TxID)
 //  6. Disconnect on shutdown, which tombstones the mount until a controller
-//     remounts it; MountClient.Unmount detaches gracefully instead
+//     remounts it; ControllerConfig.UnmountOnExit detaches gracefully instead
 //
 // # Response errors
 //
