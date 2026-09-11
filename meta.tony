@@ -6,8 +6,13 @@ commits: []
 created: "2026-09-11T10:38:18.639844+02:00"
 duplicates: []
 id: faweqnhvh12ksynxmdn0
-labels: []
+labels:
+- audit
+- correctness
+- high
+- logd
+- storage
 related_issues:
 - rgpn3v9vh12ksynxmdn0
 status: open
-updated: "2026-09-11T10:38:59.231371+02:00"
+updated: "2026-09-11T10:38:59.300511+02:00"
