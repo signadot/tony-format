@@ -328,50 +328,6 @@ func TestThreeSpellingsOneName(t *testing.T) {
 	}
 }
 
-// An array gains or changes an identity only while it is empty, and loses one only by
-// force -- and then its elements stay under their names (schema.go).
-func TestIdentityIsDeclaredBeforeTheArrayIsWritten(t *testing.T) {
-	s := openTestStorage(t)
-	mustCommit(t, s, nil, `{items: [{sku: A}]}`)
-	_, err := s.SetSchema(mustParseBody(t, `{define: {items: {sku: !logd-key null}}}`), false)
-	if err == nil || !strings.Contains(err.Error(), "written by position") {
-		t.Fatalf("an identity was declared over positional elements: %v", err)
-	}
-	if !IsSchemaRefused(err) {
-		t.Errorf("the refusal is not a SchemaRefusedError: %v", err)
-	}
-	if schema, _ := s.GetActiveSchema(); schema != nil {
-		t.Error("a refused schema became active")
-	}
-
-	s2 := openTestStorage(t)
-	declareKeyed(t, s2, `{define: {items: {sku: !logd-key null}}}`)
-	mustCommit(t, s2, nil, `{items: [{sku: A}]}`)
-	if _, err := s2.SetSchema(mustParseBody(t, `{define: {items: {other: null}}}`), false); err == nil ||
-		!strings.Contains(err.Error(), "lose its identity") {
-		t.Errorf("an identity was dropped: %v", err)
-	}
-	if _, err := s2.SetSchema(mustParseBody(t, `{define: {items: {other: !logd-key null}}}`), false); err == nil ||
-		!strings.Contains(err.Error(), "change its identity") {
-		t.Errorf("an identity was changed: %v", err)
-	}
-	// Declaring a second, empty keyed array beside the first is fine.
-	if _, err := s2.SetSchema(mustParseBody(t, `{define: {items: {sku: !logd-key null}, tags: {id: !logd-key null}}}`), false); err != nil {
-		t.Errorf("adding an identity for an unwritten array was refused: %v", err)
-	}
-	// Forced, the loss is taken: the elements stay under their names, and read back as
-	// the object of names the store holds.
-	if _, err := s2.SetSchema(mustParseBody(t, `{define: {items: {other: null}}}`), true); err != nil {
-		t.Fatalf("a forced loss was refused: %v", err)
-	}
-	head, _ := s2.GetCurrentCommit()
-	got := mustReadScope(t, s2, head, nil)
-	items, _ := got.GetKPath("items")
-	if items == nil || items.Type != ir.ObjectType {
-		t.Errorf("after a forced loss items is %s, want the object of names", flatten(t, got))
-	}
-}
-
 // A precondition is written in the client's vocabulary and evaluated against the raised
 // state, so a CAS on one element of a keyed array reads as the client expects.
 func TestPreconditionOnAKeyedElement(t *testing.T) {

@@ -162,14 +162,17 @@ func (s *Storage) compactionRecords(logFile dlog.LogFileID) ([]compactRecord, er
 		switch {
 		case entry.SnapPos != nil:
 			r.seg = *index.NewSnapshotSegment(entry.Commit, index.SnapPathOf(entry), string(logFile), pos, generation, entry.ScopeID)
+		case entry.IsSchemaCommit() && entry.LastCommit != nil:
+			// Kept, rewrite or not: an entry the records did not name was left out of
+			// the rewrite, which is how a schema commit without a delta would have gone
+			// silently.
+			r.seg = index.LogSegment{StartCommit: *entry.LastCommit, EndCommit: entry.Commit, LogFile: string(logFile), LogPosition: pos, LogFileGeneration: generation}
+			if entry.Patch != nil {
+				r.seg = *index.NewLogSegmentFromPatchEntry(entry, "", string(logFile), pos, index.TxSeqOf(entry), generation, entry.ScopeID)
+			}
+			r.keep = true
 		case entry.Patch != nil && entry.LastCommit != nil:
 			r.seg = *index.NewLogSegmentFromPatchEntry(entry, "", string(logFile), pos, index.TxSeqOf(entry), generation, entry.ScopeID)
-		case entry.IsSchemaCommit():
-			// Not indexed -- it lands nowhere -- and kept: an entry the records did not
-			// name was left out of the rewrite, which is how a schema commit would have
-			// gone silently.
-			r.seg = index.LogSegment{StartCommit: *entry.LastCommit, EndCommit: entry.Commit, LogFile: string(logFile), LogPosition: pos, LogFileGeneration: generation}
-			r.keep = true
 		default:
 			continue // not something the index describes
 		}

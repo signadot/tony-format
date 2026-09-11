@@ -184,13 +184,15 @@ type SchemaGetRequest struct {
 // every write after it is lowered under the new schema. Only a baseline session may
 // set a schema.
 //
-// A schema the store cannot adopt is refused with schema_refused: one that cannot mean
-// what it says (two identities for one array), or one the data cannot follow -- an
-// array gaining or changing an identity (!logd-key, !logd-auto-id) while it holds
-// elements, which have no names under the new one; declare the identity before the
-// array is written, or empty it first. An array LOSING its identity is refused too,
-// unless Force: its elements stay held under their names, and read back as the object
-// of names the store keeps rather than as an array.
+// Where the schema changes an array's identity (!logd-key, !logd-auto-id), the commit
+// carries the rewrite: an array GAINING one has its elements named from their key
+// fields (an auto-id is generated where missing); one CHANGING it has them named again;
+// one LOSING it has them come back as an array, in name order. Watchers see the rewrite
+// as a delta at the array. A schema the store cannot adopt is refused with
+// schema_refused: one that cannot mean what it says (two identities for one array); an
+// element that cannot be named under the new identity (a key missing, or two elements
+// with one name); a change under a path a scope has statements at; and a loss unless
+// Force, since the names are lost with it.
 //
 //tony:schemagen=session-schema-set-request,notag
 type SchemaSetRequest struct {

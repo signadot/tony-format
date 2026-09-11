@@ -75,7 +75,7 @@ func TestSchema_RefusalCommitsNothing(t *testing.T) {
 	mustCommit(t, s, nil, `{items: [{sku: A}]}`)
 	for _, tc := range []struct{ name, schema, want string }{
 		{"two identities", `{define: {items: {sku: !logd-key null, id: !logd-auto-id null}}}`, "one identity"},
-		{"over positional elements", `{define: {items: {sku: !logd-key null}}}`, "written by position"},
+		{"an element with no name", `{define: {items: {id: !logd-key null}}}`, "has no name"},
 	} {
 		_, err := s.SetSchema(testSchema(t, tc.schema), false)
 		if err == nil {
@@ -218,8 +218,10 @@ func TestSchema_WritesAlongsideAChangeAreKept(t *testing.T) {
 		}
 	}
 	waitFor(20)
+	define := ""
 	for i := 0; i < 5; i++ {
-		migrateTo(t, s, fmt.Sprintf("{define: {items%d: {id: !logd-key null}}}", i))
+		define += fmt.Sprintf("items%d: {id: !logd-key null}, ", i)
+		migrateTo(t, s, "{define: {"+define+"}}")
 		waitFor(n.Load() + 5)
 	}
 	close(stop)

@@ -9,8 +9,12 @@ import (
 
 	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
+	"github.com/signadot/tony-format/go-tony/libdiff"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 // The schema, and changing it.
@@ -24,6 +28,9 @@ import (
 // compacted log, with the schema commit itself gone, still say which schema its
 // surviving snapshots were taken under. The history is rebuilt from the log with the
 // index, and persisted with it (index/schema_history.go).
+//
+// A change to an identity is carried by the commit as a rewrite of the arrays it
+// changes (identityRewrite), so the data and the schema move together, at one commit.
 //
 // There is no pending schema. A migration used to be proposed, held pending beside a
 // second index, and completed at a second snapshot; the second index was a copy of the
@@ -41,11 +48,13 @@ func (e *SchemaRefusedError) Error() string { return "schema cannot be adopted: 
 func (e *SchemaRefusedError) Unwrap() error { return e.Err }
 
 // SetSchema makes schema the store's schema from the commit it answers on: one commit,
-// after which every write is lowered under it. It is refused (SchemaRefusedError) when
-// the schema cannot mean what it says, or when an array would gain or change an identity
-// while it holds elements, which have no names under the new one. An array LOSING its
-// identity is refused too, unless force: its elements stay held under their names, and
-// read back as the object of names the store keeps rather than as an array.
+// after which every write is lowered under it. Where the schema changes an array's
+// identity, the commit carries the REWRITE: the array restated in the new schema's form,
+// as a total cover at its path (identityRewrite). It is refused (SchemaRefusedError)
+// when the schema cannot mean what it says, when an element cannot be named under the
+// new identity -- a key missing, or two elements with one name -- when a scope has
+// statements under a path whose identity changes, or when an array would lose its
+// identity and force is not given.
 //
 // Setting the schema the store already has is a commit like any other setting: it takes
 // a number and answers it.
@@ -64,13 +73,24 @@ func (s *Storage) SetSchema(schema *ir.Node, force bool) (int64, error) {
 		return 0, &SchemaRefusedError{Err: err}
 	}
 
+	// The number first: a generated id is minted from the commit it lands in. A refusal
+	// past here leaves a gap in the sequence, as a write refused at its append does.
 	commit, err := s.sequence.NextCommit()
 	if err != nil {
 		return 0, fmt.Errorf("failed to allocate commit: %w", err)
 	}
+	rewrite, err := s.identityRewrite(parsed, commit)
+	if err != nil {
+		var wb *WriteBudgetError
+		if errors.As(err, &wb) {
+			return 0, err
+		}
+		return 0, &SchemaRefusedError{Err: err}
+	}
+
 	timestamp := time.Now().UTC().Format(time.RFC3339)
-	entry := dlog.NewSchemaEntry(schema, commit, timestamp, commit-1)
-	_, logFile, err := s.dLog.AppendEntry(entry)
+	entry := dlog.NewSchemaEntry(schema, rewrite, commit, timestamp, commit-1)
+	pos, logFile, err := s.dLog.AppendEntry(entry)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write the schema commit: %w", err)
 	}
@@ -81,13 +101,24 @@ func (s *Storage) SetSchema(schema *ir.Node, force bool) (int64, error) {
 	}
 
 	// Noted where the rebuild would note it, so the next persist carries it; and in
-	// force from here on. Then readable: the watermark advances, with nothing for a
-	// watcher to apply.
+	// force from here on. The rewrite is indexed and published as any delta is, raised
+	// into the client's vocabulary under the schema it was written in -- the new one.
 	s.index.NoteSchema(commit, schema)
 	s.schema.append(commit, schema)
-	s.tick.publish(commit, nil)
+	if rewrite != nil {
+		generation := s.dLog.GetGeneration(logFile)
+		index.IndexPatch(s.index, entry, string(logFile), pos, 0, generation, rewrite, nil)
+		if s.indexPersister != nil {
+			s.indexPersister.MaybePersist(commit)
+		}
+		n := newCommitNotification(commit, 0, timestamp, rewrite, nil)
+		n.Patch = s.raiseDelta(nil, n.Patch)
+		s.tick.publish(commit, n)
+	} else {
+		s.tick.publish(commit, nil)
+	}
 
-	s.logger.Info("schema set", "commit", commit, "keyedPaths", len(parsed.KeyedPaths()))
+	s.logger.Info("schema set", "commit", commit, "keyedPaths", len(parsed.KeyedPaths()), "rewrite", rewrite != nil)
 	return commit, nil
 }
 
@@ -153,19 +184,12 @@ type SchemaAt struct {
 	Schema *ir.Node
 }
 
-// identityChangeAllowed refuses a schema that changes which arrays have an identity in a
-// way the stored data cannot follow.
+// identityChangeAllowed refuses a schema that changes an identity where the change cannot
+// be made.
 //
-// An array that GAINS an identity is the boundary between two regimes: before, it is one
-// indexed path whose elements have no names; after, each element is a field. Elements
-// already written by position have no names to be found under, so the identity is
-// declared before the array is written, or the array is emptied first -- a refusal here,
-// where it is a schema error, rather than elements that vanish from every read after
-// the schema commit. Changing an identity strands the elements the same way. An array
-// that LOSES one is refused for the same reason, unless forced: the elements stay under
-// their names, and what was an array reads back as the object of names the store holds
-// (element_identity.md). Deriving names for a gain, and an array back from names for a
-// loss, is the rewrite 090mbrhsh12ksfr8mhn0 phase 2 adds.
+// An array that LOSES its identity is refused unless forced: the change is a rewrite that
+// answers -- the elements come back as an array, in name order -- but it is the one
+// change that loses information, the names, so it is asked for twice.
 //
 // A SCOPE is a layer of statements replayed over baseline, and a scope's statement at a
 // path is lowered under the identity the path had when it was made: an element by
@@ -181,82 +205,126 @@ type SchemaAt struct {
 // schema taking effect.
 func (s *Storage) identityChangeAllowed(pending *api.Schema, force bool) error {
 	active := s.schema.ActiveParsed()
-	commit := s.tick.current()
-	scopesUnder := func(p string) []string {
-		foot := s.index.Footprint()
-		var out []string
+	foot := s.index.Footprint()
+	for _, p := range identityChanges(active, pending) {
+		var scopes []string
 		for _, id := range foot.Scopes() {
 			if foot.Reaches(id, p) {
-				out = append(out, id)
+				scopes = append(scopes, id)
 			}
 		}
-		return out
-	}
-	changes := func(p string) bool {
-		return active.Keyed(p) != pending.Keyed(p) || !slices.Equal(active.Identity(p), pending.Identity(p))
-	}
-	for _, p := range slices.Concat(active.KeyedPaths(), pending.KeyedPaths()) {
-		if !changes(p) {
-			continue
-		}
-		if scopes := scopesUnder(p); len(scopes) > 0 {
+		if len(scopes) > 0 {
 			return fmt.Errorf("%q cannot change its identity while a scope has statements under it: %s",
 				p, strings.Join(scopes, ", "))
 		}
-	}
-	held := func(p string) (*ir.Node, error) {
-		if commit == 0 {
-			return nil, nil
-		}
-		c, err := s.Read(commit, nil, p)
-		if err != nil {
-			return nil, err
-		}
-		n, err := collectAll(c)
-		if err != nil {
-			return nil, err
-		}
-		return ir.Uncomment(n), nil
-	}
-	for _, p := range active.KeyedPaths() {
-		if pending.Keyed(p) {
-			continue
-		}
-		n, err := held(p)
-		if err != nil {
-			return err
-		}
-		if n == nil || n.Type != ir.ObjectType || len(n.Fields) == 0 {
-			continue // nothing held under a name; nothing to strand
-		}
-		if force {
-			s.logger.Warn("an array loses its identity by force; its elements stay under their names",
-				"path", p, "identity", strings.Join(active.Identity(p), ","), "elements", len(n.Fields))
-			continue
-		}
-		return fmt.Errorf("%q cannot lose its identity %s: its %d elements are held under their names "+
-			"(force it, and they stay there, read back as an object of names)",
-			p, strings.Join(active.Identity(p), ","), len(n.Fields))
-	}
-	for _, p := range pending.KeyedPaths() {
-		n, err := held(p)
-		if err != nil {
-			return err
-		}
-		if active.Keyed(p) {
-			if !slices.Equal(active.Identity(p), pending.Identity(p)) && n != nil && n.Type == ir.ObjectType && len(n.Fields) > 0 {
-				return fmt.Errorf("%q cannot change its identity from %s to %s: its elements are held under their names",
-					p, strings.Join(active.Identity(p), ","), strings.Join(pending.Identity(p), ","))
-			}
-			continue
-		}
-		if n != nil && n.Type == ir.ArrayType && len(n.Values) > 0 {
-			return fmt.Errorf("%q cannot be given the identity %s: it already holds %d elements written by "+
-				"position, which have no names; declare the identity before the array is written, or empty it first",
-				p, strings.Join(pending.Identity(p), ","), len(n.Values))
+		if active.Keyed(p) && !pending.Keyed(p) && !force {
+			return fmt.Errorf("%q would lose its identity %s, and its elements their names: force it, "+
+				"and they come back as an array in name order", p, strings.Join(active.Identity(p), ","))
 		}
 	}
 	return nil
+}
+
+// identityChanges answers the paths whose identity differs between the two schemas, in
+// order, outermost first: a keyed array beneath another that changes is restated with
+// its container, and is not named on its own.
+func identityChanges(active, pending *api.Schema) []string {
+	var out []string
+	for _, p := range slices.Concat(active.KeyedPaths(), pending.KeyedPaths()) {
+		if slices.Contains(out, p) {
+			continue
+		}
+		if active.Keyed(p) != pending.Keyed(p) || !slices.Equal(active.Identity(p), pending.Identity(p)) {
+			out = append(out, p)
+		}
+	}
+	slices.Sort(out)
+	var top []string
+	for _, p := range out {
+		under := false
+		for _, q := range top {
+			if isKPathPrefix(q, p) {
+				under = true
+				break
+			}
+		}
+		if !under {
+			top = append(top, p)
+		}
+	}
+	return top
+}
+
+func isKPathPrefix(q, p string) bool {
+	qs, ps := kpath.SplitAll(q), kpath.SplitAll(p)
+	if len(qs) >= len(ps) {
+		return false
+	}
+	return slices.Equal(qs, ps[:len(qs)])
+}
+
+// identityRewrite answers the delta a schema change makes to the data: every array
+// whose identity changes, restated in the new schema's form as a total cover at its
+// path, rooted together into one patch -- or nil when no array holds anything to
+// restate.
+//
+// An array GAINS an identity: its elements, written by position, are named from their
+// key fields -- an auto-id is generated for an element that lacks one, minted from
+// commit as a write's would be -- and held under the names (tx.LowerKeyed, which
+// refuses an element with no name and two elements with one). It LOSES one: the
+// elements come back as an array, in name order, which is the order a read answered
+// them in. It CHANGES: the elements are named again, under the new key fields. Each
+// array is read whole, under the write budget: the rewrite is a write of the array,
+// and is bounded as one.
+func (s *Storage) identityRewrite(pending *api.Schema, commit int64) (*ir.Node, error) {
+	active := s.schema.ActiveParsed()
+	head := s.tick.current()
+	if head == 0 {
+		return nil, nil
+	}
+	var pds []*tx.PatcherData
+	for _, p := range identityChanges(active, pending) {
+		base, err := s.stateAt(head, nil, p)
+		if err != nil {
+			return nil, err
+		}
+		base = ir.Uncomment(base)
+		if base == nil {
+			continue
+		}
+		// In the client's form under the schema that wrote it: an array either way.
+		raised := base
+		if active.Keyed(p) {
+			raised = raiseKeyed(active, base, p, false, false)
+		}
+		if raised.Type != ir.ArrayType || len(raised.Values) == 0 {
+			continue // nothing held, nothing to restate
+		}
+		next := raised.Clone()
+		if pending.Keyed(p) {
+			one := []*tx.PatcherData{{API: &api.Patch{PathData: api.PathData{Path: p, Data: next}}}}
+			tx.InjectAutoIDs(commit, pending, one)
+			if err := tx.LowerKeyed(pending, one); err != nil {
+				return nil, err
+			}
+			next = one[0].API.Data
+		}
+		// A total cover: !insert answers with its child whatever was there, and what was
+		// there is the other form (mergeop's insert; claimValue says the same).
+		next = next.WithTag(libdiff.InsertTag)
+		pds = append(pds, &tx.PatcherData{API: &api.Patch{PathData: api.PathData{Path: p, Data: next}}})
+	}
+	if len(pds) == 0 {
+		return nil, nil
+	}
+	out, err := tx.MergePatches(pds)
+	if err != nil {
+		return nil, fmt.Errorf("rooting the rewrite: %w", err)
+	}
+	if err := api.ValidateForStorage(out); err != nil {
+		return nil, fmt.Errorf("the rewrite is not storable: %w", err)
+	}
+	return out, nil
 }
 
 // IsSchemaRefused reports whether err is a schema the store refused to adopt.

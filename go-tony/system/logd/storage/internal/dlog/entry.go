@@ -25,8 +25,8 @@ type SchemaEntry struct {
 //   - Transaction: Patch and TxSource set, SnapPos/SchemaEntry nil, *LastCommit=Commit-1
 //   - Snapshot: SnapPos set, SnapPath the path it is of (nil for the root), TxSource nil,
 //     LastCommit nil; a root snapshot's SchemaEntry is the schema in force at its commit
-//   - Schema commit: SchemaEntry set, *LastCommit=Commit-1, Patch and SnapPos nil. A
-//     commit like any other in the sequence, with no delta (NewSchemaEntry).
+//   - Schema commit: SchemaEntry set, *LastCommit=Commit-1, SnapPos nil; Patch is the
+//     rewrite the change makes to the data, or nil (NewSchemaEntry).
 //   - Scope overlay: Patch, ScopeID and ScopeOverlay set, TxSource nil. Nothing writes one;
 //     a log that holds them still decodes (see ScopeOverlay).
 //
@@ -60,19 +60,23 @@ type Entry struct {
 }
 
 // NewSchemaEntry creates the dlog.Entry of a schema commit: commit takes the next number
-// in the one sequence, and from it on the store's schema is schema.
-func NewSchemaEntry(schema *ir.Node, commit int64, timestamp string, lastCommit int64) *Entry {
+// in the one sequence, and from it on the store's schema is schema. rewrite, when not
+// nil, is the delta the change makes to the data -- the arrays whose identity changed,
+// restated in the new schema's form (storage/schema.go) -- stored and indexed as any
+// commit's delta is.
+func NewSchemaEntry(schema *ir.Node, rewrite *ir.Node, commit int64, timestamp string, lastCommit int64) *Entry {
 	return &Entry{
 		Commit:      commit,
 		Timestamp:   timestamp,
+		Patch:       rewrite,
 		LastCommit:  &lastCommit,
 		SchemaEntry: &SchemaEntry{Schema: schema, SetAt: commit},
 	}
 }
 
-// IsSchemaCommit reports whether e is a schema commit: a schema and no delta or snapshot.
+// IsSchemaCommit reports whether e is a schema commit: a schema, and not a snapshot.
 func (e *Entry) IsSchemaCommit() bool {
-	return e.SchemaEntry != nil && e.Patch == nil && e.SnapPos == nil
+	return e.SchemaEntry != nil && e.SnapPos == nil
 }
 
 // NewEntry creates a dlog.Entry for a transaction commit.

@@ -250,10 +250,11 @@ replacement looks like when it is taken seriously:
     sit at an element (rkb7p8v5h12ksdnmgsn0) instead of at the array.
 
 An array that GAINS an identity is the boundary between the two regimes, and it needs no new
-mechanism either. Before the migration commit the array is one indexed path and its elements
-have no names; after it they do. A read carries a commit and so is already on one side or the
-other. An array that LOSES one is refused, for the same reason a rename is: the elements it
-would strand have names and no successor to hold them.
+mechanism either. Before the schema commit the array is one indexed path and its elements
+have no names; after it they do, because the schema commit carries the array restated under
+its names (storage/schema.go, identityRewrite). A read carries a commit and so is already on
+one side or the other. An array that LOSES one is restated the other way, in name order, and
+only when forced, since the names go with it (090mbrhsh12ksfr8mhn0).
 
 ## An element's key does not change
 
