@@ -23,12 +23,6 @@ import (
 func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 	path := req.Path
 
-	// Check if session using pending is still valid
-	if errMsg := s.checkPendingValid(); errMsg != "" {
-		s.sendError(id, api.ErrCodeMigrationAborted, errMsg)
-		return
-	}
-
 	// Validate path
 	if path != "" {
 		if err := validateDataPath(path); err != nil {

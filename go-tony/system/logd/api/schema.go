@@ -95,7 +95,7 @@ func (s *Schema) KeyedPaths() []string {
 }
 
 // Validate reports a schema that cannot mean what it says. It is checked where a schema
-// is PROPOSED (StartMigration), so a store never adopts one whose keying is ambiguous --
+// is SET (storage.SetSchema), so a store never adopts one whose keying is ambiguous --
 // key derivation decides what a stored delta records, and a delta cannot be un-recorded.
 func (s *Schema) Validate() error {
 	if s == nil {
@@ -149,22 +149,4 @@ func (s *Schema) AutoID(kpath string) *AutoIDField {
 		}
 	}
 	return nil
-}
-
-// SchemaResolver provides schema for a given scope.
-// This allows different scopes to have different schemas.
-type SchemaResolver interface {
-	// GetSchema returns schema for the given scope.
-	// scopeID nil = baseline schema
-	GetSchema(scopeID *string) *Schema
-}
-
-// StaticSchemaResolver returns the same schema for all scopes.
-type StaticSchemaResolver struct {
-	Schema *Schema
-}
-
-// GetSchema returns the static schema regardless of scope.
-func (r *StaticSchemaResolver) GetSchema(scopeID *string) *Schema {
-	return r.Schema
 }

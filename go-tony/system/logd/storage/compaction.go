@@ -50,9 +50,6 @@ func (s *Storage) Compact(config *CompactionConfig) error {
 		return nil
 	}
 
-	// Find pinned commit (active schema snapshot)
-	pinCommit := s.findPinnedCommit()
-
 	// Get cutoff time
 	now := time.Now()
 	cutoffTime := now.Add(-config.Cutoff)
@@ -71,7 +68,7 @@ func (s *Storage) Compact(config *CompactionConfig) error {
 		return err
 	}
 
-	survivors, dropped := s.selectSurvivors(records, config, now, pinCommit, cutoffTime, dominated)
+	survivors, dropped := s.selectSurvivors(records, config, now, cutoffTime, dominated)
 	if len(dropped) == 0 {
 		s.logger.Info("all entries survive, skipping compaction")
 		return nil
@@ -137,14 +134,15 @@ func (s *Storage) Compact(config *CompactionConfig) error {
 
 // compactRecord is what compaction holds per entry of the file it compacts: the entry's
 // place and shape, said as the root-level segment the entry would be indexed by -- which
-// is what the policy and the replay floor read -- and its time and schema part, so no
-// entry is read twice to decide its fate.
+// is what the policy and the replay floor read -- and its time, so no entry is read twice
+// to decide its fate. keep marks an entry compaction never drops: a schema commit, which
+// is the record of when the schema changed and is small (schema.go).
 type compactRecord struct {
 	pos    int64
 	seg    index.LogSegment
 	time   time.Time
 	timeOK bool
-	schema *dlog.SchemaEntry
+	keep   bool
 }
 
 // compactionRecords walks one log file and answers a record per entry.
@@ -160,12 +158,18 @@ func (s *Storage) compactionRecords(logFile dlog.LogFileID) ([]compactRecord, er
 		if err != nil {
 			break // io.EOF, or a record the walk could not read: what is behind it is not compacted this time
 		}
-		r := compactRecord{pos: pos, schema: entry.SchemaEntry}
+		r := compactRecord{pos: pos}
 		switch {
 		case entry.SnapPos != nil:
 			r.seg = *index.NewSnapshotSegment(entry.Commit, index.SnapPathOf(entry), string(logFile), pos, generation, entry.ScopeID)
 		case entry.Patch != nil && entry.LastCommit != nil:
 			r.seg = *index.NewLogSegmentFromPatchEntry(entry, "", string(logFile), pos, index.TxSeqOf(entry), generation, entry.ScopeID)
+		case entry.IsSchemaCommit():
+			// Not indexed -- it lands nowhere -- and kept: an entry the records did not
+			// name was left out of the rewrite, which is how a schema commit would have
+			// gone silently.
+			r.seg = index.LogSegment{StartCommit: *entry.LastCommit, EndCommit: entry.Commit, LogFile: string(logFile), LogPosition: pos, LogFileGeneration: generation}
+			r.keep = true
 		default:
 			continue // not something the index describes
 		}
@@ -185,21 +189,11 @@ func segmentsOf(records []compactRecord) []index.LogSegment {
 	return out
 }
 
-// findPinnedCommit returns the commit of the active schema snapshot, or -1 if none.
-func (s *Storage) findPinnedCommit() int64 {
-	_, commit := s.schema.GetActive()
-	if commit > 0 {
-		return commit
-	}
-	return -1
-}
-
 // selectSurvivors decides which entries survive compaction, and which go.
 func (s *Storage) selectSurvivors(
 	records []compactRecord,
 	config *CompactionConfig,
 	now time.Time,
-	pinCommit int64,
 	cutoffTime time.Time,
 	dominated map[int64]bool,
 ) (survivors, dropped []compactRecord) {
@@ -210,6 +204,10 @@ func (s *Storage) selectSurvivors(
 	// slot from the root snapshots that are.
 	var rootSnapshots []compactRecord
 	for _, r := range records {
+		if r.keep {
+			survivors = append(survivors, r)
+			continue
+		}
 		if r.seg.StartCommit == r.seg.EndCommit && r.seg.KindedPath == "" {
 			rootSnapshots = append(rootSnapshots, r)
 			continue
@@ -236,7 +234,7 @@ func (s *Storage) selectSurvivors(
 
 	// Root snapshots: apply tier policy, on the groups the records make.
 	groups := s.buildSnapshotGroups(rootSnapshots)
-	policy := newCompactionPolicy(config, now, pinCommit)
+	policy := newCompactionPolicy(config, now)
 	kept := make(map[int64]bool)
 	for _, seg := range policy.selectSurvivors(groups) {
 		kept[seg.LogPosition] = true
@@ -251,20 +249,13 @@ func (s *Storage) selectSurvivors(
 	return survivors, dropped
 }
 
-// buildSnapshotGroups groups root snapshots by commit and filters out:
-// - aborted schema migration entries
-// - superseded pending schema migration entries
+// buildSnapshotGroups groups root snapshots by commit. Every root snapshot records the
+// schema in force at its commit, so none needs keeping for the schema's sake: whichever
+// survive carry it.
 func (s *Storage) buildSnapshotGroups(snapshots []compactRecord) []snapshotGroup {
-	// Get current pending migration state for filtering superseded pending entries
-	_, pendingCommit := s.schema.GetPending()
-	hasPending := s.schema.HasPending()
-
 	byCommit := make(map[int64]*snapshotGroup)
 	for _, r := range snapshots {
 		commit := r.seg.StartCommit
-		if r.schema != nil && s.shouldSkipSchemaEntry(r.schema, commit, hasPending, pendingCommit) {
-			continue
-		}
 		group := byCommit[commit]
 		if group == nil {
 			t := r.time
@@ -286,24 +277,6 @@ func (s *Storage) buildSnapshotGroups(snapshots []compactRecord) []snapshotGroup
 	}
 	sortSnapshotGroups(groups)
 	return groups
-}
-
-// shouldSkipSchemaEntry returns true if a schema entry should be filtered out during compaction.
-func (s *Storage) shouldSkipSchemaEntry(schemaEntry *dlog.SchemaEntry, commit int64, hasPending bool, pendingCommit int64) bool {
-	switch schemaEntry.Status {
-	case dlog.SchemaStatusAborted:
-		// Aborted migrations are always safe to remove
-		return true
-	case dlog.SchemaStatusPending:
-		// Remove superseded pending entries:
-		// - No pending migration in progress (completed or aborted)
-		// - Different commit than current pending (stale)
-		if !hasPending || commit != pendingCommit {
-			return true
-		}
-	}
-	// Active schema entries are handled by tier policy with pinned commit
-	return false
 }
 
 // unindexEntry removes every segment of the entry at pos from the index, deriving them

@@ -63,7 +63,8 @@
 //     pong means that server's request loop is alive. [PongResult] carries the head
 //     commit with it, which is how a client tracks the store's revision without
 //     holding a watch open for it, and the replay floor a watch may start from.
-//   - schema, migration, deleteScope: see their own types.
+//   - schema ([SchemaRequest]) reads the store's schema, or sets it as one commit.
+//   - deleteScope: see its type.
 //
 // # What a watch promises
 //

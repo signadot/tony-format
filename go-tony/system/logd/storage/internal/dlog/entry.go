@@ -5,31 +5,28 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
-// Schema status constants
-const (
-	SchemaStatusPending = "pending" // Start migration: the schema proposed
-	SchemaStatusActive  = "active"  // Complete migration or set initial schema
-	SchemaStatusAborted = "aborted" // Cancel migration: the proposal dropped
-)
-
-// SchemaEntry represents a schema change in the log.
-// Schema changes always occur at snapshot boundaries.
+// SchemaEntry is a schema in the log: the one a schema commit sets, or, on a root
+// snapshot, the one in force at the snapshot's commit. SetAt is the commit that set it,
+// which for a schema commit is the entry's own; a snapshot carries it so a rebuild from a
+// compacted log, where the schema commit itself may be gone, still knows when the schema
+// took effect (090mbrhsh12ksfr8mhn0).
 //
 //tony:schemagen=schema-entry
 type SchemaEntry struct {
 	// Schema is the Tony schema document (nil = schemaless)
 	Schema *ir.Node
 
-	// Status is one of SchemaStatusPending, SchemaStatusActive, or SchemaStatusAborted
-	Status string
+	// SetAt is the commit the schema was set at.
+	SetAt int64
 }
 
 // Entry represents a log entry written to logA/logB.
 // This structure supports these types of entries:
 //   - Transaction: Patch and TxSource set, SnapPos/SchemaEntry nil, *LastCommit=Commit-1
 //   - Snapshot: SnapPos set, SnapPath the path it is of (nil for the root), TxSource nil,
-//     LastCommit nil, SchemaEntry nil
-//   - Schema change: SchemaEntry set, SnapPos set (schema changes require snapshot)
+//     LastCommit nil; a root snapshot's SchemaEntry is the schema in force at its commit
+//   - Schema commit: SchemaEntry set, *LastCommit=Commit-1, Patch and SnapPos nil. A
+//     commit like any other in the sequence, with no delta (NewSchemaEntry).
 //   - Scope overlay: Patch, ScopeID and ScopeOverlay set, TxSource nil. Nothing writes one;
 //     a log that holds them still decodes (see ScopeOverlay).
 //
@@ -47,7 +44,7 @@ type Entry struct {
 	SnapPath    *string
 	LastCommit  *int64       // The commit a patch entry follows (Commit-1); nil for a snapshot
 	ScopeID     *string      // nil = baseline, non-nil = scope-specific data
-	SchemaEntry *SchemaEntry // Schema change (always with SnapPos for snapshot)
+	SchemaEntry *SchemaEntry // A schema commit's schema, or the one in force at a root snapshot
 
 	// ScopeOverlay marks an entry as a scope's materialized ownership rather than one of
 	// its writes: an overlay, which logd once wrote beside a baseline snapshot and no
@@ -60,6 +57,22 @@ type Entry struct {
 	// is rebuildable and the log is the record: index.Build takes the tx from TxSource,
 	// and an overlay has none.
 	ScopeOverlay bool
+}
+
+// NewSchemaEntry creates the dlog.Entry of a schema commit: commit takes the next number
+// in the one sequence, and from it on the store's schema is schema.
+func NewSchemaEntry(schema *ir.Node, commit int64, timestamp string, lastCommit int64) *Entry {
+	return &Entry{
+		Commit:      commit,
+		Timestamp:   timestamp,
+		LastCommit:  &lastCommit,
+		SchemaEntry: &SchemaEntry{Schema: schema, SetAt: commit},
+	}
+}
+
+// IsSchemaCommit reports whether e is a schema commit: a schema and no delta or snapshot.
+func (e *Entry) IsSchemaCommit() bool {
+	return e.SchemaEntry != nil && e.Patch == nil && e.SnapPos == nil
 }
 
 // NewEntry creates a dlog.Entry for a transaction commit.

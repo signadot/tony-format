@@ -21,11 +21,8 @@ func TestKeyedElementIsAddressableOverTheWire(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.StartMigration(schema); err != nil {
-		t.Fatalf("StartMigration: %s", err)
-	}
-	if _, err := store.CompleteMigration(); err != nil {
-		t.Fatalf("CompleteMigration: %s", err)
+	if _, err := store.SetSchema(schema, false); err != nil {
+		t.Fatalf("SetSchema: %s", err)
 	}
 	narrowWrite(t, store, "", `{items: [{sku: B, q: 2}, {sku: A, q: 1}]}`)
 
@@ -85,11 +82,8 @@ func TestPatchResponseAnswersKeyedArraysAsArrays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.StartMigration(schema); err != nil {
-		t.Fatalf("StartMigration: %s", err)
-	}
-	if _, err := store.CompleteMigration(); err != nil {
-		t.Fatalf("CompleteMigration: %s", err)
+	if _, err := store.SetSchema(schema, false); err != nil {
+		t.Fatalf("SetSchema: %s", err)
 	}
 
 	for _, test := range []struct{ name, request, want string }{

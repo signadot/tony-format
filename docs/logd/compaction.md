@@ -133,8 +133,9 @@ measuring from the end of the cutoff window:
 Within a tier the survivors are the **most recent** ones, not a spread across the
 tier, so a tier thins from its old end first.
 
-**The pinned snapshot** — the one carrying the active schema — always survives, in
-any tier, at any age.
+**The schema** needs no snapshot kept for its sake. A schema change is a commit of its
+own, which compaction never drops, and every root snapshot records the schema in force
+at its commit; whichever survive carry it.
 
 ## What cannot be configured
 

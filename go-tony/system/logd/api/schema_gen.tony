@@ -27,7 +27,6 @@ define:
   clientId: .[string]
   protocol: .[int]
   scope: .[nullable(string)]
-  usePending: .[bool]
 signature:
   name: session-hello
 ---
@@ -39,7 +38,6 @@ define:
   schema: .[tony-base:ir]
   schemaCommit: .[int]
   serverId: .[string]
-  usingPending: .[bool]
 signature:
   name: session-hello-response
 ---
@@ -61,14 +59,6 @@ define:
   commit: .[int]
 signature:
   name: session-match-result
----
-context:
-- tony-format/context
-define:
-  commit: .[int]
-  completed: .[bool]
-signature:
-  name: session-migration-result
 ---
 context:
 - tony-format/context
@@ -140,7 +130,8 @@ signature:
 ---
 context:
 - tony-format/context
-define: {}
+define:
+  at: .[nullable(int)]
 signature:
   name: session-schema-get-request
 ---
@@ -148,6 +139,7 @@ context:
 - tony-format/context
 - tony-base: github.com/signadot/tony-format/go-tony/schema
 define:
+  force: .[bool]
   schema: .[tony-base:ir]
 signature:
   name: session-schema-set-request
@@ -164,10 +156,8 @@ context:
 - tony-format/context
 - tony-base: github.com/signadot/tony-format/go-tony/schema
 define:
-  active: .[tony-base:ir]
-  activeCommit: .[int]
-  pending: .[tony-base:ir]
-  pendingCommit: .[int]
+  commit: .[int]
+  schema: .[tony-base:ir]
 signature:
   name: session-schema-result
 ---
@@ -204,7 +194,6 @@ define:
   hello: .[nullable(session-hello)]
   id: .[nullable(string)]
   match: .[nullable(session-match-request)]
-  migration: .[nullable(string)]
   newtx: .[nullable(session-newtx-request)]
   patch: .[nullable(session-patch-request)]
   ping: .[nullable(session-ping-request)]
@@ -237,7 +226,6 @@ define:
   deleteScope: .[nullable(session-delete-scope-result)]
   hello: .[nullable(session-hello-response)]
   match: .[nullable(session-match-result)]
-  migration: .[nullable(session-migration-result)]
   newtx: .[nullable(session-newtx-result)]
   patch: .[nullable(session-patch-result)]
   pong: .[nullable(session-pong-result)]

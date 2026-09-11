@@ -24,6 +24,9 @@ type Index struct {
 	// foot is the scopes' footprint (footprint.go), one for the whole index and shared
 	// down the trie the way the residency is.
 	foot *Footprint
+	// schemas is the schema history (schema_history.go), held on the root alone.
+	schemaMu sync.RWMutex
+	schemas  []SchemaAt
 }
 
 // newChild makes the node for a child path: the parent's residency and footprint, and

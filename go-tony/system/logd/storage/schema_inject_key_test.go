@@ -10,11 +10,8 @@ import (
 
 func declareKeyed(t *testing.T, s *Storage, doc string) {
 	t.Helper()
-	if _, err := s.StartMigration(mustParseBody(t, doc)); err != nil {
-		t.Fatalf("StartMigration: %v", err)
-	}
-	if _, err := s.CompleteMigration(); err != nil {
-		t.Fatalf("CompleteMigration: %v", err)
+	if _, err := s.SetSchema(mustParseBody(t, doc), false); err != nil {
+		t.Fatalf("SetSchema: %v", err)
 	}
 }
 

@@ -15,7 +15,7 @@ func TestTierForAge(t *testing.T) {
 		Multiplier:   2,
 	}
 	now := time.Now()
-	policy := newCompactionPolicy(config, now, -1)
+	policy := newCompactionPolicy(config, now)
 
 	tests := []struct {
 		name     string
@@ -51,23 +51,22 @@ func TestAssignToTiers(t *testing.T) {
 		Multiplier:   2,
 	}
 	now := time.Now()
-	pinCommit := int64(5)
-	policy := newCompactionPolicy(config, now, pinCommit)
+	policy := newCompactionPolicy(config, now)
 
 	groups := []snapshotGroup{
 		{commit: 1, time: now.Add(-30 * time.Minute)}, // within cutoff
 		{commit: 2, time: now.Add(-90 * time.Minute)}, // tier 0
 		{commit: 3, time: now.Add(-3 * time.Hour)},    // tier 1
 		{commit: 4, time: now.Add(-6 * time.Hour)},    // tier 2
-		{commit: 5, time: now.Add(-10 * time.Hour)},   // pinned (regardless of age)
+		{commit: 5, time: now.Add(-10 * time.Hour)},   // tier 3
 		{commit: 6, time: now.Add(-20 * time.Minute)}, // within cutoff
 	}
 
 	tiers := policy.assignToTiers(groups)
 
-	// Check pinned tier (-2)
-	if len(tiers[-2]) != 1 || tiers[-2][0].commit != 5 {
-		t.Errorf("expected commit 5 in pinned tier, got %v", tiers[-2])
+	// Check tier 3
+	if len(tiers[3]) != 1 || tiers[3][0].commit != 5 {
+		t.Errorf("expected commit 5 in tier 3, got %v", tiers[3])
 	}
 
 	// Check within-cutoff tier (-1)
@@ -95,7 +94,7 @@ func TestSelectFromTier(t *testing.T) {
 	config := &CompactionConfig{
 		SlotsPerTier: 3,
 	}
-	policy := newCompactionPolicy(config, time.Now(), -1)
+	policy := newCompactionPolicy(config, time.Now())
 
 	t.Run("negative tier keeps all", func(t *testing.T) {
 		groups := make([]snapshotGroup, 10)
@@ -150,7 +149,7 @@ func TestSelectSurvivors(t *testing.T) {
 		Multiplier:   2,
 	}
 	now := time.Now()
-	policy := newCompactionPolicy(config, now, -1)
+	policy := newCompactionPolicy(config, now)
 
 	// Create groups with segments
 	seg := func(commit int64) index.LogSegment {

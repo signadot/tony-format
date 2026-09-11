@@ -85,7 +85,6 @@ func (l *TCPListener) handleConnection(conn net.Conn) {
 		Hub:        l.hub,
 		Log:        l.server.Spec.Log,
 		OnCommit:   l.server.onCommit,
-		Schema:     l.server.Spec.Config.Schema,
 		ReadBudget: readBudget,
 	})
 

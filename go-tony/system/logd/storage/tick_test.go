@@ -9,19 +9,6 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
-// windowResolver runs fn inside a commit's critical section. doCommit calls GetSchema
-// after NextCommit and before WriteAndIndex, which is exactly the window in which the
-// commit number exists but the entry does not — the window GetCurrentCommit used to
-// leak.
-type windowResolver struct{ fn func() }
-
-func (w windowResolver) GetSchema(scopeID *string) *api.Schema {
-	if w.fn != nil {
-		w.fn()
-	}
-	return nil
-}
-
 // A commit the watermark names must be readable. Reporting the allocated number instead
 // meant a watch could take a replay target that was in neither the log nor the index:
 // the replay then missed that commit, recorded it as replayed, and dropped its live
@@ -40,7 +27,9 @@ func TestTick_WatermarkNamesOnlyReadableCommits(t *testing.T) {
 	// A read consults the schema too -- to raise what it answers -- so the probe below
 	// would re-enter itself through its own reads. It measures once per entry.
 	var probing bool
-	s.SetSchemaResolver(windowResolver{fn: func() {
+	// Runs inside the commit's critical section (Storage.inCommit), with the commit in
+	// flight: the window GetCurrentCommit used to leak.
+	s.inCommit = func() {
 		if probing {
 			return
 		}
@@ -51,7 +40,7 @@ func TestTick_WatermarkNamesOnlyReadableCommits(t *testing.T) {
 		if ns, err := readPatchesInRange(s, "", inWindow, inWindow, nil); err == nil {
 			patches = len(ns)
 		}
-	}})
+	}
 
 	committed := commitValue(t, s, `{b: 2}`)
 

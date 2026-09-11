@@ -18,11 +18,8 @@ import (
 func TestSchemaKeyField_ClientSuppliedKeyIsSayable(t *testing.T) {
 	s := openTestStorage(t)
 	node := mustParseBody(t, `{define: {items: {name: !logd-key null}}}`)
-	if _, err := s.StartMigration(node); err != nil {
-		t.Fatalf("StartMigration: %v", err)
-	}
-	if _, err := s.CompleteMigration(); err != nil {
-		t.Fatalf("CompleteMigration: %v", err)
+	if _, err := s.SetSchema(node, false); err != nil {
+		t.Fatalf("SetSchema: %v", err)
 	}
 
 	if f := strings.Join(s.schemaForScope(nil).Identity("items"), ","); f != "name" {
@@ -56,11 +53,8 @@ func TestSchemaKeyField_ClientSuppliedKeyIsSayable(t *testing.T) {
 // one identity, the tuple of them (element_identity.md).
 func TestSchemaKeyField_TwoKeysAreOneIdentity(t *testing.T) {
 	s := openTestStorage(t)
-	if _, err := s.StartMigration(mustParseBody(t, `{define: {items: {name: !logd-key null, other: !logd-key null}}}`)); err != nil {
+	if _, err := s.SetSchema(mustParseBody(t, `{define: {items: {name: !logd-key null, other: !logd-key null}}}`), false); err != nil {
 		t.Fatalf("a composite identity was refused: %v", err)
-	}
-	if _, err := s.CompleteMigration(); err != nil {
-		t.Fatal(err)
 	}
 	if got := strings.Join(s.schemaForScope(nil).Identity("items"), ","); got != "name,other" {
 		t.Errorf("identity %q, want name,other", got)
@@ -80,9 +74,9 @@ func TestSchemaKeyField_AmbiguousSchemaIsRejected(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := openTestStorage(t)
-			_, err := s.StartMigration(mustParseBody(t, tc.doc))
+			_, err := s.SetSchema(mustParseBody(t, tc.doc), false)
 			if err == nil {
-				t.Fatal("expected the migration to be refused")
+				t.Fatal("expected the schema to be refused")
 			}
 			if !strings.Contains(err.Error(), tc.wantErr) {
 				t.Errorf("error did not mention %q: %v", tc.wantErr, err)

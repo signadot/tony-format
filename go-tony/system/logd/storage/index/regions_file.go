@@ -38,7 +38,7 @@ import (
 //	3  regions: index.regions and index.manifest replace index.gob
 //	4  the footprint: a segment says whether it is a statement and what it covers, and the
 //	   manifest holds every scope's live statements (footprint.go)
-const IndexFormatVersion = 4
+const IndexFormatVersion = 5 // 5: the manifest carries the schema history
 
 const (
 	regionsFileName  = "index.regions"
@@ -148,7 +148,8 @@ type Manifest struct {
 	Generations map[string]int64 // log file -> generation when written; a mismatch means positions moved
 	FileSize    int64            // the regions file's frontier when written; beyond it is torn
 	Nodes       []ManifestNode
-	Scopes      []ManifestScope // every scope's live statements (footprint.go)
+	Scopes      []ManifestScope  // every scope's live statements (footprint.go)
+	Schemas     []ManifestSchema // the schema history (schema_history.go)
 }
 
 type ManifestNode struct {
@@ -260,6 +261,9 @@ func OpenIndex(dir string, generation func(logFile string) int64) (idx *Index, m
 		}
 	}
 	idx.foot.load(m.Scopes)
+	if err := idx.loadSchemas(m.Schemas); err != nil {
+		return fresh(err.Error())
+	}
 	return idx, m, "", nil
 }
 
@@ -320,6 +324,10 @@ func (i *Index) Persist(generations map[string]int64) error {
 	i.res.file.mu.RLock()
 	size := i.res.file.size
 	i.res.file.mu.RUnlock()
+	schemas, err := i.manifestSchemas()
+	if err != nil {
+		return err
+	}
 	m := &Manifest{
 		Version:     IndexFormatVersion,
 		MaxCommit:   maxCommit,
@@ -327,6 +335,7 @@ func (i *Index) Persist(generations map[string]int64) error {
 		FileSize:    size,
 		Nodes:       nodes,
 		Scopes:      i.foot.snapshot(),
+		Schemas:     schemas,
 	}
 	return writeManifest(filepath.Dir(i.res.file.path), m)
 }

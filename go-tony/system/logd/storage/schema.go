@@ -1,291 +1,156 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
+	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/dlog"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/patches"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/internal/snap"
 )
 
-// Schema operation errors
-var (
-	ErrMigrationInProgress   = fmt.Errorf("migration already in progress")
-	ErrNoMigrationInProgress = fmt.Errorf("no migration in progress")
-)
+// The schema, and changing it.
+//
+// A schema change is a COMMIT: one entry in the one log, numbered in the one sequence,
+// taken under commitMu like every write, so the schema in force is a function of the
+// commit -- every commit before it was lowered under the schema before, every commit
+// after under this one -- and a read at a commit knows which schema it is looking
+// through (SchemaAt). The entry carries no delta (dlog.NewSchemaEntry), and every root
+// snapshot afterwards records the schema in force at its commit, which is what lets a
+// compacted log, with the schema commit itself gone, still say which schema its
+// surviving snapshots were taken under. The history is rebuilt from the log with the
+// index, and persisted with it (index/schema_history.go).
+//
+// There is no pending schema. A migration used to be proposed, held pending beside a
+// second index, and completed at a second snapshot; the second index was a copy of the
+// first that lost every commit it missed, and the two phases bought nothing -- writes in
+// between were lowered under the old schema regardless (090mbrhsh12ksfr8mhn0).
 
-// replaySchemaState reconstructs schema state from snapshot entries during init.
-// Since schema changes are coupled with snapshots, we scan snapshots in the index
-// rather than iterating through the entire dlog.
-func (s *Storage) replaySchemaState() error {
-	// Get all segments from the index and filter for baseline snapshots
-	// Use LookupRangeAll to get all segments, including multiple at same commit
-	allSegments := s.index.LookupRangeAll("", nil, nil)
-
-	// Filter for baseline snapshot segments (scopeID == nil, StartCommit == EndCommit)
-	var snapshots []index.LogSegment
-	for _, seg := range allSegments {
-		if seg.StartCommit == seg.EndCommit && seg.ScopeID == nil {
-			snapshots = append(snapshots, seg)
-		}
-	}
-
-	if len(snapshots) == 0 {
-		return nil // No snapshots, no schema state
-	}
-
-	// Sort by log position to ensure chronological order
-	// (multiple snapshots at same commit should be in write order)
-	sort.Slice(snapshots, func(i, j int) bool {
-		if snapshots[i].LogFile != snapshots[j].LogFile {
-			return snapshots[i].LogFile < snapshots[j].LogFile
-		}
-		return snapshots[i].LogPosition < snapshots[j].LogPosition
-	})
-
-	// Track state as we replay
-	var activeSchema *ir.Node
-	var activeSchemaCommit int64
-	var pendingSchema *ir.Node
-	var pendingSchemaCommit int64
-
-	// Process snapshots in commit order (they're already sorted)
-	for _, seg := range snapshots {
-		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition, seg.LogFileGeneration)
-		if err != nil {
-			return fmt.Errorf("failed to read snapshot entry at commit %d: %w", seg.StartCommit, err)
-		}
-
-		// Skip snapshots without schema changes
-		if entry.SchemaEntry == nil {
-			continue
-		}
-
-		se := entry.SchemaEntry
-		switch se.Status {
-		case dlog.SchemaStatusPending:
-			pendingSchema = se.Schema
-			pendingSchemaCommit = entry.Commit
-
-		case dlog.SchemaStatusActive:
-			// If we had a pending migration, it's now complete
-			activeSchema = se.Schema
-			activeSchemaCommit = entry.Commit
-			pendingSchema = nil
-			pendingSchemaCommit = 0
-
-		case dlog.SchemaStatusAborted:
-			// Migration was aborted, clear pending state
-			pendingSchema = nil
-			pendingSchemaCommit = 0
-		}
-	}
-
-	// Apply final state (no lock needed during init - single goroutine)
-	s.schema.SetActive(activeSchema, activeSchemaCommit)
-
-	if pendingSchema != nil {
-		s.schema.SetPending(pendingSchema, pendingSchemaCommit, api.ParseSchemaFromNode(pendingSchema))
-		s.logger.Info("restored pending migration state",
-			"activeSchemaCommit", activeSchemaCommit,
-			"pendingSchemaCommit", pendingSchemaCommit)
-	} else if activeSchema != nil {
-		s.logger.Info("restored schema state", "activeSchemaCommit", activeSchemaCommit)
-	}
-
-	return nil
+// SchemaRefusedError is a schema the store will not adopt, as the client's mistake: what
+// it declares cannot mean what it says (api.Schema.Validate), or the data held cannot
+// follow it (identityChangeAllowed). The remedy is the client's.
+type SchemaRefusedError struct {
+	Err error
 }
 
-// StartMigration begins a schema migration by setting a pending schema.
-// Returns ErrMigrationInProgress if a migration is already in progress.
-// This creates a snapshot with the pending schema, and answers the snapshot's commit.
+func (e *SchemaRefusedError) Error() string { return "schema cannot be adopted: " + e.Err.Error() }
+func (e *SchemaRefusedError) Unwrap() error { return e.Err }
+
+// SetSchema makes schema the store's schema from the commit it answers on: one commit,
+// after which every write is lowered under it. It is refused (SchemaRefusedError) when
+// the schema cannot mean what it says, or when an array would gain or change an identity
+// while it holds elements, which have no names under the new one. An array LOSING its
+// identity is refused too, unless force: its elements stay held under their names, and
+// read back as the object of names the store keeps rather than as an array.
 //
-// A schema that does not validate is refused, and so is one that changes an array's
-// identity in a way the stored data cannot follow: an array losing or changing its
-// identity, or gaining one while it holds elements written by position.
-func (s *Storage) StartMigration(schema *ir.Node) (int64, error) {
-	unlock := s.lockSchemaChange()
-	defer unlock()
+// Setting the schema the store already has is a commit like any other setting: it takes
+// a number and answers it.
+func (s *Storage) SetSchema(schema *ir.Node, force bool) (int64, error) {
+	// Under the commit lock with every write: the schema takes effect at a commit, and
+	// a write is lowered under the schema of the commit it takes -- not one that changed
+	// between its precondition and its append.
+	s.commitMu.Lock()
+	defer s.commitMu.Unlock()
 
-	if s.schema.HasPending() {
-		return 0, ErrMigrationInProgress
-	}
-
-	// Reject a schema that cannot mean what it says BEFORE it is written. Key derivation
-	// decides what a stored delta records, and a delta cannot be un-recorded, so an
-	// ambiguous schema is caught where it is proposed rather than where it bites.
 	parsed := api.ParseSchemaFromNode(schema)
 	if err := parsed.Validate(); err != nil {
-		return 0, fmt.Errorf("schema cannot be adopted: %w", err)
+		return 0, &SchemaRefusedError{Err: err}
 	}
-	if err := s.identityChangeAllowed(parsed); err != nil {
-		return 0, fmt.Errorf("schema cannot be adopted: %w", err)
-	}
-
-	commit, err := s.createSchemaSnapshot(schema, dlog.SchemaStatusPending)
-	if err != nil {
-		return 0, err
-	}
-	s.schema.SetPending(schema, commit, parsed)
-	return commit, nil
-}
-
-// CompleteMigration completes a pending schema migration.
-// Returns ErrNoMigrationInProgress if no migration is in progress.
-// This creates a snapshot with the active schema, which applies to every commit after it.
-//
-// The index is not touched: it holds stored deltas, the same under either schema. A
-// pending index built beside it and swapped in here was a copy of it, and everything the
-// copy missed -- commits during Start and here, everything before the previous
-// migration, every snapshot -- was lost at the swap (090mbrhsh12ksfr8mhn0).
-func (s *Storage) CompleteMigration() (int64, error) {
-	unlock := s.lockSchemaChange()
-	defer unlock()
-
-	pendingSchema, _ := s.schema.GetPending()
-	if pendingSchema == nil {
-		return 0, ErrNoMigrationInProgress
+	if err := s.identityChangeAllowed(parsed, force); err != nil {
+		return 0, &SchemaRefusedError{Err: err}
 	}
 
-	// Asked again, here, where it takes effect: the writes since StartMigration were
-	// lowered under the active schema, and one of them can have put elements by position
-	// into an array this schema gives an identity to.
-	if err := s.identityChangeAllowed(s.schema.GetPendingParsed()); err != nil {
-		return 0, fmt.Errorf("schema cannot be adopted: %w", err)
-	}
-
-	commit, err := s.createSchemaSnapshot(pendingSchema, dlog.SchemaStatusActive)
-	if err != nil {
-		return 0, err
-	}
-	s.schema.PromotePending(commit)
-	return commit, nil
-}
-
-// AbortMigration aborts a pending schema migration.
-// Returns ErrNoMigrationInProgress if no migration is in progress.
-func (s *Storage) AbortMigration() (int64, error) {
-	unlock := s.lockSchemaChange()
-	defer unlock()
-
-	if !s.schema.HasPending() {
-		return 0, ErrNoMigrationInProgress
-	}
-
-	commit, err := s.createSchemaSnapshot(nil, dlog.SchemaStatusAborted)
-	if err != nil {
-		return 0, err
-	}
-
-	s.schema.ClearPending()
-
-	return commit, nil
-}
-
-// lockSchemaChange orders a schema change with what it must not interleave with:
-// commitMu, which every commit holds from its precondition to its publication, so a
-// schema snapshot takes the next commit number with every earlier commit already in the
-// index, and no write is lowered under one schema and stored after the other; and snapMu,
-// which the inactive log's other writers hold -- the switch, compaction, a path snapshot.
-// In that order: nothing holding snapMu waits on a commit (gdpv3fsvh12ksynxmdn0).
-func (s *Storage) lockSchemaChange() (unlock func()) {
-	s.commitMu.Lock()
-	s.snapMu.Lock()
-	return func() {
-		s.snapMu.Unlock()
-		s.commitMu.Unlock()
-	}
-}
-
-// createSchemaSnapshot creates a snapshot with a schema change entry.
-// This is similar to createSnapshot but includes the SchemaEntry.
-// Each schema snapshot gets its own commit number to avoid duplicates at the same commit.
-// The caller holds lockSchemaChange.
-func (s *Storage) createSchemaSnapshot(schema *ir.Node, status string) (int64, error) {
-	// Allocate a new commit number for this schema snapshot
 	commit, err := s.sequence.NextCommit()
 	if err != nil {
-		return 0, fmt.Errorf("failed to get next commit: %w", err)
+		return 0, fmt.Errorf("failed to allocate commit: %w", err)
 	}
-
-	// Find most recent snapshot and get base event reader (up to previous commit)
-	prevCommit := commit - 1
-	if prevCommit < 0 {
-		prevCommit = 0
-	}
-	baseReader, startCommit, err := s.findSnapshotBaseReader(prevCommit)
-	if err != nil {
-		return 0, err
-	}
-	defer baseReader.Close()
-
-	patchNodes, err := s.patchesSince(startCommit, prevCommit)
-	if err != nil {
-		return 0, err
-	}
-
-	// Create snapshot writer for inactive log
 	timestamp := time.Now().UTC().Format(time.RFC3339)
-	snapWriter, err := s.dLog.NewSnapshotWriter(commit, timestamp)
+	entry := dlog.NewSchemaEntry(schema, commit, timestamp, commit-1)
+	_, logFile, err := s.dLog.AppendEntry(entry)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create snapshot writer: %w", err)
+		return 0, fmt.Errorf("failed to write the schema commit: %w", err)
 	}
-	snapWriter.SetScopeID(nil)
-	snapWriter.SetSchemaEntry(&dlog.SchemaEntry{
-		Schema: schema,
-		Status: status,
-	})
-
-	// Build snapshot directly to log file (out-of-memory)
-	snapIndex := &snap.Index{}
-	builder, err := snap.NewBuilder(snapWriter, snapIndex)
-	if err != nil {
-		snapWriter.Abandon() // Unlock without writing Entry
-		return 0, fmt.Errorf("failed to create snapshot builder: %w", err)
+	if s.durability == DurabilitySync {
+		if err := s.dLog.Sync(logFile); err != nil {
+			return 0, fmt.Errorf("failed to sync log after the schema commit: %w", err)
+		}
 	}
 
-	// Apply patches - events flow directly from baseReader → builder → log file
-	applier := patches.NewStreamingProcessor()
-	if err := applier.ApplyPatches(baseReader, patchNodes, builder); err != nil {
-		snapWriter.Abandon()
-		return 0, fmt.Errorf("failed to apply patches: %w", err)
-	}
-
-	// Close builder to finalize snapshot format (writes index and header)
-	// Note: builder.Close() will call snapWriter.Close(), which writes the Entry
-	if err := builder.Close(); err != nil {
-		return 0, fmt.Errorf("failed to close snapshot builder: %w", err)
-	}
-
-	// Get generation for the snapshot segment
-	generation := s.dLog.GetGeneration(snapWriter.LogFileID())
-
-	snapSeg := &index.LogSegment{
-		StartCommit:       commit,
-		EndCommit:         commit,
-		StartTx:           0,
-		EndTx:             0,
-		KindedPath:        "",
-		LogFile:           string(snapWriter.LogFileID()),
-		LogPosition:       snapWriter.EntryPosition(),
-		LogFileGeneration: generation,
-		ScopeID:           nil,
-	}
-	s.index.Add(snapSeg)
-
-	// In the log and in the baseline index, so it is readable: advance the watermark.
-	// No notification — a schema snapshot carries no patch for a watcher to apply.
+	// Noted where the rebuild would note it, so the next persist carries it; and in
+	// force from here on. Then readable: the watermark advances, with nothing for a
+	// watcher to apply.
+	s.index.NoteSchema(commit, schema)
+	s.schema.append(commit, schema)
 	s.tick.publish(commit, nil)
 
-	s.logger.Info("schema snapshot created", "commit", commit, "status", status, "logFile", snapWriter.LogFileID(), "position", snapWriter.EntryPosition())
+	s.logger.Info("schema set", "commit", commit, "keyedPaths", len(parsed.KeyedPaths()))
 	return commit, nil
+}
+
+// BootstrapSchema is the configured schema meeting the store: a store with no schema of
+// its own adopts it, as a commit; a store whose schema is the configured one has
+// nothing to do; and a store whose schema DIFFERS is refused, naming both, since a
+// configuration file is not where a schema changes -- a change is a commit, held to the
+// checks SetSchema makes, and a file edited between restarts is held to none of them.
+func (s *Storage) BootstrapSchema(schema *ir.Node) error {
+	if schema == nil {
+		return nil
+	}
+	active, at := s.schema.Active()
+	if active == nil {
+		commit, err := s.SetSchema(schema, false)
+		if err != nil {
+			return fmt.Errorf("adopting the configured schema: %w", err)
+		}
+		s.logger.Info("adopted the configured schema", "commit", commit)
+		return nil
+	}
+	if SameSchema(active, schema) {
+		return nil
+	}
+	return fmt.Errorf("the store's schema, set at commit %d, is not the configured one: "+
+		"a schema changes by a schema request on a baseline session, not by editing the "+
+		"configuration; configure the store's schema, or change it through the session",
+		at)
+}
+
+// SameSchema reports whether two schema documents say the same thing.
+func SameSchema(a, b *ir.Node) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return tony.Diff(a, b) == nil
+}
+
+// GetActiveSchema returns the current active schema and the commit where it was set.
+// Returns nil schema and 0 commit if schemaless.
+func (s *Storage) GetActiveSchema() (*ir.Node, int64) {
+	return s.schema.Active()
+}
+
+// SchemaAt answers the schema in force at commit, and the commit that set it: the last
+// one set at or before it, nil and 0 when none was.
+func (s *Storage) SchemaAt(commit int64) (*ir.Node, int64) {
+	return s.schema.At(commit)
+}
+
+// SchemaHistory answers every schema the store has had, in commit order.
+func (s *Storage) SchemaHistory() []SchemaAt {
+	var out []SchemaAt
+	for _, sa := range s.index.SchemaHistory() {
+		out = append(out, SchemaAt{Commit: sa.Commit, Schema: sa.Schema})
+	}
+	return out
+}
+
+// SchemaAt is one schema and the commit it took effect at.
+type SchemaAt struct {
+	Commit int64
+	Schema *ir.Node
 }
 
 // identityChangeAllowed refuses a schema that changes which arrays have an identity in a
@@ -296,46 +161,74 @@ func (s *Storage) createSchemaSnapshot(schema *ir.Node, status string) (int64, e
 // already written by position have no names to be found under, so the identity is
 // declared before the array is written, or the array is emptied first -- a refusal here,
 // where it is a schema error, rather than elements that vanish from every read after
-// the migration commit. An array that LOSES an identity is refused for the same reason
-// a rename is: the elements it would strand have names and no successor to hold them
-// (element_identity.md).
-func (s *Storage) identityChangeAllowed(pending *api.Schema) error {
-	active := s.schemaForScope(nil)
-	for _, p := range active.KeyedPaths() {
-		if !pending.Keyed(p) {
-			return fmt.Errorf("%q cannot lose its identity %s: its elements are held under their names",
-				p, strings.Join(active.Identity(p), ","))
+// the schema commit. Changing an identity strands the elements the same way. An array
+// that LOSES one is refused for the same reason, unless forced: the elements stay under
+// their names, and what was an array reads back as the object of names the store holds
+// (element_identity.md). Deriving names for a gain, and an array back from names for a
+// loss, is the rewrite 090mbrhsh12ksfr8mhn0 phase 2 adds.
+//
+// Asked at the commit, under commitMu, so no write lands between the question and the
+// schema taking effect.
+func (s *Storage) identityChangeAllowed(pending *api.Schema, force bool) error {
+	active := s.schema.ActiveParsed()
+	commit := s.tick.current()
+	held := func(p string) (*ir.Node, error) {
+		if commit == 0 {
+			return nil, nil
 		}
-	}
-	commit, err := s.GetCurrentCommit()
-	if err != nil || commit == 0 {
-		return nil
-	}
-	for _, p := range pending.KeyedPaths() {
 		c, err := s.Read(commit, nil, p)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		held, err := collectAll(c)
+		n, err := collectAll(c)
+		if err != nil {
+			return nil, err
+		}
+		return ir.Uncomment(n), nil
+	}
+	for _, p := range active.KeyedPaths() {
+		if pending.Keyed(p) {
+			continue
+		}
+		n, err := held(p)
 		if err != nil {
 			return err
 		}
-		held = ir.Uncomment(held)
+		if n == nil || n.Type != ir.ObjectType || len(n.Fields) == 0 {
+			continue // nothing held under a name; nothing to strand
+		}
+		if force {
+			s.logger.Warn("an array loses its identity by force; its elements stay under their names",
+				"path", p, "identity", strings.Join(active.Identity(p), ","), "elements", len(n.Fields))
+			continue
+		}
+		return fmt.Errorf("%q cannot lose its identity %s: its %d elements are held under their names "+
+			"(force it, and they stay there, read back as an object of names)",
+			p, strings.Join(active.Identity(p), ","), len(n.Fields))
+	}
+	for _, p := range pending.KeyedPaths() {
+		n, err := held(p)
+		if err != nil {
+			return err
+		}
 		if active.Keyed(p) {
-			// Held under their names, as an object of them: a change strands every one.
-			// An array holding none strands nothing -- and the store holding a commit is
-			// not the array holding an element, since a schema change is a commit too.
-			if !slices.Equal(active.Identity(p), pending.Identity(p)) && held != nil && held.Type == ir.ObjectType && len(held.Fields) > 0 {
+			if !slices.Equal(active.Identity(p), pending.Identity(p)) && n != nil && n.Type == ir.ObjectType && len(n.Fields) > 0 {
 				return fmt.Errorf("%q cannot change its identity from %s to %s: its elements are held under their names",
 					p, strings.Join(active.Identity(p), ","), strings.Join(pending.Identity(p), ","))
 			}
 			continue
 		}
-		if held != nil && held.Type == ir.ArrayType && len(held.Values) > 0 {
+		if n != nil && n.Type == ir.ArrayType && len(n.Values) > 0 {
 			return fmt.Errorf("%q cannot be given the identity %s: it already holds %d elements written by "+
 				"position, which have no names; declare the identity before the array is written, or empty it first",
-				p, strings.Join(pending.Identity(p), ","), len(held.Values))
+				p, strings.Join(pending.Identity(p), ","), len(n.Values))
 		}
 	}
 	return nil
+}
+
+// IsSchemaRefused reports whether err is a schema the store refused to adopt.
+func IsSchemaRefused(err error) bool {
+	var r *SchemaRefusedError
+	return errors.As(err, &r)
 }

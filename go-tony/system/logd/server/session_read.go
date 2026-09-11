@@ -22,12 +22,6 @@ import (
 
 // handleMatch handles match (read) requests.
 func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
-	// Check if session using pending is still valid
-	if errMsg := s.checkPendingValid(); errMsg != "" {
-		s.sendError(id, api.ErrCodeMigrationAborted, errMsg)
-		return
-	}
-
 	path := req.Path
 
 	// Validate path

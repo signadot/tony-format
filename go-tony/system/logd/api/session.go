@@ -23,10 +23,9 @@ import (
 //
 //tony:schemagen=session-hello,notag
 type Hello struct {
-	ClientID   string  `tony:"field=clientId"`
-	Protocol   int     `tony:"field=protocol,omitzero"` // 0 = a client from before versions existed
-	Scope      *string `tony:"field=scope"`             // Optional: scope for COW isolation (applies to all operations in session)
-	UsePending bool    `tony:"field=usePending"`        // If true, answer with the pending schema; requests fail with migration_aborted once it is aborted (for testing migrations)
+	ClientID string  `tony:"field=clientId"`
+	Protocol int     `tony:"field=protocol,omitzero"` // 0 = a client from before versions existed
+	Scope    *string `tony:"field=scope"`             // Optional: scope for COW isolation (applies to all operations in session)
 }
 
 // ProtocolVersion is the session protocol this build speaks, sent in Hello and answered in
@@ -59,9 +58,8 @@ const ProtocolVersion = 2
 type HelloResponse struct {
 	ServerID     string   `tony:"field=serverId"`
 	Protocol     int      `tony:"field=protocol,omitzero"` // the version the SERVER speaks
-	Schema       *ir.Node `tony:"field=schema"`            // Server's schema (active or pending based on UsePending)
+	Schema       *ir.Node `tony:"field=schema"`            // The store's schema (nil if schemaless)
 	SchemaCommit int64    `tony:"field=schemaCommit"`      // Commit where this schema was set (0 if schemaless)
-	UsingPending bool     `tony:"field=usingPending"`      // True if session is using pending schema
 }
 
 // MatchRequest is a request to read state at a path: the path restricts the read to
@@ -174,30 +172,30 @@ type DeleteScopeRequest struct {
 	ScopeID string `tony:"field=scopeId"`
 }
 
-// SchemaGetRequest requests the current schema state.
+// SchemaGetRequest asks for the store's schema: the one in force now, or, with At, the
+// one in force at that commit.
 //
 //tony:schemagen=session-schema-get-request,notag
-type SchemaGetRequest struct{}
+type SchemaGetRequest struct {
+	At *int64 `tony:"field=at"` // Optional: the commit to ask about (default: now)
+}
 
-// SchemaSetRequest starts a schema migration to a new schema.
-// This always starts a migration - send a migration request with MigrationComplete
-// to finalize it, or MigrationAbort to discard it.
+// SchemaSetRequest sets the store's schema, as one commit: the response names it, and
+// every write after it is lowered under the new schema. Only a baseline session may
+// set a schema.
 //
-// A storage without an explicit schema uses an implicit "accept-all" schema.
-// The first SchemaSetRequest migrates from accept-all to the specified schema.
-//
-// # Identity and auto-ID during a migration
-//
-// Until the migration completes, writes are lowered under the ACTIVE schema,
-// auto-ID injection (!logd-auto-id) included; the pending schema governs the
-// commits after completion. An array gains or changes an identity -- a
-// !logd-key or a !logd-auto-id -- only while it holds no elements, and never
-// loses one: setting such a schema is refused, and completing asks again, since
-// a write in between can have filled the array.
+// A schema the store cannot adopt is refused with schema_refused: one that cannot mean
+// what it says (two identities for one array), or one the data cannot follow -- an
+// array gaining or changing an identity (!logd-key, !logd-auto-id) while it holds
+// elements, which have no names under the new one; declare the identity before the
+// array is written, or empty it first. An array LOSING its identity is refused too,
+// unless Force: its elements stay held under their names, and read back as the object
+// of names the store keeps rather than as an array.
 //
 //tony:schemagen=session-schema-set-request,notag
 type SchemaSetRequest struct {
-	Schema *ir.Node `tony:"field=schema"` // New schema to migrate to
+	Schema *ir.Node `tony:"field=schema"`         // The schema to set
+	Force  bool     `tony:"field=force,omitzero"` // Let an array lose its identity
 }
 
 // SchemaRequest is a request for schema operations.
@@ -205,28 +203,8 @@ type SchemaSetRequest struct {
 //
 //tony:schemagen=session-schema-request,notag
 type SchemaRequest struct {
-	Get *SchemaGetRequest `tony:"field=get"` // Get current schema state
-	Set *SchemaSetRequest `tony:"field=set"` // Start migration to new schema
-}
-
-// MigrationAction represents a migration lifecycle action.
-// Valid values are "complete" or "abort".
-type MigrationAction string
-
-const (
-	MigrationComplete MigrationAction = "complete"
-	MigrationAbort    MigrationAction = "abort"
-)
-
-// MarshalText implements encoding.TextMarshaler.
-func (a MigrationAction) MarshalText() ([]byte, error) {
-	return []byte(a), nil
-}
-
-// UnmarshalText implements encoding.TextUnmarshaler.
-func (a *MigrationAction) UnmarshalText(text []byte) error {
-	*a = MigrationAction(text)
-	return nil
+	Get *SchemaGetRequest `tony:"field=get"` // Get the schema
+	Set *SchemaSetRequest `tony:"field=set"` // Set the schema
 }
 
 // SessionRequest is the top-level request message (union type).
@@ -251,8 +229,7 @@ type SessionRequest struct {
 	Unwatch     *UnwatchRequest     `tony:"field=unwatch"`
 	DeleteScope *DeleteScopeRequest `tony:"field=deleteScope"`
 	Schema      *SchemaRequest      `tony:"field=schema"`
-	Migration   *MigrationAction    `tony:"field=migration"` // "complete" or "abort"
-	Ping        *PingRequest        `tony:"field=ping"`      // liveness probe; answered by whatever server owns the connection
+	Ping        *PingRequest        `tony:"field=ping"` // liveness probe; answered by whatever server owns the connection
 }
 
 // PingRequest is a liveness probe. The server that owns the connection answers it
@@ -335,22 +312,13 @@ type DeleteScopeResult struct {
 	ScopeID string `tony:"field=scopeId"` // The deleted scope ID
 }
 
-// SchemaResult is the result of a schema get/set request.
+// SchemaResult is the result of a schema get/set request: the schema, and the commit
+// that set it -- for a set, the commit the set is.
 //
 //tony:schemagen=session-schema-result,notag
 type SchemaResult struct {
-	Active        *ir.Node `tony:"field=active"`        // Current active schema (nil = schemaless)
-	ActiveCommit  int64    `tony:"field=activeCommit"`  // Commit where active schema was set
-	Pending       *ir.Node `tony:"field=pending"`       // Pending schema if migration in progress (nil = none)
-	PendingCommit int64    `tony:"field=pendingCommit"` // Commit where pending schema was set (0 if none)
-}
-
-// MigrationResult is the result of a migration complete/abort request.
-//
-//tony:schemagen=session-migration-result,notag
-type MigrationResult struct {
-	Completed bool  `tony:"field=completed"` // true if migration was completed, false if aborted
-	Commit    int64 `tony:"field=commit"`    // Commit where the operation occurred
+	Schema *ir.Node `tony:"field=schema"` // The schema (nil = schemaless)
+	Commit int64    `tony:"field=commit"` // The commit that set it (0 if schemaless)
 }
 
 // SessionResult is the result of a request (union type).
@@ -366,7 +334,6 @@ type SessionResult struct {
 	Unwatch     *UnwatchResult     `tony:"field=unwatch"`
 	DeleteScope *DeleteScopeResult `tony:"field=deleteScope"`
 	Schema      *SchemaResult      `tony:"field=schema"`
-	Migration   *MigrationResult   `tony:"field=migration"`
 	Pong        *PongResult        `tony:"field=pong"`
 }
 
@@ -521,11 +488,10 @@ const (
 	ErrCodeSessionMounted   = "session_mounted"   // A mount registered under/at this watch's path; re-watch to compose over it
 	ErrCodeSessionUnmounted = "session_unmounted" // A mount at/under this watch's path was removed; re-watch without it
 
-	// Schema/migration error codes
-	ErrCodeMigrationInProgress   = "migration_in_progress"    // Cannot start migration when one is already in progress
-	ErrCodeNoMigrationInProgress = "no_migration_in_progress" // Cannot complete/abort when no migration in progress
-	ErrCodeMigrationAborted      = "migration_aborted"        // Session was using pending schema but migration was aborted
-	ErrCodeNoPendingMigration    = "no_pending_migration"     // UsePending requested but no migration in progress
+	// The schema set is one the store will not adopt: it cannot mean what it says, or
+	// the data cannot follow it (SchemaSetRequest). The store is healthy and the remedy
+	// is the client's.
+	ErrCodeSchemaRefused = "schema_refused"
 )
 
 // NewSessionError creates a new SessionError.
@@ -704,29 +670,11 @@ func NewErrorResponse(id *string, code, message string) *SessionResponse {
 }
 
 // NewSchemaResponse creates a response for a schema get/set request.
-func NewSchemaResponse(id *string, active *ir.Node, activeCommit int64, pending *ir.Node, pendingCommit int64) *SessionResponse {
+func NewSchemaResponse(id *string, schema *ir.Node, commit int64) *SessionResponse {
 	return &SessionResponse{
 		ID: id,
 		Result: &SessionResult{
-			Schema: &SchemaResult{
-				Active:        active,
-				ActiveCommit:  activeCommit,
-				Pending:       pending,
-				PendingCommit: pendingCommit,
-			},
-		},
-	}
-}
-
-// NewMigrationResponse creates a response for a migration complete/abort request.
-func NewMigrationResponse(id *string, completed bool, commit int64) *SessionResponse {
-	return &SessionResponse{
-		ID: id,
-		Result: &SessionResult{
-			Migration: &MigrationResult{
-				Completed: completed,
-				Commit:    commit,
-			},
+			Schema: &SchemaResult{Schema: schema, Commit: commit},
 		},
 	}
 }

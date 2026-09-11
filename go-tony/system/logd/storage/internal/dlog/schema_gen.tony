@@ -4,7 +4,7 @@ context:
 - tony-base: github.com/signadot/tony-format/go-tony/schema
 define:
   Schema: .[tony-base:ir]
-  Status: .[string]
+  SetAt: .[int]
 signature:
   name: schema-entry
 ---

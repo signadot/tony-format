@@ -30,8 +30,8 @@ func (s *SchemaEntry) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["Schema"] = s.Schema
 	}
 
-	// Field: Status
-	irMap["Status"] = ir.FromString(string(s.Status))
+	// Field: SetAt
+	irMap["SetAt"] = ir.FromInt(int64(s.SetAt))
 
 	return ir.FromMap(irMap).WithTag("!schema-entry"), nil
 }
@@ -72,12 +72,12 @@ func (s *SchemaEntry) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error
 			} else {
 				s.Schema = fieldNodeUnwrapped
 			}
-		case "Status":
-			// Field: Status
-			if fieldNodeUnwrapped.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "Status", fieldNodeUnwrapped.Type)
+		case "SetAt":
+			// Field: SetAt
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "SetAt", fieldNodeUnwrapped.Type)
 			}
-			s.Status = string(fieldNodeUnwrapped.String)
+			s.SetAt = int64(*fieldNodeUnwrapped.Int64)
 		default:
 			if gomap.IsStrict(opts...) {
 				return fmt.Errorf("unknown field %q for SchemaEntry", fieldName.String)

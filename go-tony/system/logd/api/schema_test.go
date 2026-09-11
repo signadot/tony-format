@@ -107,28 +107,6 @@ func TestSchema_AutoID(t *testing.T) {
 	}
 }
 
-func TestStaticSchemaResolver(t *testing.T) {
-	schema := &Schema{
-		AutoIDFields: []AutoIDField{
-			{Path: "users", Field: "id"},
-		},
-	}
-	resolver := &StaticSchemaResolver{Schema: schema}
-
-	// Test nil scope (baseline)
-	s := resolver.GetSchema(nil)
-	if s != schema {
-		t.Error("GetSchema(nil) should return the schema")
-	}
-
-	// Test with scope
-	scopeID := "sandbox-123"
-	s = resolver.GetSchema(&scopeID)
-	if s != schema {
-		t.Error("GetSchema with scope should return same schema")
-	}
-}
-
 // A key field's name is written into a !key tag, and a tag argument has no quoting,
 // so a name which cannot be written as one is refused where it is declared rather
 // than panicking in ir.TagCompose later (b6ad0qw0h12krhk5gdn0).

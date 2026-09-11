@@ -156,6 +156,12 @@ func (s *Storage) createSnapshot(commit int64) error {
 		return fmt.Errorf("failed to create snapshot writer: %w", err)
 	}
 	snapWriter.SetScopeID(nil)
+	// The schema this state was taken under, and the commit that set it: a rebuild from
+	// a log compaction has thinned may find no schema commit, and finds it here
+	// (index/schema_history.go).
+	if schema, setAt := s.schema.At(commit); schema != nil {
+		snapWriter.SetSchemaEntry(&dlog.SchemaEntry{Schema: schema, SetAt: setAt})
+	}
 
 	// Build snapshot directly to log file (out-of-memory)
 	snapIndex := &snap.Index{}

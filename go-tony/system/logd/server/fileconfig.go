@@ -333,7 +333,7 @@ func (c *Config) Validate() error {
 		return err
 	}
 	// A schema is held to the rules a migration is held to. The config's was adopted
-	// without them, so a store ran a schema its own StartMigration refuses -- an array
+	// without them, so a store ran a schema its own SetSchema refuses -- an array
 	// declared both keyed and auto-id, two identities for one array (khkedy9wh12ksyxxmdn0).
 	if c.Schema != nil {
 		if err := api.ParseSchemaFromNode(c.Schema).Validate(); err != nil {

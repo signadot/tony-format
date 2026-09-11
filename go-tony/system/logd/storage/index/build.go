@@ -94,6 +94,12 @@ func BuildWithLogger(idx *Index, dlog *dlog.DLog, fromCommit int64, logger *slog
 		// Get current generation for this log file
 		generation := dlog.GetGeneration(logFile)
 
+		// The schema a schema commit sets, or the one a root snapshot was taken under:
+		// either says which schema was in force from which commit (schema_history.go).
+		if se := entry.SchemaEntry; se != nil && entry.ScopeID == nil {
+			idx.NoteSchema(se.SetAt, se.Schema)
+		}
+
 		if entry.Patch != nil {
 			// No schema is needed here: the entry holds the stored delta, the node the
 			// live index was built from (commit_ops.go), and a keyed array in it is

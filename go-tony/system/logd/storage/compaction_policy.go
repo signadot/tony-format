@@ -61,17 +61,15 @@ func (c *CompactionConfig) Validate() error {
 
 // compactionPolicy implements the logarithmic retention algorithm.
 type compactionPolicy struct {
-	config    *CompactionConfig
-	now       time.Time
-	pinCommit int64 // commit of pinned snapshot (active schema), or -1 if none
+	config *CompactionConfig
+	now    time.Time
 }
 
 // newCompactionPolicy creates a policy for selecting which snapshots survive compaction.
-func newCompactionPolicy(config *CompactionConfig, now time.Time, pinCommit int64) *compactionPolicy {
+func newCompactionPolicy(config *CompactionConfig, now time.Time) *compactionPolicy {
 	return &compactionPolicy{
-		config:    config,
-		now:       now,
-		pinCommit: pinCommit,
+		config: config,
+		now:    now,
 	}
 }
 
@@ -110,12 +108,6 @@ func (p *compactionPolicy) assignToTiers(groups []snapshotGroup) map[int][]snaps
 	cutoffTime := p.now.Add(-p.config.Cutoff)
 
 	for _, group := range groups {
-		// Pinned snapshot always survives (tier -2 = always keep)
-		if group.commit == p.pinCommit {
-			tiers[-2] = append(tiers[-2], group)
-			continue
-		}
-
 		// Within cutoff - all kept (tier -1)
 		if group.time.After(cutoffTime) {
 			tiers[-1] = append(tiers[-1], group)
@@ -159,10 +151,10 @@ func (p *compactionPolicy) tierForAge(age time.Duration) int {
 }
 
 // selectFromTier selects up to SlotsPerTier snapshots from a tier.
-// For tier -2 (pinned) and tier -1 (within cutoff), all are kept.
+// For tier -1 (within cutoff), all are kept.
 // For tier 0+, selects the most recent snapshots per slot interval.
 func (p *compactionPolicy) selectFromTier(tierNum int, groups []snapshotGroup) []snapshotGroup {
-	// Pinned and within-cutoff tiers: keep all
+	// Within cutoff: keep all
 	if tierNum < 0 {
 		return groups
 	}

@@ -2,6 +2,8 @@ package storage
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -22,562 +24,82 @@ func testSchema(t *testing.T, yaml string) *ir.Node {
 	return node
 }
 
-// TestMigration_BasicLifecycle tests Start → Complete migration flow.
-func TestMigration_BasicLifecycle(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	s, err := Open(tmpDir, nil)
-	if err != nil {
-		t.Fatalf("Open() error = %v", err)
-	}
-	defer s.Close()
-
-	// Initially no schema
-	activeSchema, activeCommit := s.GetActiveSchema()
-	if activeSchema != nil {
-		t.Error("expected nil active schema initially")
-	}
-	if activeCommit != 0 {
-		t.Errorf("expected activeCommit=0, got %d", activeCommit)
-	}
-	if s.HasPendingMigration() {
-		t.Error("expected no pending migration initially")
-	}
-
-	// Write some data first (schema snapshots are created at current commit)
-	patch, _ := parse.Parse([]byte(`{initial: "data"}`))
-	tx, _ := s.NewTx(1, nil)
-	p, _ := tx.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: patch}})
-	result := p.Commit()
-	if !result.Committed {
-		t.Fatalf("initial commit failed: %v", result.Error)
-	}
-
-	// Start migration to new schema
-	newSchema := testSchema(t, `{users: .[array]}`)
-	startCommit, err := s.StartMigration(newSchema)
-	if err != nil {
-		t.Fatalf("StartMigration() error = %v", err)
-	}
-	// Schema snapshot is created at current commit (1), not incrementing
-	if startCommit < 0 {
-		t.Errorf("expected non-negative commit, got %d", startCommit)
-	}
-
-	// Verify pending state
-	if !s.HasPendingMigration() {
-		t.Error("expected pending migration after StartMigration")
-	}
-	pendingSchema, pendingCommit := s.GetPendingSchema()
-	if pendingSchema == nil {
-		t.Error("expected pending schema after StartMigration")
-	}
-	if pendingCommit != startCommit {
-		t.Errorf("expected pendingCommit=%d, got %d", startCommit, pendingCommit)
-	}
-
-	// Active schema should still be nil
-	activeSchema, _ = s.GetActiveSchema()
-	if activeSchema != nil {
-		t.Error("expected active schema still nil during migration")
-	}
-
-	// Complete migration
-	completeCommit, err := s.CompleteMigration()
-	if err != nil {
-		t.Fatalf("CompleteMigration() error = %v", err)
-	}
-	// Complete snapshot is at same commit as start (no new data written)
-	if completeCommit < startCommit {
-		t.Errorf("expected completeCommit >= startCommit, got %d < %d", completeCommit, startCommit)
-	}
-
-	// Verify migration completed
-	if s.HasPendingMigration() {
-		t.Error("expected no pending migration after CompleteMigration")
-	}
-	activeSchema, activeCommit = s.GetActiveSchema()
-	if activeSchema == nil {
-		t.Error("expected active schema after CompleteMigration")
-	}
-	if activeCommit != completeCommit {
-		t.Errorf("expected activeCommit=%d, got %d", completeCommit, activeCommit)
-	}
-}
-
-// TestMigration_Abort tests Start → Abort migration flow.
-func TestMigration_Abort(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	s, err := Open(tmpDir, nil)
-	if err != nil {
-		t.Fatalf("Open() error = %v", err)
-	}
-	defer s.Close()
-
-	// Write some data first so we have a non-zero commit
-	patch, _ := parse.Parse([]byte(`{initial: "data"}`))
-	tx, _ := s.NewTx(1, nil)
-	p, _ := tx.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: patch}})
-	result := p.Commit()
-	if !result.Committed {
-		t.Fatalf("initial commit failed: %v", result.Error)
-	}
-
-	// Start migration
-	newSchema := testSchema(t, `{posts: .[array]}`)
-	_, err = s.StartMigration(newSchema)
-	if err != nil {
-		t.Fatalf("StartMigration() error = %v", err)
-	}
-
-	if !s.HasPendingMigration() {
-		t.Error("expected pending migration")
-	}
-
-	// Abort migration
-	abortCommit, err := s.AbortMigration()
-	if err != nil {
-		t.Fatalf("AbortMigration() error = %v", err)
-	}
-	if abortCommit < 0 {
-		t.Errorf("expected non-negative commit, got %d", abortCommit)
-	}
-
-	// Verify abort cleared state
-	if s.HasPendingMigration() {
-		t.Error("expected no pending migration after AbortMigration")
-	}
-	pendingSchema, _ := s.GetPendingSchema()
-	if pendingSchema != nil {
-		t.Error("expected nil pending schema after AbortMigration")
-	}
-
-	// Active schema should still be nil (never completed)
-	activeSchema, _ := s.GetActiveSchema()
-	if activeSchema != nil {
-		t.Error("expected active schema still nil after abort")
-	}
-}
-
-// TestMigration_ErrorCases tests error conditions for migration operations.
-func TestMigration_ErrorCases(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	s, err := Open(tmpDir, nil)
-	if err != nil {
-		t.Fatalf("Open() error = %v", err)
-	}
-	defer s.Close()
-
-	// Complete without migration should fail
-	_, err = s.CompleteMigration()
-	if err != ErrNoMigrationInProgress {
-		t.Errorf("expected ErrNoMigrationInProgress, got %v", err)
-	}
-
-	// Abort without migration should fail
-	_, err = s.AbortMigration()
-	if err != ErrNoMigrationInProgress {
-		t.Errorf("expected ErrNoMigrationInProgress, got %v", err)
-	}
-
-	// Start migration
-	schema := testSchema(t, `{data: .[string]}`)
-	_, err = s.StartMigration(schema)
-	if err != nil {
-		t.Fatalf("StartMigration() error = %v", err)
-	}
-
-	// Start another migration should fail
-	schema2 := testSchema(t, `{other: .[int]}`)
-	_, err = s.StartMigration(schema2)
-	if err != ErrMigrationInProgress {
-		t.Errorf("expected ErrMigrationInProgress, got %v", err)
-	}
-
-	// Clean up
-	s.AbortMigration()
-}
-
-// TestMigration_DualWrite verifies patches during migration go to both indexes.
-func TestMigration_WritesDuringMigrationAreRead(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	s, err := Open(tmpDir, nil)
-	if err != nil {
-		t.Fatalf("Open() error = %v", err)
-	}
-	defer s.Close()
-
-	// Write initial data before migration
-	patch1, _ := parse.Parse([]byte(`{users: {alice: {name: "Alice"}}}`))
-	tx1, _ := s.NewTx(1, nil)
-	p1, _ := tx1.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: patch1}})
-	result1 := p1.Commit()
-	if !result1.Committed {
-		t.Fatalf("initial commit failed: %v", result1.Error)
-	}
-	preCommit := result1.Commit
-
-	// Start migration
-	schema := testSchema(t, `{users: .[object]}`)
-	migrationCommit, err := s.StartMigration(schema)
-	if err != nil {
-		t.Fatalf("StartMigration() error = %v", err)
-	}
-
-	// Write data during migration
-	patch2, _ := parse.Parse([]byte(`{users: {bob: {name: "Bob"}}}`))
-	tx2, _ := s.NewTx(1, nil)
-	p2, _ := tx2.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: patch2}})
-	result2 := p2.Commit()
-	if !result2.Committed {
-		t.Fatalf("during-migration commit failed: %v", result2.Error)
-	}
-	duringCommit := result2.Commit
-
-	// Read from active index (baseline) - should see both users
-	state, err := readStateAt(s, "", duringCommit, nil)
-	if err != nil {
-		t.Fatalf("ReadStateAt() error = %v", err)
-	}
-	aliceName := getString(state, "users", "alice", "name")
-	if aliceName != "Alice" {
-		t.Errorf("expected alice='Alice', got %q", aliceName)
-	}
-	bobName := getString(state, "users", "bob", "name")
-	if bobName != "Bob" {
-		t.Errorf("expected bob='Bob', got %q", bobName)
-	}
-
-	// Complete migration
-	completeCommit, err := s.CompleteMigration()
-	if err != nil {
-		t.Fatalf("CompleteMigration() error = %v", err)
-	}
-
-	// Read after completing - should see both users
-	stateAfter, err := readStateAt(s, "", completeCommit, nil)
-	if err != nil {
-		t.Fatalf("ReadStateAt after complete() error = %v", err)
-	}
-	aliceNameAfter := getString(stateAfter, "users", "alice", "name")
-	if aliceNameAfter != "Alice" {
-		t.Errorf("after complete: expected alice='Alice', got %q", aliceNameAfter)
-	}
-	bobNameAfter := getString(stateAfter, "users", "bob", "name")
-	if bobNameAfter != "Bob" {
-		t.Errorf("after complete: expected bob='Bob', got %q", bobNameAfter)
-	}
-
-	_ = preCommit
-	_ = migrationCommit
-}
-
-// TestMigration_ReplayPendingState tests log replay restores pending migration state.
-func TestMigration_ReplayPendingState(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// First session: start migration but don't complete
-	s1, err := Open(tmpDir, nil)
-	if err != nil {
-		t.Fatalf("Open() error = %v", err)
-	}
-
-	// Write some initial data
-	patch1, _ := parse.Parse([]byte(`{config: {version: 1}}`))
-	tx1, _ := s1.NewTx(1, nil)
-	p1, _ := tx1.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: patch1}})
-	result1 := p1.Commit()
-	if !result1.Committed {
-		t.Fatalf("initial commit failed: %v", result1.Error)
-	}
-
-	// Start migration
-	schema := testSchema(t, `{config: {version: .[int], feature: .[string]}}`)
-	startCommit, err := s1.StartMigration(schema)
-	if err != nil {
-		t.Fatalf("StartMigration() error = %v", err)
-	}
-
-	// Write data during migration
-	patch2, _ := parse.Parse([]byte(`{config: {version: 2}}`))
-	tx2, _ := s1.NewTx(1, nil)
-	p2, _ := tx2.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: patch2}})
-	result2 := p2.Commit()
-	if !result2.Committed {
-		t.Fatalf("during-migration commit failed: %v", result2.Error)
-	}
-	duringCommit := result2.Commit
-
-	// Close storage (simulating restart)
-	if err := s1.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
-
-	// Reopen storage - should replay and restore pending migration state
-	s2, err := Open(tmpDir, nil)
-	if err != nil {
-		t.Fatalf("Open() second time error = %v", err)
-	}
-	defer s2.Close()
-
-	// Verify pending migration was restored
-	if !s2.HasPendingMigration() {
-		t.Error("expected pending migration to be restored after reopen")
-	}
-
-	pendingSchema, pendingCommit := s2.GetPendingSchema()
-	if pendingSchema == nil {
-		t.Error("expected pending schema to be restored")
-	}
-	if pendingCommit != startCommit {
-		t.Errorf("expected pendingCommit=%d, got %d", startCommit, pendingCommit)
-	}
-
-	// Verify active schema is still nil
-	activeSchema, _ := s2.GetActiveSchema()
-	if activeSchema != nil {
-		t.Error("expected active schema still nil after replay")
-	}
-
-	// Verify data is accessible
-	state, err := readStateAt(s2, "", duringCommit, nil)
-	if err != nil {
-		t.Fatalf("ReadStateAt() error = %v", err)
-	}
-	version := getInt(state, "config", "version")
-	if version != 2 {
-		t.Errorf("expected version=2, got %d", version)
-	}
-
-	// Complete migration after restart
-	completeCommit, err := s2.CompleteMigration()
-	if err != nil {
-		t.Fatalf("CompleteMigration() after restart error = %v", err)
-	}
-
-	// Verify completion
-	if s2.HasPendingMigration() {
-		t.Error("expected no pending migration after CompleteMigration")
-	}
-	activeSchema, activeCommit := s2.GetActiveSchema()
-	if activeSchema == nil {
-		t.Error("expected active schema after CompleteMigration")
-	}
-	if activeCommit != completeCommit {
-		t.Errorf("expected activeCommit=%d, got %d", completeCommit, activeCommit)
-	}
-}
-
-// TestMigration_ReplayActiveState tests log replay restores completed migration state.
-func TestMigration_ReplayActiveState(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// First session: complete a migration
-	s1, err := Open(tmpDir, nil)
-	if err != nil {
-		t.Fatalf("Open() error = %v", err)
-	}
-
-	// Write some data first
-	patch, _ := parse.Parse([]byte(`{initial: "data"}`))
-	tx, _ := s1.NewTx(1, nil)
-	p, _ := tx.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: patch}})
-	result := p.Commit()
-	if !result.Committed {
-		t.Fatalf("initial commit failed: %v", result.Error)
-	}
-
-	// Start and complete migration
-	schema := testSchema(t, `{settings: .[object]}`)
-	_, err = s1.StartMigration(schema)
-	if err != nil {
-		t.Fatalf("StartMigration() error = %v", err)
-	}
-
-	completeCommit, err := s1.CompleteMigration()
-	if err != nil {
-		t.Fatalf("CompleteMigration() error = %v", err)
-	}
-
-	// Close storage
-	if err := s1.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
-
-	// Reopen storage
-	s2, err := Open(tmpDir, nil)
-	if err != nil {
-		t.Fatalf("Open() second time error = %v", err)
-	}
-	defer s2.Close()
-
-	// Verify active schema was restored
-	activeSchema, activeCommit := s2.GetActiveSchema()
-	if activeSchema == nil {
-		t.Error("expected active schema to be restored after reopen")
-	}
-	if activeCommit != completeCommit {
-		t.Errorf("expected activeCommit=%d, got %d", completeCommit, activeCommit)
-	}
-
-	// Verify no pending migration
-	if s2.HasPendingMigration() {
-		t.Error("expected no pending migration after replay of completed migration")
-	}
-}
-
-// TestMigration_ReplayAbortedState tests log replay after aborted migration.
-func TestMigration_ReplayAbortedState(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// First session: start and abort migration
-	s1, err := Open(tmpDir, nil)
-	if err != nil {
-		t.Fatalf("Open() error = %v", err)
-	}
-
-	// Write some data first
-	patch, _ := parse.Parse([]byte(`{initial: "data"}`))
-	tx, _ := s1.NewTx(1, nil)
-	p, _ := tx.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: patch}})
-	result := p.Commit()
-	if !result.Committed {
-		t.Fatalf("initial commit failed: %v", result.Error)
-	}
-
-	// Start migration
-	schema := testSchema(t, `{temp: .[string]}`)
-	_, err = s1.StartMigration(schema)
-	if err != nil {
-		t.Fatalf("StartMigration() error = %v", err)
-	}
-
-	// Abort migration
-	_, err = s1.AbortMigration()
-	if err != nil {
-		t.Fatalf("AbortMigration() error = %v", err)
-	}
-
-	// Close storage
-	if err := s1.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
-
-	// Reopen storage
-	s2, err := Open(tmpDir, nil)
-	if err != nil {
-		t.Fatalf("Open() second time error = %v", err)
-	}
-	defer s2.Close()
-
-	// Verify no pending migration
-	if s2.HasPendingMigration() {
-		t.Error("expected no pending migration after replay of aborted migration")
-	}
-
-	// Verify no active schema (never completed)
-	activeSchema, _ := s2.GetActiveSchema()
-	if activeSchema != nil {
-		t.Error("expected no active schema after replay of aborted migration")
-	}
-}
-
-// TestMigration_MultipleMigrations tests multiple sequential migrations.
-func TestMigration_MultipleMigrations(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	s, err := Open(tmpDir, nil)
-	if err != nil {
-		t.Fatalf("Open() error = %v", err)
-	}
-	defer s.Close()
-
-	// Write initial data first
-	initPatch, _ := parse.Parse([]byte(`{initial: "data"}`))
-	initTx, _ := s.NewTx(1, nil)
-	initP, _ := initTx.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: initPatch}})
-	initResult := initP.Commit()
-	if !initResult.Committed {
-		t.Fatalf("initial commit failed: %v", initResult.Error)
-	}
-
-	// First migration
-	schema1 := testSchema(t, `{v1: .[string]}`)
-	_, err = s.StartMigration(schema1)
-	if err != nil {
-		t.Fatalf("StartMigration 1 error = %v", err)
-	}
-	commit1, err := s.CompleteMigration()
-	if err != nil {
-		t.Fatalf("CompleteMigration 1 error = %v", err)
-	}
-
-	// Write some data
-	patch, _ := parse.Parse([]byte(`{v1: "data"}`))
-	tx, _ := s.NewTx(1, nil)
-	p, _ := tx.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: patch}})
-	p.Commit()
-
-	// Second migration
-	schema2 := testSchema(t, `{v2: .[string]}`)
-	_, err = s.StartMigration(schema2)
-	if err != nil {
-		t.Fatalf("StartMigration 2 error = %v", err)
-	}
-	commit2, err := s.CompleteMigration()
-	if err != nil {
-		t.Fatalf("CompleteMigration 2 error = %v", err)
-	}
-
-	// Verify second schema is now active
-	activeSchema, activeCommit := s.GetActiveSchema()
-	if activeSchema == nil {
-		t.Error("expected active schema after second migration")
-	}
-	if activeCommit != commit2 {
-		t.Errorf("expected activeCommit=%d, got %d", commit2, activeCommit)
-	}
-	if activeCommit <= commit1 {
-		t.Errorf("expected commit2 > commit1, got %d <= %d", commit2, commit1)
-	}
-}
-
-// Helper to get a field from an object node
-func getField(n *ir.Node, field string) *ir.Node {
-	if n == nil || n.Type != ir.ObjectType {
-		return nil
-	}
-	for i, f := range n.Fields {
-		if f.String == field {
-			return n.Values[i]
-		}
-	}
-	return nil
-}
-
-// migrateTo starts and completes a migration to schema, answering the commit it completed at.
+// migrateTo sets the schema, answering the commit that set it.
 func migrateTo(t *testing.T, s *Storage, schema string) int64 {
 	t.Helper()
-	if _, err := s.StartMigration(testSchema(t, schema)); err != nil {
-		t.Fatalf("StartMigration(%s): %v", schema, err)
-	}
-	commit, err := s.CompleteMigration()
+	commit, err := s.SetSchema(testSchema(t, schema), false)
 	if err != nil {
-		t.Fatalf("CompleteMigration(%s): %v", schema, err)
+		t.Fatalf("SetSchema(%s): %v", schema, err)
 	}
 	return commit
 }
 
-// Every commit survives every migration, before a reopen and after it. A second
-// migration lost everything written before the first -- a: 1 and the scope's s: 1 below --
-// by installing an index backfilled only from the previous migration, whose snapshots
-// were in the index that one had retired (4jw0pz1rh12ks9r8mhn0). A reopen after a write
-// forgot the schema, its snapshots being in a retired index too (faweqnhvh12ksynxmdn0),
-// and the persister went on persisting the retired index (rgpn3v9vh12ksynxmdn0).
-func TestMigration_DataAndSchemaSurviveTwoMigrationsAndAReopen(t *testing.T) {
+// A schema change is a commit: it takes the next number in the one sequence, the schema
+// is in force from it, and the commits before it were under the schema before.
+func TestSchema_SetIsACommit(t *testing.T) {
+	s := openTestStorage(t)
+	if schema, at := s.GetActiveSchema(); schema != nil || at != 0 {
+		t.Errorf("a fresh store has a schema %v at %d", schema != nil, at)
+	}
+	mustCommit(t, s, nil, `{initial: data}`)
+	first := migrateTo(t, s, `{define: {items: {sku: !logd-key null}}}`)
+	if first != 2 {
+		t.Errorf("the schema commit is %d, want 2", first)
+	}
+	if head, _ := s.GetCurrentCommit(); head != first {
+		t.Errorf("the head is %d after the schema commit %d", head, first)
+	}
+	if schema, at := s.GetActiveSchema(); schema == nil || at != first {
+		t.Errorf("active schema %v at %d, want at %d", schema != nil, at, first)
+	}
+	// A write after it is lowered under it: the element is held under its name.
+	mustCommit(t, s, nil, `{items: [{sku: A, q: 1}]}`)
+	if paths := indexPathSet(s); !hasKeyedPath(paths, `items."(sku=A)"`) {
+		t.Errorf("a write after the schema commit was not keyed: %v", paths)
+	}
+	second := migrateTo(t, s, `{define: {items: {sku: !logd-key null}, tags: {id: !logd-key null}}}`)
+	for _, tc := range []struct{ at, want int64 }{{1, 0}, {first, first}, {first + 1, first}, {second, second}, {second + 5, second}} {
+		if _, at := s.SchemaAt(tc.at); at != tc.want {
+			t.Errorf("SchemaAt(%d) was set at %d, want %d", tc.at, at, tc.want)
+		}
+	}
+	if h := s.SchemaHistory(); len(h) != 2 || h[0].Commit != first || h[1].Commit != second {
+		t.Errorf("history %v, want commits %d and %d", h, first, second)
+	}
+}
+
+// A schema the store cannot adopt is refused as the client's mistake, with nothing
+// committed: one that cannot mean what it says, and one the data cannot follow.
+func TestSchema_RefusalCommitsNothing(t *testing.T) {
+	s := openTestStorage(t)
+	mustCommit(t, s, nil, `{items: [{sku: A}]}`)
+	for _, tc := range []struct{ name, schema, want string }{
+		{"two identities", `{define: {items: {sku: !logd-key null, id: !logd-auto-id null}}}`, "one identity"},
+		{"over positional elements", `{define: {items: {sku: !logd-key null}}}`, "written by position"},
+	} {
+		_, err := s.SetSchema(testSchema(t, tc.schema), false)
+		if err == nil {
+			t.Errorf("%s: adopted", tc.name)
+			continue
+		}
+		if !IsSchemaRefused(err) || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: %v", tc.name, err)
+		}
+	}
+	if head, _ := s.GetCurrentCommit(); head != 1 {
+		t.Errorf("a refusal took a commit: head %d, want 1", head)
+	}
+	if schema, _ := s.GetActiveSchema(); schema != nil {
+		t.Error("a refused schema became active")
+	}
+}
+
+// Every commit survives every schema change, before a reopen and after it -- with the
+// manifest, and rebuilt from the log without one. A second migration lost everything
+// written before the first -- a: 1 and the scope's s: 1 below -- by installing an index
+// backfilled only from the previous migration (4jw0pz1rh12ks9r8mhn0); a reopen after a
+// write forgot the schema (faweqnhvh12ksynxmdn0).
+func TestSchema_DataAndSchemaSurviveTwoChangesAndAReopen(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(dir, nil)
 	if err != nil {
@@ -625,28 +147,32 @@ func TestMigration_DataAndSchemaSurviveTwoMigrationsAndAReopen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
-	defer s.Close()
 	check("after the reopen", s)
+	// And with no manifest: the history is rebuilt from the log's schema commits.
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := os.Remove(filepath.Join(dir, "index.manifest")); err != nil {
+		t.Fatalf("remove index.manifest: %v", err)
+	}
+	s, err = Open(dir, nil)
+	if err != nil {
+		t.Fatalf("reopen without the manifest: %v", err)
+	}
+	defer s.Close()
+	check("rebuilt from the log", s)
 }
 
-// A commit that lands while a migration runs is kept. Commits during StartMigration's
-// snapshot, and during CompleteMigration before its index swap, were missing from the
-// index the migration installed, acknowledged and then gone -- across a reopen too
-// (gdpv3fsvh12ksynxmdn0).
-func TestMigration_WritesAlongsideAMigrationAreKept(t *testing.T) {
+// A commit that lands beside a schema change is kept, and is lowered under the schema
+// of its side of it. Commits during a migration's snapshots were missing from the index
+// the migration installed, acknowledged and then gone (gdpv3fsvh12ksynxmdn0).
+func TestSchema_WritesAlongsideAChangeAreKept(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(dir, nil)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	// Big enough that a schema snapshot takes a while.
-	var seed strings.Builder
-	seed.WriteString("{big: {")
-	for i := 0; i < 20000; i++ {
-		fmt.Fprintf(&seed, "f%d: %d, ", i, i)
-	}
-	seed.WriteString("}}")
-	mustCommit(t, s, nil, seed.String())
+	mustCommit(t, s, nil, `{seed: 1}`)
 
 	stop := make(chan struct{})
 	done := make(chan struct{})
@@ -681,7 +207,7 @@ func TestMigration_WritesAlongsideAMigrationAreKept(t *testing.T) {
 			}
 		}
 	}()
-	// Writes before the migration, queued behind it, and after it.
+	// Writes before the change, queued behind it, and after it.
 	waitFor := func(k int64) {
 		for n.Load() < k {
 			select {
@@ -692,12 +218,14 @@ func TestMigration_WritesAlongsideAMigrationAreKept(t *testing.T) {
 		}
 	}
 	waitFor(20)
-	migrateTo(t, s, "{v1: .[string]}")
-	waitFor(n.Load() + 20)
+	for i := 0; i < 5; i++ {
+		migrateTo(t, s, fmt.Sprintf("{define: {items%d: {id: !logd-key null}}}", i))
+		waitFor(n.Load() + 5)
+	}
 	close(stop)
 	<-done
 	if writeErr != nil {
-		t.Fatalf("a write alongside the migration failed: %v", writeErr)
+		t.Fatalf("a write alongside the schema change failed: %v", writeErr)
 	}
 
 	check := func(when string, s *Storage) {
@@ -730,29 +258,18 @@ func TestMigration_WritesAlongsideAMigrationAreKept(t *testing.T) {
 	}
 	defer s.Close()
 	check("after the reopen", s)
-	t.Logf("%d writes alongside the migration", len(acked))
+	t.Logf("%d writes alongside 5 schema changes", len(acked))
 }
 
-// StartMigration's identity check is asked again where the schema takes effect. Writes
-// between Start and Complete are lowered under the active schema, so one can put
-// elements by position into an array the pending schema keys; completing then would give
-// them an identity they have no names under.
-func TestMigration_CompleteRefusesIdentityOverElementsWrittenSinceStart(t *testing.T) {
-	s := openTestStorage(t)
-	mustCommit(t, s, nil, "{other: 1}")
-	if _, err := s.StartMigration(testSchema(t, `{define: {items: {name: !logd-key null}}}`)); err != nil {
-		t.Fatalf("StartMigration: %v", err)
+// Helper to get a field from an object node
+func getField(n *ir.Node, field string) *ir.Node {
+	if n == nil || n.Type != ir.ObjectType {
+		return nil
 	}
-	mustCommit(t, s, nil, "{items: [{name: a}]}")
-	if _, err := s.CompleteMigration(); err == nil {
-		t.Fatal("CompleteMigration gave items an identity over an element written by position")
-	} else if !strings.Contains(err.Error(), "written by position") {
-		t.Errorf("the refusal does not say why: %v", err)
+	for i, f := range n.Fields {
+		if f.String == field {
+			return n.Values[i]
+		}
 	}
-	if schema, _ := s.GetActiveSchema(); schema != nil {
-		t.Error("the refused schema became active")
-	}
-	if !s.HasPendingMigration() {
-		t.Error("the refusal dropped the pending migration; it is the operator's to abort")
-	}
+	return nil
 }

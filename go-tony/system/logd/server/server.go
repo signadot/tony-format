@@ -7,8 +7,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
 // Server represents the logd server.
@@ -20,6 +18,11 @@ type Server struct {
 
 	// TCP listener for session protocol
 	tcpListener *TCPListener
+
+	// schemaErr is the configured schema refused by the store it met (BootstrapSchema):
+	// a store whose schema is another. New has no error to answer, so StartTCP answers
+	// this one -- nothing is served under a schema the configuration disagrees with.
+	schemaErr error
 
 	// commitsSinceSnapshot tracks commits for snapshot policy (accessed from multiple goroutines)
 	commitsSinceSnapshot atomic.Int64
@@ -72,17 +75,12 @@ func New(spec *Spec) *Server {
 			spec.Storage.SetTxTimeout(time.Duration(spec.Config.Tx.Timeout))
 		}
 
-		// Set up schema resolver if schema is configured
-		if spec.Config.Schema != nil {
-			schema := api.ParseSchemaFromNode(spec.Config.Schema)
-			if err := schema.Validate(); err != nil {
-				// LoadConfig refuses this, so getting here means a Config built in code.
-				// Serve no schema and say so, rather than one the store's own rules refuse.
-				spec.Log.Error("invalid schema in config; serving none", "error", err)
-			} else if schema != nil {
-				spec.Storage.SetSchemaResolver(&api.StaticSchemaResolver{Schema: schema})
-				spec.Log.Info("configured schema", "autoIDFields", len(schema.AutoIDFields))
-			}
+		// The configured schema meets the store: a store with none adopts it, as a
+		// commit; a store with the same has nothing to do; a store with another is
+		// not served (storage.BootstrapSchema, StartTCP).
+		if err := spec.Storage.BootstrapSchema(spec.Config.Schema); err != nil {
+			spec.Log.Error("configured schema refused; not serving", "error", err)
+			s.schemaErr = err
 		}
 
 		// Set storage durability if configured
@@ -229,6 +227,9 @@ func (s *Server) maybeCompact() {
 // StartTCP starts the TCP listener on the given address.
 // The listener runs in a separate goroutine.
 func (s *Server) StartTCP(addr string) error {
+	if s.schemaErr != nil {
+		return s.schemaErr
+	}
 	if s.tcpListener != nil {
 		return fmt.Errorf("TCP listener already running")
 	}

@@ -47,6 +47,9 @@ func (c *commitOps) NextCommit() (int64, error) {
 }
 
 func (c *commitOps) GetSchema(scopeID *string) *api.Schema {
+	if c.s.inCommit != nil {
+		c.s.inCommit()
+	}
 	return c.s.schemaForScope(scopeID)
 }
 

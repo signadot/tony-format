@@ -9,7 +9,6 @@ import (
 
 	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
-	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
 // Plan item P2: !key is load-bearing for the scope overlay and is covered by one test
@@ -153,7 +152,7 @@ func indexPathSet(s *Storage) []string {
 
 // reopenRebuilt closes the store, removes the persisted index so Open has to rebuild it
 // from the logs, and reopens.
-func reopenRebuilt(t *testing.T, s *Storage, root string, resolver api.SchemaResolver) *Storage {
+func reopenRebuilt(t *testing.T, s *Storage, root string) *Storage {
 	t.Helper()
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
@@ -164,9 +163,6 @@ func reopenRebuilt(t *testing.T, s *Storage, root string, resolver api.SchemaRes
 	re, err := Open(root, nil)
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
-	}
-	if resolver != nil {
-		re.SetSchemaResolver(resolver)
 	}
 	return re
 }
@@ -189,7 +185,7 @@ func TestKeyed_RebuiltIndexAgreesWithLive(t *testing.T) {
 	mustCommit(t, s, nil, `{plain: {x: 1}}`)
 
 	live := indexPathSet(s)
-	re := reopenRebuilt(t, s, root, nil)
+	re := reopenRebuilt(t, s, root)
 	defer re.Close()
 	rebuilt := indexPathSet(re)
 
@@ -210,16 +206,13 @@ func TestKeyed_RebuiltIndexUnderSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	resolver := &api.StaticSchemaResolver{Schema: &api.Schema{
-		AutoIDFields: []api.AutoIDField{{Path: "items", Field: "id"}},
-	}}
-	s.SetSchemaResolver(resolver)
+	declareKeyed(t, s, `{define: {items: {id: !logd-auto-id null}}}`)
 
 	// No !key tag on the write: the schema is the only thing that says items is keyed.
 	mustCommit(t, s, nil, `{items: [{q: 1}, {q: 2}]}`)
 
 	live := indexPathSet(s)
-	re := reopenRebuilt(t, s, root, resolver)
+	re := reopenRebuilt(t, s, root)
 	defer re.Close()
 	rebuilt := indexPathSet(re)
 

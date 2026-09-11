@@ -7,7 +7,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/stream"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
@@ -26,9 +25,6 @@ type Session struct {
 	hub     *WatchHub
 	log     *slog.Logger
 
-	// Server schema (returned in hello response)
-	schema *ir.Node
-
 	// Scope for COW isolation (set in hello, applies to all operations). Atomic
 	// because hello lands on the request loop while reads dispatched off it are
 	// running (see dispatch), and a client is free to say hello twice.
@@ -40,12 +36,6 @@ type Session struct {
 	// had its writes committed by a server that had just told it they would not be
 	// (mygs3chwh12ksyxxmdn0).
 	refused atomic.Bool
-
-	// If true, the session was answered with the pending schema, and its requests fail
-	// with migration_aborted once the migration is aborted (for testing migrations).
-	// usePending is set by hello, like scope, and read by requests running beside the
-	// loop -- atomic for the same reason.
-	usePending atomic.Bool
 
 	// readSlots bounds concurrent reads; readWG lets shutdown wait for the ones in
 	// flight. Reads run off the request loop so a slow one does not hold up the
@@ -73,9 +63,8 @@ type SessionConfig struct {
 	Storage        *storage.Storage
 	Hub            *WatchHub
 	Log            *slog.Logger
-	OnCommit       func()   // called after successful commits (for snapshot tracking)
-	OutgoingBuffer int      // buffer size for outgoing channel (default 100)
-	Schema         *ir.Node // Server's schema (returned in hello response)
+	OnCommit       func() // called after successful commits (for snapshot tracking)
+	OutgoingBuffer int    // buffer size for outgoing channel (default 100)
 	// ReadBudget is the largest node a session builds to answer one read: a match, a
 	// watch's initial state, a watch's read of the value at its path. A read past it is
 	// refused with ErrBudget rather than held. Zero is DefaultReadBudget; every read
@@ -109,7 +98,6 @@ func NewSession(id string, conn io.ReadWriteCloser, cfg *SessionConfig) *Session
 		storage:    cfg.Storage,
 		hub:        cfg.Hub,
 		log:        log.With("session", id),
-		schema:     cfg.Schema,
 		watches:    make(map[string]*Watcher),
 		outgoing:   make(chan outbound, bufSize),
 		done:       make(chan struct{}),
@@ -326,8 +314,6 @@ func (s *Session) dispatch(req *api.SessionRequest) {
 		s.handleDeleteScope(req.ID, req.DeleteScope)
 	case req.Schema != nil:
 		s.handleSchema(req.ID, req.Schema)
-	case req.Migration != nil:
-		s.handleMigration(req.ID, req.Migration)
 	case req.Ping != nil:
 		// A liveness probe which also answers "where is the store now". The head is
 		// a memory read (the tick watermark), so a client can keep a current revision
@@ -368,30 +354,11 @@ func (s *Session) handleHello(id *string, req *api.Hello) {
 
 	// Store scope for this session (applies to all operations)
 	s.scope.Store(req.Scope)
-	s.log.Debug("hello", "clientId", req.ClientID, "scope", req.Scope, "usePending", req.UsePending)
+	s.log.Debug("hello", "clientId", req.ClientID, "scope", req.Scope)
 
-	var schema *ir.Node
-	var schemaCommit int64
-	var usingPending bool
-
-	if req.UsePending {
-		// Client wants to use pending schema for testing migration
-		pendingSchema, pendingCommit := s.storage.GetPendingSchema()
-		if pendingSchema == nil {
-			s.sendError(id, api.ErrCodeNoPendingMigration, "no migration in progress")
-			return
-		}
-		s.usePending.Store(true)
-		usingPending = true
-		schema = pendingSchema
-		schemaCommit = pendingCommit
-	} else {
-		// Use active schema (default)
-		schema, schemaCommit = s.storage.GetActiveSchema()
-		if schema == nil {
-			schema = s.schema // Fallback to config schema (schemaCommit stays 0)
-		}
-	}
+	// The store's schema: a configured one was committed to the store when it was
+	// opened with none (storage.BootstrapSchema), so there is nothing to fall back to.
+	schema, schemaCommit := s.storage.GetActiveSchema()
 
 	s.send(&api.SessionResponse{
 		ID: id,
@@ -401,7 +368,6 @@ func (s *Session) handleHello(id *string, req *api.Hello) {
 				Protocol:     api.ProtocolVersion,
 				Schema:       schema,
 				SchemaCommit: schemaCommit,
-				UsingPending: usingPending,
 			},
 		},
 	})

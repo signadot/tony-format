@@ -236,7 +236,8 @@ storage/tx/{key_tags.go,merge.go,array_write.go}; ir/kpath.go and token's KPathQ
     the ordinary field path it is (the third defect in thqtmm2th12kr051jhn0). `items[2]`
     on a keyed array is an error.
 
-2g. GAINING AN IDENTITY. `StartMigration`/`CompleteMigration` (storage_schema.go): the
+2g. GAINING AN IDENTITY. `StartMigration`/`CompleteMigration` (since replaced by one
+    schema commit, `SetSchema`; 090mbrhsh12ksfr8mhn0): the
     migration commit writes, at each newly keyed array path, a `!replace` whose value is
     the object form. A read carries a commit and is on one side or the other. Losing an
     identity is refused. Built and tested; not exercised by any live store.

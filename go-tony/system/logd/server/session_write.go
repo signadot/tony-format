@@ -23,12 +23,6 @@ import (
 func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 	path := req.Path
 
-	// Check if session using pending is still valid
-	if errMsg := s.checkPendingValid(); errMsg != "" {
-		s.sendError(id, api.ErrCodeMigrationAborted, errMsg)
-		return
-	}
-
 	// Validate path
 	if err := validateDataPath(path); err != nil {
 		s.sendError(id, api.ErrCodeInvalidPath, err.Error())
@@ -190,12 +184,6 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 
 // handleNewTx handles newtx requests to create multi-participant transactions.
 func (s *Session) handleNewTx(id *string, req *api.NewTxRequest) {
-	// Check if session using pending is still valid
-	if errMsg := s.checkPendingValid(); errMsg != "" {
-		s.sendError(id, api.ErrCodeMigrationAborted, errMsg)
-		return
-	}
-
 	if req.Participants < 1 {
 		s.sendError(id, api.ErrCodeInvalidTx, "participants must be at least 1")
 		return

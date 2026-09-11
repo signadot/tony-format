@@ -106,14 +106,17 @@ type Storage struct {
 	// Created in Open once the watermark has been reconciled against the log.
 	tick *tick
 
-	txStore        tx.Store      // Transaction store (in-memory for now, can be swapped for disk-based)
-	txTimeout      time.Duration // Timeout for transaction participants to join (0 = no timeout)
-	logger         *slog.Logger
-	schemaResolver api.SchemaResolver // Optional schema resolver for !key indexed arrays
+	txStore   tx.Store      // Transaction store (in-memory for now, can be swapped for disk-based)
+	txTimeout time.Duration // Timeout for transaction participants to join (0 = no timeout)
+	logger    *slog.Logger
 
-	// Schema state - derived from log entries during replay.
-	// Schema changes are stored in dlog entries and always occur at snapshot boundaries.
-	schema *storageSchema
+	// The schemas the store has had, in commit order; the last is in force (schema.go).
+	schema *schemaHistory
+
+	// inCommit, when set, is called on the commit path under commitMu, before the commit
+	// takes its number: a probe for tests of what a commit in flight looks like from
+	// outside (tick_test.go).
+	inCommit func()
 
 	// Compaction config - if set, Compact() is called after SwitchDLog
 	compactionConfig *CompactionConfig
@@ -164,7 +167,7 @@ func Open(root string, logger *slog.Logger) (*Storage, error) {
 		txStore: tx.NewInMemoryTxStore(),
 		index:   index.NewIndex(""),
 		logger:  logger,
-		schema:  newStorageSchema(),
+		schema:  newSchemaHistory(nil), // init loads the history the index rebuilt
 		// Never on outside a test. See lowerEverything.
 		lowerAll: os.Getenv("LOGD_LOWERING") == "all",
 	}
@@ -293,10 +296,8 @@ func (s *Storage) init() error {
 		}
 	}
 
-	// Replay schema state from log entries
-	if err := s.replaySchemaState(); err != nil {
-		return fmt.Errorf("failed to replay schema state: %w", err)
-	}
+	// The schemas, as the index's walk of the log noted them (index/schema_history.go).
+	s.schema = newSchemaHistory(s.index.SchemaHistory())
 
 	// What the catch-up added is written now, so it is evictable from the start.
 	if s.getIndexMaxCommit() >= 0 {
@@ -563,14 +564,6 @@ func (s *Storage) SetTxTimeout(timeout time.Duration) {
 	s.txTimeout = timeout
 }
 
-// SetSchemaResolver sets the schema resolver for !key indexed arrays.
-// The resolver provides schema for each scope (nil scope = baseline). It is consulted
-// only while the store holds no active schema of its own (StartMigration,
-// CompleteMigration); once it does, that schema decides.
-func (s *Storage) SetSchemaResolver(resolver api.SchemaResolver) {
-	s.schemaResolver = resolver
-}
-
 // SetDurability sets when the commit path forces records to stable storage.
 // Set it before serving; it is not meant to change under live commits.
 func (s *Storage) SetDurability(d Durability) {
@@ -604,28 +597,15 @@ func (s *Storage) CompactionConfig() *CompactionConfig {
 	return s.compactionConfig
 }
 
-// schemaForScope returns the schema that decides what keys an array.
+// schemaForScope returns the schema that decides what keys an array: the store's, which
+// is in the log and moves only by a schema commit (SetSchema). A configured schema
+// reaches the store the same way, once, when the store has none (BootstrapSchema).
 //
-// The PERSISTED active schema is the authority. It is in the log, and it moves only
-// through the migration path (pending -> active at a snapshot boundary).
-//
-// The resolver is the bootstrap only: a store with no schema of its own yet still keys
-// from the one its configuration names, which is how every existing store behaves. The
-// end state is that a configured schema is COMMITTED rather than consulted, at which point
-// this fallback goes away; until then a store that has never been given a schema through
-// StartMigration/CompleteMigration keeps working exactly as before.
-//
-// scopeID is accepted and ignored. The persisted schema is per-store, so every scope keys
-// the way baseline does — which is the rule the plan wanted for the per-scope dimension,
-// arrived at by construction rather than by a policy nobody could point at a user for.
+// scopeID is accepted and ignored. The schema is per-store, so every scope keys the way
+// baseline does — which is the rule the plan wanted for the per-scope dimension, arrived
+// at by construction rather than by a policy nobody could point at a user for.
 func (s *Storage) schemaForScope(scopeID *string) *api.Schema {
-	if persisted := s.schema.GetActiveParsed(); persisted != nil {
-		return persisted
-	}
-	if s.schemaResolver == nil {
-		return nil
-	}
-	return s.schemaResolver.GetSchema(scopeID)
+	return s.schema.ActiveParsed()
 }
 
 // DefaultWriteBudget is the write budget a store has when its configuration names none.
@@ -653,21 +633,4 @@ func (s *Storage) DeleteScope(scopeID string) error {
 	}
 	// Nothing should hold a document for a scope which no longer has any.
 	return nil
-}
-
-// GetActiveSchema returns the current active schema and the commit where it was set.
-// Returns nil schema and 0 commit if schemaless.
-func (s *Storage) GetActiveSchema() (*ir.Node, int64) {
-	return s.schema.GetActive()
-}
-
-// GetPendingSchema returns the pending schema and commit if a migration is in progress.
-// Returns nil, 0 if no migration is in progress.
-func (s *Storage) GetPendingSchema() (*ir.Node, int64) {
-	return s.schema.GetPending()
-}
-
-// HasPendingMigration returns true if a schema migration is in progress.
-func (s *Storage) HasPendingMigration() bool {
-	return s.schema.HasPending()
 }

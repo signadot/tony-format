@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
 // indexPaths lists every path the index holds a segment at, deduplicated.
@@ -48,9 +47,7 @@ func TestKey_OneRouteToAnElementsPath(t *testing.T) {
 // which holds the element under that name.
 func TestKey_SchemaRouteIsAutoIDOnly(t *testing.T) {
 	s := openTestStorage(t)
-	s.SetSchemaResolver(&api.StaticSchemaResolver{Schema: &api.Schema{
-		AutoIDFields: []api.AutoIDField{{Path: "items", Field: "id"}},
-	}})
+	declareKeyed(t, s, `{define: {items: {id: !logd-auto-id null}}}`)
 
 	scalingCommit(t, s, nil, `{items: [{v: 1}]}`, nil)
 	paths := filterItems(indexPaths(s))

@@ -25,7 +25,7 @@ You can speak it by hand:
 ```console
 $ o system logd session localhost:7070
 {hello: {clientId: probe}}
-{result: {hello: {schemaCommit: 0 serverId: tcp-1 usingPending: false}}}
+{result: {hello: {protocol: 2 schemaCommit: 0 serverId: tcp-1}}}
 ```
 
 ## Requests
@@ -41,6 +41,7 @@ directly inside it:
 | `newtx` | `{newtx: {participants: <n>}}` |
 | `watch` | `{watch: {path: <kpath>, fromCommit: <n>, noInit: <bool>, waitIfAbsent: <bool>}}` |
 | `unwatch` | `{unwatch: {path: <kpath>, watchId: <id>}}` |
+| `schema` | `{schema: {get: {at: <n>}}}` reads the schema in force (at a commit); `{schema: {set: {schema: <doc>, force: <bool>}}}` sets it, as one commit |
 | `ping` | `{ping: {}}` |
 
 `path` is in the same place in all of them, and **a request never has a `body`** — a

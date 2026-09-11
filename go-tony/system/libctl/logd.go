@@ -31,12 +31,8 @@ import (
 type LogdSession struct {
 	addr     string
 	clientID string
-	// usePending is carried into every hello this session sends, including a
-	// reconnect's: a session which was testing a pending schema must not silently come
-	// back on the active one.
-	usePending bool
-	scope      *string // COW scope for this session; nil = baseline
-	log        *slog.Logger
+	scope    *string // COW scope for this session; nil = baseline
+	log      *slog.Logger
 
 	// mu guards the session's state — the fields below, and the pending/watcher
 	// maps. It is held only for as long as it takes to read or update them, never
@@ -112,12 +108,6 @@ type LogdSessionConfig struct {
 	// Log is an optional logger
 	Log *slog.Logger
 
-	// UsePending makes this session read and write against the PENDING schema, when a
-	// migration is in progress: what a caller does to test a schema before completing
-	// the migration to it. The session is failed with migration_aborted if the
-	// migration is abandoned under it, and refused at hello if there is none.
-	UsePending bool
-
 	// HeartbeatInterval is how often the session pings the server to prove the
 	// connection is live. Zero uses a default; negative disables the heartbeat.
 	HeartbeatInterval time.Duration
@@ -162,7 +152,6 @@ func NewLogdSession(cfg *LogdSessionConfig) *LogdSession {
 	return &LogdSession{
 		addr:              cfg.Addr,
 		clientID:          cfg.ClientID,
-		usePending:        cfg.UsePending,
 		scope:             scope,
 		log:               log.With("component", "logd-session"),
 		pending:           make(map[string]chan *api.SessionResponse),
@@ -355,10 +344,9 @@ func (s *LogdSession) heartbeat(conn net.Conn) {
 func (s *LogdSession) hello(conn net.Conn, decoder *stream.Decoder, deadline time.Time) (*api.SessionResponse, error) {
 	req := &api.SessionRequest{
 		Hello: &api.Hello{
-			ClientID:   s.clientID,
-			Protocol:   api.ProtocolVersion,
-			UsePending: s.usePending,
-			Scope:      s.scope,
+			ClientID: s.clientID,
+			Protocol: api.ProtocolVersion,
+			Scope:    s.scope,
 		},
 	}
 	if err := s.sendRequestWithin(conn, req, deadline); err != nil {
