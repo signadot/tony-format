@@ -826,7 +826,7 @@ func TestDocd_ComposeNestedMountsOverlay(t *testing.T) {
 // TestDocd_ComposeAncestorWatch proves a client watching an ancestor path gets a
 // single composed initial snapshot (base + mount) and then live deltas from BOTH
 // the base store (logd) and the mounted controller, each re-stamped to the watch
-// path with its root-rooted patch intact.
+// path with its patch rooted there.
 func TestDocd_ComposeAncestorWatch(t *testing.T) {
 	logd := startLogd(t)
 	docd := startDocdRouting(t, logd.TCPAddr())
@@ -1503,17 +1503,13 @@ func TestDocd_WatchStreaming(t *testing.T) {
 	}
 
 	// A pushed update streams through the controller and docd to the client. Per
-	// the canonical contract the delta Patch is root-rooted (absolute from the
-	// document root), while Path names the watch.
+	// the canonical contract the delta Patch is rooted at the watched path, which
+	// Path names.
 	waitSubs(t, ctrl, 1)
 	ctrl.broadcast(&api.WatchEvent{
 		Commit: 2,
 		Path:   "rooms.1",
-		Patch: ir.FromMap(map[string]*ir.Node{
-			"rooms": ir.FromMap(map[string]*ir.Node{
-				"1": ir.FromMap(map[string]*ir.Node{"occupants": ir.FromInt(3)}),
-			}),
-		}),
+		Patch:  ir.FromMap(map[string]*ir.Node{"occupants": ir.FromInt(3)}),
 	})
 	if ev := expectEvent(t, w); ev.Commit != 2 {
 		t.Errorf("expected update event commit 2, got %d", ev.Commit)

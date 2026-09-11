@@ -103,8 +103,10 @@ func newKTree(kp string, node *ir.Node) (*kTree, error) {
 // RootPatchAt wraps node as a patch rooted at the document root under kp, using
 // the same canonical rooting as a client patch (object fields, sparse {n}, and
 // array [i] via !arraydiff). kp == "" returns node unchanged. This is the inverse
-// of navigating to kp: a delta computed at kp's subtree is re-rooted for the
-// root-rooted watch delta contract.
+// of navigating to kp: a delta computed at kp's subtree is re-rooted above it --
+// at the document, or, for a kp relative to an ancestor, at that ancestor, which
+// is how docd lifts a composed watch's delta to trim it and roots a mount's delta
+// at the composed path.
 func RootPatchAt(kp string, node *ir.Node) (*ir.Node, error) {
 	kt, err := newKTree(kp, node)
 	if err != nil {

@@ -111,7 +111,8 @@ func TestVerse_ScopedOverlappingWatchesUnderMount(t *testing.T) {
 	wB := open("m.b")    // disjoint sibling
 
 	// Write the nested path: fires the ancestor (m.a) and nested (m.a.x), NOT m.b.
-	// Both deltas must be ROOT-ROOTED (the watch contract), so both carry m.a.x.v=1.
+	// Each delta is rooted at its watch's path (the watch contract): x.v=1 at m.a,
+	// v=1 at m.a.x.
 	if _, err := scoped.Patch(ctx, "m.a.x", vObj(1)); err != nil {
 		t.Fatalf("scoped patch m.a.x: %v", err)
 	}
@@ -119,7 +120,7 @@ func TestVerse_ScopedOverlappingWatchesUnderMount(t *testing.T) {
 	assertRootedDelta(t, "m.a.x", wAX, "$.v", 1)
 	expectQuiet(t, "m.b", wB)
 
-	// Write the disjoint sibling: fires only m.b, root-rooted at m.b.
+	// Write the disjoint sibling: fires only m.b, rooted at m.b.
 	if _, err := scoped.Patch(ctx, "m.b", vObj(2)); err != nil {
 		t.Fatalf("scoped patch m.b: %v", err)
 	}
@@ -128,8 +129,8 @@ func TestVerse_ScopedOverlappingWatchesUnderMount(t *testing.T) {
 	expectQuiet(t, "m.a.x", wAX)
 }
 
-// assertRootedDelta reads one event and checks its Patch is a valid ROOT-ROOTED
-// delta: applying it (Patch(prior, delta)) must yield the value at kp. Since these
+// assertRootedDelta reads one event and checks its Patch is a valid delta rooted at
+// the watched path: applying it (Patch(prior, delta)) must yield the value at kp. Since these
 // are fresh null->value writes, applying to a null base suffices. This proves the
 // re-rooting AND that the delta is a real patch (with ops), not just non-empty.
 func assertRootedDelta(t *testing.T, name string, w *Watch, kp string, want int64) {
