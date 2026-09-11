@@ -6,9 +6,8 @@ commits: []
 created: "2026-09-11T10:38:21.107308+02:00"
 duplicates: []
 id: c4gy241yh12kszdxmdn0
-labels:
-- "audit gomap correctness low"
+labels: []
 related_issues:
 - f69agjyeh12ksa25cnn0
 status: open
-updated: "2026-09-11T10:38:39.130418+02:00"
+updated: "2026-09-11T10:39:02.387076+02:00"
