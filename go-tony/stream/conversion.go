@@ -3,6 +3,7 @@ package stream
 import (
 	"fmt"
 	"io"
+	"strconv"
 
 	"github.com/signadot/tony-format/go-tony/ir"
 )
@@ -145,7 +146,14 @@ func addNodeToParent(stack *[]nodeFrame, node *ir.Node, root **ir.Node) {
 		var keyNode *ir.Node
 		key := ""
 		if parent.intKey != nil {
+			// A sparse array's key, as ir.FromIntKeysMapAt builds one: its decimal in
+			// String and in the value's ParentField. ir.FromInt left both empty, and a
+			// merge and a diff name a field by its String, so every key of a sparse array
+			// read back through events was "", its entries collapsed into one, and
+			// logd answered !sparsearray {0: y, 1: z} as {"": z} (0bns6k1wh12ksyxxmdn0).
+			key = strconv.FormatInt(*parent.intKey, 10)
 			keyNode = ir.FromInt(*parent.intKey)
+			keyNode.String = key
 		} else {
 			keyNode = ir.FromString(parent.key)
 			key = parent.key

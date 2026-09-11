@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 
 	"github.com/signadot/tony-format/go-tony/debug"
 	"github.com/signadot/tony-format/go-tony/encode"
@@ -193,7 +194,18 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 	}
 	switch patch.Type {
 	case ir.ObjectType:
-		res, err := objPatchYWith(doc, patch, ctx)
+		// A sparse array and a plain object are two kinds, and a merge cannot turn one into
+		// the other: an integer key and a string key cannot share an object. So a patch of
+		// the other kind stands alone, applied against absence at the document's place --
+		// as an array patch does over a non-array. It merged, and answered a sparse array
+		// holding the object's string keys beside its own (07g0rn9xh12ksz5xmdn0), which
+		// is also what logd's lowering stored for such a write; this replays it as the
+		// writer meant.
+		on := doc
+		if otherKind(doc, patch) {
+			on = &ir.Node{Type: ir.NullType, Parent: doc.Parent, ParentIndex: doc.ParentIndex, ParentField: doc.ParentField}
+		}
+		res, err := objPatchYWith(on, patch, ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -578,6 +590,9 @@ func objPatchYWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error
 		}
 	}
 	if len(merges) == 0 {
+		if sparseArray(patch) || (doc.Type == ir.ObjectType && sparseArray(doc)) {
+			return sparseResult(dstMap, mergedTag(doc, patch))
+		}
 		res := ir.FromMap(dstMap)
 		res.Tag = mergedTag(doc, patch)
 		return res, nil
@@ -626,6 +641,44 @@ func objPatchYWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error
 // nothing, so replacing an array dropped BOTH sides' presentation and a flow array
 // came back written in dashes. Invisible while whole-array replaces were rare, and
 // routine once lowering turned relative writes into stated values.
+// sparseResult is a merged sparse array: its keys integers, as ir.FromIntKeysMapAt makes
+// them, in key order, and one !sparsearray last on its tag, as parse writes it. Built as a
+// plain object it came back with string keys under the sparse array's tag, and the tag
+// twice -- !sparsearray.sparsearray -- since both sides wore it (07g0rn9xh12ksz5xmdn0).
+func sparseResult(dst map[string]*ir.Node, tag string) (*ir.Node, error) {
+	m := make(map[uint32]*ir.Node, len(dst))
+	for k, v := range dst {
+		i, err := strconv.ParseUint(k, 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("a sparse array cannot hold the key %q", k)
+		}
+		m[uint32(i)] = v
+	}
+	res := ir.FromIntKeysMap(m)
+	if rest := ir.TagRemove(tag, ir.IntKeysTag); rest != "" {
+		res.Tag = ir.TagCompose(rest, nil, res.Tag)
+	}
+	return res, nil
+}
+
+// sparseArray says whether an object is a sparse array: one wearing !sparsearray.
+func sparseArray(n *ir.Node) bool {
+	return ir.TagHas(n.Tag, ir.IntKeysTag)
+}
+
+// otherKind says whether patch is an object of the other kind from doc: one a sparse
+// array, the other a plain object with fields. An untagged empty object says nothing
+// about its kind, and merges into either.
+func otherKind(doc, patch *ir.Node) bool {
+	if doc.Type != ir.ObjectType || patch.Type != ir.ObjectType {
+		return false
+	}
+	if sparseArray(patch) {
+		return !sparseArray(doc)
+	}
+	return sparseArray(doc) && len(patch.Fields) > 0
+}
+
 func mergedTag(doc, patch *ir.Node) string {
 	patchTag := ir.StripPresentation(patch.Tag)
 	if doc.Tag == "" {
