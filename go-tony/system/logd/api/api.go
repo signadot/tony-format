@@ -24,6 +24,8 @@ type Patch struct {
 	PathData
 }
 
+// Duration is a time.Duration encoded as text: what time.Duration prints and
+// time.ParseDuration reads ("5s", "1m").
 type Duration time.Duration
 
 func (dur Duration) MarshalText() ([]byte, error) {

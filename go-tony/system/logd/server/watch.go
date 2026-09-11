@@ -9,12 +9,10 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 )
 
-// DefaultBroadcastTimeout is the default timeout for sending events to watchers.
-// If a watcher doesn't read within this time, the watch is failed.
+// DefaultBroadcastTimeout is the broadcast timeout NewWatchHub records. It does not
+// gate delivery: Broadcast never waits on a watcher, and fails one whose buffer is full.
 const DefaultBroadcastTimeout = 5 * time.Second
 
-// WatchHub manages watches and broadcasts commit notifications to watchers.
-// It is thread-safe and designed for concurrent access from multiple sessions.
 // watchStats counts the fan-out. A store with dozens of watches over the same set does
 // this work on EVERY commit, and until it is counted, a session which is merely
 // keeping up and one which is drowning look the same from outside
@@ -32,6 +30,8 @@ type watchStats struct {
 	scopeReread atomic.Int64
 }
 
+// WatchHub manages watches and broadcasts commit notifications to watchers.
+// It is thread-safe and designed for concurrent access from multiple sessions.
 type WatchHub struct {
 	stats    watchStats
 	mu       sync.RWMutex
@@ -71,10 +71,10 @@ func (h *WatchHub) Report() map[string]any {
 
 // Watcher represents a watch on a path.
 // The Events channel receives commit notifications that match the watched path.
-// If the watcher can't keep up (Events channel blocks), the watch is failed
+// If the watcher can't keep up (its Events buffer is full), the watch is failed
 // and the Failed channel is closed.
 type Watcher struct {
-	Path       string                           // Watched path (prefix match)
+	Path       string                           // Watched path (matches commits at, under or above it)
 	Scope      *string                          // Scope for COW isolation (nil = baseline only)
 	ID         *string                          // Originating watch request id (nil = legacy path-routed watch)
 	Events     chan *storage.CommitNotification // Channel for receiving events
@@ -101,13 +101,13 @@ func NewWatchHubWithTimeout(timeout time.Duration) *WatchHub {
 }
 
 // Watch adds a watcher for the given path.
-// Events matching the path (by prefix) will be sent to the watcher's Events channel.
-// Returns the watcher which can be used to unwatch later.
+// Commits touching the path, or a path under or above it, will be sent to the watcher's
+// Events channel. The same watcher is what Unwatch takes.
 //
 // The caller is responsible for:
-// 1. Creating the Watcher with a buffered Events channel
-// 2. Reading from the Events channel to avoid blocking
-// 3. Calling Unwatch when done
+//  1. Creating the Watcher with a buffered Events channel
+//  2. Reading from the Events channel to avoid blocking
+//  3. Calling Unwatch when done
 func (h *WatchHub) Watch(watcher *Watcher) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -134,17 +134,20 @@ func (h *WatchHub) Unwatch(watcher *Watcher) {
 }
 
 // Broadcast sends a commit notification to all matching watchers.
-// A watcher matches if any of the notification's KPaths has the watcher's path as a prefix.
+// A watcher matches if one of the notification's KPaths is the watcher's path, under it,
+// or above it, and its scope admits the notification's scope.
 //
 // It is non-blocking: delivery to each watcher is a non-blocking send to its buffered Events
 // channel. A watcher whose buffer is full has fallen behind and is failed (its Failed channel
 // is closed and it is removed), so slow consumers don't miss events silently — they are
 // notified of failure and re-establish. Broadcast never waits on a consumer, because it runs
-// on the committing goroutine as the CommitNotifier (whose contract is to return immediately).
+// on the storage tick's dispatcher goroutine as the CommitNotifier (whose contract is to
+// return immediately), where a wait would hold up the notification of every later commit.
 //
-// This method is designed to be used as a CommitNotifier callback:
+// This method is designed to be used as a CommitNotifier callback, where store is the
+// *storage.Storage:
 //
-//	storage.SetCommitNotifier(hub.Broadcast)
+//	store.SetCommitNotifier(hub.Broadcast)
 func (h *WatchHub) Broadcast(n *storage.CommitNotification) {
 	started := time.Now()
 	h.mu.RLock()
@@ -224,8 +227,7 @@ func (h *WatchHub) Broadcast(n *storage.CommitNotification) {
 	}
 }
 
-// GetCurrentCommit returns a function that retrieves the current commit.
-// This is used by sessions to determine the replay range.
+// CommitGetter retrieves the current commit.
 type CommitGetter func() (int64, error)
 
 // WatcherCount returns the total number of active watchers.

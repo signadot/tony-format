@@ -34,7 +34,8 @@ type Session struct {
 	// running (see dispatch), and a client is free to say hello twice.
 	scope atomic.Pointer[string]
 
-	// If true, session uses pending schema/index (for testing migrations)
+	// If true, the session was answered with the pending schema, and its requests fail
+	// with migration_aborted once the migration is aborted (for testing migrations).
 	// usePending is set by hello, like scope, and read by requests running beside the
 	// loop -- atomic for the same reason.
 	usePending atomic.Bool
@@ -47,7 +48,7 @@ type Session struct {
 
 	// Watch state
 	watchMu sync.RWMutex
-	watches map[string]*Watcher // path -> active watcher
+	watches map[string]*Watcher // watchKey(id, path) -> active watcher
 
 	// Communication channels
 	outgoing chan outbound // responses and events to send
@@ -69,7 +70,7 @@ type SessionConfig struct {
 	OutgoingBuffer int      // buffer size for outgoing channel (default 100)
 	Schema         *ir.Node // Server's schema (returned in hello response)
 	// ReadBudget is the largest node a session builds to answer one read: a match, a
-	// watch's initial state, the document a baseline watch steps. A read past it is
+	// watch's initial state, a watch's read of the value at its path. A read past it is
 	// refused with ErrBudget rather than held. Zero is DefaultReadBudget; every read
 	// that builds a node states a number (read_write_interface.md), and this is the
 	// session's.
@@ -109,8 +110,8 @@ func NewSession(id string, conn io.ReadWriteCloser, cfg *SessionConfig) *Session
 	}
 }
 
-// Run starts the session and blocks until it completes.
-// It spawns reader and writer goroutines and waits for completion.
+// Run serves the session and blocks until it completes: it reads and dispatches
+// requests on the calling goroutine while a writer goroutine sends responses and events.
 func (s *Session) Run() error {
 	var wg sync.WaitGroup
 

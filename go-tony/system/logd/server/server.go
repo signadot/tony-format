@@ -265,7 +265,7 @@ func (s *Server) StopTCP() error {
 // waits here rather than polling, since the counter is spawned before the goroutine.
 func (s *Server) awaitSnapshots() { s.snapshotting.Wait() }
 
-// TCPAddr returns the TCP listener's address, or nil if not running.
+// TCPAddr returns the TCP listener's address, or "" if not running.
 func (s *Server) TCPAddr() string {
 	if s.tcpListener == nil {
 		return ""

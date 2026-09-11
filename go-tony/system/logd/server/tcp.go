@@ -46,7 +46,7 @@ func (l *TCPListener) Addr() net.Addr {
 }
 
 // Serve accepts connections and creates sessions.
-// Blocks until Close is called or an error occurs.
+// Blocks until Close is called; an accept error is logged and accepting continues.
 func (l *TCPListener) Serve() error {
 	l.server.Spec.Log.Info("TCP listener started", "addr", l.listener.Addr().String())
 

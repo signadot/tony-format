@@ -164,16 +164,6 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 	go s.forwardEvents(watcher, fromCommit, req.NoInit, currentCommit)
 }
 
-// forwardEvents forwards events from a watcher to the session's outgoing channel.
-// It handles initial state and replay, then forwards live events with deduplication.
-//
-// Race prevention: We registered with the hub BEFORE getting currentCommit.
-// This means events that arrive between Watch and GetCurrentCommit are queued.
-// After replay completes, we skip any queued events with commit <= currentCommit
-// since they were already replayed.
-//
-// Error handling: If replay fails, an error event is sent and the watch is terminated.
-// The client should re-establish the watch, possibly from a different commit.
 // watchStream is one watch while it runs: the state it carries, and the jobs it does with
 // that state -- send the initial picture, replay what the client missed, then stream what
 // happens next, with the scoped/baseline difference running through all three.
@@ -216,7 +206,7 @@ type watchStream struct {
 	// what every delta is a delta of (one_delta_shape.md, one rooting).
 	//
 	// A BASELINE watcher steps it by the stored delta PROJECTED at the path
-	// (storage.ProjectDelta): what the entry says at or below the path, re-rooted there,
+	// (api.ProjectDelta): what the entry says at or below the path, re-rooted there,
 	// which is also what the client is sent. A projection that says nothing is a commit
 	// that did not reach the path, and costs nothing; one that is blocked -- an operator
 	// above the path states the whole value there -- is answered by a read at the path,
@@ -484,7 +474,7 @@ func (w *watchStream) step(commit int64, patch *ir.Node, scopeID *string, shared
 // !key merges are identity-based. So there is nothing to fold, and a live commit is
 // served exactly as a replayed one is -- the committed delta is not an input here.
 //
-// The recompute is a read at the path (scopedDocAt -> readDocAt), which narrows; see
+// The recompute is a read at the path (scopedDocAt -> readValueAt), which narrows; see
 // watchStream for what that costs.
 func (w *watchStream) emitScoped(commit int64) bool {
 	next, err := w.s.emitScopedDelta(w.watcher.ID, w.path, commit, w.prev)
@@ -690,8 +680,8 @@ func (s *Session) cleanupWatches() {
 // handleWatch's admission checks — because that id is in the pending table.
 //
 // commit is the highest commit this watch accounted for, so the client can resume from it
-// rather than re-reading everything; 0 when it never got that far. message is for the
-// server log, since the terminal event carries a short reason code and no prose.
+// rather than re-reading everything; 0 when it never got that far.
+//
 // failWatch ends a watch and says why: a reason code from the ErrCode* vocabulary, and
 // the message that carries what the code cannot. The message goes to the CLIENT as well
 // as the log -- it used to be logged and dropped, so a client could be told its cursor was

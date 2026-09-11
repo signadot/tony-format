@@ -14,9 +14,9 @@ import (
 // ErrPathNotFound is returned when a path does not exist in the document.
 // This is distinct from a path that exists but has a null value.
 //
-// Every failure from extractPathValue matches it, so a caller that only needs
-// "no value here" can keep asking that question. A caller that has to decide how
-// alarmed to be wants PathError.Kind instead.
+// A *PathError matches it only for absence (PathAbsent; see PathError.Is). A caller
+// that needs "no value here" for whatever reason asks NoValueAt, and a caller that has
+// to decide how alarmed to be wants PathError.Kind.
 var ErrPathNotFound = errors.New("path not found")
 
 // PathErrorKind says what the CURRENT STATE says about a path. Three facts about the
@@ -38,26 +38,27 @@ var ErrPathNotFound = errors.New("path not found")
 // why an index segment was classified as a malformed path and every read at an array
 // element was refused (yy0cfe9mh12kr6pwgsn0).
 //
-// None of them indicates a storage problem: extraction is pure navigation of a document
-// that was already read.
+// None of them indicates a storage problem: a read that fails answers with its own error,
+// not a PathError.
 type PathErrorKind int
 
 const (
 	// PathAbsent: a segment is simply not in the document. Ordinary, and it
-	// resolves itself — a watch registered before the first write to its path
-	// reports this until someone writes there, which is the normal way to start
-	// watching something that does not exist yet.
+	// resolves itself — a watch that asked to wait (waitIfAbsent) for a path
+	// nothing has been written to reports this until someone writes there, which
+	// is the normal way to start watching something that does not exist yet.
 	PathAbsent PathErrorKind = iota
 
-	// PathTypeConflict: navigation reached a non-object where the path expects a
-	// field. It MAY resolve (whatever sits there is later overwritten with an
-	// object) or may be a lasting disagreement about the document's shape, and
-	// nothing here can tell which.
+	// PathTypeConflict: navigation reached a container of a kind the next segment
+	// cannot step into -- a non-object where the path expects a field, a non-array
+	// where it expects an index. It MAY resolve (whatever sits there is later
+	// overwritten with the right kind) or may be a lasting disagreement about the
+	// document's shape, and nothing here can tell which.
 	PathTypeConflict
 
-	// PathBadSegment: the path addresses something other than an object field —
-	// an index or sparse segment. Extraction does not support those, so unlike
-	// the other two this NEVER resolves, however long the caller waits.
+	// PathBadSegment: a segment names a set of values -- a wildcard -- and a read
+	// answers one. Unlike the other two, no write makes such a path resolve,
+	// however long the caller waits.
 	PathBadSegment
 )
 
@@ -297,7 +298,7 @@ type watchAbsence struct {
 func (w *watchAbsence) arm() { w.pending = true }
 
 // observe reports the arrival the first time the watch sees a real value. A null
-// subtree is not an arrival: it is how an absent path is delivered.
+// subtree is not an arrival.
 func (w *watchAbsence) observe(sub *ir.Node) {
 	if !w.pending || sub == nil || sub.Type == ir.NullType {
 		return

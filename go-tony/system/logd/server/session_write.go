@@ -20,7 +20,6 @@ import (
 // handlePatch handles patch (write) requests.
 // If TxID is provided, the patch joins an existing multi-participant transaction.
 // If TxID is nil, a new single-participant transaction is created.
-// If Migration is true, the patch is only indexed to pending (for migration transforms).
 func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 	path := req.Path
 

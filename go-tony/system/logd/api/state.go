@@ -19,9 +19,8 @@ import (
 // two things can be compared has made a null that is then deleted look like no change at
 // all, and the gate downstream of it tells the truth only if nothing upstream lied.
 //
-// The one place the two legitimately meet is the wire, which cannot say absent and says
-// null with the truth kept beside it in the log (see watchAbsence) until it can
-// (presence.md, wk5w1ddkh12krj1tkxn0).
+// The wire keeps them apart too: a watch event says absent with WatchEvent.Absent, and a
+// read of a path holding nothing is answered not_found (presence.md, wk5w1ddkh12krj1tkxn0).
 
 // NextState applies a patch the way logd materializes state: keeping comments,
 // because a store keeps what it is given.
@@ -58,27 +57,21 @@ func NextState(doc, patch *ir.Node) (*ir.Node, error) {
 // SameState reports whether two documents are the same STATE: what the store
 // holds at a path, as the store holds it.
 //
-// It is the one place logd decides what counts as a change. Four places ask the
-// question -- a watch replaying the log, a watch following it live, a scoped
-// delta, and the head's agreement with a full read -- and asking it four times in
-// four files is how the four answers drift apart.
+// It is the one place logd decides what counts as a change. A watch asks the
+// question at every step -- stepping the value it holds by a delta, replayed or
+// live, and re-reading its path in a scoped view -- and asking it in more than one
+// place with more than one answer is how the answers drift apart.
 //
 // The answer counts comments. Not because comments are important, but because
 // this asks what the STORE holds, and it is not this function's business to
-// decide that some of it does not count: ir.DeepEqual is the right question about
-// two VALUES, and deliberately blind (see its comment), while what a watch owes
-// its watcher is everything the commit changed.
+// decide that some of it does not count: ir.Node.DeepEqual is the right question
+// about two VALUES, and deliberately blind (see its comment), while what a watch
+// owes its watcher is everything the commit changed.
 //
-// While nothing in a store carries a comment the two are the same function, so
-// today this is inert. The day a store keeps them, blind equality would put the
-// store and its watchers into disagreement about whether anything happened: the
-// log holds a commit that every watch dropped. The same holds for the head, where
-// a stepped head that lost a comment a read kept is two materializations
-// disagreeing about stored content -- which is exactly what that check exists to
-// catch, and dropping the head is the safe answer to it.
-//
-// So the policy is chosen once, here, and turning comment storage on does not
-// have to find these four sites again (3cdjz00jh12krns4g1n0).
+// A store keeps comments (NextState), so blind equality would put the store and
+// its watchers into disagreement about whether anything happened: the log holds a
+// commit that every watch dropped. So the policy is chosen once, here
+// (3cdjz00jh12krns4g1n0).
 func SameState(a, b *ir.Node) bool {
 	return a.DeepEqualWithComments(b)
 }
@@ -86,10 +79,10 @@ func SameState(a, b *ir.Node) bool {
 // WireOptions is how a session encodes a message: the compact wire form, and
 // comments with it.
 //
-// Both halves of every hop have to agree, and there are nine encoders across
-// logd, docd, libctl and the transaction pool. Nine copies of a convention is
-// how a message loses something at one hop and nobody can say which -- so the
-// convention is written once, here, beside the two other things a store's
+// Both halves of every hop have to agree, and there is an encoder at every hop
+// across logd, docd, libctl and the transaction pool. A convention copied into
+// each is how a message loses something at one hop and nobody can say which -- so
+// the convention is written once, here, beside the two other things a store's
 // treatment of state is decided by (NextState and SameState).
 //
 // Comments make a wire message multi-line, which is safe everywhere it is used:

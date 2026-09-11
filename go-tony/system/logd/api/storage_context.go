@@ -54,8 +54,11 @@ const StorageContextURI = "logd/context/storage"
 //	arraydiff  relative to the array that was there, and positional
 //	rename     relative to the keys that were there; lowers to delete + insert
 //	field      the same, for one field: !field(from,to) renames whatever is at from
-//	jsonpatch  a sequence relative to the document
+//	json-patch a sequence relative to the document
 //	if, let    conditional on the document
+//	get-path, list-path
+//	           answer with a value read from elsewhere in the document, so against a
+//	           moved base they answer with a different one
 //	quote, unquote, dive, embed, pass
 //	           transforms of whatever is found, not statements of what is
 //	nullify    the odd one out, and worth stating precisely because the value looks
@@ -113,12 +116,11 @@ func IsStorableTag(name string) bool {
 // ValidateForStorage checks a node against both restrictions.
 //
 // The first is the vocabulary above. The second is the INDEX's, and it is narrower than
-// what a merge accepts: indexPatchRec turns each keyed element into a path segment via
-// ir.ElemKey, which admits only a scalar, while mergeop's yKeyOf encodes any node at all.
-// An object-valued key or a bare !key is therefore ordinary in a merge and unrepresentable
-// in the index, where it collapses every element onto items("") -- silently, because
-// indexPatchRec discards ElemKey's second return. Rendering also loses type, so 1 and "1"
-// are two elements sharing one path.
+// what a merge accepts: the index names an element of a keyed list by the scalar at its
+// key field, while mergeop's yKeyOf encodes any node at all. An object-valued key or a
+// bare !key is therefore ordinary in a merge and unrepresentable in the index, so a !key
+// list is held to it here: every element has a scalar at the key field, and no two
+// render alike (ir.ElemKey).
 //
 // That belongs here rather than in tony: encoding any node as a merge key is meaningful
 // for a merge, and requiring a renderable, injective path segment is a consequence of

@@ -19,8 +19,10 @@ import (
 type Config struct {
 	// Schema is the Tony schema node that defines data model constraints.
 	// Use !tovalue.file to load from a file: schema: !tovalue.file path/to/schema.tony
-	// The schema is used to identify auto-id fields (tagged with !logd-auto-id).
-	// If nil, auto-id generation is disabled.
+	// The schema is used to identify keyed arrays: auto-id fields (tagged with
+	// !logd-auto-id) and client-supplied keys (tagged with !logd-key). A schema the
+	// store holds from a migration takes precedence over it. If both are nil, no
+	// array is keyed and no id is generated.
 	Schema *ir.Node `tony:"field=schema"`
 
 	// Snapshot configures automatic snapshotting behavior.
@@ -57,7 +59,7 @@ type StorageConfig struct {
 	Durability string `tony:"field=durability"`
 
 	// ReadBudget is the largest node the server builds to answer one read, in bytes:
-	// a match, a watch's initial state, the document a baseline watch steps. A read
+	// a match, a watch's initial state, a watch's read of the value at its path. A read
 	// past it is refused rather than held. Zero means the default, 64 MiB.
 	ReadBudget int64 `tony:"field=readBudget"`
 
@@ -68,9 +70,10 @@ type StorageConfig struct {
 	WriteBudget int64 `tony:"field=writeBudget"`
 
 	// PathSnapshotTail is how many records a read may fold at a path before it takes
-	// a snapshot there, and PathSnapshotBytes the largest subtree it snapshots. Zero
-	// means the defaults (64 records, 1 MiB); a negative tail turns per-path snapshots
-	// off. See storage/path_snapshot.go.
+	// a snapshot there, for each PathSnapshotBytes of the subtree: a subtree N times
+	// PathSnapshotBytes must fold more than N times the tail. PathSnapshotBytes is a
+	// rate, not a ceiling. Zero means the defaults (64 records, 1 MiB); a negative tail
+	// turns per-path snapshots off. See storage/path_snapshot.go.
 	PathSnapshotTail  int64 `tony:"field=pathSnapshotTail"`
 	PathSnapshotBytes int64 `tony:"field=pathSnapshotBytes"`
 
@@ -97,8 +100,6 @@ func (c *StorageConfig) ToStorageDurability() (storage.Durability, error) {
 	}
 }
 
-// TxConfig configures transaction behavior.
-//
 // Duration is a length of time written the way a person writes one: "1h", "30s",
 // "500ms" — what time.ParseDuration reads and what time.Duration prints.
 //
@@ -126,6 +127,8 @@ func (d *Duration) UnmarshalText(text []byte) error {
 	return nil
 }
 
+// TxConfig configures transaction behavior.
+//
 //tony:schemagen=tx-config
 type TxConfig struct {
 	// Timeout is the maximum time to wait for all participants to join a transaction.
@@ -137,11 +140,11 @@ type TxConfig struct {
 
 // SnapshotConfig configures when automatic snapshots are triggered.
 //
-// A snapshot is what bounds the cost of reading: without one, every read replays
-// the whole delta log, and the log only grows. Both thresholds are ceilings on how
-// much log a read can be made to replay, and a store with neither is unbounded by
-// construction — it degrades from the first commit, with no threshold anyone
-// crosses and no symptom until reads take seconds.
+// A snapshot is what bounds the cost of reading: without one, a read replays every
+// write that reaches its path since the log began, and the log only grows. Both
+// thresholds are ceilings on how much log a read can be made to replay, and a store
+// with neither is unbounded by construction — it degrades from the first commit, with
+// no threshold anyone crosses and no symptom until reads take seconds.
 //
 // The two are not equivalent, and MaxBytes is the one to rely on:
 //
@@ -319,7 +322,8 @@ func (c *Config) WithDefaults() *Config {
 }
 
 // Validate checks the configuration for errors. Called by LoadConfig, so a file
-// that names something logd does not understand is rejected rather than run.
+// giving a value logd does not understand -- a durability other than os or sync --
+// is rejected rather than run.
 func (c *Config) Validate() error {
 	// A misspelled durability must not fall back to the default: an operator who
 	// wrote "fsync" and silently got page-cache writes has the opposite of what

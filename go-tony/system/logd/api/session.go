@@ -26,7 +26,7 @@ type Hello struct {
 	ClientID   string  `tony:"field=clientId"`
 	Protocol   int     `tony:"field=protocol,omitzero"` // 0 = a client from before versions existed
 	Scope      *string `tony:"field=scope"`             // Optional: scope for COW isolation (applies to all operations in session)
-	UsePending bool    `tony:"field=usePending"`        // If true, use pending schema/index (for testing migrations)
+	UsePending bool    `tony:"field=usePending"`        // If true, answer with the pending schema; requests fail with migration_aborted once it is aborted (for testing migrations)
 }
 
 // ProtocolVersion is the session protocol this build speaks, sent in Hello and answered in
@@ -116,9 +116,9 @@ type NewTxRequest struct {
 //   - nil: start at the store's current commit. No history.
 //   - >= 0: an ABSOLUTE commit. The watch replays the exact delta history from it
 //     before streaming live, which is how a client that knows the last commit it saw
-//     resumes with no gap. Below the retained history it is refused with
-//     ErrCodeReplayCompacted, because a client naming a commit is claiming to know
-//     where it was and deserves to be told that history is gone.
+//     resumes with no gap. Below the retained history the watch ends before it sends
+//     anything, with EndReason ErrCodeReplayCompacted, because a client naming a commit
+//     is claiming to know where it was and deserves to be told that history is gone.
 //   - < 0: RELATIVE. -N means "the last N commits", resolved against the store's
 //     watermark at the moment the watch is established: start = watermark - N, and
 //     never below the retained history or zero. A relative request is a request for
@@ -144,18 +144,20 @@ type WatchRequest struct {
 	//
 	// Waiting is a real thing to want -- a controller watching for a subtree its peer has
 	// not created yet -- so it is asked for rather than assumed. With it set, the watch
-	// is established, delivers null, and reports the value when it arrives.
+	// is established, its state event says the path is absent (WatchEvent.Absent), and
+	// it reports the value when it arrives.
 	WaitIfAbsent bool `tony:"field=waitIfAbsent"`
 }
 
 // UnwatchRequest is a request to stop watching a path.
 //
-// WatchID optionally targets a specific watch to cancel. logd allows only one
-// watch per path per session, so it identifies watches by path and ignores this
-// field. docd, however, multiplexes many client sessions onto one controller
-// connection, so several watches on the same path can coexist there; docd sets
-// WatchID to the id of the watch request it is cancelling so the controller
-// cancels exactly that one.
+// WatchID optionally targets a specific watch to cancel: the id of the watch request
+// that established it. Without it, every watch on the path is cancelled. A session holds
+// either one id-less watch on a path or any number of id-bearing ones, so a client
+// holding several on one path cancels one of them by its id. docd multiplexes many client
+// sessions onto one controller connection, so several watches on the same path coexist
+// there too; docd sets WatchID to the id of the watch request it is cancelling so the
+// controller cancels exactly that one.
 //
 //tony:schemagen=session-unwatch-request,notag
 type UnwatchRequest struct {
@@ -177,7 +179,8 @@ type DeleteScopeRequest struct {
 type SchemaGetRequest struct{}
 
 // SchemaSetRequest starts a schema migration to a new schema.
-// This always starts a migration - use MigrationRequest.Complete to finalize.
+// This always starts a migration - send a migration request with MigrationComplete
+// to finalize it, or MigrationAbort to discard it.
 //
 // A storage without an explicit schema uses an implicit "accept-all" schema.
 // The first SchemaSetRequest migrates from accept-all to the specified schema.
@@ -272,8 +275,10 @@ type PingRequest struct{}
 // open a watch to find out: the heartbeat it already sends can say so.
 //
 // The number is monotonic and chases the head; it is not a promise that the client
-// has seen everything below it. Zero means the answering server does not track one
-// (a router in front of several stores has no single head to report).
+// has seen everything below it. logd answers with its head. docd answers the ping
+// itself, with the highest commit it has reported to any client -- a point in the one
+// sequence its mounts share, and a lower bound on the head rather than the head itself
+// -- and with Floor zero. Zero means there is none to report.
 //
 //tony:schemagen=session-pong-result,notag
 type PongResult struct {
@@ -444,7 +449,7 @@ func (e *SessionError) Is(target error) bool {
 // for reporting it.
 //
 // It reaches both response error types: SessionError (the session protocol) and
-// Error (the request/response API).
+// Error.
 func ErrorCode(err error) string {
 	var se *SessionError
 	if errors.As(err, &se) && se != nil {
@@ -472,11 +477,6 @@ type SessionResponse struct {
 // --- Error codes ---
 
 const (
-	// ErrCodeStorage is the store failing at something the client cannot fix: a read
-	// which would not read, a write which would not write. It is not the client's path,
-	// its pattern or its precondition -- those have codes of their own. It was sent as a
-	// bare string from eleven places and had no constant, so no client could branch on
-	// it and the error table did not list it.
 	// ErrCodeProtocolMismatch is a client and a server which do not speak the same
 	// session protocol. Refused at hello, because every later request would be answered
 	// rather than refused -- see ProtocolVersion.
@@ -489,10 +489,16 @@ const (
 	// appear waited for one that is already there in a form it cannot read
 	// (yy0cfe9mh12kr6pwgsn0).
 	//
-	// errors.Is(err, ErrPathNotFound) still holds for it: there is no value AT that
-	// path. The code says why.
+	// Like not_found it is no value AT that path, and on the server server.NoValueAt holds
+	// for both; errors.Is(err, server.ErrPathNotFound) holds for absence alone. The code
+	// says why.
 	ErrCodePathConflict = "path_conflict"
 
+	// ErrCodeStorage is the store failing at something the client cannot fix: a read
+	// which would not read, a write which would not write. It is not the client's path,
+	// its pattern or its precondition -- those have codes of their own. It was sent as a
+	// bare string from eleven places and had no constant, so no client could branch on
+	// it and the error table did not list it.
 	ErrCodeStorage = "storage_error"
 	// ErrCodeMatch is a match PATTERN which could not be applied to the state at all, as
 	// distinct from one which applied and did not hold (ErrCodeMatchFailed).

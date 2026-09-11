@@ -13,23 +13,26 @@ const (
 )
 
 // ParseSchemaFromNode extracts logd schema from a Tony schema node.
-// It walks the "define" section looking for fields tagged with !logd-auto-id.
+// It walks the "define" section looking for fields tagged with !logd-auto-id or
+// !logd-key, and answers nil when it finds neither.
 //
 // Example Tony schema:
 //
 //	define:
 //	  users:
-//	    id: !logd-auto-id
-//	    name: ...
+//	    id: !logd-auto-id string
+//	    name: string
 //	  orders:
 //	    items:
-//	      sku: !logd-auto-id
-//	      qty: ...
+//	      sku: !logd-auto-id string
+//	      qty: number
 //
 // This produces AutoIDFields:
 //
 //	{Path: "users", Field: "id"}
 //	{Path: "orders.items", Field: "sku"}
+//
+// A field tagged !logd-key instead produces a KeyField at the same Path and Field.
 func ParseSchemaFromNode(node *ir.Node) *Schema {
 	if node == nil || node.Type != ir.ObjectType {
 		return nil
