@@ -180,8 +180,12 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 		s.onCommit()
 	}
 
-	// Strip internal tags before sending to client
-	s.send(api.NewPatchResponse(id, result.Commit, result.Data))
+	// The data as committed is in the store's form: a keyed array is an object of its
+	// elements' names (tx.LowerKeyed), and the client wrote -- and reads -- an array. It
+	// is raised at the boundary as a read's answer is. It went out as it was stored, so
+	// a client learning its generated ids from items[0].id found an object of names
+	// instead (750qjcswh12ksyxxmdn0).
+	s.send(api.NewPatchResponse(id, result.Commit, s.storage.RaiseState(s.scopeID(), result.Data, path)))
 }
 
 // handleNewTx handles newtx requests to create multi-participant transactions.

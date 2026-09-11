@@ -298,7 +298,7 @@ func (s *Server) patchTagFilter() TagFilter {
 }
 
 // participantResult is one participant's report of the write it made: the
-// absolute path it wrote at, and the data it reported as stored there (with any
+// absolute path it wrote at, and the data it reported as committed there (with any
 // auto-generated ids).
 type participantResult struct {
 	path string

@@ -546,8 +546,8 @@ var ErrMatchFailed = errors.New("match precondition failed")
 // doPatch sends a patch request and maps the response, surfacing a failed
 // compare-and-swap precondition as ErrMatchFailed. On success it returns what
 // the write landed as: api.PatchResult.Commit is the commit the patch committed
-// at, and Data is the patched data as stored, with any auto-generated ids filled
-// in. For a write docd split across mounts, the commit is the transaction's, and
+// at, and Data is the patched data as committed, with any auto-generated ids filled
+// in and keyed arrays as arrays, as they were written. For a write docd split across mounts, the commit is the transaction's, and
 // Data is the participants' data joined back into the subtree the caller patched;
 // a participant that reports no data leaves its part absent.
 func (s *LogdSession) doPatch(ctx context.Context, req *api.PatchRequest) (*api.PatchResult, error) {
@@ -571,7 +571,7 @@ func (s *LogdSession) doPatch(ctx context.Context, req *api.PatchRequest) (*api.
 }
 
 // Patch applies a patch operation at the given path. It returns the commit the
-// write landed at and the data as stored (see doPatch).
+// write landed at and the data as committed (see doPatch).
 func (s *LogdSession) Patch(ctx context.Context, path string, data *ir.Node) (*api.PatchResult, error) {
 	return s.doPatch(ctx, &api.PatchRequest{
 		PathData: api.PathData{Path: path, Data: data},
@@ -582,7 +582,7 @@ func (s *LogdSession) Patch(ctx context.Context, path string, data *ir.Node) (*a
 // current state at match.Path must match the pattern match.Data (evaluated
 // atomically at commit). The match path may differ from the patch path. Returns
 // ErrMatchFailed if the precondition does not hold. On success it returns the
-// commit the write landed at and the data as stored (see doPatch).
+// commit the write landed at and the data as committed (see doPatch).
 func (s *LogdSession) PatchIf(ctx context.Context, path string, data *ir.Node, match *api.PathData) (*api.PatchResult, error) {
 	return s.doPatch(ctx, &api.PatchRequest{
 		Match:    match,
@@ -612,7 +612,7 @@ func (s *LogdSession) NewTx(ctx context.Context, participants int) (int64, error
 // PatchTx applies a patch as a participant in the transaction txID. The call
 // blocks until the transaction commits (all participants have joined) or fails.
 // This is how a participant joins a transaction — the write is the join. On
-// success it returns the transaction's commit and the data as stored (see
+// success it returns the transaction's commit and the data as committed (see
 // doPatch); every participant sees the same commit.
 func (s *LogdSession) PatchTx(ctx context.Context, path string, data *ir.Node, txID int64) (*api.PatchResult, error) {
 	return s.doPatch(ctx, &api.PatchRequest{
@@ -647,7 +647,7 @@ func (s *LogdSession) PatchWith(ctx context.Context, path string, data *ir.Node,
 // PatchTxIf is PatchTx with a compare-and-swap precondition (see PatchIf). The
 // match is evaluated atomically with all other participants' matches at commit;
 // returns ErrMatchFailed if it does not hold. On success it returns the
-// transaction's commit and the data as stored (see doPatch).
+// transaction's commit and the data as committed (see doPatch).
 func (s *LogdSession) PatchTxIf(ctx context.Context, path string, data *ir.Node, txID int64, match *api.PathData) (*api.PatchResult, error) {
 	return s.doPatch(ctx, &api.PatchRequest{
 		TxID:     &txID,

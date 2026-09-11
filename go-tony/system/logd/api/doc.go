@@ -48,8 +48,8 @@
 //     was read at.
 //   - patch ([PatchRequest]) writes. match, when set, is a compare-and-swap
 //     precondition; txId joins a multi-participant transaction; timeout bounds that
-//     participant's wait. The answer is the commit and the data as stored, which is
-//     where a client learns a server-generated id.
+//     participant's wait. The answer is the commit and the data as committed -- a
+//     keyed array as an array -- which is where a client learns a server-generated id.
 //   - newtx ([NewTxRequest]) opens a transaction of n participants. Every participant
 //     patches with its txId, and the whole transaction commits or none of it does.
 //   - watch ([WatchRequest]) streams. The answer confirms the watch ([WatchResult]); then
