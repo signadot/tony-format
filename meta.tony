@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 35c3005a001edd332e615e19a148be56229bcbb2
 commits:
 - 35c3005a001edd332e615e19a148be56229bcbb2
 created: "2026-09-11T11:30:31.749243+02:00"
@@ -14,5 +15,5 @@ labels:
 - storage
 related_issues:
 - sqn7ptxch12ksxp19smg
-status: open
-updated: "2026-09-11T13:18:19.515899+02:00"
+status: closed
+updated: "2026-09-11T13:18:19.614232+02:00"
