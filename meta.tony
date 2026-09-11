@@ -8,6 +8,7 @@ duplicates: []
 id: faweqnhvh12ksynxmdn0
 labels:
 - "audit logd storage correctness high"
-related_issues: []
+related_issues:
+- rgpn3v9vh12ksynxmdn0
 status: open
-updated: "2026-09-11T10:38:18.702624+02:00"
+updated: "2026-09-11T10:38:38.214457+02:00"
