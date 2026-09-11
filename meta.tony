@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 059bf8284ca755a3d7c01022103f158c0aced753
 commits:
 - 059bf8284ca755a3d7c01022103f158c0aced753
 created: "2026-09-11T10:38:18.875441+02:00"
@@ -16,5 +17,5 @@ labels:
 related_issues:
 - 7d7hhbhmh12ksebkcxn0
 - 656g8yt5h12krdrmcdn0
-status: open
-updated: "2026-09-11T13:38:44.031751+02:00"
+status: closed
+updated: "2026-09-11T13:38:44.122011+02:00"
