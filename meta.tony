@@ -6,8 +6,12 @@ commits: []
 created: "2026-09-11T10:38:19.347912+02:00"
 duplicates: []
 id: mygs3chwh12ksyxxmdn0
-labels: []
+labels:
+- audit
+- correctness
+- logd
+- medium
 related_issues:
 - k0d4y1m6h12kr7cdgdn0
 status: open
-updated: "2026-09-11T10:39:00.196542+02:00"
+updated: "2026-09-11T10:39:00.268464+02:00"
