@@ -6,9 +6,14 @@ commits: []
 created: "2026-09-11T10:38:19.220872+02:00"
 duplicates: []
 id: "0bns6k1wh12ksyxxmdn0"
-labels: []
+labels:
+- audit
+- correctness
+- high
+- logd
+- storage
 related_issues:
 - 07g0rn9xh12ksz5xmdn0
 - y5rad087h12kswh0g9n0
 status: open
-updated: "2026-09-11T10:38:59.984031+02:00"
+updated: "2026-09-11T10:39:00.118095+02:00"
