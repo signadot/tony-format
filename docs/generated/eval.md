@@ -6,21 +6,21 @@ This page documents all eval operations.
 
 **Evaluate environment variables in a document**
 
-The !eval operation expands environment variables in the document. Variables are referenced using $varName syntax and are replaced with values from the evaluation environment.
+The !eval operation expands the expressions in the strings beneath it. Each is an [expr-lang](https://expr-lang.org/) expression evaluated against the evaluation environment (`o eval -e name=value`). `$[expr]` is replaced by the expression's value as text; a string that is exactly `.[expr]` is replaced by the value itself, keeping its type. `$USER` is not an expression and stays as it is written; `.[getenv("USER")]` reads the OS environment.
 
-**Child:** Document with $variable references
+**Child:** Document whose strings hold `$[...]` or `.[...]` expressions
 
 **Examples:**
 
 1. ```tony
-name: !eval "$USER"
+name: !eval '.[getenv("USER")]'
 ```
 
 2. ```tony
-path: !eval "/home/$USER/config"
+path: !eval "/home/$[user]/config"
 ```
 
-**See also:** [`!os_env`](./eval.md#os_env), [`!file`](./eval.md#file)
+**See also:** [`!osenv`](./eval.md#osenv), [`!file`](./eval.md#file)
 
 ---
 
@@ -50,79 +50,79 @@ hostname: !exec "hostname"
 
 **Load content from a file or URL**
 
-The !file operation loads content from a local file path or HTTP/HTTPS URL. The child must be a string containing the path or URL. The loaded content is parsed as Tony format.
+The !file operation loads content from a local file path or HTTP/HTTPS URL. The child must be a string containing the path or URL. The content is answered as a string, not parsed; `!tovalue.file` parses it.
 
 **Child:** String containing file path or URL
 
 **Examples:**
 
 1. ```tony
-config: !file "/etc/config.tony"
+motd: !file "/etc/motd"
 ```
 
 2. ```tony
-data: !file "https://example.com/data.tony"
+data: !tovalue.file "https://example.com/data.tony"
 ```
 
 **See also:** [`!exec`](./eval.md#exec), [`!eval`](./eval.md#eval)
 
 ---
 
-## `!os_env`
+## `!osenv`
 
 **Get value from OS environment variable**
 
-The !os_env operation retrieves the value of an OS environment variable. The child must be a string containing the environment variable name.
+The !osenv operation retrieves the value of an OS environment variable. The child must be a string containing the environment variable name.
 
 **Child:** String containing environment variable name
 
 **Examples:**
 
 1. ```tony
-home: !os_env "HOME"
+home: !osenv "HOME"
 ```
 
 2. ```tony
-path: !os_env "PATH"
+path: !osenv "PATH"
 ```
 
 **See also:** [`!eval`](./eval.md#eval)
 
 ---
 
-## `!to_int`
+## `!toint`
 
 **Convert a value to an integer**
 
-The !to_int operation converts its child value to an integer. The child must be a string representation of a number.
+The !toint operation converts its child value to an integer. A number converts when it is a whole number an int64 holds (`3.0` is `3`; `3.5` is refused), `true` and `false` are `1` and `0`, and a string must hold a base-10 integer.
 
-**Child:** String value to convert
+**Child:** Number, bool, or string value to convert
 
 **Examples:**
 
 1. ```tony
-version: !to_int "123"
+version: !toint "123"
 ```
 
-**See also:** [`!to_string`](./eval.md#to_string), [`!to_value`](./eval.md#to_value)
+**See also:** [`!tostring`](./eval.md#tostring), [`!tovalue`](./eval.md#tovalue)
 
 ---
 
-## `!to_string`
+## `!tostring`
 
 **Convert a value to a string**
 
-The !to_string operation converts its child value to a string representation.
+The !tostring operation converts its child value to a string representation.
 
 **Child:** Value to convert
 
 **Examples:**
 
 1. ```tony
-version_str: !to_string 123
+version_str: !tostring 123
 ```
 
-**See also:** [`!to_int`](./eval.md#to_int), [`!to_value`](./eval.md#to_value)
+**See also:** [`!toint`](./eval.md#toint), [`!tovalue`](./eval.md#tovalue)
 
 ---
 

@@ -17,8 +17,8 @@ import (
 // Run executes the build pipeline: fetches documents from all sources, applies
 // patches to matching documents, evaluates tool expressions, and writes the
 // results. When Output.DestDir is set, each document is written to a file of its own
-// there and w is not used; otherwise the documents are written to w. Returns the
-// processed documents and any error encountered.
+// there and w is not used; otherwise the documents are written to w, and a nil w is
+// an error. Returns the processed documents and any error encountered.
 //
 // The writer belongs to the caller and is not closed here.
 //
@@ -27,6 +27,12 @@ import (
 // failure to restore leaves the process somewhere the caller did not put it, so
 // it has to be reported rather than dropped.
 func (d *Dir) Run(w io.WriteCloser, opts ...encode.EncodeOption) (docs []*ir.Node, err error) {
+	// Refused before anything runs: a nil w went on to the write path, which
+	// panicked on it, and only after the sources had been fetched and the tool
+	// nodes -- !exec among them -- evaluated (addsgv1yh12kszdxmdn0).
+	if w == nil && d.Output.DestDir == "" {
+		return nil, errors.New("no writer and no output.destDir: nowhere to write the documents")
+	}
 	var wd string
 	wd, err = os.Getwd()
 	if err != nil {

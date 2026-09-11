@@ -32,17 +32,19 @@ type EvalOptions struct {
 // evalWithOptions compiles and runs an expression with optional AST patching
 // for parameterized definition auto-calling.
 func evalWithOptions(input string, env Env, opts *EvalOptions) (any, error) {
-	// If we have parameterized defs, use the patching path
-	if opts != nil && len(opts.ParameterizedDefs) > 0 {
-		return evalWithDefCallPatch(input, env, opts.ParameterizedDefs)
-	}
-
 	// Build compile options - include script funcs if we have a node
 	// Pass the node itself (not Root) so whereami() returns the correct path
 	// getpath() internally calls doc.Root() to resolve paths
 	var compileOpts []expr.Option
 	if opts != nil && opts.Node != nil {
 		compileOpts = exprOpts(opts.Node)
+	}
+
+	// If we have parameterized defs, use the patching path, which takes the
+	// script funcs too: without them it answered no whereami() or getpath() at
+	// all under a schema's options (addsgv1yh12kszdxmdn0).
+	if opts != nil && len(opts.ParameterizedDefs) > 0 {
+		return evalWithDefCallPatch(input, env, opts.ParameterizedDefs, compileOpts...)
 	}
 
 	// Compile and run
@@ -133,61 +135,6 @@ func GetRaw(v string) string {
 
 func getRaw(v string) string {
 	return GetRaw(v)
-}
-
-func ExpandAny(v any, env Env) (any, error) {
-	_, isY := v.(*ir.Node)
-	if isY {
-		return nil, fmt.Errorf("ExpandAny is not for y.Y")
-	}
-	switch x := v.(type) {
-	case map[int]any:
-		for k := range x {
-			vv, err := ExpandAny(x[k], env)
-			if err != nil {
-				return nil, err
-			}
-			x[k] = vv
-		}
-		return x, nil
-
-	case map[string]any:
-		for k := range x {
-			vv, err := ExpandAny(x[k], env)
-			if err != nil {
-				return nil, err
-			}
-			x[k] = vv
-		}
-		return x, nil
-	case []any:
-		for i := range x {
-			vv, err := ExpandAny(x[i], env)
-			if err != nil {
-				return nil, err
-			}
-			x[i] = vv
-		}
-		return x, nil
-	case string:
-		raw := getRaw(x)
-		if raw == "" {
-			v, err := ExpandString(x, env)
-			if err != nil {
-				return nil, fmt.Errorf("error expanding %q: %w", x, err)
-			}
-			return v, nil
-		}
-		val, err := expr.Eval(raw, env)
-		if err != nil {
-			return nil, fmt.Errorf("error evaluating %q: %w", raw, err)
-		}
-		return val, nil
-	case *ir.Node:
-		return ExpandIR(x, env)
-	default:
-		return x, nil
-	}
 }
 
 func ExpandIR(node *ir.Node, env map[string]any) (*ir.Node, error) {

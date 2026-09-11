@@ -141,7 +141,6 @@ func init() {
 	Register(Dive())
 	Register(Embed())
 	Register(Pipe())
-	Register(Let())
 
 	// tags from diffs
 	Register(Insert())

@@ -168,3 +168,28 @@ func TestExecSourceReportsStderr(t *testing.T) {
 		t.Errorf("the error says nothing about what happened: %v", err)
 	}
 }
+
+// With no destDir the documents go to Run's writer, so Run with no writer has
+// nowhere to put them, and says so. It panicked: a nil writer was left unwrapped
+// as a nil *bufio.Writer, which the write path put in an io.Writer that was not
+// nil, and the first write went through it (addsgv1yh12kszdxmdn0).
+func TestRunWithNoWriterAndNoDestDirIsAnError(t *testing.T) {
+	root := buildDir(t, map[string]string{
+		"build.tony": "build:\n  sources:\n  - dir: ./src\n",
+		"src/a.yaml": "a: 1\n",
+	})
+	d, err := OpenDir(root, nil)
+	if err != nil {
+		t.Fatalf("OpenDir: %v", err)
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("panicked: %v", r)
+		}
+	}()
+	if _, err := d.Run(nil); err == nil {
+		t.Fatal("Run with no writer and no destDir reported no error")
+	} else if !strings.Contains(err.Error(), "destDir") {
+		t.Errorf("the error does not say what is missing: %v", err)
+	}
+}

@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/ast"
 	"github.com/expr-lang/expr/compiler"
 	"github.com/expr-lang/expr/conf"
@@ -17,7 +18,10 @@ import (
 //   - If "array" is a parameterized def (has parameters)
 //   - The expression "array" becomes "array()"
 //   - The expression "array(int)" remains "array(int)" (already a call)
-func evalWithDefCallPatch(input string, env map[string]any, parameterizedDefs map[string]bool) (any, error) {
+//
+// compileOpts are applied to the compile config as expr.Compile would apply them;
+// they are how the script functions arrive.
+func evalWithDefCallPatch(input string, env map[string]any, parameterizedDefs map[string]bool, compileOpts ...expr.Option) (any, error) {
 	// Parse to AST
 	tree, err := parser.Parse(input)
 	if err != nil {
@@ -33,6 +37,9 @@ func evalWithDefCallPatch(input string, env map[string]any, parameterizedDefs ma
 
 	// Compile the patched AST
 	config := conf.New(env)
+	for _, opt := range compileOpts {
+		opt(config)
+	}
 	program, err := compiler.Compile(tree, config)
 	if err != nil {
 		return nil, err

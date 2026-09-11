@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/parse"
 )
 
 func TestDefCallPatcher(t *testing.T) {
@@ -206,6 +207,33 @@ func TestExpandStringWithOptions_ParameterizedDefs(t *testing.T) {
 
 			if result != tt.want {
 				t.Errorf("got %q, want %q", result, tt.want)
+			}
+		})
+	}
+}
+
+// Naming a parameterized def took the script functions away: the patching path
+// compiled without them, so .[whereami()] under a schema's options failed with
+// "reflect: call of reflect.Value.Call on zero Value" (addsgv1yh12kszdxmdn0).
+func TestParameterizedDefsKeepScriptFuncs(t *testing.T) {
+	opts := &EvalOptions{ParameterizedDefs: map[string]bool{"array": true}}
+	for _, tc := range []struct{ name, field, want string }{
+		{"a reference", "here: '.[whereami()]'", "$.here"},
+		{"in a string", "here: 'at $[whereami()]'", "at $.here"},
+		{"getpath", "here: '.[getpath(\"$.src\").String]'", "from"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			node, err := parse.Parse([]byte("src: from\n" + tc.field + "\n"))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			result, err := ExpandIRWithOptions(node, map[string]any{}, opts)
+			if err != nil {
+				t.Fatalf("ExpandIRWithOptions: %v", err)
+			}
+			got, _ := result.GetPath("$.here")
+			if got == nil || got.Type != ir.StringType || got.String != tc.want {
+				t.Errorf("got %v, want %q", got, tc.want)
 			}
 		})
 	}

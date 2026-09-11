@@ -75,4 +75,4 @@ endif
 
 ## Implementation Details
 
-The language server uses the existing Tony parser (`ytool/parse`) and encoder (`ytool/encode`) to provide language features. It maintains an in-memory document store and publishes diagnostics as documents are edited.
+The language server uses the existing Tony parser (`go-tony/parse`) and encoder (`go-tony/encode`) to provide language features. It maintains an in-memory document store and publishes diagnostics as documents are edited.

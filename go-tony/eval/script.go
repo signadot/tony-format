@@ -26,7 +26,7 @@ type scriptSymbol struct {
 
 func (s scriptSymbol) Instance(child *ir.Node, args []string) (Op, error) {
 	if len(args) != 1 {
-		return nil, fmt.Errorf("%s op expects no args, got %v", s, args)
+		return nil, fmt.Errorf("%s op expects 1 arg (value, any or string), got %v", s, args)
 	}
 	if child.Type != ir.StringType {
 		return nil, fmt.Errorf("script only applies to strings, got %s", child.Type)

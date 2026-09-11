@@ -2,6 +2,7 @@ package eval
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 
 	"github.com/signadot/tony-format/go-tony/debug"
@@ -47,9 +48,19 @@ func (p toIntOp) Eval(doc *ir.Node, env Env, ef EvalFunc) (*ir.Node, error) {
 		}
 		doc = doc.Clone()
 		if doc.Float64 != nil {
-			i := int64(*doc.Float64)
+			// A float converts when it names an int64, and is refused otherwise:
+			// truncating 3.5 would answer a number nobody wrote. This branch used
+			// to fall through to parse the Number string, which a float leaves
+			// empty, so every float failed with strconv's `parsing ""`
+			// (addsgv1yh12kszdxmdn0).
+			f := *doc.Float64
+			if f != math.Trunc(f) || f < math.MinInt64 || f >= math.MaxInt64 {
+				return nil, fmt.Errorf("cannot translate %v to int at %s: not a whole number an int64 holds", f, doc.Path())
+			}
+			i := int64(f)
 			doc.Int64 = &i
 			doc.Float64 = nil
+			return doc, nil
 		}
 		i, err := strconv.ParseInt(string(doc.Number), 10, 64)
 		if err != nil {
