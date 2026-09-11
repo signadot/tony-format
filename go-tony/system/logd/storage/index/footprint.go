@@ -339,6 +339,20 @@ func (f *Footprint) Paths(scope string) ([]string, bool) {
 	return out, true
 }
 
+// Scopes answers every scope with a live statement, sorted.
+func (f *Footprint) Scopes() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []string
+	for id, sf := range f.scopes {
+		if sf.count > 0 {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // Drop forgets a scope entirely.
 func (f *Footprint) Drop(scope string) {
 	f.mu.Lock()

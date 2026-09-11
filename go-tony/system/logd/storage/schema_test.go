@@ -273,3 +273,41 @@ func getField(n *ir.Node, field string) *ir.Node {
 	}
 	return nil
 }
+
+// A scope's statements are lowered under the identity their path had when they were
+// made, and a schema change reaches every scope; so a change to an identity at a path a
+// scope has statements under is refused, naming the scope, until scopes and schema are
+// worked through. It was accepted, the check reading baseline alone, and the scope's
+// positional elements were left under a schema that reads them as names
+// (090mbrhsh12ksfr8mhn0).
+func TestSchema_IdentityChangeUnderAScopesStatementsIsRefused(t *testing.T) {
+	s := openTestStorage(t)
+	scope, other := "sc", "other"
+	mustCommit(t, s, nil, `{settled: 1}`)
+	mustCommit(t, s, &scope, `{items: [{sku: A}]}`)
+	mustCommit(t, s, &other, `{elsewhere: 1}`)
+
+	_, err := s.SetSchema(testSchema(t, `{define: {items: {sku: !logd-key null}}}`), false)
+	if err == nil {
+		t.Fatal("items gained an identity under a scope's positional elements")
+	}
+	if !IsSchemaRefused(err) || !strings.Contains(err.Error(), `"sc"`) && !strings.Contains(err.Error(), "sc") ||
+		strings.Contains(err.Error(), "other") {
+		t.Errorf("the refusal does not name the scope, and only it: %v", err)
+	}
+	if schema, _ := s.GetActiveSchema(); schema != nil {
+		t.Error("a refused schema became active")
+	}
+
+	// An identity elsewhere is fine: no scope has statements under tags.
+	if _, err := s.SetSchema(testSchema(t, `{define: {tags: {id: !logd-key null}}}`), false); err != nil {
+		t.Errorf("an identity under no scope's statements was refused: %v", err)
+	}
+	// And once the scope is gone, so is the objection.
+	if err := s.DeleteScope(scope); err != nil {
+		t.Fatalf("DeleteScope: %v", err)
+	}
+	if _, err := s.SetSchema(testSchema(t, `{define: {items: {sku: !logd-key null}, tags: {id: !logd-key null}}}`), false); err != nil {
+		t.Errorf("refused after the scope was deleted: %v", err)
+	}
+}

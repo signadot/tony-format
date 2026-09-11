@@ -4,7 +4,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-
 )
 
 // indexPaths lists every path the index holds a segment at, deduplicated.

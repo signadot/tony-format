@@ -167,11 +167,43 @@ type SchemaAt struct {
 // (element_identity.md). Deriving names for a gain, and an array back from names for a
 // loss, is the rewrite 090mbrhsh12ksfr8mhn0 phase 2 adds.
 //
+// A SCOPE is a layer of statements replayed over baseline, and a scope's statement at a
+// path is lowered under the identity the path had when it was made: an element by
+// position, or under its name. The schema is per-store, so a change reaches every
+// scope, and a scope's statement under a path whose identity changes would be replayed
+// under the other regime -- positional elements read as an object of names, or names
+// read as positions. The safe thing, until scopes and schema are worked through
+// (090mbrhsh12ksfr8mhn0), is to refuse the change while any scope has a live statement
+// at, above or beneath such a path, naming the scopes: the operator deletes or lands
+// them first.
+//
 // Asked at the commit, under commitMu, so no write lands between the question and the
 // schema taking effect.
 func (s *Storage) identityChangeAllowed(pending *api.Schema, force bool) error {
 	active := s.schema.ActiveParsed()
 	commit := s.tick.current()
+	scopesUnder := func(p string) []string {
+		foot := s.index.Footprint()
+		var out []string
+		for _, id := range foot.Scopes() {
+			if foot.Reaches(id, p) {
+				out = append(out, id)
+			}
+		}
+		return out
+	}
+	changes := func(p string) bool {
+		return active.Keyed(p) != pending.Keyed(p) || !slices.Equal(active.Identity(p), pending.Identity(p))
+	}
+	for _, p := range slices.Concat(active.KeyedPaths(), pending.KeyedPaths()) {
+		if !changes(p) {
+			continue
+		}
+		if scopes := scopesUnder(p); len(scopes) > 0 {
+			return fmt.Errorf("%q cannot change its identity while a scope has statements under it: %s",
+				p, strings.Join(scopes, ", "))
+		}
+	}
 	held := func(p string) (*ir.Node, error) {
 		if commit == 0 {
 			return nil, nil
