@@ -42,7 +42,8 @@ func Open(rc R) (*Snapshot, error) {
 
 	// Calculate offsets
 	eventOffset := int64(HeaderSize)
-	// Index is preceded by a newline separator (not included in indexSize)
+	// The index follows the event stream directly, with nothing between them
+	// (Builder.Close).
 	indexOffset := eventOffset + int64(eventSize)
 
 	// Read index from the calculated offset

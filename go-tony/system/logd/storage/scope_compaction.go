@@ -7,10 +7,11 @@ import (
 // Scope compaction (rebuild_plan.md phase 7, second half; 5hmq80f3h12krh1mbsn0).
 //
 // A scope's entries are its layer: a scoped read folds baseline to the commit asked for
-// and then the scope's entries, all of them, in order, on top. Nothing materialized stands
-// in for them -- a scope's view depends on a baseline that keeps moving -- so compaction
-// kept every one until DeleteScope, and a scope that rewrote one field a thousand times
-// carried a thousand entries into every read of it.
+// and then, on top, the scope's live statements that reach the path -- those no later
+// entry of the scope dominates, which the footprint keeps (projectScope). Nothing
+// materialized stands in for the entries -- a scope's view depends on a baseline that
+// keeps moving -- so compaction kept every one until DeleteScope, and a scope that
+// rewrote one field a thousand times kept a thousand entries in the log.
 //
 // What a stored scope write IS makes most of them removable. It is absolute
 // (api.ValidateForStorage; lower.go): a statement of what a value is at a path, not of how

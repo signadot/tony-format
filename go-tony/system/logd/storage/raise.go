@@ -16,10 +16,9 @@ import (
 // applied at the boundary -- to a state a read answers with and to a delta a watch is
 // handed -- and nowhere inside the store, which never needs the array.
 //
-// It is a function on a node that shares what it does not change: the head is read
-// through here and nothing may mutate the head, so an object that is not a keyed array
-// comes back as the same pointer, and a container is rebuilt only where something under
-// it was.
+// It is a function on a node that shares what it does not change: an object that is not
+// a keyed array comes back as the same pointer, and a container is rebuilt only where
+// something under it was.
 //
 // The schema is the authority on which paths are keyed; a stored container carries no
 // tag saying so. A tag would say the same thing twice, and it would cost every element

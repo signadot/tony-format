@@ -101,7 +101,7 @@ func (s *Storage) SwitchDLog() error {
 	// Create baseline snapshot. Scope snapshots are intentionally not created: a
 	// materialized scope layer resolves !key away and is unsound to re-apply onto a
 	// changed baseline. The scope layer is read as raw op-preserving patches instead
-	// (see replayScopedAt). Bounded op-preserving compaction: 5hmq80f3h12krh1mbsn0.
+	// (see projectScope). Bounded op-preserving compaction: 5hmq80f3h12krh1mbsn0.
 	if err := s.createSnapshot(commit); err != nil {
 		return fmt.Errorf("failed to create baseline snapshot: %w", err)
 	}
@@ -110,11 +110,10 @@ func (s *Storage) SwitchDLog() error {
 	// asked afterwards, and from outside a narrow read and a wide one differ only in
 	// how long they took -- which is exactly what is in doubt when a fix does not
 	// show up downstream (ap8ddvp2h12krd43gdn0).
-	if rs := s.ReadStats(); rs.Narrow+rs.WideRoot+rs.WideOperator+rs.WideAbsent > 0 {
+	if rs := s.ReadStats(); rs.Narrow+rs.WideRoot+rs.WideOperator > 0 {
 		s.logger.Info("reads since start",
 			"narrow", rs.Narrow, "wideRoot", rs.WideRoot,
-			"wideOperator", rs.WideOperator, "wideAbsent", rs.WideAbsent,
-			"wideKeyedOrIndexed", rs.WideNonField, "wideBadPath", rs.WideBadPath)
+			"wideOperator", rs.WideOperator)
 	}
 
 	// Run compaction on the inactive log if configured
@@ -160,7 +159,7 @@ func (s *Storage) createSnapshot(commit int64) error {
 
 	// Build snapshot directly to log file (out-of-memory)
 	snapIndex := &snap.Index{}
-	builder, err := snap.NewBuilder(snapWriter, snapIndex, patchNodes)
+	builder, err := snap.NewBuilder(snapWriter, snapIndex)
 	if err != nil {
 		snapWriter.Abandon() // Unlock without writing Entry
 		return fmt.Errorf("failed to create snapshot builder: %w", err)
@@ -191,9 +190,9 @@ func (s *Storage) createSnapshot(commit int64) error {
 
 	// A scope's patches are deliberately NOT snapshotted here. Only the patches
 	// themselves carry op semantics, and a scope needs them to: !key has to merge by
-	// identity at read time exactly as it did at the write. So a whole scoped read
-	// replays the scope's history, and what bounds a scoped read is the PATH it asks
-	// about (narrowSubtreeAt) rather than anything materialized in its place.
+	// identity at read time exactly as it did at the write. So a scoped read folds the
+	// scope's own patches, and what bounds it is the scope's live statements under the
+	// path it asks about (projectScope) rather than anything materialized in its place.
 	return nil
 }
 

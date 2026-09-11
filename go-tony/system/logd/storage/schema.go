@@ -330,7 +330,7 @@ func (s *Storage) createSchemaSnapshot(schema *ir.Node, status string) (int64, e
 
 	// Build snapshot directly to log file (out-of-memory)
 	snapIndex := &snap.Index{}
-	builder, err := snap.NewBuilder(snapWriter, snapIndex, patchNodes)
+	builder, err := snap.NewBuilder(snapWriter, snapIndex)
 	if err != nil {
 		snapWriter.Abandon() // Unlock without writing Entry
 		return 0, fmt.Errorf("failed to create snapshot builder: %w", err)

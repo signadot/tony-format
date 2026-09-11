@@ -1,8 +1,6 @@
 package index
 
 import (
-	"math"
-
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
 )
 
@@ -171,86 +169,4 @@ func (it *IndexIterator) Commits(dir Direction) func(func(LogSegment) bool) {
 	}
 
 	return it.current.Commits.Commits(dir)
-}
-
-// CommitsAt returns a function that can be used with for-range to iterate
-// commits at the current level starting from the specified commit in the specified direction.
-// For dir=Down, seeks to the first segment <= commit and iterates downward (larger to smaller commits).
-// For dir=Up, seeks to the first segment >= commit and iterates upward (smaller to larger commits).
-// Caller must hold RLock on current index.
-func (it *IndexIterator) CommitsAt(commit int64, dir Direction) func(func(LogSegment) bool) {
-	if it.current == nil {
-		return func(func(LogSegment) bool) {}
-	}
-	// The whole node, resident: this iterator walks the tree outside any lock, so it
-	// serves tests and startup, not the read path (region.go).
-	it.current.withResident(nil, false, func() {})
-
-	// Create a target LogSegment for seeking
-	// For descending (Down): use maximum values to find last segment <= commit
-	// For ascending (Up): use minimum values to find first segment >= commit
-	var target LogSegment
-	if dir == Down {
-		// For descending, we want the last segment <= commit
-		// Use maximum values for StartTx and KindedPath to ensure we find the right position
-		target = LogSegment{
-			StartCommit: commit,
-			StartTx:     math.MaxInt64,
-			EndCommit:   commit,
-			EndTx:       math.MaxInt64,
-			KindedPath:  "\xff\xff\xff\xff", // Maximum string value
-		}
-	} else {
-		// For ascending, we want the first segment >= commit
-		// Use minimum values for StartTx and KindedPath
-		target = LogSegment{
-			StartCommit: commit,
-			StartTx:     0,
-			EndCommit:   commit,
-			EndTx:       0,
-			KindedPath:  "",
-		}
-	}
-
-	// For descending (Down), seek to last segment <= target (ascending=false)
-	// For ascending (Up), seek to first segment >= target (ascending=true)
-	ascending := dir == Up
-	iter := it.current.Commits.IterSeek(target, ascending)
-
-	return func(yield func(LogSegment) bool) {
-		if !iter.Valid() {
-			return
-		}
-
-		// Check if the first segment matches our criteria
-		seg := iter.Value()
-		if dir == Down {
-			// For descending, only yield if segment.StartCommit <= commit
-			if seg.StartCommit > commit {
-				return
-			}
-		} else {
-			// For ascending, only yield if segment.StartCommit >= commit
-			if seg.StartCommit < commit {
-				return
-			}
-		}
-
-		if !yield(seg) {
-			return
-		}
-
-		// Continue iterating in the specified direction
-		for iter.Next() {
-			seg := iter.Value()
-			// For descending, stop if we've gone past commit
-			if dir == Down && seg.StartCommit > commit {
-				break
-			}
-			// For ascending, we continue upward (no upper bound check needed)
-			if !yield(seg) {
-				return
-			}
-		}
-	}
 }

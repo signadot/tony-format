@@ -47,7 +47,7 @@ func snapOf(t *testing.T, src string) (*Snapshot, *Index) {
 	p, w := newBytesWriteSeeker()
 	t.Cleanup(func() { os.RemoveAll(filepath.Dir(p)) })
 	index := &Index{Entries: []IndexEntry{}}
-	b, err := NewBuilder(w, index, nil)
+	b, err := NewBuilder(w, index)
 	if err != nil {
 		t.Fatal(err)
 	}

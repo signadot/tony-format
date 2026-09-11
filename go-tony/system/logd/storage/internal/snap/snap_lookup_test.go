@@ -371,7 +371,7 @@ func TestSnapshotLookupAndRead(t *testing.T) {
 			defer w.Close()
 			index := &Index{Entries: []IndexEntry{}}
 
-			builder, err := NewBuilder(w, index, nil)
+			builder, err := NewBuilder(w, index)
 			if err != nil {
 				t.Fatalf("NewBuilder() error = %v", err)
 			}

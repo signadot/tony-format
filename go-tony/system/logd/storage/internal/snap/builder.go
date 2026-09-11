@@ -6,7 +6,6 @@ import (
 	"io"
 
 	"github.com/signadot/tony-format/go-tony/gomap"
-	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/stream"
 )
@@ -18,7 +17,6 @@ type Builder struct {
 	state      *stream.State
 	offset     int64
 	origOffset int64
-	patches    []*ir.Node
 
 	chunkSize int
 
@@ -32,7 +30,7 @@ type Builder struct {
 // Populates the provided index as events are written.
 // The snapshot begins at w's current position: NewBuilder reserves the header there,
 // and [Builder.Close] fills it in.
-func NewBuilder(w W, index *Index, patches []*ir.Node) (*Builder, error) {
+func NewBuilder(w W, index *Index) (*Builder, error) {
 	pos, err := w.Seek(0, io.SeekCurrent)
 	if err != nil {
 		return nil, err
@@ -55,7 +53,6 @@ func NewBuilder(w W, index *Index, patches []*ir.Node) (*Builder, error) {
 		origOffset: pos,
 		offset:     0, // Offset relative to start of event stream (after header)
 		index:      index,
-		patches:    patches,
 	}, nil
 }
 

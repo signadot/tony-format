@@ -68,11 +68,11 @@ func BuildWithLogger(idx *Index, dlog *dlog.DLog, fromCommit int64, logger *slog
 			if err == io.EOF {
 				break
 			}
-			// A record which will not deserialize stops the walk of the logs; it does
-			// not stop the store. Framing past a bad frame cannot be trusted, so what
-			// lies beyond is unreachable either way -- and refusing to open recovers
-			// none of it while making the store unavailable, which is how a corrupt
-			// region in one log took a whole system down and kept it down
+			// An error reading a log stops the walk of the logs; it does not stop the
+			// store. A record which will not deserialize does not come here: the walk
+			// steps over it (dlog's resync, reported by Gaps below). Refusing to open
+			// recovers nothing while making the store unavailable, which is how a
+			// corrupt region in one log took a whole system down and kept it down
 			// (t96b5ejqh12krprjghn0).
 			//
 			// It is said as loudly as a thing can be said short of refusing: an ERROR
@@ -80,7 +80,7 @@ func BuildWithLogger(idx *Index, dlog *dlog.DLog, fromCommit int64, logger *slog
 			// listener reports for as long as the process runs.
 			unreadable = &Unreadable{LogFile: lastFile, Position: lastPos, Err: err}
 			if logger != nil {
-				logger.Error("log record will not deserialize; indexing stops here and the store opens without what follows",
+				logger.Error("log will not read; indexing stops here and the store opens without what follows",
 					"logFile", lastFile, "lastGoodPosition", lastPos, "error", err)
 			}
 			break
@@ -95,18 +95,11 @@ func BuildWithLogger(idx *Index, dlog *dlog.DLog, fromCommit int64, logger *slog
 		generation := dlog.GetGeneration(logFile)
 
 		if entry.Patch != nil {
-			// Schema is nil here, so keyed arrays are recognised only by the !key tag a
-			// patch carries. That does NOT reproduce a live index built under a schema:
-			// the schema route (AutoIDFields) keys arrays whose patches carry no tag, so
-			// the same log rebuilds to items[0] where the live index held items("<id>").
-			//
-			// Harmless as things stand, and measured: path-level entries have one
-			// consumer, ReadPatchesInRange, and LookupRange collects a node's own
-			// segments before descending — so a lookup at any path already returns every
-			// entry's root copy and both shapes answer a replay identically
-			// (TestKeyed_RebuildDivergenceImpact). It stops being harmless for anything
-			// that addresses BY the keyed path; see docs/archive/scope_overlay_plan.md
-			// P1 for where that mattered.
+			// No schema is needed here: the entry holds the stored delta, the node the
+			// live index was built from (commit_ops.go), and a keyed array in it is
+			// already an object of its elements' names -- so the rebuild describes the
+			// paths the live index did (TestKeyed_RebuiltIndexAgreesWithLive,
+			// TestKeyed_RebuiltIndexUnderSchema).
 			EachSegment(entry, string(logFile), pos, generation, idx.Add)
 		} else if entry.SnapPos != nil {
 			// A snapshot is indexed at the path it is of, and nowhere else.

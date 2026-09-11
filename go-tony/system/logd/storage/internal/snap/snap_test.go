@@ -240,7 +240,7 @@ func TestSnapshotCreateAndRead(t *testing.T) {
 
 	// Build the snapshot
 	index := &Index{Entries: []IndexEntry{}}
-	builder, err := NewBuilder(tmpFile, index, nil)
+	builder, err := NewBuilder(tmpFile, index)
 	if err != nil {
 		t.Fatalf("NewBuilder() error = %v", err)
 	}

@@ -225,7 +225,7 @@ func (s *Storage) GetCurrentCommit() (int64, error) {
 
 // isOverlaySegment reports whether seg is a scope overlay -- a cache of a scope's layer
 // that logd used to write beside a snapshot. Nothing writes one now; this is what lets a
-// log that has them still be read. See patchNodesFromSegments.
+// log that has them still be read. See projectScope.
 func isOverlaySegment(seg index.LogSegment) bool {
 	return seg.ScopeID != nil && seg.ScopeOverlay
 }
@@ -260,11 +260,11 @@ func (s *Storage) init() error {
 	}
 	s.index = idx
 
-	// Rebuild index from logs starting at maxCommit+1. A record which will not
-	// deserialize stops the walk rather than the store: what lies past a bad frame is
-	// unreachable whatever we do, and refusing to open recovers none of it while
-	// keeping the system down (t96b5ejqh12krprjghn0). It is kept, and reported for as
-	// long as the process runs.
+	// Rebuild index from logs starting at maxCommit+1. A region the walk cannot read is
+	// stepped over to the next record that decodes, and an error reading a log stops the
+	// walk; neither stops the store, since refusing to open recovers nothing while
+	// keeping the system down (t96b5ejqh12krprjghn0). What the walk could not read is
+	// recorded (s.unreadable), and reported for as long as the process runs.
 	unreadable, err := index.BuildWithLogger(s.index, s.dLog, maxCommit, s.logger)
 	if err != nil {
 		return fmt.Errorf("failed to rebuild index: %w", err)

@@ -166,8 +166,8 @@ func (sp *StreamingProcessor) ApplyPatches(baseEvents stream.EventReader, patche
 		return fmt.Errorf("patch paths not reachable in the base document: %v", unreached.paths())
 	}
 
-	// Handle empty base with patches: apply all patches in order starting from null
-	// This matches InMemoryApplier behavior - when there's no base, we must materialize
+	// Handle empty base with patches: apply all patches in order starting from null.
+	// With no base there is nothing to stream them into, so the result is materialized.
 	if !hasBaseEvents && len(patches) > 0 {
 		result := ir.Null()
 		for _, patch := range patches {
@@ -794,8 +794,8 @@ func (u *unreachedPatches) graftUpTo(f unreachedFrame, before string, sink strea
 		if node == nil || node.Type == ir.NullType {
 			continue // every path under this key folded away
 		}
-		// nestUnder built the value from the container's perspective, so it already
-		// carries the key: emit the field name, then the value under it.
+		// nestPatches wrapped each patch from the container's perspective, so the fold
+		// already carries the key: emit the field name, then the value under it.
 		// The fold can leave this key with nothing under it — a write and a later delete
 		// of the same path net out, and the key is simply absent from the folded node,
 		// exactly as it would be if the entries had been applied to the document
@@ -950,7 +950,7 @@ func remainderUnder(container, path string) (string, bool) {
 		return path[len(container)+1:], true
 	case '{', '[':
 		// A keyed or indexed segment: under the container, but not graftable. Returning
-		// it lets graftInto produce a real error instead of dropping the write.
+		// it lets graftUpTo produce a real error instead of dropping the write.
 		return path[len(container):], true
 	default:
 		return "", false

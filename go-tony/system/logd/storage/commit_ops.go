@@ -130,8 +130,8 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	e := entry
 	indexStarted := time.Now()
 	// The STORED delta is what a rebuild reads back, so it is what the live index
-	// has to agree with: index.Build's "we rely on !key tags stored in the patches"
-	// is only true when the two are the same node.
+	// has to agree with: index.Build needs no schema only because the two are the
+	// same node.
 	index.IndexPatch(c.s.index, e, string(logFile), pos, txSeq, generation, stored, scopeID)
 	indexTook = time.Since(indexStarted)
 

@@ -23,11 +23,10 @@ import (
 // inside the trust boundary, and a client which can store a !pipe already has
 // whatever the daemon has. It is that a stored operation which re-evaluates is not
 // a VALUE. Reading the same commit twice returned two different documents, and
-// logd applies stored patches in three separate places -- a full read, the stepped
-// head, a watch's deltas -- so they stop agreeing with each other: the head is
-// dropped for a divergence it did not cause, and a snapshot fixes one run's output
-// into the base while the log keeps replaying another. History stops being
-// addressable, which is the property the log is for (trqgmd1ah12kranxg5n0).
+// logd applies stored patches in three separate places -- a read, a snapshot, a
+// watch's deltas -- so they stop agreeing with each other: a snapshot fixes one
+// run's output into the base while the log keeps replaying another. History stops
+// being addressable, which is the property the log is for (trqgmd1ah12kranxg5n0).
 
 // UnsafeOpError is what a write gets when its data holds an operation which calls
 // out to the system. Typed so the session can report it as the client's mistake --

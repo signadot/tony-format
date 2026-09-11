@@ -118,9 +118,6 @@ func TestKeyedElementIsAFieldAndNarrows(t *testing.T) {
 		t.Errorf("an element read on its own carries its key; got %s", mustEncode(t, elem))
 	}
 	after := s.ReadStats()
-	if after.WideNonField != before.WideNonField {
-		t.Errorf("a keyed read was counted wide (keyed-or-idx %d -> %d)", before.WideNonField, after.WideNonField)
-	}
 	if after.Narrow != before.Narrow+1 {
 		t.Errorf("narrow reads %d -> %d, want one more", before.Narrow, after.Narrow)
 	}

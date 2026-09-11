@@ -18,7 +18,7 @@ and working out what that costs.
 
 `whyNotStorable` already argues it, per operation: `!replace` and `!retag` are checked, so
 against a base that has moved they error rather than applying; `!strdiff`, `!arraydiff`,
-`!rename`, `!jsonpatch` re-evaluate against what they find; `!if` and `!let` are conditional
+`!rename`, `!json-patch` re-evaluate against what they find; `!if` and `!let` are conditional
 on the document they meet; `!pipe` calls out to the system, so storing it means re-running
 it on every replay. A relative delta is a promise about a base. A stored delta outlives every
 base it was written against, and a replay is exactly the case where the base has moved. There

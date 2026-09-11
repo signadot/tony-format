@@ -219,13 +219,3 @@ func (sc *SubtreeCollector) PendingPath() string {
 func (sc *SubtreeCollector) IsCollecting() bool {
 	return sc.collecting
 }
-
-// Reset clears the collector state.
-func (sc *SubtreeCollector) Reset() {
-	sc.state = stream.NewState()
-	sc.events = nil
-	sc.depth = 0
-	sc.collecting = false
-	sc.pendingPath = ""
-	sc.startPath = ""
-}

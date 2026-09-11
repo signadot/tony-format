@@ -29,10 +29,10 @@ import (
 //     already its own delta, so it is kept as it arrived. api.NeedsLowering asks,
 //     and a plain data merge -- which is nearly every write -- answers no.
 //
-//   - The read a lowering needs is already taken. verifyApplies reads the state the
-//     patch applies to and computes the result, on every commit, to refuse a delta
-//     the store cannot apply and to step the head. Both sides of the diff are in
-//     hand before this is called, so a lowered write costs a diff and no read.
+//   - The read a lowering needs is already taken. lowerWrite reads the state at each
+//     site the write names and applies the write to it, on every write, to refuse a
+//     delta the store cannot apply. Both sides of the diff are then in hand, so a
+//     lowered write costs a diff and no further read.
 //
 // It applies to BASELINE as well as scopes, deliberately. Baseline gets away with
 // arbitrary operations today only because its replay is deterministic -- the same

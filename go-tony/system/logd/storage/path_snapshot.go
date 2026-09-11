@@ -22,15 +22,17 @@ import (
 // the writes since, so what a read at a path holds is bounded by the writes to that path
 // since ITS last snapshot, and not by the switch cadence, which is the whole document's.
 //
-// WHEN one is taken is decided by the reads. A read that folded more than the policy's
-// tail of records at a path, and emitted no more than its byte budget, schedules a
-// snapshot of that path as of the commit it read; the next read there folds from it.
-// Reads are where the tail is measured for free, and a path nobody reads costs nothing,
-// which is the right gradient: the tail a snapshot shortens is a read cost. The byte
-// budget keeps a shallow path with a large subtree -- the root itself, or a path just
-// beneath it -- from being rewritten every few dozen commits; those are the switch's. A
-// read that did not finish schedules nothing: its bytes are not the subtree's, and a
-// caller that took Presence and closed has not paid for a long tail either.
+// WHEN one is taken is decided by the reads. A read that folded more records at a path
+// than the policy prices a subtree of its size at -- the tail for each byte unit of what
+// it emitted, a rate and not a ceiling (pathSnapshotPolicy.wants) -- schedules a snapshot
+// of that path as of the commit it read; the next read there folds from it. Reads are
+// where the tail is measured for free, and a path nobody reads costs nothing, which is
+// the right gradient: the tail a snapshot shortens is a read cost. The rate keeps a
+// shallow path with a large subtree from being rewritten every few dozen commits, and
+// still takes one once its fold has grown in proportion; the root itself is the
+// switch's. A read that did not finish schedules nothing: its bytes are not the
+// subtree's, and a caller that took Presence and closed has not paid for a long tail
+// either.
 //
 // One at a time, off the reader, and never concurrent with a switch: the snapshot is
 // written to the inactive log, as the root snapshot is, and the switch and the compaction
@@ -197,7 +199,7 @@ func (s *Storage) snapshotPath(at int64, kp string) error {
 	w.SetScopeID(nil)
 	w.SetPath(kp)
 
-	builder, err := snap.NewBuilder(w, &snap.Index{}, nil)
+	builder, err := snap.NewBuilder(w, &snap.Index{})
 	if err != nil {
 		w.Abandon()
 		return fmt.Errorf("snapshot of %q: %w", kp, err)

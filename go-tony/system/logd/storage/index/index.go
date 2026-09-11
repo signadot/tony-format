@@ -571,7 +571,7 @@ func inCommitRange(from, to *int64) func(LogSegment) bool {
 // If scopeID is nil, returns only children with baseline segments.
 // If scopeID is non-nil, returns children with baseline or matching scope segments.
 func (i *Index) ListRange(from, to *int64, scopeID *string) []string {
-	// LookupRange takes the child's lock itself, so nothing is held here -- and it was
+	// lookupRange takes the child's lock itself, so nothing is held here -- and it was
 	// taken twice on the same node before, which is a deadlock the moment a writer is
 	// waiting between the two (Go's RWMutex does not admit a reader past a waiting
 	// writer).

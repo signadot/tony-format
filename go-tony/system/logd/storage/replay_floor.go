@@ -32,10 +32,10 @@ var ErrReplayCompacted = errors.New("replay range starts below the replay floor;
 // snapshot granularity.
 //
 // What the floor adds is that crossing that line is LOUD. Without it, a replay below the
-// window returns the surviving subset and ReadPatchesInRange reports success: "no
-// patches between 40 and 95" is indistinguishable from "nothing changed between 40 and
-// 95", so a client whose host was suspended for a day silently loses every transition in
-// between rather than being told to re-initialize.
+// window returns the surviving subset and Deltas reports success: "no patches between 40
+// and 95" is indistinguishable from "nothing changed between 40 and 95", so a client
+// whose host was suspended for a day silently loses every transition in between rather
+// than being told to re-initialize.
 //
 // State at a commit below the floor is still readable, and the commit number is still
 // valid and never reused (reconcileWatermark). Only the deltas are gone.

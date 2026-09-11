@@ -19,7 +19,7 @@ func TestBuilder_NewBuilder(t *testing.T) {
 	defer w.Close()
 	index := &Index{Entries: []IndexEntry{}}
 
-	builder, err := NewBuilder(w, index, nil)
+	builder, err := NewBuilder(w, index)
 	if err != nil {
 		t.Fatalf("NewBuilder() error = %v", err)
 	}
@@ -48,7 +48,7 @@ func TestBuilder_Close(t *testing.T) {
 	defer w.Close()
 	index := &Index{}
 
-	builder, err := NewBuilder(w, index, nil)
+	builder, err := NewBuilder(w, index)
 	if err != nil {
 		t.Fatalf("NewBuilder() error = %v", err)
 	}
@@ -237,7 +237,7 @@ func TestBuilder_NestedStructureWithMixedContainers(t *testing.T) {
 	index := &Index{Entries: []IndexEntry{}}
 	defer os.RemoveAll(filepath.Dir(p))
 
-	builder, err := NewBuilder(w, index, nil)
+	builder, err := NewBuilder(w, index)
 	if err != nil {
 		t.Fatalf("NewBuilder() error = %v", err)
 	}

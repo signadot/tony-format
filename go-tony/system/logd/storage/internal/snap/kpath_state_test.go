@@ -165,7 +165,7 @@ func TestPathFinderWithArrayIndex(t *testing.T) {
 
 	// Build snapshot using Builder (which properly formats events with newlines)
 	index := &Index{Entries: []IndexEntry{}}
-	builder, err := NewBuilder(tmpFile, index, nil)
+	builder, err := NewBuilder(tmpFile, index)
 	if err != nil {
 		t.Fatalf("NewBuilder error = %v", err)
 	}

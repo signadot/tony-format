@@ -9,7 +9,7 @@ import (
 
 // A read at a keyed element narrows: the element is a field of the array
 // (element_identity.md), so the snapshot's path index holds it and the projection descends
-// to it. reads.wide.keyed-or-idx stays where it was, and the answer is the element.
+// to it. The read counts as narrow, and the answer is the element.
 func TestKeyedReadNarrows(t *testing.T) {
 	s := openTestStorage(t)
 	declareKeyed(t, s, `{define: {items: {sku: !logd-key null}}}`)
@@ -52,9 +52,6 @@ func TestKeyedReadNarrows(t *testing.T) {
 				t.Errorf("G.q = %d, want %d", intOf(ir.Get(got, "q")), tc.wantQ)
 			}
 			after := s.ReadStats()
-			if after.WideNonField != before.WideNonField {
-				t.Errorf("a keyed read was counted keyed-or-idx")
-			}
 			if after.Narrow != before.Narrow+1 {
 				t.Errorf("narrow reads %d -> %d, want one more", before.Narrow, after.Narrow)
 			}
