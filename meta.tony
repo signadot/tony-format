@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: d96487daf71954527d8e74d340d588d1ef3668fc
 commits:
 - d96487daf71954527d8e74d340d588d1ef3668fc
 created: "2026-09-11T10:38:18.75691+02:00"
@@ -14,5 +15,5 @@ labels:
 - medium
 - storage
 related_issues: []
-status: open
-updated: "2026-09-11T16:09:03.401396+02:00"
+status: closed
+updated: "2026-09-11T16:09:16.469601+02:00"
