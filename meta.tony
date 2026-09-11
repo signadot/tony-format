@@ -8,6 +8,7 @@ duplicates: []
 id: c4gy241yh12kszdxmdn0
 labels:
 - "audit gomap correctness low"
-related_issues: []
+related_issues:
+- f69agjyeh12ksa25cnn0
 status: open
-updated: "2026-09-11T10:38:21.167833+02:00"
+updated: "2026-09-11T10:38:39.130418+02:00"
