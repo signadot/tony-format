@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 1bc78521a015756f0d91b44b9b30ea246ac2fae6
 commits:
 - 1bc78521a015756f0d91b44b9b30ea246ac2fae6
 created: "2026-09-11T10:38:20.038253+02:00"
@@ -14,5 +15,5 @@ labels:
 - medium
 - mergeop
 related_issues: []
-status: open
-updated: "2026-09-11T12:33:59.48817+02:00"
+status: closed
+updated: "2026-09-11T12:33:59.739831+02:00"
