@@ -23,8 +23,9 @@ type CompactionConfig struct {
 	// Tier N has interval = BaseInterval * Multiplier^N
 	Multiplier int
 
-	// GracePeriod is how long to wait for active readers to finish after swap.
-	// After this timeout, old file is deleted and lingering readers will error.
+	// GracePeriod is how long a compaction waits for the file's active readers before
+	// it closes the file the previous compaction replaced; a reader still holding that
+	// file then errors. The file a compaction replaces stays readable until the next.
 	GracePeriod time.Duration
 }
 

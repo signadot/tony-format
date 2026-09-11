@@ -31,9 +31,12 @@
 // it cannot read is stepped over to the next record that decodes; [DLogIter.Gaps] reports
 // each such region.
 //
-// A compaction bumps the file's generation. [DLog.ReadEntryAt] and [DLog.OpenReaderAt]
-// take the generation a position was indexed under and refuse a stale one with
-// [ErrCompactionInterrupted].
+// A compaction swaps the file for its rewrite and bumps the file's generation in one
+// critical section under the file's lock. [DLog.ReadEntryAt] and [DLog.OpenReaderAt] take
+// the generation a position was indexed under and ask it under that lock: the current
+// generation reads the file, the one before the last compaction reads the file that
+// compaction replaced -- kept open, unlinked, until the next -- and an older one is
+// refused with [ErrCompactionInterrupted].
 //
 // # Related Packages
 //

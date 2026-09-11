@@ -10,7 +10,8 @@ import (
 
 // CompactConfig configures compaction behavior.
 type CompactConfig struct {
-	// GracePeriod is how long to wait for active readers after swap.
+	// GracePeriod is how long a swap waits for the file's active readers before it
+	// closes the file the previous swap retired.
 	GracePeriod time.Duration
 }
 
@@ -54,10 +55,12 @@ func (dl *DLog) ActiveReaders(id LogFileID) int64 {
 //
 // positions is a list of entry positions to keep (must be sorted ascending).
 // Returns the mapping from old positions to new positions. A kept snapshot entry
-// takes its blob with it. An empty positions truncates the file.
+// takes its blob with it. An empty positions leaves the file empty.
 //
-// Either way the file's generation is bumped. A rewrite deletes the file it replaced
-// once the file's readers finish or config.GracePeriod passes, whichever is first.
+// Either way the file is swapped for its rewrite and its generation bumped, in one
+// critical section under the file's lock. The file it replaced stays open, unlinked, and
+// serves reads at the old generation until the next compaction of this file, which first
+// waits for the file's readers to finish or config.GracePeriod to pass (swapLogFile).
 //
 // The caller is responsible for determining which entries to keep.
 // After this returns, the caller should update the index with new positions.
@@ -81,8 +84,25 @@ func (dl *DLog) CompactInactive(positions []int64, config *CompactConfig) ([]Com
 	dl.mu.Unlock()
 
 	if len(positions) == 0 {
-		// Nothing to compact - truncate the file
-		return nil, dl.truncateLog(inactiveLog, config.GracePeriod)
+		// Nothing survives: the file is swapped for an empty one, as for a rewrite, so a
+		// read in flight keeps the file it was reading. Truncating in place cut it from
+		// under them.
+		tempPath := inactiveLog.path + ".compact.tmp"
+		f, err := os.Create(tempPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create empty log: %w", err)
+		}
+		if err := f.Sync(); err != nil {
+			f.Close()
+			os.Remove(tempPath)
+			return nil, fmt.Errorf("failed to sync empty log: %w", err)
+		}
+		f.Close()
+		if err := dl.swapLogFile(inactiveLog, tempPath, config.GracePeriod); err != nil {
+			os.Remove(tempPath)
+			return nil, fmt.Errorf("failed to swap log file: %w", err)
+		}
+		return nil, nil
 	}
 
 	// Write surviving entries to temp file
@@ -252,42 +272,36 @@ func (dl *DLog) copyBytes(src *DLogFile, dst *os.File, srcPos, n int64) error {
 }
 
 // swapLogFile atomically swaps the log file with the compacted temp file.
-// Waits for active readers to finish (up to gracePeriod), then deletes old file.
+//
+// The swap and the generation bump are one critical section under the file's lock, which
+// every read takes to ask the generation: a read indexed under the old generation is
+// served from the file it was indexed against, the one this replaces, which stays open --
+// unlinked -- as logFile.retired. The file retired by the previous compaction is closed
+// first, once its readers finish or gracePeriod passes. It used to be the other way
+// about: the handle was closed as the swap began, so a reader holding it failed with
+// "file already closed", and the generation was bumped after the lock was released, so a
+// read in between read the rewritten file at an old position (d2mq819wh12ksynxmdn0).
 func (dl *DLog) swapLogFile(logFile *DLogFile, tempPath string, gracePeriod time.Duration) error {
 	oldPath := logFile.path + ".old"
 
-	// Close current file handle
-	logFile.mu.Lock()
-	if err := logFile.file.Close(); err != nil {
-		logFile.mu.Unlock()
-		return fmt.Errorf("failed to close log file: %w", err)
-	}
+	// Before the lock: a reader holds it for the length of its read.
+	dl.waitForReaders(logFile.id, gracePeriod)
 
-	// Rename current -> old
+	logFile.mu.Lock()
+
+	// Rename current -> old. The open handle goes on reading the same file.
 	if err := os.Rename(logFile.path, oldPath); err != nil {
-		// Try to reopen original file
-		reopenErr := dl.reopenLogFile(logFile)
 		logFile.mu.Unlock()
-		if reopenErr != nil {
-			dl.logger.Error("failed to reopen log file after rename failure",
-				"path", logFile.path, "renameErr", err, "reopenErr", reopenErr)
-		}
 		return fmt.Errorf("failed to rename log file: %w", err)
 	}
 
 	// Rename temp -> current
 	if err := os.Rename(tempPath, logFile.path); err != nil {
-		// Try to restore original file
 		if restoreErr := os.Rename(oldPath, logFile.path); restoreErr != nil {
 			dl.logger.Error("failed to restore log file after temp rename failure",
 				"path", logFile.path, "renameErr", err, "restoreErr", restoreErr)
 		}
-		reopenErr := dl.reopenLogFile(logFile)
 		logFile.mu.Unlock()
-		if reopenErr != nil {
-			dl.logger.Error("failed to reopen log file after temp rename failure",
-				"path", logFile.path, "renameErr", err, "reopenErr", reopenErr)
-		}
 		return fmt.Errorf("failed to rename temp file: %w", err)
 	}
 
@@ -299,27 +313,47 @@ func (dl *DLog) swapLogFile(logFile *DLogFile, tempPath string, gracePeriod time
 
 	// Open new file
 	newFile, err := os.OpenFile(logFile.path, os.O_CREATE|os.O_RDWR, 0644)
+	var stat os.FileInfo
+	if err == nil {
+		if stat, err = newFile.Stat(); err != nil {
+			newFile.Close()
+		}
+	}
 	if err != nil {
+		// Put the directory back the way the handle sees it, so appends and the path
+		// name the same file.
+		if rbErr := os.Rename(logFile.path, tempPath); rbErr == nil {
+			if rbErr := os.Rename(oldPath, logFile.path); rbErr != nil {
+				dl.logger.Error("failed to restore log file after open failure",
+					"path", logFile.path, "openErr", err, "restoreErr", rbErr)
+			}
+		}
 		logFile.mu.Unlock()
 		return fmt.Errorf("failed to open new log file: %w", err)
 	}
 
-	// Update file handle and position
-	stat, err := newFile.Stat()
-	if err != nil {
-		newFile.Close()
-		logFile.mu.Unlock()
-		return fmt.Errorf("failed to stat new log file: %w", err)
+	if logFile.retired != nil {
+		logFile.retired.Close()
 	}
+	logFile.retired, logFile.retiredGen = logFile.file, dl.GetGeneration(logFile.id)
 	logFile.file = newFile
 	logFile.position = stat.Size()
+	dl.bumpGeneration(logFile.id)
 	logFile.mu.Unlock()
 
-	// Increment generation to invalidate any stale index entries
-	dl.IncrementGeneration(logFile.id)
+	// Persist the bump durably: the generation is the token a restart uses to detect a
+	// stale index after compaction, so it must survive a crash (issue 656g8yt5).
+	if err := dl.writeState(); err != nil {
+		dl.logger.Warn("failed to persist generation state", "error", err)
+	}
 
-	// Wait for readers then delete old file
-	dl.waitAndDeleteOld(logFile.id, oldPath, gracePeriod)
+	// The undo copy goes before the caller re-indexes the survivors, as it always has: a
+	// crash with it on disk restores the old file (recoverCompactionArtifacts), and that
+	// must not meet an index persisted at the new positions. The retired handle does not
+	// need the path.
+	if err := os.Remove(oldPath); err != nil && !os.IsNotExist(err) {
+		dl.logger.Warn("failed to remove old log file", "path", oldPath, "error", err)
+	}
 
 	return nil
 }
@@ -339,37 +373,6 @@ func (dl *DLog) reopenLogFile(logFile *DLogFile) error {
 	logFile.file = file
 	logFile.position = stat.Size()
 	return nil
-}
-
-// truncateLog truncates an empty log file.
-func (dl *DLog) truncateLog(logFile *DLogFile, gracePeriod time.Duration) error {
-	logFile.mu.Lock()
-
-	// Wait for any active readers first
-	dl.waitForReaders(logFile.id, gracePeriod)
-
-	if err := logFile.file.Truncate(0); err != nil {
-		logFile.mu.Unlock()
-		return fmt.Errorf("failed to truncate log file: %w", err)
-	}
-
-	// No seek needed: writes use WriteAt at logFile.position, not the file offset.
-	logFile.position = 0
-	logFile.mu.Unlock()
-
-	// Increment generation to invalidate any stale index entries
-	dl.IncrementGeneration(logFile.id)
-
-	return nil
-}
-
-// waitAndDeleteOld waits for readers to finish, then deletes the old file.
-func (dl *DLog) waitAndDeleteOld(id LogFileID, oldPath string, gracePeriod time.Duration) {
-	dl.waitForReaders(id, gracePeriod)
-
-	if err := os.Remove(oldPath); err != nil && !os.IsNotExist(err) {
-		dl.logger.Warn("failed to remove old log file", "path", oldPath, "error", err)
-	}
 }
 
 // waitForReaders waits for active readers to finish, up to gracePeriod.

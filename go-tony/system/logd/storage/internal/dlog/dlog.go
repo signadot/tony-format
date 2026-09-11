@@ -65,6 +65,15 @@ type DLogFile struct {
 	snapMu   sync.Mutex
 	position int64 // Current write position (for appends)
 
+	// retired is the file this one replaced at its last compaction, still open, and
+	// retiredGen the generation positions in it were indexed under. A read at that
+	// generation is served from it -- the bytes the index describes, at the positions it
+	// holds until compaction re-indexes the survivors -- so a read in flight across a
+	// swap neither reads the rewritten file at an old position nor fails. Its path is
+	// gone; the handle is closed at the next compaction, and at Close.
+	retired    *os.File
+	retiredGen int64
+
 	// Metadata
 	logger *slog.Logger
 }
@@ -418,30 +427,55 @@ func (dl *DLog) AppendEntry(entry *Entry) (logPosition int64, logFile LogFileID,
 
 // ReadEntryAt reads an Entry from the specified log file at the given position.
 // logFile must be "A" or "B".
-// expectedGeneration should match the generation when the segment was indexed.
-// Returns ErrCompactionInterrupted if generation doesn't match (caller should re-lookup and retry).
+// expectedGeneration is the generation the segment was indexed under: the file's current
+// one, or the one before its last compaction, which is read from the file as it was
+// (DLogFile.retired). An older one is refused with ErrCompactionInterrupted.
 // Automatically tracks reader refcount for compaction safety.
 func (dl *DLog) ReadEntryAt(logFile LogFileID, position int64, expectedGeneration int64) (*Entry, error) {
-	// Check generation before reading
-	currentGen := dl.GetGeneration(logFile)
-	if currentGen != expectedGeneration {
-		return nil, ErrCompactionInterrupted
-	}
-
-	var logFileObj *DLogFile
-	switch logFile {
-	case LogFileA:
-		logFileObj = dl.logA
-	case LogFileB:
-		logFileObj = dl.logB
-	default:
-		return nil, fmt.Errorf("invalid log file ID: %q (must be A or B)", logFile)
+	logFileObj, err := dl.fileFor(logFile)
+	if err != nil {
+		return nil, err
 	}
 
 	dl.AcquireReader(logFile)
 	defer dl.ReleaseReader(logFile)
 
-	return logFileObj.ReadEntryAt(position)
+	// The generation is asked under the file's lock, which a compaction's swap holds while
+	// it replaces the file and bumps the generation. Asked before it, a read could pass the
+	// check, lose the race to the swap, and read the rewritten file at a position from the
+	// old one -- another record, silently, or a short read (d2mq819wh12ksynxmdn0).
+	logFileObj.mu.RLock()
+	defer logFileObj.mu.RUnlock()
+	f, err := dl.fileAtLocked(logFileObj, expectedGeneration)
+	if err != nil {
+		return nil, err
+	}
+	return readEntryFrom(f, position)
+}
+
+// fileFor answers the DLogFile a LogFileID names.
+func (dl *DLog) fileFor(logFile LogFileID) (*DLogFile, error) {
+	switch logFile {
+	case LogFileA:
+		return dl.logA, nil
+	case LogFileB:
+		return dl.logB, nil
+	default:
+		return nil, fmt.Errorf("invalid log file ID: %q (must be A or B)", logFile)
+	}
+}
+
+// fileAtLocked answers the handle positions indexed under generation gen are read from:
+// the file, the file its last compaction retired, or neither. Called with dlf.mu held.
+func (dl *DLog) fileAtLocked(dlf *DLogFile, gen int64) (*os.File, error) {
+	switch {
+	case gen == dl.GetGeneration(dlf.id):
+		return dlf.file, nil
+	case dlf.retired != nil && gen == dlf.retiredGen:
+		return dlf.retired, nil
+	default:
+		return nil, ErrCompactionInterrupted
+	}
 }
 
 // OpenReaderAt opens a reader at the specified position in the log file.
@@ -450,28 +484,26 @@ func (dl *DLog) ReadEntryAt(logFile LogFileID, position int64, expectedGeneratio
 // The returned reader must be closed when done.
 // logFile must be "A" or "B".
 // expectedGeneration should match the generation when the segment was indexed.
-// Returns ErrCompactionInterrupted if generation doesn't match.
+// Generations are as for ReadEntryAt: the current one, or the one before the file's last
+// compaction, whose reader reads the file as it was; an older one is refused with
+// ErrCompactionInterrupted. A reader keeps reading the file it was opened on, through a
+// compaction of it, until the next.
 // Automatically tracks reader refcount for compaction safety - refcount is released on Close.
 func (dl *DLog) OpenReaderAt(logFile LogFileID, position int64, expectedGeneration int64) (io.ReadSeekCloser, error) {
-	// Check generation before opening
-	currentGen := dl.GetGeneration(logFile)
-	if currentGen != expectedGeneration {
-		return nil, ErrCompactionInterrupted
-	}
-
-	var logFileObj *DLogFile
-	switch logFile {
-	case LogFileA:
-		logFileObj = dl.logA
-	case LogFileB:
-		logFileObj = dl.logB
-	default:
-		return nil, fmt.Errorf("invalid log file ID: %q (must be A or B)", logFile)
+	logFileObj, err := dl.fileFor(logFile)
+	if err != nil {
+		return nil, err
 	}
 
 	dl.AcquireReader(logFile)
 
-	reader, err := logFileObj.OpenReaderAt(position)
+	logFileObj.mu.RLock()
+	f, err := dl.fileAtLocked(logFileObj, expectedGeneration)
+	var reader io.ReadSeekCloser
+	if err == nil {
+		reader, err = openSection(f, position)
+	}
+	logFileObj.mu.RUnlock()
 	if err != nil {
 		dl.ReleaseReader(logFile)
 		return nil, err
@@ -526,6 +558,17 @@ func (dl *DLog) GetGeneration(id LogFileID) int64 {
 		return dl.generationA.Load()
 	}
 	return dl.generationB.Load()
+}
+
+// bumpGeneration increments a log file's generation in memory. The swap calls it under
+// the file's lock, so a read asking the generation under that lock sees the file and the
+// generation change together; the caller persists it.
+func (dl *DLog) bumpGeneration(id LogFileID) {
+	if id == LogFileA {
+		dl.generationA.Add(1)
+	} else {
+		dl.generationB.Add(1)
+	}
 }
 
 // IncrementGeneration increments the generation counter for a log file.
@@ -789,10 +832,14 @@ func (dlf *DLogFile) AppendEntry(entry *Entry) (position int64, err error) {
 func (dlf *DLogFile) ReadEntryAt(position int64) (*Entry, error) {
 	dlf.mu.RLock()
 	defer dlf.mu.RUnlock()
+	return readEntryFrom(dlf.file, position)
+}
 
+// readEntryFrom reads the record at position in f.
+func readEntryFrom(f *os.File, position int64) (*Entry, error) {
 	// Read length prefix (4 bytes, big-endian uint32)
 	lengthBytes := make([]byte, 4)
-	if _, err := dlf.file.ReadAt(lengthBytes, position); err != nil {
+	if _, err := f.ReadAt(lengthBytes, position); err != nil {
 		if err == io.EOF {
 			return nil, fmt.Errorf("position %d: reached EOF while reading length prefix", position)
 		}
@@ -803,7 +850,7 @@ func (dlf *DLogFile) ReadEntryAt(position int64) (*Entry, error) {
 
 	// Read entry data
 	entryBytes := make([]byte, length)
-	if _, err := dlf.file.ReadAt(entryBytes, position+4); err != nil {
+	if _, err := f.ReadAt(entryBytes, position+4); err != nil {
 		if err == io.EOF {
 			return nil, fmt.Errorf("position %d: reached EOF while reading entry data (expected %d bytes)", position+4, length)
 		}
@@ -863,6 +910,10 @@ func (dlf *DLogFile) Close() error {
 	dlf.mu.Lock()
 	defer dlf.mu.Unlock()
 
+	if dlf.retired != nil {
+		dlf.retired.Close()
+		dlf.retired = nil
+	}
 	if dlf.file == nil {
 		return nil // Already closed
 	}
@@ -883,9 +934,13 @@ func (dlf *DLogFile) Close() error {
 func (dlf *DLogFile) OpenReaderAt(position int64) (io.ReadSeekCloser, error) {
 	dlf.mu.RLock()
 	defer dlf.mu.RUnlock()
+	return openSection(dlf.file, position)
+}
 
+// openSection answers a reader over f from position to its end.
+func openSection(f *os.File, position int64) (io.ReadSeekCloser, error) {
 	// Get file size to determine section size
-	stat, err := dlf.file.Stat()
+	stat, err := f.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat log file: %w", err)
 	}
@@ -894,7 +949,7 @@ func (dlf *DLogFile) OpenReaderAt(position int64) (io.ReadSeekCloser, error) {
 	// This makes all seeks relative to position (position becomes offset 0)
 	// SectionReader uses ReadAt (pread) - concurrent-safe, no file pointer movement
 	sectionSize := stat.Size() - position
-	section := io.NewSectionReader(dlf.file, position, sectionSize)
+	section := io.NewSectionReader(f, position, sectionSize)
 
 	// Wrap in a no-op closer since we don't own the file handle
 	return &sectionReadCloser{section}, nil
