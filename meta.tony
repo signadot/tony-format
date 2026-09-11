@@ -8,6 +8,7 @@ duplicates: []
 id: fk1vg9sxh12ksyxxmdn0
 labels:
 - "audit mergeop logd correctness high"
-related_issues: []
+related_issues:
+- qzmkhfjqh12ksydsmdn0
 status: open
-updated: "2026-09-11T10:38:19.984444+02:00"
+updated: "2026-09-11T10:38:38.76763+02:00"
