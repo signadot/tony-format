@@ -6,10 +6,9 @@ commits: []
 created: "2026-09-11T10:38:18.875441+02:00"
 duplicates: []
 id: d2mq819wh12ksynxmdn0
-labels:
-- "audit logd storage concurrency high"
+labels: []
 related_issues:
 - 7d7hhbhmh12ksebkcxn0
 - 656g8yt5h12krdrmcdn0
 status: open
-updated: "2026-09-11T10:38:38.399058+02:00"
+updated: "2026-09-11T10:38:59.518906+02:00"
