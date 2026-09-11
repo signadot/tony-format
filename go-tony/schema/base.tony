@@ -48,7 +48,7 @@ define:
   # keyed lists
   key(p): !and
   - !irtype []
-  - !all.hasPath p
+  - !all.has-path p
   field: !or
   - .[string]
   - .[int]

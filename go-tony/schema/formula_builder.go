@@ -263,6 +263,14 @@ func (b *formulaBuilder) buildTagged(node *ir.Node, tag string) z.Lit {
 		child.Tag = rest
 		return b.c.Ors(b.getVar("array"), b.getVar("object"), b.build(child))
 
+	case "!has-path":
+		// Whether a value holds something at a path is not a question of its kind, which
+		// is all the formula speaks of, so it is left unconstrained: a checker which
+		// invents a contradiction is worse than one which misses it (see !all). Validation
+		// asks it as a match. base.tony's key(p) is built of it, so every schema using
+		// .[key(...)] failed to load here (2jb7njsxh12ksz5xmdn0).
+		return b.c.T
+
 	default:
 		// Strip the ! prefix for lookups
 		tagName := head

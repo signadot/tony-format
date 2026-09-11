@@ -1,6 +1,8 @@
 package schema
 
 import (
+	"fmt"
+
 	"github.com/signadot/tony-format/go-tony/eval"
 	"github.com/signadot/tony-format/go-tony/ir"
 )
@@ -82,7 +84,10 @@ func BuildDefEnv(s *Schema) map[string]any {
 			paramNames := pdef.params
 
 			env[baseName] = func(args ...any) (any, error) {
-				irArgs := defArgs(args)
+				irArgs, err := defArgs(args)
+				if err != nil {
+					return nil, err
+				}
 
 				// If called with no args, return non-parameterized version
 				if len(irArgs) == 0 {
@@ -108,7 +113,10 @@ func BuildDefEnv(s *Schema) map[string]any {
 		paramNames := pdef.params
 
 		env[baseName] = func(args ...any) (any, error) {
-			irArgs := defArgs(args)
+			irArgs, err := defArgs(args)
+			if err != nil {
+				return nil, err
+			}
 
 			// If called with no args, return uninstantiated clone
 			if len(irArgs) == 0 {
@@ -125,7 +133,14 @@ func BuildDefEnv(s *Schema) map[string]any {
 // defArgs turns the values expr-lang passed a definition call into the argument
 // nodes InstantiateDef substitutes.  A reference to another definition arrives
 // as that definition's body; a bare token arrives as a string.
-func defArgs(args []any) []*ir.Node {
+//
+// Anything else is refused. An argument is an expression, so a bare word that names no
+// definition -- the name in .[key(name)] -- is an undefined variable, and arrives as no
+// definition and no string.
+// It was instantiated as "", so key(name) became !all.has-path "", which every value
+// matches: the schema loaded and constrained nothing. A path is written as a string,
+// .[key("name")] (2jb7njsxh12ksz5xmdn0).
+func defArgs(args []any) ([]*ir.Node, error) {
 	irArgs := make([]*ir.Node, len(args))
 	for i, arg := range args {
 		switch v := arg.(type) {
@@ -134,8 +149,8 @@ func defArgs(args []any) []*ir.Node {
 		case string:
 			irArgs[i] = ir.FromString(v)
 		default:
-			irArgs[i] = ir.FromString("")
+			return nil, fmt.Errorf("argument %d is neither a definition nor a string: an argument is an expression, so a path or a name is written as a string, key(\"name\")", i+1)
 		}
 	}
-	return irArgs
+	return irArgs, nil
 }
