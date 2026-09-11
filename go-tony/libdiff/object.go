@@ -14,6 +14,10 @@ import (
 // whatever position it holds on each side; a field on one side alone is an !insert or
 // a !delete. A change to the object's own tag is tagged on the answer; when only the
 // tag changed the answer is a null carrying the tag diff.
+//
+// Given one of each -- an object and a sparse array -- it answers to itself: a patch of
+// the other kind stands alone rather than merging (tony's object merge), so to is the
+// whole change.
 func DiffObject(from, to *ir.Node, df DiffFunc) *ir.Node {
 	fromSparse := ir.TagHas(from.Tag, ir.IntKeysTag)
 	toSparse := ir.TagHas(to.Tag, ir.IntKeysTag)
