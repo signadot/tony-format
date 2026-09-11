@@ -107,7 +107,7 @@ type Storage struct {
 	tick *tick
 
 	txStore   tx.Store      // Transaction store (in-memory for now, can be swapped for disk-based)
-	txTimeout time.Duration // Timeout for transaction participants to join (0 = no timeout)
+	txTimeout time.Duration // Default and ceiling for a transaction's timeout (0 = tx.DefaultTimeout)
 	logger    *slog.Logger
 
 	// The schemas the store has had, in commit order; the last is in force (schema.go).
@@ -403,9 +403,37 @@ func (s *Storage) indexWatermarks() (commit, txSeq int64) {
 //	    // handle error
 //	}
 //	result := patcher.Commit()
+//
+// The transaction waits for its participants for the store's timeout (SetTxTimeout).
 func (s *Storage) NewTx(participantCount int, scope *string) (tx.Tx, error) {
+	return s.NewTxWithTimeout(participantCount, scope, 0)
+}
+
+// TxTimeoutError refuses a transaction asking to wait longer than the store allows.
+type TxTimeoutError struct {
+	Asked, Ceiling time.Duration
+}
+
+func (e *TxTimeoutError) Error() string {
+	return fmt.Sprintf("transaction timeout %v is above the store's %v; ask for that or less", e.Asked, e.Ceiling)
+}
+
+// NewTxWithTimeout is NewTx for a transaction which waits at most timeout for its
+// participants. Zero means the store's, which is also the most a transaction may ask
+// for: a *TxTimeoutError refuses more.
+func (s *Storage) NewTxWithTimeout(participantCount int, scope *string, timeout time.Duration) (tx.Tx, error) {
 	if participantCount < 1 {
 		return nil, fmt.Errorf("participantCount must be at least 1, got %d", participantCount)
+	}
+	ceiling := s.txTimeout
+	if ceiling <= 0 {
+		ceiling = tx.DefaultTimeout
+	}
+	if timeout <= 0 {
+		timeout = ceiling
+	}
+	if timeout > ceiling {
+		return nil, &TxTimeoutError{Asked: timeout, Ceiling: ceiling}
 	}
 
 	txSeq, err := s.sequence.NextTxSeq()
@@ -416,7 +444,7 @@ func (s *Storage) NewTx(participantCount int, scope *string) (tx.Tx, error) {
 	state := &tx.State{
 		TxID:        txSeq,
 		CreatedAt:   time.Now(),
-		Timeout:     s.txTimeout,
+		Timeout:     timeout,
 		Scope:       scope,
 		PatcherData: make([]*tx.PatcherData, 0, participantCount),
 	}
@@ -556,10 +584,11 @@ func (s *Storage) GetCommitNotifier() CommitNotifier {
 	return s.tick.getNotifier()
 }
 
-// SetTxTimeout sets the timeout for transaction participants to join.
-// If not all participants join within this duration, the transaction is aborted
-// and waiting participants receive a timeout error.
-// Pass 0 to disable timeout (not recommended for production).
+// SetTxTimeout sets the timeout for transaction participants to join: what a
+// transaction created without one of its own gets, and the most one may ask for
+// (NewTxWithTimeout). If not all participants join within this duration, the
+// transaction is aborted and waiting participants receive a timeout error.
+// Zero means tx.DefaultTimeout: no transaction waits without a bound.
 func (s *Storage) SetTxTimeout(timeout time.Duration) {
 	s.txTimeout = timeout
 }

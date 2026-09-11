@@ -64,6 +64,7 @@ context:
 - tony-format/context
 define:
   participants: .[int]
+  timeout: .[nullable(string)]
 signature:
   name: session-newtx-request
 ---

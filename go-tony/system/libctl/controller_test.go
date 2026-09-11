@@ -185,8 +185,8 @@ func (c *logdController) Watch(ctx context.Context, path string, opts WatchParam
 }
 
 // TestDocd_MultiMountTransaction proves a client can commit a write spanning two
-// mounts atomically through docd: NewTx is served from docd's pool, and the two
-// PatchTx operations route to two logd-backed controllers that each join the
+// mounts atomically through docd: NewTx goes to logd on the client's connection, and
+// the two PatchTx operations route to two logd-backed controllers that each join the
 // transaction by writing to logd; logd commits both together.
 func TestDocd_MultiMountTransaction(t *testing.T) {
 	logd := startLogd(t)
@@ -198,7 +198,6 @@ func TestDocd_MultiMountTransaction(t *testing.T) {
 	client := docdClient(t, docd, "client")
 	ctx := context.Background()
 
-	// NewTx(2) is served from docd's pool (no logd round trip).
 	txID, err := client.NewTx(ctx, 2)
 	if err != nil {
 		t.Fatalf("NewTx via docd failed: %v", err)

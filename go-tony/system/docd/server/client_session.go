@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -20,11 +19,10 @@ import (
 //
 //   - operations under a mounted subtree go to the owning controller (via that
 //     controller's MountSession), which answers for its subtree;
-//   - ping, the .meta namespace, virtual clocks, and a baseline newtx (from docd's
-//     transaction pool) are answered by docd itself;
+//   - ping, the .meta namespace, and virtual clocks are answered by docd itself;
 //   - everything else — base/unmounted paths, the hello handshake, and
-//     session-level operations (a scoped newtx, schema, deleteScope) — goes
-//     straight to logd over a per-client logd connection.
+//     session-level operations (newtx, schema, deleteScope) — goes straight to
+//     logd over a per-client logd connection.
 //
 // A match or watch on a strict ancestor of one or more mounts is composed across
 // its owners, and a patch spanning mounts is split into one transaction (see the
@@ -45,8 +43,8 @@ type ClientSession struct {
 	clientDec *stream.Decoder
 
 	// clientScope is the COW scope from the client's hello, if any. Only the
-	// request loop touches it. Baseline (nil) NewTx is served from docd's pool;
-	// a scoped NewTx is forwarded to logd on the client's scoped connection.
+	// request loop touches it. A patch split across mounts is committed as a
+	// transaction in this scope.
 	clientScope *string
 
 	logd    net.Conn
@@ -194,7 +192,7 @@ func (s *ClientSession) routeClientRequests() error {
 		}
 
 		if req.Hello != nil {
-			s.clientScope = req.Hello.Scope // remember for tx routing; still forwarded below
+			s.clientScope = req.Hello.Scope // remember for split writes; still forwarded below
 		}
 		// Answer a liveness ping from docd itself: a Pong confirms this client
 		// session's request loop is alive, which is exactly what a wedged-session
@@ -205,16 +203,6 @@ func (s *ClientSession) routeClientRequests() error {
 			}
 			continue
 		}
-		// Serve a baseline NewTx from docd's pre-fetched pool (fewer hops). A
-		// scoped NewTx falls through to logd on the client's scoped connection,
-		// since pooled ids are baseline-scoped.
-		if req.NewTx != nil && s.clientScope == nil {
-			if err := s.serveNewTx(&req); err != nil {
-				return err
-			}
-			continue
-		}
-
 		// docd-driven virtual clocks are served directly, like .meta: a clock has no
 		// controller and needs no mount coordination, so intercept its reads and
 		// watches before the mount-coordination paths below. Clocks are read-only.
@@ -346,11 +334,6 @@ func (s *ClientSession) pumpLogdToClient() error {
 	}
 }
 
-// txParticipantTimeout bounds how long each participant of a coordinated
-// multi-mount transaction waits for the others; if a participant fails to write,
-// the rest time out and the transaction aborts rather than hanging.
-const txParticipantTimeout = 10 * time.Second
-
 // maybeCoordinatePatch splits a client patch across mounts. If it spans two or
 // more participants it is committed as one atomic transaction (handled here,
 // returning handled=true) and the coordination runs in the background so the read
@@ -395,38 +378,31 @@ func (s *ClientSession) maybeCoordinatePatch(req *logdapi.SessionRequest) (bool,
 	return true, nil
 }
 
-// allocTx allocates a transaction id for count participants. Baseline patches use
-// docd's pre-fetched (scopeless) pool; a scoped client's transaction is created
-// in its scope directly on logd, since the pool cannot serve scoped ids.
-func (s *ClientSession) allocTx(count int, scope *string) (int64, error) {
-	if scope != nil {
-		return allocScopedTx(s.logdAddr, scope, count, 5*time.Second)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return s.server.txPool.Get(ctx, count)
-}
-
 // coordinatePatch commits a multi-mount patch as one transaction: it allocates a
-// tx id for all participants (pooled for baseline, scoped otherwise), writes each
-// mount's sub-patch to its
-// controller and the base remainder over docd's own logd link (concurrently,
+// tx id for all participants in the client's scope, writes each mount's sub-patch
+// to its controller and the base remainder over docd's own logd link (concurrently,
 // since each blocks until the whole tx commits), then returns a single result to
 // the client. The client's compare-and-swap precondition, if any, rides on one
 // participant unsplit (the base if present, else the first mount).
+//
+// The transaction is created for this write, with logd's timeout, and no participant
+// names one of its own: each is answered when the transaction resolves, so what the
+// client is told is what the transaction did. A participant which gave up earlier
+// left the transaction able to commit after the client was told it failed
+// (cdnxmna8h12ksarmcdn0). A participant whose controller drops is failed by
+// failAllRoutes, and the rest are answered when the transaction times out.
 func (s *ClientSession) coordinatePatch(req *logdapi.SessionRequest, parts []mountPart, base []baseWrite) {
 	clientID := req.ID
 	count := len(parts) + len(base)
 	scope := s.clientScope
 
-	txID, err := s.allocTx(count, scope)
+	txID, err := allocTx(s.logdAddr, scope, count)
 	if err != nil {
 		_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeInvalidTx,
 			fmt.Sprintf("failed to allocate transaction: %v", err)))
 		return
 	}
 
-	ts := txParticipantTimeout.String()
 	// Each participant's response is tagged with the path it wrote at, so the
 	// data they report can be reassembled into the one subtree the client asked
 	// for (joinPatchResults).
@@ -447,7 +423,7 @@ func (s *ClientSession) coordinatePatch(req *logdapi.SessionRequest, parts []mou
 			matchNode, matchPath = req.Patch.Match.Data, req.Patch.Match.Path
 		}
 		go func(bw baseWrite, matchNode *ir.Node, matchPath string) {
-			resp, err := writeBaseParticipant(s.logdAddr, txID, bw.path, bw.data, matchNode, matchPath, scope, txParticipantTimeout)
+			resp, err := writeBaseParticipant(s.logdAddr, txID, bw.path, bw.data, matchNode, matchPath, scope)
 			if err != nil {
 				results <- partResponse{bw.path, logdapi.NewErrorResponse(nil, logdapi.ErrCodeSessionClosed, err.Error())}
 				return
@@ -465,7 +441,6 @@ func (s *ClientSession) coordinatePatch(req *logdapi.SessionRequest, parts []mou
 			Scope: scope,
 			Patch: &logdapi.PatchRequest{
 				TxID:     &txID,
-				Timeout:  &ts,
 				Match:    match,
 				PathData: logdapi.PathData{Path: p.mount.Path, Data: p.data},
 			},
@@ -509,24 +484,6 @@ func (s *ClientSession) coordinatePatch(req *logdapi.SessionRequest, parts []mou
 		s.log.Error("failed to reassemble split patch result", "path", req.Patch.Path, "error", err)
 	}
 	_ = s.writeToClient(logdapi.NewPatchResponse(clientID, commit, data))
-}
-
-// serveNewTx answers a baseline client's NewTx from docd's pre-fetched pool,
-// avoiding a logd round trip. The pooled id is a real logd transaction id;
-// participants join it by writing to logd with it (WOL).
-func (s *ClientSession) serveNewTx(req *logdapi.SessionRequest) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	txID, err := s.server.txPool.Get(ctx, req.NewTx.Participants)
-	if err != nil {
-		return s.writeToClient(logdapi.NewErrorResponse(req.ID, logdapi.ErrCodeInvalidTx,
-			fmt.Sprintf("newtx failed: %v", err)))
-	}
-	return s.writeToClient(&logdapi.SessionResponse{
-		ID:     req.ID,
-		Result: &logdapi.SessionResult{NewTx: &logdapi.NewTxResult{TxID: txID}},
-	})
 }
 
 // routeFor classifies a request: to the owning controller if its path is under a

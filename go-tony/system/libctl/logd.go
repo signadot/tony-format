@@ -614,7 +614,7 @@ func (s *LogdSession) PatchTx(ctx context.Context, path string, data *ir.Node, t
 type PatchOpts struct {
 	TxID    *int64        // join this multi-participant transaction
 	Match   *api.PathData // compare-and-swap precondition
-	Timeout *string       // per-participant wait timeout (e.g. "10s"); aborts a stalled tx
+	Timeout *string       // per-participant wait timeout (e.g. "10s"); without one it waits the transaction's
 }
 
 // PatchWith applies a patch with the given options. It is the general form behind

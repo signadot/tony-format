@@ -38,7 +38,7 @@ directly inside it:
 | `hello` | `{hello: {clientId: <id>, protocol: 2, scope: <scope>}}` |
 | `match` | `{match: {path: <kpath>, data: <pattern>, commit: <n>}}` |
 | `patch` | `{patch: {path: <kpath>, data: <value>, match: {path, data}, txId: <n>, timeout: "5s"}}` |
-| `newtx` | `{newtx: {participants: <n>}}` |
+| `newtx` | `{newtx: {participants: <n>, timeout: "5m"}}` |
 | `watch` | `{watch: {path: <kpath>, fromCommit: <n>, noInit: <bool>, waitIfAbsent: <bool>}}` |
 | `unwatch` | `{unwatch: {path: <kpath>, watchId: <id>}}` |
 | `schema` | `{schema: {get: {at: <n>}}}` reads the schema in force (at a commit); `{schema: {set: {schema: <doc>, force: <bool>}}}` sets it, as one commit |
@@ -156,9 +156,17 @@ Several paths commit together by naming one transaction:
 The transaction commits when every participant has arrived; every precondition is
 checked at that moment, and either all of them hold and the whole transaction commits,
 or one fails and none of it is written. Both participants report the **same commit**.
-`timeout` bounds one participant's wait. Across mounts, docd decomposes a patch spanning
-several controllers into exactly this — see
-[Multi-mount transactions](../docd/transactions.md).
+
+A transaction waits for its participants for its timeout: the one `newtx` names, or the
+server's (`tx.timeout` in logd's config, 5m unless configured). The server's is also
+the most a `newtx` may ask for; a longer one is refused with `invalid_tx`. Past it the
+transaction fails and every participant still waiting is answered. There is no
+transaction without a timeout — a `tx.timeout` of 0 is the 5m default. A patch's
+`timeout` bounds that one participant's wait; a participant which names none waits
+the transaction's.
+
+Across mounts, docd decomposes a patch spanning several controllers into exactly this —
+see [Multi-mount transactions](../docd/transactions.md).
 
 !!! warning "Give the participants ids"
 

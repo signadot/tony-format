@@ -12,6 +12,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/schema"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 // Config represents the logd server configuration file structure.
@@ -133,10 +134,13 @@ func (d *Duration) UnmarshalText(text []byte) error {
 //
 //tony:schemagen=tx-config
 type TxConfig struct {
-	// Timeout is the maximum time to wait for all participants to join a transaction.
-	// If not all participants join within this duration, the transaction is aborted
-	// and waiting participants receive a timeout error.
-	// Default: 1s
+	// Timeout is the maximum time to wait for all participants to join a transaction:
+	// what a newtx naming no timeout gets, and the most a newtx may ask for -- one
+	// asking more is refused (invalid_tx). If not all participants join within this
+	// duration, the transaction is aborted and waiting participants receive a timeout
+	// error.
+	// Default: 5m. Zero is the default too: there is no transaction without a timeout
+	// (hqhyyat8h12ksarmcdn0).
 	Timeout Duration `tony:"field=timeout"`
 }
 
@@ -294,7 +298,7 @@ func LoadConfig(path string) (*Config, error) {
 const (
 	defaultSnapshotMaxCommits = 1000
 	defaultSnapshotMaxBytes   = 4 << 20
-	defaultTxTimeout          = 1 * time.Second
+	defaultTxTimeout          = tx.DefaultTimeout
 )
 
 // DefaultConfig returns a Config with sensible defaults.

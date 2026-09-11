@@ -120,23 +120,40 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 		return
 	}
 
-	// Commit with optional per-participant timeout
+	// Commit, waiting at most this participant's own timeout. A participant which names
+	// none waits as long as the transaction does: Commit is bounded by the timeout the
+	// transaction was created with (tx.New), and answers with the transaction's failure.
 	var result *tx.Result
+	resultCh := make(chan *tx.Result, 1)
+	go func() {
+		resultCh <- patcher.Commit()
+	}()
+	var deadline <-chan time.Time
 	if timeout > 0 {
-		resultCh := make(chan *tx.Result, 1)
-		go func() {
-			resultCh <- patcher.Commit()
-		}()
-		select {
-		case result = <-resultCh:
-			// Commit completed
-		case <-time.After(timeout):
-			s.sendError(id, api.ErrCodeTimeout, fmt.Sprintf("patch timed out after %v", timeout))
+		deadline = time.After(timeout)
+	}
+	select {
+	case result = <-resultCh:
+		// Commit completed
+	case <-deadline:
+		s.sendError(id, api.ErrCodeTimeout, fmt.Sprintf("patch timed out after %v", timeout))
+		return
+	case <-s.done:
+		// A closing session has no one left to answer, and Run waits for this before it
+		// returns: a participant waiting here for the others held the session, and
+		// TCPListener.Close with it, for the transaction's whole timeout
+		// (hqhyyat8h12ksarmcdn0). So it stops waiting for them, and the transaction
+		// resolves in the store without it.
+		//
+		// Once all have joined it keeps waiting, because the commit is running: that is
+		// bounded, and a session which returned under it would let StopTCP return and
+		// the store be closed beneath a write. The participant which completes a
+		// transaction always sees it complete, so its session waits out the commit
+		// that joining started, whichever participant's goroutine runs it.
+		if !txn.IsComplete() {
 			return
 		}
-	} else {
-		// No timeout - block until commit completes
-		result = patcher.Commit()
+		result = <-resultCh
 	}
 
 	if result.Error != nil {
@@ -196,14 +213,31 @@ func (s *Session) handleNewTx(id *string, req *api.NewTxRequest) {
 		s.sendError(id, api.ErrCodeInvalidTx, "participants must be at least 1")
 		return
 	}
+	// A transaction's timeout is fixed here, where it is created; without one it is the
+	// server's, which is also the most it may ask for (storage.SetTxTimeout).
+	var timeout time.Duration
+	if req.Timeout != nil {
+		var err error
+		timeout, err = time.ParseDuration(*req.Timeout)
+		if err != nil {
+			s.sendError(id, api.ErrCodeInvalidTx, fmt.Sprintf("invalid timeout %q: %v", *req.Timeout, err))
+			return
+		}
+	}
 
-	tx, err := s.storage.NewTx(req.Participants, s.scopeID())
+	tx, err := s.storage.NewTxWithTimeout(req.Participants, s.scopeID(), timeout)
 	if err != nil {
+		// A timeout above the server's is the client's to lower; the store is healthy.
+		var above *storage.TxTimeoutError
+		if errors.As(err, &above) {
+			s.sendError(id, api.ErrCodeInvalidTx, err.Error())
+			return
+		}
 		s.sendError(id, api.ErrCodeStorage, fmt.Sprintf("failed to create transaction: %v", err))
 		return
 	}
 
-	s.log.Debug("created transaction", "txId", tx.ID(), "participants", req.Participants)
+	s.log.Debug("created transaction", "txId", tx.ID(), "participants", req.Participants, "timeout", tx.Timeout())
 	s.send(&api.SessionResponse{
 		ID: id,
 		Result: &api.SessionResult{

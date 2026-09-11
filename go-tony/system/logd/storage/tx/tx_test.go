@@ -582,22 +582,28 @@ func containsTimeout(s string) bool {
 		len(s) >= 11 && s[:11] == "transaction")
 }
 
-func TestCommit_NoTimeout(t *testing.T) {
+// A transaction created with no timeout has DefaultTimeout, not none: one waiting
+// forever for a participant which never comes held every participant which did, and
+// the session of each (hqhyyat8h12ksarmcdn0). It commits as any other does.
+func TestCommit_ZeroTimeoutIsTheDefault(t *testing.T) {
 	store := NewInMemoryTxStore()
 	commitOps := newMockCommitOps()
 	commitOps.currentCommit = 10
 
-	// Create a transaction expecting 2 participants with no timeout
+	// Create a transaction expecting 2 participants, naming no timeout
 	state := &State{
 		TxID:        1,
 		CreatedAt:   time.Now(),
-		Timeout:     0, // No timeout
+		Timeout:     0,
 		PatcherData: make([]*PatcherData, 0, 2),
 	}
 
 	tx := New(store, commitOps, state)
 	if err := store.Put(tx); err != nil {
 		t.Fatalf("Put failed: %v", err)
+	}
+	if got := tx.Timeout(); got != DefaultTimeout {
+		t.Fatalf("Timeout() = %v, want DefaultTimeout (%v)", got, DefaultTimeout)
 	}
 
 	// Add both patchers
@@ -624,7 +630,7 @@ func TestCommit_NoTimeout(t *testing.T) {
 		t.Fatalf("NewPatcher 2 failed: %v", err)
 	}
 
-	// With no timeout and all participants present, commit should succeed
+	// With all participants present, commit should succeed
 	result := patcher1.Commit()
 	if !result.Committed {
 		t.Errorf("Expected committed=true, got false. Error: %v", result.Error)

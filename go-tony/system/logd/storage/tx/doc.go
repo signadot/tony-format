@@ -18,8 +18,9 @@
 //	    // refused: every participant has joined, or the patch cannot be stored
 //	}
 //
-//	// Every participant calls Commit. It blocks until all n have joined; one of them
-//	// performs the commit, and each receives the same outcome.
+//	// Every participant calls Commit. It blocks until all n have joined, or until the
+//	// transaction's timeout (DefaultTimeout unless one was named) fails it; one of
+//	// them performs the commit, and each receives the same outcome.
 //	result := patcher.Commit()
 //	if result.Error != nil {
 //	    // handle error

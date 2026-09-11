@@ -783,6 +783,11 @@ func (s *NewTxRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Field: Participants
 	irMap["participants"] = ir.FromInt(int64(s.Participants))
 
+	// Field: Timeout (optional)
+	if s.Timeout != nil {
+		irMap["timeout"] = ir.FromString(string(*s.Timeout))
+	}
+
 	return ir.FromMap(irMap), nil
 }
 
@@ -822,6 +827,18 @@ func (s *NewTxRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 				return fmt.Errorf("field %q: expected number, got %v", "participants", fieldNodeUnwrapped.Type)
 			}
 			s.Participants = int(*fieldNodeUnwrapped.Int64)
+		case "timeout":
+			// Field: Timeout
+			if fieldNodeUnwrapped.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(string)
+				if fieldNodeUnwrapped.Type != ir.StringType {
+					return fmt.Errorf("%s: expected string, got %v", "field \"timeout\"", fieldNodeUnwrapped.Type)
+				}
+				*val = string(fieldNodeUnwrapped.String)
+				s.Timeout = val
+			}
 		default:
 			if gomap.IsStrict(opts...) {
 				return fmt.Errorf("unknown field %q for NewTxRequest", fieldName.String)

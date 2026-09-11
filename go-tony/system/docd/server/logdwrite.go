@@ -13,15 +13,15 @@ import (
 // writeBaseParticipant is docd's own participant in a coordinated multi-mount
 // transaction: it opens a short-lived logd connection in the client's scope and
 // joins transaction txID by writing one base remainder at its path, with an
-// optional compare-and-swap precondition and a per-participant timeout so a
-// stalled transaction aborts. It blocks until the transaction commits (all
-// participants joined) or fails, and returns the logd response.
+// optional compare-and-swap precondition. It blocks until the transaction commits
+// (all participants joined) or fails -- the transaction's timeout bounds that, and
+// it names none of its own (coordinatePatch) -- and returns the logd response.
 //
 // A dedicated connection is used (rather than a shared/pooled one) because the
 // write blocks until the whole transaction commits; a fresh connection keeps
 // concurrent coordinations from serializing on one link. Pooling these is a
 // possible later optimization.
-func writeBaseParticipant(logdAddr string, txID int64, path string, base, match *ir.Node, matchPath string, scope *string, timeout time.Duration) (*logdapi.SessionResponse, error) {
+func writeBaseParticipant(logdAddr string, txID int64, path string, base, match *ir.Node, matchPath string, scope *string) (*logdapi.SessionResponse, error) {
 	conn, err := net.DialTimeout("tcp", logdAddr, 5*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("connect to logd at %s: %w", logdAddr, err)
@@ -45,11 +45,9 @@ func writeBaseParticipant(logdAddr string, txID int64, path string, base, match 
 	}
 
 	// Join the transaction by writing the base remainder at its path.
-	ts := timeout.String()
 	req := &logdapi.SessionRequest{
 		Patch: &logdapi.PatchRequest{
 			TxID:     &txID,
-			Timeout:  &ts,
 			Match:    matchPathData(matchPath, match),
 			PathData: logdapi.PathData{Path: path, Data: base},
 		},
@@ -60,19 +58,23 @@ func writeBaseParticipant(logdAddr string, txID int64, path string, base, match 
 	return readSessionResponse(dec)
 }
 
-// allocScopedTx creates a multi-participant transaction bound to a COW scope, on
-// a short-lived scoped logd connection, and returns its id. The transaction lives
-// in logd storage keyed by id (independent of the creating connection), so
-// participants — docd's base write and each controller — then join it on their
-// own scoped connections. Baseline transactions come from the (scopeless) txpool
-// instead; scoped ones cannot, so they are allocated here.
-func allocScopedTx(logdAddr string, scope *string, participants int, timeout time.Duration) (int64, error) {
+// allocTx creates a multi-participant transaction in scope (nil is baseline), on a
+// short-lived logd connection, and returns its id. The transaction lives in logd
+// storage keyed by id (independent of the creating connection), so participants --
+// docd's base write and each controller -- then join it on their own connections in
+// that scope.
+//
+// It is created for the write that asks, never in advance: a transaction's timeout
+// runs from its creation, so an id fetched early and held was a transaction dying
+// in the hand -- docd kept a pool of them, and every id it held longer than logd's
+// timeout was answered tx_not_found when it was finally used.
+func allocTx(logdAddr string, scope *string, participants int) (int64, error) {
 	conn, err := net.DialTimeout("tcp", logdAddr, 5*time.Second)
 	if err != nil {
 		return 0, fmt.Errorf("connect to logd at %s: %w", logdAddr, err)
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(timeout))
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 
 	dec, err := stream.NewDecoder(conn, stream.WithBrackets())
 	if err != nil {
@@ -96,10 +98,10 @@ func allocScopedTx(logdAddr string, scope *string, participants int, timeout tim
 		return 0, err
 	}
 	if resp.Error != nil {
-		return 0, fmt.Errorf("newtx in scope: %s", resp.Error.Message)
+		return 0, fmt.Errorf("newtx: %s", resp.Error.Message)
 	}
 	if resp.Result == nil || resp.Result.NewTx == nil {
-		return 0, fmt.Errorf("newtx in scope: empty result")
+		return 0, fmt.Errorf("newtx: empty result")
 	}
 	return resp.Result.NewTx.TxID, nil
 }

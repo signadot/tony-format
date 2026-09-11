@@ -31,10 +31,22 @@ type txCoord struct {
 	resultMu    sync.RWMutex  // Protects result
 }
 
+// DefaultTimeout is how long a transaction waits for its participants when nothing
+// named a timeout for it: not whoever created it, and not the store.
+const DefaultTimeout = 5 * time.Minute
+
 // New returns a transaction over state: it expects cap(state.PatcherData)
 // participants, records each one's joining in store, and commits through commitOps.
 // The caller puts it in store before any participant joins (storage.Storage.NewTx).
+//
+// A state with no timeout is given DefaultTimeout. There is no transaction without
+// one: a transaction waiting for a participant which never comes holds every
+// participant which did, and a session holding one of them cannot close
+// (hqhyyat8h12ksarmcdn0).
 func New(store Store, commitOps CommitOps, state *State) Tx {
+	if state.Timeout <= 0 {
+		state.Timeout = DefaultTimeout
+	}
 	return &txCoord{
 		storage:       store,
 		commitOps:     commitOps,
@@ -237,50 +249,37 @@ func (co *txCoord) NewPatcher(p *api.Patch) (Patcher, error) {
 func (p *txPatcher) Commit() *Result {
 	co := p.coord
 
-	// Wait for all participants to join, with optional timeout
+	// Wait for all participants to join, for at most the transaction's timeout -- which
+	// every transaction has (New).
 	co.mu.RLock()
 	timeout := co.state.Timeout
 	co.mu.RUnlock()
 
-	if timeout > 0 {
-		select {
-		case <-co.ready:
-			// All participants joined
-		case <-co.expired:
-			// Transaction was expired by cleanup - return the pre-set result
-			co.resultMu.RLock()
-			result := co.result
-			co.resultMu.RUnlock()
-			return result
-		case <-time.After(timeout):
-			// Timeout waiting for participants - use commitOnce to set result exactly once
-			co.commitOnce.Do(func() {
-				_ = co.storage.Delete(co.state.TxID)
-				co.resultMu.Lock()
-				co.result = &Result{
-					Committed: false,
-					Matched:   false,
-					Error:     fmt.Errorf("transaction timeout: not all participants joined within %v", timeout),
-				}
-				co.resultMu.Unlock()
-			})
-			co.resultMu.RLock()
-			result := co.result
-			co.resultMu.RUnlock()
-			return result
-		}
-	} else {
-		// No timeout configured - wait for ready or expired
-		select {
-		case <-co.ready:
-			// All participants joined
-		case <-co.expired:
-			// Transaction was expired by cleanup - return the pre-set result
-			co.resultMu.RLock()
-			result := co.result
-			co.resultMu.RUnlock()
-			return result
-		}
+	select {
+	case <-co.ready:
+		// All participants joined
+	case <-co.expired:
+		// Transaction was expired by cleanup - return the pre-set result
+		co.resultMu.RLock()
+		result := co.result
+		co.resultMu.RUnlock()
+		return result
+	case <-time.After(timeout):
+		// Timeout waiting for participants - use commitOnce to set result exactly once
+		co.commitOnce.Do(func() {
+			_ = co.storage.Delete(co.state.TxID)
+			co.resultMu.Lock()
+			co.result = &Result{
+				Committed: false,
+				Matched:   false,
+				Error:     fmt.Errorf("transaction timeout: not all participants joined within %v", timeout),
+			}
+			co.resultMu.Unlock()
+		})
+		co.resultMu.RLock()
+		result := co.result
+		co.resultMu.RUnlock()
+		return result
 	}
 
 	// Use commitOnce to ensure only one goroutine performs the commit.

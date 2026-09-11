@@ -36,15 +36,14 @@ docd uses this to coordinate a spanning patch:
 If any participant fails, the transaction does not commit — the client sees a single
 failure rather than a partial write.
 
-## The transaction-id pool
-
-Allocating a transaction id is a round trip to logd. To keep spanning writes cheap,
-docd keeps a small **pool** of pre-fetched transaction ids
-(package `system/docd/txpool`), replenished in the background and keyed by participant
-count, so a multi-mount write usually draws its id locally instead of waiting on logd.
+The transaction is created on logd for the write, with logd's `tx.timeout`, and no
+participant names a timeout of its own: each is answered when the transaction resolves,
+so the client is told exactly what the transaction did. (docd once kept a pool of
+transaction ids fetched in advance; a transaction's timeout runs from its creation, so a
+pooled id was a transaction dying in the hand.)
 
 A single-owner write needs no transaction id at all — it is forwarded straight to its
-owner.
+owner. A client's own `newtx` goes to logd on the client's connection.
 
 ## Scopes
 
