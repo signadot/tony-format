@@ -792,7 +792,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		if t.opt.format == format.JSONFormat {
 			return nil, 0, UnexpectedErr("#", t.posDoc.Pos(int(absOffset)))
 		}
-		// Calculate commentPrefix using lineStartOffset (NO fallback to recentBuf/docPrefix)
+		// Calculate commentPrefix from lineStartOffset, the only record of where the line began
 		preLen := 0
 		// lineStartOffset can be 0 for the first line, so check >= 0
 		if t.ts.lineStartOffset >= 0 {

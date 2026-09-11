@@ -80,7 +80,8 @@ func version(bi *debug.BuildInfo) string {
 }
 
 // shortRev abbreviates a revision to git's customary seven characters, leaving
-// anything shorter -- or anything that is not a git hash -- as it is.
+// anything shorter as it is. It does not ask whether rev is a git hash: any
+// longer revision is cut.
 func shortRev(rev string) string {
 	if len(rev) <= 7 {
 		return rev

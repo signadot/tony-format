@@ -506,6 +506,10 @@ func copyKPathSegment(src *KPath, dst *KPath, stop *KPath) {
 	} else if src.Key != nil {
 		key := *src.Key
 		dst.Key = &key
+	} else if src.Descend {
+		// Left out, the descent became an empty segment, which renders as nothing:
+		// RSplit("a..b.c") answered the parent a.b (addsgv1yh12kszdxmdn0).
+		dst.Descend = true
 	}
 	// Copy next segment if not at stop
 	if src.Next != nil && src.Next != stop {
@@ -517,6 +521,11 @@ func copyKPathSegment(src *KPath, dst *KPath, stop *KPath) {
 // segmentToString converts the first segment of a KPath to its string representation.
 // Each segment is treated as a top-level kpath, so FieldAll outputs "*" not ".*".
 func segmentToString(kp *KPath) string {
+	// A descent is a segment of its own, and `..` parses back as one. It fell
+	// through to "" here, so SplitAll("a..b") gave a, "", b (addsgv1yh12kszdxmdn0).
+	if kp.Descend {
+		return ".."
+	}
 	if kp.FieldAll {
 		return "*"
 	}
@@ -917,21 +926,6 @@ func findQuotedStringEnd(d []byte) (int, error) {
 	return 0, token.ErrUnterminated
 }
 
-func Compare(a, b string) int {
-	ap, ae := Parse(a)
-	bp, be := Parse(b)
-	if (ae == nil) != (be == nil) {
-		if ae != nil {
-			return -1
-		}
-		return 1
-	}
-	if ae == nil {
-		return 0
-	}
-	return ap.Compare(bp)
-}
-
 // Compare compares two paths lexicographically.
 // Returns -1 if p < other, 0 if p == other, 1 if p > other.
 func (p *KPath) Compare(other *KPath) int {
@@ -966,7 +960,8 @@ func (p *KPath) Compare(other *KPath) int {
 
 // compareKPathSegment compares two KPath segments.
 func compareKPathSegment(a, b *KPath) int {
-	// Compare by type: Field < FieldAll < Index < IndexAll < SparseIndex < SparseIndexAll
+	// Compare by type: Field < Index < SparseIndex < Key < Descend < SparseIndexAll
+	// < IndexAll < FieldAll -- the steps ascending, then the wildcards descending.
 	if a.Field != nil && b.Field != nil {
 		if *a.Field < *b.Field {
 			return -1
@@ -1038,6 +1033,24 @@ func compareKPathSegment(a, b *KPath) int {
 	}
 	if b.SparseIndexAll {
 		return -1
+	}
+	// A key or a `..` is what is left, and both fell through to 0 here: a(x) and
+	// a(y) were one path to anything sorting by this, and so was a.. against either
+	// (addsgv1yh12kszdxmdn0).
+	if a.Key != nil && b.Key != nil {
+		if *a.Key < *b.Key {
+			return -1
+		}
+		if *a.Key > *b.Key {
+			return 1
+		}
+		return 0
+	}
+	if a.Key != nil {
+		return -1
+	}
+	if b.Key != nil {
+		return 1
 	}
 	return 0
 }

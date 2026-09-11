@@ -55,6 +55,47 @@ func TestDescendParsesAndRoundTrips(t *testing.T) {
 	}
 }
 
+// Splitting a path keeps its descent. SplitAll wrote `..` as an empty segment and
+// RSplit's parent lost it -- a..b.c came back as a.b and c -- so the pieces put
+// back together named a different path (addsgv1yh12kszdxmdn0).
+func TestDescendSurvivesSplitting(t *testing.T) {
+	for _, tc := range []struct {
+		path       string
+		all        []string
+		parent     string
+		last       string
+		first, rst string
+	}{
+		{path: "a..b", all: []string{"a", "..", "b"}, parent: "a..", last: "b", first: "a", rst: "..b"},
+		{path: "a..b.c", all: []string{"a", "..", "b", "c"}, parent: "a..b", last: "c", first: "a", rst: "..b.c"},
+		{path: "..b", all: []string{"..", "b"}, parent: "..", last: "b", first: "..", rst: "b"},
+		{path: "a..", all: []string{"a", ".."}, parent: "a", last: "..", first: "a", rst: ".."},
+		{path: "a..[0]", all: []string{"a", "..", "[0]"}, parent: "a..", last: "[0]", first: "a", rst: "..[0]"},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			all := SplitAll(tc.path)
+			if !equalStringSlice(all, tc.all) {
+				t.Errorf("SplitAll = %q, want %q", all, tc.all)
+			}
+			joined := ""
+			for _, seg := range all {
+				joined = Join(joined, seg)
+			}
+			if joined != tc.path {
+				t.Errorf("SplitAll joined back = %q, want %q", joined, tc.path)
+			}
+			parent, last := RSplit(tc.path)
+			if parent != tc.parent || last != tc.last {
+				t.Errorf("RSplit = (%q, %q), want (%q, %q)", parent, last, tc.parent, tc.last)
+			}
+			first, rst := Split(tc.path)
+			if first != tc.first || rst != tc.rst {
+				t.Errorf("Split = (%q, %q), want (%q, %q)", first, rst, tc.first, tc.rst)
+			}
+		})
+	}
+}
+
 // A descent spans depths, and segment matching asks about one segment against
 // one. It answers no rather than a plausible yes: whoever matches a path holding
 // a descent has to walk it.

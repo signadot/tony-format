@@ -2,7 +2,6 @@ package stream
 
 import (
 	"fmt"
-	"io"
 	"strconv"
 
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -304,26 +303,4 @@ func EventsToNode(events []Event) (*ir.Node, error) {
 	}
 
 	return root, nil
-}
-
-// EncodeNode encodes an ir.Node to bytes using Encoder.
-// Convenience function: NodeToEvents + Encoder.
-func EncodeNode(node *ir.Node, w io.Writer, opts ...StreamOption) error {
-	// TODO: Implement
-	// 1. Convert node to events
-	// 2. Create encoder
-	// 3. Write events via encoder
-
-	return nil
-}
-
-// DecodeNode decodes bytes to ir.Node using Decoder.
-// Convenience function: Decoder + EventsToNode.
-func DecodeNode(r io.Reader, opts ...StreamOption) (*ir.Node, error) {
-	// TODO: Implement
-	// 1. Create decoder
-	// 2. Read all events
-	// 3. Convert events to node
-
-	return nil, nil
 }

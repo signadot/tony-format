@@ -18,8 +18,9 @@ import (
 //	KPathState("users[0]")      → positioned at "users" (leaf at index 0)
 //	KPathState("users[0].name") → positioned at "users[0].name" (non-leaf)
 //
-// Returns an error if the kpath string is invalid, or if the State built does
-// not land at the path.
+// Returns an error if the kpath string is invalid, if it holds a segment a State
+// cannot stand at -- a wildcard, a key or `..` -- or if the State built does not
+// land at the path.
 func KPathState(kp string) (*State, error) {
 	if kp == "" {
 		return NewState(), nil
@@ -36,6 +37,14 @@ func KPathState(kp string) (*State, error) {
 	expectedPath := ""
 
 	for current := p; current != nil; current = current.Next {
+		// A State stands at fields and dense and sparse elements, one position each.
+		// A wildcard names no one position, and a key or a `..` is no step a State
+		// takes: the wildcards panicked below on the name or index they do not have,
+		// and a key or a descent was skipped -- by the landing check too, so the
+		// State stopped short of the path and said nothing (addsgv1yh12kszdxmdn0).
+		if current.Wild() {
+			return nil, fmt.Errorf("kpath state for %q: %s names no one position", kp, current.SegmentString())
+		}
 		switch current.EntryKind() {
 		case kpath.FieldEntry:
 			state.stack = append(state.stack, item{segment: kpath.Field(*current.Field), kind: &obj})
@@ -70,6 +79,9 @@ func KPathState(kp string) (*State, error) {
 		case kpath.SparseArrayEntry:
 			state.stack = append(state.stack, item{segment: kpath.SparseIndex(*current.SparseIndex), kind: &spr})
 			expectedPath += fmt.Sprintf("{%d}", *current.SparseIndex)
+
+		default:
+			return nil, fmt.Errorf("kpath state for %q: a stream state has no position for %s", kp, current.SegmentString())
 		}
 	}
 

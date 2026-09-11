@@ -193,7 +193,13 @@ func (p *KPath) SegmentString() string {
 		return fmt.Sprintf("{%d}", *p.SparseIndex)
 	}
 	if p.Key != nil {
-		return fmt.Sprintf("(%s)", *p.Key)
+		// Quoted where String quotes it: written bare, the key x)y came out as
+		// (x)y), which does not parse (addsgv1yh12kszdxmdn0).
+		key := *p.Key
+		if token.KPathQuoteField(key) {
+			key = token.Quote(key, true)
+		}
+		return "(" + key + ")"
 	}
 	return ""
 }

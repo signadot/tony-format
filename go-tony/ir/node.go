@@ -281,9 +281,22 @@ func Null() *Node {
 	return &Node{Type: NullType}
 }
 
+// Comment puts the head comment c on n, a line for each line of c, each marked
+// "# " unless it already starts with "#".
+//
+// A comment does not wrap a comment: given one, Comment adds c's lines after the
+// lines it has and returns it. It used to add c unmarked and then wrap the result
+// as well, so the text was there twice (addsgv1yh12kszdxmdn0).
 func Comment(n *Node, c string) *Node {
+	lines := strings.Split(c, "\n")
+	for i, ln := range lines {
+		if !strings.HasPrefix(ln, "#") {
+			lines[i] = "# " + ln
+		}
+	}
 	if n.Type == CommentType {
-		n.Lines = append(n.Lines, c)
+		n.Lines = append(n.Lines, lines...)
+		return n
 	}
 	p := n.Parent
 	i := n.ParentIndex
@@ -294,16 +307,11 @@ func Comment(n *Node, c string) *Node {
 		ParentIndex: i,
 		ParentField: f,
 		Values:      []*Node{n},
-		Lines:       strings.Split(c, "\n"),
+		Lines:       lines,
 	}
 	n.Parent = cIR
 	n.ParentField = ""
 	n.ParentIndex = 0
-	for i, ln := range cIR.Lines {
-		if !strings.HasPrefix(ln, "#") {
-			cIR.Lines[i] = "# " + ln
-		}
-	}
 	return cIR
 }
 

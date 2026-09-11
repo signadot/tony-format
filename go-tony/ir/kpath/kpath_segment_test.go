@@ -96,3 +96,24 @@ func TestKPath_SegmentString(t *testing.T) {
 		})
 	}
 }
+
+// A key is quoted where String quotes it. SegmentString wrote every key bare, so
+// the key x)y came out as (x)y) -- a key x followed by junk, which does not parse
+// (addsgv1yh12kszdxmdn0).
+func TestSegmentStringQuotesAKeyAsStringDoes(t *testing.T) {
+	for _, key := range []string{"x)y", "a.b", "with space", "(p)", `"q"`, "", "jane"} {
+		seg := Key(key)
+		got := seg.SegmentString()
+		if want := seg.String(); got != want {
+			t.Errorf("Key(%q).SegmentString() = %s, String() = %s", key, got, want)
+		}
+		back, err := Parse(got)
+		if err != nil {
+			t.Errorf("Key(%q).SegmentString() = %s does not parse: %v", key, got, err)
+			continue
+		}
+		if back.Key == nil || *back.Key != key || back.Next != nil {
+			t.Errorf("Key(%q).SegmentString() = %s parses as %s", key, got, back)
+		}
+	}
+}
