@@ -1,11 +1,15 @@
 !issue
-Ref: refs/issues/hb44wv28h12ksarmcdn0
-Title: "docd: composed-watch may deliver deltas out of order and replay stale deltas that predate its own snapshot"
+blocked_by: []
+blocks: []
+branches: []
+commits: []
 created: "2026-07-24T09:30:51.438493+02:00"
+duplicates: []
 id: hb44wv28h12ksarmcdn0
 labels:
 - audit
 - correctness
 - medium
+related_issues: []
 status: open
-updated: "2026-07-24T09:30:51.576353+02:00"
+updated: "2026-09-11T10:05:34.514161+02:00"
