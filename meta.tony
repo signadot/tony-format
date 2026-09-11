@@ -6,8 +6,12 @@ commits: []
 created: "2026-09-11T10:38:20.283978+02:00"
 duplicates: []
 id: pndzjv1xh12ksz5xmdn0
-labels: []
+labels:
+- audit
+- libdiff
+- low
+- o
 related_issues:
 - bzf782sph12krsmwe5n0
 status: open
-updated: "2026-09-11T10:39:01.372584+02:00"
+updated: "2026-09-11T10:39:01.443381+02:00"
