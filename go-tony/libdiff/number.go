@@ -2,6 +2,9 @@ package libdiff
 
 import "github.com/signadot/tony-format/go-tony/ir"
 
+// DiffNumber diffs two numbers, answering a !replace when their values differ -- an
+// integer and a float always do -- a null carrying the tag diff when only their tags
+// differ, and nil when neither does.
 func DiffNumber(from *ir.Node, to *ir.Node) *ir.Node {
 	if (from.Int64 == nil) != (to.Int64 == nil) ||
 		(from.Float64 == nil) != (to.Float64 == nil) {

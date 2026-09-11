@@ -39,7 +39,7 @@ func (d *Dir) fetch() ([]*ir.Node, error) {
 // Exactly one of Dir, URL, or Exec should be set to define where documents come from.
 type DirSource struct {
 	schema `tony:"schemagen=dirsource"`
-	Format *format.Format `tony:"field=format"` // Explicit format (auto-detected if nil)
+	Format *format.Format `tony:"field=format"` // Explicit format; if nil, a file's or URL's extension decides, and tony otherwise
 	Exec   *string        `tony:"field=exec"`   // Command to execute; stdout is parsed
 	Dir    *string        `tony:"field=dir"`    // Directory path to walk for documents
 	URL    *string        `tony:"field=url"`    // URL to fetch documents from

@@ -65,6 +65,9 @@ func escaped(node *ir.Node, op string) *ir.Node {
 	}
 }
 
+// MakeTagDiff answers the tag operation that turns tag from into tag to: !addtag(b)
+// when from is "" and to is !b, !rmtag(a) when from is !a and to is "", and
+// !retag(a,b) otherwise.
 func MakeTagDiff(from, to string) string {
 	switch {
 	case from == "":

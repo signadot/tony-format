@@ -8,6 +8,8 @@ import (
 	"github.com/signadot/tony-format/go-tony/libdiff"
 )
 
+var commentSym = &commentSymbol{name: commentName}
+
 // Comment is the !comment operator: it states what the comments at this node
 // are, and its child names the positions.
 //
@@ -61,8 +63,6 @@ import (
 // what lets it apply to a base that has moved and be stored (see
 // system/logd/api's storage vocabulary). !addtag and !rmtag are the same shape
 // for tags, and !retag is the checked form neither of these needs.
-var commentSym = &commentSymbol{name: commentName}
-
 func Comment() Symbol {
 	return commentSym
 }

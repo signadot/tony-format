@@ -8,6 +8,11 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 )
 
+// DiffArrayByKey diffs two lists keyed by the field path key, pairing elements by key
+// rather than by position, so an element that only moved is not a change. It answers
+// a keyed list holding, for each key that differs, df's diff of that pair with the key
+// put back in it, or nil when no key differs. It errors when an element's key cannot
+// be rendered or put back.
 func DiffArrayByKey(from, to *ir.Node, key string, df DiffFunc) (*ir.Node, error) {
 	// keyNodes keeps each key as the node it was written as, so the result can carry it
 	// across rather than re-parsing its rendering (see yKeyNodeOf). `to` overwrites
@@ -182,6 +187,8 @@ func placeKeyIn(node *ir.Node, p *ir.Path, keyVal *ir.Node, key string) (*ir.Nod
 	return res, nil
 }
 
+// YKeyOf answers the key of y, an element of a list keyed by the field path key: the
+// value at that path rendered without its tag, and the tag.
 func YKeyOf(y *ir.Node, key string) (string, string, error) {
 	_, s, tag, err := yKeyNodeOf(y, key)
 	return s, tag, err

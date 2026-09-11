@@ -160,12 +160,15 @@ func init() {
 	Register(Comment())
 }
 
+// Lookup answers the operation registered under s, its name without the '!' -- a
+// namespaced one as <namespace>:<name> -- or nil when none is.
 func Lookup(s string) Symbol {
 	mu.RLock()
 	defer mu.RUnlock()
 	return d[s]
 }
 
+// Symbols answers every registered operation, in no particular order.
 func Symbols() []Symbol {
 	mu.RLock()
 	defer mu.RUnlock()

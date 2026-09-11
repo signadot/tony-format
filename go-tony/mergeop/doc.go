@@ -10,7 +10,7 @@
 // Operations belong to execution contexts:
 //   - Match: Validation (!or, !and, !not, !irtype, !glob, !has-path, etc.)
 //   - Patch: Transformation (!nullify, !insert, !delete, !replace, etc.)
-//   - Eval: Evaluation (!eval, !exec, !file, etc.)
+//   - Eval: Evaluation (!eval, !exec, !file, etc.), whose operations are package eval's
 //   - Diff: Diffing (!strdiff, !arraydiff)
 //
 // # Checked and unconditional patch operations
@@ -30,37 +30,36 @@
 // !addtag / !rmtag, which are !retag's two halves without the assertion.
 //
 // Operations also divide on whether their result depends on what they meet. !strdiff,
-// !arraydiff, !rename and !jsonpatch are relative: they re-evaluate against whatever is
-// there, so the same operation applied to two different documents produces two different
-// results. !pipe additionally calls out to the system, so applying it twice runs it twice.
+// !arraydiff, !rename, !field(from,to) and !json-patch are relative: they re-evaluate
+// against whatever is there, so the same operation applied to two different documents
+// produces two different results. !pipe additionally calls out to the system, so
+// applying it twice runs it twice.
 //
 // A caller that stores operations, or re-applies them to a moving base, needs both
 // distinctions. See system/logd/api.StorageContext for one such restriction in practice.
 //
 // # Match Operations
 //
-// Match operations validate or query documents:
+// Match operations validate or query documents. tony.Match applies a pattern to a
+// document, handing each tagged node of the pattern to the operation its tag names:
 //
-//	// Check if kind is ConfigMap or Secret
-//	matchNode := &ir.Node{
-//	    Tag: "!or",
-//	    Type: ir.ArrayType,
-//	    Values: []*ir.Node{
-//	        ir.FromString("ConfigMap"),
-//	        ir.FromString("Secret"),
-//	    },
+//	// kind is ConfigMap or Secret
+//	pattern, err := parse.Parse([]byte(`{kind: !or [ConfigMap, Secret]}`))
+//	if err != nil {
+//	    return err
 //	}
-//	op := mergeop.Lookup("or")
-//	matched, _ := op.Match(doc, matchFunc)
+//	matched, err := tony.Match(doc, pattern)
 //
 // # Patch Operations
 //
-// Patch operations transform documents:
+// Patch operations transform documents. tony.Patch applies a patch the same way:
 //
-//	// Set field to null
-//	patchNode := &ir.Node{Tag: "!nullify", Type: ir.NullType}
-//	op := mergeop.Lookup("nullify")
-//	patched, _ := op.Patch(doc, matchFunc, patchFunc, diffFunc)
+//	// set spec to null, keeping the field
+//	patch, err := parse.Parse([]byte(`{spec: !nullify null}`))
+//	if err != nil {
+//	    return err
+//	}
+//	patched, err := tony.Patch(doc, patch)
 //
 // # Tag Composition
 //
@@ -72,22 +71,31 @@
 // # Operation Interface
 //
 //	type Op interface {
-//	    Match(doc *ir.Node, f MatchFunc) (bool, error)
-//	    Patch(doc *ir.Node, mf MatchFunc, pf PatchFunc, df DiffFunc) (*ir.Node, error)
+//	    Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, error)
+//	    Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, df libdiff.DiffFunc) (*ir.Node, error)
 //	    String() string
 //	}
 //
-// Operations implement Match() or Patch() or both. Use IsMatch() and IsPatch()
-// to check which are supported.
+// A [Symbol] names an operation and builds its [Op] from the tagged node's child and
+// the tag's arguments. [SplitChild] finds the first tag in a node's chain that names a
+// registered operation, and answers that name, its arguments and the child, which
+// carries the rest of the chain. Operations implement Match or Patch or both, and the
+// other answers an error; the Symbol's IsMatch and IsPatch say which. The functions an
+// Op is handed are how it recurses into its operand: tony passes its own match, patch
+// and diff.
 //
 // # Registration
 //
-//	op := mergeop.Lookup("or")       // Lookup by name
-//	allOps := mergeop.Symbols()      // List all operations
-//	mergeop.Register(myCustomOp)     // Register custom operation
+//	sym := mergeop.Lookup("or")                      // by name without the '!'; nil if none
+//	all := mergeop.Symbols()                         // every registered operation
+//	err := mergeop.RegisterNamespaced("acme", mySym) // a consumer's operation, tagged !acme:<name>
+//
+// [Register] is for this package's built-in operations, which own every name without a
+// namespace; a consumer registers with [RegisterNamespaced].
 //
 // # Related Packages
 //
+//   - github.com/signadot/tony-format/go-tony - Match, Patch and Diff, which apply these operations
 //   - github.com/signadot/tony-format/go-tony/ir - IR representation
 //   - github.com/signadot/tony-format/go-tony/schema - Schema system
 package mergeop

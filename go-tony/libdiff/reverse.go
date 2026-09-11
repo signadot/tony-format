@@ -6,6 +6,12 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 )
 
+// Reverse answers the diff that undoes diff: applied to the document diff produces, it
+// gives back the document diff was applied to. !insert and !delete trade places, as do
+// !addtag and !rmtag, and the from: and to: of a !replace and the arguments of a
+// !retag swap; what those operations carry belongs to the document and is left as it
+// is. diff itself is not changed. It errors on a !replace without both from: and to:,
+// and on a !retag without two arguments.
 func Reverse(diff *ir.Node) (*ir.Node, error) {
 	tmp := diff.Clone()
 	err := tmp.Visit(func(node *ir.Node, isPost bool) (bool, error) {

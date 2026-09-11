@@ -36,8 +36,7 @@ type Operand struct {
 //
 // The answer is about PATHS, not about where operations may hide. A walk looking for
 // operations (mergeop.FindUnsafe, api.NeedsLowering) wants every node beneath, stopping
-// only at !raw; a walk assigning paths (the index, patchMayAffect, the overlay's
-// annotation) wants this.
+// only at !raw; a walk assigning paths (the index's) wants this.
 func OperandPaths(n *ir.Node) (ops []Operand, ok bool) {
 	if n == nil {
 		return nil, false

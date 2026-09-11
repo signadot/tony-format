@@ -16,7 +16,7 @@ const EnvEnv = "TONY_DIRBUILD_ENV"
 // LoadEnv reads and parses environment configuration from the TONY_DIRBUILD_ENV
 // environment variable. Returns nil if the variable is not set. The variable's
 // value should be a tony/YAML/JSON object that will be parsed and returned as
-// a map for use with [OpenDir] or profile loading.
+// a map for use as the env of [Dir.LoadProfile] or [Dir.LoadProfileFromBytes].
 func LoadEnv() (map[string]any, error) {
 	envEnv := os.Getenv(EnvEnv)
 	if envEnv == "" {

@@ -22,9 +22,9 @@ var renameSym = &renameSymbol{patchName: renameName}
 // them are installed together: `[{from: a, to: b}, {from: b, to: a}]` swaps the
 // two, and the result does not depend on the order the pairs are written in.
 //
-// A from: which names no field renames nothing -- the operation is relative to
-// the keys that are there -- while a to: which collides with a field that is
-// still there is refused, since one of the two would have to be lost.
+// A from: which names no field is refused, since the patch asked for a field to be
+// moved and none was, and so is a to: which collides with a field that is still
+// there, since one of the two would have to be lost.
 //
 // !field(from,to) is the same operation for a single field, written on the field
 // rather than on the object holding it.

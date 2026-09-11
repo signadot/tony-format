@@ -8,9 +8,12 @@ import (
 	diffpatch "github.com/sergi/go-diff/diffmatchpatch"
 )
 
-// 1 diff field names
-// for every different field name add  node
-// for every same field name, recurse on the value
+// DiffObject diffs two objects, or two sparse arrays, by field name, answering one of
+// the same kind with an entry for each field that differs, or nil when none does. A
+// field on both sides is diffed with df and contributes only when df reports a change,
+// whatever position it holds on each side; a field on one side alone is an !insert or
+// a !delete. A change to the object's own tag is tagged on the answer; when only the
+// tag changed the answer is a null carrying the tag diff.
 func DiffObject(from, to *ir.Node, df DiffFunc) *ir.Node {
 	fromSparse := ir.TagHas(from.Tag, ir.IntKeysTag)
 	toSparse := ir.TagHas(to.Tag, ir.IntKeysTag)

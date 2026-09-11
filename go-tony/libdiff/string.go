@@ -10,6 +10,12 @@ import (
 	diffpatch "github.com/sergi/go-diff/diffmatchpatch"
 )
 
+// DiffString diffs two strings, answering nil when they are equal. The answer is a
+// !strdiff edit script -- by line when both strings hold a newline, and by rune
+// otherwise -- unless the edits would carry more than half the shorter string, in
+// which case it is a !replace. When only the tag changed the answer is a null carrying
+// the tag diff.
+//
 // A strdiff key is a position in the sequence the two strings share, counted in
 // the unit the diff names: a rune under !strdiff(false), a line under
 // !strdiff(true).  Every unit of either string takes one position -- an

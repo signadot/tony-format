@@ -42,7 +42,8 @@ func (d *Dir) Profiles() ([]string, error) {
 }
 
 // LoadProfile loads a profile by name from the profiles/ subdirectory and
-// merges its environment into the Dir. The env parameter provides additional
+// merges its environment into the Dir. A profile naming a file that exists is
+// read from that path instead. The env parameter provides additional
 // variables that override both the Dir's environment and the profile's.
 func (d *Dir) LoadProfile(profile string, env map[string]any) error {
 	if debug.LoadEnv() {
@@ -62,6 +63,9 @@ func (d *Dir) LoadProfile(profile string, env map[string]any) error {
 // LoadProfileFromBytes loads a profile from raw bytes and merges its environment
 // into the Dir. The profile data should contain an "env" field with environment
 // overrides. The env parameter provides additional variables that take precedence.
+// The Dir is then opened again from its build file with the merged environment, so
+// that its sources and patches are expanded against it, and every field of the Dir is
+// replaced.
 func (d *Dir) LoadProfileFromBytes(dd []byte, env map[string]any) error {
 	if debug.LoadEnv() {
 		debug.Logf("LoadProfileFromBytes with env\n%s", debug.JSON(env))

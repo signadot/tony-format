@@ -9,16 +9,16 @@ import (
 	diffpatch "github.com/sergi/go-diff/diffmatchpatch"
 )
 
-// we use int keyed map and
+// DiffArrayByIndex diffs two arrays by position, answering an !arraydiff whose integer
+// keys are positions in the sequence the two arrays share, or nil when they are equal.
 //
-//  1. record the type of each node, for non-string scalar types...
-//     we use the summary value <type>-<value> where <value> is the string
-//     representation
-//  2. diff the sequence of summaries
-//  3. For every matching type in the result, if that type is not
-//     scalar, we recurse
-//  4. For every non-matching type, we add an int-keyed
-//     map item with the corresponding diff operation tagged
+// Each element is summarized by what it is -- its kind, and its value when it is a
+// bool, a number or a single-line string -- and the two sequences of summaries are
+// diffed. A pair of elements the alignment matches is diffed with df and contributes
+// only when df reports a change; an element on one side alone is an !insert or a
+// !delete, and a deletion followed by an insertion at the same position is one
+// !replace. A change to the array's own tag is composed after !arraydiff; when only
+// the tag changed the answer is a null carrying the tag diff.
 func DiffArrayByIndex(from, to *ir.Node, df DiffFunc) *ir.Node {
 	m := map[string]rune{}
 	fromRunes := mapValues(m, from)

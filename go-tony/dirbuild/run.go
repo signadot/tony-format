@@ -16,12 +16,11 @@ import (
 
 // Run executes the build pipeline: fetches documents from all sources, applies
 // patches to matching documents, evaluates tool expressions, and writes the
-// results. If w is non-nil, output is written to it; otherwise output goes to
-// DestDir if set. Returns the processed documents and any error encountered.
+// results. When Output.DestDir is set, each document is written to a file of its own
+// there and w is not used; otherwise the documents are written to w. Returns the
+// processed documents and any error encountered.
 //
-// The writer belongs to the caller and is not closed here. Run used to close it,
-// so the usage this package's own documentation shows -- dir.Run(os.Stdout) --
-// closed the caller's standard output.
+// The writer belongs to the caller and is not closed here.
 //
 // Run changes the process working directory to the build root and changes it
 // back, which is why the returns are named: the restore is deferred, and a

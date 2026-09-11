@@ -1,3 +1,8 @@
+// Command convert-image rewrites a container image reference. It reads one reference
+// from standard input and writes it to standard output with its registry, repository
+// and tag replaced by the -registry, -repo and -tag flags, and -suffix appended to the
+// image name; a flag set to "" keeps what the reference has. Run "convert-image -h"
+// for the flags and their defaults.
 package main
 
 import (

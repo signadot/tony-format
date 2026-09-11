@@ -1,3 +1,10 @@
+// Command tony-lsp is a Language Server Protocol server for the Tony format. An editor
+// starts it with no arguments and speaks LSP to it on standard input and output; it
+// reports parse errors as diagnostics and answers hover, formatting, completion and
+// semantic-token requests.
+//
+// "tony-lsp --version" prints the build and exits without starting the protocol.
+// README.md in this directory shows editor configurations.
 package main
 
 import (
