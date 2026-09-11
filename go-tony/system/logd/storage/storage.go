@@ -606,10 +606,8 @@ func (s *Storage) CompactionConfig() *CompactionConfig {
 
 // schemaForScope returns the schema that decides what keys an array.
 //
-// The PERSISTED active schema is the authority. It is in the log, it moves only through
-// the migration path (pending -> active at a snapshot boundary), and it is what the
-// pending dual-write index is already keyed from — so live and pending keying now come
-// from one source instead of two.
+// The PERSISTED active schema is the authority. It is in the log, and it moves only
+// through the migration path (pending -> active at a snapshot boundary).
 //
 // The resolver is the bootstrap only: a store with no schema of its own yet still keys
 // from the one its configuration names, which is how every existing store behaves. The

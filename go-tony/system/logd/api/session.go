@@ -186,23 +186,14 @@ type SchemaGetRequest struct{}
 // A storage without an explicit schema uses an implicit "accept-all" schema.
 // The first SchemaSetRequest migrates from accept-all to the specified schema.
 //
-// # Auto-ID Field Changes During Migration
+// # Identity and auto-ID during a migration
 //
-// During migration, regular patches are dual-indexed to both the active and
-// pending indexes. However, auto-ID injection (!logd-auto-id) uses only the
-// ACTIVE schema. This has important implications:
-//
-// Adding a new auto-ID field: If the pending schema adds a new field with
-// !logd-auto-id (or adds !logd-auto-id to an existing field), regular patches
-// during migration will NOT auto-generate values for that field. Use a
-// two-phase approach: (1) migrate to add the new field WITHOUT !logd-auto-id,
-// populate the new fields with ordinary patches, complete migration;
-// (2) then migrate again to add !logd-auto-id to the field.
-//
-// Removing an auto-ID field: If the pending schema removes !logd-auto-id from
-// a field (or removes the field entirely), existing auto-generated values
-// remain in the data. Regular patches during migration will continue to
-// auto-generate values based on the active schema until migration completes.
+// Until the migration completes, writes are lowered under the ACTIVE schema,
+// auto-ID injection (!logd-auto-id) included; the pending schema governs the
+// commits after completion. An array gains or changes an identity -- a
+// !logd-key or a !logd-auto-id -- only while it holds no elements, and never
+// loses one: setting such a schema is refused, and completing asks again, since
+// a write in between can have filled the array.
 //
 //tony:schemagen=session-schema-set-request,notag
 type SchemaSetRequest struct {

@@ -149,14 +149,6 @@ func (c *commitOps) WriteAndIndex(commit, txSeq int64, timestamp string, mergedP
 	index.IndexPatch(c.s.index, e, string(logFile), pos, txSeq, generation, stored, scopeID)
 	indexTook = time.Since(indexStarted)
 
-	// Dual-write: also index to pending index if migration is in progress. This one
-	// CompleteMigration installs as the live index verbatim, so it has to see every
-	// commit the active index saw; IndexPatch cannot fail, which is what makes the two
-	// writes here either both done or neither reached.
-	if pendingIdx := c.s.schema.GetPendingIndex(); pendingIdx != nil {
-		index.IndexPatch(pendingIdx, e, string(logFile), pos, txSeq, generation, stored, scopeID)
-	}
-
 	// Trigger periodic index persistence
 	if c.s.indexPersister != nil {
 		c.s.indexPersister.MaybePersist(commit)

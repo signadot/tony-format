@@ -5,7 +5,6 @@ import (
 
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 )
 
 // storageSchema manages schema state for Storage.
@@ -20,10 +19,11 @@ type storageSchema struct {
 	activeCommit int64
 	activeParsed *api.Schema
 
-	// Pending migration state (nil if no migration in progress)
+	// Pending migration state (nil if no migration in progress). There is no pending
+	// index: the index holds stored deltas, which carry keyed arrays in the stored form
+	// already, so it is the same under either schema (090mbrhsh12ksfr8mhn0).
 	pending       *ir.Node
 	pendingCommit int64
-	pendingIndex  *index.Index
 	pendingParsed *api.Schema
 }
 
@@ -54,14 +54,6 @@ func (ss *storageSchema) HasPending() bool {
 	return ss.pending != nil
 }
 
-// GetPendingIndex returns the pending index being built during migration.
-// Returns nil if no migration is in progress.
-func (ss *storageSchema) GetPendingIndex() *index.Index {
-	ss.mu.RLock()
-	defer ss.mu.RUnlock()
-	return ss.pendingIndex
-}
-
 // GetPendingParsed returns the cached parsed pending schema.
 // Returns nil if no migration is in progress.
 func (ss *storageSchema) GetPendingParsed() *api.Schema {
@@ -83,8 +75,7 @@ func (ss *storageSchema) GetActiveParsed() *api.Schema {
 // Call with nil schema and 0 commit to reset to schemaless.
 //
 // The parsed form is derived here rather than passed in, so no caller can set one without
-// the other -- unlike SetPending, whose parsed form is built by its caller alongside the
-// pending index.
+// the other -- unlike SetPending, whose caller has the parsed form in hand already.
 func (ss *storageSchema) SetActive(schema *ir.Node, commit int64) {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
@@ -94,12 +85,11 @@ func (ss *storageSchema) SetActive(schema *ir.Node, commit int64) {
 }
 
 // SetPending sets the pending migration state.
-func (ss *storageSchema) SetPending(schema *ir.Node, commit int64, idx *index.Index, parsed *api.Schema) {
+func (ss *storageSchema) SetPending(schema *ir.Node, commit int64, parsed *api.Schema) {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 	ss.pending = schema
 	ss.pendingCommit = commit
-	ss.pendingIndex = idx
 	ss.pendingParsed = parsed
 }
 
@@ -109,22 +99,17 @@ func (ss *storageSchema) ClearPending() {
 	defer ss.mu.Unlock()
 	ss.pending = nil
 	ss.pendingCommit = 0
-	ss.pendingIndex = nil
 	ss.pendingParsed = nil
 }
 
 // PromotePending promotes the pending schema to active and clears pending state.
-// Returns the new index that should replace the active index.
-func (ss *storageSchema) PromotePending(commit int64) *index.Index {
+func (ss *storageSchema) PromotePending(commit int64) {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 	ss.active = ss.pending
 	ss.activeCommit = commit
 	ss.activeParsed = ss.pendingParsed
-	newIndex := ss.pendingIndex
 	ss.pending = nil
 	ss.pendingCommit = 0
-	ss.pendingIndex = nil
 	ss.pendingParsed = nil
-	return newIndex
 }

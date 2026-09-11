@@ -164,9 +164,14 @@ func TestCompact_RemovesSupersededPendingMigration(t *testing.T) {
 	}
 	t.Logf("second active at commit %d", activeCommit2)
 
-	// Switch dlog (also creates snapshot)
-	if err := s.SwitchDLog(); err != nil {
-		t.Fatalf("SwitchDLog() error = %v", err)
+	// Switch twice, so the log compaction works on is the one the schema snapshots were
+	// written to. Once was enough only while CompleteMigration swapped indexes: the
+	// superseded entry's segment went out with the retired one, and the check below
+	// passed with the entry still in the log (090mbrhsh12ksfr8mhn0).
+	for range 2 {
+		if err := s.SwitchDLog(); err != nil {
+			t.Fatalf("SwitchDLog() error = %v", err)
+		}
 	}
 
 	// Run compaction

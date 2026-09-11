@@ -7,9 +7,9 @@ import (
 
 // Schema status constants
 const (
-	SchemaStatusPending = "pending" // Start migration, creates pending index
+	SchemaStatusPending = "pending" // Start migration: the schema proposed
 	SchemaStatusActive  = "active"  // Complete migration or set initial schema
-	SchemaStatusAborted = "aborted" // Cancel migration, discard pending index
+	SchemaStatusAborted = "aborted" // Cancel migration: the proposal dropped
 )
 
 // SchemaEntry represents a schema change in the log.

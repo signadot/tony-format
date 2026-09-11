@@ -169,11 +169,7 @@ func NewLogSegmentFromPatchEntry(e *dlog.Entry, kpath string, logFile string, po
 // Indexing happens after the log append, because a segment records the position the
 // append returns, so anything fallible here would be fallible with the record already
 // on disk: the caller is told the commit failed, replay reads the entry back, and the
-// two disagree about whether it happened. During a schema migration it would be worse
-// than that. Every commit is then indexed twice, once under each schema, and
-// CompleteMigration installs the pending index as the live one verbatim -- so an entry
-// this skipped would be missing from the index the store then runs on, permanently
-// (tkn7ptxch12krgzma9mg).
+// two disagree about whether it happened (tkn7ptxch12krgzma9mg).
 //
 // The walk has no failure to report: it derives paths and adds segments, and a shape it
 // does not understand is a shape it descends no further into. Keep it that way. If

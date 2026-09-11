@@ -1,7 +1,11 @@
 package storage
 
 import (
+	"fmt"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
@@ -197,7 +201,7 @@ func TestMigration_ErrorCases(t *testing.T) {
 }
 
 // TestMigration_DualWrite verifies patches during migration go to both indexes.
-func TestMigration_DualWrite(t *testing.T) {
+func TestMigration_WritesDuringMigrationAreRead(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	s, err := Open(tmpDir, nil)
@@ -223,7 +227,7 @@ func TestMigration_DualWrite(t *testing.T) {
 		t.Fatalf("StartMigration() error = %v", err)
 	}
 
-	// Write data during migration - should go to both indexes
+	// Write data during migration
 	patch2, _ := parse.Parse([]byte(`{users: {bob: {name: "Bob"}}}`))
 	tx2, _ := s.NewTx(1, nil)
 	p2, _ := tx2.NewPatcher(&api.Patch{PathData: api.PathData{Path: "", Data: patch2}})
@@ -247,13 +251,13 @@ func TestMigration_DualWrite(t *testing.T) {
 		t.Errorf("expected bob='Bob', got %q", bobName)
 	}
 
-	// Complete migration - index swap
+	// Complete migration
 	completeCommit, err := s.CompleteMigration()
 	if err != nil {
 		t.Fatalf("CompleteMigration() error = %v", err)
 	}
 
-	// Read from new active index (was pending) - should see both users
+	// Read after completing - should see both users
 	stateAfter, err := readStateAt(s, "", completeCommit, nil)
 	if err != nil {
 		t.Fatalf("ReadStateAt after complete() error = %v", err)
@@ -267,7 +271,6 @@ func TestMigration_DualWrite(t *testing.T) {
 		t.Errorf("after complete: expected bob='Bob', got %q", bobNameAfter)
 	}
 
-	// Verify pre-migration data was re-indexed (alice was written before migration)
 	_ = preCommit
 	_ = migrationCommit
 }
@@ -553,4 +556,203 @@ func getField(n *ir.Node, field string) *ir.Node {
 		}
 	}
 	return nil
+}
+
+// migrateTo starts and completes a migration to schema, answering the commit it completed at.
+func migrateTo(t *testing.T, s *Storage, schema string) int64 {
+	t.Helper()
+	if _, err := s.StartMigration(testSchema(t, schema)); err != nil {
+		t.Fatalf("StartMigration(%s): %v", schema, err)
+	}
+	commit, err := s.CompleteMigration()
+	if err != nil {
+		t.Fatalf("CompleteMigration(%s): %v", schema, err)
+	}
+	return commit
+}
+
+// Every commit survives every migration, before a reopen and after it. A second
+// migration lost everything written before the first -- a: 1 and the scope's s: 1 below --
+// by installing an index backfilled only from the previous migration, whose snapshots
+// were in the index that one had retired (4jw0pz1rh12ks9r8mhn0). A reopen after a write
+// forgot the schema, its snapshots being in a retired index too (faweqnhvh12ksynxmdn0),
+// and the persister went on persisting the retired index (rgpn3v9vh12ksynxmdn0).
+func TestMigration_DataAndSchemaSurviveTwoMigrationsAndAReopen(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir, nil)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	scope := "sc"
+	first := mustCommit(t, s, nil, "{a: 1}")
+	mustCommit(t, s, &scope, "{s: 1}")
+	migrateTo(t, s, "{v1: .[string]}")
+	mustCommit(t, s, nil, "{b: 2}")
+	schemaAt := migrateTo(t, s, "{v2: .[string]}")
+	mustCommit(t, s, nil, "{c: 3}")
+
+	check := func(when string, s *Storage) {
+		t.Helper()
+		head, err := s.GetCurrentCommit()
+		if err != nil {
+			t.Fatalf("%s: GetCurrentCommit: %v", when, err)
+		}
+		for _, r := range []struct {
+			at    int64
+			scope *string
+			want  string
+		}{
+			{head, nil, "a: 1 b: 2 c: 3"},
+			{first, nil, "a: 1"},
+			{head, &scope, "a: 1 b: 2 c: 3 s: 1"},
+		} {
+			if got := flatten(t, mustReadScope(t, s, r.at, r.scope)); got != r.want {
+				t.Errorf("%s: at %d (scope %v): got %s, want %s", when, r.at, r.scope != nil, got, r.want)
+			}
+		}
+		if schema, at := s.GetActiveSchema(); schema == nil || at != schemaAt {
+			t.Errorf("%s: active schema %v at %d, want the second at %d", when, schema != nil, at, schemaAt)
+		}
+		if s.indexPersister.index != s.index {
+			t.Errorf("%s: the persister persists an index that is not the store's", when)
+		}
+	}
+	check("before the reopen", s)
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	s, err = Open(dir, nil)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer s.Close()
+	check("after the reopen", s)
+}
+
+// A commit that lands while a migration runs is kept. Commits during StartMigration's
+// snapshot, and during CompleteMigration before its index swap, were missing from the
+// index the migration installed, acknowledged and then gone -- across a reopen too
+// (gdpv3fsvh12ksynxmdn0).
+func TestMigration_WritesAlongsideAMigrationAreKept(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir, nil)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	// Big enough that a schema snapshot takes a while.
+	var seed strings.Builder
+	seed.WriteString("{big: {")
+	for i := 0; i < 20000; i++ {
+		fmt.Fprintf(&seed, "f%d: %d, ", i, i)
+	}
+	seed.WriteString("}}")
+	mustCommit(t, s, nil, seed.String())
+
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	var acked []string
+	var writeErr error
+	var n atomic.Int64 // writes acknowledged so far
+	go func() {
+		defer close(done)
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			key := fmt.Sprintf("k%d", i)
+			txn, err := s.NewTx(1, nil)
+			if err != nil {
+				writeErr = err
+				return
+			}
+			p, err := txn.NewPatcher(&api.Patch{PathData: api.PathData{Path: "w." + key, Data: ir.FromInt(int64(i))}})
+			if err != nil {
+				writeErr = err
+				return
+			}
+			if res := p.Commit(); res.Committed {
+				acked = append(acked, key)
+				n.Add(1)
+			} else {
+				writeErr = res.Error
+				return
+			}
+		}
+	}()
+	// Writes before the migration, queued behind it, and after it.
+	waitFor := func(k int64) {
+		for n.Load() < k {
+			select {
+			case <-done:
+				return
+			case <-time.After(time.Millisecond):
+			}
+		}
+	}
+	waitFor(20)
+	migrateTo(t, s, "{v1: .[string]}")
+	waitFor(n.Load() + 20)
+	close(stop)
+	<-done
+	if writeErr != nil {
+		t.Fatalf("a write alongside the migration failed: %v", writeErr)
+	}
+
+	check := func(when string, s *Storage) {
+		t.Helper()
+		head, err := s.GetCurrentCommit()
+		if err != nil {
+			t.Fatalf("%s: GetCurrentCommit: %v", when, err)
+		}
+		w, _, err := readSubtreeAt(s, "w", head, nil)
+		if err != nil {
+			t.Fatalf("%s: read w: %v", when, err)
+		}
+		var missing []string
+		for _, k := range acked {
+			if getField(w, k) == nil {
+				missing = append(missing, k)
+			}
+		}
+		if len(missing) > 0 {
+			t.Errorf("%s: %d of %d acknowledged writes do not read back, e.g. %v", when, len(missing), len(acked), missing[:min(5, len(missing))])
+		}
+	}
+	check("before the reopen", s)
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	s, err = Open(dir, nil)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer s.Close()
+	check("after the reopen", s)
+	t.Logf("%d writes alongside the migration", len(acked))
+}
+
+// StartMigration's identity check is asked again where the schema takes effect. Writes
+// between Start and Complete are lowered under the active schema, so one can put
+// elements by position into an array the pending schema keys; completing then would give
+// them an identity they have no names under.
+func TestMigration_CompleteRefusesIdentityOverElementsWrittenSinceStart(t *testing.T) {
+	s := openTestStorage(t)
+	mustCommit(t, s, nil, "{other: 1}")
+	if _, err := s.StartMigration(testSchema(t, `{define: {items: {name: !logd-key null}}}`)); err != nil {
+		t.Fatalf("StartMigration: %v", err)
+	}
+	mustCommit(t, s, nil, "{items: [{name: a}]}")
+	if _, err := s.CompleteMigration(); err == nil {
+		t.Fatal("CompleteMigration gave items an identity over an element written by position")
+	} else if !strings.Contains(err.Error(), "written by position") {
+		t.Errorf("the refusal does not say why: %v", err)
+	}
+	if schema, _ := s.GetActiveSchema(); schema != nil {
+		t.Error("the refused schema became active")
+	}
+	if !s.HasPendingMigration() {
+		t.Error("the refusal dropped the pending migration; it is the operator's to abort")
+	}
 }

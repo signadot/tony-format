@@ -24,7 +24,6 @@ var (
 // replaySchemaState reconstructs schema state from snapshot entries during init.
 // Since schema changes are coupled with snapshots, we scan snapshots in the index
 // rather than iterating through the entire dlog.
-// If replay ends with a pending migration, it rebuilds the pendingIndex.
 func (s *Storage) replaySchemaState() error {
 	// Get all segments from the index and filter for baseline snapshots
 	// Use LookupRangeAll to get all segments, including multiple at same commit
@@ -92,29 +91,11 @@ func (s *Storage) replaySchemaState() error {
 	// Apply final state (no lock needed during init - single goroutine)
 	s.schema.SetActive(activeSchema, activeSchemaCommit)
 
-	// If we ended with a pending migration, rebuild the pending index
 	if pendingSchema != nil {
-		pendingIdx := index.NewIndex("")
-		pendingParsed := api.ParseSchemaFromNode(pendingSchema)
-		s.schema.SetPending(pendingSchema, pendingSchemaCommit, pendingIdx, pendingParsed)
-
-		// Get current commit - we need to re-index everything from activeSchemaCommit
-		// to current, not just to pendingSchemaCommit. Data written during the migration
-		// (after pendingSchemaCommit) was dual-indexed originally and must be included.
-		currentCommit := s.getIndexMaxCommit()
-		if currentCommit < 0 {
-			currentCommit = pendingSchemaCommit
-		}
-
-		if err := s.reindexForPending(activeSchemaCommit, currentCommit); err != nil {
-			s.schema.ClearPending()
-			return fmt.Errorf("failed to rebuild pending index: %w", err)
-		}
-
+		s.schema.SetPending(pendingSchema, pendingSchemaCommit, api.ParseSchemaFromNode(pendingSchema))
 		s.logger.Info("restored pending migration state",
 			"activeSchemaCommit", activeSchemaCommit,
-			"pendingSchemaCommit", pendingSchemaCommit,
-			"reindexedTo", currentCommit)
+			"pendingSchemaCommit", pendingSchemaCommit)
 	} else if activeSchema != nil {
 		s.logger.Info("restored schema state", "activeSchemaCommit", activeSchemaCommit)
 	}
@@ -124,13 +105,15 @@ func (s *Storage) replaySchemaState() error {
 
 // StartMigration begins a schema migration by setting a pending schema.
 // Returns ErrMigrationInProgress if a migration is already in progress.
-// This creates a snapshot with the pending schema and starts building a new index,
-// and answers the snapshot's commit.
+// This creates a snapshot with the pending schema, and answers the snapshot's commit.
 //
 // A schema that does not validate is refused, and so is one that changes an array's
 // identity in a way the stored data cannot follow: an array losing or changing its
 // identity, or gaining one while it holds elements written by position.
 func (s *Storage) StartMigration(schema *ir.Node) (int64, error) {
+	unlock := s.lockSchemaChange()
+	defer unlock()
+
 	if s.schema.HasPending() {
 		return 0, ErrMigrationInProgress
 	}
@@ -138,10 +121,11 @@ func (s *Storage) StartMigration(schema *ir.Node) (int64, error) {
 	// Reject a schema that cannot mean what it says BEFORE it is written. Key derivation
 	// decides what a stored delta records, and a delta cannot be un-recorded, so an
 	// ambiguous schema is caught where it is proposed rather than where it bites.
-	if err := api.ParseSchemaFromNode(schema).Validate(); err != nil {
+	parsed := api.ParseSchemaFromNode(schema)
+	if err := parsed.Validate(); err != nil {
 		return 0, fmt.Errorf("schema cannot be adopted: %w", err)
 	}
-	if err := s.identityChangeAllowed(api.ParseSchemaFromNode(schema)); err != nil {
+	if err := s.identityChangeAllowed(parsed); err != nil {
 		return 0, fmt.Errorf("schema cannot be adopted: %w", err)
 	}
 
@@ -149,47 +133,48 @@ func (s *Storage) StartMigration(schema *ir.Node) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-
-	pendingIdx := index.NewIndex("")
-	pendingParsed := api.ParseSchemaFromNode(schema)
-	s.schema.SetPending(schema, commit, pendingIdx, pendingParsed)
-
-	// Re-index existing data from activeSchemaCommit to commit
-	_, activeSchemaCommit := s.schema.GetActive()
-	if err := s.reindexForPending(activeSchemaCommit, commit); err != nil {
-		// Clear pending state on failure
-		s.schema.ClearPending()
-		return 0, fmt.Errorf("failed to re-index for pending schema: %w", err)
-	}
-
+	s.schema.SetPending(schema, commit, parsed)
 	return commit, nil
 }
 
 // CompleteMigration completes a pending schema migration.
 // Returns ErrNoMigrationInProgress if no migration is in progress.
-// This creates a snapshot with the active schema and swaps the indexes.
+// This creates a snapshot with the active schema, which applies to every commit after it.
+//
+// The index is not touched: it holds stored deltas, the same under either schema. A
+// pending index built beside it and swapped in here was a copy of it, and everything the
+// copy missed -- commits during Start and here, everything before the previous
+// migration, every snapshot -- was lost at the swap (090mbrhsh12ksfr8mhn0).
 func (s *Storage) CompleteMigration() (int64, error) {
+	unlock := s.lockSchemaChange()
+	defer unlock()
+
 	pendingSchema, _ := s.schema.GetPending()
 	if pendingSchema == nil {
 		return 0, ErrNoMigrationInProgress
+	}
+
+	// Asked again, here, where it takes effect: the writes since StartMigration were
+	// lowered under the active schema, and one of them can have put elements by position
+	// into an array this schema gives an identity to.
+	if err := s.identityChangeAllowed(s.schema.GetPendingParsed()); err != nil {
+		return 0, fmt.Errorf("schema cannot be adopted: %w", err)
 	}
 
 	commit, err := s.createSchemaSnapshot(pendingSchema, dlog.SchemaStatusActive)
 	if err != nil {
 		return 0, err
 	}
-
-	// Promote pending to active and get new index
-	newIndex := s.schema.PromotePending(commit)
-	newIndex.Adopt(s.index) // the live index's residency and file; the next persist writes it
-	s.index = newIndex
-
+	s.schema.PromotePending(commit)
 	return commit, nil
 }
 
 // AbortMigration aborts a pending schema migration.
 // Returns ErrNoMigrationInProgress if no migration is in progress.
 func (s *Storage) AbortMigration() (int64, error) {
+	unlock := s.lockSchemaChange()
+	defer unlock()
+
 	if !s.schema.HasPending() {
 		return 0, ErrNoMigrationInProgress
 	}
@@ -204,95 +189,25 @@ func (s *Storage) AbortMigration() (int64, error) {
 	return commit, nil
 }
 
-// buildRootPatch wraps a patch at a path into a root patch.
-func buildRootPatch(path string, patch *ir.Node) *ir.Node {
-	if path == "" {
-		return patch
+// lockSchemaChange orders a schema change with what it must not interleave with:
+// commitMu, which every commit holds from its precondition to its publication, so a
+// schema snapshot takes the next commit number with every earlier commit already in the
+// index, and no write is lowered under one schema and stored after the other; and snapMu,
+// which the inactive log's other writers hold -- the switch, compaction, a path snapshot.
+// In that order: nothing holding snapMu waits on a commit (gdpv3fsvh12ksynxmdn0).
+func (s *Storage) lockSchemaChange() (unlock func()) {
+	s.commitMu.Lock()
+	s.snapMu.Lock()
+	return func() {
+		s.snapMu.Unlock()
+		s.commitMu.Unlock()
 	}
-
-	// Parse path and build nested structure
-	// For simplicity, handle dot-separated paths
-	parts := splitPath(path)
-	result := patch
-	for i := len(parts) - 1; i >= 0; i-- {
-		result = ir.FromMap(map[string]*ir.Node{
-			parts[i]: result,
-		})
-	}
-	return result
-}
-
-// splitPath splits a kpath into parts (simplified, handles dots only)
-func splitPath(path string) []string {
-	if path == "" {
-		return nil
-	}
-	var parts []string
-	current := ""
-	for _, c := range path {
-		if c == '.' {
-			if current != "" {
-				parts = append(parts, current)
-				current = ""
-			}
-		} else {
-			current += string(c)
-		}
-	}
-	if current != "" {
-		parts = append(parts, current)
-	}
-	return parts
-}
-
-// reindexForPending re-indexes existing data into the pending index.
-// It uses the existing index to find segments in the commit range, then reads
-// only those entries from the dlog (avoiding a full scan).
-func (s *Storage) reindexForPending(fromCommit, toCommit int64) error {
-	pendingIdx := s.schema.GetPendingIndex()
-	if pendingIdx == nil {
-		return fmt.Errorf("no pending migration in progress")
-	}
-
-	// Use the index to find segments in the commit range (all scopes)
-	// This avoids scanning the entire dlog from the beginning
-	segments := s.index.LookupRangeAll("", &fromCommit, &toCommit)
-
-	indexedCount := 0
-	for _, seg := range segments {
-		// Skip snapshots (StartCommit == EndCommit) - they don't have patches
-		if seg.StartCommit == seg.EndCommit {
-			continue
-		}
-
-		// Skip entries at or before fromCommit (LookupRangeAll is inclusive)
-		if seg.EndCommit <= fromCommit {
-			continue
-		}
-
-		// Read entry from dlog
-		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition, seg.LogFileGeneration)
-		if err != nil {
-			return fmt.Errorf("failed to read entry at commit %d: %w", seg.EndCommit, err)
-		}
-
-		// Skip entries without patches
-		if entry.Patch == nil {
-			continue
-		}
-
-		// Index into pending index
-		index.IndexPatch(pendingIdx, entry, seg.LogFile, seg.LogPosition, seg.EndTx, seg.LogFileGeneration, entry.Patch, entry.ScopeID)
-		indexedCount++
-	}
-
-	s.logger.Info("re-indexed for pending schema", "fromCommit", fromCommit, "toCommit", toCommit, "entries", indexedCount)
-	return nil
 }
 
 // createSchemaSnapshot creates a snapshot with a schema change entry.
 // This is similar to createSnapshot but includes the SchemaEntry.
 // Each schema snapshot gets its own commit number to avoid duplicates at the same commit.
+// The caller holds lockSchemaChange.
 func (s *Storage) createSchemaSnapshot(schema *ir.Node, status string) (int64, error) {
 	// Allocate a new commit number for this schema snapshot
 	commit, err := s.sequence.NextCommit()
@@ -397,13 +312,6 @@ func (s *Storage) identityChangeAllowed(pending *api.Schema) error {
 		return nil
 	}
 	for _, p := range pending.KeyedPaths() {
-		if active.Keyed(p) {
-			if !slices.Equal(active.Identity(p), pending.Identity(p)) {
-				return fmt.Errorf("%q cannot change its identity from %s to %s: its elements are held under their names",
-					p, strings.Join(active.Identity(p), ","), strings.Join(pending.Identity(p), ","))
-			}
-			continue
-		}
 		c, err := s.Read(commit, nil, p)
 		if err != nil {
 			return err
@@ -412,7 +320,18 @@ func (s *Storage) identityChangeAllowed(pending *api.Schema) error {
 		if err != nil {
 			return err
 		}
-		if held = ir.Uncomment(held); held != nil && held.Type == ir.ArrayType && len(held.Values) > 0 {
+		held = ir.Uncomment(held)
+		if active.Keyed(p) {
+			// Held under their names, as an object of them: a change strands every one.
+			// An array holding none strands nothing -- and the store holding a commit is
+			// not the array holding an element, since a schema change is a commit too.
+			if !slices.Equal(active.Identity(p), pending.Identity(p)) && held != nil && held.Type == ir.ObjectType && len(held.Fields) > 0 {
+				return fmt.Errorf("%q cannot change its identity from %s to %s: its elements are held under their names",
+					p, strings.Join(active.Identity(p), ","), strings.Join(pending.Identity(p), ","))
+			}
+			continue
+		}
+		if held != nil && held.Type == ir.ArrayType && len(held.Values) > 0 {
 			return fmt.Errorf("%q cannot be given the identity %s: it already holds %d elements written by "+
 				"position, which have no names; declare the identity before the array is written, or empty it first",
 				p, strings.Join(pending.Identity(p), ","), len(held.Values))

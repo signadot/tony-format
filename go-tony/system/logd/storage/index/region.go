@@ -27,9 +27,9 @@ import (
 //
 // The policy is LRU over regions and the ceiling is configured; a read at the head hits,
 // a read deep in history may pay I/O to the file, and that gradient is the intended shape.
-// Every region becomes resident by being paged in (withResident), created by a write
-// (addSegment), or adopted with the index it was built in (Adopt), and each of those
-// counts it through Residency.charge; there is no other way to become resident. A region
+// Every region becomes resident by being paged in (withResident) or created by a write
+// (addSegment), and each of those counts it through Residency.charge; there is no other
+// way to become resident. A region
 // admitted past the ceiling when nothing is evictable -- every resident region hot, or
 // pinned by the read in progress -- is admitted anyway, since a read must be answered and
 // a write must land, and the excess is reported as index.over; the persister is what

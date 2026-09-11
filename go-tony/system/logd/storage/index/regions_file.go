@@ -474,38 +474,3 @@ func (i *Index) Close() error {
 	}
 	return i.res.file.close()
 }
-
-// Adopt gives this index -- built apart, as a pending migration's index is -- the
-// residency and file of another, so it can be installed in its place. Every node of it is
-// resident and hot, and the next persist writes it.
-func (i *Index) Adopt(from *Index) {
-	if from == nil || from.res == nil {
-		return
-	}
-	var walk func(node *Index)
-	walk = func(node *Index) {
-		node.Lock()
-		node.res = from.res
-		node.Unlock()
-		for _, c := range node.childrenOf() {
-			walk(c.index)
-		}
-	}
-	walk(i)
-	var charged int64
-	var count func(node *Index)
-	count = func(node *Index) {
-		node.RLock()
-		for _, reg := range node.regions {
-			if reg.resident {
-				charged += reg.bytes()
-			}
-		}
-		node.RUnlock()
-		for _, c := range node.childrenOf() {
-			count(c.index)
-		}
-	}
-	count(i)
-	from.res.charge(charged)
-}
