@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: d96487daf71954527d8e74d340d588d1ef3668fc
 commits:
 - d96487daf71954527d8e74d340d588d1ef3668fc
 created: "2026-09-11T10:38:18.639844+02:00"
@@ -15,5 +16,5 @@ labels:
 - storage
 related_issues:
 - rgpn3v9vh12ksynxmdn0
-status: open
-updated: "2026-09-11T16:09:03.304472+02:00"
+status: closed
+updated: "2026-09-11T16:09:16.37954+02:00"
