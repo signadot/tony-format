@@ -8,6 +8,7 @@ duplicates: []
 id: "0bns6k1wh12ksyxxmdn0"
 labels:
 - "audit logd storage correctness high"
-related_issues: []
+related_issues:
+- 07g0rn9xh12ksz5xmdn0
 status: open
-updated: "2026-09-11T10:38:19.287514+02:00"
+updated: "2026-09-11T10:38:38.492245+02:00"
