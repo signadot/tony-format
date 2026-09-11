@@ -22,12 +22,13 @@ import (
 //	        its neighbours; a bare !raw merges its subtree as data and covers what a value
 //	        of that shape covers.
 //
-// A statement NEEDS whole when it is an untagged, uncommented scalar or array of them, an
-// empty object, or a total cover itself; otherwise it needs total. It is DOMINATED by a
-// total cover at or above its path, by a whole cover strictly above it, or by a whole cover
-// at its own path when it needs only whole -- always by a LATER statement of the same
-// scope. A dominated statement contributes nothing to the fold from the dominating one on,
-// which is what lets it be skipped by a read (the footprint) and dropped by compaction.
+// A statement NEEDS whole when it is an uncommented object, whatever its tag or fields; an
+// untagged, uncommented scalar or array of them; or a total cover itself; otherwise it
+// needs total. It is DOMINATED by a total cover at or above its path, by a whole cover
+// strictly above it, or by a whole cover at its own path when it needs only whole --
+// always by a LATER statement of the same scope. A dominated statement contributes nothing
+// to the fold from the dominating one on, which is what lets it be skipped by a read (the
+// footprint) and dropped by compaction.
 type Cover uint8
 
 const (
