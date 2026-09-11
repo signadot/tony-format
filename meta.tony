@@ -6,7 +6,12 @@ commits: []
 created: "2026-09-11T10:38:20.038253+02:00"
 duplicates: []
 id: e5wt4fhxh12ksz5xmdn0
-labels: []
+labels:
+- audit
+- correctness
+- logd
+- medium
+- mergeop
 related_issues: []
 status: open
-updated: "2026-09-11T10:39:01.076468+02:00"
+updated: "2026-09-11T10:39:01.145076+02:00"
