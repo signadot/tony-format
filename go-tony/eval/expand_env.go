@@ -57,15 +57,8 @@ func evalWithOptions(input string, env Env, opts *EvalOptions) (any, error) {
 }
 
 func ExpandEnv(node *ir.Node, env Env) error {
-	if node.Comment != nil {
-		for i, ln := range node.Comment.Lines {
-			lnEval, err := ExpandString(ln, env)
-			if err != nil {
-				return fmt.Errorf("error expanding comment %q: %w", ln, err)
-			}
-			node.Comment.Lines[i] = lnEval
-		}
-	}
+	// Once: the block was here twice, so a comment whose expansion held $[...] was
+	// expanded again (addsgv1yh12kszdxmdn0).
 	if node.Comment != nil {
 		for i, ln := range node.Comment.Lines {
 			lnEval, err := ExpandString(ln, env)
@@ -76,14 +69,13 @@ func ExpandEnv(node *ir.Node, env Env) error {
 		}
 	}
 	switch node.Type {
-	case ir.ObjectType:
-		for i := range node.Fields {
-			cy := node.Values[i]
-			ExpandEnv(cy, env)
-		}
-	case ir.ArrayType:
+	case ir.ObjectType, ir.ArrayType:
+		// A child's error is the document's: it was dropped, and the child left as
+		// written in a document that reported success (addsgv1yh12kszdxmdn0).
 		for _, cy := range node.Values {
-			ExpandEnv(cy, env)
+			if err := ExpandEnv(cy, env); err != nil {
+				return err
+			}
 		}
 	case ir.StringType:
 		raw := getRaw(node.String)

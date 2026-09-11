@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -330,5 +331,39 @@ func TestExpandIRCommentTypeEmptyValues(t *testing.T) {
 	_, err = ExpandIR(node, env)
 	if err != nil {
 		t.Fatalf("ExpandIR error: %v", err)
+	}
+}
+
+// A comment is expanded once, like a string: text its expansion produces is data,
+// even when it reads as an expression. The expansion ran twice, so the comment
+// below came out "# twice" (addsgv1yh12kszdxmdn0).
+func TestExpandEnvExpandsACommentOnce(t *testing.T) {
+	node := ir.FromInt(1)
+	node.Comment = &ir.Node{Type: ir.CommentType, Lines: []string{"# $[a]"}, Parent: node}
+	env := Env{"a": "$[b]", "b": "twice"}
+	if err := ExpandEnv(node, env); err != nil {
+		t.Fatalf("ExpandEnv: %v", err)
+	}
+	if got := node.Comment.Lines[0]; got != "# $[b]" {
+		t.Errorf("comment expanded to %q, want %q", got, "# $[b]")
+	}
+}
+
+// An expression under an object or array which fails fails the expansion. The
+// error was dropped: ExpandEnv answered nil with the string left as written.
+func TestExpandEnvReportsAChildsError(t *testing.T) {
+	for _, src := range []string{
+		`{a: {b: '$[1 +]'}}`,
+		`{a: ['$[1 +]']}`,
+	} {
+		node, err := parse.Parse([]byte(src))
+		if err != nil {
+			t.Fatalf("parse %s: %v", src, err)
+		}
+		if err := ExpandEnv(node, Env{}); err == nil {
+			t.Errorf("%s: ExpandEnv reported no error", src)
+		} else if !strings.Contains(err.Error(), "1 +") {
+			t.Errorf("%s: the error does not name the expression: %v", src, err)
+		}
 	}
 }
