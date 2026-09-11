@@ -235,6 +235,9 @@ func extractStructSchemaTag(structType *ast.StructType) (*gomap.StructSchema, er
 			lineCommentFieldName := parsed["lineComment"]
 			tagFieldName := parsed["tag"]
 			context := parsed["context"]
+			// Read here as the //tony: directive reads it (parseSchemaTagContent);
+			// the marker spelling dropped it (addsgv1yh12kszdxmdn0).
+			_, noTag := parsed["notag"]
 
 			return &gomap.StructSchema{
 				Mode:                 mode,
@@ -245,6 +248,7 @@ func extractStructSchemaTag(structType *ast.StructType) (*gomap.StructSchema, er
 				CommentFieldName:     commentFieldName,
 				LineCommentFieldName: lineCommentFieldName,
 				TagFieldName:         tagFieldName,
+				NoTag:                noTag,
 			}, nil
 		}
 
@@ -547,14 +551,6 @@ func parseSchemaTagContent(content string) (*gomap.StructSchema, error) {
 		TagFieldName:         parsed["tag"],
 		NoTag:                noTag,
 	}, nil
-}
-
-// ResolveType is not implemented: it returns a nil type and an error for every
-// expression. Field types are resolved by [ResolveFieldTypes].
-func ResolveType(expr ast.Expr, pkg *ast.Package) (reflect.Type, error) {
-	// TODO: Implement type resolution from AST to reflect.Type
-	// This will be needed for code generation but can be deferred to later phases
-	return nil, fmt.Errorf("type resolution from AST not yet implemented")
 }
 
 // getEmbeddedFieldName extracts the field name from an embedded field type.

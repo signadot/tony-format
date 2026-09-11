@@ -853,7 +853,7 @@ and `!addtag` / `!rmtag`, which are `!retag`'s two halves without the assertion.
 #### Relative operations
 
 A second distinction cuts across the first.  `!strdiff`, `!arraydiff`, `!rename` and
-`!jsonpatch` describe a change *relative to* what they meet, so the same operation
+`!json-patch` describe a change *relative to* what they meet, so the same operation
 applied to two different documents produces two different results.  `!pipe` calls out
 to the system, so applying it twice runs it twice.
 

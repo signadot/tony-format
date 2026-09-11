@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tony "github.com/signadot/tony-format/go-tony"
+	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 )
 
@@ -119,6 +120,37 @@ func TestValidateAbsentIsNotWrongType(t *testing.T) {
 	if wrong == absent {
 		t.Errorf("present-but-wrong reported as %s, same as absent", wrong)
 	}
+}
+
+// TestValidateLeavesAcceptLinked: Validate expands the accept clause and matches
+// against the expansion, which it then discards. The expansion is built out of
+// the clause's own leaves, so expanding the clause itself moved them into a tree
+// nobody holds: afterwards a leaf of s.Accept named a parent that no longer had
+// it (addsgv1yh12kszdxmdn0).
+func TestValidateLeavesAcceptLinked(t *testing.T) {
+	s := mustSchema(t, answerContract)
+	doc, err := parse.Parse([]byte(`{class: bug, severity: high, why: "nil deref"}`))
+	if err != nil {
+		t.Fatalf("parse: %s", err)
+	}
+	if err := s.Validate(doc); err != nil {
+		t.Fatalf("validate: %s", err)
+	}
+	var check func(n *ir.Node, path string)
+	check = func(n *ir.Node, path string) {
+		for i, v := range n.Values {
+			if v.Parent != n || v.ParentIndex != i {
+				t.Errorf("%s value %d: parent link broken", path, i)
+			}
+			check(v, fmt.Sprintf("%s[%d]", path, i))
+		}
+		for i, f := range n.Fields {
+			if f.Parent != n || f.ParentIndex != i {
+				t.Errorf("%s field %q: parent link broken", path, f.String)
+			}
+		}
+	}
+	check(s.Accept, "accept")
 }
 
 func mustSchema(t *testing.T, src string) *Schema {

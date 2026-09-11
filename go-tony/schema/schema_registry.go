@@ -11,8 +11,8 @@ import (
 type SchemaRegistry struct {
 	mu sync.RWMutex
 
-	// Map of schema name -> Schema (within a context)
-	// Key format: "contextURI:name" or just "name" for default context
+	// Map of schema name -> Schema, keyed by the bare signature.name whatever
+	// the schema's context, so one name is one schema across contexts
 	schemas map[string]*Schema
 
 	// Map of schema URI -> Schema (cross-context, full URI)

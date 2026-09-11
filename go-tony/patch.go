@@ -13,7 +13,7 @@ import (
 )
 
 // Patch applies a patch to a document with optional configuration.
-// Use PatchWith for schema-aware patching with full OpContext control.
+// PatchWith takes a whole OpContext instead.
 //
 // A nil result with a nil error is a deletion: the patch removed the document.
 // Each object the patch merges into comes back with its fields in sorted key
@@ -28,8 +28,8 @@ func Patch(doc, patch *ir.Node, opts ...mergeop.PatchOpt) (*ir.Node, error) {
 	return patchAndAnswer(ownCopy(doc), patch, ctx)
 }
 
-// PatchWith applies a patch to a document with the given context.
-// The context carries schema definitions for .[ref] expansion and behavioral options.
+// PatchWith applies a patch to a document with the given context, which carries
+// behavioral options.
 // Like Patch, it leaves doc and patch as they were.
 func PatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) {
 	return patchAndAnswer(ownCopy(doc), patch, ctx)

@@ -38,6 +38,9 @@ func BuildEvalOptions(s *Schema) *eval.EvalOptions {
 //
 // The env should contain the schema's definitions as callable functions for
 // parameterized defs, and as IR nodes for non-parameterized defs.
+//
+// As with eval.ExpandIRWithOptions, the result is built out of body's own
+// nodes, so a caller keeping body passes a clone (addsgv1yh12kszdxmdn0).
 func ExpandDefBody(body *ir.Node, env map[string]any, opts *eval.EvalOptions) (*ir.Node, error) {
 	return eval.ExpandIRWithOptions(body, env, opts)
 }

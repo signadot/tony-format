@@ -5,7 +5,6 @@ import (
 
 	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
-	"github.com/signadot/tony-format/go-tony/mergeop"
 )
 
 // Schema represents a Tony schema document
@@ -83,22 +82,21 @@ func (s *Schema) Validate(doc *ir.Node) error {
 	env := BuildDefEnv(s)
 	opts := BuildEvalOptions(s)
 
-	// Expand the Accept pattern to resolve definition references at top level
-	expanded, err := ExpandDefBody(s.Accept, env, opts)
+	// Expand the Accept pattern to resolve definition references. A clone: the
+	// expansion is built out of the nodes it is given, and would take s.Accept's
+	// leaves with it when it is discarded (addsgv1yh12kszdxmdn0).
+	//
+	// Every reference is resolved here, nested ones included -- the expansion
+	// expands each definition body it substitutes, and walks the operands of
+	// !and, !or and the rest like any other node -- so the match below meets no
+	// .[ref] and needs no definitions.
+	expanded, err := ExpandDefBody(s.Accept.Clone(), env, opts)
 	if err != nil {
 		return fmt.Errorf("failed to expand accept pattern: %w", err)
 	}
 
-	// Build OpContext for lazy expansion of nested .[ref] during matching
-	// This is needed for operators like !and and !or that contain .[ref] patterns
-	ctx := &mergeop.OpContext{
-		DefEnv:   env,
-		EvalOpts: opts,
-	}
-
-	// Match the document against the expanded pattern with context
-	// Context enables lazy expansion of .[ref] inside operators
-	matched, err := tony.MatchWith(doc, expanded, ctx)
+	// Match the document against the expanded pattern
+	matched, err := tony.Match(doc, expanded)
 	if err != nil {
 		return fmt.Errorf("match error: %w", err)
 	}
@@ -111,7 +109,7 @@ func (s *Schema) Validate(doc *ir.Node) error {
 	// verdict is already in, so an error this walk turns up belongs in the
 	// explanation rather than in place of it.
 	why := &tony.Explanation{}
-	tony.MatchWith(doc, expanded, ctx.Clone(), tony.Explaining(why))
+	tony.Match(doc, expanded, tony.Explaining(why))
 	return &ValidationError{Explanation: why}
 }
 

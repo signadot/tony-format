@@ -34,7 +34,7 @@ func MainCommand() *cli.Command {
 
 	return cli.NewCommandAt(&cfg.Command, "tony-codegen").
 		WithSynopsis("tony-codegen [opts]").
-		WithDescription("Generate .tony schema files and Go code (ToTony/FromTony methods) from structs with schema tags.").
+		WithDescription("Generate Go codecs (ToTonyIR, FromTonyIR, ToTony and FromTony methods) for the types annotated schema= or schemagen=, in a tony struct tag or a //tony: directive, and .tony schemas for the schemagen= ones.").
 		WithOpts(sOpts...).
 		WithRun(func(cc *cli.Context, args []string) error {
 			return run(cfg, cc, args)
@@ -47,7 +47,7 @@ type Config struct {
 	SchemaDirFlat  string `cli:"name=schema-dir-flat desc='directory for generated .tony schema files, flat structure (all schemas in one directory)'"`
 	Dir            string `cli:"name=dir desc='directory to scan for Go files (default: current directory)'"`
 	Recursive      bool   `cli:"name=recursive desc='scan subdirectories recursively'"`
-	SchemaRegistry string `cli:"name=schema-registry desc='path to schema registry for cross-package references (optional)'"`
+	SchemaRegistry string `cli:"name=schema-registry desc='directory searched last for NAME.tony, the schema of a schema=NAME type (optional)'"`
 
 	// Version asks what build this is. tony-codegen has no subcommands to hang
 	// a `version` on, so it is an option, and one that answers before any of
@@ -312,29 +312,4 @@ func processPackage(cfg *Config, pkg *codegen.PackageInfo) error {
 	}
 
 	return nil
-}
-
-func determineSchemaPath(config *codegen.CodegenConfig, pkg *codegen.PackageInfo, schemaName string) (string, error) {
-	var schemaPath string
-
-	if config.SchemaDirFlat != "" {
-		// Flat structure: all schemas in one directory
-		schemaPath = filepath.Join(config.SchemaDirFlat, schemaName+".tony")
-	} else if config.SchemaDir != "" {
-		// Preserve package structure
-		// Get relative path from module root to package
-		// For now, use package name as subdirectory
-		schemaPath = filepath.Join(config.SchemaDir, pkg.Name, schemaName+".tony")
-	} else {
-		// Default: same directory as source files
-		schemaPath = filepath.Join(pkg.Dir, schemaName+".tony")
-	}
-
-	// Ensure directory exists
-	dir := filepath.Dir(schemaPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create schema directory %q: %w", dir, err)
-	}
-
-	return schemaPath, nil
 }

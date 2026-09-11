@@ -76,7 +76,7 @@ is that each states what the value **is**, so that re-applying one to a base tha
 moved gives what it gave at the write.
 
 An operation whose meaning depends on what it lands on — `!replace`, `!rename`,
-`!strdiff`, `!arraydiff`, `!retag`, `!jsonpatch`, `!if`, `!let` — is therefore not stored
+`!strdiff`, `!arraydiff`, `!retag`, `!json-patch`, `!if`, `!let` — is therefore not stored
 as written. It is applied, and its **result** is stored in its place:
 
 ```tony

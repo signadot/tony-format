@@ -2819,56 +2819,6 @@ func extractAssignment(code string) string {
 	return ""
 }
 
-// HasToTonyMethod checks if a type has a ToTony() method.
-func HasToTonyMethod(typ reflect.Type) bool {
-	method, ok := typ.MethodByName("ToTony")
-	if !ok {
-		// Check pointer receiver
-		if typ.Kind() != reflect.Ptr {
-			ptrType := reflect.PtrTo(typ)
-			_, ok = ptrType.MethodByName("ToTony")
-		}
-		return ok
-	}
-
-	// Verify signature: ToTony() (*ir.Node, error)
-	if method.Type.NumIn() != 1 || method.Type.NumOut() != 2 {
-		return false
-	}
-
-	// Check return types
-	out0 := method.Type.Out(0)
-	out1 := method.Type.Out(1)
-
-	// out0 should be *ir.Node, out1 should be error
-	return out0.Kind() == reflect.Ptr && out1.Name() == "error"
-}
-
-// HasFromTonyMethod checks if a type has a FromTony() method.
-func HasFromTonyMethod(typ reflect.Type) bool {
-	method, ok := typ.MethodByName("FromTony")
-	if !ok {
-		// Check pointer receiver
-		if typ.Kind() != reflect.Ptr {
-			ptrType := reflect.PtrTo(typ)
-			_, ok = ptrType.MethodByName("FromTony")
-		}
-		return ok
-	}
-
-	// Verify signature: FromTony(*ir.Node) error
-	if method.Type.NumIn() != 2 || method.Type.NumOut() != 1 {
-		return false
-	}
-
-	// Check input type (second arg, first is receiver)
-	in1 := method.Type.In(1)
-	out0 := method.Type.Out(0)
-
-	// in1 should be *ir.Node, out0 should be error
-	return in1.Kind() == reflect.Ptr && out0.Name() == "error"
-}
-
 // isCommentCarrier reports whether a field holds comments for the node rather
 // than data in it. The annotations are the ones the reflection mapper reads --
 // comment= and lineComment= -- so a struct tagged once behaves the same whether

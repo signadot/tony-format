@@ -43,8 +43,7 @@ func Tracing(why *Explanation) MatchOpt {
 	return func(c *MatchConfig) { c.Explain, c.Trace = why, true }
 }
 
-// Match matches doc against a pattern. This is the backwards-compatible
-// version that doesn't use context. Use MatchWith for schema-aware matching.
+// Match matches doc against a pattern; MatchWith is Match with an OpContext.
 //
 // An object pattern matches an object holding at least the fields it names,
 // each matching; an array pattern matches an array of the same length, element
@@ -55,8 +54,9 @@ func Match(doc, match *ir.Node, opts ...MatchOpt) (bool, error) {
 	return MatchWith(doc, match, nil, opts...)
 }
 
-// MatchWith matches doc against a pattern with the given context.
-// The context carries schema definitions for .[ref] expansion and behavioral options.
+// MatchWith matches doc against a pattern with the given context, which carries
+// behavioral options. A pattern's .[ref]s are expanded before it gets here
+// (schema.Validate); the context holds no definitions to expand them with.
 func MatchWith(doc, match *ir.Node, ctx *mergeop.OpContext, opts ...MatchOpt) (bool, error) {
 	cfg := MatchConfig{}
 	for _, opt := range opts {

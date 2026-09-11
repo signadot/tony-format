@@ -54,9 +54,10 @@ Tony Format provides several built-in contexts:
 Tags for matching operations:
 
 - `!or`, `!and`, `!not` - boolean operations
-- `!irtype`, `!glob`, `!field` - type and field matching
-- `!tag`, `!subtree`, `!all` - structural matching
-- `!let`, `!if`, `!dive`, `!embed` - control flow
+- `!irtype`, `!ir`, `!glob`, `!field`, `!tag` - type, field and tag matching
+- `!subtree`, `!all`, `!at`, `!has-path` - structural matching
+- `!let`, `!pass`, `!raw`, `!comment` - binding, anything, the escape, comments
+- `!get-path`, `!list-path`, `!key` - paths and keyed arrays
 
 ### Patch Context (`tony-format/context/patch`)
 
@@ -65,7 +66,12 @@ Tags for patching operations:
 - `!nullify`, `!insert`, `!delete`, `!replace` - basic operations
 - `!rename`, `!strdiff`, `!arraydiff` - transformation operations
 - `!addtag`, `!rmtag`, `!retag` - tag manipulation
-- `!jsonpatch`, `!pipe` - advanced operations
+- `!if`, `!let`, `!dive`, `!embed`, `!all` - control flow
+- `!json-patch`, `!pipe`, `!quote`, `!unquote` - advanced operations
+- `!field`, `!pass`, `!raw`, `!comment`, `!get-path`, `!list-path`, `!key` - as in match
+
+The two lists are the contexts the schema registry declares, and
+`TestOpContextsAgreeWithRegistry` holds them to the operations mergeop registers.
 
 ### Eval Context (`tony-format/context/eval`)
 

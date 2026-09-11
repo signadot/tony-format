@@ -568,30 +568,6 @@ func TestGenerateCode_Integration(t *testing.T) {
 	}
 }
 
-func TestHasToTonyMethod(t *testing.T) {
-	// Create a test struct with ToTony method
-	type TestStruct struct {
-		Name string
-	}
-
-	// This test would require actually implementing ToTony on TestStruct
-	// For now, we'll test that the function doesn't panic
-	typ := reflect.TypeOf(TestStruct{})
-	_ = HasToTonyMethod(typ) // Should return false since method doesn't exist
-}
-
-func TestHasFromTonyMethod(t *testing.T) {
-	// Create a test struct
-	type TestStruct struct {
-		Name string
-	}
-
-	// This test would require actually implementing FromTony on TestStruct
-	// For now, we'll test that the function doesn't panic
-	typ := reflect.TypeOf(TestStruct{})
-	_ = HasFromTonyMethod(typ) // Should return false since method doesn't exist
-}
-
 // TestReproFieldTagIssue verifies that FromTonyIR correctly handles field tags
 // when combined with schemagen.
 func TestReproFieldTagIssue(t *testing.T) {
