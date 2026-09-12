@@ -131,11 +131,6 @@ func (s *Patch) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["match"] = node
 	}
 
-	// Field: Author
-	if s.Author != "" {
-		irMap["author"] = ir.FromString(string(s.Author))
-	}
-
 	// Field: Path
 	irMap["path"] = ir.FromString(string(s.Path))
 
@@ -183,12 +178,6 @@ func (s *Patch) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			if err := s.Match.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
-		case "author":
-			// Field: Author
-			if fieldNodeUnwrapped.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "author", fieldNodeUnwrapped.Type)
-			}
-			s.Author = string(fieldNodeUnwrapped.String)
 		case "path":
 			// Field: Path
 			if fieldNodeUnwrapped.Type != ir.StringType {
@@ -821,6 +810,11 @@ func (s *NewTxRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["timeout"] = ir.FromString(string(*s.Timeout))
 	}
 
+	// Field: Author
+	if s.Author != "" {
+		irMap["author"] = ir.FromString(string(s.Author))
+	}
+
 	return ir.FromMap(irMap), nil
 }
 
@@ -872,6 +866,12 @@ func (s *NewTxRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 				*val = string(fieldNodeUnwrapped.String)
 				s.Timeout = val
 			}
+		case "author":
+			// Field: Author
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "author", fieldNodeUnwrapped.Type)
+			}
+			s.Author = string(fieldNodeUnwrapped.String)
 		default:
 			if gomap.IsStrict(opts...) {
 				return fmt.Errorf("unknown field %q for NewTxRequest", fieldName.String)

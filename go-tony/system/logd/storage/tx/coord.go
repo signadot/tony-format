@@ -199,13 +199,6 @@ func (co *txCoord) NewPatcher(p *api.Patch) (Patcher, error) {
 		if len(st.PatcherData) == cap(st.PatcherData) {
 			return fmt.Errorf("%d/%d patchers already added", len(st.PatcherData), len(st.PatcherData))
 		}
-		// One commit, one author: a participant naming another than the ones already
-		// in is refused, and none-versus-some is a difference (api.PatchRequest.Author).
-		if len(st.PatcherData) > 0 {
-			if have := st.Author(); have != p.Author {
-				return &AuthorMismatchError{TxID: st.TxID, Transactions: have, Participant: p.Author}
-			}
-		}
 		pData := &PatcherData{
 			API:        p,
 			ReceivedAt: time.Now(),

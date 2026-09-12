@@ -405,9 +405,10 @@ func (s *Storage) indexWatermarks() (commit, txSeq int64) {
 //	}
 //	result := patcher.Commit()
 //
-// The transaction waits for its participants for the store's timeout (SetTxTimeout).
+// The transaction waits for its participants for the store's timeout (SetTxTimeout),
+// and its commit records no author.
 func (s *Storage) NewTx(participantCount int, scope *string) (tx.Tx, error) {
-	return s.NewTxWithTimeout(participantCount, scope, 0)
+	return s.NewTxWithTimeout(participantCount, scope, 0, "")
 }
 
 // TxTimeoutError refuses a transaction asking to wait longer than the store allows.
@@ -420,9 +421,11 @@ func (e *TxTimeoutError) Error() string {
 }
 
 // NewTxWithTimeout is NewTx for a transaction which waits at most timeout for its
-// participants. Zero means the store's, which is also the most a transaction may ask
-// for: a *TxTimeoutError refuses more.
-func (s *Storage) NewTxWithTimeout(participantCount int, scope *string, timeout time.Duration) (tx.Tx, error) {
+// participants, and whose commit is written by author. Zero timeout means the store's,
+// which is also the most a transaction may ask for: a *TxTimeoutError refuses more.
+// Empty author is none. The author is the transaction's from here on: every participant
+// inherits it, which is what makes a transaction one principal's (tx.State.Author).
+func (s *Storage) NewTxWithTimeout(participantCount int, scope *string, timeout time.Duration, author string) (tx.Tx, error) {
 	if participantCount < 1 {
 		return nil, fmt.Errorf("participantCount must be at least 1, got %d", participantCount)
 	}
@@ -447,6 +450,7 @@ func (s *Storage) NewTxWithTimeout(participantCount int, scope *string, timeout 
 		CreatedAt:   time.Now(),
 		Timeout:     timeout,
 		Scope:       scope,
+		Author:      author,
 		PatcherData: make([]*tx.PatcherData, 0, participantCount),
 	}
 	ops := &commitOps{s: s}

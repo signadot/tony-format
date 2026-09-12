@@ -64,6 +64,7 @@ signature:
 context:
 - tony-format/context
 define:
+  author: .[string]
   participants: .[int]
   timeout: .[nullable(string)]
 signature:
@@ -89,7 +90,6 @@ context:
 - tony-format/context
 - tony-base: github.com/signadot/tony-format/go-tony/schema
 define:
-  author: .[string]
   data: .[tony-base:ir]
   match: .[nullable(path-data)]
   path: .[string]

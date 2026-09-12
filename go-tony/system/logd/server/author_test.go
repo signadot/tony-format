@@ -10,17 +10,16 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 )
 
-// A patch is recorded as written by the author it names, else the one its session's
-// hello named, else no one; and every delta event for the commit says who, live and on a
-// replay (cn1n32yph12ks5wrmhn0). A server multiplexing principals onto one session names
-// each on the patch; a client with one names it once.
+// A stand-alone patch is recorded as written by the author it names, else the one its
+// session's hello named, else no one; and every delta event for the commit says who,
+// live and on a replay (cn1n32yph12ks5wrmhn0). A server multiplexing principals onto
+// one session names each on the patch; a client with one names it once.
 func TestPatchIsRecordedUnderItsAuthor(t *testing.T) {
 	store, err := storage.Open(t.TempDir(), nil)
 	if err != nil {
 		t.Fatalf("open: %s", err)
 	}
 	defer store.Close()
-
 	hub := NewWatchHub()
 	store.SetCommitNotifier(hub.Broadcast)
 
@@ -79,9 +78,12 @@ func TestPatchIsRecordedUnderItsAuthor(t *testing.T) {
 	}
 }
 
-// A participant naming another author than the transaction's is refused at the join
-// with tx_author_mismatch, and the transaction goes on without it.
-func TestAParticipantWithAnotherAuthorIsRefused(t *testing.T) {
+// A transaction's author is fixed by newtx -- the author it names, else the session's
+// -- and its participants inherit it: a participant on a session whose hello names
+// another author is still the transaction's. A participant naming an author of its own
+// is refused, invalid_tx, rather than having the one field that exists to be kept
+// quietly dropped; and the transaction stands.
+func TestATransactionHasTheAuthorNewtxGaveIt(t *testing.T) {
 	store, err := storage.Open(t.TempDir(), nil)
 	if err != nil {
 		t.Fatalf("open: %s", err)
@@ -89,48 +91,64 @@ func TestAParticipantWithAnotherAuthorIsRefused(t *testing.T) {
 	defer store.Close()
 	store.SetTxTimeout(2 * time.Second)
 
-	conn := newMockConn()
-	conn.WriteRequest(`{id: "h", hello: {clientId: verse, protocol: 3}}`)
-	conn.WriteRequest(`{id: "t", newtx: {participants: 2}}`)
-	session := NewSession("test-server", conn, &SessionConfig{Storage: store, Hub: NewWatchHub()})
-	done := make(chan error)
-	go func() { done <- session.Run() }()
-	// A joining patch runs off the loop, so the participants are spaced out: alice
-	// joins first, bob is refused, and alice's second participant fills the transaction.
-	for _, req := range []string{
-		`{id: "p1", patch: {txId: 1, path: "a", data: 1, author: alice}}`,
-		`{id: "p2", patch: {txId: 1, path: "b", data: 2, author: bob}}`,
-		`{id: "p3", patch: {txId: 1, path: "b", data: 2, author: alice}}`,
-	} {
+	// Two sessions: one creates the transaction as alice; the other, whose hello says
+	// bob, joins it.
+	creator := newMockConn()
+	creator.WriteRequest(`{id: "h", hello: {clientId: c, protocol: 3, author: alice}}`)
+	creator.WriteRequest(`{id: "t", newtx: {participants: 2}}`)
+	creator.WriteRequest(`{id: "p1", patch: {txId: 1, path: "a", data: 1}}`)
+	joiner := newMockConn()
+	joiner.WriteRequest(`{id: "h", hello: {clientId: j, protocol: 3, author: bob}}`)
+	joiner.WriteRequest(`{id: "p2", patch: {txId: 1, path: "b", data: 2, author: bob}}`)
+	joiner.WriteRequest(`{id: "p3", patch: {txId: 1, path: "b", data: 2}}`)
+
+	hub := NewWatchHub()
+	done := make(chan error, 2)
+	// The creator first, so the transaction exists before the joiner's participants
+	// name it.
+	for _, conn := range []*mockConn{creator, joiner} {
+		s := NewSession("test-server", conn, &SessionConfig{Storage: store, Hub: hub})
+		go func() { done <- s.Run() }()
 		time.Sleep(200 * time.Millisecond)
-		conn.WriteRequest(req)
 	}
 	time.Sleep(300 * time.Millisecond)
-	conn.Close()
+	creator.Close()
+	joiner.Close()
+	<-done
 	<-done
 
 	byID := map[string]*api.SessionResponse{}
-	for _, line := range bytes.Split(bytes.TrimSpace(conn.GetResponses()), []byte("\n")) {
-		if len(bytes.TrimSpace(line)) == 0 {
-			continue
-		}
-		var resp api.SessionResponse
-		if err := resp.FromTony(line); err != nil {
-			t.Fatalf("parse %q: %s", line, err)
-		}
-		if resp.ID != nil {
-			byID[*resp.ID] = &resp
+	for _, conn := range []*mockConn{creator, joiner} {
+		for _, line := range bytes.Split(bytes.TrimSpace(conn.GetResponses()), []byte("\n")) {
+			if len(bytes.TrimSpace(line)) == 0 {
+				continue
+			}
+			var resp api.SessionResponse
+			if err := resp.FromTony(line); err != nil {
+				t.Fatalf("parse %q: %s", line, err)
+			}
+			if resp.ID != nil {
+				byID[*resp.ID] = &resp
+			}
 		}
 	}
-	if resp := byID["p2"]; resp == nil || resp.Error == nil || resp.Error.Code != api.ErrCodeTxAuthorMismatch {
-		t.Errorf("bob's participant in alice's transaction was answered %+v, want %s", resp, api.ErrCodeTxAuthorMismatch)
-	} else if !strings.Contains(resp.Error.Message, `"alice"`) || !strings.Contains(resp.Error.Message, `"bob"`) {
-		t.Errorf("the refusal does not name both authors: %s", resp.Error.Message)
+	if resp := byID["p2"]; resp == nil || resp.Error == nil || resp.Error.Code != api.ErrCodeInvalidTx {
+		t.Errorf("a participant naming an author was answered %+v, want %s", resp, api.ErrCodeInvalidTx)
+	} else if !strings.Contains(resp.Error.Message, `"bob"`) || !strings.Contains(resp.Error.Message, "newtx") {
+		t.Errorf("the refusal does not say what is wrong: %s", resp.Error.Message)
 	}
+	var commit int64
 	for _, id := range []string{"p1", "p3"} {
 		resp := byID[id]
 		if resp == nil || resp.Error != nil || resp.Result == nil || resp.Result.Patch == nil {
-			t.Errorf("%s: alice's participant was answered %+v, want a commit", id, resp)
+			t.Fatalf("%s: the participant was answered %+v, want a commit", id, resp)
+		}
+		commit = resp.Result.Patch.Commit
+	}
+
+	for _, ev := range narrowRequestEvents(t, store, `{id: "w", watch: {path: "", fromCommit: 0, noInit: true}}`) {
+		if ev.Patch != nil && ev.Commit == commit && ev.Author != "alice" {
+			t.Errorf("the transaction is recorded as written by %q, want alice (newtx's session), not bob (the joiner's)", ev.Author)
 		}
 	}
 }

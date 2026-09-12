@@ -21,7 +21,7 @@ import (
 // write blocks until the whole transaction commits; a fresh connection keeps
 // concurrent coordinations from serializing on one link. Pooling these is a
 // possible later optimization.
-func writeBaseParticipant(logdAddr string, txID int64, path string, base, match *ir.Node, matchPath string, scope *string, author string) (*logdapi.SessionResponse, error) {
+func writeBaseParticipant(logdAddr string, txID int64, path string, base, match *ir.Node, matchPath string, scope *string) (*logdapi.SessionResponse, error) {
 	conn, err := net.DialTimeout("tcp", logdAddr, 5*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("connect to logd at %s: %w", logdAddr, err)
@@ -44,13 +44,13 @@ func writeBaseParticipant(logdAddr string, txID int64, path string, base, match 
 		return nil, fmt.Errorf("hello response: %w", err)
 	}
 
-	// Join the transaction by writing the base remainder at its path, as the client's
-	// author: this connection's hello is docd's, not the client's.
+	// Join the transaction by writing the base remainder at its path. The write is
+	// recorded under the transaction's author, which allocTx set to the client's; this
+	// connection's hello is docd's and plays no part.
 	req := &logdapi.SessionRequest{
 		Patch: &logdapi.PatchRequest{
 			TxID:     &txID,
 			Match:    matchPathData(matchPath, match),
-			Author:   author,
 			PathData: logdapi.PathData{Path: path, Data: base},
 		},
 	}
@@ -60,17 +60,17 @@ func writeBaseParticipant(logdAddr string, txID int64, path string, base, match 
 	return readSessionResponse(dec)
 }
 
-// allocTx creates a multi-participant transaction in scope (nil is baseline), on a
-// short-lived logd connection, and returns its id. The transaction lives in logd
-// storage keyed by id (independent of the creating connection), so participants --
-// docd's base write and each controller -- then join it on their own connections in
-// that scope.
+// allocTx creates a multi-participant transaction in scope (nil is baseline), written
+// by author (the client's, resolved; empty is none), on a short-lived logd connection,
+// and returns its id. The transaction lives in logd storage keyed by id (independent of
+// the creating connection), so participants -- docd's base write and each controller --
+// then join it on their own connections in that scope, and inherit its author.
 //
 // It is created for the write that asks, never in advance: a transaction's timeout
 // runs from its creation, so an id fetched early and held was a transaction dying
 // in the hand -- docd kept a pool of them, and every id it held longer than logd's
 // timeout was answered tx_not_found when it was finally used.
-func allocTx(logdAddr string, scope *string, participants int) (int64, error) {
+func allocTx(logdAddr string, scope *string, participants int, author string) (int64, error) {
 	conn, err := net.DialTimeout("tcp", logdAddr, 5*time.Second)
 	if err != nil {
 		return 0, fmt.Errorf("connect to logd at %s: %w", logdAddr, err)
@@ -91,7 +91,7 @@ func allocTx(logdAddr string, scope *string, participants int) (int64, error) {
 		return 0, fmt.Errorf("hello response: %w", err)
 	}
 	if err := writeSessionRequest(conn, &logdapi.SessionRequest{
-		NewTx: &logdapi.NewTxRequest{Participants: participants},
+		NewTx: &logdapi.NewTxRequest{Participants: participants, Author: author},
 	}); err != nil {
 		return 0, err
 	}

@@ -55,11 +55,11 @@ type Hello struct {
 //	   watch's deltas are rooted at the watched path, as its state event always was, so
 //	   a client applies what arrives to what it holds; and a match body may be encoded
 //	   from the store's event stream rather than from a node the server built.
-//	3  a commit records its writer (cn1n32yph12ks5wrmhn0): a patch, or the hello it
-//	   rides on, names an author, and every delta event carries the commit's. The
-//	   version moves with it because an author is the one field whose whole purpose is
-//	   to be kept: a server which does not know it would drop it and answer with a
-//	   commit, an audit record that looks kept and is not.
+//	3  a commit records its writer (cn1n32yph12ks5wrmhn0): a patch or a newtx names an
+//	   author, or the hello it rides on does, and every delta event carries the
+//	   commit's. The version moves with it because an author is the one field whose
+//	   whole purpose is to be kept: a server which does not know it would drop it and
+//	   answer with a commit, an audit record that looks kept and is not.
 const ProtocolVersion = 3
 
 // HelloResponse is the server's response to a Hello message.
@@ -101,21 +101,22 @@ type MatchRequest struct {
 // If TxID is set, the patch joins an existing multi-participant transaction.
 // If TxID is nil, a new single-participant transaction is created.
 //
-// Author is who the write is recorded as written by: the caller's principal, opaque to
-// logd the way Hello.ClientID is, and stored beside the commit's timestamp. Without one
-// the write is the session's (Hello.Author), and without that it has none. A server in
-// front of logd multiplexes many principals onto one session, so it says the author
-// here, per write. A commit has ONE author: every participant in a transaction resolves
-// to the same one, or the participant which differs is refused at the join
-// (ErrCodeTxAuthorMismatch). Every delta event for the commit carries it
-// (WatchEvent.Author).
+// Author is who a STAND-ALONE patch is recorded as written by: the caller's principal,
+// opaque to logd the way Hello.ClientID is, and stored beside the commit's timestamp.
+// Without one the write is the session's (Hello.Author), and without that it has none.
+// A server in front of logd multiplexes many principals onto one session, so it says
+// the author here, per write. A patch joining a transaction names none: the author is
+// the transaction's (NewTxRequest.Author), which every participant inherits, so there
+// is no such thing as a transaction of mixed principals. A joining patch naming one is
+// refused, ErrCodeInvalidTx, rather than having a field it cannot mean quietly
+// dropped. Every delta event for the commit carries the author (WatchEvent.Author).
 //
 //tony:schemagen=session-patch-request,notag
 type PatchRequest struct {
 	TxID     *int64    `tony:"field=txId"`            // Optional: transaction ID for multi-participant tx
 	Timeout  *string   `tony:"field=timeout"`         // Optional: timeout for this participant (e.g., "5s", "1m"); without one it waits the transaction's
 	Match    *PathData `tony:"field=match"`           // Optional: compare-and-swap precondition — the patch commits only if the current state at Match.Path matches Match.Data
-	Author   string    `tony:"field=author,omitzero"` // Optional: the writer; the session's when empty
+	Author   string    `tony:"field=author,omitzero"` // Optional, stand-alone only: the writer; the session's when empty
 	PathData `tony:"field=patch"`
 }
 
@@ -129,10 +130,15 @@ type PatchRequest struct {
 // participant waiting on it is answered. A participant which names no timeout of its
 // own waits this long.
 //
+// Author is who the transaction's commit is recorded as written by, and every
+// participant inherits it (PatchRequest.Author). Without one it is the session's
+// (Hello.Author), and without that the commit has none.
+//
 //tony:schemagen=session-newtx-request,notag
 type NewTxRequest struct {
-	Participants int     `tony:"field=participants"` // Number of expected participants (must be >= 1)
-	Timeout      *string `tony:"field=timeout"`      // Optional: how long to wait for the participants (e.g., "30s", "5m")
+	Participants int     `tony:"field=participants"`    // Number of expected participants (must be >= 1)
+	Timeout      *string `tony:"field=timeout"`         // Optional: how long to wait for the participants (e.g., "30s", "5m")
+	Author       string  `tony:"field=author,omitzero"` // Optional: the writer of the transaction's commit; the session's when empty
 }
 
 // WatchRequest is a request to watch changes at a path.
@@ -494,25 +500,19 @@ const (
 	ErrCodeNotWatching     = "not_watching"
 	ErrCodeAlreadyWatching = "already_watching"
 	ErrCodeCommitNotFound  = "commit_not_found"
-	ErrCodeInvalidTx       = "invalid_tx"        // Invalid transaction parameters
-	ErrCodeTxNotFound      = "tx_not_found"      // Transaction ID not found
-	ErrCodeTxFull          = "tx_full"           // Transaction already has all participants
-	ErrCodeTxScopeMismatch = "tx_scope_mismatch" // Participant scope doesn't match transaction scope
-	// ErrCodeTxAuthorMismatch is a participant whose author is not the one the
-	// transaction's other participants named, none-versus-some included. A commit has one
-	// author (PatchRequest.Author); a transaction whose participants disagree would have
-	// to be recorded under an empty one, which is an audit record that says less than
-	// the log knows. The participant is refused at the join, and the transaction is not.
-	ErrCodeTxAuthorMismatch = "tx_author_mismatch"
-	ErrCodeMatchFailed      = "match_failed"           // Transaction match condition failed
-	ErrCodeReplayFailed     = "replay_failed"          // Watch replay failed, data may be incomplete
-	ErrCodeReplayCompacted  = "replay_compacted"       // fromCommit is older than retained delta history; re-watch without it to re-initialize
-	ErrCodeSlowConsumer     = "slow_consumer"          // Watch dropped: the client did not read fast enough to keep its buffer from filling
-	ErrCodeTimeout          = "timeout"                // Operation timed out
-	ErrCodeScopeExists      = "scope_exists"           // Scope already exists
-	ErrCodeScopeNotFound    = "scope_not_found"        // Scope not found
-	ErrCodeUnsupported      = "unsupported"            // Operation not supported by the responder (e.g. a controller declining an op it does not implement)
-	ErrCodeUnavailable      = "controller_unavailable" // The controller owning a mounted subtree has crashed/disconnected and not yet remounted
+	ErrCodeInvalidTx       = "invalid_tx"             // Invalid transaction parameters
+	ErrCodeTxNotFound      = "tx_not_found"           // Transaction ID not found
+	ErrCodeTxFull          = "tx_full"                // Transaction already has all participants
+	ErrCodeTxScopeMismatch = "tx_scope_mismatch"      // Participant scope doesn't match transaction scope
+	ErrCodeMatchFailed     = "match_failed"           // Transaction match condition failed
+	ErrCodeReplayFailed    = "replay_failed"          // Watch replay failed, data may be incomplete
+	ErrCodeReplayCompacted = "replay_compacted"       // fromCommit is older than retained delta history; re-watch without it to re-initialize
+	ErrCodeSlowConsumer    = "slow_consumer"          // Watch dropped: the client did not read fast enough to keep its buffer from filling
+	ErrCodeTimeout         = "timeout"                // Operation timed out
+	ErrCodeScopeExists     = "scope_exists"           // Scope already exists
+	ErrCodeScopeNotFound   = "scope_not_found"        // Scope not found
+	ErrCodeUnsupported     = "unsupported"            // Operation not supported by the responder (e.g. a controller declining an op it does not implement)
+	ErrCodeUnavailable     = "controller_unavailable" // The controller owning a mounted subtree has crashed/disconnected and not yet remounted
 
 	// Mount-membership watch endings. A watch spanning a path whose mount set is
 	// about to change is ended so it never observes the change mid-stream; it says

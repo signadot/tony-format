@@ -34,7 +34,7 @@ type SchemaEntry struct {
 type Entry struct {
 	Commit    int64  // Commit number (set when appended to log)
 	Timestamp string // RFC3339 timestamp
-	// Author is who wrote a transaction entry: the author its participants named
+	// Author is who wrote a transaction entry: the transaction's author
 	// (tx.State.Author), kept beside the timestamp so the log answers who as well as
 	// when (cn1n32yph12ks5wrmhn0). Empty is none: a write that named no author, a
 	// snapshot, a schema commit, or an entry from before this was recorded.
@@ -96,7 +96,7 @@ func (e *Entry) IsSchemaCommit() bool {
 func NewEntry(state *tx.State, mergedPatch *ir.Node, commit int64, timestamp string, lastCommit int64, scopeID *string) *Entry {
 	var author string
 	if state != nil {
-		author = state.Author()
+		author = state.Author
 	}
 	return &Entry{
 		Commit:     commit,

@@ -261,11 +261,11 @@ const maxConcurrentReads = 8
 // beside it.
 func (s *Session) scopeID() *string { return s.scope.Load() }
 
-// authorFor is who a patch is recorded as written by: the author it names, else the
-// session's (api.PatchRequest.Author). Empty is none.
-func (s *Session) authorFor(req *api.PatchRequest) string {
-	if req.Author != "" {
-		return req.Author
+// authorOr is who a stand-alone patch or a new transaction is recorded as written by:
+// the author the request names, else the session's (api.Hello.Author). Empty is none.
+func (s *Session) authorOr(named string) string {
+	if named != "" {
+		return named
 	}
 	if a := s.author.Load(); a != nil {
 		return *a

@@ -1,18 +1,18 @@
 package storage
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
-// A commit records who wrote it (cn1n32yph12ks5wrmhn0): the author its participants
-// named goes on the entry beside the timestamp, on the notification, and on a replay of
-// the entry, so a watcher and a `since` reader see it without a second lookup.
+// A commit records who wrote it (cn1n32yph12ks5wrmhn0): the transaction's author goes
+// on the entry beside the timestamp, on the notification, and on a replay of the entry,
+// so a watcher and a `since` reader see it without a second lookup. The author is the
+// transaction's, fixed when it is created; a participant has none of its own, which is
+// what makes a transaction one principal's by construction.
 func TestCommitRecordsItsAuthor(t *testing.T) {
 	s, err := Open(t.TempDir(), nil)
 	if err != nil {
@@ -23,34 +23,48 @@ func TestCommitRecordsItsAuthor(t *testing.T) {
 	var notified []*CommitNotification
 	s.SetCommitNotifier(func(n *CommitNotification) { notified = append(notified, n) })
 
-	write := func(path, author string, data string) int64 {
+	commit := func(author string, patches ...api.PathData) int64 {
 		t.Helper()
-		txn, err := s.NewTx(1, nil)
+		txn, err := s.NewTxWithTimeout(len(patches), nil, 0, author)
 		if err != nil {
-			t.Fatalf("NewTx: %v", err)
+			t.Fatalf("NewTxWithTimeout: %v", err)
 		}
-		p, err := txn.NewPatcher(&api.Patch{Author: author, PathData: api.PathData{Path: path, Data: mustParseTony(t, data)}})
-		if err != nil {
-			t.Fatalf("NewPatcher: %v", err)
+		results := make(chan int64, len(patches))
+		for _, pd := range patches {
+			p, err := txn.NewPatcher(&api.Patch{PathData: pd})
+			if err != nil {
+				t.Fatalf("NewPatcher: %v", err)
+			}
+			go func() {
+				res := p.Commit()
+				if res.Error != nil {
+					t.Errorf("Commit: %v", res.Error)
+				}
+				results <- res.Commit
+			}()
 		}
-		res := p.Commit()
-		if res.Error != nil {
-			t.Fatalf("Commit: %v", res.Error)
+		var c int64
+		for range patches {
+			c = <-results
 		}
-		return res.Commit
+		return c
 	}
-	byAlice := write("a", "alice", `{n: 1}`)
-	byNone := write("a", "", `{n: 2}`)
+	first := commit("alice", api.PathData{Path: "a", Data: mustParseTony(t, `{n: 1}`)})
+	commit("bob", api.PathData{Path: "a", Data: mustParseTony(t, `{n: 2}`)}, api.PathData{Path: "b", Data: mustParseTony(t, `{n: 2}`)})
+	last := commit("", api.PathData{Path: "a", Data: mustParseTony(t, `{n: 3}`)})
 	s.tick.waitDrained()
 
-	if len(notified) != 2 {
-		t.Fatalf("notified %d commits, want 2", len(notified))
+	want := []string{"alice", "bob", ""}
+	if len(notified) != len(want) {
+		t.Fatalf("notified %d commits, want %d", len(notified), len(want))
 	}
-	if notified[0].Author != "alice" || notified[1].Author != "" {
-		t.Errorf("notifications say authors %q and %q, want alice and none", notified[0].Author, notified[1].Author)
+	for i, n := range notified {
+		if n.Author != want[i] {
+			t.Errorf("notification %d says author %q, want %q", i, n.Author, want[i])
+		}
 	}
 
-	cur, err := s.Deltas(byAlice, byNone, nil, "a")
+	cur, err := s.Deltas(first, last, nil, "")
 	if err != nil {
 		t.Fatalf("Deltas: %v", err)
 	}
@@ -63,60 +77,13 @@ func TestCommitRecordsItsAuthor(t *testing.T) {
 		}
 		replayed = append(replayed, n.Author)
 	}
-	if len(replayed) != 2 || replayed[0] != "alice" || replayed[1] != "" {
-		t.Errorf("replay says authors %q, want [alice \"\"]", replayed)
+	if len(replayed) != len(want) {
+		t.Fatalf("replayed %d commits, want %d", len(replayed), len(want))
 	}
-}
-
-// A commit has one author. A participant naming another than the transaction's, none
-// against some included, is refused at the join, and the transaction stands for the
-// participant that names the right one.
-func TestTransactionHasOneAuthor(t *testing.T) {
-	s, err := Open(t.TempDir(), nil)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer s.Close()
-
-	txn, err := s.NewTx(2, nil)
-	if err != nil {
-		t.Fatalf("NewTx: %v", err)
-	}
-	first, err := txn.NewPatcher(&api.Patch{Author: "alice", PathData: api.PathData{Path: "a", Data: mustParseTony(t, `1`)}})
-	if err != nil {
-		t.Fatalf("first participant: %v", err)
-	}
-	for _, other := range []string{"bob", ""} {
-		_, err := txn.NewPatcher(&api.Patch{Author: other, PathData: api.PathData{Path: "b", Data: mustParseTony(t, `2`)}})
-		var mismatch *tx.AuthorMismatchError
-		if !errors.As(err, &mismatch) {
-			t.Fatalf("a participant by %q joined alice's transaction: err = %v", other, err)
+	for i, a := range replayed {
+		if a != want[i] {
+			t.Errorf("replayed commit %d says author %q, want %q", i, a, want[i])
 		}
-		if mismatch.Transactions != "alice" || mismatch.Participant != other {
-			t.Errorf("mismatch = %+v, want alice vs %q", mismatch, other)
-		}
-	}
-	second, err := txn.NewPatcher(&api.Patch{Author: "alice", PathData: api.PathData{Path: "b", Data: mustParseTony(t, `2`)}})
-	if err != nil {
-		t.Fatalf("the transaction did not stand for a participant by alice: %v", err)
-	}
-	go first.Commit()
-	res := second.Commit()
-	if res.Error != nil {
-		t.Fatalf("Commit: %v", res.Error)
-	}
-
-	cur, err := s.Deltas(res.Commit, res.Commit, nil, "")
-	if err != nil {
-		t.Fatalf("Deltas: %v", err)
-	}
-	defer cur.Close()
-	n, err := cur.Next()
-	if err != nil {
-		t.Fatalf("Next: %v", err)
-	}
-	if n.Author != "alice" {
-		t.Errorf("the commit is recorded as written by %q, want alice", n.Author)
 	}
 }
 

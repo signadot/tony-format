@@ -38,7 +38,7 @@ directly inside it:
 | `hello` | `{hello: {clientId: <id>, protocol: 3, scope: <scope>, author: <principal>}}` |
 | `match` | `{match: {path: <kpath>, data: <pattern>, commit: <n>}}` |
 | `patch` | `{patch: {path: <kpath>, data: <value>, match: {path, data}, txId: <n>, timeout: "5s", author: <principal>}}` |
-| `newtx` | `{newtx: {participants: <n>, timeout: "5m"}}` |
+| `newtx` | `{newtx: {participants: <n>, timeout: "5m", author: <principal>}}` |
 | `watch` | `{watch: {path: <kpath>, fromCommit: <n>, noInit: <bool>, waitIfAbsent: <bool>}}` |
 | `unwatch` | `{unwatch: {path: <kpath>, watchId: <id>}}` |
 | `schema` | `{schema: {get: {at: <n>}}}` reads the schema in force (at a commit); `{schema: {set: {schema: <doc>, force: <bool>}}}` sets it, as one commit |
@@ -157,12 +157,18 @@ principals onto one session says each on the patch, per write. Every delta event
 delivers for the commit carries it (see [Watching](#watching)), live and replayed alike,
 so a reader learns who wrote what without a second lookup.
 
-**A commit has one author.** Every participant in a transaction resolves to the same one,
-or the participant which differs is refused at the join with `tx_author_mismatch` -- none
-against some is a difference. So a client's own transaction carries the same `author` on
-every participant (or relies on one `hello` across them), and through docd each
-controller relays the author to its logd write. The transaction is not refused, the odd
-participant is.
+**A transaction has one author, and it is `newtx`'s.** The author on `newtx`, else the
+one on the session's `hello`, is the transaction's, and every participant inherits it --
+whatever session the participant arrives on. A participant does not name an author: a
+joining patch that carries one is refused with `invalid_tx` rather than having the one
+field that exists to be kept quietly dropped. So there is no such thing as a transaction
+of mixed principals, by construction rather than by a check at each join.
+
+```tony
+{id: t, newtx: {participants: 2, author: alice}}
+{id: p1, patch: {txId: 1, path: verse.a, data: {n: 1}}}   # written by alice
+{id: p2, patch: {txId: 1, path: verse.b, data: {n: 2}}}   # written by alice
+```
 
 The author is what the caller says it is: logd stores it and does not authenticate it.
 Whoever stands in front of logd and stamps principals is trusted for the stamp.
@@ -388,7 +394,7 @@ writes an object at `a.b`. What separates them is what is there now.
 | `replay_compacted` | `fromCommit` is below retained delta history |
 | `slow_consumer` | a watch was dropped because the client did not keep up |
 | `tx_full`, `tx_not_found`, `tx_scope_mismatch` | transaction membership |
-| `tx_author_mismatch` | a participant named an author the transaction's others did not; the participant is refused, the transaction stands |
+| `invalid_tx` | a transaction asked for more than the server allows, or a participant named an `author` (a participant inherits the transaction's) |
 | `controller_unavailable` | (docd) the controller owning that subtree is gone |
 | `unsupported` | the responder does not implement that operation |
 
@@ -398,7 +404,8 @@ writes an object at `a.b`. What separates them is what is there now.
 first kind survives being passed on. When a controller answers for its subtree, the codes
 above about the document — `not_found`, `path_conflict`, `invalid_path`, `invalid_diff`,
 `match_failed`, `commit_not_found` — reach the client as the controller reported them,
-because they are as true for the client as they were for the controller.
+because they are as true for the client as they were for the controller. So does
+`invalid_tx`, which is about the request the client wrote and the controller relayed.
 
 The ones about a connection do not travel: the controller's session closing is not the
 client's session closing, and a downstream calling the controller's message invalid is the
@@ -454,9 +461,10 @@ Two differences from a client connection are worth knowing:
   author are fixed by its `hello`, but docd multiplexes many client sessions onto one
   controller connection, so per-connection state cannot tell them apart. docd sets
   `scope` on each routed request instead, and resolves the client's author onto each
-  routed `patch`; a scope-aware controller honours the scope, and a controller that
-  writes to logd carries the author to that write -- in a transaction the other
-  participants carry it, and one without it is refused (`tx_author_mismatch`).
+  routed stand-alone `patch`; a scope-aware controller honours the scope, and a
+  controller that writes to logd carries the author to that write. A routed participant
+  (`txId` set) carries none: it inherits the transaction's, which the client's `newtx`
+  fixed on logd.
 
 ```tony
 {id: "7", scope: "sandbox-3", match: {path: "verse.sources.git.repos"}}

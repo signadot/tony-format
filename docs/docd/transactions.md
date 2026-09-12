@@ -62,7 +62,10 @@ all its data — is a baseline-only operation; a scoped session cannot delete sc
 
 A write's **author** — the `author` on the patch, else the one on the client's `Hello` —
 is resolved by docd wherever the write leaves the client's own logd link, for the same
-reason scope is: the participants of a split write and a controller's write commit on
-sessions whose `hello` is not the client's. Every participant docd builds carries it, and a
-controller relays it to its logd write, so the one commit is recorded under the client's
-author whichever mounts it crossed. See [Who wrote it](../logd/session.md#who-wrote-it).
+reason scope is: a controller's write, and the transaction a split write becomes, commit
+on sessions whose `hello` is not the client's. A stand-alone patch routed to a controller
+carries it, and the controller relays it to its logd write. A split write's transaction
+is created with it, and its participants inherit it as any transaction's do, so the one
+commit is recorded under the client's author whichever mounts it crossed. A client's own
+transaction is written by the author its `newtx` named. See
+[Who wrote it](../logd/session.md#who-wrote-it).
