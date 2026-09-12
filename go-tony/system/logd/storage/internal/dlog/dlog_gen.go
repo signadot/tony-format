@@ -129,6 +129,9 @@ func (s *Entry) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Field: Timestamp
 	irMap["Timestamp"] = ir.FromString(string(s.Timestamp))
 
+	// Field: Author
+	irMap["Author"] = ir.FromString(string(s.Author))
+
 	// Field: Patch (optional)
 	if s.Patch != nil {
 		irMap["Patch"] = s.Patch
@@ -220,6 +223,12 @@ func (s *Entry) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				return fmt.Errorf("field %q: expected string, got %v", "Timestamp", fieldNodeUnwrapped.Type)
 			}
 			s.Timestamp = string(fieldNodeUnwrapped.String)
+		case "Author":
+			// Field: Author
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "Author", fieldNodeUnwrapped.Type)
+			}
+			s.Author = string(fieldNodeUnwrapped.String)
 		case "Patch":
 			if gomap.GetUnmapComments(opts...) {
 				s.Patch = fieldNode

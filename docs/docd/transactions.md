@@ -57,3 +57,12 @@ operation so that reads, writes, and watches all see the same isolated view:
 Scoped writes go to the scope without touching baseline, and scoped reads see the
 scope's data overlaid on baseline (copy-on-write). `DeleteScope` — dropping a scope and
 all its data — is a baseline-only operation; a scoped session cannot delete scopes.
+
+## Authors
+
+A write's **author** — the `author` on the patch, else the one on the client's `Hello` —
+is resolved by docd wherever the write leaves the client's own logd link, for the same
+reason scope is: the participants of a split write and a controller's write commit on
+sessions whose `hello` is not the client's. Every participant docd builds carries it, and a
+controller relays it to its logd write, so the one commit is recorded under the client's
+author whichever mounts it crossed. See [Who wrote it](../logd/session.md#who-wrote-it).

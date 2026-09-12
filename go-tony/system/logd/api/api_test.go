@@ -153,6 +153,7 @@ func TestSessionResponse_RoundTrip(t *testing.T) {
 				43,
 				"users.charlie",
 				mustParse(`{name: "Charlie"}`),
+				"charlie",
 			),
 		},
 		{

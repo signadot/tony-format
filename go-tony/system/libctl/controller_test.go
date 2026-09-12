@@ -170,13 +170,14 @@ func (c *logdController) Match(ctx context.Context, path string, pattern *ir.Nod
 }
 
 func (c *logdController) Patch(ctx context.Context, path string, data *ir.Node, opts PatchParams) (*api.PatchResult, error) {
-	// Faithfully forward the routed participant (tx id, precondition, timeout) in
+	// Faithfully forward the routed participant (tx id, precondition, timeout, author) in
 	// the client's scope, and hand logd's result back unchanged so the client sees
 	// the commit it landed at.
 	return c.session(opts.Scope).PatchWith(ctx, path, data, PatchOpts{
 		TxID:    opts.TxID,
 		Match:   opts.Match,
 		Timeout: opts.Timeout,
+		Author:  opts.Author,
 	})
 }
 

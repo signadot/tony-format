@@ -89,12 +89,21 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 	}
 
 	// Create patcher and commit. Match, if set, is a compare-and-swap
-	// precondition evaluated atomically at commit time.
+	// precondition evaluated atomically at commit time. The author is resolved here,
+	// where the session is known: the request's, else the session's.
 	patcher, err := txn.NewPatcher(&api.Patch{
 		Match:    match,
+		Author:   s.authorFor(req),
 		PathData: api.PathData{Path: path, Data: req.Data},
 	})
 	if err != nil {
+		// A commit has one author, and this participant named another than the
+		// transaction's. The transaction stands; the participant is what is refused.
+		var author *tx.AuthorMismatchError
+		if errors.As(err, &author) {
+			s.sendError(id, api.ErrCodeTxAuthorMismatch, err.Error())
+			return
+		}
 		// A path which names no array element is the client's mistake, and it is the
 		// same mistake next time: reporting it as a storage_error (or, in a
 		// transaction, as tx_full) tells the client to retry something that cannot

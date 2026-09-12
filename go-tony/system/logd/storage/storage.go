@@ -25,6 +25,7 @@ type CommitNotification struct {
 	Commit    int64    // The commit number
 	TxSeq     int64    // Transaction sequence number
 	Timestamp string   // ISO8601 timestamp
+	Author    string   // Who wrote the commit, as the entry records it (dlog.Entry.Author); empty is none
 	KPaths    []string // Top-level kpaths affected by this commit
 	Patch     *ir.Node // The delta the log stored for the commit, keyed arrays raised (raise.go); the notification's own copy
 	ScopeID   *string  // Scope ID (nil = baseline)

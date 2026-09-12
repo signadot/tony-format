@@ -21,7 +21,7 @@ import (
 // write blocks until the whole transaction commits; a fresh connection keeps
 // concurrent coordinations from serializing on one link. Pooling these is a
 // possible later optimization.
-func writeBaseParticipant(logdAddr string, txID int64, path string, base, match *ir.Node, matchPath string, scope *string) (*logdapi.SessionResponse, error) {
+func writeBaseParticipant(logdAddr string, txID int64, path string, base, match *ir.Node, matchPath string, scope *string, author string) (*logdapi.SessionResponse, error) {
 	conn, err := net.DialTimeout("tcp", logdAddr, 5*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("connect to logd at %s: %w", logdAddr, err)
@@ -44,11 +44,13 @@ func writeBaseParticipant(logdAddr string, txID int64, path string, base, match 
 		return nil, fmt.Errorf("hello response: %w", err)
 	}
 
-	// Join the transaction by writing the base remainder at its path.
+	// Join the transaction by writing the base remainder at its path, as the client's
+	// author: this connection's hello is docd's, not the client's.
 	req := &logdapi.SessionRequest{
 		Patch: &logdapi.PatchRequest{
 			TxID:     &txID,
 			Match:    matchPathData(matchPath, match),
+			Author:   author,
 			PathData: logdapi.PathData{Path: path, Data: base},
 		},
 	}

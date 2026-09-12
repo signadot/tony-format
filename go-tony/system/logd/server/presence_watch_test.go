@@ -79,7 +79,7 @@ func TestScopedDeltaStatesAbsence(t *testing.T) {
 			// emitter runs beside the test and the test is the writer.
 			done := make(chan error, 1)
 			go func() {
-				_, err := session.emitScopedDeltaFrom(&id, "verse.x", 7, tc.prev, tc.next)
+				_, err := session.emitScopedDeltaFrom(&id, "verse.x", 7, tc.prev, tc.next, "")
 				done <- err
 			}()
 			var sent *api.SessionResponse

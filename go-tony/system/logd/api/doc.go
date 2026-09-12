@@ -14,8 +14,8 @@
 // watch event, or an error. logd serves the protocol, and docd serves it verbatim to its
 // own clients, so a client moves between the two by changing only the address.
 //
-//	{hello: {clientId: verse, protocol: 2}}
-//	{patch: {path: "verse.entities.e1", data: {status: ready}}}
+//	{hello: {clientId: verse, protocol: 3, author: verse}}
+//	{patch: {path: "verse.entities.e1", data: {status: ready}, author: alice}}
 //	{match: {path: "verse.entities.e1"}}
 //	{watch: {path: "verse.entities"}}
 //

@@ -117,7 +117,7 @@ func (s *Storage) SetSchema(schema *ir.Node, force bool) (int64, error) {
 		if s.indexPersister != nil {
 			s.indexPersister.MaybePersist(commit)
 		}
-		n := newCommitNotification(commit, 0, timestamp, rewrite, nil)
+		n := newCommitNotification(commit, 0, timestamp, "", rewrite, nil)
 		n.Patch = s.raiseDelta(nil, n.Patch, commit)
 		s.tick.publish(commit, n)
 	} else {

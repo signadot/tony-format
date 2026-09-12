@@ -47,6 +47,12 @@ type ClientSession struct {
 	// transaction in this scope.
 	clientScope *string
 
+	// clientAuthor is the default writer from the client's hello, if any. Only the
+	// request loop touches it. A patch docd routes to a controller or splits into a
+	// transaction leaves this session behind, so the author is resolved here and
+	// stamped on the patch (authorFor), the way scope rides a routed request.
+	clientAuthor string
+
 	logd    net.Conn
 	logdDec *stream.Decoder
 	logdWMu sync.Mutex // serializes writes to logd (request loop + watch coordination + force teardown)
@@ -192,7 +198,10 @@ func (s *ClientSession) routeClientRequests() error {
 		}
 
 		if req.Hello != nil {
-			s.clientScope = req.Hello.Scope // remember for split writes; still forwarded below
+			// Remembered for the writes docd makes on the client's behalf; the hello is
+			// still forwarded below, so the client's own logd link has them too.
+			s.clientScope = req.Hello.Scope
+			s.clientAuthor = req.Hello.Author
 		}
 		// Answer a liveness ping from docd itself: a Pong confirms this client
 		// session's request loop is alive, which is exactly what a wedged-session
@@ -273,6 +282,19 @@ func (s *ClientSession) routeClientRequests() error {
 			}
 		}
 	}
+}
+
+// authorFor is who the client's patch is written by: the author it names, else the
+// client's hello's (logdapi.PatchRequest.Author). It is resolved by docd for every
+// write that leaves this session -- a controller hop, a split write's participants --
+// because the server that commits it does not see the client's hello. A patch that
+// goes to logd on the client's own link is not rewritten: that link's hello is the
+// client's, and logd resolves it the same way.
+func (s *ClientSession) authorFor(p *logdapi.PatchRequest) string {
+	if p.Author != "" {
+		return p.Author
+	}
+	return s.clientAuthor
 }
 
 // routeDest classifies where a request should go.
@@ -395,6 +417,9 @@ func (s *ClientSession) coordinatePatch(req *logdapi.SessionRequest, parts []mou
 	clientID := req.ID
 	count := len(parts) + len(base)
 	scope := s.clientScope
+	// Every participant is the client's one write, so every one carries its author:
+	// a transaction's participants name one author or the odd one is refused.
+	author := s.authorFor(req.Patch)
 
 	txID, err := allocTx(s.logdAddr, scope, count)
 	if err != nil {
@@ -423,7 +448,7 @@ func (s *ClientSession) coordinatePatch(req *logdapi.SessionRequest, parts []mou
 			matchNode, matchPath = req.Patch.Match.Data, req.Patch.Match.Path
 		}
 		go func(bw baseWrite, matchNode *ir.Node, matchPath string) {
-			resp, err := writeBaseParticipant(s.logdAddr, txID, bw.path, bw.data, matchNode, matchPath, scope)
+			resp, err := writeBaseParticipant(s.logdAddr, txID, bw.path, bw.data, matchNode, matchPath, scope, author)
 			if err != nil {
 				results <- partResponse{bw.path, logdapi.NewErrorResponse(nil, logdapi.ErrCodeSessionClosed, err.Error())}
 				return
@@ -442,6 +467,7 @@ func (s *ClientSession) coordinatePatch(req *logdapi.SessionRequest, parts []mou
 			Patch: &logdapi.PatchRequest{
 				TxID:     &txID,
 				Match:    match,
+				Author:   author,
 				PathData: logdapi.PathData{Path: p.mount.Path, Data: p.data},
 			},
 		}

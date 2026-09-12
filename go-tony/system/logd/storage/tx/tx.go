@@ -1,6 +1,7 @@
 package tx
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -129,7 +130,35 @@ type State struct {
 	PatcherData []*PatcherData // All participant patches
 }
 
+// Author is the transaction's writer: the author its participants named, which is one
+// author, since a participant naming another is refused at the join
+// (AuthorMismatchError). Empty when they named none, or none has joined.
+func (st *State) Author() string {
+	for _, pd := range st.PatcherData {
+		if pd != nil && pd.API != nil {
+			return pd.API.Author
+		}
+	}
+	return ""
+}
+
+// AuthorMismatchError refuses a participant whose author is not the transaction's. A
+// commit has one author; a transaction whose participants disagreed would be recorded
+// under none, which says less than the log knows (api.ErrCodeTxAuthorMismatch).
+type AuthorMismatchError struct {
+	TxID         int64
+	Transactions string // the author the transaction's participants named
+	Participant  string // the one this participant named
+}
+
+func (e *AuthorMismatchError) Error() string {
+	return fmt.Sprintf("transaction %d is written by %q, this participant by %q: a commit has one author",
+		e.TxID, e.Transactions, e.Participant)
+}
+
 // PatcherData is one participant's contribution to a Tx: its patch, and when it arrived.
+// The patch carries the participant's author (api.Patch.Author), so the log's record of
+// the transaction says who wrote each part.
 //
 //tony:schemagen=patcher-data
 type PatcherData struct {

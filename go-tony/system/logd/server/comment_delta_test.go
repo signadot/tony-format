@@ -29,7 +29,7 @@ func TestScopedDeltaOnACommentOnlyChange(t *testing.T) {
 
 	s := NewSession("test", newMockConn(), &SessionConfig{})
 	id := "w1"
-	got, err := s.emitScopedDeltaFrom(&id, "", 7, prev, next)
+	got, err := s.emitScopedDeltaFrom(&id, "", 7, prev, next, "")
 	if err != nil {
 		t.Fatal(err)
 	}

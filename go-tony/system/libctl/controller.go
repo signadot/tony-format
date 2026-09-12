@@ -104,15 +104,20 @@ type WatchParams struct {
 // PatchParams carries a patch's options through to the Handler. TxID, when set,
 // is the multi-participant transaction the patch must join. Match, when set, is a
 // compare-and-swap precondition. Timeout, when set, is the per-participant wait
-// timeout for the transaction. A controller participating in a docd-coordinated
-// transaction must carry all three to its logd write (e.g. via
-// LogdSession.PatchWith) so the participant behaves correctly and a stalled
-// transaction aborts.
+// timeout for the transaction. Author is who the client's write is by, resolved by
+// docd against the client's hello, so a controller never sees an empty one for a
+// write that had an author. A controller participating in a docd-coordinated
+// transaction must carry all four to its logd write (e.g. via
+// LogdSession.PatchWith): the first three so the participant behaves correctly and a
+// stalled transaction aborts, the author because the transaction's other
+// participants carry it and a participant without it is refused
+// (api.ErrCodeTxAuthorMismatch).
 type PatchParams struct {
 	TxID    *int64
 	Match   *api.PathData
 	Timeout *string
 	Scope   *string
+	Author  string
 }
 
 // ControllerConfig configures RunController.
@@ -286,6 +291,7 @@ func (rt *controllerRuntime) handlePatch(req *api.SessionRequest) {
 		Match:   req.Patch.Match,
 		Timeout: req.Patch.Timeout,
 		Scope:   req.Scope,
+		Author:  req.Patch.Author,
 	})
 	if err != nil {
 		rt.replyErr(req.ID, err)
@@ -456,24 +462,29 @@ func (rt *controllerRuntime) reply(resp *api.SessionResponse) error {
 //
 // The ones deliberately absent describe a CONNECTION or a lifecycle the client is not
 // party to -- session_closed, protocol_mismatch, not_watching,
-// already_watching, slow_consumer, the replay_* pair, the tx_* family, and
-// invalid_message. A controller's downstream session closing is not the client's session
-// closing; a downstream calling the controller's message invalid is the controller's bug,
-// not the client's. Forwarding those would name a condition that has not happened, which
-// is the mistake docd made when a failed composed read reported session_closed.
+// already_watching, slow_consumer, the replay_* pair, the tx_* family but for
+// tx_author_mismatch, and invalid_message. A controller's downstream session closing is
+// not the client's session closing; a downstream calling the controller's message
+// invalid is the controller's bug, not the client's. Forwarding those would name a
+// condition that has not happened, which is the mistake docd made when a failed composed
+// read reported session_closed. tx_author_mismatch is the exception in its family
+// because it is about the WRITE: the client's participant named an author the
+// transaction's others did not, and that is as true for the client as for the
+// controller which relayed it.
 var forwardableCodes = map[string]bool{
-	api.ErrCodeNotFound:       true,
-	api.ErrCodePathConflict:   true,
-	api.ErrCodeInvalidPath:    true,
-	api.ErrCodeInvalidDiff:    true,
-	api.ErrCodeMatch:          true,
-	api.ErrCodeMatchFailed:    true,
-	api.ErrCodeCommitNotFound: true,
-	api.ErrCodeScopeNotFound:  true,
-	api.ErrCodeScopeExists:    true,
-	api.ErrCodeUnsupported:    true,
-	api.ErrCodeStorage:        true,
-	api.ErrCodeTimeout:        true,
+	api.ErrCodeNotFound:         true,
+	api.ErrCodePathConflict:     true,
+	api.ErrCodeInvalidPath:      true,
+	api.ErrCodeInvalidDiff:      true,
+	api.ErrCodeMatch:            true,
+	api.ErrCodeMatchFailed:      true,
+	api.ErrCodeCommitNotFound:   true,
+	api.ErrCodeScopeNotFound:    true,
+	api.ErrCodeScopeExists:      true,
+	api.ErrCodeUnsupported:      true,
+	api.ErrCodeStorage:          true,
+	api.ErrCodeTimeout:          true,
+	api.ErrCodeTxAuthorMismatch: true,
 }
 
 // replyErr answers a request the controller could not serve, with a code the client can

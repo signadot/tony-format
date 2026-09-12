@@ -32,6 +32,7 @@ type LogdSession struct {
 	addr     string
 	clientID string
 	scope    *string // COW scope for this session; nil = baseline
+	author   string  // the session's default writer (LogdSessionConfig.Author)
 	log      *slog.Logger
 
 	// mu guards the session's state — the fields below, and the pending/watcher
@@ -105,6 +106,11 @@ type LogdSessionConfig struct {
 	// modify the schema.
 	Scope string
 
+	// Author is the session's default writer: every patch on it that names no author
+	// of its own (PatchOpts.Author) is recorded as written by this. A client with one
+	// principal sets it once here; a client multiplexing many sets each per patch.
+	Author string
+
 	// Log is an optional logger
 	Log *slog.Logger
 
@@ -153,6 +159,7 @@ func NewLogdSession(cfg *LogdSessionConfig) *LogdSession {
 		addr:              cfg.Addr,
 		clientID:          cfg.ClientID,
 		scope:             scope,
+		author:            cfg.Author,
 		log:               log.With("component", "logd-session"),
 		pending:           make(map[string]chan *api.SessionResponse),
 		watchers:          make(map[string]*Watch),
@@ -347,6 +354,7 @@ func (s *LogdSession) hello(conn net.Conn, decoder *stream.Decoder, deadline tim
 			ClientID: s.clientID,
 			Protocol: api.ProtocolVersion,
 			Scope:    s.scope,
+			Author:   s.author,
 		},
 	}
 	if err := s.sendRequestWithin(conn, req, deadline); err != nil {
@@ -610,24 +618,30 @@ func (s *LogdSession) PatchTx(ctx context.Context, path string, data *ir.Node, t
 }
 
 // PatchOpts carries the optional aspects of a patch: a transaction to join, a
-// compare-and-swap precondition, and a per-participant timeout.
+// compare-and-swap precondition, a per-participant timeout, and the writer.
 type PatchOpts struct {
 	TxID    *int64        // join this multi-participant transaction
 	Match   *api.PathData // compare-and-swap precondition
 	Timeout *string       // per-participant wait timeout (e.g. "10s"); without one it waits the transaction's
+	// Author is who the write is recorded as written by; empty means the session's
+	// (LogdSessionConfig.Author). Every participant in a transaction resolves to the
+	// same author or the one that differs is refused (api.ErrCodeTxAuthorMismatch), so
+	// a controller forwarding a participant carries the author it was given.
+	Author string
 }
 
 // PatchWith applies a patch with the given options. It is the general form behind
 // Patch/PatchTx/PatchIf/PatchTxIf, and is what a controller uses to faithfully
-// forward a docd-routed transaction participant (tx id, precondition, timeout) to
-// logd. On success it returns the commit the write landed at and the data as
-// stored (see doPatch) — which is what a controller hands back to docd so a
+// forward a docd-routed transaction participant (tx id, precondition, timeout,
+// author) to logd. On success it returns the commit the write landed at and the
+// data as stored (see doPatch) — which is what a controller hands back to docd so a
 // controller-served write reports a commit like a direct logd write does.
 func (s *LogdSession) PatchWith(ctx context.Context, path string, data *ir.Node, opts PatchOpts) (*api.PatchResult, error) {
 	return s.doPatch(ctx, &api.PatchRequest{
 		TxID:     opts.TxID,
 		Match:    opts.Match,
 		Timeout:  opts.Timeout,
+		Author:   opts.Author,
 		PathData: api.PathData{Path: path, Data: data},
 	})
 }

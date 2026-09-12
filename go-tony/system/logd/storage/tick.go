@@ -184,11 +184,12 @@ func deliverable(stored *ir.Node) *ir.Node {
 // participants get back when the commit returns, and delivery is asynchronous. Copying
 // here, on the committing goroutine, means the notification owns its patch outright and
 // every reader downstream works on a node nothing else touches.
-func newCommitNotification(commit, txSeq int64, timestamp string, stored *ir.Node, scopeID *string) *CommitNotification {
+func newCommitNotification(commit, txSeq int64, timestamp, author string, stored *ir.Node, scopeID *string) *CommitNotification {
 	return &CommitNotification{
 		Commit:    commit,
 		TxSeq:     txSeq,
 		Timestamp: timestamp,
+		Author:    author,
 		KPaths:    extractTopLevelKPaths(stored),
 		Patch:     deliverable(stored),
 		ScopeID:   scopeID,
