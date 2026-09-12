@@ -57,18 +57,19 @@ func TestHandshakeRefusesAProtocolItDoesNotSpeak(t *testing.T) {
 		}
 	})
 
-	// Protocol 2 is presence on the wire, one rooting for a watch's events, and a match
-	// body encoded from the stream (api.ProtocolVersion). A client at 1 would apply a
-	// delta rooted at the watched path as though it were rooted at the document, and
-	// read a null where the event says absent -- answered, wrongly, which is what the
-	// handshake exists to refuse.
-	t.Run("the version is 2, and 1 is refused", func(t *testing.T) {
-		if api.ProtocolVersion != 2 {
-			t.Fatalf("ProtocolVersion = %d, want 2", api.ProtocolVersion)
+	// Protocol 3 is the commit's author (api.ProtocolVersion). A client at 2 would be
+	// answered, and a client at 3 by a server at 2 would have the one field whose whole
+	// purpose is to be kept dropped and its write answered with a commit -- an audit
+	// record that looks kept and is not, which is what the handshake exists to refuse.
+	t.Run("the version is 3, and 2 is refused", func(t *testing.T) {
+		if api.ProtocolVersion != 3 {
+			t.Fatalf("ProtocolVersion = %d, want 3", api.ProtocolVersion)
 		}
-		resp := narrowRequest(t, store, `{id: "h", hello: {clientId: behind, protocol: 1}}`)
-		if resp.Error == nil || resp.Error.Code != api.ErrCodeProtocolMismatch {
-			t.Fatalf("a client speaking protocol 1 was not refused: %+v", resp)
+		for _, behind := range []int{1, 2} {
+			resp := narrowRequest(t, store, `{id: "h", hello: {clientId: behind, protocol: `+itoa(behind)+`}}`)
+			if resp.Error == nil || resp.Error.Code != api.ErrCodeProtocolMismatch {
+				t.Fatalf("a client speaking protocol %d was not refused: %+v", behind, resp)
+			}
 		}
 	})
 }

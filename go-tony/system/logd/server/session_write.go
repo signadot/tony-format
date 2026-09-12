@@ -67,6 +67,15 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 	var err error
 
 	if req.TxID != nil {
+		// A participant's author is the transaction's, which it inherits; one it names
+		// cannot mean anything, and dropping it quietly is the one thing an author field
+		// must never have done to it (api.PatchRequest.Author).
+		if req.Author != "" {
+			s.sendError(id, api.ErrCodeInvalidTx, fmt.Sprintf(
+				"a patch joining transaction %d names author %q: a participant's author is the transaction's, set by newtx",
+				*req.TxID, req.Author))
+			return
+		}
 		// Join existing transaction
 		txn, err = s.storage.GetTx(*req.TxID)
 		if err != nil {
@@ -80,8 +89,9 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 		}
 		s.log.Debug("joining transaction", "txId", *req.TxID)
 	} else {
-		// Create single-participant transaction with session scope
-		txn, err = s.storage.NewTx(1, s.scopeID())
+		// Create single-participant transaction with session scope, written by the
+		// author the patch names, else the session's.
+		txn, err = s.storage.NewTxWithTimeout(1, s.scopeID(), 0, s.authorOr(req.Author))
 		if err != nil {
 			s.sendError(id, api.ErrCodeStorage, fmt.Sprintf("failed to create transaction: %v", err))
 			return
@@ -225,7 +235,9 @@ func (s *Session) handleNewTx(id *string, req *api.NewTxRequest) {
 		}
 	}
 
-	tx, err := s.storage.NewTxWithTimeout(req.Participants, s.scopeID(), timeout)
+	// So is its author: the one newtx names, else the session's, and every participant
+	// inherits it.
+	tx, err := s.storage.NewTxWithTimeout(req.Participants, s.scopeID(), timeout, s.authorOr(req.Author))
 	if err != nil {
 		// A timeout above the server's is the client's to lower; the store is healthy.
 		var above *storage.TxTimeoutError
@@ -237,7 +249,7 @@ func (s *Session) handleNewTx(id *string, req *api.NewTxRequest) {
 		return
 	}
 
-	s.log.Debug("created transaction", "txId", tx.ID(), "participants", req.Participants, "timeout", tx.Timeout())
+	s.log.Debug("created transaction", "txId", tx.ID(), "participants", req.Participants, "timeout", tx.Timeout(), "author", s.authorOr(req.Author))
 	s.send(&api.SessionResponse{
 		ID: id,
 		Result: &api.SessionResult{

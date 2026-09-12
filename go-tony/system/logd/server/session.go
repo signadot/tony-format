@@ -30,6 +30,11 @@ type Session struct {
 	// running (see dispatch), and a client is free to say hello twice.
 	scope atomic.Pointer[string]
 
+	// author is the session's default writer (api.Hello.Author): what a patch naming
+	// none is recorded as written by. Set by hello, on the request loop; read by a
+	// joining patch, which runs off it.
+	author atomic.Pointer[string]
+
 	// refused says the last hello named a protocol this server does not speak. Every
 	// request after it is refused the same way until a hello this server speaks: the
 	// refusal was answered and then everything behind it served, so a pipelining client
@@ -256,6 +261,18 @@ const maxConcurrentReads = 8
 // beside it.
 func (s *Session) scopeID() *string { return s.scope.Load() }
 
+// authorOr is who a stand-alone patch or a new transaction is recorded as written by:
+// the author the request names, else the session's (api.Hello.Author). Empty is none.
+func (s *Session) authorOr(named string) string {
+	if named != "" {
+		return named
+	}
+	if a := s.author.Load(); a != nil {
+		return *a
+	}
+	return ""
+}
+
 // dispatch routes a request to the appropriate handler.
 //
 // Everything here runs ON the request loop -- the next request waits -- except a read,
@@ -352,9 +369,12 @@ func (s *Session) handleHello(id *string, req *api.Hello) {
 	}
 	s.refused.Store(false)
 
-	// Store scope for this session (applies to all operations)
+	// Store scope for this session (applies to all operations), and the writer a
+	// patch on it is recorded under when it names none.
 	s.scope.Store(req.Scope)
-	s.log.Debug("hello", "clientId", req.ClientID, "scope", req.Scope)
+	author := req.Author
+	s.author.Store(&author)
+	s.log.Debug("hello", "clientId", req.ClientID, "scope", req.Scope, "author", req.Author)
 
 	// The store's schema: a configured one was committed to the store when it was
 	// opened with none (storage.BootstrapSchema), so there is nothing to fall back to.

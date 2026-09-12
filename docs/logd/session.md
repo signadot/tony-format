@@ -5,8 +5,8 @@ in both directions. Every message a client sends names exactly one operation; ev
 message a server sends is a result, a watch event, or an error.
 
 ```tony
-{hello: {clientId: verse, protocol: 2}}
-{patch: {path: verse.entities.e1, data: {status: ready}}}
+{hello: {clientId: verse, protocol: 3, author: verse}}
+{patch: {path: verse.entities.e1, data: {status: ready}, author: alice}}
 {match: {path: verse.entities.e1}}
 {watch: {path: verse.entities}}
 ```
@@ -14,7 +14,7 @@ message a server sends is a result, a watch event, or an error.
 A client says which session protocol it speaks, and a server that speaks another refuses
 the session at the handshake, naming both numbers -- a request field a server does not
 know is ignored, so a mismatch that got past the handshake would be answered rather than
-refused, and wrongly. This page describes **protocol 2**.
+refused, and wrongly. This page describes **protocol 3**.
 
 **docd speaks this protocol verbatim**, so a client written against logd talks to docd
 unchanged — and the operations it composes across mounts (reads, watches, transactions)
@@ -25,7 +25,7 @@ You can speak it by hand:
 ```console
 $ o system logd session localhost:7070
 {hello: {clientId: probe}}
-{result: {hello: {protocol: 2 schemaCommit: 0 serverId: tcp-1}}}
+{result: {hello: {protocol: 3 schemaCommit: 0 serverId: tcp-1}}}
 ```
 
 ## Requests
@@ -35,10 +35,10 @@ directly inside it:
 
 | operation | shape |
 |---|---|
-| `hello` | `{hello: {clientId: <id>, protocol: 2, scope: <scope>}}` |
+| `hello` | `{hello: {clientId: <id>, protocol: 3, scope: <scope>, author: <principal>}}` |
 | `match` | `{match: {path: <kpath>, data: <pattern>, commit: <n>}}` |
-| `patch` | `{patch: {path: <kpath>, data: <value>, match: {path, data}, txId: <n>, timeout: "5s"}}` |
-| `newtx` | `{newtx: {participants: <n>, timeout: "5m"}}` |
+| `patch` | `{patch: {path: <kpath>, data: <value>, match: {path, data}, txId: <n>, timeout: "5s", author: <principal>}}` |
+| `newtx` | `{newtx: {participants: <n>, timeout: "5m", author: <principal>}}` |
 | `watch` | `{watch: {path: <kpath>, fromCommit: <n>, noInit: <bool>, waitIfAbsent: <bool>}}` |
 | `unwatch` | `{unwatch: {path: <kpath>, watchId: <id>}}` |
 | `schema` | `{schema: {get: {at: <n>}}}` reads the schema in force (at a commit); `{schema: {set: {schema: <doc>, force: <bool>}}}` sets it, as one commit |
@@ -139,6 +139,40 @@ that path still matches:
 A precondition that does not hold answers `match_failed`, and nothing is written. What
 a write must satisfy to be storable at all is [What a write must be](writes.md).
 
+### Who wrote it
+
+A commit records its **author**: a string the caller chooses, its principal, which logd
+stores beside the commit's timestamp and never interprets or checks. A write's author is
+the `author` on the patch; without one it is the `author` on the session's `hello`;
+without that the write has none.
+
+```tony
+{hello: {clientId: verse, protocol: 3, author: verse}}
+{patch: {path: verse.entities.e1, data: {status: done}}}                 # written by verse
+{patch: {path: verse.entities.e2, data: {status: done}, author: alice}}  # written by alice
+```
+
+A client with one principal says it once, in `hello`. A server multiplexing many
+principals onto one session says each on the patch, per write. Every delta event a watch
+delivers for the commit carries it (see [Watching](#watching)), live and replayed alike,
+so a reader learns who wrote what without a second lookup.
+
+**A transaction has one author, and it is `newtx`'s.** The author on `newtx`, else the
+one on the session's `hello`, is the transaction's, and every participant inherits it --
+whatever session the participant arrives on. A participant does not name an author: a
+joining patch that carries one is refused with `invalid_tx` rather than having the one
+field that exists to be kept quietly dropped. So there is no such thing as a transaction
+of mixed principals, by construction rather than by a check at each join.
+
+```tony
+{id: t, newtx: {participants: 2, author: alice}}
+{id: p1, patch: {txId: 1, path: verse.a, data: {n: 1}}}   # written by alice
+{id: p2, patch: {txId: 1, path: verse.b, data: {n: 2}}}   # written by alice
+```
+
+The author is what the caller says it is: logd stores it and does not authenticate it.
+Whoever stands in front of logd and stamps principals is trusted for the stamp.
+
 ### Transactions
 
 Several paths commit together by naming one transaction:
@@ -206,12 +240,14 @@ that transaction on the one logd, and all of them report the same commit.
 {id: w1, watch: {path: verse.entities}}
 {id: w1 result: {watch: {watching: verse.entities}}}
 {event: {commit: 1 path: verse.entities state: {e1: {id: e1 status: ready}}} id: w1}
-{event: {commit: 2 patch: {e2: {id: e2}} path: verse.entities} id: w1}
+{event: {author: alice commit: 2 patch: {e2: {id: e2}} path: verse.entities} id: w1}
 ```
 
 The first event is the **state** at the path; every event after it is the **delta of
 one commit**, in commit order, with no gaps. A consumer that applies them in order
-holds what the store holds.
+holds what the store holds. A delta event carries the commit's `author` when the write
+named one ([Who wrote it](#who-wrote-it)); the state event has none, being the fold of
+many commits.
 
 !!! note "Both event kinds are rooted at the watched path"
 
@@ -358,6 +394,7 @@ writes an object at `a.b`. What separates them is what is there now.
 | `replay_compacted` | `fromCommit` is below retained delta history |
 | `slow_consumer` | a watch was dropped because the client did not keep up |
 | `tx_full`, `tx_not_found`, `tx_scope_mismatch` | transaction membership |
+| `invalid_tx` | a transaction asked for more than the server allows, or a participant named an `author` (a participant inherits the transaction's) |
 | `controller_unavailable` | (docd) the controller owning that subtree is gone |
 | `unsupported` | the responder does not implement that operation |
 
@@ -367,7 +404,8 @@ writes an object at `a.b`. What separates them is what is there now.
 first kind survives being passed on. When a controller answers for its subtree, the codes
 above about the document — `not_found`, `path_conflict`, `invalid_path`, `invalid_diff`,
 `match_failed`, `commit_not_found` — reach the client as the controller reported them,
-because they are as true for the client as they were for the controller.
+because they are as true for the client as they were for the controller. So does
+`invalid_tx`, which is about the request the client wrote and the controller relayed.
 
 The ones about a connection do not travel: the controller's session closing is not the
 client's session closing, and a downstream calling the controller's message invalid is the
@@ -419,14 +457,19 @@ Two differences from a client connection are worth knowing:
 - **`id` is docd's, not the client's.** docd rewrites the id on the way out and maps the
   answer back, because many clients share one controller connection. Answer with the id
   you were given.
-- **Scope rides the request.** A client's COW scope is fixed by its `hello`, but docd
-  multiplexes many client sessions onto one controller connection, so per-connection
-  scope cannot tell them apart. docd sets `scope` on each routed request instead; a
-  scope-aware controller honours that field.
+- **Scope rides the request, and so does the author.** A client's COW scope and default
+  author are fixed by its `hello`, but docd multiplexes many client sessions onto one
+  controller connection, so per-connection state cannot tell them apart. docd sets
+  `scope` on each routed request instead, and resolves the client's author onto each
+  routed stand-alone `patch`; a scope-aware controller honours the scope, and a
+  controller that writes to logd carries the author to that write. A routed participant
+  (`txId` set) carries none: it inherits the transaction's, which the client's `newtx`
+  fixed on logd.
 
 ```tony
 {id: "7", scope: "sandbox-3", match: {path: "verse.sources.git.repos"}}
 {id: "7", result: {match: {body: {…} commit: 91}}}
+{id: "8", scope: "sandbox-3", patch: {path: "verse.sources.git.repos.r1", data: {…}, author: alice}}
 ```
 
 ### Clocks

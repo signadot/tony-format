@@ -13,6 +13,7 @@ context:
 - tony-base: github.com/signadot/tony-format/go-tony/schema
 - tx: github.com/signadot/tony-format/go-tony/system/logd/storage/tx
 define:
+  Author: .[string]
   Commit: .[int]
   LastCommit: .[nullable(int)]
   Patch: .[tony-base:ir]

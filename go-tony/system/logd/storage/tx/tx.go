@@ -122,10 +122,14 @@ type CommitOps interface {
 //
 //tony:schemagen=tx-state
 type State struct {
-	TxID        int64          // Transaction ID
-	CreatedAt   time.Time      // RFC3339 timestamp
-	Timeout     time.Duration  // Maximum time to wait for all participants; New makes 0 DefaultTimeout
-	Scope       *string        // Scope for this transaction (nil = baseline)
+	TxID      int64         // Transaction ID
+	CreatedAt time.Time     // RFC3339 timestamp
+	Timeout   time.Duration // Maximum time to wait for all participants; New makes 0 DefaultTimeout
+	Scope     *string       // Scope for this transaction (nil = baseline)
+	// Author is who the transaction's commit is written by, fixed when it is created:
+	// every participant inherits it, so a transaction has one principal by construction
+	// (cn1n32yph12ks5wrmhn0). Empty is none.
+	Author      string
 	PatcherData []*PatcherData // All participant patches
 }
 

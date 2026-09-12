@@ -32,11 +32,16 @@ type SchemaEntry struct {
 //
 //tony:schemagen=entry
 type Entry struct {
-	Commit    int64     // Commit number (set when appended to log)
-	Timestamp string    // RFC3339 timestamp
-	Patch     *ir.Node  // Root patch/diff (always at root, empty kinded path "")
-	TxSource  *tx.State // Transaction state (for transaction entries)
-	SnapPos   *int64    // Snapshot position (for snapshot entries)
+	Commit    int64  // Commit number (set when appended to log)
+	Timestamp string // RFC3339 timestamp
+	// Author is who wrote a transaction entry: the transaction's author
+	// (tx.State.Author), kept beside the timestamp so the log answers who as well as
+	// when (cn1n32yph12ks5wrmhn0). Empty is none: a write that named no author, a
+	// snapshot, a schema commit, or an entry from before this was recorded.
+	Author   string
+	Patch    *ir.Node  // Root patch/diff (always at root, empty kinded path "")
+	TxSource *tx.State // Transaction state (for transaction entries)
+	SnapPos  *int64    // Snapshot position (for snapshot entries)
 	// SnapPath is the path a snapshot is OF: its event stream is the subtree there, and
 	// its index segment sits at that path, which is the only place a read finds it. nil
 	// is the root -- the snapshot the switch takes -- and a log written before paths
@@ -89,9 +94,14 @@ func (e *Entry) IsSchemaCommit() bool {
 //   - lastCommit: The commit number before this one (typically commit-1)
 //   - scopeID: nil for baseline, non-nil for scope-specific data
 func NewEntry(state *tx.State, mergedPatch *ir.Node, commit int64, timestamp string, lastCommit int64, scopeID *string) *Entry {
+	var author string
+	if state != nil {
+		author = state.Author
+	}
 	return &Entry{
 		Commit:     commit,
 		Timestamp:  timestamp,
+		Author:     author,
 		Patch:      mergedPatch,
 		TxSource:   state,
 		SnapPos:    nil,

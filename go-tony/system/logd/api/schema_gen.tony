@@ -24,6 +24,7 @@ signature:
 context:
 - tony-format/context
 define:
+  author: .[string]
   clientId: .[string]
   protocol: .[int]
   scope: .[nullable(string)]
@@ -63,6 +64,7 @@ signature:
 context:
 - tony-format/context
 define:
+  author: .[string]
   participants: .[int]
   timeout: .[nullable(string)]
 signature:
@@ -98,6 +100,7 @@ context:
 - tony-format/context
 - tony-base: github.com/signadot/tony-format/go-tony/schema
 define:
+  author: .[string]
   data: .[tony-base:ir]
   match: .[nullable(path-data)]
   path: .[string]
@@ -241,6 +244,7 @@ context:
 - tony-base: github.com/signadot/tony-format/go-tony/schema
 define:
   absent: .[bool]
+  author: .[string]
   commit: .[int]
   endMessage: .[string]
   endReason: .[string]

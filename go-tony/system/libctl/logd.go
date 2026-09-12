@@ -32,6 +32,7 @@ type LogdSession struct {
 	addr     string
 	clientID string
 	scope    *string // COW scope for this session; nil = baseline
+	author   string  // the session's default writer (LogdSessionConfig.Author)
 	log      *slog.Logger
 
 	// mu guards the session's state — the fields below, and the pending/watcher
@@ -105,6 +106,11 @@ type LogdSessionConfig struct {
 	// modify the schema.
 	Scope string
 
+	// Author is the session's default writer: every patch on it that names no author
+	// of its own (PatchOpts.Author) is recorded as written by this. A client with one
+	// principal sets it once here; a client multiplexing many sets each per patch.
+	Author string
+
 	// Log is an optional logger
 	Log *slog.Logger
 
@@ -153,6 +159,7 @@ func NewLogdSession(cfg *LogdSessionConfig) *LogdSession {
 		addr:              cfg.Addr,
 		clientID:          cfg.ClientID,
 		scope:             scope,
+		author:            cfg.Author,
 		log:               log.With("component", "logd-session"),
 		pending:           make(map[string]chan *api.SessionResponse),
 		watchers:          make(map[string]*Watch),
@@ -347,6 +354,7 @@ func (s *LogdSession) hello(conn net.Conn, decoder *stream.Decoder, deadline tim
 			ClientID: s.clientID,
 			Protocol: api.ProtocolVersion,
 			Scope:    s.scope,
+			Author:   s.author,
 		},
 	}
 	if err := s.sendRequestWithin(conn, req, deadline); err != nil {
@@ -580,10 +588,27 @@ func (s *LogdSession) PatchIf(ctx context.Context, path string, data *ir.Node, m
 
 // NewTx creates a multi-participant transaction and returns its id. The
 // transaction commits atomically once `participants` patches have joined it (by
-// writing with the returned id via PatchTx). participants must be >= 1.
+// writing with the returned id via PatchTx). participants must be >= 1. Its commit is
+// written by the session's author (LogdSessionConfig.Author); NewTxWith names another.
 func (s *LogdSession) NewTx(ctx context.Context, participants int) (int64, error) {
+	return s.NewTxWith(ctx, participants, NewTxOpts{})
+}
+
+// NewTxOpts carries the optional aspects of a transaction: how long it waits for its
+// participants, and who its commit is written by.
+type NewTxOpts struct {
+	Timeout *string // how long to wait for the participants (e.g. "30s"); without one it waits the server's
+	// Author is who the transaction's commit is recorded as written by; empty means
+	// the session's (LogdSessionConfig.Author). Every participant inherits it: a patch
+	// joining the transaction names none (logd refuses one that does), so a
+	// transaction is one principal's by construction.
+	Author string
+}
+
+// NewTxWith is NewTx with options.
+func (s *LogdSession) NewTxWith(ctx context.Context, participants int, opts NewTxOpts) (int64, error) {
 	resp, err := s.request(ctx, &api.SessionRequest{
-		NewTx: &api.NewTxRequest{Participants: participants},
+		NewTx: &api.NewTxRequest{Participants: participants, Timeout: opts.Timeout, Author: opts.Author},
 	})
 	if err != nil {
 		return 0, err
@@ -610,24 +635,29 @@ func (s *LogdSession) PatchTx(ctx context.Context, path string, data *ir.Node, t
 }
 
 // PatchOpts carries the optional aspects of a patch: a transaction to join, a
-// compare-and-swap precondition, and a per-participant timeout.
+// compare-and-swap precondition, a per-participant timeout, and the writer.
 type PatchOpts struct {
 	TxID    *int64        // join this multi-participant transaction
 	Match   *api.PathData // compare-and-swap precondition
 	Timeout *string       // per-participant wait timeout (e.g. "10s"); without one it waits the transaction's
+	// Author is who a stand-alone write is recorded as written by; empty means the
+	// session's (LogdSessionConfig.Author). With TxID it must be empty: a participant
+	// inherits the transaction's author (NewTxOpts.Author), and logd refuses a
+	// participant naming one.
+	Author string
 }
 
 // PatchWith applies a patch with the given options. It is the general form behind
 // Patch/PatchTx/PatchIf/PatchTxIf, and is what a controller uses to faithfully
-// forward a docd-routed transaction participant (tx id, precondition, timeout) to
-// logd. On success it returns the commit the write landed at and the data as
-// stored (see doPatch) — which is what a controller hands back to docd so a
+// forward a docd-routed write (tx id, precondition, timeout, author) to logd. On success it returns the commit the write landed at and the
+// data as stored (see doPatch) — which is what a controller hands back to docd so a
 // controller-served write reports a commit like a direct logd write does.
 func (s *LogdSession) PatchWith(ctx context.Context, path string, data *ir.Node, opts PatchOpts) (*api.PatchResult, error) {
 	return s.doPatch(ctx, &api.PatchRequest{
 		TxID:     opts.TxID,
 		Match:    opts.Match,
 		Timeout:  opts.Timeout,
+		Author:   opts.Author,
 		PathData: api.PathData{Path: path, Data: data},
 	})
 }

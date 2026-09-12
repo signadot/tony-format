@@ -354,6 +354,14 @@ func (s *MountSession) RouteRequest(cs *ClientSession, req *logdapi.SessionReque
 	// multiplexes many client scopes onto this one controller connection, so scope
 	// must ride the request, not the connection.
 	out.Scope = cs.clientScope
+	// And the client's author on a stand-alone patch, for the same reason: the
+	// controller commits it on a session whose hello is not the client's. A patch
+	// joining a transaction inherits the transaction's, and is passed as it came.
+	if req.Patch != nil && req.Patch.TxID == nil {
+		p := *req.Patch
+		p.Author = cs.authorFor(req.Patch)
+		out.Patch = &p
+	}
 	if req.Unwatch != nil {
 		// Target the specific controller-side watch this unwatch cancels, since
 		// several clients may watch the same path over this connection.

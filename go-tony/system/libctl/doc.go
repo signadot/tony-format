@@ -51,7 +51,7 @@
 // # What a watch delivers
 //
 // A watch on a path is a stream about THAT PATH, and every event is rooted there
-// (session protocol 2, api.ProtocolVersion). The first event carries State, the value
+// (since session protocol 2, api.ProtocolVersion). The first event carries State, the value
 // at the path; each later one carries Patch, a delta of that value, which a client
 // applies to what it holds with api.NextState -- the same fold the server uses, so
 // comments count the same on both sides -- and lands where a fresh read of the path

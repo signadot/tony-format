@@ -350,7 +350,7 @@ func (w *watchStream) seedAt(commit int64) bool {
 // shared says the delta is the hub's copy, which several watchers hold at once: encoding
 // mutates a node's parent linkage (ir.FromMap), so what is sent is this watcher's own copy.
 // A replayed delta is read from the log for this watcher alone and needs none.
-func (w *watchStream) stepBaseline(commit int64, patch *ir.Node, shared bool) bool {
+func (w *watchStream) stepBaseline(commit int64, patch *ir.Node, author string, shared bool) bool {
 	at, _, ok := api.ProjectDelta(patch, w.path)
 	if ok && at == nil {
 		// The entry does not reach the path. Correct through this commit, nothing to say.
@@ -392,7 +392,7 @@ func (w *watchStream) stepBaseline(commit int64, patch *ir.Node, shared bool) bo
 		return true
 	}
 	w.absent.observe(w.prev)
-	w.s.send(patchEvent(w.watcher.ID, commit, w.path, delta, next == nil))
+	w.s.send(patchEvent(w.watcher.ID, commit, w.path, delta, author, next == nil))
 	return true
 }
 
@@ -422,9 +422,10 @@ func deltaAt(prev, next *ir.Node) *ir.Node {
 	return tony.DiffWith(prev, next, tony.DiffComments(true))
 }
 
-// patchEvent is a delta event at path, saying absent when the path holds nothing after it.
-func patchEvent(id *string, commit int64, path string, delta *ir.Node, absent bool) *api.SessionResponse {
-	ev := api.NewPatchEvent(id, commit, path, delta)
+// patchEvent is a delta event at path, by author, saying absent when the path holds
+// nothing after it.
+func patchEvent(id *string, commit int64, path string, delta *ir.Node, author string, absent bool) *api.SessionResponse {
+	ev := api.NewPatchEvent(id, commit, path, delta, author)
 	ev.Event.Absent = absent
 	return ev
 }
@@ -438,14 +439,14 @@ func patchEvent(id *string, commit int64, path string, delta *ir.Node, absent bo
 // or beneath what the delta states under the path (storage.BaselineDeltaInScope). A
 // baseline delta under the scope's claim is dropped: the view there is the claim. What
 // remains overlaps a statement of the scope, and is answered by a read at the path.
-func (w *watchStream) step(commit int64, patch *ir.Node, scopeID *string, shared bool) bool {
+func (w *watchStream) step(commit int64, patch *ir.Node, scopeID *string, author string, shared bool) bool {
 	if !w.scoped {
-		return w.stepBaseline(commit, patch, shared)
+		return w.stepBaseline(commit, patch, author, shared)
 	}
 	mine := w.s.scopeID()
 	if scopeID != nil && mine != nil && *scopeID == *mine {
 		w.s.hub.stats.scopeStep.Add(1)
-		return w.stepBaseline(commit, patch, shared)
+		return w.stepBaseline(commit, patch, author, shared)
 	}
 	if at, _, ok := api.ProjectDelta(patch, w.path); ok {
 		if at == nil {
@@ -459,11 +460,11 @@ func (w *watchStream) step(commit int64, patch *ir.Node, scopeID *string, shared
 			return true
 		case storage.BaselineSteps:
 			w.s.hub.stats.scopeStep.Add(1)
-			return w.stepBaseline(commit, patch, shared)
+			return w.stepBaseline(commit, patch, author, shared)
 		}
 	}
 	w.s.hub.stats.scopeReread.Add(1)
-	return w.emitScoped(commit)
+	return w.emitScoped(commit, author)
 }
 
 // emitScoped advances a scoped watch by one commit and sends what changed under the path.
@@ -476,8 +477,8 @@ func (w *watchStream) step(commit int64, patch *ir.Node, scopeID *string, shared
 //
 // The recompute is a read at the path (scopedDocAt -> readValueAt), which narrows; see
 // watchStream for what that costs.
-func (w *watchStream) emitScoped(commit int64) bool {
-	next, err := w.s.emitScopedDelta(w.watcher.ID, w.path, commit, w.prev)
+func (w *watchStream) emitScoped(commit int64, author string) bool {
+	next, err := w.s.emitScopedDelta(w.watcher.ID, w.path, commit, w.prev, author)
 	if err != nil {
 		w.s.log.Error("failed to read scoped state for watch", "path", w.path, "commit", commit, "error", err)
 		w.fail(api.ErrCodeReplayFailed, "failed to read scoped state at commit %d: %v", commit, err)
@@ -508,7 +509,7 @@ func (w *watchStream) replay(from, to int64) bool {
 		// that cannot keep up is failed, which is the existing contract -- the
 		// server does not hold the range on its behalf.
 		err := w.eachDelta(from+1, to, func(n *storage.CommitNotification) error {
-			if !w.step(n.Commit, n.Patch, n.ScopeID, false) {
+			if !w.step(n.Commit, n.Patch, n.ScopeID, n.Author, false) {
 				return errWatchEnded
 			}
 			return nil
@@ -571,23 +572,23 @@ func (w *watchStream) live() {
 			if !w.seeded && !w.seedAt(notification.Commit-1) {
 				return
 			}
-			if !w.step(notification.Commit, notification.Patch, notification.ScopeID, true) {
+			if !w.step(notification.Commit, notification.Patch, notification.ScopeID, notification.Author, true) {
 				return
 			}
 		}
 	}
 }
-func (s *Session) emitScopedDelta(id *string, path string, commit int64, prev *ir.Node) (*ir.Node, error) {
+func (s *Session) emitScopedDelta(id *string, path string, commit int64, prev *ir.Node, author string) (*ir.Node, error) {
 	newDoc, err := s.scopedDocAt(path, commit)
 	if err != nil {
 		return prev, err
 	}
-	return s.emitScopedDeltaFrom(id, path, commit, prev, newDoc)
+	return s.emitScopedDeltaFrom(id, path, commit, prev, newDoc, author)
 }
 
 // emitScopedDeltaFrom sends the change between prev and newDoc, both already trimmed to
-// the watched path.
-func (s *Session) emitScopedDeltaFrom(id *string, path string, commit int64, prev, newDoc *ir.Node) (*ir.Node, error) {
+// the watched path, as written by author.
+func (s *Session) emitScopedDeltaFrom(id *string, path string, commit int64, prev, newDoc *ir.Node, author string) (*ir.Node, error) {
 	// What counts as a change is api.SameState's to say, here and in stepBaseline. See
 	// it for why the answer counts comments.
 	if api.SameState(newDoc, prev) {
@@ -603,7 +604,7 @@ func (s *Session) emitScopedDeltaFrom(id *string, path string, commit int64, pre
 	// which is a value (api/state.go). Both absent is the equality's case, above.
 	// Rooted at the path, as the state event was and as a baseline delta is: one
 	// rooting, and a client applies what arrives to what it holds.
-	s.send(patchEvent(id, commit, path, deltaAt(prev, newDoc), newDoc == nil))
+	s.send(patchEvent(id, commit, path, deltaAt(prev, newDoc), author, newDoc == nil))
 	return newDoc, nil
 }
 

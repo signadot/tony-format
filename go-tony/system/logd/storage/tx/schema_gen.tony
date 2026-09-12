@@ -11,6 +11,7 @@ signature:
 context:
 - tony-format/context
 define:
+  Author: .[string]
   CreatedAt: .[string]
   PatcherData: .[array(object)]
   Scope: .[nullable(string)]

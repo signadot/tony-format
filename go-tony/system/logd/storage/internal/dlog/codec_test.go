@@ -15,6 +15,7 @@ func sampleEntry(commit int64) *Entry {
 	return &Entry{
 		Commit:    commit,
 		Timestamp: "2026-07-28T09:00:00+02:00",
+		Author:    "alice",
 		Patch: ir.FromMap(map[string]*ir.Node{
 			"demo": ir.FromMap(map[string]*ir.Node{
 				"x":     ir.FromString("hello — em dash"),
@@ -41,8 +42,8 @@ func TestEncodeEntryRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decodeEntry: %v", err)
 	}
-	if out.Commit != in.Commit || out.Timestamp != in.Timestamp {
-		t.Errorf("scalars differ: got commit=%d ts=%q", out.Commit, out.Timestamp)
+	if out.Commit != in.Commit || out.Timestamp != in.Timestamp || out.Author != in.Author {
+		t.Errorf("scalars differ: got commit=%d ts=%q author=%q", out.Commit, out.Timestamp, out.Author)
 	}
 	if out.LastCommit == nil || *out.LastCommit != *in.LastCommit {
 		t.Errorf("LastCommit lost: %v", out.LastCommit)

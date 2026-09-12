@@ -44,6 +44,9 @@ func (s *State) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["Scope"] = ir.FromString(string(*s.Scope))
 	}
 
+	// Field: Author
+	irMap["Author"] = ir.FromString(string(s.Author))
+
 	// Field: PatcherData
 	{
 		slice := make([]*ir.Node, len(s.PatcherData))
@@ -121,6 +124,12 @@ func (s *State) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				*val = string(fieldNodeUnwrapped.String)
 				s.Scope = val
 			}
+		case "Author":
+			// Field: Author
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "Author", fieldNodeUnwrapped.Type)
+			}
+			s.Author = string(fieldNodeUnwrapped.String)
 		case "PatcherData":
 			// Field: PatcherData
 			if fieldNodeUnwrapped.Type == ir.ArrayType {

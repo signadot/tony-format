@@ -21,11 +21,16 @@ import (
 // different one refuses the session, naming both numbers -- see ProtocolVersion for why
 // that is a check rather than a convention.
 //
+// Author is the session's default writer: what a patch on this session is recorded as
+// written by when it names no author of its own (PatchRequest.Author). A client with one
+// principal says it once here; a server multiplexing many says each on the patch.
+//
 //tony:schemagen=session-hello,notag
 type Hello struct {
 	ClientID string  `tony:"field=clientId"`
 	Protocol int     `tony:"field=protocol,omitzero"` // 0 = a client from before versions existed
 	Scope    *string `tony:"field=scope"`             // Optional: scope for COW isolation (applies to all operations in session)
+	Author   string  `tony:"field=author,omitzero"`   // Optional: the writer a patch without one is recorded as
 }
 
 // ProtocolVersion is the session protocol this build speaks, sent in Hello and answered in
@@ -50,7 +55,12 @@ type Hello struct {
 //	   watch's deltas are rooted at the watched path, as its state event always was, so
 //	   a client applies what arrives to what it holds; and a match body may be encoded
 //	   from the store's event stream rather than from a node the server built.
-const ProtocolVersion = 2
+//	3  a commit records its writer (cn1n32yph12ks5wrmhn0): a patch or a newtx names an
+//	   author, or the hello it rides on does, and every delta event carries the
+//	   commit's. The version moves with it because an author is the one field whose
+//	   whole purpose is to be kept: a server which does not know it would drop it and
+//	   answer with a commit, an audit record that looks kept and is not.
+const ProtocolVersion = 3
 
 // HelloResponse is the server's response to a Hello message.
 //
@@ -91,11 +101,22 @@ type MatchRequest struct {
 // If TxID is set, the patch joins an existing multi-participant transaction.
 // If TxID is nil, a new single-participant transaction is created.
 //
+// Author is who a STAND-ALONE patch is recorded as written by: the caller's principal,
+// opaque to logd the way Hello.ClientID is, and stored beside the commit's timestamp.
+// Without one the write is the session's (Hello.Author), and without that it has none.
+// A server in front of logd multiplexes many principals onto one session, so it says
+// the author here, per write. A patch joining a transaction names none: the author is
+// the transaction's (NewTxRequest.Author), which every participant inherits, so there
+// is no such thing as a transaction of mixed principals. A joining patch naming one is
+// refused, ErrCodeInvalidTx, rather than having a field it cannot mean quietly
+// dropped. Every delta event for the commit carries the author (WatchEvent.Author).
+//
 //tony:schemagen=session-patch-request,notag
 type PatchRequest struct {
-	TxID     *int64    `tony:"field=txId"`    // Optional: transaction ID for multi-participant tx
-	Timeout  *string   `tony:"field=timeout"` // Optional: timeout for this participant (e.g., "5s", "1m"); without one it waits the transaction's
-	Match    *PathData `tony:"field=match"`   // Optional: compare-and-swap precondition — the patch commits only if the current state at Match.Path matches Match.Data
+	TxID     *int64    `tony:"field=txId"`            // Optional: transaction ID for multi-participant tx
+	Timeout  *string   `tony:"field=timeout"`         // Optional: timeout for this participant (e.g., "5s", "1m"); without one it waits the transaction's
+	Match    *PathData `tony:"field=match"`           // Optional: compare-and-swap precondition — the patch commits only if the current state at Match.Path matches Match.Data
+	Author   string    `tony:"field=author,omitzero"` // Optional, stand-alone only: the writer; the session's when empty
 	PathData `tony:"field=patch"`
 }
 
@@ -109,10 +130,15 @@ type PatchRequest struct {
 // participant waiting on it is answered. A participant which names no timeout of its
 // own waits this long.
 //
+// Author is who the transaction's commit is recorded as written by, and every
+// participant inherits it (PatchRequest.Author). Without one it is the session's
+// (Hello.Author), and without that the commit has none.
+//
 //tony:schemagen=session-newtx-request,notag
 type NewTxRequest struct {
-	Participants int     `tony:"field=participants"` // Number of expected participants (must be >= 1)
-	Timeout      *string `tony:"field=timeout"`      // Optional: how long to wait for the participants (e.g., "30s", "5m")
+	Participants int     `tony:"field=participants"`    // Number of expected participants (must be >= 1)
+	Timeout      *string `tony:"field=timeout"`         // Optional: how long to wait for the participants (e.g., "30s", "5m")
+	Author       string  `tony:"field=author,omitzero"` // Optional: the writer of the transaction's commit; the session's when empty
 }
 
 // WatchRequest is a request to watch changes at a path.
@@ -363,7 +389,11 @@ type WatchEvent struct {
 	// nothing to start from (a watch that asked to wait); on a patch event, the delta
 	// removed it. State and Patch are then what they are -- a patch that deleted the path
 	// is still sent, since applying it is how a client's own copy comes to hold nothing.
-	Absent         bool   `tony:"field=absent,omitzero"`
+	Absent bool `tony:"field=absent,omitzero"`
+	// Author is who wrote the commit a patch event carries, as its patch named it
+	// (PatchRequest.Author), live and replayed alike; empty when the write named none.
+	// A state event has none: the state is the fold of many commits.
+	Author         string `tony:"field=author,omitzero"`
 	ReplayComplete bool   `tony:"field=replayComplete,omitzero"` // Marker that replay is complete
 	Ended          bool   `tony:"field=ended,omitzero"`          // Terminal marker: the watch has ended and the client should re-establish it
 	EndReason      string `tony:"field=endReason,omitzero"`      // Why the watch ended, from the ErrCode* vocabulary (e.g. session_mounted, session_unmounted, controller_unavailable)
@@ -599,14 +629,16 @@ func NewStateEvent(id *string, commit int64, path string, state *ir.Node) *Sessi
 	}
 }
 
-// NewPatchEvent creates an event with a delta patch. See NewStateEvent for id.
-func NewPatchEvent(id *string, commit int64, path string, patch *ir.Node) *SessionResponse {
+// NewPatchEvent creates an event with a delta patch, written by author (empty for a
+// commit that named none). See NewStateEvent for id.
+func NewPatchEvent(id *string, commit int64, path string, patch *ir.Node, author string) *SessionResponse {
 	return &SessionResponse{
 		ID: id,
 		Event: &WatchEvent{
 			Commit: commit,
 			Path:   path,
 			Patch:  patch,
+			Author: author,
 		},
 	}
 }

@@ -22,7 +22,7 @@ func TestNewTx_TimeoutIsAlwaysBounded(t *testing.T) {
 
 	timeoutOf := func(named time.Duration) time.Duration {
 		t.Helper()
-		txn, err := s.NewTxWithTimeout(2, nil, named)
+		txn, err := s.NewTxWithTimeout(2, nil, named, "")
 		if err != nil {
 			t.Fatalf("NewTxWithTimeout(%v): %v", named, err)
 		}
@@ -57,7 +57,7 @@ func TestNewTx_TimeoutIsAlwaysBounded(t *testing.T) {
 	if got := timeoutOf(time.Second); got != time.Second {
 		t.Errorf("creator's, the ceiling itself: got %v, want 1s", got)
 	}
-	_, err = s.NewTxWithTimeout(2, nil, time.Hour)
+	_, err = s.NewTxWithTimeout(2, nil, time.Hour, "")
 	var above *TxTimeoutError
 	if !errors.As(err, &above) {
 		t.Fatalf("asking 1h of a 1s store: err = %v, want *TxTimeoutError", err)
@@ -68,7 +68,7 @@ func TestNewTx_TimeoutIsAlwaysBounded(t *testing.T) {
 
 	// The default is the ceiling too, on a store given none.
 	s.SetTxTimeout(0)
-	if _, err := s.NewTxWithTimeout(2, nil, tx.DefaultTimeout+time.Second); !errors.As(err, &above) {
+	if _, err := s.NewTxWithTimeout(2, nil, tx.DefaultTimeout+time.Second, ""); !errors.As(err, &above) {
 		t.Errorf("asking more than tx.DefaultTimeout of a store given none: err = %v, want *TxTimeoutError", err)
 	}
 }
