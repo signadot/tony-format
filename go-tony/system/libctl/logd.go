@@ -692,6 +692,31 @@ func (s *LogdSession) DeleteScope(ctx context.Context, scopeID string) error {
 	return nil
 }
 
+// Retain ages log-like records out of the state: for each rule in req.What, the items
+// of the rule's container whose own timestamp is older than the rule allows, and whose
+// match holds, are deleted as ordinary commits (api.RetainRequest). The caller carries
+// the rules, the time and the author; a request given a Now is reproducible from the
+// log, and the commit is the record that it ran.
+//
+// Through docd each rule is routed to the owner of its container, and the result says
+// per rule who ran it, which mounts beneath its container it did not reach, and what
+// the owner said if it refused (api.RetainRuleResult); an error is answered only when
+// nothing ran anywhere. Through logd directly, a request that cannot mean what it says
+// is an error, ErrCodeInvalidRetain, and nothing runs.
+func (s *LogdSession) Retain(ctx context.Context, req *api.RetainRequest) (*api.RetainResult, error) {
+	resp, err := s.request(ctx, &api.SessionRequest{Retain: req})
+	if err != nil {
+		return nil, err
+	}
+	if resp.Error != nil {
+		return nil, fmt.Errorf("retain error: %w", resp.Error)
+	}
+	if resp.Result == nil || resp.Result.Retain == nil {
+		return nil, fmt.Errorf("unexpected response: no retain result")
+	}
+	return resp.Result.Retain, nil
+}
+
 // request sends a request and waits for its correlated response. It assigns a
 // unique id, registers a reply channel that the read-pump delivers to, sends
 // the request, and blocks until the response arrives, the context is cancelled,

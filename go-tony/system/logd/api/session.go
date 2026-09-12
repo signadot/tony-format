@@ -403,12 +403,21 @@ type RetainResult struct {
 
 // RetainRuleResult is one rule's part of a RetainResult.
 //
+// Owner, Under and Error are docd's: across composition a rule is routed to the owner
+// of its container -- logd, or the controller whose mount holds it -- and the result
+// says which answered, which mounts beneath the container the rule did NOT reach, and
+// what the owner said if it refused. logd itself, answering for one store, leaves them
+// empty and answers an error for the request instead.
+//
 //tony:schemagen=session-retain-rule-result,notag
 type RetainRuleResult struct {
-	Path       string `tony:"field=path"`
-	Deleted    int    `tony:"field=deleted"`
-	Unreadable int    `tony:"field=unreadable,omitzero"` // Items kept because no RFC3339 timestamp was at the age path
-	Skipped    int    `tony:"field=skipped,omitzero"`    // Items in batches whose precondition failed: the state moved under the pass; ask again
+	Path       string        `tony:"field=path"`
+	Deleted    int           `tony:"field=deleted"`
+	Unreadable int           `tony:"field=unreadable,omitzero"` // Items kept because no RFC3339 timestamp was at the age path
+	Skipped    int           `tony:"field=skipped,omitzero"`    // Items in batches whose precondition failed: the state moved under the pass; ask again
+	Owner      string        `tony:"field=owner,omitzero"`      // (docd) who ran the rule: "logd", or the mount path of the controller
+	Under      []string      `tony:"field=under,omitzero"`      // (docd) mounts beneath the rule's container, which the rule did not reach
+	Error      *SessionError `tony:"field=error"`               // (docd) what the owner said when it refused the rule
 }
 
 // SchemaResult is the result of a schema get/set request: the schema, and the commit

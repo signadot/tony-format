@@ -75,8 +75,33 @@ and asking again reads it afresh.
 
 The request runs on the loop, as a plain patch does, so a read pipelined behind it
 sees what it deleted. In a scoped session it reads the scope's view and deletes in the
-scope; baseline keeps the record. Through [docd](../docd/index.md) it is not routed
-yet, and is answered `unsupported`.
+scope; baseline keeps the record.
+
+### Through docd
+
+[docd](../docd/index.md) routes each rule to the owner of its container — logd for a
+base path, the controller whose mount holds it otherwise — in one request per owner,
+with one `now` for all of them, and answers the rules in the order they were sent.
+Each rule then also says:
+
+| field | what it says |
+|---|---|
+| `owner` | who ran it: `logd`, or the mount path of the controller |
+| `under` | the mounts beneath the rule's container, which the rule did **not** reach |
+| `error` | what the owner said when it refused the rule |
+
+Nothing is composed across the mounts beneath a container: a controller answers for
+its subtree, and one that does not implement `retain` says `unsupported`, which the
+result reports for that rule. An error is answered for the request only when nothing
+ran anywhere.
+
+```tony
+{result: {retain: {now: "2026-09-12T08:00:00Z", commit: 4127, deleted: 300, rules: [
+  {path: jobs.*, deleted: 300, owner: logd}
+  {path: verse.ctl.runs.*, owner: verse.ctl, error: {code: unsupported, message: "unsupported operation: request type"}}
+  {path: verse.*, deleted: 0, owner: logd, under: [verse.ctl]}
+]}}}
+```
 
 ### What the last segment may be
 

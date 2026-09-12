@@ -26,7 +26,8 @@ import (
 //
 // A match or watch on a strict ancestor of one or more mounts is composed across
 // its owners, and a patch spanning mounts is split into one transaction (see the
-// package doc).
+// package doc). A retain's rules are each routed to the owner of their container,
+// and its result says who ran what (retain.go).
 //
 // Responses flow back from two sources — the logd read-pump and controller
 // MountSessions — so writes to the client connection are serialized. Because
@@ -249,6 +250,13 @@ func (s *ClientSession) routeClientRequests() error {
 		// would otherwise miss the mounts. Reads with no mount beneath them fall
 		// through to normal single-route routing.
 		if req.Match != nil && s.maybeCoordinateMatch(&req) {
+			continue
+		}
+
+		// A retain names several containers, each with an owner of its own; its rules
+		// are routed to their owners and the result says who ran what (retain.go).
+		if req.Retain != nil {
+			go s.coordinateRetain(&req)
 			continue
 		}
 

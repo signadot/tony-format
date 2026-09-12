@@ -156,9 +156,20 @@ signature:
 context:
 - tony-format/context
 define:
+  code: .[string]
+  message: .[string]
+signature:
+  name: session-error
+---
+context:
+- tony-format/context
+define:
   deleted: .[int]
+  error: .[nullable(session-error)]
+  owner: .[string]
   path: .[string]
   skipped: .[int]
+  under: .[array(string)]
   unreadable: .[int]
 signature:
   name: session-retain-rule-result
@@ -205,14 +216,6 @@ define:
   schema: .[tony-base:ir]
 signature:
   name: session-schema-result
----
-context:
-- tony-format/context
-define:
-  code: .[string]
-  message: .[string]
-signature:
-  name: session-error
 ---
 context:
 - tony-format/context

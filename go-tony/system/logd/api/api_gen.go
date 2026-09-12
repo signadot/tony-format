@@ -2881,6 +2881,11 @@ func (s *RetainRuleResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if s == nil {
 		return ir.Null(), nil
 	}
+	var node *ir.Node
+	var err error
+	_ = node // suppress unused variable error
+	_ = err  // suppress unused variable error
+
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
@@ -2898,6 +2903,29 @@ func (s *RetainRuleResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Field: Skipped
 	if s.Skipped != 0 {
 		irMap["skipped"] = ir.FromInt(int64(s.Skipped))
+	}
+
+	// Field: Owner
+	if s.Owner != "" {
+		irMap["owner"] = ir.FromString(string(s.Owner))
+	}
+
+	// Field: Under
+	if len(s.Under) > 0 {
+		slice := make([]*ir.Node, len(s.Under))
+		for i, v := range s.Under {
+			slice[i] = ir.FromString(string(v))
+		}
+		irMap["under"] = ir.FromSlice(slice)
+	}
+
+	// Field: Error (optional)
+	if s.Error != nil {
+		node, err = s.Error.ToTonyIR(opts...)
+		if err != nil {
+			return nil, err
+		}
+		irMap["error"] = node
 	}
 
 	return ir.FromMap(irMap), nil
@@ -2957,6 +2985,35 @@ func (s *RetainRuleResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) 
 				return fmt.Errorf("field %q: expected number, got %v", "skipped", fieldNodeUnwrapped.Type)
 			}
 			s.Skipped = int(*fieldNodeUnwrapped.Int64)
+		case "owner":
+			// Field: Owner
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "owner", fieldNodeUnwrapped.Type)
+			}
+			s.Owner = string(fieldNodeUnwrapped.String)
+		case "under":
+			// Field: Under
+			if fieldNodeUnwrapped.Type == ir.ArrayType {
+				slice := make([]string, len(fieldNodeUnwrapped.Values))
+				for i, v := range fieldNodeUnwrapped.Values {
+					ctx := fmt.Sprintf("slice element %d", i)
+					var elem string
+					if v.Type != ir.StringType {
+						return fmt.Errorf("%s: expected string, got %v", ctx, v.Type)
+					}
+					elem = v.String
+					slice[i] = string(elem)
+				}
+				s.Under = slice
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"under\"", fieldNodeUnwrapped.Type)
+			}
+		case "error":
+			// Field: Error
+			s.Error = &SessionError{}
+			if err := s.Error.FromTonyIR(fieldNode, opts...); err != nil {
+				return err
+			}
 		default:
 			if gomap.IsStrict(opts...) {
 				return fmt.Errorf("unknown field %q for RetainRuleResult", fieldName.String)

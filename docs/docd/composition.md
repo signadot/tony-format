@@ -78,6 +78,17 @@ operator above a mount boundary, is forwarded whole rather than dropped. (logd m
 operation to the result it produced, so a watch consumer *applies* deltas rather than
 pattern-matching their surface form.)
 
+## Retain: routed, not composed
+
+A [`retain`](../logd/retention.md#through-docd) names several containers, and each has
+an owner. docd routes each rule to the owner of its container — logd for a base path,
+the controller whose mount holds it otherwise — in one request per owner with one `now`
+for all, and answers the rules in the order sent, each saying who ran it (`owner`),
+which mounts beneath its container it did not reach (`under`), and what the owner said
+if it refused (`error`). A controller that does not implement `retain` answers
+`unsupported`, and the result reports that for the rule; the request is an error only
+when nothing ran anywhere. Nothing is composed beneath a container.
+
 ## Coordination
 
 Mount membership must stay fixed for a composed watch's lifetime, or its snapshot and
