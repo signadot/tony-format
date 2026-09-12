@@ -35,7 +35,7 @@
 // docd serves the same protocol to its clients, so a client moves between logd and docd
 // by changing only the address.
 //
-// Connect with: o system logd session localhost:9123
+// Connect with: o system session localhost:9123
 //
 // # Related Packages
 //

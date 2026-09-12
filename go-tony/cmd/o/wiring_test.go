@@ -44,9 +44,9 @@ func TestEveryCommandAnswersDashH(t *testing.T) {
 		{"schema", "-h"}, {"schema", "check", "-h"},
 		{"system", "-h"},
 		{"system", "logd", "-h"}, {"system", "logd", "serve", "-h"},
-		{"system", "logd", "session", "-h"},
 		{"system", "docd", "-h"}, {"system", "docd", "serve", "-h"},
 		{"system", "docd", "mounts", "-h"},
+		{"system", "session", "-h"},
 		{"system", "up", "-h"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {

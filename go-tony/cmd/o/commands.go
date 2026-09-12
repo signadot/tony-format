@@ -578,5 +578,6 @@ func SystemCommand(mainCfg *MainConfig) *cli.Command {
 		WithSubs(
 			LogDCommand(cfg.MainConfig),
 			DocDCommand(cfg.MainConfig),
+			SessionCommand(cfg.MainConfig),
 			UpCommand(cfg.MainConfig))
 }

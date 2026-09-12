@@ -23,7 +23,7 @@ answer in the same shapes. See [docd: Composition](../docd/composition.md).
 You can speak it by hand:
 
 ```console
-$ o system logd session localhost:7070
+$ o system session localhost:7070
 {hello: {clientId: probe}}
 {result: {hello: {protocol: 3 schemaCommit: 0 serverId: tcp-1}}}
 ```

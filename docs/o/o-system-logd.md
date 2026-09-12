@@ -13,7 +13,6 @@ o system logd <subcommand>
 | command | synopsis |
 | --- | --- |
 | [`serve`](o-system-logd-serve.md) | `o system logd serve -data <dir> [-addr <addr>] [-admin-addr <addr>]` |
-| [`session`](o-system-logd-session.md) | `o system logd session <addr>` |
 
 ## Options
 
@@ -42,5 +41,6 @@ Boolean options take no argument and may be negated with a `no-` prefix, as in `
 - [published documentation](https://signadot.github.io/tony-format/o/o-system-logd/)
 - [`o system`](o-system.md)
 - [`o system docd`](o-system-docd.md)
+- [`o system session`](o-system-session.md)
 - [`o system up`](o-system-up.md)
 

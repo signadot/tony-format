@@ -1,19 +1,11 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"fmt"
-	"io"
 	"log/slog"
-	"net"
-	"time"
 
 	"github.com/google/gops/agent"
 	"github.com/scott-cotton/cli"
-	"github.com/signadot/tony-format/go-tony/encode"
-	"github.com/signadot/tony-format/go-tony/ir"
-	"github.com/signadot/tony-format/go-tony/stream"
 	"github.com/signadot/tony-format/go-tony/system/admin"
 	"github.com/signadot/tony-format/go-tony/system/logd/server"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
@@ -38,8 +30,7 @@ func LogDCommand(mainCfg *MainConfig) *cli.Command {
 			return groupRun(cfg.LogD, cfg.MainConfig, cc, args)
 		}).
 		WithSubs(
-			LogDServeCommand(cfg),
-			LogDSessionCommand(cfg))
+			LogDServeCommand(cfg))
 }
 
 type LogDServeConfig struct {
@@ -135,144 +126,4 @@ func logdServe(cfg *LogDServeConfig, cc *cli.Context, args []string) error {
 
 	// Block forever
 	select {}
-}
-
-type LogDSessionConfig struct {
-	*LogDConfig
-	Session *cli.Command
-}
-
-func LogDSessionCommand(logdCfg *LogDConfig) *cli.Command {
-	cfg := &LogDSessionConfig{LogDConfig: logdCfg}
-	return cli.NewCommandAt(&cfg.Session, "session").
-		WithSynopsis("session <addr>").
-		WithDescription("connect to logd via TCP session protocol (supports watch)").
-		WithRun(func(cc *cli.Context, args []string) error {
-			return logdSession(cfg, cc, args)
-		})
-}
-
-func logdSession(cfg *LogDSessionConfig, cc *cli.Context, args []string) error {
-	args, err := cfg.Session.Parse(cc, args)
-	if err != nil {
-		return err
-	}
-	if helpAsked(cfg.Session, cc, cfg.Help) {
-		return nil
-	}
-
-	if len(args) < 1 {
-		return fmt.Errorf("usage: session <addr>")
-	}
-
-	addr := args[0]
-
-	// Connect via TCP
-	conn, err := net.Dial("tcp", addr)
-	if err != nil {
-		return fmt.Errorf("failed to connect: %w", err)
-	}
-	defer conn.Close()
-
-	fmt.Fprintf(cc.Out, "Connected to %s\n", addr)
-
-	// Create channels for coordination
-	done := make(chan struct{})
-	inputDone := make(chan struct{})
-
-	// Start goroutine to read responses from server
-	go func() {
-		defer close(done)
-		decoder, err := stream.NewDecoder(conn, stream.WithBrackets())
-		if err != nil {
-			fmt.Fprintf(cc.Out, "Error creating decoder: %v\n", err)
-			return
-		}
-
-		for {
-			// Read a complete document
-			node, err := readSessionDocument(decoder)
-			if err != nil {
-				if err == io.EOF {
-					return
-				}
-				fmt.Fprintf(cc.Out, "Read error: %v\n", err)
-				return
-			}
-
-			if node == nil {
-				continue
-			}
-
-			// Encode and print response
-			var buf bytes.Buffer
-			if err := encode.Encode(node, &buf, encode.EncodeWire(true)); err != nil {
-				fmt.Fprintf(cc.Out, "Encode error: %v\n", err)
-				continue
-			}
-			cc.Out.Write(buf.Bytes())
-			cc.Out.Write([]byte("\n"))
-		}
-	}()
-
-	// Read requests from stdin and send to server
-	go func() {
-		defer close(inputDone)
-		scanner := bufio.NewScanner(cc.In)
-		for scanner.Scan() {
-			line := scanner.Bytes()
-			if len(bytes.TrimSpace(line)) == 0 {
-				continue
-			}
-
-			// Send the line followed by newline
-			if _, err := conn.Write(append(line, '\n')); err != nil {
-				fmt.Fprintf(cc.Out, "Write error: %v\n", err)
-				return
-			}
-		}
-		if err := scanner.Err(); err != nil {
-			fmt.Fprintf(cc.Out, "Stdin error: %v\n", err)
-		}
-	}()
-
-	// Wait for either done or inputDone
-	select {
-	case <-done:
-		// Server closed connection
-	case <-inputDone:
-		// Stdin closed, wait a bit for final responses
-		select {
-		case <-done:
-		case <-time.After(500 * time.Millisecond):
-		}
-	}
-
-	return nil
-}
-
-// readSessionDocument reads events until we have a complete document.
-func readSessionDocument(decoder *stream.Decoder) (*ir.Node, error) {
-	var events []stream.Event
-	started := false
-
-	for {
-		event, err := decoder.ReadEvent()
-		if err != nil {
-			if err == io.EOF {
-				if len(events) > 0 {
-					return stream.EventsToNode(events)
-				}
-				return nil, io.EOF
-			}
-			return nil, err
-		}
-
-		events = append(events, *event)
-		started = true
-
-		if started && decoder.Depth() == 0 {
-			return stream.EventsToNode(events)
-		}
-	}
 }

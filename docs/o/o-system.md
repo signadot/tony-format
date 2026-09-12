@@ -16,6 +16,7 @@ o system <subcommand>
 | --- | --- |
 | [`logd`](o-system-logd.md) | `o system logd <subcommand>` |
 | [`docd`](o-system-docd.md) | `o system docd <subcommand>` |
+| [`session`](o-system-session.md) | `o system session <addr>` |
 | [`up`](o-system-up.md) | `o system up -data <dir> [-config <file>]` |
 
 ## Options

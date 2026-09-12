@@ -89,7 +89,7 @@ o sys logd serve -config testdata/auto-id-config.tony -data /tmp/auto-id-store
 
 Run the example:
 ```bash
-cat testdata/auto-id.tony | o sys logd session :9123
+cat testdata/auto-id.tony | o sys session :9123
 ```
 
 The `!logd-auto-id` tag in the schema tells logd to generate monotonic IDs for null/missing fields.
