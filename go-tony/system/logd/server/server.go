@@ -34,11 +34,6 @@ type Server struct {
 	// switching guards threshold check + SwitchDLog as one atomic operation.
 	// Only one goroutine checks and potentially switches at a time.
 	switching atomic.Bool
-
-	// retentionStop stops the retention timer (retention.go) and retentionDone says it
-	// has, with no pass in progress. Both nil while it is not running.
-	retentionStop chan struct{}
-	retentionDone chan struct{}
 }
 
 // New creates a new Server instance.
@@ -140,16 +135,6 @@ func New(spec *Spec) *Server {
 					"gracePeriod", cfg.GracePeriod,
 					"horizon", cfg.Horizon)
 			}
-		}
-
-		// Retention is the server's own writer (retention.go), so the resolved policy
-		// is the config's after WithDefaults.
-		if r := spec.Config.Retention; r != nil {
-			spec.Log.Info("configured retention",
-				"every", time.Duration(r.Every),
-				"batch", r.Batch,
-				"author", r.Author,
-				"rules", len(r.Rules))
 		}
 	}
 
@@ -263,9 +248,6 @@ func (s *Server) StartTCP(addr string) error {
 		}
 	}()
 
-	// The store is being served, so the server's own writer runs alongside.
-	s.startRetention()
-
 	return nil
 }
 
@@ -277,9 +259,6 @@ func (s *Server) StopTCP() error {
 
 	err := s.tcpListener.Close()
 	s.tcpListener = nil
-	// The server's own writer stops before the store does, and a pass in progress
-	// finishes: a commit needs the store it is committing into.
-	s.stopRetention()
 	// A snapshot triggered by the last commits may still be running off the commit
 	// path; the store is closed after this returns, so wait for it rather than pull
 	// the log out from under it.

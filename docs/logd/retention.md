@@ -5,27 +5,32 @@ then only read — grows without bound, and [compaction](compaction.md) does not
 compaction removes the *memory* of how the state was reached, never the state. A
 record that nobody deletes is state. Retention is what deletes it.
 
-Retention is a **writer**. On a timer, the server reads each rule's container, finds
-the items whose own timestamp is older than the rule allows, and commits an ordinary
-delete for them. Nothing in the storage layer knows it exists, and everything that is
-true of a client's delete is true of these:
+Retention is a **request**, and the request is a **write**. A client sends the rules
+and the time; logd reads each rule's container, finds the items whose own timestamp
+is older than the rule allows, and commits an ordinary delete for them. logd holds no
+retention policy and no clock for it. The caller carries both, and the commit is the
+record that it ran — so whoever drives it, a controller on its own schedule, an
+operator by hand, a cron, sees the commit it caused, and a pass given an explicit
+`now` is a function of the state and the request, reproducible from the log.
 
-- watchers see them as deltas, carrying the retention author;
+Everything that is true of a client's delete is true of these:
+
+- watchers see them as deltas, carrying the request's author;
 - a read at an older commit still shows the records;
 - the schema still applies, so a delete it forbids fails visibly instead of leaving a
   broken snapshot;
-- each delete carries a precondition on what the pass read, so a writer that touches a
+- each batch carries a precondition on what the pass read, so a writer that touches a
   record between the read and the delete makes that batch fail rather than lose a
   write.
 
-## A rule
+## The request
 
 ```tony
-retention:
-  every: 1h                  # how often the rules run; default 1h
-  batch: 256                 # the most items one delete commit removes; default 256
-  author: logd/retention     # what the deletes are recorded as written by; default
-  rules:
+{retain: {
+  now: "2026-09-12T08:00:00Z"        # optional; the server's clock when absent
+  batch: 256                         # optional; the most items one delete commit removes
+  author: verse/retention            # optional; the session's when absent
+  what:
   - path: jobs.*
     match: {status: !or [done, canceled]}
     age: .updatedAt
@@ -33,7 +38,28 @@ retention:
   - path: events(*)
     age: .at
     after: 1y
+}}
 ```
+
+```tony
+{result: {retain: {
+  now: "2026-09-12T08:00:00Z"
+  commit: 4127
+  deleted: 312
+  rules:
+  - {path: jobs.*, deleted: 300, unreadable: 2}
+  - {path: events(*), deleted: 12}
+}}}
+```
+
+| field | what it says |
+|---|---|
+| `now` | the time ages are measured against, RFC3339; the server's clock when absent, and the result says which was used |
+| `batch` | the most items one delete commit removes; 256 when absent |
+| `author` | what the deletes are recorded as written by, as a patch's `author`; the session's when absent |
+| `what` | the rules, at least one |
+
+And a rule:
 
 | field | what it says |
 |---|---|
@@ -43,7 +69,14 @@ retention:
 | `after` | how old an item may be: it expires when `now - timestamp >= after` and `match` holds |
 
 An item is deleted **whole**, never a field inside it. An item with no parseable
-timestamp at `age` is kept, and the pass says so once in the log.
+timestamp at `age` is kept, and counted as `unreadable` in the result. A batch whose
+precondition no longer held is counted as `skipped`: the state moved under the pass,
+and asking again reads it afresh.
+
+The request runs on the loop, as a plain patch does, so a read pipelined behind it
+sees what it deleted. In a scoped session it reads the scope's view and deletes in the
+scope; baseline keeps the record. Through [docd](../docd/index.md) it is not routed
+yet, and is answered `unsupported`.
 
 ### What the last segment may be
 
@@ -53,18 +86,17 @@ timestamp at `age` is kept, and the pass says so once in the log.
 | `{*}` | the entries of a sparse array | `events{*}` |
 | `(*)` | the elements of a [keyed array](keyed.md) | `runs(*)` |
 
-A dense array, `[*]`, is **refused** at load. An index names a position, not an
-element: a concurrent insert or delete before that index lands the expiry on a
-neighbour, and every expiry shifts every later positional watch, on every tick for as
-long as the rule exists. This is the case the keyed-array page already makes for any
-durable array two writers touch. Declare the array keyed — `!logd-key` or
-`!logd-auto-id` in the schema — and write the rule with `(*)`. Items must be objects
-anyway, since they carry a timestamp, and `!logd-auto-id` generates the key for a
-producer that has none.
+A dense array, `[*]`, is **refused**. An index names a position, not an element: a
+concurrent insert or delete before that index lands the expiry on a neighbour, and
+every expiry shifts every later positional watch. This is the case the keyed-array page
+already makes for any durable array two writers touch. Declare the array keyed —
+`!logd-key` or `!logd-auto-id` in the schema — and write the rule with `(*)`. Items
+must be objects anyway, since they carry a timestamp, and `!logd-auto-id` generates the
+key for a producer that has none.
 
 The rule and the schema have to agree: `runs.*` over an array the schema keys is
-refused when the rule runs, naming `runs(*)`, and `list(*)` over an array the schema
-gives no identity is refused the same way.
+refused, naming `runs(*)`, and `list(*)` over an array the schema gives no identity is
+refused the same way.
 
 `..` is refused, as it is [everywhere a path must name a place](../objpath.md#where--may-not-go).
 A wildcard anywhere but the last segment is refused too: a rule is about the children
@@ -84,35 +116,44 @@ Age is not written as a match operator. Match tests structure and equality and h
 ordering, and it is also the language of preconditions, which have to be repeatable;
 a clock-dependent predicate would be neither.
 
+### Clocks
+
+The timestamp is the writer's and `now` is the caller's, or the server's. A record
+from a clock that runs fast expires early by the skew, and a record dated in the
+future never expires until `now` passes it. For limits in days and years that is
+noise; for a one-hour rule it is real, and the remedy is to send `now` from the same
+clock the records are stamped with. logd's own commit timestamps are never read by a
+retain, so the two cannot disagree.
+
 ### The precondition
 
 A batch's delete asserts, for each item, the timestamp the pass read and the fields
 the rule's `match` names, combined into one object pattern. That is why `match` has
 to be an object — `{status: !or [done, canceled]}` rather than `!or [...]` at the item
-— and why it may not name the `age` field itself. A batch whose precondition no longer
-holds is skipped, logged, and re-read on the next pass.
+— and why it may not name the `age` field itself.
 
 ### Durations
 
-`every` and `after` are written the way [compaction's durations](compaction.md#durations)
-are, plus the units a retention limit is asked for in: `1d` is 24h, `2w` is 14d and
-`1y` is 365d, calendar-blind, and they mix with the rest (`1y6w`, `1d12h`).
+`after` is written the way a duration is written — `1h`, `90m`, `30s` — plus the
+units a retention limit is asked for in: `1d` is 24h, `2w` is 14d and `1y` is 365d,
+calendar-blind, and they mix with the rest (`1y6w`, `1d12h`).
 
 ## What the pass does
 
-1. Reads the container as of the current commit, under the configured read budget.
-   A container larger than the budget is a rule error, logged; raise `storage.readBudget`
-   or split the collection.
-2. For each item: reads the timestamp at `age`; skips the item if it is missing or will
+1. Reads the container as of the current commit, in the session's view, under the
+   configured read budget. A container larger than the budget is a `storage_error`;
+   raise `storage.readBudget` or split the collection.
+2. For each item: reads the timestamp at `age`; keeps the item if it is missing or will
    not parse, or if `now - timestamp < after`, or if `match` does not hold.
 3. Deletes the rest in commits of at most `batch` items, each under its precondition.
 
-The first pass runs when the server starts serving, so a backlog is not left waiting
-an interval to be noticed. The timer then fires every `every`. Retention runs on the
-**baseline** only; a scope is deleted whole with `deleteScope`.
+Rules run in order, and an error in one answers for the request: the rules before it
+have run and their deletes are committed, which the error says.
 
 ## What it does not do
 
+- **It does not run on its own.** There is no timer in logd. A store nobody asks
+  retains everything, and the ask is the caller's clock, not logd's.
 - **It does not free disk on its own.** A delete removes the record from the current
   state, but the record survives in every older root snapshot the tier policy keeps,
   and some snapshot from every era survives indefinitely. Set
@@ -123,9 +164,12 @@ an interval to be noticed. The timer then fires every `every`. Retention runs on
 - **It does not look inside `!raw`.** A raw subtree is a document the store carries
   rather than one it owns.
 
-## Validation
+## Errors
 
-The section is checked when the file loads, and a rule that cannot mean what it says
-refuses the whole config: a path that names one node, or a dense array, or a wildcard
-in the middle; an `age` that is not a field path; an `after` that is not positive; a
-`match` that is not an object or that names the age field; a section with no rules.
+A request that cannot mean what it says is refused whole, `invalid_retain`, before any
+rule runs: a `now` that is not a time; no rules; a path that names one node, or a
+dense array, or a wildcard in the middle; an `age` that is not a field path; an
+`after` that is not a positive duration; a `match` that is not an object or that names
+the age field; a negative `batch`. A rule that disagrees with the store it meets — the
+schema's keying, a dense array where the rule said elements — is `invalid_retain` too,
+when it runs.

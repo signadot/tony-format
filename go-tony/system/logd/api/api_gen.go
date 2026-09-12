@@ -1202,6 +1202,261 @@ func (s *DeleteScopeRequest) FromTony(data []byte, opts ...gomap.UnmapOption) er
 	return s.FromTonyIR(node, opts...)
 }
 
+// ToTonyIR converts RetainRequest to a Tony IR node.
+func (s *RetainRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
+	var node *ir.Node
+	var err error
+	_ = node // suppress unused variable error
+	_ = err  // suppress unused variable error
+
+	// Create IR object map
+	irMap := make(map[string]*ir.Node)
+
+	// Field: Now
+	if s.Now != "" {
+		irMap["now"] = ir.FromString(string(s.Now))
+	}
+
+	// Field: What
+	{
+		slice := make([]*ir.Node, len(s.What))
+		for i, v := range s.What {
+			node, err = v.ToTonyIR(opts...)
+			if err != nil {
+				return nil, fmt.Errorf("failed to convert slice element %d: %w", i, err)
+			}
+			slice[i] = node
+		}
+		irMap["what"] = ir.FromSlice(slice)
+	}
+
+	// Field: Batch
+	if s.Batch != 0 {
+		irMap["batch"] = ir.FromInt(int64(s.Batch))
+	}
+
+	// Field: Author
+	if s.Author != "" {
+		irMap["author"] = ir.FromString(string(s.Author))
+	}
+
+	return ir.FromMap(irMap), nil
+}
+
+// FromTonyIR populates RetainRequest from a Tony IR node.
+func (s *RetainRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
+	if node.Type != ir.ObjectType {
+		return fmt.Errorf("expected map for RetainRequest, got %v", node.Type)
+	}
+
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
+		switch fieldName.String {
+		case "now":
+			// Field: Now
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "now", fieldNodeUnwrapped.Type)
+			}
+			s.Now = string(fieldNodeUnwrapped.String)
+		case "what":
+			// Field: What
+			if fieldNodeUnwrapped.Type == ir.ArrayType {
+				slice := make([]*RetainRule, len(fieldNodeUnwrapped.Values))
+				for i, v := range fieldNodeUnwrapped.Values {
+					elem := new(RetainRule)
+					if err := elem.FromTonyIR(v, opts...); err != nil {
+						return fmt.Errorf("failed to convert slice element %d: %w", i, err)
+					}
+					slice[i] = elem
+				}
+				s.What = slice
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"what\"", fieldNodeUnwrapped.Type)
+			}
+		case "batch":
+			// Field: Batch
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "batch", fieldNodeUnwrapped.Type)
+			}
+			s.Batch = int(*fieldNodeUnwrapped.Int64)
+		case "author":
+			// Field: Author
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "author", fieldNodeUnwrapped.Type)
+			}
+			s.Author = string(fieldNodeUnwrapped.String)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for RetainRequest", fieldName.String)
+			}
+		}
+	}
+
+	return nil
+}
+
+// ToTony converts RetainRequest to Tony format bytes.
+func (s *RetainRequest) ToTony(opts ...gomap.MapOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// FromTony parses Tony format bytes and populates RetainRequest.
+func (s *RetainRequest) FromTony(data []byte, opts ...gomap.UnmapOption) error {
+	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
+	if err != nil {
+		return err
+	}
+	return s.FromTonyIR(node, opts...)
+}
+
+// ToTonyIR converts RetainRule to a Tony IR node.
+func (s *RetainRule) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
+	var node *ir.Node
+	var err error
+	_ = node // suppress unused variable error
+	_ = err  // suppress unused variable error
+
+	// Create IR object map
+	irMap := make(map[string]*ir.Node)
+
+	// Field: Path
+	irMap["path"] = ir.FromString(string(s.Path))
+
+	// Field: Match (optional)
+	if s.Match != nil {
+		irMap["match"] = s.Match
+	}
+
+	// Field: Age
+	irMap["age"] = ir.FromString(string(s.Age))
+
+	// Field: After
+	irMap["after"] = ir.FromString(string(s.After))
+
+	return ir.FromMap(irMap), nil
+}
+
+// FromTonyIR populates RetainRule from a Tony IR node.
+func (s *RetainRule) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
+	if node.Type != ir.ObjectType {
+		return fmt.Errorf("expected map for RetainRule, got %v", node.Type)
+	}
+
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
+		switch fieldName.String {
+		case "path":
+			// Field: Path
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "path", fieldNodeUnwrapped.Type)
+			}
+			s.Path = string(fieldNodeUnwrapped.String)
+		case "match":
+			if gomap.GetUnmapComments(opts...) {
+				s.Match = fieldNode
+			} else {
+				s.Match = fieldNodeUnwrapped
+			}
+		case "age":
+			// Field: Age
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "age", fieldNodeUnwrapped.Type)
+			}
+			s.Age = string(fieldNodeUnwrapped.String)
+		case "after":
+			// Field: After
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "after", fieldNodeUnwrapped.Type)
+			}
+			s.After = string(fieldNodeUnwrapped.String)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for RetainRule", fieldName.String)
+			}
+		}
+	}
+
+	return nil
+}
+
+// ToTony converts RetainRule to Tony format bytes.
+func (s *RetainRule) ToTony(opts ...gomap.MapOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// FromTony parses Tony format bytes and populates RetainRule.
+func (s *RetainRule) FromTony(data []byte, opts ...gomap.UnmapOption) error {
+	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
+	if err != nil {
+		return err
+	}
+	return s.FromTonyIR(node, opts...)
+}
+
 // ToTonyIR converts SchemaGetRequest to a Tony IR node.
 func (s *SchemaGetRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if s == nil {
@@ -1595,6 +1850,15 @@ func (s *SessionRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["schema"] = node
 	}
 
+	// Field: Retain (optional)
+	if s.Retain != nil {
+		node, err = s.Retain.ToTonyIR(opts...)
+		if err != nil {
+			return nil, err
+		}
+		irMap["retain"] = node
+	}
+
 	// Field: Ping (optional)
 	if s.Ping != nil {
 		node, err = s.Ping.ToTonyIR(opts...)
@@ -1707,6 +1971,12 @@ func (s *SessionRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) er
 			// Field: Schema
 			s.Schema = &SchemaRequest{}
 			if err := s.Schema.FromTonyIR(fieldNode, opts...); err != nil {
+				return err
+			}
+		case "retain":
+			// Field: Retain
+			s.Retain = &RetainRequest{}
+			if err := s.Retain.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "ping":
@@ -2473,6 +2743,252 @@ func (s *DeleteScopeResult) FromTony(data []byte, opts ...gomap.UnmapOption) err
 	return s.FromTonyIR(node, opts...)
 }
 
+// ToTonyIR converts RetainResult to a Tony IR node.
+func (s *RetainResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
+	var node *ir.Node
+	var err error
+	_ = node // suppress unused variable error
+	_ = err  // suppress unused variable error
+
+	// Create IR object map
+	irMap := make(map[string]*ir.Node)
+
+	// Field: Now
+	irMap["now"] = ir.FromString(string(s.Now))
+
+	// Field: Commit
+	irMap["commit"] = ir.FromInt(int64(s.Commit))
+
+	// Field: Deleted
+	irMap["deleted"] = ir.FromInt(int64(s.Deleted))
+
+	// Field: Rules
+	{
+		slice := make([]*ir.Node, len(s.Rules))
+		for i, v := range s.Rules {
+			node, err = v.ToTonyIR(opts...)
+			if err != nil {
+				return nil, fmt.Errorf("failed to convert slice element %d: %w", i, err)
+			}
+			slice[i] = node
+		}
+		irMap["rules"] = ir.FromSlice(slice)
+	}
+
+	return ir.FromMap(irMap), nil
+}
+
+// FromTonyIR populates RetainResult from a Tony IR node.
+func (s *RetainResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
+	if node.Type != ir.ObjectType {
+		return fmt.Errorf("expected map for RetainResult, got %v", node.Type)
+	}
+
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
+		switch fieldName.String {
+		case "now":
+			// Field: Now
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "now", fieldNodeUnwrapped.Type)
+			}
+			s.Now = string(fieldNodeUnwrapped.String)
+		case "commit":
+			// Field: Commit
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "commit", fieldNodeUnwrapped.Type)
+			}
+			s.Commit = int64(*fieldNodeUnwrapped.Int64)
+		case "deleted":
+			// Field: Deleted
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "deleted", fieldNodeUnwrapped.Type)
+			}
+			s.Deleted = int(*fieldNodeUnwrapped.Int64)
+		case "rules":
+			// Field: Rules
+			if fieldNodeUnwrapped.Type == ir.ArrayType {
+				slice := make([]*RetainRuleResult, len(fieldNodeUnwrapped.Values))
+				for i, v := range fieldNodeUnwrapped.Values {
+					elem := new(RetainRuleResult)
+					if err := elem.FromTonyIR(v, opts...); err != nil {
+						return fmt.Errorf("failed to convert slice element %d: %w", i, err)
+					}
+					slice[i] = elem
+				}
+				s.Rules = slice
+			} else {
+				return fmt.Errorf("%s: expected array, got %v", "field \"rules\"", fieldNodeUnwrapped.Type)
+			}
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for RetainResult", fieldName.String)
+			}
+		}
+	}
+
+	return nil
+}
+
+// ToTony converts RetainResult to Tony format bytes.
+func (s *RetainResult) ToTony(opts ...gomap.MapOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// FromTony parses Tony format bytes and populates RetainResult.
+func (s *RetainResult) FromTony(data []byte, opts ...gomap.UnmapOption) error {
+	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
+	if err != nil {
+		return err
+	}
+	return s.FromTonyIR(node, opts...)
+}
+
+// ToTonyIR converts RetainRuleResult to a Tony IR node.
+func (s *RetainRuleResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
+	if s == nil {
+		return ir.Null(), nil
+	}
+	// Create IR object map
+	irMap := make(map[string]*ir.Node)
+
+	// Field: Path
+	irMap["path"] = ir.FromString(string(s.Path))
+
+	// Field: Deleted
+	irMap["deleted"] = ir.FromInt(int64(s.Deleted))
+
+	// Field: Unreadable
+	if s.Unreadable != 0 {
+		irMap["unreadable"] = ir.FromInt(int64(s.Unreadable))
+	}
+
+	// Field: Skipped
+	if s.Skipped != 0 {
+		irMap["skipped"] = ir.FromInt(int64(s.Skipped))
+	}
+
+	return ir.FromMap(irMap), nil
+}
+
+// FromTonyIR populates RetainRuleResult from a Tony IR node.
+func (s *RetainRuleResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
+	if node == nil {
+		return nil
+	}
+
+	// Unwrap CommentType nodes to get the actual data node
+	if node.Type == ir.CommentType {
+		if len(node.Values) > 0 {
+			node = node.Values[0]
+		} else {
+			return nil
+		}
+	}
+
+	if node.Type == ir.NullType {
+		return nil
+	}
+	if node.Type != ir.ObjectType {
+		return fmt.Errorf("expected map for RetainRuleResult, got %v", node.Type)
+	}
+
+	for i, fieldName := range node.Fields {
+		fieldNode := node.Values[i]
+		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
+		fieldNodeUnwrapped := fieldNode
+		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
+			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
+		}
+		switch fieldName.String {
+		case "path":
+			// Field: Path
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "path", fieldNodeUnwrapped.Type)
+			}
+			s.Path = string(fieldNodeUnwrapped.String)
+		case "deleted":
+			// Field: Deleted
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "deleted", fieldNodeUnwrapped.Type)
+			}
+			s.Deleted = int(*fieldNodeUnwrapped.Int64)
+		case "unreadable":
+			// Field: Unreadable
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "unreadable", fieldNodeUnwrapped.Type)
+			}
+			s.Unreadable = int(*fieldNodeUnwrapped.Int64)
+		case "skipped":
+			// Field: Skipped
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "skipped", fieldNodeUnwrapped.Type)
+			}
+			s.Skipped = int(*fieldNodeUnwrapped.Int64)
+		default:
+			if gomap.IsStrict(opts...) {
+				return fmt.Errorf("unknown field %q for RetainRuleResult", fieldName.String)
+			}
+		}
+	}
+
+	return nil
+}
+
+// ToTony converts RetainRuleResult to Tony format bytes.
+func (s *RetainRuleResult) ToTony(opts ...gomap.MapOption) ([]byte, error) {
+	node, err := s.ToTonyIR(opts...)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// FromTony parses Tony format bytes and populates RetainRuleResult.
+func (s *RetainRuleResult) FromTony(data []byte, opts ...gomap.UnmapOption) error {
+	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
+	if err != nil {
+		return err
+	}
+	return s.FromTonyIR(node, opts...)
+}
+
 // ToTonyIR converts SchemaResult to a Tony IR node.
 func (s *SchemaResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if s == nil {
@@ -2656,6 +3172,15 @@ func (s *SessionResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["schema"] = node
 	}
 
+	// Field: Retain (optional)
+	if s.Retain != nil {
+		node, err = s.Retain.ToTonyIR(opts...)
+		if err != nil {
+			return nil, err
+		}
+		irMap["retain"] = node
+	}
+
 	// Field: Pong (optional)
 	if s.Pong != nil {
 		node, err = s.Pong.ToTonyIR(opts...)
@@ -2744,6 +3269,12 @@ func (s *SessionResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) err
 			// Field: Schema
 			s.Schema = &SchemaResult{}
 			if err := s.Schema.FromTonyIR(fieldNode, opts...); err != nil {
+				return err
+			}
+		case "retain":
+			// Field: Retain
+			s.Retain = &RetainResult{}
+			if err := s.Retain.FromTonyIR(fieldNode, opts...); err != nil {
 				return err
 			}
 		case "pong":

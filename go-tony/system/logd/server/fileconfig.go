@@ -1,7 +1,6 @@
 package server
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,7 +10,6 @@ import (
 
 	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
-	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/parse"
 	"github.com/signadot/tony-format/go-tony/schema"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
@@ -42,211 +40,9 @@ type Config struct {
 	// If nil, compaction is disabled (all data retained).
 	Compaction *CompactionConfig `tony:"field=compaction"`
 
-	// Retention configures the rules that age log-like records out of the STATE.
-	// If nil, nothing is ever deleted by the server. See RetentionConfig.
-	Retention *RetentionConfig `tony:"field=retention"`
-
 	// Storage configures the storage layer itself.
 	// If nil, storage defaults apply.
 	Storage *StorageConfig `tony:"field=storage"`
-}
-
-// RetentionConfig is the policy that ages log-like records out of the state.
-//
-// It is not compaction. Compaction removes the MEMORY of how the state was reached and
-// never the state (docs/logd/compaction.md); a record that grows a log-like collection
-// without bound is state, and only a write removes it. So retention is a writer: on a
-// timer it reads each rule's container, finds the items whose own timestamp is older
-// than the rule allows, and commits an ordinary delete for them -- under a system
-// author, through the schema, with a precondition on what it read, in batches of a
-// bounded size. Watchers see the deletes as authored deltas; a read at an older commit
-// still shows the records; and the delete leaves the disk when compaction's horizon
-// passes it (CompactionConfig.Horizon).
-//
-// Items are assumed to be log-like, which is why a rule REQUIRES the timestamp field:
-// age read from the record is exact, depends on no compaction setting, and needs no
-// new metadata in the store (issue regx2d1mh12krm0amnn0).
-//
-//tony:schemagen=retention-config
-type RetentionConfig struct {
-	// Every is how often the rules run. Zero is the default, 1h. A timer rather than
-	// the snapshot trigger: a quiet log never snapshots, so its records would never
-	// expire.
-	Every Duration `tony:"field=every"`
-
-	// Batch is the most items one delete commit removes; a rule with more expired
-	// items than this takes several commits in one run. Zero is the default, 256.
-	Batch int `tony:"field=batch"`
-
-	// Author is what the delete commits are recorded as written by. Zero is the
-	// default, "logd/retention".
-	Author string `tony:"field=author"`
-
-	// Rules are the rules, each over one container of items.
-	Rules []*RetentionRule `tony:"field=rules"`
-}
-
-// RetentionRule ages the items of one container out of the state.
-//
-//tony:schemagen=retention-rule
-type RetentionRule struct {
-	// Path names the items: a path whose LAST segment is the wildcard of the
-	// container's kind -- `jobs.*` for the fields of an object, `events{*}` for the
-	// entries of a sparse array, `runs(*)` for the elements of a keyed array -- and
-	// whose other segments are concrete. Each item is deleted whole, never a field
-	// inside it.
-	//
-	// A dense array, `[*]`, is refused: an index names a position, not an element,
-	// so a concurrent insert or delete lands the expiry on a neighbour and every
-	// expiry shifts every later positional watch. Declare the array keyed instead
-	// (!logd-key or !logd-auto-id in the schema) and write the rule with `(*)`.
-	// `..` is refused as it is everywhere a path must name a place.
-	Path string `tony:"field=path"`
-
-	// Match, if set, is a pattern the item must match to expire, in the match
-	// language (docs/matchpatch.md): `{status: !or [done, canceled]}`. Match tests
-	// structure and equality and has no ordering, which is why age is not a match.
-	Match *ir.Node `tony:"field=match"`
-
-	// Age is the path, inside the item, of the RFC3339 timestamp its age is read
-	// from: `.updatedAt`, `meta.at`. An item with no parseable timestamp there is
-	// kept, and reported once per run.
-	Age string `tony:"field=age"`
-
-	// After is how old an item may be before it expires: it expires when
-	// now - timestamp >= after, and Match (if any) holds.
-	After Duration `tony:"field=after"`
-}
-
-// Retention defaults. An hour is the granularity anyone asks for a retention rule
-// in; a batch of 256 keeps one commit's delta, and the watch event it becomes,
-// small whatever the backlog.
-const (
-	defaultRetentionEvery  = time.Hour
-	defaultRetentionBatch  = 256
-	defaultRetentionAuthor = "logd/retention"
-)
-
-// WithDefaults fills the zero fields of a retention section and returns it. A section
-// that is present with no rules configures nothing, and says so at load (Validate).
-func (c *RetentionConfig) WithDefaults() *RetentionConfig {
-	if c == nil {
-		return nil
-	}
-	if c.Every == 0 {
-		c.Every = Duration(defaultRetentionEvery)
-	}
-	if c.Batch == 0 {
-		c.Batch = defaultRetentionBatch
-	}
-	if c.Author == "" {
-		c.Author = defaultRetentionAuthor
-	}
-	return c
-}
-
-// Validate refuses a retention section that cannot mean what it says, at load: a
-// negative interval or batch, and any rule Validate refuses.
-func (c *RetentionConfig) Validate() error {
-	if c == nil {
-		return nil
-	}
-	if c.Every < 0 {
-		return fmt.Errorf("retention: every %v is negative", time.Duration(c.Every))
-	}
-	if c.Batch < 0 {
-		return fmt.Errorf("retention: batch %d is negative", c.Batch)
-	}
-	if len(c.Rules) == 0 {
-		return errors.New("retention: a section with no rules retains nothing; leave it out, or give it rules")
-	}
-	for i, r := range c.Rules {
-		if r == nil {
-			return fmt.Errorf("retention: rule %d is empty", i)
-		}
-		if _, err := r.target(); err != nil {
-			return fmt.Errorf("retention: rule %d: %w", i, err)
-		}
-	}
-	return nil
-}
-
-// retentionTarget is a rule, read: the container its items are the children of, the
-// kind its items are named by, and the path of an item's timestamp.
-type retentionTarget struct {
-	container string
-	items     kpath.EntryKind
-	age       *kpath.KPath
-}
-
-// target reads a rule, and is where a rule is refused: a path that names one node,
-// or a set of them at more than one step, or the positions of a dense array; an age
-// that is not a field path; a duration that is not one.
-func (r *RetentionRule) target() (*retentionTarget, error) {
-	kp, err := kpath.Parse(r.Path)
-	if err != nil {
-		return nil, fmt.Errorf("path %q: %w", r.Path, err)
-	}
-	if kp == nil {
-		return nil, errors.New("path is empty: a rule names a container's items, as jobs.*")
-	}
-	var last *kpath.KPath
-	for x := kp; x != nil; x = x.Next {
-		if x.Descend {
-			return nil, fmt.Errorf("path %q: `..` names nodes at any depth, and a rule's items are the children of one container", r.Path)
-		}
-		if x.Next == nil {
-			last = x
-			break
-		}
-		if x.Wild() {
-			return nil, fmt.Errorf("path %q: only the last segment may be a wildcard; a rule's items are the children of one container", r.Path)
-		}
-	}
-	if !last.Wild() {
-		return nil, fmt.Errorf("path %q names one node; a rule's last segment names its items: .* for an object's fields, {*} for a sparse array's entries, (*) for a keyed array's elements", r.Path)
-	}
-	if last.IndexAll {
-		return nil, fmt.Errorf("path %q: [*] names positions, and a position is not an element -- a concurrent write lands the expiry on a neighbour; declare the array keyed (!logd-key or !logd-auto-id) and write the rule with (*)", r.Path)
-	}
-	t := &retentionTarget{container: kp.Parent().String(), items: last.EntryKind()}
-	if kp.Parent() == nil {
-		t.container = ""
-	}
-
-	age, err := kpath.Parse(r.Age)
-	if err != nil {
-		return nil, fmt.Errorf("age %q: %w", r.Age, err)
-	}
-	if age == nil {
-		return nil, errors.New("age is empty: a rule names the field an item's timestamp is in, as .updatedAt")
-	}
-	for x := age; x != nil; x = x.Next {
-		if x.Field == nil {
-			return nil, fmt.Errorf("age %q: a timestamp is at a field path inside the item, as .updatedAt or meta.at", r.Age)
-		}
-	}
-	t.age = age
-
-	// A match is combined with the timestamp into the delete's precondition, one
-	// object pattern, so it has to be one: `{status: !or [done, canceled]}` rather than
-	// `!or [...]` at the item. And it must not name the age field itself: age is the
-	// rule's comparison, and a match on that field would be a second, contradictory,
-	// answer to when an item expires.
-	if r.Match != nil {
-		m := ir.Uncomment(r.Match)
-		if m == nil || m.Type != ir.ObjectType {
-			return nil, errors.New("match is not an object pattern; write it as {field: pattern, ...}, as {status: !or [done, canceled]}")
-		}
-		if ir.Get(m, *age.Field) != nil {
-			return nil, fmt.Errorf("match names %q, which is the age field: age is compared by `after`, not by the match", *age.Field)
-		}
-	}
-
-	if r.After <= 0 {
-		return nil, fmt.Errorf("after %v: an item expires after a positive duration", time.Duration(r.After))
-	}
-	return t, nil
 }
 
 // StorageConfig configures the storage layer.
@@ -578,14 +374,13 @@ func (c *Config) WithDefaults() *Config {
 	if c.Tx == nil {
 		c.Tx = &TxConfig{Timeout: Duration(defaultTxTimeout)}
 	}
-	c.Retention = c.Retention.WithDefaults()
 	return c
 }
 
 // Validate checks the configuration for errors. Called by LoadConfig, so a file
 // giving a value logd does not understand -- a durability other than os or sync, a
-// schema api.Schema.Validate refuses, a compaction policy the store would refuse, or a
-// retention rule that names no items -- is rejected rather than run.
+// schema api.Schema.Validate refuses, or a compaction policy the store would refuse --
+// is rejected rather than run.
 func (c *Config) Validate() error {
 	// A misspelled durability must not fall back to the default: an operator who
 	// wrote "fsync" and silently got page-cache writes has the opposite of what
@@ -601,9 +396,6 @@ func (c *Config) Validate() error {
 		if err := c.Compaction.ToStorageConfig().Validate(); err != nil {
 			return err
 		}
-	}
-	if err := c.Retention.Validate(); err != nil {
-		return err
 	}
 	// A schema is held to the rules a migration is held to. The config's was adopted
 	// without them, so a store ran a schema its own SetSchema refuses -- an array

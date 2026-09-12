@@ -1,28 +1,19 @@
 package server
 
 import (
-	"io"
-	"log/slog"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/parse"
+	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 )
 
-// Retention is a writer: it reads a rule's container, and commits an ordinary delete
-// for the items whose own timestamp is older than the rule allows and whose match
-// holds. What it does not delete is as much the contract as what it does.
-
-func retentionServer(t *testing.T, store *storage.Storage, cfg *RetentionConfig) *Server {
-	t.Helper()
-	return New(&Spec{
-		Config:  &Config{Retention: cfg},
-		Storage: store,
-		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
-	})
-}
+// A retain request is a writer: it reads a rule's container and commits an ordinary
+// delete for the items whose own timestamp is older than the rule allows and whose
+// match holds. What it does not delete is as much the contract as what it does, and
+// logd holds no policy and no clock for it: the request carries the rules and the time.
 
 func openStore(t *testing.T) *storage.Storage {
 	t.Helper()
@@ -47,9 +38,32 @@ func readWire(t *testing.T, store *storage.Storage, path string) string {
 	return wireOf(t, resp.Result.Match.Body)
 }
 
+// retain sends one retain request and answers its result, or fails on an error.
+func retain(t *testing.T, store *storage.Storage, body string) *api.RetainResult {
+	t.Helper()
+	resp := narrowRequest(t, store, `{id: "x", retain: `+body+`}`)
+	if resp.Error != nil {
+		t.Fatalf("retain %s: %s: %s", body, resp.Error.Code, resp.Error.Message)
+	}
+	if resp.Result == nil || resp.Result.Retain == nil {
+		t.Fatalf("no retain result: %+v", resp)
+	}
+	return resp.Result.Retain
+}
+
+// retainError sends one retain request that must fail, and answers the error.
+func retainError(t *testing.T, store *storage.Storage, body string) *api.SessionError {
+	t.Helper()
+	resp := narrowRequest(t, store, `{id: "x", retain: `+body+`}`)
+	if resp.Error == nil {
+		t.Fatalf("retain %s succeeded: %+v", body, resp.Result)
+	}
+	return resp.Error
+}
+
 func stamp(d time.Duration) string { return time.Now().Add(d).Format(time.RFC3339) }
 
-func TestRetentionDeletesExpiredObjectItems(t *testing.T) {
+func TestRetainDeletesExpiredObjectItems(t *testing.T) {
 	store := openStore(t)
 	old, fresh := stamp(-48*time.Hour), stamp(-time.Hour)
 	narrowWrite(t, store, "jobs.a", `{status: done, updatedAt: "`+old+`"}`)
@@ -59,23 +73,21 @@ func TestRetentionDeletesExpiredObjectItems(t *testing.T) {
 	narrowWrite(t, store, "jobs.e", `{status: done, updatedAt: yesterday}`)    // unreadable: kept
 	narrowWrite(t, store, "jobs.f", `{status: canceled, updatedAt: "`+old+`"}`)
 
-	srv := retentionServer(t, store, &RetentionConfig{Rules: []*RetentionRule{{
-		Path:  "jobs.*",
-		Match: mustParseNode(t, `{status: !or [done, canceled]}`),
-		Age:   ".updatedAt",
-		After: Duration(24 * time.Hour),
-	}}})
+	req := `{what: [{path: "jobs.*", match: {status: !or [done, canceled]}, age: ".updatedAt", after: 1d}]}`
 	before, _ := store.GetCurrentCommit()
-	deleted, err := srv.retentionPass(time.Now())
-	if err != nil {
-		t.Fatalf("pass: %v", err)
+	res := retain(t, store, req)
+	if res.Deleted != 2 {
+		t.Errorf("deleted %d items, want 2 (a and f)", res.Deleted)
 	}
-	if deleted != 2 {
-		t.Errorf("deleted %d items, want 2 (a and f)", deleted)
+	if len(res.Rules) != 1 || res.Rules[0].Deleted != 2 || res.Rules[0].Unreadable != 2 {
+		t.Errorf("rules = %+v, want one with 2 deleted and 2 unreadable", res.Rules)
+	}
+	if res.Now == "" {
+		t.Error("result names no now, want the server's clock")
 	}
 	after, _ := store.GetCurrentCommit()
-	if after != before+1 {
-		t.Errorf("commits went %d -> %d, want one delete commit", before, after)
+	if after != before+1 || res.Commit != after {
+		t.Errorf("commits went %d -> %d, result says %d; want one delete commit", before, after, res.Commit)
 	}
 	got := readWire(t, store, "jobs")
 	for _, kept := range []string{"b:", "c:", "d:", "e:"} {
@@ -89,17 +101,38 @@ func TestRetentionDeletesExpiredObjectItems(t *testing.T) {
 		}
 	}
 
-	// A second pass finds nothing to do, and commits nothing.
-	deleted, err = srv.retentionPass(time.Now())
-	if err != nil || deleted != 0 {
-		t.Errorf("second pass: deleted %d, err %v; want 0, nil", deleted, err)
+	// Asked again, nothing is left to do, and nothing is committed.
+	res = retain(t, store, req)
+	if res.Deleted != 0 {
+		t.Errorf("second request deleted %d, want 0", res.Deleted)
 	}
 	if again, _ := store.GetCurrentCommit(); again != after {
-		t.Errorf("second pass committed: %d -> %d", after, again)
+		t.Errorf("second request committed: %d -> %d", after, again)
 	}
 }
 
-func TestRetentionDeletesKeyedElementsByIdentity(t *testing.T) {
+// The time is the caller's when it says so: given a now, the pass is a function of the
+// state and the request, whatever the server's clock says.
+func TestRetainMeasuresAgainstTheCallersNow(t *testing.T) {
+	store := openStore(t)
+	narrowWrite(t, store, "jobs.a", `{at: "2026-01-01T00:00:00Z"}`)
+	narrowWrite(t, store, "jobs.b", `{at: "2026-06-01T00:00:00Z"}`)
+
+	// As of March, only a is a month old.
+	res := retain(t, store, `{now: "2026-03-01T00:00:00Z", what: [{path: "jobs.*", age: ".at", after: 30d}]}`)
+	if res.Deleted != 1 || res.Now != "2026-03-01T00:00:00Z" {
+		t.Errorf("result = %+v, want 1 deleted as of 2026-03-01", res)
+	}
+	if got, want := readWire(t, store, "jobs"), `{b: {at: "2026-06-01T00:00:00Z"}}`; got != want {
+		t.Errorf("jobs = %s, want %s", got, want)
+	}
+	// A now that is not a time is refused before anything runs.
+	if e := retainError(t, store, `{now: "March", what: [{path: "jobs.*", age: ".at", after: 30d}]}`); e.Code != api.ErrCodeInvalidRetain {
+		t.Errorf("bad now: %s, want %s", e.Code, api.ErrCodeInvalidRetain)
+	}
+}
+
+func TestRetainDeletesKeyedElementsByIdentity(t *testing.T) {
 	store := openStore(t)
 	schema, err := parse.Parse([]byte(`{define: {runs: {id: !logd-key null}}}`))
 	if err != nil {
@@ -111,69 +144,61 @@ func TestRetentionDeletesKeyedElementsByIdentity(t *testing.T) {
 	old, fresh := stamp(-2*time.Hour), stamp(-time.Minute)
 	narrowWrite(t, store, "", `{runs: [{id: r1, at: "`+old+`"}, {id: r2, at: "`+fresh+`"}, {id: r3, at: "`+old+`"}]}`)
 
-	rule := &RetentionRule{Path: "runs(*)", Age: ".at", After: Duration(time.Hour)}
-	srv := retentionServer(t, store, &RetentionConfig{Rules: []*RetentionRule{rule}})
-	deleted, err := srv.retentionPass(time.Now())
-	if err != nil {
-		t.Fatalf("pass: %v", err)
-	}
-	if deleted != 2 {
-		t.Errorf("deleted %d, want 2", deleted)
+	res := retain(t, store, `{what: [{path: "runs(*)", age: ".at", after: 1h}]}`)
+	if res.Deleted != 2 {
+		t.Errorf("deleted %d, want 2", res.Deleted)
 	}
 	if got, want := readWire(t, store, "runs"), `[{at: "`+fresh+`" id: r2}]`; got != want {
 		t.Errorf("runs = %s, want %s", got, want)
 	}
 
 	// The rule has to say what the schema says: a keyed array's items are elements.
-	srv = retentionServer(t, store, &RetentionConfig{Rules: []*RetentionRule{{Path: "runs.*", Age: ".at", After: Duration(time.Hour)}}})
-	if _, err := srv.retentionPass(time.Now()); err == nil || !strings.Contains(err.Error(), "runs(*)") {
-		t.Errorf("runs.* over a keyed array: err = %v, want one naming runs(*)", err)
+	e := retainError(t, store, `{what: [{path: "runs.*", age: ".at", after: 1h}]}`)
+	if e.Code != api.ErrCodeInvalidRetain || !strings.Contains(e.Message, "runs(*)") {
+		t.Errorf("runs.* over a keyed array: %s: %s; want %s naming runs(*)", e.Code, e.Message, api.ErrCodeInvalidRetain)
 	}
 }
 
-func TestRetentionDeletesSparseEntries(t *testing.T) {
+func TestRetainDeletesSparseEntries(t *testing.T) {
 	store := openStore(t)
 	old, fresh := stamp(-2*time.Hour), stamp(-time.Minute)
 	narrowWrite(t, store, "", `{events: {7: {at: "`+old+`"}, 9: {at: "`+fresh+`"}}}`)
-	srv := retentionServer(t, store, &RetentionConfig{Rules: []*RetentionRule{{Path: "events{*}", Age: ".at", After: Duration(time.Hour)}}})
-	if deleted, err := srv.retentionPass(time.Now()); err != nil || deleted != 1 {
-		t.Fatalf("pass: deleted %d, err %v; want 1, nil", deleted, err)
+	if res := retain(t, store, `{what: [{path: "events{*}", age: ".at", after: 1h}]}`); res.Deleted != 1 {
+		t.Fatalf("deleted %d, want 1", res.Deleted)
 	}
 	if got, want := readWire(t, store, "events"), `!sparsearray {9: {at: "`+fresh+`"}}`; got != want {
 		t.Errorf("events = %s, want %s", got, want)
 	}
 }
 
-func TestRetentionRefusesADenseArray(t *testing.T) {
+func TestRetainRefusesADenseArray(t *testing.T) {
 	store := openStore(t)
 	narrowWrite(t, store, "", `{list: [{at: "`+stamp(-2*time.Hour)+`"}]}`)
 
-	// At load: [*] is not a rule.
-	r := &RetentionRule{Path: "list[*]", Age: ".at", After: Duration(time.Hour)}
-	if _, err := r.target(); err == nil || !strings.Contains(err.Error(), "keyed") {
-		t.Errorf("list[*]: err = %v, want refused, naming keyed", err)
+	// In the request: [*] is not a rule.
+	e := retainError(t, store, `{what: [{path: "list[*]", age: ".at", after: 1h}]}`)
+	if e.Code != api.ErrCodeInvalidRetain || !strings.Contains(e.Message, "keyed") {
+		t.Errorf("list[*]: %s: %s; want refused, naming keyed", e.Code, e.Message)
 	}
-	// At run: what is there is a dense array, whatever the rule called it.
-	srv := retentionServer(t, store, &RetentionConfig{Rules: []*RetentionRule{{Path: "list(*)", Age: ".at", After: Duration(time.Hour)}}})
-	if _, err := srv.retentionPass(time.Now()); err == nil || !strings.Contains(err.Error(), "no identity") {
-		t.Errorf("list(*) unkeyed: err = %v, want refused for no identity", err)
+	// Against the store: what is there is a dense array, whatever the rule called it.
+	e = retainError(t, store, `{what: [{path: "list(*)", age: ".at", after: 1h}]}`)
+	if e.Code != api.ErrCodeInvalidRetain || !strings.Contains(e.Message, "no identity") {
+		t.Errorf("list(*) unkeyed: %s: %s; want refused for no identity", e.Code, e.Message)
 	}
 	if got := readWire(t, store, "list"); !strings.Contains(got, "at:") {
 		t.Errorf("list = %s, want untouched", got)
 	}
 }
 
-func TestRetentionDeletesInBatches(t *testing.T) {
+func TestRetainDeletesInBatches(t *testing.T) {
 	store := openStore(t)
 	old := stamp(-2 * time.Hour)
 	for _, k := range []string{"a", "b", "c", "d", "e"} {
 		narrowWrite(t, store, "log."+k, `{at: "`+old+`"}`)
 	}
-	srv := retentionServer(t, store, &RetentionConfig{Batch: 2, Rules: []*RetentionRule{{Path: "log.*", Age: ".at", After: Duration(time.Hour)}}})
 	before, _ := store.GetCurrentCommit()
-	deleted, err := srv.retentionPass(time.Now())
-	if err != nil || deleted != 5 {
-		t.Fatalf("pass: deleted %d, err %v; want 5, nil", deleted, err)
+	if res := retain(t, store, `{batch: 2, what: [{path: "log.*", age: ".at", after: 1h}]}`); res.Deleted != 5 {
+		t.Fatalf("deleted %d, want 5", res.Deleted)
 	}
 	if after, _ := store.GetCurrentCommit(); after != before+3 {
 		t.Errorf("commits went %d -> %d, want three batches of at most 2", before, after)
@@ -183,20 +208,79 @@ func TestRetentionDeletesInBatches(t *testing.T) {
 	}
 }
 
-func TestRetentionNestedAgeAndAbsentContainer(t *testing.T) {
+func TestRetainNestedAgeAndAbsentContainer(t *testing.T) {
 	store := openStore(t)
-	// Nothing at the path yet: a pass is a no-op, not an error.
-	srv := retentionServer(t, store, &RetentionConfig{Rules: []*RetentionRule{{Path: "log.*", Age: "meta.at", After: Duration(time.Hour)}}})
-	if deleted, err := srv.retentionPass(time.Now()); err != nil || deleted != 0 {
-		t.Fatalf("empty store: deleted %d, err %v", deleted, err)
+	req := `{what: [{path: "log.*", age: "meta.at", after: 1h}]}`
+	// Nothing at the path yet: a request is a no-op, not an error.
+	if res := retain(t, store, req); res.Deleted != 0 {
+		t.Fatalf("empty store: deleted %d", res.Deleted)
 	}
 	narrowWrite(t, store, "log.x", `{meta: {at: "`+stamp(-2*time.Hour)+`"}, v: 1}`)
 	narrowWrite(t, store, "log.y", `{meta: {}, v: 2}`)
-	if deleted, err := srv.retentionPass(time.Now()); err != nil || deleted != 1 {
-		t.Fatalf("pass: deleted %d, err %v; want 1, nil", deleted, err)
+	if res := retain(t, store, req); res.Deleted != 1 || res.Rules[0].Unreadable != 1 {
+		t.Fatalf("result = %+v, want 1 deleted, 1 unreadable", res)
 	}
 	if got, want := readWire(t, store, "log"), `{y: {meta: {} v: 2}}`; got != want {
 		t.Errorf("log = %s, want %s", got, want)
+	}
+}
+
+// A request that cannot mean what it says is refused whole, before any rule runs.
+func TestRetainRefusesWhatCannotBeARule(t *testing.T) {
+	store := openStore(t)
+	narrowWrite(t, store, "jobs.a", `{at: "`+stamp(-2*time.Hour)+`"}`)
+	for _, tc := range []struct{ name, body, want string }{
+		{"no rules", `{what: []}`, "at least one rule"},
+		{"concrete path", `{what: [{path: jobs, age: ".at", after: 1h}]}`, "names one node"},
+		{"descent", `{what: [{path: "jobs..", age: ".at", after: 1h}]}`, "any depth"},
+		{"wild in the middle", `{what: [{path: "a.*.jobs.*", age: ".at", after: 1h}]}`, "last segment"},
+		{"no age", `{what: [{path: "jobs.*", after: 1h}]}`, "age is empty"},
+		{"age not a field path", `{what: [{path: "jobs.*", age: "at[0]", after: 1h}]}`, "field path"},
+		{"no after", `{what: [{path: "jobs.*", age: ".at"}]}`, "after"},
+		{"after not a duration", `{what: [{path: "jobs.*", age: ".at", after: soon}]}`, "after"},
+		{"match not an object", `{what: [{path: "jobs.*", age: ".at", after: 1h, match: !or [1, 2]}]}`, "object pattern"},
+		{"match names the age field", `{what: [{path: "jobs.*", age: ".at", after: 1h, match: {at: x}}]}`, "age field"},
+		{"negative batch", `{batch: -1, what: [{path: "jobs.*", age: ".at", after: 1h}]}`, "negative"},
+		// The bad rule is second, and the good one before it does not run.
+		{"a later bad rule refuses the request", `{what: [{path: "jobs.*", age: ".at", after: 1h}, {path: "x[*]", age: ".at", after: 1h}]}`, "keyed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := retainError(t, store, tc.body)
+			if e.Code != api.ErrCodeInvalidRetain || !strings.Contains(e.Message, tc.want) {
+				t.Errorf("%s: %s; want %s containing %q", e.Code, e.Message, api.ErrCodeInvalidRetain, tc.want)
+			}
+		})
+	}
+	if got := readWire(t, store, "jobs"); !strings.Contains(got, "a:") {
+		t.Errorf("jobs = %s, want untouched", got)
+	}
+}
+
+// A retain request in a scoped session reads the scope's view and deletes in the scope:
+// baseline keeps the record.
+func TestRetainInAScopeDeletesInTheScope(t *testing.T) {
+	store := openStore(t)
+	old := stamp(-2 * time.Hour)
+	narrowWrite(t, store, "jobs.a", `{at: "`+old+`"}`)
+	conn := newMockConn()
+	conn.WriteRequest(`{hello: {clientId: t, scope: s1}}`)
+	conn.WriteRequest(`{id: "x", retain: {what: [{path: "jobs.*", age: ".at", after: 1h}]}}`)
+	conn.WriteRequest(`{id: "r", match: {path: "jobs"}}`)
+	session := NewSession("test-server", conn, &SessionConfig{Storage: store, Hub: NewWatchHub()})
+	done := make(chan error)
+	go func() { done <- session.Run() }()
+	time.Sleep(100 * time.Millisecond)
+	conn.Close()
+	<-done
+	out := string(conn.GetResponses())
+	if !strings.Contains(out, "deleted: 1") {
+		t.Errorf("scoped retain: %s, want 1 deleted", out)
+	}
+	if strings.Contains(out, "a:") {
+		t.Errorf("scoped read after retain: %s, want a gone in the scope", out)
+	}
+	if got := readWire(t, store, "jobs"); !strings.Contains(got, "a:") {
+		t.Errorf("baseline jobs = %s, want a kept", got)
 	}
 }
 
@@ -228,24 +312,12 @@ func TestParseDurationReadsDaysWeeksAndYears(t *testing.T) {
 	}
 }
 
-// The config is refused at load for what cannot be a rule, and so is a compaction
-// policy the store would refuse -- which used to fail inside every compaction instead.
-func TestRetentionAndCompactionConfigAreValidatedAtLoad(t *testing.T) {
-	for _, tc := range []struct {
-		name, body, want string
-	}{
-		{"no rules", "retention: {}\n", "no rules"},
-		{"concrete path", "retention: {rules: [{path: jobs, age: .at, after: 1h}]}\n", "names one node"},
-		{"dense array", "retention: {rules: [{path: 'jobs[*]', age: .at, after: 1h}]}\n", "keyed"},
-		{"descent", "retention: {rules: [{path: 'jobs..', age: .at, after: 1h}]}\n", "any depth"},
-		{"wild in the middle", "retention: {rules: [{path: 'a.*.jobs.*', age: .at, after: 1h}]}\n", "last segment"},
-		{"no age", "retention: {rules: [{path: 'jobs.*', after: 1h}]}\n", "age is empty"},
-		{"age not a field path", "retention: {rules: [{path: 'jobs.*', age: 'at[0]', after: 1h}]}\n", "field path"},
-		{"no after", "retention: {rules: [{path: 'jobs.*', age: .at}]}\n", "positive duration"},
-		{"match not an object", "retention: {rules: [{path: 'jobs.*', age: .at, after: 1h, match: !or [1, 2]}]}\n", "object pattern"},
-		{"match names the age field", "retention: {rules: [{path: 'jobs.*', age: .at, after: 1h, match: {at: x}}]}\n", "age field"},
-		{"compaction multiplier", "compaction: {multiplier: 1}\n", "Multiplier"},
-		{"compaction horizon inside cutoff", "compaction: {cutoff: 2h, horizon: 1h}\n", "Horizon"},
+// The compaction section is refused at load for a policy the store would refuse --
+// which used to fail inside every compaction instead -- and reads the horizon.
+func TestCompactionConfigIsValidatedAtLoad(t *testing.T) {
+	for _, tc := range []struct{ name, body, want string }{
+		{"multiplier", "compaction: {multiplier: 1}\n", "Multiplier"},
+		{"horizon inside cutoff", "compaction: {cutoff: 2h, horizon: 1h}\n", "Horizon"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := LoadConfig(writeConfig(t, tc.body))
@@ -254,20 +326,11 @@ func TestRetentionAndCompactionConfigAreValidatedAtLoad(t *testing.T) {
 			}
 		})
 	}
-
-	// And what is well formed loads, with the defaults filled in.
-	cfg, err := LoadConfig(writeConfig(t, "retention:\n  rules:\n  - path: jobs.*\n    match: {status: !or [done, canceled]}\n    age: .updatedAt\n    after: 1d\n  - path: events(*)\n    age: .at\n    after: 1h\ncompaction: {horizon: 48h}\n"))
+	cfg, err := LoadConfig(writeConfig(t, "compaction: {horizon: 2y}\n"))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	r := cfg.Retention
-	if r == nil || len(r.Rules) != 2 || time.Duration(r.Every) != time.Hour || r.Batch != 256 || r.Author != "logd/retention" {
-		t.Errorf("retention = %+v, want two rules and the defaults", r)
-	}
-	if time.Duration(r.Rules[0].After) != 24*time.Hour {
-		t.Errorf("after = %v, want 24h", time.Duration(r.Rules[0].After))
-	}
-	if got := cfg.Compaction.ToStorageConfig().Horizon; got != 48*time.Hour {
-		t.Errorf("horizon = %v, want 48h", got)
+	if got := cfg.Compaction.ToStorageConfig().Horizon; got != 2*365*24*time.Hour {
+		t.Errorf("horizon = %v, want 2y", got)
 	}
 }

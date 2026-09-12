@@ -134,6 +134,47 @@ signature:
 ---
 context:
 - tony-format/context
+- tony-base: github.com/signadot/tony-format/go-tony/schema
+define:
+  after: .[string]
+  age: .[string]
+  match: .[tony-base:ir]
+  path: .[string]
+signature:
+  name: session-retain-rule
+---
+context:
+- tony-format/context
+define:
+  author: .[string]
+  batch: .[int]
+  now: .[string]
+  what: .[array(object)]
+signature:
+  name: session-retain-request
+---
+context:
+- tony-format/context
+define:
+  deleted: .[int]
+  path: .[string]
+  skipped: .[int]
+  unreadable: .[int]
+signature:
+  name: session-retain-rule-result
+---
+context:
+- tony-format/context
+define:
+  commit: .[int]
+  deleted: .[int]
+  now: .[string]
+  rules: .[array(object)]
+signature:
+  name: session-retain-result
+---
+context:
+- tony-format/context
 define:
   at: .[nullable(int)]
 signature:
@@ -201,6 +242,7 @@ define:
   newtx: .[nullable(session-newtx-request)]
   patch: .[nullable(session-patch-request)]
   ping: .[nullable(session-ping-request)]
+  retain: .[nullable(session-retain-request)]
   schema: .[nullable(session-schema-request)]
   scope: .[nullable(string)]
   unwatch: .[nullable(session-unwatch-request)]
@@ -233,6 +275,7 @@ define:
   newtx: .[nullable(session-newtx-result)]
   patch: .[nullable(session-patch-result)]
   pong: .[nullable(session-pong-result)]
+  retain: .[nullable(session-retain-result)]
   schema: .[nullable(session-schema-result)]
   unwatch: .[nullable(session-unwatch-result)]
   watch: .[nullable(session-watch-result)]

@@ -372,6 +372,23 @@ Reads then see baseline with the scope's own writes on top, and writes land in t
 scope. Baseline keeps moving underneath — a scope is a live overlay, not a frozen
 branch.
 
+## Retention
+
+A `retain` request ages log-like records out of the state. It is a write: for each
+rule in `what`, the items of the rule's container whose own timestamp at `age` is older
+than `after`, and whose `match` holds, are deleted in commits of at most `batch` items,
+each under a precondition on what was read.
+
+```tony
+{retain: {now: "2026-09-12T08:00:00Z", what: [{path: jobs.*, match: {status: done}, age: .updatedAt, after: 1d}]}}
+{result: {retain: {now: "2026-09-12T08:00:00Z", commit: 4127, deleted: 300, rules: [{path: jobs.*, deleted: 300}]}}}
+```
+
+logd holds no policy and no clock for it: the caller carries the rules and the time, and
+the commit is the record that it ran. `now` is optional, and the result says what was
+used. See [Retention](retention.md) for what a rule may name, why age is read from
+the record, and what is refused.
+
 ## Errors
 
 ```tony
@@ -395,6 +412,7 @@ writes an object at `a.b`. What separates them is what is there now.
 | `slow_consumer` | a watch was dropped because the client did not keep up |
 | `tx_full`, `tx_not_found`, `tx_scope_mismatch` | transaction membership |
 | `invalid_tx` | a transaction asked for more than the server allows, or a participant named an `author` (a participant inherits the transaction's) |
+| `invalid_retain` | a [retain](retention.md) request that cannot mean what it says — a rule naming one node or a dense array, an age that is not a field path, a duration that is not one — or whose rule disagrees with the schema's keying |
 | `controller_unavailable` | (docd) the controller owning that subtree is gone |
 | `unsupported` | the responder does not implement that operation |
 

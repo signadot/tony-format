@@ -132,10 +132,10 @@ knobs and what cannot be asked of them.
 
 Compaction thins *history*; it never removes *state*. Log-like data — jobs, runs,
 events, anything written once and then only read — is state, and grows until something
-deletes it. That something is [retention](retention.md): rules in the config file under
-which the server itself commits deletes for items older than a limit, read from the
-item's own timestamp. Pair it with compaction's `horizon` and a deleted record leaves
-the disk too.
+deletes it. That something is [retention](retention.md): a `retain` request carrying
+rules and a time, under which logd commits deletes for items older than a limit, read
+from the item's own timestamp. logd keeps no policy and no clock for it; the caller
+does. Pair it with compaction's `horizon` and a deleted record leaves the disk too.
 
 ## Conditions on writes
 

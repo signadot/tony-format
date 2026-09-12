@@ -163,8 +163,8 @@ at its commit; whichever survive carry it.
   a `horizon` inside the `cutoff` — is refused when the file loads, not inside every
   compaction attempt.
 - **There is no per-path or per-scope policy for history.** One schedule covers the
-  whole store. Per-path ageing of *state* is a different thing, and has its own
-  section: [retention](retention.md).
+  whole store. Per-path ageing of *state* is a different thing, and is a request
+  rather than a setting: [retention](retention.md).
 - **It cannot be undone.** The delta history a compaction removes is gone; the state
   it described is not, and never was at risk. What cannot be recovered afterwards is
   the ability to read or replay a commit below the cutoff exactly.

@@ -331,6 +331,10 @@ func (s *Session) dispatch(req *api.SessionRequest) {
 		s.handleDeleteScope(req.ID, req.DeleteScope)
 	case req.Schema != nil:
 		s.handleSchema(req.ID, req.Schema)
+	case req.Retain != nil:
+		// A write, and on the loop as a plain patch is: what a client pipelines
+		// behind it reads what it deleted.
+		s.handleRetain(req.ID, req.Retain)
 	case req.Ping != nil:
 		// A liveness probe which also answers "where is the store now". The head is
 		// a memory read (the tick watermark), so a client can keep a current revision

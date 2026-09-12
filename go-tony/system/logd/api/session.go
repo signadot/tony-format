@@ -205,6 +205,48 @@ type DeleteScopeRequest struct {
 	ScopeID string `tony:"field=scopeId"`
 }
 
+// RetainRequest ages log-like records out of the state: for each rule in What, the
+// items of the rule's container whose own timestamp is older than the rule allows, and
+// whose match holds, are deleted -- as ordinary commits, in batches of at most Batch
+// items, written by Author (else the session's), each under a precondition on what the
+// pass read. It is a WRITE, and runs on the request loop as a patch does.
+//
+// logd holds no retention policy and no clock for it: the caller carries the rules,
+// the time and the author, and the commit is the record that it ran. Now is the time
+// the items' ages are measured against, RFC3339; without it the server's clock is
+// used, and the result says which. A pass given a Now is a function of the state and
+// the request, and so is reproducible.
+//
+//tony:schemagen=session-retain-request,notag
+type RetainRequest struct {
+	Now    string        `tony:"field=now,omitzero"`    // Optional: RFC3339; the server's clock when empty
+	What   []*RetainRule `tony:"field=what"`            // The rules; at least one
+	Batch  int           `tony:"field=batch,omitzero"`  // Optional: the most items one delete commit removes; 256 when zero
+	Author string        `tony:"field=author,omitzero"` // Optional: the writer; the session's when empty
+}
+
+// RetainRule is one rule of a RetainRequest, over one container of items.
+//
+// Path names the items: a path whose LAST segment is the wildcard of the container's
+// kind -- `jobs.*` for the fields of an object, `events{*}` for the entries of a sparse
+// array, `runs(*)` for the elements of a keyed array -- and whose other segments are
+// concrete. Each item is deleted whole. A dense array, `[*]`, is refused: an index
+// names a position, not an element, so a concurrent write lands the expiry on a
+// neighbour; declare the array keyed and write `(*)`.
+//
+// Match, if set, is an object pattern the item must match to expire. Age is the field
+// path, inside the item, of the RFC3339 timestamp its age is read from; an item with
+// none it can read is kept. After is a duration -- "1h", "1d", "1y" -- the item must be
+// at least as old as to expire.
+//
+//tony:schemagen=session-retain-rule,notag
+type RetainRule struct {
+	Path  string   `tony:"field=path"`
+	Match *ir.Node `tony:"field=match"`
+	Age   string   `tony:"field=age"`
+	After string   `tony:"field=after"`
+}
+
 // SchemaGetRequest asks for the store's schema: the one in force now, or, with At, the
 // one in force at that commit.
 //
@@ -264,6 +306,7 @@ type SessionRequest struct {
 	Unwatch     *UnwatchRequest     `tony:"field=unwatch"`
 	DeleteScope *DeleteScopeRequest `tony:"field=deleteScope"`
 	Schema      *SchemaRequest      `tony:"field=schema"`
+	Retain      *RetainRequest      `tony:"field=retain"`
 	Ping        *PingRequest        `tony:"field=ping"` // liveness probe; answered by whatever server owns the connection
 }
 
@@ -347,6 +390,27 @@ type DeleteScopeResult struct {
 	ScopeID string `tony:"field=scopeId"` // The deleted scope ID
 }
 
+// RetainResult is what a retain request did: the time the ages were measured against,
+// the head after the pass, and per rule what was deleted and what was not.
+//
+//tony:schemagen=session-retain-result,notag
+type RetainResult struct {
+	Now     string              `tony:"field=now"`     // The time the pass measured against, RFC3339
+	Commit  int64               `tony:"field=commit"`  // The head after the pass: the last delete's commit, or the commit read at when nothing was deleted
+	Deleted int                 `tony:"field=deleted"` // Items deleted, over every rule
+	Rules   []*RetainRuleResult `tony:"field=rules"`   // One per rule, in order
+}
+
+// RetainRuleResult is one rule's part of a RetainResult.
+//
+//tony:schemagen=session-retain-rule-result,notag
+type RetainRuleResult struct {
+	Path       string `tony:"field=path"`
+	Deleted    int    `tony:"field=deleted"`
+	Unreadable int    `tony:"field=unreadable,omitzero"` // Items kept because no RFC3339 timestamp was at the age path
+	Skipped    int    `tony:"field=skipped,omitzero"`    // Items in batches whose precondition failed: the state moved under the pass; ask again
+}
+
 // SchemaResult is the result of a schema get/set request: the schema, and the commit
 // that set it -- for a set, the commit the set is.
 //
@@ -369,6 +433,7 @@ type SessionResult struct {
 	Unwatch     *UnwatchResult     `tony:"field=unwatch"`
 	DeleteScope *DeleteScopeResult `tony:"field=deleteScope"`
 	Schema      *SchemaResult      `tony:"field=schema"`
+	Retain      *RetainResult      `tony:"field=retain"`
 	Pong        *PongResult        `tony:"field=pong"`
 }
 
@@ -501,6 +566,7 @@ const (
 	ErrCodeAlreadyWatching = "already_watching"
 	ErrCodeCommitNotFound  = "commit_not_found"
 	ErrCodeInvalidTx       = "invalid_tx"             // Invalid transaction parameters
+	ErrCodeInvalidRetain   = "invalid_retain"         // A retain request that cannot mean what it says: a rule naming one node or a dense array, an age that is not a field path, a duration that is not one
 	ErrCodeTxNotFound      = "tx_not_found"           // Transaction ID not found
 	ErrCodeTxFull          = "tx_full"                // Transaction already has all participants
 	ErrCodeTxScopeMismatch = "tx_scope_mismatch"      // Participant scope doesn't match transaction scope
