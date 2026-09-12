@@ -110,6 +110,9 @@ func (node *Node) getKPath(kp *kpath.KPath) (*Node, error) {
 		if kp.SparseIndexAll {
 			return nil, fmt.Errorf("any sparse index {*} in get")
 		}
+		if kp.KeyAll {
+			return nil, fmt.Errorf("any key (*) in get")
+		}
 		if kp.Index != nil {
 			if res.Type != ArrayType {
 				return nil, fmt.Errorf("expected array, got %s", res.Type)
@@ -355,7 +358,7 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 		// not a fault: a query walks nodes of every kind -- `..x` visits leaves,
 		// arrays and objects alike -- so a segment which does not fit the node it
 		// meets has to be a non-match rather than an error.
-		if kp.Index != nil || kp.IndexAll || kp.Key != nil {
+		if kp.Index != nil || kp.IndexAll || kp.Key != nil || kp.KeyAll {
 			return dst, nil
 		}
 		if kp.Field == nil && !kp.FieldAll && kp.Next == nil {
@@ -393,6 +396,18 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 			// a list may hold the same key twice; naming a key names each
 			// element carrying it, as a wildcard names each element it reaches
 			for _, elem := range keyedElems(node, *kp.Key) {
+				dst, err = elem.listKPath(dst, kp.Next)
+				if err != nil {
+					return nil, err
+				}
+			}
+			return dst, nil
+		}
+		if kp.KeyAll {
+			// Every element, by whatever identity the array's keeper gives them: the
+			// document alone carries no schema, so here (*) reaches each element as
+			// [*] does, and it is the store that tells the two kinds apart.
+			for _, elem := range node.Values {
 				dst, err = elem.listKPath(dst, kp.Next)
 				if err != nil {
 					return nil, err
@@ -446,7 +461,7 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 		return dst, nil
 
 	case StringType, NumberType, NullType, BoolType:
-		if kp.Field != nil || kp.FieldAll || kp.Index != nil || kp.IndexAll || kp.SparseIndex != nil || kp.SparseIndexAll || kp.Key != nil {
+		if kp.Field != nil || kp.FieldAll || kp.Index != nil || kp.IndexAll || kp.SparseIndex != nil || kp.SparseIndexAll || kp.Key != nil || kp.KeyAll {
 			return dst, nil
 		}
 		if kp.Next == nil {

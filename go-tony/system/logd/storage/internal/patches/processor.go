@@ -392,8 +392,10 @@ func segmentRank(s *kpath.KPath) int {
 		return 4
 	case s.SparseIndex != nil:
 		return 5
+	case s.KeyAll:
+		return 6
 	default:
-		return 6 // key
+		return 7 // key
 	}
 }
 

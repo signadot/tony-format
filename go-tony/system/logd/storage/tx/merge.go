@@ -249,7 +249,7 @@ func (kt *kTree) childKind() childKind {
 		if ct.Field != nil || ct.FieldAll {
 			return objectKind
 		}
-		if ct.Key != nil {
+		if ct.Key != nil || ct.KeyAll {
 			return keyedArrayKind
 		}
 		if ct.Index != nil || ct.IndexAll {

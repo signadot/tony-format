@@ -20,6 +20,7 @@ import (
 //   - "a{0}" → Sparse Array accessed via "{0}" (a is a sparse array: an object with number keys)
 //   - "a{*}" → Sparse Array wildcard (matches all sparse indices)
 //   - "a(jane)" → keyed array with key jane
+//   - "a(*)" → keyed array wildcard (matches every element, by identity)
 //   - "a..b" → every b at any depth under a
 type KPath struct {
 	Field          *string // Object field name (e.g., "a", "b") - similar to Path.Field
@@ -29,6 +30,11 @@ type KPath struct {
 	SparseIndex    *int    // Sparse array index (e.g., 0, 42) - for {n} syntax
 	SparseIndexAll bool    // Sparse array wildcard {*} - matches all sparse indices
 	Key            *string // Key
+	// KeyAll is the keyed-array wildcard (*): every element of a keyed array, named
+	// by identity rather than position. It is the wildcard of the (key) kind the way
+	// [*] is of [i]; matching is kind-strict, so [*] does not denote it and it does
+	// not denote [*] (segmentMatches).
+	KeyAll bool
 	// Descend is the `..` segment: the nodes at any depth below this point, the
 	// node itself included. It is a QUERY segment -- it names a set rather than a
 	// step -- so a path holding one cannot be a stored path, and the things which
@@ -47,6 +53,7 @@ type KPath struct {
 //	KPath{Field: &"a", Next: &KPath{SparseIndex: &42, ...}} → "a{42}"
 //	KPath{Field: &"a", Next: &KPath{SparseIndexAll: true, ...}} → "a{*}"
 //	KPath{Field: &"a", Next: &KPath{Key: &"b", ...}} → "a(b)"
+//	KPath{Field: &"a", Next: &KPath{KeyAll: true, ...}} → "a(*)"
 func (p *KPath) String() string {
 	if p == nil {
 		return ""
@@ -122,6 +129,11 @@ func (p *KPath) String() string {
 			x = x.Next
 			continue
 		}
+		if x.KeyAll {
+			buf.WriteString("(*)")
+			x = x.Next
+			continue
+		}
 		x = x.Next
 	}
 	return buf.String()
@@ -144,7 +156,7 @@ func (p *KPath) EntryKind() EntryKind {
 	if p.SparseIndex != nil || p.SparseIndexAll {
 		return SparseArrayEntry
 	}
-	if p.Key != nil {
+	if p.Key != nil || p.KeyAll {
 		return KeyEntry
 	}
 	if p.Descend {
@@ -153,7 +165,7 @@ func (p *KPath) EntryKind() EntryKind {
 	panic("entry kind")
 }
 
-// Wild reports whether the HEAD segment of p is a wildcard (.* [*] {*} ..). It is a
+// Wild reports whether the HEAD segment of p is a wildcard (.* [*] {*} (*) ..). It is a
 // segment predicate — consistent with Type returning a SegmentType — so on a
 // multi-segment path it answers only about the first segment, NOT the whole path.
 // For the whole-path question ("does any segment glob?") use HasWild; for the
@@ -162,10 +174,10 @@ func (p *KPath) Wild() bool {
 	// A descent is wild in the sense that matters to every caller of this: it does
 	// not name one node. Callers which refuse wildcards were refusing exactly the
 	// paths they must also refuse a descent in.
-	return p.FieldAll || p.IndexAll || p.SparseIndexAll || p.Descend
+	return p.FieldAll || p.IndexAll || p.SparseIndexAll || p.KeyAll || p.Descend
 }
 
-// HasWild reports whether ANY segment of the path is a wildcard (.* [*] {*} ..).
+// HasWild reports whether ANY segment of the path is a wildcard (.* [*] {*} (*) ..).
 // This is the whole-path counterpart to the head-segment-only Wild.
 func (p *KPath) HasWild() bool {
 	for x := p; x != nil; x = x.Next {
@@ -288,6 +300,7 @@ func (p *KPath) MatchesPrefix(o *KPath) bool {
 //   - "a{0}" → Sparse Array accessed via "{0}"
 //   - "a{*}" → Sparse Array wildcard (matches all sparse indices)
 //   - "a(k)" → Keyed list element with key k
+//   - "a(*)" → Keyed list wildcard (matches every element)
 //   - "a..b" → b at any depth under a
 //
 // Examples:
@@ -421,7 +434,7 @@ func RSplit(kpath string) (parentPath string, lastSegment string) {
 //   - Field: "a" or `"field name"` (quoted if needed)
 //   - Dense array: "[0]" or "[*]"
 //   - Sparse array: "{0}" or "{*}"
-//   - Keyed list element: "(k)"
+//   - Keyed list element: "(k)", or its wildcard "(*)"
 //   - Field wildcard: "*"
 func SplitAll(kpath string) []string {
 	if kpath == "" {
@@ -506,6 +519,8 @@ func copyKPathSegment(src *KPath, dst *KPath, stop *KPath) {
 	} else if src.Key != nil {
 		key := *src.Key
 		dst.Key = &key
+	} else if src.KeyAll {
+		dst.KeyAll = true
 	} else if src.Descend {
 		// Left out, the descent became an empty segment, which renders as nothing:
 		// RSplit("a..b.c") answered the parent a.b (addsgv1yh12kszdxmdn0).
@@ -676,6 +691,13 @@ func parseKFrag(frag string, parent *KPath) error {
 		}
 		return parseAfterSegment(frag[i+2:], parent)
 	case '(':
+		// `(*)` is the wildcard of the kind, as `[*]` and `{*}` are of theirs. A key
+		// that is literally `*` is spelled quoted, `("*")`, which is what String
+		// emits for it (token.KPathQuoteField), so the bare form is free to take.
+		if len(frag) > 2 && frag[1] == '*' && frag[2] == ')' {
+			parent.KeyAll = true
+			return parseAfterSegment(frag[3:], parent)
+		}
 		key, rest, err := parseKPathKey(frag[1:])
 		if err != nil {
 			return err
@@ -1010,6 +1032,15 @@ func compareKPathSegment(a, b *KPath) int {
 		return -1
 	}
 	if b.Key != nil {
+		return 1
+	}
+	if a.KeyAll && b.KeyAll {
+		return 0
+	}
+	if a.KeyAll {
+		return -1
+	}
+	if b.KeyAll {
 		return 1
 	}
 	return 0

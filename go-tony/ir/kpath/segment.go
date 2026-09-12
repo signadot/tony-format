@@ -93,16 +93,16 @@ func segmentsEqual(a, b *KPath) bool {
 	if a.Key != nil {
 		return *a.Key == *b.Key
 	}
-	return true
+	return a.KeyAll == b.KeyAll
 }
 
 // segmentMatches reports whether the pattern segment pat matches the target
-// segment tgt. A wildcard in pat (.* [*] {*}) matches any segment of the same
+// segment tgt. A wildcard in pat (.* [*] {*} (*)) matches any segment of the same
 // kind — concrete or the same wildcard. A concrete segment in pat matches only an
 // equal concrete segment in tgt (a concrete does not denote a wildcard). Matching
 // is kind-strict: a field, dense-index, sparse-index, and key never cross-match,
-// so [*] does not match a keyed element (see issue 61766xadh — a kind-spanning
-// element wildcard would be a separate syntax addition).
+// so [*] does not match a keyed element; (*) is the wildcard that does (see issue
+// 61766xadh — a kind-SPANNING element wildcard would be a separate syntax addition).
 func segmentMatches(pat, tgt *KPath) bool {
 	switch {
 	case pat.Descend, tgt.Descend:
@@ -123,6 +123,8 @@ func segmentMatches(pat, tgt *KPath) bool {
 		return tgt.SparseIndex != nil || tgt.SparseIndexAll
 	case pat.SparseIndex != nil:
 		return tgt.SparseIndex != nil && *pat.SparseIndex == *tgt.SparseIndex
+	case pat.KeyAll:
+		return tgt.Key != nil || tgt.KeyAll
 	case pat.Key != nil:
 		return tgt.Key != nil && *pat.Key == *tgt.Key
 	}
@@ -202,6 +204,9 @@ func (p *KPath) SegmentString() string {
 			key = token.Quote(key, true)
 		}
 		return "(" + key + ")"
+	}
+	if p.KeyAll {
+		return "(*)"
 	}
 	return ""
 }

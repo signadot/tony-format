@@ -19,7 +19,7 @@ through — which is what "kinded path" means:
 | `[i]` | a dense array | `items[0]` |
 | `{i}` | a sparse array, **by key** | `items{42}` |
 | `(key)` | a [keyed array](logd/keyed.md), by identity | `items(WIDGET)` |
-| `.*` `[*]` `{*}` | all of them, at that step | `items[*].name` |
+| `.*` `[*]` `{*}` `(*)` | all of them, at that step | `items[*].name` |
 | `..` | any depth below here, this node included | `..name`, `spec..image` |
 
 The leading `.` is optional at the start, so `spec.replicas` and `.spec.replicas` are
