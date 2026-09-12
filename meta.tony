@@ -3,7 +3,8 @@ blocked_by: []
 blocks: []
 branches: []
 closed_by: f4e51f7b4ce6b816f009cb8d5dfda2e21827d4e2
-commits: []
+commits:
+- 9775ccecf9f181cac2206a7906010dfc873678d3
 created: "2026-09-12T10:54:42.674445+02:00"
 duplicates: []
 id: kkhw3z3ph12krmgkmnn0
@@ -13,4 +14,4 @@ labels:
 related_issues:
 - regx2d1mh12krm0amnn0
 status: closed
-updated: "2026-09-12T10:56:13.211356+02:00"
+updated: "2026-09-12T10:56:13.397008+02:00"
