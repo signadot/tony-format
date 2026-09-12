@@ -1,0 +1,3 @@
+# kpath: (*) is the wildcard of the keyed kind
+
+A keyed array's elements had no wildcard: [*] deliberately does not match a keyed element (segmentMatches, issue 61766xadh), and there was no segment that did. A rule over a keyed array (regx2d1mh12krm0amnn0) has to name its elements as a set, so (*) is added as the wildcard of the (key) kind: parsed, rendered, kind-strict in matching, ordered after (key), and a query segment like the other wildcards -- get refuses it, list reaches every element.
