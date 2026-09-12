@@ -38,7 +38,6 @@ Boolean options take no argument and may be negated with a `no-` prefix, as in `
 
 ## See also
 
-- [published documentation](https://signadot.github.io/tony-format/o/o-system-docd-schema/)
 - [`o system docd`](o-system-docd.md)
 - [`o system docd serve`](o-system-docd-serve.md)
 - [`o system docd mounts`](o-system-docd-mounts.md)

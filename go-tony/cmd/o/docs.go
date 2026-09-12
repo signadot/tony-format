@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-	"path/filepath"
-	"strings"
 
 	"github.com/scott-cotton/cli"
 )
@@ -68,31 +66,14 @@ func DocsCommand(mainCfg *MainConfig) *cli.Command {
 	return cmd
 }
 
-// sitePage says where the page this run writes for a command is published, given
-// the directory being written into.
+// noSitePage says that no command has a page on the site apart from the one this
+// run writes.
 //
-// cli.DefaultPage answers the command path -- "o build" is published at "o/build/"
-// -- but the file it writes for that command is "o-build.md", which mkdocs
-// publishes at "o/o-build/". Taking the default leaves every generated page
-// linking to a URL nothing occupies, and invites a second, hand-written page to
-// fill it: that is how docs/o/build.md came to duplicate this one.
-//
-// So the link is derived from the file rather than the command. dir is the
-// directory passed to `o docs`, whose name is the one path segment the file name
-// does not carry.
-func sitePage(dir string) func(*cli.Command) string {
-	return func(cmd *cli.Command) string {
-		names := make([]string, 0, 4)
-		for _, c := range cmd.Path() {
-			names = append(names, c.Name)
-		}
-		// The root command is written to README.md, which is the directory itself.
-		if len(names) < 2 {
-			return dir + "/"
-		}
-		return dir + "/" + strings.Join(names, "-") + "/"
-	}
-}
+// cli.Doc links each command's page to "the published documentation" for that
+// command, which is for a markdown copy living somewhere other than the site.
+// These files are the site: mkdocs publishes docs/o/ as it is, so that link took
+// every page to itself. Site is still set, since the term links hang off it.
+func noSitePage(*cli.Command) string { return "" }
 
 func writeDocs(cfg *DocsConfig, cc *cli.Context, args []string) error {
 	args, err := cfg.Docs.Parse(cc, args)
@@ -108,7 +89,7 @@ func writeDocs(cfg *DocsConfig, cc *cli.Context, args []string) error {
 	}
 	doc := cli.NewDoc(MainCommand()).
 		WithSite(cfg.Site).
-		WithPage(sitePage(filepath.Base(args[0]))).
+		WithPage(noSitePage).
 		WithTerms(docsTerms)
 	if err := doc.Write(args[0]); err != nil {
 		return fault(cc, err)

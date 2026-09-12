@@ -49,7 +49,3 @@ o [opts] command [opts]
 
 Boolean options take no argument and may be negated with a `no-` prefix, as in `-no-debug`.
 
-## See also
-
-- [published documentation](https://signadot.github.io/tony-format/o/)
-

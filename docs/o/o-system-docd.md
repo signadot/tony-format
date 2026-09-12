@@ -40,7 +40,6 @@ Boolean options take no argument and may be negated with a `no-` prefix, as in `
 
 ## See also
 
-- [published documentation](https://signadot.github.io/tony-format/o/o-system-docd/)
 - [`o system`](o-system.md)
 - [`o system logd`](o-system-logd.md)
 - [`o system session`](o-system-session.md)

@@ -41,6 +41,5 @@ Boolean options take no argument and may be negated with a `no-` prefix, as in `
 
 ## See also
 
-- [published documentation](https://signadot.github.io/tony-format/o/o-system-logd-serve/)
 - [`o system logd`](o-system-logd.md)
 
