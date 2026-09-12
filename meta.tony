@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 98994e1eefde5e5421009a6795eced6eab548efa
 commits: []
 created: "2026-09-12T10:54:38.816286+02:00"
 duplicates: []
@@ -11,5 +12,5 @@ labels:
 - logd
 related_issues:
 - regx2d1mh12krm0amnn0
-status: open
-updated: "2026-09-12T10:54:47.965177+02:00"
+status: closed
+updated: "2026-09-12T10:56:13.113969+02:00"
