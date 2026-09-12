@@ -2,6 +2,7 @@ package storage
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
@@ -27,6 +28,17 @@ type CompactionConfig struct {
 	// it closes the file the previous compaction replaced; a reader still holding that
 	// file then errors. The file a compaction replaces stays readable until the next.
 	GracePeriod time.Duration
+
+	// Horizon is how far back any history survives at all. Zero is no horizon. Past it
+	// a root snapshot is dropped whatever tier it would have taken a slot in, so a
+	// record that retention deleted from the state (server retention rules) also
+	// leaves the disk, rather than surviving in ever-sparser old snapshots forever.
+	//
+	// It removes history and never state: the snapshot SwitchDLog writes before a
+	// compaction is inside the cutoff, and the newest root snapshot the file holds is
+	// never dropped by the horizon. A horizon inside the cutoff would contradict the
+	// cutoff, and Validate refuses it.
+	Horizon time.Duration
 }
 
 // DefaultCompactionConfig returns a default compaction configuration.
@@ -55,6 +67,12 @@ func (c *CompactionConfig) Validate() error {
 	}
 	if c.GracePeriod < 0 {
 		return errors.New("compaction config: GracePeriod cannot be negative")
+	}
+	if c.Horizon < 0 {
+		return errors.New("compaction config: Horizon cannot be negative")
+	}
+	if c.Horizon > 0 && c.Horizon < c.Cutoff {
+		return fmt.Errorf("compaction config: Horizon %v is inside the Cutoff %v, which keeps every record", c.Horizon, c.Cutoff)
 	}
 	return nil
 }
@@ -103,14 +121,23 @@ func (p *compactionPolicy) selectSurvivors(groups []snapshotGroup) []index.LogSe
 // assignToTiers buckets snapshot groups into tiers based on age.
 // Tier -1 is within cutoff (all kept).
 // Tier 0+ follows logarithmic spacing.
+// A group past the horizon takes no tier at all, and so does not survive -- except
+// the newest group, which is the state and is kept whatever its age.
 func (p *compactionPolicy) assignToTiers(groups []snapshotGroup) map[int][]snapshotGroup {
 	tiers := make(map[int][]snapshotGroup)
 	cutoffTime := p.now.Add(-p.config.Cutoff)
+	var newest int64
+	for _, group := range groups {
+		newest = max(newest, group.commit)
+	}
 
 	for _, group := range groups {
 		// Within cutoff - all kept (tier -1)
 		if group.time.After(cutoffTime) {
 			tiers[-1] = append(tiers[-1], group)
+			continue
+		}
+		if p.config.Horizon > 0 && group.commit != newest && !group.time.After(p.now.Add(-p.config.Horizon)) {
 			continue
 		}
 

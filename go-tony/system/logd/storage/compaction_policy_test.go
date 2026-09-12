@@ -191,6 +191,75 @@ func TestSelectSurvivors(t *testing.T) {
 	}
 }
 
+// A horizon is where history ends: a snapshot older than it takes no tier slot. The
+// newest snapshot is the state, and is kept whatever its age.
+func TestSelectSurvivorsHorizon(t *testing.T) {
+	config := &CompactionConfig{
+		Cutoff:       1 * time.Hour,
+		BaseInterval: 1 * time.Hour,
+		SlotsPerTier: 8,
+		Multiplier:   2,
+		Horizon:      3 * time.Hour,
+	}
+	now := time.Now()
+	policy := newCompactionPolicy(config, now)
+	seg := func(commit int64) index.LogSegment {
+		return index.LogSegment{StartCommit: commit, EndCommit: commit, LogFile: "A", LogPosition: commit * 100}
+	}
+	survivorsOf := func(groups []snapshotGroup) map[int64]bool {
+		out := map[int64]bool{}
+		for _, s := range policy.selectSurvivors(groups) {
+			out[s.StartCommit] = true
+		}
+		return out
+	}
+
+	got := survivorsOf([]snapshotGroup{
+		{commit: 1, time: now.Add(-5 * time.Hour), segments: []index.LogSegment{seg(1)}},    // past the horizon
+		{commit: 2, time: now.Add(-4 * time.Hour), segments: []index.LogSegment{seg(2)}},    // past the horizon
+		{commit: 3, time: now.Add(-2 * time.Hour), segments: []index.LogSegment{seg(3)}},    // tier 1, inside it
+		{commit: 4, time: now.Add(-30 * time.Minute), segments: []index.LogSegment{seg(4)}}, // within cutoff
+	})
+	want := map[int64]bool{3: true, 4: true}
+	if len(got) != len(want) {
+		t.Errorf("survivors = %v, want %v", got, want)
+	}
+	for c := range want {
+		if !got[c] {
+			t.Errorf("commit %d dropped, want kept", c)
+		}
+	}
+
+	// A file whose every snapshot is past the horizon still keeps its newest one.
+	got = survivorsOf([]snapshotGroup{
+		{commit: 1, time: now.Add(-6 * time.Hour), segments: []index.LogSegment{seg(1)}},
+		{commit: 2, time: now.Add(-5 * time.Hour), segments: []index.LogSegment{seg(2)}},
+	})
+	if len(got) != 1 || !got[2] {
+		t.Errorf("survivors = %v, want only the newest, commit 2", got)
+	}
+}
+
+func TestCompactionConfigValidateHorizon(t *testing.T) {
+	cfg := DefaultCompactionConfig()
+	cfg.Horizon = 30 * time.Minute // inside the 1h cutoff
+	if err := cfg.Validate(); err == nil {
+		t.Error("a horizon inside the cutoff validated, want refused")
+	}
+	cfg.Horizon = -time.Hour
+	if err := cfg.Validate(); err == nil {
+		t.Error("a negative horizon validated, want refused")
+	}
+	cfg.Horizon = 2 * time.Hour
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("a horizon past the cutoff refused: %v", err)
+	}
+	cfg.Horizon = 0
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("no horizon refused: %v", err)
+	}
+}
+
 func strPtr(s string) *string {
 	return &s
 }
