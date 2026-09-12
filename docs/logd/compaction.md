@@ -63,6 +63,7 @@ compaction:
   slotsPerTier: 8
   multiplier: 2
   gracePeriod: 5s
+  horizon: 2y
 ```
 
 | field | default | what it does |
@@ -72,21 +73,33 @@ compaction:
 | `slotsPerTier` | 8 | how many snapshots survive in each tier |
 | `multiplier` | 2 | each tier is this many times wider than the one before it |
 | `gracePeriod` | 5s | how long a reader holding the pre-compaction file has before it is deleted |
+| `horizon` | none | how far back **any** history survives: past it a snapshot is dropped whatever tier it would have taken a slot in |
 
 Every field may be left out, and a field left out takes its default. The server logs the
 policy it **resolved**, whole, so what a store says it is compacting with is what it is
 compacting with:
 
 ```console
-level=INFO msg="configured compaction" cutoff=2h baseInterval=1h slotsPerTier=8 multiplier=2 gracePeriod=5s
+level=INFO msg="configured compaction" cutoff=2h baseInterval=1h slotsPerTier=8 multiplier=2 gracePeriod=5s horizon=0s
 ```
+
+### The horizon
+
+Without one, the tiers keep some snapshot from every era indefinitely, ever more
+sparsely. That is the right default for history, and the wrong answer for a record
+that [retention](retention.md) has deleted: the delete removes it from the current
+state, but every older snapshot that survives still carries it, so it never leaves the
+disk. `horizon` is where history ends. It must be at least the `cutoff`, since the
+cutoff keeps every record; the newest snapshot in a file is kept whatever its age,
+because it is the state.
 
 ### Durations
 
-`cutoff`, `baseInterval` and `gracePeriod` are written the way a duration is written
-— `1h`, `90m`, `30s`, `500ms` — which is what `time.ParseDuration` reads. A bare
-number is refused rather than guessed at, so there is no unit to remember and no
-`3600000000000` to get wrong.
+`cutoff`, `baseInterval`, `gracePeriod` and `horizon` are written the way a duration is
+written — `1h`, `90m`, `30s`, `500ms` — which is what `time.ParseDuration` reads, plus
+`d`, `w` and `y` for 24h, 7d and 365d, calendar-blind (`2y`, `1y6w`). A bare number is
+refused rather than guessed at, so there is no unit to remember and no `3600000000000`
+to get wrong.
 
 ## What a compaction removes
 
@@ -94,7 +107,9 @@ number is refused rather than guessed at, so there is no unit to remember and no
 removes. Immediately before compacting, `SwitchDLog` writes a full baseline snapshot
 of the state at the switch commit, and that snapshot is moments old, so it always
 falls inside the cutoff window and always survives. Everything the removed records
-contributed is in it.
+contributed is in it. A record that should *leave* the state — a job long done, an
+event a year old — is not compaction's to remove; that is [retention](retention.md),
+which deletes it as a write.
 
 What is removed is the account of *how* the state got there. The store keeps knowing
 what it holds; it stops knowing which deltas built it. Concretely:
@@ -142,17 +157,14 @@ at its commit; whichever survive carry it.
 - **Zero does not mean zero.** Every field treats an absent or zero value as "use the
   default", so there is no way to say *keep no delta history* (`cutoff: 0s` is one
   hour) or *no grace period at all*.
-- **The section is not validated when the file loads.** `Config.Validate` checks
-  storage durability and nothing else, so `multiplier: 1` — which the policy requires
-  to be at least 2 — loads without complaint, then fails inside every compaction
-  attempt. Compaction is best-effort at that point: the failure is logged as
-  `compaction failed` and the snapshot succeeds anyway, so the symptom is a store
-  that quietly never compacts and one error line per snapshot.
 - **A misspelled field is ignored.** `cutof:` is not an error; it leaves `cutoff` at
   its default. Same class as [a misspelled request field](writes.md), filed as
-  `k0d4y1m6h12kr7cdgdn0`.
-- **There is no per-path or per-scope policy.** One retention schedule covers the
-  whole store.
+  `k0d4y1m6h12kr7cdgdn0`. A value the policy refuses, on the other hand — `multiplier: 1`,
+  a `horizon` inside the `cutoff` — is refused when the file loads, not inside every
+  compaction attempt.
+- **There is no per-path or per-scope policy for history.** One schedule covers the
+  whole store. Per-path ageing of *state* is a different thing, and has its own
+  section: [retention](retention.md).
 - **It cannot be undone.** The delta history a compaction removes is gone; the state
   it described is not, and never was at risk. What cannot be recovered afterwards is
   the ability to read or replay a commit below the cutoff exactly.

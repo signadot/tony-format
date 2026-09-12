@@ -24,6 +24,7 @@ nav:
   - 'logd: What a write must be': logd/writes.md
   - 'logd: Keyed arrays': logd/keyed.md
   - 'logd: Configuring compaction': logd/compaction.md
+  - 'logd: Retention': logd/retention.md
   - docd: docd/index.md
   - 'docd: Mounts & routing': docd/mounts.md
   - 'docd: Composition — reads & watches': docd/composition.md

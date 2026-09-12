@@ -5,10 +5,32 @@ define:
   baseInterval: .[string]
   cutoff: .[string]
   gracePeriod: .[string]
+  horizon: .[string]
   multiplier: .[int]
   slotsPerTier: .[int]
 signature:
   name: compaction-config
+---
+context:
+- tony-format/context
+- tony-base: github.com/signadot/tony-format/go-tony/schema
+define:
+  after: .[string]
+  age: .[string]
+  match: .[tony-base:ir]
+  path: .[string]
+signature:
+  name: retention-rule
+---
+context:
+- tony-format/context
+define:
+  author: .[string]
+  batch: .[int]
+  every: .[string]
+  rules: .[array(object)]
+signature:
+  name: retention-config
 ---
 context:
 - tony-format/context
@@ -42,6 +64,7 @@ context:
 - tony-base: github.com/signadot/tony-format/go-tony/schema
 define:
   compaction: .[nullable(compaction-config)]
+  retention: .[nullable(retention-config)]
   schema: .[tony-base:ir]
   snapshot: .[nullable(snapshot-config)]
   storage: .[nullable(storage-config)]

@@ -130,6 +130,13 @@ of taking a snapshot rather than on a schedule of its own — so a store that st
 taking writes never compacts. See [Configuring compaction](compaction.md) for the
 knobs and what cannot be asked of them.
 
+Compaction thins *history*; it never removes *state*. Log-like data — jobs, runs,
+events, anything written once and then only read — is state, and grows until something
+deletes it. That something is [retention](retention.md): rules in the config file under
+which the server itself commits deletes for items older than a limit, read from the
+item's own timestamp. Pair it with compaction's `horizon` and a deleted record leaves
+the disk too.
+
 ## Conditions on writes
 
 A patch can carry a **compare-and-swap precondition**: alongside the write, the client
