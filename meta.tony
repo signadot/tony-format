@@ -2,11 +2,12 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 9e3a954a31b7a2ed7312d9bf28ac5637b8bedbfb
 commits: []
 created: "2026-09-12T09:59:52.592687+02:00"
 duplicates: []
 id: qsftrkzth12kry06mnn0
 labels: []
 related_issues: []
-status: open
-updated: "2026-09-12T09:59:52.592687+02:00"
+status: closed
+updated: "2026-09-12T10:01:25.275146+02:00"
