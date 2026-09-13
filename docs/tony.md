@@ -572,6 +572,9 @@ document.  A tag is not a value, so `p: !delete` is the same case as `p:` -- wri
 `p: null` or `p: !delete null`, or use the key set above.  (YAML mode reads `p:` as a
 null, because YAML does.)
 
+A `- ` with no value after it is refused the same way: write `- null` for a null
+element.  (YAML mode reads a bare `- ` as a null element, because YAML does.)
+
 ```tony
 {1 2 3}
 ---

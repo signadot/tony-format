@@ -279,10 +279,23 @@ func balanceArr(dst, toks []Token, d int, y *int, f format.Format) ([]Token, int
 		}
 		i++
 		*y = orgY
-		dst, off, err = balanceOne(dst, toks[i:], d+1, y, false, f)
-		if err != nil {
-			//fmt.Printf("exit balanceArr %v\n", err)
-			return nil, 0, err
+		if danglingElt(toks, i, tok.Pos) {
+			// A '- ' with nothing after it. Refused in tony, as a ':' with nothing
+			// after it is; a null element in YAML mode, because YAML reads it so.
+			// It was an element of nothing -- `-` alone read as [] and `- a`, `-`,
+			// `- c` as [a, c] in YAML -- while `-`, `-` was an error
+			// (p478tacqh12krg32msn0 item 7).
+			if f.IsTony() {
+				return nil, 0, errDanglingDash(tok.Pos)
+			}
+			dst = append(dst, Token{Type: TNull, Pos: tok.Pos})
+			off = 0
+		} else {
+			dst, off, err = balanceOne(dst, toks[i:], d+1, y, false, f)
+			if err != nil {
+				//fmt.Printf("exit balanceArr %v\n", err)
+				return nil, 0, err
+			}
 		}
 		nElts++
 		i += off
@@ -597,6 +610,41 @@ KVLoop:
 //
 // TONY MODE ONLY. In YAML a `key:` with nothing after it is an ordinary null, and
 // YAML mode reads what YAML writes.
+// errDanglingDash: a '- ' with no value after it. TONY MODE ONLY, as
+// errDanglingColon: YAML reads the shape as a null element.
+func errDanglingDash(pos *Pos) error {
+	return fmt.Errorf("%w: a '- ' must be followed by a value%s: write `- null` for a null element",
+		ErrDocBalance, at(pos))
+}
+
+// danglingElt reports whether the '- ' whose value would start at toks[i] has none:
+// the line ends, and what follows -- past any comment lines -- is at the marker's
+// indent or less (a sibling marker, a key, a dedent), or nothing at all. A value
+// on the next line sits deeper than the marker.
+func danglingElt(toks []Token, i int, marker *Pos) bool {
+	if i >= len(toks) {
+		return true
+	}
+	if toks[i].Type != TIndent {
+		return false
+	}
+	j := i
+	for j+1 < len(toks) && toks[j].Type == TIndent && toks[j+1].Type.IsComment() {
+		j += 2
+	}
+	if j >= len(toks) || j+1 >= len(toks) {
+		return true
+	}
+	if toks[j].Type != TIndent {
+		return false
+	}
+	col := 0
+	if marker != nil {
+		col = marker.Col()
+	}
+	return len(toks[j].Bytes) <= col
+}
+
 func errDanglingColon(pos *Pos) error {
 	// "with no value" would be untrue of `a: !delete`, which has a tag and no
 	// value; a tag is not a value, and that shape is the one this was filed from.
