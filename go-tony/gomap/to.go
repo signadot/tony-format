@@ -472,8 +472,21 @@ func toIRReflectStruct(val reflect.Value, fieldPath string, visited map[uintptr]
 		field := typ.Field(i)
 		fieldVal := val.Field(i)
 
-		// Anonymous non-struct fields carry schema tags, not data.
-		if !field.Anonymous || fieldVal.Kind() != reflect.Struct {
+		// Anonymous non-struct fields carry schema tags, not data. An embedded
+		// POINTER to a struct promotes its fields as encoding/json does: through the
+		// pointer when it is set, and nothing when it is nil. It was skipped with the
+		// schema-tag carriers, and type Outer struct{ *Inner; X int } encoded X alone
+		// (4ynqp7wqh12krg32msn0 item 23).
+		if !field.Anonymous {
+			continue
+		}
+		if fieldVal.Kind() == reflect.Ptr && fieldVal.Type().Elem().Kind() == reflect.Struct {
+			if fieldVal.IsNil() {
+				continue
+			}
+			fieldVal = fieldVal.Elem()
+		}
+		if fieldVal.Kind() != reflect.Struct {
 			continue
 		}
 

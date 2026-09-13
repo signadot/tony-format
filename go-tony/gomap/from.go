@@ -878,8 +878,17 @@ func collectStructFields(typ reflect.Type, prefix []int, fields map[string]struc
 	// Then the embedded ones.
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		// Anonymous non-struct fields carry schema tags, not data.
-		if !field.Anonymous || field.Type.Kind() != reflect.Struct {
+		// Anonymous non-struct fields carry schema tags, not data. An embedded
+		// pointer to a struct promotes its fields as a value does (to.go says why);
+		// the pointer is allocated when one of them arrives (fieldByIndexAlloc).
+		if !field.Anonymous {
+			continue
+		}
+		embeddedType := field.Type
+		if embeddedType.Kind() == reflect.Ptr && embeddedType.Elem().Kind() == reflect.Struct {
+			embeddedType = embeddedType.Elem()
+		}
+		if embeddedType.Kind() != reflect.Struct {
 			continue
 		}
 		index := append(append([]int(nil), prefix...), field.Index...)
@@ -887,13 +896,13 @@ func collectStructFields(typ reflect.Type, prefix []int, fields map[string]struc
 		// An unexported embedded TYPE contributes its exported fields — reflect will
 		// not let us call a method on a value read out of such a field, so its own
 		// codec is out of reach either way. This is the rule encoding/json uses.
-		if field.IsExported() && declaresMethod(field.Type, "FromTonyIR") {
-			if _, ok := reflect.PointerTo(field.Type).MethodByName("FromTonyIR"); ok {
+		if field.IsExported() && declaresMethod(embeddedType, "FromTonyIR") {
+			if _, ok := reflect.PointerTo(embeddedType).MethodByName("FromTonyIR"); ok {
 				*codecs = append(*codecs, index)
 				continue
 			}
 		}
-		if err := collectStructFields(field.Type, index, fields, codecs, fieldPath); err != nil {
+		if err := collectStructFields(embeddedType, index, fields, codecs, fieldPath); err != nil {
 			return err
 		}
 	}
@@ -910,7 +919,7 @@ func fromIRToStruct(node *ir.Node, val reflect.Value, fieldPath string, visited 
 		// A wrapper around a single embedded type encodes as what it wraps, so it
 		// decodes from it too — the value reaches the embedded field's own codec.
 		if index, wrapper := soleEmbeddedField(typ); wrapper {
-			return fromIRReflectWithVisited(node, val.FieldByIndex(index), fieldPath, visited, opts...)
+			return fromIRReflectWithVisited(node, fieldByIndexAlloc(val, index), fieldPath, visited, opts...)
 		}
 		return &UnmarshalError{
 			FieldPath: fieldPath,
@@ -941,7 +950,7 @@ func fromIRToStruct(node *ir.Node, val reflect.Value, fieldPath string, visited 
 	// a hand-written one need not key its wire form off its Go fields at all.
 	// It runs first so the parent's own fields are decoded over the top of it.
 	for _, index := range embeddedCodecs {
-		target := val.FieldByIndex(index)
+		target := fieldByIndexAlloc(val, index)
 		if !target.CanAddr() {
 			return &UnmarshalError{
 				FieldPath: fieldPath,
@@ -983,7 +992,7 @@ func fromIRToStruct(node *ir.Node, val reflect.Value, fieldPath string, visited 
 		}
 
 		// Get field value using the full index path
-		fieldVal := val.FieldByIndex(fieldInfo.index)
+		fieldVal := fieldByIndexAlloc(val, fieldInfo.index)
 
 		// Build field path for error reporting
 		nextPath := fieldPath
@@ -1013,4 +1022,20 @@ func fromIRToStruct(node *ir.Node, val reflect.Value, fieldPath string, visited 
 	}
 
 	return nil
+}
+
+// fieldByIndexAlloc is val.FieldByIndex over a path that may cross an embedded
+// pointer to a struct: a nil one on the way is allocated, since a field of it is
+// about to be set. FieldByIndex panics on the nil instead.
+func fieldByIndexAlloc(val reflect.Value, index []int) reflect.Value {
+	for i, x := range index {
+		if i > 0 && val.Kind() == reflect.Ptr && val.Type().Elem().Kind() == reflect.Struct {
+			if val.IsNil() {
+				val.Set(reflect.New(val.Type().Elem()))
+			}
+			val = val.Elem()
+		}
+		val = val.Field(x)
+	}
+	return val
 }
