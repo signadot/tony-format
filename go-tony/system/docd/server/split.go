@@ -214,7 +214,16 @@ func partition(n *ir.Node, cur []string, mounts []mountInfo, blocks TagFilter) (
 	// untouched (any ops within are the recipient's to interpret).
 	if !deeper {
 		if exact != nil {
-			return []mountPart{{mount: exact, data: cloneOrNil(n)}}, nil, nil
+			// An empty part is nothing to write, and a mount with nothing to write
+			// is not a participant -- as the base remainder is not one when it is
+			// empty (emitBase, and the baseNode check below). Handed on as a part
+			// with no data, it joined the transaction and logd refused it as a
+			// patch with no data, and with it the write (4ynqp7wqh12krg32msn0
+			// item 8). Direct to logd the same write is a no-op merge.
+			if d := cloneOrNil(n); d != nil {
+				return []mountPart{{mount: exact, data: d}}, nil, nil
+			}
+			return nil, nil, nil
 		}
 		return nil, cloneOrNil(n), nil
 	}
