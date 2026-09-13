@@ -42,10 +42,13 @@ func (a allOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, _
 	// throughout -- and an element or field it deleted is one that is GONE, not
 	// one that is nil. Keeping the nil put it in the slice for ir.FromSlice to
 	// dereference, so `!all.if {..., else: !delete null}` over a list crashed.
+	// Patching every child of a container does not change what the container IS:
+	// it keeps its tag -- !key(f) above all, without which a keyed list comes back
+	// unkeyed -- and its keys as written, a merge key included. Rebuilding it from a
+	// string-keyed map lost both (4ynqp7wqh12krg32msn0 item 12).
 	case ir.ObjectType:
-		dst := make(map[string]*ir.Node, len(doc.Fields))
+		dst := make([]ir.KeyVal, 0, len(doc.Fields))
 		for i := range doc.Fields {
-			field := doc.Fields[i]
 			patch := a.child.Clone()
 			patched, err := pf(doc.Values[i], patch, ctx)
 			if err != nil {
@@ -54,9 +57,9 @@ func (a allOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, _
 			if patched == nil {
 				continue
 			}
-			dst[field.String] = patched
+			dst = append(dst, ir.KeyVal{Key: doc.Fields[i].Clone(), Val: patched})
 		}
-		return ir.FromMap(dst), nil
+		return ir.FromKeyVals(dst).WithTag(doc.Tag), nil
 	case ir.ArrayType:
 		dst := make([]*ir.Node, 0, len(doc.Values))
 		for _, docChild := range doc.Values {
@@ -70,7 +73,7 @@ func (a allOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc, _
 			}
 			dst = append(dst, patched)
 		}
-		return ir.FromSlice(dst), nil
+		return ir.FromSlice(dst).WithTag(doc.Tag), nil
 	default:
 		return pf(doc, a.child, ctx)
 	}

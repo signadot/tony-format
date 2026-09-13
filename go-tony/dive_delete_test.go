@@ -163,15 +163,18 @@ rules:
 - resources: [pods]
   verbs: [list]`,
 		tony: `rules: !dive [{match: {resources: [namespaces]}, patch: !delete null}]`,
+		// The document is written in flow style, and a dive keeps the tags it finds:
+		// every container comes back bracketed, as it was written, not just the inner
+		// ones (4ynqp7wqh12krg32msn0 item 12).
 		want: `
 rules: [
   {
     resources: [
-        pods
-      ]
+      pods
+    ]
     verbs: [
-        list
-      ]
+      list
+    ]
   }
 ]`,
 	}}

@@ -88,7 +88,9 @@ func (d *diveOp) Dive(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc) 
 			}
 			out = append(out, ir.KeyVal{Key: doc.Fields[i].Clone(), Val: fieldVal})
 		}
-		return d.do(ir.FromKeyVals(out), ctx, mf, pf)
+		// The container keeps its tag at every level, as !all keeps it: a dive
+		// through a keyed list is still a dive through a keyed list.
+		return d.do(ir.FromKeyVals(out).WithTag(doc.Tag), ctx, mf, pf)
 
 	case ir.ArrayType:
 		out := make([]*ir.Node, 0, len(doc.Values))
@@ -102,7 +104,7 @@ func (d *diveOp) Dive(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf PatchFunc) 
 			}
 			out = append(out, res)
 		}
-		return d.do(ir.FromSlice(out), ctx, mf, pf)
+		return d.do(ir.FromSlice(out).WithTag(doc.Tag), ctx, mf, pf)
 	default:
 		return d.do(doc, ctx, mf, pf)
 	}
