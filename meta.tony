@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 6885895696915d68198bd09633e083caf6a7c9aa
 commits:
 - 91f9dd4d52ddec1c575136fa2df2a5b02739cda5
 - 6885895696915d68198bd09633e083caf6a7c9aa
@@ -13,5 +14,5 @@ labels:
 - audit
 - logd
 related_issues: []
-status: open
-updated: "2026-09-13T15:36:13.638031+02:00"
+status: closed
+updated: "2026-09-13T15:36:13.724343+02:00"
