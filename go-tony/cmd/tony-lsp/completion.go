@@ -14,7 +14,8 @@ func (s *Server) Completion(ctx context.Context, params *protocol.CompletionPara
 
 	pos := params.Position
 	line := int(pos.Line)
-	col := int(pos.Character)
+	// The walk below is in runes; the protocol's column is UTF-16 units.
+	col := runeCol(lineAt(doc.content, line), int(pos.Character))
 
 	// Get the line content up to the cursor
 	contentLines := []rune(doc.content)

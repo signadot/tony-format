@@ -145,26 +145,9 @@ func (s *Server) DidChange(ctx context.Context, params *protocol.DidChangeTextDo
 		return nil
 	}
 
-	// Apply changes
 	content := doc.content
 	for _, change := range params.ContentChanges {
-		// Check if Range is a zero value (full document replacement)
-		// Range is a struct, so check if it's a zero range
-		rangeVal := change.Range
-		if rangeVal.Start.Line == 0 && rangeVal.Start.Character == 0 && rangeVal.End.Line == 0 && rangeVal.End.Character == 0 {
-			// Full document replacement
-			content = change.Text
-		} else {
-			// Incremental change
-			start := rangeVal.Start
-			end := rangeVal.End
-			contentRunes := []rune(content)
-			startOffset := lineColToOffset(content, int(start.Line), int(start.Character))
-			endOffset := lineColToOffset(content, int(end.Line), int(end.Character))
-			if startOffset < len(contentRunes) && endOffset <= len(contentRunes) {
-				content = string(contentRunes[:startOffset]) + change.Text + string(contentRunes[endOffset:])
-			}
-		}
+		content = applyChange(content, change)
 	}
 
 	s.docs.put(string(params.TextDocument.URI), content, params.TextDocument.Version)
@@ -177,19 +160,26 @@ func (s *Server) DidClose(ctx context.Context, params *protocol.DidCloseTextDocu
 	return nil
 }
 
-func lineColToOffset(content string, line, col int) int {
-	currentLine := 0
-	currentCol := 0
-	for i, r := range content {
-		if currentLine == line && currentCol == col {
-			return i
-		}
-		if r == '\n' {
-			currentLine++
-			currentCol = 0
-		} else {
-			currentCol++
-		}
+// applyChange applies one content change to the document's text.
+//
+// The server asks for incremental sync (main.go, Initialize), so every change a
+// client sends has a range, in lines and UTF-16 columns (positions.go). The
+// protocol's whole-document change, which has no range, decodes in this library
+// to a zero Range -- protocol.Range is not a pointer -- and cannot be told from an
+// insert at the document's start, which is what it is read as: that is the change
+// a client honouring the negotiated sync sends with that shape. Read as a whole-
+// document replacement, an insert at the top of a file replaced the file with the
+// inserted text.
+//
+// The range's end is where the client's document ended: an insert at the end of
+// the document names the line after its last, which byteOffset answers with the
+// document's end. A guard that refused a start at the end dropped every such
+// insert (4ynqp7wqh12krg32msn0 item 28).
+func applyChange(content string, change protocol.TextDocumentContentChangeEvent) string {
+	start := byteOffset(content, int(change.Range.Start.Line), int(change.Range.Start.Character))
+	end := byteOffset(content, int(change.Range.End.Line), int(change.Range.End.Character))
+	if end < start {
+		end = start
 	}
-	return len(content)
+	return content[:start] + change.Text + content[end:]
 }

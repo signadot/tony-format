@@ -18,7 +18,8 @@ func (s *Server) Hover(ctx context.Context, params *protocol.HoverParams) (*prot
 
 	pos := params.Position
 	line := int(pos.Line)
-	col := int(pos.Character)
+	// The tokenizer's columns are bytes; the protocol's are UTF-16 units.
+	col := byteCol(lineAt(doc.content, line), int(pos.Character))
 
 	// Find the node at the given position using tracked positions
 	var targetNode *ir.Node

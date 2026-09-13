@@ -149,7 +149,7 @@ func (s *Server) collectSemanticTokens(doc *document) []uint32 {
 				if tagText[0] != '!' {
 					tagText = "!" + tagText
 				}
-				char, length := findTokenInLine(lineContent, col, tagText)
+				char, length := findTokenInLine(lineContent, runeIndex(lineContent, col), tagText)
 				tokenList = append(tokenList, tokenInfo{
 					line:      uint32(line),
 					character: uint32(char),
@@ -162,7 +162,7 @@ func (s *Server) collectSemanticTokens(doc *document) []uint32 {
 			// Handle comments
 			if node.Type == ir.CommentType {
 				if node.String != "" {
-					char, length := findTokenInLine(lineContent, col, node.String)
+					char, length := findTokenInLine(lineContent, runeIndex(lineContent, col), node.String)
 					tokenList = append(tokenList, tokenInfo{
 						line:      uint32(line),
 						character: uint32(char),
@@ -181,7 +181,7 @@ func (s *Server) collectSemanticTokens(doc *document) []uint32 {
 						// This is a field key
 						fieldText := node.String
 						if fieldText != "" {
-							char, length := findTokenInLine(lineContent, col, fieldText)
+							char, length := findTokenInLine(lineContent, runeIndex(lineContent, col), fieldText)
 							tokenList = append(tokenList, tokenInfo{
 								line:      uint32(line),
 								character: uint32(char),
@@ -271,7 +271,7 @@ func (s *Server) collectSemanticTokens(doc *document) []uint32 {
 				}
 
 				if valueText != "" && node.Tag == "" {
-					char, length := findTokenInLine(lineContent, col, valueText)
+					char, length := findTokenInLine(lineContent, runeIndex(lineContent, col), valueText)
 					tokenList = append(tokenList, tokenInfo{
 						line:      uint32(line),
 						character: uint32(char),
@@ -338,12 +338,18 @@ func (s *Server) collectSemanticTokens(doc *document) []uint32 {
 	var prevChar uint32 = 0
 
 	for _, ti := range tokenList {
+		// Collected in runes of the line (findTokenInLine); the protocol wants
+		// UTF-16 units.
+		lineText := lineAt(doc.content, int(ti.line))
+		character := uint32(utf16Col(lineText, int(ti.character)))
+		length := uint32(utf16Col(lineText, int(ti.character+ti.length))) - character
+
 		deltaLine := ti.line - prevLine
 		deltaChar := uint32(0)
 		if deltaLine == 0 {
-			deltaChar = ti.character - prevChar
+			deltaChar = character - prevChar
 		} else {
-			deltaChar = ti.character
+			deltaChar = character
 		}
 
 		tokenType, ok := typeMap[ti.tokenType]
@@ -359,10 +365,10 @@ func (s *Server) collectSemanticTokens(doc *document) []uint32 {
 			}
 		}
 
-		tokens = append(tokens, deltaLine, deltaChar, ti.length, tokenType, tokenModifierBits)
+		tokens = append(tokens, deltaLine, deltaChar, length, tokenType, tokenModifierBits)
 
 		prevLine = ti.line
-		prevChar = ti.character
+		prevChar = character
 	}
 
 	return tokens
