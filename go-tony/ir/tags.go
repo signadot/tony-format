@@ -309,6 +309,14 @@ func CheckTag(tag string) error {
 			if c == '[' || c == ']' || c == '-' || c == '_' {
 				continue
 			}
+			// ':' divides a namespace from an operation name (mergeop.NamespaceSep,
+			// !acme:thing). The tokenizer admits it, RegisterNamespaced requires it,
+			// and a diff of a document carrying one wrote !insert(acme:thing), which
+			// Patch then refused here, so Patch(a, Diff(a, b)) was not b
+			// (p478tacqh12krg32msn0 item 2).
+			if c == ':' {
+				continue
+			}
 			return fmt.Errorf("invalid char: %c", c)
 		}
 	}
