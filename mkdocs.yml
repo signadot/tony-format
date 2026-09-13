@@ -17,7 +17,10 @@ nav:
   # must not be named README.md or o-*.md -- and a page about a command belongs
   # in that command's description, which is where o/build.md came from and where
   # it went back to, rather than beside the generated page as a second copy.
+  # The language server is the exception: it is listed as a tool of its own,
+  # because it is found by what it does for an editor, not by the command name.
   - o: o/README.md
+  - LSP: o/o-system-lsp.md
   - Golang: gomap.md
   - logd: logd/index.md
   - 'logd: The session protocol': logd/session.md
