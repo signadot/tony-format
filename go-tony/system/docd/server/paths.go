@@ -115,3 +115,17 @@ func fieldsEqual(a, b []string) bool {
 	}
 	return true
 }
+
+// strictlyBelow reports whether path lies strictly under ancestor. A path that does
+// not parse lies under nothing.
+func strictlyBelow(path, ancestor string) bool {
+	ps, err := pathFields(path)
+	if err != nil {
+		return false
+	}
+	as, err := pathFields(ancestor)
+	if err != nil {
+		return false
+	}
+	return hasFieldPrefix(ps, as) && !fieldsEqual(ps, as)
+}

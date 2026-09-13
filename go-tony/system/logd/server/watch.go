@@ -235,6 +235,7 @@ func (h *WatchHub) PathCount() int {
 // matchesPath checks if any of the kpaths matches the watch path.
 // A match occurs when:
 // - watchPath is empty (matches everything)
+// - a kpath is empty (the commit states the whole root, which everything is under)
 // - watchPath equals a kpath exactly
 // - watchPath is a prefix of a kpath (kpath starts with watchPath + "." or watchPath + "[" or watchPath + "{")
 // - a kpath is a prefix of watchPath (notification affects a parent of the watch)
@@ -245,8 +246,8 @@ func matchesPath(watchPath string, kpaths []string) bool {
 	}
 
 	for _, kp := range kpaths {
-		// Exact match
-		if kp == watchPath {
+		// Exact match, or the root, which is above every path
+		if kp == watchPath || kp == "" {
 			return true
 		}
 

@@ -370,8 +370,11 @@ func (s *ClientSession) pumpLogdToClient() error {
 // more participants it is committed as one atomic transaction (handled here,
 // returning handled=true) and the coordination runs in the background so the read
 // loop keeps serving. A single-participant patch returns handled=false to fall
-// through to normal routing. A patch that cannot be decomposed statically (a
-// higher-order op above a mount boundary) is answered with an error.
+// through to normal routing -- unless its one owner is a mount below the client's
+// path, which normal routing, by the client's path, would never find: that one is
+// re-rooted at the mount and written there (routeToMount). A patch that cannot be
+// decomposed statically (a higher-order op above a mount boundary) is answered with
+// an error, and so is one with a part under a tombstoned mount.
 func (s *ClientSession) maybeCoordinatePatch(req *logdapi.SessionRequest) (bool, error) {
 	parts, base, err := splitPatch(s.server.Mounts, req.Patch.Path, req.Patch.Data, s.server.patchTagFilter())
 	if errors.Is(err, errNotDecomposable) {
@@ -380,8 +383,25 @@ func (s *ClientSession) maybeCoordinatePatch(req *logdapi.SessionRequest) (bool,
 	if err != nil {
 		return true, s.writeToClient(logdapi.NewErrorResponse(req.ID, logdapi.ErrCodeInvalidMessage, err.Error()))
 	}
+	// What lies under a tombstone is the crashed controller's; it is refused here as a
+	// write at the mount is (routeFor), and the rest of the patch with it, since the
+	// write was one.
+	for _, p := range parts {
+		if !p.mount.Live() {
+			return true, s.writeToClient(logdapi.NewErrorResponse(req.ID, logdapi.ErrCodeUnavailable,
+				fmt.Sprintf("controller for %q is unavailable", p.mount.Path)))
+		}
+	}
 
 	if len(parts)+len(base) < 2 {
+		// One owner. A base write, or a mount at or above the client's path, is found
+		// by the client's path; a mount BELOW it is not -- the path names no mount, and
+		// the write went to logd base, past the controller (05d8w3cjh12kswb1msn0,
+		// item 7).
+		if len(parts) == 1 && strictlyBelow(parts[0].mount.Path, req.Patch.Path) {
+			s.routeToMount(req, parts[0])
+			return true, nil
+		}
 		return false, nil // single participant: route normally
 	}
 	// A patch which spans mounts becomes SEVERAL participants, and a transaction's
@@ -408,6 +428,46 @@ func (s *ClientSession) maybeCoordinatePatch(req *logdapi.SessionRequest) (bool,
 
 	go s.coordinatePatch(req, parts, base)
 	return true, nil
+}
+
+// routeToMount writes the one part of a client patch that lies under a mount below
+// the client's path: re-rooted at the mount's path, where its owner is, in the
+// client's scope and under the client's author (or its transaction), and answered at
+// the client's own path, as a split write is (joinPatchResults). The write is the
+// same one, so it keeps the client's precondition.
+func (s *ClientSession) routeToMount(req *logdapi.SessionRequest, p mountPart) {
+	clientID := req.ID
+	preq := &logdapi.SessionRequest{
+		Scope: s.clientScope,
+		Patch: &logdapi.PatchRequest{
+			TxID:     req.Patch.TxID,
+			Match:    req.Patch.Match,
+			PathData: logdapi.PathData{Path: p.mount.Path, Data: p.data},
+		},
+	}
+	if req.Patch.TxID == nil {
+		preq.Patch.Author = s.authorFor(req.Patch)
+	}
+	ch, done := p.mount.Session.RouteCollect(preq)
+	go func() {
+		defer done()
+		resp := <-ch
+		if resp.Error != nil {
+			_ = s.writeToClient(logdapi.NewErrorResponse(clientID, resp.Error.Code, resp.Error.Message))
+			return
+		}
+		var commit int64
+		var reported []participantResult
+		if resp.Result != nil && resp.Result.Patch != nil {
+			commit = resp.Result.Patch.Commit
+			reported = append(reported, participantResult{path: p.mount.Path, data: resp.Result.Patch.Data})
+		}
+		data, err := joinPatchResults(req.Patch.Path, reported)
+		if err != nil {
+			s.log.Error("failed to re-root a mount's patch result", "path", req.Patch.Path, "mount", p.mount.Path, "error", err)
+		}
+		_ = s.writeToClient(logdapi.NewPatchResponse(clientID, commit, data))
+	}()
 }
 
 // coordinatePatch commits a multi-mount patch as one transaction: it allocates a
