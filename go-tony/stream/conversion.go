@@ -240,6 +240,18 @@ func EventsToNode(events []Event) (*ir.Node, error) {
 			if parent.node.Type != ir.ObjectType {
 				return nil, fmt.Errorf("unexpected EventKey at event %d (not in object)", i)
 			}
+			// An int key makes the object a sparse array, as it does in the parser
+			// (parse.go, FromIntKeysMapAt), and the tag is what says so to a merge:
+			// without it a client's {1: b} landed on a stored sparse array as an object
+			// with a field "1", and the entries it did not name were gone
+			// (4ynqp7wqh12krg32msn0 item 6).
+			if !ir.TagHas(parent.node.Tag, ir.IntKeysTag) {
+				if parent.node.Tag == "" {
+					parent.node.Tag = ir.IntKeysTag
+				} else {
+					parent.node.Tag = ir.TagCompose(parent.node.Tag, nil, ir.IntKeysTag)
+				}
+			}
 			parent.intKey = &ev.IntKey
 
 		case EventString:
