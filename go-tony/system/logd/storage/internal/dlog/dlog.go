@@ -320,8 +320,9 @@ func newDLogFile(id LogFileID, path string, logger *slog.Logger) (*DLogFile, err
 // scanFrames walks the record framing from the start of the file and returns the offset
 // just past the last complete frame, plus whether everything from there to size is a
 // PROVABLY incomplete tail. It mirrors the framing that singleFileIter.next reads: a
-// 4-byte big-endian length prefix followed by that many payload bytes, or a
-// BlobHeaderMagic marker followed by a 4-byte blob length and that many blob bytes.
+// 4-byte big-endian length prefix followed by that many payload bytes, or a blob
+// header -- BlobHeaderMagic64 and an 8-byte length, or the older BlobHeaderMagic and a
+// 4-byte one -- followed by that many blob bytes.
 //
 // The bool is the whole safety story. tornTail is true only when the walk reaches a frame
 // that runs past the end of the file — that frame was interrupted mid-write, nothing can
@@ -350,24 +351,29 @@ func scanFrames(file *os.File, size int64) (end int64, tornTail bool, err error)
 		}
 		lengthOrMagic := binary.BigEndian.Uint32(hdr)
 
-		if lengthOrMagic == BlobHeaderMagic {
-			if pos+BlobHeaderSize > size {
+		if isBlobMagic(lengthOrMagic) {
+			hsize := blobHeaderSize(lengthOrMagic)
+			if pos+hsize > size {
 				return pos, true, nil // partial blob header
 			}
-			if _, err := file.ReadAt(hdr, pos+4); err != nil {
+			field := make([]byte, hsize-4)
+			if _, err := file.ReadAt(field, pos+4); err != nil {
 				if err == io.EOF {
 					return pos, true, nil
 				}
 				return 0, false, fmt.Errorf("read blob length at %d: %w", pos, err)
 			}
-			blobLen := int64(binary.BigEndian.Uint32(hdr))
+			blobLen, ok := blobLength(lengthOrMagic, field)
+			if !ok {
+				return pos, false, nil // a length no file holds: unreadable, not a tail
+			}
 			if blobLen == 0 {
 				// Unpatched placeholder: an abandoned or interrupted snapshot. The
 				// blob's extent is unknowable from here, so the walk stops — but the
 				// data beyond it is real and is not ours to drop.
 				return pos, false, nil
 			}
-			blobEnd := pos + BlobHeaderSize + blobLen
+			blobEnd := pos + hsize + blobLen
 			if blobEnd > size {
 				return pos, true, nil // blob data cut short
 			}
@@ -799,9 +805,9 @@ func (dlf *DLogFile) AppendEntry(entry *Entry) (position int64, err error) {
 		return 0, fmt.Errorf("failed to serialize entry: %w", err)
 	}
 
-	// Check length fits in uint32
-	if len(entryBytes) > 0xFFFFFFFF {
-		return 0, fmt.Errorf("entry too large: %d bytes (max %d)", len(entryBytes), 0xFFFFFFFF)
+	// The length must fit its prefix and not be one of the blob magics.
+	if len(entryBytes) > maxEntryLength {
+		return 0, fmt.Errorf("entry too large: %d bytes (max %d)", len(entryBytes), maxEntryLength)
 	}
 
 	// Frame the record in one buffer and issue a single write, so there is no window in
@@ -990,9 +996,9 @@ func (it *singleFileIter) next() (*Entry, int64, error) {
 	lengthOrMagic := binary.BigEndian.Uint32(lengthBytes)
 
 	// Check for blob header magic marker (snapshot data)
-	if lengthOrMagic == BlobHeaderMagic {
-		// Read blob length (next 4 bytes after magic)
-		blobLenBytes := make([]byte, 4)
+	if isBlobMagic(lengthOrMagic) {
+		hsize := blobHeaderSize(lengthOrMagic)
+		blobLenBytes := make([]byte, hsize-4)
 		it.logFile.mu.RLock()
 		_, err := it.logFile.file.ReadAt(blobLenBytes, it.position+4)
 		it.logFile.mu.RUnlock()
@@ -1003,7 +1009,10 @@ func (it *singleFileIter) next() (*Entry, int64, error) {
 			}
 			return nil, it.position, fmt.Errorf("failed to read blob length: %w", err)
 		}
-		blobLength := int64(binary.BigEndian.Uint32(blobLenBytes))
+		blobLength, ok := blobLength(lengthOrMagic, blobLenBytes)
+		if !ok {
+			return it.resync(it.position)
+		}
 		if blobLength == 0 {
 			// An unpatched placeholder: a snapshot interrupted before Close patched its
 			// header. Its extent is not in the header, so the walk finds where readable
@@ -1011,8 +1020,8 @@ func (it *singleFileIter) next() (*Entry, int64, error) {
 			return it.resync(it.position)
 		}
 
-		// Skip blob header (8 bytes) + blob data
-		it.position += BlobHeaderSize + blobLength
+		// Skip blob header + blob data
+		it.position += hsize + blobLength
 		if it.position >= it.fileSize {
 			it.done = true
 			return nil, it.position, io.EOF
@@ -1113,7 +1122,7 @@ func (it *singleFileIter) resync(from int64) (*Entry, int64, error) {
 // with a commit above the last one read, or a blob whose length fits and which a record
 // or the frontier follows.
 func (it *singleFileIter) frameAt(p int64) bool {
-	hdr := make([]byte, 8)
+	hdr := make([]byte, BlobHeaderSize64)
 	it.logFile.mu.RLock()
 	_, err := it.logFile.file.ReadAt(hdr[:4], p)
 	it.logFile.mu.RUnlock()
@@ -1121,19 +1130,20 @@ func (it *singleFileIter) frameAt(p int64) bool {
 		return false
 	}
 	lengthOrMagic := binary.BigEndian.Uint32(hdr[:4])
-	if lengthOrMagic == BlobHeaderMagic {
-		if p+BlobHeaderSize > it.fileSize {
+	if isBlobMagic(lengthOrMagic) {
+		hsize := blobHeaderSize(lengthOrMagic)
+		if p+hsize > it.fileSize {
 			return false
 		}
 		it.logFile.mu.RLock()
-		_, err := it.logFile.file.ReadAt(hdr[4:8], p+4)
+		_, err := it.logFile.file.ReadAt(hdr[4:hsize], p+4)
 		it.logFile.mu.RUnlock()
 		if err != nil {
 			return false
 		}
-		blobLen := int64(binary.BigEndian.Uint32(hdr[4:8]))
-		end := p + BlobHeaderSize + blobLen
-		if blobLen == 0 || end > it.fileSize {
+		blobLen, ok := blobLength(lengthOrMagic, hdr[4:hsize])
+		end := p + hsize + blobLen
+		if !ok || blobLen == 0 || end > it.fileSize {
 			return false
 		}
 		return end == it.fileSize || it.entryAt(end) != nil
@@ -1151,7 +1161,7 @@ func (it *singleFileIter) entryAt(p int64) *Entry {
 		return nil
 	}
 	length := int64(binary.BigEndian.Uint32(hdr))
-	if length == 0 || length == int64(BlobHeaderMagic) || p+4+length > it.fileSize {
+	if length == 0 || isBlobMagic(uint32(length)) || p+4+length > it.fileSize {
 		return nil
 	}
 	payload := make([]byte, length)

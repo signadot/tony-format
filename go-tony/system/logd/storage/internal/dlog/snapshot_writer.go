@@ -4,14 +4,59 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 )
 
-// BlobHeaderMagic is the magic marker that indicates a blob header follows.
-// This is 0xFFFFFFFF which is impossible as a normal entry length (4GB+ entries).
+// A blob header stands where a record's length prefix would, and its first four bytes
+// are a magic no record length takes. Two forms are read:
+//
+//	[BlobHeaderMagic64][uint64 length]  12 bytes, written since go-tony v0.0.217
+//	[BlobHeaderMagic  ][uint32 length]   8 bytes, written before, read still
+//
+// The 32-bit length wrapped silently for a snapshot of 4 GiB or more, and the walk on
+// open then read the log from the wrong offset (p478tacqh12krg32msn0 item 15). A log
+// written before holds only the short form and opens as it did.
+
+// BlobHeaderMagic marks the short, 32-bit-length blob header of older logs.
 const BlobHeaderMagic uint32 = 0xFFFFFFFF
 
-// BlobHeaderSize is the total size of the blob header (magic + length).
-const BlobHeaderSize = 8 // 4 bytes magic + 4 bytes length
+// BlobHeaderSize is the size of the short blob header (magic + uint32 length).
+const BlobHeaderSize = 8
+
+// BlobHeaderMagic64 marks the blob header a snapshot is written with: magic + uint64
+// length. A record's length is capped below it (maxEntryLength).
+const BlobHeaderMagic64 uint32 = 0xFFFFFFFE
+
+// BlobHeaderSize64 is the size of the blob header a snapshot is written with.
+const BlobHeaderSize64 = 12
+
+// maxEntryLength is the longest record a length prefix may name: the two blob magics
+// are not lengths.
+const maxEntryLength = 0xFFFFFFFD
+
+// isBlobMagic reports whether a length prefix is a blob header's magic.
+func isBlobMagic(m uint32) bool { return m == BlobHeaderMagic || m == BlobHeaderMagic64 }
+
+// blobHeaderSize is the size of the blob header whose magic is m.
+func blobHeaderSize(m uint32) int64 {
+	if m == BlobHeaderMagic64 {
+		return BlobHeaderSize64
+	}
+	return BlobHeaderSize
+}
+
+// blobLength decodes the length field of a blob header whose magic is m, from the bytes
+// after the magic. ok is false for a length no file can hold.
+func blobLength(m uint32, field []byte) (n int64, ok bool) {
+	if m == BlobHeaderMagic64 {
+		u := binary.BigEndian.Uint64(field)
+		if u > math.MaxInt64 {
+			return 0, false
+		}
+		return int64(u), true
+	}
+	return int64(binary.BigEndian.Uint32(field)), true
+}
 
 // SnapshotWriter is a writer for creating snapshots in the inactive log.
 // It implements io.WriteCloser and io.Seeker for use with snap.Builder.
@@ -19,7 +64,7 @@ const BlobHeaderSize = 8 // 4 bytes magic + 4 bytes length
 //
 // Log format for snapshots:
 //
-//	[blob header: 8 bytes]     - magic marker (0xFFFFFFFF) + blob length
+//	[blob header: 12 bytes]    - BlobHeaderMagic64 + uint64 blob length
 //	[snapshot data: N bytes]   - binary event stream from snap.Builder
 //	[entry: 4+M bytes]         - length prefix + Entry with SnapPos pointing to snapshot data
 //
@@ -77,16 +122,16 @@ func (dl *DLog) NewSnapshotWriter(commit int64, timestamp string) (*SnapshotWrit
 
 	// Write blob header placeholder: [magic marker][placeholder length]
 	// The actual length will be patched in Close() once we know the blob size
-	header := make([]byte, BlobHeaderSize)
-	binary.BigEndian.PutUint32(header[0:4], BlobHeaderMagic)
-	binary.BigEndian.PutUint32(header[4:8], 0) // placeholder, will be patched
+	header := make([]byte, BlobHeaderSize64)
+	binary.BigEndian.PutUint32(header[0:4], BlobHeaderMagic64)
+	binary.BigEndian.PutUint64(header[4:12], 0) // placeholder, will be patched
 
 	if _, err := logFileObj.file.WriteAt(header, headerPos); err != nil {
 		logFileObj.mu.Unlock()
 		logFileObj.snapMu.Unlock()
 		return nil, fmt.Errorf("failed to write blob header: %w", err)
 	}
-	logFileObj.position = headerPos + BlobHeaderSize
+	logFileObj.position = headerPos + BlobHeaderSize64
 	startPos := logFileObj.position // snapshot data starts after header
 	logFileObj.mu.Unlock()
 
@@ -166,8 +211,8 @@ func (sw *SnapshotWriter) Close() error {
 
 	// Patch the blob header with the actual length, in place at headerPos+4 (skipping the
 	// magic marker). This in-place patch is why the log cannot be opened with O_APPEND.
-	lenBuf := make([]byte, 4)
-	binary.BigEndian.PutUint32(lenBuf, uint32(blobLength))
+	lenBuf := make([]byte, 8)
+	binary.BigEndian.PutUint64(lenBuf, uint64(blobLength))
 	if _, err := sw.logFile.file.WriteAt(lenBuf, sw.headerPos+4); err != nil {
 		return fmt.Errorf("failed to patch blob header length: %w", err)
 	}
@@ -197,9 +242,9 @@ func (sw *SnapshotWriter) Close() error {
 		return fmt.Errorf("failed to serialize entry: %w", err)
 	}
 
-	// Check length fits in uint32
-	if len(entryBytes) > 0xFFFFFFFF {
-		return fmt.Errorf("entry too large: %d bytes", len(entryBytes))
+	// The length must fit its prefix and not be one of the blob magics.
+	if len(entryBytes) > maxEntryLength {
+		return fmt.Errorf("entry too large: %d bytes (max %d)", len(entryBytes), maxEntryLength)
 	}
 
 	// Frame the entry in one buffer and write it in a single call, as AppendEntry does.
@@ -249,8 +294,8 @@ func (sw *SnapshotWriter) Abandon() {
 		return
 	}
 
-	lenBuf := make([]byte, 4)
-	binary.BigEndian.PutUint32(lenBuf, uint32(blobLength))
+	lenBuf := make([]byte, 8)
+	binary.BigEndian.PutUint64(lenBuf, uint64(blobLength))
 	if _, err := sw.logFile.file.WriteAt(lenBuf, sw.headerPos+4); err != nil {
 		// The header keeps its placeholder, so the walk will stop at it rather than
 		// cross it. That is safe — nothing is deleted — but it is a hole, so say so.

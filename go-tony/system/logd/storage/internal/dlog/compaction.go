@@ -125,7 +125,8 @@ func (dl *DLog) CompactInactive(positions []int64, config *CompactConfig) ([]Com
 // Returns the position mapping and temp file path.
 //
 // positions contains entry positions (not blob positions). For snapshots, the
-// blob header is at (SnapPos - 8) and must be copied along with the entry.
+// blob header precedes SnapPos and must be copied along with the entry, in whichever
+// form it was written (snapBlobHeaderSize).
 func (dl *DLog) writeCompactedEntries(logFile *DLogFile, positions []int64) ([]CompactResult, string, error) {
 	// Create temp file in same directory
 	tempPath := logFile.path + ".compact.tmp"
@@ -153,11 +154,15 @@ func (dl *DLog) writeCompactedEntries(logFile *DLogFile, positions []int64) ([]C
 
 		if entry.SnapPos != nil {
 			// Snapshot entry - copy blob header + blob data, then write updated entry
-			// Blob structure: [header 8 bytes][data N bytes][entry M bytes]
+			// Blob structure: [header][data N bytes][entry M bytes]
 			// SnapPos points to start of blob data (after header)
-			blobHeaderPos := *entry.SnapPos - BlobHeaderSize
+			hsize, err := snapBlobHeaderSize(logFile, *entry.SnapPos)
+			if err != nil {
+				return nil, "", fmt.Errorf("blob header of the snapshot at %d: %w", *entry.SnapPos, err)
+			}
+			blobHeaderPos := *entry.SnapPos - hsize
 			blobLength := oldEntryPos - *entry.SnapPos
-			blobTotalSize := BlobHeaderSize + blobLength
+			blobTotalSize := hsize + blobLength
 
 			// Copy blob header + blob data
 			if err := dl.copyBytes(logFile, tempFile, blobHeaderPos, blobTotalSize); err != nil {
@@ -165,7 +170,7 @@ func (dl *DLog) writeCompactedEntries(logFile *DLogFile, positions []int64) ([]C
 			}
 
 			// Update SnapPos to point to new blob data position
-			newSnapPos := newPosition + BlobHeaderSize
+			newSnapPos := newPosition + hsize
 			entry.SnapPos = &newSnapPos
 
 			// Serialize and write updated entry. writeEntry reports what it wrote:
@@ -390,4 +395,30 @@ func (dl *DLog) waitForReaders(id LogFileID, gracePeriod time.Duration) {
 		dl.logger.Warn("compaction: timed out waiting for readers",
 			"logFile", id, "remaining", remaining)
 	}
+}
+
+// snapBlobHeaderSize answers which form of blob header precedes the snapshot data at
+// snapPos, by its size. The short form's magic sits 8 bytes before the data; the long
+// form's sits 12 before, and the 4 bytes 8 before the data are then the high half of a
+// big-endian length, which is BlobHeaderMagic only for a blob of 2^64-2^32 bytes. The
+// check is unambiguous that way round.
+func snapBlobHeaderSize(logFile *DLogFile, snapPos int64) (int64, error) {
+	word := make([]byte, 4)
+	if snapPos >= BlobHeaderSize {
+		if _, err := logFile.file.ReadAt(word, snapPos-BlobHeaderSize); err != nil {
+			return 0, err
+		}
+		if binary.BigEndian.Uint32(word) == BlobHeaderMagic {
+			return BlobHeaderSize, nil
+		}
+	}
+	if snapPos >= BlobHeaderSize64 {
+		if _, err := logFile.file.ReadAt(word, snapPos-BlobHeaderSize64); err != nil {
+			return 0, err
+		}
+		if binary.BigEndian.Uint32(word) == BlobHeaderMagic64 {
+			return BlobHeaderSize64, nil
+		}
+	}
+	return 0, fmt.Errorf("no blob header precedes it")
 }
