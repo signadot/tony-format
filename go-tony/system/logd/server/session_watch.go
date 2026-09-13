@@ -20,23 +20,25 @@ import (
 // forwards live commits until the session ends or the client falls behind.
 
 // handleWatch handles watch requests.
-func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
-	path := req.Path
+// watchPath is a watch request's path as the store spells it: validated, and an
+// element of a keyed array addressed by its name, whichever sugar the client used
+// (ident.CanonicalPath). A watch and its unwatch both ask it, so the path a client
+// watched with is the path it unwatches with.
+func (s *Session) watchPath(path string) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+	if err := validateDataPath(path); err != nil {
+		return "", err
+	}
+	return ident.CanonicalPath(s.storage.SchemaFor(s.scopeID()), path)
+}
 
-	// Validate path
-	if path != "" {
-		if err := validateDataPath(path); err != nil {
-			s.sendError(id, api.ErrCodeInvalidPath, err.Error())
-			return
-		}
-		// And spelled as the store spells it: an element of a keyed array is addressed by its
-		// name, whichever sugar the client used (ident.CanonicalPath).
-		if canon, err := ident.CanonicalPath(s.storage.SchemaFor(s.scopeID()), path); err != nil {
-			s.sendError(id, api.ErrCodeInvalidPath, err.Error())
-			return
-		} else {
-			path = canon
-		}
+func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
+	path, err := s.watchPath(req.Path)
+	if err != nil {
+		s.sendError(id, api.ErrCodeInvalidPath, err.Error())
+		return
 	}
 
 	// Admission: a path is either a single id-less watch or N distinct id-bearing
@@ -630,7 +632,14 @@ func (s *Session) emitScopedDeltaFrom(id *string, path string, commit int64, pre
 
 // handleUnwatch handles unwatch requests.
 func (s *Session) handleUnwatch(id *string, req *api.UnwatchRequest) {
-	path := req.Path
+	// Spelled as the watch spelled it: a watch opened with element sugar is held under
+	// the element's name, and an unwatch naming the sugar found nothing to close, so the
+	// watch stayed open for the session's life (p478tacqh12krg32msn0 item 10).
+	path, err := s.watchPath(req.Path)
+	if err != nil {
+		s.sendError(id, api.ErrCodeInvalidPath, err.Error())
+		return
+	}
 
 	// req.WatchID targets one specific watch; without it, cancel every watch on the
 	// path (the legacy id-less behavior, and a bulk unwatch).
