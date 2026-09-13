@@ -258,6 +258,11 @@ func (cfg *DiffConfig) mkLoopEvery() func(cc *cli.Context, a string) (any, error
 		if err != nil {
 			return nil, err
 		}
+		// The interval is what the ticker runs on, and a ticker of nothing panics;
+		// a loop that waits no time between runs is not a thing to ask for either.
+		if d <= 0 {
+			return nil, fmt.Errorf("%w: -loopEvery must be a positive duration, got %s", cli.ErrUsage, a)
+		}
 		cfg.LoopEvery = d
 		return d, nil
 	}

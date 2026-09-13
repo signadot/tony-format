@@ -41,6 +41,13 @@ func patch(cfg *PatchConfig, cc *cli.Context, args []string) error {
 	if err != nil {
 		return fault(cc, err)
 	}
+	// Parse answers an empty text, or one holding only comments, with no document
+	// (that is the idiom, not a fault of the parser), and a patch that is nothing
+	// is a mistake in the call -- `o patch "$UNSET" f` -- to say so about, not a
+	// nil to hand to Patch, which dereferenced it (p478tacqh12krg32msn0 item 20).
+	if patch == nil {
+		return usageErr(cfg.Patch, cc, fmt.Sprintf("the patch %q holds no document", args[0]))
+	}
 	if cfg.Reverse {
 		rev, err := libdiff.Reverse(patch)
 		if err != nil {
