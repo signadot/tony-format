@@ -1,4 +1,10 @@
 site_name: Tony Format
+# The repository, linked with its icon from the header of every page. edit_uri is
+# empty so the link is to the repository rather than a per-page "Edit on GitHub",
+# whose default path names a master branch this repository does not have.
+repo_url: https://github.com/signadot/tony-format
+repo_name: GitHub
+edit_uri: ""
 nav:
 - Format:
   - tony.md
