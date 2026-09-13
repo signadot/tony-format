@@ -148,8 +148,9 @@ type Manifest struct {
 	Generations map[string]int64 // log file -> generation when written; a mismatch means positions moved
 	FileSize    int64            // the regions file's frontier when written; beyond it is torn
 	Nodes       []ManifestNode
-	Scopes      []ManifestScope  // every scope's live statements (footprint.go)
-	Schemas     []ManifestSchema // the schema history (schema_history.go)
+	Scopes      []ManifestScope    // every scope's live statements (footprint.go)
+	Schemas     []ManifestSchema   // the schema history (schema_history.go)
+	Deleted     []ManifestDeletion // every scope's deletion (footprint.go)
 }
 
 type ManifestNode struct {
@@ -261,6 +262,7 @@ func OpenIndex(dir string, generation func(logFile string) int64) (idx *Index, m
 		}
 	}
 	idx.foot.load(m.Scopes)
+	idx.foot.loadDeletions(m.Deleted)
 	if err := idx.loadSchemas(m.Schemas); err != nil {
 		return fresh(err.Error())
 	}
@@ -336,6 +338,7 @@ func (i *Index) Persist(generations map[string]int64) error {
 		Nodes:       nodes,
 		Scopes:      i.foot.snapshot(),
 		Schemas:     schemas,
+		Deleted:     i.foot.deletions(),
 	}
 	return writeManifest(filepath.Dir(i.res.file.path), m)
 }

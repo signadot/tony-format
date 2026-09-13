@@ -18,6 +18,7 @@ define:
   LastCommit: .[nullable(int)]
   Patch: .[tony-base:ir]
   SchemaEntry: .[nullable(schema-entry)]
+  ScopeDeleted: .[bool]
   ScopeID: .[nullable(string)]
   ScopeOverlay: .[bool]
   SnapPath: .[nullable(string)]

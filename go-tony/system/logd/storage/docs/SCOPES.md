@@ -101,7 +101,12 @@ Response:
 {result: {deleteScope: {scopeId: "sandbox-123"}}}
 ```
 
-This removes all index entries for the scope. The underlying log entries remain (compaction handles cleanup).
+Everything the scope wrote up to the head is dead from here on, and a write under the
+same name afterwards is a new scope. The deletion is recorded in the log before it is
+done, so an index rebuilt from the log, caught up from an older manifest, or re-indexed
+after a compaction leaves the dead entries out. They stay in the log, unreadable, until
+compaction drops them, which it does at the next compaction of their file whatever their
+age.
 
 ### Error Codes
 

@@ -64,12 +64,106 @@ type scopeFoot struct {
 // Footprint holds every scope's live statements. One lock: writes are serialized by the
 // commit lock already, and a read takes it for the length of a walk over one scope's
 // paths under one kp, which is what it costs.
+//
+// It also holds every scope's deletion: the commit each deleted scope was deleted at
+// (Delete), which says whether an entry of the scope is dead (Dead). A deletion is a
+// record in the log (dlog.Entry.ScopeDeleted), noted here by DeleteScope as the delete
+// is done and by Build as the walk finds it, and kept in the manifest beside the
+// statements: the re-index after a compaction and the catch-up after a manifest both
+// have to know it, or the dead entries come back (05d8w3cjh12kswb1msn0).
 type Footprint struct {
-	mu     sync.Mutex
-	scopes map[string]*scopeFoot
+	mu      sync.Mutex
+	scopes  map[string]*scopeFoot
+	deleted map[string]int64 // scope -> the commit it was last deleted at
 }
 
-func newFootprint() *Footprint { return &Footprint{scopes: map[string]*scopeFoot{}} }
+func newFootprint() *Footprint {
+	return &Footprint{scopes: map[string]*scopeFoot{}, deleted: map[string]int64{}}
+}
+
+// Delete records that the scope was deleted at commit, and answers whether that is
+// news: false when a deletion at or after commit was already recorded.
+func (f *Footprint) Delete(scope string, commit int64) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if at, ok := f.deleted[scope]; ok && at >= commit {
+		return false
+	}
+	f.deleted[scope] = commit
+	return true
+}
+
+// Dead says whether an entry of the scope at commit is dead: the scope was deleted at or
+// after it.
+func (f *Footprint) Dead(scope string, commit int64) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	at, ok := f.deleted[scope]
+	return ok && commit <= at
+}
+
+// dropThrough forgets the scope's live statements at or before commit -- the ones a
+// deletion at commit kills -- and the scope itself when nothing of it is left. What is
+// after commit is a new scope under the old name, and stays.
+func (f *Footprint) dropThrough(scope string, commit int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	sf := f.scope(scope, false)
+	if sf == nil {
+		return
+	}
+	var walk func(n *footNode)
+	walk = func(n *footNode) {
+		kept := n.live[:0]
+		for _, t := range n.live {
+			if t.Commit <= commit {
+				sf.refs[entryRef{t.LogFile, t.LogPosition}]--
+				sf.count--
+				continue
+			}
+			kept = append(kept, t)
+		}
+		n.live = kept
+		for name, c := range n.children {
+			walk(c)
+			if c.empty() {
+				delete(n.children, name)
+			}
+		}
+	}
+	walk(sf.root)
+	if sf.count == 0 {
+		delete(f.scopes, scope)
+	}
+}
+
+// ManifestDeletion is one scope's deletion as the manifest holds it.
+type ManifestDeletion struct {
+	Scope  string
+	Commit int64
+}
+
+// deletions answers every scope's deletion for the manifest.
+func (f *Footprint) deletions() []ManifestDeletion {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]ManifestDeletion, 0, len(f.deleted))
+	for scope, commit := range f.deleted {
+		out = append(out, ManifestDeletion{Scope: scope, Commit: commit})
+	}
+	sort.Slice(out, func(a, b int) bool { return out[a].Scope < out[b].Scope })
+	return out
+}
+
+// loadDeletions installs what a manifest holds.
+func (f *Footprint) loadDeletions(ds []ManifestDeletion) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deleted = make(map[string]int64, len(ds))
+	for _, d := range ds {
+		f.deleted[d.Scope] = d.Commit
+	}
+}
 
 func (f *Footprint) scope(id string, create bool) *scopeFoot {
 	sf := f.scopes[id]
@@ -351,13 +445,6 @@ func (f *Footprint) Scopes() []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// Drop forgets a scope entirely.
-func (f *Footprint) Drop(scope string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	delete(f.scopes, scope)
 }
 
 // FootprintStats is what the store says about it.

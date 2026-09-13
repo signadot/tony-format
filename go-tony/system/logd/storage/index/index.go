@@ -138,6 +138,12 @@ func (i *Index) segmentsWithin(from, to *int64, keep func(LogSegment) bool) []Lo
 // Add indexes seg at seg.KindedPath, taken relative to this node, creating the nodes on
 // the way. At the root, a scope's statement also joins the footprint.
 func (i *Index) Add(seg *LogSegment) {
+	// A dead entry -- one of a scope deleted at or after its commit -- is not indexed,
+	// whoever offers it: a compaction's re-index, a catch-up, a rebuild that meets the
+	// entry before its deletion (Build removes those when its walk ends).
+	if i.full == "" && seg.ScopeID != nil && i.foot.Dead(*seg.ScopeID, seg.EndCommit) {
+		return
+	}
 	// A scope's statement joins the footprint once, at the root, where the segment
 	// still carries its full path.
 	if i.full == "" && seg.Statement && seg.ScopeID != nil && seg.StartCommit != seg.EndCommit {
@@ -607,19 +613,27 @@ func (i *Index) ListRange(from, to *int64, scopeID *string) []string {
 	return children
 }
 
-// DeleteScope removes every segment of the scope from the index and answers how many
-// went. It walks the scope's FOOTPRINT: every segment of the scope sits at a live
-// statement's path, above one, or beneath one -- a dominated statement's dominator is
-// live and stands at or above it -- so those nodes and their subtrees are the whole of
-// what has to be paged in and searched, not the trie. A scope the footprint does not know
-// falls back to the trie, which is what a repaired index may be left with.
-func (i *Index) DeleteScope(scopeID string) int {
+// DeleteScope records that the scope was deleted at commit, removes every segment of
+// the scope at or before commit from the index, and answers how many went. What the
+// scope wrote after commit is a new scope under the old name and stays; the commit is
+// the head when the delete was done, so at the delete itself that is nothing, and at a
+// rebuild finding the deletion in the log (Build) it is what came after.
+//
+// It walks the scope's FOOTPRINT: every segment of the scope sits at a live statement's
+// path, above one, or beneath one -- a dominated statement's dominator is live and stands
+// at or above it -- so those nodes and their subtrees are the whole of what has to be
+// paged in and searched, not the trie. A scope the footprint does not know falls back to
+// the trie, which is what a repaired index may be left with.
+func (i *Index) DeleteScope(scopeID string, commit int64) int {
+	i.foot.Delete(scopeID, commit)
 	match := func(seg LogSegment) bool {
-		return seg.ScopeID != nil && *seg.ScopeID == scopeID
+		return seg.ScopeID != nil && *seg.ScopeID == scopeID && seg.EndCommit <= commit
 	}
 	paths, known := i.foot.Paths(scopeID)
 	if !known {
-		return i.deleteScopeEverywhere(match)
+		count := i.deleteScopeEverywhere(match)
+		i.foot.dropThrough(scopeID, commit)
+		return count
 	}
 	count := 0
 	seen := map[*Index]bool{}
@@ -653,7 +667,7 @@ func (i *Index) DeleteScope(scopeID string) int {
 			removeBelow(node)
 		}
 	}
-	i.foot.Drop(scopeID)
+	i.foot.dropThrough(scopeID, commit)
 	return count
 }
 
