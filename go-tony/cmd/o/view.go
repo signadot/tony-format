@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/signadot/tony-format/go-tony/encode"
+	"github.com/signadot/tony-format/go-tony/format"
 	"github.com/signadot/tony-format/go-tony/parse"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/scott-cotton/cli"
 )
@@ -70,7 +72,63 @@ func whyNotWritable(cfg *ViewConfig, args []string) string {
 	if cfg.Color {
 		return "-w with -color would write the colouring into the file: drop one of them"
 	}
+	// A file is written back in its own format. With flags naming both, they have
+	// to agree: -I j -O y would write YAML into a .json.
+	if in, out := cfg.inFormat(), cfg.outFormat(); in != nil && out != nil && *in != *out {
+		return fmt.Sprintf("-w writes each file back in its own format, and the flags name two: %s in, %s out", *in, *out)
+	}
 	return ""
+}
+
+// writeFormat is the format a file is written back in: the one the flags name,
+// else the one its extension names -- .json, .yaml and .yml, and tony otherwise.
+// Without this a .json file came back in tony syntax, which is the file's format
+// changed under the name (p478tacqh12krg32msn0 item 22).
+func writeFormat(cfg *ViewConfig, file string) format.Format {
+	if f := cfg.inFormat(); f != nil {
+		return *f
+	}
+	if f := cfg.outFormat(); f != nil {
+		return *f
+	}
+	switch strings.ToLower(filepath.Ext(file)) {
+	case ".json":
+		return format.JSONFormat
+	case ".yaml", ".yml":
+		return format.YAMLFormat
+	}
+	return format.TonyFormat
+}
+
+// inFormat is the input format the flags name, or nil when none does.
+func (cfg *MainConfig) inFormat() *format.Format {
+	if cfg.InFormat != nil {
+		return cfg.InFormat
+	}
+	return cfg.flagFormat()
+}
+
+// outFormat is the output format the flags name, or nil when none does.
+func (cfg *MainConfig) outFormat() *format.Format {
+	if cfg.OutFormat != nil {
+		return cfg.OutFormat
+	}
+	return cfg.flagFormat()
+}
+
+func (cfg *MainConfig) flagFormat() *format.Format {
+	var f format.Format
+	switch {
+	case cfg.T:
+		f = format.TonyFormat
+	case cfg.Y:
+		f = format.YAMLFormat
+	case cfg.J:
+		f = format.JSONFormat
+	default:
+		return nil
+	}
+	return &f
 }
 
 // writeFiles rewrites each file with its normal form.
@@ -112,6 +170,15 @@ func writeFile(cfg *ViewConfig, file string) error {
 	if err != nil {
 		return fmt.Errorf("could not read %q: %w", file, err)
 	}
+	// Read and written in the file's own format (writeFormat), on a copy of the
+	// configuration: the flags are the caller's, and a tree holds files of more
+	// than one kind.
+	own := *cfg
+	mc := *cfg.MainConfig
+	f := writeFormat(cfg, file)
+	mc.InFormat, mc.OutFormat = &f, &f
+	own.MainConfig = &mc
+	cfg = &own
 	var out bytes.Buffer
 	if _, err := viewReader(cfg, &out, bytes.NewReader(in)); err != nil {
 		return fmt.Errorf("error processing %s: %w", file, err)

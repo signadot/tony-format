@@ -35,6 +35,7 @@ define:
   exec: .[nullable(string)]
   format: .[nullable(format:format)]
   if: .[string]
+  timeout: .[string]
   url: .[nullable(string)]
 signature:
   name: dirsource

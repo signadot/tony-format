@@ -244,6 +244,9 @@ func (s *DirSource) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Field: If
 	irMap["if"] = ir.FromString(string(s.If))
 
+	// Field: Timeout
+	irMap["timeout"] = ir.FromString(string(s.Timeout))
+
 	return ir.FromMap(irMap).WithTag("!dirsource"), nil
 }
 
@@ -332,6 +335,12 @@ func (s *DirSource) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				return fmt.Errorf("field %q: expected string, got %v", "if", fieldNodeUnwrapped.Type)
 			}
 			s.If = string(fieldNodeUnwrapped.String)
+		case "timeout":
+			// Field: Timeout
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "timeout", fieldNodeUnwrapped.Type)
+			}
+			s.Timeout = string(fieldNodeUnwrapped.String)
 		default:
 			if gomap.IsStrict(opts...) {
 				return fmt.Errorf("unknown field %q for DirSource", fieldName.String)

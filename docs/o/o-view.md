@@ -2,6 +2,10 @@
 
 Render documents, or rewrite them in place with -w.
 
+-w writes each file back in its own format: the one a -j, -y, -t, -I or -O flag
+names, else the one its extension names -- .json, .yaml, .yml -- and tony
+otherwise. Flags naming two different formats are refused with -w.
+
 Also known as `v`.
 
 ## Usage

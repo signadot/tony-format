@@ -7,6 +7,7 @@ import (
 
 	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/encode"
+	"github.com/signadot/tony-format/go-tony/format"
 	"github.com/signadot/tony-format/go-tony/ir"
 
 	"github.com/scott-cotton/cli"
@@ -130,14 +131,20 @@ func getDoc(eOpts []encode.EncodeOption, comments bool, w io.Writer, doc *ir.Nod
 		if err := writeSep(w); err != nil {
 			return 0, err
 		}
-		argLines := strings.Split(strings.TrimSpace(arg), "\n")
-		for i, argLine := range argLines {
-			msg := "# from " + argLine + "\n"
-			if i != 0 {
-				msg = "#     " + argLine + "\n"
-			}
-			if _, err := w.Write([]byte(msg)); err != nil {
-				return 0, err
+		// The input a document came from, as a comment before it. JSON has no
+		// comments, so in JSON nothing says it: written there, the line made the
+		// output something neither `o -j` nor jq could read back
+		// (p478tacqh12krg32msn0 item 21).
+		if encode.FormatFromOpts(eOpts...) != format.JSONFormat {
+			argLines := strings.Split(strings.TrimSpace(arg), "\n")
+			for i, argLine := range argLines {
+				msg := "# from " + argLine + "\n"
+				if i != 0 {
+					msg = "#     " + argLine + "\n"
+				}
+				if _, err := w.Write([]byte(msg)); err != nil {
+					return 0, err
+				}
 			}
 		}
 	}

@@ -59,6 +59,18 @@ func diff(cfg *DiffConfig, cc *cli.Context, args []string) error {
 		if err != nil {
 			return fault(cc, fmt.Errorf("error decoding %s: %w", args[1], err))
 		}
+		// A side that holds no document -- an empty file, standard input from a
+		// command that printed nothing, a file of comments -- is not a document to
+		// diff, and there is no diff "from nothing" for a whole document the way
+		// there is for a path within one: the operands are documents. It is a fault
+		// of the input, said as one, where it was a nil handed to Diff to crash on
+		// (p478tacqh12krg32msn0 item 20). The loop form already treats a run that
+		// printed nothing as a missed iteration.
+		for i, y := range []*ir.Node{y1, y2} {
+			if y == nil {
+				return fault(cc, fmt.Errorf("%s holds no document", describeInput(args[i])))
+			}
+		}
 		diff, err := diffInputs(cfg, cc, y1, y2, false)
 		if err != nil {
 			return fault(cc, err)
@@ -199,4 +211,12 @@ func diffInputs(do *DiffConfig, cc *cli.Context, a, b *ir.Node, sep bool) (bool,
 		return false, err
 	}
 	return true, nil
+}
+
+// describeInput names an operand for a message: the file, or standard input.
+func describeInput(arg string) string {
+	if arg == "-" {
+		return "standard input"
+	}
+	return arg
 }

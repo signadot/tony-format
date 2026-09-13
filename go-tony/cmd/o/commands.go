@@ -128,7 +128,11 @@ func ViewCommand(mainCfg *MainConfig) *cli.Command {
 		WithAliases("v").
 		WithOpts(opts...).
 		WithSynopsis("view [opts] [file...]").
-		WithDescription("Render documents, or rewrite them in place with -w.").
+		WithDescription(`Render documents, or rewrite them in place with -w.
+
+-w writes each file back in its own format: the one a -j, -y, -t, -I or -O flag
+names, else the one its extension names -- .json, .yaml, .yml -- and tony
+otherwise. Flags naming two different formats are refused with -w.`).
 		WithRun(func(cc *cli.Context, args []string) error {
 			return view(cfg, cc, args)
 		})
@@ -162,6 +166,9 @@ An input is a stream of documents, --- separated, and the path is asked of each
 one -- which is what makes the output of one command the input of the next:
 
     o get .spec a.tony b.tony | o get .replicas
+
+When the documents come from several inputs, a comment before each names the
+input it came from; in JSON, which has no comments, nothing does.
 
 A comment describes a value and is not the value itself, so -if sees through
 one. !comment is how it asks about the comments instead, and it needs -c --
