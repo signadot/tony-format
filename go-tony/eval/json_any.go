@@ -15,6 +15,11 @@ func MarshalJSON(node *ir.Node) ([]byte, error) {
 func FromAny(v any) (*ir.Node, error) {
 	// If it's already an IR node, return it directly (preserves tags/comments)
 	if node, ok := v.(*ir.Node); ok {
+		// A typed nil is what getpath answers for a path the document does not
+		// have, and Clone of it is a nil dereference: as a value it is null.
+		if node == nil {
+			return ir.Null(), nil
+		}
 		return node.Clone(), nil
 	}
 	// If it's a slice of IR nodes, convert to array node

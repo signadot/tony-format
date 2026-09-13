@@ -46,5 +46,19 @@ func (p toValueOp) Eval(doc *ir.Node, env Env, ef EvalFunc) (*ir.Node, error) {
 	if doc.Type != ir.StringType {
 		return nil, fmt.Errorf("toyaml only applies to strings, got %s after evaluating", doc.Type)
 	}
-	return parse.Parse([]byte(doc.String))
+	return valueOf(parse.Parse([]byte(doc.String)))
+}
+
+// valueOf is what a parsed text is as a value: nothing -- an empty text, or one
+// holding only comments, which Parse answers as (nil, nil) -- is null. Handing the
+// nil on crashed the walk that installs the value (tool.go) for !tovalue "" and a
+// comment-only script result (4ynqp7wqh12krg32msn0 item 21).
+func valueOf(n *ir.Node, err error) (*ir.Node, error) {
+	if err != nil {
+		return nil, err
+	}
+	if n == nil {
+		return ir.Null(), nil
+	}
+	return n, nil
 }

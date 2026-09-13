@@ -85,7 +85,7 @@ func (p scriptOp) Eval(doc *ir.Node, env Env, ef EvalFunc) (*ir.Node, error) {
 		if !ok {
 			return nil, fmt.Errorf("script(yaml) but returned type %T", res)
 		}
-		return parse.Parse([]byte(v))
+		return valueOf(parse.Parse([]byte(v)))
 	case scriptAsString:
 		switch v := res.(type) {
 		case string:

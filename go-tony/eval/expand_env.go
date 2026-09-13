@@ -223,11 +223,17 @@ func ExpandIRWithOptions(node *ir.Node, env map[string]any, opts *EvalOptions) (
 			// If the result is already an *ir.Node, clone it and recursively expand
 			// to handle nested definition references
 			if nodeResult, ok := val.(*ir.Node); ok {
-				repl := nodeResult.Clone()
-				// Recursively expand the result to handle nested .[ref] patterns
-				repl, err = ExpandIRWithOptions(repl, env, nodeOpts)
-				if err != nil {
-					return nil, fmt.Errorf("error expanding definition %q: %w", raw, err)
+				// A typed nil is what getpath answers for a path the document does
+				// not have, and its Clone is a nil dereference: as a value it is null
+				// (4ynqp7wqh12krg32msn0 item 21).
+				repl := ir.Null()
+				if nodeResult != nil {
+					repl = nodeResult.Clone()
+					// Recursively expand the result to handle nested .[ref] patterns
+					repl, err = ExpandIRWithOptions(repl, env, nodeOpts)
+					if err != nil {
+						return nil, fmt.Errorf("error expanding definition %q: %w", raw, err)
+					}
 				}
 				repl.Parent = node.Parent
 				repl.ParentIndex = node.ParentIndex
