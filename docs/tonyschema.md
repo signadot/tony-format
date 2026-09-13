@@ -1,8 +1,5 @@
 # Tony Schema
 
-!!! warning  ""
-    This materiel is going to change.
-
 Tony Schema are similar to [json schema](https://json-schema.org), a
 class of documents in a format for describing constraints and information
 about other documents in that format.
