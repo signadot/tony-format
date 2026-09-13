@@ -139,8 +139,18 @@ func (kl keyedListOp) Patch(doc *ir.Node, ctx *OpContext, mf MatchFunc, pf Patch
 	}
 	// patching the items of a list does not change what the list is, so it
 	// keeps its own tag -- !key(...) above all, without which the result is no
-	// longer a keyed list.
-	return ir.FromSlice(res).WithTag(doc.Tag), nil
+	// longer a keyed list. Where there was no list -- the path held nothing, or a
+	// scalar the list replaces -- there is no tag of the list's to keep, and the
+	// scalar's is not it: !key(name) [..] over `!foo 5` came back tagged !foo
+	// (4ynqp7wqh12krg32msn0 item 13). The list the patch wrote carries what the
+	// patch wrote on it, and not the !key itself: that is the instruction, not the
+	// data -- logd holds identity in the schema and raises it onto each patch, and
+	// what a client steps to by a delta must be what a read answers (keyed_test.go).
+	tag := doc.Tag
+	if doc.Type != ir.ArrayType {
+		tag = kl.child.Tag
+	}
+	return ir.FromSlice(res).WithTag(tag), nil
 }
 
 func (kl keyedListOp) Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, error) {
