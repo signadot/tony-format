@@ -11,6 +11,7 @@ labels:
 - bug
 - medium
 - sweep
-related_issues: []
+related_issues:
+- p478tacqh12krg32msn0
 status: open
-updated: "2026-09-13T10:43:48.5266+02:00"
+updated: "2026-09-13T10:43:48.776146+02:00"
