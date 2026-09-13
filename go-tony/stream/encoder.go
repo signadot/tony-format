@@ -1,8 +1,11 @@
 package stream
 
 import (
+	"fmt"
 	"io"
+	"math"
 	"strconv"
+	"strings"
 
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/token"
@@ -393,8 +396,19 @@ func (e *Encoder) WriteFloat(value float64) error {
 		}
 	}
 
-	// Format float
+	// Written so that it reads back as a float: 'g' alone renders 1.0 as 1, which
+	// decodes as an integer, so a stored ratio: 1.0 reached every logd client as 1
+	// (4ynqp7wqh12krg32msn0 item 4; encode fixed the same in 6fnd2hxe). Inf and NaN
+	// have no number syntax and are refused, as encode refuses them.
+	if math.IsInf(value, 0) || math.IsNaN(value) {
+		return fmt.Errorf("%v has no number syntax", value)
+	}
 	floatStr := strconv.FormatFloat(value, 'g', -1, 64)
+	if floatStr == "0" || floatStr == "-0" {
+		floatStr = "0.0"
+	} else if !strings.ContainsAny(floatStr, ".eE") {
+		floatStr += ".0"
+	}
 	if err := e.writeBytes([]byte(floatStr)); err != nil {
 		return err
 	}
