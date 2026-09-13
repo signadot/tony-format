@@ -878,6 +878,8 @@ document.
 
 Every object, list, and atomic value may have preceding comments and a "line
 comment".  Atomic values' line comments are what follow them on the same line.
+A bracketed object's or list's line comment is what follows its closing bracket on
+the same line, however many lines the collection spans.
 All subsequent comments are attributed to the preceding comments of the next
 value, which may be dedented or higher in the object notation.  All trailing
 comments at the end of a document are associated as additional lines of the

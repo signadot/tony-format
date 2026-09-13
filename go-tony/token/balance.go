@@ -377,6 +377,12 @@ func balanceBrArr(dst, toks []Token, f format.Format) ([]Token, int, error) {
 		found  bool
 		start  = &toks[0]
 		tok    *Token
+		// closePos is where the written ']' stood. The closer written out below
+		// takes its place, so a comment on that line reads as being on the line
+		// the list ends (parse.checkLineComment); it took the document's end, and
+		// the comment read as lines after the list, to be carried up to whatever
+		// enclosed it (4ynqp7wqh12krg32msn0 item 18).
+		closePos *Pos
 	)
 	i = 1
 Elts:
@@ -384,6 +390,7 @@ Elts:
 		tok = &toks[i]
 		switch tok.Type {
 		case TRSquare:
+			closePos = tok.Pos
 			i++
 			found = true
 			goto done
@@ -417,6 +424,7 @@ Elts:
 				i += off + 1
 				continue Elts
 			case TRSquare:
+				closePos = nxt.Pos
 				i += off + 1
 				found = true
 				goto done
@@ -443,7 +451,7 @@ done:
 		return nil, 0, fmt.Errorf("%w: '[' not closed %s",
 			ErrDocBalance, start.Pos)
 	}
-	dst = append(dst, Token{Type: TRSquare, Pos: toks[0].Pos.D.end()})
+	dst = append(dst, Token{Type: TRSquare, Pos: closePos})
 	return dst, i, nil
 }
 
@@ -613,6 +621,7 @@ func balanceBrObj(dst, toks []Token, f format.Format) ([]Token, int, error) {
 	keyI := -1
 	colonI := -1
 	found := false
+	var closePos *Pos // where the written '}' stood; see balanceBrArr
 	nKVs := 0
 KVLoop:
 	for i < len(toks) && !found {
@@ -629,6 +638,7 @@ KVLoop:
 				i++
 				continue KVLoop
 			case TRCurl:
+				closePos = tok.Pos
 				found = true
 				i++
 				continue KVLoop
@@ -686,6 +696,7 @@ KVLoop:
 				// (pkj422gkh12kr24gj1n0).
 				nKVs++
 				if tok.Type == TRCurl {
+					closePos = tok.Pos
 					found = true
 					i++
 				}
@@ -707,7 +718,8 @@ KVLoop:
 		return nil, 0, fmt.Errorf("%w: '{' not closed %s",
 			ErrDocBalance, toks[0].Pos)
 	}
-	dst = append(dst, Token{Type: TRCurl, Pos: toks[0].Pos})
+	// Where the written '}' stood, as balanceBrArr's closer does.
+	dst = append(dst, Token{Type: TRCurl, Pos: closePos})
 	return dst, i, nil
 }
 

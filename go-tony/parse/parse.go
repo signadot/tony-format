@@ -585,7 +585,20 @@ func checkLineComment(node *ir.Node, toks []token.Token, pi *int, pos *token.Pos
 			if node.Comment == nil {
 				node.Comment = &ir.Node{Parent: node, Type: ir.CommentType}
 			}
-			if tok.Pos.Line() > pos.Line() && len(node.Comment.Lines) == 0 {
+			// A comment on the line the value ENDS is its line comment; one on a
+			// later line is a trailing comment, marked by the "" placeholder for
+			// associateComments to carry to where it belongs. The value's end is
+			// the token before the comment: the scalar itself, or a collection's
+			// closing bracket, which stands where it was written (token.Balance).
+			// Judged from the value's START, a comment on a multi-line list's
+			// closing line read as trailing and was carried up to the enclosing
+			// collection, which wrote it where nothing could read it back
+			// (4ynqp7wqh12krg32msn0 item 18).
+			ended := pos.Line()
+			if i > 0 && toks[i-1].Pos != nil {
+				ended = toks[i-1].Pos.Line()
+			}
+			if tok.Pos.Line() > ended && len(node.Comment.Lines) == 0 {
 				node.Comment.Lines = []string{""}
 			}
 			node.Comment.Lines = append(node.Comment.Lines, string(tok.Bytes))
