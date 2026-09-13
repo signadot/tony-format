@@ -1,9 +1,9 @@
 package token
 
 import (
-	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
 	"unicode"
 	"unicode/utf8"
 )
@@ -143,42 +143,28 @@ func yamlDoubleQuoted(d []byte, pos *Pos) (*Token, int, error) {
 				dst = append(dst, '\b')
 			case 'r':
 				dst = append(dst, '\r')
-			case 'x':
-				if i+2 >= len(d) {
+			case 'x', 'u', 'U':
+				// A YAML \x, \u or \U escape is a code point in 2, 4 or 8 hex
+				// digits. These read the rune from the OUTPUT buffer, never
+				// stepped over the digits, and \x ran hex.Encode into a
+				// one-byte buffer: `"\u00e9"` panicked with an index out of
+				// range, and with a longer prefix decoded to garbage instead.
+				width := map[rune]int{'x': 2, 'u': 4, 'U': 8}[r]
+				if i+width >= n || !allHex(d[i:i+width]) {
 					return nil, 0, ErrBadEscape
 				}
-				if !allHex(d[i : i+2]) {
+				cp, err := strconv.ParseUint(string(d[i:i+width]), 16, 32)
+				if err != nil || !utf8.ValidRune(rune(cp)) {
 					return nil, 0, ErrBadEscape
 				}
-				tmp := []byte{0}
-				hex.Encode(tmp, d[i:i+2])
-				dst = append(dst, tmp[0])
-			case 'u':
-				if i+4 >= len(d) {
-					return nil, 0, ErrBadEscape
-				}
-				tmp := []byte{0, 0}
-				_, err := hex.Decode(tmp, d[i:i+4])
-				if err != nil {
-					return nil, 0, ErrBadEscape
-				}
-				r := rune(dst[0])<<8 | rune(dst[1])
-				dst = utf8.AppendRune(dst, r)
-			case 'U':
-				if i+8 >= len(d) {
-					return nil, 0, ErrBadEscape
-				}
-				tmp := []byte{0, 0, 0, 0}
-				_, err := hex.Decode(tmp, d[i:i+8])
-				if err != nil {
-					return nil, 0, ErrBadEscape
-				}
-				r := rune(dst[0])<<24 | rune(dst[1])<<16 | rune(dst[2])<<8 | rune(dst[3])
-				dst = utf8.AppendRune(dst, r)
+				dst = utf8.AppendRune(dst, rune(cp))
+				i += width
 			case 'N':
-				panic("\\N")
+				dst = utf8.AppendRune(dst, '\u0085') // next line
 			case 'L':
-				panic("\\L")
+				dst = utf8.AppendRune(dst, '\u2028') // line separator
+			case 'P':
+				dst = utf8.AppendRune(dst, '\u2029') // paragraph separator
 			case ' ':
 				dst = append(dst, ' ')
 			default:
