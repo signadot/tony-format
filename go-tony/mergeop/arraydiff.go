@@ -106,6 +106,15 @@ func patchArrayByIndex(doc, patch *ir.Node, ctx *OpContext, pf PatchFunc, df lib
 		// reads as !bracket.delete, so wiping the chain compared a braceless object
 		// against a document element which had the brace, and a delete of anything
 		// but a scalar could not match.
+		//
+		// A head comment on the element WRAPS it, and the diff puts the op on the
+		// value inside the wrapper, where every other dispatch finds it (libdiff
+		// escaped). Asking the wrapper for the op found none, so a commented
+		// !insert ran as a positional patch of the element it was meant to go in
+		// ahead of, and that element was gone with no error. The op is read from
+		// the value; what is installed keeps its comment.
+		commented := op
+		op = ir.Uncomment(op)
 		head, _, _ := ir.TagArgs(op.Tag) // for the message; the op may be deeper
 		preTag, tag, args, child, err := SplitChild(op)
 		if err != nil {
@@ -174,17 +183,17 @@ func patchArrayByIndex(doc, patch *ir.Node, ctx *OpContext, pf PatchFunc, df lib
 				return nil, fmt.Errorf("cannot patch, unexpected value at %s",
 					docVals[fi].Path())
 			}
-			res = append(res, to.Clone())
+			res = append(res, withCommentOf(commented, to.Clone()))
 			di++
 			fi++
 		case "insert":
-			res = append(res, op.Clone().WithTag(replTag))
+			res = append(res, withCommentOf(commented, op.Clone().WithTag(replTag)))
 			di++
 		default:
 			if int(fi) >= len(docVals) {
 				return nil, overrun("patch " + head)
 			}
-			tmp, err := pf(docVals[fi], op, ctx)
+			tmp, err := pf(docVals[fi], commented, ctx)
 			if err != nil {
 				return nil, err
 			}
@@ -201,4 +210,23 @@ func patchArrayByIndex(doc, patch *ir.Node, ctx *OpContext, pf PatchFunc, df lib
 		}
 	}
 	return ir.FromSlice(res), nil
+}
+
+// withCommentOf puts the head comment wrapping commented, if any, around val: the
+// comment an arraydiff element carries belongs to the element it installs.
+func withCommentOf(commented, val *ir.Node) *ir.Node {
+	if commented.Type != ir.CommentType || len(commented.Values) != 1 {
+		return val
+	}
+	inner := withCommentOf(commented.Values[0], val)
+	w := &ir.Node{
+		Type:   ir.CommentType,
+		Tag:    commented.Tag,
+		Lines:  append([]string(nil), commented.Lines...),
+		Values: []*ir.Node{inner},
+	}
+	inner.Parent = w
+	inner.ParentIndex = 0
+	inner.ParentField = ""
+	return w
 }

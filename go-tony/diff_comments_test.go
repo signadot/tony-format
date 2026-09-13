@@ -115,3 +115,38 @@ func TestDiffCommentsLeavesDataDiffsAlone(t *testing.T) {
 		}
 	}
 }
+
+// TestDiffCommentsArrayElementInsertedOrDeleted: a commented element inserted
+// before a kept one, or deleted from before one. The diff puts the !insert or
+// !delete on the value INSIDE the comment wrapper (libdiff escaped), and
+// arraydiff looked for the op on the wrapper, found none, and ran the element as a
+// positional patch: an insert replaced the kept element instead of going in ahead
+// of it, and the kept element was gone with no error. logd's watch delta is this
+// diff, so a client stepping by it lost the element too.
+func TestDiffCommentsArrayElementInsertedOrDeleted(t *testing.T) {
+	for _, tc := range []struct{ name, a, b string }{
+		{"a commented element inserted before a kept one", "items:\n- a\n- b\n", "items:\n- a\n- # c\n  c\n- b\n"},
+		{"a commented element inserted first", "items:\n- a\n- b\n", "items:\n- # c\n  c\n- a\n- b\n"},
+		{"two commented elements inserted", "items:\n- a\n- b\n", "items:\n- a\n- # c\n  c\n- # d\n  d\n- b\n"},
+		{"a commented object inserted before a kept one", "items:\n- name: a\n- name: b\n", "items:\n- name: a\n- # c\n  name: c\n- name: b\n"},
+		{"a commented element deleted before a kept one", "items:\n- a\n- # c\n  c\n- b\n", "items:\n- a\n- b\n"},
+		{"a commented element replaced by a commented one", "items:\n- a\n- # c\n  c\n- b\n", "items:\n- a\n- # d\n  d: 1\n- b\n"},
+		{"a commented element appended", "items:\n- a\n", "items:\n- a\n- # b\n  b\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, b := pc(t, tc.a), pc(t, tc.b)
+			d := tony.DiffWith(a, b, tony.DiffComments(true))
+			if d == nil {
+				t.Fatalf("no delta for %q -> %q", tc.a, tc.b)
+			}
+			got, err := tony.Patch(a, d, mergeop.Comments(true))
+			if err != nil {
+				t.Fatalf("applying the delta: %v (delta %s)", err, shownWithComments(t, d))
+			}
+			if shownWithComments(t, got) != shownWithComments(t, b) {
+				t.Errorf("Patch(a, DiffWith(a,b)) did not arrive at b:\n got %q\nwant %q\ndelta %s",
+					shownWithComments(t, got), shownWithComments(t, b), shownWithComments(t, d))
+			}
+		})
+	}
+}
