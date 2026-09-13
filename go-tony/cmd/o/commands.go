@@ -163,6 +163,9 @@ one -- which is what makes the output of one command the input of the next:
 
     o get .spec a.tony b.tony | o get .replicas
 
+When the documents come from several inputs, a comment before each names the
+input it came from; in JSON, which has no comments, nothing does.
+
 A comment describes a value and is not the value itself, so -if sees through
 one. !comment is how it asks about the comments instead, and it needs -c --
 without it the comments are never read and there is nothing to ask about:
