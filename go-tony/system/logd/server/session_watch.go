@@ -259,8 +259,18 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 		}
 	}
 
-	if !noInit && !w.sendInitialState(startCommit) {
-		return
+	if !noInit {
+		if !w.sendInitialState(startCommit) {
+			return
+		}
+		// The state holds every commit through startCommit. A notification queued at
+		// or below it -- a write that raced into [hub-register, GetCurrentCommit] --
+		// is not a step for the client to take again, and the delta was stepped and
+		// sent anyway (0f0f7jswh12ksyxxmdn0). A replay has set this higher already; a
+		// noInit watch has sent no state and keeps its lazy seeding (seedAt).
+		if w.replayedThrough < startCommit {
+			w.replayedThrough = startCommit
+		}
 	}
 	if fromCommit != nil && !w.replay(startCommit, currentCommit) {
 		return
