@@ -72,7 +72,14 @@ type ClientSession struct {
 	// same watch key as watches. Clocks are served directly by docd (no controller,
 	// no coordinator token), so they are tracked separately. Guarded by watchMu.
 	clockWatches map[string]*clockWatcher
-	closing      bool
+	// pending holds the key of each watch whose admission (coordinateWatch) has not
+	// completed, and whether the client has already dropped it. An unwatch can reach
+	// the loop while its watch is still waiting on a pending mount (writer
+	// priority); it is remembered here and applied when admission completes, so no
+	// reader token is held, and no watch served, for a watch the client gave up on
+	// (4ynqp7wqh12krg32msn0 item 9). Guarded by watchMu.
+	pending map[string]bool
+	closing bool
 
 	// lastSeenMu guards lastSeen: the highest commit delivered to the client per
 	// watch (keyed by watch key). A force-end stamps it onto the terminal WatchEvent
@@ -130,6 +137,7 @@ func NewClientSession(id string, conn net.Conn, cfg *ClientSessionConfig) *Clien
 		log:          log.With("session", id),
 		logdAddr:     cfg.Server.Spec.LogdAddr,
 		watches:      make(map[string]*clientWatch),
+		pending:      make(map[string]bool),
 		clockWatches: make(map[string]*clockWatcher),
 		lastSeen:     make(map[string]int64),
 		usedMounts:   make(map[*MountSession]struct{}),
@@ -273,7 +281,15 @@ func (s *ClientSession) routeClientRequests() error {
 		// targets a specific watch by its id (WatchID); without one it drops the
 		// legacy path-keyed watch.
 		if req.Unwatch != nil {
-			s.releaseWatchToken(watchKeyFor(req.Unwatch.WatchID, req.Unwatch.Path))
+			key := watchKeyFor(req.Unwatch.WatchID, req.Unwatch.Path)
+			if s.dropPendingWatch(key) {
+				// The watch is still being admitted: it is cancelled where it stands,
+				// and the unwatch is answered here, since nothing downstream has seen
+				// the watch to answer for it.
+				_ = s.writeToClient(logdapi.NewUnwatchResponse(req.ID, req.Unwatch.Path))
+				continue
+			}
+			s.releaseWatchToken(key)
 		}
 
 		switch dest, entry := s.routeFor(&req); dest {
@@ -757,4 +773,20 @@ func ignoreClosed(err error) error {
 		return nil
 	}
 	return err
+}
+
+// dropPendingWatch marks a watch still in admission as dropped by its client, and
+// reports whether it did: false for a watch already active (released by
+// releaseWatchToken) or unknown here (a base watch docd did not track).
+func (s *ClientSession) dropPendingWatch(key string) bool {
+	s.watchMu.Lock()
+	defer s.watchMu.Unlock()
+	if _, active := s.watches[key]; active {
+		return false
+	}
+	if _, waiting := s.pending[key]; !waiting {
+		return false
+	}
+	s.pending[key] = true
+	return true
 }

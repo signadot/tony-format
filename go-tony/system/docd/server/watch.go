@@ -49,19 +49,29 @@ func (s *ClientSession) coordinateWatch(req *logdapi.SessionRequest) {
 	path := req.Watch.Path
 	clientID := req.ID
 	key := watchKeyFor(clientID, path)
+	s.watchMu.Lock()
+	s.pending[key] = false // in admission, not yet dropped (dropPendingWatch)
+	s.watchMu.Unlock()
 	go func() {
 		// The reason comes from the writer that forces us — session_mounted or
 		// session_unmounted — so the client learns WHICH way the mount set moved
 		// under it, not merely that it moved.
 		token, ok := s.server.coord.beginRead(path, func(reason string) { s.terminateWatch(key, reason) })
 		if !ok {
+			s.watchMu.Lock()
+			delete(s.pending, key)
+			s.watchMu.Unlock()
 			_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeInvalidPath,
 				fmt.Sprintf("invalid watch path %q", path)))
 			return
 		}
 
 		s.watchMu.Lock()
-		if s.closing {
+		dropped := s.pending[key]
+		delete(s.pending, key)
+		if s.closing || dropped {
+			// Dropped: the client unwatched while this waited on a mount. The
+			// unwatch was answered then; the token goes back and nothing is served.
 			s.watchMu.Unlock()
 			s.server.coord.endRead(token)
 			return
