@@ -787,43 +787,6 @@ func TestDocd_ComposeAncestorReadAtCommit(t *testing.T) {
 	}
 }
 
-// TestDocd_ComposeNestedMountsOverlay proves that when a read spans nested mounts,
-// the deeper mount overlays the shallower owner's stale slot: the base owner is
-// itself a controller (mounted at a.b) and a nested controller (a.b.c) replaces
-// the c subtree in the composed result.
-func TestDocd_ComposeNestedMountsOverlay(t *testing.T) {
-	logd := startLogd(t)
-	docd := startDocdRouting(t, logd.TCPAddr())
-
-	owner := newMemController() // a.b: has a stale "c" plus its own "k"
-	owner.data["a.b"] = ir.FromMap(map[string]*ir.Node{
-		"k": vObj(1),
-		"c": ir.FromMap(map[string]*ir.Node{"old": ir.FromInt(0)}),
-	})
-	nested := newMemController() // a.b.c: the authoritative c subtree
-	nested.data["a.b.c"] = vObj(9)
-
-	runController(t, docd, "a.b", owner)
-	runController(t, docd, "a.b.c", nested)
-
-	client := docdClient(t, docd, "client")
-	ctx := context.Background()
-
-	res, err := client.Match(ctx, "a.b")
-	if err != nil {
-		t.Fatalf("composed match: %v", err)
-	}
-	if v, err := res.GetPath("$.k.v"); err != nil || v == nil || v.Int64 == nil || *v.Int64 != 1 {
-		t.Errorf("owner k.v: got %v (err %v), want 1", v, err)
-	}
-	if v, err := res.GetPath("$.c.v"); err != nil || v == nil || v.Int64 == nil || *v.Int64 != 9 {
-		t.Errorf("nested c.v: got %v (err %v), want 9 (deeper mount must overlay)", v, err)
-	}
-	if v, _ := res.GetPath("$.c.old"); v != nil {
-		t.Errorf("stale owner c.old should be replaced by the nested mount, got %v", v)
-	}
-}
-
 // TestDocd_ComposeAncestorWatch proves a client watching an ancestor path gets a
 // single composed initial snapshot (base + mount) and then live deltas from BOTH
 // the base store (logd) and the mounted controller, each re-stamped to the watch

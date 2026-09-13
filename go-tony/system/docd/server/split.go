@@ -123,9 +123,9 @@ func trimToOwned(node *ir.Node, mounts []mountInfo, blocks TagFilter, onUnsplitt
 // splitPatch partitions a client patch (path, data) across the live mounts and a
 // base remainder, so a single client patch spanning multiple mounts can be
 // committed atomically. Data is first rooted at the document root (nested under
-// path); each mount claims the subtree at its path (longest-prefix wins for
-// nested mounts), and whatever is left is the base remainder served by docd's own
-// logd link.
+// path); each mount claims the subtree at its path (mounts are disjoint, so no two
+// claim one field), and whatever is left is the base remainder served by docd's
+// own logd link.
 //
 // docd must decompose statically, so it is deliberately less expressive than
 // logd: a higher-order merge op (a tagged node, e.g. !all/!dive) or a non-object
@@ -253,9 +253,8 @@ func partition(n *ir.Node, cur []string, mounts []mountInfo, blocks TagFilter) (
 	if len(baseKV) > 0 {
 		baseNode = ir.FromKeyVals(baseKV)
 	}
-	// If a mount is rooted exactly here (with deeper mounts nested below it), the
-	// remainder at this level — fields not claimed by a deeper mount — is that
-	// mount's data.
+	// If a mount is rooted exactly here, the remainder at this level is that mount's
+	// data: mounts are disjoint, so nothing below it is claimed by another.
 	if exact != nil && baseNode != nil {
 		parts = append(parts, mountPart{mount: exact, data: baseNode})
 		baseNode = nil
@@ -361,8 +360,8 @@ func fieldValue(n *ir.Node, name string) *ir.Node {
 }
 
 // mergeDisjoint merges b into a. Participants write disjoint subtrees, so the
-// only place the two overlap is a spine object above a nested mount, where the
-// merge recurses; anywhere else b is a subtree a does not have. Fields come out
+// only place the two overlap is a spine object above a mount, where the merge
+// recurses; anywhere else b is a subtree a does not have. Fields come out
 // sorted, as storage keeps them.
 func mergeDisjoint(a, b *ir.Node) *ir.Node {
 	switch {

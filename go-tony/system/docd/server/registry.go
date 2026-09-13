@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -25,8 +26,13 @@ func (e *MountEntry) Live() bool {
 	return e != nil && e.Session != nil
 }
 
+// ErrPathOverlapsMount is the refusal of a mount whose path lies above or below a
+// mount already registered, live or tombstoned.
+var ErrPathOverlapsMount = errors.New("path overlaps a mount")
+
 // MountRegistry tracks controller mount registrations.
-// Each path can only be mounted by one controller at a time.
+// Each path can only be mounted by one controller at a time, and mounts are
+// disjoint: no mount lies above or below another.
 type MountRegistry struct {
 	mu     sync.RWMutex
 	mounts map[string]*MountEntry // path → entry
@@ -41,13 +47,48 @@ func NewMountRegistry() *MountRegistry {
 
 // Register adds a mount. It succeeds if the path is free or holds a tombstone
 // (a crashed controller remounting), and fails if a live mount already owns the
-// path.
+// path or a mount, live or tombstoned, lies above or below it (ErrPathOverlapsMount).
+//
+// Mounts are disjoint. A mount under another would give two controllers state for
+// one path: the outer holds its whole subtree, so every operation at the outer
+// mount would be composed with the inner, every write there split, and every
+// watch stream trimmed level by level -- each a place to get wrong (hs9fge9r, and
+// 05d8w3cj item 13) for a shape nothing needs. Delegation within a subtree is the
+// owning controller's to arrange. A tombstone counts: it is a claim awaiting its
+// remount, and a mount inside it would refuse that remount.
 func (r *MountRegistry) Register(entry *MountEntry) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if existing := r.mounts[entry.Path]; existing.Live() {
 		return fmt.Errorf("path %q already mounted", entry.Path)
+	}
+	fields, err := pathFields(entry.Path)
+	if err != nil {
+		return err
+	}
+	for path, other := range r.mounts {
+		if path == entry.Path {
+			continue
+		}
+		of, err := pathFields(path)
+		if err != nil {
+			continue
+		}
+		var where string
+		switch {
+		case hasFieldPrefix(fields, of):
+			where = "under"
+		case hasFieldPrefix(of, fields):
+			where = "above"
+		default:
+			continue
+		}
+		state := "live"
+		if !other.Live() {
+			state = "tombstoned"
+		}
+		return fmt.Errorf("%w: %q is %s the %s mount %q", ErrPathOverlapsMount, entry.Path, where, state, path)
 	}
 
 	r.mounts[entry.Path] = entry
@@ -89,9 +130,9 @@ func (r *MountRegistry) Lookup(path string) *MountEntry {
 }
 
 // LookupPrefix returns the mount entry that owns opPath — the registered mount
-// whose (kpath) path is a field-prefix of opPath — choosing the longest (most
-// specific) match when several apply. Returns nil when opPath is not under any
-// mount (a base path served directly from logd) or is not a valid path.
+// whose (kpath) path is a field-prefix of opPath. Mounts are disjoint, so at most
+// one applies. Returns nil when opPath is not under any mount (a base path served
+// directly from logd) or is not a valid path.
 func (r *MountRegistry) LookupPrefix(opPath string) *MountEntry {
 	// The FIELD PREFIX, not the whole path: an operation may address an array element
 	// (a.votes[0]), and a mount path is field-only, so what owns it is decided by the
@@ -126,7 +167,8 @@ func (r *MountRegistry) LookupPrefix(opPath string) *MountEntry {
 // MountsUnder returns every mount whose path lies strictly below opPath (opPath
 // is a proper field-prefix of the mount path). Tombstones are included so a
 // composed read can detect an unavailable subtree rather than silently omit it.
-// Returns nil when opPath owns no nested mounts.
+// Returns nil when no mount lies under opPath, which is always so for a path at
+// or under a mount.
 func (r *MountRegistry) MountsUnder(opPath string) []*MountEntry {
 	// As LookupPrefix: the field prefix decides. Nothing can be mounted below an index,
 	// so a path holding one has no mounts under it beyond those under its prefix.

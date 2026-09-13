@@ -63,7 +63,7 @@ func TestSetAtFields_NilAndNonObjectRoot(t *testing.T) {
 
 func TestMountsUnder_StrictlyBelowOnly(t *testing.T) {
 	reg := NewMountRegistry()
-	for _, p := range []string{"a", "a.b", "a.b.c", "a.d", "x.y"} {
+	for _, p := range []string{"a.b", "a.c.d", "a.e", "x.y"} {
 		if err := reg.Register(&MountEntry{Path: p}); err != nil {
 			t.Fatalf("register %q: %v", p, err)
 		}
@@ -73,15 +73,12 @@ func TestMountsUnder_StrictlyBelowOnly(t *testing.T) {
 	for _, e := range reg.MountsUnder("a") {
 		got[e.Path] = true
 	}
-	// Strictly below "a": its descendants, but not "a" itself, nor a sibling tree.
-	want := []string{"a.b", "a.b.c", "a.d"}
+	// Strictly below "a": its descendants, not a sibling tree.
+	want := []string{"a.b", "a.c.d", "a.e"}
 	for _, w := range want {
 		if !got[w] {
 			t.Errorf("MountsUnder(a) missing %q", w)
 		}
-	}
-	if got["a"] {
-		t.Error("MountsUnder(a) must not include a itself")
 	}
 	if got["x.y"] {
 		t.Error("MountsUnder(a) must not include sibling x.y")
@@ -90,10 +87,14 @@ func TestMountsUnder_StrictlyBelowOnly(t *testing.T) {
 		t.Errorf("MountsUnder(a) size = %d, want %d", len(got), len(want))
 	}
 
-	if u := reg.MountsUnder("a.b"); len(u) != 1 || u[0].Path != "a.b.c" {
-		t.Errorf("MountsUnder(a.b) = %v, want [a.b.c]", u)
+	if u := reg.MountsUnder("a.c"); len(u) != 1 || u[0].Path != "a.c.d" {
+		t.Errorf("MountsUnder(a.c) = %v, want [a.c.d]", u)
 	}
-	if u := reg.MountsUnder("a.b.c"); len(u) != 0 {
-		t.Errorf("MountsUnder(a.b.c) = %v, want none", u)
+	// A mount has nothing under it: mounts are disjoint.
+	if u := reg.MountsUnder("a.b"); len(u) != 0 {
+		t.Errorf("MountsUnder(a.b) = %v, want none", u)
+	}
+	if u := reg.MountsUnder("a.c.d"); len(u) != 0 {
+		t.Errorf("MountsUnder(a.c.d) = %v, want none", u)
 	}
 }
