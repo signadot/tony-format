@@ -128,7 +128,11 @@ func ViewCommand(mainCfg *MainConfig) *cli.Command {
 		WithAliases("v").
 		WithOpts(opts...).
 		WithSynopsis("view [opts] [file...]").
-		WithDescription("Render documents, or rewrite them in place with -w.").
+		WithDescription(`Render documents, or rewrite them in place with -w.
+
+-w writes each file back in its own format: the one a -j, -y, -t, -I or -O flag
+names, else the one its extension names -- .json, .yaml, .yml -- and tony
+otherwise. Flags naming two different formats are refused with -w.`).
 		WithRun(func(cc *cli.Context, args []string) error {
 			return view(cfg, cc, args)
 		})
