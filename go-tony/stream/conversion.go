@@ -101,6 +101,26 @@ type nodeFrame struct {
 	node   *ir.Node
 	key    string
 	intKey *int64
+	seen   map[string]struct{} // the keys this object holds, each once
+}
+
+// noteKey records a key of the object on the frame, and refuses one it holds
+// already: a key names one field, as the parser holds (p478tacqh12krg32msn0 item
+// 3), and logd reads every wire document through here. A merge key crosses the
+// wire as an empty key (nodeToEvents writes a Null key's String), and an object
+// may carry several, so the empty key is not counted.
+func (f *nodeFrame) noteKey(name string, i int) error {
+	if name == "s:" {
+		return nil
+	}
+	if f.seen == nil {
+		f.seen = make(map[string]struct{})
+	}
+	if _, dup := f.seen[name]; dup {
+		return fmt.Errorf("duplicate key %s at event %d", name, i)
+	}
+	f.seen[name] = struct{}{}
+	return nil
 }
 
 // emitLineComment writes a value's trailing comment.
@@ -230,6 +250,9 @@ func EventsToNode(events []Event) (*ir.Node, error) {
 			if parent.node.Type != ir.ObjectType {
 				return nil, fmt.Errorf("unexpected EventKey at event %d (not in object)", i)
 			}
+			if err := parent.noteKey("s:"+ev.Key, i); err != nil {
+				return nil, err
+			}
 			parent.key = ev.Key
 
 		case EventIntKey:
@@ -251,6 +274,9 @@ func EventsToNode(events []Event) (*ir.Node, error) {
 				} else {
 					parent.node.Tag = ir.TagCompose(parent.node.Tag, nil, ir.IntKeysTag)
 				}
+			}
+			if err := parent.noteKey("i:"+strconv.FormatInt(ev.IntKey, 10), i); err != nil {
+				return nil, err
 			}
 			parent.intKey = &ev.IntKey
 

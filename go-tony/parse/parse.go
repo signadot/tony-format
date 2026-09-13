@@ -855,6 +855,32 @@ func headWrap(yc, node *ir.Node) *ir.Node {
 func objFromKVs(at *ir.Node, kvs []ir.KeyVal, tag string, keyToks []token.Token, ycMap map[int]*ir.Node) (*ir.Node, error) {
 	applyTrailingComments(at, kvs, ycMap)
 	applyHeadComments(kvs, ycMap)
+	// A key names one field. Two fields under one name were accepted, and every
+	// consumer then picked its own: ir.Get answered the first, ToMap the last, a
+	// match counted both and matched neither, and a patch was applied to the first
+	// and overwritten by the raw second (p478tacqh12krg32msn0 item 3). A merge key
+	// is not a name, and an object may carry several.
+	seen := make(map[string]struct{}, len(kvs))
+	for i := range kvs {
+		key := kvs[i].Key
+		var name, shown string
+		switch key.Type {
+		case ir.StringType:
+			name, shown = "s:"+key.String, strconv.Quote(key.String)
+		case ir.NumberType:
+			if key.Int64 == nil {
+				continue
+			}
+			shown = strconv.FormatInt(*key.Int64, 10)
+			name = "i:" + shown
+		default:
+			continue
+		}
+		if _, dup := seen[name]; dup {
+			return nil, fmt.Errorf("%w: duplicate key %s in object %s", ErrParse, shown, keyToks[i].Pos)
+		}
+		seen[name] = struct{}{}
+	}
 	var keyType *ir.Type
 	for i := range kvs {
 		if kvs[i].Key.Type == ir.NullType {

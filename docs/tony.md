@@ -556,6 +556,10 @@ comma!
 
 Tony supports JSON maps and also allows 3 additional constructs.
 
+A key names one field: a map that writes the same key twice is refused, in every
+format Tony reads. A [merge key](#string-merge-keys) is not a name, and a map may
+carry several.
+
 ### Key Sets
 
 In bracketed mode only, a set of keys may be denoted by dropping the ':' and
