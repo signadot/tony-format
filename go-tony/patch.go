@@ -213,7 +213,34 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 
 	case ir.ArrayType:
 		if doc.Type != ir.ArrayType {
-			return patch.Clone(), nil
+			// No list here -- nothing, or a scalar the list replaces -- so the patch
+			// introduces every element, and each is a PATCH applied to an absent
+			// document, as one past the end of a list is (below). Returned as it
+			// was written, the op markers were stored as data: Patch({}, {b:
+			// [!insert 5]}) gave {b: [!insert 5]}, an unstorable shape written as a
+			// value (p478tacqh12krg32msn0 item 1).
+			res := make([]*ir.Node, 0, len(patch.Values))
+			for i := range patch.Values {
+				elt := patch.Values[i]
+				yy, err := patchAndAnswer(absentAt(doc, "", i), elt, ctx)
+				if err != nil {
+					return nil, err
+				}
+				if yy == nil {
+					continue
+				}
+				// A plain element is stored as it was written, presentation and
+				// all: a merge into an absent document strips the patch's
+				// presentation (mergedTag), which is the document's to keep when
+				// there is one, and this write's when there is not.
+				if _, op, _, _, _ := mergeop.SplitChild(elt); op == "" {
+					yy.Tag = elt.Tag
+				}
+				res = append(res, yy)
+			}
+			out := ir.FromSlice(res)
+			out.Tag = patch.Tag
+			return withLineComment(out, doc, patch, keepComments), nil
 		}
 		n := min(len(patch.Values), len(doc.Values))
 		res := make([]*ir.Node, 0, n)
@@ -241,12 +268,16 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 		// op that resolves to nothing -- a !delete for an element the document
 		// never had -- drops out instead of being stored verbatim.
 		for i := n; i < len(patch.Values); i++ {
-			yy, err := patchAndAnswer(absentAt(doc, "", i), patch.Values[i], ctx)
+			elt := patch.Values[i]
+			yy, err := patchAndAnswer(absentAt(doc, "", i), elt, ctx)
 			if err != nil {
 				return nil, err
 			}
 			if yy == nil {
 				continue
+			}
+			if _, op, _, _, _ := mergeop.SplitChild(elt); op == "" {
+				yy.Tag = elt.Tag // as an element introduced where there was no list keeps its own
 			}
 			res = append(res, yy)
 		}

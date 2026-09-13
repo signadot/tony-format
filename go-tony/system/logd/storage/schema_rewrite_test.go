@@ -50,7 +50,10 @@ func TestSchemaRewrite_GainNamesTheElements(t *testing.T) {
 		t.Errorf("after a write by name\n got %s\nwant %s", got, want)
 	}
 	// And the state before the schema commit is still what it was.
-	if got := flatten(t, mustReadScope(t, s, commit-1, nil)); got != `items: [ { sku: B q: 2 } { sku: A q: 1 } ] other: 1` {
+	// Keys sorted, as the store keeps them: the elements used to come back in the order
+	// they were written only because an array introduced where there was none was
+	// copied verbatim rather than written (p478tacqh12krg32msn0 item 1).
+	if got := flatten(t, mustReadScope(t, s, commit-1, nil)); got != `items: [ { q: 2 sku: B } { q: 1 sku: A } ] other: 1` {
 		t.Errorf("the state before the schema commit changed: %s", got)
 	}
 }

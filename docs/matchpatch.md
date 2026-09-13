@@ -132,6 +132,11 @@ delete of an element which was never there, so `{xs: [1, 2, !delete null]}`
 leaves `{xs: [1, 2]}`, as `!delete` in bounds removes the element it meets.
 A plain value past the end is, as ever, itself.
 
+An array patch where the document holds no array -- nothing at the path, or a
+scalar -- introduces every element the same way: each is a patch applied to an
+absent document, so `{b: [!insert 5]}` over `{}` gives `{b: [5]}`, and an
+operation that resolves to nothing adds nothing.
+
 Use `!key` when the elements have an identity, and `!arraydiff` when the edit is
 relative to what is there; position is the fallback the two of them replace.
 
