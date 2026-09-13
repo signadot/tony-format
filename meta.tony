@@ -2,11 +2,12 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: c8bf62ce8162863bca57169e31581baa8d197ca7
 commits: []
 created: "2026-09-13T13:53:41.8866+02:00"
 duplicates: []
 id: scv4m5bzh12kshcemsn0
 labels: []
 related_issues: []
-status: open
-updated: "2026-09-13T13:58:18.896597+02:00"
+status: closed
+updated: "2026-09-13T14:03:10.783977+02:00"
