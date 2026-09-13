@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+	"unicode/utf16"
 	"unicode/utf8"
 )
 
@@ -321,8 +322,32 @@ func quotedToString(d []byte) (string, error) {
 					return b.String(), ErrBadUnicode
 				}
 				r := rune(dst[0])<<8 | rune(dst[1])
-				b.WriteRune(r)
 				i += 4
+				if utf16.IsSurrogate(r) {
+					// A code point above the BMP, as JSON writes one: a high surrogate
+					// escape followed by a low one. Each half was written on its own,
+					// and a surrogate is not a rune, so every emoji Python's json.dumps
+					// wrote arrived as two U+FFFD (4ynqp7wqh12krg32msn0 item 15). A half
+					// on its own names nothing and is refused, as a bad digit is.
+					if r >= 0xDC00 || len(d[i:]) < 6 || d[i] != '\\' || d[i+1] != 'u' {
+						b.WriteRune(utf8.RuneError)
+						return b.String(), ErrBadUnicode
+					}
+					if _, err := hex.Decode(dst, d[i+2:i+6]); err != nil {
+						b.WriteRune(utf8.RuneError)
+						return b.String(), ErrBadUnicode
+					}
+					lo := rune(dst[0])<<8 | rune(dst[1])
+					cp := utf16.DecodeRune(r, lo)
+					if cp == utf8.RuneError {
+						b.WriteRune(utf8.RuneError)
+						return b.String(), ErrBadUnicode
+					}
+					b.WriteRune(cp)
+					i += 6
+					continue
+				}
+				b.WriteRune(r)
 			default:
 				// The offending escape only. The previous message sliced a fixed
 				// window around it (d[i-sz-4:i+10]) which ran out of bounds on short
