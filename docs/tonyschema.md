@@ -51,8 +51,7 @@ define:
     - updatedAt
     duration: .duration
   
-  duration: !regexp |-
-    \d+[mhdw]
+  duration: !glob "*[mhdw]" # a match operator; there is no !regexp
 
   # recursive definitions are possible
   node:

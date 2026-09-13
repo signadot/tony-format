@@ -15,6 +15,7 @@ import (
 	"github.com/go-air/gini/logic"
 	"github.com/go-air/gini/z"
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/mergeop"
 )
 
 // varDef uniquely identifies a variable: (position, type) pair
@@ -297,6 +298,18 @@ func (b *formulaBuilder) buildTagged(node *ir.Node, tag string) z.Lit {
 				refContent += "(" + strings.Join(args, ",") + ")"
 			}
 			return b.buildRef(refContent)
+		}
+
+		// A match operator the formula does not model -- !glob, !subtree, !tag(x),
+		// !let, !raw, !pass, !at, !get-path and the rest -- says something about the
+		// value that the formula does not speak of. It is an opaque proposition, as
+		// !ir is: unknown in both polarities, so a negation of it stays satisfiable,
+		// and validation asks it as a match. Refusing it as unknown failed to load
+		// every schema that used one (4ynqp7wqh12krg32msn0 item 20). A tag nothing
+		// implements, or a patch-only operator, is still refused: a schema is a
+		// match, and what it says has to be something a match can say.
+		if sym := mergeop.Lookup(tagName); sym != nil && sym.IsMatch() {
+			return b.c.Lit()
 		}
 
 		// Unknown tag - set error and return false
