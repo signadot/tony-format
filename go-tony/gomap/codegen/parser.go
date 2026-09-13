@@ -86,6 +86,22 @@ func ExtractTypes(file *ast.File, filePath string) ([]*StructInfo, error) {
 				continue
 			}
 
+			// The directive generates a codec for a struct. On any other type it
+			// generated code that did not compile, after the schema file had been
+			// written beside the stale one (4ynqp7wqh12krg32msn0 item 25). A type with
+			// a codec of its own (codec=custom) is the exception: the directive names
+			// its schema and generates nothing. A `type B A` over a struct A is a
+			// struct, and is handled below.
+			if _, isStruct := typeSpec.Type.(*ast.StructType); !isStruct && structSchema.Mode == "schemagen" && !structSchema.CustomCodec {
+				underlyingStruct := false
+				if ident, ok := typeSpec.Type.(*ast.Ident); ok {
+					_, underlyingStruct = structTypes[ident.Name]
+				}
+				if !underlyingStruct {
+					return nil, fmt.Errorf("type %s carries //tony:schemagen but is not a struct: the directive generates a codec for struct types; give %s a ToTonyIR/FromTonyIR of its own and say codec=custom, or drop the directive", typeSpec.Name.Name, typeSpec.Name.Name)
+				}
+			}
+
 			// Extract fields
 			var fields []*FieldInfo
 			if structType, ok := typeSpec.Type.(*ast.StructType); ok {
