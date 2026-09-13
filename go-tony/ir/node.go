@@ -3,6 +3,7 @@ package ir
 import (
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -215,6 +216,12 @@ func (y *Node) ToIntKeysMap() (map[uint32]*Node, error) {
 		}
 		if field.Int64 == nil {
 			return nil, fmt.Errorf("no int val for int keys field")
+		}
+		// An index is 32 bits wide; one outside that is refused rather than
+		// wrapped, which put !arraydiff {4294967296: !insert x} at index 0
+		// (p478tacqh12krg32msn0 item 6).
+		if *field.Int64 < 0 || *field.Int64 > math.MaxUint32 {
+			return nil, fmt.Errorf("int key %d is outside the 32-bit index range", *field.Int64)
 		}
 		key := uint32(*field.Int64)
 		res[key] = y.Values[i]

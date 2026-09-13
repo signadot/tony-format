@@ -700,7 +700,12 @@ func parseObj(toks []token.Token, p *ir.Node, tag string, pi *int, opts *parseOp
 					return nil, fmt.Errorf("%w: int key must be base-10, got %q %s",
 						ErrParse, tok.Bytes, tok.Pos)
 				}
-				u64, err := strconv.ParseUint(string(tok.Bytes), 10, 64)
+				// An int key is a sparse array's index, which is 32 bits wide
+				// (docs/tony.md, Sparse Arrays): one above that is refused rather
+				// than rounded, as the number policy says. Read as 64 bits and cast,
+				// {4294967296: a, 0: b} kept one entry under key 0
+				// (p478tacqh12krg32msn0 item 6).
+				u64, err := strconv.ParseUint(string(tok.Bytes), 10, 32)
 				if err != nil {
 					return nil, fmt.Errorf("%w: bad int key (%w) %s",
 						ErrParse, err, tok.Pos)
