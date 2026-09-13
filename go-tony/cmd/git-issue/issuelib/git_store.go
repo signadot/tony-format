@@ -2,11 +2,15 @@ package issuelib
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/encode"
@@ -113,12 +117,61 @@ func (s *GitStore) Create(title, description string) (*Issue, error) {
 	commitHash := strings.TrimSpace(string(commitOut))
 
 	// Update ref
-	updateCmd := exec.Command("git", "update-ref", issue.Ref, commitHash)
-	if err := updateCmd.Run(); err != nil {
+	if err := s.setRef(issue.Ref, commitHash, zeroSHA); err != nil {
 		return nil, fmt.Errorf("failed to create ref: %w", err)
 	}
 
 	return issue, nil
+}
+
+// zeroSHA is the old value that tells update-ref the ref must not exist yet.
+const zeroSHA = "0000000000000000000000000000000000000000"
+
+// errRefMoved is answered by setRef when the ref is not at the value the caller
+// read: another writer got there first, and the caller's change was built on a
+// commit that is no longer the tip.
+var errRefMoved = errors.New("ref moved")
+
+// setRef points ref at commit, provided it is at old now (zeroSHA: provided it
+// does not exist). A write of the ref that did not say what it expected the ref
+// to hold overwrote whatever another writer had put there between this writer's
+// read and its write: eight `git issue comment` runs at once all said "Added
+// comment" and one comment survived (05d8w3cjh12kswb1msn0).
+func (s *GitStore) setRef(ref, commit, old string) error {
+	cmd := exec.Command("git", "update-ref", ref, commit, old)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if strings.Contains(stderr.String(), "cannot lock ref") {
+			return fmt.Errorf("%w: %s", errRefMoved, strings.TrimSpace(stderr.String()))
+		}
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
+// tempIndexSeq numbers the temporary indexes this process has minted.
+var tempIndexSeq atomic.Uint64
+
+// tempIndexPath names a temporary index no other writer is using. A name minted
+// from the clock alone was shared by two writers starting in the same instant,
+// and one's write-tree read the other's index.
+func tempIndexPath() string {
+	return filepath.Join(os.TempDir(), fmt.Sprintf("git-issue-index-%d-%d-%d",
+		os.Getpid(), time.Now().UnixNano(), tempIndexSeq.Add(1)))
+}
+
+// retryRefMoved runs a read-modify-write of a ref until it lands on the tip it
+// read, or fails for another reason.
+func retryRefMoved(attempt func() error) error {
+	var err error
+	for i := 0; i < 32; i++ {
+		if err = attempt(); !errors.Is(err, errRefMoved) {
+			return err
+		}
+		time.Sleep(time.Duration(rand.Intn(20)+1) * time.Millisecond)
+	}
+	return err
 }
 
 // Get retrieves an issue by XIDR or XIDR prefix, open or closed, and returns it
@@ -252,6 +305,16 @@ func (s *GitStore) Update(issue *Issue, message string, extraFiles map[string]st
 // updateCommit adds a commit to an issue chain, carrying the previous tree
 // forward through a temporary index and overwriting only the given paths.
 func (s *GitStore) updateCommit(ref, message string, updates map[string]string) error {
+	return retryRefMoved(func() error { return s.updateCommitOnce(ref, message, updates) })
+}
+
+// updateCommitOnce is one attempt of updateCommit: it answers errRefMoved when
+// the ref moved between its read and its write, and the updates are applied
+// again on the new tip. A path written here carries the caller's whole view of
+// it, so two writers changing meta.tony at once still see the last one win on
+// that file; what no longer happens is one writer's commit, files and all,
+// vanishing under the other's.
+func (s *GitStore) updateCommitOnce(ref, message string, updates map[string]string) error {
 	// Get current commit
 	showCmd := exec.Command("git", "show-ref", ref)
 	showOut, err := showCmd.Output()
@@ -261,7 +324,7 @@ func (s *GitStore) updateCommit(ref, message string, updates map[string]string) 
 	currentCommit := strings.Fields(string(showOut))[0]
 
 	// Use a temporary index
-	tmpIndex := fmt.Sprintf("/tmp/git-issue-index-%d", time.Now().UnixNano())
+	tmpIndex := tempIndexPath()
 	defer os.Remove(tmpIndex)
 
 	// Read current tree into temporary index
@@ -306,8 +369,10 @@ func (s *GitStore) updateCommit(ref, message string, updates map[string]string) 
 	commitHash := strings.TrimSpace(string(commitOut))
 
 	// Update ref
-	updateCmd := exec.Command("git", "update-ref", ref, commitHash)
-	if err := updateCmd.Run(); err != nil {
+	if err := s.setRef(ref, commitHash, currentCommit); err != nil {
+		if errors.Is(err, errRefMoved) {
+			return err
+		}
 		return fmt.Errorf("failed to update ref: %w", err)
 	}
 
@@ -374,15 +439,16 @@ func (s *GitStore) MoveRef(from, to string) error {
 	commitSHA := strings.Fields(string(showOut))[0]
 
 	// Create new ref
-	updateCmd := exec.Command("git", "update-ref", to, commitSHA)
-	if err := updateCmd.Run(); err != nil {
+	if err := s.setRef(to, commitSHA, zeroSHA); err != nil {
 		return fmt.Errorf("failed to create new ref: %w", err)
 	}
 
-	// Delete old ref
-	deleteCmd := exec.Command("git", "update-ref", "-d", from)
+	// Delete old ref, provided it is still what was moved
+	deleteCmd := exec.Command("git", "update-ref", "-d", from, commitSHA)
+	var stderr bytes.Buffer
+	deleteCmd.Stderr = &stderr
 	if err := deleteCmd.Run(); err != nil {
-		return fmt.Errorf("failed to delete old ref: %w", err)
+		return fmt.Errorf("failed to delete old ref: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 
 	return nil
@@ -558,6 +624,10 @@ func (s *GitStore) GetTree(ref string) (map[string]string, error) {
 // tree, which is what a rewrite such as migration wants and what an ordinary
 // edit does not. The old tree stays reachable through the commit's parent.
 func (s *GitStore) ReplaceTree(ref, message string, files map[string][]byte) error {
+	return retryRefMoved(func() error { return s.replaceTreeOnce(ref, message, files) })
+}
+
+func (s *GitStore) replaceTreeOnce(ref, message string, files map[string][]byte) error {
 	// Get current commit as parent
 	showCmd := exec.Command("git", "show-ref", ref)
 	showOut, err := showCmd.Output()
@@ -567,7 +637,7 @@ func (s *GitStore) ReplaceTree(ref, message string, files map[string][]byte) err
 	currentCommit := strings.Fields(string(showOut))[0]
 
 	// Use a temporary index
-	tmpIndex := fmt.Sprintf("/tmp/git-issue-index-%d", time.Now().UnixNano())
+	tmpIndex := tempIndexPath()
 	defer os.Remove(tmpIndex)
 
 	// Hash all files and build index
@@ -607,8 +677,10 @@ func (s *GitStore) ReplaceTree(ref, message string, files map[string][]byte) err
 	commitHash := strings.TrimSpace(string(commitOut))
 
 	// Update ref
-	updateCmd := exec.Command("git", "update-ref", ref, commitHash)
-	if err := updateCmd.Run(); err != nil {
+	if err := s.setRef(ref, commitHash, currentCommit); err != nil {
+		if errors.Is(err, errRefMoved) {
+			return err
+		}
 		return fmt.Errorf("failed to update ref: %w", err)
 	}
 
