@@ -228,7 +228,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 		s:       s,
 		watcher: watcher,
 		path:    watcher.Path,
-		scoped:  s.scopeID() != nil,
+		scoped:  watcher.Scope != nil, // the watch's scope, fixed when it was made
 		absent:  &watchAbsence{log: s.log, path: watcher.Path},
 	}
 
@@ -457,8 +457,11 @@ func (w *watchStream) step(commit int64, patch *ir.Node, scopeID *string, author
 	if !w.scoped {
 		return w.stepBaseline(commit, patch, author, shared)
 	}
-	mine := w.s.scopeID()
-	if scopeID != nil && mine != nil && *scopeID == *mine {
+	// The watch's own scope, as the hub filters by it, not the session's read live:
+	// the two are the same once a session says hello once, and a watch answers for
+	// the scope it was opened in either way.
+	mine := w.watcher.Scope
+	if scopeID != nil && *scopeID == *mine {
 		w.s.hub.stats.scopeStep.Add(1)
 		return w.stepBaseline(commit, patch, author, shared)
 	}

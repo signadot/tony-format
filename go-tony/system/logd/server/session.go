@@ -27,8 +27,17 @@ type Session struct {
 
 	// Scope for COW isolation (set in hello, applies to all operations). Atomic
 	// because hello lands on the request loop while reads dispatched off it are
-	// running (see dispatch), and a client is free to say hello twice.
+	// running (see dispatch).
 	scope atomic.Pointer[string]
+
+	// greeted says a hello this server accepted has landed. A session says hello
+	// once: a second one is refused (api.ErrCodeHelloRepeated), since a scope or
+	// author that changed under the session's watches and transactions left them
+	// answering for a session that no longer existed -- a scoped watch read the
+	// session's scope live and dereferenced the nil a scope-less second hello left
+	// there (4ynqp7wqh12krg32msn0 item 2). Another scope or author is another
+	// connection. Read and written on the request loop only.
+	greeted bool
 
 	// author is the session's default writer (api.Hello.Author): what a patch naming
 	// none is recorded as written by. Set by hello, on the request loop; read by a
@@ -372,6 +381,12 @@ func (s *Session) handleHello(id *string, req *api.Hello) {
 		return
 	}
 	s.refused.Store(false)
+	if s.greeted {
+		s.sendError(id, api.ErrCodeHelloRepeated,
+			"this session has said hello; a session says hello once, and another scope or author is another connection")
+		return
+	}
+	s.greeted = true
 
 	// Store scope for this session (applies to all operations), and the writer a
 	// patch on it is recorded under when it names none.

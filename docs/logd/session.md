@@ -375,6 +375,11 @@ Reads then see baseline with the scope's own writes on top, and writes land in t
 scope. Baseline keeps moving underneath — a scope is a live overlay, not a frozen
 branch.
 
+A session says `hello` once. A second `hello` is refused, `hello_repeated`: the scope
+and author a session's watches and transactions answer for are fixed by the one it said,
+and another scope or author is another connection. A `hello` refused for its protocol
+was not said, and the client says it again with one the server speaks.
+
 ## Retention
 
 A `retain` request ages log-like records out of the state. It is a write: for each

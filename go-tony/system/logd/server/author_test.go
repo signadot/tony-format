@@ -29,8 +29,6 @@ func TestPatchIsRecordedUnderItsAuthor(t *testing.T) {
 		`{id: "w", watch: {path: "a", waitIfAbsent: true}}`,
 		`{id: "p1", patch: {path: "a", data: {n: 1}}}`,
 		`{id: "p2", patch: {path: "a", data: {n: 2}, author: alice}}`,
-		`{id: "h2", hello: {clientId: verse, protocol: 3}}`,
-		`{id: "p3", patch: {path: "a", data: {n: 3}}}`,
 	} {
 		conn.WriteRequest(req)
 	}
@@ -38,6 +36,18 @@ func TestPatchIsRecordedUnderItsAuthor(t *testing.T) {
 	done := make(chan error)
 	go func() { done <- session.Run() }()
 	time.Sleep(300 * time.Millisecond)
+
+	// A session says hello once, so a write under no author is another session's,
+	// whose hello names none.
+	other := newMockConn()
+	other.WriteRequest(`{id: "h", hello: {clientId: nobody, protocol: 3}}`)
+	other.WriteRequest(`{id: "p3", patch: {path: "a", data: {n: 3}}}`)
+	otherSession := NewSession("test-server", other, &SessionConfig{Storage: store, Hub: hub})
+	otherDone := make(chan error)
+	go func() { otherDone <- otherSession.Run() }()
+	time.Sleep(300 * time.Millisecond)
+	other.Close()
+	<-otherDone
 	conn.Close()
 	<-done
 
@@ -64,7 +74,7 @@ func TestPatchIsRecordedUnderItsAuthor(t *testing.T) {
 	}
 	want := []string{"verse", "alice", ""}
 	if strings.Join(live, ",") != strings.Join(want, ",") {
-		t.Errorf("live events say authors %q, want %q (the hello's, the patch's own, and none after a hello with none)", live, want)
+		t.Errorf("live events say authors %q, want %q (the hello's, the patch's own, and none from a session whose hello names none)", live, want)
 	}
 
 	var replayed []string

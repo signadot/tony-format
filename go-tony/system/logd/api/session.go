@@ -546,6 +546,9 @@ const (
 	// session protocol. Refused at hello, because every later request would be answered
 	// rather than refused -- see ProtocolVersion.
 	ErrCodeProtocolMismatch = "protocol_mismatch"
+	// ErrCodeHelloRepeated: the session has said hello already. A session says hello
+	// once; another scope or author is another connection.
+	ErrCodeHelloRepeated = "hello_repeated"
 
 	// ErrCodePathConflict is a path which disagrees with the SHAPE of what is there:
 	// an index into an object, a field under a string. It is neither of its neighbours
