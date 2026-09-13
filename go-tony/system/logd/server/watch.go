@@ -72,9 +72,11 @@ type Watcher struct {
 	ID         *string                          // Originating watch request id (nil = legacy path-routed watch)
 	Events     chan *storage.CommitNotification // Channel for receiving events
 	Failed     chan struct{}                    // Closed when watch fails (slow consumer)
+	Done       chan struct{}                    // Closed when the watch is unwatched
 	FromCommit *int64                           // Starting commit for replay
 
 	failOnce sync.Once // ensures Failed is closed only once
+	doneOnce sync.Once // ensures Done is closed only once
 }
 
 // NewWatchHub creates a new WatchHub instance.
@@ -102,9 +104,11 @@ func (h *WatchHub) Watch(watcher *Watcher) {
 	h.watchers[watcher.Path][watcher] = struct{}{}
 }
 
-// Unwatch removes a watcher.
-// After unwatching, no more events will be sent to the watcher's channel.
-// The caller is responsible for draining and closing the Events channel.
+// Unwatch removes a watcher and closes its Done channel, which is what ends the
+// stream serving it (watchStream.live). After unwatching, no more events will be
+// sent to the watcher's channel. Removing it from the hub alone left the stream
+// blocked on Events until the session closed: on a long-lived session every
+// unwatch left one goroutine behind (4jhyq24nh12kszvjmsn0).
 func (h *WatchHub) Unwatch(watcher *Watcher) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -115,6 +119,7 @@ func (h *WatchHub) Unwatch(watcher *Watcher) {
 			delete(h.watchers, watcher.Path)
 		}
 	}
+	watcher.end()
 }
 
 // Broadcast sends a commit notification to all matching watchers.
@@ -297,7 +302,17 @@ func NewWatcher(path string, scope *string, fromCommit *int64, bufferSize int) *
 		FromCommit: fromCommit,
 		Events:     make(chan *storage.CommitNotification, bufferSize),
 		Failed:     make(chan struct{}),
+		Done:       make(chan struct{}),
 	}
+}
+
+// end marks the watcher unwatched, once. A watcher built without NewWatcher has
+// no Done to close.
+func (w *Watcher) end() {
+	if w.Done == nil {
+		return
+	}
+	w.doneOnce.Do(func() { close(w.Done) })
 }
 
 // IsFailed returns true if the watch has failed (slow consumer).

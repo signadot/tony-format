@@ -549,6 +549,9 @@ func (w *watchStream) live() {
 		select {
 		case <-w.s.done:
 			return
+		case <-w.watcher.Done:
+			// Unwatched: the hub no longer sends here, and there is nothing to say.
+			return
 		case <-w.watcher.Failed:
 			// Broadcast dropped this watcher because its buffer was full. Report it as
 			// what it is: the client fell behind, and it can resume from what this watch
