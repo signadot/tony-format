@@ -46,6 +46,12 @@ func DiffArrayByKey(from, to *ir.Node, key string, df DiffFunc) (*ir.Node, error
 			toTagMap[valKey] = vkTag
 		}
 	}
+	// The objects are built over the lists' own elements, and ir.FromMap re-parents
+	// each into the object it builds: every element of both inputs woke up with a path
+	// under the diff. They are handed back to their lists when the diff is done, which
+	// costs a pointer per element where a copy would cost the element (MakeDiff says
+	// the rule; item 14 of 4ynqp7wqh12krg32msn0).
+	defer borrow(from.Values, to.Values).restore()
 	fromObj := ir.FromMap(fromMap).WithTag(from.Tag)
 	toObj := ir.FromMap(toMap).WithTag(to.Tag)
 	// df reports "no difference" as a nil node rather than as an object holding
@@ -219,4 +225,35 @@ func yKeyNodeOf(y *ir.Node, key string) (*ir.Node, string, string, error) {
 		return nil, "", "", err
 	}
 	return v, buf.String(), orgTag, nil
+}
+
+// parentage is where a set of nodes belonged before a diff borrowed them.
+type parentage struct {
+	nodes []*ir.Node
+	saved []owner
+}
+
+type owner struct {
+	parent *ir.Node
+	index  int
+	field  string
+}
+
+// borrow records the parentage of nodes about to be put in a container the diff
+// builds for itself, so restore can hand them back.
+func borrow(lists ...[]*ir.Node) *parentage {
+	p := &parentage{}
+	for _, l := range lists {
+		for _, n := range l {
+			p.nodes = append(p.nodes, n)
+			p.saved = append(p.saved, owner{n.Parent, n.ParentIndex, n.ParentField})
+		}
+	}
+	return p
+}
+
+func (p *parentage) restore() {
+	for i, n := range p.nodes {
+		n.Parent, n.ParentIndex, n.ParentField = p.saved[i].parent, p.saved[i].index, p.saved[i].field
+	}
 }

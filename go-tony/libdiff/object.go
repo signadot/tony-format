@@ -22,7 +22,7 @@ func DiffObject(from, to *ir.Node, df DiffFunc) *ir.Node {
 	fromSparse := ir.TagHas(from.Tag, ir.IntKeysTag)
 	toSparse := ir.TagHas(to.Tag, ir.IntKeysTag)
 	if fromSparse != toSparse {
-		return to
+		return to.Clone() // the diff's own, not the input's (MakeDiff says why)
 	}
 	fieldMap := map[string]rune{}
 	runeMap := map[rune]string{}

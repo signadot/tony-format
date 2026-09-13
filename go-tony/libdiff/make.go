@@ -27,9 +27,13 @@ func MakeDiff(from, to *ir.Node) *ir.Node {
 	case to == nil:
 		return escaped(from, DeleteTag)
 	default:
+		// Copies: ir.FromMap re-parents what it is given, and a diff leaves its
+		// inputs as it found them (item 14 of 4ynqp7wqh12krg32msn0) -- after a
+		// Diff(a, b), a.x's path read "a.from" and !get-path(root) over b resolved
+		// to the diff. Patch states the same rule for itself (patch.go).
 		return ir.FromMap(map[string]*ir.Node{
-			"from": from,
-			"to":   to,
+			"from": from.Clone(),
+			"to":   to.Clone(),
 		}).WithTag(ReplaceTag)
 	}
 }
