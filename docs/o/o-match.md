@@ -23,6 +23,17 @@ the conjunction of their patterns:
 -each is "o v -split | o m <match> | o v -gather" whenever an element matched;
 see o view for moving between a list and a stream of documents.
 
+!at asks about a node deeper in the document, and keeps the whole document when
+the node there matches. It needs no flag, since it is the match itself that walks:
+
+    o m '!at(spec.replicas).irtype 0' deploy.tony  # the ones with an integer count
+    o m '!at(items[*]) {state: open}' boards.tony  # every item open
+
+A path that names nothing does not match, and a wildcard path matches only when
+every node it reaches does. !at keeps the documents; o list -if keeps the nodes:
+
+    o list -if '{state: open}' 'items[*]' boards.tony  # the open items themselves
+
 A file is optional: with none, stdin is read, so "x | o m '<match>'" needs no
 trailing -.
 
