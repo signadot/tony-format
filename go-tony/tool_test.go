@@ -86,8 +86,11 @@ f1: !eval $[x]`,
 		out: "of1: null\nof2:\n- 1\n- two\n- 0.3",
 	},
 	{
+		// A non-scalar interpolated into a string is its JSON (docs/build-eval.md,
+		// String Expansion); this had pinned the tony wire text the code wrote
+		// instead (p478tacqh12krg32msn0 item 19).
 		in:  `!eval $[o]`,
-		out: `"{of1: null of2: [1 two 0.3]}"`,
+		out: `'{"of1":null,"of2":[1,"two",0.3]}'`,
 	},
 	{
 		in: `

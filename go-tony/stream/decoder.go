@@ -14,9 +14,11 @@ import (
 // Only supports bracketed structures ({...} and [...]).
 // Block style (TArrayElt) is not supported.
 type Decoder struct {
-	source *token.TokenSource // TokenSource uses new Tokenizer internally
-	state  *State             // State for tracking structure/path
-	opts   *streamOpts        // Options
+	// pendingTag is a tag read and not yet given to its value; see ReadEvent.
+	pendingTag string
+	source     *token.TokenSource // TokenSource uses new Tokenizer internally
+	state      *State             // State for tracking structure/path
+	opts       *streamOpts        // Options
 
 	// Lookahead buffer for token-to-event conversion
 	// We need to peek ahead to determine if TString/TLiteral is a key or value
@@ -59,7 +61,6 @@ func NewDecoder(r io.Reader, opts ...StreamOption) (*Decoder, error) {
 //
 // Comment tokens become EventHeadComment and EventLineComment; see commentEvent.
 func (d *Decoder) ReadEvent() (*Event, error) {
-	var pendingTag string
 	for {
 		// Get next token (from pending buffer or read from source)
 		tok, err := d.nextToken()
@@ -92,9 +93,13 @@ func (d *Decoder) ReadEvent() (*Event, error) {
 			return ev, nil
 		}
 
-		// Handle tags - only TTag tokens (starting with !) are tags
+		// Handle tags - only TTag tokens (starting with !) are tags. The tag is
+		// held on the decoder, not in this call: a comment between the tag and its
+		// value is an event of its own, and the tag has to still be there when the
+		// next call reaches the value. Held in a local, `!t # c` followed by the
+		// value on the next line lost the tag (p478tacqh12krg32msn0 item 18).
 		if tok.Type == token.TTag {
-			pendingTag = string(tok.Bytes)
+			d.pendingTag = string(tok.Bytes)
 			// Continue to get the next token (the actual value)
 			continue
 		}
@@ -108,12 +113,12 @@ func (d *Decoder) ReadEvent() (*Event, error) {
 		// Set tag on event if present. A radix literal arrives with its notation as
 		// its tag (intEvent), which goes in front of the written one as the parser
 		// puts it (parse.composeNotation).
-		if event.Tag != "" && pendingTag != "" {
-			event.Tag = ir.TagCompose(event.Tag, nil, pendingTag)
-		} else if pendingTag != "" {
-			event.Tag = pendingTag
+		if event.Tag != "" && d.pendingTag != "" {
+			event.Tag = ir.TagCompose(event.Tag, nil, d.pendingTag)
+		} else if d.pendingTag != "" {
+			event.Tag = d.pendingTag
 		}
-		pendingTag = "" // Reset pending tag
+		d.pendingTag = "" // Reset pending tag
 
 		// Update state with event
 		if err := d.state.ProcessEvent(event); err != nil {

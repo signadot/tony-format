@@ -1,14 +1,12 @@
 package eval
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/signadot/tony-format/go-tony/debug"
-	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/ir"
 
 	"github.com/expr-lang/expr"
@@ -200,7 +198,7 @@ func ExpandIRWithOptions(node *ir.Node, env map[string]any, opts *EvalOptions) (
 				kvs[i] = ir.KeyVal{Key: f, Val: xc}
 			}
 		}
-		return ir.FromKeyVals(kvs).WithTag(node.Tag), nil
+		return withLineComment(ir.FromKeyVals(kvs).WithTag(node.Tag), node), nil
 	case ir.ArrayType:
 		n := len(node.Values)
 		res := make([]*ir.Node, n)
@@ -211,7 +209,7 @@ func ExpandIRWithOptions(node *ir.Node, env map[string]any, opts *EvalOptions) (
 			}
 			res[i] = xc
 		}
-		return ir.FromSlice(res).WithTag(node.Tag), nil
+		return withLineComment(ir.FromSlice(res).WithTag(node.Tag), node), nil
 	case ir.StringType:
 		// Check for raw env refs (.[var]) - these should replace the node, not just expand the string
 		raw := getRaw(node.String)
@@ -422,30 +420,35 @@ func anyToBytes(v any) ([]byte, error) {
 	case json.Number:
 		return []byte(x), nil
 	case *ir.Node:
-		buf := bytes.NewBuffer(nil)
-		if err := encode.Encode(x, buf, encode.EncodeWire(true)); err != nil {
-			return nil, err
+		// A non-scalar interpolated into a string is its JSON (docs/build-eval.md,
+		// String Expansion); it was written as tony wire text, and the block form
+		// for a Go value (p478tacqh12krg32msn0 item 19). A scalar node is its
+		// value, as the scalar cases above write theirs.
+		switch x.Type {
+		case ir.StringType:
+			return []byte(x.String), nil
+		case ir.NullType:
+			return []byte("null"), nil
 		}
-		return buf.Bytes(), nil
+		return MarshalJSON(x)
 	default:
-		node, err := FromAny(v)
-		if err != nil {
-			return nil, err
-		}
-		buf := bytes.NewBuffer(nil)
-		err = encode.Encode(node, buf)
-		if err != nil {
-			return nil, err
-		}
-		// d, err := yaml.Marshal(v)
-		// if err != nil {
-		// 	return nil, err
-		// }
-		d := buf.Bytes()
-		return d[:len(d)-1], nil
+		return json.Marshal(v)
 	}
 }
 
 func isRawEnvRef(s string) bool {
 	return strings.HasPrefix(s, ".[") && strings.HasSuffix(s, "]")
+}
+
+// withLineComment carries from's line comment onto to, a container rebuilt from
+// it. The rebuild kept the tag and dropped the comment, so `a: # why` over a block
+// lost its why through every expansion (p478tacqh12krg32msn0 item 19).
+func withLineComment(to, from *ir.Node) *ir.Node {
+	if from.Comment == nil {
+		return to
+	}
+	c := from.Comment.Clone()
+	c.Parent = to
+	to.Comment = c
+	return to
 }
