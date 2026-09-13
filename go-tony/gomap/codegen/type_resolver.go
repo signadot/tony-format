@@ -174,7 +174,12 @@ func ResolveFieldTypes(structs []*StructInfo, pkgDir string, pkgName string) err
 			// codec — the literal has no ToTonyIR method of its own, so dispatching
 			// to one generates invalid Go (issue cc5rbhv8h12k). An unnamed map is
 			// inlined by the reflect.Map path, which dispatches per value.
-			if field.Type != nil && field.Type.Kind() == reflect.Map &&
+			//
+			// A named SLICE with a codec of its own is the same case in the other
+			// collection: `type Names []string` with codec=custom was inlined
+			// element by element, and the element conversion did not compile
+			// (p478tacqh12krg32msn0 item 25).
+			if field.Type != nil && (field.Type.Kind() == reflect.Map || field.Type.Kind() == reflect.Slice) &&
 				field.TypeName != "" && codecTypeNames[field.TypeName] &&
 				isNamedTypeExpr(field.ASTType) {
 				field.DispatchViaMethod = true
