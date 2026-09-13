@@ -741,7 +741,10 @@ func fromIRToMap(node *ir.Node, val reflect.Value, fieldPath string, visited map
 
 		// Unmarshal each value
 		for key, valueNode := range intKeysMap {
-			keyVal := reflect.ValueOf(key)
+			// The map's key type, which may be a named one (type ID uint32):
+			// SetMapIndex with a bare uint32 panicked "not assignable"
+			// (4ynqp7wqh12krg32msn0 item 22).
+			keyVal := reflect.ValueOf(key).Convert(keyType)
 			valueVal := reflect.New(valType).Elem()
 
 			valuePath := fieldPath
@@ -772,7 +775,7 @@ func fromIRToMap(node *ir.Node, val reflect.Value, fieldPath string, visited map
 	// Convert IR object to map
 	irMap := ir.ToMap(node)
 	for key, valueNode := range irMap {
-		keyVal := reflect.ValueOf(key)
+		keyVal := reflect.ValueOf(key).Convert(keyType) // a named string key type, as above
 		valueVal := reflect.New(valType).Elem()
 
 		valuePath := fieldPath
