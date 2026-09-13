@@ -1044,10 +1044,15 @@ func expText(f float64) (string, error) {
 	if math.IsInf(f, 0) || math.IsNaN(f) {
 		return "", fmt.Errorf("%w: %v has no number syntax", ErrEncoding, f)
 	}
-	v := strconv.FormatFloat(f, 'e', -1, 64)
+	return tidyExp(strconv.FormatFloat(f, 'e', -1, 64)), nil
+}
+
+// tidyExp takes Go's padded, signed exponent -- "1e+09", "1e-05" -- to the text
+// the parser reads back to the same number: "1e9", "1e-5".
+func tidyExp(v string) string {
 	i := strings.IndexAny(v, "eE")
 	if i < 0 {
-		return v, nil // no exponent to tidy; FormatFloat 'e' always writes one
+		return v
 	}
 	mant, exp := v[:i], v[i+1:]
 	neg := strings.HasPrefix(exp, "-")
@@ -1059,7 +1064,7 @@ func expText(f float64) (string, error) {
 	if neg {
 		exp = "-" + exp
 	}
-	return mant + "e" + exp, nil
+	return mant + "e" + exp
 }
 
 func formatFloat(f float64) (string, error) {
@@ -1072,6 +1077,13 @@ func formatFloat(f float64) (string, error) {
 	}
 	if !strings.ContainsAny(v, ".eE") {
 		v += ".0"
+	}
+	// 'g' writes a large or small value in Go's padded, signed exponent form,
+	// "1e+21", which the parser reads back as 1e21 with ExpTag and the encoder
+	// then writes "1e21": `o v` changed the text on the second pass
+	// (p478tacqh12krg32msn0 item 8). One text per value, the one expText writes.
+	if strings.ContainsAny(v, "eE") {
+		return tidyExp(v), nil
 	}
 	return v, nil
 }
