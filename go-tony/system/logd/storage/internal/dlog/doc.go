@@ -16,7 +16,9 @@
 //
 // A record is a 4-byte big-endian length followed by an [Entry] encoded as binary
 // stream events; a record in tony text form, as older logs hold, still decodes. A
-// snapshot is a blob -- [BlobHeaderMagic], a 4-byte length, and the snap event stream --
+// snapshot is a blob -- [BlobHeaderMagic64], an 8-byte length, and the snap event stream
+// (a log written before go-tony v0.0.217 holds [BlobHeaderMagic] and a 4-byte length,
+// which still reads) --
 // followed by the record of the Entry whose SnapPos points at the blob. An append is one
 // positional write at the file's append frontier and is not synced: [DLog.Sync] forces a
 // file to stable storage, and the storage package's durability setting decides when that
