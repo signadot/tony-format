@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/format"
+	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 	"io"
 	"os"
@@ -29,6 +30,18 @@ func view(cfg *ViewConfig, cc *cli.Context, args []string) error {
 	// A fault exits 2, as it does for get, list and match: 1 is reserved for
 	// "nothing", which is an answer, and a caller that cannot tell an unreadable
 	// file from an empty one reads a mistake as a result.
+	if cfg.Split || cfg.Gather {
+		switch {
+		case cfg.Split && cfg.Gather:
+			return usageErr(cfg.View, cc, "-split and -gather move documents in opposite directions: give one")
+		case cfg.Write:
+			return usageErr(cfg.View, cc, "-w writes each file back as it is, and -split or -gather changes what it holds: write the result elsewhere")
+		}
+		if err := reshape(cfg, cc.Out, cc.In, args); err != nil {
+			return fault(cc, err)
+		}
+		return nil
+	}
 	if cfg.Write {
 		if msg := whyNotWritable(cfg, args); msg != "" {
 			return usageErr(cfg.View, cc, msg)
@@ -312,4 +325,95 @@ func viewReader(cfg *ViewConfig, w io.Writer, r io.Reader) (bool, error) {
 		}
 	}
 	return endedLine, nil
+}
+
+// reshape moves documents between the two shapes a value travels in: a stream of
+// documents, --- separated, and one document holding a list. -split writes the elements
+// of every list document as documents of their own, and nothing for a document that is
+// not a list; -gather writes every document of every input as one list, [] when there
+// are none. They are what lets a command that reads one shape work on the other
+// (xg534ta8h12ksegqmxn0).
+func reshape(cfg *ViewConfig, w io.Writer, in io.Reader, files []string) error {
+	if len(files) == 0 {
+		files = []string{"-"}
+	}
+	var docs []*ir.Node
+	for _, file := range files {
+		r := in
+		if file != "-" {
+			f, err := os.Open(file)
+			if err != nil {
+				return fmt.Errorf("could not open %q: %w", file, err)
+			}
+			data, err := io.ReadAll(f)
+			f.Close()
+			if err != nil {
+				return fmt.Errorf("could not read %q: %w", file, err)
+			}
+			r = bytes.NewReader(data)
+		}
+		got, err := readDocuments(cfg, r)
+		if err != nil {
+			return fmt.Errorf("error processing %s: %w", file, err)
+		}
+		docs = append(docs, got...)
+	}
+
+	var out []*ir.Node
+	if cfg.Gather {
+		out = []*ir.Node{ir.FromSlice(docs)}
+	} else {
+		for _, doc := range docs {
+			if list := ir.Uncomment(doc); list.Type == ir.ArrayType {
+				out = append(out, list.Values...)
+			}
+		}
+	}
+
+	opts := cfg.MainConfig.encOpts(w)
+	if cfg.Comments {
+		opts = append(opts, encode.EncodeComments(true))
+	}
+	endedLine := true
+	for i, doc := range out {
+		if i > 0 {
+			sep := "\n---\n"
+			if endedLine {
+				sep = "---\n"
+			}
+			if _, err := w.Write([]byte(sep)); err != nil {
+				return err
+			}
+		}
+		var one bytes.Buffer
+		if err := encode.Encode(doc, &one, opts...); err != nil {
+			return fmt.Errorf("error encoding document %d: %w", i, err)
+		}
+		if _, err := w.Write(one.Bytes()); err != nil {
+			return err
+		}
+		if b := one.Bytes(); len(b) > 0 {
+			endedLine = b[len(b)-1] == '\n'
+		}
+	}
+	return nil
+}
+
+// readDocuments parses every document of a --- separated stream, skipping empty ones.
+func readDocuments(cfg *ViewConfig, r io.Reader) ([]*ir.Node, error) {
+	in, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("error reading: %w", err)
+	}
+	var docs []*ir.Node
+	for i, doc := range bytes.Split(in, []byte("\n---\n")) {
+		y, err := parse.Parse(doc, cfg.parseOpts()...)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding document %d: %w", i, err)
+		}
+		if y != nil {
+			docs = append(docs, y)
+		}
+	}
+	return docs, nil
 }

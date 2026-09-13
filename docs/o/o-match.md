@@ -20,6 +20,9 @@ the conjunction of their patterns:
     o m -each '{state: open}' issues.tony | o m -each '{kind: bug}'
     o m -each '!and [{state: open}, {kind: bug}]' issues.tony   # the same list
 
+-each is "o v -split | o m <match> | o v -gather" whenever an element matched;
+see o view for moving between a list and a stream of documents.
+
 A file is optional: with none, stdin is read, so "x | o m '<match>'" needs no
 trailing -.
 

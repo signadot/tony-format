@@ -152,6 +152,8 @@ type ViewConfig struct {
 
 	Comments bool `cli:"name=c desc='include comments'"`
 	Write    bool `cli:"name=w desc='write the normalized form back to each file; keeps comments, as -c does'"`
+	Split    bool `cli:"name=split desc='write each element of every list document as a document of its own'"`
+	Gather   bool `cli:"name=gather desc='write every document of every input as one list'"`
 	View     *cli.Command
 }
 
