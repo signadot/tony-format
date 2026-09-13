@@ -1283,7 +1283,7 @@ func generatePrimitiveToIR(varName string, typ reflect.Type) (string, error) {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		return fmt.Sprintf("ir.FromInt(int64(%s))", varName), nil
 	case reflect.Float32, reflect.Float64:
-		return fmt.Sprintf("ir.FromFloat64(float64(%s))", varName), nil
+		return fmt.Sprintf("ir.FromFloat(float64(%s))", varName), nil // ir.FromFloat64 does not exist (4ynqp7wq item 26)
 	case reflect.Bool:
 		return fmt.Sprintf("ir.FromBool(bool(%s))", varName), nil
 	default:
