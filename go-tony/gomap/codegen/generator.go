@@ -2191,6 +2191,13 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			pkgName := parts[len(parts)-1]
 			typeName = pkgName + "." + typeName
 		}
+		// A named local integer (`type Level int`) resolves to a placeholder int,
+		// whose Name() is "int": the source spelling is the field's type, as the
+		// string, bool and float cases already take it (p478tacqh12krg32msn0
+		// item 25).
+		if field.GoTypeExpr != "" {
+			typeName = field.GoTypeExpr
+		}
 		buf.WriteString(fmt.Sprintf("	s.%s = %s(%s)\n", field.Name, typeName, intVal))
 
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
