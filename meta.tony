@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 05f060906e210ec04ea4efb0e323606c09d0f60f
 commits: []
 created: "2026-09-13T10:42:25.217754+02:00"
 duplicates: []
@@ -13,5 +14,5 @@ labels:
 - sweep
 related_issues:
 - 4ynqp7wqh12krg32msn0
-status: open
-updated: "2026-09-13T11:54:02.179914+02:00"
+status: closed
+updated: "2026-09-13T12:00:14.297795+02:00"
