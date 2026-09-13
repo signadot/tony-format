@@ -637,7 +637,45 @@ func (s *ClientSession) writeToLogd(req *logdapi.SessionRequest) error {
 // writeToClient encodes and writes a response to the client connection. It is
 // called from both the logd pump and controller MountSessions, so writes are
 // serialized to keep documents from interleaving on the wire.
+//
+// It is also where a watch's end passes on its way out, whoever ended it, so the
+// watch's reader token goes back to the coordinator here (releaseIfEnded).
 func (s *ClientSession) writeToClient(resp *logdapi.SessionResponse) error {
+	err := s.writeResponse(resp)
+	s.releaseIfEnded(resp)
+	return err
+}
+
+// releaseIfEnded releases what a watch holds when the response leaving for the
+// client is its end: logd's Ended event (slow_consumer, replay_compacted,
+// replay_failed, invalid_path), or the refusal of the watch request (not_found,
+// unsupported, invalid_path, from logd or a controller). Both passed straight
+// through, and docd released the reader token only on an unwatch, its own end of
+// the watch, or session close, so every mount overlapping a watch logd had ended
+// waited forceAfter on it -- forever at "0" -- and a composed watch kept its other
+// sub-watches running (jk3s11hxh12ksz5xmdn0). The client cannot be the one to
+// release it: it drops the watch on the terminal event and sends no unwatch.
+//
+// A watch docd ends itself (endWatch) is off the books before its terminal event
+// is written, so this finds nothing then, as releaseWatchToken allows.
+func (s *ClientSession) releaseIfEnded(resp *logdapi.SessionResponse) {
+	switch {
+	case resp.Event != nil && resp.Event.Ended:
+		s.releaseWatchToken(watchKeyFor(resp.ID, resp.Event.Path))
+	case resp.Error != nil && resp.ID != nil:
+		// An error stamped with a watch's request id is that watch refused: the id
+		// is the request's, and the request was the watch.
+		key := watchKeyFor(resp.ID, "")
+		s.watchMu.Lock()
+		_, isWatch := s.watches[key]
+		s.watchMu.Unlock()
+		if isWatch {
+			s.releaseWatchToken(key)
+		}
+	}
+}
+
+func (s *ClientSession) writeResponse(resp *logdapi.SessionResponse) error {
 	// Encode under the lock: ir encoding mutates node linkage, so serializing it
 	// with the write keeps concurrent forwarders (the logd pump and controller
 	// sessions) from racing on a shared node.

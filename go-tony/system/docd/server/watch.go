@@ -448,6 +448,17 @@ func (cw *composedWatch) forward(resp *logdapi.SessionResponse) {
 	ev := *resp.Event
 	ev.Path = cw.path
 
+	// A sub-stream that ended -- logd's slow_consumer, replay_compacted,
+	// replay_failed, invalid_path -- ends the composed watch, as a sub-stream's
+	// error does above: the client re-establishes from its reason, and the other
+	// sub-watches stop rather than run on for a watch that is over. Forwarded as
+	// an ordinary event, the end reached the client while docd kept everything
+	// (jk3s11hxh12ksz5xmdn0).
+	if ev.Ended {
+		cw.client.terminateWatchWith(cw.key, ev.EndReason, ev.EndMessage)
+		return
+	}
+
 	// A sub-stream's replayComplete is its own, not the composed watch's: the client
 	// gets one when every sub-stream has finished, which is what flushIfReplayed
 	// decides. Counted, not forwarded.
