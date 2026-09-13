@@ -380,7 +380,11 @@ func (w *watchStream) stepBaseline(commit int64, patch *ir.Node, author string, 
 			w.fail(api.ErrCodeReplayFailed, "failed to read state at commit %d: %v", commit, err)
 			return false
 		}
-		delta = deltaAt(w.prev, next)
+		// Diffed only when there is a change to state, as emitScopedDeltaFrom does: two
+		// absences are the equality's case, and a diff has no side to put them on.
+		if !api.SameState(next, w.prev) {
+			delta = deltaAt(w.prev, next)
+		}
 	}
 	w.accountFor(commit)
 	// api.SameState decides what counts as a change; see it for comments. The value held
