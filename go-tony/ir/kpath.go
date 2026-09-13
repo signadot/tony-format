@@ -55,6 +55,13 @@ func (node *Node) KPath() string {
 		return node.Parent.KPath()
 
 	default:
+		// A scalar parents one node: its line comment (Node.Comment), which has no
+		// place of its own and answers with the place of the value it annotates,
+		// as a value under a head comment answers with its own. Explaining a match
+		// on a comment reached here and panicked (p478tacqh12krg32msn0 item 5).
+		if node.Type == CommentType {
+			return node.Parent.KPath()
+		}
 		panic("parent but not in container")
 	}
 }
