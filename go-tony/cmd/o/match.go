@@ -56,6 +56,9 @@ func match(cfg *MatchConfig, cc *cli.Context, args []string) error {
 		return fault(cc, err)
 	}
 	inputs := inputsOrStdin(args[1:])
+	if cfg.Each {
+		return matchEach(cfg, cc, match, inputs)
+	}
 	written := 0
 	for _, arg := range inputs {
 		res, err := matchFile(nil, cfg, cc, match, arg)
@@ -79,6 +82,34 @@ func match(cfg *MatchConfig, cc *cli.Context, args []string) error {
 	}
 	if written == 0 {
 		return notFound()
+	}
+	return nil
+}
+
+// matchEach writes the elements that match as ONE document: a list, gathered from every
+// document of every input. -each reads each document as a list of candidates, so what
+// it writes has to be one too, or a second -each has nothing to read: it wrote each
+// element as a document of its own, and `o m -each a | o m -each b` then asked b of
+// each element's fields. As one list it is what `o m -each '!and [a, b]'` writes
+// (xg534ta8h12ksegqmxn0). Nothing matched writes nothing and answers 1, as ever.
+//
+// The list carries no note of where each element came from. A comment is what -c reads
+// and !comment asks about, so a note written by one stage would be read by the next as
+// the element's own, and change what its pattern answers.
+func matchEach(cfg *MatchConfig, cc *cli.Context, match *ir.Node, inputs []string) error {
+	var kept []*ir.Node
+	for _, arg := range inputs {
+		res, err := matchFile(nil, cfg, cc, match, arg)
+		if err != nil {
+			return fault(cc, fmt.Errorf("error matching %s: %w", arg, err))
+		}
+		kept = append(kept, res...)
+	}
+	if len(kept) == 0 {
+		return notFound()
+	}
+	if err := encode.Encode(ir.FromSlice(kept), cc.Out, cfg.encOpts(cc.Out)...); err != nil {
+		return fault(cc, fmt.Errorf("error encoding output: %w", err))
 	}
 	return nil
 }
@@ -160,7 +191,7 @@ func matchReader(dst []*ir.Node, cfg *MatchConfig, cc *cli.Context, match *ir.No
 		}
 		// -each asks about a list's elements rather than the list, and a document
 		// that is not a list holds no elements to ask about, so it matches nothing.
-		// Each element that matches is written as a document of its own.
+		// The elements that match are written together, as one list (matchEach).
 		candidates := []*ir.Node{y}
 		if cfg.Each {
 			if ir.Uncomment(y).Type != ir.ArrayType {

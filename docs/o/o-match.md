@@ -8,11 +8,17 @@ several documents separated by --- is matched one at a time, and the ones which
 match are written, so match reads as a filter over a document stream.
 
 -each asks about the elements instead: every document is taken as a list, each
-of its elements is matched, and the ones that match are written, one document
-each. A document that is not a list holds no elements and matches nothing. So
-"o m -each '{state: open}' issues.tony" keeps the open issues out of a file that
-holds them as one list, where without -each the pattern would be asked about the
-list itself and answer nothing.
+of its elements is matched, and the ones that match are written as one list,
+gathered from every document of every input. A document that is not a list holds
+no elements and matches nothing. So "o m -each '{state: open}' issues.tony" keeps
+the open issues out of a file that holds them as one list, where without -each the
+pattern would be asked about the list itself and answer nothing.
+
+Because what -each writes is a list, -each reads it, and two of them compose as
+the conjunction of their patterns:
+
+    o m -each '{state: open}' issues.tony | o m -each '{kind: bug}'
+    o m -each '!and [{state: open}, {kind: bug}]' issues.tony   # the same list
 
 A file is optional: with none, stdin is read, so "x | o m '<match>'" needs no
 trailing -.
@@ -72,7 +78,7 @@ o match [opts] <match> [file...]
 | --- | --- | --- | --- |
 | `-c` | bool |  | include comments in the answer, and let a !comment pattern see them |
 | `-trim` | bool |  | trim the results to the match |
-| `-each` | bool |  | match each element of a document that is a list, and write the ones that match |
+| `-each` | bool |  | match each element of a document that is a list, and write the ones that match as one list |
 | `-f` | bool |  | consider match a file path |
 | `-tags` | bool |  | show available tags |
 
