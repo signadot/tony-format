@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding"
 	"fmt"
+	"math"
 	"reflect"
 
 	"github.com/signadot/tony-format/go-tony/encode"
@@ -213,7 +214,13 @@ func toIRReflectValue(val reflect.Value, fieldPath string, visited map[uintptr]s
 		return ir.FromInt(val.Int()), nil
 
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		// Convert uint to int64 (may overflow for very large uint64, but IR uses int64)
+		// The IR holds an int64, and the format rejects rather than rounds
+		// (docs/tony.md): a value above MaxInt64 is refused, where converting it
+		// wrote a negative number that then could not be read back
+		// (p478tacqh12krg32msn0 item 23). Wider integers are 29xhvsd1's question.
+		if u := val.Uint(); u > math.MaxInt64 {
+			return nil, &MarshalError{FieldPath: fieldPath, Message: fmt.Sprintf("%d does not fit int64, the largest integer the format carries", u)}
+		}
 		return ir.FromInt(int64(val.Uint())), nil
 
 	case reflect.Float32, reflect.Float64:

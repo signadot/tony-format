@@ -614,8 +614,7 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 			buf.WriteString(fmt.Sprintf("	return ir.FromInt(int64(*s))%s, nil\n", tag))
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-			// ir.FromInt takes int64, so we might lose precision for uint64 > max int64
-			// But for now let's cast to int64
+			buf.WriteString(uintFitsGuard("*s", s.Type, "\t", fmt.Sprintf("%q", s.Name)))
 			buf.WriteString(fmt.Sprintf("	return ir.FromInt(int64(*s))%s, nil\n", tag))
 		case reflect.Float32, reflect.Float64:
 			buf.WriteString(fmt.Sprintf("	return ir.FromFloat(float64(*s))%s, nil\n", tag))
@@ -660,6 +659,7 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 				if err != nil {
 					return "", fmt.Errorf("unsupported slice element type %v: %w", elemType, err)
 				}
+				buf.WriteString(uintFitsGuard("v", elemType, "\t\t\t", `"element"`))
 				buf.WriteString(fmt.Sprintf("			slice[i] = %s\n", elemCode))
 			}
 			buf.WriteString("		}\n")
@@ -692,6 +692,7 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 					if err != nil {
 						return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
 					}
+					buf.WriteString(uintFitsGuard("v", valueType, "\t\t\t", `"element"`))
 					buf.WriteString(fmt.Sprintf("			intKeysMap[k] = %s\n", valueCode))
 				}
 				buf.WriteString("		}\n")
@@ -727,6 +728,7 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 					if err != nil {
 						return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
 					}
+					buf.WriteString(uintFitsGuard("v", valueType, "\t\t\t", `"element"`))
 					buf.WriteString(fmt.Sprintf("			mapNodes[k] = %s\n", valueCode))
 				}
 				buf.WriteString("		}\n")
@@ -756,6 +758,7 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 					if err != nil {
 						return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
 					}
+					buf.WriteString(uintFitsGuard("v", valueType, "\t\t\t", `"element"`))
 					buf.WriteString(fmt.Sprintf("			mapNodes[kStr] = %s\n", valueCode))
 				}
 				buf.WriteString("		}\n")
@@ -992,7 +995,8 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 		}
 
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		emit := fmt.Sprintf("\tirMap[%q] = ir.FromInt(int64(s.%s))\n", schemaFieldName, field.Name)
+		emit := uintFitsGuard("s."+field.Name, field.Type, "\t", fmt.Sprintf("%q", fmt.Sprintf("field %q", schemaFieldName))) +
+			fmt.Sprintf("\tirMap[%q] = ir.FromInt(int64(s.%s))\n", schemaFieldName, field.Name)
 		if field.Omitzero {
 			buf.WriteString(fmt.Sprintf("\tif s.%s != 0 {\n", field.Name))
 			buf.WriteString("\t" + emit)
@@ -1098,6 +1102,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 			if err != nil {
 				return "", fmt.Errorf("unsupported slice element type %v: %w", elemType, err)
 			}
+			buf.WriteString(uintFitsGuard("v", elemType, "\t\t\t", `"element"`))
 			buf.WriteString(fmt.Sprintf("			slice[i] = %s\n", elemCode))
 		}
 		buf.WriteString("		}\n")
@@ -1133,6 +1138,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 				if err != nil {
 					return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
 				}
+				buf.WriteString(uintFitsGuard("v", valueType, "\t\t\t", `"element"`))
 				buf.WriteString(fmt.Sprintf("			intKeysMap[k] = %s\n", valueCode))
 			}
 			buf.WriteString("		}\n")
@@ -1173,6 +1179,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 				if err != nil {
 					return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
 				}
+				buf.WriteString(uintFitsGuard("v", valueType, "\t\t", `"element"`))
 				buf.WriteString(fmt.Sprintf("		mapNodes[k] = %s\n", valueCode))
 			}
 			buf.WriteString("	}\n")
@@ -1200,6 +1207,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 				if err != nil {
 					return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
 				}
+				buf.WriteString(uintFitsGuard("v", valueType, "\t\t", `"element"`))
 				buf.WriteString(fmt.Sprintf("		mapNodes[kStr] = %s\n", valueCode))
 			}
 			buf.WriteString("	}\n")
@@ -1227,6 +1235,7 @@ func generateFieldToIR(structInfo *StructInfo, field *FieldInfo, schemaFieldName
 				if err != nil {
 					return "", fmt.Errorf("unsupported map value type %v: %w", valueType, err)
 				}
+				buf.WriteString(uintFitsGuard("v", valueType, "\t\t", `"element"`))
 				buf.WriteString(fmt.Sprintf("		mapNodes[kStr] = %s\n", valueCode))
 			}
 			buf.WriteString("	}\n")
@@ -1275,6 +1284,24 @@ func collectionGuardOpen(field *FieldInfo) string {
 		return fmt.Sprintf("\tif len(s.%s) > 0 {\n", field.Name)
 	}
 	return "\t{\n"
+}
+
+// uintFitsGuard is the statement that refuses an unsigned value the format
+// cannot carry, before it is written. The IR holds an int64 and the format
+// rejects rather than rounds (docs/tony.md), and int64(v) wrote a value above
+// MaxInt64 as a negative number that then could not be read back
+// (p478tacqh12krg32msn0 item 23). Only a kind wide enough to hold such a value
+// needs the guard; a narrower one converts exactly. The generated function
+// returns (*ir.Node, error), and what names the value in the message is what
+// the caller has: a field, a type, or the element's container.
+func uintFitsGuard(expr string, typ reflect.Type, indent, what string) string {
+	switch typ.Kind() {
+	case reflect.Uint, reflect.Uint64, reflect.Uintptr:
+	default:
+		return ""
+	}
+	return fmt.Sprintf("%sif int64(%s) < 0 {\n%s\treturn nil, fmt.Errorf(\"%%s: %%d does not fit int64, the largest integer the format carries\", %s, uint64(%s))\n%s}\n",
+		indent, expr, indent, what, expr, indent)
 }
 
 // generatePrimitiveToIR generates code to convert a primitive value to an IR node.
