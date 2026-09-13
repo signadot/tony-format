@@ -9,7 +9,7 @@ otherwise. Flags naming two different formats are refused with -w.
 A value can travel as a stream of documents, --- separated, or as one document
 holding a list, and -split and -gather move between the two:
 
-    o v -split issues.tony     # each element of a list, a document of its own
+    o v -split issues.tony     # each element of every list, a document of its own
     o v -gather a.tony b.tony  # every document of every input, one list
 
 -split writes the elements of every document that is a list, and nothing for a
