@@ -149,10 +149,10 @@ func (s *Event) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 			s.Int = int64(*fieldNodeUnwrapped.Int64)
 		case "f":
 			// Field: Float
-			if fieldNodeUnwrapped.Float64 == nil {
+			if fieldNodeUnwrapped.Float64 == nil && fieldNodeUnwrapped.Int64 == nil {
 				return fmt.Errorf("field %q: expected number, got %v", "f", fieldNodeUnwrapped.Type)
 			}
-			s.Float = float64(*fieldNodeUnwrapped.Float64)
+			s.Float = float64(gomap.NumberFloat(fieldNodeUnwrapped))
 		case "b":
 			// Field: Bool
 			if fieldNodeUnwrapped.Type != ir.BoolType {

@@ -75,10 +75,10 @@ func (s *Host) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 		switch fieldName.String {
 		case "f":
 			// Field: F
-			if fieldNodeUnwrapped.Float64 == nil {
+			if fieldNodeUnwrapped.Float64 == nil && fieldNodeUnwrapped.Int64 == nil {
 				return fmt.Errorf("field %q: expected number, got %v", "f", fieldNodeUnwrapped.Type)
 			}
-			s.F = float64(*fieldNodeUnwrapped.Float64)
+			s.F = float64(gomap.NumberFloat(fieldNodeUnwrapped))
 		case "xs":
 			// Field: Xs
 			if fieldNodeUnwrapped.Type == ir.ArrayType {
@@ -86,10 +86,10 @@ func (s *Host) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				for i, v := range fieldNodeUnwrapped.Values {
 					ctx := fmt.Sprintf("slice element %d", i)
 					var elem float64
-					if v.Float64 == nil {
+					if v.Float64 == nil && v.Int64 == nil {
 						return fmt.Errorf("%s: expected number, got %v", ctx, v.Type)
 					}
-					elem = float64(*v.Float64)
+					elem = float64(gomap.NumberFloat(v))
 					slice[i] = float64(elem)
 				}
 				s.Xs = slice
@@ -104,10 +104,10 @@ func (s *Host) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
 				for k, v := range irMap {
 					ctx := fmt.Sprintf("map value at key %q", k)
 					var val float64
-					if v.Float64 == nil {
+					if v.Float64 == nil && v.Int64 == nil {
 						return fmt.Errorf("%s: expected number, got %v", ctx, v.Type)
 					}
-					val = float64(*v.Float64)
+					val = float64(gomap.NumberFloat(v))
 					m[k] = val
 				}
 				s.M = m

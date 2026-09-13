@@ -1039,3 +1039,20 @@ func fieldByIndexAlloc(val reflect.Value, index []int) reflect.Value {
 	}
 	return val
 }
+
+// NumberFloat is the float a number node holds: its float, or its integer as a
+// float, since an integer is a number. Generated codecs read a float field
+// through it, as fromIRToFloat does, so `f: 1` is one codec's value and not the
+// other's refusal (p478tacqh12krg32msn0 item 24). A node that is not a number
+// answers 0; the caller has checked.
+func NumberFloat(n *ir.Node) float64 {
+	switch {
+	case n == nil:
+		return 0
+	case n.Float64 != nil:
+		return *n.Float64
+	case n.Int64 != nil:
+		return float64(*n.Int64)
+	}
+	return 0
+}

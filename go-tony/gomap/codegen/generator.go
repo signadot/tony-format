@@ -2219,11 +2219,14 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 		buf.WriteString(fmt.Sprintf("	s.%s = %s(%s)\n", field.Name, uintTypeName, intVal))
 
 	case reflect.Float32, reflect.Float64:
-		buf.WriteString("	if fieldNodeUnwrapped.Float64 == nil {\n")
+		// An integer is a number: `f: 1` is a float field's value, as the
+		// reflection decoder reads it (fromIRToFloat), and the generated one
+		// refused it (p478tacqh12krg32msn0 item 24).
+		buf.WriteString("	if fieldNodeUnwrapped.Float64 == nil && fieldNodeUnwrapped.Int64 == nil {\n")
 		buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"field %%q: expected number, got %%v\", %q, fieldNodeUnwrapped.Type)\n", schemaFieldName))
 		buf.WriteString("	}\n")
 		floatTypeName := getFieldTypeName(field, currentPkgPath)
-		buf.WriteString(fmt.Sprintf("	s.%s = %s(*fieldNodeUnwrapped.Float64)\n", field.Name, floatTypeName))
+		buf.WriteString(fmt.Sprintf("	s.%s = %s(gomap.NumberFloat(fieldNodeUnwrapped))\n", field.Name, floatTypeName))
 
 	case reflect.Bool:
 		buf.WriteString("	if fieldNodeUnwrapped.Type != ir.BoolType {\n")
@@ -2317,10 +2320,10 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 				}
 				buf.WriteString(fmt.Sprintf("	*val = %s(%s)\n", typeName, intVal))
 			case reflect.Float32, reflect.Float64:
-				buf.WriteString("	if fieldNodeUnwrapped.Float64 == nil {\n")
+				buf.WriteString("	if fieldNodeUnwrapped.Float64 == nil && fieldNodeUnwrapped.Int64 == nil {\n")
 				buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"%%s: expected number, got %%v\", %q, fieldNodeUnwrapped.Type)\n", fmt.Sprintf("field %q", schemaFieldName)))
 				buf.WriteString("	}\n")
-				buf.WriteString(fmt.Sprintf("	*val = %s(*fieldNodeUnwrapped.Float64)\n", typeName))
+				buf.WriteString(fmt.Sprintf("	*val = %s(gomap.NumberFloat(fieldNodeUnwrapped))\n", typeName))
 			case reflect.String:
 				buf.WriteString("	if fieldNodeUnwrapped.Type != ir.StringType {\n")
 				buf.WriteString(fmt.Sprintf("		return fmt.Errorf(\"%%s: expected string, got %%v\", %q, fieldNodeUnwrapped.Type)\n", fmt.Sprintf("field %q", schemaFieldName)))
@@ -2782,10 +2785,10 @@ func generatePrimitiveFromIR(varName string, destVar string, typ reflect.Type, c
 		buf.WriteString(fmt.Sprintf("%s = %s(%s)", destVar, typ.Name(), intVal))
 
 	case reflect.Float32, reflect.Float64:
-		buf.WriteString(fmt.Sprintf("if %s.Float64 == nil {\n", varName))
+		buf.WriteString(fmt.Sprintf("if %s.Float64 == nil && %s.Int64 == nil {\n", varName, varName))
 		buf.WriteString(fmt.Sprintf("	return fmt.Errorf(\"%%s: expected number, got %%v\", %s, %s.Type)\n", context, varName))
 		buf.WriteString("}\n")
-		buf.WriteString(fmt.Sprintf("%s = %s(*%s.Float64)", destVar, typ.Name(), varName))
+		buf.WriteString(fmt.Sprintf("%s = %s(gomap.NumberFloat(%s))", destVar, typ.Name(), varName))
 
 	case reflect.Bool:
 		buf.WriteString(fmt.Sprintf("if %s.Type != ir.BoolType {\n", varName))
