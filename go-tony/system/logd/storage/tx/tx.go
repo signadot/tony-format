@@ -99,6 +99,12 @@ type CommitOps interface {
 	// The result is READ-ONLY: navigate it and match it; do not mutate it.
 	StateAt(kp string, commit int64, scopeID *string) (*ir.Node, error)
 
+	// StateFor reads what pattern names at kp, and no more: a node the matcher answers
+	// pattern the same for as it would the whole value. A precondition is evaluated on
+	// it, so a pattern that asks about the path's shape or one named child costs that,
+	// not the value (storage/precondition.go). Nil is absent. READ-ONLY, as StateAt.
+	StateFor(kp string, commit int64, scopeID *string, pattern *ir.Node) (*ir.Node, error)
+
 	// GetCurrentCommit returns the current commit number.
 	GetCurrentCommit() (int64, error)
 

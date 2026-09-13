@@ -136,8 +136,10 @@ that path still matches:
          match: {path: verse.entities.e1, data: {status: ready}}}}
 ```
 
-A precondition that does not hold answers `match_failed`, and nothing is written. What
-a write must satisfy to be storable at all is [What a write must be](writes.md).
+A precondition that does not hold answers `match_failed`, and nothing is written. It
+reads what its pattern names, not the whole value at its path (see
+[Conditions on writes](index.md#conditions-on-writes)). What a write must satisfy to be
+storable at all is [What a write must be](writes.md).
 
 ### Who wrote it
 

@@ -400,7 +400,7 @@ func (p *txPatcher) doCommit(state *State, commitOps CommitOps) *Result {
 		}
 	}
 
-	matched, err := evaluateMatches(state, commitOps.StateAt, currentCommit)
+	matched, err := evaluateMatches(state, commitOps.StateFor, currentCommit)
 	if err != nil {
 		_ = co.storage.Delete(state.TxID)
 		return &Result{

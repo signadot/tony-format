@@ -55,7 +55,9 @@ func TestWriteBudgetRefusesAWideOperationAndAdmitsANarrowOne(t *testing.T) {
 	}
 }
 
-// A precondition reads the value at its own path, under the same budget.
+// A precondition reads what its pattern names at its own path, under the same budget: a
+// pattern naming one child reads that child, and a pattern over the whole value reads
+// the whole value, which the budget bounds (precondition.go).
 func TestPreconditionIsABoundedRead(t *testing.T) {
 	s := openTestStorage(t)
 	for i := 0; i < 40; i++ {
@@ -70,7 +72,12 @@ func TestPreconditionIsABoundedRead(t *testing.T) {
 	if after.WideRoot != before.WideRoot {
 		t.Errorf("a precondition at a leaf read the root (%d -> %d)", before.WideRoot, after.WideRoot)
 	}
-	err := casWriteAt(t, s, "verse.entities", `{e3: {id: e3}}`, "verse.entities.e3.note", `again`)
+	// One named child of a parent past the budget: the child is what is read.
+	if err := casWriteAt(t, s, "verse.entities", `{e3: {id: e3}}`, "verse.entities.e3.note", `again`); err != nil {
+		t.Fatalf("a precondition naming one child of a subtree past the budget was refused: %v", err)
+	}
+	// Every child: the whole value, which is past the budget.
+	err := casWriteAt(t, s, "verse.entities", `!all {id: !irtype ""}`, "verse.entities.e3.note", `more`)
 	var wb *WriteBudgetError
 	if !errors.As(err, &wb) {
 		t.Fatalf("a precondition over a subtree past the budget was not refused for size: %v", err)

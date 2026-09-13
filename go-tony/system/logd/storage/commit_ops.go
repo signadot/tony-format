@@ -24,6 +24,12 @@ func (c *commitOps) StateAt(kp string, commit int64, scopeID *string) (*ir.Node,
 	return c.s.stateAt(commit, scopeID, kp)
 }
 
+// StateFor reads what a precondition's pattern names at kp, and no more: see
+// precondition.go. Nil is absent.
+func (c *commitOps) StateFor(kp string, commit int64, scopeID *string, pattern *ir.Node) (*ir.Node, error) {
+	return c.s.stateFor(commit, scopeID, kp, pattern)
+}
+
 // stateAt reads the value at kp under the write budget, and says which write budget
 // refused it when one does.
 func (s *Storage) stateAt(commit int64, scopeID *string, kp string) (*ir.Node, error) {

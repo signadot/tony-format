@@ -32,7 +32,7 @@
 // # Commit
 //
 // The commit runs under the store's commit lock ([CommitOps.LockCommit]). Each
-// precondition is lowered ([LowerMatches]) and matched against the state at the current
+// precondition is lowered ([LowerMatches]) and matched against what it names in the state at the current
 // commit; positional writes are held to that state ([CheckArrayWritesAt]); the commit
 // number is allocated; auto-IDs are injected ([InjectAutoIDs]) and keyed arrays lowered
 // to the form the store keeps ([LowerKeyed]); the patches are merged into one patch at

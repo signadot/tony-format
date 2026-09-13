@@ -7,10 +7,10 @@ import (
 )
 
 // evaluateMatches checks every precondition in the transaction state against the state at
-// commit. readState answers the value at a path -- one bounded read there -- and an
-// absent path is matched as null, so a concrete precondition simply fails to hold rather
-// than erroring.
-func evaluateMatches(state *State, readState func(kpath string, commit int64, scopeID *string) (*ir.Node, error), commit int64) (bool, error) {
+// commit. readFor answers what the pattern names at its path (CommitOps.StateFor) -- a
+// bounded read of that -- and an absent path is matched as null, so a concrete
+// precondition simply fails to hold rather than erroring.
+func evaluateMatches(state *State, readFor func(kpath string, commit int64, scopeID *string, pattern *ir.Node) (*ir.Node, error), commit int64) (bool, error) {
 	scopeID := state.Scope
 
 	for _, patcher := range state.PatcherData {
@@ -18,7 +18,7 @@ func evaluateMatches(state *State, readState func(kpath string, commit int64, sc
 		if m == nil || m.Data == nil {
 			continue
 		}
-		current, err := readState(m.Path, commit, scopeID)
+		current, err := readFor(m.Path, commit, scopeID, m.Data)
 		if err != nil {
 			return false, err
 		}

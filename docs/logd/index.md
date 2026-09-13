@@ -144,6 +144,13 @@ supplies an expected value at a path, and the patch commits **only if** the curr
 state at that path still matches. On a mismatch the write is rejected (`match_failed`)
 and nothing is committed — optimistic concurrency without locks.
 
+A precondition costs what its pattern names, not the value at its path. A pattern on the
+path's shape (`!or [{}, !irtype null]`: an object or nothing) reads the path's kind; a
+pattern naming fields (`{e5: {}}`, or `!not {e5: ...}` for a named field's absence) reads
+those fields; only a pattern over the whole value -- an array, `!all` -- reads the whole
+value. A write of one entity into a parent holding thousands is not charged for the
+thousands by the precondition that guards it.
+
 Preconditions compose atomically across logd's multi-participant transactions (see
 [Multi-mount transactions](../docd/transactions.md)). When the transaction is ready,
 logd checks *every* participant's precondition against current state, and either they

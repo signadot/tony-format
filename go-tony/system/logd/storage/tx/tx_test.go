@@ -44,6 +44,10 @@ func (m *mockCommitOps) StateAt(kp string, commit int64, scopeID *string) (*ir.N
 	return nil, nil // Return nil for missing state (not an error)
 }
 
+func (m *mockCommitOps) StateFor(kp string, commit int64, scopeID *string, _ *ir.Node) (*ir.Node, error) {
+	return m.StateAt(kp, commit, scopeID)
+}
+
 func (m *mockCommitOps) GetCurrentCommit() (int64, error) {
 	return m.currentCommit, nil
 }
@@ -513,6 +517,10 @@ func (m *mockCommitOpsWithError) StateAt(kp string, commit int64, scopeID *strin
 		return nil, m.readStateError
 	}
 	return m.mockCommitOps.StateAt(kp, commit, scopeID)
+}
+
+func (m *mockCommitOpsWithError) StateFor(kp string, commit int64, scopeID *string, _ *ir.Node) (*ir.Node, error) {
+	return m.StateAt(kp, commit, scopeID)
 }
 
 func TestCommit_Timeout(t *testing.T) {
