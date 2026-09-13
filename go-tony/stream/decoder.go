@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/token"
 )
 
@@ -104,8 +105,14 @@ func (d *Decoder) ReadEvent() (*Event, error) {
 			return nil, err
 		}
 
-		// Set tag on event if present
-		event.Tag = pendingTag
+		// Set tag on event if present. A radix literal arrives with its notation as
+		// its tag (intEvent), which goes in front of the written one as the parser
+		// puts it (parse.composeNotation).
+		if event.Tag != "" && pendingTag != "" {
+			event.Tag = ir.TagCompose(event.Tag, nil, pendingTag)
+		} else if pendingTag != "" {
+			event.Tag = pendingTag
+		}
 		pendingTag = "" // Reset pending tag
 
 		// Update state with event
@@ -262,14 +269,7 @@ func (d *Decoder) tokenToEvent(tok token.Token) (*Event, error) {
 		nextTok, err := d.nextToken()
 		if err != nil {
 			// Can't read next token (EOF) - this token must be an integer value
-			val, err := strconv.ParseInt(string(tok.Bytes), 10, 64)
-			if err != nil {
-				return nil, err
-			}
-			return &Event{
-				Type: EventInt,
-				Int:  val,
-			}, nil
+			return intEvent(tok)
 		}
 
 		if nextTok.Type == token.TColon {
@@ -293,14 +293,7 @@ func (d *Decoder) tokenToEvent(tok token.Token) (*Event, error) {
 		// NOT followed by colon = it's an integer value
 		// Put nextTok back (unread) so ReadEvent() can process it in the next iteration
 		d.pendingTokens = append([]token.Token{nextTok}, d.pendingTokens...)
-		val, err := strconv.ParseInt(string(tok.Bytes), 10, 64)
-		if err != nil {
-			return nil, err
-		}
-		return &Event{
-			Type: EventInt,
-			Int:  val,
-		}, nil
+		return intEvent(tok)
 
 	case token.TFloat:
 		val, err := strconv.ParseFloat(string(tok.Bytes), 64)
@@ -391,4 +384,26 @@ func (d *Decoder) Reset(r io.Reader, opts ...StreamOption) error {
 	d.pendingTokens = d.pendingTokens[:0]
 
 	return nil
+}
+
+// intEvent is the event for an integer token, read as the parser reads one
+// (parse.numberNode): a radix literal -- 0x1f, 0o644, 0b101 -- is its value, with
+// the notation as its tag. It was parsed in base 10 only, so a document holding one
+// was refused, and a refused document ends a logd or docd session
+// (4ynqp7wqh12krg32msn0 item 5).
+func intEvent(tok token.Token) (*Event, error) {
+	s := string(tok.Bytes)
+	base, _, radix := token.RadixLiteral(s)
+	if !radix {
+		val, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		return &Event{Type: EventInt, Int: val}, nil
+	}
+	val, err := strconv.ParseInt(s, 0, 64)
+	if err != nil {
+		return nil, err
+	}
+	return &Event{Type: EventInt, Int: val, Tag: token.RadixNotation(base)}, nil
 }
