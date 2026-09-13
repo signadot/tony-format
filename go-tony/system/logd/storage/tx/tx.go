@@ -48,6 +48,14 @@ type Patcher interface {
 	// This method is idempotent - if called multiple times or after the transaction is already
 	// committed, it returns the existing result.
 	Commit() *Result
+
+	// Leave withdraws this participant's patch from a transaction still waiting for
+	// its participants, and answers true: nothing of it will be written, and the
+	// transaction goes on waiting for the participant it is short. It answers false
+	// once every participant has arrived -- the commit is under way with this patch
+	// in it -- and when the transaction is gone; in both cases Commit says what
+	// became of the write.
+	Leave() bool
 }
 
 // Result represents the result of a transaction commit.

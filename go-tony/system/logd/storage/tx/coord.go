@@ -328,6 +328,38 @@ func (p *txPatcher) Commit() *Result {
 	}
 }
 
+// Leave withdraws the participant while the transaction is still short of one;
+// see Patcher.Leave. The slot is freed under the coordinator's lock, so a participant
+// arriving in the same instant sees the transaction short by one and waits, and a
+// retry of this participant rejoins as any participant does. A server that answered
+// a participant timeout without this left its patch joined: the next arrival
+// completed the transaction and committed a write its author had been told failed
+// (4ynqp7wqh12krg32msn0 item 3).
+func (p *txPatcher) Leave() bool {
+	co := p.coord
+	left := false
+	err := co.UpdateState(func(st *State) error {
+		if len(st.PatcherData) >= co.expectedCount {
+			return nil // complete: the commit is running, this patch in it
+		}
+		for i, d := range st.PatcherData {
+			if d == p.data {
+				st.PatcherData = append(st.PatcherData[:i], st.PatcherData[i+1:]...)
+				left = true
+				break
+			}
+		}
+		for i, q := range co.patchers {
+			if q == p {
+				co.patchers = append(co.patchers[:i], co.patchers[i+1:]...)
+				break
+			}
+		}
+		return nil
+	})
+	return err == nil && left
+}
+
 // doCommit performs the actual commit logic. Called exactly once via commitOnce.
 func (p *txPatcher) doCommit(state *State, commitOps CommitOps) *Result {
 	co := p.coord

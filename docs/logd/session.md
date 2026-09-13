@@ -197,7 +197,10 @@ the most a `newtx` may ask for; a longer one is refused with `invalid_tx`. Past 
 transaction fails and every participant still waiting is answered. There is no
 transaction without a timeout — a `tx.timeout` of 0 is the 5m default. A patch's
 `timeout` bounds that one participant's wait; a participant which names none waits
-the transaction's.
+the transaction's. A participant answered `timeout` has **withdrawn**: its patch is
+not part of the transaction, which goes on waiting for the participant it is short,
+and a retry rejoins it. Once every participant has arrived the commit is under way and
+a participant's `timeout` no longer applies: it is answered with the commit.
 
 Across mounts, docd decomposes a patch spanning several controllers into exactly this —
 see [Multi-mount transactions](../docd/transactions.md).

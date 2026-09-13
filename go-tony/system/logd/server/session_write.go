@@ -146,8 +146,18 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 	case result = <-resultCh:
 		// Commit completed
 	case <-deadline:
-		s.sendError(id, api.ErrCodeTimeout, fmt.Sprintf("patch timed out after %v", timeout))
-		return
+		// A participant answered timeout has withdrawn: its patch leaves the
+		// transaction, which goes on waiting for the participant it is short, and a
+		// retry rejoins. Answering timeout and leaving the patch joined committed it
+		// under the next arrival, a commit its author never saw, and the retry
+		// applied it twice (4ynqp7wqh12krg32msn0 item 3). Once every participant
+		// has arrived the commit is under way with this patch in it, and the
+		// participant is told what became of it rather than a timeout it would retry.
+		if patcher.Leave() {
+			s.sendError(id, api.ErrCodeTimeout, fmt.Sprintf("patch timed out after %v", timeout))
+			return
+		}
+		result = <-resultCh
 	case <-s.done:
 		// A closing session has no one left to answer, and Run waits for this before it
 		// returns: a participant waiting here for the others held the session, and
