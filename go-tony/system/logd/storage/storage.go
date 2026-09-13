@@ -450,12 +450,17 @@ func (s *Storage) NewTxWithTimeout(participantCount int, scope *string, timeout 
 	}
 
 	state := &tx.State{
-		TxID:        txSeq,
-		CreatedAt:   time.Now(),
-		Timeout:     timeout,
-		Scope:       scope,
-		Author:      author,
-		PatcherData: make([]*tx.PatcherData, 0, participantCount),
+		TxID:      txSeq,
+		CreatedAt: time.Now(),
+		Timeout:   timeout,
+		Scope:     scope,
+		Author:    author,
+		// participants is how many the transaction waits for, not how much to
+		// allocate for them: a count the client made up sized this slice, and a
+		// large one panicked the session's request loop (makeslice) or reserved
+		// gigabytes per request (4ynqp7wqh12krg32msn0 item 1). The slice grows as
+		// they arrive.
+		PatcherData: make([]*tx.PatcherData, 0, min(participantCount, 16)),
 	}
 	ops := &commitOps{s: s}
 	res := tx.New(s.txStore, ops, state)
