@@ -534,11 +534,20 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		// markers were not there and put two columns of the content into the value
 		// -- and accepted content dedented past the '|' itself
 		// (crcz1erdh12ks8cvj1n0). YAML reads these the same way.
-		bElt := t.ts.bElt
-		if bElt < 1 {
-			bElt = 1 // no marker: the value of a field, one level in from its line
+		//
+		// A field on the line is a level too: `- k: |` puts its content at 4, one
+		// level in from the field, which is one level in from the marker (as
+		// yamlPlainRun counts a plain scalar). Counting only the markers wanted
+		// column 2, so the encoder's own output read back with two columns of
+		// content and the field's siblings inside the string.
+		levels := t.ts.bElt
+		if t.ts.kvSep {
+			levels++
 		}
-		mIndent := t.ts.lnIndent + 2*bElt
+		if levels < 1 {
+			levels = 1 // '|' opens the line: its content is one level in from it
+		}
+		mIndent := t.ts.lnIndent + 2*levels
 		if mIndent < 2 {
 			// Ensure minimum indent of 2 (for root-level mLits)
 			mIndent = 2

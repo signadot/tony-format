@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/signadot/tony-format/go-tony/encode"
+	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 )
 
@@ -33,6 +35,15 @@ func TestBlockLit_ContentIndent(t *testing.T) {
 		{"an array under a field", "a:\n- |\n  ape\n", "ape\n"},
 		{"two markers on the line", "- - |\n    ape\n", "ape\n"},
 		{"three", "- - - |\n      ape\n", "ape\n"},
+		// A field on the element's line: the value is one level in from the
+		// field, and the field is one level in from the line. The reader counted
+		// the markers and not the field, so it wanted column 2 for `- k: |` --
+		// the encoder's own output, at 4, read back with two columns of content
+		// and the field's siblings inside the string.
+		{"a field on an element line", "- k: |\n    ape\n", "ape\n"},
+		{"a field on a doubly marked line", "- - k: |\n      ape\n", "ape\n"},
+		{"a field on an element line under a field", "a:\n- k: |\n    ape\n", "ape\n"},
+		{"deeper content under a field on an element line", "- k: |\n      ape\n", "  ape\n"},
 		{"bracketed field", "{k: |\n  ape\n}\n", "ape\n"},
 		{"bracketed array", "[\n|\n  ape\n]\n", "ape\n"},
 		// Indentation past what the level asks for is content, as it is anywhere.
@@ -105,6 +116,44 @@ func TestBlockLit_RefusalNamesTheIndent(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), test.want) {
 				t.Errorf("refused with\n%s\nwhich does not say %q", err, test.want)
+			}
+		})
+	}
+}
+
+// TestBlockLit_SiblingOfAFieldOnAnElementLine: the key after a literal that is a
+// field's value on a `- ` line is a sibling field, not two spaces of content and
+// a line of the string. `- run: |` followed by `env:` is the GitHub Actions shape.
+func TestBlockLit_SiblingOfAFieldOnAnElementLine(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   string
+		opts []parse.ParseOption
+	}{
+		{"tony", "- k: |\n    ape\n  j: 1\n", nil},
+		{"tony under a field", "x:\n- k: |\n    ape\n  j: 1\n", nil},
+		{"yaml", "- k: |\n    ape\n  j: 1\n", []parse.ParseOption{parse.ParseYAML()}},
+		{"yaml under a field", "steps:\n- k: |\n    ape\n  j: 1\n", []parse.ParseOption{parse.ParseYAML()}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doc, err := parse.Parse([]byte(tc.in), tc.opts...)
+			if err != nil {
+				t.Fatalf("parse: %s", err)
+			}
+			elt := doc
+			if elt.Type == ir.ObjectType {
+				elt = ir.Get(elt, elt.Fields[0].String)
+			}
+			elt = ir.Uncomment(elt)
+			if elt.Type != ir.ArrayType || len(elt.Values) != 1 {
+				t.Fatalf("want one array element, got %s", encode.MustString(doc))
+			}
+			obj := elt.Values[0]
+			if got := ir.Get(obj, "k"); got == nil || got.String != "ape\n" {
+				t.Errorf("k holds %v, want %q", got, "ape\n")
+			}
+			if got := ir.Get(obj, "j"); got == nil || got.Int64 == nil || *got.Int64 != 1 {
+				t.Errorf("j is %v, want 1: the sibling was read as content (doc %s)", got, encode.MustString(doc))
 			}
 		})
 	}
