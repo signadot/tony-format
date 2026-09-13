@@ -242,6 +242,12 @@ func GenerateCode(structs []*StructInfo, schemas map[string]*schema.Schema, conf
 	}
 	sort.Strings(importPaths)
 	for _, importPath := range importPaths {
+		// A package whose declared name is not the last element of its path is
+		// imported under that name, which is how the generated code refers to it.
+		if name := pkgNameOf(importPath); name != importPath[strings.LastIndex(importPath, "/")+1:] {
+			buf.WriteString(fmt.Sprintf("\t%s %q\n", name, importPath))
+			continue
+		}
 		buf.WriteString(fmt.Sprintf("\t%q\n", importPath))
 	}
 
@@ -1765,8 +1771,7 @@ func getMapValueTypeName(field *FieldInfo, valueType reflect.Type, currentPkgPat
 	if field.TypeName != "" {
 		name := field.TypeName
 		if field.TypePkgPath != "" && field.TypePkgPath != currentPkgPath {
-			pkgParts := strings.Split(field.TypePkgPath, "/")
-			name = pkgParts[len(pkgParts)-1] + "." + name
+			name = pkgNameOf(field.TypePkgPath) + "." + name
 		}
 		if isPtr {
 			return "*" + name
@@ -1801,8 +1806,7 @@ func getMapValueTypeName(field *FieldInfo, valueType reflect.Type, currentPkgPat
 		parts := strings.Split(typeStr, ".")
 		recoveredName = parts[len(parts)-1]
 		if elemType.PkgPath() != "" && elemType.PkgPath() != currentPkgPath {
-			pkgParts := strings.Split(elemType.PkgPath(), "/")
-			recoveredName = pkgParts[len(pkgParts)-1] + "." + recoveredName
+			recoveredName = pkgNameOf(elemType.PkgPath()) + "." + recoveredName
 		}
 	}
 
@@ -1839,8 +1843,7 @@ func getFieldTypeName(field *FieldInfo, currentPkg string) string {
 
 	if field.TypePkgPath != "" && field.TypeName != "" {
 		// External package type
-		parts := strings.Split(field.TypePkgPath, "/")
-		pkgName := parts[len(parts)-1]
+		pkgName := pkgNameOf(field.TypePkgPath)
 		return pkgName + "." + field.TypeName
 	}
 	if field.TypeName != "" {
@@ -1883,8 +1886,7 @@ func ptrSliceElemTypeName(field *FieldInfo, sliceElemType reflect.Type, currentP
 func getFieldElementTypeName(field *FieldInfo, currentPkg string) string {
 	// First try stored type info which describes the element type
 	if field.TypePkgPath != "" && field.TypeName != "" {
-		parts := strings.Split(field.TypePkgPath, "/")
-		pkgName := parts[len(parts)-1]
+		pkgName := pkgNameOf(field.TypePkgPath)
 		return pkgName + "." + field.TypeName
 	}
 	if field.TypeName != "" {
@@ -1925,8 +1927,7 @@ func getQualifiedTypeName(typ reflect.Type, currentPkg string) string {
 			// External package
 			// We need the package name, which is the last part of the path
 			// This is a heuristic; ideally we'd have a map of path -> name
-			parts := strings.Split(typ.PkgPath(), "/")
-			pkgName := parts[len(parts)-1]
+			pkgName := pkgNameOf(typ.PkgPath())
 			return pkgName + "." + typ.Name()
 		}
 		return typ.Name()
@@ -1962,8 +1963,7 @@ func getQualifiedTypeName(typ reflect.Type, currentPkg string) string {
 			}
 			// External package - use package name from PkgPath or String()
 			if typ.PkgPath() != "" {
-				pkgParts := strings.Split(typ.PkgPath(), "/")
-				pkgName := pkgParts[len(pkgParts)-1]
+				pkgName := pkgNameOf(typ.PkgPath())
 				return pkgName + "." + typeName
 			}
 			// Fallback: use package from String()
@@ -1987,8 +1987,7 @@ func getQualifiedTypeName(typ reflect.Type, currentPkg string) string {
 				return typeStr
 			}
 			// External package
-			pkgParts := strings.Split(typ.PkgPath(), "/")
-			pkgName := pkgParts[len(pkgParts)-1]
+			pkgName := pkgNameOf(typ.PkgPath())
 			return pkgName + "." + typeStr
 		}
 
@@ -2096,8 +2095,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			var typeName string
 			if field.TypePkgPath != "" && field.TypeName != "" {
 				// External package type - use stored type info
-				parts := strings.Split(field.TypePkgPath, "/")
-				pkgName := parts[len(parts)-1]
+				pkgName := pkgNameOf(field.TypePkgPath)
 				typeName = pkgName + "." + field.TypeName
 			} else if field.TypeName != "" {
 				// Same package named type (from TypeName)
@@ -2187,8 +2185,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			typeName = getQualifiedTypeName(field.Type, currentPkgPath)
 		} else if field.Type.PkgPath() != "" && field.Type.PkgPath() != currentPkgPath {
 			// External package type - qualify it
-			parts := strings.Split(field.Type.PkgPath(), "/")
-			pkgName := parts[len(parts)-1]
+			pkgName := pkgNameOf(field.Type.PkgPath())
 			typeName = pkgName + "." + typeName
 		}
 		// A named local integer (`type Level int`) resolves to a placeholder int,
@@ -2389,8 +2386,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 			structName = field.TypeName
 			// Add package prefix if it's from another package
 			if field.TypePkgPath != "" && field.TypePkgPath != currentPkgPath {
-				pkgParts := strings.Split(field.TypePkgPath, "/")
-				pkgName := pkgParts[len(pkgParts)-1]
+				pkgName := pkgNameOf(field.TypePkgPath)
 				structName = pkgName + "." + structName
 			}
 			// If elemType is a pointer, add the * prefix
@@ -2416,8 +2412,7 @@ func generateFieldDecoding(structInfo *StructInfo, field *FieldInfo, schemaField
 							// Already extracted just the name, use it as-is
 						} else if elemType.PkgPath() != "" {
 							// External package - add package name
-							pkgParts := strings.Split(elemType.PkgPath(), "/")
-							pkgName := pkgParts[len(pkgParts)-1]
+							pkgName := pkgNameOf(elemType.PkgPath())
 							structName = pkgName + "." + structName
 						}
 					} else {

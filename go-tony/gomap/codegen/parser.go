@@ -156,9 +156,9 @@ func ExtractImports(file *ast.File) map[string]string {
 		if imp.Name != nil {
 			name = imp.Name.Name
 		} else {
-			// Default to the last component of the path
-			parts := strings.Split(path, "/")
-			name = parts[len(parts)-1]
+			// The name the file refers to the package by: the one it declares,
+			// which is the path's last element only when the two agree.
+			name = pkgNameOf(path)
 		}
 		imports[name] = path
 	}
