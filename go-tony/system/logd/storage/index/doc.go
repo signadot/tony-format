@@ -42,5 +42,7 @@
 // scope dominates ([Cover]). It is decided as each entry is indexed and kept in the
 // manifest. A scoped read folds only the live statements bearing on its path, compaction
 // drops a scope entry none of whose statements is live, and [Index.DeleteScope] visits
-// only the scope's paths.
+// only the scope's paths. It also holds each deleted scope's deletion -- the commit it
+// was deleted at, a record in the log -- so an entry of the scope at or before it is
+// refused by [Index.Add] wherever it is offered from.
 package index

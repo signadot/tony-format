@@ -29,6 +29,8 @@ type SchemaEntry struct {
 //     rewrite the change makes to the data, or nil (NewSchemaEntry).
 //   - Scope overlay: Patch, ScopeID and ScopeOverlay set, TxSource nil. Nothing writes one;
 //     a log that holds them still decodes (see ScopeOverlay).
+//   - Scope delete: ScopeID and ScopeDeleted set, Commit the head when the scope was
+//     deleted, nothing else (NewScopeDeleteEntry).
 //
 //tony:schemagen=entry
 type Entry struct {
@@ -62,6 +64,31 @@ type Entry struct {
 	// is rebuildable and the log is the record: index.Build takes the tx from TxSource,
 	// and an overlay has none.
 	ScopeOverlay bool
+
+	// ScopeDeleted marks the entry as the deletion of ScopeID: every entry of the scope
+	// at or before Commit is dead from here on, and an entry of the scope after Commit
+	// is a new scope under the old name. The deletion is in the log because the log is
+	// the record: an index rebuilt from it, or catching up from a manifest written before
+	// the delete, or re-indexing a compaction's survivors, leaves the dead entries out
+	// (05d8w3cjh12kswb1msn0). It takes no commit of its own, as a snapshot does not: it
+	// is at the head it was written under, and ordered by its position.
+	ScopeDeleted bool
+}
+
+// NewScopeDeleteEntry creates the dlog.Entry recording that scopeID was deleted at
+// commit, the head at the time: everything the scope wrote at or before it is dead.
+func NewScopeDeleteEntry(scopeID string, commit int64, timestamp string) *Entry {
+	return &Entry{
+		Commit:       commit,
+		Timestamp:    timestamp,
+		ScopeID:      &scopeID,
+		ScopeDeleted: true,
+	}
+}
+
+// IsScopeDelete reports whether e records a scope's deletion.
+func (e *Entry) IsScopeDelete() bool {
+	return e.ScopeDeleted && e.ScopeID != nil
 }
 
 // NewSchemaEntry creates the dlog.Entry of a schema commit: commit takes the next number

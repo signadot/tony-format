@@ -57,6 +57,8 @@ func BuildWithLogger(idx *Index, dlog *dlog.DLog, fromCommit int64, logger *slog
 	// a frame it cannot parse has no end.
 	var lastFile string
 	var lastPos int64
+	// The deletions the walk found that the index did not know, applied when it ends.
+	deleted := map[string]int64{}
 	iter, err := dlog.Iterator()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create iterator: %w", err)
@@ -87,6 +89,17 @@ func BuildWithLogger(idx *Index, dlog *dlog.DLog, fromCommit int64, logger *slog
 		}
 
 		lastFile, lastPos = string(logFile), pos
+		// A scope's deletion is at the head it was written under, which may be a commit
+		// the manifest already describes -- the delete is not a commit -- so it is
+		// taken wherever it is, and noted once (Footprint.Delete). Applying it waits for
+		// the walk to end: the entries it kills may be anywhere in either log, before or
+		// after it in the walk's order.
+		if entry.IsScopeDelete() {
+			if idx.foot.Delete(*entry.ScopeID, entry.Commit) {
+				deleted[*entry.ScopeID] = entry.Commit
+			}
+			continue
+		}
 		if entry.Commit <= fromCommit {
 			continue
 		}
@@ -111,6 +124,13 @@ func BuildWithLogger(idx *Index, dlog *dlog.DLog, fromCommit int64, logger *slog
 			// A snapshot is indexed at the path it is of, and nowhere else.
 			EachSegment(entry, string(logFile), pos, generation, idx.Add)
 		}
+	}
+
+	// A deleted scope's entries, at or before its deletion, leave the index now that
+	// every entry is in it: a rebuild reads the log in the files' order, which is not
+	// commit order, and a catch-up may have loaded the entries from the manifest.
+	for scope, commit := range deleted {
+		idx.DeleteScope(scope, commit)
 	}
 
 	// Regions the walk stepped over. Nothing behind them was dropped -- the walk resumed

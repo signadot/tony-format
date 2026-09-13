@@ -121,6 +121,10 @@ type Storage struct {
 
 	// Compaction config - if set, Compact() is called after SwitchDLog
 	compactionConfig *CompactionConfig
+	// afterCompactSwap, when set, is called by Compact once the inactive log has been
+	// rewritten and its generation bumped, before its survivors are re-indexed: a probe
+	// for tests of what a persist in that window does (compaction_persist_test.go).
+	afterCompactSwap func()
 
 	// snapMu serializes the writers of the inactive log: the switch, with the root
 	// snapshot and the compaction that rewrites the log, and a snapshot of a path.
@@ -479,9 +483,11 @@ func (s *Storage) Close() error {
 	// describes goes away.
 	s.tick.close()
 
-	// Wait for any pending index persist
+	// Wait for any pending index persist, and for a compaction's re-index, which the
+	// manifest below must not be written during (IndexPersister.Hold).
 	if s.indexPersister != nil {
 		s.indexPersister.Close()
+		defer s.indexPersister.Hold()()
 	}
 
 	// The index goes out whole and compact: every region the file lacks written, the
@@ -657,11 +663,32 @@ func (s *Storage) SetWriteBudget(b int64) {
 // WriteBudget answers the store's write budget.
 func (s *Storage) WriteBudget() int64 { return s.writeBudget }
 
-// DeleteScope removes all index entries for a scope, and its footprint.
-// The actual log entries remain (append-only), but become inaccessible, until
-// compaction drops them beyond its cutoff.
+// DeleteScope deletes a scope: everything it wrote up to the head is dead, and a write
+// under its name after this is a new scope.
+//
+// The deletion is recorded in the log before it is done, because the log is the record:
+// the index is remade from it -- rebuilt whole, caught up from a manifest, or re-indexed
+// after a compaction -- and each of those found the scope's entries and put them back
+// until the log said they were dead (05d8w3cjh12kswb1msn0, items 3 and 4). It is written
+// under the commit lock so the head it names is exact: every entry of the scope at or
+// before it is dead, and no write of the scope can land between the head and the record.
+// The record takes no commit; it is at the head, as a snapshot is. The dead entries stay
+// in the log, unreadable, until compaction drops them (compaction.go).
 func (s *Storage) DeleteScope(scopeID string) error {
-	count := s.index.DeleteScope(scopeID)
+	s.commitMu.Lock()
+	defer s.commitMu.Unlock()
+	head := s.tick.current()
+	entry := dlog.NewScopeDeleteEntry(scopeID, head, time.Now().UTC().Format(time.RFC3339))
+	_, logFile, err := s.dLog.AppendEntry(entry)
+	if err != nil {
+		return fmt.Errorf("failed to record deletion of scope %q: %w", scopeID, err)
+	}
+	if s.durability == DurabilitySync {
+		if err := s.dLog.Sync(logFile); err != nil {
+			return fmt.Errorf("failed to sync log after recording deletion of scope %q: %w", scopeID, err)
+		}
+	}
+	count := s.index.DeleteScope(scopeID, head)
 	if count == 0 {
 		return fmt.Errorf("scope %q not found or has no data", scopeID)
 	}

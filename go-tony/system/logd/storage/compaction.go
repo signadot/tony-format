@@ -14,7 +14,7 @@ import (
 //   - Baseline patches before cutoff (historical reads become approximate)
 //   - Snapshots of paths before cutoff (path_snapshot.go)
 //   - A scope's entries before cutoff that a later entry of the scope dominates
-//     (scope_compaction.go)
+//     (scope_compaction.go), and a deleted scope's entries whatever their age
 //   - Root snapshots the tiers do not keep
 //   - Completed/aborted schema migration entries
 //
@@ -105,6 +105,13 @@ func (s *Storage) Compact(config *CompactionConfig) error {
 	sort.Slice(positions, func(i, j int) bool { return positions[i] < positions[j] })
 	positions = deduplicatePositions(positions)
 
+	// No manifest is written from the swap, which bumps the file's generation, to the
+	// end of the re-index: one written in between would describe the new generation
+	// over positions of the old, and the next open would trust it (IndexPersister.Hold).
+	if s.indexPersister != nil {
+		defer s.indexPersister.Hold()()
+	}
+
 	dlogConfig := &dlog.CompactConfig{GracePeriod: config.GracePeriod}
 	results, err := s.dLog.CompactInactive(positions, dlogConfig)
 	if err != nil {
@@ -113,6 +120,9 @@ func (s *Storage) Compact(config *CompactionConfig) error {
 	positionMap := make(map[int64]int64, len(results))
 	for _, r := range results {
 		positionMap[r.OldPosition] = r.NewPosition
+	}
+	if s.afterCompactSwap != nil {
+		s.afterCompactSwap()
 	}
 
 	// A survivor is re-indexed where the rewrite put it, read back from there: every copy
@@ -173,6 +183,12 @@ func (s *Storage) compactionRecords(logFile dlog.LogFileID) ([]compactRecord, er
 			r.keep = true
 		case entry.Patch != nil && entry.LastCommit != nil:
 			r.seg = *index.NewLogSegmentFromPatchEntry(entry, "", string(logFile), pos, index.TxSeqOf(entry), generation, entry.ScopeID)
+		case entry.IsScopeDelete():
+			// Kept: the record that the scope's entries at or before its commit are
+			// dead, which a rebuild needs for as long as any of them is in a log, and
+			// which nothing here can say of the other log. It is small.
+			r.seg = index.LogSegment{StartCommit: entry.Commit, EndCommit: entry.Commit, LogFile: string(logFile), LogPosition: pos, LogFileGeneration: generation, ScopeID: entry.ScopeID}
+			r.keep = true
 		default:
 			continue // not something the index describes
 		}
@@ -219,8 +235,11 @@ func (s *Storage) selectSurvivors(
 		// materialized stands in for them. One goes only when a later entry of the
 		// scope dominates it -- states everything it stated, in a way that does not
 		// depend on what was there -- and it is beyond the cutoff (scope_compaction.go).
+		// A dead entry -- one of a scope deleted at or after its commit -- is read by
+		// nothing and goes now, cutoff or not; the deletion's record (kept above) is
+		// what a rebuild reads instead of it.
 		if r.seg.ScopeID != nil {
-			if dominated[r.pos] {
+			if dominated[r.pos] || s.index.Footprint().Dead(*r.seg.ScopeID, r.seg.EndCommit) {
 				dropped = append(dropped, r)
 			} else {
 				survivors = append(survivors, r)

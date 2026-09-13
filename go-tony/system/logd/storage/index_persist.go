@@ -71,6 +71,28 @@ func (p *IndexPersister) persistAsync(commit int64) {
 	p.logger.Debug("index persisted", "commit", maxCommit)
 }
 
+// Hold keeps every persist from running until the returned func is called. Compaction
+// holds it from the swap that bumps a file's generation to the end of its re-index: a
+// manifest written in between names the new generation over the survivors' old
+// positions, the next open trusts it, and every read then fails "read interrupted by
+// compaction" until the manifest is deleted by hand (05d8w3cjh12kswb1msn0, item 5).
+func (p *IndexPersister) Hold() func() {
+	p.mu.Lock()
+	return p.mu.Unlock
+}
+
+// Persist writes the index now: what MaybePersist does, in the caller's goroutine, and
+// after any hold is released.
+func (p *IndexPersister) Persist() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err := p.index.Persist(p.generations()); err != nil {
+		return err
+	}
+	p.lastPersisted.Store(p.getMaxCommit())
+	return nil
+}
+
 // getMaxCommit returns the highest commit in the index, from the regions' headers.
 func (p *IndexPersister) getMaxCommit() int64 {
 	commit, _, ok := p.index.MaxCommit()
