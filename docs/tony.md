@@ -246,7 +246,7 @@ k: |
 - k: |
     a field on a marker's line is a level in from the marker, and its
     content a level in from that
-  j: the sibling field -- not two columns of content
+  j: "the sibling field, not two columns of content"
 ```
 
 When the `|` is the first thing on its line, that is the same as saying the
