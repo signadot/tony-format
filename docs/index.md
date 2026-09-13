@@ -106,7 +106,7 @@ Tony format's tooling takes these goals seriously and the results are satisfying
 Some highlights of the tooling level coherency are
 
 - Smart normalized formatting when encoding to tony.
-- LSP support.
+- LSP support (`o system lsp`).
 - Diffs _are_ merge patches.
 - Easily parse and produce YAML representing payloads and configuration objects.
 - Ease of switching to and from bracketed notation.

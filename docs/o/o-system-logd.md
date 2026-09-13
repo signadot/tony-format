@@ -42,4 +42,5 @@ Boolean options take no argument and may be negated with a `no-` prefix, as in `
 - [`o system docd`](o-system-docd.md)
 - [`o system session`](o-system-session.md)
 - [`o system up`](o-system-up.md)
+- [`o system lsp`](o-system-lsp.md)
 

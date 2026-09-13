@@ -1,6 +1,6 @@
 # o system
 
-Run and talk to the [logd](https://signadot.github.io/tony-format/logd/) and [docd](https://signadot.github.io/tony-format/docd/) servers.
+Run and talk to the [logd](https://signadot.github.io/tony-format/logd/) and [docd](https://signadot.github.io/tony-format/docd/) servers, and serve the language server to an editor.
 
 Also known as `sys`.
 
@@ -18,6 +18,7 @@ o system <subcommand>
 | [`docd`](o-system-docd.md) | `o system docd <subcommand>` |
 | [`session`](o-system-session.md) | `o system session <addr>` |
 | [`up`](o-system-up.md) | `o system up -data <dir> [-config <file>]` |
+| [`lsp`](o-system-lsp.md) | `o system lsp [opts]` |
 
 ## Options
 

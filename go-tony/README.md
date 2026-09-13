@@ -35,8 +35,8 @@ encode.Encode(patched, os.Stdout)       // back to any format
 
 - **`tony-codegen`** -- generates Go marshaling code (`ToTonyIR`/`FromTonyIR`)
   and schema files from Go structs annotated with `tony:` struct tags.
-- **`tony-lsp`** -- Language Server Protocol implementation for Tony format
-  support in editors.
+- **`o system lsp`** -- the Language Server Protocol server for Tony, for editor
+  support; see `o help system lsp` for editor configuration.
 
 ## The `o` CLI
 

@@ -62,8 +62,7 @@ go build ./cmd/o
 # Build tony-codegen (code generator)
 go build ./cmd/tony-codegen
 
-# Build tony-lsp (language server)
-go build ./cmd/tony-lsp
+# The language server is `o system lsp`, built with o
 ```
 
 ### Working with Storage
