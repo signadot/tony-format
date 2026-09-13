@@ -182,6 +182,10 @@ func (c *commitOps) LockCommit() func() {
 // For an object patch, returns the field names (e.g., ["users", "posts"]).
 // For an array patch, returns indexed paths (e.g., ["[0]", "[1]"]).
 // For keyed objects (numeric keys), returns keyed paths (e.g., ["{123}", "{456}"]).
+// A patch that states the whole root -- an operator there, or a value that is not a
+// container -- names the root, "", which every watcher is under: naming the fields it
+// happens to contain said nothing to a watcher of a path it removed
+// (05d8w3cjh12kswb1msn0, item 8).
 func extractTopLevelKPaths(patch *ir.Node) []string {
 	if patch == nil {
 		return nil
@@ -193,6 +197,9 @@ func extractTopLevelKPaths(patch *ir.Node) []string {
 	// patch is: a comment is not a kind of container (3cdjz00jh12krns4g1n0).
 	patch = ir.Uncomment(patch)
 
+	if hasOperator(patch.Tag) {
+		return []string{""}
+	}
 	switch patch.Type {
 	case ir.ObjectType:
 		if len(patch.Fields) == 0 {
@@ -213,6 +220,8 @@ func extractTopLevelKPaths(patch *ir.Node) []string {
 		for i := range patch.Values {
 			paths = append(paths, fmt.Sprintf("[%d]", i))
 		}
+	default:
+		return []string{""}
 	}
 
 	return paths
