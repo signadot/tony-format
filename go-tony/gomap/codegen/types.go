@@ -91,6 +91,12 @@ type FieldInfo struct {
 	// IsEmbedded indicates if this is an embedded field
 	IsEmbedded bool
 
+	// Via is the chain of embedded fields this field is promoted through, outermost
+	// first, set by FlattenEmbeddedFields. A step through a pointer is one the
+	// generated code has to guard: nil contributes nothing on encode, and is
+	// allocated on decode when a field of it arrives (4ynqp7wqh12krg32msn0 item 27).
+	Via []EmbedStep
+
 	// GoTypeExpr is the Go type expression string built from the AST during type resolution.
 	// Unlike reflect.Type, this preserves named type identity at all nesting depths
 	// (e.g. "map[string]*RepoConfig", "[]map[string]Foo").
@@ -184,4 +190,11 @@ type CodegenConfig struct {
 
 	// Package is the current package being processed
 	Package *PackageInfo
+}
+
+// EmbedStep is one embedded field a promoted field is reached through.
+type EmbedStep struct {
+	Name     string // the embedded field's name, as Go promotes it: Base
+	TypeExpr string // the embedded type as written, without the pointer: Base, pkg.Base
+	Pointer  bool   // embedded as *Base
 }

@@ -2,7 +2,9 @@ package codegen
 
 import (
 	"fmt"
+	"go/ast"
 	"reflect"
+	"strings"
 )
 
 // FlattenEmbeddedFields flattens embedded fields in all structs.
@@ -32,6 +34,18 @@ func flattenStruct(s *StructInfo, structMap map[string]*StructInfo, visited map[
 	}
 	visited[s.Name] = true
 	defer delete(visited, s.Name)
+
+	// The type's own fields shadow what embedding brings in, as Go's selector rule
+	// has it: an outer ID beside an embedded Base with an ID is the outer one, and
+	// generating both was a duplicate case in the decoder's switch.
+	own := make(map[string]bool)
+	ownSchema := make(map[string]bool)
+	for _, field := range s.Fields {
+		if !field.IsEmbedded {
+			own[field.Name] = true
+			ownSchema[field.SchemaFieldName] = true
+		}
+	}
 
 	var newFields []*FieldInfo
 	for _, field := range s.Fields {
@@ -69,12 +83,18 @@ func flattenStruct(s *StructInfo, structMap map[string]*StructInfo, visited map[
 				return err
 			}
 
-			// Add fields from embedded struct
+			// Add fields from embedded struct, as Go promotes them: each is a copy that
+			// remembers the embedded field it came through, since a pointer there
+			// needs guarding, and one the type declares itself is not promoted.
+			_, viaPointer := field.ASTType.(*ast.StarExpr)
+			step := EmbedStep{Name: field.Name, TypeExpr: strings.TrimPrefix(buildGoTypeExpr(field.ASTType), "*"), Pointer: viaPointer}
 			for _, embeddedField := range embeddedStruct.Fields {
-				// We append the embedded fields directly.
-				// Note: This modifies the struct definition to include fields from embedded structs directly.
-				// This matches how Go promotes fields.
-				newFields = append(newFields, embeddedField)
+				if own[embeddedField.Name] || ownSchema[embeddedField.SchemaFieldName] {
+					continue
+				}
+				promoted := *embeddedField
+				promoted.Via = append([]EmbedStep{step}, embeddedField.Via...)
+				newFields = append(newFields, &promoted)
 			}
 		} else {
 			newFields = append(newFields, field)
