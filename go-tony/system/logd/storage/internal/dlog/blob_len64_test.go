@@ -14,8 +14,11 @@ import (
 // (p478tacqh12krg32msn0 item 15). The blob here is sparse: one byte written past the
 // 4 GiB mark, so the file claims the size without the disk holding it.
 func TestASnapshotOverFourGiBIsWalkedPast(t *testing.T) {
-	if testing.Short() {
-		t.Skip("writes a sparse 4 GiB file")
+	// A package test does not write 4 GiB, sparse or not: a file system without
+	// sparse files would, and the old code this guards against walks it a byte at a
+	// time. GOTEST_LONG=1 runs it.
+	if os.Getenv("GOTEST_LONG") == "" {
+		t.Skip("writes a sparse file past 4 GiB; set GOTEST_LONG=1 to run it")
 	}
 	tmpDir := t.TempDir()
 	dl, err := NewDLog(tmpDir, nil)
