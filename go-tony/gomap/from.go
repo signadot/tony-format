@@ -43,6 +43,18 @@ func FromTonyIR(node *ir.Node, v interface{}, opts ...UnmapOption) error {
 	elemVal := val.Elem()
 	elemType := elemVal.Type()
 
+	// A nil pointer to a type with a codec of its own is allocated before the
+	// codec is asked, as the reflection path allocates before it decodes:
+	// `var p *T; FromTonyIR(node, &p)` called T's FromTonyIR on the nil and it
+	// dereferenced it (p478tacqh12krg32msn0 item 26). A null into a nil pointer
+	// is nothing into nothing: it stays nil, and no codec is asked.
+	if elemVal.Kind() == reflect.Ptr && elemVal.IsNil() && elemVal.CanSet() {
+		if node == nil || node.Type == ir.NullType {
+			return nil
+		}
+		elemVal.Set(reflect.New(elemType.Elem()))
+	}
+
 	// Check for FromTonyIR() method on the element type. A method the type only
 	// inherits by embedding belongs to the embedded field, not to this type:
 	// dispatching on it would decode into the embedded value and leave the outer
@@ -122,8 +134,11 @@ func fromIRReflectWithVisited(node *ir.Node, val reflect.Value, fieldPath string
 	// unwrapping here took the comment off first, so a *T field decoded without
 	// what was said above it while a T field kept it (3cdjz00jh12krns4g1n0).
 	// Anything else unwraps here as before -- a TextUnmarshaler wants the string
-	// under the comment, not the comment.
-	deferToPointedStruct := val.Kind() == reflect.Ptr && val.Type().Elem().Kind() == reflect.Struct
+	// under the comment, not the comment: a *time.Time is a pointer to a struct,
+	// and deferring it handed the comment to UnmarshalText (p478tacqh12krg32msn0
+	// item 26), so a pointed struct that reads its own text is not deferred.
+	deferToPointedStruct := val.Kind() == reflect.Ptr && val.Type().Elem().Kind() == reflect.Struct &&
+		!declaresMethod(val.Type(), "UnmarshalText")
 	if node.Type == ir.CommentType && !deferToPointedStruct {
 		// Check if we need to extract comments into the struct
 		if val.Kind() == reflect.Struct {
@@ -518,6 +533,16 @@ func fromIRToBool(node *ir.Node, val reflect.Value, fieldPath string) error {
 // fromIRToInterface unmarshals an IR node to an interface{} value.
 // It infers the concrete Go type from the IR node type.
 func fromIRToInterface(node *ir.Node, val reflect.Value, fieldPath string, visited map[uintptr]string, opts ...UnmapOption) error {
+	// A head comment wraps the value; an interface takes the value. The top
+	// level unwrapped (fromIRReflect) and a comment at depth two or more, reached
+	// from here, was "unsupported IR type Comment" (p478tacqh12krg32msn0 item 26).
+	for node != nil && node.Type == ir.CommentType {
+		if len(node.Values) == 0 {
+			node = nil
+			break
+		}
+		node = node.Values[0]
+	}
 	if node == nil {
 		if val.CanSet() {
 			val.Set(reflect.Zero(val.Type()))
