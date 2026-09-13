@@ -124,6 +124,12 @@ type Watch struct {
 	mu     sync.Mutex
 	closed bool
 	err    error
+	// ended is set when the server has already ended the watch (a terminal event, or
+	// the connection it lived on is gone), so Close has nothing to tell it. A watch
+	// closed here for a slow consumer is NOT ended on the server, and Close says so.
+	ended bool
+	// released is set once Close has sent, or decided not to send, the unwatch.
+	released bool
 }
 
 // Watch starts watching changes at path. It registers the watch, sends the
@@ -266,17 +272,31 @@ func (w *Watch) Err() error {
 
 // Close stops the watch and releases it. It unregisters the watch locally and
 // best-effort sends an unwatch to logd so the server stops forwarding events.
+//
+// The unwatch is sent whether or not the watch is already closed: a watch that
+// failed here as a slow consumer is closed on this side only, and the server is
+// still fanning every commit out to it. Close returned early on a closed watch and
+// never said so, and a consumer that fell behind under load left a live stream on
+// the server for every watch it re-established (4jhyq24nh12kszvjmsn0). A watch the
+// server ended itself, or whose connection is gone, has nothing to be told.
 func (w *Watch) Close() error {
 	w.mu.Lock()
-	if w.closed {
+	if !w.closed {
+		w.closed = true
+		close(w.events)
+	}
+	if w.released {
 		w.mu.Unlock()
 		return nil
 	}
-	w.closed = true
-	close(w.events)
+	w.released = true
+	ended := w.ended
 	w.mu.Unlock()
 
 	w.session.removeWatcher(w.id)
+	if ended {
+		return nil
+	}
 
 	// Tell logd to stop the watch. Bounded so Close can't hang.
 	ctx, cancel := context.WithTimeout(context.Background(), unwatchTimeout)
@@ -293,7 +313,10 @@ func (s *LogdSession) unwatchAbandoned(path, id string) {
 	ctx, cancel := context.WithTimeout(context.Background(), unwatchTimeout)
 	defer cancel()
 	if err := s.unwatch(ctx, path, id); err != nil {
-		s.log.Debug("unwatch of abandoned watch failed",
+		// Warn, not debug: a failure here is a watch the server may go on serving
+		// for the life of the session, and under the load that makes a caller give
+		// up it is the only trace of that.
+		s.log.Warn("unwatch of abandoned watch failed",
 			"path", path, "watchID", id, "error", err)
 	}
 }
@@ -316,10 +339,13 @@ func (w *Watch) deliver(ev *api.WatchEvent) {
 	}
 }
 
-// fail terminates the watch with an error (e.g. the connection dropped).
+// fail terminates the watch with an error from the server's side: a terminal
+// event ended it, or the connection it lived on dropped. Either way the server
+// holds nothing for Close to release.
 func (w *Watch) fail(err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.ended = true
 	if w.closed {
 		return
 	}
