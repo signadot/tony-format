@@ -101,6 +101,13 @@ type nodeFrame struct {
 	node   *ir.Node
 	key    string
 	intKey *int64
+	// keyed says a key has arrived and its value has not. A line comment read in
+	// that state -- `key: # c` over a block, as the wire carries it -- is the
+	// VALUE's, as the parser attributes it (parseBalanced's leadingLineComments),
+	// and waits here for the value; hung on the last value added, it landed on the
+	// previous sibling (p478tacqh12krg32msn0 item 18).
+	keyed       bool
+	pendingLine *ir.Node
 }
 
 // emitLineComment writes a value's trailing comment.
@@ -141,6 +148,15 @@ func addNodeToParent(stack *[]nodeFrame, node *ir.Node, root **ir.Node) {
 	}
 
 	parent := &(*stack)[len(*stack)-1]
+	if parent.pendingLine != nil {
+		// The line comment that came in after the key, before this value.
+		if at := ir.Uncomment(node); at != nil {
+			at.Comment = parent.pendingLine
+			parent.pendingLine.Parent = at
+		}
+		parent.pendingLine = nil
+	}
+	parent.keyed = false
 	if parent.node.Type == ir.ObjectType {
 		var keyNode *ir.Node
 		key := ""
@@ -231,6 +247,7 @@ func EventsToNode(events []Event) (*ir.Node, error) {
 				return nil, fmt.Errorf("unexpected EventKey at event %d (not in object)", i)
 			}
 			parent.key = ev.Key
+			parent.keyed = true
 
 		case EventIntKey:
 			if len(stack) == 0 {
@@ -253,6 +270,7 @@ func EventsToNode(events []Event) (*ir.Node, error) {
 				}
 			}
 			parent.intKey = &ev.IntKey
+			parent.keyed = true
 
 		case EventString:
 			node := wrapWithHeadComment(ir.FromString(ev.String).WithTag(ev.Tag), &pendingHead)
@@ -300,7 +318,11 @@ func EventsToNode(events []Event) (*ir.Node, error) {
 			var target *ir.Node
 			if len(stack) == 0 {
 				target = root
-			} else if parent := &stack[len(stack)-1]; len(parent.node.Values) > 0 {
+			} else if parent := &stack[len(stack)-1]; parent.keyed {
+				// After a key and before its value: the value's, when it comes.
+				parent.pendingLine = commentNode
+				continue
+			} else if len(parent.node.Values) > 0 {
 				target = parent.node.Values[len(parent.node.Values)-1]
 			}
 			if target = ir.Uncomment(target); target != nil {
