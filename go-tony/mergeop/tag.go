@@ -39,7 +39,12 @@ func (g tagOp) Match(doc *ir.Node, ctx *OpContext, f MatchFunc) (bool, error) {
 
 	// Parse tag into name and args
 	// e.g., "!key(name)" -> name="key", args=["name"]
-	tag := doc.Tag
+	//
+	// The DATA tags: a presentation tag says how the value was written, not what it
+	// is, and `!mytag {x: 1}` in flow style carries !bracket.mytag, whose head is
+	// !bracket -- so the flow spelling answered false and the block spelling true
+	// (p478tacqh12krg32msn0 item 4).
+	tag := ir.StripPresentation(doc.Tag)
 	if tag == "" {
 		// No tag - match against empty structure
 		tagNode := ir.FromMap(map[string]*ir.Node{
