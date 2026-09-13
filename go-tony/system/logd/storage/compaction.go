@@ -105,6 +105,13 @@ func (s *Storage) Compact(config *CompactionConfig) error {
 	sort.Slice(positions, func(i, j int) bool { return positions[i] < positions[j] })
 	positions = deduplicatePositions(positions)
 
+	// No manifest is written from the swap, which bumps the file's generation, to the
+	// end of the re-index: one written in between would describe the new generation
+	// over positions of the old, and the next open would trust it (IndexPersister.Hold).
+	if s.indexPersister != nil {
+		defer s.indexPersister.Hold()()
+	}
+
 	dlogConfig := &dlog.CompactConfig{GracePeriod: config.GracePeriod}
 	results, err := s.dLog.CompactInactive(positions, dlogConfig)
 	if err != nil {
@@ -113,6 +120,9 @@ func (s *Storage) Compact(config *CompactionConfig) error {
 	positionMap := make(map[int64]int64, len(results))
 	for _, r := range results {
 		positionMap[r.OldPosition] = r.NewPosition
+	}
+	if s.afterCompactSwap != nil {
+		s.afterCompactSwap()
 	}
 
 	// A survivor is re-indexed where the rewrite put it, read back from there: every copy

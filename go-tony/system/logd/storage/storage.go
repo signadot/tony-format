@@ -121,6 +121,10 @@ type Storage struct {
 
 	// Compaction config - if set, Compact() is called after SwitchDLog
 	compactionConfig *CompactionConfig
+	// afterCompactSwap, when set, is called by Compact once the inactive log has been
+	// rewritten and its generation bumped, before its survivors are re-indexed: a probe
+	// for tests of what a persist in that window does (compaction_persist_test.go).
+	afterCompactSwap func()
 
 	// snapMu serializes the writers of the inactive log: the switch, with the root
 	// snapshot and the compaction that rewrites the log, and a snapshot of a path.
@@ -479,9 +483,11 @@ func (s *Storage) Close() error {
 	// describes goes away.
 	s.tick.close()
 
-	// Wait for any pending index persist
+	// Wait for any pending index persist, and for a compaction's re-index, which the
+	// manifest below must not be written during (IndexPersister.Hold).
 	if s.indexPersister != nil {
 		s.indexPersister.Close()
+		defer s.indexPersister.Hold()()
 	}
 
 	// The index goes out whole and compact: every region the file lacks written, the
