@@ -846,6 +846,12 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 			buf.WriteString(fmt.Sprintf("	// Field: %s\n", field.Name))
 		}
 
+		// A field promoted through an embedded pointer is there only while the
+		// pointer is: nil contributes nothing, as encoding/json has it.
+		if guard := embedPointerGuard(field); guard != "" {
+			buf.WriteString(fmt.Sprintf("	if %s {\n", guard))
+		}
+
 		// Generate code to convert field to IR node
 		// Pass true for alreadyInNilCheck if we've already wrapped this field in a nil check
 		fieldCode, err := generateFieldToIR(s, field, schemaFieldName, i != 0, needsVars, wrapZero, currentPkgPath)
@@ -856,6 +862,9 @@ func GenerateToTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgPat
 		buf.WriteString(generateFieldCommentsToIR(field, schemaFieldName))
 
 		if wrapZero {
+			buf.WriteString("	}\n")
+		}
+		if embedPointerGuard(field) != "" {
 			buf.WriteString("	}\n")
 		}
 		buf.WriteString("\n")
@@ -1283,7 +1292,7 @@ func generatePrimitiveToIR(varName string, typ reflect.Type) (string, error) {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		return fmt.Sprintf("ir.FromInt(int64(%s))", varName), nil
 	case reflect.Float32, reflect.Float64:
-		return fmt.Sprintf("ir.FromFloat64(float64(%s))", varName), nil
+		return fmt.Sprintf("ir.FromFloat(float64(%s))", varName), nil // ir.FromFloat64 does not exist (4ynqp7wq item 26)
 	case reflect.Bool:
 		return fmt.Sprintf("ir.FromBool(bool(%s))", varName), nil
 	default:
@@ -1610,6 +1619,9 @@ func GenerateFromTonyIRMethod(s *StructInfo, sSchema *schema.Schema, currentPkgP
 		}
 
 		buf.WriteString(fmt.Sprintf("		case %q:\n", schemaFieldName))
+		// A field promoted through an embedded pointer: the pointer is allocated
+		// when a field of it arrives, and a document naming none leaves it nil.
+		buf.WriteString(embedPointerAlloc(field, currentPkgPath))
 
 		// Generate code to decode field
 		fieldCode, err := generateFieldDecoding(s, field, schemaFieldName, currentPkgPath)
@@ -2922,6 +2934,36 @@ func generateCommentsToIR(structSchema *gomap.StructSchema) string {
 		buf.WriteString("		res.ParentIndex = 0\n")
 		buf.WriteString("		res = wrap\n")
 		buf.WriteString("	}\n")
+	}
+	return buf.String()
+}
+
+// embedPointerGuard is the condition under which a field promoted through one
+// or more embedded pointers can be read: every pointer on the way is set. It is
+// "" for a field promoted through values only.
+func embedPointerGuard(field *FieldInfo) string {
+	var conds []string
+	path := "s"
+	for _, step := range field.Via {
+		path += "." + step.Name
+		if step.Pointer {
+			conds = append(conds, path+" != nil")
+		}
+	}
+	return strings.Join(conds, " && ")
+}
+
+// embedPointerAlloc allocates, in order, every embedded pointer a promoted field
+// is reached through, so the field can be set. It is "" for a field promoted
+// through values only.
+func embedPointerAlloc(field *FieldInfo, currentPkgPath string) string {
+	var buf strings.Builder
+	path := "s"
+	for _, step := range field.Via {
+		path += "." + step.Name
+		if step.Pointer {
+			buf.WriteString(fmt.Sprintf("			if %s == nil {\n				%s = &%s{}\n			}\n", path, path, step.TypeExpr))
+		}
 	}
 	return buf.String()
 }

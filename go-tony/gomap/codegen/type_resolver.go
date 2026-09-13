@@ -400,9 +400,24 @@ func (r *TypeResolver) resolveASTType(expr ast.Expr, currentStructName string, i
 			// int, which makes codegen emit ir.FromInt for what is really a string —
 			// invalid Go. go/types knows the underlying basic kind; use it so the
 			// generator picks the right conversion. Structs keep their placeholder.
-			if basic, ok := typesType.Underlying().(*types.Basic); ok {
-				if rt := reflectForBasicKind(basic.Kind()); rt != nil {
+			switch u := typesType.Underlying().(type) {
+			case *types.Basic:
+				if rt := reflectForBasicKind(u.Kind()); rt != nil {
 					reflectType = rt
+				}
+			case *types.Slice, *types.Map:
+				// A named collection with no directive -- type Labels map[string]string,
+				// type Names []string -- is the collection under its name: the same int
+				// fallback made it a number and the generated code did not compile
+				// (4ynqp7wqh12krg32msn0 item 24). The name stays in typeName, so the
+				// conversions the generator writes use it.
+				if rt := reflectForTypesType(u); rt != nil {
+					reflectType = rt
+					// On a collection field TypeName names the ELEMENT's named type (a
+					// []Op is decoded into []Op through it); the collection's own name is
+					// GoTypeExpr's, and a []string or map[string]string built of the
+					// underlying kinds assigns to the named collection.
+					typeName = ""
 				}
 			}
 		}
@@ -822,3 +837,31 @@ func resolveAliasTarget(t types.Type) (rt reflect.Type, structName, pkgPath, typ
 // irPkgPath is the import path of the ir package, whose Node is the type an
 // open-valued field carries.
 const irPkgPath = "github.com/signadot/tony-format/go-tony/ir"
+
+// reflectForTypesType is the reflect.Type of a go/types type built of basic
+// kinds, pointers, slices and maps, or nil where a struct or anything else
+// appears: a struct has no reflect type here, only a name.
+func reflectForTypesType(t types.Type) reflect.Type {
+	switch u := t.(type) {
+	case *types.Basic:
+		return reflectForBasicKind(u.Kind())
+	case *types.Pointer:
+		if e := reflectForTypesType(u.Elem()); e != nil {
+			return reflect.PtrTo(e)
+		}
+	case *types.Slice:
+		if e := reflectForTypesType(u.Elem()); e != nil {
+			return reflect.SliceOf(e)
+		}
+	case *types.Map:
+		k, v := reflectForTypesType(u.Key()), reflectForTypesType(u.Elem())
+		if k != nil && v != nil {
+			return reflect.MapOf(k, v)
+		}
+	case *types.Named:
+		return reflectForTypesType(u.Underlying())
+	case *types.Alias:
+		return reflectForTypesType(types.Unalias(u))
+	}
+	return nil
+}

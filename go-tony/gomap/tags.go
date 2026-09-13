@@ -236,6 +236,9 @@ func flattenEmbeddedFields(embeddedField reflect.StructField, structFieldMap map
 // respecting field= tags for renaming. This recursively flattens nested embedded structs as well.
 func flattenEmbeddedFieldsWithRenaming(embeddedField reflect.StructField, structFieldMap map[string]reflect.StructField) error {
 	embeddedType := embeddedField.Type
+	if embeddedType.Kind() == reflect.Ptr && embeddedType.Elem().Kind() == reflect.Struct {
+		embeddedType = embeddedType.Elem() // an embedded pointer promotes as a value does
+	}
 	if embeddedType.Kind() != reflect.Struct {
 		return nil // Not a struct, nothing to flatten
 	}

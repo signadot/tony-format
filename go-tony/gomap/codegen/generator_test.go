@@ -406,7 +406,7 @@ func TestGeneratePrimitiveToIR(t *testing.T) {
 		{"string", "v", reflect.TypeOf(""), "ir.FromString(string(v))", false},
 		{"int", "v", reflect.TypeOf(int(0)), "ir.FromInt(int64(v))", false},
 		{"int64", "v", reflect.TypeOf(int64(0)), "ir.FromInt(int64(v))", false},
-		{"float64", "v", reflect.TypeOf(float64(0)), "ir.FromFloat64(float64(v))", false},
+		{"float64", "v", reflect.TypeOf(float64(0)), "ir.FromFloat(float64(v))", false},
 		{"bool", "v", reflect.TypeOf(false), "ir.FromBool(bool(v))", false},
 		{"unsupported", "v", reflect.TypeOf([]string{}), "", true},
 	}
