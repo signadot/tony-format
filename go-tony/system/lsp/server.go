@@ -1,17 +1,12 @@
-// Command tony-lsp is a Language Server Protocol server for the Tony format. An editor
-// starts it with no arguments and speaks LSP to it on standard input and output; it
-// reports parse errors as diagnostics and answers hover, formatting, completion and
-// semantic-token requests.
-//
-// "tony-lsp --version" prints the build and exits without starting the protocol.
-// README.md in this directory shows editor configurations.
-package main
+// Package lsp is the Tony language server, served by `o system lsp`. An editor
+// starts the command with no arguments and speaks the Language Server Protocol
+// to it on standard input and output; it reports parse errors as diagnostics and
+// answers hover, formatting, completion and semantic-token requests.
+package lsp
 
 import (
 	"context"
-	"fmt"
 	"io"
-	"os"
 
 	"go.lsp.dev/jsonrpc2"
 	"go.lsp.dev/protocol"
@@ -19,26 +14,14 @@ import (
 	"github.com/signadot/tony-format/go-tony/buildinfo"
 )
 
-const lsName = "tony-lsp"
+// Name is what the server calls itself in the LSP handshake: the command an
+// editor's configuration runs.
+const Name = "o system lsp"
 
-func main() {
-	// An editor launches tony-lsp with no arguments and starts talking LSP on
-	// stdio. Someone typing the name at a shell is asking something else, and
-	// the only question worth answering before the protocol begins is which
-	// build this is -- what an editor's configuration actually resolved to.
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "version", "--version", "-version":
-			fmt.Println(buildinfo.Line(lsName))
-			return
-		}
-	}
-
-	ctx := context.Background()
-	stream := jsonrpc2.NewStream(&stdioReadWriteCloser{
-		read:  os.Stdin,
-		write: os.Stdout,
-	})
+// Serve speaks the protocol on in and out until the client closes the
+// connection.
+func Serve(ctx context.Context, in io.Reader, out io.Writer) error {
+	stream := jsonrpc2.NewStream(&stdioReadWriteCloser{read: in, write: out})
 	server := &Server{}
 	server.setupHandlers(ctx)
 	handler := protocol.ServerHandler(server, nil)
@@ -46,6 +29,7 @@ func main() {
 	server.conn = conn
 	conn.Go(ctx, handler)
 	<-conn.Done()
+	return nil
 }
 
 type stdioReadWriteCloser struct {
@@ -111,7 +95,7 @@ func (s *Server) Initialize(ctx context.Context, params *protocol.InitializePara
 	return &protocol.InitializeResult{
 		Capabilities: capabilities,
 		ServerInfo: &protocol.ServerInfo{
-			Name: lsName,
+			Name: Name,
 			// The handshake reports the build, not a hand-maintained constant:
 			// this is what shows up in an editor's LSP log when a client and a
 			// server disagree about what the server can do.

@@ -569,7 +569,7 @@ func SystemCommand(mainCfg *MainConfig) *cli.Command {
 	}
 	return cli.NewCommandAt(&cfg.System, "system").
 		WithSynopsis("system <subcommand>").
-		WithDescription("Run and talk to the logd and docd servers.").
+		WithDescription("Run and talk to the logd and docd servers, and serve the language server to an editor.").
 		WithAliases("sys").
 		WithOpts(opts...).
 		WithRun(func(cc *cli.Context, args []string) error {
@@ -579,5 +579,6 @@ func SystemCommand(mainCfg *MainConfig) *cli.Command {
 			LogDCommand(cfg.MainConfig),
 			DocDCommand(cfg.MainConfig),
 			SessionCommand(cfg.MainConfig),
-			UpCommand(cfg.MainConfig))
+			UpCommand(cfg.MainConfig),
+			LSPCommand(cfg.MainConfig))
 }
