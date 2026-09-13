@@ -33,9 +33,14 @@ docd keeps a registry of `MountEntry` records — the mounted `path`, the owning
 **single-owner**: a path has exactly one owner, and controllers may not mount under
 the reserved `.meta` namespace.
 
-Mounts may **nest**: a controller can own `users` while another owns
-`users.alice.inbox`. Routing always resolves an operation to the *deepest* mount that
-covers its path.
+Mounts are **disjoint**: no mount lies above or below another. A controller that
+owns `users` owns all of it, and a mount at `users.alice.inbox` is refused with
+`path_overlaps_mount` while `users` is mounted, as is a mount at `users` while
+`users.alice.inbox` is. A tombstone counts, since it is a claim awaiting its remount.
+Delegation within a subtree is the owning controller's to arrange, not docd's: a
+mount under another would give two controllers state for one path, and every
+operation at the outer mount would have to be composed, split or trimmed against
+the inner.
 
 ## Routing
 

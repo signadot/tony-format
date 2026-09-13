@@ -151,6 +151,7 @@ type MountResponse struct {
 const (
 	ErrCodeMountFailed        = "mount_failed"
 	ErrCodePathAlreadyMounted = "path_already_mounted"
+	ErrCodePathOverlapsMount  = "path_overlaps_mount" // a mount lies above or below the path
 	ErrCodeInvalidPath        = "invalid_path"
 	ErrCodeInvalidMessage     = "invalid_message"
 )

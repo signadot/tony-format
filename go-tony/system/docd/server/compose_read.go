@@ -24,7 +24,7 @@ var errSourceAbsent = errors.New("source has nothing at this path")
 const matchReadTimeout = 10 * time.Second
 
 // maybeCoordinateMatch handles a client MATCH whose path is a strict ancestor of
-// one or more mounts (nested mounts included): docd single-routes reads, so
+// one or more mounts: docd single-routes reads, so
 // without composition such a read would go only to its base owner and be blind to
 // every mounted subtree beneath it. The read is fanned across the base owner and
 // each mount below, and the subtrees merged into one document.
@@ -112,8 +112,9 @@ func (s *ClientSession) composeCheck(clientID *string, path string, below []*Mou
 				fmt.Sprintf("controller for %q is unavailable", m.Path))
 		}
 	}
-	// The base owner is the deepest mount containing path, or logd (nil) when path
-	// sits on a base/unmounted region.
+	// The base owner is the mount containing path, or logd (nil) when path sits on
+	// a base/unmounted region. Mounts are disjoint, so there is at most one, and a
+	// path at or under a mount has no mounts below it: the fan-out is over the base.
 	owner := s.server.Mounts.LookupPrefix(path)
 	if owner != nil && !owner.Live() {
 		return nil, nil, logdapi.NewErrorResponse(clientID, logdapi.ErrCodeUnavailable,
@@ -194,8 +195,8 @@ func (s *ClientSession) composeReadTree(path string, owner *MountEntry, below []
 		return nil, 0, firstAbsent
 	}
 
-	// Overlay shallow→deep so a nested mount replaces its slot within the enclosing
-	// mount's (or base owner's) subtree.
+	// Overlay shallow→deep so a mount replaces its slot within the base owner's
+	// subtree.
 	sort.SliceStable(collected, func(i, j int) bool {
 		return len(collected[i].fields) < len(collected[j].fields)
 	})

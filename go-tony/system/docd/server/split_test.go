@@ -62,29 +62,6 @@ func TestSplitPatch_RootSpanningMountsAndBase(t *testing.T) {
 	}
 }
 
-func TestSplitPatch_NestedMountsLongestPrefixWins(t *testing.T) {
-	reg := regWith("users", "users.admins")
-	data := obj("users", obj(
-		"admins", obj("root", ir.FromInt(1)),
-		"1", obj("name", ir.FromString("alice")),
-	))
-	parts, base, err := splitPatch(reg, "", data, nil)
-	if err != nil {
-		t.Fatalf("split failed: %v", err)
-	}
-
-	byMount := partsByMount(parts)
-	if got := byMount["users.admins"]; !got.DeepEqual(obj("root", ir.FromInt(1))) {
-		t.Errorf("/users/admins part wrong: %v", got)
-	}
-	if got := byMount["users"]; !got.DeepEqual(obj("1", obj("name", ir.FromString("alice")))) {
-		t.Errorf("/users part wrong: %v", got)
-	}
-	if len(base) != 0 {
-		t.Errorf("expected no base remainder, got %+v", base)
-	}
-}
-
 func TestSplitPatch_NonRootPath(t *testing.T) {
 	reg := regWith("org.users")
 	// patch at "org" writing {users: {...}} -> full tree {org:{users:{...}}}

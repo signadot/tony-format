@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -593,7 +594,11 @@ func (s *MountSession) handleHandshake(decoder *stream.Decoder) error {
 	}
 
 	if err := s.server.Mounts.Register(entry); err != nil {
-		s.sendError(api.ErrCodePathAlreadyMounted, err.Error())
+		code := api.ErrCodePathAlreadyMounted
+		if errors.Is(err, ErrPathOverlapsMount) {
+			code = api.ErrCodePathOverlapsMount
+		}
+		s.sendError(code, err.Error())
 		return fmt.Errorf("mount registration failed: %w", err)
 	}
 
