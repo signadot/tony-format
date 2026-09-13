@@ -165,6 +165,14 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 			if start < 0 {
 				start = 0
 			}
+		} else if start > head {
+			// An absolute cursor past the head names no commit, and logd refuses it
+			// for a single-route watch; refused here before the confirmation, as the
+			// sub-watches would each refuse it after (p478tacqh12krg32msn0 item 11).
+			s.releaseWatchToken(key)
+			_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeCommitNotFound,
+				fmt.Sprintf("fromCommit %d is past the head %d", start, head)))
+			return
 		}
 		s.log.Debug("composed watch cursor", "path", path, "asked", *fc,
 			"watermark", head, "floor", floor, "from", start)

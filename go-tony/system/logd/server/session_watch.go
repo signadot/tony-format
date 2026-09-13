@@ -89,6 +89,17 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 		s.sendError(id, api.ErrCodeStorage, fmt.Sprintf("failed to get current commit: %v", err))
 		return
 	}
+	// An absolute cursor names a commit the client claims to have seen, and one past the
+	// head names a commit that does not exist, as a match refuses it (session_read.go).
+	// Accepted, the watch stamped its state with the fictitious commit, and delivered
+	// became it: an Ended event handed back a resume point past the head, and docd's
+	// high-water mark jumped to it (p478tacqh12krg32msn0 item 11).
+	if req.FromCommit != nil && *req.FromCommit > currentCommit {
+		s.hub.Unwatch(watcher)
+		s.sendError(id, api.ErrCodeCommitNotFound,
+			fmt.Sprintf("fromCommit %d is past the head %d", *req.FromCommit, currentCommit))
+		return
+	}
 
 	// Store watcher
 	s.watchMu.Lock()
