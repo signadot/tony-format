@@ -49,6 +49,8 @@
 //     (stdout is parsed as documents)
 //   - format: explicit format (tony, yaml, json); if omitted, a file's or URL's
 //     extension decides, and tony otherwise
+//   - timeout: how long a url: fetch or an exec: run may take, as a duration
+//     ("90s", "5m"); 60s if omitted ([DefaultFetchTimeout])
 //   - if: conditional expression to enable/disable the source
 //
 // The dir:, url: and exec: strings are expanded against the environment with package
@@ -70,8 +72,8 @@
 //
 // Without output.destDir the documents are written to the writer [Dir.Run] is given,
 // separated by ---. With it, each is written to a file of its own in that directory.
-// A file is named by the document's !filename(name) tag, which is not written, and
-// otherwise from its contents; output.k8s.filenames names a Kubernetes object by a
+// A file is named by the document's !filename(name) tag, which is not written -- a
+// name that would leave the directory is refused -- and otherwise from its contents; output.k8s.filenames names a Kubernetes object by a
 // dash-separated pattern of the tokens name, kind and namespace. A name used twice
 // has -1, -2, ... appended.
 //

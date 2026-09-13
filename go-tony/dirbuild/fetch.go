@@ -44,6 +44,29 @@ type DirSource struct {
 	Dir    *string        `tony:"field=dir"`    // Directory path to walk for documents
 	URL    *string        `tony:"field=url"`    // URL to fetch documents from
 	If     string         `tony:"field=if"`     // Conditional expression; source is skipped if false
+	// Timeout bounds a url: fetch or an exec: run, as a duration ("90s", "5m");
+	// DefaultFetchTimeout when empty. It was a hard-coded 10s that a large chart's
+	// helm template ran past, reported as nothing but "signal: killed"
+	// (p478tacqh12krg32msn0 item 22).
+	Timeout string `tony:"field=timeout"`
+}
+
+// DefaultFetchTimeout bounds a url: or exec: source that names no timeout: of its own.
+const DefaultFetchTimeout = 60 * time.Second
+
+// fetchTimeout is the source's timeout: the one it names, else the default.
+func (s *DirSource) fetchTimeout() (time.Duration, error) {
+	if s.Timeout == "" {
+		return DefaultFetchTimeout, nil
+	}
+	d, err := time.ParseDuration(s.Timeout)
+	if err != nil {
+		return 0, fmt.Errorf("timeout %q: %w", s.Timeout, err)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("timeout %q: must be positive", s.Timeout)
+	}
+	return d, nil
 }
 
 // formatFromExtension returns the format based on file extension.
@@ -89,7 +112,11 @@ func (s *DirSource) Fetch(root string, env map[string]any) ([]*ir.Node, error) {
 		}
 		return walker.docs, nil
 	case s.URL != nil:
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		timeout, err := s.fetchTimeout()
+		if err != nil {
+			return nil, err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 		url, err := eval.ExpandString(*s.URL, env)
 		if err != nil {
@@ -101,6 +128,9 @@ func (s *DirSource) Fetch(root string, env map[string]any) ([]*ir.Node, error) {
 		}
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				return nil, fmt.Errorf("url %s: not answered within its %s timeout", url, timeout)
+			}
 			return nil, err
 		}
 		defer resp.Body.Close()
@@ -128,7 +158,11 @@ func (s *DirSource) Fetch(root string, env map[string]any) ([]*ir.Node, error) {
 		if len(cmdArgV) == 0 {
 			return nil, fmt.Errorf("invalid command %q (after env %q)", cmdStr, *s.Exec)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		timeout, err := s.fetchTimeout()
+		if err != nil {
+			return nil, err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, cmdArgV[0], cmdArgV[1:]...)
 		out := bytes.NewBuffer(nil)
@@ -138,6 +172,11 @@ func (s *DirSource) Fetch(root string, env map[string]any) ([]*ir.Node, error) {
 		errOut := bytes.NewBuffer(nil)
 		cmd.Stderr = errOut
 		if err := cmd.Run(); err != nil {
+			// Killed by the timeout: say so, and how long it was. "signal: killed"
+			// on its own said neither.
+			if ctx.Err() == context.DeadlineExceeded {
+				return nil, fmt.Errorf("%q: killed after its %s timeout (timeout: on the source sets it)", cmdStr, timeout)
+			}
 			if msg := strings.TrimSpace(errOut.String()); msg != "" {
 				return nil, fmt.Errorf("%q: %w: %s", cmdStr, err, msg)
 			}

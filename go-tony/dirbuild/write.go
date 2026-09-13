@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -111,6 +112,13 @@ func (d *Dir) writeCloser(w io.Writer, node *ir.Node, opts ...encode.EncodeOptio
 	}
 	fn += suffix
 	fp := filepath.Join(d.Output.DestDir, fn)
+	// The name is the document's to choose and the directory is the build's:
+	// !filename(../x), or an absolute one, wrote outside output.destDir
+	// (p478tacqh12krg32msn0 item 22).
+	name := d.fileName(node)
+	if rel, err := filepath.Rel(d.Output.DestDir, fp); filepath.IsAbs(name) || err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("!filename(%q) names a file outside output.destDir %q", name, d.Output.DestDir)
+	}
 	f, err := os.OpenFile(fp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return nil, err
