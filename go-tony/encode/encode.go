@@ -77,7 +77,14 @@ func Encode(node *ir.Node, w io.Writer, opts ...EncodeOption) error {
 	if err := encode(node, w, es); err != nil {
 		return err
 	}
+	// A document ends with a newline. A |+ literal that ends the document has
+	// already written its kept newline and said so (atCol0); a second one here was
+	// read back as one more line of the value, so "x\n\n" grew a newline on every
+	// pass (pyhfz6h6 fixed the sibling case; 4ynqp7wqh12krg32msn0 item 16 is this one).
 	if !es.comments {
+		if es.atCol0 {
+			return nil
+		}
 		es.atCol0 = false
 		es.depth = 0
 		return writeNL(w, es)
@@ -91,7 +98,7 @@ func Encode(node *ir.Node, w io.Writer, opts ...EncodeOption) error {
 	// -- a message would then arrive with a byte its reader never saw before,
 	// which for anything counting them is a second message.
 	if trailing == nil {
-		if es.wire {
+		if es.wire || es.atCol0 {
 			return nil
 		}
 		return writeString(w, "\n")
@@ -106,13 +113,15 @@ func Encode(node *ir.Node, w io.Writer, opts ...EncodeOption) error {
 		lines = trailing.Lines[1:]
 	}
 	if len(lines) == 0 {
-		if es.wire {
+		if es.wire || es.atCol0 {
 			return nil
 		}
 		return writeString(w, "\n")
 	}
-	if err := writeString(w, "\n"); err != nil {
-		return err
+	if !es.atCol0 {
+		if err := writeString(w, "\n"); err != nil {
+			return err
+		}
 	}
 	for _, ln := range lines {
 		if es.Color != nil {
