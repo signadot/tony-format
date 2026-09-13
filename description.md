@@ -1,0 +1,7 @@
+# logd: a watch whose client stopped waiting stays live on the server, and they pile up under load
+
+Seen on verse's staging (docd v0.0.215 image built from go-tony v0.0.215), 2026-09-13 09:40–09:55Z, during a burst of store load: versed's logd session timed out on some 1,500 requests in three minutes (`dropping response with no matching request` on the client), and afterwards docd held 9,221 goroutines in `server.(*watchStream).live` (session_watch.go:545, under `(*Session).forwardEvents` session_watch.go:268) while the one client, versed, had 45 subtree watches open (its own goroutine dump). docd sat at 19–20 cores with no request timing out any more: every commit fanned out to nine thousand streams whose readers were gone.
+
+The shape: verse's client re-establishes a subtree watch with backoff when the request for one does not answer in time (entity/logdstore.go, the heal loop), and each attempt the client gave up on had been established on the server anyway, with nothing ending it. The client cannot end what it never learned the id of; the server does not notice a stream nobody reads.
+
+Two things would close it, and either alone helps: the server ends a watch stream whose client connection has not consumed an event within some bound, or has never acknowledged the establish; and the establish is made cancellable by the client's request id, so a client that times out can send the cancel for the id it asked with. The session going away should already drop its streams — this was one long-lived session, which is why they accumulated.
