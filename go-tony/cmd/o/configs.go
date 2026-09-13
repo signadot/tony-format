@@ -34,6 +34,7 @@ type MainConfig struct {
 
 	Out      string
 	CloseOut func() error
+	argv     []string // every argument, for outOpt to see the inputs beside -o
 
 	Main *cli.Command
 }

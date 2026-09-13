@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/scott-cotton/cli"
 )
@@ -14,6 +15,7 @@ func oMain(cfg *MainConfig, cc *cli.Context, args []string) error {
 			cfg.CloseOut()
 		}
 	}()
+	cfg.argv = args
 	args, err := cfg.Main.Parse(cc, args)
 	if err != nil {
 		cfg.Main.Usage(cc, err)
@@ -92,6 +94,9 @@ func (cfg *MainConfig) outOpt(cc *cli.Context, a string) (any, error) {
 	if a == "-" {
 		return nil, nil
 	}
+	if in := cfg.inputNamedByOut(a); in != "" {
+		return nil, fmt.Errorf("%w: -o %q is also the input %q; the output is opened, and emptied, before anything is read (view -w rewrites a file in place)", cli.ErrUsage, a, in)
+	}
 	f, err := os.OpenFile(cfg.Out, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0644)
 	if err != nil {
 		return nil, err
@@ -99,4 +104,30 @@ func (cfg *MainConfig) outOpt(cc *cli.Context, a string) (any, error) {
 	cc.Out = f
 	cfg.CloseOut = f.Close
 	return nil, nil
+}
+
+// inputNamedByOut is the argument, if any, that names the same file as -o does,
+// or "". The output is opened with O_TRUNC while the options are being parsed,
+// before the command reads anything, so `o -o f v f` read an empty f and exited 0
+// with f empty: a misuse, but a silent one, and the shell's `> f` is no help
+// since o cannot tell it from any other stdout. The argument is the -o value
+// itself when it follows -o or --o (the -o=f spelling is one argument, and skipped
+// as an option); every other argument that is the same file is an input.
+func (cfg *MainConfig) inputNamedByOut(out string) string {
+	st, err := os.Stat(out)
+	if err != nil {
+		return "" // nothing there to empty
+	}
+	for i, arg := range cfg.argv {
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		if i > 0 && (cfg.argv[i-1] == "-o" || cfg.argv[i-1] == "--o") {
+			continue
+		}
+		if ast, err := os.Stat(arg); err == nil && os.SameFile(st, ast) {
+			return arg
+		}
+	}
+	return ""
 }
