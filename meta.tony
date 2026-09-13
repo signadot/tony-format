@@ -6,7 +6,11 @@ commits: []
 created: "2026-09-13T10:42:25.217754+02:00"
 duplicates: []
 id: 05d8w3cjh12kswb1msn0
-labels: []
+labels:
+- audit
+- bug
+- high
+- sweep
 related_issues: []
 status: open
-updated: "2026-09-13T10:42:25.217754+02:00"
+updated: "2026-09-13T10:43:48.449007+02:00"
