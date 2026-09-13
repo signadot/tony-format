@@ -149,7 +149,11 @@ func splitPatch(reg *MountRegistry, path string, data *ir.Node, blocks TagFilter
 	}
 	full := nestAtFields(clientFields, data)
 
-	mounts := mountInfos(reg.List(), true)
+	// Every mount, a tombstoned one included: what lies under a tombstone is the
+	// crashed controller's, and a part there is refused by the caller, as a write at
+	// the mount is. Partitioned over the live mounts only, it fell through to logd
+	// base, which is exactly what the tombstone exists to prevent (doc.go).
+	mounts := mountInfos(reg.List(), false)
 
 	parts, baseTree, perr := partition(full, nil, mounts, blocks)
 	if perr != nil {
