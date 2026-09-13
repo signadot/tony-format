@@ -86,6 +86,14 @@ func ExtractTypes(file *ast.File, filePath string) ([]*StructInfo, error) {
 				continue
 			}
 
+			// A generic type has no codec to generate: a method on it needs its
+			// type parameters, and the generator wrote `func (s *Box)`, which does
+			// not compile (p478tacqh12krg32msn0 item 25). Refused where the
+			// directive is read, before anything is written.
+			if typeSpec.TypeParams != nil && len(typeSpec.TypeParams.List) > 0 {
+				return nil, fmt.Errorf("type %s carries //tony: but has type parameters: a codec cannot be generated for a generic type; drop the directive, or give an instantiation of %s a codec of its own", typeSpec.Name.Name, typeSpec.Name.Name)
+			}
+
 			// The directive generates a codec for a struct. On any other type it
 			// generated code that did not compile, after the schema file had been
 			// written beside the stale one (4ynqp7wqh12krg32msn0 item 25). A type with
