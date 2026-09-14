@@ -1,6 +1,6 @@
 module github.com/signadot/tony-format/go-tony
 
-go 1.25.1
+go 1.27.1
 
 require (
 	github.com/evanphx/json-patch v0.5.2
