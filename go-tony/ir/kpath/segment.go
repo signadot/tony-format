@@ -108,8 +108,8 @@ func segmentMatches(pat, tgt *KPath) bool {
 	case pat.Descend, tgt.Descend:
 		// A descent spans depths, and this asks about ONE segment against one
 		// segment. Whoever needs to match a path holding one has to walk it, which
-		// is what ir's navigation does; answering here would be answering a
-		// different question.
+		// is what ir's navigation and matchPath do; answering here would be
+		// answering a different question.
 		return false
 	case pat.FieldAll:
 		return tgt.Field != nil || tgt.FieldAll
