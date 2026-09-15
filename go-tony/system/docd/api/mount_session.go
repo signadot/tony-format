@@ -41,7 +41,9 @@ type MountHello struct {
 // counted in nanoseconds — a monotonic, quantized clock. docd computes each value
 // on demand; no tick history is retained. Epoch is also recorded under
 // .meta/clocks so it can be recovered without replaying ticks. A clock is not in
-// the commit sequence, so its reads and watch events carry commit 0.
+// the commit sequence, so its reads and watch events carry commit 0. It lives as
+// long as the mount connection; when that closes, its watches end with
+// session_unmounted.
 //
 //tony:schemagen=clock-spec,notag
 type ClockSpec struct {

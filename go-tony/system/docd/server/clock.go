@@ -23,6 +23,11 @@ type clock struct {
 
 	// now is time.Now in production; tests inject a deterministic source.
 	now func() time.Time
+
+	// gone is closed when the clock is unregistered, ending every watch on it: a
+	// watch holds the clock itself, not its path, so without this it would go on
+	// ticking a clock nobody serves any more.
+	gone chan struct{}
 }
 
 // newClock builds a clock from a spec, validating the frequency. start is the
@@ -44,7 +49,7 @@ func newClock(spec *api.ClockSpec, start time.Time) (*clock, error) {
 	if freq <= 0 {
 		return nil, fmt.Errorf("clock frequency must be positive, got %q", spec.Frequency)
 	}
-	return &clock{path: spec.Path, freq: freq, epoch: spec.Epoch, start: start, now: time.Now}, nil
+	return &clock{path: spec.Path, freq: freq, epoch: spec.Epoch, start: start, now: time.Now, gone: make(chan struct{})}, nil
 }
 
 // ticksAt returns the whole-tick count elapsed by t (0 before start).
@@ -96,12 +101,14 @@ func (r *clockRegistry) register(c *clock) error {
 }
 
 // unregister removes the clock at path only if it is still the one owned by this
-// caller (guards against a re-registered path being dropped by a late cleanup).
+// caller (guards against a re-registered path being dropped by a late cleanup), and
+// ends the watches on it.
 func (r *clockRegistry) unregister(c *clock) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.clocks[c.path] == c {
 		delete(r.clocks, c.path)
+		close(c.gone)
 	}
 }
 
@@ -149,8 +156,8 @@ func clocksDoc(clocks []*clock) *ir.Node {
 
 // clockWatcher is a live clock watch: a ticker goroutine emits a state event with
 // the clock's value every Frequency until stop is closed (unwatch or session
-// close). clientID is stamped on every event so the client routes it to the right
-// watch (several may share a connection).
+// close) or the clock is unregistered. clientID is stamped on every event so the
+// client routes it to the right watch (several may share a connection).
 //
 // A clock is not in the commit sequence, so its events carry commit 0, as its
 // match result does. The value is the state, never the commit: a commit stamped on
@@ -181,8 +188,10 @@ func (s *ClientSession) serveClockMatch(req *logdapi.SessionRequest, clk *clock)
 
 // serveClockWatch establishes a clock watch: it sends the current value as the
 // initial state, a replay-complete marker, then a fresh state event on every tick
-// until the watch is dropped. Clocks need no mount coordination (no controller,
-// no draining), so they are served directly rather than through the coordinator.
+// until the watch is dropped. When the clock's mount connection closes, the watch
+// ends with session_unmounted: the clock is removed outright, so a re-watch of the
+// path no longer finds it. Clocks need no mount coordination (no controller, no
+// draining), so they are served directly rather than through the coordinator.
 func (s *ClientSession) serveClockWatch(req *logdapi.SessionRequest, clk *clock) {
 	clientID := req.ID
 	key := watchKeyFor(clientID, clk.path)
@@ -221,6 +230,9 @@ func (s *ClientSession) serveClockWatch(req *logdapi.SessionRequest, clk *clock)
 				return
 			case <-s.done:
 				return
+			case <-clk.gone:
+				s.endClockWatch(key, w, clk.path)
+				return
 			case <-ticker.C:
 				if err := s.writeToClient(logdapi.NewStateEvent(clientID, 0, clk.path, clk.node())); err != nil {
 					return
@@ -228,6 +240,24 @@ func (s *ClientSession) serveClockWatch(req *logdapi.SessionRequest, clk *clock)
 			}
 		}
 	}()
+}
+
+// endClockWatch ends watch w on path, held under key, because its clock was
+// unregistered. The terminal event is written only if w was still the live watch
+// there: one an unwatch, a re-watch or session close already dropped has nothing
+// to tell.
+func (s *ClientSession) endClockWatch(key string, w *clockWatcher, path string) {
+	s.watchMu.Lock()
+	live := s.clockWatches[key] == w
+	if live {
+		delete(s.clockWatches, key)
+	}
+	s.watchMu.Unlock()
+	if !live {
+		return
+	}
+	_ = s.writeToClient(terminalWatchEvent(w.clientID, path, logdapi.ErrCodeSessionUnmounted,
+		"clock unmounted", 0))
 }
 
 // stopClockWatch stops and forgets the clock watch with the given key. Safe when

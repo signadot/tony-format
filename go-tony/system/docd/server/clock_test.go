@@ -13,7 +13,7 @@ import (
 
 // fixedClock builds a clock whose "now" is pinned, so value() is deterministic.
 func fixedClock(path string, freq time.Duration, epoch int64, start, now time.Time) *clock {
-	return &clock{path: path, freq: freq, epoch: epoch, start: start, now: func() time.Time { return now }}
+	return &clock{path: path, freq: freq, epoch: epoch, start: start, now: func() time.Time { return now }, gone: make(chan struct{})}
 }
 
 // TestClock_ValueAtTick verifies the clock arithmetic: value = epoch + N*freq(ns)
@@ -318,5 +318,65 @@ func TestServeClockWatch(t *testing.T) {
 	peer.SetReadDeadline(time.Now().Add(3 * freq))
 	if _, err := peer.Read(drainOne); err == nil {
 		t.Fatal("ticker kept emitting after unwatch")
+	}
+}
+
+// TestServeClockWatch_EndsWhenClockUnmounts verifies that unregistering a clock (its
+// mount connection closed) ends the watches on it with session_unmounted, rather
+// than leaving them ticking a clock nobody serves.
+func TestServeClockWatch_EndsWhenClockUnmounts(t *testing.T) {
+	start := time.Unix(1000, 0)
+	freq := 15 * time.Millisecond
+	clk := fixedClock("sys/clock", freq, 100, start, start)
+
+	server := New(&Spec{})
+	if err := server.Clocks.register(clk); err != nil {
+		t.Fatal(err)
+	}
+
+	client, peer := net.Pipe()
+	defer client.Close()
+	defer peer.Close()
+	s := newTestClientSession(server, client)
+	dec, _ := stream.NewDecoder(peer, stream.WithBrackets())
+
+	id := "w1"
+	req := &logdapi.SessionRequest{ID: &id, Watch: &logdapi.WatchRequest{Path: "sys/clock"}}
+	go s.serveClockWatch(req, clk)
+	readResp(t, dec) // initial state
+	readResp(t, dec) // replay complete
+
+	server.Clocks.unregister(clk)
+
+	// Ticks already in flight may precede the terminal event; the watch must end.
+	for {
+		resp := readResp(t, dec)
+		if resp.Event == nil {
+			t.Fatalf("expected a watch event, got %+v", resp)
+		}
+		if !resp.Event.Ended {
+			continue
+		}
+		if resp.ID == nil || *resp.ID != id {
+			t.Fatalf("terminal event id = %v, want %q", resp.ID, id)
+		}
+		if resp.Event.EndReason != logdapi.ErrCodeSessionUnmounted {
+			t.Fatalf("end reason = %q, want %q", resp.Event.EndReason, logdapi.ErrCodeSessionUnmounted)
+		}
+		if resp.Event.Path != "sys/clock" || resp.Event.Commit != 0 {
+			t.Fatalf("terminal event path/commit = %q/%d, want sys/clock/0", resp.Event.Path, resp.Event.Commit)
+		}
+		break
+	}
+
+	s.watchMu.Lock()
+	n := len(s.clockWatches)
+	s.watchMu.Unlock()
+	if n != 0 {
+		t.Fatalf("clock watch still held after its clock unmounted: %d remain", n)
+	}
+	peer.SetReadDeadline(time.Now().Add(3 * freq))
+	if _, err := peer.Read(make([]byte, 4096)); err == nil {
+		t.Fatal("watch kept emitting after its clock unmounted")
 	}
 }

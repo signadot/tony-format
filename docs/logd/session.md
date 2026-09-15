@@ -514,7 +514,8 @@ frequency` in nanoseconds at tick N, computed on demand, with no tick history ke
 Reads and watches of that path are answered by docd directly; it is read-only, and it
 is docd's own, so logd knows nothing about it. A clock is not in the commit sequence:
 its match results and watch events carry `commit: 0`, and the value is only ever the
-state.
+state. The clock lives as long as the mount connection that asked for it; when that
+closes, docd removes it and ends every watch on it with `session_unmounted`.
 
 See [Mounts & routing](../docd/mounts.md) for the registry, tombstones and the `.meta`
 namespace, and [Composition](../docd/composition.md) for what happens to a read or a
