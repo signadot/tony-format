@@ -1,0 +1,5 @@
+# docd: a clock watch outlives its clock -- when the clock's mount connection closes, watches keep ticking the dead clock, and an unwatch can no longer reach them
+
+MountSession.cleanup unregistered the clock but nothing stopped the clockWatches holding it: each watch goroutine holds the *clock, not its path, so it went on emitting values from a clock nobody serves. An unwatch for the path no longer matched clockFor once the clock was gone, so it went to the coordinator instead, and the goroutine ran until a write failed or the client session closed. After a reconnect, old watchers stayed on the old clock (old start) while new watchers got the new one, with nothing telling the old ones.
+
+Fix: a clock carries a gone channel, closed by clockRegistry.unregister (only for the clock it actually removes). The watch goroutine selects on it and ends the watch with a terminal event, reason session_unmounted -- the clock is removed outright, not tombstoned, so a re-watch no longer finds it -- written only if the watch is still the live one under its key. Documented in docs/logd/session.md (Clocks) and on api.ClockSpec. New test TestServeClockWatch_EndsWhenClockUnmounts.
