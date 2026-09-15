@@ -255,37 +255,64 @@ func (p *KPath) IsPrefix(o *KPath) bool {
 // Matches reports whether p, read as a pattern, denotes o. It is the wildcard-
 // aware analog of segment-wise equality: a wildcard segment in p (.* [*] {*})
 // matches any segment of the same kind in o, and concrete segments compare by
-// value as in AncestorOrEqual. The paths must have equal depth.
+// value as in AncestorOrEqual. A `..` in p matches zero or more segments of o, of
+// any kind, as ListKPath reads it: a..x denotes a.x and a.b.x, and a.. denotes a
+// and everything under it. Every segment of o must be consumed.
 //
 // Matching is one-directional — p is the pattern, o the (typically concrete)
 // target — so a concrete segment in p does not match a wildcard in o. It is
 // reflexive for a path without `..` (p.Matches(p) is true, wildcards included)
 // and kind-strict (see segmentMatches): review.seq[*] matches review.seq[2] but a
-// dense [*] never matches a keyed element. A `..` segment, on either side,
-// matches nothing. A nil receiver (root) matches only nil.
+// dense [*] never matches a keyed element. A target holding a `..` is not a path
+// but a query, and nothing matches it. A nil receiver (root) matches only nil.
 func (p *KPath) Matches(o *KPath) bool {
-	pa, pb := p, o
-	for pa != nil && pb != nil {
-		if !segmentMatches(pa, pb) {
-			return false
-		}
-		pa, pb = pa.Next, pb.Next
-	}
-	return pa == nil && pb == nil
+	return matchPath(p, o, false)
 }
 
 // MatchesPrefix reports whether p, read as a pattern, denotes an ancestor-or-equal
-// of o under the same wildcard rule as Matches: every segment of p matches the
-// corresponding segment of o, and p may be shorter than o. review.seq[*] thus
-// MatchesPrefix review.seq[2].onDone. A nil receiver (root) is a prefix of every
-// path.
+// of o under the same rule as Matches: p is consumed, and o may have segments
+// left over. review.seq[*] thus MatchesPrefix review.seq[2].onDone, and a..x
+// MatchesPrefix a.b.x.c. A `..` still pending where o ends consumes nothing, so
+// a.. MatchesPrefix a. A nil receiver (root) is a prefix of every path, and, as
+// for Matches, of no target holding a `..`.
 func (p *KPath) MatchesPrefix(o *KPath) bool {
-	pa, pb := p, o
-	for pa != nil && pb != nil {
-		if !segmentMatches(pa, pb) {
+	return matchPath(p, o, true)
+}
+
+// matchPath is Matches, or with prefix MatchesPrefix. A `..` matches any run of
+// target segments and every other segment matches one, which is glob matching
+// with `..` as the star, so it is matched the way a glob is: on a mismatch, the
+// most recent `..` takes one more segment and matching resumes after it. Going
+// back to an earlier `..` never finds a match the latest one missed, so this is
+// linear in the target per `..` rather than exponential in how many there are.
+func matchPath(p, o *KPath, prefix bool) bool {
+	for x := o; x != nil; x = x.Next {
+		if x.Descend {
 			return false
 		}
-		pa, pb = pa.Next, pb.Next
+	}
+	pa, pb := p, o
+	// resumeP is the pattern after the latest `..`, and resumeO the first target
+	// segment that `..` has not yet taken; resumeP is meaningful only when descended.
+	var resumeP, resumeO *KPath
+	descended := false
+	for pb != nil {
+		switch {
+		case pa != nil && pa.Descend:
+			pa, resumeP, resumeO, descended = pa.Next, pa.Next, pb, true
+		case pa != nil && segmentMatches(pa, pb):
+			pa, pb = pa.Next, pb.Next
+		case pa == nil && prefix:
+			return true
+		case descended:
+			resumeO = resumeO.Next
+			pa, pb = resumeP, resumeO
+		default:
+			return false
+		}
+	}
+	for pa != nil && pa.Descend {
+		pa = pa.Next
 	}
 	return pa == nil
 }

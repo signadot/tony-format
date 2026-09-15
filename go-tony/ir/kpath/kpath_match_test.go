@@ -99,3 +99,83 @@ func TestHasWild(t *testing.T) {
 		}
 	}
 }
+
+// TestMatchesDescend covers `..` in a pattern, which matches zero or more target
+// segments of any kind — the meaning ListKPath gives it (17hj5ygkh12ks7j7n5n0).
+// The cross-check against a real document is TestDescendMatchesWhatListFinds in
+// package ir; this is the path arithmetic.
+func TestMatchesDescend(t *testing.T) {
+	cases := []struct {
+		pattern, target string
+		want            bool
+	}{
+		// The issue's case: a pattern that finds a node must say it denotes it.
+		{"verse-dev..finding", "verse-dev.drift.finding", true},
+		// Zero segments: `..` includes the position itself.
+		{"a..x", "a.x", true},
+		{"a..x", "a.b.x", true},
+		{"a..x", "a.b.c.d.x", true},
+		{"..x", "x", true},
+		{"..x", "a.b.x", true},
+		// Of any kind: a descent crosses arrays and sparse arrays as it does objects.
+		{"a..x", "a[0].x", true},
+		{"a..x", "a{7}.b.x", true},
+		{"a..[0]", "a.b[0]", true},
+		// A trailing `..` names the node and everything under it.
+		{"a..", "a", true},
+		{"a..", "a.b.c", true},
+		{"..", "", true},
+		{"..", "a.b", true},
+		// The rest of the pattern still has to match.
+		{"a..x", "a.b.y", false},
+		{"a..x", "b.x", false},
+		{"a..x", "a.x.b", false},   // x is not the last segment
+		{"a..x.y", "a.b.x", false}, // pattern outruns the target
+		{"a..[0]", "a.b(0)", false},
+		// Wildcards and descents compose.
+		{"a..*", "a.b.c", true},
+		{"a..b[*]", "a.q.b[3]", true},
+		// Several descents.
+		{"a..b..c", "a.x.b.y.z.c", true},
+		{"a..b..c", "a.b.c", true},
+		{"a..b..c", "a.x.c.y.b", false},
+		// A target holding a `..` is a query, not a path: nothing denotes it.
+		{"a.b", "a..b", false},
+		{"a..b", "a..b", false},
+		{"a..", "a..", false},
+		{"..", "..", false},
+	}
+	for _, tc := range cases {
+		p := mustParse(t, tc.pattern)
+		o := mustParse(t, tc.target)
+		if got := p.Matches(o); got != tc.want {
+			t.Errorf("(%q).Matches(%q) = %v, want %v", tc.pattern, tc.target, got, tc.want)
+		}
+	}
+}
+
+// TestMatchesPrefixDescend covers `..` under the prefix rule: the pattern must be
+// consumed, the target need not be, and a `..` still pending where the target ends
+// consumes nothing and holds.
+func TestMatchesPrefixDescend(t *testing.T) {
+	cases := []struct {
+		pattern, target string
+		want            bool
+	}{
+		{"a..x", "a.b.x.c.d", true},
+		{"a..x", "a.x", true},
+		{"a..", "a", true}, // the descent consumes nothing and holds
+		{"a..", "a.b.c", true},
+		{"a..x", "a.b.y", false},   // the segment after the descent must still match
+		{"a..x.y", "a.b.x", false}, // pattern outruns the target
+		{"b..x", "a.b.x", false},
+		{"a.b", "a..b.c", false}, // a query is not a path, at any depth
+	}
+	for _, tc := range cases {
+		p := mustParse(t, tc.pattern)
+		o := mustParse(t, tc.target)
+		if got := p.MatchesPrefix(o); got != tc.want {
+			t.Errorf("(%q).MatchesPrefix(%q) = %v, want %v", tc.pattern, tc.target, got, tc.want)
+		}
+	}
+}
