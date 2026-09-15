@@ -512,7 +512,9 @@ alongside) a controller-backed subtree:
 docd then serves `sys.clock` itself as a single monotonic int64 — `epoch + N ×
 frequency` in nanoseconds at tick N, computed on demand, with no tick history kept.
 Reads and watches of that path are answered by docd directly; it is read-only, and it
-is docd's own, so logd knows nothing about it.
+is docd's own, so logd knows nothing about it. A clock is not in the commit sequence:
+its match results and watch events carry `commit: 0`, and the value is only ever the
+state.
 
 See [Mounts & routing](../docd/mounts.md) for the registry, tombstones and the `.meta`
 namespace, and [Composition](../docd/composition.md) for what happens to a read or a

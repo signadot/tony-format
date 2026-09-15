@@ -151,6 +151,10 @@ func clocksDoc(clocks []*clock) *ir.Node {
 // the clock's value every Frequency until stop is closed (unwatch or session
 // close). clientID is stamped on every event so the client routes it to the right
 // watch (several may share a connection).
+//
+// A clock is not in the commit sequence, so its events carry commit 0, as its
+// match result does. The value is the state, never the commit: a commit stamped on
+// an event raises the mark docd reports on a pong and the client's KnownCommit.
 type clockWatcher struct {
 	clientID *string
 	stop     chan struct{}
@@ -198,7 +202,7 @@ func (s *ClientSession) serveClockWatch(req *logdapi.SessionRequest, clk *clock)
 
 	// Initial snapshot + replay-complete, unless the client asked to skip init.
 	if req.Watch == nil || !req.Watch.NoInit {
-		if err := s.writeToClient(logdapi.NewStateEvent(clientID, clk.value(), clk.path, clk.node())); err != nil {
+		if err := s.writeToClient(logdapi.NewStateEvent(clientID, 0, clk.path, clk.node())); err != nil {
 			s.stopClockWatch(key)
 			return
 		}
@@ -218,8 +222,7 @@ func (s *ClientSession) serveClockWatch(req *logdapi.SessionRequest, clk *clock)
 			case <-s.done:
 				return
 			case <-ticker.C:
-				v := clk.value()
-				if err := s.writeToClient(logdapi.NewStateEvent(clientID, v, clk.path, ir.FromInt(v))); err != nil {
+				if err := s.writeToClient(logdapi.NewStateEvent(clientID, 0, clk.path, clk.node())); err != nil {
 					return
 				}
 			}

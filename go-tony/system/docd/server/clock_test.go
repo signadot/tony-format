@@ -273,6 +273,9 @@ func TestServeClockWatch(t *testing.T) {
 	if init.Event.State.Int64 == nil || *init.Event.State.Int64 != want {
 		t.Fatalf("initial value = %v, want %d", init.Event.State, want)
 	}
+	if init.Event.Commit != 0 {
+		t.Fatalf("initial event commit = %d, want 0: a clock is not in the commit sequence", init.Event.Commit)
+	}
 
 	// Replay complete.
 	rc := readResp(t, dec)
@@ -290,6 +293,13 @@ func TestServeClockWatch(t *testing.T) {
 	}
 	if tick.Event.State.Int64 == nil || *tick.Event.State.Int64 != want {
 		t.Fatalf("tick value = %v, want %d", tick.Event.State, want)
+	}
+	if tick.Event.Commit != 0 {
+		t.Fatalf("tick event commit = %d, want 0", tick.Event.Commit)
+	}
+	// The value must not reach the commit mark docd reports on a pong.
+	if got := server.seen.Load(); got != 0 {
+		t.Fatalf("server seen = %d after clock events, want 0", got)
 	}
 
 	// Unwatch stops the ticker: drain any in-flight event, then confirm silence.

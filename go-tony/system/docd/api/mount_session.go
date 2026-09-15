@@ -40,7 +40,8 @@ type MountHello struct {
 // established), serves the single int64 value Epoch + N*Frequency, with Frequency
 // counted in nanoseconds — a monotonic, quantized clock. docd computes each value
 // on demand; no tick history is retained. Epoch is also recorded under
-// .meta/clocks so it can be recovered without replaying ticks.
+// .meta/clocks so it can be recovered without replaying ticks. A clock is not in
+// the commit sequence, so its reads and watch events carry commit 0.
 //
 //tony:schemagen=clock-spec,notag
 type ClockSpec struct {
