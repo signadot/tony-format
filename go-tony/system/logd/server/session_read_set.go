@@ -131,34 +131,42 @@ var errPageFull = fmt.Errorf("page full")
 // thousand reads.
 func (s *Session) sendSetMember(id *string, req *api.MatchRequest, spec api.ReturnSpec, member string, commit int64, proven bool) (bool, error) {
 	hasPattern := req.Data != nil && req.Data.Type != ir.NullType
-	reportPath, reportName := member, memberID(member)
+	reportPath, reportName, reportIterType := member, memberID(member), ""
 	if !spec.Path {
 		reportPath = ""
 	}
 	if !spec.ID {
 		reportName = ""
 	}
+	if spec.IterType {
+		// The member's first event says what it is, and nothing there is no member.
+		kind, err := s.iterTypeAt(member, commit)
+		if err != nil || kind == "" {
+			return false, err
+		}
+		reportIterType = kind
+	}
 
 	if !spec.Body && !hasPattern {
 		// Nothing to read: the answer is where the node is, and there is no pattern
 		// that would need the node to decide whether this is a member at all.
-		if !proven {
+		if !proven && !spec.IterType {
 			// A concrete segment after the wildcard: the walk NAMED this path rather
 			// than finding it. Presence answers whether it is there without building
-			// the node.
+			// the node -- and an iterType has answered it already.
 			ok, err := s.pathExists(member, commit)
 			if err != nil || !ok {
 				return false, err
 			}
 		}
-		s.send(api.NewMatchMemberResponse(id, commit, reportPath, reportName, nil))
+		s.send(api.NewMatchMemberResponse(id, commit, reportPath, reportName, reportIterType, nil))
 		return true, nil
 	}
 
 	// The same fast path a single-node read takes: no pattern and no keyed array to
 	// raise means the body is encoded as it is read, and no node of it is built.
 	if !hasPattern && !s.raises() {
-		err := s.encodedMatch(id, member, commit, reportPath, reportName)
+		err := s.encodedMatch(id, member, commit, reportPath, reportName, reportIterType)
 		if err == nil {
 			return true, nil
 		}
@@ -188,7 +196,7 @@ func (s *Session) sendSetMember(id *string, req *api.MatchRequest, spec api.Retu
 		// The pattern needed the node; the caller did not ask to be sent it.
 		state = nil
 	}
-	s.send(api.NewMatchMemberResponse(id, commit, reportPath, reportName, state))
+	s.send(api.NewMatchMemberResponse(id, commit, reportPath, reportName, reportIterType, state))
 	return true, nil
 }
 

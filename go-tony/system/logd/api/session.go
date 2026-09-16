@@ -129,13 +129,19 @@ type MatchRequest struct {
 	//     already, so this is the answer without the prefix on every member;
 	//   - `body` is what is there.
 	//
-	// `return: "id,body"` is a listing. `return: body` alone answers nodes nobody can
-	// tell apart, which is what a cumulative read wants -- summing, counting, measuring
-	// -- and nothing else should ask for.
+	// `iterType` says what kind of node it is, and so whether there is anything under
+	// it to list and with which wildcard (MatchResult.IterType).
+	//
+	// `return: "id,body"` is a listing, and `return: "path,iterType"` is the walk a
+	// client browsing the store makes: each member's path with IterWildcard of its kind
+	// appended is the next set to ask for. `return: body` alone answers nodes nobody can
+	// tell apart, which is what a cumulative read wants -- summing, counting, measuring --
+	// and nothing else should ask for.
 	//
 	// With no pattern, a spec with no body reads no node at all: the walk that finds
-	// the members already knows their names. With a pattern the nodes are still read --
-	// the pattern has to see them -- and only the bodies are left off the wire.
+	// the members already knows their names, and a member's iterType is its first event.
+	// With a pattern the nodes are still read -- the pattern has to see them -- and only
+	// the bodies are left off the wire.
 	//
 	// A set answers `"path,body"` by default. A path that names ONE node answers the
 	// body, since the caller has that path already; `return: path` there is an
@@ -152,16 +158,18 @@ type MatchRequest struct {
 // -- who wrote the node, the commit it last changed at -- which is why this is a spec
 // and not a flag.
 const (
-	ReturnPath = "path"
-	ReturnID   = "id"
-	ReturnBody = "body"
+	ReturnPath     = "path"
+	ReturnID       = "id"
+	ReturnBody     = "body"
+	ReturnIterType = "iterType"
 )
 
 // ReturnSpec is a parsed MatchRequest.Return: what an answer carries.
 type ReturnSpec struct {
-	Path bool
-	ID   bool
-	Body bool
+	Path     bool
+	ID       bool
+	Body     bool
+	IterType bool
 }
 
 // ParseReturnSpec reads a retspec, answering def when it is empty. A name it does not
@@ -181,14 +189,16 @@ func ParseReturnSpec(spec string, def ReturnSpec) (ReturnSpec, error) {
 			out.ID = true
 		case ReturnBody:
 			out.Body = true
+		case ReturnIterType:
+			out.IterType = true
 		case "":
 			continue
 		default:
-			return ReturnSpec{}, fmt.Errorf("return %q: this server knows %q, %q and %q",
-				strings.TrimSpace(name), ReturnPath, ReturnID, ReturnBody)
+			return ReturnSpec{}, fmt.Errorf("return %q: this server knows %q, %q, %q and %q",
+				strings.TrimSpace(name), ReturnPath, ReturnID, ReturnBody, ReturnIterType)
 		}
 	}
-	if !out.Path && !out.ID && !out.Body {
+	if !out.Path && !out.ID && !out.Body && !out.IterType {
 		return ReturnSpec{}, fmt.Errorf("return %q: an answer carries something", spec)
 	}
 	return out, nil
@@ -473,6 +483,16 @@ type MatchResult struct {
 	// Path, since an id is not a path segment and a position is not an identity.
 	// Asked for by ReturnID.
 	ID string `tony:"field=id,omitzero"`
+	// IterType is what kind of node this is, in the terms a client lists by: one of
+	// the Iter* names. A container says which wildcard reaches its children -- IterWildcard
+	// -- and a leaf has none.
+	//
+	// It is not the IR's type. A sparse array is an Object in the IR, tagged, and a keyed
+	// array is an Array to a client and an object of names in the store; neither type
+	// says how to list one, and [*] over a keyed array names nothing. So the four kinds
+	// of container are four names here, and a keyed array is the schema's word at the
+	// commit read. Asked for by ReturnIterType.
+	IterType string `tony:"field=iterType,omitzero"`
 	// Done marks the end of a set: the last result, carrying no Body. An empty set
 	// is this marker alone -- a query for a set answers with a set, and empty is one,
 	// where ErrCodeNotFound stays what it is for a path that names one place.
@@ -482,6 +502,36 @@ type MatchResult struct {
 	// opaque -- a client that reads it is reading a shape the server, or docd
 	// composing one out of its participants', may change.
 	Cursor string `tony:"field=cursor,omitzero"`
+}
+
+// The names MatchResult.IterType answers with. A container's name says how its children
+// are listed (IterWildcard); a leaf's says there is nothing under it.
+const (
+	IterObject      = "Object"      // fields, listed by .*
+	IterSparseArray = "SparseArray" // number keys, listed by {*}
+	IterArray       = "Array"       // positions, listed by [*]
+	IterKeyedArray  = "KeyedArray"  // elements by identity, listed by (*)
+	IterString      = "String"
+	IterNumber      = "Number"
+	IterBool        = "Bool"
+	IterNull        = "Null"
+)
+
+// IterWildcard is the wildcard segment that lists the children of a node of kind
+// iterType -- ".*", "{*}", "[*]" or "(*)" -- or "" for a leaf, which has none. Appended
+// to the node's path, it is the next set to ask for.
+func IterWildcard(iterType string) string {
+	switch iterType {
+	case IterObject:
+		return ".*"
+	case IterSparseArray:
+		return "{*}"
+	case IterArray:
+		return "[*]"
+	case IterKeyedArray:
+		return "(*)"
+	}
+	return ""
 }
 
 // PatchResult is the result of a patch request.
@@ -771,18 +821,19 @@ func NewMatchResponse(id *string, commit int64, body *ir.Node) *SessionResponse 
 }
 
 // NewMatchMemberResponse creates the answer for one node of a set: what the request's
-// retspec asked for -- its path, the name it lives under, its body -- and the commit
-// the whole set is read at. An empty path or name, or a nil body, is left out. See
-// MatchResult.
-func NewMatchMemberResponse(reqID *string, commit int64, path, name string, body *ir.Node) *SessionResponse {
+// retspec asked for -- its path, the name it lives under, its kind, its body -- and the
+// commit the whole set is read at. An empty path, name or kind, or a nil body, is left
+// out. See MatchResult.
+func NewMatchMemberResponse(reqID *string, commit int64, path, name, iterType string, body *ir.Node) *SessionResponse {
 	return &SessionResponse{
 		ID: reqID,
 		Result: &SessionResult{
 			Match: &MatchResult{
-				Commit: commit,
-				Path:   path,
-				ID:     name,
-				Body:   body,
+				Commit:   commit,
+				Path:     path,
+				ID:       name,
+				IterType: iterType,
+				Body:     body,
 			},
 		},
 	}

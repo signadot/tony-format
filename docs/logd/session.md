@@ -135,11 +135,11 @@ wants built at either end, and the paths are half the answer.
 #### `return`: what an answer carries
 
 `return` is a comma-separated retspec naming the result's own fields — `path`, `id`,
-`body`. A spec lists what comes back, so there is nothing to translate, and the names
-that follow (an author, the commit a node last changed at) join it the same way. A set
-answers `"path,body"` unless asked otherwise.
+`iterType`, `body`. A spec lists what comes back, so there is nothing to translate, and
+the names that follow (an author, the commit a node last changed at) join it the same
+way. A set answers `"path,body"` unless asked otherwise.
 
-The three say a node three ways:
+`path`, `id` and `body` say a node three ways:
 
 ```tony
 {id: "3", match: {path: "jobs.*", return: path}}
@@ -162,11 +162,42 @@ The three say a node three ways:
   apart**, which is what a cumulative read wants — summing, counting, measuring — and
   what nothing else should ask for.
 
+**`iterType`** says what kind of node it is, in the terms a client lists by — so what is
+under it, and which wildcard reaches it:
+
+| `iterType` | children listed by |
+|---|---|
+| `Object` | `.*` |
+| `SparseArray` | `{*}` |
+| `Array` | `[*]` |
+| `KeyedArray` | `(*)` |
+| `String`, `Number`, `Bool`, `Null` | — |
+
+```tony
+{id: "5", match: {path: "*", return: "path,iterType"}}
+{id: "5" result: {match: {path: jobs iterType: Object commit: 91}}}
+{id: "5" result: {match: {path: runs iterType: KeyedArray commit: 91}}}
+{id: "5" result: {match: {commit: 91 done: true}}}
+
+{id: "6", match: {path: "runs(*)", return: "path,iterType"}}
+```
+
+The member's path with its wildcard appended is the next set to ask for, so
+`"path,iterType"` is the walk a client browsing the store makes, a level at a time.
+
+It is **not the IR's type**. A sparse array is an `Object` in the IR, tagged
+`!sparsearray`; a keyed array is an `Array` to a client and an object of names in the
+store. Neither type says how to list one, and `[*]` over a keyed array names nothing — so
+the four containers are four names. Which arrays are keyed is the schema's word **at the
+commit read**, and an element of a keyed array is whatever the element is, not a
+`KeyedArray`.
+
 A spec with no `body` **reads no node at all** when there is no pattern: the walk that
 finds the members already knows their names, so "which jobs are there?" over ten
-thousand costs the walk rather than ten thousand reads. A path the walk *named* rather
-than found — anything after the wildcard, as in `jobs.*.status` — is settled by a
-presence check, so what is not there is not answered. With a pattern the nodes are still
+thousand costs the walk rather than ten thousand reads. `iterType` reads the first event
+of each member — how a node begins is what it is — and builds nothing. A path the walk
+*named* rather than found — anything after the wildcard, as in `jobs.*.status` — is
+settled by a presence check, so what is not there is not answered. With a pattern the nodes are still
 read, because the pattern has to see them; what is saved then is the bodies on the wire.
 
 A name this server does not know — `return: "path,author"` — is `unsupported`, said
@@ -175,7 +206,12 @@ less and told nothing.
 
 For a path that names **one** node the default is `body`, since the caller already has
 the path; `return: path` there is an existence question, answered by the path alone or
-by `not_found`.
+by `not_found`, and `return: iterType` is the same question answered with the kind.
+
+**Across docd**, a read docd passes through to logd — no mount at or beneath its path —
+answers its retspec as logd does. Past a mount it cannot: a controller answers a body,
+and a read composed across mounts is a body docd assembles. There a spec asking for more
+than `body` is `unsupported`, said rather than answered with the body alone.
 
 A wildcard anywhere else — a `patch`, the `match` precondition a patch carries, a
 `watch` — is `invalid_path`. Those need one node, and a set is not one.

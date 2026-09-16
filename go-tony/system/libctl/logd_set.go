@@ -31,13 +31,17 @@ func wildPath(path string) bool {
 const setChanDepth = 64
 
 // SetMember is one node of the set a wildcard path names: where it is, the name it
-// lives under, and what is there -- whichever of the three the read asked for. The path
-// is the store's own spelling, so it is a path this session can read, patch or watch on
-// its own.
+// lives under, what kind of node it is, and what is there -- whichever the read asked
+// for. The path is the store's own spelling, so it is a path this session can read,
+// patch or watch on its own.
+//
+// IterType is one of the api.Iter* names, and api.IterWildcard of it, appended to Path,
+// is the set of this node's children: what to list next, and how.
 type SetMember struct {
-	Path string
-	ID   string
-	Node *ir.Node
+	Path     string
+	ID       string
+	IterType string
+	Node     *ir.Node
 }
 
 // MatchEach reads the set at a wildcard path (.* [*] {*} (*) at any segment), calling
@@ -56,13 +60,17 @@ type SetMember struct {
 // pattern, when non-nil, is matched and trimmed against each member on its own, and a
 // member it rejects is not a member: fn does not see it.
 func (s *LogdSession) MatchEach(ctx context.Context, path string, pattern *ir.Node, fn func(SetMember) error) (int64, error) {
-	return s.matchEachReturning(ctx, path, pattern, "", fn)
+	return s.MatchEachReturning(ctx, path, pattern, "", fn)
 }
 
-// matchEachReturning is MatchEach with the retspec the request carries: "" for the
-// server's default (a set answers paths and bodies), ReturnPaths for where the members
-// are without what is in them.
-func (s *LogdSession) matchEachReturning(ctx context.Context, path string, pattern *ir.Node, ret string, fn func(SetMember) error) (int64, error) {
+// MatchEachReturning is MatchEach with the retspec the request carries
+// (api.MatchRequest.Return): "" for the server's default -- a set answers paths and
+// bodies -- or a comma-separated list of api.Return* names. `api.ReturnPath + "," +
+// api.ReturnIterType` is what a client walking the store asks: where each member is, and
+// how to list under it.
+//
+// A path naming one node is answered once, as MatchEach answers it.
+func (s *LogdSession) MatchEachReturning(ctx context.Context, path string, pattern *ir.Node, ret string, fn func(SetMember) error) (int64, error) {
 	commit := int64(0)
 	cursor := ""
 	for {
@@ -108,19 +116,19 @@ func (s *LogdSession) MatchSet(ctx context.Context, path string, pattern *ir.Nod
 // node to select on it. What it saves then is the bodies on the wire.
 func (s *LogdSession) MatchPaths(ctx context.Context, path string, pattern *ir.Node) ([]string, int64, error) {
 	var out []string
-	commit, err := s.matchEachReturning(ctx, path, pattern, api.ReturnPath, func(m SetMember) error {
+	commit, err := s.MatchEachReturning(ctx, path, pattern, api.ReturnPath, func(m SetMember) error {
 		out = append(out, m.Path)
 		return nil
 	})
 	return out, commit, err
 }
 
-// MatchIDs is MatchPaths answering the name each member lives under -- a1, [0], {7},
-// "(id=r1)" -- rather than its whole path. The prefix is the caller's own, so this is
-// the listing without it repeated on every member.
+// MatchIDs is MatchPaths answering the name each member lives under, as a value -- a1,
+// 0, 7, and r1 for an element of a keyed array -- rather than its whole path. The prefix
+// is the caller's own, so this is the listing without it repeated on every member.
 func (s *LogdSession) MatchIDs(ctx context.Context, path string, pattern *ir.Node) ([]string, int64, error) {
 	var out []string
-	commit, err := s.matchEachReturning(ctx, path, pattern, api.ReturnID, func(m SetMember) error {
+	commit, err := s.MatchEachReturning(ctx, path, pattern, api.ReturnID, func(m SetMember) error {
 		out = append(out, m.ID)
 		return nil
 	})
@@ -152,7 +160,7 @@ func (s *LogdSession) matchSetPage(ctx context.Context, match *api.MatchRequest,
 			if m.Done {
 				return m.Cursor, m.Commit, nil
 			}
-			member := SetMember{Path: m.Path, ID: m.ID, Node: m.Body}
+			member := SetMember{Path: m.Path, ID: m.ID, IterType: m.IterType, Node: m.Body}
 			// Whether this is one node or a member of a set is the PATH's question, not
 			// the answer's: a path naming one node is answered once, with its path or id
 			// if the retspec asked for them, and there is no marker to wait for. Read off

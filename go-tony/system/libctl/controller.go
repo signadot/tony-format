@@ -272,6 +272,13 @@ func (rt *controllerRuntime) dispatch(req *api.SessionRequest) {
 }
 
 func (rt *controllerRuntime) handleMatch(req *api.SessionRequest) {
+	// A Handler answers a body, and nothing else: a retspec asking for a node's path, its
+	// id or its kind is a question this runtime cannot put to it, so it is refused rather
+	// than answered with the body alone -- an answer that looks complete and is not.
+	if spec, err := api.ParseReturnSpec(req.Match.Return, api.ReturnSpec{Body: true}); err != nil || spec != (api.ReturnSpec{Body: true}) {
+		rt.replyErr(req.ID, fmt.Errorf("%w: return %q: a mounted controller answers a body alone", ErrUnsupported, req.Match.Return))
+		return
+	}
 	body, err := rt.handler.Match(rt.ctx, req.Match.Path, req.Match.Data, MatchParams{Scope: req.Scope, Commit: req.Match.Commit})
 	if err != nil {
 		rt.replyErr(req.ID, err)

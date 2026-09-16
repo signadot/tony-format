@@ -422,6 +422,147 @@ func TestMemberID(t *testing.T) {
 	}
 }
 
+// TestSetMatch_IterType: `return: iterType` says what kind each member is, in the terms
+// a client lists by, and the wildcard IterWildcard gives for it lists exactly that node's
+// children -- which is the point: the answer alone says what to list next and how
+// (1k6w71sfh12ksn5qn9n0). A sparse array is not an Object, a keyed array is not an Array,
+// and an element of a keyed array is not a keyed array.
+func TestSetMatch_IterType(t *testing.T) {
+	const doc = `{o: {a: 1, b: 2}, eo: {}, sp: !sparsearray {3: x, 7: y}, esp: !sparsearray {}, ` +
+		`arr: [1, 2, 3], earr: [], str: x, num: 1, flt: 1.5, yes: true, nul: null}`
+	want := map[string]string{
+		"o": api.IterObject, "eo": api.IterObject,
+		"sp": api.IterSparseArray, "esp": api.IterSparseArray,
+		"arr": api.IterArray, "earr": api.IterArray,
+		"str": api.IterString, "num": api.IterNumber, "flt": api.IterNumber,
+		"yes": api.IterBool, "nul": api.IterNull,
+	}
+	children := map[string]int{"o": 2, "sp": 2, "arr": 3}
+
+	// kinds answers a set's members by id, and checks each container's listing.
+	kinds := func(t *testing.T, store *storage.Storage, answers map[string]*setAnswer, id string, prefix string) map[string]string {
+		t.Helper()
+		out := map[string]string{}
+		var listings []string
+		for _, m := range mustSet(t, answers, id).members {
+			out[m.ID] = m.IterType
+			if w := api.IterWildcard(m.IterType); w != "" {
+				listings = append(listings, `{id: "list `+m.ID+`", match: {path: "`+kpathJoin(prefix, m.ID)+w+`", return: id}}`)
+			}
+		}
+		listed := runSet(t, store, listings...)
+		for name, n := range children {
+			if got := len(mustSet(t, listed, "list "+name).members); got != n {
+				t.Errorf("%s: listing %s by %s answered %d children, want %d",
+					id, name, api.IterWildcard(out[name]), got, n)
+			}
+		}
+		return out
+	}
+
+	// No schema: a body is streamed, and iterType rides the encoded frame.
+	t.Run("streamed", func(t *testing.T) {
+		store := openStore(t)
+		narrowWrite(t, store, "", doc)
+		answers := runSet(t, store,
+			`{id: "kinds", match: {path: "*", return: "id,iterType"}}`,
+			`{id: "with-body", match: {path: "*", return: "id,iterType,body"}}`,
+			`{id: "one", match: {path: "sp", return: iterType}}`,
+			`{id: "absent", match: {path: "nope", return: iterType}}`,
+		)
+		for name, got := range kinds(t, store, answers, "kinds", "") {
+			if got != want[name] {
+				t.Errorf("%s: iterType %q, want %q", name, got, want[name])
+			}
+		}
+		for _, m := range mustSet(t, answers, "with-body").members {
+			if m.IterType != want[m.ID] || m.Body == nil {
+				t.Errorf(`return: "id,iterType,body" answered %s: iterType %q, body %v`, m.ID, m.IterType, m.Body)
+			}
+		}
+		if a := answers["one"]; a == nil || a.err != nil || len(a.members) != 1 || a.members[0].IterType != api.IterSparseArray || a.members[0].Body != nil {
+			t.Errorf("return: iterType at one node answered %+v", a)
+		}
+		if a := answers["absent"]; a == nil || a.err == nil || a.err.Code != api.ErrCodeNotFound {
+			t.Errorf("return: iterType where nothing stands answered %+v, want not_found", a)
+		}
+	})
+
+	// A schema keying an array: bodies are built and raised, and the keyed array is its
+	// own kind -- at the commit read, by the schema in force then.
+	t.Run("keyed", func(t *testing.T) {
+		store := openStore(t)
+		keyed, err := parse.Parse([]byte(`{define: {runs: {id: !logd-key null}}}`))
+		if err != nil {
+			t.Fatalf("parse schema: %v", err)
+		}
+		if _, err := store.SetSchema(keyed, false); err != nil {
+			t.Fatalf("SetSchema: %v", err)
+		}
+		narrowWrite(t, store, "", `{runs: [{id: r1, n: 1}, {id: r2, n: 2}]}`)
+		narrowWrite(t, store, "", doc)
+		then, err := store.GetCurrentCommit()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want["runs"] = api.IterKeyedArray
+		children["runs"] = 2
+		defer delete(want, "runs")
+		defer delete(children, "runs")
+
+		answers := runSet(t, store,
+			`{id: "kinds", match: {path: "*", return: "id,iterType"}}`,
+			`{id: "with-body", match: {path: "*", return: "id,iterType,body"}}`,
+			`{id: "elements", match: {path: "runs(*)", return: "id,iterType,body"}}`,
+			`{id: "one", match: {path: "runs", data: {}, return: "iterType"}}`,
+		)
+		for name, got := range kinds(t, store, answers, "kinds", "") {
+			if got != want[name] {
+				t.Errorf("%s: iterType %q, want %q", name, got, want[name])
+			}
+		}
+		for _, m := range mustSet(t, answers, "with-body").members {
+			if m.IterType != want[m.ID] || m.Body == nil {
+				t.Errorf(`return: "id,iterType,body" answered %s: iterType %q, body %v`, m.ID, m.IterType, m.Body)
+			}
+		}
+		for _, m := range mustSet(t, answers, "elements").members {
+			if m.IterType != api.IterObject {
+				t.Errorf("element %s of a keyed array: iterType %q, want %q", m.ID, m.IterType, api.IterObject)
+			}
+		}
+		if a := answers["one"]; a == nil || a.err != nil || len(a.members) != 1 || a.members[0].IterType != api.IterKeyedArray {
+			t.Errorf("return: iterType at a keyed array under a pattern answered %+v", a)
+		}
+
+		unkeyed, err := parse.Parse([]byte(`{define: {runs: {id: null}}}`))
+		if err != nil {
+			t.Fatalf("parse schema: %v", err)
+		}
+		if _, err := store.SetSchema(unkeyed, true); err != nil {
+			t.Fatalf("SetSchema (losing identity): %v", err)
+		}
+		at := strconv.FormatInt(then, 10)
+		history := runSet(t, store,
+			`{id: "then", match: {path: "runs", commit: `+at+`, return: iterType}}`,
+			`{id: "now", match: {path: "runs", return: iterType}}`,
+		)
+		for id, kind := range map[string]string{"then": api.IterKeyedArray, "now": api.IterArray} {
+			if a := history[id]; a == nil || a.err != nil || len(a.members) != 1 || a.members[0].IterType != kind {
+				t.Errorf("runs %s: answered %+v, want iterType %q", id, a, kind)
+			}
+		}
+	})
+}
+
+// kpathJoin appends a member's id to the prefix it was listed under, as a field.
+func kpathJoin(prefix, id string) string {
+	if prefix == "" {
+		return id
+	}
+	return prefix + "." + id
+}
+
 // TestSetMatch_PatternAndHistory: the request's pattern selects and trims each member on
 // its own, and a historical commit reads the set as it was.
 func TestSetMatch_PatternAndHistory(t *testing.T) {

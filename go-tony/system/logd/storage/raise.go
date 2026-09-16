@@ -39,6 +39,19 @@ func (s *Storage) SchemaForAt(scopeID *string, commit int64) *api.Schema {
 	return s.schema.ParsedAt(commit)
 }
 
+// KeyedAt says whether the node at document path kp is a keyed array as of commit, in
+// the view scopeID names: an array to a client, and in the store the object of names this
+// file raises. An ELEMENT of a keyed array is not one -- its path elides to the array's in
+// the schema, which is why this asks schemaPathOfRead rather than the schema path alone.
+func (s *Storage) KeyedAt(scopeID *string, kp string, commit int64) bool {
+	schema := s.SchemaForAt(scopeID, commit)
+	if schema == nil {
+		return false
+	}
+	at, atElement, err := schemaPathOfRead(schema, kp)
+	return err == nil && !atElement && schema.Keyed(at)
+}
+
 // RaiseState puts array-ness back on the keyed arrays in a STATE at document path kp in
 // the view scopeID names, as of commit -- what a caller at the boundary does to a node it
 // collected from Read before handing it to a client. A state is op-free: the arrays come
