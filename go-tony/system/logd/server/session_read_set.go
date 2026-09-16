@@ -90,13 +90,13 @@ func (s *Session) handleSetMatch(id *string, req *api.MatchRequest, path string,
 	sent := 0
 	last := ""
 	more := false
-	err = s.eachSetMember(path, commit, after, func(member string, proven bool) error {
+	err = s.eachSetMember(path, commit, after, func(member string, proven bool, kind string) error {
 		if sent == limit {
 			// One member past the page: the set goes on, and the cursor resumes here.
 			more = true
 			return errPageFull
 		}
-		ok, err := s.sendSetMember(id, req, spec, member, commit, proven)
+		ok, err := s.sendSetMember(id, req, spec, member, commit, proven, kind)
 		if err != nil {
 			return err
 		}
@@ -126,10 +126,11 @@ var errPageFull = fmt.Errorf("page full")
 // rather than sent as an absence, since a set says what IS there.
 //
 // proven says the walk has already seen this node -- it enumerated it -- so nothing has
-// to be read to know it is there. That is what makes `return: paths` cheap: the names
-// are what the walk found, so a set of ten thousand costs the walk rather than ten
-// thousand reads.
-func (s *Session) sendSetMember(id *string, req *api.MatchRequest, spec api.ReturnSpec, member string, commit int64, proven bool) (bool, error) {
+// to be read to know it is there, and kind is what it saw, as MatchResult.IterType names
+// it; "" for a node the walk named rather than found. That is what makes `return: path`
+// and `return: iterType` cost the listing: the names and kinds are what the walk found,
+// so a set of ten thousand costs the pages rather than ten thousand reads.
+func (s *Session) sendSetMember(id *string, req *api.MatchRequest, spec api.ReturnSpec, member string, commit int64, proven bool, kind string) (bool, error) {
 	hasPattern := req.Data != nil && req.Data.Type != ir.NullType
 	reportPath, reportName, reportIterType := member, memberID(member), ""
 	if !spec.Path {
@@ -139,10 +140,14 @@ func (s *Session) sendSetMember(id *string, req *api.MatchRequest, spec api.Retu
 		reportName = ""
 	}
 	if spec.IterType {
-		// The member's first event says what it is, and nothing there is no member.
-		kind, err := s.iterTypeAt(member, commit)
-		if err != nil || kind == "" {
-			return false, err
+		if kind == "" {
+			// A concrete segment after the wildcard: the member's first event says what
+			// it is, and nothing there is no member.
+			k, err := s.iterTypeAt(member, commit)
+			if err != nil || k == "" {
+				return false, err
+			}
+			kind = k
 		}
 		reportIterType = kind
 	}
@@ -270,29 +275,36 @@ func patternSelected(before, after *ir.Node) bool {
 // eachSetMember calls fn with the path of each member of the set path names at commit,
 // in the store's own order, skipping everything up to and including after (a cursor's
 // resume point, empty for the first page).
-func (s *Session) eachSetMember(path string, commit int64, after string, fn func(member string, proven bool) error) error {
+func (s *Session) eachSetMember(path string, commit int64, after string, fn func(member string, proven bool, kind string) error) error {
 	segs := kpath.SplitAll(path)
 	afterSegs := []string(nil)
 	if after != "" {
 		afterSegs = kpath.SplitAll(after)
 	}
-	return s.walkSet("", segs, afterSegs, commit, false, fn)
+	return s.walkSet("", segs, afterSegs, commit, false, "", fn)
 }
 
 // walkSet extends prefix by segs. afterSegs, while non-nil, is the cursor's path: the
-// walk is still on the branch the last page ended in, so a level skips the children
-// before the cursor's own, descends into that one still on the branch, and takes every
-// later sibling from the start. That is a seek rather than a rescan -- the members
-// already answered are never read again.
+// walk is still on the branch the last page ended in, so a level descends into the
+// cursor's own child still on the branch, and then lists every later sibling, from that
+// child on. That is a seek rather than a rescan -- the members already answered are
+// never read again, and the level's listing starts where the page ended.
+//
 // proven says the path so far was enumerated rather than merely named, so something
-// stands there and a paths-only answer needs no read to say so.
-func (s *Session) walkSet(prefix string, segs, afterSegs []string, commit int64, proven bool, fn func(string, bool) error) error {
+// stands there and a paths-only answer needs no read to say so; kind is what the
+// enumeration saw there, "" when it was named.
+//
+// A level is enumerated as it is listed (storage.Children): each child is walked
+// inside the listing's callback, so what is held at a level is the listing's own
+// position and not the level's children, and a page of a set of ten thousand costs the
+// page.
+func (s *Session) walkSet(prefix string, segs, afterSegs []string, commit int64, proven bool, kind string, fn func(string, bool, string) error) error {
 	if len(segs) == 0 {
 		if afterSegs != nil {
 			// The cursor's own member: answered on the previous page.
 			return nil
 		}
-		return fn(prefix, proven)
+		return fn(prefix, proven, kind)
 	}
 	seg := segs[0]
 	kp, err := kpath.Parse(seg)
@@ -318,103 +330,87 @@ func (s *Session) walkSet(prefix string, segs, afterSegs []string, commit int64,
 		}
 		// A step the walk TOOK rather than found: whether anything stands here is not
 		// known until something reads it.
-		return s.walkSet(child, segs[1:], next, commit, false, fn)
+		return s.walkSet(child, segs[1:], next, commit, false, "", fn)
 	}
 
-	children, err := s.setChildren(prefix, kp, commit)
-	if err != nil {
-		return err
-	}
-	resuming := afterSegs != nil
-	for _, child := range children {
-		next := []string(nil)
-		if resuming {
-			if len(afterSegs) == 0 {
-				return nil
-			}
-			if child != afterSegs[0] {
-				continue // before the cursor's child: answered on an earlier page
-			}
-			// The cursor's own child: descend still on its branch, and take every
-			// later sibling whole.
-			next = afterSegs[1:]
-			resuming = false
+	// The cursor's own child first, still on its branch: what is under it after the
+	// cursor is this page's to answer.
+	after := ""
+	if afterSegs != nil {
+		if len(afterSegs) == 0 {
+			return nil
 		}
-		// Enumerated: this child is one the walk found in the node above it.
-		if err := s.walkSet(kpath.Join(prefix, child), segs[1:], next, commit, true, fn); err != nil {
+		after = afterSegs[0]
+		if err := s.walkSet(kpath.Join(prefix, after), segs[1:], afterSegs[1:], commit, true, "", fn); err != nil {
 			return err
 		}
 	}
-	return nil
+	// Then every later sibling, whole. Enumerated: each is one the listing found in the
+	// node above it.
+	var walkErr error
+	err = s.eachChild(prefix, kp, commit, after, func(child, kind string) bool {
+		walkErr = s.walkSet(kpath.Join(prefix, child), segs[1:], nil, commit, true, kind, fn)
+		return walkErr == nil
+	})
+	if walkErr != nil {
+		return walkErr
+	}
+	return err
 }
 
-// setChildren is the segments a wildcard reaches at prefix: the children of the node
-// there, of the kind the wildcard names. A wildcard that meets a container of another
-// kind reaches nothing, which is an answer and not a fault.
+// eachChild lists the segments a wildcard reaches at prefix, from after, with the kind
+// of each as MatchResult.IterType names it: the children of the node there, of the kind
+// the wildcard names. A wildcard that meets a container of another kind reaches nothing,
+// which is an answer and not a fault.
 //
-// The value is read in the client's vocabulary, as any read of that path would be, so a
-// keyed array is an array here. (*) names its elements by identity, which is how the
-// store spells them and how a client addresses them; [*] names the positions of a dense
-// array, and names nothing in a keyed one, where identity replaces position.
-func (s *Session) setChildren(prefix string, kp *kpath.KPath, commit int64) ([]string, error) {
-	node, err := s.readValueAt(prefix, commit)
-	if err != nil {
-		if isAbsent(err) {
-			return nil, nil
-		}
-		return nil, err
+// The store keeps a keyed array as an object of names, and (*) names those -- how the
+// store spells the elements and how a client addresses them -- while .* and [*] name
+// nothing there: to a client it is an array, and identity replaces position. Whether
+// the array is keyed is the schema's word at the commit read (identityAt).
+func (s *Session) eachChild(prefix string, kp *kpath.KPath, commit int64, after string, fn func(child, kind string) bool) error {
+	keyed := len(s.identityAt(prefix, commit)) > 0
+	switch {
+	case kp.KeyAll && !keyed, kp.FieldAll && keyed, kp.IndexAll && keyed:
+		return nil
 	}
-	node = ir.Uncomment(node)
-	if node == nil {
-		return nil, nil
-	}
-	var out []string
-	switch node.Type {
-	case ir.ObjectType:
-		for i := range node.Fields {
-			f := node.Fields[i]
-			switch {
-			case kp.FieldAll:
-				out = append(out, kpath.Field(f.String).String())
-			case kp.SparseIndexAll:
-				// A sparse array is an object whose keys are numbers, so {*} is the
-				// number-keyed fields and nothing else.
-				if f.Type == ir.NumberType && f.Int64 != nil {
-					out = append(out, "{"+strconv.FormatInt(*f.Int64, 10)+"}")
-				}
-			}
+	return s.storage.Children(commit, s.scopeID(), prefix, after, func(c storage.Child) bool {
+		var wanted bool
+		switch c.Segment[0] {
+		case '[':
+			wanted = kp.IndexAll
+		case '{':
+			wanted = kp.SparseIndexAll
+		default:
+			wanted = kp.FieldAll || kp.KeyAll
 		}
-	case ir.ArrayType:
-		identity := s.identityAt(prefix, commit)
-		switch {
-		case kp.KeyAll:
-			if len(identity) == 0 {
-				return nil, nil // not a keyed array: (*) names nothing here
-			}
-			for _, elem := range node.Values {
-				name, ok := ident.Of(ir.Uncomment(elem), identity)
-				if !ok {
-					// An element that does not carry its identity cannot be addressed,
-					// and the store refuses to hold one, so this is not reachable from a
-					// write that went through logd. Skipping it keeps a set of
-					// addressable members rather than one a client cannot act on.
-					continue
-				}
-				// As the store spells it: the name is the FIELD that holds the element,
-				// and kpath quotes it, so the member is runs."(id=r1)" -- the path the
-				// index is keyed by, and one a client can read on its own.
-				out = append(out, kpath.Field(name.Field()).String())
-			}
-		case kp.IndexAll:
-			if len(identity) > 0 {
-				return nil, nil // keyed: identity replaces position
-			}
-			for i := range node.Values {
-				out = append(out, "["+strconv.Itoa(i)+"]")
-			}
+		if !wanted {
+			return true
 		}
+		return fn(c.Segment, s.iterTypeOf(c.Kind, kpath.Join(prefix, c.Segment), commit))
+	})
+}
+
+// iterTypeOf is a listed child's kind as MatchResult.IterType names it: an object the
+// schema keys at the commit read is a KeyedArray.
+func (s *Session) iterTypeOf(kind storage.ChildKind, path string, commit int64) string {
+	switch kind {
+	case storage.ChildObject:
+		if s.storage.KeyedAt(s.scopeID(), path, commit) {
+			return api.IterKeyedArray
+		}
+		return api.IterObject
+	case storage.ChildSparseArray:
+		return api.IterSparseArray
+	case storage.ChildArray:
+		return api.IterArray
+	case storage.ChildString:
+		return api.IterString
+	case storage.ChildNumber:
+		return api.IterNumber
+	case storage.ChildBool:
+		return api.IterBool
 	}
-	return out, nil
+	return api.IterNull
 }
 
 // identityAt is the identity fields the schema gives the array at path, or none. The

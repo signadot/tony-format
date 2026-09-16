@@ -201,13 +201,20 @@ the four containers are four names. Which arrays are keyed is the schema's word 
 commit read**, and an element of a keyed array is whatever the element is, not a
 `KeyedArray`.
 
-A spec with no `body` **reads no node at all** when there is no pattern: the walk that
-finds the members already knows their names, so "which jobs are there?" over ten
-thousand costs the walk rather than ten thousand reads. `iterType` reads the first event
-of each member — how a node begins is what it is — and builds nothing. A path the walk
-*named* rather than found — anything after the wildcard, as in `jobs.*.status` — is
-settled by a presence check, so what is not there is not answered. With a pattern the nodes are still
-read, because the pattern has to see them; what is saved then is the bodies on the wire.
+**What a listing costs.** A level of a set is listed, not built: a snapshot holds a
+table of each container's children — their names and kinds — and a listing reads that
+table from where the page starts, plus the writes since the snapshot, each once. So a spec
+with no `body` and no pattern costs the page, whatever the container's size: "which jobs
+are there?" over ten thousand is a page of names, and a container too large for any read
+budget lists all the same. `iterType` is in the table and costs nothing more. A path the
+walk *named* rather than found — anything after the wildcard, as in `jobs.*.status` — is
+settled by a presence check per member, and what is not there is not answered. A `body`,
+or a pattern (which has to see the node), is a read per member, which seeks the snapshot
+and costs the member.
+
+Where the store cannot list from a table — a write above the path that states it whole,
+or a snapshot from before tables existed — it streams the container and takes the names as
+they pass: the container's bytes in time, and nothing held.
 
 A name this server does not know — `return: "path,author"` — is `unsupported`, said
 rather than ignored, so a client asking a later server for more is never answered with

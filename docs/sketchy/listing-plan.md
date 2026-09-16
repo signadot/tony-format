@@ -168,9 +168,19 @@ Each step ships alone and is tested alone.
    middle in 2 ms, from the table. Two counters say which way a listing went,
    `listings.table` and `listings.stream`. Not tested in a store: a snapshot from before
    the directory, whose fallback is the same streaming the blocked case takes.
-5. **`setChildren` uses it.** `TestSetMatch_ListsBeyondTheReadBudget` (on this branch,
-   failing) goes green; `session.md`'s "reads no node at all" becomes true, and says
-   what a listing costs.
+5. **`setChildren` uses it.** Done: the walk lists a level through `Children`, walking
+   each child inside the listing's callback so nothing is collected, with the cursor's
+   segment as `after`; kinds ride along, so `iterType` is a read only for a member the
+   walk named rather than found. `TestSetMatch_ListsBeyondTheReadBudget` is green:
+   seven listings of 200 under an 8 KiB budget, where the container itself is refused.
+   `session.md` says what a listing costs.
+
+   One number from it: those seven listings took 851 ms, nearly all in the body and
+   presence reads, each decoding the 30 KB write the container arrived in -- under the
+   1 MiB floor of step 1's policy, so the parent is never snapshotted. With the floor at
+   4 KiB the same test takes 83 ms. The floor's default is a decision: the ratio is what
+   guards against churn, and the floor only says what is too small to be worth a
+   snapshot.
 
 ## Verification
 

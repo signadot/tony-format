@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/signadot/tony-format/go-tony/gomap"
+	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/stream"
 )
@@ -324,10 +325,13 @@ func (b *Builder) closeContainer() error {
 }
 
 // kindOfEvent is the kind of value an event begins. An object is an object until an int
-// key says otherwise (noteKey).
+// key says otherwise (noteKey) -- or its tag does, which is all an empty sparse array has.
 func kindOfEvent(ev *stream.Event) Kind {
 	switch ev.Type {
 	case stream.EventBeginObject:
+		if ir.TagHas(ev.Tag, ir.IntKeysTag) {
+			return KindSparseArray
+		}
 		return KindObject
 	case stream.EventBeginArray:
 		return KindArray

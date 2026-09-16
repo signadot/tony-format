@@ -898,7 +898,10 @@ func TestSetMatch_ListsBeyondTheReadBudget(t *testing.T) {
 	narrowWrite(t, store, "", "{jobs: {"+strings.Join(jobs, ", ")+"}, nums: !sparsearray {"+strings.Join(nums, ", ")+
 		"}, list: ["+strings.Join(list, ", ")+"], runs: ["+strings.Join(runs, ", ")+"]}")
 
-	answers := runSetWith(t, &SessionConfig{Storage: store, Hub: NewWatchHub(), ReadBudget: 8 << 10},
+	ls := newLiveSessionWith(t, &SessionConfig{Storage: store, Hub: NewWatchHub(), ReadBudget: 8 << 10})
+	ids := []string{"container", "jobs", "jobs-bodies", "nums", "list", "runs", "under"}
+	started := time.Now()
+	for _, req := range []string{
 		`{id: "container", match: {path: jobs}}`,
 		`{id: "jobs", match: {path: "jobs.*", return: path}}`,
 		`{id: "jobs-bodies", match: {path: "jobs.*", return: "path,body"}}`,
@@ -906,7 +909,37 @@ func TestSetMatch_ListsBeyondTheReadBudget(t *testing.T) {
 		`{id: "list", match: {path: "list[*]", return: id}}`,
 		`{id: "runs", match: {path: "runs(*)", return: id}}`,
 		`{id: "under", match: {path: "jobs.*.status", return: path}}`,
-	)
+	} {
+		ls.send(req)
+	}
+	got := ls.until("every listing to end", func(m map[string][]*api.SessionResponse) bool {
+		for _, id := range ids {
+			if len(m[id]) == 0 {
+				return false
+			}
+			last := m[id][len(m[id])-1]
+			if last.Error == nil && !(last.Result != nil && last.Result.Match != nil && last.Result.Match.Done) {
+				return false
+			}
+		}
+		return true
+	})
+	t.Logf("seven listings of 200 under an 8 KiB budget: %v", time.Since(started))
+	answers := map[string]*setAnswer{}
+	for id, rs := range got {
+		a := &setAnswer{}
+		for _, r := range rs {
+			switch {
+			case r.Error != nil:
+				a.err = r.Error
+			case r.Result != nil && r.Result.Match != nil && r.Result.Match.Done:
+				a.marker = r.Result.Match
+			case r.Result != nil && r.Result.Match != nil:
+				a.members = append(a.members, r.Result.Match)
+			}
+		}
+		answers[id] = a
+	}
 	if a := answers["container"]; a == nil || a.err == nil {
 		t.Errorf("the container itself was read within an 8 KiB budget: %+v", a)
 	}

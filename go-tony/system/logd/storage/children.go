@@ -455,7 +455,8 @@ func kindOfNode(n *ir.Node) ChildKind {
 	}
 	switch n.Type {
 	case ir.ObjectType:
-		if len(n.Fields) > 0 && n.Fields[0].Type == ir.NumberType {
+		// An int key says sparse array, and so does the tag, which is all an empty one has.
+		if ir.TagHas(n.Tag, ir.IntKeysTag) || len(n.Fields) > 0 && n.Fields[0].Type == ir.NumberType {
 			return ChildSparseArray
 		}
 		return ChildObject
@@ -474,6 +475,9 @@ func kindOfNode(n *ir.Node) ChildKind {
 func kindOfEvent(ev *stream.Event) ChildKind {
 	switch ev.Type {
 	case stream.EventBeginObject:
+		if ir.TagHas(ev.Tag, ir.IntKeysTag) {
+			return ChildSparseArray
+		}
 		return ChildObject
 	case stream.EventBeginArray:
 		return ChildArray

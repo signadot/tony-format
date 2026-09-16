@@ -31,6 +31,7 @@ runs:
   "(id=r1)": {id: r1, n: 1}
   "(id=r2)": {id: r2, n: 2}
 sparse: !sparsearray {3: three, 7: {deep: 1}}
+sparseempty: !sparsearray {}
 spec:
   flags: {nil: null, off: false, on: true}
   items:
@@ -49,7 +50,7 @@ func children(t *testing.T, n *ir.Node) (segs []string, kinds []Kind) {
 	n = ir.Uncomment(n)
 	switch n.Type {
 	case ir.ObjectType:
-		sparse := len(n.Fields) > 0 && n.Fields[0].Type == ir.NumberType
+		sparse := kindOf(t, n) == KindSparseArray
 		for i, f := range n.Fields {
 			if sparse {
 				segs = append(segs, kpath.SparseIndex(int(*f.Int64)).String())
@@ -72,7 +73,7 @@ func kindOf(t *testing.T, n *ir.Node) Kind {
 	n = ir.Uncomment(n)
 	switch n.Type {
 	case ir.ObjectType:
-		if len(n.Fields) > 0 && n.Fields[0].Type == ir.NumberType {
+		if ir.TagHas(n.Tag, ir.IntKeysTag) || len(n.Fields) > 0 && n.Fields[0].Type == ir.NumberType {
 			return KindSparseArray
 		}
 		return KindObject
@@ -188,9 +189,9 @@ func TestDirectory_SeeksByName(t *testing.T) {
 		after string
 		want  []string
 	}{
-		{"", []string{"empty", "name", "none", "ports", "runs", "sparse", "spec"}},
-		{"name", []string{"none", "ports", "runs", "sparse", "spec"}},
-		{"nam", []string{"name", "none", "ports", "runs", "sparse", "spec"}}, // between two names
+		{"", []string{"empty", "name", "none", "ports", "runs", "sparse", "sparseempty", "spec"}},
+		{"name", []string{"none", "ports", "runs", "sparse", "sparseempty", "spec"}},
+		{"nam", []string{"name", "none", "ports", "runs", "sparse", "sparseempty", "spec"}}, // between two names
 		{"spec", nil},
 		{"zzz", nil},
 	} {
