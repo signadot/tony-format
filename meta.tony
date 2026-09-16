@@ -6,7 +6,10 @@ commits: []
 created: "2026-09-16T22:10:37.089521+02:00"
 duplicates: []
 id: y78j0pqzh12ksffqn9n0
-labels: []
+labels:
+- bug
+- logd
+- test
 related_issues: []
 status: open
-updated: "2026-09-16T22:10:37.089521+02:00"
+updated: "2026-09-16T22:10:37.909906+02:00"
