@@ -183,6 +183,12 @@ func (s *StorageConfig) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Field: PathSnapshotBytes
 	irMap["pathSnapshotBytes"] = ir.FromInt(int64(s.PathSnapshotBytes))
 
+	// Field: PathSnapshotDecodeRatio
+	irMap["pathSnapshotDecodeRatio"] = ir.FromInt(int64(s.PathSnapshotDecodeRatio))
+
+	// Field: PathSnapshotDecodeFloor
+	irMap["pathSnapshotDecodeFloor"] = ir.FromInt(int64(s.PathSnapshotDecodeFloor))
+
 	// Field: IndexCeiling
 	irMap["indexCeiling"] = ir.FromInt(int64(s.IndexCeiling))
 
@@ -249,6 +255,18 @@ func (s *StorageConfig) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) err
 				return fmt.Errorf("field %q: expected number, got %v", "pathSnapshotBytes", fieldNodeUnwrapped.Type)
 			}
 			s.PathSnapshotBytes = int64(*fieldNodeUnwrapped.Int64)
+		case "pathSnapshotDecodeRatio":
+			// Field: PathSnapshotDecodeRatio
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "pathSnapshotDecodeRatio", fieldNodeUnwrapped.Type)
+			}
+			s.PathSnapshotDecodeRatio = int64(*fieldNodeUnwrapped.Int64)
+		case "pathSnapshotDecodeFloor":
+			// Field: PathSnapshotDecodeFloor
+			if fieldNodeUnwrapped.Int64 == nil {
+				return fmt.Errorf("field %q: expected number, got %v", "pathSnapshotDecodeFloor", fieldNodeUnwrapped.Type)
+			}
+			s.PathSnapshotDecodeFloor = int64(*fieldNodeUnwrapped.Int64)
 		case "indexCeiling":
 			// Field: IndexCeiling
 			if fieldNodeUnwrapped.Int64 == nil {

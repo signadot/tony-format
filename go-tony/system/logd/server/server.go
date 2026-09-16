@@ -115,6 +115,11 @@ func New(spec *Spec) *Server {
 			tail, bytes := spec.Storage.PathSnapshotPolicy()
 			spec.Log.Info("configured path snapshots", "tail", tail, "bytes", bytes)
 		}
+		if st := spec.Config.Storage; st != nil && (st.PathSnapshotDecodeRatio != 0 || st.PathSnapshotDecodeFloor != 0) {
+			spec.Storage.SetPathSnapshotDecodePolicy(st.PathSnapshotDecodeRatio, st.PathSnapshotDecodeFloor)
+			ratio, floor := spec.Storage.PathSnapshotDecodePolicy()
+			spec.Log.Info("configured path snapshots for decode", "ratio", ratio, "floor", floor)
+		}
 		if st := spec.Config.Storage; st != nil && st.IndexCeiling > 0 {
 			if err := spec.Storage.SetIndexCeiling(st.IndexCeiling); err != nil {
 				spec.Log.Error("index ceiling not applied", "error", err)

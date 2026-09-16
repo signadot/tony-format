@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -379,4 +380,120 @@ func TestAHotShallowPathFoldsAtMostTheTail(t *testing.T) {
 	if st := s.ReadStats(); st.PathSnapshots < 2 {
 		t.Errorf("the snapshot was never renewed: %d taken over five rounds of eight writes", st.PathSnapshots)
 	}
+}
+
+// heavyContainer is one write of n records of ~150 bytes under `under` (the root when
+// empty): the container that arrives whole, whose every child read then decodes it.
+func heavyContainer(t *testing.T, s *Storage, under string, n int) (head int64) {
+	t.Helper()
+	pad := strings.Repeat("x", 120)
+	var b strings.Builder
+	if under != "" {
+		b.WriteString("{" + under + ": ")
+	}
+	b.WriteString("{")
+	for i := range n {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		fmt.Fprintf(&b, "j%06d: {status: done, note: %s}", i, pad)
+	}
+	b.WriteString("}")
+	if under != "" {
+		b.WriteString("}")
+	}
+	mustCommit(t, s, nil, b.String())
+	head, _ = s.GetCurrentCommit()
+	return head
+}
+
+// A read that decodes an entry far larger than what it answers -- a child of a container
+// that arrived as one write -- takes a snapshot of the child's PARENT, so the reads beside
+// it seek instead of decoding the write again. The tail policy never fires here: the fold
+// is one record. Without this every child read paid the whole write: 44 ms a child at ten
+// thousand, measured (3kgxprskh12krjrmndn0).
+func TestAReadDecodingAHeavyEntryTakesASnapshotOfItsParent(t *testing.T) {
+	s := openTestStorage(t)
+	head := heavyContainer(t, s, "jobs", 10000)
+
+	if got, _, err := readSubtreeAt(s, "jobs.j000001", head, nil); err != nil || got == nil {
+		t.Fatalf("read jobs.j000001: %v (%v)", got, err)
+	}
+	s.waitPathSnapshots()
+	st := s.ReadStats()
+	if st.PathSnapshots != 1 || st.SnapForDecode != 1 {
+		t.Fatalf("path snapshots %d, for decode %d; want one, for the decode: %+v", st.PathSnapshots, st.SnapForDecode, st)
+	}
+	seg, ok := s.index.SnapshotAtOrAbove("jobs.j000002", head)
+	if !ok || seg.KindedPath != "jobs" || seg.StartCommit != head {
+		t.Fatalf("the seek at a sibling finds %+v (%v); want a snapshot of jobs at %d", seg, ok, head)
+	}
+
+	// The next child read seeks the parent's snapshot and folds nothing.
+	before := s.ReadStats()
+	started := time.Now()
+	if got, _, err := readSubtreeAt(s, "jobs.j000002", head, nil); err != nil || got == nil {
+		t.Fatalf("read jobs.j000002: %v (%v)", got, err)
+	}
+	t.Logf("a child read after the parent's snapshot: %v", time.Since(started))
+	after := s.ReadStats()
+	if after.SeekPath != before.SeekPath+1 || after.Folded != before.Folded {
+		t.Errorf("the second read did not seek the parent's snapshot with nothing to fold: seekPath %d→%d, folded %d→%d",
+			before.SeekPath, after.SeekPath, before.Folded, after.Folded)
+	}
+	if after.PathSnapshots != 1 {
+		t.Errorf("the second read took another snapshot: %d", after.PathSnapshots)
+	}
+}
+
+// A read that takes Presence and closes -- an existence check, a kind -- has paid the
+// decode too, and it fires the same; a child whose parent is the root does not, since the
+// root's snapshot is the switch's.
+func TestADecodeHeavyReadFiresWhenIncompleteAndNotAtTheRoot(t *testing.T) {
+	t.Run("incomplete", func(t *testing.T) {
+		s := openTestStorage(t)
+		head := heavyContainer(t, s, "jobs", 10000)
+		c, err := s.Read(head, nil, "jobs.j000001")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Presence() != Present {
+			t.Fatal("jobs.j000001 is not present")
+		}
+		c.Close()
+		s.waitPathSnapshots()
+		if st := s.ReadStats(); st.PathSnapshots != 1 {
+			t.Errorf("a presence read of a heavy child took %d snapshots, want 1: %+v", st.PathSnapshots, st)
+		}
+	})
+	t.Run("branch off", func(t *testing.T) {
+		// What the branch buys: without it the child's parent is never snapshotted,
+		// and every child read decodes the write.
+		s := openTestStorage(t)
+		s.SetPathSnapshotDecodePolicy(-1, 0)
+		head := heavyContainer(t, s, "jobs", 10000)
+		if _, _, err := readSubtreeAt(s, "jobs.j000001", head, nil); err != nil {
+			t.Fatal(err)
+		}
+		s.waitPathSnapshots()
+		started := time.Now()
+		if _, _, err := readSubtreeAt(s, "jobs.j000002", head, nil); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("a child read with the branch off: %v", time.Since(started))
+		if st := s.ReadStats(); st.PathSnapshots != 0 || st.SeekPath != 0 {
+			t.Errorf("with the branch off: %d snapshots, %d path seeks; want none", st.PathSnapshots, st.SeekPath)
+		}
+	})
+	t.Run("at the root", func(t *testing.T) {
+		s := openTestStorage(t)
+		head := heavyContainer(t, s, "", 10000)
+		if got, _, err := readSubtreeAt(s, "j000001", head, nil); err != nil || got == nil {
+			t.Fatalf("read j000001: %v (%v)", got, err)
+		}
+		s.waitPathSnapshots()
+		if st := s.ReadStats(); st.PathSnapshots != 0 || st.SnapDecodeAtRoot != 1 {
+			t.Errorf("a heavy child of the root: %d snapshots, %d declined at the root; want 0 and 1", st.PathSnapshots, st.SnapDecodeAtRoot)
+		}
+	})
 }

@@ -69,6 +69,11 @@ type ReadStats struct {
 	SnapAlreadyHave      int64
 	SnapAbsent           int64
 	SnapInProgress       int64
+	// SnapForDecode is reads that snapshotted their path's parent for having decoded an
+	// entry far larger than what they answered; SnapDecodeAtRoot the ones that would
+	// have, but the parent was the root.
+	SnapForDecode    int64
+	SnapDecodeAtRoot int64
 }
 
 // seekKind is what a read's seek found: nothing, the root snapshot, a snapshot of a path
@@ -108,6 +113,11 @@ type readStats struct {
 	snapAlreadyHave      atomic.Int64 // a snapshot at or above the path already stands there
 	snapAbsent           atomic.Int64 // the path holds nothing
 	snapInProgress       atomic.Int64 // the log was busy with another snapshot
+	// The decode branch (path_snapshot.go): reads that snapshotted their parent for
+	// having decoded an entry far larger than what they answered, and reads that would
+	// have but for the parent being the root.
+	snapForDecode    atomic.Int64
+	snapDecodeAtRoot atomic.Int64
 
 	// The scope term of a scoped read; see ReadStats.
 	scope          atomic.Int64
@@ -212,6 +222,8 @@ func (r *readStats) snapshot() ReadStats {
 		SnapAlreadyHave:      r.snapAlreadyHave.Load(),
 		SnapAbsent:           r.snapAbsent.Load(),
 		SnapInProgress:       r.snapInProgress.Load(),
+		SnapForDecode:        r.snapForDecode.Load(),
+		SnapDecodeAtRoot:     r.snapDecodeAtRoot.Load(),
 
 		Scope:          r.scope.Load(),
 		ScopeWide:      r.scopeWide.Load(),
@@ -255,6 +267,8 @@ func (r ReadStats) Report() map[string]any {
 		"snapshots.path.no.already-have":    r.SnapAlreadyHave,
 		"snapshots.path.no.absent":          r.SnapAbsent,
 		"snapshots.path.no.log-busy":        r.SnapInProgress,
+		"snapshots.path.for-decode":         r.SnapForDecode,
+		"snapshots.path.no.decode-at-root":  r.SnapDecodeAtRoot,
 		"reads.scope":                       r.Scope,
 		"reads.scope.wide":                  r.ScopeWide,
 		"reads.scope.folded":                r.ScopeFolded,

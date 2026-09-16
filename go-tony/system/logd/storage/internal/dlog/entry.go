@@ -73,6 +73,11 @@ type Entry struct {
 	// (05d8w3cjh12kswb1msn0). It takes no commit of its own, as a snapshot does not: it
 	// is at the head it was written under, and ordered by its position.
 	ScopeDeleted bool
+
+	// Size is the entry's length in the log, in bytes, as read back: what a read paid
+	// to decode it. It is not in the record -- the frame's length prefix is -- and it
+	// is 0 on an entry that was built rather than read.
+	Size int64 `tony:"omit"`
 }
 
 // NewScopeDeleteEntry creates the dlog.Entry recording that scopeID was deleted at
