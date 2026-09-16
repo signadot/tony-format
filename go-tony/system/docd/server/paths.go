@@ -7,7 +7,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
 )
 
-// claimedPathFields is pathFields for a path a mount or a clock claims, refusing a leading
+// claimedPathFields is pathFields for a path a mount claims, refusing a leading
 // "/" by name. A kpath has none, and kpath reads "/users" as ONE field named "/users", so
 // the check the handshake's own message promised -- "(no leading /)" -- passed it: a
 // controller configured with "/users" owned a top-level key nobody's traffic names, and
