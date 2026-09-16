@@ -63,6 +63,7 @@ define:
   commit: .[int]
   cursor: .[string]
   done: .[bool]
+  id: .[string]
   path: .[string]
 signature:
   name: session-match-result

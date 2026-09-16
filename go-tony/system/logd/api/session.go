@@ -114,34 +114,54 @@ type MatchRequest struct {
 	// a silent read of the current one. Path must be the path that started the read.
 	Cursor string `tony:"field=cursor,omitzero"`
 
-	// Return says what an answer carries, as a comma-separated retspec of the names in
-	// ReturnPaths and ReturnBody: `return: paths` answers where the nodes are, `return:
-	// body` the values alone, and `return: "paths,body"` both.
+	// Return says what an answer carries, as a comma-separated retspec naming the
+	// result's own fields: `return: path`, `return: body`, `return: "path,body"`. A
+	// spec that names the fields needs no translation -- what it lists is what comes
+	// back -- and the names that follow (an author, the commit a node last changed at)
+	// join it the same way.
 	//
-	// It is what a caller asking "which ones are there?" needs: with no pattern,
-	// `return: paths` reads no node at all, because the walk that finds the members
-	// already knows their names. With a pattern the nodes are still read -- the pattern
-	// has to see them -- and only the bodies are left off the wire.
+	// The three of them say a node three ways, and a caller takes what it is for:
 	//
-	// Empty is the default, and the default differs by what the path names: a set
-	// answers paths and bodies, and a path that names one node answers the body, since
-	// the caller has that path already. A name this server does not know is
-	// ErrCodeUnsupported, so a client asking a later server for more (an author, say)
-	// is told rather than quietly answered with less.
+	//   - `path` is where the node is, whole -- what the next read or write is
+	//     addressed by, and what a client keeps;
+	//   - `id` is the name the node lives under in its parent: a1, [0], {7},
+	//     "(id=r1)". A caller that asked jobs.* knows the rest already, so this is the
+	//     answer without the prefix repeated on every member;
+	//   - `body` is what is there.
+	//
+	// `return: "id,body"` is a listing. `return: body` alone answers nodes nobody can
+	// tell apart, which is what a cumulative read wants -- summing, counting, measuring
+	// -- and nothing else should ask for.
+	//
+	// With no pattern, a spec with no body reads no node at all: the walk that finds
+	// the members already knows their names. With a pattern the nodes are still read --
+	// the pattern has to see them -- and only the bodies are left off the wire.
+	//
+	// A set answers `"path,body"` by default. A path that names ONE node answers the
+	// body, since the caller has that path already; `return: path` there is an
+	// existence question, answered by the path alone or by ErrCodeNotFound.
+	//
+	// A name this server does not know is ErrCodeUnsupported, so a client asking a
+	// later server for more (an author, say) is told rather than quietly answered with
+	// less.
 	Return string `tony:"field=return,omitzero"`
 }
 
-// The names a MatchRequest.Return retspec is made of. More may follow -- who wrote the
-// node, the commit it last changed at -- which is why this is a spec and not a flag.
+// The names a MatchRequest.Return retspec is made of. They are the result's own fields,
+// so a spec lists what comes back rather than a vocabulary of its own. More may follow
+// -- who wrote the node, the commit it last changed at -- which is why this is a spec
+// and not a flag.
 const (
-	ReturnPaths = "paths"
-	ReturnBody  = "body"
+	ReturnPath = "path"
+	ReturnID   = "id"
+	ReturnBody = "body"
 )
 
 // ReturnSpec is a parsed MatchRequest.Return: what an answer carries.
 type ReturnSpec struct {
-	Paths bool
-	Body  bool
+	Path bool
+	ID   bool
+	Body bool
 }
 
 // ParseReturnSpec reads a retspec, answering def when it is empty. A name it does not
@@ -155,18 +175,20 @@ func ParseReturnSpec(spec string, def ReturnSpec) (ReturnSpec, error) {
 	var out ReturnSpec
 	for _, name := range strings.Split(spec, ",") {
 		switch strings.TrimSpace(name) {
-		case ReturnPaths:
-			out.Paths = true
+		case ReturnPath:
+			out.Path = true
+		case ReturnID:
+			out.ID = true
 		case ReturnBody:
 			out.Body = true
 		case "":
 			continue
 		default:
-			return ReturnSpec{}, fmt.Errorf("return %q: this server knows %q and %q",
-				strings.TrimSpace(name), ReturnPaths, ReturnBody)
+			return ReturnSpec{}, fmt.Errorf("return %q: this server knows %q, %q and %q",
+				strings.TrimSpace(name), ReturnPath, ReturnID, ReturnBody)
 		}
 	}
-	if !out.Paths && !out.Body {
+	if !out.Path && !out.ID && !out.Body {
 		return ReturnSpec{}, fmt.Errorf("return %q: an answer carries something", spec)
 	}
 	return out, nil
@@ -440,6 +462,11 @@ type MatchResult struct {
 	// path that names one node: the client has that path already, and saying it
 	// again would make every read carry it.
 	Path string `tony:"field=path,omitzero"`
+	// ID is the name the node lives under in its parent, spelled as a kpath segment:
+	// a1, [0], {7}, "(id=r1)". It is Path's last segment, and a caller that knows what
+	// it asked for rebuilds the path from it -- which is the point, since the prefix is
+	// the same for every member and the id is not. Asked for by ReturnID.
+	ID string `tony:"field=id,omitzero"`
 	// Done marks the end of a set: the last result, carrying no Body. An empty set
 	// is this marker alone -- a query for a set answers with a set, and empty is one,
 	// where ErrCodeNotFound stays what it is for a path that names one place.
@@ -737,15 +764,18 @@ func NewMatchResponse(id *string, commit int64, body *ir.Node) *SessionResponse 
 	}
 }
 
-// NewMatchMemberResponse creates the answer for one node of a set: its own path, its
-// body, and the commit the whole set is read at. See MatchResult.
-func NewMatchMemberResponse(id *string, commit int64, path string, body *ir.Node) *SessionResponse {
+// NewMatchMemberResponse creates the answer for one node of a set: what the request's
+// retspec asked for -- its path, the name it lives under, its body -- and the commit
+// the whole set is read at. An empty path or name, or a nil body, is left out. See
+// MatchResult.
+func NewMatchMemberResponse(reqID *string, commit int64, path, name string, body *ir.Node) *SessionResponse {
 	return &SessionResponse{
-		ID: id,
+		ID: reqID,
 		Result: &SessionResult{
 			Match: &MatchResult{
 				Commit: commit,
 				Path:   path,
+				ID:     name,
 				Body:   body,
 			},
 		},

@@ -72,9 +72,12 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 		s.sendError(id, api.ErrCodeUnsupported, err.Error())
 		return
 	}
-	reportPath := ""
-	if spec.Paths {
+	reportPath, reportName := "", ""
+	if spec.Path {
 		reportPath = path
+	}
+	if spec.ID {
+		reportName = lastSegment(path)
 	}
 	if !spec.Body && (req.Data == nil || req.Data.Type == ir.NullType) {
 		ok, err := s.pathExists(path, commit)
@@ -86,7 +89,7 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 			s.sendReadError(id, s.classifyAbsent(path, commit))
 			return
 		}
-		s.send(api.NewMatchMemberResponse(id, commit, reportPath, nil))
+		s.send(api.NewMatchMemberResponse(id, commit, reportPath, reportName, nil))
 		return
 	}
 
@@ -98,7 +101,7 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 	// and a keyed array needs it to be raised into the client's vocabulary; those reads
 	// build the node under the same budget.
 	if (req.Data == nil || req.Data.Type == ir.NullType) && !s.raises() {
-		if err := s.encodedMatch(id, path, commit, reportPath); err != nil {
+		if err := s.encodedMatch(id, path, commit, reportPath, reportName); err != nil {
 			s.sendReadError(id, err)
 		}
 		return
@@ -163,9 +166,10 @@ func (s *Session) raises() bool {
 //
 // An absent path is answered as a read of it is, before anything is encoded.
 //
-// reportPath is the path the answer carries, which is set for a member of a set and
-// empty for a read of a path that names one node -- the client has that path already.
-func (s *Session) encodedMatch(id *string, path string, commit int64, reportPath string) error {
+// reportPath and reportName are what the request's retspec asked the answer to carry
+// beside the body: the node's path, and the name it lives under. Both are empty for the
+// default read of a path that names one node -- the client has them already.
+func (s *Session) encodedMatch(id *string, path string, commit int64, reportPath, reportName string) error {
 	if commit == 0 {
 		return s.classifyAbsent(path, commit)
 	}
@@ -212,6 +216,14 @@ func (s *Session) encodedMatch(id *string, path string, commit int64, reportPath
 			return err
 		}
 		if err := enc.WriteString(reportPath); err != nil {
+			return err
+		}
+	}
+	if reportName != "" {
+		if err := enc.WriteKey("id"); err != nil {
+			return err
+		}
+		if err := enc.WriteString(reportName); err != nil {
 			return err
 		}
 	}

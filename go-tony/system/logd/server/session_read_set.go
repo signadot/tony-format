@@ -38,7 +38,7 @@ const maxSetPage = 1000
 // handleSetMatch answers a match whose path holds a wildcard.
 func (s *Session) handleSetMatch(id *string, req *api.MatchRequest, path string, commit int64) {
 	// A set answers paths and bodies unless the request asks for less.
-	spec, err := api.ParseReturnSpec(req.Return, api.ReturnSpec{Paths: true, Body: true})
+	spec, err := api.ParseReturnSpec(req.Return, api.ReturnSpec{Path: true, Body: true})
 	if err != nil {
 		s.sendError(id, api.ErrCodeUnsupported, err.Error())
 		return
@@ -131,9 +131,17 @@ var errPageFull = fmt.Errorf("page full")
 // thousand reads.
 func (s *Session) sendSetMember(id *string, req *api.MatchRequest, spec api.ReturnSpec, member string, commit int64, proven bool) (bool, error) {
 	hasPattern := req.Data != nil && req.Data.Type != ir.NullType
+	reportPath, reportName := member, lastSegment(member)
+	if !spec.Path {
+		reportPath = ""
+	}
+	if !spec.ID {
+		reportName = ""
+	}
+
 	if !spec.Body && !hasPattern {
-		// Nothing to read: the answer is the path, and there is no pattern that would
-		// need the node to decide whether this is a member at all.
+		// Nothing to read: the answer is where the node is, and there is no pattern
+		// that would need the node to decide whether this is a member at all.
 		if !proven {
 			// A concrete segment after the wildcard: the walk NAMED this path rather
 			// than finding it. Presence answers whether it is there without building
@@ -143,19 +151,14 @@ func (s *Session) sendSetMember(id *string, req *api.MatchRequest, spec api.Retu
 				return false, err
 			}
 		}
-		s.send(api.NewMatchMemberResponse(id, commit, member, nil))
+		s.send(api.NewMatchMemberResponse(id, commit, reportPath, reportName, nil))
 		return true, nil
-	}
-
-	reportPath := member
-	if !spec.Paths {
-		reportPath = ""
 	}
 
 	// The same fast path a single-node read takes: no pattern and no keyed array to
 	// raise means the body is encoded as it is read, and no node of it is built.
 	if !hasPattern && !s.raises() {
-		err := s.encodedMatch(id, member, commit, reportPath)
+		err := s.encodedMatch(id, member, commit, reportPath, reportName)
 		if err == nil {
 			return true, nil
 		}
@@ -185,8 +188,18 @@ func (s *Session) sendSetMember(id *string, req *api.MatchRequest, spec api.Retu
 		// The pattern needed the node; the caller did not ask to be sent it.
 		state = nil
 	}
-	s.send(api.NewMatchMemberResponse(id, commit, reportPath, state))
+	s.send(api.NewMatchMemberResponse(id, commit, reportPath, reportName, state))
 	return true, nil
+}
+
+// lastSegment is the name a path's node lives under in its parent, which is the path's
+// last segment as kpath spells it. The root has none.
+func lastSegment(path string) string {
+	segs := kpath.SplitAll(path)
+	if len(segs) == 0 {
+		return ""
+	}
+	return segs[len(segs)-1]
 }
 
 // pathExists says whether anything stands at path, without building the node there.

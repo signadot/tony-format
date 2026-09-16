@@ -5,19 +5,38 @@ import (
 	"fmt"
 
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
+
+// wildPath says the path names a set rather than one node, which is what decides
+// whether an answer carrying neither path nor id is the one node asked about or one
+// anonymous body of many.
+func wildPath(path string) bool {
+	kp, err := kpath.Parse(path)
+	if err != nil {
+		return false
+	}
+	for x := kp; x != nil; x = x.Next {
+		if x.Wild() {
+			return true
+		}
+	}
+	return false
+}
 
 // setChanDepth is how many members of a set the reader buffers ahead of the caller.
 // It is back-pressure, not a limit: a caller slower than the wire slows the read pump
 // once the buffer fills, and no member is lost.
 const setChanDepth = 64
 
-// SetMember is one node of the set a wildcard path names: where it is, and what is
-// there. The path is the store's own spelling, so it is a path this session can read,
-// patch or watch on its own.
+// SetMember is one node of the set a wildcard path names: where it is, the name it
+// lives under, and what is there -- whichever of the three the read asked for. The path
+// is the store's own spelling, so it is a path this session can read, patch or watch on
+// its own.
 type SetMember struct {
 	Path string
+	ID   string
 	Node *ir.Node
 }
 
@@ -89,8 +108,20 @@ func (s *LogdSession) MatchSet(ctx context.Context, path string, pattern *ir.Nod
 // node to select on it. What it saves then is the bodies on the wire.
 func (s *LogdSession) MatchPaths(ctx context.Context, path string, pattern *ir.Node) ([]string, int64, error) {
 	var out []string
-	commit, err := s.matchEachReturning(ctx, path, pattern, api.ReturnPaths, func(m SetMember) error {
+	commit, err := s.matchEachReturning(ctx, path, pattern, api.ReturnPath, func(m SetMember) error {
 		out = append(out, m.Path)
+		return nil
+	})
+	return out, commit, err
+}
+
+// MatchIDs is MatchPaths answering the name each member lives under -- a1, [0], {7},
+// "(id=r1)" -- rather than its whole path. The prefix is the caller's own, so this is
+// the listing without it repeated on every member.
+func (s *LogdSession) MatchIDs(ctx context.Context, path string, pattern *ir.Node) ([]string, int64, error) {
+	var out []string
+	commit, err := s.matchEachReturning(ctx, path, pattern, api.ReturnID, func(m SetMember) error {
+		out = append(out, m.ID)
 		return nil
 	})
 	return out, commit, err
@@ -121,16 +152,21 @@ func (s *LogdSession) matchSetPage(ctx context.Context, match *api.MatchRequest,
 			if m.Done {
 				return m.Cursor, m.Commit, nil
 			}
-			if m.Path == "" {
-				// The path named one node after all, so there is no set to walk: the
-				// answer is that node, and the read is over.
-				if err := fn(SetMember{Path: match.Path, Node: m.Body}); err != nil {
-					return "", m.Commit, err
-				}
-				return "", m.Commit, nil
+			member := SetMember{Path: m.Path, ID: m.ID, Node: m.Body}
+			single := m.Path == "" && m.ID == "" && !wildPath(match.Path)
+			if single {
+				// The path named one node, so the answer is about the path the caller
+				// sent, and there is no marker to wait for. A member with neither path
+				// nor id under a WILDCARD path is an anonymous body -- what a
+				// cumulative read asks for -- and keeps its empty path rather than
+				// claiming to live at the wildcard.
+				member.Path = match.Path
 			}
-			if err := fn(SetMember{Path: m.Path, Node: m.Body}); err != nil {
+			if err := fn(member); err != nil {
 				return "", m.Commit, err
+			}
+			if single {
+				return "", m.Commit, nil
 			}
 		case <-ctx.Done():
 			return "", 0, ctx.Err()

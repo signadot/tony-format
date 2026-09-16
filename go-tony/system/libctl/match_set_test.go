@@ -154,6 +154,28 @@ func TestMatchPaths_AnswersWhereWithoutWhat(t *testing.T) {
 	if len(done) != 3 {
 		t.Errorf("the pattern selected %d paths, want 3: %v", len(done), done)
 	}
+
+	// The same listing by the name each member lives under, without the prefix the
+	// caller already knows.
+	ids, _, err := s.MatchIDs(ctx, "jobs.*", nil)
+	if err != nil {
+		t.Fatalf("MatchIDs: %v", err)
+	}
+	if want := []string{"a", "b", "c", "d", "e", "f"}; !equalStrings(ids, want) {
+		t.Errorf("MatchIDs answered %v, want %v", ids, want)
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // TestMatchEach_StopsEarly: a caller that has seen enough returns an error from fn, and

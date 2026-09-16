@@ -134,32 +134,44 @@ wants built at either end, and the paths are half the answer.
 
 #### `return`: what an answer carries
 
-`return` is a comma-separated retspec — `paths`, `body`, or both. A set answers
-`"paths,body"` unless asked otherwise:
+`return` is a comma-separated retspec naming the result's own fields — `path`, `id`,
+`body`. A spec lists what comes back, so there is nothing to translate, and the names
+that follow (an author, the commit a node last changed at) join it the same way. A set
+answers `"path,body"` unless asked otherwise.
+
+The three say a node three ways:
 
 ```tony
-{id: "3", match: {path: "jobs.*", return: paths}}
+{id: "3", match: {path: "jobs.*", return: path}}
 {id: "3" result: {match: {path: jobs.a1 commit: 91}}}
-{id: "3" result: {match: {path: jobs.a2 commit: 91}}}
 {id: "3" result: {match: {commit: 91 done: true}}}
+
+{id: "4", match: {path: "jobs.*", return: "id,body"}}
+{id: "4" result: {match: {id: a1 body: {status: done} commit: 91}}}
+{id: "4" result: {match: {commit: 91 done: true}}}
 ```
 
-`return: paths` answers **where** the nodes are without what is in them, and with no
-pattern it reads no node at all: the walk that finds the members already knows their
-names, so "which jobs are there?" over ten thousand costs the walk rather than ten
-thousand reads. A path the walk *named* rather than found — anything after the wildcard,
-as in `jobs.*.status` — is checked for presence, so what is not there is not answered.
+- **`path`** is where the node is, whole — what the next read or write is addressed by.
+- **`id`** is the name it lives under in its parent: `a1`, `[0]`, `{7}`, `"(id=r1)"`.
+  A caller that asked `jobs.*` knows the rest, so `"id,body"` is the listing without the
+  prefix repeated on every member.
+- **`body`** is what is there. **`return: body` alone answers nodes nobody can tell
+  apart**, which is what a cumulative read wants — summing, counting, measuring — and
+  what nothing else should ask for.
 
-With a pattern the nodes are still read, because the pattern has to see them; what
-`return: paths` saves then is the bodies on the wire.
+A spec with no `body` **reads no node at all** when there is no pattern: the walk that
+finds the members already knows their names, so "which jobs are there?" over ten
+thousand costs the walk rather than ten thousand reads. A path the walk *named* rather
+than found — anything after the wildcard, as in `jobs.*.status` — is settled by a
+presence check, so what is not there is not answered. With a pattern the nodes are still
+read, because the pattern has to see them; what is saved then is the bodies on the wire.
 
-`return: body` answers the values alone, for a caller that does not need the paths. A
-name this server does not know — `return: "paths,author"` — is `unsupported`, said
+A name this server does not know — `return: "path,author"` — is `unsupported`, said
 rather than ignored, so a client asking a later server for more is never answered with
 less and told nothing.
 
 For a path that names **one** node the default is `body`, since the caller already has
-the path; `return: paths` there is an existence question, answered by the path alone or
+the path; `return: path` there is an existence question, answered by the path alone or
 by `not_found`.
 
 A wildcard anywhere else — a `patch`, the `match` precondition a patch carries, a

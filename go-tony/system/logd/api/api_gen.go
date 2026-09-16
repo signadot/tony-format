@@ -2250,6 +2250,11 @@ func (s *MatchResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["path"] = ir.FromString(string(s.Path))
 	}
 
+	// Field: ID
+	if s.ID != "" {
+		irMap["id"] = ir.FromString(string(s.ID))
+	}
+
 	// Field: Done
 	if s.Done {
 		irMap["done"] = ir.FromBool(bool(s.Done))
@@ -2311,6 +2316,12 @@ func (s *MatchResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error
 				return fmt.Errorf("field %q: expected string, got %v", "path", fieldNodeUnwrapped.Type)
 			}
 			s.Path = string(fieldNodeUnwrapped.String)
+		case "id":
+			// Field: ID
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "id", fieldNodeUnwrapped.Type)
+			}
+			s.ID = string(fieldNodeUnwrapped.String)
 		case "done":
 			// Field: Done
 			if fieldNodeUnwrapped.Type != ir.BoolType {

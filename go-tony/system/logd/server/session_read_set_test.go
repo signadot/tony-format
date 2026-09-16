@@ -159,40 +159,64 @@ func TestSetMatch_Wildcards(t *testing.T) {
 	}
 }
 
-// TestSetMatch_Return covers the retspec: what an answer carries. `return: paths`
-// answers where the nodes are without sending what is in them -- and, with no pattern,
-// without reading them; `return: body` answers the values alone.
+// TestSetMatch_Return covers the retspec: what an answer carries, from the three ways
+// it can say a node. `return: path` is where it is, `return: id` the name it lives
+// under, `return: body` what is in it -- and a spec with no body reads no node at all
+// when there is no pattern to make it.
 func TestSetMatch_Return(t *testing.T) {
 	store := openStore(t)
 	answers := runSet(t, store,
 		`{id: "seed", patch: {path: "", data: {jobs: {a1: {status: done}, a2: {status: ready}}, leaf: 1}}}`,
-		`{id: "paths", match: {path: "jobs.*", return: paths}}`,
+		`{id: "paths", match: {path: "jobs.*", return: path}}`,
+		`{id: "ids", match: {path: "jobs.*", return: id}}`,
+		`{id: "id-body", match: {path: "jobs.*", return: "id,body"}}`,
 		`{id: "bodies", match: {path: "jobs.*", return: body}}`,
-		`{id: "both", match: {path: "jobs.*", return: "paths,body"}}`,
-		`{id: "filtered-paths", match: {path: "jobs.*", data: {status: done}, return: paths}}`,
-		`{id: "under-paths", match: {path: "jobs.*.status", return: paths}}`,
-		`{id: "absent-under", match: {path: "jobs.*.nope", return: paths}}`,
-		`{id: "one-node", match: {path: "leaf", return: paths}}`,
-		`{id: "unknown", match: {path: "jobs.*", return: "paths,authors"}}`,
+		`{id: "both", match: {path: "jobs.*", return: "path,body"}}`,
+		`{id: "filtered-paths", match: {path: "jobs.*", data: {status: done}, return: path}}`,
+		`{id: "under-paths", match: {path: "jobs.*.status", return: path}}`,
+		`{id: "absent-under", match: {path: "jobs.*.nope", return: path}}`,
+		`{id: "one-node", match: {path: "leaf", return: path}}`,
+		`{id: "unknown", match: {path: "jobs.*", return: "path,authors"}}`,
 	)
 
 	paths := mustSet(t, answers, "paths")
 	if want := []string{"jobs.a1", "jobs.a2"}; !equalStrings(paths.paths(), want) {
-		t.Errorf("return: paths answered %v, want %v", paths.paths(), want)
+		t.Errorf("return: path answered %v, want %v", paths.paths(), want)
 	}
 	for _, m := range paths.members {
-		if m.Body != nil {
-			t.Errorf("return: paths carried a body for %s: %v", m.Path, m.Body)
+		if m.Body != nil || m.ID != "" {
+			t.Errorf("return: path carried more than the path for %s: %+v", m.Path, m)
 		}
 	}
 
+	// The name a node lives under, without the prefix the caller already knows.
+	ids := mustSet(t, answers, "ids")
+	var got []string
+	for _, m := range ids.members {
+		got = append(got, m.ID)
+		if m.Path != "" || m.Body != nil {
+			t.Errorf("return: id carried more than the id: %+v", m)
+		}
+	}
+	if want := []string{"a1", "a2"}; !equalStrings(got, want) {
+		t.Errorf("return: id answered %v, want %v", got, want)
+	}
+
+	// A listing: the name, and what is under it.
+	for _, m := range mustSet(t, answers, "id-body").members {
+		if m.ID == "" || m.Body == nil || m.Path != "" {
+			t.Errorf(`return: "id,body" answered %+v`, m)
+		}
+	}
+
+	// Bodies alone: nobody can tell them apart, which is what a cumulative read wants.
 	bodies := mustSet(t, answers, "bodies")
 	if len(bodies.members) != 2 {
 		t.Fatalf("return: body answered %d members", len(bodies.members))
 	}
 	for _, m := range bodies.members {
-		if m.Path != "" {
-			t.Errorf("return: body carried a path: %s", m.Path)
+		if m.Path != "" || m.ID != "" {
+			t.Errorf("return: body named the member: %+v", m)
 		}
 		if m.Body == nil {
 			t.Error("return: body carried no body")
@@ -202,7 +226,7 @@ func TestSetMatch_Return(t *testing.T) {
 	both := mustSet(t, answers, "both")
 	for _, m := range both.members {
 		if m.Path == "" || m.Body == nil {
-			t.Errorf(`return: "paths,body" answered %+v`, m)
+			t.Errorf(`return: "path,body" answered %+v`, m)
 		}
 	}
 
@@ -225,7 +249,7 @@ func TestSetMatch_Return(t *testing.T) {
 		t.Fatalf("one-node: %+v", one)
 	}
 	if len(one.members) != 1 || one.members[0].Path != "leaf" || one.members[0].Body != nil {
-		t.Errorf("return: paths at one node answered %+v", one.members)
+		t.Errorf("return: path at one node answered %+v", one.members)
 	}
 
 	// A name this server does not know is said, not ignored: a client asking a later

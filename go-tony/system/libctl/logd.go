@@ -63,6 +63,12 @@ type LogdSession struct {
 	nextID   uint64                               // request id counter
 	pending  map[string]chan *api.SessionResponse // in-flight requests by id
 	watchers map[string]*Watch                    // active watches by request id
+	// streams holds the ids of requests whose answer is a SEQUENCE -- a set, read one
+	// node at a time -- so the read pump keeps delivering under that id until the
+	// answer ends. Which responses are members cannot be read off their shape: with
+	// `return: body` a member carries neither path nor id. The caller asked for a set,
+	// so the caller is what says so.
+	streams map[string]bool
 
 	heartbeatInterval time.Duration // how often to ping; 0 disables the heartbeat
 	heartbeatTimeout  time.Duration // how long to wait for a pong before tearing down
@@ -163,6 +169,7 @@ func NewLogdSession(cfg *LogdSessionConfig) *LogdSession {
 		log:               log.With("component", "logd-session"),
 		pending:           make(map[string]chan *api.SessionResponse),
 		watchers:          make(map[string]*Watch),
+		streams:           make(map[string]bool),
 		connecting:        make(chan struct{}, 1),
 		wire:              make(chan struct{}, 1),
 		heartbeatInterval: interval,
@@ -748,6 +755,7 @@ func (s *LogdSession) openStream(ctx context.Context, req *api.SessionRequest) (
 	req.ID = &id
 	ch := make(chan *api.SessionResponse, setChanDepth)
 	s.pending[id] = ch
+	s.streams[id] = true
 	s.mu.Unlock()
 
 	err := s.sendRequestTo(ctx, conn, req)
@@ -765,6 +773,7 @@ func (s *LogdSession) openStream(ctx context.Context, req *api.SessionRequest) (
 func (s *LogdSession) closeStream(id string) {
 	s.mu.Lock()
 	delete(s.pending, id)
+	delete(s.streams, id)
 	s.mu.Unlock()
 }
 
@@ -913,8 +922,9 @@ func (s *LogdSession) deliverResponse(resp *api.SessionResponse) {
 	var ch chan *api.SessionResponse
 	if resp.ID != nil {
 		ch = s.pending[*resp.ID]
-		if ch != nil && !keepsRequestOpen(resp) {
+		if ch != nil && !(s.streams[*resp.ID] && keepsStreamOpen(resp)) {
 			delete(s.pending, *resp.ID)
+			delete(s.streams, *resp.ID)
 		}
 	}
 	s.mu.Unlock()
@@ -936,15 +946,15 @@ func (s *LogdSession) deliverResponse(resp *api.SessionResponse) {
 	ch <- resp
 }
 
-// keepsRequestOpen says this response is one of several a single request will get, so
-// the request stays registered. A member of a set is a match result carrying the
-// member's own path; the marker (done) ends the set, and an error ends it too.
-func keepsRequestOpen(resp *api.SessionResponse) bool {
+// keepsStreamOpen says a streamed request has more coming, so it stays registered: a
+// member of a set is any match result that is not the marker. The marker (done) ends
+// the set; so does an error, and so does anything that is not a match result at all,
+// which the stream's reader reports rather than waiting through.
+func keepsStreamOpen(resp *api.SessionResponse) bool {
 	if resp.Error != nil || resp.Result == nil || resp.Result.Match == nil {
 		return false
 	}
-	m := resp.Result.Match
-	return !m.Done && m.Path != ""
+	return !resp.Result.Match.Done
 }
 
 // routeEvent routes a watch event to its Watch. Events carry the originating
@@ -1011,6 +1021,7 @@ func (s *LogdSession) teardownLocked(err error) (net.Conn, map[string]chan *api.
 	s.connected = false
 	s.pending = make(map[string]chan *api.SessionResponse)
 	s.watchers = make(map[string]*Watch)
+	s.streams = make(map[string]bool)
 	if err != nil {
 		s.readErr = err
 	}
