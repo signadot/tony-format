@@ -8,9 +8,10 @@ duplicates: []
 id: 62r9amwph12krxfjn9n0
 labels:
 - bug
+- design
 - logd
 related_issues:
 - 090mbrhsh12ksfr8mhn0
 - 3n390bjwh12ksy61n9n0
 status: open
-updated: "2026-09-16T21:54:07.762576+02:00"
+updated: "2026-09-16T21:54:07.855627+02:00"
