@@ -204,7 +204,8 @@ func (kt *kTree) node() (*ir.Node, error) {
 		// for 2 arrays with individual sub-patches at disjoint
 		// indices, we create an !arraydiff int keys map like
 		// libdiff.DiffArrayByIndex
-		// Note: paths are non-wildcard by construction, so [*] cannot occur
+		// Note: a write's path holds no wildcard -- the session refuses one and so does
+		// checkArrayWrite, for a caller holding the storage API -- so [*] cannot occur
 		m := map[uint32]*ir.Node{}
 		for i, child := range kt.children {
 			// Strip leading [ and trailing ]

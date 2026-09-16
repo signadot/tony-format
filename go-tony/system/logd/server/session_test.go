@@ -1346,3 +1346,83 @@ func TestSession_DescendPathIsRefused(t *testing.T) {
 		c.Close()
 	}
 }
+
+// TestSession_WildcardPathIsRefusedWhereAPathNamesAPlace pins the refusals a wildcard
+// gets where a path must name one place: a patch (pvre1n2fh12ksmptn5n0, where `a.*`
+// used to commit a field literally named `*` that no read could reach), the
+// precondition a patch carries (which used to read absent and answer match_failed),
+// and a watch (t55dmsthh12kssetn5n0, which used to be confirmed and then ended by its
+// own first event). A match is the one operation that answers a set, and has its own
+// tests.
+func TestSession_WildcardPathIsRefusedWhereAPathNamesAPlace(t *testing.T) {
+	store, err := storage.Open(t.TempDir(), nil)
+	if err != nil {
+		t.Fatalf("failed to open storage: %v", err)
+	}
+	defer store.Close()
+
+	conn := newMockConn()
+	conn.WriteRequest(`{id: "seed", patch: {path: "", data: {a: {b: 1}, list: [1, 2]}}}`)
+	conn.WriteRequest(`{id: "wild-patch", patch: {path: "a.*", data: 2}}`)
+	conn.WriteRequest(`{id: "wild-patch-index", patch: {path: "list[*]", data: 2}}`)
+	conn.WriteRequest(`{id: "wild-precond", patch: {path: "a.b", data: 2, match: {path: "a.*", data: 1}}}`)
+	conn.WriteRequest(`{id: "wild-watch", watch: {path: "a.*"}}`)
+
+	session := NewSession("test-server", conn, &SessionConfig{Storage: store, Hub: NewWatchHub()})
+	done := make(chan error)
+	go func() { done <- session.Run() }()
+	time.Sleep(50 * time.Millisecond)
+	conn.Close()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("session did not complete")
+	}
+
+	seen := map[string]*api.SessionResponse{}
+	for _, line := range bytes.Split(bytes.TrimSpace(conn.GetResponses()), []byte("\n")) {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var resp api.SessionResponse
+		if err := resp.FromTony(bytes.TrimSpace(line)); err != nil {
+			continue
+		}
+		if resp.ID != nil {
+			seen[*resp.ID] = &resp
+		}
+	}
+	for _, id := range []string{"wild-patch", "wild-patch-index", "wild-precond", "wild-watch"} {
+		resp := seen[id]
+		if resp == nil || resp.Error == nil {
+			t.Errorf("%s was not refused; responses:\n%s", id, conn.GetResponses())
+			continue
+		}
+		if resp.Error.Code != api.ErrCodeInvalidPath {
+			t.Errorf("%s: code %q, want %q: %s", id, resp.Error.Code, api.ErrCodeInvalidPath, resp.Error.Message)
+		}
+		if !strings.Contains(resp.Error.Message, "names a set of values") {
+			t.Errorf("%s: the message does not say why: %s", id, resp.Error.Message)
+		}
+	}
+
+	// The refused write wrote nothing -- in particular no field named `*`.
+	commit, err := store.GetCurrentCommit()
+	if err != nil {
+		t.Fatalf("GetCurrentCommit: %v", err)
+	}
+	c, err := store.Read(commit, nil, "a")
+	if err != nil {
+		t.Fatalf("the store is unreadable after a refused path: %v", err)
+	}
+	node, err := storage.Collect(c, 1<<20)
+	if err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+	if got, _ := node.GetPath(`$."*"`); got != nil {
+		t.Errorf(`a refused wildcard write left a literal "*" field: %v`, got)
+	}
+	if got, _ := node.GetPath("$.b"); got == nil || got.Int64 == nil || *got.Int64 != 1 {
+		t.Errorf("the value a refused precondition guarded changed: %v", got)
+	}
+}

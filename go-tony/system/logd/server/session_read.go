@@ -25,7 +25,7 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 	path := req.Path
 
 	// Validate path
-	if err := validateDataPath(path); err != nil {
+	if err := validateDataPath(path, rolePatternRead); err != nil {
 		s.sendError(id, api.ErrCodeInvalidPath, err.Error())
 		return
 	}
