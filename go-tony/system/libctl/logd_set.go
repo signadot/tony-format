@@ -153,13 +153,16 @@ func (s *LogdSession) matchSetPage(ctx context.Context, match *api.MatchRequest,
 				return m.Cursor, m.Commit, nil
 			}
 			member := SetMember{Path: m.Path, ID: m.ID, Node: m.Body}
-			single := m.Path == "" && m.ID == "" && !wildPath(match.Path)
-			if single {
-				// The path named one node, so the answer is about the path the caller
-				// sent, and there is no marker to wait for. A member with neither path
-				// nor id under a WILDCARD path is an anonymous body -- what a
-				// cumulative read asks for -- and keeps its empty path rather than
-				// claiming to live at the wildcard.
+			// Whether this is one node or a member of a set is the PATH's question, not
+			// the answer's: a path naming one node is answered once, with its path or id
+			// if the retspec asked for them, and there is no marker to wait for. Read off
+			// the answer's shape, `return: path` at such a path waited for one.
+			single := !wildPath(match.Path)
+			if single && member.Path == "" {
+				// The answer is about the path the caller sent. A member with neither path
+				// nor id under a WILDCARD path is an anonymous body -- what a cumulative
+				// read asks for -- and keeps its empty path rather than claiming to live
+				// at the wildcard.
 				member.Path = match.Path
 			}
 			if err := fn(member); err != nil {

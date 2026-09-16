@@ -227,6 +227,17 @@ func TestMatchEach_SinglePathStillAnswers(t *testing.T) {
 	if len(members) != 1 || members[0].Path != "jobs.a" {
 		t.Fatalf("answered %+v, want the one node at jobs.a", members)
 	}
+
+	// An answer carrying the path or the id is still the one answer, not a member of a
+	// set with a marker to come (d4n7swjph12ksvxsn9n0).
+	one, cancelOne := context.WithTimeout(ctx, 2*time.Second)
+	defer cancelOne()
+	if paths, _, err := s.MatchPaths(one, "jobs.a", nil); err != nil || !equalStrings(paths, []string{"jobs.a"}) {
+		t.Errorf("MatchPaths at a single path answered %v, %v", paths, err)
+	}
+	if ids, _, err := s.MatchIDs(one, "jobs.a", nil); err != nil || !equalStrings(ids, []string{"a"}) {
+		t.Errorf("MatchIDs at a single path answered %v, %v", ids, err)
+	}
 }
 
 // TestMatchSet_ThroughDocd_IsUnsupported: docd routes by a path's field prefix, so a
