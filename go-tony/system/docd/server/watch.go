@@ -456,13 +456,21 @@ func (cw *composedWatch) forward(resp *logdapi.SessionResponse) {
 	ev := *resp.Event
 	ev.Path = cw.path
 
-	// A sub-stream that ended -- logd's slow_consumer, replay_compacted,
+	// A sub-stream that ended -- logd's slow_consumer, keying_changed, replay_compacted,
 	// replay_failed, invalid_path -- ends the composed watch, as a sub-stream's
 	// error does above: the client re-establishes from its reason, and the other
 	// sub-watches stop rather than run on for a watch that is over. Forwarded as
 	// an ordinary event, the end reached the client while docd kept everything
 	// (jk3s11hxh12ksz5xmdn0).
 	if ev.Ended {
+		if ev.EndReason == logdapi.ErrCodeKeyingChanged {
+			// Ended at the schema commit, which is where to watch again from: the state
+			// there is the first under the new keying. docd's own mark is below it, and
+			// a watch resumed from the mark would cross the change and end again, for as
+			// long as the client kept resuming.
+			cw.client.terminateWatchAt(cw.key, ev.EndReason, ev.EndMessage, ev.Commit)
+			return
+		}
 		cw.client.terminateWatchWith(cw.key, ev.EndReason, ev.EndMessage)
 		return
 	}
@@ -644,6 +652,15 @@ func (s *ClientSession) terminateWatch(key, reason string) {
 // terminateWatchWith is terminateWatch with the detail behind the reason code.
 func (s *ClientSession) terminateWatchWith(key, reason, message string) {
 	s.endWatch(key, func(w *clientWatch, commit int64) {
+		_ = s.writeToClient(terminalWatchEvent(w.clientID, w.path, reason, message, commit))
+	})
+}
+
+// terminateWatchAt is terminateWatchWith handing the client a resume point the ending
+// itself names rather than the last commit docd delivered: logd's keying_changed, whose
+// commit is the schema commit a re-watch must start from.
+func (s *ClientSession) terminateWatchAt(key, reason, message string, commit int64) {
+	s.endWatch(key, func(w *clientWatch, _ int64) {
 		_ = s.writeToClient(terminalWatchEvent(w.clientID, w.path, reason, message, commit))
 	})
 }

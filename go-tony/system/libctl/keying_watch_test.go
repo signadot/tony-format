@@ -82,3 +82,63 @@ func TestWatch_KeyingChangeEndsThroughDocd(t *testing.T) {
 		t.Fatal("no state for the re-established watch")
 	}
 }
+
+// TestWatch_KeyingChangeEndsAComposedWatchAtTheSchemaCommit: a watch docd composes over
+// logd and a mount ends when logd ends its sub-watch for a change of keying, and the
+// ending carries the schema commit logd named -- not docd's own mark, which is below it,
+// and from which a watch resumed would cross the change again.
+func TestWatch_KeyingChangeEndsAComposedWatchAtTheSchemaCommit(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+	ctrl := newMemController()
+	ctrl.watchable = true
+	ctrl.data["a.b"] = vObj(7)
+	runController(t, docd, "a.b", ctrl)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	admin := NewLogdSession(&LogdSessionConfig{Addr: logd.TCPAddr(), ClientID: "admin"})
+	defer admin.Close()
+	setSchema := func(doc string) int64 {
+		t.Helper()
+		schema, err := parse.Parse([]byte(doc))
+		if err != nil {
+			t.Fatal(err)
+		}
+		commit, err := admin.SetSchema(ctx, schema, false)
+		if err != nil {
+			t.Fatalf("SetSchema %s: %v", doc, err)
+		}
+		return commit
+	}
+	setSchema(`{define: {a: {runs: {id: !logd-key null}}}}`)
+	client := docdClient(t, docd, "client")
+	runs, err := parse.Parse([]byte(`[{id: r1, sku: A, n: 1}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Patch(ctx, "a.runs", runs); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	w, err := client.Watch(ctx, "a", nil)
+	if err != nil {
+		t.Fatalf("composed watch: %v", err)
+	}
+	defer w.Close()
+	if ev := expectEvent(t, w); ev.State == nil {
+		t.Fatalf("expected the composed state, got %+v", ev)
+	}
+	waitSubs(t, ctrl, 1)
+
+	c := setSchema(`{define: {a: {runs: {sku: !logd-key null}}}}`)
+	for range w.Events() {
+	}
+	var ended *WatchEndedError
+	if !errors.As(w.Err(), &ended) {
+		t.Fatalf("the composed watch ended with %v, want a WatchEndedError", w.Err())
+	}
+	if ended.Reason != logdapi.ErrCodeKeyingChanged || ended.Commit != c {
+		t.Errorf("ended with %s at %d (%s), want %s at %d", ended.Reason, ended.Commit, ended.Message, logdapi.ErrCodeKeyingChanged, c)
+	}
+}
