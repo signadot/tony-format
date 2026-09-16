@@ -717,6 +717,57 @@ func (s *LogdSession) Retain(ctx context.Context, req *api.RetainRequest) (*api.
 	return resp.Result.Retain, nil
 }
 
+// openStream sends a request whose answer is a sequence -- a set, read one node at a
+// time -- and answers the id it was sent under and the channel its responses arrive on.
+// It is request without the waiting: the caller drains the channel until the answer
+// ends, and calls closeStream when it is done with it, however it ended.
+func (s *LogdSession) openStream(ctx context.Context, req *api.SessionRequest) (string, chan *api.SessionResponse, error) {
+	select {
+	case <-ctx.Done():
+		return "", nil, ctx.Err()
+	case <-s.done:
+		return "", nil, fmt.Errorf("session closed")
+	default:
+	}
+
+	if err := s.ensureConnected(ctx); err != nil {
+		return "", nil, err
+	}
+	if err := s.acquireWire(ctx); err != nil {
+		return "", nil, err
+	}
+
+	s.mu.Lock()
+	conn := s.conn
+	if conn == nil {
+		s.mu.Unlock()
+		s.releaseWire()
+		return "", nil, s.connError()
+	}
+	id := s.newIDLocked()
+	req.ID = &id
+	ch := make(chan *api.SessionResponse, setChanDepth)
+	s.pending[id] = ch
+	s.mu.Unlock()
+
+	err := s.sendRequestTo(ctx, conn, req)
+	s.releaseWire()
+	if err != nil {
+		s.closeStream(id)
+		s.failConn(conn, err)
+		return "", nil, err
+	}
+	return id, ch, nil
+}
+
+// closeStream forgets a streamed request, so a caller that stopped early -- or one
+// whose read failed -- leaves no id behind for a member still on its way.
+func (s *LogdSession) closeStream(id string) {
+	s.mu.Lock()
+	delete(s.pending, id)
+	s.mu.Unlock()
+}
+
 // request sends a request and waits for its correlated response. It assigns a
 // unique id, registers a reply channel that the read-pump delivers to, sends
 // the request, and blocks until the response arrives, the context is cancelled,
@@ -862,7 +913,9 @@ func (s *LogdSession) deliverResponse(resp *api.SessionResponse) {
 	var ch chan *api.SessionResponse
 	if resp.ID != nil {
 		ch = s.pending[*resp.ID]
-		delete(s.pending, *resp.ID)
+		if ch != nil && !keepsRequestOpen(resp) {
+			delete(s.pending, *resp.ID)
+		}
 	}
 	s.mu.Unlock()
 
@@ -876,7 +929,22 @@ func (s *LogdSession) deliverResponse(resp *api.SessionResponse) {
 		s.log.Warn("dropping response with no matching request", "id", id)
 		return
 	}
-	ch <- resp // buffered (cap 1); never blocks
+	// A single-answer request's channel is buffered and empty, so this never blocks.
+	// A set's is buffered deep and drained by the caller, so a reader slower than the
+	// wire slows the pump rather than losing a member -- which is the back-pressure a
+	// caller asked for by reading a set one node at a time.
+	ch <- resp
+}
+
+// keepsRequestOpen says this response is one of several a single request will get, so
+// the request stays registered. A member of a set is a match result carrying the
+// member's own path; the marker (done) ends the set, and an error ends it too.
+func keepsRequestOpen(resp *api.SessionResponse) bool {
+	if resp.Error != nil || resp.Result == nil || resp.Result.Match == nil {
+		return false
+	}
+	m := resp.Result.Match
+	return !m.Done && m.Path != ""
 }
 
 // routeEvent routes a watch event to its Watch. Events carry the originating

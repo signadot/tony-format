@@ -239,6 +239,18 @@ func (s *ClientSession) routeClientRequests() error {
 			continue
 		}
 
+		// A wildcard path names a set, and the members of a set can live in different
+		// places: the base store, a mount, several mounts. docd routes by the path's
+		// field prefix, so forwarding one would hand the whole set to a single owner
+		// and answer a different question than the one asked -- silently, with no way
+		// for the client to tell a complete answer from a part of one. Answering a
+		// composed set is 5f6vrzw0h12ksrtfn9n0; until then docd says it cannot.
+		if req.Match != nil && hasWildSegment(req.Match.Path) {
+			_ = s.writeToClient(logdapi.NewErrorResponse(req.ID, logdapi.ErrCodeUnsupported,
+				fmt.Sprintf("%q names a set, and docd cannot compose one across mounts yet", req.Match.Path)))
+			continue
+		}
+
 		// A patch that spans multiple mounts is decomposed and committed as one
 		// atomic transaction — in the client's scope when it has one (the tx id and
 		// every participant are scoped). Single-participant patches fall through to
