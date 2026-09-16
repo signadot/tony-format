@@ -4,7 +4,7 @@ Follow-up to y2agz9dyh12kse24n9n0, which gives logd a wildcard `match` answered 
 
 ## Why docd answers unsupported first
 
-A wildcard names a set, and the members of that set can live in different places: the base store, a mounted subtree, several mounts. docd routes a request by its field prefix (docd/server/client_session.go `routeFor`, docd/server/registry.go:136-165 `LookupPrefix`), and classifies a path whose segments stop being fields as "indexed", for which `MountsUnder` answers nil (docd/server/registry.go:175-184, paths.go:63-78). A wildcard segment is classified that way today, so a wildcard match is forwarded to one owner as though the set were that owners.
+A wildcard names a set, and the members of that set can live in different places: the base store, a mounted subtree, several mounts. docd routes a request by its field prefix (docd/server/client_session.go `routeFor`, docd/server/registry.go:136-165 `LookupPrefix`), and classifies a path whose segments stop being fields as "indexed", for which `MountsUnder` answers nil (docd/server/registry.go:175-184, paths.go:63-78). A wildcard segment is classified that way today, so a wildcard match is forwarded to one owner as though the set were that owner's.
 
 That is the shape to refuse. Forwarding a set to one participant answers a different question than the one asked, and does it silently -- the caller cannot tell a complete answer from a partial one. `unsupported` is the honest interim answer, and it is the code docd already uses for an operation a responder does not implement (logd/api/session.go:592).
 
@@ -13,7 +13,7 @@ That is the shape to refuse. Forwarding a set to one participant answers a diffe
 `jobs.*` where `jobs.a` is a mount and the rest is base: the set is the union of what each participant answers, and docd owes the client one sequence:
 
 - fan out to every participant whose subtree can contribute, as a composed read already does for a path spanning mounts (docd/server/compose_read.go);
-- interleave the per-participant sequences into one, under the clients request id, ending the sequence once -- when every participant has ended its own;
+- interleave the per-participant sequences into one, under the client's request id, ending the sequence once -- when every participant has ended its own;
 - keep the snapshot honest: a composed read is one consistent snapshot because logd has one commit sequence and every mount commits through it (docs/docd/composition.md). The composed wildcard match has to name the one commit the whole set was read at, not a commit per participant;
 - a participant that fails mid-sequence fails the whole read, rather than leaving the client a partial set it cannot tell from a complete one.
 
