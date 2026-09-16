@@ -91,10 +91,26 @@ type HelloResponse struct {
 // backing logd under a tx id docd allocates, all-or-nothing, so a composed read at a
 // commit is a consistent snapshot of the whole document.
 //
+// A path holding a wildcard (.* [*] {*} (*), at any segment) names a SET, and the
+// answer is the set: one result per node, each carrying the node's own path, ended by
+// a result with Done. Limit and Cursor page that set; see MatchResult.
+//
 //tony:schemagen=session-match-request,notag
 type MatchRequest struct {
 	Commit   *int64 `tony:"field=commit"` // Optional: read historical state at this commit (nil = current)
 	PathData `tony:"field=match"`
+
+	// Limit is the most nodes one page of a set answers. The server may answer fewer
+	// than asked -- it has its own cap -- so a short page does not mean the set ended;
+	// the marker says (MatchResult.Cursor). Without one the server answers the set up
+	// to its own cap. It means nothing for a path that names one node.
+	Limit *int `tony:"field=limit,omitzero"`
+	// Cursor continues a paging read, and is the Cursor the previous page's marker
+	// carried. It is opaque: it names the commit the set is being read at and how far
+	// the read got, so every page of one paging read answers from the same state, and
+	// a cursor whose commit has aged out of range is ErrCodeCommitNotFound rather than
+	// a silent read of the current one. Path must be the path that started the read.
+	Cursor string `tony:"field=cursor,omitzero"`
 }
 
 // PatchRequest is a request to apply a patch.
@@ -342,10 +358,38 @@ type PongResult struct {
 
 // MatchResult is the result of a match request.
 //
+// A path that names one node is answered by one of these, as it always was: Commit
+// and Body, with Path and Done empty.
+//
+// A path holding a wildcard names a SET, and the set is answered one node at a time:
+// a result per node, each with the node's own concrete Path and the one Commit the
+// whole set is read at, then a marker with Done and no Body. The nodes are not
+// gathered into one Body because a set of ten thousand is not a document anyone wants
+// built at either end, and because the paths are half the answer -- they are what the
+// next read or write is addressed by.
+//
+// Done is the authority on where the set ends, and Cursor on whether there is more:
+// a page shorter than the request's Limit does not mean the set is finished, since
+// the server caps a page at its own size. This is WatchEvent.ReplayComplete's choice
+// again -- say it, rather than leave the client to infer it from a count.
+//
 //tony:schemagen=session-match-result,notag
 type MatchResult struct {
 	Commit int64    `tony:"field=commit"`
 	Body   *ir.Node `tony:"field=body"`
+	// Path is the node's own path, on a member of a set. Empty on the answer to a
+	// path that names one node: the client has that path already, and saying it
+	// again would make every read carry it.
+	Path string `tony:"field=path,omitzero"`
+	// Done marks the end of a set: the last result, carrying no Body. An empty set
+	// is this marker alone -- a query for a set answers with a set, and empty is one,
+	// where ErrCodeNotFound stays what it is for a path that names one place.
+	Done bool `tony:"field=done,omitzero"`
+	// Cursor, on the marker, says the set has more and how to ask for it: send it back
+	// as MatchRequest.Cursor. Absent on the marker means the set is finished. It is
+	// opaque -- a client that reads it is reading a shape the server, or docd
+	// composing one out of its participants', may change.
+	Cursor string `tony:"field=cursor,omitzero"`
 }
 
 // PatchResult is the result of a patch request.
@@ -629,6 +673,36 @@ func NewMatchResponse(id *string, commit int64, body *ir.Node) *SessionResponse 
 			Match: &MatchResult{
 				Commit: commit,
 				Body:   body,
+			},
+		},
+	}
+}
+
+// NewMatchMemberResponse creates the answer for one node of a set: its own path, its
+// body, and the commit the whole set is read at. See MatchResult.
+func NewMatchMemberResponse(id *string, commit int64, path string, body *ir.Node) *SessionResponse {
+	return &SessionResponse{
+		ID: id,
+		Result: &SessionResult{
+			Match: &MatchResult{
+				Commit: commit,
+				Path:   path,
+				Body:   body,
+			},
+		},
+	}
+}
+
+// NewMatchDoneResponse creates the marker that ends a set. cursor is empty when the
+// set is finished, and otherwise says there is more and how to ask for it.
+func NewMatchDoneResponse(id *string, commit int64, cursor string) *SessionResponse {
+	return &SessionResponse{
+		ID: id,
+		Result: &SessionResult{
+			Match: &MatchResult{
+				Commit: commit,
+				Done:   true,
+				Cursor: cursor,
 			},
 		},
 	}

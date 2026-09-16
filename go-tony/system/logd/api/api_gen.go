@@ -547,6 +547,16 @@ func (s *MatchRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["data"] = s.Data
 	}
 
+	// Field: Limit (optional)
+	if s.Limit != nil {
+		irMap["limit"] = ir.FromInt(int64(*s.Limit))
+	}
+
+	// Field: Cursor
+	if s.Cursor != "" {
+		irMap["cursor"] = ir.FromString(string(s.Cursor))
+	}
+
 	return ir.FromMap(irMap), nil
 }
 
@@ -604,6 +614,24 @@ func (s *MatchRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 			} else {
 				s.Data = fieldNodeUnwrapped
 			}
+		case "limit":
+			// Field: Limit
+			if fieldNodeUnwrapped.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(int)
+				if fieldNodeUnwrapped.Int64 == nil {
+					return fmt.Errorf("%s: expected number, got %v", "field \"limit\"", fieldNodeUnwrapped.Type)
+				}
+				*val = int(*fieldNodeUnwrapped.Int64)
+				s.Limit = val
+			}
+		case "cursor":
+			// Field: Cursor
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "cursor", fieldNodeUnwrapped.Type)
+			}
+			s.Cursor = string(fieldNodeUnwrapped.String)
 		default:
 			if gomap.IsStrict(opts...) {
 				return fmt.Errorf("unknown field %q for MatchRequest", fieldName.String)
@@ -2206,6 +2234,21 @@ func (s *MatchResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["body"] = s.Body
 	}
 
+	// Field: Path
+	if s.Path != "" {
+		irMap["path"] = ir.FromString(string(s.Path))
+	}
+
+	// Field: Done
+	if s.Done {
+		irMap["done"] = ir.FromBool(bool(s.Done))
+	}
+
+	// Field: Cursor
+	if s.Cursor != "" {
+		irMap["cursor"] = ir.FromString(string(s.Cursor))
+	}
+
 	return ir.FromMap(irMap), nil
 }
 
@@ -2251,6 +2294,24 @@ func (s *MatchResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error
 			} else {
 				s.Body = fieldNodeUnwrapped
 			}
+		case "path":
+			// Field: Path
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "path", fieldNodeUnwrapped.Type)
+			}
+			s.Path = string(fieldNodeUnwrapped.String)
+		case "done":
+			// Field: Done
+			if fieldNodeUnwrapped.Type != ir.BoolType {
+				return fmt.Errorf("field %q: expected bool, got %v", "done", fieldNodeUnwrapped.Type)
+			}
+			s.Done = bool(fieldNodeUnwrapped.Bool)
+		case "cursor":
+			// Field: Cursor
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "cursor", fieldNodeUnwrapped.Type)
+			}
+			s.Cursor = string(fieldNodeUnwrapped.String)
 		default:
 			if gomap.IsStrict(opts...) {
 				return fmt.Errorf("unknown field %q for MatchResult", fieldName.String)
