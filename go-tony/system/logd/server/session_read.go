@@ -29,14 +29,6 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 		s.sendError(id, api.ErrCodeInvalidPath, err.Error())
 		return
 	}
-	// And spelled as the store spells it: an element of a keyed array is addressed by its
-	// name, whichever sugar the client used (ident.CanonicalPath).
-	if canon, err := ident.CanonicalPath(s.storage.SchemaFor(s.scopeID()), path); err != nil {
-		s.sendError(id, api.ErrCodeInvalidPath, err.Error())
-		return
-	} else {
-		path = canon
-	}
 
 	// Resolve the commit to read at: an explicit historical commit if the request
 	// carries one, otherwise the current commit. A historical commit must fall in
@@ -55,6 +47,19 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 				fmt.Sprintf("commit %d out of range [0, %d]", commit, current))
 			return
 		}
+	}
+
+	// And spelled as the store spells it: an element of a keyed array is addressed by its
+	// name, whichever sugar the client used (ident.CanonicalPath). Spelled under the schema
+	// of the commit read, since which arrays are keyed, and by what, is that commit's: a
+	// path is judged against the document it reads, so the commit is settled first. A
+	// wildcard path comes back as it went in, and the walk spells its concrete segments
+	// the same way (canonicalChild).
+	if canon, err := ident.CanonicalPath(s.storage.SchemaForAt(s.scopeID(), commit), path); err != nil {
+		s.sendError(id, api.ErrCodeInvalidPath, err.Error())
+		return
+	} else {
+		path = canon
 	}
 
 	// A wildcard names a set, and the set is answered one node at a time, each member
@@ -115,7 +120,7 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 	// the budget is refused as a node past it was. A pattern needs the node to filter,
 	// and a keyed array needs it to be raised into the client's vocabulary; those reads
 	// build the node under the same budget.
-	if (req.Data == nil || req.Data.Type == ir.NullType) && !s.raises() {
+	if (req.Data == nil || req.Data.Type == ir.NullType) && !s.raisesAt(commit) {
 		if err := s.encodedMatch(id, path, commit, reportPath, reportName, reportIterType); err != nil {
 			s.sendReadError(id, err)
 		}
@@ -168,10 +173,12 @@ func (s *Session) sendReadError(id *string, err error) {
 	}
 }
 
-// raises says whether the session's view has keyed arrays to raise into the client's
-// vocabulary (storage.RaiseState), which a streamed body cannot do.
-func (s *Session) raises() bool {
-	schema := s.storage.SchemaFor(s.scopeID())
+// raisesAt says whether the session's view has keyed arrays to raise into the client's
+// vocabulary (storage.RaiseState) as of commit, which a streamed body cannot do. It is the
+// schema of the commit read that says, as it is the one RaiseState raises by: an array
+// keyed then and not now is still an object of names in what that commit holds.
+func (s *Session) raisesAt(commit int64) bool {
+	schema := s.storage.SchemaForAt(s.scopeID(), commit)
 	return schema != nil && len(schema.KeyedPaths()) > 0
 }
 

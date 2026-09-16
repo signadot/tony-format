@@ -165,7 +165,7 @@ func (s *Session) sendSetMember(id *string, req *api.MatchRequest, spec api.Retu
 
 	// The same fast path a single-node read takes: no pattern and no keyed array to
 	// raise means the body is encoded as it is read, and no node of it is built.
-	if !hasPattern && !s.raises() {
+	if !hasPattern && !s.raisesAt(commit) {
 		err := s.encodedMatch(id, member, commit, reportPath, reportName, reportIterType)
 		if err == nil {
 			return true, nil
@@ -314,7 +314,7 @@ func (s *Session) walkSet(prefix string, segs, afterSegs []string, commit int64,
 		// Spelled as the store spells it, as a single-node read's path is: an element
 		// of a keyed array is addressed by its identity, whichever sugar the client
 		// used, and a position on a keyed array is refused here as it is there.
-		child, childSeg, err := s.canonicalChild(prefix, seg)
+		child, childSeg, err := s.canonicalChild(prefix, seg, commit)
 		if err != nil {
 			return err
 		}
@@ -443,10 +443,10 @@ func (s *Session) identityAt(path string, commit int64) []string {
 }
 
 // canonicalChild extends prefix by one concrete segment, spelled as the store spells
-// it, and answers the path and that last segment -- the segment because it is what a
-// cursor's path is compared against, and both have been through here.
-func (s *Session) canonicalChild(prefix, seg string) (path, last string, err error) {
-	canon, err := ident.CanonicalPath(s.storage.SchemaFor(s.scopeID()), kpath.Join(prefix, seg))
+// it at commit, and answers the path and that last segment -- the segment because it is
+// what a cursor's path is compared against, and both have been through here.
+func (s *Session) canonicalChild(prefix, seg string, commit int64) (path, last string, err error) {
+	canon, err := ident.CanonicalPath(s.storage.SchemaForAt(s.scopeID(), commit), kpath.Join(prefix, seg))
 	if err != nil {
 		return "", "", err
 	}

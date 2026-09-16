@@ -99,6 +99,13 @@ be in `[0, current]`; out of range is `commit_not_found`. Across docd this addre
 logd's single commit sequence, so a composed read at a commit is one consistent
 snapshot.
 
+A read at a commit reads the document **under the schema in force at that commit**, not
+today's: which arrays are [keyed](keyed.md), and by what, is that commit's, so the shape of
+an array and the path that names one of its elements are both as they were. If `runs` was
+keyed by `id` then and is not now, `{match: {path: "runs(r1)", commit: N}}` reads element
+`r1`, and the same path at the head is `invalid_path`. Since a path is judged against the
+commit it reads, an out-of-range commit is refused first.
+
 Every answer carries the `commit` it was read at — which is also the store's head, and
 therefore a revision a client can compare without asking for anything extra.
 

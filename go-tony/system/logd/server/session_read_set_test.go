@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
@@ -260,6 +261,174 @@ func TestSetMatch_Return(t *testing.T) {
 	} else if a.err.Code != api.ErrCodeUnsupported {
 		t.Errorf("unknown return name: code %q, want %q", a.err.Code, api.ErrCodeUnsupported)
 	}
+}
+
+// schemaTransition opens a store under the schema from, writes runs under it, and sets the
+// schema to, answering the store and the commit the write took -- the last commit read
+// under from.
+func schemaTransition(t *testing.T, from, to string, force bool) (*storage.Storage, int64) {
+	t.Helper()
+	store := openStore(t)
+	for i, doc := range []string{from, to} {
+		if i == 1 {
+			narrowWrite(t, store, "", `{runs: [{id: r1, sku: A, n: 1}, {id: r2, sku: B, n: 2}]}`)
+		}
+		schema, err := parse.Parse([]byte(doc))
+		if err != nil {
+			t.Fatalf("parse schema %s: %v", doc, err)
+		}
+		if i == 1 {
+			then, err := store.GetCurrentCommit()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.SetSchema(schema, force); err != nil {
+				t.Fatalf("SetSchema %s: %v", doc, err)
+			}
+			return store, then
+		}
+		if _, err := store.SetSchema(schema, false); err != nil {
+			t.Fatalf("SetSchema %s: %v", doc, err)
+		}
+	}
+	panic("unreachable")
+}
+
+// historyRead is one read of a schema transition, and what it must answer.
+type historyRead struct {
+	name  string
+	match string // the match request's body, without its id or commit
+	head  bool   // read at the head rather than at the commit before the change
+	check func(t *testing.T, a *setAnswer)
+}
+
+func runHistory(t *testing.T, store *storage.Storage, then int64, reads []historyRead) {
+	t.Helper()
+	requests := make([]string, 0, len(reads))
+	for _, r := range reads {
+		at := ""
+		if !r.head {
+			at = ", commit: " + strconv.FormatInt(then, 10)
+		}
+		requests = append(requests, `{id: "`+r.name+`", match: {`+r.match+at+`}}`)
+	}
+	answers := runSet(t, store, requests...)
+	for _, r := range reads {
+		t.Run(r.name, func(t *testing.T) {
+			a := answers[r.name]
+			if a == nil {
+				t.Fatalf("%s was not answered", r.name)
+			}
+			r.check(t, a)
+		})
+	}
+}
+
+// anArray: the one node answered is the runs array, both elements, in array form.
+func anArray(t *testing.T, a *setAnswer) {
+	t.Helper()
+	if a.err != nil || len(a.members) != 1 {
+		t.Errorf("answered %+v", a)
+		return
+	}
+	if b := a.members[0].Body; b == nil || b.Type != ir.ArrayType || len(b.Values) != 2 {
+		t.Errorf("body is not the two-element array: %v", b)
+	}
+}
+
+// element answers a check that the one node answered is the element whose id is id.
+func element(id string) func(*testing.T, *setAnswer) {
+	return func(t *testing.T, a *setAnswer) {
+		t.Helper()
+		if a.err != nil || len(a.members) != 1 {
+			t.Errorf("answered %+v, want element %s", a, id)
+			return
+		}
+		got, err := a.members[0].Body.GetKPath("id")
+		if err != nil || got == nil || got.String != id {
+			t.Errorf("body %v is not element %s", a.members[0].Body, id)
+		}
+	}
+}
+
+// refused answers a check that the read was refused with code.
+func refused(code string) func(*testing.T, *setAnswer) {
+	return func(t *testing.T, a *setAnswer) {
+		t.Helper()
+		if a.err == nil || a.err.Code != code {
+			t.Errorf("answered %+v, want %s", a, code)
+		}
+	}
+}
+
+// bothNs: the set answered is the n of both elements.
+func bothNs(t *testing.T, a *setAnswer) {
+	t.Helper()
+	if a.err != nil || a.marker == nil || len(a.members) != 2 {
+		t.Errorf("answered %+v, want the n of both elements", a)
+	}
+}
+
+// TestMatch_ReadsUnderTheSchemaOfItsCommit: a read at a commit reads the document as it
+// was, under the schema in force then -- the array's shape, and the path that names an
+// element -- whatever the schema has said since. Each transition is read at the commit
+// before the change and at the head (3n390bjwh12ksy61n9n0).
+func TestMatch_ReadsUnderTheSchemaOfItsCommit(t *testing.T) {
+	const (
+		keyedID  = `{define: {runs: {id: !logd-key null}}}`
+		keyedSKU = `{define: {runs: {sku: !logd-key null}}}`
+		unkeyed  = `{define: {runs: {id: null}}}`
+	)
+
+	t.Run("lose", func(t *testing.T) {
+		store, then := schemaTransition(t, keyedID, unkeyed, true)
+		runHistory(t, store, then, []historyRead{
+			// Nothing is keyed now, so only the commit's schema says to raise.
+			{name: "then-array", match: `path: runs`, check: anArray},
+			{name: "then-set-body", match: `path: "*", return: "path,body"`, check: func(t *testing.T, a *setAnswer) {
+				if a.err != nil || len(a.members) != 1 || a.members[0].Body == nil || a.members[0].Body.Type != ir.ArrayType {
+					t.Errorf(`* with bodies at the keyed commit answered %+v`, a)
+				}
+			}},
+			{name: "then-key", match: `path: "runs(r1)"`, check: element("r1")},
+			{name: "then-position", match: `path: "runs[0]"`, check: refused(api.ErrCodeInvalidPath)},
+			{name: "then-under", match: `path: "runs(*).n"`, check: bothNs},
+			{name: "head-array", match: `path: runs`, head: true, check: anArray},
+			{name: "head-key", match: `path: "runs(r1)"`, head: true, check: refused(api.ErrCodeInvalidPath)},
+			{name: "head-position", match: `path: "runs[0]"`, head: true, check: element("r1")},
+			// The path cannot be judged until the commit it is read at is known: today's
+			// schema refuses runs(r1), and the commit is refused first.
+			{name: "bad-commit", match: `path: "runs(r1)", commit: 999`, head: true, check: refused(api.ErrCodeCommitNotFound)},
+		})
+	})
+
+	t.Run("gain", func(t *testing.T) {
+		store, then := schemaTransition(t, unkeyed, keyedID, false)
+		runHistory(t, store, then, []historyRead{
+			{name: "then-array", match: `path: runs`, check: anArray},
+			{name: "then-position", match: `path: "runs[0]"`, check: element("r1")},
+			{name: "then-key", match: `path: "runs(r1)"`, check: refused(api.ErrCodeInvalidPath)},
+			{name: "then-under", match: `path: "runs[*].n"`, check: bothNs},
+			{name: "head-key", match: `path: "runs(r1)"`, head: true, check: element("r1")},
+			{name: "head-position", match: `path: "runs[0]"`, head: true, check: refused(api.ErrCodeInvalidPath)},
+			{name: "head-under", match: `path: "runs(*).n"`, head: true, check: bothNs},
+			// No schema at all at commit 0: (r1) names nothing there.
+			{name: "commit-0", match: `path: "runs(r1)", commit: 0`, head: true, check: refused(api.ErrCodeInvalidPath)},
+		})
+	})
+
+	t.Run("re-key", func(t *testing.T) {
+		store, then := schemaTransition(t, keyedID, keyedSKU, false)
+		runHistory(t, store, then, []historyRead{
+			{name: "then-array", match: `path: runs`, check: anArray},
+			{name: "then-key", match: `path: "runs(r1)"`, check: element("r1")},
+			{name: "then-other-key", match: `path: "runs(sku=A)"`, check: refused(api.ErrCodeInvalidPath)},
+			{name: "then-under", match: `path: "runs(*).n"`, check: bothNs},
+			{name: "head-key", match: `path: "runs(A)"`, head: true, check: element("r1")},
+			{name: "head-other-key", match: `path: "runs(id=r1)"`, head: true, check: refused(api.ErrCodeInvalidPath)},
+			{name: "head-under", match: `path: "runs(*).n"`, head: true, check: bothNs},
+		})
+	})
 }
 
 // TestMatch_ReturnOnBuiltNode: a single-node read answers what its retspec asks when it
