@@ -36,7 +36,7 @@ directly inside it:
 | operation | shape |
 |---|---|
 | `hello` | `{hello: {clientId: <id>, protocol: 3, scope: <scope>, author: <principal>}}` |
-| `match` | `{match: {path: <kpath>, data: <pattern>, commit: <n>}}` |
+| `match` | `{match: {path: <kpath>, data: <pattern>, commit: <n>, limit: <n>, cursor: <s>}}` — a wildcard path answers a [set](#reading-a-set) |
 | `patch` | `{patch: {path: <kpath>, data: <value>, match: {path, data}, txId: <n>, timeout: "5s", author: <principal>}}` |
 | `newtx` | `{newtx: {participants: <n>, timeout: "5m", author: <principal>}}` |
 | `watch` | `{watch: {path: <kpath>, fromCommit: <n>, noInit: <bool>, waitIfAbsent: <bool>}}` |
@@ -101,6 +101,67 @@ snapshot.
 
 Every answer carries the `commit` it was read at — which is also the store's head, and
 therefore a revision a client can compare without asking for anything extra.
+
+### Reading a set
+
+A path holding a wildcard — `.*`, `[*]`, `{*}`, `(*)`, at **any** segment — names a set
+of nodes, and the answer is the set, **one node at a time**:
+
+```tony
+{id: "7", match: {path: "jobs.*"}}
+{id: "7", result: {match: {path: jobs.a1, body: {status: done} commit: 91}}}
+{id: "7", result: {match: {path: jobs.a2, body: {status: ready} commit: 91}}}
+{id: "7", result: {match: {commit: 91 done: true}}}
+```
+
+Each member carries its own `path`, and the same `commit`: the set is one snapshot. The
+`done` marker ends it. A member's path is the store's own spelling, so it is a path to
+read, patch or watch on its own — a keyed array's elements come back as
+`runs."(id=r1)"`, since `(*)` names them by identity and `[*]` names nothing there.
+
+Nothing is gathered into one body: a container of ten thousand is not a document anyone
+wants built at either end, and the paths are half the answer.
+
+- `data` is matched and trimmed against **each member separately**, and a member it
+  rejects is not sent. "Every job that is done, just its status" is one request.
+- a wildcard that meets a container of another kind reaches nothing, and a branch where
+  the rest of the path finds nothing contributes nothing. That is a non-match, not an
+  error — the same rule `o list` follows walking a document.
+- an **empty set is the marker alone**. A query for a set answers with a set, and empty
+  is one; `not_found` keeps its meaning for a path that names one place.
+- `..` is **not** a read: it names nodes at any depth, and is refused here as everywhere
+  a path must name a place.
+
+A wildcard anywhere else — a `patch`, the `match` precondition a patch carries, a
+`watch` — is `invalid_path`. Those need one node, and a set is not one.
+
+### Paging a set
+
+`limit` bounds a page, and the marker carries a `cursor` when the set goes on:
+
+```tony
+{id: "8", match: {path: "jobs.*", limit: 2}}
+{id: "8", result: {match: {path: jobs.a1, body: {…} commit: 91}}}
+{id: "8", result: {match: {path: jobs.a2, body: {…} commit: 91}}}
+{id: "8", result: {match: {commit: 91 done: true cursor: "…"}}}
+
+{id: "9", match: {path: "jobs.*", cursor: "…"}}
+```
+
+**The marker is the authority, not the count**: a page shorter than `limit` does not
+mean the set ended, because the server caps a page at its own size. A marker with no
+cursor is the end.
+
+A cursor names the commit the set is being read at and how far the read got, so a
+continuation reads *that* commit: a write between two pages does not change what the
+second page answers, and no page straddles two states. A cursor whose commit has aged
+out of range is `commit_not_found`, and one sent with a different `path` than the read
+it came from is `invalid_path`. It is **opaque** — read it back to the server rather
+than reading it.
+
+**Across docd**, a wildcard match is `unsupported`: the members of a set can live in
+different mounts, and docd does not compose one yet. A path naming one node is
+unaffected.
 
 **A read answers `null` only where a null was written.** A path holding nothing is
 `not_found`, at every depth, whether or not an ancestor of it resolves — and on a store
@@ -414,7 +475,7 @@ writes an object at `a.b`. What separates them is what is there now.
 |---|---|
 | `not_found` | **nothing is there.** Nothing in the document contradicts the path, so creating what is missing is a reasonable next move |
 | `path_conflict` | **something is there, of a shape that cannot hold what you asked for** — an index into an object, a field under a string. Creating here means clobbering what is already there, so the move is to re-examine the shape you assumed |
-| `invalid_path` | **not a well-formed question** — a wildcard names a set of values and a read answers one |
+| `invalid_path` | **not a well-formed question** — `..` names nodes at any depth, and a wildcard where a path must name a place (a write, a watch); a read answers a [set](#reading-a-set) |
 | `match_failed` | a precondition did not hold; the write did not happen |
 | `invalid_diff` | the delta would not apply to the state it would be stored against, or the schema's keying refuses it — an element without a name, a position on a keyed array, a name where there is no identity |
 | `commit_not_found` | a historical read outside `[0, current]` |

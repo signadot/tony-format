@@ -88,3 +88,10 @@ rooted at, what a watch names, what logd indexes by. Those refuse it, and say so
 
 An empty field name is still sayable, in quotes: `a."".x`. That is the canonical
 spelling, and what `..` used to parse as before it meant depth.
+
+A **wildcard** — `.*`, `[*]`, `{*}`, `(*)` — is a question of the same family, asked one
+level deep rather than at any depth, and the same rule sorts where it goes. A read
+answers it: logd's `match` takes a wildcard at any segment and answers the set it names,
+[one node at a time](logd/session.md#reading-a-set), as `o list` does over a document.
+A write, a watch and a [retain rule's](logd/retention.md) non-final segments refuse it,
+because each needs one place.
