@@ -131,7 +131,7 @@ var errPageFull = fmt.Errorf("page full")
 // thousand reads.
 func (s *Session) sendSetMember(id *string, req *api.MatchRequest, spec api.ReturnSpec, member string, commit int64, proven bool) (bool, error) {
 	hasPattern := req.Data != nil && req.Data.Type != ir.NullType
-	reportPath, reportName := member, lastSegment(member)
+	reportPath, reportName := member, memberID(member)
 	if !spec.Path {
 		reportPath = ""
 	}
@@ -192,14 +192,42 @@ func (s *Session) sendSetMember(id *string, req *api.MatchRequest, spec api.Retu
 	return true, nil
 }
 
-// lastSegment is the name a path's node lives under in its parent, which is the path's
-// last segment as kpath spells it. The root has none.
-func lastSegment(path string) string {
+// memberID is the name a node lives under in its parent, as a value rather than as a
+// path segment: a1 for a field, 0 for a position, 7 for a sparse key, and r1 for an
+// element of a keyed array -- the identity it is addressed BY, not the (id=r1) the
+// store spells its field with. What addresses the node is the path; this is what names
+// it, and a caller that asked jobs.* has the rest already.
+//
+// An identity of several fields has no single value, so it answers with the name, which
+// is the only short form that says which element it is.
+func memberID(path string) string {
 	segs := kpath.SplitAll(path)
 	if len(segs) == 0 {
 		return ""
 	}
-	return segs[len(segs)-1]
+	last := segs[len(segs)-1]
+	kp, err := kpath.Parse(last)
+	if err != nil || kp == nil {
+		return last
+	}
+	switch {
+	case kp.Index != nil:
+		return strconv.Itoa(*kp.Index)
+	case kp.SparseIndex != nil:
+		return strconv.Itoa(*kp.SparseIndex)
+	case kp.Key != nil:
+		return *kp.Key
+	case kp.Field != nil:
+		name, isName, err := ident.Parse(*kp.Field)
+		if err != nil || !isName {
+			return *kp.Field
+		}
+		if v, ok := name.KeyValue(); ok {
+			return v
+		}
+		return name.Field()
+	}
+	return last
 }
 
 // pathExists says whether anything stands at path, without building the node there.

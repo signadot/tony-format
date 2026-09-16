@@ -152,9 +152,12 @@ The three say a node three ways:
 ```
 
 - **`path`** is where the node is, whole — what the next read or write is addressed by.
-- **`id`** is the name it lives under in its parent: `a1`, `[0]`, `{7}`, `"(id=r1)"`.
-  A caller that asked `jobs.*` knows the rest, so `"id,body"` is the listing without the
-  prefix repeated on every member.
+- **`id`** is the name it lives under in its parent, as a **value**: `a1` for a field,
+  `0` for a position, `7` for a sparse key, and `r1` for an element of a keyed array —
+  what it is addressed *by*, not the `"(id=r1)"` the store spells its field with. A
+  caller that asked `jobs.*` knows the rest, so `"id,body"` is the listing without the
+  prefix repeated on every member. What *addresses* a node is its `path`: an id is not a
+  path segment, and a position is not an identity.
 - **`body`** is what is there. **`return: body` alone answers nodes nobody can tell
   apart**, which is what a cumulative read wants — summing, counting, measuring — and
   what nothing else should ask for.

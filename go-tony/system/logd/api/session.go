@@ -124,9 +124,9 @@ type MatchRequest struct {
 	//
 	//   - `path` is where the node is, whole -- what the next read or write is
 	//     addressed by, and what a client keeps;
-	//   - `id` is the name the node lives under in its parent: a1, [0], {7},
-	//     "(id=r1)". A caller that asked jobs.* knows the rest already, so this is the
-	//     answer without the prefix repeated on every member;
+	//   - `id` is the name the node lives under in its parent, as a value: a1, 0, 7,
+	//     and r1 for a keyed element. A caller that asked jobs.* knows the rest
+	//     already, so this is the answer without the prefix on every member;
 	//   - `body` is what is there.
 	//
 	// `return: "id,body"` is a listing. `return: body` alone answers nodes nobody can
@@ -462,10 +462,16 @@ type MatchResult struct {
 	// path that names one node: the client has that path already, and saying it
 	// again would make every read carry it.
 	Path string `tony:"field=path,omitzero"`
-	// ID is the name the node lives under in its parent, spelled as a kpath segment:
-	// a1, [0], {7}, "(id=r1)". It is Path's last segment, and a caller that knows what
-	// it asked for rebuilds the path from it -- which is the point, since the prefix is
-	// the same for every member and the id is not. Asked for by ReturnID.
+	// ID is the name the node lives under in its parent, as a VALUE rather than as a
+	// path segment: a1 for a field, 0 for a position, 7 for a sparse key, and r1 for an
+	// element of a keyed array -- the identity it is addressed by, not the "(id=r1)"
+	// the store spells its field with. An identity of several fields has no single
+	// value and answers with the name.
+	//
+	// It is what a caller asking "which ones?" wants to read and to show: the prefix is
+	// the same for every member of a set and the id is not. What ADDRESSES a node is
+	// Path, since an id is not a path segment and a position is not an identity.
+	// Asked for by ReturnID.
 	ID string `tony:"field=id,omitzero"`
 	// Done marks the end of a set: the last result, carrying no Body. An empty set
 	// is this marker alone -- a query for a set answers with a set, and empty is one,

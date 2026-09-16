@@ -279,6 +279,7 @@ func TestSetMatch_KeyedElements(t *testing.T) {
 		`{id: "elements", match: {path: "runs(*)"}}`,
 		`{id: "under", match: {path: "runs(*).n"}}`,
 		`{id: "positions", match: {path: "runs[*]"}}`,
+		`{id: "ids", match: {path: "runs(*)", return: id}}`,
 	)
 
 	elements := mustSet(t, answers, "elements")
@@ -296,6 +297,35 @@ func TestSetMatch_KeyedElements(t *testing.T) {
 	}
 	if got := mustSet(t, answers, "positions").paths(); len(got) != 0 {
 		t.Errorf("runs[*] over a keyed array answered %v, want nothing", got)
+	}
+
+	// An element's id is what it is addressed BY -- the identity value -- not the
+	// (id=r1) the store spells its field with. The path is what addresses it.
+	var ids []string
+	for _, m := range mustSet(t, answers, "ids").members {
+		ids = append(ids, m.ID)
+	}
+	if want := []string{"r1", "r2"}; !equalStrings(ids, want) {
+		t.Errorf("runs(*) ids = %v, want %v", ids, want)
+	}
+}
+
+// TestMemberID is the id for each kind of member: a field's name, a position, a sparse
+// key, and a keyed element's identity value.
+func TestMemberID(t *testing.T) {
+	for _, tc := range []struct{ path, want string }{
+		{"jobs.a1", "a1"},
+		{`jobs."a b"`, "a b"},
+		{"list[2]", "2"},
+		{"events{7}", "7"},
+		{`runs."(id=r1)"`, "r1"},
+		{`runs."(sku=\"42\")"`, `"42"`}, // a string that would read as a number keeps its quotes
+		{`runs."<{region: eu, sku: A}>"`, `<{region: eu, sku: A}>`},
+		{"", ""},
+	} {
+		if got := memberID(tc.path); got != tc.want {
+			t.Errorf("memberID(%q) = %q, want %q", tc.path, got, tc.want)
+		}
 	}
 }
 

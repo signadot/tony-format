@@ -77,7 +77,7 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 		reportPath = path
 	}
 	if spec.ID {
-		reportName = lastSegment(path)
+		reportName = memberID(path)
 	}
 	if !spec.Body && (req.Data == nil || req.Data.Type == ir.NullType) {
 		ok, err := s.pathExists(path, commit)
