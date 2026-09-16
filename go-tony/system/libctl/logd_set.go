@@ -123,9 +123,10 @@ func (s *LogdSession) MatchPaths(ctx context.Context, path string, pattern *ir.N
 	return out, commit, err
 }
 
-// MatchIDs is MatchPaths answering the name each member lives under, as a value -- a1,
-// 0, 7, and r1 for an element of a keyed array -- rather than its whole path. The prefix
-// is the caller's own, so this is the listing without it repeated on every member.
+// MatchIDs is MatchPaths answering the name each member lives under, as the segment a
+// client writes for it -- a1, [0], {7}, and (id=r1) for an element of a keyed array --
+// rather than its whole path. The prefix is the caller's own, so this is the listing
+// without it repeated on every member, and the prefix and an id together are a path.
 func (s *LogdSession) MatchIDs(ctx context.Context, path string, pattern *ir.Node) ([]string, int64, error) {
 	var out []string
 	commit, err := s.MatchEachReturning(ctx, path, pattern, api.ReturnID, func(m SetMember) error {

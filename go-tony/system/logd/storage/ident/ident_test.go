@@ -149,3 +149,29 @@ func TestFieldPunctuation(t *testing.T) {
 		}
 	}
 }
+
+// Key is the (key) segment a client writes for the name -- the bindings, sorted -- and it
+// reads back as the same name under the same identity. A value the segment cannot carry
+// has no key spelling (eavavw16h12kst8dndn0).
+func TestKeySegment(t *testing.T) {
+	for _, tc := range []struct {
+		elem   string
+		fields []string
+		want   string // "" when there is no key spelling
+	}{
+		{`{sku: A, qty: 3}`, []string{"sku"}, `(sku=A)`},
+		{`{n: "42"}`, []string{"n"}, `(n="42")`},
+		{`{n: 42}`, []string{"n"}, `(n=42)`},
+		{`{name: jane, n: 2}`, []string{"name", "n"}, `(n=2,name=jane)`},
+		{`{sku: "a,b", region: eu}`, []string{"sku", "region"}, ``},
+	} {
+		n, ok := Of(node(t, tc.elem), tc.fields)
+		if !ok {
+			t.Fatalf("%s under %v: no name", tc.elem, tc.fields)
+		}
+		got, ok := n.Key()
+		if got != tc.want || ok != (tc.want != "") {
+			t.Errorf("%s under %v: Key() = %q, %v, want %q", tc.elem, tc.fields, got, ok, tc.want)
+		}
+	}
+}

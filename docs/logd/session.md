@@ -159,12 +159,14 @@ way. A set answers `"path,body"` unless asked otherwise.
 ```
 
 - **`path`** is where the node is, whole — what the next read or write is addressed by.
-- **`id`** is the name it lives under in its parent, as a **value**: `a1` for a field,
-  `0` for a position, `7` for a sparse key, and `r1` for an element of a keyed array —
-  what it is addressed *by*, not the `"(id=r1)"` the store spells its field with. A
-  caller that asked `jobs.*` knows the rest, so `"id,body"` is the listing without the
-  prefix repeated on every member. What *addresses* a node is its `path`: an id is not a
-  path segment, and a position is not an identity.
+- **`id`** is the name it lives under in its parent, as **the segment you would write**
+  for it: `a1` (or `"a b"`) for a field, `[0]` for a position, `{7}` for a sparse key,
+  and `(id=r1)` for an element of a keyed array — `(region=eu,sku=A)` where the identity
+  is several fields. So the id says what kind of child it is, and for an element which
+  fields identify it, without the schema; and a caller that asked `runs(*)` appends it to
+  the prefix — `runs(id=r1)` — to address the node. `"id,body"` is the listing without the
+  prefix repeated on every member. An element whose key no key segment can carry answers
+  with the field the store keeps it under, quoted.
 - **`body`** is what is there. **`return: body` alone answers nodes nobody can tell
   apart**, which is what a cumulative read wants — summing, counting, measuring — and
   what nothing else should ask for.

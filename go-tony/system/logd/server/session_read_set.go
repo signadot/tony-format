@@ -200,14 +200,15 @@ func (s *Session) sendSetMember(id *string, req *api.MatchRequest, spec api.Retu
 	return true, nil
 }
 
-// memberID is the name a node lives under in its parent, as a value rather than as a
-// path segment: a1 for a field, 0 for a position, 7 for a sparse key, and r1 for an
-// element of a keyed array -- the identity it is addressed BY, not the (id=r1) the
-// store spells its field with. What addresses the node is the path; this is what names
-// it, and a caller that asked jobs.* has the rest already.
+// memberID is the name a node lives under in its parent, as the segment a client would
+// write for it: a1 (or "a b") for a field, [0] for a position, {7} for a sparse key, and
+// (id=r1) for an element of a keyed array -- the identity bound to its field, not the
+// "(id=r1)" field the store keeps it under. So the id says what kind of child it is, and
+// for an element which fields identify it, with no schema needed to read it; and a caller
+// that asked jobs.* appends it to the prefix to address the node (eavavw16h12kst8dndn0).
 //
-// An identity of several fields has no single value, so it answers with the name, which
-// is the only short form that says which element it is.
+// A name no key segment can carry (ident.Name.Key) answers with the stored field, quoted,
+// which is still a segment a client can write.
 func memberID(path string) string {
 	segs := kpath.SplitAll(path)
 	if len(segs) == 0 {
@@ -215,25 +216,13 @@ func memberID(path string) string {
 	}
 	last := segs[len(segs)-1]
 	kp, err := kpath.Parse(last)
-	if err != nil || kp == nil {
+	if err != nil || kp == nil || kp.Field == nil {
 		return last
 	}
-	switch {
-	case kp.Index != nil:
-		return strconv.Itoa(*kp.Index)
-	case kp.SparseIndex != nil:
-		return strconv.Itoa(*kp.SparseIndex)
-	case kp.Key != nil:
-		return *kp.Key
-	case kp.Field != nil:
-		name, isName, err := ident.Parse(*kp.Field)
-		if err != nil || !isName {
-			return *kp.Field
+	if name, isName, err := ident.Parse(*kp.Field); err == nil && isName {
+		if key, ok := name.Key(); ok {
+			return key
 		}
-		if v, ok := name.KeyValue(); ok {
-			return v
-		}
-		return name.Field()
 	}
 	return last
 }

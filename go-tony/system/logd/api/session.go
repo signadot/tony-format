@@ -126,9 +126,10 @@ type MatchRequest struct {
 	//
 	//   - `path` is where the node is, whole -- what the next read or write is
 	//     addressed by, and what a client keeps;
-	//   - `id` is the name the node lives under in its parent, as a value: a1, 0, 7,
-	//     and r1 for a keyed element. A caller that asked jobs.* knows the rest
-	//     already, so this is the answer without the prefix on every member;
+	//   - `id` is the name the node lives under in its parent, as the segment a client
+	//     writes for it: a1, [0], {7}, and (id=r1) for a keyed element. A caller that
+	//     asked jobs.* knows the rest already, so this is the answer without the prefix
+	//     on every member, and the prefix and the id together address the node;
 	//   - `body` is what is there.
 	//
 	// `iterType` says what kind of node it is, and so whether there is anything under
@@ -478,16 +479,17 @@ type MatchResult struct {
 	// path that names one node: the client has that path already, and saying it
 	// again would make every read carry it.
 	Path string `tony:"field=path,omitzero"`
-	// ID is the name the node lives under in its parent, as a VALUE rather than as a
-	// path segment: a1 for a field, 0 for a position, 7 for a sparse key, and r1 for an
-	// element of a keyed array -- the identity it is addressed by, not the "(id=r1)"
-	// the store spells its field with. An identity of several fields has no single
-	// value and answers with the name.
+	// ID is the name the node lives under in its parent, as the path segment a client
+	// writes for it: a1 (or "a b") for a field, [0] for a position, {7} for a sparse key,
+	// and (id=r1) for an element of a keyed array -- (region=eu,sku=A) for an identity of
+	// several fields. It says what kind of child the node is and, for an element, which
+	// fields identify it, so a client needs no schema to read it; and appended to the
+	// prefix a caller asked about, it is a path the server resolves to the node. An
+	// element whose key no key segment can carry answers with the field the store keeps
+	// it under, quoted.
 	//
 	// It is what a caller asking "which ones?" wants to read and to show: the prefix is
-	// the same for every member of a set and the id is not. What ADDRESSES a node is
-	// Path, since an id is not a path segment and a position is not an identity.
-	// Asked for by ReturnID.
+	// the same for every member of a set and the id is not. Asked for by ReturnID.
 	ID string `tony:"field=id,omitzero"`
 	// IterType is what kind of node this is, in the terms a client lists by: one of
 	// the Iter* names. A container says which wildcard reaches its children -- IterWildcard

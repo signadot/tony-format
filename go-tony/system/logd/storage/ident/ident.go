@@ -104,17 +104,29 @@ func Of(elem *ir.Node, fields []string) (Name, bool) {
 // copies, tag and comment stripped.
 func (n Name) Bindings() []Binding { return slices.Clone(n.bindings) }
 
-// KeyValue is what the name identifies an element BY, when the identity is one field:
-// (id=r1) is r1, and (sku="42") is "42" -- spelled as the name spells it, so a string
-// that would read as a number keeps its quotes.
+// Key is the (key) segment a client writes to name the element: (id=r1), (sku="42"), and
+// (region=eu,sku=A) for an identity of several fields, bound in field order. It says
+// which fields identify the element as well as their values, and appended to the array's
+// path it is a path CanonicalPath resolves to this name.
 //
-// A name binding several fields has no single value, and answers false: there the name
-// itself (Field) is the only honest short form.
-func (n Name) KeyValue() (string, bool) {
-	if len(n.bindings) != 1 {
+// It answers false where no key segment reads back as this name -- a value the segment
+// cannot carry, such as one holding the comma bindings are split on -- and the stored
+// field (Field), quoted, is then the only spelling there is.
+func (n Name) Key() (string, bool) {
+	parts := make([]string, len(n.bindings))
+	for i, b := range n.bindings {
+		parts[i] = b.Field + "=" + wire(b.Value)
+	}
+	key := "(" + strings.Join(parts, ",") + ")"
+	kp, err := kpath.Parse("x" + key)
+	if err != nil || kp == nil || kp.Next == nil || kp.Next.Key == nil || kp.Next.Next != nil {
 		return "", false
 	}
-	return wire(n.bindings[0].Value), true
+	back, err := nameFromKey(*kp.Next.Key, n.Fields())
+	if err != nil || back.Field() != n.Field() {
+		return "", false
+	}
+	return key, true
 }
 
 // Fields answers the identity the name binds, sorted.

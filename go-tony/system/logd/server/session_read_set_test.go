@@ -464,7 +464,7 @@ func TestMatch_ReturnOnBuiltNode(t *testing.T) {
 	if m := one("filtered"); m.Path != "leaf" || m.Body != nil {
 		t.Errorf(`return: path under a pattern answered path %q, body %v`, m.Path, m.Body)
 	}
-	if m := one("filtered-id-body"); m.ID != "r1" || m.Body == nil || m.Path != "" {
+	if m := one("filtered-id-body"); m.ID != "(id=r1)" || m.Body == nil || m.Path != "" {
 		t.Errorf(`return: "id,body" under a pattern answered %+v`, m)
 	}
 }
@@ -507,14 +507,20 @@ func TestSetMatch_KeyedElements(t *testing.T) {
 		t.Errorf("runs[*] over a keyed array answered %v, want nothing", got)
 	}
 
-	// An element's id is what it is addressed BY -- the identity value -- not the
-	// (id=r1) the store spells its field with. The path is what addresses it.
+	// An element's id is the segment a client writes for it -- the identity, bound to its
+	// field -- so the id says the array is keyed and by what, and runs + id is a path.
 	var ids []string
 	for _, m := range mustSet(t, answers, "ids").members {
 		ids = append(ids, m.ID)
 	}
-	if want := []string{"r1", "r2"}; !equalStrings(ids, want) {
+	if want := []string{"(id=r1)", "(id=r2)"}; !equalStrings(ids, want) {
 		t.Errorf("runs(*) ids = %v, want %v", ids, want)
+	}
+	byID := runSet(t, store, `{id: "one", match: {path: "runs`+ids[0]+`"}}`)
+	if a := byID["one"]; a == nil || a.err != nil || len(a.members) != 1 {
+		t.Errorf("runs%s does not read: %+v", ids[0], a)
+	} else if got, err := a.members[0].Body.GetKPath("id"); err != nil || got == nil || got.String != "r1" {
+		t.Errorf("runs%s read %v", ids[0], a.members[0].Body)
 	}
 }
 
@@ -558,7 +564,7 @@ func TestSetMatch_KeyedAtItsCommit(t *testing.T) {
 		}
 		return out
 	}
-	if got, want := ids("then-keys"), []string{"r1", "r2"}; !equalStrings(got, want) {
+	if got, want := ids("then-keys"), []string{"(id=r1)", "(id=r2)"}; !equalStrings(got, want) {
 		t.Errorf("runs(*) at the keyed commit answered %v, want %v", got, want)
 	}
 	if got := ids("then-positions"); len(got) != 0 {
@@ -567,22 +573,24 @@ func TestSetMatch_KeyedAtItsCommit(t *testing.T) {
 	if got := ids("now-keys"); len(got) != 0 {
 		t.Errorf("runs(*) after the identity was lost answered %v, want nothing", got)
 	}
-	if got, want := ids("now-positions"), []string{"0", "1"}; !equalStrings(got, want) {
+	if got, want := ids("now-positions"), []string{"[0]", "[1]"}; !equalStrings(got, want) {
 		t.Errorf("runs[*] after the identity was lost answered %v, want %v", got, want)
 	}
 }
 
-// TestMemberID is the id for each kind of member: a field's name, a position, a sparse
-// key, and a keyed element's identity value.
+// TestMemberID is the id for each kind of member: the segment a client would write for it
+// -- a field, a position, a sparse key, a keyed element's identity -- so the id says which
+// kind of child it is, and the prefix and the id together are a path (eavavw16h12kst8dndn0).
 func TestMemberID(t *testing.T) {
 	for _, tc := range []struct{ path, want string }{
 		{"jobs.a1", "a1"},
-		{`jobs."a b"`, "a b"},
-		{"list[2]", "2"},
-		{"events{7}", "7"},
-		{`runs."(id=r1)"`, "r1"},
-		{`runs."(sku=\"42\")"`, `"42"`}, // a string that would read as a number keeps its quotes
-		{`runs."<{region: eu, sku: A}>"`, `<{region: eu, sku: A}>`},
+		{`jobs."a b"`, `"a b"`},
+		{"list[2]", "[2]"},
+		{"events{7}", "{7}"},
+		{`runs."(id=r1)"`, "(id=r1)"},
+		{`runs."(sku=\"42\")"`, `(sku="42")`}, // a string that would read as a number keeps its quotes
+		{`runs."<{region: eu, sku: A}>"`, `(region=eu,sku=A)`},
+		{`runs."<{region: eu, sku: \"a,b\"}>"`, `'<{region: eu, sku: "a,b"}>'`}, // no key segment carries a comma: the field, as kpath quotes it
 		{"", ""},
 	} {
 		if got := memberID(tc.path); got != tc.want {
