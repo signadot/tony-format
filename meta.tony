@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: d590257a1ff6f695ce692dd89ade058a8b00df8f
 commits: []
 created: "2026-09-16T09:26:48.394195+02:00"
 duplicates: []
@@ -14,5 +15,5 @@ related_issues:
 - t55dmsthh12kssetn5n0
 - th7sdhvyh12ksjtfn9n0
 - 5f6vrzw0h12ksrtfn9n0
-status: open
-updated: "2026-09-16T10:23:54.332567+02:00"
+status: closed
+updated: "2026-09-16T12:33:01.490965+02:00"
