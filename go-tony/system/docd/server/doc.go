@@ -23,10 +23,8 @@
 //   - A path at or under a mount goes to that mount's controller.
 //   - A path outside every mount ("base") goes to docd's own logd link.
 //   - The reserved .meta namespace is served by docd itself (meta.go): it lists the
-//     mounts, the clocks, and each mount's schema contribution, and controllers may
-//     not mount under it.
-//   - A virtual clock (a mount connection whose hello carries a ClockSpec) is served
-//     by docd itself at its path, read-only, while that connection stays open.
+//     mounts and each mount's schema contribution, and controllers may not mount
+//     under it.
 //
 // docd is a thin, fail-fast proxy: it forwards and composes, it does not cache
 // document state. It retries its dial to logd with backoff, but a client session

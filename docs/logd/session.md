@@ -676,23 +676,6 @@ Two differences from a client connection are worth knowing:
 {id: "8", scope: "sandbox-3", patch: {path: "verse.sources.git.repos.r1", data: {…}, author: alice}}
 ```
 
-### Clocks
-
-A mount connection can also ask docd to serve a **virtual clock** rather than (or
-alongside) a controller-backed subtree:
-
-```tony
-{hello: {controller: ticker, clock: {path: sys.clock, frequency: 1s, epoch: 0}}}
-```
-
-docd then serves `sys.clock` itself as a single monotonic int64 — `epoch + N ×
-frequency` in nanoseconds at tick N, computed on demand, with no tick history kept.
-Reads and watches of that path are answered by docd directly; it is read-only, and it
-is docd's own, so logd knows nothing about it. A clock is not in the commit sequence:
-its match results and watch events carry `commit: 0`, and the value is only ever the
-state. The clock lives as long as the mount connection that asked for it; when that
-closes, docd removes it and ends every watch on it with `session_unmounted`.
-
 See [Mounts & routing](../docd/mounts.md) for the registry, tombstones and the `.meta`
 namespace, and [Composition](../docd/composition.md) for what happens to a read or a
 watch that spans several mounts.

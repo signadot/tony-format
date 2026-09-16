@@ -29,7 +29,6 @@ func metaLeaf(path string) string {
 func metaIndexDoc() *ir.Node {
 	return ir.FromKeyVals([]ir.KeyVal{
 		{Key: ir.FromString("resources"), Val: ir.FromSlice([]*ir.Node{
-			ir.FromString("clocks"),
 			ir.FromString("mounts"),
 			ir.FromString("schema"),
 		})},

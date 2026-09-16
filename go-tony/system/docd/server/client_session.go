@@ -19,7 +19,7 @@ import (
 //
 //   - operations under a mounted subtree go to the owning controller (via that
 //     controller's MountSession), which answers for its subtree;
-//   - ping, the .meta namespace, and virtual clocks are answered by docd itself;
+//   - ping and the .meta namespace are answered by docd itself;
 //   - everything else — base/unmounted paths, the hello handshake, and
 //     session-level operations (newtx, schema, deleteScope) — goes straight to
 //     logd over a per-client logd connection.
@@ -68,10 +68,6 @@ type ClientSession struct {
 	// releases its token instead of leaking it past the session.
 	watchMu sync.Mutex
 	watches map[string]*clientWatch
-	// clockWatches holds live docd-driven clock watches (see clock.go), keyed by the
-	// same watch key as watches. Clocks are served directly by docd (no controller,
-	// no coordinator token), so they are tracked separately. Guarded by watchMu.
-	clockWatches map[string]*clockWatcher
 	// pending holds the key of each watch whose admission (coordinateWatch) has not
 	// completed, and whether the client has already dropped it. An unwatch can reach
 	// the loop while its watch is still waiting on a pending mount (writer
@@ -138,7 +134,6 @@ func NewClientSession(id string, conn net.Conn, cfg *ClientSessionConfig) *Clien
 		logdAddr:     cfg.Server.Spec.LogdAddr,
 		watches:      make(map[string]*clientWatch),
 		pending:      make(map[string]bool),
-		clockWatches: make(map[string]*clockWatcher),
 		lastSeen:     make(map[string]int64),
 		usedMounts:   make(map[*MountSession]struct{}),
 		done:         make(chan struct{}),
@@ -185,7 +180,6 @@ func (s *ClientSession) Run() error {
 	<-errc
 
 	s.releaseAllWatches()
-	s.stopAllClockWatches()
 	s.cleanupMounts()
 	return firstErr
 }
@@ -218,23 +212,6 @@ func (s *ClientSession) routeClientRequests() error {
 		if req.Ping != nil {
 			if err := s.writeToClient(logdapi.NewPongResponse(req.ID, s.server.seen.Load())); err != nil {
 				return err
-			}
-			continue
-		}
-		// docd-driven virtual clocks are served directly, like .meta: a clock has no
-		// controller and needs no mount coordination, so intercept its reads and
-		// watches before the mount-coordination paths below. Clocks are read-only.
-		if clk := s.clockFor(&req); clk != nil {
-			switch {
-			case req.Match != nil:
-				s.serveClockMatch(&req, clk)
-			case req.Watch != nil:
-				s.serveClockWatch(&req, clk)
-			case req.Unwatch != nil:
-				s.stopClockWatch(watchKeyFor(req.Unwatch.WatchID, req.Unwatch.Path))
-			default:
-				_ = s.writeToClient(logdapi.NewErrorResponse(req.ID, logdapi.ErrCodeUnsupported,
-					"clock paths are read-only"))
 			}
 			continue
 		}
@@ -363,8 +340,6 @@ func (s *ClientSession) serveMeta(req *logdapi.SessionRequest) {
 	switch metaLeaf(req.Match.Path) {
 	case "":
 		body = metaIndexDoc()
-	case "clocks":
-		body = clocksDoc(s.server.Clocks.list())
 	case "mounts":
 		body = mountsDoc(s.server.Mounts.List())
 	case "schema":

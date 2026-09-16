@@ -27,10 +27,6 @@ type MountSession struct {
 	mountPath    string
 	schema       *ir.Node
 
-	// clk is set when this session established a docd-driven virtual clock (via
-	// MountHello.Clock) instead of a controller mount; cleanup unregisters it.
-	clk *clock
-
 	// Routing state (post-handshake). docd forwards client ops to the controller
 	// over this connection using the logd session protocol, assigning its own ids
 	// so that ops from many client sessions can multiplex onto the one controller
@@ -101,11 +97,7 @@ func (s *MountSession) Run() error {
 		return err
 	}
 
-	// A clock session logs its own "clock mounted" line in handleClockMount and has
-	// no controller subtree, so skip the controller-mount log for it.
-	if s.clk == nil {
-		s.log.Info("controller mounted", "controller", s.controllerID, "path", s.mountPath)
-	}
+	s.log.Info("controller mounted", "controller", s.controllerID, "path", s.mountPath)
 
 	// After handshake the controller speaks the logd session protocol for its
 	// subtree: docd sends it match/patch/watch requests and it replies with
@@ -544,13 +536,6 @@ func (s *MountSession) handleHandshake(decoder *stream.Decoder) error {
 		return fmt.Errorf("protocol mismatch: controller %d, docd %d", p, logdapi.ProtocolVersion)
 	}
 
-	// A clock hello establishes a docd-driven virtual clock instead of a
-	// controller-backed mount; it takes over the connection's lifetime and needs
-	// no mount coordinator, so it is handled entirely here.
-	if req.Hello.Clock != nil {
-		return s.handleClockMount(req.Hello.Clock)
-	}
-
 	if req.Mount == nil {
 		s.sendError(api.ErrCodeInvalidMessage, "missing mount in mount request")
 		return fmt.Errorf("missing mount")
@@ -618,34 +603,6 @@ func (s *MountSession) handleHandshake(decoder *stream.Decoder) error {
 	return nil
 }
 
-// handleClockMount registers a docd-driven virtual clock from a MountHello.Clock
-// spec and acknowledges it over the mount protocol. The clock is served directly
-// by docd (see clock.go); this session's only remaining job is to hold the
-// connection open — cleanup unregisters the clock when it closes. tick 0 is now.
-func (s *MountSession) handleClockMount(spec *api.ClockSpec) error {
-	clk, err := newClock(spec, time.Now())
-	if err != nil {
-		s.sendError(api.ErrCodeInvalidPath, err.Error())
-		return fmt.Errorf("invalid clock spec: %w", err)
-	}
-	if err := s.server.Clocks.register(clk); err != nil {
-		s.sendError(api.ErrCodePathAlreadyMounted, err.Error())
-		return fmt.Errorf("clock registration failed: %w", err)
-	}
-
-	s.clk = clk
-
-	resp := api.NewMountResponse(s.ID, spec.Path)
-	if err := s.sendResponse(resp); err != nil {
-		s.server.Clocks.unregister(clk)
-		s.clk = nil
-		return fmt.Errorf("failed to send response: %w", err)
-	}
-
-	s.log.Info("clock mounted", "path", spec.Path, "frequency", clk.freq, "epoch", clk.epoch)
-	return nil
-}
-
 // sendResponse sends a mount response.
 func (s *MountSession) sendResponse(resp *api.MountResponse) error {
 	data, err := resp.ToTony(logdapi.WireOptions()...)
@@ -674,12 +631,6 @@ func (s *MountSession) cleanup() {
 	if s.mountPath != "" {
 		s.server.Mounts.TombstoneBySession(s.mountPath, s)
 		s.log.Info("controller disconnected (mount tombstoned)", "controller", s.controllerID, "path", s.mountPath)
-	}
-	// A virtual clock has no persistent content to tombstone: once its connection
-	// drops there is nothing to serve, so remove it outright.
-	if s.clk != nil {
-		s.server.Clocks.unregister(s.clk)
-		s.log.Info("clock unmounted", "path", s.clk.path)
 	}
 	s.conn.Close()
 }

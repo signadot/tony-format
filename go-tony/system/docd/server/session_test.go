@@ -248,16 +248,6 @@ func TestMountHandshake_InvalidPath(t *testing.T) {
 	}
 }
 
-// A clock's path is held to the same rule as a mount's.
-func TestClockPathRefusesALeadingSlash(t *testing.T) {
-	if _, err := newClock(&api.ClockSpec{Path: "/sys.clock", Frequency: "1s"}, time.Now()); err == nil {
-		t.Error(`a clock at "/sys.clock" was accepted`)
-	}
-	if _, err := newClock(&api.ClockSpec{Path: "sys.clock", Frequency: "1s"}, time.Now()); err != nil {
-		t.Errorf(`a clock at "sys.clock" was refused: %v`, err)
-	}
-}
-
 func TestMountHandshake_MissingHello(t *testing.T) {
 	server := New(&Spec{})
 
