@@ -123,4 +123,6 @@ One commit, with the tests, `Issue: 3n390bjwh12ksy61n9n0`.
 before a keying change is still addressed by the path as it is now. Whether a watch on an
 element should follow a keying change -- its canonical spelling changes, and the rewrite
 arrives as a delta at the array -- is its own question about what a watch on an element
-means across that change, not a spelling bug. Worth an issue if it matters; not filed.
+means across that change, not a spelling bug. Filed as `62r9amwph12krxfjn9n0`: measured, an
+element watch reports the element deleted at the change and goes silent, replay reports it
+created there, and after a re-key an id-less element watch cannot be unwatched.
