@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 0052e1bfaed0e06fa692ebacd561fcf60b40d030
 commits:
 - 4512a2c944f3de947bbe21295ab730d6a9665d42
 - 0052e1bfaed0e06fa692ebacd561fcf60b40d030
@@ -14,5 +15,5 @@ labels:
 - logd
 related_issues:
 - xnepz3sfh12ksn5qn9n0
-status: open
-updated: "2026-09-16T21:48:15.805227+02:00"
+status: closed
+updated: "2026-09-16T21:54:57.540352+02:00"
