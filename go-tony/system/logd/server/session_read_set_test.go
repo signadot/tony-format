@@ -262,6 +262,44 @@ func TestSetMatch_Return(t *testing.T) {
 	}
 }
 
+// TestMatch_ReturnOnBuiltNode: a single-node read answers what its retspec asks when it
+// builds the node -- to raise it, on a store whose schema keys an array, or to filter it
+// by a pattern -- as it does when it streams the body or answers an existence question
+// (rvjwtghsh12krpnrn9n0).
+func TestMatch_ReturnOnBuiltNode(t *testing.T) {
+	store := openStore(t)
+	schema, err := parse.Parse([]byte(`{define: {runs: {id: !logd-key null}}}`))
+	if err != nil {
+		t.Fatalf("parse schema: %v", err)
+	}
+	if _, err := store.SetSchema(schema, false); err != nil {
+		t.Fatalf("SetSchema: %v", err)
+	}
+	narrowWrite(t, store, "", `{runs: [{id: r1, n: 1}], leaf: {a: 1}}`)
+
+	answers := runSet(t, store,
+		`{id: "raised", match: {path: "leaf", return: "path,body"}}`,
+		`{id: "filtered", match: {path: "leaf", data: {a: 1}, return: path}}`,
+		`{id: "filtered-id-body", match: {path: "runs(r1)", data: {n: 1}, return: "id,body"}}`,
+	)
+	one := func(id string) *api.MatchResult {
+		a := answers[id]
+		if a == nil || a.err != nil || len(a.members) != 1 {
+			t.Fatalf("%s: %+v", id, a)
+		}
+		return a.members[0]
+	}
+	if m := one("raised"); m.Path != "leaf" || m.Body == nil {
+		t.Errorf(`return: "path,body" on a keyed store answered path %q, body %v`, m.Path, m.Body)
+	}
+	if m := one("filtered"); m.Path != "leaf" || m.Body != nil {
+		t.Errorf(`return: path under a pattern answered path %q, body %v`, m.Path, m.Body)
+	}
+	if m := one("filtered-id-body"); m.ID != "r1" || m.Body == nil || m.Path != "" {
+		t.Errorf(`return: "id,body" under a pattern answered %+v`, m)
+	}
+}
+
 // TestSetMatch_KeyedElements: (*) names a keyed array's elements by identity, which is
 // how the store spells them and how a client addresses them, and [*] names nothing
 // there -- identity replaces position, as it does for a read of one element.

@@ -125,8 +125,14 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 		}
 		state = filteredState
 	}
+	if !spec.Body {
+		// The pattern needed the node; the caller did not ask to be sent it.
+		state = nil
+	}
 
-	s.send(api.NewMatchResponse(id, commit, state))
+	// What the retspec asked for, as the two answers above carry it: a node built to be
+	// filtered or raised is no reason to answer less, or more.
+	s.send(api.NewMatchMemberResponse(id, commit, reportPath, reportName, state))
 }
 
 // sendReadError answers a read that could not be answered, by what kept it from being.
