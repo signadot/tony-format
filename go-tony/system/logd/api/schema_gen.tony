@@ -64,6 +64,7 @@ define:
   cursor: .[string]
   done: .[bool]
   id: .[string]
+  iterType: .[string]
   path: .[string]
 signature:
   name: session-match-result

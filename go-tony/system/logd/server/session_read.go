@@ -72,24 +72,39 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 		s.sendError(id, api.ErrCodeUnsupported, err.Error())
 		return
 	}
-	reportPath, reportName := "", ""
+	reportPath, reportName, reportIterType := "", "", ""
 	if spec.Path {
 		reportPath = path
 	}
 	if spec.ID {
 		reportName = memberID(path)
 	}
-	if !spec.Body && (req.Data == nil || req.Data.Type == ir.NullType) {
-		ok, err := s.pathExists(path, commit)
+	if spec.IterType {
+		kind, err := s.iterTypeAt(path, commit)
 		if err != nil {
 			s.sendReadError(id, err)
 			return
 		}
-		if !ok {
+		if kind == "" {
 			s.sendReadError(id, s.classifyAbsent(path, commit))
 			return
 		}
-		s.send(api.NewMatchMemberResponse(id, commit, reportPath, reportName, nil))
+		reportIterType = kind
+	}
+	if !spec.Body && (req.Data == nil || req.Data.Type == ir.NullType) {
+		// An iterType has said already that something stands there.
+		if !spec.IterType {
+			ok, err := s.pathExists(path, commit)
+			if err != nil {
+				s.sendReadError(id, err)
+				return
+			}
+			if !ok {
+				s.sendReadError(id, s.classifyAbsent(path, commit))
+				return
+			}
+		}
+		s.send(api.NewMatchMemberResponse(id, commit, reportPath, reportName, reportIterType, nil))
 		return
 	}
 
@@ -101,7 +116,7 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 	// and a keyed array needs it to be raised into the client's vocabulary; those reads
 	// build the node under the same budget.
 	if (req.Data == nil || req.Data.Type == ir.NullType) && !s.raises() {
-		if err := s.encodedMatch(id, path, commit, reportPath, reportName); err != nil {
+		if err := s.encodedMatch(id, path, commit, reportPath, reportName, reportIterType); err != nil {
 			s.sendReadError(id, err)
 		}
 		return
@@ -125,8 +140,14 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 		}
 		state = filteredState
 	}
+	if !spec.Body {
+		// The pattern needed the node; the caller did not ask to be sent it.
+		state = nil
+	}
 
-	s.send(api.NewMatchResponse(id, commit, state))
+	// What the retspec asked for, as the two answers above carry it: a node built to be
+	// filtered or raised is no reason to answer less, or more.
+	s.send(api.NewMatchMemberResponse(id, commit, reportPath, reportName, reportIterType, state))
 }
 
 // sendReadError answers a read that could not be answered, by what kept it from being.
@@ -166,10 +187,11 @@ func (s *Session) raises() bool {
 //
 // An absent path is answered as a read of it is, before anything is encoded.
 //
-// reportPath and reportName are what the request's retspec asked the answer to carry
-// beside the body: the node's path, and the name it lives under. Both are empty for the
-// default read of a path that names one node -- the client has them already.
-func (s *Session) encodedMatch(id *string, path string, commit int64, reportPath, reportName string) error {
+// reportPath, reportName and reportIterType are what the request's retspec asked the
+// answer to carry beside the body: the node's path, the name it lives under, and its kind.
+// All are empty for the default read of a path that names one node -- the client has the
+// first two already.
+func (s *Session) encodedMatch(id *string, path string, commit int64, reportPath, reportName, reportIterType string) error {
 	if commit == 0 {
 		return s.classifyAbsent(path, commit)
 	}
@@ -224,6 +246,14 @@ func (s *Session) encodedMatch(id *string, path string, commit int64, reportPath
 			return err
 		}
 		if err := enc.WriteString(reportName); err != nil {
+			return err
+		}
+	}
+	if reportIterType != "" {
+		if err := enc.WriteKey("iterType"); err != nil {
+			return err
+		}
+		if err := enc.WriteString(reportIterType); err != nil {
 			return err
 		}
 	}
@@ -419,6 +449,60 @@ func firstValueType(c storage.Cursor) ir.Type {
 		default:
 			return ir.NullType
 		}
+	}
+}
+
+// iterTypeAt is the kind of node at path as of commit, as MatchResult.IterType names it,
+// or "" where nothing stands. It reads the node's first event and asks the schema in force
+// at commit, and builds nothing: what a node is, is how it begins -- save that a sparse
+// array is an object its tag marks, and a keyed array is an object of names in the store
+// that only the schema calls an array.
+func (s *Session) iterTypeAt(path string, commit int64) (string, error) {
+	if commit == 0 {
+		return "", nil
+	}
+	c, err := s.storage.Read(commit, s.scopeID(), path)
+	if err != nil {
+		if isAbsent(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	defer c.Close()
+	if c.Presence() == storage.Absent {
+		return "", nil
+	}
+	for {
+		ev, err := c.Next()
+		if err == io.EOF {
+			return "", nil
+		}
+		if err != nil {
+			return "", err
+		}
+		switch ev.Type {
+		case stream.EventHeadComment, stream.EventLineComment:
+			continue
+		case stream.EventBeginObject, stream.EventBeginArray:
+			switch {
+			case s.storage.KeyedAt(s.scopeID(), path, commit):
+				return api.IterKeyedArray, nil
+			case ev.Type == stream.EventBeginArray:
+				return api.IterArray, nil
+			case ir.TagHas(ev.Tag, ir.IntKeysTag):
+				return api.IterSparseArray, nil
+			}
+			return api.IterObject, nil
+		case stream.EventString:
+			return api.IterString, nil
+		case stream.EventInt, stream.EventFloat:
+			return api.IterNumber, nil
+		case stream.EventBool:
+			return api.IterBool, nil
+		case stream.EventNull:
+			return api.IterNull, nil
+		}
+		return "", fmt.Errorf("the node at %q begins with %v, which begins no value", path, ev.Type)
 	}
 }
 

@@ -55,6 +55,16 @@ func (s *ClientSession) coordinateMatch(req *logdapi.SessionRequest, below []*Mo
 	clientID := req.ID
 	path := req.Match.Path
 
+	// A composed read is a body docd assembles, and a body is all it can answer: a
+	// retspec asking for a node's path, its id or its kind is refused rather than
+	// answered with the body alone, which would look complete and not be. A read with
+	// no mount beneath it is logd's, and answers the retspec in full.
+	if spec, err := logdapi.ParseReturnSpec(req.Match.Return, logdapi.ReturnSpec{Body: true}); err != nil || spec != (logdapi.ReturnSpec{Body: true}) {
+		_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeUnsupported, fmt.Sprintf(
+			"return %q: a read composed across mounts answers a body alone", req.Match.Return)))
+		return
+	}
+
 	owner, pFields, errResp := s.composeCheck(clientID, path, below)
 	if errResp != nil {
 		_ = s.writeToClient(errResp)

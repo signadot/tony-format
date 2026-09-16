@@ -227,6 +227,17 @@ func TestMatchEach_SinglePathStillAnswers(t *testing.T) {
 	if len(members) != 1 || members[0].Path != "jobs.a" {
 		t.Fatalf("answered %+v, want the one node at jobs.a", members)
 	}
+
+	// An answer carrying the path or the id is still the one answer, not a member of a
+	// set with a marker to come (d4n7swjph12ksvxsn9n0).
+	one, cancelOne := context.WithTimeout(ctx, 2*time.Second)
+	defer cancelOne()
+	if paths, _, err := s.MatchPaths(one, "jobs.a", nil); err != nil || !equalStrings(paths, []string{"jobs.a"}) {
+		t.Errorf("MatchPaths at a single path answered %v, %v", paths, err)
+	}
+	if ids, _, err := s.MatchIDs(one, "jobs.a", nil); err != nil || !equalStrings(ids, []string{"a"}) {
+		t.Errorf("MatchIDs at a single path answered %v, %v", ids, err)
+	}
 }
 
 // TestMatchSet_ThroughDocd_IsUnsupported: docd routes by a path's field prefix, so a
@@ -253,5 +264,105 @@ func TestMatchSet_ThroughDocd_IsUnsupported(t *testing.T) {
 	// A path that names one node still reads through docd, unchanged.
 	if _, err := s.Match(ctx, "jobs.a"); err != nil {
 		t.Errorf("a single-node read through docd: %v", err)
+	}
+}
+
+// TestMatchEachReturning_IterType is the client end of 1k6w71sfh12ksn5qn9n0: a member
+// says what kind of node it is, and the wildcard for that kind appended to its path is
+// the set under it -- the walk a client browsing the store makes, one level at a time.
+func TestMatchEachReturning_IterType(t *testing.T) {
+	srv := startLogd(t)
+	s := NewLogdSession(&LogdSessionConfig{Addr: srv.TCPAddr(), ClientID: "kinds"})
+	defer s.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	seedJobs(t, s, ctx, 3)
+
+	ret := logdapi.ReturnPath + "," + logdapi.ReturnIterType
+	var jobs []SetMember
+	if _, err := s.MatchEachReturning(ctx, "jobs.*", nil, ret, func(m SetMember) error {
+		jobs = append(jobs, m)
+		return nil
+	}); err != nil {
+		t.Fatalf("MatchEachReturning: %v", err)
+	}
+	if len(jobs) != 3 {
+		t.Fatalf("answered %d jobs, want 3", len(jobs))
+	}
+	for _, job := range jobs {
+		if job.IterType != logdapi.IterObject || job.Node != nil {
+			t.Fatalf("%s: iterType %q, node %v; want an Object and no body", job.Path, job.IterType, job.Node)
+		}
+		var fields []SetMember
+		if _, err := s.MatchEachReturning(ctx, job.Path+logdapi.IterWildcard(job.IterType), nil, ret, func(m SetMember) error {
+			fields = append(fields, m)
+			return nil
+		}); err != nil {
+			t.Fatalf("listing %s: %v", job.Path, err)
+		}
+		kinds := map[string]string{}
+		for _, f := range fields {
+			kinds[f.Path] = f.IterType
+		}
+		if kinds[job.Path+".status"] != logdapi.IterString || kinds[job.Path+".n"] != logdapi.IterNumber || len(kinds) != 2 {
+			t.Errorf("listing %s answered %v", job.Path, kinds)
+		}
+	}
+}
+
+// TestReturn_ThroughDocd: a read docd passes through to logd answers its retspec as logd
+// does. Past a mount it cannot -- a controller answers a body, and a composed read is a
+// body docd assembles -- so a retspec asking for more than the body is unsupported there,
+// said rather than answered with the body alone (1k6w71sfh12ksn5qn9n0).
+func TestReturn_ThroughDocd(t *testing.T) {
+	logd := startLogd(t)
+	docd := startDocdRouting(t, logd.TCPAddr())
+	mem := newMemController()
+	mem.data["a.b"] = vObj(7)
+	runController(t, docd, "a.b", mem)
+
+	client := docdClient(t, docd, "client")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := client.Patch(ctx, "a.x", vObj(1)); err != nil {
+		t.Fatalf("seed base: %v", err)
+	}
+
+	answer := func(path, ret string) ([]SetMember, error) {
+		var out []SetMember
+		_, err := client.MatchEachReturning(ctx, path, nil, ret, func(m SetMember) error {
+			out = append(out, m)
+			return nil
+		})
+		return out, err
+	}
+
+	// Passed through: logd's answer, whole.
+	got, err := answer("a.x", "path,iterType")
+	if err != nil {
+		t.Fatalf("pass-through: %v", err)
+	}
+	if len(got) != 1 || got[0].Path != "a.x" || got[0].IterType != logdapi.IterObject || got[0].Node != nil {
+		t.Errorf("pass-through answered %+v", got)
+	}
+
+	for _, tc := range []struct{ name, path, ret string }{
+		{"composed", "a", "iterType"},
+		{"composed path", "a", "path,body"},
+		{"at the mount", "a.b", "path"},
+		{"under the mount", "a.b.v", "iterType"},
+	} {
+		if _, err := answer(tc.path, tc.ret); logdapi.ErrorCode(err) != logdapi.ErrCodeUnsupported {
+			t.Errorf("%s: return %q at %s answered %v, want %s", tc.name, tc.ret, tc.path, err, logdapi.ErrCodeUnsupported)
+		}
+	}
+
+	// The body is what both can answer, asked for by name or by default.
+	for _, path := range []string{"a", "a.b"} {
+		for _, ret := range []string{"", "body"} {
+			if got, err := answer(path, ret); err != nil || len(got) != 1 || got[0].Node == nil {
+				t.Errorf("return %q at %s answered %+v, %v", ret, path, got, err)
+			}
+		}
 	}
 }
