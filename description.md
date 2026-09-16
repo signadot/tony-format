@@ -6,7 +6,7 @@ Ask: `match` accepts a wildcard path, and **answers one node at a time**.
 
 ## The answer is a sequence, not a list
 
-Each node is its own response, stamped with the request id, carrying the nodes own concrete path:
+Each node is its own response, stamped with the request id, carrying the node's own concrete path:
 
 ```tony
 {id: "7", match: {path: "jobs.*"}}
@@ -19,7 +19,7 @@ Why a sequence rather than one body holding a list:
 
 - a container with 10k items is not a document anyone wants assembled in memory at either end, and the caller usually stops early;
 - the caller learns WHERE each node is. `MatchResult` carries only `commit` and `body` today (api/session.go:346-349), so a set delivered as one body would lose the paths, and the paths are the point -- they are the input to the next read or write (`o list -paths` makes the same case, docs/objpath.md:50-62);
-- the protocol already demuxes several responses on one id -- that is what a watch is -- so nothing new is needed on the clients routing.
+- the protocol already demuxes several responses on one id -- that is what a watch is -- so nothing new is needed on the client's routing.
 
 New on the wire: `MatchResult.Path` and a terminal marker. The marker follows `WatchEvent.ReplayComplete` (api/session.go:471, NewReplayCompleteEvent:728-736): a flag on the last result rather than a separate message kind.
 
@@ -33,19 +33,29 @@ Every node in the sequence is read at the same commit, and each result says whic
 
 An empty set is the marker alone, with a `commit`, not `not_found`: a query for a set answers with a set, and empty is an honest one. `not_found` stays what it is for a path that names one place and finds nothing.
 
-## Open questions
+## A wildcard at any level
 
-1. **Where may a wildcard appear?** Last segment only, as a retain rule requires (server/retention.go:145-147), or any segment -- `a.*.b`, `runs(*).status`? Any segment is the general walk and costs nothing extra in the protocol; it costs in the index walk, which is per level.
-2. **`..` is out of scope here**, and should stay a separate question: it is a query segment with an unbounded walk, refused wherever a path must name a place (docs/objpath.md:80-88), and the stores index is keyed by literal segments. See p7gd2y87h12kswh0g9n0 and 17hj5ygkh12ks7j7n5n0.
-3. **`[*]` is fine for a READ**, unlike a retain rule, which refuses it because an expiry shifts every later position (docs/logd/retention.md:114-120). A read at a position is a read of what is there now, which logd already answers for `a.b[0]`.
-4. **docd composition.** A wildcard match whose set spans mounts has no single owner. docd routes by field prefix and `MountsUnder` answers nil for a path it classifies as indexed (docd/server/registry.go:175-184, paths.go:63-78), so today it forwards a wildcard blindly. Either docd fans out and interleaves the sequences, or it answers `unsupported` until it does -- but it must not forward and pretend.
-5. **libctl** needs an each-node API (a callback or an iterator) beside `Match`, which returns one body (libctl/logd.go:464-679).
+`a.*.b`, `runs(*).status`, `a.*.b.*` -- a wildcard is a segment like any other, and the walk is per level. A retain rule allows one only in its last segment (server/retention.go:145-147) because a rule is about the items of one container and "delete the item whole" has to mean one thing; a read has no such reason.
+
+Every kind of wildcard is a read here, `[*]` included. A retain rule refuses `[*]` because an expiry shifts every later position (docs/logd/retention.md:114-120); a read at a position is a read of what is there now, which logd already answers for `a.b[0]`.
+
+`..` is not in this issue. It is a query segment whose walk is a whole subtree of unknown size rather than one node's children, and the index is keyed by literal segments -- a different problem behind the same protocol shape. It stays refused wherever a path must name a place (docs/objpath.md:80-88). Follow-up: th7sdhvyh12ksjtfn9n0.
+
+## docd answers unsupported
+
+A wildcard match whose set spans mounts has no single owner. docd routes by field prefix and `MountsUnder` answers nil for a path it classifies as indexed (docd/server/registry.go:175-184, paths.go:63-78), so today it would forward a wildcard to one owner as though the set were that owner's -- answering a different question, silently, with no way for the caller to tell a complete answer from a partial one.
+
+So docd answers `unsupported` (logd/api/session.go:592) for a wildcard match until it composes one. Composing it -- fan out, interleave, one commit for the whole set -- is the follow-up: 5f6vrzw0h12ksrtfn9n0.
+
+## What else this touches
+
+**libctl** needs an each-node API (a callback or an iterator) beside `Match`, which returns one body (libctl/logd.go:464-679).
 
 ## What already exists to build on
 
-- The index enumerates a nodes children by name (storage/index/index.go:115-119, storage/index/cursor.go:35-60) -- a wildcard level is that enumeration rather than a new lookup.
-- Retention already walks a containers children, selects with a pattern and acts per item (server/retention.go:256-280). That is the same walk this read needs, in the one operation where a wildcard is already legal.
-- `ir.ListKPath` is the in-process answer to exactly this question (ir/kpath.go:279-291), wildcards and `..` included, and kpaths `Matches` now agrees with it (17hj5ygkh12ks7j7n5n0). The wire operation is what is missing.
+- The index enumerates a node's children by name (storage/index/index.go:115-119, storage/index/cursor.go:35-60) -- a wildcard level is that enumeration rather than a new lookup.
+- Retention already walks a container's children, selects with a pattern and acts per item (server/retention.go:256-280). That is the same walk this read needs, in the one operation where a wildcard is already legal.
+- `ir.ListKPath` is the in-process answer to exactly this question (ir/kpath.go:279-291), wildcards and `..` included, and kpath's `Matches` now agrees with it (17hj5ygkh12ks7j7n5n0). The wire operation is what is missing.
 
 ## Related
 
