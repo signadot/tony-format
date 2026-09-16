@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: c95f1dfa8ba10b2dfb39cbdb4376760d33825433
 commits:
 - c95f1dfa8ba10b2dfb39cbdb4376760d33825433
 created: "2026-09-16T17:37:56.140524+02:00"
@@ -11,5 +12,5 @@ labels:
 - bug
 - logd
 related_issues: []
-status: open
-updated: "2026-09-16T17:41:53.372442+02:00"
+status: closed
+updated: "2026-09-16T18:20:26.049331+02:00"
