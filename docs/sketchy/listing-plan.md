@@ -54,18 +54,18 @@ A snapshot is a value: the subtree at its path as an event stream, with a small 
 index over it (`snap` package, one entry per ~`GetChunkSize` bytes). It gains a
 **directory**: for each container it holds, a table of the container's direct children,
 
-    (segment, offset, size, kind, table)
+    (segment, offset, size, kind)
 
 sorted as the store sorts them -- document order is name order, since storage sorts
-object keys -- where `offset` and `size` locate the child's events and `table` locates
-the child's own table when it is a container. `segment` is the store's spelling of the
-child: a field, `[i]`, `{n}`, or `"(id=r1)"` for an element of a keyed array, which is an
-object of names in the store.
+object keys -- where `offset` and `size` locate the child's events; a container child's
+own table follows its subtree, at `offset + size`, so no field locates it. `segment` is
+the store's spelling of the child: a field, `[i]`, `{n}`, or `"(id=r1)"` for an element
+of a keyed array, which is an object of names in the store.
 
 The table is written **after** the container's subtree, so the builder stays single-pass
-and append-only: when a container closes the builder knows every child's offset and size,
-writes the table, and hands its offset up to the enclosing container's pending entry. The
-root's table offset goes in the header. The chunked index stays as it is; it is how a
+and append-only: when a container closes the builder knows every child's offset and size
+and writes the table there, where `offset + size` of the enclosing container's entry for
+it will point. The root's table is last, and the header locates it. The chunked index stays as it is; it is how a
 read finds a path, and it is small.
 
 The event stream is unchanged. The trie is unchanged.
@@ -73,8 +73,8 @@ The event stream is unchanged. The trie is unchanged.
 ### Reading
 
 - **Listing `P` at the snapshot.** Find `P` through the chunked index and its table
-  through the parent chain (each table entry carries its child's table offset, so
-  descending is one seek per level, which is the shape of a top-down walk). Read the
+  through the parent chain (a table entry's `offset + size` is where its child's table
+  is, so descending is one seek per level, which is the shape of a top-down walk). Read the
   table sequentially from the cursor's position: a page reads O(page) entries. A cursor
   resumes by binary search within the table, which is sorted and has fixed-size entries
   apart from the segment, so the search is over an offset array written after the entries.
@@ -128,8 +128,25 @@ Each step ships alone and is tested alone.
 
 1. **Policy sees `largest`.** Test: 10 000 children in one write; the first child read
    schedules a snapshot at the parent; the second child read is under 1 ms.
-2. **Measure the directory's size** on a real store before the format changes: the key set
-   once more, expected; confirm on the largest store available.
+2. **Measure the directory's size** on a real store before the format changes. Done,
+   against verse-docd at commit 4416 (2026-09-17): the document is 4.17 MB as a snapshot's
+   event stream, 9 211 containers, 33 294 keys, 125 bytes per key on average, largest
+   fan-outs 817, 519, 346. Names alone are 8.3 bytes per key, 6.7% of the stream. With
+   each entry's locators the directory is **not** "the key set once more":
+
+   | entry layout | bytes/key | of the stream |
+   |---|---|---|
+   | name + 3 five-byte varints + kind + 4-byte slot (the plan's first sketch) | 28 | 22.6% |
+   | name + offset and size as 2–3-byte varints + kind + slot | ~18 | ~15% |
+
+   Two things the layout should take from this. The child's table offset needs no field:
+   the table is written right after the subtree, so it is at `offset + size`. And the
+   4-byte slot per entry -- the offset array a resume binary-searches -- is a fifth of
+   the entry and is what makes a page O(page) rather than O(fan-out); it stays. The
+   fraction falls as values grow (at the 150-byte records of the measurement above it is
+   ~13%), and it is proportional to keys, which is the currency the requirement is in.
+   The shape repeats for a test as large as a test needs: ×100 is 3.3M keys, 417 MB of
+   stream, 60 MB of directory.
 3. **Builder writes tables**, and a `snap.Directory` reader with `ReadTable(P)` and
    `Seek(after)`. Tests: every container kind, empty containers, comments, an old
    snapshot opens and answers as before.
