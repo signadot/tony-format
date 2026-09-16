@@ -557,6 +557,11 @@ func (s *MatchRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["cursor"] = ir.FromString(string(s.Cursor))
 	}
 
+	// Field: Return
+	if s.Return != "" {
+		irMap["return"] = ir.FromString(string(s.Return))
+	}
+
 	return ir.FromMap(irMap), nil
 }
 
@@ -632,6 +637,12 @@ func (s *MatchRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 				return fmt.Errorf("field %q: expected string, got %v", "cursor", fieldNodeUnwrapped.Type)
 			}
 			s.Cursor = string(fieldNodeUnwrapped.String)
+		case "return":
+			// Field: Return
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string, got %v", "return", fieldNodeUnwrapped.Type)
+			}
+			s.Return = string(fieldNodeUnwrapped.String)
 		default:
 			if gomap.IsStrict(opts...) {
 				return fmt.Errorf("unknown field %q for MatchRequest", fieldName.String)

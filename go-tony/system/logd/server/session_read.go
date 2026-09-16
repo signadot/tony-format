@@ -57,13 +57,6 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 		}
 	}
 
-	// A match with no pattern, in a view whose schema declares no keyed array, is
-	// answered from the store's event stream: the body is encoded as it is read, into
-	// the frame that goes out, and no node of it is built (rebuild_plan.md decision 3).
-	// What is held is the encoded frame, under the session's budget, and a body past
-	// the budget is refused as a node past it was. A pattern needs the node to filter,
-	// and a keyed array needs it to be raised into the client's vocabulary; those reads
-	// build the node under the same budget.
 	// A wildcard names a set, and the set is answered one node at a time, each member
 	// by the single-node paths below (session_read_set.go).
 	if kpathHasWild(path) {
@@ -71,8 +64,41 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 		return
 	}
 
+	// A path that names one node answers the body by default: the caller has the path
+	// already, so saying it back would put it on every read ever made. `return: paths`
+	// asks whether anything stands there, and is answered by the path alone.
+	spec, err := api.ParseReturnSpec(req.Return, api.ReturnSpec{Body: true})
+	if err != nil {
+		s.sendError(id, api.ErrCodeUnsupported, err.Error())
+		return
+	}
+	reportPath := ""
+	if spec.Paths {
+		reportPath = path
+	}
+	if !spec.Body && (req.Data == nil || req.Data.Type == ir.NullType) {
+		ok, err := s.pathExists(path, commit)
+		if err != nil {
+			s.sendReadError(id, err)
+			return
+		}
+		if !ok {
+			s.sendReadError(id, s.classifyAbsent(path, commit))
+			return
+		}
+		s.send(api.NewMatchMemberResponse(id, commit, reportPath, nil))
+		return
+	}
+
+	// A match with no pattern, in a view whose schema declares no keyed array, is
+	// answered from the store's event stream: the body is encoded as it is read, into
+	// the frame that goes out, and no node of it is built (rebuild_plan.md decision 3).
+	// What is held is the encoded frame, under the session's budget, and a body past
+	// the budget is refused as a node past it was. A pattern needs the node to filter,
+	// and a keyed array needs it to be raised into the client's vocabulary; those reads
+	// build the node under the same budget.
 	if (req.Data == nil || req.Data.Type == ir.NullType) && !s.raises() {
-		if err := s.encodedMatch(id, path, commit, ""); err != nil {
+		if err := s.encodedMatch(id, path, commit, reportPath); err != nil {
 			s.sendReadError(id, err)
 		}
 		return

@@ -37,10 +37,21 @@ type SetMember struct {
 // pattern, when non-nil, is matched and trimmed against each member on its own, and a
 // member it rejects is not a member: fn does not see it.
 func (s *LogdSession) MatchEach(ctx context.Context, path string, pattern *ir.Node, fn func(SetMember) error) (int64, error) {
+	return s.matchEachReturning(ctx, path, pattern, "", fn)
+}
+
+// matchEachReturning is MatchEach with the retspec the request carries: "" for the
+// server's default (a set answers paths and bodies), ReturnPaths for where the members
+// are without what is in them.
+func (s *LogdSession) matchEachReturning(ctx context.Context, path string, pattern *ir.Node, ret string, fn func(SetMember) error) (int64, error) {
 	commit := int64(0)
 	cursor := ""
 	for {
-		req := &api.MatchRequest{PathData: api.PathData{Path: path, Data: pattern}, Cursor: cursor}
+		req := &api.MatchRequest{
+			PathData: api.PathData{Path: path, Data: pattern},
+			Cursor:   cursor,
+			Return:   ret,
+		}
 		if commit != 0 {
 			at := commit
 			req.Commit = &at
@@ -64,6 +75,22 @@ func (s *LogdSession) MatchSet(ctx context.Context, path string, pattern *ir.Nod
 	var out []SetMember
 	commit, err := s.MatchEach(ctx, path, pattern, func(m SetMember) error {
 		out = append(out, m)
+		return nil
+	})
+	return out, commit, err
+}
+
+// MatchPaths answers WHERE the members of a set are, without what is in them, and the
+// commit it read at. With no pattern the server reads no node to answer it -- the walk
+// that finds the members already knows their names -- so "which ones are there?" over a
+// large container costs the walk rather than a read per member.
+//
+// A pattern is still answered, and still costs the reads: the pattern has to see each
+// node to select on it. What it saves then is the bodies on the wire.
+func (s *LogdSession) MatchPaths(ctx context.Context, path string, pattern *ir.Node) ([]string, int64, error) {
+	var out []string
+	commit, err := s.matchEachReturning(ctx, path, pattern, api.ReturnPaths, func(m SetMember) error {
+		out = append(out, m.Path)
 		return nil
 	})
 	return out, commit, err

@@ -159,6 +159,84 @@ func TestSetMatch_Wildcards(t *testing.T) {
 	}
 }
 
+// TestSetMatch_Return covers the retspec: what an answer carries. `return: paths`
+// answers where the nodes are without sending what is in them -- and, with no pattern,
+// without reading them; `return: body` answers the values alone.
+func TestSetMatch_Return(t *testing.T) {
+	store := openStore(t)
+	answers := runSet(t, store,
+		`{id: "seed", patch: {path: "", data: {jobs: {a1: {status: done}, a2: {status: ready}}, leaf: 1}}}`,
+		`{id: "paths", match: {path: "jobs.*", return: paths}}`,
+		`{id: "bodies", match: {path: "jobs.*", return: body}}`,
+		`{id: "both", match: {path: "jobs.*", return: "paths,body"}}`,
+		`{id: "filtered-paths", match: {path: "jobs.*", data: {status: done}, return: paths}}`,
+		`{id: "under-paths", match: {path: "jobs.*.status", return: paths}}`,
+		`{id: "absent-under", match: {path: "jobs.*.nope", return: paths}}`,
+		`{id: "one-node", match: {path: "leaf", return: paths}}`,
+		`{id: "unknown", match: {path: "jobs.*", return: "paths,authors"}}`,
+	)
+
+	paths := mustSet(t, answers, "paths")
+	if want := []string{"jobs.a1", "jobs.a2"}; !equalStrings(paths.paths(), want) {
+		t.Errorf("return: paths answered %v, want %v", paths.paths(), want)
+	}
+	for _, m := range paths.members {
+		if m.Body != nil {
+			t.Errorf("return: paths carried a body for %s: %v", m.Path, m.Body)
+		}
+	}
+
+	bodies := mustSet(t, answers, "bodies")
+	if len(bodies.members) != 2 {
+		t.Fatalf("return: body answered %d members", len(bodies.members))
+	}
+	for _, m := range bodies.members {
+		if m.Path != "" {
+			t.Errorf("return: body carried a path: %s", m.Path)
+		}
+		if m.Body == nil {
+			t.Error("return: body carried no body")
+		}
+	}
+
+	both := mustSet(t, answers, "both")
+	for _, m := range both.members {
+		if m.Path == "" || m.Body == nil {
+			t.Errorf(`return: "paths,body" answered %+v`, m)
+		}
+	}
+
+	// A pattern still selects: the paths of the jobs that are done.
+	if got := mustSet(t, answers, "filtered-paths").paths(); !equalStrings(got, []string{"jobs.a1"}) {
+		t.Errorf("a filtered paths-only read answered %v", got)
+	}
+	// A concrete segment after the wildcard is a path the walk named rather than found,
+	// so what is not there is not answered.
+	if got := mustSet(t, answers, "under-paths").paths(); !equalStrings(got, []string{"jobs.a1.status", "jobs.a2.status"}) {
+		t.Errorf("jobs.*.status paths answered %v", got)
+	}
+	if got := mustSet(t, answers, "absent-under").paths(); len(got) != 0 {
+		t.Errorf("a path that is not there was answered: %v", got)
+	}
+
+	// A path naming one node: `return: paths` is an existence question.
+	one := answers["one-node"]
+	if one == nil || one.err != nil {
+		t.Fatalf("one-node: %+v", one)
+	}
+	if len(one.members) != 1 || one.members[0].Path != "leaf" || one.members[0].Body != nil {
+		t.Errorf("return: paths at one node answered %+v", one.members)
+	}
+
+	// A name this server does not know is said, not ignored: a client asking a later
+	// server for more must not be answered with less and told nothing.
+	if a := answers["unknown"]; a == nil || a.err == nil {
+		t.Error("an unknown return name was accepted")
+	} else if a.err.Code != api.ErrCodeUnsupported {
+		t.Errorf("unknown return name: code %q, want %q", a.err.Code, api.ErrCodeUnsupported)
+	}
+}
+
 // TestSetMatch_KeyedElements: (*) names a keyed array's elements by identity, which is
 // how the store spells them and how a client addresses them, and [*] names nothing
 // there -- identity replaces position, as it does for a read of one element.

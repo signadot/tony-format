@@ -2,6 +2,8 @@ package api
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/signadot/tony-format/go-tony/ir"
 )
@@ -111,6 +113,63 @@ type MatchRequest struct {
 	// a cursor whose commit has aged out of range is ErrCodeCommitNotFound rather than
 	// a silent read of the current one. Path must be the path that started the read.
 	Cursor string `tony:"field=cursor,omitzero"`
+
+	// Return says what an answer carries, as a comma-separated retspec of the names in
+	// ReturnPaths and ReturnBody: `return: paths` answers where the nodes are, `return:
+	// body` the values alone, and `return: "paths,body"` both.
+	//
+	// It is what a caller asking "which ones are there?" needs: with no pattern,
+	// `return: paths` reads no node at all, because the walk that finds the members
+	// already knows their names. With a pattern the nodes are still read -- the pattern
+	// has to see them -- and only the bodies are left off the wire.
+	//
+	// Empty is the default, and the default differs by what the path names: a set
+	// answers paths and bodies, and a path that names one node answers the body, since
+	// the caller has that path already. A name this server does not know is
+	// ErrCodeUnsupported, so a client asking a later server for more (an author, say)
+	// is told rather than quietly answered with less.
+	Return string `tony:"field=return,omitzero"`
+}
+
+// The names a MatchRequest.Return retspec is made of. More may follow -- who wrote the
+// node, the commit it last changed at -- which is why this is a spec and not a flag.
+const (
+	ReturnPaths = "paths"
+	ReturnBody  = "body"
+)
+
+// ReturnSpec is a parsed MatchRequest.Return: what an answer carries.
+type ReturnSpec struct {
+	Paths bool
+	Body  bool
+}
+
+// ParseReturnSpec reads a retspec, answering def when it is empty. A name it does not
+// know is an error, which the caller reports as ErrCodeUnsupported: the spec is meant
+// to grow, and a server that ignored what it did not understand would answer less than
+// it was asked for and look like it had answered everything.
+func ParseReturnSpec(spec string, def ReturnSpec) (ReturnSpec, error) {
+	if strings.TrimSpace(spec) == "" {
+		return def, nil
+	}
+	var out ReturnSpec
+	for _, name := range strings.Split(spec, ",") {
+		switch strings.TrimSpace(name) {
+		case ReturnPaths:
+			out.Paths = true
+		case ReturnBody:
+			out.Body = true
+		case "":
+			continue
+		default:
+			return ReturnSpec{}, fmt.Errorf("return %q: this server knows %q and %q",
+				strings.TrimSpace(name), ReturnPaths, ReturnBody)
+		}
+	}
+	if !out.Paths && !out.Body {
+		return ReturnSpec{}, fmt.Errorf("return %q: an answer carries something", spec)
+	}
+	return out, nil
 }
 
 // PatchRequest is a request to apply a patch.

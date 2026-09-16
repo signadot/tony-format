@@ -10,6 +10,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/ident"
 )
 
@@ -36,6 +37,13 @@ const maxSetPage = 1000
 
 // handleSetMatch answers a match whose path holds a wildcard.
 func (s *Session) handleSetMatch(id *string, req *api.MatchRequest, path string, commit int64) {
+	// A set answers paths and bodies unless the request asks for less.
+	spec, err := api.ParseReturnSpec(req.Return, api.ReturnSpec{Paths: true, Body: true})
+	if err != nil {
+		s.sendError(id, api.ErrCodeUnsupported, err.Error())
+		return
+	}
+
 	limit := maxSetPage
 	if req.Limit != nil {
 		if *req.Limit <= 0 {
@@ -82,13 +90,13 @@ func (s *Session) handleSetMatch(id *string, req *api.MatchRequest, path string,
 	sent := 0
 	last := ""
 	more := false
-	err := s.eachSetMember(path, commit, after, func(member string) error {
+	err = s.eachSetMember(path, commit, after, func(member string, proven bool) error {
 		if sent == limit {
 			// One member past the page: the set goes on, and the cursor resumes here.
 			more = true
 			return errPageFull
 		}
-		ok, err := s.sendSetMember(id, req, member, commit)
+		ok, err := s.sendSetMember(id, req, spec, member, commit, proven)
 		if err != nil {
 			return err
 		}
@@ -116,11 +124,38 @@ var errPageFull = fmt.Errorf("page full")
 // sendSetMember answers one member, and says whether it answered. A member that holds
 // nothing, or that the request's pattern does not match, is not a member: it is skipped
 // rather than sent as an absence, since a set says what IS there.
-func (s *Session) sendSetMember(id *string, req *api.MatchRequest, member string, commit int64) (bool, error) {
+//
+// proven says the walk has already seen this node -- it enumerated it -- so nothing has
+// to be read to know it is there. That is what makes `return: paths` cheap: the names
+// are what the walk found, so a set of ten thousand costs the walk rather than ten
+// thousand reads.
+func (s *Session) sendSetMember(id *string, req *api.MatchRequest, spec api.ReturnSpec, member string, commit int64, proven bool) (bool, error) {
+	hasPattern := req.Data != nil && req.Data.Type != ir.NullType
+	if !spec.Body && !hasPattern {
+		// Nothing to read: the answer is the path, and there is no pattern that would
+		// need the node to decide whether this is a member at all.
+		if !proven {
+			// A concrete segment after the wildcard: the walk NAMED this path rather
+			// than finding it. Presence answers whether it is there without building
+			// the node.
+			ok, err := s.pathExists(member, commit)
+			if err != nil || !ok {
+				return false, err
+			}
+		}
+		s.send(api.NewMatchMemberResponse(id, commit, member, nil))
+		return true, nil
+	}
+
+	reportPath := member
+	if !spec.Paths {
+		reportPath = ""
+	}
+
 	// The same fast path a single-node read takes: no pattern and no keyed array to
 	// raise means the body is encoded as it is read, and no node of it is built.
-	if (req.Data == nil || req.Data.Type == ir.NullType) && !s.raises() {
-		err := s.encodedMatch(id, member, commit, member)
+	if !hasPattern && !s.raises() {
+		err := s.encodedMatch(id, member, commit, reportPath)
 		if err == nil {
 			return true, nil
 		}
@@ -136,7 +171,7 @@ func (s *Session) sendSetMember(id *string, req *api.MatchRequest, member string
 		}
 		return false, err
 	}
-	if req.Data != nil && req.Data.Type != ir.NullType {
+	if hasPattern {
 		filtered, err := filterState(state, req.Data)
 		if err != nil {
 			return false, fmt.Errorf("failed to apply match filter: %w", err)
@@ -146,8 +181,28 @@ func (s *Session) sendSetMember(id *string, req *api.MatchRequest, member string
 		}
 		state = filtered
 	}
-	s.send(api.NewMatchMemberResponse(id, commit, member, state))
+	if !spec.Body {
+		// The pattern needed the node; the caller did not ask to be sent it.
+		state = nil
+	}
+	s.send(api.NewMatchMemberResponse(id, commit, reportPath, state))
 	return true, nil
+}
+
+// pathExists says whether anything stands at path, without building the node there.
+func (s *Session) pathExists(path string, commit int64) (bool, error) {
+	if commit == 0 {
+		return false, nil
+	}
+	c, err := s.storage.Read(commit, s.scopeID(), path)
+	if err != nil {
+		if isAbsent(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	defer c.Close()
+	return c.Presence() != storage.Absent, nil
 }
 
 // patternSelected reads what the pattern left: whether this member belongs to the set.
@@ -177,13 +232,13 @@ func patternSelected(before, after *ir.Node) bool {
 // eachSetMember calls fn with the path of each member of the set path names at commit,
 // in the store's own order, skipping everything up to and including after (a cursor's
 // resume point, empty for the first page).
-func (s *Session) eachSetMember(path string, commit int64, after string, fn func(string) error) error {
+func (s *Session) eachSetMember(path string, commit int64, after string, fn func(member string, proven bool) error) error {
 	segs := kpath.SplitAll(path)
 	afterSegs := []string(nil)
 	if after != "" {
 		afterSegs = kpath.SplitAll(after)
 	}
-	return s.walkSet("", segs, afterSegs, commit, fn)
+	return s.walkSet("", segs, afterSegs, commit, false, fn)
 }
 
 // walkSet extends prefix by segs. afterSegs, while non-nil, is the cursor's path: the
@@ -191,13 +246,15 @@ func (s *Session) eachSetMember(path string, commit int64, after string, fn func
 // before the cursor's own, descends into that one still on the branch, and takes every
 // later sibling from the start. That is a seek rather than a rescan -- the members
 // already answered are never read again.
-func (s *Session) walkSet(prefix string, segs, afterSegs []string, commit int64, fn func(string) error) error {
+// proven says the path so far was enumerated rather than merely named, so something
+// stands there and a paths-only answer needs no read to say so.
+func (s *Session) walkSet(prefix string, segs, afterSegs []string, commit int64, proven bool, fn func(string, bool) error) error {
 	if len(segs) == 0 {
 		if afterSegs != nil {
 			// The cursor's own member: answered on the previous page.
 			return nil
 		}
-		return fn(prefix)
+		return fn(prefix, proven)
 	}
 	seg := segs[0]
 	kp, err := kpath.Parse(seg)
@@ -221,7 +278,9 @@ func (s *Session) walkSet(prefix string, segs, afterSegs []string, commit int64,
 			}
 			next = next[1:]
 		}
-		return s.walkSet(child, segs[1:], next, commit, fn)
+		// A step the walk TOOK rather than found: whether anything stands here is not
+		// known until something reads it.
+		return s.walkSet(child, segs[1:], next, commit, false, fn)
 	}
 
 	children, err := s.setChildren(prefix, kp, commit)
@@ -243,7 +302,8 @@ func (s *Session) walkSet(prefix string, segs, afterSegs []string, commit int64,
 			next = afterSegs[1:]
 			resuming = false
 		}
-		if err := s.walkSet(kpath.Join(prefix, child), segs[1:], next, commit, fn); err != nil {
+		// Enumerated: this child is one the walk found in the node above it.
+		if err := s.walkSet(kpath.Join(prefix, child), segs[1:], next, commit, true, fn); err != nil {
 			return err
 		}
 	}

@@ -36,7 +36,7 @@ directly inside it:
 | operation | shape |
 |---|---|
 | `hello` | `{hello: {clientId: <id>, protocol: 3, scope: <scope>, author: <principal>}}` |
-| `match` | `{match: {path: <kpath>, data: <pattern>, commit: <n>, limit: <n>, cursor: <s>}}` — a wildcard path answers a [set](#reading-a-set) |
+| `match` | `{match: {path: <kpath>, data: <pattern>, commit: <n>, limit: <n>, cursor: <s>, return: <retspec>}}` — a wildcard path answers a [set](#reading-a-set) |
 | `patch` | `{patch: {path: <kpath>, data: <value>, match: {path, data}, txId: <n>, timeout: "5s", author: <principal>}}` |
 | `newtx` | `{newtx: {participants: <n>, timeout: "5m", author: <principal>}}` |
 | `watch` | `{watch: {path: <kpath>, fromCommit: <n>, noInit: <bool>, waitIfAbsent: <bool>}}` |
@@ -131,6 +131,36 @@ wants built at either end, and the paths are half the answer.
   is one; `not_found` keeps its meaning for a path that names one place.
 - `..` is **not** a read: it names nodes at any depth, and is refused here as everywhere
   a path must name a place.
+
+#### `return`: what an answer carries
+
+`return` is a comma-separated retspec — `paths`, `body`, or both. A set answers
+`"paths,body"` unless asked otherwise:
+
+```tony
+{id: "3", match: {path: "jobs.*", return: paths}}
+{id: "3" result: {match: {path: jobs.a1 commit: 91}}}
+{id: "3" result: {match: {path: jobs.a2 commit: 91}}}
+{id: "3" result: {match: {commit: 91 done: true}}}
+```
+
+`return: paths` answers **where** the nodes are without what is in them, and with no
+pattern it reads no node at all: the walk that finds the members already knows their
+names, so "which jobs are there?" over ten thousand costs the walk rather than ten
+thousand reads. A path the walk *named* rather than found — anything after the wildcard,
+as in `jobs.*.status` — is checked for presence, so what is not there is not answered.
+
+With a pattern the nodes are still read, because the pattern has to see them; what
+`return: paths` saves then is the bodies on the wire.
+
+`return: body` answers the values alone, for a caller that does not need the paths. A
+name this server does not know — `return: "paths,author"` — is `unsupported`, said
+rather than ignored, so a client asking a later server for more is never answered with
+less and told nothing.
+
+For a path that names **one** node the default is `body`, since the caller already has
+the path; `return: paths` there is an existence question, answered by the path alone or
+by `not_found`.
 
 A wildcard anywhere else — a `patch`, the `match` precondition a patch carries, a
 `watch` — is `invalid_path`. Those need one node, and a set is not one.

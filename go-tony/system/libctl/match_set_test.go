@@ -119,6 +119,43 @@ func TestMatchEach_FollowsPagesAcrossTheServersCap(t *testing.T) {
 	}
 }
 
+// TestMatchPaths_AnswersWhereWithoutWhat: the retspec end to end. Paths come back
+// without bodies, a pattern still selects, and each path reads on its own.
+func TestMatchPaths_AnswersWhereWithoutWhat(t *testing.T) {
+	srv := startLogd(t)
+	s := NewLogdSession(&LogdSessionConfig{Addr: srv.TCPAddr(), ClientID: "paths"})
+	defer s.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	seedJobs(t, s, ctx, 6)
+
+	paths, commit, err := s.MatchPaths(ctx, "jobs.*", nil)
+	if err != nil {
+		t.Fatalf("MatchPaths: %v", err)
+	}
+	if len(paths) != 6 {
+		t.Fatalf("answered %d paths, want 6: %v", len(paths), paths)
+	}
+	if commit == 0 {
+		t.Error("the set was read at no commit")
+	}
+	for _, p := range paths {
+		if _, err := s.Match(ctx, p); err != nil {
+			t.Errorf("a path answered by MatchPaths does not read: %s: %v", p, err)
+		}
+	}
+
+	done, _, err := s.MatchPaths(ctx, "jobs.*", ir.FromKeyVals([]ir.KeyVal{
+		{Key: ir.FromString("status"), Val: ir.FromString("done")},
+	}))
+	if err != nil {
+		t.Fatalf("MatchPaths with a pattern: %v", err)
+	}
+	if len(done) != 3 {
+		t.Errorf("the pattern selected %d paths, want 3: %v", len(done), done)
+	}
+}
+
 // TestMatchEach_StopsEarly: a caller that has seen enough returns an error from fn, and
 // the session is usable afterwards -- the members still on their way are not delivered
 // to a request nobody is reading.
