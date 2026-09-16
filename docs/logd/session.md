@@ -588,7 +588,7 @@ writes an object at `a.b`. What separates them is what is there now.
 |---|---|
 | `not_found` | **nothing is there.** Nothing in the document contradicts the path, so creating what is missing is a reasonable next move |
 | `path_conflict` | **something is there, of a shape that cannot hold what you asked for** — an index into an object, a field under a string. Creating here means clobbering what is already there, so the move is to re-examine the shape you assumed |
-| `invalid_path` | **not a well-formed question** — `..` names nodes at any depth, and a wildcard where a path must name a place (a write, a watch); a read answers a [set](#reading-a-set) |
+| `invalid_path` | **not a well-formed question** — `..` names nodes at any depth, a wildcard where a path must name a place (a write, a watch; a read answers a [set](#reading-a-set)), and an element named by a key the array does not have — for a read, under the schema of the commit it reads |
 | `match_failed` | a precondition did not hold; the write did not happen |
 | `invalid_diff` | the delta would not apply to the state it would be stored against, or the schema's keying refuses it — an element without a name, a position on a keyed array, a name where there is no identity |
 | `commit_not_found` | a historical read outside `[0, current]` |
@@ -599,7 +599,7 @@ writes an object at `a.b`. What separates them is what is there now.
 | `invalid_tx` | a transaction asked for more than the server allows, or a participant named an `author` (a participant inherits the transaction's) |
 | `invalid_retain` | a [retain](retention.md) request that cannot mean what it says — a rule naming one node or a dense array, an age that is not a field path, a duration that is not one — or whose rule disagrees with the schema's keying |
 | `controller_unavailable` | (docd) the controller owning that subtree is gone |
-| `unsupported` | the responder does not implement that operation |
+| `unsupported` | the responder does not implement that operation, or cannot answer what the request asks: a `return` name it does not know, or more than a body past a mount |
 
 `timeout`, `session_closed` and `invalid_message` mean what they say.
 

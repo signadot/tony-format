@@ -67,6 +67,30 @@ Two things are refused rather than resolved:
   schema is proposed, so a store never adopts one whose keying is ambiguous — a stored
   delta cannot be un-recorded afterwards.
 
+## Changing one
+
+A schema that gives an array an identity, takes it away, or keys it by other fields is
+set as one commit, and the commit carries the rewrite of the data:
+
+- **gaining** one names the elements from their key fields, generating an auto-id where
+  one is missing; an element with no key, or two elements with one name, refuses the
+  schema;
+- **losing** one turns the elements back into an array, in name order, and is refused
+  unless the set says `force`, since the names are lost with it;
+- **changing** it names the elements again, under the new fields.
+
+A change under a path where a scope has statements is refused, naming the scopes.
+
+History keeps the keying it had. A read at an earlier commit answers under the schema in
+force at that commit: with `runs` keyed by `id` then and by nothing now,
+`{match: {path: "runs(r1)", commit: N}}` reads element `r1`, and the same path at the head
+is `invalid_path`.
+
+A watch over the array — at it, under it, or above it — **ends** at the schema commit with
+`keying_changed` rather than being handed the rewrite, which would tell it a renamed
+element had been deleted. Watch again from that commit, spelling the path as the schema now
+does ([Watching](session.md#watching)).
+
 ## What may be a key
 
 The index turns each element into a path segment, so a key must **render as one**: a

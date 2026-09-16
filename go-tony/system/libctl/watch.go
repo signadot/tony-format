@@ -38,16 +38,17 @@ const unwatchTimeout = 5 * time.Second
 //
 // The watch is re-establishable in every case but invalid_path: the application
 // should start a new Watch on the same path, which re-composes against the current
-// mount set — without FromCommit after replay_compacted. After keying_changed, Commit
-// is the schema commit rather than the last one delivered: watch again from it, taking
-// the state rather than NoInit, since what the application holds is keyed the old way,
-// and spell the path as the schema now does -- an element's name, or whether it has one,
-// may be what changed. The reason is for a caller
+// mount set — without FromCommit after replay_compacted. The reason is for a caller
 // that does more than reconnect — one deciding whether the content it is about to
 // see should differ, or reporting why the stream broke.
 //
-// Mounts share the commit sequence for their lifetime, so Commit, the last commit
-// delivered, is an exact resume point across a composed path as well as a single-route
+// After keying_changed, Commit is the schema commit rather than the last one delivered:
+// watch again from it, taking the state rather than NoInit, since what the application
+// holds is keyed the old way, and spell the path as the schema now does -- an element's
+// name, or whether it has one, may be what changed.
+//
+// Mounts share the commit sequence for their lifetime, so Commit, otherwise the last
+// commit delivered, is an exact resume point across a composed path as well as a single-route
 // one, and a composed watch replays from FromCommit as a single-route one does. What a
 // watcher must account for is membership: a mount arriving or leaving mid-watch ends the
 // watch with one of the reasons above, and the re-watch composes the new membership.

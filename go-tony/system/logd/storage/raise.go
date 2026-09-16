@@ -27,8 +27,9 @@ import (
 // presentation as an operator (index/log_segment.go) -- which is the one read cost
 // identity exists to remove.
 
-// SchemaFor answers the schema in force for the view scopeID names, or nil for a store
-// without one. It is what a caller outside the store needs to spell an element's name.
+// SchemaFor answers the schema in force now for the view scopeID names, or nil for a store
+// without one. It spells an element's name for a request that lands at the head -- a
+// write, a watch; a read at a commit spells it under that commit's (SchemaForAt).
 func (s *Storage) SchemaFor(scopeID *string) *api.Schema {
 	return s.schemaForScope(scopeID)
 }

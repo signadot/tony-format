@@ -785,7 +785,8 @@ func (s *Session) cleanupWatches() {
 // handleWatch's admission checks — because that id is in the pending table.
 //
 // commit is the highest commit this watch accounted for, so the client can resume from it
-// rather than re-reading everything; 0 when it never got that far.
+// rather than re-reading everything; 0 when it never got that far. A keying change is the
+// exception: its commit is the schema commit (endKeyingChanged).
 //
 // failWatch ends a watch and says why: a reason code from the ErrCode* vocabulary, and
 // the message that carries what the code cannot. The message goes to the CLIENT as well

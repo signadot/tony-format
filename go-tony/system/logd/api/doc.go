@@ -26,8 +26,8 @@
 // # Where the path goes
 //
 // [MatchRequest], [PatchRequest] and [WatchRequest] all keep path directly under the
-// operation, and the operation's own fields sit beside it -- commit for a match; match
-// (the precondition), txId and timeout for a patch; fromCommit, noInit and waitIfAbsent
+// operation, and the operation's own fields sit beside it -- commit, limit, cursor and
+// return for a match; match (the precondition), txId and timeout for a patch; fromCommit, noInit and waitIfAbsent
 // for a watch. A request has no body: body is what a RESPONSE carries, and it is the
 // answer ([MatchResult.Body]).
 //
@@ -44,8 +44,11 @@
 //     answer carries the server's version and schema.
 //   - match ([MatchRequest]) reads. path restricts the read to that subdocument, data
 //     is an optional pattern the state is matched and trimmed against WITHIN it, and
-//     commit reads state as of a past commit. The answer is the state and the commit it
-//     was read at.
+//     commit reads state as of a past commit, under the schema in force then. The
+//     answer is the state and the commit it was read at. A path holding a wildcard
+//     names a set, answered one node at a time and ended by a marker, paged by limit
+//     and cursor ([MatchResult]); return says what an answer carries -- a node's path,
+//     id, iterType, body.
 //   - patch ([PatchRequest]) writes. match, when set, is a compare-and-swap
 //     precondition; txId joins a multi-participant transaction; timeout bounds that
 //     participant's wait. The answer is the commit and the data as committed -- a
@@ -75,6 +78,10 @@
 // from the error vocabulary and [WatchEvent.EndMessage] with the detail, carrying the
 // highest commit the watch accounted for so the client can re-watch from there.
 //
+// A schema commit that changes an array's keying ends every watch overlapping the array
+// -- at it, under it, or above it -- with keying_changed, and its commit is the schema
+// commit: the watch starts again there, under the new keying ([ErrCodeKeyingChanged]).
+//
 // A delta is rooted at the watched path, as the state is, and it is a delta of the value
 // there: a projection of the stored commit, or the difference of two reads, not
 // necessarily the patch the writer sent. A consumer applies it; it does not read meaning
@@ -89,8 +96,10 @@
 // invalid_path is a path that cannot address anything, invalid_diff is a delta that
 // would not apply or that the schema's keying refuses, match_failed is a precondition
 // that did not hold (the write did not happen), schema_refused is a schema the store will
-// not adopt, and replay_compacted, the reason a watch ends rather than an error
-// response, is a fromCommit below retained history.
+// not adopt, unsupported is a request the responder cannot answer -- a retspec name it
+// does not know, or more than a body past a mount -- and replay_compacted and
+// keying_changed, reasons a watch ends rather than error responses, are a fromCommit
+// below retained history and a change of keying over the watched path.
 //
 // # Keyed arrays
 //
@@ -107,9 +116,15 @@
 //
 // An element is addressed by its name: items."(sku=A)" is the name as the store keeps it,
 // and items(sku=A) and items(A) name the same element and are canonicalized to it where
-// a request arrives. An index into a keyed array names nothing. A read answers a keyed
-// array as an array, and a watch delta carries !key(f) on it where the identity is one
-// field, so a client's merge identifies elements the way the store does.
+// a request arrives -- for a read, under the schema of the commit it reads. An index into
+// a keyed array names nothing. A read answers a keyed array as an array, and a watch
+// delta carries !key(f) on it where the identity is one field, so a client's merge
+// identifies elements the way the store does.
+//
+// A schema commit may give an array an identity, take it away, or change it; the commit
+// carries the rewrite of the data ([SchemaSetRequest]). Reads at earlier commits still
+// answer under the keying they had, and the watches over the array end
+// ([ErrCodeKeyingChanged]).
 //
 // # What may be stored
 //

@@ -123,7 +123,7 @@ The rule and the schema have to agree: `runs.*` over an array the schema keys is
 refused, naming `runs(*)`, and `list(*)` over an array the schema gives no identity is
 refused the same way.
 
-`..` is refused, as it is [everywhere a path must name a place](../objpath.md#where--may-not-go).
+`..` is refused, as it is [everywhere a path must name a place](../objpath.md#where-may-not-go).
 A wildcard anywhere but the last segment is refused too: a rule is about the children
 of **one** container, which is what makes "delete the item whole" mean one thing.
 

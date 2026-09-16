@@ -23,7 +23,11 @@
 // A watch is registered on the loop and then served from its own goroutine: its initial
 // state, its replay, and the live stream. Its events reach it through [WatchHub], whose
 // broadcast never blocks -- a watcher which cannot keep up is FAILED, not waited for,
-// and told so with a terminal event carrying the highest commit it accounted for.
+// and told so with a terminal event carrying the highest commit it accounted for. A
+// schema commit that changes the keying of an array overlapping a watch's path ends the
+// watch too, at that commit, rather than handing it a rewrite it would misread
+// (api.ErrCodeKeyingChanged); the hub hands such a commit to every watcher, and the
+// stream decides whether it overlaps.
 //
 // # What a watch holds
 //

@@ -62,7 +62,8 @@
 // replay from it in commit order. A membership change is a re-sync rather than a
 // replay: the composition itself changed, so deltas from before it describe a
 // different document. The terminal event carries the last delivered commit as a
-// resume point (WatchEndedError.Commit in package system/libctl), exact across a
+// resume point (WatchEndedError.Commit in package system/libctl) -- save logd's
+// keying_changed, which carries the schema commit to start again from -- exact across a
 // composed path as on a single route — save one gap: a composed watch forwards live
 // deltas from different mounts as they arrive rather than in commit order (issue
 // hb44wv28h12ksarmcdn0).

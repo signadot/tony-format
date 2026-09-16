@@ -660,7 +660,7 @@ func (s *ClientSession) writeToClient(resp *logdapi.SessionResponse) error {
 
 // releaseIfEnded releases what a watch holds when the response leaving for the
 // client is its end: logd's Ended event (slow_consumer, replay_compacted,
-// replay_failed, invalid_path), or the refusal of the watch request (not_found,
+// replay_failed, invalid_path, keying_changed), or the refusal of the watch request (not_found,
 // unsupported, invalid_path, from logd or a controller). Both passed straight
 // through, and docd released the reader token only on an unwatch, its own end of
 // the watch, or session close, so every mount overlapping a watch logd had ended

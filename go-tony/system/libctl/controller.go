@@ -49,6 +49,11 @@ type Handler interface {
 	// protocol -- it is broken, not a variety. What it must not do is answer from
 	// some timeline of its own, because the answer is composed with every other
 	// mount's at that commit; if it cannot, it must say so with an error.
+	//
+	// Match answers a body and nothing else. A request whose retspec
+	// (api.MatchRequest.Return) asks for more -- a node's path, its id, its kind -- is
+	// refused unsupported by the runtime before it reaches the handler, rather than
+	// answered with the body alone.
 	Match(ctx context.Context, path string, pattern *ir.Node, opts MatchParams) (*ir.Node, error)
 
 	// Patch applies data at path and reports what the write landed as: Commit is

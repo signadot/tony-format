@@ -87,8 +87,10 @@ type HelloResponse struct {
 // from the ROOT (k0d4y1m6h12kr7cdgdn0).
 //
 // Commit, when set, reads historical state at that commit instead of the current
-// commit — a point-in-time read. It must be in range [0, current]; logd rejects
-// an out-of-range commit with ErrCodeCommitNotFound. Across docd it is the same
+// commit — a point-in-time read, under the schema in force at that commit: which arrays
+// are keyed, and so the shape of an array and the path that names one of its elements,
+// are that commit's. It must be in range [0, current]; logd rejects an out-of-range
+// commit with ErrCodeCommitNotFound, before it judges the path. Across docd it is the same
 // commit for every source, because there is one sequence: a mount commits through the
 // backing logd under a tx id docd allocates, all-or-nothing, so a composed read at a
 // commit is a consistent snapshot of the whole document.
@@ -149,7 +151,9 @@ type MatchRequest struct {
 	//
 	// A name this server does not know is ErrCodeUnsupported, so a client asking a
 	// later server for more (an author, say) is told rather than quietly answered with
-	// less.
+	// less. So is a spec asking for more than the body past a mount -- a read at or under
+	// a controller's subtree, or one docd composes across mounts -- where a body is all
+	// that can be answered.
 	Return string `tony:"field=return,omitzero"`
 }
 
@@ -451,8 +455,8 @@ type PongResult struct {
 
 // MatchResult is the result of a match request.
 //
-// A path that names one node is answered by one of these, as it always was: Commit
-// and Body, with Path and Done empty.
+// A path that names one node is answered by one of these: Commit, and what the request's
+// retspec asks for -- the Body by default -- with Done empty.
 //
 // A path holding a wildcard names a SET, and the set is answered one node at a time:
 // a result per node, each with the node's own concrete Path and the one Commit the
@@ -974,8 +978,9 @@ func NewReplayCompleteEvent(id *string, path string) *SessionResponse {
 
 // NewEndedEvent creates the terminal event that tells a client its watch has ended, and
 // why, so it re-establishes. reason is a short code (the ErrCode* vocabulary), and commit
-// is the highest commit the watch accounted for — a resume point for a gapless reconnect.
-// See NewStateEvent for id.
+// is the highest commit the watch accounted for — a resume point for a gapless reconnect
+// -- or, for ErrCodeKeyingChanged, the schema commit, which is where the watch must start
+// again. See NewStateEvent for id.
 //
 // message is the detail the code cannot carry, and may be empty. A code says which KIND
 // of ending this is; the numbers that make it actionable — the floor a compacted replay

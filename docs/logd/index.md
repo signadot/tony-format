@@ -65,7 +65,9 @@ How far back that replay stays exact is governed by [compaction](#compaction).
 
 A watch delivers **every state change as a discrete delta**, not merely a "something
 changed" nudge — so an event-driven consumer sees each transition, in order. This is a
-logd guarantee, resting on its single commit sequence.
+logd guarantee, resting on its single commit sequence. One change is not delivered as a
+delta: a schema commit that changes an array's [keying](keyed.md#changing-one) ends the
+watches over the array, which start again from that commit.
 
 docd inherits it for single-route watches. Across mount boundaries a change of
 **membership** re-initializes the watch with a fresh composed snapshot rather than

@@ -27,6 +27,10 @@ goroutine so the client's request loop keeps serving.
 A read with no mount beneath it — the common single-owner case — is single-routed
 normally. Root and `.meta` reads are out of scope for composition.
 
+A composed read answers a **body**. A `return` asking for more — a node's path, its id, its
+`iterType` — is `unsupported` here, as it is for a read at or under a mount, which a
+controller answers with a body; a read docd passes through to logd answers it in full.
+
 A source with **nothing at its path** contributes nothing rather than failing the read.
 Most paths exist in one source and not in the others, so absence is the ordinary case; the
 composed read reports `not_found` only when *every* source is absent, which is the same
@@ -135,6 +139,12 @@ arrive in commit order. For a composed one it is a **hint**: live deltas from di
 mounts are forwarded as they arrive rather than merged in commit order, so the mark can
 sit above a lower commit still in flight from another mount, and resuming at it would
 step over that one.
+
+logd ends a watch the same way when a schema commit changes the keying of an array at,
+under or above its path (`keying_changed`). docd ends a composed watch when logd ends one
+of its sub-watches that way, and the ending carries not docd's mark but the **schema
+commit**, where the watch has to start again: the state there is the first under the new
+keying, and a watch resumed from earlier would cross the change and end again.
 
 So the contract is: **watches are event-preserving while streaming; a membership
 change is a re-sync, not a replay.** A watch that never spans a mount boundary is fully
