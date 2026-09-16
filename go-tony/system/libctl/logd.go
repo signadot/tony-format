@@ -63,6 +63,12 @@ type LogdSession struct {
 	nextID   uint64                               // request id counter
 	pending  map[string]chan *api.SessionResponse // in-flight requests by id
 	watchers map[string]*Watch                    // active watches by request id
+	// streams holds the ids of requests whose answer is a SEQUENCE -- a set, read one
+	// node at a time -- so the read pump keeps delivering under that id until the
+	// answer ends. Which responses are members cannot be read off their shape: with
+	// `return: body` a member carries neither path nor id. The caller asked for a set,
+	// so the caller is what says so.
+	streams map[string]bool
 
 	heartbeatInterval time.Duration // how often to ping; 0 disables the heartbeat
 	heartbeatTimeout  time.Duration // how long to wait for a pong before tearing down
@@ -163,6 +169,7 @@ func NewLogdSession(cfg *LogdSessionConfig) *LogdSession {
 		log:               log.With("component", "logd-session"),
 		pending:           make(map[string]chan *api.SessionResponse),
 		watchers:          make(map[string]*Watch),
+		streams:           make(map[string]bool),
 		connecting:        make(chan struct{}, 1),
 		wire:              make(chan struct{}, 1),
 		heartbeatInterval: interval,
@@ -717,6 +724,59 @@ func (s *LogdSession) Retain(ctx context.Context, req *api.RetainRequest) (*api.
 	return resp.Result.Retain, nil
 }
 
+// openStream sends a request whose answer is a sequence -- a set, read one node at a
+// time -- and answers the id it was sent under and the channel its responses arrive on.
+// It is request without the waiting: the caller drains the channel until the answer
+// ends, and calls closeStream when it is done with it, however it ended.
+func (s *LogdSession) openStream(ctx context.Context, req *api.SessionRequest) (string, chan *api.SessionResponse, error) {
+	select {
+	case <-ctx.Done():
+		return "", nil, ctx.Err()
+	case <-s.done:
+		return "", nil, fmt.Errorf("session closed")
+	default:
+	}
+
+	if err := s.ensureConnected(ctx); err != nil {
+		return "", nil, err
+	}
+	if err := s.acquireWire(ctx); err != nil {
+		return "", nil, err
+	}
+
+	s.mu.Lock()
+	conn := s.conn
+	if conn == nil {
+		s.mu.Unlock()
+		s.releaseWire()
+		return "", nil, s.connError()
+	}
+	id := s.newIDLocked()
+	req.ID = &id
+	ch := make(chan *api.SessionResponse, setChanDepth)
+	s.pending[id] = ch
+	s.streams[id] = true
+	s.mu.Unlock()
+
+	err := s.sendRequestTo(ctx, conn, req)
+	s.releaseWire()
+	if err != nil {
+		s.closeStream(id)
+		s.failConn(conn, err)
+		return "", nil, err
+	}
+	return id, ch, nil
+}
+
+// closeStream forgets a streamed request, so a caller that stopped early -- or one
+// whose read failed -- leaves no id behind for a member still on its way.
+func (s *LogdSession) closeStream(id string) {
+	s.mu.Lock()
+	delete(s.pending, id)
+	delete(s.streams, id)
+	s.mu.Unlock()
+}
+
 // request sends a request and waits for its correlated response. It assigns a
 // unique id, registers a reply channel that the read-pump delivers to, sends
 // the request, and blocks until the response arrives, the context is cancelled,
@@ -862,7 +922,10 @@ func (s *LogdSession) deliverResponse(resp *api.SessionResponse) {
 	var ch chan *api.SessionResponse
 	if resp.ID != nil {
 		ch = s.pending[*resp.ID]
-		delete(s.pending, *resp.ID)
+		if ch != nil && !(s.streams[*resp.ID] && keepsStreamOpen(resp)) {
+			delete(s.pending, *resp.ID)
+			delete(s.streams, *resp.ID)
+		}
 	}
 	s.mu.Unlock()
 
@@ -876,7 +939,22 @@ func (s *LogdSession) deliverResponse(resp *api.SessionResponse) {
 		s.log.Warn("dropping response with no matching request", "id", id)
 		return
 	}
-	ch <- resp // buffered (cap 1); never blocks
+	// A single-answer request's channel is buffered and empty, so this never blocks.
+	// A set's is buffered deep and drained by the caller, so a reader slower than the
+	// wire slows the pump rather than losing a member -- which is the back-pressure a
+	// caller asked for by reading a set one node at a time.
+	ch <- resp
+}
+
+// keepsStreamOpen says a streamed request has more coming, so it stays registered: a
+// member of a set is any match result that is not the marker. The marker (done) ends
+// the set; so does an error, and so does anything that is not a match result at all,
+// which the stream's reader reports rather than waiting through.
+func keepsStreamOpen(resp *api.SessionResponse) bool {
+	if resp.Error != nil || resp.Result == nil || resp.Result.Match == nil {
+		return false
+	}
+	return !resp.Result.Match.Done
 }
 
 // routeEvent routes a watch event to its Watch. Events carry the originating
@@ -943,6 +1021,7 @@ func (s *LogdSession) teardownLocked(err error) (net.Conn, map[string]chan *api.
 	s.connected = false
 	s.pending = make(map[string]chan *api.SessionResponse)
 	s.watchers = make(map[string]*Watch)
+	s.streams = make(map[string]bool)
 	if err != nil {
 		s.readErr = err
 	}

@@ -47,8 +47,11 @@ context:
 - tony-base: github.com/signadot/tony-format/go-tony/schema
 define:
   commit: .[nullable(int)]
+  cursor: .[string]
   data: .[tony-base:ir]
+  limit: .[nullable(int)]
   path: .[string]
+  return: .[string]
 signature:
   name: session-match-request
 ---
@@ -58,6 +61,10 @@ context:
 define:
   body: .[tony-base:ir]
   commit: .[int]
+  cursor: .[string]
+  done: .[bool]
+  id: .[string]
+  path: .[string]
 signature:
   name: session-match-result
 ---

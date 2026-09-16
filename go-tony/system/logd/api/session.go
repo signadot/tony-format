@@ -2,6 +2,8 @@ package api
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/signadot/tony-format/go-tony/ir"
 )
@@ -91,10 +93,105 @@ type HelloResponse struct {
 // backing logd under a tx id docd allocates, all-or-nothing, so a composed read at a
 // commit is a consistent snapshot of the whole document.
 //
+// A path holding a wildcard (.* [*] {*} (*), at any segment) names a SET, and the
+// answer is the set: one result per node, each carrying the node's own path, ended by
+// a result with Done. Limit and Cursor page that set; see MatchResult.
+//
 //tony:schemagen=session-match-request,notag
 type MatchRequest struct {
 	Commit   *int64 `tony:"field=commit"` // Optional: read historical state at this commit (nil = current)
 	PathData `tony:"field=match"`
+
+	// Limit is the most nodes one page of a set answers. The server may answer fewer
+	// than asked -- it has its own cap -- so a short page does not mean the set ended;
+	// the marker says (MatchResult.Cursor). Without one the server answers the set up
+	// to its own cap. It means nothing for a path that names one node.
+	Limit *int `tony:"field=limit,omitzero"`
+	// Cursor continues a paging read, and is the Cursor the previous page's marker
+	// carried. It is opaque: it names the commit the set is being read at and how far
+	// the read got, so every page of one paging read answers from the same state, and
+	// a cursor whose commit has aged out of range is ErrCodeCommitNotFound rather than
+	// a silent read of the current one. Path must be the path that started the read.
+	Cursor string `tony:"field=cursor,omitzero"`
+
+	// Return says what an answer carries, as a comma-separated retspec naming the
+	// result's own fields: `return: path`, `return: body`, `return: "path,body"`. A
+	// spec that names the fields needs no translation -- what it lists is what comes
+	// back -- and the names that follow (an author, the commit a node last changed at)
+	// join it the same way.
+	//
+	// The three of them say a node three ways, and a caller takes what it is for:
+	//
+	//   - `path` is where the node is, whole -- what the next read or write is
+	//     addressed by, and what a client keeps;
+	//   - `id` is the name the node lives under in its parent, as a value: a1, 0, 7,
+	//     and r1 for a keyed element. A caller that asked jobs.* knows the rest
+	//     already, so this is the answer without the prefix on every member;
+	//   - `body` is what is there.
+	//
+	// `return: "id,body"` is a listing. `return: body` alone answers nodes nobody can
+	// tell apart, which is what a cumulative read wants -- summing, counting, measuring
+	// -- and nothing else should ask for.
+	//
+	// With no pattern, a spec with no body reads no node at all: the walk that finds
+	// the members already knows their names. With a pattern the nodes are still read --
+	// the pattern has to see them -- and only the bodies are left off the wire.
+	//
+	// A set answers `"path,body"` by default. A path that names ONE node answers the
+	// body, since the caller has that path already; `return: path` there is an
+	// existence question, answered by the path alone or by ErrCodeNotFound.
+	//
+	// A name this server does not know is ErrCodeUnsupported, so a client asking a
+	// later server for more (an author, say) is told rather than quietly answered with
+	// less.
+	Return string `tony:"field=return,omitzero"`
+}
+
+// The names a MatchRequest.Return retspec is made of. They are the result's own fields,
+// so a spec lists what comes back rather than a vocabulary of its own. More may follow
+// -- who wrote the node, the commit it last changed at -- which is why this is a spec
+// and not a flag.
+const (
+	ReturnPath = "path"
+	ReturnID   = "id"
+	ReturnBody = "body"
+)
+
+// ReturnSpec is a parsed MatchRequest.Return: what an answer carries.
+type ReturnSpec struct {
+	Path bool
+	ID   bool
+	Body bool
+}
+
+// ParseReturnSpec reads a retspec, answering def when it is empty. A name it does not
+// know is an error, which the caller reports as ErrCodeUnsupported: the spec is meant
+// to grow, and a server that ignored what it did not understand would answer less than
+// it was asked for and look like it had answered everything.
+func ParseReturnSpec(spec string, def ReturnSpec) (ReturnSpec, error) {
+	if strings.TrimSpace(spec) == "" {
+		return def, nil
+	}
+	var out ReturnSpec
+	for _, name := range strings.Split(spec, ",") {
+		switch strings.TrimSpace(name) {
+		case ReturnPath:
+			out.Path = true
+		case ReturnID:
+			out.ID = true
+		case ReturnBody:
+			out.Body = true
+		case "":
+			continue
+		default:
+			return ReturnSpec{}, fmt.Errorf("return %q: this server knows %q, %q and %q",
+				strings.TrimSpace(name), ReturnPath, ReturnID, ReturnBody)
+		}
+	}
+	if !out.Path && !out.ID && !out.Body {
+		return ReturnSpec{}, fmt.Errorf("return %q: an answer carries something", spec)
+	}
+	return out, nil
 }
 
 // PatchRequest is a request to apply a patch.
@@ -342,10 +439,49 @@ type PongResult struct {
 
 // MatchResult is the result of a match request.
 //
+// A path that names one node is answered by one of these, as it always was: Commit
+// and Body, with Path and Done empty.
+//
+// A path holding a wildcard names a SET, and the set is answered one node at a time:
+// a result per node, each with the node's own concrete Path and the one Commit the
+// whole set is read at, then a marker with Done and no Body. The nodes are not
+// gathered into one Body because a set of ten thousand is not a document anyone wants
+// built at either end, and because the paths are half the answer -- they are what the
+// next read or write is addressed by.
+//
+// Done is the authority on where the set ends, and Cursor on whether there is more:
+// a page shorter than the request's Limit does not mean the set is finished, since
+// the server caps a page at its own size. This is WatchEvent.ReplayComplete's choice
+// again -- say it, rather than leave the client to infer it from a count.
+//
 //tony:schemagen=session-match-result,notag
 type MatchResult struct {
 	Commit int64    `tony:"field=commit"`
 	Body   *ir.Node `tony:"field=body"`
+	// Path is the node's own path, on a member of a set. Empty on the answer to a
+	// path that names one node: the client has that path already, and saying it
+	// again would make every read carry it.
+	Path string `tony:"field=path,omitzero"`
+	// ID is the name the node lives under in its parent, as a VALUE rather than as a
+	// path segment: a1 for a field, 0 for a position, 7 for a sparse key, and r1 for an
+	// element of a keyed array -- the identity it is addressed by, not the "(id=r1)"
+	// the store spells its field with. An identity of several fields has no single
+	// value and answers with the name.
+	//
+	// It is what a caller asking "which ones?" wants to read and to show: the prefix is
+	// the same for every member of a set and the id is not. What ADDRESSES a node is
+	// Path, since an id is not a path segment and a position is not an identity.
+	// Asked for by ReturnID.
+	ID string `tony:"field=id,omitzero"`
+	// Done marks the end of a set: the last result, carrying no Body. An empty set
+	// is this marker alone -- a query for a set answers with a set, and empty is one,
+	// where ErrCodeNotFound stays what it is for a path that names one place.
+	Done bool `tony:"field=done,omitzero"`
+	// Cursor, on the marker, says the set has more and how to ask for it: send it back
+	// as MatchRequest.Cursor. Absent on the marker means the set is finished. It is
+	// opaque -- a client that reads it is reading a shape the server, or docd
+	// composing one out of its participants', may change.
+	Cursor string `tony:"field=cursor,omitzero"`
 }
 
 // PatchResult is the result of a patch request.
@@ -629,6 +765,39 @@ func NewMatchResponse(id *string, commit int64, body *ir.Node) *SessionResponse 
 			Match: &MatchResult{
 				Commit: commit,
 				Body:   body,
+			},
+		},
+	}
+}
+
+// NewMatchMemberResponse creates the answer for one node of a set: what the request's
+// retspec asked for -- its path, the name it lives under, its body -- and the commit
+// the whole set is read at. An empty path or name, or a nil body, is left out. See
+// MatchResult.
+func NewMatchMemberResponse(reqID *string, commit int64, path, name string, body *ir.Node) *SessionResponse {
+	return &SessionResponse{
+		ID: reqID,
+		Result: &SessionResult{
+			Match: &MatchResult{
+				Commit: commit,
+				Path:   path,
+				ID:     name,
+				Body:   body,
+			},
+		},
+	}
+}
+
+// NewMatchDoneResponse creates the marker that ends a set. cursor is empty when the
+// set is finished, and otherwise says there is more and how to ask for it.
+func NewMatchDoneResponse(id *string, commit int64, cursor string) *SessionResponse {
+	return &SessionResponse{
+		ID: id,
+		Result: &SessionResult{
+			Match: &MatchResult{
+				Commit: commit,
+				Done:   true,
+				Cursor: cursor,
 			},
 		},
 	}

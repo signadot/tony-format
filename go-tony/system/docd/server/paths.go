@@ -19,6 +19,22 @@ func claimedPathFields(p string) ([]string, error) {
 	return pathFields(p)
 }
 
+// hasWildSegment says the path holds a wildcard (.* [*] {*} (*)), which makes it name
+// a set rather than a place. logd answers a set for a read; docd cannot compose one
+// across mounts yet, and a path that does not parse is refused where it lands.
+func hasWildSegment(p string) bool {
+	kp, err := kpath.Parse(p)
+	if err != nil {
+		return false
+	}
+	for x := kp; x != nil; x = x.Next {
+		if x.Wild() {
+			return true
+		}
+	}
+	return false
+}
+
 // pathFields parses a kpath into its field-name segments (the object keys used to
 // navigate the document for mount decomposition). It errors on a malformed path
 // or any non-field segment (array/sparse index). A MOUNT path must be field-only --

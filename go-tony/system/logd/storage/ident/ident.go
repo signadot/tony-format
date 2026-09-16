@@ -104,6 +104,19 @@ func Of(elem *ir.Node, fields []string) (Name, bool) {
 // copies, tag and comment stripped.
 func (n Name) Bindings() []Binding { return slices.Clone(n.bindings) }
 
+// KeyValue is what the name identifies an element BY, when the identity is one field:
+// (id=r1) is r1, and (sku="42") is "42" -- spelled as the name spells it, so a string
+// that would read as a number keeps its quotes.
+//
+// A name binding several fields has no single value, and answers false: there the name
+// itself (Field) is the only honest short form.
+func (n Name) KeyValue() (string, bool) {
+	if len(n.bindings) != 1 {
+		return "", false
+	}
+	return wire(n.bindings[0].Value), true
+}
+
 // Fields answers the identity the name binds, sorted.
 func (n Name) Fields() []string {
 	out := make([]string, len(n.bindings))

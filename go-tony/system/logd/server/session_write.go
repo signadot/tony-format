@@ -24,7 +24,7 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 	path := req.Path
 
 	// Validate path
-	if err := validateDataPath(path); err != nil {
+	if err := validateDataPath(path, roleWrite); err != nil {
 		s.sendError(id, api.ErrCodeInvalidPath, err.Error())
 		return
 	}
@@ -38,6 +38,14 @@ func (s *Session) handlePatch(id *string, req *api.PatchRequest) {
 	}
 	match := req.Match
 	if match != nil {
+		// The precondition reads a path, and a path it cannot read is the request being
+		// wrong, not the precondition failing: unvalidated, a wildcard here read as
+		// absent, matched as null, and answered match_failed -- "your condition did not
+		// hold" for a path that could never name one place.
+		if err := validateDataPath(match.Path, roleWrite); err != nil {
+			s.sendError(id, api.ErrCodeInvalidPath, err.Error())
+			return
+		}
 		canon, err := ident.CanonicalPath(s.storage.SchemaFor(s.scopeID()), match.Path)
 		if err != nil {
 			s.sendError(id, api.ErrCodeInvalidPath, err.Error())

@@ -28,7 +28,7 @@ func (s *Session) watchPath(path string) (string, error) {
 	if path == "" {
 		return "", nil
 	}
-	if err := validateDataPath(path); err != nil {
+	if err := validateDataPath(path, roleWatch); err != nil {
 		return "", err
 	}
 	return ident.CanonicalPath(s.storage.SchemaFor(s.scopeID()), path)

@@ -179,14 +179,20 @@ func (co *txCoord) checkArrayWrite(p *api.Patch) error {
 	if p == nil || p.Data == nil {
 		return nil
 	}
-	// A `..` names the nodes at any depth, which is a question. A write has to name
-	// a place. The session refuses one at its own boundary; this is the same refusal
-	// for a caller holding the storage API directly.
+	// A query segment names a set of nodes: `..` at any depth, a wildcard at one
+	// level. A write has to name a place. The session refuses both at its own
+	// boundary; this is the same refusal for a caller holding the storage API
+	// directly, and it is what makes the rooting in MergePatches able to say that a
+	// path it is handed holds no wildcard.
 	if kp, err := kpath.Parse(p.Path); err == nil {
 		for x := kp; x != nil; x = x.Next {
 			if x.Descend {
 				return noSuchElement(p.Path, "%q: `..` names nodes at any depth, which is a "+
 					"question and not a place: a write has to name one", p.Path)
+			}
+			if x.Wild() {
+				return noSuchElement(p.Path, "%q: segment %q names a set of values, and a "+
+					"write has to name one", p.Path, x.SegmentString())
 			}
 		}
 	}
