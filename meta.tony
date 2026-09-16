@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: c720565e24bc66100ddecb43199fbeab96a4cf82
 commits:
 - c720565e24bc66100ddecb43199fbeab96a4cf82
 created: "2026-09-16T17:37:56.056805+02:00"
@@ -11,5 +12,5 @@ labels:
 - enhancement
 - logd
 related_issues: []
-status: open
-updated: "2026-09-16T17:49:55.203442+02:00"
+status: closed
+updated: "2026-09-16T18:20:26.360552+02:00"
