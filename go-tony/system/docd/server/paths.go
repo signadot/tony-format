@@ -20,8 +20,9 @@ func claimedPathFields(p string) ([]string, error) {
 }
 
 // hasWildSegment says the path holds a wildcard (.* [*] {*} (*)), which makes it name
-// a set rather than a place. logd answers a set for a read; docd cannot compose one
-// across mounts yet, and a path that does not parse is refused where it lands.
+// a set rather than a place. logd answers a set for a read, and docd passes one through
+// unless it crosses a mount (MountRegistry.SetReaches). A path that does not parse is
+// refused where it lands.
 func hasWildSegment(p string) bool {
 	kp, err := kpath.Parse(p)
 	if err != nil {

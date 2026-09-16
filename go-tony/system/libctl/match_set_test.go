@@ -240,26 +240,39 @@ func TestMatchEach_SinglePathStillAnswers(t *testing.T) {
 	}
 }
 
-// TestMatchSet_ThroughDocd_IsUnsupported: docd routes by a path's field prefix, so a
-// set spanning mounts has no single owner. Until docd composes one it says so, rather
-// than forwarding the whole set to one participant and answering a different question
-// (5f6vrzw0h12ksrtfn9n0).
-func TestMatchSet_ThroughDocd_IsUnsupported(t *testing.T) {
+// TestMatchSet_ThroughDocd: docd passes a set through to logd unless the set crosses a
+// mount, and there it says it cannot compose one rather than handing the whole set to a
+// single owner (ghjg0j6nh12krjgandn0). A set no mount can reach is logd's alone, and is
+// answered as logd answers it.
+func TestMatchSet_ThroughDocd(t *testing.T) {
 	logd := startLogd(t)
-	docd := startDocdProxy(t, logd.TCPAddr())
+	docd := startDocdRouting(t, logd.TCPAddr())
+	ctrl := newMemController()
+	ctrl.data["mounted.m"] = vObj(1)
+	runController(t, docd, "mounted.m", ctrl)
 
-	s := NewLogdSession(&LogdSessionConfig{Addr: docd.ClientTCPAddr(), ClientID: "via-docd"})
-	defer s.Close()
+	s := docdClient(t, docd, "via-docd")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	seedJobs(t, s, ctx, 3)
 
-	_, _, err := s.MatchSet(ctx, "jobs.*", nil)
-	if err == nil {
-		t.Fatal("docd answered a set it cannot compose")
+	members, _, err := s.MatchSet(ctx, "jobs.*", nil)
+	if err != nil {
+		t.Fatalf("a set no mount reaches, through docd: %v", err)
 	}
-	if code := logdapi.ErrorCode(err); code != logdapi.ErrCodeUnsupported {
-		t.Errorf("code %q, want %q: %v", code, logdapi.ErrCodeUnsupported, err)
+	if len(members) != 3 {
+		t.Errorf("answered %d members, want 3", len(members))
+	}
+	if paths, _, err := s.MatchPaths(ctx, "jobs.*.status", nil); err != nil || len(paths) != 3 {
+		t.Errorf("jobs.*.status through docd answered %v, %v", paths, err)
+	}
+
+	// mounted.* has a member at the mount, and * reads through it.
+	for _, path := range []string{"mounted.*", "*"} {
+		_, _, err := s.MatchSet(ctx, path, nil)
+		if code := logdapi.ErrorCode(err); code != logdapi.ErrCodeUnsupported {
+			t.Errorf("%s crosses the mount: code %q, want %q: %v", path, code, logdapi.ErrCodeUnsupported, err)
+		}
 	}
 	// A path that names one node still reads through docd, unchanged.
 	if _, err := s.Match(ctx, "jobs.a"); err != nil {

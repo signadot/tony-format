@@ -98,3 +98,32 @@ func TestMountsUnder_StrictlyBelowOnly(t *testing.T) {
 		t.Errorf("MountsUnder(a.c.d) = %v, want none", u)
 	}
 }
+
+// TestSetReaches: a set crosses a mount when a member is at, under or above it, which the
+// pattern answers segment by segment -- a field names the mount's segment or not, a field
+// or key wildcard may name any, and an index names none, since a mount path is field-only
+// (ghjg0j6nh12krjgandn0).
+func TestSetReaches(t *testing.T) {
+	for _, tc := range []struct {
+		mount, pattern string
+		reaches        bool
+	}{
+		{"verse.x", "verse.demo.*", false},
+		{"verse.x", "verse.*", true},         // a member is the mount
+		{"verse.x.y", "verse.*", true},       // a member holds the mount
+		{"verse", "verse.demo.*", true},      // the members are the mount's
+		{"a.b", "*", true},                   // a member holds the mount
+		{"a.x.c", "a.*.b", false},            // the members are a.K.b, beside a.x.c
+		{"a.list.foo", "a.list[*].x", false}, // an index names no field
+		{"runs.m", "runs(*).n", true},        // an element is stored under a field
+		{"other.x", "jobs.*", false},
+	} {
+		reg := NewMountRegistry()
+		if err := reg.Register(&MountEntry{Path: tc.mount}); err != nil {
+			t.Fatalf("register %q: %v", tc.mount, err)
+		}
+		if got := reg.SetReaches(tc.pattern) != nil; got != tc.reaches {
+			t.Errorf("SetReaches(%q) with a mount at %q = %v, want %v", tc.pattern, tc.mount, got, tc.reaches)
+		}
+	}
+}

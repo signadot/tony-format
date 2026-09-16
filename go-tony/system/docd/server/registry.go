@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
 )
 
 // MountEntry represents a mount registration. A live mount has a non-nil
@@ -162,6 +163,58 @@ func (r *MountRegistry) LookupPrefix(opPath string) *MountEntry {
 		}
 	}
 	return best
+}
+
+// SetReaches answers a mount the set a wildcard pattern names crosses -- one at, under or
+// above a member of the set -- or nil when no mount is near it and the set is logd's
+// alone. The pattern is compared with each mount path segment by segment: a field names
+// the mount's segment or does not, a field or key wildcard may name any (an element of a
+// keyed array is stored under a field), a key may name one, and an index names none,
+// since a mount path is field-only. Every segment the two share agreeing is a crossing,
+// whichever is longer: a mount deeper than the pattern lies inside a member, and a
+// shallower one holds the members.
+func (r *MountRegistry) SetReaches(pattern string) *MountEntry {
+	kp, err := kpath.Parse(pattern)
+	if err != nil {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, entry := range r.mounts {
+		mf, err := pathFields(entry.Path)
+		if err != nil {
+			continue
+		}
+		if patternReaches(kp, mf) {
+			return entry
+		}
+	}
+	return nil
+}
+
+// patternReaches says whether the pattern's segments agree with the mount's fields over
+// the length they share.
+func patternReaches(kp *kpath.KPath, mount []string) bool {
+	x := kp
+	for _, field := range mount {
+		if x == nil {
+			return true // the mount lies inside a member
+		}
+		switch {
+		case x.Descend:
+			return true // any depth: the mount is somewhere in it
+		case x.Field != nil:
+			if *x.Field != field {
+				return false
+			}
+		case x.FieldAll, x.KeyAll, x.Key != nil:
+			// any field, or an element stored under one
+		default:
+			return false // an index or sparse index names no field
+		}
+		x = x.Next
+	}
+	return true // the mount holds the members
 }
 
 // MountsUnder returns every mount whose path lies strictly below opPath (opPath

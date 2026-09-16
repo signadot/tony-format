@@ -239,16 +239,20 @@ func (s *ClientSession) routeClientRequests() error {
 			continue
 		}
 
-		// A wildcard path names a set, and the members of a set can live in different
-		// places: the base store, a mount, several mounts. docd routes by the path's
-		// field prefix, so forwarding one would hand the whole set to a single owner
-		// and answer a different question than the one asked -- silently, with no way
-		// for the client to tell a complete answer from a part of one. Answering a
-		// composed set is 5f6vrzw0h12ksrtfn9n0; until then docd says it cannot.
+		// A wildcard path names a set. One that crosses a mount has members in more than
+		// one place, and docd routes by a path's field prefix, which stops at the
+		// wildcard: forwarded, the whole set would go to one owner and be answered as a
+		// different question, with no way for the client to tell a complete answer from
+		// a part of one. That set is refused (composing it is 5f6vrzw0h12ksrtfn9n0). A set
+		// no mount is near is logd's alone, and passes through to logd like any read --
+		// every member comes back on the request's id (ghjg0j6nh12krjgandn0).
 		if req.Match != nil && hasWildSegment(req.Match.Path) {
-			_ = s.writeToClient(logdapi.NewErrorResponse(req.ID, logdapi.ErrCodeUnsupported,
-				fmt.Sprintf("%q names a set, and docd cannot compose one across mounts yet", req.Match.Path)))
-			continue
+			if m := s.server.Mounts.SetReaches(req.Match.Path); m != nil {
+				_ = s.writeToClient(logdapi.NewErrorResponse(req.ID, logdapi.ErrCodeUnsupported,
+					fmt.Sprintf("%q names a set crossing the mount at %q, and docd cannot compose one across mounts",
+						req.Match.Path, m.Path)))
+				continue
+			}
 		}
 
 		// A patch that spans multiple mounts is decomposed and committed as one
