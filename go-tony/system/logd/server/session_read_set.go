@@ -388,7 +388,7 @@ func (s *Session) setChildren(prefix string, kp *kpath.KPath, commit int64) ([]s
 			}
 		}
 	case ir.ArrayType:
-		identity := s.identityAt(prefix)
+		identity := s.identityAt(prefix, commit)
 		switch {
 		case kp.KeyAll:
 			if len(identity) == 0 {
@@ -422,8 +422,12 @@ func (s *Session) setChildren(prefix string, kp *kpath.KPath, commit int64) ([]s
 
 // identityAt is the identity fields the schema gives the array at path, or none. The
 // schema's own path elides the names of keyed elements, which schemaPath does.
-func (s *Session) identityAt(path string) []string {
-	schema := s.storage.SchemaFor(s.scopeID())
+//
+// It is the schema in force at commit, not now: that is the one the read at commit raises
+// its arrays by, so an array that was keyed then is listed by (*) when read then, whatever
+// the schema has said since.
+func (s *Session) identityAt(path string, commit int64) []string {
+	schema := s.storage.SchemaForAt(s.scopeID(), commit)
 	if schema == nil {
 		return nil
 	}

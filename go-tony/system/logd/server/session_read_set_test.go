@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"strconv"
 	"testing"
 	"time"
 
@@ -307,6 +308,60 @@ func TestSetMatch_KeyedElements(t *testing.T) {
 	}
 	if want := []string{"r1", "r2"}; !equalStrings(ids, want) {
 		t.Errorf("runs(*) ids = %v, want %v", ids, want)
+	}
+}
+
+// TestSetMatch_KeyedAtItsCommit: a set read at a commit keys arrays by the schema in
+// force at that commit, as a read of that commit raises them. After the array loses its
+// identity, a read at the commit before still names its elements by (*), and a read now
+// names positions by [*] (xnepz3sfh12ksn5qn9n0).
+func TestSetMatch_KeyedAtItsCommit(t *testing.T) {
+	store := openStore(t)
+	keyed, err := parse.Parse([]byte(`{define: {runs: {id: !logd-key null}}}`))
+	if err != nil {
+		t.Fatalf("parse schema: %v", err)
+	}
+	if _, err := store.SetSchema(keyed, false); err != nil {
+		t.Fatalf("SetSchema: %v", err)
+	}
+	narrowWrite(t, store, "", `{runs: [{id: r1, n: 1}, {id: r2, n: 2}]}`)
+	then, err := store.GetCurrentCommit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	unkeyed, err := parse.Parse([]byte(`{define: {runs: {id: null}}}`))
+	if err != nil {
+		t.Fatalf("parse schema: %v", err)
+	}
+	if _, err := store.SetSchema(unkeyed, true); err != nil {
+		t.Fatalf("SetSchema (losing identity): %v", err)
+	}
+
+	at := strconv.FormatInt(then, 10)
+	answers := runSet(t, store,
+		`{id: "then-keys", match: {path: "runs(*)", commit: `+at+`, return: id}}`,
+		`{id: "then-positions", match: {path: "runs[*]", commit: `+at+`, return: id}}`,
+		`{id: "now-keys", match: {path: "runs(*)", return: id}}`,
+		`{id: "now-positions", match: {path: "runs[*]", return: id}}`,
+	)
+	ids := func(id string) []string {
+		var out []string
+		for _, m := range mustSet(t, answers, id).members {
+			out = append(out, m.ID)
+		}
+		return out
+	}
+	if got, want := ids("then-keys"), []string{"r1", "r2"}; !equalStrings(got, want) {
+		t.Errorf("runs(*) at the keyed commit answered %v, want %v", got, want)
+	}
+	if got := ids("then-positions"); len(got) != 0 {
+		t.Errorf("runs[*] at the keyed commit answered %v, want nothing", got)
+	}
+	if got := ids("now-keys"); len(got) != 0 {
+		t.Errorf("runs(*) after the identity was lost answered %v, want nothing", got)
+	}
+	if got, want := ids("now-positions"), []string{"0", "1"}; !equalStrings(got, want) {
+		t.Errorf("runs[*] after the identity was lost answered %v, want %v", got, want)
 	}
 }
 

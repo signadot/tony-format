@@ -32,6 +32,13 @@ func (s *Storage) SchemaFor(scopeID *string) *api.Schema {
 	return s.schemaForScope(scopeID)
 }
 
+// SchemaForAt answers the schema in force at commit for the view scopeID names: the one a
+// read at that commit is raised by, and so the one that says which of its arrays are keyed.
+func (s *Storage) SchemaForAt(scopeID *string, commit int64) *api.Schema {
+	// scopeID is accepted for the view it names and ignored: the schema is per-store.
+	return s.schema.ParsedAt(commit)
+}
+
 // RaiseState puts array-ness back on the keyed arrays in a STATE at document path kp in
 // the view scopeID names, as of commit -- what a caller at the boundary does to a node it
 // collected from Read before handing it to a client. A state is op-free: the arrays come
