@@ -18,7 +18,7 @@ No dedicated refusal, so each falls out of the rooting switch:
 - `{*}` -> a raw `strconv.ParseUint: parsing "*": invalid syntax` (merge.go:189-194)
 - `(*)` -> `cannot root a patch at a (key) segment: ...` (merge.go:157-162)
 
-All three reach session_write.go:209 as `ErrCodeStorage`, "failed to commit: ...". That is the code for a store that is unwell, and it sits directly below the `NoSuchElementError` and `WriteBudgetError` arms that answer `invalid_path` and `invalid_diff` for exactly this class of thing: the store is healthy and the remedy is the callers.
+All three reach session_write.go:209 as `ErrCodeStorage`, "failed to commit: ...". That is the code for a store that is unwell, and it sits directly below the `NoSuchElementError` and `WriteBudgetError` arms that answer `invalid_path` and `invalid_diff` for exactly this class of thing: the store is healthy and the remedy is the caller's.
 
 ## The invariant the code states is not established anywhere
 
