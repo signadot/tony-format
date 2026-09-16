@@ -1,0 +1,5 @@
+# logd: a member's id is a bare value, so a client cannot tell a keyed element from a field, nor append it to the prefix, without the schema
+
+00fa6ec9 made `id` the value a node is named by: a1 for a field, 0 for a position, 7 for a sparse key, r1 for a keyed element. A client listing a keyed array then needs the schema to learn the array is keyed and by which field before it can print or address an element (a walk wants votes(voter=scott), and gets scott), and `0` does not say position any more than `r1` says identity.
+
+Decided (scott): `id` is the segment a client would write -- a1, "a b", [0], {7}, (voter=scott), and (region=eu,sku=A) for an identity of several fields. It says what kind of child it is, and prefix + id is a path the server resolves. Where no key segment can carry the name (a composite value holding a comma), the stored field, quoted, is the only spelling there is.
