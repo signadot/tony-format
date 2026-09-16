@@ -57,3 +57,19 @@ func validateDataPath(path string, role pathRole) error {
 	}
 	return nil
 }
+
+// kpathHasWild says the path holds a wildcard segment, which makes it name a set: a
+// read answers one, and nothing else takes one. A path that does not parse holds
+// nothing -- it is refused by the validator that ran before this.
+func kpathHasWild(path string) bool {
+	kp, err := kpath.Parse(path)
+	if err != nil {
+		return false
+	}
+	for x := kp; x != nil; x = x.Next {
+		if x.Wild() {
+			return true
+		}
+	}
+	return false
+}

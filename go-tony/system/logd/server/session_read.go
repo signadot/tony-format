@@ -64,8 +64,15 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 	// the budget is refused as a node past it was. A pattern needs the node to filter,
 	// and a keyed array needs it to be raised into the client's vocabulary; those reads
 	// build the node under the same budget.
+	// A wildcard names a set, and the set is answered one node at a time, each member
+	// by the single-node paths below (session_read_set.go).
+	if kpathHasWild(path) {
+		s.handleSetMatch(id, req, path, commit)
+		return
+	}
+
 	if (req.Data == nil || req.Data.Type == ir.NullType) && !s.raises() {
-		if err := s.encodedMatch(id, path, commit); err != nil {
+		if err := s.encodedMatch(id, path, commit, ""); err != nil {
 			s.sendReadError(id, err)
 		}
 		return
@@ -129,7 +136,10 @@ func (s *Session) raises() bool {
 // paid here, in bytes rather than in a node, and the writer's is the write.
 //
 // An absent path is answered as a read of it is, before anything is encoded.
-func (s *Session) encodedMatch(id *string, path string, commit int64) error {
+//
+// reportPath is the path the answer carries, which is set for a member of a set and
+// empty for a read of a path that names one node -- the client has that path already.
+func (s *Session) encodedMatch(id *string, path string, commit int64, reportPath string) error {
 	if commit == 0 {
 		return s.classifyAbsent(path, commit)
 	}
@@ -170,6 +180,14 @@ func (s *Session) encodedMatch(id *string, path string, commit int64) error {
 	}
 	if err := enc.WriteInt(commit); err != nil {
 		return err
+	}
+	if reportPath != "" {
+		if err := enc.WriteKey("path"); err != nil {
+			return err
+		}
+		if err := enc.WriteString(reportPath); err != nil {
+			return err
+		}
 	}
 	if err := enc.WriteKey("body"); err != nil {
 		return err
