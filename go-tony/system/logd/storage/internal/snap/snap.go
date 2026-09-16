@@ -16,23 +16,46 @@ type Snapshot struct {
 	Index     *Index
 	EventSize uint64 // Size of event stream in bytes
 
+	eventsAt int64      // where the events begin in R: after the header, whichever header
+	dir      *directory // the directory, or nil for a snapshot written before there was one
 }
+
+// EventsAt is where the events begin in R.
+func (s *Snapshot) EventsAt() int64 { return s.eventsAt }
 
 // Open reads a snapshot from rc.
 // The index is loaded into memory; events are read on demand.
+//
+// Two headers are read: the one a snapshot is written with (HeaderSize, directory.go),
+// and the legacy one (LegacyHeaderSize) of a snapshot written before the directory,
+// told apart by the magic.
 func Open(rc R) (*Snapshot, error) {
-	// Read header: [8 bytes: event stream size][4 bytes: index size]
 	_, err := rc.Seek(0, io.SeekStart)
 	if err != nil {
 		return nil, err
 	}
-	header := make([]byte, 12)
-	if _, err := rc.Read(header); err != nil {
+	header := make([]byte, HeaderSize)
+	if _, err := io.ReadFull(rc, header[:LegacyHeaderSize]); err != nil {
 		return nil, err
 	}
-
-	eventSize := binary.BigEndian.Uint64(header[0:8])
-	indexSize := binary.BigEndian.Uint32(header[8:12])
+	var eventSize, dirSize, dirRoot uint64
+	var indexSize uint32
+	eventOffset := int64(LegacyHeaderSize)
+	var dir *directory
+	if [4]byte(header[0:4]) == headerMagic {
+		if _, err := io.ReadFull(rc, header[LegacyHeaderSize:]); err != nil {
+			return nil, err
+		}
+		eventSize = binary.BigEndian.Uint64(header[4:12])
+		dirSize = binary.BigEndian.Uint64(header[12:20])
+		dirRoot = binary.BigEndian.Uint64(header[20:28])
+		indexSize = binary.BigEndian.Uint32(header[28:32])
+		eventOffset = int64(HeaderSize)
+		dir = &directory{r: rc, base: eventOffset + int64(eventSize), size: int64(dirSize), root: dirRoot}
+	} else {
+		eventSize = binary.BigEndian.Uint64(header[0:8])
+		indexSize = binary.BigEndian.Uint32(header[8:12])
+	}
 
 	// Sanity check: index can't be larger than 1GB
 	const maxIndexSize = 1 << 30
@@ -40,11 +63,8 @@ func Open(rc R) (*Snapshot, error) {
 		return nil, fmt.Errorf("snapshot index size %d exceeds maximum %d", indexSize, maxIndexSize)
 	}
 
-	// Calculate offsets
-	eventOffset := int64(HeaderSize)
-	// The index follows the event stream directly, with nothing between them
-	// (Builder.Close).
-	indexOffset := eventOffset + int64(eventSize)
+	// The index follows the events and the directory (Builder.Close).
+	indexOffset := eventOffset + int64(eventSize) + int64(dirSize)
 
 	// Read index from the calculated offset
 	if _, err := rc.Seek(indexOffset, io.SeekStart); err != nil {
@@ -68,6 +88,8 @@ func Open(rc R) (*Snapshot, error) {
 		R:         rc,
 		Index:     index,
 		EventSize: eventSize,
+		eventsAt:  eventOffset,
+		dir:       dir,
 	}, nil
 }
 
@@ -106,7 +128,7 @@ func (s *Snapshot) ReadPath(p string) (*ir.Node, error) {
 		}
 	}
 
-	pathFinder, err := NewPathFinder(s.R, s.Index, offset, startPath, desPath, int64(s.EventSize))
+	pathFinder, err := NewPathFinder(s.R, s.Index, offset, startPath, desPath, int64(s.EventSize), s.eventsAt)
 	if err != nil {
 		return nil, err
 	}
@@ -150,5 +172,5 @@ func (s *Snapshot) ReadPathEventReader(p string) (*PathEventReader, error) {
 		}
 	}
 
-	return NewPathEventReader(s.R, s.Index, offset, startPath, desPath, int64(s.EventSize))
+	return NewPathEventReader(s.R, s.Index, offset, startPath, desPath, int64(s.EventSize), s.eventsAt)
 }

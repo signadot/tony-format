@@ -143,8 +143,17 @@ Each step ships alone and is tested alone.
    the table is written right after the subtree, so it is at `offset + size`. And the
    4-byte slot per entry -- the offset array a resume binary-searches -- is a fifth of
    the entry and is what makes a page O(page) rather than O(fan-out); it stays. The
-   fraction falls as values grow (at the 150-byte records of the measurement above it is
-   ~13%), and it is proportional to keys, which is the currency the requirement is in.
+   fraction is proportional to keys, which is the currency the requirement is in, and
+   inversely to how many bytes of value each key carries.
+
+   Measured once the format existed (step 3): **19 bytes per key** as written. On the
+   10 000-record shape of the first measurement that is 34% of the stream, not the 13%
+   this plan first said -- a 150-byte record is three keys, not one. At verse's 125 bytes
+   of value per key it is the 15% above; a document of small leaves can exceed its own
+   size. What would cut it, if it matters: a child's size is its successor's offset less
+   its own, so all but a table's last entry can drop the size field; slots can be two
+   bytes for a table under 64 KiB; and a table of a few entries needs no slots at all,
+   which is most of verse's 9 211 containers. Together roughly 13 bytes per key.
    The shape repeats for a test as large as a test needs: ×100 is 3.3M keys, 417 MB of
    stream, 60 MB of directory.
 3. **Builder writes tables**, and a `snap.Directory` reader with `ReadTable(P)` and

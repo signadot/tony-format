@@ -63,7 +63,7 @@ If exact path not found in index:
 
 ### From IR Node
 
-1. Write placeholder sizes at beginning (12 bytes: 8 for event stream size, 4 for index size)
+1. Write a placeholder header at the beginning (`snap.HeaderSize`: the magic, the event stream size, the directory size, the root table's offset, the index size)
 2. Convert IR node to event stream (using `stream` package encoder)
 3. Write events to snapshot file
 4. While processing events:
@@ -76,11 +76,13 @@ If exact path not found in index:
 
 ### From Event Stream
 
-1. Write placeholder sizes at beginning (12 bytes: 8 for event stream size, 4 for index size)
+1. Write a placeholder header at the beginning (`snap.HeaderSize`)
 2. Write events directly to snapshot file
-3. Build index while writing events (track paths and offsets)
-4. After all events written, write index bytes
-5. Seek back to beginning and update event stream size and index size
+3. Build index while writing events (track paths and offsets), and write each container's table of children to the directory as the container closes (`directory.go`)
+4. After all events written, write the directory, then the index bytes
+5. Seek back to beginning and fill in the header
+
+A snapshot written before the directory existed has a 12-byte header (event stream size, index size) with the index directly after the events; `Open` reads both, and such a snapshot answers `ErrNoDirectory` to a table.
 
 ## Reading Snapshots
 

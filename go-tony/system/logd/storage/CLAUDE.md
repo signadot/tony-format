@@ -189,7 +189,7 @@ Merge all patches → reconstruct state at path
 - `Entry`: Patch with metadata (commit ID, transaction ID, timestamp)
 
 **Snapshot** (`internal/snap/snap.go`):
-- Event-based format: `[event-stream-size][index-size][events][index]`
+- Event-based format: `[header][events][directory][index]` -- the directory is a table of children per container (`internal/snap/directory.go`); a legacy snapshot has a 12-byte header and no directory
 - `Builder`: Constructs snapshot from event stream
 - `Index`: Maps kinded paths to byte offsets in event stream
 

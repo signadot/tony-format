@@ -219,9 +219,13 @@ func TestPathFinderWithArrayIndex(t *testing.T) {
 	if _, err := tmpFile.Seek(builder.origOffset, io.SeekStart); err != nil {
 		t.Fatalf("Seek to header error = %v", err)
 	}
-	header := make([]byte, 12)
-	binary.BigEndian.PutUint64(header[0:8], uint64(builder.offset))
-	binary.BigEndian.PutUint32(header[8:12], uint32(len(indexData)))
+	// The builder's header, finished by hand: the events it wrote, no directory (the
+	// builder was not closed, so no table was written), and the index.
+	header := make([]byte, HeaderSize)
+	copy(header[0:4], headerMagic[:])
+	binary.BigEndian.PutUint64(header[4:12], uint64(builder.offset))
+	binary.BigEndian.PutUint64(header[20:28], dirNone)
+	binary.BigEndian.PutUint32(header[28:32], uint32(len(indexData)))
 	if _, err := tmpFile.Write(header); err != nil {
 		t.Fatalf("Write header error = %v", err)
 	}
