@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: c760b18e83c61bb39b9f889080c337ca1d50f632
 commits:
 - c760b18e83c61bb39b9f889080c337ca1d50f632
 created: "2026-09-16T17:40:10.476568+02:00"
@@ -11,5 +12,5 @@ labels:
 - bug
 - logd
 related_issues: []
-status: open
-updated: "2026-09-16T17:42:57.997313+02:00"
+status: closed
+updated: "2026-09-16T18:20:26.152541+02:00"
