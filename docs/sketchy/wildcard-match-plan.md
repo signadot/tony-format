@@ -24,7 +24,11 @@ in a write, so the one validator both call has to know which it is answering.
 - `Path string` — the node's own concrete kpath. Absent (empty) on a single-node
   match, so today's answers are unchanged on the wire.
 - `Done bool` — the terminal marker, `omitzero`, following
-  `WatchEvent.ReplayComplete` (`api/session.go:471`, `NewReplayCompleteEvent:728`).
+  `WatchEvent.ReplayComplete` (`api/session.go:471`, `NewReplayCompleteEvent:728`);
+- `Cursor string` — on the marker, when more of the set remains (step 5).
+
+`MatchRequest` (`api/session.go:95-98`) gains `limit` and `cursor`, which are the
+protocol's paging interface rather than match's own (step 5).
 
 ```tony
 {id: "7", match: {path: "jobs.*"}}
@@ -106,14 +110,42 @@ through `s.send` into the session's `outgoing` channel (`server/session.go:442-4
 so a long sequence interleaves with other requests' answers and does not stall them.
 Responses demux by id, which is what a watch already relies on.
 
-**Decide before coding:** a client cannot stop a sequence mid-flight — there is no
-`unmatch`, and adding one is a bigger change than this. Options: a `limit:` on the
-request (simple, and the caller pages by re-asking with a path it already has), a
-server-side cap answering an error when exceeded, or nothing in v1. Recommendation:
-`limit:`, because it also bounds the server's work, and because the alternative is a
-client that asked for a set of unknown size with no way out.
+## 5. Paging: the protocol's cursor, not a match feature
 
-## 5. docd answers unsupported
+A caller cannot stop a sequence mid-flight — there is no `unmatch` — so a set of
+unknown size needs a bound. A `limit` alone leaves a truncated set with no way to
+ask for the rest, so the pair is `limit` and `cursor`, and it is a **protocol
+interface**: every operation that answers a set uses the same one.
+
+- request: `limit` (the most members in a page) and `cursor` (continue a paging
+  read);
+- the marker carries `cursor` when more remains and omits it when the set is
+  finished. **The marker is the authority** — a page shorter than `limit` does not
+  mean the set ended, since the server may cap a page below what was asked. Same
+  choice as `replayComplete`: say it, do not have the client infer it;
+- within a page, members still arrive one at a time. Paging bounds the request,
+  streaming delivers a page.
+
+The store is versioned, so this needs no server-side iterator and no session
+affinity: a cursor is *(the commit the set was read at, the last path answered)*.
+Continuing is a read at that same commit resuming after that path, so every page is
+one snapshot and a boundary never straddles two states. A continuation whose commit
+has fallen out of range answers `commit_not_found`, as a historical read already does
+(`session_read.go:50-56`), rather than silently reading current.
+
+This needs a total, stable order, which step 3 already has: sorted keys per level,
+so a resume seeks to the cursor's position at each level instead of rescanning what
+it has already answered.
+
+The cursor is **opaque to the client**. That is what lets docd compose one later — a
+composed cursor is a bundle of per-participant cursors, and a client that parsed it
+would be parsing a shape docd is entitled to change (`5f6vrzw0h12ksrtfn9n0`).
+
+Where it goes: the request fields on `MatchRequest`, the `cursor` on `MatchResult`
+beside `done`, and the encode/decode of the cursor in one place that the `..` read
+(`th7sdhvyh12ksjtfn9n0`) and docd both reuse rather than re-spell.
+
+## 6. docd answers unsupported
 
 docd must not forward a wildcard match to one owner as though the set were that
 owner's (`docd/server/registry.go:175-184`, `paths.go:63-78` classify a wildcard
@@ -124,7 +156,7 @@ interceptions (`docd/server/client_session.go:224-238`): a match whose path hold
 wildcard answers `ErrCodeUnsupported` (`logd/api/session.go:592`). Composing it is
 `5f6vrzw0h12ksrtfn9n0`.
 
-## 6. libctl
+## 7. libctl
 
 `deliverResponse` deletes the pending entry on the first response
 (`libctl/logd.go:860-867`), so today every member after the first is dropped with
@@ -146,6 +178,12 @@ keep `Match` as it is for a path that names one node.
 - `server`: a wildcard patch, CAS path and watch are refused (from
   `pvre1n2fh12ksmptn5n0` / `t55dmsthh12kssetn5n0`, and this plan's step 2 is what
   makes them one change).
+- `server` paging: a `limit` bounds a page and the marker carries a cursor; the
+  continuation answers the rest and its marker carries none; the pages together are
+  the whole set, in order, with no member seen twice; a page shorter than `limit`
+  still carries a cursor when more remains; a cursor whose commit has fallen out of
+  range answers `commit_not_found`; a write between two pages does not change what
+  the second page answers, because it reads the first page's commit.
 - `docd`: a wildcard match answers `unsupported`, and nothing is forwarded.
 - `libctl`: the each-node call collects every member end to end against a real logd,
   and a stop mid-sequence does not wedge the session.
