@@ -126,6 +126,11 @@ func (h *WatchHub) Unwatch(watcher *Watcher) {
 // A watcher matches if one of the notification's KPaths is the watcher's path, under it,
 // or above it, and its scope admits the notification's scope.
 //
+// A commit that changed an array's keying (n.Rekeyed) reaches every watcher: whether it
+// overlaps a watch is a question in the schema's terms, which a watch's path is not spelled
+// in, and the stream serving the watch asks it (watchStream.live). Such commits are
+// schema sets, and rare.
+//
 // It is non-blocking: delivery to each watcher is a non-blocking send to its buffered Events
 // channel. A watcher whose buffer is full has fallen behind and is failed (its Failed channel
 // is closed and it is removed), so slow consumers don't miss events silently — they are
@@ -149,7 +154,7 @@ func (h *WatchHub) Broadcast(n *storage.CommitNotification) {
 	var targets []sendTarget
 
 	for watcherPath, watchers := range h.watchers {
-		if matchesPath(watcherPath, n.KPaths) {
+		if len(n.Rekeyed) > 0 || matchesPath(watcherPath, n.KPaths) {
 			for watcher := range watchers {
 				// Check scope filtering:
 				// - Baseline watcher (scope=nil): only baseline events (n.ScopeID=nil)

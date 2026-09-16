@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
@@ -50,6 +51,43 @@ func (s *Storage) KeyedAt(scopeID *string, kp string, commit int64) bool {
 	}
 	at, atElement, err := schemaPathOfRead(schema, kp)
 	return err == nil && !atElement && schema.Keyed(at)
+}
+
+// KeyingChangeReaching answers the first schema commit in (from, to] that changed the
+// keying of an array overlapping the document path kp -- the array at kp, one under it, or
+// one above it -- with the array and how its keying changed, said for a person. ok is false
+// when no change in the range reaches kp.
+//
+// Overlap is asked in the schema's terms, under the schema in force before the change,
+// which is the one kp was spelled under: the names of elements are elided, so
+// runs."(id=r1)".n is runs.n, and it overlaps runs. Segments, not characters, so runs2 does
+// not overlap runs.
+func (s *Storage) KeyingChangeReaching(kp string, from, to int64) (commit int64, array, how string, ok bool) {
+	for _, ch := range s.schema.keyingChangesIn(from, to) {
+		at, _, err := schemaPathOfRead(ch.before, kp)
+		if err != nil {
+			continue // not a path at all: nothing a change could reach
+		}
+		for _, a := range ch.arrays {
+			if at == a || isKPathPrefix(a, at) || isKPathPrefix(at, a) {
+				return ch.commit, a, keyingChangeOf(ch.before, ch.after, a), true
+			}
+		}
+	}
+	return 0, "", "", false
+}
+
+// keyingChangeOf says how the keying of the array at schema path p went from before to
+// after: gained, lost, or keyed by other fields.
+func keyingChangeOf(before, after *api.Schema, p string) string {
+	was, is := before.Identity(p), after.Identity(p)
+	switch {
+	case len(was) == 0:
+		return "now keyed by " + strings.Join(is, ",")
+	case len(is) == 0:
+		return "no longer keyed, was by " + strings.Join(was, ",")
+	}
+	return "keyed by " + strings.Join(is, ",") + ", was by " + strings.Join(was, ",")
 }
 
 // RaiseState puts array-ness back on the keyed arrays in a STATE at document path kp in

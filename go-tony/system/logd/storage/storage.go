@@ -29,6 +29,14 @@ type CommitNotification struct {
 	KPaths    []string // Top-level kpaths affected by this commit
 	Patch     *ir.Node // The delta the log stored for the commit, keyed arrays raised (raise.go); the notification's own copy
 	ScopeID   *string  // Scope ID (nil = baseline)
+
+	// Rekeyed is the arrays, by schema path, outermost first, whose keying a SCHEMA commit
+	// changed: gained, lost, or keyed by other fields. Such a commit is published whether
+	// or not it rewrote anything -- an array holding nothing has no rewrite and is still
+	// addressed another way -- and it concerns every watch overlapping one of the arrays,
+	// which KPaths cannot say: a schema path elides the names a watch's path is spelled
+	// with (KeyingChangeReaching). Empty on every other commit, and on a replayed one.
+	Rekeyed []string
 }
 
 // CommitNotifier is a callback invoked after each successful commit.

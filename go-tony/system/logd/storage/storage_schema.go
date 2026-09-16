@@ -77,6 +77,36 @@ func (h *schemaHistory) ParsedAt(commit int64) *api.Schema {
 	return nil
 }
 
+// keyingChange is a schema commit that changed some arrays' keying: the arrays, by schema
+// path and outermost first, and the schemas either side of it.
+type keyingChange struct {
+	commit        int64
+	arrays        []string
+	before, after *api.Schema
+}
+
+// keyingChangesIn answers the schema commits in (from, to] that changed an array's keying,
+// in commit order. Compaction keeps every schema commit (compaction.go), so the history
+// answers for any range a replay may ask about.
+func (h *schemaHistory) keyingChangesIn(from, to int64) []keyingChange {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	var out []keyingChange
+	for i, sa := range h.at {
+		if sa.Commit <= from || sa.Commit > to {
+			continue
+		}
+		var before *api.Schema
+		if i > 0 {
+			before = h.parsed[i-1]
+		}
+		if arrays := identityChanges(before, h.parsed[i]); len(arrays) > 0 {
+			out = append(out, keyingChange{commit: sa.Commit, arrays: arrays, before: before, after: h.parsed[i]})
+		}
+	}
+	return out
+}
+
 // indexAt is the position of the schema in force at commit, or -1. Caller holds mu.
 func (h *schemaHistory) indexAt(commit int64) int {
 	for i := len(h.at) - 1; i >= 0; i-- {

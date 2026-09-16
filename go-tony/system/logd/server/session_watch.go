@@ -89,6 +89,17 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 		s.sendError(id, api.ErrCodeStorage, fmt.Sprintf("failed to get current commit: %v", err))
 		return
 	}
+	// The path was spelled before the watch was registered, under the schema in force
+	// then. A schema commit that changed the keying over it in between is one this watch
+	// will never be told about -- it is at or below currentCommit -- and the state it
+	// starts from is read under the new keying with the old spelling. Spell it again as
+	// the head does, and if that is not what was registered, start over: the request is
+	// still in flight, and a moment later it would have been spelled the new way.
+	if again, err := s.watchPath(req.Path); err != nil || again != path {
+		s.hub.Unwatch(watcher)
+		s.handleWatch(id, req)
+		return
+	}
 	// An absolute cursor names a commit the client claims to have seen, and one past the
 	// head names a commit that does not exist, as a match refuses it (session_read.go).
 	// Accepted, the watch stamped its state with the fictitious commit, and delivered
@@ -232,6 +243,10 @@ type watchStream struct {
 	// difference, and that read folds the scope's live statements, not its history.
 	prev   *ir.Node
 	seeded bool
+
+	// crossing is the change of keying over the path that a replay's range crosses, which
+	// ends the watch where the replay reaches it; nil when there is none.
+	crossing *keyingEnd
 }
 
 // forwardEvents serves one watch until the session ends, the client falls behind, or the
@@ -272,6 +287,22 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 		}
 	}
 
+	// A replay whose range crosses a change of keying over the path ends at it, as a live
+	// watch does, having said what it can before it (keyingEnd).
+	if fromCommit != nil {
+		if c, array, how, ok := s.storage.KeyingChangeReaching(w.path, *fromCommit, currentCommit); ok {
+			w.crossing = &keyingEnd{commit: c, array: array, how: how}
+			// The path is spelled as the head spells it. If it did not name the same place
+			// before the change, there is nothing true to say about it from there: not
+			// its state, which reads as absent, nor its deltas, which do not reach it.
+			spelled, err := ident.CanonicalPath(s.storage.SchemaForAt(s.scopeID(), *fromCommit), w.path)
+			if err != nil || spelled != w.path {
+				w.endKeyingChanged(*w.crossing)
+				return
+			}
+		}
+	}
+
 	if !noInit {
 		if !w.sendInitialState(startCommit) {
 			return
@@ -289,6 +320,23 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 		return
 	}
 	w.live()
+}
+
+// keyingEnd is a schema commit that changed the keying of an array overlapping the watched
+// path, and so ends the watch (api.ErrCodeKeyingChanged).
+type keyingEnd struct {
+	commit int64
+	array  string
+	how    string
+}
+
+// endKeyingChanged ends the watch at the schema commit that changed the keying over its
+// path. The resume point is that commit, not the last one delivered: the state there is the
+// first under the new keying, and a watch resumed from before it would cross it again.
+func (w *watchStream) endKeyingChanged(k keyingEnd) {
+	w.s.failWatch(w.watcher, api.ErrCodeKeyingChanged, fmt.Sprintf(
+		"the keying of %q changed at commit %d (%s): watch again from commit %d, with the state, spelling the path as the schema now does",
+		k.array, k.commit, k.how, k.commit), k.commit)
 }
 
 // accountFor records that the watch is correct through this commit. Every path through the
@@ -532,6 +580,11 @@ func (w *watchStream) replay(from, to int64) bool {
 	if !w.seedAt(from) {
 		return false
 	}
+	if w.crossing != nil {
+		// What is before the change, and then the change's ending: no replayComplete,
+		// since the replay did not complete.
+		to = w.crossing.commit - 1
+	}
 	if from < to {
 		// Streamed, not collected: the range is emitted as it is read, so a wide
 		// catch-up costs one entry rather than the whole history
@@ -564,6 +617,10 @@ func (w *watchStream) replay(from, to int64) bool {
 			return false
 		}
 	}
+	if w.crossing != nil {
+		w.endKeyingChanged(*w.crossing)
+		return false
+	}
 	w.s.send(api.NewReplayCompleteEvent(w.watcher.ID, w.path))
 	return true
 }
@@ -592,6 +649,14 @@ func (w *watchStream) live() {
 			// and be queued after the replay covered it.
 			if notification.Commit <= w.replayedThrough {
 				continue
+			}
+			// A schema commit reaches every watcher; one that changed the keying over this
+			// path ends the watch, before anything of the commit is delivered.
+			if len(notification.Rekeyed) > 0 {
+				if c, array, how, ok := w.s.storage.KeyingChangeReaching(w.path, notification.Commit-1, notification.Commit); ok {
+					w.endKeyingChanged(keyingEnd{commit: c, array: array, how: how})
+					return
+				}
 			}
 			// The coarse wake fires this watcher for every write under a shared top-level
 			// subtree. The projection says cheaply whether the entry reaches this path at

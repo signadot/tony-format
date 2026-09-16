@@ -245,6 +245,11 @@ func TestKeyed_WatchDeltaStepsCorrectly(t *testing.T) {
 	}
 	notes := make(chan note, 16)
 	s.SetCommitNotifier(func(n *CommitNotification) {
+		if len(n.Rekeyed) > 0 {
+			// The schema commit that keyed items is published too -- it ends the watches
+			// over the array (62r9amwph12krxfjn9n0) -- and is not a write to step.
+			return
+		}
 		notes <- note{commit: n.Commit, patch: n.Patch}
 	})
 

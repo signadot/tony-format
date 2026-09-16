@@ -495,6 +495,31 @@ mid-watch ends the watch with `session_mounted` or `session_unmounted`, and the 
 composes the new membership — the composition changed, so deltas from before it describe a
 different document.
 
+**A change of keying ends the watches over the array.** A schema commit that gives an array
+an identity, takes it away, or keys it by other fields ends every watch overlapping that
+array — at it, under it, or above it, the root included — with `keying_changed`, before
+anything of the commit is delivered. The alternative was to hand the watcher the rewrite,
+and it would read wrong: an element that was renamed arrives as a delete, a path stops
+naming anything, and the array's elements are addressed another way from then on. A watch
+replaying across such a commit delivers what comes before it and then ends the same way;
+one whose path did not name the same place before the change ends without sending anything.
+
+The ending's `commit` is the **schema commit**, not the last one delivered, and it is where
+to watch again from: its state is the first under the new keying, and a watch resumed from
+earlier would cross the change again. Take the state (not `noInit`) — what you hold is keyed
+the old way — and spell the path as the schema now does:
+
+```tony
+{id: "w", watch: {path: "runs(r1)"}}
+…
+{id: "w" event: {path: 'runs."(id=r1)"' commit: 88 ended: true endReason: keying_changed
+  endMessage: 'the keying of "runs" changed at commit 88 (keyed by sku, was by id): …'}}
+
+{id: "w2", watch: {path: "runs(A)", fromCommit: 88}}
+```
+
+A schema commit that changes no array's keying ends nothing.
+
 ## Liveness, and where the store is
 
 ```tony
@@ -569,6 +594,7 @@ writes an object at `a.b`. What separates them is what is there now.
 | `commit_not_found` | a historical read outside `[0, current]` |
 | `replay_compacted` | `fromCommit` is below retained delta history |
 | `slow_consumer` | a watch was dropped because the client did not keep up |
+| `keying_changed` | a watch ended because a schema commit changed the keying of an array at, under or above its path; watch again from the commit it names |
 | `tx_full`, `tx_not_found`, `tx_scope_mismatch` | transaction membership |
 | `invalid_tx` | a transaction asked for more than the server allows, or a participant named an `author` (a participant inherits the transaction's) |
 | `invalid_retain` | a [retain](retention.md) request that cannot mean what it says — a rule naming one node or a dense array, an age that is not a field path, a duration that is not one — or whose rule disagrees with the schema's keying |

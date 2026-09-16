@@ -78,6 +78,7 @@ func (s *Storage) SetSchema(schema *ir.Node, force bool) (int64, error) {
 	if err := s.identityChangeAllowed(parsed, force); err != nil {
 		return 0, &SchemaRefusedError{Err: err}
 	}
+	rekeyed := identityChanges(s.schema.ActiveParsed(), parsed)
 
 	// The number first: a generated id is minted from the commit it lands in. A refusal
 	// past here leaves a gap in the sequence, as a write refused at its append does.
@@ -109,6 +110,10 @@ func (s *Storage) SetSchema(schema *ir.Node, force bool) (int64, error) {
 	// Noted where the rebuild would note it, so the next persist carries it; and in
 	// force from here on. The rewrite is indexed and published as any delta is, raised
 	// into the client's vocabulary under the schema it was written in -- the new one.
+	//
+	// A change of keying is published with or without a rewrite, naming the arrays: it
+	// ends the watches over them (CommitNotification.Rekeyed), and an array holding
+	// nothing is addressed another way as surely as one holding something.
 	s.index.NoteSchema(commit, schema)
 	s.schema.append(commit, schema)
 	if rewrite != nil {
@@ -117,8 +122,11 @@ func (s *Storage) SetSchema(schema *ir.Node, force bool) (int64, error) {
 		if s.indexPersister != nil {
 			s.indexPersister.MaybePersist(commit)
 		}
+	}
+	if rewrite != nil || len(rekeyed) > 0 {
 		n := newCommitNotification(commit, 0, timestamp, "", rewrite, nil)
 		n.Patch = s.raiseDelta(nil, n.Patch, commit)
+		n.Rekeyed = rekeyed
 		s.tick.publish(commit, n)
 	} else {
 		s.tick.publish(commit, nil)

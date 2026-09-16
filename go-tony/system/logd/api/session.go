@@ -369,8 +369,10 @@ type SchemaGetRequest struct {
 // Where the schema changes an array's identity (!logd-key, !logd-auto-id), the commit
 // carries the rewrite: an array GAINING one has its elements named from their key
 // fields (an auto-id is generated where missing); one CHANGING it has them named again;
-// one LOSING it has them come back as an array, in name order. Watchers see the rewrite
-// as a delta at the array. A schema the store cannot adopt is refused with
+// one LOSING it has them come back as an array, in name order. No watcher is handed the
+// rewrite: every watch overlapping such an array -- at it, under it, or above it -- ends at
+// the commit with ErrCodeKeyingChanged, whether or not the array held anything to rewrite.
+// A schema the store cannot adopt is refused with
 // schema_refused: one that cannot mean what it says (two identities for one array); an
 // element that cannot be named under the new identity (a key missing, or two elements
 // with one name); a change under a path a scope has statements at; and a loss unless
@@ -656,7 +658,7 @@ type WatchEvent struct {
 	Author         string `tony:"field=author,omitzero"`
 	ReplayComplete bool   `tony:"field=replayComplete,omitzero"` // Marker that replay is complete
 	Ended          bool   `tony:"field=ended,omitzero"`          // Terminal marker: the watch has ended and the client should re-establish it
-	EndReason      string `tony:"field=endReason,omitzero"`      // Why the watch ended, from the ErrCode* vocabulary (e.g. session_mounted, session_unmounted, controller_unavailable)
+	EndReason      string `tony:"field=endReason,omitzero"`      // Why the watch ended, from the ErrCode* vocabulary (e.g. session_mounted, session_unmounted, controller_unavailable, keying_changed)
 	EndMessage     string `tony:"field=endMessage,omitzero"`     // What the reason code cannot carry: the floor a compacted replay left, the range a read failed over, why a path cannot be extracted
 }
 
@@ -790,6 +792,21 @@ const (
 	// decides whether the gap it just saw was expected, does not.
 	ErrCodeSessionMounted   = "session_mounted"   // A mount registered under/at this watch's path; re-watch to compose over it
 	ErrCodeSessionUnmounted = "session_unmounted" // A mount at/under this watch's path was removed; re-watch without it
+
+	// ErrCodeKeyingChanged ends a watch overlapping an array -- at it, under it, or above
+	// it -- whose keying a schema commit changed: gained, lost, or keyed by other fields.
+	// The watch is ended rather than handed the rewrite, which it could not read as what
+	// it is: an element that was renamed arrives as a delete, a path stops naming anything,
+	// and the array's elements are addressed another way from then on. It is the same
+	// choice a mount change makes, for the same reason: a watch never observes the change
+	// mid-stream (62r9amwph12krxfjn9n0).
+	//
+	// The ending's commit is the schema commit, and it is where to watch again from: the
+	// state there is the first under the new keying, and a watch from before it would
+	// cross it again. Re-establish WITH the state -- what the client holds is keyed the old
+	// way -- and with the path as the new schema spells it. The message names the array
+	// and how its keying changed.
+	ErrCodeKeyingChanged = "keying_changed"
 
 	// The schema set is one the store will not adopt: it cannot mean what it says, or
 	// the data cannot follow it (SchemaSetRequest). The store is healthy and the remedy

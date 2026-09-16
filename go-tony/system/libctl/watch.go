@@ -32,12 +32,17 @@ const unwatchTimeout = 5 * time.Second
 //
 // and a composed watch whose sub-watch fails ends with that sub-watch's code. logd
 // ends a watch with slow_consumer (the consumer did not keep up), replay_compacted
-// (FromCommit is below the retained history), replay_failed, or invalid_path (the
-// path can never be extracted).
+// (FromCommit is below the retained history), replay_failed, invalid_path (the
+// path can never be extracted), or keying_changed (a schema commit changed the keying
+// of an array at, under or above the path).
 //
 // The watch is re-establishable in every case but invalid_path: the application
 // should start a new Watch on the same path, which re-composes against the current
-// mount set — without FromCommit after replay_compacted. The reason is for a caller
+// mount set — without FromCommit after replay_compacted. After keying_changed, Commit
+// is the schema commit rather than the last one delivered: watch again from it, taking
+// the state rather than NoInit, since what the application holds is keyed the old way,
+// and spell the path as the schema now does -- an element's name, or whether it has one,
+// may be what changed. The reason is for a caller
 // that does more than reconnect — one deciding whether the content it is about to
 // see should differ, or reporting why the stream broke.
 //
