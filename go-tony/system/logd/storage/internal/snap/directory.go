@@ -367,19 +367,40 @@ func compareSegments(seg string, target *kpath.KPath) int {
 // per segment. ErrNoDirectory for a snapshot without one, ErrNotAContainer where p names
 // a value with no children, ErrNotFound where it names nothing.
 func (s *Snapshot) Table(p string) (*Table, error) {
+	tb, _, err := s.TableOf(p)
+	return tb, err
+}
+
+// TableOf is Table with the kind of the container at p. The root's kind is read off its
+// table's first entry -- a position, a sparse key, or a field -- and an empty root is an
+// object, which lists the same nothing either way.
+func (s *Snapshot) TableOf(p string) (*Table, Kind, error) {
 	if s.dir == nil {
-		return nil, ErrNoDirectory
+		return nil, 0, ErrNoDirectory
 	}
 	if s.dir.root == dirNone {
-		return nil, fmt.Errorf("the root: %w", ErrNotAContainer)
+		return nil, 0, fmt.Errorf("the root: %w", ErrNotAContainer)
 	}
 	tb, err := s.dir.open(int64(s.dir.root), 0)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
+	}
+	kind := KindObject
+	if tb.count > 0 {
+		first, err := tb.Entry(0)
+		if err != nil {
+			return nil, 0, err
+		}
+		switch first.Segment[0] {
+		case '[':
+			kind = KindArray
+		case '{':
+			kind = KindSparseArray
+		}
 	}
 	kp, err := kpath.Parse(p)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	for x := kp; x != nil; x = x.Next {
 		seg := x.SegmentString()
@@ -388,19 +409,20 @@ func (s *Snapshot) Table(p string) (*Table, error) {
 		}
 		e, found, err := tb.find(seg)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		if !found {
-			return nil, fmt.Errorf("%q: %w", p, ErrNotFound)
+			return nil, 0, fmt.Errorf("%q: %w", p, ErrNotFound)
 		}
 		if !e.Kind.IsContainer() {
-			return nil, fmt.Errorf("%q: %w", p, ErrNotAContainer)
+			return nil, 0, fmt.Errorf("%q: %w", p, ErrNotAContainer)
 		}
 		if tb, err = tb.Child(e); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
+		kind = e.Kind
 	}
-	return tb, nil
+	return tb, kind, nil
 }
 
 // find answers the entry whose segment is seg, by binary search.

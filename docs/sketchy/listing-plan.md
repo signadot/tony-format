@@ -116,7 +116,7 @@ listing or not.
 
     // Children lists the direct children of kp as of commit `at`, in the view scopeID
     // names, from `after` (exclusive; "" for the first), calling fn until it returns false.
-    // A child is its segment, its kind, and where its events are when the snapshot holds it.
+    // A child is its segment as the store spells it, and its kind.
     func (s *Storage) Children(at int64, scopeID *string, kp, after string, fn func(Child) bool) error
 
 `setChildren` in the server calls it in place of `readValueAt`; the walk, the paging and the
@@ -159,10 +159,15 @@ Each step ships alone and is tested alone.
 3. **Builder writes tables**, and a `snap.Directory` reader with `ReadTable(P)` and
    `Seek(after)`. Tests: every container kind, empty containers, comments, an old
    snapshot opens and answers as before.
-4. **`Storage.Children`**: tables plus the names fold over the tail, plus scope. Tested
-   against the keys of a value read at the same commit: fresh write, deletes, `!insert`
-   over, a positional op (fallback), scope claim, post-compaction, historic commit, each
-   container kind, a table-less snapshot.
+4. **`Storage.Children`**: tables plus the names fold over the tail, plus scope. Done.
+   Tested against the keys of a value read at the same commit, a sweep of every commit at
+   every path after each phase: fresh write, deletes and a kind change, `!insert` over,
+   `!delete`, a root snapshot with a tail, a write above the path stating it whole (which
+   streams), compaction, a scope's additions and a scope's claim, paging from a name and
+   stopping, and a 10 000-child container no budget could build: a page of ten from its
+   middle in 2 ms, from the table. Two counters say which way a listing went,
+   `listings.table` and `listings.stream`. Not tested in a store: a snapshot from before
+   the directory, whose fallback is the same streaming the blocked case takes.
 5. **`setChildren` uses it.** `TestSetMatch_ListsBeyondTheReadBudget` (on this branch,
    failing) goes green; `session.md`'s "reads no node at all" becomes true, and says
    what a listing costs.

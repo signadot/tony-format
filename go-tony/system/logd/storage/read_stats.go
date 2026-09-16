@@ -74,6 +74,10 @@ type ReadStats struct {
 	// have, but the parent was the root.
 	SnapForDecode    int64
 	SnapDecodeAtRoot int64
+	// ListTable is listings answered from a snapshot's table and the tail since it;
+	// ListStream the ones that streamed the value instead, which cost its bytes.
+	ListTable  int64
+	ListStream int64
 }
 
 // seekKind is what a read's seek found: nothing, the root snapshot, a snapshot of a path
@@ -118,6 +122,11 @@ type readStats struct {
 	// have but for the parent being the root.
 	snapForDecode    atomic.Int64
 	snapDecodeAtRoot atomic.Int64
+
+	// Listings (children.go): answered from a snapshot's table and the tail, or by
+	// streaming the value -- the fallback, which costs the value's bytes.
+	listTable  atomic.Int64
+	listStream atomic.Int64
 
 	// The scope term of a scoped read; see ReadStats.
 	scope          atomic.Int64
@@ -224,6 +233,8 @@ func (r *readStats) snapshot() ReadStats {
 		SnapInProgress:       r.snapInProgress.Load(),
 		SnapForDecode:        r.snapForDecode.Load(),
 		SnapDecodeAtRoot:     r.snapDecodeAtRoot.Load(),
+		ListTable:            r.listTable.Load(),
+		ListStream:           r.listStream.Load(),
 
 		Scope:          r.scope.Load(),
 		ScopeWide:      r.scopeWide.Load(),
@@ -268,6 +279,8 @@ func (r ReadStats) Report() map[string]any {
 		"snapshots.path.no.absent":          r.SnapAbsent,
 		"snapshots.path.no.log-busy":        r.SnapInProgress,
 		"snapshots.path.for-decode":         r.SnapForDecode,
+		"listings.table":                    r.ListTable,
+		"listings.stream":                   r.ListStream,
 		"snapshots.path.no.decode-at-root":  r.SnapDecodeAtRoot,
 		"reads.scope":                       r.Scope,
 		"reads.scope.wide":                  r.ScopeWide,
