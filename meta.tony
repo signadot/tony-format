@@ -6,7 +6,9 @@ commits: []
 created: "2026-09-16T09:26:48.394195+02:00"
 duplicates: []
 id: y2agz9dyh12kse24n9n0
-labels: []
+labels:
+- enhancement
+- logd
 related_issues: []
 status: open
-updated: "2026-09-16T09:26:48.394195+02:00"
+updated: "2026-09-16T09:26:51.539046+02:00"
