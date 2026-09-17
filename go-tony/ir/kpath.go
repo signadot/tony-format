@@ -172,7 +172,7 @@ func (node *Node) getKPath(kp *kpath.KPath) (*Node, error) {
 			field := *kp.Field
 			found := false
 			for i, yf := range res.Fields {
-				if yf.String != field {
+				if sparseField(yf) || yf.String != field {
 					continue
 				}
 				res = res.Values[i]
@@ -324,17 +324,7 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 	// walk is here rather than in the switch below because it is not a step into a
 	// container: an array, an object and a leaf all descend the same way.
 	if kp.Descend {
-		if kp.Next == nil {
-			// A trailing `..` names everything under here, and here itself.
-			return node.appendAll(dst), nil
-		}
-		if err := node.visitAll(func(n *Node) error {
-			dst, err = n.listKPath(dst, kp.Next)
-			return err
-		}); err != nil {
-			return nil, err
-		}
-		return dst, nil
+		return node.listDescend(dst, kpath.Start(kp)), nil
 	}
 	switch node.Type {
 	case ObjectType:
@@ -351,7 +341,7 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 		}
 		if kp.SparseIndexAll {
 			for i := range node.Fields {
-				if node.Fields[i].Type != NumberType {
+				if !sparseField(node.Fields[i]) {
 					continue
 				}
 				dst, err = node.Values[i].listKPath(dst, kp.Next)
@@ -371,9 +361,14 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 		if kp.Field == nil && !kp.FieldAll && kp.Next == nil {
 			return append(dst, node.Clone()), nil
 		}
+		// A field segment names a field, and a sparse entry is not one: it is
+		// written {n}, and .* naming it too would give the entry a second spelling,
+		// under which a document could not be rebuilt from its paths (sparseField).
 		if kp.FieldAll {
-			// Iterate all object fields
 			for i := range node.Fields {
+				if sparseField(node.Fields[i]) {
+					continue
+				}
 				dst, err = node.Values[i].listKPath(dst, kp.Next)
 				if err != nil {
 					return nil, err
@@ -384,7 +379,7 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 		if kp.Field != nil {
 			field := *kp.Field
 			for i := range node.Fields {
-				if node.Fields[i].String != field {
+				if sparseField(node.Fields[i]) || node.Fields[i].String != field {
 					continue
 				}
 				dst, err = node.Values[i].listKPath(dst, kp.Next)
@@ -422,7 +417,13 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 			}
 			return dst, nil
 		}
-		if kp.Index == nil && !kp.IndexAll && kp.SparseIndex == nil && !kp.SparseIndexAll && kp.Next == nil {
+		// A sparse key names nothing in a dense array, whose elements are written
+		// [i]: {*} used to name every element and {n} the nth, a second spelling of
+		// each (sparseField).
+		if kp.SparseIndex != nil || kp.SparseIndexAll {
+			return dst, nil
+		}
+		if kp.Index == nil && !kp.IndexAll && kp.Next == nil {
 			return append(dst, node.Clone()), nil
 		}
 		if kp.Index != nil {
@@ -445,26 +446,6 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 			}
 			return dst, nil
 		}
-		if kp.SparseIndexAll {
-			// Iterate all sparse array elements (for now, treat as regular array)
-			for _, yv := range node.Values {
-				dst, err = yv.listKPath(dst, kp.Next)
-				if err != nil {
-					return nil, err
-				}
-			}
-			return dst, nil
-		}
-		if kp.SparseIndex != nil {
-			idx := *kp.SparseIndex
-			if 0 <= idx && idx < len(node.Values) {
-				dst, err = node.Values[idx].listKPath(dst, kp.Next)
-				if err != nil {
-					return nil, err
-				}
-			}
-			return dst, nil
-		}
 		return dst, nil
 
 	case StringType, NumberType, NullType, BoolType:
@@ -481,9 +462,81 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 	}
 }
 
-// visitAll offers node and every node beneath it, in document order. It is the
-// walk `..` is defined by, and it is a walk and not a match: what to do with each
-// node is the caller's.
+// listDescend is the walk from a `..` on: node and every node beneath it, in
+// document order, each once, against the positions the pattern could be at.
+//
+// It is a walk of NODES, not of derivations. Offering each node beneath to the rest
+// of the pattern -- which is what `..` says -- found a node once per way of reaching
+// it, so a..b..c answered one c twice and `....c` three times, and grouped the answers
+// by the node offered rather than by where the document has them. A set is a set:
+// the walk visits each node once, in pre-order, and the position set says at each
+// whether the pattern names it (kpath.Positions).
+//
+// Which segments take a child is the same kind-strict answer the switch in listKPath
+// gives for a step: a field or {n} into an object, a position or a key into an array,
+// nothing into a leaf.
+func (node *Node) listDescend(dst []*Node, ps kpath.Positions) []*Node {
+	node = Uncomment(node)
+	if node == nil {
+		return dst
+	}
+	if ps.Done() {
+		dst = append(dst, node.Clone())
+	}
+	if !ps.Live() {
+		return dst
+	}
+	switch node.Type {
+	case ObjectType:
+		for i := range node.Fields {
+			field := node.Fields[i]
+			sparse := sparseField(field)
+			next := ps.Step(func(seg *kpath.KPath) bool {
+				switch {
+				case seg.FieldAll:
+					return !sparse
+				case seg.Field != nil:
+					return !sparse && field.String == *seg.Field
+				case seg.SparseIndexAll:
+					return sparse
+				case seg.SparseIndex != nil:
+					return sparse && int(*field.Int64) == *seg.SparseIndex
+				}
+				return false
+			})
+			if len(next) > 0 {
+				dst = node.Values[i].listDescend(dst, next)
+			}
+		}
+	case ArrayType:
+		keyField, keyed := node.KeyField()
+		for i, elem := range node.Values {
+			next := ps.Step(func(seg *kpath.KPath) bool {
+				switch {
+				case seg.IndexAll, seg.KeyAll:
+					return true
+				case seg.Index != nil:
+					return *seg.Index == i
+				case seg.Key != nil:
+					if !keyed {
+						return false
+					}
+					k, ok := ElemKey(elem, keyField)
+					return ok && k == *seg.Key
+				}
+				return false
+			})
+			if len(next) > 0 {
+				dst = elem.listDescend(dst, next)
+			}
+		}
+	}
+	return dst
+}
+
+// visitAll offers node and every node beneath it, in document order: the order a
+// descent answers in. It is a walk and not a match: what to do with each node is
+// the caller's.
 func (node *Node) visitAll(fn func(*Node) error) error {
 	if node == nil {
 		return nil
@@ -501,16 +554,6 @@ func (node *Node) visitAll(fn func(*Node) error) error {
 		}
 	}
 	return nil
-}
-
-// appendAll answers with node and everything beneath it, which is what a path
-// ending in `..` names.
-func (node *Node) appendAll(dst []*Node) []*Node {
-	_ = node.visitAll(func(n *Node) error {
-		dst = append(dst, n.Clone())
-		return nil
-	})
-	return dst
 }
 
 // sparseValue answers the value a sparse array holds under key, or nil when it
@@ -549,8 +592,17 @@ func (node *Node) sparseKey() (int64, bool) {
 		return 0, false
 	}
 	f := p.Fields[node.ParentIndex]
-	if f == nil || f.Type != NumberType || f.Int64 == nil {
+	if !sparseField(f) {
 		return 0, false
 	}
 	return *f.Int64, true
+}
+
+// sparseField says the field key f is a number, so the value under it is an entry of
+// a sparse array, written {n}, and not a field, written .name. One rule for every
+// walk, because a path has to say which kind of child it stepped into: a document is
+// rebuilt from its paths and leaves, and it cannot be if one child has two spellings
+// or a spelling names children of two kinds.
+func sparseField(f *Node) bool {
+	return f != nil && f.Type == NumberType && f.Int64 != nil
 }

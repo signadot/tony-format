@@ -117,6 +117,13 @@ func TestSetReaches(t *testing.T) {
 		{"a.list.foo", "a.list[*].x", false}, // an index names no field
 		{"runs.m", "runs(*).n", true},        // an element is stored under a field
 		{"other.x", "jobs.*", false},
+		// A descent reaches whatever is at or under its concrete prefix, and nothing
+		// beside it.
+		{"a.b", "..name", true},
+		{"verse.x", "verse..name", true},
+		{"verse.x.y", "verse.x..", true},
+		{"verse.x", "verse.demo..name", false},
+		{"other.x", "jobs..", false},
 	} {
 		reg := NewMountRegistry()
 		if err := reg.Register(&MountEntry{Path: tc.mount}); err != nil {

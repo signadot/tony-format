@@ -1283,9 +1283,10 @@ func TestSession_PatchPastTheEndOfAnArrayIsInvalidPath(t *testing.T) {
 }
 
 // A `..` names the nodes at any depth, which is a question. Every path a session
-// takes has to name a place -- what a patch is rooted at, what a match reads, what
-// a watch names -- so it is refused where it arrives, rather than turned into
-// something obscure further in.
+// takes but a read's has to name a place -- what a patch is rooted at, what its
+// precondition reads, what a watch names -- so it is refused where it arrives, rather
+// than turned into something obscure further in. A match answers the set it names,
+// and has its own tests (TestSetMatch_Descent).
 func TestSession_DescendPathIsRefused(t *testing.T) {
 	store, err := storage.Open(t.TempDir(), nil)
 	if err != nil {
@@ -1296,7 +1297,8 @@ func TestSession_DescendPathIsRefused(t *testing.T) {
 	conn := newMockConn()
 	conn.WriteRequest(`{id: "seed", patch: {path: "", data: {a: {b: {c: 1}}}}}`)
 	conn.WriteRequest(`{id: "descend-patch", patch: {path: "a..c", data: 2}}`)
-	conn.WriteRequest(`{id: "descend-match", match: {path: "a..c", data: 1}}`)
+	conn.WriteRequest(`{id: "descend-precond", patch: {path: "a.b.c", data: 2, match: {path: "a..c", data: 1}}}`)
+	conn.WriteRequest(`{id: "descend-watch", watch: {path: "a..c"}}`)
 
 	session := NewSession("test-server", conn, &SessionConfig{Storage: store, Hub: NewWatchHub()})
 	done := make(chan error)
@@ -1322,7 +1324,7 @@ func TestSession_DescendPathIsRefused(t *testing.T) {
 			seen[*resp.ID] = resp.Error
 		}
 	}
-	for _, id := range []string{"descend-patch", "descend-match"} {
+	for _, id := range []string{"descend-patch", "descend-precond", "descend-watch"} {
 		got := seen[id]
 		if got == nil {
 			t.Errorf("%s was not refused; responses:\n%s", id, conn.GetResponses())

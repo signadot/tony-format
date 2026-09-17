@@ -22,6 +22,12 @@ through — which is what "kinded path" means:
 | `.*` `[*]` `{*}` `(*)` | all of them, at that step | `items[*].name` |
 | `..` | any depth below here, this node included | `..name`, `spec..image` |
 
+A segment names only children of its kind. `.*` names an object's fields and not the
+entries of a sparse array, which `{*}` names, and `{*}` names nothing in a dense array,
+whose elements `[*]` names. That is what makes a path an address: every node has one
+spelling, so a document can be rebuilt from its paths and its leaves, and the path a
+query answers with is the path a write is rooted at.
+
 The leading `.` is optional at the start, so `spec.replicas` and `.spec.replicas` are
 the same path, and by the same rule a bare `.` is the whole document. It is optional
 only there: a field after an element or a key still takes its dot, so `items[0].name`
@@ -47,6 +53,11 @@ o list ..image deploy.tony        # every image, wherever it is
 o list 'spec..name' deploy.tony   # every name under spec, at any depth
 o list 'a..' doc.tony             # a and everything under it
 ```
+
+A `list` answers each node **once**, in document order — a node before what is under it
+— whichever way the path reached it. `a..b..c` can reach one `c` two ways, through
+`a.b` and through `a.b.b`; the answer has it once. That is the set logd's `match`
+answers for the same path over the store, in the same order.
 
 `-paths` answers with **where** each node is rather than what it is, in this same
 syntax — so the answer to one query is the input to the next:
@@ -81,17 +92,21 @@ parse error. kpath spells it `..`, and the three-dot form is read as it.
 
 A `..` is a question: it names the nodes at any depth rather than a step to one. So
 it belongs in a query and nowhere a path has to name a place -- what a patch is
-rooted at, what a watch names, what logd indexes by. Those refuse it, and say so:
+rooted at, what a watch names, what a retain rule expires, what logd indexes by. Those
+refuse it, and say so:
 
     "a..c": `..` names nodes at any depth, which is a question and not a place:
     a path here has to name one
+
+A read answers it: logd's `match` takes a `..` and answers the set it names, each node
+once, in document order, [one node at a time](logd/session.md#reading-at-any-depth) --
+the same set, in the same order, that `o list` answers over the document.
 
 An empty field name is still sayable, in quotes: `a."".x`. That is the canonical
 spelling, and what `..` used to parse as before it meant depth.
 
 A **wildcard** — `.*`, `[*]`, `{*}`, `(*)` — is a question of the same family, asked one
-level deep rather than at any depth, and the same rule sorts where it goes. A read
-answers it: logd's `match` takes a wildcard at any segment and answers the set it names,
-[one node at a time](logd/session.md#reading-a-set), as `o list` does over a document.
-A write, a watch and a [retain rule's](logd/retention.md) non-final segments refuse it,
-because each needs one place.
+level deep rather than at any depth, and the same rule sorts where it goes: a read
+answers the set it names at any segment, [one node at a time](logd/session.md#reading-a-set),
+and a write, a watch and a [retain rule's](logd/retention.md) non-final segments refuse
+it, because each needs one place.

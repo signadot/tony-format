@@ -267,8 +267,14 @@ func TestMatchSet_ThroughDocd(t *testing.T) {
 		t.Errorf("jobs.*.status through docd answered %v, %v", paths, err)
 	}
 
-	// mounted.* has a member at the mount, and * reads through it.
-	for _, path := range []string{"mounted.*", "*"} {
+	// A descent under a prefix no mount is near passes through as any set does.
+	if paths, _, err := s.MatchPaths(ctx, "jobs..status", nil); err != nil || len(paths) != 3 {
+		t.Errorf("jobs..status through docd answered %v, %v", paths, err)
+	}
+
+	// mounted.* has a member at the mount, and * reads through it; a descent from the
+	// root or from above the mount reaches it, wherever it is.
+	for _, path := range []string{"mounted.*", "*", "..status", "mounted..", ".."} {
 		_, _, err := s.MatchSet(ctx, path, nil)
 		if code := logdapi.ErrorCode(err); code != logdapi.ErrCodeUnsupported {
 			t.Errorf("%s crosses the mount: code %q, want %q: %v", path, code, logdapi.ErrCodeUnsupported, err)
@@ -377,5 +383,46 @@ func TestReturn_ThroughDocd(t *testing.T) {
 				t.Errorf("return %q at %s answered %+v, %v", ret, path, got, err)
 			}
 		}
+	}
+}
+
+// TestMatchPaths_TakesADescent: a path holding `..` is a set like any other to this
+// API, answered at any depth, each node once, in the store's order; a body for each
+// through MatchSet, and the name each lives under through MatchIDs.
+func TestMatchPaths_TakesADescent(t *testing.T) {
+	srv := startLogd(t)
+	s := NewLogdSession(&LogdSessionConfig{Addr: srv.TCPAddr(), ClientID: "descent"})
+	defer s.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	seedJobs(t, s, ctx, 3)
+
+	paths, commit, err := s.MatchPaths(ctx, "..status", nil)
+	if err != nil {
+		t.Fatalf("MatchPaths: %v", err)
+	}
+	if want := []string{"jobs.a.status", "jobs.b.status", "jobs.c.status"}; !equalStrings(paths, want) {
+		t.Errorf("..status answered %v, want %v", paths, want)
+	}
+	if commit == 0 {
+		t.Error("the set was read at no commit")
+	}
+	members, _, err := s.MatchSet(ctx, "jobs..", nil)
+	if err != nil {
+		t.Fatalf("MatchSet: %v", err)
+	}
+	if len(members) != 1+3*3 || members[0].Path != "jobs" || members[0].Node == nil {
+		t.Errorf("jobs.. answered %d members, first %+v; want 10 with jobs first", len(members), members[0])
+	}
+	ids, _, err := s.MatchIDs(ctx, "..n", nil)
+	if err != nil {
+		t.Fatalf("MatchIDs: %v", err)
+	}
+	if want := []string{"n", "n", "n"}; !equalStrings(ids, want) {
+		t.Errorf("MatchIDs over ..n answered %v, want %v", ids, want)
+	}
+	// Where a path must name a place, a descent is still refused.
+	if _, err := s.Patch(ctx, "jobs..status", ir.FromString("done")); logdapi.ErrorCode(err) != logdapi.ErrCodeInvalidPath {
+		t.Errorf("a patch at a descent: %v, want invalid_path", err)
 	}
 }

@@ -51,6 +51,30 @@ func TestSparseIndexNamesTheKeyNotThePosition(t *testing.T) {
 	}
 }
 
+// A segment names only children of its kind, so that a document can be rebuilt from
+// its paths and leaves: a sparse entry is written {n} and nothing else names it, and
+// a field is written .name and nothing else names it. .* over a sparse array used to
+// name its entries, and ."" -- the empty field -- used to name the first of them,
+// since a number key's string is empty.
+func TestSparseEntriesAreNotFields(t *testing.T) {
+	doc := sparseDoc()
+	for _, p := range []string{"v.*", `v.""`, "..*"} {
+		nodes, err := doc.ListKPath(nil, p)
+		if err != nil {
+			t.Fatalf("list %s: %v", p, err)
+		}
+		for _, n := range nodes {
+			if _, sparse := n.sparseKey(); sparse {
+				t.Errorf("list %s named the sparse entry %s", p, n.KPath())
+			}
+		}
+	}
+	got, err := doc.GetKPath(`v.""`)
+	if err != nil || got != nil {
+		t.Errorf(`get v."" = %v, %v; want nothing, no error`, got, err)
+	}
+}
+
 func TestSparseIndexInList(t *testing.T) {
 	doc := sparseDoc()
 
