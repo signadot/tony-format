@@ -1,8 +1,10 @@
 package server
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/signadot/tony-format/go-tony/parse"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
@@ -176,5 +178,125 @@ func TestSetMatch_DescentKeyed(t *testing.T) {
 	}
 	if want := []string{"deep.runs:" + api.IterKeyedArray, "runs:" + api.IterKeyedArray}; !equalStrings(kinds, want) {
 		t.Errorf("..runs kinds %v, want %v", kinds, want)
+	}
+}
+
+// TestSetMatch_DescentListsBeyondTheReadBudget: a listing over a descent costs the
+// tables and reads no node. Every node beneath the descent is reached by listing, so
+// `return: path` and `return: iterType` are answered from what the listing found, and
+// a subtree far larger than any read budget lists all the same -- which is the case the
+// issue's discussion asks for, a path listing at any depth.
+func TestSetMatch_DescentListsBeyondTheReadBudget(t *testing.T) {
+	store := openStore(t)
+	schema, err := parse.Parse([]byte(`{define: {runs: {id: !logd-key null}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetSchema(schema, false); err != nil {
+		t.Fatalf("SetSchema: %v", err)
+	}
+	// Each container is larger than the budget; the walk lists every record, at about
+	// a millisecond a table, which is what sizes this.
+	const n = 40
+	pad := strings.Repeat("x", 300)
+	var jobs, nums, list, runs []string
+	for i := range n {
+		jobs = append(jobs, fmt.Sprintf("j%03d: {note: %s, status: done}", i, pad))
+		nums = append(nums, fmt.Sprintf("%d: {note: %s}", i, pad))
+		list = append(list, fmt.Sprintf("{note: %s}", pad))
+		runs = append(runs, fmt.Sprintf("{id: r%03d, note: %s}", i, pad))
+	}
+	narrowWrite(t, store, "", "{jobs: {"+strings.Join(jobs, ", ")+"}, list: ["+strings.Join(list, ", ")+
+		"], nums: !sparsearray {"+strings.Join(nums, ", ")+"}, runs: ["+strings.Join(runs, ", ")+"]}")
+
+	ls := newLiveSessionWith(t, &SessionConfig{Storage: store, Hub: NewWatchHub(), ReadBudget: 8 << 10})
+	ids := []string{"container", "status", "all", "under", "notes"}
+	started := time.Now()
+	for _, req := range []string{
+		`{id: "container", match: {path: jobs}}`,
+		`{id: "status", match: {path: "..status", return: path}}`,
+		`{id: "all", match: {path: "..", return: "path,iterType"}}`,
+		`{id: "under", match: {path: "jobs..", return: path}}`,
+		`{id: "notes", match: {path: "..note", return: "path,body"}}`,
+	} {
+		ls.send(req)
+	}
+	got := ls.until("every listing to end", func(m map[string][]*api.SessionResponse) bool {
+		for _, id := range ids {
+			if len(m[id]) == 0 {
+				return false
+			}
+			last := m[id][len(m[id])-1]
+			if last.Error == nil && !(last.Result != nil && last.Result.Match != nil && last.Result.Match.Done) {
+				return false
+			}
+		}
+		return true
+	})
+	t.Logf("four descents over %d records under an 8 KiB budget: %v", 4*n, time.Since(started))
+	answers := map[string]*setAnswer{}
+	for id, rs := range got {
+		a := &setAnswer{}
+		for _, r := range rs {
+			switch {
+			case r.Error != nil:
+				a.err = r.Error
+			case r.Result != nil && r.Result.Match != nil && r.Result.Match.Done:
+				a.marker = r.Result.Match
+			case r.Result != nil && r.Result.Match != nil:
+				a.members = append(a.members, r.Result.Match)
+			}
+		}
+		answers[id] = a
+	}
+	if a := answers["container"]; a == nil || a.err == nil {
+		t.Errorf("the container itself was read within an 8 KiB budget: %+v", a)
+	}
+	// The status of every job, and nothing read to find them.
+	status := mustSet(t, answers, "status")
+	if len(status.members) != n {
+		t.Errorf("..status answered %d members, want %d", len(status.members), n)
+	}
+	for _, m := range status.members {
+		if m.Body != nil || !strings.HasPrefix(m.Path, "jobs.j") {
+			t.Errorf("..status answered %+v", m)
+			break
+		}
+	}
+	// Everything, with its kind: the root, four containers, and each record with its
+	// fields -- n*(1+2) jobs, n*(1+1) nums, n*(1+1) list, n*(1+2) runs.
+	all := mustSet(t, answers, "all")
+	if want := 1 + 4 + 3*n + 2*n + 2*n + 3*n; len(all.members) != want {
+		t.Errorf("`..` answered %d members, want %d", len(all.members), want)
+	}
+	kinds := map[string]string{}
+	for _, m := range all.members {
+		kinds[m.Path] = m.IterType
+	}
+	for path, want := range map[string]string{
+		"": api.IterObject, "jobs": api.IterObject, "list": api.IterArray, "nums": api.IterSparseArray,
+		"runs": api.IterKeyedArray, "jobs.j007": api.IterObject, "jobs.j007.status": api.IterString,
+		"list[3]": api.IterObject, "nums{5}": api.IterObject, `runs."(id=r009)"`: api.IterObject,
+		`runs."(id=r009)".id`: api.IterString,
+	} {
+		if got := kinds[path]; got != want {
+			t.Errorf("%q: iterType %q, want %q", path, got, want)
+		}
+	}
+	// From a named prefix: the container itself, then everything under it.
+	under := mustSet(t, answers, "under")
+	if len(under.members) != 1+3*n || under.members[0].Path != "jobs" {
+		t.Errorf("jobs.. answered %d members starting %v, want %d with jobs first", len(under.members), under.paths()[:min(2, len(under.members))], 1+3*n)
+	}
+	// A body is a read per member, each within the budget, whatever the container's size.
+	notes := mustSet(t, answers, "notes")
+	if len(notes.members) != 4*n {
+		t.Errorf("..note answered %d members, want %d", len(notes.members), 4*n)
+	}
+	for _, m := range notes.members {
+		if m.Body == nil || m.Body.String != pad {
+			t.Errorf("..note answered %s with body %v", m.Path, m.Body)
+			break
+		}
 	}
 }
