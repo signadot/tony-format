@@ -62,13 +62,17 @@ func (p *KPath) String() string {
 	x := p
 	// A descent carries its own separator: `a..x` is a, the descent, and x, and the
 	// field after it must not add the '.' it would otherwise join with -- that is
-	// what made it render as `a...x`, which is a different path.
+	// what made it render as `a...x`, which is a different path. Only the segment
+	// DIRECTLY after the descent is exempt. The exemption used to be cleared by the
+	// next field alone, so a bracket segment after a descent left it standing and the
+	// field after THAT lost its dot: `..(*).*` rendered as `..(*)*`, which does not
+	// parse (5rfjcqz9h12ksq27ndn0).
 	afterDescend := false
+	noDot := false
 	sep := func() {
-		if buf.Len() > 0 && !afterDescend {
+		if buf.Len() > 0 && !noDot {
 			buf.WriteByte('.')
 		}
-		afterDescend = false
 	}
 	for x != nil {
 		if x.Descend {
@@ -77,6 +81,7 @@ func (p *KPath) String() string {
 			x = x.Next
 			continue
 		}
+		noDot, afterDescend = afterDescend, false
 		if x.FieldAll {
 			// Field wildcard
 			sep()
