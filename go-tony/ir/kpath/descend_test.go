@@ -96,6 +96,32 @@ func TestDescendSurvivesSplitting(t *testing.T) {
 	}
 }
 
+// A field after a bracket segment after a descent keeps its dot. Only the segment
+// directly after `..` goes without one; the exemption used to outlive a bracket
+// segment, so `..(*).*` rendered as `..(*)*` and `..{3}.*` as `..{3}*`, neither of
+// which parses -- and Join, which renders what it links, could not put SplitAll's
+// pieces of either back together (5rfjcqz9h12ksq27ndn0).
+func TestDescendThenBracketThenField(t *testing.T) {
+	for _, path := range []string{"..(*).*", "..{3}.*", "..[0].b", "a..[*].x.y", "..(r1).n..c", "a..b(*).c"} {
+		t.Run(path, func(t *testing.T) {
+			kp, err := Parse(path)
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if got := kp.String(); got != path {
+				t.Errorf("String() = %q, want %q", got, path)
+			}
+			joined := ""
+			for _, seg := range SplitAll(path) {
+				joined = Join(joined, seg)
+			}
+			if joined != path {
+				t.Errorf("SplitAll joined back = %q, want %q", joined, path)
+			}
+		})
+	}
+}
+
 // A descent spans depths, and segment matching asks about one segment against
 // one. It answers no rather than a plausible yes: whoever matches a path holding
 // a descent has to walk it.
