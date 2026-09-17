@@ -324,17 +324,7 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 	// walk is here rather than in the switch below because it is not a step into a
 	// container: an array, an object and a leaf all descend the same way.
 	if kp.Descend {
-		if kp.Next == nil {
-			// A trailing `..` names everything under here, and here itself.
-			return node.appendAll(dst), nil
-		}
-		if err := node.visitAll(func(n *Node) error {
-			dst, err = n.listKPath(dst, kp.Next)
-			return err
-		}); err != nil {
-			return nil, err
-		}
-		return dst, nil
+		return node.listDescend(dst, kpath.Start(kp)), nil
 	}
 	switch node.Type {
 	case ObjectType:
@@ -481,9 +471,82 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 	}
 }
 
-// visitAll offers node and every node beneath it, in document order. It is the
-// walk `..` is defined by, and it is a walk and not a match: what to do with each
-// node is the caller's.
+// listDescend is the walk from a `..` on: node and every node beneath it, in
+// document order, each once, against the positions the pattern could be at.
+//
+// It is a walk of NODES, not of derivations. Offering each node beneath to the rest
+// of the pattern -- which is what `..` says -- found a node once per way of reaching
+// it, so a..b..c answered one c twice and `....c` three times, and grouped the answers
+// by the node offered rather than by where the document has them. A set is a set:
+// the walk visits each node once, in pre-order, and the position set says at each
+// whether the pattern names it (kpath.Positions).
+//
+// Which segments take a child is the same kind-strict answer the switch in listKPath
+// gives for a step: a field or {n} into an object, a position or a key into an array,
+// nothing into a leaf.
+func (node *Node) listDescend(dst []*Node, ps kpath.Positions) []*Node {
+	node = Uncomment(node)
+	if node == nil {
+		return dst
+	}
+	if ps.Done() {
+		dst = append(dst, node.Clone())
+	}
+	if !ps.Live() {
+		return dst
+	}
+	switch node.Type {
+	case ObjectType:
+		for i := range node.Fields {
+			field := node.Fields[i]
+			next := ps.Step(func(seg *kpath.KPath) bool {
+				switch {
+				case seg.FieldAll:
+					return true
+				case seg.Field != nil:
+					return field.String == *seg.Field
+				case seg.SparseIndexAll:
+					return field.Type == NumberType
+				case seg.SparseIndex != nil:
+					return field.Type == NumberType && field.Int64 != nil && int(*field.Int64) == *seg.SparseIndex
+				}
+				return false
+			})
+			if len(next) > 0 {
+				dst = node.Values[i].listDescend(dst, next)
+			}
+		}
+	case ArrayType:
+		keyField, keyed := node.KeyField()
+		for i, elem := range node.Values {
+			next := ps.Step(func(seg *kpath.KPath) bool {
+				switch {
+				case seg.IndexAll, seg.SparseIndexAll, seg.KeyAll:
+					return true
+				case seg.Index != nil:
+					return *seg.Index == i
+				case seg.SparseIndex != nil:
+					return *seg.SparseIndex == i
+				case seg.Key != nil:
+					if !keyed {
+						return false
+					}
+					k, ok := ElemKey(elem, keyField)
+					return ok && k == *seg.Key
+				}
+				return false
+			})
+			if len(next) > 0 {
+				dst = elem.listDescend(dst, next)
+			}
+		}
+	}
+	return dst
+}
+
+// visitAll offers node and every node beneath it, in document order: the order a
+// descent answers in. It is a walk and not a match: what to do with each node is
+// the caller's.
 func (node *Node) visitAll(fn func(*Node) error) error {
 	if node == nil {
 		return nil
@@ -501,16 +564,6 @@ func (node *Node) visitAll(fn func(*Node) error) error {
 		}
 	}
 	return nil
-}
-
-// appendAll answers with node and everything beneath it, which is what a path
-// ending in `..` names.
-func (node *Node) appendAll(dst []*Node) []*Node {
-	_ = node.visitAll(func(n *Node) error {
-		dst = append(dst, n.Clone())
-		return nil
-	})
-	return dst
 }
 
 // sparseValue answers the value a sparse array holds under key, or nil when it

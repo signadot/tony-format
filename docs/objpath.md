@@ -48,6 +48,11 @@ o list 'spec..name' deploy.tony   # every name under spec, at any depth
 o list 'a..' doc.tony             # a and everything under it
 ```
 
+A `list` answers each node **once**, in document order — a node before what is under it
+— whichever way the path reached it. `a..b..c` can reach one `c` two ways, through
+`a.b` and through `a.b.b`; the answer has it once. That is the set logd's `match`
+answers for the same path over the store, in the same order.
+
 `-paths` answers with **where** each node is rather than what it is, in this same
 syntax — so the answer to one query is the input to the next:
 
