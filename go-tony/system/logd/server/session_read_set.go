@@ -59,7 +59,8 @@ func (s *Session) handleSetMatch(id *string, req *api.MatchRequest, path string,
 	// A continuation reads the commit its cursor names, not the current one: every page
 	// of one paging read answers from the same state.
 	after := ""
-	if req.Cursor != "" {
+	resume := req.Cursor != ""
+	if resume {
 		cur, err := decodeSetCursor(req.Cursor)
 		if err != nil {
 			s.sendError(id, api.ErrCodeInvalidPath, err.Error())
@@ -92,7 +93,7 @@ func (s *Session) handleSetMatch(id *string, req *api.MatchRequest, path string,
 	sent := 0
 	last := ""
 	more := false
-	err = s.eachSetMember(path, commit, after, func(member string, proven bool, kind string) error {
+	err = s.eachSetMember(path, commit, after, resume, func(member string, proven bool, kind string) error {
 		if sent == limit {
 			// One member past the page: the set goes on, and the cursor resumes here.
 			more = true
@@ -275,17 +276,22 @@ func patternSelected(before, after *ir.Node) bool {
 }
 
 // eachSetMember calls fn with the path of each member of the set path names at commit,
-// in the store's own order, skipping everything up to and including after (a cursor's
-// resume point, empty for the first page).
-func (s *Session) eachSetMember(path string, commit int64, after string, fn func(member string, proven bool, kind string) error) error {
+// in the store's own order; when resume is set, skipping everything up to and including
+// after, the cursor's resume point. The root is a member of `..`, and its path is empty,
+// so whether there is a cursor is said apart from where it points: a cursor after the
+// root is not the first page over again.
+func (s *Session) eachSetMember(path string, commit int64, after string, resume bool, fn func(member string, proven bool, kind string) error) error {
 	segs := kpath.SplitAll(path)
 	pat, err := kpath.Parse(path)
 	if err != nil {
 		return err
 	}
 	afterSegs := []string(nil)
-	if after != "" {
-		afterSegs = kpath.SplitAll(after)
+	if resume {
+		afterSegs = []string{}
+		if after != "" {
+			afterSegs = kpath.SplitAll(after)
+		}
 	}
 	return s.walkSet("", segs, pat, afterSegs, commit, false, "", fn)
 }

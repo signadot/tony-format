@@ -8,6 +8,7 @@ import (
 
 	"github.com/signadot/tony-format/go-tony/parse"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 )
 
 // descentDoc holds every kind of container at more than one depth, so a descent meets
@@ -298,5 +299,91 @@ func TestSetMatch_DescentListsBeyondTheReadBudget(t *testing.T) {
 			t.Errorf("..note answered %s with body %v", m.Path, m.Body)
 			break
 		}
+	}
+}
+
+// pageAll reads the set pattern names a page at a time, at limit per page, and answers
+// the paths of every page together, with the commit the pages were read at.
+func pageAll(t *testing.T, store *storage.Storage, pattern string, limit int) ([]string, int64) {
+	t.Helper()
+	var seen []string
+	cursor := ""
+	commit := int64(-1)
+	for page := 1; ; page++ {
+		req := fmt.Sprintf(`{id: "p", match: {path: %q, return: path, limit: %d`, pattern, limit)
+		if cursor != "" {
+			req += fmt.Sprintf(`, cursor: %q`, cursor)
+		}
+		p := mustSet(t, runSet(t, store, req+"}}"), "p")
+		if commit >= 0 && p.marker.Commit != commit {
+			t.Fatalf("%q page %d read at commit %d, page 1 at %d", pattern, page, p.marker.Commit, commit)
+		}
+		commit = p.marker.Commit
+		if len(p.members) > limit {
+			t.Fatalf("%q page %d answered %d members over a limit of %d", pattern, page, len(p.members), limit)
+		}
+		seen = append(seen, p.paths()...)
+		cursor = p.marker.Cursor
+		if cursor == "" {
+			return seen, commit
+		}
+		if len(p.members) == 0 {
+			t.Fatalf("%q page %d answered nothing while a cursor said there was more", pattern, page)
+		}
+		if page > 100 {
+			t.Fatalf("%q: still paging after %d pages", pattern, page)
+		}
+	}
+}
+
+// TestSetMatch_DescentPaging: a descent pages as any set does, and a page boundary may
+// fall anywhere in the walk -- between a node and its first child, between the last
+// node under one container and the next container, at the end of the deepest branch.
+// The pages together are the unpaged answer, in its order, whatever the page size, and
+// a resume is a seek: the cursor's branch is followed down and the walk goes on from
+// where the page ended, at the commit the first page read.
+func TestSetMatch_DescentPaging(t *testing.T) {
+	store := openStore(t)
+	narrowWrite(t, store, "", descentDoc)
+	for _, pattern := range []string{"..", "..c", "a..", "a..b.*", "a.b..", "..[*]", "a....c", "a.x[*].."} {
+		whole := mustSet(t, runSet(t, store, `{id: "w", match: {path: "`+pattern+`", return: path}}`), "w").paths()
+		if len(whole) == 0 {
+			t.Fatalf("%q answered nothing; the case proves nothing", pattern)
+		}
+		for _, limit := range []int{1, 2, 3, 5} {
+			paged, _ := pageAll(t, store, pattern, limit)
+			if !equalStrings(paged, whole) {
+				t.Errorf("%q by pages of %d answered %v, want %v", pattern, limit, paged, whole)
+			}
+		}
+	}
+}
+
+// TestSetMatch_DescentPagingReadsTheCursorsCommit: a write between two pages of a
+// descent does not change what the later pages answer, wherever in the tree it lands.
+func TestSetMatch_DescentPagingReadsTheCursorsCommit(t *testing.T) {
+	store := openStore(t)
+	narrowWrite(t, store, "", descentDoc)
+	whole := mustSet(t, runSet(t, store, `{id: "w", match: {path: "..c", return: path}}`), "w").paths()
+	p1 := mustSet(t, runSet(t, store, `{id: "p1", match: {path: "..c", return: path, limit: 2}}`), "p1")
+	if p1.marker.Cursor == "" {
+		t.Fatal("page 1 says the set is finished, and it is not")
+	}
+	// A c before everything the walk has left, one on the branch the cursor is on, and
+	// one after: none is this read's.
+	rest := runSet(t, store,
+		`{id: "write", patch: {path: "", data: {a: {"0": {c: 0}, b: {c: {c: 9}}, zz: {c: 10}}}}}`,
+		`{id: "p2", match: {path: "..c", return: path, cursor: "`+p1.marker.Cursor+`"}}`,
+		`{id: "now", match: {path: "..c", return: path}}`,
+	)
+	p2 := mustSet(t, rest, "p2")
+	if got := append(append([]string{}, p1.paths()...), p2.paths()...); !equalStrings(got, whole) {
+		t.Errorf("the pages answered %v, want %v: a page reads the commit its cursor names", got, whole)
+	}
+	if p2.marker.Commit != p1.marker.Commit {
+		t.Errorf("page 2 read at commit %d, page 1 at %d", p2.marker.Commit, p1.marker.Commit)
+	}
+	if now := mustSet(t, rest, "now").paths(); len(now) != len(whole)+3 {
+		t.Errorf("a fresh read after the write answered %v", now)
 	}
 }
