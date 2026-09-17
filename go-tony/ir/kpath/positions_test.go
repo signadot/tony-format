@@ -1,6 +1,7 @@
 package kpath
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -8,13 +9,17 @@ import (
 // names spells a position set for a test: the rest of the pattern at each position,
 // "$" for the spent pattern.
 func (ps Positions) names() string {
-	out := make([]string, 0, len(ps))
-	for _, p := range ps {
-		if p == nil {
+	out := make([]string, 0, len(ps.at))
+	for _, x := range ps.at {
+		if x.p == nil {
 			out = append(out, "$")
 			continue
 		}
-		out = append(out, p.String())
+		name := x.p.String()
+		if x.taken > 0 {
+			name += fmt.Sprintf("@%d", x.taken)
+		}
+		out = append(out, name)
 	}
 	return strings.Join(out, " ")
 }
@@ -40,7 +45,7 @@ func TestPositions_StartClosesOverDescents(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := Start(kp).names(); got != tc.want {
+		if got := Start(kp, Unbounded).names(); got != tc.want {
 			t.Errorf("Start(%q) = %q, want %q", tc.pattern, got, tc.want)
 		}
 	}
@@ -54,7 +59,7 @@ func TestPositions_Step(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ps := Start(kp)
+	ps := Start(kp, Unbounded)
 	if got, want := ps.names(), "..b..c b..c"; got != want {
 		t.Fatalf("start = %q, want %q", got, want)
 	}
@@ -63,12 +68,12 @@ func TestPositions_Step(t *testing.T) {
 	}
 	// Under x: the descent absorbs it; b does not take it.
 	ps = ps.Step(takesField("x"))
-	if got, want := ps.names(), "..b..c b..c"; got != want {
+	if got, want := ps.names(), "..b..c@1 b..c"; got != want {
 		t.Errorf("after x = %q, want %q", got, want)
 	}
 	// Under b: the descent absorbs it, AND b takes it, opening the second descent.
 	ps = ps.Step(takesField("b"))
-	if got, want := ps.names(), "..b..c b..c ..c c"; got != want {
+	if got, want := ps.names(), "..b..c@2 b..c ..c c"; got != want {
 		t.Errorf("after b = %q, want %q", got, want)
 	}
 	if ps.Done() {
@@ -76,7 +81,7 @@ func TestPositions_Step(t *testing.T) {
 	}
 	// Under c: matched, and every descent still open.
 	ps = ps.Step(takesField("c"))
-	if got, want := ps.names(), "..b..c b..c ..c c $"; got != want {
+	if got, want := ps.names(), "..b..c@3 b..c ..c@1 c $"; got != want {
 		t.Errorf("after c = %q, want %q", got, want)
 	}
 	if !ps.Done() || !ps.Live() {
@@ -91,11 +96,11 @@ func TestPositions_SpentAndDropped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ps := Start(kp).Step(takesField("a"))
+	ps := Start(kp, Unbounded).Step(takesField("a"))
 	if got, want := ps.names(), "b"; got != want {
 		t.Fatalf("after a = %q, want %q", got, want)
 	}
-	if dropped := ps.Step(takesField("x")); len(dropped) != 0 {
+	if dropped := ps.Step(takesField("x")); !dropped.Empty() {
 		t.Errorf("x kept positions %q", dropped.names())
 	}
 	ps = ps.Step(takesField("b"))
@@ -107,7 +112,54 @@ func TestPositions_SpentAndDropped(t *testing.T) {
 	}
 	// A spent pattern takes nothing, and takes is not asked.
 	asked := false
-	if next := ps.Step(func(*KPath) bool { asked = true; return true }); len(next) != 0 || asked {
+	if next := ps.Step(func(*KPath) bool { asked = true; return true }); !next.Empty() || asked {
 		t.Errorf("a spent pattern stepped: %q, asked %v", next.names(), asked)
+	}
+}
+
+// A depth bounds every descent: a position at a `..` that has taken its depth is
+// dropped, and what it had opened stays. So `..b` at depth 1 names a b at the root or
+// under one child, and the walk has nothing to do beneath a child, which is what makes
+// a bounded descent cost its levels rather than the subtree.
+func TestPositions_Depth(t *testing.T) {
+	kp, err := Parse("..b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ps := Start(kp, 1)
+	if got, want := ps.names(), "..b b"; got != want {
+		t.Fatalf("start = %q, want %q", got, want)
+	}
+	// Under x: the descent takes it, and has taken all it may.
+	ps = ps.Step(takesField("x"))
+	if got, want := ps.names(), "..b@1 b"; got != want {
+		t.Errorf("after x = %q, want %q", got, want)
+	}
+	// Under x.b: b takes it; the descent is spent and dropped. Done, and nothing live.
+	under := ps.Step(takesField("b"))
+	if got, want := under.names(), "$"; got != want {
+		t.Errorf("after x.b = %q, want %q", got, want)
+	}
+	if !under.Done() || under.Live() {
+		t.Errorf("x.b: done %v live %v", under.Done(), under.Live())
+	}
+	// Under x.y: nothing takes it, and the descent may take no more: empty.
+	if beside := ps.Step(takesField("y")); !beside.Empty() {
+		t.Errorf("x.y kept positions %q", beside.names())
+	}
+	// Depth 0: the descent takes nothing, so `..b` is b at the root.
+	zero := Start(kp, 0)
+	if got, want := zero.names(), "..b b"; got != want {
+		t.Fatalf("depth 0 start = %q, want %q", got, want)
+	}
+	if got := zero.Step(takesField("x")); !got.Empty() {
+		t.Errorf("depth 0 under x kept %q", got.names())
+	}
+	// Each descent is bounded on its own: `..b..c` at depth 1 opens a fresh count at
+	// the second descent.
+	two, _ := Parse("..b..c")
+	ps = Start(two, 1).Step(takesField("b"))
+	if got, want := ps.names(), "..b..c@1 b..c ..c c"; got != want {
+		t.Errorf("..b..c at depth 1 after b = %q, want %q", got, want)
 	}
 }

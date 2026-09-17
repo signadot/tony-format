@@ -557,6 +557,11 @@ func (s *MatchRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["cursor"] = ir.FromString(string(s.Cursor))
 	}
 
+	// Field: Depth (optional)
+	if s.Depth != nil {
+		irMap["depth"] = ir.FromInt(int64(*s.Depth))
+	}
+
 	// Field: Return
 	if s.Return != "" {
 		irMap["return"] = ir.FromString(string(s.Return))
@@ -637,6 +642,18 @@ func (s *MatchRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 				return fmt.Errorf("field %q: expected string, got %v", "cursor", fieldNodeUnwrapped.Type)
 			}
 			s.Cursor = string(fieldNodeUnwrapped.String)
+		case "depth":
+			// Field: Depth
+			if fieldNodeUnwrapped.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(int)
+				if fieldNodeUnwrapped.Int64 == nil {
+					return fmt.Errorf("%s: expected number, got %v", "field \"depth\"", fieldNodeUnwrapped.Type)
+				}
+				*val = int(*fieldNodeUnwrapped.Int64)
+				s.Depth = val
+			}
 		case "return":
 			// Field: Return
 			if fieldNodeUnwrapped.Type != ir.StringType {

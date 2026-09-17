@@ -426,3 +426,30 @@ func TestMatchPaths_TakesADescent(t *testing.T) {
 		t.Errorf("a patch at a descent: %v, want invalid_path", err)
 	}
 }
+
+// TestMatchEachQuery_Depth: a depth bounds every `..` in the path, so `jobs..` at depth
+// 1 is jobs and its children, and a depth on a path with no `..` is refused.
+func TestMatchEachQuery_Depth(t *testing.T) {
+	srv := startLogd(t)
+	s := NewLogdSession(&LogdSessionConfig{Addr: srv.TCPAddr(), ClientID: "depth"})
+	defer s.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	seedJobs(t, s, ctx, 2)
+
+	one := 1
+	var paths []string
+	if _, err := s.MatchEachQuery(ctx, SetQuery{Path: "jobs..", Return: logdapi.ReturnPath, Depth: &one}, func(m SetMember) error {
+		paths = append(paths, m.Path)
+		return nil
+	}); err != nil {
+		t.Fatalf("MatchEachQuery: %v", err)
+	}
+	if want := []string{"jobs", "jobs.a", "jobs.b"}; !equalStrings(paths, want) {
+		t.Errorf("jobs.. at depth 1 answered %v, want %v", paths, want)
+	}
+	_, err := s.MatchEachQuery(ctx, SetQuery{Path: "jobs.*", Return: logdapi.ReturnPath, Depth: &one}, func(SetMember) error { return nil })
+	if logdapi.ErrorCode(err) != logdapi.ErrCodeInvalidPath {
+		t.Errorf("a depth on a path with no `..`: %v, want invalid_path", err)
+	}
+}

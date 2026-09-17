@@ -65,3 +65,44 @@ func TestDescendAnswersEachNodeOnceInDocumentOrder(t *testing.T) {
 		t.Errorf("`..` answered %d nodes, first at %q; want 11, the root first", len(found), found[0].KPath())
 	}
 }
+
+// A depth bounds every descent (WithDepth): `a..` at depth 1 is a and its children,
+// of every kind, and `..c` at depth 2 reaches a c at most two levels down. Depth 0 is
+// a descent that takes nothing. It is what logd answers for the same path and depth.
+func TestDescendDepth(t *testing.T) {
+	doc := obj(
+		"a", obj(
+			"b", obj("b", obj("c", FromInt(1)), "c", FromInt(2)),
+			"x", arr(obj("c", FromInt(3))),
+			"c", FromInt(4),
+		),
+		"c", FromInt(5),
+	)
+	for _, tc := range []struct {
+		pattern string
+		depth   int
+		want    []string
+	}{
+		{"a..", 0, []string{"a"}},
+		{"a..", 1, []string{"a", "a.b", "a.x", "a.c"}},
+		{"a..", 2, []string{"a", "a.b", "a.b.b", "a.b.c", "a.x", "a.x[0]", "a.c"}},
+		{"..c", 0, []string{"c"}},
+		{"..c", 1, []string{"a.c", "c"}},
+		// Two segments down at most: a.x[0].c is three.
+		{"..c", 2, []string{"a.b.c", "a.c", "c"}},
+		{"a..b..c", 1, []string{"a.b.b.c", "a.b.c"}},
+		{"..", 1, []string{"", "a", "c"}},
+	} {
+		found, err := doc.ListKPathWith(nil, tc.pattern, WithDepth(tc.depth))
+		if err != nil {
+			t.Fatalf("%s: %v", tc.pattern, err)
+		}
+		var got []string
+		for _, n := range found {
+			got = append(got, n.KPath())
+		}
+		if strings.Join(got, " ") != strings.Join(tc.want, " ") {
+			t.Errorf("%q at depth %d answered %v, want %v", tc.pattern, tc.depth, got, tc.want)
+		}
+	}
+}

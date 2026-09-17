@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
@@ -439,6 +440,117 @@ func TestSetMatch_DescentKeyedAtItsCommit(t *testing.T) {
 		ms := mustSet(t, answers, id).members
 		if len(ms) != 1 || ms[0].IterType != want {
 			t.Errorf("%s: ..runs answered %+v, want one %s", id, ms, want)
+		}
+	}
+}
+
+// TestSetMatch_DescentDepth: depth bounds every `..` to that many segments, and the
+// walk stops at the bound rather than walking deeper and filtering. A depth on a path
+// with no `..` is refused whatever its value, as is a negative one; a cursor carries
+// the depth and a continuation at another is refused; and the bounded answer is what
+// ListKPath answers for the same path and depth (zpx2x6b0h12ks05andn0).
+func TestSetMatch_DescentDepth(t *testing.T) {
+	store := openStore(t)
+	narrowWrite(t, store, "", descentDoc)
+	doc, err := parse.Parse([]byte(descentDoc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		pattern string
+		depth   int
+		want    []string
+	}{
+		// The node and its children, of every kind: the listing x.* cannot ask for.
+		{"a..", 1, []string{"a", "a.b", "a.c", "a.sp", "a.x"}},
+		{"a..", 0, []string{"a"}},
+		{"a..", 2, []string{"a", "a.b", "a.b.b", "a.b.c", "a.c", "a.sp", "a.sp{3}", "a.sp{7}", "a.x", "a.x[0]", "a.x[1]"}},
+		{"..c", 1, []string{"a.c", "c"}},
+		// Two segments down at most: a.sp{3}.c and a.x[0].c are three.
+		{"..c", 2, []string{"a.b.c", "a.c", "c"}},
+		{"..c", 3, []string{"a.b.b.c", "a.b.c", "a.c", "a.sp{3}.c", "a.x[0].c", "c"}},
+		{"..c", 0, []string{"c"}},
+		// Each descent bounded on its own, and a path after the descent.
+		{"a..b..c", 1, []string{"a.b.b.c", "a.b.c"}},
+		{"..b.c", 1, []string{"a.b.c"}},
+	} {
+		t.Run(fmt.Sprintf("%s@%d", tc.pattern, tc.depth), func(t *testing.T) {
+			req := fmt.Sprintf(`{id: "q", match: {path: %q, return: path, depth: %d}}`, tc.pattern, tc.depth)
+			got := mustSet(t, runSet(t, store, req), "q").paths()
+			if !equalStrings(got, tc.want) {
+				t.Errorf("%s at depth %d answered %v, want %v", tc.pattern, tc.depth, got, tc.want)
+			}
+			found, err := doc.ListKPathWith(nil, tc.pattern, ir.WithDepth(tc.depth))
+			if err != nil {
+				t.Fatalf("ListKPath: %v", err)
+			}
+			var inProcess []string
+			for _, n := range found {
+				inProcess = append(inProcess, n.KPath())
+			}
+			if !equalStrings(inProcess, got) {
+				t.Errorf("%s at depth %d: in process %v, on the wire %v", tc.pattern, tc.depth, inProcess, got)
+			}
+			// Paged, the same.
+			paged, _ := pageAllDepth(t, store, tc.pattern, tc.depth, 2)
+			if !equalStrings(paged, tc.want) {
+				t.Errorf("%s at depth %d by pages of 2 answered %v", tc.pattern, tc.depth, paged)
+			}
+		})
+	}
+
+	// Refused: a depth with nothing to bound, and a depth below none.
+	refused := runSet(t, store,
+		`{id: "no-descent", match: {path: "a.*", return: path, depth: 1}}`,
+		`{id: "one-node", match: {path: "a.b", depth: 1}}`,
+		`{id: "negative", match: {path: "a..", return: path, depth: -1}}`,
+		`{id: "p1", match: {path: "a..", return: path, depth: 2, limit: 3}}`,
+	)
+	for _, id := range []string{"no-descent", "one-node", "negative"} {
+		a := refused[id]
+		if a == nil || a.err == nil || a.err.Code != api.ErrCodeInvalidPath {
+			t.Errorf("%s was not refused: %+v", id, a)
+		}
+	}
+	p1 := mustSet(t, refused, "p1")
+	if p1.marker.Cursor == "" {
+		t.Fatal("page 1 says the set is finished, and it is not")
+	}
+	other := runSet(t, store,
+		`{id: "d1", match: {path: "a..", return: path, depth: 1, cursor: "`+p1.marker.Cursor+`"}}`,
+		`{id: "unbounded", match: {path: "a..", return: path, cursor: "`+p1.marker.Cursor+`"}}`,
+	)
+	for _, id := range []string{"d1", "unbounded"} {
+		a := other[id]
+		if a == nil || a.err == nil || a.err.Code != api.ErrCodeInvalidPath || !strings.Contains(a.err.Message, "depth") {
+			t.Errorf("a cursor continued at another depth was not refused: %s: %+v", id, a)
+		}
+	}
+}
+
+// pageAllDepth is pageAll with a depth on every page.
+func pageAllDepth(t *testing.T, store *storage.Storage, pattern string, depth, limit int) ([]string, int64) {
+	t.Helper()
+	var seen []string
+	cursor := ""
+	commit := int64(-1)
+	for page := 1; ; page++ {
+		req := fmt.Sprintf(`{id: "p", match: {path: %q, return: path, depth: %d, limit: %d`, pattern, depth, limit)
+		if cursor != "" {
+			req += fmt.Sprintf(`, cursor: %q`, cursor)
+		}
+		p := mustSet(t, runSet(t, store, req+"}}"), "p")
+		if commit >= 0 && p.marker.Commit != commit {
+			t.Fatalf("%q page %d read at commit %d, page 1 at %d", pattern, page, p.marker.Commit, commit)
+		}
+		commit = p.marker.Commit
+		seen = append(seen, p.paths()...)
+		cursor = p.marker.Cursor
+		if cursor == "" {
+			return seen, commit
+		}
+		if page > 100 {
+			t.Fatalf("%q: still paging after %d pages", pattern, page)
 		}
 	}
 }

@@ -12,6 +12,12 @@ path names.
 A leading $ is accepted and dropped, from when paths were written that way, and the
 $...x spelling of any-depth is read as ..x.
 
+-depth bounds every .. in the path to that many segments, so 'a..' at -depth 1 is a
+and its children, of every kind, and '..name' at -depth 2 reaches a name at most two
+levels down. It bounds a .., and a path with none refuses it.
+
+    o list -paths -depth 1 'spec..' deploy.tony   # spec and what is directly under it
+
 The path says where to look and -if says which of what is there to keep, which
 together are how a list is filtered by a match:
 

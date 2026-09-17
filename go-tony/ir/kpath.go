@@ -294,21 +294,22 @@ func (node *Node) ListKPathWith(dst []*Node, kp string, opts ...NavOpt) ([]*Node
 		return nil, err
 	}
 	start := len(dst)
-	res, err := node.listKPath(dst, p)
+	cfg := navCfg(opts)
+	res, err := node.listKPath(dst, p, cfg.Depth)
 	if err != nil {
 		return nil, err
 	}
 	// Only what this call found: dst may carry a caller's earlier results, which
 	// are not ours to answer for.
-	cfg := navCfg(opts)
 	for i := start; i < len(res); i++ {
 		res[i] = cfg.answer(res[i])
 	}
 	return res, nil
 }
 
-// listKPath is the internal implementation of ListKPath.
-func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
+// listKPath is the internal implementation of ListKPath. depth bounds every `..`
+// (WithDepth), or is kpath.Unbounded.
+func (node *Node) listKPath(dst []*Node, kp *kpath.KPath, depth int) ([]*Node, error) {
 	if kp == nil {
 		return append(dst, node.Clone()), nil
 	}
@@ -324,7 +325,7 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 	// walk is here rather than in the switch below because it is not a step into a
 	// container: an array, an object and a leaf all descend the same way.
 	if kp.Descend {
-		return node.listDescend(dst, kpath.Start(kp)), nil
+		return node.listDescend(dst, kpath.Start(kp, depth)), nil
 	}
 	switch node.Type {
 	case ObjectType:
@@ -332,7 +333,7 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 		// here rather than falling to the kind-mismatch below with everything else.
 		if kp.SparseIndex != nil {
 			if val := sparseValue(node, *kp.SparseIndex); val != nil {
-				dst, err = val.listKPath(dst, kp.Next)
+				dst, err = val.listKPath(dst, kp.Next, depth)
 				if err != nil {
 					return nil, err
 				}
@@ -344,7 +345,7 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 				if !sparseField(node.Fields[i]) {
 					continue
 				}
-				dst, err = node.Values[i].listKPath(dst, kp.Next)
+				dst, err = node.Values[i].listKPath(dst, kp.Next, depth)
 				if err != nil {
 					return nil, err
 				}
@@ -369,7 +370,7 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 				if sparseField(node.Fields[i]) {
 					continue
 				}
-				dst, err = node.Values[i].listKPath(dst, kp.Next)
+				dst, err = node.Values[i].listKPath(dst, kp.Next, depth)
 				if err != nil {
 					return nil, err
 				}
@@ -382,7 +383,7 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 				if sparseField(node.Fields[i]) || node.Fields[i].String != field {
 					continue
 				}
-				dst, err = node.Values[i].listKPath(dst, kp.Next)
+				dst, err = node.Values[i].listKPath(dst, kp.Next, depth)
 				if err != nil {
 					return nil, err
 				}
@@ -398,7 +399,7 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 			// a list may hold the same key twice; naming a key names each
 			// element carrying it, as a wildcard names each element it reaches
 			for _, elem := range keyedElems(node, *kp.Key) {
-				dst, err = elem.listKPath(dst, kp.Next)
+				dst, err = elem.listKPath(dst, kp.Next, depth)
 				if err != nil {
 					return nil, err
 				}
@@ -410,7 +411,7 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 			// document alone carries no schema, so here (*) reaches each element as
 			// [*] does, and it is the store that tells the two kinds apart.
 			for _, elem := range node.Values {
-				dst, err = elem.listKPath(dst, kp.Next)
+				dst, err = elem.listKPath(dst, kp.Next, depth)
 				if err != nil {
 					return nil, err
 				}
@@ -429,7 +430,7 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 		if kp.Index != nil {
 			idx := *kp.Index
 			if 0 <= idx && idx < len(node.Values) {
-				dst, err = node.Values[idx].listKPath(dst, kp.Next)
+				dst, err = node.Values[idx].listKPath(dst, kp.Next, depth)
 				if err != nil {
 					return nil, err
 				}
@@ -439,7 +440,7 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 		if kp.IndexAll {
 			// Iterate all array elements
 			for _, yv := range node.Values {
-				dst, err = yv.listKPath(dst, kp.Next)
+				dst, err = yv.listKPath(dst, kp.Next, depth)
 				if err != nil {
 					return nil, err
 				}
@@ -504,7 +505,7 @@ func (node *Node) listDescend(dst []*Node, ps kpath.Positions) []*Node {
 				}
 				return false
 			})
-			if len(next) > 0 {
+			if !next.Empty() {
 				dst = node.Values[i].listDescend(dst, next)
 			}
 		}
@@ -526,7 +527,7 @@ func (node *Node) listDescend(dst []*Node, ps kpath.Positions) []*Node {
 				}
 				return false
 			})
-			if len(next) > 0 {
+			if !next.Empty() {
 				dst = elem.listDescend(dst, next)
 			}
 		}
