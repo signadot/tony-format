@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: dc05edfe0f73dfa2637c7c8e3a7896abc5ee2dbc
 commits: []
 created: "2026-09-17T03:52:28.447742+02:00"
 duplicates: []
@@ -11,5 +12,5 @@ labels:
 - kpath
 related_issues:
 - th7sdhvyh12ksjtfn9n0
-status: open
-updated: "2026-09-17T03:52:32.886603+02:00"
+status: closed
+updated: "2026-09-17T04:26:11.735314+02:00"
