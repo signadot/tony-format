@@ -34,6 +34,18 @@ import (
 // subtree's, and a caller that took Presence and closed has not paid for a long tail
 // either.
 //
+// The tail is not the only cost a read pays. A write that installs a whole container is
+// one record, and a read of one child of it DECODES the whole record to project the
+// child: ten thousand children written at once cost ten thousand decodes of the write,
+// 44 ms each, measured, and the tail policy never fires because the tail is one. So a
+// read that decoded an entry far larger than what it answered -- pathSnapshotPolicy.
+// wantsForDecode -- schedules a snapshot of the PARENT of its path, which is what the
+// reads beside it will seek. If the parent is small against the write too, the next read
+// there fires one level up, and it converges in as many steps as the path is deep. The
+// root is the switch's, so a child of the root fires nothing. It fires whether or not the
+// read ran to its end: the decode was paid before the first event, and an existence check
+// paid it as surely as a read (3kgxprskh12krjrmndn0).
+//
 // One at a time, off the reader, and never concurrent with a switch: the snapshot is
 // written to the inactive log, as the root snapshot is, and the switch and the compaction
 // that follows it rewrite that log. s.snapMu serializes them. A snapshot is taken only at
@@ -44,6 +56,16 @@ import (
 // which are what history beyond the cutoff is read at.
 
 const (
+	// DefaultPathSnapshotDecodeRatio is how many times larger than what it answered the
+	// entry a read decoded must be before the read snapshots its path's parent.
+	DefaultPathSnapshotDecodeRatio int64 = 16
+	// DefaultPathSnapshotDecodeFloor is the smallest decoded entry that ratio is asked
+	// of: below it, a snapshot of the parent saves less than it costs to write. It was
+	// 1 MiB, and a listing's member reads under a 30 KB write cost ten times what they
+	// cost once the parent is snapshotted (851 ms to 83 ms over seven listings of two
+	// hundred); the ratio is what guards against churn, and the floor only says what is
+	// too small to bother with.
+	DefaultPathSnapshotDecodeFloor int64 = 64 << 10
 	// DefaultPathSnapshotTail is the number of records a read may fold at a path before
 	// it schedules a snapshot there.
 	DefaultPathSnapshotTail int64 = 64
@@ -55,10 +77,25 @@ const (
 )
 
 // pathSnapshotPolicy says when a read schedules a snapshot at its path. tail < 0 turns
-// it off.
+// it off, the decode branch included.
 type pathSnapshotPolicy struct {
 	tail  int64
 	bytes int64
+	// The decode branch: an entry decoded at least floor bytes long and more than ratio
+	// times what the read emitted snapshots the path's parent. ratio < 0 turns the
+	// branch off.
+	ratio int64
+	floor int64
+}
+
+// wantsForDecode says whether a read that decoded an entry of `decoded` bytes to emit
+// `bytes` should snapshot its path's parent. kp is the path read; a child of the root
+// has no parent to snapshot (the root is the switch's), and the caller counts that.
+func (p pathSnapshotPolicy) wantsForDecode(kp string, bytes, decoded int64) bool {
+	if p.tail < 0 || p.ratio < 0 || kp == "" {
+		return false
+	}
+	return decoded >= p.floor && decoded > p.ratio*max(bytes, 1)
 }
 
 // wants prices a snapshot against what it saves. Folding `tail` records happens on EVERY
@@ -91,7 +128,7 @@ func (p pathSnapshotPolicy) needs(bytes int64) int64 {
 // SetPathSnapshotPolicy configures when a read schedules a snapshot at its path: after
 // folding more than tail records for each bytes of the subtree it read, rounded up -- a
 // subtree N times bytes must fold more than N times tail. Zero keeps a default; a
-// negative tail turns per-path snapshots off.
+// negative tail turns per-path snapshots off, the decode branch with them.
 func (s *Storage) SetPathSnapshotPolicy(tail, bytes int64) {
 	if tail == 0 {
 		tail = DefaultPathSnapshotTail
@@ -99,7 +136,26 @@ func (s *Storage) SetPathSnapshotPolicy(tail, bytes int64) {
 	if bytes <= 0 {
 		bytes = DefaultPathSnapshotBytes
 	}
-	s.pathSnap = pathSnapshotPolicy{tail: tail, bytes: bytes}
+	s.pathSnap.tail, s.pathSnap.bytes = tail, bytes
+}
+
+// SetPathSnapshotDecodePolicy configures the decode branch: a read that decoded an entry
+// of at least floor bytes, more than ratio times what it emitted, snapshots its path's
+// parent. Zero keeps a default; a negative ratio turns the branch off.
+func (s *Storage) SetPathSnapshotDecodePolicy(ratio, floor int64) {
+	if ratio == 0 {
+		ratio = DefaultPathSnapshotDecodeRatio
+	}
+	if floor <= 0 {
+		floor = DefaultPathSnapshotDecodeFloor
+	}
+	s.pathSnap.ratio, s.pathSnap.floor = ratio, floor
+}
+
+// PathSnapshotDecodePolicy answers the decode branch in force: the ratio and the floor
+// (SetPathSnapshotDecodePolicy). A negative ratio is the branch off.
+func (s *Storage) PathSnapshotDecodePolicy() (ratio, floor int64) {
+	return s.pathSnap.ratio, s.pathSnap.floor
 }
 
 // PathSnapshotPolicy answers the policy in force: how many records a read may fold at a
@@ -109,10 +165,20 @@ func (s *Storage) PathSnapshotPolicy() (tail, bytes int64) {
 	return s.pathSnap.tail, s.pathSnap.bytes
 }
 
-// afterRead is what a read reports to when it is done: how many records it folded and how
-// many bytes it emitted, and whether it ran to the end.
-func (s *Storage) afterRead(at int64, kp string) func(tail, bytes int64, complete bool) {
-	return func(tail, bytes int64, complete bool) {
+// afterRead is what a read reports to when it is done: how many records it folded, how
+// many bytes it emitted, the largest entry it decoded, and whether it ran to the end.
+func (s *Storage) afterRead(at int64, kp string) func(tail, bytes, decoded int64, complete bool) {
+	return func(tail, bytes, decoded int64, complete bool) {
+		if s.pathSnap.wantsForDecode(kp, bytes, decoded) {
+			parent := parentPath(kp)
+			if parent == "" {
+				s.readStats.snapDecodeAtRoot.Add(1)
+			} else {
+				s.readStats.snapForDecode.Add(1)
+				s.schedulePathSnapshot(at, parent)
+			}
+			return
+		}
 		if s.pathSnap.tail < 0 || kp == "" || tail <= s.pathSnap.tail {
 			return // nowhere near worth one; the ordinary case, and not worth counting
 		}
@@ -230,6 +296,15 @@ func (s *Storage) snapshotPath(at int64, kp string) error {
 	s.logger.Info("path snapshot created", "path", kp, "commit", at, "bytes", emitted,
 		"logFile", w.LogFileID(), "position", w.EntryPosition())
 	return nil
+}
+
+// parentPath is the path one segment above kp; "" for a path of one segment.
+func parentPath(kp string) string {
+	segs := kpath.SplitAll(kp)
+	if len(segs) <= 1 {
+		return ""
+	}
+	return joinSegments(segs[:len(segs)-1])
 }
 
 // pathWithin answers kp relative to its prefix p: the path a read at kp takes inside a

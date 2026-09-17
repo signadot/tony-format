@@ -42,10 +42,12 @@ which is why they survive to disk. Tags ride on the values they decorate.
 A snapshot is one value's events plus an index into them:
 
 ```
-[ header: 12 bytes ][ events ][ index ]
-    uint64 event size
-    uint32 index size
+[ header ][ events ][ directory ][ index ]
 ```
+
+The directory is a table of children per container — each child's name, kind, and where
+its events are — written as each container closes, so a listing of a container reads its
+table rather than its events.
 
 The index is `(kinded path, byte offset)` entries: root at 0, then one per ~4 KiB of
 events. **Size-bound** — it grows with bytes over chunk size, not node count — so a

@@ -131,12 +131,17 @@ func (s *Storage) openRead(at int64, scopeID *string, kp string, started time.Ti
 	}
 
 	var projected []*ir.Node
-	var largest, tail int64
+	var largest, tail, decoded int64
 	blockedAt := -1
 	project := func(seg index.LogSegment) error {
 		entry, err := s.dLog.ReadEntryAt(dlog.LogFileID(seg.LogFile), seg.LogPosition, seg.LogFileGeneration)
 		if err != nil {
 			return fmt.Errorf("failed to read patch entry: %w", err)
+		}
+		// What the read paid to decode, whatever it projects: a child of a write that
+		// installed a whole container costs the container (path_snapshot.go).
+		if entry.Size > decoded {
+			decoded = entry.Size
 		}
 		if entry.Patch == nil {
 			return nil
@@ -182,11 +187,11 @@ func (s *Storage) openRead(at int64, scopeID *string, kp string, started time.Ti
 	if kp == "" {
 		kind = ReadWideRoot
 	}
-	var after func(tail, bytes int64, complete bool)
+	var after func(tail, bytes, decoded int64, complete bool)
 	if trigger {
 		after = s.afterRead(at, kp)
 	}
-	return newFoldCursor(base, projected, &s.readStats, kind, kp, started, largest, seek, tail, after), nil
+	return newFoldCursor(base, projected, &s.readStats, kind, kp, started, largest, decoded, seek, tail, after), nil
 }
 
 // projectScope folds the scope's term of a read at kp: what the scope has stated that
@@ -382,11 +387,12 @@ type foldCursor struct {
 	kp       string
 	started  time.Time
 	largest  int64
+	decoded  int64 // the largest entry decoded to answer, in log bytes
 	bytes    int64
 	seek     seekKind
 	tail     int64 // records folded after the seek
 	complete bool  // the fold ran to its end, so bytes is the whole subtree
-	after    func(tail, bytes int64, complete bool)
+	after    func(tail, bytes, decoded int64, complete bool)
 	noted    bool
 }
 
@@ -403,7 +409,7 @@ func (s chanSink) WriteEvent(ev *stream.Event) error {
 	}
 }
 
-func newFoldCursor(base patches.EventReadCloser, projected []*ir.Node, stats *readStats, kind ReadKind, kp string, started time.Time, largest int64, seek seekKind, tail int64, after func(tail, bytes int64, complete bool)) *foldCursor {
+func newFoldCursor(base patches.EventReadCloser, projected []*ir.Node, stats *readStats, kind ReadKind, kp string, started time.Time, largest, decoded int64, seek seekKind, tail int64, after func(tail, bytes, decoded int64, complete bool)) *foldCursor {
 	c := &foldCursor{
 		events:  make(chan stream.Event, 64),
 		errc:    make(chan error, 1),
@@ -413,6 +419,7 @@ func newFoldCursor(base patches.EventReadCloser, projected []*ir.Node, stats *re
 		kp:      kp,
 		started: started,
 		largest: largest,
+		decoded: decoded,
 		seek:    seek,
 		tail:    tail,
 		after:   after,
@@ -495,7 +502,7 @@ func (c *foldCursor) note() {
 	c.stats.note(c.kind, c.kp, time.Since(c.started))
 	c.stats.noteBound(c.bytes, c.largest, c.seek, c.tail)
 	if c.after != nil {
-		c.after(c.tail, c.bytes, c.complete)
+		c.after(c.tail, c.bytes, c.decoded, c.complete)
 	}
 }
 

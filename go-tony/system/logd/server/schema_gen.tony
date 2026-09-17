@@ -25,6 +25,8 @@ define:
   durability: .[string]
   indexCeiling: .[int]
   pathSnapshotBytes: .[int]
+  pathSnapshotDecodeFloor: .[int]
+  pathSnapshotDecodeRatio: .[int]
   pathSnapshotTail: .[int]
   readBudget: .[int]
   writeBudget: .[int]

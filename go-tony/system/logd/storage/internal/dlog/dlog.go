@@ -868,6 +868,7 @@ func readEntryFrom(f *os.File, position int64) (*Entry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to deserialize entry at position %d: %w", position, err)
 	}
+	entry.Size = length
 
 	return entry, nil
 }

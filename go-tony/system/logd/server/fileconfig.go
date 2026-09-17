@@ -82,6 +82,15 @@ type StorageConfig struct {
 	PathSnapshotTail  int64 `tony:"field=pathSnapshotTail"`
 	PathSnapshotBytes int64 `tony:"field=pathSnapshotBytes"`
 
+	// PathSnapshotDecodeRatio is the other reason a read takes a snapshot: it decoded a
+	// log entry of at least PathSnapshotDecodeFloor bytes that was more than this many
+	// times larger than what it answered -- a child of a container written whole -- and
+	// so it snapshots the path's parent, which the reads beside it then seek. Zero
+	// means the defaults (16, 64 KiB); a negative ratio turns this branch off, and a
+	// negative PathSnapshotTail turns it off with the rest.
+	PathSnapshotDecodeRatio int64 `tony:"field=pathSnapshotDecodeRatio"`
+	PathSnapshotDecodeFloor int64 `tony:"field=pathSnapshotDecodeFloor"`
+
 	// IndexCeiling bounds what the index holds resident, in bytes; past it the least
 	// recently used regions are evicted to the durable index and paged back on a miss.
 	// Zero is unbounded. See storage/index/region.go.

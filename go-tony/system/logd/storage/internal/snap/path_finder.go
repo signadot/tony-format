@@ -21,6 +21,7 @@ type PathFinder struct {
 	indexEntryID int    // Current position in index for efficient chunk lookup
 	initOffset   int64
 	eventSize    int64 // Total size of event stream (boundary to prevent reading into index)
+	base         int64 // where the events begin in R (Snapshot.EventsAt)
 
 	state  *stream.State
 	events []stream.Event
@@ -33,7 +34,7 @@ type PathFinder struct {
 // state past the key by processing a dummy null event.
 // index is the snapshot index, used to determine chunk boundaries for buffering.
 // eventSize is the total size of the event stream, used to prevent reading past into the index section.
-func NewPathFinder(r io.ReadSeekCloser, index *Index, off int64, idxPath, desPath *kpath.KPath, eventSize int64) (*PathFinder, error) {
+func NewPathFinder(r io.ReadSeekCloser, index *Index, off int64, idxPath, desPath *kpath.KPath, eventSize, base int64) (*PathFinder, error) {
 	st, err := stream.KPathState(idxPath.String())
 	if err != nil {
 		return nil, err
@@ -65,6 +66,7 @@ func NewPathFinder(r io.ReadSeekCloser, index *Index, off int64, idxPath, desPat
 		indexEntryID: indexEntryID,
 		initOffset:   off,
 		eventSize:    eventSize,
+		base:         base,
 		state:        st,
 	}, nil
 }
@@ -235,7 +237,7 @@ func (pf *PathFinder) readNextChunk(fileOffset int64) (*bytes.Reader, error) {
 	}
 
 	// Seek and read chunk
-	absOffset := int64(HeaderSize) + fileOffset
+	absOffset := pf.base + fileOffset
 	if _, err := pf.R.Seek(absOffset, io.SeekStart); err != nil {
 		return nil, err
 	}
@@ -285,8 +287,8 @@ func (r *PathEventReader) next() *stream.Event {
 }
 
 // NewPathEventReader creates a streaming event reader for the given path.
-func NewPathEventReader(r io.ReadSeekCloser, index *Index, off int64, idxPath, desPath *kpath.KPath, eventSize int64) (*PathEventReader, error) {
-	pf, err := NewPathFinder(r, index, off, idxPath, desPath, eventSize)
+func NewPathEventReader(r io.ReadSeekCloser, index *Index, off int64, idxPath, desPath *kpath.KPath, eventSize, base int64) (*PathEventReader, error) {
+	pf, err := NewPathFinder(r, index, off, idxPath, desPath, eventSize, base)
 	if err != nil {
 		return nil, err
 	}

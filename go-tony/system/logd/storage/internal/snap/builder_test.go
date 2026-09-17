@@ -70,8 +70,11 @@ func TestBuilder_Close(t *testing.T) {
 	header := make([]byte, HeaderSize)
 	f.Read(header)
 
-	eventSize := binary.BigEndian.Uint64(header[0:8])
-	indexSize := binary.BigEndian.Uint32(header[8:12])
+	if [4]byte(header[0:4]) != headerMagic {
+		t.Fatalf("header does not begin with the magic: %x", header[0:4])
+	}
+	eventSize := binary.BigEndian.Uint64(header[4:12])
+	indexSize := binary.BigEndian.Uint32(header[28:32])
 
 	if eventSize != 100 {
 		t.Errorf("eventSize = %d, want 100", eventSize)

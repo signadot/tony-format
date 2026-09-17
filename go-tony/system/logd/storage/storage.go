@@ -175,7 +175,8 @@ func Open(root string, logger *slog.Logger) (*Storage, error) {
 	s := &Storage{
 		sequence:    seq.NewSeq(root),
 		writeBudget: DefaultWriteBudget,
-		pathSnap:    pathSnapshotPolicy{tail: DefaultPathSnapshotTail, bytes: DefaultPathSnapshotBytes},
+		pathSnap: pathSnapshotPolicy{tail: DefaultPathSnapshotTail, bytes: DefaultPathSnapshotBytes,
+			ratio: DefaultPathSnapshotDecodeRatio, floor: DefaultPathSnapshotDecodeFloor},
 
 		txStore: tx.NewInMemoryTxStore(),
 		index:   index.NewIndex(""),

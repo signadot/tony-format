@@ -76,7 +76,7 @@ func snapOf(t *testing.T, src string) (*Snapshot, *Index) {
 func eventOffsets(t *testing.T, s *Snapshot) ([]stream.Event, []int64) {
 	t.Helper()
 	raw := make([]byte, s.EventSize)
-	if _, err := s.R.Seek(HeaderSize, io.SeekStart); err != nil {
+	if _, err := s.R.Seek(s.EventsAt(), io.SeekStart); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := io.ReadFull(s.R, raw); err != nil {

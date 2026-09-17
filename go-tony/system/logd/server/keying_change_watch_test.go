@@ -37,10 +37,17 @@ type liveSession struct {
 
 func newLiveSession(t *testing.T, store *storage.Storage) *liveSession {
 	t.Helper()
-	hub := NewWatchHub()
+	return newLiveSessionWith(t, &SessionConfig{Storage: store, Hub: NewWatchHub()})
+}
+
+// newLiveSessionWith is newLiveSession over a session configured as cfg says.
+func newLiveSessionWith(t *testing.T, cfg *SessionConfig) *liveSession {
+	t.Helper()
+	hub := cfg.Hub
+	store := cfg.Storage
 	store.SetCommitNotifier(hub.Broadcast)
 	conn := newMockConn()
-	session := NewSession("test-server", conn, &SessionConfig{Storage: store, Hub: hub})
+	session := NewSession("test-server", conn, cfg)
 	done := make(chan error, 1)
 	go func() { done <- session.Run() }()
 	ls := &liveSession{t: t, conn: conn, hub: hub, done: done}

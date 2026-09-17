@@ -2,7 +2,9 @@ package server
 
 import (
 	"bytes"
+	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,11 +33,17 @@ func (a setAnswer) paths() []string {
 // runSet drives one session over the requests and collects what each id was answered.
 func runSet(t *testing.T, store *storage.Storage, requests ...string) map[string]*setAnswer {
 	t.Helper()
+	return runSetWith(t, &SessionConfig{Storage: store, Hub: NewWatchHub()}, requests...)
+}
+
+// runSetWith is runSet over a session configured as cfg says.
+func runSetWith(t *testing.T, cfg *SessionConfig, requests ...string) map[string]*setAnswer {
+	t.Helper()
 	conn := newMockConn()
 	for _, req := range requests {
 		conn.WriteRequest(req)
 	}
-	session := NewSession("test-server", conn, &SessionConfig{Storage: store, Hub: NewWatchHub()})
+	session := NewSession("test-server", conn, cfg)
 	done := make(chan error)
 	go func() { done <- session.Run() }()
 	time.Sleep(100 * time.Millisecond)
@@ -861,5 +869,94 @@ func TestSetMatch_CursorRefusals(t *testing.T) {
 		if a.err.Code != api.ErrCodeInvalidPath {
 			t.Errorf("%s: code %q: %s", id, a.err.Code, a.err.Message)
 		}
+	}
+}
+
+// TestSetMatch_ListsBeyondTheReadBudget: a wildcard level is enumerated from the store's
+// events, a name at a time, so a container larger than the session's read budget is
+// listed -- and its members read -- where a read of the container itself is refused
+// (3kgxprskh12krjrmndn0). Every kind of level: fields, a sparse array, a dense array, and
+// a keyed array.
+func TestSetMatch_ListsBeyondTheReadBudget(t *testing.T) {
+	store := openStore(t)
+	schema, err := parse.Parse([]byte(`{define: {runs: {id: !logd-key null}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetSchema(schema, false); err != nil {
+		t.Fatalf("SetSchema: %v", err)
+	}
+	const n = 200
+	pad := strings.Repeat("x", 120)
+	var jobs, nums, list, runs []string
+	for i := range n {
+		jobs = append(jobs, fmt.Sprintf("j%03d: {status: done, note: %s}", i, pad))
+		nums = append(nums, fmt.Sprintf("%d: {note: %s}", i, pad))
+		list = append(list, fmt.Sprintf("{note: %s}", pad))
+		runs = append(runs, fmt.Sprintf("{id: r%03d, note: %s}", i, pad))
+	}
+	narrowWrite(t, store, "", "{jobs: {"+strings.Join(jobs, ", ")+"}, nums: !sparsearray {"+strings.Join(nums, ", ")+
+		"}, list: ["+strings.Join(list, ", ")+"], runs: ["+strings.Join(runs, ", ")+"]}")
+
+	ls := newLiveSessionWith(t, &SessionConfig{Storage: store, Hub: NewWatchHub(), ReadBudget: 8 << 10})
+	ids := []string{"container", "jobs", "jobs-bodies", "nums", "list", "runs", "under"}
+	started := time.Now()
+	for _, req := range []string{
+		`{id: "container", match: {path: jobs}}`,
+		`{id: "jobs", match: {path: "jobs.*", return: path}}`,
+		`{id: "jobs-bodies", match: {path: "jobs.*", return: "path,body"}}`,
+		`{id: "nums", match: {path: "nums{*}", return: id}}`,
+		`{id: "list", match: {path: "list[*]", return: id}}`,
+		`{id: "runs", match: {path: "runs(*)", return: id}}`,
+		`{id: "under", match: {path: "jobs.*.status", return: path}}`,
+	} {
+		ls.send(req)
+	}
+	got := ls.until("every listing to end", func(m map[string][]*api.SessionResponse) bool {
+		for _, id := range ids {
+			if len(m[id]) == 0 {
+				return false
+			}
+			last := m[id][len(m[id])-1]
+			if last.Error == nil && !(last.Result != nil && last.Result.Match != nil && last.Result.Match.Done) {
+				return false
+			}
+		}
+		return true
+	})
+	t.Logf("seven listings of 200 under an 8 KiB budget: %v", time.Since(started))
+	answers := map[string]*setAnswer{}
+	for id, rs := range got {
+		a := &setAnswer{}
+		for _, r := range rs {
+			switch {
+			case r.Error != nil:
+				a.err = r.Error
+			case r.Result != nil && r.Result.Match != nil && r.Result.Match.Done:
+				a.marker = r.Result.Match
+			case r.Result != nil && r.Result.Match != nil:
+				a.members = append(a.members, r.Result.Match)
+			}
+		}
+		answers[id] = a
+	}
+	if a := answers["container"]; a == nil || a.err == nil {
+		t.Errorf("the container itself was read within an 8 KiB budget: %+v", a)
+	}
+	for _, id := range []string{"jobs", "jobs-bodies", "nums", "list", "runs", "under"} {
+		a := answers[id]
+		if a == nil || a.err != nil {
+			t.Errorf("%s: %+v", id, a)
+			continue
+		}
+		if a.marker == nil || len(a.members) != n {
+			t.Errorf("%s answered %d members, want %d", id, len(a.members), n)
+		}
+	}
+	if a := answers["jobs-bodies"]; a != nil && a.err == nil && len(a.members) > 0 && a.members[0].Body == nil {
+		t.Error("jobs.* with bodies answered no body")
+	}
+	if a := answers["runs"]; a != nil && a.err == nil && len(a.members) > 0 && a.members[0].ID != "(id=r000)" {
+		t.Errorf("runs(*) first id = %q, want (id=r000)", a.members[0].ID)
 	}
 }
