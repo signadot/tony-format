@@ -100,7 +100,9 @@ refuse it, and say so:
 
 A read answers it: logd's `match` takes a `..` and answers the set it names, each node
 once, in document order, [one node at a time](logd/session.md#reading-at-any-depth) --
-the same set, in the same order, that `o list` answers over the document.
+the same set, in the same order, that `o list` answers over the document. Both take a
+depth that bounds how many segments each `..` may take: `a..` at depth 1 is `a` and its
+children, of every kind.
 
 An empty field name is still sayable, in quotes: `a."".x`. That is the canonical
 spelling, and what `..` used to parse as before it meant depth.

@@ -36,7 +36,7 @@ directly inside it:
 | operation | shape |
 |---|---|
 | `hello` | `{hello: {clientId: <id>, protocol: 3, scope: <scope>, author: <principal>}}` |
-| `match` | `{match: {path: <kpath>, data: <pattern>, commit: <n>, limit: <n>, cursor: <s>, return: <retspec>}}` — a wildcard path answers a [set](#reading-a-set) |
+| `match` | `{match: {path: <kpath>, data: <pattern>, commit: <n>, limit: <n>, cursor: <s>, return: <retspec>, depth: <n>}}` — a wildcard path answers a [set](#reading-a-set); `depth` bounds a [`..`](#reading-at-any-depth) |
 | `patch` | `{patch: {path: <kpath>, data: <value>, match: {path, data}, txId: <n>, timeout: "5s", author: <principal>}}` |
 | `newtx` | `{newtx: {participants: <n>, timeout: "5m", author: <principal>}}` |
 | `watch` | `{watch: {path: <kpath>, fromCommit: <n>, noInit: <bool>, waitIfAbsent: <bool>}}` |
@@ -165,6 +165,26 @@ same document, in the same order.
 `..` alone names the whole document, the root included, and the root's path is empty:
 it arrives as the one member with no `path`, as a `return: path` at the root does.
 
+**`depth` bounds a descent.** A `..` takes zero or more segments; `depth: n` says it
+may take at most `n`, and each `..` in a path is bounded on its own. So `x..` at depth
+1 is `x` and its direct children — of every kind, which is the listing `x.*` cannot
+give, since `.*` names fields alone — and `..name` at depth 2 is a `name` at the root,
+under a child, or under a grandchild. Depth 0 is a descent that takes nothing. The walk
+stops at the bound rather than walking deeper and filtering, so `x..` at depth 1 costs
+one listing.
+
+```tony
+{id: "11", match: {path: "jobs..", return: "path,iterType", depth: 1}}
+{id: "11", result: {match: {path: jobs iterType: Object commit: 91}}}
+{id: "11", result: {match: {path: jobs.a1 iterType: Object commit: 91}}}
+{id: "11", result: {match: {path: jobs.a2 iterType: Object commit: 91}}}
+{id: "11", result: {match: {commit: 91 done: true}}}
+```
+
+A `depth` on a path with no `..` is `invalid_path` whatever its value: nothing there is
+bounded, and a parameter that means nothing is refused rather than ignored. A negative
+depth is `invalid_path` too.
+
 **What a descent costs** is the containers it enters: every node beneath a `..` is
 reached by listing, so `return: path` and `return: iterType` over a descent read no node
 and cost one table per container — about a millisecond each — however large the
@@ -292,7 +312,8 @@ than reading it.
 A descent pages the same way. Its order is a walk, so a page may end anywhere in it —
 between a node and its first child, at the bottom of one branch before the next — and
 the continuation seeks down the last member's path and goes on from there, reading
-nothing it has answered.
+nothing it has answered. The cursor carries the `depth` as it carries the path, and a
+continuation at another depth is `invalid_path`.
 
 **Across docd**, a set no mount is near passes through to logd and is answered as logd
 answers it. A set that crosses a mount — a member at, under or above one — is
@@ -636,7 +657,7 @@ writes an object at `a.b`. What separates them is what is there now.
 |---|---|
 | `not_found` | **nothing is there.** Nothing in the document contradicts the path, so creating what is missing is a reasonable next move |
 | `path_conflict` | **something is there, of a shape that cannot hold what you asked for** — an index into an object, a field under a string. Creating here means clobbering what is already there, so the move is to re-examine the shape you assumed |
-| `invalid_path` | **not a well-formed question** — a wildcard or `..` where a path must name a place (a write, a watch; a read answers a [set](#reading-a-set)), and an element named by a key the array does not have — for a read, under the schema of the commit it reads |
+| `invalid_path` | **not a well-formed question** — a wildcard or `..` where a path must name a place (a write, a watch; a read answers a [set](#reading-a-set)), a `depth` on a path with no `..`, and an element named by a key the array does not have — for a read, under the schema of the commit it reads |
 | `match_failed` | a precondition did not hold; the write did not happen |
 | `invalid_diff` | the delta would not apply to the state it would be stored against, or the schema's keying refuses it — an element without a name, a position on a keyed array, a name where there is no identity |
 | `commit_not_found` | a historical read outside `[0, current]` |

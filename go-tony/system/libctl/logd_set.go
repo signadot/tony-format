@@ -71,13 +71,29 @@ func (s *LogdSession) MatchEach(ctx context.Context, path string, pattern *ir.No
 //
 // A path naming one node is answered once, as MatchEach answers it.
 func (s *LogdSession) MatchEachReturning(ctx context.Context, path string, pattern *ir.Node, ret string, fn func(SetMember) error) (int64, error) {
+	return s.MatchEachQuery(ctx, SetQuery{Path: path, Pattern: pattern, Return: ret}, fn)
+}
+
+// SetQuery is everything a set read asks: the path, the pattern each member is matched
+// against, the retspec, and a depth bounding every `..` in the path (nil for unbounded;
+// api.MatchRequest.Depth says what a depth means and where it is refused).
+type SetQuery struct {
+	Path    string
+	Pattern *ir.Node
+	Return  string
+	Depth   *int
+}
+
+// MatchEachQuery is MatchEach over a SetQuery, which is how a depth is asked.
+func (s *LogdSession) MatchEachQuery(ctx context.Context, q SetQuery, fn func(SetMember) error) (int64, error) {
 	commit := int64(0)
 	cursor := ""
 	for {
 		req := &api.MatchRequest{
-			PathData: api.PathData{Path: path, Data: pattern},
+			PathData: api.PathData{Path: q.Path, Data: q.Pattern},
 			Cursor:   cursor,
-			Return:   ret,
+			Return:   q.Return,
+			Depth:    q.Depth,
 		}
 		if commit != 0 {
 			at := commit

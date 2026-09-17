@@ -115,6 +115,12 @@ type MatchRequest struct {
 	// a cursor whose commit has aged out of range is ErrCodeCommitNotFound rather than
 	// a silent read of the current one. Path must be the path that started the read.
 	Cursor string `tony:"field=cursor,omitzero"`
+	// Depth bounds every `..` in Path: each takes at most Depth segments, so `x..` at
+	// depth 1 is x and its direct children, and `..name` at depth 2 is a name at the
+	// root, under a child, or under a grandchild. Zero is a descent that takes nothing.
+	// A depth on a path with no `..` is invalid_path, whatever its value: nothing there
+	// is bounded, and a parameter that means nothing is refused rather than ignored.
+	Depth *int `tony:"field=depth,omitzero"`
 
 	// Return says what an answer carries, as a comma-separated retspec naming the
 	// result's own fields: `return: path`, `return: body`, `return: "path,body"`. A

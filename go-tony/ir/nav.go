@@ -1,5 +1,7 @@
 package ir
 
+import "github.com/signadot/tony-format/go-tony/ir/kpath"
+
 // Navigation options.
 //
 // A comment wraps the value it precedes in a CommentType node, so a document
@@ -22,6 +24,9 @@ type NavOpt func(*navConfig)
 type navConfig struct {
 	// Comments keeps a comment wrapper on the node a walk answers with.
 	Comments bool
+	// Depth bounds every `..` in a list's path to that many segments, or is
+	// kpath.Unbounded.
+	Depth int
 }
 
 // WithComments answers the node as it stands, comment and all, rather than the
@@ -30,8 +35,16 @@ func WithComments(v bool) NavOpt {
 	return func(c *navConfig) { c.Comments = v }
 }
 
+// WithDepth bounds every `..` in a list's path: each takes at most depth segments,
+// so `a..` at depth 1 is a and its children, and `..b` at depth 2 is a b at the root,
+// under a child, or under a grandchild. Depth 0 is a descent that takes nothing. It is
+// what logd's match answers for the same path and depth (api.MatchRequest.Depth).
+func WithDepth(depth int) NavOpt {
+	return func(c *navConfig) { c.Depth = depth }
+}
+
 func navCfg(opts []NavOpt) navConfig {
-	var cfg navConfig
+	cfg := navConfig{Depth: kpath.Unbounded}
 	for _, opt := range opts {
 		opt(&cfg)
 	}

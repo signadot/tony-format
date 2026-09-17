@@ -49,6 +49,7 @@ define:
   commit: .[nullable(int)]
   cursor: .[string]
   data: .[tony-base:ir]
+  depth: .[nullable(int)]
   limit: .[nullable(int)]
   path: .[string]
   return: .[string]

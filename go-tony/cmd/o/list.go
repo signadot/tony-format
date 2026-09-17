@@ -9,6 +9,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/format"
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
 
 	"github.com/scott-cotton/cli"
 )
@@ -31,6 +32,16 @@ func list(cfg *ListConfig, cc *cli.Context, args []string) error {
 	path, err := queryPath(args[0])
 	if err != nil {
 		return usageErr(cfg.List, cc, err.Error())
+	}
+	// -depth bounds a `..`, and only a `..`: on a path with none it means nothing,
+	// and is refused rather than ignored, as logd refuses it.
+	if cfg.Depth != kpath.Unbounded {
+		if cfg.Depth < 0 {
+			return usageErr(cfg.List, cc, fmt.Sprintf("-depth %d: a descent takes a number of segments, not fewer than none", cfg.Depth))
+		}
+		if kp, err := kpath.Parse(path); err == nil && !hasDescend(kp) {
+			return usageErr(cfg.List, cc, fmt.Sprintf("-depth bounds a `..`, and %q has none", path))
+		}
 	}
 	pred, err := ifPredicate(cfg.If, cfg.IfFile, cfg.parseOpts())
 	if err != nil {
@@ -58,7 +69,7 @@ func list(cfg *ListConfig, cc *cli.Context, args []string) error {
 			if cfg.Paths {
 				nodeTrim = nil
 			}
-			res, err := listDoc(doc, path, cfg.Comments, pred, nodeTrim)
+			res, err := listDoc(doc, path, cfg.Comments, cfg.Depth, pred, nodeTrim)
 			if err != nil {
 				return fault(cc, fmt.Errorf("error querying %s with %s: %w", arg, path, err))
 			}
@@ -84,11 +95,11 @@ func list(cfg *ListConfig, cc *cli.Context, args []string) error {
 
 // listDoc answers what query names in one document, keeping only what pred matches
 // when one was given.
-func listDoc(doc *ir.Node, query string, comments bool, pred, trim *ir.Node) ([]*ir.Node, error) {
+func listDoc(doc *ir.Node, query string, comments bool, depth int, pred, trim *ir.Node) ([]*ir.Node, error) {
 	// WithComments when comments were asked for: a path ANSWERS with the value it
 	// names, dropping what was said above it, which is right for a reader asking
 	// what is there and wrong for one asking to be shown the document.
-	res, err := doc.ListKPathWith(nil, query, ir.WithComments(comments))
+	res, err := doc.ListKPathWith(nil, query, ir.WithComments(comments), ir.WithDepth(depth))
 	if err != nil {
 		return nil, fmt.Errorf("error executing list: %w", err)
 	}
@@ -172,4 +183,14 @@ func keepMatching(nodes []*ir.Node, pred *ir.Node) ([]*ir.Node, error) {
 		}
 	}
 	return kept, nil
+}
+
+// hasDescend says the path holds a `..`, which is what -depth bounds.
+func hasDescend(kp *kpath.KPath) bool {
+	for x := kp; x != nil; x = x.Next {
+		if x.Descend {
+			return true
+		}
+	}
+	return false
 }

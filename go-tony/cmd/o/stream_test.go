@@ -390,6 +390,22 @@ func TestListPathsAnswersWithUsablePaths(t *testing.T) {
 			want: "[]\n",
 			code: 1,
 		},
+		{
+			name: "-depth bounds the descent: spec and what is directly under it",
+			args: []string{"list", "-paths", "-depth", "1", "spec..", doc},
+			want: "- spec\n- spec.containers\n",
+		},
+		{
+			name: "-depth 2 reaches a name two levels down, and not the images three down",
+			args: []string{"list", "-paths", "-depth", "2", "..name", doc},
+			want: "- meta.name\n",
+		},
+		{
+			name: "-depth on a path with no .. is refused",
+			args: []string{"list", "-paths", "-depth", "1", "spec.*", doc},
+			want: "",
+			code: 2,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			code, out := runOIn(t, "", tc.args...)

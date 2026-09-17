@@ -37,8 +37,9 @@ import (
 // the set went on (MatchRequest.Limit).
 const maxSetPage = 1000
 
-// handleSetMatch answers a match whose path holds a wildcard.
-func (s *Session) handleSetMatch(id *string, req *api.MatchRequest, path string, commit int64) {
+// handleSetMatch answers a match whose path holds a wildcard. depth bounds every `..`
+// in it, or is kpath.Unbounded; it is settled and checked against the path already.
+func (s *Session) handleSetMatch(id *string, req *api.MatchRequest, path string, commit int64, depth int) {
 	// A set answers paths and bodies unless the request asks for less.
 	spec, err := api.ParseReturnSpec(req.Return, api.ReturnSpec{Path: true, Body: true})
 	if err != nil {
@@ -72,6 +73,12 @@ func (s *Session) handleSetMatch(id *string, req *api.MatchRequest, path string,
 				cur.path, path))
 			return
 		}
+		if cur.depth != depth {
+			s.sendError(id, api.ErrCodeInvalidPath, fmt.Sprintf(
+				"cursor is for depth %s, and this asks for %s: a cursor continues the read that made it",
+				depthWord(cur.depth), depthWord(depth)))
+			return
+		}
 		if req.Commit != nil && *req.Commit != cur.commit {
 			s.sendError(id, api.ErrCodeCommitNotFound, fmt.Sprintf(
 				"cursor reads at commit %d, and this asks for %d", cur.commit, *req.Commit))
@@ -93,7 +100,7 @@ func (s *Session) handleSetMatch(id *string, req *api.MatchRequest, path string,
 	sent := 0
 	last := ""
 	more := false
-	err = s.eachSetMember(path, commit, after, resume, func(member string, proven bool, kind string) error {
+	err = s.eachSetMember(path, commit, depth, after, resume, func(member string, proven bool, kind string) error {
 		if sent == limit {
 			// One member past the page: the set goes on, and the cursor resumes here.
 			more = true
@@ -115,7 +122,7 @@ func (s *Session) handleSetMatch(id *string, req *api.MatchRequest, path string,
 	}
 	cursor := ""
 	if more {
-		cursor = encodeSetCursor(setCursor{commit: commit, path: path, after: last})
+		cursor = encodeSetCursor(setCursor{commit: commit, path: path, depth: depth, after: last})
 	}
 	s.send(api.NewMatchDoneResponse(id, commit, cursor))
 }
@@ -280,7 +287,7 @@ func patternSelected(before, after *ir.Node) bool {
 // after, the cursor's resume point. The root is a member of `..`, and its path is empty,
 // so whether there is a cursor is said apart from where it points: a cursor after the
 // root is not the first page over again.
-func (s *Session) eachSetMember(path string, commit int64, after string, resume bool, fn func(member string, proven bool, kind string) error) error {
+func (s *Session) eachSetMember(path string, commit int64, depth int, after string, resume bool, fn func(member string, proven bool, kind string) error) error {
 	segs := kpath.SplitAll(path)
 	pat, err := kpath.Parse(path)
 	if err != nil {
@@ -293,7 +300,7 @@ func (s *Session) eachSetMember(path string, commit int64, after string, resume 
 			afterSegs = kpath.SplitAll(after)
 		}
 	}
-	return s.walkSet("", segs, pat, afterSegs, commit, false, "", fn)
+	return s.walkSet("", segs, pat, depth, afterSegs, commit, false, "", fn)
 }
 
 // walkSet extends prefix by segs, which pat is the same segments parsed (the walk from
@@ -311,7 +318,7 @@ func (s *Session) eachSetMember(path string, commit int64, after string, resume 
 // inside the listing's callback, so what is held at a level is the listing's own
 // position and not the level's children, and a page of a set of ten thousand costs the
 // page.
-func (s *Session) walkSet(prefix string, segs []string, pat *kpath.KPath, afterSegs []string, commit int64, proven bool, kind string, fn func(string, bool, string) error) error {
+func (s *Session) walkSet(prefix string, segs []string, pat *kpath.KPath, depth int, afterSegs []string, commit int64, proven bool, kind string, fn func(string, bool, string) error) error {
 	if len(segs) == 0 {
 		if afterSegs != nil {
 			// The cursor's own member: answered on the previous page.
@@ -327,7 +334,7 @@ func (s *Session) walkSet(prefix string, segs []string, pat *kpath.KPath, afterS
 	if kp.Descend {
 		// From here on the walk is of nodes, not of steps: the rest of the pattern is
 		// what the walk carries, and every node beneath is asked against it.
-		return s.walkDescend(prefix, kpath.Start(pat), afterSegs, commit, proven, kind, fn)
+		return s.walkDescend(prefix, kpath.Start(pat, depth), afterSegs, commit, proven, kind, fn)
 	}
 	if !kp.Wild() {
 		// Spelled as the store spells it, as a single-node read's path is: an element
@@ -348,7 +355,7 @@ func (s *Session) walkSet(prefix string, segs []string, pat *kpath.KPath, afterS
 		}
 		// A step the walk TOOK rather than found: whether anything stands here is not
 		// known until something reads it.
-		return s.walkSet(child, segs[1:], pat.Next, next, commit, false, "", fn)
+		return s.walkSet(child, segs[1:], pat.Next, depth, next, commit, false, "", fn)
 	}
 
 	// The cursor's own child first, still on its branch: what is under it after the
@@ -359,7 +366,7 @@ func (s *Session) walkSet(prefix string, segs []string, pat *kpath.KPath, afterS
 			return nil
 		}
 		after = afterSegs[0]
-		if err := s.walkSet(kpath.Join(prefix, after), segs[1:], pat.Next, afterSegs[1:], commit, true, "", fn); err != nil {
+		if err := s.walkSet(kpath.Join(prefix, after), segs[1:], pat.Next, depth, afterSegs[1:], commit, true, "", fn); err != nil {
 			return err
 		}
 	}
@@ -367,7 +374,7 @@ func (s *Session) walkSet(prefix string, segs []string, pat *kpath.KPath, afterS
 	// node above it.
 	var walkErr error
 	err = s.eachChild(prefix, kp, commit, after, func(child, kind string) bool {
-		walkErr = s.walkSet(kpath.Join(prefix, child), segs[1:], pat.Next, nil, commit, true, kind, fn)
+		walkErr = s.walkSet(kpath.Join(prefix, child), segs[1:], pat.Next, depth, nil, commit, true, kind, fn)
 		return walkErr == nil
 	})
 	if walkErr != nil {
@@ -464,11 +471,11 @@ func (s *Session) walkDescend(prefix string, ps kpath.Positions, afterSegs []str
 
 	keyed := s.storage.KeyedAt(s.scopeID(), prefix, commit)
 	expect := map[*kpath.KPath]string{}
-	for _, p := range ps {
+	ps.Each(func(p *kpath.KPath) {
 		if p != nil && !p.Wild() {
 			expect[p] = s.spellChild(prefix, p, commit)
 		}
-	}
+	})
 	takes := func(child string) func(*kpath.KPath) bool {
 		return func(p *kpath.KPath) bool { return segmentTakes(p, child, keyed, expect[p]) }
 	}
@@ -476,7 +483,7 @@ func (s *Session) walkDescend(prefix string, ps kpath.Positions, afterSegs []str
 	after := ""
 	if len(afterSegs) > 0 {
 		after = afterSegs[0]
-		if next := ps.Step(takes(after)); len(next) > 0 {
+		if next := ps.Step(takes(after)); !next.Empty() {
 			if err := s.walkDescend(kpath.Join(prefix, after), next, afterSegs[1:], commit, true, "", fn); err != nil {
 				return err
 			}
@@ -485,7 +492,7 @@ func (s *Session) walkDescend(prefix string, ps kpath.Positions, afterSegs []str
 	var walkErr error
 	err := s.storage.Children(commit, s.scopeID(), prefix, after, func(c storage.Child) bool {
 		next := ps.Step(takes(c.Segment))
-		if len(next) == 0 {
+		if next.Empty() {
 			return true
 		}
 		child := kpath.Join(prefix, c.Segment)
@@ -572,16 +579,18 @@ func isAbsent(err error) bool {
 }
 
 // setCursor is what a cursor says: the commit the set is being read at, the path the
-// read started from, and the last member answered. It is opaque on the wire -- encoded
-// so that a client reads it back to the server rather than reading it.
+// read started from and the depth it bounds a descent to, and the last member answered.
+// It is opaque on the wire -- encoded so that a client reads it back to the server
+// rather than reading it.
 type setCursor struct {
 	commit int64
 	path   string
+	depth  int
 	after  string
 }
 
 func encodeSetCursor(c setCursor) string {
-	raw := strconv.FormatInt(c.commit, 10) + "\x00" + c.path + "\x00" + c.after
+	raw := strconv.FormatInt(c.commit, 10) + "\x00" + c.path + "\x00" + strconv.Itoa(c.depth) + "\x00" + c.after
 	return base64.RawURLEncoding.EncodeToString([]byte(raw))
 }
 
@@ -591,12 +600,24 @@ func decodeSetCursor(s string) (setCursor, error) {
 		return setCursor{}, fmt.Errorf("cursor is not one this server wrote")
 	}
 	parts := strings.Split(string(raw), "\x00")
-	if len(parts) != 3 {
+	if len(parts) != 4 {
 		return setCursor{}, fmt.Errorf("cursor is not one this server wrote")
 	}
 	commit, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil {
 		return setCursor{}, fmt.Errorf("cursor is not one this server wrote")
 	}
-	return setCursor{commit: commit, path: parts[1], after: parts[2]}, nil
+	depth, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return setCursor{}, fmt.Errorf("cursor is not one this server wrote")
+	}
+	return setCursor{commit: commit, path: parts[1], depth: depth, after: parts[3]}, nil
+}
+
+// depthWord says a depth for a person: a number, or "unbounded".
+func depthWord(depth int) string {
+	if depth == kpath.Unbounded {
+		return "unbounded"
+	}
+	return strconv.Itoa(depth)
 }
