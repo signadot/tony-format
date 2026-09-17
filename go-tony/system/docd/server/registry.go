@@ -170,10 +170,11 @@ func (r *MountRegistry) LookupPrefix(opPath string) *MountEntry {
 // alone. The pattern is compared with each mount path segment by segment: a field names
 // the mount's segment or does not, a field or key wildcard may name any (an element of a
 // keyed array is stored under a field), a key may name one, and an index names none,
-// since a mount path is field-only. Every segment the two share agreeing is a crossing,
-// whichever is longer: a mount deeper than the pattern lies inside a member, and a
-// shallower one holds the members.
-func (r *MountRegistry) SetReaches(pattern string) *MountEntry {
+// since a mount path is field-only. A `..` may name any run of them, of at most depth
+// segments (kpath.Unbounded for any number). Every segment the two share agreeing is a
+// crossing, whichever is longer: a mount deeper than the pattern lies inside a member,
+// and a shallower one holds the members.
+func (r *MountRegistry) SetReaches(pattern string, depth int) *MountEntry {
 	kp, err := kpath.Parse(pattern)
 	if err != nil {
 		return nil
@@ -185,7 +186,7 @@ func (r *MountRegistry) SetReaches(pattern string) *MountEntry {
 		if err != nil {
 			continue
 		}
-		if patternReaches(kp, mf) {
+		if patternReaches(kp, mf, depth) {
 			return entry
 		}
 	}
@@ -193,16 +194,26 @@ func (r *MountRegistry) SetReaches(pattern string) *MountEntry {
 }
 
 // patternReaches says whether the pattern's segments agree with the mount's fields over
-// the length they share.
-func patternReaches(kp *kpath.KPath, mount []string) bool {
+// the length they share, a `..` taking at most depth of them.
+func patternReaches(kp *kpath.KPath, mount []string, depth int) bool {
 	x := kp
-	for _, field := range mount {
+	for i, field := range mount {
 		if x == nil {
 			return true // the mount lies inside a member
 		}
 		switch {
 		case x.Descend:
-			return true // any depth: the mount is somewhere in it
+			if depth == kpath.Unbounded {
+				return true // any depth: the mount is somewhere in it
+			}
+			// The descent takes some of the mount's fields, up to its depth, and the
+			// rest of the pattern is tried against what is left.
+			for k := 0; k <= depth && i+k <= len(mount); k++ {
+				if patternReaches(x.Next, mount[i+k:], depth) {
+					return true
+				}
+			}
+			return false
 		case x.Field != nil:
 			if *x.Field != field {
 				return false

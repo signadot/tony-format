@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/stream"
 	logdapi "github.com/signadot/tony-format/go-tony/system/logd/api"
 )
@@ -224,7 +225,11 @@ func (s *ClientSession) routeClientRequests() error {
 		// no mount is near is logd's alone, and passes through to logd like any read --
 		// every member comes back on the request's id (ghjg0j6nh12krjgandn0).
 		if req.Match != nil && hasWildSegment(req.Match.Path) {
-			if m := s.server.Mounts.SetReaches(req.Match.Path); m != nil {
+			depth := kpath.Unbounded
+			if req.Match.Depth != nil {
+				depth = *req.Match.Depth
+			}
+			if m := s.server.Mounts.SetReaches(req.Match.Path, depth); m != nil {
 				_ = s.writeToClient(logdapi.NewErrorResponse(req.ID, logdapi.ErrCodeUnsupported,
 					fmt.Sprintf("%q names a set crossing the mount at %q, and docd cannot compose one across mounts",
 						req.Match.Path, m.Path)))
@@ -333,6 +338,11 @@ func (s *ClientSession) serveMeta(req *logdapi.SessionRequest) {
 	if req.Match == nil {
 		_ = s.writeToClient(logdapi.NewErrorResponse(req.ID, logdapi.ErrCodeUnsupported,
 			"metadata paths are read-only"))
+		return
+	}
+	if req.Match.Depth != nil {
+		_ = s.writeToClient(logdapi.NewErrorResponse(req.ID, logdapi.ErrCodeInvalidPath, fmt.Sprintf(
+			"%q: depth bounds a `..`, and this path has none", req.Match.Path)))
 		return
 	}
 

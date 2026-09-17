@@ -68,12 +68,12 @@ func TestPositions_Step(t *testing.T) {
 	}
 	// Under x: the descent absorbs it; b does not take it.
 	ps = ps.Step(takesField("x"))
-	if got, want := ps.names(), "..b..c@1 b..c"; got != want {
+	if got, want := ps.names(), "..b..c b..c"; got != want {
 		t.Errorf("after x = %q, want %q", got, want)
 	}
 	// Under b: the descent absorbs it, AND b takes it, opening the second descent.
 	ps = ps.Step(takesField("b"))
-	if got, want := ps.names(), "..b..c@2 b..c ..c c"; got != want {
+	if got, want := ps.names(), "..b..c b..c ..c c"; got != want {
 		t.Errorf("after b = %q, want %q", got, want)
 	}
 	if ps.Done() {
@@ -81,8 +81,18 @@ func TestPositions_Step(t *testing.T) {
 	}
 	// Under c: matched, and every descent still open.
 	ps = ps.Step(takesField("c"))
-	if got, want := ps.names(), "..b..c@3 b..c ..c@1 c $"; got != want {
+	if got, want := ps.names(), "..b..c b..c ..c c $"; got != want {
 		t.Errorf("after c = %q, want %q", got, want)
+	}
+	// Unbounded, nothing is counted, so a descent reopened at every level is one
+	// position and not one per level: the set is the pattern's size however deep the
+	// walk goes.
+	deep := Start(kp, Unbounded)
+	for range 5 {
+		deep = deep.Step(takesField("b"))
+	}
+	if got, want := deep.names(), "..b..c b..c ..c c"; got != want {
+		t.Errorf("after five b = %q, want %q", got, want)
 	}
 	if !ps.Done() || !ps.Live() {
 		t.Errorf("after c: done %v live %v, want both", ps.Done(), ps.Live())
@@ -130,10 +140,13 @@ func TestPositions_Depth(t *testing.T) {
 	if got, want := ps.names(), "..b b"; got != want {
 		t.Fatalf("start = %q, want %q", got, want)
 	}
-	// Under x: the descent takes it, and has taken all it may.
+	// Under x: the descent takes it, and has taken all it may; b is still live.
 	ps = ps.Step(takesField("x"))
 	if got, want := ps.names(), "..b@1 b"; got != want {
 		t.Errorf("after x = %q, want %q", got, want)
+	}
+	if !ps.Live() {
+		t.Error("x: b could still take a child, and the set is not live")
 	}
 	// Under x.b: b takes it; the descent is spent and dropped. Done, and nothing live.
 	under := ps.Step(takesField("b"))
@@ -161,5 +174,56 @@ func TestPositions_Depth(t *testing.T) {
 	ps = Start(two, 1).Step(takesField("b"))
 	if got, want := ps.names(), "..b..c@1 b..c ..c c"; got != want {
 		t.Errorf("..b..c at depth 1 after b = %q, want %q", got, want)
+	}
+	// Under a second b: the first descent has taken its one, so b..c is gone, but b
+	// takes the child and reopens the second descent with nothing taken -- which
+	// replaces the copy that had taken one, since the smaller count can do everything
+	// the larger can. One position for `..c`, not two.
+	ps = ps.Step(takesField("b"))
+	if got, want := ps.names(), "..c c"; got != want {
+		t.Errorf("..b..c at depth 1 after b, b = %q, want %q", got, want)
+	}
+}
+
+// A descent that has taken its depth is not live, so a walk has no reason to list
+// beneath a node where nothing else is: `a..` at depth 1 lists a once and stops at
+// its children, rather than listing each child to find nothing (gqk8t2h5h12ksse3ndn0).
+func TestPositions_NotLiveAtTheBound(t *testing.T) {
+	kp, _ := Parse("..")
+	ps := Start(kp, 1)
+	if !ps.Live() || !ps.Done() {
+		t.Fatalf("start: live %v done %v", ps.Live(), ps.Done())
+	}
+	ps = ps.Step(takesField("x"))
+	if !ps.Done() {
+		t.Error("x is not named")
+	}
+	if ps.Live() {
+		t.Errorf("x: the descent has taken its depth, and the set is live: %q", ps.names())
+	}
+	if !ps.Step(takesField("y")).Empty() {
+		t.Error("x.y is on a path the pattern names")
+	}
+}
+
+// CheckDepth is the one statement of what a depth may be.
+func TestCheckDepth(t *testing.T) {
+	for _, tc := range []struct {
+		path  string
+		depth int
+		ok    bool
+	}{
+		{"a..", 0, true}, {"a..", 3, true},
+		{"a.*", 1, false}, {"a.b", 0, false}, {"", 2, false},
+		// A given -1 is a negative like any other, not the unbounded sentinel.
+		{"a..", -1, false}, {"a..", -2, false}, {"a.b", -2, false},
+	} {
+		kp, err := Parse(tc.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := CheckDepth(kp, tc.depth) == nil; got != tc.ok {
+			t.Errorf("CheckDepth(%q, %d) ok = %v, want %v", tc.path, tc.depth, got, tc.ok)
+		}
 	}
 }

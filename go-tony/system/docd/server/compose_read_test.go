@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"testing"
 
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -106,31 +107,43 @@ func TestMountsUnder_StrictlyBelowOnly(t *testing.T) {
 func TestSetReaches(t *testing.T) {
 	for _, tc := range []struct {
 		mount, pattern string
+		depth          int
 		reaches        bool
 	}{
-		{"verse.x", "verse.demo.*", false},
-		{"verse.x", "verse.*", true},         // a member is the mount
-		{"verse.x.y", "verse.*", true},       // a member holds the mount
-		{"verse", "verse.demo.*", true},      // the members are the mount's
-		{"a.b", "*", true},                   // a member holds the mount
-		{"a.x.c", "a.*.b", false},            // the members are a.K.b, beside a.x.c
-		{"a.list.foo", "a.list[*].x", false}, // an index names no field
-		{"runs.m", "runs(*).n", true},        // an element is stored under a field
-		{"other.x", "jobs.*", false},
+		{"verse.x", "verse.demo.*", kpath.Unbounded, false},
+		{"verse.x", "verse.*", kpath.Unbounded, true},         // a member is the mount
+		{"verse.x.y", "verse.*", kpath.Unbounded, true},       // a member holds the mount
+		{"verse", "verse.demo.*", kpath.Unbounded, true},      // the members are the mount's
+		{"a.b", "*", kpath.Unbounded, true},                   // a member holds the mount
+		{"a.x.c", "a.*.b", kpath.Unbounded, false},            // the members are a.K.b, beside a.x.c
+		{"a.list.foo", "a.list[*].x", kpath.Unbounded, false}, // an index names no field
+		{"runs.m", "runs(*).n", kpath.Unbounded, true},        // an element is stored under a field
+		{"other.x", "jobs.*", kpath.Unbounded, false},
 		// A descent reaches whatever is at or under its concrete prefix, and nothing
 		// beside it.
-		{"a.b", "..name", true},
-		{"verse.x", "verse..name", true},
-		{"verse.x.y", "verse.x..", true},
-		{"verse.x", "verse.demo..name", false},
-		{"other.x", "jobs..", false},
+		{"a.b", "..name", kpath.Unbounded, true},
+		{"verse.x", "verse..name", kpath.Unbounded, true},
+		{"verse.x.y", "verse.x..", kpath.Unbounded, true},
+		{"verse.x", "verse.demo..name", kpath.Unbounded, false},
+		{"other.x", "jobs..", kpath.Unbounded, false},
+		// A bounded descent takes at most its depth of the mount's fields: too shallow
+		// to reach the mount, the set is logd's alone.
+		{"verse.x", "..x", 1, true},
+		{"verse.x", "..x", 0, false},
+		{"a.b.c", "..c", 1, false},
+		{"a.b.c", "..c", 2, true},
+		{"a.b.c", "a..c", 1, true},
+		{"mounted.m", "..status", 1, false},
+		{"mounted.m", "..status", kpath.Unbounded, true},
+		// The prefix of a descent holds the mount, at any depth.
+		{"a.b.c", "a..", 0, true},
 	} {
 		reg := NewMountRegistry()
 		if err := reg.Register(&MountEntry{Path: tc.mount}); err != nil {
 			t.Fatalf("register %q: %v", tc.mount, err)
 		}
-		if got := reg.SetReaches(tc.pattern) != nil; got != tc.reaches {
-			t.Errorf("SetReaches(%q) with a mount at %q = %v, want %v", tc.pattern, tc.mount, got, tc.reaches)
+		if got := reg.SetReaches(tc.pattern, tc.depth) != nil; got != tc.reaches {
+			t.Errorf("SetReaches(%q, %d) with a mount at %q = %v, want %v", tc.pattern, tc.depth, tc.mount, got, tc.reaches)
 		}
 	}
 }

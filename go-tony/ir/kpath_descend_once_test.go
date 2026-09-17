@@ -106,3 +106,17 @@ func TestDescendDepth(t *testing.T) {
 		}
 	}
 }
+
+// The depth rule is kpath's, and ir's entry applies it: a depth on a path with no
+// `..` is an error, and so is a negative one.
+func TestDescendDepthIsChecked(t *testing.T) {
+	doc := obj("a", obj("b", FromInt(1)))
+	for _, tc := range []struct {
+		pattern string
+		depth   int
+	}{{"a.b", 1}, {"a.*", 0}, {"a..", -2}} {
+		if _, err := doc.ListKPathWith(nil, tc.pattern, WithDepth(tc.depth)); err == nil {
+			t.Errorf("%q at depth %d was not refused", tc.pattern, tc.depth)
+		}
+	}
+}

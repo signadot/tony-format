@@ -280,6 +280,20 @@ func TestMatchSet_ThroughDocd(t *testing.T) {
 			t.Errorf("%s crosses the mount: code %q, want %q: %v", path, code, logdapi.ErrCodeUnsupported, err)
 		}
 	}
+	// A descent too shallow to reach the mount is logd's alone, and passes through.
+	one := 1
+	var shallow []string
+	if _, err := s.MatchEachQuery(ctx, SetQuery{Path: "..status", Return: logdapi.ReturnPath, Depth: &one}, func(m SetMember) error {
+		shallow = append(shallow, m.Path)
+		return nil
+	}); err != nil || len(shallow) != 0 {
+		t.Errorf("..status at depth 1 through docd answered %v, %v; want nothing, and no refusal", shallow, err)
+	}
+	// A depth on a read composed across mounts is refused as logd refuses it, rather
+	// than dropped from the request docd rebuilds.
+	if _, err := s.MatchEachQuery(ctx, SetQuery{Path: "", Depth: &one}, func(SetMember) error { return nil }); logdapi.ErrorCode(err) != logdapi.ErrCodeInvalidPath {
+		t.Errorf("a depth on a composed read: %v, want invalid_path", err)
+	}
 	// A path that names one node still reads through docd, unchanged.
 	if _, err := s.Match(ctx, "jobs.a"); err != nil {
 		t.Errorf("a single-node read through docd: %v", err)

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	tony "github.com/signadot/tony-format/go-tony"
@@ -34,14 +35,22 @@ func list(cfg *ListConfig, cc *cli.Context, args []string) error {
 		return usageErr(cfg.List, cc, err.Error())
 	}
 	// -depth bounds a `..`, and only a `..`: on a path with none it means nothing,
-	// and is refused rather than ignored, as logd refuses it.
-	if cfg.Depth != kpath.Unbounded {
-		if cfg.Depth < 0 {
-			return usageErr(cfg.List, cc, fmt.Sprintf("-depth %d: a descent takes a number of segments, not fewer than none", cfg.Depth))
+	// and is refused rather than ignored, in the words logd refuses it in. It is a
+	// string so that a depth given is told from one not given, whatever its value.
+	depth := kpath.Unbounded
+	if cfg.Depth != "" {
+		n, err := strconv.Atoi(cfg.Depth)
+		if err != nil {
+			return usageErr(cfg.List, cc, fmt.Sprintf("-depth %q: not a number", cfg.Depth))
 		}
-		if kp, err := kpath.Parse(path); err == nil && !hasDescend(kp) {
-			return usageErr(cfg.List, cc, fmt.Sprintf("-depth bounds a `..`, and %q has none", path))
+		kp, err := kpath.Parse(path)
+		if err != nil {
+			return usageErr(cfg.List, cc, err.Error())
 		}
+		if err := kpath.CheckDepth(kp, n); err != nil {
+			return usageErr(cfg.List, cc, "-"+err.Error())
+		}
+		depth = n
 	}
 	pred, err := ifPredicate(cfg.If, cfg.IfFile, cfg.parseOpts())
 	if err != nil {
@@ -69,7 +78,7 @@ func list(cfg *ListConfig, cc *cli.Context, args []string) error {
 			if cfg.Paths {
 				nodeTrim = nil
 			}
-			res, err := listDoc(doc, path, cfg.Comments, cfg.Depth, pred, nodeTrim)
+			res, err := listDoc(doc, path, cfg.Comments, depth, pred, nodeTrim)
 			if err != nil {
 				return fault(cc, fmt.Errorf("error querying %s with %s: %w", arg, path, err))
 			}
@@ -183,14 +192,4 @@ func keepMatching(nodes []*ir.Node, pred *ir.Node) ([]*ir.Node, error) {
 		}
 	}
 	return kept, nil
-}
-
-// hasDescend says the path holds a `..`, which is what -depth bounds.
-func hasDescend(kp *kpath.KPath) bool {
-	for x := kp; x != nil; x = x.Next {
-		if x.Descend {
-			return true
-		}
-	}
-	return false
 }

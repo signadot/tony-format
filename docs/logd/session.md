@@ -318,7 +318,8 @@ continuation at another depth is `invalid_path`.
 **Across docd**, a set no mount is near passes through to logd and is answered as logd
 answers it. A set that crosses a mount — a member at, under or above one — is
 `unsupported`: its members live in more than one place, and docd does not compose one.
-A path naming one node is unaffected.
+A descent bounded too shallow to reach a mount does not cross it. A path naming one
+node is unaffected.
 
 **A read answers `null` only where a null was written.** A path holding nothing is
 `not_found`, at every depth, whether or not an ancestor of it resolves — and on a store

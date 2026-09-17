@@ -71,17 +71,3 @@ func kpathHasWild(path string) bool {
 	}
 	return false
 }
-
-// kpathHasDescend says the path holds a `..`, which is what a depth bounds.
-func kpathHasDescend(path string) bool {
-	kp, err := kpath.Parse(path)
-	if err != nil {
-		return false
-	}
-	for x := kp; x != nil; x = x.Next {
-		if x.Descend {
-			return true
-		}
-	}
-	return false
-}

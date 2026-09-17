@@ -63,20 +63,19 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 	}
 
 	// A depth bounds a descent, and only a descent: on a path with none it means
-	// nothing, and is refused rather than ignored.
+	// nothing, and is refused rather than ignored (kpath.CheckDepth).
 	depth := kpath.Unbounded
 	if req.Depth != nil {
-		switch {
-		case *req.Depth < 0:
-			s.sendError(id, api.ErrCodeInvalidPath,
-				fmt.Sprintf("depth %d: a descent takes a number of segments, not fewer than none", *req.Depth))
-			return
-		case !kpathHasDescend(path):
-			s.sendError(id, api.ErrCodeInvalidPath,
-				fmt.Sprintf("%q: depth bounds a `..`, and this path has none", path))
+		depth = *req.Depth
+		kp, err := kpath.Parse(path)
+		if err != nil {
+			s.sendError(id, api.ErrCodeInvalidPath, err.Error())
 			return
 		}
-		depth = *req.Depth
+		if err := kpath.CheckDepth(kp, depth); err != nil {
+			s.sendError(id, api.ErrCodeInvalidPath, err.Error())
+			return
+		}
 	}
 
 	// A wildcard names a set, and the set is answered one node at a time, each member

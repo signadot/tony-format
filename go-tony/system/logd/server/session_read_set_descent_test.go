@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/ir/kpath"
 	"github.com/signadot/tony-format/go-tony/parse"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
@@ -303,15 +304,19 @@ func TestSetMatch_DescentListsBeyondTheReadBudget(t *testing.T) {
 	}
 }
 
-// pageAll reads the set pattern names a page at a time, at limit per page, and answers
-// the paths of every page together, with the commit the pages were read at.
-func pageAll(t *testing.T, store *storage.Storage, pattern string, limit int) ([]string, int64) {
+// pageAll reads the set pattern names a page at a time, at limit per page and at depth
+// (kpath.Unbounded to send none), and answers the paths of every page together, with
+// the commit the pages were read at.
+func pageAll(t *testing.T, store *storage.Storage, pattern string, depth, limit int) ([]string, int64) {
 	t.Helper()
 	var seen []string
 	cursor := ""
 	commit := int64(-1)
 	for page := 1; ; page++ {
 		req := fmt.Sprintf(`{id: "p", match: {path: %q, return: path, limit: %d`, pattern, limit)
+		if depth != kpath.Unbounded {
+			req += fmt.Sprintf(`, depth: %d`, depth)
+		}
 		if cursor != "" {
 			req += fmt.Sprintf(`, cursor: %q`, cursor)
 		}
@@ -352,7 +357,7 @@ func TestSetMatch_DescentPaging(t *testing.T) {
 			t.Fatalf("%q answered nothing; the case proves nothing", pattern)
 		}
 		for _, limit := range []int{1, 2, 3, 5} {
-			paged, _ := pageAll(t, store, pattern, limit)
+			paged, _ := pageAll(t, store, pattern, kpath.Unbounded, limit)
 			if !equalStrings(paged, whole) {
 				t.Errorf("%q by pages of %d answered %v, want %v", pattern, limit, paged, whole)
 			}
@@ -492,7 +497,7 @@ func TestSetMatch_DescentDepth(t *testing.T) {
 				t.Errorf("%s at depth %d: in process %v, on the wire %v", tc.pattern, tc.depth, inProcess, got)
 			}
 			// Paged, the same.
-			paged, _ := pageAllDepth(t, store, tc.pattern, tc.depth, 2)
+			paged, _ := pageAll(t, store, tc.pattern, tc.depth, 2)
 			if !equalStrings(paged, tc.want) {
 				t.Errorf("%s at depth %d by pages of 2 answered %v", tc.pattern, tc.depth, paged)
 			}
@@ -528,29 +533,43 @@ func TestSetMatch_DescentDepth(t *testing.T) {
 	}
 }
 
-// pageAllDepth is pageAll with a depth on every page.
-func pageAllDepth(t *testing.T, store *storage.Storage, pattern string, depth, limit int) ([]string, int64) {
-	t.Helper()
-	var seen []string
-	cursor := ""
-	commit := int64(-1)
-	for page := 1; ; page++ {
-		req := fmt.Sprintf(`{id: "p", match: {path: %q, return: path, depth: %d, limit: %d`, pattern, depth, limit)
-		if cursor != "" {
-			req += fmt.Sprintf(`, cursor: %q`, cursor)
-		}
-		p := mustSet(t, runSet(t, store, req+"}}"), "p")
-		if commit >= 0 && p.marker.Commit != commit {
-			t.Fatalf("%q page %d read at commit %d, page 1 at %d", pattern, page, p.marker.Commit, commit)
-		}
-		commit = p.marker.Commit
-		seen = append(seen, p.paths()...)
-		cursor = p.marker.Cursor
-		if cursor == "" {
-			return seen, commit
-		}
-		if page > 100 {
-			t.Fatalf("%q: still paging after %d pages", pattern, page)
-		}
+// TestSetMatch_DescentDepthCostsItsLevels: the walk stops at the bound rather than
+// walking deeper and filtering. `jobs..` at depth 1 over many jobs is one listing, of
+// jobs; the jobs themselves are named by it and never listed (gqk8t2h5h12ksse3ndn0).
+func TestSetMatch_DescentDepthCostsItsLevels(t *testing.T) {
+	store := openStore(t)
+	const n = 40 // sized to the harness's wait: a listing a job, at depth 2
+	var jobs []string
+	for i := range n {
+		jobs = append(jobs, fmt.Sprintf("j%03d: {status: done, n: %d}", i, i))
+	}
+	narrowWrite(t, store, "", "{jobs: {"+strings.Join(jobs, ", ")+"}}")
+	listings := func(r storage.ReadStats) int64 { return r.ListTable + r.ListStream }
+
+	before := store.ReadStats()
+	got := mustSet(t, runSet(t, store, `{id: "q", match: {path: "jobs..", return: path, depth: 1}}`), "q").paths()
+	if len(got) != 1+n || got[0] != "jobs" {
+		t.Fatalf("jobs.. at depth 1 answered %d members starting %v", len(got), got[:min(2, len(got))])
+	}
+	if d := listings(store.ReadStats()) - listings(before); d != 1 {
+		t.Errorf("jobs.. at depth 1 cost %d listings, want 1: the walk listed past its bound", d)
+	}
+
+	// Depth 0 is a descent that takes nothing, and lists nothing.
+	before = store.ReadStats()
+	if got := mustSet(t, runSet(t, store, `{id: "q", match: {path: "jobs..", return: path, depth: 0}}`), "q").paths(); !equalStrings(got, []string{"jobs"}) {
+		t.Errorf("jobs.. at depth 0 answered %v", got)
+	}
+	if d := listings(store.ReadStats()) - listings(before); d != 0 {
+		t.Errorf("jobs.. at depth 0 cost %d listings, want none", d)
+	}
+
+	// Depth 2 lists jobs and each job: 1 + n.
+	before = store.ReadStats()
+	if got := mustSet(t, runSet(t, store, `{id: "q", match: {path: "jobs..", return: path, depth: 2}}`), "q").paths(); len(got) != 1+3*n {
+		t.Errorf("jobs.. at depth 2 answered %d members, want %d", len(got), 1+3*n)
+	}
+	if d := listings(store.ReadStats()) - listings(before); d != 1+n {
+		t.Errorf("jobs.. at depth 2 cost %d listings, want %d", d, 1+n)
 	}
 }
