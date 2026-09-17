@@ -6,7 +6,9 @@ commits: []
 created: "2026-09-17T03:52:28.447742+02:00"
 duplicates: []
 id: 5rfjcqz9h12ksq27ndn0
-labels: []
+labels:
+- bug
+- kpath
 related_issues: []
 status: open
-updated: "2026-09-17T03:52:28.447742+02:00"
+updated: "2026-09-17T03:52:32.761507+02:00"
