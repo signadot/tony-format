@@ -318,6 +318,8 @@ func TestNode_ListKPath_FieldWildcardNested(t *testing.T) {
 	}
 }
 
+// A sparse key names nothing in a dense array: its elements are written [i], and
+// {*} naming them too gave each a second spelling. This used to answer all three.
 func TestNode_ListKPath_SparseIndexWildcard(t *testing.T) {
 	node := FromMap(map[string]*Node{
 		"arr": FromSlice([]*Node{
@@ -326,16 +328,14 @@ func TestNode_ListKPath_SparseIndexWildcard(t *testing.T) {
 			FromString("third"),
 		}),
 	})
-	dst := []*Node{}
-	result, err := node.ListKPath(dst, "arr{*}")
-	if err != nil {
-		t.Fatalf("ListKPath() error = %v", err)
-	}
-	if len(result) != 3 {
-		t.Errorf("ListKPath() returned %d nodes, want 3", len(result))
-	}
-	if result[0].String != "first" || result[1].String != "second" || result[2].String != "third" {
-		t.Errorf("ListKPath() returned wrong values: %v", result)
+	for _, p := range []string{"arr{*}", "arr{1}"} {
+		result, err := node.ListKPath(nil, p)
+		if err != nil {
+			t.Fatalf("ListKPath(%s) error = %v", p, err)
+		}
+		if len(result) != 0 {
+			t.Errorf("ListKPath(%s) returned %d nodes over a dense array, want none", p, len(result))
+		}
 	}
 }
 

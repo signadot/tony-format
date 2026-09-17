@@ -172,7 +172,7 @@ func (node *Node) getKPath(kp *kpath.KPath) (*Node, error) {
 			field := *kp.Field
 			found := false
 			for i, yf := range res.Fields {
-				if yf.String != field {
+				if sparseField(yf) || yf.String != field {
 					continue
 				}
 				res = res.Values[i]
@@ -341,7 +341,7 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 		}
 		if kp.SparseIndexAll {
 			for i := range node.Fields {
-				if node.Fields[i].Type != NumberType {
+				if !sparseField(node.Fields[i]) {
 					continue
 				}
 				dst, err = node.Values[i].listKPath(dst, kp.Next)
@@ -361,9 +361,14 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 		if kp.Field == nil && !kp.FieldAll && kp.Next == nil {
 			return append(dst, node.Clone()), nil
 		}
+		// A field segment names a field, and a sparse entry is not one: it is
+		// written {n}, and .* naming it too would give the entry a second spelling,
+		// under which a document could not be rebuilt from its paths (sparseField).
 		if kp.FieldAll {
-			// Iterate all object fields
 			for i := range node.Fields {
+				if sparseField(node.Fields[i]) {
+					continue
+				}
 				dst, err = node.Values[i].listKPath(dst, kp.Next)
 				if err != nil {
 					return nil, err
@@ -374,7 +379,7 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 		if kp.Field != nil {
 			field := *kp.Field
 			for i := range node.Fields {
-				if node.Fields[i].String != field {
+				if sparseField(node.Fields[i]) || node.Fields[i].String != field {
 					continue
 				}
 				dst, err = node.Values[i].listKPath(dst, kp.Next)
@@ -412,7 +417,13 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 			}
 			return dst, nil
 		}
-		if kp.Index == nil && !kp.IndexAll && kp.SparseIndex == nil && !kp.SparseIndexAll && kp.Next == nil {
+		// A sparse key names nothing in a dense array, whose elements are written
+		// [i]: {*} used to name every element and {n} the nth, a second spelling of
+		// each (sparseField).
+		if kp.SparseIndex != nil || kp.SparseIndexAll {
+			return dst, nil
+		}
+		if kp.Index == nil && !kp.IndexAll && kp.Next == nil {
 			return append(dst, node.Clone()), nil
 		}
 		if kp.Index != nil {
@@ -429,26 +440,6 @@ func (node *Node) listKPath(dst []*Node, kp *kpath.KPath) ([]*Node, error) {
 			// Iterate all array elements
 			for _, yv := range node.Values {
 				dst, err = yv.listKPath(dst, kp.Next)
-				if err != nil {
-					return nil, err
-				}
-			}
-			return dst, nil
-		}
-		if kp.SparseIndexAll {
-			// Iterate all sparse array elements (for now, treat as regular array)
-			for _, yv := range node.Values {
-				dst, err = yv.listKPath(dst, kp.Next)
-				if err != nil {
-					return nil, err
-				}
-			}
-			return dst, nil
-		}
-		if kp.SparseIndex != nil {
-			idx := *kp.SparseIndex
-			if 0 <= idx && idx < len(node.Values) {
-				dst, err = node.Values[idx].listKPath(dst, kp.Next)
 				if err != nil {
 					return nil, err
 				}
@@ -499,16 +490,17 @@ func (node *Node) listDescend(dst []*Node, ps kpath.Positions) []*Node {
 	case ObjectType:
 		for i := range node.Fields {
 			field := node.Fields[i]
+			sparse := sparseField(field)
 			next := ps.Step(func(seg *kpath.KPath) bool {
 				switch {
 				case seg.FieldAll:
-					return true
+					return !sparse
 				case seg.Field != nil:
-					return field.String == *seg.Field
+					return !sparse && field.String == *seg.Field
 				case seg.SparseIndexAll:
-					return field.Type == NumberType
+					return sparse
 				case seg.SparseIndex != nil:
-					return field.Type == NumberType && field.Int64 != nil && int(*field.Int64) == *seg.SparseIndex
+					return sparse && int(*field.Int64) == *seg.SparseIndex
 				}
 				return false
 			})
@@ -521,12 +513,10 @@ func (node *Node) listDescend(dst []*Node, ps kpath.Positions) []*Node {
 		for i, elem := range node.Values {
 			next := ps.Step(func(seg *kpath.KPath) bool {
 				switch {
-				case seg.IndexAll, seg.SparseIndexAll, seg.KeyAll:
+				case seg.IndexAll, seg.KeyAll:
 					return true
 				case seg.Index != nil:
 					return *seg.Index == i
-				case seg.SparseIndex != nil:
-					return *seg.SparseIndex == i
 				case seg.Key != nil:
 					if !keyed {
 						return false
@@ -602,8 +592,17 @@ func (node *Node) sparseKey() (int64, bool) {
 		return 0, false
 	}
 	f := p.Fields[node.ParentIndex]
-	if f == nil || f.Type != NumberType || f.Int64 == nil {
+	if !sparseField(f) {
 		return 0, false
 	}
 	return *f.Int64, true
+}
+
+// sparseField says the field key f is a number, so the value under it is an entry of
+// a sparse array, written {n}, and not a field, written .name. One rule for every
+// walk, because a path has to say which kind of child it stepped into: a document is
+// rebuilt from its paths and leaves, and it cannot be if one child has two spellings
+// or a spelling names children of two kinds.
+func sparseField(f *Node) bool {
+	return f != nil && f.Type == NumberType && f.Int64 != nil
 }

@@ -76,11 +76,9 @@ func TestSetMatch_DescentAgreesWithListKPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Not `..{*}`: in process {*} names the positions of a dense array as well, which is
-	// ir's own reading of {*} and no descent's, and is not the store's.
 	for _, pattern := range []string{
-		"..c", "a..c", "a.b..", "a..b.c", "a..b..c", "a....c", "..[*]", "a.x..*",
-		"..[1]", "..{7}", "..nope", "..", "a.x[*]..", "a..b.*", "a.sp..",
+		"..c", "a..c", "a.b..", "a..b.c", "a..b..c", "a....c", "..[*]", "..{*}", "..*", "a.x..*",
+		"..[1]", "..{7}", "..nope", "..", "a.x[*]..", "a..b.*", "a.sp..", "a.sp.*", "a.x{*}",
 	} {
 		t.Run(pattern, func(t *testing.T) {
 			found, err := doc.ListKPath(nil, pattern)

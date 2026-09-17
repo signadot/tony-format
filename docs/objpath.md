@@ -22,6 +22,12 @@ through — which is what "kinded path" means:
 | `.*` `[*]` `{*}` `(*)` | all of them, at that step | `items[*].name` |
 | `..` | any depth below here, this node included | `..name`, `spec..image` |
 
+A segment names only children of its kind. `.*` names an object's fields and not the
+entries of a sparse array, which `{*}` names, and `{*}` names nothing in a dense array,
+whose elements `[*]` names. That is what makes a path an address: every node has one
+spelling, so a document can be rebuilt from its paths and its leaves, and the path a
+query answers with is the path a write is rooted at.
+
 The leading `.` is optional at the start, so `spec.replicas` and `.spec.replicas` are
 the same path, and by the same rule a bare `.` is the whole document. It is optional
 only there: a field after an element or a key still takes its dot, so `items[0].name`
