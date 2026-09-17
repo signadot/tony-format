@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 8a20efa0dd8832ba269b062367407f3fe65f61d3
 commits: []
 created: "2026-09-17T12:41:41.864052+02:00"
 duplicates: []
@@ -11,5 +12,5 @@ labels:
 - logd
 related_issues:
 - zpx2x6b0h12ks05andn0
-status: open
-updated: "2026-09-17T12:41:42.051817+02:00"
+status: closed
+updated: "2026-09-17T12:51:52.337157+02:00"
