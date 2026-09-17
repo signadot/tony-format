@@ -20,10 +20,12 @@ import (
 //
 // The walk is left to right. A concrete segment extends the path being built; a wildcard
 // enumerates the children of the node the path has reached so far and recurs into each,
-// so `a.*.b.*` is two levels of the same step. A branch where the rest of the path finds
-// nothing contributes nothing: a query walks nodes of every kind, so a segment that does
-// not fit the node it meets is a non-match rather than a fault -- which is what
-// ir's own walk does for the same path (ir.Node.ListKPath).
+// so `a.*.b.*` is two levels of the same step. A `..` is a walk of the whole subtree
+// from there, pre-order, each node once, against what the pattern could still be
+// (walkDescend). A branch where the rest of the path finds nothing contributes nothing:
+// a query walks nodes of every kind, so a segment that does not fit the node it meets is
+// a non-match rather than a fault -- which is what ir's own walk does for the same path
+// (ir.Node.ListKPath), and the two answer one path with one set in one order.
 //
 // Members are answered by the code that answers a single-node read, so raising, the
 // pattern, and the read budget are the same for a member as for a read of that member's
@@ -277,14 +279,19 @@ func patternSelected(before, after *ir.Node) bool {
 // resume point, empty for the first page).
 func (s *Session) eachSetMember(path string, commit int64, after string, fn func(member string, proven bool, kind string) error) error {
 	segs := kpath.SplitAll(path)
+	pat, err := kpath.Parse(path)
+	if err != nil {
+		return err
+	}
 	afterSegs := []string(nil)
 	if after != "" {
 		afterSegs = kpath.SplitAll(after)
 	}
-	return s.walkSet("", segs, afterSegs, commit, false, "", fn)
+	return s.walkSet("", segs, pat, afterSegs, commit, false, "", fn)
 }
 
-// walkSet extends prefix by segs. afterSegs, while non-nil, is the cursor's path: the
+// walkSet extends prefix by segs, which pat is the same segments parsed (the walk from
+// a `..` on carries the pattern rather than steps it). afterSegs, while non-nil, is the cursor's path: the
 // walk is still on the branch the last page ended in, so a level descends into the
 // cursor's own child still on the branch, and then lists every later sibling, from that
 // child on. That is a seek rather than a rescan -- the members already answered are
@@ -298,7 +305,7 @@ func (s *Session) eachSetMember(path string, commit int64, after string, fn func
 // inside the listing's callback, so what is held at a level is the listing's own
 // position and not the level's children, and a page of a set of ten thousand costs the
 // page.
-func (s *Session) walkSet(prefix string, segs, afterSegs []string, commit int64, proven bool, kind string, fn func(string, bool, string) error) error {
+func (s *Session) walkSet(prefix string, segs []string, pat *kpath.KPath, afterSegs []string, commit int64, proven bool, kind string, fn func(string, bool, string) error) error {
 	if len(segs) == 0 {
 		if afterSegs != nil {
 			// The cursor's own member: answered on the previous page.
@@ -310,6 +317,11 @@ func (s *Session) walkSet(prefix string, segs, afterSegs []string, commit int64,
 	kp, err := kpath.Parse(seg)
 	if err != nil {
 		return err
+	}
+	if kp.Descend {
+		// From here on the walk is of nodes, not of steps: the rest of the pattern is
+		// what the walk carries, and every node beneath is asked against it.
+		return s.walkDescend(prefix, kpath.Start(pat), afterSegs, commit, proven, kind, fn)
 	}
 	if !kp.Wild() {
 		// Spelled as the store spells it, as a single-node read's path is: an element
@@ -330,7 +342,7 @@ func (s *Session) walkSet(prefix string, segs, afterSegs []string, commit int64,
 		}
 		// A step the walk TOOK rather than found: whether anything stands here is not
 		// known until something reads it.
-		return s.walkSet(child, segs[1:], next, commit, false, "", fn)
+		return s.walkSet(child, segs[1:], pat.Next, next, commit, false, "", fn)
 	}
 
 	// The cursor's own child first, still on its branch: what is under it after the
@@ -341,7 +353,7 @@ func (s *Session) walkSet(prefix string, segs, afterSegs []string, commit int64,
 			return nil
 		}
 		after = afterSegs[0]
-		if err := s.walkSet(kpath.Join(prefix, after), segs[1:], afterSegs[1:], commit, true, "", fn); err != nil {
+		if err := s.walkSet(kpath.Join(prefix, after), segs[1:], pat.Next, afterSegs[1:], commit, true, "", fn); err != nil {
 			return err
 		}
 	}
@@ -349,7 +361,7 @@ func (s *Session) walkSet(prefix string, segs, afterSegs []string, commit int64,
 	// node above it.
 	var walkErr error
 	err = s.eachChild(prefix, kp, commit, after, func(child, kind string) bool {
-		walkErr = s.walkSet(kpath.Join(prefix, child), segs[1:], nil, commit, true, kind, fn)
+		walkErr = s.walkSet(kpath.Join(prefix, child), segs[1:], pat.Next, nil, commit, true, kind, fn)
 		return walkErr == nil
 	})
 	if walkErr != nil {
@@ -366,28 +378,128 @@ func (s *Session) walkSet(prefix string, segs, afterSegs []string, commit int64,
 // The store keeps a keyed array as an object of names, and (*) names those -- how the
 // store spells the elements and how a client addresses them -- while .* and [*] name
 // nothing there: to a client it is an array, and identity replaces position. Whether
-// the array is keyed is the schema's word at the commit read (identityAt).
+// the array is keyed is the schema's word at the commit read (storage.KeyedAt) -- and an
+// element of a keyed array is not one, whatever its path elides to in the schema.
 func (s *Session) eachChild(prefix string, kp *kpath.KPath, commit int64, after string, fn func(child, kind string) bool) error {
-	keyed := len(s.identityAt(prefix, commit)) > 0
+	keyed := s.storage.KeyedAt(s.scopeID(), prefix, commit)
 	switch {
 	case kp.KeyAll && !keyed, kp.FieldAll && keyed, kp.IndexAll && keyed:
 		return nil
 	}
 	return s.storage.Children(commit, s.scopeID(), prefix, after, func(c storage.Child) bool {
-		var wanted bool
-		switch c.Segment[0] {
-		case '[':
-			wanted = kp.IndexAll
-		case '{':
-			wanted = kp.SparseIndexAll
-		default:
-			wanted = kp.FieldAll || kp.KeyAll
-		}
-		if !wanted {
+		if !segmentTakes(kp, c.Segment, keyed, "") {
 			return true
 		}
 		return fn(c.Segment, s.iterTypeOf(c.Kind, kpath.Join(prefix, c.Segment), commit))
 	})
+}
+
+// segmentTakes says whether one segment of a pattern names the child the store lists
+// under a node, as the store spells it: a field, [i] or {n}. keyed is whether the node
+// is a keyed array at the commit read, under which the store's fields are elements --
+// so (*) names them and .* does not, and a position names nothing. A concrete segment
+// names the one child it spells as the store spells it, which is spelled beforehand
+// (spellChild) and passed as expect; "" for a segment the store cannot spell here,
+// which names nothing here.
+func segmentTakes(p *kpath.KPath, child string, keyed bool, expect string) bool {
+	if p.Descend {
+		// A descent is not one segment against one child; the walk carries it
+		// (kpath.Positions.Step).
+		return false
+	}
+	if !p.Wild() {
+		return expect != "" && expect == child
+	}
+	switch child[0] {
+	case '[':
+		return p.IndexAll && !keyed
+	case '{':
+		return p.SparseIndexAll
+	}
+	if keyed {
+		return p.KeyAll
+	}
+	return p.FieldAll
+}
+
+// walkDescend is the walk from a `..` on: prefix and every node beneath it, in the
+// store's order, pre-order, each once, against the positions the pattern could be at
+// (kpath.Positions): a node is a member when the set holds the end, and a child is
+// walked when some position takes it. The positions are stepped with the store's own
+// answer to "does this segment name this child" (segmentTakes), keyedness at the
+// commit included, so a wildcard after a descent means what it means anywhere.
+//
+// Every node beneath the prefix is reached by listing, so it is proven, its kind is
+// known, and a listing of the subtree costs its containers' tables and no node built:
+// `return: path` over `..` is the tables, read once each. The prefix itself is whatever
+// the walk before the descent made it -- named or listed -- and is answered as such.
+//
+// A concrete segment after a descent is settled per node before that node is listed
+// (spellChild): what it spells here, if the store can spell it here. A `(r1)` at an
+// array that is not keyed, or keyed by other fields, spells nothing here and names
+// nothing here; the same pattern meets many containers, and a fault at one is not the
+// walk's answer.
+//
+// afterSegs is the cursor, as walkSet has it: while non-nil, the node the walk is at was
+// answered or passed on an earlier page, so it is not answered again; the cursor's own
+// child is walked first, still on the cursor's branch, and then every later sibling.
+func (s *Session) walkDescend(prefix string, ps kpath.Positions, afterSegs []string, commit int64, proven bool, kind string, fn func(string, bool, string) error) error {
+	if afterSegs == nil && ps.Done() {
+		if err := fn(prefix, proven, kind); err != nil {
+			return err
+		}
+	}
+	if !ps.Live() {
+		return nil
+	}
+	if kind != "" && api.IterWildcard(kind) == "" {
+		return nil // a listed leaf: nothing under it
+	}
+
+	keyed := s.storage.KeyedAt(s.scopeID(), prefix, commit)
+	expect := map[*kpath.KPath]string{}
+	for _, p := range ps {
+		if p != nil && !p.Wild() {
+			expect[p] = s.spellChild(prefix, p, commit)
+		}
+	}
+	takes := func(child string) func(*kpath.KPath) bool {
+		return func(p *kpath.KPath) bool { return segmentTakes(p, child, keyed, expect[p]) }
+	}
+
+	after := ""
+	if len(afterSegs) > 0 {
+		after = afterSegs[0]
+		if next := ps.Step(takes(after)); len(next) > 0 {
+			if err := s.walkDescend(kpath.Join(prefix, after), next, afterSegs[1:], commit, true, "", fn); err != nil {
+				return err
+			}
+		}
+	}
+	var walkErr error
+	err := s.storage.Children(commit, s.scopeID(), prefix, after, func(c storage.Child) bool {
+		next := ps.Step(takes(c.Segment))
+		if len(next) == 0 {
+			return true
+		}
+		child := kpath.Join(prefix, c.Segment)
+		walkErr = s.walkDescend(child, next, nil, commit, true, s.iterTypeOf(c.Kind, child, commit), fn)
+		return walkErr == nil
+	})
+	if walkErr != nil {
+		return walkErr
+	}
+	return err
+}
+
+// spellChild is the child a concrete segment names under prefix, as the store spells it
+// at commit, or "" when the store cannot spell it there.
+func (s *Session) spellChild(prefix string, p *kpath.KPath, commit int64) string {
+	_, last, err := s.canonicalChild(prefix, p.SegmentString(), commit)
+	if err != nil {
+		return ""
+	}
+	return last
 }
 
 // iterTypeOf is a listed child's kind as MatchResult.IterType names it: an object the

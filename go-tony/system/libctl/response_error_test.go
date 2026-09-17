@@ -85,10 +85,10 @@ func TestPathErrorKindsCarryDistinctCodes(t *testing.T) {
 		// Something IS there, of a shape that cannot hold an index: neither "nothing
 		// there" nor "not a well-formed question".
 		{"shape conflict", "users/1[0]", logdapi.ErrCodePathConflict},
-		// A `..` names the nodes at any depth, which is a question no operation
-		// answers. A wildcard used to be refused here too; it names a set, and a read
+		// An element named by a key the object has no identity to be named by. A
+		// wildcard and a `..` used to be refused here too; each names a set, and a read
 		// answers one now (see TestMatchEach_ReadsASetOneNodeAtATime).
-		{"not a well-formed question", "users/1..name", logdapi.ErrCodeInvalidPath},
+		{"not a well-formed question", "users/1(x)", logdapi.ErrCodeInvalidPath},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := s.Match(ctx, tc.path)
