@@ -213,3 +213,24 @@ leaves, at more than one depth, so that every kind is met by the descent:
 4. Schema at the commit, test 9; docd and libctl tests, test 11. One commit.
 5. Docs. One commit.
 6. Close the issue with the merge.
+
+## What landed
+
+Everything above, in six commits on `issue-th7sdhvy`, and four things the plan did not
+foresee:
+
+- **A cursor after the root** (step 3). The root is a member of `..` and its path is
+  empty, which was also what "no cursor" looked like, so a page of one over `..` answered
+  the root forever. Whether there is a cursor is now said apart from where it points.
+- **A keyed element's fields** (step 1). `runs(*).*` listed nothing on main: the walk
+  asked the schema by the element's path, which elides to the array's. The walk asks
+  `storage.KeyedAt` now, which knows an element is not an array.
+- **ir's wildcards were not kind-strict** (after step 1). `.*` over a sparse array named
+  its entries, `.""` the first of them, and `{*}` and `{n}` over a dense array its
+  elements -- second spellings, under which a document cannot be rebuilt from its paths.
+  One rule now, for get, list and the descent.
+- **`kpath.Join` after a descent** loses the dot in `..(*).*` and `..{3}.*`
+  (5rfjcqz9h12ksq27ndn0). The walk carries the parsed pattern instead; filed, not fixed.
+
+Measured: a listing from a container's table is about a millisecond, so a descent costs
+the containers it enters at that rate.

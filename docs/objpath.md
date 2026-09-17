@@ -92,17 +92,21 @@ parse error. kpath spells it `..`, and the three-dot form is read as it.
 
 A `..` is a question: it names the nodes at any depth rather than a step to one. So
 it belongs in a query and nowhere a path has to name a place -- what a patch is
-rooted at, what a watch names, what logd indexes by. Those refuse it, and say so:
+rooted at, what a watch names, what a retain rule expires, what logd indexes by. Those
+refuse it, and say so:
 
     "a..c": `..` names nodes at any depth, which is a question and not a place:
     a path here has to name one
+
+A read answers it: logd's `match` takes a `..` and answers the set it names, each node
+once, in document order, [one node at a time](logd/session.md#reading-at-any-depth) --
+the same set, in the same order, that `o list` answers over the document.
 
 An empty field name is still sayable, in quotes: `a."".x`. That is the canonical
 spelling, and what `..` used to parse as before it meant depth.
 
 A **wildcard** — `.*`, `[*]`, `{*}`, `(*)` — is a question of the same family, asked one
-level deep rather than at any depth, and the same rule sorts where it goes. A read
-answers it: logd's `match` takes a wildcard at any segment and answers the set it names,
-[one node at a time](logd/session.md#reading-a-set), as `o list` does over a document.
-A write, a watch and a [retain rule's](logd/retention.md) non-final segments refuse it,
-because each needs one place.
+level deep rather than at any depth, and the same rule sorts where it goes: a read
+answers the set it names at any segment, [one node at a time](logd/session.md#reading-a-set),
+and a write, a watch and a [retain rule's](logd/retention.md) non-final segments refuse
+it, because each needs one place.

@@ -111,8 +111,9 @@ therefore a revision a client can compare without asking for anything extra.
 
 ### Reading a set
 
-A path holding a wildcard — `.*`, `[*]`, `{*}`, `(*)`, at **any** segment — names a set
-of nodes, and the answer is the set, **one node at a time**:
+A path holding a wildcard — `.*`, `[*]`, `{*}`, `(*)`, at **any** segment — or a
+[descent](#reading-at-any-depth), `..`, names a set of nodes, and the answer is the set,
+**one node at a time**:
 
 ```tony
 {id: "7", match: {path: "jobs.*"}}
@@ -136,8 +137,40 @@ wants built at either end, and the paths are half the answer.
   error — the same rule `o list` follows walking a document.
 - an **empty set is the marker alone**. A query for a set answers with a set, and empty
   is one; `not_found` keeps its meaning for a path that names one place.
-- `..` is **not** a read: it names nodes at any depth, and is refused here as everywhere
-  a path must name a place.
+
+#### Reading at any depth
+
+`..` names the node it follows and every node beneath it, at any depth, and what follows
+it applies at each: `..status` is every `status` in the document, `jobs..` is `jobs` and
+everything under it, `a..b.c` is every `c` under a `b` anywhere under `a`. It reaches
+children of every kind, and what follows it keeps its rules — `..(*)` names the elements
+of the keyed arrays it meets and nothing of the others, and a segment that does not fit
+the node it meets is a non-match there.
+
+```tony
+{id: "10", match: {path: "..status", return: path}}
+{id: "10", result: {match: {path: jobs.a1.status commit: 91}}}
+{id: "10", result: {match: {path: jobs.a2.status commit: 91}}}
+{id: "10", result: {match: {path: status commit: 91}}}
+{id: "10", result: {match: {commit: 91 done: true}}}
+```
+
+The answer is **each node once, in document order** — a node before what is under it,
+and at each level the store's order, which is sorted keys and positions in order — so a
+caller can reason about what it has seen, and a cursor is a place in the walk. A node
+two descents can both reach, as `a..b..c` reaches one `c` through `a.b` and through
+`a.b.b`, is answered once. It is the set `o list` answers for the same path over the
+same document, in the same order.
+
+`..` alone names the whole document, the root included, and the root's path is empty:
+it arrives as the one member with no `path`, as a `return: path` at the root does.
+
+**What a descent costs** is the containers it enters: every node beneath a `..` is
+reached by listing, so `return: path` and `return: iterType` over a descent read no node
+and cost one table per container — about a millisecond each — however large the
+containers are. A `body`, or a pattern, is a read per member, as it is for any set. A
+subtree of unknown size is a read of unknown size, and [paging](#paging-a-set) is what
+bounds it: the caller stops by not asking for the next page.
 
 #### `return`: what an answer carries
 
@@ -229,8 +262,8 @@ answers its retspec as logd does. Past a mount it cannot: a controller answers a
 and a read composed across mounts is a body docd assembles. There a spec asking for more
 than `body` is `unsupported`, said rather than answered with the body alone.
 
-A wildcard anywhere else — a `patch`, the `match` precondition a patch carries, a
-`watch` — is `invalid_path`. Those need one node, and a set is not one.
+A wildcard or a `..` anywhere else — a `patch`, the `match` precondition a patch carries,
+a `watch` — is `invalid_path`. Those need one node, and a set is not one.
 
 ### Paging a set
 
@@ -255,6 +288,11 @@ second page answers, and no page straddles two states. A cursor whose commit has
 out of range is `commit_not_found`, and one sent with a different `path` than the read
 it came from is `invalid_path`. It is **opaque** — read it back to the server rather
 than reading it.
+
+A descent pages the same way. Its order is a walk, so a page may end anywhere in it —
+between a node and its first child, at the bottom of one branch before the next — and
+the continuation seeks down the last member's path and goes on from there, reading
+nothing it has answered.
 
 **Across docd**, a set no mount is near passes through to logd and is answered as logd
 answers it. A set that crosses a mount — a member at, under or above one — is
@@ -598,7 +636,7 @@ writes an object at `a.b`. What separates them is what is there now.
 |---|---|
 | `not_found` | **nothing is there.** Nothing in the document contradicts the path, so creating what is missing is a reasonable next move |
 | `path_conflict` | **something is there, of a shape that cannot hold what you asked for** — an index into an object, a field under a string. Creating here means clobbering what is already there, so the move is to re-examine the shape you assumed |
-| `invalid_path` | **not a well-formed question** — `..` names nodes at any depth, a wildcard where a path must name a place (a write, a watch; a read answers a [set](#reading-a-set)), and an element named by a key the array does not have — for a read, under the schema of the commit it reads |
+| `invalid_path` | **not a well-formed question** — a wildcard or `..` where a path must name a place (a write, a watch; a read answers a [set](#reading-a-set)), and an element named by a key the array does not have — for a read, under the schema of the commit it reads |
 | `match_failed` | a precondition did not hold; the write did not happen |
 | `invalid_diff` | the delta would not apply to the state it would be stored against, or the schema's keying refuses it — an element without a name, a position on a keyed array, a name where there is no identity |
 | `commit_not_found` | a historical read outside `[0, current]` |
