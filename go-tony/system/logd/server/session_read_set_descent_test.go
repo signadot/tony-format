@@ -387,3 +387,58 @@ func TestSetMatch_DescentPagingReadsTheCursorsCommit(t *testing.T) {
 		t.Errorf("a fresh read after the write answered %v", now)
 	}
 }
+
+// TestSetMatch_DescentKeyedAtItsCommit: a descent read at a commit keys arrays by the
+// schema in force at that commit, wherever in the tree the arrays are. After the array
+// loses its identity, a read at the commit before still names its elements by (*), and
+// a read now names positions by [*].
+func TestSetMatch_DescentKeyedAtItsCommit(t *testing.T) {
+	store := openStore(t)
+	keyed, err := parse.Parse([]byte(`{define: {deep: {runs: {id: !logd-key null}}}}`))
+	if err != nil {
+		t.Fatalf("parse schema: %v", err)
+	}
+	if _, err := store.SetSchema(keyed, false); err != nil {
+		t.Fatalf("SetSchema: %v", err)
+	}
+	narrowWrite(t, store, "", `{deep: {runs: [{id: r1, n: 1}, {id: r2, n: 2}]}}`)
+	then, err := store.GetCurrentCommit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	unkeyed, err := parse.Parse([]byte(`{define: {deep: {runs: {id: null}}}}`))
+	if err != nil {
+		t.Fatalf("parse schema: %v", err)
+	}
+	if _, err := store.SetSchema(unkeyed, true); err != nil {
+		t.Fatalf("SetSchema (losing identity): %v", err)
+	}
+
+	at := fmt.Sprint(then)
+	answers := runSet(t, store,
+		`{id: "then-keys", match: {path: "..(*)", commit: `+at+`, return: path}}`,
+		`{id: "then-positions", match: {path: "..[*]", commit: `+at+`, return: path}}`,
+		`{id: "then-kind", match: {path: "..runs", commit: `+at+`, return: "path,iterType"}}`,
+		`{id: "now-keys", match: {path: "..(*)", return: path}}`,
+		`{id: "now-positions", match: {path: "..[*]", return: path}}`,
+		`{id: "now-kind", match: {path: "..runs", return: "path,iterType"}}`,
+	)
+	if got, want := mustSet(t, answers, "then-keys").paths(), []string{`deep.runs."(id=r1)"`, `deep.runs."(id=r2)"`}; !equalStrings(got, want) {
+		t.Errorf("..(*) at the keyed commit answered %v, want %v", got, want)
+	}
+	if got := mustSet(t, answers, "then-positions").paths(); len(got) != 0 {
+		t.Errorf("..[*] at the keyed commit answered %v, want nothing", got)
+	}
+	if got := mustSet(t, answers, "now-keys").paths(); len(got) != 0 {
+		t.Errorf("..(*) after the identity was lost answered %v, want nothing", got)
+	}
+	if got, want := mustSet(t, answers, "now-positions").paths(), []string{"deep.runs[0]", "deep.runs[1]"}; !equalStrings(got, want) {
+		t.Errorf("..[*] after the identity was lost answered %v, want %v", got, want)
+	}
+	for id, want := range map[string]string{"then-kind": api.IterKeyedArray, "now-kind": api.IterArray} {
+		ms := mustSet(t, answers, id).members
+		if len(ms) != 1 || ms[0].IterType != want {
+			t.Errorf("%s: ..runs answered %+v, want one %s", id, ms, want)
+		}
+	}
+}
