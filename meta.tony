@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 9f83d173e9dd6f2bd41c6be900ca168066efb47d
 commits:
 - 3177e020efa22345b99cd9848d71fdd3272913d3
 - c2ccfcfc98d6668cbf8da970935f30b144d70a59
@@ -19,5 +20,5 @@ labels:
 - logd
 related_issues:
 - y2agz9dyh12kse24n9n0
-status: open
-updated: "2026-09-17T02:05:17.765693+02:00"
+status: closed
+updated: "2026-09-17T02:11:19.453003+02:00"
