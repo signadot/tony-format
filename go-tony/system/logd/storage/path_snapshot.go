@@ -60,8 +60,12 @@ const (
 	// entry a read decoded must be before the read snapshots its path's parent.
 	DefaultPathSnapshotDecodeRatio int64 = 16
 	// DefaultPathSnapshotDecodeFloor is the smallest decoded entry that ratio is asked
-	// of: below it, a snapshot of the parent saves less than it costs to write.
-	DefaultPathSnapshotDecodeFloor int64 = 1 << 20
+	// of: below it, a snapshot of the parent saves less than it costs to write. It was
+	// 1 MiB, and a listing's member reads under a 30 KB write cost ten times what they
+	// cost once the parent is snapshotted (851 ms to 83 ms over seven listings of two
+	// hundred); the ratio is what guards against churn, and the floor only says what is
+	// too small to bother with.
+	DefaultPathSnapshotDecodeFloor int64 = 64 << 10
 	// DefaultPathSnapshotTail is the number of records a read may fold at a path before
 	// it schedules a snapshot there.
 	DefaultPathSnapshotTail int64 = 64

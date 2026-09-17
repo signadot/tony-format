@@ -86,7 +86,7 @@ type StorageConfig struct {
 	// log entry of at least PathSnapshotDecodeFloor bytes that was more than this many
 	// times larger than what it answered -- a child of a container written whole -- and
 	// so it snapshots the path's parent, which the reads beside it then seek. Zero
-	// means the defaults (16, 1 MiB); a negative ratio turns this branch off, and a
+	// means the defaults (16, 64 KiB); a negative ratio turns this branch off, and a
 	// negative PathSnapshotTail turns it off with the rest.
 	PathSnapshotDecodeRatio int64 `tony:"field=pathSnapshotDecodeRatio"`
 	PathSnapshotDecodeFloor int64 `tony:"field=pathSnapshotDecodeFloor"`
