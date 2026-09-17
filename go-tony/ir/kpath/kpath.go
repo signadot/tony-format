@@ -182,6 +182,17 @@ func (p *KPath) Wild() bool {
 	return p.FieldAll || p.IndexAll || p.SparseIndexAll || p.KeyAll || p.Descend
 }
 
+// HasDescend reports whether any segment of the path is a `..`, which is what a depth
+// bounds (CheckDepth).
+func (p *KPath) HasDescend() bool {
+	for x := p; x != nil; x = x.Next {
+		if x.Descend {
+			return true
+		}
+	}
+	return false
+}
+
 // HasWild reports whether ANY segment of the path is a wildcard (.* [*] {*} (*) ..).
 // This is the whole-path counterpart to the head-segment-only Wild.
 func (p *KPath) HasWild() bool {

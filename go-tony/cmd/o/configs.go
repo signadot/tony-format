@@ -185,7 +185,7 @@ type ListConfig struct {
 
 	Comments bool   `cli:"name=c desc='include comments, and let a !comment -if pattern see them'"`
 	Paths    bool   `cli:"name=paths desc='write where each node is, rather than what it is'"`
-	Depth    int    `cli:"name=depth default=-1 desc='bound every .. in the path to this many segments'"`
+	Depth    string `cli:"name=depth desc='bound every .. in the path to this many segments'"`
 	If       string `cli:"name=if desc='keep only the nodes matching this match document'"`
 	IfFile   string `cli:"name=if-file desc='read the match document from a file'"`
 	Trim     string `cli:"name=trim desc='write only the parts this match document names'"`

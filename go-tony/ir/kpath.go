@@ -295,6 +295,11 @@ func (node *Node) ListKPathWith(dst []*Node, kp string, opts ...NavOpt) ([]*Node
 	}
 	start := len(dst)
 	cfg := navCfg(opts)
+	if cfg.Depth != kpath.Unbounded {
+		if err := kpath.CheckDepth(p, cfg.Depth); err != nil {
+			return nil, err
+		}
+	}
 	res, err := node.listKPath(dst, p, cfg.Depth)
 	if err != nil {
 		return nil, err

@@ -406,6 +406,18 @@ func TestListPathsAnswersWithUsablePaths(t *testing.T) {
 			want: "",
 			code: 2,
 		},
+		{
+			name: "-depth -1 is refused like any negative, not read as none given",
+			args: []string{"list", "-paths", "-depth", "-1", "spec.*", doc},
+			want: "",
+			code: 2,
+		},
+		{
+			name: "-depth -1 on a descent is refused too",
+			args: []string{"list", "-paths", "-depth", "-1", "spec..", doc},
+			want: "",
+			code: 2,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			code, out := runOIn(t, "", tc.args...)

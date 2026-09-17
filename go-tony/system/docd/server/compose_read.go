@@ -64,6 +64,14 @@ func (s *ClientSession) coordinateMatch(req *logdapi.SessionRequest, below []*Mo
 			"return %q: a read composed across mounts answers a body alone", req.Match.Return)))
 		return
 	}
+	// A depth bounds a `..`, and a composed read has none (a set is refused before
+	// this); logd would refuse it as meaning nothing, and so does this, rather than
+	// rebuilding the request without it and answering as though it had not been asked.
+	if req.Match.Depth != nil {
+		_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeInvalidPath, fmt.Sprintf(
+			"%q: depth bounds a `..`, and this path has none", path)))
+		return
+	}
 
 	owner, pFields, errResp := s.composeCheck(clientID, path, below)
 	if errResp != nil {
