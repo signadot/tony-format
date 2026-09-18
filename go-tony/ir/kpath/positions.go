@@ -14,12 +14,13 @@ import "fmt"
 // after it, since a descent may take no segments at all. That is what makes a..b find
 // a b directly under a as well as one further down, and what makes `a..` name a itself.
 //
-// A descent may be bounded: with a depth, each `..` takes at most that many segments,
-// and a position at one carries how many it has taken. The walk then stops at the
-// bound rather than walking deeper and filtering: a position that has taken its depth
-// is not live, so a node where nothing else is live is not listed. Unbounded, nothing
-// is counted, and a descent reopened at every level is one position rather than one
-// per level.
+// A descent may be bounded: with a depth, the descents of a path together take at most
+// that many segments -- it is one budget for how far the walk may stray from what the
+// path spells, counted from the node the path names -- and a position carries how many
+// the descents before it have taken. The walk then stops at the bound rather than
+// walking deeper and filtering: a descent that has taken the depth is not live, so a
+// node where nothing else is live is not listed. Unbounded, nothing is counted, and a
+// descent reopened at every level is one position rather than one per level.
 //
 // Two walkers step it: ir's list over a document and logd's set read over the store.
 // Each says for itself whether a segment takes a child (a field, a position, a keyed
@@ -30,8 +31,8 @@ type Positions struct {
 	depth int // the most segments a `..` may take; Unbounded for any number
 }
 
-// position is one place the pattern could be, and, at a bounded descent, how many
-// segments that descent has taken so far.
+// position is one place the pattern could be, and, bounded, how many segments the
+// descents on the way to it have taken.
 type position struct {
 	p     *KPath
 	taken int
@@ -41,7 +42,8 @@ type position struct {
 const Unbounded = -1
 
 // CheckDepth says whether a depth a caller was GIVEN is a bound p can take: a number
-// of segments no less than none, on a path that holds a `..`. A depth on a path with
+// of segments no less than none, on a path that holds a `..`, which the path's
+// descents together may take. A depth on a path with
 // no `..` bounds nothing, and a parameter that means nothing is refused rather than
 // ignored -- by every caller, in these words, since this is the one place the rule is.
 // Unbounded is not a depth anyone gives; it is what a caller holds when none was, and
@@ -110,7 +112,7 @@ func (ps Positions) Step(takes func(seg *KPath) bool) Positions {
 				next = next.closeOver(position{p: x.p, taken: taken})
 			}
 		case takes(x.p):
-			next = next.closeOver(position{p: x.p.Next})
+			next = next.closeOver(position{p: x.p.Next, taken: x.taken})
 		}
 	}
 	return next
@@ -127,10 +129,11 @@ func (ps Positions) Each(fn func(*KPath)) {
 // segment that could take a child.
 func (ps Positions) Empty() bool { return len(ps.at) == 0 }
 
-// closeOver adds x and, while x is at a descent, what follows it, each once. A
-// position at the same segment with fewer segments taken subsumes x -- it can do
-// everything x can and more -- and x subsumes one with more, which it replaces; so a
-// segment is held once, at the smallest count that reaches it.
+// closeOver adds x and, while x is at a descent, what follows it, each once and with
+// the count x carries, since the budget is the path's. A position at the same segment
+// with fewer segments taken subsumes x -- it can do everything x can and more -- and x
+// subsumes one with more, which it replaces; so a segment is held once, at the
+// smallest count that reaches it.
 func (ps Positions) closeOver(x position) Positions {
 	for {
 		held := false
@@ -150,6 +153,6 @@ func (ps Positions) closeOver(x position) Positions {
 		if x.p == nil || !x.p.Descend {
 			return ps
 		}
-		x = position{p: x.p.Next}
+		x = position{p: x.p.Next, taken: x.taken}
 	}
 }

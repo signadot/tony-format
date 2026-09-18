@@ -12,9 +12,11 @@ path names.
 A leading $ is accepted and dropped, from when paths were written that way, and the
 $...x spelling of any-depth is read as ..x.
 
--depth bounds every .. in the path to that many segments, so 'a..' at -depth 1 is a
-and its children, of every kind, and '..name' at -depth 2 reaches a name at most two
-levels down. It bounds a .., and a path with none refuses it.
+-depth bounds the path's descents to that many segments between them -- how far off
+what the path spells the answer may lie, counted from the node the path names -- so
+'a..' at -depth 1 is a and its children, of every kind, at whatever level a is, and
+'..name' at -depth 2 reaches a name at most two levels down. It bounds a .., and a
+path with none refuses it.
 
     o list -paths -depth 1 'spec..' deploy.tony   # spec and what is directly under it
 

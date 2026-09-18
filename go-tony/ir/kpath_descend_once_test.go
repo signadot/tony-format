@@ -91,6 +91,9 @@ func TestDescendDepth(t *testing.T) {
 		// Two segments down at most: a.x[0].c is three.
 		{"..c", 2, []string{"a.b.c", "a.c", "c"}},
 		{"a..b..c", 1, []string{"a.b.b.c", "a.b.c"}},
+		// One depth for the path: a.b.b.c is a and b taken, two, by any derivation.
+		{"..b..c", 1, []string{"a.b.c"}},
+		{"..b..c", 2, []string{"a.b.b.c", "a.b.c"}},
 		{"..", 1, []string{"", "a", "c"}},
 	} {
 		found, err := doc.ListKPathWith(nil, tc.pattern, WithDepth(tc.depth))

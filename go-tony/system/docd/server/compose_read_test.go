@@ -137,6 +137,14 @@ func TestSetReaches(t *testing.T) {
 		{"mounted.m", "..status", kpath.Unbounded, true},
 		// The prefix of a descent holds the mount, at any depth.
 		{"a.b.c", "a..", 0, true},
+		// One depth for the path: two descents share it.
+		{"a.b.c", "..b..c", 1, true},
+		{"a.x.b.c", "..b..c", 1, false},
+		{"a.x.b.c", "..b..c", 2, true},
+		{"a.b.y.c", "..b..c", 1, false}, // a and y: two between the descents
+		{"a.b.y.c", "..b..c", 2, true},
+		{"a.x.b.y.c", "..b..c", 2, false},
+		{"a.x.b.y.c", "..b..c", 3, true},
 	} {
 		reg := NewMountRegistry()
 		if err := reg.Register(&MountEntry{Path: tc.mount}); err != nil {

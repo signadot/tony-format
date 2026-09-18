@@ -170,8 +170,9 @@ func (r *MountRegistry) LookupPrefix(opPath string) *MountEntry {
 // alone. The pattern is compared with each mount path segment by segment: a field names
 // the mount's segment or does not, a field or key wildcard may name any (an element of a
 // keyed array is stored under a field), a key may name one, and an index names none,
-// since a mount path is field-only. A `..` may name any run of them, of at most depth
-// segments (kpath.Unbounded for any number). Every segment the two share agreeing is a
+// since a mount path is field-only. A `..` may name any run of them, the pattern's
+// descents naming at most depth between them (kpath.Unbounded for any number). Every
+// segment the two share agreeing is a
 // crossing, whichever is longer: a mount deeper than the pattern lies inside a member,
 // and a shallower one holds the members.
 func (r *MountRegistry) SetReaches(pattern string, depth int) *MountEntry {
@@ -194,7 +195,7 @@ func (r *MountRegistry) SetReaches(pattern string, depth int) *MountEntry {
 }
 
 // patternReaches says whether the pattern's segments agree with the mount's fields over
-// the length they share, a `..` taking at most depth of them.
+// the length they share, the descents taking at most depth of them between them.
 func patternReaches(kp *kpath.KPath, mount []string, depth int) bool {
 	x := kp
 	for i, field := range mount {
@@ -206,10 +207,11 @@ func patternReaches(kp *kpath.KPath, mount []string, depth int) bool {
 			if depth == kpath.Unbounded {
 				return true // any depth: the mount is somewhere in it
 			}
-			// The descent takes some of the mount's fields, up to its depth, and the
-			// rest of the pattern is tried against what is left.
+			// The descent takes some of the mount's fields, up to the depth, and the
+			// rest of the pattern is tried against what is left, with what is left of
+			// the depth.
 			for k := 0; k <= depth && i+k <= len(mount); k++ {
-				if patternReaches(x.Next, mount[i+k:], depth) {
+				if patternReaches(x.Next, mount[i+k:], depth-k) {
 					return true
 				}
 			}

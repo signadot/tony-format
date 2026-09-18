@@ -165,13 +165,16 @@ same document, in the same order.
 `..` alone names the whole document, the root included, and the root's path is empty:
 it arrives as the one member with no `path`, as a `return: path` at the root does.
 
-**`depth` bounds a descent.** A `..` takes zero or more segments; `depth: n` says it
-may take at most `n`, and each `..` in a path is bounded on its own. So `x..` at depth
-1 is `x` and its direct children — of every kind, which is the listing `x.*` cannot
-give, since `.*` names fields alone — and `..name` at depth 2 is a `name` at the root,
-under a child, or under a grandchild. Depth 0 is a descent that takes nothing. The walk
-stops at the bound rather than walking deeper and filtering, so `x..` at depth 1 costs
-one listing.
+**`depth` bounds a descent.** A `..` takes zero or more segments; `depth: n` says the
+descents of the path may take at most `n` between them. It is one budget for how far the
+answer may lie off what the path spells, counted from the node the path names — so `x..`
+at depth 1 is `x` and its direct children, at whatever level `x` is, and the depth never
+moves as the path goes down. The children are of every kind, which is the listing `x.*`
+cannot give, since `.*` names fields alone. `..name` at depth 2 is a `name` at the root,
+under a child, or under a grandchild; `..c..d` at depth 1 is a `d` one segment off the
+path, `X.c.d` or `c.Y.d` and not `X.c.Y.d`. Depth 0 is a descent that takes nothing. The
+walk stops at the bound rather than walking deeper and filtering, so `x..` at depth 1
+costs one listing.
 
 ```tony
 {id: "11", match: {path: "jobs..", return: "path,iterType", depth: 1}}
