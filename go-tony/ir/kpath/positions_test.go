@@ -140,9 +140,10 @@ func TestPositions_Depth(t *testing.T) {
 	if got, want := ps.names(), "..b b"; got != want {
 		t.Fatalf("start = %q, want %q", got, want)
 	}
-	// Under x: the descent takes it, and has taken all it may; b is still live.
+	// Under x: the descent takes it, and has taken all it may; b is still live, and
+	// carries the count, since the budget is the path's.
 	ps = ps.Step(takesField("x"))
-	if got, want := ps.names(), "..b@1 b"; got != want {
+	if got, want := ps.names(), "..b@1 b@1"; got != want {
 		t.Errorf("after x = %q, want %q", got, want)
 	}
 	if !ps.Live() {
@@ -168,20 +169,49 @@ func TestPositions_Depth(t *testing.T) {
 	if got := zero.Step(takesField("x")); !got.Empty() {
 		t.Errorf("depth 0 under x kept %q", got.names())
 	}
-	// Each descent is bounded on its own: `..b..c` at depth 1 opens a fresh count at
-	// the second descent.
+	// The budget is the path's, shared by its descents: `..b..c` at depth 1 under b
+	// holds the second descent at nothing taken (the first took nothing, b took b)
+	// and, through the first descent taking b, b..c at one taken.
 	two, _ := Parse("..b..c")
 	ps = Start(two, 1).Step(takesField("b"))
-	if got, want := ps.names(), "..b..c@1 b..c ..c c"; got != want {
+	if got, want := ps.names(), "..b..c@1 b..c@1 ..c c"; got != want {
 		t.Errorf("..b..c at depth 1 after b = %q, want %q", got, want)
 	}
-	// Under a second b: the first descent has taken its one, so b..c is gone, but b
-	// takes the child and reopens the second descent with nothing taken -- which
-	// replaces the copy that had taken one, since the smaller count can do everything
-	// the larger can. One position for `..c`, not two.
+	// Under a second b: the first descent is spent; b..c@1 takes b and opens the second
+	// descent at one taken; the second descent at nothing taken takes b and is at one
+	// too. One position for `..c`, at one taken.
 	ps = ps.Step(takesField("b"))
-	if got, want := ps.names(), "..c c"; got != want {
+	if got, want := ps.names(), "..c@1 c@1"; got != want {
 		t.Errorf("..b..c at depth 1 after b, b = %q, want %q", got, want)
+	}
+	// And c under that is named, with the budget spent: a c any deeper is not.
+	if under := ps.Step(takesField("c")); !under.Done() || under.Live() {
+		t.Errorf("..b..c at depth 1 after b, b, c: done %v live %v, want done and not live", under.Done(), under.Live())
+	}
+	if beside := ps.Step(takesField("x")); !beside.Empty() {
+		t.Errorf("..b..c at depth 1 after b, b, x kept %q: the budget was spent", beside.names())
+	}
+}
+
+// One depth for the whole path: `..c..d` at depth 1 names X.c.d and c.Y.d but not
+// X.c.Y.d, whose two descents took two segments between them.
+func TestPositions_DepthIsOneBudget(t *testing.T) {
+	kp, _ := Parse("..c..d")
+	walk := func(fields ...string) Positions {
+		ps := Start(kp, 1)
+		for _, f := range fields {
+			ps = ps.Step(takesField(f))
+		}
+		return ps
+	}
+	if !walk("c", "d").Done() || !walk("X", "c", "d").Done() || !walk("c", "Y", "d").Done() {
+		t.Error("a d one segment off the path is not named")
+	}
+	if walk("X", "c", "Y", "d").Done() {
+		t.Error("X.c.Y.d is named at depth 1: two descents took two segments between them")
+	}
+	if !walk("X", "c", "Y", "d").Empty() {
+		t.Errorf("X.c.Y: still walking with the budget spent: %q", walk("X", "c", "Y").names())
 	}
 }
 

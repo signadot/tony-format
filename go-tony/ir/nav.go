@@ -24,8 +24,8 @@ type NavOpt func(*navConfig)
 type navConfig struct {
 	// Comments keeps a comment wrapper on the node a walk answers with.
 	Comments bool
-	// Depth bounds every `..` in a list's path to that many segments, or is
-	// kpath.Unbounded.
+	// Depth bounds the descents of a list's path to that many segments between them,
+	// or is kpath.Unbounded.
 	Depth int
 }
 
@@ -35,10 +35,13 @@ func WithComments(v bool) NavOpt {
 	return func(c *navConfig) { c.Comments = v }
 }
 
-// WithDepth bounds every `..` in a list's path: each takes at most depth segments,
-// so `a..` at depth 1 is a and its children, and `..b` at depth 2 is a b at the root,
-// under a child, or under a grandchild. Depth 0 is a descent that takes nothing. It is
-// what logd's match answers for the same path and depth (api.MatchRequest.Depth).
+// WithDepth bounds a list's path: its descents together take at most depth segments,
+// so the answer lies at most that far off what the path spells, counted from the node
+// the path names. `a..` at depth 1 is a and its children, `..b` at depth 2 is a b at
+// the root, under a child, or under a grandchild, and `..c..d` at depth 1 is a d one
+// segment off the path -- X.c.d or c.Y.d, not X.c.Y.d. Depth 0 is a descent that takes
+// nothing. It is what logd's match answers for the same path and depth
+// (api.MatchRequest.Depth).
 func WithDepth(depth int) NavOpt {
 	return func(c *navConfig) { c.Depth = depth }
 }

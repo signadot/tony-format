@@ -475,8 +475,11 @@ func TestSetMatch_DescentDepth(t *testing.T) {
 		{"..c", 2, []string{"a.b.c", "a.c", "c"}},
 		{"..c", 3, []string{"a.b.b.c", "a.b.c", "a.c", "a.sp{3}.c", "a.x[0].c", "c"}},
 		{"..c", 0, []string{"c"}},
-		// Each descent bounded on its own, and a path after the descent.
+		// One depth for the whole path, shared by its descents; and a path after the
+		// descent.
 		{"a..b..c", 1, []string{"a.b.b.c", "a.b.c"}},
+		{"..b..c", 1, []string{"a.b.c"}},
+		{"..b..c", 2, []string{"a.b.b.c", "a.b.c"}},
 		{"..b.c", 1, []string{"a.b.c"}},
 	} {
 		t.Run(fmt.Sprintf("%s@%d", tc.pattern, tc.depth), func(t *testing.T) {
