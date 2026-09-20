@@ -17,9 +17,9 @@ see the package docs in `issuelib` and `commands`.
 - Bridges to other trackers (GitHub, GitLab)
 - Milestones, sprints, assignment
 - Full-text search — `git log` and `git grep` reach the objects
-- A writable web UI. `git issue serve` is a read-only viewer, and read-only is a
-  consequence of the sync model rather than a stage on the way to something else;
-  see [Sync](#sync-and-what-it-costs).
+- A writable web UI. `git issue serve` is a read-only viewer. That was once a
+  consequence of the sync model; it is now simply a line not yet crossed, and
+  [Sync](#sync-and-what-it-costs) no longer stands in the way of crossing it.
 
 ## Storage model
 
@@ -215,7 +215,7 @@ client of another generation pushing after this one can cause.
 | equal | take the status if it differs | make the remote right |
 | behind | bring this clone forward | nothing |
 | ahead | nothing | make the remote right |
-| diverged | refuse | refuse |
+| diverged | merge, or refuse what cannot be merged | merge and send, or refuse |
 
 **"Make the remote right"** is one rule: the remote ends holding exactly one ref
 for the issue, this generation's, in the status this clone has it in, at this
@@ -224,11 +224,36 @@ sends an issue, mirrors a close, and migrates an issue the remote only ever had
 in gen0 — which is why there is no migration command. It is safe precisely when
 this clone's tip carries every tip the remote has, which is what the verdict says.
 
-**Diverged is the one verdict that can lose work, and the only one refused.** The
-issue is named, with both tips, and the command exits non-zero; `--force` is how a
-person decides it, and what it overwrites stays in the ref's reflog:
-`git reflog show <the issue's ref>` lists every tip the ref has held, and
-`git update-ref` puts one back.
+**Diverged is the one verdict that can lose work**, and the only one that is not
+a matter of moving a ref. It is merged, below; where it cannot be, it is refused.
+What a `--force` overwrites stays in the ref's reflog: `git reflog show <the
+issue's ref>` lists every tip the ref has held, and `git update-ref` puts one back.
+
+**A divergence is merged, not chosen between.** The two chains share a root, and
+in the ordinary case nothing about them conflicts: `discussion/` unions by
+construction, since its names are `<timestamp>-<hash>` and cannot collide, and
+`meta.tony`'s lists are sets. The trees are merged by `git merge-tree`, and
+`meta.tony` is then replaced by one merged **by value** — a text merge of a
+generated file is how two orderings of one list become a conflict about nothing.
+The result has both tips as parents, so whoever syncs next fast-forwards to it
+and neither clone is told it lost.
+
+`status` is the one field with two defensible answers, and **the later change
+wins**, by the committer date of the commit that last made one on each side.
+Whoever acted second acted knowing more: a reopen after a close means someone
+looked again, and closing it back would be this tool overruling them. A side that
+changed nothing does not compete, neither side changing anything leaves the
+base's, and a tie closes. `closed_by` follows the decision.
+
+Which client wrote a change is not the rule. A version says whether a write can be
+trusted — which is what the generation above is for — and nothing about what its
+author meant, and two clients of one version disagreeing is the ordinary case.
+
+**What cannot be merged is refused.** A conflict in `description.md`, or any path
+but `meta.tony`, means two people rewrote the same text, and no rule here beats
+asking them: the issue is named with the path, the run exits non-zero, and
+`--force` is how one of them decides it — taking one side outright, with the
+other left in the ref's reflog.
 
 **Every write to a remote carries a lease.** `--force-with-lease=<ref>:<what the
 tracking ref said>` refuses the write if the remote moved since the fetch, and an
@@ -280,10 +305,6 @@ and only `git issue link` again restored it. Both directions now merge it with
 always had, so two clones that linked different commits keep both links. A gen0
 index is folded in the same way and then cleared from the remote.
 
-What remains is the merge itself: an issue edited on both sides is refused rather
-than merged. See [Sync that does not lose a
-write](#sync-that-does-not-lose-a-write); that is what would unlock a writable
-`serve`.
 
 A pull no longer leaves an issue in both namespaces, since it decides which one
 each issue is in before writing. `CleanupStaleRefs` stays for a repository that
@@ -302,29 +323,6 @@ From the original design, still absent:
   but no command writes it.
 - **`git issue discuss`.** Split into `comment` (text) and `attach` (files), which
   are different enough operations to want different arguments.
-- **Merging issue refs.** The original design assumed "issue refs merge like
-  branches (git handles this)". They do not: git can merge them, but nothing
-  invokes it, and the transport is force-push. The section below is the design
-  that replaces the assumption.
-
-### Sync that does not lose a write
-
-Tracked as `w4mr5qphh12kr9f2nxn0`; the plan, step by step, is
-`docs/sketchy/issue-sync-plan.md`. As each step lands, its part of this section moves
-into the body of this document.
-
-Everything else of it is built; see [Sync, and what it costs](#sync-and-what-it-costs)
-and [gen0, and adopting it](#gen0-and-adopting-it). What is left is the merge.
-
-**Merge.** A diverged issue is merged three-way: `git merge-tree` over the trees, where
-`discussion/` unions by construction since its names cannot collide, and a text
-conflict in `description.md` is refused as a person's to settle; `meta.tony` by value,
-its list fields unioned. `status` goes to the side that changed it later, by the
-committer date of the commit that last changed it since the merge base, a tie closing;
-`closed_by` follows. Client version is not the rule: it says whether a write may be
-trusted, and nothing about what its author meant, and two current clients disagreeing
-is the ordinary case. The merge commit has both tips as parents, so both clones
-fast-forward to it.
 
 ## Changes from the original design
 
@@ -340,9 +338,6 @@ fast-forward to it.
 
 ## Known defects
 
-- **No merge for issue refs, and a transport that overwrites.** The one described
-  above, and the root of most of the rest. Designed, not built: [Sync that does not
-  lose a write](#sync-that-does-not-lose-a-write).
 - **`git issue migrate` is not idempotent.** It re-identifies every issue it
   finds rather than only the legacy-numeric ones, so a second run mints fresh
   XIDRs for issues that already had them and every ID recorded elsewhere stops

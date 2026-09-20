@@ -67,13 +67,13 @@ func comment(t *testing.T, store issuelib.Store, id, name string) string {
 	return at
 }
 
-// TestSync_RefusesToOverwriteWorkDoneElsewhere is the loss this whole change is
-// about. Two clones comment on one issue; the first pushes; and the second finds
-// that neither chain carries the other. Both directions used to take whichever
-// ref was written last and drop the other silently. Both now leave the issue
-// alone, name it, and exit non-zero, and --force is how a person says which side
-// wins -- with the other tip still in the reflog.
-func TestSync_RefusesToOverwriteWorkDoneElsewhere(t *testing.T) {
+// TestSync_BringsTogetherWorkDoneInTwoClones is the loss this whole change is
+// about. Two clones comment on one issue and the first pushes; the second used
+// to have its comment reset by the pull, or to overwrite the first's by pushing.
+// Neither chain carries the other, and neither has to be chosen: they are merged,
+// both comments survive, and the merge has both tips as parents, so the first
+// clone fast-forwards to it without being told it lost.
+func TestSync_BringsTogetherWorkDoneInTwoClones(t *testing.T) {
 	storeA, origin := pushTestRepo(t)
 	issue, err := storeA.Create("Shared", "# Shared\n\nbody\n")
 	if err != nil {
@@ -85,64 +85,123 @@ func TestSync_RefusesToOverwriteWorkDoneElsewhere(t *testing.T) {
 	}
 
 	b := secondClone(t, origin)
-	var theirs string
 	inClone(t, b, func(storeB issuelib.Store) {
 		if err := newPullConfig(storeB).run(pushCC(), []string{"origin"}); err != nil {
 			t.Fatalf("B pull: %v", err)
 		}
-		theirs = comment(t, storeB, issue.ID, "from-b")
+		comment(t, storeB, issue.ID, "from-b")
 	})
-
-	ours := comment(t, storeA, issue.ID, "from-a")
+	comment(t, storeA, issue.ID, "from-a")
 	if err := pushA.pushAll(pushCC(), "origin"); err != nil {
 		t.Fatalf("A push: %v", err)
 	}
 
 	inClone(t, b, func(storeB issuelib.Store) {
-		ref := issuelib.RefForXIDR(issue.ID)
+		if err := newPullConfig(storeB).run(pushCC(), []string{"origin"}); err != nil {
+			t.Fatalf("B pull after A pushed: %v", err)
+		}
+		files, err := storeB.ListDir(issuelib.RefForXIDR(issue.ID), "discussion")
+		if err != nil {
+			t.Fatalf("B read the discussion: %v", err)
+		}
+		for _, want := range []string{"from-a.md", "from-b.md"} {
+			if _, ok := files[want]; !ok {
+				t.Errorf("B holds %v, and %s is missing", files, want)
+			}
+		}
+		if err := newPushConfig(storeB).pushAll(pushCC(), "origin"); err != nil {
+			t.Fatalf("B push: %v", err)
+		}
+	})
 
+	if err := newPullConfig(storeA).run(pushCC(), []string{"origin"}); err != nil {
+		t.Fatalf("A pull: %v", err)
+	}
+	files, err := storeA.ListDir(issuelib.RefForXIDR(issue.ID), "discussion")
+	if err != nil {
+		t.Fatalf("A read the discussion: %v", err)
+	}
+	for _, want := range []string{"from-a.md", "from-b.md"} {
+		if _, ok := files[want]; !ok {
+			t.Errorf("A holds %v, and %s is missing", files, want)
+		}
+	}
+}
+
+// TestSync_RefusesWhatItCannotBringTogether: two people rewrote the same
+// description. There is no rule for that better than asking them, so the issue
+// is named with the path and left alone, and the command exits non-zero;
+// --force is how one of them decides it.
+func TestSync_RefusesWhatItCannotBringTogether(t *testing.T) {
+	storeA, origin := pushTestRepo(t)
+	issue, err := storeA.Create("Contested", "# Contested\n\nbody\n")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	pushA := newPushConfig(storeA)
+	if err := pushA.pushAll(pushCC(), "origin"); err != nil {
+		t.Fatalf("push: %v", err)
+	}
+
+	rewrite := func(store issuelib.Store, body string) {
+		t.Helper()
+		got, _, err := store.Get(issue.ID)
+		if err != nil {
+			t.Fatalf("get: %v", err)
+		}
+		if err := store.Update(got, "rewrite", map[string]string{"description.md": body}); err != nil {
+			t.Fatalf("rewrite: %v", err)
+		}
+	}
+
+	b := secondClone(t, origin)
+	var theirs string
+	inClone(t, b, func(storeB issuelib.Store) {
+		if err := newPullConfig(storeB).run(pushCC(), []string{"origin"}); err != nil {
+			t.Fatalf("B pull: %v", err)
+		}
+		rewrite(storeB, "# Contested\n\nas B sees it\n")
+		theirs, _ = storeB.GetRefCommit(issuelib.RefForXIDR(issue.ID))
+	})
+	rewrite(storeA, "# Contested\n\nas A sees it\n")
+	ours, _ := storeA.GetRefCommit(issuelib.RefForXIDR(issue.ID))
+	if err := pushA.pushAll(pushCC(), "origin"); err != nil {
+		t.Fatalf("A push: %v", err)
+	}
+
+	inClone(t, b, func(storeB issuelib.Store) {
 		cc, out := sayCC()
 		if err := newPullConfig(storeB).run(cc, []string{"origin"}); err == nil {
-			t.Error("a pull over work done here was answered as a success")
+			t.Error("a description rewritten on both sides was answered as a success")
 		}
-		if !strings.Contains(out.String(), issue.ID) {
-			t.Errorf("the refusal does not name the issue: %q", out.String())
+		for _, want := range []string{issue.ID, "description.md", "--force"} {
+			if !strings.Contains(out.String(), want) {
+				t.Errorf("the refusal does not mention %q: %q", want, out.String())
+			}
 		}
-		if !strings.Contains(out.String(), "--force") {
-			t.Errorf("the refusal does not say how to decide it: %q", out.String())
-		}
-		if at, _ := storeB.GetRefCommit(ref); at != theirs {
+		if at, _ := storeB.GetRefCommit(issuelib.RefForXIDR(issue.ID)); at != theirs {
 			t.Errorf("the refused pull moved this clone to %s", shortSHA(at))
 		}
 
-		if err := newPushConfig(storeB).pushAll(pushCC(), "origin"); err == nil {
-			t.Error("a push over work done elsewhere was answered as a success")
-		}
-		if at := remoteRefs(t, origin, ref); len(at) != 1 {
-			t.Errorf("the remote holds %v for the issue", at)
-		}
-
-		// Said twice, it is a decision: take the remote's, and keep a way back.
 		if err := newPullConfig(storeB).run(pushCC(), []string{"--force", "origin"}); err != nil {
 			t.Fatalf("forced pull: %v", err)
 		}
-		at, _ := storeB.GetRefCommit(ref)
-		if at != ours {
+		if at, _ := storeB.GetRefCommit(issuelib.RefForXIDR(issue.ID)); at != ours {
 			t.Errorf("the forced pull left this clone at %s, want %s", shortSHA(at), shortSHA(ours))
 		}
-		logged := run(t, b, "reflog", "show", "--format=%H", ref)
-		if !strings.Contains(logged, theirs) {
+		if logged := run(t, b, "reflog", "show", "--format=%H", issuelib.RefForXIDR(issue.ID)); !strings.Contains(logged, theirs) {
 			t.Errorf("what the force overwrote is not in the reflog: %q", logged)
 		}
 	})
 }
 
-// TestPush_RefusesToDeleteAReopenMadeElsewhere: closing an issue moves its ref,
-// and a push mirrors the move by deleting the ref it came from. That deletion
-// used to be unconditional, so a close here silently deleted a reopen someone
-// else had pushed, with the comments they made on it. The remote's tip is part
-// of the decision now, and a close that does not carry it is refused.
-func TestPush_RefusesToDeleteAReopenMadeElsewhere(t *testing.T) {
+// TestPush_KeepsWorkTheRemoteHasAndThisCloneDoesNot: closing an issue moves its
+// ref, and a push mirrors the move by deleting the ref it came from. That
+// deletion used to be unconditional, so a close here silently deleted whatever
+// someone else had pushed to the open ref, and the comments on it. The remote's
+// tip is part of the decision now: the close and the other clone's comment are
+// brought together, and what the remote ends up holding carries both.
+func TestPush_KeepsWorkTheRemoteHasAndThisCloneDoesNot(t *testing.T) {
 	storeA, origin := pushTestRepo(t)
 	issue, err := storeA.Create("Contested", "# Contested\n\nbody\n")
 	if err != nil {
@@ -154,34 +213,34 @@ func TestPush_RefusesToDeleteAReopenMadeElsewhere(t *testing.T) {
 	}
 
 	b := secondClone(t, origin)
-	var reopened string
 	inClone(t, b, func(storeB issuelib.Store) {
 		if err := newPullConfig(storeB).run(pushCC(), []string{"origin"}); err != nil {
 			t.Fatalf("B pull: %v", err)
 		}
-		// Reopening is a close and a reopen in one clone; here it is simply more
-		// work on the open issue, which is what the other side must not drop.
-		reopened = comment(t, storeB, issue.ID, "still-a-problem")
+		comment(t, storeB, issue.ID, "still-a-problem")
 		if err := newPushConfig(storeB).pushAll(pushCC(), "origin"); err != nil {
 			t.Fatalf("B push: %v", err)
 		}
 	})
 
-	// Meanwhile this clone closed it.
+	// Meanwhile this clone closed it, which moves the ref.
 	moveIssue(t, storeA, issue.ID, "closed")
+	if err := pushA.pushAll(pushCC(), "origin"); err != nil {
+		t.Fatalf("A push: %v", err)
+	}
 
-	cc, out := sayCC()
-	if err := pushA.pushAll(cc, "origin"); err == nil {
-		t.Error("a close was pushed over work the remote had and this clone did not")
+	// One ref, the closed one, and the other clone's comment is in it.
+	want := []string{issuelib.ClosedRefForXIDR(issue.ID)}
+	if got := remoteRefs(t, origin, "refs/git-issues/"); !equal(got, want) {
+		t.Fatalf("the remote holds %v, want %v", got, want)
 	}
-	if !strings.Contains(out.String(), issue.ID) {
-		t.Errorf("the refusal does not name the issue: %q", out.String())
+	at := strings.TrimSpace(run(t, origin, "rev-parse", want[0]))
+	tree := run(t, origin, "ls-tree", "-r", "--name-only", at)
+	if !strings.Contains(tree, "still-a-problem.md") {
+		t.Errorf("the comment made in the other clone is gone: %q", tree)
 	}
-	if got := remoteRefs(t, origin, issuelib.RefForXIDR(issue.ID)); len(got) != 1 {
-		t.Errorf("the reopen is gone from the remote: %v", got)
-	}
-	if at := strings.TrimSpace(run(t, origin, "rev-parse", issuelib.RefForXIDR(issue.ID))); at != reopened {
-		t.Errorf("the remote is at %s, want the work done elsewhere, %s", shortSHA(at), shortSHA(reopened))
+	if issue, _, err := storeA.Get(issue.ID); err != nil || issue.Status != "closed" {
+		t.Errorf("the close did not survive the merge: %+v, %v", issue, err)
 	}
 }
 

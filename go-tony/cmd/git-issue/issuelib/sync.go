@@ -299,21 +299,25 @@ func (s *GitStore) verdict(local, r *Tip, split bool) Verdict {
 	return Diverged
 }
 
-// ErrDiverged is what applying a diverged plan answers when nothing has said
-// which side wins. The two chains both hold work, and picking one silently is
-// the defect this whole file is about.
-var ErrDiverged = fmt.Errorf("the issue was edited on both sides")
+// ErrDiverged is what applying a diverged plan answers when the two chains
+// cannot be brought together and nothing has said which side wins. Both hold
+// work, and picking one silently is the defect this whole file is about, so the
+// caller is told and a person decides.
+var ErrDiverged = fmt.Errorf("edited on both sides")
 
 // ApplyPull brings this clone's ref for one issue to what the remote holds, and
-// says what it did. force decides a divergence, and decides nothing else: it
-// takes the remote's tip and leaves this clone's in the ref's reflog.
+// says what it did.
+//
+// A divergence is merged: the two chains hold work each other lacks, and both
+// are kept. force is for when a merge cannot be made or is not wanted -- it
+// takes the remote's tip outright and leaves this clone's in the ref's reflog.
 func (s *GitStore) ApplyPull(p IssuePlan, force bool) (string, error) {
 	switch p.Verdict {
 	case LocalOnly, Ahead:
 		return "", nil
 	case Diverged:
 		if !force {
-			return "", ErrDiverged
+			return s.mergeLocally(p)
 		}
 	}
 	if p.R == nil {
@@ -352,6 +356,87 @@ func (s *GitStore) ApplyPull(p IssuePlan, force bool) (string, error) {
 		}
 		return fmt.Sprintf("forced to %s (%sis in the reflog)", shortSHA(p.R.Commit), was), nil
 	}
+}
+
+// mergeLocally brings the two chains of a diverged issue together and points
+// this clone at the result, rather than choosing between them. The merge commit
+// has both tips as parents, so whoever syncs next fast-forwards to it and the
+// two clones converge with no one told they lost.
+func (s *GitStore) mergeLocally(p IssuePlan) (string, error) {
+	theirs, closed, err := s.foldRemote(p)
+	if err != nil {
+		return "", err
+	}
+	if p.Local == nil {
+		// Nothing here to merge with: the remote disagreed with itself, and
+		// what came of folding it is simply the issue.
+		if err := s.putLocal(p, theirs, closed); err != nil {
+			return "", err
+		}
+		return "created at " + shortSHA(theirs), nil
+	}
+	if s.isAncestor(theirs, p.Local.Commit) {
+		return "", nil
+	}
+	if s.isAncestor(p.Local.Commit, theirs) {
+		if err := s.putLocal(p, theirs, closed); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%s..%s", shortSHA(p.Local.Commit), shortSHA(theirs)), nil
+	}
+
+	base, err := s.MergeBase(p.Local.Commit, theirs)
+	if err != nil {
+		return "", fmt.Errorf("%w: %s", ErrDiverged, err)
+	}
+	merged, err := s.MergeIssue(base, p.Local.Commit, theirs)
+	if err != nil {
+		return "", err
+	}
+	issue, err := s.metaAt(merged)
+	if err != nil {
+		return "", err
+	}
+	if err := s.putLocal(p, merged, issue.Status == "closed"); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("merged %s and %s", shortSHA(p.Local.Commit), shortSHA(theirs)), nil
+}
+
+// foldRemote is the remote's side as one commit. Where the remote's own refs
+// disagree -- which a client of another generation pushing after this one can
+// cause -- they are merged into each other first, so the issue can still be
+// brought together rather than one of the remote's tips being picked.
+func (s *GitStore) foldRemote(p IssuePlan) (string, bool, error) {
+	if p.R != nil {
+		return p.R.Commit, p.R.Closed, nil
+	}
+	if len(p.Remote) == 0 {
+		return "", false, fmt.Errorf("%s is not on the remote", FormatID(p.XIDR))
+	}
+	commit, closed := p.Remote[0].Commit, p.Remote[0].Closed
+	for _, tip := range p.Remote[1:] {
+		switch {
+		case s.isAncestor(tip.Commit, commit):
+		case s.isAncestor(commit, tip.Commit):
+			commit, closed = tip.Commit, tip.Closed
+		default:
+			base, err := s.MergeBase(commit, tip.Commit)
+			if err != nil {
+				return "", false, fmt.Errorf("%w: %s", ErrDiverged, err)
+			}
+			merged, err := s.MergeIssue(base, commit, tip.Commit)
+			if err != nil {
+				return "", false, err
+			}
+			issue, err := s.metaAt(merged)
+			if err != nil {
+				return "", false, err
+			}
+			commit, closed = merged, issue.Status == "closed"
+		}
+	}
+	return commit, closed, nil
 }
 
 // putLocal points this clone's ref for the issue at commit, in the status closed
@@ -394,7 +479,12 @@ func (s *GitStore) ApplyPush(remote string, p IssuePlan, force bool) (string, er
 		return "", nil
 	case Diverged:
 		if !force {
-			return "", ErrDiverged
+			// Bring the two together here first; what is then sent carries both
+			// sides, so the remote takes it as an ordinary fast-forward.
+			if _, err := s.mergeLocally(p); err != nil {
+				return "", err
+			}
+			p = s.reload(p)
 		}
 	}
 	if p.Local == nil {
@@ -448,6 +538,18 @@ func (s *GitStore) ApplyPush(remote string, p IssuePlan, force bool) (string, er
 		did = append(did, fmt.Sprintf("dropped %d other ref(s)", dropped))
 	}
 	return strings.Join(did, ", "), nil
+}
+
+// reload reads this clone's ref for the issue again, for a plan whose local side
+// has just been written.
+func (s *GitStore) reload(p IssuePlan) IssuePlan {
+	p.Local = nil
+	for _, r := range refsAt(RefForXIDR(p.XIDR), ClosedRefForXIDR(p.XIDR)) {
+		tip := Tip{Ref: r.ref, Commit: r.commit, Closed: IsClosedRef(r.ref)}
+		p.Local = &tip
+		break
+	}
+	return p
 }
 
 // SyncNotes folds what the remote's reverse indexes hold into this clone's, and

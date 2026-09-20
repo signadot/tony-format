@@ -15,6 +15,13 @@ import (
 // lines; a script reads the status, and must not have to parse prose to learn
 // that an issue was left behind.
 
+// refusal is an issue a sync left alone, and why: the two sides hold work that
+// cannot be brought together, and a person decides.
+type refusal struct {
+	plan   issuelib.IssuePlan
+	reason string
+}
+
 // syncReport gathers one direction of a sync as it runs, and writes it out.
 type syncReport struct {
 	remote  string
@@ -26,7 +33,7 @@ type syncReport struct {
 	// leaves alone says nothing: most of them, most of the time.
 	changed   []string
 	unchanged int
-	refused   []issuelib.IssuePlan
+	refused   []refusal
 	oldClient []issuelib.IssuePlan
 	failed    []error
 }
@@ -41,10 +48,6 @@ func (r *syncReport) run(store issuelib.Store, plans []issuelib.IssuePlan,
 		if p.OldClient {
 			r.oldClient = append(r.oldClient, p)
 		}
-		if p.Verdict == issuelib.Diverged && !r.force {
-			r.refused = append(r.refused, p)
-			continue
-		}
 		if r.dryRun {
 			if what := r.intent(p); what != "" {
 				r.changed = append(r.changed, fmt.Sprintf("%s  %s (%s)",
@@ -57,7 +60,7 @@ func (r *syncReport) run(store issuelib.Store, plans []issuelib.IssuePlan,
 		did, err := act(p)
 		switch {
 		case errors.Is(err, issuelib.ErrDiverged):
-			r.refused = append(r.refused, p)
+			r.refused = append(r.refused, refusal{plan: p, reason: err.Error()})
 		case err != nil:
 			r.failed = append(r.failed, err)
 		case did == "":
@@ -72,10 +75,13 @@ func (r *syncReport) run(store issuelib.Store, plans []issuelib.IssuePlan,
 // shape of the answer, without the commits a real run would report.
 func (r *syncReport) intent(p issuelib.IssuePlan) string {
 	if p.Verdict == issuelib.Diverged {
-		if r.pulling {
-			return "take the remote's"
+		if r.force {
+			if r.pulling {
+				return "take the remote side"
+			}
+			return "take this clone"
 		}
-		return "take this clone's"
+		return "merge the two sides"
 	}
 	if r.pulling {
 		switch p.Verdict {
@@ -129,8 +135,8 @@ func (r *syncReport) write(cc *cli.Context, store issuelib.Store) error {
 	}
 	fmt.Fprintln(cc.Out, ".")
 
-	for _, p := range r.refused {
-		r.writeRefusal(cc, store, p)
+	for _, ref := range r.refused {
+		r.writeRefusal(cc, store, ref)
 	}
 	for _, err := range r.failed {
 		fmt.Fprintf(cc.Err, "  %v\n", err)
@@ -143,14 +149,15 @@ func (r *syncReport) write(cc *cli.Context, store issuelib.Store) error {
 	case len(r.failed) > 0:
 		return errors.Join(r.failed...)
 	case len(r.refused) > 0:
-		return fmt.Errorf("%d issue(s) were edited on both sides and were left alone", len(r.refused))
+		return fmt.Errorf("%d issue(s) could not be brought together and were left alone", len(r.refused))
 	}
 	return nil
 }
 
 // writeRefusal names one issue nobody can settle automatically, and says what
 // saying so again would do.
-func (r *syncReport) writeRefusal(cc *cli.Context, store issuelib.Store, p issuelib.IssuePlan) {
+func (r *syncReport) writeRefusal(cc *cli.Context, store issuelib.Store, ref refusal) {
+	p := ref.plan
 	title := ""
 	if p.Local != nil {
 		if issue, _, err := store.GetByRef(p.Local.Ref); err == nil {
@@ -158,20 +165,20 @@ func (r *syncReport) writeRefusal(cc *cli.Context, store issuelib.Store, p issue
 		}
 	}
 	fmt.Fprintf(cc.Out, "  %s%s\n", issuelib.FormatID(p.XIDR), title)
+	fmt.Fprintf(cc.Out, "      %s.\n", ref.reason)
 
 	here, there := "nothing", "nothing"
 	if p.Local != nil {
 		here = shortSHA(p.Local.Commit)
 	}
-	switch {
-	case p.Split:
+	if p.Split {
 		fmt.Fprintf(cc.Out, "      %s holds this issue at two tips that disagree, which a "+
 			"git-issue older than this one can cause.\n", r.remote)
-	default:
+	} else {
 		if p.R != nil {
 			there = shortSHA(p.R.Commit)
 		}
-		fmt.Fprintf(cc.Out, "      here %s, %s %s, and neither carries the other.\n", here, r.remote, there)
+		fmt.Fprintf(cc.Out, "      here %s, %s %s.\n", here, r.remote, there)
 	}
 	takes, other := "the remote's", "this clone's"
 	command := "pull"

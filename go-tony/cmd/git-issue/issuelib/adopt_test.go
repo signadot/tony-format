@@ -98,28 +98,28 @@ func TestAdoptGen0_AgainstWhatThisGenerationHolds(t *testing.T) {
 		name string
 		// set up leaves the store holding whatever the case needs, and answers
 		// the commit the issue should be at afterwards, and where.
-		run func(t *testing.T, s *GitStore, issue *Issue) (wantRef, wantCommit string, wantWarning bool)
+		run func(t *testing.T, s *GitStore, issue *Issue) (wantRef, wantCommit string)
 	}{
-		{"nothing held here", func(t *testing.T, s *GitStore, issue *Issue) (string, string, bool) {
+		{"nothing held here", func(t *testing.T, s *GitStore, issue *Issue) (string, string) {
 			at := refAtOrEmpty(t, issue.Ref)
 			putRef(t, Gen0RefForXIDR(issue.ID), at)
 			dropRef(t, issue.Ref)
-			return RefForXIDR(issue.ID), at, false
+			return RefForXIDR(issue.ID), at
 		}},
-		{"what is held is the same commit", func(t *testing.T, s *GitStore, issue *Issue) (string, string, bool) {
+		{"what is held is the same commit", func(t *testing.T, s *GitStore, issue *Issue) (string, string) {
 			at := refAtOrEmpty(t, issue.Ref)
 			putRef(t, Gen0RefForXIDR(issue.ID), at)
-			return RefForXIDR(issue.ID), at, false
+			return RefForXIDR(issue.ID), at
 		}},
-		{"what is held carries the gen0 tip", func(t *testing.T, s *GitStore, issue *Issue) (string, string, bool) {
+		{"what is held carries the gen0 tip", func(t *testing.T, s *GitStore, issue *Issue) (string, string) {
 			old := refAtOrEmpty(t, issue.Ref)
 			putRef(t, Gen0RefForXIDR(issue.ID), old)
 			if err := s.updateCommit(issue.Ref, "later", map[string]string{"discussion/a.md": "a\n"}); err != nil {
 				t.Fatal(err)
 			}
-			return RefForXIDR(issue.ID), refAtOrEmpty(t, issue.Ref), false
+			return RefForXIDR(issue.ID), refAtOrEmpty(t, issue.Ref)
 		}},
-		{"the gen0 tip is ahead", func(t *testing.T, s *GitStore, issue *Issue) (string, string, bool) {
+		{"the gen0 tip is ahead", func(t *testing.T, s *GitStore, issue *Issue) (string, string) {
 			old := refAtOrEmpty(t, issue.Ref)
 			if err := s.updateCommit(issue.Ref, "later", map[string]string{"discussion/a.md": "a\n"}); err != nil {
 				t.Fatal(err)
@@ -127,9 +127,9 @@ func TestAdoptGen0_AgainstWhatThisGenerationHolds(t *testing.T) {
 			ahead := refAtOrEmpty(t, issue.Ref)
 			putRef(t, Gen0RefForXIDR(issue.ID), ahead)
 			putRef(t, issue.Ref, old)
-			return RefForXIDR(issue.ID), ahead, false
+			return RefForXIDR(issue.ID), ahead
 		}},
-		{"the gen0 tip is ahead and closed", func(t *testing.T, s *GitStore, issue *Issue) (string, string, bool) {
+		{"the gen0 tip is ahead and closed", func(t *testing.T, s *GitStore, issue *Issue) (string, string) {
 			old := refAtOrEmpty(t, issue.Ref)
 			if err := s.updateCommit(issue.Ref, "later", map[string]string{"discussion/a.md": "a\n"}); err != nil {
 				t.Fatal(err)
@@ -137,18 +137,7 @@ func TestAdoptGen0_AgainstWhatThisGenerationHolds(t *testing.T) {
 			ahead := refAtOrEmpty(t, issue.Ref)
 			putRef(t, Gen0ClosedRefForXIDR(issue.ID), ahead)
 			putRef(t, issue.Ref, old)
-			return ClosedRefForXIDR(issue.ID), ahead, false
-		}},
-		{"the two diverged", func(t *testing.T, s *GitStore, issue *Issue) (string, string, bool) {
-			old := refAtOrEmpty(t, issue.Ref)
-			putRef(t, Gen0RefForXIDR(issue.ID), old)
-			if err := s.updateCommit(issue.Ref, "ours", map[string]string{"discussion/a.md": "a\n"}); err != nil {
-				t.Fatal(err)
-			}
-			if err := s.updateCommit(Gen0RefForXIDR(issue.ID), "theirs", map[string]string{"discussion/b.md": "b\n"}); err != nil {
-				t.Fatal(err)
-			}
-			return RefForXIDR(issue.ID), refAtOrEmpty(t, issue.Ref), true
+			return ClosedRefForXIDR(issue.ID), ahead
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -158,28 +147,16 @@ func TestAdoptGen0_AgainstWhatThisGenerationHolds(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wantRef, wantCommit, wantWarning := tc.run(t, s, issue)
+			wantRef, wantCommit := tc.run(t, s, issue)
 
-			var said strings.Builder
-			adopting := NewGitStoreWithOutput(&said)
-			if err := adopting.AdoptGen0(); err != nil {
+			if err := NewGitStoreWithOutput(&strings.Builder{}).AdoptGen0(); err != nil {
 				t.Fatalf("adopt: %v", err)
 			}
 
 			if got := refAtOrEmpty(t, wantRef); got != wantCommit {
 				t.Errorf("%s is at %q, want %q", wantRef, got, wantCommit)
 			}
-			left := refsAt(Gen0OpenPrefix+"*", Gen0ClosedPrefix+"*")
-			if wantWarning {
-				if len(left) == 0 {
-					t.Error("a diverged pair was resolved by renaming, and only a merge can settle it")
-				}
-				if !strings.Contains(said.String(), FormatID(issue.ID)) {
-					t.Errorf("the divergence was not reported: %q", said.String())
-				}
-				return
-			}
-			if len(left) != 0 {
+			if left := refsAt(Gen0OpenPrefix+"*", Gen0ClosedPrefix+"*"); len(left) != 0 {
 				t.Errorf("refs of the older layout are still here: %v", left)
 			}
 			// One ref for the issue, in one status.

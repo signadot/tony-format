@@ -167,14 +167,18 @@ git issue pull --dry-run       # say what it would do, and write nothing
 ```
 
 Both directions ask the remote what it holds, decide per issue, and then write.
-An issue whose chain one side carries is sent or taken; an issue neither side's
-chain carries is **left alone and named**, and the command exits non-zero. So a
+An issue whose chain one side carries is sent or taken. An issue neither side's
+chain carries is **merged**: comments union, and the later status change wins. So a
 comment made here is not dropped by a pull, and one made elsewhere is not dropped
 by a push.
 
+What cannot be merged — two people rewrote the same description — is **left alone
+and named**, and the command exits non-zero.
+
 ```
   j2dzt7xp  Fix the thing
-      here a1b2c3d4, origin e5f6a7b8, and neither carries the other.
+      edited on both sides: description.md cannot be merged.
+      here a1b2c3d4, origin e5f6a7b8.
       `git issue pull --force` takes the remote side; this clone stays in the ref's reflog.
 ```
 
@@ -439,7 +443,7 @@ line.
 
 ## Limitations
 
-- No merge for issue refs: an issue edited on both sides is refused rather than
+- An issue whose description was rewritten on both sides is refused rather than
   merged, and `--force` picks a side
 - Read-only web UI (`git issue serve`), with no authentication; all edits go
   through the CLI

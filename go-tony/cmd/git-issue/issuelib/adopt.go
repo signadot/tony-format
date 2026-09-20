@@ -110,10 +110,16 @@ func (s *GitStore) AdoptGen0() error {
 				return fmt.Errorf("adopting %s: %w", FormatID(xidr), err)
 			}
 		default:
-			fmt.Fprintf(s.out, "Warning: %s was edited on both sides of an upgrade; "+
-				"%s and %s are both kept, and a sync merges them.\n",
-				FormatID(xidr), shortSHA(held.commit), shortSHA(gen0.commit))
-			continue
+			// Edited on both sides of an upgrade: neither rename is right, and
+			// the two chains are brought together instead.
+			merged, err := s.mergeAdopted(xidr, *held, gen0)
+			if err != nil {
+				fmt.Fprintf(s.out, "Warning: %s was edited on both sides of an upgrade, "+
+					"and the two cannot be merged: %v\n", FormatID(xidr), err)
+				continue
+			}
+			fmt.Fprintf(s.out, "%s was edited on both sides of an upgrade; merged as %s.\n",
+				FormatID(xidr), shortSHA(merged))
 		}
 
 		if err := s.deleteRef(gen0.ref, gen0.commit); err != nil {
@@ -130,6 +136,29 @@ func (s *GitStore) AdoptGen0() error {
 		fmt.Fprintf(s.out, "Adopted %d issue(s) written by an older git-issue.\n", adopted)
 	}
 	return nil
+}
+
+// mergeAdopted brings together an issue edited both through this generation and
+// through the one before, and leaves this clone at the merge.
+func (s *GitStore) mergeAdopted(xidr string, held, gen0 refAt) (string, error) {
+	base, err := s.MergeBase(held.commit, gen0.commit)
+	if err != nil {
+		return "", err
+	}
+	merged, err := s.MergeIssue(base, held.commit, gen0.commit)
+	if err != nil {
+		return "", err
+	}
+	issue, err := s.metaAt(merged)
+	if err != nil {
+		return "", err
+	}
+	local := Tip{Ref: held.ref, Commit: held.commit, Closed: IsClosedRef(held.ref)}
+	p := IssuePlan{XIDR: xidr, Local: &local}
+	if err := s.putLocal(p, merged, issue.Status == "closed"); err != nil {
+		return "", err
+	}
+	return merged, nil
 }
 
 // adoptGen0Notes folds a gen0 reverse index into this generation's and drops it,

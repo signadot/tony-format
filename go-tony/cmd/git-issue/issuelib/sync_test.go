@@ -1,6 +1,7 @@
 package issuelib
 
 import (
+	"errors"
 	"fmt"
 	"os/exec"
 	"sort"
@@ -204,14 +205,19 @@ func TestPlanSync_OldClientOnlyOnAMigratedRemote(t *testing.T) {
 	}
 }
 
-// TestApplyPull_RefusesADivergenceUnlessForced: the loss this whole file is
-// about. Neither side's chain carries the other, so taking either silently
-// drops work; the caller is told instead, and says which side wins if it wants
-// one.
-func TestApplyPull_RefusesADivergenceUnlessForced(t *testing.T) {
+// TestApplyPull_MergesADivergence: the loss this whole change is about. Neither
+// chain carries the other, so taking either drops work -- and there is no need
+// to take either, because the two can be brought together. Both sides' comments
+// survive, and the merge has both tips as parents so whoever syncs next
+// fast-forwards to it.
+func TestApplyPull_MergesADivergence(t *testing.T) {
 	gitInit(t)
 	s := NewGitStoreWithOutput(&strings.Builder{})
-	issue, commits := chain(t, s, 2)
+	issue, commits := chain(t, s, 1)
+	if err := s.updateCommit(issue.Ref, "ours", map[string]string{"discussion/ours.md": "ours\n"}); err != nil {
+		t.Fatal(err)
+	}
+	ours := refAtOrEmpty(t, issue.Ref)
 	putRef(t, TrackingOpenPrefix("origin")+issue.ID, commits[0])
 	theirs := fork(t, s, TrackingOpenPrefix("origin")+issue.ID, "theirs")
 
@@ -219,23 +225,97 @@ func TestApplyPull_RefusesADivergenceUnlessForced(t *testing.T) {
 	if p.Verdict != Diverged {
 		t.Fatalf("verdict %v, want %v", p.Verdict, Diverged)
 	}
-	if _, err := s.ApplyPull(p, false); err == nil {
-		t.Error("a divergence was applied without being asked twice")
-	}
-	if got := refAtOrEmpty(t, issue.Ref); got != commits[1] {
-		t.Errorf("the refused pull moved the ref to %s", shortSHA(got))
+	if _, err := s.ApplyPull(p, false); err != nil {
+		t.Fatalf("pull: %v", err)
 	}
 
+	merged := refAtOrEmpty(t, issue.Ref)
+	if merged == ours || merged == theirs {
+		t.Fatalf("the pull took one side, %s", shortSHA(merged))
+	}
+	parents := strings.Fields(strings.TrimSpace(gitOut(t, "rev-list", "--parents", "-1", merged)))
+	if len(parents) != 3 || !contains(parents, ours) || !contains(parents, theirs) {
+		t.Errorf("the merge's parents are %v, want %s and %s", parents[1:], shortSHA(ours), shortSHA(theirs))
+	}
+	files, err := s.ListDir(issue.Ref, "discussion")
+	if err != nil {
+		t.Fatalf("read the discussion: %v", err)
+	}
+	for _, want := range []string{"ours.md", "theirs.md"} {
+		if _, ok := files[want]; !ok {
+			t.Errorf("the merge does not hold %s: %v", want, files)
+		}
+	}
+	// And the issue still reads as one.
+	if got, _, err := s.GetByRef(issue.Ref); err != nil || got.ID != issue.ID {
+		t.Errorf("the merged issue does not read: %+v, %v", got, err)
+	}
+}
+
+// TestApplyPull_ForceTakesTheRemoteOutright: force is for when a merge is not
+// wanted, and it says so by leaving this clone's tip in the reflog rather than
+// nowhere.
+func TestApplyPull_ForceTakesTheRemoteOutright(t *testing.T) {
+	gitInit(t)
+	s := NewGitStoreWithOutput(&strings.Builder{})
+	issue, commits := chain(t, s, 2)
+	putRef(t, TrackingOpenPrefix("origin")+issue.ID, commits[0])
+	theirs := fork(t, s, TrackingOpenPrefix("origin")+issue.ID, "theirs")
+
+	p := planFor(t, s, "origin", issue.ID)
 	if _, err := s.ApplyPull(p, true); err != nil {
 		t.Fatalf("forced pull: %v", err)
 	}
 	if got := refAtOrEmpty(t, issue.Ref); got != theirs {
 		t.Errorf("the forced pull left the ref at %s, want %s", shortSHA(got), shortSHA(theirs))
 	}
-	// What it overwrote is still reachable, which is what makes force survivable.
 	if logged := reflogTips(t, issue.Ref); !contains(logged, commits[1]) {
 		t.Errorf("the overwritten tip is not in the reflog: %v", logged)
 	}
+}
+
+// TestApplyPull_RefusesWhatItCannotMerge: two people rewrote the same
+// description. No rule here beats asking them, so the issue is named, with the
+// path, and left alone.
+func TestApplyPull_RefusesWhatItCannotMerge(t *testing.T) {
+	gitInit(t)
+	s := NewGitStoreWithOutput(&strings.Builder{})
+	issue, commits := chain(t, s, 1)
+	if err := s.updateCommit(issue.Ref, "ours", map[string]string{"description.md": "# subject\n\nours\n"}); err != nil {
+		t.Fatal(err)
+	}
+	ours := refAtOrEmpty(t, issue.Ref)
+	tracking := TrackingOpenPrefix("origin") + issue.ID
+	putRef(t, tracking, commits[0])
+	if err := s.updateCommit(tracking, "theirs", map[string]string{"description.md": "# subject\n\ntheirs\n"}); err != nil {
+		t.Fatal(err)
+	}
+
+	p := planFor(t, s, "origin", issue.ID)
+	_, err := s.ApplyPull(p, false)
+	if err == nil {
+		t.Fatal("a description rewritten on both sides was merged anyway")
+	}
+	if !errors.Is(err, ErrDiverged) {
+		t.Errorf("the refusal is not one the caller can recognise: %v", err)
+	}
+	if !strings.Contains(err.Error(), "description.md") {
+		t.Errorf("the refusal does not name the path: %v", err)
+	}
+	if got := refAtOrEmpty(t, issue.Ref); got != ours {
+		t.Errorf("the refused pull moved the ref to %s", shortSHA(got))
+	}
+}
+
+// gitOut runs git and answers its output, for a test asking git a question
+// directly.
+func gitOut(t *testing.T, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("git", args...).Output()
+	if err != nil {
+		t.Fatalf("git %s: %v", strings.Join(args, " "), err)
+	}
+	return string(out)
 }
 
 func contains(haystack []string, needle string) bool {
