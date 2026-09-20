@@ -137,8 +137,16 @@ var errRefMoved = errors.New("ref moved")
 // to hold overwrote whatever another writer had put there between this writer's
 // read and its write: eight `git issue comment` runs at once all said "Added
 // comment" and one comment survived (05d8w3cjh12kswb1msn0).
+//
+// --create-reflog because git logs only refs/heads/, refs/remotes/, refs/notes/
+// and HEAD by default, whatever core.logAllRefUpdates says, and an issue ref is
+// none of those: what a forced sync overwrote was a dangling commit with nothing
+// recording that it had been there. Git goes on logging any ref whose log
+// exists, so one write through here is enough to cover every later overwrite,
+// a fetch's included. The setting itself is the user's and covers refs that are
+// not ours, so it is not touched.
 func (s *GitStore) setRef(ref, commit, old string) error {
-	cmd := exec.Command("git", "update-ref", ref, commit, old)
+	cmd := exec.Command("git", "update-ref", "--create-reflog", ref, commit, old)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {

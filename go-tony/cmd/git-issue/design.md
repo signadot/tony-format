@@ -161,12 +161,20 @@ There is no authentication and should not be; the default bind is loopback.
 
 Force is what makes the model work at all: two clones that both edited an issue
 have divergent chains, and without force neither could push. With it, the last
-writer wins — the loser's commits remain in the object store but drop off the
-ref, and nothing records that they were there. There is no reflog to look in:
-`core.logAllRefUpdates=true`, the default, logs `refs/heads/`, `refs/remotes/`,
-`refs/notes/` and `HEAD`, and not `refs/issues/` or `refs/closed/`. An overwritten
-issue is a dangling commit, findable with `git fsck --lost-found` by someone who
-already suspects a loss, until gc prunes it.
+writer wins — the loser's commits drop off the ref, and are recoverable from its
+reflog: `git reflog show refs/issues/<xidr>` lists every tip the ref has held,
+and `git update-ref` puts one back.
+
+That reflog exists because the store asks for it. `core.logAllRefUpdates=true`,
+the default, logs `refs/heads/`, `refs/remotes/`, `refs/notes/` and `HEAD`, and
+an issue ref is none of those, so there was no log at all and an overwritten tip
+was a dangling commit until gc took it. Every write goes through `setRef`, which
+passes `--create-reflog`, and git goes on logging a ref whose log exists — so one
+local write covers every later overwrite, a fetch's included. The setting itself
+is the user's, and covers refs that are not ours, so the store does not touch it.
+The gap that remains is a ref this clone has only ever fetched and never written:
+it has no log until the first local edit, and until then a forced fetch over it
+leaves nothing behind.
 
 Locally the store does better than this, which is what makes the transport's
 behaviour a defect rather than a limit: every write is `git update-ref <ref> <new>
