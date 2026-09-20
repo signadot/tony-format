@@ -88,6 +88,25 @@ type Store interface {
 	// closed one when neither descends from the other.
 	CleanupStaleRefs() (int, error)
 
+	// FetchTracking brings this clone's copy of what a remote holds up to date,
+	// and says whether the remote has moved to this generation.
+	FetchTracking(remote string) (bool, error)
+
+	// PlanSync answers what a sync with a remote would do to each issue either
+	// side holds. It reads refs and writes nothing.
+	PlanSync(remote string) ([]IssuePlan, error)
+
+	// ApplyPull brings this clone's ref for one issue to what the remote holds,
+	// and ApplyPush makes the remote right about it; each says what it did.
+	// force decides a divergence and nothing else, and a divergence with no
+	// force answers ErrDiverged.
+	ApplyPull(p IssuePlan, force bool) (string, error)
+	ApplyPush(remote string, p IssuePlan, force bool) (string, error)
+
+	// SyncNotes folds what a remote's reverse indexes hold into this clone's,
+	// and with push set sends the result back.
+	SyncNotes(remote string, push bool) error
+
 	// AdoptGen0 moves what a git-issue older than this generation left in this
 	// clone into the current ref layout, and folds its reverse index into the
 	// current one. Reads of an existing issue do it once per store on their own;
