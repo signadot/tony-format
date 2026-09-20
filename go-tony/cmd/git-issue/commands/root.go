@@ -22,8 +22,8 @@
 // that -- serve being read-only, comments being stored under content-addressed
 // names that two clones cannot collide on -- follows from it.
 //
-// What sync is not blunt about is the namespace: an issue is in refs/issues/ or
-// in refs/closed/, never both, and that holds across a push or a pull as it does
+// What sync is not blunt about is the namespace: an issue is open or closed,
+// never both, and that holds across a push or a pull as it does
 // locally. Push deletes the ref a status change moved out of, pull deletes the
 // one a fetched status change made stale, because a remote holding an id in both
 // namespaces cannot be read for a status at all -- a close and a reopen leave
@@ -37,8 +37,8 @@ import (
 
 const usageText = `git-issue - Git-native issue tracker
 
-Issues are git refs in this repository: refs/issues/<id> while open,
-refs/closed/<id> once closed. An <id> is a 20-character XIDR, and every
+Issues are git refs in this repository: refs/git-issues/v1/open/<id> while open,
+refs/git-issues/v1/closed/<id> once closed. An <id> is a 20-character XIDR, and every
 command below takes any unambiguous prefix of one.
 
 Usage:

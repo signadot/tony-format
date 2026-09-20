@@ -24,18 +24,27 @@ see the package docs in `issuelib` and `commands`.
 ## Storage model
 
 An issue is a git ref pointing at a commit chain. The ref namespace carries the
-status:
+status, under a generation that says which ref layout this is:
 
 ```
-refs/issues/<xidr>    an open issue
-refs/closed/<xidr>    a closed issue
-refs/notes/issues     reverse index, commit -> issue IDs
+refs/git-issues/v1/open/<xidr>    an open issue
+refs/git-issues/v1/closed/<xidr>  a closed issue
+refs/notes/git-issues/v1          reverse index, commit -> issue IDs
 ```
+
+The `v1` is there because a client names its refspecs literally, so it cannot see
+or touch a ref it does not name. A client older than the generation syncs
+`refs/issues/` and `refs/closed/` — gen0, below — and is therefore harmless to
+anything written here. The generation changes only for a break a client of the
+previous one cannot safely coexist with: a ref layout, or how sync decides what to
+write. What `meta.tony` holds is not such a break, since a field added there is
+read by a client that does not know it, and moving every ref in every clone for one
+would be a flag day for nothing.
 
 Each operation appends a commit whose tree is the whole issue:
 
 ```
-refs/issues/j2dzt7xph12kswa9esn0
+refs/git-issues/v1/open/j2dzt7xph12kswa9esn0
   |
   create: issue j2dzt7xph12kswa9esn0
   |   description.md, meta.tony
@@ -70,15 +79,15 @@ and `refs/tags`, so a new clone starts with no issues until `git issue pull`.
 ### A commit chain per issue
 
 Every mutation appends a commit rather than rewriting the tip, so
-`git log refs/issues/<xidr>` is the issue's history for free — who changed what,
+`git log <the issue's ref>` is the issue's history for free — who changed what,
 when — with no separate event log to keep consistent with the state. Commit
 messages name the operation (`link: c477908`, `label: added bug, urgent`), which
 makes the log readable without tooling.
 
 ### Status is the namespace
 
-Closing moves the ref from `refs/issues/` to `refs/closed/`; the commit chain is
-untouched. Status could have been a field in `meta.tony` alone, but then listing
+Closing moves the ref from `refs/git-issues/v1/open/` to
+`refs/git-issues/v1/closed/`; the commit chain is untouched. Status could have been a field in `meta.tony` alone, but then listing
 open issues would mean reading every issue's metadata, and the field is written
 too. It is written — `meta.tony` has `status` — but where the ref lives is what
 listings believe, because that is what a ref scan can answer cheaply and what
@@ -87,6 +96,33 @@ cannot disagree with itself.
 Because both namespaces are searched on every lookup, an ID keeps resolving after
 the issue closes. A link handed to someone does not rot when the issue is
 finished.
+
+### gen0, and adopting it
+
+The layout before the generation existed — `refs/issues/<xidr>`,
+`refs/closed/<xidr>`, `refs/notes/issues` — is gen0, and a client that has not been
+upgraded goes on writing it. Its work is neither lost nor left where this
+generation cannot see it: every read of an existing issue adopts first, moving each
+gen0 ref into the current layout and folding a gen0 reverse index into the current
+one with `git notes merge -s union`. So upgrading the binary in a clone full of
+gen0 issues looks like nothing happening, which is the point.
+
+Adoption is local and one-directional. Refs in this clone are renamed; nothing is
+sent anywhere, and a `pull` does not migrate a remote. A ref is recreated at the
+commit it was already at — no commit is rewritten — so every SHA recorded
+elsewhere, every `Issue:` trailer and every id keeps resolving. That is what the
+numeric-id migration, which re-identified issues, could not say for itself, and it
+is why there is no migration command to run: a remote is migrated by an ordinary
+push, under the rule that decides every other push.
+
+Where both layouts hold the same issue — someone ran the old binary after the new
+one — the later of the two tips wins, status included. Only a genuine divergence is
+left alone, named for a person, for a sync to merge.
+
+Reads take adoption once per process, and it must not fail the command it rides on:
+a listing that cannot adopt should still list. Anything that has just fetched gen0
+refs, or is about to decide from local refs, calls it directly instead — that once
+may be long spent by then, and what arrived after it would sit unadopted and unseen.
 
 ### XIDR, not a sequential counter
 
@@ -154,15 +190,15 @@ There is no authentication and should not be; the default bind is loopback.
 `push` and `pull` move refs with force refspecs:
 
 ```
-+refs/issues/*:refs/issues/*
-+refs/closed/*:refs/closed/*
-+refs/notes/issues:refs/notes/issues
++refs/git-issues/v1/open/*:refs/git-issues/v1/open/*
++refs/git-issues/v1/closed/*:refs/git-issues/v1/closed/*
++refs/notes/git-issues/v1:refs/notes/git-issues/v1
 ```
 
 Force is what makes the model work at all: two clones that both edited an issue
 have divergent chains, and without force neither could push. With it, the last
 writer wins — the loser's commits drop off the ref, and are recoverable from its
-reflog: `git reflog show refs/issues/<xidr>` lists every tip the ref has held,
+reflog: `git reflog show <the issue's ref>` lists every tip the ref has held,
 and `git update-ref` puts one back.
 
 That reflog exists because the store asks for it. `core.logAllRefUpdates=true`,
@@ -203,7 +239,7 @@ gone are all "nothing to do", which is where every repository starts.
 
 One thing still follows from the same code. **`push --all` deletes the counterpart
 ref on the remote unconditionally:** closing an issue moves its ref, and the push
-mirrors the move by deleting the remote's `refs/issues/<xidr>` — right when the
+mirrors the move by deleting the remote's open ref — right when the
 remote's open ref is an ancestor of the close, and a silent overwrite when someone
 reopened the issue there and added to it.
 
@@ -243,32 +279,13 @@ Tracked as `w4mr5qphh12kr9f2nxn0`; the plan, step by step, is
 `docs/sketchy/issue-sync-plan.md`. As each step lands, its part of this section moves
 into the body of this document.
 
-**A new namespace, with a generation in it.** Issues move to
-
-```
-refs/git-issues/v1/open/<xidr>
-refs/git-issues/v1/closed/<xidr>
-refs/notes/git-issues/v1
-```
-
-An old client names its refspecs literally, so it cannot see or touch a ref it does
-not name: the move makes old clients harmless to new issues, not merely detectable.
-An old client cannot be *refused* — the remote is a plain git server with no hook of
-ours — but the old namespace becomes a tripwire. A remote that a new client has
-pushed to holds nothing there, so a ref appearing there later was pushed by an old
-client, definitively; a new client keeps the work, adopts it, and says so, to the
+**The tripwire.** The generation and adoption are built (see [gen0, and adopting
+it](#gen0-and-adopting-it)); what is not is reading anything from a gen0 ref on a
+*remote*. An old client cannot be refused — the remote is a plain git server with no
+hook of ours — but once a remote has been pushed to by a client of this generation
+it holds nothing in gen0, so a ref appearing there afterwards was pushed by an old
+client, definitively. The work is kept and adopted, and the sync says so, to the
 people who can pass on "please upgrade".
-
-The generation changes only for a break old clients cannot coexist with: a ref layout
-or a sync protocol, which is what this is. A change to what `meta.tony` holds is not
-one. Most evolution is additive, and moving every ref in every clone for a new field
-would be a flag day for nothing.
-
-There is no migration command. A new client adopts old-namespace refs locally on
-sight, and an ordinary `push` migrates the remote by the same rule that decides every
-other push. No commit is rewritten — a ref is recreated at the same commit — so
-every recorded SHA, `Issue:` trailer and id keeps resolving, which is what the
-numeric-id migration could not say.
 
 **Tracking refs.** Today a remote's issue refs are never held locally, so nothing can
 say what the other side holds without asking the network, and nothing compares. `pull`
@@ -300,14 +317,6 @@ tracking ref says>`, non-force for a create or a fast-forward. That is the
 compare-and-swap the transport lacked. A lease that fails means someone pushed since
 the fetch: the issue is reported and left, and a re-run decides again.
 
-**A reflog.** Every ref the tool writes is written with `--create-reflog`, so what a
-forced sync overwrites is recoverable by ordinary means. Not
-`core.logAllRefUpdates=always`, which is the user's setting and covers refs that are
-not ours.
-
-**Errors.** `Push` and `Fetch` try everything and return what failed; a sync that
-refused or failed anything exits non-zero.
-
 **Merge.** A diverged issue is merged three-way: `git merge-tree` over the trees, where
 `discussion/` unions by construction since its names cannot collide, and a text
 conflict in `description.md` is refused as a person's to settle; `meta.tony` by value,
@@ -320,15 +329,15 @@ fast-forward to it. Notes merge with `git notes merge -s union`, which git has a
 had.
 
 **Mixed versions.** A new client on a migrated remote cannot be hurt by an old one. An
-old client there sees its own stale copy and no new issues, and is never told why.
-Until a remote's first new push, both share the old namespace on it and the old
-hazards apply to the old client's pushes.
+old client there sees its own stale copy and no new issues, and is never told why; the
+people told are the new clients' users, who can pass it on. Until a remote's first new
+push, both share gen0 on it and the old hazards apply to the old client's pushes.
 
 ## Changes from the original design
 
 | Original | Now | Why |
 |---|---|---|
-| `refs/issues/001`, counter ref | `refs/issues/<xidr>` | counters cannot be allocated offline |
+| `refs/issues/001`, counter ref | an issue ref keyed by XIDR | counters cannot be allocated offline |
 | `labels.tony` | `labels` in `meta.tony` | one document, one write path |
 | `discussion/<date>-<topic>.md`, hand-named | `discussion/<ts>-<hash>.md` | names that cannot collide on sync |
 | `git issue discuss` | `comment`, `attach` | different inputs, different commands |

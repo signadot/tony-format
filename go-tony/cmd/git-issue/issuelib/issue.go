@@ -37,6 +37,6 @@ type Issue struct {
 	Labels []string `tony:"field=labels"`
 
 	// Derived on read, not serialized in meta.tony.
-	Ref   string `tony:"-"` // git ref the issue was found at, e.g. "refs/issues/abc123..."
+	Ref   string `tony:"-"` // git ref the issue was found at, e.g. "refs/git-issues/v1/open/abc123..."
 	Title string `tony:"-"` // first line of description.md, "# " stripped
 }

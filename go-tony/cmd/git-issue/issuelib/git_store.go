@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -30,6 +31,9 @@ import (
 // concurrently.
 type GitStore struct {
 	out io.Writer
+	// adopted guards the implicit adoption of refs an older git-issue wrote,
+	// which every read of an existing issue goes through (adoptOnce).
+	adopted sync.Once
 }
 
 // NewGitStore creates a GitStore that reports warnings on stdout.
@@ -233,6 +237,8 @@ func (s *GitStore) GetByRef(ref string) (*Issue, string, error) {
 // FindRef finds the ref for an issue by XIDR or XIDR prefix.
 // Returns error if not found or if prefix matches multiple issues.
 func (s *GitStore) FindRef(xidrOrPrefix string) (string, error) {
+	s.adoptOnce()
+
 	// If it's a full 20-char XIDR, try exact match first
 	if len(xidrOrPrefix) == 20 {
 		ref := RefForXIDR(xidrOrPrefix)
@@ -252,25 +258,13 @@ func (s *GitStore) FindRef(xidrOrPrefix string) (string, error) {
 
 	// Prefix search - find all matching refs
 	var matches []string
-	for _, pattern := range []string{"refs/issues/*", "refs/closed/*"} {
-		cmd := exec.Command("git", "for-each-ref", "--format=%(refname)", pattern)
-		out, err := cmd.Output()
+	for _, r := range refsAt(OpenPrefix+"*", ClosedPrefix+"*") {
+		xidr, err := XIDRFromRef(r.ref)
 		if err != nil {
 			continue
 		}
-
-		refs := strings.Split(strings.TrimSpace(string(out)), "\n")
-		for _, ref := range refs {
-			if ref == "" {
-				continue
-			}
-			xidr, err := XIDRFromRef(ref)
-			if err != nil {
-				continue
-			}
-			if MatchesXIDRPrefix(xidrOrPrefix, xidr) {
-				matches = append(matches, ref)
-			}
+		if MatchesXIDRPrefix(xidrOrPrefix, xidr) {
+			matches = append(matches, r.ref)
 		}
 	}
 
@@ -408,30 +402,21 @@ func (s *GitStore) List(includeAll bool) ([]*Issue, error) {
 	return issues, nil
 }
 
-// ListRefs returns the refs under refs/issues/, plus refs/closed/ when
-// includeAll is set.
+// ListRefs returns the open issue refs, plus the closed ones when includeAll is
+// set. Anything an older git-issue left in this clone is adopted first, so a
+// listing shows every issue whichever binary wrote it (AdoptGen0).
 func (s *GitStore) ListRefs(includeAll bool) ([]string, error) {
-	patterns := []string{"refs/issues/*"}
+	s.adoptOnce()
+
+	patterns := []string{OpenPrefix + "*"}
 	if includeAll {
-		patterns = append(patterns, "refs/closed/*")
+		patterns = append(patterns, ClosedPrefix+"*")
 	}
 
 	var allRefs []string
-	for _, pattern := range patterns {
-		cmd := exec.Command("git", "for-each-ref", "--format=%(refname)", pattern)
-		out, err := cmd.Output()
-		if err != nil {
-			continue
-		}
-
-		refs := strings.Split(strings.TrimSpace(string(out)), "\n")
-		for _, ref := range refs {
-			if ref != "" {
-				allRefs = append(allRefs, ref)
-			}
-		}
+	for _, r := range refsAt(patterns...) {
+		allRefs = append(allRefs, r.ref)
 	}
-
 	return allRefs, nil
 }
 
@@ -506,13 +491,13 @@ func (s *GitStore) VerifyCommit(commit string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// AddNote records content in the commit's note under refs/notes/issues, which
+// AddNote records content in the commit's note under NotesRef, which
 // is the reverse index that answers "which issues mention this commit". It
 // appends to an existing note and is idempotent: content already present as a
 // line is not added twice.
 func (s *GitStore) AddNote(commit, content string) error {
 	// Check if note exists
-	checkCmd := exec.Command("git", "notes", "--ref=refs/notes/issues", "show", commit)
+	checkCmd := exec.Command("git", "notes", "--ref="+NotesRef, "show", commit)
 	checkOut, checkErr := checkCmd.Output()
 
 	if checkErr == nil {
@@ -524,20 +509,20 @@ func (s *GitStore) AddNote(commit, content string) error {
 			}
 		}
 		// Append to existing note
-		appendCmd := exec.Command("git", "notes", "--ref=refs/notes/issues", "append", "-m", content, commit)
+		appendCmd := exec.Command("git", "notes", "--ref="+NotesRef, "append", "-m", content, commit)
 		return appendCmd.Run()
 	}
 
 	// Create new note
-	addCmd := exec.Command("git", "notes", "--ref=refs/notes/issues", "add", "-m", content, commit)
+	addCmd := exec.Command("git", "notes", "--ref="+NotesRef, "add", "-m", content, commit)
 	return addCmd.Run()
 }
 
-// GetNotes returns the commit's refs/notes/issues note, one issue ID per line
+// GetNotes returns the commit's NotesRef note, one issue ID per line
 // with a blank line between entries, since git notes append separates what it
 // adds that way. A commit with no note is an error, not an empty string.
 func (s *GitStore) GetNotes(commit string) (string, error) {
-	cmd := exec.Command("git", "notes", "--ref=refs/notes/issues", "show", commit)
+	cmd := exec.Command("git", "notes", "--ref="+NotesRef, "show", commit)
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err
@@ -717,21 +702,14 @@ func (s *GitStore) replaceTreeOnce(ref, message string, files map[string][]byte)
 	return nil
 }
 
-// CleanupStaleRefs removes stale refs when an issue exists in both refs/issues/ and refs/closed/.
+// CleanupStaleRefs removes stale refs when an issue exists in both the open and closed namespaces.
 // For each duplicate, it keeps the ref with more history (the descendant) and deletes the ancestor;
 // when neither descends from the other it keeps the closed ref and deletes the open one.
 // Returns the number of refs cleaned up.
 func (s *GitStore) CleanupStaleRefs() (int, error) {
-	// Get all open issue XIDs
-	openCmd := exec.Command("git", "for-each-ref", "--format=%(refname)", "refs/issues/*")
-	openOut, _ := openCmd.Output()
-	openRefs := strings.Split(strings.TrimSpace(string(openOut)), "\n")
-
 	cleaned := 0
-	for _, openRef := range openRefs {
-		if openRef == "" {
-			continue
-		}
+	for _, open := range refsAt(OpenPrefix + "*") {
+		openRef := open.ref
 		xidr, err := XIDRFromRef(openRef)
 		if err != nil {
 			continue

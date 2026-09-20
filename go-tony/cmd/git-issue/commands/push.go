@@ -60,10 +60,9 @@ func (cfg *pushConfig) pushAll(cc *cli.Context, remote string) error {
 	fmt.Fprintf(cc.Out, "Pushing all issues to %s...\n", remote)
 
 	refspecs := []string{
-		"+refs/issues/*:refs/issues/*",
-		"+refs/closed/*:refs/closed/*",
-		"+refs/meta/issue-counter:refs/meta/issue-counter",
-		"+refs/notes/issues:refs/notes/issues",
+		mirror(issuelib.OpenPrefix + "*"),
+		mirror(issuelib.ClosedPrefix + "*"),
+		mirror(issuelib.NotesRef),
 	}
 
 	localRefs, err := cfg.store.ListRefs(true)
@@ -122,7 +121,7 @@ func (cfg *pushConfig) pushSingle(cc *cli.Context, remote string, xidrOrPrefix s
 
 	// Push notes for commits referenced by this issue
 	if len(issue.Commits) > 0 {
-		if err := cfg.store.Push(remote, []string{"+refs/notes/issues:refs/notes/issues"}); err != nil {
+		if err := cfg.store.Push(remote, []string{mirror(issuelib.NotesRef)}); err != nil {
 			return fmt.Errorf("failed to push the reverse index: %w", err)
 		}
 	}
@@ -151,7 +150,7 @@ func (cfg *pushConfig) staleRemoteRefs(remote string, localRefs []string) ([]str
 		return nil, nil
 	}
 
-	remoteRefs, err := cfg.store.RemoteRefs(remote, "refs/issues/*", "refs/closed/*")
+	remoteRefs, err := cfg.store.RemoteRefs(remote, issuelib.OpenPrefix+"*", issuelib.ClosedPrefix+"*")
 	if err != nil {
 		return nil, err
 	}

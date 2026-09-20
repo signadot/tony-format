@@ -49,7 +49,7 @@ func (cfg *reopenConfig) run(cc *cli.Context, args []string) error {
 		return fmt.Errorf("failed to update issue: %w", err)
 	}
 
-	// Move ref from refs/closed/ to refs/issues/
+	// Move the ref from the closed namespace to the open one
 	newRef := issuelib.RefForXIDR(issue.ID)
 	if err := cfg.store.MoveRef(ref, newRef); err != nil {
 		return fmt.Errorf("failed to move issue ref: %w", err)

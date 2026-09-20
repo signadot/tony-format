@@ -21,7 +21,7 @@ type migrateConfig struct {
 
 // MigrateCommand rewrites issues from the original six-digit numeric IDs to
 // XIDRs: each issue is rebuilt under its new ref with the whole tree copied
-// across, cross-references between issues are translated, the refs/notes/issues
+// across, cross-references between issues are translated, the reverse-index
 // reverse index is rewritten, and the old ref is deleted. The counter ref the
 // numeric IDs were allocated from, refs/meta/issue-counter, is deleted last.
 //
@@ -77,7 +77,7 @@ func (cfg *migrateConfig) run(cc *cli.Context, args []string) error {
 		xid := issuelib.NewXID(issue.Created)
 		xidr := xid.XIDR()
 
-		// Extract old ID from ref path (e.g., "refs/issues/000001" -> "000001")
+		// Extract old ID from ref path (e.g., an open issue's ref for "000001")
 		oldIDStr, err := issuelib.XIDRFromRef(issue.Ref)
 		if err != nil {
 			// This shouldn't happen, but fall back to issue.ID
@@ -173,9 +173,9 @@ func (cfg *migrateConfig) run(cc *cli.Context, args []string) error {
 		// Determine new ref path
 		var newRef string
 		if m.isClosed {
-			newRef = fmt.Sprintf("refs/closed/%s", m.newXIDR)
+			newRef = issuelib.ClosedRefForXIDR(m.newXIDR)
 		} else {
-			newRef = fmt.Sprintf("refs/issues/%s", m.newXIDR)
+			newRef = issuelib.RefForXIDR(m.newXIDR)
 		}
 
 		// Create the new ref with all files
@@ -215,11 +215,11 @@ func (cfg *migrateConfig) run(cc *cli.Context, args []string) error {
 
 			if changed {
 				// Remove and re-add the note
-				removeCmd := exec.Command("git", "notes", "--ref=refs/notes/issues", "remove", commit)
+				removeCmd := exec.Command("git", "notes", "--ref="+issuelib.NotesRef, "remove", commit)
 				removeCmd.Run() // Ignore error if note doesn't exist
 
 				newContent := strings.Join(lines, "\n")
-				addCmd := exec.Command("git", "notes", "--ref=refs/notes/issues", "add", "-m", newContent, commit)
+				addCmd := exec.Command("git", "notes", "--ref="+issuelib.NotesRef, "add", "-m", newContent, commit)
 				if err := addCmd.Run(); err != nil {
 					fmt.Fprintf(cc.Out, "  Warning: failed to update note for %s: %v\n", commit[:7], err)
 				} else {

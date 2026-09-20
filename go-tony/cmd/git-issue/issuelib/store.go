@@ -83,10 +83,17 @@ type Store interface {
 	// VerifyRemote checks if a remote exists.
 	VerifyRemote(remote string) error
 
-	// CleanupStaleRefs removes duplicate refs when an issue exists in both
-	// refs/issues/ and refs/closed/. Keeps the ref with more history, or the
+	// CleanupStaleRefs removes duplicate refs when an issue exists in both the
+	// open and closed namespaces. Keeps the ref with more history, or the
 	// closed one when neither descends from the other.
 	CleanupStaleRefs() (int, error)
+
+	// AdoptGen0 moves what a git-issue older than this generation left in this
+	// clone into the current ref layout, and folds its reverse index into the
+	// current one. Reads of an existing issue do it once per store on their own;
+	// a caller that has just fetched gen0 refs, or is about to decide from local
+	// refs, calls it directly. It is local, and idempotent.
+	AdoptGen0() error
 
 	// Out returns the output writer for this store.
 	Out() io.Writer

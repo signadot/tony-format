@@ -42,26 +42,44 @@ func ParseLegacyID(s string) (int64, error) {
 
 // RefForXIDR returns the ref path for an open issue with XIDR.
 func RefForXIDR(xidr string) string {
-	return fmt.Sprintf("refs/issues/%s", xidr)
+	return OpenPrefix + xidr
 }
 
 // ClosedRefForXIDR returns the ref path for a closed issue with XIDR.
 func ClosedRefForXIDR(xidr string) string {
-	return fmt.Sprintf("refs/closed/%s", xidr)
+	return ClosedPrefix + xidr
 }
 
-// IsClosedRef returns true if the ref is for a closed issue.
+// Gen0RefForXIDR and Gen0ClosedRefForXIDR are where the layout before this
+// generation kept an issue. Nothing writes these; adoption reads them.
+func Gen0RefForXIDR(xidr string) string {
+	return Gen0OpenPrefix + xidr
+}
+
+func Gen0ClosedRefForXIDR(xidr string) string {
+	return Gen0ClosedPrefix + xidr
+}
+
+// IsClosedRef returns true if the ref is for a closed issue, in either
+// generation: status is the namespace, and gen0 had its own pair of them.
 func IsClosedRef(ref string) bool {
-	return strings.HasPrefix(ref, "refs/closed/")
+	return strings.HasPrefix(ref, ClosedPrefix) || strings.HasPrefix(ref, Gen0ClosedPrefix)
 }
 
-// XIDRFromRef extracts the XIDR from a ref path.
+// IsGen0Ref returns true if the ref is where the layout before this generation
+// kept an issue.
+func IsGen0Ref(ref string) bool {
+	return strings.HasPrefix(ref, Gen0OpenPrefix) || strings.HasPrefix(ref, Gen0ClosedPrefix)
+}
+
+// XIDRFromRef extracts the XIDR from a local issue ref, of either generation. A
+// tracking ref is not one: it names what a remote holds, and the code that reads
+// those says so explicitly.
 func XIDRFromRef(ref string) (string, error) {
-	if xidr, ok := strings.CutPrefix(ref, "refs/issues/"); ok {
-		return xidr, nil
-	}
-	if xidr, ok := strings.CutPrefix(ref, "refs/closed/"); ok {
-		return xidr, nil
+	for _, prefix := range []string{OpenPrefix, ClosedPrefix, Gen0OpenPrefix, Gen0ClosedPrefix} {
+		if xidr, ok := strings.CutPrefix(ref, prefix); ok {
+			return xidr, nil
+		}
 	}
 	return "", fmt.Errorf("invalid issue ref: %s", ref)
 }

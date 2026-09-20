@@ -6,7 +6,8 @@ beside it.
 
 ## Features
 
-- **Git-native storage**: issues are refs (`refs/issues/*`, `refs/closed/*`) over
+- **Git-native storage**: issues are refs (`refs/git-issues/v1/open/*`,
+  `refs/git-issues/v1/closed/*`) over
   ordinary git objects — no database, no server, no sidecar files in the tree
 - **Collision-free IDs**: every issue gets an XIDR, unique across clones without
   anyone allocating it, and you type as much of it as it takes to be unambiguous
@@ -151,7 +152,8 @@ git issue close j2dz --commit abc123       # and record what closed it
 git issue reopen j2dz
 ```
 
-Closing moves the ref from `refs/issues/<xidr>` to `refs/closed/<xidr>`; the
+Closing moves the ref from `refs/git-issues/v1/open/<xidr>` to
+`refs/git-issues/v1/closed/<xidr>`; the
 commit chain is untouched, so nothing is lost and the ID keeps resolving.
 
 ### Sync with a remote
@@ -197,8 +199,8 @@ Serves a read-only view of the issues in the current repository:
 - `/` lists open issues; `/?all=1` includes closed ones
 - `/i/<xidr>` is an issue. XID prefixes work and redirect to the full-XIDR URL,
   so the link you copy out of the address bar is the one that keeps resolving
-- Links survive closing an issue: resolution searches both `refs/issues/` and
-  `refs/closed/`, so a URL pasted into chat does not rot when the ref moves
+- Links survive closing an issue: resolution searches the open and closed
+  namespaces alike, so a URL pasted into chat does not rot when the ref moves
 - Attachments download from `/i/<xidr>/files/<path>` as opaque bytes; nothing
   attached to an issue is ever rendered in the browser
 
@@ -233,12 +235,12 @@ run it once.
 
 ### Git refs
 
-- **`refs/issues/<xidr>`** — an open issue
-- **`refs/closed/<xidr>`** — a closed issue
+- **`refs/git-issues/v1/open/<xidr>`** — an open issue
+- **`refs/git-issues/v1/closed/<xidr>`** — a closed issue
 - **`refs/notes/issues`** — reverse index, commit → issue IDs
 
 Status is the namespace: an issue is open because its ref is under
-`refs/issues/`. `meta.tony` carries a `status` field too, but where the ref lives
+the open namespace. `meta.tony` carries a `status` field too, but where the ref lives
 is what listings believe.
 
 ### Issue structure
@@ -261,7 +263,7 @@ discussion/
 Every operation appends a commit, so an issue's history is git history:
 
 ```
-$ git log --oneline refs/issues/j2dzt7xph12kswa9esn0
+$ git log --oneline refs/git-issues/v1/open/j2dzt7xph12kswa9esn0
 a996527 comment: a comment
 63cc372 link: c477908
 768c0fb label: added bug, urgent

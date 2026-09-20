@@ -42,7 +42,13 @@ func run(t *testing.T, dir string, args ...string) string {
 // remoteIssueRefs returns the issue refs the bare repository at origin holds.
 func remoteIssueRefs(t *testing.T, origin string) []string {
 	t.Helper()
-	out := run(t, origin, "for-each-ref", "--format=%(refname)", "refs/issues/*", "refs/closed/*")
+	return remoteRefs(t, origin, issuelib.OpenPrefix+"*", issuelib.ClosedPrefix+"*")
+}
+
+// remoteRefs returns the refs at origin matching any of the patterns, sorted.
+func remoteRefs(t *testing.T, origin string, patterns ...string) []string {
+	t.Helper()
+	out := run(t, origin, append([]string{"for-each-ref", "--format=%(refname)"}, patterns...)...)
 	var refs []string
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		if line != "" {
@@ -101,9 +107,9 @@ func TestPush_MirrorsStatusMove(t *testing.T) {
 		name, status string
 		want         []string
 	}{
-		{"open", "", []string{"refs/issues/" + id}},
-		{"closed", "closed", []string{"refs/closed/" + id}},
-		{"reopened", "open", []string{"refs/issues/" + id}},
+		{"open", "", []string{issuelib.RefForXIDR(id)}},
+		{"closed", "closed", []string{issuelib.ClosedRefForXIDR(id)}},
+		{"reopened", "open", []string{issuelib.RefForXIDR(id)}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.status != "" {
@@ -143,7 +149,7 @@ func TestPushAll_MirrorsStatusMove(t *testing.T) {
 		t.Fatalf("push --all: %v", err)
 	}
 
-	want := []string{"refs/closed/" + closed.ID, "refs/issues/" + kept.ID}
+	want := []string{issuelib.ClosedRefForXIDR(closed.ID), issuelib.RefForXIDR(kept.ID)}
 	sort.Strings(want)
 	if got := remoteIssueRefs(t, origin); !equal(got, want) {
 		t.Fatalf("origin holds %v, want %v", got, want)
@@ -177,7 +183,7 @@ func TestPushAll_LeavesIssuesItDoesNotHave(t *testing.T) {
 		t.Fatalf("push --all: %v", err)
 	}
 
-	want := []string{"refs/closed/" + mine.ID, "refs/issues/" + theirs.ID}
+	want := []string{issuelib.ClosedRefForXIDR(mine.ID), issuelib.RefForXIDR(theirs.ID)}
 	sort.Strings(want)
 	if got := remoteIssueRefs(t, origin); !equal(got, want) {
 		t.Fatalf("origin holds %v, want %v", got, want)

@@ -34,17 +34,28 @@ func (cfg *pullConfig) run(cc *cli.Context, args []string) error {
 	fmt.Fprintf(cc.Out, "Fetching issues from %s...\n", remote)
 
 	refspecs := []string{
-		"+refs/issues/*:refs/issues/*",
-		"+refs/closed/*:refs/closed/*",
-		"+refs/meta/issue-counter:refs/meta/issue-counter",
-		"+refs/notes/issues:refs/notes/issues",
+		mirror(issuelib.OpenPrefix + "*"),
+		mirror(issuelib.ClosedPrefix + "*"),
+		mirror(issuelib.NotesRef),
+		// A remote nothing of this generation has pushed to still keeps its
+		// issues where the older layout put them. They are fetched here and
+		// adopted below, so a client that has upgraded sees them either way.
+		mirror(issuelib.Gen0OpenPrefix + "*"),
+		mirror(issuelib.Gen0ClosedPrefix + "*"),
+		mirror(issuelib.Gen0NotesRef),
 	}
 
 	if err := cfg.store.Fetch(remote, refspecs); err != nil {
 		return err
 	}
 
-	// Clean up stale refs (when issue exists in both refs/issues/ and refs/closed/)
+	// Explicitly, and not through the once a read would take: refs arrived a
+	// moment ago, and the once may have been spent before they did.
+	if err := cfg.store.AdoptGen0(); err != nil {
+		return err
+	}
+
+	// Clean up stale refs (when an issue exists in both namespaces)
 	// Keeps the ref with more history (the descendant)
 	cleaned, _ := cfg.store.CleanupStaleRefs()
 	if cleaned > 0 {
@@ -60,4 +71,10 @@ func (cfg *pullConfig) run(cc *cli.Context, args []string) error {
 
 	fmt.Fprintf(cc.Out, "Done. %d issue(s) in local repository.\n", len(refs))
 	return nil
+}
+
+// mirror is the refspec that copies a ref, or every ref under a pattern, to the
+// same name on the other side, overwriting what is there.
+func mirror(pattern string) string {
+	return "+" + pattern + ":" + pattern
 }
