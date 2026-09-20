@@ -147,6 +147,10 @@ ref is union-merged into `refs/notes/git-issues/v1` (or becomes it, if there is 
 and deleted. Every create and delete is a compare-and-swap. One line reports what was
 adopted; nothing is printed when there was nothing to adopt.
 
+Adoption is local, always. It renames refs in this clone and never writes to a remote:
+`pull` does not change a remote at all, and an unmigrated remote stays as it is until a
+`push`.
+
 A person who alternates old and new binaries on one clone converges: the old one's pull
 re-creates gen0 refs from an unmigrated remote, and the new one adopts them again.
 
@@ -231,10 +235,23 @@ prefixes; add `IsGen0Ref(ref)`. `StatusFromRef` follows from `IsClosedRef`.
 
 `issuelib/git_store.go`: `ListRefs`, `FindRef`, `CleanupStaleRefs` and anything else
 that names `refs/issues/*` or `refs/closed/*` use the `v1` prefixes; `AddNote` and
-`GetNotes` use `NotesRef`. Add `adoptGen0()` as "Local adoption" describes, run once per
-`GitStore` (a `sync.Once`) at the top of `ListRefs` and `FindRef`, which everything that
-reads an existing issue goes through. It must be a no-op outside a git repository and
-must not fail the command it rides on: a failure to adopt is a warning on `Out`.
+`GetNotes` use `NotesRef`. Add `AdoptGen0() error` to the store and the `Store`
+interface, doing what "Local adoption" describes. It is called in two ways, and the
+difference matters:
+
+- **Implicitly, once per `GitStore`** (a `sync.Once`), at the top of `ListRefs` and
+  `FindRef`, which everything that reads an existing issue goes through. This is what
+  makes an ordinary command in a clone an old binary wrote to see every issue. Here it
+  must not fail the command it rides on: a failure to adopt is a warning on `Out`.
+- **Explicitly, not through the once**, by anything that has just put gen0 refs into
+  the clone or is about to decide from local refs. In this step that is `pull`, after
+  its fetch and **before** `CleanupStaleRefs` and the count -- the once may already be
+  spent by then, and refs fetched after it would otherwise sit unadopted and unseen. In
+  step 4 it is the first thing `PlanSync` does, so a plan never sees a local gen0 ref.
+  Called this way its error is returned.
+
+Adoption is idempotent, so the two never conflict: a second run finds nothing to do and
+prints nothing. It is a no-op outside a git repository.
 Deletes are `git update-ref -d <ref> <expected>`. Notes: if `NotesRef` is absent,
 `git update-ref --create-reflog NotesRef <gen0 commit> <zero>`; otherwise
 `git notes --ref=<NotesRef> merge -s union refs/notes/issues`; then delete the gen0
@@ -242,9 +259,10 @@ notes ref, compare-and-swap.
 
 `commands/push.go`, `commands/pull.go`: refspecs become the `v1` ones, **still with
 force**, and drop `refs/meta/issue-counter`; `pull` additionally fetches the gen0
-refspecs as it does today (into the gen0 local namespace) and then triggers adoption, so
-a new client still sees an unmigrated remote's issues. `push` does not yet touch the
-remote's gen0 refs. This step leaves the force hazard exactly as it was among new
+refspecs as it does today (into the gen0 local namespace) and then calls `AdoptGen0`
+explicitly, as above, so a new client still sees an unmigrated remote's issues. `push`
+does not yet touch the remote's gen0 refs, and neither command ever writes gen0 to a
+remote. This step leaves the force hazard exactly as it was among new
 clients; step 4 removes it. `commands/migrate.go`: ref literals -> helpers. Comments,
 usage text in `commands/root.go`, `main.go` and `issuelib/doc.go`: the new paths.
 
@@ -252,6 +270,9 @@ Tests: a repository seeded with gen0 refs by raw `git update-ref` (open, closed,
 gen0 notes ref) lists, shows and edits every issue; afterwards no gen0 ref remains and
 each `v1` ref is at the commit its gen0 ref was; adoption of an issue that also has a
 `v1` ref, in each of the four relations; adoption outside a repository does nothing;
+a `pull` from an origin seeded with gen0 refs, in a process whose store has **already**
+listed (so the once is spent), still ends with every issue adopted and listed, and with
+the origin's refs untouched;
 `for-commit` answers from the merged notes; every existing test passes with the new
 paths (several name `refs/issues/` literally -- switch them to the helpers).
 
@@ -300,7 +321,10 @@ ApplyPush(remote string, p IssuePlan, force bool) (string, error)
 SyncNotes(remote string, push bool) error
 ```
 
-`PlanSync` is a pure function of refs and ancestry. Keep it that way: it is what the
+`PlanSync` calls `AdoptGen0` first, explicitly, and from there is a pure function of
+refs and ancestry. From this step `pull` fetches the remote's gen0 refs into tracking
+refs and no longer into the local gen0 namespace, so what is left to adopt is only what
+an old binary wrote into this clone. Keep the planning pure: it is what the
 table-driven tests exercise, and what `--dry-run` prints. `ApplyPush` issues one `git
 push` per issue carrying every refspec and lease for that issue, so an issue's remote
 refs change together or not at all (`--atomic`).
