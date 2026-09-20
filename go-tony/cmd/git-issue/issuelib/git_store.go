@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -30,6 +31,9 @@ import (
 // concurrently.
 type GitStore struct {
 	out io.Writer
+	// adopted guards the implicit adoption of refs an older git-issue wrote,
+	// which every read of an existing issue goes through (adoptOnce).
+	adopted sync.Once
 }
 
 // NewGitStore creates a GitStore that reports warnings on stdout.
@@ -137,8 +141,16 @@ var errRefMoved = errors.New("ref moved")
 // to hold overwrote whatever another writer had put there between this writer's
 // read and its write: eight `git issue comment` runs at once all said "Added
 // comment" and one comment survived (05d8w3cjh12kswb1msn0).
+//
+// --create-reflog because git logs only refs/heads/, refs/remotes/, refs/notes/
+// and HEAD by default, whatever core.logAllRefUpdates says, and an issue ref is
+// none of those: what a forced sync overwrote was a dangling commit with nothing
+// recording that it had been there. Git goes on logging any ref whose log
+// exists, so one write through here is enough to cover every later overwrite,
+// a fetch's included. The setting itself is the user's and covers refs that are
+// not ours, so it is not touched.
 func (s *GitStore) setRef(ref, commit, old string) error {
-	cmd := exec.Command("git", "update-ref", ref, commit, old)
+	cmd := exec.Command("git", "update-ref", "--create-reflog", ref, commit, old)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -225,6 +237,8 @@ func (s *GitStore) GetByRef(ref string) (*Issue, string, error) {
 // FindRef finds the ref for an issue by XIDR or XIDR prefix.
 // Returns error if not found or if prefix matches multiple issues.
 func (s *GitStore) FindRef(xidrOrPrefix string) (string, error) {
+	s.adoptOnce()
+
 	// If it's a full 20-char XIDR, try exact match first
 	if len(xidrOrPrefix) == 20 {
 		ref := RefForXIDR(xidrOrPrefix)
@@ -244,25 +258,13 @@ func (s *GitStore) FindRef(xidrOrPrefix string) (string, error) {
 
 	// Prefix search - find all matching refs
 	var matches []string
-	for _, pattern := range []string{"refs/issues/*", "refs/closed/*"} {
-		cmd := exec.Command("git", "for-each-ref", "--format=%(refname)", pattern)
-		out, err := cmd.Output()
+	for _, r := range refsAt(OpenPrefix+"*", ClosedPrefix+"*") {
+		xidr, err := XIDRFromRef(r.ref)
 		if err != nil {
 			continue
 		}
-
-		refs := strings.Split(strings.TrimSpace(string(out)), "\n")
-		for _, ref := range refs {
-			if ref == "" {
-				continue
-			}
-			xidr, err := XIDRFromRef(ref)
-			if err != nil {
-				continue
-			}
-			if MatchesXIDRPrefix(xidrOrPrefix, xidr) {
-				matches = append(matches, ref)
-			}
+		if MatchesXIDRPrefix(xidrOrPrefix, xidr) {
+			matches = append(matches, r.ref)
 		}
 	}
 
@@ -400,30 +402,21 @@ func (s *GitStore) List(includeAll bool) ([]*Issue, error) {
 	return issues, nil
 }
 
-// ListRefs returns the refs under refs/issues/, plus refs/closed/ when
-// includeAll is set.
+// ListRefs returns the open issue refs, plus the closed ones when includeAll is
+// set. Anything an older git-issue left in this clone is adopted first, so a
+// listing shows every issue whichever binary wrote it (AdoptGen0).
 func (s *GitStore) ListRefs(includeAll bool) ([]string, error) {
-	patterns := []string{"refs/issues/*"}
+	s.adoptOnce()
+
+	patterns := []string{OpenPrefix + "*"}
 	if includeAll {
-		patterns = append(patterns, "refs/closed/*")
+		patterns = append(patterns, ClosedPrefix+"*")
 	}
 
 	var allRefs []string
-	for _, pattern := range patterns {
-		cmd := exec.Command("git", "for-each-ref", "--format=%(refname)", pattern)
-		out, err := cmd.Output()
-		if err != nil {
-			continue
-		}
-
-		refs := strings.Split(strings.TrimSpace(string(out)), "\n")
-		for _, ref := range refs {
-			if ref != "" {
-				allRefs = append(allRefs, ref)
-			}
-		}
+	for _, r := range refsAt(patterns...) {
+		allRefs = append(allRefs, r.ref)
 	}
-
 	return allRefs, nil
 }
 
@@ -498,13 +491,13 @@ func (s *GitStore) VerifyCommit(commit string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// AddNote records content in the commit's note under refs/notes/issues, which
+// AddNote records content in the commit's note under NotesRef, which
 // is the reverse index that answers "which issues mention this commit". It
 // appends to an existing note and is idempotent: content already present as a
 // line is not added twice.
 func (s *GitStore) AddNote(commit, content string) error {
 	// Check if note exists
-	checkCmd := exec.Command("git", "notes", "--ref=refs/notes/issues", "show", commit)
+	checkCmd := exec.Command("git", "notes", "--ref="+NotesRef, "show", commit)
 	checkOut, checkErr := checkCmd.Output()
 
 	if checkErr == nil {
@@ -516,20 +509,20 @@ func (s *GitStore) AddNote(commit, content string) error {
 			}
 		}
 		// Append to existing note
-		appendCmd := exec.Command("git", "notes", "--ref=refs/notes/issues", "append", "-m", content, commit)
+		appendCmd := exec.Command("git", "notes", "--ref="+NotesRef, "append", "-m", content, commit)
 		return appendCmd.Run()
 	}
 
 	// Create new note
-	addCmd := exec.Command("git", "notes", "--ref=refs/notes/issues", "add", "-m", content, commit)
+	addCmd := exec.Command("git", "notes", "--ref="+NotesRef, "add", "-m", content, commit)
 	return addCmd.Run()
 }
 
-// GetNotes returns the commit's refs/notes/issues note, one issue ID per line
+// GetNotes returns the commit's NotesRef note, one issue ID per line
 // with a blank line between entries, since git notes append separates what it
 // adds that way. A commit with no note is an error, not an empty string.
 func (s *GitStore) GetNotes(commit string) (string, error) {
-	cmd := exec.Command("git", "notes", "--ref=refs/notes/issues", "show", commit)
+	cmd := exec.Command("git", "notes", "--ref="+NotesRef, "show", commit)
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err
@@ -537,72 +530,29 @@ func (s *GitStore) GetNotes(commit string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// Push pushes each refspec to the remote in turn. A refspec that fails is
-// reported on Out and skipped rather than returned as an error, so one
-// unpushable issue does not abandon the rest; a refspec matching nothing locally
-// is not worth mentioning and stays quiet. A deletion refspec (":dst") naming a
-// ref the remote does not have is quiet for the same reason: the remote is
-// already in the state the deletion wanted.
+// quietSyncFailure says git's complaint is not a failure of the sync: there was
+// nothing to do. A refspec matching nothing locally has nothing to send, and a
+// ref the remote does not have is already in the state a fetch or a deletion
+// wanted -- a repository with no closed issues yet, or a deletion of a ref that
+// is already gone.
 //
-// Callers pass force refspecs ("+src:dst"). Two clones that both edited an issue
-// hold divergent chains for it; once one has pushed, a non-force push of the
-// other is rejected, and force is what lets it travel. The cost is that the last
-// writer of an issue wins; see the commands package.
-func (s *GitStore) Push(remote string, refspecs []string) error {
-	for _, refspec := range refspecs {
-		cmd := exec.Command("git", "push", remote, refspec)
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			if !strings.Contains(string(output), "does not match any") &&
-				!strings.Contains(string(output), "remote ref does not exist") {
-				fmt.Fprintf(s.out, "Warning: failed to push %s: %s\n", refspec, string(output))
-			}
+// "No refs in common" is that same nothing, said differently: a glob refspec is
+// expanded against the remote's refs, so git connects before finding it matches
+// nothing, and a remote with no refs at all leaves it with no refspec to send.
+// A concrete refspec resolves locally first and says "does not match any"
+// instead, which is why one empty push can be reported either way.
+func quietSyncFailure(output string) bool {
+	for _, quiet := range []string{
+		"does not match any",
+		"remote ref does not exist",
+		"couldn't find remote ref",
+		"No refs in common",
+	} {
+		if strings.Contains(output, quiet) {
+			return true
 		}
 	}
-	return nil
-}
-
-// Fetch fetches each refspec from the remote, warning on Out and continuing
-// when one fails, as Push does. A refspec the remote does not have is silently
-// skipped: a repository with no closed issues yet is not an error.
-func (s *GitStore) Fetch(remote string, refspecs []string) error {
-	for _, refspec := range refspecs {
-		cmd := exec.Command("git", "fetch", remote, refspec)
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			if !strings.Contains(string(output), "couldn't find remote ref") {
-				fmt.Fprintf(s.out, "Warning: failed to fetch %s: %s\n", refspec, string(output))
-			}
-		}
-	}
-	return nil
-}
-
-// RemoteRefs returns the refs the remote holds that match any of the patterns,
-// which are matched as git ls-remote matches them: a whole ref, or a glob over
-// one. A pattern nothing matches contributes nothing and is not an error, so
-// asking a remote with no closed issues for refs/closed/* returns an empty list.
-//
-// Unlike Push and Fetch this does report failure: a caller asks what the remote
-// holds in order to decide what to do to it, and guessing from an empty list is
-// worse than stopping.
-func (s *GitStore) RemoteRefs(remote string, patterns ...string) ([]string, error) {
-	args := append([]string{"ls-remote", "--refs", remote}, patterns...)
-	cmd := exec.Command("git", args...)
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to list refs on %s: %w", remote, err)
-	}
-
-	var refs []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		_, ref, ok := strings.Cut(line, "\t")
-		if !ok {
-			continue
-		}
-		refs = append(refs, ref)
-	}
-	return refs, nil
+	return false
 }
 
 // VerifyRemote checks if a remote exists.
@@ -687,21 +637,14 @@ func (s *GitStore) replaceTreeOnce(ref, message string, files map[string][]byte)
 	return nil
 }
 
-// CleanupStaleRefs removes stale refs when an issue exists in both refs/issues/ and refs/closed/.
+// CleanupStaleRefs removes stale refs when an issue exists in both the open and closed namespaces.
 // For each duplicate, it keeps the ref with more history (the descendant) and deletes the ancestor;
 // when neither descends from the other it keeps the closed ref and deletes the open one.
 // Returns the number of refs cleaned up.
 func (s *GitStore) CleanupStaleRefs() (int, error) {
-	// Get all open issue XIDs
-	openCmd := exec.Command("git", "for-each-ref", "--format=%(refname)", "refs/issues/*")
-	openOut, _ := openCmd.Output()
-	openRefs := strings.Split(strings.TrimSpace(string(openOut)), "\n")
-
 	cleaned := 0
-	for _, openRef := range openRefs {
-		if openRef == "" {
-			continue
-		}
+	for _, open := range refsAt(OpenPrefix + "*") {
+		openRef := open.ref
 		xidr, err := XIDRFromRef(openRef)
 		if err != nil {
 			continue

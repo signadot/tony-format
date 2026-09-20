@@ -480,7 +480,7 @@ func (s *issueServer) handleAttachment(w http.ResponseWriter, r *http.Request) {
 // resolve maps the {id} segment of a URL onto an issue ref.
 //
 // Links get pasted into chat and must not rot, which drives both halves of this.
-// FindRef searches refs/issues/ and refs/closed/ together, so a link keeps
+// FindRef searches the open and closed namespaces together, so a link keeps
 // working after the issue closes and its ref moves namespace. And a prefix is
 // redirected to the full XIDR rather than served, so the URL that gets copied
 // back out of the address bar is the one that stays unambiguous as more issues

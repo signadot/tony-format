@@ -6,7 +6,8 @@ beside it.
 
 ## Features
 
-- **Git-native storage**: issues are refs (`refs/issues/*`, `refs/closed/*`) over
+- **Git-native storage**: issues are refs (`refs/git-issues/v1/open/*`,
+  `refs/git-issues/v1/closed/*`) over
   ordinary git objects — no database, no server, no sidecar files in the tree
 - **Collision-free IDs**: every issue gets an XIDR, unique across clones without
   anyone allocating it, and you type as much of it as it takes to be unambiguous
@@ -151,7 +152,8 @@ git issue close j2dz --commit abc123       # and record what closed it
 git issue reopen j2dz
 ```
 
-Closing moves the ref from `refs/issues/<xidr>` to `refs/closed/<xidr>`; the
+Closing moves the ref from `refs/git-issues/v1/open/<xidr>` to
+`refs/git-issues/v1/closed/<xidr>`; the
 commit chain is untouched, so nothing is lost and the ID keeps resolving.
 
 ### Sync with a remote
@@ -161,16 +163,35 @@ git issue push j2dz            # one issue to origin
 git issue push --all           # every issue
 git issue push --all upstream  # to another remote
 git issue pull                 # fetch issues from origin
+git issue pull --dry-run       # say what it would do, and write nothing
 ```
 
-Both directions force refspecs and nothing merges issue refs, so the last writer
-of a given issue wins. That cuts both ways: `pull` resets a local issue that
-diverged from the remote, so push your edits before pulling. In practice this is
-fine — issues are edited by one person at a time — but it is the reason `serve`
-is read-only and the reason comments are stored under content-addressed names.
+Both directions ask the remote what it holds, decide per issue, and then write.
+An issue whose chain one side carries is sent or taken. An issue neither side's
+chain carries is **merged**: comments union, and the later status change wins. So a
+comment made here is not dropped by a pull, and one made elsewhere is not dropped
+by a push.
 
-`pull` also cleans up an issue that arrived in both namespaces, keeping whichever
-ref has more history.
+What cannot be merged — two people rewrote the same description — is **left alone
+and named**, and the command exits non-zero.
+
+```
+  j2dzt7xp  Fix the thing
+      edited on both sides: description.md cannot be merged.
+      here a1b2c3d4, origin e5f6a7b8.
+      `git issue pull --force` takes the remote side; this clone stays in the ref's reflog.
+```
+
+`--force` is how you decide one: `pull --force` takes the remote's, `push --force`
+takes this clone's, and what it overwrote stays in the ref's reflog either way.
+
+Every write to a remote carries a lease on what the last fetch saw, so a push that
+would land on top of someone else's is refused rather than forced. Closing an issue
+moves its ref, and the push mirrors the move — but only when this clone's tip carries
+what the remote has, so a close cannot delete a reopen made elsewhere.
+
+The reverse index merges by union in both directions, so a link made in another
+clone survives.
 
 ### Export and import
 
@@ -197,14 +218,14 @@ Serves a read-only view of the issues in the current repository:
 - `/` lists open issues; `/?all=1` includes closed ones
 - `/i/<xidr>` is an issue. XID prefixes work and redirect to the full-XIDR URL,
   so the link you copy out of the address bar is the one that keeps resolving
-- Links survive closing an issue: resolution searches both `refs/issues/` and
-  `refs/closed/`, so a URL pasted into chat does not rot when the ref moves
+- Links survive closing an issue: resolution searches the open and closed
+  namespaces alike, so a URL pasted into chat does not rot when the ref moves
 - Attachments download from `/i/<xidr>/files/<path>` as opaque bytes; nothing
   attached to an issue is ever rendered in the browser
 
-`serve` is read-only by design, not as a first cut. Issue sync is a force-push
-in both directions with no merge step, so a second writer would silently drop
-whichever update lost the race. Issues are edited with the CLI.
+`serve` is read-only: issues are edited with the CLI. That was once forced by the
+sync model, which could not have survived a second writer; it no longer is, and
+is simply a line not yet crossed.
 
 There is no authentication, and there should not be: bind loopback unless you
 know exactly who else can reach the address you pick.
@@ -233,12 +254,12 @@ run it once.
 
 ### Git refs
 
-- **`refs/issues/<xidr>`** — an open issue
-- **`refs/closed/<xidr>`** — a closed issue
+- **`refs/git-issues/v1/open/<xidr>`** — an open issue
+- **`refs/git-issues/v1/closed/<xidr>`** — a closed issue
 - **`refs/notes/issues`** — reverse index, commit → issue IDs
 
 Status is the namespace: an issue is open because its ref is under
-`refs/issues/`. `meta.tony` carries a `status` field too, but where the ref lives
+the open namespace. `meta.tony` carries a `status` field too, but where the ref lives
 is what listings believe.
 
 ### Issue structure
@@ -261,7 +282,7 @@ discussion/
 Every operation appends a commit, so an issue's history is git history:
 
 ```
-$ git log --oneline refs/issues/j2dzt7xph12kswa9esn0
+$ git log --oneline refs/git-issues/v1/open/j2dzt7xph12kswa9esn0
 a996527 comment: a comment
 63cc372 link: c477908
 768c0fb label: added bug, urgent
@@ -368,8 +389,8 @@ ID, and no merge could tell them apart.
 ### Why content-addressed comment names?
 
 Comments were `discussion/001.md`, `002.md`, numbered by counting what was
-already there. Two clones each adding a comment both wrote `003.md`, and the
-force-push sync dropped one of them — silently, since both sides had a `003.md`.
+already there. Two clones each adding a comment both wrote `003.md`, and the sync
+of the day dropped one of them — silently, since both sides had a `003.md`.
 The count also skewed whenever an attachment was present.
 
 `discussion/<timestamp>-<hash>.md` cannot collide unless the content is
@@ -422,7 +443,8 @@ line.
 
 ## Limitations
 
-- No merge for issue refs; sync is force-push and the last writer wins
+- An issue whose description was rewritten on both sides is refused rather than
+  merged, and `--force` picks a side
 - Read-only web UI (`git issue serve`), with no authentication; all edits go
   through the CLI
 - One repository at a time: commands act on the repository containing the

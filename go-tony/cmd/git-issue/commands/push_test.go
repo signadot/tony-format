@@ -2,6 +2,7 @@ package commands
 
 import (
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -41,7 +42,13 @@ func run(t *testing.T, dir string, args ...string) string {
 // remoteIssueRefs returns the issue refs the bare repository at origin holds.
 func remoteIssueRefs(t *testing.T, origin string) []string {
 	t.Helper()
-	out := run(t, origin, "for-each-ref", "--format=%(refname)", "refs/issues/*", "refs/closed/*")
+	return remoteRefs(t, origin, issuelib.OpenPrefix+"*", issuelib.ClosedPrefix+"*")
+}
+
+// remoteRefs returns the refs at origin matching any of the patterns, sorted.
+func remoteRefs(t *testing.T, origin string, patterns ...string) []string {
+	t.Helper()
+	out := run(t, origin, append([]string{"for-each-ref", "--format=%(refname)"}, patterns...)...)
 	var refs []string
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		if line != "" {
@@ -87,7 +94,7 @@ func pushCC() *cli.Context {
 // same pair behind.
 func TestPush_MirrorsStatusMove(t *testing.T) {
 	store, origin := pushTestRepo(t)
-	cfg := &pushConfig{store: store}
+	cfg := newPushConfig(store)
 	cc := pushCC()
 
 	issue, err := store.Create("Movable", "# Movable\n\nbody\n")
@@ -100,9 +107,9 @@ func TestPush_MirrorsStatusMove(t *testing.T) {
 		name, status string
 		want         []string
 	}{
-		{"open", "", []string{"refs/issues/" + id}},
-		{"closed", "closed", []string{"refs/closed/" + id}},
-		{"reopened", "open", []string{"refs/issues/" + id}},
+		{"open", "", []string{issuelib.RefForXIDR(id)}},
+		{"closed", "closed", []string{issuelib.ClosedRefForXIDR(id)}},
+		{"reopened", "open", []string{issuelib.RefForXIDR(id)}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.status != "" {
@@ -122,7 +129,7 @@ func TestPush_MirrorsStatusMove(t *testing.T) {
 // batch of closes, and the wildcard refspecs it pushes only ever add refs.
 func TestPushAll_MirrorsStatusMove(t *testing.T) {
 	store, origin := pushTestRepo(t)
-	cfg := &pushConfig{store: store}
+	cfg := newPushConfig(store)
 	cc := pushCC()
 
 	kept, err := store.Create("Kept open", "# Kept open\n\nbody\n")
@@ -142,7 +149,7 @@ func TestPushAll_MirrorsStatusMove(t *testing.T) {
 		t.Fatalf("push --all: %v", err)
 	}
 
-	want := []string{"refs/closed/" + closed.ID, "refs/issues/" + kept.ID}
+	want := []string{issuelib.ClosedRefForXIDR(closed.ID), issuelib.RefForXIDR(kept.ID)}
 	sort.Strings(want)
 	if got := remoteIssueRefs(t, origin); !equal(got, want) {
 		t.Fatalf("origin holds %v, want %v", got, want)
@@ -154,7 +161,7 @@ func TestPushAll_MirrorsStatusMove(t *testing.T) {
 // another clone, or fetched and never here -- is not this push's business.
 func TestPushAll_LeavesIssuesItDoesNotHave(t *testing.T) {
 	store, origin := pushTestRepo(t)
-	cfg := &pushConfig{store: store}
+	cfg := newPushConfig(store)
 	cc := pushCC()
 
 	theirs, err := store.Create("Theirs", "# Theirs\n\nbody\n")
@@ -176,7 +183,7 @@ func TestPushAll_LeavesIssuesItDoesNotHave(t *testing.T) {
 		t.Fatalf("push --all: %v", err)
 	}
 
-	want := []string{"refs/closed/" + mine.ID, "refs/issues/" + theirs.ID}
+	want := []string{issuelib.ClosedRefForXIDR(mine.ID), issuelib.RefForXIDR(theirs.ID)}
 	sort.Strings(want)
 	if got := remoteIssueRefs(t, origin); !equal(got, want) {
 		t.Fatalf("origin holds %v, want %v", got, want)
@@ -188,8 +195,8 @@ func TestPushAll_LeavesIssuesItDoesNotHave(t *testing.T) {
 // Pull has to end at one ref, and at the one the close moved to.
 func TestPull_AdoptsStatusMove(t *testing.T) {
 	store, _ := pushTestRepo(t)
-	push := &pushConfig{store: store}
-	pull := &pullConfig{store: store}
+	push := newPushConfig(store)
+	pull := newPullConfig(store)
 	cc := pushCC()
 
 	issue, err := store.Create("Closed elsewhere", "# Closed elsewhere\n\nbody\n")
@@ -236,4 +243,27 @@ func equal(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// TestPull_AFailedFetchIsAnError: a pull that reached nothing exits non-zero. It
+// used to print a warning, then "Done. N issue(s)...", and exit 0, so nothing
+// downstream could tell a sync that worked from one that did not.
+func TestPull_AFailedFetchIsAnError(t *testing.T) {
+	store, _ := pushTestRepo(t)
+	pull := newPullConfig(store)
+	run(t, "", "remote", "add", "broken", filepath.Join(t.TempDir(), "not-a-repository"))
+	if err := pull.run(pushCC(), []string{"broken"}); err == nil {
+		t.Error("a pull from a remote that is not there was answered as a success")
+	}
+}
+
+// TestPull_RemoteWithNothingYetIsNotAFailure: a remote holding no issues, no
+// closed issues and no reverse index is not an error -- there is simply nothing
+// to fetch, which is where every repository starts.
+func TestPull_RemoteWithNothingYetIsNotAFailure(t *testing.T) {
+	store, _ := pushTestRepo(t)
+	pull := newPullConfig(store)
+	if err := pull.run(pushCC(), []string{"origin"}); err != nil {
+		t.Errorf("a pull from a remote with nothing on it: %v", err)
+	}
 }

@@ -68,23 +68,39 @@ type Store interface {
 	// GetNotes returns the git notes for a commit.
 	GetNotes(commit string) (string, error)
 
-	// Push pushes refspecs to a remote. A refspec that fails is reported on
-	// Out and skipped, so one bad ref does not abandon the rest.
-	Push(remote string, refspecs []string) error
-
-	// Fetch fetches refspecs from a remote, skipping failures as Push does.
-	Fetch(remote string, refspecs []string) error
-
-	// RemoteRefs returns the refs the remote holds that match the patterns.
-	RemoteRefs(remote string, patterns ...string) ([]string, error)
-
 	// VerifyRemote checks if a remote exists.
 	VerifyRemote(remote string) error
 
-	// CleanupStaleRefs removes duplicate refs when an issue exists in both
-	// refs/issues/ and refs/closed/. Keeps the ref with more history, or the
+	// CleanupStaleRefs removes duplicate refs when an issue exists in both the
+	// open and closed namespaces. Keeps the ref with more history, or the
 	// closed one when neither descends from the other.
 	CleanupStaleRefs() (int, error)
+
+	// FetchTracking brings this clone's copy of what a remote holds up to date,
+	// and says whether the remote has moved to this generation.
+	FetchTracking(remote string) (bool, error)
+
+	// PlanSync answers what a sync with a remote would do to each issue either
+	// side holds. It reads refs and writes nothing.
+	PlanSync(remote string) ([]IssuePlan, error)
+
+	// ApplyPull brings this clone's ref for one issue to what the remote holds,
+	// and ApplyPush makes the remote right about it; each says what it did.
+	// force decides a divergence and nothing else, and a divergence with no
+	// force answers ErrDiverged.
+	ApplyPull(p IssuePlan, force bool) (string, error)
+	ApplyPush(remote string, p IssuePlan, force bool) (string, error)
+
+	// SyncNotes folds what a remote's reverse indexes hold into this clone's,
+	// and with push set sends the result back.
+	SyncNotes(remote string, push bool) error
+
+	// AdoptGen0 moves what a git-issue older than this generation left in this
+	// clone into the current ref layout, and folds its reverse index into the
+	// current one. Reads of an existing issue do it once per store on their own;
+	// a caller that has just fetched gen0 refs, or is about to decide from local
+	// refs, calls it directly. It is local, and idempotent.
+	AdoptGen0() error
 
 	// Out returns the output writer for this store.
 	Out() io.Writer

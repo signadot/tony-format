@@ -5,11 +5,13 @@
 // # Storage model
 //
 // An issue is a ref pointing at a commit chain. Open issues live under
-// refs/issues/, closed ones under refs/closed/, both keyed by the issue's XIDR:
+// an open namespace, closed ones under a closed one, both keyed by the issue's
+// XIDR and both under a generation that says which ref layout this is
+// (namespace.go):
 //
-//	refs/issues/<xidr>    an open issue
-//	refs/closed/<xidr>    a closed issue
-//	refs/notes/issues     reverse index, commit -> issue IDs (see Store.AddNote)
+//	refs/git-issues/v1/open/<xidr>    an open issue
+//	refs/git-issues/v1/closed/<xidr>  a closed issue
+//	refs/notes/git-issues/v1          reverse index, commit -> issue IDs (see Store.AddNote)
 //
 // Closing an issue moves the ref rather than rewriting it, so history is
 // preserved and the two namespaces are the whole of an issue's status. Every
@@ -23,7 +25,7 @@
 //	discussion/<ts>-<hash>.md    one comment, content-addressed
 //	discussion/files/...         attachments, original layout preserved
 //
-// Each edit appends a commit to the chain, so "git log refs/issues/<xidr>" is
+// Each edit appends a commit to the chain, so "git log <the issue's ref>" is
 // the issue's audit trail and no edit loses what came before.
 //
 // # Identifiers
