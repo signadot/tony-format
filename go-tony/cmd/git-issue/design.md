@@ -187,21 +187,57 @@ There is no authentication and should not be; the default bind is loopback.
 
 ## Sync, and what it costs
 
-`push` and `pull` move refs with force refspecs:
+A remote's refs are fetched into this clone before anything is decided, under
 
 ```
-+refs/git-issues/v1/open/*:refs/git-issues/v1/open/*
-+refs/git-issues/v1/closed/*:refs/git-issues/v1/closed/*
-+refs/notes/git-issues/v1:refs/notes/git-issues/v1
+refs/git-issues/v1/remotes/<remote>/open/<xidr>
+refs/git-issues/v1/remotes/<remote>/closed/<xidr>
+refs/git-issues/v1/remotes/<remote>/gen0-open/<xidr>
+refs/git-issues/v1/remotes/<remote>/gen0-closed/<xidr>
+refs/notes/git-issues/remotes/<remote>/v1
 ```
 
-Force is what makes the model work at all: two clones that both edited an issue
-have divergent chains, and without force neither could push. With it, the last
-writer wins — the loser's commits drop off the ref, and are recoverable from its
-reflog: `git reflog show <the issue's ref>` lists every tip the ref has held,
-and `git update-ref` puts one back.
+as `refs/remotes/` is for branches. That is what makes ahead, behind and diverged
+local questions, which git answers with `merge-base`. They are fetched forced and
+pruned, because a tracking ref is a copy of what the remote has and not a history
+of its own.
 
-That reflog exists because the store asks for it. `core.logAllRefUpdates=true`,
+An issue is **one chain**, whichever namespace each side keeps it in, so the
+comparison is of commits and the status follows the tip that wins. The remote's
+tip is whichever of its refs for the issue carries all the others, a closed one
+breaking a tie; no such tip means the remote's own refs disagree, which only a
+client of another generation pushing after this one can cause.
+
+| verdict | `pull` | `push` |
+|---|---|---|
+| remote only | create it here | nothing |
+| local only | nothing | make the remote right |
+| equal | take the status if it differs | make the remote right |
+| behind | bring this clone forward | nothing |
+| ahead | nothing | make the remote right |
+| diverged | refuse | refuse |
+
+**"Make the remote right"** is one rule: the remote ends holding exactly one ref
+for the issue, this generation's, in the status this clone has it in, at this
+clone's tip, and every other ref it had for the issue is deleted. That one rule
+sends an issue, mirrors a close, and migrates an issue the remote only ever had
+in gen0 — which is why there is no migration command. It is safe precisely when
+this clone's tip carries every tip the remote has, which is what the verdict says.
+
+**Diverged is the one verdict that can lose work, and the only one refused.** The
+issue is named, with both tips, and the command exits non-zero; `--force` is how a
+person decides it, and what it overwrites stays in the ref's reflog:
+`git reflog show <the issue's ref>` lists every tip the ref has held, and
+`git update-ref` puts one back.
+
+**Every write to a remote carries a lease.** `--force-with-lease=<ref>:<what the
+tracking ref said>` refuses the write if the remote moved since the fetch, and an
+issue's refs go in one `--atomic` push so they change together or not at all. That
+is the compare-and-swap `setRef` has always made locally, at last reaching the
+wire — the property the transport lacked, in the only place it is hard to hold and
+the only place it matters.
+
+The reflog exists because the store asks for it. `core.logAllRefUpdates=true`,
 the default, logs `refs/heads/`, `refs/remotes/`, `refs/notes/` and `HEAD`, and
 an issue ref is none of those, so there was no log at all and an overwritten tip
 was a dangling commit until gc took it. Every write goes through `setRef`, which
@@ -212,49 +248,47 @@ The gap that remains is a ref this clone has only ever fetched and never written
 it has no log until the first local edit, and until then a forced fetch over it
 leaves nothing behind.
 
-Locally the store does better than this, which is what makes the transport's
-behaviour a defect rather than a limit: every write is `git update-ref <ref> <new>
-<old>`, a compare-and-swap, retried when the ref moved. Two processes editing one
-issue in one clone cannot lose a write. `push` and `fetch` with a force refspec are
-that compare-and-swap with the compare removed, across clones — the only place
-it is hard to hold, and the only place it matters.
+**A remote is migrated by being pushed to**, and the gen0 namespace on it becomes
+a tripwire. Once a client of this generation has pushed, the remote holds nothing
+there — so a gen0 ref appearing afterwards was pushed by a client too old to see
+the current refs. Its work is kept, adopted like any other tip, and the sync says
+so. An old client cannot be *refused*: the remote is a plain git server with no
+hook of ours. But the people told are the ones who can pass on "please upgrade".
 
-The same applies in reverse, which is the part that surprises people: `pull`
-force-fetches, so a local issue that diverged from the remote is reset to the
-remote's version. Comment locally, don't push, then pull, and the comment is off
-the ref.
+**Mixed versions**, then: a client of this generation cannot be hurt by an older one
+on a migrated remote, since the older one cannot name a ref of this generation. The
+older one there sees its own stale copy and no new issues, and is never told why — a
+fetch matching nothing deletes nothing. Until a remote's first push from this
+generation, both share gen0 on it and the older hazards apply to the older client's
+pushes.
 
-For the way this is used — one person editing an issue at a time, pushing when
-they are done — that has been acceptable. It is still the single largest thing
-wrong with the design, and everything else marked "read-only" or "one at a time"
-in this document is downstream of it.
-
-**A failed sync fails.** `Push` and `Fetch` attempt every refspec whatever the
-others did, and answer what git refused, naming each refspec and its message, so
-one unpushable issue neither abandons the rest nor passes for success. They used
-to print a `Warning:` line and return nothing, and `pull` printed `Done.` and
-exited 0 either way. What is not a failure stays quiet: a refspec matching nothing
+**A failed sync fails.** What git refused is answered rather than warned about,
+naming each refspec and its message, and a sync that refused or failed anything
+exits non-zero. What is not a failure stays quiet: a refspec matching nothing
 locally, a ref the remote does not have, and a deletion of a ref that is already
 gone are all "nothing to do", which is where every repository starts.
 
-One thing still follows from the same code. **`push --all` deletes the counterpart
-ref on the remote unconditionally:** closing an issue moves its ref, and the push
-mirrors the move by deleting the remote's open ref — right when the
-remote's open ref is an ancestor of the close, and a silent overwrite when someone
-reopened the issue there and added to it.
+**Planning is separate from writing**, and is a pure function of refs and
+ancestry. That is what `--dry-run` prints, and what the tests drive by putting
+refs where a fetch would have.
 
-The notes ref is the sharper edge: `refs/notes/issues` is one ref for the whole
-repository, so force-pushing it replaces the remote's entire reverse index. A
-link made in another clone and not yet fetched is dropped from the remote ref by
-the next `push --all`. The issue itself still lists the commit — only the
-commit → issue direction is lost, and `git issue link` again restores it.
+**The reverse index** merges rather than replaces. It is one ref for the whole
+repository, so force-pushing it used to replace whatever the remote had: a link
+made in another clone and not yet fetched was dropped by the next `push --all`,
+and only `git issue link` again restored it. Both directions now merge it with
+`git notes merge -s union`, which is what a reverse index wants and what git has
+always had, so two clones that linked different commits keep both links. A gen0
+index is folded in the same way and then cleared from the remote.
 
-Fixing this is designed and not yet built; see [Sync that does not lose a
-write](#sync-that-does-not-lose-a-write). It would also unlock a writable `serve`.
+What remains is the merge itself: an issue edited on both sides is refused rather
+than merged. See [Sync that does not lose a
+write](#sync-that-does-not-lose-a-write); that is what would unlock a writable
+`serve`.
 
-`pull` does one small repair: an issue that arrives in both namespaces is
-resolved by keeping whichever ref has more history, or the closed one if neither
-descends from the other.
+A pull no longer leaves an issue in both namespaces, since it decides which one
+each issue is in before writing. `CleanupStaleRefs` stays for a repository that
+already held such a pair, and keeps its old rule: the ref with more history, or
+the closed one when neither descends from the other.
 
 ## Designed but not built
 
@@ -279,43 +313,8 @@ Tracked as `w4mr5qphh12kr9f2nxn0`; the plan, step by step, is
 `docs/sketchy/issue-sync-plan.md`. As each step lands, its part of this section moves
 into the body of this document.
 
-**The tripwire.** The generation and adoption are built (see [gen0, and adopting
-it](#gen0-and-adopting-it)); what is not is reading anything from a gen0 ref on a
-*remote*. An old client cannot be refused — the remote is a plain git server with no
-hook of ours — but once a remote has been pushed to by a client of this generation
-it holds nothing in gen0, so a ref appearing there afterwards was pushed by an old
-client, definitively. The work is kept and adopted, and the sync says so, to the
-people who can pass on "please upgrade".
-
-**Tracking refs.** Today a remote's issue refs are never held locally, so nothing can
-say what the other side holds without asking the network, and nothing compares. `pull`
-and `push` will first fetch the remote's refs, forced, into
-`refs/git-issues/v1/remotes/<remote>/...` — a tracking ref is a copy and may be
-overwritten — and decide locally, where ancestry is a local question.
-
-**One chain, wherever its tips are held.** An issue is compared as the tips of its
-chain — the local one, and the remote's in whichever namespace, old or new, open or
-closed — and status follows the tip that wins. Each issue gets one verdict:
-
-| verdict | `pull` | `push` |
-|---|---|---|
-| remote only | create the local ref | nothing |
-| local only | nothing | make the remote right |
-| equal | nothing | make the remote right |
-| behind | fast-forward the local ref | nothing |
-| ahead | nothing | make the remote right |
-| diverged | refuse, unless `--force`; then merge | refuse, unless `--force`; then merge and push |
-
-"Make the remote right" is one rule: the remote ends with exactly one ref for the
-issue, the new-namespace ref in the local status, at the local tip, and every other
-remote ref for it is deleted — safe exactly when the local tip descends from all of
-them. It replaces the unconditional counterpart deletion, and it is how a remote is
-migrated.
-
-**Leases.** Every write to the remote is `git push --force-with-lease=<ref>:<what the
-tracking ref says>`, non-force for a create or a fast-forward. That is the
-compare-and-swap the transport lacked. A lease that fails means someone pushed since
-the fetch: the issue is reported and left, and a re-run decides again.
+Everything else of it is built; see [Sync, and what it costs](#sync-and-what-it-costs)
+and [gen0, and adopting it](#gen0-and-adopting-it). What is left is the merge.
 
 **Merge.** A diverged issue is merged three-way: `git merge-tree` over the trees, where
 `discussion/` unions by construction since its names cannot collide, and a text
@@ -325,13 +324,7 @@ committer date of the commit that last changed it since the merge base, a tie cl
 `closed_by` follows. Client version is not the rule: it says whether a write may be
 trusted, and nothing about what its author meant, and two current clients disagreeing
 is the ordinary case. The merge commit has both tips as parents, so both clones
-fast-forward to it. Notes merge with `git notes merge -s union`, which git has always
-had.
-
-**Mixed versions.** A new client on a migrated remote cannot be hurt by an old one. An
-old client there sees its own stale copy and no new issues, and is never told why; the
-people told are the new clients' users, who can pass it on. Until a remote's first new
-push, both share gen0 on it and the old hazards apply to the old client's pushes.
+fast-forward to it.
 
 ## Changes from the original design
 

@@ -94,7 +94,7 @@ func pushCC() *cli.Context {
 // same pair behind.
 func TestPush_MirrorsStatusMove(t *testing.T) {
 	store, origin := pushTestRepo(t)
-	cfg := &pushConfig{store: store}
+	cfg := newPushConfig(store)
 	cc := pushCC()
 
 	issue, err := store.Create("Movable", "# Movable\n\nbody\n")
@@ -129,7 +129,7 @@ func TestPush_MirrorsStatusMove(t *testing.T) {
 // batch of closes, and the wildcard refspecs it pushes only ever add refs.
 func TestPushAll_MirrorsStatusMove(t *testing.T) {
 	store, origin := pushTestRepo(t)
-	cfg := &pushConfig{store: store}
+	cfg := newPushConfig(store)
 	cc := pushCC()
 
 	kept, err := store.Create("Kept open", "# Kept open\n\nbody\n")
@@ -161,7 +161,7 @@ func TestPushAll_MirrorsStatusMove(t *testing.T) {
 // another clone, or fetched and never here -- is not this push's business.
 func TestPushAll_LeavesIssuesItDoesNotHave(t *testing.T) {
 	store, origin := pushTestRepo(t)
-	cfg := &pushConfig{store: store}
+	cfg := newPushConfig(store)
 	cc := pushCC()
 
 	theirs, err := store.Create("Theirs", "# Theirs\n\nbody\n")
@@ -195,8 +195,8 @@ func TestPushAll_LeavesIssuesItDoesNotHave(t *testing.T) {
 // Pull has to end at one ref, and at the one the close moved to.
 func TestPull_AdoptsStatusMove(t *testing.T) {
 	store, _ := pushTestRepo(t)
-	push := &pushConfig{store: store}
-	pull := &pullConfig{store: store}
+	push := newPushConfig(store)
+	pull := newPullConfig(store)
 	cc := pushCC()
 
 	issue, err := store.Create("Closed elsewhere", "# Closed elsewhere\n\nbody\n")
@@ -250,7 +250,7 @@ func equal(a, b []string) bool {
 // downstream could tell a sync that worked from one that did not.
 func TestPull_AFailedFetchIsAnError(t *testing.T) {
 	store, _ := pushTestRepo(t)
-	pull := &pullConfig{store: store}
+	pull := newPullConfig(store)
 	run(t, "", "remote", "add", "broken", filepath.Join(t.TempDir(), "not-a-repository"))
 	if err := pull.run(pushCC(), []string{"broken"}); err == nil {
 		t.Error("a pull from a remote that is not there was answered as a success")
@@ -262,7 +262,7 @@ func TestPull_AFailedFetchIsAnError(t *testing.T) {
 // to fetch, which is where every repository starts.
 func TestPull_RemoteWithNothingYetIsNotAFailure(t *testing.T) {
 	store, _ := pushTestRepo(t)
-	pull := &pullConfig{store: store}
+	pull := newPullConfig(store)
 	if err := pull.run(pushCC(), []string{"origin"}); err != nil {
 		t.Errorf("a pull from a remote with nothing on it: %v", err)
 	}

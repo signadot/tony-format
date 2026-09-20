@@ -163,16 +163,31 @@ git issue push j2dz            # one issue to origin
 git issue push --all           # every issue
 git issue push --all upstream  # to another remote
 git issue pull                 # fetch issues from origin
+git issue pull --dry-run       # say what it would do, and write nothing
 ```
 
-Both directions force refspecs and nothing merges issue refs, so the last writer
-of a given issue wins. That cuts both ways: `pull` resets a local issue that
-diverged from the remote, so push your edits before pulling. In practice this is
-fine — issues are edited by one person at a time — but it is the reason `serve`
-is read-only and the reason comments are stored under content-addressed names.
+Both directions ask the remote what it holds, decide per issue, and then write.
+An issue whose chain one side carries is sent or taken; an issue neither side's
+chain carries is **left alone and named**, and the command exits non-zero. So a
+comment made here is not dropped by a pull, and one made elsewhere is not dropped
+by a push.
 
-`pull` also cleans up an issue that arrived in both namespaces, keeping whichever
-ref has more history.
+```
+  j2dzt7xp  Fix the thing
+      here a1b2c3d4, origin e5f6a7b8, and neither carries the other.
+      `git issue pull --force` takes the remote side; this clone stays in the ref's reflog.
+```
+
+`--force` is how you decide one: `pull --force` takes the remote's, `push --force`
+takes this clone's, and what it overwrote stays in the ref's reflog either way.
+
+Every write to a remote carries a lease on what the last fetch saw, so a push that
+would land on top of someone else's is refused rather than forced. Closing an issue
+moves its ref, and the push mirrors the move — but only when this clone's tip carries
+what the remote has, so a close cannot delete a reopen made elsewhere.
+
+The reverse index merges by union in both directions, so a link made in another
+clone survives.
 
 ### Export and import
 
@@ -424,7 +439,8 @@ line.
 
 ## Limitations
 
-- No merge for issue refs; sync is force-push and the last writer wins
+- No merge for issue refs: an issue edited on both sides is refused rather than
+  merged, and `--force` picks a side
 - Read-only web UI (`git issue serve`), with no authentication; all edits go
   through the CLI
 - One repository at a time: commands act on the repository containing the

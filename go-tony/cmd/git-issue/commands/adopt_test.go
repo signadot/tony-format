@@ -120,7 +120,7 @@ func TestPull_AdoptsAnUnmigratedRemote(t *testing.T) {
 		t.Fatalf("before the pull the clone holds %v, %v", refs, err)
 	}
 
-	pull := &pullConfig{store: store}
+	pull := newPullConfig(store)
 	if err := pull.run(pushCC(), []string{"origin"}); err != nil {
 		t.Fatalf("pull: %v", err)
 	}

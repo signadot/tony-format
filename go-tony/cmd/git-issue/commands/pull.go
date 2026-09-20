@@ -9,18 +9,35 @@ import (
 
 type pullConfig struct {
 	*cli.Command
-	store issuelib.Store
+	store  issuelib.Store
+	Force  bool `cli:"name=force desc='where an issue was edited on both sides, take the remote side'"`
+	DryRun bool `cli:"name=dry-run aliases=n desc='say what a pull would do, and write nothing'"`
+}
+
+// newPullConfig builds the command and the config behind it. The two are made
+// together because run parses its own flags, so a config without its command
+// cannot run -- which is what a test builds as well.
+func newPullConfig(store issuelib.Store) *pullConfig {
+	cfg := &pullConfig{store: store}
+	opts, _ := cli.StructOpts(cfg)
+	cli.NewCommandAt(&cfg.Command, "pull").
+		WithSynopsis("pull [--force] [--dry-run] [remote] - Pull issues from remote").
+		WithOpts(opts...).
+		WithRun(cfg.run)
+	return cfg
 }
 
 // PullCommand returns the pull subcommand.
 func PullCommand(store issuelib.Store) *cli.Command {
-	cfg := &pullConfig{store: store}
-	return cli.NewCommandAt(&cfg.Command, "pull").
-		WithSynopsis("pull [remote] - Pull issues from remote").
-		WithRun(cfg.run)
+	return newPullConfig(store).Command
 }
 
 func (cfg *pullConfig) run(cc *cli.Context, args []string) error {
+	args, err := cfg.Parse(cc, args)
+	if err != nil {
+		return err
+	}
+
 	// Get remote name (default to origin)
 	remote := "origin"
 	if len(args) > 0 {
@@ -32,49 +49,34 @@ func (cfg *pullConfig) run(cc *cli.Context, args []string) error {
 	}
 
 	fmt.Fprintf(cc.Out, "Fetching issues from %s...\n", remote)
-
-	refspecs := []string{
-		mirror(issuelib.OpenPrefix + "*"),
-		mirror(issuelib.ClosedPrefix + "*"),
-		mirror(issuelib.NotesRef),
-		// A remote nothing of this generation has pushed to still keeps its
-		// issues where the older layout put them. They are fetched here and
-		// adopted below, so a client that has upgraded sees them either way.
-		mirror(issuelib.Gen0OpenPrefix + "*"),
-		mirror(issuelib.Gen0ClosedPrefix + "*"),
-		mirror(issuelib.Gen0NotesRef),
-	}
-
-	if err := cfg.store.Fetch(remote, refspecs); err != nil {
+	if _, err := cfg.store.FetchTracking(remote); err != nil {
 		return err
 	}
-
-	// Explicitly, and not through the once a read would take: refs arrived a
-	// moment ago, and the once may have been spent before they did.
-	if err := cfg.store.AdoptGen0(); err != nil {
-		return err
-	}
-
-	// Clean up stale refs (when an issue exists in both namespaces)
-	// Keeps the ref with more history (the descendant)
-	cleaned, _ := cfg.store.CleanupStaleRefs()
-	if cleaned > 0 {
-		fmt.Fprintf(cc.Out, "Cleaned up %d stale ref(s).\n", cleaned)
-	}
-
-	// Count how many issues we have now
-	refs, err := cfg.store.ListRefs(true)
+	plans, err := cfg.store.PlanSync(remote)
 	if err != nil {
-		fmt.Fprintln(cc.Out, "Done.")
-		return nil
+		return err
 	}
 
-	fmt.Fprintf(cc.Out, "Done. %d issue(s) in local repository.\n", len(refs))
-	return nil
-}
+	report := &syncReport{remote: remote, pulling: true, force: cfg.Force, dryRun: cfg.DryRun}
+	report.run(cfg.store, plans, func(p issuelib.IssuePlan) (string, error) {
+		return cfg.store.ApplyPull(p, cfg.Force)
+	})
 
-// mirror is the refspec that copies a ref, or every ref under a pattern, to the
-// same name on the other side, overwriting what is there.
-func mirror(pattern string) string {
-	return "+" + pattern + ":" + pattern
+	if !cfg.DryRun {
+		if err := cfg.store.SyncNotes(remote, false); err != nil {
+			return err
+		}
+		// A pull no longer leaves an issue in both namespaces -- it decides
+		// which one each issue is in before writing -- but a repository that
+		// already held such a pair is still put right.
+		if cleaned, _ := cfg.store.CleanupStaleRefs(); cleaned > 0 {
+			fmt.Fprintf(cc.Out, "Cleaned up %d stale ref(s).\n", cleaned)
+		}
+	}
+
+	if err := report.write(cc, cfg.store); err != nil {
+		return err
+	}
+	fmt.Fprintln(cc.Out, "Done.")
+	return nil
 }

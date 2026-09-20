@@ -17,17 +17,20 @@
 //   - serve -- a read-only web view of the repository's issues
 //   - migrate, migrate-comments -- one-shot upgrades of on-disk layout
 //
-// Sync is deliberately blunt: push and pull both force refspecs and there is no
-// merge step, so the last writer of a given issue wins. Everything downstream of
-// that -- serve being read-only, comments being stored under content-addressed
-// names that two clones cannot collide on -- follows from it.
+// Sync decides before it writes. Both directions fetch what the remote holds
+// into tracking refs, take one verdict per issue from the two sides' commits,
+// and act on it: an issue whose chain one side carries is sent or taken, and one
+// neither side's chain carries is left alone and named, since taking either would
+// drop the other's work. --force is how a person decides such an issue, and what
+// it overwrites stays in the ref's reflog. Every write to the remote carries a
+// lease on what the fetch saw, so a push cannot land on top of one made since.
 //
-// What sync is not blunt about is the namespace: an issue is open or closed,
-// never both, and that holds across a push or a pull as it does
-// locally. Push deletes the ref a status change moved out of, pull deletes the
-// one a fetched status change made stale, because a remote holding an id in both
-// namespaces cannot be read for a status at all -- a close and a reopen leave
-// the same pair of refs behind.
+// The namespace follows the same decision: an issue is open or closed, never
+// both, on either side. A push makes the remote hold exactly one ref for an
+// issue, which is how a close is mirrored, and it is refused rather than
+// mirrored when the remote's tip is not one this clone carries -- a remote
+// holding an id in both namespaces cannot be read for a status at all, and a
+// close that deleted someone else's reopen would be a loss.
 package commands
 
 import (
@@ -56,9 +59,9 @@ Usage:
   git issue duplicate <id1> <id2>           Issue id1 duplicates id2
   git issue close <id> [--commit <sha>]     Close issue
   git issue reopen <id>                     Reopen a closed issue
-  git issue push <id> [remote]              Push issue to remote (default: origin)
-  git issue push --all [remote]             Push all issues to remote
-  git issue pull [remote]                   Pull issues from remote (default: origin)
+  git issue push [--force] [--dry-run] <id> [remote]   Push issue to remote (default: origin)
+  git issue push --all [--force] [--dry-run] [remote]  Push all issues to remote
+  git issue pull [--force] [--dry-run] [remote]        Pull issues from remote (default: origin)
   git issue export <id> [dir]               Export issue to directory
   git issue import [--force] <dir>          Import issue from directory
   git issue serve [--addr <addr>]           Read-only web view (default localhost:8080)
@@ -79,6 +82,7 @@ Examples:
   git issue push j2dz          # push one issue to origin
   git issue push --all         # push all issues to origin
   git issue pull               # fetch issues from origin
+  git issue pull --dry-run     # say what a pull would do, and write nothing
   git issue for-commit HEAD
   git issue close j2dz --commit def456
   git issue export j2dz ./my-issue
