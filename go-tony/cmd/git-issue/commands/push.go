@@ -122,7 +122,9 @@ func (cfg *pushConfig) pushSingle(cc *cli.Context, remote string, xidrOrPrefix s
 
 	// Push notes for commits referenced by this issue
 	if len(issue.Commits) > 0 {
-		_ = cfg.store.Push(remote, []string{"+refs/notes/issues:refs/notes/issues"})
+		if err := cfg.store.Push(remote, []string{"+refs/notes/issues:refs/notes/issues"}); err != nil {
+			return fmt.Errorf("failed to push the reverse index: %w", err)
+		}
 	}
 
 	fmt.Fprintf(cc.Out, "Pushed issue %s\n", issuelib.FormatID(issue.ID))

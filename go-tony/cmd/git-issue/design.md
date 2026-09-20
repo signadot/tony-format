@@ -193,14 +193,19 @@ they are done — that has been acceptable. It is still the single largest thing
 wrong with the design, and everything else marked "read-only" or "one at a time"
 in this document is downstream of it.
 
-Two more things follow from the same code. **A failed sync is not an error:**
-`Push` and `Fetch` report a refspec git refused as a `Warning:` line and return
-nothing, so `pull` prints `Done.` and exits 0 whether or not anything moved, and a
-script cannot tell. And **`push --all` deletes the counterpart ref on the remote
-unconditionally:** closing an issue moves its ref, and the push mirrors the move by
-deleting the remote's `refs/issues/<xidr>` — right when the remote's open ref is an
-ancestor of the close, and a silent overwrite when someone reopened the issue there
-and added to it.
+**A failed sync fails.** `Push` and `Fetch` attempt every refspec whatever the
+others did, and answer what git refused, naming each refspec and its message, so
+one unpushable issue neither abandons the rest nor passes for success. They used
+to print a `Warning:` line and return nothing, and `pull` printed `Done.` and
+exited 0 either way. What is not a failure stays quiet: a refspec matching nothing
+locally, a ref the remote does not have, and a deletion of a ref that is already
+gone are all "nothing to do", which is where every repository starts.
+
+One thing still follows from the same code. **`push --all` deletes the counterpart
+ref on the remote unconditionally:** closing an issue moves its ref, and the push
+mirrors the move by deleting the remote's `refs/issues/<xidr>` — right when the
+remote's open ref is an ancestor of the close, and a silent overwrite when someone
+reopened the issue there and added to it.
 
 The notes ref is the sharper edge: `refs/notes/issues` is one ref for the whole
 repository, so force-pushing it replaces the remote's entire reverse index. A

@@ -2,6 +2,7 @@ package commands
 
 import (
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -236,4 +237,27 @@ func equal(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// TestPull_AFailedFetchIsAnError: a pull that reached nothing exits non-zero. It
+// used to print a warning, then "Done. N issue(s)...", and exit 0, so nothing
+// downstream could tell a sync that worked from one that did not.
+func TestPull_AFailedFetchIsAnError(t *testing.T) {
+	store, _ := pushTestRepo(t)
+	pull := &pullConfig{store: store}
+	run(t, "", "remote", "add", "broken", filepath.Join(t.TempDir(), "not-a-repository"))
+	if err := pull.run(pushCC(), []string{"broken"}); err == nil {
+		t.Error("a pull from a remote that is not there was answered as a success")
+	}
+}
+
+// TestPull_RemoteWithNothingYetIsNotAFailure: a remote holding no issues, no
+// closed issues and no reverse index is not an error -- there is simply nothing
+// to fetch, which is where every repository starts.
+func TestPull_RemoteWithNothingYetIsNotAFailure(t *testing.T) {
+	store, _ := pushTestRepo(t)
+	pull := &pullConfig{store: store}
+	if err := pull.run(pushCC(), []string{"origin"}); err != nil {
+		t.Errorf("a pull from a remote with nothing on it: %v", err)
+	}
 }

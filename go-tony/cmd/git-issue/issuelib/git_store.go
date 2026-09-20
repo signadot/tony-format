@@ -545,45 +545,67 @@ func (s *GitStore) GetNotes(commit string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// Push pushes each refspec to the remote in turn. A refspec that fails is
-// reported on Out and skipped rather than returned as an error, so one
-// unpushable issue does not abandon the rest; a refspec matching nothing locally
-// is not worth mentioning and stays quiet. A deletion refspec (":dst") naming a
-// ref the remote does not have is quiet for the same reason: the remote is
-// already in the state the deletion wanted.
+// Push pushes each refspec to the remote in turn, attempting every one whatever
+// the others did, and answers what failed. One unpushable issue does not abandon
+// the rest, and the caller still learns of it: a refused push that reported
+// itself as a warning and returned nil was indistinguishable, to a script, from
+// one that worked, and `pull` printed "Done." either way.
 //
 // Callers pass force refspecs ("+src:dst"). Two clones that both edited an issue
 // hold divergent chains for it; once one has pushed, a non-force push of the
 // other is rejected, and force is what lets it travel. The cost is that the last
 // writer of an issue wins; see the commands package.
 func (s *GitStore) Push(remote string, refspecs []string) error {
+	var failed []error
 	for _, refspec := range refspecs {
 		cmd := exec.Command("git", "push", remote, refspec)
 		output, err := cmd.CombinedOutput()
-		if err != nil {
-			if !strings.Contains(string(output), "does not match any") &&
-				!strings.Contains(string(output), "remote ref does not exist") {
-				fmt.Fprintf(s.out, "Warning: failed to push %s: %s\n", refspec, string(output))
-			}
+		if err != nil && !quietSyncFailure(string(output)) {
+			failed = append(failed, fmt.Errorf("failed to push %s to %s: %s",
+				refspec, remote, strings.TrimSpace(string(output))))
 		}
 	}
-	return nil
+	return errors.Join(failed...)
 }
 
-// Fetch fetches each refspec from the remote, warning on Out and continuing
-// when one fails, as Push does. A refspec the remote does not have is silently
-// skipped: a repository with no closed issues yet is not an error.
+// Fetch fetches each refspec from the remote, attempting every one and answering
+// what failed, as Push does.
 func (s *GitStore) Fetch(remote string, refspecs []string) error {
+	var failed []error
 	for _, refspec := range refspecs {
 		cmd := exec.Command("git", "fetch", remote, refspec)
 		output, err := cmd.CombinedOutput()
-		if err != nil {
-			if !strings.Contains(string(output), "couldn't find remote ref") {
-				fmt.Fprintf(s.out, "Warning: failed to fetch %s: %s\n", refspec, string(output))
-			}
+		if err != nil && !quietSyncFailure(string(output)) {
+			failed = append(failed, fmt.Errorf("failed to fetch %s from %s: %s",
+				refspec, remote, strings.TrimSpace(string(output))))
 		}
 	}
-	return nil
+	return errors.Join(failed...)
+}
+
+// quietSyncFailure says git's complaint is not a failure of the sync: there was
+// nothing to do. A refspec matching nothing locally has nothing to send, and a
+// ref the remote does not have is already in the state a fetch or a deletion
+// wanted -- a repository with no closed issues yet, or a deletion of a ref that
+// is already gone.
+//
+// "No refs in common" is that same nothing, said differently: a glob refspec is
+// expanded against the remote's refs, so git connects before finding it matches
+// nothing, and a remote with no refs at all leaves it with no refspec to send.
+// A concrete refspec resolves locally first and says "does not match any"
+// instead, which is why one empty push can be reported either way.
+func quietSyncFailure(output string) bool {
+	for _, quiet := range []string{
+		"does not match any",
+		"remote ref does not exist",
+		"couldn't find remote ref",
+		"No refs in common",
+	} {
+		if strings.Contains(output, quiet) {
+			return true
+		}
+	}
+	return false
 }
 
 // RemoteRefs returns the refs the remote holds that match any of the patterns,
