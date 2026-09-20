@@ -68,18 +68,6 @@ type Store interface {
 	// GetNotes returns the git notes for a commit.
 	GetNotes(commit string) (string, error)
 
-	// Push pushes refspecs to a remote, attempting every one whatever the
-	// others did, and answers what failed: one bad ref does not abandon the
-	// rest, and the caller still hears about it.
-	Push(remote string, refspecs []string) error
-
-	// Fetch fetches refspecs from a remote, attempting every one and answering
-	// what failed, as Push does.
-	Fetch(remote string, refspecs []string) error
-
-	// RemoteRefs returns the refs the remote holds that match the patterns.
-	RemoteRefs(remote string, patterns ...string) ([]string, error)
-
 	// VerifyRemote checks if a remote exists.
 	VerifyRemote(remote string) error
 

@@ -130,7 +130,8 @@ The original design allocated six-digit IDs from `refs/meta/issue-counter`,
 incremented under git's atomic ref update. That is correct within one repository
 and wrong across clones: two people filing an issue offline both allocate
 `000042`, and on sync there is no way to tell the two issues apart — same ID,
-different content, and force-push means one simply disappears.
+different content, and one ref name for both. No sync can do anything sensible
+with that.
 
 An XID is 12 bytes — timestamp, machine, process, counter — so it needs no
 coordination. An XIDR is those bytes reversed, and the reversal is the point:
@@ -304,7 +305,6 @@ and only `git issue link` again restored it. Both directions now merge it with
 `git notes merge -s union`, which is what a reverse index wants and what git has
 always had, so two clones that linked different commits keep both links. A gen0
 index is folded in the same way and then cleared from the remote.
-
 
 A pull no longer leaves an issue in both namespaces, since it decides which one
 each issue is in before writing. `CleanupStaleRefs` stays for a repository that

@@ -223,9 +223,9 @@ Serves a read-only view of the issues in the current repository:
 - Attachments download from `/i/<xidr>/files/<path>` as opaque bytes; nothing
   attached to an issue is ever rendered in the browser
 
-`serve` is read-only by design, not as a first cut. Issue sync is a force-push
-in both directions with no merge step, so a second writer would silently drop
-whichever update lost the race. Issues are edited with the CLI.
+`serve` is read-only: issues are edited with the CLI. That was once forced by the
+sync model, which could not have survived a second writer; it no longer is, and
+is simply a line not yet crossed.
 
 There is no authentication, and there should not be: bind loopback unless you
 know exactly who else can reach the address you pick.
@@ -389,8 +389,8 @@ ID, and no merge could tell them apart.
 ### Why content-addressed comment names?
 
 Comments were `discussion/001.md`, `002.md`, numbered by counting what was
-already there. Two clones each adding a comment both wrote `003.md`, and the
-force-push sync dropped one of them — silently, since both sides had a `003.md`.
+already there. Two clones each adding a comment both wrote `003.md`, and the sync
+of the day dropped one of them — silently, since both sides had a `003.md`.
 The count also skewed whenever an attachment was present.
 
 `discussion/<timestamp>-<hash>.md` cannot collide unless the content is

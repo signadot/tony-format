@@ -462,3 +462,31 @@ This repository, 2026-09-20, before any of it: 352 issue refs locally, 347 on or
 
 A sync is safe here today, as the issue found for verse (199 refs, 31 unpushed, none
 diverged). The unpushed are one edit in another clone away from being the first loss.
+
+## What landed
+
+All six steps, on `issue-w4mr5qph`. Where the work differed from the plan:
+
+- **`--force-with-lease=<ref>:` with nothing after the colon means "must not exist"**,
+  which the plan assumed and a probe confirmed, along with a stale lease rejecting an
+  `--atomic` push whole. Those two are what the leased create and the all-or-nothing
+  push rest on.
+- **A fourth quiet sync failure.** The plan listed three of git's "nothing to do"
+  messages. There is a fourth: a glob refspec is expanded against the remote's refs, so
+  a push to a remote with no refs at all connects, finds nothing to send, and says
+  "No refs in common" where a concrete refspec says "does not match any".
+- **`Push`, `Fetch` and `RemoteRefs` were left orphaned** by step 4 and are gone.
+  Nothing called `RemoteRefs` at all once `staleRemoteRefs` went; the other two were
+  called only by their own tests. Their tests now drive `FetchTracking` and `ApplyPush`,
+  where the quiet-failure rule actually runs. This is beyond the plan's letter and is
+  the direct consequence of step 4.
+- **Step 4's refusal tests became step 5's merge tests.** The plan has step 4 refuse a
+  divergence and step 5 merge it, so the two tests that pinned the refusal were rewritten
+  when step 5 landed: one now asserts that both clones' comments survive, and a new one
+  covers the case that still refuses, a description rewritten on both sides.
+- **A `cli` struct tag cannot hold an apostrophe**, and `cli.StructOpts`' error is
+  discarded by this package's house style, so a malformed tag silently registered no
+  flags at all. Found by running `push -h`. The flag descriptions avoid the apostrophe.
+- **`newPullConfig` / `newPushConfig`** build the command and its config together,
+  because `run` parses its own flags and a config without its command cannot run. The
+  tests build them the same way rather than by hand.

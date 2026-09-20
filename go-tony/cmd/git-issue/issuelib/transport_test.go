@@ -22,64 +22,63 @@ func gitInitWithOrigin(t *testing.T) string {
 	return origin
 }
 
-// TestSyncAnswersWhatFailed: a refspec git refused is an error the caller can act
-// on. Both directions used to report it as a warning and answer nil, so a push
-// that reached nothing and one that worked were the same to a script, and pull
-// printed "Done." after either.
+// TestSyncAnswersWhatFailed: what git refused is an error the caller can act on.
+// Both directions used to report it as a warning and answer nil, so a sync that
+// reached nothing and one that worked were the same to a script, and pull printed
+// "Done." after either.
 func TestSyncAnswersWhatFailed(t *testing.T) {
 	gitInitWithOrigin(t)
 	s := NewGitStoreWithOutput(&strings.Builder{})
-	if _, err := s.Create("one", "# one\n"); err != nil {
-		t.Fatal(err)
-	}
+	issue, commits := chain(t, s, 1)
 	if out, err := exec.Command("git", "remote", "add", "broken",
 		filepath.Join(t.TempDir(), "not-a-repository")).CombinedOutput(); err != nil {
 		t.Fatalf("git remote add: %v: %s", err, out)
 	}
 
-	spec := "+refs/issues/*:refs/issues/*"
-	err := s.Push("broken", []string{spec})
-	if err == nil {
-		t.Fatal("a push at a remote that is not there was answered as a success")
-	}
-	if !strings.Contains(err.Error(), spec) {
-		t.Errorf("the error does not name the refspec: %v", err)
-	}
-	if err := s.Fetch("broken", []string{spec}); err == nil {
+	if _, err := s.FetchTracking("broken"); err == nil {
 		t.Error("a fetch from a remote that is not there was answered as a success")
-	} else if !strings.Contains(err.Error(), spec) {
-		t.Errorf("the error does not name the refspec: %v", err)
+	} else if !strings.Contains(err.Error(), "broken") {
+		t.Errorf("the error does not name the remote: %v", err)
 	}
 
-	// Every refspec is attempted, and every failure is in the answer.
-	err = s.Push("broken", []string{spec, "+refs/closed/*:refs/closed/*", "+refs/notes/issues:refs/notes/issues"})
-	if err == nil {
-		t.Fatal("pushing three refspecs at a remote that is not there succeeded")
+	p := IssuePlan{
+		XIDR:    issue.ID,
+		Local:   &Tip{Ref: issue.Ref, Commit: commits[0]},
+		Verdict: LocalOnly,
 	}
-	// Two of the three: a glob is expanded against the remote's refs, so both
-	// globs reach the connection and fail on it, while refs/notes/issues is
-	// resolved locally first, matches nothing here, and is quiet.
-	if got := strings.Count(err.Error(), "failed to push"); got != 2 {
-		t.Errorf("the error names %d failures, want 2: %v", got, err)
+	if _, err := s.ApplyPush("broken", p, false); err == nil {
+		t.Error("a push at a remote that is not there was answered as a success")
+	} else if !strings.Contains(err.Error(), FormatID(issue.ID)) {
+		t.Errorf("the error does not name the issue: %v", err)
 	}
 }
 
-// TestSyncIsQuietAboutNothingToDo: what is not a failure stays quiet. A refspec
-// matching nothing locally has nothing to send; a ref the remote does not have is
-// already in the state a fetch or a deletion wanted.
+// TestSyncIsQuietAboutNothingToDo: what is not a failure stays quiet. A remote
+// with no issues, no closed issues and no reverse index is where every
+// repository starts, and a glob matching nothing there is not an error.
 func TestSyncIsQuietAboutNothingToDo(t *testing.T) {
 	gitInitWithOrigin(t)
 	s := NewGitStoreWithOutput(&strings.Builder{})
-	if err := s.Push("origin", []string{
-		"+refs/closed/*:refs/closed/*", // nothing local matches
-		":refs/issues/gone",            // the remote does not have it
-	}); err != nil {
-		t.Errorf("a push with nothing to do failed: %v", err)
-	}
-	if err := s.Fetch("origin", []string{
-		"+refs/issues/*:refs/issues/*",         // the remote has no issues
-		"+refs/notes/issues:refs/notes/issues", // nor a reverse index
-	}); err != nil {
+
+	migrated, err := s.FetchTracking("origin")
+	if err != nil {
 		t.Errorf("a fetch with nothing to fetch failed: %v", err)
+	}
+	if migrated {
+		t.Error("a remote holding nothing was read as one of this generation")
+	}
+
+	// Pushing an issue makes it one, which is what the tripwire is read from.
+	issue, commits := chain(t, s, 1)
+	p := IssuePlan{
+		XIDR:    issue.ID,
+		Local:   &Tip{Ref: issue.Ref, Commit: commits[0]},
+		Verdict: LocalOnly,
+	}
+	if _, err := s.ApplyPush("origin", p, false); err != nil {
+		t.Fatalf("push: %v", err)
+	}
+	if migrated, err := s.FetchTracking("origin"); err != nil || !migrated {
+		t.Errorf("after a push the remote reads as migrated = %v, %v", migrated, err)
 	}
 }

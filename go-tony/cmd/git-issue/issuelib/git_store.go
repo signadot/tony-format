@@ -530,44 +530,6 @@ func (s *GitStore) GetNotes(commit string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// Push pushes each refspec to the remote in turn, attempting every one whatever
-// the others did, and answers what failed. One unpushable issue does not abandon
-// the rest, and the caller still learns of it: a refused push that reported
-// itself as a warning and returned nil was indistinguishable, to a script, from
-// one that worked, and `pull` printed "Done." either way.
-//
-// Callers pass force refspecs ("+src:dst"). Two clones that both edited an issue
-// hold divergent chains for it; once one has pushed, a non-force push of the
-// other is rejected, and force is what lets it travel. The cost is that the last
-// writer of an issue wins; see the commands package.
-func (s *GitStore) Push(remote string, refspecs []string) error {
-	var failed []error
-	for _, refspec := range refspecs {
-		cmd := exec.Command("git", "push", remote, refspec)
-		output, err := cmd.CombinedOutput()
-		if err != nil && !quietSyncFailure(string(output)) {
-			failed = append(failed, fmt.Errorf("failed to push %s to %s: %s",
-				refspec, remote, strings.TrimSpace(string(output))))
-		}
-	}
-	return errors.Join(failed...)
-}
-
-// Fetch fetches each refspec from the remote, attempting every one and answering
-// what failed, as Push does.
-func (s *GitStore) Fetch(remote string, refspecs []string) error {
-	var failed []error
-	for _, refspec := range refspecs {
-		cmd := exec.Command("git", "fetch", remote, refspec)
-		output, err := cmd.CombinedOutput()
-		if err != nil && !quietSyncFailure(string(output)) {
-			failed = append(failed, fmt.Errorf("failed to fetch %s from %s: %s",
-				refspec, remote, strings.TrimSpace(string(output))))
-		}
-	}
-	return errors.Join(failed...)
-}
-
 // quietSyncFailure says git's complaint is not a failure of the sync: there was
 // nothing to do. A refspec matching nothing locally has nothing to send, and a
 // ref the remote does not have is already in the state a fetch or a deletion
@@ -591,33 +553,6 @@ func quietSyncFailure(output string) bool {
 		}
 	}
 	return false
-}
-
-// RemoteRefs returns the refs the remote holds that match any of the patterns,
-// which are matched as git ls-remote matches them: a whole ref, or a glob over
-// one. A pattern nothing matches contributes nothing and is not an error, so
-// asking a remote with no closed issues for refs/closed/* returns an empty list.
-//
-// Unlike Push and Fetch this does report failure: a caller asks what the remote
-// holds in order to decide what to do to it, and guessing from an empty list is
-// worse than stopping.
-func (s *GitStore) RemoteRefs(remote string, patterns ...string) ([]string, error) {
-	args := append([]string{"ls-remote", "--refs", remote}, patterns...)
-	cmd := exec.Command("git", args...)
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to list refs on %s: %w", remote, err)
-	}
-
-	var refs []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		_, ref, ok := strings.Cut(line, "\t")
-		if !ok {
-			continue
-		}
-		refs = append(refs, ref)
-	}
-	return refs, nil
 }
 
 // VerifyRemote checks if a remote exists.
