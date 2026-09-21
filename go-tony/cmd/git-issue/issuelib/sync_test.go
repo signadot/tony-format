@@ -3,7 +3,9 @@ package issuelib
 import (
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -332,6 +334,113 @@ func putRemote(t *testing.T, remote, ref, commit string) {
 	t.Helper()
 	if out, err := exec.Command("git", "push", remote, commit+":"+ref).CombinedOutput(); err != nil {
 		t.Fatalf("push %s to %s: %v: %s", ref, remote, err, out)
+	}
+}
+
+// TestApplyPushes_OnePushForMany: a repository's issues go in one push, not one
+// each. A push is a connection, and a connection per issue is what made the
+// first push of a migrated repository take twelve minutes and look hung. The
+// remote's pre-receive hook runs once per push, which is what is counted.
+func TestApplyPushes_OnePushForMany(t *testing.T) {
+	origin := gitInitWithOrigin(t)
+	s := NewGitStoreWithOutput(&strings.Builder{})
+	var want []string
+	for i := 0; i < 3; i++ {
+		issue, _ := chain(t, s, 1)
+		want = append(want, RefForXIDR(issue.ID))
+	}
+	for i := 0; i < 2; i++ {
+		issue, c := chain(t, s, 2)
+		putRemote(t, "origin", Gen0RefForXIDR(issue.ID), c[0])
+		want = append(want, RefForXIDR(issue.ID))
+	}
+	sort.Strings(want)
+
+	pushes := filepath.Join(t.TempDir(), "pushes")
+	hook := filepath.Join(origin, "hooks", "pre-receive")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\necho push >> '"+pushes+"'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.FetchTracking("origin"); err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	plans, err := s.PlanSync("origin")
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	for i, r := range s.ApplyPushes("origin", plans, false) {
+		if r.Err != nil {
+			t.Errorf("%s: %v", FormatID(plans[i].XIDR), r.Err)
+		} else if r.Did == "" {
+			t.Errorf("%s: pushed, and said it did nothing", FormatID(plans[i].XIDR))
+		}
+	}
+	if got := remoteRefsOf(t, "origin"); !equalStrings(got, want) {
+		t.Errorf("the remote holds %v, want %v", got, want)
+	}
+	held, _ := os.ReadFile(pushes)
+	if n := strings.Count(string(held), "push"); n != 1 {
+		t.Errorf("five issues took %d pushes, want 1", n)
+	}
+}
+
+// TestApplyPushes_ARefusalIsThatIssues: one issue moved on the remote since the
+// fetch. Its lease refuses it, and the push being atomic refuses the rest with
+// it -- so they go again without it, and only the issue someone else wrote is
+// left, and named.
+func TestApplyPushes_ARefusalIsThatIssues(t *testing.T) {
+	gitInitWithOrigin(t)
+	s := NewGitStoreWithOutput(&strings.Builder{})
+	var issues []*Issue
+	var tips []string
+	for i := 0; i < 3; i++ {
+		issue, c := chain(t, s, 2)
+		putRemote(t, "origin", RefForXIDR(issue.ID), c[0])
+		issues, tips = append(issues, issue), append(tips, c[1])
+	}
+	if _, err := s.FetchTracking("origin"); err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	plans, err := s.PlanSync("origin")
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+
+	moved := issues[1]
+	elsewhere := ClosedRefForXIDR(moved.ID) + "-elsewhere"
+	putRef(t, elsewhere, refAtOrEmpty(t, TrackingOpenPrefix("origin")+moved.ID))
+	theirs := fork(t, s, elsewhere, "theirs")
+	putRemote(t, "origin", RefForXIDR(moved.ID), theirs)
+
+	results := s.ApplyPushes("origin", plans, false)
+	for i, p := range plans {
+		r := results[i]
+		if p.XIDR == moved.ID {
+			if r.Err == nil {
+				t.Errorf("%s: a push over someone else's write was accepted", FormatID(p.XIDR))
+			} else if !strings.Contains(r.Err.Error(), FormatID(p.XIDR)) {
+				t.Errorf("the refusal does not name the issue: %v", r.Err)
+			}
+			continue
+		}
+		if r.Err != nil {
+			t.Errorf("%s was refused along with another issue: %v", FormatID(p.XIDR), r.Err)
+		}
+	}
+	for i, issue := range issues {
+		want := tips[i]
+		if issue == moved {
+			want = theirs
+		}
+		out, err := exec.Command("git", "ls-remote", "origin", RefForXIDR(issue.ID)).Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(string(out), want) {
+			t.Errorf("%s is at %q on the remote, want %s", FormatID(issue.ID),
+				strings.TrimSpace(string(out)), shortSHA(want))
+		}
 	}
 }
 

@@ -325,9 +325,10 @@ SyncNotes(remote string, push bool) error
 refs and ancestry. From this step `pull` fetches the remote's gen0 refs into tracking
 refs and no longer into the local gen0 namespace, so what is left to adopt is only what
 an old binary wrote into this clone. Keep the planning pure: it is what the
-table-driven tests exercise, and what `--dry-run` prints. `ApplyPush` issues one `git
-push` per issue carrying every refspec and lease for that issue, so an issue's remote
-refs change together or not at all (`--atomic`).
+table-driven tests exercise, and what `--dry-run` prints. `ApplyPushes` sends every
+refspec and lease for each issue in one `git push --atomic`, so an issue's remote refs
+change together or not at all; many issues share a push, and the ones it refuses are
+named and the rest sent again without them.
 
 **Commands.** `pull [--force] [--dry-run] [remote]`: `FetchTracking`, `PlanSync`, apply
 each, `SyncNotes(remote, false)`, then the summary. `push [--all] [--force] [--dry-run]

@@ -85,11 +85,11 @@ type Store interface {
 	PlanSync(remote string) ([]IssuePlan, error)
 
 	// ApplyPull brings this clone's ref for one issue to what the remote holds,
-	// and ApplyPush makes the remote right about it; each says what it did.
-	// force decides a divergence and nothing else, and a divergence with no
-	// force answers ErrDiverged.
+	// and ApplyPushes makes the remote right about each issue planned, in as few
+	// pushes as hold them; each says what it did. force decides a divergence and
+	// nothing else, and a divergence with no force answers ErrDiverged.
 	ApplyPull(p IssuePlan, force bool) (string, error)
-	ApplyPush(remote string, p IssuePlan, force bool) (string, error)
+	ApplyPushes(remote string, plans []IssuePlan, force bool) []PushResult
 
 	// SyncNotes folds what a remote's reverse indexes hold into this clone's,
 	// and with push set sends the result back.
