@@ -1,0 +1,3 @@
+# encode: wire tony writes a comma between two quoted array elements
+
+Wire tony encodes ["a b", "c d"] as ["a b" "c d"]. On one line that parses as two elements, but once anything lays it out over lines the two quoted strings fold into one ("a bc d"), and tony.md requires the comma between quoted elements anyway. In verse a 5-element array stored through versed -> docd/logd came back with 2. The text encoder has written the comma since 97548698; wire was left out.
