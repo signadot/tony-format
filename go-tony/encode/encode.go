@@ -198,7 +198,9 @@ func writeCommaSeparator(w io.Writer, es *EncState, cType ir.Type, forMLString b
 	switch es.format {
 	case format.TonyFormat:
 		if es.wire {
-			sep = " "
+			if !forMLString {
+				sep = " "
+			}
 		} else if !forMLString {
 			return nil
 		} else if !es.brackets {
@@ -799,10 +801,12 @@ func encodeArray(node *ir.Node, w io.Writer, es *EncState) error {
 			// A quoted string opening a line folds onto a quoted string on the
 			// line before it (tony.md, multiline folding), so two quoted
 			// elements in a row must be separated by a comma or they read back
-			// as one. A comment between them does not stop the fold.
+			// as one. A comment between them does not stop the fold. Wire
+			// writes the comma too: it is one line only until something
+			// downstream lays it out again.
 			next := ir.Uncomment(node.Values[i+1])
-			sep := isMultiLineString(v) ||
-				(quotedOnItsLine(v, es) && quotedOnItsLine(next, es))
+			sep := (!es.wire && isMultiLineString(v)) ||
+				(writtenQuoted(v, es) && writtenQuoted(next, es))
 			if err := writeCommaSeparator(w, es, ir.ArrayType, sep); err != nil {
 				return err
 			}
@@ -1325,11 +1329,10 @@ func doMString(node *ir.Node, es *EncState) bool {
 	return isMultiLineString(node)
 }
 
-// quotedOnItsLine reports whether node is written as a quoted string opening a
-// line of its own in text tony: the shape that folds onto a quoted string on the
-// line before it.
-func quotedOnItsLine(node *ir.Node, es *EncState) bool {
-	if node == nil || node.Type != ir.StringType || !isTony(es) || es.wire {
+// writtenQuoted reports whether node is written as a quoted string in tony: the
+// shape that folds onto a quoted string on the line before it.
+func writtenQuoted(node *ir.Node, es *EncState) bool {
+	if node == nil || node.Type != ir.StringType || !isTony(es) {
 		return false
 	}
 	if doBlockLit(node, es) {
