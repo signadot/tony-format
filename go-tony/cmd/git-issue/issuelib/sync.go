@@ -1,6 +1,7 @@
 package issuelib
 
 import (
+	"bytes"
 	"fmt"
 	"os/exec"
 	"sort"
@@ -460,7 +461,26 @@ func (s *GitStore) putLocal(p IssuePlan, commit string, closed bool) error {
 	return s.setRef(want, commit, zeroSHA)
 }
 
+// PushResult is what a push did about one issue: a line for a person, empty
+// when nothing was sent, or why it was not.
+type PushResult struct {
+	Did string
+	Err error
+}
+
+// pushBatch is how many issues one push carries at most. Every issue is two
+// arguments or four, so this keeps a command line well inside what any platform
+// takes, and a repository's worth of issues to a handful of connections.
+const pushBatch = 200
+
 // ApplyPush makes the remote right about one issue, and says what it did.
+func (s *GitStore) ApplyPush(remote string, p IssuePlan, force bool) (string, error) {
+	r := s.ApplyPushes(remote, []IssuePlan{p}, force)[0]
+	return r.Did, r.Err
+}
+
+// ApplyPushes makes the remote right about each issue planned, and answers what
+// it did about each, in the order of plans.
 //
 // Right means: the remote ends holding exactly one ref for the issue, this
 // generation's, in the status this clone has it in, at this clone's tip. So the
@@ -469,26 +489,63 @@ func (s *GitStore) putLocal(p IssuePlan, commit string, closed bool) error {
 // what migrates an issue that was only ever on the remote in gen0.
 //
 // It is safe precisely when this clone's tip carries every tip the remote has,
-// which is what the verdict says. The whole issue goes in one atomic push, so
-// its refs change together or not at all, and every one of them carries a lease
-// on what the tracking ref said: if the remote moved since the fetch, nothing
-// is written and the caller is told.
-func (s *GitStore) ApplyPush(remote string, p IssuePlan, force bool) (string, error) {
+// which is what the verdict says. Every ref written carries a lease on what the
+// tracking ref said: if the remote moved since the fetch, that ref is not
+// written and the caller is told.
+//
+// The issues go in as few pushes as will hold them, each atomic, because a push
+// is a connection and a connection per issue is minutes for a repository of
+// them. Atomic is what keeps an issue's refs changing together: a push the
+// remote refuses writes nothing, the issues it names as refused are answered
+// with why, and the rest go again without them. So one issue someone else has
+// moved costs a second connection, not the others' sync.
+func (s *GitStore) ApplyPushes(remote string, plans []IssuePlan, force bool) []PushResult {
+	results := make([]PushResult, len(plans))
+	var ops []*pushOp
+	for i, p := range plans {
+		op, err := s.planPush(p, force)
+		switch {
+		case err != nil:
+			results[i].Err = err
+		case op != nil:
+			op.result = &results[i]
+			ops = append(ops, op)
+		}
+	}
+	for start := 0; start < len(ops); start += pushBatch {
+		s.sendPushes(remote, ops[start:min(start+pushBatch, len(ops))])
+	}
+	return results
+}
+
+// pushOp is what a push sends for one issue: its refs, the lease on each, and
+// what to say once they are written.
+type pushOp struct {
+	xidr     string
+	leases   []string
+	refspecs []string
+	targets  []string // the remote refs the refspecs write, which is how git names them back
+	did      string
+	result   *PushResult
+}
+
+// planPush decides what one issue's push sends, and answers nil when that is
+// nothing. A divergence is merged here first, without force; what is then sent
+// carries both sides, so the remote takes it as an ordinary fast-forward.
+func (s *GitStore) planPush(p IssuePlan, force bool) (*pushOp, error) {
 	switch p.Verdict {
 	case RemoteOnly, Behind:
-		return "", nil
+		return nil, nil
 	case Diverged:
 		if !force {
-			// Bring the two together here first; what is then sent carries both
-			// sides, so the remote takes it as an ordinary fast-forward.
 			if _, err := s.mergeLocally(p); err != nil {
-				return "", err
+				return nil, err
 			}
 			p = s.reload(p)
 		}
 	}
 	if p.Local == nil {
-		return "", nil
+		return nil, nil
 	}
 
 	want := issueRef(p.XIDR, p.Local.Closed, false)
@@ -499,45 +556,112 @@ func (s *GitStore) ApplyPush(remote string, p IssuePlan, force bool) (string, er
 		}
 	}
 
-	var leases, refspecs []string
-	sent := held != p.Local.Commit
-	if sent {
-		refspecs = append(refspecs, p.Local.Ref+":"+want)
-		leases = append(leases, "--force-with-lease="+want+":"+held)
-	}
-	dropped := 0
-	for _, tip := range p.Remote {
-		if tip.Ref == want {
-			continue
-		}
-		refspecs = append(refspecs, ":"+tip.Ref)
-		leases = append(leases, "--force-with-lease="+tip.Ref+":"+tip.Commit)
-		dropped++
-	}
-	if len(refspecs) == 0 {
-		return "", nil
-	}
-
-	args := append([]string{"push", "--atomic"}, leases...)
-	args = append(args, remote)
-	args = append(args, refspecs...)
-	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
-		return "", fmt.Errorf("failed to push %s to %s: %s",
-			FormatID(p.XIDR), remote, strings.TrimSpace(string(out)))
-	}
-
+	op := &pushOp{xidr: p.XIDR}
 	var did []string
-	if sent {
+	if held != p.Local.Commit {
+		op.refspecs = append(op.refspecs, p.Local.Ref+":"+want)
+		op.leases = append(op.leases, "--force-with-lease="+want+":"+held)
+		op.targets = append(op.targets, want)
 		if held == "" {
 			did = append(did, "created at "+shortSHA(p.Local.Commit))
 		} else {
 			did = append(did, fmt.Sprintf("%s..%s", shortSHA(held), shortSHA(p.Local.Commit)))
 		}
 	}
+	dropped := 0
+	for _, tip := range p.Remote {
+		if tip.Ref == want {
+			continue
+		}
+		op.refspecs = append(op.refspecs, ":"+tip.Ref)
+		op.leases = append(op.leases, "--force-with-lease="+tip.Ref+":"+tip.Commit)
+		op.targets = append(op.targets, tip.Ref)
+		dropped++
+	}
+	if len(op.refspecs) == 0 {
+		return nil, nil
+	}
 	if dropped > 0 {
 		did = append(did, fmt.Sprintf("dropped %d other ref(s)", dropped))
 	}
-	return strings.Join(did, ", "), nil
+	op.did = strings.Join(did, ", ")
+	return op, nil
+}
+
+// sendPushes sends ops in one atomic push, and again without whichever the
+// remote refused, until what is left is written or nothing can be.
+func (s *GitStore) sendPushes(remote string, ops []*pushOp) {
+	for len(ops) > 0 {
+		refused, out, err := pushAtomic(remote, ops)
+		if err == nil {
+			for _, op := range ops {
+				op.result.Did = op.did
+			}
+			return
+		}
+		var rest []*pushOp
+		for _, op := range ops {
+			var why []string
+			for _, ref := range op.targets {
+				if line, ok := refused[ref]; ok {
+					why = append(why, line)
+				}
+			}
+			if len(why) == 0 {
+				rest = append(rest, op)
+				continue
+			}
+			op.result.Err = fmt.Errorf("failed to push %s to %s: %s",
+				FormatID(op.xidr), remote, strings.Join(why, "; "))
+		}
+		if len(rest) == len(ops) {
+			// Nothing named as refused: the push failed as a whole -- the
+			// remote is unreachable, or said no to all of it -- and trying
+			// again would say the same.
+			for _, op := range ops {
+				op.result.Err = fmt.Errorf("failed to push %s to %s: %s",
+					FormatID(op.xidr), remote, out)
+			}
+			return
+		}
+		ops = rest
+	}
+}
+
+// pushAtomic runs one atomic push of ops, and on failure answers the remote refs
+// git says were refused on their own account -- as opposed to refused because
+// the push was atomic and another was -- each with git's line about it.
+func pushAtomic(remote string, ops []*pushOp) (map[string]string, string, error) {
+	args := []string{"push", "--porcelain", "--atomic"}
+	for _, op := range ops {
+		args = append(args, op.leases...)
+	}
+	args = append(args, remote)
+	for _, op := range ops {
+		args = append(args, op.refspecs...)
+	}
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Command("git", args...)
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err == nil {
+		return nil, "", nil
+	}
+
+	// A refused ref is a line "!\t<from>:<to>\t<summary>".
+	refused := map[string]string{}
+	for _, line := range strings.Split(stdout.String(), "\n") {
+		fields := strings.SplitN(line, "\t", 3)
+		if len(fields) != 3 || fields[0] != "!" || strings.Contains(fields[2], "atomic push failed") {
+			continue
+		}
+		_, to, _ := strings.Cut(fields[1], ":")
+		refused[to] = to + " " + fields[2]
+	}
+	out := strings.TrimSpace(stderr.String())
+	if out == "" {
+		out = strings.TrimSpace(stdout.String())
+	}
+	return refused, out, fmt.Errorf("push failed")
 }
 
 // reload reads this clone's ref for the issue again, for a plan whose local side

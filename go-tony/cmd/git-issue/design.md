@@ -258,7 +258,10 @@ other left in the ref's reflog.
 
 **Every write to a remote carries a lease.** `--force-with-lease=<ref>:<what the
 tracking ref said>` refuses the write if the remote moved since the fetch, and an
-issue's refs go in one `--atomic` push so they change together or not at all. That
+issue's refs go in one `--atomic` push so they change together or not at all.
+Issues share that push, a couple of hundred to one, because a push is a connection
+and a connection per issue made syncing a repository take minutes; the issues the
+remote refuses are named, and the rest go again without them. That
 is the compare-and-swap `setRef` has always made locally, at last reaching the
 wire — the property the transport lacked, in the only place it is hard to hold and
 the only place it matters.

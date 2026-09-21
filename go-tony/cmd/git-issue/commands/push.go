@@ -106,9 +106,19 @@ func (cfg *pushConfig) push(cc *cli.Context, remote, xidr string) error {
 		plans = plansFor(plans, xidr)
 	}
 
+	// The pushes go first and together, since a connection per issue is what
+	// made a push of a repository take minutes; the report then reads what each
+	// issue came to.
+	done := map[string]issuelib.PushResult{}
+	if !cfg.DryRun {
+		for i, r := range cfg.store.ApplyPushes(remote, plans, cfg.Force) {
+			done[plans[i].XIDR] = r
+		}
+	}
 	report := &syncReport{remote: remote, force: cfg.Force, dryRun: cfg.DryRun}
 	report.run(cfg.store, plans, func(p issuelib.IssuePlan) (string, error) {
-		return cfg.store.ApplyPush(remote, p, cfg.Force)
+		r := done[p.XIDR]
+		return r.Did, r.Err
 	})
 
 	if !cfg.DryRun {
