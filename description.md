@@ -58,7 +58,7 @@ A merge made by go-tony ≤ v0.0.232 is still a union, so it can leave two value
 stale value brought back, or a real race nobody was stopped on. New clients never write that
 shape, so nothing repairs it automatically. On read, a key with more than one value takes the
 last one in the list (a later value overwrites an earlier one) and git-issue warns on stderr,
-naming the issue, the key and every value. The user fixes it with \`git issue label <id> k=v\`,
+naming the issue, the key and every value. The user fixes it with `git issue label <id> k=v`,
 which by (2) leaves the one value.
 
 ## Deliberately out of scope
