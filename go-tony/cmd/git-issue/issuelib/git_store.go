@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -31,19 +33,23 @@ import (
 // concurrently.
 type GitStore struct {
 	out io.Writer
+	// warn is where a read says it corrected an issue's shape: stderr, so it
+	// never mixes into what a command prints.
+	warn io.Writer
 	// adopted guards the implicit adoption of refs an older git-issue wrote,
 	// which every read of an existing issue goes through (adoptOnce).
 	adopted sync.Once
 }
 
-// NewGitStore creates a GitStore that reports warnings on stdout.
+// NewGitStore creates a GitStore that reports warnings on stdout, and what a
+// read corrected on stderr.
 func NewGitStore() *GitStore {
-	return &GitStore{out: os.Stdout}
+	return &GitStore{out: os.Stdout, warn: os.Stderr}
 }
 
-// NewGitStoreWithOutput creates a GitStore writing its warnings to out.
+// NewGitStoreWithOutput creates a GitStore writing both to out.
 func NewGitStoreWithOutput(out io.Writer) *GitStore {
-	return &GitStore{out: out}
+	return &GitStore{out: out, warn: out}
 }
 
 // Out returns the writer the store reports warnings on.
@@ -217,6 +223,7 @@ func (s *GitStore) GetByRef(ref string) (*Issue, string, error) {
 		return nil, "", fmt.Errorf("failed to convert meta to issue: %w", err)
 	}
 	issue.Ref = ref
+	s.singleValueLabels(issue)
 
 	// Read description.md
 	descCmd := exec.Command("git", "show", ref+":description.md")
@@ -232,6 +239,24 @@ func (s *GitStore) GetByRef(ref string) (*Issue, string, error) {
 	}
 
 	return issue, desc, nil
+}
+
+// singleValueLabels leaves each of the issue's label keys holding one value,
+// the last its list gives, and warns for every key that held more. Only a merge
+// made by an older git-issue writes that shape, and which value was meant is
+// for a person to say.
+func (s *GitStore) singleValueLabels(issue *Issue) {
+	labels, multi := singleValued(issue.Labels)
+	if multi == nil {
+		return
+	}
+	issue.Labels = labels
+	for _, k := range slices.Sorted(maps.Keys(multi)) {
+		vs := multi[k]
+		fmt.Fprintf(s.warn, "warning: issue %s: label key %s has %d values (%s); reading %s. "+
+			"Fix with `git issue label %s %s=<value>`.\n",
+			FormatID(issue.ID), k, len(vs), strings.Join(vs, ", "), vs[len(vs)-1], FormatID(issue.ID), k)
+	}
 }
 
 // FindRef finds the ref for an issue by XIDR or XIDR prefix.

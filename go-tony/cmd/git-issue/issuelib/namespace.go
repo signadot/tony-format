@@ -13,7 +13,11 @@ package issuelib
 // safely coexist with: a ref layout, or how sync decides what to write. What
 // meta.tony holds is not such a break -- a field added there is read by a client
 // that does not know it, and moving every ref in every clone for one would be a
-// flag day for nothing.
+// flag day for nothing. (Read, but not kept: such a client rewrites meta.tony
+// from its own struct on every edit and merge, so the field is lost the first
+// time it writes the issue.) Nor is a merge rule refined so that each side's
+// output stays readable by the other: the three-way label merge replaced a union,
+// and what a union leaves is read, and warned of, rather than refused.
 //
 // gen0 is the layout before this one, never "legacy": IsLegacyRef already means
 // a six-digit numeric id, which is a different thing and older still.

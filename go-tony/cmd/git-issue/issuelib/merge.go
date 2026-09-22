@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -17,8 +18,10 @@ import (
 // Two clones that both edited an issue hold chains from a common root, each
 // with commits the other does not. Nothing about that is a conflict in the
 // ordinary case: discussion/ unions by construction, since its names are
-// <timestamp>-<hash> and cannot collide, and meta.tony's lists are sets. What
-// needs deciding is the status, and the rule for it is below.
+// <timestamp>-<hash> and cannot collide, and meta.tony's lists are sets, each
+// side's additions and removals kept. What needs deciding is the status, and
+// the rule for it is below; the one conflict in meta.tony is a label key the two
+// sides set to different values.
 //
 // The result is a commit with both tips as parents, so the next sync sees a
 // fast-forward from either side and the two clones converge without anyone
@@ -92,8 +95,10 @@ func (s *GitStore) mergeTrees(base, ours, theirs string) (string, error) {
 
 // mergeMeta merges the three metadata documents by value.
 //
-// The lists are sets, and union: what two clones recorded about one issue is
-// both of those things. id and created are the base's, since neither side may
+// The lists are sets, merged against the base: what either clone added is
+// kept, and what either removed stays removed, so an unlabel is not undone by
+// an edit made elsewhere. Labels are merged the same way, with a key=value key
+// decided by mergeLabels. id and created are the base's, since neither side may
 // change them; updated is the later of the two, which is when the issue last
 // moved. status is the one question with two defensible answers, and
 // decideStatus settles it.
@@ -118,13 +123,16 @@ func (s *GitStore) mergeMeta(base, ours, theirs string) (string, error) {
 	if theirIssue.Updated.After(merged.Updated) {
 		merged.Updated = theirIssue.Updated
 	}
-	merged.Commits = mergeList(ourIssue.Commits, theirIssue.Commits)
-	merged.Branches = mergeList(ourIssue.Branches, theirIssue.Branches)
-	merged.Labels = mergeList(ourIssue.Labels, theirIssue.Labels)
-	merged.RelatedIssues = mergeList(ourIssue.RelatedIssues, theirIssue.RelatedIssues)
-	merged.Blocks = mergeList(ourIssue.Blocks, theirIssue.Blocks)
-	merged.BlockedBy = mergeList(ourIssue.BlockedBy, theirIssue.BlockedBy)
-	merged.Duplicates = mergeList(ourIssue.Duplicates, theirIssue.Duplicates)
+	merged.Commits = mergeSet(baseIssue.Commits, ourIssue.Commits, theirIssue.Commits)
+	merged.Branches = mergeSet(baseIssue.Branches, ourIssue.Branches, theirIssue.Branches)
+	merged.RelatedIssues = mergeSet(baseIssue.RelatedIssues, ourIssue.RelatedIssues, theirIssue.RelatedIssues)
+	merged.Blocks = mergeSet(baseIssue.Blocks, ourIssue.Blocks, theirIssue.Blocks)
+	merged.BlockedBy = mergeSet(baseIssue.BlockedBy, ourIssue.BlockedBy, theirIssue.BlockedBy)
+	merged.Duplicates = mergeSet(baseIssue.Duplicates, ourIssue.Duplicates, theirIssue.Duplicates)
+	merged.Labels, err = mergeLabels(baseIssue.Labels, ourIssue.Labels, theirIssue.Labels)
+	if err != nil {
+		return "", err
+	}
 
 	status, closedBy, err := s.decideStatus(base, ours, theirs, baseIssue)
 	if err != nil {
@@ -140,16 +148,111 @@ func (s *GitStore) mergeMeta(base, ours, theirs string) (string, error) {
 	return encode.MustString(node), nil
 }
 
-// mergeList unions two of an issue's lists, keeping ours in order and adding
-// what only theirs has.
-func mergeList(ours, theirs []string) []string {
-	out := append([]string{}, ours...)
+// mergeSet merges two of an issue's lists against their base, as sets: ours in
+// order, less what theirs removed, then what only theirs added. What ours
+// removed is already absent from ours, and not taken back from theirs.
+func mergeSet(base, ours, theirs []string) []string {
+	out := []string{}
+	for _, item := range ours {
+		if Contains(base, item) && !Contains(theirs, item) {
+			continue
+		}
+		out = append(out, item)
+	}
 	for _, item := range theirs {
-		if !Contains(out, item) {
+		if !Contains(base, item) && !Contains(out, item) {
 			out = append(out, item)
 		}
 	}
 	return out
+}
+
+// mergeLabels merges labels as mergeSet does, and each key=value key by what
+// each side did to it: where one side changed the key -- to another value, or
+// by removing it -- that side's answer is taken, and where both changed it to
+// the same answer that is taken. Where the sides changed it to different
+// answers, which is two people moving one key at once, no rule here is better
+// than asking them, and the merge is refused as a conflict in a file is.
+//
+// Each list is taken to hold one value per key, which singleValued makes true
+// of anything metaAt reads.
+func mergeLabels(base, ours, theirs []string) ([]string, error) {
+	baseVals, ourVals, theirVals := keyValues(base), keyValues(ours), keyValues(theirs)
+	won := map[string]string{} // key -> label, absent where the key is removed
+	var keys []string
+	for _, vals := range []map[string]string{ourVals, theirVals, baseVals} {
+		for k := range vals {
+			if !Contains(keys, k) {
+				keys = append(keys, k)
+			}
+		}
+	}
+	slices.Sort(keys)
+	for _, k := range keys {
+		b, o, t := baseVals[k], ourVals[k], theirVals[k]
+		var l string
+		switch {
+		case o == t, t == b:
+			l = o
+		case o == b:
+			l = t
+		default:
+			return nil, fmt.Errorf("%w: label key %s was %s on one side and %s on the other",
+				ErrDiverged, k, labelAnswer(o), labelAnswer(t))
+		}
+		if l != "" {
+			won[k] = l
+		}
+	}
+
+	var plainBase, plainOurs, plainTheirs []string
+	for _, pair := range []struct {
+		in  []string
+		out *[]string
+	}{{base, &plainBase}, {ours, &plainOurs}, {theirs, &plainTheirs}} {
+		for _, l := range pair.in {
+			if _, _, keyed := SplitLabel(l); !keyed {
+				*pair.out = append(*pair.out, l)
+			}
+		}
+	}
+	plain := mergeSet(plainBase, plainOurs, plainTheirs)
+
+	// Ours in order, then theirs, each keyed label standing where its key first
+	// appears, so a merge does not reshuffle what someone is reading.
+	out := []string{}
+	for _, l := range append(append([]string{}, ours...), theirs...) {
+		k, _, keyed := SplitLabel(l)
+		switch {
+		case keyed:
+			if w, ok := won[k]; ok && !Contains(out, w) {
+				out = append(out, w)
+			}
+		case Contains(plain, l) && !Contains(out, l):
+			out = append(out, l)
+		}
+	}
+	return out, nil
+}
+
+// keyValues answers a label list's key=value labels, by key.
+func keyValues(labels []string) map[string]string {
+	vals := map[string]string{}
+	for _, l := range labels {
+		if k, _, keyed := SplitLabel(l); keyed {
+			vals[k] = l
+		}
+	}
+	return vals
+}
+
+// labelAnswer says what one side did with a key, for a conflict's message.
+func labelAnswer(label string) string {
+	if label == "" {
+		return "removed"
+	}
+	_, v, _ := SplitLabel(label)
+	return "set to " + v
 }
 
 // statusChange is a commit that opened or closed an issue.
@@ -249,6 +352,9 @@ func (s *GitStore) metaAt(commit string) (*Issue, error) {
 	if err := issue.FromTonyIR(node); err != nil {
 		return nil, fmt.Errorf("failed to read meta.tony at %s: %w", shortSHA(commit), err)
 	}
+	// An older git-issue's merge can leave a key two values; a merge reads it
+	// as GetByRef does, and the warning is GetByRef's to give.
+	issue.Labels, _ = singleValued(issue.Labels)
 	return issue, nil
 }
 

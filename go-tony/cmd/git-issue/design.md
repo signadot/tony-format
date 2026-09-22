@@ -168,6 +168,29 @@ they belong to. Labels are a small list of short strings — they belong in the
 metadata document with everything else, and `list --label` gets them from the
 same read that produced the issue.
 
+### Labels with a key, merged against the base
+
+A program driving git-issue -- verse's phase machine is the first -- needs a
+value per issue that every client carries and a race settles. Labels are the one
+field every client already keeps through an edit; a new meta.tony field is
+dropped by the first older client to write the issue, and a ref per phase needs
+its own sync. So a label containing `=` is a key and a value, a key holds one
+value, and `git-issue-` is reserved for such conventions.
+
+What stood in the way was the merge. It took the union of the two sides'
+labels, and of every other list, so a removal on one side was undone by any
+edit on the other: an `unlabel` lost to a comment, and a phase moved on one side
+coming back as two phases. The merge is now three-way. Each list keeps both
+sides' additions and removals; a key takes the answer of whichever side changed
+it; and a key two sides changed to different answers is a conflict, refused like
+a description rewritten on both sides, since two people moving one key at once
+is theirs to settle.
+
+An older client's merge is still a union, and can leave a key two values. That
+is read, not refused: the last value listed is taken, a warning goes to stderr,
+and `git issue label <id> key=<value>` puts it right. Nothing tries to decide
+which value was meant, because nothing in the labels says.
+
 ### Plumbing over a temporary index
 
 Writes go through `hash-object`, `mktree`/`update-index`, `commit-tree` and
