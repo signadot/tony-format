@@ -26,9 +26,10 @@ Layout (decided in discussion, 2026-09-22):
    the move, so it is always an ancestor of (or equal to) the issue's tip, and later edits leave it
    where it is. A phase move is one transaction: the move commit, the issue ref advanced to it, and
    the phase ref put at it and removed from the old phase, all in one `update-ref --stdin`, and
-   pushed `--atomic`. Two phase refs for one issue are settled by the descendant rule, as a ref in
-   both `open/` and `closed/` is; where neither descends from the other, that is a divergence (7).
-   A phase ref whose commit is not on the issue's chain is wrong, and a reader says so.
+   pushed `--atomic`. So a clone holds at most one phase ref per issue, and nothing -- a move, a
+   pull, a v1 client -- writes a second. Two phase refs for one issue in one clone, or a phase ref
+   whose commit is not on the issue's chain, is a malformed repository: a reader reports it, and a
+   cleanup pass (as `CleanupStaleRefs` is for status) repairs it.
 2. **Phase and status are orthogonal.** A phase never implies `open` or `closed`, and a close or
    reopen never moves a phase. The machine governs phase only; status stays what it is today. So a
    v1 client that closes or reopens an issue with a phase contradicts nothing, and nothing need
@@ -51,11 +52,13 @@ Layout (decided in discussion, 2026-09-22):
    still sees every issue, never deletes a phase ref, and a reflecting reader tombstones nothing.
    What it cannot do is carry phase refs: a phase travels only through phase-aware clones. That
    is a degradation, not a loss, and with (2) there is no state a v1 write can contradict.
-7. **Sync carries phase.** push, pull, the lease and the merge treat the phase ref as they treat
-   the issue ref, with tracking copies under `remotes/<remote>/phase/`. One issue moved to
-   different phases on two sides -- two phase refs, neither descending from the other -- is a
-   divergence surfaced like any other, never last writer wins; merging the chains does not decide
-   it.
+7. **Sync carries phase.** push, pull and the lease treat the phase ref as they treat the issue
+   ref, with tracking copies under `remotes/<remote>/phase/`. Clones disagree on a phase when each
+   moved the issue and neither move descends from the other; each clone still has one phase. Pull
+   merges the chain as it does today, keeps this clone's phase ref, and reports the conflict; push
+   refuses, as it refuses a failed lease. Never last writer wins. The conflict is resolved by a
+   phase move made on top of the merge: that move descends from both, so from then on the
+   descendant rule settles it everywhere.
 8. **The CLI:** a move to a phase, `list` filtered by phase, and `show` with the phase history.
 
 ## Deliberately out of scope
