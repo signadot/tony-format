@@ -1,6 +1,6 @@
-# git-issue: phases beyond open/closed, as namespaces automation can enumerate and move through
+# git-issue: key=value labels and a merge that knows removals, so automation can drive phases
 
-# git-issue: phases beyond open/closed, as namespaces automation can enumerate and move through
+# git-issue: key=value labels and a merge that knows removals, so automation can drive phases
 
 ## Context
 
@@ -9,60 +9,63 @@ verse (signadot/verse, `docs/working`) organises its design work on git-issue. A
 **review** gates. verse's git-issue source reflects the tracker, and a charter would run the phase
 machine over it: reminders, review gates, checks on a landing.
 
-Today there are two statuses, so a phase could only be a label. A label set is not a state:
-nothing stops two phases at once, and the property open/closed already have, "status is the
-namespace, which cannot be wrong, and the descendant settles a race", does not reach it.
+A phase needs one value per issue, carried by every client in the field, and settled on a race
+rather than by whoever merged last. Two designs were weighed in the discussion (2026-09-22) and
+dropped:
+
+- **A phase ref**, `refs/git-issues/v1/phase/<phase>/<xidr>` pointing at the move commit. It keeps
+  v1 readers complete, but needs a new tracking prefix, lease and conflict handling in sync, and
+  a rule forbidding a second phase ref.
+- **A `phase` field in meta.tony.** Every client up to go-tony v0.0.232 parses meta.tony
+  non-strictly and rebuilds it from the struct on each edit (`Update`) and each merge
+  (`mergeMeta`), so an unknown field is silently erased by the next edit an old client makes.
+
+Labels are a field every client knows and carries, so they reach existing repositories as they
+are. What stands in the way is the merge.
+
+## The defect
+
+`mergeList` (`issuelib/merge.go`) merges labels, and every other list, as the union of the two
+sides, without the base. A removal on one side is undone by any edit on the other: clone A runs
+`unlabel x` while clone B adds a comment, and the merge puts `x` back. For plain labels this
+loses an `unlabel`; for a phase it would give an issue two phases after a race that never
+happened.
 
 ## What is needed
 
-Layout (decided in discussion, 2026-09-22):
+1. **The `git-issue-` label prefix is reserved** for conventions git-issue or a driving program
+   defines. Documented where labels are (README, `git issue label` help).
+2. **`key=value` labels.** A label containing `=` splits at the first `=` into a key and a
+   value, and a key holds one value. `git issue label k=v` on an issue that has `k=u` replaces
+   it. Keys and values are lowercased and trimmed like every label, so no convention may depend on
+   case. No existing label here contains `=`.
+3. **A three-way merge of labels.** The merge compares each side with the base:
+   - plain labels are a set: an addition or a removal made on either side survives;
+   - a `key=value` key changed on one side takes that side's value, and removed on one side is
+     removed;
+   - a key changed on both sides to different values is a **merge conflict**: pull refuses that
+     issue as it refuses any merge it cannot make, writes nothing, and says which key. Changed on
+     both sides to the same value is not a conflict.
 
-    refs/git-issues/v1/open/<xidr>             the issue's chain, as today
-    refs/git-issues/v1/closed/<xidr>           the issue's chain, as today
-    refs/git-issues/v1/phase/<phase>/<xidr>    the commit on that chain that entered <phase>
+   Resolving a conflict is what it is today: set this side to the other's value and pull again, or
+   `pull --force` to take the remote's tip. Never last writer wins.
+4. **Tests** for each merge case above, including a removal racing an unrelated edit, and a
+   phase-shaped key (`git-issue-phase=planned` → `landed` on one side, a comment on the other).
 
-1. **Phase is its own ref, beside the chain.** The chain stays in `open/` or `closed/`; an issue's
-   phase is where its phase ref is. The phase ref names the commit on the issue's chain that made
-   the move, so it is always an ancestor of (or equal to) the issue's tip, and later edits leave it
-   where it is. A phase move is one transaction: the move commit, the issue ref advanced to it, and
-   the phase ref put at it and removed from the old phase, all in one `update-ref --stdin`, and
-   pushed `--atomic`. So a clone holds at most one phase ref per issue, and nothing -- a move, a
-   pull, a v1 client -- writes a second. Two phase refs for one issue in one clone, or a phase ref
-   whose commit is not on the issue's chain, is a malformed repository: a reader reports it, and a
-   cleanup pass (as `CleanupStaleRefs` is for status) repairs it.
-2. **Phase and status are orthogonal.** A phase never implies `open` or `closed`, and a close or
-   reopen never moves a phase. The machine governs phase only; status stays what it is today. So a
-   v1 client that closes or reopens an issue with a phase contradicts nothing, and nothing need
-   reconcile the two. Automation that wants a terminal phase to close the issue does both moves.
-3. **A declared machine, per repository.** The phases and the allowed transitions are declared
-   once, versioned in the repository. `git issue` refuses an undeclared phase or transition, and
-   each phase says whether it is terminal (for the machine: no transition out). Automation reads
-   the declaration rather than hard-coding a list.
-4. **Transitions readable without prose.** The move commit carries a transition entry in
-   meta.tony (from, to), and its author and date are who and when, so a reflecting source can say
-   "entered <phase> at <t>, by <who>" from the phase ref alone, without reading messages.
-5. **Enumerable by readers, never named literally.** issuelib exports the phase prefix and a
-   `PhaseFromRef`, so a client lists what the library says exists. This is the lesson from
-   2026-09-22: verse's source listed `refs/issues/` and `refs/closed/` as literals, went blind
-   when trackers moved to `refs/git-issues/v1/` (go-tony v0.0.230), and its tests failed after
-   verse bumped to v0.0.232 with nobody noticing. issuelib's own doc names the mechanism: a
-   client names its refspecs literally, so it cannot see a ref it does not name.
-6. **v1 compatibility, without a new generation.** A v1 client names `open/` and `closed/` only,
-   in listing, lookup and push, and its push removes only the other status and gen0 refs. So it
-   still sees every issue, never deletes a phase ref, and a reflecting reader tombstones nothing.
-   What it cannot do is carry phase refs: a phase travels only through phase-aware clones. That
-   is a degradation, not a loss, and with (2) there is no state a v1 write can contradict.
-7. **Sync carries phase.** push, pull and the lease treat the phase ref as they treat the issue
-   ref, with tracking copies under `remotes/<remote>/phase/`. Clones disagree on a phase when each
-   moved the issue and neither move descends from the other; each clone still has one phase. Pull
-   merges the chain as it does today, keeps this clone's phase ref, and reports the conflict; push
-   refuses, as it refuses a failed lease. Never last writer wins. The conflict is resolved by a
-   phase move made on top of the merge: that move descends from both, so from then on the
-   descendant rule settles it everywhere.
-8. **The CLI:** a move to a phase, `list` filtered by phase, and `show` with the phase history.
+## Old clients
+
+A merge made by go-tony ≤ v0.0.232 is still a union, so it can leave two values for one key: a
+stale value brought back, or a real race nobody was stopped on. New clients never write that
+shape. A reader that finds it can redo the merge that produced it -- its parents are on the
+issue's chain -- by the rules in (3), which yields either the one value or the conflict.
+git-issue may do this in a cleanup pass; the driving program may do it itself.
 
 ## Deliberately out of scope
 
-- **Custody** (owner, until) is orthogonal to phase: fields in meta.tony, not a namespace.
-- **Review** is a gate over a transition. The automation poses it (verse does); git-issue need
-  not model it.
+- **The phase machine**: which phases exist, which transitions are allowed, what is terminal, and
+  any tombstone convention. That belongs to the program driving it (verse), under
+  `git-issue-phase=<phase>` or whatever key it takes from the reserved prefix.
+- **Phase and status are orthogonal.** A phase never implies open or closed; a driver that wants a
+  terminal phase to close the issue does both.
+- **Custody** (owner, until): its own keys, same mechanism.
+- **Review** is a gate over a transition. The automation poses it; git-issue need not model it.
