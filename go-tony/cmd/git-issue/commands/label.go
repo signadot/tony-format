@@ -15,19 +15,22 @@ type labelConfig struct {
 	remove bool
 }
 
-// LabelCommand returns the label subcommand.
+// LabelCommand returns the label subcommand. A label key=value sets the key,
+// replacing any value it had; labels beginning git-issue- are reserved for
+// conventions git-issue or a program driving it defines.
 func LabelCommand(store issuelib.Store) *cli.Command {
 	cfg := &labelConfig{store: store}
 	return cli.NewCommandAt(&cfg.Command, "label").
-		WithSynopsis("label <id> <label> [label...] - Add labels to issue").
+		WithSynopsis("label <id> <label|key=value> [...] - Add labels to issue; key=value replaces the key's value").
 		WithRun(cfg.run)
 }
 
-// UnlabelCommand returns the unlabel subcommand.
+// UnlabelCommand returns the unlabel subcommand. A key given without a value
+// removes it whatever its value.
 func UnlabelCommand(store issuelib.Store) *cli.Command {
 	cfg := &labelConfig{store: store, remove: true}
 	return cli.NewCommandAt(&cfg.Command, "unlabel").
-		WithSynopsis("unlabel <id> <label> [label...] - Remove labels from issue").
+		WithSynopsis("unlabel <id> <label|key|key=value> [...] - Remove labels from issue; a bare key removes any value").
 		WithRun(cfg.run)
 }
 
@@ -53,28 +56,22 @@ func (cfg *labelConfig) run(cc *cli.Context, args []string) error {
 		return err
 	}
 
-	// Normalize labels (lowercase, trimmed)
 	for i := range labels {
-		labels[i] = strings.ToLower(strings.TrimSpace(labels[i]))
+		labels[i] = issuelib.NormalizeLabel(labels[i])
+		if key, _, _ := issuelib.SplitLabel(labels[i]); key == "" {
+			return fmt.Errorf("%w: %q has no key", cli.ErrUsage, labels[i])
+		}
 	}
 
 	var action string
 	if cfg.remove {
-		// Remove labels
-		newLabels := make([]string, 0, len(issue.Labels))
-		for _, l := range issue.Labels {
-			if !slices.Contains(labels, l) {
-				newLabels = append(newLabels, l)
-			}
+		for _, l := range labels {
+			issue.RemoveLabel(l)
 		}
-		issue.Labels = newLabels
 		action = "Removed"
 	} else {
-		// Add labels (avoid duplicates)
 		for _, l := range labels {
-			if !slices.Contains(issue.Labels, l) {
-				issue.Labels = append(issue.Labels, l)
-			}
+			issue.SetLabel(l)
 		}
 		slices.Sort(issue.Labels)
 		action = "Added"

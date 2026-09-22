@@ -52,8 +52,8 @@ Usage:
   git issue comment <id> [text]             Add comment to issue
   git issue attach <id> <path>              Attach file/directory to issue
   git issue for-commit <commit>             Show issues linked to commit
-  git issue label <id> <label>...           Add labels to issue
-  git issue unlabel <id> <label>...         Remove labels from issue
+  git issue label <id> <label>...           Add labels to issue (key=value replaces the key's value)
+  git issue unlabel <id> <label>...         Remove labels from issue (a bare key removes any value)
   git issue relate <id1> <id2>              Link two related issues
   git issue blocks <id1> <id2>              Issue id1 blocks id2
   git issue duplicate <id1> <id2>           Issue id1 duplicates id2
@@ -77,6 +77,7 @@ Examples:
   git issue comment j2dz "This approach looks good"
   git issue attach j2dz ./docs/design.md
   git issue label j2dz bug urgent
+  git issue label j2dz severity=high  # a key holds one value; git-issue-* keys are reserved
   git issue relate j2dz 4f1c   # link two related issues
   git issue blocks j2dz 4f1c   # issue j2dz blocks 4f1c
   git issue push j2dz          # push one issue to origin

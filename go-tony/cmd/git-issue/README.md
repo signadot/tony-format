@@ -128,9 +128,27 @@ Attachments go under `discussion/files/`, keeping the layout they had.
 ```bash
 git issue label j2dz bug urgent
 git issue unlabel j2dz urgent
+git issue label j2dz severity=high    # a key and a value
+git issue label j2dz severity=low     # replaces severity=high
+git issue unlabel j2dz severity       # removes the key, whatever its value
 ```
 
 Labels are lowercased and kept sorted, so `Bug` and `bug` are one label.
+
+A label containing `=` is a key and a value, split at the first `=`, and a key
+holds one value. Labels beginning `git-issue-` are reserved: git-issue, or a
+program driving it (a phase machine, say, as `git-issue-phase=<phase>`), defines
+what they mean.
+
+When two clones' edits of one issue are merged, each side's additions and
+removals are kept, and a key takes the value of whichever side changed it. A key
+the two sides set to different values is a conflict: the pull names it and
+leaves the issue alone, and it is settled by setting this clone's value to the
+other's and pulling again, or by `pull --force`.
+
+A merge made by an older git-issue keeps every label from both sides, so it can
+leave a key two values. Reading such an issue takes the last value listed and
+warns on stderr; `git issue label <id> key=<value>` puts it right.
 
 ### Link issues together
 
