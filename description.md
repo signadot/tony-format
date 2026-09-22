@@ -15,31 +15,48 @@ namespace, which cannot be wrong, and the descendant settles a race", does not r
 
 ## What is needed
 
-1. **Phases as namespaces.** An issue is in exactly one phase, and its phase is where its ref is.
-   A phase move is the same atomic ref move a close is, a commit on the issue's chain, so the
-   descendant rule settles a race between any two phases, not only open and closed.
-2. **A declared machine, per repository.** The phases and the allowed transitions are declared
+Layout (decided in discussion, 2026-09-22):
+
+    refs/git-issues/v1/open/<xidr>             the issue's chain, as today
+    refs/git-issues/v1/closed/<xidr>           the issue's chain, as today
+    refs/git-issues/v1/phase/<phase>/<xidr>    the commit on that chain that entered <phase>
+
+1. **Phase is its own ref, beside the chain.** The chain stays in `open/` or `closed/`; an issue's
+   phase is where its phase ref is. The phase ref names the commit on the issue's chain that made
+   the move, so it is always an ancestor of (or equal to) the issue's tip, and later edits leave it
+   where it is. A phase move is one transaction: the move commit, the issue ref advanced to it, and
+   the phase ref put at it and removed from the old phase, all in one `update-ref --stdin`, and
+   pushed `--atomic`. Two phase refs for one issue are settled by the descendant rule, as a ref in
+   both `open/` and `closed/` is; where neither descends from the other, that is a divergence (7).
+   A phase ref whose commit is not on the issue's chain is wrong, and a reader says so.
+2. **Phase and status are orthogonal.** A phase never implies `open` or `closed`, and a close or
+   reopen never moves a phase. The machine governs phase only; status stays what it is today. So a
+   v1 client that closes or reopens an issue with a phase contradicts nothing, and nothing need
+   reconcile the two. Automation that wants a terminal phase to close the issue does both moves.
+3. **A declared machine, per repository.** The phases and the allowed transitions are declared
    once, versioned in the repository. `git issue` refuses an undeclared phase or transition, and
-   each phase says whether it is terminal (today's `closed` is the terminal case). Automation
-   reads the declaration rather than hard-coding a list.
-3. **Transitions readable without prose.** Each move records from, to, who and when in a form a
-   reader parses (a transition entry in meta.tony, or a structured trailer on the commit), so a
-   reflecting source can say "entered <phase> at <t>, by <who>" without reading messages.
-4. **Enumerable by readers, never named literally.** issuelib exports the phase prefixes and a
+   each phase says whether it is terminal (for the machine: no transition out). Automation reads
+   the declaration rather than hard-coding a list.
+4. **Transitions readable without prose.** The move commit carries a transition entry in
+   meta.tony (from, to), and its author and date are who and when, so a reflecting source can say
+   "entered <phase> at <t>, by <who>" from the phase ref alone, without reading messages.
+5. **Enumerable by readers, never named literally.** issuelib exports the phase prefix and a
    `PhaseFromRef`, so a client lists what the library says exists. This is the lesson from
    2026-09-22: verse's source listed `refs/issues/` and `refs/closed/` as literals, went blind
    when trackers moved to `refs/git-issues/v1/` (go-tony v0.0.230), and its tests failed after
    verse bumped to v0.0.232 with nobody noticing. issuelib's own doc names the mechanism: a
    client names its refspecs literally, so it cannot see a ref it does not name.
-5. **Compatibility is the design question.** A v1 reader lists only `open/` and `closed/`, so an
-   issue moved to a new phase namespace under v1 disappears for it, and a reflecting reader
-   tombstones what it stops seeing, which is worse than missing it. Either phases come with a new
-   generation and adoption, as gen0 → v1 did, or with a layout that keeps v1 readers complete.
-   That needs deciding before any phase namespace is written.
-6. **Sync carries phase.** push, pull, the lease and the merge treat a phase move as they treat
-   close and reopen: one issue moved to different phases on two sides is a divergence resolved by
-   the same rules, never last writer wins.
-7. **The CLI:** a move to a phase, `list` filtered by phase, and `show` with the phase history.
+6. **v1 compatibility, without a new generation.** A v1 client names `open/` and `closed/` only,
+   in listing, lookup and push, and its push removes only the other status and gen0 refs. So it
+   still sees every issue, never deletes a phase ref, and a reflecting reader tombstones nothing.
+   What it cannot do is carry phase refs: a phase travels only through phase-aware clones. That
+   is a degradation, not a loss, and with (2) there is no state a v1 write can contradict.
+7. **Sync carries phase.** push, pull, the lease and the merge treat the phase ref as they treat
+   the issue ref, with tracking copies under `remotes/<remote>/phase/`. One issue moved to
+   different phases on two sides -- two phase refs, neither descending from the other -- is a
+   divergence surfaced like any other, never last writer wins; merging the chains does not decide
+   it.
+8. **The CLI:** a move to a phase, `list` filtered by phase, and `show` with the phase history.
 
 ## Deliberately out of scope
 
