@@ -206,7 +206,7 @@ func (s *Storage) createSnapshot(commit int64) error {
 // ensuring both are closed when the reader is done.
 type snapshotEventReadCloser struct {
 	snapshot *snap.Snapshot
-	reader   *snap.PathEventReader
+	reader   snap.EventReader
 }
 
 func (s *snapshotEventReadCloser) ReadEvent() (*stream.Event, error) {

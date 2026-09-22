@@ -286,7 +286,7 @@ Key documents:
 
 3. **Merge Semantics**: Patches use merge-patch semantics. There is a !delete mergeop for deletion. See `tx/merge.go` for multi-path merge logic.
 
-4. **Index Granularity**: The index doesn't record every path, only significant checkpoints (size-bound). Reads may require scanning events from an ancestor path.
+4. **Finding a path in a snapshot**: through the directory, a table per segment, which reads exactly the path's events and answers absence at the missing segment (`internal/snap/seek.go`). The size-bound chunk index, and the scan forward from a chunk, is only for a snapshot written without a directory.
 
 5. **File Extensions**: Tony files typically use `.tony` extension. The format also supports reading YAML and JSON.
 

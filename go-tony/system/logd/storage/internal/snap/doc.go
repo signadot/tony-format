@@ -5,9 +5,11 @@
 // loading entire documents into memory.
 //
 // A snapshot holds the events of one value: in logd, the whole document or the
-// value at one path. [Builder] writes one from events; [Open] reads its header
-// and index, and [Snapshot.ReadPath] and [Snapshot.ReadPathEventReader] seek
-// through the index to the events of one path.
+// value at one path. [Builder] writes one from events; [Open] reads its header,
+// and [Snapshot.ReadPath] and [Snapshot.ReadPathEventReader] find one path's events
+// through the directory, a table per segment, reading those events and nothing
+// else (seek.go). The chunk index described below is how a snapshot written before
+// the directory is read, and only that.
 //
 // # Format
 //

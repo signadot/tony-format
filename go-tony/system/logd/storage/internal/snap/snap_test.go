@@ -91,15 +91,15 @@ func TestSnapshotOpen(t *testing.T) {
 	}
 
 	// Verify index was read correctly
-	if snapshot.Index == nil {
+	if chunkIndex(t, snapshot) == nil {
 		t.Fatal("Index is nil")
 	}
-	if len(snapshot.Index.Entries) != len(testIndex.Entries) {
-		t.Fatalf("Index.Entries length = %d, want %d", len(snapshot.Index.Entries), len(testIndex.Entries))
+	if len(chunkIndex(t, snapshot).Entries) != len(testIndex.Entries) {
+		t.Fatalf("Index.Entries length = %d, want %d", len(chunkIndex(t, snapshot).Entries), len(testIndex.Entries))
 	}
 
 	for i, wantEntry := range testIndex.Entries {
-		gotEntry := snapshot.Index.Entries[i]
+		gotEntry := chunkIndex(t, snapshot).Entries[i]
 		if gotEntry.Path.KPath.Compare(&wantEntry.Path.KPath) != 0 {
 			t.Errorf("Entry[%d].Path = %q, want %q", i, gotEntry.Path.String(), wantEntry.Path.String())
 		}
@@ -158,11 +158,11 @@ func TestSnapshotOpen_EmptyIndex(t *testing.T) {
 	}
 	defer snapshot.Close()
 
-	if snapshot.Index == nil {
+	if chunkIndex(t, snapshot) == nil {
 		t.Fatal("Index is nil")
 	}
-	if len(snapshot.Index.Entries) != 0 {
-		t.Errorf("Index.Entries length = %d, want 0", len(snapshot.Index.Entries))
+	if len(chunkIndex(t, snapshot).Entries) != 0 {
+		t.Errorf("Index.Entries length = %d, want 0", len(chunkIndex(t, snapshot).Entries))
 	}
 }
 

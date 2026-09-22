@@ -422,17 +422,17 @@ func TestSnapshotLookupAndRead(t *testing.T) {
 			for _, pathTest := range tt.testPaths {
 				t.Run(pathTest.path, func(t *testing.T) {
 					// Test lookup (may return nil for small documents that don't have index entries)
-					j, err := snapshot.Index.Lookup(pathTest.path)
+					j, err := chunkIndex(t, snapshot).Lookup(pathTest.path)
 					if err != nil {
 						t.Fatalf("Lookup(%q) error = %v", pathTest.path, err)
 					}
-					if j >= len(snapshot.Index.Entries) {
-						t.Fatalf("index lookup out of bounds %d/%d", j, len(snapshot.Index.Entries))
+					if j >= len(chunkIndex(t, snapshot).Entries) {
+						t.Fatalf("index lookup out of bounds %d/%d", j, len(chunkIndex(t, snapshot).Entries))
 					}
-					entry := &snapshot.Index.Entries[j]
+					entry := &chunkIndex(t, snapshot).Entries[j]
 					exact := entry.Path.String() == pathTest.path
 
-					hasIndexEntries := len(snapshot.Index.Entries) > 0
+					hasIndexEntries := len(chunkIndex(t, snapshot).Entries) > 0
 					if pathTest.wantFound && hasIndexEntries {
 						// Only check lookup if we have index entries
 						if entry == nil {

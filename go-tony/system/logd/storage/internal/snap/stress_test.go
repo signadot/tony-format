@@ -84,7 +84,7 @@ func TestStress_RandomDocumentLookups(t *testing.T) {
 	}
 	defer snapshot.Close()
 
-	t.Logf("Opened snapshot: EventSize=%d bytes, Index entries=%d", snapshot.EventSize, len(snapshot.Index.Entries))
+	t.Logf("Opened snapshot: EventSize=%d bytes, Index entries=%d", snapshot.EventSize, len(chunkIndex(t, snapshot).Entries))
 
 	// Test random lookups
 	numQueries := 100

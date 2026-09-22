@@ -54,10 +54,7 @@ The index builder processes events and records paths with their offsets:
 
 ### Path Lookup
 
-If exact path not found in index:
-- Find nearest ancestor path
-- Seek to ancestor offset
-- Scan events forward until target path found
+A path is found through the directory (`directory.go`, `seek.go`): one table per segment, binary-searched, and the entry at the end gives the value's exact byte range, which is all that is read. A segment a table does not hold ends the lookup there: the path is absent. The chunk index, a seek to the chunk before the path and a scan forward, is how a snapshot written without a directory is read, and only that.
 
 ## Building Snapshots
 
@@ -95,12 +92,12 @@ A snapshot written before the directory existed has a 12-byte header (event stre
 
 ### Path Lookup
 
-1. Read sizes from beginning of file (8 bytes event stream size, 4 bytes index size)
-2. Read index (starting at offset 12 + event stream size, for index size bytes)
-3. Lookup path (or nearest ancestor)
-4. Seek to offset in event stream (offset 12 + path offset)
-5. Decode events from that offset
-6. Reconstruct path value
+1. Read the header
+2. From the root table, find each segment of the path in turn; a missing one is the path absent
+3. Read the entry's byte range of the event stream, less the key that introduces it
+4. Reconstruct path value
+
+A snapshot without a directory reads its index instead, seeks to the chunk at or before the path, and scans forward.
 
 ## Benefits Over IR-Node-Based Design
 

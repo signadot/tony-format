@@ -45,9 +45,10 @@ import (
 //
 // A slot is an entry's offset from the start of the entries, so the i'th entry is found
 // without reading the ones before it, which is what a seek by name binary-searches over.
-// The search rests on the entries being in name order, which they are because they are
-// in event order and logd sorts object keys on write (Index.Lookup rests on the same,
-// and checks it, which a table cannot without being read whole).
+// The search rests on the entries being in name order. That is the snapshot's contract,
+// not an assumption: logd stores object keys in name order, and the builder refuses a
+// child that arrives out of it (Builder.openChild), so a table is sorted by
+// construction.
 // Offsets are relative so that they are short: a child's offset is within its container,
 // and a table's within the directory.
 //
@@ -403,11 +404,7 @@ func (s *Snapshot) TableOf(p string) (*Table, Kind, error) {
 		return nil, 0, err
 	}
 	for x := kp; x != nil; x = x.Next {
-		seg := x.SegmentString()
-		if x.Field != nil {
-			seg = kpath.Field(*x.Field).String()
-		}
-		e, found, err := tb.find(seg)
+		e, found, err := tb.find(dirSegment(x))
 		if err != nil {
 			return nil, 0, err
 		}

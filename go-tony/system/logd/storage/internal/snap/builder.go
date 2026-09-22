@@ -149,7 +149,9 @@ func (b *Builder) onEvent(ev *stream.Event) error {
 		start = b.heldAt
 	}
 	b.heldAt = -1
-	b.openChild(ev, start)
+	if err := b.openChild(ev, start); err != nil {
+		return err
+	}
 	if err := b.writeHeld(); err != nil {
 		return err
 	}
@@ -271,7 +273,11 @@ func (b *Builder) noteKey(ev *stream.Event) {
 // openChild records the child a value-start event begins, at start, in the enclosing
 // container's frame, and opens a frame for it when it is a container itself. The root
 // value has no enclosing frame and only opens one.
-func (b *Builder) openChild(ev *stream.Event, start int64) {
+//
+// A container's children must arrive in name order, which is the order logd stores
+// object keys in and the order a table is binary-searched in (directory.go). A child
+// out of that order is refused: the table would answer a path it holds as absent.
+func (b *Builder) openChild(ev *stream.Event, start int64) error {
 	kind := kindOfEvent(ev)
 	if n := len(b.frames); n > 0 {
 		f := b.frames[n-1]
@@ -279,6 +285,16 @@ func (b *Builder) openChild(ev *stream.Event, start int64) {
 		seg := f.next
 		if f.kind == KindArray {
 			seg = kpath.Index(f.n).String()
+		}
+		if len(f.entries) > 0 {
+			prev := f.entries[len(f.entries)-1].segment
+			kp, err := kpath.Parse(seg)
+			if err != nil || kp == nil {
+				return fmt.Errorf("snapshot: child %q is not a segment", seg)
+			}
+			if compareSegments(prev, kp) >= 0 {
+				return fmt.Errorf("snapshot: child %s follows %s, out of name order", seg, prev)
+			}
 		}
 		f.entries = append(f.entries, dirEntry{segment: seg, kind: kind, offset: start})
 		f.open = true
@@ -288,6 +304,7 @@ func (b *Builder) openChild(ev *stream.Event, start int64) {
 	if kind.IsContainer() {
 		b.frames = append(b.frames, &dirFrame{offset: start, kind: kind})
 	}
+	return nil
 }
 
 // closeEntry gives the frame's open entry its size: it ends where the next thing begins.
