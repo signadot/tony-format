@@ -35,7 +35,7 @@ The index is a list of kpaths in order of the stream events, each associated wit
 
 - **IndexEntry**: Contains a kpath (string) and offset (int64)
 - **Entries**: Ordered list of IndexEntry values, sorted by offset
-- **Ancestor lookup**: If exact path not indexed, find nearest ancestor
+- **Lookup**: the entry greatest at or before the path, by binary search; entries are in name order because a snapshot's keys are. The index is read only for a snapshot without a directory: one with a directory finds a path through its tables (`seek.go`).
 
 ### Building Snapshots
 
@@ -57,10 +57,10 @@ The index is a list of kpaths in order of the stream events, each associated wit
 3. Read index (starting after event stream, for index size bytes)
 4. Parse index structure
 5. For path lookup:
-   - Find path or nearest ancestor in index
-   - Seek to offset in event stream
-   - Decode events from that offset
+   - Walk the directory's tables a segment at a time; a missing segment is the path absent
+   - Read the entry's byte range of the event stream
    - Reconstruct path value from events
+   - (A snapshot without a directory: find the chunk at or before the path in the index, seek there, and scan forward.)
 
 ## Implementation Status
 

@@ -12,12 +12,17 @@ import (
 
 // Snapshot is an opened snapshot file providing random access to paths.
 type Snapshot struct {
-	R         io.ReadSeekCloser
+	R io.ReadSeekCloser
+	// Index is the chunk index: loaded by Open only for a snapshot without a directory,
+	// which is the only kind a path is sought through it in (seek.go). ChunkIndex loads
+	// it for any snapshot.
 	Index     *Index
 	EventSize uint64 // Size of event stream in bytes
 
-	eventsAt int64      // where the events begin in R: after the header, whichever header
-	dir      *directory // the directory, or nil for a snapshot written before there was one
+	eventsAt  int64      // where the events begin in R: after the header, whichever header
+	dir       *directory // the directory, or nil for a snapshot written before there was one
+	indexAt   int64      // where the chunk index is in R
+	indexSize int
 }
 
 // EventsAt is where the events begin in R.
@@ -63,14 +68,32 @@ func Open(rc R) (*Snapshot, error) {
 		return nil, fmt.Errorf("snapshot index size %d exceeds maximum %d", indexSize, maxIndexSize)
 	}
 
-	// The index follows the events and the directory (Builder.Close).
-	indexOffset := eventOffset + int64(eventSize) + int64(dirSize)
+	s := &Snapshot{
+		R:         rc,
+		EventSize: eventSize,
+		eventsAt:  eventOffset,
+		dir:       dir,
+		// The index follows the events and the directory (Builder.Close).
+		indexAt:   eventOffset + int64(eventSize) + int64(dirSize),
+		indexSize: int(indexSize),
+	}
+	if dir == nil {
+		if _, err := s.ChunkIndex(); err != nil {
+			return nil, err
+		}
+	}
+	return s, nil
+}
 
-	// Read index from the calculated offset
-	if _, err := rc.Seek(indexOffset, io.SeekStart); err != nil {
+// ChunkIndex answers the chunk index, reading it on first use.
+func (s *Snapshot) ChunkIndex() (*Index, error) {
+	if s.Index != nil {
+		return s.Index, nil
+	}
+	if _, err := s.R.Seek(s.indexAt, io.SeekStart); err != nil {
 		return nil, err
 	}
-	index, err := OpenIndex(rc, int(indexSize))
+	index, err := OpenIndex(s.R, s.indexSize)
 	if err != nil {
 		return nil, err
 	}
@@ -81,16 +104,10 @@ func Open(rc R) (*Snapshot, error) {
 			entry.Size = index.Entries[i+1].Offset - entry.Offset
 			continue
 		}
-		entry.Size = int64(eventSize) - entry.Offset
+		entry.Size = int64(s.EventSize) - entry.Offset
 	}
-
-	return &Snapshot{
-		R:         rc,
-		Index:     index,
-		EventSize: eventSize,
-		eventsAt:  eventOffset,
-		dir:       dir,
-	}, nil
+	s.Index = index
+	return index, nil
 }
 
 func (s *Snapshot) Close() error {
@@ -100,6 +117,13 @@ func (s *Snapshot) Close() error {
 // ReadPath reads the IR node at path p.
 // Returns nil if path not found.
 func (s *Snapshot) ReadPath(p string) (*ir.Node, error) {
+	if s.dir != nil {
+		e, found, err := s.entryAt(p)
+		if err != nil || !found {
+			return nil, err
+		}
+		return s.ReadEntry(parentOf(p), e)
+	}
 	desPath, err := kpath.Parse(p)
 	if err != nil {
 		return nil, err
@@ -143,7 +167,17 @@ func (s *Snapshot) ReadPath(p string) (*ir.Node, error) {
 // Unlike ReadPath, this does not materialize the full subtree in memory.
 // The caller must call Close() on the returned reader when done.
 // Note: The Snapshot must remain open while the reader is in use.
-func (s *Snapshot) ReadPathEventReader(p string) (*PathEventReader, error) {
+func (s *Snapshot) ReadPathEventReader(p string) (EventReader, error) {
+	if s.dir != nil {
+		e, found, err := s.entryAt(p)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			e = Entry{} // absent: no events
+		}
+		return s.window(e)
+	}
 	desPath, err := kpath.Parse(p)
 	if err != nil {
 		return nil, err

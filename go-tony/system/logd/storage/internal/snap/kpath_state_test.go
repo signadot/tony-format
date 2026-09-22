@@ -247,6 +247,12 @@ func TestPathFinderWithArrayIndex(t *testing.T) {
 		t.Fatalf("Open error = %v", err)
 	}
 	defer snapshot.Close()
+	// The seek under test is the chunk index's, which is how a snapshot without a
+	// directory is read; this file's directory was never written, so read it as one.
+	snapshot.dir = nil
+	if _, err := snapshot.ChunkIndex(); err != nil {
+		t.Fatal(err)
+	}
 
 	// Read users[3] - should return "d"
 	node, err := snapshot.ReadPath("users[3]")

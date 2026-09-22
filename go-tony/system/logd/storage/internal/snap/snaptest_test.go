@@ -19,19 +19,30 @@ import (
 // array element.
 const commentDoc = `# above the document
 name: svc # after the name
-# above the spec
-spec:
-  # above replicas
-  replicas: 3 # after replicas
-  items:
-  # above the first item
-  - id: a # after a
-  - id: b
 # above ports
 ports:
 - 80
 - 443
+# above the spec
+spec:
+  items:
+  # above the first item
+  - id: a # after a
+  - id: b
+  # above replicas
+  replicas: 3 # after replicas
 `
+
+// chunkIndex is the snapshot's chunk index, which Open loads only for a snapshot
+// without a directory.
+func chunkIndex(t *testing.T, s *Snapshot) *Index {
+	t.Helper()
+	idx, err := s.ChunkIndex()
+	if err != nil {
+		t.Fatalf("chunk index: %v", err)
+	}
+	return idx
+}
 
 // snapOf writes doc through the builder and opens the result.
 func snapOf(t *testing.T, src string) (*Snapshot, *Index) {

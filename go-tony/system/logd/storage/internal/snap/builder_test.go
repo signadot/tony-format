@@ -95,9 +95,9 @@ func TestBuilder_NestedStructureWithMixedContainers(t *testing.T) {
 	// {
 	//   "users": [
 	//     { "name": "alice", "tags": ["admin", "user"] },
-	//     { "name": "bob", "age": 30 }
+	//     { "name": "bob", "score": 30 }
 	//   ],
-	//   "metadata": { "count": 2, "active": true }
+	//   "version": { "active": true, "count": 2 }
 	// }
 	// We'll make it large enough to trigger index entries by adding more data
 
@@ -150,7 +150,7 @@ func TestBuilder_NestedStructureWithMixedContainers(t *testing.T) {
 		t.Fatalf("EndObject() error = %v", err)
 	}
 
-	// Second user: { "name": "bob", "age": 30 }
+	// Second user: { "name": "bob", "score": 30 }
 	if err := enc.BeginObject(); err != nil {
 		t.Fatalf("BeginObject() error = %v", err)
 	}
@@ -160,8 +160,8 @@ func TestBuilder_NestedStructureWithMixedContainers(t *testing.T) {
 	if err := enc.WriteString("bob"); err != nil {
 		t.Fatalf("WriteString('bob') error = %v", err)
 	}
-	if err := enc.WriteKey("age"); err != nil {
-		t.Fatalf("WriteKey('age') error = %v", err)
+	if err := enc.WriteKey("score"); err != nil {
+		t.Fatalf("WriteKey('score') error = %v", err)
 	}
 	if err := enc.WriteInt(30); err != nil {
 		t.Fatalf("WriteInt(30) error = %v", err)
@@ -184,8 +184,8 @@ func TestBuilder_NestedStructureWithMixedContainers(t *testing.T) {
 		if err := enc.WriteString(longName); err != nil {
 			t.Fatalf("WriteString() error = %v", err)
 		}
-		if err := enc.WriteKey("data"); err != nil {
-			t.Fatalf("WriteKey('data') error = %v", err)
+		if err := enc.WriteKey("values"); err != nil {
+			t.Fatalf("WriteKey('values') error = %v", err)
 		}
 		// Add an array with multiple values
 		if err := enc.BeginArray(); err != nil {
@@ -208,24 +208,24 @@ func TestBuilder_NestedStructureWithMixedContainers(t *testing.T) {
 		t.Fatalf("EndArray() error = %v", err)
 	}
 
-	// "metadata": { "count": 2, "active": true }
-	if err := enc.WriteKey("metadata"); err != nil {
-		t.Fatalf("WriteKey('metadata') error = %v", err)
+	// "version": { "active": true, "count": 2 }
+	if err := enc.WriteKey("version"); err != nil {
+		t.Fatalf("WriteKey('version') error = %v", err)
 	}
 	if err := enc.BeginObject(); err != nil {
 		t.Fatalf("BeginObject() error = %v", err)
-	}
-	if err := enc.WriteKey("count"); err != nil {
-		t.Fatalf("WriteKey('count') error = %v", err)
-	}
-	if err := enc.WriteInt(2); err != nil {
-		t.Fatalf("WriteInt(2) error = %v", err)
 	}
 	if err := enc.WriteKey("active"); err != nil {
 		t.Fatalf("WriteKey('active') error = %v", err)
 	}
 	if err := enc.WriteBool(true); err != nil {
 		t.Fatalf("WriteBool(true) error = %v", err)
+	}
+	if err := enc.WriteKey("count"); err != nil {
+		t.Fatalf("WriteKey('count') error = %v", err)
+	}
+	if err := enc.WriteInt(2); err != nil {
+		t.Fatalf("WriteInt(2) error = %v", err)
 	}
 	if err := enc.EndObject(); err != nil {
 		t.Fatalf("EndObject() error = %v", err)
@@ -295,18 +295,18 @@ func TestBuilder_NestedStructureWithMixedContainers(t *testing.T) {
 	}
 	defer snapshot.Close()
 
-	if snapshot.Index == nil {
-		t.Fatal("snapshot.Index is nil")
+	if chunkIndex(t, snapshot) == nil {
+		t.Fatal("chunkIndex(t, snapshot) is nil")
 	}
 
 	t.Logf("Snapshot opened successfully:")
 	t.Logf("  EventSize: %d bytes", snapshot.EventSize)
-	t.Logf("  Index entries: %d", len(snapshot.Index.Entries))
+	t.Logf("  Index entries: %d", len(chunkIndex(t, snapshot).Entries))
 
 	// Log all index entries from the opened snapshot
-	if len(snapshot.Index.Entries) > 0 {
+	if len(chunkIndex(t, snapshot).Entries) > 0 {
 		t.Logf("Index entries from opened snapshot:")
-		for i, entry := range snapshot.Index.Entries {
+		for i, entry := range chunkIndex(t, snapshot).Entries {
 			pathStr := entry.Path.String()
 			t.Logf("  [%d] Path: %q, Offset: %d", i, pathStr, entry.Offset)
 		}
@@ -315,8 +315,8 @@ func TestBuilder_NestedStructureWithMixedContainers(t *testing.T) {
 	}
 
 	// Verify the index entries match
-	if len(index.Entries) != len(snapshot.Index.Entries) {
-		t.Logf("Warning: Builder index has %d entries, opened snapshot has %d entries", len(index.Entries), len(snapshot.Index.Entries))
+	if len(index.Entries) != len(chunkIndex(t, snapshot).Entries) {
+		t.Logf("Warning: Builder index has %d entries, opened snapshot has %d entries", len(index.Entries), len(chunkIndex(t, snapshot).Entries))
 	}
 }
 
