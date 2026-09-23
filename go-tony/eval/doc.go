@@ -22,7 +22,29 @@
 // Expressions evaluated by ExpandIR can call getpath(path) and listpath(path), which
 // answer the node and the nodes at a path in the document being expanded, whereami(),
 // which answers the path of the node being expanded, and getenv(name). [ToAny] and
-// [FromAny] convert between nodes and the Go values expressions see.
+// [FromAny] convert between nodes and the Go values expressions see. Every expression,
+// with a document or without one, can call fail(msg), which answers nothing and raises
+// msg as the expression's error: `cond ? value : fail("no sha")` is how an author says
+// an expression has no answer, rather than defaulting to one.
+//
+// # When the data is not there
+//
+// A fetch says whether the thing it fetches from must be there, and the two spellings
+// differ on purpose:
+//
+//	a.b       a must be there. A missing b on an object that IS there answers null;
+//	          fetching b from nothing is an error, and so is a.b.c where a.b is
+//	          missing -- the error is the fetch ON nothing, not the absent b.
+//	a?.b      a need not be there: absent anywhere along the path answers null, and
+//	          `a?.b?.c ?? "d"` is one spelling that holds however far the path got.
+//	x ?? y    y when x is null, which covers a missing leaf under a present parent
+//	          but not a fetch on nothing -- that is an error before ?? is reached.
+//	"b" in a  whether a HOLDS b, which tells an absent b from one written null;
+//	          `a.b == nil` cannot, and this answers false rather than erroring when
+//	          a itself is nothing.
+//
+// So an author who wants a default writes ?. with ??, one who wants a demand writes .
+// with fail(), and one who wants to know which it is writes in.
 //
 // # Operations
 //
