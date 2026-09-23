@@ -37,6 +37,16 @@ what:
 `.[x]` answers with the value the environment holds, keeping its type -- `7`, a
 number -- while `$[x]` builds a string, so the same binding comes back as `"7"`.
 
+A document with no `!eval` in it is answered with itself, expanding nothing.  That
+is what makes `o eval` safe over a document someone else wrote, and it is what the
+author of a file written FOR eval trips over, the tag reading as noise in a file
+that is for nothing else.  `o eval -a` (or `-all`) evaluates the whole input, as if
+its root carried `!eval`:
+
+```bash
+o eval -a -e x=7 mine.tony    # every $[x] in mine.tony, tagged or not
+```
+
 Use `\]` for a literal `]` inside an expression: `$[map["key\]"]]`.
 
 ### When the data is not there
