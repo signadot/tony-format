@@ -420,7 +420,15 @@ func writeElementHeadComment(head *ir.Node, w io.Writer, es *EncState) error {
 	}
 	es.colorType = ir.CommentType
 	es.colorAttr = ValueColor
-	for _, ln := range head.Lines {
+	for i, ln := range head.Lines {
+		// Every line after the first starts a line of its own, indented to
+		// where the value will go: "- # one" then "  # two".
+		if i > 0 {
+			es.atCol0 = false
+			if err := writeNL(w, es); err != nil {
+				return err
+			}
+		}
 		if err := writeRaw(w, ln, es); err != nil {
 			return err
 		}

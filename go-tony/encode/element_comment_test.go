@@ -56,6 +56,17 @@ func TestElementHeadComment(t *testing.T) {
 		name: "an array's comment and an element's, told apart by position",
 		in:   "# about rule a\n- name: a\n# about rule b\n- name: b\n",
 		want: "# about rule a\n- name: a\n- # about rule b\n  name: b\n",
+	}, {
+		// Each line of a comment is its own line after the marker too: written
+		// without a break between them, "# one# two" re-read as ONE line, and a
+		// second pass had nothing left to separate.
+		name: "a comment of more than one line",
+		in:   "- # one\n  # two\n  1\n",
+		want: "- # one\n  # two\n  1\n",
+	}, {
+		name: "a later element's comment of more than one line",
+		in:   "a:\n- 1\n# one\n# two\n- !t 2\n",
+		want: "a:\n- 1\n- # one\n  # two\n  !t 2\n",
 	}}
 
 	for _, test := range tests {
