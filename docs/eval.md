@@ -39,6 +39,28 @@ number -- while `$[x]` builds a string, so the same binding comes back as `"7"`.
 
 Use `\]` for a literal `]` inside an expression: `$[map["key\]"]]`.
 
+### When the data is not there
+
+`fail(msg)` is how an expression says it has no answer: it raises `msg` as the
+expression's own error, so `.[cond ? value : fail("no sha")]` refuses rather than
+defaulting to something.  A ternary short-circuits, so the branch not taken raises
+nothing, and `o eval` prints the message and exits non-zero.
+
+Whether a path that is not there is a null or an error is the fetch's to say:
+
+```tony
+a.b        # a must be there.  A missing b on an object that IS there is null;
+           # fetching b from nothing is an error, and so is a.b.c when a.b is missing
+a?.b       # a need not be there: absent anywhere along the path is null
+x ?? y     # y when x is null -- it cannot rescue a fetch on nothing
+"b" in a   # whether a HOLDS b, which tells an absent b from one written null,
+           # and answers false rather than erroring when a is nothing
+```
+
+So a default is `?.` with `??` -- `.[a?.b?.c ?? "unset"]` holds however far the path
+got -- a demand is `.` with `fail()`, and `in` is how an expression asks which of the
+two it has.
+
 ### Two things the format does not allow here
 
 The list under `!eval` is written at the same indentation as the key, not
