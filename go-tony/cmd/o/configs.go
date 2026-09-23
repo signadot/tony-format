@@ -143,6 +143,7 @@ type EvalConfig struct {
 	*MainConfig
 	Env  map[string]*ir.Node
 	Tags bool `cli:"name=tags desc='show available tags'"`
+	All  bool `cli:"name=a aliases=all desc='evaluate the whole input, not just subtrees tagged with !eval'"`
 
 	Eval *cli.Command
 }

@@ -105,6 +105,9 @@ func evalReader(cfg *EvalConfig, w io.Writer, r io.Reader, tool *tony.Tool, colo
 		if y == nil {
 			continue
 		}
+		if cfg.All {
+			y = evalWhole(y)
+		}
 		y, err = tool.Run(y)
 		if err != nil {
 			return fmt.Errorf("error evaluating document %d: %w", i, err)
@@ -120,6 +123,27 @@ func evalReader(cfg *EvalConfig, w io.Writer, r io.Reader, tool *tony.Tool, colo
 		}
 	}
 	return nil
+}
+
+// evalWhole is -a: the document as if its root carried !eval, so a file written FOR
+// eval evaluates without saying !eval at the top of it. Everything else about the run
+// is unchanged -- the tag composes with whatever the root already carries, and is
+// applied last, so !file still loads before what it loaded is expanded.
+//
+// Without it an untagged document is answered with itself, expanding nothing, which is
+// what makes the command safe over a document someone else wrote: a literal $[x] there
+// is the text $[x]. That is also what the author of a file FOR eval trips over
+// (37b227kfh12ks8atphn0), so the answer is a flag and not a change of default.
+//
+// TagHas asks whether the chain names eval ANYWHERE, so a root tagged !a.eval is left
+// as it is and what !a answers is not expanded after it. That case is lived with: the
+// alternative is this deciding for itself what a tag chain says, rather than asking the
+// library that owns tags.
+func evalWhole(y *ir.Node) *ir.Node {
+	if !ir.TagHas(y.Tag, "!eval") {
+		y = y.WithTag(ir.TagCompose("!eval", nil, y.Tag))
+	}
+	return y
 }
 
 func envFunc(env map[string]*ir.Node, a string) error {
