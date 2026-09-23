@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 04c270ee1666c044974a09d53a684965e9dbd2c8
 commits: []
 created: "2026-09-23T09:35:45.773752+02:00"
 duplicates: []
@@ -11,5 +12,5 @@ labels:
 - enhancement
 - eval
 related_issues: []
-status: open
-updated: "2026-09-23T09:35:49.876353+02:00"
+status: closed
+updated: "2026-09-23T09:49:33.455898+02:00"
