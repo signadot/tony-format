@@ -33,7 +33,7 @@ func evalWithOptions(input string, env Env, opts *EvalOptions) (any, error) {
 	// Build compile options - include script funcs if we have a node
 	// Pass the node itself (not Root) so whereami() returns the correct path
 	// getpath() internally calls doc.Root() to resolve paths
-	var compileOpts []expr.Option
+	compileOpts := baseOpts()
 	if opts != nil && opts.Node != nil {
 		compileOpts = exprOpts(opts.Node)
 	}
