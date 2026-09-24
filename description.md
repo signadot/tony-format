@@ -18,8 +18,8 @@ know that `description.md` comes back without a trailing newline if it edits by 
 
 Wanted: `git issue edit <id>` opening `$EDITOR` on the description (title as the first `# ` line,
 as `create` does), and the non-interactive forms `create` and `comment` already have — `-b/--body`,
-or stdin when it is not a TTY — plus perhaps `--title` alone. The same compare-and-swap `import`
-uses underneath, so an edit racing a pulled change is refused rather than clobbering it.
+or stdin when it is not a TTY — plus perhaps `--title` alone. An edit racing a pulled change should
+be refused rather than clobber it, as the local store's compare-and-swap refuses a write elsewhere.
 
 Source: the command table in `go-tony/cmd/git-issue/commands/` (`export.go`, `import.go`,
 `comment.go` for the stdin/editor convention).
