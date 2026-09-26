@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -50,24 +51,40 @@ type mcpConfig struct {
 	*cli.Command
 	store issuelib.Store
 	Dirs  []string
-	Poll  time.Duration `cli:"name=poll desc='how often to look for changes made beside the server (0 never; default 5s)'"`
+	Poll  time.Duration
 }
 
-// MCPCommand returns the mcp subcommand.
+// MCPCommand returns the mcp subcommand. Both options are FuncOpts: -C is
+// repeatable, and -poll is a duration, which the struct tags do not type.
 func MCPCommand(store issuelib.Store) *cli.Command {
 	cfg := &mcpConfig{store: store, Poll: defaultPoll}
-	opts, _ := cli.StructOpts(cfg)
-	opts = append(opts, &cli.Opt{
-		Name:        "C",
-		Description: "a repository to serve; repeatable. With none, ~/.config/git-issue.tony, else the working directory",
-		Type: cli.NamedFuncOpt(cli.FuncOpt(func(cc *cli.Context, a string) (any, error) {
-			cfg.Dirs = append(cfg.Dirs, a)
-			return 0, nil
-		}), "(dir)"),
-	})
 	return cli.NewCommandAt(&cfg.Command, "mcp").
-		WithSynopsis("mcp [-C <dir>]... [-poll <d>] - Serve the tracker to an agent's host over MCP on stdin/stdout").
-		WithOpts(opts...).
+		WithSynopsis("mcp [-C <dir>]... [-poll <duration>] - Serve the tracker to an agent's host over MCP on stdin/stdout").
+		WithOpts(
+			&cli.Opt{
+				Name:        "C",
+				Description: "a repository to serve; repeatable. With none, ~/.config/git-issue.tony, else the working directory",
+				Type: cli.NamedFuncOpt(cli.FuncOpt(func(cc *cli.Context, a string) (any, error) {
+					cfg.Dirs = append(cfg.Dirs, a)
+					return 0, nil
+				}), "(dir)"),
+			},
+			&cli.Opt{
+				Name:        "poll",
+				Description: "how often to look for changes made beside the server (default 5s; 0 never)",
+				Type: cli.NamedFuncOpt(cli.FuncOpt(func(cc *cli.Context, a string) (any, error) {
+					d, err := time.ParseDuration(a)
+					if err != nil && a == "0" {
+						d, err = 0, nil
+					}
+					if err != nil {
+						return nil, fmt.Errorf("-poll %q: %w", a, err)
+					}
+					cfg.Poll = d
+					return 0, nil
+				}), "(duration)"),
+			},
+		).
 		WithRun(cfg.run)
 }
 
