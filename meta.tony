@@ -1,6 +1,7 @@
 !issue
 blocked_by: []
-blocks: []
+blocks:
+- yg3ck1aah12ksx4ypxn0
 branches: []
 commits: []
 created: "2026-09-26T12:22:45.178562+02:00"
@@ -14,4 +15,4 @@ labels:
 related_issues:
 - eg8zmb1sh12ksr48pxn0
 status: open
-updated: "2026-09-26T12:31:30.478495+02:00"
+updated: "2026-09-26T12:31:31.25311+02:00"
