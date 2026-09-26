@@ -125,15 +125,18 @@ cursor older than those or from another server.
 
 `issue_watch_remote` is `issue_watch` that pulls. Issues often travel by push
 and pull, and a watch of this clone alone hears nothing a teammate pushed. So
-it pulls `remote` (origin by default) into each repository it watches, when it
-starts and every `-fetch` (30s by default) while it waits, and answers what
-the pulls did beside what they brought: an issue created, moved on or merged,
-as `issue_pull` says it, one refused for a person to decide, a remote not
-reached, and reached again. A refusal or
-failure answers on its own, once while it stands. It writes this clone's refs
-as `issue_pull` does and pushes nothing. It is a tool of its own so that a
-host keeping an agent off the remote can deny it by name, as it does
-`issue_pull`.
+it pulls `remote` (origin by default) into each repository it watches: those
+named in `repo`, which must have the remote, or every served one that has it.
+It pulls when it starts and every `-fetch` (30s by default) while it waits.
+What a pull did to an issue comes with the change it brought, as `issue_pull`
+says it. An issue refused, or a remote not reached, stands until a person
+acts, and answers on its own: all that stands, whenever it differs from what
+the cursor says the watch was last told, and `clear` when nothing stands.
+Each watch is told for itself, so two agents watching both hear a refusal.
+
+It writes this clone's refs as `issue_pull` does and pushes nothing. It is a
+tool of its own so that a host keeping an agent off the remote can deny it by
+name, as it does `issue_pull`.
 
 A call to either holds the agent until it answers. In Claude Code, run
 [`git issue watch`](commands.md#watch) in the background under Monitor

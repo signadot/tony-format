@@ -43,7 +43,7 @@ type watchRemoteIn struct {
 
 type watchOut struct {
 	Changes []watchChange `json:"changes" jsonschema:"the issues that changed, in the order the changes were found; empty at the timeout"`
-	Pulls   []pullNote    `json:"pulls,omitempty" jsonschema:"issue_watch_remote: what its pulls did while it waited -- issues created, moved on or merged, refused, failed, a remote not reached or reached again. A refusal or failure answers on its own, and is said once while it stands"`
+	Pulls   []pullNote    `json:"pulls,omitempty" jsonschema:"issue_watch_remote: what its pulls did to the issues among changes, and -- when it differs from what the cursor was last told -- all that stands: refusals, failures, or clear"`
 	Cursor  string        `json:"cursor" jsonschema:"pass as since to the next issue_watch"`
 }
 
@@ -73,7 +73,7 @@ func addWatchTool(m *mcpServer) {
 		Description: "issue_watch that also pulls: when it starts and every -fetch (the server's, 30 seconds by default) it pulls a remote, origin by " +
 			"default, into each repository watched, so a change a teammate pushed is heard as well as one made here. It answers " +
 			"what changed, and what its pulls did: issues created, moved on or merged, one refused for a person to decide, a remote that could " +
-			"not be reached. A refusal or failure answers on its own, once while it stands. It writes this clone's refs as issue_pull " +
+			"not be reached. What stands until a person acts -- a refusal, a failure -- answers on its own when it differs from what the cursor was last told, or clear when nothing stands. It writes this clone's refs as issue_pull " +
 			"does, and nothing to the remote. Its cursor is issue_watch's.",
 		Annotations: &mcp.ToolAnnotations{IdempotentHint: true},
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in watchRemoteIn) (*mcp.CallToolResult, watchOut, error) {
@@ -97,11 +97,22 @@ func (m *mcpServer) watchTool(ctx context.Context, repos, ids []string, label, s
 			}
 			f.dirs[r.Dir] = true
 			if pulls != nil {
+				if err := r.Store.VerifyRemote(pulls.remote); err != nil {
+					return nil, watchOut{}, fmt.Errorf("%s: %w", r.Name, err)
+				}
 				pulls.repos = append(pulls.repos, r)
 			}
 		}
 	} else if pulls != nil {
-		pulls.repos = m.ws.list()
+		// Unscoped, it pulls the served repositories that have the remote.
+		for _, r := range m.ws.list() {
+			if r.Store.VerifyRemote(pulls.remote) == nil {
+				pulls.repos = append(pulls.repos, r)
+			}
+		}
+		if len(pulls.repos) == 0 {
+			return nil, watchOut{}, fmt.Errorf("no served repository has a remote named %s", pulls.remote)
+		}
 	}
 	if label != "" {
 		f.label = issuelib.NormalizeLabel(label)
@@ -140,51 +151,73 @@ func (m *mcpServer) watchTool(ctx context.Context, repos, ids []string, label, s
 
 // pullDue pulls the remote into each repository not pulled from it within
 // -fetch, by any watch, and looks at once when it pulled, so what it brought
-// is logged before the watch reads the log. Pulls are one at a time.
-func (m *mcpServer) pullDue(ctx context.Context, pulls *watchPulls, f watchFilter) []pullNote {
-	m.pullMu.Lock()
-	defer m.pullMu.Unlock()
-	var notes []pullNote
+// is logged before the watch reads the log. A repository being pulled by
+// another watch is not waited for: what that pull brings reaches every watch
+// by the look.
+func (m *mcpServer) pullDue(ctx context.Context, pulls *watchPulls) []pullNote {
+	var did []pullNote
 	pulled := false
 	for _, r := range pulls.repos {
-		key := r.Dir + " " + pulls.remote
-		p := m.pullers[key]
-		if p == nil {
-			p = newPuller(r.Store, "", pulls.remote)
-			m.pullers[key] = p
-		}
-		if time.Since(p.last) < m.fetch {
+		p := m.pullerFor(r, pulls.remote)
+		if !p.due(m.fetch) {
 			continue
 		}
-		p.repo = repoLabel(m.ws, r)
-		notes = append(notes, p.pull(func(xidr string) bool { return f.wants(r.Dir, xidr) })...)
-		pulled = true
+		if d, ok := p.pull(); ok {
+			did = append(did, d...)
+			pulled = true
+		}
 	}
 	if pulled {
 		m.look(ctx)
 	}
-	return notes
+	return did
+}
+
+// pullerFor is the puller of a repository and remote, one per pair for the
+// server's life.
+func (m *mcpServer) pullerFor(r *repo, remote string) *puller {
+	m.pullMu.Lock()
+	defer m.pullMu.Unlock()
+	key := r.Dir + " " + remote
+	p := m.pullers[key]
+	if p == nil {
+		p = newPuller(r.Store, "", remote)
+		m.pullers[key] = p
+	}
+	p.named(repoLabel(m.ws, r))
+	return p
+}
+
+// standing is what the pullers of pulls left standing that f wants.
+func (m *mcpServer) standing(pulls *watchPulls, f watchFilter) []pullNote {
+	var out []pullNote
+	for _, r := range pulls.repos {
+		dir := r.Dir
+		out = append(out, m.pullerFor(r, pulls.remote).stands(func(xidr string) bool { return f.wants(dir, xidr) })...)
+	}
+	return out
 }
 
 // waitFor answers the changes after since that f matches, waiting for one
 // until the timeout. Without since it starts from the latest change found.
 //
 // With pulls it pulls before it starts -- so what that brings, on a first
-// call, is where the watch begins -- and every -fetch while it waits, and
-// answers too when a pull refused an issue or failed.
+// call, is where the watch begins -- and every -fetch while it waits. It
+// answers too when what stands -- refusals, failures -- is not what the
+// cursor says the watch was last told, with all that stands now, or clear.
 func (m *mcpServer) waitFor(ctx context.Context, f watchFilter, since string, timeout time.Duration, pulls *watchPulls) (watchOut, error) {
-	var notes []pullNote
+	var did []pullNote
 	var fetchC <-chan time.Time
 	if pulls != nil {
-		notes = m.pullDue(ctx, pulls, f)
+		did = m.pullDue(ctx, pulls)
 		t := time.NewTicker(m.fetch)
 		defer t.Stop()
 		fetchC = t.C
 	}
 	m.mu.Lock()
-	cursor, began := m.seq, time.Now()
+	cursor, began, told := m.seq, time.Now(), ""
 	if since != "" {
-		seq, b, err := m.parseCursor(since)
+		seq, b, h, err := m.parseCursor(since)
 		if err != nil {
 			m.mu.Unlock()
 			return watchOut{}, err
@@ -193,7 +226,7 @@ func (m *mcpServer) waitFor(ctx context.Context, f watchFilter, since string, ti
 			m.mu.Unlock()
 			return watchOut{}, fmt.Errorf("cursor %s is older than the %d changes this server keeps; call without since, and issue_list to catch up", since, watchLogCap)
 		}
-		cursor, began = seq, b
+		cursor, began, told = seq, b, h
 	}
 	m.mu.Unlock()
 	deadline := time.NewTimer(timeout)
@@ -209,7 +242,18 @@ func (m *mcpServer) waitFor(ctx context.Context, f watchFilter, since string, ti
 		cursor = m.seq
 		wake := m.wake
 		m.mu.Unlock()
-		out := watchOut{Changes: []watchChange{}, Pulls: notes, Cursor: m.cursor(cursor, began)}
+		var alarms []pullNote
+		hash := told
+		if pulls != nil {
+			stands := m.standing(pulls, f)
+			if hash = alarmsHash(stands); hash != told {
+				alarms = stands
+				if len(stands) == 0 {
+					alarms = []pullNote{{Remote: pulls.remote, What: clear}}
+				}
+			}
+		}
+		out := watchOut{Changes: []watchChange{}, Cursor: m.cursor(cursor, began, hash)}
 		for _, ev := range coalesce(events) {
 			if !f.wants(ev.repo.Dir, ev.xidr) {
 				continue
@@ -219,12 +263,13 @@ func (m *mcpServer) waitFor(ctx context.Context, f watchFilter, since string, ti
 				out.Changes = append(out.Changes, ch)
 			}
 		}
-		if len(out.Changes) > 0 || alarmed(notes) {
+		out.Pulls = append(alarms, withChanges(did, out.Changes)...)
+		if len(out.Changes) > 0 || len(alarms) > 0 {
 			return out, nil
 		}
 		select {
 		case <-fetchC:
-			notes = append(notes, m.pullDue(ctx, pulls, f)...)
+			did = append(did, m.pullDue(ctx, pulls)...)
 		case <-wake:
 		case <-deadline.C:
 			return out, nil
@@ -253,41 +298,34 @@ func coalesce(events []watchEvent) []watchEvent {
 	return out
 }
 
-// A cursor is the server's epoch, a change's number, and when the watch
-// began -- the first call, without since. Numbers start again with each
-// server, so a cursor from another server is refused rather than read as this
-// one's; the start carries through the calls, so an issue new to the watch
-// lists only what was done to it since.
-func (m *mcpServer) cursor(seq uint64, began time.Time) string {
-	return m.epoch + "." + strconv.FormatUint(seq, 10) + "." + strconv.FormatInt(began.Unix(), 10)
+// A cursor is the server's epoch, a change's number, when the watch began --
+// the first call, without since -- and what the watch was last told stands
+// (alarmsHash). Numbers start again with each server, so a cursor from
+// another server is refused rather than read as this one's; the start carries
+// through the calls, so an issue new to the watch lists only what was done to
+// it since; and what stands is said when it changes, not on every call.
+func (m *mcpServer) cursor(seq uint64, began time.Time, told string) string {
+	return m.epoch + "." + strconv.FormatUint(seq, 10) + "." + strconv.FormatInt(began.Unix(), 10) + "." + told
 }
 
-// parseCursor answers a cursor's change number and start; m.mu is held.
-func (m *mcpServer) parseCursor(c string) (uint64, time.Time, error) {
+// parseCursor answers a cursor's change number, start and what it was told
+// stands; m.mu is held.
+func (m *mcpServer) parseCursor(c string) (uint64, time.Time, string, error) {
+	bad := fmt.Errorf("cursor %q is not one issue_watch answered", c)
 	parts := strings.Split(c, ".")
-	if len(parts) != 3 {
-		return 0, time.Time{}, fmt.Errorf("cursor %q is not one issue_watch answered", c)
+	if len(parts) != 4 {
+		return 0, time.Time{}, "", bad
 	}
 	seq, err := strconv.ParseUint(parts[1], 10, 64)
 	if err != nil {
-		return 0, time.Time{}, fmt.Errorf("cursor %q is not one issue_watch answered", c)
+		return 0, time.Time{}, "", bad
 	}
 	began, err := strconv.ParseInt(parts[2], 10, 64)
 	if err != nil {
-		return 0, time.Time{}, fmt.Errorf("cursor %q is not one issue_watch answered", c)
+		return 0, time.Time{}, "", bad
 	}
 	if parts[0] != m.epoch || seq > m.seq {
-		return 0, time.Time{}, fmt.Errorf("cursor %s is from another server; call without since", c)
+		return 0, time.Time{}, "", fmt.Errorf("cursor %s is from another server; call without since", c)
 	}
-	return seq, time.Unix(began, 0), nil
-}
-
-// alarmed says whether a pull refused an issue or failed: news on its own.
-func alarmed(notes []pullNote) bool {
-	for _, n := range notes {
-		if n.alarm {
-			return true
-		}
-	}
-	return false
+	return seq, time.Unix(began, 0), parts[3], nil
 }

@@ -1,8 +1,11 @@
 package commands
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/signadot/tony-format/git-issue/issuelib"
@@ -12,11 +15,15 @@ import (
 // A watch that pulls. Issues often travel by push and pull, so a watch that
 // only read this clone would hear nothing a teammate pushed, and would look
 // like a sync that does not work. So a watch can pull a remote every -fetch,
-// and says what each pull did beside the changes it brought: an issue
-// created, moved on or merged, one refused for a person to decide, a remote
-// that could not be reached. What stays true from one pull to the next -- an issue still
-// refused, a remote still down -- is said once, and a remote reached again
-// after failing says so.
+// and says what each pull did.
+//
+// A pull says two kinds of thing. What it did to an issue -- created, moved
+// on, merged -- goes with the change it brought, and is said when the change
+// is. What stands until a person acts -- an issue refused, a remote not
+// reached -- is news on its own, said when it begins or ends and not on every
+// pull while it stands. Which of those a watch has said is the watch's to
+// know: `git issue watch` keeps it as it runs (alarmsSaid), issue_watch_remote
+// carries it in its cursor.
 
 // defaultFetch is how often a watch pulls unless -fetch says otherwise.
 const defaultFetch = 30 * time.Second
@@ -26,9 +33,9 @@ type pullNote struct {
 	Repo   string `json:"repo,omitempty" jsonschema:"the repository, when more than one is served"`
 	Remote string `json:"remote"`
 	ID     string `json:"id,omitempty" jsonschema:"the issue, when the note is about one"`
-	What   string `json:"what" jsonschema:"what the pull did, as issue_pull says it: created at <sha>, <old>..<new>, merged <a> and <b>; refused: why, for a person to decide; failed: why, for one issue; could not pull: why; reachable again"`
+	What   string `json:"what" jsonschema:"what the pull did, as issue_pull says it: created at <sha>, <old>..<new>, merged <a> and <b>; or what stands: refused: why, for a person to decide; failed: why; could not pull: why; and clear, when nothing stands any more"`
 
-	alarm bool // news on its own: a refusal or a failure
+	alarm bool // stands until a person acts: a refusal or a failure
 }
 
 func (n pullNote) line() string {
@@ -45,44 +52,59 @@ func (n pullNote) line() string {
 	return b.String()
 }
 
-// puller pulls one repository from one remote for a watch, and remembers the
-// refusals and failures its last pull reported, so a standing one is said
-// once.
+func (n pullNote) key() string { return n.Repo + " " + n.ID + " " + n.What }
+
+// couldNot begins the note of a pull that could not be made at all: the
+// remote not reached, or not there.
+const couldNot = "could not pull: "
+
+// clear is the note of a watch whose refusals and failures have all gone.
+const clear = "clear: nothing refused or failing"
+
+// puller pulls one repository from one remote, and keeps what its last pull
+// left standing. One pull runs at a time; a watch that finds one running
+// does not wait for it, since what it brings reaches every watch by the look.
 type puller struct {
 	st           issuelib.Store
 	repo, remote string
-	last         time.Time
-	said         map[string]bool // refusals and failures the last pull reported
+
+	pulling sync.Mutex
+
+	mu       sync.Mutex
+	last     time.Time
+	standing []pullNote // the refusals and failures the last pull left
 }
 
 func newPuller(st issuelib.Store, repo, remote string) *puller {
-	return &puller{st: st, repo: repo, remote: remote, said: map[string]bool{}}
+	return &puller{st: st, repo: repo, remote: remote}
 }
 
-// pull pulls, and answers what it did to the issues wants names, and every
-// refusal or failure not said by the pull before it.
-func (p *puller) pull(wants func(xidr string) bool) []pullNote {
-	p.last = time.Now()
-	note := func(id, what string, alarm bool) pullNote {
-		return pullNote{Repo: p.repo, Remote: p.remote, ID: id, What: what, alarm: alarm}
+// pull pulls, keeps what it left standing, and answers what it did to each
+// issue. ok is false when another pull was running, and this one was not made.
+func (p *puller) pull() (did []pullNote, ok bool) {
+	if !p.pulling.TryLock() {
+		return nil, false
 	}
-	var notes, alarms []pullNote
+	defer p.pulling.Unlock()
+	p.mu.Lock()
+	repo := p.repo
+	p.mu.Unlock()
+	note := func(id, what string, alarm bool) pullNote {
+		return pullNote{Repo: repo, Remote: p.remote, ID: id, What: what, alarm: alarm}
+	}
+	var standing []pullNote
 	r, err := ops.Pull(p.st, p.remote, false, false)
 	if err != nil {
-		alarms = append(alarms, note("", couldNot+err.Error(), true))
+		standing = append(standing, note("", couldNot+err.Error(), true))
 	} else {
 		for _, c := range r.Changed {
-			if wants(c.ID) {
-				notes = append(notes, note(c.ID, c.What, false))
-			}
+			did = append(did, note(c.ID, c.What, false))
 		}
 		for _, f := range r.Refused {
-			if wants(f.ID) {
-				alarms = append(alarms, note(f.ID, "refused: "+f.Reason+" (here "+f.Here+", "+p.remote+" "+f.There+")", true))
-			}
+			standing = append(standing, note(f.ID, "refused: "+f.Reason+" (here "+f.Here+", "+p.remote+" "+f.There+")", true))
 		}
 		for _, e := range r.Failed {
-			alarms = append(alarms, note("", "failed: "+e.Error(), true))
+			standing = append(standing, note("", "failed: "+e.Error(), true))
 		}
 		srcs := make([]string, 0, len(r.Unreached))
 		for src := range r.Unreached {
@@ -90,34 +112,93 @@ func (p *puller) pull(wants func(xidr string) bool) []pullNote {
 		}
 		sort.Strings(srcs)
 		for _, src := range srcs {
-			alarms = append(alarms, note("", "source "+src+" not reached, its mirrors are as they were: "+r.Unreached[src], true))
+			standing = append(standing, note("", "source "+src+" not reached, its mirrors are as they were: "+r.Unreached[src], true))
 		}
 	}
-	said := map[string]bool{}
-	for _, a := range alarms {
-		key := a.ID + " " + a.What
-		said[key] = true
-		if !p.said[key] {
-			notes = append(notes, a)
-		}
-	}
-	if err == nil && p.failed() {
-		notes = append(notes, note("", "reachable again", false))
-	}
-	p.said = said
-	return notes
+	p.mu.Lock()
+	p.last, p.standing = time.Now(), standing
+	p.mu.Unlock()
+	return did, true
 }
 
-// couldNot begins the note of a pull that could not be made at all: the
-// remote not reached, or not there.
-const couldNot = "could not pull: "
+// named sets the repository's name as notes carry it, which changes as
+// repositories are served and not.
+func (p *puller) named(repo string) {
+	p.mu.Lock()
+	p.repo = repo
+	p.mu.Unlock()
+}
 
-// failed says whether the last pull could not be made at all.
-func (p *puller) failed() bool {
-	for key := range p.said {
-		if strings.HasPrefix(key, " "+couldNot) {
-			return true
+// due says whether the last pull is older than every.
+func (p *puller) due(every time.Duration) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return time.Since(p.last) >= every
+}
+
+// stands answers what the last pull left standing that wants names: every
+// failure, and the refusals of the issues it wants.
+func (p *puller) stands(wants func(xidr string) bool) []pullNote {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var out []pullNote
+	for _, n := range p.standing {
+		if n.ID == "" || wants(n.ID) {
+			n.Repo = p.repo
+			out = append(out, n)
 		}
 	}
-	return false
+	return out
+}
+
+// alarmsSaid is what one watch has said stands. news answers what stands now
+// that it has not said, and clear when all it said has gone.
+type alarmsSaid map[string]bool
+
+func (s *alarmsSaid) news(standing []pullNote, remote string) []pullNote {
+	var out []pullNote
+	now := alarmsSaid{}
+	for _, n := range standing {
+		now[n.key()] = true
+		if !(*s)[n.key()] {
+			out = append(out, n)
+		}
+	}
+	if len(standing) == 0 && len(*s) > 0 {
+		out = append(out, pullNote{Remote: remote, What: clear})
+	}
+	*s = now
+	return out
+}
+
+// alarmsHash is what stands, as a watch's cursor carries it: equal for the
+// same notes in any order, and empty for none.
+func alarmsHash(standing []pullNote) string {
+	if len(standing) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(standing))
+	for _, n := range standing {
+		keys = append(keys, n.key())
+	}
+	sort.Strings(keys)
+	sum := sha256.Sum256([]byte(strings.Join(keys, "\n")))
+	return hex.EncodeToString(sum[:6])
+}
+
+// withChanges answers the notes of what a pull did to the issues among
+// changes: a pull's note goes with the change it brought, and one whose
+// change is not said is not either.
+func withChanges(did []pullNote, changes []watchChange) []pullNote {
+	said := map[string]bool{}
+	for _, ch := range changes {
+		said[ch.ID] = true
+	}
+	var out []pullNote
+	for _, n := range did {
+		if said[n.ID] {
+			out = append(out, n)
+		}
+	}
+	return out
 }

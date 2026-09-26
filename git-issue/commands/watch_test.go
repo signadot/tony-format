@@ -391,12 +391,12 @@ func TestWatchStore_Pulls(t *testing.T) {
 		}
 		return pullNote{}
 	}
-	if n := next("the first pull taking the issue"); n.ID != issue.ID {
-		t.Fatalf("first pull: %+v", n)
-	}
+	// What the first pull brings is where the watch begins: not said.
 	select {
 	case ch := <-changes:
 		t.Fatalf("what the first pull brought was said as a change: %+v", ch)
+	case n := <-notes:
+		t.Fatalf("what the first pull did was said: %+v", n)
 	case <-time.After(200 * time.Millisecond):
 	}
 
@@ -426,7 +426,7 @@ func TestWatchStore_Pulls(t *testing.T) {
 	case <-time.After(300 * time.Millisecond):
 	}
 	run(t, hereDir, "remote", "set-url", "origin", originOf(t, thereDir))
-	if n := next("reachable again"); n.What != "reachable again" {
+	if n := next("clear"); n.What != clear {
 		t.Errorf("reached again: %+v", n)
 	}
 }
@@ -477,6 +477,7 @@ func TestMCP_IssueWatchRemote(t *testing.T) {
 		t.Errorf("an unchanged failure answered again: %+v", still)
 	}
 	run(t, hereDir, "remote", "set-url", "origin", good)
+	time.Sleep(100 * time.Millisecond) // a pull due again, so the watch below starts reached
 
 	answered := make(chan watchOut, 1)
 	go func() {
@@ -499,6 +500,128 @@ func TestMCP_IssueWatchRemote(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("issue_watch_remote did not answer the pushed comment")
+	}
+
+	// A watch scoped to a repository without the remote is refused.
+	if msg := refused(t, cs, "issue_watch_remote", map[string]any{"remote": "upstream", "timeout": 1}); !strings.Contains(msg, "upstream") {
+		t.Errorf("refusal %q", msg)
+	}
+}
+
+// contest rewrites an issue's description in two clones and pushes there's,
+// so here's next pull refuses it.
+func contest(t *testing.T, here, there issuelib.Store, id string) {
+	t.Helper()
+	for _, c := range []struct {
+		st   issuelib.Store
+		body string
+	}{{here, "as here sees it"}, {there, "as there sees it"}} {
+		got, _, err := c.st.Get(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := c.st.Update(got, "rewrite", map[string]string{"description.md": "# Contested\n\n" + c.body + "\n"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	push(t, there)
+}
+
+// TestMCP_IssueWatchRemoteRefusal: a refusal answers every watch that has not
+// been told of it -- two watches, each once -- and not again while it stands.
+func TestMCP_IssueWatchRemoteRefusal(t *testing.T) {
+	_, hereDir, thereDir := remotePair(t)
+	here := issuelib.NewGitStoreAt(hereDir, &strings.Builder{})
+	there := issuelib.NewGitStoreAt(thereDir, &strings.Builder{})
+	issue, err := ops.Create(there, "Contested", "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	push(t, there)
+	if _, err := ops.Pull(here, "origin", false, false); err != nil {
+		t.Fatal(err)
+	}
+	contest(t, here, there, issue.ID)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	serverT, clientT := mcp.NewInMemoryTransports()
+	m := newMCPServer(isolatedSet(t, hereDir))
+	m.fetch = 50 * time.Millisecond
+	go m.s.Run(ctx, serverT)
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil).Connect(ctx, clientT, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cs.Close() })
+
+	refusedIn := func(out watchOut) bool {
+		for _, n := range out.Pulls {
+			if n.ID == issue.ID && strings.HasPrefix(n.What, "refused: ") {
+				return true
+			}
+		}
+		return false
+	}
+	var first, second, again watchOut
+	call(t, cs, "issue_watch_remote", map[string]any{"timeout": 10}, &first)
+	if !refusedIn(first) {
+		t.Fatalf("first watch: %+v, want the refusal", first)
+	}
+	call(t, cs, "issue_watch_remote", map[string]any{"ids": []string{issue.ID}, "timeout": 10}, &second)
+	if !refusedIn(second) {
+		t.Fatalf("a second watch was not told of the refusal: %+v", second)
+	}
+	call(t, cs, "issue_watch_remote", map[string]any{"since": first.Cursor, "timeout": 1}, &again)
+	if len(again.Pulls) != 0 {
+		t.Errorf("a standing refusal was said again: %+v", again.Pulls)
+	}
+}
+
+// TestWatchStore_Refusal: `git issue watch` says a refusal once while it
+// stands, and clear when it is settled.
+func TestWatchStore_Refusal(t *testing.T) {
+	_, hereDir, thereDir := remotePair(t)
+	here := issuelib.NewGitStoreAt(hereDir, &strings.Builder{})
+	there := issuelib.NewGitStoreAt(thereDir, &strings.Builder{})
+	issue, err := ops.Create(there, "Contested", "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	push(t, there)
+	if _, err := ops.Pull(here, "origin", false, false); err != nil {
+		t.Fatal(err)
+	}
+	contest(t, here, there, issue.ID)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	notes := make(chan pullNote, 16)
+	go watchStore(ctx, here, watchFilter{}, 10*time.Millisecond, newPuller(here, "", "origin"), 50*time.Millisecond,
+		func(watchChange) {}, func(n pullNote) { notes <- n })
+	select {
+	case n := <-notes:
+		if n.ID != issue.ID || !strings.HasPrefix(n.What, "refused: ") {
+			t.Fatalf("note %+v, want the refusal", n)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the refusal was not said")
+	}
+	select {
+	case n := <-notes:
+		t.Fatalf("said again while it stands: %+v", n)
+	case <-time.After(300 * time.Millisecond):
+	}
+	if _, err := ops.Pull(here, "origin", true, false); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case n := <-notes:
+		if n.What != clear {
+			t.Errorf("settled: %+v, want clear", n)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the settled refusal was not cleared")
 	}
 }
 

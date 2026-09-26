@@ -270,15 +270,15 @@ commit saying so. An issue new to the watch lists only commits made since
 `watch` started, or `arrived` when there are none.
 
 Issues often travel by push and pull, so `watch` pulls origin every `-fetch`
-(30s by default) when there is an origin, and says what each pull did before
-the changes it brought, as `pull` says it (`created at <sha>`,
-`<old>..<new>`, `merged <a> and <b>`), an issue refused for a person to
-decide, a remote not reached, and reached again. A refusal or failure that
-stands is said once. `watch` pulls once when it starts; what that brings is
-where it begins. It pushes nothing.
+(30s by default) when there is an origin. What a pull did to an issue is said
+just before the change it brought, as `pull` says it (`created at <sha>`,
+`<old>..<new>`, `merged <a> and <b>`). An issue refused, or a remote not
+reached, stands until a person acts. It is said when it begins, not on every
+pull, and `clear` is said when nothing stands. `watch` pulls once when it
+starts, and what that brings is where it begins. It pushes nothing.
 
 Between pulls it compares this clone's refs every `-poll` (5s by default), so
-a change made here is heard at once, whoever makes it.
+a change made here is heard within that, whoever makes it.
 
 `watch` is for an agent whose host wakes it on a background command's output,
 as Claude Code's Monitor does. An agent that can wait on a tool call uses

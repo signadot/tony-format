@@ -93,19 +93,25 @@ func (cfg *watchConfig) run(cc *cli.Context, args []string) error {
 
 // watchStore looks at a repository's issue refs every interval until ctx
 // ends, and hands each change f matches to emit. With a puller it pulls every
-// fetch, and hands what the pull did to note, before the changes it brought. It pulls once
-// before its first look, so what that brings is where the watch begins, and
-// is said only as the pull's notes.
+// fetch, and hands to note what stands -- a refusal, a failure -- when it
+// begins and when it clears, and what the pull did to an issue just before
+// the change it brought. It pulls once before its first look, so what that
+// brings is where the watch begins.
 func watchStore(ctx context.Context, st issuelib.Store, f watchFilter, interval time.Duration, p *puller, fetch time.Duration, emit func(watchChange), note func(pullNote)) error {
 	wants := func(xidr string) bool { return f.wants("", xidr) }
+	said := alarmsSaid{}
+	var did []pullNote
 	pull := func() {
-		for _, n := range p.pull(wants) {
+		d, _ := p.pull()
+		did = append(did, d...)
+		for _, n := range said.news(p.stands(wants), p.remote) {
 			note(n)
 		}
 	}
 	var fetchC <-chan time.Time
 	if p != nil {
 		pull()
+		did = nil
 		t := time.NewTicker(fetch)
 		defer t.Stop()
 		fetchC = t.C
@@ -136,9 +142,12 @@ func watchStore(ctx context.Context, st issuelib.Store, f watchFilter, interval 
 				continue
 			}
 			if ch, ok := describe(st, "", xidr, was[xidr], now[xidr], began); ok && f.matches(ch) {
+				for _, n := range withChanges(did, []watchChange{ch}) {
+					note(n)
+				}
 				emit(ch)
 			}
 		}
-		was = now
+		was, did = now, nil
 	}
 }

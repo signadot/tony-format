@@ -58,8 +58,8 @@ type mcpServer struct {
 	log   []watchEvent
 	wake  chan struct{}
 
-	// What issue_watch_remote pulls: each repository and remote's puller, how
-	// often one is pulled, and one pull at a time.
+	// What issue_watch_remote pulls: each repository and remote's puller
+	// (guarded by pullMu), and how often one is pulled.
 	pullMu  sync.Mutex
 	pullers map[string]*puller
 	fetch   time.Duration
