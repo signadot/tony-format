@@ -113,8 +113,11 @@ func (m *mcpServer) waitFor(ctx context.Context, f watchFilter, since string, ti
 		m.mu.Unlock()
 		out := watchOut{Changes: []watchChange{}, Cursor: m.cursor(cursor, began)}
 		for _, ev := range coalesce(events) {
-			ch := describe(ev.repo.Store, repoLabel(m.ws, ev.repo), ev.xidr, ev.was, ev.now, began)
-			if f.matches(ch) {
+			if !f.wants(ev.xidr) {
+				continue
+			}
+			ch, ok := describe(ev.repo.Store, repoLabel(m.ws, ev.repo), ev.xidr, ev.was, ev.now, began)
+			if ok && f.matches(ch) {
 				out.Changes = append(out.Changes, ch)
 			}
 		}

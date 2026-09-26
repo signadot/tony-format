@@ -232,7 +232,7 @@ func TestDescribe_MoveWithoutCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ch := describe(store, "", issue.ID, was[issue.ID], now[issue.ID], time.Now())
+	ch, _ := describe(store, "", issue.ID, was[issue.ID], now[issue.ID], time.Now())
 	if ch.Status != "closed" || strings.Join(ch.What, "; ") != "closed" {
 		t.Errorf("moved without a commit: %+v, want closed", ch)
 	}
@@ -243,7 +243,50 @@ func TestDescribe_MoveWithoutCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ch := describe(store, "", issue.ID, now[issue.ID], back[issue.ID], time.Now()); strings.Join(ch.What, "; ") != "reopened" {
+	if ch, _ := describe(store, "", issue.ID, now[issue.ID], back[issue.ID], time.Now()); strings.Join(ch.What, "; ") != "reopened" {
 		t.Errorf("moved back without a commit: %+v, want reopened", ch)
+	}
+}
+
+// TestDescribe_MidMove: a look can land inside a move, when the ref is at
+// both open and closed. The move is said once, as the status it moves to,
+// and the look that finds the old ref gone has nothing more to say.
+func TestDescribe_MidMove(t *testing.T) {
+	dir := repoDir(t, "one")
+	store := issuelib.NewGitStoreAt(dir, &strings.Builder{})
+	issue, err := ops.Create(store, "Moving", "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	open, closed := issuelib.OpenPrefix+issue.ID, issuelib.ClosedPrefix+issue.ID
+	before, err := lookAt(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", dir, "update-ref", closed, open).CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	mid, err := lookAt(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", dir, "update-ref", "-d", open).CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	after, err := lookAt(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var said []string
+	for i := 0; i < 20; i++ { // map order: the ref read must not be chosen by chance
+		said = said[:0]
+		for _, pair := range [][2]issueRefs{{before, mid}, {mid, after}} {
+			if ch, ok := describe(store, "", issue.ID, pair[0][issue.ID], pair[1][issue.ID], time.Now()); ok {
+				said = append(said, ch.Status+": "+strings.Join(ch.What, "; "))
+			}
+		}
+		if strings.Join(said, " | ") != "closed: closed" {
+			t.Fatalf("a move found in halves said %q, want it once as closed", said)
+		}
 	}
 }

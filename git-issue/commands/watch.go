@@ -125,17 +125,25 @@ type watchChange struct {
 // began, so one pulled in does not bring its whole history; with none, it
 // arrived. An issue is read from its own ref, open or closed, before a mirror
 // of it.
-func describe(st issuelib.Store, repo, xidr string, was, now map[string]string, began time.Time) watchChange {
+//
+// A look can land inside a move -- a close or reopen writes the new ref, then
+// deletes the old -- and find the issue at both. The ref read is then the one
+// the move is going to, and the look that finds the old one gone has nothing
+// to say: ok is false when the change adds nothing but a ref's going.
+func describe(st issuelib.Store, repo, xidr string, was, now map[string]string, began time.Time) (watchChange, bool) {
 	ch := watchChange{ID: xidr, Repo: repo, Labels: []string{}, What: []string{}}
-	if old := readAt(st, was); old != nil {
+	if old := readAt(st, was, nil); old != nil {
 		ch.labelsBefore = old.Labels
 	}
-	ref := issueRef(now)
+	ref := issueRef(now, was)
 	if ref == "" {
 		ch.Status = "gone"
-		return ch
+		return ch, true
 	}
-	if issue := readAt(st, now); issue != nil {
+	if commit, ok := was[ref]; ok && commit == now[ref] && len(now) < len(was) {
+		return ch, false
+	}
+	if issue := readAt(st, now, was); issue != nil {
 		ch.Status, ch.Title, ch.Updated = issuelib.StatusOf(issue), issue.Title, issue.Updated
 		if issue.Labels != nil {
 			ch.Labels = issue.Labels
@@ -160,7 +168,7 @@ func describe(st issuelib.Store, repo, xidr string, was, now map[string]string, 
 	case strings.HasPrefix(ref, issuelib.OpenPrefix) && hasPrefixRef(was, issuelib.ClosedPrefix) && !recorded(ch.What, "reopen"):
 		ch.What = append(ch.What, "reopened")
 	}
-	return ch
+	return ch, true
 }
 
 // recorded says whether a commit among subjects is the operation op ("close",
@@ -177,11 +185,21 @@ func recorded(subjects []string, op string) bool {
 }
 
 // issueRef is the ref to read an issue from among those holding its id: its
-// own, open or closed, before a mirror of it.
-func issueRef(refs map[string]string) string {
+// own, open or closed, before a mirror of it; and of its own, one that was not
+// there before -- mid-move, the one the move is going to.
+func issueRef(refs, was map[string]string) string {
+	rank := func(r string) int {
+		switch {
+		case issuelib.IsExtRef(r):
+			return 0
+		case was[r] == "":
+			return 2
+		}
+		return 1
+	}
 	ref := ""
 	for r := range refs {
-		if ref == "" || !issuelib.IsExtRef(r) {
+		if ref == "" || rank(r) > rank(ref) || (rank(r) == rank(ref) && r < ref) {
 			ref = r
 		}
 	}
@@ -191,8 +209,8 @@ func issueRef(refs map[string]string) string {
 // readAt reads an issue at the commit a look saw, not at its ref, which may
 // have moved on since, or gone -- a close commits on the open ref, then moves
 // it. Nil when no ref held it.
-func readAt(st issuelib.Store, refs map[string]string) *issuelib.Issue {
-	ref := issueRef(refs)
+func readAt(st issuelib.Store, refs, was map[string]string) *issuelib.Issue {
+	ref := issueRef(refs, was)
 	if ref == "" {
 		return nil
 	}
@@ -221,8 +239,14 @@ type watchFilter struct {
 	label string
 }
 
+// wants says whether f can match an issue by its id alone: what a watcher asks
+// before reading the issue to describe it.
+func (f watchFilter) wants(xidr string) bool {
+	return len(f.ids) == 0 || f.ids[xidr]
+}
+
 func (f watchFilter) matches(ch watchChange) bool {
-	if len(f.ids) > 0 && !f.ids[ch.ID] {
+	if !f.wants(ch.ID) {
 		return false
 	}
 	return f.label == "" || issuelib.Contains(ch.Labels, f.label) || issuelib.Contains(ch.labelsBefore, f.label)
