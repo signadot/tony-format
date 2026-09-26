@@ -32,6 +32,9 @@ import (
 // with t.Chdir and callers must not run two against different repositories
 // concurrently.
 type GitStore struct {
+	// dir is the repository the store acts on: every git command runs there.
+	// Empty is the process's working directory, which is what the CLI wants.
+	dir string
 	out io.Writer
 	// warn is where a read says it corrected an issue's shape: stderr, so it
 	// never mixes into what a command prints.
@@ -50,6 +53,25 @@ func NewGitStore() *GitStore {
 // NewGitStoreWithOutput creates a GitStore writing both to out.
 func NewGitStoreWithOutput(out io.Writer) *GitStore {
 	return &GitStore{out: out, warn: out}
+}
+
+// NewGitStoreAt creates a GitStore on the repository at dir, writing warnings to
+// out. It is what lets one process hold stores on several repositories: nothing
+// here reaches for the working directory, so two stores on two directories do
+// not see each other.
+func NewGitStoreAt(dir string, out io.Writer) *GitStore {
+	return &GitStore{dir: dir, out: out, warn: out}
+}
+
+// Dir is the repository the store acts on, "" for the working directory.
+func (s *GitStore) Dir() string { return s.dir }
+
+// git is a git command in the store's repository. Every git the store runs is
+// made here, which is what makes dir mean what it says.
+func (s *GitStore) git(args ...string) *exec.Cmd {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = s.dir
+	return cmd
 }
 
 // Out returns the writer the store reports warnings on.
@@ -90,7 +112,7 @@ func (s *GitStore) Create(title, description string) (*Issue, error) {
 	metaContent := encode.MustString(metaNode)
 
 	// Hash meta.tony
-	metaCmd := exec.Command("git", "hash-object", "-w", "--stdin")
+	metaCmd := s.git("hash-object", "-w", "--stdin")
 	metaCmd.Stdin = strings.NewReader(metaContent)
 	metaOut, err := metaCmd.Output()
 	if err != nil {
@@ -99,7 +121,7 @@ func (s *GitStore) Create(title, description string) (*Issue, error) {
 	metaHash := strings.TrimSpace(string(metaOut))
 
 	// Hash description.md
-	descCmd := exec.Command("git", "hash-object", "-w", "--stdin")
+	descCmd := s.git("hash-object", "-w", "--stdin")
 	descCmd.Stdin = strings.NewReader(description)
 	descOut, err := descCmd.Output()
 	if err != nil {
@@ -109,7 +131,7 @@ func (s *GitStore) Create(title, description string) (*Issue, error) {
 
 	// Create tree
 	treeInput := fmt.Sprintf("100644 blob %s\tdescription.md\n100644 blob %s\tmeta.tony\n", descHash, metaHash)
-	treeCmd := exec.Command("git", "mktree")
+	treeCmd := s.git("mktree")
 	treeCmd.Stdin = strings.NewReader(treeInput)
 	treeOut, err := treeCmd.Output()
 	if err != nil {
@@ -119,7 +141,7 @@ func (s *GitStore) Create(title, description string) (*Issue, error) {
 
 	// Create commit
 	commitMsg := fmt.Sprintf("create: issue %s", xidr)
-	commitCmd := exec.Command("git", "commit-tree", treeHash, "-m", commitMsg)
+	commitCmd := s.git("commit-tree", treeHash, "-m", commitMsg)
 	commitOut, err := commitCmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create commit: %w", err)
@@ -156,7 +178,7 @@ var errRefMoved = errors.New("ref moved")
 // a fetch's included. The setting itself is the user's and covers refs that are
 // not ours, so it is not touched.
 func (s *GitStore) setRef(ref, commit, old string) error {
-	cmd := exec.Command("git", "update-ref", "--create-reflog", ref, commit, old)
+	cmd := s.git("update-ref", "--create-reflog", ref, commit, old)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -207,7 +229,7 @@ func (s *GitStore) Get(xidOrPrefix string) (*Issue, string, error) {
 // was found, Title the first line of description.md with any "# " stripped.
 func (s *GitStore) GetByRef(ref string) (*Issue, string, error) {
 	// Read meta.tony
-	metaCmd := exec.Command("git", "show", ref+":meta.tony")
+	metaCmd := s.git("show", ref+":meta.tony")
 	metaOut, err := metaCmd.Output()
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to read meta.tony: %w", err)
@@ -226,7 +248,7 @@ func (s *GitStore) GetByRef(ref string) (*Issue, string, error) {
 	s.singleValueLabels(issue)
 
 	// Read description.md
-	descCmd := exec.Command("git", "show", ref+":description.md")
+	descCmd := s.git("show", ref+":description.md")
 	descOut, err := descCmd.Output()
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to read description.md: %w", err)
@@ -267,13 +289,13 @@ func (s *GitStore) FindRef(xidrOrPrefix string) (string, error) {
 	// If it's a full 20-char XIDR, try exact match first
 	if len(xidrOrPrefix) == 20 {
 		ref := RefForXIDR(xidrOrPrefix)
-		checkCmd := exec.Command("git", "show-ref", ref)
+		checkCmd := s.git("show-ref", ref)
 		if err := checkCmd.Run(); err == nil {
 			return ref, nil
 		}
 
 		ref = ClosedRefForXIDR(xidrOrPrefix)
-		checkCmd = exec.Command("git", "show-ref", ref)
+		checkCmd = s.git("show-ref", ref)
 		if err := checkCmd.Run(); err == nil {
 			return ref, nil
 		}
@@ -283,7 +305,7 @@ func (s *GitStore) FindRef(xidrOrPrefix string) (string, error) {
 
 	// Prefix search - find all matching refs
 	var matches []string
-	for _, r := range refsAt(OpenPrefix+"*", ClosedPrefix+"*") {
+	for _, r := range s.refsAt(OpenPrefix+"*", ClosedPrefix+"*") {
 		xidr, err := XIDRFromRef(r.ref)
 		if err != nil {
 			continue
@@ -343,7 +365,7 @@ func (s *GitStore) updateCommit(ref, message string, updates map[string]string) 
 // vanishing under the other's.
 func (s *GitStore) updateCommitOnce(ref, message string, updates map[string]string) error {
 	// Get current commit
-	showCmd := exec.Command("git", "show-ref", ref)
+	showCmd := s.git("show-ref", ref)
 	showOut, err := showCmd.Output()
 	if err != nil {
 		return fmt.Errorf("ref not found: %s", ref)
@@ -355,7 +377,7 @@ func (s *GitStore) updateCommitOnce(ref, message string, updates map[string]stri
 	defer os.Remove(tmpIndex)
 
 	// Read current tree into temporary index
-	readTreeCmd := exec.Command("git", "read-tree", currentCommit)
+	readTreeCmd := s.git("read-tree", currentCommit)
 	readTreeCmd.Env = append(os.Environ(), "GIT_INDEX_FILE="+tmpIndex)
 	if err := readTreeCmd.Run(); err != nil {
 		return fmt.Errorf("failed to read tree: %w", err)
@@ -363,7 +385,7 @@ func (s *GitStore) updateCommitOnce(ref, message string, updates map[string]stri
 
 	// Update files in the index
 	for path, content := range updates {
-		hashCmd := exec.Command("git", "hash-object", "-w", "--stdin")
+		hashCmd := s.git("hash-object", "-w", "--stdin")
 		hashCmd.Stdin = strings.NewReader(content)
 		hashOut, err := hashCmd.Output()
 		if err != nil {
@@ -371,7 +393,7 @@ func (s *GitStore) updateCommitOnce(ref, message string, updates map[string]stri
 		}
 		hash := strings.TrimSpace(string(hashOut))
 
-		updateIndexCmd := exec.Command("git", "update-index", "--add", "--cacheinfo", "100644", hash, path)
+		updateIndexCmd := s.git("update-index", "--add", "--cacheinfo", "100644", hash, path)
 		updateIndexCmd.Env = append(os.Environ(), "GIT_INDEX_FILE="+tmpIndex)
 		if err := updateIndexCmd.Run(); err != nil {
 			return fmt.Errorf("failed to update index for %s: %w", path, err)
@@ -379,7 +401,7 @@ func (s *GitStore) updateCommitOnce(ref, message string, updates map[string]stri
 	}
 
 	// Write tree from index
-	writeTreeCmd := exec.Command("git", "write-tree")
+	writeTreeCmd := s.git("write-tree")
 	writeTreeCmd.Env = append(os.Environ(), "GIT_INDEX_FILE="+tmpIndex)
 	treeOut, err := writeTreeCmd.Output()
 	if err != nil {
@@ -388,7 +410,7 @@ func (s *GitStore) updateCommitOnce(ref, message string, updates map[string]stri
 	treeHash := strings.TrimSpace(string(treeOut))
 
 	// Create commit with parent
-	commitCmd := exec.Command("git", "commit-tree", treeHash, "-p", currentCommit, "-m", message)
+	commitCmd := s.git("commit-tree", treeHash, "-p", currentCommit, "-m", message)
 	commitOut, err := commitCmd.Output()
 	if err != nil {
 		return fmt.Errorf("failed to create commit: %w", err)
@@ -439,7 +461,7 @@ func (s *GitStore) ListRefs(includeAll bool) ([]string, error) {
 	}
 
 	var allRefs []string
-	for _, r := range refsAt(patterns...) {
+	for _, r := range s.refsAt(patterns...) {
 		allRefs = append(allRefs, r.ref)
 	}
 	return allRefs, nil
@@ -449,7 +471,7 @@ func (s *GitStore) ListRefs(includeAll bool) ([]string, error) {
 // changes status: the commit chain is untouched, only the namespace changes.
 func (s *GitStore) MoveRef(from, to string) error {
 	// Get current commit SHA
-	showCmd := exec.Command("git", "show-ref", from)
+	showCmd := s.git("show-ref", from)
 	showOut, err := showCmd.Output()
 	if err != nil {
 		return fmt.Errorf("failed to get current commit: %w", err)
@@ -462,7 +484,7 @@ func (s *GitStore) MoveRef(from, to string) error {
 	}
 
 	// Delete old ref, provided it is still what was moved
-	deleteCmd := exec.Command("git", "update-ref", "-d", from, commitSHA)
+	deleteCmd := s.git("update-ref", "-d", from, commitSHA)
 	var stderr bytes.Buffer
 	deleteCmd.Stderr = &stderr
 	if err := deleteCmd.Run(); err != nil {
@@ -477,13 +499,13 @@ func (s *GitStore) MoveRef(from, to string) error {
 // listing of that tree, so a caller that needs a file checks the entry's type
 // with ListDir first.
 func (s *GitStore) ReadFile(ref, path string) ([]byte, error) {
-	cmd := exec.Command("git", "show", ref+":"+path)
+	cmd := s.git("show", ref+":"+path)
 	return cmd.Output()
 }
 
 // GetRefCommit returns the commit SHA for a ref.
 func (s *GitStore) GetRefCommit(ref string) (string, error) {
-	cmd := exec.Command("git", "show-ref", ref)
+	cmd := s.git("show-ref", ref)
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("ref not found: %s", ref)
@@ -496,7 +518,7 @@ func (s *GitStore) GetRefCommit(ref string) (string, error) {
 // -- degrades to the abbreviated SHA rather than an error, so listings still
 // have something to print.
 func (s *GitStore) GetCommitInfo(sha string) (string, error) {
-	cmd := exec.Command("git", "log", "-1", "--oneline", sha)
+	cmd := s.git("log", "-1", "--oneline", sha)
 	out, err := cmd.Output()
 	if err != nil {
 		return sha[:7], nil
@@ -508,7 +530,7 @@ func (s *GitStore) GetCommitInfo(sha string) (string, error) {
 // -- to a full SHA, erroring if it names nothing. Commits are recorded on issues
 // in resolved form so the reference stays meaningful after the branch moves.
 func (s *GitStore) VerifyCommit(commit string) (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--verify", commit)
+	cmd := s.git("rev-parse", "--verify", commit)
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("commit not found: %s", commit)
@@ -522,7 +544,7 @@ func (s *GitStore) VerifyCommit(commit string) (string, error) {
 // line is not added twice.
 func (s *GitStore) AddNote(commit, content string) error {
 	// Check if note exists
-	checkCmd := exec.Command("git", "notes", "--ref="+NotesRef, "show", commit)
+	checkCmd := s.git("notes", "--ref="+NotesRef, "show", commit)
 	checkOut, checkErr := checkCmd.Output()
 
 	if checkErr == nil {
@@ -534,12 +556,12 @@ func (s *GitStore) AddNote(commit, content string) error {
 			}
 		}
 		// Append to existing note
-		appendCmd := exec.Command("git", "notes", "--ref="+NotesRef, "append", "-m", content, commit)
+		appendCmd := s.git("notes", "--ref="+NotesRef, "append", "-m", content, commit)
 		return appendCmd.Run()
 	}
 
 	// Create new note
-	addCmd := exec.Command("git", "notes", "--ref="+NotesRef, "add", "-m", content, commit)
+	addCmd := s.git("notes", "--ref="+NotesRef, "add", "-m", content, commit)
 	return addCmd.Run()
 }
 
@@ -547,7 +569,7 @@ func (s *GitStore) AddNote(commit, content string) error {
 // with a blank line between entries, since git notes append separates what it
 // adds that way. A commit with no note is an error, not an empty string.
 func (s *GitStore) GetNotes(commit string) (string, error) {
-	cmd := exec.Command("git", "notes", "--ref="+NotesRef, "show", commit)
+	cmd := s.git("notes", "--ref="+NotesRef, "show", commit)
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err
@@ -581,8 +603,25 @@ func quietSyncFailure(output string) bool {
 }
 
 // VerifyRemote checks if a remote exists.
+// VerifyRepository says whether the store's directory is a git repository, and
+// names the directory when it is not: what a server made on a directory asks
+// before serving it, since every later call would fail one at a time otherwise.
+func (s *GitStore) VerifyRepository() error {
+	cmd := s.git("rev-parse", "--git-dir")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		where := s.dir
+		if where == "" {
+			where = "the working directory"
+		}
+		return fmt.Errorf("%s is not a git repository: %s", where, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
 func (s *GitStore) VerifyRemote(remote string) error {
-	cmd := exec.Command("git", "remote", "get-url", remote)
+	cmd := s.git("remote", "get-url", remote)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("remote not found: %s", remote)
 	}
@@ -604,7 +643,7 @@ func (s *GitStore) ReplaceTree(ref, message string, files map[string][]byte) err
 
 func (s *GitStore) replaceTreeOnce(ref, message string, files map[string][]byte) error {
 	// Get current commit as parent
-	showCmd := exec.Command("git", "show-ref", ref)
+	showCmd := s.git("show-ref", ref)
 	showOut, err := showCmd.Output()
 	if err != nil {
 		return fmt.Errorf("ref not found: %s", ref)
@@ -618,7 +657,7 @@ func (s *GitStore) replaceTreeOnce(ref, message string, files map[string][]byte)
 	// Hash all files and build index
 	for path, content := range files {
 		// Hash the content
-		hashCmd := exec.Command("git", "hash-object", "-w", "--stdin")
+		hashCmd := s.git("hash-object", "-w", "--stdin")
 		hashCmd.Stdin = bytes.NewReader(content)
 		hashOut, err := hashCmd.Output()
 		if err != nil {
@@ -627,7 +666,7 @@ func (s *GitStore) replaceTreeOnce(ref, message string, files map[string][]byte)
 		hash := strings.TrimSpace(string(hashOut))
 
 		// Add to index
-		updateIndexCmd := exec.Command("git", "update-index", "--add", "--cacheinfo", "100644", hash, path)
+		updateIndexCmd := s.git("update-index", "--add", "--cacheinfo", "100644", hash, path)
 		updateIndexCmd.Env = append(os.Environ(), "GIT_INDEX_FILE="+tmpIndex)
 		if err := updateIndexCmd.Run(); err != nil {
 			return fmt.Errorf("failed to update index for %s: %w", path, err)
@@ -635,7 +674,7 @@ func (s *GitStore) replaceTreeOnce(ref, message string, files map[string][]byte)
 	}
 
 	// Write tree from index
-	writeTreeCmd := exec.Command("git", "write-tree")
+	writeTreeCmd := s.git("write-tree")
 	writeTreeCmd.Env = append(os.Environ(), "GIT_INDEX_FILE="+tmpIndex)
 	treeOut, err := writeTreeCmd.Output()
 	if err != nil {
@@ -644,7 +683,7 @@ func (s *GitStore) replaceTreeOnce(ref, message string, files map[string][]byte)
 	treeHash := strings.TrimSpace(string(treeOut))
 
 	// Create commit with parent
-	commitCmd := exec.Command("git", "commit-tree", treeHash, "-p", currentCommit, "-m", message)
+	commitCmd := s.git("commit-tree", treeHash, "-p", currentCommit, "-m", message)
 	commitOut, err := commitCmd.Output()
 	if err != nil {
 		return fmt.Errorf("failed to create commit: %w", err)
@@ -668,7 +707,7 @@ func (s *GitStore) replaceTreeOnce(ref, message string, files map[string][]byte)
 // Returns the number of refs cleaned up.
 func (s *GitStore) CleanupStaleRefs() (int, error) {
 	cleaned := 0
-	for _, open := range refsAt(OpenPrefix + "*") {
+	for _, open := range s.refsAt(OpenPrefix + "*") {
 		openRef := open.ref
 		xidr, err := XIDRFromRef(openRef)
 		if err != nil {
@@ -677,7 +716,7 @@ func (s *GitStore) CleanupStaleRefs() (int, error) {
 
 		// Check if closed ref also exists
 		closedRef := ClosedRefForXIDR(xidr)
-		checkCmd := exec.Command("git", "show-ref", closedRef)
+		checkCmd := s.git("show-ref", closedRef)
 		if checkCmd.Run() != nil {
 			continue // No duplicate
 		}
@@ -702,7 +741,7 @@ func (s *GitStore) CleanupStaleRefs() (int, error) {
 			refToDelete = openRef
 		}
 
-		deleteCmd := exec.Command("git", "update-ref", "-d", refToDelete)
+		deleteCmd := s.git("update-ref", "-d", refToDelete)
 		if err := deleteCmd.Run(); err != nil {
 			fmt.Fprintf(s.out, "Warning: failed to delete stale ref %s: %v\n", refToDelete, err)
 			continue
@@ -715,7 +754,7 @@ func (s *GitStore) CleanupStaleRefs() (int, error) {
 
 // isAncestor returns true if ancestor is an ancestor of descendant.
 func (s *GitStore) isAncestor(ancestor, descendant string) bool {
-	cmd := exec.Command("git", "merge-base", "--is-ancestor", ancestor, descendant)
+	cmd := s.git("merge-base", "--is-ancestor", ancestor, descendant)
 	return cmd.Run() == nil
 }
 
@@ -730,7 +769,7 @@ func (s *GitStore) ListDir(ref, path string) (map[string]string, error) {
 	} else {
 		target = ref + "^{tree}"
 	}
-	cmd := exec.Command("git", "cat-file", "-p", target)
+	cmd := s.git("cat-file", "-p", target)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, err

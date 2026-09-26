@@ -2,7 +2,6 @@ package commands
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -57,20 +56,17 @@ func (cfg *mcpConfig) run(cc *cli.Context, args []string) error {
 	if _, err := cfg.Parse(cc, args); err != nil {
 		return err
 	}
-	if cfg.Dir != "" {
-		// GitStore acts on the process's working directory, so this is how a
-		// repository is chosen.
-		if err := os.Chdir(cfg.Dir); err != nil {
-			return fmt.Errorf("cannot run in %s: %w", cfg.Dir, err)
-		}
-	}
 	ctx := cc.Go
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// The store is made on the directory named, or the working directory.
 	// Nothing of the store's may reach stdout: it is the protocol's. Its
 	// warnings go where a person reads them.
-	store := issuelib.NewGitStoreWithOutput(os.Stderr)
+	store := issuelib.NewGitStoreAt(cfg.Dir, os.Stderr)
+	if err := store.VerifyRepository(); err != nil {
+		return err
+	}
 	return MCPServer(store).Run(ctx, &mcp.StdioTransport{})
 }
 
