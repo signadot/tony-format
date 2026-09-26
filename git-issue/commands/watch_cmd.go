@@ -74,10 +74,10 @@ func (cfg *watchConfig) run(cc *cli.Context, args []string) error {
 		if err := cfg.store.VerifyRemote(cfg.Remote); err != nil {
 			return err
 		}
-		p = newPuller(cfg.store, "", cfg.Remote)
+		p = newPuller(cfg.store, "", cfg.Remote, pullTimeout)
 	case !cfg.Local:
 		if cfg.store.VerifyRemote("origin") == nil {
-			p = newPuller(cfg.store, "", "origin")
+			p = newPuller(cfg.store, "", "origin", pullTimeout)
 		} else {
 			fmt.Fprintln(cc.Err, "no origin: watching this clone alone")
 		}

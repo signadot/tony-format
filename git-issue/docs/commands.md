@@ -274,8 +274,10 @@ Issues often travel by push and pull, so `watch` pulls origin every `-fetch`
 just before the change it brought, as `pull` says it (`created at <sha>`,
 `<old>..<new>`, `merged <a> and <b>`). An issue refused, or a remote not
 reached, stands until a person acts. It is said when it begins, not on every
-pull, and `clear` is said when nothing stands. `watch` pulls once when it
-starts, and what that brings is where it begins. It pushes nothing.
+pull, and `clear` is said when nothing stands. A remote that does not answer
+within two minutes is given up on until the next pull, and said as `could not
+pull`. `watch` pulls once when it starts, and what that brings is where it
+begins. It pushes nothing.
 
 Between pulls it compares this clone's refs every `-poll` (5s by default), so
 a change made here is heard within that, whoever makes it.

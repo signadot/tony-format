@@ -378,7 +378,7 @@ func TestWatchStore_Pulls(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	changes, notes := make(chan watchChange, 16), make(chan pullNote, 16)
-	go watchStore(ctx, here, watchFilter{}, 10*time.Millisecond, newPuller(here, "", "origin"), 50*time.Millisecond,
+	go watchStore(ctx, here, watchFilter{}, 10*time.Millisecond, newPuller(here, "", "origin", time.Minute), 50*time.Millisecond,
 		func(ch watchChange) { changes <- ch }, func(n pullNote) { notes <- n })
 
 	next := func(what string) pullNote {
@@ -597,7 +597,7 @@ func TestWatchStore_Refusal(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	notes := make(chan pullNote, 16)
-	go watchStore(ctx, here, watchFilter{}, 10*time.Millisecond, newPuller(here, "", "origin"), 50*time.Millisecond,
+	go watchStore(ctx, here, watchFilter{}, 10*time.Millisecond, newPuller(here, "", "origin", time.Minute), 50*time.Millisecond,
 		func(watchChange) {}, func(n pullNote) { notes <- n })
 	select {
 	case n := <-notes:
@@ -632,4 +632,25 @@ func pulled(notes []pullNote, id string) bool {
 		}
 	}
 	return false
+}
+
+// TestPuller_Timeout: a remote that hangs is given up on at the timeout --
+// git killed, and what it started with it -- and said as a pull that could
+// not be made.
+func TestPuller_Timeout(t *testing.T) {
+	dir := repoDir(t, "here")
+	run(t, dir, "config", "protocol.ext.allow", "always")
+	run(t, dir, "remote", "add", "origin", "ext::sleep 60")
+	p := newPuller(issuelib.NewGitStoreAt(dir, &strings.Builder{}), "", "origin", 300*time.Millisecond)
+	start := time.Now()
+	if _, ok := p.pull(); !ok {
+		t.Fatal("the pull was not made")
+	}
+	if took := time.Since(start); took > 5*time.Second {
+		t.Errorf("the pull took %v against a 300ms timeout", took)
+	}
+	stands := p.stands(func(string) bool { return true })
+	if len(stands) != 1 || !strings.HasPrefix(stands[0].What, couldNot) || !strings.Contains(stands[0].What, "timed out after 300ms") {
+		t.Errorf("stands %+v, want could not pull, timed out", stands)
+	}
 }

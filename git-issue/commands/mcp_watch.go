@@ -181,7 +181,7 @@ func (m *mcpServer) pullerFor(r *repo, remote string) *puller {
 	key := r.Dir + " " + remote
 	p := m.pullers[key]
 	if p == nil {
-		p = newPuller(r.Store, "", remote)
+		p = newPuller(r.Store, "", remote, pullTimeout)
 		m.pullers[key] = p
 	}
 	p.named(repoLabel(m.ws, r))

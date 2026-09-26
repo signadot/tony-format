@@ -133,6 +133,8 @@ says it. An issue refused, or a remote not reached, stands until a person
 acts, and answers on its own: all that stands, whenever it differs from what
 the cursor says the watch was last told, and `clear` when nothing stands.
 Each watch is told for itself, so two agents watching both hear a refusal.
+A remote that does not answer within two minutes is given up on until the
+next pull, and stands as `could not pull`.
 
 It writes this clone's refs as `issue_pull` does and pushes nothing. It is a
 tool of its own so that a host keeping an agent off the remote can deny it by

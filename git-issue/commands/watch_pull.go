@@ -28,6 +28,12 @@ import (
 // defaultFetch is how often a watch pulls unless -fetch says otherwise.
 const defaultFetch = 30 * time.Second
 
+// pullTimeout is how long a watch's pull waits on a remote before it gives
+// up and says it could not pull. A person running pull waits as long as it
+// takes; a watch has no one watching it, and a remote that hangs would stop
+// it for good.
+const pullTimeout = 2 * time.Minute
+
 // pullNote is one thing a watcher's pull did.
 type pullNote struct {
 	Repo   string `json:"repo,omitempty" jsonschema:"the repository, when more than one is served"`
@@ -75,8 +81,10 @@ type puller struct {
 	standing []pullNote // the refusals and failures the last pull left
 }
 
-func newPuller(st issuelib.Store, repo, remote string) *puller {
-	return &puller{st: st, repo: repo, remote: remote}
+// newPuller pulls through a store on st's repository that gives up on the
+// remote after timeout.
+func newPuller(st issuelib.Store, repo, remote string, timeout time.Duration) *puller {
+	return &puller{st: st.WithNetTimeout(timeout), repo: repo, remote: remote}
 }
 
 // pull pulls, keeps what it left standing, and answers what it did to each
