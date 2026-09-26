@@ -13,6 +13,14 @@ func EditInEditor(initialContent string) (string, error) {
 	return EditInEditorWithDir(initialContent, "")
 }
 
+// EditTextInEditor opens the user's editor on text and returns what they wrote,
+// as written: no line is stripped for starting with "#", which is what an edit
+// of a body holding markdown headings needs, and what a prompt of instructions
+// (EditInEditor) does not want.
+func EditTextInEditor(text string) (string, error) {
+	return editInEditor(text, "", false)
+}
+
 // EditInEditorWithDir opens the user's editor -- $VISUAL, else $EDITOR, else the
 // first of vim, vi or nano on PATH -- on a temporary file holding
 // initialContent, and returns the result once the editor exits. It errors if the
@@ -28,6 +36,12 @@ func EditInEditor(initialContent string) (string, error) {
 // directory of context -- an exported copy of the issue -- for the user to read
 // from inside the editor. An empty workDir leaves the process's own.
 func EditInEditorWithDir(initialContent, workDir string) (string, error) {
+	return editInEditor(initialContent, workDir, true)
+}
+
+// editInEditor is the editor session behind both: strip says whether "#" lines
+// are instructions to drop or text to keep.
+func editInEditor(initialContent, workDir string, strip bool) (string, error) {
 	// Create temp file
 	tmpFile, err := os.CreateTemp("", "git-issue-*.md")
 	if err != nil {
@@ -65,6 +79,9 @@ func EditInEditorWithDir(initialContent, workDir string) (string, error) {
 		return "", fmt.Errorf("failed to read temp file: %w", err)
 	}
 
+	if !strip {
+		return strings.TrimSpace(string(content)), nil
+	}
 	// Strip comment lines (lines starting with #)
 	lines := strings.Split(string(content), "\n")
 	var resultLines []string

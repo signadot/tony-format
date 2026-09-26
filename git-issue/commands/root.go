@@ -7,7 +7,7 @@
 //
 // Subcommands fall into a few groups:
 //
-//   - create, close, reopen, comment, attach, label, unlabel -- edit an issue
+//   - create, edit, close, reopen, comment, attach, label, unlabel -- change an issue
 //   - list, show, for-commit -- read issues
 //   - link, relate, blocks, duplicate -- record relationships, between an issue
 //     and a commit or between two issues
@@ -49,6 +49,7 @@ Usage:
   git issue list [--all] [--label <label>]  List issues (open by default)
   git issue show <id>                       Show issue details
   git issue link <id> <commit>              Link issue to commit
+  git issue edit <id> [--title t] [--body b] Change an issue's title or body ($EDITOR or stdin)
   git issue comment <id> [text]             Add comment to issue
   git issue attach <id> <path>              Attach file/directory to issue
   git issue for-commit <commit>             Show issues linked to commit
@@ -101,6 +102,7 @@ func Root() *cli.Command {
 			CreateCommand(store),
 			ListCommand(store),
 			ShowCommand(store),
+			EditCommand(store),
 			LinkCommand(store),
 			CommentCommand(store),
 			AttachCommand(store),

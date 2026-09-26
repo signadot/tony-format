@@ -102,6 +102,22 @@ git issue for-commit HEAD
 git issue for-commit abc123
 ```
 
+### Edit the title or body
+
+```bash
+git issue edit j2dz --title "A better title"   # the title alone
+git issue edit j2dz --body "The new body"      # the body alone
+echo "The new body" | git issue edit j2dz      # the body, from stdin
+git issue edit j2dz                            # opens $EDITOR on the description
+```
+
+The editor shows the description as stored -- `# Title` on the first line, the
+body after it -- and takes back what you leave, headings included. An edit is a
+commit on the issue's chain like any other, so history keeps what it said
+before, and it races as any other write does: a comment or a pull that lands
+meanwhile survives beside it, and two edits of the description at once leave
+the later one.
+
 ### Add comments
 
 ```bash
