@@ -1,14 +1,20 @@
 // Package ops is what git-issue does to an issue, one function per operation,
-// over a [issuelib.Store]. The CLI (commands) and the MCP server (mcpserver) are
-// two front ends over it: each parses what it was given and calls the same
-// function, so what "close" means -- the commit verified, the message written, the
-// ref moved -- is decided once. An operation answers what it did as data; how that
-// is shown is the front end's.
+// over a [issuelib.Store]. The CLI and the MCP server, both in the commands
+// package, are two front ends over it: each parses what it was given and calls
+// the same function, so what "close" means -- the commit verified, the message
+// written, the ref moved -- is decided once. An operation answers what it did as
+// data; how that is shown is the front end's.
 //
-// Methods naming an issue take a full XIDR or any unambiguous prefix, as the store
-// does. An operation refuses rather than guesses: an empty body, a label with no
-// key, a close of a closed issue. The store's own refusals -- an issue that moved
-// underneath a write, a merge it cannot make -- come through as they are.
+// The operations are [Create], [Edit], [Comment], [Label], [Close], [Reopen],
+// [Link], [Relate], [ForCommit], [List] and [Show] on an issue; [Push] and
+// [Pull] with a remote, answering a [Report]; and [SourceAdd], [Mirror],
+// [Refresh] and [Unmirror] for ext references, another repository's issue
+// mirrored here.
+//
+// Functions naming an issue take a full XIDR or any unambiguous prefix, as the
+// store does. An operation refuses rather than guesses: an empty body, a label
+// with no key, a close of a closed issue, a write to a mirror. The store's own
+// refusals -- a merge it cannot make, an unknown id -- come through as they are.
 package ops
 
 import (
