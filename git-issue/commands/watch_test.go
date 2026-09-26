@@ -74,8 +74,8 @@ func TestMCP_IssueWatch(t *testing.T) {
 	if time.Since(start) > 2*time.Second {
 		t.Errorf("a change before the call waited %v", time.Since(start))
 	}
-	if len(next.Changes) != 1 || next.Changes[0].Status != "closed" || !hasPrefixed(next.Changes[0].What, "closed") {
-		t.Fatalf("answered %+v, want the close", next.Changes)
+	if len(next.Changes) != 1 || next.Changes[0].Status != "closed" || strings.Join(next.Changes[0].What, "; ") != "close" {
+		t.Fatalf("answered %+v, want the close, said once", next.Changes)
 	}
 
 	// Nothing more: the timeout answers none, and a cursor.
@@ -140,8 +140,10 @@ func TestWatchStore(t *testing.T) {
 	if hasPrefixed(changes[0].What, "comment") || !hasPrefixed(changes[0].What, "label") {
 		t.Errorf("first = %q, want the label and not the unlabeled comment", changes[0].What)
 	}
-	if last := changes[len(changes)-1]; !hasPrefixed(last.What, "closed") {
-		t.Errorf("last = %+v, want the move to closed", last)
+	// Found whole, the close is its commit alone; found in halves, the move
+	// carries no commit, so it is said as closed.
+	if last := changes[len(changes)-1]; len(last.What) != 1 || (last.What[0] != "close" && last.What[0] != "closed") {
+		t.Errorf("last = %q, want the close said once", last.What)
 	}
 
 	// The label's removal is heard by a watcher on the label.
@@ -207,5 +209,41 @@ func TestWatchStore_Arrived(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the filed issue was not heard")
+	}
+}
+
+// TestDescribe_MoveWithoutCommit: a ref brought across between namespaces with
+// no commit of its own -- as a pull does -- is said as closed or reopened.
+func TestDescribe_MoveWithoutCommit(t *testing.T) {
+	dir := repoDir(t, "one")
+	store := issuelib.NewGitStoreAt(dir, &strings.Builder{})
+	issue, err := ops.Create(store, "Moved", "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	was, err := lookAt(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MoveRef(issuelib.OpenPrefix+issue.ID, issuelib.ClosedPrefix+issue.ID); err != nil {
+		t.Fatal(err)
+	}
+	now, err := lookAt(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := describe(store, "", issue.ID, was[issue.ID], now[issue.ID], time.Now())
+	if ch.Status != "closed" || strings.Join(ch.What, "; ") != "closed" {
+		t.Errorf("moved without a commit: %+v, want closed", ch)
+	}
+	if err := store.MoveRef(issuelib.ClosedPrefix+issue.ID, issuelib.OpenPrefix+issue.ID); err != nil {
+		t.Fatal(err)
+	}
+	back, err := lookAt(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch := describe(store, "", issue.ID, now[issue.ID], back[issue.ID], time.Now()); strings.Join(ch.What, "; ") != "reopened" {
+		t.Errorf("moved back without a commit: %+v, want reopened", ch)
 	}
 }

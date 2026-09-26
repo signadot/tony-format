@@ -114,7 +114,7 @@ type watchChange struct {
 	Title   string    `json:"title,omitempty"`
 	Labels  []string  `json:"labels"`
 	Updated time.Time `json:"updated,omitzero"`
-	What    []string  `json:"what" jsonschema:"what was done to it, oldest first: one line per commit it gained (comment: ..., edit: ..., label: ...), then closed or reopened if it moved; arrived for an issue that came with no commit since the watch began"`
+	What    []string  `json:"what" jsonschema:"what was done to it, oldest first: one line per commit it gained (comment: ..., edit: ..., label: ...), then closed or reopened if it moved with no commit saying so; arrived for an issue that came with no commit since the watch began"`
 
 	labelsBefore []string // its labels before the change, for a label filter
 }
@@ -155,12 +155,25 @@ func describe(st issuelib.Store, repo, xidr string, was, now map[string]string, 
 	switch {
 	case len(was) == 0 && len(ch.What) == 0:
 		ch.What = append(ch.What, "arrived")
-	case issuelib.IsClosedRef(ref) && hasPrefixRef(was, issuelib.OpenPrefix):
+	case issuelib.IsClosedRef(ref) && hasPrefixRef(was, issuelib.OpenPrefix) && !recorded(ch.What, "close"):
 		ch.What = append(ch.What, "closed")
-	case strings.HasPrefix(ref, issuelib.OpenPrefix) && hasPrefixRef(was, issuelib.ClosedPrefix):
+	case strings.HasPrefix(ref, issuelib.OpenPrefix) && hasPrefixRef(was, issuelib.ClosedPrefix) && !recorded(ch.What, "reopen"):
 		ch.What = append(ch.What, "reopened")
 	}
 	return ch
+}
+
+// recorded says whether a commit among subjects is the operation op ("close",
+// or "close: closed by ..."; "reopen"), as ops writes it. A move its own commit
+// records is not said twice; one without -- a pull bringing the ref across --
+// is said as closed or reopened.
+func recorded(subjects []string, op string) bool {
+	for _, s := range subjects {
+		if s == op || strings.HasPrefix(s, op+":") {
+			return true
+		}
+	}
+	return false
 }
 
 // issueRef is the ref to read an issue from among those holding its id: its

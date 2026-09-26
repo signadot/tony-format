@@ -109,7 +109,8 @@ subscribe.
 one named in `ids`, one carrying `label` before or after the change, or with
 neither, any. It answers each issue that changed with its status, title and
 labels, and what was done to it: one line per commit it gained (`comment:
-...`, `label: added bug`), then `closed` or `reopened` if it moved. An issue
+...`, `label: added bug`), then `closed` or `reopened` if it moved with no
+commit saying so. An issue
 new to the watch lists only commits made since the watch began, or `arrived`
 when there are none, as for an old issue pulled in. With no change it answers
 nothing at `timeout` (300 seconds, at most 3600).

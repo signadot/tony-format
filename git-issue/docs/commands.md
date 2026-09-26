@@ -256,11 +256,12 @@ stopped:
 
 ```
 j2dzt7xph12kswa9esn0  open  Implement streaming processor  -- comment: looks good; label: added bug
-j2dzt7xph12kswa9esn0  closed  Implement streaming processor  -- close; closed
+j2dzt7xph12kswa9esn0  closed  Implement streaming processor  -- close
 ```
 
 A line is the id, the status, the title, and what was done: one entry per
-commit the issue gained, then `closed` or `reopened` if it moved. An issue new
+commit the issue gained, then `closed` or `reopened` if it moved with no
+commit saying so, as by a pull. An issue new
 to the watch lists only commits made since `watch` started, or `arrived` when
 there are none, as for an old issue pulled in. The refs are
 compared every `-poll` (5s by default), so a change made anywhere is heard:
