@@ -2,6 +2,7 @@
 blocked_by: []
 blocks:
 - yg3ck1aah12ksx4ypxn0
+- 7qfhwth7h12ksxcwpxn0
 branches: []
 commits: []
 created: "2026-09-26T12:30:16.613527+02:00"
@@ -13,4 +14,4 @@ labels:
 - git-issue
 related_issues: []
 status: open
-updated: "2026-09-26T12:31:31.065397+02:00"
+updated: "2026-09-26T12:31:36.603188+02:00"
