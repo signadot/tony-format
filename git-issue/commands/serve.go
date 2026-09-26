@@ -23,12 +23,14 @@ import (
 // issue. Everything else it does, it does well from a terminal, so this is a
 // viewer and nothing more.
 //
-// Read-only is a design constraint here, not a first cut. Sync is force-refspecs
-// in both directions (see push.go and pull.go) and nothing in this codebase
-// merges issue refs, so a second writer racing the CLI would silently drop
-// whichever update lost. Closing that hole means real merge semantics for issue
-// refs, which is a much larger piece of work. Until that exists there are no
-// write endpoints and no "just close it from here" button.
+// Read-only is a design constraint here, not a first cut: nothing served
+// authenticates anyone (serveDefaultAddr), so there are no write endpoints and
+// no "just close it from here" button. Nothing a browser sends changes an issue.
+//
+// With -watch the server runs the watch `git issue watch` runs (serve_watch.go):
+// it pulls the remote, which writes this clone's refs as `git issue pull` does,
+// and open pages reload as their issues change. The view is as read-only as
+// without it.
 
 // serveDefaultAddr binds loopback on purpose. Nothing served here authenticates
 // anything, and it should stay that way; --addr is there for the person who
