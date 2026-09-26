@@ -112,39 +112,67 @@ Examples:
   git issue import ./my-issue
   git issue serve              # browse issues at http://localhost:8080/`
 
-// Root returns the root command for git-issue.
+// inRepository makes a command, and every command under it, refuse outside a
+// git repository, in git's words for it. Without it each command reports
+// whatever failed first -- a blob that could not be written, an issue not
+// found, a remote not found -- or nothing. A command asked for its help
+// answers anywhere.
+func inRepository(store issuelib.Store, cmd *cli.Command) *cli.Command {
+	if run := cmd.Hooks.Run; run != nil {
+		cmd.Hooks.Run = func(cc *cli.Context, args []string) error {
+			for _, a := range args {
+				switch a {
+				case "-h", "-help", "--help":
+					return run(cc, args)
+				}
+			}
+			if err := store.VerifyRepository(); err != nil {
+				return err
+			}
+			return run(cc, args)
+		}
+	}
+	for _, sub := range cmd.Children {
+		inRepository(store, sub)
+	}
+	return cmd
+}
+
+// Root returns the root command for git-issue. Every command but mcp, which
+// has its working set, and version needs a repository (inRepository).
 func Root() *cli.Command {
 	store := issuelib.NewGitStore()
+	in := func(cmd *cli.Command) *cli.Command { return inRepository(store, cmd) }
 
 	return cli.NewCommand("git-issue").
 		WithSynopsis("git-issue - Git-native issue tracker").
 		WithDescription(usageText).
 		WithSubs(
-			CreateCommand(store),
-			ListCommand(store),
-			ShowCommand(store),
-			EditCommand(store),
-			LinkCommand(store),
-			CommentCommand(store),
-			AttachCommand(store),
-			ForCommitCommand(store),
-			RelateCommand(store),
-			BlocksCommand(store),
-			DuplicateCommand(store),
-			PushCommand(store),
-			PullCommand(store),
-			CloseCommand(store),
-			ReopenCommand(store),
-			ExportCommand(store),
-			ImportCommand(store),
-			LabelCommand(store),
-			UnlabelCommand(store),
-			MigrateCommand(store),
-			MigrateCommentsCommand(store),
-			ExtCommand(store),
-			ServeCommand(store),
+			in(CreateCommand(store)),
+			in(ListCommand(store)),
+			in(ShowCommand(store)),
+			in(EditCommand(store)),
+			in(LinkCommand(store)),
+			in(CommentCommand(store)),
+			in(AttachCommand(store)),
+			in(ForCommitCommand(store)),
+			in(RelateCommand(store)),
+			in(BlocksCommand(store)),
+			in(DuplicateCommand(store)),
+			in(PushCommand(store)),
+			in(PullCommand(store)),
+			in(CloseCommand(store)),
+			in(ReopenCommand(store)),
+			in(ExportCommand(store)),
+			in(ImportCommand(store)),
+			in(LabelCommand(store)),
+			in(UnlabelCommand(store)),
+			in(MigrateCommand(store)),
+			in(MigrateCommentsCommand(store)),
+			in(ExtCommand(store)),
+			in(ServeCommand(store)),
 			MCPCommand(store),
-			WatchCommand(store),
+			in(WatchCommand(store)),
 			VersionCommand(store),
 		)
 }
