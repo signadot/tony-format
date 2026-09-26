@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: cc011f761510323cda188f4f529ebfc48d140fb2
 commits: []
 created: "2026-09-26T23:09:24.424336+02:00"
 duplicates: []
@@ -11,5 +12,5 @@ labels:
 - git-issue
 - mcp
 related_issues: []
-status: open
-updated: "2026-09-26T23:26:34.641709+02:00"
+status: closed
+updated: "2026-09-26T23:48:18.544495+02:00"
