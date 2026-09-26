@@ -2,7 +2,7 @@
 
 Issue: `w4mr5qphh12kr9f2nxn0`. Branch: `issue-w4mr5qph`, worktree
 `.claude/worktrees/issue-sync`. Code: `go-tony/cmd/git-issue/` (`issuelib/` is the store,
-`commands/` the CLI). Design of record: `go-tony/cmd/git-issue/design.md`.
+`commands/` the CLI). Design of record: `git-issue/docs/design.md`.
 
 This plan is written to be executed by an agent that has not seen the discussion behind
 it. Everything decided is stated; where something is left to judgment it says so. Read

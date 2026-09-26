@@ -12,11 +12,20 @@
 //   - link, relate, blocks, duplicate -- record relationships, between an issue
 //     and a commit or between two issues
 //   - push, pull -- sync issue refs with a remote
+//   - ext add, fetch, refresh, remove, list -- another repository's issue,
+//     mirrored here read-only so a relation to it resolves from this repository
 //   - export, import -- copy an issue's tree out to a directory, and write an
 //     edited copy back onto the issue's ref
 //   - serve -- a read-only web view of the repository's issues
-//   - mcp -- the tracker as an MCP server, for an agent's host to start (mcp.go)
+//   - mcp -- the tracker as an MCP server over stdio, for an agent's host to
+//     start: one repository or several, issue_* and repo_* tools, and issue://
+//     resources a host can subscribe to (mcp.go, mcp_tools.go, mcp_workspace.go,
+//     mcp_resources.go)
 //   - migrate, migrate-comments -- one-shot upgrades of on-disk layout
+//
+// Each command parses what it was given and calls the ops package, which is
+// where an operation's meaning lives; the CLI and the MCP server are two front
+// ends over the same functions.
 //
 // Sync decides before it writes. Both directions fetch what the remote holds
 // into tracking refs, take one verdict per issue from the two sides' commits,
