@@ -70,7 +70,8 @@ func (cfg *commentConfig) run(cc *cli.Context, args []string) error {
 		}
 	}
 
-	issue, path, err := ops.Comment(cfg.store, ref, commentText)
+	// ops resolves the id itself; the ref above was for the editor's context.
+	issue, path, err := ops.Comment(cfg.store, xidrOrPrefix, commentText)
 	if err != nil {
 		return err
 	}

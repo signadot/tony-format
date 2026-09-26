@@ -76,6 +76,22 @@ type Store interface {
 	// closed one when neither descends from the other.
 	CleanupStaleRefs() (int, error)
 
+	// Ext references (ext.go): another repository's issue mirrored here,
+	// read-only, so a relation to it resolves from this repository alone.
+	AddSource(name, url string) error
+	Sources() ([]Source, error)
+	Mirror(source, xidr string) (*Issue, error)
+	RefreshMirrors(source string) (int, error)
+	Unmirror(ref string) error
+
+	// Tips is every ref of this generation with its commit, for a watcher.
+	Tips() (map[string]string, error)
+
+	// Mirrors and sources are carried by a sync as issues are (sync_ext.go).
+	PlanCarried(remote string) ([]CarriedPlan, error)
+	ApplyCarriedPull(p CarriedPlan, force bool) (string, error)
+	ApplyCarriedPushes(remote string, plans []CarriedPlan, force bool) []PushResult
+
 	// FetchTracking brings this clone's copy of what a remote holds up to date,
 	// and says whether the remote has moved to this generation.
 	FetchTracking(remote string) (bool, error)

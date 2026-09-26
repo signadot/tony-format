@@ -283,9 +283,31 @@ or, in a project's `.mcp.json`:
 `git issue mcp` speaks MCP over stdin and stdout, and is for a host to start,
 not a person: the host gates it tool by tool, and the agent calls the tools
 with typed arguments and reads structured answers -- with the text the command
-would have printed alongside. The repository is the working directory, as for
-every subcommand; `-C <dir>` is for a host that starts it elsewhere. There is
-no listener and no address.
+would have printed alongside. There is no listener and no address.
+
+**The working set.** The server serves one repository or several, and finds, for
+any id a tool is given, the repository that holds it -- an id is unique across
+repositories. The set comes from the first of:
+
+- `-C <dir>`, repeatable: `git issue mcp -C ~/src/tony-format -C ~/src/verse`
+- `~/.config/git-issue.tony` (`$XDG_CONFIG_HOME/git-issue.tony` when set):
+
+  ```tony
+  repos:
+  - ~/src/tony-format
+  - ~/src/verse
+  ```
+
+- the repository the server was started in.
+
+With none of the three the server refuses and says so. `repo_add`, `repo_remove`
+and `repo_list` change and show the set while the server runs; `repo_add` with
+`persist` records the repository in the config file too. The set is your
+configuration, as remotes are: the server holds nothing, and every issue stays
+in its repository. When more than one is served, `issue_create`, `issue_list`,
+`issue_push`, `issue_pull` and `issue_for_commit` take `repo`; `issue_relate`
+across two repositories mirrors the far issue into the near one as an ext
+reference first, so the relation resolves from that repository alone.
 
 | tool | takes | answers |
 |---|---|---|
@@ -302,6 +324,21 @@ no listener and no address.
 | `issue_for_commit` | `commit` | the issues its note names |
 | `issue_pull` | `remote?`, `force?`, `dry_run?` | the sync report |
 | `issue_push` | `remote?`, `id?`, `force?`, `dry_run?` | the sync report |
+
+**Resources.** An issue is also something a host reads into context, rather than
+something the agent calls for:
+
+| URI | what it is |
+|---|---|
+| `issue://<id>` | the issue as a person reads it (`text/markdown`) |
+| `issue://<id>/meta` | the issue as data, `issue_show`'s structured content (`application/json`) |
+| `issue://` | the open issues of every served repository, one line each |
+
+The open issues are listed as resources, `issue://{id}` and `issue://{id}/meta`
+are templates with completion on the id, and a host that subscribes to an issue
+hears it change: by the server's own tools at once, and by anything else that
+moves a ref -- a comment from a shell, a pull in another clone -- within `-poll`
+(5s by default; 0 turns the watch off).
 
 `id` is a full XIDR or any unambiguous prefix, everywhere. A refusal -- an
 unknown id, an issue closed twice, a merge that cannot be made -- is a tool
@@ -338,11 +375,35 @@ run it once.
 
 - **`refs/git-issues/v1/open/<xidr>`** — an open issue
 - **`refs/git-issues/v1/closed/<xidr>`** — a closed issue
+- **`refs/git-issues/v1/ext/<source>/<xidr>`** — another repository's issue, mirrored here
+- **`refs/git-issues/v1/sources/<source>`** — where that repository is (`source.tony`)
 - **`refs/notes/issues`** — reverse index, commit → issue IDs
 
 Status is the namespace: an issue is open because its ref is under
 the open namespace. `meta.tony` carries a `status` field too, but where the ref lives
-is what listings believe.
+is what listings believe. A mirror is the exception: its status is what the source
+wrote in `meta.tony`, since the namespace here cannot say it.
+
+### Ext references
+
+A relation is a bare id in `meta.tony`, and means something only where that id
+resolves. To relate an issue here to one in another repository, the other issue is
+mirrored here first:
+
+```bash
+git issue ext add verse ~/src/verse          # a name for the other repository
+git issue ext fetch verse <full id>          # its issue, mirrored under ext/verse/
+git issue relate j2dz <that id>              # now resolves from this repository alone
+git issue ext refresh                        # bring every mirror up to its source
+git issue ext remove <that id>               # drop the mirror, and the relations naming it
+```
+
+A mirror is the source's chain, byte for byte, and read-only here: a comment or an
+edit goes where the issue lives. It shows up in `list --all` marked with its source
+and never in `list`, since it is not this repository's work. A refresh only ever
+fast-forwards. The mirror is this repository's data -- a clone that lacked it could
+not follow the relation -- so push carries it to this repository's origin, and never
+to the source.
 
 ### Issue structure
 

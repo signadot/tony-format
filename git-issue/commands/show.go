@@ -41,6 +41,9 @@ func writeShown(cc *cli.Context, sh *ops.Shown) {
 	issue := sh.Issue
 	fmt.Fprintf(cc.Out, "Issue %s [%s]\n", issuelib.FormatID(issue.ID), sh.Status)
 	fmt.Fprintf(cc.Out, "Ref: %s\n", sh.Ref)
+	if sh.Source != "" {
+		fmt.Fprintf(cc.Out, "Mirror of %s's issue, read-only here; `git issue ext refresh %s` follows it\n", sh.Source, sh.Source)
+	}
 	if len(issue.Labels) > 0 {
 		fmt.Fprintf(cc.Out, "Labels: %s\n", strings.Join(issue.Labels, ", "))
 	}

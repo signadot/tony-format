@@ -49,7 +49,7 @@ func (s *GitStore) MergeIssue(base, ours, theirs string) (string, error) {
 
 // MergeBase is the commit two chains of an issue last had in common.
 func (s *GitStore) MergeBase(ours, theirs string) (string, error) {
-	out, err := exec.Command("git", "merge-base", ours, theirs).Output()
+	out, err := s.git("merge-base", ours, theirs).Output()
 	if err != nil {
 		return "", fmt.Errorf("%s and %s share no history", shortSHA(ours), shortSHA(theirs))
 	}
@@ -60,7 +60,7 @@ func (s *GitStore) MergeBase(ours, theirs string) (string, error) {
 // meta.tony is not one: it is replaced wholesale by mergeMeta, and git reaching
 // for text markers in a generated file says nothing about the issue.
 func (s *GitStore) mergeTrees(base, ours, theirs string) (string, error) {
-	cmd := exec.Command("git", "merge-tree", "--write-tree", "--merge-base="+base, ours, theirs)
+	cmd := s.git("merge-tree", "--write-tree", "--merge-base="+base, ours, theirs)
 	out, err := cmd.Output()
 	var exit *exec.ExitError
 	if err != nil && (!errors.As(err, &exit) || exit.ExitCode() != 1) {
@@ -312,7 +312,7 @@ func (s *GitStore) decideStatus(base, ours, theirs string, baseIssue *Issue) (st
 // lastStatusChange is the newest commit in base..tip whose status differs from
 // its first parent's, or nil where the side never changed it.
 func (s *GitStore) lastStatusChange(base, tip string) (*statusChange, error) {
-	out, err := exec.Command("git", "rev-list", base+".."+tip).Output()
+	out, err := s.git("rev-list", base+".."+tip).Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to read the history of %s: %w", shortSHA(tip), err)
 	}
@@ -321,7 +321,7 @@ func (s *GitStore) lastStatusChange(base, tip string) (*statusChange, error) {
 		if err != nil {
 			continue // a commit whose metadata cannot be read says nothing
 		}
-		parents, err := exec.Command("git", "rev-parse", commit+"^1").Output()
+		parents, err := s.git("rev-parse", commit+"^1").Output()
 		if err != nil {
 			continue // the root of the chain changed nothing; it began
 		}
@@ -340,7 +340,7 @@ func (s *GitStore) lastStatusChange(base, tip string) (*statusChange, error) {
 
 // metaAt reads an issue's metadata as of one commit.
 func (s *GitStore) metaAt(commit string) (*Issue, error) {
-	out, err := exec.Command("git", "show", commit+":meta.tony").Output()
+	out, err := s.git("show", commit+":meta.tony").Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to read meta.tony at %s: %w", shortSHA(commit), err)
 	}
@@ -359,7 +359,7 @@ func (s *GitStore) metaAt(commit string) (*Issue, error) {
 }
 
 func (s *GitStore) committerDate(commit string) (time.Time, error) {
-	out, err := exec.Command("git", "show", "-s", "--format=%cI", commit).Output()
+	out, err := s.git("show", "-s", "--format=%cI", commit).Output()
 	if err != nil {
 		return time.Time{}, fmt.Errorf("failed to date %s: %w", shortSHA(commit), err)
 	}
@@ -377,26 +377,26 @@ func (s *GitStore) commitMerge(tree, meta, ours, theirs string) (string, error) 
 	tmpIndex := tempIndexPath()
 	defer os.Remove(tmpIndex)
 
-	readTree := exec.Command("git", "read-tree", tree)
+	readTree := s.git("read-tree", tree)
 	readTree.Env = append(os.Environ(), "GIT_INDEX_FILE="+tmpIndex)
 	if err := readTree.Run(); err != nil {
 		return "", fmt.Errorf("failed to read the merged tree: %w", err)
 	}
 
-	hash := exec.Command("git", "hash-object", "-w", "--stdin")
+	hash := s.git("hash-object", "-w", "--stdin")
 	hash.Stdin = strings.NewReader(meta)
 	hashOut, err := hash.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to hash the merged meta.tony: %w", err)
 	}
-	add := exec.Command("git", "update-index", "--add", "--cacheinfo",
+	add := s.git("update-index", "--add", "--cacheinfo",
 		"100644", strings.TrimSpace(string(hashOut)), "meta.tony")
 	add.Env = append(os.Environ(), "GIT_INDEX_FILE="+tmpIndex)
 	if err := add.Run(); err != nil {
 		return "", fmt.Errorf("failed to place the merged meta.tony: %w", err)
 	}
 
-	write := exec.Command("git", "write-tree")
+	write := s.git("write-tree")
 	write.Env = append(os.Environ(), "GIT_INDEX_FILE="+tmpIndex)
 	writeOut, err := write.Output()
 	if err != nil {
@@ -404,7 +404,7 @@ func (s *GitStore) commitMerge(tree, meta, ours, theirs string) (string, error) 
 	}
 
 	message := fmt.Sprintf("merge: %s %s", shortSHA(ours), shortSHA(theirs))
-	commit := exec.Command("git", "commit-tree", strings.TrimSpace(string(writeOut)),
+	commit := s.git("commit-tree", strings.TrimSpace(string(writeOut)),
 		"-p", ours, "-p", theirs, "-m", message)
 	commitOut, err := commit.Output()
 	if err != nil {

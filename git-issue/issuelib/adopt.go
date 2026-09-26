@@ -3,7 +3,6 @@ package issuelib
 import (
 	"bytes"
 	"fmt"
-	"os/exec"
 	"strings"
 )
 
@@ -31,10 +30,10 @@ type refAt struct {
 // git's order. A pattern matching nothing contributes nothing, and neither does
 // a directory that is not a git repository -- which is what makes adoption a
 // no-op outside one.
-func refsAt(patterns ...string) []refAt {
+func (s *GitStore) refsAt(patterns ...string) []refAt {
 	var found []refAt
 	for _, pattern := range patterns {
-		out, err := exec.Command("git", "for-each-ref", "--format=%(refname) %(objectname)", pattern).Output()
+		out, err := s.git("for-each-ref", "--format=%(refname) %(objectname)", pattern).Output()
 		if err != nil {
 			continue
 		}
@@ -52,7 +51,7 @@ func refsAt(patterns ...string) []refAt {
 // deleteRef deletes ref, provided it is still at commit: the compare-and-swap
 // setRef makes for a write, for a removal.
 func (s *GitStore) deleteRef(ref, commit string) error {
-	cmd := exec.Command("git", "update-ref", "-d", ref, commit)
+	cmd := s.git("update-ref", "-d", ref, commit)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -73,7 +72,7 @@ func (s *GitStore) deleteRef(ref, commit string) error {
 // It is idempotent: a second run finds nothing to adopt and says nothing.
 func (s *GitStore) AdoptGen0() error {
 	adopted := 0
-	for _, gen0 := range refsAt(Gen0OpenPrefix+"*", Gen0ClosedPrefix+"*") {
+	for _, gen0 := range s.refsAt(Gen0OpenPrefix+"*", Gen0ClosedPrefix+"*") {
 		xidr, err := XIDRFromRef(gen0.ref)
 		if err != nil {
 			continue
@@ -85,7 +84,7 @@ func (s *GitStore) AdoptGen0() error {
 
 		// What this generation holds for the id, in whichever status.
 		var held *refAt
-		if his := refsAt(RefForXIDR(xidr), ClosedRefForXIDR(xidr)); len(his) > 0 {
+		if his := s.refsAt(RefForXIDR(xidr), ClosedRefForXIDR(xidr)); len(his) > 0 {
 			held = &his[0]
 		}
 
@@ -166,16 +165,16 @@ func (s *GitStore) mergeAdopted(xidr string, held, gen0 refAt) (string, error) {
 // started by a different client -- which the union strategy merges all the same,
 // note by note and line by line.
 func (s *GitStore) adoptGen0Notes() (bool, error) {
-	gen0 := refsAt(Gen0NotesRef)
+	gen0 := s.refsAt(Gen0NotesRef)
 	if len(gen0) == 0 {
 		return false, nil
 	}
-	if len(refsAt(NotesRef)) == 0 {
+	if len(s.refsAt(NotesRef)) == 0 {
 		if err := s.setRef(NotesRef, gen0[0].commit, zeroSHA); err != nil {
 			return false, fmt.Errorf("adopting the reverse index: %w", err)
 		}
 	} else {
-		cmd := exec.Command("git", "notes", "--ref="+NotesRef, "merge", "-s", "union", Gen0NotesRef)
+		cmd := s.git("notes", "--ref="+NotesRef, "merge", "-s", "union", Gen0NotesRef)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return false, fmt.Errorf("failed to merge the older reverse index: %s",
 				strings.TrimSpace(string(out)))

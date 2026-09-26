@@ -66,6 +66,46 @@ func IsClosedRef(ref string) bool {
 	return strings.HasPrefix(ref, ClosedPrefix) || strings.HasPrefix(ref, Gen0ClosedPrefix)
 }
 
+// ExtRefForXIDR is where another repository's issue is mirrored here: under the
+// name this repository gives that source.
+func ExtRefForXIDR(source, xidr string) string {
+	return ExtPrefix + source + "/" + xidr
+}
+
+// SourceRef is the ref that says where a source is.
+func SourceRef(source string) string {
+	return SourcesPrefix + source
+}
+
+// IsExtRef says the ref is a mirror of another repository's issue: read here,
+// written there.
+func IsExtRef(ref string) bool {
+	return strings.HasPrefix(ref, ExtPrefix)
+}
+
+// ExtSource answers the source and the issue a mirror ref names.
+func ExtSource(ref string) (source, xidr string, ok bool) {
+	rest, isExt := strings.CutPrefix(ref, ExtPrefix)
+	if !isExt {
+		return "", "", false
+	}
+	source, xidr, ok = strings.Cut(rest, "/")
+	return source, xidr, ok && source != "" && xidr != ""
+}
+
+// StatusOf is an issue's status as it should be read: the namespace for an issue
+// of this repository, which cannot be wrong, and meta.tony for a mirror, which is
+// what the source wrote and all this repository has.
+func StatusOf(issue *Issue) string {
+	switch {
+	case IsClosedRef(issue.Ref):
+		return "closed"
+	case IsExtRef(issue.Ref) && issue.Status != "":
+		return issue.Status
+	}
+	return "open"
+}
+
 // IsGen0Ref returns true if the ref is where the layout before this generation
 // kept an issue.
 func IsGen0Ref(ref string) bool {
@@ -80,6 +120,9 @@ func XIDRFromRef(ref string) (string, error) {
 		if xidr, ok := strings.CutPrefix(ref, prefix); ok {
 			return xidr, nil
 		}
+	}
+	if _, xidr, ok := ExtSource(ref); ok {
+		return xidr, nil
 	}
 	return "", fmt.Errorf("invalid issue ref: %s", ref)
 }
@@ -118,16 +161,18 @@ func StatusColor(status string) string {
 // The status comes from the ref the issue was read from when that says closed,
 // which keeps a listing honest about an issue whose meta.tony disagrees.
 func FormatOneLiner(issue *Issue) string {
-	status := issue.Status
-	if IsClosedRef(issue.Ref) {
-		status = "closed"
+	status := StatusOf(issue)
+	from := ""
+	if source, _, ok := ExtSource(issue.Ref); ok {
+		from = " " + ColorGray + "(ext: " + source + ")" + ColorReset
 	}
-	return fmt.Sprintf("%s %s[%s]%s %s",
+	return fmt.Sprintf("%s %s[%s]%s %s%s",
 		FormatID(issue.ID),
 		StatusColor(status),
 		status,
 		ColorReset,
 		issue.Title,
+		from,
 	)
 }
 

@@ -31,6 +31,15 @@ const (
 	OpenPrefix   = nsRoot + "/open/"
 	ClosedPrefix = nsRoot + "/closed/"
 
+	// ExtPrefix holds another repository's issues mirrored into this one,
+	// ext/<source>/<xidr>: the source's chain for the issue, byte for byte, and
+	// read-only here. SourcesPrefix holds one ref per source, sources/<source>,
+	// a commit whose tree says where the source is (source.tony). They are two
+	// namespaces because git cannot hold ext/<source> beside ext/<source>/<xidr>:
+	// a ref is a file, and a file is not a directory. See ext.go.
+	ExtPrefix     = nsRoot + "/ext/"
+	SourcesPrefix = nsRoot + "/sources/"
+
 	// NotesRef is the reverse index, commit -> issue ids. Notes refs live under
 	// refs/notes/ because that is where git logs them without being asked and
 	// where git log --notes= looks for them. It is a ref and not a namespace, so
@@ -57,6 +66,18 @@ func TrackingOpenPrefix(remote string) string {
 
 func TrackingClosedPrefix(remote string) string {
 	return nsRoot + "/remotes/" + remote + "/closed/"
+}
+
+// TrackingExtPrefix and TrackingSourcesPrefix are where a remote's mirrors and
+// sources are kept: a mirror is this repository's data, carried by push and
+// taken by pull like an issue, since a clone that lacks it cannot follow a
+// relation to it.
+func TrackingExtPrefix(remote string) string {
+	return nsRoot + "/remotes/" + remote + "/ext/"
+}
+
+func TrackingSourcesPrefix(remote string) string {
+	return nsRoot + "/remotes/" + remote + "/sources/"
 }
 
 // TrackingGen0OpenPrefix and TrackingGen0ClosedPrefix are where a remote's gen0

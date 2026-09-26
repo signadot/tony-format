@@ -3,7 +3,6 @@ package issuelib
 import (
 	"bytes"
 	"fmt"
-	"os/exec"
 	"sort"
 	"strings"
 )
@@ -148,7 +147,12 @@ func (s *GitStore) FetchTracking(remote string) (bool, error) {
 		from := issueRef("*", src.closed, src.gen0)
 		args = append(args, "+"+from+":"+src.prefix+"*")
 	}
-	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil && !quietSyncFailure(string(out)) {
+	// The carried refs too (sync_ext.go): a refspec's * crosses a slash, so one
+	// names every mirror under every source.
+	for _, ns := range carriedSources(remote) {
+		args = append(args, "+"+ns.local+"*:"+ns.tracking+"*")
+	}
+	if out, err := s.git(args...).CombinedOutput(); err != nil && !quietSyncFailure(string(out)) {
 		return false, fmt.Errorf("failed to fetch issues from %s: %s", remote, strings.TrimSpace(string(out)))
 	}
 
@@ -156,7 +160,7 @@ func (s *GitStore) FetchTracking(remote string) (bool, error) {
 		{NotesRef, TrackingNotesRef(remote)},
 		{Gen0NotesRef, TrackingGen0NotesRef(remote)},
 	} {
-		out, err := exec.Command("git", "fetch", remote, "+"+notes.from+":"+notes.to).CombinedOutput()
+		out, err := s.git("fetch", remote, "+"+notes.from+":"+notes.to).CombinedOutput()
 		if err == nil {
 			continue
 		}
@@ -164,7 +168,7 @@ func (s *GitStore) FetchTracking(remote string) (bool, error) {
 			return false, fmt.Errorf("failed to fetch %s from %s: %s", notes.from, remote, strings.TrimSpace(string(out)))
 		}
 		// The remote does not have it, so neither should this clone's copy.
-		if held := refsAt(notes.to); len(held) == 1 {
+		if held := s.refsAt(notes.to); len(held) == 1 {
 			if err := s.deleteRef(notes.to, held[0].commit); err != nil {
 				return false, err
 			}
@@ -177,7 +181,7 @@ func (s *GitStore) FetchTracking(remote string) (bool, error) {
 // issue ref of it, or its reverse index. A gen0 ref on such a remote was pushed
 // by a client too old to see either.
 func (s *GitStore) remoteIsMigrated(remote string) bool {
-	return len(refsAt(
+	return len(s.refsAt(
 		TrackingOpenPrefix(remote)+"*",
 		TrackingClosedPrefix(remote)+"*",
 		TrackingNotesRef(remote),
@@ -198,7 +202,7 @@ func (s *GitStore) PlanSync(remote string) ([]IssuePlan, error) {
 	}
 
 	local := map[string]Tip{}
-	for _, r := range refsAt(OpenPrefix+"*", ClosedPrefix+"*") {
+	for _, r := range s.refsAt(OpenPrefix+"*", ClosedPrefix+"*") {
 		xidr, err := XIDRFromRef(r.ref)
 		if err != nil {
 			continue
@@ -208,7 +212,7 @@ func (s *GitStore) PlanSync(remote string) ([]IssuePlan, error) {
 
 	remoteTips := map[string][]Tip{}
 	for _, src := range trackingSources(remote) {
-		for _, r := range refsAt(src.prefix + "*") {
+		for _, r := range s.refsAt(src.prefix + "*") {
 			xidr := strings.TrimPrefix(r.ref, src.prefix)
 			remoteTips[xidr] = append(remoteTips[xidr], Tip{
 				Ref:    issueRef(xidr, src.closed, src.gen0),
@@ -592,7 +596,7 @@ func (s *GitStore) planPush(p IssuePlan, force bool) (*pushOp, error) {
 // remote refused, until what is left is written or nothing can be.
 func (s *GitStore) sendPushes(remote string, ops []*pushOp) {
 	for len(ops) > 0 {
-		refused, out, err := pushAtomic(remote, ops)
+		refused, out, err := s.pushAtomic(remote, ops)
 		if err == nil {
 			for _, op := range ops {
 				op.result.Did = op.did
@@ -631,7 +635,7 @@ func (s *GitStore) sendPushes(remote string, ops []*pushOp) {
 // pushAtomic runs one atomic push of ops, and on failure answers the remote refs
 // git says were refused on their own account -- as opposed to refused because
 // the push was atomic and another was -- each with git's line about it.
-func pushAtomic(remote string, ops []*pushOp) (map[string]string, string, error) {
+func (s *GitStore) pushAtomic(remote string, ops []*pushOp) (map[string]string, string, error) {
 	args := []string{"push", "--porcelain", "--atomic"}
 	for _, op := range ops {
 		args = append(args, op.leases...)
@@ -641,7 +645,7 @@ func pushAtomic(remote string, ops []*pushOp) (map[string]string, string, error)
 		args = append(args, op.refspecs...)
 	}
 	var stdout, stderr bytes.Buffer
-	cmd := exec.Command("git", args...)
+	cmd := s.git(args...)
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err == nil {
 		return nil, "", nil
@@ -668,7 +672,7 @@ func pushAtomic(remote string, ops []*pushOp) (map[string]string, string, error)
 // has just been written.
 func (s *GitStore) reload(p IssuePlan) IssuePlan {
 	p.Local = nil
-	for _, r := range refsAt(RefForXIDR(p.XIDR), ClosedRefForXIDR(p.XIDR)) {
+	for _, r := range s.refsAt(RefForXIDR(p.XIDR), ClosedRefForXIDR(p.XIDR)) {
 		tip := Tip{Ref: r.ref, Commit: r.commit, Closed: IsClosedRef(r.ref)}
 		p.Local = &tip
 		break
@@ -685,17 +689,17 @@ func (s *GitStore) reload(p IssuePlan) IssuePlan {
 // follows is a fast-forward the remote can take.
 func (s *GitStore) SyncNotes(remote string, push bool) error {
 	for _, tracking := range []string{TrackingNotesRef(remote), TrackingGen0NotesRef(remote)} {
-		held := refsAt(tracking)
+		held := s.refsAt(tracking)
 		if len(held) == 0 {
 			continue
 		}
-		if len(refsAt(NotesRef)) == 0 {
+		if len(s.refsAt(NotesRef)) == 0 {
 			if err := s.setRef(NotesRef, held[0].commit, zeroSHA); err != nil {
 				return fmt.Errorf("failed to take the reverse index of %s: %w", remote, err)
 			}
 			continue
 		}
-		cmd := exec.Command("git", "notes", "--ref="+NotesRef, "merge", "-s", "union", tracking)
+		cmd := s.git("notes", "--ref="+NotesRef, "merge", "-s", "union", tracking)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("failed to merge the reverse index of %s: %s",
 				remote, strings.TrimSpace(string(out)))
@@ -706,9 +710,9 @@ func (s *GitStore) SyncNotes(remote string, push bool) error {
 	}
 
 	var leases, refspecs []string
-	if local := refsAt(NotesRef); len(local) == 1 {
+	if local := s.refsAt(NotesRef); len(local) == 1 {
 		held := ""
-		if tracking := refsAt(TrackingNotesRef(remote)); len(tracking) == 1 {
+		if tracking := s.refsAt(TrackingNotesRef(remote)); len(tracking) == 1 {
 			held = tracking[0].commit
 		}
 		if held != local[0].commit {
@@ -716,7 +720,7 @@ func (s *GitStore) SyncNotes(remote string, push bool) error {
 			leases = append(leases, "--force-with-lease="+NotesRef+":"+held)
 		}
 	}
-	if tracking := refsAt(TrackingGen0NotesRef(remote)); len(tracking) == 1 {
+	if tracking := s.refsAt(TrackingGen0NotesRef(remote)); len(tracking) == 1 {
 		refspecs = append(refspecs, ":"+Gen0NotesRef)
 		leases = append(leases, "--force-with-lease="+Gen0NotesRef+":"+tracking[0].commit)
 	}
@@ -727,7 +731,7 @@ func (s *GitStore) SyncNotes(remote string, push bool) error {
 	args := append([]string{"push", "--atomic"}, leases...)
 	args = append(args, remote)
 	args = append(args, refspecs...)
-	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+	if out, err := s.git(args...).CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to push the reverse index to %s: %s",
 			remote, strings.TrimSpace(string(out)))
 	}

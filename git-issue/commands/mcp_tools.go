@@ -16,6 +16,11 @@ import (
 // jsonschema tags -- and each Out is its structured content. What a tool says
 // in its description is what the agent reads instead of a CLAUDE.md, so the
 // tracker's rules sit next to the operation they govern.
+//
+// A tool given an id asks the working set which repository holds it
+// (workspace.find) and calls ops on that repository's store with the id in
+// full. A tool that makes or lists or syncs needs a repository named when more
+// than one is served (workspace.byName).
 
 // linkedOut is an issue named by another, or by a commit's note.
 type linkedOut struct {
@@ -35,6 +40,7 @@ func toLinked(in []ops.Linked) []linkedOut {
 
 type issueRow struct {
 	ID      string    `json:"id"`
+	Repo    string    `json:"repo,omitempty" jsonschema:"the repository, when more than one is served"`
 	Status  string    `json:"status"`
 	Title   string    `json:"title"`
 	Labels  []string  `json:"labels"`
@@ -42,19 +48,20 @@ type issueRow struct {
 	Updated time.Time `json:"updated"`
 }
 
-func toRow(i *issuelib.Issue) issueRow {
+func toRow(i *issuelib.Issue, repo string) issueRow {
 	labels := i.Labels
 	if labels == nil {
 		labels = []string{}
 	}
 	return issueRow{
-		ID: i.ID, Status: issuelib.StatusFromRef(i.Ref), Title: i.Title,
+		ID: i.ID, Repo: repo, Status: issuelib.StatusOf(i), Title: i.Title,
 		Labels: labels, Created: i.Created, Updated: i.Updated,
 	}
 }
 
 type listIn struct {
-	All   bool   `json:"all,omitempty" jsonschema:"include closed issues; open only by default"`
+	Repo  string `json:"repo,omitempty" jsonschema:"one repository; every served repository when empty"`
+	All   bool   `json:"all,omitempty" jsonschema:"include closed issues and mirrors; open only by default"`
 	Label string `json:"label,omitempty" jsonschema:"only issues carrying this label (a plain label, or key=value)"`
 }
 
@@ -74,8 +81,10 @@ type commentOut struct {
 
 type showOut struct {
 	ID          string       `json:"id"`
+	Repo        string       `json:"repo"`
 	Status      string       `json:"status"`
 	Ref         string       `json:"ref"`
+	Source      string       `json:"source,omitempty" jsonschema:"for a mirror, the repository it is mirrored from; it is read-only here"`
 	Title       string       `json:"title"`
 	Body        string       `json:"body" jsonschema:"the description without its title line"`
 	Labels      []string     `json:"labels"`
@@ -92,9 +101,10 @@ type showOut struct {
 	Attachments []string     `json:"attachments" jsonschema:"paths under discussion/files/"`
 }
 
-func toShowOut(sh *ops.Shown) showOut {
+func toShowOut(sh *ops.Shown, repo string) showOut {
 	out := showOut{
-		ID: sh.Issue.ID, Status: sh.Status, Ref: sh.Ref, Title: sh.Title, Body: sh.Body,
+		ID: sh.Issue.ID, Repo: repo, Status: sh.Status, Ref: sh.Ref, Source: sh.Source,
+		Title: sh.Title, Body: sh.Body,
 		Labels: sh.Issue.Labels, Created: sh.Issue.Created, Updated: sh.Issue.Updated,
 		Commits: sh.Commits, Branches: sh.Issue.Branches,
 		Related: toLinked(sh.Related), Blocks: toLinked(sh.Blocks),
@@ -119,14 +129,16 @@ func toShowOut(sh *ops.Shown) showOut {
 }
 
 type createIn struct {
+	Repo   string   `json:"repo,omitempty" jsonschema:"the repository to file it in; required when more than one is served"`
 	Title  string   `json:"title"`
 	Body   string   `json:"body" jsonschema:"the description, markdown; required"`
 	Labels []string `json:"labels,omitempty"`
 }
 
 type idOut struct {
-	ID  string `json:"id"`
-	Ref string `json:"ref,omitempty"`
+	ID   string `json:"id"`
+	Repo string `json:"repo,omitempty"`
+	Ref  string `json:"ref,omitempty"`
 }
 
 type editIn struct {
@@ -158,7 +170,7 @@ type labelsOut struct {
 
 type closeIn struct {
 	ID     string `json:"id" jsonschema:"the issue: a full id or any unambiguous prefix"`
-	Commit string `json:"commit,omitempty" jsonschema:"the commit that closes it: a SHA, or anything git resolves"`
+	Commit string `json:"commit,omitempty" jsonschema:"the commit that closes it: a SHA, or anything git resolves in the issue's repository"`
 }
 
 type statusOut struct {
@@ -169,7 +181,7 @@ type statusOut struct {
 
 type linkIn struct {
 	ID     string `json:"id" jsonschema:"the issue: a full id or any unambiguous prefix"`
-	Commit string `json:"commit" jsonschema:"a SHA, or anything git resolves"`
+	Commit string `json:"commit" jsonschema:"a SHA, or anything git resolves in the issue's repository"`
 }
 
 type linkOut struct {
@@ -179,18 +191,20 @@ type linkOut struct {
 
 type relateIn struct {
 	ID    string `json:"id" jsonschema:"the issue the relation is recorded on"`
-	Other string `json:"other" jsonschema:"the issue it relates to"`
+	Other string `json:"other" jsonschema:"the issue it relates to; in another served repository, it is mirrored into this one first"`
 	Kind  string `json:"kind" jsonschema:"related, blocks (id blocks other) or duplicate (id duplicates other)"`
 }
 
 type relateOut struct {
-	ID      string `json:"id"`
-	Other   string `json:"other"`
-	Kind    string `json:"kind"`
-	Changed bool   `json:"changed" jsonschema:"false when the relation was already recorded"`
+	ID       string `json:"id"`
+	Other    string `json:"other"`
+	Kind     string `json:"kind"`
+	Changed  bool   `json:"changed" jsonschema:"false when the relation was already recorded"`
+	Mirrored string `json:"mirrored,omitempty" jsonschema:"the repository the other issue was mirrored from, when it was"`
 }
 
 type forCommitIn struct {
+	Repo   string `json:"repo,omitempty" jsonschema:"the repository the commit is in; required when more than one is served"`
 	Commit string `json:"commit" jsonschema:"a SHA, or anything git resolves"`
 }
 
@@ -200,12 +214,14 @@ type forCommitOut struct {
 }
 
 type pullIn struct {
+	Repo   string `json:"repo,omitempty" jsonschema:"the repository; required when more than one is served"`
 	Remote string `json:"remote,omitempty" jsonschema:"the git remote; origin by default"`
 	Force  bool   `json:"force,omitempty" jsonschema:"where an issue was edited on both sides, take the remote side"`
 	DryRun bool   `json:"dry_run,omitempty" jsonschema:"say what a pull would do, and write nothing"`
 }
 
 type pushIn struct {
+	Repo   string `json:"repo,omitempty" jsonschema:"the repository; required when more than one is served"`
 	Remote string `json:"remote,omitempty" jsonschema:"the git remote; origin by default"`
 	ID     string `json:"id,omitempty" jsonschema:"one issue to push; every issue when empty"`
 	Force  bool   `json:"force,omitempty" jsonschema:"where an issue was edited on both sides, take this clone"`
@@ -227,21 +243,25 @@ type refusalOut struct {
 }
 
 type reportOut struct {
-	Remote    string       `json:"remote"`
-	DryRun    bool         `json:"dry_run"`
-	Changed   []changeOut  `json:"changed" jsonschema:"issues something happened to, or would"`
-	Unchanged int          `json:"unchanged"`
-	Refused   []refusalOut `json:"refused" jsonschema:"issues left alone for a person to decide"`
-	OldClient []string     `json:"old_client" jsonschema:"issues pushed by a git-issue older than this one"`
-	Failed    []string     `json:"failed"`
-	Cleaned   int          `json:"cleaned,omitempty" jsonschema:"stale refs a pull removed"`
-	Whole     bool         `json:"whole" jsonschema:"true when nothing was refused or failed"`
+	Repo      string            `json:"repo"`
+	Remote    string            `json:"remote"`
+	DryRun    bool              `json:"dry_run"`
+	Changed   []changeOut       `json:"changed" jsonschema:"issues something happened to, or would"`
+	Unchanged int               `json:"unchanged"`
+	Refused   []refusalOut      `json:"refused" jsonschema:"issues left alone for a person to decide"`
+	OldClient []string          `json:"old_client" jsonschema:"issues pushed by a git-issue older than this one"`
+	Failed    []string          `json:"failed"`
+	Cleaned   int               `json:"cleaned,omitempty" jsonschema:"stale refs a pull removed"`
+	Refreshed map[string]int    `json:"refreshed,omitempty" jsonschema:"mirrors a pull refreshed, by source"`
+	Unreached map[string]string `json:"unreached,omitempty" jsonschema:"sources a pull could not reach, and why; their mirrors are as they were"`
+	Whole     bool              `json:"whole" jsonschema:"true when nothing was refused or failed"`
 }
 
-func toReportOut(r *ops.Report) reportOut {
+func toReportOut(r *ops.Report, repo string) reportOut {
 	out := reportOut{
-		Remote: r.Remote, DryRun: r.DryRun, Unchanged: r.Unchanged, Cleaned: r.Cleaned,
+		Repo: repo, Remote: r.Remote, DryRun: r.DryRun, Unchanged: r.Unchanged, Cleaned: r.Cleaned,
 		Changed: []changeOut{}, Refused: []refusalOut{}, OldClient: []string{}, Failed: []string{},
+		Refreshed: r.Refreshed, Unreached: r.Unreached,
 		Whole: r.Err() == nil,
 	}
 	for _, c := range r.Changed {
@@ -257,6 +277,33 @@ func toReportOut(r *ops.Report) reportOut {
 	return out
 }
 
+type repoAddIn struct {
+	Path    string `json:"path" jsonschema:"the repository's directory"`
+	Persist bool   `json:"persist,omitempty" jsonschema:"also record it in ~/.config/git-issue.tony, so the next server serves it too"`
+}
+
+type repoIn struct {
+	Repo string `json:"repo" jsonschema:"the repository's name, as repo_list gives it"`
+}
+
+type repoRow struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	From string `json:"from" jsonschema:"where the server got it: -C, config, cwd, repo_add"`
+}
+
+type reposOut struct {
+	Repos []repoRow `json:"repos"`
+}
+
+func toRepos(rs []*repo) reposOut {
+	out := reposOut{Repos: []repoRow{}}
+	for _, r := range rs {
+		out.Repos = append(out.Repos, repoRow{Name: r.Name, Path: r.Dir, From: r.From})
+	}
+	return out
+}
+
 func readOnly() *mcp.ToolAnnotations {
 	return &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: new(bool)}
 }
@@ -267,24 +314,50 @@ func local(idempotent bool) *mcp.ToolAnnotations {
 	return &mcp.ToolAnnotations{DestructiveHint: &f, IdempotentHint: idempotent, OpenWorldHint: new(bool)}
 }
 
-// addTools registers every tool on s, over store.
-func addTools(s *mcp.Server, store issuelib.Store) {
+// repoLabel is the repository a row names: nothing when one is served, since
+// there is nothing to tell apart.
+func repoLabel(ws *workspace, r *repo) string {
+	if len(ws.list()) > 1 {
+		return r.Name
+	}
+	return ""
+}
+
+// addTools registers every tool on the server, over its working set. A tool
+// that changed an issue says so (m.changed) and one that changed which issues
+// there are makes the listing right (m.resync); a host that subscribed hears.
+func addTools(m *mcpServer) {
+	s, ws := m.s, m.ws
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "issue_list",
-		Description: "List the repository's issues, newest first: open ones, or all of them, and only those carrying a label when one is given.",
+		Description: "List issues, newest first: open ones, or all of them (closed and mirrors too), and only those carrying a label when one is given; from one repository, or every served one.",
 		Annotations: readOnly(),
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in listIn) (*mcp.CallToolResult, listOut, error) {
-		issues, err := ops.List(store, in.All, in.Label)
-		if err != nil {
-			return nil, listOut{}, err
+		repos := ws.list()
+		if in.Repo != "" {
+			r, err := ws.byName(in.Repo)
+			if err != nil {
+				return nil, listOut{}, err
+			}
+			repos = []*repo{r}
 		}
 		out := listOut{Issues: []issueRow{}}
 		var text strings.Builder
-		for _, issue := range issues {
-			out.Issues = append(out.Issues, toRow(issue))
-			text.WriteString(issuelib.FormatOneLiner(issue) + "\n")
+		for _, r := range repos {
+			issues, err := ops.List(r.Store, in.All, in.Label)
+			if err != nil {
+				return nil, listOut{}, err
+			}
+			label := repoLabel(ws, r)
+			for _, issue := range issues {
+				out.Issues = append(out.Issues, toRow(issue, label))
+				if label != "" {
+					text.WriteString(label + "  ")
+				}
+				text.WriteString(issuelib.FormatOneLiner(issue) + "\n")
+			}
 		}
-		if len(issues) == 0 {
+		if len(out.Issues) == 0 {
 			text.WriteString("No issues found\n")
 		}
 		return result(text.String()), out, nil
@@ -295,31 +368,44 @@ func addTools(s *mcp.Server, store issuelib.Store) {
 		Description: "Read one issue whole: its title, body, labels, status, linked commits, relations to other issues, the discussion in order, and its attachments by name.",
 		Annotations: readOnly(),
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in showIn) (*mcp.CallToolResult, showOut, error) {
-		sh, err := ops.Show(store, in.ID)
+		r, xidr, err := ws.find(in.ID)
+		if err != nil {
+			return nil, showOut{}, err
+		}
+		sh, err := ops.Show(r.Store, xidr)
 		if err != nil {
 			return nil, showOut{}, err
 		}
 		var t textOut
+		if label := repoLabel(ws, r); label != "" {
+			fmt.Fprintf(&t, "Repository: %s\n", label)
+		}
 		writeShown(t.cc(), sh)
-		return result(t.String()), toShowOut(sh), nil
+		return result(t.String()), toShowOut(sh, r.Name), nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "issue_create",
-		Description: "File an issue with a title and a body (markdown), and labels if any. Every change to the code gets an issue, " +
+		Description: "File an issue with a title and a body (markdown), and labels if any, in a repository. Every change to the code gets an issue, " +
 			"filed before the work, and the commit that makes the change carries \"Issue: <full id>\" as a trailer -- this tool answers the full id.",
 		Annotations: local(false),
-	}, func(_ context.Context, _ *mcp.CallToolRequest, in createIn) (*mcp.CallToolResult, idOut, error) {
-		issue, err := ops.Create(store, in.Title, in.Body)
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createIn) (*mcp.CallToolResult, idOut, error) {
+		r, err := ws.byName(in.Repo)
+		if err != nil {
+			return nil, idOut{}, err
+		}
+		issue, err := ops.Create(r.Store, in.Title, in.Body)
 		if err != nil {
 			return nil, idOut{}, err
 		}
 		if len(in.Labels) > 0 {
-			if _, err := ops.Label(store, issue.ID, in.Labels, nil); err != nil {
+			if _, err := ops.Label(r.Store, issue.ID, in.Labels, nil); err != nil {
 				return nil, idOut{}, fmt.Errorf("created %s, but its labels were refused: %w", issue.ID, err)
 			}
 		}
-		return result(fmt.Sprintf("Created issue %s\nRef: %s\n", issue.ID, issue.Ref)), idOut{ID: issue.ID, Ref: issue.Ref}, nil
+		m.look(ctx)
+		return result(fmt.Sprintf("Created issue %s in %s\nRef: %s\n", issue.ID, r.Name, issue.Ref)),
+			idOut{ID: issue.ID, Repo: r.Name, Ref: issue.Ref}, nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -327,7 +413,11 @@ func addTools(s *mcp.Server, store issuelib.Store) {
 		Description: "Change what an issue says: its title, its body, or both; what is not given is kept. The edit is a commit on the " +
 			"issue's chain, so history keeps what it said before. To record a decision without rewriting the issue, comment instead.",
 		Annotations: local(true),
-	}, func(_ context.Context, _ *mcp.CallToolRequest, in editIn) (*mcp.CallToolResult, idOut, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in editIn) (*mcp.CallToolResult, idOut, error) {
+		r, xidr, err := ws.find(in.ID)
+		if err != nil {
+			return nil, idOut{}, err
+		}
 		var title, body *string
 		if in.Title != "" {
 			title = &in.Title
@@ -335,22 +425,28 @@ func addTools(s *mcp.Server, store issuelib.Store) {
 		if in.Body != "" {
 			body = &in.Body
 		}
-		issue, err := ops.Edit(store, in.ID, title, body)
+		issue, err := ops.Edit(r.Store, xidr, title, body)
 		if err != nil {
 			return nil, idOut{}, err
 		}
-		return result("Edited issue " + issue.ID + "\n"), idOut{ID: issue.ID, Ref: issue.Ref}, nil
+		m.look(ctx)
+		return result("Edited issue " + issue.ID + "\n"), idOut{ID: issue.ID, Repo: r.Name, Ref: issue.Ref}, nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "issue_comment",
 		Description: "Add a comment (markdown) to an issue's discussion. This is where a decision, a finding or a question is recorded.",
 		Annotations: local(false),
-	}, func(_ context.Context, _ *mcp.CallToolRequest, in commentIn) (*mcp.CallToolResult, commentedOut, error) {
-		issue, path, err := ops.Comment(store, in.ID, in.Text)
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in commentIn) (*mcp.CallToolResult, commentedOut, error) {
+		r, xidr, err := ws.find(in.ID)
 		if err != nil {
 			return nil, commentedOut{}, err
 		}
+		issue, path, err := ops.Comment(r.Store, xidr, in.Text)
+		if err != nil {
+			return nil, commentedOut{}, err
+		}
+		m.look(ctx)
 		return result(fmt.Sprintf("Added comment to issue %s (%s)\n", issue.ID, strings.TrimPrefix(path, "discussion/"))),
 			commentedOut{ID: issue.ID, Path: path}, nil
 	})
@@ -360,8 +456,12 @@ func addTools(s *mcp.Server, store issuelib.Store) {
 		Description: "Add and remove labels. A label is lowercased. One containing \"=\" is a key and a value, and a key holds one value: " +
 			"adding key=value replaces the key's value, removing a bare key removes it whatever its value. Labels beginning git-issue- are reserved.",
 		Annotations: local(true),
-	}, func(_ context.Context, _ *mcp.CallToolRequest, in labelIn) (*mcp.CallToolResult, labelsOut, error) {
-		issue, err := ops.Label(store, in.ID, in.Add, in.Remove)
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in labelIn) (*mcp.CallToolResult, labelsOut, error) {
+		r, xidr, err := ws.find(in.ID)
+		if err != nil {
+			return nil, labelsOut{}, err
+		}
+		issue, err := ops.Label(r.Store, xidr, in.Add, in.Remove)
 		if err != nil {
 			return nil, labelsOut{}, err
 		}
@@ -369,6 +469,7 @@ func addTools(s *mcp.Server, store issuelib.Store) {
 		if labels == nil {
 			labels = []string{}
 		}
+		m.look(ctx)
 		return result(fmt.Sprintf("Labels: %s\n", strings.Join(labels, ", "))), labelsOut{ID: issue.ID, Labels: labels}, nil
 	})
 
@@ -377,11 +478,16 @@ func addTools(s *mcp.Server, store issuelib.Store) {
 		Description: "Close an open issue. A fix closes its issue with the commit that made it: pass that commit. " +
 			"An issue already closed is refused.",
 		Annotations: local(false),
-	}, func(_ context.Context, _ *mcp.CallToolRequest, in closeIn) (*mcp.CallToolResult, statusOut, error) {
-		issue, err := ops.Close(store, in.ID, in.Commit)
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in closeIn) (*mcp.CallToolResult, statusOut, error) {
+		r, xidr, err := ws.find(in.ID)
 		if err != nil {
 			return nil, statusOut{}, err
 		}
+		issue, err := ops.Close(r.Store, xidr, in.Commit)
+		if err != nil {
+			return nil, statusOut{}, err
+		}
+		m.look(ctx)
 		out := statusOut{ID: issue.ID, Status: "closed"}
 		text := "Closed issue " + issue.ID + "\n"
 		if issue.ClosedBy != nil {
@@ -395,50 +501,90 @@ func addTools(s *mcp.Server, store issuelib.Store) {
 		Name:        "issue_reopen",
 		Description: "Reopen a closed issue. An open issue is refused.",
 		Annotations: local(false),
-	}, func(_ context.Context, _ *mcp.CallToolRequest, in showIn) (*mcp.CallToolResult, statusOut, error) {
-		issue, err := ops.Reopen(store, in.ID)
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in showIn) (*mcp.CallToolResult, statusOut, error) {
+		r, xidr, err := ws.find(in.ID)
 		if err != nil {
 			return nil, statusOut{}, err
 		}
+		issue, err := ops.Reopen(r.Store, xidr)
+		if err != nil {
+			return nil, statusOut{}, err
+		}
+		m.look(ctx)
 		return result("Reopened issue " + issue.ID + "\n"), statusOut{ID: issue.ID, Status: "open"}, nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "issue_link",
-		Description: "Link an issue to a commit, in both directions: the commit is recorded on the issue, and the issue on the commit as a " +
-			"git note, so issue_for_commit finds it. A commit that carries \"Issue: <id>\" in its message is linked the same way.",
+		Description: "Link an issue to a commit of its repository, in both directions: the commit is recorded on the issue, and the issue on " +
+			"the commit as a git note, so issue_for_commit finds it.",
 		Annotations: local(true),
-	}, func(_ context.Context, _ *mcp.CallToolRequest, in linkIn) (*mcp.CallToolResult, linkOut, error) {
-		issue, sha, err := ops.Link(store, in.ID, in.Commit)
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in linkIn) (*mcp.CallToolResult, linkOut, error) {
+		r, xidr, err := ws.find(in.ID)
 		if err != nil {
 			return nil, linkOut{}, err
 		}
+		issue, sha, err := ops.Link(r.Store, xidr, in.Commit)
+		if err != nil {
+			return nil, linkOut{}, err
+		}
+		m.look(ctx)
 		return result(fmt.Sprintf("Linked issue %s to commit %s\n", issue.ID, sha[:7])), linkOut{ID: issue.ID, Commit: sha}, nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "issue_relate",
 		Description: "Record how one issue stands to another: related; blocks (the first blocks the second, recorded on both); " +
-			"or duplicate (the first duplicates the second).",
+			"or duplicate (the first duplicates the second). When the other issue is in another served repository, it is mirrored into " +
+			"the first's repository as a read-only ext reference first, so the relation resolves from that repository alone.",
 		Annotations: local(true),
-	}, func(_ context.Context, _ *mcp.CallToolRequest, in relateIn) (*mcp.CallToolResult, relateOut, error) {
-		from, to, changed, err := ops.Relate(store, in.ID, in.Other, ops.Relation(in.Kind))
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in relateIn) (*mcp.CallToolResult, relateOut, error) {
+		from, fromID, err := ws.find(in.ID)
 		if err != nil {
 			return nil, relateOut{}, err
 		}
-		text := fmt.Sprintf("Issue %s: %s %s\n", from.ID, in.Kind, to.ID)
-		if !changed {
-			text = fmt.Sprintf("Issue %s already has this relationship with %s\n", from.ID, to.ID)
+		to, toID, err := ws.find(in.Other)
+		if err != nil {
+			return nil, relateOut{}, err
 		}
-		return result(text), relateOut{ID: from.ID, Other: to.ID, Kind: in.Kind, Changed: changed}, nil
+		out := relateOut{ID: fromID, Other: toID, Kind: in.Kind}
+		if to != from {
+			// The far issue comes here first. The source is named for the other
+			// repository, and is its directory: the fetch is local.
+			if err := ops.SourceAdd(from.Store, to.Name, to.Dir); err != nil {
+				return nil, relateOut{}, err
+			}
+			if _, err := ops.Mirror(from.Store, to.Name, toID); err != nil {
+				return nil, relateOut{}, err
+			}
+			out.Mirrored = to.Name
+		}
+		_, _, changed, err := ops.Relate(from.Store, fromID, toID, ops.Relation(in.Kind))
+		if err != nil {
+			return nil, relateOut{}, err
+		}
+		out.Changed = changed
+		m.look(ctx)
+		text := fmt.Sprintf("Issue %s: %s %s\n", fromID, in.Kind, toID)
+		if !changed {
+			text = fmt.Sprintf("Issue %s already has this relationship with %s\n", fromID, toID)
+		}
+		if out.Mirrored != "" {
+			text += fmt.Sprintf("%s is mirrored from %s into %s, read-only there\n", toID, to.Name, from.Name)
+		}
+		return result(text), out, nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "issue_for_commit",
-		Description: "The issues linked to a commit, through its note.",
+		Description: "The issues linked to a commit of a repository, through its note.",
 		Annotations: readOnly(),
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in forCommitIn) (*mcp.CallToolResult, forCommitOut, error) {
-		sha, linked, err := ops.ForCommit(store, in.Commit)
+		r, err := ws.byName(in.Repo)
+		if err != nil {
+			return nil, forCommitOut{}, err
+		}
+		sha, linked, err := ops.ForCommit(r.Store, in.Commit)
 		if err != nil {
 			return nil, forCommitOut{}, err
 		}
@@ -455,33 +601,103 @@ func addTools(s *mcp.Server, store issuelib.Store) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "issue_pull",
-		Description: "Bring the remote's issues into this clone. An issue edited on both sides is merged when the two can be brought " +
-			"together, and otherwise refused and named for a person to decide; force takes the remote side outright. " +
-			"dry_run says what a pull would do and writes nothing.",
+		Description: "Bring the remote's issues into a repository, and its mirrors up to their sources. An issue edited on both sides is " +
+			"merged when the two can be brought together, and otherwise refused and named for a person to decide; force takes the " +
+			"remote side outright. dry_run says what a pull would do and writes nothing.",
 		Annotations: &mcp.ToolAnnotations{IdempotentHint: true},
-	}, func(_ context.Context, _ *mcp.CallToolRequest, in pullIn) (*mcp.CallToolResult, reportOut, error) {
-		report, err := ops.Pull(store, in.Remote, in.Force, in.DryRun)
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in pullIn) (*mcp.CallToolResult, reportOut, error) {
+		r, err := ws.byName(in.Repo)
 		if err != nil {
 			return nil, reportOut{}, err
 		}
+		report, err := ops.Pull(r.Store, in.Remote, in.Force, in.DryRun)
+		if err != nil {
+			return nil, reportOut{}, err
+		}
+		m.look(ctx)
 		var t textOut
 		_ = writeReport(t.cc(), report)
-		return result(t.String()), toReportOut(report), nil
+		return result(t.String()), toReportOut(report, r.Name), nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "issue_push",
-		Description: "Send this clone's issues to the remote: one issue, or every issue when id is empty. Every write carries a lease on " +
-			"what the last fetch saw, so an issue edited on both sides is refused and named rather than overwritten; force takes this " +
-			"clone's side. dry_run says what a push would do and writes nothing.",
+		Description: "Send a repository's issues to its remote, mirrors and sources with them: one issue, or every issue when id is empty. " +
+			"Every write carries a lease on what the last fetch saw, so an issue edited on both sides is refused and named rather than " +
+			"overwritten; force takes this clone's side. dry_run says what a push would do and writes nothing.",
 		Annotations: &mcp.ToolAnnotations{IdempotentHint: true},
-	}, func(_ context.Context, _ *mcp.CallToolRequest, in pushIn) (*mcp.CallToolResult, reportOut, error) {
-		report, err := ops.Push(store, in.Remote, in.ID, in.Force, in.DryRun)
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in pushIn) (*mcp.CallToolResult, reportOut, error) {
+		r, err := ws.byName(in.Repo)
 		if err != nil {
 			return nil, reportOut{}, err
 		}
+		id := in.ID
+		if id != "" {
+			found, xidr, err := ws.find(id)
+			if err != nil {
+				return nil, reportOut{}, err
+			}
+			if found != r {
+				return nil, reportOut{}, fmt.Errorf("%s is in %s, not %s", xidr, found.Name, r.Name)
+			}
+			id = xidr
+		}
+		report, err := ops.Push(r.Store, in.Remote, id, in.Force, in.DryRun)
+		if err != nil {
+			return nil, reportOut{}, err
+		}
+		m.look(ctx)
 		var t textOut
 		_ = writeReport(t.cc(), report)
-		return result(t.String()), toReportOut(report), nil
+		return result(t.String()), toReportOut(report, r.Name), nil
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "repo_list",
+		Description: "The repositories this server serves -- the working set -- and where each came from. " +
+			"An id given to any tool is looked for in every one of them.",
+		Annotations: readOnly(),
+	}, func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, reposOut, error) {
+		out := toRepos(ws.list())
+		var text strings.Builder
+		for _, r := range out.Repos {
+			fmt.Fprintf(&text, "%s  %s  (%s)\n", r.Name, r.Path, r.From)
+		}
+		if len(out.Repos) == 0 {
+			text.WriteString("No repositories served\n")
+		}
+		return result(text.String()), out, nil
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "repo_add",
+		Description: "Serve a repository from now on, by its directory. With persist, it is also recorded in ~/.config/git-issue.tony " +
+			"so the next server serves it too. The set is the user's configuration; the issues stay in their repositories.",
+		Annotations: &mcp.ToolAnnotations{IdempotentHint: true, OpenWorldHint: new(bool)},
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in repoAddIn) (*mcp.CallToolResult, reposOut, error) {
+		r, err := ws.add(in.Path, "repo_add")
+		if err != nil {
+			return nil, reposOut{}, err
+		}
+		if in.Persist {
+			if err := persistWorkingSet(r.Dir); err != nil {
+				return nil, reposOut{}, fmt.Errorf("serving %s, but could not record it: %w", r.Name, err)
+			}
+		}
+		m.prime()
+		m.resync()
+		return result(fmt.Sprintf("Serving %s (%s)\n", r.Name, r.Dir)), toRepos(ws.list()), nil
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "repo_remove",
+		Description: "Stop serving a repository. Its issues are where they were.",
+		Annotations: &mcp.ToolAnnotations{IdempotentHint: true, OpenWorldHint: new(bool)},
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in repoIn) (*mcp.CallToolResult, reposOut, error) {
+		if err := ws.remove(in.Repo); err != nil {
+			return nil, reposOut{}, err
+		}
+		m.look(ctx)
+		return result(fmt.Sprintf("No longer serving %s\n", in.Repo)), toRepos(ws.list()), nil
 	})
 }
