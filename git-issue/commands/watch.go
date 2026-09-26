@@ -257,6 +257,20 @@ func (f watchFilter) wants(dir, xidr string) bool {
 	return (len(f.dirs) == 0 || f.dirs[dir]) && (len(f.ids) == 0 || f.ids[xidr])
 }
 
+// wantsIssue says whether f matches an issue as this clone holds it -- its
+// repository, id and labels -- for what is said of an issue with no change to
+// describe: a refusal, which leaves the issue as it was.
+func (f watchFilter) wantsIssue(st issuelib.Store, dir, xidr string) bool {
+	if !f.wants(dir, xidr) {
+		return false
+	}
+	if f.label == "" {
+		return true
+	}
+	issue, _, err := st.Get(xidr)
+	return err == nil && issuelib.Contains(issue.Labels, f.label)
+}
+
 // matches says whether f matches a described change, whose repository wants
 // has already answered for.
 func (f watchFilter) matches(ch watchChange) bool {

@@ -272,8 +272,8 @@ commit saying so. An issue new to the watch lists only commits made since
 Issues often travel by push and pull, so `watch` pulls origin every `-fetch`
 (30s by default) when there is an origin. What a pull did to an issue is said
 just before the change it brought, as `pull` says it (`created at <sha>`,
-`<old>..<new>`, `merged <a> and <b>`). An issue refused, or a remote not
-reached, stands until a person acts. It is said when it begins, not on every
+`<old>..<new>`, `merged <a> and <b>`). An issue among those watched refused,
+or a remote not reached, stands until a person acts. It is said when it begins, not on every
 pull, and `clear` is said when nothing stands. A remote that does not answer
 within two minutes is given up on until the next pull, and said as `could not
 pull`. `watch` pulls once when it starts, and what that brings is where it

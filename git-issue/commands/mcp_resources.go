@@ -69,12 +69,14 @@ type mcpServer struct {
 // cursor older than the oldest kept is refused rather than answered short.
 const watchLogCap = 1024
 
-// watchEvent is one issue's refs moving, found by a look.
+// watchEvent is one issue's refs moving, found by a look, and what the pull
+// that moved them did, when one did.
 type watchEvent struct {
 	seq      uint64
 	repo     *repo
 	xidr     string
 	was, now map[string]string
+	pulled   []pullNote
 }
 
 func uriFor(xidr string) string { return uriScheme + xidr }
@@ -277,7 +279,8 @@ func (m *mcpServer) look(ctx context.Context) {
 				listChanged = true
 			}
 			m.seq++
-			events = append(events, watchEvent{seq: m.seq, repo: r, xidr: xidr, was: was[xidr], now: now[xidr]})
+			events = append(events, watchEvent{seq: m.seq, repo: r, xidr: xidr, was: was[xidr], now: now[xidr],
+				pulled: m.pulledBy(r.Dir, xidr, now[xidr])})
 		}
 		m.seen[r.Dir] = now
 	}

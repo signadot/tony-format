@@ -378,7 +378,7 @@ func TestWatchStore_Pulls(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	changes, notes := make(chan watchChange, 16), make(chan pullNote, 16)
-	go watchStore(ctx, here, watchFilter{}, 10*time.Millisecond, newPuller(here, "", "origin", time.Minute), 50*time.Millisecond,
+	go watchStore(ctx, here, watchFilter{}, 10*time.Millisecond, newPuller(here, hereDir, "", "origin", time.Minute), 50*time.Millisecond,
 		func(ch watchChange) { changes <- ch }, func(n pullNote) { notes <- n })
 
 	next := func(what string) pullNote {
@@ -563,6 +563,13 @@ func TestMCP_IssueWatchRemoteRefusal(t *testing.T) {
 		}
 		return false
 	}
+	// A watch on a label the refused issue does not carry is not told.
+	var labeled watchOut
+	call(t, cs, "issue_watch_remote", map[string]any{"label": "bug", "timeout": 1}, &labeled)
+	if refusedIn(labeled) {
+		t.Errorf("a watch on bug was told of a refusal of an issue without it: %+v", labeled.Pulls)
+	}
+
 	var first, second, again watchOut
 	call(t, cs, "issue_watch_remote", map[string]any{"timeout": 10}, &first)
 	if !refusedIn(first) {
@@ -575,6 +582,66 @@ func TestMCP_IssueWatchRemoteRefusal(t *testing.T) {
 	call(t, cs, "issue_watch_remote", map[string]any{"since": first.Cursor, "timeout": 1}, &again)
 	if len(again.Pulls) != 0 {
 		t.Errorf("a standing refusal was said again: %+v", again.Pulls)
+	}
+
+	// Serving another repository renames this one in what is said, and does
+	// not make what stands news again.
+	call(t, cs, "repo_add", map[string]any{"path": repoDir(t, "another")}, nil)
+	var after watchOut
+	call(t, cs, "issue_watch_remote", map[string]any{"repo": []string{"here"}, "since": again.Cursor, "timeout": 1}, &after)
+	if len(after.Pulls) != 0 {
+		t.Errorf("after repo_add, a standing refusal was said again: %+v", after.Pulls)
+	}
+}
+
+// TestMCP_IssueWatchRemoteTwoWatches: a pull made for one watch is said to
+// every watch with the change it brought, not only to the one that pulled.
+func TestMCP_IssueWatchRemoteTwoWatches(t *testing.T) {
+	_, hereDir, thereDir := remotePair(t)
+	here := issuelib.NewGitStoreAt(hereDir, &strings.Builder{})
+	there := issuelib.NewGitStoreAt(thereDir, &strings.Builder{})
+	issue, err := ops.Create(there, "Theirs", "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	push(t, there)
+	if _, err := ops.Pull(here, "origin", false, false); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	serverT, clientT := mcp.NewInMemoryTransports()
+	m := newMCPServer(isolatedSet(t, hereDir))
+	m.fetch = 50 * time.Millisecond
+	go m.s.Run(ctx, serverT)
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil).Connect(ctx, clientT, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cs.Close() })
+
+	answered := make(chan watchOut, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			var out watchOut
+			call(t, cs, "issue_watch_remote", map[string]any{"timeout": 10}, &out)
+			answered <- out
+		}()
+	}
+	time.Sleep(200 * time.Millisecond)
+	if _, _, err := ops.Comment(there, issue.ID, "from there"); err != nil {
+		t.Fatal(err)
+	}
+	push(t, there)
+	for i := 0; i < 2; i++ {
+		select {
+		case out := <-answered:
+			if len(out.Changes) != 1 || !pulled(out.Pulls, issue.ID) {
+				t.Errorf("watch %d: changes %+v, pulls %+v; want the comment and the pull that brought it", i, out.Changes, out.Pulls)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("watch %d did not answer", i)
+		}
 	}
 }
 
@@ -597,7 +664,7 @@ func TestWatchStore_Refusal(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	notes := make(chan pullNote, 16)
-	go watchStore(ctx, here, watchFilter{}, 10*time.Millisecond, newPuller(here, "", "origin", time.Minute), 50*time.Millisecond,
+	go watchStore(ctx, here, watchFilter{}, 10*time.Millisecond, newPuller(here, hereDir, "", "origin", time.Minute), 50*time.Millisecond,
 		func(watchChange) {}, func(n pullNote) { notes <- n })
 	select {
 	case n := <-notes:
@@ -641,7 +708,7 @@ func TestPuller_Timeout(t *testing.T) {
 	dir := repoDir(t, "here")
 	run(t, dir, "config", "protocol.ext.allow", "always")
 	run(t, dir, "remote", "add", "origin", "ext::sleep 60")
-	p := newPuller(issuelib.NewGitStoreAt(dir, &strings.Builder{}), "", "origin", 300*time.Millisecond)
+	p := newPuller(issuelib.NewGitStoreAt(dir, &strings.Builder{}), dir, "", "origin", 300*time.Millisecond)
 	start := time.Now()
 	if _, ok := p.pull(); !ok {
 		t.Fatal("the pull was not made")

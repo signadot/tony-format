@@ -41,7 +41,8 @@ type pullNote struct {
 	ID     string `json:"id,omitempty" jsonschema:"the issue, when the note is about one"`
 	What   string `json:"what" jsonschema:"what the pull did, as issue_pull says it: created at <sha>, <old>..<new>, merged <a> and <b>; or what stands: refused: why, for a person to decide; failed: why; could not pull: why; and clear, when nothing stands any more"`
 
-	alarm bool // stands until a person acts: a refusal or a failure
+	alarm bool   // stands until a person acts: a refusal or a failure
+	dir   string // the repository's directory: its name, Repo, can change
 }
 
 func (n pullNote) line() string {
@@ -58,7 +59,17 @@ func (n pullNote) line() string {
 	return b.String()
 }
 
-func (n pullNote) key() string { return n.Repo + " " + n.ID + " " + n.What }
+// key is what a watch compares to know whether it was told of a note: the
+// repository by its directory, which does not change as others are served,
+// and a pull that could not be made as one thing, whatever git said -- its
+// words can differ from one attempt to the next.
+func (n pullNote) key() string {
+	what := n.What
+	if strings.HasPrefix(what, couldNot) {
+		what = couldNot
+	}
+	return n.dir + " " + n.Remote + " " + n.ID + " " + what
+}
 
 // couldNot begins the note of a pull that could not be made at all: the
 // remote not reached, or not there.
@@ -72,19 +83,30 @@ const clear = "clear: nothing refused or failing"
 // does not wait for it, since what it brings reaches every watch by the look.
 type puller struct {
 	st           issuelib.Store
+	dir          string
 	repo, remote string
 
 	pulling sync.Mutex
 
 	mu       sync.Mutex
 	last     time.Time
-	standing []pullNote // the refusals and failures the last pull left
+	standing []pullNote            // the refusals and failures the last pull left
+	recent   map[string]pulledNote // what the last pull did, by issue, until a look takes it
+}
+
+// pulledNote is what a pull did to an issue, and the commit it left the issue
+// at: a look takes the note only for a change to that commit, so one that
+// finds the change before the pull is done does not hand the note on to a
+// later change.
+type pulledNote struct {
+	note   pullNote
+	commit string
 }
 
 // newPuller pulls through a store on st's repository that gives up on the
 // remote after timeout.
-func newPuller(st issuelib.Store, repo, remote string, timeout time.Duration) *puller {
-	return &puller{st: st.WithNetTimeout(timeout), repo: repo, remote: remote}
+func newPuller(st issuelib.Store, dir, repo, remote string, timeout time.Duration) *puller {
+	return &puller{st: st.WithNetTimeout(timeout), dir: dir, repo: repo, remote: remote}
 }
 
 // pull pulls, keeps what it left standing, and answers what it did to each
@@ -98,7 +120,7 @@ func (p *puller) pull() (did []pullNote, ok bool) {
 	repo := p.repo
 	p.mu.Unlock()
 	note := func(id, what string, alarm bool) pullNote {
-		return pullNote{Repo: repo, Remote: p.remote, ID: id, What: what, alarm: alarm}
+		return pullNote{Repo: repo, Remote: p.remote, ID: id, What: what, alarm: alarm, dir: p.dir}
 	}
 	var standing []pullNote
 	r, err := ops.Pull(p.st, p.remote, false, false)
@@ -123,10 +145,38 @@ func (p *puller) pull() (did []pullNote, ok bool) {
 			standing = append(standing, note("", "source "+src+" not reached, its mirrors are as they were: "+r.Unreached[src], true))
 		}
 	}
+	recent := map[string]pulledNote{}
+	for _, n := range did {
+		if ref, err := p.st.FindRef(n.ID); err == nil {
+			if commit, err := p.st.GetRefCommit(ref); err == nil {
+				recent[n.ID] = pulledNote{n, commit}
+			}
+		}
+	}
 	p.mu.Lock()
-	p.last, p.standing = time.Now(), standing
+	p.last, p.standing, p.recent = time.Now(), standing, recent
 	p.mu.Unlock()
 	return did, true
+}
+
+// took answers what the last pull did to an issue, once, when the issue is
+// now at the commit the pull left it at: the look that finds the change the
+// pull brought takes it, to log with the change, so every watch reading the
+// log has it.
+func (p *puller) took(xidr string, now map[string]string) (pullNote, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	r, ok := p.recent[xidr]
+	if !ok {
+		return pullNote{}, false
+	}
+	delete(p.recent, xidr)
+	for _, commit := range now {
+		if commit == r.commit {
+			return r.note, true
+		}
+	}
+	return pullNote{}, false
 }
 
 // named sets the repository's name as notes carry it, which changes as
@@ -145,7 +195,8 @@ func (p *puller) due(every time.Duration) bool {
 }
 
 // stands answers what the last pull left standing that wants names: every
-// failure, and the refusals of the issues it wants.
+// failure, and the refusals of the issues it wants. A refused issue is as
+// this clone holds it, the pull having left it alone.
 func (p *puller) stands(wants func(xidr string) bool) []pullNote {
 	p.mu.Lock()
 	defer p.mu.Unlock()

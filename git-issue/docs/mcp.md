@@ -129,8 +129,9 @@ it pulls `remote` (origin by default) into each repository it watches: those
 named in `repo`, which must have the remote, or every served one that has it.
 It pulls when it starts and every `-fetch` (30s by default) while it waits.
 What a pull did to an issue comes with the change it brought, as `issue_pull`
-says it. An issue refused, or a remote not reached, stands until a person
-acts, and answers on its own: all that stands, whenever it differs from what
+says it, to every watch the change answers. An issue in the watch's scope
+refused, or a remote not reached, stands until a person acts, and answers on
+its own: all that stands, whenever it differs from what
 the cursor says the watch was last told, and `clear` when nothing stands.
 Each watch is told for itself, so two agents watching both hear a refusal.
 A remote that does not answer within two minutes is given up on until the

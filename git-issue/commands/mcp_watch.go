@@ -150,27 +150,40 @@ func (m *mcpServer) watchTool(ctx context.Context, repos, ids []string, label, s
 }
 
 // pullDue pulls the remote into each repository not pulled from it within
-// -fetch, by any watch, and looks at once when it pulled, so what it brought
-// is logged before the watch reads the log. A repository being pulled by
-// another watch is not waited for: what that pull brings reaches every watch
-// by the look.
-func (m *mcpServer) pullDue(ctx context.Context, pulls *watchPulls) []pullNote {
-	var did []pullNote
+// -fetch, by any watch, and looks at once when it pulled. The look logs what
+// the pull did to an issue with the change it brought (look, took), so every
+// watch reading the log has both. A repository being pulled by another watch
+// is not waited for: what that pull brings reaches every watch the same way.
+func (m *mcpServer) pullDue(ctx context.Context, pulls *watchPulls) {
 	pulled := false
 	for _, r := range pulls.repos {
 		p := m.pullerFor(r, pulls.remote)
 		if !p.due(m.fetch) {
 			continue
 		}
-		if d, ok := p.pull(); ok {
-			did = append(did, d...)
+		if _, ok := p.pull(); ok {
 			pulled = true
 		}
 	}
 	if pulled {
 		m.look(ctx)
 	}
-	return did
+}
+
+// pulledBy answers what the pullers of a repository did to an issue, taking
+// it: what look logs with the change.
+func (m *mcpServer) pulledBy(dir, xidr string, now map[string]string) []pullNote {
+	m.pullMu.Lock()
+	defer m.pullMu.Unlock()
+	var out []pullNote
+	for key, p := range m.pullers {
+		if strings.HasPrefix(key, dir+" ") {
+			if n, ok := p.took(xidr, now); ok {
+				out = append(out, n)
+			}
+		}
+	}
+	return out
 }
 
 // pullerFor is the puller of a repository and remote, one per pair for the
@@ -181,7 +194,7 @@ func (m *mcpServer) pullerFor(r *repo, remote string) *puller {
 	key := r.Dir + " " + remote
 	p := m.pullers[key]
 	if p == nil {
-		p = newPuller(r.Store, "", remote, pullTimeout)
+		p = newPuller(r.Store, r.Dir, "", remote, pullTimeout)
 		m.pullers[key] = p
 	}
 	p.named(repoLabel(m.ws, r))
@@ -192,8 +205,8 @@ func (m *mcpServer) pullerFor(r *repo, remote string) *puller {
 func (m *mcpServer) standing(pulls *watchPulls, f watchFilter) []pullNote {
 	var out []pullNote
 	for _, r := range pulls.repos {
-		dir := r.Dir
-		out = append(out, m.pullerFor(r, pulls.remote).stands(func(xidr string) bool { return f.wants(dir, xidr) })...)
+		st, dir := r.Store, r.Dir
+		out = append(out, m.pullerFor(r, pulls.remote).stands(func(xidr string) bool { return f.wantsIssue(st, dir, xidr) })...)
 	}
 	return out
 }
@@ -206,10 +219,9 @@ func (m *mcpServer) standing(pulls *watchPulls, f watchFilter) []pullNote {
 // answers too when what stands -- refusals, failures -- is not what the
 // cursor says the watch was last told, with all that stands now, or clear.
 func (m *mcpServer) waitFor(ctx context.Context, f watchFilter, since string, timeout time.Duration, pulls *watchPulls) (watchOut, error) {
-	var did []pullNote
 	var fetchC <-chan time.Time
 	if pulls != nil {
-		did = m.pullDue(ctx, pulls)
+		m.pullDue(ctx, pulls)
 		t := time.NewTicker(m.fetch)
 		defer t.Stop()
 		fetchC = t.C
@@ -261,15 +273,16 @@ func (m *mcpServer) waitFor(ctx context.Context, f watchFilter, since string, ti
 			ch, ok := describe(ev.repo.Store, repoLabel(m.ws, ev.repo), ev.xidr, ev.was, ev.now, began)
 			if ok && f.matches(ch) {
 				out.Changes = append(out.Changes, ch)
+				out.Pulls = append(out.Pulls, ev.pulled...)
 			}
 		}
-		out.Pulls = append(alarms, withChanges(did, out.Changes)...)
+		out.Pulls = append(alarms, out.Pulls...)
 		if len(out.Changes) > 0 || len(alarms) > 0 {
 			return out, nil
 		}
 		select {
 		case <-fetchC:
-			did = append(did, m.pullDue(ctx, pulls)...)
+			m.pullDue(ctx, pulls)
 		case <-wake:
 		case <-deadline.C:
 			return out, nil
@@ -290,6 +303,7 @@ func coalesce(events []watchEvent) []watchEvent {
 		key := ev.repo.Dir + " " + ev.xidr
 		if i, ok := at[key]; ok {
 			out[i].now, out[i].seq = ev.now, ev.seq
+			out[i].pulled = append(out[i].pulled, ev.pulled...)
 			continue
 		}
 		at[key] = len(out)
