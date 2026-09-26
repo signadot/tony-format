@@ -114,7 +114,7 @@ type watchChange struct {
 	Title   string    `json:"title,omitempty"`
 	Labels  []string  `json:"labels"`
 	Updated time.Time `json:"updated,omitzero"`
-	What    []string  `json:"what" jsonschema:"what was done to it since the last look, oldest first: one line per commit on its ref (comment: ..., edit: ..., label: ...), and closed or reopened when it moved"`
+	What    []string  `json:"what" jsonschema:"what was done to it, oldest first: one line per commit it gained (comment: ..., edit: ..., label: ...), then closed or reopened if it moved"`
 }
 
 // describe says what changed about one issue between two looks at its refs:

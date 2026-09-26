@@ -81,15 +81,18 @@ func TestMCP_IssueWatch(t *testing.T) {
 	var none watchOut
 	res := call(t, cs, "issue_watch", map[string]any{"since": next.Cursor, "timeout": 1}, &none)
 	if len(none.Changes) != 0 || none.Cursor != next.Cursor {
-		t.Errorf("at the timeout: %+v, want no change at cursor %d", none, next.Cursor)
+		t.Errorf("at the timeout: %+v, want no change at cursor %s", none, next.Cursor)
 	}
 	if !strings.Contains(text(res), "No change") {
 		t.Errorf("text %q", text(res))
 	}
 
-	// A cursor from nowhere is refused, not answered short.
-	if msg := refused(t, cs, "issue_watch", map[string]any{"since": next.Cursor + 100, "timeout": 1}); !strings.Contains(msg, "ahead") {
-		t.Errorf("refusal %q", msg)
+	// A cursor from another server is refused, not read as this one's.
+	epoch, n, _ := strings.Cut(next.Cursor, ".")
+	for _, c := range []string{"0" + epoch + "." + n, epoch + ".999", "garbage"} {
+		if msg := refused(t, cs, "issue_watch", map[string]any{"since": c, "timeout": 1}); !strings.Contains(msg, "cursor") {
+			t.Errorf("since %s: refusal %q", c, msg)
+		}
 	}
 }
 

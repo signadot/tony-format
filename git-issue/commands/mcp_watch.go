@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,13 +27,13 @@ const (
 type watchIn struct {
 	IDs     []string `json:"ids,omitempty" jsonschema:"the issues to watch: full ids or unambiguous prefixes; every issue when empty"`
 	Label   string   `json:"label,omitempty" jsonschema:"only issues carrying this label after the change (a plain label, or key=value)"`
-	Since   *uint64  `json:"since,omitempty" jsonschema:"the cursor a previous issue_watch answered: changes after it are answered at once, so none is missed between calls. Without it, only changes from now on"`
+	Since   string   `json:"since,omitempty" jsonschema:"the cursor a previous issue_watch answered: changes after it are answered at once, so none is missed between calls. Without it, only changes from now on"`
 	Timeout int      `json:"timeout,omitempty" jsonschema:"seconds to wait for a change before answering with none; 300 by default, at most 3600"`
 }
 
 type watchOut struct {
 	Changes []watchChange `json:"changes" jsonschema:"the issues that changed, in the order the changes were found; empty at the timeout"`
-	Cursor  uint64        `json:"cursor" jsonschema:"pass as since to the next issue_watch"`
+	Cursor  string        `json:"cursor" jsonschema:"pass as since to the next issue_watch"`
 }
 
 func addWatchTool(m *mcpServer) {
@@ -74,26 +75,27 @@ func addWatchTool(m *mcpServer) {
 		if len(out.Changes) == 0 {
 			fmt.Fprintf(&text, "No change in %s\n", timeout)
 		}
-		fmt.Fprintf(&text, "Cursor: %d\n", out.Cursor)
+		fmt.Fprintf(&text, "Cursor: %s\n", out.Cursor)
 		return result(text.String()), out, nil
 	})
 }
 
 // waitFor answers the changes after since that f matches, waiting for one
 // until the timeout. Without since it starts from the latest change found.
-func (m *mcpServer) waitFor(ctx context.Context, f watchFilter, since *uint64, timeout time.Duration) (watchOut, error) {
+func (m *mcpServer) waitFor(ctx context.Context, f watchFilter, since string, timeout time.Duration) (watchOut, error) {
 	m.mu.Lock()
 	cursor := m.seq
-	if since != nil {
-		if *since > m.seq {
+	if since != "" {
+		seq, err := m.parseCursor(since)
+		if err != nil {
 			m.mu.Unlock()
-			return watchOut{}, fmt.Errorf("cursor %d is ahead of this server's %d: it came from another server; call without since", *since, m.seq)
+			return watchOut{}, err
 		}
-		if len(m.log) > 0 && *since+1 < m.log[0].seq {
+		if len(m.log) > 0 && seq+1 < m.log[0].seq {
 			m.mu.Unlock()
-			return watchOut{}, fmt.Errorf("cursor %d is older than the %d changes this server keeps; call without since, and issue_list to catch up", *since, watchLogCap)
+			return watchOut{}, fmt.Errorf("cursor %s is older than the %d changes this server keeps; call without since, and issue_list to catch up", since, watchLogCap)
 		}
-		cursor = *since
+		cursor = seq
 	}
 	m.mu.Unlock()
 	deadline := time.NewTimer(timeout)
@@ -109,7 +111,7 @@ func (m *mcpServer) waitFor(ctx context.Context, f watchFilter, since *uint64, t
 		cursor = m.seq
 		wake := m.wake
 		m.mu.Unlock()
-		out := watchOut{Changes: []watchChange{}, Cursor: cursor}
+		out := watchOut{Changes: []watchChange{}, Cursor: m.cursor(cursor)}
 		for _, ev := range coalesce(events) {
 			ch := describe(ev.repo.Store, repoLabel(m.ws, ev.repo), ev.xidr, ev.was, ev.now)
 			if f.matches(ch) {
@@ -146,4 +148,24 @@ func coalesce(events []watchEvent) []watchEvent {
 		out = append(out, ev)
 	}
 	return out
+}
+
+// A cursor is the server's epoch and a change's number: numbers start again
+// with each server, so one from another server is refused rather than read as
+// this one's.
+func (m *mcpServer) cursor(seq uint64) string {
+	return m.epoch + "." + strconv.FormatUint(seq, 10)
+}
+
+// parseCursor answers a cursor's change number; m.mu is held.
+func (m *mcpServer) parseCursor(c string) (uint64, error) {
+	epoch, n, ok := strings.Cut(c, ".")
+	seq, err := strconv.ParseUint(n, 10, 64)
+	if !ok || err != nil {
+		return 0, fmt.Errorf("cursor %q is not one issue_watch answered", c)
+	}
+	if epoch != m.epoch || seq > m.seq {
+		return 0, fmt.Errorf("cursor %s is from another server; call without since", c)
+	}
+	return seq, nil
 }

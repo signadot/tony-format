@@ -50,12 +50,13 @@ type mcpServer struct {
 	registered map[string]bool      // issue URIs registered as resources
 	seen       map[string]issueRefs // repository dir -> its last look
 
-	// What looks found, for issue_watch: each change numbered in order, the
-	// last watchLogCap kept, and a channel closed and replaced when one is
-	// added, to wake whoever waits.
-	seq  uint64
-	log  []watchEvent
-	wake chan struct{}
+	// What looks found, for issue_watch: each change numbered in order within
+	// the server's epoch, the last watchLogCap kept, and a channel closed and
+	// replaced when one is added, to wake whoever waits.
+	epoch string
+	seq   uint64
+	log   []watchEvent
+	wake  chan struct{}
 }
 
 // watchLogCap is how many changes the server keeps for issue_watch's cursor: a

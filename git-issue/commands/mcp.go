@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -151,7 +152,8 @@ func MCPServerFor(ws *workspace) *mcp.Server {
 // newMCPServer builds the server over a working set: tools, resources, and
 // the first look at the refs, which is not news.
 func newMCPServer(ws *workspace) *mcpServer {
-	m := &mcpServer{ws: ws, registered: map[string]bool{}, seen: map[string]issueRefs{}, wake: make(chan struct{})}
+	m := &mcpServer{ws: ws, registered: map[string]bool{}, seen: map[string]issueRefs{},
+		epoch: strconv.FormatInt(time.Now().UnixNano(), 36), wake: make(chan struct{})}
 	m.s = mcp.NewServer(&mcp.Implementation{
 		Name:    "git-issue",
 		Title:   "git-issue",

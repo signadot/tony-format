@@ -82,9 +82,11 @@ func watchStore(ctx context.Context, st issuelib.Store, f watchFilter, interval 
 			return nil
 		case <-t.C:
 		}
+		// A look that fails -- git busy, a ref mid-update -- is skipped, not
+		// fatal: the next one compares with the last that succeeded.
 		now, err := lookAt(st)
 		if err != nil {
-			return err
+			continue
 		}
 		for _, xidr := range moved(was, now) {
 			if ch := describe(st, "", xidr, was[xidr], now[xidr]); f.matches(ch) {

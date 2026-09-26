@@ -247,25 +247,26 @@ See [the MCP server](mcp.md).
 ```bash
 git issue watch                  # every issue in this repository
 git issue watch j2dz 4f1c        # these two
-git issue watch --label bug      # those carrying bug after the change
-git issue watch -poll 1s         # look every second rather than every 5
+git issue watch --label bug      # those labeled bug
+git issue watch -poll 1s         # look every second, not every 5
 ```
 
-Prints a line for each issue that changes -- a comment, an edit, a label, a
-close or reopen, an issue filed or pulled -- as the change is found, and runs
-until it is stopped:
+`watch` prints a line for each issue that changes, as it changes, until
+stopped:
 
 ```
-8nqf9krmh12ksyspq1n0  open  Smoke  -- comment: hello; label: added bug
-8nqf9krmh12ksyspq1n0  closed  Smoke  -- close; closed
+j2dzt7xph12kswa9esn0  open  Implement streaming processor  -- comment: looks good; label: added bug
+j2dzt7xph12kswa9esn0  closed  Implement streaming processor  -- close; closed
 ```
 
-After the status and title comes what was done: the subject of each commit
-the issue gained, and `closed` or `reopened` when it moved. It looks at the
-refs every `-poll` (5s by default), so a change made anywhere -- this clone, a
-pull, another agent -- is found within it. It is for an agent whose host wakes it on a
-background command's output (Claude Code's Monitor); an agent working through
-the MCP server has `issue_watch` instead.
+A line is the id, the status, the title, and what was done: one entry per
+commit the issue gained, then `closed` or `reopened` if it moved. The refs are
+compared every `-poll` (5s by default), so a change made anywhere is heard:
+in this clone, by a pull, by another agent.
+
+`watch` is for an agent whose host wakes it on a background command's output,
+as Claude Code's Monitor does. An agent that can wait on a tool call uses
+[`issue_watch`](mcp.md#the-watch).
 
 ## Migrations
 
