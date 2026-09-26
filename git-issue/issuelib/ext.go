@@ -151,7 +151,7 @@ func (s *GitStore) fetchMirror(src Source, xidr string) error {
 	for _, from := range []string{RefForXIDR(xidr), ClosedRefForXIDR(xidr)} {
 		// Not --quiet: a rejection (a mirror that moved off the source's chain,
 		// which nothing here should do) is a line worth having.
-		out, err := s.git("fetch", src.URL, from+":"+dst).CombinedOutput()
+		out, err := s.netOutput("fetch", src.URL, from+":"+dst)
 		if err == nil {
 			return nil
 		}

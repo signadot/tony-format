@@ -40,7 +40,8 @@ in the config file too. The set is your configuration, as remotes are: the
 server holds nothing, and every issue stays in its repository.
 
 When more than one is served, `issue_create`, `issue_list`, `issue_push`,
-`issue_pull` and `issue_for_commit` take `repo`; `issue_relate` across two
+`issue_pull` and `issue_for_commit` take `repo`, and `issue_watch` a list of
+them; `issue_relate` across two
 repositories mirrors the far issue into the near one as an
 [ext reference](ext.md) first, so the relation resolves from that repository
 alone. An issue that is in two repositories -- its own, and one mirroring it --
@@ -63,7 +64,8 @@ resolves to its own.
 | `issue_for_commit` | `repo?`, `commit` | the issues its note names |
 | `issue_pull` | `repo?`, `remote?`, `force?`, `dry_run?` | the sync report |
 | `issue_push` | `repo?`, `remote?`, `id?`, `force?`, `dry_run?` | the sync report |
-| `issue_watch` | `ids?`, `label?`, `since?`, `timeout?` | each issue that changed and what was done to it, and a cursor; waits until one does |
+| `issue_watch` | `repo?`, `ids?`, `label?`, `since?`, `timeout?` | each issue that changed and what was done to it, and a cursor; waits until one does |
+| `issue_watch_remote` | `remote?`, and `issue_watch`'s | the same, pulling `remote` (origin) while it waits, and what the pulls did |
 | `repo_list` | | the repositories served, and where each came from |
 | `repo_add` | `path`, `persist?` | the set after |
 | `repo_remove` | `repo` | the set after |
@@ -73,8 +75,8 @@ reaches in more than one repository is ambiguous, naming each. A refusal -- an
 unknown id, an issue closed twice, a merge that cannot be made -- is a tool
 error carrying the message the command would have printed, never a protocol
 error. Push and pull are tools of their own, so a host that wants an agent
-working locally and never touching the remote denies two names; both take
-`dry_run`. The tool descriptions carry the tracker's rules -- a change gets an
+working locally and never touching the remote denies their names, and
+`issue_watch_remote`'s; push and pull take `dry_run`. The tool descriptions carry the tracker's rules -- a change gets an
 issue and its commit carries `Issue: <id>`, a fix closes with its commit -- so
 an agent reads them where the operation is.
 
@@ -99,28 +101,48 @@ Every `-poll` (5s by default) the server compares each served repository's
 refs with the last look. An issue whose ref moved is announced to its
 subscribers, and an issue that appeared or went changes the listing. A tool
 looks as soon as it has changed something, so with `-poll 0` only the tools'
-own changes are heard.
+own changes are heard. The refs are this clone's: a change pushed to a remote
+is heard once a pull brings it in.
 
 Subscribing is the host's act, not the agent's, and a host need not pass the
 notifications on. Claude Code does not: its agent can read resources but not
 subscribe.
 
 `issue_watch` gives the watch to the agent. It waits until an issue changes:
-one named in `ids`, one carrying `label` before or after the change, or with
-neither, any. It answers each issue that changed with its status, title and
-labels, and what was done to it: one line per commit it gained (`comment:
-...`, `label: added bug`), then `closed` or `reopened` if it moved with no
-commit saying so. An issue
-new to the watch lists only commits made since the watch began, or `arrived`
-when there are none, as for an old issue pulled in. With no change it answers
-nothing at `timeout` (300 seconds, at most 3600).
+one in a repository named in `repo`, one named in `ids`, one carrying `label`
+before or after the change. Each scope given must match; with none, any issue
+in any served repository. It answers each issue that changed with its status,
+title and labels, and what was done to it: one line per commit it gained
+(`comment: ...`, `label: added bug`), then `closed` or `reopened` if it moved
+with no commit saying so. An issue new to the watch lists only commits made
+since the watch began, or `arrived` when there are none. With no change it
+answers nothing at `timeout` (300 seconds, at most 3600).
 
 Every answer carries a `cursor`. Passed back as `since`, it answers at once
 what changed between two calls, so nothing is missed, and the watch began
-with the first call. The server keeps the
-last 1024 changes, and refuses a cursor older than those or from another
-server.
+with the first call. The server keeps the last 1024 changes, and refuses a
+cursor older than those or from another server.
 
-A call to `issue_watch` holds the agent until it answers. In Claude Code, run
+`issue_watch_remote` is `issue_watch` that pulls. Issues often travel by push
+and pull, and a watch of this clone alone hears nothing a teammate pushed. So
+it pulls `remote` (origin by default) into each repository it watches: those
+named in `repo`, which must have the remote, or every served one that has it.
+It pulls when it starts and every `-fetch` (30s by default) while it waits,
+and never waits on a pull past its `timeout`. A repository is not looked at
+while it is pulled, so a change is answered with the pull that brought it.
+What a pull did to an issue comes with the change it brought, as `issue_pull`
+says it, to every watch the change answers. An issue in the watch's scope
+refused, or a remote not reached, stands until a person acts, and answers on
+its own: all that stands, whenever it differs from what
+the cursor says the watch was last told, and `clear` when nothing stands.
+Each watch is told for itself, so two agents watching both hear a refusal.
+A remote that does not answer within two minutes is given up on until the
+next pull, and stands as `could not pull`.
+
+It writes this clone's refs as `issue_pull` does and pushes nothing. It is a
+tool of its own so that a host keeping an agent off the remote can deny it by
+name, as it does `issue_pull`.
+
+A call to either holds the agent until it answers. In Claude Code, run
 [`git issue watch`](commands.md#watch) in the background under Monitor
-instead.
+instead; it pulls origin in the same way.

@@ -2,6 +2,7 @@ package issuelib
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -152,7 +153,7 @@ func (s *GitStore) FetchTracking(remote string) (bool, error) {
 	for _, ns := range carriedSources(remote) {
 		args = append(args, "+"+ns.local+"*:"+ns.tracking+"*")
 	}
-	if out, err := s.git(args...).CombinedOutput(); err != nil && !quietSyncFailure(string(out)) {
+	if out, err := s.netOutput(args...); err != nil && !quietSyncFailure(string(out)) {
 		return false, fmt.Errorf("failed to fetch issues from %s: %s", remote, strings.TrimSpace(string(out)))
 	}
 
@@ -160,7 +161,7 @@ func (s *GitStore) FetchTracking(remote string) (bool, error) {
 		{NotesRef, TrackingNotesRef(remote)},
 		{Gen0NotesRef, TrackingGen0NotesRef(remote)},
 	} {
-		out, err := s.git("fetch", remote, "+"+notes.from+":"+notes.to).CombinedOutput()
+		out, err := s.netOutput("fetch", remote, "+"+notes.from+":"+notes.to)
 		if err == nil {
 			continue
 		}
@@ -645,10 +646,14 @@ func (s *GitStore) pushAtomic(remote string, ops []*pushOp) (map[string]string, 
 		args = append(args, op.refspecs...)
 	}
 	var stdout, stderr bytes.Buffer
-	cmd := s.git(args...)
+	cmd, done := s.gitNet(args...)
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err == nil {
+	err := done(cmd.Run())
+	if err == nil {
 		return nil, "", nil
+	}
+	if errors.Is(err, errNetTimeout) {
+		stderr.WriteString(err.Error())
 	}
 
 	// A refused ref is a line "!\t<from>:<to>\t<summary>".
@@ -731,7 +736,7 @@ func (s *GitStore) SyncNotes(remote string, push bool) error {
 	args := append([]string{"push", "--atomic"}, leases...)
 	args = append(args, remote)
 	args = append(args, refspecs...)
-	if out, err := s.git(args...).CombinedOutput(); err != nil {
+	if out, err := s.netOutput(args...); err != nil {
 		return fmt.Errorf("failed to push the reverse index to %s: %s",
 			remote, strings.TrimSpace(string(out)))
 	}

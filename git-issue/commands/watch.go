@@ -27,23 +27,33 @@ const watchInterval = 5 * time.Second
 // MCP server takes no look but after its own tools; `git issue watch` would
 // never answer, so it refuses zero.
 func pollOpt(dst *time.Duration, zeroMeans string) *cli.Opt {
-	desc := "how often to look for changes (default 5s)"
+	return durationOpt("poll", "how often to look for changes (default 5s", dst, zeroMeans)
+}
+
+// fetchOpt is -fetch: how often a watch that pulls pulls.
+func fetchOpt(dst *time.Duration) *cli.Opt {
+	return durationOpt("fetch", "how often to pull the remote (default 30s", dst, "")
+}
+
+// durationOpt is a duration option, more than zero unless zeroMeans says what
+// zero is. desc is open for the default and zero's meaning to close.
+func durationOpt(name, desc string, dst *time.Duration, zeroMeans string) *cli.Opt {
 	if zeroMeans != "" {
-		desc = "how often to look for changes (default 5s; 0 " + zeroMeans + ")"
+		desc += "; 0 " + zeroMeans
 	}
 	return &cli.Opt{
-		Name:        "poll",
-		Description: desc,
+		Name:        name,
+		Description: desc + ")",
 		Type: cli.NamedFuncOpt(cli.FuncOpt(func(cc *cli.Context, a string) (any, error) {
 			d, err := time.ParseDuration(a)
 			if err != nil && a == "0" {
 				d, err = 0, nil
 			}
 			if err != nil {
-				return nil, fmt.Errorf("-poll %q: %w", a, err)
+				return nil, fmt.Errorf("-%s %q: %w", name, a, err)
 			}
 			if d < 0 || (d == 0 && zeroMeans == "") {
-				return nil, fmt.Errorf("-poll %q: must be more than zero", a)
+				return nil, fmt.Errorf("-%s %q: must be more than zero", name, a)
 			}
 			*dst = d
 			return 0, nil
@@ -231,22 +241,40 @@ func hasPrefixRef(refs map[string]string, prefix string) bool {
 	return false
 }
 
-// watchFilter is which issues a watcher reports: the ids named, or those
-// carrying a label before the change or after it -- so the label's removal is
-// heard -- or, with neither, every one.
+// watchFilter is which issues a watcher reports: those in the repositories
+// named, the ids named, and those carrying a label before the change or after
+// it -- so the label's removal is heard. Each scope given must match; with
+// none, every issue.
 type watchFilter struct {
+	dirs  map[string]bool // repository directories; the MCP server's scope
 	ids   map[string]bool
 	label string
 }
 
-// wants says whether f can match an issue by its id alone: what a watcher asks
-// before reading the issue to describe it.
-func (f watchFilter) wants(xidr string) bool {
-	return len(f.ids) == 0 || f.ids[xidr]
+// wants says whether f can match an issue by its repository and id alone:
+// what a watcher asks before reading the issue to describe it.
+func (f watchFilter) wants(dir, xidr string) bool {
+	return (len(f.dirs) == 0 || f.dirs[dir]) && (len(f.ids) == 0 || f.ids[xidr])
 }
 
+// wantsIssue says whether f matches an issue as this clone holds it -- its
+// repository, id and labels -- for what is said of an issue with no change to
+// describe: a refusal, which leaves the issue as it was.
+func (f watchFilter) wantsIssue(st issuelib.Store, dir, xidr string) bool {
+	if !f.wants(dir, xidr) {
+		return false
+	}
+	if f.label == "" {
+		return true
+	}
+	issue, _, err := st.Get(xidr)
+	return err == nil && issuelib.Contains(issue.Labels, f.label)
+}
+
+// matches says whether f matches a described change, whose repository wants
+// has already answered for.
 func (f watchFilter) matches(ch watchChange) bool {
-	if !f.wants(ch.ID) {
+	if len(f.ids) > 0 && !f.ids[ch.ID] {
 		return false
 	}
 	return f.label == "" || issuelib.Contains(ch.Labels, f.label) || issuelib.Contains(ch.labelsBefore, f.label)

@@ -2,6 +2,7 @@ package issuelib
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -43,6 +44,9 @@ type GitStore struct {
 	// adopted guards the implicit adoption of refs an older git-issue wrote,
 	// which every read of an existing issue goes through (adoptOnce).
 	adopted sync.Once
+	// netTimeout bounds each git command that reaches a remote, when set
+	// (WithNetTimeout). Zero is no bound: a person running pull waits.
+	netTimeout time.Duration
 }
 
 // NewGitStore creates a GitStore that reports warnings on stdout, and what a
@@ -73,6 +77,51 @@ func (s *GitStore) git(args ...string) *exec.Cmd {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = s.dir
 	return cmd
+}
+
+// WithNetTimeout answers a store on the same repository whose commands that
+// reach a remote -- fetch, push -- give up after d: what a watch pulls with,
+// since nobody is waiting on it to notice a remote that hangs.
+func (s *GitStore) WithNetTimeout(d time.Duration) Store {
+	return &GitStore{dir: s.dir, out: s.out, warn: s.warn, netTimeout: d}
+}
+
+// errNetTimeout is a command that reached a remote giving up.
+var errNetTimeout = errors.New("timed out")
+
+// gitNet is git for a command that reaches a remote. With a netTimeout it is
+// killed at the timeout -- and whatever it started with it, which would
+// otherwise hold its output open (WaitDelay) -- and asks no one for
+// credentials, since no one is there to answer. done cancels, and answers the
+// run's error, or one naming the timeout.
+func (s *GitStore) gitNet(args ...string) (cmd *exec.Cmd, done func(error) error) {
+	if s.netTimeout <= 0 {
+		return s.git(args...), func(err error) error { return err }
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), s.netTimeout)
+	cmd = exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = s.dir
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	cmd.WaitDelay = time.Second
+	return cmd, func(err error) error {
+		defer cancel()
+		if err != nil && ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("git %s %w after %s", args[0], errNetTimeout, s.netTimeout)
+		}
+		return err
+	}
+}
+
+// netOutput runs a command that reaches a remote, and answers its combined
+// output: with the timeout said at its end when it gave up, since callers
+// report the output.
+func (s *GitStore) netOutput(args ...string) ([]byte, error) {
+	cmd, done := s.gitNet(args...)
+	out, err := cmd.CombinedOutput()
+	if err = done(err); errors.Is(err, errNetTimeout) {
+		out = append(out, []byte(err.Error())...)
+	}
+	return out, err
 }
 
 // Out returns the writer the store reports warnings on.

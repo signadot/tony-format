@@ -128,6 +128,10 @@ type Store interface {
 	// refs, calls it directly. It is local, and idempotent.
 	AdoptGen0() error
 
+	// WithNetTimeout is a store on the same repository whose commands that
+	// reach a remote give up after d: what a watch pulls with.
+	WithNetTimeout(d time.Duration) Store
+
 	// Out returns the output writer for this store.
 	Out() io.Writer
 }

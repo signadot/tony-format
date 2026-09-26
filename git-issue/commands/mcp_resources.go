@@ -57,18 +57,27 @@ type mcpServer struct {
 	seq   uint64
 	log   []watchEvent
 	wake  chan struct{}
+
+	// What issue_watch_remote pulls: each repository and remote's puller
+	// (guarded by pullMu), and how often one is pulled.
+	pullMu      sync.Mutex
+	pullers     map[string]*puller
+	fetch       time.Duration
+	pullTimeout time.Duration
 }
 
 // watchLogCap is how many changes the server keeps for issue_watch's cursor: a
 // cursor older than the oldest kept is refused rather than answered short.
 const watchLogCap = 1024
 
-// watchEvent is one issue's refs moving, found by a look.
+// watchEvent is one issue's refs moving, found by a look, and what the pull
+// that moved them did, when one did.
 type watchEvent struct {
 	seq      uint64
 	repo     *repo
 	xidr     string
 	was, now map[string]string
+	pulled   []pullNote
 }
 
 func uriFor(xidr string) string { return uriScheme + xidr }
@@ -252,8 +261,10 @@ func (m *mcpServer) complete(_ context.Context, req *mcp.CompleteRequest) (*mcp.
 // look compares every served repository's issue refs with the last look,
 // announces each issue whose refs moved, logs it for issue_watch and wakes
 // whoever waits, and resyncs the listing when an issue appeared, went, or moved
-// between open and closed, or a repository stopped being served. It is what the watch does on each tick, and what a
-// tool that changed something does once.
+// between open and closed, or a repository stopped being served. It is what
+// the watch does on each tick, and what a tool that changed something does
+// once. A repository being pulled for a watch is left for the look that
+// follows the pull (lookable).
 func (m *mcpServer) look(ctx context.Context) {
 	m.mu.Lock()
 	var events []watchEvent
@@ -261,7 +272,12 @@ func (m *mcpServer) look(ctx context.Context) {
 	served := map[string]bool{}
 	for _, r := range m.ws.list() {
 		served[r.Dir] = true
+		done, ok := m.lookable(r.Dir)
+		if !ok {
+			continue
+		}
 		now, err := lookAt(r.Store)
+		done()
 		if err != nil {
 			continue
 		}
@@ -271,7 +287,8 @@ func (m *mcpServer) look(ctx context.Context) {
 				listChanged = true
 			}
 			m.seq++
-			events = append(events, watchEvent{seq: m.seq, repo: r, xidr: xidr, was: was[xidr], now: now[xidr]})
+			events = append(events, watchEvent{seq: m.seq, repo: r, xidr: xidr, was: was[xidr], now: now[xidr],
+				pulled: m.pulledBy(r.Dir, xidr, now[xidr])})
 		}
 		m.seen[r.Dir] = now
 	}
