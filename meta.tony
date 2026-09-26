@@ -2,6 +2,7 @@
 blocked_by:
 - a3v2a4j6h12kse4ypxn0
 - 7qfhwth7h12ksxcwpxn0
+- eg8zmb1sh12ksr48pxn0
 blocks: []
 branches: []
 commits: []
@@ -16,4 +17,4 @@ labels:
 - mcp
 related_issues: []
 status: open
-updated: "2026-09-26T12:31:31.307799+02:00"
+updated: "2026-09-26T12:31:31.497529+02:00"
