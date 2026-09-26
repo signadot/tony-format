@@ -280,7 +280,8 @@ pull`. `watch` pulls once when it starts, and what that brings is where it
 begins. It pushes nothing.
 
 Between pulls it compares this clone's refs every `-poll` (5s by default), so
-a change made here is heard within that, whoever makes it.
+a change made here is heard within that, whoever makes it; one made during a
+pull is heard when the pull is done.
 
 `watch` is for an agent whose host wakes it on a background command's output,
 as Claude Code's Monitor does. An agent that can wait on a tool call uses

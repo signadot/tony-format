@@ -127,7 +127,9 @@ cursor older than those or from another server.
 and pull, and a watch of this clone alone hears nothing a teammate pushed. So
 it pulls `remote` (origin by default) into each repository it watches: those
 named in `repo`, which must have the remote, or every served one that has it.
-It pulls when it starts and every `-fetch` (30s by default) while it waits.
+It pulls when it starts and every `-fetch` (30s by default) while it waits,
+and never waits on a pull past its `timeout`. A repository is not looked at
+while it is pulled, so a change is answered with the pull that brought it.
 What a pull did to an issue comes with the change it brought, as `issue_pull`
 says it, to every watch the change answers. An issue in the watch's scope
 refused, or a remote not reached, stands until a person acts, and answers on

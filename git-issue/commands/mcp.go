@@ -158,7 +158,7 @@ func MCPServerFor(ws *workspace) *mcp.Server {
 func newMCPServer(ws *workspace) *mcpServer {
 	m := &mcpServer{ws: ws, registered: map[string]bool{}, seen: map[string]issueRefs{},
 		epoch: strconv.FormatInt(time.Now().UnixNano(), 36), wake: make(chan struct{}),
-		pullers: map[string]*puller{}, fetch: defaultFetch}
+		pullers: map[string]*puller{}, fetch: defaultFetch, pullTimeout: pullTimeout}
 	m.s = mcp.NewServer(&mcp.Implementation{
 		Name:    "git-issue",
 		Title:   "git-issue",

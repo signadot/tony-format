@@ -96,14 +96,15 @@ func (cfg *watchConfig) run(cc *cli.Context, args []string) error {
 // fetch, and hands to note what stands -- a refusal, a failure -- when it
 // begins and when it clears, and what the pull did to an issue just before
 // the change it brought. It pulls once before its first look, so what that
-// brings is where the watch begins.
+// brings is where the watch begins. It looks between pulls, not during one,
+// so a change made here while it pulls is said when the pull is done.
 func watchStore(ctx context.Context, st issuelib.Store, f watchFilter, interval time.Duration, p *puller, fetch time.Duration, emit func(watchChange), note func(pullNote)) error {
 	wants := func(xidr string) bool { return f.wants("", xidr) }
 	scoped := func(xidr string) bool { return f.wantsIssue(st, "", xidr) }
 	said := alarmsSaid{}
 	var did []pullNote
 	pull := func() {
-		d, _ := p.pull()
+		d, _ := p.pull(0)
 		did = append(did, d...)
 		for _, n := range said.news(p.stands(scoped), p.remote) {
 			note(n)

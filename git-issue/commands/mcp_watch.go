@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -43,7 +44,7 @@ type watchRemoteIn struct {
 
 type watchOut struct {
 	Changes []watchChange `json:"changes" jsonschema:"the issues that changed, in the order the changes were found; empty at the timeout"`
-	Pulls   []pullNote    `json:"pulls,omitempty" jsonschema:"issue_watch_remote: what its pulls did to the issues among changes, and -- when it differs from what the cursor was last told -- all that stands: refusals, failures, or clear"`
+	Pulls   []pullNote    `json:"pulls,omitempty" jsonschema:"what a watch's pull did to the issues among changes; and from issue_watch_remote, when it differs from what the cursor was last told, all that stands: refusals, failures, or clear"`
 	Cursor  string        `json:"cursor" jsonschema:"pass as since to the next issue_watch"`
 }
 
@@ -150,24 +151,67 @@ func (m *mcpServer) watchTool(ctx context.Context, repos, ids []string, label, s
 }
 
 // pullDue pulls the remote into each repository not pulled from it within
-// -fetch, by any watch, and looks at once when it pulled. The look logs what
-// the pull did to an issue with the change it brought (look, took), so every
-// watch reading the log has both. A repository being pulled by another watch
-// is not waited for: what that pull brings reaches every watch the same way.
-func (m *mcpServer) pullDue(ctx context.Context, pulls *watchPulls) {
-	pulled := false
+// -fetch, by any watch, each on its own so a remote that hangs holds up no
+// other, and answers a channel closed when all are done. A look follows each
+// pull, and logs what the pull did to an issue with the change it brought
+// (look, took), so every watch reading the log has both; and waiters are
+// woken, since what stands may have changed with no issue changing.
+//
+// It does not end with ctx: a pull begun for a call that has answered is
+// still a pull made, for the next.
+func (m *mcpServer) pullDue(ctx context.Context, pulls *watchPulls) <-chan struct{} {
+	ctx = context.WithoutCancel(ctx)
+	var wg sync.WaitGroup
 	for _, r := range pulls.repos {
 		p := m.pullerFor(r, pulls.remote)
-		if !p.due(m.fetch) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, ok := p.pull(m.fetch); ok {
+				m.look(ctx)
+				m.poke()
+			}
+		}()
+	}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	return done
+}
+
+// poke wakes whoever waits, to look again at what stands.
+func (m *mcpServer) poke() {
+	m.mu.Lock()
+	close(m.wake)
+	m.wake = make(chan struct{})
+	m.mu.Unlock()
+}
+
+// lookable answers whether a repository can be looked at now -- no pull of
+// it is running -- and what to call when the look is done. A repository
+// being pulled is left for the look that follows the pull.
+func (m *mcpServer) lookable(dir string) (done func(), ok bool) {
+	m.pullMu.Lock()
+	defer m.pullMu.Unlock()
+	var held []*puller
+	done = func() {
+		for _, p := range held {
+			p.busy.Unlock()
+		}
+	}
+	for key, p := range m.pullers {
+		if !strings.HasPrefix(key, dir+" ") {
 			continue
 		}
-		if _, ok := p.pull(); ok {
-			pulled = true
+		if !p.busy.TryLock() {
+			done()
+			return nil, false
 		}
+		held = append(held, p)
 	}
-	if pulled {
-		m.look(ctx)
-	}
+	return done, true
 }
 
 // pulledBy answers what the pullers of a repository did to an issue, taking
@@ -194,7 +238,7 @@ func (m *mcpServer) pullerFor(r *repo, remote string) *puller {
 	key := r.Dir + " " + remote
 	p := m.pullers[key]
 	if p == nil {
-		p = newPuller(r.Store, r.Dir, "", remote, pullTimeout)
+		p = newPuller(r.Store, r.Dir, "", remote, m.pullTimeout)
 		m.pullers[key] = p
 	}
 	p.named(repoLabel(m.ws, r))
@@ -215,34 +259,51 @@ func (m *mcpServer) standing(pulls *watchPulls, f watchFilter) []pullNote {
 // until the timeout. Without since it starts from the latest change found.
 //
 // With pulls it pulls before it starts -- so what that brings, on a first
-// call, is where the watch begins -- and every -fetch while it waits. It
+// call, is where the watch begins -- and every -fetch while it waits, never
+// past its timeout: a pull still running then is left to finish. It
 // answers too when what stands -- refusals, failures -- is not what the
 // cursor says the watch was last told, with all that stands now, or clear.
 func (m *mcpServer) waitFor(ctx context.Context, f watchFilter, since string, timeout time.Duration, pulls *watchPulls) (watchOut, error) {
+	var cursor uint64
+	began, told := time.Now(), ""
+	if since != "" {
+		m.mu.Lock()
+		seq, b, h, err := m.parseCursor(since)
+		if err == nil && len(m.log) > 0 && seq+1 < m.log[0].seq {
+			err = fmt.Errorf("cursor %s is older than the %d changes this server keeps; call without since, and issue_list to catch up", since, watchLogCap)
+		}
+		m.mu.Unlock()
+		if err != nil {
+			return watchOut{}, err
+		}
+		cursor, began, told = seq, b, h
+	}
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	// A first call waits for its pull, within the timeout: what that brings
+	// is where the watch begins. A later one has its cursor to begin from.
+	timedOut := false
 	var fetchC <-chan time.Time
 	if pulls != nil {
-		m.pullDue(ctx, pulls)
+		pulled := m.pullDue(ctx, pulls)
+		if since == "" {
+			select {
+			case <-pulled:
+			case <-deadline.C:
+				timedOut = true
+			case <-ctx.Done():
+				return watchOut{}, ctx.Err()
+			}
+		}
 		t := time.NewTicker(m.fetch)
 		defer t.Stop()
 		fetchC = t.C
 	}
-	m.mu.Lock()
-	cursor, began, told := m.seq, time.Now(), ""
-	if since != "" {
-		seq, b, h, err := m.parseCursor(since)
-		if err != nil {
-			m.mu.Unlock()
-			return watchOut{}, err
-		}
-		if len(m.log) > 0 && seq+1 < m.log[0].seq {
-			m.mu.Unlock()
-			return watchOut{}, fmt.Errorf("cursor %s is older than the %d changes this server keeps; call without since, and issue_list to catch up", since, watchLogCap)
-		}
-		cursor, began, told = seq, b, h
+	if since == "" {
+		m.mu.Lock()
+		cursor = m.seq
+		m.mu.Unlock()
 	}
-	m.mu.Unlock()
-	deadline := time.NewTimer(timeout)
-	defer deadline.Stop()
 	for {
 		m.mu.Lock()
 		var events []watchEvent
@@ -277,7 +338,7 @@ func (m *mcpServer) waitFor(ctx context.Context, f watchFilter, since string, ti
 			}
 		}
 		out.Pulls = append(alarms, out.Pulls...)
-		if len(out.Changes) > 0 || len(alarms) > 0 {
+		if len(out.Changes) > 0 || len(alarms) > 0 || timedOut {
 			return out, nil
 		}
 		select {

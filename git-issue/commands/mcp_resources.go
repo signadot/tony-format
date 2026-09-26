@@ -60,9 +60,10 @@ type mcpServer struct {
 
 	// What issue_watch_remote pulls: each repository and remote's puller
 	// (guarded by pullMu), and how often one is pulled.
-	pullMu  sync.Mutex
-	pullers map[string]*puller
-	fetch   time.Duration
+	pullMu      sync.Mutex
+	pullers     map[string]*puller
+	fetch       time.Duration
+	pullTimeout time.Duration
 }
 
 // watchLogCap is how many changes the server keeps for issue_watch's cursor: a
@@ -260,8 +261,10 @@ func (m *mcpServer) complete(_ context.Context, req *mcp.CompleteRequest) (*mcp.
 // look compares every served repository's issue refs with the last look,
 // announces each issue whose refs moved, logs it for issue_watch and wakes
 // whoever waits, and resyncs the listing when an issue appeared, went, or moved
-// between open and closed, or a repository stopped being served. It is what the watch does on each tick, and what a
-// tool that changed something does once.
+// between open and closed, or a repository stopped being served. It is what
+// the watch does on each tick, and what a tool that changed something does
+// once. A repository being pulled for a watch is left for the look that
+// follows the pull (lookable).
 func (m *mcpServer) look(ctx context.Context) {
 	m.mu.Lock()
 	var events []watchEvent
@@ -269,7 +272,12 @@ func (m *mcpServer) look(ctx context.Context) {
 	served := map[string]bool{}
 	for _, r := range m.ws.list() {
 		served[r.Dir] = true
+		done, ok := m.lookable(r.Dir)
+		if !ok {
+			continue
+		}
 		now, err := lookAt(r.Store)
+		done()
 		if err != nil {
 			continue
 		}

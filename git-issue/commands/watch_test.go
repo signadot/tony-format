@@ -710,7 +710,7 @@ func TestPuller_Timeout(t *testing.T) {
 	run(t, dir, "remote", "add", "origin", "ext::sleep 60")
 	p := newPuller(issuelib.NewGitStoreAt(dir, &strings.Builder{}), dir, "", "origin", 300*time.Millisecond)
 	start := time.Now()
-	if _, ok := p.pull(); !ok {
+	if _, ok := p.pull(0); !ok {
 		t.Fatal("the pull was not made")
 	}
 	if took := time.Since(start); took > 5*time.Second {
@@ -719,5 +719,93 @@ func TestPuller_Timeout(t *testing.T) {
 	stands := p.stands(func(string) bool { return true })
 	if len(stands) != 1 || !strings.HasPrefix(stands[0].What, couldNot) || !strings.Contains(stands[0].What, "timed out after 300ms") {
 		t.Errorf("stands %+v, want could not pull, timed out", stands)
+	}
+}
+
+// remoteWatchServer is a server on dir whose watches pull every 50ms, and a
+// client of it.
+func remoteWatchServer(t *testing.T, dir string) (*mcpServer, *mcp.ClientSession) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	serverT, clientT := mcp.NewInMemoryTransports()
+	m := newMCPServer(isolatedSet(t, dir))
+	m.fetch = 50 * time.Millisecond
+	go m.s.Run(ctx, serverT)
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil).Connect(ctx, clientT, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cs.Close() })
+	return m, cs
+}
+
+// TestMCP_IssueWatchRemoteKeepsItsTimeout: a remote that hangs does not hold
+// issue_watch_remote past its timeout, nor keep it from a change made here.
+func TestMCP_IssueWatchRemoteKeepsItsTimeout(t *testing.T) {
+	dir := repoDir(t, "here")
+	run(t, dir, "config", "protocol.ext.allow", "always")
+	run(t, dir, "remote", "add", "origin", "ext::sleep 5")
+	here := issuelib.NewGitStoreAt(dir, &strings.Builder{})
+	issue, err := ops.Create(here, "Here", "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, cs := remoteWatchServer(t, dir)
+	m.pullTimeout = 3 * time.Second
+
+	start := time.Now()
+	var out watchOut
+	call(t, cs, "issue_watch_remote", map[string]any{"timeout": 1}, &out)
+	if took := time.Since(start); took > 2500*time.Millisecond {
+		t.Errorf("a call with a 1s timeout took %v", took)
+	}
+	if len(out.Changes) != 0 || out.Cursor == "" {
+		t.Errorf("answered %+v, want no change and a cursor", out)
+	}
+
+	// The pull given up on stands, and the look deferred for it is made.
+	var failed watchOut
+	call(t, cs, "issue_watch_remote", map[string]any{"since": out.Cursor, "timeout": 10}, &failed)
+	if len(failed.Pulls) != 1 || !strings.HasPrefix(failed.Pulls[0].What, couldNot) {
+		t.Fatalf("answered %+v, want could not pull", failed)
+	}
+	call(t, cs, "issue_comment", map[string]any{"id": issue.ID, "text": "made here"}, nil)
+	var local watchOut
+	call(t, cs, "issue_watch_remote", map[string]any{"since": failed.Cursor, "timeout": 10}, &local)
+	if len(local.Changes) != 1 || !hasPrefixed(local.Changes[0].What, "comment") {
+		t.Errorf("answered %+v, want the comment made here", local)
+	}
+}
+
+// TestMCP_LookLeavesARepositoryBeingPulled: a look made while a repository
+// is pulled leaves it for the look that follows, which finds what changed.
+func TestMCP_LookLeavesARepositoryBeingPulled(t *testing.T) {
+	_, hereDir, _ := remotePair(t)
+	here := issuelib.NewGitStoreAt(hereDir, &strings.Builder{})
+	issue, err := ops.Create(here, "Here", "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, _ := remoteWatchServer(t, hereDir)
+	p := m.pullerFor(m.ws.list()[0], "origin")
+	logged := func() int {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		return len(m.log)
+	}
+
+	p.busy.Lock()
+	if _, _, err := ops.Comment(here, issue.ID, "during a pull"); err != nil {
+		t.Fatal(err)
+	}
+	m.look(context.Background())
+	if n := logged(); n != 0 {
+		t.Errorf("a look during a pull logged %d change(s)", n)
+	}
+	p.busy.Unlock()
+	m.look(context.Background())
+	if n := logged(); n != 1 {
+		t.Errorf("the look after the pull logged %d change(s), want 1", n)
 	}
 }

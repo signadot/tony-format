@@ -41,8 +41,7 @@ type pullNote struct {
 	ID     string `json:"id,omitempty" jsonschema:"the issue, when the note is about one"`
 	What   string `json:"what" jsonschema:"what the pull did, as issue_pull says it: created at <sha>, <old>..<new>, merged <a> and <b>; or what stands: refused: why, for a person to decide; failed: why; could not pull: why; and clear, when nothing stands any more"`
 
-	alarm bool   // stands until a person acts: a refusal or a failure
-	dir   string // the repository's directory: its name, Repo, can change
+	dir string // the repository's directory: its name, Repo, can change
 }
 
 func (n pullNote) line() string {
@@ -79,14 +78,20 @@ const couldNot = "could not pull: "
 const clear = "clear: nothing refused or failing"
 
 // puller pulls one repository from one remote, and keeps what its last pull
-// left standing. One pull runs at a time; a watch that finds one running
-// does not wait for it, since what it brings reaches every watch by the look.
+// left standing. One pull runs at a time, and a watch that finds one running
+// waits for it rather than pulling again.
+//
+// A pull holds busy, and so does a look at the repository (the MCP server's),
+// which leaves a repository being pulled for the look that follows the pull:
+// a change is then found with the pull that brought it known, not halfway
+// through it.
 type puller struct {
 	st           issuelib.Store
 	dir          string
 	repo, remote string
 
 	pulling sync.Mutex
+	busy    sync.Mutex
 
 	mu       sync.Mutex
 	last     time.Time
@@ -110,31 +115,35 @@ func newPuller(st issuelib.Store, dir, repo, remote string, timeout time.Duratio
 }
 
 // pull pulls, keeps what it left standing, and answers what it did to each
-// issue. ok is false when another pull was running, and this one was not made.
-func (p *puller) pull() (did []pullNote, ok bool) {
-	if !p.pulling.TryLock() {
+// issue. It waits for a pull that is running, and is not made -- ok is false
+// -- when the last one is then less than every old.
+func (p *puller) pull(every time.Duration) (did []pullNote, ok bool) {
+	p.pulling.Lock()
+	defer p.pulling.Unlock()
+	if !p.due(every) {
 		return nil, false
 	}
-	defer p.pulling.Unlock()
+	p.busy.Lock()
+	defer p.busy.Unlock()
 	p.mu.Lock()
 	repo := p.repo
 	p.mu.Unlock()
-	note := func(id, what string, alarm bool) pullNote {
-		return pullNote{Repo: repo, Remote: p.remote, ID: id, What: what, alarm: alarm, dir: p.dir}
+	note := func(id, what string) pullNote {
+		return pullNote{Repo: repo, Remote: p.remote, ID: id, What: what, dir: p.dir}
 	}
 	var standing []pullNote
 	r, err := ops.Pull(p.st, p.remote, false, false)
 	if err != nil {
-		standing = append(standing, note("", couldNot+err.Error(), true))
+		standing = append(standing, note("", couldNot+err.Error()))
 	} else {
 		for _, c := range r.Changed {
-			did = append(did, note(c.ID, c.What, false))
+			did = append(did, note(c.ID, c.What))
 		}
 		for _, f := range r.Refused {
-			standing = append(standing, note(f.ID, "refused: "+f.Reason+" (here "+f.Here+", "+p.remote+" "+f.There+")", true))
+			standing = append(standing, note(f.ID, "refused: "+f.Reason+" (here "+f.Here+", "+p.remote+" "+f.There+")"))
 		}
 		for _, e := range r.Failed {
-			standing = append(standing, note("", "failed: "+e.Error(), true))
+			standing = append(standing, note("", "failed: "+e.Error()))
 		}
 		srcs := make([]string, 0, len(r.Unreached))
 		for src := range r.Unreached {
@@ -142,7 +151,7 @@ func (p *puller) pull() (did []pullNote, ok bool) {
 		}
 		sort.Strings(srcs)
 		for _, src := range srcs {
-			standing = append(standing, note("", "source "+src+" not reached, its mirrors are as they were: "+r.Unreached[src], true))
+			standing = append(standing, note("", "source "+src+" not reached, its mirrors are as they were: "+r.Unreached[src]))
 		}
 	}
 	recent := map[string]pulledNote{}
