@@ -7,7 +7,9 @@ commits: []
 created: "2026-09-26T13:34:24.812491+02:00"
 duplicates: []
 id: 82tmk1ywh12ksg5dpxn0
-labels: []
+labels:
+- friction
+- git-issue
 related_issues: []
 status: closed
-updated: "2026-09-26T13:37:07.695798+02:00"
+updated: "2026-09-26T13:37:07.848392+02:00"
