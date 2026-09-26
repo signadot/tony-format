@@ -15,7 +15,15 @@ func own(s issuelib.Store, id string) (string, error) {
 		return "", err
 	}
 	if source, xidr, ok := issuelib.ExtSource(ref); ok {
-		return "", fmt.Errorf("%s is a mirror of %s's issue: it is edited there, not here", xidr, source)
+		where := ""
+		if sources, err := s.Sources(); err == nil {
+			for _, src := range sources {
+				if src.Name == source {
+					where = " (" + src.URL + ")"
+				}
+			}
+		}
+		return "", fmt.Errorf("%s is a mirror of %s's issue%s: it is edited there, not here", xidr, source, where)
 	}
 	return ref, nil
 }

@@ -30,11 +30,11 @@ import (
 // loopback because nothing it serves authenticates, and stdio has no such
 // question, the host owns both ends.
 //
-// The repositories it serves are its working set (mcp_workspace.go), and come
-// from the first of: -C, repeatable; ~/.config/git-issue.tony; the repository
-// the server was started in. A server started outside any repository with no
-// -C and no config refuses and says so. repo_add and repo_remove change the set
-// while it runs. One repository served is what it was: no tool needs a repo.
+// The repositories it serves are its working set (mcp_workspace.go): every one
+// that -C (repeatable), ~/.config/git-issue.tony and the repository the server
+// was started in name, together. A server started outside any repository with
+// no -C and no config refuses and says so. repo_add and repo_remove change the
+// set while it runs. One repository served is what it was: no tool needs a repo.
 //
 // The issues are resources too (mcp_resources.go), and a host that subscribes
 // to one hears it change -- by the server's own tools, and by anything else
@@ -63,7 +63,7 @@ func MCPCommand(store issuelib.Store) *cli.Command {
 		WithOpts(
 			&cli.Opt{
 				Name:        "C",
-				Description: "a repository to serve; repeatable. With none, ~/.config/git-issue.tony, else the working directory",
+				Description: "a repository to serve; repeatable. Served with those in ~/.config/git-issue.tony and the working directory",
 				Type: cli.NamedFuncOpt(cli.FuncOpt(func(cc *cli.Context, a string) (any, error) {
 					cfg.Dirs = append(cfg.Dirs, a)
 					return 0, nil
@@ -109,28 +109,33 @@ func (cfg *mcpConfig) run(cc *cli.Context, args []string) error {
 	return m.s.Run(ctx, &mcp.StdioTransport{})
 }
 
-// startingSet is the working set a server starts with: the -C list, else the
-// configured set, else the working directory when it is a repository.
+// startingSet is the working set a server starts with: every repository the
+// -C list, the configured set and the working directory name, in that order,
+// once each -- a repository named twice is served once, under the first name
+// it came in with. With none of the three there is nothing to serve.
 func startingSet(dirs []string, out io.Writer) (*workspace, error) {
 	ws := newWorkspace(out)
-	from := "-C"
-	if len(dirs) == 0 {
-		configured, err := readWorkingSet()
-		if err != nil {
-			return nil, err
-		}
-		dirs, from = configured, "config"
-	}
-	if len(dirs) == 0 {
-		if err := issuelib.NewGitStoreAt("", out).VerifyRepository(); err != nil {
-			return nil, errors.New("not in a repository, no -C given and no ~/.config/git-issue.tony: nothing to serve")
-		}
-		dirs, from = []string{"."}, "cwd"
-	}
 	for _, dir := range dirs {
-		if _, err := ws.add(dir, from); err != nil {
+		if _, err := ws.add(dir, "-C"); err != nil {
 			return nil, err
 		}
+	}
+	configured, err := readWorkingSet()
+	if err != nil {
+		return nil, err
+	}
+	for _, dir := range configured {
+		if _, err := ws.add(dir, "config"); err != nil {
+			return nil, err
+		}
+	}
+	if err := issuelib.NewGitStoreAt("", out).VerifyRepository(); err == nil {
+		if _, err := ws.add(".", "cwd"); err != nil {
+			return nil, err
+		}
+	}
+	if len(ws.list()) == 0 {
+		return nil, errors.New("not in a repository, no -C given and no ~/.config/git-issue.tony: nothing to serve")
 	}
 	return ws, nil
 }
