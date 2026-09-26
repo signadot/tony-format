@@ -88,9 +88,9 @@ push-dockers-o: build-dockers-o
 
 # Packages whose Go codecs (<pkg>_gen.go) and Tony schemas (schema_gen.tony) are
 # generated from //tony:schemagen markers by cmd/tony-codegen. Keep this list in
-# sync when a new package grows schemagen markers.
+# sync when a new package grows schemagen markers. git-issue is a module of its
+# own and runs the same generator from its own Makefile.
 CODEGEN_PKGS = \
-	cmd/git-issue/issuelib \
 	dirbuild \
 	stream \
 	system/docd/api \

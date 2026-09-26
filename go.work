@@ -1,0 +1,11 @@
+// The repository holds two modules: go-tony, the library and the o command, and
+// git-issue, the tracker, which imports go-tony by version. This joins them for
+// local work, so git-issue builds against the go-tony in this checkout rather
+// than the last release, and gopls sees both. go install ...@latest ignores it,
+// as it should: a release of git-issue pins the go-tony it was built with.
+go 1.27.1
+
+use (
+	./git-issue
+	./go-tony
+)
