@@ -39,8 +39,13 @@ const serveDefaultAddr = "localhost:8080"
 
 type serveConfig struct {
 	*cli.Command
-	store issuelib.Store
-	Addr  string `cli:"name=addr desc='address to listen on (default localhost:8080)'"`
+	store  issuelib.Store
+	Addr   string `cli:"name=addr desc='address to listen on (default localhost:8080)'"`
+	Watch  bool   `cli:"name=watch desc='pull the remote, and reload open pages as issues change'"`
+	Remote string `cli:"name=remote desc='with -watch, the remote to pull (default origin, when there is one)'"`
+	Local  bool   `cli:"name=local desc='with -watch, pull nothing; watch this clone alone'"`
+	Poll   time.Duration
+	Fetch  time.Duration
 }
 
 // ServeCommand returns the serve subcommand.
@@ -48,8 +53,8 @@ func ServeCommand(store issuelib.Store) *cli.Command {
 	cfg := &serveConfig{store: store}
 	opts, _ := cli.StructOpts(cfg)
 	return cli.NewCommandAt(&cfg.Command, "serve").
-		WithSynopsis("serve [--addr <addr>] - Read-only web view of issues").
-		WithOpts(opts...).
+		WithSynopsis("serve [--addr <addr>] [-watch [--remote <name> | --local] [-poll <duration>] [-fetch <duration>]] - Read-only web view of issues").
+		WithOpts(append(opts, pollOpt(&cfg.Poll, ""), fetchOpt(&cfg.Fetch))...).
 		WithRun(cfg.run)
 }
 
@@ -63,13 +68,31 @@ func (cfg *serveConfig) run(cc *cli.Context, args []string) error {
 		addr = serveDefaultAddr
 	}
 
+	// The watch's options are the watch's: without -watch they say nothing.
+	if !cfg.Watch && (cfg.Remote != "" || cfg.Local || cfg.Poll != 0 || cfg.Fetch != 0) {
+		return fmt.Errorf("%w: --remote, --local, -poll and -fetch go with -watch", cli.ErrUsage)
+	}
+	handler := newIssueServer(cfg.store)
+	var live *liveView
+	if cfg.Watch {
+		if err := cfg.store.VerifyRepository(); err != nil {
+			return err
+		}
+		p, err := watchPuller(cc, cfg.store, cfg.Remote, cfg.Local)
+		if err != nil {
+			return err
+		}
+		live = newLiveView(p)
+		handler.watching(live)
+	}
+
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", addr, err)
 	}
 
 	srv := &http.Server{
-		Handler:           newIssueServer(cfg.store),
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -81,10 +104,32 @@ func (cfg *serveConfig) run(cc *cli.Context, args []string) error {
 
 	fmt.Fprintf(cc.Out, "git-issue: read-only view at http://%s/ (ctrl-c to stop)\n", ln.Addr())
 
+	if live != nil {
+		poll, fetch := cfg.Poll, cfg.Fetch
+		if poll == 0 {
+			poll = watchInterval
+		}
+		if fetch == 0 {
+			fetch = defaultFetch
+		}
+		go func() {
+			err := watchStore(ctx, cfg.store, watchFilter{}, poll, live.p, fetch,
+				live.changed, func(pullNote) {}, live.pulled)
+			if err != nil {
+				fmt.Fprintf(cc.Err, "git-issue: the watch stopped: %v\n", err)
+			}
+		}()
+	}
+
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		<-ctx.Done()
+		// An event stream never ends on its own, and Shutdown waits for what
+		// is open.
+		if live != nil {
+			live.close()
+		}
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutCtx)
@@ -103,6 +148,7 @@ type issueServer struct {
 	store issuelib.Store
 	mux   *http.ServeMux
 	cache *pageCache
+	watch *liveView // nil unless the server watches (serve_watch.go)
 }
 
 func newIssueServer(store issuelib.Store) *issueServer {
@@ -210,7 +256,8 @@ func (s *issueServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(digest, "%s %s\n", ref, commit)
 		live = append(live, ref)
 	}
-	token := hex.EncodeToString(digest.Sum(nil))
+	said, saidToken := s.live("")
+	token := hex.EncodeToString(digest.Sum(nil)) + saidToken
 
 	key := "index"
 	if all {
@@ -221,7 +268,7 @@ func (s *issueServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page := &indexPage{All: all}
+	page := &indexPage{All: all, Live: said}
 	for _, ref := range live {
 		issue, _, err := s.store.GetByRef(ref)
 		if err != nil {
@@ -271,7 +318,8 @@ func (s *issueServer) handleIssue(w http.ResponseWriter, r *http.Request) {
 	// without rewriting the commit -- so the commit alone is not a complete
 	// statement of what this page says. Pair it with the status it was
 	// rendered under.
-	token := commit + "." + issuelib.StatusFromRef(ref)
+	said, saidToken := s.live(xidr)
+	token := commit + "." + issuelib.StatusFromRef(ref) + saidToken
 	key := "issue/" + xidr
 	if body, ok := s.cache.get(key, token); ok {
 		serveHTML(w, r, token, body)
@@ -283,6 +331,7 @@ func (s *issueServer) handleIssue(w http.ResponseWriter, r *http.Request) {
 		s.errorPage(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
+	page.Live = said
 	body, err := renderPage("issue", page)
 	if err != nil {
 		s.errorPage(w, r, http.StatusInternalServerError, err.Error())

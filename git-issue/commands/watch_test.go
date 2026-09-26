@@ -113,7 +113,7 @@ func TestWatchStore(t *testing.T) {
 	got := make(chan watchChange, 16)
 	done := make(chan error, 1)
 	go func() {
-		done <- watchStore(ctx, store, watchFilter{label: "bug"}, 10*time.Millisecond, nil, 0, func(ch watchChange) { got <- ch }, nil)
+		done <- watchStore(ctx, store, watchFilter{label: "bug"}, 10*time.Millisecond, nil, 0, func(ch watchChange) { got <- ch }, nil, nil)
 	}()
 	time.Sleep(50 * time.Millisecond)
 	if _, _, err := ops.Comment(store, issue.ID, "before the label"); err != nil {
@@ -184,7 +184,7 @@ func TestWatchStore_Arrived(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	got := make(chan watchChange, 16)
-	go watchStore(ctx, store, watchFilter{}, 10*time.Millisecond, nil, 0, func(ch watchChange) { got <- ch }, nil)
+	go watchStore(ctx, store, watchFilter{}, 10*time.Millisecond, nil, 0, func(ch watchChange) { got <- ch }, nil, nil)
 	time.Sleep(50 * time.Millisecond)
 
 	if out, err := exec.Command("git", "-C", dir, "fetch", "-q", srcDir,
@@ -379,7 +379,7 @@ func TestWatchStore_Pulls(t *testing.T) {
 	defer cancel()
 	changes, notes := make(chan watchChange, 16), make(chan pullNote, 16)
 	go watchStore(ctx, here, watchFilter{}, 10*time.Millisecond, newPuller(here, hereDir, "", "origin", time.Minute), 50*time.Millisecond,
-		func(ch watchChange) { changes <- ch }, func(n pullNote) { notes <- n })
+		func(ch watchChange) { changes <- ch }, func(n pullNote) { notes <- n }, nil)
 
 	next := func(what string) pullNote {
 		t.Helper()
@@ -665,7 +665,7 @@ func TestWatchStore_Refusal(t *testing.T) {
 	defer cancel()
 	notes := make(chan pullNote, 16)
 	go watchStore(ctx, here, watchFilter{}, 10*time.Millisecond, newPuller(here, hereDir, "", "origin", time.Minute), 50*time.Millisecond,
-		func(watchChange) {}, func(n pullNote) { notes <- n })
+		func(watchChange) {}, func(n pullNote) { notes <- n }, nil)
 	select {
 	case n := <-notes:
 		if n.ID != issue.ID || !strings.HasPrefix(n.What, "refused: ") {

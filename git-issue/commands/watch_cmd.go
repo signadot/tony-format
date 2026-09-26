@@ -66,21 +66,9 @@ func (cfg *watchConfig) run(cc *cli.Context, args []string) error {
 			f.ids[xidr] = true
 		}
 	}
-	var p *puller
-	switch {
-	case cfg.Local && cfg.Remote != "":
-		return fmt.Errorf("%w: --local and --remote: one or the other", cli.ErrUsage)
-	case cfg.Remote != "":
-		if err := cfg.store.VerifyRemote(cfg.Remote); err != nil {
-			return err
-		}
-		p = newPuller(cfg.store, "", "", cfg.Remote, pullTimeout)
-	case !cfg.Local:
-		if cfg.store.VerifyRemote("origin") == nil {
-			p = newPuller(cfg.store, "", "", "origin", pullTimeout)
-		} else {
-			fmt.Fprintln(cc.Err, "no origin: watching this clone alone")
-		}
+	p, err := watchPuller(cc, cfg.store, cfg.Remote, cfg.Local)
+	if err != nil {
+		return err
 	}
 	ctx := cc.Go
 	if ctx == nil {
@@ -88,7 +76,7 @@ func (cfg *watchConfig) run(cc *cli.Context, args []string) error {
 	}
 	return watchStore(ctx, cfg.store, f, cfg.Poll, p, cfg.Fetch,
 		func(ch watchChange) { fmt.Fprintln(cc.Out, ch.oneLine()) },
-		func(n pullNote) { fmt.Fprintln(cc.Out, n.line()) })
+		func(n pullNote) { fmt.Fprintln(cc.Out, n.line()) }, nil)
 }
 
 // watchStore looks at a repository's issue refs every interval until ctx
@@ -97,8 +85,9 @@ func (cfg *watchConfig) run(cc *cli.Context, args []string) error {
 // begins and when it clears, and what the pull did to an issue just before
 // the change it brought. It pulls once before its first look, so what that
 // brings is where the watch begins. It looks between pulls, not during one,
-// so a change made here while it pulls is said when the pull is done.
-func watchStore(ctx context.Context, st issuelib.Store, f watchFilter, interval time.Duration, p *puller, fetch time.Duration, emit func(watchChange), note func(pullNote)) error {
+// so a change made here while it pulls is said when the pull is done. pulled,
+// when there is one, is called after each pull.
+func watchStore(ctx context.Context, st issuelib.Store, f watchFilter, interval time.Duration, p *puller, fetch time.Duration, emit func(watchChange), note func(pullNote), pulled func()) error {
 	wants := func(xidr string) bool { return f.wants("", xidr) }
 	scoped := func(xidr string) bool { return f.wantsIssue(st, "", xidr) }
 	said := alarmsSaid{}
@@ -108,6 +97,9 @@ func watchStore(ctx context.Context, st issuelib.Store, f watchFilter, interval 
 		did = append(did, d...)
 		for _, n := range said.news(p.stands(scoped), p.remote) {
 			note(n)
+		}
+		if pulled != nil {
+			pulled()
 		}
 	}
 	var fetchC <-chan time.Time

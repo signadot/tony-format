@@ -216,6 +216,7 @@ and refuses to run if the issue moved since the export, unless given `--force`.
 ```bash
 git issue serve                      # http://localhost:8080/
 git issue serve --addr 127.0.0.1:9000
+git issue serve -watch               # pull origin; open pages reload as issues change
 ```
 
 Serves a read-only view of the issues in the current repository:
@@ -231,6 +232,20 @@ Serves a read-only view of the issues in the current repository:
 `serve` is read-only: issues are edited with the CLI. There is no
 authentication, and there should not be: bind loopback unless you know exactly
 who else can reach the address you pick.
+
+Without `-watch` a page says what this clone holds when it is loaded, and
+nothing is pulled. With it, `serve` runs the watch [`watch`](#watch) runs,
+and takes its `--remote`, `--local`, `-poll` and `-fetch`:
+
+- it pulls origin every `-fetch`, when there is an origin
+- an open issue's page reloads when the issue changes, and the list when any
+  does
+- an issue refused, or a remote not reached, is shown at the top of the list
+  and of that issue's page until it clears
+
+The pull writes this clone's refs, as `git issue pull` does. The view is still
+read-only: nothing a browser sends changes an issue. A page reloads by a
+script, `/watch.js`, the only one served.
 
 ## Serve to an agent
 

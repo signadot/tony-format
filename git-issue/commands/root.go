@@ -16,7 +16,9 @@
 //     mirrored here read-only so a relation to it resolves from this repository
 //   - export, import -- copy an issue's tree out to a directory, and write an
 //     edited copy back onto the issue's ref
-//   - serve -- a read-only web view of the repository's issues
+//   - serve -- a read-only web view of the repository's issues; with -watch
+//     it pulls the remote and open pages reload as issues change
+//     (serve_watch.go)
 //   - mcp -- the tracker as an MCP server over stdio, for an agent's host to
 //     start: one repository or several, issue_* and repo_* tools, issue://
 //     resources a host can subscribe to, and issue_watch for an agent whose
@@ -82,7 +84,7 @@ Usage:
   git issue ext fetch <source> <id>         Mirror one of its issues here, read-only
   git issue ext refresh [<source>]          Bring mirrors up to their sources
   git issue ext remove <id>                 Drop a mirror and the relations naming it
-  git issue serve [--addr <addr>]           Read-only web view (default localhost:8080)
+  git issue serve [--addr <addr>] [-watch]  Read-only web view (default localhost:8080); -watch pulls, and pages reload
   git issue mcp [-C <dir>]                  Serve the tracker to an agent's host over MCP (stdin/stdout)
   git issue watch [--label <l>] [--local] [<id>...]  Pull origin; print each issue that changes, until stopped
   git issue migrate [--dry-run]             Migrate issues from numeric IDs to XIDs

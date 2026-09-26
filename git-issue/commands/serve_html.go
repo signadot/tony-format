@@ -18,6 +18,7 @@ import (
 // cached as bytes.
 
 type indexPage struct {
+	Live        livePage
 	All         bool
 	Issues      []indexRow
 	OpenCount   int
@@ -33,6 +34,7 @@ type indexRow struct {
 }
 
 type issuePage struct {
+	Live        livePage
 	ID          string
 	Title       string
 	Status      string
@@ -76,6 +78,7 @@ type attachmentRow struct {
 }
 
 type errorPageData struct {
+	Live    livePage
 	Status  int
 	Message string
 }
@@ -199,7 +202,8 @@ const shellHTML = `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{template "pagetitle" .}}</title>
-<style>
+{{if .Live.Watching}}<script src="/watch.js" defer></script>
+{{end}}<style>
 :root { color-scheme: light dark; --fg:#1a1a1a; --dim:#666; --bg:#fff; --line:#e0e0e0;
         --accent:#0b5fa5; --open:#1a7f37; --closed:#8250df; --chip:#f0f0f0; --code:#f6f6f6; }
 @media (prefers-color-scheme: dark) {
@@ -245,17 +249,23 @@ ul.plain li { padding:.15rem 0; }
 .comment .when { border-bottom:1px solid var(--line); padding:.4rem .9rem;
                  font-size:.82rem; color:var(--dim); }
 .comment .prose { padding:.2rem .9rem .8rem; }
+.stands { margin:0 0 1.5rem; padding:.5rem .75rem; border:1px solid var(--line);
+          border-left:3px solid var(--closed); font-size:.88rem; }
+.stands p { margin:.15rem 0; }
 footer { margin-top:3rem; border-top:1px solid var(--line); padding-top:.75rem;
          color:var(--dim); font-size:.82rem; }
 </style>
 </head>
-<body>
+<body{{if .Live.Watching}} data-watch="{{.Live.Self}}"{{end}}>
 <main>
 <header class="top">
   <span class="brand"><a href="/">git issue</a></span>
-  <span class="meta">read-only</span>
+  <span class="meta">read-only{{if .Live.Watching}} &middot; watching{{end}}</span>
 </header>
-{{template "content" .}}
+{{if .Live.Stands}}<div class="stands mono">
+{{range .Live.Stands}}<p>{{.}}</p>
+{{end}}</div>
+{{end}}{{template "content" .}}
 <footer>Served by <span class="mono">git issue serve</span>. This view is read-only &mdash;
 issues are edited with the <span class="mono">git issue</span> CLI.</footer>
 </main>
