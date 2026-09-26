@@ -15,6 +15,7 @@
 //   - export, import -- copy an issue's tree out to a directory, and write an
 //     edited copy back onto the issue's ref
 //   - serve -- a read-only web view of the repository's issues
+//   - mcp -- the tracker as an MCP server, for an agent's host to start (mcp.go)
 //   - migrate, migrate-comments -- one-shot upgrades of on-disk layout
 //
 // Sync decides before it writes. Both directions fetch what the remote holds
@@ -66,6 +67,7 @@ Usage:
   git issue export <id> [dir]               Export issue to directory
   git issue import [--force] <dir>          Import issue from directory
   git issue serve [--addr <addr>]           Read-only web view (default localhost:8080)
+  git issue mcp [-C <dir>]                  Serve the tracker to an agent's host over MCP (stdin/stdout)
   git issue migrate [--dry-run]             Migrate issues from numeric IDs to XIDs
   git issue migrate-comments [--apply]      Rename comments to collision-free names
   git issue version                         Print the version of git-issue
@@ -121,6 +123,7 @@ func Root() *cli.Command {
 			MigrateCommand(store),
 			MigrateCommentsCommand(store),
 			ServeCommand(store),
+			MCPCommand(store),
 			VersionCommand(store),
 		)
 }

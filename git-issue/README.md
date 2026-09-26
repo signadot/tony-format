@@ -268,6 +268,50 @@ is simply a line not yet crossed.
 There is no authentication, and there should not be: bind loopback unless you
 know exactly who else can reach the address you pick.
 
+### Serve the tracker to an agent (MCP)
+
+```bash
+claude mcp add git-issue -- git issue mcp
+```
+
+or, in a project's `.mcp.json`:
+
+```json
+{ "mcpServers": { "git-issue": { "command": "git", "args": ["issue", "mcp"] } } }
+```
+
+`git issue mcp` speaks MCP over stdin and stdout, and is for a host to start,
+not a person: the host gates it tool by tool, and the agent calls the tools
+with typed arguments and reads structured answers -- with the text the command
+would have printed alongside. The repository is the working directory, as for
+every subcommand; `-C <dir>` is for a host that starts it elsewhere. There is
+no listener and no address.
+
+| tool | takes | answers |
+|---|---|---|
+| `issue_list` | `all?`, `label?` | id, status, title, labels, created, updated; newest first |
+| `issue_show` | `id` | the issue whole: title, body, labels, commits, relations, the discussion in order, attachments |
+| `issue_create` | `title`, `body`, `labels?` | the id |
+| `issue_edit` | `id`, `title?`, `body?` | |
+| `issue_comment` | `id`, `text` | the comment's path |
+| `issue_label` | `id`, `add?`, `remove?` | the labels after |
+| `issue_close` | `id`, `commit?` | |
+| `issue_reopen` | `id` | |
+| `issue_link` | `id`, `commit` | the full SHA |
+| `issue_relate` | `id`, `other`, `kind` (related, blocks, duplicate) | whether anything changed |
+| `issue_for_commit` | `commit` | the issues its note names |
+| `issue_pull` | `remote?`, `force?`, `dry_run?` | the sync report |
+| `issue_push` | `remote?`, `id?`, `force?`, `dry_run?` | the sync report |
+
+`id` is a full XIDR or any unambiguous prefix, everywhere. A refusal -- an
+unknown id, an issue closed twice, a merge that cannot be made -- is a tool
+error carrying the message the command would have printed, never a protocol
+error. Push and pull are tools of their own, so a host that wants an agent
+working locally and never touching the remote denies two names; both take
+`dry_run`. The tool descriptions carry the tracker's rules -- a change gets an
+issue and its commit carries `Issue: <id>`, a fix closes with its commit -- so
+an agent reads them where the operation is.
+
 ### Migrations
 
 Two one-shot upgrades for repositories that predate the current layout:
