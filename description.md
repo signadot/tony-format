@@ -11,7 +11,10 @@ for exactly this: a server announces tools with typed parameters and description
 gates each tool by name, and the agent calls them with structured arguments and gets structured
 answers back.
 
-`git issue mcp` is that server, over the same `Store` the commands are written against.
+`git issue mcp` is that server, over the same `Store` the commands are written against. The
+goal is the agent's interface being smooth -- an agent files, reads, edits, closes and syncs
+issues without a rough edge -- and the server is one half of it: the other is that every
+operation an agent needs exists at all, which today `edit` does not (dcp201s6h12krnmdpnn0).
 
 ## Shape
 
@@ -35,6 +38,7 @@ takes, as named JSON parameters rather than flags, and every parameter that the 
 | `issue_list` | `all?`, `label?` | rows: id, status, title, labels, created, updated |
 | `issue_show` | `id` | meta, description, the discussion in order, attachments by name |
 | `issue_create` | `title`, `body`, `labels?` | the id |
+| `issue_edit` | `id`, `title?`, `body?` | |
 | `issue_comment` | `id`, `text` | the comment's path |
 | `issue_label` | `id`, `add?`, `remove?` | the labels after |
 | `issue_close` | `id`, `commit?` | |
@@ -45,8 +49,14 @@ takes, as named JSON parameters rather than flags, and every parameter that the 
 | `issue_pull`, `issue_push` | `remote?`, `ids?`, `dry_run?`, `force?` | the report, per issue |
 
 `id` is a full XIDR or any unambiguous prefix, as everywhere; an ambiguous one is refused naming
-what it matched. `issue_edit` (title, body) belongs here too and is the same missing surface
-dcp201s6h12krnmdpnn0 asks the CLI for: one operation, two front ends.
+what it matched.
+
+**`edit` comes with it, on both sides.** Changing what an issue says is today an export, a
+hand-edit and an `import --force` (dcp201s6h12krnmdpnn0), and an agent recording a decision in a
+plan issue is exactly who does that. `git issue edit <id> [--title t] [--body b | stdin | $EDITOR]`
+and `issue_edit` are one operation, `ops.Edit`, with two front ends; the edit is a commit on the
+issue's chain like any other, refused by the store's compare-and-swap when the issue moved
+underneath it rather than clobbering the move. This closes dcp201s6h12krnmdpnn0.
 
 Not exposed: `serve`, `migrate`, `migrate-comments`, `export`/`import`, and `attach` (a
 path on the agent's disk is a different question from a body in a call; it can come later as a
@@ -68,26 +78,52 @@ a CLAUDE.md: `issue_close` says a fix closes with the commit that made it; `issu
 a change gets an issue and its commit carries `Issue: <id>`; `issue_push` says what a lease
 refusal means. The rules live once, next to the operation they govern.
 
+## Where it lives
+
+git-issue is `go-tony/cmd/git-issue` today, a command inside the library's module. The MCP SDK
+would then be a dependency of go-tony, and so of everything that imports go-tony -- verse, for
+one -- for a command most of them never run. So the work starts by moving git-issue out of
+go-tony's module. Two ways:
+
+- **A sibling module in this repository, `tony-format/git-issue`** (recommended). Its own
+  `go.mod`, importing go-tony by version as verse does; its own tags, `git-issue/vX.Y.Z`
+  beside `go-tony/vX.Y.Z`, so it releases when it changes and not when the library does; and
+  `go install github.com/signadot/tony-format/git-issue@latest` names the binary. A `go.work` at
+  the repository root joins the two for local development, which also ends gopls's "not in your
+  workspace" for every file under a second module. The tracker's own issues stay where they
+  are: they are refs in this repository, and this is the repository git-issue is developed in.
+- **A submodule, or a repository of its own.** Cleaner separation, and the tracker's issues about
+  git-issue would move with it -- which is the cost: a second tracker to sync, for a tool whose
+  history is here.
+
+Either way the import path changes. verse imports `cmd/git-issue/issuelib` (its git-issue
+source) and rebinds on its next bump; the old path stays served at every version already
+released, as the proxy keeps them. The root README's pkg.go.dev link and go-tony's Makefile
+(the issuelib schema generation) follow the move.
+
 ## What it takes
 
-1. **One implementation per operation.** Today each command's logic is in its `run`: `close`
+1. **The move**, above, first and on its own: a commit that changes paths and nothing else,
+   so that what follows is reviewable as behaviour.
+2. **One implementation per operation.** Today each command's logic is in its `run`: `close`
    verifies the commit and writes the message, `relate` keeps Blocks/BlockedBy as a pair,
    `label` normalizes and replaces a key's value. Two front ends over that would drift. So each
    becomes a function over `Store` -- `ops.Close(store, id, commit)`, in a package the commands
-   and the server both import -- and the CLI's `run` parses flags and calls it. That is most of
-   the work, and it is worth doing whether or not the server ships: it is what makes the
-   commands testable without a `cli.Context`.
-2. **The protocol.** The official Go SDK (`github.com/modelcontextprotocol/go-sdk`) handles
+   and the server both import -- and the CLI's `run` parses flags and calls it. `ops.Edit` is
+   the new one, and `git issue edit` its CLI. That is most of the work, and it is worth doing
+   whether or not the server ships: it is what makes the commands testable without a
+   `cli.Context`.
+3. **The protocol.** The official Go SDK (`github.com/modelcontextprotocol/go-sdk`) handles
    initialize, capability negotiation, `tools/list`, `tools/call`, schema generation from
    parameter structs, and the stdio transport. The alternative is hand-rolling the JSON-RPC
    framing and those four methods, which is a few hundred lines and a spec version to track by
-   hand. Recommendation: the SDK -- `serve` already accepts net/http for a smaller reason -- but
-   go.mod has been kept small on purpose, and this is the decision to make before writing it.
-3. **Tests, in-process.** The SDK gives an in-memory transport, so a test drives the server as a
+   hand. Recommendation: the SDK. With git-issue in a module of its own the dependency is
+   git-issue's alone, which is what makes it an easy call.
+4. **Tests, in-process.** The SDK gives an in-memory transport, so a test drives the server as a
    host would -- list tools, call each one -- against a scratch repository, the way the command
    tests use `testRepo` and `pushTestRepo`. The push/pull tools are tested through the two-clone
    arrangement `sync_test.go` already has.
-4. **Docs.** The README gets the host configuration above and the tool table; `git issue mcp -h`
+5. **Docs.** The README gets the host configuration above and the tool table; `git issue mcp -h`
    says what it speaks and that it is for a host to start.
 
 ## Later, not now
