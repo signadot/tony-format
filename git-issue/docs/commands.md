@@ -264,8 +264,9 @@ commit the issue gained, then `closed` or `reopened` if it moved with no
 commit saying so, as by a pull. An issue new
 to the watch lists only commits made since `watch` started, or `arrived` when
 there are none, as for an old issue pulled in. The refs are
-compared every `-poll` (5s by default), so a change made anywhere is heard:
-in this clone, by a pull, by another agent.
+compared every `-poll` (5s by default), so a change that reaches this clone
+is heard, whoever makes it. A change pushed to a remote is heard once a pull
+brings it in.
 
 `watch` is for an agent whose host wakes it on a background command's output,
 as Claude Code's Monitor does. An agent that can wait on a tool call uses

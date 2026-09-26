@@ -290,3 +290,52 @@ func TestDescribe_MidMove(t *testing.T) {
 		}
 	}
 }
+
+// TestMCP_IssueWatchRepo: a watch scoped to a repository is not answered by a
+// change in another served one, and is by a change in its own; a repository
+// not served is refused.
+func TestMCP_IssueWatchRepo(t *testing.T) {
+	oneDir, twoDir := repoDir(t, "one"), repoDir(t, "two")
+	one := issuelib.NewGitStoreAt(oneDir, &strings.Builder{})
+	two := issuelib.NewGitStoreAt(twoDir, &strings.Builder{})
+	inOne, err := ops.Create(one, "In one", "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inTwo, err := ops.Create(two, "In two", "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, _ := mcpClientWatching(t, isolatedSet(t, oneDir, twoDir), 20*time.Millisecond)
+
+	answered := make(chan watchOut, 1)
+	go func() {
+		var out watchOut
+		call(t, cs, "issue_watch", map[string]any{"repo": []string{"one"}, "timeout": 10}, &out)
+		answered <- out
+	}()
+	time.Sleep(100 * time.Millisecond)
+	if _, _, err := ops.Comment(two, inTwo.ID, "elsewhere"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case out := <-answered:
+		t.Fatalf("a change in two answered a watch on one: %+v", out.Changes)
+	case <-time.After(300 * time.Millisecond):
+	}
+	if _, _, err := ops.Comment(one, inOne.ID, "here"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case out := <-answered:
+		if len(out.Changes) != 1 || out.Changes[0].ID != inOne.ID || out.Changes[0].Repo != "one" {
+			t.Errorf("answered %+v, want only %s in one", out.Changes, inOne.ID)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a change in one did not answer a watch on one")
+	}
+
+	if msg := refused(t, cs, "issue_watch", map[string]any{"repo": []string{"three"}, "timeout": 1}); !strings.Contains(msg, "three") {
+		t.Errorf("refusal %q", msg)
+	}
+}

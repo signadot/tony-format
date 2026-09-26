@@ -231,22 +231,26 @@ func hasPrefixRef(refs map[string]string, prefix string) bool {
 	return false
 }
 
-// watchFilter is which issues a watcher reports: the ids named, or those
-// carrying a label before the change or after it -- so the label's removal is
-// heard -- or, with neither, every one.
+// watchFilter is which issues a watcher reports: those in the repositories
+// named, the ids named, and those carrying a label before the change or after
+// it -- so the label's removal is heard. Each scope given must match; with
+// none, every issue.
 type watchFilter struct {
+	dirs  map[string]bool // repository directories; the MCP server's scope
 	ids   map[string]bool
 	label string
 }
 
-// wants says whether f can match an issue by its id alone: what a watcher asks
-// before reading the issue to describe it.
-func (f watchFilter) wants(xidr string) bool {
-	return len(f.ids) == 0 || f.ids[xidr]
+// wants says whether f can match an issue by its repository and id alone:
+// what a watcher asks before reading the issue to describe it.
+func (f watchFilter) wants(dir, xidr string) bool {
+	return (len(f.dirs) == 0 || f.dirs[dir]) && (len(f.ids) == 0 || f.ids[xidr])
 }
 
+// matches says whether f matches a described change, whose repository wants
+// has already answered for.
 func (f watchFilter) matches(ch watchChange) bool {
-	if !f.wants(ch.ID) {
+	if len(f.ids) > 0 && !f.ids[ch.ID] {
 		return false
 	}
 	return f.label == "" || issuelib.Contains(ch.Labels, f.label) || issuelib.Contains(ch.labelsBefore, f.label)

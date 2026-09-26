@@ -40,7 +40,8 @@ in the config file too. The set is your configuration, as remotes are: the
 server holds nothing, and every issue stays in its repository.
 
 When more than one is served, `issue_create`, `issue_list`, `issue_push`,
-`issue_pull` and `issue_for_commit` take `repo`; `issue_relate` across two
+`issue_pull` and `issue_for_commit` take `repo`, and `issue_watch` a list of
+them; `issue_relate` across two
 repositories mirrors the far issue into the near one as an
 [ext reference](ext.md) first, so the relation resolves from that repository
 alone. An issue that is in two repositories -- its own, and one mirroring it --
@@ -63,7 +64,7 @@ resolves to its own.
 | `issue_for_commit` | `repo?`, `commit` | the issues its note names |
 | `issue_pull` | `repo?`, `remote?`, `force?`, `dry_run?` | the sync report |
 | `issue_push` | `repo?`, `remote?`, `id?`, `force?`, `dry_run?` | the sync report |
-| `issue_watch` | `ids?`, `label?`, `since?`, `timeout?` | each issue that changed and what was done to it, and a cursor; waits until one does |
+| `issue_watch` | `repo?`, `ids?`, `label?`, `since?`, `timeout?` | each issue that changed and what was done to it, and a cursor; waits until one does |
 | `repo_list` | | the repositories served, and where each came from |
 | `repo_add` | `path`, `persist?` | the set after |
 | `repo_remove` | `repo` | the set after |
@@ -99,15 +100,17 @@ Every `-poll` (5s by default) the server compares each served repository's
 refs with the last look. An issue whose ref moved is announced to its
 subscribers, and an issue that appeared or went changes the listing. A tool
 looks as soon as it has changed something, so with `-poll 0` only the tools'
-own changes are heard.
+own changes are heard. The refs are this clone's: a change pushed to a
+remote is heard once a pull brings it in.
 
 Subscribing is the host's act, not the agent's, and a host need not pass the
 notifications on. Claude Code does not: its agent can read resources but not
 subscribe.
 
 `issue_watch` gives the watch to the agent. It waits until an issue changes:
-one named in `ids`, one carrying `label` before or after the change, or with
-neither, any. It answers each issue that changed with its status, title and
+one in a repository named in `repo`, one named in `ids`, one carrying `label`
+before or after the change. Each scope given must match; with none, any issue
+in any served repository. It answers each issue that changed with its status, title and
 labels, and what was done to it: one line per commit it gained (`comment:
 ...`, `label: added bug`), then `closed` or `reopened` if it moved with no
 commit saying so. An issue

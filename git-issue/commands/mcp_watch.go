@@ -25,6 +25,7 @@ const (
 )
 
 type watchIn struct {
+	Repo    []string `json:"repo,omitempty" jsonschema:"the repositories to watch, by name; every served one when empty"`
 	IDs     []string `json:"ids,omitempty" jsonschema:"the issues to watch: full ids or unambiguous prefixes; every issue when empty"`
 	Label   string   `json:"label,omitempty" jsonschema:"only issues carrying this label before the change or after it, so its removal is heard (a plain label, or key=value)"`
 	Since   string   `json:"since,omitempty" jsonschema:"the cursor a previous issue_watch answered: changes after it are answered at once, so none is missed between calls. Without it, only changes from now on"`
@@ -41,12 +42,22 @@ func addWatchTool(m *mcpServer) {
 		Name: "issue_watch",
 		Description: "Wait for issues to change -- a comment, an edit, a label, a close or reopen, an issue filed or pulled -- by this " +
 			"server's tools or by anything else that moves their refs (a shell, a pull, another agent), and answer what changed. " +
-			"Give ids, or a label, or neither for every issue. It answers as soon as a change matches, or with none at the timeout, " +
+			"Scope it by repo, ids and label, which all must match; with none, every issue in every served repository. It answers as soon as a change matches, or with none at the timeout, " +
 			"and always with a cursor: pass it back as since and nothing that changed between two calls is missed. " +
 			"It blocks while it waits, so call it where waiting does not hold up other work.",
 		Annotations: readOnly(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in watchIn) (*mcp.CallToolResult, watchOut, error) {
 		var f watchFilter
+		if len(in.Repo) > 0 {
+			f.dirs = map[string]bool{}
+			for _, name := range in.Repo {
+				r, err := m.ws.byName(name)
+				if err != nil {
+					return nil, watchOut{}, err
+				}
+				f.dirs[r.Dir] = true
+			}
+		}
 		if in.Label != "" {
 			f.label = issuelib.NormalizeLabel(in.Label)
 		}
@@ -113,7 +124,7 @@ func (m *mcpServer) waitFor(ctx context.Context, f watchFilter, since string, ti
 		m.mu.Unlock()
 		out := watchOut{Changes: []watchChange{}, Cursor: m.cursor(cursor, began)}
 		for _, ev := range coalesce(events) {
-			if !f.wants(ev.xidr) {
+			if !f.wants(ev.repo.Dir, ev.xidr) {
 				continue
 			}
 			ch, ok := describe(ev.repo.Store, repoLabel(m.ws, ev.repo), ev.xidr, ev.was, ev.now, began)

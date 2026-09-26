@@ -179,7 +179,7 @@ across repositories; every tool takes any unambiguous prefix of one, and answers
 
 The server serves a working set of repositories (repo_list; repo_add and repo_remove change it).
 A tool given an id finds the repository that holds it. issue_create, issue_list, issue_push and
-issue_pull take repo when more than one is served. An issue is also a resource, issue://<id>,
+issue_pull take repo when more than one is served; issue_watch takes a list of them. An issue is also a resource, issue://<id>,
 and issue://<id>/meta is it as data; issue:// is the open list. issue_watch waits for issues to
 change and answers what changed, with a cursor to pass back so nothing is missed between calls.
 

@@ -90,7 +90,7 @@ func watchStore(ctx context.Context, st issuelib.Store, f watchFilter, interval 
 			continue
 		}
 		for _, xidr := range moved(was, now) {
-			if !f.wants(xidr) {
+			if !f.wants("", xidr) {
 				continue
 			}
 			if ch, ok := describe(st, "", xidr, was[xidr], now[xidr], began); ok && f.matches(ch) {
