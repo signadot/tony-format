@@ -1,5 +1,6 @@
 !issue
-blocked_by: []
+blocked_by:
+- a3v2a4j6h12kse4ypxn0
 blocks:
 - yg3ck1aah12ksx4ypxn0
 branches: []
@@ -15,4 +16,4 @@ labels:
 related_issues:
 - eg8zmb1sh12ksr48pxn0
 status: open
-updated: "2026-09-26T12:31:31.25311+02:00"
+updated: "2026-09-26T12:31:36.663856+02:00"
