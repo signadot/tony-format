@@ -325,6 +325,21 @@ reference first, so the relation resolves from that repository alone.
 | `issue_pull` | `remote?`, `force?`, `dry_run?` | the sync report |
 | `issue_push` | `remote?`, `id?`, `force?`, `dry_run?` | the sync report |
 
+**Resources.** An issue is also something a host reads into context, rather than
+something the agent calls for:
+
+| URI | what it is |
+|---|---|
+| `issue://<id>` | the issue as a person reads it (`text/markdown`) |
+| `issue://<id>/meta` | the issue as data, `issue_show`'s structured content (`application/json`) |
+| `issue://` | the open issues of every served repository, one line each |
+
+The open issues are listed as resources, `issue://{id}` and `issue://{id}/meta`
+are templates with completion on the id, and a host that subscribes to an issue
+hears it change: by the server's own tools at once, and by anything else that
+moves a ref -- a comment from a shell, a pull in another clone -- within `-poll`
+(5s by default; 0 turns the watch off).
+
 `id` is a full XIDR or any unambiguous prefix, everywhere. A refusal -- an
 unknown id, an issue closed twice, a merge that cannot be made -- is a tool
 error carrying the message the command would have printed, never a protocol

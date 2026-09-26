@@ -610,6 +610,17 @@ func quietSyncFailure(output string) bool {
 }
 
 // VerifyRemote checks if a remote exists.
+// Tips answers every ref of this generation in the repository -- issues open and
+// closed, mirrors, sources -- with the commit each is at: one listing, which is
+// what a watcher compares between two looks to see what moved.
+func (s *GitStore) Tips() (map[string]string, error) {
+	tips := map[string]string{}
+	for _, r := range s.refsAt(nsRoot + "/") {
+		tips[r.ref] = r.commit
+	}
+	return tips, nil
+}
+
 // VerifyRepository says whether the store's directory is a git repository, and
 // names the directory when it is not: what a server made on a directory asks
 // before serving it, since every later call would fail one at a time otherwise.

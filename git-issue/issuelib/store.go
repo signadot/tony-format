@@ -84,6 +84,9 @@ type Store interface {
 	RefreshMirrors(source string) (int, error)
 	Unmirror(ref string) error
 
+	// Tips is every ref of this generation with its commit, for a watcher.
+	Tips() (map[string]string, error)
+
 	// Mirrors and sources are carried by a sync as issues are (sync_ext.go).
 	PlanCarried(remote string) ([]CarriedPlan, error)
 	ApplyCarriedPull(p CarriedPlan, force bool) (string, error)

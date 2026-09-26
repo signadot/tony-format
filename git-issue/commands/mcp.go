@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/scott-cotton/cli"
@@ -34,6 +35,10 @@ import (
 // -C and no config refuses and says so. repo_add and repo_remove change the set
 // while it runs. One repository served is what it was: no tool needs a repo.
 //
+// The issues are resources too (mcp_resources.go), and a host that subscribes
+// to one hears it change -- by the server's own tools, and by anything else
+// that moves a ref, which a poll of the repositories finds every -poll.
+//
 // Push and pull are tools of their own, not options of one, so a host that
 // wants an agent working locally and never touching the remote denies two
 // names. A refusal the store makes -- an unknown id, a closed issue closed
@@ -45,21 +50,24 @@ type mcpConfig struct {
 	*cli.Command
 	store issuelib.Store
 	Dirs  []string
+	Poll  time.Duration `cli:"name=poll desc='how often to look for changes made beside the server (0 never; default 5s)'"`
 }
 
 // MCPCommand returns the mcp subcommand.
 func MCPCommand(store issuelib.Store) *cli.Command {
-	cfg := &mcpConfig{store: store}
+	cfg := &mcpConfig{store: store, Poll: defaultPoll}
+	opts, _ := cli.StructOpts(cfg)
+	opts = append(opts, &cli.Opt{
+		Name:        "C",
+		Description: "a repository to serve; repeatable. With none, ~/.config/git-issue.tony, else the working directory",
+		Type: cli.NamedFuncOpt(cli.FuncOpt(func(cc *cli.Context, a string) (any, error) {
+			cfg.Dirs = append(cfg.Dirs, a)
+			return 0, nil
+		}), "(dir)"),
+	})
 	return cli.NewCommandAt(&cfg.Command, "mcp").
-		WithSynopsis("mcp [-C <dir>]... - Serve the tracker to an agent's host over MCP on stdin/stdout").
-		WithOpts(&cli.Opt{
-			Name:        "C",
-			Description: "a repository to serve; repeatable. With none, ~/.config/git-issue.tony, else the working directory",
-			Type: cli.NamedFuncOpt(cli.FuncOpt(func(cc *cli.Context, a string) (any, error) {
-				cfg.Dirs = append(cfg.Dirs, a)
-				return 0, nil
-			}), "(dir)"),
-		}).
+		WithSynopsis("mcp [-C <dir>]... [-poll <d>] - Serve the tracker to an agent's host over MCP on stdin/stdout").
+		WithOpts(opts...).
 		WithRun(cfg.run)
 }
 
@@ -71,13 +79,17 @@ func (cfg *mcpConfig) run(cc *cli.Context, args []string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	// Nothing of the stores' may reach stdout: it is the protocol's. Their
 	// warnings go where a person reads them.
 	ws, err := startingSet(cfg.Dirs, os.Stderr)
 	if err != nil {
 		return err
 	}
-	return MCPServerFor(ws).Run(ctx, &mcp.StdioTransport{})
+	m := newMCPServer(ws)
+	m.watch(ctx, cfg.Poll)
+	return m.s.Run(ctx, &mcp.StdioTransport{})
 }
 
 // startingSet is the working set a server starts with: the -C list, else the
@@ -122,15 +134,31 @@ func MCPServer(store issuelib.Store) *mcp.Server {
 	return MCPServerFor(ws)
 }
 
-// MCPServerFor is the tracker as an MCP server over a working set.
+// MCPServerFor is the tracker as an MCP server over a working set, without a
+// watch.
 func MCPServerFor(ws *workspace) *mcp.Server {
-	s := mcp.NewServer(&mcp.Implementation{
+	return newMCPServer(ws).s
+}
+
+// newMCPServer builds the server over a working set: tools, resources, and
+// the first look at the refs, which is not news.
+func newMCPServer(ws *workspace) *mcpServer {
+	m := &mcpServer{ws: ws, registered: map[string]bool{}, seen: map[string]string{}}
+	m.s = mcp.NewServer(&mcp.Implementation{
 		Name:    "git-issue",
 		Title:   "git-issue",
 		Version: buildinfo.Version(),
-	}, &mcp.ServerOptions{Instructions: mcpInstructions})
-	addTools(s, ws)
-	return s
+	}, &mcp.ServerOptions{
+		Instructions:      mcpInstructions,
+		CompletionHandler: m.complete,
+		// Subscriptions are the SDK's to keep; these say the server takes them.
+		SubscribeHandler:   func(context.Context, *mcp.SubscribeRequest) error { return nil },
+		UnsubscribeHandler: func(context.Context, *mcp.UnsubscribeRequest) error { return nil },
+	})
+	addTools(m)
+	m.addResources()
+	m.prime()
+	return m
 }
 
 // mcpInstructions is what the host gives its model about this server: the
@@ -141,7 +169,8 @@ across repositories; every tool takes any unambiguous prefix of one, and answers
 
 The server serves a working set of repositories (repo_list; repo_add and repo_remove change it).
 A tool given an id finds the repository that holds it. issue_create, issue_list, issue_push and
-issue_pull take repo when more than one is served.
+issue_pull take repo when more than one is served. An issue is also a resource, issue://<id>,
+and issue://<id>/meta is it as data; issue:// is the open list.
 
 The rules of the tracker:
   - Every change to the code gets an issue, filed before the work, and the commit that makes the

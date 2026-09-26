@@ -323,8 +323,11 @@ func repoLabel(ws *workspace, r *repo) string {
 	return ""
 }
 
-// addTools registers every tool on s, over the working set.
-func addTools(s *mcp.Server, ws *workspace) {
+// addTools registers every tool on the server, over its working set. A tool
+// that changed an issue says so (m.changed) and one that changed which issues
+// there are makes the listing right (m.resync); a host that subscribed hears.
+func addTools(m *mcpServer) {
+	s, ws := m.s, m.ws
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "issue_list",
 		Description: "List issues, newest first: open ones, or all of them (closed and mirrors too), and only those carrying a label when one is given; from one repository, or every served one.",
@@ -386,7 +389,7 @@ func addTools(s *mcp.Server, ws *workspace) {
 		Description: "File an issue with a title and a body (markdown), and labels if any, in a repository. Every change to the code gets an issue, " +
 			"filed before the work, and the commit that makes the change carries \"Issue: <full id>\" as a trailer -- this tool answers the full id.",
 		Annotations: local(false),
-	}, func(_ context.Context, _ *mcp.CallToolRequest, in createIn) (*mcp.CallToolResult, idOut, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createIn) (*mcp.CallToolResult, idOut, error) {
 		r, err := ws.byName(in.Repo)
 		if err != nil {
 			return nil, idOut{}, err
@@ -400,6 +403,7 @@ func addTools(s *mcp.Server, ws *workspace) {
 				return nil, idOut{}, fmt.Errorf("created %s, but its labels were refused: %w", issue.ID, err)
 			}
 		}
+		m.look(ctx)
 		return result(fmt.Sprintf("Created issue %s in %s\nRef: %s\n", issue.ID, r.Name, issue.Ref)),
 			idOut{ID: issue.ID, Repo: r.Name, Ref: issue.Ref}, nil
 	})
@@ -409,7 +413,7 @@ func addTools(s *mcp.Server, ws *workspace) {
 		Description: "Change what an issue says: its title, its body, or both; what is not given is kept. The edit is a commit on the " +
 			"issue's chain, so history keeps what it said before. To record a decision without rewriting the issue, comment instead.",
 		Annotations: local(true),
-	}, func(_ context.Context, _ *mcp.CallToolRequest, in editIn) (*mcp.CallToolResult, idOut, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in editIn) (*mcp.CallToolResult, idOut, error) {
 		r, xidr, err := ws.find(in.ID)
 		if err != nil {
 			return nil, idOut{}, err
@@ -425,6 +429,7 @@ func addTools(s *mcp.Server, ws *workspace) {
 		if err != nil {
 			return nil, idOut{}, err
 		}
+		m.look(ctx)
 		return result("Edited issue " + issue.ID + "\n"), idOut{ID: issue.ID, Repo: r.Name, Ref: issue.Ref}, nil
 	})
 
@@ -432,7 +437,7 @@ func addTools(s *mcp.Server, ws *workspace) {
 		Name:        "issue_comment",
 		Description: "Add a comment (markdown) to an issue's discussion. This is where a decision, a finding or a question is recorded.",
 		Annotations: local(false),
-	}, func(_ context.Context, _ *mcp.CallToolRequest, in commentIn) (*mcp.CallToolResult, commentedOut, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in commentIn) (*mcp.CallToolResult, commentedOut, error) {
 		r, xidr, err := ws.find(in.ID)
 		if err != nil {
 			return nil, commentedOut{}, err
@@ -441,6 +446,7 @@ func addTools(s *mcp.Server, ws *workspace) {
 		if err != nil {
 			return nil, commentedOut{}, err
 		}
+		m.look(ctx)
 		return result(fmt.Sprintf("Added comment to issue %s (%s)\n", issue.ID, strings.TrimPrefix(path, "discussion/"))),
 			commentedOut{ID: issue.ID, Path: path}, nil
 	})
@@ -450,7 +456,7 @@ func addTools(s *mcp.Server, ws *workspace) {
 		Description: "Add and remove labels. A label is lowercased. One containing \"=\" is a key and a value, and a key holds one value: " +
 			"adding key=value replaces the key's value, removing a bare key removes it whatever its value. Labels beginning git-issue- are reserved.",
 		Annotations: local(true),
-	}, func(_ context.Context, _ *mcp.CallToolRequest, in labelIn) (*mcp.CallToolResult, labelsOut, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in labelIn) (*mcp.CallToolResult, labelsOut, error) {
 		r, xidr, err := ws.find(in.ID)
 		if err != nil {
 			return nil, labelsOut{}, err
@@ -463,6 +469,7 @@ func addTools(s *mcp.Server, ws *workspace) {
 		if labels == nil {
 			labels = []string{}
 		}
+		m.look(ctx)
 		return result(fmt.Sprintf("Labels: %s\n", strings.Join(labels, ", "))), labelsOut{ID: issue.ID, Labels: labels}, nil
 	})
 
@@ -471,7 +478,7 @@ func addTools(s *mcp.Server, ws *workspace) {
 		Description: "Close an open issue. A fix closes its issue with the commit that made it: pass that commit. " +
 			"An issue already closed is refused.",
 		Annotations: local(false),
-	}, func(_ context.Context, _ *mcp.CallToolRequest, in closeIn) (*mcp.CallToolResult, statusOut, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in closeIn) (*mcp.CallToolResult, statusOut, error) {
 		r, xidr, err := ws.find(in.ID)
 		if err != nil {
 			return nil, statusOut{}, err
@@ -480,6 +487,7 @@ func addTools(s *mcp.Server, ws *workspace) {
 		if err != nil {
 			return nil, statusOut{}, err
 		}
+		m.look(ctx)
 		out := statusOut{ID: issue.ID, Status: "closed"}
 		text := "Closed issue " + issue.ID + "\n"
 		if issue.ClosedBy != nil {
@@ -493,7 +501,7 @@ func addTools(s *mcp.Server, ws *workspace) {
 		Name:        "issue_reopen",
 		Description: "Reopen a closed issue. An open issue is refused.",
 		Annotations: local(false),
-	}, func(_ context.Context, _ *mcp.CallToolRequest, in showIn) (*mcp.CallToolResult, statusOut, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in showIn) (*mcp.CallToolResult, statusOut, error) {
 		r, xidr, err := ws.find(in.ID)
 		if err != nil {
 			return nil, statusOut{}, err
@@ -502,6 +510,7 @@ func addTools(s *mcp.Server, ws *workspace) {
 		if err != nil {
 			return nil, statusOut{}, err
 		}
+		m.look(ctx)
 		return result("Reopened issue " + issue.ID + "\n"), statusOut{ID: issue.ID, Status: "open"}, nil
 	})
 
@@ -510,7 +519,7 @@ func addTools(s *mcp.Server, ws *workspace) {
 		Description: "Link an issue to a commit of its repository, in both directions: the commit is recorded on the issue, and the issue on " +
 			"the commit as a git note, so issue_for_commit finds it.",
 		Annotations: local(true),
-	}, func(_ context.Context, _ *mcp.CallToolRequest, in linkIn) (*mcp.CallToolResult, linkOut, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in linkIn) (*mcp.CallToolResult, linkOut, error) {
 		r, xidr, err := ws.find(in.ID)
 		if err != nil {
 			return nil, linkOut{}, err
@@ -519,6 +528,7 @@ func addTools(s *mcp.Server, ws *workspace) {
 		if err != nil {
 			return nil, linkOut{}, err
 		}
+		m.look(ctx)
 		return result(fmt.Sprintf("Linked issue %s to commit %s\n", issue.ID, sha[:7])), linkOut{ID: issue.ID, Commit: sha}, nil
 	})
 
@@ -528,7 +538,7 @@ func addTools(s *mcp.Server, ws *workspace) {
 			"or duplicate (the first duplicates the second). When the other issue is in another served repository, it is mirrored into " +
 			"the first's repository as a read-only ext reference first, so the relation resolves from that repository alone.",
 		Annotations: local(true),
-	}, func(_ context.Context, _ *mcp.CallToolRequest, in relateIn) (*mcp.CallToolResult, relateOut, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in relateIn) (*mcp.CallToolResult, relateOut, error) {
 		from, fromID, err := ws.find(in.ID)
 		if err != nil {
 			return nil, relateOut{}, err
@@ -554,6 +564,7 @@ func addTools(s *mcp.Server, ws *workspace) {
 			return nil, relateOut{}, err
 		}
 		out.Changed = changed
+		m.look(ctx)
 		text := fmt.Sprintf("Issue %s: %s %s\n", fromID, in.Kind, toID)
 		if !changed {
 			text = fmt.Sprintf("Issue %s already has this relationship with %s\n", fromID, toID)
@@ -594,7 +605,7 @@ func addTools(s *mcp.Server, ws *workspace) {
 			"merged when the two can be brought together, and otherwise refused and named for a person to decide; force takes the " +
 			"remote side outright. dry_run says what a pull would do and writes nothing.",
 		Annotations: &mcp.ToolAnnotations{IdempotentHint: true},
-	}, func(_ context.Context, _ *mcp.CallToolRequest, in pullIn) (*mcp.CallToolResult, reportOut, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in pullIn) (*mcp.CallToolResult, reportOut, error) {
 		r, err := ws.byName(in.Repo)
 		if err != nil {
 			return nil, reportOut{}, err
@@ -603,6 +614,7 @@ func addTools(s *mcp.Server, ws *workspace) {
 		if err != nil {
 			return nil, reportOut{}, err
 		}
+		m.look(ctx)
 		var t textOut
 		_ = writeReport(t.cc(), report)
 		return result(t.String()), toReportOut(report, r.Name), nil
@@ -614,7 +626,7 @@ func addTools(s *mcp.Server, ws *workspace) {
 			"Every write carries a lease on what the last fetch saw, so an issue edited on both sides is refused and named rather than " +
 			"overwritten; force takes this clone's side. dry_run says what a push would do and writes nothing.",
 		Annotations: &mcp.ToolAnnotations{IdempotentHint: true},
-	}, func(_ context.Context, _ *mcp.CallToolRequest, in pushIn) (*mcp.CallToolResult, reportOut, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in pushIn) (*mcp.CallToolResult, reportOut, error) {
 		r, err := ws.byName(in.Repo)
 		if err != nil {
 			return nil, reportOut{}, err
@@ -634,6 +646,7 @@ func addTools(s *mcp.Server, ws *workspace) {
 		if err != nil {
 			return nil, reportOut{}, err
 		}
+		m.look(ctx)
 		var t textOut
 		_ = writeReport(t.cc(), report)
 		return result(t.String()), toReportOut(report, r.Name), nil
@@ -661,7 +674,7 @@ func addTools(s *mcp.Server, ws *workspace) {
 		Description: "Serve a repository from now on, by its directory. With persist, it is also recorded in ~/.config/git-issue.tony " +
 			"so the next server serves it too. The set is the user's configuration; the issues stay in their repositories.",
 		Annotations: &mcp.ToolAnnotations{IdempotentHint: true, OpenWorldHint: new(bool)},
-	}, func(_ context.Context, _ *mcp.CallToolRequest, in repoAddIn) (*mcp.CallToolResult, reposOut, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in repoAddIn) (*mcp.CallToolResult, reposOut, error) {
 		r, err := ws.add(in.Path, "repo_add")
 		if err != nil {
 			return nil, reposOut{}, err
@@ -671,6 +684,8 @@ func addTools(s *mcp.Server, ws *workspace) {
 				return nil, reposOut{}, fmt.Errorf("serving %s, but could not record it: %w", r.Name, err)
 			}
 		}
+		m.prime()
+		m.resync()
 		return result(fmt.Sprintf("Serving %s (%s)\n", r.Name, r.Dir)), toRepos(ws.list()), nil
 	})
 
@@ -678,10 +693,11 @@ func addTools(s *mcp.Server, ws *workspace) {
 		Name:        "repo_remove",
 		Description: "Stop serving a repository. Its issues are where they were.",
 		Annotations: &mcp.ToolAnnotations{IdempotentHint: true, OpenWorldHint: new(bool)},
-	}, func(_ context.Context, _ *mcp.CallToolRequest, in repoIn) (*mcp.CallToolResult, reposOut, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in repoIn) (*mcp.CallToolResult, reposOut, error) {
 		if err := ws.remove(in.Repo); err != nil {
 			return nil, reposOut{}, err
 		}
+		m.look(ctx)
 		return result(fmt.Sprintf("No longer serving %s\n", in.Repo)), toRepos(ws.list()), nil
 	})
 }
