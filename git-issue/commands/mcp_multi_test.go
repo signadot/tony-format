@@ -26,6 +26,21 @@ func repoDir(t *testing.T, name string) string {
 	return dir
 }
 
+// isolatedSet is startingSet with the developer's own configuration and working
+// directory kept out: a temp HOME and a cwd that is not a repository, so the
+// set is exactly the directories named.
+func isolatedSet(t *testing.T, dirs ...string) *workspace {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Chdir(t.TempDir())
+	ws, err := startingSet(dirs, &strings.Builder{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ws
+}
+
 // mcpClientFor connects a client to a server over a working set.
 func mcpClientFor(t *testing.T, ws *workspace) *mcp.ClientSession {
 	t.Helper()
@@ -51,10 +66,7 @@ func mcpClientFor(t *testing.T, ws *workspace) *mcp.ClientSession {
 // near repository first, and resolves there alone (7qfhwth7h12ksxcwpxn0).
 func TestMCP_ServesSeveralRepositories(t *testing.T) {
 	tonyDir, verseDir := repoDir(t, "tony"), repoDir(t, "verse")
-	ws, err := startingSet([]string{tonyDir, verseDir}, &strings.Builder{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	ws := isolatedSet(t, tonyDir, verseDir)
 	cs := mcpClientFor(t, ws)
 
 	var repos struct {
@@ -161,8 +173,8 @@ func TestMCP_ServesSeveralRepositories(t *testing.T) {
 	}
 }
 
-// TestMCP_StartingSet: the set comes from -C, else the config file, else the
-// working directory; outside every one of those the server refuses.
+// TestMCP_StartingSet: the set is every repository -C, the config file and the
+// working directory name, together and once each; with none the server refuses.
 func TestMCP_StartingSet(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -200,20 +212,34 @@ func TestMCP_StartingSet(t *testing.T) {
 		t.Errorf("from config: %q, from %s", got, ws.list()[0].From)
 	}
 
-	// -C wins over the config.
-	ws, err = startingSet([]string{b}, &strings.Builder{})
+	// -C and the config together; a repository in both is served once, as -C's.
+	c := repoDir(t, "c")
+	ws, err = startingSet([]string{c, b}, &strings.Builder{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := ws.names(); got != "b" {
-		t.Errorf("from -C: %q", got)
+	if got := ws.names(); got != "a, b, c" {
+		t.Errorf("from -C and config: %q", got)
+	}
+	for _, r := range ws.list() {
+		if r.Name == "b" && r.From != "-C" {
+			t.Errorf("b came in as %s, want -C", r.From)
+		}
 	}
 
-	// The working directory, when there is no config.
+	// The working directory joins them.
+	t.Chdir(a)
+	ws, err = startingSet([]string{c}, &strings.Builder{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ws.names(); got != "a, b, c" {
+		t.Errorf("with cwd: %q", got)
+	}
+	// And is the whole set when there is no config and no -C.
 	if err := os.Remove(filepath.Join(home, ".config", "git-issue.tony")); err != nil {
 		t.Fatal(err)
 	}
-	t.Chdir(a)
 	ws, err = startingSet(nil, &strings.Builder{})
 	if err != nil {
 		t.Fatal(err)

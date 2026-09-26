@@ -287,7 +287,7 @@ would have printed alongside. There is no listener and no address.
 
 **The working set.** The server serves one repository or several, and finds, for
 any id a tool is given, the repository that holds it -- an id is unique across
-repositories. The set comes from the first of:
+repositories. The set is every repository these three name, together:
 
 - `-C <dir>`, repeatable: `git issue mcp -C ~/src/tony-format -C ~/src/verse`
 - `~/.config/git-issue.tony` (`$XDG_CONFIG_HOME/git-issue.tony` when set):
@@ -300,7 +300,8 @@ repositories. The set comes from the first of:
 
 - the repository the server was started in.
 
-With none of the three the server refuses and says so. `repo_add`, `repo_remove`
+A repository named twice is served once. With none of the three the server
+refuses and says so. `repo_add`, `repo_remove`
 and `repo_list` change and show the set while the server runs; `repo_add` with
 `persist` records the repository in the config file too. The set is your
 configuration, as remotes are: the server holds nothing, and every issue stays

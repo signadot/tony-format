@@ -103,10 +103,7 @@ func TestMCP_Resources(t *testing.T) {
 	if _, err := ops.Close(store, closed.ID, ""); err != nil {
 		t.Fatal(err)
 	}
-	ws, err := startingSet([]string{dir}, &strings.Builder{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	ws := isolatedSet(t, dir)
 	cs, _ := mcpClientWatching(t, ws, 0)
 	ctx := context.Background()
 
@@ -183,10 +180,7 @@ func TestMCP_Resources(t *testing.T) {
 // is created or closed.
 func TestMCP_SubscriptionHearsTheServersOwnTools(t *testing.T) {
 	dir := repoDir(t, "one")
-	ws, err := startingSet([]string{dir}, &strings.Builder{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	ws := isolatedSet(t, dir)
 	cs, n := mcpClientWatching(t, ws, 0)
 	ctx := context.Background()
 
@@ -217,10 +211,7 @@ func TestMCP_WatchHearsAChangeMadeBesideTheServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ws, err := startingSet([]string{dir}, &strings.Builder{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	ws := isolatedSet(t, dir)
 	cs, n := mcpClientWatching(t, ws, 50*time.Millisecond)
 	ctx := context.Background()
 	if err := cs.Subscribe(ctx, &mcp.SubscribeParams{URI: uriFor(issue.ID)}); err != nil {
