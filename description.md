@@ -55,8 +55,12 @@ what it matched.
 hand-edit and an `import --force` (dcp201s6h12krnmdpnn0), and an agent recording a decision in a
 plan issue is exactly who does that. `git issue edit <id> [--title t] [--body b | stdin | $EDITOR]`
 and `issue_edit` are one operation, `ops.Edit`, with two front ends; the edit is a commit on the
-issue's chain like any other, refused by the store's compare-and-swap when the issue moved
-underneath it rather than clobbering the move. This closes dcp201s6h12krnmdpnn0.
+issue's chain like any other, and races as any other write does: the store applies
+`description.md` again on a tip that moved (`GitStore.Update` retries, per file, last writer
+winning), so a comment or a pull that lands meanwhile survives beside it, and two edits of the
+description at once leave the later one -- history keeps both. (An earlier draft here said the
+store refuses a moved ref; it does not, for any write, and edit is not made an exception.) This
+closes dcp201s6h12krnmdpnn0.
 
 Not exposed: `serve`, `migrate`, `migrate-comments`, `export`/`import`, and `attach` (a
 path on the agent's disk is a different question from a body in a call; it can come later as a
@@ -69,9 +73,9 @@ denies two names. Both take `dry_run`, as the commands do, so an agent can ask b
 **Answers are structured, and the text a person would see.** A tool answers `structuredContent`
 -- the `Issue` struct as JSON, through gomap, plus the description and comments -- and a text
 block that is what the command prints, so a host that shows tool output to a person shows
-the familiar thing. A refusal the store makes (compare-and-swap on a racing write, a merge it
-cannot make, an unknown id) is a tool error carrying the store's message, never a protocol
-error: the agent reads why, as a person reads it from the CLI.
+the familiar thing. A refusal the store makes (a merge it cannot make, an unknown id, a closed
+issue closed again) is a tool error carrying the store's message, never a protocol error: the
+agent reads why, as a person reads it from the CLI.
 
 **The tool descriptions carry the tracker's rules.** They are what the agent reads instead of
 a CLAUDE.md: `issue_close` says a fix closes with the commit that made it; `issue_create` says
