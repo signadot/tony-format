@@ -6,7 +6,10 @@ commits: []
 created: "2026-09-26T12:30:16.613527+02:00"
 duplicates: []
 id: a3v2a4j6h12kse4ypxn0
-labels: []
+labels:
+- design
+- enhancement
+- git-issue
 related_issues: []
 status: open
-updated: "2026-09-26T12:30:16.613527+02:00"
+updated: "2026-09-26T12:31:07.414648+02:00"
