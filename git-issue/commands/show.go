@@ -2,12 +2,11 @@ package commands
 
 import (
 	"fmt"
-	"sort"
 	"strings"
-	"time"
 
 	"github.com/scott-cotton/cli"
 	"github.com/signadot/tony-format/git-issue/issuelib"
+	"github.com/signadot/tony-format/git-issue/ops"
 )
 
 type showConfig struct {
@@ -28,40 +27,36 @@ func (cfg *showConfig) run(cc *cli.Context, args []string) error {
 		return fmt.Errorf("%w: usage: git issue show <xidr>", cli.ErrUsage)
 	}
 
-	ref, err := cfg.store.FindRef(args[0])
+	sh, err := ops.Show(cfg.store, args[0])
 	if err != nil {
 		return err
 	}
+	writeShown(cc, sh)
+	return nil
+}
 
-	issue, desc, err := cfg.store.GetByRef(ref)
-	if err != nil {
-		return err
-	}
-
-	// Print issue header
-	status := issuelib.StatusFromRef(ref)
-	fmt.Fprintf(cc.Out, "Issue %s [%s]\n", issuelib.FormatID(issue.ID), status)
-	fmt.Fprintf(cc.Out, "Ref: %s\n", ref)
+// writeShown is the issue as a person reads it: header, description, links,
+// relations, then the discussion in order and the attachments by name.
+func writeShown(cc *cli.Context, sh *ops.Shown) {
+	issue := sh.Issue
+	fmt.Fprintf(cc.Out, "Issue %s [%s]\n", issuelib.FormatID(issue.ID), sh.Status)
+	fmt.Fprintf(cc.Out, "Ref: %s\n", sh.Ref)
 	if len(issue.Labels) > 0 {
 		fmt.Fprintf(cc.Out, "Labels: %s\n", strings.Join(issue.Labels, ", "))
 	}
 	fmt.Fprintln(cc.Out)
 
-	// Print description
-	fmt.Fprintln(cc.Out, desc)
+	fmt.Fprintln(cc.Out, sh.Description)
 	fmt.Fprintln(cc.Out)
 
-	// Show linked commits
-	if len(issue.Commits) > 0 {
+	if len(sh.Commits) > 0 {
 		fmt.Fprintln(cc.Out, "Linked commits:")
-		for _, commit := range issue.Commits {
-			info, _ := cfg.store.GetCommitInfo(commit)
+		for _, info := range sh.Commits {
 			fmt.Fprintf(cc.Out, "  %s\n", info)
 		}
 		fmt.Fprintln(cc.Out)
 	}
 
-	// Show linked branches
 	if len(issue.Branches) > 0 {
 		fmt.Fprintln(cc.Out, "Linked branches:")
 		for _, branch := range issue.Branches {
@@ -70,132 +65,42 @@ func (cfg *showConfig) run(cc *cli.Context, args []string) error {
 		fmt.Fprintln(cc.Out)
 	}
 
-	// Show related issues
-	cfg.printRelatedIssues(cc, "Related issues:", issue.RelatedIssues)
-	cfg.printRelatedIssues(cc, "Blocks:", issue.Blocks)
-	cfg.printRelatedIssues(cc, "Blocked by:", issue.BlockedBy)
-	cfg.printRelatedIssues(cc, "Duplicates:", issue.Duplicates)
+	writeRelated(cc, "Related issues:", sh.Related)
+	writeRelated(cc, "Blocks:", sh.Blocks)
+	writeRelated(cc, "Blocked by:", sh.BlockedBy)
+	writeRelated(cc, "Duplicates:", sh.Duplicates)
 
-	// Show discussion and attachments
-	cfg.printDiscussion(cc, ref)
-
-	return nil
-}
-
-func (cfg *showConfig) printRelatedIssues(cc *cli.Context, title string, xidrs []string) {
-	if len(xidrs) == 0 {
-		return
-	}
-	fmt.Fprintln(cc.Out, title)
-	for _, xidr := range xidrs {
-		ref, err := cfg.store.FindRef(xidr)
-		if err != nil {
-			fmt.Fprintf(cc.Out, "  %s (not found)\n", xidr)
-			continue
-		}
-		issue, _, err := cfg.store.GetByRef(ref)
-		if err != nil {
-			fmt.Fprintf(cc.Out, "  %s (error)\n", xidr)
-			continue
-		}
-		status := issuelib.StatusFromRef(ref)
-		fmt.Fprintf(cc.Out, "  %s %s[%s]%s %s\n",
-			xidr,
-			issuelib.StatusColor(status),
-			status,
-			issuelib.ColorReset,
-			issue.Title,
-		)
-	}
-	fmt.Fprintln(cc.Out)
-}
-
-func (cfg *showConfig) printDiscussion(cc *cli.Context, ref string) {
-	gitStore, ok := cfg.store.(*issuelib.GitStore)
-	if !ok {
-		return
-	}
-
-	tree, err := gitStore.GetTree(ref)
-	if err != nil {
-		return
-	}
-
-	discussionEntry, ok := tree["discussion"]
-	if !ok || !strings.HasPrefix(discussionEntry, "tree:") {
-		return
-	}
-
-	// Read discussion files
-	var comments []string
-	var attachments []string
-
-	cfg.walkDiscussion(gitStore, ref, "discussion", &comments, &attachments)
-
-	// Show comments in chronological order. walkDiscussion collects files by
-	// ranging a map (unordered), so order by each comment's embedded timestamp
-	// (falling back to the path when a timestamp can't be parsed). A current name
-	// (<UTC ts>-<hash>) sorts by time too, but a legacy discussion/NNN.md carries
-	// a count rather than a time, and only its header says when it was written.
-	if len(comments) > 0 {
-		type discComment struct {
-			path, content string
-			ts            time.Time
-			hasTS         bool
-		}
-		items := make([]discComment, 0, len(comments))
-		for _, file := range comments {
-			content, err := cfg.store.ReadFile(ref, file)
-			if err != nil {
-				continue
-			}
-			ts, ok := parseCommentTime(string(content))
-			items = append(items, discComment{path: file, content: string(content), ts: ts, hasTS: ok})
-		}
-		sort.SliceStable(items, func(i, j int) bool {
-			if items[i].hasTS && items[j].hasTS && !items[i].ts.Equal(items[j].ts) {
-				return items[i].ts.Before(items[j].ts)
-			}
-			return items[i].path < items[j].path
-		})
-
+	if len(sh.Comments) > 0 {
 		fmt.Fprintln(cc.Out, "Discussion:")
 		fmt.Fprintln(cc.Out)
-		for _, it := range items {
-			fmt.Fprintf(cc.Out, "--- %s ---\n", it.path)
-			fmt.Fprint(cc.Out, it.content)
+		for _, c := range sh.Comments {
+			fmt.Fprintf(cc.Out, "--- %s ---\n", c.Path)
+			fmt.Fprint(cc.Out, c.Content)
 			fmt.Fprintln(cc.Out)
 		}
 	}
 
-	// Show attachments
-	if len(attachments) > 0 {
+	if len(sh.Attachments) > 0 {
 		fmt.Fprintln(cc.Out, "Attachments:")
-		for _, file := range attachments {
+		for _, file := range sh.Attachments {
 			fmt.Fprintf(cc.Out, "  %s\n", file)
 		}
 		fmt.Fprintln(cc.Out)
 	}
 }
 
-func (cfg *showConfig) walkDiscussion(gitStore *issuelib.GitStore, ref, path string, comments, attachments *[]string) {
-	entries, err := gitStore.ListDir(ref, path)
-	if err != nil {
+func writeRelated(cc *cli.Context, title string, linked []ops.Linked) {
+	if len(linked) == 0 {
 		return
 	}
-
-	for name, entry := range entries {
-		fullPath := path + "/" + name
-		typ := strings.Split(entry, ":")[0]
-
-		if typ == "tree" {
-			cfg.walkDiscussion(gitStore, ref, fullPath, comments, attachments)
-		} else if typ == "blob" {
-			if strings.HasSuffix(name, ".md") && !strings.Contains(fullPath, "/files/") {
-				*comments = append(*comments, fullPath)
-			} else {
-				*attachments = append(*attachments, fullPath)
-			}
+	fmt.Fprintln(cc.Out, title)
+	for _, l := range linked {
+		if l.Err != "" {
+			fmt.Fprintf(cc.Out, "  %s (%s)\n", l.ID, l.Err)
+			continue
 		}
+		fmt.Fprintf(cc.Out, "  %s %s[%s]%s %s\n",
+			l.ID, issuelib.StatusColor(l.Status), l.Status, issuelib.ColorReset, l.Title)
 	}
+	fmt.Fprintln(cc.Out)
 }

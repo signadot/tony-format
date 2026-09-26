@@ -116,17 +116,6 @@ func stripTitleLine(desc string) string {
 	return strings.TrimLeft(rest, "\n")
 }
 
-// stripCommentHeader drops a comment's leading "<!-- <ts> -->" header. The page
-// renders that timestamp itself, and with raw HTML disabled the header would
-// otherwise show up as goldmark's omitted-HTML placeholder.
-func stripCommentHeader(content string) string {
-	loc := commentHeaderRe.FindStringIndex(content)
-	if loc == nil || strings.TrimSpace(content[:loc[0]]) != "" {
-		return content
-	}
-	return strings.TrimLeft(content[loc[1]:], "\n")
-}
-
 // escapePathSegments percent-encodes each segment of a tree-relative path while
 // leaving the separators alone, so an attachment named with a space or a '#'
 // still produces a working href.

@@ -5,10 +5,10 @@ import (
 	"io"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/scott-cotton/cli"
 	"github.com/signadot/tony-format/git-issue/issuelib"
+	"github.com/signadot/tony-format/git-issue/ops"
 )
 
 type commentConfig struct {
@@ -37,12 +37,11 @@ func (cfg *commentConfig) run(cc *cli.Context, args []string) error {
 		return err
 	}
 
-	// Get comment text
+	// The text: the arguments, or stdin when it is not a terminal, or the editor.
 	var commentText string
 	if len(args) > 1 {
 		commentText = strings.Join(args[1:], " ")
 	} else if stat, _ := os.Stdin.Stat(); (stat.Mode() & os.ModeCharDevice) == 0 {
-		// stdin is a pipe/file, read from it
 		data, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			return fmt.Errorf("reading stdin: %w", err)
@@ -71,36 +70,11 @@ func (cfg *commentConfig) run(cc *cli.Context, args []string) error {
 		}
 	}
 
-	if strings.TrimSpace(commentText) == "" {
-		return fmt.Errorf("comment cannot be empty")
-	}
-
-	issue, _, err := cfg.store.GetByRef(ref)
+	issue, path, err := ops.Comment(cfg.store, ref, commentText)
 	if err != nil {
 		return err
 	}
 
-	// Store the comment under a collision-free, content-addressed name
-	// (discussion/<ts>-<hash>.md) so independent clones adding different comments
-	// never overwrite each other on merge — the old count-based numbering did.
-	now := time.Now()
-	commentContent := commentBody(now, commentText)
-	commentFile := commentFileName(now, commentContent)
-	extraFiles := map[string]string{
-		commentFile: commentContent,
-	}
-
-	// Create commit message
-	firstLine := strings.Split(commentText, "\n")[0]
-	if len(firstLine) > 60 {
-		firstLine = firstLine[:57] + "..."
-	}
-	commitMsg := fmt.Sprintf("comment: %s", firstLine)
-
-	if err := cfg.store.Update(issue, commitMsg, extraFiles); err != nil {
-		return fmt.Errorf("failed to add comment: %w", err)
-	}
-
-	fmt.Fprintf(cc.Out, "Added comment to issue %s (%s)\n", issue.ID, strings.TrimPrefix(commentFile, "discussion/"))
+	fmt.Fprintf(cc.Out, "Added comment to issue %s (%s)\n", issue.ID, strings.TrimPrefix(path, "discussion/"))
 	return nil
 }

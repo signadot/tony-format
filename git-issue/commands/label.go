@@ -2,11 +2,11 @@ package commands
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/scott-cotton/cli"
 	"github.com/signadot/tony-format/git-issue/issuelib"
+	"github.com/signadot/tony-format/git-issue/ops"
 )
 
 type labelConfig struct {
@@ -44,42 +44,22 @@ func (cfg *labelConfig) run(cc *cli.Context, args []string) error {
 
 	xidrOrPrefix := args[0]
 	labels := args[1:]
-
-	// Find issue
-	ref, err := cfg.store.FindRef(xidrOrPrefix)
-	if err != nil {
-		return err
-	}
-
-	issue, _, err := cfg.store.GetByRef(ref)
-	if err != nil {
-		return err
-	}
-
 	for i := range labels {
 		labels[i] = issuelib.NormalizeLabel(labels[i])
-		if key, _, _ := issuelib.SplitLabel(labels[i]); key == "" {
-			return fmt.Errorf("%w: %q has no key", cli.ErrUsage, labels[i])
-		}
 	}
 
-	var action string
+	var add, remove []string
+	action := "Added"
 	if cfg.remove {
-		for _, l := range labels {
-			issue.RemoveLabel(l)
-		}
-		action = "Removed"
+		remove, action = labels, "Removed"
 	} else {
-		for _, l := range labels {
-			issue.SetLabel(l)
-		}
-		slices.Sort(issue.Labels)
-		action = "Added"
+		add = labels
 	}
-
-	// Update issue
-	commitMsg := fmt.Sprintf("label: %s %s", strings.ToLower(action), strings.Join(labels, ", "))
-	if err := cfg.store.Update(issue, commitMsg, nil); err != nil {
+	issue, err := ops.Label(cfg.store, xidrOrPrefix, add, remove)
+	if err != nil {
+		if strings.HasSuffix(err.Error(), "has no key") {
+			return fmt.Errorf("%w: %v", cli.ErrUsage, err)
+		}
 		return fmt.Errorf("failed to update issue: %w", err)
 	}
 

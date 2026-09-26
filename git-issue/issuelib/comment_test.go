@@ -1,4 +1,4 @@
-package commands
+package issuelib
 
 import (
 	"sort"
@@ -8,12 +8,12 @@ import (
 
 func TestCommentFileName_ShapeAndDeterminism(t *testing.T) {
 	ts := time.Date(2026, 7, 26, 16, 5, 26, 0, time.FixedZone("CEST", 2*3600))
-	a := commentFileName(ts, "<!-- x -->\n\nhello\n")
-	b := commentFileName(ts, "<!-- x -->\n\nhello\n")
+	a := CommentFileName(ts, "<!-- x -->\n\nhello\n")
+	b := CommentFileName(ts, "<!-- x -->\n\nhello\n")
 	if a != b {
 		t.Fatalf("not deterministic: %q != %q", a, b)
 	}
-	if !isMigratedCommentName(a) {
+	if !IsMigratedCommentName(a) {
 		t.Fatalf("generated name %q does not match the migrated pattern", a)
 	}
 	// UTC-normalized timestamp prefix (16:05:26 CEST == 14:05:26 UTC).
@@ -21,7 +21,7 @@ func TestCommentFileName_ShapeAndDeterminism(t *testing.T) {
 		t.Fatalf("name %q does not start with %q", got, want)
 	}
 	// Different content -> different name (no collision on merge).
-	if c := commentFileName(ts, "<!-- x -->\n\nworld\n"); c == a {
+	if c := CommentFileName(ts, "<!-- x -->\n\nworld\n"); c == a {
 		t.Fatalf("distinct content produced the same name %q", c)
 	}
 }
@@ -35,7 +35,7 @@ func TestParseCommentTime_BothHeaderForms(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ts, ok := parseCommentTime(tc.content)
+			ts, ok := ParseCommentTime(tc.content)
 			if !ok {
 				t.Fatalf("failed to parse timestamp from %q", tc.content)
 			}
@@ -44,7 +44,7 @@ func TestParseCommentTime_BothHeaderForms(t *testing.T) {
 			}
 		})
 	}
-	if _, ok := parseCommentTime("no header here"); ok {
+	if _, ok := ParseCommentTime("no header here"); ok {
 		t.Fatalf("parsed a timestamp from content with no header")
 	}
 }
@@ -63,8 +63,8 @@ func TestCommentOrdering_ByTimestamp(t *testing.T) {
 		{"discussion/20260726T003417Z-aaaa2222.md", "<!-- 2026-07-26T02:34:17+02:00 -->\n\nsecond\n"},
 	}
 	sort.SliceStable(items, func(i, j int) bool {
-		ti, oki := parseCommentTime(items[i].content)
-		tj, okj := parseCommentTime(items[j].content)
+		ti, oki := ParseCommentTime(items[i].content)
+		tj, okj := ParseCommentTime(items[j].content)
 		if oki && okj && !ti.Equal(tj) {
 			return ti.Before(tj)
 		}

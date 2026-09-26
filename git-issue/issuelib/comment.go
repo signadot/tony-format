@@ -1,4 +1,4 @@
-package commands
+package issuelib
 
 import (
 	"crypto/sha256"
@@ -17,8 +17,8 @@ import (
 // merge (and skewed/gapped whenever an attachment was present). An identical
 // re-add dedups to the same path, which is harmless.
 
-// commentTSLayout is the sortable UTC timestamp embedded in comment filenames.
-const commentTSLayout = "20060102T150405Z"
+// CommentTSLayout is the sortable UTC timestamp embedded in comment filenames.
+const CommentTSLayout = "20060102T150405Z"
 
 // commentNamePattern matches an already-migrated comment filename (basename), so
 // migration is idempotent.
@@ -29,24 +29,24 @@ var commentNamePattern = regexp.MustCompile(`^\d{8}T\d{6}Z-[0-9a-f]{8}\.md$`)
 // current "<!-- <ts> -->" form.
 var commentHeaderRe = regexp.MustCompile(`<!--\s*(?:Comment\s+\d+\s*-\s*)?(.+?)\s*-->`)
 
-// commentFileName returns the discussion path for a comment made at t whose
+// CommentFileName returns the discussion path for a comment made at t whose
 // stored bytes are content. The hash is taken over content, so the path is a
 // stable content address.
-func commentFileName(t time.Time, content string) string {
+func CommentFileName(t time.Time, content string) string {
 	sum := sha256.Sum256([]byte(content))
 	return fmt.Sprintf("discussion/%s-%s.md",
-		t.UTC().Format(commentTSLayout), hex.EncodeToString(sum[:])[:8])
+		t.UTC().Format(CommentTSLayout), hex.EncodeToString(sum[:])[:8])
 }
 
-// commentBody renders the stored content for a new comment: a timestamp header
+// CommentBody renders the stored content for a new comment: a timestamp header
 // (RFC3339 with offset, for readability) followed by the text.
-func commentBody(t time.Time, text string) string {
+func CommentBody(t time.Time, text string) string {
 	return fmt.Sprintf("<!-- %s -->\n\n%s\n", t.Format(time.RFC3339), strings.TrimRight(text, "\n"))
 }
 
-// parseCommentTime extracts a comment's timestamp from its header, handling both
+// ParseCommentTime extracts a comment's timestamp from its header, handling both
 // header forms. ok is false when no timestamp can be parsed.
-func parseCommentTime(content string) (t time.Time, ok bool) {
+func ParseCommentTime(content string) (t time.Time, ok bool) {
 	m := commentHeaderRe.FindStringSubmatch(content)
 	if m == nil {
 		return time.Time{}, false
@@ -60,15 +60,25 @@ func parseCommentTime(content string) (t time.Time, ok bool) {
 	return time.Time{}, false
 }
 
-// isCommentFile reports whether a discussion tree path is a comment file (an .md
+// StripCommentHeader drops a comment's leading "<!-- <ts> -->" header, for a
+// rendering that shows the timestamp its own way.
+func StripCommentHeader(content string) string {
+	loc := commentHeaderRe.FindStringIndex(content)
+	if loc == nil || strings.TrimSpace(content[:loc[0]]) != "" {
+		return content
+	}
+	return strings.TrimLeft(content[loc[1]:], "\n")
+}
+
+// IsCommentFile reports whether a discussion tree path is a comment file (an .md
 // not under discussion/files/, which holds attachments).
-func isCommentFile(path string) bool {
+func IsCommentFile(path string) bool {
 	return strings.HasSuffix(path, ".md") && !strings.Contains(path, "/files/")
 }
 
-// isMigratedCommentName reports whether a discussion path already uses the
+// IsMigratedCommentName reports whether a discussion path already uses the
 // content-addressed scheme (so a migration can skip it).
-func isMigratedCommentName(path string) bool {
+func IsMigratedCommentName(path string) bool {
 	base := path
 	if i := strings.LastIndex(base, "/"); i >= 0 {
 		base = base[i+1:]

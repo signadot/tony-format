@@ -2,12 +2,10 @@ package commands
 
 import (
 	"fmt"
-	"slices"
-	"sort"
-	"strings"
 
 	"github.com/scott-cotton/cli"
 	"github.com/signadot/tony-format/git-issue/issuelib"
+	"github.com/signadot/tony-format/git-issue/ops"
 )
 
 type listConfig struct {
@@ -33,33 +31,16 @@ func (cfg *listConfig) run(cc *cli.Context, args []string) error {
 		return err
 	}
 
-	issues, err := cfg.store.List(cfg.ShowAll)
+	issues, err := ops.List(cfg.store, cfg.ShowAll, cfg.Label)
 	if err != nil {
-		return fmt.Errorf("failed to list issues: %w", err)
+		return err
 	}
-
-	// Filter by label if specified
-	if cfg.Label != "" {
-		label := strings.ToLower(strings.TrimSpace(cfg.Label))
-		issues = slices.DeleteFunc(issues, func(issue *issuelib.Issue) bool {
-			return !slices.Contains(issue.Labels, label)
-		})
-	}
-
 	if len(issues) == 0 {
 		fmt.Fprintln(cc.Out, "No issues found")
 		return nil
 	}
-
-	// Sort by created time (newest first)
-	sort.Slice(issues, func(i, j int) bool {
-		return issues[i].Created.After(issues[j].Created)
-	})
-
-	// Print issues
 	for _, issue := range issues {
 		fmt.Fprintln(cc.Out, issuelib.FormatOneLiner(issue))
 	}
-
 	return nil
 }

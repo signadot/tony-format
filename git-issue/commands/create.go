@@ -8,6 +8,7 @@ import (
 
 	"github.com/scott-cotton/cli"
 	"github.com/signadot/tony-format/git-issue/issuelib"
+	"github.com/signadot/tony-format/git-issue/ops"
 )
 
 type createConfig struct {
@@ -38,20 +39,17 @@ func (cfg *createConfig) run(cc *cli.Context, args []string) error {
 
 	title := strings.Join(args, " ")
 
-	// Get description text
+	// The body: -body, or stdin when it is not a terminal, or the editor.
 	var descBody string
 	if cfg.Body != "" {
-		// Use -body flag
 		descBody = cfg.Body
 	} else if stat, _ := os.Stdin.Stat(); (stat.Mode() & os.ModeCharDevice) == 0 {
-		// stdin is a pipe/file, read from it
 		data, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			return fmt.Errorf("reading stdin: %w", err)
 		}
 		descBody = string(data)
 	} else {
-		// Open editor
 		initialContent := fmt.Sprintf(`# %s
 
 # Enter description above.
@@ -65,17 +63,9 @@ func (cfg *createConfig) run(cc *cli.Context, args []string) error {
 		}
 	}
 
-	// Build full description with title as heading
-	description := "# " + title + "\n\n" + strings.TrimSpace(descBody)
-
-	if strings.TrimSpace(descBody) == "" {
-		return fmt.Errorf("description cannot be empty")
-	}
-
-	// Create issue
-	issue, err := cfg.store.Create(title, description)
+	issue, err := ops.Create(cfg.store, title, descBody)
 	if err != nil {
-		return fmt.Errorf("failed to create issue: %w", err)
+		return err
 	}
 
 	fmt.Fprintf(cc.Out, "Created issue %s\n", issuelib.FormatID(issue.ID))

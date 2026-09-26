@@ -8,6 +8,7 @@ import (
 
 	"github.com/scott-cotton/cli"
 	"github.com/signadot/tony-format/git-issue/issuelib"
+	"github.com/signadot/tony-format/git-issue/ops"
 )
 
 // TestBlocks_ReciprocalWriteFailsLoudlyAndRerunRepairs: blocks is written to both
@@ -25,7 +26,7 @@ func TestBlocks_ReciprocalWriteFailsLoudlyAndRerunRepairs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create B: %v", err)
 	}
-	cfg := &relateConfig{store: store, relationType: "blocks"}
+	cfg := &relateConfig{store: store, relation: ops.Blocks}
 
 	// A held lock on B's ref fails B's update-ref, and nothing else.
 	lock := filepath.Join(".git", b.Ref+".lock")

@@ -50,7 +50,7 @@ func (cfg *migrateCommentsConfig) run(cc *cli.Context, args []string) error {
 	}
 	sort.Strings(refs)
 
-	runTS := time.Now().UTC().Format(commentTSLayout)
+	runTS := time.Now().UTC().Format(issuelib.CommentTSLayout)
 	totalRenames, changedRefs := 0, 0
 
 	for _, ref := range refs {
@@ -132,19 +132,19 @@ func planRenames(store *issuelib.GitStore, ref string) (renames map[string]strin
 			continue // skip files/ subtree (attachments) and any nested trees
 		}
 		path := "discussion/" + name
-		if !isCommentFile(path) || isMigratedCommentName(path) {
+		if !issuelib.IsCommentFile(path) || issuelib.IsMigratedCommentName(path) {
 			continue
 		}
 		content, rerr := store.ReadFile(ref, path)
 		if rerr != nil {
 			return nil, nil, fmt.Errorf("reading %s: %w", path, rerr)
 		}
-		ts, ok := parseCommentTime(string(content))
+		ts, ok := issuelib.ParseCommentTime(string(content))
 		if !ok {
 			warnings = append(warnings, fmt.Sprintf("%s has no parseable timestamp; left as-is", name))
 			continue
 		}
-		newPath := commentFileName(ts, string(content))
+		newPath := issuelib.CommentFileName(ts, string(content))
 		if src, exists := taken[newPath]; exists {
 			// Content-addressed, so this only happens on byte-identical content at
 			// the same second — a true duplicate. Refuse to silently drop either.

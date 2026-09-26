@@ -5,6 +5,7 @@ import (
 
 	"github.com/scott-cotton/cli"
 	"github.com/signadot/tony-format/git-issue/issuelib"
+	"github.com/signadot/tony-format/git-issue/ops"
 )
 
 type reopenConfig struct {
@@ -25,34 +26,9 @@ func (cfg *reopenConfig) run(cc *cli.Context, args []string) error {
 		return fmt.Errorf("%w: usage: git issue reopen <xidr>", cli.ErrUsage)
 	}
 
-	xidrOrPrefix := args[0]
-
-	// Find the issue - must be closed
-	ref, err := cfg.store.FindRef(xidrOrPrefix)
+	issue, err := ops.Reopen(cfg.store, args[0])
 	if err != nil {
-		return fmt.Errorf("issue not found: %s", xidrOrPrefix)
-	}
-	if !issuelib.IsClosedRef(ref) {
-		return fmt.Errorf("issue is not closed: %s", xidrOrPrefix)
-	}
-
-	issue, _, err := cfg.store.GetByRef(ref)
-	if err != nil {
-		return fmt.Errorf("failed to read issue: %w", err)
-	}
-
-	// Update status
-	issue.Status = "open"
-	issue.ClosedBy = nil
-
-	if err := cfg.store.Update(issue, "reopen", nil); err != nil {
-		return fmt.Errorf("failed to update issue: %w", err)
-	}
-
-	// Move the ref from the closed namespace to the open one
-	newRef := issuelib.RefForXIDR(issue.ID)
-	if err := cfg.store.MoveRef(ref, newRef); err != nil {
-		return fmt.Errorf("failed to move issue ref: %w", err)
+		return err
 	}
 
 	fmt.Fprintf(cc.Out, "Reopened issue %s\n", issuelib.FormatID(issue.ID))

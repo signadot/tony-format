@@ -5,6 +5,7 @@ import (
 
 	"github.com/scott-cotton/cli"
 	"github.com/signadot/tony-format/git-issue/issuelib"
+	"github.com/signadot/tony-format/git-issue/ops"
 )
 
 type pushConfig struct {
@@ -64,7 +65,6 @@ func (cfg *pushConfig) pushAll(cc *cli.Context, remote string) error {
 	if err := cfg.store.VerifyRemote(remote); err != nil {
 		return err
 	}
-
 	fmt.Fprintf(cc.Out, "Pushing all issues to %s...\n", remote)
 	return cfg.push(cc, remote, "")
 }
@@ -73,8 +73,6 @@ func (cfg *pushConfig) pushSingle(cc *cli.Context, remote string, xidrOrPrefix s
 	if err := cfg.store.VerifyRemote(remote); err != nil {
 		return err
 	}
-
-	// Find the issue ref (open or closed)
 	ref, err := cfg.store.FindRef(xidrOrPrefix)
 	if err != nil {
 		return err
@@ -83,63 +81,20 @@ func (cfg *pushConfig) pushSingle(cc *cli.Context, remote string, xidrOrPrefix s
 	if err != nil {
 		return err
 	}
-
 	fmt.Fprintf(cc.Out, "Pushing issue %s to %s...\n", issuelib.FormatID(xidr), remote)
 	return cfg.push(cc, remote, xidr)
 }
 
-// push syncs one issue to the remote, or every issue when xidr is empty.
-//
-// Both forms ask the remote what it holds first and decide from that, so what a
-// push writes is settled before anything is sent: an issue whose remote ref this
-// clone's tip does not carry is left alone and reported, rather than overwritten
-// because a refspec said so.
+// push syncs one issue to the remote, or every issue when xidr is empty, and
+// writes the report.
 func (cfg *pushConfig) push(cc *cli.Context, remote, xidr string) error {
-	if _, err := cfg.store.FetchTracking(remote); err != nil {
-		return err
-	}
-	plans, err := cfg.store.PlanSync(remote)
+	report, err := ops.Push(cfg.store, remote, xidr, cfg.Force, cfg.DryRun)
 	if err != nil {
 		return err
 	}
-	if xidr != "" {
-		plans = plansFor(plans, xidr)
-	}
-
-	// The pushes go first and together, since a connection per issue is what
-	// made a push of a repository take minutes; the report then reads what each
-	// issue came to.
-	done := map[string]issuelib.PushResult{}
-	if !cfg.DryRun {
-		for i, r := range cfg.store.ApplyPushes(remote, plans, cfg.Force) {
-			done[plans[i].XIDR] = r
-		}
-	}
-	report := &syncReport{remote: remote, force: cfg.Force, dryRun: cfg.DryRun}
-	report.run(cfg.store, plans, func(p issuelib.IssuePlan) (string, error) {
-		r := done[p.XIDR]
-		return r.Did, r.Err
-	})
-
-	if !cfg.DryRun {
-		if err := cfg.store.SyncNotes(remote, true); err != nil {
-			return err
-		}
-	}
-
-	if err := report.write(cc, cfg.store); err != nil {
+	if err := writeReport(cc, report); err != nil {
 		return err
 	}
 	fmt.Fprintln(cc.Out, "Done.")
-	return nil
-}
-
-// plansFor narrows a plan of the whole repository to one issue.
-func plansFor(plans []issuelib.IssuePlan, xidr string) []issuelib.IssuePlan {
-	for _, p := range plans {
-		if p.XIDR == xidr {
-			return []issuelib.IssuePlan{p}
-		}
-	}
 	return nil
 }

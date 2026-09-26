@@ -379,12 +379,12 @@ func (s *issueServer) readComments(ref string, paths []string) []commentRow {
 			continue
 		}
 		content := string(raw)
-		ts, hasTS := parseCommentTime(content)
+		ts, hasTS := issuelib.ParseCommentTime(content)
 		rows = append(rows, commentRow{
 			Path:  p,
 			When:  ts,
 			HasTS: hasTS,
-			Body:  renderMarkdown(stripCommentHeader(content)),
+			Body:  renderMarkdown(issuelib.StripCommentHeader(content)),
 		})
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
@@ -414,7 +414,7 @@ func (s *issueServer) walkDiscussionTree(ref string) (comments, attachments []st
 			switch {
 			case strings.HasPrefix(entry, "tree:"):
 				walk(full)
-			case isCommentFile(full):
+			case issuelib.IsCommentFile(full):
 				comments = append(comments, full)
 			default:
 				attachments = append(attachments, full)
