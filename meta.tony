@@ -1,6 +1,7 @@
 !issue
 blocked_by: []
-blocks: []
+blocks:
+- yg3ck1aah12ksx4ypxn0
 branches: []
 commits: []
 created: "2026-09-26T10:57:04.521448+02:00"
@@ -13,4 +14,4 @@ labels:
 - mcp
 related_issues: []
 status: open
-updated: "2026-09-26T10:57:50.982113+02:00"
+updated: "2026-09-26T12:31:31.438745+02:00"
