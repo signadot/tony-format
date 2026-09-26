@@ -6,7 +6,12 @@ commits: []
 created: "2026-09-26T12:31:16.791516+02:00"
 duplicates: []
 id: yg3ck1aah12ksx4ypxn0
-labels: []
+labels:
+- agent
+- design
+- enhancement
+- git-issue
+- mcp
 related_issues: []
 status: open
-updated: "2026-09-26T12:31:16.791516+02:00"
+updated: "2026-09-26T12:31:30.873496+02:00"
