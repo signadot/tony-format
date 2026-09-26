@@ -283,9 +283,31 @@ or, in a project's `.mcp.json`:
 `git issue mcp` speaks MCP over stdin and stdout, and is for a host to start,
 not a person: the host gates it tool by tool, and the agent calls the tools
 with typed arguments and reads structured answers -- with the text the command
-would have printed alongside. The repository is the working directory, as for
-every subcommand; `-C <dir>` is for a host that starts it elsewhere. There is
-no listener and no address.
+would have printed alongside. There is no listener and no address.
+
+**The working set.** The server serves one repository or several, and finds, for
+any id a tool is given, the repository that holds it -- an id is unique across
+repositories. The set comes from the first of:
+
+- `-C <dir>`, repeatable: `git issue mcp -C ~/src/tony-format -C ~/src/verse`
+- `~/.config/git-issue.tony` (`$XDG_CONFIG_HOME/git-issue.tony` when set):
+
+  ```tony
+  repos:
+  - ~/src/tony-format
+  - ~/src/verse
+  ```
+
+- the repository the server was started in.
+
+With none of the three the server refuses and says so. `repo_add`, `repo_remove`
+and `repo_list` change and show the set while the server runs; `repo_add` with
+`persist` records the repository in the config file too. The set is your
+configuration, as remotes are: the server holds nothing, and every issue stays
+in its repository. When more than one is served, `issue_create`, `issue_list`,
+`issue_push`, `issue_pull` and `issue_for_commit` take `repo`; `issue_relate`
+across two repositories mirrors the far issue into the near one as an ext
+reference first, so the relation resolves from that repository alone.
 
 | tool | takes | answers |
 |---|---|---|
