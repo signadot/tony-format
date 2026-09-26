@@ -48,7 +48,7 @@ func toRow(i *issuelib.Issue) issueRow {
 		labels = []string{}
 	}
 	return issueRow{
-		ID: i.ID, Status: issuelib.StatusFromRef(i.Ref), Title: i.Title,
+		ID: i.ID, Status: issuelib.StatusOf(i), Title: i.Title,
 		Labels: labels, Created: i.Created, Updated: i.Updated,
 	}
 }
@@ -227,21 +227,24 @@ type refusalOut struct {
 }
 
 type reportOut struct {
-	Remote    string       `json:"remote"`
-	DryRun    bool         `json:"dry_run"`
-	Changed   []changeOut  `json:"changed" jsonschema:"issues something happened to, or would"`
-	Unchanged int          `json:"unchanged"`
-	Refused   []refusalOut `json:"refused" jsonschema:"issues left alone for a person to decide"`
-	OldClient []string     `json:"old_client" jsonschema:"issues pushed by a git-issue older than this one"`
-	Failed    []string     `json:"failed"`
-	Cleaned   int          `json:"cleaned,omitempty" jsonschema:"stale refs a pull removed"`
-	Whole     bool         `json:"whole" jsonschema:"true when nothing was refused or failed"`
+	Remote    string            `json:"remote"`
+	DryRun    bool              `json:"dry_run"`
+	Changed   []changeOut       `json:"changed" jsonschema:"issues something happened to, or would"`
+	Unchanged int               `json:"unchanged"`
+	Refused   []refusalOut      `json:"refused" jsonschema:"issues left alone for a person to decide"`
+	OldClient []string          `json:"old_client" jsonschema:"issues pushed by a git-issue older than this one"`
+	Failed    []string          `json:"failed"`
+	Cleaned   int               `json:"cleaned,omitempty" jsonschema:"stale refs a pull removed"`
+	Refreshed map[string]int    `json:"refreshed,omitempty" jsonschema:"mirrors a pull refreshed, by source"`
+	Unreached map[string]string `json:"unreached,omitempty" jsonschema:"sources a pull could not reach, and why; their mirrors are as they were"`
+	Whole     bool              `json:"whole" jsonschema:"true when nothing was refused or failed"`
 }
 
 func toReportOut(r *ops.Report) reportOut {
 	out := reportOut{
 		Remote: r.Remote, DryRun: r.DryRun, Unchanged: r.Unchanged, Cleaned: r.Cleaned,
 		Changed: []changeOut{}, Refused: []refusalOut{}, OldClient: []string{}, Failed: []string{},
+		Refreshed: r.Refreshed, Unreached: r.Unreached,
 		Whole: r.Err() == nil,
 	}
 	for _, c := range r.Changed {

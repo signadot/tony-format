@@ -84,6 +84,11 @@ type Store interface {
 	RefreshMirrors(source string) (int, error)
 	Unmirror(ref string) error
 
+	// Mirrors and sources are carried by a sync as issues are (sync_ext.go).
+	PlanCarried(remote string) ([]CarriedPlan, error)
+	ApplyCarriedPull(p CarriedPlan, force bool) (string, error)
+	ApplyCarriedPushes(remote string, plans []CarriedPlan, force bool) []PushResult
+
 	// FetchTracking brings this clone's copy of what a remote holds up to date,
 	// and says whether the remote has moved to this generation.
 	FetchTracking(remote string) (bool, error)

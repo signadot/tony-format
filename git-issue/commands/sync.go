@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/scott-cotton/cli"
 	"github.com/signadot/tony-format/git-issue/issuelib"
@@ -45,7 +46,22 @@ func writeReport(cc *cli.Context, r *ops.Report) error {
 	if len(r.OldClient) > 0 {
 		writeOldClient(cc, r)
 	}
+	for _, src := range sortedKeys(r.Refreshed) {
+		fmt.Fprintf(cc.Out, "  %s: %d mirror(s) refreshed\n", src, r.Refreshed[src])
+	}
+	for _, src := range sortedKeys(r.Unreached) {
+		fmt.Fprintf(cc.Out, "  %s could not be reached; its mirrors are as they were: %s\n", src, r.Unreached[src])
+	}
 	return r.Err()
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // writeRefusal names one issue nobody can settle automatically, and says what

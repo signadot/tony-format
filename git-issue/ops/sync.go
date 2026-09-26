@@ -43,6 +43,12 @@ type Report struct {
 	OldClient []string // issues a git-issue older than this one pushed
 	Failed    []error
 	Cleaned   int // stale refs a pull removed
+
+	// Mirrors: what a pull refreshed from each source, and the sources it could
+	// not reach, whose mirrors stay as they were. An unreached source is said,
+	// not failed: the pull did what the remote holds.
+	Refreshed map[string]int
+	Unreached map[string]string
 }
 
 // Err is whether the run was whole: nil when nothing was refused or failed.
@@ -101,6 +107,23 @@ func Push(s issuelib.Store, remote, id string, force, dryRun bool) (*Report, err
 		r := done[p.XIDR]
 		return r.Did, r.Err
 	})
+	// The mirrors and sources go with the issues, to this remote and nowhere
+	// else; a push of one issue carries them all, since a relation from it may
+	// name any of them.
+	carried, err := s.PlanCarried(remote)
+	if err != nil {
+		return nil, err
+	}
+	cdone := map[string]issuelib.PushResult{}
+	if !dryRun {
+		for i, r := range s.ApplyCarriedPushes(remote, carried, force) {
+			cdone[carried[i].Ref] = r
+		}
+	}
+	report.runCarried(carried, func(p issuelib.CarriedPlan) (string, error) {
+		r := cdone[p.Ref]
+		return r.Did, r.Err
+	})
 	if !dryRun {
 		if err := s.SyncNotes(remote, true); err != nil {
 			return nil, err
@@ -128,6 +151,16 @@ func Pull(s issuelib.Store, remote string, force, dryRun bool) (*Report, error) 
 	report.run(s, plans, func(p issuelib.IssuePlan) (string, error) {
 		return s.ApplyPull(p, force)
 	})
+	carried, err := s.PlanCarried(remote)
+	if err != nil {
+		return nil, err
+	}
+	report.runCarried(carried, func(p issuelib.CarriedPlan) (string, error) {
+		if dryRun {
+			return "", nil
+		}
+		return s.ApplyCarriedPull(p, force)
+	})
 	if !dryRun {
 		if err := s.SyncNotes(remote, false); err != nil {
 			return nil, err
@@ -136,8 +169,87 @@ func Pull(s issuelib.Store, remote string, force, dryRun bool) (*Report, error) 
 		// which one each issue is in before writing -- but a repository that
 		// already held such a pair is still put right.
 		report.Cleaned, _ = s.CleanupStaleRefs()
+		// Then the mirrors follow their sources. A source that cannot be
+		// reached leaves its mirrors as they were, and is named.
+		sources, err := s.Sources()
+		if err != nil {
+			return nil, err
+		}
+		for _, src := range sources {
+			n, err := s.RefreshMirrors(src.Name)
+			if err != nil {
+				if report.Unreached == nil {
+					report.Unreached = map[string]string{}
+				}
+				report.Unreached[src.Name] = err.Error()
+				continue
+			}
+			if report.Refreshed == nil {
+				report.Refreshed = map[string]int{}
+			}
+			report.Refreshed[src.Name] = n
+		}
 	}
 	return report, nil
+}
+
+// runCarried carries out one direction over the carried refs, as run does over
+// the issues, and records each under its name.
+func (r *Report) runCarried(plans []issuelib.CarriedPlan, act func(issuelib.CarriedPlan) (string, error)) {
+	for _, p := range plans {
+		if r.DryRun {
+			if what := r.carriedIntent(p); what != "" {
+				r.Changed = append(r.Changed, Change{ID: p.Name(), What: fmt.Sprintf("%s (%s)", what, p.Verdict)})
+			} else {
+				r.Unchanged++
+			}
+			continue
+		}
+		did, err := act(p)
+		switch {
+		case errors.Is(err, issuelib.ErrDiverged):
+			r.Refused = append(r.Refused, Refusal{ID: p.Name(), Reason: err.Error(),
+				Here: shortOrNothing(p.Local), There: shortOrNothing(p.Remote)})
+		case err != nil:
+			r.Failed = append(r.Failed, err)
+		case did == "":
+			r.Unchanged++
+		default:
+			r.Changed = append(r.Changed, Change{ID: p.Name(), What: did})
+		}
+	}
+}
+
+// carriedIntent is what this direction would do about a carried ref, for a dry
+// run.
+func (r *Report) carriedIntent(p issuelib.CarriedPlan) string {
+	switch {
+	case p.Verdict == issuelib.Diverged:
+		if r.Force {
+			if r.Pulling {
+				return "take the remote side"
+			}
+			return "take this clone"
+		}
+		if p.Source {
+			return "merge the two sides"
+		}
+		return "refuse: the mirror is off its source's chain"
+	case r.Pulling && p.Verdict == issuelib.RemoteOnly:
+		return "create here"
+	case r.Pulling && p.Verdict == issuelib.Behind:
+		return "bring forward"
+	case !r.Pulling && (p.Verdict == issuelib.LocalOnly || p.Verdict == issuelib.Ahead):
+		return "send to the remote"
+	}
+	return ""
+}
+
+func shortOrNothing(commit string) string {
+	if commit == "" {
+		return "nothing"
+	}
+	return shortSHA(commit)
 }
 
 // plansFor narrows a plan of the whole repository to one issue.

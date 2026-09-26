@@ -147,6 +147,11 @@ func (s *GitStore) FetchTracking(remote string) (bool, error) {
 		from := issueRef("*", src.closed, src.gen0)
 		args = append(args, "+"+from+":"+src.prefix+"*")
 	}
+	// The carried refs too (sync_ext.go): a refspec's * crosses a slash, so one
+	// names every mirror under every source.
+	for _, ns := range carriedSources(remote) {
+		args = append(args, "+"+ns.local+"*:"+ns.tracking+"*")
+	}
 	if out, err := s.git(args...).CombinedOutput(); err != nil && !quietSyncFailure(string(out)) {
 		return false, fmt.Errorf("failed to fetch issues from %s: %s", remote, strings.TrimSpace(string(out)))
 	}
