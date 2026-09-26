@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 6b3a017927370c574666911af69c8f1631eb12b1
 commits: []
 created: "2026-09-26T23:37:06.685977+02:00"
 duplicates: []
@@ -11,5 +12,5 @@ labels:
 - mcp
 related_issues:
 - vegmw7bmh12ks11mq1n0
-status: open
-updated: "2026-09-26T23:37:17.058838+02:00"
+status: closed
+updated: "2026-09-26T23:48:18.902632+02:00"
