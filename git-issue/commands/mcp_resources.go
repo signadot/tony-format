@@ -252,13 +252,15 @@ func (m *mcpServer) complete(_ context.Context, req *mcp.CompleteRequest) (*mcp.
 // look compares every served repository's issue refs with the last look,
 // announces each issue whose refs moved, logs it for issue_watch and wakes
 // whoever waits, and resyncs the listing when an issue appeared, went, or moved
-// between open and closed. It is what the watch does on each tick, and what a
+// between open and closed, or a repository stopped being served. It is what the watch does on each tick, and what a
 // tool that changed something does once.
 func (m *mcpServer) look(ctx context.Context) {
 	m.mu.Lock()
 	var events []watchEvent
 	listChanged := false
+	served := map[string]bool{}
 	for _, r := range m.ws.list() {
+		served[r.Dir] = true
 		now, err := lookAt(r.Store)
 		if err != nil {
 			continue
@@ -272,6 +274,14 @@ func (m *mcpServer) look(ctx context.Context) {
 			events = append(events, watchEvent{seq: m.seq, repo: r, xidr: xidr, was: was[xidr], now: now[xidr]})
 		}
 		m.seen[r.Dir] = now
+	}
+	// A repository no longer served leaves the listing; its issues are where
+	// they were, so nothing is announced of them.
+	for dir := range m.seen {
+		if !served[dir] {
+			delete(m.seen, dir)
+			listChanged = true
+		}
 	}
 	if len(events) > 0 {
 		m.log = append(m.log, events...)
