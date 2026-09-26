@@ -27,23 +27,33 @@ const watchInterval = 5 * time.Second
 // MCP server takes no look but after its own tools; `git issue watch` would
 // never answer, so it refuses zero.
 func pollOpt(dst *time.Duration, zeroMeans string) *cli.Opt {
-	desc := "how often to look for changes (default 5s)"
+	return durationOpt("poll", "how often to look for changes (default 5s", dst, zeroMeans)
+}
+
+// fetchOpt is -fetch: how often a watch that pulls pulls.
+func fetchOpt(dst *time.Duration) *cli.Opt {
+	return durationOpt("fetch", "how often to pull the remote (default 30s", dst, "")
+}
+
+// durationOpt is a duration option, more than zero unless zeroMeans says what
+// zero is. desc is open for the default and zero's meaning to close.
+func durationOpt(name, desc string, dst *time.Duration, zeroMeans string) *cli.Opt {
 	if zeroMeans != "" {
-		desc = "how often to look for changes (default 5s; 0 " + zeroMeans + ")"
+		desc += "; 0 " + zeroMeans
 	}
 	return &cli.Opt{
-		Name:        "poll",
-		Description: desc,
+		Name:        name,
+		Description: desc + ")",
 		Type: cli.NamedFuncOpt(cli.FuncOpt(func(cc *cli.Context, a string) (any, error) {
 			d, err := time.ParseDuration(a)
 			if err != nil && a == "0" {
 				d, err = 0, nil
 			}
 			if err != nil {
-				return nil, fmt.Errorf("-poll %q: %w", a, err)
+				return nil, fmt.Errorf("-%s %q: %w", name, a, err)
 			}
 			if d < 0 || (d == 0 && zeroMeans == "") {
-				return nil, fmt.Errorf("-poll %q: must be more than zero", a)
+				return nil, fmt.Errorf("-%s %q: must be more than zero", name, a)
 			}
 			*dst = d
 			return 0, nil

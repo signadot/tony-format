@@ -84,7 +84,7 @@ Usage:
   git issue ext remove <id>                 Drop a mirror and the relations naming it
   git issue serve [--addr <addr>]           Read-only web view (default localhost:8080)
   git issue mcp [-C <dir>]                  Serve the tracker to an agent's host over MCP (stdin/stdout)
-  git issue watch [--label <l>] [<id>...]   Print each issue that changes, as it changes, until stopped
+  git issue watch [--label <l>] [--local] [<id>...]  Pull origin; print each issue that changes, until stopped
   git issue migrate [--dry-run]             Migrate issues from numeric IDs to XIDs
   git issue migrate-comments [--apply]      Rename comments to collision-free names
   git issue version                         Print the version of git-issue

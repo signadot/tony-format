@@ -238,6 +238,7 @@ who else can reach the address you pick.
 git issue mcp                                  # this repository, and the configured set
 git issue mcp -C ~/src/tony-format -C ~/src/verse
 git issue mcp -poll 1s                         # look for changes made beside it every second
+git issue mcp -fetch 10s                       # issue_watch_remote pulls every 10 seconds
 ```
 
 See [the MCP server](mcp.md).
@@ -245,32 +246,43 @@ See [the MCP server](mcp.md).
 ## Watch
 
 ```bash
-git issue watch                  # every issue in this repository
+git issue watch                  # every issue here, pulling origin
 git issue watch j2dz 4f1c        # these two
 git issue watch --label bug      # those labeled bug, before or after
+git issue watch --remote up      # pull up, not origin
+git issue watch --local          # this clone only; pull nothing
 git issue watch -poll 1s         # look every second, not every 5
+git issue watch -fetch 10s       # pull every 10 seconds, not every 30
 ```
 
 `watch` prints a line for each issue that changes, as it changes, until
 stopped:
 
 ```
+pull origin: j2dzt7xph12kswa9esn0  1c4e2a0..9b7d3f1
 j2dzt7xph12kswa9esn0  open  Implement streaming processor  -- comment: looks good; label: added bug
 j2dzt7xph12kswa9esn0  closed  Implement streaming processor  -- close
 ```
 
-A line is the id, the status, the title, and what was done: one entry per
-commit the issue gained, then `closed` or `reopened` if it moved with no
-commit saying so, as by a pull. An issue new
-to the watch lists only commits made since `watch` started, or `arrived` when
-there are none, as for an old issue pulled in. The refs are
-compared every `-poll` (5s by default), so a change that reaches this clone
-is heard, whoever makes it. A change pushed to a remote is heard once a pull
-brings it in.
+A change line is the id, the status, the title, and what was done: one entry
+per commit the issue gained, then `closed` or `reopened` if it moved with no
+commit saying so. An issue new to the watch lists only commits made since
+`watch` started, or `arrived` when there are none.
+
+Issues often travel by push and pull, so `watch` pulls origin every `-fetch`
+(30s by default) when there is an origin, and says what each pull did before
+the changes it brought, as `pull` says it (`created at <sha>`,
+`<old>..<new>`, `merged <a> and <b>`), an issue refused for a person to
+decide, a remote not reached, and reached again. A refusal or failure that
+stands is said once. `watch` pulls once when it starts; what that brings is
+where it begins. It pushes nothing.
+
+Between pulls it compares this clone's refs every `-poll` (5s by default), so
+a change made here is heard at once, whoever makes it.
 
 `watch` is for an agent whose host wakes it on a background command's output,
 as Claude Code's Monitor does. An agent that can wait on a tool call uses
-[`issue_watch`](mcp.md#the-watch).
+[`issue_watch` or `issue_watch_remote`](mcp.md#the-watch).
 
 ## Migrations
 

@@ -3,10 +3,12 @@ package commands
 import (
 	"context"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/signadot/tony-format/git-issue/issuelib"
 	"github.com/signadot/tony-format/git-issue/ops"
 )
@@ -111,7 +113,7 @@ func TestWatchStore(t *testing.T) {
 	got := make(chan watchChange, 16)
 	done := make(chan error, 1)
 	go func() {
-		done <- watchStore(ctx, store, watchFilter{label: "bug"}, 10*time.Millisecond, func(ch watchChange) { got <- ch })
+		done <- watchStore(ctx, store, watchFilter{label: "bug"}, 10*time.Millisecond, nil, 0, func(ch watchChange) { got <- ch }, nil)
 	}()
 	time.Sleep(50 * time.Millisecond)
 	if _, _, err := ops.Comment(store, issue.ID, "before the label"); err != nil {
@@ -182,7 +184,7 @@ func TestWatchStore_Arrived(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	got := make(chan watchChange, 16)
-	go watchStore(ctx, store, watchFilter{}, 10*time.Millisecond, func(ch watchChange) { got <- ch })
+	go watchStore(ctx, store, watchFilter{}, 10*time.Millisecond, nil, 0, func(ch watchChange) { got <- ch }, nil)
 	time.Sleep(50 * time.Millisecond)
 
 	if out, err := exec.Command("git", "-C", dir, "fetch", "-q", srcDir,
@@ -338,4 +340,173 @@ func TestMCP_IssueWatchRepo(t *testing.T) {
 	if msg := refused(t, cs, "issue_watch", map[string]any{"repo": []string{"three"}, "timeout": 1}); !strings.Contains(msg, "three") {
 		t.Errorf("refusal %q", msg)
 	}
+}
+
+// remotePair is a bare origin and two clones of it: here, which a watch
+// watches, and there, a teammate's.
+func remotePair(t *testing.T) (origin, here, there string) {
+	t.Helper()
+	origin = t.TempDir()
+	run(t, "", "init", "-q", "--bare", origin)
+	here, there = repoDir(t, "here"), repoDir(t, "there")
+	run(t, here, "remote", "add", "origin", origin)
+	run(t, there, "remote", "add", "origin", origin)
+	return origin, here, there
+}
+
+func push(t *testing.T, st issuelib.Store) {
+	t.Helper()
+	if _, err := ops.Push(st, "origin", "", false, false); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestWatchStore_Pulls: a watch that pulls hears what a teammate pushed --
+// the pull's note, then the change it brought -- says a remote it cannot
+// reach once, not every pull, and says when it is reached again. What the
+// first pull brings is where the watch begins.
+func TestWatchStore_Pulls(t *testing.T) {
+	_, hereDir, thereDir := remotePair(t)
+	here := issuelib.NewGitStoreAt(hereDir, &strings.Builder{})
+	there := issuelib.NewGitStoreAt(thereDir, &strings.Builder{})
+	issue, err := ops.Create(there, "Theirs", "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	push(t, there)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	changes, notes := make(chan watchChange, 16), make(chan pullNote, 16)
+	go watchStore(ctx, here, watchFilter{}, 10*time.Millisecond, newPuller(here, "", "origin"), 50*time.Millisecond,
+		func(ch watchChange) { changes <- ch }, func(n pullNote) { notes <- n })
+
+	next := func(what string) pullNote {
+		t.Helper()
+		select {
+		case n := <-notes:
+			return n
+		case <-time.After(5 * time.Second):
+			t.Fatalf("no pull note: want %s", what)
+		}
+		return pullNote{}
+	}
+	if n := next("the first pull taking the issue"); n.ID != issue.ID {
+		t.Fatalf("first pull: %+v", n)
+	}
+	select {
+	case ch := <-changes:
+		t.Fatalf("what the first pull brought was said as a change: %+v", ch)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	if _, _, err := ops.Comment(there, issue.ID, "from there"); err != nil {
+		t.Fatal(err)
+	}
+	push(t, there)
+	if n := next("the comment taken"); n.ID != issue.ID || n.Remote != "origin" {
+		t.Errorf("pull note %+v", n)
+	}
+	select {
+	case ch := <-changes:
+		if ch.ID != issue.ID || !hasPrefixed(ch.What, "comment") {
+			t.Errorf("change %+v, want the comment", ch)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the pulled comment was not said")
+	}
+
+	run(t, hereDir, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone"))
+	if n := next("could not pull"); !strings.HasPrefix(n.What, couldNot) {
+		t.Errorf("unreachable: %+v", n)
+	}
+	select {
+	case n := <-notes:
+		t.Errorf("an unchanged failure was said again: %+v", n)
+	case <-time.After(300 * time.Millisecond):
+	}
+	run(t, hereDir, "remote", "set-url", "origin", originOf(t, thereDir))
+	if n := next("reachable again"); n.What != "reachable again" {
+		t.Errorf("reached again: %+v", n)
+	}
+}
+
+func originOf(t *testing.T, dir string) string {
+	t.Helper()
+	return strings.TrimSpace(run(t, dir, "remote", "get-url", "origin"))
+}
+
+// TestMCP_IssueWatchRemote: issue_watch_remote pulls while it waits, and
+// answers a teammate's pushed comment with the pull's note and the change.
+func TestMCP_IssueWatchRemote(t *testing.T) {
+	_, hereDir, thereDir := remotePair(t)
+	here := issuelib.NewGitStoreAt(hereDir, &strings.Builder{})
+	there := issuelib.NewGitStoreAt(thereDir, &strings.Builder{})
+	issue, err := ops.Create(there, "Theirs", "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	push(t, there)
+	if _, err := ops.Pull(here, "origin", false, false); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	serverT, clientT := mcp.NewInMemoryTransports()
+	m := newMCPServer(isolatedSet(t, hereDir))
+	m.fetch = 50 * time.Millisecond
+	go m.s.Run(ctx, serverT)
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil).Connect(ctx, clientT, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cs.Close() })
+
+	// A remote it cannot reach answers on its own, once.
+	good := originOf(t, hereDir)
+	run(t, hereDir, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "gone"))
+	var down watchOut
+	call(t, cs, "issue_watch_remote", map[string]any{"timeout": 10}, &down)
+	if len(down.Pulls) != 1 || !strings.HasPrefix(down.Pulls[0].What, couldNot) {
+		t.Fatalf("unreachable: %+v", down)
+	}
+	var still watchOut
+	call(t, cs, "issue_watch_remote", map[string]any{"since": down.Cursor, "timeout": 1}, &still)
+	if len(still.Pulls) != 0 || len(still.Changes) != 0 {
+		t.Errorf("an unchanged failure answered again: %+v", still)
+	}
+	run(t, hereDir, "remote", "set-url", "origin", good)
+
+	answered := make(chan watchOut, 1)
+	go func() {
+		var out watchOut
+		call(t, cs, "issue_watch_remote", map[string]any{"ids": []string{issue.ID}, "timeout": 10}, &out)
+		answered <- out
+	}()
+	time.Sleep(150 * time.Millisecond)
+	if _, _, err := ops.Comment(there, issue.ID, "from there"); err != nil {
+		t.Fatal(err)
+	}
+	push(t, there)
+	select {
+	case out := <-answered:
+		if len(out.Changes) != 1 || !hasPrefixed(out.Changes[0].What, "comment") {
+			t.Errorf("changes %+v, want the comment", out.Changes)
+		}
+		if !pulled(out.Pulls, issue.ID) {
+			t.Errorf("pulls %+v, want the pull that took it", out.Pulls)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("issue_watch_remote did not answer the pushed comment")
+	}
+}
+
+func pulled(notes []pullNote, id string) bool {
+	for _, n := range notes {
+		if n.ID == id {
+			return true
+		}
+	}
+	return false
 }

@@ -94,7 +94,7 @@ func TestMCP_ListsEveryTool(t *testing.T) {
 	for _, want := range []string{
 		"issue_list", "issue_show", "issue_create", "issue_edit", "issue_comment", "issue_label",
 		"issue_close", "issue_reopen", "issue_link", "issue_relate", "issue_for_commit",
-		"issue_pull", "issue_push", "issue_watch",
+		"issue_pull", "issue_push", "issue_watch", "issue_watch_remote",
 	} {
 		if !have[want] {
 			t.Errorf("no tool %s; have %v", want, have)

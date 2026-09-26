@@ -42,8 +42,8 @@ import (
 // An agent whose host does not subscribe for it waits on issue_watch instead.
 //
 // Push and pull are tools of their own, not options of one, so a host that
-// wants an agent working locally and never touching the remote denies two
-// names. A refusal the store makes -- an unknown id, a closed issue closed
+// wants an agent working locally and never touching the remote denies their
+// names -- and issue_watch_remote's, the watch that pulls. A refusal the store makes -- an unknown id, a closed issue closed
 // again, a merge it cannot make -- is a tool error carrying the store's
 // message, never a protocol error: the agent reads why, as a person reads it
 // from the command.
@@ -53,14 +53,16 @@ type mcpConfig struct {
 	store issuelib.Store
 	Dirs  []string
 	Poll  time.Duration
+	Fetch time.Duration
 }
 
-// MCPCommand returns the mcp subcommand. Both options are FuncOpts: -C is
-// repeatable, and -poll is a duration, which the struct tags do not type.
+// MCPCommand returns the mcp subcommand. Its options are FuncOpts: -C is
+// repeatable, and -poll and -fetch are durations, which the struct tags do not
+// type.
 func MCPCommand(store issuelib.Store) *cli.Command {
-	cfg := &mcpConfig{store: store, Poll: watchInterval}
+	cfg := &mcpConfig{store: store, Poll: watchInterval, Fetch: defaultFetch}
 	return cli.NewCommandAt(&cfg.Command, "mcp").
-		WithSynopsis("mcp [-C <dir>]... [-poll <duration>] - Serve the tracker to an agent's host over MCP on stdin/stdout").
+		WithSynopsis("mcp [-C <dir>]... [-poll <duration>] [-fetch <duration>] - Serve the tracker to an agent's host over MCP on stdin/stdout").
 		WithOpts(
 			&cli.Opt{
 				Name:        "C",
@@ -71,6 +73,7 @@ func MCPCommand(store issuelib.Store) *cli.Command {
 				}), "(dir)"),
 			},
 			pollOpt(&cfg.Poll, "never: only the server's own tools are heard"),
+			fetchOpt(&cfg.Fetch),
 		).
 		WithRun(cfg.run)
 }
@@ -92,6 +95,7 @@ func (cfg *mcpConfig) run(cc *cli.Context, args []string) error {
 		return err
 	}
 	m := newMCPServer(ws)
+	m.fetch = cfg.Fetch
 	m.watch(ctx, cfg.Poll)
 	return m.s.Run(ctx, &mcp.StdioTransport{})
 }
@@ -153,7 +157,8 @@ func MCPServerFor(ws *workspace) *mcp.Server {
 // the first look at the refs, which is not news.
 func newMCPServer(ws *workspace) *mcpServer {
 	m := &mcpServer{ws: ws, registered: map[string]bool{}, seen: map[string]issueRefs{},
-		epoch: strconv.FormatInt(time.Now().UnixNano(), 36), wake: make(chan struct{})}
+		epoch: strconv.FormatInt(time.Now().UnixNano(), 36), wake: make(chan struct{}),
+		pullers: map[string]*puller{}, fetch: defaultFetch}
 	m.s = mcp.NewServer(&mcp.Implementation{
 		Name:    "git-issue",
 		Title:   "git-issue",
@@ -181,7 +186,9 @@ The server serves a working set of repositories (repo_list; repo_add and repo_re
 A tool given an id finds the repository that holds it. issue_create, issue_list, issue_push and
 issue_pull take repo when more than one is served; issue_watch takes a list of them. An issue is also a resource, issue://<id>,
 and issue://<id>/meta is it as data; issue:// is the open list. issue_watch waits for issues to
-change and answers what changed, with a cursor to pass back so nothing is missed between calls.
+change and answers what changed, with a cursor to pass back so nothing is missed between calls;
+it reads this clone. issue_watch_remote also pulls a remote while it waits, and says what the
+pulls did.
 
 The rules of the tracker:
   - Every change to the code gets an issue, filed before the work, and the commit that makes the
@@ -191,9 +198,9 @@ The rules of the tracker:
     (issue_comment). Both are commits on the issue's chain, so history keeps what it said before.
   - A relation across repositories mirrors the far issue into the near repository first, read-only
     there (an ext reference), so the relation resolves from that repository alone.
-  - issue_push and issue_pull touch the remote and nothing else does. A push carries a lease on
-    what the last fetch saw; an issue edited on both sides is refused and named, for a person to
-    decide, never overwritten.`
+  - issue_push, issue_pull and issue_watch_remote touch the remote and nothing else does. A push
+    carries a lease on what the last fetch saw; an issue edited on both sides is refused and
+    named, for a person to decide, never overwritten.`
 
 // textOut renders through a command's writer, so a tool's text is what the
 // command prints.
