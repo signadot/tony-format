@@ -1,0 +1,1 @@
+{ "mcpServers": { "git-issue": { "command": "git", "args": ["issue", "mcp"] } } }
