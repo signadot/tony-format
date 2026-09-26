@@ -29,9 +29,10 @@ The Tony format is open source.
 As a naisant, enhanced data format for an interconnected and increasingly automated world,
 a lot of possibilities, some substantial, exist.
 
-This project uses [`git issue`](https://pkg.go.dev/github.com/signadot/tony-format/go-tony/cmd/git-issue#section-readme)
+This project uses [`git issue`](https://pkg.go.dev/github.com/signadot/tony-format/git-issue#section-readme)
 for issue tracking — a git-native tracker that stores issues directly in the
-repository as git refs. Install it and run `git issue list` to see open issues.
+repository as git refs. Install it (`go install github.com/signadot/tony-format/git-issue@latest`)
+and run `git issue list` to see open issues.
 
 Feel free to reach out using `git issue` or Discussions, give the tools a try, weigh in on
 the direction of designs, or let us know how you'd like to see the format and tooling
