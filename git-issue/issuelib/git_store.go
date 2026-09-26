@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -622,19 +623,27 @@ func (s *GitStore) Tips() (map[string]string, error) {
 }
 
 // Subjects answers the subjects of the commits tip holds and none of not does,
-// oldest first: what was done to an issue between two looks at its ref, one
-// line per operation ("comment: ...", "label: added ...").
-func (s *GitStore) Subjects(tip string, not []string) ([]string, error) {
-	args := append([]string{"log", "--reverse", "--format=%s", tip, "--not"}, not...)
+// oldest first, leaving out any committed before since (when since is set):
+// what was done to an issue between two looks at its ref, one line per
+// operation ("comment: ...", "label: added ...").
+func (s *GitStore) Subjects(tip string, not []string, since time.Time) ([]string, error) {
+	args := append([]string{"log", "--reverse", "--format=%ct %s", tip, "--not"}, not...)
 	out, err := s.git(args...).Output()
 	if err != nil {
 		return nil, fmt.Errorf("log %s: %w", tip, err)
 	}
 	var subjects []string
 	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
-		if line != "" {
-			subjects = append(subjects, line)
+		ct, subject, ok := strings.Cut(line, " ")
+		if !ok {
+			continue
 		}
+		if !since.IsZero() {
+			if secs, err := strconv.ParseInt(ct, 10, 64); err == nil && time.Unix(secs, 0).Before(since.Truncate(time.Second)) {
+				continue
+			}
+		}
+		subjects = append(subjects, subject)
 	}
 	return subjects, nil
 }

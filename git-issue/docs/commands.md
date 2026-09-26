@@ -247,7 +247,7 @@ See [the MCP server](mcp.md).
 ```bash
 git issue watch                  # every issue in this repository
 git issue watch j2dz 4f1c        # these two
-git issue watch --label bug      # those labeled bug
+git issue watch --label bug      # those labeled bug, before or after
 git issue watch -poll 1s         # look every second, not every 5
 ```
 
@@ -260,7 +260,9 @@ j2dzt7xph12kswa9esn0  closed  Implement streaming processor  -- close; closed
 ```
 
 A line is the id, the status, the title, and what was done: one entry per
-commit the issue gained, then `closed` or `reopened` if it moved. The refs are
+commit the issue gained, then `closed` or `reopened` if it moved. An issue new
+to the watch lists only commits made since `watch` started, or `arrived` when
+there are none, as for an old issue pulled in. The refs are
 compared every `-poll` (5s by default), so a change made anywhere is heard:
 in this clone, by a pull, by another agent.
 

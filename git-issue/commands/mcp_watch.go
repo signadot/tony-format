@@ -26,7 +26,7 @@ const (
 
 type watchIn struct {
 	IDs     []string `json:"ids,omitempty" jsonschema:"the issues to watch: full ids or unambiguous prefixes; every issue when empty"`
-	Label   string   `json:"label,omitempty" jsonschema:"only issues carrying this label after the change (a plain label, or key=value)"`
+	Label   string   `json:"label,omitempty" jsonschema:"only issues carrying this label before the change or after it, so its removal is heard (a plain label, or key=value)"`
 	Since   string   `json:"since,omitempty" jsonschema:"the cursor a previous issue_watch answered: changes after it are answered at once, so none is missed between calls. Without it, only changes from now on"`
 	Timeout int      `json:"timeout,omitempty" jsonschema:"seconds to wait for a change before answering with none; 300 by default, at most 3600"`
 }
@@ -84,9 +84,9 @@ func addWatchTool(m *mcpServer) {
 // until the timeout. Without since it starts from the latest change found.
 func (m *mcpServer) waitFor(ctx context.Context, f watchFilter, since string, timeout time.Duration) (watchOut, error) {
 	m.mu.Lock()
-	cursor := m.seq
+	cursor, began := m.seq, time.Now()
 	if since != "" {
-		seq, err := m.parseCursor(since)
+		seq, b, err := m.parseCursor(since)
 		if err != nil {
 			m.mu.Unlock()
 			return watchOut{}, err
@@ -95,7 +95,7 @@ func (m *mcpServer) waitFor(ctx context.Context, f watchFilter, since string, ti
 			m.mu.Unlock()
 			return watchOut{}, fmt.Errorf("cursor %s is older than the %d changes this server keeps; call without since, and issue_list to catch up", since, watchLogCap)
 		}
-		cursor = seq
+		cursor, began = seq, b
 	}
 	m.mu.Unlock()
 	deadline := time.NewTimer(timeout)
@@ -111,9 +111,9 @@ func (m *mcpServer) waitFor(ctx context.Context, f watchFilter, since string, ti
 		cursor = m.seq
 		wake := m.wake
 		m.mu.Unlock()
-		out := watchOut{Changes: []watchChange{}, Cursor: m.cursor(cursor)}
+		out := watchOut{Changes: []watchChange{}, Cursor: m.cursor(cursor, began)}
 		for _, ev := range coalesce(events) {
-			ch := describe(ev.repo.Store, repoLabel(m.ws, ev.repo), ev.xidr, ev.was, ev.now)
+			ch := describe(ev.repo.Store, repoLabel(m.ws, ev.repo), ev.xidr, ev.was, ev.now, began)
 			if f.matches(ch) {
 				out.Changes = append(out.Changes, ch)
 			}
@@ -150,22 +150,31 @@ func coalesce(events []watchEvent) []watchEvent {
 	return out
 }
 
-// A cursor is the server's epoch and a change's number: numbers start again
-// with each server, so one from another server is refused rather than read as
-// this one's.
-func (m *mcpServer) cursor(seq uint64) string {
-	return m.epoch + "." + strconv.FormatUint(seq, 10)
+// A cursor is the server's epoch, a change's number, and when the watch
+// began -- the first call, without since. Numbers start again with each
+// server, so a cursor from another server is refused rather than read as this
+// one's; the start carries through the calls, so an issue new to the watch
+// lists only what was done to it since.
+func (m *mcpServer) cursor(seq uint64, began time.Time) string {
+	return m.epoch + "." + strconv.FormatUint(seq, 10) + "." + strconv.FormatInt(began.Unix(), 10)
 }
 
-// parseCursor answers a cursor's change number; m.mu is held.
-func (m *mcpServer) parseCursor(c string) (uint64, error) {
-	epoch, n, ok := strings.Cut(c, ".")
-	seq, err := strconv.ParseUint(n, 10, 64)
-	if !ok || err != nil {
-		return 0, fmt.Errorf("cursor %q is not one issue_watch answered", c)
+// parseCursor answers a cursor's change number and start; m.mu is held.
+func (m *mcpServer) parseCursor(c string) (uint64, time.Time, error) {
+	parts := strings.Split(c, ".")
+	if len(parts) != 3 {
+		return 0, time.Time{}, fmt.Errorf("cursor %q is not one issue_watch answered", c)
 	}
-	if epoch != m.epoch || seq > m.seq {
-		return 0, fmt.Errorf("cursor %s is from another server; call without since", c)
+	seq, err := strconv.ParseUint(parts[1], 10, 64)
+	if err != nil {
+		return 0, time.Time{}, fmt.Errorf("cursor %q is not one issue_watch answered", c)
 	}
-	return seq, nil
+	began, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		return 0, time.Time{}, fmt.Errorf("cursor %q is not one issue_watch answered", c)
+	}
+	if parts[0] != m.epoch || seq > m.seq {
+		return 0, time.Time{}, fmt.Errorf("cursor %s is from another server; call without since", c)
+	}
+	return seq, time.Unix(began, 0), nil
 }

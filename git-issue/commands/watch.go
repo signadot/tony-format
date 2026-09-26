@@ -114,28 +114,28 @@ type watchChange struct {
 	Title   string    `json:"title,omitempty"`
 	Labels  []string  `json:"labels"`
 	Updated time.Time `json:"updated,omitzero"`
-	What    []string  `json:"what" jsonschema:"what was done to it, oldest first: one line per commit it gained (comment: ..., edit: ..., label: ...), then closed or reopened if it moved"`
+	What    []string  `json:"what" jsonschema:"what was done to it, oldest first: one line per commit it gained (comment: ..., edit: ..., label: ...), then closed or reopened if it moved; arrived for an issue that came with no commit since the watch began"`
+
+	labelsBefore []string // its labels before the change, for a label filter
 }
 
 // describe says what changed about one issue between two looks at its refs:
-// the issue as that look saw it, and the subjects of the commits it gained. An issue
-// is read from its own ref, open or closed, before a mirror of it.
-func describe(st issuelib.Store, repo, xidr string, was, now map[string]string) watchChange {
+// the issue as the later look saw it, and the subjects of the commits it
+// gained. An issue new to the watcher lists only commits made since the watch
+// began, so one pulled in does not bring its whole history; with none, it
+// arrived. An issue is read from its own ref, open or closed, before a mirror
+// of it.
+func describe(st issuelib.Store, repo, xidr string, was, now map[string]string, began time.Time) watchChange {
 	ch := watchChange{ID: xidr, Repo: repo, Labels: []string{}, What: []string{}}
-	ref := ""
-	for r := range now {
-		if ref == "" || !issuelib.IsExtRef(r) {
-			ref = r
-		}
+	if old := readAt(st, was); old != nil {
+		ch.labelsBefore = old.Labels
 	}
+	ref := issueRef(now)
 	if ref == "" {
 		ch.Status = "gone"
 		return ch
 	}
-	// Read at the commit the look saw: the ref may have moved on since, or
-	// gone -- a close commits on the open ref, then moves it.
-	if issue, _, err := st.GetByRef(now[ref]); err == nil {
-		issue.Ref = ref
+	if issue := readAt(st, now); issue != nil {
 		ch.Status, ch.Title, ch.Updated = issuelib.StatusOf(issue), issue.Title, issue.Updated
 		if issue.Labels != nil {
 			ch.Labels = issue.Labels
@@ -145,17 +145,50 @@ func describe(st issuelib.Store, repo, xidr string, was, now map[string]string) 
 	for _, commit := range was {
 		not = append(not, commit)
 	}
-	if subjects, err := st.Subjects(now[ref], not); err == nil {
+	since := time.Time{}
+	if len(was) == 0 {
+		since = began
+	}
+	if subjects, err := st.Subjects(now[ref], not, since); err == nil {
 		ch.What = append(ch.What, subjects...)
 	}
-	wasOpen, wasClosed := hasPrefixRef(was, issuelib.OpenPrefix), hasPrefixRef(was, issuelib.ClosedPrefix)
 	switch {
-	case issuelib.IsClosedRef(ref) && wasOpen:
+	case len(was) == 0 && len(ch.What) == 0:
+		ch.What = append(ch.What, "arrived")
+	case issuelib.IsClosedRef(ref) && hasPrefixRef(was, issuelib.OpenPrefix):
 		ch.What = append(ch.What, "closed")
-	case strings.HasPrefix(ref, issuelib.OpenPrefix) && wasClosed:
+	case strings.HasPrefix(ref, issuelib.OpenPrefix) && hasPrefixRef(was, issuelib.ClosedPrefix):
 		ch.What = append(ch.What, "reopened")
 	}
 	return ch
+}
+
+// issueRef is the ref to read an issue from among those holding its id: its
+// own, open or closed, before a mirror of it.
+func issueRef(refs map[string]string) string {
+	ref := ""
+	for r := range refs {
+		if ref == "" || !issuelib.IsExtRef(r) {
+			ref = r
+		}
+	}
+	return ref
+}
+
+// readAt reads an issue at the commit a look saw, not at its ref, which may
+// have moved on since, or gone -- a close commits on the open ref, then moves
+// it. Nil when no ref held it.
+func readAt(st issuelib.Store, refs map[string]string) *issuelib.Issue {
+	ref := issueRef(refs)
+	if ref == "" {
+		return nil
+	}
+	issue, _, err := st.GetByRef(refs[ref])
+	if err != nil {
+		return nil
+	}
+	issue.Ref = ref
+	return issue
 }
 
 func hasPrefixRef(refs map[string]string, prefix string) bool {
@@ -168,7 +201,8 @@ func hasPrefixRef(refs map[string]string, prefix string) bool {
 }
 
 // watchFilter is which issues a watcher reports: the ids named, or those
-// carrying a label, or -- with neither -- every one.
+// carrying a label before the change or after it -- so the label's removal is
+// heard -- or, with neither, every one.
 type watchFilter struct {
 	ids   map[string]bool
 	label string
@@ -178,7 +212,7 @@ func (f watchFilter) matches(ch watchChange) bool {
 	if len(f.ids) > 0 && !f.ids[ch.ID] {
 		return false
 	}
-	return f.label == "" || issuelib.Contains(ch.Labels, f.label)
+	return f.label == "" || issuelib.Contains(ch.Labels, f.label) || issuelib.Contains(ch.labelsBefore, f.label)
 }
 
 // oneLine is a change as `git issue watch` prints it.

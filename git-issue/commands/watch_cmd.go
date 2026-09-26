@@ -18,7 +18,7 @@ import (
 type watchConfig struct {
 	*cli.Command
 	store issuelib.Store
-	Label string `cli:"name=label aliases=l desc='only issues carrying this label after the change'"`
+	Label string `cli:"name=label aliases=l desc='only issues carrying this label before or after the change'"`
 	Poll  time.Duration
 }
 
@@ -70,6 +70,7 @@ func (cfg *watchConfig) run(cc *cli.Context, args []string) error {
 // watchStore looks at a repository's issue refs every interval until ctx ends,
 // and hands each change f matches to emit.
 func watchStore(ctx context.Context, st issuelib.Store, f watchFilter, interval time.Duration, emit func(watchChange)) error {
+	began := time.Now()
 	was, err := lookAt(st)
 	if err != nil {
 		return err
@@ -89,7 +90,7 @@ func watchStore(ctx context.Context, st issuelib.Store, f watchFilter, interval 
 			continue
 		}
 		for _, xidr := range moved(was, now) {
-			if ch := describe(st, "", xidr, was[xidr], now[xidr]); f.matches(ch) {
+			if ch := describe(st, "", xidr, was[xidr], now[xidr], began); f.matches(ch) {
 				emit(ch)
 			}
 		}

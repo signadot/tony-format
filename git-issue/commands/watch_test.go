@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -88,8 +89,8 @@ func TestMCP_IssueWatch(t *testing.T) {
 	}
 
 	// A cursor from another server is refused, not read as this one's.
-	epoch, n, _ := strings.Cut(next.Cursor, ".")
-	for _, c := range []string{"0" + epoch + "." + n, epoch + ".999", "garbage"} {
+	parts := strings.Split(next.Cursor, ".")
+	for _, c := range []string{"0" + next.Cursor, parts[0] + ".999." + parts[2], "garbage"} {
 		if msg := refused(t, cs, "issue_watch", map[string]any{"since": c, "timeout": 1}); !strings.Contains(msg, "cursor") {
 			t.Errorf("since %s: refusal %q", c, msg)
 		}
@@ -142,8 +143,69 @@ func TestWatchStore(t *testing.T) {
 	if last := changes[len(changes)-1]; !hasPrefixed(last.What, "closed") {
 		t.Errorf("last = %+v, want the move to closed", last)
 	}
+
+	// The label's removal is heard by a watcher on the label.
+	if _, err := ops.Label(store, issue.ID, nil, []string{"bug"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case ch := <-got:
+		if !hasPrefixed(ch.What, "label: removed") {
+			t.Errorf("unlabel heard as %q", ch.What)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the label's removal was not heard")
+	}
 	cancel()
 	if err := <-done; err != nil {
 		t.Error(err)
+	}
+}
+
+// TestWatchStore_Arrived: an issue new to the watcher lists only what was done
+// to it since the watch began. One fetched in with an older history says it
+// arrived, rather than bringing that history; one filed since lists its create.
+func TestWatchStore_Arrived(t *testing.T) {
+	dir, srcDir := repoDir(t, "here"), repoDir(t, "elsewhere")
+	store := issuelib.NewGitStoreAt(dir, &strings.Builder{})
+	elsewhere := issuelib.NewGitStoreAt(srcDir, &strings.Builder{})
+	old, err := ops.Create(elsewhere, "Old elsewhere", "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ops.Comment(elsewhere, old.ID, "long ago"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1100 * time.Millisecond) // commit times are in seconds
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	got := make(chan watchChange, 16)
+	go watchStore(ctx, store, watchFilter{}, 10*time.Millisecond, func(ch watchChange) { got <- ch })
+	time.Sleep(50 * time.Millisecond)
+
+	if out, err := exec.Command("git", "-C", dir, "fetch", "-q", srcDir,
+		"refs/git-issues/*:refs/git-issues/*").CombinedOutput(); err != nil {
+		t.Fatalf("fetch: %v: %s", err, out)
+	}
+	select {
+	case ch := <-got:
+		if ch.ID != old.ID || len(ch.What) != 1 || ch.What[0] != "arrived" {
+			t.Errorf("fetched in: %+v, want only arrived", ch)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the fetched issue was not heard")
+	}
+
+	filed, err := ops.Create(store, "Filed since", "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case ch := <-got:
+		if ch.ID != filed.ID || !hasPrefixed(ch.What, "create") {
+			t.Errorf("filed: %+v, want its create", ch)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the filed issue was not heard")
 	}
 }

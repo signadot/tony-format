@@ -106,14 +106,17 @@ notifications on. Claude Code does not: its agent can read resources but not
 subscribe.
 
 `issue_watch` gives the watch to the agent. It waits until an issue changes:
-one named in `ids`, one carrying `label`, or with neither, any. It answers
-each issue that changed with its status, title and labels, and what was done
-to it: one line per commit it gained (`comment: ...`, `label: added bug`),
-then `closed` or `reopened` if it moved. With no change it answers nothing at
-`timeout` (300 seconds, at most 3600).
+one named in `ids`, one carrying `label` before or after the change, or with
+neither, any. It answers each issue that changed with its status, title and
+labels, and what was done to it: one line per commit it gained (`comment:
+...`, `label: added bug`), then `closed` or `reopened` if it moved. An issue
+new to the watch lists only commits made since the watch began, or `arrived`
+when there are none, as for an old issue pulled in. With no change it answers
+nothing at `timeout` (300 seconds, at most 3600).
 
 Every answer carries a `cursor`. Passed back as `since`, it answers at once
-what changed between two calls, so nothing is missed. The server keeps the
+what changed between two calls, so nothing is missed, and the watch began
+with the first call. The server keeps the
 last 1024 changes, and refuses a cursor older than those or from another
 server.
 
