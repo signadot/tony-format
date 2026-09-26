@@ -1,6 +1,9 @@
 package issuelib
 
-import "io"
+import (
+	"io"
+	"time"
+)
 
 // Store is everything git-issue does to a repository. Commands are written
 // against it rather than against git directly, so a test can hand them a store
@@ -89,6 +92,10 @@ type Store interface {
 
 	// Tips is every ref of this generation with its commit, for a watcher.
 	Tips() (map[string]string, error)
+	// Subjects is the subjects of the commits tip holds and none of not does,
+	// oldest first, none committed before since when it is set: what a
+	// watcher says moved a ref.
+	Subjects(tip string, not []string, since time.Time) ([]string, error)
 
 	// Mirrors and sources are carried by a sync as issues are (sync_ext.go).
 	PlanCarried(remote string) ([]CarriedPlan, error)

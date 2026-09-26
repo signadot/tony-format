@@ -700,4 +700,6 @@ func addTools(m *mcpServer) {
 		m.look(ctx)
 		return result(fmt.Sprintf("No longer serving %s\n", in.Repo)), toRepos(ws.list()), nil
 	})
+
+	addWatchTool(m)
 }

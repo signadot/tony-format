@@ -242,6 +242,35 @@ git issue mcp -poll 1s                         # look for changes made beside it
 
 See [the MCP server](mcp.md).
 
+## Watch
+
+```bash
+git issue watch                  # every issue in this repository
+git issue watch j2dz 4f1c        # these two
+git issue watch --label bug      # those labeled bug, before or after
+git issue watch -poll 1s         # look every second, not every 5
+```
+
+`watch` prints a line for each issue that changes, as it changes, until
+stopped:
+
+```
+j2dzt7xph12kswa9esn0  open  Implement streaming processor  -- comment: looks good; label: added bug
+j2dzt7xph12kswa9esn0  closed  Implement streaming processor  -- close
+```
+
+A line is the id, the status, the title, and what was done: one entry per
+commit the issue gained, then `closed` or `reopened` if it moved with no
+commit saying so, as by a pull. An issue new
+to the watch lists only commits made since `watch` started, or `arrived` when
+there are none, as for an old issue pulled in. The refs are
+compared every `-poll` (5s by default), so a change made anywhere is heard:
+in this clone, by a pull, by another agent.
+
+`watch` is for an agent whose host wakes it on a background command's output,
+as Claude Code's Monitor does. An agent that can wait on a tool call uses
+[`issue_watch`](mcp.md#the-watch).
+
 ## Migrations
 
 Two one-shot upgrades for repositories that predate the current layout:

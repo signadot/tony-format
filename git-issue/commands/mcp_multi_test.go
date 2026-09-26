@@ -168,6 +168,15 @@ func TestMCP_ServesSeveralRepositories(t *testing.T) {
 	if msg := refused(t, cs, "issue_show", map[string]any{"id": inTony.ID}); !strings.Contains(msg, "not found") {
 		t.Errorf("an issue of a removed repository was found: %q", msg)
 	}
+	listed, err := cs.ListResources(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range listed.Resources {
+		if r.URI == uriFor(inTony.ID) {
+			t.Error("an issue of a removed repository is still listed as a resource")
+		}
+	}
 	if msg := refused(t, cs, "repo_add", map[string]any{"path": t.TempDir()}); !strings.Contains(msg, "not a git repository") {
 		t.Errorf("a directory that is not a repository was served: %q", msg)
 	}

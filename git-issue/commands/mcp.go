@@ -3,9 +3,9 @@ package commands
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,7 +38,8 @@ import (
 //
 // The issues are resources too (mcp_resources.go), and a host that subscribes
 // to one hears it change -- by the server's own tools, and by anything else
-// that moves a ref, which a poll of the repositories finds every -poll.
+// that moves a ref, which a look at the repositories finds every -poll.
+// An agent whose host does not subscribe for it waits on issue_watch instead.
 //
 // Push and pull are tools of their own, not options of one, so a host that
 // wants an agent working locally and never touching the remote denies two
@@ -57,7 +58,7 @@ type mcpConfig struct {
 // MCPCommand returns the mcp subcommand. Both options are FuncOpts: -C is
 // repeatable, and -poll is a duration, which the struct tags do not type.
 func MCPCommand(store issuelib.Store) *cli.Command {
-	cfg := &mcpConfig{store: store, Poll: defaultPoll}
+	cfg := &mcpConfig{store: store, Poll: watchInterval}
 	return cli.NewCommandAt(&cfg.Command, "mcp").
 		WithSynopsis("mcp [-C <dir>]... [-poll <duration>] - Serve the tracker to an agent's host over MCP on stdin/stdout").
 		WithOpts(
@@ -69,21 +70,7 @@ func MCPCommand(store issuelib.Store) *cli.Command {
 					return 0, nil
 				}), "(dir)"),
 			},
-			&cli.Opt{
-				Name:        "poll",
-				Description: "how often to look for changes made beside the server (default 5s; 0 never)",
-				Type: cli.NamedFuncOpt(cli.FuncOpt(func(cc *cli.Context, a string) (any, error) {
-					d, err := time.ParseDuration(a)
-					if err != nil && a == "0" {
-						d, err = 0, nil
-					}
-					if err != nil {
-						return nil, fmt.Errorf("-poll %q: %w", a, err)
-					}
-					cfg.Poll = d
-					return 0, nil
-				}), "(duration)"),
-			},
+			pollOpt(&cfg.Poll, "never: only the server's own tools are heard"),
 		).
 		WithRun(cfg.run)
 }
@@ -165,7 +152,8 @@ func MCPServerFor(ws *workspace) *mcp.Server {
 // newMCPServer builds the server over a working set: tools, resources, and
 // the first look at the refs, which is not news.
 func newMCPServer(ws *workspace) *mcpServer {
-	m := &mcpServer{ws: ws, registered: map[string]bool{}, seen: map[string]string{}}
+	m := &mcpServer{ws: ws, registered: map[string]bool{}, seen: map[string]issueRefs{},
+		epoch: strconv.FormatInt(time.Now().UnixNano(), 36), wake: make(chan struct{})}
 	m.s = mcp.NewServer(&mcp.Implementation{
 		Name:    "git-issue",
 		Title:   "git-issue",
@@ -192,7 +180,8 @@ across repositories; every tool takes any unambiguous prefix of one, and answers
 The server serves a working set of repositories (repo_list; repo_add and repo_remove change it).
 A tool given an id finds the repository that holds it. issue_create, issue_list, issue_push and
 issue_pull take repo when more than one is served. An issue is also a resource, issue://<id>,
-and issue://<id>/meta is it as data; issue:// is the open list.
+and issue://<id>/meta is it as data; issue:// is the open list. issue_watch waits for issues to
+change and answers what changed, with a cursor to pass back so nothing is missed between calls.
 
 The rules of the tracker:
   - Every change to the code gets an issue, filed before the work, and the commit that makes the
