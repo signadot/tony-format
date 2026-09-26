@@ -55,7 +55,8 @@ claude mcp add git-issue -- git issue mcp
 
 It serves the repositories in `~/.config/git-issue.tony` and the one it was
 started in, finds any issue by its id across them, and offers each issue as a
-resource a host can subscribe to. See [docs/mcp.md](docs/mcp.md).
+resource. `issue_watch` waits for issues to change and says what changed, and
+`git issue watch` prints the same from a shell. See [docs/mcp.md](docs/mcp.md).
 
 ## More
 

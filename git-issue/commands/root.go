@@ -18,9 +18,12 @@
 //     edited copy back onto the issue's ref
 //   - serve -- a read-only web view of the repository's issues
 //   - mcp -- the tracker as an MCP server over stdio, for an agent's host to
-//     start: one repository or several, issue_* and repo_* tools, and issue://
-//     resources a host can subscribe to (mcp.go, mcp_tools.go, mcp_workspace.go,
-//     mcp_resources.go)
+//     start: one repository or several, issue_* and repo_* tools, issue://
+//     resources a host can subscribe to, and issue_watch for an agent whose
+//     host does not (mcp.go, mcp_tools.go, mcp_workspace.go, mcp_resources.go,
+//     mcp_watch.go)
+//   - watch -- a line for each issue that changes, until stopped: the MCP
+//     server's watch for an agent woken by a command's output (watch.go)
 //   - migrate, migrate-comments -- one-shot upgrades of on-disk layout
 //
 // Each command parses what it was given and calls the ops package, which is
@@ -81,6 +84,7 @@ Usage:
   git issue ext remove <id>                 Drop a mirror and the relations naming it
   git issue serve [--addr <addr>]           Read-only web view (default localhost:8080)
   git issue mcp [-C <dir>]                  Serve the tracker to an agent's host over MCP (stdin/stdout)
+  git issue watch [--label <l>] [<id>...]   Print each issue that changes, as it changes, until stopped
   git issue migrate [--dry-run]             Migrate issues from numeric IDs to XIDs
   git issue migrate-comments [--apply]      Rename comments to collision-free names
   git issue version                         Print the version of git-issue
@@ -138,6 +142,7 @@ func Root() *cli.Command {
 			ExtCommand(store),
 			ServeCommand(store),
 			MCPCommand(store),
+			WatchCommand(store),
 			VersionCommand(store),
 		)
 }

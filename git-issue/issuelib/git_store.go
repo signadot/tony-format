@@ -621,6 +621,24 @@ func (s *GitStore) Tips() (map[string]string, error) {
 	return tips, nil
 }
 
+// Subjects answers the subjects of the commits tip holds and none of not does,
+// oldest first: what was done to an issue between two looks at its ref, one
+// line per operation ("comment: ...", "label: added ...").
+func (s *GitStore) Subjects(tip string, not []string) ([]string, error) {
+	args := append([]string{"log", "--reverse", "--format=%s", tip, "--not"}, not...)
+	out, err := s.git(args...).Output()
+	if err != nil {
+		return nil, fmt.Errorf("log %s: %w", tip, err)
+	}
+	var subjects []string
+	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+		if line != "" {
+			subjects = append(subjects, line)
+		}
+	}
+	return subjects, nil
+}
+
 // VerifyRepository says whether the store's directory is a git repository, and
 // names the directory when it is not: what a server made on a directory asks
 // before serving it, since every later call would fail one at a time otherwise.

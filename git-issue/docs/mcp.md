@@ -63,6 +63,7 @@ resolves to its own.
 | `issue_for_commit` | `repo?`, `commit` | the issues its note names |
 | `issue_pull` | `repo?`, `remote?`, `force?`, `dry_run?` | the sync report |
 | `issue_push` | `repo?`, `remote?`, `id?`, `force?`, `dry_run?` | the sync report |
+| `issue_watch` | `ids?`, `label?`, `since?`, `timeout?` | the issues that changed and what was done to each, and a cursor; waits for one |
 | `repo_list` | | the repositories served, and where each came from |
 | `repo_add` | `path`, `persist?` | the set after |
 | `repo_remove` | `repo` | the set after |
@@ -96,11 +97,27 @@ hears it change.
 
 A change made through the server's own tools is announced at once. A change
 made beside the server -- a comment from a shell, a pull in another clone, an
-edit by another agent -- is found by the watch: every `-poll` (5s by default),
-each served repository's refs are compared with the last look, an issue whose
-ref moved is announced to its subscribers, and an issue that appeared or went
-changes the listing. `-poll 0` turns the watch off.
+edit by another agent -- is found by the watch: every few seconds each served
+repository's refs are compared with the last look, an issue whose ref moved is
+announced to its subscribers, and an issue that appeared or went changes the
+listing.
 
-Hosts differ in what they show of this. Claude Code does not surface resource
-subscriptions in its UI, so the watch shows up as the next read being current
-rather than as a notification.
+A subscription reaches an agent only if its host subscribes and passes the
+notification on, and the agent cannot subscribe for itself: subscribing is the
+host's act. Claude Code does neither -- it gives its agent resource reads and
+no subscribe -- so there the watch shows up as the next read being current.
+
+`issue_watch` puts the watch in the agent's hands in any host. It waits until
+an issue it was given (by `ids`, by `label`, or every issue) changes, and
+answers each one that did: its status, title and labels now, and what was
+done -- the subject of each commit it gained (`comment: ...`, `label: added
+bug`), and `closed` or `reopened` when it moved. With no change it answers
+none at `timeout` (300 seconds; at most 3600). Every answer carries a
+`cursor`; given back as `since`, the changes after it are answered at once, so
+nothing is missed between two calls. The server keeps the last 1024 changes; a
+cursor older than those is refused rather than answered short.
+
+`issue_watch` holds the call while it waits. In a host where a tool call holds
+the agent's turn -- Claude Code -- run `git issue watch` in the background
+instead (Monitor), which prints a line per change as it is found
+([commands](commands.md#watch)).

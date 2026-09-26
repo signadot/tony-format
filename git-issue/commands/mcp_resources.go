@@ -25,8 +25,10 @@ import (
 // resources/list_changed itself when that registration changes. A change to an
 // issue the server made with its own tools is announced by the tool; a change
 // made beside the server -- a comment from a shell, a pull in another clone --
-// is found by the watch: a poll of every served repository's refs, tips
-// compared between two looks, so "watching" is not a word (eg8zmb1sh12ksr48pxn0).
+// is found by the watch: a look at every served repository's refs each
+// watchInterval, compared with the last (watch.go), so "watching" is not a
+// word (eg8zmb1sh12ksr48pxn0). What a look finds also goes to issue_watch
+// (mcp_watch.go), for an agent whose host does not subscribe for it.
 
 const (
 	uriScheme     = "issue://"
@@ -34,7 +36,6 @@ const (
 	mimeMarkdown  = "text/markdown"
 	mimeJSON      = "application/json"
 	mimeText      = "text/plain"
-	defaultPoll   = 5 * time.Second
 	completeLimit = 100
 )
 
@@ -46,8 +47,27 @@ type mcpServer struct {
 	ws *workspace
 
 	mu         sync.Mutex
-	registered map[string]bool   // issue URIs registered as resources
-	seen       map[string]string // ref -> commit, per repository dir: last look
+	registered map[string]bool      // issue URIs registered as resources
+	seen       map[string]issueRefs // repository dir -> its last look
+
+	// What looks found, for issue_watch: each change numbered in order, the
+	// last watchLogCap kept, and a channel closed and replaced when one is
+	// added, to wake whoever waits.
+	seq  uint64
+	log  []watchEvent
+	wake chan struct{}
+}
+
+// watchLogCap is how many changes the server keeps for issue_watch's cursor: a
+// cursor older than the oldest kept is refused rather than answered short.
+const watchLogCap = 1024
+
+// watchEvent is one issue's refs moving, found by a look.
+type watchEvent struct {
+	seq      uint64
+	repo     *repo
+	xidr     string
+	was, now map[string]string
 }
 
 func uriFor(xidr string) string { return uriScheme + xidr }
@@ -228,68 +248,78 @@ func (m *mcpServer) complete(_ context.Context, req *mcp.CompleteRequest) (*mcp.
 	return res, nil
 }
 
-// look compares every served repository's refs with the last look, announces
-// each issue whose ref moved, and resyncs the listing when a ref appeared or
-// went. It is what the watch does on each tick, and what a tool that pulled
-// does once.
+// look compares every served repository's issue refs with the last look,
+// announces each issue whose refs moved, logs it for issue_watch and wakes
+// whoever waits, and resyncs the listing when an issue appeared, went, or moved
+// between open and closed. It is what the watch does on each tick, and what a
+// tool that changed something does once.
 func (m *mcpServer) look(ctx context.Context) {
 	m.mu.Lock()
-	moved := map[string]bool{}
+	var events []watchEvent
 	listChanged := false
 	for _, r := range m.ws.list() {
-		tips, err := r.Store.Tips()
+		now, err := lookAt(r.Store)
 		if err != nil {
 			continue
 		}
-		for ref, commit := range tips {
-			key := r.Dir + " " + ref
-			if was, ok := m.seen[key]; !ok || was != commit {
-				if !ok {
-					listChanged = true
-				}
-				if xidr, err := issuelib.XIDRFromRef(ref); err == nil {
-					moved[xidr] = true
-				}
-				m.seen[key] = commit
-			}
-		}
-		for key := range m.seen {
-			dir, ref, _ := strings.Cut(key, " ")
-			if dir != r.Dir {
-				continue
-			}
-			if _, ok := tips[ref]; !ok {
+		was := m.seen[r.Dir]
+		for _, xidr := range moved(was, now) {
+			if !sameKeys(was[xidr], now[xidr]) {
 				listChanged = true
-				delete(m.seen, key)
 			}
+			m.seq++
+			events = append(events, watchEvent{seq: m.seq, repo: r, xidr: xidr, was: was[xidr], now: now[xidr]})
 		}
+		m.seen[r.Dir] = now
+	}
+	if len(events) > 0 {
+		m.log = append(m.log, events...)
+		if over := len(m.log) - watchLogCap; over > 0 {
+			m.log = append([]watchEvent(nil), m.log[over:]...)
+		}
+		close(m.wake)
+		m.wake = make(chan struct{})
 	}
 	m.mu.Unlock()
-	for xidr := range moved {
-		m.changed(ctx, xidr)
+	for _, ev := range events {
+		m.changed(ctx, ev.xidr)
 	}
 	if listChanged {
 		m.resync()
 	}
 }
 
-// prime takes the first look without announcing: what is there when the server
-// starts is not news.
+func sameKeys(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if _, ok := b[k]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// prime takes the first look at each repository not looked at yet, without
+// announcing: what is there when a repository starts being served is not news.
+// A repository already looked at keeps its last look, so a change in it that
+// no look has found yet is still found by the next.
 func (m *mcpServer) prime() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, r := range m.ws.list() {
-		tips, err := r.Store.Tips()
-		if err != nil {
+		if _, ok := m.seen[r.Dir]; ok {
 			continue
 		}
-		for ref, commit := range tips {
-			m.seen[r.Dir+" "+ref] = commit
+		if now, err := lookAt(r.Store); err == nil {
+			m.seen[r.Dir] = now
 		}
 	}
 }
 
-// watch looks every interval until ctx ends. Zero is no watch.
+// watch looks every interval until ctx ends -- watchInterval when served, less
+// in a test. Zero is no watch.
 func (m *mcpServer) watch(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		return
