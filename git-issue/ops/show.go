@@ -17,6 +17,7 @@ type Shown struct {
 	Description string // description.md as stored: title line and body
 	Title       string
 	Body        string
+	Source      string // for a mirror, the source it is mirrored from; "" for this repository's own
 
 	Commits    []string // one line per linked commit, as git shows it
 	Related    []Linked
@@ -50,10 +51,11 @@ func Show(s issuelib.Store, id string) (*Shown, error) {
 	sh := &Shown{
 		Issue:       issue,
 		Ref:         ref,
-		Status:      issuelib.StatusFromRef(ref),
+		Status:      issuelib.StatusOf(issue),
 		Description: desc,
 	}
 	sh.Title, sh.Body = SplitDescription(desc)
+	sh.Source, _, _ = issuelib.ExtSource(ref)
 	for _, c := range issue.Commits {
 		info, err := s.GetCommitInfo(c)
 		if err != nil {

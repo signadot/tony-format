@@ -300,12 +300,17 @@ func (s *GitStore) FindRef(xidrOrPrefix string) (string, error) {
 			return ref, nil
 		}
 
+		// A mirror, under whichever source it came from.
+		if mirrors := s.refsAt(ExtPrefix + "*/" + xidrOrPrefix); len(mirrors) == 1 {
+			return mirrors[0].ref, nil
+		}
+
 		return "", fmt.Errorf("issue not found: %s", xidrOrPrefix)
 	}
 
 	// Prefix search - find all matching refs
 	var matches []string
-	for _, r := range s.refsAt(OpenPrefix+"*", ClosedPrefix+"*") {
+	for _, r := range s.refsAt(OpenPrefix+"*", ClosedPrefix+"*", ExtPrefix+"*/*") {
 		xidr, err := XIDRFromRef(r.ref)
 		if err != nil {
 			continue
@@ -449,15 +454,17 @@ func (s *GitStore) List(includeAll bool) ([]*Issue, error) {
 	return issues, nil
 }
 
-// ListRefs returns the open issue refs, plus the closed ones when includeAll is
-// set. Anything an older git-issue left in this clone is adopted first, so a
-// listing shows every issue whichever binary wrote it (AdoptGen0).
+// ListRefs returns the open issue refs, plus the closed ones and the mirrors
+// when includeAll is set: a mirror is not this repository's work, so it is
+// listed only with everything. Anything an older git-issue left in this clone
+// is adopted first, so a listing shows every issue whichever binary wrote it
+// (AdoptGen0).
 func (s *GitStore) ListRefs(includeAll bool) ([]string, error) {
 	s.adoptOnce()
 
 	patterns := []string{OpenPrefix + "*"}
 	if includeAll {
-		patterns = append(patterns, ClosedPrefix+"*")
+		patterns = append(patterns, ClosedPrefix+"*", ExtPrefix+"*/*")
 	}
 
 	var allRefs []string

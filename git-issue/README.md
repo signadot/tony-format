@@ -338,11 +338,35 @@ run it once.
 
 - **`refs/git-issues/v1/open/<xidr>`** — an open issue
 - **`refs/git-issues/v1/closed/<xidr>`** — a closed issue
+- **`refs/git-issues/v1/ext/<source>/<xidr>`** — another repository's issue, mirrored here
+- **`refs/git-issues/v1/sources/<source>`** — where that repository is (`source.tony`)
 - **`refs/notes/issues`** — reverse index, commit → issue IDs
 
 Status is the namespace: an issue is open because its ref is under
 the open namespace. `meta.tony` carries a `status` field too, but where the ref lives
-is what listings believe.
+is what listings believe. A mirror is the exception: its status is what the source
+wrote in `meta.tony`, since the namespace here cannot say it.
+
+### Ext references
+
+A relation is a bare id in `meta.tony`, and means something only where that id
+resolves. To relate an issue here to one in another repository, the other issue is
+mirrored here first:
+
+```bash
+git issue ext add verse ~/src/verse          # a name for the other repository
+git issue ext fetch verse <full id>          # its issue, mirrored under ext/verse/
+git issue relate j2dz <that id>              # now resolves from this repository alone
+git issue ext refresh                        # bring every mirror up to its source
+git issue ext remove <that id>               # drop the mirror, and the relations naming it
+```
+
+A mirror is the source's chain, byte for byte, and read-only here: a comment or an
+edit goes where the issue lives. It shows up in `list --all` marked with its source
+and never in `list`, since it is not this repository's work. A refresh only ever
+fast-forwards. The mirror is this repository's data -- a clone that lacked it could
+not follow the relation -- so push carries it to this repository's origin, and never
+to the source.
 
 ### Issue structure
 

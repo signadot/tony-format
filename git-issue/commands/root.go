@@ -66,6 +66,10 @@ Usage:
   git issue pull [--force] [--dry-run] [remote]        Pull issues from remote (default: origin)
   git issue export <id> [dir]               Export issue to directory
   git issue import [--force] <dir>          Import issue from directory
+  git issue ext add <source> <url>          Name another repository, to mirror its issues from
+  git issue ext fetch <source> <id>         Mirror one of its issues here, read-only
+  git issue ext refresh [<source>]          Bring mirrors up to their sources
+  git issue ext remove <id>                 Drop a mirror and the relations naming it
   git issue serve [--addr <addr>]           Read-only web view (default localhost:8080)
   git issue mcp [-C <dir>]                  Serve the tracker to an agent's host over MCP (stdin/stdout)
   git issue migrate [--dry-run]             Migrate issues from numeric IDs to XIDs
@@ -122,6 +126,7 @@ func Root() *cli.Command {
 			UnlabelCommand(store),
 			MigrateCommand(store),
 			MigrateCommentsCommand(store),
+			ExtCommand(store),
 			ServeCommand(store),
 			MCPCommand(store),
 			VersionCommand(store),

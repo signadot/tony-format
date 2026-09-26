@@ -24,7 +24,7 @@ func Edit(s issuelib.Store, id string, title, body *string) (*issuelib.Issue, er
 	if title == nil && body == nil {
 		return nil, fmt.Errorf("nothing to edit: give a title, a body, or both")
 	}
-	ref, err := s.FindRef(id)
+	ref, err := own(s, id)
 	if err != nil {
 		return nil, err
 	}

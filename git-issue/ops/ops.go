@@ -51,7 +51,7 @@ func Comment(s issuelib.Store, id, text string) (*issuelib.Issue, string, error)
 	if strings.TrimSpace(text) == "" {
 		return nil, "", fmt.Errorf("comment cannot be empty")
 	}
-	ref, err := s.FindRef(id)
+	ref, err := own(s, id)
 	if err != nil {
 		return nil, "", err
 	}
@@ -100,7 +100,7 @@ func Label(s issuelib.Store, id string, add, remove []string) (*issuelib.Issue, 
 	if len(add) == 0 && len(remove) == 0 {
 		return nil, fmt.Errorf("nothing to do: give labels to add or remove")
 	}
-	ref, err := s.FindRef(id)
+	ref, err := own(s, id)
 	if err != nil {
 		return nil, err
 	}
@@ -141,9 +141,9 @@ func Close(s issuelib.Store, id, commit string) (*issuelib.Issue, error) {
 		}
 		closedBy = &sha
 	}
-	ref, err := s.FindRef(id)
+	ref, err := own(s, id)
 	if err != nil {
-		return nil, fmt.Errorf("issue not found: %s", id)
+		return nil, err
 	}
 	if issuelib.IsClosedRef(ref) {
 		return nil, fmt.Errorf("issue already closed: %s", id)
@@ -171,9 +171,9 @@ func Close(s issuelib.Store, id, commit string) (*issuelib.Issue, error) {
 
 // Reopen reopens a closed issue. An open issue is refused.
 func Reopen(s issuelib.Store, id string) (*issuelib.Issue, error) {
-	ref, err := s.FindRef(id)
+	ref, err := own(s, id)
 	if err != nil {
-		return nil, fmt.Errorf("issue not found: %s", id)
+		return nil, err
 	}
 	if !issuelib.IsClosedRef(ref) {
 		return nil, fmt.Errorf("issue is not closed: %s", id)
@@ -200,9 +200,9 @@ func Link(s issuelib.Store, id, commit string) (*issuelib.Issue, string, error) 
 	if err != nil {
 		return nil, "", err
 	}
-	ref, err := s.FindRef(id)
+	ref, err := own(s, id)
 	if err != nil {
-		return nil, "", fmt.Errorf("issue not found: %s", id)
+		return nil, "", err
 	}
 	issue, _, err := s.GetByRef(ref)
 	if err != nil {
@@ -242,7 +242,7 @@ func Relate(s issuelib.Store, id, other string, kind Relation) (from, to *issuel
 	default:
 		return nil, nil, false, fmt.Errorf("unknown relation %q: related, blocks or duplicate", kind)
 	}
-	ref1, err := s.FindRef(id)
+	ref1, err := own(s, id)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -281,7 +281,10 @@ func Relate(s issuelib.Store, id, other string, kind Relation) (from, to *issuel
 		}
 		msg = "duplicate: of " + issuelib.FormatID(to.ID)
 	}
-	addBlockedBy := kind == Blocks && !issuelib.Contains(to.BlockedBy, from.ID)
+	// The far side of blocks is written on the other issue -- unless that issue
+	// is a mirror, which is another repository's and not written here. The
+	// relation is then this issue's alone, which is what this repository knows.
+	addBlockedBy := kind == Blocks && !issuelib.IsExtRef(to.Ref) && !issuelib.Contains(to.BlockedBy, from.ID)
 	if !added && !addBlockedBy {
 		return from, to, false, nil
 	}
@@ -319,7 +322,7 @@ func linked(s issuelib.Store, id string) Linked {
 	if err != nil {
 		return Linked{ID: id, Err: "error"}
 	}
-	return Linked{ID: issue.ID, Status: issuelib.StatusFromRef(ref), Title: issue.Title}
+	return Linked{ID: issue.ID, Status: issuelib.StatusOf(issue), Title: issue.Title}
 }
 
 // ForCommit answers the issues linked to a commit, through its note, and the
