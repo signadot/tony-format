@@ -237,6 +237,7 @@ who else can reach the address you pick.
 ```bash
 git issue mcp                                  # this repository, and the configured set
 git issue mcp -C ~/src/tony-format -C ~/src/verse
+git issue mcp -poll 1s                         # look for changes made beside it every second
 ```
 
 See [the MCP server](mcp.md).
@@ -247,6 +248,7 @@ See [the MCP server](mcp.md).
 git issue watch                  # every issue in this repository
 git issue watch j2dz 4f1c        # these two
 git issue watch --label bug      # those carrying bug after the change
+git issue watch -poll 1s         # look every second rather than every 5
 ```
 
 Prints a line for each issue that changes -- a comment, an edit, a label, a
@@ -260,8 +262,8 @@ until it is stopped:
 
 After the status and title comes what was done: the subject of each commit
 the issue gained, and `closed` or `reopened` when it moved. It looks at the
-refs every few seconds, so a change made anywhere -- this clone, a pull,
-another agent -- is found. It is for an agent whose host wakes it on a
+refs every `-poll` (5s by default), so a change made anywhere -- this clone, a
+pull, another agent -- is found within it. It is for an agent whose host wakes it on a
 background command's output (Claude Code's Monitor); an agent working through
 the MCP server has `issue_watch` instead.
 

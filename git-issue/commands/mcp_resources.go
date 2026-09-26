@@ -26,7 +26,7 @@ import (
 // issue the server made with its own tools is announced by the tool; a change
 // made beside the server -- a comment from a shell, a pull in another clone --
 // is found by the watch: a look at every served repository's refs each
-// watchInterval, compared with the last (watch.go), so "watching" is not a
+// -poll, compared with the last (watch.go), so "watching" is not a
 // word (eg8zmb1sh12ksr48pxn0). What a look finds also goes to issue_watch
 // (mcp_watch.go), for an agent whose host does not subscribe for it.
 
@@ -318,8 +318,7 @@ func (m *mcpServer) prime() {
 	}
 }
 
-// watch looks every interval until ctx ends -- watchInterval when served, less
-// in a test. Zero is no watch.
+// watch looks every interval (-poll) until ctx ends. Zero is no watch.
 func (m *mcpServer) watch(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		return

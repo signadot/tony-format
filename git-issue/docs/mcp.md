@@ -97,10 +97,12 @@ hears it change.
 
 A change made through the server's own tools is announced at once. A change
 made beside the server -- a comment from a shell, a pull in another clone, an
-edit by another agent -- is found by the watch: every few seconds each served
-repository's refs are compared with the last look, an issue whose ref moved is
-announced to its subscribers, and an issue that appeared or went changes the
-listing.
+edit by another agent -- is found by the watch: every `-poll` (5s by default)
+each served repository's refs are compared with the last look, an issue whose
+ref moved is announced to its subscribers and answered to `issue_watch`, and an
+issue that appeared or went changes the listing. `-poll` is how soon a change
+made beside the server is heard; `-poll 0` takes no look but after the
+server's own tools, so only their changes are heard.
 
 A subscription reaches an agent only if its host subscribes and passes the
 notification on, and the agent cannot subscribe for itself: subscribing is the

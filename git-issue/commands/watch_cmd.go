@@ -19,15 +19,16 @@ type watchConfig struct {
 	*cli.Command
 	store issuelib.Store
 	Label string `cli:"name=label aliases=l desc='only issues carrying this label after the change'"`
+	Poll  time.Duration
 }
 
 // WatchCommand returns the watch subcommand.
 func WatchCommand(store issuelib.Store) *cli.Command {
-	cfg := &watchConfig{store: store}
+	cfg := &watchConfig{store: store, Poll: watchInterval}
 	opts, _ := cli.StructOpts(cfg)
 	return cli.NewCommandAt(&cfg.Command, "watch").
-		WithSynopsis("watch [--label <label>] [<id>...] - Print each issue that changes, as it changes, until stopped").
-		WithOpts(opts...).
+		WithSynopsis("watch [--label <label>] [-poll <duration>] [<id>...] - Print each issue that changes, as it changes, until stopped").
+		WithOpts(append(opts, pollOpt(&cfg.Poll, ""))...).
 		WithRun(cfg.run)
 }
 
@@ -61,7 +62,7 @@ func (cfg *watchConfig) run(cc *cli.Context, args []string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return watchStore(ctx, cfg.store, f, watchInterval, func(ch watchChange) {
+	return watchStore(ctx, cfg.store, f, cfg.Poll, func(ch watchChange) {
 		fmt.Fprintln(cc.Out, ch.oneLine())
 	})
 }

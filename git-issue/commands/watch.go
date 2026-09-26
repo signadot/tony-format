@@ -1,10 +1,12 @@
 package commands
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/scott-cotton/cli"
 	"github.com/signadot/tony-format/git-issue/issuelib"
 )
 
@@ -16,9 +18,38 @@ import (
 // whose host wakes it on a command's output rather than on a tool's answer
 // (vegmw7bmh12ks11mq1n0). Both describe a change the same way (describe).
 
-// watchInterval is how often a watcher looks at the refs: a change made beside
-// it -- a comment from a shell, a pull in another clone -- is found within it.
+// watchInterval is how often a watcher looks at the refs unless -poll says
+// otherwise: a change made beside it -- a comment from a shell, a pull in
+// another clone -- is found within it.
 const watchInterval = 5 * time.Second
+
+// pollOpt is -poll: how often a watcher looks, as a duration. With zero, the
+// MCP server takes no look but after its own tools; `git issue watch` would
+// never answer, so it refuses zero.
+func pollOpt(dst *time.Duration, zeroMeans string) *cli.Opt {
+	desc := "how often to look for changes (default 5s)"
+	if zeroMeans != "" {
+		desc = "how often to look for changes (default 5s; 0 " + zeroMeans + ")"
+	}
+	return &cli.Opt{
+		Name:        "poll",
+		Description: desc,
+		Type: cli.NamedFuncOpt(cli.FuncOpt(func(cc *cli.Context, a string) (any, error) {
+			d, err := time.ParseDuration(a)
+			if err != nil && a == "0" {
+				d, err = 0, nil
+			}
+			if err != nil {
+				return nil, fmt.Errorf("-poll %q: %w", a, err)
+			}
+			if d < 0 || (d == 0 && zeroMeans == "") {
+				return nil, fmt.Errorf("-poll %q: must be more than zero", a)
+			}
+			*dst = d
+			return 0, nil
+		}), "(duration)"),
+	}
+}
 
 // issueRefs is one look at a repository's issues: for each id, the refs that
 // hold it and their commits. An issue is one ref, open or closed; its id can

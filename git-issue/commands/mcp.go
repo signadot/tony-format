@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/scott-cotton/cli"
@@ -36,7 +37,7 @@ import (
 //
 // The issues are resources too (mcp_resources.go), and a host that subscribes
 // to one hears it change -- by the server's own tools, and by anything else
-// that moves a ref, which a look at the repositories finds every few seconds.
+// that moves a ref, which a look at the repositories finds every -poll.
 // An agent whose host does not subscribe for it waits on issue_watch instead.
 //
 // Push and pull are tools of their own, not options of one, so a host that
@@ -50,14 +51,15 @@ type mcpConfig struct {
 	*cli.Command
 	store issuelib.Store
 	Dirs  []string
+	Poll  time.Duration
 }
 
-// MCPCommand returns the mcp subcommand. -C is a FuncOpt because it is
-// repeatable.
+// MCPCommand returns the mcp subcommand. Both options are FuncOpts: -C is
+// repeatable, and -poll is a duration, which the struct tags do not type.
 func MCPCommand(store issuelib.Store) *cli.Command {
-	cfg := &mcpConfig{store: store}
+	cfg := &mcpConfig{store: store, Poll: watchInterval}
 	return cli.NewCommandAt(&cfg.Command, "mcp").
-		WithSynopsis("mcp [-C <dir>]... - Serve the tracker to an agent's host over MCP on stdin/stdout").
+		WithSynopsis("mcp [-C <dir>]... [-poll <duration>] - Serve the tracker to an agent's host over MCP on stdin/stdout").
 		WithOpts(
 			&cli.Opt{
 				Name:        "C",
@@ -67,6 +69,7 @@ func MCPCommand(store issuelib.Store) *cli.Command {
 					return 0, nil
 				}), "(dir)"),
 			},
+			pollOpt(&cfg.Poll, "never: only the server's own tools are heard"),
 		).
 		WithRun(cfg.run)
 }
@@ -88,7 +91,7 @@ func (cfg *mcpConfig) run(cc *cli.Context, args []string) error {
 		return err
 	}
 	m := newMCPServer(ws)
-	m.watch(ctx, watchInterval)
+	m.watch(ctx, cfg.Poll)
 	return m.s.Run(ctx, &mcp.StdioTransport{})
 }
 
