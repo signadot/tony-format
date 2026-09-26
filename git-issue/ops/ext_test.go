@@ -100,8 +100,8 @@ func TestExtReference(t *testing.T) {
 			return err
 		},
 	} {
-		if err := write(); err == nil || !strings.Contains(err.Error(), "mirror of b's") {
-			t.Errorf("%s of a mirror: %v", name, err)
+		if err := write(); err == nil || !strings.Contains(err.Error(), "mirror of b's") || !strings.Contains(err.Error(), bDir) {
+			t.Errorf("%s of a mirror: %v (should name the source and where it is)", name, err)
 		}
 	}
 

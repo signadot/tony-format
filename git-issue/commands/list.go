@@ -31,6 +31,11 @@ func (cfg *listConfig) run(cc *cli.Context, args []string) error {
 		return err
 	}
 
+	// Outside a repository there are no refs to list, which "No issues found"
+	// would say as if it were the answer.
+	if err := cfg.store.VerifyRepository(); err != nil {
+		return err
+	}
 	issues, err := ops.List(cfg.store, cfg.ShowAll, cfg.Label)
 	if err != nil {
 		return err

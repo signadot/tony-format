@@ -71,6 +71,9 @@ type Store interface {
 	// VerifyRemote checks if a remote exists.
 	VerifyRemote(remote string) error
 
+	// VerifyRepository says whether there is a repository to act on at all.
+	VerifyRepository() error
+
 	// CleanupStaleRefs removes duplicate refs when an issue exists in both the
 	// open and closed namespaces. Keeps the ref with more history, or the
 	// closed one when neither descends from the other.

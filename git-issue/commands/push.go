@@ -21,7 +21,7 @@ func newPushConfig(store issuelib.Store) *pushConfig {
 	cfg := &pushConfig{store: store}
 	opts, _ := cli.StructOpts(cfg)
 	cli.NewCommandAt(&cfg.Command, "push").
-		WithSynopsis("push [--all] [--force] [--dry-run] <id> [remote] - Push issue(s) to remote").
+		WithSynopsis("push [--force] [--dry-run] [<id>] [remote] - Push an issue, or every issue, to the remote").
 		WithOpts(opts...).
 		WithRun(cfg.run)
 	return cfg
@@ -41,15 +41,13 @@ func (cfg *pushConfig) run(cc *cli.Context, args []string) error {
 	// Get remote name (default to origin)
 	remote := "origin"
 
-	if cfg.All {
+	// No id is every issue, as a pull is the whole repository; --all says the
+	// same and takes the remote as its argument.
+	if cfg.All || len(args) == 0 {
 		if len(args) > 0 {
 			remote = args[0]
 		}
 		return cfg.pushAll(cc, remote)
-	}
-
-	if len(args) < 1 {
-		return fmt.Errorf("%w: usage: git issue push <xidr> [remote]", cli.ErrUsage)
 	}
 
 	xidrOrPrefix := args[0]
