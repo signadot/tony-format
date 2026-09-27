@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 52cfac17c68f1e1f93ac3b843fde89c9a73b08c9
 commits: []
 created: "2026-09-27T03:06:54.422296+02:00"
 duplicates: []
@@ -9,5 +10,5 @@ id: vbtm1dfbh12krbkcq1n0
 labels:
 - bug
 related_issues: []
-status: open
-updated: "2026-09-27T09:17:45.513868+02:00"
+status: closed
+updated: "2026-09-27T09:21:45.193062+02:00"
