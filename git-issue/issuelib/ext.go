@@ -108,7 +108,11 @@ func (s *GitStore) RefreshMirrors(source string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	n := 0
+	// The fetch is recorded when a mirror moved, and not otherwise: a refresh
+	// that brought nothing has nothing to say, and one recorded every time is
+	// a commit on the source's ref at every pull, which a watch makes every
+	// few seconds (wnhrpxfeh12krs4cq5n0).
+	n, moved := 0, false
 	for _, r := range s.refsAt(ExtPrefix + source + "/*") {
 		_, xidr, ok := ExtSource(r.ref)
 		if !ok {
@@ -118,8 +122,11 @@ func (s *GitStore) RefreshMirrors(source string) (int, error) {
 			return n, err
 		}
 		n++
+		if at, err := s.GetRefCommit(r.ref); err != nil || at != r.commit {
+			moved = true
+		}
 	}
-	if n > 0 {
+	if moved {
 		if err := s.touchSource(source); err != nil {
 			return n, err
 		}
