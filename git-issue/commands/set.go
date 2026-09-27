@@ -22,9 +22,12 @@ import (
 //   - --repo names it;
 //   - a command given an issue runs on the repository that holds the issue --
 //     the one it is run in when that holds it, as before there was a set;
-//   - a command given none runs on the repository it is run in, and outside
-//     one needs --repo unless the set is one repository;
-//   - list and watch, outside a repository, cover every repository of the set.
+//   - a command that makes one thing in one place -- create, import, ext add,
+//     serve -- runs on the repository it is run in, and outside one needs
+//     --repo unless the set is one repository;
+//   - a command that reads or syncs and is given nothing -- list, watch, pull,
+//     push, ext list, ext refresh -- outside a repository covers every
+//     repository of the set: list and watch together, the rest each in turn.
 //
 // The commands are written against a Store and Root shares one among them, so
 // the repository is settled by pointing that store (targetStore).
@@ -36,6 +39,7 @@ type targetStore struct {
 
 	repo  *repo   // the repository, when the set settled it
 	every []*repo // for a command over every repository run outside one: the set
+	each  []*repo // for a command run on each repository in turn: the set
 	set   func() (*workspace, error)
 }
 
@@ -55,7 +59,8 @@ const (
 	aRepository         names = iota // no issue: the repository it is run in, or --repo
 	anIssue                          // its first argument is an issue
 	anIssueOrNone                    // its first argument may be an issue: push
-	everyRepository                  // no issue, and outside a repository every one: list, watch
+	everyRepository                  // no issue, and outside a repository every one, together: list, watch
+	eachRepository                   // no issue, and outside a repository each one in turn: pull, ext list
 	theWorkingDirectory              // the repository it is run in and no other: the migrations
 )
 
@@ -115,6 +120,9 @@ func (d *dispatch) in(cmd *cli.Command, what names) *cli.Command {
 			if err := d.settle(cc, cmd, name, args); err != nil {
 				return err
 			}
+			if len(d.target.each) > 0 {
+				return d.inEach(cc, run, args)
+			}
 			return run(cc, args)
 		}
 	}
@@ -122,6 +130,25 @@ func (d *dispatch) in(cmd *cli.Command, what names) *cli.Command {
 		d.in(sub, what)
 	}
 	return cmd
+}
+
+// inEach runs a command on each repository of the set in turn, saying which
+// before what the command says. One that fails is said and the rest still
+// run; the command fails if any did.
+func (d *dispatch) inEach(cc *cli.Context, run cli.RunFunc, args []string) error {
+	var failed []string
+	for _, r := range d.target.each {
+		d.on(r)
+		fmt.Fprintf(cc.Out, "%s:\n", r.Name)
+		if err := run(cc, args); err != nil {
+			fmt.Fprintf(cc.Err, "%s: %v\n", r.Name, err)
+			failed = append(failed, r.Name)
+		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("failed in %s", strings.Join(failed, ", "))
+	}
+	return nil
 }
 
 // sub says what one command under cmd names, when it is not what cmd's do.
@@ -271,8 +298,11 @@ func (d *dispatch) settle(cc *cli.Context, cmd *cli.Command, name string, args [
 		r, _, err := ws.find(id)
 		if err != nil {
 			// A push's first argument may be a remote: no issue is not an
-			// error of its.
-			if what == anIssueOrNone && inRepo {
+			// error of its, and it is a push of every issue.
+			if what == anIssueOrNone {
+				if !inRepo {
+					d.target.each = ws.list()
+				}
 				return nil
 			}
 			return err
@@ -303,6 +333,8 @@ func (d *dispatch) settle(cc *cli.Context, cmd *cli.Command, name string, args [
 	case len(repos) == 1:
 		d.on(repos[0])
 		fmt.Fprintf(cc.Err, "in %s (%s)\n", repos[0].Name, repos[0].Dir)
+	case what == eachRepository || what == anIssueOrNone:
+		d.target.each = repos
 	default:
 		return fmt.Errorf("not in a repository: --repo says which, one of %s", ws.names())
 	}
