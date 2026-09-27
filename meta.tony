@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 075dfd7fe2f022cb5bb08814eeddc3b79721993e
 commits: []
 created: "2026-09-27T02:36:24.307251+02:00"
 duplicates: []
@@ -11,5 +12,5 @@ labels:
 - git-issue
 - serve
 related_issues: []
-status: open
-updated: "2026-09-27T02:40:21.214785+02:00"
+status: closed
+updated: "2026-09-27T09:09:30.842759+02:00"
