@@ -5,10 +5,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/scott-cotton/cli"
 	"github.com/signadot/tony-format/git-issue/issuelib"
 	"github.com/signadot/tony-format/git-issue/ops"
 )
@@ -113,7 +115,7 @@ func TestWatchStore(t *testing.T) {
 	got := make(chan watchChange, 16)
 	done := make(chan error, 1)
 	go func() {
-		done <- watchStore(ctx, store, watchFilter{label: "bug"}, 10*time.Millisecond, nil, 0, func(ch watchChange) { got <- ch }, nil)
+		done <- watchStore(ctx, store, watchFilter{label: "bug"}, 10*time.Millisecond, nil, 0, func(ch watchChange) { got <- ch }, nil, nil)
 	}()
 	time.Sleep(50 * time.Millisecond)
 	if _, _, err := ops.Comment(store, issue.ID, "before the label"); err != nil {
@@ -184,7 +186,7 @@ func TestWatchStore_Arrived(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	got := make(chan watchChange, 16)
-	go watchStore(ctx, store, watchFilter{}, 10*time.Millisecond, nil, 0, func(ch watchChange) { got <- ch }, nil)
+	go watchStore(ctx, store, watchFilter{}, 10*time.Millisecond, nil, 0, func(ch watchChange) { got <- ch }, nil, nil)
 	time.Sleep(50 * time.Millisecond)
 
 	if out, err := exec.Command("git", "-C", dir, "fetch", "-q", srcDir,
@@ -379,7 +381,7 @@ func TestWatchStore_Pulls(t *testing.T) {
 	defer cancel()
 	changes, notes := make(chan watchChange, 16), make(chan pullNote, 16)
 	go watchStore(ctx, here, watchFilter{}, 10*time.Millisecond, newPuller(here, hereDir, "", "origin", time.Minute), 50*time.Millisecond,
-		func(ch watchChange) { changes <- ch }, func(n pullNote) { notes <- n })
+		func(ch watchChange) { changes <- ch }, func(n pullNote) { notes <- n }, nil)
 
 	next := func(what string) pullNote {
 		t.Helper()
@@ -665,7 +667,7 @@ func TestWatchStore_Refusal(t *testing.T) {
 	defer cancel()
 	notes := make(chan pullNote, 16)
 	go watchStore(ctx, here, watchFilter{}, 10*time.Millisecond, newPuller(here, hereDir, "", "origin", time.Minute), 50*time.Millisecond,
-		func(watchChange) {}, func(n pullNote) { notes <- n })
+		func(watchChange) {}, func(n pullNote) { notes <- n }, nil)
 	select {
 	case n := <-notes:
 		if n.ID != issue.ID || !strings.HasPrefix(n.What, "refused: ") {
@@ -808,4 +810,94 @@ func TestMCP_LookLeavesARepositoryBeingPulled(t *testing.T) {
 	if n := logged(); n != 1 {
 		t.Errorf("the look after the pull logged %d change(s), want 1", n)
 	}
+}
+
+// TestWatch_EveryRepository: run outside a repository, watch covers every
+// repository of the set, each line saying which; given an issue, it watches
+// the repository that holds it and no other.
+func TestWatch_EveryRepository(t *testing.T) {
+	aDir, bDir := repoDir(t, "a"), repoDir(t, "b")
+	a := issuelib.NewGitStoreAt(aDir, &strings.Builder{})
+	b := issuelib.NewGitStoreAt(bDir, &strings.Builder{})
+	inA, err := ops.Create(a, "In a", "body")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inB, err := ops.Create(b, "In b", "body")
+	if err != nil {
+		t.Fatal(err)
+	}
+	configured(t, aDir, bDir)
+
+	watching := func(args ...string) (*lines, context.CancelFunc) {
+		t.Helper()
+		d := newDispatch()
+		cmd := d.in(WatchCommand(d.target), everyRepository)
+		ctx, cancel := context.WithCancel(context.Background())
+		out := &lines{}
+		cc := &cli.Context{Out: out, Err: nopWriteCloser{&strings.Builder{}}, Go: ctx}
+		done := make(chan error, 1)
+		go func() { done <- cmd.Run(cc, append([]string{"--local", "-poll", "10ms"}, args...)) }()
+		t.Cleanup(func() {
+			cancel()
+			if err := <-done; err != nil {
+				t.Errorf("watch %v: %v", args, err)
+			}
+		})
+		time.Sleep(300 * time.Millisecond)
+		return out, cancel
+	}
+
+	every, _ := watching()
+	one, _ := watching(inB.ID[:8])
+	// Run inside a, an issue of b is watched in b, and one of a here.
+	t.Chdir(aDir)
+	alsoInA, err := ops.Create(a, "Also in a", "body")
+	if err != nil {
+		t.Fatal(err)
+	}
+	both, _ := watching(inA.ID, alsoInA.ID, inB.ID)
+	far, _ := watching(inB.ID)
+	if _, _, err := ops.Comment(a, inA.ID, "in a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ops.Comment(b, inB.ID, "in b"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	got := every.String()
+	for _, want := range []string{"a  " + inA.ID + "  open  In a  -- comment: in a", "b  " + inB.ID + "  open  In b  -- comment: in b"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the watch of every repository does not say %q:\n%s", want, got)
+		}
+	}
+	if got := one.String(); !strings.Contains(got, inB.ID) || strings.Contains(got, inA.ID) {
+		t.Errorf("the watch of b's issue said:\n%s", got)
+	}
+	if got := both.String(); strings.Count(got, "a  "+inA.ID) != 1 || strings.Count(got, "b  "+inB.ID) != 1 {
+		t.Errorf("the watch from a of an issue of each said:\n%s", got)
+	}
+	if got := far.String(); !strings.Contains(got, inB.ID+"  open  In b  -- comment: in b") || strings.Contains(got, inA.ID) {
+		t.Errorf("the watch from a of b's issue said:\n%s", got)
+	}
+}
+
+// lines is a writer a test reads while another goroutine writes it.
+type lines struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *lines) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lines) Close() error { return nil }
+
+func (l *lines) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
 }

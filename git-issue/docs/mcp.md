@@ -37,7 +37,11 @@ A repository named twice is served once. With none of the three the server
 refuses and says so. `repo_add`, `repo_remove` and `repo_list` change and show
 the set while the server runs; `repo_add` with `persist` records the repository
 in the config file too. The set is your configuration, as remotes are: the
-server holds nothing, and every issue stays in its repository.
+server holds nothing, and every issue stays in its repository. The commands
+use the same file ([which repository](commands.md#which-repository)).
+
+A repository is its root: one named by a directory inside it is the
+repository, and is served once.
 
 When more than one is served, `issue_create`, `issue_list`, `issue_push`,
 `issue_pull` and `issue_for_commit` take `repo`, and `issue_watch` a list of

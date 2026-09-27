@@ -9,6 +9,48 @@ an id is stable for the life of the issue, closing included.
 Run `git issue -h` for the list, and `git issue <command> -h` for one command's
 options.
 
+## Which repository
+
+A command runs on one repository. Inside a repository that is the one, as
+git has it. `~/.config/git-issue.tony` (`$XDG_CONFIG_HOME/git-issue.tony` when
+set) names the repositories you work in, and with the one a command is run in
+they are the set:
+
+```tony
+repos:
+- /Users/you/src/tony-format
+- /Users/you/src/verse
+```
+
+Full paths: nothing expands `~`. A repository is named in the set by its
+directory's name, `verse`, or by its path when two have the same.
+
+```bash
+git issue show j2dz                       # the repository that holds j2dz
+git issue create --repo verse "A title"   # verse, from anywhere
+git issue list                            # outside a repository: every one
+```
+
+- `--repo <name>` names the repository: a name of the set's, or any
+  repository's directory.
+- A command given an issue runs on the repository that holds it: the one it
+  is run in, when that holds it, and otherwise the one of the set that does.
+  An id is unique across repositories. The command says which it ran on.
+- A command given none -- `create`, `pull`, `push` of every issue,
+  `for-commit`, `import`, `ext` but for `ext remove`, `serve` -- runs on the
+  repository it is run in. Outside one it needs `--repo`, unless the set is
+  one repository.
+- `list` and `watch`, outside a repository, cover every repository of the
+  set, each line saying which. `watch` given issues watches the repositories
+  that hold them.
+- `relate`, `blocks` and `duplicate` to an issue of another repository of the
+  set mirror it into this one first ([ext](ext.md)).
+- A commit a command is given -- `link`, `close --commit`, `for-commit` -- is
+  one of the repository the command runs on.
+- `migrate` and `migrate-comments` run on the repository they are run in.
+
+Outside a repository with no set, a command says there is no repository.
+
 ## Create
 
 ```bash
@@ -216,6 +258,7 @@ and refuses to run if the issue moved since the export, unless given `--force`.
 ```bash
 git issue serve                      # http://localhost:8080/
 git issue serve --addr 127.0.0.1:9000
+git issue serve -watch               # pull origin; open pages reload as issues change
 ```
 
 Serves a read-only view of the issues in the current repository:
@@ -231,6 +274,21 @@ Serves a read-only view of the issues in the current repository:
 `serve` is read-only: issues are edited with the CLI. There is no
 authentication, and there should not be: bind loopback unless you know exactly
 who else can reach the address you pick.
+
+Without `-watch` a page says what this clone holds when it is loaded, and
+nothing is pulled. With it, `serve` runs the watch [`watch`](#watch) runs,
+and takes its `--remote`, `--local`, `-poll` and `-fetch`:
+
+- it pulls origin every `-fetch`, when there is an origin
+- an open issue's page reloads when the issue changes, and the list when any
+  does
+- an issue refused, or a remote not reached, is shown at the top of the list
+  and of that issue's page until it clears
+
+The pull writes this clone's refs, as `git issue pull` does. The view is still
+read-only: nothing a browser sends changes an issue. A page reloads by a
+script, `/watch.js`, the only one served, which asks the server every two
+seconds what changed.
 
 ## Serve to an agent
 

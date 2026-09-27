@@ -3,6 +3,8 @@ package commands
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/scott-cotton/cli"
@@ -45,50 +47,94 @@ func (cfg *watchConfig) run(cc *cli.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := cfg.store.VerifyRepository(); err != nil {
-		return err
+	// Every repository the command covers: the one it runs on, or outside a
+	// repository the set, each line then saying which.
+	repos := targets(cfg.store)
+	type watched struct {
+		r *repo
+		f watchFilter
+		p *puller
 	}
-	var f watchFilter
-	if cfg.Label != "" {
-		f.label = issuelib.NormalizeLabel(cfg.Label)
-	}
-	if len(args) > 0 {
-		f.ids = map[string]bool{}
-		for _, id := range args {
-			ref, err := cfg.store.FindRef(id)
-			if err != nil {
-				return err
-			}
-			xidr, err := issuelib.XIDRFromRef(ref)
-			if err != nil {
-				return err
-			}
-			f.ids[xidr] = true
-		}
-	}
-	var p *puller
-	switch {
-	case cfg.Local && cfg.Remote != "":
-		return fmt.Errorf("%w: --local and --remote: one or the other", cli.ErrUsage)
-	case cfg.Remote != "":
-		if err := cfg.store.VerifyRemote(cfg.Remote); err != nil {
+	var watches []watched
+	found := map[string]bool{}
+	for _, r := range repos {
+		if err := r.Store.VerifyRepository(); err != nil {
 			return err
 		}
-		p = newPuller(cfg.store, "", "", cfg.Remote, pullTimeout)
-	case !cfg.Local:
-		if cfg.store.VerifyRemote("origin") == nil {
-			p = newPuller(cfg.store, "", "", "origin", pullTimeout)
-		} else {
-			fmt.Fprintln(cc.Err, "no origin: watching this clone alone")
+		var f watchFilter
+		if cfg.Label != "" {
+			f.label = issuelib.NormalizeLabel(cfg.Label)
+		}
+		// An issue named is watched in the repository that holds it, and a
+		// repository that holds none of those named is not watched.
+		if len(args) > 0 {
+			f.ids = map[string]bool{}
+			for _, id := range args {
+				ref, err := r.Store.FindRef(id)
+				if err != nil {
+					if len(repos) > 1 && !strings.Contains(err.Error(), "ambiguous") {
+						continue
+					}
+					return err
+				}
+				xidr, err := issuelib.XIDRFromRef(ref)
+				if err != nil {
+					return err
+				}
+				f.ids[xidr], found[id] = true, true
+			}
+			if len(f.ids) == 0 {
+				continue
+			}
+		}
+		name := ""
+		if len(repos) > 1 {
+			name = r.Name
+		}
+		p, err := watchPuller(cc, r.Store, name, cfg.Remote, cfg.Local)
+		if err != nil {
+			return err
+		}
+		watches = append(watches, watched{r, f, p})
+	}
+	for _, id := range args {
+		if !found[id] {
+			return fmt.Errorf("issue not found: %s", id)
 		}
 	}
 	ctx := cc.Go
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return watchStore(ctx, cfg.store, f, cfg.Poll, p, cfg.Fetch,
-		func(ch watchChange) { fmt.Fprintln(cc.Out, ch.oneLine()) },
-		func(n pullNote) { fmt.Fprintln(cc.Out, n.line()) })
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	// One watch a repository, saying what they find a line at a time.
+	var mu sync.Mutex
+	say := func(line string) {
+		mu.Lock()
+		defer mu.Unlock()
+		fmt.Fprintln(cc.Out, line)
+	}
+	errs := make(chan error, len(watches))
+	for _, w := range watches {
+		name := ""
+		if len(repos) > 1 {
+			name = w.r.Name
+		}
+		go func() {
+			errs <- watchStore(ctx, w.r.Store, w.f, cfg.Poll, w.p, cfg.Fetch,
+				func(ch watchChange) { ch.Repo = name; say(ch.oneLine()) },
+				func(n pullNote) { say(n.line()) }, nil)
+		}()
+	}
+	// A watch that ends with an error ends them all; one ended with ctx ends
+	// with nil, as the rest do.
+	for range watches {
+		if err := <-errs; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // watchStore looks at a repository's issue refs every interval until ctx
@@ -97,8 +143,9 @@ func (cfg *watchConfig) run(cc *cli.Context, args []string) error {
 // begins and when it clears, and what the pull did to an issue just before
 // the change it brought. It pulls once before its first look, so what that
 // brings is where the watch begins. It looks between pulls, not during one,
-// so a change made here while it pulls is said when the pull is done.
-func watchStore(ctx context.Context, st issuelib.Store, f watchFilter, interval time.Duration, p *puller, fetch time.Duration, emit func(watchChange), note func(pullNote)) error {
+// so a change made here while it pulls is said when the pull is done. pulled,
+// when there is one, is called after each pull.
+func watchStore(ctx context.Context, st issuelib.Store, f watchFilter, interval time.Duration, p *puller, fetch time.Duration, emit func(watchChange), note func(pullNote), pulled func()) error {
 	wants := func(xidr string) bool { return f.wants("", xidr) }
 	scoped := func(xidr string) bool { return f.wantsIssue(st, "", xidr) }
 	said := alarmsSaid{}
@@ -108,6 +155,9 @@ func watchStore(ctx context.Context, st issuelib.Store, f watchFilter, interval 
 		did = append(did, d...)
 		for _, n := range said.news(p.stands(scoped), p.remote) {
 			note(n)
+		}
+		if pulled != nil {
+			pulled()
 		}
 	}
 	var fetchC <-chan time.Time

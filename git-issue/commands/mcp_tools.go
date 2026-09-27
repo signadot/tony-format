@@ -543,22 +543,12 @@ func addTools(m *mcpServer) {
 		if err != nil {
 			return nil, relateOut{}, err
 		}
-		to, toID, err := ws.find(in.Other)
+		// The far issue comes here first.
+		toID, mirrored, err := mirrorFar(ws, from, in.Other)
 		if err != nil {
 			return nil, relateOut{}, err
 		}
-		out := relateOut{ID: fromID, Other: toID, Kind: in.Kind}
-		if to != from {
-			// The far issue comes here first. The source is named for the other
-			// repository, and is its directory: the fetch is local.
-			if err := ops.SourceAdd(from.Store, to.Name, to.Dir); err != nil {
-				return nil, relateOut{}, err
-			}
-			if _, err := ops.Mirror(from.Store, to.Name, toID); err != nil {
-				return nil, relateOut{}, err
-			}
-			out.Mirrored = to.Name
-		}
+		out := relateOut{ID: fromID, Other: toID, Kind: in.Kind, Mirrored: mirrored}
 		_, _, changed, err := ops.Relate(from.Store, fromID, toID, ops.Relation(in.Kind))
 		if err != nil {
 			return nil, relateOut{}, err
@@ -570,7 +560,7 @@ func addTools(m *mcpServer) {
 			text = fmt.Sprintf("Issue %s already has this relationship with %s\n", fromID, toID)
 		}
 		if out.Mirrored != "" {
-			text += fmt.Sprintf("%s is mirrored from %s into %s, read-only there\n", toID, to.Name, from.Name)
+			text += fmt.Sprintf("%s is mirrored from %s into %s, read-only there\n", toID, mirrored, from.Name)
 		}
 		return result(text), out, nil
 	})

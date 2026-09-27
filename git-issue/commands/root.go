@@ -16,7 +16,9 @@
 //     mirrored here read-only so a relation to it resolves from this repository
 //   - export, import -- copy an issue's tree out to a directory, and write an
 //     edited copy back onto the issue's ref
-//   - serve -- a read-only web view of the repository's issues
+//   - serve -- a read-only web view of the repository's issues; with -watch
+//     it pulls the remote and open pages reload as issues change
+//     (serve_watch.go)
 //   - mcp -- the tracker as an MCP server over stdio, for an agent's host to
 //     start: one repository or several, issue_* and repo_* tools, issue://
 //     resources a host can subscribe to, and issue_watch for an agent whose
@@ -46,16 +48,16 @@
 // close that deleted someone else's reopen would be a loss.
 package commands
 
-import (
-	"github.com/scott-cotton/cli"
-	"github.com/signadot/tony-format/git-issue/issuelib"
-)
+import "github.com/scott-cotton/cli"
 
 const usageText = `git-issue - Git-native issue tracker
 
 Issues are git refs in this repository: refs/git-issues/v1/open/<id> while open,
 refs/git-issues/v1/closed/<id> once closed. An <id> is a 20-character XIDR, and every
 command below takes any unambiguous prefix of one.
+
+A command runs on the repository it is run in, or the one --repo names, or the
+one of ~/.config/git-issue.tony's that holds the issue it is given.
 
 Usage:
   git issue create <title> [--body <text>]  Create new issue ($EDITOR or stdin)
@@ -82,7 +84,7 @@ Usage:
   git issue ext fetch <source> <id>         Mirror one of its issues here, read-only
   git issue ext refresh [<source>]          Bring mirrors up to their sources
   git issue ext remove <id>                 Drop a mirror and the relations naming it
-  git issue serve [--addr <addr>]           Read-only web view (default localhost:8080)
+  git issue serve [--addr <addr>] [-watch]  Read-only web view (default localhost:8080); -watch pulls, and pages reload
   git issue mcp [-C <dir>]                  Serve the tracker to an agent's host over MCP (stdin/stdout)
   git issue watch [--label <l>] [--local] [<id>...]  Pull origin; print each issue that changes, until stopped
   git issue migrate [--dry-run]             Migrate issues from numeric IDs to XIDs
@@ -110,39 +112,44 @@ Examples:
   git issue import ./my-issue
   git issue serve              # browse issues at http://localhost:8080/`
 
-// Root returns the root command for git-issue.
+// Root returns the root command for git-issue. The commands share one store,
+// and where they are dispatched it is pointed at the repository the command
+// runs on, by what the command's arguments name (set.go). mcp has its working
+// set, and version needs no repository.
 func Root() *cli.Command {
-	store := issuelib.NewGitStore()
+	d := newDispatch()
+	store := d.target
 
 	return cli.NewCommand("git-issue").
 		WithSynopsis("git-issue - Git-native issue tracker").
 		WithDescription(usageText).
+		WithOpts(d.repoOpt()).
 		WithSubs(
-			CreateCommand(store),
-			ListCommand(store),
-			ShowCommand(store),
-			EditCommand(store),
-			LinkCommand(store),
-			CommentCommand(store),
-			AttachCommand(store),
-			ForCommitCommand(store),
-			RelateCommand(store),
-			BlocksCommand(store),
-			DuplicateCommand(store),
-			PushCommand(store),
-			PullCommand(store),
-			CloseCommand(store),
-			ReopenCommand(store),
-			ExportCommand(store),
-			ImportCommand(store),
-			LabelCommand(store),
-			UnlabelCommand(store),
-			MigrateCommand(store),
-			MigrateCommentsCommand(store),
-			ExtCommand(store),
-			ServeCommand(store),
+			d.in(CreateCommand(store), aRepository),
+			d.in(ListCommand(store), everyRepository),
+			d.in(ShowCommand(store), anIssue),
+			d.in(EditCommand(store), anIssue),
+			d.in(LinkCommand(store), anIssue),
+			d.in(CommentCommand(store), anIssue),
+			d.in(AttachCommand(store), anIssue),
+			d.in(ForCommitCommand(store), aRepository),
+			d.in(RelateCommand(store), anIssue),
+			d.in(BlocksCommand(store), anIssue),
+			d.in(DuplicateCommand(store), anIssue),
+			d.in(PushCommand(store), anIssueOrNone),
+			d.in(PullCommand(store), aRepository),
+			d.in(CloseCommand(store), anIssue),
+			d.in(ReopenCommand(store), anIssue),
+			d.in(ExportCommand(store), anIssue),
+			d.in(ImportCommand(store), aRepository),
+			d.in(LabelCommand(store), anIssue),
+			d.in(UnlabelCommand(store), anIssue),
+			d.in(MigrateCommand(store), theWorkingDirectory),
+			d.in(MigrateCommentsCommand(store), theWorkingDirectory),
+			d.sub(d.in(ExtCommand(store), aRepository), "remove", anIssue),
+			d.in(ServeCommand(store), aRepository),
 			MCPCommand(store),
-			WatchCommand(store),
+			d.in(WatchCommand(store), everyRepository),
 			VersionCommand(store),
 		)
 }
