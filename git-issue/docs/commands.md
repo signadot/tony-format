@@ -287,7 +287,8 @@ and takes its `--remote`, `--local`, `-poll` and `-fetch`:
 
 The pull writes this clone's refs, as `git issue pull` does. The view is still
 read-only: nothing a browser sends changes an issue. A page reloads by a
-script, `/watch.js`, the only one served.
+script, `/watch.js`, the only one served, which asks the server every two
+seconds what changed.
 
 ## Serve to an agent
 

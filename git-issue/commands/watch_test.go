@@ -852,7 +852,11 @@ func TestWatch_EveryRepository(t *testing.T) {
 	one, _ := watching(inB.ID[:8])
 	// Run inside a, an issue of b is watched in b, and one of a here.
 	t.Chdir(aDir)
-	both, _ := watching(inA.ID, inB.ID)
+	alsoInA, err := ops.Create(a, "Also in a", "body")
+	if err != nil {
+		t.Fatal(err)
+	}
+	both, _ := watching(inA.ID, alsoInA.ID, inB.ID)
 	far, _ := watching(inB.ID)
 	if _, _, err := ops.Comment(a, inA.ID, "in a"); err != nil {
 		t.Fatal(err)
@@ -870,7 +874,7 @@ func TestWatch_EveryRepository(t *testing.T) {
 	if got := one.String(); !strings.Contains(got, inB.ID) || strings.Contains(got, inA.ID) {
 		t.Errorf("the watch of b's issue said:\n%s", got)
 	}
-	if got := both.String(); !strings.Contains(got, "a  "+inA.ID) || !strings.Contains(got, "b  "+inB.ID) {
+	if got := both.String(); strings.Count(got, "a  "+inA.ID) != 1 || strings.Count(got, "b  "+inB.ID) != 1 {
 		t.Errorf("the watch from a of an issue of each said:\n%s", got)
 	}
 	if got := far.String(); !strings.Contains(got, inB.ID+"  open  In b  -- comment: in b") || strings.Contains(got, inA.ID) {

@@ -1,9 +1,13 @@
 package commands
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/scott-cotton/cli"
 	"github.com/signadot/tony-format/git-issue/issuelib"
@@ -12,23 +16,39 @@ import (
 // serve -watch is `git issue watch` behind the web view. The same watch runs
 // (watchStore): it looks at this clone's refs every -poll and pulls the
 // remote every -fetch. What it finds goes to the open pages rather than to a
-// terminal: a page holds an event stream open (/events), and reloads when its
-// issue changes -- the index when any does. What a pull left standing, an
-// issue refused or a remote not reached, is shown on the pages, and every
-// page reloads when it changes.
+// terminal: a page asks what changed since it last asked (/changes), every
+// couple of seconds, and reloads when its issue did -- the index when any
+// did. What a pull left standing, an issue refused or a remote not reached,
+// is shown on the pages, and every page reloads when it changes.
+//
+// A page asks rather than holding a stream open, because a browser keeps six
+// connections to a server and no more: six tabs each holding one would leave
+// none to load a seventh page.
 
-// liveView is what the watch tells the open pages.
+// liveView is what the watch tells the open pages: the changes it found,
+// numbered in order, the last liveLogCap kept.
 type liveView struct {
 	p *puller // nil when the watch pulls nothing
 
-	mu     sync.Mutex
-	subs   map[chan string]bool
-	told   string // what stands (alarmsHash), as the pages were last told
-	closed bool   // the server is shutting down: a stream ends as it begins
+	mu    sync.Mutex
+	epoch string // this server's: numbers start again with each
+	seq   uint64
+	log   []liveChange
+	told  string // what stands (alarmsHash), as the pages were last told
 }
 
+// liveChange is one thing a page may reload for: an issue's id, or anyPage.
+type liveChange struct {
+	seq  uint64
+	what string
+}
+
+// liveLogCap is how many changes are kept. A page that asks from before
+// them reloads, which is what it would have done for one of them.
+const liveLogCap = 1024
+
 func newLiveView(p *puller) *liveView {
-	return &liveView{p: p, subs: map[chan string]bool{}}
+	return &liveView{p: p, epoch: strconv.FormatInt(time.Now().UnixNano(), 36)}
 }
 
 // everyIssue is the scope of what stands: all of it.
@@ -42,13 +62,14 @@ func (l *liveView) stands() []pullNote {
 	return l.p.stands(everyIssue)
 }
 
-// changed tells the pages an issue changed.
-func (l *liveView) changed(ch watchChange) { l.send(ch.ID) }
+// changed records that an issue changed.
+func (l *liveView) changed(ch watchChange) { l.record(ch.ID) }
 
-// anyPage is the event every page reloads on.
+// anyPage is the change every page reloads for.
 const anyPage = "*"
 
-// pulled tells every page when what stands is not what they were told.
+// pulled records a change for every page when what stands is not what they
+// were told.
 func (l *liveView) pulled() {
 	hash := alarmsHash(l.stands())
 	l.mu.Lock()
@@ -56,56 +77,48 @@ func (l *liveView) pulled() {
 	l.told = hash
 	l.mu.Unlock()
 	if differs {
-		l.send(anyPage)
+		l.record(anyPage)
 	}
 }
 
-// send hands an event to every open page. A page that has fallen behind is
-// cut off rather than waited for: its stream ends, it connects again, and
-// reloads for having lost one.
-func (l *liveView) send(what string) {
+func (l *liveView) record(what string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	for ch := range l.subs {
-		select {
-		case ch <- what:
-		default:
-			delete(l.subs, ch)
-			close(ch)
+	l.seq++
+	l.log = append(l.log, liveChange{l.seq, what})
+	if over := len(l.log) - liveLogCap; over > 0 {
+		l.log = append([]liveChange(nil), l.log[over:]...)
+	}
+}
+
+// changesOut is what /changes answers.
+type changesOut struct {
+	Cursor  string   `json:"cursor"`  // what to ask from next
+	Changed []string `json:"changed"` // the issues changed since, anyPage among them for every page
+	Reload  bool     `json:"reload"`  // the cursor is not this server's, or is from before what it keeps
+}
+
+// since answers what changed after a cursor. With none it answers the cursor
+// to ask from, and no change: where a page begins.
+func (l *liveView) since(cursor string) changesOut {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := changesOut{Cursor: l.epoch + "." + strconv.FormatUint(l.seq, 10), Changed: []string{}}
+	if cursor == "" {
+		return out
+	}
+	epoch, n, _ := strings.Cut(cursor, ".")
+	seq, err := strconv.ParseUint(n, 10, 64)
+	if err != nil || epoch != l.epoch || seq > l.seq || (len(l.log) > 0 && seq+1 < l.log[0].seq) {
+		out.Reload = true
+		return out
+	}
+	for _, c := range l.log {
+		if c.seq > seq {
+			out.Changed = append(out.Changed, c.what)
 		}
 	}
-}
-
-func (l *liveView) subscribe() chan string {
-	ch := make(chan string, 64)
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.closed {
-		close(ch)
-		return ch
-	}
-	l.subs[ch] = true
-	return ch
-}
-
-func (l *liveView) unsubscribe(ch chan string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.subs[ch] {
-		delete(l.subs, ch)
-		close(ch)
-	}
-}
-
-// close ends every stream, for a server shutting down.
-func (l *liveView) close() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.closed = true
-	for ch := range l.subs {
-		delete(l.subs, ch)
-		close(ch)
-	}
+	return out
 }
 
 // livePage is what a page says of the watch. The zero value is a page of a
@@ -135,34 +148,40 @@ func (s *issueServer) live(self string) (livePage, string) {
 }
 
 // watching makes the server one that watches: its pages carry the script, and
-// it serves the script and the events.
+// it serves the script and the changes.
 func (s *issueServer) watching(l *liveView) {
 	s.watch = l
 	s.mux.HandleFunc("GET /watch.js", s.handleWatchJS)
-	s.mux.HandleFunc("GET /events", s.handleEvents)
+	s.mux.HandleFunc("GET /changes", s.handleChanges)
 }
 
-// watchJS reloads the page on an event that names its issue, or any issue
-// when the page names none, or every page. Events close together are one
-// reload. A stream that was lost may have lost events, so connecting again
-// reloads too.
+// watchJS asks what changed every two seconds, and reloads the page for a
+// change that names its issue, or any issue when the page names none, or
+// every page. It asks at once when the page loads, for where to begin. A
+// server that does not answer is asked again: when it is back its cursor is
+// another, and the page reloads.
 //
 // It is a file of its own, not inline, so that no page holds a script
 // element with anything in it: what an issue's text could smuggle in stays
 // tellable from what the server wrote.
 const watchJS = `(function () {
   var self = document.body.getAttribute("data-watch");
-  var timer, lost = false;
-  function reload() {
-    clearTimeout(timer);
-    timer = setTimeout(function () { location.reload(); }, 200);
+  var cursor = "";
+  function again() { setTimeout(ask, 2000); }
+  function ask() {
+    fetch("/changes?since=" + encodeURIComponent(cursor), { cache: "no-store" })
+      .then(function (res) { return res.json(); })
+      .then(function (c) {
+        var mine = c.changed.some(function (id) {
+          return !self || id === "*" || id === self;
+        });
+        if (c.reload || mine) { location.reload(); return; }
+        cursor = c.cursor;
+        again();
+      })
+      .catch(again);
   }
-  var events = new EventSource("/events");
-  events.onmessage = function (e) {
-    if (!self || e.data === "*" || e.data === self) reload();
-  };
-  events.onerror = function () { lost = true; };
-  events.onopen = function () { if (lost) reload(); };
+  ask();
 })();
 `
 
@@ -172,32 +191,12 @@ func (s *issueServer) handleWatchJS(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(watchJS))
 }
 
-// handleEvents streams what the watch finds, one event an issue's id or
-// anyPage, until the page goes or the server does.
-func (s *issueServer) handleEvents(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming is not supported", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	ch := s.watch.subscribe()
-	defer s.watch.unsubscribe(ch)
-	fmt.Fprint(w, ": watching\n\n")
-	flusher.Flush()
-	for {
-		select {
-		case <-r.Context().Done():
-			return
-		case what, ok := <-ch:
-			if !ok {
-				return
-			}
-			fmt.Fprintf(w, "data: %s\n\n", what)
-			flusher.Flush()
-		}
-	}
+// handleChanges answers what the watch found since the cursor a page gives.
+// It reads what the watch recorded and nothing of the repository.
+func (s *issueServer) handleChanges(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(s.watch.since(r.URL.Query().Get("since")))
 }
 
 // watchPuller answers the puller of a watch on a repository: of the remote

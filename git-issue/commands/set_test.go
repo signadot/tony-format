@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -85,8 +86,10 @@ func TestSet_OutsideARepositoryWithNoSet(t *testing.T) {
 	if out, err := runRoot(t, "version"); err != nil || out == "" {
 		t.Errorf("version outside a repository: %v, %q", err, out)
 	}
-	if _, err := runRoot(t, "create", "-h"); err != nil && strings.Contains(err.Error(), "not a git repository") {
-		t.Errorf("create -h outside a repository: %v", err)
+	for _, cmd := range []string{"create", "show", "comment"} {
+		if _, err := runRoot(t, cmd, "-h"); !errors.Is(err, cli.ErrUsage) {
+			t.Errorf("%s -h outside a repository: %v, want its usage", cmd, err)
+		}
 	}
 }
 
@@ -255,5 +258,3 @@ func TestCutRepo(t *testing.T) {
 		t.Error("--repo with no name was taken")
 	}
 }
-
-var _ = cli.ErrUsage

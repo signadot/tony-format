@@ -1,10 +1,12 @@
 package commands
 
 import (
-	"bufio"
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -14,8 +16,8 @@ import (
 )
 
 // watchingServer is a served view of st that watches, pulling with p when
-// there is one, and the events it sends a page.
-func watchingServer(t *testing.T, st issuelib.Store, p *puller) (*httptest.Server, <-chan string) {
+// there is one, and what a page that began when it did is told changed.
+func watchingServer(t *testing.T, st issuelib.Store, p *puller) (*httptest.Server, func() changesOut) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	handler := newIssueServer(st)
@@ -24,34 +26,30 @@ func watchingServer(t *testing.T, st issuelib.Store, p *puller) (*httptest.Serve
 	srv := httptest.NewServer(handler)
 	t.Cleanup(func() {
 		cancel()
-		live.close()
 		srv.Close()
 	})
 	go watchStore(ctx, st, watchFilter{}, 10*time.Millisecond, p, 50*time.Millisecond,
 		live.changed, func(pullNote) {}, live.pulled)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/events", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ct := res.Header.Get("Content-Type"); ct != "text/event-stream" {
-		t.Fatalf("/events is %q", ct)
-	}
-	events := make(chan string, 64)
-	go func() {
-		defer res.Body.Close()
-		lines := bufio.NewScanner(res.Body)
-		for lines.Scan() {
-			if data, ok := strings.CutPrefix(lines.Text(), "data: "); ok {
-				events <- data
-			}
+	ask := func(cursor string) changesOut {
+		t.Helper()
+		res, err := http.Get(srv.URL + "/changes?since=" + url.QueryEscape(cursor))
+		if err != nil {
+			t.Fatal(err)
 		}
-	}()
-	return srv, events
+		defer res.Body.Close()
+		var out changesOut
+		if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	cursor := ask("").Cursor
+	return srv, func() changesOut {
+		out := ask(cursor)
+		cursor = out.Cursor
+		return out
+	}
 }
 
 func page(t *testing.T, srv *httptest.Server, target string) string {
@@ -61,28 +59,30 @@ func page(t *testing.T, srv *httptest.Server, target string) string {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	var b strings.Builder
-	lines := bufio.NewScanner(res.Body)
-	lines.Buffer(make([]byte, 1<<20), 1<<20)
-	for lines.Scan() {
-		b.WriteString(lines.Text() + "\n")
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return b.String()
+	return string(body)
 }
 
-func hears(t *testing.T, events <-chan string, want string) {
+// hears asks what changed until it is told want.
+func hears(t *testing.T, changes func() changesOut, want string) {
 	t.Helper()
-	deadline := time.After(5 * time.Second)
-	for {
-		select {
-		case got := <-events:
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		out := changes()
+		if out.Reload {
+			t.Fatalf("told to reload, waiting for %q", want)
+		}
+		for _, got := range out.Changed {
 			if got == want {
 				return
 			}
-		case <-deadline:
-			t.Fatalf("no event %q", want)
 		}
+		time.Sleep(20 * time.Millisecond)
 	}
+	t.Fatalf("no change %q", want)
 }
 
 // TestServe_WithoutWatch: a server that does not watch serves no script, no
@@ -102,7 +102,7 @@ func TestServe_WithoutWatch(t *testing.T) {
 			}
 		}
 	}
-	for _, target := range []string{"/watch.js", "/events"} {
+	for _, target := range []string{"/watch.js", "/changes"} {
 		if code := get(t, srv, target).Code; code != http.StatusNotFound {
 			t.Errorf("%s answered %d without -watch", target, code)
 		}
@@ -110,8 +110,9 @@ func TestServe_WithoutWatch(t *testing.T) {
 }
 
 // TestServe_Watch: a watching server's pages carry the script and the issue
-// they reload for, and the events name an issue changed beside the server;
-// the page then served says the change.
+// they reload for, and what changed names an issue changed beside the
+// server; the page then served says the change. A cursor that is not this
+// server's is told to reload.
 func TestServe_Watch(t *testing.T) {
 	dir := repoDir(t, "one")
 	store := issuelib.NewGitStoreAt(dir, &strings.Builder{})
@@ -119,7 +120,7 @@ func TestServe_Watch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv, events := watchingServer(t, store, nil)
+	srv, changes := watchingServer(t, store, nil)
 
 	if body := page(t, srv, "/i/"+issue.ID); !strings.Contains(body, `<script src="/watch.js" defer></script>`) ||
 		!strings.Contains(body, `data-watch="`+issue.ID+`"`) {
@@ -128,15 +129,20 @@ func TestServe_Watch(t *testing.T) {
 	if body := page(t, srv, "/"); !strings.Contains(body, `data-watch=""`) {
 		t.Errorf("the index does not watch every issue:\n%s", body)
 	}
-	if js := page(t, srv, "/watch.js"); !strings.Contains(js, "EventSource") {
+	if js := page(t, srv, "/watch.js"); !strings.Contains(js, "/changes") {
 		t.Errorf("/watch.js: %q", js)
+	}
+	for _, cursor := range []string{"other.3", "garbage"} {
+		if body := page(t, srv, "/changes?since="+cursor); !strings.Contains(body, `"reload":true`) {
+			t.Errorf("a cursor %q was answered %s", cursor, body)
+		}
 	}
 
 	time.Sleep(50 * time.Millisecond) // the watch has taken its first look
 	if _, _, err := ops.Comment(store, issue.ID, "from a shell"); err != nil {
 		t.Fatal(err)
 	}
-	hears(t, events, issue.ID)
+	hears(t, changes, issue.ID)
 	if body := page(t, srv, "/i/"+issue.ID); !strings.Contains(body, "from a shell") {
 		t.Errorf("the page after the event does not say the comment")
 	}
@@ -162,20 +168,20 @@ func TestServe_WatchPulls(t *testing.T) {
 	if _, err := ops.Pull(here, "origin", false, false); err != nil {
 		t.Fatal(err)
 	}
-	srv, events := watchingServer(t, here, newPuller(here, hereDir, "", "origin", time.Minute))
+	srv, changes := watchingServer(t, here, newPuller(here, hereDir, "", "origin", time.Minute))
 	time.Sleep(100 * time.Millisecond)
 
 	if _, _, err := ops.Comment(there, issue.ID, "from there"); err != nil {
 		t.Fatal(err)
 	}
 	push(t, there)
-	hears(t, events, issue.ID)
+	hears(t, changes, issue.ID)
 	if body := page(t, srv, "/i/"+issue.ID); !strings.Contains(body, "from there") {
 		t.Errorf("the page does not say the pulled comment")
 	}
 
 	contest(t, here, there, issue.ID)
-	hears(t, events, anyPage)
+	hears(t, changes, anyPage)
 	for target, shown := range map[string]bool{"/": true, "/i/" + issue.ID: true, "/i/" + other.ID: false} {
 		if body := page(t, srv, target); strings.Contains(body, "refused: ") != shown {
 			t.Errorf("%s shows the refusal: %v, want %v", target, !shown, shown)
@@ -185,7 +191,7 @@ func TestServe_WatchPulls(t *testing.T) {
 	if _, err := ops.Pull(here, "origin", true, false); err != nil {
 		t.Fatal(err)
 	}
-	hears(t, events, anyPage)
+	hears(t, changes, anyPage)
 	if body := page(t, srv, "/"); strings.Contains(body, "refused: ") {
 		t.Errorf("the index shows a refusal that was settled")
 	}

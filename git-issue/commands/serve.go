@@ -125,11 +125,6 @@ func (cfg *serveConfig) run(cc *cli.Context, args []string) error {
 	go func() {
 		defer close(done)
 		<-ctx.Done()
-		// An event stream never ends on its own, and Shutdown waits for what
-		// is open.
-		if live != nil {
-			live.close()
-		}
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutCtx)

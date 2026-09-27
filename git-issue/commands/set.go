@@ -92,9 +92,16 @@ func (d *dispatch) in(cmd *cli.Command, what names) *cli.Command {
 	d.kinds[cmd] = what
 	if run := cmd.Hooks.Run; run != nil {
 		cmd.Hooks.Run = func(cc *cli.Context, args []string) error {
-			for _, a := range args {
+			// A command asked for its help answers anywhere. One that takes
+			// options answers by parsing them; one that takes none would
+			// read -h as its first argument, an issue, so it is answered for
+			// here.
+			for i, a := range args {
 				switch a {
 				case "-h", "-help", "--help":
+					if len(cmd.Opts) == 0 && i == 0 {
+						return cli.ErrUsage
+					}
 					return run(cc, args)
 				}
 			}
@@ -315,11 +322,18 @@ func (d *dispatch) holding(cc *cli.Context, ids []string, inRepo bool) error {
 		}
 		every = append(every, r)
 	}
+	// The repository the command is run in, named as the rest are, by its
+	// directory.
+	var here *repo
+	if inRepo {
+		root := repositoryRoot("")
+		here = &repo{Name: filepath.Base(root), Dir: root, Store: d.here}
+	}
 	elsewhere := false
 	for _, id := range ids {
 		if inRepo {
 			if _, err := d.here.FindRef(id); err == nil || strings.Contains(err.Error(), "ambiguous") {
-				add(&repo{Store: d.here})
+				add(here)
 				continue
 			}
 		}
@@ -340,14 +354,6 @@ func (d *dispatch) holding(cc *cli.Context, ids []string, inRepo bool) error {
 	}
 	if !elsewhere {
 		return nil // all here: the command runs here, as it did
-	}
-	// The repository the command is run in is named as the rest are, by its
-	// directory.
-	for i, r := range every {
-		if r.Store == d.here {
-			root := repositoryRoot("")
-			every[i] = &repo{Name: filepath.Base(root), Dir: root, Store: d.here}
-		}
 	}
 	d.on(every[0])
 	d.target.every = every
