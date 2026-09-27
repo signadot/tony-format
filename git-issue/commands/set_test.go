@@ -170,6 +170,19 @@ func TestSet_OutsideARepository(t *testing.T) {
 		t.Errorf("list of a: %v\n%s", err, out)
 	}
 
+	// A command that reads or syncs runs on each repository in turn. Neither
+	// has a remote here, so each pull says so, and the rest still run.
+	out, err = runRoot(t, "ext", "list")
+	if err != nil || !strings.Contains(out, "a:\n") || !strings.Contains(out, "b:\n") || !strings.Contains(out, "far") {
+		t.Errorf("ext list over the set: %v\n%s", err, out)
+	}
+	for _, args := range [][]string{{"pull", "--dry-run"}, {"push", "--dry-run"}, {"push", "--dry-run", "origin"}} {
+		out, err = runRoot(t, args...)
+		if err == nil || !strings.Contains(err.Error(), "failed in a, b") || !strings.Contains(out, "a:\n") || !strings.Contains(out, "b:\n") {
+			t.Errorf("%v over the set: %v\n%s", args, err, out)
+		}
+	}
+
 	if _, err := runRoot(t, "migrate", "--repo", "a", "--dry-run"); err == nil || !strings.Contains(err.Error(), "--repo") {
 		t.Errorf("migrate with --repo: %v", err)
 	}

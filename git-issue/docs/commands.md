@@ -36,12 +36,14 @@ git issue list                            # outside a repository: every one
 - A command given an issue runs on the repository that holds it: the one it
   is run in, when that holds it, and otherwise the one of the set that does.
   An id is unique across repositories. The command says which it ran on.
-- A command given none -- `create`, `pull`, `push` of every issue,
-  `for-commit`, `import`, `ext` but for `ext remove`, `serve` -- runs on the
-  repository it is run in. Outside one it needs `--repo`, unless the set is
-  one repository.
-- `list` and `watch`, outside a repository, cover every repository of the
-  set, each line saying which. `watch` given issues watches the repositories
+- A command that makes one thing in one place -- `create`, `import`,
+  `for-commit`, `ext add`, `ext fetch`, `serve` -- runs on the repository it
+  is run in. Outside one it needs `--repo`, unless the set is one repository.
+- A command that reads or syncs, given no issue -- `list`, `watch`, `pull`,
+  `push`, `ext list`, `ext refresh` -- covers every repository of the set
+  when it is run outside one. `list` and `watch` say which on each line; the
+  rest run on each repository in turn, under its name, and one that fails
+  does not stop the others. `watch` given issues watches the repositories
   that hold them.
 - `relate`, `blocks` and `duplicate` to an issue of another repository of the
   set mirror it into this one first ([ext](ext.md)).
