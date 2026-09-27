@@ -151,3 +151,50 @@ func TestExtReference(t *testing.T) {
 		t.Error("unmirroring one's own issue was accepted")
 	}
 }
+
+// TestRefreshRecordsAFetchOnlyWhenAMirrorMoved: a refresh that brought
+// nothing leaves the source's ref where it was. One recorded every time is a
+// commit at every pull, which a watch makes every few seconds
+// (wnhrpxfeh12krs4cq5n0).
+func TestRefreshRecordsAFetchOnlyWhenAMirrorMoved(t *testing.T) {
+	bDir, b := repoAt(t)
+	_, a := repoAt(t)
+	far, err := Create(b, "Far away", "In b.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SourceAdd(a, "b", bDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Mirror(a, "b", far.ID); err != nil {
+		t.Fatal(err)
+	}
+	source := func() string {
+		t.Helper()
+		at, err := a.GetRefCommit(issuelib.SourceRef("b"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return at
+	}
+
+	was := source()
+	for i := 0; i < 3; i++ {
+		if n, err := Refresh(a, "b"); err != nil || n != 1 {
+			t.Fatalf("refresh: %d, %v", n, err)
+		}
+	}
+	if at := source(); at != was {
+		t.Errorf("three refreshes that brought nothing moved the source's ref from %s to %s", was[:7], at[:7])
+	}
+
+	if _, _, err := Comment(b, far.ID, "news"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Refresh(a, "b"); err != nil {
+		t.Fatal(err)
+	}
+	if at := source(); at == was {
+		t.Error("a refresh that moved a mirror did not record the fetch")
+	}
+}
