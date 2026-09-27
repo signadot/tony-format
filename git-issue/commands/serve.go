@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"net"
 	"net/http"
 	"os/signal"
 	"path"
@@ -86,9 +85,9 @@ func (cfg *serveConfig) run(cc *cli.Context, args []string) error {
 		handler.watching(live)
 	}
 
-	ln, err := net.Listen("tcp", addr)
+	lns, at, err := listenOn(addr)
 	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", addr, err)
+		return err
 	}
 
 	srv := &http.Server{
@@ -102,7 +101,7 @@ func (cfg *serveConfig) run(cc *cli.Context, args []string) error {
 	ctx, stop := signal.NotifyContext(cc.Go, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	fmt.Fprintf(cc.Out, "git-issue: read-only view at http://%s/ (ctrl-c to stop)\n", ln.Addr())
+	fmt.Fprintf(cc.Out, "git-issue: read-only view at %s (ctrl-c to stop)\n", at)
 
 	if live != nil {
 		poll, fetch := cfg.Poll, cfg.Fetch
@@ -130,11 +129,21 @@ func (cfg *serveConfig) run(cc *cli.Context, args []string) error {
 		_ = srv.Shutdown(shutCtx)
 	}()
 
-	if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
-		return err
+	// One server on every address listened on. The first to fail ends them
+	// all; a shutdown ends each with ErrServerClosed.
+	served := make(chan error, len(lns))
+	for _, ln := range lns {
+		go func() { served <- srv.Serve(ln) }()
+	}
+	var failed error
+	for range lns {
+		if err := <-served; err != nil && err != http.ErrServerClosed && failed == nil {
+			failed = err
+			stop()
+		}
 	}
 	<-done
-	return nil
+	return failed
 }
 
 // issueServer answers the three questions a pasted link can ask: what issues are

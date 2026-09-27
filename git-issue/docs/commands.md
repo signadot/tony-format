@@ -261,7 +261,11 @@ git issue serve --addr 127.0.0.1:9000
 git issue serve -watch               # pull origin; open pages reload as issues change
 ```
 
-Serves a read-only view of the issues in the current repository:
+Serves a read-only view of the issues in the current repository, and prints
+the URL to open. `localhost` is listened on at both its addresses, 127.0.0.1
+and ::1, so the name reaches `serve` however a browser resolves it. If
+something already answers at an address, `serve` refuses and names it: give
+`--addr` another port.
 
 - `/` lists open issues; `/?all=1` includes closed ones
 - `/i/<xidr>` is an issue. Prefixes work and redirect to the full-id URL,
