@@ -6,7 +6,8 @@ commits: []
 created: "2026-09-27T03:06:54.422296+02:00"
 duplicates: []
 id: vbtm1dfbh12krbkcq1n0
-labels: []
+labels:
+- bug
 related_issues: []
 status: open
-updated: "2026-09-27T03:06:54.422296+02:00"
+updated: "2026-09-27T03:06:54.51176+02:00"
