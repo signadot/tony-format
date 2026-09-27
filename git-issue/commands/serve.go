@@ -78,7 +78,7 @@ func (cfg *serveConfig) run(cc *cli.Context, args []string) error {
 		if err := cfg.store.VerifyRepository(); err != nil {
 			return err
 		}
-		p, err := watchPuller(cc, cfg.store, cfg.Remote, cfg.Local)
+		p, err := watchPuller(cc, cfg.store, "", cfg.Remote, cfg.Local)
 		if err != nil {
 			return err
 		}

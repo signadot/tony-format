@@ -45,6 +45,10 @@ Closing moves the issue's ref rather than rewriting it, so the id keeps
 resolving after. The full command reference is
 [docs/commands.md](docs/commands.md).
 
+A command runs on the repository it is run in. `~/.config/git-issue.tony`
+names the repositories you work in, and with it a command given an issue
+finds the repository that holds it, from anywhere; `--repo` names one.
+
 ## For an agent
 
 `git issue mcp` serves the tracker to an agent's host over MCP:

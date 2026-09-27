@@ -9,6 +9,44 @@ an id is stable for the life of the issue, closing included.
 Run `git issue -h` for the list, and `git issue <command> -h` for one command's
 options.
 
+## Which repository
+
+A command runs on one repository. Inside a repository that is the one, as
+git has it. `~/.config/git-issue.tony` (`$XDG_CONFIG_HOME/git-issue.tony` when
+set) names the repositories you work in, and with the one a command is run in
+they are the set:
+
+```tony
+repos:
+- /Users/you/src/tony-format
+- /Users/you/src/verse
+```
+
+Full paths: nothing expands `~`. A repository is named in the set by its
+directory's name, `verse`, or by its path when two have the same.
+
+```bash
+git issue show j2dz                       # the repository that holds j2dz
+git issue create --repo verse "A title"   # verse, from anywhere
+git issue list                            # outside a repository: every one
+```
+
+- `--repo <name>` names the repository: a name of the set's, or any
+  repository's directory.
+- A command given an issue runs on the repository that holds it: the one it
+  is run in, when that holds it, and otherwise the one of the set that does.
+  An id is unique across repositories. The command says which it ran on.
+- A command given none -- `create`, `pull`, `push`, `for-commit`, `import`,
+  `ext`, `serve` -- runs on the repository it is run in. Outside one it needs
+  `--repo`, unless the set is one repository.
+- `list` and `watch`, outside a repository, cover every repository of the
+  set, each line saying which.
+- `relate`, `blocks` and `duplicate` to an issue of another repository of the
+  set mirror it into this one first ([ext](ext.md)).
+- `migrate` and `migrate-comments` run on the repository they are run in.
+
+Outside a repository with no set, a command says there is no repository.
+
 ## Create
 
 ```bash

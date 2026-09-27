@@ -48,16 +48,16 @@
 // close that deleted someone else's reopen would be a loss.
 package commands
 
-import (
-	"github.com/scott-cotton/cli"
-	"github.com/signadot/tony-format/git-issue/issuelib"
-)
+import "github.com/scott-cotton/cli"
 
 const usageText = `git-issue - Git-native issue tracker
 
 Issues are git refs in this repository: refs/git-issues/v1/open/<id> while open,
 refs/git-issues/v1/closed/<id> once closed. An <id> is a 20-character XIDR, and every
 command below takes any unambiguous prefix of one.
+
+A command runs on the repository it is run in, or the one --repo names, or the
+one of ~/.config/git-issue.tony's that holds the issue it is given.
 
 Usage:
   git issue create <title> [--body <text>]  Create new issue ($EDITOR or stdin)
@@ -112,67 +112,44 @@ Examples:
   git issue import ./my-issue
   git issue serve              # browse issues at http://localhost:8080/`
 
-// inRepository makes a command, and every command under it, refuse outside a
-// git repository, in git's words for it. Without it each command reports
-// whatever failed first -- a blob that could not be written, an issue not
-// found, a remote not found -- or nothing. A command asked for its help
-// answers anywhere.
-func inRepository(store issuelib.Store, cmd *cli.Command) *cli.Command {
-	if run := cmd.Hooks.Run; run != nil {
-		cmd.Hooks.Run = func(cc *cli.Context, args []string) error {
-			for _, a := range args {
-				switch a {
-				case "-h", "-help", "--help":
-					return run(cc, args)
-				}
-			}
-			if err := store.VerifyRepository(); err != nil {
-				return err
-			}
-			return run(cc, args)
-		}
-	}
-	for _, sub := range cmd.Children {
-		inRepository(store, sub)
-	}
-	return cmd
-}
-
-// Root returns the root command for git-issue. Every command but mcp, which
-// has its working set, and version needs a repository (inRepository).
+// Root returns the root command for git-issue. The commands share one store,
+// and where they are dispatched it is pointed at the repository the command
+// runs on, by what the command's arguments name (set.go). mcp has its working
+// set, and version needs no repository.
 func Root() *cli.Command {
-	store := issuelib.NewGitStore()
-	in := func(cmd *cli.Command) *cli.Command { return inRepository(store, cmd) }
+	d := newDispatch()
+	store := d.target
 
 	return cli.NewCommand("git-issue").
 		WithSynopsis("git-issue - Git-native issue tracker").
 		WithDescription(usageText).
+		WithOpts(d.repoOpt()).
 		WithSubs(
-			in(CreateCommand(store)),
-			in(ListCommand(store)),
-			in(ShowCommand(store)),
-			in(EditCommand(store)),
-			in(LinkCommand(store)),
-			in(CommentCommand(store)),
-			in(AttachCommand(store)),
-			in(ForCommitCommand(store)),
-			in(RelateCommand(store)),
-			in(BlocksCommand(store)),
-			in(DuplicateCommand(store)),
-			in(PushCommand(store)),
-			in(PullCommand(store)),
-			in(CloseCommand(store)),
-			in(ReopenCommand(store)),
-			in(ExportCommand(store)),
-			in(ImportCommand(store)),
-			in(LabelCommand(store)),
-			in(UnlabelCommand(store)),
-			in(MigrateCommand(store)),
-			in(MigrateCommentsCommand(store)),
-			in(ExtCommand(store)),
-			in(ServeCommand(store)),
+			d.in(CreateCommand(store), aRepository),
+			d.in(ListCommand(store), everyRepository),
+			d.in(ShowCommand(store), anIssue),
+			d.in(EditCommand(store), anIssue),
+			d.in(LinkCommand(store), anIssue),
+			d.in(CommentCommand(store), anIssue),
+			d.in(AttachCommand(store), anIssue),
+			d.in(ForCommitCommand(store), aRepository),
+			d.in(RelateCommand(store), anIssue),
+			d.in(BlocksCommand(store), anIssue),
+			d.in(DuplicateCommand(store), anIssue),
+			d.in(PushCommand(store), anIssueOrNone),
+			d.in(PullCommand(store), aRepository),
+			d.in(CloseCommand(store), anIssue),
+			d.in(ReopenCommand(store), anIssue),
+			d.in(ExportCommand(store), anIssue),
+			d.in(ImportCommand(store), aRepository),
+			d.in(LabelCommand(store), anIssue),
+			d.in(UnlabelCommand(store), anIssue),
+			d.in(MigrateCommand(store), theWorkingDirectory),
+			d.in(MigrateCommentsCommand(store), theWorkingDirectory),
+			d.sub(d.in(ExtCommand(store), aRepository), "remove", anIssue),
+			d.in(ServeCommand(store), aRepository),
 			MCPCommand(store),
-			in(WatchCommand(store)),
+			d.in(WatchCommand(store), everyRepository),
 			VersionCommand(store),
 		)
 }

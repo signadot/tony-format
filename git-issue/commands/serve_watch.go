@@ -194,9 +194,11 @@ func (s *issueServer) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// watchPuller answers the puller of a watch: of the remote named, or of
-// origin when there is one and local is not asked for, or none.
-func watchPuller(cc *cli.Context, st issuelib.Store, remote string, local bool) (*puller, error) {
+// watchPuller answers the puller of a watch on a repository: of the remote
+// named, or of origin when there is one and local is not asked for, or none.
+// repo is the repository's name in what is said, when more than one is
+// watched.
+func watchPuller(cc *cli.Context, st issuelib.Store, repo, remote string, local bool) (*puller, error) {
 	switch {
 	case local && remote != "":
 		return nil, fmt.Errorf("%w: --local and --remote: one or the other", cli.ErrUsage)
@@ -204,10 +206,13 @@ func watchPuller(cc *cli.Context, st issuelib.Store, remote string, local bool) 
 		if err := st.VerifyRemote(remote); err != nil {
 			return nil, err
 		}
-		return newPuller(st, "", "", remote, pullTimeout), nil
+		return newPuller(st, "", repo, remote, pullTimeout), nil
 	case !local:
 		if st.VerifyRemote("origin") == nil {
-			return newPuller(st, "", "", "origin", pullTimeout), nil
+			return newPuller(st, "", repo, "origin", pullTimeout), nil
+		}
+		if repo != "" {
+			fmt.Fprintf(cc.Err, "%s: ", repo)
 		}
 		fmt.Fprintln(cc.Err, "no origin: watching this clone alone")
 	}

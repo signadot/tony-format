@@ -42,6 +42,9 @@ type workspace struct {
 	mu    sync.Mutex
 	repos []*repo
 	out   io.Writer // where the stores' warnings go
+	// open makes a repository's store, when the set is not a server's: the
+	// commands' stores report as a command's does (set.go).
+	open func(dir string) issuelib.Store
 }
 
 func newWorkspace(out io.Writer) *workspace {
@@ -55,9 +58,17 @@ func (w *workspace) add(dir, from string) (*repo, error) {
 	if err != nil {
 		return nil, err
 	}
-	store := issuelib.NewGitStoreAt(abs, w.out)
-	if err := store.VerifyRepository(); err != nil {
+	if err := issuelib.NewGitStoreAt(abs, w.out).VerifyRepository(); err != nil {
 		return nil, err
+	}
+	// A repository is its root, whatever directory inside it was named: one
+	// named twice, by its root and by a directory under it, is served once.
+	if root := repositoryRoot(abs); root != "" {
+		abs = root
+	}
+	var store issuelib.Store = issuelib.NewGitStoreAt(abs, w.out)
+	if w.open != nil {
+		store = w.open(abs)
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()

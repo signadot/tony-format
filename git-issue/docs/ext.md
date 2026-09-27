@@ -21,9 +21,10 @@ A source is a name this repository gives another, as a remote is named, and a
 URL or a path. `ext fetch` names the issue by its full id: a prefix cannot be
 resolved in a repository that is not here.
 
-Through the [MCP server](mcp.md), `issue_relate` across two served repositories
-does the `ext add` and `ext fetch` itself, the other repository's directory
-being the source.
+`relate`, `blocks` and `duplicate` to an issue of another repository of
+[the set](commands.md#which-repository) do the `ext add` and `ext fetch`
+themselves, the other repository's directory being the source. So does
+`issue_relate` through the [MCP server](mcp.md).
 
 ## The rules
 

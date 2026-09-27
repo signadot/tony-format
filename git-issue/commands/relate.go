@@ -43,11 +43,20 @@ func (cfg *relateConfig) run(cc *cli.Context, args []string) error {
 		return fmt.Errorf("%w: usage: git issue %s <xidr1> <xidr2>", cli.ErrUsage, cfg.relation)
 	}
 
+	// An issue of another repository of the set comes here first, as a
+	// mirror, so the relation resolves from this repository alone.
+	mirrored, err := far(cfg.store, args[1])
+	if err != nil {
+		return err
+	}
 	from, to, changed, err := ops.Relate(cfg.store, args[0], args[1], cfg.relation)
 	if err != nil {
 		return err
 	}
 	id1, id2 := issuelib.FormatID(from.ID), issuelib.FormatID(to.ID)
+	if mirrored != "" {
+		fmt.Fprintf(cc.Out, "Mirrored %s from %s, read-only here\n", id2, mirrored)
+	}
 	if !changed {
 		fmt.Fprintf(cc.Out, "Issue %s already has this relationship with %s\n", id1, id2)
 		return nil

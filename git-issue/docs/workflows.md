@@ -63,5 +63,10 @@ git issue show <the verse issue>        # the relation, with tony-format's title
 git issue push                          # the mirror goes to verse's origin too
 ```
 
-From an agent through the [MCP server](mcp.md), `issue_relate` across the two
-repositories does the mirroring itself.
+With both repositories in [the set](commands.md#which-repository), `relate`
+does the mirroring itself, as `issue_relate` does through the
+[MCP server](mcp.md):
+
+```bash
+git issue relate <the verse issue> <the tony-format issue>
+```

@@ -5,10 +5,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/scott-cotton/cli"
 	"github.com/signadot/tony-format/git-issue/issuelib"
 	"github.com/signadot/tony-format/git-issue/ops"
 )
@@ -808,4 +810,80 @@ func TestMCP_LookLeavesARepositoryBeingPulled(t *testing.T) {
 	if n := logged(); n != 1 {
 		t.Errorf("the look after the pull logged %d change(s), want 1", n)
 	}
+}
+
+// TestWatch_EveryRepository: run outside a repository, watch covers every
+// repository of the set, each line saying which; given an issue, it watches
+// the repository that holds it and no other.
+func TestWatch_EveryRepository(t *testing.T) {
+	aDir, bDir := repoDir(t, "a"), repoDir(t, "b")
+	a := issuelib.NewGitStoreAt(aDir, &strings.Builder{})
+	b := issuelib.NewGitStoreAt(bDir, &strings.Builder{})
+	inA, err := ops.Create(a, "In a", "body")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inB, err := ops.Create(b, "In b", "body")
+	if err != nil {
+		t.Fatal(err)
+	}
+	configured(t, aDir, bDir)
+
+	watching := func(args ...string) (*lines, context.CancelFunc) {
+		t.Helper()
+		d := newDispatch()
+		cmd := d.in(WatchCommand(d.target), everyRepository)
+		ctx, cancel := context.WithCancel(context.Background())
+		out := &lines{}
+		cc := &cli.Context{Out: out, Err: nopWriteCloser{&strings.Builder{}}, Go: ctx}
+		done := make(chan error, 1)
+		go func() { done <- cmd.Run(cc, append([]string{"--local", "-poll", "10ms"}, args...)) }()
+		t.Cleanup(func() {
+			cancel()
+			if err := <-done; err != nil {
+				t.Errorf("watch %v: %v", args, err)
+			}
+		})
+		time.Sleep(300 * time.Millisecond)
+		return out, cancel
+	}
+
+	every, _ := watching()
+	one, _ := watching(inB.ID[:8])
+	if _, _, err := ops.Comment(a, inA.ID, "in a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ops.Comment(b, inB.ID, "in b"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	got := every.String()
+	for _, want := range []string{"a  " + inA.ID + "  open  In a  -- comment: in a", "b  " + inB.ID + "  open  In b  -- comment: in b"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the watch of every repository does not say %q:\n%s", want, got)
+		}
+	}
+	if got := one.String(); !strings.Contains(got, inB.ID) || strings.Contains(got, inA.ID) {
+		t.Errorf("the watch of b's issue said:\n%s", got)
+	}
+}
+
+// lines is a writer a test reads while another goroutine writes it.
+type lines struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *lines) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lines) Close() error { return nil }
+
+func (l *lines) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
 }

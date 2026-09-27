@@ -31,21 +31,30 @@ func (cfg *listConfig) run(cc *cli.Context, args []string) error {
 		return err
 	}
 
-	// Outside a repository there are no refs to list, which "No issues found"
-	// would say as if it were the answer.
-	if err := cfg.store.VerifyRepository(); err != nil {
-		return err
+	// Every repository the command covers: the one it runs on, or outside a
+	// repository the set, each line then saying which.
+	repos := targets(cfg.store)
+	found := false
+	for _, r := range repos {
+		// Outside a repository there are no refs to list, which "No issues
+		// found" would say as if it were the answer.
+		if err := r.Store.VerifyRepository(); err != nil {
+			return err
+		}
+		issues, err := ops.List(r.Store, cfg.ShowAll, cfg.Label)
+		if err != nil {
+			return err
+		}
+		for _, issue := range issues {
+			found = true
+			if len(repos) > 1 {
+				fmt.Fprint(cc.Out, r.Name+"  ")
+			}
+			fmt.Fprintln(cc.Out, issuelib.FormatOneLiner(issue))
+		}
 	}
-	issues, err := ops.List(cfg.store, cfg.ShowAll, cfg.Label)
-	if err != nil {
-		return err
-	}
-	if len(issues) == 0 {
+	if !found {
 		fmt.Fprintln(cc.Out, "No issues found")
-		return nil
-	}
-	for _, issue := range issues {
-		fmt.Fprintln(cc.Out, issuelib.FormatOneLiner(issue))
 	}
 	return nil
 }

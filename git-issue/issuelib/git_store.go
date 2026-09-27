@@ -64,6 +64,13 @@ func NewGitStoreWithOutput(out io.Writer) *GitStore {
 // out. It is what lets one process hold stores on several repositories: nothing
 // here reaches for the working directory, so two stores on two directories do
 // not see each other.
+// NewGitStoreIn creates a GitStore on the repository at dir that reports as
+// NewGitStore's does: what a command is given a store of another repository
+// than the one it is run in.
+func NewGitStoreIn(dir string) *GitStore {
+	return &GitStore{dir: dir, out: os.Stdout, warn: os.Stderr}
+}
+
 func NewGitStoreAt(dir string, out io.Writer) *GitStore {
 	return &GitStore{dir: dir, out: out, warn: out}
 }
