@@ -23,8 +23,10 @@ resolved in a repository that is not here.
 
 `relate`, `blocks` and `duplicate` to an issue of another repository of
 [the set](commands.md#which-repository) do the `ext add` and `ext fetch`
-themselves, the other repository's directory being the source. So does
-`issue_relate` through the [MCP server](mcp.md).
+themselves. The source is named for the other repository and is its
+directory, unless this repository already has a source of that name, which
+is then used as it is. `issue_relate` through the [MCP server](mcp.md) does
+the same.
 
 ## The rules
 

@@ -21,9 +21,10 @@ import (
 type liveView struct {
 	p *puller // nil when the watch pulls nothing
 
-	mu   sync.Mutex
-	subs map[chan string]bool
-	told string // what stands (alarmsHash), as the pages were last told
+	mu     sync.Mutex
+	subs   map[chan string]bool
+	told   string // what stands (alarmsHash), as the pages were last told
+	closed bool   // the server is shutting down: a stream ends as it begins
 }
 
 func newLiveView(p *puller) *liveView {
@@ -78,8 +79,12 @@ func (l *liveView) send(what string) {
 func (l *liveView) subscribe() chan string {
 	ch := make(chan string, 64)
 	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.closed {
+		close(ch)
+		return ch
+	}
 	l.subs[ch] = true
-	l.mu.Unlock()
 	return ch
 }
 
@@ -96,6 +101,7 @@ func (l *liveView) unsubscribe(ch chan string) {
 func (l *liveView) close() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.closed = true
 	for ch := range l.subs {
 		delete(l.subs, ch)
 		close(ch)
@@ -204,6 +210,9 @@ func watchPuller(cc *cli.Context, st issuelib.Store, repo, remote string, local 
 		return nil, fmt.Errorf("%w: --local and --remote: one or the other", cli.ErrUsage)
 	case remote != "":
 		if err := st.VerifyRemote(remote); err != nil {
+			if repo != "" {
+				return nil, fmt.Errorf("%s: %w", repo, err)
+			}
 			return nil, err
 		}
 		return newPuller(st, "", repo, remote, pullTimeout), nil

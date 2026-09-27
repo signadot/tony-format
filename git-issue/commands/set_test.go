@@ -207,6 +207,12 @@ func TestSet_InsideARepository(t *testing.T) {
 		t.Errorf("show an issue of b from a: %v, %q", err, out)
 	}
 
+	// A source a already has under b's name is left as it was recorded, and
+	// is where the mirror comes from.
+	recorded := "file://" + bDir
+	if err := ops.SourceAdd(a, "b", recorded); err != nil {
+		t.Fatal(err)
+	}
 	out, err := runRoot(t, "blocks", inA.ID, inB.ID)
 	if err != nil {
 		t.Fatalf("blocks across repositories: %v", err)
@@ -216,6 +222,9 @@ func TestSet_InsideARepository(t *testing.T) {
 	}
 	if ref, err := a.FindRef(inB.ID); err != nil || ref != issuelib.ExtRefForXIDR("b", inB.ID) {
 		t.Errorf("a holds b's issue at %q, %v", ref, err)
+	}
+	if srcs, err := a.Sources(); err != nil || len(srcs) != 1 || srcs[0].URL != recorded {
+		t.Errorf("a's source after blocks: %v, %+v; want it at %s", err, srcs, recorded)
 	}
 	if sh, err := ops.Show(a, inA.ID); err != nil || len(sh.Blocks) != 1 || sh.Blocks[0].Title != "In b" {
 		t.Errorf("a's issue after blocks: %v, %+v", err, sh)

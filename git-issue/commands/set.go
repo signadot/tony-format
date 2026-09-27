@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/scott-cotton/cli"
@@ -240,6 +241,11 @@ func (d *dispatch) settle(cc *cli.Context, cmd *cli.Command, name string, args [
 		d.on(r)
 		return nil
 	}
+	if what == everyRepository {
+		if ids := positional(cc, cmd, args); len(ids) > 0 {
+			return d.holding(cc, ids, inRepo)
+		}
+	}
 	if id := issueNamed(cc, cmd, what, args); id != "" {
 		// Here first, and what is wrong with the id here -- it names several
 		// -- is the command's to say, as it was.
@@ -296,26 +302,87 @@ func (d *dispatch) settle(cc *cli.Context, cmd *cli.Command, name string, args [
 	return nil
 }
 
+// holding makes a command over every repository one over the repositories
+// that hold the issues it is given: watch, given issues. Each is looked for
+// in the repository the command is run in first, then in the set.
+func (d *dispatch) holding(cc *cli.Context, ids []string, inRepo bool) error {
+	var every []*repo
+	add := func(r *repo) {
+		for _, have := range every {
+			if have == r {
+				return
+			}
+		}
+		every = append(every, r)
+	}
+	elsewhere := false
+	for _, id := range ids {
+		if inRepo {
+			if _, err := d.here.FindRef(id); err == nil || strings.Contains(err.Error(), "ambiguous") {
+				add(&repo{Store: d.here})
+				continue
+			}
+		}
+		ws, err := d.set()
+		if err != nil {
+			return err
+		}
+		if len(ws.list()) == 0 {
+			return d.here.VerifyRepository()
+		}
+		r, _, err := ws.find(id)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(cc.Err, "%s in %s (%s)\n", id, r.Name, r.Dir)
+		add(r)
+		elsewhere = true
+	}
+	if !elsewhere {
+		return nil // all here: the command runs here, as it did
+	}
+	// The repository the command is run in is named as the rest are, by its
+	// directory.
+	for i, r := range every {
+		if r.Store == d.here {
+			root := repositoryRoot("")
+			every[i] = &repo{Name: filepath.Base(root), Dir: root, Store: d.here}
+		}
+	}
+	d.on(every[0])
+	d.target.every = every
+	return nil
+}
+
+// positional answers a command's arguments that are no option. A command
+// that takes options parses them to find what is left; one that takes none
+// is given its arguments as they are, a comment that begins with a dash
+// among them.
+func positional(cc *cli.Context, cmd *cli.Command, args []string) []string {
+	if len(cmd.Opts) > 0 {
+		parsed, err := cmd.Parse(cc, args)
+		if err != nil {
+			return nil // the command says what is wrong with them
+		}
+		args = parsed
+	}
+	var out []string
+	for _, a := range args {
+		if a != "--" {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 // issueNamed answers the issue a command's arguments name: its first
 // argument that is no option, when the command is given an issue.
 func issueNamed(cc *cli.Context, cmd *cli.Command, what names, args []string) string {
 	if what != anIssue && what != anIssueOrNone {
 		return ""
 	}
-	// A command that takes options parses them to find what is left; one
-	// that takes none is given its arguments as they are, a comment that
-	// begins with a dash among them.
-	if len(cmd.Opts) > 0 {
-		parsed, err := cmd.Parse(cc, args)
-		if err != nil {
-			return "" // the command says what is wrong with them
-		}
-		args = parsed
-	}
-	for _, a := range args {
-		if a != "--" {
-			return a
-		}
+	if pos := positional(cc, cmd, args); len(pos) > 0 {
+		return pos[0]
 	}
 	return ""
 }
@@ -333,9 +400,21 @@ func mirrorFar(ws *workspace, from *repo, other string) (id, mirrored string, er
 		return id, "", nil
 	}
 	// The source is named for the other repository, and is its directory: the
-	// fetch is local.
-	if err := ops.SourceAdd(from.Store, to.Name, to.Dir); err != nil {
+	// fetch is local. A source of that name the repository already has is
+	// left as it is, and is where the mirror is fetched from: where a
+	// repository is, is for whoever recorded it to say.
+	srcs, err := from.Store.Sources()
+	if err != nil {
 		return "", "", err
+	}
+	have := false
+	for _, src := range srcs {
+		have = have || src.Name == to.Name
+	}
+	if !have {
+		if err := ops.SourceAdd(from.Store, to.Name, to.Dir); err != nil {
+			return "", "", err
+		}
 	}
 	if _, err := ops.Mirror(from.Store, to.Name, id); err != nil {
 		return "", "", err
