@@ -6,6 +6,8 @@ import (
 
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/parse"
+	"github.com/signadot/tony-format/go-tony/system/logd/api"
 )
 
 // withComments renders a document the way SameState compares one. nodeText and
@@ -96,4 +98,69 @@ func TestLoweredCommentSurvivesASnapshot(t *testing.T) {
 			})
 		}
 	}
+}
+
+// A tag under a head comment is the value's, and the store reads it as such
+// (vbtm1dfbh12krbkcq1n0). Read from the wrapper, which wears none:
+//
+//   - an operation under a comment was taken for an absolute write and stored as
+//     it was sent, a !replace in the log, which is what lowering is there to
+//     prevent (TestLowering_RelativeWriteIsStoredAsItsResult);
+//   - an escape under a comment was walked into, and the write refused for the
+//     operators in the data it escaped: a stored rule with a note above it.
+func TestCommentedTagIsTheValues(t *testing.T) {
+	t.Run("an operation under a comment is lowered", func(t *testing.T) {
+		s := openTestStorage(t)
+		mustCommit(t, s, nil, `{s: "bob", n: 1}`)
+		c, err := applyOp(t, s, genOp{path: "", src: "s:\n  # renamed\n  !replace\n  from: bob\n  to: rob\n"})
+		if err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		// A head comment on a field's value prints above the field.
+		if state, want := withComments(mustReadScope(t, s, c, nil)), `n: 1 # renamed s: rob`; state != want {
+			t.Errorf("state is %s, want %s", state, want)
+		}
+		if stored := strings.Join(storedPatches(t, s), " | "); strings.Contains(stored, "!replace") {
+			t.Errorf("the log holds a !replace: %s", stored)
+		}
+	})
+	// In a scope, where a write is stored as the claim it makes (claimValue): the
+	// claim is !insert.raw on the value, under the comment, and it is what the
+	// lowered delta is held to.
+	t.Run("an escape under a comment is stored, and read back as it was", func(t *testing.T) {
+		for _, tc := range []struct{ name, seed, path, src string }{
+			{"at its own path", `{rules: {}}`, "rules.spec", "# why\n!insert.raw\nvalue: !and [1, 2]\n"},
+			{"beneath the path written", `{rules: {}}`, "rules", "spec:\n  # why\n  !insert.raw\n  value: !and [1, 2]\n"},
+			{"beside an operation", `{rules: {n: 1}}`, "rules",
+				"n: !replace {from: 1, to: 2}\nspec:\n  # why\n  !insert.raw\n  value: !and [1, 2]\n"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				s := openTestStorage(t)
+				mustCommit(t, s, nil, tc.seed)
+				scope := "sc"
+				n, err := parse.Parse([]byte(tc.src), parse.ParseComments(true))
+				if err != nil {
+					t.Fatal(err)
+				}
+				txn, err := s.NewTx(1, &scope)
+				if err != nil {
+					t.Fatal(err)
+				}
+				p, err := txn.NewPatcher(&api.Patch{PathData: api.PathData{Path: tc.path, Data: n}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				res := p.Commit()
+				if !res.Committed {
+					t.Fatalf("write: %v", res.Error)
+				}
+				state := withComments(mustReadScope(t, s, res.Commit, &scope))
+				for _, want := range []string{"# why", "!and"} {
+					if !strings.Contains(state, want) {
+						t.Errorf("state %s does not hold %s", state, want)
+					}
+				}
+			})
+		}
+	})
 }

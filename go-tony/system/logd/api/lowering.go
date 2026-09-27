@@ -70,6 +70,11 @@ func firstRelativeOp(tag string) string {
 // The walk mirrors validateForStorage's, and has to: an operation this misses is
 // one stored unlowered, which is the defect the vocabulary exists to prevent.
 func NeedsLowering(n *ir.Node) (op string, yes bool) {
+	// A head comment wraps the value it precedes and is not a kind of container,
+	// so a walk that stopped at the wrapper would miss everything under it
+	// (3cdjz00jh12krns4g1n0). It comes first, as in ValidateForStorage: the tag is
+	// the value's, not the wrapper's (vbtm1dfbh12krbkcq1n0).
+	n = ir.Uncomment(n)
 	if n == nil {
 		return "", false
 	}
@@ -81,13 +86,6 @@ func NeedsLowering(n *ir.Node) (op string, yes bool) {
 	// is (6225etzfh12kr955fxn0). The node's own chain is read above, so
 	// !strdiff.raw still answers for the strdiff.
 	if ir.TagHas(n.Tag, "!raw") {
-		return "", false
-	}
-	// A head comment wraps the value it precedes and is not a kind of container,
-	// so a walk that stopped at the wrapper would miss everything under it
-	// (3cdjz00jh12krns4g1n0).
-	n = ir.Uncomment(n)
-	if n == nil {
 		return "", false
 	}
 	switch n.Type {
