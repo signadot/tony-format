@@ -136,6 +136,10 @@ possible at all: under `!raw` nothing beneath is interpreted, so a charter, a st
 or a stored patch is ordinary data. The escape composes onto the node's own tag when what
 it escapes is a leaf — `!irtype` escaped is `!raw.irtype` — and both forms are data.
 
+A comment above a value changes none of this. The tag is the value's, and is read the
+same with a comment above it as without: an escape under a comment is an escape, and an
+operation under one is an operation.
+
 Refused with `invalid_diff`.
 
 ## Preconditions are a different thing
