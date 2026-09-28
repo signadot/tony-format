@@ -530,6 +530,7 @@ type pushOp struct {
 	leases   []string
 	refspecs []string
 	targets  []string // the remote refs the refspecs write, which is how git names them back
+	commits  []string // what each target is written to, "" for a delete
 	did      string
 	result   *PushResult
 }
@@ -567,6 +568,7 @@ func (s *GitStore) planPush(p IssuePlan, force bool) (*pushOp, error) {
 		op.refspecs = append(op.refspecs, p.Local.Ref+":"+want)
 		op.leases = append(op.leases, "--force-with-lease="+want+":"+held)
 		op.targets = append(op.targets, want)
+		op.commits = append(op.commits, p.Local.Commit)
 		if held == "" {
 			did = append(did, "created at "+shortSHA(p.Local.Commit))
 		} else {
@@ -581,6 +583,7 @@ func (s *GitStore) planPush(p IssuePlan, force bool) (*pushOp, error) {
 		op.refspecs = append(op.refspecs, ":"+tip.Ref)
 		op.leases = append(op.leases, "--force-with-lease="+tip.Ref+":"+tip.Commit)
 		op.targets = append(op.targets, tip.Ref)
+		op.commits = append(op.commits, "")
 		dropped++
 	}
 	if len(op.refspecs) == 0 {
@@ -602,6 +605,7 @@ func (s *GitStore) sendPushes(remote string, ops []*pushOp) {
 			for _, op := range ops {
 				op.result.Did = op.did
 			}
+			s.trackPushed(remote, ops)
 			return
 		}
 		var rest []*pushOp
@@ -671,6 +675,34 @@ func (s *GitStore) pushAtomic(remote string, ops []*pushOp) (map[string]string, 
 		out = strings.TrimSpace(stdout.String())
 	}
 	return refused, out, fmt.Errorf("push failed")
+}
+
+// trackPushed brings the tracking refs of what a push wrote to what it wrote,
+// as git does for a branch's: this clone's copy of the remote is then right
+// from the push on, not from the next fetch, and a watch reading it hears
+// that a change is on the remote. A tracking ref is a copy the next fetch
+// overwrites, so one this fails to move is as it was before the push, and
+// the fetch puts it right.
+func (s *GitStore) trackPushed(remote string, ops []*pushOp) {
+	var in strings.Builder
+	for _, op := range ops {
+		for i, target := range op.targets {
+			tracking := TrackingRef(remote, target)
+			switch {
+			case tracking == "":
+			case op.commits[i] == "":
+				fmt.Fprintf(&in, "delete %s\n", tracking)
+			default:
+				fmt.Fprintf(&in, "update %s %s\n", tracking, op.commits[i])
+			}
+		}
+	}
+	if in.Len() == 0 {
+		return
+	}
+	cmd := s.git("update-ref", "--stdin")
+	cmd.Stdin = strings.NewReader(in.String())
+	_ = cmd.Run()
 }
 
 // reload reads this clone's ref for the issue again, for a plan whose local side

@@ -236,7 +236,7 @@ func TestDescribe_MoveWithoutCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ch, _ := describe(store, "", issue.ID, was[issue.ID], now[issue.ID], time.Now())
+	ch, _ := describe(store, "", "", issue.ID, was[issue.ID], now[issue.ID], time.Now())
 	if ch.Status != "closed" || strings.Join(ch.What, "; ") != "closed" {
 		t.Errorf("moved without a commit: %+v, want closed", ch)
 	}
@@ -247,7 +247,7 @@ func TestDescribe_MoveWithoutCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ch, _ := describe(store, "", issue.ID, now[issue.ID], back[issue.ID], time.Now()); strings.Join(ch.What, "; ") != "reopened" {
+	if ch, _ := describe(store, "", "", issue.ID, now[issue.ID], back[issue.ID], time.Now()); strings.Join(ch.What, "; ") != "reopened" {
 		t.Errorf("moved back without a commit: %+v, want reopened", ch)
 	}
 }
@@ -285,7 +285,7 @@ func TestDescribe_MidMove(t *testing.T) {
 	for i := 0; i < 20; i++ { // map order: the ref read must not be chosen by chance
 		said = said[:0]
 		for _, pair := range [][2]issueRefs{{before, mid}, {mid, after}} {
-			if ch, ok := describe(store, "", issue.ID, pair[0][issue.ID], pair[1][issue.ID], time.Now()); ok {
+			if ch, ok := describe(store, "", "", issue.ID, pair[0][issue.ID], pair[1][issue.ID], time.Now()); ok {
 				said = append(said, ch.Status+": "+strings.Join(ch.What, "; "))
 			}
 		}
@@ -433,6 +433,75 @@ func TestWatchStore_Pulls(t *testing.T) {
 	}
 }
 
+// TestWatchStore_OnRemote: each change says whether origin holds it -- a
+// change made here is local until a push, and the push is said; one a pull
+// brought is on origin, and one a pull merged with a change made here is
+// local, since origin has neither side's merge.
+func TestWatchStore_OnRemote(t *testing.T) {
+	_, hereDir, thereDir := remotePair(t)
+	here := issuelib.NewGitStoreAt(hereDir, &strings.Builder{})
+	there := issuelib.NewGitStoreAt(thereDir, &strings.Builder{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	changes := make(chan watchChange, 16)
+	go watchStore(ctx, here, watchFilter{}, 10*time.Millisecond, nil, 0,
+		func(ch watchChange) { changes <- ch }, nil, nil)
+	time.Sleep(50 * time.Millisecond)
+	next := func(what, on string, want string) {
+		t.Helper()
+		select {
+		case ch := <-changes:
+			if ch.On != on || !hasPrefixed(ch.What, want) {
+				t.Errorf("%s: change %+v, want %q on %q", what, ch, want, on)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: no change", what)
+		}
+	}
+
+	issue, err := ops.Create(here, "Ours", "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	next("created here", "local", "create")
+	push(t, here)
+	next("pushed", "origin", "pushed to origin")
+
+	if _, err := ops.Pull(there, "origin", false, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ops.Comment(there, issue.ID, "from there"); err != nil {
+		t.Fatal(err)
+	}
+	push(t, there)
+	if _, err := ops.Pull(here, "origin", false, false); err != nil {
+		t.Fatal(err)
+	}
+	next("pulled", "origin", "comment")
+
+	if _, _, err := ops.Comment(there, issue.ID, "there again"); err != nil {
+		t.Fatal(err)
+	}
+	push(t, there)
+	if _, _, err := ops.Comment(here, issue.ID, "here meanwhile"); err != nil {
+		t.Fatal(err)
+	}
+	next("commented here", "local", "comment")
+	if _, err := ops.Pull(here, "origin", false, false); err != nil {
+		t.Fatal(err)
+	}
+	next("merged by the pull", "local", "comment")
+	push(t, here)
+	next("merge pushed", "origin", "pushed to origin")
+
+	select {
+	case ch := <-changes:
+		t.Errorf("a change beyond those made: %+v", ch)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 func originOf(t *testing.T, dir string) string {
 	t.Helper()
 	return strings.TrimSpace(run(t, dir, "remote", "get-url", "origin"))
@@ -494,8 +563,8 @@ func TestMCP_IssueWatchRemote(t *testing.T) {
 	push(t, there)
 	select {
 	case out := <-answered:
-		if len(out.Changes) != 1 || !hasPrefixed(out.Changes[0].What, "comment") {
-			t.Errorf("changes %+v, want the comment", out.Changes)
+		if len(out.Changes) != 1 || !hasPrefixed(out.Changes[0].What, "comment") || out.Changes[0].On != "origin" {
+			t.Errorf("changes %+v, want the comment, on origin", out.Changes)
 		}
 		if !pulled(out.Pulls, issue.ID) {
 			t.Errorf("pulls %+v, want the pull that took it", out.Pulls)

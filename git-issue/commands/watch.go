@@ -63,7 +63,10 @@ func durationOpt(name, desc string, dst *time.Duration, zeroMeans string) *cli.O
 
 // issueRefs is one look at a repository's issues: for each id, the refs that
 // hold it and their commits. An issue is one ref, open or closed; its id can
-// also be held by a mirror of it, so an id can have two.
+// also be held by a mirror of it, so an id can have two. The tracking refs
+// that copy them, a remote's as the last fetch or push left it, are among
+// them: what a change says of whether the remote holds it is read from those
+// (own and trackedBy tell them apart).
 type issueRefs map[string]map[string]string
 
 // lookAt takes one look at a repository's issue refs.
@@ -74,7 +77,11 @@ func lookAt(st issuelib.Store) (issueRefs, error) {
 	}
 	look := issueRefs{}
 	for ref, commit := range tips {
-		xidr, err := issuelib.XIDRFromRef(ref)
+		name := ref
+		if _, copied, ok := issuelib.Tracked(ref); ok {
+			name = copied
+		}
+		xidr, err := issuelib.XIDRFromRef(name)
 		if err != nil {
 			continue
 		}
@@ -104,6 +111,28 @@ func moved(was, now issueRefs) []string {
 	return ids
 }
 
+// own is an issue's refs in this clone, without a remote's copies of them.
+func own(refs map[string]string) map[string]string {
+	out := map[string]string{}
+	for ref, commit := range refs {
+		if _, _, ok := issuelib.Tracked(ref); !ok {
+			out[ref] = commit
+		}
+	}
+	return out
+}
+
+// onRemote says whether remote's copies of an issue, among refs, hold commit:
+// whether the remote had it at the last fetch or push.
+func onRemote(st issuelib.Store, refs map[string]string, remote, commit string) bool {
+	for ref, tip := range refs {
+		if r, _, ok := issuelib.Tracked(ref); ok && r == remote && st.Holds(tip, commit) {
+			return true
+		}
+	}
+	return false
+}
+
 func sameRefs(a, b map[string]string) bool {
 	if len(a) != len(b) {
 		return false
@@ -124,7 +153,8 @@ type watchChange struct {
 	Title   string    `json:"title,omitempty"`
 	Labels  []string  `json:"labels"`
 	Updated time.Time `json:"updated,omitzero"`
-	What    []string  `json:"what" jsonschema:"what was done to it, oldest first: one line per commit it gained (comment: ..., edit: ..., label: ...), then closed or reopened if it moved with no commit saying so; arrived for an issue that came with no commit since the watch began"`
+	What    []string  `json:"what" jsonschema:"what was done to it, oldest first: one line per commit it gained (comment: ..., edit: ..., label: ...), then closed or reopened if it moved with no commit saying so; arrived for an issue that came with no commit since the watch began; pushed to <remote> when the remote came to hold a change that was local"`
+	On      string    `json:"on,omitempty" jsonschema:"the remote, when it holds the issue as the change left it -- as this clone knows the remote, from its last fetch or push -- or local when it does not, and the change is not pushed; empty when there is no remote to ask. The remote is the one the watch pulls, or origin. It is the remote as this clone last saw it: a remote rewritten since by another clone (a forced push, a deleted ref) can make it wrong until the next fetch"`
 
 	labelsBefore []string // its labels before the change, for a label filter
 }
@@ -140,15 +170,22 @@ type watchChange struct {
 // deletes the old -- and find the issue at both. The ref read is then the one
 // the move is going to, and the look that finds the old one gone has nothing
 // to say: ok is false when the change adds nothing but a ref's going.
-func describe(st issuelib.Store, repo, xidr string, was, now map[string]string, began time.Time) (watchChange, bool) {
+//
+// With a remote, the change says whether the remote holds the issue as the
+// change left it (On), from the remote's copies among the refs. A change to
+// those copies alone is said when the remote comes to hold what it did not
+// -- a push of a change that was local -- and not otherwise: a fetch that
+// finds the remote ahead is news once a pull brings it here.
+func describe(st issuelib.Store, repo, remote, xidr string, allWas, allNow map[string]string, began time.Time) (watchChange, bool) {
 	ch := watchChange{ID: xidr, Repo: repo, Labels: []string{}, What: []string{}}
+	was, now := own(allWas), own(allNow)
 	if old := readAt(st, was, nil); old != nil {
 		ch.labelsBefore = old.Labels
 	}
 	ref := issueRef(now, was)
 	if ref == "" {
 		ch.Status = "gone"
-		return ch, true
+		return ch, len(was) > 0
 	}
 	if commit, ok := was[ref]; ok && commit == now[ref] && len(now) < len(was) {
 		return ch, false
@@ -158,6 +195,19 @@ func describe(st issuelib.Store, repo, xidr string, was, now map[string]string, 
 		if issue.Labels != nil {
 			ch.Labels = issue.Labels
 		}
+	}
+	if remote != "" {
+		ch.On = "local"
+		if onRemote(st, allNow, remote, now[ref]) {
+			ch.On = remote
+		}
+	}
+	if sameRefs(was, now) {
+		if remote == "" || ch.On != remote || onRemote(st, allWas, remote, now[ref]) {
+			return ch, false
+		}
+		ch.What = append(ch.What, "pushed to "+remote)
+		return ch, true
 	}
 	var not []string
 	for _, commit := range was {
@@ -287,6 +337,13 @@ func (ch watchChange) oneLine() string {
 		b.WriteString(ch.Repo + "  ")
 	}
 	b.WriteString(ch.ID + "  " + ch.Status)
+	switch ch.On {
+	case "":
+	case "local":
+		b.WriteString(" (local)")
+	default:
+		b.WriteString(" (on " + ch.On + ")")
+	}
 	if ch.Title != "" {
 		b.WriteString("  " + ch.Title)
 	}

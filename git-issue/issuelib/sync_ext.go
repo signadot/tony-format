@@ -245,6 +245,7 @@ func (s *GitStore) ApplyCarriedPushes(remote string, plans []CarriedPlan, force 
 			leases:   []string{"--force-with-lease=" + p.Ref + ":" + p.Remote},
 			refspecs: []string{p.Ref + ":" + p.Ref},
 			targets:  []string{p.Ref},
+			commits:  []string{p.Local},
 			result:   &results[i],
 		}
 		if p.Remote == "" {

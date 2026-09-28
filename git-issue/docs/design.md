@@ -268,7 +268,9 @@ refs/notes/git-issues/remotes/<remote>/v1
 as `refs/remotes/` is for branches. That is what makes ahead, behind and diverged
 local questions, which git answers with `merge-base`. They are fetched forced and
 pruned, because a tracking ref is a copy of what the remote has and not a history
-of its own.
+of its own. A push that lands moves the tracking refs of what it wrote, as git
+does for a branch, so the copy is right from the push on. A watch reads it to
+say whether a change is on the remote yet.
 
 An issue is **one chain**, whichever namespace each side keeps it in, so the
 comparison is of commits and the status follows the tip that wins. The remote's

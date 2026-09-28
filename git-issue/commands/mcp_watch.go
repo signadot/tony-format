@@ -63,7 +63,10 @@ func addWatchTool(m *mcpServer) {
 			"changed. It reads this clone only: a change pushed to a remote is heard once a pull brings it in, which issue_watch_remote does. " +
 			"Scope it by repo, ids and label, which all must match; with none, every issue in every served repository. It answers " +
 			"as soon as a change matches, or with none at the timeout, and always with a cursor: pass it back as since and nothing " +
-			"that changed between two calls is missed. It blocks while it waits, so call it where waiting does not hold up other work.",
+			"that changed between two calls is missed. It blocks while it waits, so call it where waiting does not hold up other work. " +
+			"Each change says in on whether origin holds it, or local. A push that brings origin a change that was local answers as " +
+			"\"pushed to origin\", one per issue pushed, so the caller's own push comes back to it: take that as its push landing, " +
+			"not as news to act on.",
 		Annotations: readOnly(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in watchIn) (*mcp.CallToolResult, watchOut, error) {
 		return m.watchTool(ctx, in.Repo, in.IDs, in.Label, in.Since, in.Timeout, nil)
@@ -75,7 +78,8 @@ func addWatchTool(m *mcpServer) {
 			"default, into each repository watched, so a change a teammate pushed is heard as well as one made here. It answers " +
 			"what changed, and what its pulls did: issues created, moved on or merged, one refused for a person to decide, a remote that could " +
 			"not be reached. What stands until a person acts -- a refusal, a failure -- answers on its own when it differs from what the cursor was last told, or clear when nothing stands. It writes this clone's refs as issue_pull " +
-			"does, and nothing to the remote. Its cursor is issue_watch's.",
+			"does, and nothing to the remote. Its cursor is issue_watch's. on is said of the remote it pulls, and a push to that remote " +
+			"comes back as \"pushed to <remote>\", as in issue_watch.",
 		Annotations: &mcp.ToolAnnotations{IdempotentHint: true},
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in watchRemoteIn) (*mcp.CallToolResult, watchOut, error) {
 		remote := in.Remote
@@ -304,6 +308,10 @@ func (m *mcpServer) waitFor(ctx context.Context, f watchFilter, since string, ti
 		cursor = m.seq
 		m.mu.Unlock()
 	}
+	remotes := onRemotes{name: "origin", has: map[string]bool{}}
+	if pulls != nil {
+		remotes.name = pulls.remote
+	}
 	for {
 		m.mu.Lock()
 		var events []watchEvent
@@ -331,7 +339,7 @@ func (m *mcpServer) waitFor(ctx context.Context, f watchFilter, since string, ti
 			if !f.wants(ev.repo.Dir, ev.xidr) {
 				continue
 			}
-			ch, ok := describe(ev.repo.Store, repoLabel(m.ws, ev.repo), ev.xidr, ev.was, ev.now, began)
+			ch, ok := describe(ev.repo.Store, repoLabel(m.ws, ev.repo), remotes.of(ev.repo), ev.xidr, ev.was, ev.now, began)
 			if ok && f.matches(ch) {
 				out.Changes = append(out.Changes, ch)
 				out.Pulls = append(out.Pulls, ev.pulled...)
@@ -351,6 +359,26 @@ func (m *mcpServer) waitFor(ctx context.Context, f watchFilter, since string, ti
 			return watchOut{}, ctx.Err()
 		}
 	}
+}
+
+// onRemotes is the remote a watch's changes say they are on or not -- the
+// one issue_watch_remote pulls, or origin -- in each repository that has it,
+// asked of each repository once.
+type onRemotes struct {
+	name string
+	has  map[string]bool
+}
+
+func (o onRemotes) of(r *repo) string {
+	has, ok := o.has[r.Dir]
+	if !ok {
+		has = r.Store.VerifyRemote(o.name) == nil
+		o.has[r.Dir] = has
+	}
+	if has {
+		return o.name
+	}
+	return ""
 }
 
 // coalesce makes the events for one issue in one repository into one, from

@@ -168,6 +168,7 @@ func watchStore(ctx context.Context, st issuelib.Store, f watchFilter, interval 
 		defer t.Stop()
 		fetchC = t.C
 	}
+	remote := watchRemote(st, p)
 	began := time.Now()
 	was, err := lookAt(st)
 	if err != nil {
@@ -193,7 +194,7 @@ func watchStore(ctx context.Context, st issuelib.Store, f watchFilter, interval 
 			if !wants(xidr) {
 				continue
 			}
-			if ch, ok := describe(st, "", xidr, was[xidr], now[xidr], began); ok && f.matches(ch) {
+			if ch, ok := describe(st, "", remote, xidr, was[xidr], now[xidr], began); ok && f.matches(ch) {
 				for _, n := range withChanges(did, []watchChange{ch}) {
 					note(n)
 				}
@@ -202,4 +203,16 @@ func watchStore(ctx context.Context, st issuelib.Store, f watchFilter, interval 
 		}
 		was, did = now, nil
 	}
+}
+
+// watchRemote is the remote a watch's changes say they are on or not: the one
+// it pulls, or origin when it pulls none; none without an origin.
+func watchRemote(st issuelib.Store, p *puller) string {
+	switch {
+	case p != nil:
+		return p.remote
+	case st.VerifyRemote("origin") == nil:
+		return "origin"
+	}
+	return ""
 }

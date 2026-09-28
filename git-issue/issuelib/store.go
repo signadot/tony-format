@@ -96,6 +96,9 @@ type Store interface {
 	// oldest first, none committed before since when it is set: what a
 	// watcher says moved a ref.
 	Subjects(tip string, not []string, since time.Time) ([]string, error)
+	// Holds says whether tip carries commit: the same commit, or one after
+	// it on its chain.
+	Holds(tip, commit string) bool
 
 	// Mirrors and sources are carried by a sync as issues are (sync_ext.go).
 	PlanCarried(remote string) ([]CarriedPlan, error)
