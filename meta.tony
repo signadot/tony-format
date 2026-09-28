@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 1c36aa2cb6ce9e72c2e7c13857d0f838ec5c4ded
 commits: []
 created: "2026-09-29T00:23:41.40647+02:00"
 duplicates: []
@@ -9,5 +10,5 @@ id: gkmdvps7h12ksvf8q9n0
 labels: []
 related_issues:
 - 7v4azhtjh12krv76q9n0
-status: open
-updated: "2026-09-29T00:50:08.250235+02:00"
+status: closed
+updated: "2026-09-29T00:50:08.493921+02:00"
