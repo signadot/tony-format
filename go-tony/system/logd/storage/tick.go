@@ -42,8 +42,12 @@ type tick struct {
 	published   int64
 	queue       []*CommitNotification
 	dispatching bool // a batch is being delivered right now
-	closing     bool
-	done        chan struct{}
+	// delivered is the watermark as it stood when the last batch was taken, once that
+	// batch has been delivered: every notification for a commit at or below it has been
+	// handed to the notifier. See waitDispatched.
+	delivered int64
+	closing   bool
+	done      chan struct{}
 
 	notifierMu sync.RWMutex
 	notifier   CommitNotifier
@@ -122,6 +126,9 @@ func (t *tick) dispatch() {
 		batch := t.queue
 		t.queue = nil
 		t.dispatching = true
+		// Every commit published so far has its notification in this batch or an
+		// earlier one, since publish queues it under this lock as it raises the mark.
+		through := t.published
 		t.mu.Unlock()
 
 		if notifier := t.getNotifier(); notifier != nil {
@@ -132,6 +139,7 @@ func (t *tick) dispatch() {
 
 		t.mu.Lock()
 		t.dispatching = false
+		t.delivered = through
 		t.mu.Unlock()
 		t.idle.Broadcast()
 	}
@@ -146,6 +154,22 @@ func (t *tick) waitDrained() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	for len(t.queue) > 0 || t.dispatching {
+		t.idle.Wait()
+	}
+}
+
+// waitDispatched blocks until every notification for a commit at or below commit has been
+// handed to the notifier. For WatchHub.Broadcast that means it is in its watcher's Events
+// buffer, or the watcher was failed for having no room for it -- which is what lets a
+// watch stream say it is current through commit (a progress request) by draining what
+// it holds.
+//
+// It does not wait for commits published after it is called, as waitDrained, under
+// steady writes, would: those have nothing to do with commit.
+func (t *tick) waitDispatched(commit int64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for t.delivered < commit && (len(t.queue) > 0 || t.dispatching) {
 		t.idle.Wait()
 	}
 }

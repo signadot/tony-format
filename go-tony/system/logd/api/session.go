@@ -431,6 +431,25 @@ type SessionRequest struct {
 	Schema      *SchemaRequest      `tony:"field=schema"`
 	Retain      *RetainRequest      `tony:"field=retain"`
 	Ping        *PingRequest        `tony:"field=ping"` // liveness probe; answered by whatever server owns the connection
+	Progress    *ProgressRequest    `tony:"field=progress"`
+}
+
+// ProgressRequest asks one watch how far it has got: the answer (ProgressResult) is sent
+// once every event that watch sends for a commit at or below the one the answer reports
+// is ahead of it on the stream. It names the watch as UnwatchRequest does: WatchID is the
+// id of the watch request that established it, and without one it is the path's id-less
+// watch.
+//
+// A watch is sent only the commits that reach its path, so a client holding one cannot
+// tell "nothing happened here up to C" from "not caught up to C" by what arrives. A ping
+// does not answer it: the pong is sent from the session's request loop, and a watch's
+// events from the watch's own stream, so pong(C) can overtake the event for C
+// (7v4azhtjh12krv76q9n0). This is the question asked of the stream itself.
+//
+//tony:schemagen=session-progress-request,notag
+type ProgressRequest struct {
+	Path    string  `tony:"field=path"`
+	WatchID *string `tony:"field=watchId"`
 }
 
 // PingRequest is a liveness probe. The server that owns the connection answers it
@@ -445,7 +464,9 @@ type PingRequest struct{}
 // open a watch to find out: the heartbeat it already sends can say so.
 //
 // The number is monotonic and chases the head; it is not a promise that the client
-// has seen everything below it. logd answers with its head. docd answers the ping
+// has seen everything below it, and a watch's events for commits below it may still be
+// on their way: a ping is not a barrier for them. ProgressRequest is. logd answers
+// with its head. docd answers the ping
 // itself, with the highest commit it has reported to any client -- a point in the one
 // sequence its mounts share, and a lower bound on the head rather than the head itself
 // -- and with Floor zero. Zero means there is none to report.
@@ -647,6 +668,22 @@ type SessionResult struct {
 	Schema      *SchemaResult      `tony:"field=schema"`
 	Retain      *RetainResult      `tony:"field=retain"`
 	Pong        *PongResult        `tony:"field=pong"`
+	Progress    *ProgressResult    `tony:"field=progress"`
+}
+
+// ProgressResult answers a ProgressRequest. Commit is the head when the request was
+// handled, and the watch on Path is current through it: every event it sends for a
+// commit at or below Commit was sent ahead of this answer, and a commit at or below it
+// that sent nothing did not reach the path. A client asking whether a watch has seen
+// commit R checks Commit >= R.
+//
+// A watch that ends before it can answer does not answer: the request gets not_watching,
+// and the watch's own ended event says why.
+//
+//tony:schemagen=session-progress-result,notag
+type ProgressResult struct {
+	Path   string `tony:"field=path"`
+	Commit int64  `tony:"field=commit"`
 }
 
 // WatchEvent is a streaming event from a watch.
@@ -1027,6 +1064,15 @@ func NewPongResponseAt(id *string, commit, floor int64) *SessionResponse {
 	return &SessionResponse{
 		ID:     id,
 		Result: &SessionResult{Pong: &PongResult{Commit: commit, Floor: floor}},
+	}
+}
+
+// NewProgressResponse creates the answer to a progress request: the watch on path is
+// current through commit.
+func NewProgressResponse(id *string, path string, commit int64) *SessionResponse {
+	return &SessionResponse{
+		ID:     id,
+		Result: &SessionResult{Progress: &ProgressResult{Path: path, Commit: commit}},
 	}
 }
 

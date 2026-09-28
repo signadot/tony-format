@@ -642,40 +642,95 @@ func (w *watchStream) live() {
 			w.fail(api.ErrCodeSlowConsumer, "watch on %q dropped: consumer did not keep up", w.path)
 			return
 		case notification, ok := <-w.watcher.Events:
-			if !ok {
+			if !ok || !w.take(notification) {
 				return
 			}
-			// Already replayed: a write can race into [hub-register, GetCurrentCommit]
-			// and be queued after the replay covered it.
-			if notification.Commit <= w.replayedThrough {
-				continue
-			}
-			// A schema commit reaches every watcher; one that changed the keying over this
-			// path ends the watch, before anything of the commit is delivered.
-			if len(notification.Rekeyed) > 0 {
-				if c, array, how, ok := w.s.storage.KeyingChangeReaching(w.path, notification.Commit-1, notification.Commit); ok {
-					w.endKeyingChanged(keyingEnd{commit: c, array: array, how: how})
-					return
-				}
-			}
-			// The coarse wake fires this watcher for every write under a shared top-level
-			// subtree. The projection says cheaply whether the entry reaches this path at
-			// all -- a plain merge that misses it says nothing about it -- and a scoped
-			// watcher, which re-reads per event, is spared the read exactly then. The
-			// watch is still correct through the commit.
-			if at, _, ok := api.ProjectDelta(notification.Patch, w.path); ok && at == nil {
-				w.accountFor(notification.Commit)
-				continue
-			}
-			if !w.seeded && !w.seedAt(notification.Commit-1) {
-				return
-			}
-			if !w.step(notification.Commit, notification.Patch, notification.ScopeID, notification.Author, true) {
+		case ask := <-w.watcher.asks:
+			if !w.answer(ask) {
 				return
 			}
 		}
 	}
 }
+
+// take delivers one live notification: it steps the watch by it, or accounts for it when
+// it cannot reach the path. It answers false when the watch has been failed.
+func (w *watchStream) take(notification *storage.CommitNotification) bool {
+	// Already replayed: a write can race into [hub-register, GetCurrentCommit] and be
+	// queued after the replay covered it.
+	if notification.Commit <= w.replayedThrough {
+		return true
+	}
+	// A schema commit reaches every watcher; one that changed the keying over this path
+	// ends the watch, before anything of the commit is delivered.
+	if len(notification.Rekeyed) > 0 {
+		if c, array, how, ok := w.s.storage.KeyingChangeReaching(w.path, notification.Commit-1, notification.Commit); ok {
+			w.endKeyingChanged(keyingEnd{commit: c, array: array, how: how})
+			return false
+		}
+	}
+	// The coarse wake fires this watcher for every write under a shared top-level
+	// subtree. The projection says cheaply whether the entry reaches this path at all --
+	// a plain merge that misses it says nothing about it -- and a scoped watcher, which
+	// re-reads per event, is spared the read exactly then. The watch is still correct
+	// through the commit.
+	if at, _, ok := api.ProjectDelta(notification.Patch, w.path); ok && at == nil {
+		w.accountFor(notification.Commit)
+		return true
+	}
+	if !w.seeded && !w.seedAt(notification.Commit-1) {
+		return false
+	}
+	return w.step(notification.Commit, notification.Patch, notification.ScopeID, notification.Author, true)
+}
+
+// answer answers a progress request: the watch is current through ask.commit once it has
+// taken every notification at or below it. The ask is handed over only once the
+// dispatcher is past that commit (handleProgress), so each of those is already in Events,
+// and taking what is there -- until it is empty, or until a commit above the ask has been
+// taken, since notifications arrive in commit order -- takes them all. The answer is sent
+// from this goroutine, the one that sends the watch's events, which is what puts it after
+// them on the stream.
+//
+// A watcher failed for want of room in Events has missed a notification, perhaps one at
+// or below the ask, so it is not current through anything: it ends, and the ask is
+// refused. It answers false when the watch has ended.
+func (w *watchStream) answer(ask progressAsk) bool {
+drain:
+	for {
+		select {
+		case n, ok := <-w.watcher.Events:
+			if !ok || !w.take(n) {
+				w.refuse(ask)
+				return false
+			}
+			if n.Commit > ask.commit {
+				break drain
+			}
+		default:
+			break drain
+		}
+	}
+	select {
+	case <-w.watcher.Failed:
+		w.fail(api.ErrCodeSlowConsumer, "watch on %q dropped: consumer did not keep up", w.path)
+		w.refuse(ask)
+		return false
+	case <-w.watcher.Done:
+		w.refuse(ask)
+		return false
+	default:
+	}
+	w.s.send(api.NewProgressResponse(ask.id, w.path, ask.commit))
+	return true
+}
+
+// refuse answers a progress request on a watch that ended before it was current.
+func (w *watchStream) refuse(ask progressAsk) {
+	w.s.sendError(ask.id, api.ErrCodeNotWatching, fmt.Sprintf(
+		"the watch on %q ended before it was current through commit %d", w.path, ask.commit))
+}
+
 func (s *Session) emitScopedDelta(id *string, path string, commit int64, prev *ir.Node, author string) (*ir.Node, error) {
 	newDoc, err := s.scopedDocAt(path, commit)
 	if err != nil {
@@ -747,6 +802,49 @@ func (s *Session) handleUnwatch(id *string, req *api.UnwatchRequest) {
 	}
 
 	s.send(api.NewUnwatchResponse(id, path))
+}
+
+// handleProgress answers a progress request, from the stream of the watch it names, once
+// that watch is current through the head as it stands now (api.ProgressRequest).
+//
+// The head is read here, on the loop, so a write the client sent ahead of the request is
+// at or below it. What the answer waits for happens off the loop: the dispatcher reaching
+// the head, which puts every notification at or below it in the watcher's Events, and then
+// the stream taking the ask, which it does between notifications and not while it is
+// still sending the initial state or a replay.
+func (s *Session) handleProgress(id *string, req *api.ProgressRequest) {
+	path, err := s.watchPath(req.Path)
+	if err != nil {
+		s.sendError(id, api.ErrCodeInvalidPath, err.Error())
+		return
+	}
+	s.watchMu.RLock()
+	watcher := s.watches[watchKey(req.WatchID, path)]
+	s.watchMu.RUnlock()
+	if watcher == nil {
+		s.sendError(id, api.ErrCodeNotWatching, fmt.Sprintf("not watching %q", path))
+		return
+	}
+	head, err := s.storage.GetCurrentCommit()
+	if err != nil {
+		s.sendError(id, api.ErrCodeStorage, fmt.Sprintf("failed to get current commit: %v", err))
+		return
+	}
+	go func() {
+		s.storage.WaitDispatched(head)
+		select {
+		case watcher.asks <- progressAsk{id: id, commit: head}:
+		case <-watcher.Done:
+			s.sendError(id, api.ErrCodeNotWatching, fmt.Sprintf(
+				"the watch on %q ended before it was current through commit %d", path, head))
+		case <-watcher.Failed:
+			// The stream reports the failure as the watch's ending; the request is told
+			// only that there is no watch to answer it.
+			s.sendError(id, api.ErrCodeNotWatching, fmt.Sprintf(
+				"the watch on %q ended before it was current through commit %d", path, head))
+		case <-s.done:
+		}
+	}()
 }
 
 // cleanupWatches removes all watches on session close.

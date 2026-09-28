@@ -41,6 +41,7 @@ directly inside it:
 | `newtx` | `{newtx: {participants: <n>, timeout: "5m", author: <principal>}}` |
 | `watch` | `{watch: {path: <kpath>, fromCommit: <n>, noInit: <bool>, waitIfAbsent: <bool>}}` |
 | `unwatch` | `{unwatch: {path: <kpath>, watchId: <id>}}` |
+| `progress` | `{progress: {path: <kpath>, watchId: <id>}}` — is this watch [current](#is-a-watch-current) through the head? |
 | `schema` | `{schema: {get: {at: <n>}}}` reads the schema in force (at a commit); `{schema: {set: {schema: <doc>, force: <bool>}}}` sets it, as one commit |
 | `ping` | `{ping: {}}` |
 
@@ -593,6 +594,38 @@ the old way — and spell the path as the schema now does:
 
 A schema commit that changes no array's keying ends nothing.
 
+### Is a watch current?
+
+A watch is sent only the commits that reach its path, so what arrives cannot tell a client
+"nothing happened here up to commit C" from "not caught up to C yet". A client that
+answers from what a watch holds, and has to answer for a commit R, needs to know which.
+A `progress` request asks the watch:
+
+```tony
+{id: p1, progress: {path: verse.perms, watchId: w1}}
+{id: p1 result: {progress: {commit: 52795 path: verse.perms}}}
+```
+
+`commit` is the head when the request was handled, and the answer comes **after every
+event the watch sends for a commit at or below it**. A commit at or below it that sent
+nothing did not reach the path. A client that has applied everything ahead of the answer
+holds the path as of `commit`, and checks `commit >= R`. A write the client sent before
+the request is at or below `commit`.
+
+The request names the watch as `unwatch` does, by the id of the watch request, or by path
+alone for an id-less watch. Ask once the watch is confirmed. A watch the session does not
+hold is `not_watching`, and so is one that ends before it can answer; its `ended` event
+says why. A watch failed for falling behind has missed commits, so it is not current
+through anything, and it ends.
+
+A ping does **not** answer this. The pong is sent from the session's request loop, and a
+watch's events from the watch's own stream, so a pong can overtake the event for a commit
+at or below the head it reports.
+
+Through docd the request goes where the watch went: to logd, or to the controller serving
+the path. A controller that does not serve `progress` answers `unsupported`, as does docd
+for a watch it composes across mounts, which has one stream per source.
+
 ## Liveness, and where the store is
 
 ```tony
@@ -604,7 +637,9 @@ A ping is answered by whichever server owns the connection — logd, or docd its
 client session — so a pong means **that server's request loop is alive**, which is what
 a liveness probe is asking. It carries the head commit with it, so a client tracks the
 store's revision from the heartbeat it already sends: no watch held open, no polling
-read, nothing extra on the wire.
+read, nothing extra on the wire. It says nothing about the session's watches: a watch's
+events for commits below it may still be on their way ([Is a watch
+current?](#is-a-watch-current)).
 
 Through docd the number is docd's own high-water mark over everything it has told any
 client — reads it answered, writes it reported, watch events it forwarded. Mounts share

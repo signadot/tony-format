@@ -75,6 +75,12 @@ type Watcher struct {
 	Done       chan struct{}                    // Closed when the watch is unwatched
 	FromCommit *int64                           // Starting commit for replay
 
+	// asks carries progress requests to the stream serving the watch, which answers each
+	// once it is current through the ask's commit (watchStream.answer). Unbuffered: an
+	// ask is handed over only once the dispatcher is past its commit, and is taken when
+	// the stream is live.
+	asks chan progressAsk
+
 	failOnce sync.Once // ensures Failed is closed only once
 	doneOnce sync.Once // ensures Done is closed only once
 }
@@ -308,7 +314,15 @@ func NewWatcher(path string, scope *string, fromCommit *int64, bufferSize int) *
 		Events:     make(chan *storage.CommitNotification, bufferSize),
 		Failed:     make(chan struct{}),
 		Done:       make(chan struct{}),
+		asks:       make(chan progressAsk),
 	}
+}
+
+// progressAsk is a progress request on its way to a watch's stream: answer id once the
+// watch is current through commit.
+type progressAsk struct {
+	id     *string
+	commit int64
 }
 
 // end marks the watcher unwatched, once. A watcher built without NewWatcher has

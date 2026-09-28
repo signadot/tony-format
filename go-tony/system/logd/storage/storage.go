@@ -240,6 +240,14 @@ func (s *Storage) GetCurrentCommit() (int64, error) {
 	return s.tick.current(), nil
 }
 
+// WaitDispatched blocks until the commit notifier has been handed every commit at or
+// below commit. It is quick -- the notifier must not block, so the dispatcher drains at
+// about the speed commits arrive -- and it does not wait for commits published after it
+// is called.
+func (s *Storage) WaitDispatched(commit int64) {
+	s.tick.waitDispatched(commit)
+}
+
 // isOverlaySegment reports whether seg is a scope overlay -- a cache of a scope's layer
 // that logd used to write beside a snapshot. Nothing writes one now; this is what lets a
 // log that has them still be read. See projectScope.
