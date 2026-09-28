@@ -3,6 +3,7 @@ package issuelib
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -515,8 +516,47 @@ func TestApplyPush_MakesTheRemoteRight(t *testing.T) {
 			if got := remoteRefsOf(t, "origin"); !equalStrings(got, want) {
 				t.Errorf("the remote holds %v, want %v", got, want)
 			}
+			// This clone's copy of the remote is what the push left there,
+			// without another fetch.
+			if got, held := trackedOf(t, "origin"), remoteTipsOf(t, "origin"); !maps.Equal(got, held) {
+				t.Errorf("the tracking refs say the remote holds %v; it holds %v", got, held)
+			}
 		})
 	}
+}
+
+// trackedOf is what this clone's tracking refs say remote holds: each ref by
+// its name on the remote, and its commit.
+func trackedOf(t *testing.T, remote string) map[string]string {
+	t.Helper()
+	out := gitOut(t, "for-each-ref", "--format=%(objectname) %(refname)", nsRoot+"/remotes/"+remote+"/")
+	held := map[string]string{}
+	for _, line := range strings.Split(out, "\n") {
+		commit, ref, ok := strings.Cut(line, " ")
+		if !ok {
+			continue
+		}
+		if r, name, ok := Tracked(ref); ok && r == remote {
+			held[name] = commit
+		}
+	}
+	return held
+}
+
+// remoteTipsOf is every ref the remote holds, with its commit.
+func remoteTipsOf(t *testing.T, remote string) map[string]string {
+	t.Helper()
+	out, err := exec.Command("git", "ls-remote", "--refs", remote).Output()
+	if err != nil {
+		t.Fatalf("ls-remote %s: %v", remote, err)
+	}
+	held := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if commit, ref, ok := strings.Cut(line, "\t"); ok {
+			held[ref] = commit
+		}
+	}
+	return held
 }
 
 // TestApplyPush_LeaseRefusesAWriteOverSomeoneElse: between a fetch and a push,

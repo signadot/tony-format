@@ -304,6 +304,10 @@ func (m *mcpServer) waitFor(ctx context.Context, f watchFilter, since string, ti
 		cursor = m.seq
 		m.mu.Unlock()
 	}
+	remotes := onRemotes{name: "origin", has: map[string]bool{}}
+	if pulls != nil {
+		remotes.name = pulls.remote
+	}
 	for {
 		m.mu.Lock()
 		var events []watchEvent
@@ -331,7 +335,7 @@ func (m *mcpServer) waitFor(ctx context.Context, f watchFilter, since string, ti
 			if !f.wants(ev.repo.Dir, ev.xidr) {
 				continue
 			}
-			ch, ok := describe(ev.repo.Store, repoLabel(m.ws, ev.repo), ev.xidr, ev.was, ev.now, began)
+			ch, ok := describe(ev.repo.Store, repoLabel(m.ws, ev.repo), remotes.of(ev.repo), ev.xidr, ev.was, ev.now, began)
 			if ok && f.matches(ch) {
 				out.Changes = append(out.Changes, ch)
 				out.Pulls = append(out.Pulls, ev.pulled...)
@@ -351,6 +355,26 @@ func (m *mcpServer) waitFor(ctx context.Context, f watchFilter, since string, ti
 			return watchOut{}, ctx.Err()
 		}
 	}
+}
+
+// onRemotes is the remote a watch's changes say they are on or not -- the
+// one issue_watch_remote pulls, or origin -- in each repository that has it,
+// asked of each repository once.
+type onRemotes struct {
+	name string
+	has  map[string]bool
+}
+
+func (o onRemotes) of(r *repo) string {
+	has, ok := o.has[r.Dir]
+	if !ok {
+		has = r.Store.VerifyRemote(o.name) == nil
+		o.has[r.Dir] = has
+	}
+	if has {
+		return o.name
+	}
+	return ""
 }
 
 // coalesce makes the events for one issue in one repository into one, from

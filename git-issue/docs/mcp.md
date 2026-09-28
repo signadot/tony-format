@@ -122,6 +122,13 @@ with no commit saying so. An issue new to the watch lists only commits made
 since the watch began, or `arrived` when there are none. With no change it
 answers nothing at `timeout` (300 seconds, at most 3600).
 
+Each change says in `on` whether origin holds the issue as the change left it:
+`origin`, or `local` when it does not, and the change is not pushed. It is read
+from this clone's copy of the remote, as the last fetch or push left it. A push
+that brings origin a change that was local answers as `pushed to origin`.
+`issue_watch_remote` answers for the remote it pulls. A repository without that
+remote leaves `on` out.
+
 Every answer carries a `cursor`. Passed back as `since`, it answers at once
 what changed between two calls, so nothing is missed, and the watch began
 with the first call. The server keeps the last 1024 changes, and refuses a

@@ -853,6 +853,11 @@ func (s *GitStore) CleanupStaleRefs() (int, error) {
 	return cleaned, nil
 }
 
+// Holds says whether tip carries commit.
+func (s *GitStore) Holds(tip, commit string) bool {
+	return tip == commit || s.isAncestor(commit, tip)
+}
+
 // isAncestor returns true if ancestor is an ancestor of descendant.
 func (s *GitStore) isAncestor(ancestor, descendant string) bool {
 	cmd := s.git("merge-base", "--is-ancestor", ancestor, descendant)

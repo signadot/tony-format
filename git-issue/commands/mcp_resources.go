@@ -283,7 +283,7 @@ func (m *mcpServer) look(ctx context.Context) {
 		}
 		was := m.seen[r.Dir]
 		for _, xidr := range moved(was, now) {
-			if !sameKeys(was[xidr], now[xidr]) {
+			if !sameKeys(own(was[xidr]), own(now[xidr])) {
 				listChanged = true
 			}
 			m.seq++
@@ -309,8 +309,12 @@ func (m *mcpServer) look(ctx context.Context) {
 		m.wake = make(chan struct{})
 	}
 	m.mu.Unlock()
+	// An issue whose remote copies alone moved -- a push, a fetch -- reads the
+	// same as it did, so a subscriber is not told.
 	for _, ev := range events {
-		m.changed(ctx, ev.xidr)
+		if !sameRefs(own(ev.was), own(ev.now)) {
+			m.changed(ctx, ev.xidr)
+		}
 	}
 	if listChanged {
 		m.resync()

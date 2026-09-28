@@ -1,5 +1,7 @@
 package issuelib
 
+import "strings"
+
 // The ref layout, and the generation in it.
 //
 // An issue is a ref, and which namespace it is in says its status. The
@@ -98,4 +100,41 @@ func TrackingNotesRef(remote string) string {
 
 func TrackingGen0NotesRef(remote string) string {
 	return "refs/notes/git-issues/remotes/" + remote + "/gen0"
+}
+
+// TrackingRef is where this clone keeps its copy of ref as remote holds it: a
+// ref of this generation under the remote's tracking root, a gen0 one under
+// its gen0 prefixes. Empty for a ref no tracking ref copies.
+func TrackingRef(remote, ref string) string {
+	switch {
+	case strings.HasPrefix(ref, nsRoot+"/remotes/"):
+		return ""
+	case strings.HasPrefix(ref, nsRoot+"/"):
+		return nsRoot + "/remotes/" + remote + "/" + strings.TrimPrefix(ref, nsRoot+"/")
+	case strings.HasPrefix(ref, Gen0OpenPrefix):
+		return TrackingGen0OpenPrefix(remote) + strings.TrimPrefix(ref, Gen0OpenPrefix)
+	case strings.HasPrefix(ref, Gen0ClosedPrefix):
+		return TrackingGen0ClosedPrefix(remote) + strings.TrimPrefix(ref, Gen0ClosedPrefix)
+	}
+	return ""
+}
+
+// Tracked answers the remote a tracking ref copies and the name the ref it
+// copies has: TrackingRef's inverse. ok is false for a ref that is not one.
+func Tracked(tracking string) (remote, ref string, ok bool) {
+	rest, ok := strings.CutPrefix(tracking, nsRoot+"/remotes/")
+	if !ok {
+		return "", "", false
+	}
+	remote, rest, ok = strings.Cut(rest, "/")
+	if !ok || remote == "" || rest == "" {
+		return "", "", false
+	}
+	switch {
+	case strings.HasPrefix(rest, "gen0-open/"):
+		return remote, Gen0OpenPrefix + strings.TrimPrefix(rest, "gen0-open/"), true
+	case strings.HasPrefix(rest, "gen0-closed/"):
+		return remote, Gen0ClosedPrefix + strings.TrimPrefix(rest, "gen0-closed/"), true
+	}
+	return remote, nsRoot + "/" + rest, true
 }

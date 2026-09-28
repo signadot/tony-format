@@ -223,7 +223,9 @@ takes this clone's, and what it overwrote stays in the ref's reflog either way.
 Every write to a remote carries a lease on what the last fetch saw, so a push that
 would land on top of someone else's is refused rather than forced. Closing an issue
 moves its ref, and the push mirrors the move -- but only when this clone's tip carries
-what the remote has, so a close cannot delete a reopen made elsewhere.
+what the remote has, so a close cannot delete a reopen made elsewhere. A push
+that lands brings this clone's copy of the remote to what it wrote, as the
+next fetch would.
 
 The reverse index merges by union in both directions, so a link made in another
 clone survives. Mirrors and their sources go with the issues: push carries them to
@@ -324,14 +326,23 @@ stopped:
 
 ```
 pull origin: j2dzt7xph12kswa9esn0  1c4e2a0..9b7d3f1
-j2dzt7xph12kswa9esn0  open  Implement streaming processor  -- comment: looks good; label: added bug
-j2dzt7xph12kswa9esn0  closed  Implement streaming processor  -- close
+j2dzt7xph12kswa9esn0  open (on origin)  Implement streaming processor  -- comment: looks good; label: added bug
+j2dzt7xph12kswa9esn0  closed (local)  Implement streaming processor  -- close
+j2dzt7xph12kswa9esn0  closed (on origin)  Implement streaming processor  -- pushed to origin
 ```
 
-A change line is the id, the status, the title, and what was done: one entry
-per commit the issue gained, then `closed` or `reopened` if it moved with no
-commit saying so. An issue new to the watch lists only commits made since
-`watch` started, or `arrived` when there are none.
+A change line is the id, the status, where the change is, the title, and what
+was done: one entry per commit the issue gained, then `closed` or `reopened`
+if it moved with no commit saying so. An issue new to the watch lists only
+commits made since `watch` started, or `arrived` when there are none.
+
+Where the change is says whether the remote the watch pulls (origin, with
+`--local`) holds the issue as the change left it: `on origin`, or `local`
+when it does not, and the change is not pushed. It is read from this clone's
+copy of the remote, which a pull's fetch and a push bring up to date. A
+change a pull brought is on origin; one a pull merged with a change made
+here is local until pushed. When a push brings origin a change that was
+local, `watch` says `pushed to origin`. With no origin nothing is said.
 
 Issues often travel by push and pull, so `watch` pulls origin every `-fetch`
 (30s by default) when there is an origin. What a pull did to an issue is said
