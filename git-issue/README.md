@@ -46,8 +46,13 @@ resolving after. The full command reference is
 [docs/commands.md](docs/commands.md).
 
 A command runs on the repository it is run in. `~/.config/git-issue.tony`
-names the repositories you work in, and with it a command given an issue
-finds the repository that holds it, from anywhere; `--repo` names one.
+names the repositories you work in, the set. With it a command given an issue
+finds the repository that holds it, from anywhere; run outside a repository,
+`list`, `watch`, `pull` and `push` cover every repository of the set; and
+`--repo` names one.
+
+`git issue serve` is a read-only web view of the issues, on localhost;
+`serve -watch` pulls origin and reloads open pages as issues change.
 
 ## For an agent
 
