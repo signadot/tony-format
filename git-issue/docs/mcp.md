@@ -131,6 +131,12 @@ that as its push landing, not as news to act on.
 `issue_watch_remote` answers for the remote it pulls. A repository without that
 remote leaves `on` out.
 
+`on` describes origin as this clone last saw it, not origin now. If another
+clone rewrites origin, with `push --force` or by deleting a ref, a change can
+read `origin` although origin no longer holds it. `issue_watch` fetches
+nothing, so it sees the rewrite only after something else in this clone
+fetches. `issue_watch_remote` sees it at its next pull.
+
 Every answer carries a `cursor`. Passed back as `since`, it answers at once
 what changed between two calls, so nothing is missed, and the watch began
 with the first call. The server keeps the last 1024 changes, and refuses a

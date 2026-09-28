@@ -344,6 +344,13 @@ change a pull brought is on origin; one a pull merged with a change made
 here is local until pushed. When a push brings origin a change that was
 local, `watch` says `pushed to origin`. With no origin nothing is said.
 
+The marker describes origin as this clone last saw it, not origin now. If
+another clone rewrites origin, with `push --force` or by deleting a ref, a
+change can read `on origin` although origin no longer holds it. A watch that
+pulls sees the rewrite at its next fetch, but a line already printed is not
+corrected. `watch --local` fetches nothing, so it sees the rewrite only after
+something else in this clone fetches.
+
 Issues often travel by push and pull, so `watch` pulls origin every `-fetch`
 (30s by default) when there is an origin. What a pull did to an issue is said
 just before the change it brought, as `pull` says it (`created at <sha>`,

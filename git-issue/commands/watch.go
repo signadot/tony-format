@@ -154,7 +154,7 @@ type watchChange struct {
 	Labels  []string  `json:"labels"`
 	Updated time.Time `json:"updated,omitzero"`
 	What    []string  `json:"what" jsonschema:"what was done to it, oldest first: one line per commit it gained (comment: ..., edit: ..., label: ...), then closed or reopened if it moved with no commit saying so; arrived for an issue that came with no commit since the watch began; pushed to <remote> when the remote came to hold a change that was local"`
-	On      string    `json:"on,omitempty" jsonschema:"the remote, when it holds the issue as the change left it -- as this clone knows the remote, from its last fetch or push -- or local when it does not, and the change is not pushed; empty when there is no remote to ask. The remote is the one the watch pulls, or origin"`
+	On      string    `json:"on,omitempty" jsonschema:"the remote, when it holds the issue as the change left it -- as this clone knows the remote, from its last fetch or push -- or local when it does not, and the change is not pushed; empty when there is no remote to ask. The remote is the one the watch pulls, or origin. It is the remote as this clone last saw it: a remote rewritten since by another clone (a forced push, a deleted ref) can make it wrong until the next fetch"`
 
 	labelsBefore []string // its labels before the change, for a label filter
 }
