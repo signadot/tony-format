@@ -1,23 +1,34 @@
-# logd session: a progress request answers, on one watch's stream, once that watch is current through the head
+# logd session: a progress request names a watch by id, and the watch answers in its own stream once it is current through the head
 
-Option (1) from 7v4azhtjh12krv76q9n0: a client asks one watch whether it is current, and the answer comes on the session's stream after every event that watch sends for a commit at or below the commit the answer reports.
+Option (1) from 7v4azhtjh12krv76q9n0: a client asks one watch whether it is current, and the watch answers in its own stream, so a consumer applying the watch's events in order meets the answer where it falls.
 
 ## Shape
 
-- Request: `progress: {path, watchId?}`, naming a watch the way `unwatch` does (by the id of the watch request that established it; without one, the path's id-less watch).
-- Answer: `result: {progress: {path, commit: C}}` on the request's id. C is the published head when the request was handled. Every event the watch sends for a commit ≤ C is on the stream ahead of the answer, including commits the watch accounted for without sending anything. A client checks `C ≥ R`.
-- A watch that ends before answering: the progress request gets an error response (`not_watching`), and the watch's own `ended` event says why.
+```tony
+{id: p1, progress: w1}
+{id: p1 result: {progress: {commit: 52795}}}
+{event: {commit: 52795 path: verse.perms progress: true} id: w1}
+```
+
+- The request names the watch by the id of its watch request. An id-less watch (the legacy path-routed form) cannot be asked.
+- It is acknowledged at once with C, the head when it was handled. A write the client sent before it is at or below C.
+- The watch then sends a progress event, after every event it sends for a commit at or below the one the event carries. That is C, or a later commit the watch has already taken, so the stream's commits stay in order. Any progress event at or above R answers a client waiting on R. The event is a resume point.
+- A watch that ends first sends no progress event, and its ended event is the answer. One failed as a slow consumer has missed commits and ends. A watch the session does not hold is `not_watching`.
 
 ## logd
 
-1. The tick records how far the dispatcher has delivered (`dispatchedThrough`), and a waiter can block until it passes C. Once it has, every notification ≤ C has been handed to its watcher's `Events` channel, or that watcher was failed.
-2. The handler reads C, then waits off the loop for the dispatcher to pass it, and hands the ask to the watch's stream.
-3. The stream (`live`) takes the ask, processes what is in `Events` until the channel is empty or it has processed a commit above C, and then sends the answer from the watch's own goroutine. The answer is ordered after the watch's events because the same goroutine sends both.
+1. The tick records how far the dispatcher has delivered, and `Storage.WaitDispatched(C)` blocks until every notification ≤ C has been handed to the hub, and so is in its watcher's `Events`.
+2. The handler reads C on the loop and acknowledges. Off the loop it waits for the dispatcher to pass C, then hands C to the watch's stream.
+3. The stream (`live`) takes what is in `Events` up to C, holding back one above C until after the event, and sends the progress event from its own goroutine.
 
 ## docd
 
-`progress` is routed by path like `unwatch`, to logd or to the controller owning the path. Through logd it rides the client's own logd link, so the order holds. A watch docd composes across mounts is refused with `unsupported` until composition is needed.
+It finds the watch by id and routes by the watch's path: to logd on the client's own link, or to the controller, re-targeted at docd's id for the watch there. A watch composed across mounts is `unsupported`. libctl controllers answer `unsupported` to any request type they do not serve.
+
+## libctl
+
+`Watch.Progress(ctx)` sends the request and answers C. The event arrives in `Events()`.
 
 ## Docs
 
-The contract goes in docs/logd/session.md and on `PongResult`, which says what the ping does not promise.
+docs/logd/session.md, "Is a watch current?", plus a line at the ping.
