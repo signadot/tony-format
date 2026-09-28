@@ -1926,11 +1926,7 @@ func (s *SessionRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: Progress (optional)
 	if s.Progress != nil {
-		node, err = s.Progress.ToTonyIR(opts...)
-		if err != nil {
-			return nil, err
-		}
-		irMap["progress"] = node
+		irMap["progress"] = ir.FromString(string(*s.Progress))
 	}
 
 	return ir.FromMap(irMap), nil
@@ -2052,9 +2048,15 @@ func (s *SessionRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) er
 			}
 		case "progress":
 			// Field: Progress
-			s.Progress = &ProgressRequest{}
-			if err := s.Progress.FromTonyIR(fieldNode, opts...); err != nil {
-				return err
+			if fieldNodeUnwrapped.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(string)
+				if fieldNodeUnwrapped.Type != ir.StringType {
+					return fmt.Errorf("%s: expected string, got %v", "field \"progress\"", fieldNodeUnwrapped.Type)
+				}
+				*val = string(fieldNodeUnwrapped.String)
+				s.Progress = val
 			}
 		default:
 			if gomap.IsStrict(opts...) {
@@ -2081,105 +2083,6 @@ func (s *SessionRequest) ToTony(opts ...gomap.MapOption) ([]byte, error) {
 
 // FromTony parses Tony format bytes and populates SessionRequest.
 func (s *SessionRequest) FromTony(data []byte, opts ...gomap.UnmapOption) error {
-	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
-	if err != nil {
-		return err
-	}
-	return s.FromTonyIR(node, opts...)
-}
-
-// ToTonyIR converts ProgressRequest to a Tony IR node.
-func (s *ProgressRequest) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
-	if s == nil {
-		return ir.Null(), nil
-	}
-	// Create IR object map
-	irMap := make(map[string]*ir.Node)
-
-	// Field: Path
-	irMap["path"] = ir.FromString(string(s.Path))
-
-	// Field: WatchID (optional)
-	if s.WatchID != nil {
-		irMap["watchId"] = ir.FromString(string(*s.WatchID))
-	}
-
-	return ir.FromMap(irMap), nil
-}
-
-// FromTonyIR populates ProgressRequest from a Tony IR node.
-func (s *ProgressRequest) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error {
-	if node == nil {
-		return nil
-	}
-
-	// Unwrap CommentType nodes to get the actual data node
-	if node.Type == ir.CommentType {
-		if len(node.Values) > 0 {
-			node = node.Values[0]
-		} else {
-			return nil
-		}
-	}
-
-	if node.Type == ir.NullType {
-		return nil
-	}
-	if node.Type != ir.ObjectType {
-		return fmt.Errorf("expected map for ProgressRequest, got %v", node.Type)
-	}
-
-	for i, fieldName := range node.Fields {
-		fieldNode := node.Values[i]
-		// Unwrap CommentType for type checking (preserve original for *ir.Node fields)
-		fieldNodeUnwrapped := fieldNode
-		if fieldNodeUnwrapped.Type == ir.CommentType && len(fieldNodeUnwrapped.Values) > 0 {
-			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
-		}
-		switch fieldName.String {
-		case "path":
-			// Field: Path
-			if fieldNodeUnwrapped.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "path", fieldNodeUnwrapped.Type)
-			}
-			s.Path = string(fieldNodeUnwrapped.String)
-		case "watchId":
-			// Field: WatchID
-			if fieldNodeUnwrapped.Type == ir.NullType {
-				// null value - leave pointer as nil
-			} else {
-				val := new(string)
-				if fieldNodeUnwrapped.Type != ir.StringType {
-					return fmt.Errorf("%s: expected string, got %v", "field \"watchId\"", fieldNodeUnwrapped.Type)
-				}
-				*val = string(fieldNodeUnwrapped.String)
-				s.WatchID = val
-			}
-		default:
-			if gomap.IsStrict(opts...) {
-				return fmt.Errorf("unknown field %q for ProgressRequest", fieldName.String)
-			}
-		}
-	}
-
-	return nil
-}
-
-// ToTony converts ProgressRequest to Tony format bytes.
-func (s *ProgressRequest) ToTony(opts ...gomap.MapOption) ([]byte, error) {
-	node, err := s.ToTonyIR(opts...)
-	if err != nil {
-		return nil, err
-	}
-	var buf bytes.Buffer
-	if err := encode.Encode(node, &buf, gomap.ToEncodeOptions(opts...)...); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
-
-// FromTony parses Tony format bytes and populates ProgressRequest.
-func (s *ProgressRequest) FromTony(data []byte, opts ...gomap.UnmapOption) error {
 	node, err := parse.Parse(data, gomap.ToParseOptions(opts...)...)
 	if err != nil {
 		return err
@@ -3620,9 +3523,6 @@ func (s *ProgressResult) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
-	// Field: Path
-	irMap["path"] = ir.FromString(string(s.Path))
-
 	// Field: Commit
 	irMap["commit"] = ir.FromInt(int64(s.Commit))
 
@@ -3659,12 +3559,6 @@ func (s *ProgressResult) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) er
 			fieldNodeUnwrapped = fieldNodeUnwrapped.Values[0]
 		}
 		switch fieldName.String {
-		case "path":
-			// Field: Path
-			if fieldNodeUnwrapped.Type != ir.StringType {
-				return fmt.Errorf("field %q: expected string, got %v", "path", fieldNodeUnwrapped.Type)
-			}
-			s.Path = string(fieldNodeUnwrapped.String)
 		case "commit":
 			// Field: Commit
 			if fieldNodeUnwrapped.Int64 == nil {
@@ -3762,6 +3656,11 @@ func (s *WatchEvent) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 		irMap["endMessage"] = ir.FromString(string(s.EndMessage))
 	}
 
+	// Field: Progress
+	if s.Progress {
+		irMap["progress"] = ir.FromBool(bool(s.Progress))
+	}
+
 	return ir.FromMap(irMap), nil
 }
 
@@ -3855,6 +3754,12 @@ func (s *WatchEvent) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) error 
 				return fmt.Errorf("field %q: expected string, got %v", "endMessage", fieldNodeUnwrapped.Type)
 			}
 			s.EndMessage = string(fieldNodeUnwrapped.String)
+		case "progress":
+			// Field: Progress
+			if fieldNodeUnwrapped.Type != ir.BoolType {
+				return fmt.Errorf("field %q: expected bool, got %v", "progress", fieldNodeUnwrapped.Type)
+			}
+			s.Progress = bool(fieldNodeUnwrapped.Bool)
 		default:
 			if gomap.IsStrict(opts...) {
 				return fmt.Errorf("unknown field %q for WatchEvent", fieldName.String)

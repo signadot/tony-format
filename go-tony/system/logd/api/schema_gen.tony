@@ -144,16 +144,7 @@ signature:
 context:
 - tony-format/context
 define:
-  path: .[string]
-  watchId: .[nullable(string)]
-signature:
-  name: session-progress-request
----
-context:
-- tony-format/context
-define:
   commit: .[int]
-  path: .[string]
 signature:
   name: session-progress-result
 ---
@@ -270,7 +261,7 @@ define:
   newtx: .[nullable(session-newtx-request)]
   patch: .[nullable(session-patch-request)]
   ping: .[nullable(session-ping-request)]
-  progress: .[nullable(session-progress-request)]
+  progress: .[nullable(string)]
   retain: .[nullable(session-retain-request)]
   schema: .[nullable(session-schema-request)]
   scope: .[nullable(string)]
@@ -324,6 +315,7 @@ define:
   ended: .[bool]
   patch: .[tony-base:ir]
   path: .[string]
+  progress: .[bool]
   replayComplete: .[bool]
   state: .[tony-base:ir]
 signature:

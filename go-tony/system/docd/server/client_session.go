@@ -290,13 +290,21 @@ func (s *ClientSession) routeClientRequests() error {
 			s.releaseWatchToken(key)
 		}
 		// A progress request is answered by the stream serving the watch it names, so it
-		// goes where that watch went. A watch composed across mounts has one stream per
-		// source, and no single answer to give until docd gathers theirs.
-		if req.Progress != nil && !s.admitProgress(&req) {
-			continue
+		// goes where that watch went, by the watch's path. A watch composed across mounts
+		// has one stream per source, and no single answer to give until docd gathers
+		// theirs.
+		dest, entry := destLogd, (*MountEntry)(nil)
+		if req.Progress != nil {
+			path, ok := s.admitProgress(&req)
+			if !ok {
+				continue
+			}
+			dest, entry = s.routeForPath(path)
+		} else {
+			dest, entry = s.routeFor(&req)
 		}
 
-		switch dest, entry := s.routeFor(&req); dest {
+		switch dest {
 		case destController:
 			entry.Session.RouteRequest(s, &req)
 		case destUnavailable:
@@ -607,7 +615,12 @@ func (s *ClientSession) coordinatePatch(req *logdapi.SessionRequest, parts []mou
 // crashed), or to logd for a base/unmounted path or a pathless session op. The
 // entry is returned for the controller and unavailable cases.
 func (s *ClientSession) routeFor(req *logdapi.SessionRequest) (routeDest, *MountEntry) {
-	path := requestPath(req)
+	return s.routeForPath(requestPath(req))
+}
+
+// routeForPath is where an operation on path goes: routeFor for a request whose path is
+// not its own, as a progress request's is its watch's.
+func (s *ClientSession) routeForPath(path string) (routeDest, *MountEntry) {
 	if path == "" {
 		return destLogd, nil
 	}
@@ -807,8 +820,6 @@ func requestPath(req *logdapi.SessionRequest) string {
 		return req.Watch.Path
 	case req.Unwatch != nil:
 		return req.Unwatch.Path
-	case req.Progress != nil:
-		return req.Progress.Path
 	}
 	return ""
 }
@@ -822,25 +833,26 @@ func ignoreClosed(err error) error {
 	return err
 }
 
-// admitProgress reports whether a progress request names a watch docd can route it to,
-// answering the client itself when it does not: a watch this session does not hold, or
-// one still being admitted, is not_watching, and a composed watch is unsupported.
-func (s *ClientSession) admitProgress(req *logdapi.SessionRequest) bool {
-	key := watchKeyFor(req.Progress.WatchID, req.Progress.Path)
+// admitProgress answers the path of the watch a progress request names, and whether docd
+// can route the request to it, answering the client itself when it cannot: a watch this
+// session does not hold, or one still being admitted, is not_watching, and a composed
+// watch is unsupported.
+func (s *ClientSession) admitProgress(req *logdapi.SessionRequest) (string, bool) {
+	id := *req.Progress
 	s.watchMu.Lock()
-	w, ok := s.watches[key]
+	w, ok := s.watches[watchKeyFor(&id, "")]
 	s.watchMu.Unlock()
 	switch {
 	case !ok:
 		_ = s.writeToClient(logdapi.NewErrorResponse(req.ID, logdapi.ErrCodeNotWatching,
-			fmt.Sprintf("not watching %q", req.Progress.Path)))
-		return false
+			fmt.Sprintf("no watch with id %q", id)))
+		return "", false
 	case w.cw != nil:
 		_ = s.writeToClient(logdapi.NewErrorResponse(req.ID, logdapi.ErrCodeUnsupported,
-			fmt.Sprintf("the watch on %q is composed across mounts, and docd cannot answer progress for it", req.Progress.Path)))
-		return false
+			fmt.Sprintf("the watch %q on %q is composed across mounts, and docd cannot answer progress for it", id, w.path)))
+		return "", false
 	}
-	return true
+	return w.path, true
 }
 
 // dropPendingWatch marks a watch still in admission as dropped by its client, and

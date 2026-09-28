@@ -9,27 +9,26 @@ import (
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 )
 
-// progressAt answers the commit a progress request with id reported, and its index in the
-// transcript, or -1 when it has not been answered.
-func progressAt(rs []*api.SessionResponse, id string) (int, int64) {
+// progressEvents answers the watch's progress events in the transcript, by index.
+func progressEvents(rs []*api.SessionResponse, watchID string) map[int]int64 {
+	out := map[int]int64{}
 	for i, r := range rs {
-		if r.ID != nil && *r.ID == id && r.Result != nil && r.Result.Progress != nil {
-			return i, r.Result.Progress.Commit
+		if r.ID != nil && *r.ID == watchID && r.Event != nil && r.Event.Progress {
+			out[i] = r.Event.Commit
 		}
 	}
-	return -1, 0
+	return out
 }
 
-// A progress answer comes after every event its watch sends for a commit at or below the
-// commit it reports. The writes go straight to the store while the request is on its way,
-// so the watch's events for them are racing the answer (7v4azhtjh12krv76q9n0): a ping
-// sent the same way can overtake them.
+// A progress event comes after every event its watch sends for a commit at or below the
+// commit it carries, and the stream's commits stay in order around it. The writes go
+// straight to the store while the request is on its way, and the dispatcher lags the
+// watermark as it does under load, so the watch's events for them are racing the answer
+// (7v4azhtjh12krv76q9n0): a ping sent the same way overtakes them.
 func TestProgressFollowsTheWatchsEvents(t *testing.T) {
 	store := openStore(t)
 	narrowWrite(t, store, "a", "{n: 0}")
 	ls := newLiveSession(t, store)
-	// The dispatcher lags the watermark, as it does under load: a commit is readable, and
-	// reported, before its watchers have been handed it.
 	store.SetCommitNotifier(func(n *storage.CommitNotification) {
 		time.Sleep(2 * time.Millisecond)
 		ls.hub.Broadcast(n)
@@ -48,40 +47,61 @@ func TestProgressFollowsTheWatchsEvents(t *testing.T) {
 	for i := 1; i <= rounds; i++ {
 		narrowWrite(t, store, "a", fmt.Sprintf("{n: %d}", i))
 		narrowWrite(t, store, "b", fmt.Sprintf("{n: %d}", i))
-		ls.send(fmt.Sprintf(`{id: "p%d", progress: {path: "a", watchId: "w"}}`, i))
+		ls.send(fmt.Sprintf(`{id: "p%d", progress: w}`, i))
 	}
-	ls.until("every progress answer", func(m map[string][]*api.SessionResponse) bool {
-		return len(m[fmt.Sprintf("p%d", rounds)]) > 0
+	got := ls.until("every progress event", func(m map[string][]*api.SessionResponse) bool {
+		n := 0
+		for _, r := range m["w"] {
+			if r.Event != nil && r.Event.Progress {
+				n++
+			}
+		}
+		return n == rounds
 	})
 
-	rs := decodeResponses(t, ls.conn.GetResponses())
+	// Each request is acknowledged with the head, and the round's writes -- a at 2i, b at
+	// 2i+1 -- are at or below it.
+	var maxAck int64
 	for i := 1; i <= rounds; i++ {
-		id := fmt.Sprintf("p%d", i)
-		at, commit := progressAt(rs, id)
-		if at < 0 {
-			t.Fatalf("%s: no progress answer in %s", id, ls.conn.GetResponses())
+		rs := got[fmt.Sprintf("p%d", i)]
+		if len(rs) != 1 || rs[0].Result == nil || rs[0].Result.Progress == nil {
+			t.Fatalf("p%d answered %+v", i, rs)
 		}
-		// Every write to a at or below the commit reported has its event ahead of the
-		// answer.
+		c := rs[0].Result.Progress.Commit
+		if c < int64(2*i+1) {
+			t.Errorf("p%d acknowledged commit %d, below the round's writes (%d)", i, c, 2*i+1)
+		}
+		maxAck = max(maxAck, c)
+	}
+
+	rs := decodeResponses(t, ls.conn.GetResponses())
+	var last, maxEvent int64
+	for at, commit := range progressEvents(rs, "w") {
+		maxEvent = max(maxEvent, commit)
+		// The writes to a after the watch began are the even commits from 2: each at or
+		// below the event's commit has its event ahead of it.
 		ahead := 0
 		for _, r := range rs[:at] {
 			if r.ID != nil && *r.ID == "w" && r.Event != nil && r.Event.Patch != nil && r.Event.Commit <= commit {
 				ahead++
 			}
 		}
-		for _, r := range rs[at:] {
-			if r.ID != nil && *r.ID == "w" && r.Event != nil && r.Event.Commit <= commit && r.Event.Commit > 1 {
-				t.Errorf("%s reported commit %d, and the event for commit %d came after it", id, commit, r.Event.Commit)
-			}
-		}
-		// Round i wrote a at commit 2i and b at 2i+1, and the request followed both.
-		if commit < int64(2*i+1) {
-			t.Errorf("%s reported commit %d, below the round's writes (%d)", id, commit, 2*i+1)
-		}
-		// The writes to a after the watch began are the even commits from 2.
 		if want := int(commit / 2); ahead != want {
-			t.Errorf("%s reported commit %d with %d of the watch's events ahead of it, want %d", id, commit, ahead, want)
+			t.Errorf("the progress event for commit %d has %d of the watch's events ahead of it, want %d", commit, ahead, want)
 		}
+	}
+	// Every request's event carries its acknowledged commit or a later one.
+	if maxEvent < maxAck {
+		t.Errorf("the progress events reach commit %d, below the last acknowledged, %d", maxEvent, maxAck)
+	}
+	for _, r := range rs {
+		if r.ID == nil || *r.ID != "w" || r.Event == nil || r.Event.Commit == 0 {
+			continue
+		}
+		if r.Event.Commit < last {
+			t.Errorf("the watch sent commit %d after commit %d", r.Event.Commit, last)
+		}
+		last = r.Event.Commit
 	}
 }
 
@@ -96,31 +116,34 @@ func TestProgressOnAQuietWatch(t *testing.T) {
 		narrowWrite(t, store, "b", fmt.Sprintf("{n: %d}", i))
 	}
 	head, _ := store.GetCurrentCommit()
-	ls.send(`{id: "p", progress: {path: "a", watchId: "w"}}`)
-	got := ls.until("the progress answer", func(m map[string][]*api.SessionResponse) bool { return len(m["p"]) > 0 })
-	r := got["p"][0]
-	if r.Result == nil || r.Result.Progress == nil {
-		t.Fatalf("progress answered %+v", r)
+	ls.send(`{id: "p", progress: w}`)
+	got := ls.until("the progress event", func(m map[string][]*api.SessionResponse) bool {
+		for _, r := range m["w"] {
+			if r.Event != nil && r.Event.Progress {
+				return true
+			}
+		}
+		return false
+	})
+	if r := got["p"]; len(r) != 1 || r[0].Result == nil || r[0].Result.Progress == nil || r[0].Result.Progress.Commit != head {
+		t.Errorf("progress acknowledged %+v, want commit %d", r, head)
 	}
-	if p := r.Result.Progress; p.Commit != head || p.Path != "a" {
-		t.Errorf("progress answered %+v, want path a at commit %d", p, head)
+	for _, r := range got["w"] {
+		if ev := r.Event; ev != nil && ev.Progress && (ev.Commit != head || ev.Path != "a") {
+			t.Errorf("progress event %+v, want path a at commit %d", ev, head)
+		}
 	}
 }
 
-// A progress request names a watch the session holds, as an unwatch does.
+// A progress request names a watch by its id. One the session does not hold is refused.
 func TestProgressWithoutAWatch(t *testing.T) {
 	store := openStore(t)
 	narrowWrite(t, store, "a", "{n: 0}")
 	ls := newLiveSession(t, store)
 	ls.send(`{id: "w", watch: {path: "a"}}`)
-	ls.send(`{id: "p1", progress: {path: "a", watchId: "other"}}`)
-	ls.send(`{id: "p2", progress: {path: "b"}}`)
-	got := ls.until("both refusals", func(m map[string][]*api.SessionResponse) bool {
-		return len(m["p1"]) > 0 && len(m["p2"]) > 0
-	})
-	for _, id := range []string{"p1", "p2"} {
-		if e := got[id][0].Error; e == nil || e.Code != api.ErrCodeNotWatching {
-			t.Errorf("%s answered %+v, want not_watching", id, got[id][0])
-		}
+	ls.send(`{id: "p", progress: other}`)
+	got := ls.until("the refusal", func(m map[string][]*api.SessionResponse) bool { return len(m["p"]) > 0 })
+	if e := got["p"][0].Error; e == nil || e.Code != api.ErrCodeNotWatching {
+		t.Errorf("p answered %+v, want not_watching", got["p"][0])
 	}
 }

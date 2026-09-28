@@ -330,9 +330,9 @@ func (s *MountSession) RouteRequest(cs *ClientSession, req *logdapi.SessionReque
 	// gave it, which is the one it must be asked by.
 	var progressTarget *string
 	if req.Progress != nil {
-		if progressTarget = s.findWatch(cs, req.Progress.Path, req.Progress.WatchID); progressTarget == nil {
+		if progressTarget = s.findWatch(cs, "", req.Progress); progressTarget == nil {
 			_ = cs.writeToClient(logdapi.NewErrorResponse(req.ID, logdapi.ErrCodeNotWatching,
-				fmt.Sprintf("not watching %q", req.Progress.Path)))
+				fmt.Sprintf("no watch with id %q", *req.Progress)))
 			return
 		}
 	}
@@ -371,7 +371,7 @@ func (s *MountSession) RouteRequest(cs *ClientSession, req *logdapi.SessionReque
 		out.Unwatch = &logdapi.UnwatchRequest{Path: req.Unwatch.Path, WatchID: unwatchTarget}
 	}
 	if req.Progress != nil {
-		out.Progress = &logdapi.ProgressRequest{Path: req.Progress.Path, WatchID: progressTarget}
+		out.Progress = progressTarget
 	}
 	if err := s.writeToController(&out); err != nil {
 		s.routeMu.Lock()

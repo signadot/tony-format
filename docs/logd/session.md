@@ -41,7 +41,7 @@ directly inside it:
 | `newtx` | `{newtx: {participants: <n>, timeout: "5m", author: <principal>}}` |
 | `watch` | `{watch: {path: <kpath>, fromCommit: <n>, noInit: <bool>, waitIfAbsent: <bool>}}` |
 | `unwatch` | `{unwatch: {path: <kpath>, watchId: <id>}}` |
-| `progress` | `{progress: {path: <kpath>, watchId: <id>}}` — is this watch [current](#is-a-watch-current) through the head? |
+| `progress` | `{progress: <watch id>}` — is this watch [current](#is-a-watch-current) through the head? |
 | `schema` | `{schema: {get: {at: <n>}}}` reads the schema in force (at a commit); `{schema: {set: {schema: <doc>, force: <bool>}}}` sets it, as one commit |
 | `ping` | `{ping: {}}` |
 
@@ -599,24 +599,33 @@ A schema commit that changes no array's keying ends nothing.
 A watch is sent only the commits that reach its path, so what arrives cannot tell a client
 "nothing happened here up to commit C" from "not caught up to C yet". A client that
 answers from what a watch holds, and has to answer for a commit R, needs to know which.
-A `progress` request asks the watch:
+A `progress` request asks the watch, and the watch answers in its own stream:
 
 ```tony
-{id: p1, progress: {path: verse.perms, watchId: w1}}
-{id: p1 result: {progress: {commit: 52795 path: verse.perms}}}
+{id: w1, watch: {path: verse.perms}}
+…
+{id: p1, progress: w1}
+{id: p1 result: {progress: {commit: 52795}}}
+{event: {commit: 52795 path: verse.perms progress: true} id: w1}
 ```
 
-`commit` is the head when the request was handled, and the answer comes **after every
-event the watch sends for a commit at or below it**. A commit at or below it that sent
-nothing did not reach the path. A client that has applied everything ahead of the answer
-holds the path as of `commit`, and checks `commit >= R`. A write the client sent before
-the request is at or below `commit`.
+The request names the watch by the id of its watch request; an id-less watch cannot be
+asked. It is acknowledged at once with the head, and a write the client sent before the
+request is at or below it. The watch then sends a **progress event**, after every event it
+sends for a commit at or below the one the event carries. A commit at or below it that sent
+nothing did not reach the path. So a client applying the watch's events in order meets the
+answer where it falls: once it has applied a progress event whose `commit` is at or above
+R, it holds the path as of R.
 
-The request names the watch as `unwatch` does, by the id of the watch request, or by path
-alone for an id-less watch. Ask once the watch is confirmed. A watch the session does not
-hold is `not_watching`, and so is one that ends before it can answer; its `ended` event
-says why. A watch failed for falling behind has missed commits, so it is not current
-through anything, and it ends.
+The event carries the acknowledged commit or a later one, when the watch has already taken
+a later commit, so the stream's commits stay in order. Any progress event at or above R
+answers a client waiting on R, whichever request asked for it. A progress event is a
+resume point like any other event.
+
+Ask once the watch is confirmed. A watch the session does not hold is `not_watching`. One
+that ends before it can answer sends no progress event, and its `ended` event is the answer.
+A watch failed for falling behind has missed commits, so it is not current through
+anything, and it ends.
 
 A ping does **not** answer this. The pong is sent from the session's request loop, and a
 watch's events from the watch's own stream, so a pong can overtake the event for a commit

@@ -337,7 +337,7 @@ func (s *Session) dispatch(req *api.SessionRequest) {
 	case req.Unwatch != nil:
 		s.handleUnwatch(req.ID, req.Unwatch)
 	case req.Progress != nil:
-		s.handleProgress(req.ID, req.Progress)
+		s.handleProgress(req.ID, *req.Progress)
 	case req.DeleteScope != nil:
 		s.handleDeleteScope(req.ID, req.DeleteScope)
 	case req.Schema != nil:
