@@ -125,7 +125,9 @@ answers nothing at `timeout` (300 seconds, at most 3600).
 Each change says in `on` whether origin holds the issue as the change left it:
 `origin`, or `local` when it does not, and the change is not pushed. It is read
 from this clone's copy of the remote, as the last fetch or push left it. A push
-that brings origin a change that was local answers as `pushed to origin`.
+that brings origin a change that was local answers as `pushed to origin`, one
+per issue pushed. So an agent's own push comes back to it, and it should read
+that as its push landing, not as news to act on.
 `issue_watch_remote` answers for the remote it pulls. A repository without that
 remote leaves `on` out.
 

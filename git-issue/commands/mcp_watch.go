@@ -63,7 +63,10 @@ func addWatchTool(m *mcpServer) {
 			"changed. It reads this clone only: a change pushed to a remote is heard once a pull brings it in, which issue_watch_remote does. " +
 			"Scope it by repo, ids and label, which all must match; with none, every issue in every served repository. It answers " +
 			"as soon as a change matches, or with none at the timeout, and always with a cursor: pass it back as since and nothing " +
-			"that changed between two calls is missed. It blocks while it waits, so call it where waiting does not hold up other work.",
+			"that changed between two calls is missed. It blocks while it waits, so call it where waiting does not hold up other work. " +
+			"Each change says in on whether origin holds it, or local. A push that brings origin a change that was local answers as " +
+			"\"pushed to origin\", one per issue pushed, so the caller's own push comes back to it: take that as its push landing, " +
+			"not as news to act on.",
 		Annotations: readOnly(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in watchIn) (*mcp.CallToolResult, watchOut, error) {
 		return m.watchTool(ctx, in.Repo, in.IDs, in.Label, in.Since, in.Timeout, nil)
@@ -75,7 +78,8 @@ func addWatchTool(m *mcpServer) {
 			"default, into each repository watched, so a change a teammate pushed is heard as well as one made here. It answers " +
 			"what changed, and what its pulls did: issues created, moved on or merged, one refused for a person to decide, a remote that could " +
 			"not be reached. What stands until a person acts -- a refusal, a failure -- answers on its own when it differs from what the cursor was last told, or clear when nothing stands. It writes this clone's refs as issue_pull " +
-			"does, and nothing to the remote. Its cursor is issue_watch's.",
+			"does, and nothing to the remote. Its cursor is issue_watch's. on is said of the remote it pulls, and a push to that remote " +
+			"comes back as \"pushed to <remote>\", as in issue_watch.",
 		Annotations: &mcp.ToolAnnotations{IdempotentHint: true},
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in watchRemoteIn) (*mcp.CallToolResult, watchOut, error) {
 		remote := in.Remote

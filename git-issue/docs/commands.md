@@ -359,7 +359,9 @@ a change made here is heard within that, whoever makes it; one made during a
 pull is heard when the pull is done.
 
 `watch` is for an agent whose host wakes it on a background command's output,
-as Claude Code's Monitor does. An agent that can wait on a tool call uses
+as Claude Code's Monitor does. Such an agent hears its own work: a line for
+each change it makes, and a `pushed to origin` line for each issue its push
+sends. Those lines confirm what it did. They are not news to act on. An agent that can wait on a tool call uses
 [`issue_watch` or `issue_watch_remote`](mcp.md#the-watch).
 
 ## Migrations
