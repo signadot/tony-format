@@ -257,6 +257,27 @@ func (w *Watch) ReplayingFrom() *int64 { return w.replayingFrom }
 // replaying.
 func (w *Watch) ReplayingTo() *int64 { return w.replayingTo }
 
+// Progress asks the watch to say, in Events, when it is current through the head, and
+// answers the head. The answer is an event with Progress set, and it arrives after every
+// event for a commit at or below the one it carries, which is the head answered here or a
+// later commit: once a consumer applying Events in order meets a progress event with a
+// commit at or above R, it holds the path as of R -- including any commit that did not
+// reach the path and so sent nothing. The watch must have an id, which every Watch here
+// does. A watch that ends first sends no progress event; it ends, as Events and Err say.
+//
+// It is the question a ping cannot answer: a pong can overtake a watch's events for
+// commits below the head it reports.
+func (w *Watch) Progress(ctx context.Context) (int64, error) {
+	resp, err := w.session.request(ctx, &api.SessionRequest{Progress: &w.id})
+	if err != nil {
+		return 0, err
+	}
+	if resp.Result == nil || resp.Result.Progress == nil {
+		return 0, fmt.Errorf("progress on the watch on %q: the server answered no commit", w.path)
+	}
+	return resp.Result.Progress.Commit, nil
+}
+
 // Events returns the channel of streaming watch events. It is closed when the
 // watch ends; check Err afterwards for the cause.
 func (w *Watch) Events() <-chan *api.WatchEvent {

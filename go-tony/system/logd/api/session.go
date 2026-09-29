@@ -431,6 +431,20 @@ type SessionRequest struct {
 	Schema      *SchemaRequest      `tony:"field=schema"`
 	Retain      *RetainRequest      `tony:"field=retain"`
 	Ping        *PingRequest        `tony:"field=ping"` // liveness probe; answered by whatever server owns the connection
+	// Progress asks the watch this names -- by the id of the watch request that
+	// established it -- to say on its own stream when it is current through the head. The
+	// request is answered at once with the commit (ProgressResult); the watch then sends a
+	// progress event for it (WatchEvent.Progress) once every event it sends for a commit
+	// at or below it is ahead on the stream.
+	//
+	// A watch is sent only the commits that reach its path, so a client holding one cannot
+	// tell "nothing happened here up to C" from "not caught up to C" by what arrives. A
+	// ping does not answer it: the pong is sent from the session's request loop, and a
+	// watch's events from the watch's own stream, so pong(C) can overtake the event for C
+	// (7v4azhtjh12krv76q9n0). This is the question asked of the stream itself, and
+	// answered in it, so a client that applies a watch's events in order meets the answer
+	// where it falls. An id-less watch cannot be asked: it has no id to be named by.
+	Progress *string `tony:"field=progress"`
 }
 
 // PingRequest is a liveness probe. The server that owns the connection answers it
@@ -445,7 +459,10 @@ type PingRequest struct{}
 // open a watch to find out: the heartbeat it already sends can say so.
 //
 // The number is monotonic and chases the head; it is not a promise that the client
-// has seen everything below it. logd answers with its head. docd answers the ping
+// has seen everything below it, and a watch's events for commits below it may still be
+// on their way: a ping is not a barrier for them. A progress request is
+// (SessionRequest.Progress). logd answers
+// with its head. docd answers the ping
 // itself, with the highest commit it has reported to any client -- a point in the one
 // sequence its mounts share, and a lower bound on the head rather than the head itself
 // -- and with Floor zero. Zero means there is none to report.
@@ -647,6 +664,20 @@ type SessionResult struct {
 	Schema      *SchemaResult      `tony:"field=schema"`
 	Retain      *RetainResult      `tony:"field=retain"`
 	Pong        *PongResult        `tony:"field=pong"`
+	Progress    *ProgressResult    `tony:"field=progress"`
+}
+
+// ProgressResult acknowledges a progress request (SessionRequest.Progress). Commit is the
+// head when the request was handled, and the watch's progress event for the request
+// carries it or a later commit the watch is also current through. Any progress event
+// with a commit at or above R says the watch is current through R, whichever request it
+// answers, so a client waiting on R waits for the first such event.
+//
+// A watch that ends first sends no progress event: its ended event is the answer.
+//
+//tony:schemagen=session-progress-result,notag
+type ProgressResult struct {
+	Commit int64 `tony:"field=commit"`
 }
 
 // WatchEvent is a streaming event from a watch.
@@ -675,6 +706,13 @@ type WatchEvent struct {
 	Ended          bool   `tony:"field=ended,omitzero"`          // Terminal marker: the watch has ended and the client should re-establish it
 	EndReason      string `tony:"field=endReason,omitzero"`      // Why the watch ended, from the ErrCode* vocabulary (e.g. session_mounted, session_unmounted, controller_unavailable, keying_changed)
 	EndMessage     string `tony:"field=endMessage,omitzero"`     // What the reason code cannot carry: the floor a compacted replay left, the range a read failed over, why a path cannot be extracted
+
+	// Progress marks the answer to a progress request (SessionRequest.Progress): the watch
+	// is current through Commit. Every event it sends for a commit at or below Commit is
+	// ahead of this one, and a commit at or below it that sent nothing did not reach the
+	// path, so a client that has applied what came before holds the path as of Commit. It
+	// carries no State or Patch, and it is a resume point as any other event is.
+	Progress bool `tony:"field=progress,omitzero"`
 }
 
 // SessionError is an error response.
@@ -1027,6 +1065,24 @@ func NewPongResponseAt(id *string, commit, floor int64) *SessionResponse {
 	return &SessionResponse{
 		ID:     id,
 		Result: &SessionResult{Pong: &PongResult{Commit: commit, Floor: floor}},
+	}
+}
+
+// NewProgressResponse acknowledges a progress request: the watch's progress event will
+// carry commit.
+func NewProgressResponse(id *string, commit int64) *SessionResponse {
+	return &SessionResponse{
+		ID:     id,
+		Result: &SessionResult{Progress: &ProgressResult{Commit: commit}},
+	}
+}
+
+// NewProgressEvent is a watch's answer to a progress request: the watch on path is
+// current through commit. id is the watch's (see NewStateEvent).
+func NewProgressEvent(id *string, path string, commit int64) *SessionResponse {
+	return &SessionResponse{
+		ID:    id,
+		Event: &WatchEvent{Commit: commit, Path: path, Progress: true},
 	}
 }
 

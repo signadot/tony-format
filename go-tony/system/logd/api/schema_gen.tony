@@ -143,6 +143,13 @@ signature:
 ---
 context:
 - tony-format/context
+define:
+  commit: .[int]
+signature:
+  name: session-progress-result
+---
+context:
+- tony-format/context
 - tony-base: github.com/signadot/tony-format/go-tony/schema
 define:
   after: .[string]
@@ -254,6 +261,7 @@ define:
   newtx: .[nullable(session-newtx-request)]
   patch: .[nullable(session-patch-request)]
   ping: .[nullable(session-ping-request)]
+  progress: .[nullable(string)]
   retain: .[nullable(session-retain-request)]
   schema: .[nullable(session-schema-request)]
   scope: .[nullable(string)]
@@ -287,6 +295,7 @@ define:
   newtx: .[nullable(session-newtx-result)]
   patch: .[nullable(session-patch-result)]
   pong: .[nullable(session-pong-result)]
+  progress: .[nullable(session-progress-result)]
   retain: .[nullable(session-retain-result)]
   schema: .[nullable(session-schema-result)]
   unwatch: .[nullable(session-unwatch-result)]
@@ -306,6 +315,7 @@ define:
   ended: .[bool]
   patch: .[tony-base:ir]
   path: .[string]
+  progress: .[bool]
   replayComplete: .[bool]
   state: .[tony-base:ir]
 signature:
