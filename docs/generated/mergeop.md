@@ -400,6 +400,101 @@ of them have to match.
 
 ---
 
+## `!ge`
+
+**The number is at least the operand** (match)
+
+`!ge`, `!gt`, `!le` and `!lt` are the ordered comparisons of a number. The node the
+match meets is the left side and the operand is the right, so `used: !ge 400` asks for
+a `used` of 400 or more.
+
+The operand is a number literal, or a `!get-path` naming one node in the document. The
+tag argument is an optional **scale** on it, so `!ge(0.8).get-path(root) limit` asks
+that the node be at least 0.8 times `limit`. That is the common question, "within 80%
+of a limit", and a pattern cannot do arithmetic.
+
+A node that is not a number does not match: `!lt 400` fails a string, and `!not.ge 400`
+matches one.
+
+An operand that cannot be compared against is an **error**: a literal or scale that is
+not a number, where the pattern is built, and a path that names nothing, or names
+something other than a number, when the match runs. That is `!get-path`'s rule, for its
+reason: answering false would blame the document for something wrong with the pattern.
+A wild path is refused where the pattern is built, since a set has no order.
+
+Numbers compare by value, exactly: an integer as itself, a float as the value it holds,
+and the scale from its decimal text, so `0.8` is 4/5 and 440 against 0.8 × 550 is equal
+rather than off by a rounding. `3 < 3.5` and `3.0 <= 3` both hold. Equality is
+different: `{n: 3}` is type-exact and does not match `3.0`.
+
+Composition reads as it does for any match. `!at(a.b).ge 3` asks for an `a.b` of at
+least 3; `!not.at(a.b).ge 3` also holds where there is no `a.b`.
+
+**Arguments:** an optional scale
+
+**Examples:**
+
+```tony
+used: !ge 400
+```
+
+```tony
+# used against another field of the same document
+used: !ge.get-path(root) limit
+```
+
+```tony
+# within 80% of the limit
+used: !ge(0.8).get-path(root) limit
+```
+
+**See also:** [`!gt`](./mergeop.md#gt), [`!le`](./mergeop.md#le), [`!lt`](./mergeop.md#lt), [`!get-path`](./mergeop.md#get-path)
+
+---
+
+## `!gt`
+
+**The number is greater than the operand** (match)
+
+As [`!ge`](./mergeop.md#ge), strictly.
+
+**Examples:**
+
+```tony
+replicas: !gt 0
+```
+
+---
+
+## `!le`
+
+**The number is at most the operand** (match)
+
+As [`!ge`](./mergeop.md#ge), the other way.
+
+**Examples:**
+
+```tony
+# at most twice the requested replicas
+status: {replicas: !le(2).get-path(root) spec.replicas}
+```
+
+---
+
+## `!lt`
+
+**The number is less than the operand** (match)
+
+As [`!le`](./mergeop.md#le), strictly.
+
+**Examples:**
+
+```tony
+latency: !lt 0.25
+```
+
+---
+
 ## `!glob`
 
 **Glob-match a string** (match)
