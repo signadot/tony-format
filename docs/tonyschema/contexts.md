@@ -56,6 +56,7 @@ Tags for matching operations:
 - `!or`, `!and`, `!not` - boolean operations
 - `!irtype`, `!ir`, `!glob`, `!field`, `!tag` - type, field and tag matching
 - `!subtree`, `!all`, `!at`, `!has-path` - structural matching
+- `!lt`, `!le`, `!gt`, `!ge` - ordering a number or an RFC 3339 time
 - `!let`, `!pass`, `!raw`, `!comment` - binding, anything, the escape, comments
 - `!get-path`, `!list-path`, `!key` - paths and keyed arrays
 

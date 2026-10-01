@@ -90,6 +90,7 @@ A `TagDefinition` can have:
 
 - `!or`, `!and`, `!not` - Boolean operations
 - `!irtype`, `!glob`, `!field` - Type and field matching
+- `!lt`, `!le`, `!gt`, `!ge` - Ordering a number or an RFC 3339 time
 - `!tag`, `!subtree`, `!all` - Structural matching
 - `!let`, `!if`, `!dive`, `!embed` - Control flow
 

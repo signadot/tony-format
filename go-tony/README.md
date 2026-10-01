@@ -93,7 +93,8 @@ o list '$..containers[*].image' deployment.yaml
 ### match
 
 Filter documents against match patterns. Supports tags like `!or`, `!and`,
-`!glob`, `!not`, `!irtype`, `!has-path`, and more.
+`!glob`, `!not`, `!irtype`, `!has-path`, `!lt`/`!ge` and the other
+comparisons, and more.
 
 ```sh
 # inline pattern
