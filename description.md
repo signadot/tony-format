@@ -7,4 +7,6 @@ nqe7v0j0 and ec3dnqpk added `!lt`, `!le`, `!gt` and `!ge`. They updated the tabl
 - `docs/tonyschema/validation.md`: the operations an `accept` commonly uses. A numeric range is a typical schema constraint.
 - `go-tony/README.md`: the tags `o match` supports.
 
-Left alone: `mergeop/doc.go` and `go-tony/docs/mpd-right.md`, an article, both name examples ending in "etc." or "round out", not a list a reader takes as complete.
+Left alone:
+- `mergeop/doc.go` names examples ending in "etc.".
+- `go-tony/docs/mpd-right.md` is an article, a dated piece of writing, not reference.
