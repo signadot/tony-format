@@ -78,6 +78,7 @@ The `accept` field uses match operations from the match context. Common operatio
 - `!not` - Condition must not match
 - `!irtype` - Kind must match that of the example value (`!irtype ""` for a string, `!irtype 0` for a number)
 - `!field` - Field must exist and match
+- `!lt`, `!le`, `!gt`, `!ge` - A number or an RFC 3339 time must be in order against the operand: `!and [!ge 1, !le 10]` for a range
 - `.[definition]` - Reference to a definition in `define` (expr-lang format)
 
 See the [match operations documentation](../matchpatch.md) for more details.
