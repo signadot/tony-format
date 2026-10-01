@@ -59,7 +59,7 @@ func (cfg *importConfig) run(cc *cli.Context, args []string) error {
 	}
 
 	// Import the directory
-	gitStore, ok := cfg.store.(*issuelib.GitStore)
+	gitStore, ok := gitStoreOf(cfg.store)
 	if !ok {
 		return fmt.Errorf("import requires GitStore")
 	}
