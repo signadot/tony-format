@@ -43,6 +43,17 @@ type targetStore struct {
 	set   func() (*workspace, error)
 }
 
+// gitStoreOf is the GitStore a command's store is: through the targetStore the
+// commands share, the one it points at. Export and import read and write an
+// issue's tree, which only a GitStore has.
+func gitStoreOf(st issuelib.Store) (*issuelib.GitStore, bool) {
+	if t, ok := st.(*targetStore); ok {
+		st = t.Store
+	}
+	g, ok := st.(*issuelib.GitStore)
+	return g, ok
+}
+
 // targets answers the repositories a command over every repository covers:
 // the one its store is on, unless it was run outside a repository with a set.
 func targets(st issuelib.Store) []*repo {

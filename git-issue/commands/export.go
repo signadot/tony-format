@@ -77,7 +77,7 @@ func (cfg *exportConfig) run(cc *cli.Context, args []string) error {
 // ExportToTempDir exports an issue to a temporary directory and returns the path.
 // The caller is responsible for cleaning up the directory when done.
 func ExportToTempDir(store issuelib.Store, ref string) (string, error) {
-	gitStore, ok := store.(*issuelib.GitStore)
+	gitStore, ok := gitStoreOf(store)
 	if !ok {
 		return "", fmt.Errorf("export requires GitStore")
 	}
@@ -135,7 +135,7 @@ func exportDirRecursive(gitStore *issuelib.GitStore, store issuelib.Store, ref, 
 }
 
 func (cfg *exportConfig) exportDir(ref, path, destDir string) error {
-	gitStore, ok := cfg.store.(*issuelib.GitStore)
+	gitStore, ok := gitStoreOf(cfg.store)
 	if !ok {
 		return fmt.Errorf("export requires GitStore")
 	}
