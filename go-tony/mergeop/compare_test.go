@@ -105,10 +105,15 @@ func TestCompareErrors(t *testing.T) {
 		{`3`, `!lt.list-path(root) xs`, "got !list-path"},
 		{`3`, `!lt(x) 4`, "scale is not a number"},
 		{`3`, `!lt(1,2) 4`, "at most 1 arg"},
+		{`"x"`, `!lt "2026-10-01"`, "not an RFC 3339 time"},
+		{`"x"`, `!lt "yesterday"`, "not an RFC 3339 time"},
+		{`"x"`, `!lt(0.5) "2026-10-01T00:00:00Z"`, "a time has no scale"},
+		{`{at: "2026-10-01T00:00:00Z", due: "2026-10-02T00:00:00Z"}`,
+			`{at: !lt(0.5).get-path(root) due}`, "has no scale"},
 		{`{xs: [1]}`, `{xs: [!lt.get-path(root) xs[*]]}`, "set of nodes"},
 		// the decided reading: a missing operand is an error, not a no-match
 		{`{used: 3}`, `{used: !lt.get-path(root) limit}`, "names nothing"},
-		{`{used: 3, limit: "x"}`, `{used: !lt.get-path(root) limit}`, "not a number"},
+		{`{used: 3, limit: "x"}`, `{used: !lt.get-path(root) limit}`, "not an RFC 3339 time"},
 		{`{used: 3, limit: null}`, `{used: !lt.get-path(root) limit}`, "not a number"},
 	} {
 		_, err := tony.Match(mustParseNode(t, tc.doc), mustParseNode(t, tc.pattern))
@@ -123,5 +128,46 @@ func TestCompareDoesNotPatch(t *testing.T) {
 	_, err := tony.Patch(mustParseNode(t, `{a: 1}`), mustParseNode(t, `{a: !lt 4}`))
 	if err == nil {
 		t.Errorf("a patch with !lt applied")
+	}
+}
+
+// An RFC 3339 string is a time, and times order by instant rather than as text.
+func TestCompareTimes(t *testing.T) {
+	for _, tc := range []struct {
+		doc, pattern string
+		want         bool
+	}{
+		{`"2026-09-30T23:59:59Z"`, `!lt "2026-10-01T00:00:00Z"`, true},
+		{`"2026-10-01T00:00:00Z"`, `!lt "2026-10-01T00:00:00Z"`, false},
+		{`"2026-10-01T00:00:00Z"`, `!le "2026-10-01T00:00:00Z"`, true},
+		{`"2026-10-01T00:00:01Z"`, `!gt "2026-10-01T00:00:00Z"`, true},
+
+		// one instant in two offsets: as text, "02" > "00" and this would fail
+		{`"2026-10-01T02:00:00+02:00"`, `!le "2026-10-01T00:00:00Z"`, true},
+		{`"2026-10-01T02:00:00+02:00"`, `!ge "2026-10-01T00:00:00Z"`, true},
+		{`"2026-10-01T01:00:00+02:00"`, `!lt "2026-10-01T00:00:00Z"`, true},
+		// a fraction of a second: as text, "." < "Z" and this would hold
+		{`"2026-10-01T00:00:00.5Z"`, `!gt "2026-10-01T00:00:00Z"`, true},
+
+		// against another field
+		{`{at: "2026-10-01T00:00:00Z", due: "2026-10-02T00:00:00Z"}`,
+			`{at: !lt.get-path(root) due}`, true},
+		{`{at: "2026-10-03T00:00:00Z", due: "2026-10-02T00:00:00Z"}`,
+			`{at: !lt.get-path(root) due}`, false},
+
+		// a node of the other kind fails the pattern
+		{`"not a time"`, `!lt "2026-10-01T00:00:00Z"`, false},
+		{`1`, `!lt "2026-10-01T00:00:00Z"`, false},
+		{`"2026-09-30T00:00:00Z"`, `!lt 4`, false},
+		{`null`, `!lt "2026-10-01T00:00:00Z"`, false},
+	} {
+		got, err := tony.Match(mustParseNode(t, tc.doc), mustParseNode(t, tc.pattern))
+		if err != nil {
+			t.Errorf("%s against %s: %v", tc.doc, tc.pattern, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("%s against %s: got %v, want %v", tc.doc, tc.pattern, got, tc.want)
+		}
 	}
 }

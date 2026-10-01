@@ -20,10 +20,10 @@ directories and via `o match` and `o patch`.
 | `!or`      |   +   |   -   |     -          | disjunction                                                                      |
 | `!not`     |   +   |   -   |     -          | negate a match (eg `!not.or [1,2,3]`)                                            |
 | `!at`      |   +   |   -   | kpath          | walk to the path and apply the match there; see below                            |
-| `!lt`      |   +   |   -   | -, or scale    | the number is less than the operand, a number or a `!get-path`; see below        |
-| `!le`      |   +   |   -   | -, or scale    | the number is at most the operand                                                |
-| `!gt`      |   +   |   -   | -, or scale    | the number is greater than the operand                                           |
-| `!ge`      |   +   |   -   | -, or scale    | the number is at least the operand: `!ge(0.8).get-path(root) limit`              |
+| `!lt`      |   +   |   -   | -, or scale    | the node is less than the operand, a number or RFC 3339 time; see below          |
+| `!le`      |   +   |   -   | -, or scale    | the node is at most the operand                                                  |
+| `!gt`      |   +   |   -   | -, or scale    | the node is greater than the operand                                             |
+| `!ge`      |   +   |   -   | -, or scale    | the node is at least the operand: `!ge(0.8).get-path(root) limit`                |
 | `!has-path`|   +   |   -   |     -          | the document has the path the operand names                                      |
 | `!subtree` |   +   |   -   |     -          | match any subtree of the doc                                                     |
 | `!glob`    |   +   |   -   |     -          | glob match a string                                                              |
@@ -98,20 +98,26 @@ operator makes one. The same goes for a patch, which is why logd's storage
 vocabulary refuses them beside `!if` and `!let`: what they answer against a base
 that has moved is a different value.
 
-`!lt`, `!le`, `!gt` and `!ge` order a number against an operand that is either a
-literal or a `!get-path`, optionally scaled by the tag argument:
+`!lt`, `!le`, `!gt` and `!ge` order a number or an RFC 3339 time against an
+operand that is either a literal or a `!get-path`. A number operand can be scaled
+by the tag argument:
 
 ```tony
 used: !ge 400                              # a literal
 used: !ge.get-path(root) limit             # another field in the document
 used: !ge(0.8).get-path(root) limit        # within 80% of it
+at: !lt "2026-10-01T00:00:00Z"             # a time
 ```
 
-A node that is not a number does not match. An operand that cannot be compared
-against is an error: a literal or scale that is not a number, a wild path, or a
-path that names nothing or names a non-number, as `!get-path` errors on a path
-that names nothing. Numbers compare by value and exactly, so `3.0 <= 3` holds,
-where equality, `{n: 3}`, is type-exact and does not match `3.0`.
+A node of another kind than the operand does not match: a string against a
+number, or a number against a time. An operand that cannot be compared against is
+an error: a literal that is neither a number nor an RFC 3339 time, a scale that is
+not a number or is on a time, a wild path, or a path that names nothing or names
+something else, as `!get-path` errors on a path that names nothing. Numbers
+compare by value and exactly, so `3.0 <= 3` holds, where equality, `{n: 3}`, is
+type-exact and does not match `3.0`. Times compare by instant, not as text, so
+`2026-10-01T02:00:00+02:00` equals `2026-10-01T00:00:00Z`. There is no clock: for
+"older than an hour" the caller computes the cutoff and writes it in.
 
 The last nine are what a diff produces, and they divide on two lines worth
 knowing: checked operations assert something about what they meet and fail if it
