@@ -19,8 +19,17 @@ logd ends a watch right after confirming it when the cursor cannot be replayed: 
 
 **Not run:** the cursor below the floor. It sends the same sequence from logd, a confirmation and then an end, through the same code.
 
-er3dnqpk ends the `noInit` cases in docd before any sub-watch starts, so they no longer reach this. A cursor below the floor from a client that takes a state still can.
+## What er3dnqpk leaves
+
+er3dnqpk ends the `noInit` cases in docd before any sub-watch starts, so they no longer reach this.
+
+A cursor below the floor from a client that takes a state is read first, and the watch starts at the commit that state was answered at. Two things follow:
+
+- When that commit is below the floor too, the sub-watch ends during setup, and this issue is met.
+- When it is at or above the floor, the composed watch starts there. logd alone ends a watch from below the floor with `replay_compacted`, so the two differ.
 
 ## What would close it
 
-An end that arrives during setup would be held until the composed watch has been confirmed, and delivered after it, the way a sub-watch's other events are buffered until the composed watch begins. Or docd would refuse a cursor below the floor itself, before starting anything, as it does one past the head; that needs the replay floor, and the ping's `floor` is now where a watch starts as asked, which can be above it.
+An end that arrives during setup would be held until the composed watch has been confirmed, and delivered after it, the way a sub-watch's other events are buffered until the composed watch begins.
+
+Or docd would end a cursor below the floor itself, before starting anything, as it does one past the head. That also removes the difference from logd above. It needs the replay floor, and the ping's `floor` is now where a watch starts as asked, which can be above it.
