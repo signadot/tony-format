@@ -109,6 +109,11 @@ not refused; whether an earlier state will do is the caller's to decide. A read 
 head, or anywhere within the cutoff, is answered at the commit asked. Across docd every
 source is read at the commit answered, so the composed body is still one commit's.
 
+Finding nothing is an answer too, and says where: a read with a `commit` that ends in
+`not_found` (or `path_conflict`, or an `invalid_path` its schema decided) carries the
+commit it was answered at on the error, `{error: {code: not_found, message: ..., commit:
+80}}`, since nothing at 80 is not nothing at 95.
+
 A read at a commit reads the document **under the schema in force at that commit**, not
 today's: which arrays are [keyed](keyed.md), and by what, is that commit's, so the shape of
 an array and the path that names one of its elements are both as they were. If `runs` was

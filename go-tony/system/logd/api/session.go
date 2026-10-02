@@ -728,6 +728,13 @@ type WatchEvent struct {
 type SessionError struct {
 	Code    string `tony:"field=code"`
 	Message string `tony:"field=message"`
+	// Commit is the commit an answer about the state was settled at, on an error that is
+	// one -- not_found, path_conflict, invalid_path -- answering a read that named a
+	// commit. Beyond compaction's cutoff that read is answered at an earlier commit than
+	// the one asked (MatchResult.Commit), and "nothing there" at the earlier one is not
+	// "nothing there" at the commit asked, so the error says which it is. Nil on any
+	// other error.
+	Commit *int64 `tony:"field=commit"`
 }
 
 // Error implements the error interface.

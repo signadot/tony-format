@@ -117,7 +117,11 @@ func (s *Session) handleSetMatch(id *string, req *api.MatchRequest, path string,
 		return nil
 	})
 	if err != nil && err != errPageFull {
-		s.sendReadError(id, err)
+		var answered *int64
+		if req.Commit != nil || resume {
+			answered = &commit
+		}
+		s.sendReadError(id, err, answered)
 		return
 	}
 	cursor := ""

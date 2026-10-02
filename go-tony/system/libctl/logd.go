@@ -518,6 +518,9 @@ func (s *LogdSession) MatchAt(ctx context.Context, path string, commit int64) (*
 // snapshot the read starts from -- rather than as a fold of whatever patches survived,
 // which no commit ever held. An answer below the commit asked means that, and the
 // caller decides whether an earlier state will do.
+//
+// A read that finds nothing says where too: the not_found error, an *api.SessionError,
+// carries the commit it was answered at in Commit.
 func (s *LogdSession) MatchAtCommit(ctx context.Context, path string, commit int64) (*ir.Node, int64, error) {
 	return s.matchAt(ctx, path, nil, &commit)
 }

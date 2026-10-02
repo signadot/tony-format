@@ -830,6 +830,14 @@ func TestDocd_ComposeAncestorReadAtCommit(t *testing.T) {
 	if v, err := old.GetPath("$.b.k.v"); err != nil || v == nil || v.Int64 == nil || *v.Int64 != 2 {
 		t.Errorf("compacted a.b.k.v: got %v (err %v), want 2, the state at %d", v, err, atB)
 	}
+
+	// Nothing there says at which commit: a read at 1 is answered from no snapshot at
+	// all, commit 0, where the document holds nothing.
+	_, _, err = client.MatchAtCommit(ctx, "a", 1)
+	var se *api.SessionError
+	if !errors.As(err, &se) || se.Code != api.ErrCodeNotFound || se.Commit == nil || *se.Commit != 0 {
+		t.Errorf("a read at 1: %v, want not_found at commit 0", err)
+	}
 }
 
 // TestDocd_ComposeAncestorWatch proves a client watching an ancestor path gets a

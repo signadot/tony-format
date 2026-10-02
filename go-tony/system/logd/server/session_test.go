@@ -331,17 +331,32 @@ func TestSession_MatchAtCommit(t *testing.T) {
 	got := runRequests(t, store, hub,
 		`{id: "at3", match: {path: users, commit: 3}}`,
 		`{id: "at4", match: {path: users, commit: 4}}`,
-		`{id: "set3", match: {path: "users.*", commit: 3}}`)
+		`{id: "set3", match: {path: "users.*", commit: 3}}`,
+		`{id: "at1", match: {path: users, commit: 1}}`,
+		`{id: "zed4", match: {path: users.zed, commit: 4}}`)
 	for _, tc := range []struct {
 		id     string
 		commit int64
 		users  []string // nil for a set's closing answer, which carries no body
+		absent bool     // answered not_found, at commit
 	}{
-		{"at3", 2, []string{"alice", "bob"}},
-		{"at4", 4, []string{"alice", "bob", "carol", "dave"}},
-		{"set3", 2, nil},
+		{id: "at3", commit: 2, users: []string{"alice", "bob"}},
+		{id: "at4", commit: 4, users: []string{"alice", "bob", "carol", "dave"}},
+		{id: "set3", commit: 2},
+		// Nothing there says where: at 1 is answered at 0, before users was written,
+		// and "nothing at 0" is not "nothing at 1".
+		{id: "at1", commit: 0, absent: true},
+		{id: "zed4", commit: 4, absent: true},
 	} {
 		r := got[tc.id]
+		if tc.absent {
+			if r == nil || r.Error == nil || r.Error.Code != api.ErrCodeNotFound {
+				t.Errorf("%s: expected not_found, got %+v", tc.id, r)
+			} else if r.Error.Commit == nil || *r.Error.Commit != tc.commit {
+				t.Errorf("%s: not_found at commit %v, want %d", tc.id, r.Error.Commit, tc.commit)
+			}
+			continue
+		}
 		if r == nil || r.Result == nil || r.Result.Match == nil {
 			t.Errorf("%s: expected a match result, got %+v", tc.id, r)
 			continue

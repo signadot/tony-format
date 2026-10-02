@@ -93,10 +93,16 @@ func (s *ClientSession) coordinateMatch(req *logdapi.SessionRequest, below []*Mo
 		// its answer, and it is the same answer a direct read gives, so it carries
 		// the same code.
 		code := logdapi.ErrCodeMatchFailed
+		resp := logdapi.NewErrorResponse(clientID, code, err.Error())
 		if errors.Is(err, errSourceAbsent) {
-			code = logdapi.ErrCodeNotFound
+			resp.Error.Code = logdapi.ErrCodeNotFound
+			// Nothing there, at the commit the read was answered at, which a read
+			// naming a commit is told (logdapi.SessionError.Commit).
+			if req.Match.Commit != nil {
+				resp.Error.Commit = &commit
+			}
 		}
-		_ = s.writeToClient(logdapi.NewErrorResponse(clientID, code, err.Error()))
+		_ = s.writeToClient(resp)
 		return
 	}
 
@@ -154,7 +160,7 @@ func (s *ClientSession) composeCheck(clientID *string, path string, below []*Mou
 // source is read again there, and the composed answer carries it.
 func (s *ClientSession) composeReadTree(path string, owner *MountEntry, below []*MountEntry, pFields []string, atCommit *int64) (*ir.Node, int64, error) {
 	root, commit, err := s.composeReadTreeAt(path, owner, below, pFields, atCommit)
-	if err != nil || atCommit == nil || commit >= *atCommit {
+	if err != nil && !errors.Is(err, errSourceAbsent) || atCommit == nil || commit >= *atCommit {
 		return root, commit, err
 	}
 	// Read at a commit the store answers exactly, the second pass answers at it.
@@ -214,6 +220,10 @@ func (s *ClientSession) composeReadTreeAt(path string, owner *MountEntry, below 
 				if firstAbsent == nil {
 					firstAbsent = r.err
 				}
+				// Absent at an earlier commit than asked is still an answer at it.
+				if atCommit != nil && r.fields == nil && owner == nil && r.commit < commit {
+					commit = r.commit
+				}
 				continue
 			}
 			if firstErr == nil {
@@ -238,7 +248,7 @@ func (s *ClientSession) composeReadTreeAt(path string, owner *MountEntry, below 
 	// Every source was absent, so the composed path is absent too, and the caller hears
 	// that rather than being handed an empty document nobody wrote.
 	if len(collected) == 0 && firstAbsent != nil {
-		return nil, 0, firstAbsent
+		return nil, commit, firstAbsent
 	}
 
 	// Overlay shallow→deep so a mount replaces its slot within the base owner's

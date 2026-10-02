@@ -3806,6 +3806,11 @@ func (s *SessionError) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	// Field: Message
 	irMap["message"] = ir.FromString(string(s.Message))
 
+	// Field: Commit (optional)
+	if s.Commit != nil {
+		irMap["commit"] = ir.FromInt(int64(*s.Commit))
+	}
+
 	return ir.FromMap(irMap), nil
 }
 
@@ -3851,6 +3856,18 @@ func (s *SessionError) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) erro
 				return fmt.Errorf("field %q: expected string, got %v", "message", fieldNodeUnwrapped.Type)
 			}
 			s.Message = string(fieldNodeUnwrapped.String)
+		case "commit":
+			// Field: Commit
+			if fieldNodeUnwrapped.Type == ir.NullType {
+				// null value - leave pointer as nil
+			} else {
+				val := new(int64)
+				if fieldNodeUnwrapped.Int64 == nil {
+					return fmt.Errorf("%s: expected number, got %v", "field \"commit\"", fieldNodeUnwrapped.Type)
+				}
+				*val = int64(*fieldNodeUnwrapped.Int64)
+				s.Commit = val
+			}
 		default:
 			if gomap.IsStrict(opts...) {
 				return fmt.Errorf("unknown field %q for SessionError", fieldName.String)
