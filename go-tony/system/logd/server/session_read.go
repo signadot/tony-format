@@ -55,12 +55,29 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 	// path is judged against the document it reads, so the commit is settled first. A
 	// wildcard path comes back as it went in, and the walk spells its concrete segments
 	// the same way (canonicalChild).
-	if canon, err := ident.CanonicalPath(s.storage.SchemaForAt(s.scopeID(), commit), path); err != nil {
+	canon, err := ident.CanonicalPath(s.storage.SchemaForAt(s.scopeID(), commit), path)
+	if err != nil {
 		s.sendError(id, api.ErrCodeInvalidPath, err.Error())
 		return
-	} else {
-		path = canon
 	}
+
+	// A commit older than compaction keeps exactly is answered at the newest commit the
+	// store can still answer for, and the answer says which (storage.AnsweredCommit):
+	// history beyond the cutoff is approximate, not an error, and the caller who asked for
+	// a commit is the one who knows whether an earlier one will do. It is settled once,
+	// at the node every part of the read lies under, so the kind, the body and every page
+	// of a set answer from the same commit. A continuation's cursor carries the commit
+	// its first page settled on.
+	if req.Commit != nil && req.Cursor == "" {
+		if answered := s.storage.AnsweredCommit(commit, concretePrefix(canon)); answered != commit {
+			commit = answered
+			if canon, err = ident.CanonicalPath(s.storage.SchemaForAt(s.scopeID(), commit), path); err != nil {
+				s.sendError(id, api.ErrCodeInvalidPath, err.Error())
+				return
+			}
+		}
+	}
+	path = canon
 
 	// A depth bounds a descent, and only a descent: on a path with none it means
 	// nothing, and is refused rather than ignored (kpath.CheckDepth).

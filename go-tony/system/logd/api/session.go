@@ -95,6 +95,10 @@ type HelloResponse struct {
 // backing logd under a tx id docd allocates, all-or-nothing, so a composed read at a
 // commit is a consistent snapshot of the whole document.
 //
+// A commit compaction no longer answers exactly is answered at the snapshot the read
+// starts from, and MatchResult.Commit names it: history beyond the cutoff is approximate,
+// not an error, and the caller decides whether an earlier state will do.
+//
 // A path holding a wildcard (.* [*] {*} (*), at any segment) names a SET, and the
 // answer is the set: one result per node, each carrying the node's own path, ended by
 // a result with Done. Limit and Cursor page that set; see MatchResult.
@@ -499,6 +503,9 @@ type PongResult struct {
 //
 //tony:schemagen=session-match-result,notag
 type MatchResult struct {
+	// Commit is the commit the answer holds: the head for a read with no commit, and for
+	// one with a commit, that commit -- or, beyond compaction's cutoff, the earlier one the
+	// store still answers exactly (MatchRequest.Commit).
 	Commit int64    `tony:"field=commit"`
 	Body   *ir.Node `tony:"field=body"`
 	// Path is the node's own path, on a member of a set. Empty on the answer to a

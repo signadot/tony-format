@@ -145,7 +145,26 @@ func (s *ClientSession) composeCheck(clientID *string, path string, below []*Mou
 // concurrently, then merges the results — deeper mounts overlaying shallower —
 // into a single document rooted at path, returning it with the max commit across
 // sources.
+//
+// A historical read is answered at one commit for every source, and that is not
+// always the one asked: logd answers a commit older than compaction keeps exactly
+// at an earlier one, and says so (storage.AnsweredCommit). Composing that with the
+// mounts' answers at the commit asked would be a tree no commit held, under a
+// number that describes only part of it. So when a source answers earlier, every
+// source is read again there, and the composed answer carries it.
 func (s *ClientSession) composeReadTree(path string, owner *MountEntry, below []*MountEntry, pFields []string, atCommit *int64) (*ir.Node, int64, error) {
+	root, commit, err := s.composeReadTreeAt(path, owner, below, pFields, atCommit)
+	if err != nil || atCommit == nil || commit >= *atCommit {
+		return root, commit, err
+	}
+	// Read at a commit the store answers exactly, the second pass answers at it.
+	return s.composeReadTreeAt(path, owner, below, pFields, &commit)
+}
+
+// composeReadTreeAt is one pass of composeReadTree. For a historical read it answers
+// the earliest commit a source reported, so an earlier answer shows; a controller's
+// runtime reports none (libctl's handleMatch), and its zero is not a commit.
+func (s *ClientSession) composeReadTreeAt(path string, owner *MountEntry, below []*MountEntry, pFields []string, atCommit *int64) (*ir.Node, int64, error) {
 	// readResult carries one source's subtree and where it sits relative to path
 	// (nil fields = the base owner, rooted at path itself).
 	type readResult struct {
@@ -175,6 +194,9 @@ func (s *ClientSession) composeReadTree(path string, owner *MountEntry, below []
 	collected := make([]readResult, 0, len(below)+1)
 	var firstErr, firstAbsent error
 	var commit int64
+	if atCommit != nil {
+		commit = *atCommit
+	}
 	for i := 0; i < len(below)+1; i++ {
 		r := <-results
 		if r.err != nil {
@@ -199,7 +221,13 @@ func (s *ClientSession) composeReadTree(path string, owner *MountEntry, below []
 			}
 			continue
 		}
-		if r.commit > commit {
+		fromLogd := r.fields == nil && owner == nil
+		switch {
+		case atCommit != nil:
+			if r.commit < commit && (fromLogd || r.commit != 0) {
+				commit = r.commit
+			}
+		case r.commit > commit:
 			commit = r.commit
 		}
 		collected = append(collected, r)

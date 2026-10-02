@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
@@ -306,6 +307,60 @@ func TestSession_MatchAtCommit(t *testing.T) {
 	}
 	if bad.Error.Code != api.ErrCodeCommitNotFound {
 		t.Errorf("bad: expected %s, got %s (%s)", api.ErrCodeCommitNotFound, bad.Error.Code, bad.Error.Message)
+	}
+
+	// Beyond compaction's cutoff a commit may not be answerable exactly: the patches
+	// between the snapshot a read starts from and the commit asked are gone, and their
+	// survivors fold to a state no commit held. The read is answered at the snapshot,
+	// and says so by its commit (cpqj2tf6h12kr5jxqxn0). Snapshots fall at 2 and 4, and
+	// the patches through 4 are compacted away.
+	if err := store.SwitchDLog(); err != nil {
+		t.Fatalf("SwitchDLog: %v", err)
+	}
+	commitPatch(`{users: {carol: {name: "Carol"}}}`)
+	commitPatch(`{users: {dave: {name: "Dave"}}}`)
+	if err := store.SwitchDLog(); err != nil {
+		t.Fatalf("SwitchDLog: %v", err)
+	}
+	commitPatch(`{users: {erin: {name: "Erin"}}}`)
+	cfg := storage.DefaultCompactionConfig()
+	cfg.Cutoff = -time.Hour
+	if err := store.Compact(cfg); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	got := runRequests(t, store, hub,
+		`{id: "at3", match: {path: users, commit: 3}}`,
+		`{id: "at4", match: {path: users, commit: 4}}`,
+		`{id: "set3", match: {path: "users.*", commit: 3}}`)
+	for _, tc := range []struct {
+		id     string
+		commit int64
+		users  []string // nil for a set's closing answer, which carries no body
+	}{
+		{"at3", 2, []string{"alice", "bob"}},
+		{"at4", 4, []string{"alice", "bob", "carol", "dave"}},
+		{"set3", 2, nil},
+	} {
+		r := got[tc.id]
+		if r == nil || r.Result == nil || r.Result.Match == nil {
+			t.Errorf("%s: expected a match result, got %+v", tc.id, r)
+			continue
+		}
+		if r.Result.Match.Commit != tc.commit {
+			t.Errorf("%s: answered at commit %d, want %d", tc.id, r.Result.Match.Commit, tc.commit)
+		}
+		if tc.users == nil {
+			continue
+		}
+		body := r.Result.Match.Body
+		if n := len(body.Fields); n != len(tc.users) {
+			t.Errorf("%s: %d users, want %v: %s", tc.id, n, tc.users, encode.MustString(body))
+		}
+		for _, u := range tc.users {
+			if ir.Get(body, u) == nil {
+				t.Errorf("%s: %s missing: %s", tc.id, u, encode.MustString(body))
+			}
+		}
 	}
 }
 

@@ -785,6 +785,51 @@ func TestDocd_ComposeAncestorReadAtCommit(t *testing.T) {
 	if v, err := cur.GetPath("$.b.k.v"); err != nil || v == nil || v.Int64 == nil || *v.Int64 != 2 {
 		t.Errorf("current a.b.k.v: got %v (err %v), want 2", v, err)
 	}
+
+	// Beyond compaction's cutoff a commit may not be answerable exactly, and the read
+	// is answered at the snapshot it starts from, which MatchAtCommit reports, across
+	// docd, for the base and the mount alike (cpqj2tf6h12kr5jxqxn0). A snapshot of
+	// state B, two commits after it, a snapshot later still, and the commits between
+	// the two snapshots compacted away.
+	store := logd.Spec.Storage
+	if err := store.SwitchDLog(); err != nil {
+		t.Fatalf("SwitchDLog: %v", err)
+	}
+	atB, _ := store.GetCurrentCommit()
+	if _, err := client.Patch(ctx, "a.x", vObj(3)); err != nil {
+		t.Fatalf("advance base a.x: %v", err)
+	}
+	if _, err := client.Patch(ctx, "a.b.k", vObj(3)); err != nil {
+		t.Fatalf("advance mount a.b.k: %v", err)
+	}
+	atC, _ := store.GetCurrentCommit()
+	if _, err := client.Patch(ctx, "a.x", vObj(4)); err != nil {
+		t.Fatalf("advance base a.x: %v", err)
+	}
+	if err := store.SwitchDLog(); err != nil {
+		t.Fatalf("SwitchDLog: %v", err)
+	}
+	if _, err := client.Patch(ctx, "a.x", vObj(5)); err != nil {
+		t.Fatalf("advance base a.x: %v", err)
+	}
+	cfg := storage.DefaultCompactionConfig()
+	cfg.Cutoff = -time.Hour
+	if err := store.Compact(cfg); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	old, at, err := client.MatchAtCommit(ctx, "a", atC)
+	if err != nil {
+		t.Fatalf("compacted composed match: %v", err)
+	}
+	if at != atB {
+		t.Errorf("a read at %d was answered at %d, want the snapshot's %d", atC, at, atB)
+	}
+	if v, err := old.GetPath("$.x.v"); err != nil || v == nil || v.Int64 == nil || *v.Int64 != 2 {
+		t.Errorf("compacted a.x.v: got %v (err %v), want 2, the state at %d", v, err, atB)
+	}
+	if v, err := old.GetPath("$.b.k.v"); err != nil || v == nil || v.Int64 == nil || *v.Int64 != 2 {
+		t.Errorf("compacted a.b.k.v: got %v (err %v), want 2, the state at %d", v, err, atB)
+	}
 }
 
 // TestDocd_ComposeAncestorWatch proves a client watching an ancestor path gets a

@@ -38,7 +38,9 @@ var ErrReplayCompacted = errors.New("replay range starts below the replay floor;
 // than being told to re-initialize.
 //
 // State at a commit below the floor is still readable, and the commit number is still
-// valid and never reused (reconcileWatermark). Only the deltas are gone.
+// valid and never reused (reconcileWatermark). Only the deltas are gone, and a read that
+// would need them is answered at the commit the store still holds exactly, and says so
+// (AnsweredCommit).
 
 // loadReplayFloor reads the persisted replay floor, or 0 if none has been written.
 func loadReplayFloor(root string) (int64, error) {
@@ -60,6 +62,41 @@ func loadReplayFloor(root string) (int64, error) {
 // history has been dropped.
 func (s *Storage) ReplayFloor() int64 {
 	return s.replayFloor.Load()
+}
+
+// AnsweredCommit is the commit a baseline read at kp, asked at `at`, can be answered at
+// exactly: `at` itself, or an earlier commit when compaction has taken patches the read
+// would need.
+//
+// A read seeks the newest snapshot at or above kp at or below `at` and folds the patches
+// after it (findSubtreeBaseReader). With the snapshot at S, that fold is exact when S is
+// `at` -- nothing to fold -- or S is at or above the floor, since every patch above the
+// floor is kept. Otherwise some of the patches in (S, at] may be gone, and the fold of
+// the survivors is a state no commit held, which no commit number could honestly label.
+// What the store CAN answer is the snapshot itself, so that is the answer: S, with
+// nothing folded, and the caller told so by the commit. That is the snapshot granularity
+// compaction promises beyond its cutoff (compaction.go), stated rather than hidden.
+//
+// No snapshot means the read starts from nothing, which is commit 0.
+//
+// A read at a snapshot this answers is exact, and so is a read of anything beneath kp at
+// it: the snapshot at or above kp is at or above everything under kp too.
+//
+// It does not answer for a scope's term, which folds from commit 0 rather than from the
+// snapshot (projectScope; em3dnqpkh12ks0jzqxn0).
+func (s *Storage) AnsweredCommit(at int64, kp string) int64 {
+	floor := s.replayFloor.Load()
+	if floor == 0 {
+		return at
+	}
+	var base int64
+	if seg, ok := s.index.SnapshotAtOrAbove(kp, at); ok {
+		base = seg.StartCommit
+	}
+	if base == at || base >= floor {
+		return at
+	}
+	return base
 }
 
 // raiseReplayFloor persists a new floor and then adopts it, if it is higher than the

@@ -100,6 +100,15 @@ be in `[0, current]`; out of range is `commit_not_found`. Across docd this addre
 logd's single commit sequence, so a composed read at a commit is one consistent
 snapshot.
 
+A commit older than [compaction](compaction.md)'s cutoff may not be answerable exactly:
+the deltas between the snapshot the read starts from and the commit asked can be gone,
+and what survives of them folds to a state no commit held. Such a read is answered **at
+the snapshot**, and its `commit` says so: ask for 95, get `commit: 80`, and the body is
+the state at 80. History beyond the cutoff is approximate, not an error, so the read is
+not refused; whether an earlier state will do is the caller's to decide. A read at the
+head, or anywhere within the cutoff, is answered at the commit asked. Across docd every
+source is read at the commit answered, so the composed body is still one commit's.
+
 A read at a commit reads the document **under the schema in force at that commit**, not
 today's: which arrays are [keyed](keyed.md), and by what, is that commit's, so the shape of
 an array and the path that names one of its elements are both as they were. If `runs` was
@@ -107,8 +116,9 @@ keyed by `id` then and is not now, `{match: {path: "runs(r1)", commit: N}}` read
 `r1`, and the same path at the head is `invalid_path`. Since a path is judged against the
 commit it reads, an out-of-range commit is refused first.
 
-Every answer carries the `commit` it was read at — which is also the store's head, and
-therefore a revision a client can compare without asking for anything extra.
+Every answer carries the `commit` it was read at — for a read with no `commit`, the
+store's head, and therefore a revision a client can compare without asking for anything
+extra.
 
 ### Reading a set
 

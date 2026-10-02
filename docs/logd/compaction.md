@@ -116,7 +116,8 @@ what it holds; it stops knowing which deltas built it. Concretely:
 
 - reading the **current** state is exact, always, at any retention setting;
 - reading a **historical** commit below the cutoff is approximate — it lands on the
-  nearest surviving snapshot rather than being replayed to the commit;
+  nearest surviving snapshot rather than being replayed to the commit, and the answer's
+  `commit` names that snapshot's, so the client can tell (see [Session](session.md));
 - a client resuming a watch from a commit below the retained delta history is
   refused with [`replay_compacted`](session.md) rather than served a gap.
 

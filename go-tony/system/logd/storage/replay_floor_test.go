@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/signadot/tony-format/go-tony/encode"
+	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/parse"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 )
 
@@ -66,8 +69,13 @@ func TestReplayFloor_TruncatedRangeIsReported(t *testing.T) {
 }
 
 // The floor bounds only DELTA replay. State at a commit below it is still readable, and
-// the commit number is still valid — that distinction is the whole point of reporting
-// truncation rather than refusing the commit.
+// the commit number is still valid -- but a read there cannot be answered AT it when
+// patches it would fold are gone, since the survivors fold to a state no commit held. It
+// is answered at the commit the store holds exactly, the snapshot it starts from, and
+// AnsweredCommit says which (cpqj2tf6h12kr5jxqxn0).
+//
+// So for every commit: the answer is at or below it, the state read there is exactly the
+// state written through it, and the head is answered at the head.
 func TestReplayFloor_StateBelowFloorStillReadable(t *testing.T) {
 	s, err := Open(t.TempDir(), nil)
 	if err != nil {
@@ -75,17 +83,56 @@ func TestReplayFloor_StateBelowFloorStillReadable(t *testing.T) {
 	}
 	defer s.Close()
 
-	for i := range 4 {
+	// The state after n commits holds k0 .. k(n-1). Snapshots fall at 2 and 4, and the
+	// history between them is compacted away.
+	want := []string{""}
+	acc := ""
+	for i := range 6 {
 		commitValue(t, s, fmt.Sprintf("{k%d: %d}", i, i))
+		acc += fmt.Sprintf("k%d: %d\n", i, i)
+		want = append(want, acc)
+		if i == 1 || i == 3 {
+			if err := s.SwitchDLog(); err != nil {
+				t.Fatalf("SwitchDLog: %v", err)
+			}
+		}
 	}
-	compactAwayEverything(t, s)
-
+	cfg := DefaultCompactionConfig()
+	cfg.Cutoff = -time.Hour
+	if err := s.Compact(cfg); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
 	floor := s.ReplayFloor()
 	if floor == 0 {
 		t.Fatal("expected a non-zero floor")
 	}
-	if _, err := readStateAt(s, "", floor, nil); err != nil {
-		t.Errorf("ReadStateAt(%d) below the floor returned err = %v, want nil", floor, err)
+
+	head := int64(len(want) - 1)
+	approximated := 0
+	for c := int64(0); c <= head; c++ {
+		at := s.AnsweredCommit(c, "")
+		if at > c {
+			t.Errorf("a read at %d is answered at %d, after it", c, at)
+			continue
+		}
+		if at != c {
+			approximated++
+		}
+		got, err := readStateAt(s, "", at, nil)
+		if err != nil {
+			t.Errorf("read at %d (answering %d): %v", at, c, err)
+			continue
+		}
+		if !sameState(t, got, want[at]) {
+			t.Errorf("a read at %d answers %d with %s, which is not the state at %d: %s",
+				c, at, show(got), at, want[at])
+		}
+	}
+	if at := s.AnsweredCommit(head, ""); at != head {
+		t.Errorf("the head %d is answered at %d", head, at)
+	}
+	if approximated == 0 {
+		t.Errorf("no read was answered earlier than asked, with floor %d: the case is not exercised", floor)
 	}
 }
 
@@ -236,4 +283,24 @@ func TestDroppedPatchFloor_RepeatedSegmentsPerPath(t *testing.T) {
 	if got := droppedPatchFloor(segs, nil); got != 5 {
 		t.Errorf("droppedPatchFloor with the entry dropped = %d, want 5", got)
 	}
+}
+
+// sameState says the state read is the one written: src in tony, "" for nothing.
+func sameState(t *testing.T, got *ir.Node, src string) bool {
+	t.Helper()
+	if src == "" {
+		return got == nil
+	}
+	want, err := parse.Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("parse %q: %v", src, err)
+	}
+	return got != nil && got.DeepEqual(want)
+}
+
+func show(n *ir.Node) string {
+	if n == nil {
+		return "nothing"
+	}
+	return encode.MustString(n)
 }
