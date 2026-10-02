@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
@@ -178,5 +179,100 @@ func TestSession_WatchAboveReplayFloorReplays(t *testing.T) {
 	}
 	if !sawReplayComplete {
 		t.Error("expected replay to complete for a cursor above the floor")
+	}
+}
+
+// A cursor at or above the floor has its deltas, but a watch starts from the STATE at the
+// cursor, and that can be one the store no longer answers exactly: a read there is
+// answered at the first root snapshot at or after it. The watch starts there too, and
+// says so (er3dnqpkh12krsb2qxn0).
+//
+// Here baseline patches 1 and 2 are compacted away and the only snapshot is at 3, a
+// scope's commit, which compaction keeps. So the floor is 2, the state at 2 is gone, and
+// a watch from 2 starts at 3 -- unless it holds its own state, when nothing would tell
+// it so, and it is refused. The ping's floor is where a watch starts as asked, which a
+// router resolving a relative cursor goes by.
+func TestSession_WatchFromAStateCompactionTook(t *testing.T) {
+	store, err := storage.Open(t.TempDir(), nil)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer store.Close()
+
+	sandbox := "sandbox"
+	writeAt(t, store, nil, "users.a", "{n: 1}")
+	writeAt(t, store, nil, "users.b", "{n: 2}")
+	writeAt(t, store, &sandbox, "users.s", "{n: 3}")
+	if err := store.SwitchDLog(); err != nil {
+		t.Fatalf("SwitchDLog: %v", err)
+	}
+	cfg := storage.DefaultCompactionConfig()
+	cfg.Cutoff = -time.Hour
+	if err := store.Compact(cfg); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	if floor := store.ReplayFloor(); floor != 2 {
+		t.Fatalf("floor %d, want 2: the scope's commit at 3 was not kept", floor)
+	}
+	writeAt(t, store, nil, "users.c", "{n: 4}")
+
+	for _, tc := range []struct {
+		name, request string
+		code          string // the watch is refused or ended with it
+		from          int64  // where it starts: its state's commit, and replayingFrom
+	}{
+		{name: "from the floor", request: `watch: {path: users, fromCommit: 2}`, from: 3},
+		{name: "from the snapshot", request: `watch: {path: users, fromCommit: 3}`, from: 3},
+		{name: "everything there is", request: `watch: {path: users, fromCommit: -1000}`, from: 3},
+		{name: "holding its own state", request: `watch: {path: users, fromCommit: 2, noInit: true}`, code: api.ErrCodeReplayCompacted},
+		{name: "below the floor", request: `watch: {path: users, fromCommit: 1}`, code: api.ErrCodeReplayCompacted},
+		{name: "the ping's floor", request: `ping: {}`, from: 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var code string
+			var state *api.WatchEvent
+			var result *api.WatchResult
+			deltas := 0
+			for _, resp := range narrowRequestAll(t, store, `{id: "w", `+tc.request+`}`) {
+				switch {
+				case resp.Error != nil:
+					code = resp.Error.Code
+				case resp.Result != nil && resp.Result.Pong != nil:
+					if resp.Result.Pong.Floor != tc.from {
+						t.Errorf("floor %d, want %d", resp.Result.Pong.Floor, tc.from)
+					}
+					return
+				case resp.Result != nil && resp.Result.Watch != nil:
+					result = resp.Result.Watch
+				case resp.Event != nil && resp.Event.Ended:
+					code = resp.Event.EndReason
+				case resp.Event != nil && resp.Event.State != nil && state == nil:
+					state = resp.Event
+				case resp.Event != nil && resp.Event.Patch != nil:
+					deltas++
+				}
+			}
+			if code != tc.code {
+				t.Fatalf("ended with %q, want %q", code, tc.code)
+			}
+			if tc.code != "" {
+				if state != nil {
+					t.Errorf("sent a state before refusing: %+v", state)
+				}
+				return
+			}
+			if result == nil || result.ReplayingFrom == nil || *result.ReplayingFrom != tc.from {
+				t.Errorf("watch result %+v, want replayingFrom %d", result, tc.from)
+			}
+			if state == nil || state.Commit != tc.from {
+				t.Fatalf("initial state %+v, want one at %d", state, tc.from)
+			}
+			if ir.Get(state.State, "a") == nil || ir.Get(state.State, "b") == nil || len(state.State.Fields) != 2 {
+				t.Errorf("the state at %d is not {a, b}: %+v", tc.from, state.State)
+			}
+			if deltas != 1 {
+				t.Errorf("%d deltas after the state, want commit 4's alone", deltas)
+			}
+		})
 	}
 }

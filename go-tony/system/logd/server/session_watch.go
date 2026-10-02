@@ -123,10 +123,13 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 	// and it cannot name the retained floor by number because it does not know it. An
 	// absolute cursor keeps its refusal (forwardEvents), because a client naming a
 	// commit is claiming to know where it was.
+	//
+	// It is clamped to where a watch may start (watchFloor), which is the floor the ping
+	// reports, so a router resolving the cursor on a client's behalf lands where this does.
 	fromCommit := req.FromCommit
 	if fromCommit != nil && *fromCommit < 0 {
 		start := currentCommit + *fromCommit
-		if floor := s.storage.ReplayFloor(); start < floor {
+		if floor := s.watchFloor(); start < floor {
 			start = floor
 		}
 		if start < 0 {
@@ -136,6 +139,36 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 			"watermark", currentCommit, "from", start)
 		fromCommit = &start
 		watcher.FromCommit = fromCommit
+	}
+
+	// The deltas above a cursor being intact is not enough: a watch starts from the STATE
+	// at its cursor -- the initial state, or the base a replay steps from -- and beyond
+	// compaction's cutoff that state may not be one the store can answer, where a read is
+	// answered at the commit that stands for it instead (storage.AnsweredCommit). The
+	// watch starts there too: its state is that commit's and says so, and the replay
+	// runs from it (er3dnqpkh12krsb2qxn0). A cursor below the floor is not moved; it is
+	// refused, as before (forwardEvents).
+	//
+	// With noInit there is no state event to move the client, which holds the state at
+	// its cursor and would be handed deltas that start past it. That is the event loss
+	// the floor exists to refuse, and it is refused the same way.
+	if fromCommit != nil && *fromCommit >= s.storage.ReplayFloor() {
+		if at := s.storage.AnsweredCommit(*fromCommit); at != *fromCommit {
+			if req.NoInit {
+				s.hub.Unwatch(watcher)
+				s.watchMu.Lock()
+				delete(s.watches, watchKey(id, path))
+				s.watchMu.Unlock()
+				s.sendError(id, api.ErrCodeReplayCompacted, fmt.Sprintf(
+					"cannot replay from commit %d: the state there is no longer held exactly, and a watch from it starts at commit %d; re-watch without noInit to take the state there, or without fromCommit to re-initialize",
+					*fromCommit, at))
+				return
+			}
+			s.log.Debug("watch cursor moved to the commit that stands for it", "path", path,
+				"fromCommit", *fromCommit, "from", at)
+			fromCommit = &at
+			watcher.FromCommit = fromCommit
+		}
 	}
 
 	// Determine replay range
@@ -942,4 +975,13 @@ func (w *watchStream) eachDelta(from, to int64, fn func(*storage.CommitNotificat
 			return err
 		}
 	}
+}
+
+// watchFloor is the oldest commit a watch may start from as asked: its deltas are
+// retained, and so is its state. That is the replay floor, or the commit a read at the
+// replay floor is answered at when compaction has taken what the state there is read
+// from -- from which on every commit is read exactly, since it is a root snapshot at or
+// above every dropped patch.
+func (s *Session) watchFloor() int64 {
+	return s.storage.AnsweredCommit(s.storage.ReplayFloor())
 }

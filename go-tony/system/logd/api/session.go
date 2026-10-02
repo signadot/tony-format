@@ -279,14 +279,22 @@ type NewTxRequest struct {
 //     resumes with no gap. Below the retained history the watch ends before it sends
 //     anything, with EndReason ErrCodeReplayCompacted, because a client naming a commit
 //     is claiming to know where it was and deserves to be told that history is gone.
+//     Above it the deltas are retained, but the STATE at the commit may not be: a watch
+//     starts from the state at its cursor, and beyond compaction's cutoff a read there
+//     is answered at a later commit (MatchRequest.Commit). The watch then starts at that
+//     commit: its state event carries it, and the replay runs from it. With NoInit there
+//     is no state event to move the client, and the watch is refused with
+//     ErrCodeReplayCompacted.
 //   - < 0: RELATIVE. -N means "the last N commits", resolved against the store's
 //     watermark at the moment the watch is established: start = watermark - N, and
-//     never below the retained history or zero. A relative request is a request for
+//     never below where a watch may start (PongResult.Floor) or zero. A relative request
+//     is a request for
 //     what there is, so it is CLAMPED rather than refused -- a client asking for the
 //     last thousand commits of a store that only retains four hundred wants the four
 //     hundred, and does not know the floor to ask for it by number.
 //
-// WatchResult.ReplayingFrom says what a relative offset resolved to.
+// WatchResult.ReplayingFrom says what a relative offset resolved to, and where an absolute
+// cursor was moved to.
 //
 //tony:schemagen=session-watch-request,notag
 type WatchRequest struct {
@@ -477,8 +485,10 @@ type PingRequest struct{}
 //tony:schemagen=session-pong-result,notag
 type PongResult struct {
 	Commit int64 `tony:"field=commit,omitzero"`
-	// Floor is the oldest commit whose delta history is still retained: a watch may
-	// replay from it, and not from below it. It is here for the same reason Commit is
+	// Floor is the oldest commit a watch may start from as asked: its delta history is
+	// retained, and so is the state there, which a commit above the replay floor is not
+	// always (WatchRequest.FromCommit). A watch may replay from it, and from below it is
+	// moved or refused. It is here for the same reason Commit is
 	// -- so that a client, or a router resolving a relative cursor on a client's
 	// behalf, can work out where a watch may start without a read
 	// (4ses3fqsh12ks8awgnn0).
@@ -602,7 +612,8 @@ type WatchResult struct {
 	// ReplayingFrom is the commit the replay starts from, when the watch is
 	// replaying. It is what a RELATIVE FromCommit resolved to -- a client that asked
 	// for the last N commits learns which ones it is getting, and a client whose
-	// request was clamped to the retained floor can see that it was.
+	// request was clamped to the retained floor can see that it was -- and where an
+	// absolute one was moved to, when the state at it is no longer held exactly.
 	ReplayingFrom *int64 `tony:"field=replayingFrom,omitzero"`
 }
 
@@ -841,7 +852,7 @@ const (
 	ErrCodeTxScopeMismatch = "tx_scope_mismatch"      // Participant scope doesn't match transaction scope
 	ErrCodeMatchFailed     = "match_failed"           // Transaction match condition failed
 	ErrCodeReplayFailed    = "replay_failed"          // Watch replay failed, data may be incomplete
-	ErrCodeReplayCompacted = "replay_compacted"       // fromCommit is older than retained delta history; re-watch without it to re-initialize
+	ErrCodeReplayCompacted = "replay_compacted"       // fromCommit is older than retained delta history, or with noInit names a state no longer held exactly; re-watch without it to re-initialize
 	ErrCodeSlowConsumer    = "slow_consumer"          // Watch dropped: the client did not read fast enough to keep its buffer from filling
 	ErrCodeTimeout         = "timeout"                // Operation timed out
 	ErrCodeScopeExists     = "scope_exists"           // Scope already exists

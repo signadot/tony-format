@@ -8,6 +8,7 @@ import (
 
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
+	"github.com/signadot/tony-format/go-tony/system/logd/storage"
 )
 
 // watchingLogdController is a logd-backed controller which serves watches by delegating
@@ -140,6 +141,91 @@ func TestComposedWatchResumesFromACommit(t *testing.T) {
 		t.Errorf("%d replay-complete events; a composed replay is one replay", completes)
 	}
 	t.Logf("replayed %d deltas in order, one replay-complete; per commit: %v", replays, seen)
+
+	// A cursor whose deltas are kept and whose state is not: a watch starts from the
+	// state at its cursor, and beyond compaction's cutoff logd answers that at the first
+	// snapshot at or after it. The composed watch starts there, every sub-watch with it
+	// (er3dnqpkh12krsb2qxn0). A scope's commit, which compaction keeps, stands between
+	// the last baseline write and the snapshot, so the floor is that write and the
+	// state there is gone.
+	store := logd.Spec.Storage
+	cursor, _ := store.GetCurrentCommit()
+	sandbox := "sandbox"
+	tx, err := store.NewTx(1, &sandbox)
+	if err != nil {
+		t.Fatalf("NewTx: %v", err)
+	}
+	p, err := tx.NewPatcher(&api.Patch{PathData: api.PathData{Path: "elsewhere", Data: ir.FromInt(1)}})
+	if err != nil {
+		t.Fatalf("NewPatcher: %v", err)
+	}
+	if r := p.Commit(); !r.Committed {
+		t.Fatalf("scoped commit: %v", r.Error)
+	}
+	snapshot := cursor + 1
+	if err := store.SwitchDLog(); err != nil {
+		t.Fatalf("SwitchDLog: %v", err)
+	}
+	cfg := storage.DefaultCompactionConfig()
+	cfg.Cutoff = -time.Hour
+	if err := store.Compact(cfg); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	if floor := store.ReplayFloor(); floor != cursor {
+		t.Fatalf("floor %d, want the cursor %d", floor, cursor)
+	}
+	if _, err := client.Patch(ctx, "verse.a.after", ir.FromInt(1)); err != nil {
+		t.Fatalf("write after compaction: %s", err)
+	}
+
+	moved, err := client.Watch(ctx, "verse", &WatchOptions{FromCommit: &cursor})
+	if err != nil {
+		t.Fatalf("composed watch from %d: %s", cursor, err)
+	}
+	defer moved.Close()
+	if from := moved.ReplayingFrom(); from == nil || *from != snapshot {
+		t.Errorf("replaying from %v, want the snapshot's %d", from, snapshot)
+	}
+	state, deltas := int64(-1), 0
+	deadline = time.After(5 * time.Second)
+	for done := false; !done; {
+		select {
+		case ev, ok := <-moved.Events():
+			switch {
+			case !ok:
+				t.Fatalf("composed watch from %d closed: %v", cursor, moved.Err())
+			case ev.ReplayComplete:
+				done = true
+			case ev.State != nil:
+				state = ev.Commit
+			default:
+				deltas++
+				if ev.Commit <= snapshot {
+					t.Errorf("delta at commit %d is at or below the state's %d", ev.Commit, snapshot)
+				}
+			}
+		case <-deadline:
+			t.Fatalf("no replay-complete from %d: state at %d, %d deltas", cursor, state, deltas)
+		}
+	}
+	if state != snapshot || deltas != 1 {
+		t.Errorf("state at %d and %d deltas, want the state at %d and the one write after it", state, deltas, snapshot)
+	}
+
+	// A client holding its own state is sent none to move it, and is refused, whether
+	// docd read the state to find out or logd refused the sub-watch.
+	for _, opts := range []*WatchOptions{
+		{FromCommit: &cursor, NoInit: true},
+		{FromCommit: &cursor, NoInit: true, WaitIfAbsent: true},
+	} {
+		w, err := client.Watch(ctx, "verse", opts)
+		if err == nil {
+			w.Close()
+		}
+		if got := api.ErrorCode(err); got != api.ErrCodeReplayCompacted {
+			t.Errorf("noInit from %d (waitIfAbsent %v): %v, want %s", cursor, opts.WaitIfAbsent, err, api.ErrCodeReplayCompacted)
+		}
+	}
 }
 
 // One write is one delta, live. The sub-watch on the composed path sees the whole subtree

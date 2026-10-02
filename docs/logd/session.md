@@ -526,6 +526,14 @@ many commits.
   `fromCommit` is `replay_compacted`: a client naming a commit is claiming to know where
   it was, and deserves to be told the history is gone.
 
+    Above the retained history the deltas are kept, but the **state** at the cursor may
+    not be: a watch starts from the state at its cursor, and beyond compaction's cutoff
+    a read there is answered at the first snapshot at or after it (see
+    [Reading](#reading)). The watch then **starts at that commit**: its state event
+    carries it, `replayingFrom` names it, and the replay runs from it. With `noInit`
+    there is no state event to move the client, which would be handed deltas that start
+    past the state it holds, so that watch is refused with `replay_compacted`.
+
     The replay is **streamed**, not collected: deltas go out as the range is read, so the
     server holds one entry rather than the whole range however wide the catch-up. A
     consumer that cannot keep up is failed at the watch's own buffer, which is the
@@ -541,7 +549,8 @@ many commits.
     It is how a client asks for a window of history **without knowing where the store
     is** — no read, no ping, no arithmetic on a number it had to fetch first. Unlike an
     absolute cursor it is **clamped, not refused**: below the retained history it starts
-    at the floor, and below zero at zero, because a request for a window is a request for
+    at the floor a ping reports, the oldest commit a watch starts from as asked, and
+    below zero at zero, because a request for a window is a request for
     what there is. `replayingFrom` says what it resolved to, so a client that was clamped
     can see that it was.
 
@@ -581,8 +590,8 @@ allocates a transaction id from logd, every participant commits through that one
 it, all-or-nothing — so a commit means the same thing to every mount and a cursor works on
 a composed path too. docd resolves it once (a relative `-N` against the watermark, clamped
 to the retained floor), reads the composed initial state at that commit, replays every
-mount from it, and delivers the replayed deltas **in commit order** followed by a single
-`replayComplete`.
+mount from the commit that state was answered at, and delivers the replayed deltas **in
+commit order** followed by a single `replayComplete`.
 
 A watch that has been confirmed always ends with a terminal **event**, never an error
 response — the request it came from finished when the watch opened, so an error routed by
@@ -735,7 +744,7 @@ writes an object at `a.b`. What separates them is what is there now.
 | `match_failed` | a precondition did not hold; the write did not happen |
 | `invalid_diff` | the delta would not apply to the state it would be stored against, or the schema's keying refuses it — an element without a name, a position on a keyed array, a name where there is no identity |
 | `commit_not_found` | a historical read outside `[0, current]` |
-| `replay_compacted` | `fromCommit` is below retained delta history |
+| `replay_compacted` | `fromCommit` is below retained delta history, or with `noInit` names a state no longer held exactly |
 | `slow_consumer` | a watch was dropped because the client did not keep up |
 | `keying_changed` | a watch ended because a schema commit changed the keying of an array at, under or above its path; watch again from the commit it names |
 | `tx_full`, `tx_not_found`, `tx_scope_mismatch` | transaction membership |
