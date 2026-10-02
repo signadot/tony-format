@@ -79,9 +79,13 @@ func (s *Session) handleSetMatch(id *string, req *api.MatchRequest, path string,
 				depthWord(cur.depth), depthWord(depth)))
 			return
 		}
-		if req.Commit != nil && *req.Commit != cur.commit {
+		// commit is what the commit this request names is answered at (handleMatch), and
+		// the cursor carries what the first page's was: the same request, repeated with
+		// its cursor, continues.
+		if req.Commit != nil && commit != cur.commit {
 			s.sendError(id, api.ErrCodeCommitNotFound, fmt.Sprintf(
-				"cursor reads at commit %d, and this asks for %d", cur.commit, *req.Commit))
+				"cursor reads at commit %d, and this asks for %d, which is answered at %d",
+				cur.commit, *req.Commit, commit))
 			return
 		}
 		current, err := s.storage.GetCurrentCommit()
@@ -92,6 +96,15 @@ func (s *Session) handleSetMatch(id *string, req *api.MatchRequest, path string,
 		if cur.commit < 0 || cur.commit > current {
 			s.sendError(id, api.ErrCodeCommitNotFound, fmt.Sprintf(
 				"cursor reads at commit %d, which is outside [0, %d]", cur.commit, current))
+			return
+		}
+		// A compaction since the page before can have taken what the cursor's commit is
+		// read from. The pages of one read are one state, so the read starts again
+		// rather than going on at another.
+		if at := s.storage.AnsweredCommit(cur.commit); at != cur.commit {
+			s.sendError(id, api.ErrCodeCommitNotFound, fmt.Sprintf(
+				"cursor reads at commit %d, which is no longer held exactly (a read there is answered at %d): start the read again",
+				cur.commit, at))
 			return
 		}
 		commit, after = cur.commit, cur.after

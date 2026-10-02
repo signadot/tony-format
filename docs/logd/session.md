@@ -101,18 +101,23 @@ logd's single commit sequence, so a composed read at a commit is one consistent
 snapshot.
 
 A commit older than [compaction](compaction.md)'s cutoff may not be answerable exactly:
-the deltas between the snapshot the read starts from and the commit asked can be gone,
-and what survives of them folds to a state no commit held. Such a read is answered **at
-the snapshot**, and its `commit` says so: ask for 95, get `commit: 80`, and the body is
-the state at 80. History beyond the cutoff is approximate, not an error, so the read is
-not refused; whether an earlier state will do is the caller's to decide. A read at the
-head, or anywhere within the cutoff, is answered at the commit asked. Across docd every
-source is read at the commit answered, so the composed body is still one commit's.
+the deltas between the snapshot before it and the commit can be gone, and what survives
+of them folds to a state no commit held. Such a read is answered at **the first
+snapshot at or after the commit**, and its `commit` says so: ask for 95 with snapshots
+at 80 and 100, get `commit: 100`, and the body is the state at 100. That snapshot is
+what compaction kept in place of commits 81 to 100, so it holds what 95 wrote, and what
+96 to 100 wrote after it. History beyond the cutoff is approximate, not an error, so the
+read is not refused; whether a later state will do is the caller's to decide.
+
+Whether a commit is answered exactly is a fact about the commit, the same at every
+path: it is, when the snapshot before it is at it, or no baseline delta has been dropped
+since that snapshot. A read at the head always is. Across docd every source is read at
+the commit answered, so the composed body is still one commit's.
 
 Finding nothing is an answer too, and says where: a read with a `commit` that ends in
-`not_found` (or `path_conflict`, or an `invalid_path` its schema decided) carries the
-commit it was answered at on the error, `{error: {code: not_found, message: ..., commit:
-80}}`, since nothing at 80 is not nothing at 95.
+`not_found`, `path_conflict` or `invalid_path` carries the commit it was answered at on
+the error, `{error: {code: not_found, message: ..., commit: 100}}`, since nothing at
+100 is not nothing at 95.
 
 A read at a commit reads the document **under the schema in force at that commit**, not
 today's: which arrays are [keyed](keyed.md), and by what, is that commit's, so the shape of
@@ -327,6 +332,12 @@ second page answers, and no page straddles two states. A cursor whose commit has
 out of range is `commit_not_found`, and one sent with a different `path` than the read
 it came from is `invalid_path`. It is **opaque** — read it back to the server rather
 than reading it.
+
+A read that named a `commit` continues by repeating it with the cursor. When that commit
+was answered at another (see [Reading](#reading)), the cursor carries the one answered,
+and the commit asked still leads there. If a compaction between two pages takes what
+the cursor's commit is read from, the continuation is `commit_not_found`, and the read
+starts again: its pages would otherwise come from two states.
 
 A descent pages the same way. Its order is a walk, so a page may end anywhere in it —
 between a node and its first child, at the bottom of one branch before the next — and

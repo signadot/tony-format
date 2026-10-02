@@ -147,30 +147,20 @@ func (s *ClientSession) composeCheck(clientID *string, path string, below []*Mou
 	return owner, pFields, nil
 }
 
-// composeReadTree reads the base owner of path plus every mount below it
-// concurrently, then merges the results — deeper mounts overlaying shallower —
-// into a single document rooted at path, returning it with the max commit across
-// sources.
+// composeReadTree reads the base owner of path plus every mount below it, then
+// merges the results — deeper mounts overlaying shallower — into a single document
+// rooted at path, returning it with the commit it holds: the max across sources for
+// a read at the head, read concurrently.
 //
-// A historical read is answered at one commit for every source, and that is not
-// always the one asked: logd answers a commit older than compaction keeps exactly
-// at an earlier one, and says so (storage.AnsweredCommit). Composing that with the
-// mounts' answers at the commit asked would be a tree no commit held, under a
-// number that describes only part of it. So when a source answers earlier, every
-// source is read again there, and the composed answer carries it.
+// A historical read is one commit's for every source, and that is not always the
+// commit asked: logd answers a commit whose patches compaction has partly taken at
+// the commit that stands for it, and says which (storage.AnsweredCommit). Composing
+// that with the mounts' answers at the commit asked would be a tree no commit held,
+// under a number that describes only part of it. So the base is read first, and the
+// mounts are read at the commit it was answered at, which the composed answer
+// carries. A mount's runtime reports no commit (libctl's handleMatch), so a base
+// that is one leaves the commit as asked.
 func (s *ClientSession) composeReadTree(path string, owner *MountEntry, below []*MountEntry, pFields []string, atCommit *int64) (*ir.Node, int64, error) {
-	root, commit, err := s.composeReadTreeAt(path, owner, below, pFields, atCommit)
-	if err != nil && !errors.Is(err, errSourceAbsent) || atCommit == nil || commit >= *atCommit {
-		return root, commit, err
-	}
-	// Read at a commit the store answers exactly, the second pass answers at it.
-	return s.composeReadTreeAt(path, owner, below, pFields, &commit)
-}
-
-// composeReadTreeAt is one pass of composeReadTree. For a historical read it answers
-// the earliest commit a source reported, so an earlier answer shows; a controller's
-// runtime reports none (libctl's handleMatch), and its zero is not a commit.
-func (s *ClientSession) composeReadTreeAt(path string, owner *MountEntry, below []*MountEntry, pFields []string, atCommit *int64) (*ir.Node, int64, error) {
 	// readResult carries one source's subtree and where it sits relative to path
 	// (nil fields = the base owner, rooted at path itself).
 	type readResult struct {
@@ -180,11 +170,24 @@ func (s *ClientSession) composeReadTreeAt(path string, owner *MountEntry, below 
 		err    error
 	}
 	results := make(chan readResult, len(below)+1)
-
-	go func() {
+	readBase := func() readResult {
 		body, commit, err := s.readFrom(owner, path, atCommit)
-		results <- readResult{fields: nil, body: body, commit: commit, err: err}
-	}()
+		return readResult{fields: nil, body: body, commit: commit, err: err}
+	}
+
+	var commit int64
+	if atCommit != nil {
+		commit = *atCommit
+		base := readBase()
+		// Nothing at the path is an answer too, and says the commit it is at.
+		if owner == nil && (base.err == nil || errors.Is(base.err, errSourceAbsent)) {
+			commit = base.commit
+		}
+		atCommit = &commit
+		results <- base
+	} else {
+		go func() { results <- readBase() }()
+	}
 	for _, m := range below {
 		go func(m *MountEntry) {
 			mf, ferr := pathFields(m.Path) // validated at registration
@@ -199,10 +202,6 @@ func (s *ClientSession) composeReadTreeAt(path string, owner *MountEntry, below 
 
 	collected := make([]readResult, 0, len(below)+1)
 	var firstErr, firstAbsent error
-	var commit int64
-	if atCommit != nil {
-		commit = *atCommit
-	}
 	for i := 0; i < len(below)+1; i++ {
 		r := <-results
 		if r.err != nil {
@@ -220,10 +219,6 @@ func (s *ClientSession) composeReadTreeAt(path string, owner *MountEntry, below 
 				if firstAbsent == nil {
 					firstAbsent = r.err
 				}
-				// Absent at an earlier commit than asked is still an answer at it.
-				if atCommit != nil && r.fields == nil && owner == nil && r.commit < commit {
-					commit = r.commit
-				}
 				continue
 			}
 			if firstErr == nil {
@@ -231,13 +226,7 @@ func (s *ClientSession) composeReadTreeAt(path string, owner *MountEntry, below 
 			}
 			continue
 		}
-		fromLogd := r.fields == nil && owner == nil
-		switch {
-		case atCommit != nil:
-			if r.commit < commit && (fromLogd || r.commit != 0) {
-				commit = r.commit
-			}
-		case r.commit > commit:
+		if atCommit == nil && r.commit > commit {
 			commit = r.commit
 		}
 		collected = append(collected, r)

@@ -39,7 +39,7 @@ var ErrReplayCompacted = errors.New("replay range starts below the replay floor;
 //
 // State at a commit below the floor is still readable, and the commit number is still
 // valid and never reused (reconcileWatermark). Only the deltas are gone, and a read that
-// would need them is answered at the commit the store still holds exactly, and says so
+// would need them is answered at a commit the store still holds exactly, and says so
 // (AnsweredCommit).
 
 // loadReplayFloor reads the persisted replay floor, or 0 if none has been written.
@@ -64,39 +64,115 @@ func (s *Storage) ReplayFloor() int64 {
 	return s.replayFloor.Load()
 }
 
-// AnsweredCommit is the commit a baseline read at kp, asked at `at`, can be answered at
-// exactly: `at` itself, or an earlier commit when compaction has taken patches the read
-// would need.
+// AnsweredCommit is the commit a read asked at `at` is answered at: `at` itself, or a
+// later commit when compaction has taken patches the read would fold.
 //
-// A read seeks the newest snapshot at or above kp at or below `at` and folds the patches
-// after it (findSubtreeBaseReader). With the snapshot at S, that fold is exact when S is
-// `at` -- nothing to fold -- or S is at or above the floor, since every patch above the
-// floor is kept. Otherwise some of the patches in (S, at] may be gone, and the fold of
-// the survivors is a state no commit held, which no commit number could honestly label.
-// What the store CAN answer is the snapshot itself, so that is the answer: S, with
-// nothing folded, and the caller told so by the commit. That is the snapshot granularity
-// compaction promises beyond its cutoff (compaction.go), stated rather than hidden.
+// A read seeks a snapshot at or below its commit and folds the patches after it. With the
+// newest ROOT snapshot at or below `at` at S, that fold is exact when S is `at` --
+// nothing to fold -- or S is at or above the baseline floor, since every baseline patch
+// above that floor is kept. Otherwise patches in (S, at] may be gone, and the fold of the
+// survivors is a state no commit held, which no commit number could honestly label.
 //
-// No snapshot means the read starts from nothing, which is commit 0.
+// Such a read is answered at the CEILING: the oldest root snapshot at or after `at`. That
+// snapshot is what compaction left standing for the commits between S and it, `at` among
+// them, so it holds what `at` wrote -- where S holds nothing written since S, `at`'s own
+// write included. It also holds what was written after `at`, up to the snapshot: that is
+// the snapshot granularity compaction promises beyond its cutoff (compaction.go), and the
+// caller is told by the commit. A compaction writes a root snapshot at the switch before
+// it drops anything, so there is one at or after every patch it took; with none, which a
+// store compacted without that snapshot can have, the answer is the head.
 //
-// A read at a snapshot this answers is exact, and so is a read of anything beneath kp at
-// it: the snapshot at or above kp is at or above everything under kp too.
+// It is a property of the COMMIT, not of a path. A snapshot of a path could make one
+// read exact where its ancestors' are not -- and a read at a path reads them too, to say
+// why nothing is there, or through a write above it -- so a commit that answered
+// differently by path would be two commits under one number. The root's snapshots decide
+// for every path, and a read at a root snapshot's commit is exact at all of them.
 //
-// It does not answer for a scope's term, which folds from commit 0 rather than from the
+// The read applies this itself (Read, Children, kindFromIndex), so no caller can be
+// handed the fold; a caller that has to SAY which commit it read asks here first, and
+// reading at the answer is reading at it: an answered commit answers itself.
+//
+// It does not answer for a scope's term, which folds from commit 0 rather than from a
 // snapshot (projectScope; em3dnqpkh12ks0jzqxn0).
-func (s *Storage) AnsweredCommit(at int64, kp string) int64 {
-	floor := s.replayFloor.Load()
+func (s *Storage) AnsweredCommit(at int64) int64 {
+	floor := s.baselineFloor.Load()
 	if floor == 0 {
 		return at
 	}
-	var base int64
-	if seg, ok := s.index.SnapshotAtOrAbove(kp, at); ok {
-		base = seg.StartCommit
-	}
-	if base == at || base >= floor {
+	below, _ := s.index.SnapshotCommitAtOrBelow(at)
+	if below == at || below >= floor {
 		return at
 	}
-	return base
+	if after, ok := s.index.SnapshotCommitAtOrAfter(at); ok {
+		return after
+	}
+	if head := s.tick.current(); head > at {
+		return head
+	}
+	return at
+}
+
+// baselineFloorFile holds the baseline floor, beside the replay floor.
+const baselineFloorFile = "baseline-floor"
+
+// The baseline floor is the highest commit of a BASELINE patch compaction has removed,
+// and it is what a read goes by (AnsweredCommit). The replay floor will not do: it rises
+// for a scope's dropped entry too -- a deleted scope's go whatever their age -- which
+// takes nothing a baseline read folds, so a read that went by it was answered
+// approximately with every one of its patches still on disk.
+
+// loadBaselineFloor reads the persisted baseline floor, and says whether one was.
+func loadBaselineFloor(root string) (int64, bool, error) {
+	data, err := os.ReadFile(filepath.Join(root, "meta", baselineFloorFile))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, false, nil
+		}
+		return 0, false, err
+	}
+	if len(data) < 8 {
+		return 0, false, fmt.Errorf("invalid baseline floor file: expected 8 bytes, got %d", len(data))
+	}
+	return int64(binary.LittleEndian.Uint64(data)), true, nil
+}
+
+// raiseBaselineFloor persists a new baseline floor and then adopts it, if it is higher
+// than the current one: before the destructive step, as raiseReplayFloor is and for its
+// reason. Too high costs an approximate answer to a read that had an exact one; too low
+// is the mislabelled fold. A floor that is not higher is still written when none is on
+// disk yet, so that its being there says it was kept (Open).
+func (s *Storage) raiseBaselineFloor(floor int64) error {
+	current := s.baselineFloor.Load()
+	if floor <= current {
+		if s.baselineFloorKept.Load() {
+			return nil
+		}
+		floor = current
+	}
+	if err := writeFloor(filepath.Join(s.sequence.Root, "meta", baselineFloorFile), floor); err != nil {
+		return err
+	}
+	s.baselineFloorKept.Store(true)
+	if floor > current {
+		s.baselineFloor.Store(floor)
+		s.logger.Info("baseline floor raised; a read is exact from a root snapshot at or above it", "floor", floor)
+	}
+	return nil
+}
+
+// writeFloor writes a floor to its file, whole or not at all.
+func writeFloor(path string, floor int64) error {
+	tmp := path + ".tmp"
+	var data [8]byte
+	binary.LittleEndian.PutUint64(data[:], uint64(floor))
+	if err := os.WriteFile(tmp, data[:], 0644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // raiseReplayFloor persists a new floor and then adopts it, if it is higher than the
@@ -117,16 +193,7 @@ func (s *Storage) raiseReplayFloor(floor int64) error {
 		return nil
 	}
 
-	path := filepath.Join(s.sequence.Root, "meta", replayFloorFile)
-	tmp := path + ".tmp"
-
-	var data [8]byte
-	binary.LittleEndian.PutUint64(data[:], uint64(floor))
-	if err := os.WriteFile(tmp, data[:], 0644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
+	if err := writeFloor(filepath.Join(s.sequence.Root, "meta", replayFloorFile), floor); err != nil {
 		return err
 	}
 
@@ -149,6 +216,16 @@ func (s *Storage) raiseReplayFloor(floor int64) error {
 // A segment appears once per path its entry touches; taking a maximum is indifferent to
 // the repeats.
 func droppedPatchFloor(all, survivors []index.LogSegment) int64 {
+	return droppedFloor(all, survivors, false)
+}
+
+// droppedBaselineFloor is droppedPatchFloor over baseline's patches alone: what the
+// baseline floor rises to.
+func droppedBaselineFloor(all, survivors []index.LogSegment) int64 {
+	return droppedFloor(all, survivors, true)
+}
+
+func droppedFloor(all, survivors []index.LogSegment, baselineOnly bool) int64 {
 	kept := make(map[int64]map[int64]bool, len(survivors)) // position -> commit -> kept
 	for _, seg := range survivors {
 		if kept[seg.LogPosition] == nil {
@@ -161,6 +238,9 @@ func droppedPatchFloor(all, survivors []index.LogSegment) int64 {
 	for _, seg := range all {
 		if seg.StartCommit == seg.EndCommit {
 			continue // a snapshot
+		}
+		if baselineOnly && seg.ScopeID != nil {
+			continue
 		}
 		if kept[seg.LogPosition][seg.EndCommit] {
 			continue

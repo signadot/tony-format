@@ -309,11 +309,12 @@ func TestSession_MatchAtCommit(t *testing.T) {
 		t.Errorf("bad: expected %s, got %s (%s)", api.ErrCodeCommitNotFound, bad.Error.Code, bad.Error.Message)
 	}
 
-	// Beyond compaction's cutoff a commit may not be answerable exactly: the patches
-	// between the snapshot a read starts from and the commit asked are gone, and their
-	// survivors fold to a state no commit held. The read is answered at the snapshot,
-	// and says so by its commit (cpqj2tf6h12kr5jxqxn0). Snapshots fall at 2 and 4, and
-	// the patches through 4 are compacted away.
+	// Beyond compaction's cutoff a commit may not be answerable exactly: patches between
+	// the snapshot a read starts from and the commit asked are gone, and their survivors
+	// fold to a state no commit held. The read is answered at the ceiling, the oldest
+	// root snapshot at or after the commit, and says so by its commit
+	// (cpqj2tf6h12kr5jxqxn0). Snapshots fall at 2 and 4, and patches 3 and 4 are
+	// compacted away.
 	if err := store.SwitchDLog(); err != nil {
 		t.Fatalf("SwitchDLog: %v", err)
 	}
@@ -328,32 +329,40 @@ func TestSession_MatchAtCommit(t *testing.T) {
 	if err := store.Compact(cfg); err != nil {
 		t.Fatalf("Compact: %v", err)
 	}
+	four := []string{"alice", "bob", "carol", "dave"}
 	got := runRequests(t, store, hub,
 		`{id: "at3", match: {path: users, commit: 3}}`,
 		`{id: "at4", match: {path: users, commit: 4}}`,
+		`{id: "at5", match: {path: users, commit: 5}}`,
 		`{id: "set3", match: {path: "users.*", commit: 3}}`,
-		`{id: "at1", match: {path: users, commit: 1}}`,
-		`{id: "zed4", match: {path: users.zed, commit: 4}}`)
+		`{id: "cursor3", match: {path: users, commit: 3, cursor: "x"}}`,
+		`{id: "zed3", match: {path: users.zed, commit: 3}}`,
+		`{id: "zed5", match: {path: users.zed, commit: 5}}`,
+		`{id: "key3", match: {path: "users(r1)", commit: 3}}`)
 	for _, tc := range []struct {
 		id     string
 		commit int64
 		users  []string // nil for a set's closing answer, which carries no body
-		absent bool     // answered not_found, at commit
+		code   string   // an error, which says the commit it answers at
 	}{
-		{id: "at3", commit: 2, users: []string{"alice", "bob"}},
-		{id: "at4", commit: 4, users: []string{"alice", "bob", "carol", "dave"}},
-		{id: "set3", commit: 2},
-		// Nothing there says where: at 1 is answered at 0, before users was written,
-		// and "nothing at 0" is not "nothing at 1".
-		{id: "at1", commit: 0, absent: true},
-		{id: "zed4", commit: 4, absent: true},
+		{id: "at3", commit: 4, users: four},
+		{id: "at4", commit: 4, users: four},
+		{id: "at5", commit: 5, users: append(four[:4:4], "erin")},
+		{id: "set3", commit: 4},
+		// A cursor means nothing on a path naming one node, and settles nothing.
+		{id: "cursor3", commit: 4, users: four},
+		// Nothing there says where: nothing at 4 is not nothing at 3.
+		{id: "zed3", commit: 4, code: api.ErrCodeNotFound},
+		{id: "zed5", commit: 5, code: api.ErrCodeNotFound},
+		// And so does a path the commit's schema refuses.
+		{id: "key3", commit: 4, code: api.ErrCodeInvalidPath},
 	} {
 		r := got[tc.id]
-		if tc.absent {
-			if r == nil || r.Error == nil || r.Error.Code != api.ErrCodeNotFound {
-				t.Errorf("%s: expected not_found, got %+v", tc.id, r)
+		if tc.code != "" {
+			if r == nil || r.Error == nil || r.Error.Code != tc.code {
+				t.Errorf("%s: expected %s, got %+v", tc.id, tc.code, r)
 			} else if r.Error.Commit == nil || *r.Error.Commit != tc.commit {
-				t.Errorf("%s: not_found at commit %v, want %d", tc.id, r.Error.Commit, tc.commit)
+				t.Errorf("%s: %s at commit %v, want %d", tc.id, tc.code, r.Error.Commit, tc.commit)
 			}
 			continue
 		}
@@ -376,6 +385,22 @@ func TestSession_MatchAtCommit(t *testing.T) {
 				t.Errorf("%s: %s missing: %s", tc.id, u, encode.MustString(body))
 			}
 		}
+	}
+
+	// A paged read at such a commit continues by repeating itself with its cursor: the
+	// cursor carries the commit answered, and the commit asked is answered there still.
+	const page = `{id: "p", match: {path: "users.*", commit: 3, return: path, limit: 3`
+	first := mustSet(t, runSet(t, store, page+`}}`), "p")
+	if first.marker.Commit != 4 || first.marker.Cursor == "" {
+		t.Fatalf("page 1: commit %d, cursor %q, want commit 4 and a cursor", first.marker.Commit, first.marker.Cursor)
+	}
+	second := runSet(t, store, fmt.Sprintf(page+`, cursor: %q}}`, first.marker.Cursor))["p"]
+	if second == nil || second.err != nil || second.marker == nil {
+		t.Fatalf("page 2: %+v", second)
+	}
+	if second.marker.Commit != 4 || len(first.members)+len(second.members) != 4 {
+		t.Errorf("page 2 at commit %d, and %d members over both pages, want commit 4 and 4",
+			second.marker.Commit, len(first.members)+len(second.members))
 	}
 }
 

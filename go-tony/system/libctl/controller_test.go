@@ -787,15 +787,15 @@ func TestDocd_ComposeAncestorReadAtCommit(t *testing.T) {
 	}
 
 	// Beyond compaction's cutoff a commit may not be answerable exactly, and the read
-	// is answered at the snapshot it starts from, which MatchAtCommit reports, across
-	// docd, for the base and the mount alike (cpqj2tf6h12kr5jxqxn0). A snapshot of
-	// state B, two commits after it, a snapshot later still, and the commits between
-	// the two snapshots compacted away.
+	// is answered at the ceiling, the oldest root snapshot at or after it, which
+	// MatchAtCommit reports, across docd, for the base and the mount alike
+	// (cpqj2tf6h12kr5jxqxn0). A snapshot of state B; writes to the base and the mount,
+	// which is the commit read; one more to the base and a snapshot, the ceiling; and
+	// the commits between the two snapshots compacted away.
 	store := logd.Spec.Storage
 	if err := store.SwitchDLog(); err != nil {
 		t.Fatalf("SwitchDLog: %v", err)
 	}
-	atB, _ := store.GetCurrentCommit()
 	if _, err := client.Patch(ctx, "a.x", vObj(3)); err != nil {
 		t.Fatalf("advance base a.x: %v", err)
 	}
@@ -806,6 +806,7 @@ func TestDocd_ComposeAncestorReadAtCommit(t *testing.T) {
 	if _, err := client.Patch(ctx, "a.x", vObj(4)); err != nil {
 		t.Fatalf("advance base a.x: %v", err)
 	}
+	atD, _ := store.GetCurrentCommit()
 	if err := store.SwitchDLog(); err != nil {
 		t.Fatalf("SwitchDLog: %v", err)
 	}
@@ -821,22 +822,28 @@ func TestDocd_ComposeAncestorReadAtCommit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compacted composed match: %v", err)
 	}
-	if at != atB {
-		t.Errorf("a read at %d was answered at %d, want the snapshot's %d", atC, at, atB)
+	if at != atD {
+		t.Errorf("a read at %d was answered at %d, want the snapshot's %d", atC, at, atD)
 	}
-	if v, err := old.GetPath("$.x.v"); err != nil || v == nil || v.Int64 == nil || *v.Int64 != 2 {
-		t.Errorf("compacted a.x.v: got %v (err %v), want 2, the state at %d", v, err, atB)
+	if v, err := old.GetPath("$.x.v"); err != nil || v == nil || v.Int64 == nil || *v.Int64 != 4 {
+		t.Errorf("compacted a.x.v: got %v (err %v), want 4, the state at %d", v, err, atD)
 	}
-	if v, err := old.GetPath("$.b.k.v"); err != nil || v == nil || v.Int64 == nil || *v.Int64 != 2 {
-		t.Errorf("compacted a.b.k.v: got %v (err %v), want 2, the state at %d", v, err, atB)
+	if v, err := old.GetPath("$.b.k.v"); err != nil || v == nil || v.Int64 == nil || *v.Int64 != 3 {
+		t.Errorf("compacted a.b.k.v: got %v (err %v), want 3, the state at %d", v, err, atD)
 	}
 
-	// Nothing there says at which commit: a read at 1 is answered from no snapshot at
-	// all, commit 0, where the document holds nothing.
-	_, _, err = client.MatchAtCommit(ctx, "a", 1)
-	var se *api.SessionError
-	if !errors.As(err, &se) || se.Code != api.ErrCodeNotFound || se.Commit == nil || *se.Commit != 0 {
-		t.Errorf("a read at 1: %v, want not_found at commit 0", err)
+	// Nothing there says at which commit, through docd as from logd: on a read docd
+	// passes to logd whole, answered at the ceiling, and on a composed one where no
+	// source holds anything, here at commit 0.
+	for _, tc := range []struct {
+		path   string
+		at, in int64
+	}{{"nothing", atC, atD}, {"a", 0, 0}} {
+		_, _, err = client.MatchAtCommit(ctx, tc.path, tc.at)
+		var se *api.SessionError
+		if !errors.As(err, &se) || se.Code != api.ErrCodeNotFound || se.Commit == nil || *se.Commit != tc.in {
+			t.Errorf("a read of %q at %d: %v, want not_found at commit %d", tc.path, tc.at, err, tc.in)
+		}
 	}
 }
 

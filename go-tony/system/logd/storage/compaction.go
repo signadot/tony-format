@@ -81,6 +81,14 @@ func (s *Storage) Compact(config *CompactionConfig) error {
 	// Record how far back delta replay will still be exact BEFORE dropping anything, so a
 	// crash in between leaves the floor too high rather than too low — pessimistic costs a
 	// spurious ErrReplayCompacted, optimistic costs silent event loss. See raiseReplayFloor.
+	//
+	// The baseline floor first, which says how far back a READ is still exact and which
+	// only a dropped baseline patch moves: it is recorded even when it does not move, so
+	// that a replay floor on disk without it means a store compacted before it was kept
+	// (Open), and nothing else.
+	if err := s.raiseBaselineFloor(droppedBaselineFloor(segmentsOf(records), segmentsOf(survivors))); err != nil {
+		return fmt.Errorf("failed to record baseline floor: %w", err)
+	}
 	if floor := droppedPatchFloor(segmentsOf(records), segmentsOf(survivors)); floor > 0 {
 		if err := s.raiseReplayFloor(floor); err != nil {
 			return fmt.Errorf("failed to record replay floor: %w", err)

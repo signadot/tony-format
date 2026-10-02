@@ -71,21 +71,3 @@ func kpathHasWild(path string) bool {
 	}
 	return false
 }
-
-// concretePrefix is path up to its first wildcard segment: the node every member of the
-// set it names lies under, and the path itself when it names one node.
-func concretePrefix(path string) string {
-	kp, err := kpath.Parse(path)
-	if err != nil {
-		return path
-	}
-	prefix := ""
-	segs := kpath.SplitAll(path)
-	for i, x := 0, kp; x != nil && i < len(segs); i, x = i+1, x.Next {
-		if x.Wild() {
-			break
-		}
-		prefix = kpath.Join(prefix, segs[i])
-	}
-	return prefix
-}

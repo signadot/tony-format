@@ -132,6 +132,40 @@ func (i *Index) SnapshotAtOrAbove(kp string, at int64) (LogSegment, bool) {
 	return best, found
 }
 
+// SnapshotCommitAtOrBelow answers the commit of this node's newest baseline snapshot at
+// or below at, and SnapshotCommitAtOrAfter the oldest at or after it. Asked of the root
+// they are the root snapshots a commit sits between, which is what says whether a read
+// at the commit is exact and, when it is not, where it is answered instead
+// (Storage.AnsweredCommit). The regions' headers answer both, in commit order, so each
+// stops at the first region that holds one; nothing is paged in.
+func (i *Index) SnapshotCommitAtOrBelow(at int64) (int64, bool) {
+	i.RLock()
+	defer i.RUnlock()
+	for k := len(i.regions) - 1; k >= 0; k-- {
+		reg := i.regions[k]
+		if reg.minStart > at {
+			continue
+		}
+		snaps := reg.snaps
+		if j := sort.Search(len(snaps), func(j int) bool { return snaps[j] > at }); j > 0 {
+			return snaps[j-1], true
+		}
+	}
+	return 0, false
+}
+
+func (i *Index) SnapshotCommitAtOrAfter(at int64) (int64, bool) {
+	i.RLock()
+	defer i.RUnlock()
+	for _, reg := range i.regions {
+		snaps := reg.snaps
+		if j := sort.Search(len(snaps), func(j int) bool { return snaps[j] >= at }); j < len(snaps) {
+			return snaps[j], true
+		}
+	}
+	return 0, false
+}
+
 // latestSnapshot is this node's most recent baseline snapshot at or below at. The
 // regions' headers say which commit it is at without paging anything: only the region
 // that holds it is made resident, and only when there is one to hold.

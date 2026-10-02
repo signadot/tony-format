@@ -174,8 +174,8 @@ whole thing.
 The cost:
 
 - **current** state is exact, always, at any setting;
-- a **historical** commit below the cutoff is approximate — it lands on the nearest
-  surviving snapshot;
+- a **historical** commit below the cutoff is approximate — it lands on the first
+  surviving snapshot at or after it;
 - a watch resuming below retained history is refused `replay_compacted`, not served a
   gap.
 

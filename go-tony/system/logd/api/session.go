@@ -95,9 +95,10 @@ type HelloResponse struct {
 // backing logd under a tx id docd allocates, all-or-nothing, so a composed read at a
 // commit is a consistent snapshot of the whole document.
 //
-// A commit compaction no longer answers exactly is answered at the snapshot the read
-// starts from, and MatchResult.Commit names it: history beyond the cutoff is approximate,
-// not an error, and the caller decides whether an earlier state will do.
+// A commit compaction no longer answers exactly is answered at the first root snapshot at
+// or after it, which holds what the commit wrote and what was written between the two,
+// and MatchResult.Commit names it: history beyond the cutoff is approximate, not an
+// error, and the caller decides whether a later state will do.
 //
 // A path holding a wildcard (.* [*] {*} (*), at any segment) names a SET, and the
 // answer is the set: one result per node, each carrying the node's own path, ended by
@@ -114,10 +115,12 @@ type MatchRequest struct {
 	// to its own cap. It means nothing for a path that names one node.
 	Limit *int `tony:"field=limit,omitzero"`
 	// Cursor continues a paging read, and is the Cursor the previous page's marker
-	// carried. It is opaque: it names the commit the set is being read at and how far
-	// the read got, so every page of one paging read answers from the same state, and
-	// a cursor whose commit has aged out of range is ErrCodeCommitNotFound rather than
-	// a silent read of the current one. Path must be the path that started the read.
+	// carried. It is opaque: it names the commit the set is being read at -- the one the
+	// first page was answered at -- and how far the read got, so every page of one paging
+	// read answers from the same state, and a cursor whose commit has aged out of range,
+	// or which compaction has since left unanswerable exactly, is ErrCodeCommitNotFound
+	// rather than a silent read of another. Path must be the path that started the read,
+	// and a Commit beside it the one the first page asked.
 	Cursor string `tony:"field=cursor,omitzero"`
 	// Depth bounds the descents of Path to at most Depth segments between them: how far
 	// the answer may lie off what the path spells, counted from the node the path
@@ -504,8 +507,8 @@ type PongResult struct {
 //tony:schemagen=session-match-result,notag
 type MatchResult struct {
 	// Commit is the commit the answer holds: the head for a read with no commit, and for
-	// one with a commit, that commit -- or, beyond compaction's cutoff, the earlier one the
-	// store still answers exactly (MatchRequest.Commit).
+	// one with a commit, that commit -- or, beyond compaction's cutoff, the later one that
+	// stands for it (MatchRequest.Commit).
 	Commit int64    `tony:"field=commit"`
 	Body   *ir.Node `tony:"field=body"`
 	// Path is the node's own path, on a member of a set. Empty on the answer to a
@@ -730,10 +733,9 @@ type SessionError struct {
 	Message string `tony:"field=message"`
 	// Commit is the commit an answer about the state was settled at, on an error that is
 	// one -- not_found, path_conflict, invalid_path -- answering a read that named a
-	// commit. Beyond compaction's cutoff that read is answered at an earlier commit than
-	// the one asked (MatchResult.Commit), and "nothing there" at the earlier one is not
-	// "nothing there" at the commit asked, so the error says which it is. Nil on any
-	// other error.
+	// commit. Beyond compaction's cutoff that read is answered at a later commit than the
+	// one asked (MatchResult.Commit), and "nothing there" at the later one is not "nothing
+	// there" at the commit asked, so the error says which it is. Nil on any other error.
 	Commit *int64 `tony:"field=commit"`
 }
 

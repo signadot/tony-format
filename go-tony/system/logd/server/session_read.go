@@ -40,6 +40,8 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 		return
 	}
 	commit := current
+	// The commit a state error answers at, for a read that named one (sendReadError).
+	var answered *int64
 	if req.Commit != nil {
 		commit = *req.Commit
 		if commit < 0 || commit > current {
@@ -47,6 +49,16 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 				fmt.Sprintf("commit %d out of range [0, %d]", commit, current))
 			return
 		}
+		// A commit whose patches compaction has partly taken is answered at the commit
+		// that stands for it, and the answer says which (storage.AnsweredCommit): history
+		// beyond the cutoff is approximate, not an error, and the caller who asked for a
+		// commit is the one who knows whether another will do. It is settled here, once,
+		// before the path is judged or anything is read, so the schema, the kind, the
+		// body and every page of a set are that commit's -- and whatever else the request
+		// carries: a cursor continues at its own commit, and is held to this one
+		// (handleSetMatch).
+		commit = s.storage.AnsweredCommit(commit)
+		answered = &commit
 	}
 
 	// And spelled as the store spells it: an element of a keyed array is addressed by its
@@ -55,33 +67,11 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 	// path is judged against the document it reads, so the commit is settled first. A
 	// wildcard path comes back as it went in, and the walk spells its concrete segments
 	// the same way (canonicalChild).
-	canon, err := ident.CanonicalPath(s.storage.SchemaForAt(s.scopeID(), commit), path)
-	if err != nil {
-		s.sendError(id, api.ErrCodeInvalidPath, err.Error())
+	if canon, err := ident.CanonicalPath(s.storage.SchemaForAt(s.scopeID(), commit), path); err != nil {
+		s.sendStateError(id, api.ErrCodeInvalidPath, err.Error(), answered)
 		return
-	}
-
-	// A commit older than compaction keeps exactly is answered at the newest commit the
-	// store can still answer for, and the answer says which (storage.AnsweredCommit):
-	// history beyond the cutoff is approximate, not an error, and the caller who asked for
-	// a commit is the one who knows whether an earlier one will do. It is settled once,
-	// at the node every part of the read lies under, so the kind, the body and every page
-	// of a set answer from the same commit. A continuation's cursor carries the commit
-	// its first page settled on.
-	if req.Commit != nil && req.Cursor == "" {
-		if at := s.storage.AnsweredCommit(commit, concretePrefix(canon)); at != commit {
-			commit = at
-			if canon, err = ident.CanonicalPath(s.storage.SchemaForAt(s.scopeID(), commit), path); err != nil {
-				s.sendStateError(id, api.ErrCodeInvalidPath, err.Error(), &commit)
-				return
-			}
-		}
-	}
-	path = canon
-	// The commit a state error answers at, for a read that named one (sendReadError).
-	var answered *int64
-	if req.Commit != nil {
-		answered = &commit
+	} else {
+		path = canon
 	}
 
 	// A depth bounds a descent, and only a descent: on a path with none it means
@@ -197,7 +187,7 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 //
 // at is the commit the read was settled at, when the read named one. An answer about the
 // state there -- nothing at the path, something of the wrong kind, a segment that names
-// nothing -- carries it, because beyond compaction's cutoff it can be earlier than the
+// nothing -- carries it, because beyond compaction's cutoff it can be later than the
 // commit asked, and absence then is not absence at the commit asked (SessionError.Commit).
 // A read with no commit is at the head, and says nothing more than it did.
 func (s *Session) sendReadError(id *string, err error, at *int64) {
