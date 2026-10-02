@@ -190,8 +190,9 @@ func TestSession_WatchAboveReplayFloorReplays(t *testing.T) {
 // Here baseline patches 1 and 2 are compacted away and the only snapshot is at 3, a
 // scope's commit, which compaction keeps. So the floor is 2, the state at 2 is gone, and
 // a watch from 2 starts at 3 -- unless it holds its own state, when nothing would tell
-// it so, and it is refused. The ping's floor is where a watch starts as asked, which a
-// router resolving a relative cursor goes by.
+// it so, and it is ended as a cursor below the floor is: confirmed, then a terminal
+// event, so a client has one refusal to handle. The ping's floor is where a watch starts
+// as asked, which a router resolving a relative cursor goes by.
 func TestSession_WatchFromAStateCompactionTook(t *testing.T) {
 	store, err := storage.Open(t.TempDir(), nil)
 	if err != nil {
@@ -218,7 +219,7 @@ func TestSession_WatchFromAStateCompactionTook(t *testing.T) {
 
 	for _, tc := range []struct {
 		name, request string
-		code          string // the watch is refused or ended with it
+		code          string // the watch is confirmed and then ended with it
 		from          int64  // where it starts: its state's commit, and replayingFrom
 	}{
 		{name: "from the floor", request: `watch: {path: users, fromCommit: 2}`, from: 3},
@@ -236,7 +237,7 @@ func TestSession_WatchFromAStateCompactionTook(t *testing.T) {
 			for _, resp := range narrowRequestAll(t, store, `{id: "w", `+tc.request+`}`) {
 				switch {
 				case resp.Error != nil:
-					code = resp.Error.Code
+					t.Errorf("answered with an error, %s: a watch that cannot replay is ended, not refused", resp.Error.Code)
 				case resp.Result != nil && resp.Result.Pong != nil:
 					if resp.Result.Pong.Floor != tc.from {
 						t.Errorf("floor %d, want %d", resp.Result.Pong.Floor, tc.from)
@@ -256,8 +257,11 @@ func TestSession_WatchFromAStateCompactionTook(t *testing.T) {
 				t.Fatalf("ended with %q, want %q", code, tc.code)
 			}
 			if tc.code != "" {
-				if state != nil {
-					t.Errorf("sent a state before refusing: %+v", state)
+				if result == nil {
+					t.Errorf("ended without having been confirmed")
+				}
+				if state != nil || deltas != 0 {
+					t.Errorf("sent a state (%+v) or deltas (%d) before ending", state, deltas)
 				}
 				return
 			}

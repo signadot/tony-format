@@ -60,7 +60,7 @@ func startLogdWatchStream(logdAddr, path string, scope *string, fromCommit *int6
 	}
 	if resp.Error != nil {
 		conn.Close()
-		return nil, fmt.Errorf("logd watch %q: %w", path, resp.Error)
+		return nil, fmt.Errorf("logd watch %q: %s", path, resp.Error.Message)
 	}
 
 	w := &logdWatchStream{conn: conn}

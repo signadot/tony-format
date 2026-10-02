@@ -2,6 +2,7 @@ package libctl
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"testing"
 	"time"
@@ -212,19 +213,34 @@ func TestComposedWatchResumesFromACommit(t *testing.T) {
 		t.Errorf("state at %d and %d deltas, want the state at %d and the one write after it", state, deltas, snapshot)
 	}
 
-	// A client holding its own state is sent none to move it, and is refused, whether
-	// docd read the state to find out or logd refused the sub-watch.
+	// A client holding its own state is sent none to move it, and its watch is ended as
+	// one from below the floor is -- established, then ended with replay_compacted --
+	// whether docd read the state to find out or logd ended the sub-watch.
 	for _, opts := range []*WatchOptions{
 		{FromCommit: &cursor, NoInit: true},
 		{FromCommit: &cursor, NoInit: true, WaitIfAbsent: true},
 	} {
 		w, err := client.Watch(ctx, "verse", opts)
-		if err == nil {
-			w.Close()
+		if err != nil {
+			t.Errorf("noInit from %d (waitIfAbsent %v) was refused, not ended: %v", cursor, opts.WaitIfAbsent, err)
+			continue
 		}
-		if got := api.ErrorCode(err); got != api.ErrCodeReplayCompacted {
-			t.Errorf("noInit from %d (waitIfAbsent %v): %v, want %s", cursor, opts.WaitIfAbsent, err, api.ErrCodeReplayCompacted)
+		ended := time.After(5 * time.Second)
+		for open := true; open; {
+			select {
+			case ev, ok := <-w.Events():
+				if open = ok; ok {
+					t.Errorf("noInit from %d (waitIfAbsent %v) delivered an event at commit %d", cursor, opts.WaitIfAbsent, ev.Commit)
+				}
+			case <-ended:
+				t.Fatalf("noInit from %d (waitIfAbsent %v) did not end", cursor, opts.WaitIfAbsent)
+			}
 		}
+		var end *WatchEndedError
+		if !errors.As(w.Err(), &end) || end.Reason != api.ErrCodeReplayCompacted {
+			t.Errorf("noInit from %d (waitIfAbsent %v) ended with %v, want %s", cursor, opts.WaitIfAbsent, w.Err(), api.ErrCodeReplayCompacted)
+		}
+		w.Close()
 	}
 }
 

@@ -283,8 +283,8 @@ type NewTxRequest struct {
 //     starts from the state at its cursor, and beyond compaction's cutoff a read there
 //     is answered at a later commit (MatchRequest.Commit). The watch then starts at that
 //     commit: its state event carries it, and the replay runs from it. With NoInit there
-//     is no state event to move the client, and the watch is refused with
-//     ErrCodeReplayCompacted.
+//     is no state event to move the client, and the watch ends as one below the retained
+//     history does, with EndReason ErrCodeReplayCompacted.
 //   - < 0: RELATIVE. -N means "the last N commits", resolved against the store's
 //     watermark at the moment the watch is established: start = watermark - N, and
 //     never below where a watch may start (PongResult.Floor) or zero. A relative request

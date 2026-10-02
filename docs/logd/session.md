@@ -532,7 +532,8 @@ many commits.
     [Reading](#reading)). The watch then **starts at that commit**: its state event
     carries it, `replayingFrom` names it, and the replay runs from it. With `noInit`
     there is no state event to move the client, which would be handed deltas that start
-    past the state it holds, so that watch is refused with `replay_compacted`.
+    past the state it holds, so that watch ends with `replay_compacted`, as one from
+    below the retained history does.
 
     The replay is **streamed**, not collected: deltas go out as the range is read, so the
     server holds one entry rather than the whole range however wide the catch-up. A

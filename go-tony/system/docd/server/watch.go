@@ -186,6 +186,20 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 			h := head
 			replayingTo = &h
 		}
+		// An absolute cursor below where a watch may start, from a client that takes
+		// no state: its deltas are gone, or the state it holds is one a watch would be
+		// moved off, and nothing would tell it so. logd ends that watch with
+		// replay_compacted, and so does this, here: confirmed and then ended, before
+		// any sub-watch starts, since a sub-watch that ended first would end the
+		// composed watch ahead of its own confirmation.
+		if *fc >= 0 && req.Watch.NoInit && start < floor {
+			s.releaseWatchToken(key)
+			_ = s.writeToClient(logdapi.NewWatchResponseFrom(clientID, path, from, replayingTo))
+			_ = s.writeToClient(terminalWatchEvent(clientID, path, logdapi.ErrCodeReplayCompacted, fmt.Sprintf(
+				"cannot replay from commit %d: a watch may start from commit %d as asked; re-watch without noInit to take the state there, or without fromCommit to re-initialize",
+				start, floor), 0))
+			return
+		}
 	}
 
 	owner, pFields, errResp := s.composeCheck(clientID, path, below)
@@ -263,8 +277,8 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 	// watch starts there, its state that commit's and its replay from it
 	// (er3dnqpkh12krsb2qxn0). The sub-watches replay from the cursor they are given, so
 	// nothing between the read and their start is missed. A client holding its own
-	// state (noInit) cannot be moved by a state it is not sent, and is refused as logd
-	// refuses it.
+	// state (noInit) cannot be moved by a state it is not sent, and its watch is ended
+	// as logd ends it.
 	if from != nil && (!waits || !req.Watch.NoInit) {
 		root, commit, initErr = initialSnapshot()
 		read = true
@@ -277,10 +291,14 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 		}
 		if initErr == nil && commit != *from {
 			if req.Watch.NoInit {
+				// Ended, not refused: confirmed and then ended with replay_compacted,
+				// which is how logd ends a cursor it will not replay from, so a
+				// client has one shape to handle.
 				s.releaseWatchToken(key)
-				_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeReplayCompacted, fmt.Sprintf(
+				_ = s.writeToClient(logdapi.NewWatchResponseFrom(clientID, path, from, replayingTo))
+				_ = s.writeToClient(terminalWatchEvent(clientID, path, logdapi.ErrCodeReplayCompacted, fmt.Sprintf(
 					"cannot replay from commit %d: the state there is no longer held exactly, and a watch from it starts at commit %d; re-watch without noInit to take the state there, or without fromCommit to re-initialize",
-					*from, commit)))
+					*from, commit), 0))
 				return
 			}
 			s.log.Debug("composed watch cursor moved to the commit that stands for it",
@@ -309,15 +327,8 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 	if owner == nil {
 		ls, err := startLogdWatchStream(s.logdAddr, path, s.clientScope, from, cw.forwardOwned)
 		if err != nil {
-			// logd's refusal is the client's, under logd's code: a cursor it will not
-			// replay from is replay_compacted here as it is there. Anything else is
-			// the connection.
-			code := logdapi.ErrorCode(err)
-			if code == "" {
-				code = logdapi.ErrCodeSessionClosed
-			}
 			s.releaseWatchToken(key)
-			_ = s.writeToClient(logdapi.NewErrorResponse(clientID, code, err.Error()))
+			_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeSessionClosed, err.Error()))
 			return
 		}
 		cw.addStop(ls.Stop)

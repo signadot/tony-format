@@ -151,19 +151,10 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 	//
 	// With noInit there is no state event to move the client, which holds the state at
 	// its cursor and would be handed deltas that start past it. That is the event loss
-	// the floor exists to refuse, and it is refused the same way.
-	if fromCommit != nil && *fromCommit >= s.storage.ReplayFloor() {
+	// the floor exists to refuse, and it is refused where the floor's is and as it is
+	// (forwardEvents), so a client has one refusal to handle.
+	if fromCommit != nil && !req.NoInit && *fromCommit >= s.storage.ReplayFloor() {
 		if at := s.storage.AnsweredCommit(*fromCommit); at != *fromCommit {
-			if req.NoInit {
-				s.hub.Unwatch(watcher)
-				s.watchMu.Lock()
-				delete(s.watches, watchKey(id, path))
-				s.watchMu.Unlock()
-				s.sendError(id, api.ErrCodeReplayCompacted, fmt.Sprintf(
-					"cannot replay from commit %d: the state there is no longer held exactly, and a watch from it starts at commit %d; re-watch without noInit to take the state there, or without fromCommit to re-initialize",
-					*fromCommit, at))
-				return
-			}
 			s.log.Debug("watch cursor moved to the commit that stands for it", "path", path,
 				"fromCommit", *fromCommit, "from", at)
 			fromCommit = &at
@@ -316,6 +307,16 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 			s.failWatch(watcher, api.ErrCodeReplayCompacted, fmt.Sprintf(
 				"cannot replay from commit %d: delta history is retained only from commit %d; re-watch without fromCommit to re-initialize",
 				*fromCommit, floor+1), 0)
+			return
+		}
+		// And a cursor whose deltas are intact and whose state is not, from a client
+		// that takes no state: a watch with one was moved to the commit that stands
+		// for the cursor (handleWatch), and this one cannot be told it was.
+		if at := s.storage.AnsweredCommit(*fromCommit); noInit && at != *fromCommit {
+			s.log.Warn("watch cursor's state is no longer held exactly", "path", w.path, "fromCommit", *fromCommit, "startsAt", at)
+			s.failWatch(watcher, api.ErrCodeReplayCompacted, fmt.Sprintf(
+				"cannot replay from commit %d: the state there is no longer held exactly, and a watch from it starts at commit %d; re-watch without noInit to take the state there, or without fromCommit to re-initialize",
+				*fromCommit, at), 0)
 			return
 		}
 	}
