@@ -218,6 +218,7 @@ func (s *Storage) kindFromIndex(commit int64, scopeID *string, kp string) (*ir.N
 		return nil, nil
 	}
 	started := time.Now()
+	commit = s.AnsweredCommit(commit) // as a read is (Read)
 	base, startCommit, _, err := s.findSubtreeBaseReader(commit, kp)
 	if err != nil {
 		return nil, err

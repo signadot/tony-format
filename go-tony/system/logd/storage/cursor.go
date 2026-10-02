@@ -92,6 +92,9 @@ func (s *Storage) Read(at int64, scopeID *string, kp string) (Cursor, error) {
 	if _, err := kpath.Parse(kp); err != nil {
 		return nil, fmt.Errorf("read at %q: %w", kp, err)
 	}
+	// A commit whose patches compaction has partly taken is read at the commit that
+	// stands for it, never as a fold of what is left (AnsweredCommit).
+	at = s.AnsweredCommit(at)
 	started := time.Now()
 	// The index proves a path never written; for a scope, its footprint has to say the
 	// scope has nothing at, above or beneath it either -- a claim above the path puts

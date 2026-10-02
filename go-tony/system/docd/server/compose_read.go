@@ -93,10 +93,16 @@ func (s *ClientSession) coordinateMatch(req *logdapi.SessionRequest, below []*Mo
 		// its answer, and it is the same answer a direct read gives, so it carries
 		// the same code.
 		code := logdapi.ErrCodeMatchFailed
+		resp := logdapi.NewErrorResponse(clientID, code, err.Error())
 		if errors.Is(err, errSourceAbsent) {
-			code = logdapi.ErrCodeNotFound
+			resp.Error.Code = logdapi.ErrCodeNotFound
+			// Nothing there, at the commit the read was answered at, which a read
+			// naming a commit is told (logdapi.SessionError.Commit).
+			if req.Match.Commit != nil {
+				resp.Error.Commit = &commit
+			}
 		}
-		_ = s.writeToClient(logdapi.NewErrorResponse(clientID, code, err.Error()))
+		_ = s.writeToClient(resp)
 		return
 	}
 
@@ -141,10 +147,19 @@ func (s *ClientSession) composeCheck(clientID *string, path string, below []*Mou
 	return owner, pFields, nil
 }
 
-// composeReadTree reads the base owner of path plus every mount below it
-// concurrently, then merges the results — deeper mounts overlaying shallower —
-// into a single document rooted at path, returning it with the max commit across
-// sources.
+// composeReadTree reads the base owner of path plus every mount below it, then
+// merges the results — deeper mounts overlaying shallower — into a single document
+// rooted at path, returning it with the commit it holds: the max across sources for
+// a read at the head, read concurrently.
+//
+// A historical read is one commit's for every source, and that is not always the
+// commit asked: logd answers a commit whose patches compaction has partly taken at
+// the commit that stands for it, and says which (storage.AnsweredCommit). Composing
+// that with the mounts' answers at the commit asked would be a tree no commit held,
+// under a number that describes only part of it. So the base is read first, and the
+// mounts are read at the commit it was answered at, which the composed answer
+// carries. A mount's runtime reports no commit (libctl's handleMatch), so a base
+// that is one leaves the commit as asked.
 func (s *ClientSession) composeReadTree(path string, owner *MountEntry, below []*MountEntry, pFields []string, atCommit *int64) (*ir.Node, int64, error) {
 	// readResult carries one source's subtree and where it sits relative to path
 	// (nil fields = the base owner, rooted at path itself).
@@ -155,11 +170,24 @@ func (s *ClientSession) composeReadTree(path string, owner *MountEntry, below []
 		err    error
 	}
 	results := make(chan readResult, len(below)+1)
-
-	go func() {
+	readBase := func() readResult {
 		body, commit, err := s.readFrom(owner, path, atCommit)
-		results <- readResult{fields: nil, body: body, commit: commit, err: err}
-	}()
+		return readResult{fields: nil, body: body, commit: commit, err: err}
+	}
+
+	var commit int64
+	if atCommit != nil {
+		commit = *atCommit
+		base := readBase()
+		// Nothing at the path is an answer too, and says the commit it is at.
+		if owner == nil && (base.err == nil || errors.Is(base.err, errSourceAbsent)) {
+			commit = base.commit
+		}
+		atCommit = &commit
+		results <- base
+	} else {
+		go func() { results <- readBase() }()
+	}
 	for _, m := range below {
 		go func(m *MountEntry) {
 			mf, ferr := pathFields(m.Path) // validated at registration
@@ -174,7 +202,6 @@ func (s *ClientSession) composeReadTree(path string, owner *MountEntry, below []
 
 	collected := make([]readResult, 0, len(below)+1)
 	var firstErr, firstAbsent error
-	var commit int64
 	for i := 0; i < len(below)+1; i++ {
 		r := <-results
 		if r.err != nil {
@@ -199,7 +226,7 @@ func (s *ClientSession) composeReadTree(path string, owner *MountEntry, below []
 			}
 			continue
 		}
-		if r.commit > commit {
+		if atCommit == nil && r.commit > commit {
 			commit = r.commit
 		}
 		collected = append(collected, r)
@@ -210,7 +237,7 @@ func (s *ClientSession) composeReadTree(path string, owner *MountEntry, below []
 	// Every source was absent, so the composed path is absent too, and the caller hears
 	// that rather than being handed an empty document nobody wrote.
 	if len(collected) == 0 && firstAbsent != nil {
-		return nil, 0, firstAbsent
+		return nil, commit, firstAbsent
 	}
 
 	// Overlay shallow→deep so a mount replaces its slot within the base owner's

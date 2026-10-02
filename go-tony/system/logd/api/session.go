@@ -95,6 +95,11 @@ type HelloResponse struct {
 // backing logd under a tx id docd allocates, all-or-nothing, so a composed read at a
 // commit is a consistent snapshot of the whole document.
 //
+// A commit compaction no longer answers exactly is answered at the first root snapshot at
+// or after it, which holds what the commit wrote and what was written between the two,
+// and MatchResult.Commit names it: history beyond the cutoff is approximate, not an
+// error, and the caller decides whether a later state will do.
+//
 // A path holding a wildcard (.* [*] {*} (*), at any segment) names a SET, and the
 // answer is the set: one result per node, each carrying the node's own path, ended by
 // a result with Done. Limit and Cursor page that set; see MatchResult.
@@ -110,10 +115,12 @@ type MatchRequest struct {
 	// to its own cap. It means nothing for a path that names one node.
 	Limit *int `tony:"field=limit,omitzero"`
 	// Cursor continues a paging read, and is the Cursor the previous page's marker
-	// carried. It is opaque: it names the commit the set is being read at and how far
-	// the read got, so every page of one paging read answers from the same state, and
-	// a cursor whose commit has aged out of range is ErrCodeCommitNotFound rather than
-	// a silent read of the current one. Path must be the path that started the read.
+	// carried. It is opaque: it names the commit the set is being read at -- the one the
+	// first page was answered at -- and how far the read got, so every page of one paging
+	// read answers from the same state, and a cursor whose commit has aged out of range,
+	// or which compaction has since left unanswerable exactly, is ErrCodeCommitNotFound
+	// rather than a silent read of another. Path must be the path that started the read,
+	// and a Commit beside it the one the first page asked.
 	Cursor string `tony:"field=cursor,omitzero"`
 	// Depth bounds the descents of Path to at most Depth segments between them: how far
 	// the answer may lie off what the path spells, counted from the node the path
@@ -272,14 +279,22 @@ type NewTxRequest struct {
 //     resumes with no gap. Below the retained history the watch ends before it sends
 //     anything, with EndReason ErrCodeReplayCompacted, because a client naming a commit
 //     is claiming to know where it was and deserves to be told that history is gone.
+//     Above it the deltas are retained, but the STATE at the commit may not be: a watch
+//     starts from the state at its cursor, and beyond compaction's cutoff a read there
+//     is answered at a later commit (MatchRequest.Commit). The watch then starts at that
+//     commit: its state event carries it, and the replay runs from it. With NoInit there
+//     is no state event to move the client, and the watch ends as one below the retained
+//     history does, with EndReason ErrCodeReplayCompacted.
 //   - < 0: RELATIVE. -N means "the last N commits", resolved against the store's
 //     watermark at the moment the watch is established: start = watermark - N, and
-//     never below the retained history or zero. A relative request is a request for
+//     never below where a watch may start (PongResult.Floor) or zero. A relative request
+//     is a request for
 //     what there is, so it is CLAMPED rather than refused -- a client asking for the
 //     last thousand commits of a store that only retains four hundred wants the four
 //     hundred, and does not know the floor to ask for it by number.
 //
-// WatchResult.ReplayingFrom says what a relative offset resolved to.
+// WatchResult.ReplayingFrom says what a relative offset resolved to, and where an absolute
+// cursor was moved to.
 //
 //tony:schemagen=session-watch-request,notag
 type WatchRequest struct {
@@ -470,8 +485,10 @@ type PingRequest struct{}
 //tony:schemagen=session-pong-result,notag
 type PongResult struct {
 	Commit int64 `tony:"field=commit,omitzero"`
-	// Floor is the oldest commit whose delta history is still retained: a watch may
-	// replay from it, and not from below it. It is here for the same reason Commit is
+	// Floor is the oldest commit a watch may start from as asked: its delta history is
+	// retained, and so is the state there, which a commit above the replay floor is not
+	// always (WatchRequest.FromCommit). A watch may replay from it, and from below it is
+	// moved or refused. It is here for the same reason Commit is
 	// -- so that a client, or a router resolving a relative cursor on a client's
 	// behalf, can work out where a watch may start without a read
 	// (4ses3fqsh12ks8awgnn0).
@@ -499,6 +516,9 @@ type PongResult struct {
 //
 //tony:schemagen=session-match-result,notag
 type MatchResult struct {
+	// Commit is the commit the answer holds: the head for a read with no commit, and for
+	// one with a commit, that commit -- or, beyond compaction's cutoff, the later one that
+	// stands for it (MatchRequest.Commit).
 	Commit int64    `tony:"field=commit"`
 	Body   *ir.Node `tony:"field=body"`
 	// Path is the node's own path, on a member of a set. Empty on the answer to a
@@ -592,7 +612,8 @@ type WatchResult struct {
 	// ReplayingFrom is the commit the replay starts from, when the watch is
 	// replaying. It is what a RELATIVE FromCommit resolved to -- a client that asked
 	// for the last N commits learns which ones it is getting, and a client whose
-	// request was clamped to the retained floor can see that it was.
+	// request was clamped to the retained floor can see that it was -- and where an
+	// absolute one was moved to, when the state at it is no longer held exactly.
 	ReplayingFrom *int64 `tony:"field=replayingFrom,omitzero"`
 }
 
@@ -721,6 +742,12 @@ type WatchEvent struct {
 type SessionError struct {
 	Code    string `tony:"field=code"`
 	Message string `tony:"field=message"`
+	// Commit is the commit an answer about the state was settled at, on an error that is
+	// one -- not_found, path_conflict, invalid_path -- answering a read that named a
+	// commit. Beyond compaction's cutoff that read is answered at a later commit than the
+	// one asked (MatchResult.Commit), and "nothing there" at the later one is not "nothing
+	// there" at the commit asked, so the error says which it is. Nil on any other error.
+	Commit *int64 `tony:"field=commit"`
 }
 
 // Error implements the error interface.
@@ -825,7 +852,7 @@ const (
 	ErrCodeTxScopeMismatch = "tx_scope_mismatch"      // Participant scope doesn't match transaction scope
 	ErrCodeMatchFailed     = "match_failed"           // Transaction match condition failed
 	ErrCodeReplayFailed    = "replay_failed"          // Watch replay failed, data may be incomplete
-	ErrCodeReplayCompacted = "replay_compacted"       // fromCommit is older than retained delta history; re-watch without it to re-initialize
+	ErrCodeReplayCompacted = "replay_compacted"       // fromCommit is older than retained delta history, or with noInit names a state no longer held exactly; re-watch without it to re-initialize
 	ErrCodeSlowConsumer    = "slow_consumer"          // Watch dropped: the client did not read fast enough to keep its buffer from filling
 	ErrCodeTimeout         = "timeout"                // Operation timed out
 	ErrCodeScopeExists     = "scope_exists"           // Scope already exists

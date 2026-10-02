@@ -40,6 +40,8 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 		return
 	}
 	commit := current
+	// The commit a state error answers at, for a read that named one (sendReadError).
+	var answered *int64
 	if req.Commit != nil {
 		commit = *req.Commit
 		if commit < 0 || commit > current {
@@ -47,6 +49,16 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 				fmt.Sprintf("commit %d out of range [0, %d]", commit, current))
 			return
 		}
+		// A commit whose patches compaction has partly taken is answered at the commit
+		// that stands for it, and the answer says which (storage.AnsweredCommit): history
+		// beyond the cutoff is approximate, not an error, and the caller who asked for a
+		// commit is the one who knows whether another will do. It is settled here, once,
+		// before the path is judged or anything is read, so the schema, the kind, the
+		// body and every page of a set are that commit's -- and whatever else the request
+		// carries: a cursor continues at its own commit, and is held to this one
+		// (handleSetMatch).
+		commit = s.storage.AnsweredCommit(commit)
+		answered = &commit
 	}
 
 	// And spelled as the store spells it: an element of a keyed array is addressed by its
@@ -56,7 +68,7 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 	// wildcard path comes back as it went in, and the walk spells its concrete segments
 	// the same way (canonicalChild).
 	if canon, err := ident.CanonicalPath(s.storage.SchemaForAt(s.scopeID(), commit), path); err != nil {
-		s.sendError(id, api.ErrCodeInvalidPath, err.Error())
+		s.sendStateError(id, api.ErrCodeInvalidPath, err.Error(), answered)
 		return
 	} else {
 		path = canon
@@ -103,11 +115,11 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 	if spec.IterType {
 		kind, err := s.iterTypeAt(path, commit)
 		if err != nil {
-			s.sendReadError(id, err)
+			s.sendReadError(id, err, answered)
 			return
 		}
 		if kind == "" {
-			s.sendReadError(id, s.classifyAbsent(path, commit))
+			s.sendReadError(id, s.classifyAbsent(path, commit), answered)
 			return
 		}
 		reportIterType = kind
@@ -117,11 +129,11 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 		if !spec.IterType {
 			ok, err := s.pathExists(path, commit)
 			if err != nil {
-				s.sendReadError(id, err)
+				s.sendReadError(id, err, answered)
 				return
 			}
 			if !ok {
-				s.sendReadError(id, s.classifyAbsent(path, commit))
+				s.sendReadError(id, s.classifyAbsent(path, commit), answered)
 				return
 			}
 		}
@@ -138,7 +150,7 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 	// build the node under the same budget.
 	if (req.Data == nil || req.Data.Type == ir.NullType) && !s.raisesAt(commit) {
 		if err := s.encodedMatch(id, path, commit, reportPath, reportName, reportIterType); err != nil {
-			s.sendReadError(id, err)
+			s.sendReadError(id, err, answered)
 		}
 		return
 	}
@@ -148,7 +160,7 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 	// "nothing there yet" and invites a retry that can never succeed.
 	state, err := s.readValueAt(path, commit)
 	if err != nil {
-		s.sendReadError(id, err)
+		s.sendReadError(id, err, answered)
 		return
 	}
 
@@ -172,21 +184,35 @@ func (s *Session) handleMatch(id *string, req *api.MatchRequest) {
 }
 
 // sendReadError answers a read that could not be answered, by what kept it from being.
-func (s *Session) sendReadError(id *string, err error) {
+//
+// at is the commit the read was settled at, when the read named one. An answer about the
+// state there -- nothing at the path, something of the wrong kind, a segment that names
+// nothing -- carries it, because beyond compaction's cutoff it can be later than the
+// commit asked, and absence then is not absence at the commit asked (SessionError.Commit).
+// A read with no commit is at the head, and says nothing more than it did.
+func (s *Session) sendReadError(id *string, err error, at *int64) {
 	var pe *PathError
 	switch {
 	case errors.As(err, &pe) && pe.Kind == PathBadSegment:
-		s.sendError(id, api.ErrCodeInvalidPath, err.Error())
+		s.sendStateError(id, api.ErrCodeInvalidPath, err.Error(), at)
 	case errors.As(err, &pe) && pe.Kind == PathTypeConflict:
 		// Something IS there, in a shape that cannot hold what was asked for. Saying
 		// not_found here tells a client to wait for a value which has already
 		// arrived and is the wrong kind.
-		s.sendError(id, api.ErrCodePathConflict, err.Error())
+		s.sendStateError(id, api.ErrCodePathConflict, err.Error(), at)
 	case errors.Is(err, ErrPathNotFound):
-		s.sendError(id, api.ErrCodeNotFound, err.Error())
+		s.sendStateError(id, api.ErrCodeNotFound, err.Error(), at)
 	default:
 		s.sendError(id, api.ErrCodeStorage, fmt.Sprintf("failed to read state: %v", err))
 	}
+}
+
+// sendStateError is an error that answers what the state at a commit holds, and says
+// which commit when at is set.
+func (s *Session) sendStateError(id *string, code, message string, at *int64) {
+	resp := api.NewErrorResponse(id, code, message)
+	resp.Error.Commit = at
+	s.send(resp)
 }
 
 // raisesAt says whether the session's view has keyed arrays to raise into the client's

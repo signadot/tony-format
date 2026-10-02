@@ -134,7 +134,9 @@ func (s *ClientSession) coordinateWatch(req *logdapi.SessionRequest) {
 // FromCommit is honoured: docd resolves it to ONE absolute commit (a relative -N against
 // the watermark, clamped to the retained floor, both of which a ping answers from memory),
 // reads the composed initial state AT that commit, and starts every sub-watch replaying
-// from it. The replayed deltas are flushed in COMMIT ORDER before going live, which is
+// from it -- or from the commit that read was answered at, when compaction has left the
+// cursor's own state unanswerable. The replayed deltas are flushed in COMMIT ORDER
+// before going live, which is
 // meaningful precisely because the mounts share the sequence -- and the client is sent one
 // replayComplete for the composed replay rather than one per sub-stream
 // (4ses3fqsh12ks8awgnn0).
@@ -146,8 +148,11 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 	// relative -N is resolved here rather than by each sub-watch, so they all replay
 	// from the same place as the composed initial state (see logdWatermark).
 	var from, replayingTo *int64
+	var head int64
 	if fc := req.Watch.FromCommit; fc != nil {
-		head, floor, err := logdWatermark(s.logdAddr, matchReadTimeout)
+		var floor int64
+		var err error
+		head, floor, err = logdWatermark(s.logdAddr, matchReadTimeout)
 		if err != nil {
 			s.releaseWatchToken(key)
 			_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeSessionClosed,
@@ -180,6 +185,20 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 		if head > start {
 			h := head
 			replayingTo = &h
+		}
+		// An absolute cursor below where a watch may start, from a client that takes
+		// no state: its deltas are gone, or the state it holds is one a watch would be
+		// moved off, and nothing would tell it so. logd ends that watch with
+		// replay_compacted, and so does this, here: confirmed and then ended, before
+		// any sub-watch starts, since a sub-watch that ended first would end the
+		// composed watch ahead of its own confirmation.
+		if *fc >= 0 && req.Watch.NoInit && start < floor {
+			s.releaseWatchToken(key)
+			_ = s.writeToClient(logdapi.NewWatchResponseFrom(clientID, path, from, replayingTo))
+			_ = s.writeToClient(terminalWatchEvent(clientID, path, logdapi.ErrCodeReplayCompacted, fmt.Sprintf(
+				"cannot replay from commit %d: a watch may start from commit %d as asked; re-watch without noInit to take the state there, or without fromCommit to re-initialize",
+				start, floor), 0))
+			return
 		}
 	}
 
@@ -233,9 +252,69 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 		return at
 	}
 
-	// Establish sub-watches FIRST — their deltas buffer in cw — so no change
-	// between the snapshot and going live is missed. NoInit on each: the composer
-	// supplies the single initial snapshot below.
+	// The composed snapshot the watch starts from. Absence is an error only for a client
+	// that did not ask to wait; for one that did it is a null baseline, which is a
+	// perfectly good thing to start applying deltas to -- at the commit the read found
+	// nothing at, which for a read at a cursor composeReadTree says.
+	initialSnapshot := func() (*ir.Node, int64, error) {
+		root, commit, err := s.composeReadTree(path, owner, below, pFields, from)
+		if errors.Is(err, errSourceAbsent) && req.Watch.WaitIfAbsent {
+			root, err = nil, nil
+		}
+		return root, commit, err
+	}
+	var (
+		root    *ir.Node
+		commit  int64
+		initErr error
+		read    bool
+	)
+	waits := req.Watch.WaitIfAbsent
+
+	// A watch with a cursor that will take its state reads it BEFORE the sub-watches
+	// start, because the state says where they start: beyond compaction's cutoff logd
+	// answers a commit at the one that stands for it (storage.AnsweredCommit), and a
+	// watch starts there, its state that commit's and its replay from it
+	// (er3dnqpkh12krsb2qxn0). The sub-watches replay from the cursor they are given, so
+	// nothing between the read and their start is missed. A client holding its own
+	// state (noInit) cannot be moved by a state it is not sent, and its watch is ended
+	// as logd ends it.
+	if from != nil && (!waits || !req.Watch.NoInit) {
+		root, commit, initErr = initialSnapshot()
+		read = true
+		// Refused as the refusals above are: no sub-watch has started, so there is a
+		// token to release and nothing downstream to unwatch.
+		if errors.Is(initErr, errSourceAbsent) {
+			s.releaseWatchToken(key)
+			_ = s.writeToClient(logdapi.NewErrorResponse(clientID, logdapi.ErrCodeNotFound, initErr.Error()))
+			return
+		}
+		if initErr == nil && commit != *from {
+			if req.Watch.NoInit {
+				// Ended, not refused: confirmed and then ended with replay_compacted,
+				// which is how logd ends a cursor it will not replay from, so a
+				// client has one shape to handle.
+				s.releaseWatchToken(key)
+				_ = s.writeToClient(logdapi.NewWatchResponseFrom(clientID, path, from, replayingTo))
+				_ = s.writeToClient(terminalWatchEvent(clientID, path, logdapi.ErrCodeReplayCompacted, fmt.Sprintf(
+					"cannot replay from commit %d: the state there is no longer held exactly, and a watch from it starts at commit %d; re-watch without noInit to take the state there, or without fromCommit to re-initialize",
+					*from, commit), 0))
+				return
+			}
+			s.log.Debug("composed watch cursor moved to the commit that stands for it",
+				"path", path, "fromCommit", *from, "from", commit)
+			at := commit
+			from, replayingTo = &at, nil
+			if head > at {
+				h := head
+				replayingTo = &h
+			}
+		}
+	}
+
+	// Establish sub-watches before any LATER snapshot — their deltas buffer in cw — so
+	// no change between that snapshot and going live is missed. NoInit on each: the
+	// composer supplies the single initial snapshot.
 	// waitIfAbsent on every sub-watch, always. A sub-watch is docd waiting for one
 	// source, and most sources hold nothing at most paths -- absence there is the
 	// ordinary case and must not refuse the sub-watch, which would refuse a composed
@@ -286,20 +365,6 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 	// Any OTHER failure of the snapshot keeps its old shape -- confirm, then end the
 	// watch with match_failed -- because a client can re-establish from that, and because
 	// making it synchronous would be a second decision wearing this one's clothes.
-	//
-	// The composed snapshot the watch starts from. Absence is an error only for a client
-	// that did not ask to wait; for one that did it is a null baseline, which is a
-	// perfectly good thing to start applying deltas to.
-	initialSnapshot := func() (*ir.Node, int64, error) {
-		root, commit, err := s.composeReadTree(path, owner, below, pFields, from)
-		if errors.Is(err, errSourceAbsent) && req.Watch.WaitIfAbsent {
-			root, err = nil, nil
-			if from != nil {
-				commit = *from
-			}
-		}
-		return root, commit, err
-	}
 
 	// A refusal is the one answer that has to precede the confirmation, since nothing
 	// after it can un-establish a watch the caller already holds. So read early exactly
@@ -307,13 +372,8 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 	// reading early buys it nothing and costs it the wait, because a source that does not
 	// answer reads would hold up a watch it was willing to open on nothing. The
 	// sub-watches are up and buffering under either order, so neither misses an event.
-	var (
-		root    *ir.Node
-		commit  int64
-		initErr error
-	)
-	waits := req.Watch.WaitIfAbsent
-	if !waits {
+	// A watch with a cursor has read it already, above.
+	if !waits && !read {
 		root, commit, initErr = initialSnapshot()
 		if errors.Is(initErr, errSourceAbsent) {
 			s.refuseWatch(key, logdapi.ErrCodeNotFound, initErr.Error())
@@ -323,7 +383,7 @@ func (s *ClientSession) startComposedWatch(req *logdapi.SessionRequest, below []
 
 	_ = s.writeToClient(logdapi.NewWatchResponseFrom(clientID, path, from, replayingTo))
 
-	if waits && !req.Watch.NoInit {
+	if waits && !req.Watch.NoInit && !read {
 		root, commit, initErr = initialSnapshot()
 	}
 	if initErr != nil {

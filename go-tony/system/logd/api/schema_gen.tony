@@ -173,6 +173,7 @@ context:
 - tony-format/context
 define:
   code: .[string]
+  commit: .[nullable(int)]
   message: .[string]
 signature:
   name: session-error

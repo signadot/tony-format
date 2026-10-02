@@ -100,6 +100,25 @@ be in `[0, current]`; out of range is `commit_not_found`. Across docd this addre
 logd's single commit sequence, so a composed read at a commit is one consistent
 snapshot.
 
+A commit older than [compaction](compaction.md)'s cutoff may not be answerable exactly:
+the deltas between the snapshot before it and the commit can be gone, and what survives
+of them folds to a state no commit held. Such a read is answered at **the first
+snapshot at or after the commit**, and its `commit` says so: ask for 95 with snapshots
+at 80 and 100, get `commit: 100`, and the body is the state at 100. That snapshot is
+what compaction kept in place of commits 81 to 100, so it holds what 95 wrote, and what
+96 to 100 wrote after it. History beyond the cutoff is approximate, not an error, so the
+read is not refused; whether a later state will do is the caller's to decide.
+
+Whether a commit is answered exactly is a fact about the commit, the same at every
+path: it is, when the snapshot before it is at it, or no baseline delta has been dropped
+since that snapshot. A read at the head always is. Across docd every source is read at
+the commit answered, so the composed body is still one commit's.
+
+Finding nothing is an answer too, and says where: a read with a `commit` that ends in
+`not_found`, `path_conflict` or `invalid_path` carries the commit it was answered at on
+the error, `{error: {code: not_found, message: ..., commit: 100}}`, since nothing at
+100 is not nothing at 95.
+
 A read at a commit reads the document **under the schema in force at that commit**, not
 today's: which arrays are [keyed](keyed.md), and by what, is that commit's, so the shape of
 an array and the path that names one of its elements are both as they were. If `runs` was
@@ -107,8 +126,9 @@ keyed by `id` then and is not now, `{match: {path: "runs(r1)", commit: N}}` read
 `r1`, and the same path at the head is `invalid_path`. Since a path is judged against the
 commit it reads, an out-of-range commit is refused first.
 
-Every answer carries the `commit` it was read at — which is also the store's head, and
-therefore a revision a client can compare without asking for anything extra.
+Every answer carries the `commit` it was read at — for a read with no `commit`, the
+store's head, and therefore a revision a client can compare without asking for anything
+extra.
 
 ### Reading a set
 
@@ -313,6 +333,12 @@ out of range is `commit_not_found`, and one sent with a different `path` than th
 it came from is `invalid_path`. It is **opaque** — read it back to the server rather
 than reading it.
 
+A read that named a `commit` continues by repeating it with the cursor. When that commit
+was answered at another (see [Reading](#reading)), the cursor carries the one answered,
+and the commit asked still leads there. If a compaction between two pages takes what
+the cursor's commit is read from, the continuation is `commit_not_found`, and the read
+starts again: its pages would otherwise come from two states.
+
 A descent pages the same way. Its order is a walk, so a page may end anywhere in it —
 between a node and its first child, at the bottom of one branch before the next — and
 the continuation seeks down the last member's path and goes on from there, reading
@@ -500,6 +526,15 @@ many commits.
   `fromCommit` is `replay_compacted`: a client naming a commit is claiming to know where
   it was, and deserves to be told the history is gone.
 
+    Above the retained history the deltas are kept, but the **state** at the cursor may
+    not be: a watch starts from the state at its cursor, and beyond compaction's cutoff
+    a read there is answered at the first snapshot at or after it (see
+    [Reading](#reading)). The watch then **starts at that commit**: its state event
+    carries it, `replayingFrom` names it, and the replay runs from it. With `noInit`
+    there is no state event to move the client, which would be handed deltas that start
+    past the state it holds, so that watch ends with `replay_compacted`, as one from
+    below the retained history does.
+
     The replay is **streamed**, not collected: deltas go out as the range is read, so the
     server holds one entry rather than the whole range however wide the catch-up. A
     consumer that cannot keep up is failed at the watch's own buffer, which is the
@@ -515,7 +550,8 @@ many commits.
     It is how a client asks for a window of history **without knowing where the store
     is** — no read, no ping, no arithmetic on a number it had to fetch first. Unlike an
     absolute cursor it is **clamped, not refused**: below the retained history it starts
-    at the floor, and below zero at zero, because a request for a window is a request for
+    at the floor a ping reports, the oldest commit a watch starts from as asked, and
+    below zero at zero, because a request for a window is a request for
     what there is. `replayingFrom` says what it resolved to, so a client that was clamped
     can see that it was.
 
@@ -555,8 +591,8 @@ allocates a transaction id from logd, every participant commits through that one
 it, all-or-nothing — so a commit means the same thing to every mount and a cursor works on
 a composed path too. docd resolves it once (a relative `-N` against the watermark, clamped
 to the retained floor), reads the composed initial state at that commit, replays every
-mount from it, and delivers the replayed deltas **in commit order** followed by a single
-`replayComplete`.
+mount from the commit that state was answered at, and delivers the replayed deltas **in
+commit order** followed by a single `replayComplete`.
 
 A watch that has been confirmed always ends with a terminal **event**, never an error
 response — the request it came from finished when the watch opened, so an error routed by
@@ -709,7 +745,7 @@ writes an object at `a.b`. What separates them is what is there now.
 | `match_failed` | a precondition did not hold; the write did not happen |
 | `invalid_diff` | the delta would not apply to the state it would be stored against, or the schema's keying refuses it — an element without a name, a position on a keyed array, a name where there is no identity |
 | `commit_not_found` | a historical read outside `[0, current]` |
-| `replay_compacted` | `fromCommit` is below retained delta history |
+| `replay_compacted` | `fromCommit` is below retained delta history, or with `noInit` names a state no longer held exactly |
 | `slow_consumer` | a watch was dropped because the client did not keep up |
 | `keying_changed` | a watch ended because a schema commit changed the keying of an array at, under or above its path; watch again from the commit it names |
 | `tx_full`, `tx_not_found`, `tx_scope_mismatch` | transaction membership |

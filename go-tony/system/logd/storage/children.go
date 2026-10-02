@@ -84,6 +84,7 @@ func (s *Storage) Children(at int64, scopeID *string, kp, after string, fn func(
 	if _, err := kpath.Parse(kp); err != nil {
 		return fmt.Errorf("children of %q: %w", kp, err)
 	}
+	at = s.AnsweredCommit(at) // as a read is (Read)
 	if at == 0 {
 		return nil
 	}

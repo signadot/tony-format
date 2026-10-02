@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/signadot/tony-format/go-tony/encode"
+	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/parse"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage/index"
 )
 
@@ -66,8 +69,14 @@ func TestReplayFloor_TruncatedRangeIsReported(t *testing.T) {
 }
 
 // The floor bounds only DELTA replay. State at a commit below it is still readable, and
-// the commit number is still valid — that distinction is the whole point of reporting
-// truncation rather than refusing the commit.
+// the commit number is still valid -- but a read there cannot be answered AT it when
+// patches it would fold are gone, since the survivors fold to a state no commit held. It
+// is answered at the ceiling, the oldest root snapshot at or after it, which is what
+// compaction kept in place of those commits, and AnsweredCommit says which
+// (cpqj2tf6h12kr5jxqxn0).
+//
+// So for every commit: the read ASKED at it holds exactly the state written through the
+// commit it is answered at, which is at or after it, and the head is answered at the head.
 func TestReplayFloor_StateBelowFloorStillReadable(t *testing.T) {
 	s, err := Open(t.TempDir(), nil)
 	if err != nil {
@@ -75,17 +84,94 @@ func TestReplayFloor_StateBelowFloorStillReadable(t *testing.T) {
 	}
 	defer s.Close()
 
-	for i := range 4 {
+	// The state after n commits holds k0 .. k(n-1). Snapshots fall at 2 and 4, and the
+	// patches between them, 3 and 4, are compacted away.
+	want := []string{""}
+	acc := ""
+	for i := range 6 {
 		commitValue(t, s, fmt.Sprintf("{k%d: %d}", i, i))
+		acc += fmt.Sprintf("k%d: %d\n", i, i)
+		want = append(want, acc)
+		if i == 1 || i == 3 {
+			if err := s.SwitchDLog(); err != nil {
+				t.Fatalf("SwitchDLog: %v", err)
+			}
+		}
 	}
-	compactAwayEverything(t, s)
+	cfg := DefaultCompactionConfig()
+	cfg.Cutoff = -time.Hour
+	if err := s.Compact(cfg); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	if floor := s.ReplayFloor(); floor != 4 {
+		t.Fatalf("floor %d, want 4", floor)
+	}
 
-	floor := s.ReplayFloor()
-	if floor == 0 {
-		t.Fatal("expected a non-zero floor")
+	// 3 has lost its own patch and is answered at the snapshot after it. 1 has every
+	// patch it folds, but nothing says so: the floor is one number, and no snapshot at
+	// or above it stands below 1.
+	for c, at := range []int64{0, 2, 2, 4, 4, 5, 6} {
+		if got := s.AnsweredCommit(int64(c)); got != at {
+			t.Errorf("a read at %d is answered at %d, want %d", c, got, at)
+		}
+		got, err := readStateAt(s, "", int64(c), nil)
+		if err != nil {
+			t.Errorf("read at %d: %v", c, err)
+			continue
+		}
+		if !sameState(t, got, want[at]) {
+			t.Errorf("a read at %d holds %s, which is not the state at %d: %s", c, show(got), at, want[at])
+		}
 	}
-	if _, err := readStateAt(s, "", floor, nil); err != nil {
-		t.Errorf("ReadStateAt(%d) below the floor returned err = %v, want nil", floor, err)
+
+	// A scope's dropped entries raise the replay floor and take nothing a baseline read
+	// folds: every commit is still answered at itself.
+	dir := t.TempDir()
+	s2, err := Open(dir, nil)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() {
+		if s2 != nil {
+			s2.Close()
+		}
+	}()
+	sc := "sandbox"
+	commitValue(t, s2, "{a: 1}")
+	commitValue(t, s2, "{b: 2}")
+	if err := scopedCommit(t, s2, &sc, "", "{c: 3}"); err != nil {
+		t.Fatalf("scoped commit: %v", err)
+	}
+	commitValue(t, s2, "{d: 4}")
+	if err := s2.DeleteScope(sc); err != nil {
+		t.Fatalf("DeleteScope: %v", err)
+	}
+	commitValue(t, s2, "{e: 5}")
+	if err := s2.SwitchDLog(); err != nil {
+		t.Fatalf("SwitchDLog: %v", err)
+	}
+	head := commitValue(t, s2, "{f: 6}")
+	if err := s2.Compact(DefaultCompactionConfig()); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	if s2.ReplayFloor() == 0 {
+		t.Fatal("dropping the deleted scope's entry left the replay floor at 0: the case is not exercised")
+	}
+	// And after a restart: a replay floor on disk is not taken for the baseline's.
+	for _, reopened := range []bool{false, true} {
+		if reopened {
+			if err := s2.Close(); err != nil {
+				t.Fatalf("Close: %v", err)
+			}
+			if s2, err = Open(dir, nil); err != nil {
+				t.Fatalf("reopen: %v", err)
+			}
+		}
+		for c := int64(0); c <= head; c++ {
+			if got := s2.AnsweredCommit(c); got != c {
+				t.Errorf("with only a scope's entries dropped (reopened %v), a read at %d is answered at %d", reopened, c, got)
+			}
+		}
 	}
 }
 
@@ -236,4 +322,24 @@ func TestDroppedPatchFloor_RepeatedSegmentsPerPath(t *testing.T) {
 	if got := droppedPatchFloor(segs, nil); got != 5 {
 		t.Errorf("droppedPatchFloor with the entry dropped = %d, want 5", got)
 	}
+}
+
+// sameState says the state read is the one written: src in tony, "" for nothing.
+func sameState(t *testing.T, got *ir.Node, src string) bool {
+	t.Helper()
+	if src == "" {
+		return got == nil
+	}
+	want, err := parse.Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("parse %q: %v", src, err)
+	}
+	return got != nil && got.DeepEqual(want)
+}
+
+func show(n *ir.Node) string {
+	if n == nil {
+		return "nothing"
+	}
+	return encode.MustString(n)
 }

@@ -504,9 +504,25 @@ func (s *LogdSession) MatchPattern(ctx context.Context, path string, pattern *ir
 // [0, current]; an out-of-range commit is rejected. Across docd this reads base
 // and every mount at the same commit — one consistent snapshot, since mounts share
 // logd's single commit sequence (see Handler.Match).
+//
+// A commit older than compaction keeps exactly is answered at a later one, and
+// MatchAt does not say so: a caller to whom that matters asks MatchAtCommit.
 func (s *LogdSession) MatchAt(ctx context.Context, path string, commit int64) (*ir.Node, error) {
 	node, _, err := s.matchAt(ctx, path, nil, &commit)
 	return node, err
+}
+
+// MatchAtCommit is MatchAt, and also the commit the state was answered at. It is the
+// commit asked, unless history there has been compacted: beyond the cutoff a read is
+// answered at the first snapshot at or after the commit -- which holds what the commit
+// wrote, and what was written between the two -- rather than as a fold of whatever
+// patches survived, which no commit ever held. An answer other than the commit asked
+// means that, and the caller decides whether a later state will do.
+//
+// A read that finds nothing says where too: the not_found error, an *api.SessionError,
+// carries the commit it was answered at in Commit.
+func (s *LogdSession) MatchAtCommit(ctx context.Context, path string, commit int64) (*ir.Node, int64, error) {
+	return s.matchAt(ctx, path, nil, &commit)
 }
 
 // MatchPatternAt combines MatchPattern and MatchAt: a point-in-time read at commit,

@@ -356,7 +356,7 @@ func (s *Session) dispatch(req *api.SessionRequest) {
 		if err != nil {
 			head = 0 // a probe answers; where the store is, is a lesser question
 		}
-		s.send(api.NewPongResponseAt(req.ID, head, s.storage.ReplayFloor()))
+		s.send(api.NewPongResponseAt(req.ID, head, s.watchFloor()))
 	default:
 		s.sendError(req.ID, api.ErrCodeInvalidMessage, "no operation specified")
 	}

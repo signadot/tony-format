@@ -158,6 +158,14 @@ type Storage struct {
 	// See replay_floor.go. Read on the replay path, raised by Compact.
 	replayFloor atomic.Int64
 
+	// baselineFloor is the highest commit of a BASELINE patch compaction has removed:
+	// what says whether a read at a commit still has every patch it folds. See
+	// replay_floor.go. Read by AnsweredCommit, raised by Compact.
+	baselineFloor atomic.Int64
+	// baselineFloorKept says the baseline floor is on disk, which is what tells a store
+	// that has dropped no baseline patch from one compacted before the floor was kept.
+	baselineFloorKept atomic.Bool
+
 	// scopeReadsHistoric makes every scoped read fold the scope's whole history from
 	// the index instead of the footprint's live statements. Not a mode to run in: it is
 	// the reference arm of the footprint differential, the read the footprint is held
@@ -340,6 +348,24 @@ func (s *Storage) init() error {
 		return fmt.Errorf("failed to load replay floor: %w", err)
 	}
 	s.replayFloor.Store(floor)
+
+	// And how far back a read is still exact. A store compacted before this was kept
+	// has only the replay floor to go by, which is at or above it: adopted once, and
+	// written, so that the replay floor rising later for a scope's sake does not take
+	// this with it at the next open.
+	baseline, found, err := loadBaselineFloor(s.sequence.Root)
+	if err != nil {
+		return fmt.Errorf("failed to load baseline floor: %w", err)
+	}
+	switch {
+	case found:
+		s.baselineFloor.Store(baseline)
+		s.baselineFloorKept.Store(true)
+	case floor > 0:
+		if err := s.raiseBaselineFloor(floor); err != nil {
+			return fmt.Errorf("failed to record baseline floor: %w", err)
+		}
+	}
 
 	return nil
 }
