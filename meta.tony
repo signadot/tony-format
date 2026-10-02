@@ -6,7 +6,10 @@ commits: []
 created: "2026-10-02T09:38:42.326104+02:00"
 duplicates: []
 id: em3dnqpkh12ks0jzqxn0
-labels: []
+labels:
+- correctness
+- logd
+- storage
 related_issues: []
 status: open
-updated: "2026-10-02T09:38:42.326104+02:00"
+updated: "2026-10-02T09:38:42.397903+02:00"
