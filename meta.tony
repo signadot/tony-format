@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: ef000e9c7b9cdc40dea67c19b1cc4bdd31d9b456
 commits: []
 created: "2026-10-02T09:51:01.713867+02:00"
 duplicates: []
@@ -11,5 +12,5 @@ labels:
 - logd
 - storage
 related_issues: []
-status: open
-updated: "2026-10-02T11:03:41.717022+02:00"
+status: closed
+updated: "2026-10-02T11:03:41.973949+02:00"
