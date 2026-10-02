@@ -6,7 +6,10 @@ commits: []
 created: "2026-10-02T10:12:18.369661+02:00"
 duplicates: []
 id: ew3dnqpkh12krrk7qxn0
-labels: []
+labels:
+- correctness
+- docd
+- libctl
 related_issues: []
 status: open
-updated: "2026-10-02T10:12:18.369661+02:00"
+updated: "2026-10-02T10:12:18.45288+02:00"
