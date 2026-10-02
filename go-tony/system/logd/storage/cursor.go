@@ -110,7 +110,19 @@ func (s *Storage) Read(at int64, scopeID *string, kp string) (Cursor, error) {
 // provenAbsent says the index shows kp was never written: every step of the written
 // prefix is an object, and kp leaves it. A path with a keyed or indexed segment is not
 // proven here; the document answers those.
+//
+// Nor is anything, once compaction has dropped a baseline patch. The proof is that the
+// index has no node for a path no patch touched (index.UnwrittenBelow), and a dropped
+// patch takes its segments with it: what it wrote lives on in a root snapshot, which is
+// indexed at the root alone, and after a restart the index has no node for it. A path
+// last written beyond the cutoff then read as never written, with its value on disk
+// (f43dnqpkh12kr1kxqxn0). So past the first drop the read answers, from the snapshot it
+// seeks to: the snapshot's directory says a path is not there without the document being
+// read, at tens of microseconds where the index's proof took one.
 func (s *Storage) provenAbsent(kp string) bool {
+	if s.baselineFloor.Load() > 0 {
+		return false
+	}
 	segs := kpath.SplitAll(kp)
 	for _, seg := range segs {
 		if _, isField := kpath.SegmentFieldName(seg); !isField {

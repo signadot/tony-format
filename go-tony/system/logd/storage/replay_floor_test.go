@@ -82,7 +82,11 @@ func TestReplayFloor_StateBelowFloorStillReadable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer s.Close()
+	defer func() {
+		if s != nil {
+			s.Close()
+		}
+	}()
 
 	// The state after n commits holds k0 .. k(n-1). Snapshots fall at 2 and 4, and the
 	// patches between them, 3 and 4, are compacted away.
@@ -121,6 +125,39 @@ func TestReplayFloor_StateBelowFloorStillReadable(t *testing.T) {
 		}
 		if !sameState(t, got, want[at]) {
 			t.Errorf("a read at %d holds %s, which is not the state at %d: %s", c, show(got), at, want[at])
+		}
+	}
+
+	// What a dropped patch wrote is still read at its own path, and listed, after a
+	// restart too: its value is in a snapshot, and the index having no node for it then
+	// does not make it a path never written (f43dnqpkh12kr1kxqxn0). k2 and k3 are the
+	// ones whose only patches went.
+	dir1 := s.sequence.Root
+	for _, reopened := range []bool{false, true} {
+		if reopened {
+			if err := s.Close(); err != nil {
+				t.Fatalf("Close: %v", err)
+			}
+			if s, err = Open(dir1, nil); err != nil {
+				t.Fatalf("reopen: %v", err)
+			}
+		}
+		listed := map[string]bool{}
+		if err := s.Children(6, nil, "", "", func(c Child) bool { listed[c.Segment] = true; return true }); err != nil {
+			t.Fatalf("Children (reopened %v): %v", reopened, err)
+		}
+		for i := range 6 {
+			k := fmt.Sprintf("k%d", i)
+			got, _, err := readSubtreeAt(s, k, 6, nil)
+			if err != nil || got == nil || got.Int64 == nil || *got.Int64 != int64(i) {
+				t.Errorf("a read of %s at the head (reopened %v) holds %s (err %v), want %d", k, reopened, show(got), err, i)
+			}
+			if !listed[k] {
+				t.Errorf("%s is not listed among the root's children (reopened %v)", k, reopened)
+			}
+		}
+		if got, _, err := readSubtreeAt(s, "never", 6, nil); err != nil || got != nil {
+			t.Errorf("a read of a path never written (reopened %v) holds %s (err %v)", reopened, show(got), err)
 		}
 	}
 
