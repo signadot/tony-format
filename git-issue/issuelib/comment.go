@@ -16,6 +16,9 @@ import (
 // old count-based discussion/NNN.md scheme collided there and lost a comment on
 // merge (and skewed/gapped whenever an attachment was present). An identical
 // re-add dedups to the same path, which is harmless.
+//
+// The hash is of the text a comment was made with. An edit keeps the name, so a
+// comment's name is its identity, and not a digest of what it says now.
 
 // CommentTSLayout is the sortable UTC timestamp embedded in comment filenames.
 const CommentTSLayout = "20060102T150405Z"
@@ -30,8 +33,8 @@ var commentNamePattern = regexp.MustCompile(`^\d{8}T\d{6}Z-[0-9a-f]{8}\.md$`)
 var commentHeaderRe = regexp.MustCompile(`<!--\s*(?:Comment\s+\d+\s*-\s*)?(.+?)\s*-->`)
 
 // CommentFileName returns the discussion path for a comment made at t whose
-// stored bytes are content. The hash is taken over content, so the path is a
-// stable content address.
+// stored bytes are content. The hash is taken over content, so two different
+// comments made in one second get two paths.
 func CommentFileName(t time.Time, content string) string {
 	sum := sha256.Sum256([]byte(content))
 	return fmt.Sprintf("discussion/%s-%s.md",
@@ -68,6 +71,13 @@ func StripCommentHeader(content string) string {
 		return content
 	}
 	return strings.TrimLeft(content[loc[1]:], "\n")
+}
+
+// ReplaceCommentText is a comment's stored content with its text replaced by
+// text, its header kept as it is, so the comment keeps its time.
+func ReplaceCommentText(content, text string) string {
+	header := content[:len(content)-len(StripCommentHeader(content))]
+	return header + strings.TrimRight(text, "\n") + "\n"
 }
 
 // IsCommentFile reports whether a discussion tree path is a comment file (an .md

@@ -65,6 +65,51 @@ func TestEdit(t *testing.T) {
 	if now, _ := s.GetRefCommit(issue.Ref); now != at {
 		t.Error("an edit that changed nothing moved the ref")
 	}
+
+	// A comment, edited in place: named by its path, without discussion/, or by
+	// a prefix; it keeps its path and its time, and the old text is history.
+	_, path, err := Comment(s, issue.ID, "First comment.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sh, _ = Show(s, issue.ID)
+	orig := sh.Comments[0]
+	name := strings.TrimPrefix(path, "discussion/")
+	for _, named := range []string{path, name, name[:12]} {
+		edited, at, err := EditComment(s, issue.ID, named, "Edited as "+named+".\n\n## With a heading\n")
+		if err != nil || at != path || edited.ID != issue.ID {
+			t.Fatalf("editing the comment as %q: %v, %q", named, err, at)
+		}
+		sh, _ = Show(s, issue.ID)
+		if len(sh.Comments) != 1 || sh.Comments[0].Path != path || !sh.Comments[0].When.Equal(orig.When) ||
+			sh.Comments[0].Text != "Edited as "+named+".\n\n## With a heading\n" {
+			t.Errorf("after editing the comment as %q: %+v", named, sh.Comments)
+		}
+	}
+	if old, err := s.ReadFile(issue.Ref+"~3", path); err != nil || string(old) != orig.Content {
+		t.Errorf("history lost what the comment said: %q, %v", old, err)
+	}
+	at, _ = s.GetRefCommit(issue.Ref)
+	if _, _, err := EditComment(s, issue.ID, name, sh.Comments[0].Text); err != nil {
+		t.Fatal(err)
+	}
+	if now, _ := s.GetRefCommit(issue.Ref); now != at {
+		t.Error("a comment edit that changed nothing moved the ref")
+	}
+
+	// Refused: no text, no such comment, and a prefix naming two.
+	if _, _, err := Comment(s, issue.ID, "Second comment."); err != nil {
+		t.Fatal(err)
+	}
+	for named, want := range map[string]string{name: "cannot be empty", "nosuch": "no comment", "2": "ambiguous", "": "no comment named"} {
+		text := "x"
+		if named == name {
+			text = " \n"
+		}
+		if _, _, err := EditComment(s, issue.ID, named, text); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("editing comment %q: %v, want %q", named, err, want)
+		}
+	}
 }
 
 // staleReads is a store whose read of an issue is followed, before the caller

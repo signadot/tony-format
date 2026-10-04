@@ -34,7 +34,7 @@ import (
 // value -- a text merge of it would be a merge of a generated file, which is
 // how two orderings of one list become a conflict about nothing. A conflict in
 // any other path is answered as one: two people rewrote the same description,
-// and no rule here is better than asking them.
+// or the same comment, and no rule here is better than asking them.
 func (s *GitStore) MergeIssue(base, ours, theirs string) (string, error) {
 	tree, err := s.mergeTrees(base, ours, theirs)
 	if err != nil {

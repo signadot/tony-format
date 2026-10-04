@@ -101,6 +101,9 @@ short digest of the content. The name is derived from the content, so two
 clones adding different comments never land on the same path, and an identical
 re-add collapses to one. The timestamp keeps names sorting chronologically;
 `show` reads the timestamp inside each comment rather than trusting the name.
+The digest is of the text a comment was made with: `comment --edit` changes the
+text and keeps the name, so the name is the comment's identity, not a digest of
+what it says now.
 
 ## The reverse index
 

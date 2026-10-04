@@ -162,6 +162,12 @@ collapse, which is the right answer. The timestamp keeps names sorting
 chronologically, but `show` sorts on the timestamp *inside* each comment, so a
 renamed or hand-written file still lands in the right place.
 
+An edited comment keeps its name. Renaming it to the digest of its new text
+would break whatever refers to it by name, and would turn two clones editing one
+comment into two comments, silently; keeping the path makes that a conflict at
+the merge, as two edits of the description are. So the hash makes a new
+comment's name unique, and from then on the name is an identity.
+
 `git issue migrate-comments` converts the old names. It appends a commit rather
 than rewriting history, but that commit replaces the issue's tree wholesale, so
 it is dry-run by default and stashes each ref it touches under
@@ -321,9 +327,11 @@ author meant, and two clients of one version disagreeing is the ordinary case.
 
 **What cannot be merged is refused.** A conflict in `description.md`, or any path
 but `meta.tony`, means two people rewrote the same text, and no rule here beats
-asking them: the issue is named with the path, the run exits non-zero, and
-`--force` is how one of them decides it — taking one side outright, with the
-other left in the ref's reflog.
+asking them: the issue is named with the path, the run exits non-zero, and a
+person decides it. Making this clone's copy of the path match the remote's and
+pulling again settles that path alone — the two sides then made the same change
+there, which merges — and keeps everything else both did. `--force` takes one
+side's whole issue outright, with the other left in the ref's reflog.
 
 **Every write to a remote carries a lease.** `--force-with-lease=<ref>:<what the
 tracking ref said>` refuses the write if the remote moved since the fetch, and an
@@ -420,9 +428,10 @@ without exporting the issue; notifications; a bridge to another tracker.
   finds rather than only the legacy-numeric ones, so a second run mints fresh
   XIDRs for issues that already had them and every ID recorded elsewhere stops
   resolving. Filtering on `IsLegacyRef` would fix it.
-- **A description rewritten on both sides is refused, not merged**, and
-  `--force` picks a side. That is the design; it is listed here because it is
-  the one place a sync stops and waits for a person.
+- **A description or a comment rewritten on both sides is refused, not
+  merged**, and a person settles it: the one path made to agree and pulled
+  again, or `--force` for a whole side. That is the design; it is listed here
+  because it is the one place a sync stops and waits for a person.
 - **A fresh clone has no issues** until `git issue pull`, since `git clone`
   fetches branches and tags only.
 - **Issues are as visible as the repository.** Anyone who can read the refs can

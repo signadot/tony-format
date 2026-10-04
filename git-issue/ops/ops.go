@@ -5,11 +5,11 @@
 // written, the ref moved -- is decided once. An operation answers what it did as
 // data; how that is shown is the front end's.
 //
-// The operations are [Create], [Edit], [Comment], [Label], [Close], [Reopen],
-// [Link], [Relate], [ForCommit], [List] and [Show] on an issue; [Push] and
-// [Pull] with a remote, answering a [Report]; and [SourceAdd], [Mirror],
-// [Refresh] and [Unmirror] for ext references, another repository's issue
-// mirrored here.
+// The operations are [Create], [Edit], [Comment], [EditComment], [Label],
+// [Close], [Reopen], [Link], [Relate], [ForCommit], [List] and [Show] on an
+// issue; [Push] and [Pull] with a remote, answering a [Report]; and
+// [SourceAdd], [Mirror], [Refresh] and [Unmirror] for ext references, another
+// repository's issue mirrored here.
 //
 // Functions naming an issue take a full XIDR or any unambiguous prefix, as the
 // store does. An operation refuses rather than guesses: an empty body, a label
@@ -51,8 +51,8 @@ func SplitDescription(desc string) (title, body string) {
 }
 
 // Comment adds text to an issue's discussion, and answers the path it was stored
-// at. The path is content-addressed (issuelib.CommentFileName), so two clones
-// commenting at once never collide.
+// at. The path is derived from the content (issuelib.CommentFileName), so two
+// clones commenting at once never collide.
 func Comment(s issuelib.Store, id, text string) (*issuelib.Issue, string, error) {
 	if strings.TrimSpace(text) == "" {
 		return nil, "", fmt.Errorf("comment cannot be empty")

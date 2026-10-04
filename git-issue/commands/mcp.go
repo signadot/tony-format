@@ -195,12 +195,14 @@ The rules of the tracker:
     change carries "Issue: <full id>" as a trailer.
   - A fix closes its issue with the commit that made it: issue_close with commit.
   - What an issue says is edited in place (issue_edit); what was decided is recorded as a comment
-    (issue_comment). Both are commits on the issue's chain, so history keeps what it said before.
+    (issue_comment), and a comment is corrected in place too (issue_comment with edit). Each is a
+    commit on the issue's chain, so history keeps what it said before.
   - A relation across repositories mirrors the far issue into the near repository first, read-only
     there (an ext reference), so the relation resolves from that repository alone.
   - issue_push, issue_pull and issue_watch_remote touch the remote and nothing else does. A push
     carries a lease on what the last fetch saw; an issue edited on both sides is refused and
-    named, for a person to decide, never overwritten.`
+    named, for a person to decide, never overwritten. To settle one path, make this clone's copy
+    match the remote's and pull again; force takes one side's whole issue.`
 
 // textOut renders through a command's writer, so a tool's text is what the
 // command prints.

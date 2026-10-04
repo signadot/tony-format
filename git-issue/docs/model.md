@@ -37,9 +37,11 @@ side holds.
 - An issue one side has moved further is brought forward on the other.
 - An issue both sides changed is **merged**: the discussion unions, labels
   keep both sides' changes, and the later status change wins.
-- What cannot be merged, such as a description rewritten on both sides, is
-  **named and left alone**, and `--force` is how a person decides it. What a
-  force overwrote stays in the ref's reflog.
+- What cannot be merged, such as a description or a comment rewritten on both
+  sides, is **named and left alone** for a person to decide: by making this
+  clone's copy of that path match the remote's and pulling again, which keeps
+  everything else both sides did, or by `--force`, which takes one side's whole
+  issue. What a force overwrote stays in the ref's reflog.
 
 A push carries a lease on what the last fetch saw, so it cannot land on top of
 a change it has not seen. Nothing is lost quietly.
