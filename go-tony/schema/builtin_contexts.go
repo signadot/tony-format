@@ -17,6 +17,7 @@ func (r *ContextRegistry) registerBuiltinContexts() {
 			"irtype":    {Name: "irtype", Contexts: []string{"tony-format/context/match"}},
 			"ir":        {Name: "ir", Contexts: []string{"tony-format/context/match"}},
 			"glob":      {Name: "glob", Contexts: []string{"tony-format/context/match"}},
+			"regexp":    {Name: "regexp", Contexts: []string{"tony-format/context/match"}},
 			"field":     {Name: "field", Contexts: []string{"tony-format/context/match", "tony-format/context/patch"}},
 			"tag":       {Name: "tag", Contexts: []string{"tony-format/context/match"}},
 			"subtree":   {Name: "subtree", Contexts: []string{"tony-format/context/match"}},

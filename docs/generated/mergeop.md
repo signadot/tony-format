@@ -524,6 +524,37 @@ name: !glob sv*
 
 ---
 
+## `!regexp`
+
+**Match a string against a regular expression** (match)
+
+The pattern is Go's `regexp` syntax (RE2: no backreferences, and matching takes
+time linear in the string). It matches anywhere in the string unless it anchors
+itself, as Go's `MatchString` does: `!regexp proceed` finds the word anywhere,
+`!regexp "^proceed$"` only the whole string. A node that is not a string does not
+match; a pattern that does not compile is an error.
+
+Where `!glob`'s `*` spans any run of characters, a regular expression can say
+where a word must stand.
+
+A backslash in a quoted string is an escape, as in JSON, so a pattern's `\S`
+is written `\\S` there. A block literal takes the pattern as written.
+
+**Examples:**
+
+```tony
+# the option chosen was proceed, whatever the person added after it
+answer: !regexp |-
+  ^\S+ chose proceed(: |$)
+```
+
+```tony
+# a semantic version tag; quoted, so each backslash is doubled
+tag: !regexp '^v[0-9]+\\.[0-9]+\\.[0-9]+$'
+```
+
+---
+
 ## `!subtree`
 
 **Match any subtree of the document** (match)

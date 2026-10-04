@@ -54,7 +54,7 @@ Tony Format provides several built-in contexts:
 Tags for matching operations:
 
 - `!or`, `!and`, `!not` - boolean operations
-- `!irtype`, `!ir`, `!glob`, `!field`, `!tag` - type, field and tag matching
+- `!irtype`, `!ir`, `!glob`, `!regexp`, `!field`, `!tag` - type, field and tag matching
 - `!subtree`, `!all`, `!at`, `!has-path` - structural matching
 - `!lt`, `!le`, `!gt`, `!ge` - ordering a number or an RFC 3339 time
 - `!let`, `!pass`, `!raw`, `!comment` - binding, anything, the escape, comments

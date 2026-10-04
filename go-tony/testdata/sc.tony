@@ -8,7 +8,7 @@ define:
     duration: =duration
   
   duration: !regexp |-
-    \d+[mhdw]
+    ^\d+[mhdw]$
   node:
     parent: @node
     children: .array(node)
