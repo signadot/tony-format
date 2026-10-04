@@ -130,7 +130,7 @@ comment was made with, and is its identity from then on. The editor opens on the
 comment's text as stored, headings kept. As with `edit`, the change is a commit
 on the issue's chain, so history keeps what the comment said before; two clones
 that edit one comment differently meet at a pull as a conflict, as two edits of
-the description do.
+the description do, and it is settled as they are ([Sync with a remote](#sync-with-a-remote)).
 
 ## Attach files
 
@@ -224,18 +224,58 @@ chain carries is **merged**: comments union, and the later status change wins. S
 comment made here is not dropped by a pull, and one made elsewhere is not dropped
 by a push.
 
-What cannot be merged -- two people rewrote the same description -- is **left alone
-and named**, and the command exits non-zero:
+What cannot be merged -- two people rewrote the same description, or the same
+comment -- is **left alone and named**, and the command exits non-zero:
 
 ```
-  j2dzt7xp  Fix the thing
+  j2dzt7xph12kswa9esn0  Fix the thing
       edited on both sides: description.md cannot be merged.
       here a1b2c3d4, origin e5f6a7b8.
-      `git issue pull --force` takes the remote side; this clone stays in the ref's reflog.
+      `git issue pull --force` takes the remote's; this clone's stays in the ref's reflog.
 ```
 
-`--force` is how you decide one: `pull --force` takes the remote's, `push --force`
-takes this clone's, and what it overwrote stays in the ref's reflog either way.
+There are two ways to decide one.
+
+**Make the one path agree, and pull.** Change this clone's copy of the path the
+refusal names to what the remote holds, and pull again: the two sides now made
+the same change there, so the pull merges, and everything else either side did
+-- other comments, labels, a close -- is kept. Then change it again to what it
+should say, and push; that is an ordinary edit. The remote's copy is at the
+commit the refusal names as origin.
+
+A comment edited on two clones, settled that way:
+
+```bash
+$ git issue pull
+  j2dzt7xph12kswa9esn0  Staging plan
+      edited on both sides: discussion/20261004T103302Z-2f1f8098.md cannot be merged.
+      here bc1b196d, origin 304e1634.
+      `git issue pull --force` takes the remote's; this clone's stays in the ref's reflog.
+
+$ git show 304e1634:discussion/20261004T103302Z-2f1f8098.md   # what the remote says
+<!-- 2026-10-04T12:33:02+02:00 -->
+
+Ship on Wednesday.
+
+$ git show 304e1634:discussion/20261004T103302Z-2f1f8098.md | tail -n +3 |
+    git issue comment j2dz --edit 20261004T103302Z       # take it here, its header aside
+$ git issue pull
+  j2dzt7xph12kswa9esn0  merged fcb63a4d and 304e1634
+
+$ git issue comment j2dz --edit 20261004T103302Z "Ship on Thursday: staging needs the extra day."
+$ git issue push
+```
+
+`tail -n +3` drops the comment's header, its first two lines: `--edit` takes the
+text and keeps the header the comment has. A description is settled the same
+way: `git show <origin>:description.md | tail -n +3 | git issue edit <id>` takes
+the remote's body, and `git issue edit <id> --title` its first line, when the
+titles differ too.
+
+**Take one side outright.** `pull --force` takes the remote's copy of the issue,
+`push --force` takes this clone's, and what it overwrote stays in the ref's
+reflog either way. This decides the whole issue, not the one path: what the
+other side did to it since the two parted is overwritten with it.
 
 Every write to a remote carries a lease on what the last fetch saw, so a push that
 would land on top of someone else's is refused rather than forced. Closing an issue

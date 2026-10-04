@@ -201,7 +201,8 @@ The rules of the tracker:
     there (an ext reference), so the relation resolves from that repository alone.
   - issue_push, issue_pull and issue_watch_remote touch the remote and nothing else does. A push
     carries a lease on what the last fetch saw; an issue edited on both sides is refused and
-    named, for a person to decide, never overwritten.`
+    named, for a person to decide, never overwritten. To settle one path, make this clone's copy
+    match the remote's and pull again; force takes one side's whole issue.`
 
 // textOut renders through a command's writer, so a tool's text is what the
 // command prints.

@@ -603,8 +603,9 @@ func addTools(m *mcpServer) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "issue_pull",
 		Description: "Bring the remote's issues into a repository, and its mirrors up to their sources. An issue edited on both sides is " +
-			"merged when the two can be brought together, and otherwise refused and named for a person to decide; force takes the " +
-			"remote side outright. dry_run says what a pull would do and writes nothing.",
+			"merged when the two can be brought together, and otherwise refused and named for a person to decide: by making this clone's " +
+			"copy of the named path match the remote's (at the origin commit the refusal names) and pulling again, which keeps everything " +
+			"else both sides did, or by force, which takes the remote's whole issue. dry_run says what a pull would do and writes nothing.",
 		Annotations: &mcp.ToolAnnotations{IdempotentHint: true},
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in pullIn) (*mcp.CallToolResult, reportOut, error) {
 		r, err := ws.byName(in.Repo)
