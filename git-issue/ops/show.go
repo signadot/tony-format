@@ -38,6 +38,15 @@ type Entry struct {
 	Text    string // the content without its header
 }
 
+// entryOf is the comment stored at path as content.
+func entryOf(path, content string) Entry {
+	when, ok := issuelib.ParseCommentTime(content)
+	return Entry{
+		Path: path, When: when, HasTime: ok,
+		Content: content, Text: issuelib.StripCommentHeader(content),
+	}
+}
+
 // Show reads an issue whole.
 func Show(s issuelib.Store, id string) (*Shown, error) {
 	ref, err := s.FindRef(id)
@@ -82,12 +91,7 @@ func Show(s issuelib.Store, id string) (*Shown, error) {
 		if err != nil {
 			continue
 		}
-		content := string(raw)
-		when, ok := issuelib.ParseCommentTime(content)
-		sh.Comments = append(sh.Comments, Entry{
-			Path: path, When: when, HasTime: ok,
-			Content: content, Text: issuelib.StripCommentHeader(content),
-		})
+		sh.Comments = append(sh.Comments, entryOf(path, string(raw)))
 	}
 	// Chronological by each comment's own timestamp, the path breaking ties: a
 	// current name (<UTC ts>-<hash>) sorts by time too, but a legacy

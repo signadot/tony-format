@@ -37,7 +37,7 @@ func (cfg *commentConfig) run(cc *cli.Context, args []string) error {
 	xidrOrPrefix := args[0]
 	if len(args) > 1 {
 		name, value, hasValue := strings.Cut(args[1], "=")
-		if name == "--edit" || name == "-e" {
+		if name == "--edit" {
 			rest := args[2:]
 			if !hasValue {
 				if len(rest) == 0 {
@@ -56,16 +56,11 @@ func (cfg *commentConfig) run(cc *cli.Context, args []string) error {
 	}
 
 	// The text: the arguments, or stdin when it is not a terminal, or the editor.
-	var commentText string
-	if len(args) > 1 {
-		commentText = strings.Join(args[1:], " ")
-	} else if stat, _ := os.Stdin.Stat(); (stat.Mode() & os.ModeCharDevice) == 0 {
-		data, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return fmt.Errorf("reading stdin: %w", err)
-		}
-		commentText = string(data)
-	} else {
+	commentText, given, err := argsOrStdin(args[1:])
+	if err != nil {
+		return err
+	}
+	if !given {
 		// Export issue to temp directory for context
 		contextDir, err := ExportToTempDir(cfg.store, ref)
 		if err != nil {
@@ -102,16 +97,11 @@ func (cfg *commentConfig) run(cc *cli.Context, args []string) error {
 // when it is not a terminal, or the editor opened on the comment's text as
 // stored, headings kept, as edit opens on the description.
 func (cfg *commentConfig) edit(cc *cli.Context, id, comment string, args []string) error {
-	var text string
-	if len(args) > 0 {
-		text = strings.Join(args, " ")
-	} else if stat, _ := os.Stdin.Stat(); (stat.Mode() & os.ModeCharDevice) == 0 {
-		data, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return fmt.Errorf("reading stdin: %w", err)
-		}
-		text = string(data)
-	} else {
+	text, given, err := argsOrStdin(args)
+	if err != nil {
+		return err
+	}
+	if !given {
 		entry, err := ops.FindComment(cfg.store, id, comment)
 		if err != nil {
 			return err
@@ -127,4 +117,21 @@ func (cfg *commentConfig) edit(cc *cli.Context, id, comment string, args []strin
 	}
 	fmt.Fprintf(cc.Out, "Edited comment %s on issue %s\n", strings.TrimPrefix(path, "discussion/"), issue.ID)
 	return nil
+}
+
+// argsOrStdin is a comment's text when it was given: the arguments joined, or
+// stdin when it is not a terminal. given is false when neither holds it, and the
+// caller opens the editor.
+func argsOrStdin(args []string) (text string, given bool, err error) {
+	if len(args) > 0 {
+		return strings.Join(args, " "), true, nil
+	}
+	if stat, _ := os.Stdin.Stat(); (stat.Mode() & os.ModeCharDevice) == 0 {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return "", false, fmt.Errorf("reading stdin: %w", err)
+		}
+		return string(data), true, nil
+	}
+	return "", false, nil
 }

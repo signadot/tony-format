@@ -129,10 +129,8 @@ func FindComment(s issuelib.Store, id, comment string) (*Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	content := string(raw)
-	when, ok := issuelib.ParseCommentTime(content)
-	return &Entry{Path: path, When: when, HasTime: ok, Content: content,
-		Text: issuelib.StripCommentHeader(content)}, nil
+	e := entryOf(path, string(raw))
+	return &e, nil
 }
 
 // findComment resolves a comment's name on the issue at ref to its path: the

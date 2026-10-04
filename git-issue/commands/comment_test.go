@@ -34,10 +34,10 @@ func TestComment_TheCommandItself(t *testing.T) {
 		t.Errorf("the comment reads as %+v", sh.Comments)
 	}
 
-	// --edit, after the id as the usage puts it, changes that comment in place.
+	// --edit, after the id as the usage puts it, changes that comment in place,
+	// and the text after it is taken as given, a leading dash included.
 	name := strings.TrimPrefix(sh.Comments[0].Path, "discussion/")
-	// The text after it is taken as given, a leading dash included.
-	for _, args := range [][]string{{"--edit", name[:10], "- edited", "here"}, {"-e=" + name, "- edited", "again"}} {
+	for _, args := range [][]string{{"--edit", name[:10], "- edited", "here"}, {"--edit=" + name, "- edited", "again"}} {
 		cc, out = sayCC()
 		if err := CommentCommand(store).Run(cc, append([]string{issue.ID[:5]}, args...)); err != nil {
 			t.Fatalf("comment %v: %v", args, err)

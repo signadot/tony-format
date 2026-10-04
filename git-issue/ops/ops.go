@@ -6,10 +6,10 @@
 // data; how that is shown is the front end's.
 //
 // The operations are [Create], [Edit], [Comment], [EditComment], [Label],
-// [Close], [Reopen], [Link], [Relate], [ForCommit], [List] and [Show] on an issue; [Push] and
-// [Pull] with a remote, answering a [Report]; and [SourceAdd], [Mirror],
-// [Refresh] and [Unmirror] for ext references, another repository's issue
-// mirrored here.
+// [Close], [Reopen], [Link], [Relate], [ForCommit], [List] and [Show] on an
+// issue; [Push] and [Pull] with a remote, answering a [Report]; and
+// [SourceAdd], [Mirror], [Refresh] and [Unmirror] for ext references, another
+// repository's issue mirrored here.
 //
 // Functions naming an issue take a full XIDR or any unambiguous prefix, as the
 // store does. An operation refuses rather than guesses: an empty body, a label
