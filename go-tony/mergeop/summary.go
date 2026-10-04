@@ -42,6 +42,7 @@ var summaries = map[string]string{
 	"pipe":       "pipe the doc node to a program and replace it with the program's output",
 	"quote":      "quote a document as a string",
 	"raw":        "the escape: treat the subtree as data, interpreting no operation at any depth",
+	"regexp":     "the string matches a Go (RE2) regular expression, anywhere unless anchored with ^ and $",
 	"rename":     "rename fields, relative to the keys that are there",
 	"replace":    "verify the node still equals from:, then install to:",
 	"retag":      "verify the tag is from, then make it to",

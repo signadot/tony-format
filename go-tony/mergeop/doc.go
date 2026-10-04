@@ -8,7 +8,7 @@
 // # Contexts
 //
 // Operations belong to execution contexts:
-//   - Match: Validation (!or, !and, !not, !irtype, !glob, !has-path, etc.)
+//   - Match: Validation (!or, !and, !not, !irtype, !glob, !regexp, !has-path, etc.)
 //   - Patch: Transformation (!nullify, !insert, !delete, !replace, etc.)
 //   - Eval: Evaluation (!eval, !exec, !file, etc.), whose operations are package eval's
 //   - Diff: Diffing (!strdiff, !arraydiff)

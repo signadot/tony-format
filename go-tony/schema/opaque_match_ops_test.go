@@ -15,6 +15,7 @@ import (
 func TestSchemaLoadsEveryMatchOperator(t *testing.T) {
 	for _, pat := range []string{
 		`!glob "a*"`,
+		`!regexp "a+"`,
 		`!subtree {a: 1}`,
 		`!tag {name: mine}`,
 		`!let {x: 1}`,
@@ -36,7 +37,7 @@ func TestSchemaLoadsEveryMatchOperator(t *testing.T) {
 	}
 
 	for _, bad := range []struct{ pat, want string }{
-		{`!regexp "a+"`, "unknown tag"}, // nothing implements it
+		{`!regex "a+"`, "unknown tag"},  // nothing implements it; !regexp does
 		{`!delete null`, "unknown tag"}, // a patch operator, not a match
 	} {
 		node, err := parse.Parse([]byte("accept: {v: " + bad.pat + "}\n"))

@@ -50,7 +50,7 @@ define:
     duration: .[duration]
   
   duration: !regexp |-
-    \d+[mhdw]
+    ^\d+[mhdw]$
 
   # recursive definitions are possible
   node:

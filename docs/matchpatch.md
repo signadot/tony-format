@@ -27,6 +27,7 @@ directories and via `o match` and `o patch`.
 | `!has-path`|   +   |   -   |     -          | the document has the path the operand names                                      |
 | `!subtree` |   +   |   -   |     -          | match any subtree of the doc                                                     |
 | `!glob`    |   +   |   -   |     -          | glob match a string                                                              |
+| `!regexp`  |   +   |   -   |     -          | the string matches a Go (RE2) regular expression, anywhere unless anchored with `^` and `$` |
 | `!irtype`  |   +   |   -   |     -          | the node's kind equals the operand's: `!irtype ""` a string, `!irtype 0` a number|
 | `!ir`      |   +   |   -   |     -          | match the node's IR fields, not its value: `!ir {int: .[number]}` an integer      |
 | `!tag`     |   +   |   -   |     -          | match the tag of a node, not its value                                           |

@@ -119,6 +119,7 @@ func init() {
 	Register(Or())
 	Register(Not())
 	Register(Glob())
+	Register(Regexp())
 	Register(Field())
 	Register(Tag())
 	Register(Type())

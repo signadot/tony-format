@@ -332,15 +332,51 @@ var matchTests = []matchTest{
 		match: "!has-path people(bob)",
 		res:   false,
 	},
+	// !regexp is unanchored unless the pattern anchors itself.
+	{
+		in:    "'hello world'",
+		match: "!regexp 'o w'",
+		res:   true,
+	},
+	{
+		in:    "'hello world'",
+		match: "!regexp '^o w'",
+		res:   false,
+	},
+	{
+		in:    "hello",
+		match: "!not.regexp '^h.*o$'",
+		res:   false,
+	},
+	{
+		in:    "answer: 'user:a chose proceed: last time they chose deny'",
+		match: "answer: !regexp '^\\\\S+ chose proceed(: |$)'",
+		res:   true,
+	},
+	// where !glob "* chose deny*" would match too, the * spanning the person's words
+	{
+		in:    "answer: 'user:a chose proceed: last time they chose deny'",
+		match: "answer: !regexp |-\n  ^\\S+ chose deny(: |$)\n",
+		res:   false,
+	},
+	{
+		in:    "3",
+		match: "!regexp '3'",
+		res:   false,
+	},
 }
 
-// TestMatchAtBadPath covers the paths !at rejects when the pattern is built,
-// rather than reporting as a mismatch.
-func TestMatchAtBadPath(t *testing.T) {
+// TestMatchBadPattern covers patterns rejected when they are built, rather
+// than reported as a mismatch: the paths !at cannot use, and the expressions
+// !regexp cannot compile.
+func TestMatchBadPattern(t *testing.T) {
 	for _, match := range []string{
 		"!at 3",      // no kpath
 		"!at(a,b) 3", // two of them
 		"!at('unclosed) 3",
+		"!regexp '('", // does not compile
+		"!regexp 3",   // not a string
+		"!regexp(x) 'a'",
 	} {
 		doc, err := parse.Parse([]byte("a:\n  b: 3"))
 		if err != nil {
