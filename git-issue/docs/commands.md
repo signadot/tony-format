@@ -115,6 +115,23 @@ Comments are stored as `discussion/<timestamp>-<hash>.md`. The name is derived
 from the content, so two clones adding different comments cannot land on the
 same path; the timestamp sorts them.
 
+### Edit a comment
+
+```bash
+git issue comment j2dz --edit 20261004T101544Z-b6 "Corrected text"   # inline
+echo "Corrected text" | git issue comment j2dz --edit 20261004T1015   # from stdin
+git issue comment j2dz --edit 20261004T101544Z-b6                    # opens $EDITOR
+```
+
+`--edit` names a comment as `show` prints it, with or without `discussion/`, or
+by any unambiguous prefix of that. The comment keeps its name and its time, so
+it keeps its place in the discussion: the name was derived from the text the
+comment was made with, and is its identity from then on. The editor opens on the
+comment's text as stored, headings kept. As with `edit`, the change is a commit
+on the issue's chain, so history keeps what the comment said before; two clones
+that edit one comment differently meet at a pull as a conflict, as two edits of
+the description do.
+
 ## Attach files
 
 ```bash

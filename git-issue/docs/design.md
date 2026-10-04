@@ -162,6 +162,12 @@ collapse, which is the right answer. The timestamp keeps names sorting
 chronologically, but `show` sorts on the timestamp *inside* each comment, so a
 renamed or hand-written file still lands in the right place.
 
+An edited comment keeps its name. Renaming it to the digest of its new text
+would break whatever refers to it by name, and would turn two clones editing one
+comment into two comments, silently; keeping the path makes that a conflict at
+the merge, as two edits of the description are. So the hash makes a new
+comment's name unique, and from then on the name is an identity.
+
 `git issue migrate-comments` converts the old names. It appends a commit rather
 than rewriting history, but that commit replaces the issue's tree wholesale, so
 it is dry-run by default and stashes each ref it touches under

@@ -129,7 +129,9 @@ func TestMCP_AnIssuesLife(t *testing.T) {
 	}
 
 	call(t, cs, "issue_edit", map[string]any{"id": created.ID, "body": "## Decided\n\nThe new body."}, nil)
-	call(t, cs, "issue_comment", map[string]any{"id": created.ID, "text": "a finding"}, nil)
+	var commented struct{ Path string }
+	call(t, cs, "issue_comment", map[string]any{"id": created.ID, "text": "a findng"}, &commented)
+	call(t, cs, "issue_comment", map[string]any{"id": created.ID, "edit": commented.Path, "text": "a finding"}, nil)
 	var labels struct{ Labels []string }
 	call(t, cs, "issue_label", map[string]any{"id": created.ID, "add": []string{"git-issue-phase=planned"}, "remove": []string{"bug"}}, &labels)
 	if strings.Join(labels.Labels, ",") != "git-issue-phase=planned" {

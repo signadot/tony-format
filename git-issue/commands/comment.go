@@ -16,20 +16,38 @@ type commentConfig struct {
 	store issuelib.Store
 }
 
-// CommentCommand returns the comment subcommand.
+// CommentCommand returns the comment subcommand: a comment added, or with
+// --edit, one changed in place.
+//
+// --edit is read by hand, and only right after the id, where the usage puts it:
+// every other argument is the comment's text as it was given, so a comment may
+// begin with a dash. An option parser would take "- a list item" for an option.
 func CommentCommand(store issuelib.Store) *cli.Command {
 	cfg := &commentConfig{store: store}
 	return cli.NewCommandAt(&cfg.Command, "comment").
-		WithSynopsis("comment <id> [text] - Add comment to issue").
+		WithSynopsis("comment <id> [--edit <comment>] [text] - Add a comment to an issue, or change one by its name as show prints it").
 		WithRun(cfg.run)
 }
 
 func (cfg *commentConfig) run(cc *cli.Context, args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("%w: usage: git issue comment <xidr> [text]", cli.ErrUsage)
+		return fmt.Errorf("%w: usage: git issue comment <xidr> [--edit <comment>] [text]", cli.ErrUsage)
 	}
 
 	xidrOrPrefix := args[0]
+	if len(args) > 1 {
+		name, value, hasValue := strings.Cut(args[1], "=")
+		if name == "--edit" || name == "-e" {
+			rest := args[2:]
+			if !hasValue {
+				if len(rest) == 0 {
+					return fmt.Errorf("%w: --edit takes the comment to change", cli.ErrUsage)
+				}
+				value, rest = rest[0], rest[1:]
+			}
+			return cfg.edit(cc, xidrOrPrefix, value, rest)
+		}
+	}
 
 	// Find issue first (needed for context export)
 	ref, err := cfg.store.FindRef(xidrOrPrefix)
@@ -77,5 +95,36 @@ func (cfg *commentConfig) run(cc *cli.Context, args []string) error {
 	}
 
 	fmt.Fprintf(cc.Out, "Added comment to issue %s (%s)\n", issue.ID, strings.TrimPrefix(path, "discussion/"))
+	return nil
+}
+
+// edit changes the comment --edit names. The text is the arguments, or stdin
+// when it is not a terminal, or the editor opened on the comment's text as
+// stored, headings kept, as edit opens on the description.
+func (cfg *commentConfig) edit(cc *cli.Context, id, comment string, args []string) error {
+	var text string
+	if len(args) > 0 {
+		text = strings.Join(args, " ")
+	} else if stat, _ := os.Stdin.Stat(); (stat.Mode() & os.ModeCharDevice) == 0 {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return fmt.Errorf("reading stdin: %w", err)
+		}
+		text = string(data)
+	} else {
+		entry, err := ops.FindComment(cfg.store, id, comment)
+		if err != nil {
+			return err
+		}
+		text, err = issuelib.EditTextInEditor(entry.Text)
+		if err != nil {
+			return fmt.Errorf("editor failed: %w", err)
+		}
+	}
+	issue, path, err := ops.EditComment(cfg.store, id, comment, text)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(cc.Out, "Edited comment %s on issue %s\n", strings.TrimPrefix(path, "discussion/"), issue.ID)
 	return nil
 }

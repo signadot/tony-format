@@ -59,7 +59,7 @@ resolves to its own.
 | `issue_show` | `id` | the issue whole: title, body, labels, commits, relations, the discussion in order, attachments |
 | `issue_create` | `repo?`, `title`, `body`, `labels?` | the id |
 | `issue_edit` | `id`, `title?`, `body?` | |
-| `issue_comment` | `id`, `text` | the comment's path |
+| `issue_comment` | `id`, `text`, `edit?` (a comment to change in place) | the comment's path |
 | `issue_label` | `id`, `add?`, `remove?` | the labels after |
 | `issue_close` | `id`, `commit?` | |
 | `issue_reopen` | `id` | |

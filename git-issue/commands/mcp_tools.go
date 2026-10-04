@@ -150,11 +150,12 @@ type editIn struct {
 type commentIn struct {
 	ID   string `json:"id" jsonschema:"the issue: a full id or any unambiguous prefix"`
 	Text string `json:"text" jsonschema:"the comment, markdown"`
+	Edit string `json:"edit,omitempty" jsonschema:"a comment to change in place instead of adding one: its path as issue_show answers it, or an unambiguous prefix of that"`
 }
 
 type commentedOut struct {
 	ID   string `json:"id"`
-	Path string `json:"path" jsonschema:"where the comment was stored, under discussion/"`
+	Path string `json:"path" jsonschema:"where the comment is stored, under discussion/"`
 }
 
 type labelIn struct {
@@ -434,13 +435,23 @@ func addTools(m *mcpServer) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "issue_comment",
-		Description: "Add a comment (markdown) to an issue's discussion. This is where a decision, a finding or a question is recorded.",
+		Name: "issue_comment",
+		Description: "Add a comment (markdown) to an issue's discussion. This is where a decision, a finding or a question is recorded. " +
+			"With edit, the comment it names is changed in place instead: it keeps its path and its time, and history keeps what it said before.",
 		Annotations: local(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in commentIn) (*mcp.CallToolResult, commentedOut, error) {
 		r, xidr, err := ws.find(in.ID)
 		if err != nil {
 			return nil, commentedOut{}, err
+		}
+		if in.Edit != "" {
+			issue, path, err := ops.EditComment(r.Store, xidr, in.Edit, in.Text)
+			if err != nil {
+				return nil, commentedOut{}, err
+			}
+			m.look(ctx)
+			return result(fmt.Sprintf("Edited comment %s on issue %s\n", strings.TrimPrefix(path, "discussion/"), issue.ID)),
+				commentedOut{ID: issue.ID, Path: path}, nil
 		}
 		issue, path, err := ops.Comment(r.Store, xidr, in.Text)
 		if err != nil {
