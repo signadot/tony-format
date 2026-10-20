@@ -34,10 +34,15 @@ own grammar. Until Tony is added there, repositories map it to YAML in `.gitattr
 *.tony linguist-language=YAML
 ```
 
-Adding Tony to linguist is a PR there that points `script/add-grammar` at this repository and
-adds real-world samples. linguist accepts a language once its extension is in wide public use
--- some 2,000 `.tony` files across many owners' repositories -- and `.tony` is also the
-extension of an unrelated teaching language, which the PR would need a heuristic to tell apart.
+Adding Tony to linguist takes no code, there or here. The PR is data: an entry in
+`lib/linguist/languages.yml`, this grammar added as a submodule by `script/add-grammar`, a few
+real `.tony` files under `samples/Tony/`, and a language id from `script/update-ids`. No
+language in linguist claims `.tony`, so it needs no heuristic. What it does need is use:
+linguist takes a language once its extension is in wide public use -- some 2,000 `.tony` files
+across many owners' repositories -- and today almost all of them are signadot's.
+
+Once it merges, GitHub highlights `.tony` as Tony from the next linguist release it deploys,
+and the `.gitattributes` mapping can go.
 
 ## Status
 
@@ -49,10 +54,16 @@ What a linguist PR needs, and where each stands.
 - [x] Tests run on every PR (`.github/workflows/grammar.yml`)
 - [x] A license linguist accepts: Apache-2.0, the repository's
 - [x] In a public repository linguist can add as a submodule
-- [ ] Snapshot tests, so a grammar change reads as a diff of scopes in review
-- [ ] Samples for linguist: real `.tony` files, licensed for the PR
+- [x] Compiles with linguist's grammar compiler (`script/grammar-compiler add`): no errors, no
+      warnings
+- [x] The PR, staged against a clone of linguist, passes its tests: a `Tony` entry (`type: data`,
+      `tm_scope: source.tony`, YAML's ace and CodeMirror modes), and three samples from this
+      repository, all Apache-2.0: `go-tony/schema/base.tony`,
+      `go-tony/examples/build/sb/patches/workloads.tony` and
+      `go-tony/examples/build/patch-argocd/source/plugin-config.tony`
+- [x] A colour: `#4a5c8a`, the colour `o v` prints a tag in
 - [ ] Usage: ~2,000 public `.tony` files across many owners (today almost all are signadot's)
-- [ ] A heuristic telling Tony from the NTUA teaching language that also uses `.tony`
+- [ ] Snapshot tests, so a grammar change reads as a diff of scopes in review
 
 Not planned until someone asks: packaging for VS Code or Cursor, which takes a
 `package.json` manifest and a language configuration around this grammar, and for Zed, which
