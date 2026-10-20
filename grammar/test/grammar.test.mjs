@@ -228,20 +228,28 @@ function inner(code) {
 const OPEN = 'punctuation.section.embedded.begin';
 const CLOSE = 'punctuation.section.embedded.end';
 const VAR = 'variable';
+const TYPE = 'support.type.builtin';
 const CALL = 'entity.name.function';
 const OP = 'keyword.operator';
 
 test('expressions: where the grammar goes past the lexer', () => {
   // docs/eval.md. The lexer paints an expression as one literal; the grammar tells its names,
   // calls, fields and operators apart.
+  // the types tony-base defines, parametric ones included, are types
   assert.deepEqual(inner('k: .[string]'),
-    [[KEY, 'k'], [SEP, ':'], [OPEN, '.['], [VAR, 'string'], [CLOSE, ']']]);
+    [[KEY, 'k'], [SEP, ':'], [OPEN, '.['], [TYPE, 'string'], [CLOSE, ']']]);
   assert.deepEqual(inner('k: .[array(nullable(string))]'),
-    [[KEY, 'k'], [SEP, ':'], [OPEN, '.['], [CALL, 'array'], ['punctuation', '('], [CALL, 'nullable'],
-      ['punctuation', '('], [VAR, 'string'], ['punctuation', ')'], ['punctuation', ')'], [CLOSE, ']']]);
-  // a schema's names hold '-' and ':'
+    [[KEY, 'k'], [SEP, ':'], [OPEN, '.['], [TYPE, 'array'], ['punctuation', '('], [TYPE, 'nullable'],
+      ['punctuation', '('], [TYPE, 'string'], ['punctuation', ')'], ['punctuation', ')'], [CLOSE, ']']]);
   assert.deepEqual(inner('else: .[tony-base:ir]'),
-    [[KEY, 'else'], [SEP, ':'], [OPEN, '.['], [VAR, 'tony-base:ir'], [CLOSE, ']']]);
+    [[KEY, 'else'], [SEP, ':'], [OPEN, '.['], [TYPE, 'tony-base:ir'], [CLOSE, ']']]);
+  // and any other name is a variable, holding '-' and ':' as a schema's names do
+  assert.deepEqual(inner('k: .[repository]').map(([k]) => k), [KEY, SEP, OPEN, VAR, CLOSE]);
+  assert.deepEqual(inner('k: .[my-ctx:thing]').map(([k]) => k), [KEY, SEP, OPEN, VAR, CLOSE]);
+  assert.deepEqual(inner('k: .[stringly]').map(([k]) => k), [KEY, SEP, OPEN, VAR, CLOSE]);
+  // `key` is a type only with its parameter, as tony-base defines it
+  assert.deepEqual(inner('k: .[key(name)]').map(([k]) => k),
+    [KEY, SEP, OPEN, TYPE, 'punctuation', VAR, 'punctuation', CLOSE]);
   assert.deepEqual(inner('v: .[getpath("$.version").String]'),
     [[KEY, 'v'], [SEP, ':'], [OPEN, '.['], [CALL, 'getpath'], ['punctuation', '('],
       ['punctuation.definition.string.begin', '"'], [DQ, '$.version'], ['punctuation.definition.string.end', '"'],

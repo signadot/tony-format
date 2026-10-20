@@ -28,8 +28,9 @@
 //     '---'                  entity.other.document.begin.tony
 //     '.[x]', '$[x]'         meta.embedded.expression.tony, meta.interpolation.tony, with
 //                            punctuation.section.embedded.{begin,end}.tony at either end
+//       a built-in type      support.type.builtin.tony
 //       a name in one        variable.tony
-//       a call              entity.name.function.tony
+//       a call               entity.name.function.tony
 //       a field after '.'    variable.other.property.tony
 //       an operator          keyword.operator.tony
 //
@@ -69,6 +70,13 @@ const NUM_END = `(?!${LIT_CH}|${LIT_COLON})`;
 // arguments that are themselves tags: "!retag(tag1.tag2(a,b),tag2(z))". Arguments hold commas,
 // so they are matched as a unit rather than left to end the tag.
 const TAG = String.raw`!(?:[^\s,#'"\[\]{}()]|\((?:[^()]|\([^()]*\))*\))+`;
+
+// The types tony-base defines (go-tony/schema/base.tony), which every schema names --
+// `.[string]`, `.[array(string)]`, `.[tony-base:ir]` -- and which themes colour as types where
+// they would leave a variable plain. A call to a parametric one, `array(t)`, is a type too.
+// `key` and `nullable` are defined only with a parameter, so only `key(` and `nullable(` are
+// types, and a variable may still be called `key`.
+const BUILTIN_TYPE = String.raw`(?<![\w.:-])(?:tony-base:)?(?:(?:array|bool|field|float|int|ir|number|object|sparsearray|string)(?![\w:-])|(?:key|nullable)(?=\())`;
 
 // A block literal's body is what is indented to its content's level, and that level is not the
 // column the '|' lands on but the opening line's, per "Block Literals" in docs/tony.md: one
@@ -194,6 +202,7 @@ const grammar = {
         },
         { match: String.raw`\b\d+(?:\.\d+)?\b`, name: 'constant.numeric.tony' },
         { match: String.raw`\b(?:true|false|nil|null)\b`, name: 'constant.language.tony' },
+        { match: BUILTIN_TYPE, name: 'support.type.builtin.tony' },
         { match: String.raw`[A-Za-z_][\w-]*(?=\()`, name: 'entity.name.function.tony' },
         { match: String.raw`(?<=\.)[A-Za-z_]\w*`, name: 'variable.other.property.tony' },
         { match: String.raw`[A-Za-z_$][\w-]*(?::[A-Za-z_][\w-]*)?`, name: 'variable.tony' },

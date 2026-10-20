@@ -367,6 +367,10 @@
           "name": "constant.language.tony"
         },
         {
+          "match": "(?<![\\w.:-])(?:tony-base:)?(?:(?:array|bool|field|float|int|ir|number|object|sparsearray|string)(?![\\w:-])|(?:key|nullable)(?=\\())",
+          "name": "support.type.builtin.tony"
+        },
+        {
           "match": "[A-Za-z_][\\w-]*(?=\\()",
           "name": "entity.name.function.tony"
         },
