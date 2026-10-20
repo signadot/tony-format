@@ -26,6 +26,16 @@
 //     number                 constant.numeric.*.tony
 //     null, true, false      constant.language.{null,boolean}.tony
 //     '---'                  entity.other.document.begin.tony
+//     '.[x]', '$[x]'         meta.embedded.expression.tony, meta.interpolation.tony, with
+//                            punctuation.section.embedded.{begin,end}.tony at either end
+//       a name in one        variable.tony
+//       a call              entity.name.function.tony
+//       a field after '.'    variable.other.property.tony
+//       an operator          keyword.operator.tony
+//
+// The lexer stops at that last row: it paints an expression as the literal it is to the
+// parser. Expressions are a tenth of the lines of tony in this repository -- `.[string]` in
+// every schema -- so painting them one colour left most of a document in two.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -43,7 +53,9 @@ const LIT_COLON = String.raw`:(?![\s,]|$)`;
 // Nesting deeper than this is not worth a regex.
 const LIT_PAIR = String.raw`\[[^\[\]\s]*\]|\{[^{}\s]*\}|\([^()\s]*\)`;
 
-const LITERAL = `(?:${LIT_CH}|${LIT_COLON}|${LIT_PAIR})+`;
+// A literal stops where an interpolation starts, so that the '$[x]' in "prefix-$[x]-suffix" is
+// highlighted as one, between two runs of literal.
+const LITERAL = String.raw`(?:(?!\$\[)${LIT_CH}|${LIT_COLON}|${LIT_PAIR})+`;
 
 // A key is a literal that a ':' separator follows.
 const IS_KEY = String.raw`(?=:(?:\s|$))`;
@@ -91,6 +103,7 @@ function blockLiteral(depth) {
     },
     end: String.raw`^(?!\1[ \t]{${2 * depth}}|[ \t]*$)`,
     contentName: 'string.unquoted.block.tony',
+    patterns: [{ include: '#interpolation' }],
   };
 }
 
@@ -136,6 +149,9 @@ const grammar = {
         { include: '#string' },
         { include: '#number' },
         { match: LITERAL + IS_KEY, name: 'entity.name.tag.tony' },
+        // After keys, so that ".[x]: v" is the key it is in docs/tony.md
+        { include: '#expression' },
+        { include: '#interpolation' },
         { match: 'null' + NUM_END, name: 'constant.language.null.tony' },
         { match: '(?:true|false)' + NUM_END, name: 'constant.language.boolean.tony' },
         { match: String.raw`:(?=\s|$)`, name: 'punctuation.separator.key-value.mapping.tony' },
@@ -159,6 +175,33 @@ const grammar = {
       ],
     },
 
+    expression: embedded(String.raw`\.\[`, 'meta.embedded.expression.tony'),
+    interpolation: embedded(String.raw`\$\[`, 'meta.interpolation.tony'),
+
+    // The inside of one: enough of expr-lang to tell names, calls, fields and operators apart.
+    // A name may hold '-' and one ':' because a schema's names do: ".[tony-base:ir]".
+    expr: {
+      patterns: [
+        // "\]" is a ']' that does not close the expression
+        { match: String.raw`\\.`, name: 'constant.character.escape.tony' },
+        { include: '#string' },
+        {
+          begin: String.raw`\[`,
+          end: String.raw`\]`,
+          beginCaptures: { 0: { name: 'punctuation.section.brackets.begin.tony' } },
+          endCaptures: { 0: { name: 'punctuation.section.brackets.end.tony' } },
+          patterns: [{ include: '#expr' }],
+        },
+        { match: String.raw`\b\d+(?:\.\d+)?\b`, name: 'constant.numeric.tony' },
+        { match: String.raw`\b(?:true|false|nil|null)\b`, name: 'constant.language.tony' },
+        { match: String.raw`[A-Za-z_][\w-]*(?=\()`, name: 'entity.name.function.tony' },
+        { match: String.raw`(?<=\.)[A-Za-z_]\w*`, name: 'variable.other.property.tony' },
+        { match: String.raw`[A-Za-z_$][\w-]*(?::[A-Za-z_][\w-]*)?`, name: 'variable.tony' },
+        { match: String.raw`\?\?|\?\.|==|!=|<=|>=|&&|\|\||[-+*/%<>!?:]`, name: 'keyword.operator.tony' },
+        { match: '[.,()]', name: 'punctuation.tony' },
+      ],
+    },
+
     number: {
       patterns: [
         { match: String.raw`-?0[xX][0-9a-fA-F]+` + NUM_END, name: 'constant.numeric.integer.hexadecimal.tony' },
@@ -179,7 +222,27 @@ function quoted(q, kind) {
     beginCaptures: { 0: { name: 'punctuation.definition.string.begin.tony' } },
     end: `(${q})|$`,
     endCaptures: { 1: { name: 'punctuation.definition.string.end.tony' } },
-    patterns: [{ match: String.raw`\\.`, name: 'constant.character.escape.tony' }],
+    patterns: [
+      { match: String.raw`\\.`, name: 'constant.character.escape.tony' },
+      { include: '#expression' },
+      { include: '#interpolation' },
+    ],
+  };
+}
+
+// '.[x]' is the value of an expr-lang expression and '$[x]' a string holding it, per
+// docs/eval.md. Both are evaluated only where an !eval says so, and are text everywhere else;
+// they are highlighted everywhere, because that is where a reader looks for them -- in a quoted
+// string too, which is how a build file writes a condition: `if: '.[ key != "" ]'`. Like a
+// string, one that is not closed ends at the line.
+function embedded(open, name) {
+  return {
+    name,
+    begin: open,
+    beginCaptures: { 0: { name: 'punctuation.section.embedded.begin.tony' } },
+    end: String.raw`(\])|$`,
+    endCaptures: { 1: { name: 'punctuation.section.embedded.end.tony' } },
+    patterns: [{ include: '#expr' }],
   };
 }
 

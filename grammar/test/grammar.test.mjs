@@ -217,6 +217,74 @@ test('strings', () => {
   check('k: "oops\nj: 1\n', [KEY, 'k'], [SEP, ':'], [DQ, '"oops'], [KEY, 'j'], [SEP, ':'], [INT, '1']);
 });
 
+// The innermost scope of each token on a one-line document, without '.tony', for what the
+// outermost-scope view of toks() cannot see: an interpolation inside a string, say.
+function inner(code) {
+  return grammar.tokenizeLine(code, vsctm.INITIAL).tokens
+    .map((t) => [t.scopes.at(-1).replace(/\.tony$/, ''), code.slice(t.startIndex, t.endIndex)])
+    .filter(([, v]) => v.trim() !== '');
+}
+
+const OPEN = 'punctuation.section.embedded.begin';
+const CLOSE = 'punctuation.section.embedded.end';
+const VAR = 'variable';
+const CALL = 'entity.name.function';
+const OP = 'keyword.operator';
+
+test('expressions: where the grammar goes past the lexer', () => {
+  // docs/eval.md. The lexer paints an expression as one literal; the grammar tells its names,
+  // calls, fields and operators apart.
+  assert.deepEqual(inner('k: .[string]'),
+    [[KEY, 'k'], [SEP, ':'], [OPEN, '.['], [VAR, 'string'], [CLOSE, ']']]);
+  assert.deepEqual(inner('k: .[array(nullable(string))]'),
+    [[KEY, 'k'], [SEP, ':'], [OPEN, '.['], [CALL, 'array'], ['punctuation', '('], [CALL, 'nullable'],
+      ['punctuation', '('], [VAR, 'string'], ['punctuation', ')'], ['punctuation', ')'], [CLOSE, ']']]);
+  // a schema's names hold '-' and ':'
+  assert.deepEqual(inner('else: .[tony-base:ir]'),
+    [[KEY, 'else'], [SEP, ':'], [OPEN, '.['], [VAR, 'tony-base:ir'], [CLOSE, ']']]);
+  assert.deepEqual(inner('v: .[getpath("$.version").String]'),
+    [[KEY, 'v'], [SEP, ':'], [OPEN, '.['], [CALL, 'getpath'], ['punctuation', '('],
+      ['punctuation.definition.string.begin', '"'], [DQ, '$.version'], ['punctuation.definition.string.end', '"'],
+      ['punctuation', ')'], ['punctuation', '.'], ['variable.other.property', 'String'], [CLOSE, ']']]);
+  assert.deepEqual(inner('d: .[a?.b ?? "unset"]').map(([k]) => k),
+    [KEY, SEP, OPEN, VAR, OP, 'variable.other.property', OP,
+      'punctuation.definition.string.begin', DQ, 'punctuation.definition.string.end', CLOSE]);
+  // a ']' inside a string or a nested index does not close it
+  assert.deepEqual(inner('k: .[m["a]"]]').at(-1), [CLOSE, ']']);
+  assert.equal(inner('k: .[m["a]"]]').filter(([k]) => k === CLOSE).length, 1);
+  // in a quoted string, as a build file writes a condition
+  assert.deepEqual(inner(`- if: '.[ key != "" ]'`).map(([k]) => k),
+    [ITEM, KEY, SEP, 'punctuation.definition.string.begin', OPEN, VAR, OP,
+      'punctuation.definition.string.begin', 'punctuation.definition.string.end', CLOSE,
+      'punctuation.definition.string.end']);
+  // a key that looks like one is still a key, as in docs/tony.md
+  check('.[x]: 1\n', [KEY, '.[x]'], [SEP, ':'], [INT, '1']);
+  // and an unclosed one ends at the line
+  check('k: .[x\nj: 1\n',
+    [KEY, 'k'], [SEP, ':'], [OPEN, '.['], [VAR, 'x'], [KEY, 'j'], [SEP, ':'], [INT, '1']);
+});
+
+test('interpolations: in literals, strings and block literals', () => {
+  // between two runs of literal
+  assert.deepEqual(inner('image: $[images.prefix]-api$[images.suffix]'),
+    [[KEY, 'image'], [SEP, ':'],
+      [OPEN, '$['], [VAR, 'images'], ['punctuation', '.'], ['variable.other.property', 'prefix'], [CLOSE, ']'],
+      [LIT, '-api'],
+      [OPEN, '$['], [VAR, 'images'], ['punctuation', '.'], ['variable.other.property', 'suffix'], [CLOSE, ']']]);
+  // inside a string, which keeps its own scope around it
+  const s = grammar.tokenizeLine('k: "ns-$[namespace]"', vsctm.INITIAL).tokens
+    .find((t) => t.scopes.at(-1) === 'variable.tony');
+  assert.deepEqual(s.scopes, ['source.tony', 'string.quoted.double.tony', 'meta.interpolation.tony', 'variable.tony']);
+  // inside a block literal's body
+  const first = grammar.tokenizeLine('k: |', vsctm.INITIAL);
+  const body = grammar.tokenizeLine('  hello $[name]', first.ruleStack).tokens
+    .find((t) => t.scopes.at(-1) === 'variable.tony');
+  assert.deepEqual(body.scopes, ['source.tony', 'meta.block-literal.tony', 'string.unquoted.block.tony',
+    'meta.interpolation.tony', 'variable.tony']);
+  // '$' alone is a literal's
+  check('$y: "$y"\n', [KEY, '$y'], [SEP, ':'], [DQ, '"$y"']);
+});
+
 // Characters the grammar gives no scope but the root's, reported as file:line.
 function unscoped(code, where, firstLine) {
   const bad = [];

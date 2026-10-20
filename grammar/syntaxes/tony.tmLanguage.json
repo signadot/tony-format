@@ -58,7 +58,12 @@
             }
           },
           "end": "^(?!\\1[ \\t]{8}|[ \\t]*$)",
-          "contentName": "string.unquoted.block.tony"
+          "contentName": "string.unquoted.block.tony",
+          "patterns": [
+            {
+              "include": "#interpolation"
+            }
+          ]
         },
         {
           "name": "meta.block-literal.tony",
@@ -83,7 +88,12 @@
             }
           },
           "end": "^(?!\\1[ \\t]{6}|[ \\t]*$)",
-          "contentName": "string.unquoted.block.tony"
+          "contentName": "string.unquoted.block.tony",
+          "patterns": [
+            {
+              "include": "#interpolation"
+            }
+          ]
         },
         {
           "name": "meta.block-literal.tony",
@@ -108,7 +118,12 @@
             }
           },
           "end": "^(?!\\1[ \\t]{4}|[ \\t]*$)",
-          "contentName": "string.unquoted.block.tony"
+          "contentName": "string.unquoted.block.tony",
+          "patterns": [
+            {
+              "include": "#interpolation"
+            }
+          ]
         },
         {
           "name": "meta.block-literal.tony",
@@ -133,7 +148,12 @@
             }
           },
           "end": "^(?!\\1[ \\t]{2}|[ \\t]*$)",
-          "contentName": "string.unquoted.block.tony"
+          "contentName": "string.unquoted.block.tony",
+          "patterns": [
+            {
+              "include": "#interpolation"
+            }
+          ]
         }
       ]
     },
@@ -161,8 +181,14 @@
           "include": "#number"
         },
         {
-          "match": "(?:[^\\s,#'\"\\[\\]{}():]|:(?![\\s,]|$)|\\[[^\\[\\]\\s]*\\]|\\{[^{}\\s]*\\}|\\([^()\\s]*\\))+(?=:(?:\\s|$))",
+          "match": "(?:(?!\\$\\[)[^\\s,#'\"\\[\\]{}():]|:(?![\\s,]|$)|\\[[^\\[\\]\\s]*\\]|\\{[^{}\\s]*\\}|\\([^()\\s]*\\))+(?=:(?:\\s|$))",
           "name": "entity.name.tag.tony"
+        },
+        {
+          "include": "#expression"
+        },
+        {
+          "include": "#interpolation"
         },
         {
           "match": "null(?![^\\s,#'\"\\[\\]{}():]|:(?![\\s,]|$))",
@@ -201,7 +227,7 @@
           "name": "punctuation.definition.sequence.end.tony"
         },
         {
-          "match": "(?:[^\\s,#'\"\\[\\]{}():]|:(?![\\s,]|$)|\\[[^\\[\\]\\s]*\\]|\\{[^{}\\s]*\\}|\\([^()\\s]*\\))+",
+          "match": "(?:(?!\\$\\[)[^\\s,#'\"\\[\\]{}():]|:(?![\\s,]|$)|\\[[^\\[\\]\\s]*\\]|\\{[^{}\\s]*\\}|\\([^()\\s]*\\))+",
           "name": "string.unquoted.plain.tony"
         }
       ]
@@ -226,6 +252,12 @@
             {
               "match": "\\\\.",
               "name": "constant.character.escape.tony"
+            },
+            {
+              "include": "#expression"
+            },
+            {
+              "include": "#interpolation"
             }
           ]
         },
@@ -247,8 +279,112 @@
             {
               "match": "\\\\.",
               "name": "constant.character.escape.tony"
+            },
+            {
+              "include": "#expression"
+            },
+            {
+              "include": "#interpolation"
             }
           ]
+        }
+      ]
+    },
+    "expression": {
+      "name": "meta.embedded.expression.tony",
+      "begin": "\\.\\[",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.embedded.begin.tony"
+        }
+      },
+      "end": "(\\])|$",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.section.embedded.end.tony"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#expr"
+        }
+      ]
+    },
+    "interpolation": {
+      "name": "meta.interpolation.tony",
+      "begin": "\\$\\[",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.embedded.begin.tony"
+        }
+      },
+      "end": "(\\])|$",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.section.embedded.end.tony"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#expr"
+        }
+      ]
+    },
+    "expr": {
+      "patterns": [
+        {
+          "match": "\\\\.",
+          "name": "constant.character.escape.tony"
+        },
+        {
+          "include": "#string"
+        },
+        {
+          "begin": "\\[",
+          "end": "\\]",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.section.brackets.begin.tony"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.section.brackets.end.tony"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#expr"
+            }
+          ]
+        },
+        {
+          "match": "\\b\\d+(?:\\.\\d+)?\\b",
+          "name": "constant.numeric.tony"
+        },
+        {
+          "match": "\\b(?:true|false|nil|null)\\b",
+          "name": "constant.language.tony"
+        },
+        {
+          "match": "[A-Za-z_][\\w-]*(?=\\()",
+          "name": "entity.name.function.tony"
+        },
+        {
+          "match": "(?<=\\.)[A-Za-z_]\\w*",
+          "name": "variable.other.property.tony"
+        },
+        {
+          "match": "[A-Za-z_$][\\w-]*(?::[A-Za-z_][\\w-]*)?",
+          "name": "variable.tony"
+        },
+        {
+          "match": "\\?\\?|\\?\\.|==|!=|<=|>=|&&|\\|\\||[-+*/%<>!?:]",
+          "name": "keyword.operator.tony"
+        },
+        {
+          "match": "[.,()]",
+          "name": "punctuation.tony"
         }
       ]
     },
