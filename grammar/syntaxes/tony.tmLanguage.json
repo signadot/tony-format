@@ -1,0 +1,284 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Tony",
+  "scopeName": "source.tony",
+  "fileTypes": [
+    "tony"
+  ],
+  "patterns": [
+    {
+      "include": "#document-separator"
+    },
+    {
+      "include": "#comment"
+    },
+    {
+      "include": "#block-literal"
+    },
+    {
+      "include": "#inline"
+    }
+  ],
+  "repository": {
+    "document-separator": {
+      "match": "^---[ \\t]*$",
+      "name": "entity.other.document.begin.tony"
+    },
+    "comment": {
+      "match": "(#).*$",
+      "name": "comment.line.number-sign.tony",
+      "captures": {
+        "1": {
+          "name": "punctuation.definition.comment.tony"
+        }
+      }
+    },
+    "block-literal": {
+      "patterns": [
+        {
+          "name": "meta.block-literal.tony",
+          "begin": "^([ \\t]*)((?:(?:- )(?:- )(?:- )(?:- )|(?:- )(?:- )(?:- )(?!- )[^\\s#][^\\n#]*?[ \\t]))(\\|[-+]?)([ \\t]*(?:#.*)?)$",
+          "beginCaptures": {
+            "2": {
+              "patterns": [
+                {
+                  "include": "#inline"
+                }
+              ]
+            },
+            "3": {
+              "name": "keyword.control.flow.block-scalar.literal.tony"
+            },
+            "4": {
+              "patterns": [
+                {
+                  "include": "#comment"
+                }
+              ]
+            }
+          },
+          "end": "^(?!\\1[ \\t]{8}|[ \\t]*$)",
+          "contentName": "string.unquoted.block.tony"
+        },
+        {
+          "name": "meta.block-literal.tony",
+          "begin": "^([ \\t]*)((?:(?:- )(?:- )(?:- )|(?:- )(?:- )(?!- )[^\\s#][^\\n#]*?[ \\t]))(\\|[-+]?)([ \\t]*(?:#.*)?)$",
+          "beginCaptures": {
+            "2": {
+              "patterns": [
+                {
+                  "include": "#inline"
+                }
+              ]
+            },
+            "3": {
+              "name": "keyword.control.flow.block-scalar.literal.tony"
+            },
+            "4": {
+              "patterns": [
+                {
+                  "include": "#comment"
+                }
+              ]
+            }
+          },
+          "end": "^(?!\\1[ \\t]{6}|[ \\t]*$)",
+          "contentName": "string.unquoted.block.tony"
+        },
+        {
+          "name": "meta.block-literal.tony",
+          "begin": "^([ \\t]*)((?:(?:- )(?:- )|(?:- )(?!- )[^\\s#][^\\n#]*?[ \\t]))(\\|[-+]?)([ \\t]*(?:#.*)?)$",
+          "beginCaptures": {
+            "2": {
+              "patterns": [
+                {
+                  "include": "#inline"
+                }
+              ]
+            },
+            "3": {
+              "name": "keyword.control.flow.block-scalar.literal.tony"
+            },
+            "4": {
+              "patterns": [
+                {
+                  "include": "#comment"
+                }
+              ]
+            }
+          },
+          "end": "^(?!\\1[ \\t]{4}|[ \\t]*$)",
+          "contentName": "string.unquoted.block.tony"
+        },
+        {
+          "name": "meta.block-literal.tony",
+          "begin": "^([ \\t]*)((?:(?:(?:- ))?|(?!- )[^\\s#][^\\n#]*?[ \\t]))(\\|[-+]?)([ \\t]*(?:#.*)?)$",
+          "beginCaptures": {
+            "2": {
+              "patterns": [
+                {
+                  "include": "#inline"
+                }
+              ]
+            },
+            "3": {
+              "name": "keyword.control.flow.block-scalar.literal.tony"
+            },
+            "4": {
+              "patterns": [
+                {
+                  "include": "#comment"
+                }
+              ]
+            }
+          },
+          "end": "^(?!\\1[ \\t]{2}|[ \\t]*$)",
+          "contentName": "string.unquoted.block.tony"
+        }
+      ]
+    },
+    "inline": {
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "match": "<<(?=:(?:\\s|$))",
+          "name": "support.constant.merge-key.tony"
+        },
+        {
+          "match": "!(?:[^\\s,#'\"\\[\\]{}()]|\\((?:[^()]|\\([^()]*\\))*\\))+",
+          "name": "storage.type.tag.tony"
+        },
+        {
+          "match": "-?\\d+(?=:(?:\\s|$))",
+          "name": "entity.name.tag.index.tony"
+        },
+        {
+          "include": "#string"
+        },
+        {
+          "include": "#number"
+        },
+        {
+          "match": "(?:[^\\s,#'\"\\[\\]{}():]|:(?![\\s,]|$)|\\[[^\\[\\]\\s]*\\]|\\{[^{}\\s]*\\}|\\([^()\\s]*\\))+(?=:(?:\\s|$))",
+          "name": "entity.name.tag.tony"
+        },
+        {
+          "match": "null(?![^\\s,#'\"\\[\\]{}():]|:(?![\\s,]|$))",
+          "name": "constant.language.null.tony"
+        },
+        {
+          "match": "(?:true|false)(?![^\\s,#'\"\\[\\]{}():]|:(?![\\s,]|$))",
+          "name": "constant.language.boolean.tony"
+        },
+        {
+          "match": ":(?=\\s|$)",
+          "name": "punctuation.separator.key-value.mapping.tony"
+        },
+        {
+          "match": "-(?=\\s|$)",
+          "name": "punctuation.definition.block.sequence.item.tony"
+        },
+        {
+          "match": ",",
+          "name": "punctuation.separator.tony"
+        },
+        {
+          "match": "\\{",
+          "name": "punctuation.definition.mapping.begin.tony"
+        },
+        {
+          "match": "\\}",
+          "name": "punctuation.definition.mapping.end.tony"
+        },
+        {
+          "match": "\\[",
+          "name": "punctuation.definition.sequence.begin.tony"
+        },
+        {
+          "match": "\\]",
+          "name": "punctuation.definition.sequence.end.tony"
+        },
+        {
+          "match": "(?:[^\\s,#'\"\\[\\]{}():]|:(?![\\s,]|$)|\\[[^\\[\\]\\s]*\\]|\\{[^{}\\s]*\\}|\\([^()\\s]*\\))+",
+          "name": "string.unquoted.plain.tony"
+        }
+      ]
+    },
+    "string": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.tony",
+          "begin": "\"",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.tony"
+            }
+          },
+          "end": "(\")|$",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.definition.string.end.tony"
+            }
+          },
+          "patterns": [
+            {
+              "match": "\\\\.",
+              "name": "constant.character.escape.tony"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.tony",
+          "begin": "'",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.tony"
+            }
+          },
+          "end": "(')|$",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.definition.string.end.tony"
+            }
+          },
+          "patterns": [
+            {
+              "match": "\\\\.",
+              "name": "constant.character.escape.tony"
+            }
+          ]
+        }
+      ]
+    },
+    "number": {
+      "patterns": [
+        {
+          "match": "-?0[xX][0-9a-fA-F]+(?![^\\s,#'\"\\[\\]{}():]|:(?![\\s,]|$))",
+          "name": "constant.numeric.integer.hexadecimal.tony"
+        },
+        {
+          "match": "-?0[oO][0-7]+(?![^\\s,#'\"\\[\\]{}():]|:(?![\\s,]|$))",
+          "name": "constant.numeric.integer.octal.tony"
+        },
+        {
+          "match": "-?0[bB][01]+(?![^\\s,#'\"\\[\\]{}():]|:(?![\\s,]|$))",
+          "name": "constant.numeric.integer.binary.tony"
+        },
+        {
+          "match": "-?\\d+(?:\\.\\d+)?[eE][-+]?\\d+(?![^\\s,#'\"\\[\\]{}():]|:(?![\\s,]|$))",
+          "name": "constant.numeric.float.tony"
+        },
+        {
+          "match": "-?\\d+\\.\\d+(?![^\\s,#'\"\\[\\]{}():]|:(?![\\s,]|$))",
+          "name": "constant.numeric.float.tony"
+        },
+        {
+          "match": "-?\\d+(?![^\\s,#'\"\\[\\]{}():]|:(?![\\s,]|$))",
+          "name": "constant.numeric.integer.tony"
+        }
+      ]
+    }
+  }
+}
