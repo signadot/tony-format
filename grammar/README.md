@@ -22,8 +22,14 @@ The grammar and [the Pygments lexer](../docs/sketchy/pygments-tony/pygments_tony
 highlights the docs site are two accounts of one syntax, and `test/grammar.test.mjs` is a port
 of the lexer's tests, so a change to one belongs in the other. Where they differ on purpose, a
 test says so. The suite also tokenizes every ` ```tony ` block in the docs and every `.tony`
-file in the repository, and fails on any character the grammar gives no scope. `npm test`
-fails as well if the JSON is not what `build.mjs` builds.
+file in the repository, and fails on any character the grammar gives no scope a theme colours
+-- none but the root's, or only meta scopes, which group without colouring. `npm test` fails
+as well if the JSON is not what `build.mjs` builds.
+
+A block literal is recognised on an opening line of up to eight `- ` markers (`MAX_DEPTH` in
+`build.mjs`): a TextMate end pattern cannot count, so each depth is a rule of its own. One
+deeper is painted as plain literals. The tests cover every depth to the cap, and nothing in
+this repository goes past two.
 
 ## GitHub
 
@@ -51,7 +57,8 @@ What a linguist PR needs, and where each stands.
 - [x] The grammar, `syntaxes/tony.tmLanguage.json`, generated from commented source
 - [x] Tests: the Pygments lexer's cases, and every `.tony` file and ```` ```tony ```` block in
       the repository
-- [x] Tests run on every PR (`.github/workflows/grammar.yml`)
+- [x] Tests run on every PR that touches what they read -- `grammar/`, `docs/`, any `.tony`
+      file -- and on pushes to main that do (`.github/workflows/grammar.yml`)
 - [x] A license linguist accepts: Apache-2.0, the repository's
 - [x] In a public repository linguist can add as a submodule
 - [x] Compiles with linguist's grammar compiler (`script/grammar-compiler add`): no errors, no

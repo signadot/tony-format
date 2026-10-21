@@ -58,7 +58,9 @@ const LIT_PAIR = String.raw`\[[^\[\]\s]*\]|\{[^{}\s]*\}|\([^()\s]*\)`;
 // highlighted as one, between two runs of literal.
 const LITERAL = String.raw`(?:(?!\$\[)${LIT_CH}|${LIT_COLON}|${LIT_PAIR})+`;
 
-// A key is a literal that a ':' separator follows.
+// A key is a literal that a ':' separator follows. It is the lexer's literal, which an
+// interpolation does not end: `$[x]: v` is the key "$[x]", and `prefix-$[x]: v` one key.
+const KEY = String.raw`(?:${LIT_CH}|${LIT_COLON}|${LIT_PAIR})+(?=:(?:\s|$))`;
 const IS_KEY = String.raw`(?=:(?:\s|$))`;
 
 // A number is a number only when the literal run ends where the number does: "100m", "1.2.3"
@@ -70,6 +72,10 @@ const NUM_END = `(?!${LIT_CH}|${LIT_COLON})`;
 // arguments that are themselves tags: "!retag(tag1.tag2(a,b),tag2(z))". Arguments hold commas,
 // so they are matched as a unit rather than left to end the tag.
 const TAG = String.raw`!(?:[^\s,#'"\[\]{}()]|\((?:[^()]|\([^()]*\))*\))+`;
+
+// A name in an expression. '-' joins it only to a letter, so that a schema's names hold it --
+// `tony-base`, `my-ctx` -- while `count-1` is still a subtraction.
+const NAME = String.raw`[A-Za-z_$](?:\w|-(?=[A-Za-z_]))*`;
 
 // The types tony-base defines (go-tony/schema/base.tony), which every schema names --
 // `.[string]`, `.[array(string)]`, `.[tony-base:ir]` -- and which themes colour as types where
@@ -91,16 +97,24 @@ const BUILTIN_TYPE = String.raw`(?<![\w.:-])(?:tony-base:)?(?:(?:array|bool|fiel
 // is a rule of its own, and the opening line's indentation is the \1 the end pattern compares
 // against. The body runs until a line that is neither indented that far nor blank.
 //
-// MARKERS(n) is n '- ' markers; FIELD is anything else that ends in the space before the '|',
-// a key or a merge key, so long as it is not itself a marker and holds no comment.
+// A tag adds no level -- `- !exec |` has its content at 2, as `- |` does -- so tags before the
+// '|' are allowed after either prefix and counted in neither.
+//
+// MARKERS(n) is n '- ' markers. FIELD is a key and its ':' -- quoted, when it may hold '#', or
+// not, when it may not, so that a comment line is never taken for one.
 const MARKERS = (n) => '(?:- )'.repeat(n);
-const FIELD = String.raw`(?!- )[^\s#][^\n#]*?[ \t]`;
+const FIELD = String.raw`(?:"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|(?!- )[^\s#'"!][^\n#]*?)[ \t]*:[ \t]+`;
+const TAGS = String.raw`(?:${TAG}[ \t]+)*`;
+
+// The deepest opening line there is a rule for. One past it is not recognised, and its '|' and
+// body are painted as literals; nothing in this repository comes near it.
+const MAX_DEPTH = 8;
 
 function blockLiteral(depth) {
   // The prefixes that put content `depth` levels in: depth markers alone, or depth-1 markers
   // and a field. At depth 1 the first of those is a bare '- ' or nothing at all.
   const alone = depth === 1 ? `(?:${MARKERS(1)})?` : MARKERS(depth);
-  const prefix = `(?:${alone}|${MARKERS(depth - 1)}${FIELD})`;
+  const prefix = `(?:${alone}|${MARKERS(depth - 1)}${FIELD})${TAGS}`;
   return {
     name: 'meta.block-literal.tony',
     begin: String.raw`^([ \t]*)(${prefix})(\|[-+]?)([ \t]*(?:#.*)?)$`,
@@ -141,7 +155,7 @@ const grammar = {
 
     // Deepest first: the prefixes are exclusive, but a reader should not have to check that.
     'block-literal': {
-      patterns: [4, 3, 2, 1].map(blockLiteral),
+      patterns: Array.from({ length: MAX_DEPTH }, (_, i) => blockLiteral(MAX_DEPTH - i)),
     },
 
     // Everything that can appear within a line. The order is the lexer's, and it matters where
@@ -156,7 +170,7 @@ const grammar = {
         { match: String.raw`-?\d+` + IS_KEY, name: 'entity.name.tag.index.tony' },
         { include: '#string' },
         { include: '#number' },
-        { match: LITERAL + IS_KEY, name: 'entity.name.tag.tony' },
+        { match: KEY, name: 'entity.name.tag.tony' },
         // After keys, so that ".[x]: v" is the key it is in docs/tony.md
         { include: '#expression' },
         { include: '#interpolation' },
@@ -203,11 +217,15 @@ const grammar = {
         { match: String.raw`\b\d+(?:\.\d+)?\b`, name: 'constant.numeric.tony' },
         { match: String.raw`\b(?:true|false|nil|null)\b`, name: 'constant.language.tony' },
         { match: BUILTIN_TYPE, name: 'support.type.builtin.tony' },
-        { match: String.raw`[A-Za-z_][\w-]*(?=\()`, name: 'entity.name.function.tony' },
+        { match: NAME + String.raw`(?=\()`, name: 'entity.name.function.tony' },
         { match: String.raw`(?<=\.)[A-Za-z_]\w*`, name: 'variable.other.property.tony' },
-        { match: String.raw`[A-Za-z_$][\w-]*(?::[A-Za-z_][\w-]*)?`, name: 'variable.tony' },
-        { match: String.raw`\?\?|\?\.|==|!=|<=|>=|&&|\|\||[-+*/%<>!?:]`, name: 'keyword.operator.tony' },
-        { match: '[.,()]', name: 'punctuation.tony' },
+        { match: String.raw`\b(?:let|if|else)\b`, name: 'keyword.control.tony' },
+        { match: String.raw`\b(?:in|not|and|or|matches|contains|startsWith|endsWith)\b`, name: 'keyword.operator.word.tony' },
+        // '#' is the element a predicate is applied to: `all(xs, # > 0)`
+        { match: String.raw`#\w*`, name: 'variable.language.tony' },
+        { match: `${NAME}(?::${NAME})?`, name: 'variable.tony' },
+        { match: String.raw`\?\?|\?\.|==|!=|<=|>=|&&|\|\||\*\*|\.\.|[-+*/%<>!?:^|=;]`, name: 'keyword.operator.tony' },
+        { match: '[.,(){}]', name: 'punctuation.tony' },
       ],
     },
 
@@ -233,8 +251,8 @@ function quoted(q, kind) {
     endCaptures: { 1: { name: 'punctuation.definition.string.end.tony' } },
     patterns: [
       { match: String.raw`\\.`, name: 'constant.character.escape.tony' },
-      { include: '#expression' },
-      { include: '#interpolation' },
+      embedded(String.raw`\.\[`, 'meta.embedded.expression.tony', q),
+      embedded(String.raw`\$\[`, 'meta.interpolation.tony', q),
     ],
   };
 }
@@ -243,13 +261,15 @@ function quoted(q, kind) {
 // docs/eval.md. Both are evaluated only where an !eval says so, and are text everywhere else;
 // they are highlighted everywhere, because that is where a reader looks for them -- in a quoted
 // string too, which is how a build file writes a condition: `if: '.[ key != "" ]'`. Like a
-// string, one that is not closed ends at the line.
-function embedded(open, name) {
+// string, one that is not closed ends at the line -- or, in a string, at the string's closing
+// quote, which stays the string's: `sep: ".["` is a string holding `.[`. A quote of the same
+// kind cannot appear unescaped within, so it can only be that one.
+function embedded(open, name, quote) {
   return {
     name,
     begin: open,
     beginCaptures: { 0: { name: 'punctuation.section.embedded.begin.tony' } },
-    end: String.raw`(\])|$`,
+    end: quote === undefined ? String.raw`(\])|$` : String.raw`(\])|(?=${quote})|$`,
     endCaptures: { 1: { name: 'punctuation.section.embedded.end.tony' } },
     patterns: [{ include: '#expr' }],
   };

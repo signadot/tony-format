@@ -47,7 +47,7 @@ that read TextMate grammars can load it, and the note for each says what that ta
 
 1. **Use Pygments via GitHub Pages**: If hosting docs on GitHub Pages with Jekyll, configure Pygments (see Jekyll section below)
 
-2. **Use Rouge with a TextMate grammar**: Rouge (used by Jekyll) can use TextMate grammars, such as [the one in `grammar/`](https://github.com/signadot/tony-format/tree/main/grammar).
+2. **Rouge**: Jekyll highlights with Rouge, whose lexers are hand-written Ruby classes. It cannot load a TextMate grammar, so [the one in `grammar/`](https://github.com/signadot/tony-format/tree/main/grammar) is no help there: Tony would need a Rouge lexer written for it, and GitHub Pages' own Jekyll accepts no custom lexers anyway.
 
 3. **Fallback**: Unfortunately, GitHub's markdown renderer doesn't support custom languages in code blocks. You may need to use `yaml` as a fallback, or host docs elsewhere.
 
@@ -116,10 +116,11 @@ Then install the lexer in your Jekyll environment:
 bundle exec pip install -e docs/sketchy/pygments-tony
 ```
 
-**Option 2: Use Rouge with a TextMate grammar**
+**Option 2: Rouge**
 
-Rouge can use TextMate grammars, so [the one in `grammar/`](https://github.com/signadot/tony-format/tree/main/grammar) can be converted to
-Rouge format.
+Rouge's lexers are hand-written Ruby classes, and it has no way to load or convert a TextMate
+grammar, so Tony would need a Rouge lexer written for it; none exists. GitHub Pages' own Jekyll
+accepts no custom lexers, so one would only serve a Jekyll built elsewhere.
 
 ### Pelican
 

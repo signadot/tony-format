@@ -206,6 +206,26 @@ test('block literals: where the lexer and the grammar differ', () => {
   check('  # a | b |\nk: 1\n', [COMMENT, '# a | b |'], [KEY, 'k'], [SEP, ':'], [INT, '1']);
 });
 
+test('block literals: what does and does not add a level', () => {
+  // A tag adds no level: the parser puts `- !exec |`'s body at 2, and `- - !tag |`'s at 4.
+  check('- !exec |\n  ls /dev/null\n- true\n',
+    [ITEM, '-'], [TAG, '!exec'], [BLOCK, '|'], [BODY, 'ls /dev/null'],
+    [ITEM, '-'], ['constant.language.boolean', 'true']);
+  check('- - !tag |\n    four\n  - x\n',
+    [ITEM, '-'], [ITEM, '-'], [TAG, '!tag'], [BLOCK, '|'], [BODY, 'four'], [ITEM, '-'], [LIT, 'x']);
+  check('k: !tag |\n  body\nj: 1\n',
+    [KEY, 'k'], [SEP, ':'], [TAG, '!tag'], [BLOCK, '|'], [BODY, 'body'], [KEY, 'j'], [SEP, ':'], [INT, '1']);
+  // A quoted key may hold '#'; only an unquoted one cannot.
+  check('"a # b": |\n  body\nj: 1\n',
+    [DQ, '"a # b"'], [SEP, ':'], [BLOCK, '|'], [BODY, 'body'], [KEY, 'j'], [SEP, ':'], [INT, '1']);
+  // Every depth up to MAX_DEPTH in build.mjs, which is past any this repository uses.
+  for (let n = 1; n <= 8; n++) {
+    const markers = '- '.repeat(n);
+    check(`${markers}|\n${'  '.repeat(n)}body\n- x\n`,
+      ...Array(n).fill([ITEM, '-']), [BLOCK, '|'], [BODY, 'body'], [ITEM, '-'], [LIT, 'x']);
+  }
+});
+
 test('strings', () => {
   check("b: 'single \"quoted\"'\n", [KEY, 'b'], [SEP, ':'], [SQ, "'single \"quoted\"'"]);
   // folded strings are one per line
@@ -213,6 +233,14 @@ test('strings', () => {
     [KEY, 'c'], [SEP, ':'], [DQ, '"part one"'], [DQ, '" and two"']);
   // an escaped quote does not end the string
   check('k: "a \\" b"\n', [KEY, 'k'], [SEP, ':'], [DQ, '"a \\" b"']);
+  // a '.[' or '$[' that is not closed inside a string ends at the string's closing quote, which
+  // stays the string's
+  for (const open of ['.[', '$[']) {
+    check(`sep: "${open}"\nj: 1\n`, [KEY, 'sep'], [SEP, ':'], [DQ, `"${open}"`], [KEY, 'j'], [SEP, ':'], [INT, '1']);
+    const tokens = inner(`k: '${open}b' c`);
+    assert.deepEqual(tokens.at(-2), ['punctuation.definition.string.end', "'"]);
+    assert.deepEqual(tokens.at(-1), [LIT, 'c']);
+  }
   // an unterminated string ends at the line, taking nothing after it
   check('k: "oops\nj: 1\n', [KEY, 'k'], [SEP, ':'], [DQ, '"oops'], [KEY, 'j'], [SEP, ':'], [INT, '1']);
 });
@@ -247,6 +275,14 @@ test('expressions: where the grammar goes past the lexer', () => {
   assert.deepEqual(inner('k: .[repository]').map(([k]) => k), [KEY, SEP, OPEN, VAR, CLOSE]);
   assert.deepEqual(inner('k: .[my-ctx:thing]').map(([k]) => k), [KEY, SEP, OPEN, VAR, CLOSE]);
   assert.deepEqual(inner('k: .[stringly]').map(([k]) => k), [KEY, SEP, OPEN, VAR, CLOSE]);
+  // '-' joins a name only to letters, so `count-1` is a subtraction, painted as `a.b-c`'s is
+  assert.deepEqual(inner('k: .[count-1]').map(([k]) => k), [KEY, SEP, OPEN, VAR, OP, 'constant.numeric', CLOSE]);
+  assert.deepEqual(inner('k: .[a.b-c]').map(([k]) => k),
+    [KEY, SEP, OPEN, VAR, 'punctuation', 'variable.other.property', OP, VAR, CLOSE]);
+  // expr-lang's words, and '#' for the element a predicate is applied to
+  assert.deepEqual(inner('k: .[all(xs, # > 0) and x in ys]').map(([k]) => k),
+    [KEY, SEP, OPEN, CALL, 'punctuation', VAR, 'punctuation', 'variable.language', OP, 'constant.numeric',
+      'punctuation', 'keyword.operator.word', VAR, 'keyword.operator.word', VAR, CLOSE]);
   // `key` is a type only with its parameter, as tony-base defines it
   assert.deepEqual(inner('k: .[key(name)]').map(([k]) => k),
     [KEY, SEP, OPEN, TYPE, 'punctuation', VAR, 'punctuation', CLOSE]);
@@ -289,11 +325,14 @@ test('interpolations: in literals, strings and block literals', () => {
     .find((t) => t.scopes.at(-1) === 'variable.tony');
   assert.deepEqual(body.scopes, ['source.tony', 'meta.block-literal.tony', 'string.unquoted.block.tony',
     'meta.interpolation.tony', 'variable.tony']);
+  // a key that starts with one is a key, as the lexer has it: `{"$[x]": "v"}`
+  check('$[x]: v\n', [KEY, '$[x]'], [SEP, ':'], [LIT, 'v']);
   // '$' alone is a literal's
   check('$y: "$y"\n', [KEY, '$y'], [SEP, ':'], [DQ, '"$y"']);
 });
 
-// Characters the grammar gives no scope but the root's, reported as file:line.
+// Characters the grammar gives no scope a theme colours -- none but the root's and meta scopes,
+// which only group -- reported as file:line.
 function unscoped(code, where, firstLine) {
   const bad = [];
   let stack = vsctm.INITIAL;
@@ -301,7 +340,7 @@ function unscoped(code, where, firstLine) {
     const r = grammar.tokenizeLine(line, stack);
     for (const t of r.tokens) {
       const text = line.slice(t.startIndex, t.endIndex);
-      if (t.scopes.length === 1 && text.trim() !== '') bad.push(`${where}:${firstLine + i}: ${JSON.stringify(text)}`);
+      if (t.scopes.every((s) => s === 'source.tony' || s.startsWith('meta.')) && text.trim() !== '') bad.push(`${where}:${firstLine + i}: ${JSON.stringify(text)}`);
     }
     stack = r.ruleStack;
   });
@@ -316,6 +355,12 @@ function* walk(dir, ext) {
     else if (e.name.endsWith(ext)) yield p;
   }
 }
+
+test('the sweep reports what only a meta scope covers', () => {
+  // '~' is no expr-lang operator, so nothing inside an expression scopes it
+  assert.deepEqual(unscoped('k: .[x ~ y]', 't', 1), ['t:1: " ~ "']);
+  assert.deepEqual(unscoped('k: .[x]', 't', 1), []);
+});
 
 test('every ```tony block in the docs is scoped', () => {
   const fence = /^([ \t]*)```+tony[^\n]*\n([\s\S]*?)^\1```+/gm;
