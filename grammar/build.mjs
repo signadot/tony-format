@@ -50,18 +50,20 @@ const LIT_CH = String.raw`[^\s,#'"\[\]{}():]`;
 // separator, which is what a following space, ',' or end of line makes it.
 const LIT_COLON = String.raw`:(?![\s,]|$)`;
 
-// The paired characters belong to a literal when they are balanced: ".[x]", "$[y]", "f(a)".
-// Nesting deeper than this is not worth a regex.
-const LIT_PAIR = String.raw`\[[^\[\]\s]*\]|\{[^{}\s]*\}|\([^()\s]*\)`;
+// The paired characters belong to a literal when they are balanced: ".[x]", "$[y]", "f(a)",
+// and a bracket one level deeper, ".[a[0]]". Nesting deeper than that is not worth a regex.
+const LIT_PAIR = String.raw`\[(?:[^\[\]\s]|\[[^\[\]\s]*\])*\]|\{[^{}\s]*\}|\([^()\s]*\)`;
 
 // A literal stops where an interpolation starts, so that the '$[x]' in "prefix-$[x]-suffix" is
 // highlighted as one, between two runs of literal.
 const LITERAL = String.raw`(?:(?!\$\[)${LIT_CH}|${LIT_COLON}|${LIT_PAIR})+`;
 
-// A key is a literal that a ':' separator follows. It is the lexer's literal, which an
-// interpolation does not end: `$[x]: v` is the key "$[x]", and `prefix-$[x]: v` one key.
-const KEY = String.raw`(?:${LIT_CH}|${LIT_COLON}|${LIT_PAIR})+(?=:(?:\s|$))`;
-const IS_KEY = String.raw`(?=:(?:\s|$))`;
+// A key is a literal that a ':' separator follows, with or without space before it: `k : v`
+// is the key "k". It is the lexer's literal, which an interpolation does not end: `$[x]: v`
+// is the key "$[x]", and `prefix-$[x]: v` one key. It starts where a token can, which keeps a
+// long line of literal from being retried at every column of it.
+const IS_KEY = String.raw`(?=[ \t]*:(?:\s|$))`;
+const KEY = String.raw`(?<![^\s,{\[])(?:${LIT_CH}|${LIT_COLON}|${LIT_PAIR})+` + IS_KEY;
 
 // A number is a number only when the literal run ends where the number does: "100m", "1.2.3"
 // and "30s" are digit-leading strings, per "Numbers" in docs/tony.md, and a rule that stopped at
@@ -112,12 +114,16 @@ const MAX_DEPTH = 8;
 
 function blockLiteral(depth) {
   // The prefixes that put content `depth` levels in: depth markers alone, or depth-1 markers
-  // and a field. At depth 1 the first of those is a bare '- ' or nothing at all.
-  const alone = depth === 1 ? `(?:${MARKERS(1)})?` : MARKERS(depth);
-  const prefix = `(?:${alone}|${MARKERS(depth - 1)}${FIELD})${TAGS}`;
+  // with a field among them -- `- k: |`, and `k: - |` as well. At depth 1 the first of those
+  // is a bare '- ' or nothing at all.
+  const forms = [depth === 1 ? `(?:${MARKERS(1)})?` : MARKERS(depth)];
+  for (let before = 0; before < depth; before++) {
+    forms.push(MARKERS(before) + FIELD + MARKERS(depth - 1 - before));
+  }
+  const prefix = `(?:${forms.join('|')})${TAGS}`;
   return {
     name: 'meta.block-literal.tony',
-    begin: String.raw`^([ \t]*)(${prefix})(\|[-+]?)([ \t]*(?:#.*)?)$`,
+    begin: String.raw`^([ \t]*)(${prefix})(\|[-+]?)([ \t]*(?:#[^\r]*)?)\r?$`,
     beginCaptures: {
       2: { patterns: [{ include: '#inline' }] },
       3: { name: 'keyword.control.flow.block-scalar.literal.tony' },
@@ -141,8 +147,9 @@ const grammar = {
     { include: '#inline' },
   ],
   repository: {
+    // The comment a separator may carry is left to the comment rule.
     'document-separator': {
-      match: String.raw`^---[ \t]*$`,
+      match: String.raw`^---(?=[ \t]*(?:#.*)?\r?$)`,
       name: 'entity.other.document.begin.tony',
     },
 
@@ -200,34 +207,12 @@ const grammar = {
     expression: embedded(String.raw`\.\[`, 'meta.embedded.expression.tony'),
     interpolation: embedded(String.raw`\$\[`, 'meta.interpolation.tony'),
 
-    // The inside of one: enough of expr-lang to tell names, calls, fields and operators apart.
-    // A name may hold '-' and one ':' because a schema's names do: ".[tony-base:ir]".
-    expr: {
-      patterns: [
-        // "\]" is a ']' that does not close the expression
-        { match: String.raw`\\.`, name: 'constant.character.escape.tony' },
-        { include: '#string' },
-        {
-          begin: String.raw`\[`,
-          end: String.raw`\]`,
-          beginCaptures: { 0: { name: 'punctuation.section.brackets.begin.tony' } },
-          endCaptures: { 0: { name: 'punctuation.section.brackets.end.tony' } },
-          patterns: [{ include: '#expr' }],
-        },
-        { match: String.raw`\b\d+(?:\.\d+)?\b`, name: 'constant.numeric.tony' },
-        { match: String.raw`\b(?:true|false|nil|null)\b`, name: 'constant.language.tony' },
-        { match: BUILTIN_TYPE, name: 'support.type.builtin.tony' },
-        { match: NAME + String.raw`(?=\()`, name: 'entity.name.function.tony' },
-        { match: String.raw`(?<=\.)[A-Za-z_]\w*`, name: 'variable.other.property.tony' },
-        { match: String.raw`\b(?:let|if|else)\b`, name: 'keyword.control.tony' },
-        { match: String.raw`\b(?:in|not|and|or|matches|contains|startsWith|endsWith)\b`, name: 'keyword.operator.word.tony' },
-        // '#' is the element a predicate is applied to: `all(xs, # > 0)`
-        { match: String.raw`#\w*`, name: 'variable.language.tony' },
-        { match: `${NAME}(?::${NAME})?`, name: 'variable.tony' },
-        { match: String.raw`\?\?|\?\.|==|!=|<=|>=|&&|\|\||\*\*|\.\.|[-+*/%<>!?:^|=;]`, name: 'keyword.operator.tony' },
-        { match: '[.,(){}]', name: 'punctuation.tony' },
-      ],
-    },
+    // The inside of one, in three variants: outside a string, and inside each kind of quoted
+    // string. Every level of one stops at the end of the line, and inside a string at the
+    // string's closing quote too, so an unclosed '[' anywhere in it spoils one line at most.
+    expr: exprRules(),
+    'expr-in-double': exprRules('"'),
+    'expr-in-single': exprRules("'"),
 
     number: {
       patterns: [
@@ -241,6 +226,51 @@ const grammar = {
     },
   },
 };
+
+// The inside of an expression: enough of expr-lang to tell names, calls, fields and operators
+// apart. A name may hold '-' and one ':' because a schema's names do: ".[tony-base:ir]".
+// `outer` is the quote of the string the expression is in, if it is in one: a string within it
+// can only use the other quote, and nothing in it may run past the outer one.
+function exprRules(outer) {
+  const stop = outer === undefined ? '$' : String.raw`(?=${outer})|$`;
+  const self = outer === undefined ? '#expr' : `#expr-in-${outer === '"' ? 'double' : 'single'}`;
+  const strings = [['"', 'double'], ["'", 'single']]
+    .filter(([q]) => q !== outer)
+    .map(([q, kind]) => ({
+      name: `string.quoted.${kind}.tony`,
+      begin: q,
+      beginCaptures: { 0: { name: 'punctuation.definition.string.begin.tony' } },
+      end: `(${q})|${stop}`,
+      endCaptures: { 1: { name: 'punctuation.definition.string.end.tony' } },
+      patterns: [{ match: String.raw`\\.`, name: 'constant.character.escape.tony' }],
+    }));
+  return {
+    patterns: [
+      // "\]" is a ']' that does not close the expression
+      { match: String.raw`\\.`, name: 'constant.character.escape.tony' },
+      ...strings,
+      {
+        begin: String.raw`\[`,
+        end: String.raw`(\])|${stop}`,
+        beginCaptures: { 0: { name: 'punctuation.section.brackets.begin.tony' } },
+        endCaptures: { 1: { name: 'punctuation.section.brackets.end.tony' } },
+        patterns: [{ include: self }],
+      },
+      { match: String.raw`\b\d+(?:\.\d+)?\b`, name: 'constant.numeric.tony' },
+      { match: String.raw`\b(?:true|false|nil|null)\b`, name: 'constant.language.tony' },
+      { match: BUILTIN_TYPE, name: 'support.type.builtin.tony' },
+      { match: String.raw`(?<![\w$-])` + NAME + String.raw`(?=\()`, name: 'entity.name.function.tony' },
+      { match: String.raw`(?<=\.)[A-Za-z_]\w*`, name: 'variable.other.property.tony' },
+      { match: String.raw`\b(?:let|if|else)\b`, name: 'keyword.control.tony' },
+      { match: String.raw`\b(?:in|not|and|or|matches|contains|startsWith|endsWith)\b`, name: 'keyword.operator.word.tony' },
+      // '#' is the element a predicate is applied to: `all(xs, # > 0)`
+      { match: String.raw`#\w*`, name: 'variable.language.tony' },
+      { match: `${NAME}(?::${NAME})?`, name: 'variable.tony' },
+      { match: String.raw`\?\?|\?\.|==|!=|<=|>=|&&|\|\||\*\*|\.\.|[-+*/%<>!?:^|=;]`, name: 'keyword.operator.tony' },
+      { match: '[.,(){}]', name: 'punctuation.tony' },
+    ],
+  };
+}
 
 function quoted(q, kind) {
   return {
@@ -271,7 +301,7 @@ function embedded(open, name, quote) {
     beginCaptures: { 0: { name: 'punctuation.section.embedded.begin.tony' } },
     end: quote === undefined ? String.raw`(\])|$` : String.raw`(\])|(?=${quote})|$`,
     endCaptures: { 1: { name: 'punctuation.section.embedded.end.tony' } },
-    patterns: [{ include: '#expr' }],
+    patterns: [{ include: quote === undefined ? '#expr' : `#expr-in-${quote === '"' ? 'double' : 'single'}` }],
   };
 }
 

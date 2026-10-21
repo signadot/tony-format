@@ -1,19 +1,19 @@
 name: Grammar
 
-# The grammar's tests tokenize every ```tony block in the docs and every .tony file in the
-# repository, so a change to either can break them as surely as a change to the grammar.
+# The grammar's tests tokenize every ```tony block and every .tony file in the repository, so a
+# change to either can break them as surely as a change to the grammar.
 on:
   pull_request:
     paths:
       - 'grammar/**'
-      - 'docs/**'
+      - '**.md'
       - '**.tony'
       - '.github/workflows/grammar.yml'
   push:
     branches: [main]
     paths:
       - 'grammar/**'
-      - 'docs/**'
+      - '**.md'
       - '**.tony'
       - '.github/workflows/grammar.yml'
 

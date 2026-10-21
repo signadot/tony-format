@@ -4,8 +4,8 @@
 //
 // The cases are those of docs/sketchy/pygments-tony/test_lexer.py, so that the grammar and the
 // lexer are held to one account of the syntax; where they differ, it says why. The sweeps at
-// the end tokenize every ```tony block in the docs and every .tony file in the repository, and
-// fail on any character the grammar gives no scope.
+// the end tokenize every ```tony block and every .tony file in the repository, and fail on any
+// character the grammar gives no scope a theme colours.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -19,7 +19,6 @@ import oniguruma from 'vscode-oniguruma';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const REPO = join(here, '../..');
-const DOCS = join(REPO, 'docs');
 
 const require = createRequire(import.meta.url);
 const wasm = readFileSync(require.resolve('vscode-oniguruma/release/onig.wasm'));
@@ -90,6 +89,10 @@ test('keys and values', () => {
   check('count: 3\n', [KEY, 'count'], [SEP, ':'], [INT, '3']);
   check('k: null\n', [KEY, 'k'], [SEP, ':'], ['constant.language.null', 'null']);
   check('k: true\n', [KEY, 'k'], [SEP, ':'], ['constant.language.boolean', 'true']);
+  // space before the ':' is allowed, where the lexer reads a literal
+  check('k : v\n', [KEY, 'k'], [SEP, ':'], [LIT, 'v']);
+  // a bracket inside a key's bracket keeps it a key
+  check('.[a[0]]: v\n', [KEY, '.[a[0]]'], [SEP, ':'], [LIT, 'v']);
   // a key named for a constant is still a key
   check('null: 1\n', [KEY, 'null'], [SEP, ':'], [INT, '1']);
   // and a literal that merely starts with one is neither
@@ -153,6 +156,8 @@ test('tags', () => {
 
 test('comments and separators', () => {
   check('---\n', ['entity.other.document.begin', '---']);
+  // a separator may carry a comment; the lexer takes `---` there for a literal
+  check('--- # doc\n', ['entity.other.document.begin', '---'], [COMMENT, '# doc']);
   check('# a comment\n', [COMMENT, '# a comment']);
   // no preceding space required
   check('k: v# tail\n', [KEY, 'k'], [SEP, ':'], [LIT, 'v'], [COMMENT, '# tail']);
@@ -218,6 +223,14 @@ test('block literals: what does and does not add a level', () => {
   // A quoted key may hold '#'; only an unquoted one cannot.
   check('"a # b": |\n  body\nj: 1\n',
     [DQ, '"a # b"'], [SEP, ':'], [BLOCK, '|'], [BODY, 'body'], [KEY, 'j'], [SEP, ':'], [INT, '1']);
+  // A field before markers counts as one too: `k: - |` holds ["body\n"], with the body at 4.
+  check('k: - |\n    body\nj: 1\n',
+    [KEY, 'k'], [SEP, ':'], [ITEM, '-'], [BLOCK, '|'], [BODY, 'body'], [KEY, 'j'], [SEP, ':'], [INT, '1']);
+  check('- k: - |\n      body\n- x\n',
+    [ITEM, '-'], [KEY, 'k'], [SEP, ':'], [ITEM, '-'], [BLOCK, '|'], [BODY, 'body'], [ITEM, '-'], [LIT, 'x']);
+  // A file with CRLF line ends, should a host pass the '\r' on.
+  check('k: |\r\n  body\r\nj: 1\r\n',
+    [KEY, 'k'], [SEP, ':'], [BLOCK, '|'], [BODY, 'body'], [KEY, 'j'], [SEP, ':'], [INT, '1']);
   // Every depth up to MAX_DEPTH in build.mjs, which is past any this repository uses.
   for (let n = 1; n <= 8; n++) {
     const markers = '- '.repeat(n);
@@ -241,6 +254,10 @@ test('strings', () => {
     assert.deepEqual(tokens.at(-2), ['punctuation.definition.string.end', "'"]);
     assert.deepEqual(tokens.at(-1), [LIT, 'c']);
   }
+  // nor does an unclosed '[' within one, at any depth: each stops at the quote, and the line
+  check('sep: ".[["\nj: 1\n', [KEY, 'sep'], [SEP, ':'], [DQ, '".[["'], [KEY, 'j'], [SEP, ':'], [INT, '1']);
+  assert.deepEqual(inner(`k: ".[ 'a ]" # c`).slice(-3),
+    [['punctuation.definition.string.end', '"'], ['punctuation.definition.comment', '#'], [COMMENT, ' c']]);
   // an unterminated string ends at the line, taking nothing after it
   check('k: "oops\nj: 1\n', [KEY, 'k'], [SEP, ':'], [DQ, '"oops'], [KEY, 'j'], [SEP, ':'], [INT, '1']);
 });
@@ -279,10 +296,12 @@ test('expressions: where the grammar goes past the lexer', () => {
   assert.deepEqual(inner('k: .[count-1]').map(([k]) => k), [KEY, SEP, OPEN, VAR, OP, 'constant.numeric', CLOSE]);
   assert.deepEqual(inner('k: .[a.b-c]').map(([k]) => k),
     [KEY, SEP, OPEN, VAR, 'punctuation', 'variable.other.property', OP, VAR, CLOSE]);
-  // expr-lang's words, and '#' for the element a predicate is applied to
-  assert.deepEqual(inner('k: .[all(xs, # > 0) and x in ys]').map(([k]) => k),
-    [KEY, SEP, OPEN, CALL, 'punctuation', VAR, 'punctuation', 'variable.language', OP, 'constant.numeric',
-      'punctuation', 'keyword.operator.word', VAR, 'keyword.operator.word', VAR, CLOSE]);
+  // expr-lang's words, and '#' for the element a predicate is applied to -- quoted, as the
+  // parser takes an expression holding spaces
+  assert.deepEqual(inner(`k: '.[all(xs, # > 0) and x in ys]'`).map(([k]) => k),
+    [KEY, SEP, 'punctuation.definition.string.begin', OPEN, CALL, 'punctuation', VAR, 'punctuation',
+      'variable.language', OP, 'constant.numeric', 'punctuation', 'keyword.operator.word', VAR,
+      'keyword.operator.word', VAR, CLOSE, 'punctuation.definition.string.end']);
   // `key` is a type only with its parameter, as tony-base defines it
   assert.deepEqual(inner('k: .[key(name)]').map(([k]) => k),
     [KEY, SEP, OPEN, TYPE, 'punctuation', VAR, 'punctuation', CLOSE]);
@@ -325,6 +344,9 @@ test('interpolations: in literals, strings and block literals', () => {
     .find((t) => t.scopes.at(-1) === 'variable.tony');
   assert.deepEqual(body.scopes, ['source.tony', 'meta.block-literal.tony', 'string.unquoted.block.tony',
     'meta.interpolation.tony', 'variable.tony']);
+  // an unclosed '[' inside one in a block literal ends with the line, not the document
+  check('k: |\n  $[a[\nj: 1\n',
+    [KEY, 'k'], [SEP, ':'], [BLOCK, '|'], [BODY, '$[a['], [KEY, 'j'], [SEP, ':'], [INT, '1']);
   // a key that starts with one is a key, as the lexer has it: `{"$[x]": "v"}`
   check('$[x]: v\n', [KEY, '$[x]'], [SEP, ':'], [LIT, 'v']);
   // '$' alone is a literal's
@@ -356,17 +378,28 @@ function* walk(dir, ext) {
   }
 }
 
+test('a long line tokenizes in linear time', () => {
+  // VS Code tokenizes lines up to 20,000 characters. These two took 8.4s and 7.6s when the key
+  // and call rules were retried from every column of a run.
+  for (const line of ['k: ' + 'a:'.repeat(20000), 'k: .[' + 'a-'.repeat(20000) + 'a]']) {
+    const start = performance.now();
+    grammar.tokenizeLine(line, vsctm.INITIAL);
+    const ms = performance.now() - start;
+    assert.ok(ms < 1000, `${line.slice(0, 12)}... took ${Math.round(ms)}ms`);
+  }
+});
+
 test('the sweep reports what only a meta scope covers', () => {
   // '~' is no expr-lang operator, so nothing inside an expression scopes it
   assert.deepEqual(unscoped('k: .[x ~ y]', 't', 1), ['t:1: " ~ "']);
   assert.deepEqual(unscoped('k: .[x]', 't', 1), []);
 });
 
-test('every ```tony block in the docs is scoped', () => {
+test('every ```tony block in the repository is scoped', () => {
   const fence = /^([ \t]*)```+tony[^\n]*\n([\s\S]*?)^\1```+/gm;
   let blocks = 0;
   const bad = [];
-  for (const md of walk(DOCS, '.md')) {
+  for (const md of walk(REPO, '.md')) {
     const text = readFileSync(md, 'utf8');
     for (const m of text.matchAll(fence)) {
       blocks++;
@@ -374,7 +407,7 @@ test('every ```tony block in the docs is scoped', () => {
       bad.push(...unscoped(m[2], relative(REPO, md), line));
     }
   }
-  assert.ok(blocks > 100, `expected the docs to hold tony blocks, found ${blocks}`);
+  assert.ok(blocks > 100, `expected the repository to hold tony blocks, found ${blocks}`);
   assert.deepEqual(bad.slice(0, 40), [], `unscoped characters in ${blocks} blocks`);
 });
 

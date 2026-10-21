@@ -45,7 +45,7 @@ that read TextMate grammars can load it, and the note for each says what that ta
 
 **For markdown code blocks**: GitHub uses a syntax highlighter that doesn't easily support custom languages. Options:
 
-1. **Use Pygments via GitHub Pages**: If hosting docs on GitHub Pages with Jekyll, configure Pygments (see Jekyll section below)
+1. **Build with Pygments, host on GitHub Pages**: Pages' own Jekyll highlights only with Rouge, so build the site with a Pygments-based generator such as MkDocs and publish the output from an Actions workflow -- what this repository's site does (`mkdocs.yml`, `.github/workflows/docs.yml`).
 
 2. **Rouge**: Jekyll highlights with Rouge, whose lexers are hand-written Ruby classes. It cannot load a TextMate grammar, so [the one in `grammar/`](https://github.com/signadot/tony-format/tree/main/grammar) is no help there: Tony would need a Rouge lexer written for it, and GitHub Pages' own Jekyll accepts no custom lexers anyway.
 
@@ -100,23 +100,12 @@ def setup(app):
 
 ### Jekyll / GitHub Pages
 
-**Option 1: Use Pygments**
+Jekyll cannot use the Pygments lexer: Jekyll 4 dropped Pygments, and kramdown, its markdown
+renderer, highlights with Rouge, not Pygments. For a site that must highlight Tony, build it with
+a Pygments-based generator instead (see MkDocs below) and publish the output to GitHub Pages
+from an Actions workflow, as this repository does.
 
-In `_config.yml`:
-
-```yaml
-markdown: kramdown
-kramdown:
-  syntax_highlighter: pygments
-```
-
-Then install the lexer in your Jekyll environment:
-
-```bash
-bundle exec pip install -e docs/sketchy/pygments-tony
-```
-
-**Option 2: Rouge**
+**Rouge**
 
 Rouge's lexers are hand-written Ruby classes, and it has no way to load or convert a TextMate
 grammar, so Tony would need a Rouge lexer written for it; none exists. GitHub Pages' own Jekyll
