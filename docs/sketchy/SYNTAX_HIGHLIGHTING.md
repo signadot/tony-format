@@ -32,8 +32,12 @@ A tree-sitter grammar lives at
 editors and tools that take one — Neovim, Helix, Zed, and anything else built on
 tree-sitter.
 
-There is **no TextMate grammar** in this repository. Several of the platforms below can
-use one, and the note for each says what that would take; nothing here ships it.
+### Option 3: TextMate grammar (linguist, Shiki, Sublime, VS Code)
+
+A TextMate grammar lives at [`grammar/`](https://github.com/signadot/tony-format/tree/main/grammar) at the root of the repository, tested
+against the Pygments lexer's cases so that the two highlight alike. It is the grammar a
+linguist PR would add for GitHub, and it is not packaged for any editor: the platforms below
+that read TextMate grammars can load it, and the note for each says what that takes.
 
 ## Platform-Specific Instructions
 
@@ -41,9 +45,9 @@ use one, and the note for each says what that would take; nothing here ships it.
 
 **For markdown code blocks**: GitHub uses a syntax highlighter that doesn't easily support custom languages. Options:
 
-1. **Use Pygments via GitHub Pages**: If hosting docs on GitHub Pages with Jekyll, configure Pygments (see Jekyll section below)
+1. **Build with Pygments, host on GitHub Pages**: Pages' own Jekyll highlights only with Rouge, so build the site with a Pygments-based generator such as MkDocs and publish the output from an Actions workflow -- what this repository's site does (`mkdocs.yml`, `.github/workflows/docs.yml`).
 
-2. **Use Rouge with a TextMate grammar**: Rouge (used by Jekyll) can use TextMate grammars — but one would have to be written first; see above.
+2. **Rouge**: Jekyll highlights with Rouge, whose lexers are hand-written Ruby classes. It cannot load a TextMate grammar, so [the one in `grammar/`](https://github.com/signadot/tony-format/tree/main/grammar) is no help there: Tony would need a Rouge lexer written for it, and GitHub Pages' own Jekyll accepts no custom lexers anyway.
 
 3. **Fallback**: Unfortunately, GitHub's markdown renderer doesn't support custom languages in code blocks. You may need to use `yaml` as a fallback, or host docs elsewhere.
 
@@ -57,8 +61,9 @@ This makes `.tony` files render with YAML highlighting (not ideal, but better th
 
 ### VS Code
 
-VS Code highlights by TextMate grammar, and there is none for Tony here, so `.tony`
-files are unhighlighted unless you write one.
+VS Code highlights by TextMate grammar. [The one in `grammar/`](https://github.com/signadot/tony-format/tree/main/grammar) is not packaged as
+an extension, so `.tony` files are unhighlighted until it is: that takes a `package.json`
+manifest that contributes the `tony` language and the grammar's path.
 
 For markdown preview, the usual fallback is to configure in `.vscode/settings.json`:
 
@@ -95,26 +100,16 @@ def setup(app):
 
 ### Jekyll / GitHub Pages
 
-**Option 1: Use Pygments**
+Jekyll cannot use the Pygments lexer: Jekyll 4 dropped Pygments, and kramdown, its markdown
+renderer, highlights with Rouge, not Pygments. For a site that must highlight Tony, build it with
+a Pygments-based generator instead (see MkDocs below) and publish the output to GitHub Pages
+from an Actions workflow, as this repository does.
 
-In `_config.yml`:
+**Rouge**
 
-```yaml
-markdown: kramdown
-kramdown:
-  syntax_highlighter: pygments
-```
-
-Then install the lexer in your Jekyll environment:
-
-```bash
-bundle exec pip install -e docs/sketchy/pygments-tony
-```
-
-**Option 2: Use Rouge with a TextMate grammar**
-
-Rouge can use TextMate grammars, so this needs a Tony grammar written and then
-converted to Rouge format. None is provided here.
+Rouge's lexers are hand-written Ruby classes, and it has no way to load or convert a TextMate
+grammar, so Tony would need a Rouge lexer written for it; none exists. GitHub Pages' own Jekyll
+accepts no custom lexers, so one would only serve a Jekyll built elsewhere.
 
 ### Pelican
 
@@ -128,7 +123,7 @@ pip install -e docs/sketchy/pygments-tony
 
 Docusaurus uses Prism.js or Shiki. You would need to:
 1. Create a Prism.js language definition, or
-2. Write a TextMate grammar and use it with Shiki
+2. Load [the TextMate grammar](https://github.com/signadot/tony-format/tree/main/grammar/syntaxes/tony.tmLanguage.json) into Shiki
 
 ### Hugo
 
@@ -161,4 +156,5 @@ To improve the lexer, edit `docs/sketchy/pygments-tony/pygments_tony.py` and tes
 ## See Also
 
 - [Tree-sitter grammar](editors/tree-sitter-tony/grammar.js) — for editors built on tree-sitter
+- [TextMate grammar](https://github.com/signadot/tony-format/tree/main/grammar) — for linguist, Shiki, and anything else that reads one
 - [Pygments lexer](pygments-tony/README.md) — for markdown and documentation tools
