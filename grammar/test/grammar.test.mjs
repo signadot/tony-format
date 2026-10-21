@@ -150,6 +150,8 @@ test('tags', () => {
   check('f: !tag1.tag2(a,b) 22\n', [KEY, 'f'], [SEP, ':'], [TAG, '!tag1.tag2(a,b)'], [INT, '22']);
   check('f: !retag(tag1.tag2(a,b),tag2(z).other(x))\n',
     [KEY, 'f'], [SEP, ':'], [TAG, '!retag(tag1.tag2(a,b),tag2(z).other(x))']);
+  // an unclosed argument list leaves no character unpainted
+  assert.deepEqual(unscoped('k: !tag(a', 't', 1), []);
   // a tag in a key set ends at the ',' that separates elements
   check('[!a, !b]\n', [SEQ_B, '['], [TAG, '!a'], [COMMA, ','], [TAG, '!b'], [SEQ_E, ']']);
 });

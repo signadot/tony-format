@@ -347,6 +347,10 @@
           "name": "punctuation.definition.sequence.end.tony"
         },
         {
+          "match": "[()]",
+          "name": "punctuation.tony"
+        },
+        {
           "match": "(?:(?!\\$\\[)[^\\s,#'\"\\[\\]{}():]|:(?![\\s,]|$)|\\[(?:[^\\[\\]\\s]|\\[[^\\[\\]\\s]*\\])*\\]|\\{[^{}\\s]*\\}|\\([^()\\s]*\\))+",
           "name": "string.unquoted.plain.tony"
         }

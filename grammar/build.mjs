@@ -190,6 +190,8 @@ const grammar = {
         { match: String.raw`\}`, name: 'punctuation.definition.mapping.end.tony' },
         { match: String.raw`\[`, name: 'punctuation.definition.sequence.begin.tony' },
         { match: String.raw`\]`, name: 'punctuation.definition.sequence.end.tony' },
+        // A paren no literal or tag took: an unclosed `!tag(a`, say. Invalid, but still painted.
+        { match: '[()]', name: 'punctuation.tony' },
         { match: LITERAL, name: 'string.unquoted.plain.tony' },
       ],
     },
