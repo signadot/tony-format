@@ -94,13 +94,19 @@ func (rf *regionsFile) append(segs []LogSegment) (*recordRef, error) {
 	return &recordRef{Off: off, Size: int64(len(rec))}, nil
 }
 
-// read answers a record's segments.
-func (rf *regionsFile) read(ref *recordRef) ([]LogSegment, error) {
+// readRegion answers a region's segments from its record. The record is taken under the
+// file's lock: Rewrite moves every record and swaps the file under that lock, so a page-in
+// that starts before a rewrite and reads after it reads the record where it is now. No
+// other writer of a cold region's record exists -- persistRegions writes the records of
+// resident regions, and a region it is writing cannot be evicted until it has.
+func (rf *regionsFile) readRegion(reg *region) ([]LogSegment, error) {
+	rf.mu.RLock()
+	ref := reg.rec
 	if ref == nil {
+		rf.mu.RUnlock()
 		return nil, errors.New("region has no record")
 	}
 	buf := make([]byte, ref.Size)
-	rf.mu.RLock()
 	_, err := rf.f.ReadAt(buf, ref.Off)
 	rf.mu.RUnlock()
 	if err != nil {
@@ -332,10 +338,9 @@ func (i *Index) Persist(generations map[string]int64) error {
 			live += mr.Size
 		}
 	}
-	i.res.file.mu.Lock()
+	i.res.file.mu.RLock()
 	size := i.res.file.size
-	i.res.file.live = live
-	i.res.file.mu.Unlock()
+	i.res.file.mu.RUnlock()
 	schemas, err := i.manifestSchemas()
 	if err != nil {
 		return err
@@ -350,7 +355,14 @@ func (i *Index) Persist(generations map[string]int64) error {
 		Schemas:     schemas,
 		Deleted:     i.foot.deletions(),
 	}
-	return writeManifest(filepath.Dir(i.res.file.path), m)
+	if err := writeManifest(filepath.Dir(i.res.file.path), m); err != nil {
+		return err
+	}
+	// Live is what the manifest on disk refers to, so it is set once one does.
+	i.res.file.mu.Lock()
+	i.res.file.live = live
+	i.res.file.mu.Unlock()
+	return nil
 }
 
 // RegionsGarbage answers what the regions file holds beyond the records the last
@@ -440,6 +452,11 @@ func (i *Index) manifestNode() (ManifestNode, bool) {
 // the old manifest over the new file: under the persister's rule the new file is under
 // half the old manifest's FileSize, which is then past the end, and OpenIndex rebuilds
 // from the log.
+//
+// The regions keep their old records until the new file is in place, so a rewrite that
+// fails leaves the index as it was, over the file it had. Rewrite and Persist do not
+// overlap: both run under the persister's lock, and a persist's append would otherwise
+// land a record of the old file after the swap.
 func (i *Index) Rewrite(generations map[string]int64) error {
 	if i.res == nil || i.res.file == nil {
 		return errors.New("index: no regions file to rewrite")
@@ -452,6 +469,7 @@ func (i *Index) Rewrite(generations map[string]int64) error {
 	}
 	var size int64
 	var fail error
+	moved := map[*region]*recordRef{} // where the copy put each region's record
 	var walk func(node *Index)
 	walk = func(node *Index) {
 		if fail != nil {
@@ -471,7 +489,7 @@ func (i *Index) Rewrite(generations map[string]int64) error {
 				fail = err
 				break
 			}
-			reg.rec = &recordRef{Off: size, Size: reg.rec.Size}
+			moved[reg] = &recordRef{Off: size, Size: reg.rec.Size}
 			size += reg.rec.Size
 		}
 		node.Unlock()
@@ -479,7 +497,7 @@ func (i *Index) Rewrite(generations map[string]int64) error {
 			walk(c.index)
 		}
 	}
-	rf.mu.Lock() // no appends while records move
+	rf.mu.Lock() // no appends and no page-ins while records move
 	walk(i)
 	if fail == nil {
 		fail = tmp.Sync()
@@ -504,6 +522,22 @@ func (i *Index) Rewrite(generations map[string]int64) error {
 	}
 	rf.f, rf.size = f, size
 	old.Close()
+	// The new file is the file: every region's record is where the copy put it. A region
+	// that has left its node meanwhile (emptied and dropped) is not in any node to install.
+	var install func(node *Index)
+	install = func(node *Index) {
+		node.Lock()
+		for _, reg := range node.regions {
+			if ref, ok := moved[reg]; ok {
+				reg.rec = ref
+			}
+		}
+		node.Unlock()
+		for _, c := range node.childrenOf() {
+			install(c.index)
+		}
+	}
+	install(i)
 	rf.mu.Unlock()
 	return i.Persist(generations)
 }

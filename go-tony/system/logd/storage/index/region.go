@@ -338,7 +338,7 @@ func (i *Index) withResident(pred func(*region) bool, write bool, fn func()) {
 
 		loaded := make(map[*region][]LogSegment, len(cold))
 		for _, reg := range cold {
-			segs, err := i.res.file.read(reg.rec)
+			segs, err := i.res.file.readRegion(reg)
 			if err != nil {
 				// The file is the truth and it cannot be read: the invariant cannot be
 				// kept, and saying so loudly beats a shorter answer.

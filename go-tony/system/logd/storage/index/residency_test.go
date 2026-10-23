@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/signadot/tony-format/go-tony/ir/kpath"
@@ -233,4 +235,68 @@ func sameSegments(a, b []LogSegment) bool {
 		}
 	}
 	return true
+}
+
+// Rewrite ran only at Close, with no reader in flight, until the persister began running
+// it on an open store (1xa86mrnh12krzswvdn0). A page-in takes its region's record and
+// then the file's lock, and a rewrite that comes between moves every record and swaps the
+// file: the page-in has to read the record where it is now. Readers page cold regions in
+// under a ceiling while the file is rewritten over and over; every answer is the
+// unbounded index's, and no page-in fails.
+func TestAPageInDuringARewriteReadsTheRecordWhereItIs(t *testing.T) {
+	idx, _, _, err := OpenIndex(t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer idx.Close()
+	ref := NewIndex("")
+	const paths, revs = 64, 40
+	for p := 0; p < paths; p++ {
+		kp := fmt.Sprintf("verse.entities.e%d", p)
+		for r := 0; r < revs; r++ {
+			c := int64(p*revs + r)
+			seg := LogSegment{StartCommit: c, EndCommit: c, KindedPath: kp, LogFile: "A", LogPosition: c * 64}
+			idx.Add(&seg)
+			ref.Add(&seg)
+		}
+	}
+	gens := map[string]int64{"A": 0}
+	if err := idx.Persist(gens); err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+	idx.res.SetCeiling(MinIndexCeiling)
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	var mismatches atomic.Int64
+	for r := 0; r < 4; r++ {
+		wg.Add(1)
+		go func(r int) {
+			defer wg.Done()
+			for k := r; ; k += 7 {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				kp := fmt.Sprintf("verse.entities.e%d", k%paths)
+				if !sameSegments(idx.lookupRange(kp, nil, nil, nil), ref.lookupRange(kp, nil, nil, nil)) {
+					mismatches.Add(1)
+				}
+			}
+		}(r)
+	}
+	for k := 0; k < 25; k++ {
+		if err := idx.Rewrite(gens); err != nil {
+			t.Fatalf("rewrite %d: %v", k, err)
+		}
+	}
+	close(stop)
+	wg.Wait()
+	if n := mismatches.Load(); n > 0 {
+		t.Fatalf("%d reads during rewrites answered other than the unbounded index", n)
+	}
+	if st := idx.res.Stats(); st.Misses == 0 {
+		t.Fatalf("no region was paged in: %+v", st)
+	}
 }

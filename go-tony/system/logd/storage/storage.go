@@ -591,8 +591,9 @@ func (s *Storage) SetIndexCeiling(bytes int64) error {
 	if bytes < 0 || (bytes > 0 && bytes < index.MinIndexCeiling) {
 		return fmt.Errorf("index ceiling %d is below the floor of %d bytes", bytes, index.MinIndexCeiling)
 	}
-	// What is evicted has to be gettable back, so the file holds everything first.
-	if err := s.index.Persist(s.logGenerations()); err != nil {
+	// What is evicted has to be gettable back, so the file holds everything first --
+	// through the persister, whose lock is what keeps a persist and a rewrite apart.
+	if err := s.indexPersister.Persist(); err != nil {
 		return fmt.Errorf("index ceiling: %w", err)
 	}
 	s.index.Residency().SetCeiling(bytes)
