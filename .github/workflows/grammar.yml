@@ -1,0 +1,38 @@
+name: Grammar
+
+# The grammar's tests tokenize every ```tony block and every .tony file in the repository, so a
+# change to either can break them as surely as a change to the grammar.
+on:
+  pull_request:
+    paths:
+      - 'grammar/**'
+      - '**.md'
+      - '**.tony'
+      - '.github/workflows/grammar.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'grammar/**'
+      - '**.md'
+      - '**.tony'
+      - '.github/workflows/grammar.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: grammar
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - run: npm ci
+
+      - run: npm test

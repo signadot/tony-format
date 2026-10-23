@@ -1,0 +1,5 @@
+# GitHub highlights a file by the languages linguist knows, and tony is not one of them. Tony is
+# a dialect of YAML, so YAML's grammar colours most of what a .tony file holds: comments, keys,
+# strings, document separators. Tags and tony's own forms (`.[string]`, `!key(name)`) render as
+# plain scalars.
+*.tony linguist-language=YAML
