@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -204,10 +205,12 @@ func Open(root string, logger *slog.Logger) (*Storage, error) {
 	s.dLog = dlog
 
 	if err := s.init(); err != nil {
+		dlog.Close()
 		return nil, err
 	}
 
 	if s.scratch, err = openScratch(root, logger); err != nil {
+		dlog.Close()
 		return nil, err
 	}
 
@@ -532,8 +535,12 @@ func (s *Storage) Close() error {
 	s.pathSnapWG.Wait()
 
 	// The scratch flusher stops and the document goes to disk. A flush that fails
-	// must not keep the index and log from closing, so it is reported after them.
-	scratchErr := s.scratch.close(s.durability == DurabilitySync)
+	// must not keep the index and log from closing, so it is reported beside
+	// whatever they report, never instead of it.
+	var scratchErr error
+	if err := s.scratch.close(s.durability == DurabilitySync); err != nil {
+		scratchErr = fmt.Errorf("scratch not flushed: %w", err)
+	}
 
 	// Stop transaction cleanup goroutine
 	s.txStore.Close()
@@ -553,21 +560,18 @@ func (s *Storage) Close() error {
 	// records earlier persists superseded dropped, the manifest last.
 	if s.getIndexMaxCommit() >= 0 {
 		if err := s.index.Rewrite(s.logGenerations()); err != nil {
-			return fmt.Errorf("failed to save index: %w", err)
+			return errors.Join(fmt.Errorf("failed to save index: %w", err), scratchErr)
 		}
 	}
 	if err := s.index.Close(); err != nil {
-		return fmt.Errorf("failed to close index: %w", err)
+		return errors.Join(fmt.Errorf("failed to close index: %w", err), scratchErr)
 	}
 
 	if err := s.dLog.Close(); err != nil {
-		return fmt.Errorf("failed to close dlog: %w", err)
+		return errors.Join(fmt.Errorf("failed to close dlog: %w", err), scratchErr)
 	}
 
-	if scratchErr != nil {
-		return fmt.Errorf("scratch not flushed: %w", scratchErr)
-	}
-	return nil
+	return scratchErr
 }
 
 func (s *Storage) getIndexMaxCommit() int64 {

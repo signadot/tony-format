@@ -6,7 +6,6 @@ import (
 
 	"github.com/signadot/tony-format/go-tony/system/logd/api"
 	"github.com/signadot/tony-format/go-tony/system/logd/storage"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 // handleScratch answers a scratch operation: a write or a read of the store's scratch
@@ -39,9 +38,8 @@ func (s *Session) handleScratchWrite(id *string, req *api.ScratchWriteRequest) {
 	if err := s.storage.ScratchWrite(req.Path, req.Data); err != nil {
 		// What the client wrote is the problem, and the same problem next time: an
 		// operation which executes, or a patch that does not apply to what is there.
-		var unsafeOp *tx.UnsafeOpError
 		var apply *storage.ScratchApplyError
-		if errors.As(err, &unsafeOp) || errors.As(err, &apply) {
+		if errors.As(err, &apply) {
 			s.sendError(id, api.ErrCodeInvalidDiff, err.Error())
 			return
 		}

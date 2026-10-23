@@ -12,7 +12,6 @@ import (
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
-	"github.com/signadot/tony-format/go-tony/system/logd/storage/tx"
 )
 
 // Scratch: a second document with no history (r482sz5rh12ksj0cvdn0). A write is a
@@ -134,13 +133,23 @@ func TestScratch_WriteReadReopen(t *testing.T) {
 	}
 	scratchExpect(t, s, "", "<absent>")
 
-	// A root write of null is stored as empty: scratch is never a bare null.
+	// A root write of null is stored as empty, under a comment too: scratch is never
+	// a bare null.
 	if err := s.ScratchWrite("", scratchNode(t, `null`)); err != nil {
 		t.Fatalf("write null root: %v", err)
 	}
 	scratchExpect(t, s, "", "<absent>")
+	if err := s.ScratchWrite("", scratchNode(t, "# gone\nnull")); err != nil {
+		t.Fatalf("write commented null root: %v", err)
+	}
+	scratchExpect(t, s, "", "<absent>")
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
+	}
+	// After Close the flusher is gone, so a write is refused rather than acknowledged
+	// and lost.
+	if err := s.ScratchWrite("a", scratchNode(t, `1`)); err == nil {
+		t.Fatal("write after Close: want an error")
 	}
 }
 
@@ -157,16 +166,15 @@ func TestScratch_Refusals(t *testing.T) {
 	// An operation which executes is refused as the document refuses it, and the
 	// document is unchanged.
 	err = s.ScratchWrite("a.c", scratchNode(t, `!pipe "echo hi"`))
-	var unsafeOp *tx.UnsafeOpError
-	if !errors.As(err, &unsafeOp) {
-		t.Fatalf("!pipe: err = %v, want UnsafeOpError", err)
+	var apply *ScratchApplyError
+	if !errors.As(err, &apply) || !strings.Contains(err.Error(), "!pipe") {
+		t.Fatalf("!pipe: err = %v, want a ScratchApplyError naming !pipe", err)
 	}
 	scratchExpect(t, s, "a", "{b: {k: 1}}")
 
 	// A dense index into no array is refused by the apply; the next write succeeds
 	// (the document is re-cloned whole after a failed apply).
 	err = s.ScratchWrite("a.b.k[2]", scratchNode(t, `x`))
-	var apply *ScratchApplyError
 	if !errors.As(err, &apply) {
 		t.Fatalf("dense index into a scalar: err = %v, want ScratchApplyError", err)
 	}

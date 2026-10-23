@@ -118,20 +118,19 @@ func scratchPath(path string) error {
 	if err != nil {
 		return err
 	}
-	for x := kp; x != nil; x = x.Next {
-		if x.Descend || x.Wild() {
-			return fmt.Errorf("%q names a set, and a scratch path names one place", path)
-		}
+	if kp.HasWild() {
+		return fmt.Errorf("%q names a set, and a scratch path names one place", path)
 	}
 	return nil
 }
 
 // ScratchWrite patches the scratch document at path with data, as a merge patch, and
-// answers once it is applied in memory. The operations which execute are refused
-// (tx.UnsafeOpError), as the document refuses them; a patch that does not apply is a
-// ScratchApplyError and leaves the document as it was. Path "" patches the whole
+// answers once it is applied in memory. The operations which execute are refused, as
+// the document refuses them, and a patch that does not apply is refused: both are a
+// ScratchApplyError, and leave the document as it was. Path "" patches the whole
 // document: !delete there empties it. A result that is null is stored as empty, so
-// scratch is never a bare null.
+// scratch is never a bare null. A write after Close is refused: the flusher has
+// stopped, and an acknowledged write would never reach disk.
 func (s *Storage) ScratchWrite(path string, data *ir.Node) error {
 	if err := scratchPath(path); err != nil {
 		return err
@@ -140,7 +139,11 @@ func (s *Storage) ScratchWrite(path string, data *ir.Node) error {
 		return fmt.Errorf("scratch write at %q: data is required", path)
 	}
 	if op, found := mergeop.FindUnsafe(data); found {
-		return &tx.UnsafeOpError{Path: path, Op: op}
+		return &ScratchApplyError{Path: path, Err: fmt.Errorf("!%s calls out to the system, "+
+			"and a scratch write states a value", op)}
+	}
+	if s.closing.Load() {
+		return fmt.Errorf("scratch write at %q: the store is closing", path)
 	}
 	rooted, err := tx.RootPatchAt(path, data)
 	if err != nil {
@@ -166,7 +169,7 @@ func (s *Storage) ScratchWrite(path string, data *ir.Node) error {
 		}
 		return &ScratchApplyError{Path: path, Err: err}
 	}
-	if res != nil && res.Type == ir.NullType {
+	if u := ir.Uncomment(res); u != nil && u.Type == ir.NullType {
 		res = nil
 	}
 	sc.doc = res
@@ -248,7 +251,7 @@ func (sc *scratch) run(s *Storage, ticker *time.Ticker, stop, stopped chan struc
 // flushNow writes the scratch document to disk if it changed since the last flush.
 // The flush lock is held from the copy to the rename, so flushes never overlap; the
 // document lock only while the copy is taken, so writes and reads go on meanwhile.
-func (sc *scratch) flushNow(sync bool) error {
+func (sc *scratch) flushNow(fsync bool) error {
 	sc.flushMu.Lock()
 	defer sc.flushMu.Unlock()
 
@@ -257,14 +260,14 @@ func (sc *scratch) flushNow(sync bool) error {
 		sc.mu.Unlock()
 		return nil
 	}
-	var copy *ir.Node
+	var snapshot *ir.Node
 	if sc.doc != nil {
-		copy = sc.doc.Clone()
+		snapshot = sc.doc.Clone()
 	}
 	sc.dirty = false
 	sc.mu.Unlock()
 
-	if err := sc.write(copy, sync); err != nil {
+	if err := sc.write(snapshot, fsync); err != nil {
 		sc.mu.Lock()
 		sc.dirty = true
 		sc.mu.Unlock()
@@ -274,9 +277,9 @@ func (sc *scratch) flushNow(sync bool) error {
 }
 
 // write puts doc in the scratch file, whole or not at all: encoded to a temp file and
-// renamed over the one before. Under sync the file is fsynced before the rename and
+// renamed over the one before. Under fsync the file is synced before the rename and
 // the directory after it. A nil doc is an empty file, which reads back as empty.
-func (sc *scratch) write(doc *ir.Node, sync bool) (err error) {
+func (sc *scratch) write(doc *ir.Node, fsync bool) (err error) {
 	tmp := sc.path + ".tmp"
 	f, err := os.Create(tmp)
 	if err != nil {
@@ -293,7 +296,7 @@ func (sc *scratch) write(doc *ir.Node, sync bool) (err error) {
 			return err
 		}
 	}
-	if sync {
+	if fsync {
 		if err = f.Sync(); err != nil {
 			f.Close()
 			return err
@@ -305,7 +308,7 @@ func (sc *scratch) write(doc *ir.Node, sync bool) (err error) {
 	if err = os.Rename(tmp, sc.path); err != nil {
 		return err
 	}
-	if sync {
+	if fsync {
 		dir, derr := os.Open(filepath.Dir(sc.path))
 		if derr != nil {
 			return derr
@@ -317,7 +320,7 @@ func (sc *scratch) write(doc *ir.Node, sync bool) (err error) {
 }
 
 // close stops the flusher, waits for a flush in flight, and flushes once more.
-func (sc *scratch) close(sync bool) error {
+func (sc *scratch) close(fsync bool) error {
 	sc.mu.Lock()
 	stop, stopped, ticker := sc.stop, sc.stopped, sc.ticker
 	sc.stop = nil // a second close finds no flusher to stop
@@ -330,5 +333,5 @@ func (sc *scratch) close(sync bool) error {
 		sc.ticker = nil
 		sc.mu.Unlock()
 	}
-	return sc.flushNow(sync)
+	return sc.flushNow(fsync)
 }
