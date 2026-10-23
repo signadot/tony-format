@@ -17,8 +17,8 @@ git issue ext remove <that id>               # drop the mirror, and the relation
 git issue ext list                           # the sources, and when each was last fetched
 ```
 
-A source is a name this repository gives another, as a remote is named, and a
-URL or a path. `ext fetch` names the issue by its full id: a prefix cannot be
+A source is a name this repository gives another, as a remote is named, and
+where it is. `ext fetch` names the issue by its full id: a prefix cannot be
 resolved in a repository that is not here.
 
 `relate`, `blocks` and `duplicate` to an issue of another repository of
@@ -52,6 +52,16 @@ source the remote lacks to this repository's origin, and never to a source.
 a source that cannot be reached is named in the report and its mirrors stay as
 they were.
 
+**A source's URL is every clone's.** The source travels with the mirrors, so
+what it records is what every clone that pulls will fetch from. A directory on
+this machine is not that: given one, `ext add` records the directory's origin
+as the URL and keeps the directory in this clone's git config,
+`git-issue.source.<source>.path`, as where this clone alone fetches from. A
+directory with no origin is recorded as it is, and `ext add` and `ext list`
+say that only this machine can reach it. When a source cannot be reached, the
+report says whether the URL it tried came from the shared record or from this
+clone's config, so a wrong one is corrected where it is written.
+
 **Removing one** deletes the mirror and, from every issue here that named it,
 the relation -- as a commit on each such issue. Nothing is rewritten.
 
@@ -60,6 +70,7 @@ the relation -- as a commit on each such issue. Nothing is rewritten.
 ```
 refs/git-issues/v1/ext/<source>/<xidr>     the source's chain for the issue
 refs/git-issues/v1/sources/<source>        source.tony: the URL, and when last fetched
+.git/config  git-issue.source.<source>.path   this clone's own path to it, if any; never carried
 ```
 
 They are two namespaces because git cannot hold `ext/<source>` beside

@@ -448,10 +448,11 @@ func mirrorFar(ws *workspace, from *repo, other string) (id, mirrored string, er
 	if to == from {
 		return id, "", nil
 	}
-	// The source is named for the other repository, and is its directory: the
-	// fetch is local. A source of that name the repository already has is
-	// left as it is, and is where the mirror is fetched from: where a
-	// repository is, is for whoever recorded it to say.
+	// The source is named for the other repository, and is given as its
+	// directory: AddSource records the directory's origin for every clone and
+	// keeps the directory for this one, so the fetch is local. A source of that
+	// name the repository already has is left as it is, and is where the mirror
+	// is fetched from: where a repository is, is for whoever recorded it to say.
 	srcs, err := from.Store.Sources()
 	if err != nil {
 		return "", "", err

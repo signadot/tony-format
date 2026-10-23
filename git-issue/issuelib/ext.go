@@ -3,6 +3,9 @@ package issuelib
 import (
 	"bytes"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -30,13 +33,40 @@ import (
 // ref sources/<source> whose tree holds source.tony: the URL, and when the
 // mirrors from it were last fetched. The mirrors are refreshed by pull and
 // carried by push, to this repository's origin and never to the source
-// (sync.go).
+// (sync.go) -- and the sources ref with them, so the URL it records is what
+// every clone that pulls will fetch from. A directory on this machine is not
+// that: given one, AddSource records the directory's origin as the URL and keeps
+// the directory in this clone's git config, git-issue.source.<source>.path, as
+// where this clone alone fetches from (p76fwh8gh12kr1ppvdn0).
 
 // Source is where mirrors come from.
 type Source struct {
 	Name    string
-	URL     string
+	URL     string    // what the sources ref records: where every clone fetches from
+	Path    string    // this clone's own way to it, from its git config; "" for none
 	Fetched time.Time // when a mirror from it was last fetched; zero for never
+}
+
+// IsLocalPath says whether a URL is a path on a machine rather than a URL any
+// clone could fetch from: no scheme, and not host:path.
+func IsLocalPath(url string) bool {
+	if strings.Contains(url, "://") {
+		return false
+	}
+	i := strings.Index(url, ":")
+	return i <= 0 || strings.Contains(url[:i], "/")
+}
+
+// sourcePathKey is the git config key holding this clone's own path to a source.
+func sourcePathKey(name string) string { return "git-issue.source." + name + ".path" }
+
+// originOf answers the origin URL of the repository at dir, "" for none.
+func originOf(dir string) string {
+	out, err := exec.Command("git", "-C", dir, "remote", "get-url", "origin").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // sourceRecord is source.tony as stored.
@@ -47,6 +77,11 @@ type sourceRecord struct {
 
 // AddSource records a source: a name for another repository and where it is.
 // Naming a source again replaces its URL and keeps its mirrors.
+//
+// A directory on this machine is recorded as its origin, since the record is
+// every clone's, and kept in this clone's config as where this clone fetches
+// from. A directory with no origin is recorded as it is: there is nothing else
+// to record, and the caller says that only this machine can reach it.
 func (s *GitStore) AddSource(name, url string) error {
 	if name == "" || strings.ContainsAny(name, "/ \t\n") || strings.HasPrefix(name, ".") {
 		return fmt.Errorf("%q is not a source name: one word, no slash", name)
@@ -54,11 +89,25 @@ func (s *GitStore) AddSource(name, url string) error {
 	if url == "" {
 		return fmt.Errorf("a source needs a URL or a path")
 	}
+	path := ""
+	if st, err := os.Stat(url); err == nil && st.IsDir() {
+		abs, err := filepath.Abs(url)
+		if err != nil {
+			return err
+		}
+		url = abs
+		if origin := originOf(abs); origin != "" {
+			url, path = origin, abs
+		}
+	}
 	rec := sourceRecord{URL: url}
 	if have, err := s.readSource(name); err == nil && !have.Fetched.IsZero() {
 		rec.Fetched = have.Fetched.UTC().Format(time.RFC3339)
 	}
-	return s.writeSource(name, rec, "source: "+name+" at "+url)
+	if err := s.writeSource(name, rec, "source: "+name+" at "+url); err != nil {
+		return err
+	}
+	return s.configSet(sourcePathKey(name), path)
 }
 
 // Sources answers every source this repository knows, by name.
@@ -151,20 +200,26 @@ func (s *GitStore) Unmirror(ref string) error {
 // issue is open or closed there, and the source's namespace says which, so the
 // open name is tried and then the closed one. The refspec is not forced: a
 // mirror only ever moves forward along the source's chain, and a source that
-// rewrote an issue's history is refused rather than followed.
+// rewrote an issue's history is refused rather than followed. The fetch is from
+// this clone's own path when it has one, and from the shared URL otherwise; a
+// failure says which, so that a wrong one is found where it is written.
 func (s *GitStore) fetchMirror(src Source, xidr string) error {
 	dst := ExtRefForXIDR(src.Name, xidr)
+	at, via := src.URL, "the url "+SourceRef(src.Name)+" records, which every clone fetches from"
+	if src.Path != "" {
+		at, via = src.Path, "this clone's own path to it, git config "+sourcePathKey(src.Name)
+	}
 	var last string
 	for _, from := range []string{RefForXIDR(xidr), ClosedRefForXIDR(xidr)} {
 		// Not --quiet: a rejection (a mirror that moved off the source's chain,
 		// which nothing here should do) is a line worth having.
-		out, err := s.netOutput("fetch", src.URL, from+":"+dst)
+		out, err := s.netOutput("fetch", at, from+":"+dst)
 		if err == nil {
 			return nil
 		}
 		last = strings.TrimSpace(string(out))
 	}
-	return fmt.Errorf("cannot fetch %s from %s (%s): %s", xidr, src.Name, src.URL, last)
+	return fmt.Errorf("cannot fetch %s from %s at %s (%s): %s", xidr, src.Name, at, via, last)
 }
 
 // readSource reads source.tony at the source's ref.
@@ -182,11 +237,35 @@ func (s *GitStore) readSource(name string) (Source, error) {
 	if err := gomap.FromTonyIR(node, &rec); err != nil {
 		return Source{}, fmt.Errorf("source %s: %w", name, err)
 	}
-	src := Source{Name: name, URL: rec.URL}
+	src := Source{Name: name, URL: rec.URL, Path: s.configGet(sourcePathKey(name))}
 	if rec.Fetched != "" {
 		src.Fetched, _ = time.Parse(time.RFC3339, rec.Fetched)
 	}
 	return src, nil
+}
+
+// configGet answers a key of this repository's git config, "" when unset.
+func (s *GitStore) configGet(key string) string {
+	out, err := s.git("config", "--get", key).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// configSet sets a key of this repository's own config, or unsets it for "".
+func (s *GitStore) configSet(key, value string) error {
+	if value == "" {
+		out, err := s.git("config", "--unset", key).CombinedOutput()
+		if err != nil && !strings.Contains(err.Error(), "exit status 5") { // 5: it was not set
+			return fmt.Errorf("git config --unset %s: %w: %s", key, err, strings.TrimSpace(string(out)))
+		}
+		return nil
+	}
+	if out, err := s.git("config", "--local", key, value).CombinedOutput(); err != nil {
+		return fmt.Errorf("git config %s: %w: %s", key, err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 // touchSource records that the source's mirrors were fetched now.
