@@ -3,7 +3,7 @@ package index
 import "testing"
 
 func TestNode(t *testing.T) {
-	l := newLeaf[int](func(a, b int) bool { return a < b })
+	l := newLeaf[int](func(a, b int) bool { return a < b }, intEnd)
 	if l.index(0) != -1 {
 		t.Error("not -1")
 	}
@@ -58,7 +58,7 @@ func TestNode(t *testing.T) {
 }
 
 func TestTree(t *testing.T) {
-	tr := NewTree[int](func(a, b int) bool { return a < b })
+	tr := NewTree[int](func(a, b int) bool { return a < b }, intEnd)
 
 	n := 10000
 	for i := 0; i < n; i++ {

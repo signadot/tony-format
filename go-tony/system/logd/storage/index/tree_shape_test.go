@@ -34,7 +34,7 @@ func treeDepth[T any](n *node[T]) int {
 // machine.
 func TestTreeStaysShallow(t *testing.T) {
 	for _, n := range []int{1000, 10000, 50000} {
-		tr := NewTree(func(a, b int) bool { return a < b })
+		tr := NewTree(func(a, b int) bool { return a < b }, intEnd)
 		for i := 0; i < n; i++ {
 			tr.Insert(i)
 		}
@@ -55,7 +55,7 @@ func TestTreeStaysShallow(t *testing.T) {
 // stopped being findable. The index re-adds segments whenever it is rebuilt from the
 // logs, so this was reachable on any restart.
 func TestReinsertIntoAFullLeafKeepsEverything(t *testing.T) {
-	tr := NewTree(func(a, b int) bool { return a < b })
+	tr := NewTree(func(a, b int) bool { return a < b }, intEnd)
 	const n = maxLeaf * 4
 	for i := 0; i < n; i++ {
 		if !tr.Insert(i) {
@@ -112,7 +112,7 @@ func TestIndexRebuildIsIdempotent(t *testing.T) {
 // and an insert into it descended into nothing and was lost; and the removal of a
 // child's last element was reported as no removal at all.
 func TestATreeEmptiedTakesInsertsAgain(t *testing.T) {
-	tr := NewTree(func(a, b int) bool { return a < b })
+	tr := NewTree(func(a, b int) bool { return a < b }, intEnd)
 	const n = 500
 	for i := 0; i < n; i++ {
 		tr.Insert(i)
@@ -137,3 +137,6 @@ func TestATreeEmptiedTakesInsertsAgain(t *testing.T) {
 		t.Fatalf("%d elements after refilling, want %d", count, n)
 	}
 }
+
+// intEnd is the augmentation for a tree of ints: an int ends where it is.
+func intEnd(v int) int64 { return int64(v) }

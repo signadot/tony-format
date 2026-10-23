@@ -57,30 +57,65 @@ func TestRangeAgreesWithScan(t *testing.T) {
 				idx := NewIndex("")
 				for _, c := range order.seq(n) {
 					idx.Commits.Insert(LogSegment{StartCommit: c - 1, StartTx: c, EndCommit: c})
+					// Every 64th commit also opens a span that ends 100 commits on,
+					// as a scope's statement does: a segment that starts well
+					// before a range and ends inside it, which is why the lower
+					// bound cannot come from the order (commitsUpTo).
+					if c%64 == 0 {
+						idx.Commits.Insert(LogSegment{StartCommit: c, StartTx: -1, EndCommit: c + 100})
+					}
 				}
-				for _, width := range []int64{0, 1, 7} {
-					for c := int64(1); c <= int64(n); c++ {
-						from, to := c, c+width
-						var walked, scanned int
-						// The walk is bounded above and the range itself is a keep, so
-						// what the two together answer is what a scan answers. See
-						// commitsUpTo for why the lower half cannot be a prune.
-						inRange := inCommitRange(&from, &to)
-						idx.Commits.Range(func(s LogSegment) bool {
-							if inRange(s) {
-								walked++
+				// The walk is checked as built, and again after the spans leave: the
+				// greatest EndCommit a node caches must come down with them, or a
+				// walk visits what it need not -- a cost, not an answer, and both
+				// are asserted.
+				for _, pass := range []string{"with spans", "spans removed"} {
+					if pass == "spans removed" {
+						for c := int64(64); c <= int64(n); c += 64 {
+							if !idx.Commits.Remove(LogSegment{StartCommit: c, StartTx: -1, EndCommit: c + 100}) {
+								t.Fatalf("n=%d: the span at %d was not there to remove", n, c)
 							}
-							return true
-						}, commitsUpTo(&to))
-						idx.Commits.All(func(s LogSegment) bool {
-							if s.EndCommit >= from && s.EndCommit <= to {
-								scanned++
+						}
+					}
+					for _, width := range []int64{0, 1, 7} {
+						for c := int64(1); c <= int64(n); c++ {
+							from, to := c, c+width
+							var walked, scanned, visited int
+							// The walk is bounded above by the order, below by the
+							// tree's greatest EndCommit per subtree, and the range
+							// itself is a keep, so what the three together answer is
+							// what a scan answers.
+							inRange := inCommitRange(&from, &to)
+							upTo := commitsUpTo(&to)
+							idx.Commits.RangeFrom(from, func(s LogSegment) bool {
+								if inRange(s) {
+									walked++
+								}
+								return true
+							}, func(s LogSegment) int {
+								visited++
+								return upTo(s)
+							})
+							idx.Commits.All(func(s LogSegment) bool {
+								if s.EndCommit >= from && s.EndCommit <= to {
+									scanned++
+								}
+								return true
+							})
+							if walked != scanned {
+								t.Fatalf("n=%d %s range [%d,%d]: the walk found %d, a scan finds %d",
+									n, pass, from, to, walked, scanned)
 							}
-							return true
-						})
-						if walked != scanned {
-							t.Fatalf("n=%d range [%d,%d]: the walk found %d, a scan finds %d",
-								n, from, to, walked, scanned)
+							// The walk is sublinear: it enters the subtrees that can
+							// end in the range -- the ones at the head, plus one path
+							// to each span -- not the whole history, which is what a
+							// read paid at every level of the trie before
+							// (baassnwth12krdjbvdn0). At 1024 a full walk compares
+							// every element; a bounded one compares a few leaves.
+							if n == 1024 && visited > n/4 {
+								t.Fatalf("n=%d %s range [%d,%d]: the walk compared %d elements of %d",
+									n, pass, from, to, visited, n)
+							}
 						}
 					}
 				}
@@ -91,36 +126,62 @@ func TestRangeAgreesWithScan(t *testing.T) {
 
 // TestBoundsHoldAfterEveryInsert checks the invariant the walk rests on rather
 // than one of its consequences: what a parent says about a child is what the
-// child holds.
+// child holds -- its least and greatest element, and the greatest EndCommit in it,
+// which is the lower bound's whole basis and is checked after every removal too.
 func TestBoundsHoldAfterEveryInsert(t *testing.T) {
 	idx := NewIndex("")
 	for c := int64(1); c <= 300; c++ {
 		idx.Commits.Insert(LogSegment{StartCommit: c - 1, StartTx: c, EndCommit: c})
+		if c%50 == 0 {
+			idx.Commits.Insert(LogSegment{StartCommit: c, StartTx: -1, EndCommit: c + 1000})
+		}
 		checkBounds(t, idx.Commits.root, c)
+	}
+	// Out from the middle, so leaves empty and parents lose children on the way.
+	for c := int64(150); c <= 300; c++ {
+		idx.Commits.Remove(LogSegment{StartCommit: c - 1, StartTx: c, EndCommit: c})
+		if c%50 == 0 {
+			idx.Commits.Remove(LogSegment{StartCommit: c, StartTx: -1, EndCommit: c + 1000})
+		}
+		checkBounds(t, idx.Commits.root, -c)
 	}
 }
 
-// checkBounds reports a node whose cached [min,max] disagree with its subtree.
-func checkBounds(t *testing.T, n *node[LogSegment], after int64) (min, max LogSegment) {
+// checkBounds reports a node whose cached [min,max] or greatest EndCommit disagree
+// with its subtree. after names the step: a commit inserted, or negated, removed.
+func checkBounds(t *testing.T, n *node[LogSegment], after int64) (min, max LogSegment, end int64) {
 	t.Helper()
 	if n.isLeaf() {
-		return n.D[0], n.D[len(n.D)-1]
+		end = n.leafHi()
+		if n.hi != end {
+			t.Fatalf("after %d: a leaf's cached greatest EndCommit says %d, its elements end at %d",
+				after, n.hi, end)
+		}
+		return n.D[0], n.D[len(n.D)-1], end
 	}
 	var lo, hi LogSegment
+	end = noEnd
 	for i, c := range n.C {
-		cLo, cHi := checkBounds(t, c, after)
+		cLo, cHi, cEnd := checkBounds(t, c, after)
 		if i == 0 {
 			lo = cLo
 		}
 		hi = cHi
+		if cEnd > end {
+			end = cEnd
+		}
 	}
 	if n.D[0].EndCommit != lo.EndCommit {
-		t.Fatalf("after inserting %d: a node's cached min says %d, its subtree starts at %d",
+		t.Fatalf("after %d: a node's cached min says %d, its subtree starts at %d",
 			after, n.D[0].EndCommit, lo.EndCommit)
 	}
 	if n.D[1].EndCommit != hi.EndCommit {
-		t.Fatalf("after inserting %d: a node's cached max says %d, its subtree ends at %d",
+		t.Fatalf("after %d: a node's cached max says %d, its subtree ends at %d",
 			after, n.D[1].EndCommit, hi.EndCommit)
 	}
-	return lo, hi
+	if n.hi != end {
+		t.Fatalf("after %d: a node's cached greatest EndCommit says %d, its subtree's is %d",
+			after, n.hi, end)
+	}
+	return lo, hi, end
 }

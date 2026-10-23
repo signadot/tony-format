@@ -10,15 +10,20 @@ const (
 	Down
 )
 
+// Tree is an ordered set of T with an interval-tree augmentation: elements are ordered
+// by Less, and each node also keeps the greatest End over its subtree, so a walk can be
+// bounded by End as well as by the order (RangeFrom; node.go).
 type Tree[T any] struct {
 	Less func(a, b T) bool
+	End  func(T) int64
 	root *node[T]
 }
 
-func NewTree[T any](less func(a, b T) bool) *Tree[T] {
+func NewTree[T any](less func(a, b T) bool, end func(T) int64) *Tree[T] {
 	return &Tree[T]{
 		Less: less,
-		root: newLeaf[T](less),
+		End:  end,
+		root: newLeaf[T](less, end),
 	}
 }
 
@@ -41,7 +46,7 @@ func (t *Tree[T]) Remove(v T) bool {
 	// said so to no one. A tree with nothing in it is a leaf, as a new one is. Nothing
 	// emptied a tree before residency evicted whole nodes (region.go).
 	if removed && !t.root.isLeaf() && len(t.root.C) == 0 {
-		t.root = newLeaf[T](t.Less)
+		t.root = newLeaf[T](t.Less, t.End)
 	}
 	return removed
 }
@@ -57,7 +62,15 @@ func (t *Tree[T]) All(f func(T) bool) bool {
 // those such that r(e) == 0 and likewise a positive integer
 // for those elements greater than those such that r(e) == 0
 func (t *Tree[T]) Range(f func(T) bool, r func(T) int) bool {
-	return t.root.rangeFunc(f, r)
+	return t.root.rangeFunc(f, r, noEnd)
+}
+
+// RangeFrom is Range bounded below by End as well: f sees the elements with r(e) == 0
+// and End(e) >= lo, and the walk does not enter a subtree whose greatest End is below
+// lo. That is the bound r cannot give, since r may only prune on the order and End
+// does not follow it (commitsUpTo).
+func (t *Tree[T]) RangeFrom(lo int64, f func(T) bool, r func(T) int) bool {
+	return t.root.rangeFunc(f, r, lo)
 }
 
 // IterAscending returns an iterator positioned at the first element (minimum)

@@ -6,7 +6,7 @@ import (
 )
 
 func TestRange(t *testing.T) {
-	tr := NewTree[int](func(a, b int) bool { return a < b })
+	tr := NewTree[int](func(a, b int) bool { return a < b }, intEnd)
 
 	// Test empty tree
 	count := 0

@@ -13,7 +13,7 @@ func TestDirectionConstants(t *testing.T) {
 
 func TestIteratorCreation(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 
 	// Create iterator - should not panic
 	iter := &Iterator[int]{
@@ -39,7 +39,7 @@ func TestIteratorCreation(t *testing.T) {
 
 func TestIteratorFrame(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	n := newLeaf[int](less)
+	n := newLeaf[int](less, intEnd)
 
 	frame := iteratorFrame[int]{
 		node:  n,
@@ -56,7 +56,7 @@ func TestIteratorFrame(t *testing.T) {
 
 func TestIteratorSeekToFirst(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 
 	// Empty tree
 	iter := &Iterator[int]{tree: tree}
@@ -94,7 +94,7 @@ func TestIteratorSeekToLast(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
 
 	// Empty tree
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	iter := &Iterator[int]{tree: tree}
 	iter.seekToLast()
 	if iter.valid {
@@ -102,7 +102,7 @@ func TestIteratorSeekToLast(t *testing.T) {
 	}
 
 	// Single element
-	tree = NewTree(less)
+	tree = NewTree(less, intEnd)
 	tree.Insert(42)
 	iter = &Iterator[int]{tree: tree}
 	iter.seekToLast()
@@ -114,7 +114,7 @@ func TestIteratorSeekToLast(t *testing.T) {
 	}
 
 	// Multiple elements
-	tree = NewTree(less)
+	tree = NewTree(less, intEnd)
 	tree.Insert(10)
 	tree.Insert(30)
 	tree.Insert(20)
@@ -130,7 +130,7 @@ func TestIteratorSeekToLast(t *testing.T) {
 
 func TestIteratorSeekEmptyTree(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 
 	iter := &Iterator[int]{tree: tree}
 	iter.seekToFirst()
@@ -146,7 +146,7 @@ func TestIteratorSeekEmptyTree(t *testing.T) {
 
 func TestIteratorSeekSingleElement(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	tree.Insert(100)
 
 	iter := &Iterator[int]{tree: tree}
@@ -163,7 +163,7 @@ func TestIteratorSeekSingleElement(t *testing.T) {
 
 func TestIterAscending(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 
 	// Empty tree
 	iter := tree.IterAscending()
@@ -185,7 +185,7 @@ func TestIterAscending(t *testing.T) {
 	}
 
 	// Multiple elements
-	tree = NewTree(less)
+	tree = NewTree(less, intEnd)
 	tree.Insert(10)
 	tree.Insert(30)
 	tree.Insert(20)
@@ -200,7 +200,7 @@ func TestIterAscending(t *testing.T) {
 
 func TestIterDescending(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 
 	// Empty tree
 	iter := tree.IterDescending()
@@ -222,7 +222,7 @@ func TestIterDescending(t *testing.T) {
 	}
 
 	// Multiple elements
-	tree = NewTree(less)
+	tree = NewTree(less, intEnd)
 	tree.Insert(10)
 	tree.Insert(30)
 	tree.Insert(20)
@@ -237,7 +237,7 @@ func TestIterDescending(t *testing.T) {
 
 func TestIterAscendingEmpty(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	iter := tree.IterAscending()
 	if iter.valid {
 		t.Error("Empty tree should produce invalid iterator")
@@ -246,7 +246,7 @@ func TestIterAscendingEmpty(t *testing.T) {
 
 func TestIterDescendingEmpty(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	iter := tree.IterDescending()
 	if iter.valid {
 		t.Error("Empty tree should produce invalid iterator")
@@ -255,7 +255,7 @@ func TestIterDescendingEmpty(t *testing.T) {
 
 func TestNextAscending(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 
 	// Single element - iterator starts at the element, Next() should return false
 	tree.Insert(42)
@@ -271,7 +271,7 @@ func TestNextAscending(t *testing.T) {
 	}
 
 	// Two elements
-	tree = NewTree(less)
+	tree = NewTree(less, intEnd)
 	tree.Insert(10)
 	tree.Insert(20)
 	iter = tree.IterAscending()
@@ -291,7 +291,7 @@ func TestNextAscending(t *testing.T) {
 
 func TestNextAscendingMultipleElements(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	elements := []int{10, 20, 30, 40, 50}
 	for _, e := range elements {
 		tree.Insert(e)
@@ -315,7 +315,7 @@ func TestNextAscendingMultipleElements(t *testing.T) {
 
 func TestNextAscendingEndOfTree(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	tree.Insert(10)
 	tree.Insert(20)
 
@@ -332,7 +332,7 @@ func TestNextAscendingEndOfTree(t *testing.T) {
 
 func TestNextAscendingSingleElement(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	tree.Insert(42)
 
 	iter := tree.IterAscending()
@@ -349,7 +349,7 @@ func TestNextAscendingSingleElement(t *testing.T) {
 
 func TestNextDescending(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 
 	// Single element
 	tree.Insert(42)
@@ -365,7 +365,7 @@ func TestNextDescending(t *testing.T) {
 	}
 
 	// Two elements
-	tree = NewTree(less)
+	tree = NewTree(less, intEnd)
 	tree.Insert(10)
 	tree.Insert(20)
 	iter = tree.IterDescending()
@@ -385,7 +385,7 @@ func TestNextDescending(t *testing.T) {
 
 func TestNextDescendingMultipleElements(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	elements := []int{10, 20, 30, 40, 50}
 	for _, e := range elements {
 		tree.Insert(e)
@@ -411,7 +411,7 @@ func TestNextDescendingMultipleElements(t *testing.T) {
 
 func TestNextDescendingEndOfTree(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	tree.Insert(10)
 	tree.Insert(20)
 
@@ -428,7 +428,7 @@ func TestNextDescendingEndOfTree(t *testing.T) {
 
 func TestNextDescendingSingleElement(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	tree.Insert(42)
 
 	iter := tree.IterDescending()
@@ -445,7 +445,7 @@ func TestNextDescendingSingleElement(t *testing.T) {
 
 func TestValue(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	tree.Insert(42)
 
 	iter := tree.IterAscending()
@@ -456,7 +456,7 @@ func TestValue(t *testing.T) {
 
 func TestValuePanicWhenInvalid(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 
 	iter := tree.IterAscending()
 	// Empty tree, iterator is invalid
@@ -470,7 +470,7 @@ func TestValuePanicWhenInvalid(t *testing.T) {
 
 func TestValid(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 
 	// Empty tree
 	iter := tree.IterAscending()
@@ -488,7 +488,7 @@ func TestValid(t *testing.T) {
 
 func TestValidAfterNext(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	tree.Insert(10)
 	tree.Insert(20)
 
@@ -510,7 +510,7 @@ func TestValidAfterNext(t *testing.T) {
 
 func TestSeekAscending(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	tree.Insert(10)
 	tree.Insert(20)
 	tree.Insert(30)
@@ -536,7 +536,7 @@ func TestSeekAscending(t *testing.T) {
 
 func TestSeekDescending(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	tree.Insert(10)
 	tree.Insert(20)
 	tree.Insert(30)
@@ -562,7 +562,7 @@ func TestSeekDescending(t *testing.T) {
 
 func TestSeekExactMatch(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	tree.Insert(10)
 	tree.Insert(20)
 	tree.Insert(30)
@@ -578,7 +578,7 @@ func TestSeekExactMatch(t *testing.T) {
 
 func TestSeekNoMatch(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	tree.Insert(10)
 	tree.Insert(30)
 
@@ -594,7 +594,7 @@ func TestSeekNoMatch(t *testing.T) {
 
 func TestSeekBeforeAll(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	tree.Insert(10)
 	tree.Insert(20)
 
@@ -609,7 +609,7 @@ func TestSeekBeforeAll(t *testing.T) {
 
 func TestSeekAfterAll(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	tree.Insert(10)
 	tree.Insert(20)
 
@@ -624,7 +624,7 @@ func TestSeekAfterAll(t *testing.T) {
 
 func TestIterSeek(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	tree.Insert(10)
 	tree.Insert(20)
 	tree.Insert(30)
@@ -656,7 +656,7 @@ func TestIterSeek(t *testing.T) {
 
 func TestIterRange(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	tree.Insert(10)
 	tree.Insert(20)
 	tree.Insert(30)
@@ -694,7 +694,7 @@ func TestIterRange(t *testing.T) {
 
 func TestIterRangeEmpty(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 
 	rangeFunc := func(v int) int {
 		return 0 // Match all
@@ -708,7 +708,7 @@ func TestIterRangeEmpty(t *testing.T) {
 
 func TestIterRangePartial(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	tree.Insert(10)
 	tree.Insert(20)
 	tree.Insert(30)
@@ -733,7 +733,7 @@ func TestIterRangePartial(t *testing.T) {
 
 func TestIteratorFullTraversalAscending(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	elements := []int{50, 20, 80, 10, 30, 70, 90, 5, 15, 25, 35, 65, 75, 85, 95}
 	for _, e := range elements {
 		tree.Insert(e)
@@ -761,7 +761,7 @@ func TestIteratorFullTraversalAscending(t *testing.T) {
 
 func TestIteratorFullTraversalDescending(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	elements := []int{50, 20, 80, 10, 30, 70, 90}
 	for _, e := range elements {
 		tree.Insert(e)
@@ -789,7 +789,7 @@ func TestIteratorFullTraversalDescending(t *testing.T) {
 
 func TestIteratorSeekAndIterate(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	elements := []int{10, 20, 30, 40, 50, 60, 70, 80, 90}
 	for _, e := range elements {
 		tree.Insert(e)
@@ -823,7 +823,7 @@ func TestIteratorSeekAndIterate(t *testing.T) {
 
 func TestIteratorConcurrentAccess(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	elements := []int{10, 20, 30, 40, 50}
 	for _, e := range elements {
 		tree.Insert(e)
@@ -857,7 +857,7 @@ func TestIteratorConcurrentAccess(t *testing.T) {
 
 func TestCommitsRangeOverFunc(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	elements := []int{10, 20, 30, 40, 50}
 	for _, e := range elements {
 		tree.Insert(e)
@@ -881,7 +881,7 @@ func TestCommitsRangeOverFunc(t *testing.T) {
 
 func TestCommitsAscending(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	tree.Insert(30)
 	tree.Insert(10)
 	tree.Insert(20)
@@ -904,7 +904,7 @@ func TestCommitsAscending(t *testing.T) {
 
 func TestCommitsDescending(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	tree.Insert(30)
 	tree.Insert(10)
 	tree.Insert(20)
@@ -927,7 +927,7 @@ func TestCommitsDescending(t *testing.T) {
 
 func TestCommitsEarlyReturn(t *testing.T) {
 	less := func(a, b int) bool { return a < b }
-	tree := NewTree(less)
+	tree := NewTree(less, intEnd)
 	elements := []int{10, 20, 30, 40, 50}
 	for _, e := range elements {
 		tree.Insert(e)

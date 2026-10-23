@@ -1,6 +1,7 @@
 package index
 
 import (
+	"math"
 	"slices"
 	"sort"
 )
@@ -19,22 +20,39 @@ const (
 	maxLeaf     = 32
 )
 
+// noEnd is the greatest End of a subtree with nothing in it: below every bound, so a
+// walk bounded below skips it.
+const noEnd = math.MinInt64
+
+// node is a node of the tree: a leaf holds its elements in D, ordered by Less; a parent
+// holds its children in C and their joint bounds in D[0] (min) and D[1] (max).
+//
+// hi is the INTERVAL-TREE AUGMENTATION: the greatest End over every element in the
+// subtree, kept with the bounds. An element is ordered by its start and asked for by
+// its end (commitsUpTo), and a bound on where the walk may stop BELOW the range cannot
+// come from the order -- an element that starts early may end late. It comes from here:
+// a subtree whose greatest End is below the range holds nothing in it, whatever its
+// elements start at.
 type node[T any] struct {
 	N    int
 	D    []T
 	C    []*node[T]
 	Less func(a, b T) bool
+	End  func(T) int64
+	hi   int64
 }
 
-func newLeaf[T any](less func(a, b T) bool) *node[T] {
-	return &node[T]{Less: less}
+func newLeaf[T any](less func(a, b T) bool, end func(T) int64) *node[T] {
+	return &node[T]{Less: less, End: end, hi: noEnd}
 }
 
-func newParent[T any](less func(a, b T) bool) *node[T] {
+func newParent[T any](less func(a, b T) bool, end func(T) int64) *node[T] {
 	return &node[T]{
 		C:    make([]*node[T], 0, maxChildren+1),
 		D:    make([]T, 2),
 		Less: less,
+		End:  end,
+		hi:   noEnd,
 	}
 }
 
@@ -44,14 +62,16 @@ func (n *node[T]) split() *node[T] {
 			return n.Less(n.D[i], n.D[j])
 		})
 		mid := len(n.D) / 2
-		res := newLeaf[T](n.Less)
+		res := newLeaf[T](n.Less, n.End)
 		res.D = append(res.D, n.D[mid:]...)
 		n.D = n.D[:mid]
 		n.N = mid
 		res.N = len(res.D)
+		n.hi = n.leafHi()
+		res.hi = res.leafHi()
 		return res
 	}
-	res := newParent[T](n.Less)
+	res := newParent[T](n.Less, n.End)
 	mid := len(n.C) / 2
 	N := len(n.C)
 	for i := mid; i < N; i++ {
@@ -80,7 +100,7 @@ func (n *node[T]) split() *node[T] {
 }
 
 func merge[T any](a, b *node[T]) *node[T] {
-	res := newParent[T](a.Less)
+	res := newParent[T](a.Less, a.End)
 	if a.isLeaf() {
 		res.D[0] = a.D[0]
 		res.D[1] = b.D[len(b.D)-1]
@@ -90,6 +110,7 @@ func merge[T any](a, b *node[T]) *node[T] {
 		res.D[1] = b.D[1]
 		res.N = a.N + b.N
 	}
+	res.hi = max(a.hi, b.hi)
 
 	res.C = append(res.C, a, b)
 	return res
@@ -284,14 +305,20 @@ func (n *node[T]) all(f func(T) bool) bool {
 	return true
 }
 
-func (n *node[T]) rangeFunc(f func(T) bool, r func(a T) int) bool {
-	if n.isLeaf() {
-		return n.leafRange(f, r)
+// rangeFunc applies f to the elements with r(e) == 0 and End(e) >= lo, ascending. r
+// prunes on the order (Tree.Range); lo prunes on the augmentation: a subtree whose
+// greatest End is below lo is not entered.
+func (n *node[T]) rangeFunc(f func(T) bool, r func(a T) int, lo int64) bool {
+	if n.hi < lo {
+		return true
 	}
-	return n.parentRange(f, r)
+	if n.isLeaf() {
+		return n.leafRange(f, r, lo)
+	}
+	return n.parentRange(f, r, lo)
 }
 
-func (n *node[T]) leafRange(f func(T) bool, r func(a T) int) bool {
+func (n *node[T]) leafRange(f func(T) bool, r func(a T) int, lo int64) bool {
 	i, found := sort.Find(len(n.D), func(i int) int { return -r(n.D[i]) })
 	if !found {
 		return true
@@ -301,7 +328,7 @@ func (n *node[T]) leafRange(f func(T) bool, r func(a T) int) bool {
 		if r(elt) != 0 {
 			return true
 		}
-		if !f(elt) {
+		if n.End(elt) >= lo && !f(elt) {
 			return false
 		}
 		i++
@@ -309,7 +336,7 @@ func (n *node[T]) leafRange(f func(T) bool, r func(a T) int) bool {
 	return true
 }
 
-func (n *node[T]) parentRange(f func(T) bool, r func(a T) int) bool {
+func (n *node[T]) parentRange(f func(T) bool, r func(a T) int, lo int64) bool {
 	for _, c := range n.C {
 		if r(c.max()) < 0 {
 			continue
@@ -317,7 +344,7 @@ func (n *node[T]) parentRange(f func(T) bool, r func(a T) int) bool {
 		if r(c.min()) > 0 {
 			return true
 		}
-		if !c.rangeFunc(f, r) {
+		if !c.rangeFunc(f, r, lo) {
 			return false
 		}
 	}
@@ -332,8 +359,12 @@ func (n *node[T]) leafRemove(v T) bool {
 	if !found {
 		return false
 	}
+	end := n.End(v)
 	n.D = slices.Delete(n.D, index, index+1)
 	n.N--
+	if end == n.hi {
+		n.hi = n.leafHi()
+	}
 	return true
 }
 
@@ -351,7 +382,17 @@ func (n *node[T]) leafAdd(v T) (added, overflow bool) {
 	}
 	n.D = slices.Insert(n.D, index, v)
 	n.N++
+	n.hi = max(n.hi, n.End(v))
 	return true, false
+}
+
+// leafHi is the greatest End in a leaf, recomputed when the element that left was it.
+func (n *node[T]) leafHi() int64 {
+	hi := int64(noEnd)
+	for _, elt := range n.D {
+		hi = max(hi, n.End(elt))
+	}
+	return hi
 }
 
 func (n *node[T]) cmpFunc() func(a, b T) int {
@@ -382,14 +423,22 @@ func (n *node[T]) max() T {
 	return n.D[1]
 }
 
+// updateBounds recomputes a parent's cached bounds -- min, max and hi -- from its
+// children's. Every structural change calls it on the way back up, so the caches
+// are exact at every level.
 func (n *node[T]) updateBounds() {
 	if n.isLeaf() {
 		return
 	}
 	if n.N == 0 {
+		n.hi = noEnd
 		return
 	}
 	n.D[0] = n.C[0].min()
 	n.D[1] = n.C[len(n.C)-1].max()
-
+	hi := int64(noEnd)
+	for _, c := range n.C {
+		hi = max(hi, c.hi)
+	}
+	n.hi = hi
 }

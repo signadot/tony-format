@@ -80,7 +80,7 @@ func NewIndex(pathKey string) *Index {
 				return n < 0
 			}
 			return compareScopeID(a.ScopeID, b.ScopeID) < 0
-		}),
+		}, func(s LogSegment) int64 { return s.EndCommit }),
 		Children: map[string]*Index{},
 		foot:     newFootprint(),
 	}
@@ -121,11 +121,18 @@ func (i *Index) childOf(name string) *Index {
 // segmentsWithin collects this node's OWN segments that can have an EndCommit in
 // [from, to], with the regions that can hold them resident (region.go), under a brief
 // lock. keep narrows them further.
+//
+// The walk is bounded at both ends, each by what can answer for it: above by the order
+// (commitsUpTo), below by the tree's greatest EndCommit per subtree (Tree.RangeFrom).
+// Without the lower bound every read walked the node's whole history for the few
+// segments at its head -- 64k at the root of the staging store, per read, at 187ms
+// (baassnwth12krdjbvdn0).
 func (i *Index) segmentsWithin(from, to *int64, keep func(LogSegment) bool) []LogSegment {
 	res := []LogSegment{}
 	upTo := commitsUpTo(to)
+	lo := commitsFrom(from)
 	i.withResident(func(r *region) bool { return r.covers(from, to) }, false, func() {
-		i.Commits.Range(func(c LogSegment) bool {
+		i.Commits.RangeFrom(lo, func(c LogSegment) bool {
 			if keep == nil || keep(c) {
 				res = append(res, c)
 			}
@@ -531,9 +538,9 @@ func compareScopeID(a, b *string) int {
 // direction: EndCommit >= StartCommit always, so a segment starting past `to` ends past
 // it, and so does everything ordered after it.
 //
-// Below the range it is not sound at all, and pruning there is what this used to do. A
-// segment starting earlier may still end inside, so the segments in range are not a
-// contiguous run and the walk cannot find them by looking for one. With
+// Below the range the order cannot answer at all, and pruning on it there is what this
+// used to do. A segment starting earlier may still end inside, so the segments in range
+// are not a contiguous run and the walk cannot find them by looking for one. With
 //
 //	[2,3]tx3  [3,4]tx-1  [3,3]tx0  [3,4]tx4  [4,5]tx5
 //
@@ -543,10 +550,12 @@ func compareScopeID(a, b *string) int {
 // overlay, and the write reappeared once a later commit landed (tmwq9mh6h12kskmxj9n0).
 // gx8xvgmph12krbjpg1n0 is the same walk skipping a subtree for a related reason.
 //
-// So the range is a KEEP and not a prune: every caller tests EndCommit for what the
-// range MEANS, and this only stops the walk once it is past. What that costs is a
-// cheap comparison per segment at or below `to`; what a caller does with the segments
-// it keeps is unchanged, and that is where a read's work is.
+// So on the order the range is a KEEP and not a prune: every caller tests EndCommit for
+// what the range MEANS (inCommitRange), and this only stops the walk once it is past.
+// The lower half is bounded by something else -- the greatest EndCommit each subtree
+// holds, which the tree keeps beside its order bounds (Tree.RangeFrom, commitsFrom).
+// That is sound in exactly the way the order is not: a subtree whose every segment ends
+// before `from` has nothing in the range, however early its segments start.
 func commitsUpTo(to *int64) func(LogSegment) int {
 	if to == nil {
 		return func(LogSegment) int { return 0 }
@@ -558,6 +567,15 @@ func commitsUpTo(to *int64) func(LogSegment) int {
 		}
 		return 0
 	}
+}
+
+// commitsFrom is the walk's bound below a commit range, for Tree.RangeFrom: the least
+// EndCommit a segment in it can have, or none when the range has no floor.
+func commitsFrom(from *int64) int64 {
+	if from == nil {
+		return noEnd
+	}
+	return *from
 }
 
 // inCommitRange reports whether a segment's own commit -- its EndCommit -- is in
