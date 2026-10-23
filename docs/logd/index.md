@@ -11,6 +11,10 @@ protocol a controller speaks — is [The session protocol](session.md).
 It also allows more than one view of the same store at once: a *scope* is an isolated
 layer over the shared baseline, described below.
 
+Beside the document, a store keeps **scratch**: a second document with no history, for
+state overwritten too often to keep one — read and written through its own operation,
+never watched, and never in a docd mount. See [Scratch](session.md#scratch).
+
 The same design decides what a store will accept, and what it keeps: a delta it cannot
 apply would break every later read, so writes are checked before they are stored — and an
 operation whose meaning depends on what it lands on is stored as the result it produced,

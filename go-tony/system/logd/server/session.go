@@ -346,6 +346,10 @@ func (s *Session) dispatch(req *api.SessionRequest) {
 		// A write, and on the loop as a plain patch is: what a client pipelines
 		// behind it reads what it deleted.
 		s.handleRetain(req.ID, req.Retain)
+	case req.Scratch != nil:
+		// On the loop, write and read alike: a scratch write is applied in memory
+		// before it is answered, so what a client pipelines behind it reads it.
+		s.handleScratch(req.ID, req.Scratch)
 	case req.Ping != nil:
 		// A liveness probe which also answers "where is the store now". The head is
 		// a memory read (the tick watermark), so a client can keep a current revision

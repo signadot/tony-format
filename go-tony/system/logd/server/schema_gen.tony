@@ -29,6 +29,7 @@ define:
   pathSnapshotDecodeRatio: .[int]
   pathSnapshotTail: .[int]
   readBudget: .[int]
+  scratchFlush: .[string]
   writeBudget: .[int]
 signature:
   name: storage-config

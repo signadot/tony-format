@@ -17,6 +17,10 @@ storage, zero-means-default, flush retry, comments and absence on the wire. The 
 found concurrent flushes, error codes, the flusher's start, a failed apply's leftovers,
 the compatibility mechanism, Close's error, and the root path.
 
+Built (2026-10-23): `storage/scratch.go`, `server/session_scratch.go`, the `scratch`
+operation in `api/session.go`, `requestPath` in docd, `ScratchWrite`/`ScratchRead` in
+libctl, and the Scratch section of `docs/logd/session.md`. Phase 8 (verse) is verse's.
+
 Read first: `docs/logd/session.md` (Requests, Writing, Liveness), `server/session.go`
 `dispatch`, `server/server.go` `New` (how config is applied by setters),
 `api/state.go` (presence and comments doctrine), `docd/server/client_session.go`

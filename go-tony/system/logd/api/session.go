@@ -422,6 +422,44 @@ type SchemaRequest struct {
 	Set *SchemaSetRequest `tony:"field=set"` // Set the schema
 }
 
+// ScratchWriteRequest patches the scratch document at Path with Data, as a merge patch:
+// the mergeops mean what they mean anywhere in Tony, comments are kept, and the
+// operations which execute (!pipe and its kin) are refused with invalid_diff, as a
+// patch's are. The path is rooted as a participant's patch is: an absent object field
+// or sparse index is created above the data; a dense index into no array is refused
+// by the apply. Path "" patches the whole scratch document.
+//
+// Scratch is the store's second document: one Tony node beside the log, with no
+// commits, no history, no index, no scopes, no schema, no watches and no transactions,
+// for state overwritten too often to keep a history of (r482sz5rh12ksj0cvdn0). A write
+// is acknowledged when it is applied in memory; a flusher writes the whole document to
+// scratch.tony behind it, so a crash loses a suffix of the newest writes, never a hole.
+// A write takes no author: author in logd lives on a log entry and is seen on a watch
+// event, and scratch has neither.
+//
+//tony:schemagen=session-scratch-write-request,notag
+type ScratchWriteRequest struct {
+	PathData `tony:"field=write"`
+}
+
+// ScratchReadRequest answers the scratch document at Path as it stands now, the whole
+// subtree. Absent is an omitted Data, not not_found: a read before any write is routine.
+// A wildcard names a set, which scratch does not answer; it is refused.
+//
+//tony:schemagen=session-scratch-read-request,notag
+type ScratchReadRequest struct {
+	Path string `tony:"field=path"`
+}
+
+// ScratchRequest is a scratch operation: exactly one of Write and Read. A request naming
+// both says two things and is refused with invalid_message.
+//
+//tony:schemagen=session-scratch-request,notag
+type ScratchRequest struct {
+	Write *ScratchWriteRequest `tony:"field=write"`
+	Read  *ScratchReadRequest  `tony:"field=read"`
+}
+
 // SessionRequest is the top-level request message (union type).
 // Only one of the fields should be set.
 //
@@ -445,7 +483,8 @@ type SessionRequest struct {
 	DeleteScope *DeleteScopeRequest `tony:"field=deleteScope"`
 	Schema      *SchemaRequest      `tony:"field=schema"`
 	Retain      *RetainRequest      `tony:"field=retain"`
-	Ping        *PingRequest        `tony:"field=ping"` // liveness probe; answered by whatever server owns the connection
+	Scratch     *ScratchRequest     `tony:"field=scratch"` // the scratch document: no history, no watch; routed to logd by docd, never to a mount
+	Ping        *PingRequest        `tony:"field=ping"`    // liveness probe; answered by whatever server owns the connection
 	// Progress asks the watch this names -- by the id of the watch request that
 	// established it -- to say on its own stream when it is current through the head. The
 	// request is answered at once with the commit (ProgressResult); the watch then sends a
@@ -684,8 +723,33 @@ type SessionResult struct {
 	DeleteScope *DeleteScopeResult `tony:"field=deleteScope"`
 	Schema      *SchemaResult      `tony:"field=schema"`
 	Retain      *RetainResult      `tony:"field=retain"`
+	Scratch     *ScratchResult     `tony:"field=scratch"`
 	Pong        *PongResult        `tony:"field=pong"`
 	Progress    *ProgressResult    `tony:"field=progress"`
+}
+
+// ScratchWriteResult echoes the data a scratch write applied, as PatchResult does; there
+// is no commit to name.
+//
+//tony:schemagen=session-scratch-write-result,notag
+type ScratchWriteResult struct {
+	Data *ir.Node `tony:"field=data"`
+}
+
+// ScratchReadResult is the scratch document at the path asked for. A nil Data is omitted
+// on the wire, and means absent.
+//
+//tony:schemagen=session-scratch-read-result,notag
+type ScratchReadResult struct {
+	Data *ir.Node `tony:"field=data"`
+}
+
+// ScratchResult answers a ScratchRequest: Write for a write, Read for a read.
+//
+//tony:schemagen=session-scratch-result,notag
+type ScratchResult struct {
+	Write *ScratchWriteResult `tony:"field=write"`
+	Read  *ScratchReadResult  `tony:"field=read"`
 }
 
 // ProgressResult acknowledges a progress request (SessionRequest.Progress). Commit is the
@@ -1125,6 +1189,22 @@ func NewErrorResponse(id *string, code, message string) *SessionResponse {
 }
 
 // NewSchemaResponse creates a response for a schema get/set request.
+// NewScratchWriteResponse answers a scratch write with the data it applied.
+func NewScratchWriteResponse(id *string, data *ir.Node) *SessionResponse {
+	return &SessionResponse{
+		ID:     id,
+		Result: &SessionResult{Scratch: &ScratchResult{Write: &ScratchWriteResult{Data: data}}},
+	}
+}
+
+// NewScratchReadResponse answers a scratch read; a nil data is absent.
+func NewScratchReadResponse(id *string, data *ir.Node) *SessionResponse {
+	return &SessionResponse{
+		ID:     id,
+		Result: &SessionResult{Scratch: &ScratchResult{Read: &ScratchReadResult{Data: data}}},
+	}
+}
+
 func NewSchemaResponse(id *string, schema *ir.Node, commit int64) *SessionResponse {
 	return &SessionResponse{
 		ID: id,

@@ -95,6 +95,11 @@ type StorageConfig struct {
 	// recently used regions are evicted to the durable index and paged back on a miss.
 	// Zero is unbounded. See storage/index/region.go.
 	IndexCeiling int64 `tony:"field=indexCeiling"`
+
+	// ScratchFlush is how often the scratch document is written to disk when it has
+	// changed: a scratch write is acknowledged once applied in memory, and the file
+	// follows within this. Zero means the default, 1s. See storage/scratch.go.
+	ScratchFlush Duration `tony:"field=scratchFlush"`
 }
 
 // ToStorageDurability maps the configured name to a storage.Durability. A nil

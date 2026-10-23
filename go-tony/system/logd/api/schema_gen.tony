@@ -238,6 +238,54 @@ context:
 - tony-format/context
 define:
   path: .[string]
+signature:
+  name: session-scratch-read-request
+---
+context:
+- tony-format/context
+- tony-base: github.com/signadot/tony-format/go-tony/schema
+define:
+  data: .[tony-base:ir]
+signature:
+  name: session-scratch-read-result
+---
+context:
+- tony-format/context
+- tony-base: github.com/signadot/tony-format/go-tony/schema
+define:
+  data: .[tony-base:ir]
+  path: .[string]
+signature:
+  name: session-scratch-write-request
+---
+context:
+- tony-format/context
+define:
+  read: .[nullable(session-scratch-read-request)]
+  write: .[nullable(session-scratch-write-request)]
+signature:
+  name: session-scratch-request
+---
+context:
+- tony-format/context
+- tony-base: github.com/signadot/tony-format/go-tony/schema
+define:
+  data: .[tony-base:ir]
+signature:
+  name: session-scratch-write-result
+---
+context:
+- tony-format/context
+define:
+  read: .[nullable(session-scratch-read-result)]
+  write: .[nullable(session-scratch-write-result)]
+signature:
+  name: session-scratch-result
+---
+context:
+- tony-format/context
+define:
+  path: .[string]
   watchId: .[nullable(string)]
 signature:
   name: session-unwatch-request
@@ -266,6 +314,7 @@ define:
   retain: .[nullable(session-retain-request)]
   schema: .[nullable(session-schema-request)]
   scope: .[nullable(string)]
+  scratch: .[nullable(session-scratch-request)]
   unwatch: .[nullable(session-unwatch-request)]
   watch: .[nullable(session-watch-request)]
 signature:
@@ -299,6 +348,7 @@ define:
   progress: .[nullable(session-progress-result)]
   retain: .[nullable(session-retain-result)]
   schema: .[nullable(session-schema-result)]
+  scratch: .[nullable(session-scratch-result)]
   unwatch: .[nullable(session-unwatch-result)]
   watch: .[nullable(session-watch-result)]
 signature:

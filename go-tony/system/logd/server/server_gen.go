@@ -165,6 +165,11 @@ func (s *StorageConfig) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 	if s == nil {
 		return ir.Null(), nil
 	}
+	var node *ir.Node
+	var err error
+	_ = node // suppress unused variable error
+	_ = err  // suppress unused variable error
+
 	// Create IR object map
 	irMap := make(map[string]*ir.Node)
 
@@ -191,6 +196,13 @@ func (s *StorageConfig) ToTonyIR(opts ...gomap.MapOption) (*ir.Node, error) {
 
 	// Field: IndexCeiling
 	irMap["indexCeiling"] = ir.FromInt(int64(s.IndexCeiling))
+
+	// Field: ScratchFlush
+	if txt, err := s.ScratchFlush.MarshalText(); err != nil {
+		return nil, fmt.Errorf("failed to marshal field %q: %w", "ScratchFlush", err)
+	} else {
+		irMap["scratchFlush"] = ir.FromString(string(txt))
+	}
 
 	return ir.FromMap(irMap).WithTag("!storage-config"), nil
 }
@@ -273,6 +285,13 @@ func (s *StorageConfig) FromTonyIR(node *ir.Node, opts ...gomap.UnmapOption) err
 				return fmt.Errorf("field %q: expected number, got %v", "indexCeiling", fieldNodeUnwrapped.Type)
 			}
 			s.IndexCeiling = int64(*fieldNodeUnwrapped.Int64)
+		case "scratchFlush":
+			if fieldNodeUnwrapped.Type != ir.StringType {
+				return fmt.Errorf("field %q: expected string for TextUnmarshaler, got %v", "scratchFlush", fieldNodeUnwrapped.Type)
+			}
+			if err := s.ScratchFlush.UnmarshalText([]byte(fieldNodeUnwrapped.String)); err != nil {
+				return fmt.Errorf("field %q: failed to unmarshal text: %w", "scratchFlush", err)
+			}
 		default:
 			if gomap.IsStrict(opts...) {
 				return fmt.Errorf("unknown field %q for StorageConfig", fieldName.String)

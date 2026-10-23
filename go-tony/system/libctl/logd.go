@@ -740,6 +740,44 @@ func (s *LogdSession) Retain(ctx context.Context, req *api.RetainRequest) (*api.
 	return resp.Result.Retain, nil
 }
 
+// ScratchWrite patches the store's scratch document at path with data, as a merge
+// patch, and answers the data it applied. Scratch has no history and no watch: a
+// write is acknowledged once applied in memory, and reaches disk behind it
+// (api.ScratchWriteRequest).
+func (s *LogdSession) ScratchWrite(ctx context.Context, path string, data *ir.Node) (*ir.Node, error) {
+	resp, err := s.request(ctx, &api.SessionRequest{Scratch: &api.ScratchRequest{
+		Write: &api.ScratchWriteRequest{PathData: api.PathData{Path: path, Data: data}},
+	}})
+	if err != nil {
+		return nil, err
+	}
+	if resp.Error != nil {
+		return nil, fmt.Errorf("scratch write error: %w", resp.Error)
+	}
+	if resp.Result == nil || resp.Result.Scratch == nil || resp.Result.Scratch.Write == nil {
+		return nil, fmt.Errorf("unexpected response: no scratch write result")
+	}
+	return resp.Result.Scratch.Write.Data, nil
+}
+
+// ScratchRead answers the scratch document at path as it stands now, or nil for
+// absent, which is not an error: a read before any write is routine.
+func (s *LogdSession) ScratchRead(ctx context.Context, path string) (*ir.Node, error) {
+	resp, err := s.request(ctx, &api.SessionRequest{Scratch: &api.ScratchRequest{
+		Read: &api.ScratchReadRequest{Path: path},
+	}})
+	if err != nil {
+		return nil, err
+	}
+	if resp.Error != nil {
+		return nil, fmt.Errorf("scratch read error: %w", resp.Error)
+	}
+	if resp.Result == nil || resp.Result.Scratch == nil || resp.Result.Scratch.Read == nil {
+		return nil, fmt.Errorf("unexpected response: no scratch read result")
+	}
+	return resp.Result.Scratch.Read.Data, nil
+}
+
 // openStream sends a request whose answer is a sequence -- a set, read one node at a
 // time -- and answers the id it was sent under and the channel its responses arrive on.
 // It is request without the waiting: the caller drains the channel until the answer

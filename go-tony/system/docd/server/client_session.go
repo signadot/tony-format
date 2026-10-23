@@ -809,9 +809,14 @@ func (s *ClientSession) Close() error {
 }
 
 // requestPath returns the path a routable operation targets, or "" for
-// operations that carry no single path (hello, newtx, schema, deleteScope).
+// operations that carry no single path (hello, newtx, schema, deleteScope, scratch).
 func requestPath(req *logdapi.SessionRequest) string {
 	switch {
+	case req.Scratch != nil:
+		// A scratch path is into the store's scratch document, not this one: it is
+		// not routed by it, so a mount can never hold scratch. The operation goes to
+		// logd on the client's own link, as the session-level operations do.
+		return ""
 	case req.Match != nil:
 		return req.Match.Path
 	case req.Patch != nil:

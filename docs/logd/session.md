@@ -43,6 +43,7 @@ directly inside it:
 | `unwatch` | `{unwatch: {path: <kpath>, watchId: <id>}}` |
 | `progress` | `{progress: <watch id>}` — is this watch [current](#is-a-watch-current) through the head? |
 | `schema` | `{schema: {get: {at: <n>}}}` reads the schema in force (at a commit); `{schema: {set: {schema: <doc>, force: <bool>}}}` sets it, as one commit |
+| `scratch` | `{scratch: {write: {path: <kpath>, data: <value>}}}` patches the [scratch document](#scratch); `{scratch: {read: {path: <kpath>}}}` reads it |
 | `ping` | `{ping: {}}` |
 
 `path` is in the same place in all of them, and **a request never has a `body`** — a
@@ -726,6 +727,50 @@ the commit is the record that it ran. `now` is optional, and the result says wha
 used. See [Retention](retention.md) for what a rule may name, why age is read from
 the record, and what is refused.
 
+## Scratch
+
+A store keeps a second document beside the first: **scratch**, one Tony node with no
+commits, no history, no index, no scopes, no schema, no watches and no transactions,
+for state overwritten too often to keep a history of. It has its own namespace — a
+scratch path and a document path with the same spelling name different things — and
+one operation, `scratch`, holding exactly one of `write` and `read`.
+
+```tony
+{scratch: {write: {path: verse.iods.x.out, data: {n: 3, note: !delete null}}}}
+{result: {scratch: {write: {data: {n: 3, note: !delete null}}}}}
+{scratch: {read: {path: verse.iods.x.out}}}
+{result: {scratch: {read: {data: {n: 3}}}}}
+{scratch: {read: {path: verse.iods.nope}}}
+{result: {scratch: {read: {}}}}
+```
+
+A **write** applies `data` at `path` as a merge patch, as the document applies one:
+the mergeops mean what they mean anywhere in Tony, comments are kept, and the
+operations which execute (`!pipe` and its kin) are refused with `invalid_diff`. An
+absent object field or sparse index above the data is created; a dense index into no
+array is refused by the apply, `invalid_diff`. The result echoes the data written; there
+is no commit to name. Path `""` patches the whole scratch document: `!delete` there
+empties it.
+
+A **read** answers the subtree at `path` as it stands now. Absent is an omitted `data`
+— a read before any write is routine, not `not_found`. A wildcard names a set, which
+scratch does not answer: `invalid_path`. A path that meets the wrong shape is
+`path_conflict`, as the document's read says.
+
+A write is acknowledged once applied in memory. The document goes to disk behind the
+writes, whole, by rename, every `storage: {scratchFlush: 1s}` (zero is the default) and
+at close, so the file is always scratch as it stood after some write: a crash loses the
+newest writes as a suffix, never a hole. That is all scratch promises about durability;
+a consumer that needs a write to be durable before it acts on it keeps that state in the
+document. Scratch has no watch and will not get one: what a consumer must be told about
+goes in the document, where a watch can see it, and scratch holds what is read when
+something else says to read it. A write takes no author — author in logd lives on a log
+entry and is seen on a watch event, and scratch has neither.
+
+**Across docd**, a scratch operation goes to logd whatever its path spells: the path
+is into the store's scratch document, not the one mounts partition, so a mount can
+never hold scratch.
+
 ## Errors
 
 ```tony
@@ -739,11 +784,11 @@ writes an object at `a.b`. What separates them is what is there now.
 
 | code | means |
 |---|---|
-| `not_found` | **nothing is there.** Nothing in the document contradicts the path, so creating what is missing is a reasonable next move |
+| `not_found` | **nothing is there.** Nothing in the document contradicts the path, so creating what is missing is a reasonable next move. A [scratch](#scratch) read never says it: absent there is an omitted `data` |
 | `path_conflict` | **something is there, of a shape that cannot hold what you asked for** — an index into an object, a field under a string. Creating here means clobbering what is already there, so the move is to re-examine the shape you assumed |
 | `invalid_path` | **not a well-formed question** — a wildcard or `..` where a path must name a place (a write, a watch; a read answers a [set](#reading-a-set)), a `depth` on a path with no `..`, and an element named by a key the array does not have — for a read, under the schema of the commit it reads |
 | `match_failed` | a precondition did not hold; the write did not happen |
-| `invalid_diff` | the delta would not apply to the state it would be stored against, or the schema's keying refuses it — an element without a name, a position on a keyed array, a name where there is no identity |
+| `invalid_diff` | the delta would not apply to the state it would be stored against, or the schema's keying refuses it — an element without a name, a position on a keyed array, a name where there is no identity; a [scratch](#scratch) write with no data, one that does not apply, or one holding an operation which executes |
 | `commit_not_found` | a historical read outside `[0, current]` |
 | `replay_compacted` | `fromCommit` is below retained delta history, or with `noInit` names a state no longer held exactly |
 | `slow_consumer` | a watch was dropped because the client did not keep up |
