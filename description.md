@@ -1,0 +1,5 @@
+# o logd and o system compose never call Storage.Close: a SIGTERM skips the index rewrite and the scratch flush
+
+`cmd/o/logd.go` and `cmd/o/system_compose.go` open the store, start serving, and block on `select {}` with no signal handling, so `Storage.Close` runs only in tests. What Close does is therefore never done in production: the index is not rewritten whole (the log fills it in on the next open, which is correct but slower), and since r482sz5rh12ksj0cvdn0 the scratch document's final flush does not happen, so a SIGTERM within one `scratchFlush` tick of an acknowledged scratch write loses it. The loss is inside what scratch promises (a suffix, never a hole), but `docs/logd/session.md` says the document goes to disk "every scratchFlush and at close", and the binary cannot keep the second half.
+
+Wanted: both commands catch SIGINT and SIGTERM, stop the listeners, and call `Storage.Close`, so the index rewrite and the scratch flush run on a normal shutdown. Found by the review of bccbd366.
