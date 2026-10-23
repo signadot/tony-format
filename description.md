@@ -1,0 +1,7 @@
+# logd: path snapshots are blocked for the whole of a compaction, which on staging is all the time
+
+`snapshotPath` takes `s.snapMu` (path_snapshot.go), the mutex `SwitchDLog` holds across the root snapshot and the compaction that follows it. On verse's staging a compaction cycle lasts 21–25 minutes and the next begins at once (ym5vx3z2h12kstjbvdn0), so the one path-snapshot goroutine admitted (`pathSnapBusy`) sits on `snapMu` for the cycle and every other read's request is refused as busy: `snapshots.path.no.busy` = 433,961 against `snapshots.path` = 155 taken, over 27 hours. Reads then fold long tails (`reads.tail.max` 2,722 records; `reads.narrow.avg` 187ms), which is the work path snapshots exist to remove.
+
+The lock is there because a path snapshot writes to the inactive log, which compaction is rewriting. Options: write path snapshots to the ACTIVE log (they are accelerators for reads at the head, and the active log is where the head is); or have `snapshotPath` try the lock and decline with its own reason (`snapshots.path.no.log-busy`, which exists and reads 0) rather than queue on it, so the admitted goroutine is freed for the next request once compaction ends; or both.
+
+Found while debugging staging with Scott, 2026-10-23, alongside baassnwth12krdjbvdn0.
