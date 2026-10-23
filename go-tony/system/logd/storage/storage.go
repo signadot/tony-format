@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -149,6 +150,9 @@ type Storage struct {
 	// commit path) or by the accessors; set at configuration time, before serving.
 	durability Durability
 
+	// scratch is the store's second document, with no history (scratch.go).
+	scratch *scratch
+
 	// lowerAll lowers every write rather than only the ones that need it. Lowering
 	// itself is not optional: what the log KEEPS is held to the storage vocabulary,
 	// always. See lower.go, and lowerEverything for what this amplifies.
@@ -201,6 +205,12 @@ func Open(root string, logger *slog.Logger) (*Storage, error) {
 	s.dLog = dlog
 
 	if err := s.init(); err != nil {
+		dlog.Close()
+		return nil, err
+	}
+
+	if s.scratch, err = openScratch(root, logger); err != nil {
+		dlog.Close()
 		return nil, err
 	}
 
@@ -524,6 +534,14 @@ func (s *Storage) Close() error {
 	s.closing.Store(true)
 	s.pathSnapWG.Wait()
 
+	// The scratch flusher stops and the document goes to disk. A flush that fails
+	// must not keep the index and log from closing, so it is reported beside
+	// whatever they report, never instead of it.
+	var scratchErr error
+	if err := s.scratch.close(s.durability == DurabilitySync); err != nil {
+		scratchErr = fmt.Errorf("scratch not flushed: %w", err)
+	}
+
 	// Stop transaction cleanup goroutine
 	s.txStore.Close()
 
@@ -542,18 +560,18 @@ func (s *Storage) Close() error {
 	// records earlier persists superseded dropped, the manifest last.
 	if s.getIndexMaxCommit() >= 0 {
 		if err := s.index.Rewrite(s.logGenerations()); err != nil {
-			return fmt.Errorf("failed to save index: %w", err)
+			return errors.Join(fmt.Errorf("failed to save index: %w", err), scratchErr)
 		}
 	}
 	if err := s.index.Close(); err != nil {
-		return fmt.Errorf("failed to close index: %w", err)
+		return errors.Join(fmt.Errorf("failed to close index: %w", err), scratchErr)
 	}
 
 	if err := s.dLog.Close(); err != nil {
-		return fmt.Errorf("failed to close dlog: %w", err)
+		return errors.Join(fmt.Errorf("failed to close dlog: %w", err), scratchErr)
 	}
 
-	return nil
+	return scratchErr
 }
 
 func (s *Storage) getIndexMaxCommit() int64 {

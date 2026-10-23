@@ -6,10 +6,10 @@
 // docd speaks two protocols:
 //
 //   - Client-facing: the logd session protocol verbatim (Hello, Match, Patch,
-//     Watch/Unwatch, NewTx, DeleteScope, Schema), so a client uses docd exactly as it
-//     uses logd directly: switching is a change of address. Served by ClientSession
-//     over ClientTCPListener. docd answers Ping itself, with the highest commit it has
-//     reported to any client — a lower bound on logd's head.
+//     Watch/Unwatch, NewTx, DeleteScope, Schema, Retain, Scratch), so a client uses
+//     docd exactly as it uses logd directly: switching is a change of address. Served
+//     by ClientSession over ClientTCPListener. docd answers Ping itself, with the
+//     highest commit it has reported to any client — a lower bound on logd's head.
 //   - Mount-facing: the MOUNT protocol (see package system/docd/api). A controller
 //     dials in, handshakes, and registers a subtree — its mount path plus a schema.
 //     Served by MountSession over TCPListener. After the handshake the connection
@@ -25,6 +25,8 @@
 //   - The reserved .meta namespace is served by docd itself (meta.go): it lists the
 //     mounts and each mount's schema contribution, and controllers may not mount
 //     under it.
+//   - A scratch operation goes to logd: its path is into the store's scratch
+//     document, not this one, so a mount cannot hold scratch.
 //
 // docd is a thin, fail-fast proxy: it forwards and composes, it does not cache
 // document state. It retries its dial to logd with backoff, but a client session

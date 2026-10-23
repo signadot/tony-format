@@ -90,6 +90,7 @@ storage/
 ├── storage.go              # Main Storage API (Open, NewTx, GetTx)
 ├── snapshot_interface.go   # SnapshotReader interface
 ├── read_patches.go         # Read patches from dlog
+├── scratch.go              # The scratch document: no history, patched in place, flushed whole behind the writes
 ├── tx/                     # Transaction coordination
 │   ├── tx.go              # Tx interface and Patcher handles
 │   ├── coord.go           # Transaction coordination logic

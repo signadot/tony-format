@@ -98,6 +98,16 @@ func New(spec *Spec) *Server {
 			}
 		}
 
+		// The scratch flusher is started whether or not there is a storage block: a
+		// store without one still has a scratch document, and it must reach disk
+		// between Opens, not only at Close.
+		var scratchFlush time.Duration
+		if spec.Config.Storage != nil {
+			scratchFlush = time.Duration(spec.Config.Storage.ScratchFlush)
+		}
+		spec.Storage.SetScratchFlush(scratchFlush)
+		spec.Log.Info("configured scratch flush", "every", spec.Storage.ScratchFlush().String())
+
 		// EVERY LINE BELOW REPORTS WHAT THE STORE TOOK, asked of the store, and not
 		// what the file said. A config's zero field means "the default", resolved by
 		// the setter, so a line built from the file prints a 0 where an 8 is running --

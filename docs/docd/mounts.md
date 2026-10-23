@@ -48,7 +48,7 @@ Every client operation is routed by path to exactly one destination:
 
 | Destination | When |
 |-------------|------|
-| **logd** (base) | the path is outside every mount, or it is a session-level op |
+| **logd** (base) | the path is outside every mount, or it is a session-level op, or it is a [scratch](../logd/session.md#scratch) operation — a scratch path is into the store's scratch document, not this one, so a mount cannot hold scratch |
 | **controller** | the path is at or under a live mount |
 | **docd itself** | the path is `.meta` or under it |
 | **unavailable** | the path is under a mount whose controller has disconnected (a *tombstone*) |

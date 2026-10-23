@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/google/gops/agent"
 	"github.com/scott-cotton/cli"
@@ -99,11 +103,29 @@ func logdServe(cfg *LogDServeConfig, cc *cli.Context, args []string) error {
 		}
 	}
 
+	// A signal is a shutdown, not a kill: the listener stops, and then the store
+	// closes, which is what writes the index whole and flushes the scratch document
+	// (yg5vx3z2h12krdj2vdn0).
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		fmt.Fprintf(cc.Out, "\nShutting down...\n")
+		cancel()
+	}()
+
 	// Initialize storage
 	s, err := storage.Open(cfg.DataDir, nil)
 	if err != nil {
 		return fmt.Errorf("failed to initialize storage: %w", err)
 	}
+	defer func() {
+		if err := s.Close(); err != nil {
+			fmt.Fprintf(cc.Err, "closing storage: %v\n", err)
+		}
+	}()
 
 	// The admin listener came up before the store; now that there is one, let it
 	// report what reads are doing. Whether a read at a path narrows or reads the
@@ -124,6 +146,7 @@ func logdServe(cfg *LogDServeConfig, cc *cli.Context, args []string) error {
 	defer srv.StopTCP()
 	adminSrv.SetAddrs(admin.Addr{Name: "logd", Addr: srv.TCPAddr()})
 
-	// Block forever
-	select {}
+	// Wait for shutdown signal
+	<-ctx.Done()
+	return nil
 }
