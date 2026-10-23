@@ -135,7 +135,9 @@ a disk write.
 ### What it does not do
 
 - No history: a scratch read is always now. A past read, a watch, a delta are not
-  offered. A consumer who needs to be told when scratch changes polls.
+  offered, and will not be: a consumer designs so that nothing waits on scratch
+  changing. What a consumer must be told about goes in the document, where a watch
+  can see it; scratch holds what is read when something else says to read it.
 - No schema: keyed arrays do not exist in scratch; arrays merge positionally, as plain
   `Patch` merges them. A consumer who needs identity uses objects keyed by name.
 - No preconditions, no transactions: two writers to one scratch path race, last write
@@ -280,9 +282,9 @@ func (sc *scratch) flushNow(sync bool) error                         // the flus
 Verse moves `verse.iods.*.out` to scratch: a scratch write at `verse.iods.<id>.out`
 after each pass, a scratch read where it reads one back. Ticks, `~status` and
 `lastError` stay in the document, where the consumer's own comments (10:04, 10:23 on
-the issue) want them read at their causing commits. Anything in verse that watches
-`out` today must poll or be driven by the tick it already watches; the consumer
-confirms which.
+the issue) want them read at their causing commits. Nothing in verse watches `out`
+today (Scott, 2026-10-23), and verse is to be designed so that nothing ever watches
+scratch material: a reader of `out` is driven by the tick in the document.
 
 ---
 
@@ -293,3 +295,5 @@ confirms which.
 - Writes are coalesced behind a flush tick; order is kept (C3). Scratch is assumed
   large and busy enough that a file rewrite per write would be too much, which is
   also why a write patches in place rather than cloning the document.
+- Scratch is never watched. Verse does not watch `iods.*.out` today and is to be
+  designed so that it never watches scratch material.
