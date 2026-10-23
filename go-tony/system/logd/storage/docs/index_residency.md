@@ -140,7 +140,14 @@ its last element kept an interior root with no children and silently refused eve
 insert, and removing a child's last element was reported as no removal. Nothing had
 emptied a tree before; eviction does it routinely.
 
+THE GARBAGE: a persist of a region written to since its last record appends a new record
+and leaves the old one, and a compaction's re-index dirties every survivor's region, so a
+store that compacts and stays open appends an index of its survivors a cycle (6.4 GB
+beside 1.3 GB of logs after a day on staging, 1xa86mrnh12krzswvdn0). The persister rewrites
+the file without its garbage once the garbage outgrows the records the manifest refers to,
+and at close: the file stays under twice what it describes, and the bytes copied under the
+bytes appended.
+
 NOT DECIDED HERE, still: frecency over LRU (the seam is the region and the list); whether
 the skeleton itself should be evictable (it is the floor, and it is what UnwrittenBelow
-proves absence from without a read); a rewrite of the regions file on a garbage threshold
-rather than at close.
+proves absence from without a read).

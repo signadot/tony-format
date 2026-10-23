@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -60,15 +61,35 @@ func (p *IndexPersister) persistAsync(commit int64) {
 
 	maxCommit := p.getMaxCommit()
 
-	// The regions the file lacks, and the manifest: what makes the regions written
-	// since the last persist evictable (index.Persist).
-	if err := p.index.Persist(p.generations()); err != nil {
+	if err := p.persist(); err != nil {
 		p.logger.Error("failed to persist index", "error", err)
 		return
 	}
 
 	p.lastPersisted.Store(maxCommit)
 	p.logger.Debug("index persisted", "commit", maxCommit)
+}
+
+// persist writes the regions the file lacks, and the manifest: what makes the regions
+// written since the last persist evictable (index.Persist). Each region it writes leaves
+// the region's previous record as garbage, and a store that stays open collects it
+// without end -- a compaction's re-index dirties every survivor's region, so each cycle
+// appends an index of the survivors (1xa86mrnh12krzswvdn0) -- so once the garbage
+// outgrows the current records the file is rewritten without it (index.Rewrite). The
+// rule bounds the file at twice what it describes and the copying at the appending.
+func (p *IndexPersister) persist() error {
+	if err := p.index.Persist(p.generations()); err != nil {
+		return err
+	}
+	garbage, live := p.index.RegionsGarbage()
+	if garbage <= live {
+		return nil
+	}
+	if err := p.index.Rewrite(p.generations()); err != nil {
+		return fmt.Errorf("rewriting the regions file: %w", err)
+	}
+	p.logger.Info("index regions rewritten", "dropped", garbage, "kept", live)
+	return nil
 }
 
 // Hold keeps every persist from running until the returned func is called. Compaction
@@ -86,7 +107,7 @@ func (p *IndexPersister) Hold() func() {
 func (p *IndexPersister) Persist() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if err := p.index.Persist(p.generations()); err != nil {
+	if err := p.persist(); err != nil {
 		return err
 	}
 	p.lastPersisted.Store(p.getMaxCommit())

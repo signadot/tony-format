@@ -21,8 +21,10 @@ import (
 // it. index.manifest is small and written whole, atomically: which records are current,
 // with each region's header -- its commit range, its count, its snapshots -- so that a
 // store opens with the skeleton and every header and pages nothing in to do so. A record
-// no manifest refers to is garbage, and the file is rewritten without its garbage when the
-// store closes.
+// no manifest refers to is garbage: every persist of a region written to since its last
+// record appends a new record and leaves the old one. The file is rewritten without its
+// garbage when the garbage outgrows the records the manifest refers to (Rewrite; the
+// persister applies the rule after each persist), and when the store closes.
 //
 // Neither file is the record of what happened; the log is, and IndexFormatVersion, the
 // generations the manifest carries, and any fault in either file each send the store back
@@ -56,6 +58,7 @@ type regionsFile struct {
 	f    *os.File
 	path string
 	size int64 // the append frontier
+	live int64 // the bytes the last manifest written refers to; the rest is garbage
 }
 
 func openRegionsFile(dir string) (*regionsFile, error) {
@@ -323,9 +326,16 @@ func (i *Index) Persist(generations map[string]int64) error {
 	if err := i.res.file.sync(); err != nil {
 		return err
 	}
-	i.res.file.mu.RLock()
+	var live int64
+	for _, mn := range nodes {
+		for _, mr := range mn.Regions {
+			live += mr.Size
+		}
+	}
+	i.res.file.mu.Lock()
 	size := i.res.file.size
-	i.res.file.mu.RUnlock()
+	i.res.file.live = live
+	i.res.file.mu.Unlock()
 	schemas, err := i.manifestSchemas()
 	if err != nil {
 		return err
@@ -341,6 +351,19 @@ func (i *Index) Persist(generations map[string]int64) error {
 		Deleted:     i.foot.deletions(),
 	}
 	return writeManifest(filepath.Dir(i.res.file.path), m)
+}
+
+// RegionsGarbage answers what the regions file holds beyond the records the last
+// manifest refers to, and those records' size, in bytes. Both are as of the last Persist:
+// an append since then is counted as garbage until the manifest that refers to it is
+// written, which is what the caller's next Persist does.
+func (i *Index) RegionsGarbage() (garbage, live int64) {
+	if i.res == nil || i.res.file == nil {
+		return 0, 0
+	}
+	i.res.file.mu.RLock()
+	defer i.res.file.mu.RUnlock()
+	return i.res.file.size - i.res.file.live, i.res.file.live
 }
 
 // persistRegions writes this node's regions the file does not hold as they stand.
@@ -410,7 +433,13 @@ func (i *Index) manifestNode() (ManifestNode, bool) {
 
 // Rewrite copies every current record into a fresh regions file and drops the rest --
 // the records earlier persists superseded -- then persists. It holds the file for the
-// copy, so it is for close, or for a store that has grown far past what it describes.
+// copy, so no region is paged in meanwhile; writes to the index go on, a node at a time
+// (persist_lock_test.go). It is called at close, and by the persister once the garbage
+// outgrows the current records, which bounds the file at twice what it describes and the
+// bytes copied at the bytes appended. A crash between the rename and the persist leaves
+// the old manifest over the new file: under the persister's rule the new file is under
+// half the old manifest's FileSize, which is then past the end, and OpenIndex rebuilds
+// from the log.
 func (i *Index) Rewrite(generations map[string]int64) error {
 	if i.res == nil || i.res.file == nil {
 		return errors.New("index: no regions file to rewrite")
