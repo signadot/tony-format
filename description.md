@@ -1,0 +1,9 @@
+# logd: a crash inside Close's regions rewrite, when nothing was ever re-persisted, leaves the old manifest trusted over a reordered file
+
+`Index.Rewrite` (index/regions_file.go) copies the current records into a fresh file in trie walk order, renames it over index.regions, and only then persists the manifest that names the new offsets. Between the rename and that persist the old manifest is on disk over the new file. `OpenIndex` trusts a manifest whose `FileSize` is at or under the file's size.
+
+Precondition. The window is a crash between the rename and the manifest write, AND zero garbage in the file at that moment: no region re-persisted since the store opened, so the new file is exactly the old manifest's `FileSize`. With any garbage the new file is shorter and the size check sends the open back to the log. Under the persister's rule (21c70fc7) a rewrite happens only when garbage exceeds live, so the persister's rewrites are always detected; Close rewrites regardless, so Close is where the window is.
+
+Consequence. The walk order is not the append order, so the old offsets name other records. A record of a different size fails `read`'s frame check and the page-in errors; a record of the same size decodes as another region's segments and the read answers wrongly. Neither triggers a rebuild: a page-in failure is a read error, not an open failure, so the store stays wrong until index.manifest is deleted by hand (the shape 05d8w3cjh12kswb1msn0 item 5 described for the compaction window).
+
+Shape of a fix. Remove index.manifest before the rename: a crash anywhere in the window then opens with "no manifest" and rebuilds from the log, which is the design's fallback for every fault in the files. One `os.Remove` in `Rewrite`, and the residency test gets a row: truncate nothing, delete nothing, reorder the file's records with the manifest in place, and expect the open to say why it rebuilt.
