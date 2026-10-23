@@ -11,9 +11,11 @@ possible. One scratch area per store, no history, no compaction, no retention, r
 and writes only, never inside a docd mount, reached by a session operation of its own,
 persistent, with writes coalesced behind a flush and their order kept.
 
-Second draft, after a review against the code (findings folded in below: write
+Third draft, after two reviews against the code. The first found write
 serialization, the cost of `Patch`, nil documents, unsafe mergeops, how config reaches
-storage, zero-means-default, flush retry, comments, absence on the wire).
+storage, zero-means-default, flush retry, comments and absence on the wire. The second
+found concurrent flushes, error codes, the flusher's start, a failed apply's leftovers,
+the compatibility mechanism, Close's error, and the root path.
 
 Read first: `docs/logd/session.md` (Requests, Writing, Liveness), `server/session.go`
 `dispatch`, `server/server.go` `New` (how config is applied by setters),
@@ -55,14 +57,21 @@ Tony, comments are kept, and the unsafe mergeops the document refuses (`!pipe` a
 kin, `tx/unsafe_write.go`) are refused here too, with `invalid_diff`: a session
 operation does not run commands on the daemon. The path is rooted as a participant's
 patch is rooted (`tx.RootPatchAt`): a write at an absent object field or sparse index
-creates the containers above it; a dense index `[i]` needs the array to exist, as it
-does in the document. The result echoes the data written, as a patch's does; there is
-no commit to name.
+creates the containers above it; a dense index `[i]` into a place holding no array is
+refused by the apply itself, with `invalid_diff`, as it is in the document. The result
+echoes the data written, as a patch's does; there is no commit to name.
+
+The root is a path. A write at `""` patches the whole scratch: `!delete` there empties
+it, and a scalar there makes scratch a scalar. A result that is `null` is stored as
+empty, so scratch is never a bare null and a read of it after is absent.
 
 **read** answers the node at `path` as it stands now, the whole subtree. Absent is an
-omitted `data`, as the store's presence rule has it (`api/state.go`: a nil node is
-absent, and nothing maps absence onto null). No `commit`, no `depth`, no paging, no
-sets: a wildcard path is refused. A reader who wants a part asks for the part.
+omitted `data`: a nil node is absent and nothing maps absence onto null
+(`api/state.go`). This differs from the document, whose read of a path holding
+nothing is `not_found`: a scratch read before any write is routine, not an error, and
+a reader tests `data` for nil. A read of `""` answers the whole scratch. No `commit`,
+no `depth`, no paging, no sets: a wildcard path is refused. A reader who wants a part
+asks for the part.
 
 **Who may ask.** Any session, scoped or not. Scratch has no scopes: a scoped session's
 scratch operations reach the one scratch document. A write takes no author and the
@@ -78,8 +87,12 @@ write applies the patch in memory and is acknowledged. A flusher ticks every
 copies it, encodes the copy to `scratch.tony.tmp`, and renames it over `scratch.tony`.
 Under `durability: sync` the temp file is fsynced before the rename and the directory
 after it. A failed flush is logged and the next tick tries again; the document stays
-in memory meanwhile. `Close` flushes once more, synchronously, before the log closes.
-A scratch deleted to nothing flushes as an empty file, which reads back as empty.
+in memory meanwhile. Flushes never overlap: one flush lock is held from the copy to
+the rename, so two flushes cannot write one temp file between them or land out of
+order. `Close` stops the ticker, waits for a flush in flight, flushes once more, and
+then closes the log; a failed final flush is reported after the log is closed, not
+instead of closing it. A scratch deleted to nothing flushes as an empty file, which
+reads back as empty.
 
 **Order is kept.** One mutex guards the document. A write holds it while it applies
 the patch; a read holds it while it copies the subtree; the flusher holds it while it
@@ -115,8 +128,9 @@ session's request loop, so a client's own write-then-read reads its write, as it
 for the document.
 
 **C3. The file is whole and ordered.** The rename is the commit point, so the file is
-never partial, and the flusher's copy under the mutex makes it a prefix of the write
-sequence (above). What scratch does not promise is that an acknowledged write survives
+never partial; the flusher's copy under the mutex makes it a prefix of the write
+sequence (above); and the flush lock makes the renames land in copy order, so the
+file never regresses. What scratch does not promise is that an acknowledged write survives
 a crash: the newest writes may be lost, as a suffix. A consumer that needs a write to
 be durable before it acts on it does not keep that state in scratch.
 
@@ -145,6 +159,8 @@ a disk write.
 - No preconditions, no transactions: two writers to one scratch path race, last write
   wins.
 - No durability promise for the newest writes (C3).
+- No `not_found`: an absent read is an omitted `data`, where the document's read would
+  refuse.
 - No scopes, no author.
 - Scratch is not in the document: a root read of the document does not show it, and
   a backup of the log is not a backup of scratch; `scratch.tony` is its own file.
@@ -174,52 +190,69 @@ changing what scratch is.
   `SessionResult` gains `Scratch`.
 - `make generate` regenerates `api/api_gen.go` and `api/schema_gen.tony`, and (Phase 3)
   `server/server_gen.go` and `server/schema_gen.tony` for the config field.
-- No protocol version bump. An older logd ignores the unknown field and answers
-  `invalid_message: no operation specified`; an older docd drops it on decode,
-  forwards `{id}`, and logd gives the same answer. Both are the right answer from a
-  server without scratch.
+- No protocol version bump. `SessionRequest.FromTonyIR` refuses an unknown field, so
+  an older logd answers `invalid_message: failed to parse request: unknown field
+  "scratch"`, and an older docd, which decodes with the same codec, answers
+  `invalid_message: invalid request: ...` itself and forwards nothing. Both are the
+  right answer from a server without scratch.
 
 ### Phase 2: storage (`system/logd/storage/scratch.go`, new)
 
 ```go
 type scratch struct {
-    mu      sync.Mutex
+    mu      sync.Mutex     // the document
     doc     *ir.Node       // nil = empty; owned: patched in place under mu
     dirty   bool           // changed since the last successful flush
+    flushMu sync.Mutex     // one flush at a time, copy through rename
     path    string         // <root>/scratch.tony
     tick    time.Duration  // scratchFlush; 0 = default
-    stop    chan struct{}
-    stopped chan struct{}
+    stop    chan struct{}  // closed by Close
+    stopped chan struct{}  // closed by the flusher when it has exited
     logger  *slog.Logger
 }
 func openScratch(root string, logger *slog.Logger) (*scratch, error) // parse (with comments) or empty
 func (s *Storage) ScratchWrite(path string, data *ir.Node) error
 func (s *Storage) ScratchRead(path string) (*ir.Node, error)
-func (s *Storage) SetScratchFlush(d time.Duration)                   // 0 = default; starts the flusher
+func (s *Storage) SetScratchFlush(d time.Duration)                   // 0 = default; first call starts the flusher
 func (sc *scratch) flushNow(sync bool) error                         // the flusher's step, also Close's
 ```
 
 - `ScratchWrite`: `mergeop.FindUnsafe(data)` refuses first, as `checkUnsafeWrite`
   does for the document, with a `tx.UnsafeOpError` the server maps to `invalid_diff`
-  as `handlePatch` does. Then
-  `tx.RootPatchAt(path, data)`; under `mu`: base `ir.Null()` when `doc` is nil, then
-  `tony.PatchOwned(base, rooted, mergeop.Comments(true), mergeop.RejectUnsafe(true))`,
-  `doc = result` (nil when the patch deleted everything), `dirty = true`. The rooted
-  patch is built from the request's own decoded node, so `PatchOwned` may take it.
+  as `handlePatch` does. Then `tx.RootPatchAt(path, data)`; under `mu`: base
+  `ir.Null()` when `doc` is nil, then `tony.PatchOwned(base, rooted,
+  mergeop.Comments(true), mergeop.RejectUnsafe(true))`; a result that is nil or
+  `Null` stores as nil; `dirty = true`. On an apply error the error is returned as a
+  `ScratchApplyError` (the server maps it to `invalid_diff`) and `doc = doc.Clone()`
+  first: `PatchOwned` may have re-parented children into the discarded result, and
+  `Clone` rebuilds the links, so the next write patches a whole document. Errors are
+  rare and the clone is O(size) only then.
 - `ScratchRead`: under `mu`, nil `doc` is `(nil, nil)`; else `doc.GetKPathWith(path,
   ir.WithComments(true))`, which answers a copy, `(nil, nil)` for an absent field or
-  key, and refuses a wildcard or `..` itself.
-- The flusher goroutine: a `time.Ticker` at `tick`; on each tick, under `mu`, if
-  `dirty`, `copy := doc.Clone()` (nil stays nil) and `dirty = false`; outside `mu`,
-  `encode.Encode(copy, tmp, encode.EncodeComments(true))`, or an empty file for nil;
-  under `sync`, fsync the file, rename, fsync the directory; else rename. On error,
-  log at error and under `mu` set `dirty = true` again, so the next tick retries.
-  `sync` is read from `Storage.durability` (via `GetDurability`) at each flush.
-- `SetScratchFlush` is applied in `server.New` beside `SetDurability` and the budgets,
-  resolving zero to 1s, and starts the flusher; `Open` only parses the file. A store
-  opened by a test that never calls it has no flusher, and `Close` still flushes.
-- `Close`: stop the ticker, `flushNow`, then the rest of `Storage.Close`; the flush
-  error joins Close's error chain before `dLog.Close`.
+  key, and refuses a wildcard or `..` itself. A shape error from it (an object where
+  the path says array, an index past the end) is a `ScratchPathError`, which the
+  server maps to `path_conflict` as the document's read does.
+- `flushNow`: take `flushMu`; under `mu`, if not `dirty` release both and return;
+  else `copy := nil` if `doc == nil` else `doc.Clone()`, `dirty = false`; release
+  `mu`; open `scratch.tony.tmp` and `encode.Encode(copy, f, encode.EncodeComments(true))`,
+  or write nothing for nil; under `sync`, fsync the file, rename, fsync the directory;
+  else rename; release `flushMu`. On error, log at error and under `mu` set `dirty =
+  true` again, so the next tick retries. `sync` is `GetDurability() == DurabilitySync`,
+  read at each flush through the accessor, which synchronizes.
+- The flusher goroutine: a `time.Ticker` at `tick`; each tick calls `flushNow`; on
+  `stop` it exits and closes `stopped`.
+- `SetScratchFlush` is called in `server.New` unconditionally, after `SetDurability`,
+  with the config's value or zero when there is no `storage:` block (every other
+  storage setter sits under `if spec.Config.Storage != nil`; this one must not, or a
+  store configured without the block would flush only at Close). Zero resolves to 1s.
+  The first call starts the flusher; a later call only resets the ticker's period.
+  `Open` only parses the file. A store opened by a test that never calls it has no
+  flusher, and `Close` still flushes.
+- `Close`: close `stop`, wait on `stopped` (if a flusher ran), `flushNow`, remember
+  its error, then the rest of `Storage.Close` as today; the remembered error is
+  returned after the log is closed when nothing else failed. `Storage.Close` returns
+  on its first error today, so the flush is not placed in that chain: a scratch flush
+  that fails must not keep the index and log from closing.
 - `Storage.ScratchWrite` and `ScratchRead` refuse a path with a wildcard or `..`
   themselves (`kpath.Parse` plus the segment check the server's `validateDataPath`
   makes), so the store is correct when called directly, not only through the server.
@@ -231,13 +264,17 @@ func (sc *scratch) flushNow(sync bool) error                         // the flus
   `validateDataPath(path, roleWrite)`: a scratch read names a place, not a set, so it
   takes a write's rule, not a match's.
 - write: nil `Data` → `invalid_diff` "scratch data is required", as `handlePatch`
-  answers a patch with none; `tx.UnsafeOpError` → `invalid_diff`; then
-  `s.storage.ScratchWrite`, answering `ScratchResult{Write: {Data: req.Data}}`.
-- read → `s.storage.ScratchRead`, answering `ScratchResult{Read: {Data}}`.
-- `invalid_path` for a bad or wildcard path; `internal` for anything else.
+  answers a patch with none; `tx.UnsafeOpError` and `ScratchApplyError` →
+  `invalid_diff`; then `s.storage.ScratchWrite`, answering `ScratchResult{Write:
+  {Data: req.Data}}`.
+- read → `s.storage.ScratchRead`, answering `ScratchResult{Read: {Data}}`;
+  `ScratchPathError` → `path_conflict`.
+- `invalid_path` for a bad or wildcard path; `storage_error` for anything else (there
+  is no `internal` code; `storage_error` is the catch-all, `api/errors.go`).
 - `fileconfig.go` `StorageConfig` gains `ScratchFlush Duration`
-  (`tony:"field=scratchFlush"`); `ToStorageConfig` carries it; `server.New` calls
-  `SetScratchFlush`, zero meaning the default as the other fields do.
+  (`tony:"field=scratchFlush"`), read in `server.New` as the other storage fields are
+  (one by one; there is no struct-level conversion), and passed to `SetScratchFlush`
+  unconditionally, zero when absent.
 
 ### Phase 4: docd (`system/docd/server/client_session.go`)
 
@@ -258,11 +295,15 @@ func (sc *scratch) flushNow(sync bool) error                         // the flus
 - `storage/scratch_test.go`: write/read/overwrite/delete at nested paths; absent is
   nil; a comment written is read back and survives Close and reopen; N writes then
   Close reopen to the last; delete to nothing, Close, reopen to empty; a corrupt file
-  refuses Open naming the file; `!pipe` is refused and the document is unchanged.
+  refuses Open naming the file; `!pipe` is refused and the document is unchanged; a
+  dense index into a scalar is refused and the next write succeeds (the re-clone after
+  a failed apply); a root write of `null` reads back absent; a root `!delete` empties.
   Ordering (C3): with a long tick, write a, b, `flushNow`, write c, kill without
   Close, and the file reopens to exactly a+b. Retry: make the directory read-only,
   write, tick (flush fails, logged), restore, tick, reopen to the write. Concurrency:
-  two goroutines each write their own leaf 1000 times; both leaves end at 1000.
+  two goroutines each write their own leaf 1000 times while a third calls `flushNow`
+  in a loop; both leaves end at 1000, every intermediate file parses, and Close during
+  the loop returns with the last state on disk. Run under `-race`.
 - `server`: extend the session table test with a scratch write then read on one
   connection, a scoped session reaching the same scratch, and a `scratch` naming both
   operations refused.
@@ -274,7 +315,8 @@ func (sc *scratch) flushNow(sync bool) error                         // the flus
   section after "Retention": the operation and its two forms, the no-history/no-schema/
   no-scope contract, what persistence does and does not promise (C3), `scratchFlush`,
   and that scratch is not in the document; the Errors table names scratch under
-  `invalid_path`, `invalid_diff`, `invalid_message`.
+  `invalid_path`, `invalid_diff`, `path_conflict`, `invalid_message`, and says a
+  scratch read is never `not_found`.
 - `docs/docd/mounts.md` Routing table: a row "logd (base) — a scratch operation".
 - `docs/logd/index.md`: one paragraph naming scratch beside the document.
 - `storage/CLAUDE.md` package structure: `scratch.go`.
