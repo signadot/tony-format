@@ -106,7 +106,7 @@ func New(spec *Spec) *Server {
 			scratchFlush = time.Duration(spec.Config.Storage.ScratchFlush)
 		}
 		spec.Storage.SetScratchFlush(scratchFlush)
-		spec.Log.Info("configured scratch flush", "every", spec.Storage.ScratchFlush())
+		spec.Log.Info("configured scratch flush", "every", spec.Storage.ScratchFlush().String())
 
 		// EVERY LINE BELOW REPORTS WHAT THE STORE TOOK, asked of the store, and not
 		// what the file said. A config's zero field means "the default", resolved by

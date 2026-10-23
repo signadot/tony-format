@@ -106,11 +106,18 @@ func systemUp(cfg *UpConfig, cc *cli.Context, args []string) error {
 		cancel()
 	}()
 
-	// Initialize logd storage
+	// Initialize logd storage. It is closed after the listeners below stop, which is
+	// what writes the index whole and flushes the scratch document
+	// (yg5vx3z2h12krdj2vdn0).
 	s, err := storage.Open(cfg.DataDir, nil)
 	if err != nil {
 		return fmt.Errorf("failed to initialize storage: %w", err)
 	}
+	defer func() {
+		if err := s.Close(); err != nil {
+			fmt.Fprintf(cc.Err, "closing storage: %v\n", err)
+		}
+	}()
 
 	// What reads at a path are doing, on the admin listener that came up above.
 	// Wired here as well as in `o logd serve`, because this is the one people run:
