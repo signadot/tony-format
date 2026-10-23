@@ -65,8 +65,10 @@ absent, and nothing maps absence onto null). No `commit`, no `depth`, no paging,
 sets: a wildcard path is refused. A reader who wants a part asks for the part.
 
 **Who may ask.** Any session, scoped or not. Scratch has no scopes: a scoped session's
-scratch operations reach the one scratch document. The session's author is not
-recorded; scratch records nothing about who wrote it.
+scratch operations reach the one scratch document. A write takes no author and the
+session's is not recorded: author in logd lives on the log entry and is seen on a
+watch event, and scratch has neither. There is no audit log to put one in, and a
+field that looks like one would invite the misuse.
 
 ### Persistence
 
@@ -297,3 +299,5 @@ scratch material: a reader of `out` is driven by the tick in the document.
   also why a write patches in place rather than cloning the document.
 - Scratch is never watched. Verse does not watch `iods.*.out` today and is to be
   designed so that it never watches scratch material.
+- No author. There is no audit log for it to feed, and a field that looked like one
+  would invite misuse.
