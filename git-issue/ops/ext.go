@@ -34,6 +34,11 @@ func SourceAdd(s issuelib.Store, name, url string) error {
 	return s.AddSource(name, url)
 }
 
+// Source answers the repository this one knows by that name.
+func Source(s issuelib.Store, name string) (issuelib.Source, error) {
+	return s.Source(name)
+}
+
 // Sources answers the repositories this one knows by name.
 func Sources(s issuelib.Store) ([]issuelib.Source, error) {
 	return s.Sources()

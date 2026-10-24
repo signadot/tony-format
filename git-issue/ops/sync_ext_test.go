@@ -1,7 +1,9 @@
 package ops
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -43,24 +45,48 @@ func refsUnder(t *testing.T, dir, prefix string) []string {
 // TestSyncCarriesMirrors: a mirror is this repository's data. Push carries it,
 // and its source, to this repository's origin and never to the source; a clone
 // of this repository alone then follows the relation; a pull refreshes the
-// mirror from its source, and the next push carries the refresh on.
+// mirror from its source, and the next push carries the refresh on. The source
+// is carried too, so a directory given for it is recorded as the directory's
+// origin, which the clone fetches from, while this clone keeps the directory
+// (p76fwh8gh12kr1ppvdn0).
 func TestSyncCarriesMirrors(t *testing.T) {
 	bDir, b := repoAt(t)
 	aDir, a := repoAt(t)
 	origin := t.TempDir()
 	gitIn(t, origin, "init", "-q", "--bare")
 	gitIn(t, aDir, "remote", "add", "origin", origin)
+	bOrigin := t.TempDir()
+	gitIn(t, bOrigin, "init", "-q", "--bare")
+	gitIn(t, bDir, "remote", "add", "origin", bOrigin)
 
 	far, err := Create(b, "Far", "In b.")
 	if err != nil {
 		t.Fatal(err)
 	}
+	if report, err := Push(b, "origin", "", false, false); err != nil || report.Err() != nil {
+		t.Fatalf("b's push: %v, %v", err, report.Err())
+	}
 	near, err := Create(a, "Near", "In a.")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := SourceAdd(a, "b", bDir); err != nil {
+	// A directory inside b is not b: git would find b from it, but its origin
+	// is not where the directory's issues are, so it is recorded as it is.
+	sub := filepath.Join(bDir, "sub")
+	if err := os.Mkdir(sub, 0o755); err != nil {
 		t.Fatal(err)
+	}
+	if err := SourceAdd(a, "b", sub); err != nil {
+		t.Fatal(err)
+	}
+	if src, err := a.Source("b"); err != nil || src.URL != sub || src.Path != "" {
+		t.Fatalf("a directory inside a repository is recorded as %+v, %v; want it as it is", src, err)
+	}
+	if err := SourceAdd(a, "b", "file://"+bDir); err != nil {
+		t.Fatal(err)
+	}
+	if srcs, err := a.Sources(); err != nil || len(srcs) != 1 || srcs[0].URL != bOrigin || srcs[0].Path != bDir {
+		t.Fatalf("a directory given for a source is recorded as %+v, %v; want its origin %s with the directory kept here", srcs, err, bOrigin)
 	}
 	if _, err := Mirror(a, "b", far.ID); err != nil {
 		t.Fatal(err)
@@ -115,9 +141,13 @@ func TestSyncCarriesMirrors(t *testing.T) {
 	}
 
 	// The source moves; a's pull refreshes the mirror; the push carries it on;
-	// the clone's pull brings it forward.
+	// the clone's pull brings it forward -- from b's origin, which is what the
+	// source record says, since b's directory is a's alone.
 	if _, err := Close(b, far.ID, ""); err != nil {
 		t.Fatal(err)
+	}
+	if report, err := Push(b, "origin", "", false, false); err != nil || report.Err() != nil {
+		t.Fatalf("b's second push: %v, %v", err, report.Err())
 	}
 	report, err = Pull(a, "origin", false, false)
 	if err != nil || report.Err() != nil || report.Refreshed["b"] != 1 {
@@ -138,7 +168,9 @@ func TestSyncCarriesMirrors(t *testing.T) {
 		t.Errorf("the clone reads the mirror as %s", sh.Status)
 	}
 
-	// A source that cannot be reached is said, and does not fail the pull.
+	// A source that cannot be reached is said, and does not fail the pull; and
+	// what is said names where the url came from -- the shared record, or this
+	// clone's own path -- so that a wrong one is found where it is written.
 	if err := SourceAdd(a, "b", t.TempDir()+"/nowhere"); err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +178,15 @@ func TestSyncCarriesMirrors(t *testing.T) {
 	if err != nil || report.Err() != nil {
 		t.Fatalf("pull with an unreachable source: %v, %v", err, report.Err())
 	}
-	if _, ok := report.Unreached["b"]; !ok {
-		t.Errorf("the unreachable source was not named: %+v", report.Unreached)
+	if why, ok := report.Unreached["b"]; !ok || !strings.Contains(why, issuelib.SourceRef("b")+" records") {
+		t.Errorf("the unreachable source was not named by its record: %+v", report.Unreached)
+	}
+	gitIn(t, aDir, "config", "git-issue.source.b.path", t.TempDir()+"/moved")
+	report, err = Pull(a, "origin", false, false)
+	if err != nil || report.Err() != nil {
+		t.Fatalf("pull with a stale path: %v, %v", err, report.Err())
+	}
+	if why, ok := report.Unreached["b"]; !ok || !strings.Contains(why, "git config git-issue.source.b.path") || !strings.Contains(why, "not a checkout of") {
+		t.Errorf("the stale path was not named by its config key: %+v", report.Unreached)
 	}
 }

@@ -80,7 +80,7 @@ Usage:
   git issue pull [--force] [--dry-run] [remote]        Pull issues from remote (default: origin)
   git issue export <id> [dir]               Export issue to directory
   git issue import [--force] <dir>          Import issue from directory
-  git issue ext add <source> <url>          Name another repository, to mirror its issues from
+  git issue ext add <source> <url|path>     Name another repository, to mirror its issues from
   git issue ext fetch <source> <id>         Mirror one of its issues here, read-only
   git issue ext refresh [<source>]          Bring mirrors up to their sources
   git issue ext remove <id>                 Drop a mirror and the relations naming it

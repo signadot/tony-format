@@ -150,8 +150,8 @@ func TestSet_OutsideARepository(t *testing.T) {
 	if _, err := runRoot(t, "create", "--repo", "c", "t", "--body", "b"); err == nil || !strings.Contains(err.Error(), `"c"`) {
 		t.Errorf("a repository of no set: %v", err)
 	}
-	if _, err := runRoot(t, "ext", "add", "--repo", "a", "far", "https://example.com/far"); err != nil {
-		t.Errorf("ext add in a: %v", err)
+	if out, err := runRoot(t, "ext", "add", "--repo", "a", "far", "https://example.com/far"); err != nil || !strings.Contains(out, "every clone") {
+		t.Errorf("ext add in a: %v, %q; want it to say the record is every clone's", err, out)
 	}
 	if srcs, err := a.Sources(); err != nil || len(srcs) != 1 || srcs[0].Name != "far" {
 		t.Errorf("a's sources: %v, %+v", err, srcs)
@@ -225,7 +225,7 @@ func TestSet_InsideARepository(t *testing.T) {
 
 	// A source a already has under b's name is left as it was recorded, and
 	// is where the mirror comes from.
-	recorded := "file://" + bDir
+	recorded := bDir // a directory with no origin, recorded as it is
 	if err := ops.SourceAdd(a, "b", recorded); err != nil {
 		t.Fatal(err)
 	}

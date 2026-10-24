@@ -21,15 +21,36 @@ func ExtCommand(store issuelib.Store) *cli.Command {
 		WithSynopsis("ext <add|fetch|refresh|remove|list> - Another repository's issues, mirrored here").
 		WithSubs(
 			cli.NewCommand("add").
-				WithSynopsis("add <source> <url> - Record where a repository is, under a name").
+				WithSynopsis("add <source> <url|path> - Record where a repository is, under a name").
 				WithRun(func(cc *cli.Context, args []string) error {
 					if len(args) != 2 {
-						return fmt.Errorf("%w: usage: git issue ext add <source> <url>", cli.ErrUsage)
+						return fmt.Errorf("%w: usage: git issue ext add <source> <url|path>", cli.ErrUsage)
 					}
+					was, hadIt := ops.Source(store, args[0])
 					if err := ops.SourceAdd(store, args[0], args[1]); err != nil {
 						return err
 					}
-					fmt.Fprintf(cc.Out, "Source %s is %s\n", args[0], args[1])
+					now, err := ops.Source(store, args[0])
+					if err != nil {
+						return err
+					}
+					// The record is every clone's: push carries it, and every clone
+					// that pulls fetches from what it says. So what was recorded is
+					// said, and a directory is said to be this machine's.
+					if hadIt == nil && was.URL != now.URL {
+						fmt.Fprintf(cc.Out, "Source %s was %s.\n", now.Name, was.URL)
+					}
+					local := issuelib.IsLocalPath(now.URL)
+					switch {
+					case now.Path != "" && local:
+						fmt.Fprintf(cc.Out, "Source %s is %s, the origin of %s, and a path on this machine: only this machine can fetch it there.\n", now.Name, now.URL, now.Path)
+					case now.Path != "":
+						fmt.Fprintf(cc.Out, "Source %s is %s, the origin of %s; this clone fetches from the directory, every other clone from the origin.\n", now.Name, now.URL, now.Path)
+					case local:
+						fmt.Fprintf(cc.Out, "Source %s is %s, a path on this machine with no origin to record instead: only this machine can fetch it there.\n", now.Name, now.URL)
+					default:
+						fmt.Fprintf(cc.Out, "Source %s is %s; git issue push carries it to every clone of this repository.\n", now.Name, now.URL)
+					}
 					return nil
 				}),
 			cli.NewCommand("fetch").
@@ -93,7 +114,14 @@ func ExtCommand(store issuelib.Store) *cli.Command {
 						if !src.Fetched.IsZero() {
 							when = "fetched " + src.Fetched.Local().Format("2006-01-02 15:04")
 						}
-						fmt.Fprintf(cc.Out, "%s  %s  (%s)\n", src.Name, src.URL, when)
+						where := ""
+						if issuelib.IsLocalPath(src.URL) {
+							where = "  (a path on one machine; other clones cannot fetch it)"
+						}
+						if src.Path != "" {
+							where = "  here: " + src.Path + where
+						}
+						fmt.Fprintf(cc.Out, "%s  %s  (%s)%s\n", src.Name, src.URL, when, where)
 					}
 					return nil
 				}),
