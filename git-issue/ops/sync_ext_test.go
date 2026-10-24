@@ -201,6 +201,34 @@ func TestSyncCarriesMirrors(t *testing.T) {
 	if why := report.Unreached["b"]; !strings.Contains(why, "not a checkout of") {
 		t.Errorf("a's refresh through its old path: %q", why)
 	}
+	// And the other way about, on a push: a re-records b, and the clone then
+	// fetches, later, from the url the record had; a's push keeps a's url.
+	bAgain := t.TempDir()
+	gitIn(t, bAgain, "init", "-q", "--bare")
+	if err := SourceAdd(a, "b", bAgain); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := Comment(b, far.ID, "Moved on again."); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, bDir, "push", "-q", bMoved, "refs/git-issues/*:refs/git-issues/*")
+	if n, err := Refresh(c, "b"); err != nil || n != 1 {
+		t.Fatalf("the clone's refresh: %d, %v", n, err)
+	}
+	if report, err := Push(c, "origin", "", false, false); err != nil || report.Err() != nil {
+		t.Fatalf("the clone's push of its fetch: %v, %v", err, report.Err())
+	}
+	if report, err := Push(a, "origin", "", false, false); err != nil || report.Err() != nil {
+		t.Fatalf("a's push of its url: %v, %v", err, report.Err())
+	}
+	if report, err := Pull(c, "origin", false, false); err != nil || report.Err() != nil {
+		t.Fatalf("the clone's pull of a's url: %v, %v", err, report.Err())
+	}
+	for who, s := range map[string]issuelib.Store{"a": a, "the clone": c} {
+		if src, err := s.Source("b"); err != nil || src.URL != bAgain {
+			t.Errorf("after a's push %s's source is %+v, %v; want %s", who, src, err, bAgain)
+		}
+	}
 
 	// Both sides changing the URL, to different ones, is refused and named, on
 	// a push as on a pull; ext add with the one to keep settles it, whichever
