@@ -2,14 +2,11 @@ package issuelib
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"os/exec"
 	"sort"
 	"strings"
-	"time"
-
-	"github.com/signadot/tony-format/go-tony/encode"
-	"github.com/signadot/tony-format/go-tony/gomap"
-	"github.com/signadot/tony-format/go-tony/parse"
 )
 
 // Carried refs: the mirrors (ext/) and the sources (sources/) go with a
@@ -154,84 +151,75 @@ func (s *GitStore) ApplyCarriedPull(p CarriedPlan, force bool) (string, error) {
 // has both as parents. The URL is merged three-way: it is the side that changed
 // it since the two last agreed, and kept when neither did. Two sides that both
 // changed it, to different URLs, are refused and named, since which repository
-// a source is, is for a person to say; sides with no history in common are both
-// changes. The fetch time is the later of the two, since each says when that
-// side last fetched and the later one is when the mirrors were last fetched.
+// a source is, is for a person to say; so are sides with no history in common
+// that disagree, and histories whose bases do not agree on which side changed
+// it. The fetch time is the later of the two, since each says when that side
+// last fetched its mirrors and the later one is when they were last fetched.
 func (s *GitStore) mergeSources(ref, ours, theirs string) (string, error) {
-	read := func(commit string) (sourceRecord, time.Time, error) {
-		raw, err := s.git("show", commit+":source.tony").Output()
-		if err != nil {
-			return sourceRecord{}, time.Time{}, fmt.Errorf("failed to read %s at %s: %w", ref, shortSHA(commit), err)
-		}
-		node, err := parse.Parse(raw)
-		if err != nil {
-			return sourceRecord{}, time.Time{}, err
-		}
-		var rec sourceRecord
-		if err := gomap.FromTonyIR(node, &rec); err != nil {
-			return sourceRecord{}, time.Time{}, err
-		}
-		fetched, _ := time.Parse(time.RFC3339, rec.Fetched)
-		return rec, fetched, nil
-	}
-	ourRec, ourAt, err := read(ours)
+	ourRec, ourAt, err := s.sourceAt(ours)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%s at %s: %w", ref, shortSHA(ours), err)
 	}
-	theirRec, theirAt, err := read(theirs)
+	theirRec, theirAt, err := s.sourceAt(theirs)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%s at %s: %w", ref, shortSHA(theirs), err)
 	}
 	rec := ourRec
 	if theirAt.After(ourAt) {
 		rec.Fetched = theirRec.Fetched
 	}
 	if ourRec.URL != theirRec.URL {
-		name := strings.TrimPrefix(ref, SourcesPrefix)
-		since := "were recorded on both sides with no history in common"
-		baseURL := ""
-		if base, err := s.MergeBase(ours, theirs); err == nil {
-			baseRec, _, err := read(base)
+		bases, err := s.mergeBases(ours, theirs)
+		if err != nil {
+			return "", err
+		}
+		weKept, theyKept := false, false
+		var was []string
+		for _, base := range bases {
+			baseRec, _, err := s.sourceAt(base)
 			if err != nil {
-				return "", err
+				return "", fmt.Errorf("%s at %s: %w", ref, shortSHA(base), err)
 			}
-			baseURL = baseRec.URL
-			since = "both changed since " + shortSHA(base) + ", where it was " + baseURL
+			weKept = weKept || baseRec.URL == ourRec.URL
+			theyKept = theyKept || baseRec.URL == theirRec.URL
+			was = append(was, shortSHA(base)+", where it was "+baseRec.URL)
 		}
 		switch {
-		case baseURL != "" && ourRec.URL == baseURL:
+		case weKept && !theyKept:
 			rec.URL = theirRec.URL
-		case baseURL != "" && theirRec.URL == baseURL:
+		case theyKept && !weKept:
 		default:
+			why := "the two were recorded with no history in common"
+			switch {
+			case len(bases) > 0 && !weKept:
+				why = "both changed since " + strings.Join(was, " and ")
+			case len(bases) > 0:
+				why = "and the points where they last agreed do not say which changed it: " + strings.Join(was, " and ")
+			}
+			name := strings.TrimPrefix(ref, SourcesPrefix)
 			return "", fmt.Errorf("%w: source %s is %s here and %s there, %s; `git issue ext add %s` with the one to keep, then the sync again, settles it",
-				ErrDiverged, name, ourRec.URL, theirRec.URL, since, name)
+				ErrDiverged, name, ourRec.URL, theirRec.URL, why, name)
 		}
 	}
-	node, err := gomap.ToTonyIR(rec)
-	if err != nil {
-		return "", err
-	}
-	hash := s.git("hash-object", "-w", "--stdin")
-	hash.Stdin = strings.NewReader(encode.MustString(node))
-	hashOut, err := hash.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to write source.tony: %w", err)
-	}
-	mktree := s.git("mktree")
-	mktree.Stdin = strings.NewReader(fmt.Sprintf("100644 blob %s\tsource.tony\n", strings.TrimSpace(string(hashOut))))
-	treeOut, err := mktree.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to write the source's tree: %w", err)
-	}
-	commit := s.git("commit-tree", strings.TrimSpace(string(treeOut)), "-p", ours, "-p", theirs,
-		"-m", fmt.Sprintf("merge: %s %s", shortSHA(ours), shortSHA(theirs)))
+	return s.commitSource(rec, fmt.Sprintf("merge: %s %s", shortSHA(ours), shortSHA(theirs)), ours, theirs)
+}
+
+// mergeBases answers the best common ancestors of two commits, none when they
+// share no history. A git that fails for another reason is that error, not an
+// answer of none.
+func (s *GitStore) mergeBases(ours, theirs string) ([]string, error) {
+	cmd := s.git("merge-base", "--all", ours, theirs)
 	var stderr bytes.Buffer
-	commit.Stderr = &stderr
-	commitOut, err := commit.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to merge %s: %w: %s", ref, err, strings.TrimSpace(stderr.String()))
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 1 && len(bytes.TrimSpace(out)) == 0 {
+		return nil, nil
 	}
-	return strings.TrimSpace(string(commitOut)), nil
+	if err != nil {
+		return nil, fmt.Errorf("git merge-base %s %s: %w: %s", shortSHA(ours), shortSHA(theirs), err, strings.TrimSpace(stderr.String()))
+	}
+	return strings.Fields(string(out)), nil
 }
 
 // ApplyCarriedPushes sends every carried ref the remote lacks or is behind on,

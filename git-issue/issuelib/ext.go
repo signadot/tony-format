@@ -2,6 +2,7 @@ package issuelib
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -131,7 +132,21 @@ func (s *GitStore) AddSource(name, url string) error {
 	if have, err := s.readSource(name); err == nil && !have.Fetched.IsZero() {
 		rec.Fetched = have.Fetched.UTC().Format(time.RFC3339)
 	}
-	if err := s.writeSource(name, rec, "source: "+name+" at "+url); err != nil {
+	// A version of the source this clone fetched from a remote and has not
+	// taken -- a sync refused to merge it -- is recorded over: whoever records
+	// the source has said what it is, so the next sync carries this forward
+	// rather than refusing it again, whichever URL was kept.
+	tip := ""
+	if held := s.refsAt(SourceRef(name)); len(held) == 1 {
+		tip = held[0].commit
+	}
+	var over []string
+	for _, r := range s.refsAt(nsRoot + "/remotes/*/sources/" + name) {
+		if r.commit != tip && (tip == "" || !s.isAncestor(r.commit, tip)) {
+			over = append(over, r.commit)
+		}
+	}
+	if err := s.writeSource(name, rec, "source: "+name+" at "+url, over...); err != nil {
 		return err
 	}
 	return s.configSet(sourcePathKey(name), path)
@@ -262,24 +277,39 @@ func (s *GitStore) fetchMirror(src Source, xidr string) error {
 // readSource reads source.tony at the source's ref, and this clone's own path
 // to the source from its config.
 func (s *GitStore) readSource(name string) (Source, error) {
-	ref := SourceRef(name)
-	raw, err := s.ReadFile(ref, "source.tony")
-	if err != nil {
+	rec, fetched, err := s.sourceAt(SourceRef(name))
+	switch {
+	case errors.Is(err, errNoSourceRecord):
 		return Source{}, fmt.Errorf("no source named %q: `git issue ext add %s <url|path>` records one", name, name)
+	case err != nil:
+		return Source{}, fmt.Errorf("source %s: %w", name, err)
+	}
+	return Source{Name: name, URL: rec.URL, Path: s.configGet(sourcePathKey(name)), Fetched: fetched}, nil
+}
+
+// errNoSourceRecord is a commit, or a ref, that holds no source.tony.
+var errNoSourceRecord = errors.New("no source.tony")
+
+// sourceAt reads source.tony as a ref or commit of a source's chain holds it,
+// and when it says its mirrors were last fetched, zero for never.
+func (s *GitStore) sourceAt(rev string) (sourceRecord, time.Time, error) {
+	raw, err := s.ReadFile(rev, "source.tony")
+	if err != nil {
+		return sourceRecord{}, time.Time{}, errNoSourceRecord
 	}
 	node, err := parse.Parse(raw)
 	if err != nil {
-		return Source{}, fmt.Errorf("source %s: %w", name, err)
+		return sourceRecord{}, time.Time{}, err
 	}
 	var rec sourceRecord
 	if err := gomap.FromTonyIR(node, &rec); err != nil {
-		return Source{}, fmt.Errorf("source %s: %w", name, err)
+		return sourceRecord{}, time.Time{}, err
 	}
-	src := Source{Name: name, URL: rec.URL, Path: s.configGet(sourcePathKey(name))}
+	var fetched time.Time
 	if rec.Fetched != "" {
-		src.Fetched, _ = time.Parse(time.RFC3339, rec.Fetched)
+		fetched, _ = time.Parse(time.RFC3339, rec.Fetched)
 	}
-	return src, nil
+	return rec, fetched, nil
 }
 
 // configGet answers a key of this repository's own config, "" when unset.
@@ -317,35 +347,58 @@ func (s *GitStore) touchSource(name string) error {
 }
 
 // writeSource commits source.tony at the source's ref: a new root commit for a
-// source not known yet, a commit on its chain otherwise.
-func (s *GitStore) writeSource(name string, rec sourceRecord, message string) error {
-	node, err := gomap.ToTonyIR(rec)
+// source not known yet, a commit on its chain otherwise, and a commit over the
+// versions named in over too, when there are any.
+func (s *GitStore) writeSource(name string, rec sourceRecord, message string, over ...string) error {
+	ref := SourceRef(name)
+	held := s.refsAt(ref)
+	if len(held) == 1 && len(over) == 0 {
+		node, err := gomap.ToTonyIR(rec)
+		if err != nil {
+			return err
+		}
+		return s.updateCommit(ref, message, map[string]string{"source.tony": encode.MustString(node)})
+	}
+	old, parents := zeroSHA, over
+	if len(held) == 1 {
+		old, parents = held[0].commit, append([]string{held[0].commit}, over...)
+	}
+	commit, err := s.commitSource(rec, message, parents...)
 	if err != nil {
 		return err
 	}
-	content := encode.MustString(node)
-	ref := SourceRef(name)
-	if len(s.refsAt(ref)) == 1 {
-		return s.updateCommit(ref, message, map[string]string{"source.tony": content})
+	return s.setRef(ref, commit, old)
+}
+
+// commitSource writes a commit whose tree is source.tony holding rec, with the
+// parents given, and answers it. It moves no ref.
+func (s *GitStore) commitSource(rec sourceRecord, message string, parents ...string) (string, error) {
+	node, err := gomap.ToTonyIR(rec)
+	if err != nil {
+		return "", err
 	}
 	hash := s.git("hash-object", "-w", "--stdin")
-	hash.Stdin = strings.NewReader(content)
+	hash.Stdin = strings.NewReader(encode.MustString(node))
 	hashOut, err := hash.Output()
 	if err != nil {
-		return fmt.Errorf("failed to write source.tony: %w", err)
+		return "", fmt.Errorf("failed to write source.tony: %w", err)
 	}
 	mktree := s.git("mktree")
 	mktree.Stdin = strings.NewReader(fmt.Sprintf("100644 blob %s\tsource.tony\n", strings.TrimSpace(string(hashOut))))
 	treeOut, err := mktree.Output()
 	if err != nil {
-		return fmt.Errorf("failed to write the source's tree: %w", err)
+		return "", fmt.Errorf("failed to write the source's tree: %w", err)
 	}
-	commit := s.git("commit-tree", strings.TrimSpace(string(treeOut)), "-m", message)
+	args := []string{"commit-tree", strings.TrimSpace(string(treeOut)), "-m", message}
+	for _, p := range parents {
+		args = append(args, "-p", p)
+	}
+	commit := s.git(args...)
 	var stderr bytes.Buffer
 	commit.Stderr = &stderr
 	commitOut, err := commit.Output()
 	if err != nil {
-		return fmt.Errorf("failed to commit the source: %w: %s", err, strings.TrimSpace(stderr.String()))
+		return "", fmt.Errorf("failed to commit the source: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
-	return s.setRef(ref, strings.TrimSpace(string(commitOut)), zeroSHA)
+	return strings.TrimSpace(string(commitOut)), nil
 }
