@@ -50,7 +50,11 @@ lacked it could not follow the relation -- so `push` sends every mirror and
 source the remote lacks to this repository's origin, and never to a source.
 `pull` takes what the remote holds and then brings each mirror up to its source;
 a source that cannot be reached is named in the report and its mirrors stay as
-they were.
+they were. A source edited on both sides is merged: its URL is the side that
+changed it since the two last agreed, and its fetch time the later one. Two
+sides that changed the URL to different ones are refused and named, like an
+issue edited on both sides, and `ext add` with the one to keep, then the sync
+again, settles it.
 
 **A source's URL is every clone's.** The source travels with the mirrors, so
 what it records is what every clone that pulls will fetch from. A directory on

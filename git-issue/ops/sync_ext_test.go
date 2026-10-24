@@ -168,6 +168,82 @@ func TestSyncCarriesMirrors(t *testing.T) {
 		t.Errorf("the clone reads the mirror as %s", sh.Status)
 	}
 
+	// A source edited on both sides is merged field by field: the URL is the
+	// side that changed it, however late the other side fetched. b's issue moves
+	// and a refreshes, so a's record is a's latest fetch at b's origin; the clone
+	// re-records b, with its older fetch, and pushes; a's pull keeps the new URL.
+	if _, _, err := Comment(b, far.ID, "Moved on."); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := Refresh(a, "b"); err != nil || n != 1 {
+		t.Fatalf("a's refresh: %d, %v", n, err)
+	}
+	fetchedHere, err := a.Source("b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bMoved := t.TempDir()
+	gitIn(t, bMoved, "init", "-q", "--bare")
+	if err := SourceAdd(c, "b", bMoved); err != nil {
+		t.Fatal(err)
+	}
+	if report, err := Push(c, "origin", "", false, false); err != nil || report.Err() != nil {
+		t.Fatalf("the clone's push of the new url: %v, %v", err, report.Err())
+	}
+	if report, err := Pull(a, "origin", false, false); err != nil || report.Err() != nil {
+		t.Fatalf("a's pull of the new url: %v, %v", err, report.Err())
+	}
+	if src, err := a.Source("b"); err != nil || src.URL != bMoved || !src.Fetched.Equal(fetchedHere.Fetched) {
+		t.Errorf("after the merge a's source is %+v, %v; want %s, fetched %v", src, err, bMoved, fetchedHere.Fetched)
+	}
+
+	// Both sides changing the URL, to different ones, is refused and named;
+	// recording the same one on either side settles it. So is a source each
+	// side recorded with no history in common: there is no base to say which
+	// changed, and both URLs are given.
+	here, there := t.TempDir(), t.TempDir()
+	if err := SourceAdd(c, "b", there); err != nil {
+		t.Fatal(err)
+	}
+	if report, err := Push(c, "origin", "", false, false); err != nil || report.Err() != nil {
+		t.Fatalf("the clone's push of its url: %v, %v", err, report.Err())
+	}
+	if err := SourceAdd(a, "b", here); err != nil {
+		t.Fatal(err)
+	}
+	refused := func(who string, s issuelib.Store, want ...string) {
+		t.Helper()
+		report, err := Pull(s, "origin", false, false)
+		if err != nil || len(report.Failed) != 0 || len(report.Refused) != 1 || report.Refused[0].ID != "source b" {
+			t.Fatalf("%s's pull of a conflicting url: %v, %+v", who, err, report)
+		}
+		for _, w := range want {
+			if !strings.Contains(report.Refused[0].Reason, w) {
+				t.Errorf("%s's refusal does not say %q: %s", who, w, report.Refused[0].Reason)
+			}
+		}
+	}
+	settled := func(who string, s issuelib.Store) {
+		t.Helper()
+		if err := SourceAdd(s, "b", there); err != nil {
+			t.Fatal(err)
+		}
+		if report, err := Pull(s, "origin", false, false); err != nil || report.Err() != nil {
+			t.Fatalf("%s's pull after agreeing: %v, %v", who, err, report.Err())
+		}
+		if src, err := s.Source("b"); err != nil || src.URL != there {
+			t.Errorf("%s's source after agreeing is %+v, %v; want %s", who, src, err, there)
+		}
+	}
+	refused("a", a, here, there, "both changed since", "git issue ext add b")
+	settled("a", a)
+	_, d := cloneOf(t, origin)
+	if err := SourceAdd(d, "b", here); err != nil {
+		t.Fatal(err)
+	}
+	refused("a new clone", d, here, there, "no history in common")
+	settled("a new clone", d)
+
 	// A source that cannot be reached is said, and does not fail the pull; and
 	// what is said names where the url came from -- the shared record, or this
 	// clone's own path -- so that a wrong one is found where it is written.
