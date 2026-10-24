@@ -225,7 +225,7 @@ func TestSet_InsideARepository(t *testing.T) {
 
 	// A source a already has under b's name is left as it was recorded, and
 	// is where the mirror comes from.
-	recorded := "file://" + bDir
+	recorded := bDir // a directory with no origin, recorded as it is
 	if err := ops.SourceAdd(a, "b", recorded); err != nil {
 		t.Fatal(err)
 	}

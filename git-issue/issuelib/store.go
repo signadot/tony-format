@@ -85,6 +85,7 @@ type Store interface {
 	// Ext references (ext.go): another repository's issue mirrored here,
 	// read-only, so a relation to it resolves from this repository alone.
 	AddSource(name, url string) error
+	Source(name string) (Source, error)
 	Sources() ([]Source, error)
 	Mirror(source, xidr string) (*Issue, error)
 	RefreshMirrors(source string) (int, error)

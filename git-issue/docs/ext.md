@@ -54,13 +54,16 @@ they were.
 
 **A source's URL is every clone's.** The source travels with the mirrors, so
 what it records is what every clone that pulls will fetch from. A directory on
-this machine is not that: given one, `ext add` records the directory's origin
-as the URL and keeps the directory in this clone's git config,
-`git-issue.source.<source>.path`, as where this clone alone fetches from. A
-directory with no origin is recorded as it is, and `ext add` and `ext list`
-say that only this machine can reach it. When a source cannot be reached, the
-report says whether the URL it tried came from the shared record or from this
-clone's config, so a wrong one is corrected where it is written.
+this machine is not that: given one, as a path or a `file://` URL, `ext add`
+records the directory's origin as the URL and keeps the directory in this
+clone's git config, `git-issue.source.<source>.path`, as where this clone alone
+fetches from. The directory stands for the URL, so once it is no longer a
+checkout of it -- the record moved on, or the directory did -- a fetch is
+refused, naming the config key, rather than following a repository the record
+no longer names. A directory with no origin is recorded as it is, and `ext add`
+and `ext list` say that only this machine can reach it. When a source cannot be
+reached, the report says whether the URL it tried came from the shared record
+or from this clone's config, so a wrong one is corrected where it is written.
 
 **Removing one** deletes the mirror and, from every issue here that named it,
 the relation -- as a commit on each such issue. Nothing is rewritten.

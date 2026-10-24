@@ -1,7 +1,9 @@
 package ops
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -68,7 +70,19 @@ func TestSyncCarriesMirrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := SourceAdd(a, "b", bDir); err != nil {
+	// A directory inside b is not b: git would find b from it, but its origin
+	// is not where the directory's issues are, so it is recorded as it is.
+	sub := filepath.Join(bDir, "sub")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := SourceAdd(a, "b", sub); err != nil {
+		t.Fatal(err)
+	}
+	if src, err := a.Source("b"); err != nil || src.URL != sub || src.Path != "" {
+		t.Fatalf("a directory inside a repository is recorded as %+v, %v; want it as it is", src, err)
+	}
+	if err := SourceAdd(a, "b", "file://"+bDir); err != nil {
 		t.Fatal(err)
 	}
 	if srcs, err := a.Sources(); err != nil || len(srcs) != 1 || srcs[0].URL != bOrigin || srcs[0].Path != bDir {
@@ -172,7 +186,7 @@ func TestSyncCarriesMirrors(t *testing.T) {
 	if err != nil || report.Err() != nil {
 		t.Fatalf("pull with a stale path: %v, %v", err, report.Err())
 	}
-	if why, ok := report.Unreached["b"]; !ok || !strings.Contains(why, "git config git-issue.source.b.path") {
+	if why, ok := report.Unreached["b"]; !ok || !strings.Contains(why, "git config git-issue.source.b.path") || !strings.Contains(why, "not a checkout of") {
 		t.Errorf("the stale path was not named by its config key: %+v", report.Unreached)
 	}
 }
