@@ -144,8 +144,12 @@ func TestMCP_AnIssuesLife(t *testing.T) {
 	// discussion/files/ and listed by show. A name that climbs out of it is refused, and so
 	// is a call that gives both forms or neither.
 	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "traces"), 0o755)
-	os.WriteFile(filepath.Join(dir, "traces", "first.txt"), []byte("t1"), 0o644)
+	if err := os.MkdirAll(filepath.Join(dir, "traces"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "traces", "first.txt"), []byte("t1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	var attached struct{ Files []string }
 	call(t, cs, "issue_attach", map[string]any{"id": created.ID, "path": dir}, &attached)
 	if len(attached.Files) != 1 || attached.Files[0] != "discussion/files/"+filepath.Base(dir)+"/traces/first.txt" {
@@ -155,14 +159,19 @@ func TestMCP_AnIssuesLife(t *testing.T) {
 	if len(attached.Files) != 1 || attached.Files[0] != "discussion/files/run.log" || !strings.Contains(text(res), "Attached run.log (1 file(s))") {
 		t.Errorf("content attached as %v, %q", attached.Files, text(res))
 	}
-	for name, args := range map[string]map[string]any{
-		"both":    {"id": created.ID, "path": dir, "name": "x", "content": "y"},
-		"neither": {"id": created.ID},
-		"climbs":  {"id": created.ID, "name": "../meta.tony", "content": "y"},
-		"missing": {"id": created.ID, "path": filepath.Join(dir, "nothing")},
+	for name, c := range map[string]struct {
+		args map[string]any
+		says string
+	}{
+		"both":       {map[string]any{"id": created.ID, "path": dir, "name": "x", "content": "y"}, "not both"},
+		"neither":    {map[string]any{"id": created.ID}, "a path, or content under a name"},
+		"no content": {map[string]any{"id": created.ID, "name": "x"}, `the content to store under "x"`},
+		"no name":    {map[string]any{"id": created.ID, "content": "y"}, "a name to store the content under"},
+		"climbs":     {map[string]any{"id": created.ID, "name": "../meta.tony", "content": "y"}, "not a name an attachment can have"},
+		"missing":    {map[string]any{"id": created.ID, "path": filepath.Join(dir, "nothing")}, "path not found"},
 	} {
-		if msg := refused(t, cs, "issue_attach", args); msg == "" {
-			t.Errorf("%s: refused with no words", name)
+		if msg := refused(t, cs, "issue_attach", c.args); !strings.Contains(msg, c.says) {
+			t.Errorf("%s: refused with %q, want %q in it", name, msg, c.says)
 		}
 	}
 	res = call(t, cs, "issue_show", map[string]any{"id": created.ID}, &shown)

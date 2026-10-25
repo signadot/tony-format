@@ -496,6 +496,10 @@ func addTools(m *mcpServer) {
 			}
 		case in.Name != "" && in.Content != "":
 			name, files = in.Name, map[string]string{in.Name: in.Content}
+		case in.Name != "":
+			return nil, attachedOut{}, fmt.Errorf("attach takes the content to store under %q", in.Name)
+		case in.Content != "":
+			return nil, attachedOut{}, fmt.Errorf("attach takes a name to store the content under")
 		default:
 			return nil, attachedOut{}, fmt.Errorf("attach takes a path, or content under a name")
 		}
