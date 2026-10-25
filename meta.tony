@@ -6,7 +6,9 @@ commits: []
 created: "2026-10-25T08:30:05.695475+01:00"
 duplicates: []
 id: 0c6bx3z2h12kszdfvnn0
-labels: []
+labels:
+- agent
+- mcp
 related_issues: []
 status: open
-updated: "2026-10-25T08:30:05.695475+01:00"
+updated: "2026-10-25T08:30:05.819664+01:00"
