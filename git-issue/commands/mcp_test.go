@@ -3,6 +3,8 @@ package commands
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -92,7 +94,7 @@ func TestMCP_ListsEveryTool(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"issue_list", "issue_show", "issue_create", "issue_edit", "issue_comment", "issue_label",
+		"issue_list", "issue_show", "issue_create", "issue_edit", "issue_comment", "issue_attach", "issue_label",
 		"issue_close", "issue_reopen", "issue_link", "issue_relate", "issue_for_commit",
 		"issue_pull", "issue_push", "issue_watch", "issue_watch_remote",
 	} {
@@ -122,6 +124,7 @@ func TestMCP_AnIssuesLife(t *testing.T) {
 		ID, Status, Title, Body string
 		Labels                  []string
 		Comments                []struct{ Path, Text string }
+		Attachments             []string
 	}
 	call(t, cs, "issue_show", map[string]any{"id": created.ID[:4]}, &shown)
 	if shown.ID != created.ID || shown.Status != "open" || shown.Title != "A thing" || shown.Body != "The body." || strings.Join(shown.Labels, ",") != "bug" {
@@ -137,9 +140,46 @@ func TestMCP_AnIssuesLife(t *testing.T) {
 	if strings.Join(labels.Labels, ",") != "git-issue-phase=planned" {
 		t.Errorf("labels %v", labels.Labels)
 	}
+	// An attachment from this machine, and one given as text; both are kept under
+	// discussion/files/ and listed by show. A name that climbs out of it is refused, and so
+	// is a call that gives both forms or neither.
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "traces"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "traces", "first.txt"), []byte("t1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var attached struct{ Files []string }
+	call(t, cs, "issue_attach", map[string]any{"id": created.ID, "path": dir}, &attached)
+	if len(attached.Files) != 1 || attached.Files[0] != "discussion/files/"+filepath.Base(dir)+"/traces/first.txt" {
+		t.Errorf("a directory attached as %v", attached.Files)
+	}
+	res = call(t, cs, "issue_attach", map[string]any{"id": created.ID, "name": "run.log", "content": "line 1\n"}, &attached)
+	if len(attached.Files) != 1 || attached.Files[0] != "discussion/files/run.log" || !strings.Contains(text(res), "Attached run.log (1 file(s))") {
+		t.Errorf("content attached as %v, %q", attached.Files, text(res))
+	}
+	for name, c := range map[string]struct {
+		args map[string]any
+		says string
+	}{
+		"both":       {map[string]any{"id": created.ID, "path": dir, "name": "x", "content": "y"}, "not both"},
+		"neither":    {map[string]any{"id": created.ID}, "a path, or content under a name"},
+		"no content": {map[string]any{"id": created.ID, "name": "x"}, `the content to store under "x"`},
+		"no name":    {map[string]any{"id": created.ID, "content": "y"}, "a name to store the content under"},
+		"climbs":     {map[string]any{"id": created.ID, "name": "../meta.tony", "content": "y"}, "not a name an attachment can have"},
+		"missing":    {map[string]any{"id": created.ID, "path": filepath.Join(dir, "nothing")}, "path not found"},
+	} {
+		if msg := refused(t, cs, "issue_attach", c.args); !strings.Contains(msg, c.says) {
+			t.Errorf("%s: refused with %q, want %q in it", name, msg, c.says)
+		}
+	}
 	res = call(t, cs, "issue_show", map[string]any{"id": created.ID}, &shown)
 	if shown.Body != "## Decided\n\nThe new body." || len(shown.Comments) != 1 || shown.Comments[0].Text != "a finding" {
 		t.Errorf("after edit and comment: %+v", shown)
+	}
+	if len(shown.Attachments) != 2 || shown.Attachments[1] != "discussion/files/run.log" {
+		t.Errorf("attachments shown as %v", shown.Attachments)
 	}
 	if !strings.Contains(text(res), "Discussion:") || !strings.Contains(text(res), "## Decided") {
 		t.Errorf("show's text is not what the command prints: %q", text(res))

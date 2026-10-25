@@ -60,6 +60,7 @@ resolves to its own.
 | `issue_create` | `repo?`, `title`, `body`, `labels?` | the id |
 | `issue_edit` | `id`, `title?`, `body?` | |
 | `issue_comment` | `id`, `text`, `edit?` (a comment to change in place) | the comment's path |
+| `issue_attach` | `id`, `path` (a file or directory on the server's machine), or `name` and `content` | the paths stored under `discussion/files/` |
 | `issue_label` | `id`, `add?`, `remove?` | the labels after |
 | `issue_close` | `id`, `commit?` | |
 | `issue_reopen` | `id` | |
