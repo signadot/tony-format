@@ -61,6 +61,7 @@ resolves to its own.
 | `issue_edit` | `id`, `title?`, `body?` | |
 | `issue_comment` | `id`, `text`, `edit?` (a comment to change in place) | the comment's path |
 | `issue_attach` | `id`, `path` (a file or directory on the server's machine), or `name` and `content` | the paths stored under `discussion/files/` |
+| `issue_extract` | `id`, `dir` (an absolute directory on the server's machine), and `name` for one attachment or a directory of them | the files written; nothing is overwritten |
 | `issue_label` | `id`, `add?`, `remove?` | the labels after |
 | `issue_close` | `id`, `commit?` | |
 | `issue_reopen` | `id` | |

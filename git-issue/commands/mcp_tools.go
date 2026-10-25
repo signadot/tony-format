@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -168,6 +169,17 @@ type attachIn struct {
 type attachedOut struct {
 	ID    string   `json:"id"`
 	Files []string `json:"files" jsonschema:"where the files are stored, under discussion/files/"`
+}
+
+type extractIn struct {
+	ID   string `json:"id" jsonschema:"the issue: a full id or any unambiguous prefix"`
+	Dir  string `json:"dir" jsonschema:"an absolute directory on this machine to write the files into; made if it is missing"`
+	Name string `json:"name,omitempty" jsonschema:"one attachment, or a directory of them, as issue_show lists it or relative to discussion/files/ (run.log, traces); none for all of them"`
+}
+
+type extractedOut struct {
+	ID    string   `json:"id"`
+	Files []string `json:"files" jsonschema:"the files written, on this machine"`
 }
 
 type labelIn struct {
@@ -510,6 +522,29 @@ func addTools(m *mcpServer) {
 		m.look(ctx)
 		return result(fmt.Sprintf("Attached %s (%d file(s)) to issue %s\n", name, len(paths), issue.ID)),
 			attachedOut{ID: issue.ID, Files: paths}, nil
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "issue_extract",
+		Description: "Write an issue's attachments into a directory on this machine, each at its path under discussion/files/ " +
+			"(run.log, traces/first.txt): all of them, or one, or a directory of them, by name. This is how an attachment is " +
+			"read: the bytes as stored, binary or not, in a file the caller then opens. Nothing on the machine is overwritten: " +
+			"a file already at a destination is named and nothing is written.",
+		Annotations: local(false),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in extractIn) (*mcp.CallToolResult, extractedOut, error) {
+		if !filepath.IsAbs(in.Dir) {
+			return nil, extractedOut{}, fmt.Errorf("extract takes an absolute directory to write into, not %q: a relative one would be the server's", in.Dir)
+		}
+		r, xidr, err := ws.find(in.ID)
+		if err != nil {
+			return nil, extractedOut{}, err
+		}
+		files, err := ops.Extract(r.Store, xidr, in.Name, in.Dir)
+		if err != nil {
+			return nil, extractedOut{}, err
+		}
+		return result(fmt.Sprintf("Extracted %d file(s) from issue %s into %s\n", len(files), xidr, in.Dir)),
+			extractedOut{ID: xidr, Files: files}, nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{

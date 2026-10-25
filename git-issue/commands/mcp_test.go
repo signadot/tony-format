@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -94,7 +95,7 @@ func TestMCP_ListsEveryTool(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"issue_list", "issue_show", "issue_create", "issue_edit", "issue_comment", "issue_attach", "issue_label",
+		"issue_list", "issue_show", "issue_create", "issue_edit", "issue_comment", "issue_attach", "issue_extract", "issue_label",
 		"issue_close", "issue_reopen", "issue_link", "issue_relate", "issue_for_commit",
 		"issue_pull", "issue_push", "issue_watch", "issue_watch_remote",
 	} {
@@ -150,9 +151,14 @@ func TestMCP_AnIssuesLife(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "traces", "first.txt"), []byte("t1"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	binary := []byte{0, 0xff, 0x80, '\n', 0xfe}
+	if err := os.WriteFile(filepath.Join(dir, "core.bin"), binary, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	var attached struct{ Files []string }
 	call(t, cs, "issue_attach", map[string]any{"id": created.ID, "path": dir}, &attached)
-	if len(attached.Files) != 1 || attached.Files[0] != "discussion/files/"+filepath.Base(dir)+"/traces/first.txt" {
+	base := "discussion/files/" + filepath.Base(dir)
+	if strings.Join(attached.Files, ",") != base+"/core.bin,"+base+"/traces/first.txt" {
 		t.Errorf("a directory attached as %v", attached.Files)
 	}
 	res = call(t, cs, "issue_attach", map[string]any{"id": created.ID, "name": "run.log", "content": "line 1\n"}, &attached)
@@ -178,7 +184,7 @@ func TestMCP_AnIssuesLife(t *testing.T) {
 	if shown.Body != "## Decided\n\nThe new body." || len(shown.Comments) != 1 || shown.Comments[0].Text != "a finding" {
 		t.Errorf("after edit and comment: %+v", shown)
 	}
-	if len(shown.Attachments) != 2 || shown.Attachments[1] != "discussion/files/run.log" {
+	if len(shown.Attachments) != 3 || shown.Attachments[2] != "discussion/files/run.log" {
 		t.Errorf("attachments shown as %v", shown.Attachments)
 	}
 	if !strings.Contains(text(res), "Discussion:") || !strings.Contains(text(res), "## Decided") {
@@ -187,6 +193,76 @@ func TestMCP_AnIssuesLife(t *testing.T) {
 
 	var other struct{ ID string }
 	call(t, cs, "issue_create", map[string]any{"title": "Another", "body": "b"}, &other)
+
+	// The attachments come back out into a directory the caller names, each at its path
+	// under discussion/files/, byte for byte: all of them, one as show lists it, or a
+	// directory of them. What is already there is not overwritten, and nothing is written.
+	all, one := t.TempDir(), t.TempDir()
+	var extracted struct{ Files []string }
+	res = call(t, cs, "issue_extract", map[string]any{"id": created.ID, "dir": all}, &extracted)
+	if len(extracted.Files) != 3 || !strings.Contains(text(res), "Extracted 3 file(s)") {
+		t.Errorf("extract of all answered %v, %q", extracted.Files, text(res))
+	}
+	for rel, want := range map[string][]byte{
+		filepath.Join(filepath.Base(dir), "core.bin"):            binary,
+		filepath.Join(filepath.Base(dir), "traces", "first.txt"): []byte("t1"),
+		"run.log": []byte("line 1\n"),
+	} {
+		if got, err := os.ReadFile(filepath.Join(all, rel)); err != nil || string(got) != string(want) {
+			t.Errorf("%s extracted as %q, %v; want %q", rel, got, err, want)
+		}
+	}
+	call(t, cs, "issue_extract", map[string]any{"id": created.ID, "dir": one, "name": "discussion/files/run.log"}, &extracted)
+	if len(extracted.Files) != 1 || extracted.Files[0] != filepath.Join(one, "run.log") {
+		t.Errorf("extract of one answered %v", extracted.Files)
+	}
+	call(t, cs, "issue_extract", map[string]any{"id": created.ID, "dir": one, "name": filepath.Base(dir) + "/traces"}, &extracted)
+	if len(extracted.Files) != 1 || extracted.Files[0] != filepath.Join(one, filepath.Base(dir), "traces", "first.txt") {
+		t.Errorf("extract of a directory answered %v", extracted.Files)
+	}
+	// A name attach would not store, as a clone that pulled it from elsewhere could hold it:
+	// discussion/files/../escaped.txt. It is refused, and nothing is written, there or anywhere.
+	var planted struct{ ID, Ref string }
+	call(t, cs, "issue_create", map[string]any{"title": "Planted", "body": "b"}, &planted)
+	git := func(stdin string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Stdin = strings.NewReader(stdin)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("git %v: %v", args, err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	blob := git("escaped\n", "hash-object", "-w", "--stdin")
+	up := git("100644 blob "+blob+"\tescaped.txt\n", "mktree")
+	files := git("040000 tree "+up+"\t..\n", "mktree")
+	disc := git("040000 tree "+files+"\tfiles\n", "mktree")
+	root := git("", "ls-tree", planted.Ref) + "\n040000 tree " + disc + "\tdiscussion\n"
+	git("", "update-ref", planted.Ref, git("", "commit-tree", git(root, "mktree"), "-p", planted.Ref, "-m", "planted"))
+	into := filepath.Join(t.TempDir(), "into")
+	if msg := refused(t, cs, "issue_extract", map[string]any{"id": planted.ID, "dir": into}); !strings.Contains(msg, "not a relative path under discussion/files/") {
+		t.Errorf("a name that climbs out was refused with %q", msg)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(into), "escaped.txt")); err == nil {
+		t.Error("a name that climbs out was written outside the directory")
+	}
+	git("", "update-ref", "-d", planted.Ref)
+
+	for name, c := range map[string]struct {
+		args map[string]any
+		says string
+	}{
+		"there":    {map[string]any{"id": created.ID, "dir": all}, "not overwritten: " + filepath.Join(all, filepath.Base(dir), "core.bin")},
+		"relative": {map[string]any{"id": created.ID, "dir": "out"}, "an absolute directory"},
+		"no such":  {map[string]any{"id": created.ID, "dir": t.TempDir(), "name": "nothing.log"}, "no attachment nothing.log"},
+		"none":     {map[string]any{"id": other.ID, "dir": t.TempDir()}, "has no attachments"},
+	} {
+		if msg := refused(t, cs, "issue_extract", c.args); !strings.Contains(msg, c.says) {
+			t.Errorf("extract %s: refused with %q, want %q in it", name, msg, c.says)
+		}
+	}
+
 	var rel struct{ Changed bool }
 	call(t, cs, "issue_relate", map[string]any{"id": created.ID, "other": other.ID, "kind": "blocks"}, &rel)
 	if !rel.Changed {
