@@ -158,6 +158,18 @@ type commentedOut struct {
 	Path string `json:"path" jsonschema:"where the comment is stored, under discussion/"`
 }
 
+type attachIn struct {
+	ID      string `json:"id" jsonschema:"the issue: a full id or any unambiguous prefix"`
+	Path    string `json:"path,omitempty" jsonschema:"a file or a directory on this machine, attached as git issue attach attaches it: the file under its name, a directory with its layout under its own name"`
+	Name    string `json:"name,omitempty" jsonschema:"with content: the attachment's name, a relative path under discussion/files/ (run.log, traces/first.txt)"`
+	Content string `json:"content,omitempty" jsonschema:"with name: the file's text, attached as given; for a file on this machine give path instead"`
+}
+
+type attachedOut struct {
+	ID    string   `json:"id"`
+	Files []string `json:"files" jsonschema:"where the files are stored, under discussion/files/"`
+}
+
 type labelIn struct {
 	ID     string   `json:"id" jsonschema:"the issue: a full id or any unambiguous prefix"`
 	Add    []string `json:"add,omitempty" jsonschema:"labels to add; key=value replaces the key's value"`
@@ -460,6 +472,40 @@ func addTools(m *mcpServer) {
 		m.look(ctx)
 		return result(fmt.Sprintf("Added comment to issue %s (%s)\n", issue.ID, strings.TrimPrefix(path, "discussion/"))),
 			commentedOut{ID: issue.ID, Path: path}, nil
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "issue_attach",
+		Description: "Attach a file to an issue, as `git issue attach` does: a file or a directory on this machine by path, or text " +
+			"given as content under a name. Attachments are kept under discussion/files/ with the issue, and issue_show lists them " +
+			"by name. This is where a log, a trace or a diff that a comment would only describe is kept.",
+		Annotations: local(false),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in attachIn) (*mcp.CallToolResult, attachedOut, error) {
+		r, xidr, err := ws.find(in.ID)
+		if err != nil {
+			return nil, attachedOut{}, err
+		}
+		var name string
+		var files map[string]string
+		switch {
+		case in.Path != "" && (in.Name != "" || in.Content != ""):
+			return nil, attachedOut{}, fmt.Errorf("attach takes a path, or content under a name, not both")
+		case in.Path != "":
+			if name, files, err = ops.ReadAttachment(in.Path); err != nil {
+				return nil, attachedOut{}, err
+			}
+		case in.Name != "" && in.Content != "":
+			name, files = in.Name, map[string]string{in.Name: in.Content}
+		default:
+			return nil, attachedOut{}, fmt.Errorf("attach takes a path, or content under a name")
+		}
+		issue, paths, err := ops.Attach(r.Store, xidr, name, files)
+		if err != nil {
+			return nil, attachedOut{}, err
+		}
+		m.look(ctx)
+		return result(fmt.Sprintf("Attached %s (%d file(s)) to issue %s\n", name, len(paths), issue.ID)),
+			attachedOut{ID: issue.ID, Files: paths}, nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
