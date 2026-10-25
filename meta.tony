@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 441cb9cf266728ed99805bda69c1eb8c446ab3ed
 commits: []
 created: "2026-10-25T08:30:05.695475+01:00"
 duplicates: []
@@ -10,5 +11,5 @@ labels:
 - agent
 - mcp
 related_issues: []
-status: open
-updated: "2026-10-25T08:30:05.819664+01:00"
+status: closed
+updated: "2026-10-25T08:35:27.770178+01:00"
