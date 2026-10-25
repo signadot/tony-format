@@ -238,14 +238,32 @@ func TestMCP_AnIssuesLife(t *testing.T) {
 	up := git("100644 blob "+blob+"\tescaped.txt\n", "mktree")
 	files := git("040000 tree "+up+"\t..\n", "mktree")
 	disc := git("040000 tree "+files+"\tfiles\n", "mktree")
-	root := git("", "ls-tree", planted.Ref) + "\n040000 tree " + disc + "\tdiscussion\n"
-	git("", "update-ref", planted.Ref, git("", "commit-tree", git(root, "mktree"), "-p", planted.Ref, "-m", "planted"))
+	unplanted := git("", "ls-tree", planted.Ref)
+	plant := func(disc string) {
+		root := unplanted + "\n040000 tree " + disc + "\tdiscussion\n"
+		git("", "update-ref", planted.Ref, git("", "commit-tree", git(root, "mktree"), "-p", planted.Ref, "-m", "planted"))
+	}
+	plant(disc)
 	into := filepath.Join(t.TempDir(), "into")
 	if msg := refused(t, cs, "issue_extract", map[string]any{"id": planted.ID, "dir": into}); !strings.Contains(msg, "not a relative path under discussion/files/") {
 		t.Errorf("a name that climbs out was refused with %q", msg)
 	}
 	if _, err := os.Stat(filepath.Join(filepath.Dir(into), "escaped.txt")); err == nil {
 		t.Error("a name that climbs out was written outside the directory")
+	}
+	// Two stored names that land on one file here, as names that differ only in case do where
+	// case is not told apart: discussion/a.txt and discussion/files/a.txt. The second is
+	// refused once the first is written, and the first is removed, and the directory made for
+	// it, so a failure part way writes nothing either.
+	first := git("first\n", "hash-object", "-w", "--stdin")
+	second := git("second\n", "hash-object", "-w", "--stdin")
+	files = git("100644 blob "+second+"\ta.txt\n", "mktree")
+	plant(git("100644 blob "+first+"\ta.txt\n040000 tree "+files+"\tfiles\n", "mktree"))
+	if msg := refused(t, cs, "issue_extract", map[string]any{"id": planted.ID, "dir": into}); !strings.Contains(msg, "land on the same file") || !strings.Contains(msg, "nothing written") {
+		t.Errorf("two names on one file were refused with %q", msg)
+	}
+	if _, err := os.Stat(into); !os.IsNotExist(err) {
+		t.Errorf("a refused extract left %s behind: %v", into, err)
 	}
 	git("", "update-ref", "-d", planted.Ref)
 

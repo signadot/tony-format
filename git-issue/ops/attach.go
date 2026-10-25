@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -104,9 +105,10 @@ func ReadAttachment(p string) (name string, files map[string]string, err error) 
 // discussion/files/, and answers the files written, sorted. name picks one attachment, or a
 // directory of them, as show lists it or relative to discussion/files/; empty is all of them.
 // The bytes are written as stored. Nothing is overwritten: when a destination already holds
-// something, that is named and nothing is written. A stored name that would land outside dir
-// is refused, since an issue may have come from another clone and attach's check on the way
-// in is that clone's.
+// something, that is named and nothing is written; and a write that fails part way removes
+// what this call wrote, so a failure writes nothing either. A stored name that would land
+// outside dir is refused, since an issue may have come from another clone and attach's check
+// on the way in is that clone's.
 func Extract(s issuelib.Store, id, name, dir string) ([]string, error) {
 	if dir == "" {
 		return nil, fmt.Errorf("extract takes a directory to write into")
@@ -157,28 +159,59 @@ func Extract(s issuelib.Store, id, name, dir string) ([]string, error) {
 	if len(there) > 0 {
 		return nil, fmt.Errorf("nothing written: already on this machine, and not overwritten: %s", strings.Join(there, ", "))
 	}
-	written := make([]string, 0, len(picked))
+	// What this call made, files and directories, so that a failure part way removes it:
+	// each file was opened O_EXCL, so it is this call's, and a directory is removed only once
+	// empty.
+	var written, made []string
+	undo := func(err error) ([]string, error) {
+		for _, p := range written {
+			os.Remove(p)
+		}
+		for i := len(made) - 1; i >= 0; i-- {
+			os.Remove(made[i])
+		}
+		return nil, fmt.Errorf("%w; nothing written", err)
+	}
 	for _, e := range picked {
 		data, err := s.ReadFile(ref, e.from)
 		if err != nil {
-			return written, fmt.Errorf("failed to read %s: %w", e.from, err)
+			return undo(fmt.Errorf("failed to read %s: %w", e.from, err))
+		}
+		var missing []string
+		for d := filepath.Dir(e.to); ; d = filepath.Dir(d) {
+			if _, err := os.Lstat(d); !errors.Is(err, fs.ErrNotExist) {
+				break
+			}
+			missing = append(missing, d)
 		}
 		if err := os.MkdirAll(filepath.Dir(e.to), 0o755); err != nil {
-			return written, err
+			return undo(err)
+		}
+		for j := len(missing) - 1; j >= 0; j-- {
+			made = append(made, missing[j])
 		}
 		// O_EXCL: a file that appeared since the check above is not overwritten either.
 		f, err := os.OpenFile(e.to, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if err != nil {
-			return written, err
+			// Two stored names can land on one file here: names that differ only in case,
+			// on a filesystem that does not tell case apart.
+			if to, serr := os.Stat(e.to); serr == nil {
+				for j, w := range written {
+					if from, serr := os.Stat(w); serr == nil && os.SameFile(from, to) {
+						return undo(fmt.Errorf("%s and %s land on the same file in %s; extract them one at a time, into different directories", picked[j].from, e.from, dir))
+					}
+				}
+			}
+			return undo(err)
 		}
+		written = append(written, e.to)
 		_, werr := f.Write(data)
 		if cerr := f.Close(); werr == nil {
 			werr = cerr
 		}
 		if werr != nil {
-			return written, fmt.Errorf("failed to write %s: %w", e.to, werr)
+			return undo(fmt.Errorf("failed to write %s: %w", e.to, werr))
 		}
-		written = append(written, e.to)
 	}
 	return written, nil
 }
