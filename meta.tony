@@ -6,7 +6,10 @@ commits: []
 created: "2026-10-27T18:37:44.522404+01:00"
 duplicates: []
 id: exkzk84wh12krt71w1n0
-labels: []
+labels:
+- agent
+- stream
+- token
 related_issues: []
 status: open
-updated: "2026-10-27T18:37:44.522404+01:00"
+updated: "2026-10-27T18:37:44.666449+01:00"
