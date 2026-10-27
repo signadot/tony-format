@@ -258,7 +258,8 @@ func TestPosDoc_nl_DuplicatePrevention(t *testing.T) {
 // A stream of documents gives each document its own line table, so a long-lived
 // source holds one document's newlines rather than every newline it has seen
 // (exkzk84wh12krt71w1n0), and positions count lines from their document's start
-// -- including positions taken before later documents were read.
+// -- including positions taken before later documents were read. A block
+// document runs to its `---`, so its lines are not cut at every newline.
 func TestTokenSource_LineTablePerDocument(t *testing.T) {
 	var in strings.Builder
 	in.WriteString("{\n  a: 1\n}\n")
@@ -267,6 +268,7 @@ func TestTokenSource_LineTablePerDocument(t *testing.T) {
 		in.WriteString("{a: 1}\n")
 	}
 	in.WriteString("[\n  x,\n  y]\n")
+	in.WriteString("---\nk: 1\n- b\n---\nc: 1\n")
 
 	src := NewTokenSource(strings.NewReader(in.String()))
 	var toks []Token
@@ -306,6 +308,8 @@ func TestTokenSource_LineTablePerDocument(t *testing.T) {
 		{"a", 0, 1, 2},
 		{"a", N, 0, 1},
 		{"y", 0, 2, 2},
+		{"b", 0, 1, 2},
+		{"c", 0, 0, 0},
 	} {
 		if l, col := lineCol(c.lit, c.nth); l != c.line || col != c.col {
 			t.Errorf("%q #%d at (%d,%d), want (%d,%d)", c.lit, c.nth, l, col, c.line, c.col)

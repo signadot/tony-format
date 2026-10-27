@@ -10,13 +10,14 @@ import (
 // newlines seen, from which a Pos works out its line and column when asked.
 //
 // In streaming mode the input is a stream of documents, and each document has a
-// PosDoc of its own, starting at start, the absolute offset just past the
-// newline outside brackets that ended the line before (see Tokenizer.endLine).
-// Lines count from there -- from the line the document's value opens on, since
-// a head comment or tag on a line of its own ends that line too -- which is the
-// only line number that means anything in a stream; offsets stay absolute. A
-// single table for the whole stream kept 8 bytes for every line that ever
-// crossed a long-lived decoder (exkzk84wh12krt71w1n0).
+// PosDoc of its own, starting at start, the absolute offset of its first byte
+// (see Tokenizer.endLine and startDoc). Lines count from there -- for a
+// bracketed value or scalar, from the line it opens on, since a head comment or
+// tag on a line of its own ends that line too; for a block document, from the
+// line after its `---` -- which is the only line number that means anything in
+// a stream; offsets stay absolute. A single table for the whole stream kept 8
+// bytes for every line that ever crossed a long-lived decoder
+// (exkzk84wh12krt71w1n0).
 type PosDoc struct {
 	d     []byte
 	n     []int
@@ -82,9 +83,11 @@ func (p *PosDoc) PosWithContext(absoluteOffset int, context []byte, bufferStartO
 	}
 }
 
+// end is the position past the document's last byte; a streaming table has no
+// document bytes, so there it is the document's start, never before it.
 func (p *PosDoc) end() *Pos {
 	return &Pos{
-		I: len(p.d),
+		I: max(len(p.d), p.start),
 		D: p,
 	}
 }

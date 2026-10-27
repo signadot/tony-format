@@ -54,6 +54,11 @@ type Tokenizer struct {
 	// input rather than by a delimiter — a multiline literal at the end of a
 	// document — is asked for forever and silently dropped.
 	drained bool
+
+	// block is set when the current document shows block structure outside any
+	// brackets: a key's colon or a `- ` at depth 0. Such a document runs to the
+	// next `---`, not to the next newline; see endLine.
+	block bool
 }
 
 // NewTokenizer creates a new Tokenizer for streaming mode (from io.Reader).
@@ -291,19 +296,27 @@ func (t *Tokenizer) needsMoreData(err error) bool {
 }
 
 // endLine is told that the newline at off has been consumed. In streaming mode a
-// newline outside any brackets ends a document -- a stream is a sequence of
-// top-level values, which is all TokenSource and its readers take -- so the
-// next document gets a line table of its own, and the tables of documents
-// already read go as soon as nothing holds a Pos into them.
+// newline outside any brackets ends a document unless the document is block
+// style -- a stream is either top-level bracketed values and scalars, one to a
+// line, or block documents separated by `---` -- so the next document gets a
+// line table of its own, and the tables of documents already read go as soon as
+// nothing holds a Pos into them. A block document's table is started by its
+// separator instead (startDoc).
 //
 // It is called only once the newline is consumed: a newline the scan has to
 // retry with more data is recorded again by nl, and must be recorded in the
 // table it ends.
 func (t *Tokenizer) endLine(off int64) {
-	if t.reader == nil || t.ts.cb > 0 || t.ts.sb > 0 {
+	if t.reader == nil || t.block || t.ts.cb > 0 || t.ts.sb > 0 {
 		return
 	}
-	t.posDoc = &PosDoc{start: int(off) + 1}
+	t.startDoc(off + 1)
+}
+
+// startDoc starts the line table of a document whose first byte is at off.
+func (t *Tokenizer) startDoc(off int64) {
+	t.posDoc = &PosDoc{start: int(off)}
+	t.block = false
 }
 
 // TokenizeOne tokenizes one or more tokens from a buffer slice.
@@ -353,11 +366,16 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 					return nil, 0, io.EOF // need more data to tell
 				}
 			} else if data[pos+1] == '-' && data[pos+2] == '-' {
-				t.endLine(absOffset)
 				tok := Token{
 					Type:  TDocSep,
 					Pos:   t.posDoc.Pos(int(absOffset + 1)), // After newline
 					Bytes: data[pos : pos+4],
+				}
+				// The separator closes the document before it, and is positioned
+				// in that document; the next one starts after the separator's
+				// newline, which nl never sees.
+				if t.reader != nil {
+					t.startDoc(absOffset + 5)
 				}
 				return []Token{tok}, 4, nil
 			}
@@ -419,6 +437,9 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			Bytes: data[pos : pos+1],
 		}
 		t.ts.kvSep = true
+		if t.ts.cb == 0 && t.ts.sb == 0 {
+			t.block = true
+		}
 		return []Token{tok}, 1, nil
 
 	case '"', '\'':
@@ -712,6 +733,9 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 				Type:  TArrayElt,
 				Bytes: data[pos : pos+2],
 				Pos:   t.posDoc.Pos(int(absOffset)),
+			}
+			if t.ts.cb == 0 && t.ts.sb == 0 {
+				t.block = true
 			}
 			consumed := 1
 			if next != '\n' {
