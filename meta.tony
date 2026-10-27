@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 9afa70bfa746d8edc414cdd8994f4b958c3dec43
 commits: []
 created: "2026-10-27T18:37:44.522404+01:00"
 duplicates: []
@@ -11,5 +12,5 @@ labels:
 - stream
 - token
 related_issues: []
-status: open
-updated: "2026-10-27T18:37:44.666449+01:00"
+status: closed
+updated: "2026-10-27T18:45:04.097123+01:00"
