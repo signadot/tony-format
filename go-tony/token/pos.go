@@ -6,9 +6,21 @@ import (
 	"strconv"
 )
 
+// PosDoc is the line table positions are reported against: the offsets of the
+// newlines seen, from which a Pos works out its line and column when asked.
+//
+// In streaming mode the input is a stream of documents, and each document has a
+// PosDoc of its own, starting at start, the absolute offset just past the
+// newline outside brackets that ended the line before (see Tokenizer.endLine).
+// Lines count from there -- from the line the document's value opens on, since
+// a head comment or tag on a line of its own ends that line too -- which is the
+// only line number that means anything in a stream; offsets stay absolute. A
+// single table for the whole stream kept 8 bytes for every line that ever
+// crossed a long-lived decoder (exkzk84wh12krt71w1n0).
 type PosDoc struct {
-	d []byte
-	n []int
+	d     []byte
+	n     []int
+	start int
 }
 
 func (p *PosDoc) nl(i int) {
@@ -30,17 +42,10 @@ func (p *PosDoc) LineCol(off int) (int, int) {
 	di := sort.Search(N, func(i int) bool {
 		return p.n[i] >= off
 	})
-	switch di {
-	case 0:
-		return 0, off
-	case N:
-		if N != 0 {
-			return di, off - p.n[di-1] - 1
-		}
-		return 0, off
-	default:
-		return di, off - p.n[di-1] - 1
+	if di == 0 {
+		return 0, off - p.start
 	}
+	return di, off - p.n[di-1] - 1
 }
 
 func (d *PosDoc) Pos(i int) *Pos {

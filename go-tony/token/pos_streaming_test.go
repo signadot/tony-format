@@ -1,6 +1,8 @@
 package token
 
 import (
+	"io"
+	"strings"
 	"testing"
 )
 
@@ -250,5 +252,63 @@ func TestPosDoc_nl_DuplicatePrevention(t *testing.T) {
 	}
 	if posDoc.n[0] != 10 || posDoc.n[1] != 20 {
 		t.Errorf("Expected [10, 20], got %v", posDoc.n)
+	}
+}
+
+// A stream of documents gives each document its own line table, so a long-lived
+// source holds one document's newlines rather than every newline it has seen
+// (exkzk84wh12krt71w1n0), and positions count lines from their document's start
+// -- including positions taken before later documents were read.
+func TestTokenSource_LineTablePerDocument(t *testing.T) {
+	var in strings.Builder
+	in.WriteString("{\n  a: 1\n}\n")
+	const N = 1000
+	for range N {
+		in.WriteString("{a: 1}\n")
+	}
+	in.WriteString("[\n  x,\n  y]\n")
+
+	src := NewTokenSource(strings.NewReader(in.String()))
+	var toks []Token
+	maxTable := 0
+	for {
+		got, err := src.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		toks = append(toks, got...)
+		maxTable = max(maxTable, len(src.tokenizer.posDoc.n))
+	}
+	if maxTable > 3 {
+		t.Errorf("line table held %d newlines; one document has at most 3", maxTable)
+	}
+
+	lineCol := func(lit string, nth int) (int, int) {
+		for _, tok := range toks {
+			if string(tok.Bytes) == lit {
+				if nth == 0 {
+					return tok.Pos.LineCol()
+				}
+				nth--
+			}
+		}
+		t.Fatalf("no token %q", lit)
+		return 0, 0
+	}
+	for _, c := range []struct {
+		lit       string
+		nth       int
+		line, col int
+	}{
+		{"a", 0, 1, 2},
+		{"a", N, 0, 1},
+		{"y", 0, 2, 2},
+	} {
+		if l, col := lineCol(c.lit, c.nth); l != c.line || col != c.col {
+			t.Errorf("%q #%d at (%d,%d), want (%d,%d)", c.lit, c.nth, l, col, c.line, c.col)
+		}
 	}
 }

@@ -290,6 +290,22 @@ func (t *Tokenizer) needsMoreData(err error) bool {
 	return errors.Is(err, ErrUnterminated) || errors.Is(err, ErrPartialRune)
 }
 
+// endLine is told that the newline at off has been consumed. In streaming mode a
+// newline outside any brackets ends a document -- a stream is a sequence of
+// top-level values, which is all TokenSource and its readers take -- so the
+// next document gets a line table of its own, and the tables of documents
+// already read go as soon as nothing holds a Pos into them.
+//
+// It is called only once the newline is consumed: a newline the scan has to
+// retry with more data is recorded again by nl, and must be recorded in the
+// table it ends.
+func (t *Tokenizer) endLine(off int64) {
+	if t.reader == nil || t.ts.cb > 0 || t.ts.sb > 0 {
+		return
+	}
+	t.posDoc = &PosDoc{start: int(off) + 1}
+}
+
 // TokenizeOne tokenizes one or more tokens from a buffer slice.
 // This is the core tokenization logic, shared by Tokenize and TokenSource.
 //
@@ -337,6 +353,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 					return nil, 0, io.EOF // need more data to tell
 				}
 			} else if data[pos+1] == '-' && data[pos+2] == '-' {
+				t.endLine(absOffset)
 				tok := Token{
 					Type:  TDocSep,
 					Pos:   t.posDoc.Pos(int(absOffset + 1)), // After newline
@@ -348,6 +365,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		if pos < n && data[pos] == '\n' {
 			// Consecutive newline - consume first one, skip token
 			// Next call will process the second newline
+			t.endLine(absOffset)
 			return nil, 1, nil
 		}
 		indent := readIndent(data[pos:])
@@ -357,6 +375,7 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 		if pos+indent >= n && t.reader != nil && !t.drained {
 			return nil, 0, io.EOF
 		}
+		t.endLine(absOffset)
 		tok := Token{
 			Type:  TIndent,
 			Bytes: bytes.Repeat([]byte{' '}, indent),
