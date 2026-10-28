@@ -1,6 +1,6 @@
-# parse: a root comment after a dedent of several levels, followed by a nested list, is refused as "trailing material"
+# parse: a head comment after a deep outdent makes a later nested outdent "trailing material"
 
-A comment at the root, placed after a value that ends several levels deep and before a key whose value holds a nested list, makes the document unparseable. Without the comment, the document parses.
+A head comment that follows an outdent landing two or more levels deep, and precedes a shallower key, makes the document unparseable when a value later in the document nests and outdents again below that depth. Without the comment, the document parses. Lists play no part, and Tony and YAML mode both refuse it.
 
 Reproduced at `go-tony/v0.0.246`, which `origin/main` is at (2026-10-28), with `o view`:
 
@@ -8,14 +8,12 @@ Reproduced at `go-tony/v0.0.246`, which `origin/main` is at (2026-10-28), with `
 a:
   b:
     c:
-      d:
-      - 1
+      d: 1
     e: 2
 # comment
 f:
   g:
-    h:
-    - 3
+    h: 3
   i: 4
 ```
 
@@ -24,7 +22,7 @@ $ o view min.tony
 error processing min.tony: error decoding document 0: imbalanced document: trailing material "  "
 ```
 
-If the `# comment` line is deleted, the document parses. The indentation reported as trailing material (`"  "` here, `"    "` in the original file) is that of the first line after the nested list under `f`.
+If the `# comment` line is deleted, the document parses. The indentation reported as trailing material (`"  "` here, `"    "` in the original file) is that of the line where the value under `f` outdents (`i: 4`). The comment need not be at the root: indented to `e`'s level or to `b`'s, it is refused the same way. The shape it was found in has lists at `d` and `h` (`d:` / `- 1`, `h:` / `- 3`); they are not needed.
 
 ## Where it was found
 
