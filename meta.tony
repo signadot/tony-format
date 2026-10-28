@@ -6,7 +6,10 @@ commits: []
 created: "2026-10-28T09:58:26.13470872-03:00"
 duplicates: []
 id: gafnhmrsha9xrwqhw5n0
-labels: []
+labels:
+- bug
+- comments
+- parse
 related_issues: []
 status: open
-updated: "2026-10-28T09:58:26.13470872-03:00"
+updated: "2026-10-28T09:58:26.170199607-03:00"
