@@ -43,18 +43,27 @@ func TestHeadCommentsDoNotNest(t *testing.T) {
 	for _, tc := range []struct {
 		name, src string
 		want      []string
+		opts      []ParseOption
 	}{
 		{"above the key and above the block", "# above the spec\nspec:\n  # above replicas\n  replicas: 3\n",
-			[]string{"# above the spec", "# above replicas"}},
+			[]string{"# above the spec", "# above replicas"}, nil},
 		{"three places at once", "# one\nspec:\n  # two\n  # three\n  replicas: 3\n",
-			[]string{"# one", "# two", "# three"}},
+			[]string{"# one", "# two", "# three"}, nil},
 		{"above a list", "# above the key\nitems:\n  # above the first\n- a\n",
-			[]string{"# above the key", "# above the first"}},
+			[]string{"# above the key", "# above the first"}, nil},
 		{"a brace object", "# above the key\nspec: {\n  # inside\n  a: 1}\n",
-			[]string{"# above the key", "# inside"}},
+			[]string{"# above the key", "# inside"}, nil},
+		// The comment ended objects without recording the outdent, so the next
+		// key's object ended at its first inner outdent (gafnhmrsha9xrwqhw5n0).
+		{"above a key after a deep outdent",
+			"a:\n  b:\n    c:\n      d: 1\n    e: 2\n# above f\nf:\n  g:\n    h: 3\n  i: 4\n",
+			[]string{"# above f"}, nil},
+		{"above a key after a deep outdent, yaml",
+			"a:\n    b:\n        c:\n            d: 1\n        e: 2\n# above f\nf:\n    g:\n        h: 3\n    i: 4\n",
+			[]string{"# above f"}, []ParseOption{ParseYAML()}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			n, err := Parse([]byte(tc.src), ParseComments(true))
+			n, err := Parse([]byte(tc.src), append([]ParseOption{ParseComments(true)}, tc.opts...)...)
 			if err != nil {
 				t.Fatal(err)
 			}

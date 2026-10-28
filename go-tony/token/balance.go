@@ -546,9 +546,19 @@ KVLoop:
 					// Only a HEAD comment can belong to what follows. A line
 					// comment trails the value before it, wherever that value sits,
 					// so it is always this object's to carry.
-					if tok.Type == TComment && commentEndsObj(toks[i:], N, f) {
-						found = true
-						continue KVLoop
+					if tok.Type == TComment {
+						if n, ends := commentEndsObj(toks[i:], N, f); ends {
+							// The outdent past the comments is recorded as the
+							// indent path above records it. Left stale, the deeper
+							// indent an inner object last ended on was read by a
+							// later object as its own outdent, ending it early
+							// (gafnhmrsha9xrwqhw5n0).
+							if n != -1 && n < N {
+								*y = n
+							}
+							found = true
+							continue KVLoop
+						}
 					}
 					dst = append(dst, *tok)
 					i++
@@ -778,7 +788,9 @@ KVLoop:
 // It answers about the comment's OWNER rather than about the comment: a run
 // followed by a key at this object's own indent heads that key and stays inside;
 // anything else is written above whatever comes next, which is outside.
-func commentEndsObj(toks []Token, N int, f format.Format) bool {
+//
+// It also returns the indent of the line past the run, -1 if there is none.
+func commentEndsObj(toks []Token, N int, f format.Format) (int, bool) {
 	lastIndent := -1
 	for i := 0; i < len(toks); i++ {
 		switch {
@@ -787,12 +799,12 @@ func commentEndsObj(toks []Token, N int, f format.Format) bool {
 		case toks[i].Type.IsComment():
 			// keep scanning; a comment does not decide anything
 		case toks[i].Type == TArrayElt:
-			return true
+			return lastIndent, true
 		default:
 			// a key (or anything else) at this object's indent is ours
-			return lastIndent != -1 && lastIndent < N
+			return lastIndent, lastIndent != -1 && lastIndent < N
 		}
 	}
 	// nothing follows: the comments trail the document rather than this object
-	return true
+	return lastIndent, true
 }
