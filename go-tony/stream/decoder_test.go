@@ -1929,4 +1929,18 @@ func TestDecoder_ReadsAsTheParserDoes(t *testing.T) {
 			t.Errorf("decode %s: accepted as %s", src, got)
 		}
 	}
+	// A value where a key goes has no key: read under the key before it, `{a: 1,
+	// !delete}` was a second a, a delete; and a key cannot be tagged
+	// (vddn9vfbh12krdv4wsn0).
+	for _, src := range []string{
+		"{a: 1, !delete}", "{a: 1 !delete}", "{!t}", "{a: 1 true}", "{a: 1 [2]}", "{a: 1 {b: 2}}",
+		"{a !t !u}", "{a, !t}", "{a !t {b: 1}}", "{!t a: 1}", "{a # c\n !t b}", "{!t 1: 2}",
+	} {
+		if _, err := parse.Parse([]byte(src)); err == nil {
+			t.Errorf("parse %q: accepted", src)
+		}
+		if got, err := read(src); err == nil {
+			t.Errorf("decode %q: accepted as %s", src, got)
+		}
+	}
 }

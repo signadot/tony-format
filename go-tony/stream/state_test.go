@@ -17,8 +17,11 @@ func TestStateDepth(t *testing.T) {
 		t.Errorf("expected depth 1, got %d", state.Depth())
 	}
 
-	// Open array inside object
-	state.ProcessEvent(&Event{Type: EventBeginArray})
+	// Open array inside object, under a key: a value with none is refused
+	state.ProcessEvent(&Event{Type: EventKey, Key: "a"})
+	if err := state.ProcessEvent(&Event{Type: EventBeginArray}); err != nil {
+		t.Fatal(err)
+	}
 	if state.Depth() != 2 {
 		t.Errorf("expected depth 2, got %d", state.Depth())
 	}

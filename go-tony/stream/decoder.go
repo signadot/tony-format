@@ -186,6 +186,12 @@ func (d *Decoder) readEvent() (*Event, error) {
 			return nil, err
 		}
 
+		// A key cannot be tagged, as the parser says: the tag was dropped with the
+		// key it went on, `{!t a: 1}` read as {a: 1} (vddn9vfbh12krdv4wsn0).
+		if d.pendingTag != "" && (event.Type == EventKey || event.Type == EventIntKey) {
+			return nil, &Error{Msg: "key cannot be tagged: " + d.pendingTag}
+		}
+
 		// Set tag on event if present. A radix literal arrives with its notation as
 		// its tag (intEvent), which goes in front of the written one as the parser
 		// puts it (parse.composeNotation).

@@ -65,11 +65,24 @@ func (s *State) atKey() bool {
 	return (cur.kind == &obj || cur.kind == &spr) && !cur.hasKey
 }
 
+// keyed refuses a value where the current object's next key goes. Taken, the value
+// went in under the key before it a second time: `{a: 1, !delete}` read as
+// {a: 1, a: !delete null}, a delete of a (vddn9vfbh12krdv4wsn0).
+func (s *State) keyed() error {
+	if s.atKey() {
+		return errors.New("value with no key: " + s.CurrentPath())
+	}
+	return nil
+}
+
 // ProcessEvent processes an event and updates state/path tracking.
 // Call this for each event in order.
 func (s *State) ProcessEvent(event *Event) error {
 	switch event.Type {
 	case EventBeginObject:
+		if err := s.keyed(); err != nil {
+			return err
+		}
 		if s.Depth() > 0 {
 			cur := s.current()
 			cur.inc()
@@ -88,6 +101,9 @@ func (s *State) ProcessEvent(event *Event) error {
 		s.pop()
 
 	case EventBeginArray:
+		if err := s.keyed(); err != nil {
+			return err
+		}
 		if s.Depth() > 0 {
 			cur := s.current()
 			cur.inc()
@@ -101,6 +117,9 @@ func (s *State) ProcessEvent(event *Event) error {
 		}
 		s.pop()
 	case EventString, EventInt, EventFloat, EventBool, EventNull:
+		if err := s.keyed(); err != nil {
+			return err
+		}
 		if s.Depth() > 0 {
 			cur := s.current()
 			cur.inc()
