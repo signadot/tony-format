@@ -541,13 +541,23 @@ elements in an object or an array.
 ---
 # invalid
 [,]
+[, 1]
+[1, , 2]
 ---
 # all valid
 { k: v }
 { k1: v1, k2: v2 }
 { k1: v1 k2: v2 }
 { k1: v1, k2: v2, }
+---
+# invalid
+{, k: v}
+{ k1: v1,, k2: v2 }
 ```
+
+A ',' separates two elements, so one with nothing before it since the last ',' or
+the opening bracket is refused. It is never an element of its own: `[1, , 2]` is not
+`[1, null, 2]`.
 
 No more "missing trailing comma" nor "invalid syntax" for adding a trailing
 comma!
@@ -564,16 +574,10 @@ carry several.
 
 In bracketed mode only, a set of keys may be denoted by dropping the ':' and
 value after any key.  This is syntactic sugar for associating a null value with
-the key.
+the key.  A tag written after such a key is the tag of its null.
 
-Dropping the VALUE and keeping the ':' is not this, and is not anything: a `p:` with
-no value after it is refused wherever it is written, including as the last pair of a
-document.  A tag is not a value, so `p: !delete` is the same case as `p:` -- write
-`p: null` or `p: !delete null`, or use the key set above.  (YAML mode reads `p:` as a
-null, because YAML does.)
-
-A `- ` with no value after it is refused the same way: write `- null` for a null
-element.  (YAML mode reads a bare `- ` as a null element, because YAML does.)
+Dropping the value and keeping the ':' is not this; see [Implicit
+Null](#implicit-null) for where a null may go unwritten and where it may not.
 
 ```tony
 {1 2 3}
@@ -623,8 +627,57 @@ g: 22
 h: null
 ```
 
+### Implicit Null
 
+A null may be left unwritten in exactly three places, and nowhere else.
 
+1. **A key in a key set.** In brackets, a key with no ':' and no value has a null
+   value, and a tag written after the key is the tag of that null.
+2. **A tag that ends a bracketed value.** In brackets, a tag followed by `,`, `}` or
+   `]` is the tag of a null.
+3. **A document that is only a tag.** It is that tag on a null.
+
+```tony
+{a b !t}
+[1, !t]
+{a: !t, b: 1}
+---
+# equivalent to
+{a: null, b: !t null}
+[1, !t null]
+{a: !t null, b: 1}
+---
+!t
+---
+# equivalent to
+!t null
+```
+
+Everywhere else a value that is not written is refused. A tag is not a value, so a
+tag alone after a ':' or a '- ' outside brackets is refused as the ':' or '- ' alone
+is.
+
+```tony
+# each one invalid
+{a:}
+---
+a:
+---
+a: !t
+---
+-
+---
+- !t
+---
+[1, , 2]
+```
+
+Write the null: `a: null`, `a: !t null`, `- null`, `- !t null`.  In brackets, the
+key set `{a}` is the short form of `{a: null}`.
+
+A document holding nothing, or only comments, is not a null: it is no document.
+
+(YAML mode reads `a:` and `- ` as null, because YAML does.)
 
 ### Sparse Arrays
 
