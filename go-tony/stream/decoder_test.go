@@ -1914,6 +1914,9 @@ func TestDecoder_ReadsAsTheParserDoes(t *testing.T) {
 		`{a b c}`, `{a, b}`, `{a b: 1}`, `{a: 1 b}`, `{a !t b}`, `{a !t, b: 1}`, `{1 2 3}`, `{a: {b c}}`, `[{a b}]`,
 		// a tag before `}`, `]` or `,` (yc5vx3z2h12kr89yvdn0)
 		`{a: !t}`, `{a: !t, b: 1}`, `[!t]`, `[1, !t]`,
+		// ... with a line break or a comment before the `}`, `]` or `,` (vxdn9vfbh12krkkawsn0)
+		"{a: !t\n}", "{a: !t # c\n}", "[!t # c\n]", "{a: !t\n , b: 1}", "[!t # c\n, 1]",
+		"{a: !t # c\n , b: 1}", "[1, !t\n]", "{a: !t\n  # h\n}",
 		// trailing commas
 		`[1,]`, `{a: 1,}`,
 		// a tag on a document's value

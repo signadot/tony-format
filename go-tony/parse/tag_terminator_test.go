@@ -91,7 +91,9 @@ func TestUnmatchedParenDegradesToWhitespace(t *testing.T) {
 // `{a !delete }`. With the tag ending at the bracket too, the same thing written
 // against one had nothing to balance and the bracket read as unopened.
 func TestTagWithNoValueIsATaggedNull(t *testing.T) {
-	for _, src := range []string{`{x: !t1}`, `[!t1]`, `{x: !t1, y: 1}`} {
+	for _, src := range []string{`{x: !t1}`, `[!t1]`, `{x: !t1, y: 1}`,
+		// a line break or a comment before the bracket (vxdn9vfbh12krkkawsn0)
+		"{x: !t1\n}", "{x: !t1 # c\n}", "[!t1 # c\n, 1]", "{x: !t1\n, y: 1}"} {
 		if _, err := Parse([]byte(src), ParseTony()); err != nil {
 			t.Errorf("%s: %v", src, err)
 		}

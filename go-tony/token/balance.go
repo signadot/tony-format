@@ -220,7 +220,11 @@ func balanceOne(dst []Token, toks []Token, d int, y *int, underField bool, f for
 		// end the tag. With the tag ending at the bracket too, the same thing
 		// written `{x: !t1}` or `[!t1]` reached here with nothing to balance, and
 		// the closing bracket was reported as unopened (pkj422gkh12kr24gj1n0).
-		if len(toks) == 1 || endsValue(toks[1].Type) {
+		// A line break or a comment between the tag and the bracket does not
+		// change that: `{a: !t\n}` is {a: !t null}, and the comment stays after
+		// the null. Looking only at the next token, it read as "unopened }"
+		// (vxdn9vfbh12krkkawsn0).
+		if len(toks) == 1 || endsValue(nextSignificant(toks[1:])) {
 			dst = append(dst, Token{Type: TNull, Pos: tok.Pos})
 			return dst, 1, nil
 		}
@@ -240,6 +244,17 @@ func balanceOne(dst []Token, toks []Token, d int, y *int, underField bool, f for
 		}
 		return nil, 0, fmt.Errorf("`%s` cannot start a value %s", tok.Bytes, tok.Pos)
 	}
+}
+
+// nextSignificant is the type of the first token in toks that is not a line break
+// or a comment, or TIndent if there is none.
+func nextSignificant(toks []Token) TokenType {
+	for i := range toks {
+		if toks[i].Type != TIndent && !toks[i].Type.IsComment() {
+			return toks[i].Type
+		}
+	}
+	return TIndent
 }
 
 // onlyComments reports whether toks hold nothing but comments and line breaks.

@@ -124,7 +124,11 @@ func (d *Decoder) readEvent() (*Event, error) {
 		// Given to the closing bracket instead, the tag made an event the state
 		// refused as a key with no value, and the session's reader ended on it
 		// (yc5vx3z2h12kr89yvdn0).
-		if d.pendingTag != "" && (tok.Type == token.TRCurl || tok.Type == token.TRSquare || tok.Type == token.TComma) {
+		//
+		// A line break or a comment before the bracket does not change that, and the
+		// comment goes after the null, as it does after a written one; held until
+		// the bracket, it went before the null as its head (vxdn9vfbh12krkkawsn0).
+		if d.pendingTag != "" && d.endsTaggedValue(tok) {
 			d.pushBack(tok)
 			event := &Event{Type: EventNull, Tag: d.pendingTag}
 			d.pendingTag = ""
@@ -268,6 +272,25 @@ func (d *Decoder) commentEvent(first token.Token) (*Event, error) {
 		return nil, err
 	}
 	return ev, nil
+}
+
+// endsTaggedValue reports whether tok, or the first token after it past line
+// breaks and comments, is a `}`, `]` or `,`, which ends a pending tag's value as a
+// tagged null. The tokens it looks at past tok are returned to the buffer.
+func (d *Decoder) endsTaggedValue(tok token.Token) bool {
+	var seen []token.Token
+	for tok.Type == token.TIndent || tok.Type == token.TComment || tok.Type == token.TLineComment {
+		next, err := d.nextToken()
+		if err != nil {
+			break
+		}
+		seen = append(seen, next)
+		tok = next
+	}
+	for i := len(seen) - 1; i >= 0; i-- {
+		d.pushBack(seen[i])
+	}
+	return tok.Type == token.TRCurl || tok.Type == token.TRSquare || tok.Type == token.TComma
 }
 
 // pushBack returns a token to the head of the pending buffer, for a peek that
