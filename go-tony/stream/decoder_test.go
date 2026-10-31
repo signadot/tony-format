@@ -1401,7 +1401,6 @@ func TestDecoder_Tags(t *testing.T) {
 	tests := []struct {
 		name     string
 		data     string
-		wantErr  string // the read ends with an error saying this, after expected
 		expected []struct {
 			eventType EventType
 			tag       string
@@ -1502,13 +1501,12 @@ func TestDecoder_Tags(t *testing.T) {
 				{eventType: EventEndObject},
 			},
 		},
-		// A tag is not a value (docs/tony.md, Key Sets): a tag the value was dropped
-		// after is refused, whatever follows it, as the parser refuses `note: !delete`
-		// at the end of a line (yc5vx3z2h12kr89yvdn0).
+		// A tag with no value before `}`, `]` or `,` is a tagged null, as the parser
+		// reads it (pkj422gkh12kr24gj1n0). The tag went to the closing bracket, and a
+		// session's reader ended on the state's refusal of it (yc5vx3z2h12kr89yvdn0).
 		{
-			name:    "tag before close brace",
-			data:    `{n: 2, note: !delete}`,
-			wantErr: "a tag must be followed by a value: !delete is followed by \"}\"",
+			name: "tag before close brace",
+			data: `{n: 2, note: !delete}`,
 			expected: []struct {
 				eventType EventType
 				tag       string
@@ -1522,12 +1520,13 @@ func TestDecoder_Tags(t *testing.T) {
 				{eventType: EventKey, key: "n"},
 				{eventType: EventInt, intVal: 2},
 				{eventType: EventKey, key: "note"},
+				{eventType: EventNull, tag: "!delete"},
+				{eventType: EventEndObject},
 			},
 		},
 		{
-			name:    "tag before comma",
-			data:    `{note: !delete, n: 2}`,
-			wantErr: "a tag must be followed by a value: !delete is followed by \",\"",
+			name: "tag before comma",
+			data: `{note: !delete, n: 2}`,
 			expected: []struct {
 				eventType EventType
 				tag       string
@@ -1539,12 +1538,15 @@ func TestDecoder_Tags(t *testing.T) {
 			}{
 				{eventType: EventBeginObject, tag: ""},
 				{eventType: EventKey, key: "note"},
+				{eventType: EventNull, tag: "!delete"},
+				{eventType: EventKey, key: "n"},
+				{eventType: EventInt, intVal: 2},
+				{eventType: EventEndObject},
 			},
 		},
 		{
-			name:    "tag before close bracket",
-			data:    `[1, !delete]`,
-			wantErr: "a tag must be followed by a value: !delete is followed by \"]\"",
+			name: "tag before close bracket",
+			data: `[1, !delete]`,
 			expected: []struct {
 				eventType EventType
 				tag       string
@@ -1556,6 +1558,8 @@ func TestDecoder_Tags(t *testing.T) {
 			}{
 				{eventType: EventBeginArray, tag: ""},
 				{eventType: EventInt, intVal: 1},
+				{eventType: EventNull, tag: "!delete"},
+				{eventType: EventEndArray},
 			},
 		},
 		{
@@ -1696,16 +1700,10 @@ func TestDecoder_Tags(t *testing.T) {
 			for {
 				event, err := dec.ReadEvent()
 				if err == io.EOF {
-					if tt.wantErr != "" {
-						t.Fatalf("read to EOF; wanted an error saying %q", tt.wantErr)
-					}
 					break
 				}
 				if err != nil {
-					if tt.wantErr == "" || !strings.Contains(err.Error(), tt.wantErr) {
-						t.Fatalf("unexpected error: %v", err)
-					}
-					break
+					t.Fatalf("unexpected error: %v", err)
 				}
 				events = append(events, event)
 			}

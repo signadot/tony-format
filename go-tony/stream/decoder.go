@@ -1,7 +1,6 @@
 package stream
 
 import (
-	"fmt"
 	"io"
 	"slices"
 	"strconv"
@@ -69,11 +68,23 @@ func (d *Decoder) ReadEvent() (*Event, error) {
 			return nil, err
 		}
 
+		// A tag with no value is a tagged null, as the parser reads it: a `}`, `]` or
+		// `,` after a tag ends the value there (token.balanceOne, pkj422gkh12kr24gj1n0).
+		// Given to the closing bracket instead, the tag made an event the state
+		// refused as a key with no value, and the session's reader ended on it
+		// (yc5vx3z2h12kr89yvdn0).
+		if d.pendingTag != "" && (tok.Type == token.TRCurl || tok.Type == token.TRSquare || tok.Type == token.TComma) {
+			d.pushBack(tok)
+			event := &Event{Type: EventNull, Tag: d.pendingTag}
+			d.pendingTag = ""
+			if err := d.state.ProcessEvent(event); err != nil {
+				return nil, err
+			}
+			return event, nil
+		}
+
 		// Skip structural tokens (commas, colons, indents)
 		if tok.Type == token.TComma || tok.Type == token.TColon || tok.Type == token.TIndent {
-			if tok.Type == token.TComma && d.pendingTag != "" {
-				return nil, errTagWithoutValue(d.pendingTag, tok)
-			}
 			continue
 		}
 
@@ -114,18 +125,6 @@ func (d *Decoder) ReadEvent() (*Event, error) {
 			return nil, err
 		}
 
-		// A tag is not a value (docs/tony.md, Key Sets): `note: !delete}` is refused,
-		// as the tokenizer refuses `note: !delete` at the end of a line, and for the
-		// same reason -- the value was not written. Given to the `}` or the next key
-		// instead, the tag made an event the state could only refuse as a key with no
-		// value, which said nothing about the tag (yc5vx3z2h12kr89yvdn0).
-		if d.pendingTag != "" {
-			switch event.Type {
-			case EventKey, EventIntKey, EventEndObject, EventEndArray:
-				return nil, errTagWithoutValue(d.pendingTag, tok)
-			}
-		}
-
 		// Set tag on event if present. A radix literal arrives with its notation as
 		// its tag (intEvent), which goes in front of the written one as the parser
 		// puts it (parse.composeNotation).
@@ -143,17 +142,6 @@ func (d *Decoder) ReadEvent() (*Event, error) {
 
 		return event, nil
 	}
-}
-
-// errTagWithoutValue is a tag followed by tok, which is not a value, with the tokenizer's
-// wording for the same shape in indented form (token.errDanglingColon).
-func errTagWithoutValue(tag string, tok token.Token) error {
-	at := ""
-	if tok.Pos != nil {
-		at = " " + tok.Pos.String()
-	}
-	return &Error{Msg: fmt.Sprintf("a tag must be followed by a value: %s is followed by %q%s; write `%s null` for a null",
-		tag, string(tok.Bytes), at, tag)}
 }
 
 // commentEvent gathers a run of comment tokens of one kind into a single event.
