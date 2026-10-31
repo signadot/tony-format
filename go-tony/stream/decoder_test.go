@@ -9,6 +9,7 @@ import (
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/format"
 	"github.com/signadot/tony-format/go-tony/ir"
+	"github.com/signadot/tony-format/go-tony/parse"
 )
 
 func TestNewDecoder(t *testing.T) {
@@ -1872,6 +1873,60 @@ func TestDecoderLargeMultiByteValue(t *testing.T) {
 		}
 		if got != body {
 			t.Fatalf("%d bytes: value round-trip mismatch: got %d bytes", len(body), len(got))
+		}
+	}
+}
+
+// The decoder reads a bracketed document as the parser does: the session protocols
+// read requests through it, so a document that means one thing in a file and another
+// on the wire is stored as the other. Where a null is left implicit (docs/tony.md,
+// Implicit Null), and where a value or a ',' is missing and both refuse.
+func TestDecoder_ReadsAsTheParserDoes(t *testing.T) {
+	read := func(src string) (string, error) {
+		dec, err := NewDecoder(strings.NewReader(src), WithBrackets())
+		if err != nil {
+			return "", err
+		}
+		n, err := ReadDocument(dec)
+		if err != nil {
+			return "", err
+		}
+		var b bytes.Buffer
+		err = encode.Encode(n, &b, encode.EncodeWire(true))
+		return b.String(), err
+	}
+	for _, src := range []string{
+		// key sets (v9dn9vfbh12kssj2wsn0)
+		`{a b c}`, `{a, b}`, `{a b: 1}`, `{a: 1 b}`, `{a !t b}`, `{a !t, b: 1}`, `{1 2 3}`, `{a: {b c}}`, `[{a b}]`,
+		// a tag before `}`, `]` or `,` (yc5vx3z2h12kr89yvdn0)
+		`{a: !t}`, `{a: !t, b: 1}`, `[!t]`, `[1, !t]`,
+		// trailing commas
+		`[1,]`, `{a: 1,}`,
+	} {
+		n, err := parse.Parse([]byte(src))
+		if err != nil {
+			t.Fatalf("parse %s: %v", src, err)
+		}
+		var want bytes.Buffer
+		if err := encode.Encode(n, &want, encode.EncodeWire(true)); err != nil {
+			t.Fatal(err)
+		}
+		got, err := read(src)
+		if err != nil {
+			t.Errorf("decode %s: %v; the parser reads %s", src, err, want.String())
+			continue
+		}
+		if got != want.String() {
+			t.Errorf("decode %s = %s; the parser reads %s", src, got, want.String())
+		}
+	}
+	// A ',' with no element before it separates nothing (v9dn9vfbh12kssj2wsn0).
+	for _, src := range []string{`{a:}`, `{a: , b: 1}`, `[,]`, `[,1]`, `[1,,]`, `[1, , 2]`, `{,a: 1}`, `{a: 1,,b: 2}`, `{a,,b}`} {
+		if _, err := parse.Parse([]byte(src)); err == nil {
+			t.Errorf("parse %s: accepted", src)
+		}
+		if got, err := read(src); err == nil {
+			t.Errorf("decode %s: accepted as %s", src, got)
 		}
 	}
 }

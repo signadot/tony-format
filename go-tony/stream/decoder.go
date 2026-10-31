@@ -23,6 +23,13 @@ type Decoder struct {
 	// Lookahead buffer for token-to-event conversion
 	// We need to peek ahead to determine if TString/TLiteral is a key or value
 	pendingTokens []token.Token
+
+	// keySetNull says the last event was a key-set key, `{a b}`, whose null is the
+	// next event; see keySetKey.
+	keySetNull bool
+	// elementBefore says a value or a close came last, so a ',' after it separates.
+	// A ',' with no element before it is refused, in an object as in an array.
+	elementBefore bool
 }
 
 // NewDecoder creates a new Decoder reading from r.
@@ -61,6 +68,45 @@ func NewDecoder(r io.Reader, opts ...StreamOption) (*Decoder, error) {
 //
 // Comment tokens become EventHeadComment and EventLineComment; see commentEvent.
 func (d *Decoder) ReadEvent() (*Event, error) {
+	event, err := d.readEvent()
+	if err != nil {
+		return nil, err
+	}
+	switch event.Type {
+	case EventHeadComment, EventLineComment:
+		// A comment is not an element, and does not stand between two.
+	case EventBeginObject, EventBeginArray, EventKey, EventIntKey:
+		d.elementBefore = false
+	default:
+		d.elementBefore = true
+	}
+	return event, nil
+}
+
+func (d *Decoder) readEvent() (*Event, error) {
+	// A key-set key, `{a b}`, has a null value, and a tag written after the key goes
+	// on it: `{a !t b}` is {a: !t null, b: null}, as the parser reads it
+	// (docs/tony.md, Implicit Null; v9dn9vfbh12kssj2wsn0).
+	if d.keySetNull {
+		d.keySetNull = false
+		event := &Event{Type: EventNull}
+		next, err := d.nextToken()
+		for err == nil && next.Type == token.TIndent {
+			next, err = d.nextToken()
+		}
+		if err == nil {
+			if next.Type == token.TTag {
+				event.Tag = string(next.Bytes)
+			} else {
+				d.pushBack(next)
+			}
+		}
+		if err := d.state.ProcessEvent(event); err != nil {
+			return nil, err
+		}
+		return event, nil
+	}
+
 	for {
 		// Get next token (from pending buffer or read from source)
 		tok, err := d.nextToken()
@@ -81,6 +127,21 @@ func (d *Decoder) ReadEvent() (*Event, error) {
 				return nil, err
 			}
 			return event, nil
+		}
+
+		// A ',' separates two elements, so one with no element before it -- `[,1]`,
+		// `[1,,2]`, `{a: 1,,b: 2}` -- is refused, as the parser refuses it. Dropped
+		// with the other structural tokens, `[1, , 2]` read as [1, 2]
+		// (v9dn9vfbh12kssj2wsn0).
+		if tok.Type == token.TComma && d.state.Depth() > 0 {
+			if !d.elementBefore {
+				at := ""
+				if tok.Pos != nil {
+					at = " " + tok.Pos.String()
+				}
+				return nil, &Error{Msg: "non separating ','" + at}
+			}
+			d.elementBefore = false
 		}
 
 		// Skip structural tokens (commas, colons, indents)
@@ -225,6 +286,14 @@ func (d *Decoder) nextToken() (token.Token, error) {
 	return tok, nil
 }
 
+// keySetKey is a key written with no ':' where an object's next key goes: a key-set
+// key, whose null value readEvent emits next (docs/tony.md, Key Sets). Read as a
+// value, it went into the object under the empty key (v9dn9vfbh12kssj2wsn0).
+func (d *Decoder) keySetKey(key *Event) *Event {
+	d.keySetNull = true
+	return key
+}
+
 // tokenToEvent converts a token to an Event.
 // May peek ahead to determine if TString/TLiteral is a key or value.
 func (d *Decoder) tokenToEvent(tok token.Token) (*Event, error) {
@@ -268,6 +337,9 @@ func (d *Decoder) tokenToEvent(tok token.Token) (*Event, error) {
 		// The nextTok could be any type (string, number, object start, etc.) - that's fine,
 		// it will be handled by the next ReadEvent() call
 		d.pendingTokens = append([]token.Token{nextTok}, d.pendingTokens...)
+		if d.state.atKey() {
+			return d.keySetKey(&Event{Type: EventKey, Key: tok.String()}), nil
+		}
 		// TString/TLiteral tokens are string tokens (tokenizer has already determined this),
 		// so return EventString
 		return &Event{
@@ -313,6 +385,14 @@ func (d *Decoder) tokenToEvent(tok token.Token) (*Event, error) {
 		// NOT followed by colon = it's an integer value
 		// Put nextTok back (unread) so ReadEvent() can process it in the next iteration
 		d.pendingTokens = append([]token.Token{nextTok}, d.pendingTokens...)
+		if d.state.atKey() {
+			// A key set of integers, `{1 2 3}`, is a sparse array of nulls.
+			i, err := strconv.ParseUint(string(tok.Bytes), 10, 32)
+			if err != nil {
+				return nil, err
+			}
+			return d.keySetKey(&Event{Type: EventIntKey, IntKey: int64(i)}), nil
+		}
 		return intEvent(tok)
 
 	case token.TFloat:
@@ -402,6 +482,8 @@ func (d *Decoder) Reset(r io.Reader, opts ...StreamOption) error {
 	d.state = NewState()
 	d.opts = streamOpts
 	d.pendingTokens = d.pendingTokens[:0]
+	d.keySetNull = false
+	d.elementBefore = false
 
 	return nil
 }

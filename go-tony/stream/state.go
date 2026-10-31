@@ -55,6 +55,16 @@ func (s *State) current() *item {
 	return &s.stack[n-1]
 }
 
+// atKey reports whether the next event is the current container's next key: inside
+// an object or a sparse array, with no key waiting for its value.
+func (s *State) atKey() bool {
+	if len(s.stack) == 0 {
+		return false
+	}
+	cur := s.current()
+	return (cur.kind == &obj || cur.kind == &spr) && !cur.hasKey
+}
+
 // ProcessEvent processes an event and updates state/path tracking.
 // Call this for each event in order.
 func (s *State) ProcessEvent(event *Event) error {

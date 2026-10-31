@@ -503,8 +503,11 @@ func TestSetMatch_KeyedElements(t *testing.T) {
 	if !equalStrings(elements.paths(), want) {
 		t.Errorf("runs(*) answered %v, want %v", elements.paths(), want)
 	}
-	// Every member path a set answers is a path a client can read on its own.
-	back := runSet(t, store, `{id: "one", match: {path: "`+elements.paths()[0]+`"}}`)
+	// Every member path a set answers is a path a client can read on its own. The path
+	// holds quotes, `runs."(id=r1)"`, so it is quoted as a string: spliced into one
+	// unescaped, it read as `runs.` and two key-set keys, which the wire decoder used
+	// to misread into the right answer (v9dn9vfbh12kssj2wsn0).
+	back := runSet(t, store, `{id: "one", match: {path: `+strconv.Quote(elements.paths()[0])+`}}`)
 	if a := back["one"]; a == nil || a.err != nil {
 		t.Errorf("a member path is not readable on its own: %+v", a)
 	}

@@ -681,6 +681,10 @@ func balanceBrObj(dst, toks []Token, f format.Format) ([]Token, int, error) {
 	found := false
 	var closePos *Pos // where the written '}' stood; see balanceBrArr
 	nKVs := 0
+	// commaAfter says a ',' has followed the last pair. A second one separates
+	// nothing, and is refused as in an array: `{a: 1,,b: 2}` read as {a: 1, b: 2}
+	// where `[1,,2]` was refused (v9dn9vfbh12kssj2wsn0).
+	commaAfter := false
 KVLoop:
 	for i < len(toks) && !found {
 		tok := &toks[i]
@@ -708,6 +712,10 @@ KVLoop:
 					return nil, 0, fmt.Errorf("%w: %q is not a key %s %s",
 						ErrDocBalance, string(tok.Bytes), tok.Type, tok.Pos)
 				}
+				if commaAfter {
+					return nil, 0, fmt.Errorf("%w: non separating ',' %s", ErrDocBalance, tok.Pos)
+				}
+				commaAfter = true
 				i++
 				continue KVLoop
 
@@ -753,6 +761,7 @@ KVLoop:
 				// `{a, b: 1}` and `{a, b}` were refused with no tag in sight
 				// (pkj422gkh12kr24gj1n0).
 				nKVs++
+				commaAfter = false
 				if tok.Type == TRCurl {
 					closePos = tok.Pos
 					found = true
@@ -771,6 +780,7 @@ KVLoop:
 		keyI = -1
 		colonI = -1
 		nKVs++
+		commaAfter = false
 	}
 	if !found {
 		return nil, 0, fmt.Errorf("%w: '{' not closed %s",
