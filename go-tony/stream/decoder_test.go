@@ -592,6 +592,20 @@ func TestDecoder_Reset(t *testing.T) {
 	if event.Type != EventKey || event.Key != "b" {
 		t.Errorf("expected EventKey 'b', got %v %q", event.Type, event.Key)
 	}
+
+	// A tag the last stream left unread is not the next stream's (vndn9vfbh12ksgk6wsn0).
+	if err := dec.Reset(strings.NewReader(`{a: !t`), WithBrackets()); err != nil {
+		t.Fatal(err)
+	}
+	for err == nil {
+		_, err = dec.ReadEvent()
+	}
+	if err := dec.Reset(strings.NewReader(`5`), WithBrackets()); err != nil {
+		t.Fatal(err)
+	}
+	if event, err = dec.ReadEvent(); err != nil || event.Type != EventInt || event.Tag != "" {
+		t.Errorf("after Reset: %+v, %v; want an untagged 5", event, err)
+	}
 }
 
 // TestDecoder_NestedDepth3_AllCombinations tests all combinations of
@@ -1935,6 +1949,8 @@ func TestDecoder_ReadsAsTheParserDoes(t *testing.T) {
 	for _, src := range []string{
 		"{a: 1, !delete}", "{a: 1 !delete}", "{!t}", "{a: 1 true}", "{a: 1 [2]}", "{a: 1 {b: 2}}",
 		"{a !t !u}", "{a, !t}", "{a !t {b: 1}}", "{!t a: 1}", "{a # c\n !t b}", "{!t 1: 2}",
+		// one node has one tag (vndn9vfbh12ksgk6wsn0)
+		"[!t !u]", "[!t !u x]", "{a: !t !u 1}", "[!t # c\n !u x]",
 	} {
 		if _, err := parse.Parse([]byte(src)); err == nil {
 			t.Errorf("parse %q: accepted", src)

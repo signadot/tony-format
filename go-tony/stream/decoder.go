@@ -175,6 +175,12 @@ func (d *Decoder) readEvent() (*Event, error) {
 		// next call reaches the value. Held in a local, `!t # c` followed by the
 		// value on the next line lost the tag (p478tacqh12krg32msn0 item 18).
 		if tok.Type == token.TTag {
+			// One node has one tag, as the parser says. The second replaced the first:
+			// `[!t !u]` read as [!u null] (vndn9vfbh12ksgk6wsn0).
+			if d.pendingTag != "" {
+				return nil, &Error{Msg: "two tags on one node, " + d.pendingTag + " and " + string(tok.Bytes) +
+					": tags compose with '.'"}
+			}
 			d.pendingTag = string(tok.Bytes)
 			// Continue to get the next token (the actual value)
 			continue
@@ -490,6 +496,7 @@ func (d *Decoder) Reset(r io.Reader, opts ...StreamOption) error {
 	d.pendingTokens = d.pendingTokens[:0]
 	d.keySetNull = false
 	d.elementBefore = false
+	d.pendingTag = "" // a tag the last stream left went on the next one's first value
 
 	return nil
 }
