@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: cfb341f875165138450c80904edd680c89305bdf
 commits: []
 created: "2026-11-01T00:25:28.350026+01:00"
 duplicates: []
@@ -11,5 +12,5 @@ labels:
 - mergeop
 - patch
 related_issues: []
-status: open
-updated: "2026-11-01T00:26:56.085938+01:00"
+status: closed
+updated: "2026-11-01T00:55:16.56613+01:00"
