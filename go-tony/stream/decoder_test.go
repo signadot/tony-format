@@ -1401,6 +1401,7 @@ func TestDecoder_Tags(t *testing.T) {
 	tests := []struct {
 		name     string
 		data     string
+		wantErr  string // the read ends with an error saying this, after expected
 		expected []struct {
 			eventType EventType
 			tag       string
@@ -1499,6 +1500,62 @@ func TestDecoder_Tags(t *testing.T) {
 				{eventType: EventKey, key: "optional"},
 				{eventType: EventNull, tag: "!nullable"},
 				{eventType: EventEndObject},
+			},
+		},
+		// A tag is not a value (docs/tony.md, Key Sets): a tag the value was dropped
+		// after is refused, whatever follows it, as the parser refuses `note: !delete`
+		// at the end of a line (yc5vx3z2h12kr89yvdn0).
+		{
+			name:    "tag before close brace",
+			data:    `{n: 2, note: !delete}`,
+			wantErr: "a tag must be followed by a value: !delete is followed by \"}\"",
+			expected: []struct {
+				eventType EventType
+				tag       string
+				key       string
+				stringVal string
+				intVal    int64
+				floatVal  float64
+				boolVal   bool
+			}{
+				{eventType: EventBeginObject, tag: ""},
+				{eventType: EventKey, key: "n"},
+				{eventType: EventInt, intVal: 2},
+				{eventType: EventKey, key: "note"},
+			},
+		},
+		{
+			name:    "tag before comma",
+			data:    `{note: !delete, n: 2}`,
+			wantErr: "a tag must be followed by a value: !delete is followed by \",\"",
+			expected: []struct {
+				eventType EventType
+				tag       string
+				key       string
+				stringVal string
+				intVal    int64
+				floatVal  float64
+				boolVal   bool
+			}{
+				{eventType: EventBeginObject, tag: ""},
+				{eventType: EventKey, key: "note"},
+			},
+		},
+		{
+			name:    "tag before close bracket",
+			data:    `[1, !delete]`,
+			wantErr: "a tag must be followed by a value: !delete is followed by \"]\"",
+			expected: []struct {
+				eventType EventType
+				tag       string
+				key       string
+				stringVal string
+				intVal    int64
+				floatVal  float64
+				boolVal   bool
+			}{
+				{eventType: EventBeginArray, tag: ""},
+				{eventType: EventInt, intVal: 1},
 			},
 		},
 		{
@@ -1639,10 +1696,16 @@ func TestDecoder_Tags(t *testing.T) {
 			for {
 				event, err := dec.ReadEvent()
 				if err == io.EOF {
+					if tt.wantErr != "" {
+						t.Fatalf("read to EOF; wanted an error saying %q", tt.wantErr)
+					}
 					break
 				}
 				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
+					if tt.wantErr == "" || !strings.Contains(err.Error(), tt.wantErr) {
+						t.Fatalf("unexpected error: %v", err)
+					}
+					break
 				}
 				events = append(events, event)
 			}
