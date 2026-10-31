@@ -232,9 +232,13 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 				// A plain element is stored as it was written, presentation and
 				// all: a merge into an absent document strips the patch's
 				// presentation (mergedTag), which is the document's to keep when
-				// there is one, and this write's when there is not.
-				if _, op, _, _, _ := mergeop.SplitChild(elt); op == "" {
-					yy.Tag = elt.Tag
+				// there is one, and this write's when there is not. The tag is the
+				// one on the value a head comment stands for, put on the value the
+				// result stands for: read off the comment wrapper, it was "", and a
+				// commented `!t x` was stored as x (x72pp5j0h12kst3rwsn0).
+				inner := ir.Uncomment(elt)
+				if _, op, _, _, _ := mergeop.SplitChild(inner); op == "" {
+					ir.Uncomment(yy).Tag = inner.Tag
 				}
 				res = append(res, yy)
 			}
@@ -276,8 +280,11 @@ func doPatchWith(doc, patch *ir.Node, ctx *mergeop.OpContext) (*ir.Node, error) 
 			if yy == nil {
 				continue
 			}
-			if _, op, _, _, _ := mergeop.SplitChild(elt); op == "" {
-				yy.Tag = elt.Tag // as an element introduced where there was no list keeps its own
+			// as an element introduced where there was no list keeps its own, read
+			// past a head comment (x72pp5j0h12kst3rwsn0)
+			inner := ir.Uncomment(elt)
+			if _, op, _, _, _ := mergeop.SplitChild(inner); op == "" {
+				ir.Uncomment(yy).Tag = inner.Tag
 			}
 			res = append(res, yy)
 		}
