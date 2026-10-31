@@ -279,6 +279,13 @@ func balanceArr(dst, toks []Token, d int, y *int, f format.Format) ([]Token, int
 		}
 		i++
 		*y = orgY
+		// A '- ' with only a tag after it has no value either: a tag is not one
+		// outside brackets, as `a: !t` is refused (docs/tony.md, Implicit Null).
+		// The tag went on to end with the line, and the element was dropped: `- !t`
+		// read as [] (v5dn9vfbh12krj9xwsn0).
+		if f.IsTony() && i < len(toks) && toks[i].Type == TTag && danglingElt(toks, i+1, tok.Pos) {
+			return nil, 0, errDanglingDash(tok.Pos)
+		}
 		if danglingElt(toks, i, tok.Pos) {
 			// A '- ' with nothing after it. Refused in tony, as a ':' with nothing
 			// after it is; a null element in YAML mode, because YAML reads it so.

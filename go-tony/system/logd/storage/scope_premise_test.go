@@ -30,8 +30,8 @@ func TestScope_DeleteIsSticky(t *testing.T) {
 	showDoc(t, s, nil, "baseline")
 
 	// A delete is written AT the path, the way libctl does it (watch_stepping_test:
-	// {"doc.extra", `!delete`}); `{b: !delete}` inline does not parse -- the op has no
-	// child there.
+	// {"doc.extra", `!delete`}). Inline, `{b: !delete}` would say the same: a tag
+	// before `}` is a tag on a null (docs/tony.md, Implicit Null).
 	commitAt(t, s, &scope, "b", `!delete`)
 	afterDelete := showDoc(t, s, &scope, "scoped after !delete b")
 

@@ -10,9 +10,12 @@ import (
 // A '- ' with no value after it is refused in tony, as a ':' with none is, and is a
 // null element in YAML mode, as YAML reads it. It was an element of nothing: `-`
 // alone read as [], `a: -` as a: [], and in YAML `- a`, `-`, `- c` read as [a, c]
-// (p478tacqh12krg32msn0 item 7; docs/tony.md, Key Sets).
+// (p478tacqh12krg32msn0 item 7; docs/tony.md, Implicit Null). A tag is not a value,
+// so a '- ' with only a tag after it is refused too; it was dropped, `- !t` reading
+// as [] (v5dn9vfbh12krj9xwsn0).
 func TestDanglingDash(t *testing.T) {
-	for _, src := range []string{"-\n", "a: -\n", "-\n-\n", "- a\n-\n- c\n", "a:\n- \n", "- a\n- \n"} {
+	for _, src := range []string{"-\n", "a: -\n", "-\n-\n", "- a\n-\n- c\n", "a:\n- \n", "- a\n- \n",
+		"- !t\n", "- !t\n- 1\n", "- 1\n- !t\n", "a:\n- !t\n"} {
 		_, err := Parse([]byte(src))
 		if err == nil || !strings.Contains(err.Error(), "'- ' must be followed by a value") {
 			t.Errorf("tony %q: got %v, want the dangling '- ' refused", src, err)
@@ -39,8 +42,9 @@ func TestDanglingDash(t *testing.T) {
 			t.Errorf("yaml %q = %s, want %s", tc.src, b.String(), w.String())
 		}
 	}
-	// A value on the line below the marker is the element, not a dangling marker.
-	for _, src := range []string{"-\n  x\n", "- # c\n  x\n", "-\n  a: 1\n"} {
+	// A value on the line below the marker is the element, not a dangling marker,
+	// and so is a tagged value, on the line or below it.
+	for _, src := range []string{"-\n  x\n", "- # c\n  x\n", "-\n  a: 1\n", "- !t x\n", "- !t\n  x\n"} {
 		if _, err := Parse([]byte(src)); err != nil {
 			t.Errorf("%q refused: %v", src, err)
 		}
