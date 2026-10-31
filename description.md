@@ -1,4 +1,4 @@
-# stream: the wire decoder reads a key set as values under empty keys, and accepts an empty array slot the parser refuses
+# stream: the wire decoder reads a key set as values under empty keys, and accepts an empty slot the parser refuses; the parser accepts `{a: 1,,b: 2}`
 
 Measured at 2d6db94a, parse.Parse against stream.ReadDocument on the same text:
 
