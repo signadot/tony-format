@@ -184,7 +184,7 @@ func (d *Decoder) readEvent() (*Event, error) {
 			// `[!t !u]` read as [!u null] (vndn9vfbh12ksgk6wsn0).
 			if d.pendingTag != "" {
 				return nil, &Error{Msg: "two tags on one node, " + d.pendingTag + " and " + string(tok.Bytes) +
-					": tags compose with '.'"}
+					": tags compose with '.', as " + d.pendingTag + "." + strings.TrimPrefix(string(tok.Bytes), "!")}
 			}
 			d.pendingTag = string(tok.Bytes)
 			// Continue to get the next token (the actual value)

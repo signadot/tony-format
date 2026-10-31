@@ -1945,6 +1945,10 @@ func TestDecoder_ReadsAsTheParserDoes(t *testing.T) {
 			t.Errorf("decode %s: accepted as %s", src, got)
 		}
 	}
+	// The wire names the composed spelling, as the parser does (vndn9vfbh12ksgk6wsn0).
+	if _, err := read(`[!t !u x]`); err == nil || !strings.Contains(err.Error(), "!t.u") {
+		t.Errorf("decode [!t !u x]: %v; want the error to name !t.u", err)
+	}
 	// A value where a key goes has no key: read under the key before it, `{a: 1,
 	// !delete}` was a second a, a delete; and a key cannot be tagged
 	// (vddn9vfbh12krdv4wsn0).
