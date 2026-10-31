@@ -38,7 +38,7 @@ func TestDeltaIdentity(t *testing.T) {
 		{"d.e", "# note\n{k2: {nested: 2}}", nil},
 		{"d.k0", `1`, nil},
 		{"d.e.k2", `{nested: 3}`, &scope},
-		{"d", `!delete`, nil},
+		{"d", `!delete null`, nil},
 		{"votes[0]", `!delete {by: scott}`, nil},
 	}
 	for _, lowered := range []bool{false, true} {

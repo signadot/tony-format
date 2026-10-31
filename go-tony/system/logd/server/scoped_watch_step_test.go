@@ -192,7 +192,7 @@ func TestScopedStepAgreesWithTheRecompute(t *testing.T) {
 	sc := "s1"
 	watched := []string{"", "a", "a.b", "d"}
 	writePaths := []string{"", "a", "a.b", "d", "d.e"}
-	shapes := []string{`{k%d: %d}`, `{k%d: {n: %d}}`, `!insert.raw {k%d: %d, op: !glob "x"}`, `%d`, `!delete`}
+	shapes := []string{`{k%d: %d}`, `{k%d: {n: %d}}`, `!insert.raw {k%d: %d, op: !glob "x"}`, `%d`, `!delete null`}
 	for seed := 1; seed <= 20; seed++ {
 		rng := rand.New(rand.NewSource(int64(seed)))
 		store, err := storage.Open(t.TempDir(), nil)
@@ -214,11 +214,11 @@ func TestScopedStepAgreesWithTheRecompute(t *testing.T) {
 			switch shape {
 			case `%d`:
 				body = fmt.Sprintf(shape, i)
-			case `!delete`:
+			case `!delete null`:
 			default:
 				body = fmt.Sprintf(shape, rng.Intn(3), i)
 			}
-			if path == "" && (shape == `%d` || shape == `!delete`) {
+			if path == "" && (shape == `%d` || shape == `!delete null`) {
 				continue // a scalar or nothing at the root ends the document
 			}
 			tx, err := store.NewTx(1, scope)

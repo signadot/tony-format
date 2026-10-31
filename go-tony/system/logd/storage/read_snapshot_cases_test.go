@@ -97,7 +97,7 @@ func TestSnapshotRead_AncestorDelete(t *testing.T) {
 	if err := s.SwitchDLog(); err != nil {
 		t.Fatal(err)
 	}
-	commit, err := applyOp(t, s, genOp{path: "a", src: `!delete`})
+	commit, err := applyOp(t, s, genOp{path: "a", src: `!delete null`})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestSnapshotRead_RootDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	commit, err := applyOp(t, s, genOp{path: "", src: `!delete`})
+	commit, err := applyOp(t, s, genOp{path: "", src: `!delete null`})
 	if err != nil {
 		t.Fatal(err)
 	}

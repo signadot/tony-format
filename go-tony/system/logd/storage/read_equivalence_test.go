@@ -93,7 +93,7 @@ func genOps(rng *rand.Rand, n int) []genOp {
 			// shape that reaches whole-document deletion: an empty snapshot, a null-state
 			// read, and writing again afterwards. Excluding it as "a dull stream" hid the
 			// empty-base fold's own nil handling, which the reference instance depends on.
-			src = `!delete`
+			src = `!delete null`
 		case 1, 2:
 			src = fmt.Sprintf(`{k%d: {nested: %d}}`, rng.Intn(3), i)
 			// NOTE: !replace is absent on purpose — it takes {from:, to:} and the from:
@@ -118,7 +118,7 @@ func genOps(rng *rand.Rand, n int) []genOp {
 		// write. It reproduces on 48d3784 with these same streams and no comments
 		// in them -- issue gx8xvgmph12krbjpg1n0. LOGD_SEEDS=150 reaches it; the
 		// default 25 does not, before or after.
-		if src != `!delete` {
+		if src != `!delete null` {
 			switch rng.Intn(4) {
 			case 0:
 				src = fmt.Sprintf("# note %d\n%s", i, src)

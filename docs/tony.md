@@ -629,13 +629,12 @@ h: null
 
 ### Implicit Null
 
-A null may be left unwritten in exactly three places, and nowhere else.
+A null may be left unwritten in exactly two places, and nowhere else.
 
 1. **A key in a key set.** In brackets, a key with no ':' and no value has a null
    value, and a tag written after the key is the tag of that null.
 2. **A tag that ends a bracketed value.** In brackets, a tag followed by `,`, `}` or
    `]` is the tag of a null.
-3. **A document that is only a tag.** It is that tag on a null.
 
 ```tony
 {a b !t}
@@ -646,16 +645,11 @@ A null may be left unwritten in exactly three places, and nowhere else.
 {a: null, b: !t null}
 [1, !t null]
 {a: !t null, b: 1}
----
-!t
----
-# equivalent to
-!t null
 ```
 
 Everywhere else a value that is not written is refused. A tag is not a value, so a
 tag alone after a ':' or a '- ' outside brackets is refused as the ':' or '- ' alone
-is.
+is, and so is a document that is only a tag.
 
 ```tony
 # each one invalid
@@ -668,6 +662,8 @@ a: !t
 -
 ---
 - !t
+---
+!t
 ---
 [1, , 2]
 ```

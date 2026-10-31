@@ -55,7 +55,7 @@ func TestWatchStepping_DeltasReproduceServerState(t *testing.T) {
 		{"doc", `{n: 1}`},
 		{"doc", `{extra: {deep: true}}`},
 		{"doc.extra.deep", `false`},
-		{"doc.extra", `!delete`},
+		{"doc.extra", `!delete null`},
 		{"doc", `{n: 2, back: "again"}`},
 		{"doc.back", `"changed"`},
 		{"doc", `{n: 3}`},

@@ -12,7 +12,7 @@ import (
 func TestAFieldWrittenUnderAnArrayAfterASnapshotReplacesIt(t *testing.T) {
 	for _, tc := range []struct{ name, then, wantK2 string }{
 		{"a value", `5`, `{n: 5}`},
-		{"a delete", `!delete`, `{}`},
+		{"a delete", `!delete null`, `{}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			plain := openTestStorage(t)

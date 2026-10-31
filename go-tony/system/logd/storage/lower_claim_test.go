@@ -41,7 +41,7 @@ func TestAScopeStoresClaimsNotDifferences(t *testing.T) {
 	}{{
 		name:      "a delete of what baseline has not written yet",
 		seed:      `{z: 0}`,
-		scopePath: "a.b", scope: `!delete`,
+		scopePath: "a.b", scope: `!delete null`,
 		basePath: "a.b", base: `{k: 1}`,
 		want: "a: {} z: 0",
 	}, {
@@ -49,7 +49,7 @@ func TestAScopeStoresClaimsNotDifferences(t *testing.T) {
 		// not there, and baseline fills it in.
 		name:      "a delete of a subtree baseline then creates",
 		seed:      `{z: 0}`,
-		scopePath: "a", scope: `!delete`,
+		scopePath: "a", scope: `!delete null`,
 		basePath: "a", base: `{b: {k: 1}}`,
 		want: "z: 0",
 	}, {

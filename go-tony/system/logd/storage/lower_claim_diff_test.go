@@ -27,7 +27,7 @@ func genClaimOps(rng *rand.Rand, n int) []scopeOp {
 		}
 		switch rng.Intn(10) {
 		case 0:
-			o.src = `!delete`
+			o.src = `!delete null`
 		case 1:
 			o.src = fmt.Sprintf("# note %d\n{k%d: %d}", i, rng.Intn(3), i)
 		case 2:

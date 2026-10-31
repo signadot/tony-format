@@ -111,6 +111,11 @@ func (d *Decoder) readEvent() (*Event, error) {
 		// Get next token (from pending buffer or read from source)
 		tok, err := d.nextToken()
 		if err != nil {
+			// A stream that ends on a tag has a tag with no value, refused as the
+			// parser refuses it; it read as no document (vsdn9vfbh12ksnb6wsn0).
+			if err == io.EOF && d.pendingTag != "" {
+				return nil, &Error{Msg: "a tag must be followed by a value: " + d.pendingTag}
+			}
 			return nil, err
 		}
 

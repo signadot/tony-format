@@ -117,7 +117,7 @@ func TestScratch_WriteReadReopen(t *testing.T) {
 
 	// The root is a path: !delete there empties scratch, and the empty file reopens
 	// as empty.
-	if err := s.ScratchWrite("", scratchNode(t, `!delete`)); err != nil {
+	if err := s.ScratchWrite("", scratchNode(t, `!delete null`)); err != nil {
 		t.Fatalf("delete root: %v", err)
 	}
 	scratchExpect(t, s, "", "<absent>")

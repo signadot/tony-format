@@ -130,7 +130,7 @@ func TestAWatchsDeltasAreRootedAtItsPath(t *testing.T) {
 		{"a.x", "30"},                   // beside it: no event
 		{"a.b.d", "# why\n{e: 20}"},     // a comment travels
 		{"a", `!raw {b: {only: true}}`}, // an operator above the path
-		{"a.b.only", "!delete"},         // and below it again
+		{"a.b.only", "!delete null"},    // and below it again
 	}
 	var live []string
 	for _, wr := range writes {

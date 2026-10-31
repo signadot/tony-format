@@ -70,7 +70,7 @@ func TestSpineMarksAPathAPatchPassedThrough(t *testing.T) {
 		{"a list, which the entry states whole", `[1, 2]`, false},
 		{"a scalar, which is the write itself", `1`, false},
 		{"an empty container, which states emptiness", `{}`, false},
-		{"an operator, which is about this node", `!delete`, false},
+		{"an operator, which is about this node", `!delete null`, false},
 		{"a data tag, which this patch does assert here", `!mytag {b: 1}`, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -53,7 +53,7 @@ func genScopeOps(rng *rand.Rand, n int) []scopeOp {
 		k := rng.Intn(3)
 		switch rng.Intn(20) {
 		case 0:
-			o.src = `!delete`
+			o.src = `!delete null`
 		case 1:
 			o.src = fmt.Sprintf("# note %d\n{k%d: %d}", i, k, i)
 		case 2:
@@ -70,7 +70,7 @@ func genScopeOps(rng *rand.Rand, n int) []scopeOp {
 			o.src = fmt.Sprintf(`{k%d: {n: %d}}`, k, i)
 		case 8:
 			o.path = kpath.ChildField(kpath.ChildField(o.path, fmt.Sprintf("k%d", k)), "n")
-			o.src = `!delete`
+			o.src = `!delete null`
 		default:
 			o.src = fmt.Sprintf(`{k%d: %d}`, k, i)
 		}

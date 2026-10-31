@@ -44,7 +44,7 @@ func TestAScopesDominatedEntriesGoBeyondTheCutoff(t *testing.T) {
 	for i := 1; i <= 100; i++ {
 		commitAt(t, s, &sc, "a.x", fmt.Sprintf("%d", i))
 	}
-	commitAt(t, s, &sc, "a.y", `!delete`)
+	commitAt(t, s, &sc, "a.y", `!delete null`)
 	commitAt(t, s, &sc, "keep", "# why\n7")
 	commitAt(t, s, &sc, "keep", "8")
 	commitAt(t, s, &sc, "arr", "[3, 4, 5]")

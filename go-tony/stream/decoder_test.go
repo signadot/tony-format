@@ -1916,6 +1916,8 @@ func TestDecoder_ReadsAsTheParserDoes(t *testing.T) {
 		`{a: !t}`, `{a: !t, b: 1}`, `[!t]`, `[1, !t]`,
 		// trailing commas
 		`[1,]`, `{a: 1,}`,
+		// a tag on a document's value
+		`!t 1`, `!t {a: 1}`, "!t\n[1]\n",
 	} {
 		n, err := parse.Parse([]byte(src))
 		if err != nil {
@@ -1951,6 +1953,8 @@ func TestDecoder_ReadsAsTheParserDoes(t *testing.T) {
 		"{a !t !u}", "{a, !t}", "{a !t {b: 1}}", "{!t a: 1}", "{a # c\n !t b}", "{!t 1: 2}",
 		// one node has one tag (vndn9vfbh12ksgk6wsn0)
 		"[!t !u]", "[!t !u x]", "{a: !t !u 1}", "[!t # c\n !u x]",
+		// a document that is only a tag (vsdn9vfbh12ksnb6wsn0)
+		"!t", "!t\n", "!t # c\n", "# c\n!t\n",
 	} {
 		if _, err := parse.Parse([]byte(src)); err == nil {
 			t.Errorf("parse %q: accepted", src)

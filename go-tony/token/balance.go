@@ -206,8 +206,16 @@ func balanceOne(dst []Token, toks []Token, d int, y *int, underField bool, f for
 			return dst, 1, nil
 		}
 	case TTag:
+		// A tag with nothing after it to the end of the document has no value, and
+		// is refused, as `a: !t` and `- !t` are (docs/tony.md, Implicit Null). It
+		// read as a tagged null, and the wire read it as no document at all
+		// (vsdn9vfbh12ksnb6wsn0). Under a ':' the ':' is what is refused.
+		if f.IsTony() && !underField && onlyComments(toks[1:]) {
+			return nil, 0, fmt.Errorf("%w: a tag must be followed by a value%s: write `%s null` for a tagged null",
+				ErrDocBalance, at(tok.Pos), tok.Bytes)
+		}
 		dst = append(dst, *tok)
-		// A tag with no value is a tagged NULL -- which is what the key-set sugar
+		// In brackets, a tag with no value is a tagged NULL -- which is what the key-set sugar
 		// already emits for `{a !delete }`, where the space is what let the scan
 		// end the tag. With the tag ending at the bracket too, the same thing
 		// written `{x: !t1}` or `[!t1]` reached here with nothing to balance, and
@@ -232,6 +240,16 @@ func balanceOne(dst []Token, toks []Token, d int, y *int, underField bool, f for
 		}
 		return nil, 0, fmt.Errorf("`%s` cannot start a value %s", tok.Bytes, tok.Pos)
 	}
+}
+
+// onlyComments reports whether toks hold nothing but comments and line breaks.
+func onlyComments(toks []Token) bool {
+	for i := range toks {
+		if toks[i].Type != TIndent && !toks[i].Type.IsComment() {
+			return false
+		}
+	}
+	return true
 }
 
 // endsValue reports whether a token closes the value position rather than filling
