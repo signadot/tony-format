@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: c550820c70d22d1b3414e9529bee991928bff1ea
 commits: []
 created: "2026-10-31T20:35:02.742346+01:00"
 duplicates: []
@@ -10,5 +11,5 @@ labels:
 - stream
 - wire
 related_issues: []
-status: open
-updated: "2026-10-31T20:40:08.331451+01:00"
+status: closed
+updated: "2026-10-31T20:48:07.32447+01:00"
