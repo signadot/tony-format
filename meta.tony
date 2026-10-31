@@ -6,7 +6,9 @@ commits: []
 created: "2026-10-31T10:56:58.519359+01:00"
 duplicates: []
 id: x32pp5j0h12krtnvwnn0
-labels: []
+labels:
+- agent
+- logd
 related_issues: []
 status: open
-updated: "2026-10-31T10:56:58.519359+01:00"
+updated: "2026-10-31T10:56:58.751448+01:00"
