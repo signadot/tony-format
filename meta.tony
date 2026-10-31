@@ -6,7 +6,9 @@ commits: []
 created: "2026-10-31T20:11:05.985813+01:00"
 duplicates: []
 id: v5dn9vfbh12krj9xwsn0
-labels: []
+labels:
+- parse
+- spec
 related_issues: []
 status: open
-updated: "2026-10-31T20:11:05.985813+01:00"
+updated: "2026-10-31T20:11:06.19889+01:00"
