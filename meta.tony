@@ -6,7 +6,9 @@ commits: []
 created: "2026-10-31T20:35:02.742346+01:00"
 duplicates: []
 id: v9dn9vfbh12kssj2wsn0
-labels: []
+labels:
+- stream
+- wire
 related_issues: []
 status: open
-updated: "2026-10-31T20:35:02.742346+01:00"
+updated: "2026-10-31T20:35:02.882849+01:00"
