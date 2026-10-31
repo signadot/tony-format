@@ -10,6 +10,7 @@ id: v9dn9vfbh12kssj2wsn0
 labels:
 - stream
 - wire
-related_issues: []
+related_issues:
+- v5dn9vfbh12krj9xwsn0
 status: closed
-updated: "2026-10-31T20:48:07.32447+01:00"
+updated: "2026-10-31T20:48:45.29603+01:00"
