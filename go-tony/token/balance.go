@@ -639,6 +639,12 @@ func errDanglingDash(pos *Pos) error {
 // indent or less (a sibling marker, a key, a dedent), or nothing at all. A value
 // on the next line sits deeper than the marker.
 func danglingElt(toks []Token, i int, marker *Pos) bool {
+	// A comment on the dash's own line is not its value, and stood between the
+	// dash and the end of the line: `- # c` and `- !t # c` read as []
+	// (vhdn9vfbh12krgb4wsn0).
+	if i < len(toks) && toks[i].Type.IsComment() {
+		i++
+	}
 	if i >= len(toks) {
 		return true
 	}
