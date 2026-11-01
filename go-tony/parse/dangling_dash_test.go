@@ -46,11 +46,28 @@ func TestDanglingDash(t *testing.T) {
 		}
 	}
 	// A value on the line below the marker is the element, not a dangling marker,
-	// and so is a tagged value, on the line or below it.
+	// and so is a tagged value, on the line or below it. A bracket below it is the
+	// element at any column, as it is after a ':' (wddn9vfbh12ksq7nwsn0).
 	for _, src := range []string{"-\n  x\n", "- # c\n  x\n", "-\n  a: 1\n", "- !t x\n", "- !t\n  x\n",
-		"- !t # c\n  x\n", "- !t x # c\n", "- x # c\n- y\n"} {
+		"- !t # c\n  x\n", "- !t x # c\n", "- x # c\n- y\n",
+		"- !not\n{\n  a: 1\n}\n", "- !not\n[\n  1\n]\n", "-\n{a: 1}\n", "- !t\n  # c\n[1]\n",
+		"a:\n- !not\n{\n  a: 1\n}\n- 2\n"} {
 		if _, err := Parse([]byte(src)); err != nil {
 			t.Errorf("%q refused: %v", src, err)
+		}
+	}
+	// What the block encoder writes for a tagged flow element reads back.
+	for _, src := range []string{"- !not {a: 1}\n", "- !not [1]\n", "- {a: 1}\n"} {
+		n, err := Parse([]byte(src))
+		if err != nil {
+			t.Fatalf("%q: %v", src, err)
+		}
+		var b strings.Builder
+		if err := encode.Encode(n, &b); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Parse([]byte(b.String())); err != nil {
+			t.Errorf("%q encodes as %q, which is refused: %v", src, b.String(), err)
 		}
 	}
 }

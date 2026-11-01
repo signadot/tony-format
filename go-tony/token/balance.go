@@ -694,6 +694,12 @@ func danglingElt(toks []Token, i int, marker *Pos) bool {
 	if toks[j].Type != TIndent {
 		return false
 	}
+	// A bracket carries its own extent, so it is the value whatever its column, as
+	// it is after a ':'. The block encoder writes a flow value under a tagged
+	// element at column 0: `- !not\n{\n  a: 1\n}` (wddn9vfbh12ksq7nwsn0).
+	if t := toks[j+1].Type; t == TLCurl || t == TLSquare {
+		return false
+	}
 	col := 0
 	if marker != nil {
 		col = marker.Col()
