@@ -101,9 +101,13 @@ func TestALeadingStarIsAlwaysTheWildcard(t *testing.T) {
 			t.Errorf("the field %q renders as %q, which reads back as %q", name, seg, kp.String())
 		}
 	}
-	for _, s := range []string{"*a", "**", "*'x'"} {
+	// And the wildcard ends its segment wherever it stands, so what follows needs
+	// its separator: `a.**` read as `a.*.*` until the `.*` spelling checked too.
+	for _, s := range []string{"*a", "**", "*'x'", "a.**", "a.**.b", "a.*b", "a.*'x'"} {
 		if kp, err := Parse(s); err == nil {
 			t.Errorf("%q parses, as %q: a name starting with `*` takes quotes", s, kp.String())
+		} else if !strings.Contains(err.Error(), "after a segment") {
+			t.Errorf("%q is refused as %q, which does not say what was expected", s, err)
 		}
 	}
 }

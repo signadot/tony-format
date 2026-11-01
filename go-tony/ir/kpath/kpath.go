@@ -676,19 +676,13 @@ func parseKFrag(frag string, parent *KPath) error {
 			parent.Next = next
 			return nil
 		}
-		// Check for wildcard .*
+		// `.*` is the field wildcard, and like the leading `*` it ends its segment:
+		// what follows needs its separator. Recursing straight into parseKFrag read
+		// `a.**` as `a.*.*` and `a.*b` as `a.*.b` -- wildcards and fields without
+		// the dot that spells them. Every depth is spelled `..`.
 		if len(frag) > 1 && frag[1] == '*' {
 			parent.FieldAll = true
-			if len(frag) == 2 {
-				return nil
-			}
-			next := &KPath{}
-			err := parseKFrag(frag[2:], next)
-			if err != nil {
-				return err
-			}
-			parent.Next = next
-			return nil
+			return parseAfterSegment(frag[2:], parent)
 		}
 		field, rest, err := parseKField(frag[1:])
 		if err != nil {
