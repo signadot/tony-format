@@ -689,16 +689,7 @@ func parseKFrag(frag string, parent *KPath) error {
 			return err
 		}
 		parent.Field = &field
-		if len(rest) == 0 {
-			return nil
-		}
-		next := &KPath{}
-		err = parseKFrag(rest, next)
-		if err != nil {
-			return err
-		}
-		parent.Next = next
-		return nil
+		return parseAfterSegment(rest, parent)
 	case '[':
 		i := strings.IndexByte(frag[1:], ']')
 		if i == -1 {
@@ -759,22 +750,14 @@ func parseKFrag(frag string, parent *KPath) error {
 			return fmt.Errorf("expected field, '[', or '{', got %q", frag[0])
 		}
 		parent.Field = &field
-		if len(rest) == 0 {
-			return nil
-		}
-		next := &KPath{}
-		err = parseKFrag(rest, next)
-		if err != nil {
-			return err
-		}
-		parent.Next = next
-		return nil
+		return parseAfterSegment(rest, parent)
 	}
 }
 
 // parseAfterSegment continues a path after a segment which ends in a character of
-// its own -- `[i]`, `{i}`, `(key)` and the `*` wildcard. What may follow is the
-// start of another segment: `.` for a field, or an opening bracket, brace or paren.
+// its own -- `[i]`, `{i}`, `(key)`, the `*` wildcard and a quoted field. What may
+// follow is the start of another segment: `.` for a field, or an opening bracket,
+// brace or paren. An unquoted field runs up to one of those, so it passes here too.
 //
 // A field there needs its dot, the way it does everywhere else. Without this the
 // separator was optional in exactly one place -- `x[0]y` read as `x[0].y` -- and

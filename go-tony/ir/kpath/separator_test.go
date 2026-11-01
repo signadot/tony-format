@@ -21,6 +21,7 @@ func TestAFieldAfterAnElementNeedsItsDot(t *testing.T) {
 		"x[0]'a b'", "x(k)'a b'", // a quoted field still needs the dot
 		"x[0]]y", "x[0]}", "x[0])", // an unbalanced closer, which used to be a name
 		"x[0]*", "x[0]*y", // a wildcard is spelled `.*`
+		"'x'y", "a.'x'y", "a.'x'*", "a.'x''y'", // a quoted field ends in its quote
 	}
 	for _, s := range refused {
 		if kp, err := Parse(s); err == nil {
