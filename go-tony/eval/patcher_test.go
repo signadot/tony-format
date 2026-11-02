@@ -196,9 +196,9 @@ func TestExpandStringWithOptions_ParameterizedDefs(t *testing.T) {
 			var err error
 
 			if tt.useOpt {
-				result, err = expandStringWithOptions(tt.input, env, opts)
+				result, err = ExpandStringWithOptions(tt.input, env, opts)
 			} else {
-				result, err = expandStringWithOptions(tt.input, env, nil)
+				result, err = ExpandStringWithOptions(tt.input, env, nil)
 			}
 
 			if err != nil {

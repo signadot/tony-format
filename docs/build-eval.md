@@ -87,31 +87,49 @@ characters, that value is replaced for the node containing it.
 
 Otherwise, the containing expression is interpolated for scalars in a standard
 fashion, and non-scalars are taken to be the result of marshaling them using
-json.
+json. An embedder can have them written as tony instead, or refused
+(`eval.EvalOptions.Composite`).
 
-#### Escaping
+#### Where an expression ends
 
-To include a literal `]` character inside an expression, escape it with a backslash:
+An expression ends at the `]` that closes it. A `[` opened inside the expression
+is closed by its own `]`, and a `]` inside a quoted string closes nothing, so an
+index or a key is written as it is:
+
+```tony
+!eval
+first: $[items[0]]
+odd: $[m["]"]]
+```
+
+A backslash inside an expression escapes the next character:
 
 - `\]` → literal `]`
 - `\\` → literal `\`
 
-For example, to access a map key containing `]`:
-
-```tony
-!eval
-result: $[data["key[0\]"]]
-```
-
 If the expression is not properly closed (no unescaped `]`), the text is treated
-as a literal string, not an expression:
+as a literal string, not an expression. Outside an expression, `$$[` is a literal
+`$[`; `$$` before anything else is as written.
 
 | Input | Output |
 |-------|--------|
 | `$[x]` | evaluates `x` |
 | `$[x` | literal `$[x` |
+| `$[a[0]]` | evaluates `a[0]` |
 | `$["a\]b"]` | evaluates to `a]b` |
 | `$[x\]` | literal `$[x\]` (no closing bracket) |
+| `$$[x]` | literal `$[x]` |
+| `$$HOME` | literal `$$HOME` |
+
+#### For embedders
+
+A program expanding strings of its own takes `eval.ExpandStringWithOptions` with
+an `eval.EvalOptions`, which can say:
+
+- `DisableBuiltins`: functions an expression may not call, such as `now()` where
+  the same string must expand the same way each time.
+- `Composite`: how an object or a list is written into a string -- as JSON (the
+  default), as tony on one line, or not at all.
 
 For example given the environment
 

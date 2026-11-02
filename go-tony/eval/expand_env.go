@@ -1,15 +1,22 @@
 package eval
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 
 	"github.com/signadot/tony-format/go-tony/debug"
+	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/ir"
 
 	"github.com/expr-lang/expr"
+	"github.com/expr-lang/expr/ast"
+	"github.com/expr-lang/expr/compiler"
+	"github.com/expr-lang/expr/conf"
+	"github.com/expr-lang/expr/parser"
 	"github.com/expr-lang/expr/vm"
 )
 
@@ -25,33 +32,99 @@ type EvalOptions struct {
 	// like getpath(), whereami(), listpath(), and getenv() become available
 	// in .[...] expressions. The node's Root() is used to resolve paths.
 	Node *ir.Node
+
+	// DisableBuiltins names functions an expression may not call, expr-lang's
+	// builtins and this package's alike. An embedder that expands a string more
+	// than once and needs the same text each time disables now()
+	// (xxn12a3gh12krfg8x5n0).
+	DisableBuiltins []string
+
+	// Composite says how an object or a list is written into a string: its JSON,
+	// which is the default; its tony; or not at all.
+	Composite CompositeForm
 }
 
-// evalWithOptions compiles and runs an expression with optional AST patching
-// for parameterized definition auto-calling.
+// CompositeForm is how an object or a list is written into a string
+// (EvalOptions.Composite). A string that is one .[...] is not written into
+// anything, and keeps its value whatever this says.
+type CompositeForm int
+
+const (
+	// CompositeJSON writes a composite as its JSON.
+	CompositeJSON CompositeForm = iota
+	// CompositeTony writes a composite as its tony, on one line: {x: 1}, [1 2].
+	CompositeTony
+	// CompositeRefuse writes no composite: the expansion is an error.
+	CompositeRefuse
+)
+
+// at is opts for expanding node: the same options, with node as the document
+// position, for the script functions that read it.
+func (opts *EvalOptions) at(node *ir.Node) *EvalOptions {
+	at := EvalOptions{}
+	if opts != nil {
+		at = *opts
+	}
+	at.Node = node
+	return &at
+}
+
+// evalWithOptions compiles and runs an expression under opts.
 func evalWithOptions(input string, env Env, opts *EvalOptions) (any, error) {
-	// Build compile options - include script funcs if we have a node
-	// Pass the node itself (not Root) so whereami() returns the correct path
-	// getpath() internally calls doc.Root() to resolve paths
-	compileOpts := baseOpts()
-	if opts != nil && opts.Node != nil {
-		compileOpts = exprOpts(opts.Node)
-	}
-
-	// If we have parameterized defs, use the patching path, which takes the
-	// script funcs too: without them it answered no whereami() or getpath() at
-	// all under a schema's options (addsgv1yh12kszdxmdn0).
-	if opts != nil && len(opts.ParameterizedDefs) > 0 {
-		return evalWithDefCallPatch(input, env, opts.ParameterizedDefs, compileOpts...)
-	}
-
-	// Compile and run
-	program, err := expr.Compile(input, compileOpts...)
+	program, err := compile(input, env, opts)
 	if err != nil {
 		return nil, err
 	}
+	return vm.Run(program, map[string]any(env))
+}
 
-	return vm.Run(program, env)
+// compile compiles an expression under opts. A call of a disabled function is refused
+// by a walk of the tree (refusing). An expression under a parameterized definition is
+// rewritten between parsing and compiling, so it goes through the steps expr.Compile
+// takes, one at a time; the rewrite takes the script funcs too, since without them it
+// answered no whereami() or getpath() at all under a schema's options
+// (addsgv1yh12kszdxmdn0).
+func compile(input string, env Env, opts *EvalOptions) (*vm.Program, error) {
+	compileOpts := baseOpts()
+	var refused *refusing
+	if opts != nil {
+		if opts.Node != nil {
+			// The node itself, not its root, so whereami() answers its path; getpath()
+			// goes to the root on its own.
+			compileOpts = exprOpts(opts.Node)
+		}
+		if len(opts.DisableBuiltins) > 0 {
+			refused = newRefusing(opts.DisableBuiltins)
+		}
+	}
+	if opts == nil || len(opts.ParameterizedDefs) == 0 {
+		if refused != nil {
+			compileOpts = append(compileOpts, expr.Patch(refused))
+		}
+		program, err := expr.Compile(input, compileOpts...)
+		if rerr := refused.err(); rerr != nil {
+			return nil, rerr
+		}
+		return program, err
+	}
+	// The program is specialized to the environment's Go type, so what it is compiled
+	// against and run with is the plain map, not the named Env.
+	config := conf.New(map[string]any(env))
+	for _, opt := range compileOpts {
+		opt(config)
+	}
+	config.Check()
+	tree, err := parser.ParseWithConfig(input, config)
+	if err != nil {
+		return nil, err
+	}
+	if err := refused.walk(tree.Node); err != nil {
+		return nil, err
+	}
+	callees := make(map[*ast.IdentifierNode]bool)
+	collectCallees(tree.Node, callees)
+	patchTree(&tree.Node, opts.ParameterizedDefs, callees)
+	return compiler.Compile(tree, config)
 }
 
 func ExpandEnv(node *ir.Node, env Env) error {
@@ -174,12 +247,9 @@ func retagRef(repl *ir.Node, tag string) *ir.Node {
 // This is the main entry point for schema evaluation where parameterized
 // definition auto-calling is needed.
 func ExpandIRWithOptions(node *ir.Node, env map[string]any, opts *EvalOptions) (*ir.Node, error) {
-	// Create opts with current node for script funcs (whereami, getpath, etc.)
-	// Each recursive call gets its own opts with the current node
-	nodeOpts := &EvalOptions{Node: node}
-	if opts != nil {
-		nodeOpts.ParameterizedDefs = opts.ParameterizedDefs
-	}
+	// Each node is expanded under the options with itself as the position, for the
+	// script funcs (whereami, getpath, etc.).
+	nodeOpts := opts.at(node)
 
 	switch node.Type {
 	case ir.ObjectType:
@@ -252,14 +322,14 @@ func ExpandIRWithOptions(node *ir.Node, env map[string]any, opts *EvalOptions) (
 			repl.ParentField = node.ParentField
 			return retagRef(repl, node.Tag), nil
 		}
-		xs, err := expandStringWithOptions(node.String, env, nodeOpts)
+		xs, err := ExpandStringWithOptions(node.String, env, nodeOpts)
 		if err != nil {
 			return nil, err
 		}
 		node.String = xs
 		return node, nil
 	case ir.NumberType, ir.BoolType, ir.NullType:
-		if err := ExpandLineComment(node, env); err != nil {
+		if err := expandLineComment(node, env, nodeOpts); err != nil {
 			return nil, err
 		}
 		return node, nil
@@ -273,7 +343,7 @@ func ExpandIRWithOptions(node *ir.Node, env map[string]any, opts *EvalOptions) (
 			Values: []*ir.Node{inner},
 		}
 		for _, ln := range node.Lines {
-			xLn, err := expandStringWithOptions(ln, env, nodeOpts)
+			xLn, err := ExpandStringWithOptions(ln, env, nodeOpts)
 			if err != nil {
 				return nil, err
 			}
@@ -286,13 +356,18 @@ func ExpandIRWithOptions(node *ir.Node, env map[string]any, opts *EvalOptions) (
 }
 
 func ExpandLineComment(node *ir.Node, env Env) error {
+	return expandLineComment(node, env, nil)
+}
+
+// expandLineComment expands the expressions in node's line comment under opts.
+func expandLineComment(node *ir.Node, env Env, opts *EvalOptions) error {
 	if node.Comment == nil {
 		return nil
 	}
 
 	xc := &ir.Node{Type: ir.CommentType, Parent: node}
 	for _, ln := range node.Comment.Lines {
-		xLn, err := ExpandString(ln, env)
+		xLn, err := ExpandStringWithOptions(ln, env, opts)
 		if err != nil {
 			return err
 		}
@@ -304,113 +379,112 @@ func ExpandLineComment(node *ir.Node, env Env) error {
 
 // ExpandString expands $[...] and .[...] expressions in a string.
 //
-// Expressions are evaluated using expr-lang against the provided environment.
-// Within expressions, backslash escaping is supported:
+// Expressions are evaluated using expr-lang against the provided environment. An
+// expression ends at the ] that closes it: a [ opened inside it is closed by its own ],
+// and a ] in a quoted string closes nothing, so items[5] and m["]"] are written as they
+// are. Within expressions, backslash escaping is supported:
 //   - \] → literal ] (does not close the expression)
 //   - \\ → literal \
 //   - \x → x (for any character x)
 //
+// Outside an expression, $$[ is a literal $[; $$ before anything else is as written.
+//
 // If an expression is not closed with an unescaped ], the text is treated
 // as a literal string rather than an expression.
 func ExpandString(v string, env map[string]any) (string, error) {
-	return expandStringWithOptions(v, env, nil)
+	return ExpandStringWithOptions(v, env, nil)
 }
 
-func expandStringWithOptions(v string, env map[string]any, opts *EvalOptions) (string, error) {
-	if len(v) < 3 {
-		return v, nil
+// ExpandStringWithOptions expands the expressions in v as ExpandString does, under opts.
+func ExpandStringWithOptions(v string, env map[string]any, opts *EvalOptions) (string, error) {
+	var out []byte
+	for i := 0; i < len(v); {
+		if strings.HasPrefix(v[i:], "$$[") {
+			out = append(out, "$["...)
+			i += 3
+			continue
+		}
+		if (v[i] != '$' && v[i] != '.') || !strings.HasPrefix(v[i+1:], "[") {
+			out = append(out, v[i])
+			i++
+			continue
+		}
+		key, end, ok := scanExpression(v, i+2, true)
+		if !ok {
+			// Nothing closes it: literal, to the end.
+			out = append(out, v[i:]...)
+			break
+		}
+		key = strings.TrimSpace(key)
+		x, err := evalWithOptions(key, env, opts)
+		if err != nil {
+			return "", fmt.Errorf("error evaluating %q: %w", key, err)
+		}
+		if debug.Eval() {
+			debug.Logf("eval %q gave %#v\n", key, x)
+		}
+		anyBytes, err := anyToBytes(x, opts)
+		if err != nil {
+			return "", fmt.Errorf("could not marshal evaluation results for %s: %w", key, err)
+		}
+		out = append(out, anyBytes...)
+		i = end
 	}
-	// $[x] or .[x] with backslash escaping: \] -> ], \\ -> \
-	exprStart := -1 // position of $ or . that starts the expression
-	i := 0
-	n := len(v)
-	var outBuf []byte // accumulates the final output
-	var keyBuf []byte // accumulates the current expression content (unescaped)
+	return string(out), nil
+}
 
-	for i < n-1 {
-		c, next := v[i], v[i+1]
-		i++
-		switch c {
-		case '$', '.':
-			if next == '[' {
-				exprStart = i - 1
-				keyBuf = keyBuf[:0]
+// scanExpression reads the expression that starts at v[from] up to the ] that closes
+// it, and answers its text with the escapes undone, and where the text after the ]
+// begins. It answers false when nothing closes it.
+//
+// With quotes, a ] in a quoted string closes nothing. A quote nothing closes would
+// then take the ] with it, and a typo in a string went through as literal text where
+// it used to be refused: so the expression is read again without quotes, and ends at
+// the first ], as it always did.
+func scanExpression(v string, from int, quotes bool) (string, int, bool) {
+	var key []byte
+	depth := 0
+	var quote byte
+	for i := from; i < len(v); i++ {
+		c := v[i]
+		switch {
+		case c == '\\':
+			if i+1 < len(v) {
+				key = append(key, v[i+1])
 				i++
-				continue
 			}
-			if exprStart == -1 {
-				outBuf = append(outBuf, c)
-			} else {
-				keyBuf = append(keyBuf, c)
+		case quote != 0:
+			if c == quote {
+				quote = 0
 			}
-		case '\\':
-			if exprStart != -1 {
-				// backslash escapes the next character
-				keyBuf = append(keyBuf, next)
-				i++
-				continue
-			}
-			outBuf = append(outBuf, c)
-		case ']':
-			if exprStart != -1 {
-				key := strings.TrimSpace(string(keyBuf))
-				x, err := evalWithOptions(key, env, opts)
-				if err != nil {
-					return "", fmt.Errorf("error evaluating %q: %w", key, err)
-				}
-				if debug.Eval() {
-					debug.Logf("eval %q gave %#v\n", key, x)
-				}
-				anyBytes, err := anyToBytes(x)
-				if err != nil {
-					return "", fmt.Errorf("could not marshal evaluation results for %s: %w", key, err)
-				}
-				outBuf = append(outBuf, anyBytes...)
-				exprStart = -1
-				continue
-			}
-			outBuf = append(outBuf, c)
+			key = append(key, c)
+		case quotes && (c == '"' || c == '\'' || c == '`'):
+			quote = c
+			key = append(key, c)
+		case c == '[':
+			depth++
+			key = append(key, c)
+		case c == ']' && depth > 0:
+			depth--
+			key = append(key, c)
+		case c == ']':
+			return string(key), i + 1, true
 		default:
-			if exprStart == -1 {
-				outBuf = append(outBuf, c)
-			} else {
-				keyBuf = append(keyBuf, c)
-			}
+			key = append(key, c)
 		}
 	}
-
-	// Handle end of string
-	if exprStart == -1 {
-		outBuf = append(outBuf, v[n-1])
-		return string(outBuf), nil
+	if quote != 0 {
+		return scanExpression(v, from, false)
 	}
-
-	// Still inside expression - no unescaped ] found
-	// Check if last char is ] and we didn't escape past the end
-	if i >= n || v[n-1] != ']' {
-		// Not a valid expression - output literally
-		outBuf = append(outBuf, v[exprStart:n]...)
-		return string(outBuf), nil
-	}
-
-	key := strings.TrimSpace(string(keyBuf))
-	x, err := evalWithOptions(key, env, opts)
-	if err != nil {
-		return "", fmt.Errorf("error evaluating %q: %w", key, err)
-	}
-	if debug.Eval() {
-		debug.Logf("eval %q gave %#v\n", key, x)
-	}
-	anyBytes, err := anyToBytes(x)
-	if err != nil {
-		return "", fmt.Errorf("could not marshal evaluation results for %s: %w", key, err)
-	}
-	outBuf = append(outBuf, anyBytes...)
-	return string(outBuf), nil
+	return "", 0, false
 }
 
-func anyToBytes(v any) ([]byte, error) {
+// anyToBytes is the text a value is written into a string as. A scalar is its value;
+// a composite is written as opts.Composite says.
+func anyToBytes(v any, opts *EvalOptions) ([]byte, error) {
 	switch x := v.(type) {
+	case nil:
+		return []byte("null"), nil
 	case string:
 		return []byte(x), nil
 	case float64:
@@ -420,20 +494,58 @@ func anyToBytes(v any) ([]byte, error) {
 	case json.Number:
 		return []byte(x), nil
 	case *ir.Node:
-		// A non-scalar interpolated into a string is its JSON (docs/build-eval.md,
-		// String Expansion); it was written as tony wire text, and the block form
-		// for a Go value (p478tacqh12krg32msn0 item 19). A scalar node is its
-		// value, as the scalar cases above write theirs.
+		// A typed nil is what getpath answers for a path the document does not
+		// have, and its Type is a nil dereference: as a value it is null.
+		if x == nil {
+			return []byte("null"), nil
+		}
+		// A scalar node is its value, as the scalar cases above write theirs.
 		switch x.Type {
 		case ir.StringType:
 			return []byte(x.String), nil
 		case ir.NullType:
 			return []byte("null"), nil
+		case ir.ObjectType, ir.ArrayType:
+			return compositeBytes(x, x.Type == ir.ObjectType, opts)
 		}
 		return MarshalJSON(x)
-	default:
-		return json.Marshal(v)
 	}
+	switch kind := reflect.TypeOf(v).Kind(); kind {
+	case reflect.Map, reflect.Slice, reflect.Array:
+		return compositeBytes(v, kind == reflect.Map, opts)
+	}
+	return json.Marshal(v)
+}
+
+// compositeBytes writes an object or a list into a string as opts.Composite says. The
+// default is its JSON (docs/build-eval.md, String Expansion): it was written as tony
+// wire text, and the block form for a Go value (p478tacqh12krg32msn0 item 19).
+func compositeBytes(v any, object bool, opts *EvalOptions) ([]byte, error) {
+	form := CompositeJSON
+	if opts != nil {
+		form = opts.Composite
+	}
+	switch form {
+	case CompositeTony:
+		node, err := FromAny(v)
+		if err != nil {
+			return nil, err
+		}
+		var buf bytes.Buffer
+		if err := encode.Encode(node, &buf, encode.EncodeWire(true)); err != nil {
+			return nil, err
+		}
+		return bytes.TrimRight(buf.Bytes(), "\n"), nil
+	case CompositeRefuse:
+		if object {
+			return nil, fmt.Errorf("an object has no text form")
+		}
+		return nil, fmt.Errorf("a list has no text form")
+	}
+	if node, ok := v.(*ir.Node); ok {
+		return MarshalJSON(node)
+	}
+	return json.Marshal(v)
 }
 
 func isRawEnvRef(s string) bool {

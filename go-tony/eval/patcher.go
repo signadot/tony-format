@@ -1,52 +1,8 @@
 package eval
 
 import (
-	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/ast"
-	"github.com/expr-lang/expr/compiler"
-	"github.com/expr-lang/expr/conf"
-	"github.com/expr-lang/expr/parser"
-	"github.com/expr-lang/expr/vm"
 )
-
-// evalWithDefCallPatch parses, patches, and evaluates an expression.
-// It transforms bare identifier references to parameterized definitions
-// into zero-argument function calls. This allows .[array] to automatically call
-// array() to get the base definition when array is defined as array(t).
-//
-// Example:
-//   - If "array" is a parameterized def (has parameters)
-//   - The expression "array" becomes "array()"
-//   - The expression "array(int)" remains "array(int)" (already a call)
-//
-// compileOpts are applied to the compile config as expr.Compile would apply them;
-// they are how the script functions arrive.
-func evalWithDefCallPatch(input string, env map[string]any, parameterizedDefs map[string]bool, compileOpts ...expr.Option) (any, error) {
-	// Parse to AST
-	tree, err := parser.Parse(input)
-	if err != nil {
-		return nil, err
-	}
-
-	// Collect all CallNode callees first (top-down traversal)
-	callees := make(map[*ast.IdentifierNode]bool)
-	collectCallees(tree.Node, callees)
-
-	// Patch identifiers that aren't callees
-	patchTree(&tree.Node, parameterizedDefs, callees)
-
-	// Compile the patched AST
-	config := conf.New(env)
-	for _, opt := range compileOpts {
-		opt(config)
-	}
-	program, err := compiler.Compile(tree, config)
-	if err != nil {
-		return nil, err
-	}
-
-	return vm.Run(program, env)
-}
 
 // collectCallees recursively collects all IdentifierNodes that are CallNode callees.
 // This uses top-down traversal so we see CallNodes before their children.

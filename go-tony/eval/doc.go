@@ -7,12 +7,16 @@
 //
 // A string may hold expressions written $[...] or .[...]. Each is evaluated with
 // expr-lang (github.com/expr-lang/expr) against an environment of named values, and
-// its value is written into the string in its place. Inside an expression a backslash
-// escapes the next character, so \] does not close it. A string that is exactly one
-// .[...] is a reference rather than text: expanding it replaces the node with the
-// expression's value, which need not be a string.
+// its value is written into the string in its place. An expression ends at the ] that
+// closes it: a [ opened inside it is closed by its own ], a ] in a quoted string closes
+// nothing, and a backslash escapes the next character, so \] does not close it either.
+// Outside an expression, $$[ is a literal $[. A string that is exactly one .[...] is a
+// reference rather than text: expanding it replaces the node with the expression's
+// value, which need not be a string.
 //
-// [ExpandString] expands the expressions in one string. [ExpandIR] expands every
+// [ExpandString] expands the expressions in one string, and [ExpandStringWithOptions]
+// does so under [EvalOptions]: DisableBuiltins, the functions an expression may not
+// call, and Composite, how an object or a list is written into text. [ExpandIR] expands every
 // string beneath a node and answers the result, in which a reference's value keeps the
 // tag the reference wore, so !not .[x] still negates. It builds the result from the
 // node it is given, whose strings it expands in place, so a caller keeping that node
