@@ -6,7 +6,10 @@ commits: []
 created: "2026-11-02T23:01:34.855594+01:00"
 duplicates: []
 id: xxn12a3gh12krfg8x5n0
-labels: []
+labels:
+- agent
+- enhancement
+- eval
 related_issues: []
 status: open
-updated: "2026-11-02T23:01:34.855594+01:00"
+updated: "2026-11-02T23:01:34.967614+01:00"
