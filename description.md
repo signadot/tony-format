@@ -34,4 +34,4 @@ Source: `eval/expand_env.go`: `expandStringWithOptions` (the scanner), `evalWith
 
 ## Why it matters downstream
 
-Without 1, moving verse onto `$[…]` undoes the refusal that verse PR #70 adds: `$[subject.value.handoff.summary]` on a subject without `handoff` would open a pull request whose body is `null`. Without 2, every indexed path in a charter (`findings[0].severity`, common in verse) needs `\]`. 3, 4 and 5 are smaller, but each is a rule verse would otherwise have to state as "different from tony's".
+Without 1, moving verse onto `$[…]` loses the refusal that verse PR #70 adds for a missing leaf. `$[subject.value.summary]` on a subject whose value has no `summary` would open a pull request whose body is `null`. (A missing parent is already refused: `$[subject.value.handoff.summary]` on a subject without `handoff` fails with `cannot fetch summary from <nil>`.) Without 2, every indexed path in a charter (`findings[0].severity`, common in verse) needs `\]`. 3, 4 and 5 are smaller, but each is a rule verse would otherwise have to state as "different from tony's".
