@@ -52,8 +52,8 @@ type Session struct {
 	refused atomic.Bool
 
 	// readSlots bounds concurrent reads; readWG lets shutdown wait for the ones in
-	// flight. Reads run off the request loop so a slow one does not hold up the
-	// writes behind it -- see dispatch.
+	// flight. Reads run off the request loop, and wait for a slot off it too, so a slow
+	// one does not hold up the requests behind it -- see dispatch.
 	readSlots chan struct{}
 	readWG    sync.WaitGroup
 
@@ -260,10 +260,23 @@ type outbound struct {
 	frame []byte
 }
 
-// maxConcurrentReads bounds the reads one session may have in flight at once. A read
-// materializes a document, so unbounded is a memory hazard on a store with a big root;
-// beyond this the dispatch loop waits, which is what it always did.
+// maxConcurrentReads bounds the reads one session may have in flight at once. A read materializes a document, so
+// unbounded is a memory hazard on a store with a big root. A read past it waits for a
+// slot in its own goroutine, holding only its request; the dispatch loop does not wait.
+// It used to, and a ping behind the wait went unanswered until the heartbeat tore the
+// session down (x32pp5j0h12krtnvwnn0).
 const maxConcurrentReads = 8
+
+// takeReadSlot waits for one of the session's maxConcurrentReads, and answers false when
+// the session ends first. Called off the request loop.
+func (s *Session) takeReadSlot() bool {
+	select {
+	case s.readSlots <- struct{}{}:
+		return true
+	case <-s.done:
+		return false
+	}
+}
 
 // scopeID is this session's COW scope, or nil for the baseline. Read through here
 // rather than off the field: hello writes it on the request loop while reads run
@@ -285,7 +298,7 @@ func (s *Session) authorOr(named string) string {
 // dispatch routes a request to the appropriate handler.
 //
 // Everything here runs ON the request loop -- the next request waits -- except a read,
-// which does not. One client is one session (libctl dials once and shares it), so a
+// which does not, and nor does its wait for a read slot. One client is one session (libctl dials once and shares it), so a
 // read taking a second put every write behind it in the same line: a source trying to
 // land a write waited on a status read of a document it had no interest in. Writes
 // stay on the loop, which is what keeps a client's own ordering: a read dispatched
@@ -294,7 +307,8 @@ func (s *Session) authorOr(named string) string {
 // concurrent, and says which commit it read at (7qayp3hah12kscx2gdn0).
 //
 // A ping stays on the loop deliberately: its answer means "this loop is alive", and a
-// probe answered from elsewhere cannot say that.
+// probe answered from elsewhere cannot say that. So nothing on the loop waits on a read,
+// not even for a match's slot.
 func (s *Session) dispatch(req *api.SessionRequest) {
 	if req.Hello == nil && s.refused.Load() {
 		s.sendError(req.ID, api.ErrCodeProtocolMismatch,
@@ -305,10 +319,13 @@ func (s *Session) dispatch(req *api.SessionRequest) {
 	case req.Hello != nil:
 		s.handleHello(req.ID, req.Hello)
 	case req.Match != nil:
-		s.readSlots <- struct{}{}
 		s.readWG.Add(1)
 		go func() {
-			defer func() { s.readWG.Done(); <-s.readSlots }()
+			defer s.readWG.Done()
+			if !s.takeReadSlot() {
+				return
+			}
+			defer func() { <-s.readSlots }()
 			s.handleMatch(req.ID, req.Match)
 		}()
 	case req.Patch != nil:
