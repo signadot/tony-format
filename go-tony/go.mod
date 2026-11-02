@@ -16,6 +16,7 @@ require (
 	github.com/yuin/goldmark v1.7.13
 	go.lsp.dev/jsonrpc2 v0.10.0
 	go.lsp.dev/protocol v0.12.0
+	golang.org/x/sys v0.48.0
 	golang.org/x/tools v0.50.0
 )
 
@@ -31,6 +32,5 @@ require (
 	go.uber.org/zap v1.21.0 // indirect
 	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

@@ -208,6 +208,8 @@ func Open(root string, logger *slog.Logger) (*Storage, error) {
 		dlog.Close()
 		return nil, err
 	}
+	// The index rebuild read every record of both logs.
+	s.dropHistoryCache()
 
 	if s.scratch, err = openScratch(root, logger); err != nil {
 		dlog.Close()

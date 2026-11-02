@@ -3,6 +3,7 @@ package storage
 import (
 	"fmt"
 	"io"
+	"math"
 	"time"
 
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -124,7 +125,38 @@ func (s *Storage) SwitchDLog() error {
 		}
 	}
 
+	s.dropHistoryCache()
 	return nil
+}
+
+// dropHistoryCache lets the page cache of what reads at the head no longer touch go, after
+// a pass that read it whole: the switch, with its snapshot and compaction, and the index
+// rebuild at open (DLog.DropCache). A read at the head reads the newest root snapshot and
+// the active log past the mark the switch set; a snapshot of a path older than that root
+// snapshot loses to it. So what goes is the active log before its mark, the log holding the
+// newest root snapshot before that snapshot, and the file the last compaction retired.
+// What compaction just wrote is kept from the root snapshot on, which is where the next
+// reads land, and dropped before it, which is history. The index files are left
+// alone: they are read again, and their cache is what makes a lookup fast.
+func (s *Storage) dropHistoryCache() {
+	active, inactive := s.dLog.GetActiveLog(), s.dLog.GetInactiveLog()
+	activeTo, inactiveTo := s.dLog.SnapMark(), int64(0)
+	if seg, ok := s.baselineSnapshotSegment(math.MaxInt64); ok {
+		logFile := dlog.LogFileID(seg.LogFile)
+		start, err := s.dLog.SnapshotStart(logFile, seg.LogPosition, seg.LogFileGeneration)
+		if err != nil {
+			s.logger.Warn("failed to find the newest snapshot; its log's page cache is kept", "logFile", logFile, "error", err)
+			start = 0
+		}
+		switch logFile {
+		case inactive:
+			inactiveTo = start
+		case active:
+			activeTo = min(activeTo, start)
+		}
+	}
+	s.dLog.DropCache(active, s.dLog.GetGeneration(active), activeTo)
+	s.dLog.DropCache(inactive, s.dLog.GetGeneration(inactive), inactiveTo)
 }
 
 // createSnapshot creates a baseline snapshot of the full state at the given commit.
