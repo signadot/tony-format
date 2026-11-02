@@ -69,7 +69,7 @@ func newScopedWatch(t *testing.T, store *storage.Storage, scope, path string) *s
 	h.watcher.ID = &id
 	go h.session.writer()
 	head, _ := store.GetCurrentCommit()
-	go h.session.forwardEvents(h.watcher, nil, true, head)
+	go h.session.forwardEvents(h.watcher, nil, true, head, nil, nil)
 	return h
 }
 

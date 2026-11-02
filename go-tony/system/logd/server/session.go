@@ -260,7 +260,8 @@ type outbound struct {
 	frame []byte
 }
 
-// maxConcurrentReads bounds the reads one session may have in flight at once. A read materializes a document, so
+// maxConcurrentReads bounds the reads one session may have in flight at once: matches,
+// and watch opens through their opening picture (openWatch). A read materializes a document, so
 // unbounded is a memory hazard on a store with a big root. A read past it waits for a
 // slot in its own goroutine, holding only its request; the dispatch loop does not wait.
 // It used to, and a ping behind the wait went unanswered until the heartbeat tore the
@@ -307,8 +308,8 @@ func (s *Session) authorOr(named string) string {
 // concurrent, and says which commit it read at (7qayp3hah12kscx2gdn0).
 //
 // A ping stays on the loop deliberately: its answer means "this loop is alive", and a
-// probe answered from elsewhere cannot say that. So nothing on the loop waits on a read,
-// not even for a match's slot.
+// probe answered from elsewhere cannot say that. So nothing on the loop waits on a read:
+// not a match for its slot, nor a watch open for the read of its path (openWatch).
 func (s *Session) dispatch(req *api.SessionRequest) {
 	if req.Hello == nil && s.refused.Load() {
 		s.sendError(req.ID, api.ErrCodeProtocolMismatch,

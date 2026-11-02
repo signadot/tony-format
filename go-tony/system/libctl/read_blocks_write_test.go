@@ -20,7 +20,12 @@ import (
 // three seconds a queue of four takes a write past its budget and turns "slow" into
 // "dropped, retried, slower" (7qayp3hah12kscx2gdn0).
 //
-// A slow read must not block a write.
+// A ping is the other thing behind it. Its answer is the session's heartbeat, and a ping
+// that queued behind a burst of watch opens, each reading its path on the loop, or behind
+// a ninth match waiting on the loop for a read slot, timed out and tore the session down
+// with every watch on it (x32pp5j0h12krtnvwnn0).
+//
+// A slow read must not block a write or a ping, however many reads are ahead of it.
 func TestSlowReadDoesNotBlockAWrite(t *testing.T) {
 	dir := t.TempDir()
 	store, err := storage.Open(dir, nil)
@@ -53,53 +58,101 @@ func TestSlowReadDoesNotBlockAWrite(t *testing.T) {
 		}
 	}
 
-	// How slow a root read is on this store, and how quick a write is, measured
-	// rather than assumed -- the bound below is derived from them.
-	session := NewLogdSession(&LogdSessionConfig{Addr: srv.TCPAddr(), ClientID: "verse"})
-	defer session.Close()
-	if err := session.Connect(ctx); err != nil {
-		t.Fatalf("connect: %s", err)
-	}
-	start := time.Now()
-	if _, err := session.Match(ctx, ""); err != nil {
-		t.Fatalf("read: %s", err)
-	}
-	readTook := time.Since(start)
-	start = time.Now()
-	if _, err := session.Patch(ctx, "verse.meta", ir.FromMap(map[string]*ir.Node{"rev": ir.FromInt(1)})); err != nil {
-		t.Fatalf("write: %s", err)
-	}
-	writeTook := time.Since(start)
-	t.Logf("alone: root read %s, write %s", readTook.Round(time.Millisecond), writeTook.Round(time.Millisecond))
-	if readTook < 10*writeTook {
-		t.Skipf("a root read (%s) is not slow enough against a write (%s) here to tell the two cases apart",
-			readTook, writeTook)
-	}
-
-	// Now both at once, on the ONE session, the read first.
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if _, err := session.Match(ctx, ""); err != nil {
-			t.Errorf("concurrent read: %s", err)
+	connect := func(t *testing.T, name string) *LogdSession {
+		t.Helper()
+		session := NewLogdSession(&LogdSessionConfig{Addr: srv.TCPAddr(), ClientID: name})
+		t.Cleanup(func() { session.Close() })
+		if err := session.Connect(ctx); err != nil {
+			t.Fatalf("connect: %s", err)
 		}
-	}()
-	time.Sleep(10 * time.Millisecond) // let the read reach the server first
-
-	start = time.Now()
-	if _, err := session.Patch(ctx, "verse.meta", ir.FromMap(map[string]*ir.Node{"rev": ir.FromInt(2)})); err != nil {
-		t.Fatalf("write behind a read: %s", err)
+		return session
 	}
-	behind := time.Since(start)
-	wg.Wait()
 
-	// Serialized, the write waits out the read. Not serialized, it costs what a write
-	// costs. Half the read is a bound neither a busy machine nor a fast one confuses.
-	t.Logf("behind a read: write %s (read alone %s)", behind.Round(time.Millisecond), readTook.Round(time.Millisecond))
-	if behind > readTook/2 {
-		t.Errorf("a write behind a slow read took %s; the read alone takes %s, so it queued",
-			behind.Round(time.Millisecond), readTook.Round(time.Millisecond))
+	rev := int64(0)
+	write := func(session *LogdSession) error {
+		rev++
+		_, err := session.Patch(ctx, "verse.meta", ir.FromMap(map[string]*ir.Node{"rev": ir.FromInt(rev)}))
+		return err
+	}
+	ping := func(session *LogdSession) error {
+		_, err := session.Ping(ctx)
+		return err
+	}
+	match := func(session *LogdSession) error {
+		_, err := session.Match(ctx, "")
+		return err
+	}
+	// A watch open without waitIfAbsent asks whether the path holds anything, and one
+	// without noInit takes its opening picture: a read of the path either way.
+	watch := func(session *LogdSession) error {
+		w, err := session.Watch(ctx, "", nil)
+		if err != nil {
+			return err
+		}
+		return w.Close()
+	}
+
+	// How slow a root read is on this store, and how quick a write and a ping are,
+	// measured rather than assumed -- the bound below is derived from them.
+	session := connect(t, "verse")
+	timed := func(op func(*LogdSession) error) time.Duration {
+		start := time.Now()
+		if err := op(session); err != nil {
+			t.Fatalf("alone: %s", err)
+		}
+		return time.Since(start)
+	}
+	readTook, writeTook, pingTook := timed(match), timed(write), timed(ping)
+	t.Logf("alone: root read %s, write %s, ping %s", readTook.Round(time.Millisecond),
+		writeTook.Round(time.Millisecond), pingTook.Round(time.Millisecond))
+	if readTook < 10*max(writeTook, pingTook) {
+		t.Skipf("a root read (%s) is not slow enough against a write (%s) or a ping (%s) here to tell the two cases apart",
+			readTook, writeTook, pingTook)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		ahead  func(*LogdSession) error
+		n      int
+		behind func(*LogdSession) error
+	}{
+		{"write behind a match", match, 1, write},
+		{"ping behind a match", match, 1, ping},
+		// One more than a session's read slots: the last waits for one.
+		{"write behind nine matches", match, 9, write},
+		{"ping behind nine matches", match, 9, ping},
+		{"write behind nine watch opens", watch, 9, write},
+		{"ping behind nine watch opens", watch, 9, ping},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Both at once, on the ONE session, the reads first.
+			session := connect(t, "verse")
+			var wg sync.WaitGroup
+			for range tc.n {
+				wg.Go(func() {
+					if err := tc.ahead(session); err != nil {
+						t.Errorf("read ahead: %s", err)
+					}
+				})
+			}
+			time.Sleep(10 * time.Millisecond) // let the reads reach the server first
+
+			start := time.Now()
+			if err := tc.behind(session); err != nil {
+				t.Fatalf("behind the reads: %s", err)
+			}
+			behind := time.Since(start)
+			wg.Wait()
+
+			// Serialized, what is behind waits out a read. Not serialized, it costs what
+			// it costs. Half a read is a bound neither a busy machine nor a fast one
+			// confuses.
+			t.Logf("behind %d: %s (read alone %s)", tc.n, behind.Round(time.Millisecond), readTook.Round(time.Millisecond))
+			if behind > readTook/2 {
+				t.Errorf("behind %d slow reads took %s; a read alone takes %s, so it queued",
+					tc.n, behind.Round(time.Millisecond), readTook.Round(time.Millisecond))
+			}
+		})
 	}
 }
 

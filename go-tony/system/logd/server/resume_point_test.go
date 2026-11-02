@@ -68,7 +68,7 @@ func TestScopedWatchAdvancesItsResumePoint(t *testing.T) {
 	defer session.Close()
 
 	head, _ := store.GetCurrentCommit()
-	go session.forwardEvents(watcher, nil, true /*noInit*/, head)
+	go session.forwardEvents(watcher, nil, true /*noInit*/, head, nil, nil)
 
 	// Live commits reach the watch.
 	for i := 5; i < 9; i++ {

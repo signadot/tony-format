@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	tony "github.com/signadot/tony-format/go-tony"
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -15,7 +16,8 @@ import (
 
 // Watching: establishing a watch, and the goroutine that serves it.
 //
-// A watch is registered on the request loop and served from its own goroutine, which
+// A watch is registered on the request loop and opened and served from its own
+// goroutine, which reads the path, refuses a watch on nothing or confirms the watch,
 // sends the initial state, replays history when the client asked to resume, and then
 // forwards live commits until the session ends or the client falls behind.
 
@@ -169,6 +171,57 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 		replayingFrom = fromCommit
 	}
 
+	s.readWG.Add(1)
+	go s.openWatch(id, watcher, req.WaitIfAbsent, req.NoInit, fromCommit, currentCommit, replayingFrom, replayingTo)
+}
+
+// openWatch establishes a watch handleWatch has registered: it reads the path, refuses a
+// watch on nothing or confirms it, and serves it. Where the watch sits against the
+// requests sent after it was fixed on the loop; what is left is a read, and it runs off
+// the loop in a read slot, as a match does. On the loop it was unbounded and one after
+// another, and a client opening many watches at once put every read ahead of its own
+// heartbeat ping: the ping timed out, and the session went down with every watch on it,
+// which the client opened again (x32pp5j0h12krtnvwnn0).
+//
+// The slot is held through the opening picture, which is the read's memory, and given
+// back before the replay and the live stream, which last as long as the watch does.
+func (s *Session) openWatch(id *string, watcher *Watcher, waitIfAbsent, noInit bool,
+	fromCommit *int64, currentCommit int64, replayingFrom, replayingTo *int64) {
+	if !s.takeReadSlot() {
+		s.readWG.Done()
+		return
+	}
+	release := sync.OnceFunc(func() {
+		<-s.readSlots
+		s.readWG.Done()
+	})
+	defer release()
+
+	// An unwatch is served on the loop and can end the watch while it waits here. The watch
+	// request is still owed its one answer, and the answer is that it is not watching.
+	gone := func() bool {
+		if s.holds(watcher) {
+			return false
+		}
+		s.sendError(id, api.ErrCodeNotWatching,
+			fmt.Sprintf("unwatched %q before it was established", watcher.Path))
+		return true
+	}
+	if gone() {
+		return
+	}
+
+	// One read at the head answers both questions put to it, whether anything is there and
+	// what, and a watch that puts neither reads nothing here.
+	startCommit := currentCommit
+	if fromCommit != nil {
+		startCommit = *fromCommit
+	}
+	head := &pathRead{commit: currentCommit}
+	if currentCommit != 0 && (!waitIfAbsent || (!noInit && startCommit == currentCommit)) {
+		head.node, head.err = s.readValueAt(watcher.Path, currentCommit)
+	}
+
 	// A watch that will be refused is refused HERE, before the confirmation, so that
 	// Watch() means "this watch exists" rather than "the request was well formed".
 	//
@@ -190,22 +243,53 @@ func (s *Session) handleWatch(id *string, req *api.WatchRequest) {
 	// the path it is resuming -- refusing because the path had not been written yet at
 	// commit 0 would 404 every full replay of a path that exists. The seed still reports
 	// the cursor's own commit, where absence is history rather than a refusal.
-	if !req.WaitIfAbsent {
-		if perr := s.absentAt(path, currentCommit); perr != nil {
+	if !waitIfAbsent {
+		if perr := head.absent(watcher.Path); perr != nil {
+			if gone() {
+				return
+			}
 			s.hub.Unwatch(watcher)
-			s.watchMu.Lock()
-			delete(s.watches, watchKey(id, path))
-			s.watchMu.Unlock()
+			s.dropWatch(watcher)
 			s.sendError(id, api.ErrCodeNotFound, perr.Error())
 			return
 		}
 	}
+	if gone() {
+		return
+	}
 
-	// Send watch confirmation
-	s.send(api.NewWatchResponseFrom(id, path, replayingFrom, replayingTo))
+	s.send(api.NewWatchResponseFrom(id, watcher.Path, replayingFrom, replayingTo))
+	if noInit {
+		head = nil
+	}
+	s.forwardEvents(watcher, fromCommit, noInit, currentCommit, head, release)
+}
 
-	// Start event forwarder goroutine
-	go s.forwardEvents(watcher, fromCommit, req.NoInit, currentCommit)
+// holds says watcher is still the session's watch under its key. An unwatch removes it.
+func (s *Session) holds(watcher *Watcher) bool {
+	s.watchMu.RLock()
+	defer s.watchMu.RUnlock()
+	return s.watches[watchKey(watcher.ID, watcher.Path)] == watcher
+}
+
+// dropWatch removes watcher from the session's watches, if it is still there: an unwatch
+// may have removed it, and a watch opened since with the same key is another watch.
+func (s *Session) dropWatch(watcher *Watcher) {
+	key := watchKey(watcher.ID, watcher.Path)
+	s.watchMu.Lock()
+	if s.watches[key] == watcher {
+		delete(s.watches, key)
+	}
+	s.watchMu.Unlock()
+}
+
+// pathRead is a read of the watched path at commit, taken once by openWatch for the two
+// questions asked of the head. Nothing is read at commit 0, where nothing was ever
+// written.
+type pathRead struct {
+	commit int64
+	node   *ir.Node
+	err    error
 }
 
 // watchStream is one watch while it runs: the state it carries, and the jobs it does with
@@ -275,7 +359,12 @@ type watchStream struct {
 
 // forwardEvents serves one watch until the session ends, the client falls behind, or the
 // watch is failed. Three jobs, in order, and the state between them is the stream's.
-func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool, currentCommit int64) {
+//
+// head is the read openWatch took of the path at currentCommit, which is the initial state
+// when the watch starts there; nil when it took none. release gives back the read slot the
+// watch was opened in, which it holds through the initial state; nil when it holds none.
+func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool, currentCommit int64,
+	head *pathRead, release func()) {
 	w := &watchStream{
 		s:       s,
 		watcher: watcher,
@@ -338,7 +427,7 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 	}
 
 	if !noInit {
-		if !w.sendInitialState(startCommit) {
+		if !w.sendInitialState(startCommit, head) {
 			return
 		}
 		// The state holds every commit through startCommit. A notification queued at
@@ -349,6 +438,9 @@ func (s *Session) forwardEvents(watcher *Watcher, fromCommit *int64, noInit bool
 		if w.replayedThrough < startCommit {
 			w.replayedThrough = startCommit
 		}
+	}
+	if release != nil {
+		release()
 	}
 	if fromCommit != nil && !w.replay(startCommit, currentCommit) {
 		return
@@ -390,11 +482,17 @@ func (w *watchStream) fail(code, format string, args ...any) {
 
 // sendInitialState sends the state at the path as of commit, which is what every delta
 // after it applies to. It answers false when the watch has been failed.
-func (w *watchStream) sendInitialState(commit int64) bool {
+//
+// head is a read of the path taken already, used when it is at commit; nil is none.
+func (w *watchStream) sendInitialState(commit int64, head *pathRead) bool {
 	var state *ir.Node // an empty store holds nothing, at any path
 	if commit != 0 {
 		var err error
-		state, err = w.s.readValueAt(w.path, commit)
+		if head != nil && head.commit == commit {
+			state, err = head.node, head.err
+		} else {
+			state, err = w.s.readValueAt(w.path, commit)
+		}
 		if err != nil {
 			// A PathError says which of three things is true about the path, and they
 			// want three different volumes -- see PathErrorKind. Anything else is the
@@ -935,18 +1033,18 @@ func (s *Session) failWatch(watcher *Watcher, reason, message string, commit int
 	s.watchMu.Unlock()
 }
 
-// absentAt answers the PathError when kp holds nothing at commit, and nil when it holds
-// something -- which includes holding a null somebody wrote.
+// absent answers the PathError when the read found nothing at kp, and nil when it found
+// something -- which includes a null somebody wrote.
 //
-// It asks the same question sendInitialState asks, because the two must agree: one refuses
-// the watch and the other seeds it, and a watch refused for a path the seed would have
-// found is worse than either answer alone.
-func (s *Session) absentAt(kp string, commit int64) *PathError {
-	if commit == 0 {
+// It reads the answer sendInitialState reads, because the two must agree: one refuses the
+// watch and the other seeds it, and a watch refused for a path the seed would have found
+// is worse than either answer alone.
+func (r *pathRead) absent(kp string) *PathError {
+	if r.commit == 0 {
 		// Nothing has ever been written, so nothing is at kp -- any kp.
 		return &PathError{Kind: PathAbsent, Path: kp}
 	}
-	_, err := s.readValueAt(kp, commit)
+	err := r.err
 	var pe *PathError
 	if errors.As(err, &pe) && pe.Kind == PathAbsent {
 		return pe

@@ -1294,7 +1294,7 @@ func TestSession_ScopedWatch_QueuedRaceEventNotDropped(t *testing.T) {
 	c2 := commit(`{a: {f2: 2}}`)
 
 	// ...and forwardEvents captures currentCommit = c2. NoInit, like a composed sub-watch.
-	go session.forwardEvents(watcher, nil, true /*noInit*/, c2)
+	go session.forwardEvents(watcher, nil, true /*noInit*/, c2, nil, nil)
 
 	var gotC2 bool
 	deadline := time.After(500 * time.Millisecond)
