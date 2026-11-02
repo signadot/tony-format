@@ -6,7 +6,9 @@ commits: []
 created: "2026-11-02T11:49:48.407393+01:00"
 duplicates: []
 id: sxs8gfghh12ksk3ax1n0
-labels: []
+labels:
+- agent
+- logd
 related_issues: []
 status: open
-updated: "2026-11-02T11:49:48.407393+01:00"
+updated: "2026-11-02T11:50:22.289006+01:00"
