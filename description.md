@@ -1,0 +1,7 @@
+# eval: .[ inside a string starts an expression, so ordinary text (*.[ch], a regex) is evaluated and has no escape
+
+Found while reviewing a verse spawn prompt: `.[` in a prompt is treated as an expression (verse launch/launch.go:246). go-tony's `ExpandString` starts an expression at `$[` or at `.[` anywhere in a string, and only `$$[` escapes, so `*.[ch]`, `\.[0-9]+` or `foo.[0]` in prose is evaluated. Since a plain path became strict (xxn12a3gh12krfg8x5n0) that fails the expansion where it used to write `null`. Comments are expanded the same way, so prose in a comment is exposed too.
+
+Fix: a string that is exactly `.[...]` is a reference and gets the value, as today; anywhere else in text `.[` is characters, and only `$[...]` interpolates. Nothing to escape, so no second escape rule beside `$$[`. Whole-value detection is tightened from prefix-and-suffix to the closing `]` being the last character, so `.[a] and .[b]` is text rather than one reference that fails to compile.
+
+Who used `.[` inside text: the signadot operator chart's `images.tony` (14 helm strings with `".[registry]" ".[repository]" ".[version]"`), the ArgoCD example's exec line, and the `dyn.tony` fixture; verse none. Each is a `.[` to `$[` edit; the chart's goes with signadot's next go-tony bump.
