@@ -52,7 +52,8 @@
 // So an author who wants a default writes ?. with ??, one who wants a demand writes
 // the plain path, and one who wants to know which it is writes in. Only a plain path
 // is strict: an absent b inside a larger expression, `a.b == "x"` say, is nil there
-// as it always was.
+// as it always was. A comment is expanded like a string, so a $[name] in one is as
+// strict; a comment that mentions the syntax writes $$[name].
 //
 // # Operations
 //

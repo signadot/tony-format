@@ -72,9 +72,13 @@ func pathText(path []pathStep) string {
 // lookup walks env along path and says what is absent; nil when every step is there,
 // or the walk reaches something it does not read.
 func lookup(env map[string]any, path []pathStep) error {
-	cur, ok := env[path[0].key]
-	if !ok {
-		return fmt.Errorf("no such name %q", path[0].key)
+	cur := any(env)
+	if path[0].key != "$env" { // the evaluator's name for the environment itself
+		v, ok := env[path[0].key]
+		if !ok {
+			return fmt.Errorf("no such name %q", path[0].key)
+		}
+		cur = v
 	}
 	for i, step := range path[1:] {
 		v := reflect.ValueOf(cur)
@@ -84,7 +88,6 @@ func lookup(env map[string]any, path []pathStep) error {
 			}
 			v = v.Elem()
 		}
-		at := pathText(path[:i+1])
 		switch v.Kind() {
 		case reflect.Map:
 			if !step.isKey || v.Type().Key().Kind() != reflect.String {
@@ -92,7 +95,7 @@ func lookup(env map[string]any, path []pathStep) error {
 			}
 			e := v.MapIndex(reflect.ValueOf(step.key).Convert(v.Type().Key()))
 			if !e.IsValid() {
-				return fmt.Errorf("no %q in %s", step.key, at)
+				return fmt.Errorf("no %q in %s", step.key, pathText(path[:i+1]))
 			}
 			cur = e.Interface()
 		case reflect.Slice, reflect.Array:
@@ -104,7 +107,7 @@ func lookup(env map[string]any, path []pathStep) error {
 				idx += n
 			}
 			if idx < 0 || idx >= n {
-				return fmt.Errorf("no index %d in %s, which has %d elements", step.index, at, n)
+				return fmt.Errorf("no index %d in %s, which has %d elements", step.index, pathText(path[:i+1]), n)
 			}
 			cur = v.Index(idx).Interface()
 		default:

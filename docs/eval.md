@@ -73,7 +73,9 @@ x ?? y     # y when x is null -- a.b ?? y is y for a missing b under a present a
 So a default is `?.` with `??` -- `.[a?.b?.c ?? "unset"]` holds however far the path
 got -- a demand is the plain path, and `in` is how an expression asks which of the
 two it has.  Only a plain path is strict: inside a larger expression, `a.b == "x"`
-say, an absent `b` is null as the evaluator has always had it.
+say, an absent `b` is null as the evaluator has always had it.  A comment is
+expanded like a string, so a `$[name]` in one is as strict; a comment that mentions
+the syntax writes `$$[name]`.
 
 ### Two things the format does not allow here
 

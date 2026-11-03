@@ -76,11 +76,11 @@ func (opts *EvalOptions) at(node *ir.Node) *EvalOptions {
 // plain path is first looked up strictly (strict.go), so an absent name or field is
 // an error rather than a null.
 func evalWithOptions(input string, env Env, opts *EvalOptions) (any, error) {
-	program, root, err := compile(input, env, opts)
+	program, path, err := compile(input, env, opts)
 	if err != nil {
 		return nil, err
 	}
-	if path := plainPath(root); path != nil {
+	if path != nil {
 		if err := lookup(env, path); err != nil {
 			return nil, err
 		}
@@ -88,15 +88,15 @@ func evalWithOptions(input string, env Env, opts *EvalOptions) (any, error) {
 	return vm.Run(program, map[string]any(env))
 }
 
-// compile compiles an expression under opts, and answers the root of the tree it
-// compiled, for the strict lookup of a plain path. It takes the steps expr.Compile
-// takes, one at a time, rather than expr.Compile itself: a visitor given to
-// expr.Compile costs a type check of the tree per pass, and the two walks here -- one
-// refusing a disabled call (refusing), one rewriting a parameterized definition's
-// reference into a call (patchTree) -- need none. The rewrite takes the script funcs
-// too, since without them it answered no whereami() or getpath() at all under a
-// schema's options (addsgv1yh12kszdxmdn0).
-func compile(input string, env Env, opts *EvalOptions) (*vm.Program, ast.Node, error) {
+// compile compiles an expression under opts, and answers its plain path when it is
+// one, for the strict lookup. It takes the steps expr.Compile takes, one at a time,
+// rather than expr.Compile itself: a visitor given to expr.Compile costs a type check
+// of the tree per pass, and the two walks here -- one refusing a disabled call
+// (refusing), one rewriting a parameterized definition's reference into a call
+// (patchTree) -- need none. The rewrite takes the script funcs too, since without
+// them it answered no whereami() or getpath() at all under a schema's options
+// (addsgv1yh12kszdxmdn0).
+func compile(input string, env Env, opts *EvalOptions) (*vm.Program, []pathStep, error) {
 	compileOpts := baseOpts()
 	var refused *refusing
 	var defs map[string]bool
@@ -120,6 +120,9 @@ func compile(input string, env Env, opts *EvalOptions) (*vm.Program, ast.Node, e
 	for _, opt := range compileOpts {
 		opt(config)
 	}
+	for name := range config.Disabled {
+		delete(config.Builtins, name)
+	}
 	config.Check()
 	tree, err := parser.ParseWithConfig(input, config)
 	if err != nil {
@@ -139,7 +142,18 @@ func compile(input string, env Env, opts *EvalOptions) (*vm.Program, ast.Node, e
 			return nil, nil, err
 		}
 	}
-	root := tree.Node // a definition's reference rewritten into a call is not a plain path
+	// The plain path is read here: after the rewrite, since a definition's reference
+	// rewritten into a call is not one, and before the optimizer, which rewrites the
+	// tree in place. A name that is a function's is answered from the functions, not
+	// the environment, and is left to the evaluator.
+	path := plainPath(tree.Node)
+	if path != nil {
+		if _, isFunc := config.Functions[path[0].key]; isFunc {
+			path = nil
+		} else if _, isBuiltin := config.Builtins[path[0].key]; isBuiltin {
+			path = nil
+		}
+	}
 	if len(defs) == 0 && config.Optimize {
 		if err := optimizer.Optimize(&tree.Node, config); err != nil {
 			var fileError *file.Error
@@ -150,7 +164,7 @@ func compile(input string, env Env, opts *EvalOptions) (*vm.Program, ast.Node, e
 		}
 	}
 	program, err := compiler.Compile(tree, config)
-	return program, root, err
+	return program, path, err
 }
 
 func ExpandEnv(node *ir.Node, env Env) error {
