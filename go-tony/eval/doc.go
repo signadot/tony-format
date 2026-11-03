@@ -36,19 +36,23 @@
 // A fetch says whether the thing it fetches from must be there, and the two spellings
 // differ on purpose:
 //
-//	a.b       a must be there. A missing b on an object that IS there answers null;
-//	          fetching b from nothing is an error, and so is a.b.c where a.b is
-//	          missing -- the error is the fetch ON nothing, not the absent b.
+//	a.b       a and b must be there. An expression that is a plain path -- names,
+//	          .fields and constant indexes -- is looked up strictly: an absent name,
+//	          field or index is an error that says what is absent (`no "b" in a`),
+//	          and so is a fetch on nothing. A written null is null.
 //	a?.b      a need not be there: absent anywhere along the path answers null, and
 //	          `a?.b?.c ?? "d"` is one spelling that holds however far the path got.
-//	x ?? y    y when x is null, which covers a missing leaf under a present parent
-//	          but not a fetch on nothing -- that is an error before ?? is reached.
+//	x ?? y    y when x is null. Inside it a.b is the evaluator's lenient fetch, so
+//	          `a.b ?? "d"` is "d" for a missing b under a present a, but a fetch on
+//	          nothing is an error before ?? is reached.
 //	"b" in a  whether a HOLDS b, which tells an absent b from one written null;
 //	          `a.b == nil` cannot, and this answers false rather than erroring when
 //	          a itself is nothing.
 //
-// So an author who wants a default writes ?. with ??, one who wants a demand writes .
-// with fail(), and one who wants to know which it is writes in.
+// So an author who wants a default writes ?. with ??, one who wants a demand writes
+// the plain path, and one who wants to know which it is writes in. Only a plain path
+// is strict: an absent b inside a larger expression, `a.b == "x"` say, is nil there
+// as it always was.
 //
 // # Operations
 //

@@ -6,8 +6,6 @@ import (
 	"github.com/signadot/tony-format/go-tony/debug"
 	"github.com/signadot/tony-format/go-tony/ir"
 	"github.com/signadot/tony-format/go-tony/parse"
-
-	"github.com/expr-lang/expr"
 )
 
 var scriptSym = &scriptSymbol{name: scriptName}
@@ -71,11 +69,8 @@ func (p scriptOp) Eval(doc *ir.Node, env Env, ef EvalFunc) (*ir.Node, error) {
 	if err := ExpandEnv(doc, env); err != nil {
 		return nil, err
 	}
-	prg, err := expr.Compile(doc.String, exprOpts(doc)...)
-	if err != nil {
-		return nil, err
-	}
-	res, err := expr.Run(prg, env)
+	// Through evalWithOptions, so a plain path is as strict here as anywhere.
+	res, err := evalWithOptions(doc.String, env, (*EvalOptions)(nil).at(doc))
 	if err != nil {
 		return nil, err
 	}

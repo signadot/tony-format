@@ -56,9 +56,9 @@ func TestFailIsThereWithoutADocument(t *testing.T) {
 // TestWhatAnAbsentPathAnswers states what the doc states: a fetch says whether what it
 // fetches from must be there. "." demands it, "?." tolerates it, "??" defaults a null
 // but cannot rescue a fetch on nothing, and "in" tells absent from written null. The
-// first two rows are the unevenness reported in 9mt3aenph12krmc1pdn0: one missing name
-// is null and two is an error. It is not a rule about paths, it is the fetch ON
-// nothing that fails, and an author who wants one answer however far the path got
+// first two rows were the unevenness reported in 9mt3aenph12krmc1pdn0: one missing
+// name was null and two an error. A plain path is now strict however far it got
+// (xxn12a3gh12krfg8x5n0), and an author who wants null for a b that may not be there
 // writes "?.".
 func TestWhatAnAbsentPathAnswers(t *testing.T) {
 	const present, missing = true, false
@@ -67,8 +67,8 @@ func TestWhatAnAbsentPathAnswers(t *testing.T) {
 		parent bool
 		want   string // the expansion, or "!" followed by what the error says
 	}{
-		{`$[subject.value.nope]`, present, "null"},
-		{`$[subject.value.nope.deeper]`, present, "!cannot fetch deeper from <nil>"},
+		{`$[subject.value.nope]`, present, `!no "nope" in subject.value`},
+		{`$[subject.value.nope.deeper]`, present, `!no "nope" in subject.value`},
 		{`$[subject.value.sha]`, present, "abc"},
 		{`$[subject.value.sha ?? "unset"]`, present, "abc"},
 		{`$[subject.value.nope ?? "unset"]`, present, "unset"},

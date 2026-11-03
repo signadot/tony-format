@@ -59,17 +59,21 @@ nothing, and `o eval` prints the message and exits non-zero.
 Whether a path that is not there is a null or an error is the fetch's to say:
 
 ```tony
-a.b        # a must be there.  A missing b on an object that IS there is null;
-           # fetching b from nothing is an error, and so is a.b.c when a.b is missing
+a.b        # a and b must be there.  An expression that is a plain path -- names,
+           # .fields and constant indexes -- is strict: an absent name, field or
+           # index is an error saying what is absent (no "b" in a).  A written
+           # null is null.
 a?.b       # a need not be there: absent anywhere along the path is null
-x ?? y     # y when x is null -- it cannot rescue a fetch on nothing
+x ?? y     # y when x is null -- a.b ?? y is y for a missing b under a present a,
+           # but it cannot rescue a fetch on nothing
 "b" in a   # whether a HOLDS b, which tells an absent b from one written null,
            # and answers false rather than erroring when a is nothing
 ```
 
 So a default is `?.` with `??` -- `.[a?.b?.c ?? "unset"]` holds however far the path
-got -- a demand is `.` with `fail()`, and `in` is how an expression asks which of the
-two it has.
+got -- a demand is the plain path, and `in` is how an expression asks which of the
+two it has.  Only a plain path is strict: inside a larger expression, `a.b == "x"`
+say, an absent `b` is null as the evaluator has always had it.
 
 ### Two things the format does not allow here
 

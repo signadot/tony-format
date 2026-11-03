@@ -3,6 +3,7 @@ package eval
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -12,10 +13,12 @@ import (
 	"github.com/signadot/tony-format/go-tony/encode"
 	"github.com/signadot/tony-format/go-tony/ir"
 
-	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/ast"
+	"github.com/expr-lang/expr/checker"
 	"github.com/expr-lang/expr/compiler"
 	"github.com/expr-lang/expr/conf"
+	"github.com/expr-lang/expr/file"
+	"github.com/expr-lang/expr/optimizer"
 	"github.com/expr-lang/expr/parser"
 	"github.com/expr-lang/expr/vm"
 )
@@ -69,24 +72,34 @@ func (opts *EvalOptions) at(node *ir.Node) *EvalOptions {
 	return &at
 }
 
-// evalWithOptions compiles and runs an expression under opts.
+// evalWithOptions compiles and runs an expression under opts. An expression that is a
+// plain path is first looked up strictly (strict.go), so an absent name or field is
+// an error rather than a null.
 func evalWithOptions(input string, env Env, opts *EvalOptions) (any, error) {
-	program, err := compile(input, env, opts)
+	program, root, err := compile(input, env, opts)
 	if err != nil {
 		return nil, err
+	}
+	if path := plainPath(root); path != nil {
+		if err := lookup(env, path); err != nil {
+			return nil, err
+		}
 	}
 	return vm.Run(program, map[string]any(env))
 }
 
-// compile compiles an expression under opts. A call of a disabled function is refused
-// by a walk of the tree (refusing). An expression under a parameterized definition is
-// rewritten between parsing and compiling, so it goes through the steps expr.Compile
-// takes, one at a time; the rewrite takes the script funcs too, since without them it
-// answered no whereami() or getpath() at all under a schema's options
-// (addsgv1yh12kszdxmdn0).
-func compile(input string, env Env, opts *EvalOptions) (*vm.Program, error) {
+// compile compiles an expression under opts, and answers the root of the tree it
+// compiled, for the strict lookup of a plain path. It takes the steps expr.Compile
+// takes, one at a time, rather than expr.Compile itself: a visitor given to
+// expr.Compile costs a type check of the tree per pass, and the two walks here -- one
+// refusing a disabled call (refusing), one rewriting a parameterized definition's
+// reference into a call (patchTree) -- need none. The rewrite takes the script funcs
+// too, since without them it answered no whereami() or getpath() at all under a
+// schema's options (addsgv1yh12kszdxmdn0).
+func compile(input string, env Env, opts *EvalOptions) (*vm.Program, ast.Node, error) {
 	compileOpts := baseOpts()
 	var refused *refusing
+	var defs map[string]bool
 	if opts != nil {
 		if opts.Node != nil {
 			// The node itself, not its root, so whereami() answers its path; getpath()
@@ -96,35 +109,48 @@ func compile(input string, env Env, opts *EvalOptions) (*vm.Program, error) {
 		if len(opts.DisableBuiltins) > 0 {
 			refused = newRefusing(opts.DisableBuiltins)
 		}
+		defs = opts.ParameterizedDefs
 	}
-	if opts == nil || len(opts.ParameterizedDefs) == 0 {
-		if refused != nil {
-			compileOpts = append(compileOpts, expr.Patch(refused))
-		}
-		program, err := expr.Compile(input, compileOpts...)
-		if rerr := refused.err(); rerr != nil {
-			return nil, rerr
-		}
-		return program, err
+	config := conf.CreateNew()
+	if len(defs) > 0 {
+		// A definition's expression is compiled against the environment's Go type, as
+		// it always was, so what it is run with is the plain map, not the named Env.
+		config = conf.New(map[string]any(env))
 	}
-	// The program is specialized to the environment's Go type, so what it is compiled
-	// against and run with is the plain map, not the named Env.
-	config := conf.New(map[string]any(env))
 	for _, opt := range compileOpts {
 		opt(config)
 	}
 	config.Check()
 	tree, err := parser.ParseWithConfig(input, config)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := refused.walk(tree.Node); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	callees := make(map[*ast.IdentifierNode]bool)
-	collectCallees(tree.Node, callees)
-	patchTree(&tree.Node, opts.ParameterizedDefs, callees)
-	return compiler.Compile(tree, config)
+	if len(defs) > 0 {
+		callees := make(map[*ast.IdentifierNode]bool)
+		collectCallees(tree.Node, callees)
+		patchTree(&tree.Node, defs, callees)
+	} else {
+		// As expr.Compile has it: the tree is checked, then optimized. A definition's
+		// goes to the compiler unchecked, as it always has.
+		if _, err := checker.Check(tree, config); err != nil {
+			return nil, nil, err
+		}
+	}
+	root := tree.Node // a definition's reference rewritten into a call is not a plain path
+	if len(defs) == 0 && config.Optimize {
+		if err := optimizer.Optimize(&tree.Node, config); err != nil {
+			var fileError *file.Error
+			if errors.As(err, &fileError) {
+				return nil, nil, fileError.Bind(tree.Source)
+			}
+			return nil, nil, err
+		}
+	}
+	program, err := compiler.Compile(tree, config)
+	return program, root, err
 }
 
 func ExpandEnv(node *ir.Node, env Env) error {
@@ -174,14 +200,10 @@ func ExpandEnv(node *ir.Node, env Env) error {
 			node.String = v
 			return nil
 		}
-		// Compile with script funcs (getpath, whereami, etc.)
-		// Pass the node itself so whereami() returns the correct path
-		// getpath() internally calls doc.Root() to resolve paths
-		program, err := expr.Compile(raw, exprOpts(node)...)
-		if err != nil {
-			return fmt.Errorf("error compiling %q: %w", raw, err)
-		}
-		val, err := vm.Run(program, env)
+		// The node itself, so whereami() answers its path; getpath() goes to the root
+		// on its own. Through evalWithOptions, so a plain path is as strict here as
+		// in a string or under ExpandIR.
+		val, err := evalWithOptions(raw, env, (*EvalOptions)(nil).at(node))
 		if err != nil {
 			return fmt.Errorf("error evaluating %q: %w", raw, err)
 		}
