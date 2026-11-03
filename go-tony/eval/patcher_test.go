@@ -178,13 +178,13 @@ func TestExpandStringWithOptions_ParameterizedDefs(t *testing.T) {
 	}{
 		{
 			name:   "embedded ref to parameterized def",
-			input:  "type: .[array]",
+			input:  "type: $[array]",
 			want:   "type: base-array",
 			useOpt: true,
 		},
 		{
 			name:   "embedded ref to regular value",
-			input:  "count: .[number]",
+			input:  "count: $[number]",
 			want:   "count: 42",
 			useOpt: true,
 		},

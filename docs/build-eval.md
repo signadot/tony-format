@@ -75,20 +75,15 @@ traversed recursively and then every string will be expanded.
 
 #### String Expansion
 
-String expansion works by looking for `$[...]` or `.[...]`.  Wherever any such
-expression is found, it is evaluating using [`expr-lang`](https://expr-lang.org)
-against the environment.
+A string that is exactly `.[...]` is a reference: the expression is evaluated using
+[`expr-lang`](https://expr-lang.org) against the environment, and its value, in the
+type-form described above for environment type forms, replaces the node.
 
-The result of that evaluation is assumed is in the same type-form as described
-above for environment type forms.
-
-If the containing expression is `.[...]` with no additional leading or trailing
-characters, that value is replaced for the node containing it.
-
-Otherwise, the containing expression is interpolated for scalars in a standard
-fashion, and non-scalars are taken to be the result of marshaling them using
-json. An embedder can have them written as tony instead, or refused
-(`eval.EvalOptions.Composite`).
+Any other string is text, and every `$[...]` in it is evaluated the same way and
+interpolated: a scalar as itself, and a non-scalar as its JSON, which an embedder can
+have written as tony instead, or refused (`eval.EvalOptions.Composite`).  A `.[` in
+text is text: `*.[ch]` and `a.[0]` are written as they are, and only `$[` starts an
+expression.
 
 #### Where an expression ends
 

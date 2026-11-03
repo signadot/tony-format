@@ -31,6 +31,10 @@ func TestExpressionEnds(t *testing.T) {
 		{in: "$$HOME and $HOME", out: "$$HOME and $HOME"},
 		{in: "a $$[ b", out: "a $[ b"},
 		{in: "$[subject.value.sev] $$[x] $[subject.value.n]", out: "high $[x] 3"},
+		// .[ in text is text (8e7xghg3h12krsd5x5n0)
+		{in: "files matching *.[ch] and a.[0]", out: "files matching *.[ch] and a.[0]"},
+		{in: ".[subject.value.sev] tail", out: ".[subject.value.sev] tail"},
+		{in: ".[nosuch] and .[nosuch]", out: ".[nosuch] and .[nosuch]"},
 	} {
 		got, err := ExpandString(tc.in, env)
 		if err != nil || got != tc.out {
@@ -42,6 +46,49 @@ func TestExpressionEnds(t *testing.T) {
 	// through as text.
 	if got, err := ExpandString(`$[upper("abc] tail`, env); err == nil {
 		t.Errorf("an unclosed quote: %q, want an error", got)
+	}
+}
+
+// A reference is a string that is one .[...], closed by its last character; a string
+// with more in it is text, in which .[ means nothing (8e7xghg3h12krsd5x5n0).
+func TestReferenceIsTheWholeValue(t *testing.T) {
+	env := optionsEnv()
+	for _, tc := range []struct{ in, raw string }{
+		{".[subject.value.sev]", "subject.value.sev"},
+		{".[subject.value.items[0]]", "subject.value.items[0]"},
+		{`.[subject.value["obj"]]`, `subject.value["obj"]`},
+		{".[nosuch] and .[nosuch]", ""},
+		{".[subject.value.sev] tail", ""},
+		{"head .[subject.value.sev]", ""},
+		// a block scalar's newline is not the author's
+		{".[subject.value.sev]\n", "subject.value.sev"},
+		// the expression as the evaluator gets it, escapes undone, as $[...] gives it
+		{`.[subject.value["x\]y"]]`, `subject.value["x]y"]`},
+	} {
+		if got := GetRaw(tc.in); got != tc.raw {
+			t.Errorf("GetRaw(%q) = %q, want %q", tc.in, got, tc.raw)
+		}
+	}
+	doc, err := parse.Parse([]byte("a: |\n  .[subject.value.obj]\nb: |-\n  .[subject.value.obj]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := ExpandIR(doc, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"a", "b"} {
+		if n, _ := out.GetKPath(k); n == nil || n.Type != ir.ObjectType {
+			t.Errorf("a block scalar holding one reference, %s: %v; want the object", k, n)
+		}
+	}
+	n, err := ExpandIR(ir.FromString(".[subject.value.items[0]]"), env)
+	if err != nil || n == nil || n.Type != ir.NumberType {
+		t.Errorf("a reference with an index: %v, %v; want the number", n, err)
+	}
+	n, err = ExpandIR(ir.FromString(".[nosuch] and .[nosuch]"), env)
+	if err != nil || n == nil || n.String != ".[nosuch] and .[nosuch]" {
+		t.Errorf("two references in text: %v, %v; want the text as written", n, err)
 	}
 }
 

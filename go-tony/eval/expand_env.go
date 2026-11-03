@@ -120,9 +120,8 @@ func compile(input string, env Env, opts *EvalOptions) (*vm.Program, []pathStep,
 	for _, opt := range compileOpts {
 		opt(config)
 	}
-	for name := range config.Disabled {
-		delete(config.Builtins, name)
-	}
+	// expr.Compile would drop config.Disabled's builtins here; nothing in this package
+	// sets one, DisableBuiltins being the refusing walk's, so there is nothing to drop.
 	config.Check()
 	tree, err := parser.ParseWithConfig(input, config)
 	if err != nil {
@@ -144,16 +143,9 @@ func compile(input string, env Env, opts *EvalOptions) (*vm.Program, []pathStep,
 	}
 	// The plain path is read here: after the rewrite, since a definition's reference
 	// rewritten into a call is not one, and before the optimizer, which rewrites the
-	// tree in place. A name that is a function's is answered from the functions, not
-	// the environment, and is left to the evaluator.
+	// tree in place. A bare name is an environment load whatever else it names -- a
+	// function's name not in the environment is nil -- so every one is looked up.
 	path := plainPath(tree.Node)
-	if path != nil {
-		if _, isFunc := config.Functions[path[0].key]; isFunc {
-			path = nil
-		} else if _, isBuiltin := config.Builtins[path[0].key]; isBuiltin {
-			path = nil
-		}
-	}
 	if len(defs) == 0 && config.Optimize {
 		if err := optimizer.Optimize(&tree.Node, config); err != nil {
 			var fileError *file.Error
@@ -237,15 +229,22 @@ func ExpandEnv(node *ir.Node, env Env) error {
 	return nil
 }
 
-// GetRaw extracts the name from a .[name] reference syntax.
-// It returns the name without the ".[" prefix and "]" suffix.
-// If the string is not in .[name] format, it returns an empty string.
-// Example: GetRaw(".[number]") returns "number"
+// GetRaw answers the expression of a reference: v is .[ then an expression closed by
+// its last character, and the answer is that expression as the evaluator gets it,
+// escapes undone, the same text a $[...] in a string gives it. Anything else is
+// not a reference, ".[a] and .[b]" included, and answers "" (8e7xghg3h12krsd5x5n0).
+// A newline at the end is a block scalar's, not the author's, and is not counted.
+// Example: GetRaw(".[number]") returns "number".
 func GetRaw(v string) string {
-	if !isRawEnvRef(v) {
+	v = strings.TrimRight(v, "\n")
+	if !strings.HasPrefix(v, ".[") {
 		return ""
 	}
-	return v[2 : len(v)-1]
+	key, end, ok := scanExpression(v, 2, true)
+	if !ok || end != len(v) {
+		return ""
+	}
+	return key
 }
 
 func getRaw(v string) string {
@@ -413,7 +412,9 @@ func expandLineComment(node *ir.Node, env Env, opts *EvalOptions) error {
 	return nil
 }
 
-// ExpandString expands $[...] and .[...] expressions in a string.
+// ExpandString expands the $[...] expressions in a string. A .[ in a string is text:
+// .[...] is a reference only as a whole value, which ExpandIR replaces with the value
+// (8e7xghg3h12krsd5x5n0).
 //
 // Expressions are evaluated using expr-lang against the provided environment. An
 // expression ends at the ] that closes it: a [ opened inside it is closed by its own ],
@@ -432,7 +433,12 @@ func ExpandString(v string, env map[string]any) (string, error) {
 }
 
 // ExpandStringWithOptions expands the expressions in v as ExpandString does, under opts.
+// A v that is one reference, .[...] and nothing else, answers its value's text.
 func ExpandStringWithOptions(v string, env map[string]any, opts *EvalOptions) (string, error) {
+	if raw := GetRaw(v); raw != "" {
+		text, err := expandOne(strings.TrimSpace(raw), env, opts)
+		return string(text), err
+	}
 	var out []byte
 	for i := 0; i < len(v); {
 		if strings.HasPrefix(v[i:], "$$[") {
@@ -440,7 +446,7 @@ func ExpandStringWithOptions(v string, env map[string]any, opts *EvalOptions) (s
 			i += 3
 			continue
 		}
-		if (v[i] != '$' && v[i] != '.') || !strings.HasPrefix(v[i+1:], "[") {
+		if !strings.HasPrefix(v[i:], "$[") {
 			out = append(out, v[i])
 			i++
 			continue
@@ -451,22 +457,30 @@ func ExpandStringWithOptions(v string, env map[string]any, opts *EvalOptions) (s
 			out = append(out, v[i:]...)
 			break
 		}
-		key = strings.TrimSpace(key)
-		x, err := evalWithOptions(key, env, opts)
+		text, err := expandOne(strings.TrimSpace(key), env, opts)
 		if err != nil {
-			return "", fmt.Errorf("error evaluating %q: %w", key, err)
+			return "", err
 		}
-		if debug.Eval() {
-			debug.Logf("eval %q gave %#v\n", key, x)
-		}
-		anyBytes, err := anyToBytes(x, opts)
-		if err != nil {
-			return "", fmt.Errorf("could not marshal evaluation results for %s: %w", key, err)
-		}
-		out = append(out, anyBytes...)
+		out = append(out, text...)
 		i = end
 	}
 	return string(out), nil
+}
+
+// expandOne evaluates one expression and writes its value as text.
+func expandOne(key string, env map[string]any, opts *EvalOptions) ([]byte, error) {
+	x, err := evalWithOptions(key, env, opts)
+	if err != nil {
+		return nil, fmt.Errorf("error evaluating %q: %w", key, err)
+	}
+	if debug.Eval() {
+		debug.Logf("eval %q gave %#v\n", key, x)
+	}
+	text, err := anyToBytes(x, opts)
+	if err != nil {
+		return nil, fmt.Errorf("could not marshal evaluation results for %s: %w", key, err)
+	}
+	return text, nil
 }
 
 // scanExpression reads the expression that starts at v[from] up to the ] that closes
@@ -584,8 +598,9 @@ func compositeBytes(v any, object bool, opts *EvalOptions) ([]byte, error) {
 	return json.Marshal(v)
 }
 
+// isRawEnvRef says whether s is one reference, as GetRaw has it.
 func isRawEnvRef(s string) bool {
-	return strings.HasPrefix(s, ".[") && strings.HasSuffix(s, "]")
+	return GetRaw(s) != ""
 }
 
 // withLineComment carries from's line comment onto to, a container rebuilt from

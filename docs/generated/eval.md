@@ -8,7 +8,7 @@ This page documents all eval operations.
 
 The !eval operation expands the expressions in the strings beneath it. Each is an [expr-lang](https://expr-lang.org/) expression evaluated against the evaluation environment (`o eval -e name=value`). `$[expr]` is replaced by the expression's value as text; a string that is exactly `.[expr]` is replaced by the value itself, keeping its type. `$USER` is not an expression and stays as it is written; `.[getenv("USER")]` reads the OS environment.
 
-**Child:** Document whose strings hold `$[...]` or `.[...]` expressions
+**Child:** Document whose strings hold `$[...]` expressions, or are one `.[...]` reference
 
 **Examples:**
 

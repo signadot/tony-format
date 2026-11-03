@@ -52,10 +52,11 @@ func TestPlainPathIsStrict(t *testing.T) {
 	if _, err := ExpandString("$[x]", nil); err == nil || !strings.Contains(err.Error(), `no such name "x"`) {
 		t.Errorf("a name with no environment at all: %v, want it refused", err)
 	}
-	// A function's name is the evaluator's to answer, not the environment's.
-	for _, in := range []string{"$[upper]", "$[fail]", "$[len]"} {
-		if _, err := ExpandString(in, env); err != nil && strings.Contains(err.Error(), "no such name") {
-			t.Errorf("%s: %v; a function's name is not an absent one", in, err)
+	// A bare name is a load from the environment whatever else it names: a function's
+	// name that the environment does not hold was nil, and is absent.
+	for _, in := range []string{"$[upper]", "$[fail]", "$[len]", "$[now]"} {
+		if _, err := ExpandString(in, env); err == nil || !strings.Contains(err.Error(), "no such name") {
+			t.Errorf("%s: %v; want it refused as an absent name", in, err)
 		}
 	}
 }

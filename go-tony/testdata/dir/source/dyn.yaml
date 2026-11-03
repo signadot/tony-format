@@ -5,4 +5,4 @@
   # $[dyn]
 which-is-also-here: .[dyn]
 <<: |
-  and even here (.[dyn]) uncommented!
+  and even here ($[dyn]) uncommented!

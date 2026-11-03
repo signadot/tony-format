@@ -19,7 +19,7 @@
 build:
   sources:
   # Fetch current deployment from cluster
-  - exec: "kubectl get deployment argocd-repo-server -n .[namespace] -o yaml"
+  - exec: "kubectl get deployment argocd-repo-server -n $[namespace] -o yaml"
     format: yaml
   # Static resources
   - dir: source
