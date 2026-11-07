@@ -76,35 +76,13 @@ func answerDocument(res *ir.Node, pOpts *parseOpts) (*ir.Node, error) {
 	return res, nil
 }
 
-// sortKeys sorts the fields of every string-keyed object under n, n included,
-// for [SortKeys]. An object holding a merge key -- a NullType field -- keeps
-// its order.
+// sortKeys applies [ir.SortFields] to every object under n, n included, for
+// [SortKeys].
 func sortKeys(n *ir.Node) {
 	for _, v := range n.Values {
 		sortKeys(v)
 	}
-	if n.Type != ir.ObjectType || len(n.Fields) < 2 {
-		return
-	}
-	for _, f := range n.Fields {
-		if f.Type != ir.StringType {
-			return
-		}
-	}
-	order := make([]int, len(n.Fields))
-	for i := range order {
-		order[i] = i
-	}
-	slices.SortFunc(order, func(a, b int) int {
-		return strings.Compare(n.Fields[a].String, n.Fields[b].String)
-	})
-	fields := make([]*ir.Node, len(order))
-	values := make([]*ir.Node, len(order))
-	for i, j := range order {
-		fields[i], values[i] = n.Fields[j], n.Values[j]
-		fields[i].ParentIndex, values[i].ParentIndex = i, i
-	}
-	n.Fields, n.Values = fields, values
+	ir.SortFields(n)
 }
 
 // allBlank reports whether toks contains only indent tokens, i.e. the input is

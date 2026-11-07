@@ -26,6 +26,7 @@ func TestSortKeys(t *testing.T) {
 		{"comments move with values", "b: 1 # by b\n# on a\na: 2 # by a\n# after\n",
 			"# on a\na: 2 # by a\nb: 1 # by b\n# after\n", []ParseOption{ParseComments(true)}},
 		{"json", `{"b": 1, "a": 2}`, `{"a": 2, "b": 1}`, []ParseOption{ParseJSON()}},
+		{"already sorted", "a: 1\nb: {c: 1, d: 2}\n", "a: 1\nb: {c: 1, d: 2}\n", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			n, err := Parse([]byte(tc.src), append(tc.opts, SortKeys())...)

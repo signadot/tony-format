@@ -261,6 +261,35 @@ func FromKeyValsAt(res *Node, kvs []KeyVal) *Node {
 	return res
 }
 
+// SortFields puts a string-keyed object's fields in byte order of the key, the
+// order [FromMap] gives, and leaves every other node as it is: an object with a
+// field that is not a string -- a merge key, an int key -- keeps its order. The
+// key and value nodes are moved, not rebuilt, and on return each names its place
+// in n (Parent, ParentIndex, ParentField) whether or not anything moved.
+func SortFields(n *Node) {
+	if n.Type != ObjectType {
+		return
+	}
+	for _, f := range n.Fields {
+		if f.Type != StringType {
+			return
+		}
+	}
+	if slices.IsSortedFunc(n.Fields, func(a, b *Node) int { return strings.Compare(a.String, b.String) }) {
+		for i, f := range n.Fields {
+			f.Parent, f.ParentIndex, f.ParentField = n, i, f.String
+			n.Values[i].Parent, n.Values[i].ParentIndex, n.Values[i].ParentField = n, i, f.String
+		}
+		return
+	}
+	kvs := make([]KeyVal, len(n.Fields))
+	for i := range kvs {
+		kvs[i] = KeyVal{Key: n.Fields[i], Val: n.Values[i]}
+	}
+	slices.SortFunc(kvs, func(a, b KeyVal) int { return strings.Compare(a.Key.String, b.Key.String) })
+	FromKeyValsAt(n, kvs)
+}
+
 func FromSlice(ySlice []*Node) *Node {
 	res := &Node{
 		Type: ArrayType,

@@ -2,7 +2,6 @@ package tx
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/signadot/tony-format/go-tony/ir"
@@ -290,14 +289,11 @@ func lowerKeyedArray(schema *api.Schema, n *ir.Node, op, at string, identity []s
 			fields = append(fields, ir.FromString(name.Field()))
 			values = append(values, elem)
 		}
-		sortByName(fields, values)
 		n.Type = ir.ObjectType
 		n.Fields = fields
 		n.Values = values
 		n.Tag = ir.TagRemove(ir.StripPresentation(n.Tag), ir.KeyTag)
-		for i, v := range n.Values {
-			v.Parent, v.ParentIndex = n, i
-		}
+		ir.SortFields(n)
 		return nil
 	case ir.ObjectType:
 		for i, field := range n.Fields {
@@ -366,21 +362,6 @@ func stampElement(elem *ir.Node, name ident.Name) error {
 		return fmt.Errorf("the element named %s must be an object, and this write makes it %s", name, e.Type)
 	}
 	return name.Stamp(e)
-}
-
-func sortByName(fields, values []*ir.Node) {
-	idx := make([]int, len(fields))
-	for i := range idx {
-		idx[i] = i
-	}
-	slices.SortFunc(idx, func(a, b int) int { return strings.Compare(fields[a].String, fields[b].String) })
-	f2 := make([]*ir.Node, len(fields))
-	v2 := make([]*ir.Node, len(values))
-	for i, j := range idx {
-		f2[i], v2[i] = fields[j], values[j]
-	}
-	copy(fields, f2)
-	copy(values, v2)
 }
 
 // opOf is the merge operation a node carries, or "" for none. Labels that are not
