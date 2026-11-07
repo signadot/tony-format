@@ -70,7 +70,19 @@ func answerDocument(res *ir.Node, pOpts *parseOpts) (*ir.Node, error) {
 	if res.Type == ir.CommentType && len(res.Values) == 0 {
 		return nil, nil
 	}
+	if pOpts.sortKeys {
+		sortKeys(res)
+	}
 	return res, nil
+}
+
+// sortKeys applies [ir.SortFields] to every object under n, n included, for
+// [SortKeys].
+func sortKeys(n *ir.Node) {
+	for _, v := range n.Values {
+		sortKeys(v)
+	}
+	ir.SortFields(n)
 }
 
 // allBlank reports whether toks contains only indent tokens, i.e. the input is

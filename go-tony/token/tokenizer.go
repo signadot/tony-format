@@ -881,10 +881,19 @@ func (t *Tokenizer) TokenizeOne(data []byte, pos int, bufferStartOffset int64) (
 			if commentStart < 0 {
 				commentStart = 0
 			}
-			// Use TLineComment if this comment follows a colon or value on the same line
+			// A comment that follows a colon or a value on the same line is a line
+			// comment. One that follows an opening bracket is not: the bracket opened a
+			// collection whose line comment follows its CLOSING bracket (docs/tony.md,
+			// Comments), so `x: { # c` is written above the next value, the same as a
+			// comment on its own line. The flags still say the line holds `x:`, which
+			// typed it as a line comment, and parseObj refused it before the first key
+			// (q87aszzwh12kstnkxxn0).
 			var tokType TokenType = TComment
 			if t.ts.kvSep || t.ts.hasValue {
 				tokType = TLineComment
+			}
+			if t.lastToken != nil && (t.lastToken.Type == TLCurl || t.lastToken.Type == TLSquare) {
+				tokType = TComment
 			}
 			tok := Token{
 				Type:  tokType,

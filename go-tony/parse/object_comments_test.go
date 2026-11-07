@@ -43,6 +43,32 @@ func TestLeadingCommentInBraceObject(t *testing.T) {
 			t.Errorf("Parse(%q) (no comments) error = %v", src, err)
 		}
 	}
+
+	// A comment on the opening line, after the bracket, is the same comment as one
+	// on its own line below it: a collection's line comment follows its CLOSING
+	// bracket (docs/tony.md, Comments), so this one is written above the next value.
+	// The tokenizer typed it as a line comment because `g:` was on the line, and
+	// parseObj refused it before the first key; parseArr took it and made it the
+	// first element's line comment (q87aszzwh12kstnkxxn0).
+	for _, tc := range []struct{ opening, ownLine string }{
+		{"g: {# c\n  a: 1\n}\n", "g: {\n  # c\n  a: 1\n}\n"},
+		{"g: { # c\n  a: 1\n  b: 2\n}\n", "g: {\n  # c\n  a: 1\n  b: 2\n}\n"},
+		{"g: [ # c\n  a\n  b\n]\n", "g: [\n  # c\n  a\n  b\n]\n"},
+		{"g: [{# c\n  a: 1}]\n", "g: [{\n  # c\n  a: 1}]\n"},
+	} {
+		got, err := Parse([]byte(tc.opening), ParseComments(true))
+		if err != nil {
+			t.Errorf("Parse(%q) error = %v", tc.opening, err)
+			continue
+		}
+		want, err := Parse([]byte(tc.ownLine), ParseComments(true))
+		if err != nil {
+			t.Fatalf("Parse(%q) error = %v", tc.ownLine, err)
+		}
+		if g, w := encoded(t, got), encoded(t, want); g != w {
+			t.Errorf("Parse(%q) reads as\n%s\nwant, as %q reads\n%s", tc.opening, g, tc.ownLine, w)
+		}
+	}
 }
 
 // Comments between object keys were parsed into a map that objFromKVs accepted and never
