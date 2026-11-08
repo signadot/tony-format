@@ -38,7 +38,19 @@ func TestXIDUniqueness(t *testing.T) {
 	seen := make(map[string]bool)
 	now := time.Now()
 
-	// pid characters of the XIDR (bytes 3-4 of the reversed id)
+	// The counter mix is a bijection on 24 bits, so it cannot merge two counters.
+	var hit [1 << 24 / 8]byte
+	for c := uint32(0); c < 1<<24; c++ {
+		m := mixCounter(c)
+		if m > 0xFFFFFF || hit[m/8]&(1<<(m%8)) != 0 {
+			t.Fatalf("mixCounter(%#x) = %#x collides or overflows", c, m)
+		}
+		hit[m/8] |= 1 << (m % 8)
+	}
+
+	// Characters of the XIDR that come from the counter's upper bytes and
+	// from the pid; without mixing both would be fixed across a batch.
+	counterChars := make(map[string]bool)
 	pidChars := make(map[string]bool)
 
 	// Generate many XIDs at the same timestamp
@@ -56,9 +68,13 @@ func TestXIDUniqueness(t *testing.T) {
 		if got := binary.BigEndian.Uint16(x[7:9]) ^ pidMask(ts, c); got != pid {
 			t.Fatalf("%s: unmasked pid %d, want %d", s, got, pid)
 		}
+		counterChars[x.XIDR()[2:4]] = true
 		pidChars[x.XIDR()[5:7]] = true
 	}
-	// One process's ids should not share a stem: the pid characters vary.
+	// One process's ids should not share a stem: these characters vary.
+	if len(counterChars) < 500 {
+		t.Errorf("1000 ids carry only %d distinct counter characters", len(counterChars))
+	}
 	if len(pidChars) < 500 {
 		t.Errorf("1000 ids carry only %d distinct pid characters", len(pidChars))
 	}

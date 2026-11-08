@@ -15,7 +15,7 @@ import (
 //   - 4 bytes: Unix timestamp (seconds, big-endian)
 //   - 3 bytes: machine ID
 //   - 2 bytes: process ID, masked per id (see pidMask)
-//   - 3 bytes: counter
+//   - 3 bytes: counter, mixed (see mixCounter)
 //
 // XIDR is the reversed form used for storage and display.
 // Reversing puts counter/pid/machine first, making short prefixes unique.
@@ -53,7 +53,9 @@ func init() {
 // NewXID creates an XID stamped with t. The counter advances atomically, so
 // concurrent calls within the same second still differ, and it starts from a
 // random value so two processes that begin at once do not walk the same
-// sequence. Safe for concurrent use.
+// sequence. The id carries the counter mixed and the pid masked, so that
+// consecutive ids differ in their leading XIDR characters. Safe for
+// concurrent use.
 func NewXID(t time.Time) XID {
 	var x XID
 
@@ -66,7 +68,7 @@ func NewXID(t time.Time) XID {
 	x[5] = machineID[1]
 	x[6] = machineID[2]
 
-	c := atomic.AddUint32(&counter, 1)
+	c := mixCounter(atomic.AddUint32(&counter, 1))
 
 	// PID (2 bytes, big-endian), masked so it moves from id to id
 	p := pid ^ pidMask(ts, c)
@@ -81,15 +83,36 @@ func NewXID(t time.Time) XID {
 	return x
 }
 
+// mixCounter is a bijection on the counter's 24 bits, applied before the
+// counter is placed. A raw counter steps by 1, so only its low byte moves from
+// one id to the next, and its upper bytes, which follow it in the XIDR, would
+// stay fixed for hundreds of ids; mixed, all three bytes move with each id.
+//
+// Being a bijection, it keeps uniqueness: two counters differ after mixing
+// exactly when they differed before. What it gives up is that ids one process
+// mints within a second sort in the order they were made.
+func mixCounter(c uint32) uint32 {
+	// Each step is invertible mod 2^24: an xorshift right, or a multiply by
+	// an odd constant.
+	const m = 0xFFFFFF
+	c &= m
+	c ^= c >> 12
+	c = (c * 0x9E3779) & m
+	c ^= c >> 11
+	c = (c * 0x85EBCB) & m
+	c ^= c >> 12
+	return c
+}
+
 // pidMask is what NewXID XORs into the pid bytes. A raw pid is fixed for the
-// life of a process, and in the XIDR it sits just after the counter's low
-// bytes, so every id one process mints would share a long stem; the mask
-// changes with each id, so the pid characters vary as the counter's do.
+// life of a process, and in the XIDR it sits just after the counter, so every
+// id one process mints would share a long stem; the mask changes with each
+// id, so the pid characters vary as the counter's do.
 //
 // Uniqueness is unchanged: the mask depends only on the timestamp and the
-// counter, which are themselves in the id, so for any one timestamp and
-// counter, XOR by the mask maps distinct pids to distinct bytes. Two ids that
-// differ without the mask differ with it.
+// stored (mixed) counter, which are themselves in the id, so for any one
+// timestamp and counter, XOR by the mask maps distinct pids to distinct bytes.
+// Two ids that differ without the mask differ with it.
 func pidMask(ts, c uint32) uint16 {
 	// splitmix64 finalizer over the timestamp and the counter bytes the id keeps.
 	z := uint64(ts)<<32 | uint64(c&0xFFFFFF)
