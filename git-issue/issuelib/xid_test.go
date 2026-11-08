@@ -42,8 +42,8 @@ func TestXIDUniqueness(t *testing.T) {
 	var hit [1 << 24 / 8]byte
 	for c := uint32(0); c < 1<<24; c++ {
 		m := mixCounter(c)
-		if m > 0xFFFFFF || hit[m/8]&(1<<(m%8)) != 0 {
-			t.Fatalf("mixCounter(%#x) = %#x collides or overflows", c, m)
+		if hit[m/8]&(1<<(m%8)) != 0 {
+			t.Fatalf("mixCounter(%#x) = %#x collides", c, m)
 		}
 		hit[m/8] |= 1 << (m % 8)
 	}

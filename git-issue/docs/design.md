@@ -144,7 +144,10 @@ An XID is 12 bytes — timestamp, machine, process, counter — so it needs no
 coordination. An XIDR is those bytes reversed, and the reversal is the point:
 counter and machine bytes come first, so the three or four characters a person
 types are already the part that varies. Unreversed, every issue filed in the same
-second shares its leading characters and no short prefix resolves.
+second shares its leading characters and no short prefix resolves. The counter
+and process bytes are scrambled per id (a bijection on the counter, a hash mask
+on the pid), so that a long-running process's ids do not all share a stem after
+their first two characters; `docs/storage.md` has the detail.
 
 Prefix lookup is therefore the normal way to name an issue, and an ambiguous
 prefix is an error rather than a guess.

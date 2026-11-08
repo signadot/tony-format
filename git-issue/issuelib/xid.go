@@ -89,11 +89,14 @@ func NewXID(t time.Time) XID {
 // stay fixed for hundreds of ids; mixed, all three bytes move with each id.
 //
 // Being a bijection, it keeps uniqueness: two counters differ after mixing
-// exactly when they differed before. What it gives up is that ids one process
-// mints within a second sort in the order they were made.
+// exactly when they differed before. What it gives up: ids one process mints
+// within a second no longer sort in the order they were made, and two of its
+// consecutive ids, which a stepping counter kept apart in their first
+// characters, can now share a short prefix as ids from different processes
+// always could.
 func mixCounter(c uint32) uint32 {
 	// Each step is invertible mod 2^24: an xorshift right, or a multiply by
-	// an odd constant.
+	// an odd constant. Every step keeps c within 24 bits.
 	const m = 0xFFFFFF
 	c &= m
 	c ^= c >> 12
@@ -112,10 +115,11 @@ func mixCounter(c uint32) uint32 {
 // Uniqueness is unchanged: the mask depends only on the timestamp and the
 // stored (mixed) counter, which are themselves in the id, so for any one
 // timestamp and counter, XOR by the mask maps distinct pids to distinct bytes.
-// Two ids that differ without the mask differ with it.
+// Two ids that differ without the mask differ with it. c is the counter as
+// stored, mixCounter's 24-bit result, not the raw counter.
 func pidMask(ts, c uint32) uint16 {
 	// splitmix64 finalizer over the timestamp and the counter bytes the id keeps.
-	z := uint64(ts)<<32 | uint64(c&0xFFFFFF)
+	z := uint64(ts)<<32 | uint64(c)
 	z ^= z >> 30
 	z *= 0xbf58476d1ce4e5b9
 	z ^= z >> 27

@@ -87,7 +87,12 @@ An XID is 12 bytes: timestamp, machine, process, counter. An XIDR is the same
 bytes reversed. Reversal is the whole trick: it puts the counter and machine
 first, so the three or four characters someone actually types are already the
 part that varies. Unreversed, every issue filed in the same second would share
-its opening characters and no short prefix would resolve.
+its opening characters and no short prefix would resolve. The process and
+counter bytes are not stored raw: the counter is passed through a bijection and
+the process id is masked by a hash of the timestamp and counter, so the ids one
+process mints differ throughout their first eight characters rather than only
+in the first two. Uniqueness is the same either way; what the scrambling costs
+is that ids are not sortable by creation order, which nothing reads.
 
 Ids are minted locally with no coordination -- two people filing issues offline
 cannot collide -- and are stable for the life of the issue, including across
