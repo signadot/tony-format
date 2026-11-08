@@ -14,7 +14,7 @@ import (
 // Structure:
 //   - 4 bytes: Unix timestamp (seconds, big-endian)
 //   - 3 bytes: machine ID
-//   - 2 bytes: process ID
+//   - 2 bytes: process ID, masked per id (see pidMask)
 //   - 3 bytes: counter
 //
 // XIDR is the reversed form used for storage and display.
@@ -66,17 +66,39 @@ func NewXID(t time.Time) XID {
 	x[5] = machineID[1]
 	x[6] = machineID[2]
 
-	// PID (2 bytes, big-endian)
-	x[7] = byte(pid >> 8)
-	x[8] = byte(pid)
+	c := atomic.AddUint32(&counter, 1)
+
+	// PID (2 bytes, big-endian), masked so it moves from id to id
+	p := pid ^ pidMask(ts, c)
+	x[7] = byte(p >> 8)
+	x[8] = byte(p)
 
 	// Counter (3 bytes, big-endian)
-	c := atomic.AddUint32(&counter, 1)
 	x[9] = byte(c >> 16)
 	x[10] = byte(c >> 8)
 	x[11] = byte(c)
 
 	return x
+}
+
+// pidMask is what NewXID XORs into the pid bytes. A raw pid is fixed for the
+// life of a process, and in the XIDR it sits just after the counter's low
+// bytes, so every id one process mints would share a long stem; the mask
+// changes with each id, so the pid characters vary as the counter's do.
+//
+// Uniqueness is unchanged: the mask depends only on the timestamp and the
+// counter, which are themselves in the id, so for any one timestamp and
+// counter, XOR by the mask maps distinct pids to distinct bytes. Two ids that
+// differ without the mask differ with it.
+func pidMask(ts, c uint32) uint16 {
+	// splitmix64 finalizer over the timestamp and the counter bytes the id keeps.
+	z := uint64(ts)<<32 | uint64(c&0xFFFFFF)
+	z ^= z >> 30
+	z *= 0xbf58476d1ce4e5b9
+	z ^= z >> 27
+	z *= 0x94d049bb133111eb
+	z ^= z >> 31
+	return uint16(z)
 }
 
 // String returns the base32-encoded XID (20 characters).

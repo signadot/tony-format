@@ -1,6 +1,7 @@
 package issuelib
 
 import (
+	"encoding/binary"
 	"testing"
 	"time"
 )
@@ -37,6 +38,9 @@ func TestXIDUniqueness(t *testing.T) {
 	seen := make(map[string]bool)
 	now := time.Now()
 
+	// pid characters of the XIDR (bytes 3-4 of the reversed id)
+	pidChars := make(map[string]bool)
+
 	// Generate many XIDs at the same timestamp
 	for i := 0; i < 1000; i++ {
 		x := NewXID(now)
@@ -45,6 +49,18 @@ func TestXIDUniqueness(t *testing.T) {
 			t.Fatalf("duplicate XID generated: %s", s)
 		}
 		seen[s] = true
+
+		// The mask is a function of fields the id keeps, so the pid comes back out.
+		ts := binary.BigEndian.Uint32(x[0:4])
+		c := uint32(x[9])<<16 | uint32(x[10])<<8 | uint32(x[11])
+		if got := binary.BigEndian.Uint16(x[7:9]) ^ pidMask(ts, c); got != pid {
+			t.Fatalf("%s: unmasked pid %d, want %d", s, got, pid)
+		}
+		pidChars[x.XIDR()[5:7]] = true
+	}
+	// One process's ids should not share a stem: the pid characters vary.
+	if len(pidChars) < 500 {
+		t.Errorf("1000 ids carry only %d distinct pid characters", len(pidChars))
 	}
 }
 
