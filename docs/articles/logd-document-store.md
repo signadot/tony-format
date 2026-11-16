@@ -57,8 +57,8 @@ nearest entry at or before the path and decodes forward, touching a chunk.
 
 ### The log index
 
-That answers where a path is in a file. A second answers which writes since the snapshot
-can affect a subtree: a trie over the document's structure holding `(path, commit range,
+That answers where a path is in a file. A second index answers which writes since the
+snapshot can affect a subtree: a trie over the document's structure holding `(path, commit range,
 log file, offset)`. A patch is indexed at every path on the way to what it writes, marked
 **Spine** (passed through) or **Statement** (said something here). A read below a spine
 path is unaffected by it — which is what lets a read at `verse.entities.e1` skip every
@@ -69,8 +69,10 @@ the resident trie an LRU cache of it, under one invariant:
 
 > EVICTION CHANGES A COST, NEVER AN ANSWER.
 
-Not tidiness: one commit was measured at 5.8 seconds in its index phase because
-compaction walked the trie holding the root's read lock while writes landed.
+Writers share the trie, so how it is walked matters as much as what it holds: one commit
+was measured at 5.8 seconds in its index phase because compaction walked the whole trie
+holding the root's read lock while writes landed. A walk now locks one node at a time, and
+compaction no longer walks the index at all (section 4).
 
 ---
 
@@ -80,13 +82,14 @@ A read is three steps, each bounded:
 
 ```
 seek     the nearest snapshot at or below the commit, opened AT the path
+         (past compaction's cutoff, the first at or after it — section 4)
 project  the writes since it that can reach the path — and no other — one record
          at a time, each cut down to what it says about the path
 fold     one streaming pass, base events with those writes applied over them
 ```
 
-Resident: the projected writes, and one record. Neither counts how much has happened
-under the path.
+What a read holds in memory is the projected writes and one record. Neither grows with
+the path's history: snapshots bound the first, and the second is one record.
 
 A collector watches the stream's position; entering a path with a patch pending, it
 materializes *that subtree only*, patches it, emits it. Everything else passes through
@@ -145,7 +148,9 @@ Compaction rewrites a log in place while readers hold offsets into it. Three pie
 that safe: a **generation** per file, bumped on compaction and recorded on every index
 segment; a **reader refcount**; and the replaced file kept **open and unlinked**, serving
 old-generation reads until that file's next compaction, which waits for readers to drain
-or for the grace period (5s). A read crossing a swap neither reads stale bytes nor fails.
+or for the grace period (5s). A read crossing a swap is served the bytes it was indexed
+against. One that outlives the *next* swap of that file and its grace period is refused
+with an error — never served stale bytes.
 
 ### Snapshots the reads ask for
 
@@ -168,8 +173,8 @@ contributed is in it.
 The schedule is logarithmic. Within a **cutoff** (default 1h) every delta is kept, so
 reads and replays are exact to the commit. Past it, history degrades to snapshot
 granularity in geometrically widening tiers — by default 8 snapshots in the first hour
-past cutoff, 8 in the next two, 8 in the next four, newest first. A `horizon` bounds the
-whole thing.
+past cutoff, 8 in the next two, 8 in the next four, each tier keeping its most recent. A
+`horizon` bounds the whole thing.
 
 The cost:
 
@@ -184,8 +189,9 @@ over-reports the loss. A spurious refusal beats silent event loss.
 
 Two sharp edges. Compaction is **off** unless configured, and runs **only** as a
 snapshot's last step — no timer, no manual trigger, so a store that stops taking writes
-never compacts. And its work list is the log's own records, not the index: walking the
-index for every segment means holding the whole store — the 5.8-second stall above.
+never compacts. And its work list is the log's own records, not the index: asking the
+index for every segment pages the whole store into memory, and that walk is the one
+behind the 5.8-second stall above.
 
 ---
 
@@ -258,7 +264,7 @@ stores the **claim**: what it holds at that path, whatever baseline does next.
 | baseline | deterministic | the difference the write made |
 | scope | base moves | the claim the write made |
 
-Load-bearing. A scope deleting a field baseline has not created yet makes no *difference*
+The distinction is load-bearing. A scope deleting a field baseline has not created yet makes no *difference*
 to state — but it makes a claim, and without storing it the scope stops shadowing that
 path the moment baseline creates the field.
 
@@ -267,16 +273,22 @@ stored scope write is absolute, so a later statement dominates what it covers, a
 index keeps per scope the statements no later one dominates. So a scoped read costs what
 the scope *holds* at a path, not its history.
 
-The cost: compaction never drops scope records, because for a scope the records *are* the
-state. A long-lived scope grows without bound. Open issue.
+Compaction treats a scope's records differently, because for a scope the records *are*
+the state: no snapshot stands in for them. A statement still live in the footprint is kept
+until the scope is deleted. Past the cutoff, an entry that later ones dominate is dropped.
+So a long-lived scope's log is bounded by what the scope holds, not by how often it
+rewrote it.
 
 ---
 
 ## How this compares
 
-etcd and Postgres are complete systems; logd is a storage engine with a session protocol
-on it — closer to putting MyISAM, without mysqld, next to Postgres. The layer that routes
-and composes across logd is **docd**: a separate post.
+etcd and Postgres are complete systems, and a managed database such as RDS is more
+complete still. logd is lower level than any of them. It is a backend: a storage engine
+with a session protocol on it, expecting a more frontend layer above. **docd**, which
+routes and composes across logd, is one such layer and a separate post. A
+document-oriented application's own frontend may fill that gap instead, and do more than
+docd does.
 
 So claims about *representation* — diffs, paths, scopes, what a watch carries, what a
 precondition costs — are engine-level. Absences belonging a layer up — a planner,
@@ -297,8 +309,9 @@ delivers one commit's delta, rooted at the watched path, ordered and gapless.
 
 **Preconditions cost what the pattern names** — shape, or named fields. Only a pattern
 over the whole value reads it, so writing one entity into a parent holding thousands is
-not charged for the thousands. etcd compares a revision or a value, and comparing ships
-it.
+not charged for the thousands. etcd's revision compare is cheap, but it guards the whole
+key: it cannot say "this field is unchanged" while a sibling field changes. Its value
+compare can say more, and ships the value to say it.
 
 **Scopes have no equivalent.** Copy a keyspace to another prefix and the copy is frozen;
 baseline moves on and you maintain a merge.
@@ -320,7 +333,7 @@ and adds a configuration surface that is itself a common cause of outages. The p
 active/passive over shared storage, failover bounded by an `flock` (`git issue show
 nkn7ptxc`). What you give up is a real cluster.
 
-**Where etcd is further along.** A decade behind Kubernetes, documented limits, backup
+**Where etcd is further along.** A decade under Kubernetes, documented limits, backup
 and restore, clients everywhere. logd's own docs are blunt: young, not yet the store to
 put under a system that cannot afford one.
 
@@ -364,10 +377,9 @@ flattening documents into etcd keys, or burying them in a `jsonb` column and reb
 the document API on top.
 
 Not for: analytics, large fact tables, predicate queries over collections, and — until
-the holdover lands — anything that cannot tolerate a single writer.
+active/passive failover lands — anything that cannot tolerate a single process.
 
 ---
-
 
 ## The shape of the argument
 
