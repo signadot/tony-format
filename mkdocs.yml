@@ -55,6 +55,7 @@ exclude_docs: |
   sketchy/pygments-tony/*.egg-info/
   sketchy/pygments-tony/__pycache__/
   articles/logd-document-store.md
+  articles/logd-streaming-apply.md
 
 theme:
   name: mkdocs
