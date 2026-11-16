@@ -2,6 +2,7 @@
 blocked_by: []
 blocks: []
 branches: []
+closed_by: 65b7a1647dd6d6f64968beabd36e737bc8c037c2
 commits: []
 created: "2026-11-16T17:18:08.411044+01:00"
 duplicates: []
@@ -9,5 +10,5 @@ id: 3f8hd9fsh12ksg1czdn0
 labels:
 - docs
 related_issues: []
-status: open
-updated: "2026-11-16T17:18:08.540656+01:00"
+status: closed
+updated: "2026-11-16T17:19:47.206504+01:00"
