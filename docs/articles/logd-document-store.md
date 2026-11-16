@@ -6,27 +6,30 @@ description: "logd stores documents as indexed event streams, applies writes as 
 tags: databases, go, distributedsystems, architecture
 ---
 
-Most programs keep documents as JSON in a relational column, with the database's
-JSON-path support standing in for a document API. The row has one schema, the document
-another. A read is SQL wrapped around a path expression; a write replaces a column the
-database cannot patch; change notification, audit and undo are each a mechanism built
-*beside* the data. Every step negotiates between two models, and the negotiation is where
-the incoherency lives.
+Most programs that keep documents keep them as JSON in a relational column, with the
+database's JSON-path support standing in for a document API. That is a second model
+between the program and its data. The row has one schema and the document another. A
+read is SQL around a path expression, and a write replaces a column the database cannot
+patch. Change notification, audit and undo are each a mechanism built beside the data
+rather than a property of it. Every step negotiates between the two models, and the
+negotiation is where the incoherency lives.
 
-`logd` makes the document the unit of storage. It is the append-only commit store under
-[docd](https://signadot.github.io/tony-format/docd/), part of the
-[Tony format](https://github.com/signadot/tony-format) project. Every write is a numbered
-commit; state is folding patches over snapshots. This post is logd alone — docd, the
-layer composing a document across many owners, is its own post.
+`logd` is a store whose unit is the document. It is the append-only commit store beneath
+[docd](https://signadot.github.io/tony-format/docd/), and part of the
+[Tony format](https://github.com/signadot/tony-format) project. Every write is a
+numbered commit, and state is reconstructed by applying patches over snapshots.
 
----
+This article describes logd alone: how it represents a document, how it applies a write,
+how it keeps its log bounded, and how it compares to etcd and to JSON in a relational
+column. docd, the layer which composes one document across many owners, is the subject
+of a separate article.
 
-## 1. The indexed event representation
+## The indexed event representation
 
-Storing a document by serializing the tree works until the document is large and the
-write is small. Then every read pays for the whole thing.
+A store can keep a document by serializing its tree. That works until the document is
+large and the write is small, at which point every read pays for the whole document.
 
-logd stores **event streams**:
+logd instead stores a document as a stream of events:
 
 ```
 BeginObject
@@ -36,100 +39,126 @@ BeginObject
 EndObject
 ```
 
-Thirteen event types, including `HeadComment` and `LineComment` — comments are events,
-which is why they survive to disk. Tags ride on the values they decorate.
+There are thirteen event types. Two of them, `HeadComment` and `LineComment`, are
+comments, which is why a comment in a document survives being stored. Tags are carried
+on the values they decorate.
 
-A snapshot is one value's events plus an index into them:
+### Snapshots
+
+A snapshot is the events of one value, together with what is needed to read part of it:
 
 ```
 [ header ][ events ][ directory ][ index ]
 ```
 
-The directory is a table of children per container — each child's name, kind, and where
-its events are — written as each container closes, so a listing of a container reads its
-table rather than its events.
+The directory is a table of children for each container. It gives each child's name, its
+kind, and where its events are. A container's table is written as the container closes,
+so listing a container reads its table rather than its events.
 
-The index is `(kinded path, byte offset)` entries: root at 0, then one per ~4 KiB of
-events. **Size-bound** — it grows with bytes over chunk size, not node count — so a
-multi-gigabyte snapshot still indexes in memory. Paths are *kinded*: `.field`, `[3]`
-dense, `{3}` sparse, `(sku=A)` for a keyed element named by identity. A read seeks the
-nearest entry at or before the path and decodes forward, touching a chunk.
+The index is a list of `(kinded path, byte offset)` entries: the root at offset 0, and
+then one entry for about every 4 KiB of events. Its size therefore depends on the number
+of bytes divided by the chunk size, and not on the number of nodes, so the index of a
+multi-gigabyte snapshot still fits in memory. A read seeks to the nearest entry at or
+before its path and decodes forward from there, which touches one chunk.
+
+Paths are *kinded*, meaning that each segment says what kind of container it steps
+into:
+
+```
+.field      a field of an object
+[3]         an element of a dense array, by position
+{3}         an entry of a sparse array
+(sku=A)     an element of a keyed array, named by identity
+```
 
 ### The log index
 
-That answers where a path is in a file. A second index answers which writes since the
-snapshot can affect a subtree: a trie over the document's structure holding `(path, commit range,
-log file, offset)`. A patch is indexed at every path on the way to what it writes, marked
-**Spine** (passed through) or **Statement** (said something here). A read below a spine
-path is unaffected by it — which is what lets a read at `verse.entities.e1` skip every
-write to `e2`. A read at a path never written opens no file: the spine proves absence.
+The snapshot index answers where a path is within one file. A second index answers a
+different question: which writes since the snapshot can affect a given subtree.
 
-Millions of commits do not fit in memory, so the durable regions file is the truth and
-the resident trie an LRU cache of it, under one invariant:
+This index is a trie over the document's structure. Each node holds entries of the form
+`(path, commit range, log file, offset)`. A patch is indexed at every path on the way to
+what it writes, and each entry is marked as one of two things:
+
+- **Spine**: the patch passed through this path on its way to something deeper.
+- **Statement**: the patch said something at this path.
+
+A read below a spine path is unaffected by that entry. This is what allows a read at
+`verse.entities.e1` to skip every write to `verse.entities.e2`. A read at a path that
+was never written opens no file at all, because the spine is enough to show that nothing
+is there.
+
+Millions of commits do not fit in memory. The durable regions file is therefore the
+truth, and the trie in memory is an LRU cache of it. The cache operates under one
+invariant:
 
 > EVICTION CHANGES A COST, NEVER AN ANSWER.
 
-Writers share the trie, so how it is walked matters as much as what it holds: one commit
-was measured at 5.8 seconds in its index phase because compaction walked the whole trie
-holding the root's read lock while writes landed. A walk now locks one node at a time, and
-compaction no longer walks the index at all (section 4).
+Writers share the trie with readers, so how the trie is walked matters as much as what
+it holds. In one measurement a single commit spent 5.8 seconds in its index phase,
+because compaction was walking the whole trie while holding the root's read lock, and
+writes were landing at the same time. A walk now locks one node at a time, and
+compaction no longer walks the index at all (see [Compaction](#compaction)).
 
----
+## Streaming diff application
 
-## 2. Streaming diff application
-
-A read is three steps, each bounded:
+A read has three steps, and each is bounded:
 
 ```
 seek     the nearest snapshot at or below the commit, opened AT the path
-         (past compaction's cutoff, the first at or after it — section 4)
-project  the writes since it that can reach the path — and no other — one record
+         (beyond compaction's cutoff, the first at or after it)
+project  the writes since it that can reach the path, and no others, one record
          at a time, each cut down to what it says about the path
-fold     one streaming pass, base events with those writes applied over them
+fold     one streaming pass: the base events, with those writes applied over them
 ```
 
 What a read holds in memory is the projected writes and one record. Neither grows with
-the path's history: snapshots bound the first, and the second is one record.
+the history of the path: snapshots bound the first, and the second is a single record.
 
-A collector watches the stream's position; entering a path with a patch pending, it
-materializes *that subtree only*, patches it, emits it. Everything else passes through
-event by event. A one-field change to a 100 MB document materializes the field's parent.
+The fold works as follows. A collector watches the position of the stream. When the
+stream enters a path which has a patch pending, the collector materializes that subtree
+only, patches it, and emits the result. Everything else passes through one event at a
+time. For example, a change to one field of a 100 MB document materializes the parent of
+that field and nothing more.
 
-The same fold serves a read, the next snapshot's construction, and the watch consumer
-applying deltas. Three appliers that disagree is a class of bug.
+The same fold serves three purposes: a read, the construction of the next snapshot, and
+a watch consumer applying deltas. This is deliberate. Three appliers which disagree with
+one another are a class of bug, and one fold cannot disagree with itself.
 
 ### What the log may keep
 
-A log replays, so **a delta the store cannot apply is not a failed write — it is a
-permanent one.** Every later read meets it, including reads of documents it never
-touched, since all replay through the same log; no later patch repairs it, because the
-read dies on the way past. So every patch is applied before it is stored:
+logd is a log, and a log is replayed. For this reason a delta which the store cannot
+apply is not a failed write. It is a permanent one. Every later read meets it again,
+including reads of documents the write never touched, since all reads replay through
+the same log. No later patch repairs it either, because the read fails on its way past
+the bad record.
+
+So every patch is applied before it is stored, to the state it would be stored against:
 
 ```tony
-v: !arraydiff {0: 99}                 # on [1, 2] — applies, and always will
-v: !arraydiff {5: 99}                 # on [1, 2] — refused, invalid_diff
+v: !arraydiff {0: 99}                 # on [1, 2]: applies, and always will
+v: !arraydiff {5: 99}                 # on [1, 2]: refused, invalid_diff
 ```
 
-And what is *kept* is narrower than what may be written: only operations stating what the
-value **is**. One whose meaning depends on what it lands on is **lowered** — applied, its
-result stored in its place.
+What the log *keeps* is also narrower than what a client may *write*. The log keeps only
+operations which state what the value **is**. An operation whose meaning depends on what
+it lands on is **lowered**: it is applied, and its result is stored in its place.
 
 ```tony
 # baseline holds {s: bob}
 s: !replace {from: bob, to: rob}    # stored as  s: !insert rob
 ```
 
-Nearly free — the read lowering needs was taken anyway, to refuse patches that do not
-apply — and it buys total replay: a stored delta re-applied to a moved base gives what it
-gave at the write, forever.
+Lowering costs very little. It needs a read of the state, and that read was already
+being taken in order to refuse patches which do not apply. In return, replay is total: a
+stored delta re-applied to a base that has moved gives what it gave at the write.
 
----
+## The A/B log files
 
-## 3. The A/B log files
-
-Two files. One **active**, taking appends; one **inactive**, quiet enough to rewrite.
-Both durable — not scratch-and-rotate. They alternate, and each round the quiet one gets
-a snapshot and a pruning:
+logd keeps two log files. At any time one is **active** and takes appends, and the other
+is **inactive**, which makes it quiet enough to rewrite. Both are durable; neither is
+scratch space. The two alternate, and on each round the quiet one receives a snapshot
+and is then compacted:
 
 ```
 a commit lands
@@ -139,69 +168,92 @@ a commit lands
         → that log compacted
 ```
 
-The snapshot is the part-2 fold: previous snapshot's events, project the writes since,
-fold, write into the log through a builder that indexes as bytes go by. The document is
-never materialized — not to read, not to snapshot. Snapshots live inside the log files as
-blobs behind a magic no record length can take.
+The snapshot is built by the fold described above. logd takes the events of the previous
+snapshot, projects the writes since, folds them, and writes the result into the log
+through a builder which indexes the bytes as they go by. The document is never
+materialized, either to read it or to snapshot it. Snapshots live inside the log files
+as blobs, behind a magic value which no record length can take.
 
-Compaction rewrites a log in place while readers hold offsets into it. Three pieces make
-that safe: a **generation** per file, bumped on compaction and recorded on every index
-segment; a **reader refcount**; and the replaced file kept **open and unlinked**, serving
-old-generation reads until that file's next compaction, which waits for readers to drain
-or for the grace period (5s). A read crossing a swap is served the bytes it was indexed
-against. One that outlives the *next* swap of that file and its grace period is refused
-with an error — never served stale bytes.
+### Rewriting a file that is being read
 
-### Snapshots the reads ask for
+Compaction rewrites a log file in place, while readers hold offsets into it. Three
+pieces make this safe:
 
-The root snapshot's cadence is the whole document's, which is wrong for a hot subtree. So
-**per-path** snapshots too, scheduled by reads: a read folding more records at a path
-than the policy prices its subtree at schedules one there, and the next read folds from
-it. The default is a *rate* — 64 records per 1 MiB of subtree — not a ceiling. Reads
-measure the tail for free, and a path nobody reads costs nothing.
+- a **generation** for each file, which is incremented by a compaction and recorded on
+  every index segment;
+- a **reader refcount** for each file;
+- the replaced file itself, which is kept **open and unlinked** and serves reads at the
+  old generation.
 
----
+The replaced file is closed by the next compaction of the same file, which first waits
+for its readers to finish or for a grace period (5s by default) to pass.
 
-## 4. Compaction
+A read which crosses a swap is therefore served the bytes it was indexed against. A read
+which outlives the *next* swap of that file, and its grace period, is refused with an
+error. In no case is a read served stale bytes.
+
+### Snapshots that reads ask for
+
+The root snapshot is taken at a cadence which belongs to the whole document, and that
+cadence is wrong for a subtree which is written often. logd therefore also takes
+snapshots of individual paths, and these are scheduled by reads.
+
+A read schedules a snapshot at its path when it folded more records there than the
+policy prices a subtree of that size at. The next read at the path folds from the new
+snapshot. The default is a *rate* and not a ceiling: 64 records for each 1 MiB of
+subtree. A read measures the length of what it folded at no extra cost, and a path that
+nobody reads costs nothing.
+
+## Compaction
+
+An append-only log does not have to be unbounded. Compaction is what bounds it, and it
+operates under one rule:
 
 > Compaction removes the account of **how** the state got there. Never the state.
 
-The switch writes a full snapshot at the switch commit immediately before compacting.
-Moments old, always inside the window, always survives; everything the dropped records
-contributed is in it.
+Immediately before a log is compacted, the switch writes a full snapshot of the state at
+the switch commit. That snapshot is moments old, so it always falls inside the retention
+window and always survives. Everything that the removed records contributed is in it.
 
-The schedule is logarithmic. Within a **cutoff** (default 1h) every delta is kept, so
-reads and replays are exact to the commit. Past it, history degrades to snapshot
-granularity in geometrically widening tiers — by default 8 snapshots in the first hour
-past cutoff, 8 in the next two, 8 in the next four, each tier keeping its most recent. A
-`horizon` bounds the whole thing.
+### The schedule
 
-The cost:
+The schedule is logarithmic. Within a **cutoff** (1h by default), every delta is kept,
+so reads and replays in that window are exact to the commit. Beyond the cutoff, history
+degrades to the granularity of snapshots, which are kept in tiers that widen
+geometrically. With the defaults, 8 snapshots are kept from the first hour beyond the
+cutoff, 8 from the next two hours, and 8 from the next four. Each tier keeps its most
+recent snapshots. An optional `horizon` sets how far back any history survives at all.
 
-- **current** state is exact, always, at any setting;
-- a **historical** commit below the cutoff is approximate — it lands on the first
-  surviving snapshot at or after it;
-- a watch resuming below retained history is refused `replay_compacted`, not served a
-  gap.
+### What it costs
 
-The replay floor is raised *before* anything is dropped, so a crash between the two
-over-reports the loss. A spurious refusal beats silent event loss.
+- Reading the **current** state is exact, always, at any setting.
+- Reading a **historical** commit beyond the cutoff is approximate. The read is answered
+  at the first surviving snapshot at or after that commit.
+- A watch which resumes from below the retained history is refused with
+  `replay_compacted`, rather than being served a gap.
 
-Two sharp edges. Compaction is **off** unless configured, and runs **only** as a
-snapshot's last step — no timer, no manual trigger, so a store that stops taking writes
-never compacts. And its work list is the log's own records, not the index: asking the
-index for every segment pages the whole store into memory, and that walk is the one
-behind the 5.8-second stall above.
+The replay floor is raised *before* any record is dropped. A crash between the two steps
+therefore over-reports what was lost. This ordering is chosen because a spurious refusal
+is preferable to the silent loss of events.
 
----
+### Two things to know before relying on it
 
-## 5. Retention
+First, compaction is **off** unless the configuration asks for it. It also runs only as
+the last step of taking a snapshot. There is no timer and no way to run it by hand, so a
+store which stops taking writes never compacts.
 
-Compaction does not help with log-like data — jobs, runs, events. A record nobody deletes
-is *state*.
+Second, the work list of a compaction is the log's own records, and not the index.
+Asking the index for every segment it holds pages the whole store into memory, and that
+walk is the one behind the 5.8 second stall described under
+[The log index](#the-log-index).
 
-The decision I like best here: **retention is a request, and the request is a write.**
-logd holds no policy and no clock. The caller carries both.
+## Retention
+
+Compaction does not help with data that is log-like, such as jobs, runs and events. A
+record which nobody deletes is *state*, and compaction never removes state.
+
+In logd, retention is a request, and the request is a write. logd holds no retention
+policy and no clock for one. The caller carries both:
 
 ```tony
 {retain: {
@@ -214,32 +266,48 @@ logd holds no policy and no clock. The caller carries both.
 }}
 ```
 
-logd reads the container, finds items older than the rule allows, and commits an
-**ordinary delete**. Everything true of a client's delete holds: watchers see deltas with
-an author, the schema can refuse one, a read at an older commit still shows the record,
-each batch carries a precondition on what the pass read. The commit *is* the record that
-it ran, and a pass given an explicit `now` is reproducible from the log.
+logd reads the container, finds the items which are older than the rule allows, and
+commits an **ordinary delete** for them. Everything that is true of a client's delete is
+true of these:
 
-Age comes from the record, not the store, because once compaction drops a delta past the
-cutoff the index no longer knows when it was written — and with a one-hour cutoff and a
-one-year limit those are exactly the records a rule is for.
+- watchers see them as deltas, carrying an author;
+- the schema still applies, and can refuse one;
+- a read at an older commit still shows the records;
+- each batch carries a precondition on what the pass read.
 
-A rule's last segment is `.*`, `{*}` or `(*)`. Dense `[*]` is refused: an index names a
-position, and a concurrent insert lands the expiry on a neighbour.
+The commit is itself the record that the pass ran, and a pass which was given an
+explicit `now` is reproducible from the log.
 
-Retention does not free disk alone — older snapshots still carry the record. Pair it with
+### Why age comes from the record
+
+A rule reads the age of an item from a timestamp in the item, rather than asking the
+store how old the item is. The store cannot answer that question. Once compaction drops
+a record's delta beyond the cutoff, the index no longer knows when the record was
+written. With a cutoff of one hour and a limit of one year, those are exactly the
+records a rule exists for.
+
+### What a rule may name
+
+The last segment of a rule's path is `.*`, `{*}` or `(*)`. A dense array, `[*]`, is
+refused. An index names a position and not an element, so a concurrent insert before
+that position would land the expiry on a neighbour.
+
+### Disk
+
+Retention does not free disk on its own, because older snapshots still carry the deleted
+record. To have the record leave the disk as well, pair retention with
 `compaction.horizon`.
 
----
+## Copy-on-write scopes
 
-## 6. Copy-on-write scopes
+A **scope** is an isolated layer over the shared baseline. A session selects one in its
+handshake. From then on its reads see baseline with the scope's own writes applied last,
+and its writes land in the scope, where they are invisible to baseline and to every
+other scope.
 
-A **scope** is an isolated layer over the shared baseline. A session picks one at
-handshake; reads then see baseline with the scope's writes last, and writes land in the
-scope, invisible to baseline and to every other scope.
-
-What matters is what a scope is *not*. Not a branch, not a snapshot. Baseline keeps
-moving underneath, and the scope keeps seeing it — except where it has written:
+A scope is not a branch, and it is not a snapshot. Baseline keeps moving underneath it,
+and the scope keeps seeing those changes, except where the scope has written something
+itself:
 
 ```tony
 # baseline holds {a: {x: 1, y: 2}}
@@ -250,159 +318,215 @@ baseline reads  {a: {x: 99, y: 7}}
 the scope reads {a: {x: 5,  y: 7}}
 ```
 
-The scope keeps its `x` and picks up baseline's new `y`. A scope's write shadows *later*
-baseline writes at that path, and only there — which is what makes it useful for trying a
-change against a store other clients are still writing to: the shape of a development
-sandbox over a shared environment.
+The scope keeps its own `x` and picks up baseline's new `y`. A scope's write shadows
+*later* baseline writes at that path, and only at that path. This is what makes a scope
+useful for trying a change against a store that other clients are still writing to. It
+has the shape of a development sandbox over a shared environment.
 
-Hence a scope stores something different. A baseline delta replays against a base that
-never moves, so the **difference** is sound to store. A scope's base moves, so a scope
-stores the **claim**: what it holds at that path, whatever baseline does next.
+### What a scope stores
+
+Because of this, a scope stores something different from what baseline stores. A
+baseline delta is replayed against a base which never moves, so it is sound to store the
+**difference** the write made. A scope's base does move, so a scope stores the
+**claim**: what the scope holds at that path, whatever baseline does next.
 
 |  | replay | what is stored |
 |---|---|---|
 | baseline | deterministic | the difference the write made |
 | scope | base moves | the claim the write made |
 
-The distinction is load-bearing. A scope deleting a field baseline has not created yet makes no *difference*
-to state — but it makes a claim, and without storing it the scope stops shadowing that
-path the moment baseline creates the field.
+The distinction is load-bearing. Consider a scope which deletes a field that baseline
+has not created yet. The delete makes no *difference* to the state, but it does make a
+claim. If the claim were not stored, the scope would stop shadowing that path at the
+moment baseline created the field.
 
-A scoped read folds the scope's patches over baseline, bounded by the **footprint**: a
-stored scope write is absolute, so a later statement dominates what it covers, and the
-index keeps per scope the statements no later one dominates. So a scoped read costs what
-the scope *holds* at a path, not its history.
+### What a scoped read costs
 
-Compaction treats a scope's records differently, because for a scope the records *are*
-the state: no snapshot stands in for them. A statement still live in the footprint is kept
-until the scope is deleted. Past the cutoff, an entry that later ones dominate is dropped.
-So a long-lived scope's log is bounded by what the scope holds, not by how often it
-rewrote it.
+A scoped read folds the scope's patches over baseline. The fold is bounded by the
+scope's **footprint**, which is the set of statements in the scope that no later
+statement dominates. A stored scope write is absolute, so a later statement dominates
+whatever it covers, and the index keeps the footprint for each scope as writes arrive.
+A scoped read therefore costs what the scope *holds* at a path, and not the scope's
+history there.
 
----
+### Scopes and compaction
 
-## How this compares
+Compaction treats a scope's records differently from baseline's, because for a scope the
+records *are* the state. No snapshot stands in for them. A statement which is still live
+in the footprint is kept until the scope is deleted. Beyond the cutoff, an entry that
+later entries dominate is dropped. The log of a long-lived scope is therefore bounded by
+what the scope holds, and not by how often the scope rewrote it.
+
+## Comparison to etcd and Postgres
 
 etcd and Postgres are complete systems, and a managed database such as RDS is more
 complete still. logd is lower level than any of them. It is a backend: a storage engine
-with a session protocol on it, expecting a more frontend layer above. **docd**, which
-routes and composes across logd, is one such layer and a separate post. A
-document-oriented application's own frontend may fill that gap instead, and do more than
-docd does.
+with a session protocol on it, which expects a more frontend layer above it. **docd**,
+which routes and composes across logd, is one such layer. A document-oriented
+application's own frontend may fill that gap instead, and may do more than docd does.
 
-So claims about *representation* — diffs, paths, scopes, what a watch carries, what a
-precondition costs — are engine-level. Absences belonging a layer up — a planner,
-composition across owners, cluster membership — are scope, not verdict.
+The comparisons below should be read with that in mind. Claims about *representation*
+are claims about the engine: diffs, paths, scopes, what a watch carries, and what a
+precondition costs. Things which belong a layer up, such as a query planner, composition
+across owners, or cluster membership, are outside logd's scope. Their absence is not a
+judgement of them.
 
-### vs. etcd
+### Comparison to etcd
 
-Flat keyspace, opaque values, MVCC by revision, raft.
+etcd provides a flat keyspace of opaque values, with MVCC by revision, replicated by
+raft.
 
-**The value is not opaque.** Changing one field of a nested document in etcd is
-read-modify-write of the whole thing. The workaround is exploding the document into a key
-prefix — trading atomicity, ordering and schema for granularity, then rebuilding the
-document in every client.
+#### Values
 
-**Watches deliver diffs.** An etcd `PUT` carries the new value in full: flip one field of
-a 100 KB document and every watcher gets 100 KB, then diffs it itself. A logd watch
-delivers one commit's delta, rooted at the watched path, ordered and gapless.
+In etcd a value is opaque. Changing one field of a nested document is a read, a
+modification, and a write of the whole value. The usual workaround is to explode the
+document into keys under a prefix. That trades atomicity, ordering and schema for
+granularity, and every client must then rebuild the document. In logd the value is a
+document, and a write is a patch to it.
 
-**Preconditions cost what the pattern names** — shape, or named fields. Only a pattern
-over the whole value reads it, so writing one entity into a parent holding thousands is
-not charged for the thousands. etcd's revision compare is cheap, but it guards the whole
-key: it cannot say "this field is unchanged" while a sibling field changes. Its value
-compare can say more, and ships the value to say it.
+#### Watches
 
-**Scopes have no equivalent.** Copy a keyspace to another prefix and the copy is frozen;
-baseline moves on and you maintain a merge.
+An etcd `PUT` event carries the new value in full. If one field of a 100 KB document
+changes, every watcher receives 100 KB and computes the difference itself. A logd watch
+delivers the delta of one commit, rooted at the watched path, in order and without gaps.
 
-**Secondary indexes: hand-built and atomic in both.** Couple the index write to the
-entity write as two participants of one transaction — same commit, every precondition
-checked together, all or nothing; etcd's multi-key txn gets the same. Neither has a
-planner that uses the index unasked, which is the real gap against a relational database.
+#### Preconditions
 
-**Leases are etcd's, for now.** Native expiry via keepalives is how ephemeral
-registration and leader election get built; logd lacks it (`git issue show qqq1jejg`).
-Not the same as retention, though: a TTL answers less than a rule expiring items that
-match a *pattern*, with age read from the record and policy and clock owned by the
-caller. What retention cannot express is *liveness*. Two capabilities, not one gap.
+A logd precondition costs what its pattern names: the shape of the value, or the fields
+it names. Only a pattern over the whole value reads the whole value, so writing one
+entity into a parent which holds thousands is not charged for the thousands.
 
-**HA.** etcd is raft: linearizable across nodes, correct under partition. logd is one
-process, and the direction is not raft — which floors failover at the election timeout
-and adds a configuration surface that is itself a common cause of outages. The plan is
-active/passive over shared storage, failover bounded by an `flock` (`git issue show
-nkn7ptxc`). What you give up is a real cluster.
+An etcd revision compare is cheap, but it guards the whole key. It cannot say "this
+field is unchanged" while a sibling field changes. An etcd value compare can say more,
+and ships the value in order to say it.
 
-**Where etcd is further along.** A decade under Kubernetes, documented limits, backup
-and restore, clients everywhere. logd's own docs are blunt: young, not yet the store to
-put under a system that cannot afford one.
+#### Scopes
 
-### vs. JSON in a relational column
+etcd has no equivalent of a scope. A keyspace can be copied to another prefix, but the
+copy is frozen. Baseline moves on, and the client maintains a merge.
 
-**One model instead of two** — a write is a patch, a read is a match, the schema is a
-document in the format of the data it governs.
+#### Secondary indexes
 
-**Partial writes are partial.** `jsonb_set` is server-side, but MVCC still writes a new
-tuple version, and a large TOASTed value is rewritten for a one-field change.
+Like etcd, logd leaves secondary indexes to the client, and like etcd it can keep one
+atomically. In logd the index write and the entity write are two participants of one
+transaction: they share a commit, every precondition is checked together, and either all
+of it is written or none. etcd's multi-key transaction provides the same. Neither has a
+planner which uses the index unasked, and that is the real gap between both of them and
+a relational database.
 
-**Change notification is the data's own history.** `LISTEN`/`NOTIFY` caps payloads at
-8000 bytes and is not durable: a disconnected listener missed everything, with no way to
-ask what. Triggers into an audit table, or logical decoding, are a second system to keep
-coherent with the first. logd's watch resumes `fromCommit` off the log itself, and time
-travel is a parameter rather than an audit table you design, migrate alongside your
-document schema, and query differently.
+#### Leases
 
-**Fidelity.** `jsonb` normalizes: key order lost, duplicate keys dropped, no comments to
-begin with. For config documents humans also edit, that is losing the document.
+etcd has leases and logd does not yet (`git issue show qqq1jejg`). Native expiry driven
+by keepalives is how ephemeral registration and leader election are built.
 
-**Scopes have no clean analogue.** A long-lived transaction holds locks, bloats, is
-invisible to everyone else, and cannot last days. A storage-level branch forks and
-*diverges*. A scope follows baseline everywhere it has not written.
+A lease is not the same thing as retention. A TTL says less than a retention rule, which
+expires the items matching a *pattern*, reads age from the record, and leaves policy and
+clock with the caller. What retention cannot express is *liveness*. These are two
+capabilities, and logd has one of them.
 
-**Where the database wins.** Predicate queries: a GIN index answers "every document
-containing this" across the table, planner-chosen, nothing to maintain. logd's hand-built
-index is atomic but nothing chooses it, and nothing keeps it honest if you forget a write
-path. So too joins, aggregates, constraints, PITR, replicas — none of it in logd, because
-none of it is what logd is for. And unless your whole domain is documents, logd is a
-*second* store.
+#### High availability
 
-### Where the line falls
+etcd is replicated by raft. It is linearizable across nodes and correct under partition.
 
-logd fits when the thing you store is a **document**, **watched** and **patched by
-several actors**, when history and undo should be properties rather than features built
-beside the data, and when someone needs to **try a change against it while it is still
-moving**. A read costs what the path and the delta cost, not what the store holds. That
-is most of what a control plane does — the part Kubernetes-shaped systems solve today by
-flattening documents into etcd keys, or burying them in a `jsonb` column and rebuilding
-the document API on top.
+logd is one process, and the direction for it is not raft. Raft puts a floor under
+failover at the election timeout, and it adds a configuration surface which is itself a
+common cause of outages. The plan is instead active/passive over shared storage, with
+failover bounded by an `flock` (`git issue show nkn7ptxc`). What this gives up is a real
+cluster.
 
-Not for: analytics, large fact tables, predicate queries over collections, and — until
-active/passive failover lands — anything that cannot tolerate a single process.
+#### Maturity
 
----
+etcd has spent a decade under Kubernetes. It has documented limits, backup and restore,
+and clients everywhere. logd is young. As its own documentation says, it is not yet the
+store to put under a system that cannot afford one.
 
-## The shape of the argument
+### Comparison to JSON in a relational column
 
-**Store the event stream, index the offsets.** A size-bound path index over flat events
-gives random access into arbitrarily large documents without materializing them.
+#### One model
 
-**Lower relative operations at write time.** If your log replays, store what the
-operation produced, not the operation. Costs a read you were taking anyway; makes replay
-total.
+In logd a write is a patch, a read is a match, and the schema is a document in the
+format of the data it governs. There is one model, where a JSON column has two.
 
-**Validate the delta against the state before storing it.** In an append-only log an
-unapplicable record is not a failed write but a permanent one, and it poisons reads of
-documents it never touched.
+#### Partial writes
 
-**A layer that tracks beats a layer that forks.** Copy-on-write over a moving base is
-harder than a branch, and it is what matches how people work against shared state.
+`jsonb_set` runs on the server, but MVCC still writes a new version of the tuple, and a
+large TOASTed value is rewritten for a change to one field. In logd a partial write is
+stored as a partial write.
 
-Together: history, change notification, undo, isolation and point-in-time reads are not
-features built beside the data. They are what the data is.
+#### Change notification
+
+`LISTEN`/`NOTIFY` limits a payload to 8000 bytes and is not durable. A listener which
+was disconnected has missed everything sent in the meantime, and has no means of asking
+what that was. Triggers which write to an audit table, or logical decoding, are a second
+system to keep coherent with the first.
+
+A logd watch resumes from `fromCommit` using the log itself. Reading the past is a
+parameter of a read, rather than an audit table which must be designed, migrated
+alongside the document schema, and queried differently.
+
+#### Fidelity
+
+`jsonb` normalizes what it stores. Key order is lost, duplicate keys are dropped, and
+there are no comments to begin with. For configuration documents which humans also edit,
+that amounts to losing the document.
+
+#### Scopes
+
+A relational database has no clean analogue of a scope. A long-lived transaction holds
+locks, causes bloat, is invisible to everyone else, and cannot last for days. A branch
+at the storage level forks and then *diverges*. A scope follows baseline everywhere that
+it has not written.
+
+#### Where the database is better
+
+Predicate queries are the clearest case. A GIN index answers "every document containing
+this" across a table. The planner chooses it, and nothing has to maintain it. An index
+built by hand in logd is atomic, but nothing chooses it, and nothing keeps it correct if
+one write path forgets it.
+
+The same holds for joins, aggregates, constraints, point-in-time recovery and replicas.
+logd has none of these, because none of them is what logd is for. Also, unless the whole
+of a domain is documents, logd is a *second* store beside the database.
+
+### Where logd fits
+
+logd fits when what is stored is a **document** which is **watched** and **patched by
+several actors**; when history and undo should be properties of the data rather than
+features built beside it; and when someone needs to **try a change against the store
+while it is still moving**. A read costs what its path and the delta cost, and not what
+the store holds.
+
+That describes most of what a control plane does. Today, systems shaped like Kubernetes
+solve it by flattening documents into etcd keys, or by putting them in a `jsonb` column
+and rebuilding a document API on top.
+
+logd is not for analytics, large fact tables, or predicate queries over collections.
+Until active/passive failover lands, it is also not for anything which cannot tolerate a
+single process.
+
+## Summary
+
+Four ideas carry most of the design.
+
+- **Store the event stream and index the offsets.** A path index over flat events, whose
+  size depends on bytes and not on nodes, gives random access into arbitrarily large
+  documents without materializing them.
+- **Lower relative operations when they are written.** In a log that is replayed, store
+  what an operation produced rather than the operation. This costs a read which was
+  being taken anyway, and it makes replay total.
+- **Validate a delta against the state before storing it.** In an append-only log, a
+  record which does not apply is not a failed write but a permanent one, and it breaks
+  reads of documents it never touched.
+- **Prefer a layer that tracks to a layer that forks.** Copy-on-write over a moving base
+  is harder to build than a branch, and it matches how people work against shared state.
+
+Taken together, these make history, change notification, undo, isolation and
+point-in-time reads properties of the data, rather than features built beside it.
 
 ---
 
 *logd and the Tony format are open source at
-[github.com/signadot/tony-format](https://github.com/signadot/tony-format); storage docs
-at [signadot.github.io/tony-format/logd](https://signadot.github.io/tony-format/logd/).
-Issues live in the repository — `git issue list`.*
+[github.com/signadot/tony-format](https://github.com/signadot/tony-format). The storage
+documentation is at
+[signadot.github.io/tony-format/logd](https://signadot.github.io/tony-format/logd/).
+Issues are kept in the repository itself and are listed with `git issue list`.*
