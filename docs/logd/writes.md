@@ -126,7 +126,7 @@ an operation the client wrote, so a scoped `votes[1]` write works normally.
 
 `!pipe` runs a program. A stored one runs it *again* — on every read, every replay and
 every snapshot build — so it states no value: the same commit reads two ways, and the
-store's three appliers (a full read, the stepped head, a watch's deltas) stop agreeing
+store's three appliers (a read, a snapshot build, a watch's deltas) stop agreeing
 with each other.
 
 It is refused at the write, and never applied by a read.

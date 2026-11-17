@@ -108,10 +108,11 @@ so that the claim still means what it meant however baseline moves afterwards. S
 
 A scope lives until it is deleted. `{deleteScope: {scopeId: <id>}}` removes it and all
 its data, and is accepted only from a baseline session — a session inside a scope cannot
-delete the scope it is reading through. Until then the scope's records are kept whatever
-[compaction](#compaction) would otherwise drop, because for a scope the records are the
-state: baseline snapshots do not contain them, so there is nothing coarser to fall back
-on.
+delete the scope it is reading through. Until then [compaction](#compaction) keeps every
+record of the scope that still states something, whatever its age, because for a scope
+the records are the state: baseline snapshots do not contain them, so there is nothing
+coarser to fall back on. A record that later records of the scope have wholly overwritten
+is dropped past the cutoff.
 
 docd carries scopes across its routes. A controller serves many clients over one
 connection, so the scope travels on each routed request rather than being fixed by the
