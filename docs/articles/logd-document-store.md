@@ -1,7 +1,6 @@
 ---
 title: "A document store built out of a log: events, diffs, and two files"
-published: false
-status: draft
+published: true
 description: "logd stores documents as indexed event streams, applies writes as streaming diffs, and backs snapshots with two alternating log files. How that works, and how it compares to etcd and JSON-in-a-column."
 tags: databases, go, distributedsystems, architecture
 ---
