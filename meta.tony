@@ -6,7 +6,8 @@ commits: []
 created: "2026-11-17T11:37:04.742292+01:00"
 duplicates: []
 id: 5y8rpj3hh12krm1ezhn0
-labels: []
+labels:
+- docs
 related_issues: []
 status: open
-updated: "2026-11-17T11:37:04.742292+01:00"
+updated: "2026-11-17T11:37:05.112926+01:00"
