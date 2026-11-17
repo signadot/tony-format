@@ -9,6 +9,8 @@
 docs/sketchy/pygments-tony/build/
 docs/sketchy/pygments-tony/*.egg-info/
 docs/sketchy/pygments-tony/__pycache__/
+# The build hook's bytecode, written by `mkdocs build`.
+docs/hooks/__pycache__/
 # What `npm install` and the node binding's build put here; package.json says what to install.
 docs/sketchy/editors/tree-sitter-tony/node_modules/
 docs/sketchy/editors/tree-sitter-tony/build/
